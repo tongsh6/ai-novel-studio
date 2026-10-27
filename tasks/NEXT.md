@@ -24,6 +24,7 @@
 - **作者安排｜I10 文学盲评**：P1 canonical-3e 与原生 scoped 只提供可盲评样本/工程证据；文学质量收益判定须作者指定负责人、样本与时机，AI 不代签、不以自动化分数替代。
 - **作者授权｜历史 stage 数据修复**：stage 存量（ch1/ch17）保持只读清单；任何修复需作者单独授权，先备份/diff/回滚与保留策略。见 [B28](slices/B28-whole-chapter-revision.md)。
 - **作者裁决｜B29 T2 known-gap**：「指定沈砚为主角」（两个同名沈砚）时真实模型未走 await_author、产出 old==new no-op 角色修订候选（未采纳、DB 零写入）；确定性 23/23 与 T1 全链 PASS，T2 不冒充通过。是否登记 no-op 拒绝/同名澄清硬化产品 slice 待裁决。
+- **门禁债｜后端 dialyzer 预存红项**：`mix dialyzer` 在收口 HEAD 报 39 warnings（B28/B36 前序批次、OTP 28/Elixir 1.19 下的既有债，非本轮引入；AGENTS 必需后端门禁 compile/format/test/credo/xref/arch 均绿）。逐条分类与清零计划见 [B60](slices/B60-backend-dialyzer-baseline.md)；触发=作者排期/CI 需 backend dialyzer step 绿。
 - **验收基建缺口｜native 系统级覆盖**：`tauri_slice_verify` 默认 driver 是外部 Playwright→Vite（browser-surface，`isTauri=false`），`TAURI_NATIVE_SYSTEM_DRIVER=1` allowlist 仅 B26/B28/B29/B30/B31/P1。AU11×2 与 AU07×3 因此保持 blocked；全部 B40 PASS 证据不得读作原生交互。见 [B40 §11.3](slices/B40-judgment-era-acceptance-reanchor.md)。
 - **依赖链｜AU-07 三场景**：`au07-tooltrace-registry-redacted-io`、`e2e-01-readonly-tool-trace`、`e2e-01-replay-report` 解除需 [B59](slices/B59-agent-run-step-trace-persistence.md) + native driver；不得用历史 lmstudio summary/browser 机制预验代签。
 - **产品/契约裁决候选｜`au02-candidate-fallback-ui`**：判断纪元候选帧只能由 `propose_creative_directions` 产生，坏/空候选到不了应用 fallback；应用兜底代码仍在但无当前可达生产者。触发=协议/产品裁决或真实模型产出该路径。

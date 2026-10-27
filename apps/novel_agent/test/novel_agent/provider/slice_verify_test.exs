@@ -99,10 +99,14 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
   end
 
   test "AU11 missing work state quality diagnosis asks for target chapter material" do
+    # B40 CP1 重锚：缺材料判定只读当前判断 prompt 的真实作品事实
+    # （judgment_work_facts_section/1 渲染「正文统计：N 章中已写 M 章」），
+    # 旧 AIMessageEnvelope/缺章节摘要标记已随帧纪元退役。
     prompt = [
       %{
         role: "system",
-        content: "## AIMessageEnvelope（VS-00D 质量诊断）\n- WorkState: 来源：current_work；缺章节摘要"
+        content:
+          "## 当前作品上下文\n标题：灵源纪元\n正文统计：2 章中已写 0 章\n## 章节列表\n- 第01章：灵源账单"
       },
       %{role: "user", content: "帮我看看这一章哪里不成立。"}
     ]
@@ -110,7 +114,7 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
 
     body = Jason.decode!(result.content)
-    assert body["frame_type"] == "question_answer"
+    assert body["frame_type"] == "casual_reply"
     assert body["assistant_message"] =~ "缺少当前章节摘要或正文"
     assert body["assistant_message"] =~ "不会改写正文或写入作品事实"
   end
@@ -126,7 +130,8 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
 
     body = Jason.decode!(result.content)
-    assert body["frame_type"] == "meta_discussion"
+    # B26 收窄后 meta_discussion 无生产者，协作方式讨论是普通回复。
+    assert body["frame_type"] == "casual_reply"
     assert body["dialogue_goal_summary"] == "约定创作协作流程"
     assert body["needs_tool"] == false
     assert body["candidate_directions"] == []

@@ -5772,15 +5772,6 @@ function findAgentProseDraftingWithQualityEvidence(records) {
   );
   if (!uiState) return null;
 
-  // B40 CP3：退役场景的 gate/why 作者可见断言挂到当前 allow 路径真实页面。
-  if (requestedSliceId === "agent-step-regate") {
-    if (uiState.gate_why_dialog_open !== true) return null;
-    if (uiState.gate_why_shows_tool_decision !== true) return null;
-    if (uiState.gate_why_shows_author_safe_tool_line !== true) return null;
-    if (uiState.gate_why_states_no_provider_replay !== true) return null;
-    if (uiState.gate_why_contains_raw_prompt === true) return null;
-  }
-
   const runId = String(uiState.run_id ?? "");
   const finalTurnId = String(uiState.final_turn_id ?? uiState.turn_id ?? "");
   const parentTurnId = String(uiState.parent_turn_id ?? "");
@@ -9642,6 +9633,16 @@ function ua01AgentBoundedRosterToCharacterDesignBehavior(
   if (Number(uiState.consumed_provider_calls ?? 0) !== 2) return null;
   if (requestedSliceId === "agent-event-author-safe" && uiState.agent_events_author_safe !== true) {
     return null;
+  }
+  // B40 CP3：合并退役 au07-gate-reason-why / e2e-01-downgrade 后，gate/why 的作者安全
+  // 解释断言由本场景当前 allow 路径真实页面承担——必须实际打开作者可见 why 面板并核对
+  // 工具决定/无模型召回/不泄露内部文本，而不是只声明 assertion 名称。
+  if (requestedSliceId === "agent-step-regate") {
+    if (uiState.gate_why_dialog_open !== true) return null;
+    if (uiState.gate_why_shows_tool_decision !== true) return null;
+    if (uiState.gate_why_shows_author_safe_tool_line !== true) return null;
+    if (uiState.gate_why_states_no_provider_replay !== true) return null;
+    if (uiState.gate_why_contains_raw_prompt === true) return null;
   }
 
   const eventTypes = Array.isArray(uiState.agent_event_types) ? uiState.agent_event_types : [];

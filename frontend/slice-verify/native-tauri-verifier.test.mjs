@@ -7231,11 +7231,6 @@ describe("native Tauri slice verifier", () => {
     ];
   }
 
-  function uiStateFor(sliceId) {
-    const record = rosterStepRecords(sliceId).at(-1);
-    return { ...record, event: "slice_verify.ui_state.done" };
-  }
-
   it("accepts E2E-01 readonly tool trace when the agent-run roster step is allowed and queryable by turn", () => {
     const toolTraceRef = {
       tool_name: "character_roster",

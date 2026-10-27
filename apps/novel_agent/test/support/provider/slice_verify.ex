@@ -1848,8 +1848,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp frame_type(%{character_evolution_request: true}), do: "execution_candidate"
   defp frame_type(%{slow_work_switch: true}), do: "casual_reply"
   defp frame_type(%{candidate_context_followup: true}), do: "casual_reply"
-  defp frame_type(%{quality_diagnosis: true}), do: "question_answer"
-  defp frame_type(%{meta_discussion: true}), do: "meta_discussion"
+  # B40 CP3（2026-10-27）：B26 收窄后判断协议只产 creative_exploration/capability_gap/
+  # casual_reply；质量诊断与协作方式讨论在真实主链均为普通回复（casual_reply）。
+  # 确定性替身同步当前语义，不再输出已无生产者的 question_answer/meta_discussion。
+  defp frame_type(%{quality_diagnosis: true}), do: "casual_reply"
+  defp frame_type(%{meta_discussion: true}), do: "casual_reply"
   defp frame_type(%{exploratory: true}), do: "creative_exploration"
   defp frame_type(_flags), do: "casual_reply"
 
