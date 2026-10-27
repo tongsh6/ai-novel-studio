@@ -105,8 +105,7 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     prompt = [
       %{
         role: "system",
-        content:
-          "## 当前作品上下文\n标题：灵源纪元\n正文统计：2 章中已写 0 章\n## 章节列表\n- 第01章：灵源账单"
+        content: "## 当前作品上下文\n标题：灵源纪元\n正文统计：2 章中已写 0 章\n## 章节列表\n- 第01章：灵源账单"
       },
       %{role: "user", content: "帮我看看这一章哪里不成立。"}
     ]
