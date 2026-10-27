@@ -59,3 +59,9 @@ anti_hooks:
   data_testid_required: false
   hidden_dom_metadata_required: false
   product_autorun_required: false
+
+known_not_closed:
+  - b41-cp3-honest-aggregate: E1-E13 状态由 registry/verdict/freshness/来源匹配计算；旧 summary.json 存在不等于 PASS，无 git_head 的旧证据按 stale。
+  - e4-blocked-until-b40: E4 在 B40 重锚/退役前恒为 blocked（旧 summary 存在也不写已验收）；aggregate 不 PASS。
+  - e10-no-true-page-artifact: E10 无独立真实页面 artifact，按 evidence_missing 处理（AU-07 cross-reference）；补 artifact 前 aggregate 不 PASS。
+  - aggregate_exit_codes: {pass: 0, fail: 1, evidence_missing: 67, all_blocked_no_execution: 65, all_skipped_not_run: 69, config: 66}

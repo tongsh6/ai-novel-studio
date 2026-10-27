@@ -33,8 +33,13 @@ function usage() {
       "  ids-by-tier <tier> [surface]",
       "  field <scenario-id> <field>",
       "  registry-status <scenario-id>",
+      "  tier-rows <tier> [surface]   # TSV: id\tstatus\tblocked_reason",
     ].join("\n"),
   );
+}
+
+function nonEmptyString(value) {
+  return typeof value === "string" && value.trim() !== "";
 }
 
 function splitArgs(argv) {
@@ -137,6 +142,22 @@ function main() {
         }
         const value = field === "runner" ? scenarioRunner(scenario) : scenario[field];
         console.log(value === undefined || value === null ? "" : String(value));
+        return 0;
+      }
+      case "tier-rows": {
+        const [tier, surface] = rest;
+        if (!tier) {
+          usage();
+          return 64;
+        }
+        const project = loadRegistryScenarios(root);
+        for (const scenario of project.scenarios) {
+          if (scenario.tier !== tier) continue;
+          if (surface && scenario.surface !== surface) continue;
+          const status = scenarioStatus(scenario);
+          const reason = status === "blocked" && nonEmptyString(scenario.blocked_reason) ? scenario.blocked_reason : "";
+          console.log([scenario.id, status, reason].join("\t"));
+        }
         return 0;
       }
       case "registry-status": {

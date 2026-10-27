@@ -34,6 +34,8 @@ MIX_ENV=test mix run scripts/scenario_invariants/run_i2_variation.exs
 ```bash
 bash scripts/quality_accept.sh --list
 bash scripts/quality_accept.sh --tier pr-smoke
+# 批次语义（B41 CP2）：active-only；blocked 记 skipped+reason 不中止；汇总在
+# artifacts/quality-accept/batches/<...>/batch.json；退出码 0/1/65/66/67/69。
 bash scripts/quality_accept.sh au03-context-source-ui --surface tauri
 ```
 
