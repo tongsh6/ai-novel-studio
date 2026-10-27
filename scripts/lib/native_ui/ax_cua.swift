@@ -31,6 +31,13 @@ func valueString(_ el: AXUIElement) -> String {
     if let v = attr(el, kAXValueAttribute) { return String(describing: v) }
     return ""
 }
+// 原始 AX 可见语义：控件当前是否可用（例如空输入时发送按钮 disabled）。只读公共 AX 属性，
+// 供外部驱动断言「发送不可用」，而不是靠点击副作用反推。
+func enabledOf(_ el: AXUIElement) -> Bool? {
+    if let v = attr(el, kAXEnabledAttribute) as? Bool { return v }
+    if let v = attr(el, kAXEnabledAttribute) as? NSNumber { return v.boolValue }
+    return nil
+}
 func frameOf(_ el: AXUIElement) -> (CGPoint, CGSize)? {
     guard let p = attr(el, kAXPositionAttribute), let s = attr(el, kAXSizeAttribute) else { return nil }
     var pt = CGPoint.zero; var sz = CGSize.zero
@@ -70,6 +77,7 @@ func dump(pid: pid_t, maxNodes: Int) -> [[String: Any]] {
         var names: CFArray?
         if AXUIElementCopyActionNames(el, &names) == .success, let arr = names as? [String] { actions = arr }
         node["actions"] = actions
+        if let e = enabledOf(el) { node["enabled"] = e }
         if let (pt, sz) = frameOf(el) { node["frame"] = [pt.x, pt.y, sz.width, sz.height] }
         out.append(node)
         for (i, c) in children(el).enumerated() { walk(c, depth + 1, "\(path)/\(i)") }

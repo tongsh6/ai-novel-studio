@@ -12,8 +12,8 @@
 | `build.sh` | 按需编译到 `artifacts/tools/ax_cua`（gitignore 产物；需要 Xcode command line tools 与「辅助功能」权限）。 |
 | `driver.mjs` | 高层封装：`dump/findByText/click/typeText/pressKey/screenshot/waitUntil/writeAX/Step`（Step 写 B37 分型等待账 `native-driver-commands.jsonl`）。 |
 | `workbench.mjs` | 真实工作台动作：启动应用、等待工作台、初始作品测试数据准备（`markWorkNewest`，仅隔离副本）、发送主输入、打开档案/标签、阅读模式、采集 AX+截图、`native-ui-complete.json` 收尾。 |
-| `scenario_driver.mjs` | B61 场景驱动共用运行时：启动/等窗口/真实作品菜单切换、可见输入发送、传输帧等待、「为什么」面板操作、AX+截图采集、typed wait 步骤封装、失败首因落盘。只被 `scripts/native_au11_drive.mjs`、`scripts/native_au07_drive.mjs` 使用。 |
-| `scenario_evidence.mjs` | B61 场景证据核验共用部分（只读）：ready/ui-complete/等待账/截图/provider/transport 通用断言、生产源码指纹、只读 DB 生产表计数、WS 帧落盘、summary（含 `behavior.assertions`）写法。 |
+| `scenario_driver.mjs` | B61/B62 场景驱动共用运行时：启动/等窗口/真实作品菜单切换、可见输入发送、传输帧等待、「为什么」面板操作、AX+截图采集、typed wait 步骤封装、失败首因落盘。被 `scripts/native_au11_drive.mjs`、`scripts/native_au07_drive.mjs`、`scripts/native_b40_family_drive.mjs` 使用。 |
+| `scenario_evidence.mjs` | B61/B62 场景证据核验共用部分（只读）：ready/ui-complete/等待账/截图/provider/transport 通用断言、生产源码指纹、只读 DB 生产表计数、WS 帧落盘、summary（含 `behavior.assertions`）写法。 |
 
 ## 与既有验收协议的关系
 

@@ -94,6 +94,7 @@
 | `native_p1_drive.mjs` / `native_p1_evidence.mjs` | P1 原生实模 scoped 创作旅程：创作/排版维护/真实关闭重开恢复+续写/真实目录面板导出；模型生命周期 before/after-unload、导出文件 hash、wait-ledger 全分型。 |
 | `native_au11_drive.mjs` / `native_au11_evidence.mjs` | B61 AU11×2 原生验收（AX/CGEvent 真实 Tauri 窗口）：打开工作台→发送质量诊断/缺 WorkState 用户话术→等回复可见→点「为什么」；核验 frame_type/decision_type/reply_record 覆盖/prompt 作品事实/回复字节/provider-free why/无工具无采纳无写入。 |
 | `native_au07_drive.mjs` / `native_au07_evidence.mjs` | B61 AU07×3 原生验收：发送角色阵容请求→等 AgentRun 内部只读 character_roster 步与最终回复→按 step turn_id 回查产品持久 trace（TraceRepository.list_by_turn）+ no-provider ReplayReport 六问；核验 registry snapshot/合同 refs/grant summary/redacted I/O/无生产写入。 |
+| `native_b40_family_drive.mjs` / `native_b40_family_evidence.mjs` | B62 B40 CP3 家族 6 个 tauri 场景原生验收（AX/CGEvent 真实 Tauri 窗口，按 `native-driver-ready.json` 的 `slice_id` 分流）：普通聊天两轮（au01-ordinary-chat / pr-smoke-core-reply）、空消息守卫、frame 校验友好错误、au02 自然探索候选卡、agent-step-regate（AgentRun 多步 12 门 allow + author-safe why）；证据含 AX/截图/app-log/llm-calls/等待账/只读 DB，检查项与 browser canonical 同源。 |
 | `verify_stage_process_ownership.sh` | stage/Tauri 进程 ownership 验收脚本。 |
 | `walkthrough_template.ts` | 产品体验走查脚本模板。 |
 

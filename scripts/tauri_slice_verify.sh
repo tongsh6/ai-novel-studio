@@ -373,6 +373,24 @@ is_ua01_acceptance_alias() {
   esac
 }
 
+# B62：B40 CP3 家族 6 个 tauri 场景的 native 证据核验器（scripts/native_b40_family_evidence.mjs）。
+# 判据与 browser-surface canonical driver/verifier 同源，只把驱动面换成真实 Tauri 窗口。
+is_b40_family_native_slice() {
+  case "$1" in
+    au01-ordinary-chat-two-turn-roundtrip | \
+      au01-empty-message-guard | \
+      au01-frame-validation-friendly-error | \
+      pr-smoke-core-reply | \
+      au02-natural-exploration-no-slot-form | \
+      agent-step-regate)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 if [[ -z "$SLICE_ID" || "$SLICE_ID" == "-h" || "$SLICE_ID" == "--help" ]]; then
   usage
   exit 0
@@ -440,8 +458,8 @@ case "$SLICE_VERIFY_PROVIDER" in
 esac
 
 if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
-  if [[ "$SLICE_ID" != "b26-author-question-roundtrip" && "$SLICE_ID" != "b26-business-output-roundtrip" && "$SLICE_ID" != "judgment-plan-multi-step" && "$SLICE_ID" != "b31-author-reply-run-binding" && "$SLICE_ID" != "b28-whole-chapter-revision" && "$SLICE_ID" != "b30-chapter-renumber-roundtrip" && "$SLICE_ID" != "b30-volume-blueprint-kind-boundary" && "$SLICE_ID" != "b29-existing-character-role-revision" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au11-missing-workstate-policy" && "$SLICE_ID" != "au07-tooltrace-registry-redacted-io" && "$SLICE_ID" != "e2e-01-readonly-tool-trace" && "$SLICE_ID" != "e2e-01-replay-report" ]]; then
-    echo "Native system driver is currently registered only for B26/B28/B29/B30/B31/P1/AU11/AU07 roundtrips" >&2
+  if [[ "$SLICE_ID" != "b26-author-question-roundtrip" && "$SLICE_ID" != "b26-business-output-roundtrip" && "$SLICE_ID" != "judgment-plan-multi-step" && "$SLICE_ID" != "b31-author-reply-run-binding" && "$SLICE_ID" != "b28-whole-chapter-revision" && "$SLICE_ID" != "b30-chapter-renumber-roundtrip" && "$SLICE_ID" != "b30-volume-blueprint-kind-boundary" && "$SLICE_ID" != "b29-existing-character-role-revision" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au11-missing-workstate-policy" && "$SLICE_ID" != "au07-tooltrace-registry-redacted-io" && "$SLICE_ID" != "e2e-01-readonly-tool-trace" && "$SLICE_ID" != "e2e-01-replay-report" ]] && ! is_b40_family_native_slice "$SLICE_ID"; then
+    echo "Native system driver is currently registered only for B26/B28/B29/B30/B31/P1/AU11/AU07/B40-family roundtrips" >&2
     exit 64
   fi
   ARTIFACT_SUFFIX="${ARTIFACT_SUFFIX}-native"
@@ -823,6 +841,9 @@ native_action_description() {
       ;;
     au01-ordinary-chat-two-turn-roundtrip)
       echo "open real workbench -> send two ordinary creative chat messages -> verify visible user/assistant order, thinking clears, no micro-plan, no action/candidate/adoption cards"
+      ;;
+    pr-smoke-core-reply)
+      echo "open real workbench -> send two ordinary creative chat messages -> verify the judgment-era reply chain renders two user/assistant turns in order without micro-plan, tools, candidate, or adoption cards"
       ;;
     gap-wt04-non-exploration-frame-badges)
       echo "open real workbench -> send a question-answer turn and a meta-discussion turn -> verify distinct visible frame badges inside the assistant rail without MicroPlan, action, adoption, or production write"
@@ -1515,6 +1536,8 @@ verify_native_slice() {
       node "$PROJECT_ROOT/scripts/native_au11_evidence.mjs" verify "$ARTIFACT_DIR" "$SLICE_ID"
     elif [[ "$SLICE_ID" == "au07-tooltrace-registry-redacted-io" || "$SLICE_ID" == "e2e-01-readonly-tool-trace" || "$SLICE_ID" == "e2e-01-replay-report" ]]; then
       node "$PROJECT_ROOT/scripts/native_au07_evidence.mjs" verify "$ARTIFACT_DIR" "$SLICE_ID"
+    elif is_b40_family_native_slice "$SLICE_ID"; then
+      node "$PROJECT_ROOT/scripts/native_b40_family_evidence.mjs" verify "$ARTIFACT_DIR" "$SLICE_ID"
     else
       node "$PROJECT_ROOT/scripts/native_question_evidence_check.mjs" "$ARTIFACT_DIR" "$APP_LOG_DIR"
     fi

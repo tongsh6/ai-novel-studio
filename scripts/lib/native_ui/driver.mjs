@@ -65,6 +65,7 @@ export function writeAX(nodes, filePath, appName = "AI Novel Studio") {
     if (n.subrole) bits.push(`subrole=${n.subrole}`);
     if (n.desc && n.desc !== n.title) bits.push(`Description: ${n.desc}`);
     if (n.value) bits.push(`Value: ${n.value}`);
+    if (n.enabled === false) bits.push("disabled=true");
     if ((n.actions ?? []).length) bits.push(`Actions: ${n.actions.join(", ")}`);
     lines.push(`${"\t".repeat(Math.min(n.depth, 12))}${n.path} ${bits.join(", ")}`);
   }
