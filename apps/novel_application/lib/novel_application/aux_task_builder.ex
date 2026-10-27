@@ -198,24 +198,22 @@ defmodule NovelApplication.AuxTaskBuilder do
   defp inventory_omission(_kind, true), do: "正文摘录已截断，未覆盖全章"
   defp inventory_omission(_kind, _truncated), do: nil
 
-  defp map_get(map, key) when is_map(map) do
+  # 调用点均为 map（attrs/材料 map）；dialyzer 证明非 map 分支不可达（B60）。
+  defp map_get(map, key) do
     Map.get(map, key, Map.get(map, Atom.to_string(key)))
   end
-
-  defp map_get(_map, _key), do: nil
 
   defp text(nil), do: ""
   defp text(value) when is_binary(value), do: value
   defp text(value), do: to_string(value)
 
+  # 调用点均传入 text/1 结果（binary）；非 binary 分支被 dialyzer 证明不可达（B60）。
   defp blank_to_nil(value) when is_binary(value) do
     if String.trim(value) == "", do: nil, else: value
   end
 
-  defp blank_to_nil(_value), do: nil
-
-  defp blank_or("", fallback), do: fallback
-  defp blank_or(nil, fallback), do: fallback
+  # 空白/缺省回退；用 guard 合并 nil 分支（调用点实际只传 binary，但语义保留）。
+  defp blank_or(value, fallback) when value in [nil, ""], do: fallback
   defp blank_or(value, _fallback), do: value
 
   defp string_list(values) when is_list(values) do

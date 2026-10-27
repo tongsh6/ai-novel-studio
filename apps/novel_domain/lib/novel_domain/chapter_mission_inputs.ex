@@ -539,7 +539,8 @@ defmodule NovelDomain.ChapterMissionInputs do
 
     seq_text = if is_integer(seq), do: "第#{seq}章 ", else: ""
     ref_text = chapter_ref_suffix(map_value(chapter, :chapter_ref))
-    "目标章：#{seq_text}#{title || ""}#{ref_text}" |> String.trim()
+    # display_chapter_title/2 恒返回 binary；`title || ""` 不可达（B60）。
+    "目标章：#{seq_text}#{title}#{ref_text}" |> String.trim()
   end
 
   # 历史 title 内嵌章号与当前 seq 一致时保留原文（不给一致数据制造无意义 diff）；

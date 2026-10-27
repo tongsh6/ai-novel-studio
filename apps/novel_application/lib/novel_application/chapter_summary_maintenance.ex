@@ -26,7 +26,10 @@ defmodule NovelApplication.ChapterSummaryMaintenance do
           required(:prose_text) => String.t(),
           optional(:chapter_title) => String.t() | nil,
           optional(:source_ref) => String.t() | nil,
-          optional(:revision_base) => String.t() | nil
+          optional(:revision_base) => String.t() | nil,
+          # B27 CP3c/D4：摘要材料范围（整章 accepted 正文 vs 本次采纳片段）。
+          # 采纳主链与断供补做都会显式传入，见 AuxTaskBuilder.for_chapter_summary/1。
+          optional(:material_scope) => :chapter | :fragment
         }
 
   @typedoc "生成器：拿到正文，产出四栏 map（推荐）或整段文本。"

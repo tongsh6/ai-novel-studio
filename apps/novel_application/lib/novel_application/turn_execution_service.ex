@@ -497,7 +497,9 @@ defmodule NovelApplication.TurnExecutionService do
          %MissingPolicyResult{} = missing
        ) do
     if ambiguous_missing?(missing) do
-      "作品中有多个标题为《#{chapter || "…"}》的章节，无法安全判断要续写或修订哪一章——" <>
+      # WritingCoordinate.requested_chapter 恒为 String.t()（未点名时为 ""）；
+      # `chapter || "…"` 的 nil 分支不可达（B60）。
+      "作品中有多个标题为《#{chapter}》的章节，无法安全判断要续写或修订哪一章——" <>
         "请用章节卡片或章序号确认目标章后再试。"
     else
       missing_chapter_message(chapter)
@@ -2692,13 +2694,9 @@ defmodule NovelApplication.TurnExecutionService do
     end
   end
 
-  defp narration_goal(frame) do
-    case frame.dialogue_goal do
-      %{summary: summary} when is_binary(summary) -> summary
-      summary when is_binary(summary) -> summary
-      _ -> nil
-    end
-  end
+  # DialogueFrame.t 约定 dialogue_goal: %{summary: String.t()}；原 case 的两个
+  # 兜底分支（非 map / 非 binary）被 dialyzer 证明不可达（B60）。
+  defp narration_goal(%DialogueFrame{dialogue_goal: %{summary: summary}}), do: summary
 
   defp narration_artifact_refs(tool_result, %{items: items}) when is_list(items) do
     item_refs =

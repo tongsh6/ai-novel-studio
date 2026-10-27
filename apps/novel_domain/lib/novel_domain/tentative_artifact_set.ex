@@ -21,6 +21,10 @@ defmodule NovelDomain.TentativeArtifactSet do
           | :style_rule_seed
           | :constraint_seed
           | :work_skeleton_suggestion
+          # B30/B29 待采纳维护候选：由 application 的 pending artifact workflow 构造，
+          # 同样走 TentativeArtifactSet → TurnResult 候选卡，不是 creative tool 产物。
+          | :chapter_structure_change_plan
+          | :character_profile_revision
 
   @type artifact_item :: %{
           required(:item_id) => String.t(),

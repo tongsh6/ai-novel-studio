@@ -846,7 +846,8 @@ defmodule NovelPersistence.AdoptionRepository do
   defp put_expected_hash(_item, acc), do: acc
 
   defp replacement_pieces(content, target_ids) do
-    text = to_string(content || "") |> String.trim_trailing()
+    # content 来自 projection_content/1（恒为 binary）；`|| ""` 不可达（B60）。
+    text = to_string(content) |> String.trim_trailing()
 
     cond do
       text == "" ->
@@ -1258,7 +1259,8 @@ defmodule NovelPersistence.AdoptionRepository do
     end
   end
 
-  # B30 CP2 Q05：blueprint 行/非法混排不得物化成 Chapter/占 seq。
+  # 仅由 ensure_planned_chapter/3 的 %{title: _} 分支调用（chapter 恒为 map）；
+  # 非 map 兜底分支被 dialyzer 证明不可达（B60）。
   defp validate_chapter_object_kind(chapter) when is_map(chapter) do
     kind = Map.get(chapter, :object_kind) || Map.get(chapter, "object_kind")
     title = Map.get(chapter, :title) || Map.get(chapter, "title") || ""
@@ -1270,8 +1272,6 @@ defmodule NovelPersistence.AdoptionRepository do
       true -> :ok
     end
   end
-
-  defp validate_chapter_object_kind(_chapter), do: {:error, :type_mismatch}
 
   defp do_ensure_planned_chapter(repo, work_id, volume_id, %{title: title} = chapter) do
     summary = blank_to_nil(Map.get(chapter, :summary))
@@ -2432,13 +2432,15 @@ defmodule NovelPersistence.AdoptionRepository do
     LocalizedRevision.normalize_target_ids(raw)
   end
 
+  # content 由 ensure_content_covers_scope/4 从 projection_content/1 传入（恒 binary）；
+  # `|| ""` 被 dialyzer 证明不可达（B60）。
   defp empty_coverage(scope, content) do
     %{
       scope: scope,
       target_segment_ids: [],
       segment_changes: [],
       old_chars: 0,
-      new_chars: String.length(content || ""),
+      new_chars: String.length(content),
       diff_stats: %{segment_count: 0, changed_segment_count: 0}
     }
   end

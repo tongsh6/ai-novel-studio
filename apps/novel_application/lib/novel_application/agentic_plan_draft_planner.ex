@@ -974,8 +974,8 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     )
   end
 
+  # 调用点只传 %AgentRun{}（map）；非 map 分支被 dialyzer 证明不可达（B60）。
   defp correction_targets(%{} = run), do: allowed_targets(run)
-  defp correction_targets(_run), do: []
 
   defp targets_guidance([]), do: ""
 

@@ -1081,10 +1081,11 @@ defmodule NovelApplication.ExplorationService do
 
   defp character_role_note(work_id, query) do
     if role_query?(query) do
+      # targets/1 成功面只有 {:ok, list} 或 list（见 CharacterProfile 读端口约定）；
+      # 其它形态会 raise 并由本函数 rescue 兜底为空串，行为不变（B60）。
       case NovelApplication.CharacterProfile.targets(work_id) do
         {:ok, characters} -> role_fact_note(characters)
         characters when is_list(characters) -> role_fact_note(characters)
-        _ -> ""
       end
     else
       ""
@@ -1093,9 +1094,10 @@ defmodule NovelApplication.ExplorationService do
     _ -> ""
   end
 
+  # query 在分析域内恒为 binary；非 binary 会 raise 并由 character_role_note/2 的
+  # rescue 兜底为空串，与原 `is_binary(query) and ...` 的 false 分支结果一致（B60）。
   defp role_query?(query) do
-    is_binary(query) and
-      String.contains?(query, ["主角", "反派", "配角", "身份", "谁是", "叙事角色"])
+    String.contains?(query, ["主角", "反派", "配角", "身份", "谁是", "叙事角色"])
   end
 
   @doc false

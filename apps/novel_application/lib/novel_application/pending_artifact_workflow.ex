@@ -197,7 +197,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
            {:ok, result} <- build_structure_change_candidate(judgment, plan, facts, run, context) do
         {:ok, result}
       else
-        {:error, {:chapter_structure_invalid, reason}} -> {:error, reason}
+        # change_plan/2 的错误面是 atom code（:no_target/:target_ambiguous/
+        # :out_of_range/:target_missing），没有 {:chapter_structure_invalid, _}
+        # 包装；原嵌套分支不可达（B60）。
         {:error, reason} -> {:error, reason}
       end
 
@@ -253,6 +255,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
      }}
   end
 
+  # 章节结构维护当前只产出 :no_target/:target_ambiguous/:out_of_range/
+  # :target_missing 拒绝原因（:unsupported_effect 无生产者，B60 删死分支）。
   defp maintain_refusal_message(:target_ambiguous) do
     "无法确定要重编号的目标章节：当前请求指向多个候选（例如重复编号或同名章节）。" <>
       "我没有改动任何章节——请用章节卡片或明确的章序号确认目标后再试。"
@@ -264,11 +268,6 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
   defp maintain_refusal_message(:out_of_range) do
     "目标卷或章节范围超出当前作品结构。我没有改动任何章节——请确认目标卷/章后再试。"
-  end
-
-  defp maintain_refusal_message(:unsupported_effect) do
-    "当前只支持章节重编号（展示编号/顺序），尚未支持该结构变更效果。" <>
-      "我没有改动任何章节。"
   end
 
   defp maintain_refusal_message(reason) do
@@ -398,7 +397,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
            build_character_profile_candidate(judgment, payload, input, run, context) do
       {:ok, result}
     else
-      {:error, {:character_profile_invalid, _} = reason} -> {:error, reason}
+      # with 链错误面是具体 atom code（:invalid_character_role/:target_ambiguous/
+      # :target_missing/:unsupported_effect/:unsupported_field），没有嵌套
+      # {:character_profile_invalid, _} 包装；原分支不可达（B60）。
       {:error, reason} -> {:error, {:character_profile_invalid, reason}}
     end
   end
@@ -608,7 +609,10 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           failed_revision(trace, context, input, run, tool)
       end
     else
-      false ->
+      # B60：`false <- snapshot.read_only` 失败时 else 收到的是 true（不是 false），
+      # 原 `false ->` 分支不可达，只读会话修订会落到 WithClauseError（内部错误）。
+      # 按可达语义改成 true -> 可解释拒绝：作者得到 :revision_not_allowed，不再 raise。
+      true ->
         {:error, {:pending_artifact_invalid, :revision_not_allowed}}
 
       {:error, reason} when reason in [:target_missing, :target_ambiguous, :incomplete_scope] ->
@@ -1449,7 +1453,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     else
       false -> {:error, {:pending_artifact_invalid, :revision_not_allowed}}
       true -> {:error, {:pending_artifact_invalid, :revision_not_allowed}}
-      {:error, {:pending_artifact_invalid, _} = reason} -> {:error, reason}
+      # request_adopted/7 的错误面只有 {:authoring_task_invalid, _}（revision_input
+      # 只转发 AuthoringTaskBuilder 错误）；嵌套 pending_artifact_invalid 不可达（B60）。
       {:error, reason} -> {:error, {:authoring_task_invalid, reason}}
     end
   end
@@ -1558,7 +1563,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   # 机械校验用两者合并避免漏检，但作者原话/任务来源仍以 run.goal.text 为准。
   defp guard_scope_text(run, frame) do
     goal = to_string(run.goal.text || "")
-    summary = (frame.dialogue_goal || %{}) |> Map.get(:summary) || ""
+    # DialogueFrame.t 约定 dialogue_goal: %{summary: String.t()}；原 `|| %{}` 与
+    # `|| ""` 两个兜底均不可达（B60）。
+    summary = frame.dialogue_goal.summary
     String.trim(goal <> "\n" <> to_string(summary))
   end
 

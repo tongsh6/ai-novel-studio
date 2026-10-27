@@ -523,8 +523,7 @@ defmodule NovelApplication.DialoguePlanningService do
 
   # B27 CP4 retest5 M18：如实投影探索预算状态与已执行来源——预算关闭不等于
   # “系统没有探索能力”；模型据此基于已有观察收束或提出具体澄清。
-  defp exploration_budget_section([], _budget), do: ""
-
+  # 仅由 exploration_sections/2 的非空 observations 分支调用（空列表在调用方短路）。
   defp exploration_budget_section(explorations, budget) do
     tools =
       explorations
@@ -648,7 +647,8 @@ defmodule NovelApplication.DialoguePlanningService do
   defp continuation_target(_observation), do: nil
 
   # 只读计划：全部步 target 都属只读集合；返回需内联执行的探索步（context/roster 已就绪）。
-  defp read_only_plan_steps(plan) when is_map(plan) do
+  # 调用点只传 selected_judgment_plan/3 成功返回的 AgentPlan 结构（map）。
+  defp read_only_plan_steps(plan) do
     steps =
       case map_get(plan, :steps) do
         steps when is_list(steps) -> steps
@@ -662,8 +662,6 @@ defmodule NovelApplication.DialoguePlanningService do
       nil
     end
   end
-
-  defp read_only_plan_steps(_plan), do: nil
 
   # M17：内联执行纯只读计划的探索步，观察写入 stage_state 后回到判断循环收束
   # （下一轮判断给最终作者可见结论/必要提问）。不切 profile、不产生 turn_result。

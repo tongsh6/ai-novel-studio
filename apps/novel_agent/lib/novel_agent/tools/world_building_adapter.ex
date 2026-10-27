@@ -29,9 +29,9 @@ defmodule NovelAgent.Tools.WorldBuildingAdapter do
 
   defp artifact_type(_req), do: :world_setting
 
-  defp artifact_type_from_task(%AuthoringTask{output_contract: contract}) when is_map(contract) do
+  # 只由 artifact_type/1 的 `%AuthoringTask{} = task` 匹配后调用；`_task -> nil`
+  # 分支被 dialyzer 证明不可达（B60）。output_contract 恒为 map（AuthoringTask.t）。
+  defp artifact_type_from_task(%AuthoringTask{output_contract: contract}) do
     Map.get(contract, :artifact_type) || Map.get(contract, "artifact_type")
   end
-
-  defp artifact_type_from_task(_task), do: nil
 end

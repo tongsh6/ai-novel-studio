@@ -110,13 +110,16 @@ defmodule NovelAgent.Provider.AdapterExecution do
 
   defp effective_fallback(_fallback, default), do: default
 
+  # ctx 允许普通 map：Gateway 等调用方在正常路径注入完整 context()，动态配置
+  # （Keyword opts / provider 模块回调）会让 Dialyzer 只能推出 map()；实现本身只用
+  # Map.get 读可选字段，因此契约按实际接受域写成 context() | map()。
   @spec execute(
           module(),
           term(),
           String.t() | nil,
           Provider.prompt(),
           InferenceParams.t(),
-          context()
+          context() | map()
         ) :: execution_result()
   def execute(module, state, model, prompt, params, ctx) do
     if cancelled?(ctx) do
@@ -140,7 +143,7 @@ defmodule NovelAgent.Provider.AdapterExecution do
   end
 
   @doc "Initial provider execution facts shared by all adapters."
-  @spec initial_events(context()) :: [ProviderEvent.t()]
+  @spec initial_events(map()) :: [ProviderEvent.t()]
   def initial_events(ctx) do
     [
       start_event!(ctx),
@@ -232,13 +235,13 @@ defmodule NovelAgent.Provider.AdapterExecution do
   def author_reasoning_delta(_ctx, _content, author_open?), do: {nil, author_open?}
 
   @doc "Emit a batch of execution events to the optional adapter event sink."
-  @spec emit_events(context(), [ProviderEvent.t()], atom(), ProviderOutput.t() | nil, map() | nil) ::
+  @spec emit_events(map(), [ProviderEvent.t()], atom(), ProviderOutput.t() | nil, map() | nil) ::
           :ok
   def emit_events(ctx, events, status, output \\ nil, error \\ nil),
     do: emit_event_batch(ctx, events, status, output, error)
 
   @doc "Returns true when the current provider execution token has been cancelled."
-  @spec cancelled?(context()) :: boolean()
+  @spec cancelled?(map()) :: boolean()
   def cancelled?(%{cancellation_token: token}), do: CancellationToken.cancelled?(token)
   def cancelled?(_ctx), do: false
 
@@ -249,7 +252,7 @@ defmodule NovelAgent.Provider.AdapterExecution do
   cancellation in the same ProviderRun / ProviderEvent / ProviderOutput stream
   as normal success and failure.
   """
-  @spec materialize_cancelled(context(), keyword()) :: execution_result()
+  @spec materialize_cancelled(map(), keyword()) :: execution_result()
   def materialize_cancelled(ctx, opts \\ []) do
     initial_events = Keyword.get(opts, :initial_events, [start_event!(ctx)])
     emit_mode = Keyword.get(opts, :emit, :all)
@@ -274,7 +277,7 @@ defmodule NovelAgent.Provider.AdapterExecution do
   Custom adapters that already own lower-level execution callbacks should call
   this function for their terminal result instead of returning a separate shape.
   """
-  @spec materialize_result(Provider.result() | term(), context()) :: execution_result()
+  @spec materialize_result(Provider.result() | term(), context() | map()) :: execution_result()
   def materialize_result(result, ctx, opts \\ []) do
     initial_events = Keyword.get(opts, :initial_events, [start_event!(ctx)])
     emit_mode = Keyword.get(opts, :emit, :all)

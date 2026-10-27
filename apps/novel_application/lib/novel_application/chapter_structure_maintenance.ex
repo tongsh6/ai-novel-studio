@@ -32,7 +32,8 @@ defmodule NovelApplication.ChapterStructureMaintenance do
       chapters: [%{chapter_ref, volume_ref, seq, title, version, content_hash, accepted_summary_refs}]}
 
   返回 `{:ok, change_plan}`（mapping/object_count/effects/base_versions/warnings）
-  或 `{:error, code}`（:no_target/:target_ambiguous/:out_of_range/:unsupported_effect）。
+  或 `{:error, code}`（:no_target/:target_ambiguous/:out_of_range）。
+  （B60：原文档列出的 :unsupported_effect 没有生产者，已从错误面移除。）
   """
   def change_plan(author_text, facts) when is_binary(author_text) and is_map(facts) do
     chapters = normalize_chapters(Map.get(facts, :chapters) || facts["chapters"])

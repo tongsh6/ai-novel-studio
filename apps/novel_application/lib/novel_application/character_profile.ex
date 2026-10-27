@@ -239,6 +239,7 @@ defmodule NovelApplication.CharacterProfile do
     UndefinedFunctionError -> {:error, :unavailable}
   end
 
+  # 仅由 targets/1 的 is_binary(work_id) 分支调用；非 binary 分支不可达（B60）。
   defp fallback_targets(work_id) when is_binary(work_id) do
     case NovelApplication.persistence_character_reader() do
       reader when is_function(reader, 1) ->
@@ -253,8 +254,6 @@ defmodule NovelApplication.CharacterProfile do
   rescue
     _ -> []
   end
-
-  defp fallback_targets(_work_id), do: []
 
   @bindable_statuses [AdoptionStatus.accepted(), AdoptionStatus.edited_accepted()]
 

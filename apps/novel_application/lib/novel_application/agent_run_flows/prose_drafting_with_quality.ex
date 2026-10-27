@@ -948,7 +948,9 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
 
   defp pick_mission_chapter(chapters, %{ref: ref, title: title} = _identity) do
     cond do
-      is_binary(ref) and ref != "" ->
+      # ref 来自 resolve_target_chapter_identity/6：nil 或 "chapter:<uuid>" 形式，
+      # 非空；`ref != ""` 恒真（B60 exact_compare 清理）。
+      is_binary(ref) ->
         Enum.find(chapters, &(mission_chapter_ref(&1) == ref)) ||
           find_mission_by_title(chapters, title)
 

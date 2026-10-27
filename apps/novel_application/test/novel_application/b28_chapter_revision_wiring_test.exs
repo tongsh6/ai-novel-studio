@@ -358,6 +358,26 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
              )
   end
 
+  test "read-only 会话修订已采纳章 → 可解释拒绝（不 crash、不调用 writer）", c do
+    # B60 CP1 顺带修复：`false <- snapshot.read_only` 失败时 else 收到 true；
+    # 修复前该路径会 raise WithClauseError（内部错误），修复后返回可解释拒绝。
+    {:ok, archived} = WorkSessionRepo.archive(c.session)
+    assert archived.status != "ACTIVE"
+
+    assert {:error, {:pending_artifact_invalid, :revision_not_allowed}} =
+             PendingArtifactWorkflow.run(
+               judgment(c.chapter_ref),
+               %{},
+               c.run,
+               c.context,
+               %Execution{result_fn: fn _ -> flunk("read-only 会话不得调用修订 writer") end}
+             )
+
+    # 拒绝路径零写入：原 accepted 正文与 session 状态不变，且没有新的 pending 候选。
+    assert ReadingProjectionRepo.accepted_chapter_prose(c.work.id, c.chapter_ref) == c.base_text
+    assert WorkSessionRepo.get_by_work(c.work.id, c.session.id).status == archived.status
+  end
+
   test "旧单 artifact 修订路径 payload 不含 B28 字段（legacy 兼容）", c do
     # 给 pending 候选做 B27 单 artifact 修订（不涉及章级），payload 保持旧字段。
     {:ok, artifact} =

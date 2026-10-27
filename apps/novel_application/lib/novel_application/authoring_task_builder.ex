@@ -342,7 +342,9 @@ defmodule NovelApplication.AuthoringTaskBuilder do
   defp valid_chapter_revision_version?(%{} = entry) do
     ref = text(entry[:ref] || entry["ref"])
     version = entry[:version] || entry["version"]
-    is_binary(ref) and ref != "" and is_integer(version) and version > 0
+
+    # ref 来自 text/1，恒为 binary；is_binary(ref) 是恒真守卫（B60 dialyzer 清理）。
+    ref != "" and is_integer(version) and version > 0
   end
 
   defp valid_chapter_revision_version?(_entry), do: false
@@ -365,7 +367,9 @@ defmodule NovelApplication.AuthoringTaskBuilder do
   @spec for_quality_evaluation(map()) ::
           {:ok, AuthoringTask.t()} | {:error, {atom(), term()}}
   def for_quality_evaluation(attrs) when is_map(attrs) do
-    source_ref = text(attrs[:source_ref]) || text(attrs[:turn_id])
+    # B60：text/1 恒返回 binary（空串也是真值），原 `|| text(attrs[:turn_id])`
+    # 兜底不可能触发；保留既有行为（source_ref 为空串时不回退 turn_id）。
+    source_ref = text(attrs[:source_ref])
     coverage = normalize_coverage(attrs[:coverage])
 
     materials =
@@ -910,9 +914,8 @@ defmodule NovelApplication.AuthoringTaskBuilder do
   defp normalize_coverage("multi"), do: :multi
   defp normalize_coverage(_value), do: :single
 
-  defp refs_for(""), do: []
-  defp refs_for(nil), do: []
-  defp refs_for(ref) when is_binary(ref), do: [ref]
+  # refs_for/1 的输入全部来自 text/1（binary）；空/nil 走空列表，非空 binary 走单项。
+  defp refs_for(ref) when is_binary(ref) and ref != "", do: [ref]
   defp refs_for(_ref), do: []
 
   defp material_key(attrs) do
@@ -935,11 +938,10 @@ defmodule NovelApplication.AuthoringTaskBuilder do
   defp truncation_note(true, note), do: note
   defp truncation_note(_truncated, _note), do: nil
 
+  # 调用点均传入 text/1 结果（binary）；非 binary 分支被 dialyzer 证明不可达（B60）。
   defp blank_to_nil(value) when is_binary(value) do
     if String.trim(value) == "", do: nil, else: value
   end
-
-  defp blank_to_nil(_value), do: nil
 
   defp text(nil), do: ""
   defp text(value) when is_binary(value), do: value

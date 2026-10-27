@@ -590,9 +590,8 @@ defmodule NovelApplication.AdoptionWorkflow do
       {:ok, _no_scopes} ->
         {:error, :incomplete_scope}
 
-      :not_found ->
-        {:error, :target_missing}
-
+      # accepted_chapter_scopes/2 的错误面只有 :error（Ecto.UUID.cast 失败）与
+      # {:error, :target_ambiguous | :target_missing}；原 :not_found 分支不可达（B60）。
       :error ->
         {:error, :target_missing}
 
@@ -1116,13 +1115,12 @@ defmodule NovelApplication.AdoptionWorkflow do
     :diff_stats
   ]
 
+  # persisted 只来自 adoption writer 的 {:ok, map}；非 map 分支不可达（B60）。
   defp put_b28_result_fields(result, persisted) when is_map(persisted) do
     Enum.reduce(@b28_result_fields, result, fn key, acc ->
       maybe_put_b28_field(acc, key, map_field(persisted, key))
     end)
   end
-
-  defp put_b28_result_fields(result, _persisted), do: result
 
   defp maybe_put_b28_field(result, _key, nil), do: result
   defp maybe_put_b28_field(result, key, value), do: Map.put(result, key, value)
