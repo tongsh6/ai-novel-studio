@@ -133,7 +133,7 @@ bash scripts/ai_static_scan.sh --top 10 --quick
 [场景化验收红线](#场景化验收红线)的可机器验证版本见 [docs/engineering/scenario-invariants.md](docs/engineering/scenario-invariants.md)，落地为三条 0/1 不变量，**全部已落地、CI 强制**：
 
 - **I3 种子贯通**：用户输入中的随机标识符必须出现在最终 user-facing artifact 内容字段（抓 hardcoded 创作内容）
-- **I1 因果绑定**：artifact item 的 title/body/rationale 必须精确字节相等于 Provider 调用响应中同 item_id 的字段（抓字节修补/补齐/合并）
+- **I1 因果绑定**：artifact item 的 title/body/rationale 必须精确字节相等于 Provider 调用响应中同 item_id 的字段，或合法作者消息字节（Q3C 作者内容物化）；产品代码不得伪造、修补、补齐或合并这些字节
 - **I2 输入差异**：N 个语义独立输入产出的 artifact item_id 集合两两不相交（抓按输入分支预制 hardcoded）
 
 完成涉及主链 / 工具 / TurnResult / artifact 的任何改动后，必须执行：

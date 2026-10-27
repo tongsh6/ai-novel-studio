@@ -14,6 +14,8 @@
 >
 > 2026-06-19 对账结论：`su01-provider-endpoint-validation` 已补 `SC-SU01-B3` 的 endpoint URL 校验 checkpoint。`Gateway.configure_provider/1`、`Gateway.test_provider/1`、`Gateway.provider_models/1` 均拒绝非绝对 `http(s)` URL，`ProviderController` 对 config/models/test 三个入口返回 422 和用户可读原因；`WorkspaceChat` 模型设置 Dialog 在输入非法 endpoint 时显示“端点必须是完整的 http(s) URL。”并禁用刷新模型、测试连接、保存切换。外部 Tauri driver 从真实工作台打开模型设置、选择 LM Studio、输入 `localhost:1234/v1`，证明错误可见且没有携带该非法 endpoint 的 `/api/provider/models` 请求。该证据只关闭 URL 校验 checkpoint，不代表供应商实时模型列表成功矩阵、云端 Keychain 端到端或跨平台 secret 策略完成。
 >
+> 2026-10-27 对账注记：“OpenAI（订阅）”在 registry/UI 可选不等于 OAuth 或 ChatGPT backend 专用链已实现；当前仍主要是 api.openai.com Bearer token 兼容传输。未完成真实 OAuth 与专用传输前，应明确标记不可用或隐藏该选项，不得把“可选”写成“订阅已可用”。live vendor、DeepSeek thinking 双变体、Windows/Linux local-file 仍需真实凭据/平台证据。
+>
 > 2026-06-19 对账结论：`su01-api-key-secret-redaction` 已补 `SC-SU01-B2/C3` 的 secret redaction checkpoint。外部 driver 从真实工作台打开模型设置、选择 DeepSeek、输入 fake API Key，经生产 DeepSeek adapter 的 harnessed HTTP boundary 拉取模型列表并测试连接，保存后证明 provider options 只返回 `api_key_configured=true` 而不回传 secret，浏览器 fallback settings、可见 UI、业务 JSONL 和 Phoenix backend log 都不包含该 fake Key。本 checkpoint 只证明 API Key 配置流的脱敏边界和日志过滤；当前 driver 驱动的是 browser-side workbench，不是 Tauri WebView，因此不证明 macOS Keychain 写入/读回，也不关闭跨平台 secret 策略。
 >
 > 2026-06-19 对账结论：`su01-provider-model-list-success` 已补 `SC-SU01-B3` 的供应商实时模型列表成功 checkpoint。外部 driver 从真实工作台打开模型设置，DeepSeek / Anthropic 经生产 adapter 的 harnessed HTTP boundary 拉取模型列表，LM Studio 经外部 driver 启动的 OpenAI-compatible `/v1/models` endpoint 拉取模型列表，并证明三类 provider 返回的模型都能在可见 Dialog 中选择。该证据证明 UI → ProviderController → Gateway → adapter models boundary 的成功管线，不证明 live vendor 账号可用，也不关闭云端/本地失败矩阵、Keychain WebView 或跨平台 secret 策略。

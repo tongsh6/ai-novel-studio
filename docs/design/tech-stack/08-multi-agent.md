@@ -2,6 +2,8 @@
 
 > 状态：草案
 >
+> 2026-10-27 对账注记：本文的 process-isolated Multi-Agent / 24x7 / Reviewer / Maintainer 仍是历史设计输入，**不是当前已实现或已验收事实**。当前统一 AgentRun 与 B39 禁止第二求证 runtime 与之存在未决边界，须先经 [B50-multi-agent-current-boundary](../../../tasks/slices/B50-multi-agent-current-boundary.md) 裁决保留、延期或 supersede；裁决前不得据本文新建进程、宣称 24x7 或将“全部通过”写成现状。
+>
 > 目的：把 [`../foundation/00e-architecture.md`](../foundation/00e-architecture.md) 的 Multi-Agent 硬骨逐条映射到 OTP 原语。本文是技术栈推荐能否成立的**最关键验证点**。
 
 ---

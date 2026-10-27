@@ -515,3 +515,9 @@
 - `/tmp/b13b/acceptance-drift.md`：R10 场景漂移修复记录（au13/au14 均 PASS；含 D10 质量门禁叙事层元词 vs 旧 driver 期望的根因与修复）。
 
 > 上述 /tmp 产物是审计过程材料；**持久真源以本文件 + 22 份 ADR 当前文本 + quality/acceptance 场景文件为准**。
+
+## 2026-10-27 对账承接：判断纪元证据统一重锚
+
+- D7（11 份退役事件 manifest）、D11（VS-10 过期）以及与其同族的 AU11/AU07/E4 等证据问题，统一由 [B40-judgment-era-acceptance-reanchor](B40-judgment-era-acceptance-reanchor.md) 承接：按当前生产链重跑或正式 blocked/退役，不将旧 event 名简单替换当作语义等价。
+- [B41-quality-evidence-foundation](B41-quality-evidence-foundation.md) 先修 YAML/parser、blocked 分层、E2E 聚合假绿和 verdict 契约；[B42-model-behavior-evidence-tier](B42-model-behavior-evidence-tier.md) 再补实模/机制/native/browser 分层。无 summary 的场景先记 evidence_missing，不直接写成实现缺失或 PASS。
+- 本文件 done 仅指 47/47 对账与裁决完成，不表示 47 个实现全部完成；D7/D9/D11 等历史快照不能替代当前复跑。

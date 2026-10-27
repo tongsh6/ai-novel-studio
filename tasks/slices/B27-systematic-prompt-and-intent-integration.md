@@ -468,3 +468,9 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 
 - **M07（format_only 字句保真）关闭（机制+确定性场景）**：B28 CP1 落地 `modification_scope=:format_only` 契约、`AuthoringTask` 校验、writer format_only 渲染、应用侧空白归一（行尾空白删除/换行归一/文末空行折叠）后字节等价守卫与 `format_only_violation`；CP2 真实 Tauri `b28-whole-chapter-revision` T1 PASS（整章两片段只排版候选归一后字节等价、replace_scope 同章替代）。真实模型 writer 生成受 strata/iq3_s 长整章退化 known-gap 限制（B28 §7.8），不宣称真实模型语义通过。
 - 其余 retest6 known-gap（M01r2/M02/M08r2/M16r1/M18r1）仍为 B27 输入，后续硬化周期与 B28/B30/B29 回归。
+
+#### 2026-10-27 对账承接：验收重锚与语义评审分离
+
+- [B40-judgment-era-acceptance-reanchor](B40-judgment-era-acceptance-reanchor.md) 统一承接 AU11 两条 blocked、B13B D7/D11 与 AU07 等旧验收断言，只按当前生产链重跑或退役，不恢复旧 envelope，不做第七次全量 retest。
+- [B49-core-semantics-and-adr-review](B49-core-semantics-and-adr-review.md) 承接主链 Accepted 文本与现行实现之间的保留/收窄/退役评审，以及 ADR-0022 的现行语义复核；B27 的 M01r2/M02/M08r2/M16r1/M18r1 与第二方复核仍由本任务定向硬化，不转给其他任务销账。
+- B41/B42 提供 verdict 与实模证据分层，B39 继续承接求证实现；以上均不改变 B27 CP4 measured FAIL/known-gap 的独立事实。

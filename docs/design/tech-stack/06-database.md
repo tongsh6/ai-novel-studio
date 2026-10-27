@@ -13,7 +13,7 @@ orm:             Ecto 3.x
 adapter_alpha:   ecto_sqlite3 (Stage 1: 单机)
 adapter_beta:    postgrex (Stage 2: B/S)
 migration:       Ecto.Migration（手写, 不依赖 codegen）
-revision_audit:  paper_trail
+revision_audit:  paper_trail  # 历史选型；2026-10-27 对账发现生产调用未检出，当前以 persisted source_revision_ref + StateTrace 为另一实现路径，保留/替代/退役由 B51 评审，不视为已完成生产基线。
 schema_source:   docs/design/schemas/*.json （SSOT, codegen Ecto schema）
 multi_tenant:    workspace_id 列 + Ecto query scope
 event_emit:      after_commit hook → Phoenix.PubSub

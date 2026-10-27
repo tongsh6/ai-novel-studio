@@ -1,9 +1,9 @@
 # VS-00G 设定盘点运行链
 
-- 状态：doing
+- 状态：doing（CP5e 已有历史 Tauri summary，当前 HEAD 复验及余项未闭环）
 - 所属完整闭环：VS-00G 承重事实完备性与补全回路 CP4/CP5
 - 当前 checkpoint：CP5a-d done（字段位+生命周期/盘点暂定候选/【暂定】注入/暂定设定区）；
-  CP5e（SC-AU14-A2/A3 场景）doing；余项=触发 C、寿命催办、works 级假定、记忆类注入富化
+  CP5e（SC-AU14-A2/A3）已有历史 Tauri 证据，是否当前 HEAD 复跑通过需另行核对；余项=触发 C、works 级假定、记忆类注入富化
 - 验收锚点：`docs/design/acceptance/author/AU-14-provisioning-and-assumptions.md`
 - 契约锚点：`docs/design/contracts/VS-00G-fact-completeness-and-provisioning-contract-pack.md` §3.3 / §5 / §7
 

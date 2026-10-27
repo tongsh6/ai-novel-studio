@@ -80,3 +80,4 @@ D. 与 v3 冲突 → 淘汰/废弃。
 - 终态：`docs/design/` 为 v3 主导的单一体系——主链 spine（00-08）权威、16 篇领域层归 v3 治理且去版本化、唯一架构冲突 00e 已 supersession 对照、glossary 覆盖 v3+v2 术语、要素模型与领域细节层双向可达。
 - 无遗留阻塞。后续若 v3 再推翻某领域结论，按本台账「四类吸取判定」就地标 superseded 即可。
 - 恢复指引：先读 `docs/design/README.md` 整合原则 → 本表（全 done）。
+- 2026-10-27 对账补记：尾部“repository 层 enforcement 待做”已属历史。Q1CB 已将转换矩阵下沉 Draft/AdoptionRepository，DS02 完成 canonical 七态；原遗留不再进入实现队列。相邻 `ChapterSummaryRepo` 与 `ReconciliationReportRepo` 的 `update_all` 绕过另由 [B44-persistence-transition-boundary](slices/B44-persistence-transition-boundary.md) 承接，不据此宣称所有 persistence 已统一；adoption revive 仍按作者需求触发。

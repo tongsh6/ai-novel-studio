@@ -5,6 +5,8 @@
 > 本目录包含 AI Novel Studio v3 的验收场景文档。按两种用户视角组织：**系统用户**（自然人，配置和运行软件）和**作者用户**（核心用户，用 AI 写小说）。
 >
 > 重要：本目录的早期 AU/SU 覆盖率是“文档内场景覆盖率”，不等同于完整产品验收。当前验收恢复入口以 [场景化验收蓝图](SCENARIO-BLUEPRINT.md)、本 README 的状态表、`quality/acceptance/scenarios.yml` 和 `docs/project-ledger.md` 的最新补充共同对账；不要只凭旧单测数量或历史 artifact 判定场景已验收。
+>
+> 2026-10-27 对账注记：当前存在 blocked、退役 profile、旧事件失锚和 evidence_missing，不能继续写“known-gaps 为空”。先由 B41 修 YAML/parser、blocked 分层、E2E 聚合与 verdict，再由 B40 逐场景重锚或退役；AU11、ProviderProgress、E4/au07-gate、legacy au10-micro-plan 等旧证据只作历史，未复核不得恢复 active 结论。
 
 ---
 

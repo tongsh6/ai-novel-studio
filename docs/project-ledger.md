@@ -477,6 +477,7 @@ Stage Startup Context Contract automation checkpoint（2026-05-15 12:38）：新
 
 | 问题 | 归属 | 状态 | 证据 / 残留 |
 |------|------|------|-------------|
+| 全量设计到执行任务对账 | 全部设计 / v3 / 后续 slices / 验收与任务治理 | **done（2026-10-27，审计与任务登记完成；产品实现未开始）** | [全量对账](../tasks/2026-10-27-design-to-execution-reconciliation.md)：六组覆盖 70+93+21+90+80+333（交叉条目不去重），均报未覆盖 0；主审抽验 E2E 假绿、Gate 幂等、相邻 repo 矩阵绕过、Projection、AU11/AU07 等。新登记 B40–B58；NEXT 当前 B41，后续 B42/B40/B39/B49/B38；其余沿原任务或 deferred/待裁决，不批量重做 |
 | 创作信息获取架构 | v3 元原则 / AgentRun / 作品探索面 | 2026-10-27 元原则与 B39 CP0 设计对账完成；ADR-0030 / VS-00K / AU-15 均 Proposed，CP1 待 ADR Accepted，未进入产品实现 | [00 §2.4](design/00-vision-and-engineering-roadmap.md#24-创作信息获取元原则最小供给按需求证证据闭环2026-10-27-用户拍板)、[ADR-0030](design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[VS-00K](design/contracts/VS-00K-evidence-seeking-authoring-contract-pack.md)、[AU-15](design/acceptance/author/AU-15-evidence-seeking-authoring.md)、[B39](../tasks/slices/B39-evidence-seeking-authoring.md)：最小供给 + 模型按需求证 + 证据闭环已落到主链、Context、AgentRun、写前推理、要素模型、工程七问与验收；候选不变量 #20–#23，未声称 CI 或实模闭环 |
 | 作品时间线维度管理 | E31 连续性账 / `timeline_event`，首个消费者为创作模型 | 2026-10-26 作者提出并补充核心意图；具体范围待设计、尚未排期 | [需求记录](design/notes/2026-10-26-story-timeline-management.md)：前章“过了几天”、后章“又过了两星期”的时间推进须持久保留，并按当前写作位置进入后续模型输入，避免时间与人物状态矛盾；关联叙述顺序、三态对账与修订影响，本次仅文档登记 |
 | v2→v3 代码迁移策略（旁路 vs 重构） | 已解决 | **彻底重构完成（当前分支）** | `docs/engineering/architecture-guardrails.md` |

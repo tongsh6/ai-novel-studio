@@ -4,6 +4,8 @@
 
 ---
 
+> 2026-10-27 对账注记：E4 当前因生产多步 MicroPlan 路径不可达而 blocked，其他旧事件/证据也需按当前判断纪元复核，不能把本文 12/13 或旧 summary 直接当 current-HEAD PASS。E2E 聚合器必须先增加 blocked/freshness 检查（B41），旧场景再按当前生产链重锚或退役（B40）；旧 E4 的 allow 或其他 gate 证据不能替代 blocked 证明。
+
 ## 1. 什么是端到端验收
 
 与 AU 文档的区别：

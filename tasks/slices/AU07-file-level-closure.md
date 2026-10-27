@@ -117,7 +117,7 @@
 |---|---|---|
 | developer / multi-type 旧 turn replay UI | AU-07 / AU-10 后续 | 在已闭合的 `TraceReplayService` + why 入口上补 developer 权限和多类型 replay 矩阵 |
 | developer 双视图权限 | AU-07 / VS-10 | 明确权限边界、redaction profile 和敏感字段隔离后再做 UI |
-| 完整 ToolTrace registry snapshot | AU-07 / tool runtime 后续 | 当前已由 E2E 证明 summary-level refs 可查；后续补 registry version 和 redacted I/O snapshot |
+| 完整 ToolTrace registry snapshot | AU-07 / tool runtime 后续 | 当前代码已写 registry/grant/redacted I/O，`au07-tooltrace-registry-redacted-io` 的 driver/manifest 仍要求退役事件；改为“实现存在、当前证据待重锚”，由 [B40-judgment-era-acceptance-reanchor](B40-judgment-era-acceptance-reanchor.md) 承接；不重建 ToolTrace |
 | ReplayReport 六问多类型产品入口 | AU-07 / E2E-01 | 只读 tool turn 六问已闭；后续补 reply-only、confirmation、adoption、behavior、UI action 的产品内查询和 developer view |
 | developer 权限模型和旧 workspace_id 迁移细化 | AU-07 / SU-02 / AU-03 | work/session/turn scoped query 与负向矩阵已由 `au07-trace-query-scope-negative-matrix` 固化；后续只补权限 contract、developer view 和旧迁移设计 |
 

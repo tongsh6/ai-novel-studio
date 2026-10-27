@@ -3,6 +3,8 @@
 > 作者视角：我不是在向一个通用聊天模型提问，而是在和一个能理解小说创作原则、当前作品状态和本轮写作问题的 AI 创作伙伴协作。AI 应该能判断本轮是探索、结构化、执行、质量诊断、澄清还是确认，并把判断依据留在 trace 中。
 >
 > 2026-06-22 二轮缺口收敛结论：不回退 2026-06-21 文件级可交付判断。`au11-quality-diagnosis-message-envelope` 与 `au11-missing-workstate-policy` 已串行复跑通过；未发现需要在 AU-11 本轮先改生产代码才能继续 AU-12 的新增 P0/P1。剩余 P1 仍是 `guidance_mode` schema 冻结、clarify/confirm 引导 proof、`prose_writing` envelope 投影；这些是跨 contract / Orchestrator / provider 调用点深化，不能把现有质量诊断 proof 写成 VS-00D 全调用点完成。
+>
+> 2026-10-27 对账注记：上述 2026-06-22 证据只代表当时。AIMessageEnvelope 生产链现已退役，两个 AU11 场景当前为 blocked；不得再以 `trace_summary.ai_message_envelope` 断言当前实现。B27 已用 AuthoringTask/AuthoringSemantics 承接当前语义，场景重锚归 [B40](../../../tasks/slices/B40-judgment-era-acceptance-reanchor.md)，G 项与语义门槛归 B27，不恢复旧 envelope。
 
 ---
 

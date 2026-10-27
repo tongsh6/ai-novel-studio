@@ -1,6 +1,8 @@
 # AU11 File-Level Closure / AI 引导式创作文件级收口
 
-- 状态：done
+- 状态：历史 checkpoint closed；当前为旧 Envelope 路线退役，重锚归 [B40-judgment-era-acceptance-reanchor](B40-judgment-era-acceptance-reanchor.md)
+
+> 本文件后续契约、场景和证明保留为历史设计与证据，不作为当前实现指南。当前判断与任务语义以 B27 `AuthoringTask` / `AuthoringSemantics`、VS-00D §11.4/§11.4.2 和 B40 的当前重锚为准，不得按旧 envelope 重新实现。
 - 类型：Acceptance Slice + Trace Contract Slice
 - 启动日期：2026-06-21
 - 所属验收：`docs/design/acceptance/author/AU-11-ai-guided-authoring.md`

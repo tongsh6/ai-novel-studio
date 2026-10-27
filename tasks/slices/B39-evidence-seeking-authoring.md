@@ -57,7 +57,7 @@
 |---|---|---|
 | CP0 | 元原则落到主链、运行时、Context、AgentRun、写前推理、要素模型、工程与验收；形成 ADR-0030 / VS-00K / AU-15 / B39 和索引、atlas、不变量、旧条款处置矩阵。只登记设计，不声称实现 | **done（2026-10-27）**：主链/领域/契约/工程文档完成处置；候选 #20–#23；ADR trace 28/28、NEXT ok、新文档链接通过、差距快照 20 项开放无意外减少、diff check 通过；未运行产品功能测试或 Tauri |
 | CP1 | 正文 run 开放现有只读探索；共享判断循环探索执行，观察进入使命与 writer；保留现有携带，不新建时间表；真实模型完成 SC-AU15-A1/A2，确定性机制与模型行为分层取证 | 未开工；ADR-0030 待 Accepted |
-| CP2 | 写前准备可返回通用信息缺口并触发有界 plan revision；建立 Base/观察 refs 与 used_context_refs 对账；未知、歧义、冲突与越界引用完成 SC-AU15-B1/C1 | 未开工 |
+| CP2 | 写前准备可返回通用信息缺口并触发有界 plan revision；建立 Base/观察 refs 与 used_context_refs 对账；明确“可先求证”与“只能由作者裁决”的 clarification 边界；未知、歧义、冲突与越界引用完成 SC-AU15-B1/C1 | 未开工 |
 | CP3 | 规划、修订、写后质量与恢复复用同一求证链；完成 SC-AU15-B2/C2；真实 provider 请求、trace、replay 与作者可见证据一致 | 未开工 |
 | CP4 | 依据真实 run 的引用、重复查询和质量证据逐块迁移固定携带；领域读模型（包括是否需要时间线）按真实缺口单独立项；完成 SC-AU15-D1 | 未开工 |
 
@@ -143,10 +143,11 @@ git diff --check
 **CP1 验收预注册（ADR Accepted 后执行；执行前不改）**
 
 - 模型/资源：Strata `iq3_s`（作者既有实例），单槽串行；原生 Tauri 外部系统 UI 驱动 + 真实模型；加载前记录 `lms ps`/内存与 Strata `loaded=null`，结束（成功/失败/中断）`POST /api/models/unload` 并验证 `loaded=null`；不加载第二模型。
-- 场景（引用 `acceptance/author/AU-15`，不改判据）：**SC-AU15-A1** 两章已采纳正文分别含“过了三天/又过了两星期”，首轮 Base 不含完整累计答案；后续创作请求须证明模型自主选择只读探索→观察含两章真实时间表达与章 refs→后续 writer 真实 provider 请求包含该观察或保真投影→候选与累计关系相容→采纳前零 canon 写入。**SC-AU15-A2** 对未配置专用 packet 的要素复用同一探索/证据链，产品 diff 不得出现该要素专用分支。
+- 场景（引用 `acceptance/author/AU-15`，不改判据）：**SC-AU15-A0** Base 已足够的小任务不强制探索，允许模型直接准备，不把“每 run 都调工具”当目标。**SC-AU15-A1** 较早章已采纳正文含人物承诺/关系细节（如“沈砚答应三天后回灯楼接顾青”），该事实不进任何专用 packet，首轮 Base 不含完整内容；后续创作请求须证明模型自主选择只读探索→观察含真实承诺/关系表达、章 refs 与覆盖→后续 writer 真实 provider 请求包含该观察或保真投影→候选与承诺/关系相容→采纳前零 canon 写入。**SC-AU15-A2** 对未配置专用 packet 的时间关系复用同一探索/证据链：两章分别含“过了三天/又过了两星期”，观察进入后续 writer，结果与累计十七天相容，产品 diff 不得出现时间专用分支。
 - 预算/等待：B37 分型预算（input120 / turn360 / candidate300 / adoption180 / maintenance300 / restore30 秒）+ 10s 心跳；原指令只发一次、超时不重发；模型提问按作者默认应答（options 推荐项；free-text 给具体默认方向）≤2 次并记录 `author_question_events`；同一失败类型≤2 次，超预算记录根因并升级。
 - 证据目录：`artifacts/slice-verify/b39-au15-a1-native/`、`artifacts/slice-verify/b39-au15-a2-native/`；含真实 Tauri AX/截图、native-transport、app-log、llm-calls（真实 provider 请求体，证明观察进入后续请求）、observations 与 `used_context_refs` 集合对账、只读 DB 快照、模型生命周期 before/after。失败批次只读保留。
 - 判据分层：确定性机制证据（探索目标被计划/执行、观察持久化、writer 请求包含、refs 校验命中）与真实模型行为证据（模型自主决定查询/使用观察/承认缺口）分别报告；确定性替身只证明接线，不得代替模型行为。
+- 实模重复与保留措辞：关键缺事实场景至少独立运行 2 次且全部满足规定证据链，timeout/格式失败计入分母；至少保留一种未参与调词的自然措辞。模型、参数、预算、禁答集、重复次数和通过线在 CP1 开工前冻结，执行中不得为通过率追加专用 packet 或缩减分母。
 
 **待作者/开工后首个 CP1 checkpoint 决策（不阻塞 ADR 评审）**
 

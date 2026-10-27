@@ -606,6 +606,34 @@ ADR 状态建议先使用：
 
 价值：把“模型会自己查证”从原则变成有真实消费者、有证据因果、有通用反例的承重主链，而不是为时间线等单一领域继续补 prompt。
 
+### 9.13 全量设计对账与后续承接（2026-10-27）
+
+总入口：[全量设计到执行任务对账](../../../tasks/2026-10-27-design-to-execution-reconciliation.md)。该文件只维护覆盖、处置与依赖，不替代各原任务的执行状态。
+
+| 任务 | 来源与首个消费者 | 状态 / 依赖 |
+|---|---|---|
+| [B40](../../../tasks/slices/B40-judgment-era-acceptance-reanchor.md) | quality/nightly 与当前作者 Why/Replay：判断纪元场景重锚或退役 | todo；B27 CP3 与 B41 提供依据，不恢复旧 envelope |
+| [B41](../../../tasks/slices/B41-quality-evidence-foundation.md) | CI/nightly/PR：YAML、blocked、aggregate、verdict 与证据索引 | todo，当前优先；先于 B40/B42/B39 的证据验收 |
+| [B42](../../../tasks/slices/B42-model-behavior-evidence-tier.md) | 实模评审与 AU-15：机制/模型行为/native/browser 分层与求证证据 | todo；依赖 B41 |
+| [B43](../../../tasks/slices/B43-gate-order-residual.md) | Orchestrator/ActionValidator：幂等、behavior/slot 与真实 blocked 链 | todo；与 B49 语义裁决联动 |
+| [B44](../../../tasks/slices/B44-persistence-transition-boundary.md) | 章摘要与审读报告的持久化转换边界 | todo；ADR-0019，合法 supersede 不回归 |
+| [B45](../../../tasks/slices/B45-schema-legacy-governance.md) | codegen/前端/兼容层：legacy 与现役 schema 治理 | todo；依赖 B49 与五账 schema 决策，不增业务字段 |
+| [B46](../../../tasks/slices/B46-persistent-adoption-inbox.md) | 跨会话继续采纳的作者：持久 inbox 与待处理视图 | todo；统一 AU05/AU09，依赖现有 pending/receipt |
+| [B47](../../../tasks/slices/B47-canon-freshness-and-conflict-detection.md) | AdoptionWorkflow：持久冲突与 stale 自动发现、重新 gate | todo；复用 B28/B29/B36 版本语义 |
+| [B48](../../../tasks/slices/B48-character-revision-noop-and-ambiguity.md) | 角色修订候选：no-op 与同名歧义边界 | blocked，待作者选择回执与歧义策略 |
+| [B49](../../../tasks/slices/B49-core-semantics-and-adr-review.md) | 主链语义与 ADR-0022 现行评审 | todo，评审先行；约束 B43/B45/B06 等后续 |
+| [B50](../../../tasks/slices/B50-multi-agent-current-boundary.md) | Multi-Agent/24x7 与统一 AgentRun 的边界裁决 | blocked，待作者决定保留/延期/supersede |
+| [B51](../../../tasks/slices/B51-tech-stack-current-rebase.md) | 技术栈、PaperTrail 与 canonical 引用当前重定 | todo；依赖 B50/B49，非倒装依赖 |
+| [B52](../../../tasks/slices/B52-longrun-batch-draft.md) | 作者批量初稿与逐单元恢复 | deferred，作者重新开放批量需求才启动 |
+| [B53](../../../tasks/slices/B53-p2-500k-milestone.md) | P2 500K 中长篇里程碑与连续性验收 | deferred，P1 B/C 与作者预算后 |
+| [B54](../../../tasks/slices/B54-continuity-time-and-state.md) | 故事时间/时点状态读模型：建立、映射或退役 | deferred，B39 CP4 后评估，不先建表 |
+| [B55](../../../tasks/slices/B55-style-objects-and-consumption.md) | 风格编辑/版本/召回真实消费者 | deferred，真实消费者触发，不堆固定 packet |
+| [B56](../../../tasks/slices/B56-quality-maintenance-gates.md) | 建立/规划/维护期质量门与读模型 | deferred，按阶段拆；B54 时间项依赖其后 |
+| [B57](../../../tasks/slices/B57-sec-injection-boundary.md) | 不可信作者输入/观察/外部资料的安全边界 | todo，先对抗补验，失败才做最小防线 |
+| [B58](../../../tasks/slices/B58-human-approval-policy-unification.md) | 高风险作者批准与审计：复用或最小增量 | todo，先对账 receipt/trace，不直接建 approval_record |
+
+这些任务与既有 B27、VS-00F/G、AU07、AU09、UA01、CA、Q1C/DS/SU/P1 等原任务共享承接关系，完整去重、条件触发和待裁决项以总账为准。
+
 ---
 
 ## 10. Umbrella 边界索引

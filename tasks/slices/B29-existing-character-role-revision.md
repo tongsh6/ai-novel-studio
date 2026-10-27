@@ -141,3 +141,7 @@ stage session 5d618f06-f41c-46bc-aa55-5056a2fa5612，2026-10-23 01:41 作者说�
 - **T2 同名澄清未复现（2 项冻结判据 false，按预算不重跑）**：输入「指定沈砚为主角」（存在两个同名「沈砚」）时，真实模型本轮**未走 await_author**，而是 `action=execute revise_character_profile`，沿用上一轮「老沈」上下文把 ref 绑到 `character:12e9d3df…`（已是 PROTAGONIST），产出 **old=PROTAGONIST → new=PROTAGONIST 的 no-op 候选** `as_mvpjqleg_15`。模型原文理由：“上一轮「老沈」已唯一指向…本轮「沈砚」沿用同一对象语境…不猜另一个同名角色”。`same_name_asks_author=false`、`same_name_zero_write=false`（判据要求 pending 为空；本条 pending 1 个 no-op 候选）；**DB 零写入仍成立**（t2-before==t2-after 角色/记忆/正文 hash 全同），未采纳/未 steer/未自动作答（author_question_events=[]）。
 - **未改判据/未放宽守卫**。三次尝试（1st 作者问答误分类、2nd AXHelpTag 抖动、3rd 本结果）均只读保留；模型生命周期：跑前 loaded=null 记录、结束 POST unload 200 → GET loaded=null/current=null，lms ps 仅作者 embedding IDLE。
 - **新发现（需作者/后续裁决，不在本 slice 擅自改产品）**：① 产品允许 `old==new` 的角色修订 no-op 候选（本轮真模触发）——是否在候选/采纳侧拒绝 no-op 属产品契约硬化项（候选 B41 类）；② 真实模型在多轮上下文中按前文实体绑定消歧，与 T2 冻结判据「同名必须澄清」存在行为差异（模型行为 known-gap，非 harness 失败）。B29 主业务闭环以确定性原生 23/23 + T1 真实模型全链证据承载；T2 真实模型行为差异如实登记，不冒充通过。
+
+#### 2026-10-27 对账承接
+
+- 上述 no-op 与同名歧义已单独立项为 [B48-character-revision-noop-and-ambiguity](B48-character-revision-noop-and-ambiguity.md)，状态为 blocked、待作者选择“拒绝无意义 no-op / 显式幂等回执 / 仅收紧歧义”后再实施。B29 主业务保持 done，不重开；T2 不记 PASS，裁决前不改产品。
