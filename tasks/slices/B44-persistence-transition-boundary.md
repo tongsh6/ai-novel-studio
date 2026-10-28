@@ -1,6 +1,6 @@
 # B44：摘要与审读报告的持久化转换边界
 
-- 状态：**doing**（2026-10-28：CP0 完成；CP1/CP2 两个 repo 均完成——章摘要=ADR-0019 通用矩阵强制，审读报告=A-narrow 维护类生命周期（Lead mandate 决策，已实现）；CP3 真实 Tauri 页面验收未闭环，见 §9）。residual：ADR-0019 适用范围说明待作者复核、CP3 真实页面证据。
+- 状态：**done（2026-10-28/29：CP0–CP3）**。CP1/CP2：章摘要=ADR-0019 通用矩阵强制，审读报告=A-narrow 维护类生命周期；两 repo 无 `update_all` 绕过。CP3：current-HEAD 真实产品链页面回归 `d3-summary-lazy-repair` + `au13-review-adjudication-roundtrip` 均 PASS（external automation，**surface=browser/driver=headless-chromium**，如实记录；见 §9）。**Residual（不冒充闭环）**：① 两条链尚无 native AX driver，页面证据不是原生；② 单活跃报告替换链（第二次物化→旧 TENTATIVE SUPERSEDED）无现成页面场景；③ ADR-0019 适用范围说明待作者复核（未改任何 Accepted ADR 文本）。
 - 登记日期：2026-10-27；来源：`ChapterSummaryRepo` 与 `ReconciliationReportRepo` 仍有 `update_all`，可绕过 changeset 和 ADR-0019 转换矩阵。
 - 上游：ADR-0019、[Q1CB](Q1CB-ADOPTION-TRANSITION-ENFORCEMENT.md)、[VS-00F](VS-00F-five-ledgers-three-state.md)、[VS-00C](../../docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md)。
 
@@ -30,7 +30,7 @@ Draft 的转换矩阵已落地，但相邻对象仍有直接批量更新：
 | CP0 | 核对两个 repo 所有写路径、调用方合法前提与 Q1CB 明示相邻项；确认不扩大为“所有 persistence 都已统一” | **done（2026-10-28，见 §6）** |
 | CP1 | 逐行读取→矩阵校验→更新/插入；移除 update_all 绕过；失败事务回滚并保留原值 | **done（2026-10-28）：章摘要 §7 + 审读报告 §8（A-narrow 维护类生命周期）** |
 | CP2 | 直接 repo 非法/合法矩阵测试与既有调用回归；审读报告单活跃与历史语义不变 | **done（2026-10-28）：章摘要 §7.2 + 审读报告 §8.3（含事务回滚/stale 拒绝）** |
-| CP3 | 与 VS-00F StateTrace 方案对齐但不合并实现；补真实页面合法回归与文档证据 | **未闭环（§9：候选场景需真实 Tauri 驱动，本预算内不启动，不伪造 PASS）** |
+| CP3 | 与 VS-00F StateTrace 方案对齐但不合并实现；补真实页面合法回归与文档证据 | **done（2026-10-29，browser-surface）**：`d3-summary-lazy-repair` + `au13-review-adjudication-roundtrip` current-HEAD PASS（§9）；native 缺口与单活跃替换缺口如实登记 |
 
 ## 4. 非目标
 
@@ -194,22 +194,26 @@ repo `apps/novel_persistence/test/novel_persistence/reconciliation_report_repo_t
 - CP3 真实 Tauri 页面证据仍未闭环（§9），不得以本节的 repo 测试冒充页面验收。
 - §6.3 的“hold 范围”段落是 A-narrow 决策前的历史记录（Lead 维护区），以 §8.1 决策与本节实现为准。
 
-## 9. CP3 真实页面合法回归评估（未闭环，不伪造）
+## 9. CP3 真实页面合法回归（2026-10-29，current-HEAD；browser-surface，如实记录）
 
-候选既有场景（均为 `tier: nightly`、`surface: tauri`，需真实 Tauri 工作台 + Vite + Phoenix + external driver）：
+**预注册与预算**：`artifacts/b44-cp3/preregistration.json`（范围=两条既有 nightly/tauri 场景；预算=每场景 1200s wall clock、harness wait 360s、同因失败≤2；判据=exit 0 + verdict pass + 关键合法维护/裁决事件；不使用真实模型，不加载语言模型；证据目录 + 失败只读）。执行前备份旧证据 `artifacts/wip-backups/b44-cp3-pre-rerun/`。
 
-| 场景 | 与本 slice 的关系 | 运行入口 |
-|---|---|---|
-| `d3-summary-lazy-repair` | 覆盖章摘要合法链：正文采纳 → 摘要维护（supersede 旧 ACCEPTED → insert TENTATIVE → update ACCEPTED）+ D3 断供补做；可证明 B44 后合法路径不回归 | `bash scripts/quality_accept.sh d3-summary-lazy-repair --surface tauri` |
-| `au13-review-adjudication-roundtrip` | 覆盖审读报告物化 + 逐项裁决（TENTATIVE→ACCEPTED）合法链 | `bash scripts/quality_accept.sh au13-review-adjudication-roundtrip --surface tauri` |
+**执行（detached nohup + pidfile/exit 记录，轮询读取，不依赖 agent job 生命周期）**
 
-**未闭环缺口**：
+| 场景 | 命令 | HEAD | 结果 | 关键证据 |
+|---|---|---|---|---|
+| `d3-summary-lazy-repair` | `bash scripts/quality_accept.sh d3-summary-lazy-repair --surface tauri` | `223d9f59` | **PASS**（exit 0，verdict pass，evidence 5/5） | evidence `artifacts/slice-verify/d3-summary-lazy-repair-tauri/`：`key_events` 含 `chapter_summary_repair.run.done`，behavior 断言含 repaired_chapter_id/third_turn；证明 B44 后「旧 ACCEPTED 摘要退场 → 新摘要 TENTATIVE → ACCEPTED + D3 断供惰性补做」合法链未回归 |
+| `au13-review-adjudication-roundtrip` | `bash scripts/quality_accept.sh au13-review-adjudication-roundtrip --surface tauri` | `223d9f59` | **PASS**（exit 0，verdict pass，evidence 6/6） | evidence `artifacts/slice-verify/au13-review-adjudication-roundtrip-tauri/`：report 物化 findings=8（arc_stalled×4、premature_finale×1、volume_plan_mismatch×1、volume_blueprint_missing×2），8/8 裁决覆盖 accept_drift/dismiss/revise_design/revise_prose；证明 B44 后报告落盘 + 逐项裁决（TENTATIVE→ACCEPTED）合法链未回归 |
 
-1. 两场景都需要真实 Tauri 工作台驱动（本预算按要求不启动 Tauri/Vite/Phoenix、不做长跑），因此本 slice 没有可提交的真实页面证据；CP3 只能标“未闭环/局部证据”，不得写 done。
-2. **单活跃报告替换链没有现成场景**：`au13-review-adjudication-roundtrip` 只发起一次全书审读；要验证“第二次物化在旧 TENTATIVE 报告仍活跃时 SUPERSEDE 旧报告”需要新增场景步骤（或对同一 seed 连续发起两次审读）。A-narrow 已落地，该场景属 B44 剩余的计划内后果，不是“本次不做”。
-3. 非法转换的真实页面诱导不可行且不必要（正常 UI 只产生合法动作，与 Q1CB §6.2 同口径）；非法拒绝证据由 CP2 persistence 测试承担，须在汇总时诚实标注。
+**Surface 如实记录（不冒充原生）**：两次 verdict 均 `surface=browser`、`driver=headless-chromium`、`requested_surface=tauri`、`tauri_window_launched=true`；即外部自动化驱动的是真实产品前端 + 真实 Phoenix 后端的页面链（Tauri dev 窗口已启动），**不是原生 AX 系统驱动**。按项目口径，browser 证据不能签成 native PASS——本 slice 也没有签。
 
-**建议 Lead 协调**：① 裁决后（或与 B42 并行后）安排一次 Tauri 复跑 `d3-summary-lazy-repair` + `au13-review-adjudication-roundtrip`（可与既有 nightly 批次合并）；② 若要求单活跃替换的真实页面证据，需扩 `au13` 场景加“第二次发起全书审读”步骤并更新 manifest verdict；③ `ADR-0019 enforced_by` 是否追加 `ChapterSummaryRepo`/`ChapterSummary` schema（本任务未改 ADR，需 Lead 决定）。
+**未闭环缺口（诚实登记）**：
+
+1. 两条链目前没有 native AX/CGEvent 外部驱动（`d3`=聊天+采纳链，`au13`=档案面板+审读卡+8 项处置，后者原生交互成本高）；原生覆盖归后续 native 批次（B61/B62 harness），不以本轮 browser 证据冒充。
+2. **单活跃报告替换链没有现成页面场景**：`au13-review-adjudication-roundtrip` 只发起一次全书审读；「第二次物化在旧 TENTATIVE 报告仍活跃时 SUPERSEDE 旧报告」需要扩展场景（同一 seed 连续发起两次审读）。该行为已由 repo 层测试（§8.3 #2/#3/#6）与业务调用方核对证明，页面级未覆盖。
+3. 非法转换的真实页面诱导不可行且不必要（正常 UI 只产生合法动作，与 Q1CB 同口径）；非法拒绝证据由 CP2 persistence 测试承担，已在汇总中标注。
+
+**清理**：两轮运行后 `lsof -iTCP:4657 -iTCP:5769` 无监听、无残留 Phoenix/Vite/Tauri 进程；未加载/卸载语言模型（`lms ps` 仅用户既有 embedding IDLE，与本轮无关）。
 
 ### 9.1 与 VS-00F StateTrace 的对齐评估（不合并实现）
 
@@ -248,6 +252,13 @@ repo `apps/novel_persistence/test/novel_persistence/reconciliation_report_repo_t
   2. `Task completion manifest and UI evidence check`：`pending`（`artifacts/task-done/<other-run>/manifest.json`，来自并行任务运行产物），非 B44 产物，留给对应任务/Lead 处置；B44 不伪造 manifest PASS。
 - 补充：该扫描同批执行并通过 `mix compile --warnings-as-errors`、xref cycle、arch_check、credo、I1/I2/I3 不变量 driver、Sobelow、hex audit、前端 typecheck/lint/design-trace（本 slice 未改前端，仅作回归证据）。
 - 原始日志：`artifacts/static-scan/top10.md`（机器产物，不入 git）。
+
+### 10.3 CP3 页面验收记录（2026-10-29）
+
+- 预注册：`artifacts/b44-cp3/preregistration.json`；日志 `artifacts/b44-cp3/d3.log`/`au13.log`（exit 0/0，已读）。
+- 场景证据：`artifacts/slice-verify/d3-summary-lazy-repair-tauri/verdict.json|summary.json`、`artifacts/slice-verify/au13-review-adjudication-roundtrip-tauri/verdict.json|summary.json`（HEAD `223d9f59`；surface=browser/driver=headless-chromium 如实记录）。
+- 执行完成后资源检查：无 4657/5769 监听、无残留 Tauri/Phoenix/Vite 进程；未使用真实模型。
+- 结论边界：本轮页面 PASS 证明“合法行为未变”，不证明非法转换在页面层的拒绝（由 CP2 测试承担），也不代表 native 覆盖。
 
 ## 11. 决策与恢复指引
 
