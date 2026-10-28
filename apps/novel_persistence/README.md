@@ -38,3 +38,8 @@ be found at <https://hexdocs.pm/novel_persistence>.
 - [chapter_summary_repo.ex](lib/novel_persistence/chapter_summary_repo.ex)：章摘要全部写路径经 ADR-0019 矩阵守卫；`supersede_prior_accepted/2` 逐行 changeset + 事务更新，无 `update_all` 绕过。
 - [reconciliation_report_repo.ex](lib/novel_persistence/reconciliation_report_repo.ex)：审读报告维护类替换（新报告 SUPERSEDE 旧 TENTATIVE）逐行 changeset + 事务；`update_all` 已移除，stale 报告不可再裁决翻成 ACCEPTED。
 - 完整切片：`tasks/slices/B44-persistence-transition-boundary.md`。
+
+## B47 canon freshness 只读快照
+
+- [adoption_repository.ex](lib/novel_persistence/adoption_repository.ex)：B47 只读 `canon_snapshot/2`——章正文版本/format digest 复用 `accepted_chapter_scopes/2`，角色 fingerprint 复用 `character_profile_context/2`（与采纳事务重校验同源）；不建表、不写模型，错误面 `target_missing|target_ambiguous|cross_work_scope|unsupported_canon_object`。
+- [读取测试](test/novel_persistence/b47_canon_freshness_read_test.exs)：章/角色快照、缺失/歧义/跨作品错误面；实现切片 `tasks/slices/B47-canon-freshness-and-conflict-detection.md` §7。

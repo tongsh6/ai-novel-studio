@@ -29,3 +29,8 @@ be found at <https://hexdocs.pm/novel_domain>.
 
 - [MaintenanceArtifactStatus](lib/novel_domain/maintenance_artifact_status.ex)：维护类 artifact 替换（`TENTATIVE→SUPERSEDED`）的 canonical 声明，= `AdoptionStatus.transition_allowed?/2` ∪ 单条替换规则；通用 adoption 矩阵不变，不作用于 Draft/ChapterSummary。
 - [测试](test/novel_domain/maintenance_artifact_status_test.exs)：通用矩阵仍合法/仍非法、仅新增一条、无循环依赖由 xref 门禁覆盖。
+
+## B47 对象级 canon freshness
+
+- [CanonFreshness](lib/novel_domain/canon_freshness.ex)：纯函数 `assess/3`——比较候选声明基线（B28/B36/ADR-0029 章正文版本 + format digest、B29 角色 fingerprint）与当前持久 canon 快照，返回 `fresh|stale|conflict|missing|unavailable` + reason codes + expected/current；不读候选自报 `canon_conflicts`、不读 LLM 文案，未知对象显式 `unsupported_canon_object`。
+- [测试](test/novel_domain/canon_freshness_test.exs)：版本过期/未覆盖片段冲突/内容变化/角色 fingerprint/缺失与不可用/未知对象；契约见 `tasks/slices/B47-canon-freshness-and-conflict-detection.md` §6。
