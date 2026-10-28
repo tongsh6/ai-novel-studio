@@ -6,16 +6,15 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B47-CP3 | 真实 Tauri 页面矩阵：stale / conflict / fresh 对照三作品，外部驱动采纳并断言 `canon_freshness` 回执与零写入；未闭环前不标 done。 | [B47](slices/B47-canon-freshness-and-conflict-detection.md) |
+
+> 本轮队列已清空（2026-10-29）：B42 §12、B44、B40 §10.2、B47 CP0–CP3 均达各自 CP 标准；收口复核、未选入 backlog 与残余见 [全量对账 §9](2026-10-27-design-to-execution-reconciliation.md#9-2026-10-29-队列收口复核lead)。当前无 AI 可推进项（作者裁决/授权或新任务排期触发下一轮）。
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B51 | 先做只读依赖/lock/PaperTrail 存量与消费者取证，再给作者裁决材料（不预选保留/替代）。 | [B51](slices/B51-tech-stack-current-rebase.md) |
-| B39 | 条件候选：ADR-0030 与 D1–D7 裁决后推进 CP1；真实验收与 B42 CP4 协调。 | [B39](slices/B39-evidence-seeking-authoring.md) |
-| B43 | 条件候选：B49 裁决后冻结幂等输入、behavior/slot 与 blocked 链；裁决前可核查现有边界。 | [B43](slices/B43-gate-order-residual.md) |
-| B46 | 先核既有持久 adoption inbox 事实源与跨会话恢复缺口，再决定是否本轮开工。 | [B46](slices/B46-persistent-adoption-inbox.md) |
+
+> 本轮无近期候选：未选入 backlog（B45/B46/B51/B57/B58 等）与条件候选（B39/B43）的承接入口见 [全量对账 §8.1/§9](2026-10-27-design-to-execution-reconciliation.md#81-排期理由与承接)；下一轮由作者排期或触发条件启动，不在此累积镜像。
 
 ## 阻塞
 

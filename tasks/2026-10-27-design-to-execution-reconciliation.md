@@ -464,3 +464,16 @@ git diff --check
 - 剩余 Top 10 实际为 **4 条历史 gitleaks 命中**：B63 历史文档行、E10 spec 标识符、Pencil 元数据为既有 `false_positive`；历史 `tools/company-console/server/config.mjs` 为既有 `accepted_risk`。本次未修改处置台账、未忽略扫描、未重写历史。原始 gitleaks check 仍失败，不能写“全扫描零发现”；结果及处置见 `artifacts/static-scan/top10.md`、`disposition.md`、`report.json`。
 
 B42 §12 仅登记缺陷并排期，尚未修复；B39/B42 CP4、B49/B48/B50 等仍待各自裁决。本文档更新不能用作产品/真实页面/真实模型验收证据。
+
+## 9. 2026-10-29 队列收口复核（Lead）
+
+- 状态：**done（本轮排期复核；不授权未选入 backlog 的实施）**。
+- 本轮执行：B42 §12 证据完整性回补 → B44 持久化转换边界（CP0–CP3）→ B40 §10.2 同族场景重锚（18 场景，17 PASS + 1 retired）→ B47 canon freshness（CP0–CP3）。逐项状态与证据见各原任务；NEXT 只留排期结论。
+- 收口前开放来源复核：`node scripts/next_task_check.mjs --open` 所列 `todo/doing` 与未识别历史文档已按本文件 §8.1 与各原任务核对；**未识别历史文档不是待办证据**，其执行状态仍以原文档头部/正文为准，不因本轮收口自动改状态。
+- **NEXT 空置理由（范围限定）**：本轮入选的 4 个任务均达到各自 slice 的 CP 标准（B42 §12 / B44 / B40 §10.2 / B47 CP3）；剩余开放项均不满足“已授权且本轮可开工”：
+  1. 作者裁决类：ADR-0030/VS-00K/AU-15（B39、B42 CP4）、B49 R1–R7、B63 R2、B48、B50（见 NEXT 阻塞节）。
+  2. 人工/数据授权：I10 盲评、stage 存量修复（B28）。
+  3. 产品裁决：`au02-candidate-fallback-ui` 无可达生产者；B47 §10 memory/设定对象纳入自动冲突需先补对象 contract。
+  4. 未选入本轮的 backlog（不销账、不在 NEXT 累积日志）：B45（schema/legacy 治理，依赖 B49 五账决策）、B46（持久 adoption inbox，需产品 slice 设计+真实页面验收）、B51（技术栈/PaperTrail 先取证后裁决）、B57（注入边界，可先做既有作者输入/观察对抗矩阵）、B58（批准策略，先对账 receipt/trace）、B39/B43（条件候选）。承接入口仍是各自原任务与 §8.1；下一周期由作者排期或按触发条件启动。
+- 本轮新增已知残余（不冒充闭环）：① 页面证据均为 `surface=browser/driver=headless-chromium`，native AX 覆盖缺口仍按 B61/B62 已交付范围；② 页面 verdict 的 `git_head` 固定在运行时机，后续提交会使既有页面证据在新 freshness 检查中判 stale，按需 scoped 复跑，不自动续期；③ B47 CP3 只覆盖 O1 章正文（stale/conflict/fresh），O2 角色 fingerprint 页面矩阵未纳入；④ B44 CP3 单活跃报告替换链无现成页面场景（repo 测试覆盖）；⑤ B42 CP4/AU-15 真实模型仍 blocked-by-author。
+- 本轮未运行：真实模型、native 系统驱动、长跑批处理；未修改 ADR decision 文本（仅 B44 作者确认的 ADR-0019 适用范围补充）、未修历史 stage 数据、未重写历史证据。
