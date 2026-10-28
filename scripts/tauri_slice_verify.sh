@@ -119,7 +119,6 @@ Implemented external UI driver slice ids:
   au01-empty-message-guard
   au01-frame-validation-friendly-error
   au01-turnresult-recorder-ui-consistency
-  au05-adoption-safety-freshness
   au05-stale-conflict-cross-work-freshness
   au05-conflict-cross-work-recovery
   au05-canon-conflict-recovery

@@ -1262,6 +1262,9 @@ function readLlmCallRecords() {
 }
 
 function llmCallPromptText(record) {
+  // 确定性替身（slice_verify）把真实收到的 prompt 以 `{prompt,...}` 行落 llm-calls；
+  // live provider 则是 `{request:{body}}` 的 HTTP 留痕。两种都读，作为外部 prompt 证据。
+  if (typeof record?.prompt === "string" && record.prompt.length > 0) return record.prompt;
   try {
     return JSON.stringify(record?.request?.body ?? {});
   } catch {
@@ -2258,6 +2261,23 @@ async function driveAu01TurnresultRecorderUiConsistency(page) {
     { timeout: 30_000 },
   );
 
+  // 重锚（B40 §10.2）：当前产品对空输入的发送按钮默认 disabled（canSubmitMainInput 需要
+  // hasSteerInput），因此不能要求“恢复后空输入下发送可用”。改为验证作者真实可发送路径：
+  // 输入恢复后输入框可用、键入文本后发送按钮变为可用，再清空并保持输入可用断言。
+  let restoredSendEnabledAfterInput;
+  try {
+    await page
+      .locator('input[placeholder="输入你的想法、问题或指令..."]')
+      .fill("恢复后可用性检查");
+    restoredSendEnabledAfterInput = await page
+      .getByRole("button", { name: /^发送$/ })
+      .first()
+      .isEnabled();
+    await page.locator('input[placeholder="输入你的想法、问题或指令..."]').fill("");
+  } catch {
+    restoredSendEnabledAfterInput = false;
+  }
+
   const restoredSnapshot = await page.evaluate(() => {
     const input = document.querySelector('input[placeholder="输入你的想法、问题或指令..."]');
     const sendButton = [...document.querySelectorAll("button")].find(
@@ -2272,7 +2292,12 @@ async function driveAu01TurnresultRecorderUiConsistency(page) {
   });
 
   assert(!restoredSnapshot.input_disabled, "Chat input was disabled after transcript restore");
-  assert(!restoredSnapshot.send_disabled, "Send button was disabled after transcript restore");
+  // B40 §10.2 重锚：空输入时产品按设计 disabled 发送按钮；验证键入后可发送（作者真实路径），
+  // 同时保留「输入框可用」断言。若键入后仍不可用，这里失败，不掩盖产品缺陷。
+  assert(
+    restoredSendEnabledAfterInput,
+    "Send button did not become enabled after typing following transcript restore",
+  );
 
   return [
     {
@@ -2305,6 +2330,7 @@ async function driveAu01TurnresultRecorderUiConsistency(page) {
       restored_ui_assistant_visible: restoredSnapshot.visible_text.includes(assistantText),
       restored_input_enabled: !restoredSnapshot.input_disabled,
       restored_send_enabled: !restoredSnapshot.send_disabled,
+      restored_send_enabled_after_input: restoredSendEnabledAfterInput,
       generate_micro_plan: sentMessage.body?.generate_micro_plan,
       thinking_observed: turn.thinkingObserved,
       socket_connected: true,
@@ -4871,9 +4897,26 @@ async function driveCandidateMultiturnContext(page) {
   );
 
   const followupReply = followupTurnResult.assistant_message?.text ?? "";
+  // AU02 多轮上下文重锚（B40 §10.2）：确定性替身的回复文案已随判断纪元收敛为通用讨论回复，
+  // 不再逐字回显 nonce。上下文是否真的进入后续请求，应看**真实请求 prompt**（llm-calls 外部证据），
+  // 而不是要求替身回复文案回显 nonce（那是 copy 耦合，不是上下文证据）。
+  const followupLlmCall = readLlmCallRecords().find(
+    (record) => record.turn_id === followupTurnResult.turn_id,
+  );
+  assert(followupLlmCall, "No provider prompt record was captured for the candidate context follow-up");
+  const followupPromptText = llmCallPromptText(followupLlmCall);
   assert(
-    followupReply.includes(nonce),
-    "Candidate context follow-up reply did not reflect the prior candidate nonce",
+    followupPromptText.includes(nonce),
+    "Candidate context follow-up request prompt did not carry the prior candidate nonce",
+  );
+  assert(
+    followupPromptText.includes(String(candidate.title ?? "")),
+    "Candidate context follow-up request prompt did not carry the prior candidate title",
+  );
+  assert(followupReply.length > 0, "Candidate context follow-up reply was empty");
+  assert(
+    !String(followupReply).includes("没有通过校验"),
+    "Candidate context follow-up reply was a validation fallback",
   );
   assert(
     followupTurnResult.truthfulness?.production_write_performed === false,
@@ -4923,6 +4966,11 @@ async function driveCandidateMultiturnContext(page) {
       followup_context_has_conversation: followupContext.has_conversation,
       followup_context_has_session_summary: followupContext.has_session_summary,
       followup_reply_contains_context_nonce: followupReply.includes(nonce),
+      followup_reply_present: followupReply.length > 0,
+      followup_request_prompt_contains_context_nonce: followupPromptText.includes(nonce),
+      followup_request_prompt_contains_candidate_title: followupPromptText.includes(
+        String(candidate.title ?? ""),
+      ),
       followup_message_visible: visibleText.includes(followupText),
       followup_reply_visible: visibleText.includes(followupReply),
       generate_micro_plan: followupFrame.body?.generate_micro_plan,
@@ -21774,10 +21822,14 @@ async function driveAu12CorrectionIntentRoundtrip(page) {
     "No toolbox.execute.done world_building log was recorded for profile correction",
     60_000,
   );
+  // B40 §10.2 重锚：工具执行 TurnResult 落在 `<parent>:agent:N` 子 turn，而
+  // channel.user_message.done 记录在父 turn；两者同源，任一匹配即可。
+  const correctionParentTurnId = String(turnResult.turn_id ?? "").split(":agent:")[0];
   await waitForNewAppLogRecord(
     logStart,
     (record) =>
-      record.event === "channel.user_message.done" && record.turn_id === turnResult.turn_id,
+      record.event === "channel.user_message.done" &&
+      (record.turn_id === turnResult.turn_id || record.turn_id === correctionParentTurnId),
     "No channel.user_message.done log was recorded for profile correction",
     60_000,
   );

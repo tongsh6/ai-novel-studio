@@ -32,7 +32,7 @@
 | [B37-acceptance-wait-supervision.md](B37-acceptance-wait-supervision.md) | **done（2026-10-27，P1 原生实模 scoped 批次使用本监督闭环）**：统一 wait 预算/watchdog/fail-fast/心跳/wait_events；detached launcher/pidfile/termination；真实模型预算校准（input120/turn360…）+ turn 超时不重发；author_question 自动应答；canonical-3e 59 waits/0 timeouts。 |
 | [B38-world-rule-save-intent.md](B38-world-rule-save-intent.md) | **pending / deferred（2026-10-25）**：B34 CP3 模型级观测——「保存X为世界规则」单次 replay 无结构化 tool_calls（畸形 tool XML），未 execute world_building/未写库；单次未跑产品纠错 loop，不确认产品缺口。trigger=真实产品链复现/作者真实请求；当前不排期。 |
 | [B39-evidence-seeking-authoring.md](B39-evidence-seeking-authoring.md) | 求证式创作：Base、统一探索、准备判断与证据闭环；D1–D7 决策材料、CP 边界与实施前置见原文。 |
-| [B40-judgment-era-acceptance-reanchor.md](B40-judgment-era-acceptance-reanchor.md) | 判断纪元验收重锚；历史批次证据保留，同族后续排期精确引用原文 §10.2，不以批次交付代替完整闭环。 |
+| [B40-judgment-era-acceptance-reanchor.md](B40-judgment-era-acceptance-reanchor.md) | **done（2026-10-29，§10.2 同族批次）**：current-HEAD 18 场景重锚（17 PASS + au05-adoption-safety-freshness retired）；判断纪元事件/父子 turn/确定性替身判断分支重锚；全部 evidence `surface=browser` 如实，native 缺口与残余见 §10.6。 |
 | [B41-quality-evidence-foundation.md](B41-quality-evidence-foundation.md) | **done（2026-10-27，CP0–CP5）**：标准 YAML 解析与单一 manifest 校验（212 场景/2 drafts）、active-only 批次与 0/1/64–69 退出码分层、E2E 聚合 blocked/freshness/来源驱动、verdict v2 生成读取同源与真实消费者、known-gaps 类型词表与 B40/B42 交接；不含产品功能验收。 |
 | [B42-model-behavior-evidence-tier.md](B42-model-behavior-evidence-tier.md) | **doing（CP0–CP3 + §12 证据完整性回补 done；CP4 blocked-by-author）**：机制/模型行为与原生证据分层；§12 已把“必需/不适用/未执行”声明、证据链重算、逐维度完整性与原因传播落进 release 结果层（211/211 quality JS 测试），真实模型/页面仍归 CP4（ADR-0030 前置）。 |
 | [B43-gate-order-residual.md](B43-gate-order-residual.md) | Gate 幂等输入、behavior/slot 顺序与真实 blocked/Replay 链；实施前置与 CP0 核查边界见原文。 |

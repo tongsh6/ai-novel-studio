@@ -2877,6 +2877,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       adopted_revision_request?(prompt) ->
         {"execute", "revise_adopted_content", false}
 
+      # AU12 立项修订（B40 §10.2 重锚）：档案概览「提出立项修订」走真实 user_message；
+      # 确定性替身按当前判断协议判 execute/world_building（与真实模型选择同一能力），
+      # 产物仍走待采纳门与采纳边界，不直接写作品档案。
+      work_profile_correction_text?(prompt) ->
+        {"execute", "world_building", false}
+
       message_state_request?(prompt) ->
         {"reply", nil, false}
 
@@ -2940,6 +2946,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       capability ->
         {"execute", capability, false}
     end
+  end
+
+  # AU12：作者通过档案「提出立项修订」发起的世界观/立项修订意图（产品 UI 文案）。
+  # 只认该入口的显式措辞，避免把普通「讨论修订」误判为执行。
+  defp work_profile_correction_text?(prompt) do
+    author_text = judgment_author_input(prompt)
+
+    String.contains?(author_text, "立项") and
+      contains_any?(author_text, ["修订", "修改"]) and
+      String.contains?(author_text, "不要直接写入作品档案")
   end
 
   defp judgment_author_input(prompt) do

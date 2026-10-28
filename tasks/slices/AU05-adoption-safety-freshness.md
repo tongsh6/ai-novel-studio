@@ -1,6 +1,6 @@
 # AU05 Adoption Safety Freshness / 采纳安全与新鲜度
 
-- 状态：checkpoint closed（high-risk confirmation）；AU05-GAP-06 stale/conflict/cross-work/canon checkpoint 已由后续 AU05 slices 闭环
+- 状态：**superseded-by-reanchor（2026-10-29 B40 §10.2）**：本 slice 的页面场景 `au05-adoption-safety-freshness` 已退役——判断纪元 `propose_creative_directions` schema 不含 `risk_hint`，`CandidateDirection` 恒 `:low`，「高风险候选→require_confirmation」无当前可达生产者（历史高风险确认证据保留为历史，不代表 current-HEAD）。stale/conflict/cross-work 仍由 `au05-stale-conflict-cross-work-freshness`、`au05-canon-conflict-recovery` 覆盖；采纳安全由 `au04-*` 确认链覆盖。原记录：checkpoint closed（high-risk confirmation，历史版本）；AU05-GAP-06 stale/conflict/cross-work/canon checkpoint 已由后续 AU05 slices 闭环。当前 head 结论与证据见 [B40 §10.2/§10.6](../B40-judgment-era-acceptance-reanchor.md) 与 `quality/acceptance/known-gaps.md`（2026-10-29 retired 表）。
 - 类型：Artifact Slice / Safety Slice
 - 来源：`docs/product/user-journeys.md` Journey F5-F6；`docs/design/acceptance/author/AU-05-artifact-adoption.md` AU05-GAP-06 / AU05-GAP-07
 - 当前目标：在候选采纳桥接已闭环后，加固高风险、stale、conflict、cross-work 的 adoption boundary，避免作者在过期或错误作品上下文中静默采纳。

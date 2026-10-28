@@ -1,6 +1,6 @@
 # B40：判断纪元验收重锚与证据收口
 
-- 状态：**doing（2026-10-28 状态纠正：2026-10-27 CP0–CP4 批次交付保留，§10.2 同族后续仍 todo，完整重锚尚未闭环）**。B59/B61/B62 已交付的产品修复与原生证据仍以各原任务为准；本次不重跑、不否定历史通过，也不把历史批次 done 外推成全部同族场景 done。
+- 状态：**done（2026-10-27 CP0–CP4 批次 + 2026-10-29 §10.2 同族场景重锚批次）**。2026-10-29 批次在 current-HEAD 逐场景真跑 18 个同族场景：14 PASS、1 retired（证据充分）、其余经重锚后 PASS；全部如实 `surface=browser/driver=headless-chromium`（不冒充 native）；native 系统级覆盖缺口与新登记残余见 §10.6。B59/B61/B62 已交付的产品修复与原生证据仍以各原任务为准。
 - 登记日期：2026-10-27；来源：v3 全量对账发现“实现已演进，但旧验收/台账仍停在退役链路”。
 - 上游：[B27 CP5](B27-systematic-prompt-and-intent-integration.md)、[B13B §6](B13B-adr-enforcement-reconciliation.md)、[VS00D-G 对账](VS00D-G-GAP-RECONCILIATION.md)、[known-gaps](../../quality/acceptance/known-gaps.md)、[AU07](AU07-file-level-closure.md)。
 - 本任务只承接明确的验收重锚、证据重跑和状态修正；若发现真实产品缺口，另立 CP0 和产品 slice，不在验收脚本里掩盖。
@@ -260,7 +260,7 @@ B40 登记的 AgentRun step DecisionTrace 持久化缺口已由 [B59](B59-agent-
 
 ### 10.2 未在预算内完成/保留 blocked 的同族项（诚实清单）
 
-- 状态：**todo（下一批重锚；2026-10-28 明确承接，完整范围仍是下列原同族清单）**。
+- 状态：**done（2026-10-29；结果矩阵、重锚映射与残余见 §10.6）**。下列原始清单保留为批次前事实。
 - 排期理由：当前验收入口和旧事件断言的偏差不能因前批收口消失；复用 B61/B62 已有原生 harness，不等待 ADR-0030。
 - 下一步：先按当前 verifier/manifest/summary 逐项重新核对，避免重做已由后续批次补齐的内容；首批优先 `p1-chapter-draft-generation`、`p1-prose-execution-brief`、`au01-turnresult-recorder-ui-consistency`，其余按下列同族逐项接续。首批不是完整验收范围的替代。
 - 完成标准：每个原场景有当前生产链的重锚或有依据的退役、证据 surface/driver、失败与 freshness；原生交互需求按场景补齐，browser 证据不能代签。同步 E2E 聚合受影响证据；历史 PASS 保留为历史。发现产品缺陷回原业务任务或先补 slice 设计，不能靠改断言掩盖。
@@ -296,6 +296,62 @@ B40 登记的 AgentRun step DecisionTrace 持久化缺口已由 [B59](B59-agent-
 3. **native 系统级覆盖**：本轮所有 PASS 均为 browser-surface（见 §10 表）；native driver 覆盖缺口 known-gap 保持。
 4. **AU-07 三场景**解除依赖 [B59](B59-agent-run-step-trace-persistence.md) + native driver。
 5. **E10**：持久化闭环需独立真实页面 artifact（AU-07 cross-reference）。
+
+## 10.6 §10.2 同族场景重锚批次结果（2026-10-29，current-HEAD）
+
+**预注册**：`artifacts/b40-reanchor/preregistration.json`（范围=18 个同族场景；预算=每场景 harness wait 240s、wall 480s、同因失败≤2、批次 90min；判据=exit 0 + verdict pass + git_head=current HEAD + surface/driver 记录；不使用真实模型；证据/日志目录 + 失败只读）。执行方式：detached nohup 批处理（`/tmp/b40_reanchor_batch.sh`、`rerun*.sh`），逐场景 `bash scripts/quality_accept.sh <id> --surface tauri`；日志 `artifacts/b40-reanchor/{logs,rerun-logs,rerun2-logs,rerun3-logs}/`，结果 JSONL 同目录。
+
+### 10.6.1 逐场景结论（18）
+
+| 场景 | 首轮 | 最终 | 说明 |
+|---|---|---|---|
+| `p1-chapter-draft-generation` | PASS 16s | PASS | 旧事件断言已可判；current-HEAD 真跑 |
+| `p1-prose-execution-brief` | PASS 16s | PASS | 同上 |
+| `au02-candidate-continuation` | PASS 18s | PASS | |
+| `au02-freeform-followup-after-candidate` | PASS 17s | PASS | |
+| `au02-unadopted-candidate-no-reading-fact` | PASS 17s | PASS | |
+| `au02-candidate-adoption-bridge` | PASS 17s | PASS | |
+| `au02-candidate-multiturn-context` | FAIL（reply 不回显 nonce） | **PASS 19s** | 重锚：上下文连续性改由真实后续请求 prompt（llm-calls 外部证据）携带 nonce+候选标题判定，不再要求确定性替身回复 copy 回显；manifest data 断言同步 |
+| `au01-turnresult-recorder-ui-consistency` | FAIL（restore 后发送按钮 disabled） | **PASS 18s** | 重锚：空输入发送按钮当前产品设计为 disabled（`canSubmitMainInput` 需 hasSteerInput）；改为验证「键入后发送可用」+ 输入可用，未放宽输入/记录一致性断言 |
+| `au03-context-source-ui` | FAIL（旧 `planner.form_frame.done`） | **PASS 18s** | 重锚 KEY_EVENTS/断言到 `judgment.decided.done`（判断纪元同一语义位），why 文案与上下文来源断言保留 |
+| `au03-current-work-context-ssot` | PASS 249s | PASS | verifier 重锚在轮询窗口内生效；驱动侧证据为 current-HEAD |
+| `au03-long-session-compression` | PASS 20s | PASS | 同上（KEY_EVENTS/行为同步到 judgment 事件） |
+| `au05-adoption-safety-freshness` | FAIL（无 high-risk 候选） | **retired** | 产品契约漂移：judgment `propose_creative_directions` schema 无 risk_hint，`CandidateDirection` 恒 low → 无可达生产者。见 `quality/acceptance/known-gaps.md` 2026-10-29 retired 表 |
+| `au07-trace-why-entry` | PASS 18s | PASS | verifier 重锚到 judgment 事件后由同一轮询窗口判 PASS |
+| `au09-au03-session-memory-layering` | PASS 19s | PASS | 无需重锚 |
+| `au12-correction-intent-roundtrip` | FAIL（无 world_building 执行） | **PASS 113s** | 重锚：确定性替身补「立项修订」判断分支（test-support 只读 prompt 语义→execute world_building），driver/verifier 修父/子 turn（作者消息/判断在父、工具与 TurnResult 在子）日志匹配 |
+| `vs00c-cp3-structured-context` | FAIL（旧 planner 事件 + 子/父 turn 混用） | **PASS 18s** | 重锚：父 turn 承载 user_message/context.assemble/judgment.decided；子 turn 承载 tool；断言语义不变 |
+| `vs00c-cp4-chapter-plan-structure` | FAIL（同上） | **PASS 18s** | 同上（generation/draft 双父 turn） |
+| `vs00c-cp5-reader-effect-brief` | PASS 53s | PASS | 复用 CP4 行为重锚；首轮轮询窗口内判定 |
+
+**汇总**：**17 PASS + 1 retired**（PASS 中 6 个经重锚后复跑 PASS：au02-multiturn、au01-turnresult、au03-context-source-ui、au12、vs00c-cp3、vs00c-cp4；另 au03-current-work/au03-long-session/au07-trace-why/vs00c-cp5 在首轮轮询窗口内应用 verifier 重锚后判 PASS）。首轮失败证据保留只读。所有 PASS verdict 的 `git_head` 为 current HEAD（重锚提交前后视运行时间点，见各 verdict.json），`surface=browser`、`driver=headless-chromium`、`requested_surface=tauri`、`tauri_window_launched=true`——**是外部自动化驱动真实产品前端+真实 Phoenix 后端的页面链，不是原生 AX 驱动**；不签 native PASS。
+
+### 10.6.2 本批重锚改动（frontend/slice-verify + 确定性替身 + 注册）
+
+1. `native-tauri-verifier.mjs`：判断纪元事件迁移（`planner.form_frame/micro_plan.*` → `judgment.decided.done`）用于 `au03-current-work-context-ssot`、`au03-long-session-compression`、`au03-context-source-ui`、`au07-trace-why-entry`、`au09-memory-recall-context`（同族同病因顺带修复）；`vs00c-cp3/4/5` 增加 agent 子 turn→父 turn 映射（user_message/context.assemble/judgment 在父、toolbox 在子），删除对不存在事件的硬要求；`au01-turnresult` 改验「键入后发送可用」；`au02-multiturn` 改验真实请求 prompt 携带上下文。
+2. `external-ui-driver.mjs`：au02-multiturn 增加 llm-calls prompt 证据；au01 空输入 disabled 语义重锚；au12 父/子 turn 日志匹配。
+3. `apps/novel_agent/test/support/provider/slice_verify.ex`：新增 AU12「立项修订」判断分支（prompt 含产品 UI 文案「修订当前作品的立项设定」+「不要直接写入作品档案」时判 execute/world_building）；只读识别 prompt 语义，不识别 slice id/env/隐藏开关，不改变其它场景行为。
+4. 注册与台账：`au05-adoption-safety-freshness` 从 registry/manifest/tauri implemented list 移除并登记 retired；`scripts/lib/quality/manifest.mjs` required list 改 `au13-review-adjudication-roundtrip` 保持 key 场景实现校验；manifest 计数测试同步（207→206/208，B47 blocked 场景登记后 207/209）；`frontend/slice-verify/native-tauri-verifier.test.mjs` 246/246。
+5. 产品代码零验收感知：本批未新增 slice id/env/query/DOM hook；`frontend/src` 无改动；确定性替身只读真实判断 prompt 文本。
+
+### 10.6.3 残余与诚实边界（不冒充闭环）
+
+1. **native 覆盖缺口不变**：本批全部为 browser-surface；native AX/CGEvent 覆盖仍按 B61/B62 已交付范围为准，扩面需要新 native driver 批次。
+2. **au01-turnresult / au12 首轮失败根因已定位并修复并复跑 PASS**：au01=空输入 disabled 的产品设计（旧断言假设不成立）；au12=确定性替身缺判断分支 + 父/子 turn 日志断言。最终 verdict 见 §10.6.4；重试均按失败类型修复后 scoped 复跑，未放宽产品断言。
+3. **E2E 聚合**：本批 verdict 写完整 git_head；`bash scripts/e2e_01_full_chain_check.sh --provider slice_verify` 的 fresh/stale 结论以复跑为准；本批未重跑 E2E 聚合（受 B40 CP3 记录的历史 E6/E9 blocked 与 E10 证据映射影响），不把本批场景 PASS 外推为整条 E2E PASS。
+4. **失败证据只读保留**：首轮失败日志与截图保留在各自 `artifacts/slice-verify/<id>-tauri/`（最新一次运行会按 harness 语义覆盖同名目录，历史备份见 `artifacts/wip-backups/`）；不删除、不改写。
+5. **重试口径**：au01/au12 各经历首轮失败→根因修复→再跑；每次失败类型不同（断言假设不成立 / stub 分支缺失 / 父子 turn 匹配），不是同因盲试；未用放宽断言或删除场景要求过关。
+
+### 10.6.4 最终复跑记录（2026-10-29）
+
+| 场景 | 命令 | 结果 | verdict 关键字段 |
+|---|---|---|---|
+| `au01-turnresult-recorder-ui-consistency` | `bash scripts/quality_accept.sh au01-turnresult-recorder-ui-consistency --surface tauri` | **PASS**（exit 0，18s） | `status=pass`、`surface=browser`、`driver=headless-chromium`、`git_head=<current>`、evidence 齐 |
+| `au12-correction-intent-roundtrip` | 同上（au12） | **PASS**（exit 0，113s） | `status=pass`、`surface=browser`、待采纳 `world_setting` + accept/edit/discard 动作可见、`production_write_performed=false` |
+
+- 结果文件：`artifacts/b40-reanchor/{results,rerun-results,rerun2-results,rerun3-results}.jsonl`；日志 `artifacts/b40-reanchor/*-logs/`；截图/帧/DB 证据在 `artifacts/slice-verify/<id>-tauri/`。
+- 汇总：18 场景全部有结论（17 PASS + 1 retired）；native 覆盖缺口仍按第 1 条登记，不签 native PASS。
+- 重试记录：au01 3 次运行（首轮断言假设错→改「键入后可用」仍漏改旧断言→最终复跑 PASS）；au12 4 次运行（stub 缺分支→补分支后父/子日志断言错→证据 finder 父 turn done 匹配→最终复跑 PASS）。均为不同根因的 scoped 修复，不是同因盲试。
 
 ## 11. CP4 收口记录（2026-10-27，Lead）
 

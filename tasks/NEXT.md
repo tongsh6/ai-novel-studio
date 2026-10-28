@@ -6,13 +6,12 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B40-REANCHOR | 按 §10.2 诚实清单逐场景重锚：先核当前 verifier/manifest/summary，再跑 current-HEAD（允许 browser-surface 如实记录），原生需求按场景补或登记缺口；不得以历史 PASS 代签。 | [B40 §10.2](slices/B40-judgment-era-acceptance-reanchor.md#102-未在预算内完成保留-blocked-的同族项诚实清单) |
+| B47-CP3 | 真实 Tauri 页面矩阵：stale / conflict / fresh 对照三作品，外部驱动采纳并断言 `canon_freshness` 回执与零写入；未闭环前不标 done。 | [B47](slices/B47-canon-freshness-and-conflict-detection.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B47 | 从 CP0 冻结首批对象的版本、冲突与 stale 判据，复用既有对象保护。 | [B47](slices/B47-canon-freshness-and-conflict-detection.md) |
 | B51 | 先做只读依赖/lock/PaperTrail 存量与消费者取证，再给作者裁决材料（不预选保留/替代）。 | [B51](slices/B51-tech-stack-current-rebase.md) |
 | B39 | 条件候选：ADR-0030 与 D1–D7 裁决后推进 CP1；真实验收与 B42 CP4 协调。 | [B39](slices/B39-evidence-seeking-authoring.md) |
 | B43 | 条件候选：B49 裁决后冻结幂等输入、behavior/slot 与 blocked 链；裁决前可核查现有边界。 | [B43](slices/B43-gate-order-residual.md) |

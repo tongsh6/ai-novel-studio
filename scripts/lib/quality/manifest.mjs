@@ -744,8 +744,8 @@ function validateExternalChecks(projectRoot, scenariosById, errors, warnings) {
       "p1-chapter-plan-minimum",
       "p1-chapter-draft-generation",
       "au02-candidate-adoption-bridge",
-      "au05-adoption-safety-freshness",
       "au03-context-source-ui",
+      "au13-review-adjudication-roundtrip",
     ];
     for (const id of requiredTauriIds) {
       if (!tauriIds.has(id)) {

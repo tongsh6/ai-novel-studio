@@ -29,7 +29,7 @@ user_flow:
   - observe: nonce-backed candidate direction visible
   - click: 继续讨论候选方向
   - input: 不带 nonce 的普通后续追问
-  - observe: 回复继续沿着已选候选方向，并反映 prior candidate context
+  - observe: 后续真实请求 prompt 携带 prior candidate context（nonce + 候选标题），回复为非回退讨论回复
   - do_not_see: tool result / adoption decision / production write
 
 evidence:
@@ -55,7 +55,8 @@ assertions:
     - author_action is not sent
     - action_result is not received
   data:
-    - assistant follow-up reply reflects prior candidate context nonce
+    - follow-up real provider request prompt carries prior candidate context nonce and candidate title (input-side causal evidence)
+    - follow-up reply is non-empty non-fallback discussion reply
     - no tool_result is emitted
     - no adoption decision is emitted
     - candidate_selected remains false

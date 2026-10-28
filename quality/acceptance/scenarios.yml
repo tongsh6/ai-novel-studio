@@ -765,13 +765,15 @@ scenarios:
     manifest: quality/acceptance/scenarios/au02-unadopted-candidate-no-reading-fact.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au02-unadopted-candidate-no-reading-fact --surface tauri
-  - id: au05-adoption-safety-freshness
-    title: "采纳安全与新鲜度"
+  - id: b47-canon-freshness
+    title: "Canon freshness 自动冲突/stale 与决策前重 gate"
     tier: nightly
     surface: tauri
-    manifest: quality/acceptance/scenarios/au05-adoption-safety-freshness.yml
+    manifest: quality/acceptance/scenarios/b47-canon-freshness.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
-    entrypoint: scripts/quality_accept.sh au05-adoption-safety-freshness --surface tauri
+    entrypoint: scripts/quality_accept.sh b47-canon-freshness --surface tauri
+    status: blocked
+    blocked_reason: "B47 CP3 driver/verifier 实现中；验收完成后转 active，不以占位 PASS 代替"
   - id: au03-context-source-ui
     title: "上下文来源可见解释"
     tier: nightly

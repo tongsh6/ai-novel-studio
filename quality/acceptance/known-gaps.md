@@ -132,3 +132,11 @@
 | ~~`accept_verdict.mjs` git_head 短/长 hash 不一致~~ **Lead 已修复（2026-10-27）** | verdict 曾写 `d6bc69a4`（`rev-parse --short`），聚合器用完整 hash 比较 → 新 verdict 判 stale。修复：`accept_verdict.mjs` 与 `quality_accept.sh` 改记录完整 hash；`e2e_status.mjs` 新增 `commitMatches` 兼容既有短哈希（≥7 位前缀，git 缩写语义），并补 `e2e_status.test.mjs` 回归。 | 已关闭；最终提交后在最终 HEAD 复跑聚合器即可让 fresh verdict 正确判 current（见 B40 §12） |
 | 同族未复跑场景 | §B40 10.2 清单（p1/au02 余项/au03/au05/au07-trace-why/au09/au12/vs00c） | 下一批 driver/verifier 重锚 + nightly 复跑；历史证据不得代签 |
 | E10 持久化闭环 | 无独立真实页面 artifact | AU-07 cross-reference 补证据；补前 aggregate 不会 PASS |
+
+## 2026-10-29 B40 §10.2 重锚批次（current-HEAD 真跑）
+
+> 本批 18 个同族场景在 current-HEAD 后逐场景真跑（`tauri_slice_verify` + external-ui-driver → 真实 Phoenix/前端；summary `surface=browser/driver=headless-chromium` 如实记录，不冒充 native）。逐场景命令、结果、原因与重锚映射见 [B40 §10.2 / §10.6](../../tasks/slices/B40-judgment-era-acceptance-reanchor.md)，日志 `artifacts/b40-reanchor/`。
+
+| 对象 | 类型 | 原因 | 替代/交接 |
+|---|---|---|---|
+| `au05-adoption-safety-freshness` | **retired** | 判断纪元 `propose_creative_directions` 工具 schema 只含 `title/pitch/tone_tags`（`apps/novel_application/lib/novel_application/judgment_tool_contract.ex`），`CandidateDirection` 由 `judgment_candidates/2` 恒置 `risk_hint: :low`（`dialogue_planning_service.ex`）；「高风险候选→require_confirmation」**无当前可达生产者**（2026-10-29 current-HEAD 实跑只得到 risk_hint=low 候选）。属产品契约漂移，不是稳定可复验链。 | 采纳安全仍由 `au04-*` 确认链、`au05-stale-conflict-cross-work-freshness`（stale/freshness）、`p1-chapter-overwrite-confirm` 覆盖；若产品需要「候选方向风险分级→确认」，需新 slice 由作者裁决（B40 只做验收重锚，不新造产品风险分类）。证据：`artifacts/b40-reanchor/logs/au05-adoption-safety-freshness.log`、`artifacts/slice-verify/au05-adoption-safety-freshness-tauri/`（failure 保留只读）。 |

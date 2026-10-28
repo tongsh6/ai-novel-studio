@@ -59,7 +59,7 @@
 | SC-AU05-B3 修改后再采纳 | 已验收 | 无当前缺口；编辑后保存主路径已复验。 | closed | closed | `p1-chapter-edit-then-accept` 断言 `edited_content` 随 action 传递、阅读模式展示编辑后正文，`chapter_word_count=40` | 保持 edit_then_accept 回归 | 否 | AU-05 keep regression | 是 |
 | SC-AU05-B4 放弃草稿 | 已验收 | 无当前缺口；放弃后 no-write 主路径已复验。 | closed | closed | `au05-discard-author-action` 断言 `resolved=DISCARDED`、采纳按钮清理、阅读投影为空 | 保持 discard 回归 | 否 | AU-05 keep regression | 是 |
 | SC-AU05-C1 低风险可采纳但必须留下 decision | 已验收 | adoption decision 有当前证据；完整 StateTrace / developer replay 仍归 AU-07。 | Trace/replay follow-up | P1 | `au02-candidate-adoption-bridge` 断言 `adoption_boundary_returned_adopt_tentative`、`production_write_not_claimed`；`au07-state-trace-adoption-replay` 已有 StateTrace refs cross evidence | 补 developer replay 和旧 turn trace 查询 UI | 否 | AU-07 trace/replay | 是，已登记 owner |
-| SC-AU05-C2 高风险要求确认 | 已验收 | high-risk candidate 进入 confirmation/no-write 已复验；完整 confirmation lifecycle 归 AU-04/AU-06。 | cross-reference | P1 | `au05-adoption-safety-freshness` 断言 `adoption_boundary_returned_require_confirmation`、`candidate_not_adopted`、`production_write_not_claimed` | AU-06 继续补 durable behavior lifecycle / confirmation history | 否 | AU-06 behavior lifecycle | 是 |
+| SC-AU05-C2 高风险要求确认 | **历史已验收 → 2026-10-29 retired（B40 §10.2）** | 历史版本 high-risk candidate 进入 confirmation/no-write 已复验；但判断纪元 `propose_creative_directions` schema 无 `risk_hint`、`CandidateDirection` 恒 low，current-HEAD 无可达 high-risk 候选，场景已退役（证据见 known-gaps 2026-10-29 retired 表）。完整 confirmation lifecycle 仍归 AU-04/AU-06。 | cross-reference | P1 | 历史：`au05-adoption-safety-freshness` 断言 require_confirmation/no-write；现行替代：`au04-*` 确认链 + `au05-stale-conflict-cross-work-freshness` | AU-06 继续补 durable behavior lifecycle / confirmation history；若产品恢复候选风险分级，需新 slice | 否 | AU-06 behavior lifecycle | 是 |
 | SC-AU05-C3 stale 草稿不能采纳 | 已验收 | stale restored candidate 已拒绝；完整 context version / state snapshot freshness 未持久化。 | Freshness 加固 | P1 | `au05-stale-conflict-cross-work-freshness` 断言 `adoption_boundary_returned_reject`、`production_write_not_claimed` | 补 context version / state snapshot contract 与持久化 proof | 否 | State snapshot / AU-07 follow-up | 是，已登记 owner |
 | SC-AU05-C4 canon 冲突进入恢复 | 已验收 | 当前冲突依据来自 source candidate 的结构化 `canon_conflicts`；尚未从持久 canon/revision store 自动计算。 | canon/revision store | P1 | `au05-canon-conflict-recovery` 断言 `adoption_boundary_returned_fail_with_recovery`、`production_write_not_claimed` | 补 canon store 自动 conflict detection、覆盖确认/人工合并路径 | 否 | AU-09 / StateTrace / merge follow-up | 是，已登记 owner |
 | SC-AU05-C5 跨作品草稿不能采纳 | 已验收 | cross-work no-write 已复验；完整跨作品 persistent inbox 仍缺。 | Workbox / isolation 加固 | P1 | `au05-conflict-cross-work-recovery` 断言 `cross_work_candidate_failed_with_recovery_without_production_write` | 补 persistent inbox 的 work scope 隔离矩阵 | 否 | SU-02/AU-06 follow-up | 是，已登记 owner |
@@ -72,7 +72,7 @@
 
 ## 5. 验证
 
-- [x] `bash scripts/quality_accept.sh au05-adoption-safety-freshness --surface tauri`
+- [x] ~~`bash scripts/quality_accept.sh au05-adoption-safety-freshness --surface tauri`~~（2026-10-29 B40 §10.2 已退役，场景/ manifest 从 registry 移除；历史证据保留 `artifacts/slice-verify/au05-adoption-safety-freshness-tauri/` 只读）
 - [x] `bash scripts/quality_accept.sh au05-stale-conflict-cross-work-freshness --surface tauri`
 - [x] `bash scripts/quality_accept.sh au05-conflict-cross-work-recovery --surface tauri`
 - [x] `bash scripts/quality_accept.sh au05-canon-conflict-recovery --surface tauri`

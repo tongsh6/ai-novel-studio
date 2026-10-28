@@ -2590,7 +2590,7 @@ describe("native Tauri slice verifier", () => {
         outcome: "started",
       },
       {
-        event: "planner.form_frame.done",
+        event: "judgment.decided.done",
         turn_id: "turn-au07",
         workspace_id: "work-au07",
         work_id: "work-au07",
@@ -3953,7 +3953,10 @@ describe("native Tauri slice verifier", () => {
       followup_plain_user_message_sent: true,
       followup_context_has_conversation: true,
       followup_context_has_session_summary: true,
-      followup_reply_contains_context_nonce: true,
+      followup_reply_contains_context_nonce: false,
+      followup_reply_present: true,
+      followup_request_prompt_contains_context_nonce: true,
+      followup_request_prompt_contains_candidate_title: true,
       generate_micro_plan: false,
       tool_result_present: false,
       adoption_decision_present: false,
@@ -3980,7 +3983,8 @@ describe("native Tauri slice verifier", () => {
         "candidate_continuation_sent_candidate_selection",
         "plain_followup_did_not_send_candidate_selection",
         "followup_context_assembled_session_conversation",
-        "assistant_reply_reflected_prior_candidate_context",
+        "followup_real_request_prompt_carried_prior_candidate_context",
+        "followup_reply_non_empty_discussion",
         "micro_plan_not_requested",
         "no_author_action_or_adoption_events",
         "production_write_not_claimed",
@@ -3989,15 +3993,27 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
-  it("rejects AU-02 candidate multi-turn context without nonce-backed reply", () => {
+  it("rejects AU-02 candidate multi-turn context when the follow-up real request prompt lacks prior context", () => {
     const records = au02CandidateMultiturnContextRecords(
       "turn-source",
       "turn-continuation",
       "turn-followup",
     ).map((record) =>
       record.event === "slice_verify.ui_state.done"
-        ? { ...record, followup_reply_contains_context_nonce: false }
+        ? { ...record, followup_request_prompt_contains_context_nonce: false }
         : record,
+    );
+
+    expect(findNativeSliceEvidence("au02-candidate-multiturn-context", records)).toBeNull();
+  });
+
+  it("rejects AU-02 candidate multi-turn context when the follow-up reply is empty", () => {
+    const records = au02CandidateMultiturnContextRecords(
+      "turn-source",
+      "turn-continuation",
+      "turn-followup",
+    ).map((record) =>
+      record.event === "slice_verify.ui_state.done" ? { ...record, followup_reply_present: false } : record,
     );
 
     expect(findNativeSliceEvidence("au02-candidate-multiturn-context", records)).toBeNull();
@@ -4935,7 +4951,7 @@ describe("native Tauri slice verifier", () => {
         context_refs_count: 2,
       },
       {
-        event: "planner.form_frame.done",
+        event: "judgment.decided.done",
         turn_id: "turn-current",
         work_id: "work-au03",
         session_id: "session-active",
@@ -5031,7 +5047,7 @@ describe("native Tauri slice verifier", () => {
         "active_session_restored_before_author_message",
         "context_assembler_attached_current_work_snapshot",
         "context_assembler_attached_active_session_transcript",
-        "planner_received_context_before_frame",
+        "judgment_received_context_before_decision",
         "historical_session_transcript_did_not_replace_current_work_facts",
         "no_error_events",
         "assistant_messages_not_fallback",
@@ -5071,7 +5087,7 @@ describe("native Tauri slice verifier", () => {
         outcome: "done",
       },
       {
-        event: "planner.form_frame.done",
+        event: "judgment.decided.done",
         turn_id: "turn-long",
         workspace_id: "work-long",
         work_id: "work-long",
@@ -5179,7 +5195,7 @@ describe("native Tauri slice verifier", () => {
         "session_summary_attached_to_context",
         "old_turns_compressed_into_session_summary",
         "latest_recent_transcript_preserved_in_order",
-        "planner_received_context_before_frame",
+        "judgment_received_context_before_decision",
         "no_error_events",
         "assistant_messages_not_fallback",
       ],
@@ -5222,7 +5238,7 @@ describe("native Tauri slice verifier", () => {
         outcome: "done",
       },
       {
-        event: "planner.form_frame.done",
+        event: "judgment.decided.done",
         turn_id: "turn-source",
         workspace_id: "work-source",
         work_id: "work-source",
@@ -5290,7 +5306,7 @@ describe("native Tauri slice verifier", () => {
         "session_or_recent_dialogue_source_summary_visible",
         "confirmed_memory_source_summary_visible",
         "raw_prompt_provider_debug_not_visible",
-        "planner_received_context_before_frame",
+        "judgment_received_context_before_decision",
         "no_error_events",
         "assistant_messages_not_fallback",
       ],
@@ -6080,7 +6096,7 @@ describe("native Tauri slice verifier", () => {
         outcome: "done",
       },
       {
-        event: "planner.form_frame.done",
+        event: "judgment.decided.done",
         turn_id: "turn-memory",
         workspace_id: "work-memory",
         work_id: "work-memory",
@@ -6141,7 +6157,7 @@ describe("native Tauri slice verifier", () => {
         "micro_plan_not_requested",
         "confirmed_recallable_memory_attached_to_context",
         "memory_source_summary_visible_in_why_dialog",
-        "planner_received_context_before_frame",
+        "judgment_received_context_before_decision",
         "no_error_events",
         "assistant_messages_not_fallback",
       ],
@@ -10706,7 +10722,8 @@ function turnresultRecorderUiConsistencyRecords() {
       restored_ui_user_message_visible: true,
       restored_ui_assistant_visible: true,
       restored_input_enabled: true,
-      restored_send_enabled: true,
+      restored_send_enabled: false,
+      restored_send_enabled_after_input: true,
       generate_micro_plan: false,
       thinking_observed: true,
       socket_connected: true,
@@ -11908,7 +11925,10 @@ function au02CandidateMultiturnContextRecords(sourceTurnId, continuationTurnId, 
       followup_plain_user_message_sent: true,
       followup_context_has_conversation: true,
       followup_context_has_session_summary: true,
-      followup_reply_contains_context_nonce: true,
+      followup_reply_contains_context_nonce: false,
+      followup_reply_present: true,
+      followup_request_prompt_contains_context_nonce: true,
+      followup_request_prompt_contains_candidate_title: true,
       followup_message_visible: true,
       followup_reply_visible: true,
       generate_micro_plan: false,
@@ -14176,10 +14196,24 @@ function vs00cCp3StructuredContextRecords(turnId) {
     assembly_policy_id: "slice_verify",
   };
 
-  if (contextIndex < 0) return [...records, structureRecord];
+  const judgmentRecord = {
+    event: "judgment.decided.done",
+    turn_id: turnId,
+    workspace_id: "work-p1",
+    work_id: "work-p1",
+    session_id: "session-p1",
+    duration_ms: 0,
+    outcome: "ok",
+    action: "execute",
+    capability: "prose_writing",
+    frame_type: "judgment_execute",
+  };
+
+  if (contextIndex < 0) return [...records, judgmentRecord, structureRecord];
 
   return [
     ...records.slice(0, contextIndex + 1),
+    judgmentRecord,
     structureRecord,
     ...records.slice(contextIndex + 1),
   ];
@@ -14215,6 +14249,19 @@ function vs00cCp4ChapterPlanStructureRecords() {
       session_id: "session-p1",
       generate_micro_plan: true,
       message_preview: "请为当前作品生成章节大纲",
+    },
+    {
+      event: "context.assemble.done",
+      turn_id: planTurnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      duration_ms: 2,
+      outcome: "ok",
+      has_snapshot: true,
+      has_conversation: true,
+      has_memory: true,
+      context_refs_count: 2,
     },
     {
       event: "planner.form_frame.done",

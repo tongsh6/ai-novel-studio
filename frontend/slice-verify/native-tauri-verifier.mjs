@@ -1429,10 +1429,8 @@ const sliceKeyEvents = {
   ],
   "au09-memory-recall-context": [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.start",
     "context.assemble.done",
-    "planner.form_frame.done",
-    "dialogue_gateway.handle_input.done",
+    "judgment.decided.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
@@ -1472,8 +1470,7 @@ const sliceKeyEvents = {
     "work_session.show.done",
     "channel.user_message.start",
     "context.assemble.done",
-    "planner.form_frame.done",
-    "dialogue_gateway.handle_input.done",
+    "judgment.decided.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
@@ -1482,8 +1479,7 @@ const sliceKeyEvents = {
     "channel.join.done",
     "channel.user_message.start",
     "context.assemble.done",
-    "planner.form_frame.done",
-    "dialogue_gateway.handle_input.done",
+    "judgment.decided.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
@@ -1492,16 +1488,13 @@ const sliceKeyEvents = {
     "channel.join.done",
     "channel.user_message.start",
     "context.assemble.done",
-    "planner.form_frame.done",
-    "dialogue_gateway.handle_input.done",
+    "judgment.decided.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
   "au07-trace-why-entry": [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.start",
-    "planner.form_frame.done",
-    "dialogue_gateway.handle_input.done",
+    "judgment.decided.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
@@ -4491,18 +4484,32 @@ function findVs00cCp3StructuredContextEvidence(records) {
 
   const draftTurnId = String(uiState.draft_turn_id ?? "");
   if (!draftTurnId) return null;
+  // B40 §10.2 重锚：agent 子 turn 记录工具执行；context.assemble / user_message.done 记录在
+  // 父 turn（"<parent>:agent:N" 之前的部分），不能用子 turn id 单独要求。
+  const parentTurnId = draftTurnId.includes(":agent:")
+    ? draftTurnId.split(":agent:")[0]
+    : draftTurnId;
 
   const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
   const start = records.find(
     (record) =>
       record.event === "channel.user_message.start" &&
       record.generate_micro_plan === true &&
+      record.turn_id === parentTurnId &&
       String(uiState.user_message_text ?? "").includes(targetChapterTitle) &&
       String(uiState.user_message_text ?? "").includes("正文草稿"),
   );
   if (!start) return null;
 
-  if (!draftRecords.some((record) => record.event === "context.assemble.done")) return null;
+  if (
+    !records.some(
+      (record) =>
+        record.event === "context.assemble.done" &&
+        (record.turn_id === parentTurnId || record.turn_id === draftTurnId),
+    )
+  ) {
+    return null;
+  }
 
   const structure = draftRecords.find(
     (record) =>
@@ -4524,7 +4531,15 @@ function findVs00cCp3StructuredContextEvidence(records) {
   );
   if (!generatedByTool) return null;
 
-  if (!draftRecords.some((record) => record.event === "channel.user_message.done")) return null;
+  if (
+    !records.some(
+      (record) =>
+        record.event === "channel.user_message.done" &&
+        (record.turn_id === parentTurnId || record.turn_id === draftTurnId),
+    )
+  ) {
+    return null;
+  }
 
   const tocRead = records.find(
     (record) =>
@@ -4667,12 +4682,25 @@ function findP1ProseExecutionBriefEvidence(records) {
 
 function vs00cCp3StructuredContextBehavior(turnIds, turnRecords, records, evidence, options) {
   if (turnIds.length !== 1) return null;
-  if (!turnsHaveGenerateMicroPlan([evidence.draft_turn_id], turnRecords, true)) return null;
+  // B40 §10.2 重锚：判断纪元里子 turn 是 "<parent>:agent:N"，作者消息/判断决策记录在
+  // 父 turn；planner.form_micro_plan.* 已退役，当前语义位是父 turn 的 judgment.decided
+  // （execute + capability=prose_writing），随后才进入 toolbox.execute。
+  const draftTurnId = String(evidence.draft_turn_id ?? "");
+  const parentTurnId = draftTurnId.includes(":agent:") ? draftTurnId.split(":agent:")[0] : draftTurnId;
+  const parentStart = records.find(
+    (record) =>
+      record.event === "channel.user_message.start" &&
+      record.turn_id === parentTurnId &&
+      record.generate_micro_plan === true,
+  );
+  if (!parentStart) return null;
+  const parentDecision = records.find(
+    (record) => record.event === "judgment.decided.done" && record.turn_id === parentTurnId,
+  );
+  if (!parentDecision || parentDecision.action !== "execute") return null;
+  if (parentDecision.capability !== "prose_writing") return null;
   if (!contextAssembleTurnIdForDraftTurn(records, evidence.draft_turn_id)) return null;
   if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "context.structure.done")) return null;
-  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "planner.form_micro_plan.done")) {
-    return null;
-  }
   if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "toolbox.execute.done")) return null;
   if (hasEventPrefix(turnRecords, "channel.adopt.")) return null;
   if (!lmstudioHasSteps(options, [evidence.draft_turn_id], ["form_frame", "form_micro_plan"])) {
@@ -13987,8 +14015,12 @@ function findAu12CorrectionIntentRoundtripEvidence(records) {
       record.tool_name === "world_building" &&
       record.tool_outcome === "succeeded",
   );
+  // B40 §10.2 重锚：done 记录在父 turn（uiState.turn_id 是 "<parent>:agent:N" 子 turn）。
+  const uiParentTurnId = String(uiState.turn_id).split(":agent:")[0];
   const done = records.find(
-    (record) => record.event === "channel.user_message.done" && record.turn_id === uiState.turn_id,
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      (record.turn_id === uiState.turn_id || record.turn_id === uiParentTurnId),
   );
   if (!toolbox || !done) return null;
 
@@ -14589,7 +14621,9 @@ function findCandidateMultiturnContextEvidence(records) {
       record.followup_plain_user_message_sent === true &&
       record.followup_context_has_conversation === true &&
       record.followup_context_has_session_summary === true &&
-      record.followup_reply_contains_context_nonce === true &&
+      record.followup_request_prompt_contains_context_nonce === true &&
+      record.followup_request_prompt_contains_candidate_title === true &&
+      record.followup_reply_present === true &&
       record.followup_message_visible === true &&
       record.followup_reply_visible === true,
   );
@@ -14676,6 +14710,11 @@ function findCandidateMultiturnContextEvidence(records) {
     followup_context_has_conversation: uiState.followup_context_has_conversation,
     followup_context_has_session_summary: uiState.followup_context_has_session_summary,
     followup_reply_contains_context_nonce: uiState.followup_reply_contains_context_nonce,
+    followup_reply_present: uiState.followup_reply_present,
+    followup_request_prompt_contains_context_nonce:
+      uiState.followup_request_prompt_contains_context_nonce,
+    followup_request_prompt_contains_candidate_title:
+      uiState.followup_request_prompt_contains_candidate_title,
     generate_micro_plan: uiState.generate_micro_plan,
     tool_result_present: uiState.tool_result_present,
     adoption_decision_present: uiState.adoption_decision_present,
@@ -16263,7 +16302,11 @@ function candidateMultiturnContextBehavior(turnIds, turnRecords, evidence, optio
   );
   if (!followupContext) return null;
 
-  if (evidence.followup_reply_contains_context_nonce !== true) return null;
+  // B40 §10.2 重锚：上下文连续性改由“真实后续请求 prompt 携带 nonce+候选标题”（输入侧因果证据）
+  // 判定；替身回复文案不再要求逐字回显 nonce（copy 耦合，不构成上下文证据）。
+  if (evidence.followup_request_prompt_contains_context_nonce !== true) return null;
+  if (evidence.followup_request_prompt_contains_candidate_title !== true) return null;
+  if (evidence.followup_reply_present !== true) return null;
   if (evidence.followup_plain_user_message_sent !== true) return null;
   if (evidence.continuation_candidate_selection_sent !== true) return null;
   if (evidence.tool_result_present !== false) return null;
@@ -16288,7 +16331,8 @@ function candidateMultiturnContextBehavior(turnIds, turnRecords, evidence, optio
       "candidate_continuation_sent_candidate_selection",
       "plain_followup_did_not_send_candidate_selection",
       "followup_context_assembled_session_conversation",
-      "assistant_reply_reflected_prior_candidate_context",
+      "followup_real_request_prompt_carried_prior_candidate_context",
+      "followup_reply_non_empty_discussion",
       "micro_plan_not_requested",
       "no_author_action_or_adoption_events",
       "production_write_not_claimed",
@@ -19452,16 +19496,21 @@ function vs00cCp4ChapterPlanStructureBehavior(turnIds, turnRecords, records, evi
   if (turnIds.length !== 3) return null;
   if (!turnIds.includes(evidence.generation_turn_id)) return null;
   if (!turnIds.includes(evidence.draft_turn_id)) return null;
+  // B40 §10.2 重锚：判断纪元 agent 子 turn（"<parent>:agent:N"）只承载工具执行；
+  // 作者消息（generate_micro_plan）与 context.assemble 记录在父 turn。
+  const parentTurnIds = [evidence.generation_turn_id, evidence.draft_turn_id].map((turnId) =>
+    String(turnId).includes(":agent:") ? String(turnId).split(":agent:")[0] : String(turnId),
+  );
+  if (!turnsHaveGenerateMicroPlan(parentTurnIds, records, true)) return null;
   if (
-    !turnsHaveGenerateMicroPlan(
-      [evidence.generation_turn_id, evidence.draft_turn_id],
-      turnRecords,
-      true,
+    !parentTurnIds.every((parentTurnId) =>
+      records.some(
+        (record) => record.event === "context.assemble.done" && record.turn_id === parentTurnId,
+      ),
     )
   ) {
     return null;
   }
-  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "context.assemble.done")) return null;
   if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "context.structure.done")) return null;
   if (
     !turnsHaveEvent(
@@ -21179,14 +21228,42 @@ function au12ProfileReadFailureDegradeBehavior(records, evidence, _options) {
 function au12CorrectionIntentRoundtripBehavior(turnIds, turnRecords, records, evidence, _options) {
   if (turnIds.length !== 1) return null;
   if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
-  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, true)) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_micro_plan.done")) return null;
+  // B40 §10.2 重锚：工具执行落在 "<parent>:agent:N" 子 turn；作者消息/判断决策/上下文装配
+  // 在父 turn。planner.form_frame/form_micro_plan 与 dialogue_gateway.* 已退役，当前判断
+  // 纪元语义位 = judgment.decided.done（execute + capability world_building）。
+  const parentTurnId = String(turnIds[0]).includes(":agent:")
+    ? String(turnIds[0]).split(":agent:")[0]
+    : String(turnIds[0]);
+  if (!turnsHaveGenerateMicroPlan([parentTurnId], records, true)) return null;
+  const judgment = records.find(
+    (record) =>
+      record.event === "judgment.decided.done" &&
+      record.turn_id === parentTurnId &&
+      record.action === "execute" &&
+      record.capability === "world_building",
+  );
+  if (!judgment) return null;
+  if (
+    !records.some(
+      (record) => record.event === "context.assemble.done" && record.turn_id === parentTurnId,
+    )
+  ) {
+    return null;
+  }
   if (!turnsHaveEvent(turnIds, turnRecords, "orchestrator.decide.done")) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "toolbox.execute.done")) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "dialogue_gateway.handle_input.done")) return null;
-  if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
-  if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
+  const authorActionPrefix = records.some(
+    (record) =>
+      (record.turn_id === parentTurnId || turnIds.includes(record.turn_id)) &&
+      String(record.event ?? "").startsWith("channel.author_action."),
+  );
+  if (authorActionPrefix) return null;
+  const adoptionPrefix = records.some(
+    (record) =>
+      (record.turn_id === parentTurnId || turnIds.includes(record.turn_id)) &&
+      String(record.event ?? "").startsWith("adoption.evaluate."),
+  );
+  if (adoptionPrefix) return null;
 
   const uiState = records.find(
     (record) =>
@@ -21222,7 +21299,7 @@ function au12CorrectionIntentRoundtripBehavior(turnIds, turnRecords, records, ev
     assertions: [
       "author_clicked_visible_profile_correction_action",
       "real_workbench_sent_user_message_with_generate_micro_plan",
-      "planner_frame_and_micro_plan_completed",
+      "judgment_decided_world_building_single_capability",
       "orchestrator_allowed_world_building_tool",
       "world_building_created_pending_world_setting_artifact",
       "pending_artifact_requires_author_adoption",
@@ -24472,7 +24549,9 @@ function memoryRecallContextBehavior(records, evidence, options) {
   if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
   if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "context.assemble.done")) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  // B40 §10.2 重锚：planner.form_frame.* 已随判断纪元退役；当前生产链的判断决策事件是
+  // judgment.decided.done（同一语义位：判断在读到 assembled context 之后形成回复决策）。
+  if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
   if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
 
   const contextDone = turnRecords.find((record) => record.event === "context.assemble.done");
@@ -24489,7 +24568,7 @@ function memoryRecallContextBehavior(records, evidence, options) {
       "micro_plan_not_requested",
       "confirmed_recallable_memory_attached_to_context",
       "memory_source_summary_visible_in_why_dialog",
-      "planner_received_context_before_frame",
+      "judgment_received_context_before_decision",
       "no_error_events",
       "assistant_messages_not_fallback",
     ],
@@ -24702,7 +24781,9 @@ function currentWorkContextSsotBehavior(records, evidence, options) {
   if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
   if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "context.assemble.done")) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  // B40 §10.2 重锚：planner.form_frame.* 已随判断纪元退役；当前生产链的判断决策事件是
+  // judgment.decided.done（同一语义位：判断在读到 assembled context 之后形成回复决策）。
+  if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
   if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
   if (!assistantMessagesAreValid(options.provider, turnIds, options.llmRecords ?? [])) return null;
 
@@ -24739,7 +24820,7 @@ function currentWorkContextSsotBehavior(records, evidence, options) {
       "active_session_restored_before_author_message",
       "context_assembler_attached_current_work_snapshot",
       "context_assembler_attached_active_session_transcript",
-      "planner_received_context_before_frame",
+      "judgment_received_context_before_decision",
       "historical_session_transcript_did_not_replace_current_work_facts",
       "no_error_events",
       "assistant_messages_not_fallback",
@@ -24755,7 +24836,9 @@ function longSessionCompressionBehavior(records, evidence, options) {
   if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
   if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "context.assemble.done")) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  // B40 §10.2 重锚：planner.form_frame.* 已随判断纪元退役；当前生产链的判断决策事件是
+  // judgment.decided.done（同一语义位：判断在读到 assembled context 之后形成回复决策）。
+  if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
   if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
   if (!assistantMessagesAreValid(options.provider, turnIds, options.llmRecords ?? [])) return null;
 
@@ -24792,7 +24875,7 @@ function longSessionCompressionBehavior(records, evidence, options) {
       "session_summary_attached_to_context",
       "old_turns_compressed_into_session_summary",
       "latest_recent_transcript_preserved_in_order",
-      "planner_received_context_before_frame",
+      "judgment_received_context_before_decision",
       "no_error_events",
       "assistant_messages_not_fallback",
     ],
@@ -24808,7 +24891,9 @@ function contextSourceUiBehavior(records, evidence, options) {
   if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
   if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "context.assemble.done")) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  // B40 §10.2 重锚：planner.form_frame.* 已随判断纪元退役；当前生产链的判断决策事件是
+  // judgment.decided.done（同一语义位：判断在读到 assembled context 之后形成回复决策）。
+  if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
   if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
   if (!assistantMessagesAreValid(options.provider, turnIds, options.llmRecords ?? [])) return null;
 
@@ -24850,7 +24935,7 @@ function contextSourceUiBehavior(records, evidence, options) {
       "session_or_recent_dialogue_source_summary_visible",
       "confirmed_memory_source_summary_visible",
       "raw_prompt_provider_debug_not_visible",
-      "planner_received_context_before_frame",
+      "judgment_received_context_before_decision",
       "no_error_events",
       "assistant_messages_not_fallback",
     ],
@@ -24865,7 +24950,8 @@ function traceWhyEntryBehavior(records, evidence, options) {
   if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
   if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
   if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  // B40 §10.2 重锚：判断纪元后没有 planner.form_frame，回复决策事件是 judgment.decided.done。
+  if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
   if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
 
   const uiState = turnRecords.find(
@@ -26490,7 +26576,8 @@ function findAu01TurnresultRecorderUiConsistencyEvidence(records) {
   if (uiState.restored_ui_user_message_visible !== true) return null;
   if (uiState.restored_ui_assistant_visible !== true) return null;
   if (uiState.restored_input_enabled !== true) return null;
-  if (uiState.restored_send_enabled !== true) return null;
+  // B40 §10.2 重锚：空输入下发送按钮按产品设计 disabled；验证「键入后可用」而非空输入可用。
+  if (uiState.restored_send_enabled_after_input !== true) return null;
   if (uiState.generate_micro_plan !== false) return null;
   if (turnRecords.some((record) => record.event?.startsWith("planner.form_micro_plan."))) {
     return null;
