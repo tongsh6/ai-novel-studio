@@ -22,10 +22,14 @@ import path from "node:path";
 import {
   DEFAULT_PROJECT_ROOT,
   loadRegistryScenarios,
-  scenarioRunner,
 } from "./manifest.mjs";
 import { readVerdict } from "./verdict.mjs";
-import { readArtifactEvidence } from "./evidence_chain.mjs";
+import {
+  readArtifactEvidence,
+  readRecordedEvidenceChain,
+  readRecordedEvidenceRequirements,
+  validateEvidenceRequirements,
+} from "./evidence_chain.mjs";
 import { scanNativeArtifactDir } from "./native_run_manifest.mjs";
 import {
   RELEASE_LAYER_FILE,
@@ -45,8 +49,9 @@ const USAGE = [
   "  --planned-runs <n>                  # 默认 release=1 / release-real-llm=2",
   "  --retention-text <text>             # 未参与调词的保留措辞",
   "  --retention-ref <ref>               # 措辞留痕引用",
-  "  --requires-observation-link         # 场景要求观察进入后续真实 provider 请求",
+  "  --requires-observation-link         # 旧 flag：等价于声明 observation_link required",
   "  --requires-full-matrix              # 场景要求全矩阵（scoped 原生证据不算）",
+  "  --evidence-requirements <file.json>  # 运行前冻结的必需证据声明（缺省读 artifact/evidence-requirements.json，再缺省按全 required）",
   "  --out <dir>                         # 写 <dir>/release-layer.json（默认只打印）",
   "  --overwrite                         # 明确允许覆盖同目录旧结果（默认拒绝）",
   "  --json                              # stdout 输出 JSON（否则人类可读摘要）",
@@ -68,6 +73,7 @@ function splitArgs(argv) {
     "--planned-runs",
     "--retention-text",
     "--retention-ref",
+    "--evidence-requirements",
     "--out",
     "--root",
   ]);
@@ -166,7 +172,49 @@ function loadScenarioResult({ projectRoot, row, scenario, options }) {
       nativeRun = null;
     }
   }
-  const chain = evidence?.chain ?? null;
+  // B42 §12：优先读 artifact 里已记录的证据链（quality-evidence-chain/v1），
+  // 缺失才退回从原始 artifact 派生（历史 artifact → binding unknown，不会写成 PASS）。
+  let chain = evidence?.chain ?? null;
+  let chainError = null;
+  if (artifactDir && fs.existsSync(artifactDir)) {
+    try {
+      const recorded = readRecordedEvidenceChain(artifactDir);
+      if (recorded) chain = recorded;
+    } catch (error) {
+      chain = null;
+      chainError = error.message;
+    }
+  }
+  // 必需证据声明优先级：CLI 显式文件 > artifact 冻结声明 > registry 场景声明 > 全 required。
+  let requirements = null;
+  let requirementsError = null;
+  if (options.evidence_requirements) {
+    const reqPath = path.isAbsolute(options.evidence_requirements)
+      ? options.evidence_requirements
+      : path.resolve(projectRoot, options.evidence_requirements);
+    const raw = fs.readFileSync(reqPath, "utf8");
+    const parsed = JSON.parse(raw);
+    const errors = validateEvidenceRequirements(parsed);
+    if (errors.length > 0) {
+      throw new Error(`--evidence-requirements 非法（${reqPath}）：${errors.join("; ")}`);
+    }
+    requirements = parsed;
+  } else if (artifactDir) {
+    try {
+      requirements = readRecordedEvidenceRequirements(artifactDir);
+    } catch (error) {
+      requirementsError = error.message;
+    }
+  }
+  if (requirements === null && scenario?.evidence_requirements !== undefined) {
+    const errors = validateEvidenceRequirements(scenario.evidence_requirements);
+    if (errors.length > 0) {
+      throw new Error(
+        `registry 场景 ${row.scenario_id} 的 evidence_requirements 非法：${errors.join("; ")}`,
+      );
+    }
+    requirements = scenario.evidence_requirements;
+  }
   const llmCalls = evidence?.llm_calls ?? [];
   const realCalls = llmCalls.filter((call) => call.real);
   const artifactRetention = artifactDir ? readRetentionFromArtifact(artifactDir) : null;
@@ -209,7 +257,12 @@ function loadScenarioResult({ projectRoot, row, scenario, options }) {
       verdict_present: Boolean(verdict),
       verdict_status: verdict?.status ?? null,
     },
+    // 采样参数取真实请求体里记录的值（readLlmCalls.request_params）；缺失不伪造 → missing_model_params。
+    params: realCalls.map((call) => call.request_params).find(Boolean) ?? null,
     evidence_chain: chain,
+    evidence_chain_error: chainError,
+    evidence_requirements: requirements,
+    evidence_requirements_error: requirementsError,
     native_run: nativeRun,
     requires_observation_link: options.flags.has("requires-observation-link") === true,
     requires_full_matrix: options.flags.has("requires-full-matrix") === true,
@@ -285,20 +338,25 @@ function main() {
 
   const registryById = new Map(registryScenarios.map((scenario) => [scenario.id, scenario]));
   const results = [];
-  for (const row of batch?.scenarios ?? []) {
-    const scenario = registryById.get(row.scenario_id) ?? null;
-    results.push(
-      loadScenarioResult({
-        projectRoot,
-        row,
-        scenario,
-        options: {
-          ...options,
-          provider: options.provider ?? batch?.provider ?? null,
-          surface: options.surface ?? batch?.surface ?? null,
-        },
-      }),
-    );
+  try {
+    for (const row of batch?.scenarios ?? []) {
+      const scenario = registryById.get(row.scenario_id) ?? null;
+      results.push(
+        loadScenarioResult({
+          projectRoot,
+          row,
+          scenario,
+          options: {
+            ...options,
+            provider: options.provider ?? batch?.provider ?? null,
+            surface: options.surface ?? batch?.surface ?? null,
+          },
+        }),
+      );
+    }
+  } catch (error) {
+    console.error(`[release-layer] 组装场景结果失败：${error.message}`);
+    return 66;
   }
   const plannedRuns = options.planned_runs ? Number(options.planned_runs) : null;
 

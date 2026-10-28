@@ -44,8 +44,55 @@ export const PREPARATION_OUTCOMES = Object.freeze([
 // 恢复后 stale 语义（VS-00K §4.4）。
 export const STALE_ON_RESTORE_VALUES = Object.freeze(["none", "stale_detected", "unknown"]);
 
+// replay 证据状态（B42 §12.1，2026-10-28 最小兼容修订）：
+// - not_executed  = 明确未运行 replay，不能当作“已验证不调 provider”；
+// - no_provider_call = replay 已执行且证明没有重调 provider，可作为 replay 证据；
+// - provider_called = replay 重调了 provider，不得作为证据信用（violation）；
+// - unknown = 历史 artifact 未表达状态（不得由旧布尔 false 反推“已证明未调用”）。
+export const REPLAY_STATUSES = Object.freeze([
+  "not_executed",
+  "no_provider_call",
+  "provider_called",
+  "unknown",
+]);
+
 // 证据链绑定状态。任何 PASS 相关的模型行为判定都不接受 violated/unknown。
 export const BINDING_STATUSES = Object.freeze(["verified", "partial", "unknown", "violated"]);
+
+// ---------- 场景必需证据声明（B42 §12.1，additive，同 v1 兼容） ----------
+//
+// 每个 release-real-llm 场景在运行前声明各证据维度的适用性：
+// - required       = 该场景必须提供该证据，缺失即 evidence_missing（hard violation 仍 fail）；
+// - not_applicable = 该场景语义上不需要该证据（如 A0 不探索、CP1 未实现准备判断/replay），
+//                    缺失只记录，不阻塞；声明需在运行前冻结，不能事后删要求。
+// 未声明的维度一律按 required（严格默认），忘记声明永远不会自动放行。
+export const EVIDENCE_REQUIREMENTS_SCHEMA_VERSION = "quality-evidence-requirements/v1";
+export const EVIDENCE_REQUIREMENTS_FILE = "evidence-requirements.json";
+
+export const EVIDENCE_DIMENSIONS = Object.freeze([
+  "base_refs",
+  "observations",
+  "observation_link",
+  "source_metadata",
+  "used_context_refs",
+  "preparation",
+  "restore",
+  "replay",
+]);
+
+export const EVIDENCE_REQUIREMENT_VALUES = Object.freeze(["required", "not_applicable"]);
+
+// 维度缺失时的原因码；observation_link 缺失是“场景核心断言不成立”，按 fail 处理。
+export const EVIDENCE_DIMENSION_REASON_CODES = Object.freeze({
+  base_refs: "required_base_refs_missing",
+  observations: "required_observations_missing",
+  observation_link: "required_observation_link_missing",
+  source_metadata: "required_source_metadata_missing",
+  used_context_refs: "required_used_context_refs_missing",
+  preparation: "required_preparation_missing",
+  restore: "required_restore_missing",
+  replay: "required_replay_evidence_missing",
+});
 
 // 确定性 provider（只能证明机制，不能证明模型行为）。
 export const DETERMINISTIC_PROVIDERS = Object.freeze([
@@ -408,7 +455,13 @@ export function buildEvidenceChain(input = {}) {
   const staleOnRestore = STALE_ON_RESTORE_VALUES.includes(input.stale_on_restore)
     ? input.stale_on_restore
     : "unknown";
-  const replayProviderCalled = input.replay_provider_called === true;
+  // B42 §12.1：replay 用三态表达；旧布尔 false 不再被读成“已验证未调 provider”。
+  const replayStatus = REPLAY_STATUSES.includes(input.replay_status)
+    ? input.replay_status
+    : input.replay_provider_called === true
+      ? "provider_called"
+      : "unknown";
+  const replayProviderCalled = replayStatus === "provider_called";
   const baseRefSet = new Set(base.refs);
   const { creditable, unread, stale, unknownMetadata } = classifyObservationRefs(observations);
 
@@ -512,6 +565,7 @@ export function buildEvidenceChain(input = {}) {
     preparation_outcome: preparationOutcome,
     stale_on_restore: staleOnRestore,
     replay_provider_called: replayProviderCalled,
+    replay_status: replayStatus,
     blockers: uniqueStrings(blockers),
     violations,
     generated_at: timestampOrNull(input.generated_at) ?? new Date().toISOString(),
@@ -560,6 +614,9 @@ export function validateEvidenceChain(chain) {
   if (typeof chain.replay_provider_called !== "boolean") {
     errors.push("replay_provider_called 必须是 boolean");
   }
+  if (chain.replay_status !== undefined && !REPLAY_STATUSES.includes(chain.replay_status)) {
+    errors.push(`replay_status 必须属于 ${REPLAY_STATUSES.join(" | ")}（可选字段；缺省按历史 artifact 记 unknown）`);
+  }
   (chain.observations ?? []).forEach((observation, index) => {
     if (!isPlainObject(observation)) {
       errors.push(`observations[${index}] 必须是 object`);
@@ -602,11 +659,12 @@ export function evaluateEvidenceChain(chain) {
   const unbound = new Set(uniqueStrings(chain.unbound_refs ?? []));
   const usedBound = used.filter((ref) => !unbound.has(ref));
 
+  // B42 §12.2：verified 必须没有任何 blocker；过去只检查 base/used/metadata 三个条件，
+  // preparation/restore/链接等 blocker 会被吞掉，从而把不完整证据读成 verified。
   let bindingStatus;
   if (violations.length > 0) bindingStatus = "violated";
   else if (chain.base_refs_status !== "recorded") bindingStatus = "unknown";
-  else if (chain.used_context_refs_status !== "reported") bindingStatus = "partial";
-  else if (['observation_metadata_missing'].some((code) => blockers.includes(code))) bindingStatus = "partial";
+  else if (blockers.length > 0) bindingStatus = "partial";
   else bindingStatus = "verified";
 
   const reasonCodes = [
@@ -618,10 +676,192 @@ export function evaluateEvidenceChain(chain) {
     reason_codes: uniqueStrings(reasonCodes),
     violations,
     blockers,
+    replay_status: resolveReplayStatus(chain),
     observation_link_count: links.length,
     real_observation_link_count: realLinks.length,
     used_bound_count: usedBound.length,
     used_unbound_count: unbound.size,
+  };
+}
+
+// ---------- 场景必需证据声明与完整性判定（B42 §12） ----------
+
+/**
+ * 默认声明：全部维度 required（严格默认）。忘记声明不会自动放行。
+ * @returns {{schema_version: string, dimensions: Record<string, "required"|"not_applicable">, note: null}}
+ */
+export function defaultEvidenceRequirements() {
+  const dimensions = {};
+  for (const dimension of EVIDENCE_DIMENSIONS) dimensions[dimension] = "required";
+  return {
+    schema_version: EVIDENCE_REQUIREMENTS_SCHEMA_VERSION,
+    dimensions,
+    note: null,
+  };
+}
+
+/**
+ * 归一化并校验场景必需证据声明（运行前冻结；只表达 required / not_applicable）。
+ *
+ * 反缩水约束（结构上禁止把必要条件删没）：
+ * - `base_refs`、`used_context_refs` 必须 required（模型行为 PASS 必须能核验 Base 与 self_report；
+ *   否则 used refs 无从判定）；
+ * - `observation_link` / `source_metadata` required 时 `observations` 必须 required；
+ * - 未声明维度按 required，未知维度 / 非法值 / 未知顶层字段直接报错。
+ */
+export function normalizeEvidenceRequirements(raw) {
+  if (raw === null || raw === undefined) return defaultEvidenceRequirements();
+  if (!isPlainObject(raw)) {
+    throw new EvidenceChainError("evidence_requirements 必须是 object", "invalid_requirements", [
+      "evidence_requirements 必须是 object",
+    ]);
+  }
+  const errors = [];
+  const allowedTop = new Set(["schema_version", "dimensions", "note"]);
+  for (const key of Object.keys(raw)) {
+    if (!allowedTop.has(key)) errors.push(`未知字段 ${key}`);
+  }
+  if (raw.schema_version !== undefined && raw.schema_version !== EVIDENCE_REQUIREMENTS_SCHEMA_VERSION) {
+    errors.push(`schema_version 必须为 ${EVIDENCE_REQUIREMENTS_SCHEMA_VERSION}`);
+  }
+  const source = raw.dimensions;
+  if (!isPlainObject(source)) {
+    errors.push("dimensions 必须是 object");
+  } else {
+    for (const key of Object.keys(source)) {
+      if (!EVIDENCE_DIMENSIONS.includes(key)) errors.push(`未知证据维度 ${key}`);
+    }
+  }
+  const dimensions = {};
+  for (const dimension of EVIDENCE_DIMENSIONS) {
+    const value = isPlainObject(source) ? source[dimension] : undefined;
+    if (value === undefined) dimensions[dimension] = "required";
+    else if (EVIDENCE_REQUIREMENT_VALUES.includes(value)) dimensions[dimension] = value;
+    else errors.push(`${dimension} 必须属于 ${EVIDENCE_REQUIREMENT_VALUES.join(" | ")}（actual: ${String(value)}）`);
+  }
+  if (dimensions.base_refs !== "required") {
+    errors.push("base_refs 必须 required：模型行为 PASS 必须有 Base 记录，否则 used refs 无法核验");
+  }
+  if (dimensions.used_context_refs !== "required") {
+    errors.push("used_context_refs 必须 required：必须证明模型实际使用，不能从 supplied/Base 推导");
+  }
+  if (dimensions.observation_link === "required" && dimensions.observations !== "required") {
+    errors.push("observation_link required 时 observations 必须 required");
+  }
+  if (dimensions.source_metadata === "required" && dimensions.observations !== "required") {
+    errors.push("source_metadata required 时 observations 必须 required");
+  }
+  if (errors.length > 0) {
+    throw new EvidenceChainError(`非法 evidence_requirements：${errors.join("; ")}`, "invalid_requirements", errors);
+  }
+  return {
+    schema_version: EVIDENCE_REQUIREMENTS_SCHEMA_VERSION,
+    dimensions,
+    note: stringOrNull(raw.note),
+  };
+}
+
+/** 校验声明但不抛错（CLI 友好）：返回错误数组。 */
+export function validateEvidenceRequirements(value) {
+  try {
+    normalizeEvidenceRequirements(value);
+    return [];
+  } catch (error) {
+    if (error instanceof EvidenceChainError && error.errors.length > 0) return error.errors;
+    return [error.message];
+  }
+}
+
+/** 旧 CLI/场景 flag 并入声明：requires_observation_link 强制执行链接证据（多声明不放宽）。 */
+export function applyLegacyEvidenceFlags(requirements, { requiresObservationLink = false } = {}) {
+  const normalized = normalizeEvidenceRequirements(requirements);
+  if (!requiresObservationLink) return normalized;
+  const dimensions = {
+    ...normalized.dimensions,
+    observations: "required",
+    observation_link: "required",
+    source_metadata: "required",
+  };
+  return { ...normalized, dimensions };
+}
+
+/** replay 三态解析：新字段优先；旧 artifact 的布尔 false 不能反推“已验证未调用”。 */
+export function resolveReplayStatus(chain) {
+  if (!isPlainObject(chain)) return "unknown";
+  if (REPLAY_STATUSES.includes(chain.replay_status)) return chain.replay_status;
+  return chain.replay_provider_called === true ? "provider_called" : "unknown";
+}
+
+/**
+ * 必需证据完整性判定（B42 §12.2）。纯函数，只读归一化 chain + 声明。
+ *
+ * - `status=complete` 才允许进入模型行为 PASS 判定；
+ * - 必需维度缺失 → 原因码（evidence_missing）；只有 `observation_link` 缺失属于
+ *   “场景核心因果断言不成立”，按 fail 处理（`fail_codes`）。
+ */
+export function evaluateEvidenceCompleteness(chain, requirements) {
+  const normalized = normalizeEvidenceRequirements(requirements);
+  const observations = Array.isArray(chain?.observations) ? chain.observations : [];
+  const links = Array.isArray(chain?.observation_to_provider_call) ? chain.observation_to_provider_call : [];
+  const realLinks = links.filter((link) => link?.ordered === true && link?.provider_real === true);
+  const recordedRealCalls = (Array.isArray(chain?.provider_calls) ? chain.provider_calls : []).filter(
+    (call) => call?.real === true,
+  ).length;
+  const metadataComplete = observations.filter((observation) => observation?.metadata_missing !== true).length;
+  const unboundRefs = Array.isArray(chain?.unbound_refs) ? chain.unbound_refs : [];
+  const replayStatus = resolveReplayStatus(chain);
+  const usedStatus = chain?.used_context_refs_status ?? "unknown";
+  const usedSource = chain?.used_context_refs_source ?? "missing";
+  const preparation = chain?.preparation_outcome ?? "unknown";
+  const staleOnRestore = chain?.stale_on_restore ?? "unknown";
+
+  const present = {
+    base_refs: chain?.base_refs_status === "recorded",
+    observations: observations.length > 0,
+    observation_link: realLinks.length > 0,
+    source_metadata: observations.length > 0 && metadataComplete === observations.length,
+    used_context_refs:
+      usedStatus === "reported" && usedSource !== "inferred_supplied" && unboundRefs.length === 0,
+    preparation: preparation !== "unknown",
+    restore: staleOnRestore !== "unknown",
+    replay: replayStatus === "no_provider_call",
+  };
+  const observed = {
+    base_refs: chain?.base_refs_status ?? "unknown",
+    observations: observations.length,
+    observation_link: realLinks.length,
+    source_metadata: `${metadataComplete}/${observations.length}`,
+    used_context_refs: { status: usedStatus, source: usedSource, unbound_count: unboundRefs.length },
+    preparation,
+    restore: staleOnRestore,
+    replay: replayStatus,
+  };
+
+  const dimensions = {};
+  const missingRequired = [];
+  const reasonCodes = [];
+  const failCodes = [];
+  for (const dimension of EVIDENCE_DIMENSIONS) {
+    const requirement = normalized.dimensions[dimension];
+    const ok = present[dimension];
+    dimensions[dimension] = { requirement, present: ok, observed: observed[dimension] };
+    if (requirement !== "required" || ok) continue;
+    missingRequired.push(dimension);
+    reasonCodes.push(EVIDENCE_DIMENSION_REASON_CODES[dimension]);
+    // observation_link 的“fail vs evidence_missing”分界：
+    // 观察与真实 provider 调用都已记录、却没有可判顺序的链接 → 因果断言被证据否定 → fail；
+    // 任一侧未记录（历史 artifact/骨架链）→ 无法判断 → 只能 evidence_missing。
+    if (dimension === "observation_link" && observations.length > 0 && recordedRealCalls > 0) {
+      failCodes.push("observation_not_linked");
+    }
+  }
+  return {
+    status: missingRequired.length === 0 ? "complete" : "missing",
+    requirements: normalized.dimensions,
+    dimensions,
+    missing_required: missingRequired,
+    reason_codes: uniqueStrings(reasonCodes),
+    fail_codes: uniqueStrings(failCodes),
   };
 }
 
@@ -791,6 +1031,28 @@ export function extractFrameEvidence({ file, relative = null, rows }) {
   return { file: relative ?? file, frames, observations, used_occurrences: usedOccurrences, provider_call_refs: providerCallRefs };
 }
 
+// 生成参数白名单：只读取真实请求体里的采样参数，不把 messages/正文带进索引。
+const REQUEST_PARAM_KEYS = Object.freeze([
+  "temperature",
+  "top_p",
+  "top_k",
+  "max_tokens",
+  "max_completion_tokens",
+  "seed",
+  "stop",
+  "presence_penalty",
+  "frequency_penalty",
+]);
+
+function extractRequestParams(body) {
+  if (!isPlainObject(body)) return null;
+  const params = {};
+  for (const key of REQUEST_PARAM_KEYS) {
+    if (body[key] !== undefined && body[key] !== null) params[key] = body[key];
+  }
+  return Object.keys(params).length > 0 ? params : null;
+}
+
 /** 读取 llm-calls JSONL：真实 provider 请求/响应索引（不含响应正文大文本）。 */
 export function readLlmCalls(file, relative = null) {
   const rows = readJsonlRows(file);
@@ -820,6 +1082,7 @@ export function readLlmCalls(file, relative = null) {
         response.status === null ||
         Number(response.status) === 200,
       request_message_count: Array.isArray(body.messages) ? body.messages.length : 0,
+      request_params: extractRequestParams(body),
       response_has_body: isPlainObject(response.body) || nonEmptyString(response.body),
       real: classifyProvider(provider) === "real_model",
       source_file: relative ?? file,
@@ -950,4 +1213,53 @@ export function writeEvidenceChain(artifactDir, chain, options = {}) {
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, `${JSON.stringify(chain, null, 2)}\n`);
   return { ok: true, path: target };
+}
+
+/**
+ * 读取 artifact 目录里已记录的证据链（quality-evidence-chain/v1）。
+ * 缺文件返回 null；存在但非法抛 EvidenceChainError（调用方按 evidence_missing 处理，不猜）。
+ */
+export function readRecordedEvidenceChain(artifactDir) {
+  const file = path.join(artifactDir, EVIDENCE_CHAIN_FILE);
+  if (!fs.existsSync(file)) return null;
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new EvidenceChainError(
+      `evidence-chain.json 不是合法 JSON：${error.message}`,
+      "invalid_evidence_chain",
+      [error.message],
+    );
+  }
+  const errors = validateEvidenceChain(data);
+  if (errors.length > 0) {
+    throw new EvidenceChainError(
+      `evidence-chain.json 未通过校验：${errors.join("; ")}`,
+      "invalid_evidence_chain",
+      errors,
+    );
+  }
+  return data;
+}
+
+/**
+ * 读取运行前冻结的必需证据声明（quality-evidence-requirements/v1）。
+ * 缺文件返回 null；存在但非法抛错——不能静默按默认/放宽处理。
+ */
+export function readRecordedEvidenceRequirements(artifactDir) {
+  const file = path.join(artifactDir, EVIDENCE_REQUIREMENTS_FILE);
+  if (!fs.existsSync(file)) return null;
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new EvidenceChainError(
+      `evidence-requirements.json 不是合法 JSON：${error.message}`,
+      "invalid_requirements",
+      [error.message],
+    );
+  }
+  normalizeEvidenceRequirements(data);
+  return data;
 }

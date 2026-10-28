@@ -7,23 +7,37 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BINDING_STATUSES,
   CREDITABLE_OUTCOMES,
   EVIDENCE_CHAIN_SCHEMA_VERSION,
+  EVIDENCE_DIMENSIONS,
+  EVIDENCE_DIMENSION_REASON_CODES,
+  EVIDENCE_REQUIREMENT_VALUES,
+  EVIDENCE_REQUIREMENTS_SCHEMA_VERSION,
   OBSERVATION_OUTCOMES,
   PREPARATION_OUTCOMES,
+  REPLAY_STATUSES,
   STALE_ON_RESTORE_VALUES,
+  applyLegacyEvidenceFlags,
   buildEvidenceChain,
   classifyProvider,
+  defaultEvidenceRequirements,
   evaluateEvidenceChain,
+  evaluateEvidenceCompleteness,
   extractFrameEvidence,
   listEvidenceFiles,
+  normalizeEvidenceRequirements,
   readArtifactEvidence,
   readLlmCalls,
+  readRecordedEvidenceChain,
+  readRecordedEvidenceRequirements,
+  resolveReplayStatus,
   validateEvidenceChain,
+  validateEvidenceRequirements,
   writeEvidenceChain,
 } from "./evidence_chain.mjs";
 
@@ -407,4 +421,247 @@ test("真实 CREDITABLE 观察集合为闭集且 unknown 不在其中", () => {
   assert.ok(!CREDITABLE_OUTCOMES.includes("unknown"));
   assert.ok(!CREDITABLE_OUTCOMES.includes("error"));
   assert.ok(!CREDITABLE_OUTCOMES.includes("stale"));
+});
+
+// ---------- B42 §12：必需证据声明 / replay 三态 / 完整性判定 ----------
+
+const REQUIREMENTS_SCHEMA = schema.$defs.evidence_requirements;
+const A1_REQUIREMENTS = {
+  dimensions: {
+    preparation: "not_applicable",
+    restore: "not_applicable",
+    replay: "not_applicable",
+  },
+};
+const A0_REQUIREMENTS = {
+  dimensions: {
+    observations: "not_applicable",
+    observation_link: "not_applicable",
+    source_metadata: "not_applicable",
+    preparation: "not_applicable",
+    restore: "not_applicable",
+    replay: "not_applicable",
+  },
+};
+
+test("schema $defs 与模块常量同源（B42 §12 声明与 replay 三态）", () => {
+  assert.equal(REQUIREMENTS_SCHEMA.properties.schema_version.const, EVIDENCE_REQUIREMENTS_SCHEMA_VERSION);
+  assert.deepEqual(
+    Object.keys(REQUIREMENTS_SCHEMA.properties.dimensions.properties).sort(),
+    [...EVIDENCE_DIMENSIONS].sort(),
+  );
+  const values = new Set(
+    Object.values(REQUIREMENTS_SCHEMA.properties.dimensions.properties).flatMap((item) => item.enum),
+  );
+  assert.deepEqual([...values].sort(), [...EVIDENCE_REQUIREMENT_VALUES].sort());
+  assert.deepEqual([...CHAIN_SCHEMA.properties.replay_status.enum].sort(), [...REPLAY_STATUSES].sort());
+  assert.ok(CHAIN_SCHEMA.required.includes("replay_provider_called"));
+  assert.equal(
+    CHAIN_SCHEMA.required.includes("replay_status"),
+    false,
+    "replay_status 是 additive 可选字段（旧 artifact 兼容，缺省按 unknown 读）",
+  );
+  assert.equal(EVIDENCE_DIMENSIONS.length, Object.keys(EVIDENCE_DIMENSION_REASON_CODES).length);
+});
+
+test("replay 三态：旧布尔 false 不再被读成“已验证未调 provider”", () => {
+  const legacyOff = buildEvidenceChain(baseInput());
+  assert.equal(legacyOff.replay_status, "unknown");
+  assert.equal(legacyOff.replay_provider_called, false);
+  assert.equal(resolveReplayStatus(legacyOff), "unknown");
+
+  const notExecuted = buildEvidenceChain(baseInput({ replay_status: "not_executed" }));
+  assert.equal(notExecuted.replay_status, "not_executed");
+  assert.equal(notExecuted.replay_provider_called, false);
+
+  const proven = buildEvidenceChain(baseInput({ replay_status: "no_provider_call" }));
+  assert.equal(proven.replay_status, "no_provider_call");
+  assert.equal(resolveReplayStatus(proven), "no_provider_call");
+
+  const recaled = buildEvidenceChain(baseInput({ replay_status: "provider_called" }));
+  assert.equal(recaled.replay_provider_called, true);
+  assert.equal(recaled.binding.binding_status, "violated");
+  assert.ok(recaled.binding.reason_codes.includes("replay_provider_called"));
+
+  // 旧 artifact 没有 replay_status 字段：布尔 false + 无 tri-state → unknown（不能反推“已验证未调用”）。
+  assert.equal(resolveReplayStatus({ replay_provider_called: false }), "unknown");
+  assert.equal(resolveReplayStatus({ replay_provider_called: true }), "provider_called");
+});
+
+test("evaluateEvidenceChain：verified 必须无任何 blocker（preparation/restore 未知不再被吞）", () => {
+  const chain = buildEvidenceChain(baseInput({ preparation_outcome: "unknown", stale_on_restore: "none" }));
+  assert.equal(chain.binding.binding_status, "partial");
+  assert.ok(chain.binding.blockers.includes("preparation_outcome_unknown"));
+
+  // 伪造的 verified 摘要不能覆盖重算结果。
+  const forged = evaluateEvidenceChain({ ...chain, binding: { binding_status: "verified" } });
+  assert.equal(forged.binding_status, "partial");
+});
+
+test("normalizeEvidenceRequirements：缺省全 required / 部分声明只覆盖指定维度 / 反缩水约束", () => {
+  const strict = normalizeEvidenceRequirements(null);
+  for (const dimension of EVIDENCE_DIMENSIONS) assert.equal(strict.dimensions[dimension], "required");
+  assert.deepEqual(defaultEvidenceRequirements().dimensions, strict.dimensions);
+
+  const a0 = normalizeEvidenceRequirements(A0_REQUIREMENTS);
+  assert.equal(a0.dimensions.base_refs, "required");
+  assert.equal(a0.dimensions.used_context_refs, "required");
+  assert.equal(a0.dimensions.observations, "not_applicable");
+
+  assert.throws(
+    () => normalizeEvidenceRequirements({ dimensions: { base_refs: "not_applicable" } }),
+    /base_refs 必须 required/,
+  );
+  assert.throws(
+    () => normalizeEvidenceRequirements({ dimensions: { used_context_refs: "not_applicable" } }),
+    /used_context_refs 必须 required/,
+  );
+  assert.throws(
+    () => normalizeEvidenceRequirements({ dimensions: { observation_link: "required", observations: "not_applicable" } }),
+    /observations 必须 required/,
+  );
+  assert.throws(() => normalizeEvidenceRequirements({ dimensions: { unknown_dimension: "required" } }), /未知证据维度/);
+  assert.throws(() => normalizeEvidenceRequirements({ dimensions: { replay: "optional" } }), /replay 必须属于/);
+  assert.throws(() => normalizeEvidenceRequirements({ dimensions: {}, schema_version: "v9" }), /schema_version/);
+  assert.deepEqual(validateEvidenceRequirements(null), []);
+  assert.ok(validateEvidenceRequirements({ dimensions: { base_refs: "not_applicable" } }).length > 0);
+});
+
+test("applyLegacyEvidenceFlags：旧 --requires-observation-link 只会增加要求，不减少", () => {
+  const declared = normalizeEvidenceRequirements({
+    dimensions: { observations: "not_applicable", observation_link: "not_applicable", source_metadata: "not_applicable" },
+  });
+  const merged = applyLegacyEvidenceFlags(declared, { requiresObservationLink: true });
+  assert.equal(merged.dimensions.observations, "required");
+  assert.equal(merged.dimensions.observation_link, "required");
+  assert.equal(merged.dimensions.source_metadata, "required");
+  const untouched = applyLegacyEvidenceFlags(declared, { requiresObservationLink: false });
+  assert.equal(untouched.dimensions.observation_link, "not_applicable");
+});
+
+test("evaluateEvidenceCompleteness：A1 完整证据 + 未实现维度声明不适用 → complete", () => {
+  const chain = buildEvidenceChain(baseInput({ replay_status: "not_executed" }));
+  const completeness = evaluateEvidenceCompleteness(chain, A1_REQUIREMENTS);
+  assert.equal(completeness.status, "complete");
+  assert.deepEqual(completeness.missing_required, []);
+  assert.equal(completeness.dimensions.replay.requirement, "not_applicable");
+  assert.equal(completeness.dimensions.replay.observed, "not_executed");
+  assert.equal(completeness.dimensions.observation_link.observed, 1);
+});
+
+test("evaluateEvidenceCompleteness：A0 合法零探索（Base 足够、无观察）→ complete", () => {
+  const chain = buildEvidenceChain({
+    base_refs: ["base:chapter-3"],
+    observations: [],
+    provider_calls: [],
+    used_context_refs: [],
+    preparation_outcome: "unknown",
+    stale_on_restore: "unknown",
+    replay_status: "not_executed",
+  });
+  const completeness = evaluateEvidenceCompleteness(chain, A0_REQUIREMENTS);
+  assert.equal(completeness.status, "complete");
+  assert.deepEqual(completeness.missing_required, []);
+  assert.equal(completeness.dimensions.observations.present, false);
+  assert.equal(completeness.dimensions.observations.requirement, "not_applicable");
+});
+
+test("evaluateEvidenceCompleteness：缺 used refs / 来源元数据 / 未跑 replay → 各自原因码", () => {
+  const noUsed = buildEvidenceChain(
+    baseInput({ used_context_refs: null, replay_status: "not_executed" }),
+  );
+  const usedCompleteness = evaluateEvidenceCompleteness(noUsed, A1_REQUIREMENTS);
+  assert.equal(usedCompleteness.status, "missing");
+  assert.ok(usedCompleteness.reason_codes.includes("required_used_context_refs_missing"));
+  assert.ok(usedCompleteness.missing_required.includes("used_context_refs"));
+
+  const bareObservation = buildEvidenceChain(
+    baseInput({
+      observations: [{ observation_ref: "obs:bare", observed_at: "2026-10-27T10:00:00Z" }],
+      used_context_refs: ["base:chapter-3"],
+      replay_status: "not_executed",
+    }),
+  );
+  const metadataCompleteness = evaluateEvidenceCompleteness(bareObservation, A1_REQUIREMENTS);
+  assert.ok(metadataCompleteness.reason_codes.includes("required_source_metadata_missing"));
+
+  const fullChain = buildEvidenceChain(baseInput({ replay_status: "not_executed" }));
+  const replayRequired = evaluateEvidenceCompleteness(fullChain, {
+    dimensions: { preparation: "not_applicable", restore: "not_applicable", replay: "required" },
+  });
+  assert.equal(replayRequired.status, "missing");
+  assert.ok(replayRequired.reason_codes.includes("required_replay_evidence_missing"));
+  assert.equal(replayRequired.dimensions.replay.observed, "not_executed");
+});
+
+test("evaluateEvidenceCompleteness：观察与真实调用都记录却无可判链接 → fail", () => {
+  const chain = buildEvidenceChain(
+    baseInput({
+      provider_calls: [
+        {
+          provider_call_ref: "pcall:writer-before",
+          at: "2026-10-27T09:59:00Z",
+          provider: "strata",
+        },
+      ],
+      replay_status: "not_executed",
+    }),
+  );
+  const completeness = evaluateEvidenceCompleteness(chain, A1_REQUIREMENTS);
+  assert.equal(completeness.status, "missing");
+  assert.ok(completeness.reason_codes.includes("required_observation_link_missing"));
+  assert.ok(completeness.fail_codes.includes("observation_not_linked"));
+});
+
+test("evaluateEvidenceCompleteness：仅记录确定性调用/未记录真实调用 → link 缺失只算 evidence_missing", () => {
+  const chain = buildEvidenceChain(
+    baseInput({
+      provider_calls: [
+        {
+          provider_call_ref: "pcall:deterministic",
+          at: "2026-10-27T10:00:05Z",
+          provider: "slice_verify",
+        },
+      ],
+      replay_status: "not_executed",
+    }),
+  );
+  const completeness = evaluateEvidenceCompleteness(chain, A1_REQUIREMENTS);
+  assert.equal(completeness.status, "missing");
+  assert.ok(completeness.reason_codes.includes("required_observation_link_missing"));
+  assert.deepEqual(completeness.fail_codes, []);
+});
+
+test("evaluateEvidenceCompleteness：严格默认声明下缺 replay 三态 → incomplete（历史链不能冒充完整）", () => {
+  const chain = buildEvidenceChain(baseInput());
+  const completeness = evaluateEvidenceCompleteness(chain, null);
+  assert.equal(completeness.status, "missing");
+  assert.ok(completeness.missing_required.includes("replay"));
+  assert.ok(completeness.reason_codes.includes("required_replay_evidence_missing"));
+});
+
+test("读取 artifact 记录的证据链/必需证据声明：缺文件 null、非法抛错（不静默放宽）", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evidence-recorded-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  assert.equal(readRecordedEvidenceChain(dir), null);
+  assert.equal(readRecordedEvidenceRequirements(dir), null);
+
+  const chain = buildEvidenceChain(baseInput({ replay_status: "no_provider_call" }));
+  writeEvidenceChain(dir, chain);
+  assert.equal(readRecordedEvidenceChain(dir).binding.binding_status, "verified");
+
+  fs.writeFileSync(
+    path.join(dir, "evidence-requirements.json"),
+    JSON.stringify({ dimensions: A1_REQUIREMENTS.dimensions }),
+  );
+  assert.equal(readRecordedEvidenceRequirements(dir).dimensions.replay, "not_applicable");
+
+  fs.writeFileSync(
+    path.join(dir, "evidence-requirements.json"),
+    JSON.stringify({ dimensions: { base_refs: "not_applicable" } }),
+  );
+  assert.throws(() => readRecordedEvidenceRequirements(dir), /base_refs 必须 required/);
+
+  fs.writeFileSync(path.join(dir, "evidence-chain.json"), "{not json");
+  assert.throws(() => readRecordedEvidenceChain(dir), /不是合法 JSON/);
 });

@@ -17,6 +17,7 @@ import {
   RELEASE_LAYER_STATUSES,
   RELEASE_TIERS,
   TIER_CLASS,
+  ReleaseLayerError,
   buildReleaseLayerSummary,
   evaluateModelBehaviorEvidence,
   exitCodeForReleaseStatus,
@@ -24,6 +25,8 @@ import {
   validateReleaseLayerSummary,
   writeReleaseLayerSummary,
 } from "./release_layer.mjs";
+import { buildEvidenceChain, writeEvidenceChain } from "./evidence_chain.mjs";
+import { buildVerdict } from "./verdict.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "../../..");
@@ -59,6 +62,74 @@ function deterministicResult(overrides = {}) {
   };
 }
 
+// B42 §12：A1 类场景未实现准备判断/恢复/replay，运行前声明 not_applicable；
+// Base/观察/链接/来源元数据/used refs 保持 required。
+const A1_REQUIREMENTS = {
+  dimensions: {
+    preparation: "not_applicable",
+    restore: "not_applicable",
+    replay: "not_applicable",
+  },
+};
+const A0_REQUIREMENTS = {
+  dimensions: {
+    observations: "not_applicable",
+    observation_link: "not_applicable",
+    source_metadata: "not_applicable",
+    preparation: "not_applicable",
+    restore: "not_applicable",
+    replay: "not_applicable",
+  },
+};
+
+function realModelChain(overrides = {}) {
+  return buildEvidenceChain({
+    scenario_id: "au15-a1-real",
+    base_refs: ["base:chapter-3", "base:author-intent"],
+    observations: [
+      {
+        observation_ref: "obs:promise",
+        query: "沈砚答应几天后回灯楼",
+        tool: "chapter_read",
+        outcome: "observed",
+        source_refs: ["chapter:3"],
+        source_revision: "chapter-3@v7",
+        coverage: { kind: "full", detail: "第3章全段" },
+        observed_at: "2026-10-27T10:00:00Z",
+      },
+    ],
+    provider_calls: [
+      {
+        provider_call_ref: "pcall:writer-1",
+        at: "2026-10-27T10:00:05Z",
+        turn_ref: "turn-1",
+        provider: "strata",
+        model: "iq3_s",
+        actual_model: "iq3_s",
+      },
+    ],
+    used_context_refs: ["base:chapter-3", "chapter:3"],
+    preparation_outcome: "unknown",
+    stale_on_restore: "unknown",
+    replay_status: "not_executed",
+    ...overrides,
+  });
+}
+
+function a0Chain(overrides = {}) {
+  return buildEvidenceChain({
+    scenario_id: "au15-a0-real",
+    base_refs: ["base:chapter-3"],
+    observations: [],
+    provider_calls: [],
+    used_context_refs: [],
+    preparation_outcome: "unknown",
+    stale_on_restore: "unknown",
+    replay_status: "not_executed",
+    ...overrides,
+  });
+}
+
 function realModelResult(overrides = {}) {
   return {
     scenario_id: "au15-a1-real",
@@ -85,16 +156,8 @@ function realModelResult(overrides = {}) {
       { attempt: 1, status: "pass" },
       { attempt: 2, status: "pass" },
     ],
-    evidence_chain: {
-      binding: {
-        binding_status: "verified",
-        reason_codes: [],
-        observation_link_count: 1,
-        real_observation_link_count: 1,
-        used_bound_count: 1,
-        used_unbound_count: 0,
-      },
-    },
+    evidence_chain: realModelChain(),
+    evidence_requirements: A1_REQUIREMENTS,
     retention_wording: { text: "换个说法再写一版，别提前用提示词调过", ref: "artifacts/x/retention.md", tuned: false },
     ...overrides,
   };
@@ -307,28 +370,29 @@ test("真实模型 PASS：缺少参数/驱动身份 → evidence_missing", () =>
   assert.ok(summary.reason_codes.includes("missing_driver_identity"));
 });
 
-test("真实模型 PASS：观察未进入后续真实请求（CP2 链接为空）→ fail observation_not_linked", () => {
+test("真实模型 PASS：观察与真实调用都记录却无可判链接 → fail observation_not_linked", () => {
   const summary = buildReleaseLayerSummary({
     tier: "release-real-llm",
     retention_wording: retention(),
     results: [
       realModelResult({
+        evidence_chain: realModelChain({
+          provider_calls: [
+            {
+              provider_call_ref: "pcall:writer-before",
+              at: "2026-10-27T09:59:00Z",
+              turn_ref: "turn-1",
+              provider: "strata",
+            },
+          ],
+        }),
         requires_observation_link: true,
-        evidence_chain: {
-          binding: {
-            binding_status: "partial",
-            reason_codes: ["observation_not_linked_to_provider_call"],
-            observation_link_count: 1,
-            real_observation_link_count: 0,
-            used_bound_count: 0,
-            used_unbound_count: 0,
-          },
-        },
       }),
     ],
   });
   assert.equal(summary.status, "fail");
   assert.ok(summary.reason_codes.includes("observation_not_linked"));
+  assert.notEqual(summary.exit_code, 0);
 });
 
 test("真实模型 PASS：完全没有 CP2 证据链（局部证据）→ evidence_missing", () => {
@@ -343,27 +407,21 @@ test("真实模型 PASS：完全没有 CP2 证据链（局部证据）→ eviden
   assert.ok(summary.reason_codes.includes("evidence_chain_missing"));
 });
 
-test("真实模型 PASS：CP2 证据链越界 → fail evidence_chain_violated", () => {
+test("真实模型 PASS：CP2 证据链越界（used 含 Base∪观察外 ref）→ fail evidence_chain_violated", () => {
   const summary = buildReleaseLayerSummary({
     tier: "release-real-llm",
     retention_wording: retention(),
     results: [
       realModelResult({
-        evidence_chain: {
-          binding: {
-            binding_status: "violated",
-            reason_codes: ["unbound_ref"],
-            observation_link_count: 1,
-            real_observation_link_count: 1,
-            used_bound_count: 0,
-            used_unbound_count: 1,
-          },
-        },
+        evidence_chain: realModelChain({
+          used_context_refs: ["base:chapter-3", "chapter:99-never-read"],
+        }),
       }),
     ],
   });
   assert.equal(summary.status, "fail");
   assert.ok(summary.reason_codes.includes("evidence_chain_violated"));
+  assert.ok(summary.reason_codes.includes("unbound_ref"));
 });
 
 test("真实模型 PASS：CP3 原生 run 失败（final/failure 并存）→ fail native_failure_present", () => {
@@ -600,4 +658,269 @@ test("CLI：真实原生实模旧证据不能提升成 release-real-llm PASS →
   assert.equal(summary.separation.single_verdict_allowed, false);
   // 历史 artifact 缺 verdict/model_behavior/重复元数据 → 只能是 evidence_missing，不能冒充 PASS。
   assert.ok(summary.reason_codes.some((code) => code.startsWith("missing_") || code === "mechanism_layer_missing"));
+});
+
+// ---------- B42 §12：证据完整性回补（partial/blocker/未执行/A0/旧 artifact） ----------
+
+test("§12 反例复现：binding=partial + 真实观察链接 + 元数据缺失，不得 PASS", () => {
+  // 与 artifacts/quality-accept/b42-evidence-completeness-review/probe.json 同型：
+  // 其余身份/重复/措辞/观察链接都满足，但观察缺 outcome/coverage/source_revision。
+  const chain = realModelChain({
+    observations: [
+      {
+        observation_ref: "obs:promise",
+        observed_at: "2026-10-27T10:00:00Z",
+        source_refs: ["chapter:3"],
+      },
+    ],
+    used_context_refs: ["base:chapter-3", "chapter:3"],
+  });
+  assert.equal(chain.binding.binding_status, "partial");
+  const summary = buildReleaseLayerSummary({
+    tier: "release-real-llm",
+    retention_wording: retention(),
+    results: [
+      realModelResult({
+        evidence_chain: { ...chain, binding: { binding_status: "partial" } },
+      }),
+    ],
+  });
+  assert.equal(summary.status, "evidence_missing");
+  assert.equal(summary.exit_code, 67);
+  assert.notEqual(summary.status, "pass");
+  assert.ok(summary.reason_codes.includes("required_source_metadata_missing"));
+  assert.ok(summary.reason_codes.includes("observation_metadata_missing"));
+  assert.ok(summary.reason_codes.includes("required_evidence_missing"));
+});
+
+test("§12 反例：只信任 binding=verified 摘要 + 必需 blocker（preparation required 但 unknown）→ 重算后不 PASS", () => {
+  const chain = realModelChain({ preparation_outcome: "unknown" });
+  const result = realModelResult({
+    evidence_chain: { ...chain, binding: { binding_status: "verified" } },
+    evidence_requirements: { dimensions: { restore: "not_applicable", replay: "not_applicable" } },
+  });
+  const behavior = evaluateModelBehaviorEvidence({ tier: "release-real-llm", result, plannedRuns: 2 });
+  assert.notEqual(behavior.status, "pass");
+  assert.equal(behavior.status, "evidence_missing");
+  assert.equal(behavior.checks.evidence_binding, "partial");
+  assert.equal(behavior.checks.evidence_binding_summary_mismatch, true);
+  assert.ok(behavior.reason_codes.includes("required_preparation_missing"));
+
+  const summary = buildReleaseLayerSummary({
+    tier: "release-real-llm",
+    retention_wording: retention(),
+    results: [result],
+  });
+  assert.equal(summary.exit_code, 67);
+});
+
+test("§12：缺 used refs 自报告 → evidence_missing（required_used_context_refs_missing）", () => {
+  const summary = buildReleaseLayerSummary({
+    tier: "release-real-llm",
+    retention_wording: retention(),
+    results: [realModelResult({ evidence_chain: realModelChain({ used_context_refs: null }) })],
+  });
+  assert.equal(summary.status, "evidence_missing");
+  assert.ok(summary.reason_codes.includes("required_used_context_refs_missing"));
+});
+
+test("§12：replay 声明 required 但未执行 → evidence_missing，不能写成“已验证不调 provider”", () => {
+  const summary = buildReleaseLayerSummary({
+    tier: "release-real-llm",
+    retention_wording: retention(),
+    results: [
+      realModelResult({
+        evidence_chain: realModelChain({ replay_status: "not_executed" }),
+        evidence_requirements: {
+          dimensions: { preparation: "not_applicable", restore: "not_applicable", replay: "required" },
+        },
+      }),
+    ],
+  });
+  assert.equal(summary.status, "evidence_missing");
+  assert.ok(summary.reason_codes.includes("required_replay_evidence_missing"));
+  const scene = summary.scenarios[0];
+  assert.equal(scene.evidence_completeness.status, "missing");
+  assert.ok(scene.evidence_completeness.missing_required.includes("replay"));
+});
+
+test("§12：A0 合法零探索（Base 足够）→ 不因无观察被判缺失，反而通过", () => {
+  const summary = buildReleaseLayerSummary({
+    tier: "release-real-llm",
+    retention_wording: retention(),
+    results: [
+      realModelResult({
+        scenario_id: "au15-a0-real",
+        evidence_chain: a0Chain(),
+        evidence_requirements: A0_REQUIREMENTS,
+      }),
+    ],
+  });
+  assert.equal(summary.status, "pass");
+  assert.equal(summary.exit_code, 0);
+  const scene = summary.scenarios[0];
+  assert.equal(scene.evidence_completeness.status, "complete");
+  assert.equal(scene.evidence_requirements.observations, "not_applicable");
+  assert.equal(scene.evidence_requirements.base_refs, "required");
+});
+
+test("§12：旧 artifact 只有 binding 摘要（无真实链字段）→ evidence_missing，不当 PASS 也不当 fail", () => {
+  const summary = buildReleaseLayerSummary({
+    tier: "release-real-llm",
+    retention_wording: retention(),
+    results: [
+      realModelResult({
+        evidence_chain: { binding: { binding_status: "verified" } },
+      }),
+    ],
+  });
+  assert.equal(summary.status, "evidence_missing");
+  assert.equal(summary.exit_code, 67);
+  assert.ok(summary.reason_codes.includes("required_evidence_missing"));
+  assert.ok(!summary.reason_codes.includes("evidence_chain_violated"));
+});
+
+test("§12：非法必需证据声明（试图把 base_refs 声明不适用）→ config error，不放行", () => {
+  assert.throws(
+    () =>
+      buildReleaseLayerSummary({
+        tier: "release-real-llm",
+        retention_wording: retention(),
+        results: [
+          realModelResult({ evidence_requirements: { dimensions: { base_refs: "not_applicable" } } }),
+        ],
+      }),
+    (error) => error instanceof ReleaseLayerError && error.code === "config",
+  );
+});
+
+test("§12：validateReleaseLayerSummary 拒绝 PASS 但场景 evidence_completeness 不完整", () => {
+  const summary = buildReleaseLayerSummary({
+    tier: "release-real-llm",
+    retention_wording: retention(),
+    results: [realModelResult()],
+  });
+  assert.equal(summary.status, "pass");
+  const broken = {
+    ...summary,
+    scenarios: [{ ...summary.scenarios[0], evidence_completeness: { status: "missing", missing_required: ["replay"] } }],
+  };
+  assert.ok(validateReleaseLayerSummary(broken).some((error) => error.includes("必需证据必须完整")));
+});
+
+// ---------- B42 §12：CLI 退出码矩阵（0 / 1 / 64 / 67 / 69；65 由空 tier 用例覆盖） ----------
+
+function writeRealModelArtifact(t, options = {}) {
+  const dir = tmpDir(t, "release-layer-artifact-");
+  const chain = options.chain ?? realModelChain();
+  const requirements = options.requirements ?? A1_REQUIREMENTS;
+  writeEvidenceChain(dir, chain);
+  fs.writeFileSync(path.join(dir, "evidence-requirements.json"), JSON.stringify(requirements));
+  fs.writeFileSync(
+    path.join(dir, "retention-wording.json"),
+    JSON.stringify({ text: "未参与调词的保留措辞", ref: "artifacts/x/retention.md", tuned: false }),
+  );
+  fs.writeFileSync(
+    path.join(dir, "attempts.json"),
+    JSON.stringify([
+      { attempt: 1, status: "pass" },
+      { attempt: 2, status: "pass" },
+    ]),
+  );
+  fs.mkdirSync(path.join(dir, "llm-calls"), { recursive: true });
+  const rows = [0, 1, 2]
+    .map((index) =>
+      JSON.stringify({
+        provider: "strata",
+        ts: `2026-10-27T10:00:0${5 + index}Z`,
+        turn_id: "turn-1",
+        request: { body: { model: "iq3_s", temperature: 0.7, max_tokens: 4096 } },
+        response: { status: 200, model: "iq3_s", body: { choices: [] } },
+      }),
+    )
+    .join("\n");
+  fs.writeFileSync(path.join(dir, "llm-calls", "calls.jsonl"), `${rows}\n`);
+  const verdict = buildVerdict({
+    scenario_id: "au15-a1-real",
+    tier: "release-real-llm",
+    surface: "tauri",
+    status: "pass",
+    artifact_dir: dir,
+    provider: "strata",
+    driver: "ax-native-system-ui",
+    model: "iq3_s",
+    actual_model: "iq3_s",
+    attempt: 2,
+    timeouts: 0,
+    mechanism: { status: "pass", evidence_refs: ["app-log.jsonl"] },
+    model_behavior: { status: "pass", evidence_refs: ["llm-calls/calls.jsonl"] },
+    git_head: "1ce14d5b",
+    generated_at: "2026-10-27T12:00:00Z",
+    ...(options.verdict ?? {}),
+  });
+  fs.writeFileSync(path.join(dir, "verdict.json"), JSON.stringify(verdict, null, 2));
+  return dir;
+}
+
+function realModelBatchFile(t, artifactDir) {
+  return writeBatchFixture(t, {
+    tier: "release-real-llm",
+    provider: "strata",
+    rows: [{ scenario_id: "au15-a1-real", status: "pass", artifact_dir: artifactDir }],
+  });
+}
+
+test("§12 CLI：完整证据链 + 未实现维度声明不适用 → exit 0（PASS），记录 requirements/completeness", (t) => {
+  const dir = writeRealModelArtifact(t);
+  const batch = realModelBatchFile(t, dir);
+  const result = runCli(["summarize", "--tier", "release-real-llm", "--batch", batch, "--json"]);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  const summary = JSON.parse(result.stdout);
+  assert.equal(summary.status, "pass");
+  assert.equal(summary.scenarios[0].evidence_completeness.status, "complete");
+  assert.equal(summary.scenarios[0].evidence_requirements.replay, "not_applicable");
+  // 原始 binding 仍如实为 partial（preparation/restore 未实现、链上确有 blocker），
+  // PASS 依据是「声明 not_applicable + 必需维度完整」，两者分开记录，不修饰原始证据。
+  assert.equal(summary.replay.scenes[0].evidence_binding, "partial");
+  assert.equal(summary.replay.scenes[0].evidence_completeness, "complete");
+});
+
+test("§12 CLI：证据越界 → exit 1（fail）", (t) => {
+  const dir = writeRealModelArtifact(t, {
+    chain: realModelChain({ used_context_refs: ["base:chapter-3", "chapter:99-never-read"] }),
+  });
+  const batch = realModelBatchFile(t, dir);
+  const result = runCli(["summarize", "--tier", "release-real-llm", "--batch", batch, "--json"]);
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  const summary = JSON.parse(result.stdout);
+  assert.equal(summary.status, "fail");
+  assert.ok(summary.reason_codes.includes("unbound_ref"));
+});
+
+test("§12 CLI：缺必需 used refs → exit 67（evidence_missing）", (t) => {
+  const dir = writeRealModelArtifact(t, { chain: realModelChain({ used_context_refs: null }) });
+  const batch = realModelBatchFile(t, dir);
+  const result = runCli(["summarize", "--tier", "release-real-llm", "--batch", batch, "--json"]);
+  assert.equal(result.status, 67, `${result.stdout}\n${result.stderr}`);
+  const summary = JSON.parse(result.stdout);
+  assert.equal(summary.status, "evidence_missing");
+  assert.ok(summary.reason_codes.includes("required_used_context_refs_missing"));
+});
+
+test("§12 CLI：全部 not_run → exit 69，不是 PASS", (t) => {
+  const batch = writeBatchFixture(t, {
+    tier: "release-real-llm",
+    provider: "strata",
+    rows: [{ scenario_id: "au15-pending", status: "not_run", artifact_dir: null }],
+  });
+  const result = runCli(["summarize", "--tier", "release-real-llm", "--batch", batch, "--json"]);
+  assert.equal(result.status, 69, `${result.stdout}\n${result.stderr}`);
+  const summary = JSON.parse(result.stdout);
+  assert.equal(summary.status, "not_run");
+});
+
+test("§12 CLI：非法参数 → exit 64（usage）", () => {
+  const result = runCli(["summarize", "--tier", "release-real-llm", "--bogus-flag"]);
+  assert.equal(result.status, 64);
+  assert.match(result.stderr, /用法/);
 });

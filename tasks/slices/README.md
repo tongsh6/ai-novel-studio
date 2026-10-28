@@ -34,9 +34,9 @@
 | [B39-evidence-seeking-authoring.md](B39-evidence-seeking-authoring.md) | 求证式创作：Base、统一探索、准备判断与证据闭环；D1–D7 决策材料、CP 边界与实施前置见原文。 |
 | [B40-judgment-era-acceptance-reanchor.md](B40-judgment-era-acceptance-reanchor.md) | 判断纪元验收重锚；历史批次证据保留，同族后续排期精确引用原文 §10.2，不以批次交付代替完整闭环。 |
 | [B41-quality-evidence-foundation.md](B41-quality-evidence-foundation.md) | **done（2026-10-27，CP0–CP5）**：标准 YAML 解析与单一 manifest 校验（212 场景/2 drafts）、active-only 批次与 0/1/64–69 退出码分层、E2E 聚合 blocked/freshness/来源驱动、verdict v2 生成读取同源与真实消费者、known-gaps 类型词表与 B40/B42 交接；不含产品功能验收。 |
-| [B42-model-behavior-evidence-tier.md](B42-model-behavior-evidence-tier.md) | 机制/模型行为与原生证据分层；§12 承接证据完整性回补，CP4 的作者前置另见 §10。 |
+| [B42-model-behavior-evidence-tier.md](B42-model-behavior-evidence-tier.md) | **doing（CP0–CP3 + §12 证据完整性回补 done；CP4 blocked-by-author）**：机制/模型行为与原生证据分层；§12 已把“必需/不适用/未执行”声明、证据链重算、逐维度完整性与原因传播落进 release 结果层（211/211 quality JS 测试），真实模型/页面仍归 CP4（ADR-0030 前置）。 |
 | [B43-gate-order-residual.md](B43-gate-order-residual.md) | Gate 幂等输入、behavior/slot 顺序与真实 blocked/Replay 链；实施前置与 CP0 核查边界见原文。 |
-| [B44-persistence-transition-boundary.md](B44-persistence-transition-boundary.md) | **todo**：ChapterSummaryRepo 与 ReconciliationReportRepo 移除 update_all 绕过，逐行走 ADR-0019 矩阵；非法转换回滚、合法 supersede 不回归。 |
+| [B44-persistence-transition-boundary.md](B44-persistence-transition-boundary.md) | **doing（CP0–CP2 done，CP3 真实 Tauri 页面未闭环）**：章摘要走 ADR-0019 通用矩阵、审读报告走 A-narrow 维护类生命周期（通用矩阵∪TENTATIVE→SUPERSEDED）；两 repo 移除 update_all，逐行 changeset + 事务回滚；stale 报告不可再裁决翻 ACCEPTED。残余：真实页面证据、ADR-0019 适用范围说明待作者复核。 |
 | [B45-schema-legacy-governance.md](B45-schema-legacy-governance.md) | **todo（治理，不增业务字段）**：legacy/现役/真实消费者、失效 `$ref` 与意外 `z.any()`、旧 enum；隔离/显式 opaque/补定义或退役，依赖 B49 与五账 schema 决策。 |
 | [B46-persistent-adoption-inbox.md](B46-persistent-adoption-inbox.md) | **todo**：AU05/AU09 统一持久 adoption inbox 与待处理视图；重开/新会话恢复后仍可处理，处理后消失、版本/幂等/作品隔离。 |
 | [B47-canon-freshness-and-conflict-detection.md](B47-canon-freshness-and-conflict-detection.md) | **todo**：从持久事实自动发现 canon 冲突与 stale base，覆盖重新 gate、StateTrace/receipt 前后版本；复用 B28/B29/B36 版本语义，不建泛化 canon store。 |

@@ -29,9 +29,9 @@
 
 | 文件 | 角色 |
 |---|---|
-| `quality/evidence_chain.mjs` | B42 CP2：`quality-evidence-chain/v1`——Base refs、observations（outcome/source_revision/coverage）、observation→后续 provider call 顺序、used/unbound/unknown、preparation_outcome/stale_on_restore/replay_provider_called 的归一化与集合校验；被 `release_layer.mjs`/`native_run_manifest.mjs`/CLI 消费。 |
+| `quality/evidence_chain.mjs` | B42 CP2 + §12：`quality-evidence-chain/v1`——Base refs、observations（outcome/source_revision/coverage）、observation→后续 provider call 顺序、used/unbound/unknown、preparation_outcome/stale_on_restore/replay 三态（`replay_status`）的归一化与集合校验；`quality-evidence-requirements/v1` 必需证据声明的归一化/校验与 `evaluateEvidenceCompleteness`；绑定/完整性判定与 artifact 记录读取；被 `release_layer.mjs`/CLI 消费。 |
 | `quality/native_run_manifest.mjs` + `quality/native_run_manifest_cli.mjs` | B42 CP3：`quality-native-run/v1`——原生 artifact 目录统一 run manifest（run/final/failure/scoped/checks/termination/native-transport/AX/DB snapshot/生产指纹）；final+failure 并存必须 fail，scoped 不外推全矩阵；CLI `scan <artifact-dir>`。 |
-| `quality/release_layer.mjs` + `quality/release_layer_cli.mjs` | B42 CP1：`quality-release-layer/v1`——release/release-real-llm 分层结果层（机制/模型行为分离、真实 provider PASS 反假绿、重复/保留措辞/失败分母、空 tier=not_run）；被 `scripts/quality_accept.sh` 的 release tier 批次消费。 |
+| `quality/release_layer.mjs` + `quality/release_layer_cli.mjs` | B42 CP1 + §12：`quality-release-layer/v1`——release/release-real-llm 分层结果层（机制/模型行为分离、真实 provider PASS 反假绿、重复/保留措辞/失败分母、空 tier=not_run）；证据链一律重算、必需证据按声明逐维度判定（缺必需→evidence_missing，硬违规→fail）；CLI 读 artifact 记录的 evidence-chain/evidence-requirements 或 `--evidence-requirements`；被 `scripts/quality_accept.sh` 的 release tier 批次消费。 |
 | `quality/release_layer_accept.test.mjs` | B42 CP1 接线 + K5（真实 provider passthrough→evidence_missing）fixture 集成测试。 |
 | `quality/quality_accept_shell_safety.test.mjs` | K4 静态回归：扫描 `quality_accept.sh` 双引号内 `$var` 紧跟非 ASCII 的写法，避免 `set -u` 下变量名被全角字符吞并。 |
 

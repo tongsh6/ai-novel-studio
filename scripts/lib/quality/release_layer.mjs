@@ -12,6 +12,9 @@
 // - 真实 provider PASS 反假绿：HTTP 200、局部证据、单次运行、缺保留措辞、缺
 //   actual_model/driver/params、观察未进入后续真实请求（CP2 evidence chain）、原生 run
 //   为 fail/scoped（CP3 native run manifest）都不得写成模型语义 PASS；
+// - B42 §12 必需证据完整性：证据链一律重算（不信任输入携带的 binding 摘要），按场景
+//   声明逐维度判定 required / not_applicable；必需证据缺失/未执行/未知 → evidence_missing，
+//   硬违规仍 fail，只有各字段完整且适用条件满足才 PASS；
 // - 当前 release/release-real-llm 均 0 注册场景是已知事实：空 tier 必须报
 //   not_run + empty_tier（exit 65），不能当 PASS 或"全过"。
 //
@@ -19,7 +22,12 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { classifyProvider, evaluateEvidenceChain } from "./evidence_chain.mjs";
+import {
+  applyLegacyEvidenceFlags,
+  classifyProvider,
+  evaluateEvidenceChain,
+  evaluateEvidenceCompleteness,
+} from "./evidence_chain.mjs";
 import { NATIVE_DRIVERS } from "./native_run_manifest.mjs";
 
 export const RELEASE_LAYER_SCHEMA_VERSION = "quality-release-layer/v1";
@@ -91,7 +99,30 @@ export const REASON_CODES = Object.freeze([
   "batch_failure",
   "batch_missing",
   "timeouts_in_denominator",
+  // B42 §12：必需证据完整性（缺必需证据 = evidence_missing，不得 PASS）。
+  "required_evidence_missing",
+  "required_base_refs_missing",
+  "required_observations_missing",
+  "required_observation_link_missing",
+  "required_source_metadata_missing",
+  "required_used_context_refs_missing",
+  "required_preparation_missing",
+  "required_restore_missing",
+  "required_replay_evidence_missing",
+  "evidence_chain_partial",
+  "evidence_chain_invalid",
+  "evidence_requirements_invalid",
 ]);
+
+// 证据链 blocker → 场景声明维度（B42 §12）：声明 not_applicable 的维度不阻塞 PASS。
+const BLOCKER_DIMENSION = Object.freeze({
+  base_refs_unknown: "base_refs",
+  used_context_refs_unknown: "used_context_refs",
+  observation_metadata_missing: "source_metadata",
+  preparation_outcome_unknown: "preparation",
+  stale_on_restore_unknown: "restore",
+  observation_not_linked_to_provider_call: "observation_link",
+});
 
 export class ReleaseLayerError extends Error {
   constructor(message, code = "invalid_release_layer", errors = []) {
@@ -272,20 +303,68 @@ export function evaluateModelBehaviorEvidence(input = {}) {
     details.params = params;
   }
 
-  // CP2：观察进入后续真实 provider 请求，且 used refs 未越界。
+  // CP2 + B42 §12：证据链必须“重算”，不能只信任输入携带的 binding 摘要；
+  // 必需证据按场景声明判定完整性（缺必需字段 → evidence_missing，硬违规 → fail）。
   const chain = isPlainObject(result.evidence_chain) ? result.evidence_chain : null;
+  const requirementsError = stringOrNull(result.evidence_requirements_error);
+  if (requirementsError) codes.push("evidence_requirements_invalid");
+  if (stringOrNull(result.evidence_chain_error)) codes.push("evidence_chain_invalid");
   if (chain) {
-    const binding = chain.binding ?? evaluateEvidenceChain(chain);
+    let requirements = null;
+    if (!requirementsError) {
+      try {
+        requirements = applyLegacyEvidenceFlags(result.evidence_requirements ?? null, {
+          requiresObservationLink: result.requires_observation_link === true,
+        });
+      } catch (error) {
+        throw new ReleaseLayerError(
+          `场景 evidence_requirements 非法：${error.message}`,
+          "config",
+          Array.isArray(error.errors) && error.errors.length > 0 ? error.errors : [error.message],
+        );
+      }
+    }
+    const binding = evaluateEvidenceChain(chain);
     details.evidence_binding = binding.binding_status;
-    if (binding.binding_status === "violated") codes.push("evidence_chain_violated");
-    if (binding.binding_status === "unknown") codes.push("evidence_chain_unknown");
-    if (result.requires_observation_link === true && binding.real_observation_link_count < 1) {
-      codes.push("observation_not_linked");
+    if (isPlainObject(chain.binding) && chain.binding.binding_status !== binding.binding_status) {
+      details.evidence_binding_summary_mismatch = true;
+    }
+    if (binding.violations.length > 0) {
+      codes.push("evidence_chain_violated");
+      for (const violation of binding.violations) codes.push(violation.code);
+    }
+    // blocker 按场景声明归因：声明 not_applicable 的维度不阻塞 PASS，但仍记入明细可审计；
+    // required 维度或无法归因的 blocker 仍阻塞（原因传播，不吞）。
+    const blockingBlockers = binding.blockers.filter((blocker) => {
+      const dimension = BLOCKER_DIMENSION[blocker];
+      return dimension === undefined || requirements === null || requirements.dimensions[dimension] !== "not_applicable";
+    });
+    details.evidence_blockers = binding.blockers;
+    details.evidence_blocking_blockers = blockingBlockers;
+    for (const blocker of blockingBlockers) codes.push(blocker);
+    if (requirements) {
+      const completeness = evaluateEvidenceCompleteness(chain, requirements);
+      details.evidence_requirements = completeness.requirements;
+      details.evidence_completeness = {
+        status: completeness.status,
+        missing_required: completeness.missing_required,
+      };
+      codes.push(...completeness.reason_codes);
+      codes.push(...completeness.fail_codes);
+      if (completeness.status !== "complete") {
+        codes.push("required_evidence_missing");
+      } else if (blockingBlockers.length > 0) {
+        // 必需维度齐但仍有未被声明覆盖的 blocker：保守按证据不全，不写 PASS。
+        codes.push("evidence_chain_partial");
+      }
+    } else {
+      // 声明不可用（artifact 声明损坏）→ 无法判定完整性，只能 evidence_missing。
+      details.evidence_completeness = { status: "unknown", missing_required: [] };
+      codes.push("required_evidence_missing");
     }
   } else {
     // 真模行为 PASS 必须有 CP2 证据链：没有链就是“局部证据”，不能写成模型语义 PASS。
     codes.push("evidence_chain_missing");
-    if (result.requires_observation_link === true) codes.push("observation_not_linked");
   }
 
   // CP3：原生 run manifest 为 fail 时不得 PASS；scoped 结果不能当全矩阵。
@@ -390,6 +469,9 @@ function normalizeResult(raw) {
       ? result.model_behavior_evidence
       : null,
     evidence_chain: isPlainObject(result.evidence_chain) ? result.evidence_chain : null,
+    evidence_chain_error: stringOrNull(result.evidence_chain_error),
+    evidence_requirements: isPlainObject(result.evidence_requirements) ? result.evidence_requirements : null,
+    evidence_requirements_error: stringOrNull(result.evidence_requirements_error),
     native_run: isPlainObject(result.native_run) ? result.native_run : null,
     requires_observation_link: result.requires_observation_link === true,
     requires_full_matrix: result.requires_full_matrix === true,
@@ -574,6 +656,8 @@ export function buildReleaseLayerSummary(input = {}) {
       artifact_dir: result.artifact_dir,
       input_ref: result.input_ref,
       retention_wording_ref: result.retention_wording_ref ?? input.retention_wording?.ref ?? null,
+      evidence_binding: evaluation.behavior?.checks?.evidence_binding ?? null,
+      evidence_completeness: evaluation.behavior?.checks?.evidence_completeness?.status ?? null,
       reason_codes: codes,
     });
 
@@ -587,6 +671,8 @@ export function buildReleaseLayerSummary(input = {}) {
       provider: effectiveProvider,
       provider_class: providerClass,
       artifact_dir: result.artifact_dir,
+      evidence_requirements: evaluation.behavior?.checks?.evidence_requirements ?? null,
+      evidence_completeness: evaluation.behavior?.checks?.evidence_completeness ?? null,
     });
   }
 
@@ -727,6 +813,9 @@ function openGaps({ tier, status, counts, layers, behaviorEligibility }) {
   if (behaviorEligibility.some((row) => row.reason_codes.includes("missing_retention_wording"))) {
     gaps.push("缺少未参与调词的保留措辞记录；模型行为 PASS 资格不成立。");
   }
+  if (behaviorEligibility.some((row) => row.reason_codes.includes("required_evidence_missing"))) {
+    gaps.push("存在必需证据不完整（required evidence missing）的场景；缺失/未执行/不适用必须按声明判定，不得 PASS。");
+  }
   return gaps;
 }
 
@@ -763,6 +852,15 @@ export function validateReleaseLayerSummary(summary) {
       }
       if (summary.layers?.model_behavior?.pass !== counts.pass) {
         errors.push("release-real-llm 的每个 pass 场景都必须有 model_behavior=pass");
+      }
+      // B42 §12：PASS 场景的必需证据必须逐场景完整；缺声明/缺必需字段不得 PASS。
+      for (const scene of summary.scenarios ?? []) {
+        if (scene.layer_status !== "pass") continue;
+        if (scene.evidence_completeness?.status !== "complete") {
+          errors.push(
+            `release-real-llm PASS 场景 ${scene.scenario_id} 的必需证据必须完整（evidence_completeness=complete）`,
+          );
+        }
       }
     }
     if (summary.tier === "release" && (summary.layers?.model_behavior?.pass ?? 0) > 0) {

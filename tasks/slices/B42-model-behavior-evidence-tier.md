@@ -1,6 +1,6 @@
 # B42：真实模型行为与求证证据分层
 
-- 状态：**doing（CP0–CP3 历史交付保留；2026-10-28 发现 CP1/CP2 证据完整性缺口，按 §12 回补；CP4 仍待 ADR-0030 与作者前置）**。
+- 状态：**doing（CP0–CP3 历史交付保留；§12 证据完整性回补 2026-10-29 done；CP4 仍 blocked：ADR-0030 与作者前置未解除）**。
 - 登记日期：2026-10-27；来源：`release` / `release-real-llm` 均为 0 注册场景，实模与 deterministic 结果混在 nightly，AU-15 还缺 Base→Observation→used refs 的证据字段。
 - 上游：[B41](B41-quality-evidence-foundation.md)、[AU-15](../../docs/design/acceptance/author/AU-15-evidence-seeking-authoring.md)、[B39](B39-evidence-seeking-authoring.md)、[tiers](../../quality/acceptance/tiers.md)。
 
@@ -235,20 +235,76 @@ node scripts/lib/quality/release_layer_cli.mjs summarize --tier release-real-llm
 - `quality/acceptance/known-gaps.md` 归 B40/Lead，本 slice 未直接修改，只在上表提交候选。
 - 真实模型窗口（单槽）未使用；本轮未加载/卸载模型，未起 Phoenix/Vite/Tauri。
 
-## 12. 证据完整性回补
+## 12. 证据完整性回补（2026-10-29 done）
 
-- 状态：**todo（2026-10-28 已复现并排期；本次只补任务，不修改 release 判定实现）**。
-- 来源：本任务 §6/§8 的反假绿与 unknown 边界、[B39 D4](B39-evidence-seeking-authoring.md#97-开放决策清单给作者每项选项-推荐-影响)。这是 CP1/CP2 的残余修复，不依赖 ADR-0030 Accepted，不启动 CP4 或真实模型。
-- 事实：`scripts/lib/quality/release_layer.mjs` 的 `evaluateModelBehaviorEvidence` 仅把 `binding=violated/unknown` 加入拒绝原因；构造输入满足其余身份/重复/观察链接条件、但 `binding=partial` 且有 `observation_metadata_missing` 时，仍返回 `eligible/pass`、空原因列表。仅为判定函数的本地反例，不是一次真实模型或页面验收。`evidence_chain.mjs` 的 verified 也不检查所有 preparation/restore blocker，因此不能只改成“要求 verified”便宣布完整。
-- 本地可复核输入与结果：`artifacts/quality-accept/b42-evidence-completeness-review/probe.json`（`fixture_only=true`、`real_model_called=false`）；直接调用上述导出函数复现，无生产请求、无模型调用。本证据不写入 release 批次，也不充当真实模型 PASS。
+- 状态：**done（CP0 契约冻结 → 判定实现 → 反例矩阵 → CLI/结果层集成；真实模型与真实页面仍归 CP4，不由本节代签）**。
+- 来源：本任务 §6/§8 的反假绿与 unknown 边界、[B39 D4](B39-evidence-seeking-authoring.md#97-开放决策清单给作者每项选项-推荐-影响)。这是 CP1/CP2 的残余修复，不依赖 ADR-0030 Accepted。
+- CP0 复现的缺陷（2026-10-28，`fixture_only=true`、`real_model_called=false`，无生产请求/模型调用）：
+  1. `evaluateModelBehaviorEvidence` 只把 `binding=violated/unknown` 加入拒绝原因；构造输入满足其余身份/重复/观察链接条件、但 `binding=partial` 且有 `observation_metadata_missing` 时，仍返回 `eligible/pass`、空原因列表（反例输入与结果：`artifacts/quality-accept/b42-evidence-completeness-review/probe.json`；本证据不写 release 批次、不充当真实模型 PASS）。
+  2. `evaluateEvidenceChain` 的 `verified` 只检查 base/used/metadata 三个条件，`preparation_outcome_unknown`/`stale_on_restore_unknown` 等 blocker 被吞；产物可携带自证 `binding=verified` 摘要而判定不重算。
+  3. `replay_provider_called=false` 无法区分“replay 已执行且证明未调 provider”和“replay 根本没跑”，历史代码把后者写成 `false`。
+  4. 场景没有“必需/不适用/未执行”声明，无法判断 A0 零探索是合法缺席还是缺证据，也无法阻止事后删要求放行。
+- 结论：只把 `verified` 收紧或只要求 `verified` 都不够；需要**声明 + 逐维度完整性 + 重算 + 原因传播**四件一起，否则仍会把 partial/未知读成 PASS。
 
-### 范围与完成标准
+### 12.1 CP0 契约冻结（2026-10-28，additive 同版本，历史读取保留 unknown）
 
-1. **先固定必需证据**：按场景声明区分必需、不适用、未执行；对 Base/观察/真实请求/used refs/来源版本与覆盖/准备/恢复分别说明适用条件。A0 不强制探索；未运行 replay 不能冒充“已验证不调 provider”；未知值不得补写为通过值。
-2. **回补判定与原因传播**：必需字段未知、partial 或相关 blocker → `evidence_missing`；硬违规仍 fail；各字段完整且适用条件满足才可 PASS。不得只信任输入携带的 binding 摘要、吞掉 blocker 或靠删除场景要求过关。若现有 schema 无法表达未执行/不适用，先在本任务冻结最小兼容修订，历史读取保留 unknown。
-3. **反例与集成证据**：覆盖 partial+真实观察链接、verified+必需 blocker、缺 used refs/来源版本、未跑 replay、A0 合法零探索、完整正例、旧 artifact、CLI 与 `quality_accept` 的 0/64/65/67/69 分支。退出码与结果层一致，空 tier 仍 not_run，不注册假场景填充。
-4. **接回完整闭环**：局部判定测试通过只能关闭本节；B42 CP4 与 B39 全部场景、真实模型/native 证据仍各由原 checkpoint 承接，不把基建修复当 AU-15 完成。
+1. **场景必需证据声明** `quality-evidence-requirements/v1`（落点：artifact `evidence-requirements.json`、registry 场景字段或 CLI `--evidence-requirements <file>`）：
+   - `{schema_version?, dimensions, note?}`；8 维度：`base_refs`、`observations`、`observation_link`、`source_metadata`、`used_context_refs`、`preparation`、`restore`、`replay`；
+   - 每维度 `required` | `not_applicable`；未声明 → `required`（严格默认，忘记声明不会自动放行）；
+   - 反缩水结构约束：`base_refs`/`used_context_refs` 必须 required；`observation_link`/`source_metadata` required 时 `observations` 必须 required；未知维度/非法值/未知顶层字段直接 config error（CLI exit 66/pure 函数抛错）；
+   - 旧 CLI flag `--requires-observation-link` 只并入“增加要求”（observations/link/source_metadata 强制 required），不会减少声明。
+2. **未执行不是不适用**：`replay_status = not_executed | no_provider_call | provider_called | unknown`（evidence-chain v1 additive 可选字段）。`provider_called` → 硬违规；`not_executed`/`unknown` → 未证明 replay 不调 provider，replay 声明 required 时按证据缺失；历史链缺字段 → `unknown`，旧布尔 `replay_provider_called=false` **不得**反推已验证。
+3. **A0 合法零探索**：Base 足够场景可声明 observations/link/source_metadata/preparation/restore/replay 为 not_applicable，不因无观察被判缺失。
+4. **完整性判定语义**：必需维度缺失/未知/未执行 → `evidence_missing`（67）；硬违规 → `fail`（1）；`observation_link` 在“观察与真实 provider 调用两侧都已记录、却无可判顺序链接”时按 fail（因果断言被证据否定），任一侧未记录则只算 evidence_missing（不能从缺失反推违规）；必需维度完整且无阻塞 blocker 才可 PASS。
+5. **汇总硬约束**：`release-real-llm` 的 PASS 汇总要求每个 pass 场景 `evidence_completeness.status=complete`（`validateReleaseLayerSummary` 强制），不能出现“tier PASS 但场景证据不完整”。
 
-边界：仅 quality schema、`scripts/lib/quality`、既有 CLI/测试及必要契约说明；不改 `apps/`、`frontend/src`、产品 prompt 或历史证据。消费者是 release 结果层与 `quality_accept`；真实页面能力无新增，故本回补以真实 CLI/结果层集成为验收，产品场景驱动仍留 CP4。作品要素探索不适用。
+### 12.2 实现清单
 
-恢复：先复现上述反例，审读 §6/§8/§11、`quality/acceptance/tiers.md` 和 B39 §9，再做实现；本次排队不构成降低通过标准的作者裁决。
+| 文件 | 行为变化 |
+|---|---|
+| `scripts/lib/quality/evidence_chain.mjs` | 新增 `REPLAY_STATUSES`/`EVIDENCE_DIMENSIONS`/`EVIDENCE_REQUIREMENTS_SCHEMA_VERSION`；`buildEvidenceChain` 记录 `replay_status`（旧布尔 false→unknown）；`evaluateEvidenceChain` 的 `verified` 收紧为“无任何 blocker”并返回 replay 三态；新增 `normalizeEvidenceRequirements`/`validateEvidenceRequirements`/`applyLegacyEvidenceFlags`/`evaluateEvidenceCompleteness`/`readRecordedEvidenceChain`/`readRecordedEvidenceRequirements`；`readLlmCalls` 追加 `request_params`（真实请求体采样参数白名单，供 CLI 回放身份，不读正文）。 |
+| `scripts/lib/quality/release_layer.mjs` | 证据链一律重算（`evaluateEvidenceChain`），不再信任 artifact 自带 binding 摘要（不一致只记 `checks.evidence_binding_summary_mismatch`）；按声明算完整性并传播原因码；blocker 归因（声明 not_applicable 的维度不阻塞但留明细）；新增 `evidence_chain_invalid`/`evidence_requirements_invalid`/`required_*_missing` 等原因码与 `evidence_blockers`/`evidence_blocking_blockers` 明细；scenario rows 增 `evidence_requirements`/`evidence_completeness`，replay scenes 增 `evidence_binding`/`evidence_completeness`；PASS 汇总强制 completeness。非法声明 → `ReleaseLayerError(code=config)`。 |
+| `scripts/lib/quality/release_layer_cli.mjs` | 读取 artifact 记录的 `evidence-chain.json`（校验失败→该场景 evidence_missing + `evidence_chain_invalid`，不 crash 整批）与 `evidence-requirements.json`（损坏→`evidence_requirements_invalid`）；新增 `--evidence-requirements <file>`（显式文件非法→exit 66）；采样参数从真实 llm-calls 请求体读取（缺失不伪造，按 `missing_model_params` 处理）；usage 更新。 |
+| `quality/acceptance/evidence-schema.json` | additive：evidence-chain 增可选 `replay_status`；新增 `$defs.evidence_requirements`（quality-evidence-requirements/v1）；release_layer_summary 描述补 §12 字段与 PASS 约束；不新增必填、不升级版本、历史读取不收紧。 |
+| `scripts/lib/quality/evidence_chain.test.mjs` | 34 tests（原 22 + §12 12）：replay 三态、verified 无 blocker、声明归一化/反缩水、A0/完整/缺 used/缺元数据/未跑 replay/link 分界、artifact 记录读取非法拒绝、schema 同源。 |
+| `scripts/lib/quality/release_layer.test.mjs` | 44 tests（原 31 + §12 13）：完整链 fixture 改为真实证据链并声明未实现维度 N/A；partial+真实链接不 PASS（probe 同型）、伪造 verified 摘要重算后 evidence_missing、缺 used、replay required 未执行、A0 通过、旧 artifact 摘要→evidence_missing、非法声明 config、PASS 汇总完整性校验；CLI 退出码矩阵 0/1/64/65/67/69。 |
+
+边界遵守：未改 `apps/`、`frontend/src`、产品 prompt、历史证据、`quality/acceptance/scenarios.yml` registry；未注册占位/假场景；未启动真实模型/Phoenix/Vite/Tauri；未重写旧 artifact。
+
+### 12.3 反例矩阵与验收映射（§12.3 逐项）
+
+| 要求（原 §12.3） | 用例 | 结果 |
+|---|---|---|
+| partial+真实观察链接 | 「§12 反例复现」+ probe.json 同型输入；链上 `observation_metadata_missing` | evidence_missing(67)，原因 `required_source_metadata_missing`/`observation_metadata_missing`/`required_evidence_missing`，不再 PASS |
+| verified+必需 blocker | 伪造 `binding=verified` + `preparation_outcome_unknown` 且 preparation required | 重算 partial；`checks.evidence_binding_summary_mismatch=true`；evidence_missing(67) |
+| 缺 used refs | `used_context_refs=null` 链 | evidence_missing(67)，`required_used_context_refs_missing` |
+| 缺来源版本/覆盖 | 观察无 outcome/source_revision/coverage | evidence_missing(67)，`required_source_metadata_missing` |
+| 未跑 replay | replay 声明 required + `replay_status=not_executed` | evidence_missing(67)，`required_replay_evidence_missing`，不得写成已验证不调 provider |
+| A0 合法零探索 | Base recorded、used 自报告为空、其余声明 N/A | PASS(0)；requirements 结论 complete，observations=not_applicable |
+| 完整正例 | 真实证据链 fixture（Base/观察/链接/used/元数据齐；prep/restore/replay 声明 N/A） | PASS(0)，`evidence_completeness=complete` |
+| 旧 artifact | 仅 `binding` 摘要的骨架链 / 无记录字段 | evidence_missing(67)，不 PASS 也不误判 fail |
+| CLI 0/1/64/65/67/69 | fixture CLI：pass→0、越界→1、非法参数→64、空 tier→65（既有）、缺必需→67、全 not_run→69 | 与结果层一致；空 tier 仍 not_run/65，不注册假场景 |
+| `quality_accept` 分支 | 既有 `release_layer_accept.test.mjs`（0/1/64/65/67/69 + K5 + 非 release tier 不写结果层） | 211/211 quality JS 测试全过，批次退出码未被本回补改变 |
+
+### 12.4 验证记录（2026-10-29，本地只读/纯函数，无真实模型/页面）
+
+```bash
+node --test scripts/lib/quality/*.test.mjs                     # 211/211 pass（含 evidence_chain 34、release_layer 44）
+node --test scripts/lib/quality/evidence_chain.test.mjs        # 34/34
+node --test scripts/lib/quality/release_layer.test.mjs         # 44/44
+node --test scripts/next_task_check.test.mjs                   # 25/25（未受影响的排期检查回归）
+bash scripts/quality_manifest_check.sh                         # passed（207 scenarios / 2 drafts / 209 manifests）
+```
+
+- 直接使用真实历史 artifact 的 CLI 用例保持原判定：`p1-chapter-draft-generation-native` 仍 evidence_missing/67（历史 artifact 缺 Base/元数据/重复身份），没有因新版判定被“升级”成 PASS。
+- 本轮未运行 `mix test`（未改 Elixir）；未加载模型；未起 Phoenix/Vite/Tauri；probe.json 未写入 release 批次。
+
+### 12.5 残余与接回完整闭环
+
+1. **CP4 仍 blocked**：ADR-0030/VS-00K/AU-15 未 Accepted；本节不执行真实运行、不写模型行为 PASS、不注册 AU-15 场景。这是基建修复，不是 AU-15 完成。
+2. **release/release-real-llm registry 仍 0 场景**：CLI PASS 分支只在 fixture 证据链上验证；首个真实场景归 CP4，`quality_accept --tier release-real-llm` 在真实场景登记前仍只会有 no scenarios/K5 evidence_missing，不得写成“tier 已非空”。
+3. **声明冻结的信任边界**：完整性依赖运行前冻结的声明；纯函数层能校验声明结构（反缩水）但不能自证声明是在看到结果之前写的。CP4 预注册时应把声明写进 manifest/artifact 并留 `declared_at`/来源 ref；当前契约已支持，未新增强制执行。
+4. **历史证据保持只读**：旧 artifact 不补写 `replay_status`/声明；读取一律 unknown → evidence_missing。任何历史数据修复需作者单独授权。
+5. **quality schema 同源校验**：新增字段由 `evidence_chain.test.mjs` 与 schema `$defs` 交叉校验；未改 B41 `quality-verdict/v2`。
+
+恢复：先复现 probe.json 反例，审读 §6/§8/§11、`quality/acceptance/tiers.md` §必需证据完整性 与 B39 §9，再改判定；不得通过放宽声明/删除维度让测试变绿。排队与实现完成不构成降低通过标准的作者裁决，也不代替 CP4。

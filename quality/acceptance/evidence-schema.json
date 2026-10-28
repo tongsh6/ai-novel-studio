@@ -124,7 +124,7 @@
     },
     "evidence_chain": {
       "title": "quality-evidence-chain/v1",
-      "description": "B42 CP2：Base → Observation → 后续真实 provider 请求 → self_report used refs 的证据链。集合关系由 scripts/lib/quality/evidence_chain.mjs 强制：used_context_refs ⊆ Base refs ∪ 实际观察 refs；未读取/stale ref 不得获得证据信用；supplied≠used；未返回自报告=unknown；观察必须先于后续 provider 请求。缺 base_refs/used_context_refs 只记 unknown，不得反推。",
+      "description": "B42 CP2：Base → Observation → 后续真实 provider 请求 → self_report used refs 的证据链。集合关系由 scripts/lib/quality/evidence_chain.mjs 强制：used_context_refs ⊆ Base refs ∪ 实际观察 refs；未读取/stale ref 不得获得证据信用；supplied≠used；未返回自报告=unknown；观察必须先于后续 provider 请求。缺 base_refs/used_context_refs 只记 unknown，不得反推。 B42 §12.2（2026-10-28 additive）：binding=verified 必须无任何 blocker；必需证据完整性由场景声明（$defs.evidence_requirements）逐维度判定，缺必需字段/未执行/未知→evidence_missing，硬违规→violated。",
       "type": "object",
       "required": [
         "schema_version",
@@ -614,6 +614,15 @@
         "generated_at": {
           "type": "string",
           "format": "date-time"
+        },
+        "replay_status": {
+          "enum": [
+            "not_executed",
+            "no_provider_call",
+            "provider_called",
+            "unknown"
+          ],
+          "description": "B42 §12.1（2026-10-28 additive，可选）：replay 证据三态。not_executed=明确未运行 replay，不能当作已验证不调 provider；no_provider_call=replay 已执行且证明未重调 provider，可作 replay 证据；provider_called=replay 重调 provider，不得作为证据信用；unknown=历史 artifact 未表达（旧布尔 replay_provider_called=false 不得反推“已验证未调用”）。"
         }
       }
     },
@@ -1025,7 +1034,7 @@
     },
     "release_layer_summary": {
       "title": "quality-release-layer/v1",
-      "description": "B42 CP1：release（确定性 provider）/ release-real-llm（真实模型 provider）分层结果。两类结果不得合并成单一 PASS；空 tier = not_run + empty_tier（exit 65），不得当 PASS 或全部通过；真实模型 PASS 需要重复/保留措辞/身份/证据链/原生 run 判据全部满足。",
+      "description": "B42 CP1：release（确定性 provider）/ release-real-llm（真实模型 provider）分层结果。两类结果不得合并成单一 PASS；空 tier = not_run + empty_tier（exit 65），不得当 PASS 或全部通过；真实模型 PASS 需要重复/保留措辞/身份/证据链/原生 run 判据全部满足。 B42 §12.2（2026-10-28 additive）：scenarios[] 新增 evidence_requirements（场景声明）与 evidence_completeness（status/missing_required）；release-real-llm PASS 时每个 pass 场景必须 evidence_completeness.status=complete。",
       "type": "object",
       "required": [
         "schema_version",
@@ -1337,6 +1346,80 @@
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "evidence_requirements": {
+      "title": "quality-evidence-requirements/v1",
+      "description": "B42 §12.1（2026-10-28，additive）：release-real-llm 场景在运行前冻结的必需证据声明。每个维度声明 required 或 not_applicable；未声明维度按 required（严格默认）。基座约束：base_refs/used_context_refs 必须 required；observation_link/source_metadata required 时 observations 必须 required。声明不能事后删除以放行 PASS；缺必需证据→evidence_missing，observation_link 缺失（场景核心因果断言不成立）按 fail。",
+      "type": "object",
+      "required": [
+        "dimensions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "quality-evidence-requirements/v1"
+        },
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "base_refs": {
+              "enum": [
+                "required",
+                "not_applicable"
+              ]
+            },
+            "observations": {
+              "enum": [
+                "required",
+                "not_applicable"
+              ]
+            },
+            "observation_link": {
+              "enum": [
+                "required",
+                "not_applicable"
+              ]
+            },
+            "source_metadata": {
+              "enum": [
+                "required",
+                "not_applicable"
+              ]
+            },
+            "used_context_refs": {
+              "enum": [
+                "required",
+                "not_applicable"
+              ]
+            },
+            "preparation": {
+              "enum": [
+                "required",
+                "not_applicable"
+              ]
+            },
+            "restore": {
+              "enum": [
+                "required",
+                "not_applicable"
+              ]
+            },
+            "replay": {
+              "enum": [
+                "required",
+                "not_applicable"
+              ]
+            }
+          }
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     }
