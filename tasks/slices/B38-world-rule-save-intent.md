@@ -1,6 +1,6 @@
 # B38 世界规则保存意图的判断/协议（deferred 候选）
 
-- 状态：pending / deferred（trigger：真实产品链复现或作者真实请求；当前不排期）
+- 状态：deferred（trigger：真实产品链复现或作者真实请求；当前不排期；2026-10-28 统一状态词，触发条件不变）
 - 来源：B34 CP3 模型级 replay（`artifacts/model-contracts/b34-cp3/`，2026-10-25）
 - 关联：B33 动作意图有界纠错、B27 判断协议、B34 验证体系、D15
 

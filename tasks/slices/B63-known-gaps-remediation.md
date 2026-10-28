@@ -84,17 +84,19 @@ E2E-01 §E10 判据逐项证据：
 
 **验证**：`bash -n scripts/e2e_01_full_chain_check.sh` 通过；`node --test scripts/lib/quality/e2e_status.test.mjs` 59/59 pass；`bash scripts/e2e_01_full_chain_check.sh --provider slice_verify` → E10 **pass/fresh**，聚合 counts 由 `{pass:2, stale:10, evidence_missing:1}` 变为 `{pass:3, stale:10, evidence_missing:0}`，整条仍 exit 67（证据缺失：E1/E2/E3/E4/E5/E7/E8/E11/E12/E13 stale，B40 §10.2 未复跑债务）。**边界**：本映射只关闭 E10 自身 evidence_missing，不使整条 E2E-01 PASS；freshness 与 HEAD 相关，最终提交后 HEAD 变化需按 Lead/B62 排期复跑否则该 native verdict 判 stale。
 
-### 6.2 R2（作者裁决项，**open，待作者确认**；引用 [B60](B60-backend-dialyzer-baseline.md) §8.2 R2）
+### 6.2 R2 质量物料引用裁决
 
-事实：`AuthoringTaskBuilder.for_quality_evaluation/1` 原 `text(attrs[:source_ref]) || text(attrs[:turn_id])` 兜底永不触发（`text(nil)=""` 为真值）；B60 删死兜底后行为不变 =「source_ref 为空时**不回退** turn_id」，最终 `{:error, {:authoring_task_invalid, :material_ref_required}}`。调用方 `turn_execution_service.ex:2062` 传 `source_ref=List.first(tool_result.artifact_refs)`、`turn_id=frame.turn_id`；error 时 quality eval task=nil（既有容错）。
+- 状态：**blocked（待作者选择；发现来源见 [B60](B60-backend-dialyzer-baseline.md) §8.2 R2）**。
+
+事实：`AuthoringTaskBuilder.for_quality_evaluation/1` 原 `text(attrs[:source_ref]) || text(attrs[:turn_id])` 兜底永不触发（`text(nil)=""` 为真值）；B60 删死兜底后行为不变 =「source_ref 为空时**不回退** turn_id」，最终 `{:error, {:authoring_task_invalid, :material_ref_required}}`。调用方 `turn_execution_service.ex:2062` 传正文 artifact ref 与 turn_id；构建 error 时 task=nil。2026-10-28 追完整链：`ProseQualityService.evaluate` 仍执行确定性检查；配置语义 provider 时，`ProseQualityEvaluator.evaluate(%{task: nil}, ...)` 在 provider 调用前返回 `authoring_task_required`，`ProseQualityService.run_semantic` 将其转为 `review_status=:unavailable`。没有语义 provider 时走既有确定性模式。不能把 task=nil 概括成整项“已跳过且只缺日志”。
 
 | 选项 | 内容 | 影响 | 推荐 |
 |---|---|---|---|
-| **A（推荐）** | 保持现状：不回退 turn_id | 零行为变化；quality evaluation 的 prose 物料必须绑定正文 artifact ref（字节来源），turn_id 是轮次标识不是正文物料，回退会让物料来源漂移并与 I1 因果绑定语义冲突；缺 artifact 的 error 路径已被调用方容错、测试覆盖 | ✅ |
+| **A（推荐）** | 保持现状：不回退 turn_id | 保留不回退及现有 unavailable 语义；turn_id 是轮次标识，不能充当正文物料身份。是否触及 I1 必须核对字节来源链，不能只凭 ref 类型宣称已发生 I1 违规 | ✅ |
 | B | 恢复回退：source_ref 空 → turn_id | 行为变化；prose material ref 变成 turn（无正文内容绑定），需改调用方/测试/契约文档，且 source_refs 与 material ref 语义混淆 | ❌ |
-| C | 不回退但显式跳过质量评估并留可观测事件 | 主链行为不变（现 error→task=nil 已等价），只补显式日志；如需另开最小观测 slice | 可选 |
+| C | 在 A 基础上保留确定性检查与语义 unavailable，补原始缺引用原因的可观测性 | 须先核当前 quality 事件/trace/replay 是否已能解释原因，有缺口才补；若改为 skipped 或 completed 则是另一项行为/契约变更，不能称只加日志 | 待取证，不预建独立 slice |
 
-状态：**待作者选 A/B/C**；作者确认前 R2 保持 open，不自行标记关闭。
+状态：**待作者选 A/B/C**；推荐 A，2026-10-28 仅纠正事实和 C 的边界。本节是 R2 裁决与后续处置的唯一入口，B60 保留发现记录；确认前保持 open，不把本轮文档更新当作关闭。
 
 ### 6.3 R4（建议「保持登记」；引用 [B60](B60-backend-dialyzer-baseline.md) §8.2 R4）
 

@@ -178,3 +178,4 @@ CI backend job 含 `mix dialyzer`，项目无 `ignore_warnings` 配置；当前 
 - 不得为了让 dialyzer 绿而启用全局 `ignore_warnings`；后续若新增 warning，先按 §6 的族根因处理，确有「证明不可达/第三方行为」时才允许逐条 `@dialyzer {:nowarn_function, ...}` 并写入任务文档。
 - R1 已按作者裁决 A 修复（#30，含回归测试）；若未来 read-only/归档会话策略变化（例如允许只读会话继续修订），需重访该拒绝语义。
 - R2（`for_quality_evaluation` 的 source_ref→turn_id 兜底原意）与 R4（`accepted_chapter_scopes/2` 的 `:not_found` 历史契约漂移）保持登记、本批不改；若产品意图确认需要兜底/重新引入错误码，另开最小修复。
+- 2026-10-28 R2 后续裁决与完整失败链已统一交 [B63 §6.2](B63-known-gaps-remediation.md#62-r2-质量物料引用裁决)；此处保留原始发现，不再维护第二份 R2 决策状态。

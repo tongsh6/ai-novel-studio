@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { validateTaskState } from "./next_task_check.mjs";
+import { collectTaskInventory, validateTaskState } from "./next_task_check.mjs";
 
 const row = (id = "A", target = "A.md") =>
   "| " + id + " | 推进真实任务 | [任务](slices/" + target + ") |";
@@ -40,9 +40,13 @@ test("只改原任务为 done 就能挡住陈旧排期，不依赖 NEXT 双写",
     rejects(check(next(), { ...files, "tasks/slices/A.md": task(status) }), "来源已终结");
   }
 });
-test("识别设计 doing、blocked、deferred，不把进入排期当实现获批", () => {
-  for (const status of ["doing", "blocked", "deferred"]) {
+test("当前只能选可推进来源，blocked/deferred 仍可作为有条件候选", () => {
+  for (const status of ["todo", "pending", "doing"]) {
     assert.deepEqual(check(next(), { ...files, "tasks/slices/A.md": task(status) }), []);
+  }
+  for (const status of ["blocked", "deferred"]) {
+    rejects(check(next(), { ...files, "tasks/slices/A.md": task(status) }), "当前任务来源为");
+    assert.deepEqual(check(next(), { ...files, "tasks/slices/B.md": task(status) }), []);
   }
 });
 test("当前至多一项，候选不能重复编号或重复排同一来源", () => {
@@ -52,7 +56,8 @@ test("当前至多一项，候选不能重复编号或重复排同一来源", ()
 });
 test("空当前任务仅在有可达的阻塞来源时允许", () => {
   rejects(check(next({ current: "" })), "必须引用");
-  assert.deepEqual(check(next({ current: "", blocked: "待决策见 [原任务](slices/A.md)。" })), []);
+  assert.deepEqual(check(next({ current: "", candidates: "", blocked: "待决策见 [原任务](slices/A.md)。" })), []);
+  rejects(check(next({ current: "", blocked: "待决策见 [原任务](slices/A.md)。" })), "当前任务为空但候选");
   rejects(check(next({ current: "", blocked: "[缺失](slices/missing.md)" })), "阻塞来源不可读");
 });
 test("拒绝不存在、非任务路径以及缺失的状态来源", () => {
@@ -62,6 +67,7 @@ test("拒绝不存在、非任务路径以及缺失的状态来源", () => {
     rejects(check(text), "必须是 tasks");
   }
   rejects(check(next().replace("[任务](slices/A.md)", "只有任务名")), "缺少状态来源");
+  rejects(check(next().replace("[任务](slices/A.md)", "[任务](slices/A.md) [另一来源](slices/B.md)")), "只能有一个状态来源");
 });
 test("未知状态与后文才出现的状态都不能冒充顶部状态", () => {
   rejects(check(next(), { ...files, "tasks/slices/A.md": task("maybe") }), "顶部状态");
@@ -72,6 +78,69 @@ test("子任务以锚点小节为真源，不受已完成对账批次顶部状�
   assert.deepEqual(check(next({ current: row("A", "A.md#余项") }), { ...files, "tasks/slices/A.md": aggregate }), []);
   rejects(check(next({ current: row("A", "A.md#缺失") }), { ...files, "tasks/slices/A.md": aggregate }), "锚点不存在");
   rejects(check(next({ blocked: "[原因](slices/A.md#缺失)" })), "阻塞来源锚点不存在");
+  const nested = "# 原任务\n- 状态：done\n## 余项\n没有自身状态\n### 子任务\n- 状态：todo";
+  rejects(check(next({ current: row("A", "A.md#余项") }), { ...files, "tasks/slices/A.md": nested }), "顶部状态");
+});
+
+test("开放清单能发现未排期任务、已完成父任务的开放 checkpoint 与未识别历史状态", () => {
+  const sources = {
+    ...files,
+    "tasks/slices/C.md": task("blocked"),
+    "tasks/slices/D.md": "# 原任务\n- 状态：done\n## 后续\n- 状态：todo\n## 历史\n- 状态：done",
+    "tasks/slices/E.md": "# 旧文档\n## 后续\n- 状态：deferred",
+    "tasks/README.md": "# 索引",
+    "tasks/NEXT.md": next(),
+  };
+  const inventory = collectTaskInventory(Object.keys(sources), { readTask: (file) => sources[file], next: next() });
+  assert.deepEqual(inventory.entries, [
+    { source: "tasks/slices/A.md", status: "todo", schedule: "当前任务" },
+    { source: "tasks/slices/B.md", status: "pending", schedule: "后续候选" },
+    { source: "tasks/slices/C.md", status: "blocked", schedule: "未排期" },
+    { source: "tasks/slices/D.md#后续", status: "todo", schedule: "未排期" },
+    { source: "tasks/slices/E.md#后续", status: "deferred", schedule: "未排期" },
+  ]);
+  assert.deepEqual(inventory.unclassified, ["tasks/slices/E.md"]);
+});
+
+test("checkpoint 排期不冒充整个父任务获授权；关闭原来源即从开放清单消失", () => {
+  const sources = { "tasks/slices/A.md": "# 原任务\n- 状态：blocked\n## 可推进\n- 状态：todo" };
+  const selected = next({ current: row("A", "A.md#可推进"), candidates: "" });
+  assert.deepEqual(check(selected, sources), []);
+  const readTask = (file) => sources[file];
+  assert.deepEqual(collectTaskInventory(Object.keys(sources), { readTask, next: selected }).entries, [
+    { source: "tasks/slices/A.md", status: "blocked", schedule: "未排期" },
+    { source: "tasks/slices/A.md#可推进", status: "todo", schedule: "当前任务" },
+  ]);
+  sources["tasks/slices/A.md"] = sources["tasks/slices/A.md"].replace("状态：todo", "状态：done");
+  rejects(check(selected, sources), "来源已终结");
+  assert.equal(collectTaskInventory(Object.keys(sources), { readTask, next: selected }).entries.length, 1);
+});
+
+test("--open 真实 CLI 列出未排期来源且不改写原文，非法参数失败", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "next-inventory-test-"));
+  const sources = {
+    ...files,
+    "tasks/slices/C.md": task("todo"),
+    "tasks/NEXT.md": next(),
+    "docs/product/user-journeys.md": "# 体验覆盖\n",
+    "scripts/next_task_check.mjs": readFileSync(new URL("./next_task_check.mjs", import.meta.url), "utf8"),
+  };
+  try {
+    for (const [file, text] of Object.entries(sources)) {
+      mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      writeFileSync(path.join(root, file), text);
+    }
+    const result = spawnSync(process.execPath, ["scripts/next_task_check.mjs", "--open"], { cwd: root, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(result.stdout.includes("todo\t当前任务\ttasks/slices/A.md"));
+    assert.ok(result.stdout.includes("todo\t未排期\ttasks/slices/C.md"));
+    for (const [file, text] of Object.entries(sources)) assert.equal(readFileSync(path.join(root, file), "utf8"), text);
+    const invalid = spawnSync(process.execPath, ["scripts/next_task_check.mjs", "--unknown"], { cwd: root, encoding: "utf8" });
+    assert.notEqual(invalid.status, 0);
+    assert.ok(invalid.stderr.includes("用法"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 test("拒绝增加历史节、损坏表格、缺少规则链接", () => {
   rejects(check(next() + "\n## Decision Log\n历史 next"), "只允许");

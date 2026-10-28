@@ -1,6 +1,6 @@
 # B49：主链语义收窄与 ADR 评审
 
-- 状态：**评审材料 done（2026-10-27）；裁决待作者（blocked-by-author）**。
+- 状态：**blocked（评审材料已完成；R1–R7 与 ADR 状态仍待作者，2026-10-28 仅补推荐边界）**。
 - 登记日期：2026-10-27；来源：primary/reply-only/next_action/output contract 的 Accepted 字面与当前实现不同，ADR-0022 的历史语义也已被后续协议改变。
 - 上游：ADR-0001/0002/0003/0004/0007/0012/0022/0023/0025、[B27](B27-systematic-prompt-and-intent-integration.md)、[B43](B43-gate-order-residual.md)、[B45](B45-schema-legacy-governance.md)。
 - 本任务产物：**评审材料 + 一份新 Proposed ADR + 作者裁决包**，不是实现授权、不是 Accepted 代签。
@@ -256,6 +256,14 @@ ADR-0022 当前状态 **Proposed**；它含已实现部分（N-NARR / PlanStep /
 | **R5** | ADR-0007 动作集与 `primary_next_action` | (a) 补齐五个动作 producer；(b) 退役无消费者动作/字段，保留有 producer+consumer 的动作 | **(b)** | 决定 ADR-0007 冻结集收窄；前端动作区/按钮；恢复面归属 | 若 (a)：新增无 UI 入口的动作；需作者先给真实产品场景与 UI 设计 |
 | **R6** | 只读 output 校验范围 | (a) 全部统一 schema；(b) 四类分层（creative 强制 / 内部只读 opaque / 探索局部 contract / wire 单入口） | **(b)** | 决定 ADR-0012 规则 4 收窄；B45 的 `$ref`/opaque 分类；是否冻结两个只读 output schema | 若 (a)：须先冻结 `text_analysis_output_v1`/`character_roster_result_v1` 并补消费方；当前无消费者 |
 | **R7** | A 类补齐是否授权（仅 origin frame lineage 一项） | (a) 本轮授权 B01 把 origin frame lineage 收敛为真实 frame 引用或显式 turn ref；(b) 只登记 gap，暂不补 | **(a)** | 决定 B01 是否纳入首批；影响 Replay/Why 的 turn 入口 lineage 可追溯性 | 若 (b)：gap 保留，lineage 仍不可验证；B01 后续可再触发 |
+
+### 7.1 2026-10-28 评审补充（推荐，不是裁决）
+
+- 推荐仍为 **R1–R6 选 b、R7 选 a**；每项等待作者明确选择，ADR-0031 仍 Proposed，ADR-0022 不变。这里的 b/a 是上表逐项选项，不是 §5.1 的分类代号。
+- **R1/R3/R5**：无当前消费者是收窄的证据，不能单独证明所有未来语义无价值。退役前须按 B45 核 producer/consumer、历史读取兼容与真实替代入口；不为旧枚举造功能，也不静默删除历史解释能力。
+- **R6**：四类分层不等于内部只读无约束。opaque adapter 仍须有明确输入/输出类型、错误形状、作用域和真实消费者验证；模型可见观察须有来源与内容边界，wire 继续按现行入口校验。未能证明 typed contract 时不能仅删除 schema 声明了事。
+- **R7**：先核 origin lineage 实际表达 turn 还是 frame。若只有 turn 身份，优先显式 turn ref 并说明历史兼容；需要真实 frame 消费者时才补可解析 frame 引用，不能制造空 frame 凑字段名。
+- **实施后果**：B01 承接 origin lineage；B43 承接 Gate/幂等/blocked；B45 承接字段与 schema 退役。接受新 ADR 时如实保留未实现 `enforcement_gaps`；Accepted 不是“代码和真实页面验收已完成”。
 
 **裁决后状态流转（供 Lead 执行）**：
 

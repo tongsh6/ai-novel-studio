@@ -1,6 +1,6 @@
 # B43：Execution Gate 残余——行为输入、幂等输入与 blocked 链
 
-- 状态：**todo（全量对账确认的产品缺口，未开工）**。
+- 状态：**blocked（产品实施待 B49 主链语义裁决；CP0 可先只读核查，未开工）**。
 - 登记日期：2026-10-27；来源：12 门与 allow 路径已验收，但 blocked 页面、open_behavior/slot 顺序和同键异 payload 仍未闭合。
 - 上游：ADR-0005、[GATE-ORDER-CLOSURE](GATE-ORDER-CLOSURE-execution-gate-order-12.md)、[B40](B40-judgment-era-acceptance-reanchor.md)、[B49](B49-core-semantics-and-adr-review.md)。
 

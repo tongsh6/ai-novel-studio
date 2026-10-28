@@ -429,3 +429,38 @@ git diff --check
 - 未运行后端/前端功能测试、真实模型或 Tauri；本任务只完成审计、任务登记和文档治理，不表示产品能力或真实模型行为已通过。
 
 恢复时先读本文件、NEXT 和各原任务；不得只按索引摘要或历史完成记录继续。若审计期间并行任务完成，按最新原任务更新处置，不回滚他人证据。
+
+## 8. 2026-10-28 排期与决策材料复核
+
+- 状态：**done（任务体系与决策材料更新、检查器与验证完成；不授权下游产品实施）**。
+- 来源：作者要求「1 帮我完善 next task 体系 2 决策补充更新」。本轮授权排期、规则/检查器完善和决策材料纠错；不是作者逐项接受 ADR-0030/0031 或 D1–D7/R1–R7。
+- 复核范围：NEXT、tasks 规则、B39/B40/B42–B51/B57/B58/B60/B63 的原任务与高影响代码事实；开放来源另由 `next_task_check --open` 即时列出。没有逐一裁决全部历史任务，不能声称全仓无可推进项。
+
+### 8.1 排期理由与承接
+
+1. **先补证据判定**：B42 §12 已复现 partial+缺观察元数据仍 pass 的局部反例，回补属于 CP1/CP2 原反假绿目标；不受 CP4 的 ADR/模型窗口阻塞。
+2. **独立安全边界与验收恢复**：B44 可先审计仓储转换；B40 §10.2 接回原同族清单，过去批次 done 不代表完整任务 done。
+3. **条件候选保留依赖**：B39 等 ADR-0030/D1–D7；B43 等 B49。候选顺序不是必须等待前项解锁的串行依赖，可先选择已满足前置的项；B47 先做对象级 CP0。
+4. **尚未进入近期五项的工作仍有原入口**：[B46 持久 Inbox](slices/B46-persistent-adoption-inbox.md) 先核事实源与跨会话恢复；[B57 注入边界](slices/B57-sec-injection-boundary.md) 可先做既有作者输入/作品观察的对抗矩阵，新增求证/外部资料部分等对应入口；[B58 批准策略](slices/B58-human-approval-policy-unification.md) 先对账 receipt/trace；[B51](slices/B51-tech-stack-current-rebase.md) 先做只读依赖与 PaperTrail 证据。这里登记承接理由，不复制执行状态，不建立第二队列。
+5. **条件项与待裁决不销账**：B38 从近期候选转条件引用；B29 T2 统一指 B48；B50 与 B51 的裁决入口补入 NEXT；I10、stage 修复、B27 已裁决 known-gap 与既有外部条件仍由原任务承接。原生覆盖与 release 空 registry 的事实留 B40/B42/B61/B62，不在 NEXT 堆历史数字。
+
+### 8.2 决策材料更新边界
+
+- B39 校准 D1–D7，区分逐请求 Base/Observation、累计预算、CP1 局部报告、正式 AU-15 前置与未执行 replay；建议不写成 Accepted。
+- B49 推荐加上 typed contract、历史兼容、真实 lineage 和 enforcement_gaps 的限制；R1–R7 仍待作者。
+- B63 R2 纠正 task=nil 的完整失败链与 C 选项，推荐不回退 turn_id；B48 区分普通无变化说明与结构化业务回执，避免把 no-op 与重复请求幂等混为一谈。
+- B50 补延期推荐和重新开放条件；B51 保留“先取证、后裁决”，不凭本轮文档更新选定 PaperTrail 去留。
+
+### 8.3 体系验证与未闭环
+
+本轮人工改动仅在 `tasks/` 和排期检查脚本/索引；`reports/gap-ledger/latest.json` 由原脚本刷新，不改产品、ADR 状态、release 判定代码或已有验收判据。新增 `--open` 清单从原文派生、不落盘；检查器阻止 blocked/deferred 占队首、多个状态来源、空队首但有可推进候选，以及借用子标题状态。
+
+验证记录（2026-10-28）：
+
+- `mix compile` 通过；`node --test scripts/next_task_check.test.mjs` **25/25**；`node scripts/next_task_check.mjs` 与 `--open` 通过。清单仍显式列出未识别顶部状态的历史文档，不把它们默认为 done，也不在本轮机械改名。
+- 修改文档的本地链接核对 **137/137**；`mix run --no-start scripts/adr_trace.exs` **28/28 Accepted、296 refs**；ADR-0022/0030/0031 仍按 Proposed 跳过。
+- `bash -n scripts/gap_ledger.sh`、`bash scripts/gap_ledger.sh` 通过；开放 ID 前后相同、均 **20 项**，只刷新日期/连续计数；`git diff --check` 通过。
+- `bash scripts/ai_static_scan.sh --top 10` 首跑发现旧 completion manifest 过期；用 `bash scripts/task_done.sh --top 10` 重建并复扫，**19/20 checks passed，blocking=0**。I1/I2/I3、N-NARR、I-CACHE、前端 typecheck/lint/test 与架构检查通过；本次无 UI 改动，manifest 如实记录 UI evidence not_required。
+- 剩余 Top 10 实际为 **4 条历史 gitleaks 命中**：B63 历史文档行、E10 spec 标识符、Pencil 元数据为既有 `false_positive`；历史 `tools/company-console/server/config.mjs` 为既有 `accepted_risk`。本次未修改处置台账、未忽略扫描、未重写历史。原始 gitleaks check 仍失败，不能写“全扫描零发现”；结果及处置见 `artifacts/static-scan/top10.md`、`disposition.md`、`report.json`。
+
+B42 §12 仅登记缺陷并排期，尚未修复；B39/B42 CP4、B49/B48/B50 等仍待各自裁决。本文档更新不能用作产品/真实页面/真实模型验收证据。

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,6 +8,7 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const headings = ["当前任务", "后续候选", "阻塞"];
 const openStates = new Set(["todo", "pending", "doing", "blocked", "deferred"]);
 const terminalStates = new Set(["done", "superseded", "cancelled"]);
+const actionableStates = new Set(["todo", "pending", "doing"]);
 
 // NEXT 只选择工作；执行状态从原任务读取，不再与旅程同步一份 next。
 export function validateTaskState(next, { readTask, journeys = "" } = {}) {
@@ -43,6 +44,7 @@ export function validateTaskState(next, { readTask, journeys = "" } = {}) {
     ids.add(id);
     const refs = links(source ?? "");
     if (refs.length === 0) failures.push("NEXT: " + id + " 缺少状态来源链接");
+    if (refs.length > 1) failures.push("NEXT: " + id + " 只能有一个状态来源；依赖放说明列或原任务");
     for (const ref of refs) {
       const target = taskPath(ref);
       if (!target) {
@@ -59,14 +61,15 @@ export function validateTaskState(next, { readTask, journeys = "" } = {}) {
           failures.push("NEXT: " + id + " 状态来源锚点不存在 " + ref);
           continue;
         }
-        const status = body.split("\n")
-          .map((line) => line.replace(/[*\u0060]/g, "").trim())
-          .map((line) => line.match(/^(?:-\s*)?状态[：:]\s*([A-Za-z_-]+)/)?.[1]?.toLowerCase())
-          .find(Boolean);
+        const status = sourceStatus(body);
         if (terminalStates.has(status)) {
           failures.push("NEXT: " + id + " 来源已终结 (" + status + ")，应移出排期");
         } else if (!openStates.has(status)) {
           failures.push("NEXT: " + id + " 状态来源缺少可识别的顶部状态");
+        } else if (current.includes(row) && !actionableStates.has(status)) {
+          failures.push("NEXT: " + id + " 当前任务来源为 " + status + "；应排可推进的 checkpoint 或移入候选/阻塞");
+        } else if (current.length === 0 && actionableStates.has(status)) {
+          failures.push("NEXT: 当前任务为空但候选 " + id + " 仍为 " + status + "；先选任务或在原文明确阻塞");
         }
       } catch (error) {
         failures.push("NEXT: " + id + " 状态来源不可读 " + target.file + ": " + error.message);
@@ -100,6 +103,53 @@ export function validateTaskState(next, { readTask, journeys = "" } = {}) {
     }
   }
   return failures;
+}
+
+// 只读派生开放清单，不写状态文件，也不把 todo 自动解释为已获实现授权。
+export function collectTaskInventory(files, { readTask, next = "" }) {
+  const scheduled = new Map();
+  for (const name of ["当前任务", "后续候选"]) {
+    for (const row of taskRows(section(next, name), name, [])) {
+      for (const ref of links(row[2] ?? "")) {
+        const target = taskPath(ref);
+        if (target) scheduled.set(target.file + (target.anchor ? "#" + target.anchor : ""), name);
+      }
+    }
+  }
+  const entries = [];
+  const unclassified = [];
+  for (const file of [...files].sort()) {
+    if (!file.endsWith(".md") || ["README.md", "NEXT.md"].includes(path.posix.basename(file))) continue;
+    const text = readTask(file);
+    const sections = [{ source: file, body: text }];
+    for (const match of text.matchAll(/^#{2,6} (.+)$/gm)) {
+      const anchor = slug(match[1]);
+      sections.push({ source: file + "#" + anchor, body: anchoredSection(text, anchor) });
+    }
+    if (!openStates.has(sourceStatus(text)) && !terminalStates.has(sourceStatus(text))) {
+      unclassified.push(file);
+    }
+    for (const { source, body } of sections) {
+      const status = sourceStatus(body);
+      if (openStates.has(status)) entries.push({ source, status, schedule: scheduled.get(source) ?? "未排期" });
+    }
+  }
+  return { entries, unclassified };
+}
+
+function sourceStatus(body) {
+  // 状态只属于当前标题的引言；不得借用子标题中的状态。
+  return body.split(/^#{2,6} /m)[0].split("\n")
+    .map((line) => line.replace(/[*\u0060]/g, "").trim())
+    .map((line) => line.match(/^(?:-\s*)?状态[：:]\s*([A-Za-z_-]+)/)?.[1]?.toLowerCase())
+    .find(Boolean);
+}
+
+function taskFiles(directory = "tasks") {
+  return readdirSync(path.join(rootDir, directory), { withFileTypes: true }).flatMap((entry) => {
+    const file = path.posix.join(directory, entry.name);
+    return entry.isDirectory() ? taskFiles(file) : entry.isFile() ? [file] : [];
+  });
 }
 
 function taskRows(text, name, failures) {
@@ -161,8 +211,16 @@ function section(text, heading) {
 
 function main() {
   try {
-    const failures = validateTaskState(readFileSync(path.join(rootDir, "tasks/NEXT.md"), "utf8"), {
-      readTask: (file) => readFileSync(path.join(rootDir, file), "utf8"),
+    const args = process.argv.slice(2);
+    if (args.length > 1 || (args.length === 1 && args[0] !== "--open")) {
+      console.error("用法：node scripts/next_task_check.mjs [--open]");
+      process.exitCode = 1;
+      return;
+    }
+    const next = readFileSync(path.join(rootDir, "tasks/NEXT.md"), "utf8");
+    const readTask = (file) => readFileSync(path.join(rootDir, file), "utf8");
+    const failures = validateTaskState(next, {
+      readTask,
       journeys: readFileSync(path.join(rootDir, "docs/product/user-journeys.md"), "utf8"),
     });
     if (failures.length) {
@@ -170,6 +228,14 @@ function main() {
       process.exitCode = 1;
     } else {
       console.log("next-task-check: ok");
+    }
+    if (args.includes("--open")) {
+      const { entries, unclassified } = collectTaskInventory(taskFiles(), { readTask, next });
+      console.log("\n开放来源（原任务即时派生；父任务与 checkpoint 不按独立任务计数；未排期不等于 blocked）");
+      for (const entry of entries) console.log(`${entry.status}\t${entry.schedule}\t${entry.source}`);
+      console.log("\n未识别顶部状态的历史文档（不等于已完成，换队首时须人工核对）");
+      for (const file of unclassified) console.log(file);
+      console.log("\n该清单不判断授权、依赖或真实可开工性；须回原任务核对，不能据此自动宣布无可推进项。");
     }
   } catch (error) {
     console.error("next-task-check: " + error.message);

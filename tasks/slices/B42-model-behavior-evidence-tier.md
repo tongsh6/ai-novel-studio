@@ -1,6 +1,6 @@
 # B42：真实模型行为与求证证据分层
 
-- 状态：**doing（CP0–CP3 done，2026-10-27；CP4 blocked：ADR-0030 仍为 Proposed，作者裁决未下，AI 不代签）**。
+- 状态：**doing（CP0–CP3 历史交付保留；2026-10-28 发现 CP1/CP2 证据完整性缺口，按 §12 回补；CP4 仍待 ADR-0030 与作者前置）**。
 - 登记日期：2026-10-27；来源：`release` / `release-real-llm` 均为 0 注册场景，实模与 deterministic 结果混在 nightly，AU-15 还缺 Base→Observation→used refs 的证据字段。
 - 上游：[B41](B41-quality-evidence-foundation.md)、[AU-15](../../docs/design/acceptance/author/AU-15-evidence-seeking-authoring.md)、[B39](B39-evidence-seeking-authoring.md)、[tiers](../../quality/acceptance/tiers.md)。
 
@@ -234,3 +234,21 @@ node scripts/lib/quality/release_layer_cli.mjs summarize --tier release-real-llm
 - `scripts/lib/README.md` 索引由 Lead 收口；本 slice 未改。
 - `quality/acceptance/known-gaps.md` 归 B40/Lead，本 slice 未直接修改，只在上表提交候选。
 - 真实模型窗口（单槽）未使用；本轮未加载/卸载模型，未起 Phoenix/Vite/Tauri。
+
+## 12. 证据完整性回补
+
+- 状态：**todo（2026-10-28 已复现并排期；本次只补任务，不修改 release 判定实现）**。
+- 来源：本任务 §6/§8 的反假绿与 unknown 边界、[B39 D4](B39-evidence-seeking-authoring.md#97-开放决策清单给作者每项选项-推荐-影响)。这是 CP1/CP2 的残余修复，不依赖 ADR-0030 Accepted，不启动 CP4 或真实模型。
+- 事实：`scripts/lib/quality/release_layer.mjs` 的 `evaluateModelBehaviorEvidence` 仅把 `binding=violated/unknown` 加入拒绝原因；构造输入满足其余身份/重复/观察链接条件、但 `binding=partial` 且有 `observation_metadata_missing` 时，仍返回 `eligible/pass`、空原因列表。仅为判定函数的本地反例，不是一次真实模型或页面验收。`evidence_chain.mjs` 的 verified 也不检查所有 preparation/restore blocker，因此不能只改成“要求 verified”便宣布完整。
+- 本地可复核输入与结果：`artifacts/quality-accept/b42-evidence-completeness-review/probe.json`（`fixture_only=true`、`real_model_called=false`）；直接调用上述导出函数复现，无生产请求、无模型调用。本证据不写入 release 批次，也不充当真实模型 PASS。
+
+### 范围与完成标准
+
+1. **先固定必需证据**：按场景声明区分必需、不适用、未执行；对 Base/观察/真实请求/used refs/来源版本与覆盖/准备/恢复分别说明适用条件。A0 不强制探索；未运行 replay 不能冒充“已验证不调 provider”；未知值不得补写为通过值。
+2. **回补判定与原因传播**：必需字段未知、partial 或相关 blocker → `evidence_missing`；硬违规仍 fail；各字段完整且适用条件满足才可 PASS。不得只信任输入携带的 binding 摘要、吞掉 blocker 或靠删除场景要求过关。若现有 schema 无法表达未执行/不适用，先在本任务冻结最小兼容修订，历史读取保留 unknown。
+3. **反例与集成证据**：覆盖 partial+真实观察链接、verified+必需 blocker、缺 used refs/来源版本、未跑 replay、A0 合法零探索、完整正例、旧 artifact、CLI 与 `quality_accept` 的 0/64/65/67/69 分支。退出码与结果层一致，空 tier 仍 not_run，不注册假场景填充。
+4. **接回完整闭环**：局部判定测试通过只能关闭本节；B42 CP4 与 B39 全部场景、真实模型/native 证据仍各由原 checkpoint 承接，不把基建修复当 AU-15 完成。
+
+边界：仅 quality schema、`scripts/lib/quality`、既有 CLI/测试及必要契约说明；不改 `apps/`、`frontend/src`、产品 prompt 或历史证据。消费者是 release 结果层与 `quality_accept`；真实页面能力无新增，故本回补以真实 CLI/结果层集成为验收，产品场景驱动仍留 CP4。作品要素探索不适用。
+
+恢复：先复现上述反例，审读 §6/§8/§11、`quality/acceptance/tiers.md` 和 B39 §9，再做实现；本次排队不构成降低通过标准的作者裁决。

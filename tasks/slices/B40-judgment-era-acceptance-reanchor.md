@@ -1,6 +1,6 @@
 # B40：判断纪元验收重锚与证据收口
 
-- 状态：**done（2026-10-27，CP0–CP4；含两个必须如实登记的未闭环后果）**：CP0 映射与退役裁决 §7；CP1 AU11 重锚完成但 native 未闭环（§8，保持 blocked）；CP2 AU07 ToolTrace 复核（§9，blocked 并新登记 B59 产品缺口）；CP3 家族重锚/退役/真跑（§10）；CP4 收口与最终门禁（§11）。**未闭环**：①B40 CP3 家族仍为 browser-surface（native 覆盖按需逐场景批次，B61 已完成 AU11×2+AU07×3）；②AU-07 三场景 native 缺口已由 B61 关闭（2026-10-28，5/5 原生 PASS，见 §9.1b）；③同族未复跑场景保留历史语义（§10.2）。不把 browser-surface 证据读作原生 PASS，不把机制 PASS 读作模型语义 PASS。
+- 状态：**doing（2026-10-28 状态纠正：2026-10-27 CP0–CP4 批次交付保留，§10.2 同族后续仍 todo，完整重锚尚未闭环）**。B59/B61/B62 已交付的产品修复与原生证据仍以各原任务为准；本次不重跑、不否定历史通过，也不把历史批次 done 外推成全部同族场景 done。
 - 登记日期：2026-10-27；来源：v3 全量对账发现“实现已演进，但旧验收/台账仍停在退役链路”。
 - 上游：[B27 CP5](B27-systematic-prompt-and-intent-integration.md)、[B13B §6](B13B-adr-enforcement-reconciliation.md)、[VS00D-G 对账](VS00D-G-GAP-RECONCILIATION.md)、[known-gaps](../../quality/acceptance/known-gaps.md)、[AU07](AU07-file-level-closure.md)。
 - 本任务只承接明确的验收重锚、证据重跑和状态修正；若发现真实产品缺口，另立 CP0 和产品 slice，不在验收脚本里掩盖。
@@ -259,6 +259,12 @@ B40 登记的 AgentRun step DecisionTrace 持久化缺口已由 [B59](B59-agent-
 | `agent-provider-streaming-progress` / `au10-micro-plan-entry` | provider_progress_v1 / legacy MicroPlan 入口 | **retired**（F10/F14）；pr-smoke 由 `pr-smoke-core-reply` 承接 | 见 known-gaps | — |
 
 ### 10.2 未在预算内完成/保留 blocked 的同族项（诚实清单）
+
+- 状态：**todo（下一批重锚；2026-10-28 明确承接，完整范围仍是下列原同族清单）**。
+- 排期理由：当前验收入口和旧事件断言的偏差不能因前批收口消失；复用 B61/B62 已有原生 harness，不等待 ADR-0030。
+- 下一步：先按当前 verifier/manifest/summary 逐项重新核对，避免重做已由后续批次补齐的内容；首批优先 `p1-chapter-draft-generation`、`p1-prose-execution-brief`、`au01-turnresult-recorder-ui-consistency`，其余按下列同族逐项接续。首批不是完整验收范围的替代。
+- 完成标准：每个原场景有当前生产链的重锚或有依据的退役、证据 surface/driver、失败与 freshness；原生交互需求按场景补齐，browser 证据不能代签。同步 E2E 聚合受影响证据；历史 PASS 保留为历史。发现产品缺陷回原业务任务或先补 slice 设计，不能靠改断言掩盖。
+- 独立阻塞：`au02-candidate-fallback-ui` 的产品/协议裁决仍见 §10.1，不阻塞其他可达场景；不可达路径不得编造 producer。
 
 - `vs10-observability-spine`：**已重锚 PASS**（`verdict pass`，git_head d6bc69a4，browser-surface）；旧 `planner.form_frame/form_micro_plan` 等待与父子 turn 关联问题已修。
 - `p1-chapter-draft-generation`、`p1-prose-execution-brief`、`au01-turnresult-recorder-ui-consistency`、`au02-candidate-continuation/multiturn/freeform/unadopted/bridge`：有 07–10 月判断纪元历史 PASS 证据，但**未在本轮 current-HEAD 复跑**；verifier KEY_EVENTS/断言未全部迁移，保留 active 但不得以历史证据代签（nightly 复跑前不写 PASS）。

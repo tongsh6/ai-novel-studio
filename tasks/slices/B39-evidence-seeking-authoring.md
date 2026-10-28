@@ -1,6 +1,6 @@
 # B39：求证式创作——最小供给、Run 级探索与证据闭环
 
-- 状态：**doing（CP0 元原则落地对账完成；CP1 施工待 ADR-0030 Accepted；2026-10-28 完成 CP1 只读预研复核 §9，作者决策 D1–D7 待裁决）**。
+- 状态：**blocked（CP0 与 CP1 只读预研已完成；CP1 产品施工待 ADR-0030 Accepted 和 D1–D7 作者裁决；2026-10-28 仅更新决策材料，未接受提案、未实现）**。
 - 登记日期：2026-10-27；来源：作者指出持续增加 APP 主动投喂只会不断补漏洞，要求先把元原则深化到全部承重设计，而非先做时间线专用设计。
 - 上游：[00 §2.4](../../docs/design/00-vision-and-engineering-roadmap.md#24-创作信息获取元原则最小供给按需求证证据闭环2026-10-27-用户拍板)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[VS-00K](../../docs/design/contracts/VS-00K-evidence-seeking-authoring-contract-pack.md)、[AU-15](../../docs/design/acceptance/author/AU-15-evidence-seeking-authoring.md)。
 - 当前阶段只进行设计、契约、验收与任务登记；ADR-0030 未 Accepted 前不进入产品实现。
@@ -204,7 +204,7 @@ git diff --check
 
 - writer：把 `author_input_text`（`prose_drafting_with_quality.ex:1514-1537`）的观察段从“摘要行”升级为“带回 ref 的 author-safe 观察行”，如 `- [observation:<observation_id>]（tool）摘要（refs: chapter:<uuid>, …）`；观察来源仍限 `snapshot.observations`（不新增持久源）；同时把本次请求的 observation refs 作为 trace meta（9.4 方案 A）。`continuation_observation_block` :226-235 同步加 refs。
 - 使命：`mission_inputs`（:870）把本 run 已执行探索观察映射为 `ChapterMissionInputs` additive items（建议 `%{ref: "observation:<observation_id>", group: :observation, text: "<tool/activity> 摘要（refs: …）"}`），复用 `refs/known_ref?/to_prompt_section/bind`（`chapter_mission_inputs.ex:106/109/132`；`chapter_mission.ex:78`；`chapter_mission_service.ex:196`），不动 `ChapterMission` 值对象；没有观察时不生成 item（诚实缺席）。
-- 顺序：使命步是否在探索步之后由模型计划顺序决定，CP1 不强制；若模型把使命排在探索前，A1 判据按“writer 请求必须含观察”取证（见 9.5.3）。
+- 顺序：计划顺序由模型提出；当本轮使命依赖探索所得事实时，必须证明观察进入使命与 writer（或使命基于观察重建），不能只证明 writer 收到摘要便缩掉 §6 的使命消费要求。模型错排导致使命未消费观察，应记录缺口/失败；有界准备与 replan 的完整机制仍由 CP2 承接，APP 不按领域关键词插步。
 - A2 通用性：渲染只依赖 `ExplorationService` 的 tool/query/refs/summary 通用形状，不出现时间/物品等领域分支。
 
 #### 9.3.4 Base refs additive 暴露
@@ -213,7 +213,7 @@ git diff --check
 
 #### 9.3.5 预算/续读/no-progress/取消/恢复复用点
 
-- 预算：复用 plan 步预算（explore=1 step/0 tool/0 provider；prose 生效上界见 9.2 #3）。**不新增 budget key**（会被 `AgentRun.normalize_budget` 丢弃）；如需硬上限，用无状态计数：按 `run.plan` 已执行前缀（plan cursor）统计 exploration target 步数，在 flow dispatch 处拒绝超限步（建议 N=2），恢复后可由 plan+cursor 重建。判断循环同款“2 轮 + 8 续读额度”需续读状态，属 CP3（SC-AU15-B2），CP1 不建议。
+- 预算：复用 plan 步预算（explore=1 step/0 tool/0 provider；prose 生效上界见 9.2 #3）。**不新增 budget key**（会被 `AgentRun.normalize_budget` 丢弃）；如需硬上限，建议初始 N=2，但必须按本 run 累计已执行探索计数；仅当前 plan+cursor 不能证明跨 replan 不重置。CP1 先核现有步骤/计划历史是否足以重建，覆盖 replan 累计上限；跨重启恢复归 CP3，不在 CP1 代签。无法复用时先补预算方案，不新增会被丢弃的键，也不放开上限。判断循环同款“2 轮 + 8 续读额度”需续读状态，属 CP3（SC-AU15-B2），CP1 不建议。
 - 续读：CP1 预注册把前置章控制在单页（≤6000 字符，`ExplorationService` `@chapter_page_chars`），使 A1/A2 无需续读；若模型仍触发多页需求，按既有“未覆盖末页先续读”观察提示行为记录；预算/计划不允许则记失败或未闭环，不伪造读全。
 - no-progress：沿用“同 tool+同 query（含 offset）才判重复”语义（`judgment_plan.ex:536`、`dialogue_planning_service.ex:1574`），共享模块由调用点传 namespace（如 `#{run_id}:prose_explore:`），保证跨 flow/跨步不串扰且续读页不误停。
 - 取消：复用既有 cancel 语义（`agent_run_server.ex:1520-1529`）；探索只读、无 canon 写入、无迟到写风险；CP1 不新增可中断性保证（内联读不可细粒度取消，同判断循环现状）。
@@ -232,12 +232,12 @@ git diff --check
 | 实现成本/风险 | 中低：复用既有 task 结构与 trace 通道；prompt 字节不变 | 高：ContextAssembler 在 task 装配之前、不知道 materials（分层倒置）；context 是 per-turn 非 per-call；domain/契约影响面大（06/VS-00B/VS-00D） | 低：零产品改动；但依赖 prompt 格式稳定，无法产品内复用 |
 | 对 I1–I3 | 不动 artifact 字节来源 → I1 不变；I2/I3 无关 | 同左，但 domain 变更需回归更多不变量 | 同左（纯读取） |
 | 对 VS-00I（前缀稳定） | prompt 完全不变 | prompt 可能不变，但 envelope 结构变 | prompt 不变 |
-| 对契约影响 | 无（后续可建议 VS-00K §4.3/§4.4 additive 登记字段名，CP2 再做） | 需改 domain 契约/文档 | 无 |
+| 对契约影响 | additive 仍有契约影响：实施前在 VS-00K 明确字段、来源类别、版本/unknown、逐 provider call 绑定和真实 trace/replay 消费者 | 需改 domain 契约/文档 | 无产品字段，但须冻结外部解析规则 |
 | 证据消费 | 场景 verifier 从 turn_result.trace_summary 解析 base_refs/request_observation_refs，配 observations/provider_calls 构 `evidence-chain.json`；B42 `buildEvidenceChain` 无需改 | why 面板可直接读；证据同样可消费 | 只能作为旁证；无产品侧集合 |
 | CP2 used refs 校验复用 | 应用层可直接用同一集合校验 | 需跨层取集合 | 不能用于产品内校验 |
 
-- **推荐：A + C 交叉校验。** 理由：① prompt 字节不变，VS-00I/I1 零风险；② Base refs 恰好由“已渲染进 prompt 的 ref”派生（AuthoringTask scope refs + materials refs + 材料版本/覆盖），语义上就是“模型实际可见的 Base”；③ 记录点位于 writer 请求装配处，CP2 的 `used ⊆ Base ∪ observed` 校验可直接复用；④ C 作为独立第二来源对账，避免“产品自证”。B 不推荐用于 CP1（分层倒置 + domain 契约影响大）。
-- 边界：以上字段/形状只是 CP1 建议，**不得在 CP1 依据本表改 VS-00K/ADR/schema**；作者裁决后再由 CP2 决定是否入契约。
+- **推荐：A + C 交叉校验。** 每个 provider call 单独记录，按实际渲染内容区分 Base 与 Requested Observation；不能把观察进入 materials 后重新算作 Base。D1 的 trace 记录本身不改 prompt，D7 的观察渲染则会改变动态段，二者分别验证 VS-00I/I1。字段同时服务产品 trace/replay 与 CP2 引用核验，不能是只有验收脚本消费的隐藏 metadata。外部真实请求解析提供第二来源；不能仅从 task 对象推断模型实际看见的材料。B 不推荐用于 CP1（context 是 per-turn，且先于 writer 材料装配）。
+- 边界：以上字段/形状仍是建议。本次不改 VS-00K/ADR/schema；作者裁决后、CP1 实施前登记新增字段的契约与消费者，不能先加生产字段再以“additive 无影响”为由把登记推迟到 CP2。
 
 ### 9.5 CP1 真实模型验收预注册草案（校准版；ADR Accepted 后执行，执行前冻结）
 
@@ -253,7 +253,7 @@ git diff --check
 
 - **SC-AU15-A1 前置**：作品含较早章已采纳正文，正文含一条人物承诺/关系事实（示例“沈砚答应三天后回灯楼接顾青”）；该事实不进任何专用 packet，后续 Base（摘要/携带/提示）不含完整内容，但真实正文可经 `chapter_read/prose_search` 读取。
 - **SC-AU15-A2 前置**：两章正文分别含“过了三天”“又过了两周”（示例），后续 Base 不含合计；真实正文可读；结果与累计十七天相容。
-- seed 方式（待作者裁决，9.7 D6）：(i) 外部 seed 脚本（fixture，走既有 persistence/采纳同形写入，声明为前置数据，便宜、可控、不引入额外模型行为变量）——推荐；(ii) 真实模型先写并采纳前置章（更贴 AU-15 §5“通过真实创作与采纳”字面，但多一轮实模、增加变量、时间翻倍）。两者都必须证明前置章正文真实可被探索工具读到且未进 Base；独立 run 分母只计测量 run，前置 setup 另存 artifact。
+- seed 方式（待作者裁决，9.7 D6）：正式 AU-15 推荐 (ii) 真实模型先写并由外部 UI 驱动采纳前置章，遵守 AU-15 §5 现有要求；(i) fixture 仅用于机制测试/探针。若正式验收改用 fixture，须先明确修订 AU-15 前置要求，不能把“同形写入”当作真实创作采纳已验。两种路径均须证明正文可探索且未进 Base；setup 与测量分开保存，冻结独立 run 数和失败分母。
 - 前置章长度 ≤6000 字符（单页），承诺/时间表达保留原文；语义相容由作者或作者指定评审裁决（AI 不代签，I10 原则）。
 
 #### 9.5.3 场景、步骤与判据映射
@@ -298,7 +298,7 @@ git diff --check
 | `provider_calls[].request_observation_refs` | writer prompt 当前无 observation refs | **缺**；CP1 注入 refs 后可解析 |
 | `preparation_outcome` | 无准备判断（CP2） | **缺**（CP1 记 `unknown`） |
 | `stale_on_restore` | CP1 不重启 | 记 `unknown`（不伪造 none） |
-| `replay_provider_called` | 不跑 replay | 记 `false`（机制可证） |
+| `replay_provider_called` | CP1 不跑 replay | **未执行不能当作已验 false**；由 B42 §12 明确未运行/不适用与字段兼容，CP3 才证明回放不调用模型 |
 | `binding` | 由上述集合/顺序规则派生（`evaluateEvidenceChain`） | 依赖缺字段结果 |
 | 身份/重复/措辞/params | summary + real-model-proof + llm-calls request body | 有 |
 
@@ -308,7 +308,7 @@ git diff --check
 
 - 机制层：必须 PASS（探索步计划/执行/观察/后续请求/零 canon）。
 - 模型行为层：A1/A2 ≥2 独立 run 全过才 `pass`；确定性替身/APP 插步不得 `pass`。
-- release-real-llm tier：以 B42 release layer 判定（evidence_chain + native_run + repeats + retention + params/model identity）；CP1 若无 `base_refs`/`request_observation_refs`，binding 最多 partial/unknown → 很可能 `evidence_missing`，**不得降级成 PASS**。
+- release-real-llm tier：须先完成 B42 §12 证据完整性回补，再按场景必需证据判定。CP1 的准备/恢复等未覆盖后果继续开放，仅出机制与模型行为观察报告；缺必需证据应为 `evidence_missing`，不得因当前函数接受 partial 而写 PASS。A0 未证明 ready/missing 区分时，也不能以零探索步替代完整 A0 验收。
 - 旧预注册未区分“语义相容由作者裁决”；本次校准：机制/模型行为由证据判定，语义相容（承诺、天数）由作者或指定评审裁决记录，不由自动分代签（I10 原则）。
 
 ### 9.6 B59/B61（及 B40–B42）对旧预注册假设的影响
@@ -328,13 +328,15 @@ git diff --check
 
 | 决策 | 选项 | 推荐 | 影响 |
 |---|---|---|---|
-| **D1 Base refs 字段形状与暴露点** | (A) trace 聚合 additive（`base_refs`/`base_ref_entries`/`request_observation_refs`）；(B) context 组装层统一（DialogueContext 新字段）；(C) 纯外部 verifier 派生 | **A + C 交叉校验**（9.4） | prompt 字节不变、I1/VS-00I 零风险；CP2 可复用同一集合；不改契约（后续 additive 登记建议） |
-| **D2 prose run 探索预算/分账** | (a) 复用 plan 步预算 + 无状态硬上限（建议 2，按 plan+cursor 计数）；(b) 判断循环同款 2 轮+8 续读额度（需续读状态，CP3）；(c) 新增 budget 字段（`AgentRun.normalize_budget` 会丢弃，需改契约） | **(a)** | 决定单 run 可探索步数/A1–A2 可行性/重启后预算可重建；续读留 CP3 |
-| **D3 CP1 准备判断最小边界** | (i) 无准备判断，仅记录 exploration→writer 机械过渡（preparation_outcome=unknown）；(ii) 机械过渡记为 ready（需作者确认不构成语义代签）；(iii) CP1 内实现最小准备判断 | **(i)**，并把 (ii)/(iii) 留 CP2 | 决定 release tier 证据链 blocker 与“CP1 是否可能 PASS” |
-| **D4 release tier 判定口径** | (a) 只有 binding=verified 且字段齐全才 PASS（最严，CP1 大概率 evidence_missing，等 CP2）；(b) 允许 binding=partial + blockers 显式登记后 PASS（当前 release_layer 代码允许 partial，需作者确认）；(c) CP1 只出“机制+模型行为观察”报告，不写 tier PASS | **(c) 或 (b)**，由作者裁决 | 决定 B42 CP4 结果定性、NEXT/台账措辞；不得把部分证据写成 PASS |
-| **D5 探索步 gate/lineage** | (a) 保持内联只读旁路（同判断循环现状）；(b) 给只读探索加轻量 gate + 逐门 lineage/ToolTrace | **(a) CP1**；(b) 留 CP3/契约讨论 | 影响证据完整度（ToolTrace 不是探索证据来源）与实现风险 |
-| **D6 A1/A2 前置 seed 方式** | (i) 外部 seed 脚本写已采纳正文（fixture，声明前置数据）；(ii) 真实模型先写并采纳前置章 | **(i)** | 决定实模 run 数/时长/变量；两种都必须证明前置正文可探索且未进 Base |
-| **D7 观察 ref 是否显式进 writer prompt + used refs 词表说明** | (i) 仅 refs 行（最小）；(ii) 加一句“used_context_refs 只能引用材料/观察中列出的 ref”（改 prompt 动态段，需 VS-00I 检查）；(iii) 都不做（证据只能时间顺序链接） | **(i)**，(ii) 视作者对证据质量要求 | 决定 `request_observation_refs` 可解析性、self_report 证据质量与 prompt 改动范围 |
+| **D1 Base refs 字段形状与暴露点** | A trace 聚合 / B context 新字段 / C 外部派生 | **A+C**；逐 call 分账 Base/Observation，新增字段随 CP1 实施前登记契约与产品消费者 | 不新增平行 ref 体系；外部请求字节交叉核对，不能声称零风险或无契约影响 |
+| **D2 prose run 探索预算/分账** | a 复用预算与累计探索上限 / b 2轮+8续读 / c 新 budget 字段 | **a**，2 仅初始建议值；先证明跨 replan 累计不重置，跨重启归 CP3 | 不以当前 plan+cursor 代替 run 累计账；不得增加会被 normalize 丢弃的字段 |
+| **D3 CP1 准备判断最小边界** | i unknown / ii 机械过渡记 ready / iii CP1 实现准备判断 | **i**；准备判断归 CP2，**不推荐 ii** | checkpoint 接线可推进，但机械过渡不能冒充模型已判断 ready；完整范围不缩小 |
+| **D4 release tier 判定口径** | a 完整必需证据才 PASS / b partial+blockers 也 PASS / c CP1 只出局部报告 | **CP1 选 c，正式验收遵循 a；不推荐 b** | B42 §12 先补判定缺口；verified 标签本身也不代替场景必需字段检查 |
+| **D5 探索步 gate/lineage** | a 复用内联只读路径 / b 新只读 gate 与逐门 lineage | **a 有条件推荐**：验证 work/session 范围、权限、预算、取消与 no-progress，act 仍 re-gate | 不经写操作 gate 不等于免授权；trace 证据用真实探索事件，不伪造 ToolTrace |
+| **D6 A1/A2 前置 seed 方式** | i 外部 fixture / ii 真实创作并采纳 | **正式 AU-15 选 ii**；i 用于机制/探针，正式改用需先修订 AU-15 | 保留完整真实入口验收，setup 与测量分账；不能用 fixture 顶替已冻结前置 |
+| **D7 观察 ref 进 writer prompt** | i 观察与来源 refs / ii 限定 used refs 的说明 / iii 都不做 | **i 必需，建议 i+ii**，放适当动态段并验 VS-00I | 真实后续请求必须可解析引用；仅时间顺序链接不能证明请求实际含观察 |
+
+**2026-10-28 评审补充（尚未生效）**：上表更新的是 AI 推荐与事实边界，作者未逐项选定，ADR-0030/VS-00K/AU-15 仍 Proposed。D1/D2/D7 中字段形状、预算初值等属于需验证的工程方案；作者主要确认产品边界与完整验收口径，不能以实现方便降低契约。作者裁决后记录选择、日期及承接 CP；未选项继续 blocked。
 
 ### 9.8 本轮验证、未闭环与恢复
 
