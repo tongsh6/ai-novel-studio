@@ -12,6 +12,7 @@
 | `b34-author-intent-corpus-fixtures.yml` | B34 真实作者意图确定性 fixture（**draft**：progress_query/work_setup/discussion/world_foreshadow 边界/delegation-noise；slice_verify + application/agent tests；不注册真实模型 nightly） |
 | `b31-author-reply-run-binding.yml` | B31 作者补充输入与待回复任务稳定绑定（**active/nightly**：slice_verify 确定性 provider 下的多 awaiting run 归属/显式问题 author_choice/目标可见/JoinRestore 稳定序；真实模型语义不在本场景） |
 | `b28-whole-chapter-revision.yml` | B28 整章修订/排版范围/同章采纳（**active/nightly**：slice_verify 确定性 provider 下的章级目标+全章覆盖账、format_only 归一等价、content 只改指定处、replace_scope 同章替代/旧稿 superseded/刷新幂等、同名章澄清阻断、缺 ref 零写入；真实模型语义归 CP4） |
+| `b47-canon-freshness.yml` | B47 持久 canon freshness（**active/nightly**）：stale/conflict/fresh 三作品真实页面矩阵——候选基线来自持久 canon 版本，stale（基线过期）与 conflict（未覆盖片段）在决策前 fail_with_recovery 零写入，fresh 对照正常采纳（旧稿 SUPERSEDED、新稿 ACCEPTED、mutation+1、阅读投影更新）；证据含 action_result/turn_result 回执、seed.log、只读 DB 前后快照。 |
 | `b30-chapter-renumber-roundtrip.yml` | B30 章节重编号 roundtrip（**active/nightly**：维护意图→可审阅 old→new 映射→保存到作品→两阶段原子 seq 重编号；交换/密集重排/重复确认幂等；刷新 TOC/按章阅读消费新 seq；负例可解释拒绝零写入；卷蓝图仅 Volume/混排 type_mismatch） |
 | `b30-volume-blueprint-kind-boundary.yml` | B30 卷蓝图/卷章类型边界（**active/nightly**：真实页面规划卷章+规划下一卷采纳后蓝图只存 volumes.blueprint、Chapter 只含真实章节/不占 seq；seed harness 非法混排 type_mismatch 零行） |
 | `b29-existing-character-role-revision.yml` | B29 已有角色叙事身份修订（**active/nightly**：真实输入唯一别名指定主角→revise_character_profile+character_ref→候选 ENSEMBLE_POV→PROTAGONIST→保存→同 character_id 原子更新/角色数不变/其它主角保留/正文 hash 不变/receipt committed_changes；同名 ask 零写入；讨论零候选；刷新 roster/「谁是主角」多主角全列；放弃/跨作品/重复采纳负例） |

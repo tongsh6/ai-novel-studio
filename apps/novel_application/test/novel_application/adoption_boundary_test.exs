@@ -193,6 +193,176 @@ defmodule NovelApplication.AdoptionBoundaryTest do
     end
   end
 
+  # ── B47：系统计算的 canon freshness / contract gate ─────────────
+  # 依据来自 application 编排的持久 canon 读取 + NovelDomain.CanonFreshness，
+  # 不依赖候选自报 canon_conflicts；freshness 先于 legacy 自报与高风险确认。
+
+  describe "canon freshness gate (B47)" do
+    test "stale verdict fails with recovery and records expected/current target" do
+      set = build_candidate_set()
+      chosen = %{candidate_id: "c-2"}
+
+      verdict = %{
+        object: :chapter_prose,
+        status: :stale,
+        reason_codes: ["stale_base_version", "candidate_base_outdated"],
+        expected: %{ref: "chapter:x", versions: %{"draft:a" => 4}},
+        current: %{ref: "chapter:x", versions: %{"draft:a" => 5}}
+      }
+
+      decision = AdoptionBoundary.evaluate(set, chosen, nil, canon_freshness: verdict)
+
+      assert decision.decision_type == :fail_with_recovery
+      assert "stale_base_version" in decision.reason_codes
+      assert "conflict_recovery_required" in decision.reason_codes
+      assert decision.target_ref == "chapter:x"
+      refute AdoptionDecision.adopted?(decision)
+    end
+
+    test "conflict verdict fails with recovery even without candidate self-report" do
+      set = build_candidate_set()
+      chosen = %{candidate_id: "c-1"}
+
+      verdict = %{
+        object: :character_profile,
+        status: :conflict,
+        reason_codes: ["canon_conflict_detected", "persisted_canon_differs"],
+        expected: %{ref: "character:x"},
+        current: %{ref: "character:x"}
+      }
+
+      decision = AdoptionBoundary.evaluate(set, chosen, nil, canon_freshness: verdict)
+
+      assert decision.decision_type == :fail_with_recovery
+      assert "canon_conflict_detected" in decision.reason_codes
+      assert "conflict_recovery_required" in decision.reason_codes
+      assert decision.target_ref == "character:x"
+      refute AdoptionDecision.adopted?(decision)
+    end
+
+    test "fresh verdict keeps existing gates：legacy candidate self-report still blocks" do
+      set =
+        build_candidate_set(
+          candidates: [
+            %{
+              candidate_id: "c-conflict",
+              summary: "冲突方向",
+              content_ref: "ref-conflict",
+              origin_ref: "tool:creative_gen",
+              risk_hint: :low,
+              adoption_target_ref: "canon:role:lin-jin:age",
+              canon_conflicts: [%{target_ref: "canon:role:lin-jin:age"}]
+            }
+          ]
+        )
+
+      fresh = %{
+        object: :chapter_prose,
+        status: :fresh,
+        reason_codes: [],
+        expected: %{},
+        current: %{}
+      }
+
+      decision =
+        AdoptionBoundary.evaluate(
+          set,
+          %{candidate_id: "c-conflict"},
+          nil,
+          canon_freshness: fresh
+        )
+
+      assert decision.decision_type == :fail_with_recovery
+      assert "canon_conflict_detected" in decision.reason_codes
+    end
+
+    test "missing / unavailable verdicts fail closed without production write" do
+      set = build_candidate_set()
+
+      missing = %{
+        object: :chapter_prose,
+        status: :missing,
+        reason_codes: ["target_missing"],
+        expected: %{ref: "chapter:gone"},
+        current: nil
+      }
+
+      decision =
+        AdoptionBoundary.evaluate(set, %{candidate_id: "c-1"}, nil, canon_freshness: missing)
+
+      assert decision.decision_type == :fail_with_recovery
+      assert "target_missing" in decision.reason_codes
+      refute AdoptionDecision.adopted?(decision)
+
+      unavailable = %{
+        object: :character_profile,
+        status: :unavailable,
+        reason_codes: ["canon_freshness_unavailable"],
+        expected: %{ref: "character:x"},
+        current: nil
+      }
+
+      decision =
+        AdoptionBoundary.evaluate(
+          set,
+          %{candidate_id: "c-1"},
+          nil,
+          canon_freshness: unavailable
+        )
+
+      assert decision.decision_type == :fail_with_recovery
+      assert "canon_freshness_unavailable" in decision.reason_codes
+      refute AdoptionDecision.adopted?(decision)
+    end
+  end
+
+  describe "adoption contract gate (B47)" do
+    test "contract error fails with recovery and specific reason code before write decision" do
+      set = build_candidate_set()
+
+      decision =
+        AdoptionBoundary.evaluate(
+          set,
+          %{candidate_id: "c-1"},
+          nil,
+          adoption_contract: {:error, :unsupported_field}
+        )
+
+      assert decision.decision_type == :fail_with_recovery
+      assert "unsupported_field" in decision.reason_codes
+      refute AdoptionDecision.adopted?(decision)
+    end
+
+    test "format_only violation tuple maps to stable reason code" do
+      set = build_candidate_set()
+
+      decision =
+        AdoptionBoundary.evaluate(
+          set,
+          %{candidate_id: "c-1"},
+          nil,
+          adoption_contract: {:error, {:format_only_violation, %{offset: 3, line: 2}}}
+        )
+
+      assert decision.decision_type == :fail_with_recovery
+      assert "format_only_violation" in decision.reason_codes
+    end
+
+    test "contract ok keeps adoption" do
+      set = build_candidate_set()
+
+      decision =
+        AdoptionBoundary.evaluate(
+          set,
+          %{candidate_id: "c-1"},
+          nil,
+          adoption_contract: :ok
+        )
+
+      assert decision.decision_type == :adopt_tentative
+    end
+  end
+
   # ── Invariants ──────────────────────────────────
 
   describe "adoption invariants" do

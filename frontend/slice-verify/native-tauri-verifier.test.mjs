@@ -16207,3 +16207,185 @@ describe("B25 同名章节身份统一证据", () => {
     ).toBeNull();
   });
 });
+
+describe("B47 canon freshness 页面矩阵判定", () => {
+  function draft(id, revision, status, sha) {
+    return {
+      draft_id: id,
+      draft_ref: `draft:${id}:${revision}`,
+      status,
+      revision,
+      content_sha256: sha,
+      effective_word_count: 16,
+    };
+  }
+
+  function trial(scenario, overrides = {}) {
+    const oldDrafts = [draft("d-old-1", 2, "ACCEPTED", "sha-old-1"), draft("d-old-2", 2, "ACCEPTED", "sha-old-2")];
+    const freshDrafts = [
+      draft("d-old-1", 3, "SUPERSEDED", "sha-old-1"),
+      draft("d-old-2", 3, "SUPERSEDED", "sha-old-2"),
+      draft("d-new", 5, "ACCEPTED", "sha-candidate"),
+    ];
+    const snapshot = (drafts, mutation = 3) => ({
+      drafts,
+      mutation_count: mutation,
+      accepted_draft_refs: drafts.filter((item) => item.status === "ACCEPTED").map((item) => item.draft_ref),
+    });
+    const base = {
+      scenario,
+      work_id: `work-${scenario}`,
+      work_title: `B47 ${scenario}`,
+      artifact_id: `as-${scenario}`,
+      source_turn_id: `turn-${scenario}`,
+      declared_versions: { "draft:d-old-1": 2, "draft:d-old-2": 2 },
+      current_versions: { "draft:d-old-1": 2, "draft:d-old-2": 2 },
+      expected_after_adoption: {
+        outcome: "accepted",
+        superseded_refs: ["draft:d-old-1:2", "draft:d-old-2:2"],
+        new_accepted_content_sha256: "sha-candidate",
+        mutation_delta: 1,
+      },
+      candidate_content_sha256: "sha-candidate",
+      before: snapshot(oldDrafts),
+      after: snapshot(oldDrafts),
+      action_result: {
+        status: "failed",
+        decision_type: "fail_with_recovery",
+        canon_freshness: { status: scenario === "conflict" ? "conflict" : "stale" },
+        reason_codes:
+          scenario === "conflict"
+            ? ["canon_conflict_detected", "incomplete_scope"]
+            : ["stale_base_version"],
+        expected_versions: { "draft:d-old-1": 2, "draft:d-old-2": 2 },
+        current_versions: { "draft:d-old-1": 2, "draft:d-old-2": 2 },
+      },
+      turn_result: {
+        turn_id: `turn-${scenario}-adopt`,
+        status: "failed_recoverable",
+        truthfulness: { production_write_performed: false },
+      },
+      reading_projection: null,
+    };
+    if (scenario === "fresh") {
+      Object.assign(base, {
+        action_result: {
+          status: "accepted",
+          decision_type: "adopt_tentative",
+          canon_freshness: { status: "fresh" },
+          reason_codes: ["candidate_adopted_as_tentative", "provenance_verified"],
+        },
+        turn_result: {
+          turn_id: "turn-fresh-adopt",
+          status: "conversational",
+          truthfulness: { production_write_performed: true },
+        },
+        after: snapshot(freshDrafts, 4),
+        reading_projection: { visible_candidate_prefix: true },
+      });
+    }
+    const merged = { ...base, ...overrides };
+    if (overrides.action_result) merged.action_result = { ...base.action_result, ...overrides.action_result };
+    if (overrides.turn_result) merged.turn_result = { ...base.turn_result, ...overrides.turn_result };
+    if (overrides.after) merged.after = overrides.after;
+    return merged;
+  }
+
+  function b47Records(overrides = {}) {
+    const trials = ["stale", "conflict", "fresh"].map((scenario) =>
+      trial(scenario, overrides[scenario] ?? {}),
+    );
+    return [
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "b47-canon-freshness",
+        turn_id: "turn-fresh-adopt",
+        turn_ids: trials.map((item) => item.turn_result.turn_id),
+        work_id: "work-stale",
+        work_title: "B47 stale",
+        three_work_trials_completed: true,
+        trials,
+      },
+    ];
+  }
+
+  it("接受三作品 stale/conflict/fresh 页面矩阵，并给出零写入与 supersede 断言", () => {
+    const records = b47Records();
+    const evidence = findNativeSliceEvidence("b47-canon-freshness", records);
+    expect(evidence).not.toBeNull();
+    const behavior = findSliceBehaviorEvidence("b47-canon-freshness", records, evidence, {
+      provider: "slice_verify",
+    });
+    expect(behavior).not.toBeNull();
+    expect(behavior.assertions).toContain("stale_candidate_rejected_with_zero_write_and_recovery_copy");
+    expect(behavior.assertions).toContain("fresh_baseline_adoption_accepted_and_supersedes_old_drafts");
+  });
+
+  it("拒绝 stale/conflict 发生写入或 reason code 不符的矩阵", () => {
+    const written = b47Records({
+      stale: { after: { drafts: [], mutation_count: 4, accepted_draft_refs: [] } },
+    });
+    expect(findNativeSliceEvidence("b47-canon-freshness", written)).not.toBeNull();
+    expect(
+      findSliceBehaviorEvidence("b47-canon-freshness", written, findNativeSliceEvidence("b47-canon-freshness", written), {
+        provider: "slice_verify",
+      }),
+    ).toBeNull();
+
+    const wrongReason = b47Records({ conflict: { action_result: { reason_codes: ["something_else"] } } });
+    expect(
+      findSliceBehaviorEvidence(
+        "b47-canon-freshness",
+        wrongReason,
+        findNativeSliceEvidence("b47-canon-freshness", wrongReason),
+        { provider: "slice_verify" },
+      ),
+    ).toBeNull();
+  });
+
+  it("拒绝 fresh 对照旧稿未 SUPERSEDED 或新正文 sha 与候选不一致", () => {
+    const notSuperseded = b47Records({
+      fresh: {
+        after: {
+          drafts: [
+            draft("d-old-1", 2, "ACCEPTED", "sha-old-1"),
+            draft("d-old-2", 2, "ACCEPTED", "sha-old-2"),
+            draft("d-new", 5, "ACCEPTED", "sha-candidate"),
+          ],
+          mutation_count: 4,
+          accepted_draft_refs: ["draft:d-old-1:2", "draft:d-old-2:2", "draft:d-new:5"],
+        },
+      },
+    });
+    expect(
+      findSliceBehaviorEvidence(
+        "b47-canon-freshness",
+        notSuperseded,
+        findNativeSliceEvidence("b47-canon-freshness", notSuperseded),
+        { provider: "slice_verify" },
+      ),
+    ).toBeNull();
+
+    const wrongSha = b47Records({
+      fresh: {
+        after: {
+          drafts: [
+            draft("d-old-1", 3, "SUPERSEDED", "sha-old-1"),
+            draft("d-old-2", 3, "SUPERSEDED", "sha-old-2"),
+            draft("d-new", 5, "ACCEPTED", "different-sha"),
+          ],
+          mutation_count: 4,
+          accepted_draft_refs: ["draft:d-new:5"],
+        },
+      },
+    });
+    expect(
+      findSliceBehaviorEvidence(
+        "b47-canon-freshness",
+        wrongSha,
+        findNativeSliceEvidence("b47-canon-freshness", wrongSha),
+        { provider: "slice_verify" },
+      ),
+    ).toBeNull();
+  });
+});

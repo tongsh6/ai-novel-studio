@@ -1,0 +1,97 @@
+id: b47-canon-freshness
+title: 持久 canon 版本变化后旧候选不得静默覆盖（stale / conflict / fresh 对照）
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh b47-canon-freshness --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/engineering/vertical-slice.md
+  - docs/design/acceptance/author/AU-05-artifact-adoption.md
+  - docs/design/acceptance/author/AU-08-reading-mode.md
+  - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
+  - docs/design/adr/ADR-0010-state-adoption-boundary-v3.md
+  - docs/design/adr/ADR-0019-adoption-status-transition-v3.md
+  - tasks/slices/B47-canon-freshness-and-conflict-detection.md
+
+invariants:
+  - canon-conflict-and-stale-detected-from-persistent-facts
+  - stale-base-version-zero-production-write
+  - uncovered-canon-fragment-conflict-zero-production-write
+  - fresh-baseline-adoption-supersedes-old-and-materializes-new
+  - adoption-decision-carries-before-after-versions-and-rejection-reason
+  - no-acceptance-hook-in-product-code
+
+setup:
+  seed: scripts/seed_b47_canon_freshness.exs
+  provider: slice_verify
+  seed_note: >-
+    单 seed 构造三个独立作品（seed.log 每作品一行 JSON + 汇总 seed=JSON）：
+    stale = 当前 canon 已从旧基线 draft:<d1>:2 原位重写为 draft:<d2>:5，恢复的候选基线仍声明
+    draft:<d1>:2；conflict = 当前 canon 有两段 accepted 正文（scene1/scene2），候选 covered_refs
+    只含 scene1；fresh 对照 = 候选 covered/expected_base_versions 与当前两段 accepted 完全一致。
+    三个待采纳候选都通过产品同形 TurnResult.adoption_state.pending + available_actions
+    accept/discard + ui_cards candidate_set 恢复，产品代码零验收感应。
+  env_note: >-
+    隔离 test DB；确定性 provider 足够证明持久事实判定、零写入、采纳回执与阅读投影；
+    真实模型语义归 B42/B40 口径，不纳入本场景判据。seed 由 tauri_slice_verify.sh 在
+    reset_test_db 后执行（MIX_ENV=test mix run scripts/seed_b47_canon_freshness.exs），
+    seed.log 落 ARTIFACT_DIR。
+  trial_matrix:
+    - T1 stale：打开「B47 Canon Freshness · 过期基线」→ 待采纳正文候选卡可见（保存为章节正文）→ 点击 → action_result.status=failed、decision=fail_with_recovery、canon_freshness.status=stale、reason_codes 含 stale_base_version；turn_result.status=failed_recoverable、production_write_performed=false；可见文案含「版本已过期/没有写入作品事实」；DB drafts/状态/内容 hash/mutation 计数与 seed.log 完全一致，阅读投影字数/正文 hash 不变。
+    - T2 conflict：打开「B47 Canon Freshness · 片段冲突」→ 点击候选的保存为章节正文 → canon_freshness.status=conflict、reason_codes 含 canon_conflict_detected + incomplete_scope；零写入同上；阅读投影/字数不变。
+    - T3 fresh 对照：打开「B47 Canon Freshness · 新鲜基线」→ 点击保存为章节正文 → action_result.status=accepted、decision=adopt_tentative、canon_freshness.status=fresh；旧两稿 SUPERSEDED（= receipt superseded_draft_refs = seed.log expected_after_adoption.superseded_refs）、新 ACCEPTED 正文 sha256 = seed.log candidate_content_sha256；mutation 计数 +1；阅读模式显示新正文且有效字数 = seed.log expected_after_adoption.new_accepted_word_count。
+
+user_flow:
+  - open: real Tauri workbench
+  - select_work: B47 Canon Freshness · 过期基线
+  - observe: pending prose revision candidate card with 保存为章节正文 button
+  - click: 保存为章节正文
+  - observe: failed turn with version-expired / not-written copy and no production write
+  - select_work: B47 Canon Freshness · 片段冲突
+  - observe: pending prose revision candidate card with 保存为章节正文 button
+  - click: 保存为章节正文
+  - observe: failed turn with canon-conflict / not-written copy and no production write
+  - select_work: B47 Canon Freshness · 新鲜基线
+  - observe: pending prose revision candidate card with 保存为章节正文 button
+  - click: 保存为章节正文
+  - observe: accepted adoption turn; 阅读模式 shows replaced chapter prose and updated counts
+  - open: 阅读模式
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - seed_log
+    - summary_json
+    - persistence_snapshot
+  artifact_dir: artifacts/slice-verify/b47-canon-freshness-tauri
+
+assertions:
+  ui:
+    - 三个作品的待采纳候选卡各可见一次，采纳入口文案与 artifact 类型一致（prose_fragment → 保存为章节正文）
+    - stale/conflict 点击后出现失败助手消息，语义含「版本已过期 / 冲突 / 没有写入作品事实」，不出现「已采纳/已写入」成功文案
+    - fresh 点击后出现采纳成功消息；阅读模式显示替换后的正文，旧版本不再作为当前正文显示
+    - 三个作品切换通过真实作品菜单完成，不依赖隐藏路由或验收专用 DOM
+  network:
+    - 每次点击都从真实工作台发送 author_action accept（source_turn_ref = seed.log turn_id，target_ref = seed.log artifact_id）
+    - stale/conflict 的 action_result 帧含 status=failed、decision.decision_type=fail_with_recovery、canon_freshness.status∈{stale,conflict}、expected/current 版本字段与 seed.log declared_versions/current_versions 一致
+    - stale/conflict 的 turn_result.status=failed_recoverable、truthfulness.production_write_performed=false、parent_turn_id=turn_id
+    - fresh 的 action_result.status=accepted、decision=adopt_tentative、persistence.superseded_draft_refs=seed.log expected_after_adoption.superseded_refs；persistence.persisted=true
+    - 无任何验收专用 Channel/API 事件或 slice 标识进入产品帧
+  data:
+    - stale/conflict 审计前后一致：drafts 数量/id/status/revision/content_sha256 与 seed.log works[].drafts 完全一致；work mutation 计数 = seed.log works[].work_mutation_count（增量 0）
+    - stale/conflict 阅读投影零写入：chapter 正文 sha256 = seed.log current_reading_text_sha256，有效字数 = seed.log current_reading_word_count
+    - fresh 采纳后旧 covered drafts 全部 SUPERSEDED、恰有新 ACCEPTED 正文 content_sha256 = seed.log candidate_content_sha256；mutation 增量 = seed.log expected_after_adoption.mutation_delta（1）
+    - 判定依据只来自持久 canon 与候选 payload 的 covered/expected_base_versions，不读取候选自报 canon_conflicts / 模型文案
+    - 失败后候选仍保留在 pending（未 resolved），不产生第二次写入或重复采纳回执
+    - 产品无验收感知逻辑：无需 data-testid / 隐藏 DOM metadata / 自动运行
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

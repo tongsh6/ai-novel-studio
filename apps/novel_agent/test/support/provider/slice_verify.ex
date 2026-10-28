@@ -2877,12 +2877,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       adopted_revision_request?(prompt) ->
         {"execute", "revise_adopted_content", false}
 
-      # AU12 立项修订（B40 §10.2 重锚）：档案概览「提出立项修订」走真实 user_message；
-      # 确定性替身按当前判断协议判 execute/world_building（与真实模型选择同一能力），
-      # 产物仍走待采纳门与采纳边界，不直接写作品档案。
-      work_profile_correction_text?(prompt) ->
-        {"execute", "world_building", false}
-
       message_state_request?(prompt) ->
         {"reply", nil, false}
 
@@ -2936,12 +2930,20 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp judgment_verdict_for_profile(profile_ref, author_text, prompt) do
     case Map.get(@judgment_capability_for_profile, profile_ref) do
       nil ->
-        exploratory =
-          not explicit_no_candidate_text?(String.downcase(author_text)) and
-            exploratory_prompt_text?(author_text) and
-            not candidate_context_followup_prompt?(prompt)
+        # AU12 立项修订（B40 §10.2 重锚）：档案概览「提出立项修订」走真实 user_message；
+        # 确定性替身按当前判断协议判 execute/world_building（与真实模型选择同一能力），
+        # 产物仍走待采纳门与采纳边界，不直接写作品档案。放在未命中 profile 的兜底处，
+        # 避免 judgment_verdict 的 cond 继续膨胀（credo complexity 10→9）。
+        if work_profile_correction_text?(prompt) do
+          {"execute", "world_building", false}
+        else
+          exploratory =
+            not explicit_no_candidate_text?(String.downcase(author_text)) and
+              exploratory_prompt_text?(author_text) and
+              not candidate_context_followup_prompt?(prompt)
 
-        {"reply", nil, exploratory}
+          {"reply", nil, exploratory}
+        end
 
       capability ->
         {"execute", capability, false}

@@ -2150,6 +2150,73 @@ defmodule NovelPersistence.AdoptionRepository do
     end
   end
 
+  # ── B47 CP1：当前持久 canon 版本读端口（只读；不建表、不写模型）────────
+
+  @doc """
+  B47 CP1 只读：当前持久 canon 版本快照，供 application 做对象级 freshness 判定。
+
+  - `{:chapter_prose, chapter_identity}`（chapter_ref 优先，title 旧兼容）→
+    `%{object, ref, versions: %{"draft:<uuid>" => revision}, digest: sha256(base_text)}`，
+    版本/内容与候选生成、B28/B36/ADR-0029 事务重校验同源（`accepted_chapter_scopes/2`）。
+  - `{:character_profile, character_ref}` →
+    `%{object, ref, fingerprint, value}`，fingerprint 口径与 B29 采纳事务重校验一致。
+
+  错误面：`{:error, :target_missing | :target_ambiguous | :cross_work_scope |
+  :unsupported_canon_object}`；不猜测、不返回伪造版本。
+  """
+  @spec canon_snapshot(
+          String.t(),
+          {:chapter_prose, String.t()} | {:character_profile, String.t()}
+        ) ::
+          {:ok, map()}
+          | {:error,
+             :target_missing | :target_ambiguous | :cross_work_scope | :unsupported_canon_object}
+  def canon_snapshot(work_id, {:chapter_prose, chapter_identity}) do
+    case accepted_chapter_scopes(work_id, chapter_identity) do
+      {:ok, %{chapter_ref: chapter_ref, scopes: scopes}} ->
+        {:ok, chapter_canon_snapshot(chapter_ref, scopes)}
+
+      :error ->
+        {:error, :target_missing}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def canon_snapshot(work_id, {:character_profile, character_ref}) do
+    case character_profile_context(work_id, character_ref) do
+      {:ok, fact} ->
+        {:ok,
+         %{
+           object: :character_profile,
+           ref: fact.character_ref,
+           fingerprint: fact.base_fingerprint,
+           value: fact.narrative_role
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def canon_snapshot(_work_id, _target), do: {:error, :unsupported_canon_object}
+
+  defp chapter_canon_snapshot(chapter_ref, scopes) do
+    base_text =
+      scopes
+      |> Enum.map(&to_string(&1.content || ""))
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n\n")
+
+    %{
+      object: :chapter_prose,
+      ref: chapter_ref,
+      versions: Map.new(scopes, &{"draft:#{&1.draft_id}", &1.revision}),
+      digest: NovelDomain.ProseFormatting.source_hash(base_text)
+    }
+  end
+
   # B28 CP1.5：该 work 有 accepted 正文的章目标列表（只读；按章 seq 升序）。
   # coverage 语义：章内每个 scene 要么有当前 accepted draft，要么已有正文历史（被整章
   # replace_scope 替代后只留 superseded 历史、当前投影即整章稿）；只有「计划了但从未写过」

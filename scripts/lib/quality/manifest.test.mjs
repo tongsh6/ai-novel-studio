@@ -106,12 +106,12 @@ function validateFixture(root) {
 // au10-micro-plan-entry、au01-garbage-json-recovery）+ 新增 pr-smoke-core-reply。
 // B41 CP5 记录（212/2/214）是当时快照；本测试随当前 registry 事实维护，防止 manifest
 // 集合漂移，不把历史数字当 PASS 依据。
-test("真实仓库：manifest 校验通过，含 2 份 draft 与 208 份 manifest", () => {
+test("真实仓库：manifest 校验通过，含 2 份 draft 与 209 份 manifest", () => {
   const { project, errors } = validate(DEFAULT_PROJECT_ROOT);
   assert.deepEqual(errors, []);
-  assert.equal(project.scenarios.length, 206);
+  assert.equal(project.scenarios.length, 207);
   assert.equal(project.drafts.length, 2);
-  assert.equal(project.files.size, 208);
+  assert.equal(project.files.size, 209);
 });
 
 test("真实仓库：CP0 修复的 3 个 YAML 可被标准解析器读取（回归）", () => {
@@ -307,7 +307,7 @@ test("registry 解析失败给出可读错误（含行号）", () => {
 
 test("场景 manifest 文件集合只包含 scenarios/ 下 yml", () => {
   const files = collectScenarioManifestFiles(DEFAULT_PROJECT_ROOT);
-  // B40 重锚后 208（原 214 − 首批退役 6 − 本轮退役 au05-adoption-safety-freshness + 新增 1）；数字随当前 registry 事实维护。
-  assert.equal(files.length, 208);
+  // B40 重锚后 207（原 214 − 首批退役 6 − au05-adoption-safety-freshness + pr-smoke-core-reply + b47-canon-freshness）；数字随当前 registry 事实维护。
+  assert.equal(files.length, 209);
   assert.ok(files.every((file) => file.startsWith("quality/acceptance/scenarios/") && file.endsWith(".yml")));
 });

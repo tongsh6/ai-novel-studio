@@ -271,6 +271,7 @@ export const nativeSliceIds = [
   "au11-missing-workstate-policy",
   "au12-profile-read-failure-degrade",
   "au12-correction-intent-roundtrip",
+  "b47-canon-freshness",
   "vs10-observability-spine",
   "agent-plan-exhausted-awaiting-reason",
 ];
@@ -1610,6 +1611,16 @@ const sliceKeyEvents = {
     "channel.get_work_profile.done",
     "slice_verify.ui_state.done",
   ],
+  "b47-canon-freshness": [
+    "channel.user_message.start",
+    "judgment.decided.done",
+    "channel.author_action.start",
+    "channel.author_action.done",
+    "adoption.evaluate.start",
+    "adoption.evaluate.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au12-correction-intent-roundtrip": [
     "channel.user_message.start",
     "dialogue_gateway.handle_input.start",
@@ -2845,6 +2856,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu12ProfileReadFailureDegradeEvidence(records);
   }
 
+  if (sliceId === "b47-canon-freshness") {
+    return findB47CanonFreshnessEvidence(records);
+  }
+
   if (sliceId === "au12-correction-intent-roundtrip") {
     return findAu12CorrectionIntentRoundtripEvidence(records);
   }
@@ -3657,6 +3672,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au12-correction-intent-roundtrip") {
     return au12CorrectionIntentRoundtripBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "b47-canon-freshness") {
+    return b47CanonFreshnessBehavior(evidence);
   }
 
   if (sliceId === "au01-garbage-json-recovery") {
@@ -26691,4 +26710,152 @@ function hasRequiredCorrelationFields(record) {
     typeof record.duration_ms === "number" &&
     Boolean(record.outcome)
   );
+}
+
+// ── B47 CP3：canon freshness stale/conflict/fresh 页面矩阵 ────────────────────
+// 外部 driver 像作者一样切三个作品、点「保存为章节正文」，把 action_result/turn_result
+// 关键字段与只读 DB 前后快照写进 ui-state；本函数只按这些外部证据判定，不读取产品
+// 内部状态、不信任候选自报。
+
+function b47DraftSnapshot(map) {
+  return JSON.stringify(
+    (Array.isArray(map?.drafts) ? map.drafts : []).map((draft) => ({
+      draft_ref: draft.draft_ref,
+      status: draft.status,
+      content_sha256: draft.content_sha256,
+    })),
+  );
+}
+
+function b47TrialZeroWrite(trial) {
+  if (b47DraftSnapshot(trial.before) !== b47DraftSnapshot(trial.after)) return false;
+  if (Number(trial.before?.mutation_count) !== Number(trial.after?.mutation_count)) return false;
+  return true;
+}
+
+function b47ReasonCodesInclude(trial, expected) {
+  const codes = (trial.action_result?.reason_codes ?? []).map(String);
+  return expected.every((code) => codes.includes(code));
+}
+
+function findB47CanonFreshnessEvidence(records) {
+  const sliceId = "b47-canon-freshness";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.three_work_trials_completed === true &&
+      Array.isArray(record.trials) &&
+      record.trials.length === 3,
+  );
+  if (!uiState) return null;
+
+  const byScenario = new Map(uiState.trials.map((trial) => [trial.scenario, trial]));
+  for (const scenario of ["stale", "conflict", "fresh"]) {
+    const trial = byScenario.get(scenario);
+    if (!trial) return null;
+    if (!trial.work_id || !trial.artifact_id) return null;
+    if (!trial.turn_result?.turn_id) return null;
+    if (!trial.action_result) return null;
+    if (!trial.before || !trial.after) return null;
+    if (!Array.isArray(trial.before.drafts) || !Array.isArray(trial.after.drafts)) return null;
+    if (!trial.expected_after_adoption) return null;
+    if (!trial.candidate_content_sha256) return null;
+  }
+
+  const stale = byScenario.get("stale");
+  const conflict = byScenario.get("conflict");
+  const fresh = byScenario.get("fresh");
+  return {
+    slice_id: sliceId,
+    turn_id: fresh.turn_result.turn_id,
+    turn_ids: uiState.trials.map((trial) => trial.turn_result.turn_id),
+    work_ids: uiState.trials.map((trial) => trial.work_id),
+    work_titles: uiState.trials.map((trial) => trial.work_title),
+    trials: uiState.trials,
+    stale_freshness_status: stale.action_result?.canon_freshness?.status ?? null,
+    conflict_freshness_status: conflict.action_result?.canon_freshness?.status ?? null,
+    fresh_freshness_status: fresh.action_result?.canon_freshness?.status ?? null,
+    key_events: keyEvents,
+  };
+}
+
+function b47CanonFreshnessBehavior(evidence) {
+  const byScenario = new Map((evidence.trials ?? []).map((trial) => [trial.scenario, trial]));
+  const stale = byScenario.get("stale");
+  const conflict = byScenario.get("conflict");
+  const fresh = byScenario.get("fresh");
+  if (!stale || !conflict || !fresh) return null;
+
+  // T1 stale：系统从持久 canon 检出基线过期，失败恢复且零写入。
+  if (stale.action_result?.status !== "failed") return null;
+  if (stale.action_result?.decision_type !== "fail_with_recovery") return null;
+  if (stale.action_result?.canon_freshness?.status !== "stale") return null;
+  if (!b47ReasonCodesInclude(stale, ["stale_base_version"])) return null;
+  if (JSON.stringify(stale.action_result?.expected_versions ?? {}) !== JSON.stringify(stale.declared_versions ?? {})) return null;
+  if (JSON.stringify(stale.action_result?.current_versions ?? {}) !== JSON.stringify(stale.current_versions ?? {})) return null;
+  if (stale.turn_result?.status !== "failed_recoverable") return null;
+  if (stale.turn_result?.truthfulness?.production_write_performed !== false) return null;
+  if (!b47TrialZeroWrite(stale)) return null;
+
+  // T2 conflict：当前 canon 多出候选未覆盖片段，系统检出冲突且零写入。
+  if (conflict.action_result?.status !== "failed") return null;
+  if (conflict.action_result?.decision_type !== "fail_with_recovery") return null;
+  if (conflict.action_result?.canon_freshness?.status !== "conflict") return null;
+  if (!b47ReasonCodesInclude(conflict, ["canon_conflict_detected", "incomplete_scope"])) return null;
+  if (conflict.turn_result?.status !== "failed_recoverable") return null;
+  if (conflict.turn_result?.truthfulness?.production_write_performed !== false) return null;
+  if (!b47TrialZeroWrite(conflict)) return null;
+
+  // T3 fresh 对照：基线一致 → 正常采纳，旧稿 SUPERSEDED、新稿 ACCEPTED、mutation +1。
+  if (fresh.action_result?.status !== "accepted") return null;
+  if (fresh.action_result?.decision_type !== "adopt_tentative") return null;
+  if (fresh.action_result?.canon_freshness?.status !== "fresh") return null;
+  // 产品 supersede 语义：旧 draft 行保留同 draft_id、revision 递增（旧 ref 变成历史版本），
+  // 状态转 SUPERSEDED；因此按 draft_id 而不是含 revision 的 draft_ref 匹配。
+  const draftIdOf = (ref) => String(ref ?? "").split(":")[1] ?? "";
+  const expectedSuperseded = fresh.expected_after_adoption?.superseded_refs ?? [];
+  const afterById = new Map((fresh.after?.drafts ?? []).map((draft) => [draft.draft_id, draft]));
+  for (const ref of fresh.before?.accepted_draft_refs ?? []) {
+    const draft = afterById.get(draftIdOf(ref));
+    if (!draft || draft.status !== "SUPERSEDED") return null;
+  }
+  for (const ref of expectedSuperseded) {
+    const draft = afterById.get(draftIdOf(ref));
+    if (!draft || draft.status !== "SUPERSEDED") return null;
+  }
+  const acceptedAfter = (fresh.after?.drafts ?? []).filter((draft) => draft.status === "ACCEPTED");
+  if (acceptedAfter.length !== 1) return null;
+  if (acceptedAfter[0].content_sha256 !== fresh.candidate_content_sha256) return null;
+  if (
+    Number(fresh.after?.mutation_count) !==
+    Number(fresh.before?.mutation_count) + Number(fresh.expected_after_adoption?.mutation_delta ?? 1)
+  ) {
+    return null;
+  }
+  if (fresh.reading_projection?.visible_candidate_prefix !== true) return null;
+
+  return {
+    slice_id: "b47-canon-freshness",
+    behavior: "stale_and_conflict_candidates_are_blocked_from_persistent_canon_while_fresh_adoption_materializes",
+    turn_ids: evidence.turn_ids,
+    work_ids: evidence.work_ids,
+    work_titles: evidence.work_titles,
+    stale_freshness_status: evidence.stale_freshness_status,
+    conflict_freshness_status: evidence.conflict_freshness_status,
+    fresh_freshness_status: evidence.fresh_freshness_status,
+    assertions: [
+      "three_real_works_opened_through_real_workbench_work_menu",
+      "pending_prose_revision_candidate_visible_for_each_work",
+      "stale_base_detected_from_persistent_canon_before_adoption",
+      "stale_candidate_rejected_with_zero_write_and_recovery_copy",
+      "uncovered_canon_fragment_conflict_detected_from_persistent_canon",
+      "conflict_candidate_rejected_with_zero_write_and_recovery_copy",
+      "fresh_baseline_adoption_accepted_and_supersedes_old_drafts",
+      "fresh_candidate_content_materialized_as_single_accepted_draft",
+      "fresh_adoption_reading_shows_replaced_prose",
+      "before_after_versions_and_reason_codes_present_in_receipt",
+    ],
+  };
 }

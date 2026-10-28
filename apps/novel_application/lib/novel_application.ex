@@ -122,6 +122,16 @@ defmodule NovelApplication do
   end
 
   @doc """
+  返回当前 canon 版本读端口（B47）：`(work_id, {:chapter_prose | :character_profile, ref}) ->
+  {:ok, snapshot} | {:error, reason}`。采纳边界用它从持久事实自动发现 stale/冲突
+  （`NovelDomain.CanonFreshness`），而不是依赖候选自报。未启用真实持久化时返回 nil
+  （不读持久事实，保持 legacy 决策；不伪造版本、不假装新鲜）。
+  """
+  def persistence_canon_reader do
+    if inject_persistence?(), do: &NovelPersistence.AdoptionRepository.canon_snapshot/2
+  end
+
+  @doc """
   返回章节正文读端口：(work_id, chapter_title) -> 该章已采纳正文（续写/重写衔接用）。
   未启用真实持久化时返回 nil（视为无前文，prose_writing 不带本章已采纳正文）。
   """

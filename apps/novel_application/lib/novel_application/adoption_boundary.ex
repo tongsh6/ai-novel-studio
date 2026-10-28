@@ -69,6 +69,10 @@ defmodule NovelApplication.AdoptionBoundary do
       &missing_candidate_decision/1,
       &work_boundary_decision/1,
       &stability_decision/1,
+      # B47：系统计算的契约/freshness 先于 legacy 候选自报与高风险确认；
+      # 依据来自持久 canon 版本（application 注入），不是候选或模型文案。
+      &adoption_contract_decision/1,
+      &canon_freshness_decision/1,
       &canon_conflict_decision/1,
       &overwrite_decision/1,
       &high_risk_decision/1,
@@ -143,6 +147,80 @@ defmodule NovelApplication.AdoptionBoundary do
       }
     end
   end
+
+  # B47 CP1：候选契约（B28/B29/B30/B36/ADR-0029 白名单与目标/范围）在决策前校验一次，
+  # 拒绝原因用既有稳定错误码进入 decision；持久化事务内会再校验一次（re-gate）。
+  defp adoption_contract_decision(%{
+         candidate: candidate,
+         candidate_id: candidate_id,
+         candidate_set: candidate_set,
+         decision_id: decision_id,
+         decision_trace_ref: decision_trace_ref,
+         opts: opts
+       }) do
+    case option_field(opts, :adoption_contract) do
+      {:error, reason} ->
+        %AdoptionDecision{
+          adoption_decision_id: decision_id,
+          turn_id: candidate_set.turn_id,
+          source_action_ref: "choose_candidate",
+          candidate_ref: candidate_id,
+          target_ref: candidate && candidate.adoption_target_ref,
+          decision_type: :fail_with_recovery,
+          reason_codes: [contract_reason_code(reason)],
+          decision_trace_ref: decision_trace_ref
+        }
+
+      _ok_or_absent ->
+        nil
+    end
+  end
+
+  # B47 CP1：对象级 canon freshness 判定（application 读取持久 canon → domain 纯函数）。
+  # stale/conflict/missing/unavailable 一律 fail_with_recovery 零写入；fresh 才继续既有
+  # overwrite/high-risk/meta 等 gate。
+  defp canon_freshness_decision(%{
+         candidate: candidate,
+         candidate_id: candidate_id,
+         candidate_set: candidate_set,
+         decision_id: decision_id,
+         decision_trace_ref: decision_trace_ref,
+         opts: opts
+       }) do
+    case option_field(opts, :canon_freshness) do
+      %{status: status} = verdict when status in [:stale, :conflict, :missing, :unavailable] ->
+        %AdoptionDecision{
+          adoption_decision_id: decision_id,
+          turn_id: candidate_set.turn_id,
+          source_action_ref: "choose_candidate",
+          candidate_ref: candidate_id,
+          target_ref: freshness_target_ref(verdict, candidate),
+          decision_type: :fail_with_recovery,
+          reason_codes: freshness_reason_codes(verdict),
+          decision_trace_ref: decision_trace_ref
+        }
+
+      _fresh_or_absent ->
+        nil
+    end
+  end
+
+  defp freshness_reason_codes(%{status: status, reason_codes: codes})
+       when status in [:stale, :conflict] do
+    Enum.uniq(List.wrap(codes) ++ ["conflict_recovery_required"])
+  end
+
+  defp freshness_reason_codes(%{reason_codes: codes}), do: Enum.uniq(List.wrap(codes))
+
+  defp freshness_target_ref(%{expected: %{ref: ref}}, _candidate)
+       when is_binary(ref) and ref != "",
+       do: ref
+
+  defp freshness_target_ref(_verdict, candidate), do: candidate && candidate.adoption_target_ref
+
+  defp contract_reason_code({:format_only_violation, _detail}), do: "format_only_violation"
+  defp contract_reason_code(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp contract_reason_code(_reason), do: "adoption_contract_violation"
 
   defp canon_conflict_decision(%{
          candidate: candidate,

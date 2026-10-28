@@ -1,6 +1,6 @@
 import { b28BuildInitialFragment, b28BuildContinuationFragment, b28SegmentCandidateMatches, b28SourceFingerprint } from "../../scripts/lib/b28-chapter-fixture.mjs";
 import { chromium } from "playwright";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Socket } from "phoenix";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -6770,6 +6770,281 @@ async function driveAdoptionSafetyFreshness(page) {
       candidate_adopted: confirmationTurnResult.truthfulness.candidate_adopted,
       production_write_performed: confirmationTurnResult.truthfulness.production_write_performed,
       visible_confirmation_result: /候选方向待确认|后续方向待确认|确认回合/.test(visibleText),
+    },
+  ];
+}
+
+// ── B47 CP3：持久 canon freshness（stale / conflict / fresh）页面矩阵 ─────────
+// 外部 seed 写入三个真实作品（seed.log），driver 像作者一样切作品、点「保存为章节正文」，
+// 采集 author_action / action_result / turn_result / 可见文案 / 只读 DB 前后快照。
+// 产品代码不读取本文件；seed 只写持久事实与产品同形 pending artifact。
+
+const B47_SEED_TAG = "[b47-canon-freshness-seed] ";
+
+function readB47Seed(seedText) {
+  const result = { works: [], db: null };
+  for (const raw of String(seedText ?? "").split("\n")) {
+    const line = raw.trim();
+    const index = line.indexOf(B47_SEED_TAG);
+    if (index < 0) continue;
+    const payload = line.slice(index + B47_SEED_TAG.length).trim();
+    try {
+      if (payload.startsWith("work=")) result.works.push(JSON.parse(payload.slice("work=".length)));
+      else if (payload.startsWith("db=")) result.db = JSON.parse(payload.slice("db=".length));
+    } catch {
+      // 非结构化 seed 行忽略；缺作品时 driver 会显式失败，不静默通过。
+    }
+  }
+  return result;
+}
+
+function b47Sha256(text) {
+  return createHash("sha256").update(String(text ?? ""), "utf8").digest("hex");
+}
+
+function b47EffectiveWordCount(text) {
+  return [...String(text ?? "")].filter((char) => /[\p{L}\p{N}]/u.test(char)).length;
+}
+
+function b47DbSnapshot(database, workId) {
+  const drafts = database
+    .prepare("select id, status, revision, content from drafts where work_id = ?")
+    .all(workId)
+    .map((row) => ({
+      draft_id: row.id,
+      draft_ref: `draft:${row.id}:${row.revision}`,
+      status: row.status,
+      revision: row.revision,
+      content_sha256: b47Sha256(row.content),
+      effective_word_count: b47EffectiveWordCount(row.content),
+    }))
+    .sort((left, right) => left.draft_ref.localeCompare(right.draft_ref));
+  const mutationCount = database
+    .prepare("select count(*) as count from mutations where target_scope = ?")
+    .get(`work:${workId}`).count;
+  const accepted = drafts.filter((draft) => draft.status === "ACCEPTED");
+  return {
+    drafts,
+    mutation_count: mutationCount,
+    accepted_draft_refs: accepted.map((draft) => draft.draft_ref),
+    accepted_content_sha256: accepted.map((draft) => draft.content_sha256),
+    accepted_effective_word_count: accepted.reduce(
+      (total, draft) => total + draft.effective_word_count,
+      0,
+    ),
+  };
+}
+
+function b47AdoptionDecision(actionResult) {
+  return (
+    actionResult?.decision ??
+    actionResult?.adoption_decision ??
+    actionResult?.action_result?.decision ??
+    null
+  );
+}
+
+async function driveB47CanonFreshness(page) {
+  const seedText = fs.existsSync(path.join(artifactDir, "seed.log"))
+    ? fs.readFileSync(path.join(artifactDir, "seed.log"), "utf8")
+    : "";
+  const seed = readB47Seed(seedText);
+  assert(seed.works.length === 3, "B47 seed.log did not contain the three seeded works");
+  assert(seed.db?.database, "B47 seed.log did not contain the test database path");
+
+  const { DatabaseSync } = await import("node:sqlite");
+  const database = new DatabaseSync(seed.db.database, { readOnly: true });
+
+  const order = ["stale", "conflict", "fresh"];
+  const trials = [];
+  try {
+    for (const scenario of order) {
+      const work = seed.works.find((item) => item.scenario === scenario);
+      assert(work?.work_id && work?.work_title, `B47 seed work missing for ${scenario}`);
+
+      await ensureWorkSelectedByTitle(page, work.work_title, work.work_id);
+      await waitForVisibleWorkTitle(page, work.work_title);
+
+      const approveButton = page.getByRole("button", { name: /保存为章节正文/ }).first();
+      await approveButton.waitFor({ state: "visible", timeout: 30_000 });
+
+      const before = b47DbSnapshot(database, work.work_id);
+      const frameStart = frames.length;
+      const logStart = readAppLogRecords().length;
+
+      await approveButton.click();
+
+      // 采纳动作的 action_result 根字段为 action_type=adopt + artifact_id；候选来源来自
+      // seed 恢复的 pending artifact（source_turn_ref 也由作者动作携带）。按 artifact_id 匹配。
+      const actionFrame = await waitForNewFrame(
+        frameStart,
+        (frame) =>
+          frame.direction === "received" &&
+          frame.event === "action_result" &&
+          (frame.body?.artifact_id === work.artifact_id ||
+            frame.body?.decision?.candidate_ref === work.artifact_id),
+        `No adopt action_result was received for B47 ${scenario}`,
+        60_000,
+      );
+      const turnFrame = await waitForNewFrame(
+        frameStart,
+        (frame) =>
+          frame.direction === "received" &&
+          frame.event === "turn_result" &&
+          frame.body?.turn_id &&
+          frame.body.turn_id !== work.turn_id,
+        `No adoption turn_result was received for B47 ${scenario}`,
+        60_000,
+      );
+      const actionResult = actionFrame.body;
+      const turnResult = turnFrame.body;
+      const decision = b47AdoptionDecision(actionResult) ?? turnResult.adoption_decision ?? null;
+
+      // 纯采纳动作走 author_action 通道：完成日志是 channel.author_action.done
+      // （turn_id 为 seed 的候选来源 turn），不是 user_message.done。
+      await waitForNewAppLogRecord(
+        logStart,
+        (record) =>
+          record.event === "channel.author_action.done" &&
+          (record.turn_id === work.turn_id ||
+            record.turn_id === turnResult.turn_id ||
+            record.action_id?.includes(work.artifact_id)),
+        `No channel.author_action.done log was recorded for B47 ${scenario}`,
+        60_000,
+      );
+
+      const after = b47DbSnapshot(database, work.work_id);
+      const visibleText = await page.locator("body").innerText();
+      const visibleExcerpt = visibleText.slice(-2000);
+
+      let readingProjection = null;
+      if (scenario === "fresh") {
+        try {
+          // 与 p1-chapter-adoption-reading 同口径：点真实「阅读」入口后等待阅读模式、
+          // 全书字数与本章字数都渲染，再快照正文；短 sleep 会在异步 TOC/正文读取完成前抢拍。
+          await page.getByRole("button", { name: readingModeButtonPattern }).first().click();
+          await page.waitForFunction(
+            () =>
+              document.body.innerText.includes("阅读模式") &&
+              document.body.innerText.includes("全书有效字数") &&
+              document.body.innerText.includes("本章有效字数"),
+            { timeout: 30_000 },
+          );
+          const readingText = await page.locator("body").innerText();
+          readingProjection = {
+            visible_candidate_prefix: readingText.includes("片段一修订"),
+            has_reading_mode: readingText.includes("阅读模式"),
+            has_book_effective_words: readingText.includes("全书有效字数"),
+            has_chapter_effective_words: readingText.includes("本章有效字数"),
+            visible_text_excerpt: readingText.slice(0, 2000),
+          };
+          await page
+            .getByRole("button", { name: /^\s*会话\s*$/ })
+            .first()
+            .click({ timeout: 10_000 })
+            .catch(() => {});
+          await page.waitForTimeout(500);
+        } catch (error) {
+          readingProjection = {
+            visible_candidate_prefix: false,
+            error: String(error?.message ?? error).slice(0, 300),
+          };
+        }
+      }
+
+      trials.push({
+        scenario,
+        work_id: work.work_id,
+        work_title: work.work_title,
+        artifact_id: work.artifact_id,
+        source_turn_id: work.turn_id,
+        declared_versions: work.declared_versions,
+        current_versions: work.current_versions,
+        expected_decision: work.expected_decision,
+        expected_freshness_status: work.expected_freshness_status,
+        expected_reason_codes: work.expected_reason_codes,
+        candidate_content_sha256: work.candidate_content_sha256,
+        expected_after_adoption: work.expected_after_adoption,
+        current_reading_text_sha256: work.current_reading_text_sha256,
+        current_reading_word_count: work.current_reading_word_count,
+        visible_approve_label: work.visible_approve_label,
+        action_result: {
+          status: actionResult?.status ?? null,
+          action_type: actionResult?.action_type ?? null,
+          decision_type: decision?.decision_type ?? null,
+          reason_codes: decision?.reason_codes ?? actionResult?.reason_codes ?? [],
+          canon_freshness: actionResult?.canon_freshness ?? decision?.canon_freshness ?? null,
+          expected_versions:
+            actionResult?.canon_freshness?.expected?.versions ??
+            decision?.canon_freshness?.expected?.versions ??
+            null,
+          current_versions:
+            actionResult?.canon_freshness?.current?.versions ??
+            decision?.canon_freshness?.current?.versions ??
+            null,
+          persistence: actionResult?.persistence ?? null,
+        },
+        turn_result: {
+          turn_id: turnResult?.turn_id ?? null,
+          parent_turn_id: String(turnResult?.turn_id ?? "").split(":agent:")[0],
+          status: turnResult?.status ?? null,
+          truthfulness: turnResult?.truthfulness ?? null,
+          adoption_decision: turnResult?.adoption_decision ?? null,
+          assistant_text: turnResult?.assistant_message?.text ?? "",
+        },
+        before,
+        after,
+        reading_projection: readingProjection,
+        visible_excerpt: visibleExcerpt,
+      });
+    }
+  } finally {
+    database.close();
+  }
+
+  const lastTurnResult = trials[trials.length - 1]?.turn_result ?? null;
+  const visibleText = await page.locator("body").innerText();
+  await page
+    .screenshot({ path: path.join(artifactDir, "b47-canon-freshness-external-ui.png") })
+    .catch(() => {});
+
+  fs.writeFileSync(
+    path.join(artifactDir, "persistence-snapshots.json"),
+    JSON.stringify(
+      {
+        seed_version: "b47-canon-freshness/v1",
+        database: seed.db.database,
+        trials: trials.map((trial) => ({
+          scenario: trial.scenario,
+          work_id: trial.work_id,
+          before: trial.before,
+          after: trial.after,
+          expected_after: seed.works.find((work) => work.scenario === trial.scenario)?.expected_after_adoption ?? null,
+        })),
+      },
+      null,
+      2,
+    ),
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "b47-canon-freshness",
+      turn_id: lastTurnResult?.turn_id ?? null,
+      turn_ids: trials.map((trial) => trial.turn_result.turn_id).filter(Boolean),
+      work_id: trials[0]?.work_id ?? null,
+      work_title: trials[0]?.work_title ?? null,
+      session_id: null,
+      socket_connected: true,
+      title_text: trials.map((trial) => trial.work_title).filter(Boolean).join(" / "),
+      message_count: trials.length,
+      duration_ms: 0,
+      outcome: "done",
+      three_work_trials_completed: trials.length === 3,
+      trials,
+      reading_projection_after_fresh: trials.find((trial) => trial.scenario === "fresh")?.reading_projection ?? null,
+      visible_text_excerpt: visibleText.slice(-1500),
     },
   ];
 }
@@ -39503,6 +39778,7 @@ const drivers = {
   "au12-correction-intent-roundtrip": driveAu12CorrectionIntentRoundtrip,
   "au12-profile-read-failure-degrade": driveAu12ProfileReadFailureDegrade,
   "au12-work-profile-status-isolation": driveAu12WorkProfileStatusIsolation,
+  "b47-canon-freshness": driveB47CanonFreshness,
   "vs00c-cp0-missing-chapter-block": driveCp0MissingChapterBlock,
   "vs00c-cp3-structured-context": driveVs00cCp3StructuredContext,
   "vs00c-cp4-chapter-plan-structure": driveVs00cCp4ChapterPlanStructure,

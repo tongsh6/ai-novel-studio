@@ -12,6 +12,7 @@ defmodule NovelApplication.AdoptionWorkflow do
   alias NovelDomain.AdoptionDecision
   alias NovelDomain.BehaviorState
   alias NovelDomain.CandidateSet
+  alias NovelDomain.CanonFreshness
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MutationStatus
@@ -25,7 +26,8 @@ defmodule NovelApplication.AdoptionWorkflow do
           function() | nil,
           function() | nil,
           function() | nil,
-          (String.t(), String.t() -> boolean()) | nil
+          (String.t(), String.t() -> boolean()) | nil,
+          (String.t(), tuple() -> {:ok, map()} | {:error, term()}) | nil
         ) ::
           {:ok, map(), map()} | {:error, String.t()}
   def handle_adopt(
@@ -34,7 +36,8 @@ defmodule NovelApplication.AdoptionWorkflow do
         adoption_writer \\ NovelApplication.persistence_adoption_writer(),
         overwrite_reader \\ NovelApplication.persistence_overwrite_reader(),
         summary_maintainer \\ NovelApplication.chapter_summary_maintainer(),
-        duplicate_name_checker \\ NovelApplication.persistence_accepted_character_name_checker()
+        duplicate_name_checker \\ NovelApplication.persistence_accepted_character_name_checker(),
+        canon_reader \\ NovelApplication.persistence_canon_reader()
       )
 
   def handle_adopt(
@@ -43,7 +46,8 @@ defmodule NovelApplication.AdoptionWorkflow do
         _adoption_writer,
         _overwrite_reader,
         _summary_maintainer,
-        _duplicate_name_checker
+        _duplicate_name_checker,
+        _canon_reader
       ),
       do: {:error, "source_turn_result not available"}
 
@@ -53,7 +57,8 @@ defmodule NovelApplication.AdoptionWorkflow do
         adoption_writer,
         overwrite_reader,
         summary_maintainer,
-        duplicate_name_checker
+        duplicate_name_checker,
+        canon_reader
       )
       when is_binary(artifact_id) do
     # 结构性/无效 action（artifact 不存在、跨作品、stale revision）保持 {:error}，
@@ -67,12 +72,19 @@ defmodule NovelApplication.AdoptionWorkflow do
       candidate_set = candidate_set_from_artifact(source_turn_result, artifact)
 
       opts =
-        adoption_decision_opts(
-          work_context,
+        work_context
+        |> adoption_decision_opts(
           artifact,
           params,
           overwrite_reader,
           duplicate_name_checker
+        )
+        # B47 CP1/CP2：决策前先做系统计算的契约/freshness 判定（持久 canon 版本）。
+        # 持久化事务内 B28/B36/B29 现有重校验保留为最终 re-gate 防线。
+        |> Map.put(:adoption_contract, validate_b28_contract(artifact))
+        |> Map.put(
+          :canon_freshness,
+          canon_freshness_verdict(artifact, work_context.work_id, canon_reader)
         )
 
       decision =
@@ -101,7 +113,8 @@ defmodule NovelApplication.AdoptionWorkflow do
         _adoption_writer,
         _overwrite_reader,
         _maintainer,
-        _duplicate_name_checker
+        _duplicate_name_checker,
+        _canon_reader
       ),
       do: {:error, "artifact_id is required"}
 
@@ -229,32 +242,43 @@ defmodule NovelApplication.AdoptionWorkflow do
             persisted
           )
 
-          {:ok, build_action_result(decision, artifact, persisted),
-           build_turn_result(source_turn_result, decision, artifact, persisted, params)}
+          {:ok, build_action_result(decision, artifact, persisted, decision_opts),
+           build_turn_result(
+             source_turn_result,
+             decision,
+             artifact,
+             persisted,
+             params,
+             decision_opts
+           )}
 
         {:error, reason} ->
           # BB-7（VS-04 规则 5 / ADR-0010 #1，2026-10-23 作者拍板方案 A）：采纳
           # 持久化失败不允许静默丢弃——产出失败 action_result + failed_recoverable
           # TurnResult，走既有 action_result/turn_result 广播；原候选保持 pending，
           # 作品事实未被修改。原始错误只进 developer 日志（author-safe）。
+          # B47 CP2：事务内重 gate 的拒绝（stale/冲突/越界）映射为具体 reason code，
+          # 不再一律 generalize 成 adoption_persistence_failed。
           {reason_code, detail} = classify_persistence_failure(reason)
 
           LogEmit.emit(:adoption, :persist, :error, %{
             reason_code: reason_code,
             artifact_id: artifact_field(artifact, :artifact_id),
+            canonical_versions: canonical_versions_log(decision_opts),
             outcome_detail: to_string(detail) |> String.slice(0, 300)
           })
 
-          {:ok, build_failed_action_result(decision, artifact, reason_code),
+          {:ok, build_failed_action_result(decision, artifact, reason_code, decision_opts),
            build_persistence_failure_turn_result(
              source_turn_result,
              decision,
              artifact,
-             reason_code
+             reason_code,
+             decision_opts
            )}
       end
     else
-      {:ok, build_decision_action_result(decision, artifact),
+      {:ok, build_decision_action_result(decision, artifact, decision_opts),
        build_decision_turn_result(source_turn_result, decision, artifact, decision_opts)}
     end
   end
@@ -1078,12 +1102,15 @@ defmodule NovelApplication.AdoptionWorkflow do
       {:error, {:illegal_adoption_transition, detail}} ->
         {:error, {:illegal_adoption_transition, detail}}
 
+      # B47 CP2：保留持久层原始结构化 reason（stale_base_version/segment_mismatch/
+      # incomplete_scope 等），由 classify_persistence_failure/1 映射为具体拒绝码；
+      # 作者可见文案只使用映射后的结构事实，原始错误仅进 developer 日志。
       {:error, reason} ->
-        {:error, "adoption persistence failed: #{inspect(reason)}"}
+        {:error, reason}
     end
   end
 
-  defp build_action_result(%AdoptionDecision{} = decision, artifact, persisted) do
+  defp build_action_result(%AdoptionDecision{} = decision, artifact, persisted, decision_opts) do
     %{
       action_id: "adopt:#{artifact_field(artifact, :artifact_id)}",
       action_type: "adopt",
@@ -1094,6 +1121,7 @@ defmodule NovelApplication.AdoptionWorkflow do
       persistence: persisted
     }
     |> put_b28_result_fields(persisted)
+    |> put_canon_freshness_receipt(decision_opts)
   end
 
   @b28_result_fields [
@@ -1125,7 +1153,7 @@ defmodule NovelApplication.AdoptionWorkflow do
   defp maybe_put_b28_field(result, _key, nil), do: result
   defp maybe_put_b28_field(result, key, value), do: Map.put(result, key, value)
 
-  defp build_decision_action_result(%AdoptionDecision{} = decision, artifact) do
+  defp build_decision_action_result(%AdoptionDecision{} = decision, artifact, decision_opts) do
     %{
       action_id: "adopt:#{artifact_field(artifact, :artifact_id)}",
       action_type: "adopt",
@@ -1135,6 +1163,7 @@ defmodule NovelApplication.AdoptionWorkflow do
       decision: decision_payload(decision),
       persistence: %{persisted: false}
     }
+    |> put_canon_freshness_receipt(decision_opts)
   end
 
   defp decision_action_status(%AdoptionDecision{decision_type: :require_confirmation}),
@@ -1144,9 +1173,43 @@ defmodule NovelApplication.AdoptionWorkflow do
   defp decision_action_status(%AdoptionDecision{decision_type: :fail_with_recovery}), do: "failed"
   defp decision_action_status(_decision), do: "rejected"
 
-  # ADR-0019 INV-4：持久化边界拒绝非法 adoption 状态转换（矩阵）。
+  # B47 CP2：持久层事务内重 gate 的拒绝映射为具体、稳定的 reason code；未知错误仍泛化，
+  # 原始细节只进 developer 日志/action_result.persistence（作者可见文案不带原文）。
   defp classify_persistence_failure({:illegal_adoption_transition, detail}),
     do: {:illegal_adoption_transition, detail}
+
+  defp classify_persistence_failure({:format_only_violation, detail}),
+    do: {:format_only_violation, detail}
+
+  defp classify_persistence_failure(:stale_base_version), do: {:stale_base_version, :stale}
+  defp classify_persistence_failure("stale_base_version"), do: {:stale_base_version, :stale}
+  defp classify_persistence_failure(:stale_base), do: {:stale_base, :stale}
+  defp classify_persistence_failure("stale_base"), do: {:stale_base, :stale}
+
+  defp classify_persistence_failure(:segment_mismatch),
+    do: {:canon_conflict_detected, :segment_hash_mismatch}
+
+  defp classify_persistence_failure(:incomplete_scope), do: {:incomplete_scope, :scope}
+  defp classify_persistence_failure("incomplete_scope"), do: {:incomplete_scope, :scope}
+  defp classify_persistence_failure(:out_of_scope_changes), do: {:out_of_scope_changes, :scope}
+
+  defp classify_persistence_failure(:format_only_violation),
+    do: {:format_only_violation, :format}
+
+  defp classify_persistence_failure(:target_missing), do: {:target_missing, :target}
+  defp classify_persistence_failure(:target_ambiguous), do: {:target_ambiguous, :target}
+
+  defp classify_persistence_failure(:unsupported_field), do: {:unsupported_field, :contract}
+  defp classify_persistence_failure(:unsupported_effect), do: {:unsupported_effect, :contract}
+
+  defp classify_persistence_failure(:invalid_character_role),
+    do: {:invalid_character_role, :contract}
+
+  defp classify_persistence_failure(:invalid_adoption_effect),
+    do: {:invalid_adoption_effect, :contract}
+
+  defp classify_persistence_failure(:no_target), do: {:no_target, :contract}
+  defp classify_persistence_failure(:duplicate_apply), do: {:duplicate_apply, :idempotent}
 
   defp classify_persistence_failure(reason),
     do: {:adoption_persistence_failed, inspect(reason)}
@@ -1154,12 +1217,27 @@ defmodule NovelApplication.AdoptionWorkflow do
   # BB-7：持久化失败 = 失败 action_result（status 仍 failed，ADR 口径）+ 可恢复
   # TurnResult。作者可见文案只说结构事实（未保存/候选保留/作品事实未改），
   # 不带持久化异常原文。
-  defp build_failed_action_result(decision, artifact, reason_code)
+  defp build_failed_action_result(
+         %AdoptionDecision{} = decision,
+         artifact,
+         reason_code,
+         decision_opts
+       )
        when is_atom(reason_code) do
-    build_failed_action_result(decision, artifact, Atom.to_string(reason_code))
+    build_failed_action_result(
+      decision,
+      artifact,
+      Atom.to_string(reason_code),
+      decision_opts
+    )
   end
 
-  defp build_failed_action_result(%AdoptionDecision{} = decision, artifact, reason_code) do
+  defp build_failed_action_result(
+         %AdoptionDecision{} = decision,
+         artifact,
+         reason_code,
+         decision_opts
+       ) do
     %{
       action_id: "adopt:#{artifact_field(artifact, :artifact_id)}",
       action_type: "adopt",
@@ -1173,20 +1251,23 @@ defmodule NovelApplication.AdoptionWorkflow do
         reason_code: reason_code
       }
     }
+    |> put_canon_freshness_receipt(decision_opts)
   end
 
   defp build_persistence_failure_turn_result(
          source_turn_result,
          %AdoptionDecision{} = decision,
          artifact,
-         reason_code
+         reason_code,
+         decision_opts
        )
        when is_atom(reason_code) do
     build_persistence_failure_turn_result(
       source_turn_result,
       decision,
       artifact,
-      Atom.to_string(reason_code)
+      Atom.to_string(reason_code),
+      decision_opts
     )
   end
 
@@ -1194,7 +1275,8 @@ defmodule NovelApplication.AdoptionWorkflow do
          source_turn_result,
          %AdoptionDecision{} = decision,
          artifact,
-         reason_code
+         reason_code,
+         decision_opts
        )
        when is_binary(reason_code) do
     source_turn_id = turn_id(source_turn_result)
@@ -1209,14 +1291,16 @@ defmodule NovelApplication.AdoptionWorkflow do
         text: persistence_failure_message(reason_code)
       },
       ui_cards: [],
-      trace_summary: %{
-        decision_type: "adopt_persistence_failed",
-        reason_codes: reason_codes,
-        source_turn_ref: source_turn_id,
-        artifact_ref: "artifact:#{artifact_id}",
-        decision_trace_ref: decision.decision_trace_ref,
-        state_trace_ref: nil
-      },
+      trace_summary:
+        %{
+          decision_type: "adopt_persistence_failed",
+          reason_codes: reason_codes,
+          source_turn_ref: source_turn_id,
+          artifact_ref: "artifact:#{artifact_id}",
+          decision_trace_ref: decision.decision_trace_ref,
+          state_trace_ref: nil
+        }
+        |> put_trace_canon_freshness(decision_opts),
       phase: "failed",
       status: "failed_recoverable",
       available_actions: [],
@@ -1241,8 +1325,14 @@ defmodule NovelApplication.AdoptionWorkflow do
     "这次采纳被拒绝：候选状态与当前作品事实不兼容（状态转换不合法），原候选仍保留为待采纳，作品事实没有被修改。"
   end
 
-  defp persistence_failure_message(_reason_code) do
-    "这次采纳没有保存成功：作品档案写入失败，原候选仍保留为待采纳，作品事实没有被修改。"
+  defp persistence_failure_message(reason_code) do
+    case freshness_rejection_message(reason_code) do
+      nil ->
+        "这次采纳没有保存成功：作品档案写入失败，原候选仍保留为待采纳，作品事实没有被修改。"
+
+      message ->
+        message
+    end
   end
 
   defp build_cancel_confirmation_action_result(artifact) do
@@ -1327,7 +1417,8 @@ defmodule NovelApplication.AdoptionWorkflow do
          %AdoptionDecision{} = decision,
          artifact,
          persisted,
-         params
+         params,
+         decision_opts
        ) do
     source_turn_id = turn_id(source_turn_result)
     artifact_id = artifact_field(artifact, :artifact_id)
@@ -1342,21 +1433,23 @@ defmodule NovelApplication.AdoptionWorkflow do
       parent_turn_id: source_turn_id,
       assistant_message: %{text: "已通过采纳边界，采纳内容已进入已决状态。"},
       ui_cards: [],
-      trace_summary: %{
-        trace_ref: action_trace_ref(turn_id),
-        decision_type: to_string(decision.decision_type),
-        reason_codes: decision.reason_codes,
-        source_turn_ref: source_turn_id,
-        source_trace_ref: trace_ref(source_turn_result),
-        decision_trace_ref: decision.decision_trace_ref,
-        state_trace_ref: state_trace_ref,
-        state_trace_refs: state_trace_refs,
-        no_tool_reason: "author_action_does_not_call_tool",
-        no_behavior_reason: "adoption action resolved through boundary",
-        no_write_reason: adoption_no_write_reason(persisted),
-        replay_policy: %{use_recorded_frame: true, recall_provider: false},
-        event_order: adoption_event_order(state_trace_refs, persisted)
-      },
+      trace_summary:
+        %{
+          trace_ref: action_trace_ref(turn_id),
+          decision_type: to_string(decision.decision_type),
+          reason_codes: decision.reason_codes,
+          source_turn_ref: source_turn_id,
+          source_trace_ref: trace_ref(source_turn_result),
+          decision_trace_ref: decision.decision_trace_ref,
+          state_trace_ref: state_trace_ref,
+          state_trace_refs: state_trace_refs,
+          no_tool_reason: "author_action_does_not_call_tool",
+          no_behavior_reason: "adoption action resolved through boundary",
+          no_write_reason: adoption_no_write_reason(persisted),
+          replay_policy: %{use_recorded_frame: true, recall_provider: false},
+          event_order: adoption_event_order(state_trace_refs, persisted)
+        }
+        |> put_trace_canon_freshness(decision_opts),
       phase: "completed",
       status: "conversational",
       available_actions: [],
@@ -1580,7 +1673,8 @@ defmodule NovelApplication.AdoptionWorkflow do
           decision_trace_ref: decision.decision_trace_ref,
           state_trace_ref: decision.state_trace_ref
         }
-        |> maybe_put_behavior_supersede(supersede_ref, decision_turn_id),
+        |> maybe_put_behavior_supersede(supersede_ref, decision_turn_id)
+        |> put_trace_canon_freshness(decision_opts),
       phase: decision_phase(decision),
       status: decision_status(decision),
       available_actions:
@@ -1772,10 +1866,259 @@ defmodule NovelApplication.AdoptionWorkflow do
   defp decision_message(%AdoptionDecision{decision_type: :reject}, _artifact, _decision_opts),
     do: "当前不能采纳这段草稿，来源或状态已不满足采纳条件；草稿仍保留为待采纳。"
 
-  defp decision_message(%AdoptionDecision{decision_type: :fail_with_recovery}, _artifact, _opts),
-    do: "未能采纳这段草稿，请重新生成或检查目标章节后再试；当前未写入作品事实。"
+  defp decision_message(
+         %AdoptionDecision{decision_type: :fail_with_recovery} = decision,
+         _artifact,
+         _opts
+       ) do
+    decision.reason_codes
+    |> Enum.find_value(&freshness_rejection_message/1)
+    |> case do
+      nil -> "未能采纳这段草稿，请重新生成或检查目标章节后再试；当前未写入作品事实。"
+      message -> message
+    end
+  end
 
   defp decision_message(_decision, _artifact, _decision_opts), do: "已处理这段草稿的采纳请求。"
+
+  # B47：把系统检测到的拒绝原因（stale/冲突/范围/目标/契约）翻译成作者可见的结构事实文案；
+  # 不暴露内部错误原文，也不把「未写入」说成其他状态。
+  defp freshness_rejection_message(code) when is_atom(code),
+    do: freshness_rejection_message(Atom.to_string(code))
+
+  defp freshness_rejection_message(code) when code in ["stale_base_version", "stale_base"] do
+    "这次采纳没有进行：候选生成后作品事实的版本已变化（base version/fingerprint 过期），系统从持久事实检测到后没有写入作品事实；原候选仍保留，请重新生成候选后再采纳。"
+  end
+
+  defp freshness_rejection_message(code)
+       when code in ["canon_conflict_detected", "segment_mismatch"] do
+    "这次采纳没有进行：系统从当前作品事实检测到与候选依据不一致（canon 冲突），没有写入作品事实；原候选仍保留，请重新生成或修订候选后再采纳。"
+  end
+
+  defp freshness_rejection_message(code)
+       when code in ["incomplete_scope", "out_of_scope_changes"] do
+    "这次采纳没有进行：候选覆盖范围与当前作品事实不一致（不完整或越界），没有写入作品事实；原候选仍保留，请重新生成候选后再采纳。"
+  end
+
+  defp freshness_rejection_message("format_only_violation") do
+    "这次采纳没有进行：候选违反仅排版约束（改变了字句），没有写入作品事实；原候选仍保留，请重新生成候选后再采纳。"
+  end
+
+  defp freshness_rejection_message(code) when code in ["target_missing", "target_ambiguous"] do
+    "这次采纳没有进行：目标章节或角色已不存在或无法唯一确定，没有写入作品事实；请重新选择目标后再采纳。"
+  end
+
+  defp freshness_rejection_message("canon_freshness_unavailable") do
+    "这次采纳没有进行：无法确认作品当前版本（读取不可用），没有写入作品事实；原候选仍保留，请重试。"
+  end
+
+  defp freshness_rejection_message(code)
+       when code in [
+              "unsupported_field",
+              "unsupported_effect",
+              "invalid_character_role",
+              "invalid_adoption_effect",
+              "no_target"
+            ] do
+    "这次采纳没有进行：候选包含当前采纳契约不允许的变更（字段/范围/效果），没有写入作品事实；原候选仍保留。"
+  end
+
+  defp freshness_rejection_message(_code), do: nil
+
+  # ── B47 CP1/CP2：canon freshness 编排与回执 ─────────────────────
+
+  # 声明基线：候选 payload 由产品在生成时从持久 canon 填充（B28/B36/ADR-0029
+  # scope/adoption_effect、B29 character_ref/base_fingerprint）；legacy 候选没有
+  # 结构化基线时返回 nil，保持既有确认/采纳路径，不猜测、不伪判 stale。
+  defp canon_freshness_verdict(_artifact, _work_id, nil), do: nil
+
+  defp canon_freshness_verdict(_artifact, _work_id, reader) when not is_function(reader, 2),
+    do: nil
+
+  defp canon_freshness_verdict(_artifact, work_id, _reader) when not is_binary(work_id), do: nil
+
+  defp canon_freshness_verdict(artifact, work_id, reader) when is_function(reader, 2) do
+    case declared_canon_baseline(artifact) do
+      {object, target, declared} ->
+        read_and_assess_canon(reader, work_id, object, target, declared)
+
+      nil ->
+        nil
+    end
+  end
+
+  defp read_and_assess_canon(reader, work_id, object, target, declared) do
+    case safe_canon_read(reader, work_id, target) do
+      {:ok, current} ->
+        CanonFreshness.assess(object, declared, current)
+
+      {:error, reason} ->
+        canon_read_failure_verdict(object, declared, reason)
+    end
+  end
+
+  defp safe_canon_read(reader, work_id, target) do
+    case reader.(work_id, target) do
+      {:ok, %{} = current} -> {:ok, current}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:invalid_canon_snapshot, other}}
+    end
+  rescue
+    _ -> {:error, :reader_error}
+  end
+
+  defp canon_read_failure_verdict(object, declared, reason) do
+    case reason do
+      :target_missing -> CanonFreshness.missing(object, declared, "target_missing")
+      :target_ambiguous -> CanonFreshness.missing(object, declared, "target_ambiguous")
+      _unavailable -> CanonFreshness.unavailable(object, declared)
+    end
+  end
+
+  defp declared_canon_baseline(artifact) do
+    payload = artifact_field(artifact, :payload) || %{}
+
+    character_canon_baseline(payload) || chapter_canon_baseline(artifact, payload)
+  end
+
+  defp character_canon_baseline(payload) do
+    object_kind = b28_value(payload, :object_kind)
+    effect = b28_map(payload, :adoption_effect) || %{}
+    mode = b28_value(effect, :mode)
+    ref = b28_value(payload, :character_ref)
+    fingerprint = b28_value(payload, :base_fingerprint)
+    change = payload |> b28_value(:changes) |> List.wrap() |> List.first()
+
+    if (object_kind == "character_profile_revision" or mode == "character_field_update") and
+         is_binary(ref) and is_binary(fingerprint) and is_map(change) and
+         b28_value(change, :field) == "narrative_role" do
+      {:character_profile, {:character_profile, ref},
+       %{
+         ref: ref,
+         fingerprint: fingerprint,
+         field: "narrative_role",
+         old_value: b28_value(change, :old),
+         new_value: b28_value(change, :new)
+       }}
+    end
+  end
+
+  @chapter_baseline_modes ["replace_scope", "replace_segments", "format_paragraphs"]
+
+  defp chapter_canon_baseline(artifact, payload) do
+    effect = b28_map(payload, :adoption_effect) || %{}
+    scope = b28_map(payload, :scope) || %{}
+    mode = b28_value(effect, :mode) || b28_value(scope, :kind)
+    ref = chapter_baseline_ref(artifact, payload, scope)
+
+    with true <- mode in @chapter_baseline_modes,
+         true <- is_binary(ref),
+         versions when map_size(versions) > 0 <- declared_chapter_versions(effect, scope) do
+      {:chapter_prose, {:chapter_prose, ref},
+       %{ref: ref, versions: versions, digest: chapter_baseline_digest(mode, effect)}}
+    else
+      _no_declared_baseline -> nil
+    end
+  end
+
+  defp chapter_baseline_ref(artifact, payload, scope) do
+    adoption_chapter_ref(artifact) || b28_value(payload, :target_chapter_ref) ||
+      b28_value(scope, :target_chapter_ref)
+  end
+
+  defp chapter_baseline_digest("format_paragraphs", effect), do: b28_value(effect, :source_hash)
+  defp chapter_baseline_digest(_mode, _effect), do: nil
+
+  defp declared_chapter_versions(effect, scope) do
+    [
+      b28_value(effect, :expected_base_versions),
+      b28_value(effect, :base_versions),
+      b28_value(scope, :base_versions),
+      b28_value(effect, :covered),
+      b28_value(scope, :covered),
+      b28_value(scope, :covered_refs)
+    ]
+    |> Enum.find_value(fn candidate ->
+      case normalize_declared_versions(candidate) do
+        versions when map_size(versions) > 0 -> versions
+        _ -> nil
+      end
+    end)
+    |> Kernel.||(%{})
+  end
+
+  defp normalize_declared_versions(items) when is_list(items) do
+    Enum.reduce(items, %{}, fn item, acc ->
+      case declared_version_entry(item) do
+        {ref, version} -> Map.put(acc, ref, version)
+        nil -> acc
+      end
+    end)
+  end
+
+  defp normalize_declared_versions(_items), do: %{}
+
+  defp declared_version_entry(%{} = item) do
+    ref = b28_value(item, :ref)
+    version = b28_value(item, :version)
+
+    if is_binary(ref) and is_integer(version), do: {ref, version}
+  end
+
+  defp declared_version_entry("draft:" <> _ = covered) do
+    with [_draft, uuid, raw_version] <- String.split(covered, ":"),
+         version when is_integer(version) <- parse_version(raw_version) do
+      {"draft:#{uuid}", version}
+    else
+      _ -> nil
+    end
+  end
+
+  defp declared_version_entry(_item), do: nil
+
+  defp parse_version(value) when is_integer(value), do: value
+
+  defp parse_version(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {version, ""} -> version
+      _ -> nil
+    end
+  end
+
+  defp parse_version(_value), do: nil
+
+  defp put_canon_freshness_receipt(%{} = result, decision_opts) do
+    case canon_freshness_opt(decision_opts) do
+      %{} = verdict -> Map.put(result, :canon_freshness, verdict)
+      _ -> result
+    end
+  end
+
+  defp put_trace_canon_freshness(%{} = summary, decision_opts) do
+    case canon_freshness_opt(decision_opts) do
+      %{} = verdict -> Map.put(summary, :canon_freshness, verdict)
+      _ -> summary
+    end
+  end
+
+  defp canon_freshness_opt(decision_opts) when is_map(decision_opts),
+    do: Map.get(decision_opts, :canon_freshness)
+
+  defp canon_freshness_opt(_decision_opts), do: nil
+
+  defp canonical_versions_log(decision_opts) do
+    case canon_freshness_opt(decision_opts) do
+      %{expected: expected, current: current, status: status} ->
+        %{status: status, expected: version_summary(expected), current: version_summary(current)}
+
+      _ ->
+        nil
+    end
+  end
+
+  defp version_summary(%{versions: versions}), do: versions
+  defp version_summary(%{fingerprint: fingerprint}), do: %{fingerprint: fingerprint}
+  defp version_summary(_value), do: nil
 
   # 同名不是数据冲突而是创作判断（真重名/别名/改名），必须把「已有谁」告诉作者。
   # 别名命中（AU12 CP2）时更要点名「它是谁的别名」——作者裁决材料不能少这半句。
