@@ -1,6 +1,6 @@
 # B44：摘要与审读报告的持久化转换边界
 
-- 状态：**done（2026-10-28/29：CP0–CP3）**。CP1/CP2：章摘要=ADR-0019 通用矩阵强制，审读报告=A-narrow 维护类生命周期；两 repo 无 `update_all` 绕过。CP3：current-HEAD 真实产品链页面回归 `d3-summary-lazy-repair` + `au13-review-adjudication-roundtrip` 均 PASS（external automation，**surface=browser/driver=headless-chromium**，如实记录；见 §9）。**Residual（不冒充闭环）**：① 两条链尚无 native AX driver，页面证据不是原生；② 单活跃报告替换链（第二次物化→旧 TENTATIVE SUPERSEDED）无现成页面场景；③ ADR-0019 适用范围说明待作者复核（未改任何 Accepted ADR 文本）。
+- 状态：**done（2026-10-28/29：CP0–CP3）**。CP1/CP2：章摘要=ADR-0019 通用矩阵强制，审读报告=A-narrow 维护类生命周期；两 repo 无 `update_all` 绕过。CP3：current-HEAD 真实产品链页面回归 `d3-summary-lazy-repair` + `au13-review-adjudication-roundtrip` 均 PASS（external automation，**surface=browser/driver=headless-chromium**，如实记录；见 §9）。**Residual（不冒充闭环）**：① 两条链尚无 native AX driver，页面证据不是原生；② 单活跃报告替换链（第二次物化→旧 TENTATIVE SUPERSEDED）无现成页面场景。维护类替换语义已由作者 2026-10-29 确认 A，ADR-0019 已追加适用范围补充。
 - 登记日期：2026-10-27；来源：`ChapterSummaryRepo` 与 `ReconciliationReportRepo` 仍有 `update_all`，可绕过 changeset 和 ADR-0019 转换矩阵。
 - 上游：ADR-0019、[Q1CB](Q1CB-ADOPTION-TRANSITION-ENFORCEMENT.md)、[VS-00F](VS-00F-five-ledgers-three-state.md)、[VS-00C](../../docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md)。
 
@@ -68,7 +68,7 @@ Draft 的转换矩阵已落地，但相邻对象仍有直接批量更新：
 
 `reconciliation_reports` 表在 `novel_persistence` 内除该 repo 外无写入路径。
 
-### 6.3 未决契约项：维护类 artifact 替换语义（待作者复核适用范围说明）
+### 6.3 维护类 artifact 替换语义（已裁决：作者 2026-10-29 确认 A）
 
 #### 6.3.0 先讲场景（作者视角，非术语）
 
@@ -81,7 +81,7 @@ Draft 的转换矩阵已落地，但相邻对象仍有直接批量更新：
 - **采纳类**（章摘要、Draft 等）：沿用原规则表，一字不改；
 - **维护类**（对账报告等）：保留原表为底座，只额外明确一条「新扫描把旧的待处理报告标成已被取代，逐行校验」；历史行状态值不变、无数据迁移。
 
-待作者确认的只有产品行为一句：**「新扫描报告 → 旧待处理报告标为『已被更新版本取代』」保持不变（A，Lead 采用），还是改成「丢弃」（B）？** Lead 按 A 继续，不修改任何已冻结 ADR 的决策文本；「适用范围说明」作为待作者复核项登记在残余清单。
+**作者裁决（2026-10-29）：A 可以。** 即「新扫描报告 → 旧待处理报告标为『已被更新版本取代』」保持不变；通用 ADR-0019 矩阵不改，维护类替换作为显式例外登记，ADR-0019 已追加「适用范围补充（2026-10-29，作者确认）」。B 分支不再保留。
 
 **事实（已核对）**：
 
@@ -142,9 +142,9 @@ CP0 顺带核对 `novel_persistence` 其余 `update_all`，均**不是** adoptio
 
 ## 8. 审读报告侧：A-narrow 已实现（待作者复核适用范围说明）
 
-### 8.1 决策（Lead 2026-10-28，按 B44 mandate）
+### 8.1 决策（作者 2026-10-29 确认 A；Lead 2026-10-28 按 mandate 先行实现）
 
-作者提问被取消后，Lead 按 mandate 定 **A-narrow**（不修改任何 Accepted ADR 决策文本，作为 residual 交作者复核）：
+作者提问被取消期间由 Lead 按 mandate 落 **A-narrow** 结构（未改通用矩阵；仅追加维护类替换）；2026-10-29 作者明确「A 可以」，A 成为作者生效结论（ADR-0019 已追加适用范围补充，B 分支关闭）：
 
 - ADR-0019 管「artifact adoption 转换」；`reconciliation_report` 是 `25 §8.1` 维护 artifact，「新扫描报告替换旧报告」= maintenance replacement，不是作者采纳决策；`22 §21.2` 对 `SUPERSEDED` 的定义（新版替代旧版、旧版留史）正适用。场景化说明见 §6.3.0（Lead 维护）。
 - 通用矩阵 `NovelDomain.AdoptionStatus` **一字不改**，既有用户断言不放松。
@@ -190,7 +190,7 @@ repo `apps/novel_persistence/test/novel_persistence/reconciliation_report_repo_t
 
 ### 8.4 residual（交作者复核）
 
-- **ADR-0019 适用范围说明待作者复核**：Lead 按 mandate 采用 A-narrow 实现，未改任何 Accepted ADR 文本；作者复核后若改选 B，按 §8.1 末条处理（不返工 repo 结构）。
+- **ADR-0019 适用范围说明已落（作者 2026-10-29 确认 A）**：`docs/design/adr/ADR-0019-adoption-status-transition-v3.md` 追加「适用范围补充（2026-10-29，作者确认）」；通用矩阵不变，B 分支关闭。
 - CP3 真实 Tauri 页面证据仍未闭环（§9），不得以本节的 repo 测试冒充页面验收。
 - §6.3 的“hold 范围”段落是 A-narrow 决策前的历史记录（Lead 维护区），以 §8.1 决策与本节实现为准。
 

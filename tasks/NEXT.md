@@ -24,7 +24,6 @@
 - **作者裁决｜主链语义**：B49 R1–R7 / ADR-0031 与 ADR-0022 状态，约束 B01/B43/B45；建议不是已接受决定。见 [B49 §7](slices/B49-core-semantics-and-adr-review.md#7-交付物五作者裁决包一页式)。
 - **作者裁决｜质量物料引用**：不回退 turn_id 的推荐保留；缺引用的 unavailable 事实与观测选项已澄清。见 [B63 R2](slices/B63-known-gaps-remediation.md#62-r2-质量物料引用裁决)。
 - **作者裁决｜角色无变化与同名歧义**：B29 T2 统一由 B48 承接，不重复登记、不冒充通过。见 [B48](slices/B48-character-revision-noop-and-ambiguity.md)。
-- **作者复核｜维护类 artifact 适用范围**：B44 按 mandate 采用 A-narrow（通用 ADR-0019 矩阵不改，审读报告维护替换 TENTATIVE→SUPERSEDED 作为维护类生命周期），未改任何 Accepted ADR 文本；作者若改选 B（DISCARDED）只改替换目标状态，不返工事务结构。见 [B44 §6.3.0](slices/B44-persistence-transition-boundary.md#630-先讲场景作者视角非术语)、[§8.4](slices/B44-persistence-transition-boundary.md#84-residual交作者复核)。
 - **作者裁决｜技术方向**：Multi-Agent day-1 约束见 [B50](slices/B50-multi-agent-current-boundary.md)；PaperTrail 须先只读取证再裁决，见 [B51](slices/B51-tech-stack-current-rebase.md)。
 - **产品裁决｜候选 fallback**：当前无可达生产者，待协议/产品裁决或真实复现，见 [B40 §10.1](slices/B40-judgment-era-acceptance-reanchor.md#101-逐场景结论表current-head-真跑复核)。
 - **作者安排／数据授权**：I10 盲评及其他外部条件见 [既有对账 §7](slices/VS00D-G-GAP-RECONCILIATION.md#7-条件项与未关闭后果)；stage 存量修复须单独授权，见 [B28](slices/B28-whole-chapter-revision.md)。

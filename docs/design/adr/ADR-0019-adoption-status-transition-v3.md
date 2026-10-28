@@ -109,6 +109,15 @@ artifact 产出即 `TENTATIVE`（VS-02A / ADR-0010）。
 
 - 在 `artifact_adoption_entry` changeset + `novel_domain` 增 `adoption_transition_allowed?/2` enforcement 与测试。
 
+## 适用范围补充（2026-10-29，作者确认）
+
+维护类 artifact（`../domain/25-maintenance-hooks.md §8.1` 维护 artifact 家族，如 `reconciliation_report_artifact`）的**维护类替换**不属于本 ADR 的 artifact adoption 转换：
+
+- `TENTATIVE → SUPERSEDED`（新扫描报告替换旧的待处理报告、旧版留史）由 `NovelDomain.MaintenanceArtifactStatus` 在通用矩阵之上追加**唯一一条**替换规则后放行；通用矩阵本身不变（对 Draft/ChapterSummary 等采纳类 artifact，`TENTATIVE→SUPERSEDED` 仍非法）。
+- 依据：`../domain/22-continuity-model.md §21.2`（supersede = 新版替代旧版、旧版保留历史意义）；维护产物不进入 canon，不是作者采纳决策，故不适用 INV-1 的采纳语义。
+- 边界：不建立第二套 7 态矩阵；不改变本 ADR 任何采纳类决策；历史行状态值不变、无数据迁移。
+- 来源与执行：作者 2026-10-29 确认 B44 的 A 方案（保留现有产品行为“新扫描报告 → 旧待处理报告标为已被更新版本取代”）；实现、测试与页面证据见 `tasks/slices/B44-persistence-transition-boundary.md` §6.3/§8/§9。
+
 ## enforced_by
 
 - apps/novel_domain/lib/novel_domain/adoption_status.ex
@@ -125,6 +134,16 @@ artifact 产出即 `TENTATIVE`（VS-02A / ADR-0010）。
 - quality/acceptance/scenarios/q1c-adopted-content-revision.yml
 - quality/acceptance/scenarios/p1-chapter-edit-then-accept.yml
 - tasks/slices/Q1CB-ADOPTION-TRANSITION-ENFORCEMENT.md
+- apps/novel_domain/lib/novel_domain/maintenance_artifact_status.ex
+- apps/novel_persistence/lib/novel_persistence/status_transition.ex
+- apps/novel_persistence/lib/novel_persistence/schemas/chapter_summary.ex
+- apps/novel_persistence/lib/novel_persistence/schemas/reconciliation_report.ex
+- apps/novel_persistence/lib/novel_persistence/chapter_summary_repo.ex
+- apps/novel_persistence/lib/novel_persistence/reconciliation_report_repo.ex
+- apps/novel_domain/test/novel_domain/maintenance_artifact_status_test.exs
+- apps/novel_persistence/test/novel_persistence/chapter_summary_repo_test.exs
+- apps/novel_persistence/test/novel_persistence/reconciliation_report_repo_test.exs
+- tasks/slices/B44-persistence-transition-boundary.md
 
 ## enforcement_gaps
 
