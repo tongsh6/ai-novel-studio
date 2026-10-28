@@ -31,3 +31,10 @@ be found at <https://hexdocs.pm/novel_persistence>.
 - [author_question_repo.ex](lib/novel_persistence/author_question_repo.ex)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。
 
 - [author_content_registration.ex](lib/novel_persistence/author_content_registration.ex)：B26 结果提交事务内重验原文来源，重复登记返回已有对象事实。
+
+## B44 持久化 adoption 转换边界
+
+- [status_transition.ex](lib/novel_persistence/status_transition.ex)：持久化 changeset 的状态转换守卫，矩阵策略由调用方注入（adoption 走 `NovelDomain.AdoptionStatus`；维护类走 `NovelDomain.MaintenanceArtifactStatus`），非法转换 error、同态 no-op 合法。
+- [chapter_summary_repo.ex](lib/novel_persistence/chapter_summary_repo.ex)：章摘要全部写路径经 ADR-0019 矩阵守卫；`supersede_prior_accepted/2` 逐行 changeset + 事务更新，无 `update_all` 绕过。
+- [reconciliation_report_repo.ex](lib/novel_persistence/reconciliation_report_repo.ex)：审读报告维护类替换（新报告 SUPERSEDE 旧 TENTATIVE）逐行 changeset + 事务；`update_all` 已移除，stale 报告不可再裁决翻成 ACCEPTED。
+- 完整切片：`tasks/slices/B44-persistence-transition-boundary.md`。

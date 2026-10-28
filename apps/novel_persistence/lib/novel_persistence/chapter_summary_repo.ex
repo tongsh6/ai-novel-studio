@@ -2,8 +2,9 @@ defmodule NovelPersistence.ChapterSummaryRepo do
   @moduledoc """
   章摘要仓储（VS-00C CP2.1 / contract §5.2）。
 
-  仅做持久化原语与查询；状态转换合法性由领域层 `NovelDomain.ChapterSummary`
-  （复用 `NovelDomain.AdoptionStatus` 矩阵）保证，本模块不重复校验转换。
+  状态转换合法性在持久化边界强制（B44 / ADR-0019）：所有写入都走
+  `Schemas.ChapterSummary.changeset/2` 的矩阵守卫；批量 supersede 也逐行
+  changeset 更新（不用 `update_all` 绕过矩阵），失败时事务回滚保留原值。
   """
 
   import Ecto.Query
@@ -20,7 +21,7 @@ defmodule NovelPersistence.ChapterSummaryRepo do
     |> Repo.insert()
   end
 
-  @doc "更新一条摘要的状态（转换合法性已由领域层判定）。"
+  @doc "更新一条摘要的状态（经 changeset 的 ADR-0019 矩阵校验；非法转换返回 error）。"
   @spec update_status(ChapterSummary.t(), String.t()) ::
           {:ok, ChapterSummary.t()} | {:error, Ecto.Changeset.t()}
   def update_status(%ChapterSummary{} = summary, status) when is_binary(status) do
@@ -29,15 +30,28 @@ defmodule NovelPersistence.ChapterSummaryRepo do
     |> Repo.update()
   end
 
-  @doc "把某章当前所有 ACCEPTED 摘要置为 SUPERSEDED；返回受影响行数。"
+  @doc """
+  把某章当前所有 ACCEPTED 摘要置为 SUPERSEDED；返回受影响行数。
+
+  逐行 changeset 更新（每行都过 ADR-0019 矩阵守卫），整批在同一事务内：
+  任一行写入失败 → 全部回滚，原值保留。
+  """
   @spec supersede_prior_accepted(String.t(), String.t()) :: {:ok, non_neg_integer()}
   def supersede_prior_accepted(work_id, chapter_id)
       when is_binary(work_id) and is_binary(chapter_id) do
-    {count, _} =
-      ChapterSummary
-      |> where([c], c.work_id == ^work_id and c.chapter_id == ^chapter_id)
-      |> where([c], c.status == ^AdoptionStatus.accepted())
-      |> Repo.update_all(set: [status: AdoptionStatus.superseded(), updated_at: now()])
+    {:ok, count} =
+      Repo.transaction(fn ->
+        ChapterSummary
+        |> where([c], c.work_id == ^work_id and c.chapter_id == ^chapter_id)
+        |> where([c], c.status == ^AdoptionStatus.accepted())
+        |> Repo.all()
+        |> Enum.map(fn summary ->
+          summary
+          |> ChapterSummary.changeset(%{status: AdoptionStatus.superseded()})
+          |> Repo.update!()
+        end)
+        |> length()
+      end)
 
     {:ok, count}
   end
@@ -104,6 +118,4 @@ defmodule NovelPersistence.ChapterSummaryRepo do
     |> limit(^limit)
     |> Repo.all()
   end
-
-  defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
 end
