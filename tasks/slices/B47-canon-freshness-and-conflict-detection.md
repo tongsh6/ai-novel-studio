@@ -237,6 +237,7 @@
 - 最终通过（run4）：exit 0，verdict `status=pass`，evidence **8/8**（screenshot/websocket_frames/app_jsonl/turn_result/action_result/seed_log/summary_json/persistence_snapshot）；`surface=browser`、`driver=headless-chromium`、`git_head=4b25d728`（运行时 HEAD；如实记录，不冒充 native）。
 - 首轮失败与根因（保留只读）：run1 action_result 匹配用 `action_type=accept`，实际采纳帧为 `action_type=adopt`+artifact_id → 改按 artifact_id 匹配；run2 等待 `channel.user_message.done`，纯采纳动作只有 `channel.author_action.done` → 改匹配 author_action 完成日志；run3 阅读模式短 sleep 抢拍 → 与 p1-chapter-adoption-reading 同口径等待「阅读模式/全书有效字数/本章有效字数」再快照。均为 driver/verifier 断言与当前生产链的偏差，不是产品缺陷；每次按失败类型修复后 scoped 复跑，未放宽产品判据。
 - 证据：`artifacts/slice-verify/b47-canon-freshness-tauri/{verdict.json,summary.json,persistence-snapshots.json,seed.log,ui-frames.json,ui-state.json,*.png}`；日志 `artifacts/b47-cp3/run*.log`。
+- 最终门禁复核（HEAD `11bc3530`）：`mix dialyzer` 0 errors（本批修正 `declared_version_entry`/`canon_freshness_opt` 的死分支与 guard 告警）；scoped re-run `b47-canon-freshness` PASS 29s、`au12-correction-intent-roundtrip` PASS 18s（内容/证据见 `artifacts/final-20261029/results.jsonl`）；`mix test` 全量 2344/0、`credo --strict` no issues、I1/I2/I3 PASS。
 - 运行后资源清理：4657/5769 无监听、无残留 Tauri/Phoenix/Vite；未加载/卸载语言模型（deterministic provider）。共享 test DB 在最终门禁前已 drop/create/migrate 重建，避免本轮 seed 残留影响全表计数型旧用例。
 
 ## 10. 残余 / known-gap（不伪称完成）

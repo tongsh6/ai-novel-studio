@@ -2048,7 +2048,11 @@ defmodule NovelApplication.AdoptionWorkflow do
   end
 
   defp normalize_declared_versions(items) when is_list(items) do
-    Enum.reduce(items, %{}, fn item, acc ->
+    # 基线项来自产品生成期 payload（JSON 解码）：合法形状只有 map 与 draft ref 字符串；
+    # 其它类型不参与比较（等价旧兜底 nil），不从非结构化内容猜测版本。
+    items
+    |> Enum.filter(&(is_map(&1) or is_binary(&1)))
+    |> Enum.reduce(%{}, fn item, acc ->
       case declared_version_entry(item) do
         {ref, version} -> Map.put(acc, ref, version)
         nil -> acc
@@ -2066,26 +2070,17 @@ defmodule NovelApplication.AdoptionWorkflow do
   end
 
   defp declared_version_entry("draft:" <> _ = covered) do
-    with [_draft, uuid, raw_version] <- String.split(covered, ":"),
-         version when is_integer(version) <- parse_version(raw_version) do
-      {"draft:#{uuid}", version}
-    else
-      _ -> nil
+    case String.split(covered, ":") do
+      [_draft, uuid, raw_version] ->
+        case Integer.parse(raw_version) do
+          {version, ""} -> {"draft:#{uuid}", version}
+          _ -> nil
+        end
+
+      _ ->
+        nil
     end
   end
-
-  defp declared_version_entry(_item), do: nil
-
-  defp parse_version(value) when is_integer(value), do: value
-
-  defp parse_version(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {version, ""} -> version
-      _ -> nil
-    end
-  end
-
-  defp parse_version(_value), do: nil
 
   defp put_canon_freshness_receipt(%{} = result, decision_opts) do
     case canon_freshness_opt(decision_opts) do
@@ -2101,10 +2096,9 @@ defmodule NovelApplication.AdoptionWorkflow do
     end
   end
 
+  # 所有调用点在 handle_adopt 内构造 decision_opts map；不存在非 map 调用路径。
   defp canon_freshness_opt(decision_opts) when is_map(decision_opts),
     do: Map.get(decision_opts, :canon_freshness)
-
-  defp canon_freshness_opt(_decision_opts), do: nil
 
   defp canonical_versions_log(decision_opts) do
     case canon_freshness_opt(decision_opts) do
