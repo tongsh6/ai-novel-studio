@@ -811,6 +811,54 @@ async function scrollToFirstText(pattern) {
   }
 }
 
+async function verifySessionPopoverDismiss() {
+  const events = [];
+  const openSessionRail = async (label) => {
+    const summary = findSessionSummary(harness.dumpNodes());
+    if (!summary) throw new Error(`session_rail_summary_not_found:${label}`);
+    harness.safeClick(summary, `${label}:open`);
+    await harness.pollAx(
+      (_text, nodes) => Boolean(findButtonByText(nodes, (value) => value === "新建会话")),
+      15_000,
+      `${label}:opened`,
+    );
+  };
+  const isClosed = () =>
+    !findButtonByText(harness.dumpNodes(), (value) => value === "新建会话");
+
+  // click-outside
+  await openSessionRail("b75-click-outside");
+  harness.capture("b75-popover-open");
+  const windowNode = harness.dumpNodes().find(
+    (node) => node.role === "AXWindow" && Array.isArray(node.frame) && node.frame[0] > 0,
+  );
+  if (!windowNode) throw new Error("b75_window_not_found");
+  const [x, y, width, height] = windowNode.frame;
+  clickAt(harness.APP, x + width * 0.45, y + height * 0.45, 1);
+  await harness.pollAx((_text, nodes) => {
+    const stillOpen = Boolean(findButtonByText(nodes, (value) => value === "新建会话"));
+    return !stillOpen;
+  }, 8_000, "b75:click_outside_closed");
+  events.push({ mode: "click_outside", closed: isClosed() });
+  harness.capture("b75-click-outside-closed");
+
+  // Esc
+  await openSessionRail("b75-escape");
+  pressKey(harness.APP, "escape");
+  await harness.pollAx((_text, nodes) => {
+    const stillOpen = Boolean(findButtonByText(nodes, (value) => value === "新建会话"));
+    return !stillOpen;
+  }, 8_000, "b75:escape_closed");
+  events.push({ mode: "escape", closed: isClosed() });
+  harness.capture("b75-escape-closed");
+
+  writeJson("b75-popover-dismiss.json", {
+    ok: events.every((event) => event.closed === true),
+    events,
+    at: nowIso(),
+  });
+}
+
 async function scrollConversationToBottom() {
   const nodes = harness.dumpNodes();
   const windowNode = nodes.find(
@@ -856,6 +904,7 @@ async function main() {
     await harness.runStep("maintenance", "workbench_ready:initial", () => harness.rawWaitWorkbenchSettled("initial"));
     await ensureWorkSelected(harness, null, WORK_TITLE, "initial");
     harness.capture("01-workbench");
+  await verifySessionPopoverDismiss();
     const resumeRecords = appLogRecords().filter((record) => record.event === "work_session.resume.done");
     workId = resumeRecords.at(-1)?.work_id ?? null;
     writeJson("native-au15-config.json", { ...config, work_id: workId });

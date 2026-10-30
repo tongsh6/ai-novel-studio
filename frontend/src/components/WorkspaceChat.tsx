@@ -147,6 +147,7 @@ import {
   candidateDiscussionCollapsedText,
   candidateContinuationText,
 } from "../lib/copy";
+import { installDetailsDismiss } from "../lib/popoverDismiss";
 import {
   artifactIdsRenderedInCards,
   describeCandidateActionGroups,
@@ -1441,6 +1442,15 @@ export function WorkspaceChat() {
   const setLongRun = useAppStore((state) => state.setLongRun);
 
   const channelRef = useRef<Channel | null>(null);
+  const sessionTopbarRef = useRef<HTMLDetailsElement | null>(null);
+
+  // B75：会话弹层支持点击外部/Esc 关闭（键盘焦点回到 summary 触发器）。
+  useEffect(() => {
+    const details = sessionTopbarRef.current;
+    if (!details) return undefined;
+    return installDetailsDismiss(details, document);
+  }, []);
+
   const socketRef = useRef<ReturnType<typeof createSocket> | null>(null);
   const chatAreaRef = useRef<HTMLDivElement>(null);
   const mainInputRef = useRef<HTMLInputElement | null>(null);
@@ -4216,7 +4226,7 @@ export function WorkspaceChat() {
               </Dialog.Content>
             </Dialog.Portal>
           </Dialog.Root>
-          <details className={styles.sessionTopbarDetails}>
+          <details ref={sessionTopbarRef} className={styles.sessionTopbarDetails}>
             <summary className={styles.sessionTopbarSummary}>
               <MessageCircle size={14} aria-hidden="true" />
               <span>{WORKBENCH.sessionRailSummary}</span>

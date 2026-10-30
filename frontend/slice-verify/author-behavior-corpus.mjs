@@ -424,7 +424,7 @@ async function main() {
   ]));
   const exploreSeed = process.env.AUTHOR_BEHAVIOR_EXPLORE_SEED ?? "";
   const explorePool = (process.env.AUTHOR_BEHAVIOR_EXPLORE_POOL ?? "").split(",").map((v) => v.trim()).filter(Boolean);
-  const isExploration = !process.env.AUTHOR_BEHAVIOR_NEGATIVE_CONTROLS && (exploreSeed !== "" || explorePool.length > 0);
+  const isExploration = process.env.AUTHOR_BEHAVIOR_NEGATIVE_CONTROLS !== "1" && (exploreSeed !== "" || explorePool.length > 0);
   const isNegative = process.env.AUTHOR_BEHAVIOR_NEGATIVE_CONTROLS === "1";
   const negativeFixtures = isNegative ? corpus.negative_fixtures : [];
   const selectedIds = isNegative
@@ -465,7 +465,47 @@ async function main() {
       return title;
     };
 
-    if (isExploration) {
+    const activateFixture = (fixture) => {
+      runtimeCorpus.fixtures = [...baseFixtures.filter((entry) => entry.case_id !== fixture.case_id), fixture];
+      fs.writeFileSync(corpusPath, `${JSON.stringify(runtimeCorpus, null, 2)}\n`);
+    };
+
+    if (isNegative) {
+      for (const fixture of negativeFixtures) {
+        const testCase = casesById.get(fixture.case_id);
+        const workTitle = await ensureWork(testCase.state_id);
+        let pendingCount = 0;
+        let setupEvidence = null;
+        if (fixture.trap_id === "T-D2-auto-adopt-from-chitchat") {
+          const setupFixture = baseFixtures.find((entry) => entry.case_id === "C-F3-002");
+          activateFixture(setupFixture);
+          const setup = await sendAndObserve(page, casesById.get("C-F3-002"), "setup-T-D2-pending", workTitle);
+          pendingCount = setup.candidates.length;
+          setupEvidence = { turn_id: setup.turn_id, candidates: setup.candidates, evidence_refs: setup.evidence_refs };
+        }
+        activateFixture(fixture);
+        negativeStimuli.push({ trap_id: fixture.trap_id, fixture, setup: setupEvidence });
+        const state = negativeStateEvidence(corpus, fixture, testCase, workIdForTitle(workTitle), pendingCount);
+        const observation = await sendAndObserve(page, testCase, fixture.trap_id, workTitle);
+        observations.push(observation);
+        const evaluated = evaluateCase(corpus, testCase, observation);
+        const { control, detected } = negativeControlVerdict(corpus, fixture, evaluated);
+        negativeTrapObservations.push({
+          trap_id: fixture.trap_id,
+          case_id: fixture.case_id,
+          state_constructed: state.state_constructed,
+          state_facts: state.facts,
+          stimulus_reached: observation.observed.action === fixture.action,
+          oracle_status: evaluated.status,
+          detection: detected ? control.reason : "not_detected",
+          detection_passed: detected,
+          expected: control,
+          actual_reasons: evaluated.reasons,
+          evidence_refs: observation.evidence_refs,
+        });
+        caseOrder.push({ trap_id: fixture.trap_id, case_id: fixture.case_id, state_id: testCase.state_id, detected });
+      }
+    } else if (isExploration) {
       plan = buildExplorationPlan(corpus, { seed: Number(exploreSeed || 20261030), poolCaseIds: selectedIds });
       for (const step of plan.steps) {
         if (step.action === "switch_work") {
@@ -523,6 +563,10 @@ async function main() {
       }
     }
   } finally {
+    if (isNegative) {
+      fs.writeFileSync(artifact("negative-stimuli.json"), JSON.stringify(negativeStimuli, null, 2));
+      fs.writeFileSync(corpusPath, runtimeCorpusRaw);
+    }
     fs.writeFileSync(artifact("frames.json"), JSON.stringify(frames, null, 2));
     fs.writeFileSync(artifact("db-snapshots.json"), JSON.stringify(observations.map((entry) => ({
       case_id: entry.case_id,
@@ -530,7 +574,7 @@ async function main() {
       before: entry.db_counts_before,
       after: entry.db_counts_after,
     })), null, 2));
-    writeObservations({ selectedIds, observations, plan, isExploration });
+    writeObservations({ selectedIds, observations, plan, isExploration, isNegative, negativeTrapObservations });
     await browser.close();
   }
 
@@ -549,11 +593,15 @@ async function main() {
     evaluation: evaluation.evaluation,
     coverage: evaluation.coverage_summary,
     exploration,
+    negative_controls: isNegative ? negativeTrapObservations : null,
     generated_at: new Date().toISOString(),
   };
   fs.writeFileSync(artifact("summary.json"), JSON.stringify(summary, null, 2));
-  console.log(`[author-behavior] mode=${isExploration ? "explore" : "replay"} cases=${caseOrder.length} pass=${evaluation.evaluation.pass} fail=${evaluation.evaluation.fail} unknown=${evaluation.evaluation.unknown}`);
-  if (!evaluation.ok || evaluation.evaluation.fail > 0 || evaluation.evaluation.unknown > 0 || (exploration && exploration.status !== "pass")) {
+  console.log(`[author-behavior] mode=${isNegative ? "negative" : isExploration ? "explore" : "replay"} cases=${caseOrder.length} pass=${evaluation.evaluation.pass} fail=${evaluation.evaluation.fail} unknown=${evaluation.evaluation.unknown}`);
+  const negativeOk = negativeTrapObservations.length === negativeFixtures.length && negativeTrapObservations.every((entry) =>
+    entry.state_constructed && entry.stimulus_reached && entry.detection_passed,
+  );
+  if (isNegative ? !negativeOk : !evaluation.ok || evaluation.evaluation.fail > 0 || evaluation.evaluation.unknown > 0 || (exploration && exploration.status !== "pass")) {
     process.exitCode = 1;
   }
 }

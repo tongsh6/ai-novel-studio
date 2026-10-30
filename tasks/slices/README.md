@@ -64,7 +64,7 @@
 | [B69-renumber-idempotent-temp-seq.md](B69-renumber-idempotent-temp-seq.md) | **doing（2026-10-30 CP0）**：B33 CP3 真实模型原生发现的重编号数据完整性缺陷——from==to 项残留临时 seq=1000001；契约/复现已冻结，修复与 scoped 复验待执行。 |
 | [B70-author-behavior-corpus-and-state-exploration.md](B70-author-behavior-corpus-and-state-exploration.md) | **done（2026-10-30 CP0–CP3 验证基础设施）**：5 目标族/17 cases、真实 UI 回放与 seeded 探索、PR/nightly/失败转回归和实模 blocked 入口；真实模型、6 not-run cases、完整动作/native 覆盖仍属残余，详见原任务。 |
 | [B71-provider-message-fidelity.md](B71-provider-message-fidelity.md) || [B74-candidate-actions-grouped-primary.md](B74-candidate-actions-grouped-primary.md) | 候选动作按对象分组卡片+主次操作：作者反馈按钮平铺；已按 A 方向落地，真实 Tauri 页面证据见 uib74e，作者可继续提文案/批量细化。 |
-| [B75-workbench-popover-outside-close.md](B75-workbench-popover-outside-close.md) | 工作台弹出层 click-outside/Esc 关闭；AU15 驱动发现的会话弹层 UX 缺口，CP0 待做。 |
+| [B75-workbench-popover-outside-close.md](B75-workbench-popover-outside-close.md) | 工作台弹出层 click-outside/Esc 关闭；已实现并在真实 Tauri `uib74f` 验证 click-outside/Esc，done。 |
 | [B76-dialogue-narrative-paragraph-spacing.md](B76-dialogue-narrative-paragraph-spacing.md) | 对话叙事段落双倍空行修复：作者反馈换行过大；根因 flex gap+margin 叠加；CSS 修复、静态守卫与真实 Tauri 页面复验完成。 |
  AI Novel Studio 原生多轮创作请求体：AgentRun 为事实源、Request IR 为投影，贯通求证、工具结果、tentative 候选与作者边界；目标设计不以现役最低能力妥协，状态见原任务。 |
 | [B72-author-behavior-offline-corpus-expansion.md](B72-author-behavior-offline-corpus-expansion.md) | 作者行为离线 LLM 语料扩增（P2）：生成 manifest/候选、去重与 holdout、人工冻结及真实 UI 抽样；CP0 设计已就绪，实现状态与证据见原任务。 |
