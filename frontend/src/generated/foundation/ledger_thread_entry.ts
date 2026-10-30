@@ -1,0 +1,4 @@
+import { z } from "zod"
+
+export const LedgerThreadEntrySchema = z.object({ "id": z.string().min(1), "ledger": z.enum(["arc","conflict","information","emotion_curve","promise"]).describe("五本账分类枚举（08 §4.5 E33-E37 贯穿账本）。分类枚举 lower_snake，对齐 memory_class 风格。冻结于 VS-00F §2.1 / ADR-0026。"), "subject_label": z.string().min(1), "subject_ref": z.union([z.string(), z.null()]).optional(), "status": z.string().min(1), "payload": z.record(z.string(), z.any()).optional(), "source_refs": z.array(z.string().min(1)).optional(), "last_event_chapter": z.union([z.string(), z.null()]).optional() }).strict().describe("VS-00F B06 / ui43 §5 脉络面板 DTO：LedgerViewService.threads/1 的只读投影。不是领域 LedgerEntry 信封（无 entry_id/work_ref/design_ref/revision），不得据此写入。")
+export type LedgerThreadEntry = z.infer<typeof LedgerThreadEntrySchema>

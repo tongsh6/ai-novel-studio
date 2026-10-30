@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LedgerThreadEntry",
+  "description": "VS-00F B06 / ui43 §5 脉络面板 DTO：LedgerViewService.threads/1 的只读投影。不是领域 LedgerEntry 信封（无 entry_id/work_ref/design_ref/revision），不得据此写入。",
+  "type": "object",
+  "required": [
+    "id",
+    "ledger",
+    "subject_label",
+    "status"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ledger": {
+      "$ref": "enums/ledger.json"
+    },
+    "subject_label": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "source_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "last_event_chapter": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

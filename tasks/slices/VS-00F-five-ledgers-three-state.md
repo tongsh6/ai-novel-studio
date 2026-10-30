@@ -90,7 +90,7 @@ tauri/summary.json`。配套 test-support：slice_verify 四栏摘要 clause（�
 
 ## B06 分账契约与真实消费 checkpoint
 
-- 状态：**doing（2026-10-31 CP0 盘点完成：五账状态/payload/producer/持久/面板 DTO/历史矩阵已核；面板 DTO schema/校验与真实页面回归待做）**。
+- 状态：**doing（2026-10-31 CP0/CP1 done：三账枚举、面板 DTO schema/codegen、前端 safeParse、空账/历史/失败正反例已落地；CP2 真实页面脉络/审读回归待做）**。
 - 来源：[VS-00F §2/§7](../../docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md#2-对象模型ledgerentry-统一信封-分账-payload)、[全量对账 B06](../2026-10-27-design-to-execution-reconciliation.md#42-契约adr-与-schema) 要求分账状态与 payload 的 schema/codegen 承接；不是重新创造五账领域。
 - 只读事实：`LedgerEntry` 仍在 Elixir 中分别声明 promise/conflict/emotion 状态；`ledger_entry.json` 的 status/payload 仍为宽泛 string/object。真实消费链已存在：`LedgerViewService.threads/1` → Channel `get_ledger_threads` → `socket.ts` 的手写 `LedgerThreadEntry`/类型断言 → `StructurePanel` 脉络面板。生成的 `LedgerEntrySchema` 与实际投影字段不同，不能将领域信封直接强套到 wire，也不能以存在生成物代替实际校验。
 - 下一步：逐账核对现役领域值、更新/读取 producer、持久形状、面板 DTO、探索/规划消费者与历史空值；形成“字段/状态—契约真源—生成物—校验点—真实消费者”矩阵。先判定哪些约束已冻结且有消费者、哪些属于合法局部投影或尚待契约澄清，再决定最小 schema/codegen/适配范围；本次不冻结新字段、状态或阈值。
@@ -122,6 +122,15 @@ tauri/summary.json`。配套 test-support：slice_verify 四栏摘要 clause（�
 **CP1 最小范围（拟）**：补 conflict/promise/emotion_curve enum JSON 或明确由领域生成治理；新增面板 DTO schema（ledger enum + status string + payload open/opaque）并生成前端类型，`get_ledger_threads` 接收处 safeParse（告警容错，不静默改数据）；空账/读取失败/历史缺字段正反例；真实 Tauri 脉络面板查看与审读/裁决回归。
 
 - 未完成：面板 DTO schema/codegen/safeParse、三账 enum 词表、真实页面回归；本记录不冻结新 payload 字段/阈值。
+
+### B06 CP1 实施记录（2026-10-31）
+
+- 新增 enum SSOT：`foundation/enums/conflict_ledger_status.json`（ACTIVE/DORMANT/REVIVED/ABSORBED/ABANDONED/RESOLVED）、`promise_ledger_status.json`（OPEN/PROGRESSING/FULFILLED/BROKEN/RELEASED）、`emotion_curve_status.json`（MATCHED/DEVIATED/UNPLANNED）；`mix codegen.enums` 生成 Foundation 模块，`--check` in sync。
+- 新增面板 DTO schema：`foundation/ledger_thread_entry.json`（id/ledger 枚举/subject_label/status/payload/source_refs/last_event，additionalProperties=false）与 `foundation/ledger_threads.json`（五账分组，合法空账=五个空数组，additionalProperties=false），共 44 份 schema；`pnpm codegen:schemas` 生成前端类型。
+- 前端：`LedgerThreadEntry/LedgerThreads` 改为 generated 类型；新增 `ledgerThreadsWire.parseLedgerThreads`，schema 校验失败 **显式抛错**（不伪装空账），合法空账/历史缺 optional 字段/合法条目通过；`get_ledger_threads` 接收处使用。
+- 测试：合法空账、合法条目、历史条目缺 payload/source_refs、未知 ledger 显式失败、缺分组/非对象失败；frontend 652/652、typecheck/lint 通过；后端枚举全量 mix 1048/0。
+- 未完成：CP2 真实 Tauri 工作台五账查看 + 原审读/裁决回归；读取失败在页面显式错误态的证据；模型消费未涉及。
+
 
 
 ## 2026-10-30 章节修订派生账面的承接

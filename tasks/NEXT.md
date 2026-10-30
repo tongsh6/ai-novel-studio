@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| VS00F-B06 | CP0 盘点完成：五账状态/payload/producer/持久/面板 DTO 矩阵已核；CP1 面板 DTO schema/safeParse、三账 enum 词表、历史/空账正反例待做 | [原任务小节](slices/VS-00F-five-ledgers-three-state.md#b06-分账契约与真实消费-checkpoint) |
+| VS00F-B06 | CP0/CP1 done：三账枚举、面板 DTO schema/前端 safeParse、空账/历史/失败正反例已落地；CP2 真实脉络/审读页面回归待做 | [原任务小节](slices/VS-00F-five-ledgers-three-state.md#b06-分账契约与真实消费-checkpoint) |
 
 ## 后续候选
 

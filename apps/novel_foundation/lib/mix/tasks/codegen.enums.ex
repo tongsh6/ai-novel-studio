@@ -112,7 +112,7 @@ defmodule Mix.Tasks.Codegen.Enums do
       @moduledoc \"\"\"
       #{title} — generated from `#{source}`.
 
-      #{adr} #{section}
+      #{String.trim("#{adr} #{section}")}
 
       #{description}
       \"\"\"

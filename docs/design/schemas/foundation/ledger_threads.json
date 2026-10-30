@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LedgerThreads",
+  "description": "VS-00F B06：get_ledger_threads 五账分组面板 DTO。合法空账为五个空数组；读取失败/校验失败必须显式失败，不得伪装成空账。",
+  "type": "object",
+  "required": ["arc", "conflict", "promise", "information", "emotion_curve"],
+  "properties": {
+    "arc": { "type": "array", "items": { "$ref": "ledger_thread_entry.json" } },
+    "conflict": { "type": "array", "items": { "$ref": "ledger_thread_entry.json" } },
+    "promise": { "type": "array", "items": { "$ref": "ledger_thread_entry.json" } },
+    "information": { "type": "array", "items": { "$ref": "ledger_thread_entry.json" } },
+    "emotion_curve": { "type": "array", "items": { "$ref": "ledger_thread_entry.json" } }
+  },
+  "additionalProperties": false
+}

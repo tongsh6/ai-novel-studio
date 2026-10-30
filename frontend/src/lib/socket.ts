@@ -851,24 +851,10 @@ export function getRules(channel: Channel, workId: string): Promise<MemoryItemDa
 }
 
 // CP4c（VS-00F / ui43 §5 模块 9「脉络」）：五账进度态 + 审读报告（只读投影）
-export interface LedgerThreadEntry {
-  id: string;
-  ledger: string;
-  subject_label: string;
-  subject_ref?: string | null;
-  status: string;
-  payload?: Record<string, unknown>;
-  source_refs?: string[];
-  last_event_chapter?: string | null;
-}
+import { parseLedgerThreads, type LedgerThreads as LedgerThreadsWire } from "./ledgerThreadsWire";
 
-export interface LedgerThreads {
-  arc: LedgerThreadEntry[];
-  conflict: LedgerThreadEntry[];
-  promise: LedgerThreadEntry[];
-  information: LedgerThreadEntry[];
-  emotion_curve: LedgerThreadEntry[];
-}
+export type { LedgerThreadEntry } from "./ledgerThreadsWire";
+export type LedgerThreads = LedgerThreadsWire;
 
 export interface ReviewFinding {
   rule: string;
@@ -893,7 +879,13 @@ export function getLedgerThreads(channel: Channel, workId: string): Promise<Ledg
   return new Promise((resolve, reject) => {
     channel
       .push("get_ledger_threads", { work_id: workId })
-      .receive("ok", (response) => resolve(response as LedgerThreads))
+      .receive("ok", (response) => {
+        try {
+          resolve(parseLedgerThreads(response));
+        } catch (error) {
+          reject(error instanceof Error ? error : new Error(String(error)));
+        }
+      })
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("get_ledger_threads timeout")));
   });

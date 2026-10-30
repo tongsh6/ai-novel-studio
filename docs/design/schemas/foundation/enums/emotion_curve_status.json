@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EmotionCurveStatus",
+  "description": "情绪曲线账每采纳章一条，机械判定 MATCHED/DEVIATED/UNPLANNED（VS-00F §2.5）。",
+  "type": "string",
+  "enum": [
+    "MATCHED",
+    "DEVIATED",
+    "UNPLANNED"
+  ],
+  "x-adr": "ADR-0026-five-ledgers-three-state-reconciliation-v3.md",
+  "x-section": "VS-00F §2.5"
+}
