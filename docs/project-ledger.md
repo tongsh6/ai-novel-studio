@@ -1214,3 +1214,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **DS01-RUN-STATE CP0**：盘点 agent_run_state 现役 producer/join 恢复/dead 广播/runtime_live 语义；新增 foundation/agent_run_state.json（39 份 schema）并 codegen，前端手写类型/safeParse 待接；live/dead/unknown 与历史快照规则冻结。
 
 - 2026-10-31 — **DS01-RUN-STATE CP1**：agent_run_state 前端类型改 generated，新增 agentRunStateWire safeParse（失败告警+容错，runtime_live 强制 unknown），onAgentRunState/ack 均校验；live/dead/unknown 测试；frontend 647/647、typecheck。真实页面恢复证据待 CP2。
+
+- 2026-10-31 — **DS01-RUN-STATE done**：agent_run_state schema/codegen、前端 generated 类型/safeParse、live/dead/unknown 单测；真实 Tauri 窗口 driver 验证 live resume 与 dead expiry 均 PASS；task_done native-surface UI gate 环境残差登记；当前任务切 VS00F-B06。

@@ -292,9 +292,27 @@ export interface AgentRunTriggerData {
   quality_finding_refs?: string[];
 }
 
-import { parseAgentRunState, type AgentRunStateData as AgentRunStateDataWire } from "./agentRunStateWire";
+import type { AgentRunState } from "../generated/foundation/agent_run_state";
+import { parseAgentRunState } from "./agentRunStateWire";
 
-export type AgentRunStateData = AgentRunStateDataWire;
+// DS01：wire 类型由 codegen 派生；trigger/goal/long_run_task 的局部 client 投影
+// 在此收窄（schema 侧是 open record），不是第二份手写 wire。
+export type AgentRunStateData = AgentRunState & {
+  trigger?: AgentRunTriggerData | null;
+  goal?: { text?: string; version?: number };
+  long_run_task?: {
+    task_id?: string;
+    status?: string;
+    phase?: string;
+    current_unit_ref?: string | null;
+    completed_unit_refs?: string[];
+    pending_artifact_refs?: string[];
+    progress?: number;
+    step?: string;
+    checkpoint_data?: Record<string, unknown>;
+    updated_at?: string | null;
+  } | null;
+};
 
 export type AgentCommand = "pause" | "resume" | "cancel" | "steer";
 

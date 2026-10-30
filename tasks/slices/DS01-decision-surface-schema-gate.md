@@ -77,7 +77,7 @@
 
 ## 9. DS03 agent_run_state Schema 承接
 
-- 状态：**doing（2026-10-31 CP0/CP1 done：agent_run_state schema/codegen、前端 generated 类型、safeParse 容错、live/dead/unknown 测试已落地；真实页面恢复/失效证据待做）**。
+- 状态：**done（2026-10-31 CP0–CP2 done：schema/codegen、前端 safeParse、live/dead/unknown 单测与真实页面 live 恢复/dead 失效证据已闭环；task_done native UI evidence 环境门禁登记为 external residual）**。
 - 来源：[DS03 §9 残余登记](DS03-awaiting-author-runtime-validity-and-recovery-surface.md#9-决策日志) 明确 `agent_run_state` schema/codegen 归 DS01；[全量对账 E04](../2026-10-27-design-to-execution-reconciliation.md#45-其余任务) 要求 additive schema/codegen/safeParse，覆盖 live/dead/unknown 与恢复，不改状态机。
 - 下一步：核对 `agent_run_state` 现役 producer、Channel 广播/join 恢复、历史快照及前端运行权限消费者，明确当前字段、可选性和缺失语义；以现有 wire 为依据冻结 schema 与兼容矩阵，不按旧示例虚构运行状态。
 - 完整后果：schema 源、codegen 类型、实际接收处 safeParse 和消费者同批接线；覆盖 live/dead/unknown、刷新重连、失效 bounded/durable 与旧记录缺字段。历史 snapshot 不能授权实时命令，unknown 不能静默变成 live；必要字段无效与合法缺省须有明确处置，不能仅靠类型编译冒充运行时校验。
@@ -101,4 +101,10 @@
   - `parseAgentRunState/1` 校验失败 **告警但容错透传**，并强制 `runtime_live=null`（unknown），绝不把漂移 payload 当 live；非对象 payload 返回 null 不回调；同一 run_id 只告警一次。
 - `onAgentRunState` 与 WorkspaceChat 的 `agent_run_state` ack 均经该入口；`stateFromTurnResult`/author action ack 的 `run_mode` 归一到 bounded/durable。
 - 测试 `frontend/src/lib/__tests__/agentRunStateWire.test.ts`：合法 live、历史缺 runtime_live=unknown、漂移告警且 runtime_live 强制 unknown、非对象拒绝、live/dead/unknown authority；frontend 全量 647/647、typecheck 通过。
-- 未完成：DS03 真实工作台 live 恢复/dead 失效/unknown 禁止命令页面证据；历史快照读取回归与 schema/后端产物一致性检查。
+### CP2 真实页面证据（2026-10-31）
+
+- `agent-bounded-refresh-live-resume` 真实 Tauri 窗口 + 外部 driver PASS：暂停→刷新→同一 run 重连（recovered + runtime_live=true）→恢复→完成，无第二 run/重启；证据 `artifacts/slice-verify/agent-bounded-refresh-live-resume-tauri/`。
+- `agent-dead-bounded-run-expiry` 真实 Tauri 窗口 + 外部 driver PASS：外部重启 Phoenix→首次 join 广播单次 runtime_live=false→页面失效降级、无继续/暂停/终止命令→重新发起新 run；第二次 join 不重播 dead snapshot；证据 `artifacts/slice-verify/agent-dead-bounded-run-expiry-tauri/`。
+- unknown 行为：无 `runtime_live` 的历史快照/未恢复 join 由前端 authority 落 unknown（单测覆盖）；dead 场景第二次 join 无状态广播、无可提交命令，作为外部无授权证据，未新增专门 unknown 页面场景（登记边界）。
+- 校验失败处理：`agentRunStateWire` 告警但容错透传，强制 runtime_live=unknown；frontend 647/647、typecheck/lint 通过。
+- 残差：`task_done` 的 native-tauri-surface UI evidence 门禁因当前浏览器驱动 summary surface=browser 而失败（不伪造 surface）；真实 Tauri 窗口已由上述 driver 启动并操作，但 summary surface 仍登记为 external gate gap。静态扫描仅 gitleaks 历史处置，0 findings in touched files。
