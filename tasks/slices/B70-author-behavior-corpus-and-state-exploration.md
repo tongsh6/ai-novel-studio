@@ -1,6 +1,6 @@
 # B70：作者行为语料生成与状态探索验证体系
 
-- 状态：**doing（2026-10-30 CP0 登记；目标模板、冻结语料、oracle、覆盖报告与复用边界待冻结）**。
+- 状态：**doing（2026-10-30 CP0 done：目标模板/状态/冻结语料/oracle/provenance-split/覆盖报告格式与复用边界已冻结；CP1 最小数据驱动闭环待实现）**。
 - 类型：验证基础设施；仓内管理、运行时外挂、证据内生、判卷外部，不新增生产验收感知能力。
 - 来源：作者指出现有真实页面验收多为从历史日志提取的固定输入与操作剧本，覆盖过窄；独立开发阶段不能依赖持续人工创作生产语料。作者确认采用“少量人工目标模板 + 离线生成与冻结 + 自动状态探索 + 失败驱动回归”的方向，并同意先登记任务再开始 CP0。
 - 关联：[B27](B27-systematic-prompt-and-intent-integration.md) 自然语言语义与 20 例案例、[B34](B34-author-intent-corpus-validation.md) 历史语料与覆盖矩阵、[B37](B37-acceptance-wait-supervision.md) 外部运行监督、[B40](B40-judgment-era-acceptance-reanchor.md) 场景重锚、[B41](B41-quality-evidence-foundation.md) manifest/verdict、[B42](B42-model-behavior-evidence-tier.md) 机制/模型行为证据分层。
@@ -63,7 +63,7 @@
 
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
-| CP0 | 盘点 B27/B34、现有 UI driver、dogfood/native runner、B41/B42 的可复用边界；冻结目标模板、案例、oracle、provenance/split、覆盖报告格式与执行分层；确定首批代表场景和负例 | **doing**：任务与边界已登记，格式和资产映射待完成 |
+| CP0 | 盘点 B27/B34、现有 UI driver、dogfood/native runner、B41/B42 的可复用边界；冻结目标模板、案例、oracle、provenance/split、覆盖报告格式与执行分层；确定首批代表场景和负例 | **done（2026-10-30）**：`quality/acceptance/author-behavior/` 五类格式冻结（README + targets/states/cases/oracles + 5 JSON Schema + coverage-report example）；校验器 `scripts/lib/quality/author_behavior.mjs` + CLI + 10 条正反例测试；复用映射/首批目标族与负例/执行分层见下 CP0 记录 |
 | CP1 | 最小数据驱动闭环：至少 3 个作者目标族，包含多表达、多状态及同句异境/歧义负例；共享外部 UI driver 穿过真实主链；自动硬断言与证据 verdict；生成器/oracle 正反例通过 | todo |
 | CP2 | 状态驱动探索：动作选择、随机种子、全局不变量、状态/转移覆盖、失败轨迹保存与缩化；至少一个非固定操作顺序场景由外部真实页面闭环 | todo |
 | CP3 | 覆盖扩展与分层：按 B34/新发现缺口扩展目标族；PR 受影响子集、后台/夜间探索、真实模型语义子集入口；失败转回归、完整门禁与文档索引；真实模型语义结论仍归对应产品/B42 流程，不以 stub 代签 | todo |
@@ -72,12 +72,23 @@ CP1 只是最小实现 checkpoint，不替代 CP2 状态探索和 CP3 覆盖/分
 
 ## 6. CP0 工作清单
 
-- [ ] 核对现有案例/fixture/场景格式，明确哪些直接复用、哪些 additive 扩展，避免第二套 verdict 或语义语料真源。
-- [ ] 核对 `external-ui-driver.mjs`、`dogfood-runner.mjs`、native verifier 的动作、观察、等待与证据边界，确定共享抽取点；不把新语料继续堆进大型场景分支。
-- [ ] 冻结目标模板、冻结案例、状态/oracle、来源与分组、覆盖报告格式；保留集与生成集版本不可混淆。
-- [ ] 冻结低成本执行策略：生成一次长期复用、PR 按影响选择、后台跑扩展、真实模型只跑语义子集。
-- [ ] 选择 CP1 代表目标与负例，定义如何证明自动判卷能拒绝错误对象、越权写入、重复副作用和虚假完成。
-- [ ] 明确真实日志/作品的使用边界：默认使用合成样书；真实材料须授权、脱敏，生成模型不得默认读取。
+- [x] 核对现有案例/fixture/场景格式，明确哪些直接复用、哪些 additive 扩展，避免第二套 verdict 或语义语料真源。（记录：`artifacts/task-audit/2026-10-30-b70-cp0/audit-map.json`）
+- [x] 核对 `external-ui-driver.mjs`、`dogfood-runner.mjs`、native verifier 的动作、观察、等待与证据边界，确定共享抽取点；不把新语料继续堆进大型场景分支。（CP1 通过数据驱动场景驱动既有外部入口，不新增产品钩子）
+- [x] 冻结目标模板、冻结案例、状态/oracle、来源与分组、覆盖报告格式；保留集与生成集版本不可混淆。（`author-behavior-targets/states/cases/oracles/coverage-report/*/v1`）
+- [x] 冻结低成本执行策略：生成一次长期复用、PR 按影响选择、后台跑扩展、真实模型只跑语义子集。（见 CP0 记录执行分层）
+- [x] 选择 CP1 代表目标与负例，定义如何证明自动判卷能拒绝错误对象、越权写入、重复副作用和虚假完成。（F1/F2/F3 × S1/S2/S3 × 9 cases；负例陷阱 T-R1/T-R2/T-W1/T-W2/T-B1/T-B2；CP1 需补 oracle 变异测试）
+- [x] 明确真实日志/作品的使用边界：默认使用合成样书；真实材料须授权、脱敏，生成模型不得默认读取。（案例 provenance 默认 human_template/合成状态；真实数据未使用）
+
+## 6.1 CP0 记录（2026-10-30 done）
+
+- 复用边界（只读审计，`artifacts/task-audit/2026-10-30-b70-cp0/audit-map.json`）：B27 案例卡 policies/retention/same-sentence/zero-tolerance 思想（不复制 20 例、不重跑 40 episode）；B34 抽取口径与高频缺口（progress_query/work_setup/discussion/world_foreshadow/delegation）生成 F1/F3；`external-ui-driver.mjs`/`dogfood-runner.mjs` 的动作/观察/等待/证据与长跑监督复用；`quality_accept.sh`/`tauri_slice_verify.sh` 的 manifest/tier/verdict/native 入口复用；`manifest.mjs`+`yaml_bridge.py` 为唯一 YAML 解析源；B41 `quality-verdict/v2` 与 B42 `quality-evidence-chain/v1`/release layer 不重造；B37 等待预算/心跳/失败缩化复用。
+- 冻结格式：`quality/acceptance/author-behavior/` 下 `author-behavior-targets/v1`、`author-behavior-states/v1`、`author-behavior-cases/v1`、`author-behavior-oracles/v1`、`author-behavior-coverage-report/v1`；5 个 JSON Schema + 示例报告；validator/CLI/tests。
+- 首批代表：目标族 F1-progress-query / F2-chapter-write-or-rewrite / F3-world-foreshadow-boundary；状态 S1-partial-multichapter / S2-empty-skeleton / S3-pending-candidate-context；9 条冻结案例（dev 4 / regression 2 / holdout 3，explore 留 CP2）；负例陷阱 T-R1/T-R2/T-W1/T-W2/T-B1/T-B2（虚构进度、无 receipt 完成声明、同名章错绑、无作者采纳自动写入、讨论强制写、明确采纳请求只回复）。
+- 判卷分工：硬事实（canon 写入/对象身份/重复副作用/虚假完成/读取失败未知）由 oracle 自动判；语义按目标族允许结果集合；`unknown` 不判 PASS；文学质量 I10 排除，不代签。
+- Provenance/split：human_template/derived_frozen/generated_frozen；holdout 不参与调词，失败转回归必须新 id 并保留原失败；holdout 表达不得与 dev/regression 同表达（validator 硬检查）。
+- 执行分层：PR（格式 + 少量 pr-smoke 代表）/nightly（冻结语料回放 + 硬 oracle）/explore（状态探索 + seed/缩化，CP2）/real-llm（仅 holdout 未调词子集，独立预注册、单槽/unload、结果入 B42 release-real-llm）。
+- 验证：`node scripts/author_behavior_check.mjs --report quality/acceptance/author-behavior/coverage-report.example.json` 通过；`node --test scripts/lib/quality/author_behavior.test.mjs` 10/10（含重复 id、未知引用、holdout 泄漏、provenance 缺失、未知动作/效果/禁止行为、目标/状态无案例、覆盖报告计数/sha 不一致）。
+- 残余（不冒充完成）：尚无数据驱动 runner/状态探索器/场景 PASS；真实模型 holdout 未预注册运行；覆盖报告仅格式示例，真实统计在 CP1/CP2 生成；真实作品数据未使用；I10 不代签。
 
 ## 7. 验证与恢复
 

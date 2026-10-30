@@ -23,6 +23,7 @@ bash scripts/quality_accept.sh --tier nightly --surface tauri
 - `known-gaps.md` 登记当前不可作为 gate 执行的 blocked 场景，并用 `implementation_missing / driver_stale / evidence_missing / retired / reanchor_pending / credential_blocked` 区分根因类型（B41 CP5）；类型不等于修复，重锚/退役由 B40 承接。
 - `fixtures/prose-quality/` 是 VS-00E 质量基线坏样本（CP0 建立），供 CP2 validator / acceptance 对照固定输入衡量质量；见该目录 `README.md`。
 - `fixtures/b27-semantic-cases/` 是 B27 §6.1 真实模型语义验收的 20 例案例卡、原始输入快照与旧规则臂 hash（CP0 建立）；不执行 40 episode 门槛、不调模型、不改提示词。见该目录 `README.md`。
+- `author-behavior/` 是 B70 冻结的作者行为语料/状态/oracle/覆盖报告格式（`author-behavior-*/v1`）：少量人工目标族 + 合成状态矩阵 + 冻结表达（dev/regression/holdout）+ 可机器判卷硬 oracle；不含产品 runtime，不另立 verdict。见该目录 `README.md`。校验：`node scripts/author_behavior_check.mjs [--report artifacts/author-behavior/<report>.json]`。
 
 ## Anti Hooks
 

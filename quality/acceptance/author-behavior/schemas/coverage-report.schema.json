@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "author-behavior-coverage-report/v1",
+  "title": "B70 author behavior coverage report",
+  "type": "object",
+  "required": ["schema", "generated_at", "corpus", "coverage", "runs", "evidence", "unknown_policy"],
+  "properties": {
+    "schema": {"const": "author-behavior-coverage-report/v1"},
+    "generated_at": {"type": "string"},
+    "corpus": {
+      "type": "object",
+      "required": ["targets", "states", "cases", "splits", "corpus_sha"],
+      "properties": {
+        "targets": {"type": "integer", "minimum": 1},
+        "states": {"type": "integer", "minimum": 1},
+        "cases": {"type": "integer", "minimum": 1},
+        "splits": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+        "corpus_sha": {"type": "string"}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["targets", "negative_traps_covered", "oracles_covered", "gaps"],
+      "properties": {
+        "targets": {"type": "array"},
+        "negative_traps_covered": {"type": "array", "items": {"type": "string"}},
+        "oracles_covered": {"type": "array", "items": {"type": "string"}},
+        "gaps": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "runs": {
+      "type": "object",
+      "required": ["tier", "provider", "total", "pass", "fail", "unknown", "blocked"],
+      "properties": {
+        "tier": {"type": "string"},
+        "provider": {"type": "string"},
+        "total": {"type": "integer", "minimum": 0},
+        "pass": {"type": "integer", "minimum": 0},
+        "fail": {"type": "integer", "minimum": 0},
+        "unknown": {"type": "integer", "minimum": 0},
+        "blocked": {"type": "integer", "minimum": 0}
+      }
+    },
+    "evidence": {"type": "object", "required": ["batch_refs", "verdict_refs"]},
+    "unknown_policy": {"type": "string", "minLength": 8}
+  }
+}

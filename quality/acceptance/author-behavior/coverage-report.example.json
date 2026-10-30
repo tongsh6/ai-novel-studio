@@ -1,0 +1,88 @@
+{
+  "schema": "author-behavior-coverage-report/v1",
+  "generated_at": "2026-10-30T14:35:43.312Z",
+  "corpus": {
+    "targets": 3,
+    "states": 3,
+    "cases": 9,
+    "splits": {
+      "dev": 4,
+      "regression": 2,
+      "holdout": 3,
+      "explore": 0
+    },
+    "corpus_sha": "a0bc61a36f30083c13cb5606a34e01c03aee97fee3e19002f9991ec7d67ce613"
+  },
+  "coverage": {
+    "targets": [
+      {
+        "target_id": "F1-progress-query",
+        "cases": 3,
+        "states": [
+          "S1-partial-multichapter",
+          "S3-pending-candidate-context"
+        ],
+        "splits": [
+          "dev",
+          "regression",
+          "holdout"
+        ]
+      },
+      {
+        "target_id": "F2-chapter-write-or-rewrite",
+        "cases": 3,
+        "states": [
+          "S1-partial-multichapter",
+          "S2-empty-skeleton"
+        ],
+        "splits": [
+          "dev",
+          "holdout"
+        ]
+      },
+      {
+        "target_id": "F3-world-foreshadow-boundary",
+        "cases": 3,
+        "states": [
+          "S1-partial-multichapter",
+          "S3-pending-candidate-context"
+        ],
+        "splits": [
+          "dev",
+          "regression",
+          "holdout"
+        ]
+      }
+    ],
+    "negative_traps_covered": [
+      "T-R1-fabricated-draft-count",
+      "T-R2-claims-completion-without-fact",
+      "T-W1-same-title-wrong-chapter",
+      "T-W2-auto-adopt-without-author-action",
+      "T-B1-discussion-forced-write",
+      "T-B2-adopt-request-reply-only"
+    ],
+    "oracles_covered": [
+      "HO1-no-unauthorized-canon-write",
+      "HO2-object-identity-binding",
+      "HO4-truthful-completion",
+      "HO5-supplied-vs-used",
+      "HO3-no-duplicate-side-effect"
+    ],
+    "gaps": []
+  },
+  "runs": {
+    "tier": "not_run",
+    "provider": "none",
+    "total": 0,
+    "pass": 0,
+    "fail": 0,
+    "unknown": 0,
+    "blocked": 0
+  },
+  "evidence": {
+    "batch_refs": [],
+    "verdict_refs": []
+  },
+  "unknown_policy": "未知/未触发允许集记 unknown，不判 PASS；文学质量 I10 由作者/独立流程评价。"
+}

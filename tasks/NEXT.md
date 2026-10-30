@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B70 | CP0 冻结作者目标模板、冻结语料、状态/oracle、provenance/split 与覆盖报告格式，核对 B27/B34/UI driver/dogfood/B41/B42 复用边界；随后进入最小真实页面闭环 | [原任务](slices/B70-author-behavior-corpus-and-state-exploration.md) |
+| B70 | CP0 已完成（五类格式冻结 + validator/CLI/正反例 + 复用映射 + 首批 F1/F2/F3×S1/S2/S3 9 cases 与负例）；下一步 CP1：最少 3 目标族数据驱动闭环（多表达/多状态/歧义负例）+ 共享外部 UI driver + 自动硬断言/oracle 变异证明 + verdict/覆盖报告 | [原任务](slices/B70-author-behavior-corpus-and-state-exploration.md) |
 
 ## 后续候选
 

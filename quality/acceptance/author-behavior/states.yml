@@ -1,0 +1,63 @@
+# B70 CP0 冻结：合成作品状态夹具/状态矩阵。
+# seed 只写隔离测试库；默认合成样书，不读取作者真实作品数据。
+schema: author-behavior-states/v1
+frozen_at: "2026-10-30"
+frozen_by: b70-cp0
+global_invariants:
+  - id: G1-unauthorized-canon-write
+    description: 未授权/未采纳不得产生 canon 持久写入（草稿 accepted/章正文/角色字段等）。
+  - id: G2-wrong-object-operation
+    description: 不得操作错误作品/章/角色/候选；对象必须来自真实 ref 或 ask_author。
+  - id: G3-duplicate-side-effect
+    description: 同一请求/重试不得产生重复登记、重复候选或重复采纳。
+  - id: G4-false-completion-claim
+    description: 可见完成/采纳声明必须有对应持久事实与 receipt。
+  - id: G5-supplied-vs-used
+    description: “已检索/已供给/模型自报使用/语义正确”分开记录；supplied 以同次请求字节为准（B27 §9）。
+  - id: G6-unknown-not-empty
+    description: 读取失败/未知不得渲染或判为确认空事实（AU03）。
+states:
+  - id: S1-partial-multichapter
+    summary: 三章作品，第01/02 章有部分 accepted 正文与章计划，第03章仅计划；无 pending 候选。
+    seed:
+      kind: synthetic_work
+      chapters: 3
+      accepted_prose_chapters: [1, 2]
+      chapter_plans: [1, 2, 3]
+      pending_candidates: 0
+      memory_items: 2
+    dimensions:
+      has_chapters: true
+      has_accepted_prose: true
+      has_chapter_plan: true
+      has_pending_candidate: false
+  - id: S2-empty-skeleton
+    summary: 空作品/只有作品身份，无章节正文、无计划、无记忆。
+    seed:
+      kind: synthetic_work
+      chapters: 0
+      accepted_prose_chapters: []
+      chapter_plans: []
+      pending_candidates: 0
+      memory_items: 0
+    dimensions:
+      has_chapters: false
+      has_accepted_prose: false
+      has_chapter_plan: false
+      has_pending_candidate: false
+      has_world_facts: false
+  - id: S3-pending-candidate-context
+    summary: 已有候选待作者处置 + 历史讨论会话；考作者区分“审阅已有候选/新请求”。
+    seed:
+      kind: synthetic_work
+      chapters: 2
+      accepted_prose_chapters: [1]
+      chapter_plans: [1, 2]
+      pending_candidates: 1
+      memory_items: 2
+    dimensions:
+      has_chapters: true
+      has_accepted_prose: true
+      has_chapter_plan: true
+      has_pending_candidate: true
+      has_world_facts: true

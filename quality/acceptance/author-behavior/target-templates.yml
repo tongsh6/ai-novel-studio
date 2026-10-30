@@ -1,0 +1,47 @@
+# B70 CP0 冻结：作者目标模板（人工维护，少量）。
+# 目标族表达“作者要什么语义后果 + 允许的终局/效果 + 禁止行为”，不是 UI 剧本。
+schema: author-behavior-targets/v1
+frozen_at: "2026-10-30"
+frozen_by: b70-cp0
+outcome_vocabulary:
+  actions: [reply, explore, execute, plan, ask_author, await_author, capability_gap, adopt, discard_pending_artifact]
+  adoption_effects: [replace_scope, replace_segments, append, format_paragraphs, renumber_chapters, new_chapter]
+  note: 复用 B26 判断协议动作与采纳 effect 词汇；不新增第二套 decision 语义。
+
+targets:
+  - id: F1-progress-query
+    family: progress_query
+    source_refs:
+      - tasks/slices/B34-author-intent-corpus-validation.md §CP0（progress_query 高频/覆盖缺口）
+      - tasks/slices/B27-systematic-prompt-and-intent-integration.md §6.1（事实充分子集不无谓追问）
+    goal: 作者用自然语言询问当前写作进度/章节状态/候选位置，回答必须基于真实作品事实。
+    allowed_actions: [reply, explore]
+    allowed_effects: []
+    forbidden_behaviors: [unauthorized_canon_write, wrong_object_operation, false_completion_claim, fabricated_progress]
+    state_dimensions: [has_chapters, has_accepted_prose, has_pending_candidate]
+    negative_traps: [T-R1-fabricated-draft-count, T-R2-claims-completion-without-fact]
+    expression_guidance: 允许多种口语问法/省略；不得依赖关键词；事实不足时 reply 说明未知或先 explore。
+  - id: F2-chapter-write-or-rewrite
+    family: prose_write
+    source_refs:
+      - tasks/slices/B27-systematic-prompt-and-intent-integration.md §6.1（M01/M03/M22 等写作案例）
+      - tasks/slices/B34-author-intent-corpus-validation.md §CP1（prose_write 覆盖）
+    goal: 作者要求写/续写/重写指定章正文；必须绑定真实章对象与基线，产出待采纳候选，不自动采纳。
+    allowed_actions: [explore, execute, ask_author, plan]
+    allowed_effects: [append, replace_scope, replace_segments]
+    forbidden_behaviors: [unauthorized_canon_write, wrong_object_operation, original_source_byte_replacement, duplicate_side_effect, false_adoption_claim]
+    state_dimensions: [has_chapters, has_accepted_prose, has_chapter_plan, has_pending_candidate]
+    negative_traps: [T-W1-same-title-wrong-chapter, T-W2-auto-adopt-without-author-action]
+    expression_guidance: 含口语/省略/指代；对象不唯一时必须 ask_author 或 explore，不猜“最新/首条”。
+  - id: F3-world-foreshadow-boundary
+    family: world_foreshadow
+    source_refs:
+      - tasks/slices/B34-author-intent-corpus-validation.md §CP1（world_foreshadow 讨论 vs 采纳）
+      - tasks/slices/B33-authoring-intent-judgment-reliability.md §CP3（讨论期零候选零写入）
+    goal: 作者讨论设定/伏笔是否合理时只讨论零候选；明确要求保存/采纳时才产出待采纳候选。
+    allowed_actions: [reply, explore, execute]
+    allowed_effects: [append]
+    forbidden_behaviors: [unauthorized_canon_write, discussion_forced_execute, duplicate_side_effect, false_adoption_claim]
+    state_dimensions: [has_world_facts, has_pending_candidate]
+    negative_traps: [T-B1-discussion-forced-write, T-B2-adopt-request-reply-only]
+    expression_guidance: 同句异境：同一句“这个设定可以吗”在不同状态/上下文下允许 reply 或 ask/explore，但不得直接写入。
