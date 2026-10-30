@@ -113,22 +113,42 @@ defmodule NovelDomain.LedgerEntry do
         source_ref: source_ref,
         presence_note: note
       }) do
-    payload =
-      entry.payload
-      |> Map.put("last_seen_chapter", chapter_ref)
-      |> Map.put("last_seen_seq", chapter_seq)
-      |> then(fn p -> if note in [nil, ""], do: p, else: Map.put(p, "presence_note", note) end)
+    last_seen_seq = Map.get(entry.payload, "last_seen_seq")
 
-    status = if entry.status in @arc_mechanical, do: "ON_TRACK", else: entry.status
+    if is_integer(last_seen_seq) and chapter_seq < last_seen_seq do
+      # B67：旧章补写/回改是历史出处，不得把“最近出场”倒回旧章，也不得
+      # 以此解除停滞/覆盖最近出场备注；只追加来源，重复同一来源幂等。
+      record_historical_sighting(entry, source_ref)
+    else
+      payload =
+        entry.payload
+        |> Map.put("last_seen_chapter", chapter_ref)
+        |> Map.put("last_seen_seq", chapter_seq)
+        |> then(fn p -> if note in [nil, ""], do: p, else: Map.put(p, "presence_note", note) end)
 
-    %{
+      status = if entry.status in @arc_mechanical, do: "ON_TRACK", else: entry.status
+
+      %{
+        entry
+        | payload: payload,
+          status: status,
+          source_refs: prepend_ref(entry.source_refs, source_ref),
+          last_event_chapter: chapter_ref,
+          revision: entry.revision + 1
+      }
+    end
+  end
+
+  defp record_historical_sighting(entry, source_ref) do
+    if source_ref in entry.source_refs do
       entry
-      | payload: payload,
-        status: status,
-        source_refs: prepend_ref(entry.source_refs, source_ref),
-        last_event_chapter: chapter_ref,
-        revision: entry.revision + 1
-    }
+    else
+      %{
+        entry
+        | source_refs: prepend_ref(entry.source_refs, source_ref),
+          revision: entry.revision + 1
+      }
+    end
   end
 
   @doc """
@@ -183,21 +203,36 @@ defmodule NovelDomain.LedgerEntry do
         chapter_seq: chapter_seq,
         source_ref: source_ref
       }) do
-    payload =
-      entry.payload
-      |> Map.put("last_advanced_chapter", chapter_ref)
-      |> Map.put("last_advanced_seq", chapter_seq)
+    last_advanced_seq = Map.get(entry.payload, "last_advanced_seq")
 
-    status = if entry.status in @conflict_mechanical, do: "ACTIVE", else: entry.status
+    if is_integer(last_advanced_seq) and chapter_seq < last_advanced_seq do
+      # B67：旧章回改是历史出处，不把主线推进/休眠判定倒回旧章；重复来源幂等。
+      if source_ref in entry.source_refs do
+        entry
+      else
+        %{
+          entry
+          | source_refs: prepend_ref(entry.source_refs, source_ref),
+            revision: entry.revision + 1
+        }
+      end
+    else
+      payload =
+        entry.payload
+        |> Map.put("last_advanced_chapter", chapter_ref)
+        |> Map.put("last_advanced_seq", chapter_seq)
 
-    %{
-      entry
-      | payload: payload,
-        status: status,
-        source_refs: prepend_ref(entry.source_refs, source_ref),
-        last_event_chapter: chapter_ref,
-        revision: entry.revision + 1
-    }
+      status = if entry.status in @conflict_mechanical, do: "ACTIVE", else: entry.status
+
+      %{
+        entry
+        | payload: payload,
+          status: status,
+          source_refs: prepend_ref(entry.source_refs, source_ref),
+          last_event_chapter: chapter_ref,
+          revision: entry.revision + 1
+      }
+    end
   end
 
   @doc "冲突账·休眠规则（机械，同弧光停滞语义）：推进落后当前章超阈值 ⇄。"

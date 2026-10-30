@@ -1158,3 +1158,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B65 CP0/CP1 + CP2 HTTP 矩阵**：冻结 Tauri 三来源 + dev 5768/隔离验收 5769 精确来源；发现 devUrl 5768/5769 不一致并统一 5768；新增 `NovelWeb.OriginPolicy` 唯一判定（精确 scheme/host/port，拒绝后缀伪装/null/错误端口），CORSPlug 删除前缀匹配并委托 policy；dev/prod/runtime 的 `check_origin:false` 全部改为 policy MFA。HTTP 端点 GET/OPTIONS、合法/伪本机/null/错误端口、配置覆盖矩阵测试通过；WS 真实握手待 CP3 外部 probe，CP2 partial。
 
 - 2026-10-31 — **B65 CP2 done / CP3 partial**：新增 `verify_b65_origin_boundary.sh` + test-env probe server，真实 Phoenix Endpoint 上验证允许 Tauri/dev Origin WS 101、伪本机/错误端口/null WS 403，HTTP 允许有 ACAO、拒绝无 CORS 头（浏览器阻止，非身份拒绝）。CP1 后真实 Tauri `b64-coordinate-memory` 正常链 PASS。release 打包自定义协议 Origin、恢复/重连、设置页矩阵未覆盖，CP3 保持 partial；不用 dev harness 冒充生产来源。
+
+- 2026-10-31 — **B67 CP0 done / CP1 partial**：红测复现旧章回改把 arc/conflict 最近进度倒回旧章；domain 修复为历史出处只追加来源（幂等）并保持 last_seen/last_advanced/status/presence_note 单调，停滞/休眠不再误判。明确未完成：删除最新出场/旧贡献失效仍须按当前有效正文重算，LedgerMaintenance 尚未撤回旧贡献；持久版本原子性/页面/模型未做。domain 8/0、maintenance 7/0、reconciliation 25/0、全量 mix test 1040/0。

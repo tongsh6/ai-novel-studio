@@ -96,6 +96,75 @@ defmodule NovelDomain.LedgerEntryTest do
     end
   end
 
+  test "B67：处理旧章不能把最近出场倒回旧章，历史出处仅追加" do
+    {:ok, entry} = LedgerEntry.new(arc_attrs())
+
+    current =
+      LedgerEntry.arc_sighted(entry, %{
+        chapter_ref: "ch-10",
+        chapter_seq: 10,
+        source_ref: "chapter_summary:ch-10",
+        presence_note: "凌渊在第10章现身"
+      })
+
+    historical =
+      LedgerEntry.arc_sighted(current, %{
+        chapter_ref: "ch-3",
+        chapter_seq: 3,
+        source_ref: "chapter_summary:ch-3",
+        presence_note: "旧章补写：凌渊在第3章现身"
+      })
+
+    assert historical.payload["last_seen_seq"] == 10
+    assert historical.payload["last_seen_chapter"] == "ch-10"
+    assert historical.payload["presence_note"] == "凌渊在第10章现身"
+    assert historical.last_event_chapter == current.last_event_chapter
+    assert hd(historical.source_refs) == "chapter_summary:ch-3"
+    assert historical.revision == current.revision + 1
+
+    # 同样输入重复处理：只追加一次，不再涨 revision。
+    again =
+      LedgerEntry.arc_sighted(historical, %{
+        chapter_ref: "ch-3",
+        chapter_seq: 3,
+        source_ref: "chapter_summary:ch-3",
+        presence_note: "旧章补写：凌渊在第3章现身"
+      })
+
+    assert again.revision == historical.revision
+    assert again.source_refs == historical.source_refs
+
+    # 旧章处理不得让基于当前进度的停滞判定误报。
+    assert :unchanged = LedgerEntry.arc_recompute_stall(historical, 12, 8)
+  end
+
+  test "B67：处理旧章不能把主线推进倒回旧章" do
+    {:ok, entry} =
+      LedgerEntry.new(
+        arc_attrs(%{ledger: "conflict", subject_kind: "plotline", status: "ACTIVE"})
+      )
+
+    current =
+      LedgerEntry.conflict_advanced(entry, %{
+        chapter_ref: "ch-10",
+        chapter_seq: 10,
+        source_ref: "chapter_summary:ch-10"
+      })
+
+    historical =
+      LedgerEntry.conflict_advanced(current, %{
+        chapter_ref: "ch-3",
+        chapter_seq: 3,
+        source_ref: "chapter_summary:ch-3"
+      })
+
+    assert historical.payload["last_advanced_seq"] == 10
+    assert historical.payload["last_advanced_chapter"] == "ch-10"
+    assert hd(historical.source_refs) == "chapter_summary:ch-3"
+    assert historical.revision == current.revision + 1
+    assert :unchanged = LedgerEntry.conflict_recompute_dormant(historical, 12, 8)
+  end
+
   test "arc_recompute_stall：超阈值 STALLED、条件解除回 ON_TRACK、非机械态不动（I-L4 确定性）" do
     {:ok, entry} = LedgerEntry.new(arc_attrs())
 

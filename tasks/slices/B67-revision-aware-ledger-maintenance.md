@@ -1,6 +1,6 @@
 # B67：章节修订后的派生账面一致性
 
-- 状态：**todo（2026-10-30 设计反查登记；CP0 现役反例与契约准备可推进，产品实现和页面验收未开工）**。
+- 状态：**doing（2026-10-31 CP0 done；CP1 partial：弧光/主线旧章处理不倒退 + 历史出处幂等追加，删除贡献重算未做；CP2/CP3 未开工）**。
 - 来源：修订后必须重新对齐连续性；现有增量记账以本次处理章更新最近出场/推进，缺少旧章修订和旧贡献失效的完整矩阵。本轮已有弧光账纯函数反例，尚未进行数据库或真实页面复现。
 - 上游：[VS-00F 原任务](VS-00F-five-ledgers-three-state.md)、[VS-00F 契约](../../docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md)、[ADR-0026](../../docs/design/adr/ADR-0026-five-ledgers-three-state-reconciliation-v3.md)、[B28](B28-whole-chapter-revision.md)、[B30](B30-chapter-structure-maintenance.md)。本项负责派生值与有效来源的正确性；VS00F-TRACE 负责权威变更留痕，不能互相代签。
 
@@ -60,10 +60,22 @@ arc_recompute_stall(上述条目, current_seq=12, threshold=8)
 
 | CP | 完整范围与完成标准 | 状态 |
 |---|---|---|
-| CP0 | 复现现役旧章/删除贡献反例，盘点五账、摘要完整性及实际调用顺序；冻结失效、当前进度、作者裁决、版本原子性和失败恢复的最小契约 | todo |
-| CP1 | 在既有事实源上实现可解释的贡献更新/失效与必要重算；只处理实际需修复账种，不用追加 ref 或 max(seq) 假装全部一致 | todo |
+| CP0 | 复现现役旧章/删除贡献反例，盘点五账、摘要完整性及实际调用顺序；冻结失效、当前进度、作者裁决、版本原子性和失败恢复的最小契约 | **done（2026-10-31，§6）**：红测复现 arc/conflict 倒退；冻结“历史出处只追加、进度指针单调、删除贡献须当前事实重算”；不做页面/模型 |
+| CP1 | 在既有事实源上实现可解释的贡献更新/失效与必要重算；只处理实际需修复账种，不用追加 ref 或 max(seq) 假装全部一致 | **partial（2026-10-31，§6）**：arc_sighted/conflict_advanced 旧章不回退、重复来源幂等；删除最新出场/旧贡献重算仍 todo |
 | CP2 | 接入持久版本/采纳边界与失败恢复；验证同章及跨章竞争、旧任务晚到、重复和重编号；与 VS00F-TRACE 协同留痕，保护人工裁决 | todo |
 | CP3 | 真实页面完成多章→旧章修订/移除→脉络/审读→刷新重开/探索验证，保留历史依据；必要实模消费另分证，完整矩阵通过才关闭 | todo |
+
+## 6. CP0/CP1 记录（2026-10-31）
+
+- 红测（TDD，先失败）：内存构造 arc last_seen=ch10，`arc_sighted(ch3)` 当前实现把 last_seen 倒回 3；`conflict_advanced` 同样倒回 last_advanced。修复后测试转绿。
+- CP1 已实现（仅 domain 纯函数，不碰持久/页面）：
+  - `LedgerEntry.arc_sighted/2`：新章 seq < 已存 last_seen_seq 时视为**历史出处**，只追加 source_refs（同一 ref 幂等，不增 revision），不改 last_seen/last_event/status/presence_note；新章/同章仍按原规则推进。
+  - `LedgerEntry.conflict_advanced/2`：同规则保护 last_advanced，不倒退、不解除/进入休眠误判。
+  - 依据：VS-00F `last_seen_chapter` ≠“最后一次处理章”，旧章回改不能把最近出场写成第 3 章；停滞判定继续按真实最近出场。
+- 未完成（CP1 剩余，明确不冒充）：删除角色最新出场/旧贡献失效时，需要从**当前有效正文/摘要版本**重算 max 有效出处，而不是仅靠单调 guard 或追加 ref。当前 LedgerMaintenance 仍只对本次摘要命中角色更新，不会撤回旧贡献；下一 checkpoint 需补当前事实 reader + 重算/版本原子性。
+- 作者裁决/终态：本次未改裁决保护；单调 guard 不把 DRIFTED/RESUMED/RETIRED 等机械改写。
+- 门禁：domain ledger_entry 8/0、application ledger_maintenance 7/0、ledger_reconciliation 25/0；全量 mix test 1040/0。
+- 明确未做：持久层原子/版本更新、跨章竞争、重编号组合、真实 Tauri 页面矩阵、真实模型消费。
 
 ## 5. 非目标与恢复
 

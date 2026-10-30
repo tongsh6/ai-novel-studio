@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B67 | CP0 复核旧章修订/移除贡献的账面反例；冻结重算、来源版本和作者裁决保护 | [原任务](slices/B67-revision-aware-ledger-maintenance.md) |
+| B67 | CP0 done；CP1 partial：arc/conflict 旧章不回退+历史出处幂等；删除最新出场/旧贡献重算、持久版本原子性、页面矩阵待做 | [原任务](slices/B67-revision-aware-ledger-maintenance.md) |
 
 ## 后续候选
 
