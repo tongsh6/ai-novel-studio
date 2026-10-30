@@ -281,20 +281,8 @@ defmodule NovelPersistence.AdoptionRepository do
     field = attrs |> Map.get(:skeleton_field) |> to_string()
     value = Map.get(attrs, :skeleton_value)
 
-    cond do
-      field not in @skeleton_writable_fields ->
-        {:error, {:invalid_skeleton_field, field}}
-
-      is_nil(value) ->
-        {:error, :skeleton_value_missing}
-
-      field in @skeleton_numeric_fields and (not is_integer(value) or value <= 0) ->
-        {:error, {:invalid_skeleton_value, field}}
-
-      field in @skeleton_text_fields and (not is_binary(value) or String.trim(value) == "") ->
-        {:error, {:invalid_skeleton_value, field}}
-
-      true ->
+    case skeleton_value_error(field, value) do
+      nil ->
         case repo.get(Work, Map.fetch!(attrs, :work_id)) do
           nil ->
             {:error, :work_not_found}
@@ -304,8 +292,31 @@ defmodule NovelPersistence.AdoptionRepository do
             |> Work.changeset(%{field => value})
             |> repo.update(stale_error_field: :revision)
         end
+
+      error ->
+        {:error, error}
     end
   end
+
+  defp skeleton_value_error(field, value) do
+    cond do
+      field not in @skeleton_writable_fields -> {:invalid_skeleton_field, field}
+      is_nil(value) -> :skeleton_value_missing
+      true -> skeleton_type_error(field, value)
+    end
+  end
+
+  defp skeleton_type_error(field, value) when field in @skeleton_numeric_fields do
+    if is_integer(value) and value > 0, do: nil, else: {:invalid_skeleton_value, field}
+  end
+
+  defp skeleton_type_error(field, value) when field in @skeleton_text_fields do
+    if is_binary(value) and String.trim(value) != "",
+      do: nil,
+      else: {:invalid_skeleton_value, field}
+  end
+
+  defp skeleton_type_error(_field, _value), do: nil
 
   defp work_skeleton_artifact?(:work_skeleton_suggestion), do: true
   defp work_skeleton_artifact?("work_skeleton_suggestion"), do: true

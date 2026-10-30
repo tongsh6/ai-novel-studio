@@ -99,5 +99,12 @@
   "updated_at": "2026-10-28",
   "handling": "该命中来自 B63 收口记录中引用 E10 聚合 spec 标识符的说明文字（历史 commit 89885449 内的文档行），非凭证；后续文档已改写避免写出该字面量，但 git 历史仍保留旧行，故按既有处置台账登记 false_positive，不重写历史。",
   "recommendation": "保持 gitleaks 扫描；后续文档引用 artifact spec 标识符时避免 `key:` + 引号字面量写法，避免同一启发式规则重复命中。"
+ },
+ "gitleaks|generic-api-key|scripts/verify_b65_origin_boundary.sh|22|generic-api-key": {
+  "status": "false_positive",
+  "owner": "lead",
+  "updated_at": "2026-10-31",
+  "handling": "命中为 WebSocket 握手用的 RFC 6455 示例 nonce（base64 的 the sample nonce），用于本地 Origin 边界探针，不是 provider/API 凭证；脚本只在本机 127.0.0.1 发握手请求。",
+  "recommendation": "保留脚本；若后续改用随机 nonce 可消除该 fingerprint。"
  }
 }

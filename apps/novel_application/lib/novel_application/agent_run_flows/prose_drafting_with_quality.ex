@@ -1227,20 +1227,21 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
 
       emit_gate_decision(snapshot, decision_result)
 
-      if decision_result.decision_type == :allow_tool do
-        do_execute_tool_step(
-          run,
-          sequence,
-          spec,
-          plan,
-          decision_result,
-          observations,
-          snapshot,
-          continuation_guidance(decision)
-        )
-      else
-        if decision_result.decision_type == :require_confirmation and
-             match?(%NovelDomain.BehaviorState{}, behavior) do
+      cond do
+        decision_result.decision_type == :allow_tool ->
+          do_execute_tool_step(
+            run,
+            sequence,
+            spec,
+            plan,
+            decision_result,
+            observations,
+            snapshot,
+            continuation_guidance(decision)
+          )
+
+        decision_result.decision_type == :require_confirmation and
+            match?(%NovelDomain.BehaviorState{}, behavior) ->
           # AU-04 确认卡回归修复：require_confirmation 已经打开 behavior，必须返回
           # confirmation TurnResult（confirmation_card/confirm actions），不能让通用
           # D4 续行把它降成 author_question，否则作者看不到确认动作。
@@ -1253,7 +1254,8 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
             behavior,
             snapshot
           )
-        else
+
+        true ->
           {:ok,
            deviation_result(
              run,
@@ -1268,7 +1270,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
              },
              step: blocked_step(run, sequence, plan, decision_result)
            )}
-        end
       end
     end
   end

@@ -447,20 +447,25 @@ defmodule NovelApplication.ContextAssembler do
 
   defp current_work_context_parts(value) do
     [
-      Map.get(value, "genre") || Map.get(value, :genre),
-      Map.get(value, "premise") || Map.get(value, :premise),
-      Map.get(value, "theme") || Map.get(value, :theme),
-      Map.get(value, "main_goal") || Map.get(value, :main_goal),
-      Map.get(value, "core_selling_point") || Map.get(value, :core_selling_point),
-      Map.get(value, "target_reader") || Map.get(value, :target_reader),
-      Map.get(value, "tone_preference") || Map.get(value, :tone_preference),
-      Map.get(value, "protagonist") || Map.get(value, :protagonist),
-      Map.get(value, "protagonist_goal") || Map.get(value, :protagonist_goal),
-      Map.get(value, "current_chapter") || Map.get(value, :current_chapter),
-      Map.get(value, "world_setting") || Map.get(value, :world_setting)
+      :genre,
+      :premise,
+      :theme,
+      :main_goal,
+      :core_selling_point,
+      :target_reader,
+      :tone_preference,
+      :protagonist,
+      :protagonist_goal,
+      :current_chapter,
+      :world_setting
     ]
+    |> Enum.map(&map_get_text(value, &1))
     |> Enum.map(&normalize_part/1)
     |> Enum.reject(&is_nil/1)
+  end
+
+  defp map_get_text(value, key) do
+    Map.get(value, key) || Map.get(value, Atom.to_string(key))
   end
 
   defp current_work_summary(title, context_parts) do

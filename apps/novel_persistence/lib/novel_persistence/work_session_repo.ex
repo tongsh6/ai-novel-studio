@@ -129,15 +129,17 @@ defmodule NovelPersistence.WorkSessionRepo do
       |> where([i], i.workspace_id == ^work_id and i.role in ["user", "assistant"])
       |> order_by([i], desc: i.updated_at, desc: i.inserted_at)
       |> Repo.all()
-      |> Enum.flat_map(fn row ->
-        text = hit_text(row)
-
-        case :binary.match(String.downcase(text), needle) do
-          {offset, _len} -> [hit(row, text, offset, limit)]
-          :nomatch -> []
-        end
-      end)
+      |> Enum.flat_map(&search_hit_for_row(&1, needle, limit))
       |> Enum.take(limit)
+    end
+  end
+
+  defp search_hit_for_row(row, needle, limit) do
+    text = hit_text(row)
+
+    case :binary.match(String.downcase(text), needle) do
+      {offset, _len} -> [hit(row, text, offset, limit)]
+      :nomatch -> []
     end
   end
 

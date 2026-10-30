@@ -94,3 +94,11 @@
 - D6/I5/B22/B34 逐条核对（2026-10-31）：D6 仅见 ADR-0023 历史检查点（已标注判断纪元前、不作当前证据）与 ADR-0030 正式前置；I5 是质量契约不变量；B22 见 provider §25 方向冻结 + CP4 自适应校准；B34 见语料验收文档，均无“已闭环/待办”矛盾需要改。
 - CP3 口径：AGENTS 前端栈/桌面优先与 package/Cargo/tauri 配置一致；frontend_audit 27/0、design_trace 19/0；secret local-file 方案与门禁一致；卡片集合以 ADR-0024 为准；sidecar 以 05-desktop as-built 校准为准。
 - **唯一阻塞**：PaperTrail 去留 A（推荐历史休眠）/B（supersede 移除依赖/表，需授权与历史方案）/C（延期）；未裁决前不删表/不卸载依赖。
+
+### 静态扫描闭环（2026-10-31）
+
+- 修复本次触达文件 Credo：context_assembler/current_work_context_parts 去分支、adoption_repository/skeleton_value_error 拆分类型校验、work_session_repo/search_hits 提取匹配函数、prose_drafting_with_quality 嵌套 if→cond、trace_replay_service alias 排序。
+- 新增 gitleaks disposition：`scripts/verify_b65_origin_boundary.sh` 的 RFC 6455 示例 nonce（base64 “the sample nonce”）为 false_positive，非凭证。
+- 复扫：**Findings 6：0 in touched files**、Credo 0 issues；backend 1058/0。剩余两项门禁：
+  - gitleaks 工具对已 disposition 的误报仍返回非零（报告已按 false_positive 记录，不隐藏）；
+  - `task_done_check` 要求最新 UI 证据；当前前端改动（WorkProfile/StructurePanel/desktopSidecar 等）晚于既有 Tauri summary，按规则未伪造/复用旧 summary，登记为环境性残余，待下一次 UI 触达的 Tauri 场景重跑后关闭。

@@ -9,8 +9,8 @@ defmodule NovelApplication.TraceReplayService do
   alias NovelApplication.ReplayService
   alias NovelApplication.WorkService
   alias NovelDomain.DecisionTrace
-  alias NovelPersistence.InteractionLifecycle
   alias NovelPersistence.{AuthorActionReceiptRepo, TraceRepository}
+  alias NovelPersistence.InteractionLifecycle
   alias NovelPersistence.WorkSessionRepo
 
   @decision_types ~w(
