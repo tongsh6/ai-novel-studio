@@ -15436,9 +15436,13 @@ async function driveAu14AssumptionProvisionalInjection(page) {
     200_000,
   );
   const secondProseLlmCalls = readLlmCallRecords().slice(llmCallCountBeforeSecondProse);
-  const absenceMarkerInLlm = secondProseLlmCalls.some((record) =>
-    llmCallPromptText(record).includes("尚未确立主角档案"),
-  );
+  // 产品口径允许两种缺席守则：非真空 roster 用「尚未确立主角档案」，显式空 roster
+  // 用「尚无任何角色档案」（AbsenceDirective protagonist_missing_vacuum）。二者都是
+  // 「缺席守则已恢复」的当前产品语义，断言只要求其一存在。
+  const absenceMarkerInLlm = secondProseLlmCalls.some((record) => {
+    const prompt = llmCallPromptText(record);
+    return prompt.includes("尚未确立主角档案") || prompt.includes("尚无任何角色档案");
+  });
   const provisionalMarkerAfterDiscard = secondProseLlmCalls.some((record) =>
     llmCallPromptText(record).includes("【暂定】主角"),
   );

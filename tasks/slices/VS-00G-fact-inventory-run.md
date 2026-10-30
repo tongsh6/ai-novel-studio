@@ -1,6 +1,6 @@
 # VS-00G 设定盘点运行链
 
-- 状态：doing（CP5e 已有历史 Tauri summary，当前 HEAD 复验及余项未闭环）
+- 状态：doing（CP5e A2/A3 当前 HEAD 真实 Tauri 复验 PASS；CP5 余项=触发 C、假定寿命催办、works 级假定、记忆类注入富化）
 - 所属完整闭环：VS-00G 承重事实完备性与补全回路 CP4/CP5
 - 当前 checkpoint：CP5a-d done（字段位+生命周期/盘点暂定候选/【暂定】注入/暂定设定区）；
   CP5e（SC-AU14-A2/A3）已有历史 Tauri 证据，是否当前 HEAD 复跑通过需另行核对；余项=触发 C、works 级假定、记忆类注入富化
@@ -90,8 +90,7 @@ CP4c 接通 A：`protagonist_undermaterialized` finding 的 `revise_design` 变�
 - [x] CP5d（2026-07-28）：档案概览「暂定设定」区（OQ7，【暂定】badge+确认/否决）；
   channel get_assumptions 读端口 + confirm/discard_assumption 作者动作（就地转正/
   discarded 停注入）；channel 测试覆盖全链。
-- [ ] CP5e：SC-AU14-A3（面板确认→正式档案）与 SC-AU14-A2（【暂定】注入→否决→回缺席
-  守则）真实 Tauri。
+- [x] CP5e（2026-10-31 当前 HEAD 复验）：SC-AU14-A3 面板确认→正式档案、SC-AU14-A2 【暂定】注入→否决→回缺席守则，真实 Tauri PASS；A2 断言接受产品当前两种缺席守则文案（真空/非真空），prompt 证据 source=llm_calls。
 - [ ] CP5 余项（不阻塞 CP5e）：触发 C（对话流自动提议盘点，同一缺失只提一次可关闭）、
   假定寿命催办负债规则（OQ3 超 10 章未决）、works 级假定定形、记忆类假定注入富化。
 
@@ -155,3 +154,11 @@ lint、frontend audit、design trace、I1/I2/I3、Tauri release build 与 AI 静
   且历史 10 章未被倒灌。
 - 本 slice 未覆盖全书规划字段建议与 CP5 暂定设定；VS-00G 继续保持 doing，AU-14 为
   1/4 完整场景闭环。
+
+### CP5e 当前 HEAD 复验（2026-10-31）
+
+- `au14-assumption-confirm-roundtrip`（A3）**PASS**：盘点激活暂定主角→概览 badge/动作→确认就地转正→暂定区消失→档案恰 1 个 accepted 角色。
+- `au14-assumption-provisional-injection`（A2）**PASS**：激活假定→首章 prose 机械准备计为主角在场、【暂定】标记进 prompt→作者否决→假定区清空→次章恢复主角缺席守则；prompt 证据 `llm_calls`。
+- 修正项：A2 driver 旧断言只认「尚未确立主角档案」；当前产品在显式空 roster 下使用 vacuum 守则「尚无任何角色档案」（AbsenceDirective 既有语义）。断言语义仍是“缺席守则已恢复”，接受两种当前产品文案，不放宽注入/否决行为。
+- 证据：`artifacts/slice-verify/au14-assumption-provisional-injection-tauri/`、`.../au14-assumption-confirm-roundtrip-tauri/`。
+- 余项不关闭：触发 C、假定寿命催办负债、works 级假定、记忆类注入富化仍登记在任务清单。
