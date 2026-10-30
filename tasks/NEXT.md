@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B67 | CP0/CP1 done；CP2 partial：revision CAS + 重编号 recompute + 旧任务晚到机制已落地；StateTrace 协同、CP3 页面矩阵待做 | [原任务](slices/B67-revision-aware-ledger-maintenance.md) |
+| B43 | CP0 与 B45 对齐统一裁决的生产、转换、校验、返回/trace/回放映射；B01 提供真实来源，保留幂等与阻断完整范围 | [原任务](slices/B43-gate-order-residual.md) |
 
 ## 后续候选
 
@@ -14,7 +14,6 @@
 |---|---|---|
 | B72 | 作者选择先做 P2：CP0 离线 LLM 语料扩增设计已冻结；下一步 CP1 生成 manifest/candidate 与原始批次，未调用模型；P0/P1 缺口不由本任务销账 | [原任务](slices/B72-author-behavior-offline-corpus-expansion.md) |
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
-| B43 | CP0 与 B45 对齐统一裁决的生产、转换、校验、返回/trace/回放映射；B01 提供真实来源，保留幂等与阻断完整范围 | [原任务](slices/B43-gate-order-residual.md) |
 | B45 | CP0 交付38份 schema 的字段/状态→生产→转换→校验→消费/历史映射；逐项处置13个部分承接项，与 B43 协同 | [原任务](slices/B45-schema-legacy-governance.md) |
 | B01 | 真实入口来源贯穿生成、存储、trace/回放；保留原 judgment/frame/plan 语义边界范围 | [原任务小节](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界) |
 | DS01-RUN-STATE | 首批运行状态链：核对现役 wire 与恢复权限，补 schema/codegen/safeParse 和 live/dead/unknown 正反例 | [原任务小节](slices/DS01-decision-surface-schema-gate.md#9-ds03-agent_run_state-schema-承接) |
@@ -48,6 +47,7 @@
 
 ## 阻塞
 
+- **B67 后续**：CP0/CP1 done；CP2 revision CAS/重编号/旧任务晚到已落地，但维护 StateTrace 依赖 [VS00F-TRACE](slices/VS-00F-five-ledgers-three-state.md#维护-statetrace-后续-checkpoint) owner 先冻结生产/存储/回放契约；CP3 页面矩阵未开工，见 [B67](slices/B67-revision-aware-ledger-maintenance.md)。
 - **B65 后续**：CP0–CP2 done；真实 Tauri 正常链/恢复重连/隔离 HTTP+WS probe PASS；release 打包自定义协议 Origin 缺采集环境（packaged Tauri + 外部代理），CP3 未关闭，见 [B65](slices/B65-local-http-websocket-origin-boundary.md)。
 - **B64 实模后续**：CP0–CP2 done，CP3 确定性真实 Tauri 矩阵 PASS；真实模型一次 `judgment_protocol_violation` 失败（只读、未重试），待判断协议处理/作者裁决后再预注册复验，见 [B64](slices/B64-coordinate-aware-memory-consumption.md)。
 - **B39 实模后续**：CP1 机制/模型与 B74–B76 UI 已收口；D6-A setup 第01章成立、第02章候选区 AX 定位同因失败停止；正式 AU-15 待 setup 稳定性修复 + 作者/指定评审，见 [B39](slices/B39-evidence-seeking-authoring.md)。
