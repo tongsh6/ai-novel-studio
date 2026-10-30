@@ -14,7 +14,6 @@
 |---|---|---|
 | B72 | 作者选择先做 P2：CP0 离线 LLM 语料扩增设计已冻结；下一步 CP1 生成 manifest/candidate 与原始批次，未调用模型；P0/P1 缺口不由本任务销账 | [原任务](slices/B72-author-behavior-offline-corpus-expansion.md) |
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
-| B01 | 真实入口来源贯穿生成、存储、trace/回放；保留原 judgment/frame/plan 语义边界范围 | [原任务小节](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界) |
 | DS01-RUN-STATE | 首批运行状态链：核对现役 wire 与恢复权限，补 schema/codegen/safeParse 和 live/dead/unknown 正反例 | [原任务小节](slices/DS01-decision-surface-schema-gate.md#9-ds03-agent_run_state-schema-承接) |
 | VS00F-B06 | 首批五账链：明确领域信封到面板 DTO 的字段投影、分账状态/载荷、运行时校验与历史读取 | [原任务小节](slices/VS-00F-five-ledgers-three-state.md#b06-分账契约与真实消费-checkpoint) |
 | B42-PREP | 准备 AU-15 setup/测量分账、预注册与 driver/verifier；真实运行仍待 B39 接线和资源窗口 | [原任务小节](slices/B42-model-behavior-evidence-tier.md#101-au-15-预注册与-driver-准备) |

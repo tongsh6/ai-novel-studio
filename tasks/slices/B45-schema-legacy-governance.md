@@ -1,6 +1,6 @@
 # B45：Schema 与输出契约治理——现役、历史兼容与真实消费者
 
-- 状态：**doing（2026-10-31 CP0/CP1/CP2 done：B45 范围 schema/codegen/typed 契约落地；CP3 partial：真实页面消费已验，旧兼容测试逐项归属/内部输出负例待做）**。
+- 状态：**done（2026-10-31 CP0–CP3 完成；真实 Tauri 页面消费、内部输出负例、旧兼容归属、typed schema/codegen 均有证据；agent_run_state 由 DS01 §9 承接为 external）**。
 - 登记日期：2026-10-27；来源：v2 `$ref` 缺失导致 `z.any()`、旧 enum 与现行 v3 不一致、部分生成物无法提供有效校验。
 - 上游：[B49](B49-core-semantics-and-adr-review.md)、[B06 五账 schema](../2026-10-27-design-to-execution-reconciliation.md)、[DS01](DS01-decision-surface-schema-gate.md)、[schemas/README](../../docs/design/schemas/README.md)。
 
@@ -31,7 +31,7 @@
 | CP0 | 全量 `$ref`/enum/生成物盘点；交付 §7 字段/状态→producer→转换→校验→consumer→历史兼容映射与首批三链修改清单；逐项处理13个部分承接schema，保留legacy/现役/血缘/any分类 | **done（2026-10-31，§8）**：38 份 schema/$ref/生成物/消费者全量盘点（artifact）；三链字段级矩阵；13 部分枚举逐项处置；active/legacy/any/未来预留分类明确 |
 | CP1 | 冻结逐类处置与错误矩阵：真实所需类型含 reply_only、schema/opaque/local contract、失败与空结果区别、动作/旧字段兼容；与 B43/B06 联动，不盲补旧架构 | **done（2026-10-31，§8.7）**：冻结四类处置（active-typed/active-opaque/legacy-frozen/future-reserved）与 invalid≠empty、unknown enum、历史缺字段兼容规则；CP2 按此实施 |
 | CP2 | 实施必要 schema/codegen/registry/读取兼容及真实边界校验；typed map/opaque 不免检，悬空 schema 不冒充已校验；不让 legacy 进入当前 wire 误校验 | **done（2026-10-31，§9）**：v3 orchestrator_decision/trace_summary/truthfulness typed；codegen 本地 $ref→ledger 枚举/ui_cards/candidate typed；legacy v2/phase 不进入当前 wire；agent_run_state 由 DS01 §9 承接（B45 只留映射/缺口） |
-| CP3 | codegen/新旧 v3/内部输出回归与负例，真实前端/模型消费证据，文档/README 更新；旧兼容测试逐项归属，运行时缺口不由纯 schema 通过代签 | **partial（2026-10-31，§9）**：真实 Tauri 页面 AU13 PASS（turn_result 含 allow_tool/reply_only orchestrator_decision、trace_summary/truthfulness，无 schema 漂移）；旧兼容测试逐项归属/内部输出负例待做 |
+| CP3 | codegen/新旧 v3/内部输出回归与负例，真实前端/模型消费证据，文档/README 更新；旧兼容测试逐项归属，运行时缺口不由纯 schema 通过代签 | **done（2026-10-31，§9/§10）**：AU13 真实 Tauri 页面 PASS；Observation/ToolResult 契约负例；legacy 测试归属；v3/model 面 schema 未变，模型不直接消费 TurnResult wire，未伪造模型证据 |
 
 ## 8. CP0 盘点记录（2026-10-31）
 
@@ -145,6 +145,19 @@
 - 内部输出负例（同轮）：新增 `AgentObservation` 契约测试 5/0——合法通过；缺 summary/source_ref、非法 type、confidence 越界、evidence_refs 为空经 `validate/1` 拒绝；同时登记已知边界：`new/normalize` 对非法 type 会降级 `:custom`、非法 confidence 会降为 `1.0`（容错而非拒绝），与 CP1 “unknown enum 不静默合法”存在张力，需决定是否收紧（可能影响调用方）；`ToolResult` 当前无 schema/validator，仍为缺口。
 - ToolResult 契约（同轮）：`NovelCommon.Contracts.ToolResult.validate/1` 校验必填 id/status 枚举/output map 或 nil/state_delta/artifact_refs/errors/warnings/usage/trace_refs/completed_at；`Toolbox.dispatch` 在适配器返回后执行该校验，不合格结果机械转 `tool_result_contract_invalid` 失败，不把坏 output 当成功事实继续组装。测试 4/0（合法/缺必填/非法 status/output/列表映射/非 struct）；全量 mix 1048/0。ToolResult 无独立 JSON schema，采用 common 本地契约，已记明边界。
 - 未完成：agent_run_state schema（DS01 §9 owner）、模型消费证据；CP3 仍 partial。
+
+## 10. 收口记录（2026-10-31，done）
+
+- **CP0/CP1 done**：38 份 schema 盘点、三链字段级映射、13 项处置、四类错误/兼容规则冻结。
+- **CP2 done**：v3 orchestrator_decision/trace_summary/truthfulness typed；codegen 本地 $ref 解析；ledger 枚举 typed；legacy v2/phase_next_action_compat 不进入当前 wire；agent_run_state 明确交 DS01 §9。
+- **CP3 done**：真实 Tauri `au13-arc-ledger-roundtrip` PASS，实际 wire 含 allow_tool/reply_only decision 与 typed trace/truthfulness，无 schema 漂移阻断；Observation 契约测试 5/0；ToolResult validate + Toolbox 边界测试 4/0；legacy Foundation 测试 53+21 归 legacy-owned。
+- **门禁**：backend 全量 `mix test` 1048/0；frontend 642/642、typecheck；AU13 外部 driver PASS；task_done manifest/UI/queue PASS（静态扫描仅 gitleaks 历史处置，0 findings in touched files）。
+- **已知边界**：
+  1. `agent_run_state` 无 JSON schema，由 DS01 §9 负责，B45 不代签；
+  2. `AgentObservation.new/normalize` 对非法 type/confidence 容错降级（与 CP1 unknown enum 规则张力，未擅自改，登记为后续治理）；
+  3. ToolResult 无独立 JSON schema，采用 common 本地契约 + Toolbox 边界校验，非生成物；
+  4. v2 15 broken refs 保留 legacy，不伪装修复；
+  5. 没有新增模型消费面，TurnResult wire 的主要消费者是真实前端；不伪造模型证据。
 
 ## 4. 非目标
 

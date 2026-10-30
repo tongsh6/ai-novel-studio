@@ -1204,3 +1204,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B45 CP3 内部输出负例**：新增 AgentObservation 契约测试 5/0（缺字段/非法 type/confidence/空 evidence 经 validate 拒绝；new normalize 对非法 type/confidence 的降级边界已登记）；ToolResult 仍无 schema/validator（缺口）；全量 mix 1048/0。模型消费证据仍 todo。
 
 - 2026-10-31 — **B45 CP3 ToolResult 契约边界**：ToolResult.validate 检查必填/status/output/列表映射/completed_at；Toolbox.dispatch 返回前校验，坏 adapter 结果转 tool_result_contract_invalid 失败，不继续组装；新增 4 项契约测试，全量 mix 1048/0。Observation 负例/legacy 归属/AU13 页面证据已交，模型消费证据仍 todo。
+
+- 2026-10-31 — **B45 done**：CP0–CP3 收口；typed v3 decision/trace/truthfulness、codegen 本地 ref、ledger enum、ToolResult 边界、Observation 负例、legacy 归属、AU13 真实页面均留证；backend 1048/0、frontend 642/642、typecheck、task_done PASS（gitleaks 历史）；agent_run_state 交 DS01，v2 broken refs legacy 保留。
