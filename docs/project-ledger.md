@@ -1292,3 +1292,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **UA01 T4**：quality observation 增加 findings 结构，planner 修订 prompt 按 5 条/240 字渲染 gate/severity/summary，超限显式 +N；单测 39/0、全量 1056/0（含既有 AgentRunRuntime flake 单跑通过）。T4 真实 D2 页面未跑；T3 前缀校验/T5 provenance 待；未调模型。
 
 - 2026-10-31 — **UA01 T4 页面 reanchor**：D2 场景复跑一次超时（事件链 plan_revised/artifact_superseded/run_completed 有，但 driver 未写 ui-state，verifier 未 PASS）；未重复盲跑；T4 仍只有 prompt 局部证据，T5 待 A/B/C 裁决。
+
+- 2026-10-31 — **UA01-PROMPT-T3T5 blocked**：T4 finding 结构渲染+单测完成；D2 页面 driver 超时（事件到 run_completed 但无 ui-state）、T5 provenance 需 A/B/C 裁决、T3 前缀校验待；未重复盲跑/未改 schema；当前任务切 B71。

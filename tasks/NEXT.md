@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| UA01-PROMPT-T3T5 | CP0 done；T4 finding 结构渲染+单测完成；D2 页面复跑超时（events 有，ui-state 缺失）待定位；T3 前缀校验/T5 provenance 待，T5 需 A/B/C 裁决 | [原任务小节](slices/UA01-agentic-loop-prompt-hardening.md#t3-t5-当前语义审计与承接) |
+| B71 | CP1 冻结 AgentRun 原生多轮 Request IR、工具/观察/候选与 provider 投影；先处理目标设计与现役 ADR 差异，不以现状降低目标 | [原任务](slices/B71-provider-message-fidelity.md) |
 
 ## 后续候选
 
@@ -14,7 +14,6 @@
 |---|---|---|
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B48 | 无变化普通说明、真正歧义才追问；依赖 B43 裁决同源，完成四场景验收 | [原任务](slices/B48-character-revision-noop-and-ambiguity.md) |
-| B71 | CP1 冻结 AgentRun 原生多轮 Request IR、工具/观察/候选与 provider 投影；先处理目标设计与现役 ADR 差异，不以现状降低目标 | [原任务](slices/B71-provider-message-fidelity.md) |
 | VS-00G | 核对 CP5e A2/A3 历史证据与当前版本，明确 scoped 补验；触发 C/记忆富化与 B39 协同 | [原任务](slices/VS-00G-fact-inventory-run.md) |
 | CA04-B15 | 核对卷蓝图增量后的三条 carry 行为、诚实缺席与未开放门；沿既有页面驱动补验 | [原任务小节](slices/CA04-carry-gap-closure.md#7-b15-卷蓝图增量回归) |
 | Q1C-NATIVE | 核对原生 driver，补设定修订→覆盖→刷新→追问链；保留 browser 历史，不重复实现修订 | [原任务小节](slices/Q1C-adopted-content-revision.md#q1c-原生页面补验) |
@@ -34,6 +33,7 @@
 - **B57 CP1 B/C/D**：A/E/F 真实 Tauri PASS；B 内容夹带/C 观察夹带/D 伪完成需要 B39/UA01 observation/外部资料受控 fixture 入口或作者授权测试数据，当前入口未就绪，未加产品钩子；解除后补全矩阵，见 [B57](slices/B57-sec-injection-boundary.md#阻塞记录2026-10-31)。
 - **AU08-REFRESH CP1**：CP0 done；真实页面失败/重试/跨作品矩阵需要按 channel 请求注入 `get_toc`/`get_chapter_content` 失败的通用外部代理，当前 harness 只有消息投递故障代理；未伪造故障、未停后端。解除后补 CP1，见 [AU08](slices/AU08-file-level-closure.md#cp1-阻塞记录2026-10-31)。
 - **AU10-FAILED CP1**：CP0 盘点完成；失败 producer/前端错误投影存在，但真实页面无法确定性触发（空作品导出按钮隐藏、原生目录选择不可控、无 export 写失败代理）；不新增验收开关，登记阻塞，见 [AU10](slices/AU10-workbench-recovery-taskstate.md#failed-cp0-盘点2026-10-31)。
+- **UA01-PROMPT-T3T5**：T4 finding 结构渲染已完成（局部测试）；D2 页面 driver 超时、T5 provenance 需 schema/迁移 A/B/C 裁决、T3 前缀校验待；未重复盲跑、未改 schema。解除后补页面与 provenance，见 [UA01](slices/UA01-agentic-loop-prompt-hardening.md#阻塞记录2026-10-31)。
 - **B01 后续**：CP0 done；origin_frame_ref 为合成串，CP1 需 A（新增 nullable origin_turn_ref + origin_frame_ref 可空，推荐）/B（origin_ref_kind + turn:<id>）/C（保持 known-gap）之一；涉及 SQLite 表重建/历史兼容，待作者授权 migration，未改 schema/DB。见 [B01 小节](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界)。
 - **B43 后续**：CP0/CP1 done；CP2 Form R 出口/Replay 同源已落地；**MissingPolicy 在 Gate 之后才评估**，统一门序涉及 ADR-0005 gate 集合与验收判据，需作者/ADR owner 在 A（新增 missing_policy gate，推荐）/B（decide 前 preflight）/C（仅标注）/D（只覆盖 prose flow）间裁决；CP3/CP4 未开工，见 [B43](slices/B43-gate-order-residual.md)。
 - **B67 后续**：CP0/CP1 done；CP2 revision CAS/重编号/旧任务晚到已落地，但维护 StateTrace 依赖 [VS00F-TRACE](slices/VS-00F-five-ledgers-three-state.md#维护-statetrace-后续-checkpoint) owner 先冻结生产/存储/回放契约；CP3 页面矩阵未开工，见 [B67](slices/B67-revision-aware-ledger-maintenance.md)。

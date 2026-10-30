@@ -123,7 +123,7 @@ xref/arch、I1/I2/I3/N-NARR/I-CACHE、静态扫描；Acceptance Driver=既有外
 
 ## T3-T5 当前语义审计与承接
 
-- 状态：**doing（2026-10-31 CP0 done；T4 已实现 finding 结构渲染+单测；T3 确定性前缀与 T5 provenance 仍待，T5 需 schema/迁移裁决）**。
+- 状态：**blocked（2026-10-31 CP0 done；T4 finding 结构渲染+单测完成；D2 页面 driver 超时待 reanchor；T3 前缀校验与 T5 provenance 待，T5 需 schema/迁移 A/B/C 裁决）**。
 - 来源：本文件 §3 T3/T4/T5 与 [全量对账 E05](../2026-10-27-design-to-execution-reconciliation.md#45-其余任务)。旧任务表含七月协议假设，须先按当前 B26/B27 单调用主链及 [ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md) 复核；ADR-0022 保留历史血缘，不恢复其已被替代的协议形态。
 - 下一步：沿现役计划起草/修订 producer、完成前缀/cursor、finding 观察渲染、计划面板来源绑定与 N-NARR 证据逐项核对，记录已实现、需补接线和需修订的旧表述；现有工具/字段能满足的直接复用，不先冻结 `revised_tail` 等旧建议字段，也不恢复两段式调用。
 - 完整后果：T3 保持真实已完成步骤与执行历史，修订不重放已完成副作用或错位 cursor；T4 保留 finding 的 gate/severity/summary、来源与覆盖信息，裁剪不得伪造完整观察；T5 将作者可见 PlanStep.description 的来源与字节证明闭合到真实计划面板。契约、实现、局部负例与外部真实页面分别取证，不能用一次 prompt 快照关闭整个范围。
@@ -159,3 +159,13 @@ xref/arch、I1/I2/I3/N-NARR/I-CACHE、静态扫描；Acceptance Driver=既有外
 
 - 运行 `agentic-loop-quality-deviation-replan` 一次：AgentRun 事件链出现 `plan_revised(agentic_deviation:D2)`、`artifact_superseded`、`run_completed`，但 native verifier 360s 内未读到 `slice_verify.ui_state.done`，driver 未写出 ui-state → 场景未 PASS。
 - 按同因预算未重复盲跑；不把局部 prompt 测试/事件链当真实页面 PASS。D2 流程走的是判断②续行，不是 `AgenticPlanDraftPlanner.revision_prompt`，T4 finding 渲染的页面消费者尚未找到；需要先定位该 driver 超时根因，再选一个真正消费 revision_prompt 的页面入口。
+
+### 阻塞记录（2026-10-31）
+
+- **T4 页面**：`agentic-loop-quality-deviation-replan` 复跑一次，事件链已到 `run_completed` 且存在最终 turn_result，但 driver 未写出 ui-state、verifier 未 PASS；未定位到产品错误（事件/预算正常），按同因预算停止，登记 driver/evidence reanchor。D2 流程不消费 `revision_prompt`，需另找真正消费入口。
+- **T5 provenance**：需要 schema/迁移或明确的 known-gap 裁决：
+  - A（推荐）新增 per-description provenance/hash 并持久化；
+  - B 仅运行时 arguments 整体哈希落 trace，不改表；
+  - C 登记 known-gap。
+- **T3**：完成前缀只靠 prompt+cursor，无确定性校验；需补规划器测试/必要时机械合并，不恢复 revised_tail。
+- 未裁决/未定位前不改 schema、不重复盲跑、不宣称页面 PASS。
