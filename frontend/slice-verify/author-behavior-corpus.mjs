@@ -826,6 +826,10 @@ async function main() {
       }
     }
   } finally {
+    if (isReadFailure) {
+      if (readFaultEvents.some((entry) => entry.action === "inject")) readFaultEvents.push(setReadFault("restore"));
+      fs.writeFileSync(artifact("read-fault.json"), JSON.stringify(readFaultEvents, null, 2));
+    }
     if (isNegative) {
       fs.writeFileSync(artifact("negative-stimuli.json"), JSON.stringify(negativeStimuli, null, 2));
       fs.writeFileSync(corpusPath, runtimeCorpusRaw);

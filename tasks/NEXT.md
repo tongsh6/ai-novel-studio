@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B64 | CP0/CP1 done；CP2 进行中：trace/why `memory_window` 与 Why 面板适用性、窗口/重编号/跨作品/当前值矩阵、writer/evaluator 同源已落地；待恢复矩阵/修订路径等价性 + CP3 真实 Tauri 页面矩阵；mix test 1039/0，全量前端 lint 被并行作者 WIP 阻塞 | [原任务](slices/B64-coordinate-aware-memory-consumption.md) |
+| B64 | CP0–CP2 done：目标章过滤/共享有效窗/Why 同源/窗口与重编号/跨作品矩阵/修订路径回归均已落地；下一步 CP3 真实 Tauri 页面矩阵（旧章/新章/跨会话，确定性接线与真实模型消费分列）；mix test 1039/0，全量前端 lint 与 task_done UI 证据仍受环境/并行 WIP 阻塞 | [原任务](slices/B64-coordinate-aware-memory-consumption.md) |
 
 ## 后续候选
 

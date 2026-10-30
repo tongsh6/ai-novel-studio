@@ -1,6 +1,6 @@
 # B64：按真实写作坐标消费记忆有效窗
 
-- 状态：**doing（2026-10-31 CP0/CP1 完成；CP2 进行中：数据/Why 同源与窗口/重编号/跨作品/当前值矩阵已落地，恢复矩阵与独立修订路径等价性核对待做；CP3 未开始）**。
+- 状态：**doing（2026-10-31 CP0/CP1/CP2 完成；CP3 真实 Tauri 页面矩阵未开始）**。
 - 来源：有效期已在普通 recall 路径验证，但 CA02 的专业创作事实读端口没有目标章或有效窗输入；本轮只读代码核对发现消费边界不一致，尚未运行数据库、真实模型或页面反例。
 - 上游：[AU09 有效窗原任务](AU09-validity-window-recall.md)、[CA02](CA02-writing-facts-context.md)、[VS-00C](../../docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md)、[B39](B39-evidence-seeking-authoring.md)。本项保护既有章节级窗口，不等待 B54 新建故事时间读模型，也不重复建设 B39 的求证循环。
 
@@ -62,6 +62,13 @@
 - 门禁：全量 mix test 1039/0；前端 typecheck/test 通过；全量 lint 被并行作者未提交的 `frontend/slice-verify/author-behavior-corpus.mjs` unused var 阻塞（非本改动文件，已报告），本改动相关 lint 通过；task_done UI evidence 环境缺口延续。
 - 残余：恢复/当前值变化在真实恢复路径的矩阵、独立修订路径的显式回归测试、CP3 真实 Tauri 页面矩阵。
 
+## 1.4 CP2 完成记录（2026-10-31）
+
+- “恢复/当前值变化”：读者每轮从 DB 重新读取（`creative_memory_sections` 每 turn 调 reader，无进程内事实缓存）；persistence 当前值更新测试证明修改 `valid_from` 后下一次读取立即按新窗口过滤；会话恢复没有独立事实缓存层。跨进程恢复未单独构造，作为 CP3 页面矩阵的一部分验证，不用单测替代。
+- 独立修订路径：`vs00e_cp3_prose_revision_test` / `b28_chapter_revision_wiring_test` / `agent_run_prose_revision_flow_test` 共 26 tests 0 failures；代码核对 `ProseRevisionService` 未注入 CA02 creative_facts，故不存在同一静态缺口，不新增无消费者事实包。
+- 边界保持：规划读者不带目标章；档案/探索未删除历史；未知/无效目标不约束；schema/timeline 未改。
+- CP2 门禁：mix test 1039/0（CP2 后端改动后）、前端 typecheck/test 通过；全量前端 lint 仍被并行作者 WIP 阻塞；task_done UI evidence 环境缺口延续。
+
 ## 2. 消费者矩阵与待冻结语义
 
 | 消费者 | 本任务处理 |
@@ -91,8 +98,8 @@ CP0 还须明确：未知当前位置、无窗口、无效章节引用、重编�
 |---|---|---|
 | CP0 | 确认消费者矩阵、构造第 10 章回写第 3 章等反例；冻结目标/未知/规划/历史读取的最小适用性契约与驱动；核实缺口后才改代码 | done（2026-10-31，§1.1；反例红测先失败后转绿） |
 | CP1 | 真实章身份/作用范围贯穿需要它的读取端口；统一既有有效窗规则，保留无目标回退与历史可查；只修实际消费者 | done（2026-10-31：`WorkArchiveRepo.creative_facts/2` + `MemoryRecallRepo.recall/3 :at_chapter_id` + `NovelDomain.MemoryValidity` 共享规则；TurnExecutionService 把 `resolved_chapter_ref` 传给 reader；无目标/未知保持旧回退；writer/evaluator 同源 facts） |
-| CP2 | writer/evaluator、普通 recall、trace/why 及规划边界同源；覆盖窗口、重编号、错误引用、跨作品、恢复与当前值变化；回归独立修订路径 | **doing**（2026-10-31：trace `memory_window` + Why 面板适用性行 + writer/evaluator 同源 facts；persistence 覆盖窗口/重编号/未知目标/跨作品/当前值变化；待恢复矩阵与独立修订路径等价性核对） |
-| CP3 | 外部真实 Tauri 完成旧章/新章与跨会话矩阵，分开记录确定性接线和真实模型消费；原 AU09 证据不外推，全部计划内后果齐备才关闭 | todo |
+| CP2 | writer/evaluator、普通 recall、trace/why 及规划边界同源；覆盖窗口、重编号、错误引用、跨作品、恢复与当前值变化；回归独立修订路径 | **done**（2026-10-31：trace `memory_window` + Why 适用性行；窗口/重编号/未知目标/跨作品/当前值重读矩阵；writer/evaluator 同源 facts；普通 recall 显式目标；规划边界只核对；修订路径 26 测试回归且确认未注入 CA02；恢复矩阵=逐轮重读读者，无缓存，当前值变化测试覆盖） |
+| CP3 | 外部真实 Tauri 完成旧章/新章与跨会话矩阵，分开记录确定性接线和真实模型消费；原 AU09 证据不外推，全部计划内后果齐备才关闭 | todo（下一步：复用 AU09 validity seed/场景做普通 recall 回归，另建 B64 原生驱动，从主输入回写旧章并核对 llm-calls writer 请求事实/Why 行；跨会话/新目标重复；真实模型行为单列） |
 
 ## 5. 非目标与恢复
 

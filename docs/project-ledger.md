@@ -1142,3 +1142,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B64 CP1 门禁与证据缺口**：mix format/compile、全量 mix test 1039/0、credo/xref/arch、I1–I3 通过；task_done 的 UI evidence gate 因 B30 原生复跑连续 2 次 `workbench_ready` AX 等待超时（app/backend 日志显示 workbench 已 ready，属 native AX harness 不稳，同因≥2 停止），无晚于本次改动的 Tauri summary，登记为证据缺口；未用单测替代 UI gate、未改门禁规则。CP2/CP3 待做。
 
 - 2026-10-31 — **B64 CP2 进行中：Why 同源与窗口矩阵**：trace summary 增加 `memory_window`（目标章身份/是否按目标过滤/位置来源），Why 面板显示“事实已按目标章过滤”说明；persistence 窗口矩阵新增重编号重解析、跨作品、当前值更新、未知目标；writer/evaluator 既有同源事实测试保留。门禁 mix test 1039/0、前端 typecheck/test 通过；全量前端 lint 因并行作者未提交 author-behavior-corpus unused var 阻塞（非本改动文件），task_done UI evidence 环境缺口延续。残余恢复矩阵、独立修订路径显式回归、CP3 页面矩阵。
+
+- 2026-10-31 — **B64 CP2 done**：Why traceSummary 新增记忆适用性行（前后端测试）；窗口矩阵覆盖重编号、跨作品、当前值重读、未知目标；普通 recall 显式目标；writer/evaluator 同源；规划边界只核对、修订路径 26 tests 回归且确认未注入 CA02；恢复按逐轮重读、无缓存。CP3 真实 Tauri 页面矩阵未开始；全量前端 lint 和 task_done UI evidence 仍受并行作者 WIP/native AX 环境阻塞。
