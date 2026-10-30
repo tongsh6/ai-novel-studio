@@ -629,6 +629,24 @@ const SIDECAR_PORT: &str = "4658";
 
 struct SidecarChild(Mutex<Option<Child>>);
 
+// 桌面启动状态：author-visible 失败分类只暴露有限状态词，不把原始错误/路径塞进 UI。
+struct SidecarStatus(Mutex<String>);
+
+fn set_sidecar_status(app: &tauri::AppHandle, value: &str) {
+    if let Some(state) = app.try_state::<SidecarStatus>() {
+        if let Ok(mut guard) = state.0.lock() {
+            *guard = value.to_string();
+        }
+    }
+}
+
+#[tauri::command]
+fn get_sidecar_startup_status(app: tauri::AppHandle) -> String {
+    app.try_state::<SidecarStatus>()
+        .and_then(|state| state.0.lock().ok().map(|guard| guard.clone()))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 fn profiled_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let mut dir = app
         .path()
@@ -1095,6 +1113,7 @@ pub fn run() {
             save_user_message,
             list_user_messages,
             remove_user_message,
+            get_sidecar_startup_status,
             get_last_opened_work_id,
             set_last_opened_work_id,
             get_assistant_display_name,
@@ -1113,14 +1132,21 @@ pub fn run() {
                         .build(),
                 )?;
             } else {
-                // 打包态：拉起自包含的 Phoenix sidecar 后端。失败不阻断窗口启动——
-                // 前端会显示「同步离线 / 模型未连接」，用户至少能看到界面与错误。
-                match spawn_sidecar(&app.handle().clone()) {
+                // 打包态：拉起自包含的 Phoenix sidecar 后端。启动/就绪等待放到后台线程，
+                // 不让窗口被 15s 探测阻塞；状态供前端在失败后给出恢复文案。
+                app.manage(SidecarStatus(Mutex::new("starting".to_string())));
+                let handle = app.handle().clone();
+
+                std::thread::spawn(move || match spawn_sidecar(&handle) {
                     Ok(child) => {
-                        app.manage(SidecarChild(Mutex::new(Some(child))));
+                        handle.manage(SidecarChild(Mutex::new(Some(child))));
+                        set_sidecar_status(&handle, "ready");
                     }
-                    Err(error) => eprintln!("[sidecar] 启动失败: {error}"),
-                }
+                    Err(error) => {
+                        eprintln!("[sidecar] 启动失败: {error}");
+                        set_sidecar_status(&handle, "failed");
+                    }
+                });
             }
             Ok(())
         })

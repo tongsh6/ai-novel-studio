@@ -128,6 +128,7 @@ import { StructurePanel } from "./StructurePanel";
 import type { StructurePanelActionState, StructurePanelArtifactAction } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
 import { getProviderHealth, providerHealthName } from "../lib/providerHealth";
+import { readDesktopSidecarStatus, sidecarFailureGuidance } from "../lib/desktopSidecar";
 import {
   PURPOSE_ROUTE_KEYS,
   getStoredProviderApiKey,
@@ -2164,7 +2165,12 @@ export function WorkspaceChat() {
         assistantDisplayName: DEFAULT_ASSISTANT_DISPLAY_NAME,
         volumeTitle: null,
       });
-      setMessages([startupFailureMessage(`${WORKBENCH.startupFailureLoadWork}${detail}`)]);
+      const sidecarGuidance = sidecarFailureGuidance(await readDesktopSidecarStatus());
+      setMessages([
+        startupFailureMessage(
+          `${WORKBENCH.startupFailureLoadWork}${detail}${sidecarGuidance ? ` ${sidecarGuidance}` : ""}`,
+        ),
+      ]);
     }
   }
 

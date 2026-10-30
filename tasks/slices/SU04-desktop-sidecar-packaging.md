@@ -74,7 +74,7 @@ curl -s http://127.0.0.1:4658/api/provider/health    # → {"connected":...}
 
 ## 现役故障与生命周期契约核对
 
-- 状态：**doing（2026-10-31 CP0 done；CP1 partial：解包完成 marker/staging 原子替换 + Unix 进程组退出已实现并有 Rust 测试；就绪分类与真实打包页面复验待做）**。
+- 状态：**blocked（2026-10-31 CP0 done；CP1 实现 marker/staging、进程组退出、端口就绪探测、作者可见失败分类；真实 release 打包应用外部故障复验缺 harness，按条件阻塞）**。
 - 来源：[桌面设计 §2–§3](../../docs/design/tech-stack/05-desktop.md#3-启动流程) 的就绪/健康检查及优雅退出要求，与本任务 as-built 的 release 解包/spawn/退出流程对账；不机械恢复旧 splash 或示例端口/轮询间隔。
 - 已核事实：`frontend/src-tauri/src/lib.rs:991–997` 启动失败只输出错误，`shutdown_sidecar` 直接 kill/wait；`WorkspaceChat.tsx:2079–2107` 已有约 30 次启动连接重试与最终加载失败，不能描述为“没有任何恢复”。自动迁移失败在 `NovelPersistence.Application` 重新抛出；当前证据未覆盖这些失败如何进入作者可操作的恢复链。
 - 下一步：核对实际打包启动配置、子进程所有权、解包完成判据、迁移/监听就绪、前端启动状态及退出时序，冻结启动中/就绪/失败/退出的真实来源和最小恢复方式。先明确受影响消费者和七问，不默认新增常驻 watchdog、第二进程管理器或自动重启策略。
@@ -105,3 +105,10 @@ curl -s http://127.0.0.1:4658/api/provider/health    # → {"connected":...}
 - **测试**：Rust `sidecar_install_requires_marker_and_bin` 通过；`cargo check/test/fmt` 通过。
 - **就绪探测（本轮补）**：`spawn_sidecar` 后以 127.0.0.1:4658 TCP 探测等待 15s；成功才视为 ready；提前退出/超时返回分类错误并 kill/wait 回收 Child；Rust 测试覆盖监听/关闭端口。
 - **仍缺**：失败分类进入作者可见恢复文案（当前 Rust 仅 eprintln/启动错误，页面仍是通用加载失败）；真实打包应用的外部 UI 故障场景（正常冷启动、坏 archive/半解包、端口占用、退出无孤儿）未复验；不建第二进程管理器/不新增验收开关。
+
+### CP1 实施记录（续，2026-10-31）
+
+- **作者可见失败分类**：`SidecarStatus`（starting/ready/failed）+ `get_sidecar_startup_status` command；打包态启动放到后台线程，避免窗口被 15s 探测阻塞；前端启动最终失败时读取状态，附加「桌面后端仍在启动/启动失败，重启并查看 log/sidecar.out」恢复文案（copy 集中、helper 单测 657/657；非验收 hook）。
+- Rust 12/12、`cargo fmt/check/test` 通过。
+- **阻塞**：现役 `tauri_slice_verify` native 路径构建的是 **debug app**（`cfg!(debug_assertions)` 不 spawn sidecar），无法复验 release 打包应用的半解包/端口占用/退出无孤儿；注册表也没有 release-app 外部驱动。按预算不启动无 harness 的打包故障重跑。
+- 解除条件：预注册 release-app 外部 UI 驱动（隔离 `AI_NOVEL_DESKTOP_PROFILE`/数据目录），分别做正常冷启动、坏 archive/半解包、端口占用、退出无孤儿并留进程/端口/日志/页面证据。

@@ -331,6 +331,9 @@ export const WORKBENCH = {
   startupConnecting: "正在连接工作台，请稍候…",
   startupFailurePrefix: "作品上下文加载失败，工作台未连接。",
   startupFailureLoadWork: "无法获取或创建作品：",
+  desktopSidecarStarting: "桌面后端仍在启动，请稍候后重试。",
+  desktopSidecarFailed:
+    "桌面后端未启动成功；请重启应用。若持续失败，查看数据目录下 log/sidecar.out。",
   startupFailureResumeSession: "无法恢复作品会话：",
   startupFailureJoinMismatch: "Channel 返回的作品/会话与启动上下文不一致：",
   sendRejectedRetained: "有消息未被接受，原文已保留；系统不会自动重试这些消息，请修改后重新发送。",
