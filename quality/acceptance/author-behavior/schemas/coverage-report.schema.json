@@ -20,11 +20,22 @@
     },
     "coverage": {
       "type": "object",
-      "required": ["targets", "negative_traps_covered", "oracles_covered", "gaps"],
+      "required": [
+        "targets",
+        "negative_traps_declared",
+        "negative_traps_evaluated",
+        "oracles_declared",
+        "oracles_executed",
+        "oracles_evaluated",
+        "gaps"
+      ],
       "properties": {
         "targets": {"type": "array"},
-        "negative_traps_covered": {"type": "array", "items": {"type": "string"}},
-        "oracles_covered": {"type": "array", "items": {"type": "string"}},
+        "negative_traps_declared": {"type": "array", "items": {"type": "string"}},
+        "negative_traps_evaluated": {"type": "array", "items": {"type": "string"}},
+        "oracles_declared": {"type": "array", "items": {"type": "string"}},
+        "oracles_executed": {"type": "array", "items": {"type": "string"}},
+        "oracles_evaluated": {"type": "array", "items": {"type": "string"}},
         "gaps": {"type": "array", "items": {"type": "string"}}
       }
     },

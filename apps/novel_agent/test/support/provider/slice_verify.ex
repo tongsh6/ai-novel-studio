@@ -93,46 +93,47 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   @author_behavior_env "AUTHOR_BEHAVIOR_CORPUS_JSON"
 
+  # 刺激源与判据独立（external acceptance design §196）：只读 fixtures.yml 导出的
+  # “表达→最小动作”映射，不读 case expected/oracle；判卷由 author_behavior oracle 独立完成。
   defp author_behavior_result(prompt_text) do
     with path when is_binary(path) and path != "" <- System.get_env(@author_behavior_env),
          true <- judgment_prompt?(prompt_text),
-         cases when is_list(cases) and cases != [] <- author_behavior_cases(path),
-         %{"expected" => expected} <-
-           Enum.find(cases, fn entry -> String.contains?(prompt_text, entry["expression"]) end) do
-      allowed = Map.get(expected || %{}, "allowed_actions") || []
-
-      cond do
-        "reply" in allowed ->
-          {:ok, Result.new("（B70 确定性语料回放）已按当前作品事实处理，本轮不写作品事实。")}
-
-        "ask_author" in allowed ->
-          {:ok,
-           Result.new("需要作者补充目标信息后才能继续。", nil,
-             tool_calls: [
-               %{
-                 id: "tool-b70-ask-author",
-                 name: "ask_author",
-                 arguments: %{
-                   "question" => "请具体说明要处理的作品对象、章节与期望结果；我会按真实目标继续。",
-                   "options" => []
-                 }
-               }
-             ]
-           )}
-
-        true ->
-          nil
-      end
+         fixtures when is_list(fixtures) and fixtures != [] <- author_behavior_fixtures(path),
+         %{"action" => action} <-
+           Enum.find(fixtures, fn entry -> String.contains?(prompt_text, entry["expression"]) end) do
+      author_behavior_stimulus(action)
     else
       _ -> nil
     end
   end
 
-  defp author_behavior_cases(path) do
+  defp author_behavior_stimulus("reply") do
+    {:ok, Result.new("（B70 确定性语料回放）已按当前作品事实处理，本轮不写作品事实。")}
+  end
+
+  defp author_behavior_stimulus("ask_author") do
+    {:ok,
+     Result.new("需要作者补充目标信息后才能继续。", nil,
+       tool_calls: [
+         %{
+           id: "tool-b70-ask-author",
+           name: "ask_author",
+           arguments: %{
+             "question" => "请具体说明要处理的作品对象、章节与期望结果；我会按真实目标继续。",
+             "options" => []
+           }
+         }
+       ]
+     )}
+  end
+
+  defp author_behavior_stimulus(_action), do: nil
+
+  defp author_behavior_fixtures(path) do
     case File.read(path) do
       {:ok, raw} ->
         case Jason.decode(raw) do
-          {:ok, %{"cases" => cases}} when is_list(cases) -> cases
+          {:ok, %{"fixtures" => fixtures}} when is_list(fixtures) -> fixtures
           _ -> []
         end
 

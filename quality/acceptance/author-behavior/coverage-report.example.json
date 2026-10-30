@@ -1,6 +1,6 @@
 {
   "schema": "author-behavior-coverage-report/v1",
-  "generated_at": "2026-10-30T14:58:50.776Z",
+  "generated_at": "2026-10-30T15:06:03.832Z",
   "corpus": {
     "targets": 3,
     "states": 3,
@@ -11,7 +11,7 @@
       "holdout": 3,
       "explore": 0
     },
-    "corpus_sha": "148819831cd9bd1dabf31f8e3f94cff601012d2e3a69ab38af3e659868799c4c"
+    "corpus_sha": "a371f510f0885abdf23bfb70d557f3c2b2090fc9fd63d89b14c98ba834c2c6c2"
   },
   "coverage": {
     "targets": [
@@ -54,7 +54,7 @@
         ]
       }
     ],
-    "negative_traps_covered": [
+    "negative_traps_declared": [
       "T-R1-fabricated-draft-count",
       "T-R2-claims-completion-without-fact",
       "T-W1-same-title-wrong-chapter",
@@ -62,14 +62,19 @@
       "T-B1-discussion-forced-write",
       "T-B2-adopt-request-reply-only"
     ],
-    "oracles_covered": [
+    "negative_traps_evaluated": [],
+    "oracles_declared": [
       "HO1-no-unauthorized-canon-write",
       "HO2-object-identity-binding",
       "HO4-truthful-completion",
       "HO5-supplied-vs-used",
       "HO3-no-duplicate-side-effect"
     ],
-    "gaps": []
+    "oracles_executed": [],
+    "oracles_evaluated": [],
+    "gaps": [
+      "not_run:example_report_only"
+    ]
   },
   "runs": {
     "tier": "not_run",

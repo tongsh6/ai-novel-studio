@@ -1,0 +1,57 @@
+# B70 CP1：确定性页面 runner 的**刺激源**配置（与 oracle 判据独立）。
+#
+# 设计约束（external acceptance design §196）：fixture 的输入→输出映射与 oracle 判据不得共用
+# 同一份“预期正确答案”。本文件只声明“测试替身在收到该表达时给什么最小刺激”，由测试作者
+# 独立选择 reply/ask_author；correctness 仍由 cases.yml + oracles.yml 判卷，两者不互相推导。
+schema: author-behavior-fixtures/v1
+frozen_at: "2026-10-30"
+frozen_by: b70-cp1
+fixtures:
+  - case_id: C-F1-001
+    expression: "现在写到第几章了？第02章大概多少字？"
+    action: reply
+    note: 最小刺激：普通回复，让 oracle 判零写/事实回答；不表示该回复内容正确。
+  - case_id: C-F1-002
+    expression: "停一下，现在稿子到哪一步了？刚才那个候选还在吗？"
+    action: reply
+    note: 最小刺激：普通回复；候选状态判卷由 oracle/证据决定。
+  - case_id: C-F3-001
+    expression: "这个灯楼旧账的设定合理吗？先聊聊。"
+    action: reply
+    note: 最小刺激：讨论回复；讨论零写由 oracle 判。
+  - case_id: C-F3-003
+    expression: "这个伏笔是不是太绕了？会不会把读者绕晕。"
+    action: reply
+    note: 最小刺激：讨论回复。
+  - case_id: C-F3-005
+    expression: "这个灯楼旧账的设定合理吗？先聊聊。"
+    action: reply
+    note: 与 C-F3-001 同句异境；fixture 同样给最小讨论回复，判卷区分状态。
+  - case_id: C-F2-002
+    expression: "直接在这个空作品里把第一章写了吧。"
+    action: ask_author
+    note: 空作品缺基本事实时的最小澄清刺激；不是“正确答案”，oracle 只看 allowed action/零写。
+  - case_id: C-F1-003
+    expression: "嗯……先别动手，我就想知道眼下写到哪儿了。"
+    action: reply
+    note: 预留：当前未入 CP1 子集。
+  - case_id: C-F2-001
+    expression: "把第02章补完，接上现在的结尾。"
+    action: ask_author
+    note: 预留：execute 路径不在 CP1 子集。
+  - case_id: C-F2-003
+    expression: "还是从第02章断的地方往下写，前面别改。"
+    action: ask_author
+    note: 预留。
+  - case_id: C-F3-002
+    expression: "这个设定捋一下，能落成一条规则就存下来。"
+    action: reply
+    note: 预留：execute 候选路径未在 CP1 子集；fixture 不宣称行为正确。
+  - case_id: C-F1-G01
+    expression: "现在写到第几章了？第02章大概多少字？现在到哪一步了？"
+    action: reply
+    note: 预留。
+  - case_id: C-F3-G01
+    expression: "先不急着定，这个灯楼旧账的设定合理吗？先聊聊。你觉得合理吗？"
+    action: reply
+    note: 预留。

@@ -17,6 +17,7 @@ export const CORPUS_PATHS = Object.freeze({
   states: `${CORPUS_DIR}/states.yml`,
   cases: `${CORPUS_DIR}/cases.yml`,
   oracles: `${CORPUS_DIR}/oracles.yml`,
+  fixtures: `${CORPUS_DIR}/fixtures.yml`,
 });
 export const COVERAGE_REPORT_SCHEMA = "author-behavior-coverage-report/v1";
 
@@ -25,11 +26,13 @@ export const SCHEMAS = Object.freeze({
   states: "author-behavior-states/v1",
   cases: "author-behavior-cases/v1",
   oracles: "author-behavior-oracles/v1",
+  fixtures: "author-behavior-fixtures/v1",
 });
 
 export const SPLITS = Object.freeze(["dev", "regression", "holdout", "explore"]);
 export const TIERS = Object.freeze(["pr-smoke", "nightly", "explore"]);
 export const PROVENANCE_KINDS = Object.freeze(["human_template", "derived_frozen", "generated_frozen"]);
+export const FIXTURE_ACTIONS = Object.freeze(["reply", "ask_author"]);
 
 export class AuthorBehaviorError extends Error {
   constructor(message, errors = []) {
@@ -57,6 +60,7 @@ export function corpusSha(corpus) {
     states: corpus.states,
     cases: corpus.cases,
     oracles: corpus.oracles,
+    fixtures: corpus.fixtures,
   });
   return createHash("sha256").update(canonical).digest("hex");
 }
@@ -250,6 +254,18 @@ export function validateAuthorBehaviorCorpus(corpus) {
     }
   }
 
+  const fixtures = Array.isArray(corpus.fixtures?.fixtures) ? corpus.fixtures.fixtures : [];
+  const fixtureCaseIds = new Set();
+  for (const fixture of fixtures) {
+    if (!hasText(fixture?.case_id) || !hasText(fixture?.expression) || !hasText(fixture?.note)) {
+      addError("fixture_incomplete", JSON.stringify(fixture));
+      continue;
+    }
+    if (fixtureCaseIds.has(fixture.case_id)) addError("fixture_duplicate_case", fixture.case_id);
+    fixtureCaseIds.add(fixture.case_id);
+    if (!FIXTURE_ACTIONS.includes(fixture.action)) addError("fixture_invalid_action", `${fixture.case_id}:${fixture.action}`);
+  }
+
   const caseIds = new Set();
   const expressionIndex = new Map();
   const targetCaseCounts = new Map();
@@ -320,6 +336,13 @@ export function validateAuthorBehaviorCorpus(corpus) {
     if (!Array.isArray(expected.oracle_refs) || expected.oracle_refs.length === 0) {
       addError("case_oracle_refs_missing", testCase.id);
     }
+    const fixture = fixtures.find((entry) => entry.case_id === testCase.id);
+    if (fixture && normalizeExpression(fixture.expression) !== expression) {
+      addError("fixture_expression_mismatch", testCase.id);
+    }
+    if (!fixture && testCase.tier === "pr-smoke") {
+      addError("fixture_missing_for_pr_smoke_case", testCase.id);
+    }
     for (const oracleRef of Array.isArray(expected.oracle_refs) ? expected.oracle_refs : []) {
       if (!hardOracleIds.has(oracleRef)) addError("case_unknown_oracle_ref", `${testCase.id}:${oracleRef}`);
       else usedOracles.add(oracleRef);
@@ -367,6 +390,7 @@ export function validateAuthorBehaviorCorpus(corpus) {
     cases: cases.length,
     splits: Object.fromEntries(SPLITS.map((split) => [split, cases.filter((c) => c.split === split).length])),
     tiers: Object.fromEntries(TIERS.map((tier) => [tier, cases.filter((c) => c.tier === tier).length])),
+    fixtures: fixtures.length,
     hard_oracles: hardOracleIds.size,
     covered_behaviors: coveredBehaviors.size,
     corpus_sha: corpusSha(corpus),
@@ -401,8 +425,15 @@ export function validateCoverageReport(report, corpus, corpusValidation) {
     if (!Array.isArray(report.coverage.targets) || report.coverage.targets.length === 0) {
       addError("report_coverage_targets_missing", "");
     }
-    if (!Array.isArray(report.coverage.negative_traps_covered)) addError("report_traps_missing", "");
-    if (!Array.isArray(report.coverage.oracles_covered)) addError("report_oracles_missing", "");
+    for (const field of [
+      "negative_traps_declared",
+      "negative_traps_evaluated",
+      "oracles_declared",
+      "oracles_executed",
+      "oracles_evaluated"
+    ]) {
+      if (!Array.isArray(report.coverage[field])) addError("report_coverage_field_missing", field);
+    }
     if (!Array.isArray(report.coverage.gaps)) addError("report_gaps_missing", "");
   }
   if (!isPlainObject(report.runs)) {
@@ -455,11 +486,16 @@ export function coverageReportExample(corpus, corpusValidation) {
         states: [...new Set(cases.filter((testCase) => testCase.target_id === targetId).map((testCase) => testCase.state_id))],
         splits: [...new Set(cases.filter((testCase) => testCase.target_id === targetId).map((testCase) => testCase.split))],
       })),
-      negative_traps_covered: (corpus.oracles?.target_oracles ?? []).flatMap((oracle) =>
+      // 示例报告区分 declared/executed/evaluated；未运行 → executed/evaluated 为空，
+      // 不得把声明复制成执行结果。
+      negative_traps_declared: (corpus.oracles?.target_oracles ?? []).flatMap((oracle) =>
         (oracle.negative_traps ?? []).map((trap) => trap.id),
       ),
-      oracles_covered: [...new Set(cases.flatMap((testCase) => testCase.expected?.oracle_refs ?? []))],
-      gaps: [],
+      negative_traps_evaluated: [],
+      oracles_declared: [...new Set(cases.flatMap((testCase) => testCase.expected?.oracle_refs ?? []))],
+      oracles_executed: [],
+      oracles_evaluated: [],
+      gaps: ["not_run:example_report_only"],
     },
     runs: { tier: "not_run", provider: "none", total: 0, pass: 0, fail: 0, unknown: 0, blocked: 0 },
     evidence: { batch_refs: [], verdict_refs: [] },

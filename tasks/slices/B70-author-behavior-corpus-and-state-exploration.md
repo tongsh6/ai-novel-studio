@@ -117,6 +117,10 @@ CP1 只是最小实现 checkpoint，不替代 CP2 状态探索和 CP3 覆盖/分
   - oracle：total 6 / pass 6 / fail 0 / unknown 0；每 case 最终 action 来自隔离 DB 真实事件；canon 计数零变化（ask_author 不写）。
   - `quality_accept`: `[accept-verdict] status=pass schema=quality-verdict/v2 evidence=4/4`、exit 0；覆盖报告 `runs {tier:pr-smoke, provider:slice_verify_author_behavior_corpus, total6, pass6, fail0, unknown0}`，gaps 诚实列出未跑 6 cases + `real_model_semantics_not_covered_by_deterministic_run`。
   - 静态/门禁：全量 mix test **2374/0**（test/support 变更）、format/compile -Werror/credo strict/xref/arch、I1/I2/I3、manifest 211 scenarios、task_done manifest、静态扫描仅 gitleaks 历史处置；前端 ESLint 含新 spec 通过。
+- CP1 收口补强（对齐外部验收设计 §196/§356–357）：
+  - **刺激源与判据独立**：新增 `quality/acceptance/author-behavior/fixtures.yml`（`author-behavior-fixtures/v1`）只声明表达→最小 reply/ask_author；SliceVerify 的 corpus 分支只读 fixtures，不再读 case expected/oracle；oracle 独立判卷。validator 增加 fixture 引用/表达一致/pr-smoke 覆盖检查。
+  - **缺省观察不放行**：evaluator 仅在 `supplied_status == "known"` 时允许 pass；缺省/unknown 一律 unknown（补测试）。
+  - **覆盖报告 declared/executed/evaluated 分离**：`negative_traps_declared/evaluated`、`oracles_declared/executed/evaluated`；不再把声明复制成执行；报告 schema/示例/测试同步。当前 run：declared oracles 5 / executed 4 / evaluated 4；traps declared 6 / evaluated 0（无违规触发，如实记录）。
 - 诚实边界（不冒充）：本 CP 是**确定性替身 + 真实页面主链**接线/判卷闭环，不是真实模型语义 PASS；F2 仅覆盖 ask_author 分支（execute prose 路径留 CP3 real-model 子集）；未跑 corpus 的 6 个 case（含 execute 正例/负例）与 explore split；状态探索/失败缩化 = CP2；覆盖扩展/PR 选择/真模语义分层 = CP3。I10 不代签。
 
 ## 7. 验证与恢复

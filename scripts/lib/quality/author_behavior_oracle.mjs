@@ -111,7 +111,8 @@ export function evaluateCase(corpus, testCase, observation) {
 
   const actionAllowed = action !== null && allowedActions.includes(action);
   const effectsAllowed = effects.every((effect) => allowedEffects.includes(effect));
-  const suppliedKnown = String(observed.supplied_status ?? "known") !== "unknown";
+  // 缺省/未知的 supplied 证据按 unknown 处理，不得因字段缺省而放行。
+  const suppliedKnown = observed.supplied_status === "known";
 
   let status;
   const reasons = [];
@@ -199,10 +200,24 @@ export function buildCoverageReport(corpus, evaluation, runMeta = {}) {
   const resultFor = (caseId) => results.find((result) => result.case_id === caseId) ?? null;
 
   const targetIds = (corpus.targets?.targets ?? []).map((target) => target.id);
-  const negativeTraps = (corpus.oracles?.target_oracles ?? []).flatMap((oracle) =>
+  const negativeTrapsDeclared = (corpus.oracles?.target_oracles ?? []).flatMap((oracle) =>
     (oracle.negative_traps ?? []).map((trap) => trap.id),
   );
-  const oracleRefs = [...new Set(cases.flatMap((testCase) => testCase.expected?.oracle_refs ?? []))];
+  const oraclesDeclared = [...new Set(cases.flatMap((testCase) => testCase.expected?.oracle_refs ?? []))];
+  const executedCases = new Set(results.map((result) => result.case_id));
+  const conclusiveCases = new Set(results.filter((result) => ["pass", "fail"].includes(result.status)).map((result) => result.case_id));
+  const refsForCases = (caseIds) => [
+    ...new Set(
+      cases
+        .filter((testCase) => caseIds.has(testCase.id))
+        .flatMap((testCase) => testCase.expected?.oracle_refs ?? []),
+    ),
+  ];
+  const oraclesExecuted = refsForCases(executedCases);
+  const oraclesEvaluated = refsForCases(conclusiveCases);
+  const negativeTrapsEvaluated = [
+    ...new Set(results.flatMap((result) => (result.violations ?? []).map((violation) => violation.behavior))),
+  ];
 
   const gaps = [];
   for (const targetId of targetIds) {
@@ -254,12 +269,13 @@ export function buildCoverageReport(corpus, evaluation, runMeta = {}) {
           })),
         };
       }),
-      negative_traps_covered: negativeTraps.filter((trapId) =>
-        (corpus.oracles?.target_oracles ?? []).some((oracle) =>
-          (oracle.negative_traps ?? []).some((trap) => trap.id === trapId),
-        ),
-      ),
-      oracles_covered: oracleRefs,
+      // 区分 declared（语料声明）/ executed（case 实际跑过）/ evaluated（判卷具结论）：
+      // 不得把声明当执行，也不把 unknown 当 evaluated。
+      negative_traps_declared: negativeTrapsDeclared,
+      negative_traps_evaluated: negativeTrapsEvaluated,
+      oracles_declared: oraclesDeclared,
+      oracles_executed: oraclesExecuted,
+      oracles_evaluated: oraclesEvaluated,
       gaps,
     },
     runs: {

@@ -108,6 +108,11 @@ test("证据不足 → unknown 而不是 PASS", () => {
   assert.equal(result.status, "unknown");
   assert.ok(result.reasons.includes("turn_result_missing"));
 
+  const missingSupplied = evaluateCase(CORPUS, testCase, {
+    observed: { ...allowedObservation(testCase), supplied_status: undefined },
+  });
+  assert.equal(missingSupplied.status, "unknown");
+
   const missing = evaluateCorpus(CORPUS, { cases: [] });
   assert.equal(missing.counts.pass, 0);
   assert.equal(missing.counts.unknown, CASES.length);
@@ -130,6 +135,11 @@ test("覆盖报告可从评估结果生成并满足 schema 校验", () => {
     verdict_refs: ["artifacts/quality-accept/verdicts/x.json"],
   });
   assert.equal(report.schema, "author-behavior-coverage-report/v1");
+  assert.ok(Array.isArray(report.coverage.negative_traps_declared));
+  assert.deepEqual(report.coverage.negative_traps_evaluated, []);
+  assert.ok(Array.isArray(report.coverage.oracles_declared));
+  assert.ok(Array.isArray(report.coverage.oracles_executed));
+  assert.ok(Array.isArray(report.coverage.oracles_evaluated));
   assert.equal(report.runs.total, CASES.length);
   assert.equal(report.runs.pass, 1);
   assert.equal(report.corpus.cases, CASES.length);

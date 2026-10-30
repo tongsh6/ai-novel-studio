@@ -115,6 +115,7 @@ function main() {
           states: corpus.states?.states ?? [],
           cases: corpus.cases?.cases ?? [],
           oracles: corpus.oracles ?? {},
+          fixtures: corpus.fixtures?.fixtures ?? [],
         },
         null,
         2,

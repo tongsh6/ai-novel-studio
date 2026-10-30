@@ -12,6 +12,7 @@
 | `states.yml` | `author-behavior-states/v1` | 合成作品状态夹具/矩阵：seed 构造、状态维度、全局不变量；默认只用合成样书。 |
 | `cases.yml` | `author-behavior-cases/v1` | 冻结语料：目标族 × 状态 × 自然表达；含来源、split、允许结果、禁止行为、oracle 引用。 |
 | `oracles.yml` | `author-behavior-oracles/v1` | 机器可判的硬不变量 + 目标族允许结果集合 + 负例陷阱预期；供外部 harness 自动判卷。 |
+| `fixtures.yml` | `author-behavior-fixtures/v1` | 确定性页面 runner 的**刺激源**映射（表达→最小 reply/ask_author）；与 oracle 判据独立，不读 cases.expected，防止“同一份预期答案既生成响应又判卷”。 |
 | `schemas/*.json` | — | 五类格式的 JSON Schema（目标/状态/案例/oracle/覆盖报告）；schema 版本一旦冻结，改版须新版本槽位，不得原地漂移。 |
 | `coverage-report.example.json` | `author-behavior-coverage-report/v1` | 覆盖报告格式示例；真实报告由 CP1 生成到 `artifacts/author-behavior/`，不提交。 |
 
