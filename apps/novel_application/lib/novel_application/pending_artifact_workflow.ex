@@ -11,6 +11,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     ArtifactAssembler,
     AuthoringTaskBuilder,
     CapabilityRegistry,
+    ChapterRevisionScope,
     DialogueGateway,
     ExecutionOrchestrator,
     TraceWriter,
@@ -521,9 +522,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     frame = frame(judgment, input, run, :execution_candidate, chapter_ref)
 
     chapter_title = chapter_revision_title(work_id, chapter_ref)
-    modification_scope = Keyword.get(opts, :modification_scope, chapter_modification_scope(run))
 
-    with {:ok, snapshot} <- WorkSessionService.show(work_id, run.session_id),
+    with {:ok, modification_scope} <- resolve_modification_scope(run, opts),
+         {:ok, snapshot} <- WorkSessionService.show(work_id, run.session_id),
          false <- snapshot.read_only,
          :ok <- check_chapter_authority(run),
          :ok <- check_budget(run, "revise_adopted_content"),
@@ -615,7 +616,13 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       true ->
         {:error, {:pending_artifact_invalid, :revision_not_allowed}}
 
-      {:error, reason} when reason in [:target_missing, :target_ambiguous, :incomplete_scope] ->
+      {:error, reason}
+      when reason in [
+             :target_missing,
+             :target_ambiguous,
+             :incomplete_scope,
+             :author_scope_not_authorized
+           ] ->
         {:error, {:pending_artifact_invalid, reason}}
 
       {:error, {:pending_artifact_invalid, _} = reason} ->
@@ -653,22 +660,19 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
   defp target_chapter_title(_target, _chapter_ref), do: nil
 
-  # 修改范围属于作者授权。模型的dialogue_goal用于解释，不能因“非整章”等措辞扩大范围。
-  defp chapter_modification_scope(run) do
-    text = to_string(run.goal.text || "")
+  # B28 §元原则整改 CP1：修改范围属于作者授权，由纯函数 ChapterRevisionScope 判定；
+  # 读取/通读/否定/条件不授予整章。显式 opts 仅保留给受信内部路径（排版计划再修订）。
+  defp resolve_modification_scope(run, opts) do
+    case Keyword.fetch(opts, :modification_scope) do
+      {:ok, scope}
+      when scope in [:format_only, :whole_chapter, :target_segments] ->
+        {:ok, scope}
 
-    cond do
-      Regex.match?(
-        ~r/(只|仅).{0,10}(调|改|做|整理).{0,10}(标点|分段|排版)|(标点|分段|排版).{0,10}(不改|不变|别改)|别改字句|字句.{0,6}(不变|别动)/u,
-        text
-      ) ->
-        :format_only
+      {:ok, _invalid} ->
+        {:error, :author_scope_not_authorized}
 
-      Regex.match?(~r/(整章|全章|整篇|全文|通读)/u, text) ->
-        :whole_chapter
-
-      true ->
-        :target_segments
+      :error ->
+        ChapterRevisionScope.authorize(to_string(run.goal.text || ""))
     end
   end
 

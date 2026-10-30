@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B28-SCOPE | CP0 已完成（现役 scope 链路审计、纯函数探针、保护面证明、契约/反例/CP3 预注册冻结）；下一步 CP1 红测+范围授权重写（否定/条件/读取不授整章，target_segments 保守兜底） | [原任务小节](slices/B28-whole-chapter-revision.md#元原则整改作者范围与否定约束) |
+| B28-SCOPE | CP0–CP2 已完成（scope 重写/接线/采纳保护/替身对齐/真实页面确定性回归 PASS）；下一步 CP3：外部原生 Tauri + 真实模型跑 N1–N4/P1–P3/X1 对照矩阵（单槽、结束 unload、失败只读） | [原任务小节](slices/B28-whole-chapter-revision.md#元原则整改作者范围与否定约束) |
 
 ## 后续候选
 

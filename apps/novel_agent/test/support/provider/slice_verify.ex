@@ -4189,30 +4189,86 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end)
   end
 
+  @b28_format_only ~r/(只|仅).{0,10}(调整|调|改|做|整理).{0,10}(标点|分段|排版)|(标点|分段|排版).{0,10}(不改|不变|别改)|别改字句|字句.{0,6}(不变|别动)/u
+  @b28_format_negated ~r/(不是|并非|不要|别|无需).{0,8}(只|仅)?.{0,6}(标点|分段|排版)/u
+  @b28_local_limit ~r/(只|仅).{0,8}(改|修|调整|修改|处理|整理).{0,8}(第\s*([0-9]+|[一二三四五六七八九十]+)\s*段|开头|结尾|最后一段|指定段|这句|这处)|(其他|其它|其余|剩下|剩余).{0,10}(别|不要|不动|逐字|保持|不变)|除.{0,12}(外|之外).{0,12}(都|全).{0,8}(别|不要|不动)/u
+  @b28_read_only ~r/(只读|读一遍|读一下|通读|检查|看一遍|核对|告诉我|回我|说明)/u
+  @b28_deny_modify ~r/(不要|别|先别|先不要|无需|不用|勿|不)(要|用|再)?\s*(改|修改|重写|修订|润色|整理|动笔|动)/u
+  @b28_conditional ~r/(如果|若|假如|要是|万一|一旦|如有).{0,30}(就|则|再|便|才)/u
+  @b28_negated_whole ~r/(不要|别|先别|先不要|无需|不用|勿)(要|用|再)?[^，,。；;]{0,6}(整章|全章|整篇|全文)[^，,。；;]{0,10}(重写|改写|润色|修订|修改|整理|优化|调整|改)|(不要|别|先别|先不要|无需|不用|勿)(要|用|再)?[^，,。；;]{0,6}(重写|改写|润色|修订|修改|整理|优化|调整|改)[^，,。；;]{0,10}(整章|全章|整篇|全文)/u
+
+  # B28 CP1：测试替身镜像产品的作者授权范围语义（novel_agent 不能依赖 novel_application，
+  # 故同一决策树在此复刻；product 侧由 NovelApplication.ChapterRevisionScope 与其测试守护）。
+  # 授权失败（只读/明确不改）→ 无修订意图（返回 nil），与产品零写入拒绝一致。
   defp chapter_revision_intent?(author_text) do
     text = to_string(author_text)
 
-    String.contains?(text, ["正文", "章节", "章", "已保存", "已采纳"]) and
-      contains_any?(text, ["整理", "修订", "调整", "排版", "分段", "标点", "通读", "改"])
+    authorized? = match?({:ok, _scope}, chapter_revision_scope_authorization(text))
+
+    target? = String.contains?(text, ["正文", "章节", "章", "已保存", "已采纳"])
+
+    modify_verb? =
+      contains_any?(text, ["整理", "修订", "调整", "排版", "分段", "标点", "通读", "改", "重写", "润色"])
+
+    authorized? and
+      (b28_modification_signal?(text) or (target? and modify_verb?))
+  end
+
+  # 明确的修改信号（局部/整章/排版/字面替换）；只有读取/检查词不算修改意图。
+  defp b28_modification_signal?(text) do
+    Regex.match?(@b28_format_only, text) or Regex.match?(@b28_local_limit, text) or
+      Regex.match?(
+        ~r/(整章|全章|整篇|全文)[^，,。；;]{0,12}(重写|改写|润色|修订|修改|整理|优化|调整|改)|(重写|改写|润色|修订|修改|整理|优化|调整|改)[^，,。；;]{0,12}(整章|全章|整篇|全文)|改成|改为|替换为|替换成/u,
+        text
+      )
   end
 
   defp chapter_revision_scope(author_text) do
-    text = to_string(author_text)
-
-    cond do
-      Regex.match?(
-        ~r/(只|仅).{0,10}(调整|调|改|整理).{0,10}(分段|排版|标点)|不改字句|不要改字句|别改字句|字句.{0,6}(不变|别动)/u,
-        text
-      ) ->
-        "format_only"
-
-      Regex.match?(~r/(整章|全章|整篇|全文|通读)/u, text) ->
-        "whole_chapter"
-
-      true ->
-        "target_segments"
+    case chapter_revision_scope_authorization(to_string(author_text)) do
+      {:ok, scope} -> to_string(scope)
+      {:error, _reason} -> "target_segments"
     end
   end
+
+  defp chapter_revision_scope_authorization(text) do
+    clauses = text |> String.split(~r/[，,。；;！!？?\n]+/u, trim: true) |> Enum.map(&String.trim/1)
+
+    flags = %{
+      format_only: Enum.any?(clauses, &Regex.match?(@b28_format_only, &1)),
+      format_negated: Enum.any?(clauses, &Regex.match?(@b28_format_negated, &1)),
+      local_limit: Enum.any?(clauses, &b28_local_limit?/1),
+      deny_modify: Enum.any?(clauses, &Regex.match?(@b28_deny_modify, &1)),
+      whole_modify: Enum.any?(clauses, &b28_whole_modify?/1),
+      read_only: Regex.match?(@b28_read_only, text),
+      conditional: Regex.match?(@b28_conditional, text)
+    }
+
+    b28_scope_decision(flags)
+  end
+
+  defp b28_local_limit?(clause) do
+    Regex.match?(@b28_local_limit, clause) and not Regex.match?(@b28_format_only, clause)
+  end
+
+  defp b28_whole_modify?(clause) do
+    range = "(?:整章|全章|整篇|全文)"
+    verb = "(?:重写|改写|润色|修订|修改|整理|优化|调整|改)"
+
+    positive =
+      Regex.match?(~r/#{range}[^，,。；;]{0,12}#{verb}|#{verb}[^，,。；;]{0,12}#{range}/u, clause)
+
+    positive and not Regex.match?(@b28_negated_whole, clause)
+  end
+
+  defp b28_scope_decision(%{format_only: true, format_negated: false}), do: {:ok, :format_only}
+  defp b28_scope_decision(%{local_limit: true}), do: {:ok, :target_segments}
+
+  defp b28_scope_decision(%{deny_modify: true, read_only: true, whole_modify: false}),
+    do: {:error, :author_scope_not_authorized}
+
+  defp b28_scope_decision(%{deny_modify: true, whole_modify: false}), do: {:ok, :target_segments}
+  defp b28_scope_decision(%{whole_modify: true, conditional: false}), do: {:ok, :whole_chapter}
+  defp b28_scope_decision(_flags), do: {:ok, :target_segments}
 
   # 目标章选择只用唯一证据：原话章序号/标题唯一匹配；否则单目标；多目标不猜（nil 交产品守卫）。
   defp chapter_revision_target_ref([], _author_text), do: nil

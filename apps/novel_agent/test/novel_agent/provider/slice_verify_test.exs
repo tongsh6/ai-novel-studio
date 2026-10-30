@@ -489,9 +489,26 @@ defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
     assert args["dialogue_goal"] == author_text
   end
 
-  test "整章/通读意图 → whole_chapter；明确改一处 → target_segments" do
+  test "B28 CP1 镜像：读取/否定/条件不授整章，正向整章/局部/排版同产品语义" do
+    # 读取/通读不是修改授权：无“整章”修饰时保守局部
     assert chapter_arguments("帮我通读一遍第一章正文，看看有没有矛盾。").modification_scope ==
+             "target_segments"
+
+    # 正向整章授权
+    assert chapter_arguments("把已保存的第一章正文整章重写一遍，情节不变。").modification_scope ==
              "whole_chapter"
+
+    # 否定整章 + 局部限制：局部优先，不扩整章
+    assert chapter_arguments("不要整章重写，只改第一段。").modification_scope ==
+             "target_segments"
+
+    # “通读/全文”是材料读取，不能把局部限制扩大
+    assert chapter_arguments("通读全文后只修第二段。").modification_scope ==
+             "target_segments"
+
+    # 明确只读不改 → 无修订意图（产品侧零写入拒绝）
+    assert SliceVerify.chapter_revision_arguments(judgment_prompt("整章检查一遍，有问题告诉我，别改。")) ==
+             nil
 
     assert chapter_arguments("把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。").modification_scope ==
              "target_segments"

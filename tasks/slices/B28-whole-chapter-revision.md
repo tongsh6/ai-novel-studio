@@ -392,7 +392,7 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 
 ## 元原则整改：作者范围与否定约束
 
-- 状态：**doing（2026-10-30 CP0 done：范围生产/绑定/保护/消费者审计与反例冻结完成；CP1–CP3 待实现与真实页面/模型验收）**。原整章修订/排版业务与历史完成记录保留。
+- 状态：**doing（2026-10-30 CP0–CP2 done：授权范围重写、集成/采纳保护、B28 真实页面确定性回归通过；CP3 外部原生 Tauri + 真实模型验收待执行）**。原整章修订/排版业务与历史完成记录保留。
 - 来源：元原则业务补核（`../../artifacts/task-audit/2026-10-30-principles/b-business-supplement.json`） 对现役范围选择与采纳校验的静态核对；本节是“否定整章词被 whole_chapter 误授权”的唯一执行入口，不重新启动旧 CP0–CP5。
 
 ### 当前缺口与目标链
@@ -485,9 +485,27 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 | CP | 完整工作与关闭证据 | 状态 |
 |---|---|---|
 | CP0 | 审计 scope 默认值、显式覆盖选项、原话/goal 来源、目标段解析、writer输出契约与采纳消费者；冻结正面/否定/条件/歧义及保留项的同源映射和反例矩阵，区分全章材料与修改授权 | **done（2026-10-30）**：审计映射/纯函数探针/保护面证明见下节“CP0 记录”；证据 `artifacts/task-audit/2026-10-30-b28-semantics-cp0/{audit-map.json,scope-probe.json,scope-probe.exs}` |
-| CP1 | 修正范围形成与绑定，避免词面命中扩大作用域；沿现有判断链与真实目标/版本形成明确约束，条件未成立可据证无变化，范围不明不生成越权候选 | todo |
-| CP2 | 贯穿 AuthoringTask、writer/evaluator、preview、diff/patch与采纳事务；验证目标外保真、完整覆盖、stale/跨作品/歧义/重复/失败回滚，真实回执与后续读取一致 | todo |
+| CP1 | 修正范围形成与绑定，避免词面命中扩大作用域；沿现有判断链与真实目标/版本形成明确约束，条件未成立可据证无变化，范围不明不生成越权候选 | **done（2026-10-30）**：新增纯函数 `ChapterRevisionScope`（13 条反例矩阵/红测全绿）；`resolve_modification_scope` 接入 revise_chapter，明确只读不改→`author_scope_not_authorized` 零写入；视觉/局部/条件/正向对照与显式内部覆盖分流；slice_verify 替身镜像对齐并加回归。证据见下节 CP1 记录 |
+| CP2 | 贯穿 AuthoringTask、writer/evaluator、preview、diff/patch与采纳事务；验证目标外保真、完整覆盖、stale/跨作品/歧义/重复/失败回滚，真实回执与后续读取一致 | **done（2026-10-30，确定性）**：B28 真实页面场景 `b28-whole-chapter-revision` 通过（format_only/字面替换/幂等/读取刷新）；新增 CP1 集成测试覆盖否定/读取/条件与采纳后逐字节保真；全量后端 0 失败；B35/B36 守卫未放宽。原生 Tauri+真实模型留给 CP3 |
 | CP3 | 外部真实 Tauri与真实模型完成否定/条件和三个原范围的对照矩阵，含必要采纳、恢复与回放；保留失败与原生/browser/局部证据边界，完整后果齐备后关闭本节 | todo |
+
+### CP1/CP2 记录（2026-10-30）
+
+#### CP1：授权范围形成重写（提交见下）
+
+- **新增纯函数** `apps/novel_application/lib/novel_application/chapter_revision_scope.ex`：按作者原话的**修改授权语义**判定 `:format_only | :whole_chapter | :target_segments`，返回 `{:error, :author_scope_not_authorized}` 表示明确只读/不改。
+  - 决策顺序：正向仅排版 → 局部限制（只改第N段/开头/结尾/其余逐字不变…）→ 明确只读不改拒绝 → 否定整章不授整章（保守局部）→ 正向且无条件整章 → 默认局部。
+  - 否定/条件/读取词不单独授予整章；“通读/全文/检查”只作材料语义；条件性整章保守为局部（目标解析不到即 `incomplete_scope`，不猜整章）。
+- **接线**：`PendingArtifactWorkflow.revise_chapter` 改为 `resolve_modification_scope/2`（受信内部 `:format_only` 重排路径保留显式覆盖；作者原话路径无旁路）；`author_scope_not_authorized` 映射为 `{:pending_artifact_invalid, :author_scope_not_authorized}`，在调用 writer 前零写入拒绝。
+- **测试**：`b28_scope_authorization_test.exs` 13 条矩阵（否定整章+局部、通读后局部、只读拒改、条件整章、整章重写、整章润色、仅排版、字面替换、否定仅排版等）全绿；`b28_chapter_revision_wiring_test.exs` 新增 4 条集成（否定+局部→target_segments 首段并采纳后其余逐字节不变；通读后只修第二段→第二段；只读拒改→不调用 writer、零候选零写入；条件整章→保守拒绝、不猜整章）。
+- **替身对齐**：`novel_agent/test/support/provider/slice_verify.ex` 镜像同一决策树与意图门（读取/检查不算修改意图；明确修改信号才进入修订链）；`slice_verify_test.exs` 增加 CP1 镜像矩阵（13/13 产品结果与替身 scope 一致，拒绝类替身返回 nil 表示 reply 而非修订）。
+
+#### CP2：端到端/采纳保护与真实页面确定性回归
+
+- **真实页面证据**：`bash scripts/tauri_slice_verify.sh b28-whole-chapter-revision` **PASS**（`artifacts/slice-verify/b28-whole-chapter-revision-tauri/`）；覆盖 T0 同标题绑定、T1 format_only 分段计划/预览/采纳/阅读刷新、T2 字面替换只改一处、T3 幂等、T4 缺目标零写入。
+- **首次失败与根因（保留在证据 log）**：`artifacts/task-audit/2026-10-30-b28-scope-cp12/b28-scenario-mirror-failure-then-pass.log` 记录确定性场景在 continuation 输入处失败，根因是替身意图门在新 formula 下把“继续往下写”误判为章修订 → 产品按 incomplete_scope 正确拒绝；修替身意图门（target 词或修改信号 + 修改动词/信号，读取/续写不进入修订链）后复跑 PASS。属验收替身接线修复，不是产品语义放宽。
+- **采纳/消费者**：CP1 集成测试走真实 `AdoptionRepository.persist`（replace_segments）与阅读投影；目标外段落逐字节保留、旧稿 superseded、候选 scope/covered/hash 由任务事实派生。B35 覆盖完整、B36 版本/hash、format_only 非换行字节保真等既有守卫未改，全量后端测试 0 失败。
+- **残余**：本 CP 的页面证据是 browser surface；原生 Tauri+真实模型对照矩阵属 CP3（预注册已冻结 N1–N4/P1–P3/X1）。
 
 ### 与 B33 / B35 / B36 的分工
 
