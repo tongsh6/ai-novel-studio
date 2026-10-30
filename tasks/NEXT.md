@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B58 | CP0–CP2 done；CP3 partial：AU09 真实 Tauri adoption 批准 replay PASS；AU04 确认场景两次未产出 needs_confirmation，confirmation 路径待 reanchor | [原任务](slices/B58-human-approval-policy-unification.md) |
+| AU07-P1 | 核对 developer 权限、多类型 replay、原因目录与 registry snapshot 的真实消费者；与 B43/VS-00F/B39 去重 | [原任务小节](slices/AU07-trace-replay-integrity.md#p1-消费者与余项核对) |
 
 ## 后续候选
 
@@ -20,7 +20,6 @@
 | AU08-REFRESH | 核对现役四态与失败/重试/旧内容口径，补真实页面恢复和零权威写入矩阵 | [原任务小节](slices/AU08-file-level-closure.md#阅读投影状态与失败恢复补验) |
 | AU10-FAILED | 核对真实导出失败生产者，补 FAILED 首屏、恢复/新请求及输出完整性证据 | [原任务小节](slices/AU10-workbench-recovery-taskstate.md#failed-任务状态真实页面补验) |
 | AU10-MATRIX | 核对当前卡片/动作结果、未知/失效/跨作品与视口矩阵，按 owner 去重后补消费证据 | [原任务小节](slices/AU10-file-level-closure.md#现役动作与卡片矩阵核对) |
-| AU07-P1 | 核对 developer 权限、多类型 replay、原因目录与 registry snapshot 的真实消费者；与 B43/VS-00F/B39 去重 | [原任务小节](slices/AU07-trace-replay-integrity.md#p1-消费者与余项核对) |
 | UA01-PROMPT-T3T5 | 按当前单调用及 ADR-0031 核对修订尾部、finding 保真与计划面板 N-NARR；按现役消费者接续 | [原任务小节](slices/UA01-agentic-loop-prompt-hardening.md#t3-t5-当前语义审计与承接) |
 | B71 | CP1 冻结 AgentRun 原生多轮 Request IR、工具/观察/候选与 provider 投影；先处理目标设计与现役 ADR 差异，不以现状降低目标 | [原任务](slices/B71-provider-message-fidelity.md) |
 | VS-00G | 核对 CP5e A2/A3 历史证据与当前版本，明确 scoped 补验；触发 C/记忆富化与 B39 协同 | [原任务](slices/VS-00G-fact-inventory-run.md) |
@@ -38,6 +37,7 @@
 ## 阻塞
 
 - **B72 CP1**：CP0 设计 done；CP1 需要离线生成器实现 + 真实模型 ≤60 校准/核心批次，当前无实现与模型资源窗口（未加载模型、未改 corpus），待作者/指定实现者提供生成器与预算后解除，见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#阻塞记录2026-10-31-cp1)。
+- **B58 CP3 confirmation**：CP0–CP2 done、AU09 adoption 批准 replay 真实 PASS；但 AU04 高风险确认卡两次未产出（模型落到 needs_clarification，非 B58 投影代码），confirmation 页面/失败取消矩阵无法取证；需先系统化修复/重锚 AU04 confirmation gate，再复用 B58 断言收口，见 [B58](slices/B58-human-approval-policy-unification.md#未完成阻塞confirmation-路径)。
 - **B01 后续**：CP0 done；origin_frame_ref 为合成串，CP1 需 A（新增 nullable origin_turn_ref + origin_frame_ref 可空，推荐）/B（origin_ref_kind + turn:<id>）/C（保持 known-gap）之一；涉及 SQLite 表重建/历史兼容，待作者授权 migration，未改 schema/DB。见 [B01 小节](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界)。
 - **B43 后续**：CP0/CP1 done；CP2 Form R 出口/Replay 同源已落地；**MissingPolicy 在 Gate 之后才评估**，统一门序涉及 ADR-0005 gate 集合与验收判据，需作者/ADR owner 在 A（新增 missing_policy gate，推荐）/B（decide 前 preflight）/C（仅标注）/D（只覆盖 prose flow）间裁决；CP3/CP4 未开工，见 [B43](slices/B43-gate-order-residual.md)。
 - **B67 后续**：CP0/CP1 done；CP2 revision CAS/重编号/旧任务晚到已落地，但维护 StateTrace 依赖 [VS00F-TRACE](slices/VS-00F-five-ledgers-three-state.md#维护-statetrace-后续-checkpoint) owner 先冻结生产/存储/回放契约；CP3 页面矩阵未开工，见 [B67](slices/B67-revision-aware-ledger-maintenance.md)。

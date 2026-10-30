@@ -1,6 +1,6 @@
 # B58：作者批准策略统一与审计
 
-- 状态：**doing（2026-10-31 CP0/CP1 done，CP2 done；CP3 partial：replay/Why 批准依据链路已实现并单测，真实 Tauri AU04 场景两次未产出 needs_confirmation，按预算停止并登记 reanchor）**。
+- 状态：**blocked（2026-10-31 CP0–CP2 done；CP3 partial：AU09 真实 adoption 批准 replay PASS；confirmation 路径被 AU04 确认卡缺失阻塞，需先修复/重锚 AU04 才能取证）**。
 - 登记日期：2026-10-27；来源：`32-human-approval-policy` 仍是草案，统一 approval policy 映射、approval_record 与死亡/结局/高预算等风险矩阵未形成完整证据。
 - 上游：`docs/design/quality/32-human-approval-policy.md`、[AU04](AU04-file-level-closure.md)、[AU05](AU05-file-level-closure.md)、[AU13-ledgers-and-reconciliation](../../docs/design/acceptance/author/AU-13-ledgers-and-reconciliation.md)。
 
@@ -104,11 +104,12 @@
 - 作者可见 why 映射由 `traceSummaryView` 单测覆盖（「批准依据：…」）；replay 报告本身是作者安全入口，不泄漏 receipt 内部 id。
 - 该 PASS 覆盖 active policy 的 adoption 路径；confirmation 路径（AU04）仍未闭环。
 
-### 未完成/真实页面重锚
-- 尝试当前 HEAD 既有 `au04-confirm-before-execute` 两次：均未收到 `status=needs_confirmation` + `confirm_before_execute` 的 turn_result（driver 200s bounded 超时）。未进入确认/批准动作，故无法取得 approval-replay/Why 页面证据。
-- 根因范围：既有 AU04 场景的 seed/driver/判断链在当前 HEAD 未产出确认卡；不是本次 replay/Why 代码路径。按预算（同因 2 次）停止，登记 reanchor，不做第三次盲跑。
-- 解除条件：先修/重锚 AU04 确认场景，使其真实产出确认卡与 author_action；再复用本 CP 已加入 driver 的 approval replay/why 断言。
-- 未覆盖：失败回滚/不可 bypass 的真实页面矩阵；deferred 节点仍 deferred。
+### 未完成/阻塞（confirmation 路径）
+- 当前 HEAD 既有 `au04-confirm-before-execute` 两次：均未收到 `status=needs_confirmation` + `confirm_before_execute` 的 turn_result（200s bounded 超时）。实际帧为模型 `needs_clarification`，generic author_question「这个情况需要你裁决…」，说明确认卡/`require_confirmation` 门在到达页面前未成立。
+- 根因已定位到 **AU04 确认生产链**（seed 后高风险重写请求没有形成 needs_confirmation），不是 B58 replay/Why 投影代码；按同因≤2 预算停止，第三次不盲跑。该缺陷需另行系统化 slice/CP0 修复，不在 B58 内放宽断言或改产品以迁就 driver。
+- 影响：B58 CP3 的 confirmation 真实页面批准依据、失败/取消矩阵无法取证；B58 不能标 done。
+- 解除条件：AU04 confirmation gate 生产链修复并真实重跑 PASS 后，复用 B58 driver 中 approval replay/why 断言收口 CP3。
+- deferred 节点：人物命运/结局/大高潮/高预算具体阈值仍 deferred。
 
 ## 4. 非目标
 
