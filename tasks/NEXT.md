@@ -12,8 +12,6 @@
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B64 | **partial-blocked**：CP0–CP2 done；CP3 确定性真实 Tauri 三 turn PASS；真实模型一次 `judgment_protocol_violation` 失败（只读、未重试），待判断协议处理/作者裁决后再预注册复验 | [原任务](slices/B64-coordinate-aware-memory-consumption.md) |
-| B39 | **partial-blocked**：CP1 机制/模型证据与 B74–B76 UI 已收口；D6-A setup 第01章成立、第02章候选区 AX 定位同因失败停止；正式 AU-15 A1/A2 待 setup 稳定性修复 + 作者/指定评审，不自行扩大 | [原任务](slices/B39-evidence-seeking-authoring.md) |
 | B72 | 作者选择先做 P2：CP0 离线 LLM 语料扩增设计已冻结；下一步 CP1 生成 manifest/candidate 与原始批次，未调用模型；P0/P1 缺口不由本任务销账 | [原任务](slices/B72-author-behavior-offline-corpus-expansion.md) |
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B65 | CP0 核对 dev/stage/release 的 HTTP/WS 来源矩阵；修正伪本机前缀风险，鉴权范围另冻结 | [原任务](slices/B65-local-http-websocket-origin-boundary.md) |
@@ -52,6 +50,8 @@
 
 ## 阻塞
 
+- **B64 实模后续**：CP0–CP2 done，CP3 确定性真实 Tauri 矩阵 PASS；真实模型一次 `judgment_protocol_violation` 失败（只读、未重试），待判断协议处理/作者裁决后再预注册复验，见 [B64](slices/B64-coordinate-aware-memory-consumption.md)。
+- **B39 实模后续**：CP1 机制/模型与 B74–B76 UI 已收口；D6-A setup 第01章成立、第02章候选区 AX 定位同因失败停止；正式 AU-15 待 setup 稳定性修复 + 作者/指定评审，见 [B39](slices/B39-evidence-seeking-authoring.md)。
 - **待材料｜PaperTrail 去留**：先完成版本存量与真实消费者的只读核对，再提交去留裁决，见 [B51](slices/B51-tech-stack-current-rebase.md)。
 - **条件触发｜独立多 Agent / 24x7**：当前延期，重新开放条件见 [B50 §6.1](slices/B50-multi-agent-current-boundary.md#61-延期实施与重新开放)。
 - **验收前置｜AU-15 真实运行**：待 B39 产品/driver 接线、预注册及模型窗口；设计接受前置已解除，见 [B42 CP4](slices/B42-model-behavior-evidence-tier.md#10-cp4blocked-登记不执行不代签)。
