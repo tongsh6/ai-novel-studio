@@ -60,9 +60,27 @@ defmodule NovelAgent.Toolbox do
 
   defp dispatch(%ToolRequest{} = req, provider_execution) do
     case ToolAdapterRegistry.adapter_for(req.tool_name) do
-      nil -> failed(req, "no_handler", "no adapter registered for tool")
-      _adapter -> ToolAdapterRegistry.execute(req.tool_name, req, provider_execution)
+      nil ->
+        failed(req, "no_handler", "no adapter registered for tool")
+
+      _adapter ->
+        req.tool_name
+        |> ToolAdapterRegistry.execute(req, provider_execution)
+        |> ensure_contract(req)
     end
+  end
+
+  # B45 CP3：工具适配器返回后先校验本地契约；不合格转失败结果，绝不把坏 output
+  # 当成功事实继续组装/采纳。
+  defp ensure_contract(%ToolResult{} = result, req) do
+    case ToolResult.validate(result) do
+      [] -> result
+      errors -> failed(req, "tool_result_contract_invalid", Enum.join(errors, "; "))
+    end
+  end
+
+  defp ensure_contract(_other, req) do
+    failed(req, "tool_result_contract_invalid", "tool_result must be a ToolResult struct")
   end
 
   defp failed(%ToolRequest{} = req, code, message) do

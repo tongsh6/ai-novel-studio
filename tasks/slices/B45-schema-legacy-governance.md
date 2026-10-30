@@ -143,7 +143,8 @@
   - `frontend/src/lib/schemas.ts` 的 `TurnResultV2Schema` 导出 → 仅历史类型，无运行时 safeParse；当前 wire 校验在 `turnResultWire.ts`/`TurnResultSchema`。
   - v2 的 15 个 broken ref 继续 legacy，不修成“看起来已解析”；不伪造历史。
 - 内部输出负例（同轮）：新增 `AgentObservation` 契约测试 5/0——合法通过；缺 summary/source_ref、非法 type、confidence 越界、evidence_refs 为空经 `validate/1` 拒绝；同时登记已知边界：`new/normalize` 对非法 type 会降级 `:custom`、非法 confidence 会降为 `1.0`（容错而非拒绝），与 CP1 “unknown enum 不静默合法”存在张力，需决定是否收紧（可能影响调用方）；`ToolResult` 当前无 schema/validator，仍为缺口。
-- 未完成：agent_run_state schema（DS01 §9 owner）、ToolResult 契约、模型消费证据；CP3 仍 partial。
+- ToolResult 契约（同轮）：`NovelCommon.Contracts.ToolResult.validate/1` 校验必填 id/status 枚举/output map 或 nil/state_delta/artifact_refs/errors/warnings/usage/trace_refs/completed_at；`Toolbox.dispatch` 在适配器返回后执行该校验，不合格结果机械转 `tool_result_contract_invalid` 失败，不把坏 output 当成功事实继续组装。测试 4/0（合法/缺必填/非法 status/output/列表映射/非 struct）；全量 mix 1048/0。ToolResult 无独立 JSON schema，采用 common 本地契约，已记明边界。
+- 未完成：agent_run_state schema（DS01 §9 owner）、模型消费证据；CP3 仍 partial。
 
 ## 4. 非目标
 

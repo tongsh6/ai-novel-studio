@@ -1202,3 +1202,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B45 CP3 旧兼容归属**：phase_next_action_compat/turn_result_validator 53+21 tests 归 legacy-owned（无生产调用点），v2 持久化镜像与 barrel 导出仅历史；当前 wire 校验仍 turnResultWire/TurnResultSchema；v2 broken refs 不伪造修复。内部输出负例/模型消费仍 todo。
 
 - 2026-10-31 — **B45 CP3 内部输出负例**：新增 AgentObservation 契约测试 5/0（缺字段/非法 type/confidence/空 evidence 经 validate 拒绝；new normalize 对非法 type/confidence 的降级边界已登记）；ToolResult 仍无 schema/validator（缺口）；全量 mix 1048/0。模型消费证据仍 todo。
+
+- 2026-10-31 — **B45 CP3 ToolResult 契约边界**：ToolResult.validate 检查必填/status/output/列表映射/completed_at；Toolbox.dispatch 返回前校验，坏 adapter 结果转 tool_result_contract_invalid 失败，不继续组装；新增 4 项契约测试，全量 mix 1048/0。Observation 负例/legacy 归属/AU13 页面证据已交，模型消费证据仍 todo。
