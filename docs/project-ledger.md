@@ -1306,3 +1306,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **P1-AUDIT-BC CP1 partial**：domain 重复段落/章 + 缺章率纯函数与测试；persistence toc audit 合并新字段；前端 WorkAudit/ReadingWorkAudit/ReadingMode 摘要；backend 1056/0、frontend 654/654。word-count.json 与 Tauri 页面证据待补；未改 P1 阈值/字数口径。
 
 - 2026-10-31 — **P1-AUDIT-BC CP1 页面尝试**：实现 duplicate/missing audit、ReadingMode 摘要、driver artifact 断言；Tauri 场景在共享 stale projection banner 断言处失败（未进入 B/C 断言），未重跑/未放宽，待 reanchor。
+
+- 2026-10-31 — **P1-AUDIT-BC blocked（页面）**：B/C audit/ReadingMode/artifact writer 实现完成；真实 Tauri 两次同因失败于 stale projection banner 断言——adoption 后服务端 refresh=STALE，但 ReadingMode 四态是客户端 query 状态，refetchOnMount 后不显示 banner（AU08 已登记缺口）；按预算停止、未放宽断言；当前任务切 AU03-SEARCH。

@@ -1,6 +1,6 @@
 # P1 Word Count Audit / 10 万字最小长篇正文有效字数审计
 
-- 状态：checkpoint A 已闭环；B/C CP0 口径冻结、CP1 后端/前端+artifact writer 完成（2026-10-31），真实 Tauri 页面证据被既有 stale banner 时序阻断待 reanchor
+- 状态：blocked（checkpoint A 闭环；B/C CP0/CP1 实现+artifact writer 完成；真实 Tauri 页面被 stale banner 语义阻断，待 AU08/投影新鲜度消费修复后复跑）
 - 类型：Product Slice / Novel Output Milestone P1
 - 来源：`docs/product/novel-output-milestones.md` §2 统计口径、§3 阶段目标、§4.1 数量标准、§5 P1 Done、§7 #4、§8 验收产物；`docs/product/user-journeys.md` Journey D7 / G / J；`tasks/slices/P1-chapter-adoption-reading.md`「后续 checkpoint（未做）」。
 - 当前目标：在已采纳正文进入阅读投影并显示有效字数之后，补齐**确定性审计层**——把"哪些章是空章 / 短章 / 达标"和"是否达到 P1 门槛（单章≥1000、总≥100,000）"算出来，并让真实工作台的阅读消费者（ReadingMode）看得到，不达标的章节有明确标记。
@@ -150,3 +150,16 @@ P1 已经能：生成章节计划 → 生成正文草稿 → 采纳进入作品�
 - 已扩展 `driveP1WordCountAudit`：读取真实 `get_toc` 回复的 audit，断言 `planned_chapter_count/duplicate_paragraph_count/duplicate_chapter_count/missing_chapter_count` 齐全、页面显示「缺章」摘要，并写 word-count.json。
 - 运行 `p1-word-count-audit` 一次：在共享 `driveP1ChapterAdoptionReading` 的既有断言处失败——「Reading mode did not show the stale projection banner after adoption」。这是 AU08 projection stale banner 的时序断言（adoption 后 STALE 横幅），发生在新增审计断言之前，尚未进入 B/C 验证。
 - 未重复盲跑、未放宽 stale 断言；需先定位该共享 driver 的 STALE 横幅时序/选择器问题（可能是 refetch 完成后 banner 已消失的既有 flake），再运行 B/C 页面证据。
+
+### checkpoint B/C 页面阻塞（2026-10-31）
+
+- `p1-word-count-audit` 两次运行均在共享 base driver 的既有断言失败：
+  「Reading mode did not show the stale projection banner after adoption」。
+- 同因 2 次，按预算停止。adoption turn 的 `projection_refresh_status` 断言通过（STALE），
+  但 ReadingMode 未显示 stale banner：四态由 TanStack Query 客户端状态派生，
+  首次进入阅读模式触发 `refetchOnMount: always`，数据到达后 `isStale=false`/无 data 旧值，
+  因此 banner 不出现——即 **AU08 CP0 已登记的产品缺口**（服务端 projection refresh 状态
+  未被消费，四态不是权威事实），不是本次 audit 字段的问题。
+- 未放宽 stale 断言、未重复盲跑；解除依赖：AU08 投影新鲜度/ STALE 语义消费修复，或
+  独立确认该断言口径应由服务端 refresh status 驱动后重锚 driver。
+- B/C 后端/前端/artifact writer 代码保留，待页面可跑后补证据；不改 P1 阈值。
