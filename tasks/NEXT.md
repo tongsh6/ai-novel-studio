@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU04-AU06 | 核对 T16 的现役确认生产者、终态历史、持久绑定及恢复范围；与 B43/B58 去重后补页面矩阵 | [原任务](slices/AU04-AU06-author-action-binding.md) |
+| AU04-AU06 | CP0 done：确认卡丢失是产品回归（flow 丢弃 require_confirmation behavior，落 D4 generic question）；CP1 修复 behavior→confirmation TurnResult 并 scoped replay AU04 | [原任务](slices/AU04-AU06-author-action-binding.md) |
 
 ## 后续候选
 

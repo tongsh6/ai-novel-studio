@@ -128,6 +128,29 @@
 - 2026-06-21 — 补 AU-04 确认卡说明内容真实页面验收：`TurnResultBuilder` 为 open confirmation behavior 输出 `confirmation_card`，包含 prompt question、确认对象、确认前 no-tool/no-write 和确认后重新 gate 说明；`au04-confirm-before-execute` 外部 driver 必须在真实页面看到这些文字后才点击确认，native verifier 新增 `confirmation_card_explains_target_no_write_and_re_gate_in_real_workbench` 断言。这关闭 B1/GAP-02 的 P0 主路径；持久 ConfirmationBinding snapshot、replay、LLM timeout/retry action 和 AU-06 lifecycle 矩阵仍继续。
 - 2026-06-21 — 补 AU-06 single-active confirmation 真实页面验收：`au06-single-active-confirmation` 从真实 Tauri 工作台连续输入两个高风险重写请求；summary 证明第一条 confirmation `behavior_ref=bh_10`、第二条 confirmation `behavior_ref=bh_21`，旧 confirmation 被 hidden/disabled/stale 防住且 no-tool/no-draft，最新 confirmation 仍执行一次并生成单一 pending `prose_fragment`。该 checkpoint 关闭 AU-06 C3 的 live runtime safety，不替代持久 BehaviorBinding ledger 或 replay。
 
+## CP0：确认卡丢失回归（2026-10-31）
+
+**复现**：当前 HEAD `au04-confirm-before-execute` 两次、`au04-confirm-idempotency-ui` 一次，均在真实 Tauri 工作台发送高风险重写后得到 `needs_clarification` + generic `author_question`「这个情况需要你裁决…」，没有 `needs_confirmation`/`confirm_before_execute`。两次同因后按预算停止继续跑。
+
+**证据链**（`artifacts/slice-verify/au04-confirm-idempotency-ui-tauri/`）：
+1. `judgment.decided.done`：action=execute、capability=prose_writing、reason=single_capability_satisfies_request；
+2. `orchestrator.decide.done`：decision_type=`require_confirmation`、has_behavior=true、first_blocking_gate=authority（high_risk_requires_author_confirmation）；
+3. `agent_run_steps`：step 5 status=skipped，goal=「系统裁决未允许执行 prose_writing」，deviation_signal=D4；
+4. 最终 TurnResult=needs_clarification，assistant text 是 generic author_question，`ui_cards=[]`，无 confirmation_card。
+
+**根因（代码级）**：
+- `prose_drafting_with_quality.execute_tool_decision_step/7` 调用 `ExecutionOrchestrator.decide/2` 后丢弃 behavior（`{decision_result, _behavior}`），非 `allow_tool` 一律走 D4 deviation + blocked step。
+- AgentRun 续行把「Orchestrator 未允许执行 prose_writing」交给 continuation provider；test/support provider 对含该文字的 summary 返回 `await_author` + 空 narrative，运行时构造 generic clarification TurnResult。
+- 因此 require_confirmation 已经打开 behavior，却没有走 `TurnResultBuilder` 的 confirmation_card 路径；确认卡/author_action 从产品链上消失。这不是 driver 断言问题，也不是 provider 桩错。
+
+**修复方向（CP1 待实施，先冻结）**：
+1. 在 flow 中保留 `behavior`，当 `decision_type == :require_confirmation` 且有 open behavior 时，返回/构造 confirmation TurnResult（confirmation_card + confirm/reject actions + behavior_ref），不让它落 D4 generic 续行；
+2. 确认卡必须继续满足 AU-04 既有断言：确认对象、确认前 no-tool/no-write、确认后 re-gate；不得降低任何断言；
+3. 失败/重试边界：非 confirmation 的 gate block 仍按既有 D4/author_question 诚实失败；
+4. 回归：application/flow 单测覆盖 require_confirmation 不丢 behavior；再 scoped replay `au04-confirm-before-execute` 与 `au04-confirm-idempotency-ui`，PASS 后才恢复 B58 CP3 confirmation 证据。
+
+**影响**：AU-04 高风险确认主链当前不可用（产品回归），B58 CP3 confirmation 路径被阻塞；在修复前不把历史 PASS 当当前证据。
+
 ## 7. 试行反馈
 
 - AU-04 和 AU-06 的 action binding、幂等、ConfirmationBinding 容易混在一起。后续应把“payload 精确匹配”“重复动作去重”“确认后重新 gate 的状态快照”分成三个可验证层次，避免用一个单测替代完整 lifecycle。

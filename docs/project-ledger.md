@@ -1262,3 +1262,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **VS00F-TRACE CP0**：盘点采纳/账面维护/审读/摘要维护；确认 adoption `state_trace_refs` 仅 summary-level 嵌入引用、LedgerMaintenance 只有业务日志无 StateTrace；需作者裁决“最小持久 trace”或“明确 maintenance 不承诺逐条 trace”后进入 CP1；未改代码/schema。
 
 - 2026-10-31 — **VS00F-TRACE blocked（待裁决）**：CP0 盘点完成；选项 A 新增最小持久 StateTrace（推荐，需 schema/迁移授权）/B 明确 maintenance 不承诺逐条 trace 并关闭债务/C 延期。未建实体、未改验收边界；当前任务切 AU04-AU06。
+
+- 2026-10-31 — **AU04-AU06 CP0**：真实 Tauri 复现确认卡丢失（execute→require_confirmation 已开 behavior，却走 D4 blocked + generic author_question，TurnResult=needs_clarification/无 ui_cards）；根因 `prose_drafting_with_quality` 忽略 behavior、续行把 gate block 交给 provider 问答；登记 CP1 修复方向，不降断言。
