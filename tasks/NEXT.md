@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B65 | CP0/CP1 done；CP2 HTTP/配置矩阵完成、WS 真实握手待补；CP3 外部真实 Tauri 正常链 + 隔离非信任来源拒绝/零副作用待做 | [原任务](slices/B65-local-http-websocket-origin-boundary.md) |
+| B65 | CP0–CP2 done（精确来源策略 + HTTP/WS probe）；CP3 进行中：真实 Tauri B64 正常链 PASS、隔离来源拒绝 PASS；release 打包来源/恢复重连矩阵待做 | [原任务](slices/B65-local-http-websocket-origin-boundary.md) |
 
 ## 后续候选
 

@@ -1,6 +1,6 @@
 # B65：本地 HTTP / WebSocket 来源边界
 
-- 状态：**doing（2026-10-31 CP0/CP1 完成，CP2 HTTP/配置矩阵完成、WS 握手待补；CP3 外部真实页面/隔离来源待做）**。
+- 状态：**doing（2026-10-31 CP0–CP2 done；CP3 进行中：真实 Tauri 正常链 + 隔离 HTTP/WS 探针已通过，release 打包来源/恢复重连矩阵未覆盖）**。
 - 类型：Desktop Boundary / Security / Acceptance Slice。
 - 来源：阶段 1 的本机桌面通信边界与本次设计→代码对账；独立于 [B57](B57-sec-injection-boundary.md) 的提示注入防线和 [B58](B58-human-approval-policy-unification.md) 的作者批准语义。
 
@@ -32,8 +32,8 @@
 |---|---|---|
 | CP0 | 核对真实 Tauri 各平台来源、dev/stage/release 最终配置及本地调用者；冻结 scheme/host/port、无 Origin/null/错误形状和 HTTP/WS 拒绝语义，预注册正反例与驱动；区分来源修复和新增鉴权 | **done（2026-10-31，§6）**：冻结 Tauri 三来源 + dev 5768/隔离验收 5769 精确端口；发现并修正 tauri devUrl 5769 vs Vite 5768 不一致；禁止前缀匹配；Origin≠认证 |
 | CP1 | 依据 CP0 修复精确来源判定与配置接线；同源策略或有依据的平台差异只有一个 owner；合法 loopback/Tauri 路径兼容，后缀伪装不被视为本机 | **done（2026-10-31，§6）**：新增 `NovelWeb.OriginPolicy` 唯一 owner；CORSPlug 委托精确判定；dev/prod/runtime 三处 `check_origin` 从 false 改为 policy MFA；devUrl/端口单一化 |
-| CP2 | 补 HTTP OPTIONS/实际请求、WS 握手/连接、配置覆盖、缺失/畸形来源与合法客户端矩阵；证据明确服务端拒绝、浏览器阻止和仅无 CORS 头的不同后果 | **partial（2026-10-31，§6）**：HTTP 端点 GET/OPTIONS、合法/伪本机/null/错误端口、配置覆盖矩阵通过；WS 真实握手（非信任 Origin 403/无业务副作用）待 CP3 外部 probe |
-| CP3 | 外部真实 Tauri 设置/创作正常，隔离非信任来源请求按冻结策略被拒且无业务副作用；恢复/重连回归与文档/配置同步，保留失败证据 | 未开工 |
+| CP2 | 补 HTTP OPTIONS/实际请求、WS 握手/连接、配置覆盖、缺失/畸形来源与合法客户端矩阵；证据明确服务端拒绝、浏览器阻止和仅无 CORS 头的不同后果 | **done（2026-10-31，§6）**：HTTP/配置矩阵 + 真实 WS handshake probe：允许 Tauri/dev Origin 101、伪本机/错误端口/null 403；HTTP 允许有 ACAO、拒绝无 CORS 头（浏览器阻止而非服务端身份拒绝，已如实区分） |
+| CP3 | 外部真实 Tauri 设置/创作正常，隔离非信任来源请求按冻结策略被拒且无业务副作用；恢复/重连回归与文档/配置同步，保留失败证据 | **doing/partial（2026-10-31，§6.5）**：CP1 后真实 Tauri B64 创作/新会话正常链 PASS；隔离 probe WS 拒绝/HTTP 无 CORS PASS；release 打包自定义协议来源、恢复/重连矩阵未覆盖 |
 
 CP1/CP2 只能证明局部边界；完整 slice 要有真实客户端与最终运行配置证据。不能用 HTTP 通过替代 WS、用 dev 通过替代 release，或用 loopback 地址替代来源/身份判断。
 
@@ -59,6 +59,20 @@ CP1/CP2 只能证明局部边界；完整 slice 要有真实客户端与最终�
 - `cors_plug_test.exs`：允许来源回显/OPTIONS 204；错误端口/前缀伪装/null 无 CORS 头且不 halt；无 Origin no-op。
 - `cors_endpoint_test.exs`：真实 endpoint pipeline `/health` GET 合法/伪本机/null/错误端口；允许 OPTIONS 204；dev/prod/runtime 三配置断言 policy MFA 且不再 false。
 - 未覆盖：真实 WS handshake（非信任 Origin 应被拒绝、合法 Tauri/dev Origin 可通过）需外部 probe；CP3 与真实 Tauri 页面一起做，不能用 HTTP 通过替代 WS。
+
+### 6.4 WS/HTTP 隔离来源 probe（CP2 done）
+
+- `scripts/b65_origin_probe_server.exs`：test env 独立端口启动真实 Phoenix Endpoint，显式 `check_origin: {NovelWeb.OriginPolicy, :allowed_uri?, []}`；不写产品数据。
+- `scripts/verify_b65_origin_boundary.sh`：curl 原始 WS upgrade + HTTP GET，输出证据到 `artifacts/slice-verify/b65-origin-boundary-probe/`：
+  - 允许 `tauri://localhost` / `http://127.0.0.1:5769` → WS **101**；
+  - 前缀伪装 `https://localhost.example.invalid`、错误端口 `http://127.0.0.1:6000`、`null` → WS **403**；
+  - 允许 HTTP 有 `access-control-allow-origin`，拒绝来源无 CORS 头（服务端仍 200，浏览器侧阻止；CORS 不是身份认证，不把 raw loopback HTTP 说成已拒绝）。
+- 机械判据 `b65_probe_ok=true`，探针 PASS。
+
+### 6.5 CP3 进行中证据
+
+- CP1 后真实 Tauri 正常链回归：`b64-coordinate-memory` PASS（三 turn 创作/新会话，HTTP+WS 正常通过来源策略）。
+- 未覆盖：release 打包后 `tauri://localhost`/`http://tauri.localhost` 实际 Origin、恢复/重连矩阵、设置页真实操作；这些需要 packaged Tauri 或补充页面场景，未用 dev harness 冒充生产来源。
 
 ## 4. 依赖与不授权范围
 
