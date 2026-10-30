@@ -31,7 +31,7 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.TurnInteractionService
   alias NovelApplication.TurnResultBuilder
   alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentPlan, AgentStep}
-  alias NovelDomain.{CandidateDirection, DialogueContext, DialogueFrame}
+  alias NovelDomain.{CandidateDirection, DialogueContext, DialogueFrame, OrchestratorDecision}
 
   @profile_routing_allowed_tools ["judgment"]
   @profile_routing_profile_ref "judgment_loop_v1"
@@ -1544,9 +1544,15 @@ defmodule NovelApplication.DialoguePlanningService do
 
     {trace, trace_summary} = TraceWriter.record(frame, %{turn_id: turn_id}, context)
 
+    reply_decision =
+      if judgment.action == "reply" do
+        OrchestratorDecision.reply_only(turn_id, frame.frame_id)
+        |> Map.put(:decision_trace_ref, trace.trace_id)
+      end
+
     turn_result =
       frame
-      |> TurnResultBuilder.build(trace_summary, candidates)
+      |> TurnResultBuilder.build(trace_summary, candidates, reply_decision)
       |> scope_judgment_turn_result(input, run)
       |> AgentFinalizer.attach_run_summary(judgment_run_summary(run, settle))
       |> Map.put(

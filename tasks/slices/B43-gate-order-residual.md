@@ -1,6 +1,6 @@
 # B43：统一执行裁决与 Gate 残余——行为输入、幂等输入与回放
 
-- 状态：**doing（2026-10-31 CP0 盘点完成/CP1 done：payload digest 幂等冲突已实现；CP2 统一裁决 producer/reply_only、CP3 blocked 页面、CP4 回归未做）**。
+- 状态：**doing（2026-10-31 CP0/CP1 done；CP2 partial：普通 reply_only 裁决已在判断终结路径生产并同源挂 trace/结果；awaiting/capability_gap 出口、六 flow open_behavior/slot 统一与 CP3/CP4 未做）**。
 - 登记日期：2026-10-27；来源：12 门与 allow 路径已验收，但 blocked 页面、open_behavior/slot 顺序和同键异 payload 仍未闭合。
 - 上游：ADR-0005、[GATE-ORDER-CLOSURE](GATE-ORDER-CLOSURE-execution-gate-order-12.md)、[B40](B40-judgment-era-acceptance-reanchor.md)、[B49](B49-core-semantics-and-adr-review.md)。
 
@@ -30,7 +30,7 @@
 |---|---|---|
 | CP0 | 冻结所有回合出口→裁决类型/trace/返回映射及历史读取；与 B45 对齐词表；保留 payload digest、open_behavior/slot 和错误语义的完整范围 | 未开工 |
 | CP1 | 幂等输入一致性：同 key 同 payload 回放，同 key 异 payload 拒绝，不误报 duplicate、不二次写入；保留原成功回执 | **done（2026-10-31，§9）**：payload digest 入内存账/持久 result；同 key 同 payload duplicate、异 payload conflict 错误、无第二回执；历史回执无 digest 按 legacy duplicate；真实 channel 测试 |
-| CP2 | 统一裁决 producer 与 reply_only 路径、裁决同源 trace/结果/回放；open_behavior/slot 在六个 flow 与 TurnExecutionService 统一进门，MissingPolicy 与 GateResult 顺序一致 | 未开工 |
+| CP2 | 统一裁决 producer 与 reply_only 路径、裁决同源 trace/结果/回放；open_behavior/slot 在六个 flow 与 TurnExecutionService 统一进门，MissingPolicy 与 GateResult 顺序一致 | **partial（2026-10-31，§10）**：判断 reply 内联终结路径生产 `OrchestratorDecision(:reply_only)`，挂 decision_trace_ref 与 TurnResult/truthfulness；awaiting/capability_gap 映射、六 flow open_behavior/slot 统一仍 todo |
 | CP3 | 普通回复/执行/作者动作/停等与 blocked 真实页面及 replay：真实裁决、正确 first_blocking_gate/reason、无虚构工具/写入、DecisionTrace/why 可读；历史记录兼容 | 未开工 |
 | CP4 | 回归 allow 路径、B40 的场景重锚及既有 adoption/action 测试；不为通过而弱化负例 | 未开工 |
 
@@ -79,6 +79,13 @@
 - `workspace_channel`：`handle_in("author_action")` 命中 conflict 时返回 author-safe `{:error, %{reason: :idempotency_payload_conflict}}`，记 `channel.author_action.error`，不广播 turn_result、不进入 dispatch。
 - 测试：纯函数同键异 payload conflict；真实 channel（注入 persistence）同键同 payload duplicate、异 payload 拒绝且 `author_action_receipts` 只有一条原回执、无第二次 turn_result。
 - 边界：payload digest 不包含服务端生成的 input_id；历史回执无 digest 只能按旧 duplicate 语义，无法追溯其原始 payload（已知兼容边界）。
+
+## 10. CP2 进展：reply_only 统一裁决（2026-10-31）
+
+- `NovelDomain.OrchestratorDecision`：新增 `:reply_only` 类型与 truthfulness 约束 `no_action_executed/no_behavior_opened/no_write`；新增确定性工厂 `reply_only(turn_id, frame_ref, reason_codes)`（不调用模型、不产生 MicroPlan/批准动作/gate 结果）。
+- `DialoguePlanningService.finalize_judgment_reply`：判断 `action == "reply"` 时构造 reply_only decision，trace 写入后挂 `decision_trace_ref=trace.trace_id`，并以 `TurnResultBuilder.build(frame, trace_summary, candidates, decision)` 投影到 TurnResult/orchestrator_decision/truthfulness。
+- 测试：`dialogue_planning_service_test` 简单对话断言 `orchestrator_decision.decision_type == :reply_only`、`decision_trace_ref == trace_summary.trace_ref`、truthfulness decision_type 同源；全量 mix 1046/0、credo 0 issues。
+- 未完成（CP2 剩余）：awaiting_author/capability_gap 出口未映射（不能一律伪报 reply_only）；六个 agent run flow 与 TurnExecutionService 的 open_behavior/slot/MissingPolicy 统一进门未做；Replay/Why 对 reply_only decision 的消费断言与历史无 decision 记录兼容未做。
 
 ## 4. 非目标
 

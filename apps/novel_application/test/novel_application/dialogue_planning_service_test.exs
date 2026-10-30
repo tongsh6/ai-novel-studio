@@ -66,6 +66,13 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert turn_result.frame_summary.frame_type == :casual_reply
     assert turn_result.agent_run.run_id == run.run_id
     assert turn_result.truthfulness.tool_called == false
+    # B43 CP2：普通 reply 回合也产生统一 reply_only 裁决，trace/结果同源。
+    assert turn_result.orchestrator_decision.decision_type == :reply_only
+
+    assert turn_result.orchestrator_decision.decision_trace_ref ==
+             turn_result.trace_summary.trace_ref
+
+    assert turn_result.truthfulness.decision_type == :reply_only
 
     # 收束：判断已终结 → 下一迭代 complete（0 调用）
     merged = Map.merge(context_result.stage_state, judgment_result.stage_state)

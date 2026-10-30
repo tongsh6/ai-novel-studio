@@ -13,6 +13,7 @@ defmodule NovelDomain.OrchestratorDecision do
           | :fail_with_recovery
           | :allow_tool
           | :allow_agent_run
+          | :reply_only
           | :replay_existing
   @type decision_status :: :decided | :failed | :emitted
 
@@ -94,6 +95,7 @@ defmodule NovelDomain.OrchestratorDecision do
     fail_with_recovery: ["no_action_executed", "system_recovery_needed"],
     allow_tool: ["tool_dispatched", "result_not_adoption"],
     allow_agent_run: ["agent_run_created", "internal_steps_require_regate"],
+    reply_only: ["no_action_executed", "no_behavior_opened", "no_write"],
     replay_existing: ["no_action_executed", "reuse_recorded_decision"]
   }
 
@@ -103,5 +105,33 @@ defmodule NovelDomain.OrchestratorDecision do
   @spec truthfulness_constraints(t()) :: [String.t()]
   def truthfulness_constraints(%__MODULE__{} = decision) do
     Map.get(@truthfulness_by_type, decision.decision_type, [])
+  end
+
+  @doc """
+  B43 CP2：无业务执行的普通回复统一裁决（ADR-0031 R2=A）。
+
+  确定性构造，不调用模型、不产生 MicroPlan/批准动作/gate 通过记录；DecisionTrace
+  由调用方关联（decision_trace_ref）。作者可见回复本身仍来自真实判断响应。
+  """
+  @spec reply_only(String.t(), String.t(), [String.t()]) :: t()
+  def reply_only(turn_id, frame_ref, reason_codes \\ ["reply_only_no_execution"])
+      when is_binary(turn_id) and is_binary(frame_ref) do
+    %__MODULE__{
+      decision_id: NovelFoundation.ID.unique("decision"),
+      turn_id: turn_id,
+      frame_ref: frame_ref,
+      decision_type: :reply_only,
+      decision_status: :decided,
+      approved_actions: [],
+      rejected_actions: [],
+      downgraded_actions: [],
+      required_author_action: nil,
+      first_blocking_gate: nil,
+      reason_codes: reason_codes,
+      turn_result_policy: %{
+        truthfulness_constraints: Map.fetch!(@truthfulness_by_type, :reply_only)
+      },
+      gate_results: []
+    }
   end
 end
