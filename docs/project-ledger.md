@@ -1284,3 +1284,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **AU10-FAILED CP0 blocked**：盘点 ExportService 的 nothing_to_export/File 写失败与前端 exportError/FAILED task_state；真实页面触发缺少可控入口（空作品无导出按钮、原生目录不可控、无写失败代理），不新增验收开关；当前任务切 AU10-MATRIX。
 
 - 2026-10-31 — **AU10-MATRIX CP0**：现役 card_type=candidate_set/confirmation_card/result_card+DefaultCard 兜底；动作成功/失败/重复/禁用/过期/跨作品与视口矩阵已盘；当前 HEAD AU04/AU09 刚 PASS，其余历史证据待 scoped 复跑；未改产品代码。
+
+- 2026-10-31 — **AU10-MATRIX done**：未知卡告警在 wire schema 校验层已存在、DefaultCard 容错有测试；当前 HEAD AU04/AU09 动作链 PASS；disabled/stale/ttl/history/cross-work/视口历史证据未全量重跑，登记 stale 残差；无产品修复/不恢复旧卡集合；当前任务切 UA01-PROMPT-T3T5。

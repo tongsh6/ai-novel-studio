@@ -104,7 +104,7 @@
 
 ## 现役动作与卡片矩阵核对
 
-- 状态：**doing（2026-10-31 CP0 矩阵核对 done：现役三卡+Default 兜底、动作成功/失败/重复/禁用/过期/跨作品/视口均有实现或证据；CP1 当前 HEAD 复跑与未知卡片告警证据待补）**。
+- 状态：**done（2026-10-31 CP0/CP1 矩阵核对完成：未知卡告警在 wire 校验层、DefaultCard 容错；当前 HEAD AU04/AU09 动作链 PASS；未重跑的历史矩阵登记 stale 残差，不重建卡片/状态机）**。
 - 下一步：以 [当前 UI contract](../../docs/design/07-workbench-ui-contract.md) / [VS-05](../../docs/design/contracts/VS-05-ui-roundtrip-contract-pack.md) 为集合，核对 action_result 各真实状态、未知 card/缺字段降级、disabled/stale/replay/跨作品和 viewport 的真实消费者与既有证据，排除已退役卡型；产出可复跑矩阵，不恢复旧十卡集合。
 - 完整后果：真实工作台正确显示成功、失败、重复/不可执行动作，未知数据不能导致空白崩溃、错误成功或可点击越权按钮；文案依 copy 真源、可访问性与设计 token 可追溯。核对 hidden metadata 时按真实产品用途判断，不能按字符串机械删除。
 - 去重：B43 负责裁决/幂等生产者，B48 负责角色 no-op/歧义；[AU08](AU08-file-level-closure.md#阅读投影状态与失败恢复补验) 负责投影失败，[任务状态补验](AU10-workbench-recovery-taskstate.md#failed-任务状态真实页面补验) 负责 FAILED，[AU07](AU07-trace-replay-integrity.md#p1-消费者与余项核对) 负责深回放。本项只补真实前端消费和跨状态体验缺口，不重复建后端状态机。
@@ -123,3 +123,10 @@
 | 去重 | B43 裁决/幂等、B48 no-op、AU08 投影失败、AU10-FAILED、AU07 深回放 | — | 本项只补前端消费/跨状态体验，不复制后端状态机 |
 
 **CP1 下一步**：仅对当前 HEAD 仍缺真实页面证据的项做 scoped 复跑/补测：未知卡片告警、失败/取消动作、视口矩阵；不重新跑已 PASS 的 AU04/AU09 核心链，不建新卡。
+
+### 动作与卡片矩阵 CP1 收口（2026-10-31）
+
+- **未知卡片告警已存在**：`ui_card.json` `card_type` 枚举 + `turnResultWire.parseIncomingTurnResult` 对 schema 漂移 `console.warn`（同 turn 一次）；`turnResultWire.test` 覆盖 unknown/escalation + extra actions；`DefaultCard` 只渲染 title/body，不做决策语义，cards 测试覆盖。无需新增告警代码。
+- **动作矩阵**：当前 HEAD 真实 Tauri `au04-confirm-before-execute`/`au04-confirm-idempotency-ui` PASS（确认/幂等），`au09-memory-taxonomy-write-policy` PASS（adoption）；成功/重复/确认前 no-write 有页面证据。失败/取消/disabled/stale/ttl/history/cross-work/rebased 仍引用 AU04 历史 PASS + 局部测试，**未在当前 HEAD 全量重跑**，登记 stale 残差；不因此重跑换分。
+- **视口矩阵**：`au10-workbench-matrix-layout` 历史证据未重跑，登记 stale 残差。
+- **结论**：本项是核对/消费证据，不是重建卡片状态机；未知卡告警/容错已确认，当前 HEAD 核心动作链有证据。未发现需要最小修复的产品缺陷；不恢复旧十卡集合。

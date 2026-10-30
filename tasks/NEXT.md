@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU10-MATRIX | CP0 done：三卡+Default、动作状态/跨作品/视口矩阵已核；CP1 只补未知卡告警、失败/取消动作、视口等当前 HEAD 缺口 | [原任务小节](slices/AU10-file-level-closure.md#现役动作与卡片矩阵核对) |
+| UA01-PROMPT-T3T5 | 按当前单调用及 ADR-0031 核对修订尾部、finding 保真与计划面板 N-NARR；按现役消费者接续 | [原任务小节](slices/UA01-agentic-loop-prompt-hardening.md#t3-t5-当前语义审计与承接) |
 
 ## 后续候选
 
@@ -14,7 +14,6 @@
 |---|---|---|
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B48 | 无变化普通说明、真正歧义才追问；依赖 B43 裁决同源，完成四场景验收 | [原任务](slices/B48-character-revision-noop-and-ambiguity.md) |
-| UA01-PROMPT-T3T5 | 按当前单调用及 ADR-0031 核对修订尾部、finding 保真与计划面板 N-NARR；按现役消费者接续 | [原任务小节](slices/UA01-agentic-loop-prompt-hardening.md#t3-t5-当前语义审计与承接) |
 | B71 | CP1 冻结 AgentRun 原生多轮 Request IR、工具/观察/候选与 provider 投影；先处理目标设计与现役 ADR 差异，不以现状降低目标 | [原任务](slices/B71-provider-message-fidelity.md) |
 | VS-00G | 核对 CP5e A2/A3 历史证据与当前版本，明确 scoped 补验；触发 C/记忆富化与 B39 协同 | [原任务](slices/VS-00G-fact-inventory-run.md) |
 | CA04-B15 | 核对卷蓝图增量后的三条 carry 行为、诚实缺席与未开放门；沿既有页面驱动补验 | [原任务小节](slices/CA04-carry-gap-closure.md#7-b15-卷蓝图增量回归) |
