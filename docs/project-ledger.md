@@ -1194,3 +1194,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B45 CP2 首批 schema 实施**：turn_result_v3 新增 optional orchestrator_decision（decision_id/type/status/gate/required_action/trace_ref），codegen 重放生成 typed TS；turnResultWire 测试合法 reply_only 通过、未知 decision_type 产生漂移 issue；frontend 638/638、typecheck、全量 backend mix 1048/0。trace_summary/truthfulness、ledger enum、agent_run_state 仍 todo。
 
 - 2026-10-31 — **B45 CP2 codegen 本地 $ref + ledger 枚举**：codegen-schemas 生成前解析同树本地 ref（环检测），ledger_entry.ledger 由 z.any 变 z.enum，v3 ui_cards/candidate 获得 typed 形状；新增 LedgerEntrySchema 合法/未知账名测试；frontend 640/640、typecheck、backend mix 1048/0。trace_summary/truthfulness、agent_run_state、CP3 仍 todo。
+
+- 2026-10-31 — **B45 CP2 trace/truthfulness typed**：v3 trace_summary/truthfulness 已知键 typed、additionalProperties 保留扩展；生成物与 barrel 继承；前端测试合法键通过、tool_called 类型错误拒绝；frontend 642/642、typecheck、backend mix 1048/0。agent_run_state/legacy/CP3 仍 todo。

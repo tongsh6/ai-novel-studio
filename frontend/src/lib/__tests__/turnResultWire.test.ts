@@ -51,6 +51,24 @@ describe("validateTurnResultPayload", () => {
     expect(validateTurnResultPayload(payload)).toEqual([]);
   });
 
+  it("B45 CP2：trace_summary/truthfulness 已知键 typed 校验通过", () => {
+    const payload = {
+      ...validPayload,
+      trace_summary: { decision_type: "reply_only", trace_ref: "trace_1" },
+      truthfulness: { tool_called: false, production_write_performed: false },
+    };
+    expect(validateTurnResultPayload(payload)).toEqual([]);
+  });
+
+  it("B45 CP2：truthfulness 已知键类型错误被拒绝", () => {
+    const payload = {
+      ...validPayload,
+      truthfulness: { tool_called: "yes" },
+    };
+    const issues = validateTurnResultPayload(payload);
+    expect(issues.some((issue) => issue.path.startsWith("truthfulness"))).toBe(true);
+  });
+
   it("B45/B43：未知 decision_type 产生 path 漂移 issue，不冒充通过", () => {
     const payload = {
       ...validPayload,

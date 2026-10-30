@@ -508,7 +508,75 @@
     },
     "trace_summary": {
       "type": "object",
-      "description": "脱敏 trace 摘要（ADR-0014）。"
+      "description": "脱敏 trace 摘要（ADR-0014）。B45 CP2：已知按键 typed，未知扩展键保留（additionalProperties=true）。",
+      "properties": {
+        "trace_ref": {
+          "type": "string"
+        },
+        "decision_type": {
+          "type": "string"
+        },
+        "frame_type": {
+          "type": "string"
+        },
+        "dialogue_goal": {
+          "type": "string"
+        },
+        "no_tool_reason": {
+          "type": "string"
+        },
+        "context_refs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "has_context": {
+          "type": "boolean"
+        },
+        "orchestrator_decision": {
+          "type": "string"
+        },
+        "decision_id": {
+          "type": "string"
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "plan_ref": {
+          "type": "string"
+        },
+        "plan_goal": {
+          "type": "string"
+        },
+        "plan_actions": {
+          "type": "integer"
+        },
+        "first_blocking_gate": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "gate_order_version": {
+          "type": "string"
+        },
+        "gate_results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "recovery": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
     },
     "projection_refs": {
       "type": "array",
@@ -560,7 +628,46 @@
     },
     "truthfulness": {
       "type": "object",
-      "description": "诚实性事实（工具是否调用、是否写入等）。"
+      "description": "诚实性事实（工具/写入/裁决）。B45 CP2：已知按键 typed，未知扩展键保留。",
+      "properties": {
+        "tool_called": {
+          "type": "boolean"
+        },
+        "tool_status": {
+          "type": "string"
+        },
+        "tool_name": {
+          "type": "string"
+        },
+        "artifact_adopted": {
+          "type": "boolean"
+        },
+        "production_write_performed": {
+          "type": "boolean"
+        },
+        "durable_behavior_opened": {
+          "type": "boolean"
+        },
+        "execution_blocked": {
+          "type": "boolean"
+        },
+        "decision_type": {
+          "type": "string"
+        },
+        "first_blocking_gate": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
     },
     "produced_at": {
       "type": "string"

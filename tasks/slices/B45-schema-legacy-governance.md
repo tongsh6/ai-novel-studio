@@ -1,6 +1,6 @@
 # B45：Schema 与输出契约治理——现役、历史兼容与真实消费者
 
-- 状态：**doing（2026-10-31 CP0/CP1 done；CP2 partial：v3 orchestrator_decision + codegen 本地 $ref 解析 + ledger 枚举 typed；trace_summary/truthfulness、agent_run_state 与 CP3 未做）**。
+- 状态：**doing（2026-10-31 CP0/CP1 done；CP2 partial：v3 orchestrator_decision + trace_summary/truthfulness typed + codegen 本地 $ref + ledger 枚举；agent_run_state 与 CP3 未做）**。
 - 登记日期：2026-10-27；来源：v2 `$ref` 缺失导致 `z.any()`、旧 enum 与现行 v3 不一致、部分生成物无法提供有效校验。
 - 上游：[B49](B49-core-semantics-and-adr-review.md)、[B06 五账 schema](../2026-10-27-design-to-execution-reconciliation.md)、[DS01](DS01-decision-surface-schema-gate.md)、[schemas/README](../../docs/design/schemas/README.md)。
 
@@ -30,7 +30,7 @@
 |---|---|---|
 | CP0 | 全量 `$ref`/enum/生成物盘点；交付 §7 字段/状态→producer→转换→校验→consumer→历史兼容映射与首批三链修改清单；逐项处理13个部分承接schema，保留legacy/现役/血缘/any分类 | **done（2026-10-31，§8）**：38 份 schema/$ref/生成物/消费者全量盘点（artifact）；三链字段级矩阵；13 部分枚举逐项处置；active/legacy/any/未来预留分类明确 |
 | CP1 | 冻结逐类处置与错误矩阵：真实所需类型含 reply_only、schema/opaque/local contract、失败与空结果区别、动作/旧字段兼容；与 B43/B06 联动，不盲补旧架构 | **done（2026-10-31，§8.7）**：冻结四类处置（active-typed/active-opaque/legacy-frozen/future-reserved）与 invalid≠empty、unknown enum、历史缺字段兼容规则；CP2 按此实施 |
-| CP2 | 实施必要 schema/codegen/registry/读取兼容及真实边界校验；typed map/opaque 不免检，悬空 schema 不冒充已校验；不让 legacy 进入当前 wire 误校验 | **partial（2026-10-31，§9）**：v3 optional orchestrator_decision typed；codegen 解析同树本地 $ref → ledger 枚举/v3 ui_cards/candidate typed；前端非法值测试；trace_summary/truthfulness/agent_run_state 未做 |
+| CP2 | 实施必要 schema/codegen/registry/读取兼容及真实边界校验；typed map/opaque 不免检，悬空 schema 不冒充已校验；不让 legacy 进入当前 wire 误校验 | **partial（2026-10-31，§9）**：v3 optional orchestrator_decision typed；trace_summary/truthfulness 已知键 typed（additionalProperties 保留扩展）；codegen 解析本地 $ref → ledger 枚举/ui_cards/candidate typed；agent_run_state/CP3 未做 |
 | CP3 | codegen/新旧 v3/内部输出回归与负例，真实前端/模型消费证据，文档/README 更新；旧兼容测试逐项归属，运行时缺口不由纯 schema 通过代签 | 未开工 |
 
 ## 8. CP0 盘点记录（2026-10-31）
@@ -134,7 +134,8 @@
 - 前端 `turnResultWire` 测试：合法 reply_only decision 无 issue；未知 decision_type 产生 `orchestrator_decision` 路径漂移 issue，不冒充通过；全量 frontend 638/638、typecheck 通过。全量 backend mix 1048/0（schema 变更只由前端消费）。
 - codegen（同轮）：`frontend/scripts/codegen-schemas.mjs` 生成前解析同树本地 `$ref`（按文件相对路径、环检测）；不可解析/跨域引用保持原样，不伪造。重放后 `ledger_entry.ledger` 从 `z.any()` 变 `z.enum([...])`，v3 的 ui_cards/candidate_directions 获得 typed 形状（barrel 仍组合收紧）；v2 双前缀 broken ref 按 legacy 继续降级，不静默修数据。
 - 测试：LedgerEntrySchema 合法 arc 通过、未知 `budget` 被拒绝；全量 frontend 640/640、typecheck 通过。后端未改，全量 mix 1048/0。
-- 未完成：trace_summary/truthfulness typed 局部契约（当前仍 open object）、agent_run_state schema（DS01 §9 owner）、v2/phase_next_action_compat legacy 的最终处置、错误/历史兼容运行时负例与 CP3 真实消费证据。
+- trace_summary/truthfulness typed（同轮）：v3 schema 为两者声明已知键类型（trace_ref/decision_type/decision_id/reason_codes/tool_called/production_write_performed/execution_blocked 等），`additionalProperties=true` 保留后端扩展键；生成物 typed，barrel 继承。前端测试：已知键合法通过、truthfulness.tool_called 类型错误被拒绝；全量 frontend 642/642、typecheck、backend mix 1048/0。
+- 未完成：agent_run_state schema（DS01 §9 owner）、v2/phase_next_action_compat legacy 最终处置、错误/历史兼容运行时负例与 CP3 真实消费证据。
 
 ## 4. 非目标
 
