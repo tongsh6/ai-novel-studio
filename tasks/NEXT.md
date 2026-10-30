@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B46 | CP0 核对 pending 事实源、版本和恢复；沿原 slice 完成持久待处理入口及跨会话采纳 | [原任务](slices/B46-persistent-adoption-inbox.md) |
+| B46 | CP0 done：pending 事实源/读模型/session scoping 已核；CP1 work-wide adoption_inbox 读模型与跨会话源 turn 取回待做 | [原任务](slices/B46-persistent-adoption-inbox.md) |
 
 ## 后续候选
 

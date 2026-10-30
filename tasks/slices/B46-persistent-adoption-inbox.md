@@ -1,6 +1,6 @@
 # B46：持久 Adoption Inbox 与待处理视图
 
-- 状态：**todo（AU05/AU09 统一承接，未开工）**。
+- 状态：**doing（2026-10-31 CP0 盘点完成：pending 事实/读模型/session scoping/动作恢复路径已核；work-wide inbox 读模型与跨会话处理待做）**。
 - 登记日期：2026-10-27；来源：待处理项主要依赖 transcript/runtime pending state，重开或换会话后缺少集中恢复与处理入口。
 - 上游：[AU05](AU05-file-level-closure.md)、[AU09](AU09-file-level-closure.md)、[AU09-archive-stats-current](AU09-archive-stats-current.md)、[B31](B31-author-reply-run-binding.md)。
 
@@ -34,6 +34,29 @@
 | CP1 | 持久读模型与恢复：按 work 获取当前 pending、来源和版本，支持关闭重开与新会话 | 未开工 |
 | CP2 | 档案待审核视图与现有候选卡/动作接通；处理后消失，confirmed/history 分开 | 未开工 |
 | CP3 | accept/discard/edit_then_accept、重复提交、跨作品、刷新与恢复矩阵；真实 Tauri 证据 | 未开工 |
+
+## 6. CP0 盘点记录（2026-10-31）
+
+**真实事实源（复用现有存储）**：
+- assistant `interactions.content.turn_result.adoption_state.pending/resolved` 是唯一待处理/已处理事实；采纳七态与 artifact revision 仍在 turn_result/回执中，无独立 pending 表。
+- `WorkSessionRepo.adoption_state(work_id, session_id)` 按 **work+session** 过滤 assistant interactions，pending = 所有 pending 条目去掉 resolved artifact_id，返回 pending_adoptions / pending_adoption_turn_results / resolved_adoptions；不跨 session。
+- `WorkSessionService.resume/1` 只取 **active session** 的 adoption_state；`show/2` 取指定 session，read-only session 隐藏 pending；Channel join 恢复也按 active/requested session 的 turn_results。
+- 前端 `pendingAdoptionTurnResults` → `WorkspaceChat` 候选卡/待处理视图；动作走 adopt/discard/edit_then_accept，channel 从当前 socket/transcript 的 source turn 找回 artifact 并调 adoption workflow；idempotency 依赖 receipt key/revision，已有幂等测试。
+- 现有持久结构（interactions JSON）**足够**表达待处理、来源 turn、版本与 resolved；不需要新建 inbox 表。
+
+**真实缺口**：
+1. 读模型 session-scoped：重开同 session 可恢复；**新会话看不到旧会话 pending**，不满足“跨会话集中恢复”。
+2. 动作入口依赖当前 socket/transcript 的 source turn；新会话即使能看到列表，也缺少服务端按 source turn ref 取回并继续采纳的通路。
+3. 待处理与 resolved/history 已在同一读模型分流；但无 work-wide 历史视图/来源 session 标注。
+4. 缺来源/版本/revision 时目前会由 adoption workflow 阻断（不冒充当前有效），但需要在 inbox 读模型层显式表达，不能静默丢弃。
+
+**CP1 冻结方向（拟，需实现验证）**：
+- 复用 interactions JSON，新增 work-wide 只读查询 `adoption_inbox(work_id)`：pending（含 source_session_id/source_turn_ref/artifact_id/revision）+ resolved（仅展示，不提供动作）；仍用 resolved artifact_id 去重。
+- resume/show snapshot 增加 inbox 字段或让 pendingAdoptionTurnResults 在 active session 为空时补 work-wide pending（保留 session 语义与历史读取，不改变 read-only 限制）。
+- 动作：服务端按 source_session_id + source_turn_ref 从持久 interactions 取回 turn_result/tentative artifact，再走既有 adoption workflow；不复制状态机、不自动采纳。
+- 测试：同 session 重开、全新 session、跨作品隔离、来源缺失/revision 失效、重复提交幂等、处理后从 inbox 消失；真实页面 driver 由 B46 CP3 定义。
+
+**未决**：动作是否需要前端先切换 source session（实现成本低）还是服务端跨 session 直接采纳（体验好、改动大）；CP1 先按“服务端按 source ref 取回，不要求切换”做可行性验证，若来源契约不足则登记 blocker 并给作者选项。
 
 ## 4. 非目标
 
