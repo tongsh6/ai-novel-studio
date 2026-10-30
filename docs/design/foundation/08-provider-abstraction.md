@@ -856,40 +856,78 @@ Profile：`local` = `:lmstudio` / `:strata`（同一套本机推理后端）；`
 
 ---
 
-## 26. Provider 多轮消息保真与请求投影（2026-10-30 登记，Proposed）
+## 26. AI Novel Studio 原生多轮创作请求体（2026-10-30 目标设计，Proposed）
 
-> 来源：作者要求对照 Codex、Claude Code、dsh 的真实多轮请求，评估本项目请求体的完善方向。本节约束消息与 provider 投影，不替代 VS-00H 的系统身份、VS-00I 的前缀稳定契约、B26 的单调用协议或 B39 的统一求证链。执行任务为 `tasks/slices/B71-provider-message-fidelity.md`；当前仅登记设计与证据，未 Accepted、未实现。
+> 来源：作者要求以“优秀且符合项目调性，不为现状妥协”为目标，重新对照 Codex、Claude Code、dsh 的真实多轮请求。本节是目标架构，不是现有 giant prompt 的最小修补，也不以现役 provider 的最低能力反向限定设计。执行任务为 `tasks/slices/B71-provider-message-fidelity.md`；当前未 Accepted、未实现。现役 B26/B39/VS-00I 是迁移与 ADR 对账输入，不是降低目标的理由。
 
-### 26.1 已核实事实与问题边界
+### 26.1 对照结论：吸收协议能力，不复制代码 Agent 形态
 
-- 外部真实多轮样本保留原生 `assistant` 工具调用、`tool` / `tool_result` 结果、消息顺序和 provider 特定推理元数据；脱敏样本位于 `artifacts/client-http-bodies/`。
-- 本项目真实请求通常只有 `system + user`，一次契约纠错会形成 `system + user + user`。证据为 `log/llm-calls/stage/2026-10-29.jsonl` 第 8–9 行；这不等于真实 assistant 历史已完整进入请求。
-- `NovelAgent.Provider.normalize_messages/1` 当前只保留 `role` 和字符串 `content`，会丢弃 `tool_calls`、`tool_call_id`、结构化 content blocks、`reasoning_content`、`cache_control` 等字段，因而不能无损投影多轮消息。
-- 判断任务的共同规则、作品状态、会话摘要、操作目录和作者原话主要由一个大型 `user` 文档承载。 VS-00I 已定义 L0–L4 的稳定度与顺序，本设计不重新发明一套提示词骨架，也不移动其中有判例支撑的 L4。
-- Strata 自动前缀缓存已实际命中：上述日志第 9 行 `cached_tokens=19037`。因此目标是保持并扩展可证明的缓存收益，不是假定“当前没有缓存”后全局增加缓存字段。
+| 参照 | 值得吸收的真实能力 | 不能直接照搬的部分 |
+|---|---|---|
+| Codex | 有序 run input、assistant/tool 输出连续回流、压缩检查点、原生推理句柄 | 代码执行与壳工具语义；把服务端 response id 当运行事实源 |
+| Claude Code | 类型化 content blocks、`tool_use/tool_result`、显式缓存断点、结构化推理配置 | 通用编码工具与庞大固定系统包；缺少作者采纳和作品权威分层 |
+| dsh | 清晰的 assistant/tool 多轮消息、DeepSeek 推理回放、流式 usage | 没有小说证据引用、tentative artifact、作者裁决与阅读投影 |
+| 本项目目标 | **统一 AgentRun 的原生多轮消息循环 + 求证证据链 + 作者主权 + 可回放** | 不再以单个巨型 `user` 文档模拟全部会话结构 |
 
-### 26.2 消息保真原则
+本项目真实日志中常见的 `system + user` 以及纠错时的 `system + user + user`，只能说明单次结构化调用可用，不能作为目标消息协议。`normalize_messages/1` 丢弃原生工具字段是结果，不是需要保留的约束。
 
-1. 内部消息表达不得再把所有内容压成 `role + string content`；需要在 CP1 按真实消费者确定最小无损消息契约及字段，不在本设计登记时提前冻结 DTO。
-2. Provider adapter 负责各自序列化：OpenAI 兼容通道的 `assistant.tool_calls` / `tool.tool_call_id`，Anthropic 的 content blocks / `tool_use` / `tool_result` / `cache_control`，DeepSeek 的 `reasoning_content` 等不得被通用归一化提前抹除。
-3. 不支持的字段不得跨 provider 盲发。Strata、LM Studio、DeepSeek、Anthropic 和其他 OpenAI 兼容服务分别经过能力与黄金请求矩阵验证。
-4. 作者原话、Provider 返回的 artifact 字段及其引用关系保持字节保真；消息重构不得修改 I1/I2/I3、N-NARR、作者采纳和 GateOrder 边界。
-5. 推理与签名元数据只在确有原生多轮消费者时按 provider 保存和回放；不得把 CoT/thinking 当作者可见叙事，也不得发明跨 provider 的统一 reasoning 格式。
+### 26.2 核心决断：AgentRun 是事实源，HTTP body 是投影
 
-### 26.3 对话、重试与上下文投影
+1. **不是 writer 内另起一个工具循环，而是统一 AgentRun 自己成为原生多轮会话。** Provider 的 assistant/tool 消息只是 run 内真实计划、调用、观察、校验和候选的投影；Orchestrator、预算、权限、恢复和作者活动流仍只有一套。
+2. **内部采用丰富的 Authoring Run Transcript / Request IR，不采用最低公分母字符串消息。** 它保留消息来源、角色、顺序、工具调用、观察覆盖、版本、引用、校验结果、候选和检查点；adapter 只做无损投影。
+3. **每个 provider 请求可由 run 事实重建。** Provider 私有 response id、加密推理和签名只是优化或必需回放句柄，不能替代项目自己的 trace/replay；replay 默认不重调模型。
+4. **最小 Base + 按需观察取代全知 giant prompt。** Base 只含不可猜测的作者意图、写作坐标、当前目标、权限、预算、必要版本与最小事实；其余作品知识通过只读工具观察进入后续消息。
+5. **作者主权是协议结构，不是提示词口号。** 模型工具只能读取、计划、提问、报告缺口或生成/修订 tentative 候选；不存在 `adopt`、`canon_write` 或自我批准工具。
 
-- 稳定产品规则、动态作品材料、真实对话和本轮作者输入应有明确的消息/段落归属；具体投影继续服从 VS-00H、VS-00I 和现有 ContextAssembler，不新增第二套上下文真源。
-- 契约纠错若声明为多轮，应保留真实 assistant 响应及其原生工具调用，再追加纠错；若采用无状态重试，应重新构造完整请求并明确记录策略，不能用连续 `user` 消息冒充完整多轮历史。
-- 现有 B26 单调用 `tool_choice: auto`、封装探索入口与调用计数不变。本设计不新增原生探索工具入口，不建立 writer 内第二套工具循环；B39 的观察继续经统一 AgentRun 和既有请求构造进入后续调用。
-- 不迁移到 Responses API、不追求工具数量、不全局增加 `parallel_tool_calls` 或 `client_metadata`，也不把全量历史和作品档案无差别回送。
+### 26.3 目标请求的逻辑组成
 
-### 26.4 缓存与流式兼容
+每次请求由稳定信封、运行上下文和原生消息序列组成：
 
-- 保持同调用点的稳定规则、工具 schema 和可复用上下文字节前缀稳定，易变版本与状态按 VS-00I 置后；不得为了缓存移动 L4 或改写作者/产物字节。
-- Anthropic 的显式断点只按 VS-00I 的既有矩阵细化；OpenAI Responses 的 `prompt_cache_key` 仅在未来真实消费者存在时评估，不发送到其他通道。
-- 对确认支持的 OpenAI 兼容通道可补 `stream_options.include_usage: true`；现有流解析已能消费 usage。Strata 当前已有 usage 与缓存命中，此字段属于兼容性增强而非紧急修复。
+```text
+model / stream / usage / sampling / provider-native reasoning & cache options
+system: 产品宪法 + 当前 run 角色与输出协议
+messages:
+  application_base（非作者冒充，含 run/work/goal/permission/budget/base refs）
+  最近真实 user/assistant 对话或显式 compaction checkpoint
+  本轮作者原话（独立 user 消息，字节不变）
+  assistant: 作者可见叙事 + tool_call(s)
+  tool: 观察或校验结果，按 call_id 关联
+  assistant: 后续计划、探索、修订或 tentative artifact tool_call(s)
+  tool: 观察/校验结果
+  …直到 ready、普通回复、ask_author、诚实失败或预算停止
+tools: 按 run 角色提供的最小完整目录，不追求数量
+```
 
-### 26.5 验收方向
+具体要求：
 
-CP1 先形成真实消费者、消息字段、重试策略和 provider 投影矩阵及黄金请求；后续实现必须证明：多轮消息顺序和工具调用 ID 关联不丢失、重试语义与声明一致、未知字段不越界发送、稳定前缀与缓存不退化、观察与引用仍进入实际后续请求。局部 golden/unit 证据不能替代外部自动化驱动真实 Tauri 工作台的场景验收；完整验收同时执行架构门禁和 I1/I2/I3。
+- `application_base` 在内部有独立 provenance，投影时明确标为应用数据，不能伪装成作者新指令；作者原话永远单独保留。
+- 观察至少表达 `source refs / authority / version / coverage / omissions / next_offset / content`，未读、过期、失败和截断不得渲染成完整事实。
+- 工具校验失败作为该 tool_call 的原生失败结果回流，让模型在同一 run 修正；不再追加一个 `user` 消息冒充完整纠错历史。
+- 长会话压缩产生带省略范围、来源 refs 和版本的显式 checkpoint 消息，不做不可见截断；作者原文与 artifact 字节不因压缩被改写。
+- 普通文本、工具参数和观察内容各守来源边界；CoT/thinking 不进入作者可见叙事。
+
+### 26.4 工具与人机边界
+
+目标工具按职责分为：
+
+- **只读求证**：作品检索、章读取、档案读取、记忆召回及获授权的外部资料读取。
+- **计划与修订**：提出或修订 AgentPlan；工具结果只表示结构/权限校验，不等于执行批准。
+- **创作输出**：生成或修订 tentative artifact、质量复核、报告能力缺口；产物字段继续满足 I1 因果绑定。
+- **作者出口**：`ask_author` 或需要裁决/追加预算时结束当前机器消息链，由应用持久真实问题与可用动作。
+
+作者回答、选择、采纳、拒绝或追加预算开启新的授权边界和请求投影，不能把人类回答伪装成某个工具自动返回，也不让旧 tool_call 跨越不明授权状态继续执行。采纳后的事实版本、回执与 refs 进入下一 run 的 Base；模型从不直接执行采纳。
+
+### 26.5 Provider 投影与能力门槛
+
+- Chat Completions：投影为 `assistant.tool_calls` 与 `tool.tool_call_id`；DeepSeek 仅按原生要求回放 `reasoning_content`。
+- Anthropic Messages：投影为 content blocks、`tool_use/tool_result` 和原生缓存断点；需要的 thinking/signature 只作 provider 私有回放数据。
+- Responses API：可投影完整 `input`、原生工具项与推理句柄；`previous_response_id` 只能作为优化，不能成为唯一会话事实源。
+- 完整 AgentRun 的必备能力至少包括原生多轮、工具调用与结果、流式解析、结构化输出和用量回收。缺少必备能力时必须显式降级到声明过的有限模式或拒绝路由，不能静默丢字段后仍宣称完整运行。
+- 稳定 system、工具 schema 和 Base 形成可缓存前缀；易变观察、作者输入与校验结果置后。缓存不得牺牲语义顺序、证据保真或作者边界。支持的流式通道发送 usage 选项，不支持者不盲发。
+
+### 26.6 目标验收与迁移纪律
+
+CP1 必须先冻结目标 contract pack、消息/工具/观察/校验/候选/检查点语义、provider 投影矩阵和与现役 ADR 的差异；若改变 B26 或 ADR-0030 的现役决定，必须明确修订或 supersede，不能在代码中静默绕行。
+
+至少保留首轮、观察后、校验失败后、tentative 候选后、作者边界后和压缩后六类黄金请求。真实验收必须由外部自动化驱动当前 Tauri 工作台，证明模型按需求证、观察进入下一真实请求、候选仍 tentative、作者采纳才改变 canon、恢复/replay 不调模型，并执行 I1/I2/I3、N-NARR、架构与静态扫描门禁。局部 adapter 或 golden 测试不得替代完整场景。
 

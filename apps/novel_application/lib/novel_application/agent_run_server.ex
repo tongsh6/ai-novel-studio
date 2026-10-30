@@ -3147,6 +3147,7 @@ defmodule NovelApplication.AgentRunServer do
     :exploration_observed,
     :evaluation_made,
     :mission_derived,
+    :preparation_decided,
     :gate_decided,
     :tool_started,
     :tool_completed,

@@ -216,6 +216,13 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert_receive {:agent_event, :gate_decided, gate_event}, 500
     assert gate_event.summary =~ "系统已完成下一步执行裁决"
 
+    # B39 CP1d/A0：Base 已足够、计划无探索步时准备判断直接 ready，不强制调用工具。
+    assert_receive {:agent_event, :preparation_decided, prep_event}, 500
+    assert prep_event.payload.status == :ready_to_write
+    assert prep_event.payload.reason == :base_sufficient
+    assert prep_event.payload.observation_count == 0
+    assert prep_event.payload.mission_present == true
+
     assert_receive {:agent_event, :tool_started, tool_started}, 500
     assert tool_started.summary =~ "正文写作能力"
     assert_receive {:writer_prompt, writer_prompt}, 500
@@ -1538,6 +1545,20 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       end)
 
     assert explore_event
+
+    preparation_events = for {:preparation_decided, event} <- events, do: event
+
+    assert Enum.any?(preparation_events, fn event ->
+             event.payload.status == :continue_exploration and
+               event.payload.tool == "archive_read"
+           end)
+
+    ready_event =
+      Enum.find(preparation_events, fn event -> event.payload.status == :ready_to_write end)
+
+    assert ready_event
+    assert ready_event.payload.reason == :observations_available
+    assert ready_event.payload.observation_count >= 1
 
     assert_receive {:writer_prompt, writer_prompt}, 1_000
     assert writer_prompt =~ "已完成观察"

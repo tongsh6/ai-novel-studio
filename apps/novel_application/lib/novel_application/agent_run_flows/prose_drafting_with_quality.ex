@@ -68,6 +68,63 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     end
   end
 
+  # B39 CP1d/D3-A 最小准备判断：只在“继续求证 / 进入写作”之间做机械判断
+  # （缺口 replan/degrade/ask_author 留 CP2）。不调 provider、不按领域关键词插步。
+  defp emit_preparation_decision(
+         snapshot,
+         %AgentNextStepDecision{target_tool_ref: target} = decision
+       ) do
+    cond do
+      target in @exploration_step_targets ->
+        tool = target
+        query = Map.get(decision, :exploration_query)
+
+        emit_stage(
+          snapshot,
+          :preparation_decided,
+          "写前准备：继续按需读取当前作品材料。",
+          ["preparation_continue_exploration"],
+          ["explore:#{tool}"],
+          %{stage: :preparation_decided, status: :continue_exploration, tool: tool, query: query}
+        )
+
+      target == "prose_writing" ->
+        observations = Map.get(snapshot, :observations, [])
+        exploration_count = Enum.count(observations, &exploration_observation?/1)
+        mission = Map.get(stage_state(snapshot), :chapter_mission)
+
+        emit_stage(
+          snapshot,
+          :preparation_decided,
+          "写前准备判断：进入正文写作。",
+          ["preparation_ready_to_write"],
+          Enum.map(observations, &"observation:#{&1.observation_id}"),
+          %{
+            stage: :preparation_decided,
+            status: :ready_to_write,
+            reason: preparation_reason(mission, exploration_count),
+            observation_count: exploration_count,
+            mission_present: not is_nil(mission)
+          }
+        )
+
+      true ->
+        :ok
+    end
+  end
+
+  defp emit_preparation_decision(_snapshot, _decision), do: :ok
+
+  defp preparation_reason(nil, _count), do: :base_sufficient
+  defp preparation_reason(_mission, count) when count > 0, do: :observations_available
+  defp preparation_reason(_mission, _count), do: :base_sufficient
+
+  defp exploration_observation?(%AgentObservation{structured_payload: payload}) do
+    map_get(payload, :stage) == :exploration_observed
+  end
+
+  defp exploration_observation?(_observation), do: false
+
   defp next_step_result(decision, spec, meta) do
     if meta[:completion_without_goal],
       do: {:complete, decision},
@@ -1155,6 +1212,8 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   defp step_preconditions(_run), do: %{"prose_writing" => [:chapter_mission]}
 
   defp execute_tool_decision_step(run, sequence, spec, decision, observations, snapshot) do
+    emit_preparation_decision(snapshot, decision)
+
     with {:ok, plan} <- plan_from_decision(run, sequence, decision) do
       frame = frame(run, sequence, plan.plan_goal.summary)
       plan = %{plan | turn_id: frame.turn_id, frame_ref: frame.frame_id}
@@ -1811,6 +1870,8 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
        when target in @exploration_step_targets do
     {:execute,
      fn run, sequence, snapshot ->
+       emit_preparation_decision(snapshot, decision)
+
        ExplorationStep.execute(
          run,
          sequence,

@@ -1,61 +1,99 @@
-# B71：Provider 多轮消息保真与请求投影
+# B71：AI Novel Studio 原生多轮创作请求体
 
-- 状态：**todo（2026-10-30 登记；CP0 证据与设计登记完成，CP1 未开工）**。
-- 来源：作者要求抓取并对比 Codex、Claude Code、dsh 的真实多轮请求体，随后要求登记本项目请求体的完善任务与设计。
-- 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-provider-多轮消息保真与请求投影2026-10-30-登记proposed)。当前为 Proposed；登记不等于接受实现，CP1 仍需先冻结真实消费者和最小契约。
-- 关联：[B26](B26-single-call-judgment-protocol.md) 单调用协议、[B39](B39-evidence-seeking-authoring.md) 统一求证链、[VS-00I](../../docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md) 前缀稳定、[UA01-provider-execution-stream-unification](UA01-provider-execution-stream-unification.md) Provider 执行与流式边界。
+- 状态：**todo（2026-10-30 目标设计登记；CP0 对照分析完成，CP1 目标契约未开工）**。
+- 来源：作者先要求对照 Codex、Claude Code、dsh 的真实多轮请求，随后明确“设计一个优秀、符合项目调性的请求体，不为现状妥协”。本文件已据此替换此前偏向现役最小修补的方案。
+- 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计proposed)。当前为 Proposed；登记不等于 Accepted 或实现。
+- 对账输入：[B26](B26-single-call-judgment-protocol.md)、[B39](B39-evidence-seeking-authoring.md)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md)、[VS-00I](../../docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md)、[UA-01](../../docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md)。它们是迁移事实与可能需要修订的决策，不是降低目标设计的约束。
 
-## 1. 已核实问题与完整目标
+## 1. 重新对照后的核心问题
 
-真实外部多轮请求包含原生 assistant 工具调用、tool/tool_result 结果及有序历史；本项目 `normalize_messages/1` 仅保留 `role` 和字符串 `content`，真实契约纠错会形成 `system + user + user`。同时，大型 `user` 文档混合规则、作品材料、历史与作者原话。需要完善的是消息保真、重试语义和 provider 投影，而不是照抄外部工具的 API 或工具数量。
+当前请求把角色规则、作品状态、会话摘要、能力目录和作者输入压进一个大型 `user` 文档，`normalize_messages/1` 又只保留 `role + string content`。这能支撑单次结构化调用，却不能优秀地表达项目已经定义的 AgentRun、求证观察、工具结果、tentative artifact、作者裁决和恢复回放。
 
-完整目标：
+目标不是给现有请求补几个字段，而是：
 
-1. 用真实消费者驱动的最小无损消息契约替代有损归一化，保留当前调用需要的原生字段。
-2. 各 adapter 分别序列化 OpenAI 兼容、DeepSeek、Anthropic 请求，未知字段不跨通道发送。
-3. 明确多轮纠错与无状态重试的边界，不再用连续 `user` 消息冒充完整 assistant 历史。
-4. 保持 VS-00I 缓存纪律、B26 单调用协议和 B39 观察证据链；按实际兼容性补流式用量。
-5. 以黄金请求、真实 provider 请求和外部真实页面证据共同验收，不以结构样本或局部测试代签完整 slice。
+> **统一 AgentRun 本身成为原生多轮创作会话；每次 Provider HTTP body 都是该 run 的无损、可重建投影。**
 
-## 2. 非目标与依赖
+这不是 writer 内第二控制环。模型提出工具动作，Orchestrator 仍掌握执行裁决；观察、预算、权限、作者活动流和 trace 仍只有一套。Provider 私有 response id 或推理句柄不成为运行事实源。
 
-- 不改变 B26 单调用 `tool_choice: auto`，不恢复两段式。
-- 不新增原生探索工具入口，不建立 writer 内第二套工具循环；该能力继续服从 B39/ADR-0030 的 Deferred 边界。
-- 不迁移 Responses API，不全局增加 `parallel_tool_calls`、`client_metadata`、缓存或推理字段。
-- 不重写 ContextAssembler、VS-00H 身份或 VS-00I L0–L4；只处理消息保真和请求投影。
-- 不一次性回放全部历史、CoT 或作品档案，不把私有 thinking 展示给作者。
-- B39 的观察、Base/used refs 与统一 AgentRun 继续是求证真源；本任务若触碰其请求投影，必须与该链同批验证，不另立求证协议。
+## 2. 目标方案
 
-## 3. 开工七问
+### 2.1 Authoring Run Transcript / Request IR
 
-1. **Contract**：消费 `foundation/08-provider-abstraction.md` §26、VS-00H/VS-00I、UA-01 与 B26 单调用协议；CP1 固化当前消费者所需的最小消息/重试/projection 矩阵，不提前发明通用 DTO 全集。
-2. **Invariant**：消息顺序与工具调用 ID 关联保真；作者和 artifact 字节不被修补；I1/I2/I3、N-NARR、缓存前缀、权限、预算、采纳及 replay 边界不退化。
-3. **Boundary**：主要切 `novel_agent` 的消息与 adapter、`novel_application` 的当前纠错/请求构造；`novel_domain` 仅必要纯校验。不得直接改 Repo 或新增 provider 业务概念；web/frontend 仅复用真实主链，除非证明现有投影不足。
-4. **Consumer**：首个消费者是现有契约纠错请求及其 provider adapter；后续是实际多轮调用、B39 观察请求和 replay/Why 的证据消费。无真实消费者的 provider 字段不提前添加。
-5. **Proof**：三类 adapter 黄金请求、消息/tool_call_id 关联、重试链、未知字段拒绝、缓存/usage 与 I1/I2/I3；真实 provider 请求对账和外部 Tauri 场景缺一不可。涉及观察时证明 Base/观察进入后续真实请求且 used refs 未越界。
-6. **Acceptance Driver**：CP1 在 quality manifest 预注册后，复用 `scripts/tauri_slice_verify.sh` 和当前 WorkspaceChat，由外部自动化触发真实纠错/多轮场景并保存页面、日志、请求与持久化证据。故障替身只位于 test/support 或外部 harness；产品新增验收感知逻辑：**no**。
-7. **Exploration**：不新增小说要素或专用 packet，不开放第二探索入口。若改动 B39 请求投影，必须同批证明既有统一探索的观察回流、引用绑定和预算/权限，不能把本任务变成 writer 内 native 工具循环。
+建立丰富的内部运行 transcript 和请求中间表示，保留：
 
-## 4. Checkpoint 与完成标准
+- 消息来源、角色、顺序与作者/应用/模型 provenance；
+- 原生 assistant tool calls 与按 call_id 关联的观察、校验结果；
+- Base refs、观察 refs、版本、权威状态、覆盖与省略；
+- AgentPlan、tentative artifact、校验失败、作者出口和压缩 checkpoint；
+- provider 私有回放句柄与项目 canonical trace 的分离。
+
+不得再以最低公分母字符串消息作为内部上限，也不得让不支持某能力的 provider 反向决定整个项目的协议。
+
+### 2.2 目标消息流
+
+```text
+稳定 system（产品宪法 + run 角色/输出协议）
+→ application_base（目标、坐标、权限、预算、Base refs，非作者冒充）
+→ 必要的真实历史或显式 compaction checkpoint
+→ 本轮作者原话（独立 user，字节不变）
+→ assistant 叙事 + 只读/计划/创作 tool_call
+→ tool 观察或校验结果
+→ assistant 继续求证、修订或 tentative artifact
+→ tool 校验结果
+→ ready / 普通回复 / ask_author / 诚实失败 / 预算停止
+```
+
+工具校验失败作为原生失败结果回流，不再以 `user/user` 伪装多轮纠错。长会话只通过带来源和省略范围的显式 checkpoint 压缩，不隐式丢弃。
+
+### 2.3 项目专属工具边界
+
+- 只读求证：作品检索、章/档案读取、记忆召回及授权外部资料。
+- 计划：提出/修订 AgentPlan；校验通过不等于执行批准。
+- 创作：生成/修订 tentative artifact、质量复核、报告能力缺口。
+- 作者出口：`ask_author`、裁决或追加预算时结束机器消息链。
+- **不存在**模型可用的 `adopt`、`canon_write` 或自我批准工具。作者动作开启新的授权边界和 run 投影，采纳结果经版本化 Base 进入后续请求。
+
+### 2.4 Provider 投影
+
+分别形成 Chat Completions、Anthropic Messages、Responses API 的无损投影矩阵。完整 AgentRun 的必备能力为原生多轮、工具调用/结果、流式解析、结构化输出和用量回收；不支持时只能显式有限模式或拒绝路由，不能静默丢字段仍宣称完整运行。
+
+缓存、推理句柄和 `previous_response_id` 只能优化请求，不得取代项目 trace/replay，也不得改变证据顺序、作者字节或采纳边界。
+
+## 3. 非目标
+
+- 不保留 giant prompt、连续 `user` 纠错或最低 provider 能力作为目标形态。
+- 不复制代码 Agent 的 shell/canon 语义，不追求工具数量。
+- 不建立与统一 AgentRun 平行的 writer 私有循环或第二套预算/权限/恢复。
+- 不把 CoT/thinking 展示给作者，不把服务端历史当作 replay 唯一来源。
+- 不全量回送作品档案，不用新增固定 packet 回避模型求证。
+- 不在 CP1 未处理 ADR 冲突前静默改代码；现役 B26/B39 决策如需调整必须正式修订或 supersede。
+
+## 4. 开工七问
+
+1. **Contract**：CP1 新冻结 Authoring Run Transcript、Request IR、消息/工具/观察/校验/候选/checkpoint 语义及 provider 投影矩阵；消费并明确修订受影响的 UA-01、VS-00I、ADR-0030/0031，而不是暗中保留两套协议。
+2. **Invariant**：AgentRun 是唯一运行事实源；作者与 artifact 字节因果、只读求证、tentative-first、逐步 Orchestrator gate、真实预算、I1/I2/I3、N-NARR、replay 不调模型全部成立。
+3. **Boundary**：目标切穿 `novel_agent` 的 Request IR/provider adapters、`novel_application` 的 AgentRun/transcript/工具编排、`novel_domain` 的纯契约校验，以及必要的持久 trace/replay；web/frontend 只消费真实 run 事件与作者动作，不另建旁路。不得让 novel_web 直接访问 Repo 或 novel_agent 引用业务领域。
+4. **Consumer**：首个消费者是需要先读取作品事实再生成 tentative 候选的真实创作 AgentRun；后续消费者为规划、修订、质量复核、纠错、恢复和 Why/Replay。
+5. **Proof**：六类黄金请求（首轮/观察后/校验失败后/候选后/作者边界后/压缩后）、provider 投影矩阵、真实请求引用与版本对账、完整场景和 I1/I2/I3。必须证明观察进入下一真实请求且 used refs 未越界，不能仅证明 JSON 结构相似。
+6. **Acceptance Driver**：CP1 在 quality manifest 预注册后，由外部自动化驱动当前 Tauri WorkspaceChat，完成自然创作→自主求证→观察回流→tentative 候选→作者采纳/拒绝→恢复的完整场景，保存页面、网络、日志与持久化证据。产品新增验收感知逻辑：**no**。
+7. **Exploration**：这是核心主链。Base 只含不可猜测信息；模型通过同一只读目录按需求证，观察携 refs/版本/覆盖进入后续请求；新作品维度不得靠专用 packet 或隐藏工具分支获得例外。
+
+## 5. Checkpoint 与完整闭环
 
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
-| CP0 | 保存外部真实多轮脱敏样本与本项目真实请求证据；核对现有 B26/B39/VS-00I 边界；登记设计、任务、索引和非目标 | **done（2026-10-30，仅文档）**：完成 Provider §26、本任务、NEXT/slice 索引与事实台账；未修改产品代码，未宣称产品能力已验证 |
-| CP1 | 盘点当前纠错和实际多轮消费者；冻结最小无损消息字段、重试策略、provider 序列化/未知字段矩阵、黄金样本与场景预注册；明确哪些外部能力没有当前消费者而不实现 | 未开工；下一步 |
-| CP2 | 实现消息保真和 adapter 投影，迁移当前纠错为真实多轮或显式无状态重试；保持既有单调用行为与字节因果，黄金/局部测试通过 | 未开工 |
-| CP3 | 补齐真实 provider 请求、缓存/usage 和 B39 观察投影回归；完成外部 Tauri 多轮/纠错场景、恢复与 replay/Why 对账；运行完整后端及 I1/I2/I3、架构和静态扫描门禁 | 未开工 |
-| CP4 | 更新相关 contract/设计、索引、验收证据与恢复指引；逐项核对完整范围，不把局部 adapter 或 golden 测试当成 slice done | 未开工 |
+| CP0 | 对三款外部真实多轮请求与本项目真实日志做目标对照；明确 AgentRun 原生会话、作者主权、求证和 replay 的目标方向；登记任务与设计 | **done（2026-10-30，仅文档）**：已替换此前现役最小修补方案；未修改产品代码 |
+| CP1 | 冻结目标 contract pack、Request IR、消息/工具/观察/校验/候选/checkpoint 语义、provider 投影与能力门槛、六类黄金请求和场景预注册；完成 ADR/现役协议差异及迁移裁决 | 未开工；下一步 |
+| CP2 | 实现 canonical transcript/Request IR 与三类 provider 投影；建立真实只读观察和原生校验结果回流，黄金与 adapter 测试通过 | 未开工 |
+| CP3 | 以统一 AgentRun 接通首个创作消费者，完成求证→候选→校验→作者出口；接入预算、权限、trace、持久化和恢复，不形成第二控制环 | 未开工 |
+| CP4 | 覆盖规划/修订/质量与压缩恢复，完成真实 Tauri 全链、真实模型行为、缓存/usage、replay/Why 和全部门禁；处理现役迁移与旧协议退役 | 未开工 |
+| CP5 | 更新 ADR/contract/设计/索引/事实台账和恢复指引；逐项证明完整范围，不能以 adapter/golden 局部证据标 done | 未开工 |
 
-## 5. 验证与证据要求
+## 6. 验证与恢复指引
 
 - CP1 只运行文档、索引、链接、NEXT/ADR 和差距检查，不声称产品验证。
-- CP2 起执行 `mix compile --warnings-as-errors`、相关及全量测试、xref、arch_check、I3/I1/I2、统一静态扫描；若触及前端再执行其完整门禁。
-- 至少保存一组多轮黄金请求，证明 assistant 工具调用和结果 ID 不丢失；一组纠错请求，证明其策略不是伪装的 `user/user` 历史；一组未知字段矩阵，证明不向不支持 provider 盲发。
-- 缓存比较使用同调用点真实请求与 `cached_tokens`/TTFT，不把既有 `19037` 当固定阈值；Strata 已命中自动缓存的事实不得回退成“无缓存”。
-- CP3 最终汇报必须区分：外部自动化真实页面验收、后端/adapter 局部验证、真实模型行为证据和未闭环缺口。
-
-## 6. 决策与恢复指引
-
-- 2026-10-30：登记“消息保真与请求投影”方向；不视为作者已接受具体 DTO、迁移或工具循环方案。CP1 应先提交消费者与契约矩阵，再实施。
-- 外部样本在 `artifacts/client-http-bodies/`；项目对照证据在 `log/llm-calls/stage/2026-10-29.jsonl` 第 8–9 行及 Provider/应用源码，证据只读，不当作实现。
-- 恢复时先读 Provider §26、本任务、B26/B39 和 VS-00I；不得从旧分析回复推断字段已冻结或 CP 已完成。
+- CP2 起执行后端完整门禁、I3/I1/I2、架构与统一静态扫描；触及前端时执行完整前端门禁和 Tauri 构建。
+- 验收必须分别报告外部真实页面、后端/adapter 局部证据、真实模型行为和未闭环缺口；文学质量仍归 I10，不由协议通过代签。
+- 缓存比较按同调用点真实请求和 cached_tokens/TTFT，不把历史命中数当固定阈值，也不为缓存牺牲目标消息语义。
+- 外部脱敏样本位于 `artifacts/client-http-bodies/`；项目对照证据位于 `log/llm-calls/stage/2026-10-29.jsonl` 第 8–9 行。它们只证明协议差距，不是目标实现。
+- 恢复时先读 Provider §26、本任务及 CP1 产生的目标 contract pack，再核对 ADR-0030/0031、UA-01 和 VS-00I 的处置；不得从上一版保守分析推断单调用或 giant prompt 仍是目标。

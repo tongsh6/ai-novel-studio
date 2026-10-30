@@ -41,6 +41,7 @@
 | `next_task_check.test.mjs` | 排期/源状态/链接/体积与差距扫描迁移、快照保护反例；运行 `node --test scripts/next_task_check.test.mjs`，无需前端依赖。 |
 | `gap_ledger.sh` | 从既有差距表生成开放清单及跨次快照，落点见 `reports/gap-ledger/README.md`。 |
 | `quality_accept.sh` | quality acceptance 统一入口。 |
+| `lib/quality/au15_evidence.mjs` | B39 CP1d AU-15 证据 sidecar：解析 llm-calls 请求字节，对照 trace base/observation/used refs，产出机制/模型行为分层与 observed_in_calls；CLI `au15_evidence.mjs verify <dir> --scenario A0|A1|A2`。 |
 | `quality_manifest_check.sh` | quality manifest 门禁：PyYAML 标准解析 + `scripts/lib/quality/manifest.mjs` 语义校验（非法 YAML/重复键/词表/未注册/draft 硬失败；B41 CP1）。 |
 | `author_behavior_check.mjs` | B70 CP0 author-behavior 冻结语料/状态/oracle/覆盖报告格式校验（PyYAML 标准解析；schema/引用/provenance/split/holdout 泄漏/覆盖报告一致性；exit 66 格式错误）。 |
 | `lib/quality/author_behavior_oracle.mjs` | B70 CP1 author-behavior 确定性 oracle 评估器：allowed action/effect、硬违规（错对象/未授权写/重复副作用/虚假完成/讨论强制写）、unknown 不判 PASS、覆盖报告生成（`author-behavior-coverage-report/v1`）。 |

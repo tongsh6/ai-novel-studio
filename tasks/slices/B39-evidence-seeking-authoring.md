@@ -1,6 +1,6 @@
 # B39：求证式创作——最小供给、Run 级探索与证据闭环
 
-- 状态：**doing（2026-10-30 CP1 开工；作者已正式接受 ADR-0030/VS-00K/AU-15；CP1a 只读探索步+观察进 writer、CP1b 观察 refs 进使命与 writer 材料、CP1c used refs 校验/逐调用 trace 已落地；最小准备判断与 A0/A1/A2、实模证据未完成；CP1–CP4 不得整体标 done）**。
+- 状态：**doing（2026-10-30 CP1 开工；作者已正式接受 ADR-0030/VS-00K/AU-15；CP1a–CP1c 已落地；CP1d 最小准备判断 + AU-15 sidecar verifier/预注册已落地，真实 A0/A1/A2 页面/实模证据未执行；CP1–CP4 不得整体标 done）**。
 - 登记日期：2026-10-27；来源：作者指出持续增加 APP 主动投喂只会不断补漏洞，要求先把元原则深化到全部承重设计，而非先做时间线专用设计。
 - 上游：[00 §2.4](../../docs/design/00-vision-and-engineering-roadmap.md#24-创作信息获取元原则最小供给按需求证证据闭环2026-10-27-用户拍板)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[VS-00K](../../docs/design/contracts/VS-00K-evidence-seeking-authoring-contract-pack.md)、[AU-15](../../docs/design/acceptance/author/AU-15-evidence-seeking-authoring.md)。
 - 当前可依已接受基线进入 CP1 设计与实现；本会话继续逐项作者裁决，尚未启动产品施工或实模运行。执行与资源边界见 §9.7.17。
@@ -56,7 +56,7 @@
 | CP | 完整工作与完成标准 | 状态 |
 |---|---|---|
 | CP0 | 元原则落到主链、运行时、Context、AgentRun、写前推理、要素模型、工程与验收；形成 ADR-0030 / VS-00K / AU-15 / B39 和索引、atlas、不变量、旧条款处置矩阵。只登记设计，不声称实现 | **done（2026-10-27）**：主链/领域/契约/工程文档完成处置；候选 #20–#23；ADR trace 28/28、NEXT ok、新文档链接通过、差距快照 20 项开放无意外减少、diff check 通过；未运行产品功能测试或 Tauri |
-| CP1 | 正文 run 开放现有只读探索；共享判断循环探索执行，观察进入使命与 writer；保留现有携带，不新建时间表；首个完整用户场景具备必要的最小准备判断；完成 SC-AU15-A0/A1/A2，确定性机制与真实模型行为分层取证 | **doing（CP1a+CP1b+CP1c checkpoint 2026-10-30）**：共享只读探索步 → 观察进使命/writer 材料；`EvidenceUsage` 纯校验 used refs ⊆ 当次请求 Base∪实际观察，越界只记 trace unbound、不改 artifact 字节；trace summary additive 记录 request_base_refs/request_observation_refs/used/unbound/provider_call_ref（partial 语义）。**未完成**：最小准备判断（D3-A）、SC-AU15-A0/A1/A2 driver/verifier/registry 与真实模型行为分层证据、外部请求字节交叉核对/B42 provider_calls 字段、dialogue 内联探索迁移；不得以 checkpoint 代签 CP1/AU-15 |
+| CP1 | 正文 run 开放现有只读探索；共享判断循环探索执行，观察进入使命与 writer；保留现有携带，不新建时间表；首个完整用户场景具备必要的最小准备判断；完成 SC-AU15-A0/A1/A2，确定性机制与真实模型行为分层取证 | **doing（CP1a–CP1d checkpoint 2026-10-30）**：只读探索→观察进使命/writer→used refs trace 校验；新增最小准备判断（continue_exploration/ready_to_write，A0 无探索仍 ready，A1 观察后 ready）；AU-15 evidence sidecar（llm-calls 请求字节对账 request_observation_refs/observed_in_calls、used refs 绑定、zero-write、准备事件）+正反例测试；AU-15 预注册已写（A0/A1/A2、iq3_s 单槽/unload、2 次独立 run）。**未完成**：真实 Tauri A0/A1/A2 driver/registry/实模 run（D6-A 前置真实创作/采纳）、B42 完整性接入、对话内联探索迁移；不得以 checkpoint 代签 CP1/AU-15 |
 | CP2 | 写前准备可返回通用信息缺口并触发有界 plan revision；建立 Base/观察 refs 与 used_context_refs 对账；明确“可先求证”与“只能由作者裁决”的 clarification 边界；未知、歧义、冲突与越界引用完成 SC-AU15-B1/C1 | 未开工 |
 | CP3 | 规划、修订、写后质量与恢复复用同一求证链；完成 SC-AU15-B2/C2；真实 provider 请求、trace、replay 与作者可见证据一致 | 未开工 |
 | CP4 | 依据真实 run 的引用、重复查询和质量证据逐块迁移固定携带；领域读模型（包括是否需要时间线）按真实缺口单独立项；完成 SC-AU15-D1 | 未开工 |
@@ -576,6 +576,19 @@ git diff --check
   2. 最小准备判断未接：关键既有事实未核清时继续求证/询问的正式行为。
   3. SC-AU15-A0/A1/A2 driver/verifier/registry、真实模型行为分层证据、≥2 独立 run/失败分母、A2 通用性与无领域分支 diff 检查。
   4. `dialogue_planning_service` 两处探索内联实现迁移、跨 flow 预算累计/续读证据。
+
+### 9.12 CP1d 接线 checkpoint（2026-10-30，未完成 CP1）
+
+- 交付（产品+验收基建）：
+  - 最小准备判断（D3-A 的 CP1 边界：仅 continue/ready，缺口 replan/ask 留 CP2）：正文 flow 在探索步执行前发 author-visible `preparation_decided(status=:continue_exploration, tool/query)`；在 prose_writing 前发 `preparation_decided(status=:ready_to_write, reason=:base_sufficient|:observations_available, observation_count/mission_present)`，零 provider、不按领域关键词插步。`AgentEvent`/stage 类型 additive 注册。
+  - AU-15 evidence sidecar：`scripts/lib/quality/au15_evidence.mjs` + CLI——解析 llm-calls 真实请求/响应字节，对照 trace `request_observation_refs`/`request_base_refs`/`used_context_refs`，产出 `au15-evidence-sidecar/v1`（mechanism/model_behavior 分层、provider_calls[].request_observation_refs/observed_in_calls、evidence_gaps）；4 条正反例测试（A1 请求含观察→pass；缺请求内容/A0 强制探索/used ref 越界→fail；CLI 读取 artifact 落 sidecar）。
+  - AU-15 预注册落盘（未运行）：`artifacts/model-contracts/b39-cp1/au15-preregistration.json`（A0/A1/A2、strata iq3_s 单槽/unload、input120/turn360/候选/采纳/维护/心跳预算、A1/A2 ≥2 独立 run、D6-A setup 分账、证据目录与必需证据、unknown 不判 PASS、I10 不代签）。
+- 测试：正文 flow 测试断言 A0（无探索计划→ready/base_sufficient/observation_count 0）与 A1 路径（continue_exploration archive_read→ready observations_available）；相关 14/14；AU-15 sidecar 4/4。门禁见 `artifacts/gates/2026-10-30-b39-cp1d/`。
+- 残余（CP1/AU-15 未完成，未代签）：
+  1. 真实 Tauri 外部 driver + AU-15 场景 registry/verifier 接线未做；尚未执行 A0/A1/A2 真模 run；D6-A 前置章节真实创作/采纳 setup 未做。
+  2. 实模 2 次独立 run、失败分母、自然措辞保留、A2 累计十七天兼容性与无领域分支 diff 检查未执行。
+  3. B42 `quality-evidence-chain`/release-real-llm 完整性接入未接；当前 sidecar 为外部证据产物。
+  4. `dialogue_planning_service` 两处探索内联迁移、跨 flow 预算累计/续读证据仍属残余。
 
 ## 10. 当前初始供给整改的消费交接
 
