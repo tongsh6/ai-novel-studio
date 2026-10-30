@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| VS00F-TRACE | 核对章摘要/账面维护的真实变更与 StateTrace；闭合自动/作者变更、幂等、回滚及持久回放 | [原任务小节](slices/VS-00F-five-ledgers-three-state.md#维护-statetrace-后续-checkpoint) |
+| VS00F-TRACE | CP0 done：adoption 仅 summary-level trace，LedgerMaintenance 无 StateTrace；CP1 需作者裁决持久 trace vs 明确不承诺边界 | [原任务小节](slices/VS-00F-five-ledgers-three-state.md#维护-statetrace-后续-checkpoint) |
 
 ## 后续候选
 

@@ -81,12 +81,34 @@ tauri/summary.json`。配套 test-support：slice_verify 四栏摘要 clause（�
 
 ## 维护 StateTrace 后续 checkpoint
 
-- 状态：**todo（2026-10-30 承接原维护 trace 债；已有 CP 完成记录保留，本项未实施或验收）**。
+- 状态：**doing（2026-10-31 CP0 盘点 done：adoption 仅有 summary-level state_trace refs，LedgerMaintenance 只有业务日志、无 StateTrace；CP1 需冻结最小可持久 trace，未实施）**。
 - 来源：本文件 CP1 剩余登记、[VS-00F 契约 §3.2](../../docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md#32-增量更新的自动通过首次契约化-25-93-policy)、[全量对账 B05/E10](../2026-10-27-design-to-execution-reconciliation.md#42-契约adr-与-schema)。权威账面每次真实变更须有 StateTrace；业务日志或面板可读不能替代权威变化回放。
 - 下一步：从章摘要/账面维护及作者裁决的实际入口盘点变更、事务结果、现有 StateTrace producer/存储/读取方，确定哪些已有记录、哪些只有业务日志，再冻结同源追踪与失败矩阵。该盘点不修改旧记录、不预建第二 trace 系统。
 - 完整后果：覆盖系统发起与作者发起两类合法权威变更，真实前后状态、来源与作品/会话/turn 关联可追溯；失败/回滚不产生虚假权威 diff，重复请求不重复变更；既有 Replay/Why 消费保存的事实，回放无 provider 调用与生产写入。章摘要维护的同源缺口若仍存在，须明确同批修复或具体承接，不能只补一处日志便关闭维护 trace 债。
 - 证明：局部转换/回滚/幂等/引用隔离测试，加外部真实工作台触发维护或裁决→持久 StateTrace→作者可见回放的场景证据；脚本直接写 trace 或只读日志不算产品闭环。实施前补齐该 checkpoint 的七问与具体 driver；产品代码不增加验收感知逻辑。
 - 依赖与边界：复用已有 StateTrace、采纳矩阵与真实回放入口；B43 的统一裁决及 B45 的必要契约按消费者协同，本项不替它们产生 decision 或全量整理 schema。五账其余 schema 先核真实 wire consumer；R2/design_ref、定期 durable 对账和 dismiss/Experience Engine 仍按原条件，不因本项入队自动开启。
+
+### CP0 盘点（2026-10-31）
+
+| 变更来源 | 真实写入 | 现有 trace | 可回放性 | 缺口 |
+|---|---|---|---|---|
+| 作者采纳/覆盖/编辑（AdoptionWorkflow） | adoption writer 持久化 + TurnResult `adoption_state.resolved`/`projection_refs` | `state_trace_refs` 嵌入 TurnResult，`trace_status: :summary_level`；ref 为 `state_trace:<turn>` 合成串 | Why/Replay 读取 TurnResult 内 refs；无独立 StateTrace 行可查询 | 前后状态、mutation receipt 只有摘要；跨进程/重放只能靠 TurnResult 保存副本 |
+| 系统账面维护（LedgerMaintenance） | `ledger_entries` upsert（弧光/关系/信息/承诺/情绪） | **无 StateTrace**；仅 `ledger.update.*` 业务日志（ADR-0018），失败降级为 `{:degraded, reason}` | 不能按 trace 回放前后值/来源；业务日志不能替代权威变化回放 | 需要同源 trace 或明确“维护变更不承诺逐条 trace”的边界 |
+| 作者裁决（审读/consolidate） | ledger 更新 + review report | 通过 adoption/turn trace 部分关联；维护派生变更仍走 LedgerMaintenance | 部分 | 同上 |
+| 章摘要维护 | draft/summary 持久化 | 摘要 revision_base/source_ref 在维护输入与账 source_ref；无 state trace | 部分 | 摘要变更本身无前后 trace |
+
+**关键事实**
+- 现有 `state_trace_refs` 是 **summary-level 嵌入引用**，不是持久 StateTrace 实体；`trace_status: :summary_level` 已在代码中显式承认。
+- `LedgerMaintenance.run/2` 所有 bookkeeping 走 repo upsert，异常降级业务日志；没有 trace producer、没有 before/after、没有 trace 查询入口。
+- 因此本 checkpoint 不是“补一节日志”可关闭；需要先冻结最小可持久 trace 契约（或明确 maintenance 不承诺 trace 的条件），再决定是否新增存储实体/迁移。B67 负责派生账正确性，不能代替 trace。
+
+**CP1 待冻结（建议）**
+1. 是否为 maintenance 引入**最小持久 trace**（work/chapter/turn 关联、before/after 摘要或 diff、source refs、mutation receipt、idempotency key）；优先复用现有持久形态，只有不可替代才新建实体。
+2. 系统发起 vs 作者发起两类变更的来源/授权字段、失败/回滚矩阵（失败不产生虚假 diff，重复不重复变更）。
+3. Replay/Why 消费：只读已保存 trace，无 provider/生产写入；缺 trace 诚实 partial，不用业务日志伪装。
+4. 与 B43/B45/B67 的边界：不生成平行 decision、不整理全量 schema、不接管派生账正确性。
+
+**未被本记录完成**：任何实现、schema、迁移、页面或 rollout；本轮仅只读盘点。需作者/ADR owner 对“新增持久 StateTrace vs 明确不承诺 maintenance 逐条 trace”做裁决后进入 CP1。
 
 ## B06 分账契约与真实消费 checkpoint
 
