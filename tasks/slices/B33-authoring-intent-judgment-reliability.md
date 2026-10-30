@@ -197,7 +197,14 @@
 | CP0 | 核三个谓词/guard 的当前调用方、讨论与观察豁免、纠正提示和应用 fallback；形成语义责任→实际输入/观察→结果→机械检查映射，冻结正反例、合法终局及现役契约差异；没有新增 schema/调用则明确复用 | **done（2026-10-30）**：`cp0-map.json`；probe 源码 sha256 复核一致；契约 6 条与 CP3 预注册见上 |
 | CP1 | 在同一判断主链修正词法后置约束与纠错提示；模型负责语义，APP保留真实结构/身份/权限/版本守卫；清除不再成立的能力强迫和伪缺口澄清，不新增关键词补丁集或静默默认 | **done（2026-10-30）**：三谓词/三后置 guard/APP fallback/wrong_route 事件移除；保留客观守卫；见上 CP1 记录 |
 | CP2 | 贯穿已有探索、条件无变化/讨论/实际执行、真实失败与有界恢复；B43 决策/trace/TurnResult 同源，问题状态与采纳边界不回归；三条原反例及扩展矩阵正式测试、历史读取与 no-provider replay 通过 | **done（2026-10-30）**：矩阵/有界恢复/同源断言/replay 20/20；见上 CP2 记录 |
-| CP3 | 外部真实 Tauri + 真实模型完成三类自然输入、对照执行及必要采纳/恢复/回放；分别核模型理解、实际观察、执行效果与零越权，保留失败分母；完整范围满足后关闭本节 | **todo（下一步）**：复用 `scripts/lib/native_ui` + 既有 native 驱动模式落地 6 场景外部驱动；真实模型单槽运行、结束卸载并核验为空；证据目录 `artifacts/slice-verify/<scenario>-tauri/` |
+| CP3 | 外部真实 Tauri + 真实模型完成三类自然输入、对照执行及必要采纳/恢复/回放；分别核模型理解、实际观察、执行效果与零越权，保留失败分母；完整范围满足后关闭本节 | **todo（下一步）**：复用 `scripts/lib/native_ui` + 既有 native 驱动模式落地 6 场景外部驱动；真实模型单槽运行、结束卸载并核验为空；证据目录 `artifacts/slice-verify/<scenario>-tauri/`。驱动准备已完成只读核实（见下“CP3 驱动准备”）。 |
+
+### CP3 驱动准备（2026-10-30 只读核实，未执行）
+
+- 证据：`artifacts/task-audit/2026-10-30-b33-cp3-driver-prep/{plan.md,reuse-map.json}`（仓库零改动、未运行 mix/tauri/server/真实模型/网络探测）。
+- 结论：新建 `scripts/native_b33_drive.mjs` + `scripts/native_b33_evidence.mjs`（结构镜像 B62/B40 family；底层直接复用 `lib/native_ui/scenario_driver.mjs`、`scenario_evidence.mjs`、`native_b30_evidence.mjs#unloadStrataModel`；b40 evidence 的 provider 硬断言为 slice_verify，不可整文件复用）；新增 seed exs、场景 yml，并在 `tauri_slice_verify.sh` 的 3 条 allowlist（:406/:440/:461）+ verify/seed 分流注册新 slice id；一次 app 启动串行跑 6 场景，顺序 S1→S2→S3→S6→S5→S4，每场景前后 DB 生产表计数差分。
+- 决议（Lead 采纳推荐）：① author_question 自动应答代码复制进 b33 驱动，不改共享 harness；② 先加确定性接线冒烟（明确不构成 CP3 PASS 证据）；③ S6 若模型零候选导致 `guard_not_triggered`，单列为本节未闭环缺口，如实写 verdict，不伪造 PASS。
+- 硬前置：Strata 统一后台可达（runner 已硬校验，不可达 exit 65）且真实模型单槽空闲；Tauri 辅助功能/已构建 app；端口空闲。无模型窗口时 CP3 记 blocked，不伪造。
 
 ### 分工与恢复
 
