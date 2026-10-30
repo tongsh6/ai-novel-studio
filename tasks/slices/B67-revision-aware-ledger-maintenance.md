@@ -1,6 +1,6 @@
 # B67：章节修订后的派生账面一致性
 
-- 状态：**doing（2026-10-31 CP0 done；CP1 partial：旧章不倒退、当前摘要出场重算含“完全无当前出现”机械失效；冲突账重算、持久版本、页面未做）**。
+- 状态：**doing（2026-10-31 CP0/CP1 done：旧章不倒退、arc/conflict 按当前摘要重算与机械失效；CP2 持久版本/竞争、CP3 页面矩阵未做）**。
 - 来源：修订后必须重新对齐连续性；现有增量记账以本次处理章更新最近出场/推进，缺少旧章修订和旧贡献失效的完整矩阵。本轮已有弧光账纯函数反例，尚未进行数据库或真实页面复现。
 - 上游：[VS-00F 原任务](VS-00F-five-ledgers-three-state.md)、[VS-00F 契约](../../docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md)、[ADR-0026](../../docs/design/adr/ADR-0026-five-ledgers-three-state-reconciliation-v3.md)、[B28](B28-whole-chapter-revision.md)、[B30](B30-chapter-structure-maintenance.md)。本项负责派生值与有效来源的正确性；VS00F-TRACE 负责权威变更留痕，不能互相代签。
 
@@ -61,7 +61,7 @@ arc_recompute_stall(上述条目, current_seq=12, threshold=8)
 | CP | 完整范围与完成标准 | 状态 |
 |---|---|---|
 | CP0 | 复现现役旧章/删除贡献反例，盘点五账、摘要完整性及实际调用顺序；冻结失效、当前进度、作者裁决、版本原子性和失败恢复的最小契约 | **done（2026-10-31，§6）**：红测复现 arc/conflict 倒退；冻结“历史出处只追加、进度指针单调、删除贡献须当前事实重算”；不做页面/模型 |
-| CP1 | 在既有事实源上实现可解释的贡献更新/失效与必要重算；只处理实际需修复账种，不用追加 ref 或 max(seq) 假装全部一致 | **partial（2026-10-31，§6）**：arc/conflict 旧章不回退；新增当前已采纳摘要读端口，对仍出现的对象重算 last_seen 到真实最大出现章；完全无当前出现、冲突账重算、持久版本/页面仍 todo |
+| CP1 | 在既有事实源上实现可解释的贡献更新/失效与必要重算；只处理实际需修复账种，不用追加 ref 或 max(seq) 假装全部一致 | **done（2026-10-31，§6）**：arc/conflict 旧章不回退；当前摘要重算仍出现对象；完全无当前出现 → 机械 STALLED/DORMANT + 进度 0/空、历史 source_refs 保留、裁决态不改；重复维护幂等；不用追加 ref/max 冒充一致 |
 | CP2 | 接入持久版本/采纳边界与失败恢复；验证同章及跨章竞争、旧任务晚到、重复和重编号；与 VS00F-TRACE 协同留痕，保护人工裁决 | todo |
 | CP3 | 真实页面完成多章→旧章修订/移除→脉络/审读→刷新重开/探索验证，保留历史依据；必要实模消费另分证，完整矩阵通过才关闭 | todo |
 
@@ -81,6 +81,10 @@ arc_recompute_stall(上述条目, current_seq=12, threshold=8)
 - 作者裁决/终态：本次未改裁决保护；单调 guard 不把 DRIFTED/RESUMED/RETIRED 等机械改写。
 - 门禁：domain ledger_entry 8/0、application ledger_maintenance 7/0、ledger_reconciliation 25/0；全量 mix test 1040/0。
 - 明确未做：持久层原子/版本更新、跨章竞争、重编号组合、真实 Tauri 页面矩阵、真实模型消费。
+
+- CP1 收尾（同轮）：`LedgerMaintenance` 增加 conflict 当前事实重算：从当前已采纳摘要 + 章 `chapter_role` 找出仍推进主线的最大 seq，低于已存 last_advanced 时降级；无当前推进章时置 last_advanced 0/空、机械 DORMANT、历史 source_refs 保留；重复维护幂等。测试：第10章推进→修订为过渡、仅第3章推进 → conflict 重算回第3章（conflict_recomputed=1）；author adjudication 态不被改写。
+- CP1 完成范围：arc/conflict 两个现役机械账；emotion/information 本轮未产生旧章失效反例，不改其现有规则；不把“重算”当作重新裁决故事事实。
+- 仍未做：持久层 revision 条件/并发/旧任务晚到/重编号组合（CP2）、真实页面/模型矩阵（CP3）；CP2/CP3 未开工。
 
 ## 5. 非目标与恢复
 

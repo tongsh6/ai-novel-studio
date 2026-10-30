@@ -95,6 +95,7 @@ defmodule NovelApplication.LedgerMaintenance do
       # + 主线冲突记账（设计角色=推进/高潮/转折章的采纳即主线推进，休眠规则同弧光）。
       emotion_status = record_emotion_curve(deps.repo, work_id, input, chapter_id, current)
       record_main_conflict(deps.repo, work_id, index, chapter_id, current, summary_ref)
+      conflict_recomputed = recompute_conflict_advancement(deps, work_id, index)
 
       # CP2b 节拍（产品判据 milestones §4.4 每 10-20 章；简版=章 seq 整除节拍值
       # 触发；显式发起与 profile 化归 CP4）：全量对账并物化报告（TENTATIVE，
@@ -107,6 +108,7 @@ defmodule NovelApplication.LedgerMaintenance do
         ledger: "arc",
         sighted: sighted_count,
         recomputed: recomputed_count,
+        conflict_recomputed: conflict_recomputed,
         stalled: stalled_count,
         leaked: leaked_count,
         emotion: emotion_status,
@@ -117,6 +119,7 @@ defmodule NovelApplication.LedgerMaintenance do
        %{
          sighted: sighted_count,
          recomputed: recomputed_count,
+         conflict_recomputed: conflict_recomputed,
          stalled: stalled_count,
          leaked: leaked_count,
          emotion: emotion_status
@@ -293,7 +296,7 @@ defmodule NovelApplication.LedgerMaintenance do
     _ -> 0
   end
 
-  defp recompute_arc_entries(repo, work_id, [], _index), do: 0
+  defp recompute_arc_entries(_repo, _work_id, [], _index), do: 0
 
   defp recompute_arc_entries(repo, work_id, summaries_by_seq, index) do
     seq_to_ref = seq_to_chapter_ref(index)
@@ -487,6 +490,98 @@ defmodule NovelApplication.LedgerMaintenance do
     end
 
     recompute_conflict_dormancy(repo, work_id, chapter_index, current.seq)
+  end
+
+  # B67：从当前已采纳摘要 + 当前章计划的 chapter_role 重算主线冲突推进；
+  # 无当前推进章时机械 DORMANT 且 last_advanced 置 0/空，历史 source_refs 保留。
+  defp recompute_conflict_advancement(deps, work_id, index) do
+    case deps[:summaries] do
+      summaries when is_function(summaries, 1) ->
+        recompute_conflict_entries(deps, work_id, summaries.(work_id), index)
+
+      _ ->
+        0
+    end
+  rescue
+    _ -> 0
+  end
+
+  defp recompute_conflict_entries(_deps, _work_id, [], _index), do: 0
+
+  defp recompute_conflict_entries(deps, work_id, summaries_by_seq, index) do
+    advancing_seqs =
+      summaries_by_seq
+      |> Enum.map(fn {seq, _text} -> seq end)
+      |> Enum.filter(fn seq -> conflict_progress_seq?(index, seq) end)
+
+    seq_to_ref = seq_to_chapter_ref(index)
+
+    deps.repo.list.(work_id)
+    |> Enum.filter(&(&1.ledger == "conflict"))
+    |> Enum.map(fn entry ->
+      recompute_conflict_entry(deps.repo, entry, advancing_seqs, seq_to_ref)
+    end)
+    |> Enum.count(& &1)
+  end
+
+  defp conflict_progress_seq?(index, seq) do
+    case Enum.find(index, fn {_ref, meta} -> meta[:seq] == seq end) do
+      {_ref, meta} -> ChapterPlanDirection.conflict_progress?(meta[:chapter_role])
+      nil -> false
+    end
+  end
+
+  defp recompute_conflict_entry(repo, entry, advancing_seqs, seq_to_ref) do
+    if is_integer(Map.get(entry.payload, "last_advanced_seq")) do
+      conflict_recompute_target(
+        repo,
+        entry,
+        Enum.max(advancing_seqs, fn -> nil end),
+        seq_to_ref
+      )
+    else
+      false
+    end
+  end
+
+  defp conflict_recompute_target(repo, entry, nil, _seq_to_ref) do
+    invalidate_conflict_entry(repo, entry)
+  end
+
+  defp conflict_recompute_target(repo, entry, max_seq, seq_to_ref) do
+    apply_conflict_recompute(repo, entry, max_seq, seq_to_ref)
+  end
+
+  defp apply_conflict_recompute(repo, entry, max_seq, seq_to_ref) do
+    if max_seq < entry.payload["last_advanced_seq"] do
+      payload =
+        entry.payload
+        |> Map.put("last_advanced_seq", max_seq)
+        |> Map.put(
+          "last_advanced_chapter",
+          Map.get(seq_to_ref, max_seq, entry.payload["last_advanced_chapter"])
+        )
+
+      updated = %{entry | payload: payload, revision: entry.revision + 1}
+      match?({:ok, _}, repo.upsert.(updated))
+    else
+      false
+    end
+  end
+
+  defp invalidate_conflict_entry(repo, entry) do
+    if Map.get(entry.payload, "last_advanced_seq") in [nil, 0] do
+      false
+    else
+      payload =
+        entry.payload
+        |> Map.put("last_advanced_seq", 0)
+        |> Map.put("last_advanced_chapter", nil)
+
+      status = if entry.status in ["ACTIVE", "DORMANT"], do: "DORMANT", else: entry.status
+      updated = %{entry | payload: payload, status: status, revision: entry.revision + 1}
+      match?({:ok, _}, repo.upsert.(updated))
+    end
   end
 
   defp recompute_conflict_dormancy(repo, work_id, chapter_index, current_seq) do

@@ -177,6 +177,66 @@ defmodule NovelApplication.LedgerMaintenanceTest do
              )
   end
 
+  test "B67：旧章修订移除最新主线推进后，按当前摘要与章角色重算 conflict 推进" do
+    {:ok, agent} = Agent.start_link(fn -> %{} end)
+
+    conflict_index = fn _work_id ->
+      Map.new(1..12, fn seq ->
+        role = if seq in [3, 10], do: "推进章", else: "过渡章"
+        {"ch-#{seq}", %{seq: seq, title: "第#{seq}章", chapter_role: role}}
+      end)
+    end
+
+    initial_deps = deps(agent) |> Map.put(:chapter_index, conflict_index)
+
+    assert {:ok, _} =
+             LedgerMaintenance.run(
+               %{
+                 work_id: "w",
+                 chapter_id: "ch-10",
+                 summary_text: summary_with_characters("推进主线。")
+               },
+               initial_deps
+             )
+
+    entry = Agent.get(agent, & &1)["main"]
+    assert entry.payload["last_advanced_seq"] == 10
+
+    # 修订后第10章变为过渡章（无推进），只剩第3章推进。
+    revision_index = fn _work_id ->
+      Map.new(1..12, fn seq ->
+        role = if seq == 3, do: "推进章", else: "过渡章"
+        {"ch-#{seq}", %{seq: seq, title: "第#{seq}章", chapter_role: role}}
+      end)
+    end
+
+    summaries = fn _work_id ->
+      [
+        {3, summary_with_characters("推进主线。")},
+        {10, summary_with_characters("过渡过场。")}
+      ]
+    end
+
+    revision_deps =
+      deps(agent, summaries)
+      |> Map.put(:chapter_index, revision_index)
+
+    assert {:ok, %{conflict_recomputed: 1}} =
+             LedgerMaintenance.run(
+               %{
+                 work_id: "w",
+                 chapter_id: "ch-10",
+                 summary_text: summary_with_characters("过渡过场。")
+               },
+               revision_deps
+             )
+
+    entry = Agent.get(agent, & &1)["main"]
+    assert entry.payload["last_advanced_seq"] == 3
+    assert entry.payload["last_advanced_chapter"] == "ch-3"
+    assert entry.status in ["ACTIVE", "DORMANT"]
+  end
+
   test "缺人物栏降级情节栏提炼；整段无栏降级全文" do
     {:ok, agent} = Agent.start_link(fn -> %{} end)
 

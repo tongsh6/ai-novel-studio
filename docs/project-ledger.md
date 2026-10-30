@@ -1164,3 +1164,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B67 CP1 进展：当前摘要出场重算**：LedgerMaintenance 增可选 summaries 端口（生产 accepted_summaries_by_seq），出场记账后按当前已采纳摘要重算 arc last_seen；移除第10章最新出场后可降回第3章真实出现，完全无当前出现暂保留历史并登记 known-gap。加 arc/conflict 旧章单调 guard；domain ledger 8/0、maintenance 8/0、全量 mix test 1041/0、credo 0 issues。
 
 - 2026-10-31 — **B67 CP1 继续：完全无当前出现的机械失效**：当前摘要非空且对象在所有已采纳摘要中消失时，arc last_seen 置 0/空、删除 presence_note、机械态 STALLED，source_refs 历史保留，已裁决态不改；重复维护幂等。测试 initial ch10→修订后完全消失；maintenance 9/0、domain 8/0、全量 mix test 1042/0、credo 0 issues。冲突账重算/持久版本/页面仍 todo。
+
+- 2026-10-31 — **B67 CP1 done**：arc/conflict 旧章不回退；当前摘要重算仍出现对象、完全无当前出现机械失效（arc STALLED/last_seen0，conflict DORMANT/last_advanced0，历史 source_refs 保留、裁决态不改、幂等）；conflict 按当前已采纳摘要+chapter_role 重算。master tests：maintenance 10/0、domain 8/0、全量 mix 1043/0、credo 0 issues。CP2 持久版本/并发、CP3 页面/模型未做。
