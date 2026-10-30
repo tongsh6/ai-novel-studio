@@ -272,6 +272,25 @@ defmodule NovelApplication.ActionRoundtripTest do
       assert entry.idempotency_key == "ik-confirm"
     end
 
+    test "same key different payload is a conflict, same payload is duplicate" do
+      input = %AuthorActionInput{
+        input_id: "in-ledger-payload-1",
+        source_turn_ref: "turn-1",
+        action_id: "act-edit",
+        action_type: "edit_then_accept",
+        idempotency_key: "ik-edit-payload",
+        payload: %{"edited_content" => "原始内容"}
+      }
+
+      scope = %{work_id: "work-1", session_id: "session-1"}
+      ledger = ActionIdempotencyLedger.record(%{}, input, scope, %{status: "accepted"})
+
+      assert {:duplicate, _} = ActionIdempotencyLedger.lookup(ledger, input, scope)
+
+      changed = %{input | payload: %{"edited_content" => "被改过的内容"}}
+      assert {:conflict, _} = ActionIdempotencyLedger.lookup(ledger, changed, scope)
+    end
+
     test "does not deduplicate actions without an idempotency key" do
       input = %AuthorActionInput{
         input_id: "in-ledger-2",

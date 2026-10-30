@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B43 | CP0 盘点进行中：裁决 producer/trace/幂等/blocked 调用点已核；待冻结出口映射、同键异 payload、blocked 页面 driver | [原任务](slices/B43-gate-order-residual.md) |
+| B43 | CP0 done/CP1 done：payload digest 同键异 payload 拒绝已落地；CP2 统一裁决 producer/reply_only、CP3 blocked 页面、CP4 回归待做 | [原任务](slices/B43-gate-order-residual.md) |
 
 ## 后续候选
 

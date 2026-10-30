@@ -17,6 +17,7 @@ defmodule NovelApplication.ActionIdempotencyLedger do
           action_type: String.t() | nil,
           source_turn_ref: String.t() | nil,
           idempotency_key: String.t(),
+          payload_digest: String.t() | nil,
           result: map()
         }
   @type t :: %{optional(tuple()) => entry()}
@@ -27,15 +28,44 @@ defmodule NovelApplication.ActionIdempotencyLedger do
   Actions without an idempotency key are intentionally not deduplicated here:
   without a client/server key, action identity can be ambiguous across turns.
   """
-  @spec lookup(t() | nil, AuthorActionInput.t(), scope()) :: {:duplicate, entry()} | :miss
+  @spec lookup(t() | nil, AuthorActionInput.t(), scope()) ::
+          {:duplicate, entry()} | {:conflict, entry()} | :miss
   def lookup(ledger, %AuthorActionInput{} = input, scope \\ %{}) do
     with {:ok, key} <- ledger_key(input, scope),
          entry when is_map(entry) <- Map.get(ledger || %{}, key) do
-      {:duplicate, entry}
+      # B43 CP1：同 key 同 payload 才回放；异 payload 必须明确拒绝，不能当 duplicate。
+      digest = payload_digest(input)
+
+      case entry.payload_digest do
+        nil -> {:duplicate, entry}
+        ^digest -> {:duplicate, entry}
+        _other -> {:conflict, entry}
+      end
     else
       _ -> :miss
     end
   end
+
+  @doc "作者动作 payload 的确定性摘要（用于同 key 异 payload 判定）。"
+  @spec payload_digest(AuthorActionInput.t()) :: String.t()
+  def payload_digest(%AuthorActionInput{payload: payload}) when is_map(payload) do
+    payload
+    |> normalize_digest_value()
+    |> :erlang.term_to_binary([:deterministic])
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp normalize_digest_value(value) when is_map(value) do
+    value
+    |> Enum.map(fn {key, val} -> {to_string(key), normalize_digest_value(val)} end)
+    |> Enum.sort_by(&elem(&1, 0))
+  end
+
+  defp normalize_digest_value(value) when is_list(value),
+    do: Enum.map(value, &normalize_digest_value/1)
+
+  defp normalize_digest_value(value), do: value
 
   @doc """
   Records a successful action result for later duplicate suppression.
@@ -49,6 +79,7 @@ defmodule NovelApplication.ActionIdempotencyLedger do
           action_type: input.action_type,
           source_turn_ref: input.source_turn_ref,
           idempotency_key: input.idempotency_key,
+          payload_digest: payload_digest(input),
           result: result
         })
 

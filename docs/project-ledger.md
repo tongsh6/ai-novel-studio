@@ -1174,3 +1174,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B67 CP2 追加：旧任务晚到矩阵**：先维护第10章再维护第3章，当前事实仍含第10章出场时 last_seen 保持10、不回退/不误报，历史 ch3 来源追加；maintenance 12/0。CP2 仍 partial：StateTrace 协同（VS00F-TRACE owner）与 CP3 页面矩阵未做。
 
 - 2026-10-31 — **B43 CP0 盘点开始 / B67 转 blocked**：B67 CP2 维护 StateTrace 依赖 VS00F-TRACE owner，已转阻塞（CP0/CP1 done，CP2 机制部分完成）；当前任务切 B43。B43 CP0 核到 ExecutionOrchestrator.decide 10 个现役调用点、TraceWriter allow/decision 通道、reply_only 仅 trace 兜底无真实 producer、ActionIdempotencyLedger 未比较 payload digest、blocked 页面证据仍缺；待冻结出口→decision/trace/返回映射与幂等错误码。
+
+- 2026-10-31 — **B43 CP1 done：幂等 payload digest**：ActionIdempotencyLedger 对 input.payload 做确定性 SHA-256；同 key 同 payload duplicate、异 payload conflict；持久回执 result 写 digest（无 schema 变更），历史无 digest 按 legacy duplicate；channel 冲突返回 author-safe `:idempotency_payload_conflict`，不 dispatch、不产生第二回执。测试纯函数 + 真实 channel（receipt count=1）；全量 mix 1046/0、credo 0 issues。

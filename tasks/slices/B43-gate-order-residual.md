@@ -1,6 +1,6 @@
 # B43：统一执行裁决与 Gate 残余——行为输入、幂等输入与回放
 
-- 状态：**doing（2026-10-31 CP0 盘点进行中：裁决 producer/trace/幂等输入/blocked 页面调用点已核；未实现 CP1–CP4）**。
+- 状态：**doing（2026-10-31 CP0 盘点完成/CP1 done：payload digest 幂等冲突已实现；CP2 统一裁决 producer/reply_only、CP3 blocked 页面、CP4 回归未做）**。
 - 登记日期：2026-10-27；来源：12 门与 allow 路径已验收，但 blocked 页面、open_behavior/slot 顺序和同键异 payload 仍未闭合。
 - 上游：ADR-0005、[GATE-ORDER-CLOSURE](GATE-ORDER-CLOSURE-execution-gate-order-12.md)、[B40](B40-judgment-era-acceptance-reanchor.md)、[B49](B49-core-semantics-and-adr-review.md)。
 
@@ -29,7 +29,7 @@
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
 | CP0 | 冻结所有回合出口→裁决类型/trace/返回映射及历史读取；与 B45 对齐词表；保留 payload digest、open_behavior/slot 和错误语义的完整范围 | 未开工 |
-| CP1 | 幂等输入一致性：同 key 同 payload 回放，同 key 异 payload 拒绝，不误报 duplicate、不二次写入；保留原成功回执 | 未开工 |
+| CP1 | 幂等输入一致性：同 key 同 payload 回放，同 key 异 payload 拒绝，不误报 duplicate、不二次写入；保留原成功回执 | **done（2026-10-31，§9）**：payload digest 入内存账/持久 result；同 key 同 payload duplicate、异 payload conflict 错误、无第二回执；历史回执无 digest 按 legacy duplicate；真实 channel 测试 |
 | CP2 | 统一裁决 producer 与 reply_only 路径、裁决同源 trace/结果/回放；open_behavior/slot 在六个 flow 与 TurnExecutionService 统一进门，MissingPolicy 与 GateResult 顺序一致 | 未开工 |
 | CP3 | 普通回复/执行/作者动作/停等与 blocked 真实页面及 replay：真实裁决、正确 first_blocking_gate/reason、无虚构工具/写入、DecisionTrace/why 可读；历史记录兼容 | 未开工 |
 | CP4 | 回归 allow 路径、B40 的场景重锚及既有 adoption/action 测试；不为通过而弱化负例 | 未开工 |
@@ -71,6 +71,14 @@
 2. 六类出口（普通回复/执行/作者动作/等待/失败/阻断）→ decision_type/trace/返回/historical 映射；
 3. 同 key 同/异 payload 的 receipt 字段与拒绝错误码；
 4. blocked 场景 driver 的种子与判据（候选 `agent-gate-blocked-lineage`）。
+
+## 9. CP1 实现记录（2026-10-31）
+
+- `ActionIdempotencyLedger`：新增 `payload_digest/1`（对 input.payload 做确定性规范化 + SHA-256），内存 entry 存 digest；`lookup/3` 返回 `{:duplicate, entry}` / `{:conflict, entry}` / `:miss`——同 key 同 payload 才回放，异 payload 明确 conflict；历史 entry 无 digest 按 legacy duplicate（不误伤旧回执）。
+- `ActionIdempotencyService`：持久回执 `result` 写入 `payload_digest`；lookup 读回执 digest 比较，异 payload 返回 conflict；record 不新增 schema/migration（digest 放既有 result map）。
+- `workspace_channel`：`handle_in("author_action")` 命中 conflict 时返回 author-safe `{:error, %{reason: :idempotency_payload_conflict}}`，记 `channel.author_action.error`，不广播 turn_result、不进入 dispatch。
+- 测试：纯函数同键异 payload conflict；真实 channel（注入 persistence）同键同 payload duplicate、异 payload 拒绝且 `author_action_receipts` 只有一条原回执、无第二次 turn_result。
+- 边界：payload digest 不包含服务端生成的 input_id；历史回执无 digest 只能按旧 duplicate 语义，无法追溯其原始 payload（已知兼容边界）。
 
 ## 4. 非目标
 

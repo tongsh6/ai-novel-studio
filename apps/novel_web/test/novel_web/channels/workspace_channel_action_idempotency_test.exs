@@ -8,6 +8,7 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
   alias NovelApplication.WorkService
   alias NovelApplication.WorkSessionService
   alias NovelPersistence.Repo
+  alias NovelPersistence.Schemas.AuthorActionReceipt
   alias NovelPersistence.TraceRepository
   alias NovelWeb.UserSocket
   alias NovelWeb.WorkspaceChannel
@@ -97,6 +98,40 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
 
     refute_broadcast("turn_result", %{}, 50)
     assert socket.assigns.current_turn_id == first_dispatch_turn_id
+  end
+
+  test "persisted same key different payload is rejected without second dispatch" do
+    {:ok, _, socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+    socket = assign_server_turn(socket, @creative_turn_result)
+
+    action = %{
+      "source_turn_ref" => "turn-action-persisted-1",
+      "action_id" => "act-confirm-persisted",
+      "action_type" => "confirm_before_execute",
+      "target_ref" => "character_design",
+      "behavior_ref" => "bh-persisted-1",
+      "idempotency_key" => "ik-confirm-persisted",
+      "payload" => %{"edited_content" => "第一次提交"}
+    }
+
+    assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, socket} =
+             WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
+
+    assert_broadcast("turn_result", %{turn_id: first_dispatch_turn_id})
+
+    changed = Map.put(action, "payload", %{"edited_content" => "同键异内容"})
+
+    assert {:reply, {:error, %{reason: :idempotency_payload_conflict}}, socket} =
+             WorkspaceChannel.handle_in("author_action", %{"action" => changed}, socket)
+
+    refute_broadcast("turn_result", %{}, 50)
+    assert socket.assigns.current_turn_id == first_dispatch_turn_id
+    # 异 payload 不产生第二次回执；原成功回执保留。
+    assert Repo.aggregate(AuthorActionReceipt, :count, :id) == 1
   end
 
   test "confirmation re-gate consumes latest work snapshot after work rename" do

@@ -12,12 +12,19 @@ defmodule NovelApplication.ActionIdempotencyService do
 
   @type scope :: ActionIdempotencyLedger.scope()
 
-  @spec lookup(AuthorActionInput.t(), scope()) :: {:duplicate, map()} | :miss
+  @spec lookup(AuthorActionInput.t(), scope()) :: {:duplicate, map()} | {:conflict, map()} | :miss
   def lookup(%AuthorActionInput{} = input, scope) do
     with true <- inject_persistence?(),
          {:ok, attrs} <- ActionIdempotencyLedger.key_attrs(input, scope),
          receipt when not is_nil(receipt) <- NovelPersistence.AuthorActionReceiptRepo.get(attrs) do
-      {:duplicate, NovelPersistence.AuthorActionReceiptRepo.entry_from_record(receipt)}
+      entry = NovelPersistence.AuthorActionReceiptRepo.entry_from_record(receipt)
+      stored_digest = receipt.result["payload_digest"] || receipt.result[:payload_digest]
+
+      cond do
+        is_nil(stored_digest) -> {:duplicate, entry}
+        stored_digest == ActionIdempotencyLedger.payload_digest(input) -> {:duplicate, entry}
+        true -> {:conflict, entry}
+      end
     else
       _ -> :miss
     end
@@ -25,9 +32,13 @@ defmodule NovelApplication.ActionIdempotencyService do
 
   @spec record(AuthorActionInput.t(), scope(), map()) :: :ok | {:error, term()}
   def record(%AuthorActionInput{} = input, scope, result) when is_map(result) do
+    persisted_result =
+      Map.put(result, :payload_digest, ActionIdempotencyLedger.payload_digest(input))
+
     with true <- inject_persistence?(),
          {:ok, attrs} <- ActionIdempotencyLedger.key_attrs(input, scope),
-         {:ok, _receipt} <- NovelPersistence.AuthorActionReceiptRepo.record(attrs, result) do
+         {:ok, _receipt} <-
+           NovelPersistence.AuthorActionReceiptRepo.record(attrs, persisted_result) do
       :ok
     else
       false -> :ok

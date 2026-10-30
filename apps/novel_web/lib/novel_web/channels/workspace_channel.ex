@@ -402,6 +402,18 @@ defmodule NovelWeb.WorkspaceChannel do
     })
 
     case lookup_author_action_receipt(socket, action_input) do
+      {:conflict, _entry} ->
+        LogEmit.emit(:channel, :author_action, :error, %{
+          work_id: socket.assigns[:work_id],
+          session_id: socket.assigns[:session_id],
+          turn_id: action_input.source_turn_ref,
+          action_id: action_input.action_id,
+          action_type: action_input.action_type,
+          reason_code: :idempotency_payload_conflict
+        })
+
+        {:reply, {:error, %{reason: :idempotency_payload_conflict}}, socket}
+
       {:duplicate, entry} ->
         result = Map.put(entry.result, :duplicate, true)
 
@@ -2354,6 +2366,9 @@ defmodule NovelWeb.WorkspaceChannel do
     case NovelApplication.ActionIdempotencyService.lookup(action_input, scope) do
       {:duplicate, entry} ->
         {:duplicate, entry}
+
+      {:conflict, entry} ->
+        {:conflict, entry}
 
       :miss ->
         NovelApplication.ActionIdempotencyLedger.lookup(
