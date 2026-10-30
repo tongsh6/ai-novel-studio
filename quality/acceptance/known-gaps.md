@@ -1,5 +1,7 @@
 # Known Acceptance Gaps
 
+> 2026-10-30 C06 裁决更新：作者已选择退役 APP 固定补候选目标，保留现有有界纠错及失败恢复。下方 `au02-candidate-fallback-ui` 的 blocked/旧原因是尚未迁移的运行登记；替代验证与 registry 退役未执行，不能标 PASS/已关闭，也不再等待作者允许旧 APP 补齐路线。唯一执行来源见 [B40 §13](../../tasks/slices/B40-judgment-era-acceptance-reanchor.md#13-候选失败策略裁决材料)。
+
 本文件登记已经进入 manifest、但当前不能作为质量 gate 执行的场景。Known gap 不是通过状态，也不能进入 `pr-smoke`。
 
 ## 当前 blocked 场景（2026-10-27 B40 复核后）

@@ -152,3 +152,9 @@ CP3 的引用与投影后果属于完整范围，不能在 CP1/CP2 后改写为�
 - **verifier 非字面量 RegExp / 断言空洞修正**：`scripts/native_b30_evidence.mjs` 的 `countButtons` 原用 `new RegExp("AXButton\\s+" + label)`，但 AX 树行格式为 `AXButton, <title>`（逗号），导致刷新后“采纳按钮=0”断言恒真（vacuous，且触发静态扫描 detect-non-literal-regexp blocking）。改为字面量 `AXButton, ${label}` 计数；用修正后 verifier 在 canonical 证据上重跑：**场景1 仍 36/36、场景2 仍 12/12 PASS**（旧 checks/summary 以 `*-pre-literal-fix.json` 只读保留，证明断言在修正后仍成立而非依赖空洞）。
 - **测试时序 flake**：`agent_run_judgment_plan_flow_test.exs` 的 `{:plan_event, :drafted}` 等待在两次最终门禁首跑（高负载）超时、隔离与全量重跑均绿；按“事件到达断言不变、只放宽等待时长 2s→5s”修正并注明原因，不放宽业务流程断言。
 - 最终门禁重跑证据见 `artifacts/gates/2026-10-27-final/`（gate-runner 首轮报告 + 本轮补充复跑）。
+
+## 2026-10-30 后置语义路由整改交接
+
+“这本书的章节编号为什么采用全书连续编号？只解释，不要修改。”在现役结构意图谓词/后置 guard 中仍会命中维护要求；这不是作者已经授权重编号。该共享机制族统一交 [B33 元原则整改](B33-authoring-intent-judgment-reliability.md#元原则整改语义判断与机械守卫分工)，此处不另设状态或 CP，也不重开本任务已完成的结构维护批次。
+
+B33 负责完整作者语义与合法讨论/条件出口；本任务保留真实章身份、变更计划、编号映射、版本/幂等及事务回滚，模型建议不得直接写编号。明确维护请求的原能力与采纳回归仍须保留，不能以删除结构安全校验修复词法语义强迫；历史原生/实模与失败批次按原范围留存。

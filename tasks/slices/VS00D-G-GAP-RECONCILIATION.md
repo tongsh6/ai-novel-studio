@@ -103,7 +103,7 @@ C 轨定义（NEXT §4）：被 A 轨拉动才做——explore 方向质量 live
 
 | 编号 | 事项 | 状态 | 承接 / 触发 |
 |---|---|---|---|
-| B3 | work_direction 召回（AU09，探索翼=新消费者）、superseded 卡 UI 置灰、toolbox 遥测 run/turn 绑定 | todo | **部分归并（2026-10-24，未销账）**：work_direction/角色召回随 B27 共同输入审计及 B29 角色消费验证；superseded 卡 UI 随采纳 UI 真实需求、toolbox 遥测随 observability 批。不得用主档案更新代替召回证明。 |
+| B3 | work_direction 召回（AU09，探索翼=新消费者）、superseded 卡 UI 置灰、toolbox 遥测 run/turn 绑定 | todo | **承接校准（2026-10-30，未销账）**：方向由 [AU09 方向契约准备](AU09-work-direction-memory-recall.md#6-当前契约与裁决材料准备)、角色演化由 [AU09 CP2](AU09-memory-taxonomy-write-policy.md#cp2-角色演化记忆的真实召回) 承接，目标坐标/有效窗归 [B64](B64-coordinate-aware-memory-consumption.md)；superseded 卡沿 AU10 现役矩阵、toolbox 遥测随原观测链核对。B27 保共同语义审计，B29 主档案更新不代签召回。 |
 | B4 | SU01 live vendor 矩阵、DeepSeek live 探针 | blocked | **挂账（2026-10-24，用户门控）**：需真实 vendor 凭据/环境，非 AI 可闭环。 |
 | B5 | 47 文案指南机械步注记 | todo | **归并 B27（2026-10-24，未销账）**：随共同规则/文案统一处理 47 指南机械步注记，不再独立排一个文案批。 |
 | B7 | T4 残余三小件：探针 call1 目录陈旧（capability_catalog_section 5 项旧目录 vs 生产 6+4）、会话摘要同质 assistant 消息无去重（"已通过采纳边界"×10 注水）、runner 章节请求四子句长措辞助推 plan 判界方差 | todo | **部分归并（2026-10-24，未销账）**：旧 call1 目录探针随 B26 退役，必要判例迁入新协议；会话摘要重复/共同上下文语义归 B27，runner 章请求措辞归 P1-AUTHORING-DOGFOOD。停止两段式参数优化，不自发扩建 harness。 |
@@ -136,23 +136,46 @@ C 轨定义（NEXT §4）：被 A 轨拉动才做——explore 方向质量 live
 | B26/B27 联合入口、PLANNER-SEMANTIC-BOUNDARY、G1/G3/G5/G7 | [B26](B26-single-call-judgment-protocol.md) / [B27](B27-systematic-prompt-and-intent-integration.md)；协议与语义分别验收；G3 schema owner 为 B27，不恢复旧 AU11 producer |
 | B31 一般自由输入绑定 | [B31](B31-author-reply-run-binding.md)；明确 ask_author 问题绑定由 B26 自证，本项不作反向前置 |
 | Q1c 全章后果 / B11D 多场正文、单场替换、逐场评审 | [B28](B28-whole-chapter-revision.md) CP0 接单；原 B11D 已完成的 finding 归因保留。未形成覆盖/身份/事务/页面验收前，转出项保持开放 |
-| B25 大纲物化遗漏 / AU08 结构维护 | [B30](B30-chapter-structure-maintenance.md)；ensure_planned_chapter 仍 title+limit(1)，正文 ref 验收不覆盖该路径；卷章类型先复现，不重建已正确路径 |
+| B25 大纲物化遗漏 / AU08 结构维护 | [B30](B30-chapter-structure-maintenance.md)；原大纲 title+limit(1) 漏洞与卷章类型由 B30 承接，当前实现/证据回原任务核对；不以旧条目重开已完成身份修复 |
 | AU09 已有角色改判主角 CP2 | [B29](B29-existing-character-role-revision.md)；主档案、记忆与下轮消费一致，不能以演化文字代替字段更新 |
 | Order 7 / G2 / NEM-GAP-01 | [B27](B27-systematic-prompt-and-intent-integration.md) 输入矩阵承接 CA01 planner facts / 待裁决报告 / 省略范围；[CA01](CA01-planning-context-completion.md) 原字段写入余项仍保留，已有 CA01–CA04/B11A 不重做 |
 | Order 6 / NEM-GAP-05/06 / R2 design_ref | [VS-00F](VS-00F-five-ledgers-three-state.md) 与 [B13b §4](B13B-adr-enforcement-reconciliation.md)；五账长期效果、design_ref、durable 和 dismiss 触发分别保留 |
 | NEM-GAP-08 | [VS-00G](VS-00G-fact-inventory-run.md) CP5e、触发 C、寿命催办、works 级假定、记忆注入富化；没有新证据不借本次迁移关账 |
-| B14 / DS03 尾项 | [DS03](DS03-awaiting-author-runtime-validity-and-recovery-surface.md)；schema/Pencil/其他 flow steer 等原余项保留，明确问题回复由 B26 承接 |
+| B14 / DS03 尾项 | [DS03](DS03-awaiting-author-runtime-validity-and-recovery-surface.md)；schema 由 [DS01 开放小节](DS01-decision-surface-schema-gate.md#9-ds03-agent_run_state-schema-承接) 承接，Pencil/其他 flow steer 等原条件保留；明确问题回复由 B26 承接 |
 | B22、B24、AB-RESUME、T7 的后置项 | [B22](B22-provider-liveness-and-budget-policy.md) 自适应校准；[B24](B24-exploration-chapter-full-read.md) 超长章/批量/档位；[提示词任务](UA01-agentic-loop-prompt-hardening.md) T6/T7 的 vendor/live/developer UI；均按原触发条件，不因历史行 done 关闭长尾 |
 | Order 8 空转调查、E28–E30 / NEM-GAP-02/04 | 原调查已完成，后续以本节条件表及 `docs/design/08-novel-element-model.md` 差距为源；需真实创作消费者，不自动建空字段 |
 
 ### 真实创作复验
 
-- 状态：**done（2026-10-27，canonical-3e 浏览器实模 + 原生实模 scoped 四项能力）**。canonical-3e 保留为浏览器实模产品链 PASS；完成审计要求的原生证据已由 P1 原生 scoped 批次补齐（创作/排版维护/真实关闭重开恢复+续写/真实目录面板导出，真实 Strata iq3_s，checks 103/103，见下）。I10 文学盲评仍待作者安排；原批次与失败批次只读保留。
+- 状态：**done（2026-10-27，canonical-3e 浏览器实模 + 原生实模 scoped 四项能力）**。canonical-3e 保留为浏览器实模产品链 PASS；完成审计要求的原生证据已由 P1 原生 scoped 批次补齐（创作/排版维护/真实关闭重开恢复+续写/真实目录面板导出，真实 Strata iq3_s，checks 103/103，见下）。本状态不包含 I10 文学盲评，其当前安排以本节下方 I10 小节为准；原批次与失败批次只读保留。
 - 原收口记录：**done / PASS（2026-10-25，canonical-3e final；P1 收口）**：Strata `iq3_s` detached phase1+phase2 共约 28.3min，单次未重跑换分；**10/10 章≥1000、总 12,894 字**；维护 5/5（design/format/content/renumber/role，attempts 均 1）；content_revision 第03/04章 `target_segments`：25 段仅 segment0 变化、**其余 24 段 sha 逐字节相同**、首段 46→184 chars、字数 1344→1470 不塌缩；wrong-route 终局 0、failures/retries 0；B9 confirm 3/skip 0；author_question_events 0（机制武装）；导出 44KB；wait 59 waits/0 timeouts/无重复 instruction；writer 24（≤40）。canonical-1/2/3 各事故/失败批次（attempt1 SIGTERM/attempt2 预算污染/attempt3 design/attempt4 awaiting）全部保留只读；**I10 文学盲评仍待作者指定负责人/时机（AI 不代签）**，B38 世界规则保存判断候选 deferred（trigger 真实产品链复现/作者请求）。证据 `artifacts/novel-output/p1-authoring-dogfood-2026-10-25-canonical3e/`。
 - 任务：P1-AUTHORING-DOGFOOD；既有周期复验，不新增产品能力或平行 harness。
 - 范围：引用 `docs/product/novel-output-milestones.md` §4/§8；每 3–5 个周期插入，最迟本轮 B26/B27→B31→B28→B30→B29 后执行。
 - 剩余：复用真实工作台 runner 完成 10 章创作，包含修订/结构/角色维护、采纳、重开、审读、导出；确认路径/空章/重复观察消费 §6 B6/B7/B9。各操作尚未上线时不能用脚本旁路代替。
 - 验证：实模语义、真实 Tauri 产品链、文学质量盲评分开；记录错对象/错绑/越权/虚报、重试率、缺章/重复/漂移、人工改稿负担。ADR-0020 I10 仍需作者指定盲评负责人/时机；AI 不代替盲评签字。
+
+#### I10 人工盲评安排
+
+- 状态：**deferred（2026-10-30 C08=B；人工评审延期至 B39 第一批真实样本之后，尚无人工评审或文学收益结论）**。
+- 契约：[ADR-0020 I10](../../docs/design/adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md)、[VS-00E §14](../../docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md#14-验收cp1cp3-注册到-qualityacceptancescenariosyml)。原 `p1-prose-quality-real-provider-sample` 目标是收集真实材料供人工盲评，不是让模型自评分后宣布文学提升。
+- 2026-10-30 只读核对：`artifacts/novel-output/p1-authoring-dogfood-2026-10-25-canonical3e/` 下存在导出正文、chapter-quality、continuity-report 与 final-report。此次仅确认材料存在，未核定它们已经组成符合 I10 的可比样本对，也没有人工盲评结果。
+
+| 安排 | 推荐 | 影响 |
+|---|---|---|
+| A：现在启动已有样本核对、匿名材料和评审方案准备，并安排第一轮人工基线评审 | 推荐 | 提前看清当前文本质量和评价尺度；先核来源与比较对象，再由作者指定评审人/时间；若缺可比材料，明确缺口，不自动新跑模型补样 |
+| B：先保留基线资料，人工评审延期至 B39 第一批真实样本之后 | 可选 | 减少当前评审负担，可集中比较；期间不宣称文学收益已验证，不能事后挑选有利样本或放宽比较口径 |
+
+共同边界：准备阶段必须明确评价目标、抽样与必要上下文、匿名顺序、维度、来源版本和对照可比性。只有终稿阅读可建立质量画像，不能单独证明比旧方案更好；I10 的收益结论须有真实、可比较的材料与人工判断，已有工程 PASS 或 B27 自动 judge 不能代签。作者熟悉文本导致无法完全盲化时如实记录限制。
+
+AI 可核对材料、制作匿名包和收集表，不能代作者作文学结论，也不自动联系评审人、重写稿件或改变采纳状态。若需要新增实模样本，另给具体预注册和资源安排。本项不阻塞其它独立工程工作，只限制相应质量收益声明。
+
+##### C08 裁决记录（2026-10-30）
+
+- 作者原话：**“b”**，对应当时展示的 C08 选项 **B**。这是明确选择延期，不采用原推荐 A，也不表示作者已经完成人工评审。
+- 生效安排：保留 canonical-3e 基线资料，人工评审延期至 [B39](B39-evidence-seeking-authoring.md) 第一批真实样本之后；工程工作可继续，期间不宣称文学收益已验证。
+- 重新开放条件：B39 首批真实样本及来源/运行记录可审阅后，先核对与旧基线的目标、上下文、模型/配置与版本差异，形成抽样、匿名化、维度和比较限制明确的评审方案，再由作者安排负责人/时间。真实样本出现不会自动变成人工评审通过；不等整个 B39 slice done 才准备评审，也不因延期而事后挑选有利结果。
+- 材料保留：本次只读登记 15 份既有正文导出与报告的路径、大小、SHA-256，见 基线校验清单（`../../artifacts/novel-output/i10-baseline-20261030-qh01a3hw/manifest.json`）。原件未改写，历史浏览器实模证据不冒充原生证据；清单用于发现后续字节变化，不是备份副本、完整可比样本包或新验收结论。
+- 未关闭后果：可比样本对、评审方案、负责人/时间与人工判断仍待触发后落实；AI 不代签，不自动联系他人或运行模型。本项只记录决策与延期条件。
 
 #### 2026-10-27 P1 原生实模 scoped 补验（创作/维护/恢复/导出）
 

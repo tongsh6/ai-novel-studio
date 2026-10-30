@@ -60,3 +60,7 @@
 
 - 2026-06-18 — `AU09-memory-trace-roundtrip` 已闭环 lifecycle/reference 可解释链路；下一 AU09 P1 缺口转为有效期窗口参与普通召回。
 - 2026-06-18 — 复核发现有效期窗口过滤、测试和 Tauri driver 已存在；本轮复跑后标 checkpoint closed。下一 AU09 队首转为 `AU09-cross-work-memory-isolation`。
+
+## 2026-10-30 跨消费者有效窗后续
+
+既有普通 recall 的窗口验收不改写；明确目标章与全书已写进度的区别、专业 writer/evaluator 与普通 recall 的适用性一致，转由 [B64](B64-coordinate-aware-memory-consumption.md) 完整承接。档案历史可查与当前有效事实不同，本任务不因转交清空历史或声称新的消费者矩阵已通过。

@@ -101,7 +101,7 @@ flowchart TD
 
 这张图表达的是动态责任，不代表最终模块部署图。部署与组件边界后续由 `00d-runtime-architecture.md` 细化。
 
-`Prepare → MicroPlan` 是同一有界 AgentRun 内的求证回边：模型发现信息缺口并修订计划，Orchestrator 逐步重新放行只读动作，真实观察进入下一次模型请求；它不是 APP 自动补料、无限循环或重开一个已关闭计划。初始 DialogueContext 只承诺最小可信底座，不承诺预选知识充分。完整候选契约见 `contracts/VS-00K-evidence-seeking-authoring-contract-pack.md`（Proposed）。
+`Prepare → MicroPlan` 是同一有界 AgentRun 内的求证回边：模型发现信息缺口并修订计划，Orchestrator 逐步重新放行只读动作，真实观察进入下一次模型请求；它不是 APP 自动补料、无限循环或重开一个已关闭计划。初始 DialogueContext 只承诺最小可信底座，不承诺预选知识充分。完整契约见 `contracts/VS-00K-evidence-seeking-authoring-contract-pack.md`（2026-10-29 已接受为实施基线；运行时接线与验收仍由 B39 完成）。
 
 ---
 

@@ -17,5 +17,5 @@
 | `26-context-assembly-policy.md` | 上下文组装策略（消费者分型、组装顺序、降级路径） |
 | `27-reading-projection.md` | 阅读投影对象族 |
 | `28-authoring-lifecycle.md` | 创作生命周期 |
-| `33-experience-engine.md` | 经验引擎（experience rule/evidence/artifact） |
+| `33-experience-engine.md` | 经验引擎（experience rule/evidence/artifact）；执行承接见 [B68](../../../tasks/slices/B68-experience-rule-governance.md) |
 | `34-novel-element-field-priority.md` | 小说要素字段优先级 |

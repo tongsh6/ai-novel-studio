@@ -1,6 +1,8 @@
 # Multi-Agent §12 在 OTP 上的映射
 
-> 状态：草案
+> 状态：后续技术方向 / 首期实施 deferred（2026-10-30 作者 C05=B）；历史映射保留，不代表当前产品已实现或验收。
+>
+> **2026-10-30 当前适用范围**：作者已选择延期独立常驻角色、完整父子委派与 24x7 Reviewer/Maintainer 的首期交付，先完成统一 AgentRun 的创作/求证闭环。专业写作/评估功能和既有隔离、权限、预算、取消、恢复要求保留；未来在真实独立任务、收益、边界和验收齐备时重新开放。决策及延期状态唯一来源为 [B50 §6](../../../tasks/slices/B50-multi-agent-current-boundary.md#6-c05-裁决记录)。下方 2026-10-27 注记及示例保留历史语境，不再表示该去向仍待作者裁决。
 >
 > 2026-10-27 对账注记：本文的 process-isolated Multi-Agent / 24x7 / Reviewer / Maintainer 仍是历史设计输入，**不是当前已实现或已验收事实**。当前统一 AgentRun 与 B39 禁止第二求证 runtime 与之存在未决边界，须先经 [B50-multi-agent-current-boundary](../../../tasks/slices/B50-multi-agent-current-boundary.md) 裁决保留、延期或 supersede；裁决前不得据本文新建进程、宣称 24x7 或将“全部通过”写成现状。
 >
@@ -575,7 +577,9 @@ end
 
 ## 12. 验证清单
 
-§12 硬骨条件最终验证：
+以下勾选与原结论保留为历史技术论证，不能单独作为当前产品实现、原生验收或 24x7 已交付证据；未来实施按 B50 的重新开放条件及现行架构约束逐项取证。
+
+原 §12 映射检查记录：
 
 - [x] Agent identity（Registry + AgentRef）
 - [x] 父子关系（Supervisor 树）
@@ -587,7 +591,7 @@ end
 - [x] LongRunner checkpoint 语义（GenStage producer）
 - [x] 跨节点（libcluster + Horde）
 
-**全部通过**。Elixir + OTP 是 §12 的本主场，技术栈推荐确认成立。
+**历史原结论（保留）**：“全部通过。Elixir + OTP 是 §12 的本主场，技术栈推荐确认成立。”该表述仅保留旧论证记录；当前完整产品能力仍 deferred，不以此跳过实现或真实验收。
 
 ---
 

@@ -1,5 +1,9 @@
 # 当前设计文档入口
 
+> 2026-10-30：作者正式接受 [ADR-0031](adr/ADR-0031-core-chain-semantics-narrowing-v3.md)，[ADR-0022](adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md) 同步为 Superseded；旧稿原文与证据保留。统一裁决等新增实现、历史兼容与真实页面验收仍由原 B01/B43/B45 承接，设计接受不代表产品完成。
+
+> 2026-10-29：作者已正式接受 [ADR-0030](adr/ADR-0030-evidence-seeking-authoring-v3.md)、[VS-00K](contracts/VS-00K-evidence-seeking-authoring-contract-pack.md)、[AU-15](acceptance/author/AU-15-evidence-seeking-authoring.md) 为 B39 实施基线；产品与新增 CI 不变量仍待落实。各设计章节中带 2026-10-27 日期的 Proposed 增补保留为当时记录，当前决策状态以 ADR 正文为准。
+
 > 状态：当前唯一设计真源
 >
 > 适用范围：AI Novel Studio 当前产品、架构、contract、ADR、验收设计、UI 设计与 schema/codegen 追溯。

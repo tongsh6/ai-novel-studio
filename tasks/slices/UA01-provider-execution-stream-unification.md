@@ -198,3 +198,11 @@
 - 后续若继续提升体感，应继续在同一 ProviderExecution runtime 内推进用户实际可用供应商的真实 live 验证，以及把更多创作 profile 的 provider flow 与作者可理解的计划/修订因果进一步打通；OpenAI-compatible / DeepSeek / LM Studio / Anthropic wire-level SSE、ProviderExecution cancellation、scoped ProviderRun 查询 API、同一对话流 replay UI、prepared/dispatched/response_received 中间进展、chunk 事实和前端模型执行流均已验证，不新增第二套 streaming API。
 - 本轮 live provider 矩阵按用户决策只覆盖本地 LM Studio 与 DeepSeek。LM Studio 已有真实 Tauri + HTTP log 证据；DeepSeek 无 key 时记录为凭据阻塞；其他供应商等待用户提供 key 或账号策略后再进入后续 CP，不在当前范围内。
 - 链路纯化已经清掉 `Provider.Execution.dependency()` 的裸函数 public API 兼容，并把内部 callback 字段从 `complete_fn` 收口为 `result_fn`；后续若继续收口，应聚焦 live vendor 验证矩阵和更多 profile 的作者可理解因果体感，不得重新引入裸函数或 keyword opts 作为第二 provider 入口。
+
+## 10. B13 运行失败日志关联
+
+- 状态：**todo（2026-10-30 明确承接既有 B13；只读审计未开工，未重开已完成的 ProviderExecution 主链）**。
+- 来源：[全量对账 B13](../2026-10-27-design-to-execution-reconciliation.md#42-契约adr-与-schema) 已要求核对 `agent_run.run_failed` 的 base turn/work/session 与三源日志串联；此小节是该余项唯一执行状态入口，不新增观测平台。
+- 下一步：只读核对当前失败事件生产者、app/Provider/trace 三源关联字段、失败/取消/恢复的实际记录，区分历史缺口与现状；输出缺失键、消费者与最小修复/补验矩阵。已有日志不够时记录具体缺证，不伪造运行结果，不默认启动 vendor live。
+- 后续闭环：按实际缺口在既有日志/事件契约补齐真实来源，验证正常失败、provider 错误、取消/恢复与跨作品隔离，并从真实工作台失败反馈追到同次调用/trace；日志不能泄漏正文秘密或凭据，回放不重新调用模型。纯静态核对只能关闭审计 checkpoint，不能代替补验。
+- 依赖与边界：与 B43 的统一裁决/trace 来源对齐，保留已有 ProviderExecution 接口和历史读取；vendor live 仍按 T35 的凭据/资源条件另行核实，原历史“缺凭据”不当作当前检查结果。developer 身份展示仍需真实消费者；本次不改生产代码或日志数据。

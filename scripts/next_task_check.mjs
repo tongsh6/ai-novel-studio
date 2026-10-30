@@ -13,85 +13,105 @@ const actionableStates = new Set(["todo", "pending", "doing"]);
 // NEXT 只选择工作；执行状态从原任务读取，不再与旅程同步一份 next。
 export function validateTaskState(next, { readTask, journeys = "" } = {}) {
   const failures = [];
-  const lines = next.trimEnd().split("\n");
-  if (lines.length > 80 || next.length > 6000) {
-    failures.push("NEXT: 超过 80 行或 6000 字符；历史、证据与细节应回原文档");
+  validateLayout(next, failures);
+  const current = taskRows(section(next, "当前任务"), "当前任务", failures);
+  const candidates = taskRows(section(next, "后续候选"), "后续候选", failures);
+  const blocked = section(next, "阻塞");
+  if (current.length > 1) failures.push("NEXT: 当前任务至多一项");
+  if (current.length === 0 && !links(blocked).some((ref) => taskPath(ref))) {
+    failures.push("NEXT: 当前任务为空时必须引用原任务中的阻塞/待决策来源");
   }
+  const context = { current, readTask, ids: new Set(), sources: new Set() };
+  for (const row of [...current, ...candidates]) validateQueueRow(row, context, failures);
+  for (const ref of links(blocked)) validateBlockedReference(ref, readTask, failures);
+  validateJourney(journeys, failures);
+  return failures;
+}
+
+function validateLayout(next, failures) {
+  const lines = next.trimEnd().split("\n");
+  validateSize(lines, failures);
   const actual = lines.filter((line) => /^#{2,} /.test(line));
   if (JSON.stringify(actual) !== JSON.stringify(headings.map((name) => "## " + name))) {
     failures.push("NEXT: 只允许按序出现 当前任务 / 后续候选 / 阻塞 三节");
   }
-  if (!next.includes("](README.md)")) {
-    failures.push("NEXT: 缺少 tasks/README.md 更新规则链接");
-  }
-  const current = taskRows(section(next, "当前任务"), "当前任务", failures);
-  const candidates = taskRows(section(next, "后续候选"), "后续候选", failures);
-  if (current.length > 1) failures.push("NEXT: 当前任务至多一项");
-  if (candidates.length > 5) failures.push("NEXT: 后续候选至多五项");
+  if (!next.includes("](README.md)")) failures.push("NEXT: 缺少 tasks/README.md 更新规则链接");
+}
 
-  const blocked = section(next, "阻塞");
-  if (current.length === 0 && !links(blocked).some((ref) => taskPath(ref))) {
-    failures.push("NEXT: 当前任务为空时必须引用原任务中的阻塞/待决策来源");
+function validateSize(lines, failures) {
+  // 表格任务行不占说明篇幅，避免总长度间接限制候选数量。
+  const prose = lines.filter((line) => tableCells(line) === null);
+  if (prose.length > 80 || prose.join("\n").length > 6000 || lines.some((line) => line.length > 6000)) {
+    failures.push("NEXT: 说明超过 80 行或 6000 字符，或单行超过 6000 字符；历史、证据与细节应回原文档");
   }
-  const ids = new Set();
-  const sources = new Set();
-  for (const row of [...current, ...candidates]) {
-    const [id, , source] = row;
-    if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(id ?? "")) {
-      failures.push("NEXT: 非法任务编号 " + id);
-    }
-    if (ids.has(id)) failures.push("NEXT: 重复任务编号 " + id);
-    ids.add(id);
-    const refs = links(source ?? "");
-    if (refs.length === 0) failures.push("NEXT: " + id + " 缺少状态来源链接");
-    if (refs.length > 1) failures.push("NEXT: " + id + " 只能有一个状态来源；依赖放说明列或原任务");
-    for (const ref of refs) {
-      const target = taskPath(ref);
-      if (!target) {
-        failures.push("NEXT: " + id + " 状态来源必须是 tasks 下的原任务，不能是 NEXT/README/外部路径");
-        continue;
-      }
-      const key = target.file + "#" + target.anchor;
-      if (sources.has(key)) failures.push("NEXT: 原任务被重复排期 " + key);
-      sources.add(key);
-      try {
-        const text = readTask(target.file);
-        const body = target.anchor ? anchoredSection(text, target.anchor) : text.split(/^## /m)[0];
-        if (body === null) {
-          failures.push("NEXT: " + id + " 状态来源锚点不存在 " + ref);
-          continue;
-        }
-        const status = sourceStatus(body);
-        if (terminalStates.has(status)) {
-          failures.push("NEXT: " + id + " 来源已终结 (" + status + ")，应移出排期");
-        } else if (!openStates.has(status)) {
-          failures.push("NEXT: " + id + " 状态来源缺少可识别的顶部状态");
-        } else if (current.includes(row) && !actionableStates.has(status)) {
-          failures.push("NEXT: " + id + " 当前任务来源为 " + status + "；应排可推进的 checkpoint 或移入候选/阻塞");
-        } else if (current.length === 0 && actionableStates.has(status)) {
-          failures.push("NEXT: 当前任务为空但候选 " + id + " 仍为 " + status + "；先选任务或在原文明确阻塞");
-        }
-      } catch (error) {
-        failures.push("NEXT: " + id + " 状态来源不可读 " + target.file + ": " + error.message);
-      }
-    }
+}
+
+function validateQueueRow(row, context, failures) {
+  const [id, , source] = row;
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(id ?? "")) failures.push("NEXT: 非法任务编号 " + id);
+  if (context.ids.has(id)) failures.push("NEXT: 重复任务编号 " + id);
+  context.ids.add(id);
+  const refs = links(source ?? "");
+  if (refs.length === 0) failures.push("NEXT: " + id + " 缺少状态来源链接");
+  if (refs.length > 1) failures.push("NEXT: " + id + " 只能有一个状态来源；依赖放说明列或原任务");
+  for (const ref of refs) validateQueueReference(ref, row, context, failures);
+}
+
+function validateQueueReference(ref, row, context, failures) {
+  const id = row[0];
+  const target = taskPath(ref);
+  if (!target) {
+    failures.push("NEXT: " + id + " 状态来源必须是 tasks 下的原任务，不能是 NEXT/README/外部路径");
+    return;
   }
+  const key = target.file + "#" + target.anchor;
+  if (context.sources.has(key)) failures.push("NEXT: 原任务被重复排期 " + key);
+  context.sources.add(key);
+  try {
+    const text = context.readTask(target.file);
+    const body = target.anchor ? anchoredSection(text, target.anchor) : text.split(/^## /m)[0];
+    if (body === null) {
+      failures.push("NEXT: " + id + " 状态来源锚点不存在 " + ref);
+      return;
+    }
+    validateScheduledStatus(sourceStatus(body), row, context.current, failures);
+  } catch (error) {
+    failures.push("NEXT: " + id + " 状态来源不可读 " + target.file + ": " + error.message);
+  }
+}
+
+function validateScheduledStatus(status, row, current, failures) {
+  const id = row[0];
+  if (terminalStates.has(status)) {
+    failures.push("NEXT: " + id + " 来源已终结 (" + status + ")，应移出排期");
+  } else if (!openStates.has(status)) {
+    failures.push("NEXT: " + id + " 状态来源缺少可识别的顶部状态");
+  } else if (!actionableStates.has(status)) {
+    const role = current.includes(row) ? "当前任务" : "候选";
+    failures.push("NEXT: " + id + " " + role + "来源为 " + status + "；应排可推进的 checkpoint 或移入阻塞引用");
+  } else if (current.length === 0) {
+    failures.push("NEXT: 当前任务为空但候选 " + id + " 仍为 " + status + "；先选任务或在原文明确阻塞");
+  }
+}
+
+function validateBlockedReference(ref, readTask, failures) {
   // 阻塞中的任务引用也要真实可达；不在 NEXT 再造一份阻塞状态。
-  for (const ref of links(blocked)) {
-    const target = taskPath(ref);
-    if (!target) {
-      failures.push("NEXT: 阻塞必须链接原任务 " + ref);
-      continue;
-    }
-    try {
-      const text = readTask(target.file);
-      if (target.anchor && anchoredSection(text, target.anchor) === null) {
-        failures.push("NEXT: 阻塞来源锚点不存在 " + ref);
-      }
-    } catch (error) {
-      failures.push("NEXT: 阻塞来源不可读 " + ref + ": " + error.message);
-    }
+  const target = taskPath(ref);
+  if (!target) {
+    failures.push("NEXT: 阻塞必须链接原任务 " + ref);
+    return;
   }
+  try {
+    const text = readTask(target.file);
+    if (target.anchor && anchoredSection(text, target.anchor) === null) {
+      failures.push("NEXT: 阻塞来源锚点不存在 " + ref);
+    }
+  } catch (error) {
+    failures.push("NEXT: 阻塞来源不可读 " + ref + ": " + error.message);
+  }
+}
+
+function validateJourney(journeys, failures) {
   for (const line of journeys.split("\n")) {
     const cells = tableCells(line);
     if (/^[A-Z]\d+$/.test(cells?.[0] ?? "") &&
@@ -102,11 +122,26 @@ export function validateTaskState(next, { readTask, journeys = "" } = {}) {
       failures.push("journeys: 不再维护队首镜像 " + line.split(":")[0]);
     }
   }
-  return failures;
 }
 
 // 只读派生开放清单，不写状态文件，也不把 todo 自动解释为已获实现授权。
 export function collectTaskInventory(files, { readTask, next = "" }) {
+  const scheduled = scheduledSources(next);
+  const entries = [];
+  const unclassified = [];
+  for (const file of [...files].sort()) {
+    if (!file.endsWith(".md") || ["README.md", "NEXT.md"].includes(path.posix.basename(file))) continue;
+    const text = readTask(file);
+    if (!openStates.has(sourceStatus(text)) && !terminalStates.has(sourceStatus(text))) unclassified.push(file);
+    for (const { source, body } of taskSections(file, text)) {
+      const status = sourceStatus(body);
+      if (openStates.has(status)) entries.push({ source, status, schedule: scheduled.get(source) ?? "未排期" });
+    }
+  }
+  return { entries, unclassified };
+}
+
+function scheduledSources(next) {
   const scheduled = new Map();
   for (const name of ["当前任务", "后续候选"]) {
     for (const row of taskRows(section(next, name), name, [])) {
@@ -116,25 +151,16 @@ export function collectTaskInventory(files, { readTask, next = "" }) {
       }
     }
   }
-  const entries = [];
-  const unclassified = [];
-  for (const file of [...files].sort()) {
-    if (!file.endsWith(".md") || ["README.md", "NEXT.md"].includes(path.posix.basename(file))) continue;
-    const text = readTask(file);
-    const sections = [{ source: file, body: text }];
-    for (const match of text.matchAll(/^#{2,6} (.+)$/gm)) {
-      const anchor = slug(match[1]);
-      sections.push({ source: file + "#" + anchor, body: anchoredSection(text, anchor) });
-    }
-    if (!openStates.has(sourceStatus(text)) && !terminalStates.has(sourceStatus(text))) {
-      unclassified.push(file);
-    }
-    for (const { source, body } of sections) {
-      const status = sourceStatus(body);
-      if (openStates.has(status)) entries.push({ source, status, schedule: scheduled.get(source) ?? "未排期" });
-    }
+  return scheduled;
+}
+
+function taskSections(file, text) {
+  const sections = [{ source: file, body: text }];
+  for (const match of text.matchAll(/^#{2,6} (.+)$/gm)) {
+    const anchor = slug(match[1]);
+    sections.push({ source: file + "#" + anchor, body: anchoredSection(text, anchor) });
   }
-  return { entries, unclassified };
+  return sections;
 }
 
 function sourceStatus(body) {
@@ -160,11 +186,15 @@ function taskRows(text, name, failures) {
   }
   const result = rows.filter((cells) => cells && !cells.every((cell) => /^:?-+:?$/.test(cell)));
   for (const row of result) {
-    if (row.length !== 3 || row.some((cell) => !cell)) failures.push("NEXT: " + name + " 表格行损坏");
+    if (!completeTaskRow(row)) failures.push("NEXT: " + name + " 表格行损坏");
   }
   // 畸形表格不能靠丢弃解析失败行获得空队列。
   if (rows.some((row) => !row)) failures.push("NEXT: " + name + " 表格缺少边界");
   return result;
+}
+
+function completeTaskRow(row) {
+  return row.length === 3 && row.every((cell) => cell.length > 0);
 }
 
 function tableCells(line) {

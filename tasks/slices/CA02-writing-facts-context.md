@@ -41,3 +41,7 @@
 - 23 风格对象化（style_sample/writing_preferences/brief/feedback_patch）——L4 完整形态独立 slice。
 - 31 🔴 四门读模型基建（独立 slice，31 明文不塞产出期）。
 - 产品级效果（设定/伏笔一致性、风格贴合、evaluator 高置信冲突发现率）随下次节拍狗粮清算。
+
+## 2026-10-30 目标坐标与有效窗承接
+
+本任务 CP1 的确认态/类型分组与事实段历史证据保留；目标章的有效窗和专业模型消费一致性由 [B64](B64-coordinate-aware-memory-consumption.md) 唯一承接，不把当前 creative_facts(work_id) 的静态缺口外推为所有修订路径均已错误，也不另造第二过滤器。

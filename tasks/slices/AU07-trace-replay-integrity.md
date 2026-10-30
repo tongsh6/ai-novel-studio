@@ -51,3 +51,11 @@ P1：developer 双视图权限、多类型 replay UI、reason catalog、ToolTrac
 - 2026-06-21 — ReplayService 只在 trace refs 存在时解释 Tool / Behavior / State chain；缺 refs 时必须 partial，不允许用默认文案伪造完整 replay。
 - 2026-06-21 — 本 checkpoint 当时不把 AU-07 标文件级完成；随后 `au07-state-trace-adoption-replay` 与 `au07-behavior-trace-terminal-replay` 已关闭文件级 P0，AU-07 当前可进入 AU-08。
 - 2026-06-21 — `ai_static_scan --top 10` 当前剩余 Top 10 为历史 gitleaks accepted risk；本 checkpoint touched-file finding 为 0。
+
+## P1 消费者与余项核对
+
+- 状态：**todo（2026-10-30 明确原 §3 P1 尾项的恢复入口；原 checkpoint/file-level P0 完成记录不变，后续未闭环）**。
+- 来源：本任务 §3 与 [全量对账 F18/E29](../2026-10-27-design-to-execution-reconciliation.md#46-验收ui-与质量证据) 的原 AU07 承接；范围仍是 developer 双视图权限、多类型 replay UI、reason catalog 与 ToolTrace 独立 registry snapshot。
+- 下一步：按现有 trace producer、持久查询、ReplayService 与 Why/开发者视图消费者逐项核对剩余能力和证据，区分已经完成的旧 turn scoped query、partial replay、scope 负例与真正开放项；形成不重复建设的实施/补验矩阵，冻结该 checkpoint 七问后进入实现。
+- 完整后果：author/developer 权限与脱敏一致，多类型 trace 可据真实引用解释，缺引用诚实 partial；registry/reason 信息来自保存事实或对应版本，不能用当前目录伪造历史。外部真实页面验证可见解释、权限差、跨作品/会话/turn 隔离及回放不调模型/不写生产数据；局部查询通过不能代签完整 UI。
+- 依赖与去重：B43 负责新增统一裁决 producer 与其回放，VS-00F 负责权威维护 StateTrace；本项消费这些来源，不再生成平行裁决/状态记录。B39 的 Observation/version/stale/no-provider 回放增量仍随其 CP3，当前先核对既有 Tool/Behavior/State 消费；旧 workspace_id 迁移继续作为原 P2，不借本项扩成全量迁移。

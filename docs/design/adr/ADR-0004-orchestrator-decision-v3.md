@@ -448,6 +448,8 @@ v3 不继承 v2 Router-first 执行拓扑，也不把 v2 handler 结果直接升
 
 ## enforcement_gaps
 
+**2026-10-30 ADR-0031 承接说明**：[ADR-0031](ADR-0031-core-chain-semantics-narrowing-v3.md) 已由作者正式接受。每回合统一裁决的要求保留并补齐，普通回复新增 reply_only；旧“省略普通回复 decision”的降级建议不再是当前目标。类型按真实行为与已确认需求映射；decided 表达决定形成，执行进度沿 run/step/事件。frame/plan 按真实步骤绑定；生产、wire、回放及历史兼容仍未完成。 本文最终决策段保留为历史，以上是当前规范关系说明，不代表实现缺口关闭；执行来源见 [B49 收口](../../../tasks/slices/B49-core-semantics-and-adr-review.md#716-c02-实施基线收口)。
+
 - **2026-10-27 B40 enforced_by 更新（证据映射，不改决策段）**：原 `e2e-01-downgrade-real-page.yml`（多步 MicroPlan→action_scope 降级）在判断纪元静态不可达，已正式退役；替代证据为 `agent-step-regate`（12 门 allow 路径真实页面 PASS + author-safe why/gate 断言）+ `gate_order_closure_test`（blocked 路径单测）。见 `tasks/slices/B40-judgment-era-acceptance-reanchor.md` §7.3/§10。
 
 - B13b 裁决（2026-10-22，降级为文档化偏差）：reply-only 主链不构造 `OrchestratorDecision`（`dialogue_planning_service.ex:804-830`），由 `DecisionTrace`（`decision_type=:reply_only` + `no_tool/no_behavior/no_write_reason`，`trace_writer.ex:20-50,368-370`）承担决策解释；ADR-0004 决策 #1/#2「每个 turn 有 decision」与实现不一致，应新增 ADR 收窄（不得直接改写历史决策）。

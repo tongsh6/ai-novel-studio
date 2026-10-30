@@ -74,3 +74,14 @@
 ## 8. 下次会话恢复指引
 
 先读 `docs/design/adr/ADR-0024-decision-surface-registry-v3.md`（决策 2/3/5）与 `docs/design/07-workbench-ui-contract.md` §4，再看本文件 §4 任务表，从第一个 todo 开始。诊断背景见 `docs/design/notes/2026-07-15-dialogue-flow-decision-surface-review.md`。
+
+## 9. DS03 agent_run_state Schema 承接
+
+- 状态：**todo（2026-10-30 承接 DS03 已登记尾项；原 DS01/DS03 已验批次保持完成，本项未实施）**。
+- 来源：[DS03 §9 残余登记](DS03-awaiting-author-runtime-validity-and-recovery-surface.md#9-决策日志) 明确 `agent_run_state` schema/codegen 归 DS01；[全量对账 E04](../2026-10-27-design-to-execution-reconciliation.md#45-其余任务) 要求 additive schema/codegen/safeParse，覆盖 live/dead/unknown 与恢复，不改状态机。
+- 下一步：核对 `agent_run_state` 现役 producer、Channel 广播/join 恢复、历史快照及前端运行权限消费者，明确当前字段、可选性和缺失语义；以现有 wire 为依据冻结 schema 与兼容矩阵，不按旧示例虚构运行状态。
+- 完整后果：schema 源、codegen 类型、实际接收处 safeParse 和消费者同批接线；覆盖 live/dead/unknown、刷新重连、失效 bounded/durable 与旧记录缺字段。历史 snapshot 不能授权实时命令，unknown 不能静默变成 live；必要字段无效与合法缺省须有明确处置，不能仅靠类型编译冒充运行时校验。
+- 证明：生成物与实际 wire 的正反例、旧数据读取/恢复测试，以及外部真实工作台的 live 恢复、dead 失效与 unknown 禁止命令场景；复用 DS03 现有驱动和控制坞，不新建验收入口或产品钩子。校验失败的告警/容错/拒绝方式须与当前消费契约对齐，不由本次排期擅自改变。
+- 依赖与边界：与 B45 协同 schema/opaque/历史兼容规则，状态生产与权限语义仍由 DS03 真源负责；修改前完成该 checkpoint 七问。非预算 awaiting、新 flow 的 steer 时序、S4 clarification 与 Pencil 扩展仍沿各自既有条件，本项不重新实现 DS03 状态机、不扩卡型。
+
+- 2026-10-30 首批 schema 排期：按 [B45 §7](B45-schema-legacy-governance.md#7-字段与消费者映射交付2026-10-30-纳入队列) 交付本链字段/状态的 producer、转换、真实校验、consumer 与历史兼容映射及具体修改清单；映射不是实际接线完成，不改变本 checkpoint 的完整验收范围。

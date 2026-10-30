@@ -474,3 +474,44 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 - [B40-judgment-era-acceptance-reanchor](B40-judgment-era-acceptance-reanchor.md) 统一承接 AU11 两条 blocked、B13B D7/D11 与 AU07 等旧验收断言，只按当前生产链重跑或退役，不恢复旧 envelope，不做第七次全量 retest。
 - [B49-core-semantics-and-adr-review](B49-core-semantics-and-adr-review.md) 承接主链 Accepted 文本与现行实现之间的保留/收窄/退役评审，以及 ADR-0022 的现行语义复核；B27 的 M01r2/M02/M08r2/M16r1/M18r1 与第二方复核仍由本任务定向硬化，不转给其他任务销账。
 - B41/B42 提供 verdict 与实模证据分层，B39 继续承接求证实现；以上均不改变 B27 CP4 measured FAIL/known-gap 的独立事实。
+
+## 9. 元原则整改：实际请求材料与引用同源
+
+- 状态：**todo（2026-10-30 作者同意元原则整改；当前共通初始供给的材料/引用接线待实施，原 retest6 结论与停止全量复测裁决保留）**。
+- 来源：[愿景 §2.4](../../docs/design/00-vision-and-engineering-roadmap.md#24-创作信息获取元原则最小供给按需求证证据闭环2026-10-27-用户拍板)、已接受的 [ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)/[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md) 及 B39 D1/D7。模型负责判断信息需求和相关性，APP 必须如实提供自己实际发送的材料与边界，不能以检索/记账事实替代供给事实。
+- 已核静态链：`WorkspaceContext` 先召回 memory 并记录 reference，`ContextAssembler` 据 `memory_summary` 生成 context ref；`DialoguePlanningService` 将全部 context refs 写为 `supplied_context_refs`，但当前普通/写作判断 context block 未渲染该 `memory_summary`，`reply_record` 仍继承该声明。此证据限定于该共通初始请求链，未运行真实模型；不等于“模型永远无法经后续 memory_recall 获取材料”。
+
+### 9.1 必须区分的事实
+
+| 事实 | 含义与校验边界 |
+|---|---|
+| retrieved | APP 或工具取回/选中了材料；可能被裁剪、省略或尚未送入模型，reference_count 不自动成为使用次数 |
+| supplied | 某次实际 provider 请求包含的内容或保真投影，以及与这些真实字节对应的来源/已有版本/范围；不能仅因 context DTO 中存在 ref 就记为已提供 |
+| observed | 实际探索执行产生的观察及结果/失败/覆盖；只有该观察实际进入后续请求，才属于那次请求的 supplied，不能从工具返回直接推导模型已知 |
+| 模型自报 used | 模型对实际可见来源的使用声明；未报告记 unknown，声明须接受可见范围/来源绑定校验，不能由 APP 从 supplied 推算 |
+| 语义正确 | 输出与实际证据和作者意图相容，需要独立的模型行为/内容证据；合法 ref、自报使用或请求成功都不能自动证明，文学收益仍归 I10 |
+
+以上是事实分工，不在本任务先冻结五套新 enum、表或日志系统。优先复用既有请求构造器、观察、trace 与 [B42](B42-model-behavior-evidence-tier.md) 证据载体；同一份材料映射同时驱动发送与声明，避免事后从日志猜原请求。
+
+### 9.2 开工边界与真实消费者
+
+- **Contract / Invariant**：消费现役 B26 原生工具协议、AuthoringTask/AuthoringSemantics、ADR-0030 D1/D7 与 ADR-0031 统一裁决；实际给了什么与引用声明同源，已检索≠已供给≠自报使用≠语义正确，未知/失败不补造。最小 Base 保留不可猜的身份、作者原话、能力、权限、预算及必要事实，不追求首轮知识装满。
+- **Boundary / Consumer**：主要沿 application 的当前初始请求构造、Context/Interaction 接线、reply_record/trace，必要 persistence 仅提供真实来源/已有版本；web/frontend 只消费对应的诚实来源/历史状态。第一消费者是当前判断请求及其返回/恢复；B39 后续专业 run 消费同一供给规则，不另起第二构造体系。
+- **Proof / Acceptance Driver**：局部构造器/边界测试对比真正交给 provider 的内容与材料映射，再由外部真实 Tauri 工作台自然输入、查询、刷新/恢复核对同一 turn/run/request。确定性替身只证明接线，真实模型选择/引用单列实模证据；产品验收感知逻辑 **no**。具体场景、样本和资源在 CP0 冻结，不以已有整批 PASS 代签。
+- **Exploration**：如果材料按原则移到按需获取，必须证明既有通用目录可达、真实观察回流到后续请求且来源可绑定；仅删错报的 ref 但让原消费者再也拿不到所需事实，不算完整整改。已有观察的独立 ID/整批内容与细粒度来源分开核定，不能只因 `memory:<count>` 不是实体 ID 就断言整个观察链不存在。
+
+### 9.3 整改 checkpoint
+
+| CP | 范围与完成标准 | 状态 |
+|---|---|---|
+| CP0 | 逐一定位当前普通/写作判断等共通初始调用、实际消息字节、材料取得/裁剪/发送点与声明消费者；冻结最小同源材料映射及 Base/按需观察分界，列清被省略、失败、未知、旧记录无证据的形状和真实 driver；不直接把全部 memory 加回首轮 | todo |
+| CP1 | 让实际请求内容和 supplied refs/已有版本/覆盖由同一构造事实派生；原本仅 retrieved 的材料不得标 supplied。必要 Base 才主动供给，其余沿通用探索取证；保留原消费者能取得事实的路径，接通当前返回/trace；普通回复统一 decision 与 B43 同源，不另造决定 | todo |
+| CP2 | 补材料有/无/被裁剪、ref 有但内容无、内容有但来源未知、fetch 失败/部分失败、重复读取、跨作品及历史恢复矩阵；旧记录无发送证据不得回填已供给/已使用。校验初始请求和后续请求各自可见范围，回放不调模型、不写生产事实 | todo |
+| CP3 | 外部真实工作台触发相关查询/讨论及恢复，核对实际请求材料→来源声明→回复/Why/持久记录；必要的按需读取须有观察进入后续请求证据。局部、真实入口机制、真实模型使用/语义分别报告；仅日志出现 ref 或 UI 卡显示来源不算通过 | todo |
+
+### 9.4 承接与停止线
+
+- [AU03 上下文失败补验](AU03-file-level-closure.md#当前上下文缺失与读取失败补验) 拥有真实空/未知/错误语义及恢复矩阵；本节消费同源结果，不维护另一份失败分类，也不把全部读取失败强制阻断。
+- [B39](B39-evidence-seeking-authoring.md) 继续拥有专业 run 内求证、观察/引用校验、used refs、准备/恢复/迁移的完整范围；B27 本节修当前共通初始供给，不以此关闭 B39。B42 拥有证据声明和结果分层；B64 拥有目标坐标与有效窗，必要 schema 与 B45 协同。
+- **不重启全量 retest**：原 CP4 retest6 的 measured FAIL/known-gap、旧臂/失败分母和作者停止全量复测裁决不变。本节只新增有范围的定向整改/负例/真实入口证据；实模运行须给具体预注册与资源安排，不能将任务排期当成无限复跑授权。
+- 本次只细化任务，未修改产品、schema 或测试，未运行模型/页面、未改原作品数据；新增 checkpoint 的完成状态只维护在本节。

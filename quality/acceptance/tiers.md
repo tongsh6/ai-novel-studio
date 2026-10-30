@@ -41,7 +41,7 @@ Status: planned, not yet enforced；**当前两个 tier 仍为 0 注册场景，
 
   空 tier 输出 `status=not_run` + `reason_codes=[empty_tier, known_fact_empty_tier]`，exit `65`（不是 PASS，也不是“全部通过”）。
 - **真实模型 PASS 判据（CP0 §6.2 冻结）**：真实 provider 请求与响应正文（HTTP 200 不是模型证据）、≥2 次独立重复且全过、至少一种未参与调词的保留措辞、`model`/`actual_model`/params/driver 可回放、CP2 观察→后续真实请求链接无违规、CP3 原生 run 非 fail；缺凭据/平台只能 blocked/skipped，不能 PASS。
-- **tier 何时非空**：AU-15 A0/A1/A2 的预注册与真实运行归 B42 CP4，当前 blocked（ADR-0030 仍为 Proposed，作者裁决前 AI 不代签）。
+- **tier 何时非空**：AU-15 A0/A1/A2 的预注册与真实运行归 B42 CP4，设计已于 2026-10-29 Accepted；真实运行仍待 B39 产品接线、driver、具体预注册和资源窗口（以 B42 §10 为准）。
 - 以下是目标命令，必须在 `quality/acceptance/scenarios.yml` 登记 release-tier 场景后才能作为当前 gate 执行：
 
   ```bash

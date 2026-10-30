@@ -1,6 +1,6 @@
 # v3 承重竖切面 DAG
 
-> 状态：历史实施索引（B1–B15 已完成；VS-00C CP0–CP5 已完成；VS-00D 旧 Envelope 已退役，B27 CP3 已接 AuthoringTask；B39/B40/B41/B42 未实现，ADR-0030 仍 Proposed）。当前执行状态、验收和后续依赖以各原任务及 [全量对账](../../2026-10-27-design-to-execution-reconciliation.md) 为准。
+> 状态：历史实施索引（B1–B15 已完成；VS-00C CP0–CP5 已完成；VS-00D 旧 Envelope 已退役，B27 CP3 已接 AuthoringTask；B39 实施基线 ADR-0030 已于 2026-10-29 Accepted；B39/B40/B41/B42 当前实现与验收读原任务）。当前执行状态、验收和后续依赖以各原任务及 [全量对账](../../2026-10-27-design-to-execution-reconciliation.md) 为准。
 >
 > 角色：把 `docs/design/00c-state-and-contract-atlas.md` §9 的候选入口排序为 v3 承重竖切面 DAG。B1-B14 已闭环；当前优先做全量设计对账，再按 B41→B42→B40→B39 的证据链与 B49 语义评审推进，其他后续任务见 00c §9.13，不要求“全部旧 VS 完成”作为前置。
 >
@@ -72,7 +72,7 @@ flowchart TD
     B42["B42 Model Behavior Evidence Tier (todo)"]
   end
 
-  ADR0030["ADR-0030 Evidence-seeking (Proposed)"]
+  ADR0030["ADR-0030 Evidence-seeking (Accepted)"]
   ADR0018["ADR-0018 Business Log Schema"]
   Desktop["Desktop Shell Contract"]
 
@@ -135,7 +135,7 @@ flowchart TD
 | B15 | VS-11 | Desktop Stage Process Ownership（dev/stage 启停所有权与窗口关闭契约）| **done** |
 | B16 | VS-00D | 三层与共同任务语义：旧 AIMessageEnvelope 已退役，B27 CP3 已接 AuthoringTask；CP5/AU11 重锚归 B40 | **部分承接 / 不恢复旧路线** |
 | B17 | VS-00C | 创作上下文组装（VS-00D prose 投影） | **done（CP0–CP5）** |
-| B18 | B39 | 求证式创作：最小 Base + Run 级探索 + 证据闭环 | **Proposed；CP0 done，CP1 待 ADR-0030 Accepted** |
+| B18 | B39 | 求证式创作：最小 Base + Run 级探索 + 证据闭环 | 设计前置已解除；CP1–CP4 执行状态见 B39 |
 | B19 | B40 | 判断纪元验收重锚与证据收口 | **todo；承接 B27 CP5/B13B D7/D11/AU11/AU07** |
 | B20 | B41 | 质量证据地基：YAML、blocked、aggregate、verdict | **todo；先于 B40/B42/B39 的证据验收** |
 | B21 | B42 | 实模行为与求证证据分层 | **todo；依赖 B41** |
@@ -173,7 +173,7 @@ flowchart TD
 | VS-11 | Infrastructure Slice | Desktop shell contract, stage walkthrough gap | done（stage ownership；生产 sidecar 归 SU04） | cleaner walkthrough / Tauri verification | dev/stage launcher ownership / Tauri close event |
 | VS-00D | Contract Reconciliation Slice | VS-00A, VS-00B, VS-02A, VS-06, VS-00D contract pack, AU-11 | 旧 Envelope 已退役；AU11 重锚归 B40，G 项归 B27 | VS-00C | `AuthoringTask` / `AuthoringSemantics` / 三层输入与来源覆盖 |
 | VS-00C | Context Assembly Slice | VS-00D（prose 投影） | done（CP0–CP5；求证增量归 B39，不新增 CP6） | B39 | `AssemblyPolicy` / `OmissionNote` / `CarryRegistry` / Base vs Requested Observation |
-| B39 | Evidence-seeking Slice | ADR-0030（Proposed）、既有 AgentRun/ExplorationService、VS-00C/VS-00D | CP0 done；CP1 待 ADR Accepted，未实现 | — | Base / Requested Observation / Preparation / Evidence Usage |
+| B39 | Evidence-seeking Slice | ADR-0030（Accepted）、既有 AgentRun/ExplorationService、VS-00C/VS-00D | 设计前置已解除；产品未实现，执行见 B39 | — | Base / Requested Observation / Preparation / Evidence Usage |
 | B40 | Acceptance Reanchor Slice | B27 CP3、B41 verdict、B13B D7/D11、AU11/AU07 | todo；只做验收重锚/退役，不恢复旧对象 | B39（共享证据原则） | 当前生产链证据 / known-gaps / retired / evidence_missing |
 | B41 | Evidence Foundation Slice | quality manifest、evidence-schema、E2E aggregate | todo；先于 B40/B42/B39 的证据验收 | B40, B42, B39 | YAML parse / active-only / verdict schema / final+failure scoped index |
 | B42 | Model Behavior Evidence Slice | B41 verdict | todo；依赖 B41 | B39 | mechanism vs model behavior / native vs browser / Base→Observation→used refs |

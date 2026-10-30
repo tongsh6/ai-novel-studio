@@ -145,3 +145,10 @@ stage session 5d618f06-f41c-46bc-aa55-5056a2fa5612，2026-10-23 01:41 作者说�
 #### 2026-10-27 对账承接
 
 - 上述 no-op 与同名歧义已单独立项为 [B48-character-revision-noop-and-ambiguity](B48-character-revision-noop-and-ambiguity.md)，状态为 blocked、待作者选择“拒绝无意义 no-op / 显式幂等回执 / 仅收紧歧义”后再实施。B29 主业务保持 done，不重开；T2 不记 PASS，裁决前不改产品。
+- 2026-10-30 后续裁决：作者已明确 C04=A；选择、执行状态与四场景验收统一见 [B48](B48-character-revision-noop-and-ambiguity.md#6-c04-裁决记录)。本段仅追加承接事实，不改写上述历史 T2 结果。
+
+## 2026-10-30 后置语义路由整改交接
+
+“讨论一下把陆晨指定为主角是否合理，先不要生成候选。”在现役角色意图谓词/后置 guard 中仍可能被强制要求修订能力；这是共享语义判断与机械守卫分工的问题，不重开本任务已完成的主档案修订业务。该机制族统一交 [B33 元原则整改](B33-authoring-intent-judgment-reliability.md#元原则整改语义判断与机械守卫分工)，此处不另设状态或 CP。
+
+B33 负责讨论/条件/合法回复与实际执行的共享入口；本任务继续提供真实角色身份、白名单字段、候选/采纳和现有回归边界。[B48](B48-character-revision-noop-and-ambiguity.md) 仍是 C04=A 的 no-op/同名消歧业务结果唯一 owner；不因允许普通回复而降低身份、权限或作者采纳保护，也不将历史 T2 改写为 PASS。

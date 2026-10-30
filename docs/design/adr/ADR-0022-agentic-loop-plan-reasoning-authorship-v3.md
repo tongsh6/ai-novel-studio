@@ -1,6 +1,6 @@
 # ADR-0022：Agentic Loop 计划可视化、评估重规划与叙事作者权 v3
 
-- 状态：Proposed
+- 状态：Superseded（2026-10-30，作者正式接受 ADR-0031 并按 R4 指定替代；旧正文与证据保留）
 - 日期：2026-07-01
 - 来源文档：
   - `../notes/2026-07-01-agentic-loop-reasoning-stream-ui.md`
@@ -12,7 +12,9 @@
 - 相关不变量：UA-01 A 系列；场景不变量 I1 / I3；本 ADR 新增不变量 N-NARR（见「最终决策」）
 - 首个证明 slice：`agentic-loop-plan-replan-reasoning`（待创建）
 - 取代：无
-- 取代者：无
+- 取代者：[ADR-0031](ADR-0031-core-chain-semantics-narrowing-v3.md)
+
+> 2026-10-30 生效说明：本稿不再作为独立当前实施规范；有效的计划/叙事来源规则由 ADR-0031 承接，评估与调用协议的现行语义仍沿 ADR-0023/0025。以下关系说明与正文保留为历史提案，不恢复旧 UI 或抹除旧证据。作者明确授权与执行承接见 [B49 §7.16](../../../tasks/slices/B49-core-semantics-and-adr-review.md#716-c02-实施基线收口)。
 
 > 关系说明：本 ADR **细化**（不取代）ADR-0021。ADR-0021 冻结了 AgentRun/Turn 边界、单步 re-gate、活动流、打断与 LongRunTask 关系；本 ADR 在其之上冻结三件 ADR-0021 未定的语义：AgentPlan 的可视化/版本化/修订、评估→重规划回路、以及作者可见叙事的作者权归属。ADR-0021 的执行权与边界决策全部保留。
 

@@ -1,10 +1,12 @@
 # VS-00K Evidence-Seeking Authoring Contract Pack（求证式创作）
 
-> 状态：**Proposed（2026-10-27）**。本文不授权代码实现；Accepted ADR 与对应 slice 是实施前置。
+> 状态：**Accepted（2026-10-29，作者与 ADR-0030/AU-15 一并接受为 B39 实施基线）**。产品仍待 B39 按完整 CP 实施与验收；字段全集、预算数值等未在本 pack 预先冻结。
 > 上游：`../00-vision-and-engineering-roadmap.md` §2.4、`../notes/2026-08-11-establish-carry-process-write-pipeline.md`、ADR-0021/0022/0023/0025。
-> 决策草案：`../adr/ADR-0030-evidence-seeking-authoring-v3.md`。
+> 冻结决策：`../adr/ADR-0030-evidence-seeking-authoring-v3.md`。
 > 执行与验收：`tasks/slices/B39-evidence-seeking-authoring.md`、`../acceptance/author/AU-15-evidence-seeking-authoring.md`。
 > 非目标：不冻结时间线或任何单一作品领域的专用 schema，不声称现有产品已完成求证闭环。
+
+> 裁决依据与接受范围：[B39 实施基线收口](../../../tasks/slices/B39-evidence-seeking-authoring.md#9717-c01-实施基线收口)。接受设计不代表产品已实现；不预定新上下文系统、新表、预算次数或独立 gate。
 
 ## 1. 要纠正的根问题
 
@@ -62,10 +64,10 @@ Base Context
 ### 3.2 Base 与动态观察的消息边界
 
 - Base 由契约按 profile 明确，模型不得负责猜测目标作品、章节身份、权限或预算。
-- 每次模型请求使用独立的证据快照：后续快照引用初始 Base 和本 run 此前实际观察，不静默回改首轮 DialogueContext，也不把后续观察伪装成首轮已知。
-- 动态观察必须有观察 ref、真实来源、结果分类和可获得的版本/权威信息；未知字段不得伪造。
+- 每次实际模型请求的内容与来源清单同源生成，独立记录本次真正可见的 Base 和此前真实观察；trace/replay/引用校验复用该事实，并与实际发送请求核对。不静默回改首轮 DialogueContext，不把后续观察伪装成首轮已知；快照是逻辑证据边界，不默认新建 struct/表或保存全量 prompt。
+- 动态观察的内容或保真投影与观察/source refs 同批送入请求，表达真实来源、结果分类、可获得的版本/权威状态及覆盖/省略；区分已采纳、待定、推导与假设，未知字段不得伪造。仅后台留 refs 或仅传 refs 不构成模型已获得有依据材料。
 - 观察进入准备判断、plan revision、writer 或 evaluator 的真实请求时，必须能关联到对应 provider call。
-- 动态内容的位置遵守 VS-00I 前缀稳定性；不得为插入观察破坏稳定前缀或改变 provider 间语义。
+- 动态内容的位置遵守 VS-00I 前缀稳定性；复用已有材料格式与共享引用规则，已覆盖的规则不重复堆叠；不得为插入观察破坏稳定前缀或改变 provider 间语义。作者面使用可读来源，小说正文不强制插入技术引用。
 - 省略与分页仍需可解释；“模型没查到”与“APP 没提供”必须在 trace 中可区分。
 
 ## 4. 分项契约
@@ -74,21 +76,22 @@ Base Context
 
 - 正文、规划和修订 profile 必须能使用同一组只读探索目标，不再只给判断循环。
 - 模型决定查不查、查什么以及何时准备就绪；APP 不按时间、物品、伤势等领域关键字自动插步或改写 query。
-- runtime 校验工具、query、作品范围、权限和预算；act 步仍重新经过 MicroPlan / Orchestrator gate。
-- 探索执行、观察、活动、续读和 no-progress 复用同一实现，不在每个 flow 复制。
+- 已授权范围内自主查询，不逐次弹窗；runtime 在实际读取前校验工具、query、作品/会话范围、权限、预算与任务状态，模型提供 ref 不扩大授权。act 步仍重新经过 MicroPlan / Orchestrator gate；观察不直接写 canon。
+- 探索执行、观察、活动、续读和 no-progress 优先复用同一实现，不在每个 flow 复制；独立只读 gate 是否必要由边界缺口与真实消费者评估，不以统一外观为由新增层。
+- 额度不足时保留进度、已查材料和缺口，由作者追加或停止；模型不自行扩额，replan 不重置已用预算。数值按场景测量，不冻结“2 次探索”。取消后不再派发新查询，已返回观察不能触发迟到写入。
 
 ### 4.2 准备判断
 
-- 准备判断必须能表达“还缺什么”，不能只输出一个总 confidence 让 APP 猜阈值。
+- 本次目标依赖的关键既有事实未核清时，默认先继续求证或请作者决定，再生成符合原目标的正文候选。准备判断必须能表达“还缺什么”，不能只输出一个总 confidence 让 APP 猜阈值；不要求穷尽全书或给新创意补旧来源。
 - 信息缺口是通用结构，不使用 `timeline_missing`、`item_missing` 等领域专用分支。
 - APP preflight 的 hard missing / 权限 / 版本阻断与模型语义上的信息缺口分层：模型不能解除系统 block，APP 也不能仅凭预选材料替模型宣布 ready。不得把 D7 的应用可判缺口悄然改写成模型语义缺口；新信号由 ADR-0030 承接。
 - 证据足够时才生成最终 Derived Brief；不足时进入有界 plan revision。
 - 查不到、冲突、过期和预算耗尽各有诚实出口；不得用默认事实填平。
-- 准备失败是否允许降级写作由既有 MissingPolicy / profile policy 决定，并明确假设与风险，不能静默视为证据齐全。
+- 作者明确要求“先假设、试写”时按其意图及既有 MissingPolicy/profile policy 处理，明确假设与风险；这不允许越过身份、权限、版本等硬阻断，也不把缺证据静默视为准备齐全。
 
 ### 4.3 证据引用与创作输出
 
-- Base 公开 refs 与实际观察 refs 共同构成本 run 的可引用证据集合；优先从既有 context refs 和 AgentObservation 派生，不默认新增持久表。
+- 本次请求实际可见的 Base refs 与此前真实执行、且已送入本次请求的观察 refs 共同构成本次可引用证据集合，按 run 汇总对账；只在别次调用出现或尚未发送的 ref 不自动获得本次证据信用。优先从既有 Context/AuthoringTask/AgentObservation 派生，不默认新增持久表。
 - `used_context_refs` 中每个 ref 必须属于该集合；越界引用须记录 provider call、run 和 unbound ref。未返回自报告时记为 `unknown`，不得由 supplied refs 推导 used refs，也不得把缺省伪报成“确定没有使用”。
 - 不修改模型 artifact 的 title/body/rationale 字节；越界引用通过 warning、补充求证、质量 finding 或作者裁决处理。
 - 新创作允许没有旧 ref；只有对既有 canon 的引用与连续性主张需要证据支持。
@@ -108,7 +111,7 @@ Base Context
 - 新作品维度默认先进入可探索事实与引用体系；新增固定 packet 必须说明为何不能由按需观察或派生完成。
 - 迁移按承重 slice 逐块进行，不能把元原则当成一次性清空 CarryRegistry 的许可。
 
-## 5. 候选全局不变量（拟写入 00c #20–#23）
+## 5. 已接受的设计不变量（00c #20–#23，运行时与 CI 待落实）
 
 | # | 不变量 | 机器证明方向 |
 |---|---|---|
@@ -117,7 +120,7 @@ Base Context
 | 22 | **求证有界**：探索只读并受权限、预算、no-progress、取消与恢复约束；推理和观察不直接写 canon | 重复查询、预算耗尽、取消/恢复、production write 与 replay 测试 |
 | 23 | **通用求证与诚实缺口**：求证不依赖领域专用 prompt 分支；未知、冲突和未读取必须显式可见 | 两个不同要素共用同一产品链；缺失/冲突场景；真实模型行为与 stub 机制证据分开 |
 
-这些不变量当前是 Proposed，不能写成 CI 已强制。落地到 `docs/engineering/scenario-invariants.md` 与 quality 运行体系须由对应 CP 单独完成。
+这些不变量已作为设计接受，运行时与 CI 尚未全部落实，不能写成 CI 已强制。落地到 `docs/engineering/scenario-invariants.md` 与 quality 运行体系须由对应 CP 单独完成。
 
 ## 6. 既有设计的处置矩阵
 
@@ -152,12 +155,12 @@ Base Context
 | CP | 范围 | 第一个真实消费者与完成证明 |
 |---|---|---|
 | CP0 | 本 pack、ADR-0030、AU-15、B39、atlas 与上述文档处置 | 设计读者能逐条找到责任、契约、验收和未实现状态；不代表产品实现 |
-| CP1 | 正文 run 开放现有只读探索，观察进入使命与 writer；现有携带保留 | writer；首个锚点优先使用未进入专用 packet 的人物承诺/关系细节，时间连续性只作另一验证例；SC-AU15-A1/A2，真实模型自主查询与后续请求证据 |
+| CP1 | 正文 run 开放共享只读探索、同源材料与观察进入使命/writer；完整用户场景具备所需最小准备判断；现有携带保留 | writer；SC-AU15-A0/A1/A2，覆盖 Base 足够、人物承诺与另一未定制要素；真实模型自主选择及后续请求证据 |
 | CP2 | 准备判断、信息缺口、有界 replan、used refs 证据绑定 | 写前使命与 writer；SC-AU15-B1/C1 |
 | CP3 | 规划、修订、写后质量与恢复共用求证 | 规划/修订/evaluator/replay；SC-AU15-B2/C2 |
 | CP4 | 固定携带凭证据迁移，领域读模型按真实缺口立项 | APP 维护者与后续领域 slice；SC-AU15-D1 |
 
-每个 CP 仍需独立 slice checkpoint 与外部真实页面证据。CP1 通过不等于 VS-00K 全部完成。
+每个 CP 仍需独立 slice checkpoint 与外部真实页面证据。可以先做局部接线并报告 unknown，但不能代签 A0 的 ready/missing 或正式场景；完整缺口/replan/引用绑定继续由 CP2 承接。CP 完成、正式场景 PASS、完整 B39 done 与 I10 文学收益分开；缺必需证据不通过，CP1 通过不等于 VS-00K 全部完成。
 
 ## 8. 明确不在本 pack 冻结的内容
 
@@ -172,9 +175,9 @@ Base Context
 
 这些项目必须沿对应 CP 的真实消费者和证据继续决策，不能在 CP0 假装全部定完。
 
-## 9. CP0 验收
+## 9. CP0 文档验收
 
 - ADR-0030、AU-15、B39 与本 pack 互相可达，并进入各自 README / 00c atlas。
 - 上述每篇承重设计都有明确处置，不能只添加“参见元原则”而不改变责任与验收含义。
-- Proposed / 未实现 / 未注册场景标记清晰，无产品完成或 CI 已强制的虚假声明。
+- Accepted 只表示设计冻结；未实现、未注册、未运行场景与未落地 CI 不变量分别如实标记，无产品完成的虚假声明。
 - 文档链接、ADR trace、NEXT 规则、差距台账与 `git diff --check` 通过；功能测试与真实页面不属于 CP0 证据。

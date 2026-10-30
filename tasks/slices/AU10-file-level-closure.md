@@ -101,3 +101,11 @@
 ## 9. 试行反馈
 
 文件级 closure 需要把“当前 runnable evidence”和“历史 artifact/background evidence”分开写，否则 AU-10 很容易被单个 checkpoint 或旧 browser driver 误标完成。
+
+## 现役动作与卡片矩阵核对
+
+- 状态：**todo（2026-10-30 承接原 §6 P1/P2 动作、卡片及 UI hygiene 后果；旧文件级完成批次不改）**。
+- 下一步：以 [当前 UI contract](../../docs/design/07-workbench-ui-contract.md) / [VS-05](../../docs/design/contracts/VS-05-ui-roundtrip-contract-pack.md) 为集合，核对 action_result 各真实状态、未知 card/缺字段降级、disabled/stale/replay/跨作品和 viewport 的真实消费者与既有证据，排除已退役卡型；产出可复跑矩阵，不恢复旧十卡集合。
+- 完整后果：真实工作台正确显示成功、失败、重复/不可执行动作，未知数据不能导致空白崩溃、错误成功或可点击越权按钮；文案依 copy 真源、可访问性与设计 token 可追溯。核对 hidden metadata 时按真实产品用途判断，不能按字符串机械删除。
+- 去重：B43 负责裁决/幂等生产者，B48 负责角色 no-op/歧义；[AU08](AU08-file-level-closure.md#阅读投影状态与失败恢复补验) 负责投影失败，[任务状态补验](AU10-workbench-recovery-taskstate.md#failed-任务状态真实页面补验) 负责 FAILED，[AU07](AU07-trace-replay-integrity.md#p1-消费者与余项核对) 负责深回放。本项只补真实前端消费和跨状态体验缺口，不重复建后端状态机。
+- Proof：局部组件/契约负例与外部真实 Tauri 输入、点击、刷新/恢复/跨作品矩阵分别留证；所有验收依用户可见语义，生产验收感知 no。实现前补该 checkpoint 七问与对应 Pencil/设计帧，不以组件 render 代替完整页面。

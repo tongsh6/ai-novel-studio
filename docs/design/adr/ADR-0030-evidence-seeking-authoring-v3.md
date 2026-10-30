@@ -1,16 +1,18 @@
 # ADR-0030：求证式创作——最小供给、Run 级探索与证据闭环
 
-- 状态：**Proposed（2026-10-27；不授权代码实现）**
+- 状态：**Accepted（2026-10-29，作者明确同意将本 ADR 与 VS-00K/AU-15 接受为 B39 实施基线；实现与验收缺口保留）**
 - 来源文档：
   - `../00-vision-and-engineering-roadmap.md` §2.4
   - `../00c-state-and-contract-atlas.md` §4、§6.7、§7、§8.4、§9.12
   - `../contracts/VS-00K-evidence-seeking-authoring-contract-pack.md`
   - `../notes/2026-08-11-establish-carry-process-write-pipeline.md` §1、§4
 - 影响范围：DialogueContext / AgentRun / Exploration / Creative Execution / Trace / Replay / Acceptance
-- 相关不变量：`00c` §7 #20–#23（候选）
+- 相关不变量：`00c` §7 #20–#23（设计已接受，运行时与 CI 待落实）
 - 首个证明 slice：`tasks/slices/B39-evidence-seeking-authoring.md`
 - 取代：无
 - 取代者：无
+
+> 接受依据：作者在本聊天对“是否将 ADR-0030 及配套 VS-00K、AU-15 接受为 B39 的实施基线”回复“同意”。唯一执行记录见 [B39 §9.7.17](../../../tasks/slices/B39-evidence-seeking-authoring.md#9717-c01-实施基线收口)。其它 C 项、真实模型窗口和存量数据操作不由此自动接受或执行。
 
 ## 背景
 
@@ -22,7 +24,7 @@
 
 ## 决策范围
 
-本 ADR 拟冻结以下责任与边界，待评审 Accepted 后才可作为实现输入：
+本 ADR 冻结以下责任与边界，由 B39 按完整 slice 范围消费；接受设计不等于产品已经实现：
 
 1. APP 的主动供给收敛为不可猜测的最小可信底座与契约必要材料，不再以“预装全部相关知识”为目标。
 2. 规划、正文和修订中的模型通过统一 AgentRun 的只读探索、观察与 plan revision 按需求证；不另建平行 agent runtime，也不在 writer 内私藏第二套循环。
@@ -66,11 +68,23 @@
 - 缺点：会与 AgentRun 的计划、预算、权限、恢复和作者活动流形成第二控制环，并增加 provider 兼容与 artifact 因果绑定复杂度。
 - 结论：Deferred；只有 run 级求证经真实证据仍无法满足时才重新评估。
 
-## 最终决策（Proposed）
+## 最终决策（Accepted）
 
 采用方案 C。求证发生在统一 AgentRun 内：模型通过计划与修订表达信息需求，runtime 执行只读探索并返回观察，准备判断决定继续求证或进入创作，writer 与质量复核的消费引用接受证据绑定检查。
 
 “模型提出探索”不等于“模型批准执行”；act 步仍重新经过 MicroPlan / Orchestrator gate。探索观察与推理结果默认只读，不直接写 canon。
+
+## 2026-10-29 裁决对齐
+
+本节落实作者在 [B39 裁决记录](../../../tasks/slices/B39-evidence-seeking-authoring.md#972-c01-路线裁决记录) 中逐项确认的范围；没有额外扩大产品授权。三份文档的正式接受记录与未实现后果见 [B39 实施基线收口](../../../tasks/slices/B39-evidence-seeking-authoring.md#9717-c01-实施基线收口)。
+
+1. **D1 同源证据**：每次实际模型调用的内容与来源清单同源，区分 Base 与真实请求观察；trace/replay/引用校验共用该事实。用实际请求交叉核对；不预定新表、新上下文系统或全量 prompt 存档。
+2. **D2 有界自主**：授权额度内自主求证，额度不足时保留进度、已查材料与缺口，由作者追加或停止；查不到/无法消歧可提前询问。预算数值由实际场景测量，已用额度不因 replan 重置。
+3. **D3 默认先核事实**：本次目标所依赖的关键既有事实未核清时，先继续求证或请作者决定，不机械宣布 ready。作者明确要求假设试写时按其意图与既有 policy 处理；正常新创意不要求旧来源。
+4. **D4 分层完成**：局部 checkpoint、正式场景、完整 slice 和文学收益分别成立。正式场景必需证据齐全才 PASS；缺证据、未运行、违规分别如实记录；机制/实模、浏览器/原生、来源合法/语义正确不能相互代签。
+5. **D5 执行边界**：查询只在任务授权的作品/会话范围内自主执行；实际读取前校验工具、对象、权限、预算和运行状态。取消后不派发新查询，观察不触发迟到写入；执行/采纳仍受原门禁。共享读取与守卫优先，独立只读 gate 是否必要由工程评估。
+6. **D6 正式前置**：正式 AU-15 前置章节由真实模型创作并通过外部 UI 驱动采纳，日常机制测试可使用隔离 fixture；setup、测量、样本复用与失败分母分别登记，不把前置正确当后续已通过。
+7. **D7 模型可辨来源**：观察内容或保真投影与真实引用同批送入后续请求，表达可获得的版本、覆盖、省略与权威状态，未知不补造。复用已有材料格式与引用规则；未自报告使用记 unknown，不改 artifact 字节掩盖越界，正文不强制出现技术引用。
 
 ## 决策理由
 
@@ -111,11 +125,46 @@
 
 ## 后续工作
 
-- 评审 VS-00K 的 Base / Observation / Preparation / EvidenceUsage 候选契约。
+- 按已接受的 VS-00K 落实 Base / Observation / Preparation / EvidenceUsage；具体字段与载体由对应 CP 设计。
 - 完成主链、Context、AgentRun、写前推理与验收文档的逐条处置。
-- Accepted 后由 B39 CP1 建立正文 run 的真实求证闭环。
+- B39 CP1 的设计前置已解除；按 A0/A1/A2 建立正文 run 的真实求证闭环，实际运行前完成预注册与资源窗口安排。
 - 根据真实证据再决定时间线等领域读模型和固定携带退役顺序。
+
+## enforced_by
+
+下列是已有边界与验收基础的真实落点，不代表新增的正文求证、准备判断、引用绑定与恢复已实现。Accepted 时也必须保留下节未实现后果；路径检查不替代语义与真实页面验收。
+
+现有按作品/会话读取与工具结果分类：
+
+- `apps/novel_application/lib/novel_application/exploration_service.ex`
+- `apps/novel_application/test/novel_application/exploration_service_test.exs`
+
+现有 run 预算、暂停/恢复入口与预算测试；探索接线与跨重启观察仍属下节缺口：
+
+- `apps/novel_domain/lib/novel_domain/agent_run.ex`
+- `apps/novel_application/lib/novel_application/agent_run_budget.ex`
+- `apps/novel_application/lib/novel_application/agent_run_server.ex`
+- `apps/novel_application/test/novel_application/agent_run_budget_test.exs`
+
+B42 已交付的证据完整性/结果分层规则及反例测试；它们不替代产品证据生产：
+
+- `scripts/lib/quality/evidence_chain.mjs`
+- `scripts/lib/quality/release_layer.mjs`
+- `scripts/lib/quality/evidence_chain.test.mjs`
+- `scripts/lib/quality/release_layer.test.mjs`
 
 ## enforcement_gaps
 
-本 ADR 当前为 Proposed，全部目标行为仍待 B39 实现与真实页面验收；现有探索、AgentRun、chapter_mission 和 self_report 只能作为可复用基础，不能视为求证式创作已经完成。
+本 ADR 已 Accepted，但下列新能力均未由本次设计接受关闭；不能把既有基础或局部通过当作 B39 全部完成。
+
+| 未实现 / 未验后果 | 承接与关闭证据 |
+|---|---|
+| 正文 profile 开放共享探索，目录/执行器一致，观察进入使命和 writer | B39 CP1；真实 A0/A1/A2 场景，禁止替身代签自主行为 |
+| 每次实际请求的内容/来源同源、Base/Observation 分账、used refs 绑定与未知处置 | B39 CP1/CP2；真实请求、来源集合及越界反例 |
+| 场景所需最小准备判断与完整信息缺口、有界 replan | B39 CP1/CP2；A0 ready/missing 与 B1/C1，不用机械过渡伪报 ready |
+| 各 flow 的授权/预算/取消/no-progress 一致；观察保留与跨重启/stale 恢复 | B39 CP1/CP3；执行边界负例、B2、真实恢复与 no-provider replay |
+| 规划、修订、写后质量共享求证链 | B39 CP3；B2/C2 与实际消费者 |
+| 正式前置创作采纳、原生真实页面、独立真实模型行为和必需证据声明 | B39 对应 CP 与 B42 CP4；按 AU-15 运行前冻结、保留失败分母；I10 文学盲评独立 |
+| 固定携带依据真实使用证据逐项迁移 | B39 CP4；D1 场景及原携带消费者回归 |
+
+设计不变量 #20–#23 已接受，但尚非新增 CI 强制规则；后续须沿既有 engineering/quality 体系落实，不扩大 I1–I3 原义。

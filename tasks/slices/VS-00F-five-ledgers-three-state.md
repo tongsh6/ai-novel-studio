@@ -78,3 +78,32 @@ tauri/summary.json`。配套 test-support：slice_verify 四栏摘要 clause（�
 |---|---|---|
 | 2026-07-21 | 契约 Proposed：LedgerEntry 统一信封（非五表）、两级对账节拍、处置四枚举、CP1 选弧光账 | 被 rev2 取代 |
 | 2026-07-21 | **rev2（用户要求全树先例排查后重写）**：三个并行代理扫全部 142 份设计文档产先例映射（契约 §9 复用 vs 新造总表）。主要修正：投影改认领 VS-00C §3.0 progress_state_packet 既有槽（撤回 execution_brief 塞入方案）；两 artifact 归 25 §8.1 维护家族并与 continuity_warning_artifact 切分；自动通过定义为系统发起 TENTATIVE→ACCEPTED（ADR-0019 INV-1）并首次契约化 25 §9.3 policy；revise_prose 复用 VS-00E §8 修订机械；dismiss 接 Experience Engine（33）与 feedback_patch 切割；裁决面认领 ADR-0024 入册纪律；status 枚举改 UPPER_SNAKE；修正"08 §4.4"失效引用（正确出处=产品里程碑 §4.4）；新画质量门 vs 账本对账分工表（31 §6 五处重叠首次画线）；验收开新 AU-13 家族。开放问题 5 项见契约 §8 | 待用户拍板冻结 |
+
+## 维护 StateTrace 后续 checkpoint
+
+- 状态：**todo（2026-10-30 承接原维护 trace 债；已有 CP 完成记录保留，本项未实施或验收）**。
+- 来源：本文件 CP1 剩余登记、[VS-00F 契约 §3.2](../../docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md#32-增量更新的自动通过首次契约化-25-93-policy)、[全量对账 B05/E10](../2026-10-27-design-to-execution-reconciliation.md#42-契约adr-与-schema)。权威账面每次真实变更须有 StateTrace；业务日志或面板可读不能替代权威变化回放。
+- 下一步：从章摘要/账面维护及作者裁决的实际入口盘点变更、事务结果、现有 StateTrace producer/存储/读取方，确定哪些已有记录、哪些只有业务日志，再冻结同源追踪与失败矩阵。该盘点不修改旧记录、不预建第二 trace 系统。
+- 完整后果：覆盖系统发起与作者发起两类合法权威变更，真实前后状态、来源与作品/会话/turn 关联可追溯；失败/回滚不产生虚假权威 diff，重复请求不重复变更；既有 Replay/Why 消费保存的事实，回放无 provider 调用与生产写入。章摘要维护的同源缺口若仍存在，须明确同批修复或具体承接，不能只补一处日志便关闭维护 trace 债。
+- 证明：局部转换/回滚/幂等/引用隔离测试，加外部真实工作台触发维护或裁决→持久 StateTrace→作者可见回放的场景证据；脚本直接写 trace 或只读日志不算产品闭环。实施前补齐该 checkpoint 的七问与具体 driver；产品代码不增加验收感知逻辑。
+- 依赖与边界：复用已有 StateTrace、采纳矩阵与真实回放入口；B43 的统一裁决及 B45 的必要契约按消费者协同，本项不替它们产生 decision 或全量整理 schema。五账其余 schema 先核真实 wire consumer；R2/design_ref、定期 durable 对账和 dismiss/Experience Engine 仍按原条件，不因本项入队自动开启。
+
+## B06 分账契约与真实消费 checkpoint
+
+- 状态：**todo（2026-10-30 从既有冻结契约补回执行入口；原 CP0–CP4 完成记录保留，本项未实施或验收）**。
+- 来源：[VS-00F §2/§7](../../docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md#2-对象模型ledgerentry-统一信封-分账-payload)、[全量对账 B06](../2026-10-27-design-to-execution-reconciliation.md#42-契约adr-与-schema) 要求分账状态与 payload 的 schema/codegen 承接；不是重新创造五账领域。
+- 只读事实：`LedgerEntry` 仍在 Elixir 中分别声明 promise/conflict/emotion 状态；`ledger_entry.json` 的 status/payload 仍为宽泛 string/object。真实消费链已存在：`LedgerViewService.threads/1` → Channel `get_ledger_threads` → `socket.ts` 的手写 `LedgerThreadEntry`/类型断言 → `StructurePanel` 脉络面板。生成的 `LedgerEntrySchema` 与实际投影字段不同，不能将领域信封直接强套到 wire，也不能以存在生成物代替实际校验。
+- 下一步：逐账核对现役领域值、更新/读取 producer、持久形状、面板 DTO、探索/规划消费者与历史空值；形成“字段/状态—契约真源—生成物—校验点—真实消费者”矩阵。先判定哪些约束已冻结且有消费者、哪些属于合法局部投影或尚待契约澄清，再决定最小 schema/codegen/适配范围；本次不冻结新字段、状态或阈值。
+- 完整后果：沿既有五账语义补齐实际所需的分账契约、同源生成和必要运行时校验，覆盖合法值、跨账错用状态/载荷、缺失/无效数据、历史读取与空账；读取失败不得伪装成成功空账，投影不能获得领域写入权。生成类型须由真实接收/消费点使用，不能只增加 JSON 文件或让领域和 UI 各维护一份枚举。
+- 证明：schema/codegen 与实际 wire 的正反例、领域/投影兼容和历史数据测试，加外部真实工作台五账查看及原审读/裁决回归，证明面板继续消费真实来源且无额外权威写入；模型侧若消费受影响字段，同批核对实际请求与观察来源，不靠专用 packet 补漏。实现前补齐七问与具体 driver，局部类型检查不代签完整消费链。
+- 归属与依赖：VS-00F 负责五账对象与真实消费者范围，[B45](B45-schema-legacy-governance.md) 协同 schema/生成/opaque/历史兼容纪律；维护 StateTrace 仍由上节负责。本项不冻结 R2/design_ref、不启动 durable/dismiss/Experience Engine，不把“契约缺口”解释成现有全部账面数据均非法。
+
+- 2026-10-30 首批 schema 排期：按 [B45 §7](B45-schema-legacy-governance.md#7-字段与消费者映射交付2026-10-30-纳入队列) 交付本链字段/状态的 producer、转换、真实校验、consumer 与历史兼容映射及具体修改清单；映射不是实际接线完成，不改变本 checkpoint 的完整验收范围。
+
+## 2026-10-30 章节修订派生账面的承接
+
+旧章修订、贡献删除、乱序/过期维护导致当前派生账面不一致的范围由 [B67](B67-revision-aware-ledger-maintenance.md) 唯一承接；本任务的维护 StateTrace 与 B06 契约继续负责各自范围。trace 可追溯、schema 可解析都不能代签派生值正确，也不以新任务取消本任务历史或条件项。
+
+## Experience 条件余项转交（2026-10-30）
+
+原 dismiss 日志在 Engine 出现后的经验收编转由 [B68](B68-experience-rule-governance.md) 承接其证据/提炼/审阅/规则生命周期，本任务只负责自身审读事件真实且可追溯；当前仍不启动 Experience Engine，也不将日志留痕写成经验闭环已完成。

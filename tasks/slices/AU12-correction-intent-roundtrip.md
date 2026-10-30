@@ -57,3 +57,12 @@ node scripts/task_done_check.mjs
 - 本 checkpoint 已关闭“从档案发起修订意图并产生 pending adoption”的 P1。
 - accepted `world_setting` 是否进一步物化回 `works` 立项字段，需另立 contract 和采纳后回写验收；本 checkpoint 不伪装完成该 P2。
 - AU-12 文件内仍剩读取失败诚实降级矩阵 P1。
+
+## P2 立项修订的采纳落位与同源消费
+
+- 状态：**todo（2026-10-30 只启动原 P2 的契约准备；P1 pending correction 已完成，后续物化未获本次规划替代验收）**。
+- 来源：本任务 §6、[AU-12](../../docs/design/acceptance/author/AU-12-work-profile.md) AU12-I1/I7、[CA01 写入余项](CA01-planning-context-completion.md)。用户场景是“修订作品立项并采纳后，档案和后续模型使用同一新事实”。
+- 已核事实：`AdoptionRepository` 的 `work_skeleton_suggestion` 仅允许 target_length/planned_volumes/serial_form；`world_setting` 沿记忆类型落位。这些不能证明 premise/theme/main_goal 或题材/卖点/读者/基调等通用修订已回写 works，也不能由自然语言关键词自动推断应覆盖哪个立项字段。
+- CP0（可推进）：列清现有字段权威源、artifact 类型/显式目标、producer、采纳事务、版本及读模型消费者；比较复用既有结构化提案与扩展最小契约的差异，形成字段落位/不落位/缺失值/锁定及冲突处理方案。契约接受前不把任意 world_setting 全量覆盖 works、不新增平行资料表。
+- 后续完整闭环：同一明确修订经真实作者采纳才修改授权字段，未采纳/放弃/过期/跨作品/重复请求不误写；保持 revision 与真实 StateTrace，概览、通用探索、后续判断/专业模型请求同源更新，历史事实可回查。采纳前后字节与来源不得由 APP 补写创作内容。
+- Proof/Boundary：domain 字段/版本规则，application 作者意图/采纳编排，persistence works/现有回执，web/前端概览与真实候选动作。外部真实 Tauri 从概览提出修订→候选→采纳→刷新/新会话→模型实际请求核对；A2 同轮来源证据并入，不用 pending 卡出现冒充最终落位。B39 负责按需求证，B45 协同必要 schema，CA01 仅指向本 owner 不维护另一份状态。

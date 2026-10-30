@@ -338,6 +338,8 @@ v3 不继承 v2 Router-first 拓扑。
 
 ## enforcement_gaps
 
+**2026-10-30 ADR-0031 承接说明**：[ADR-0031](ADR-0031-core-chain-semantics-narrowing-v3.md) 已由作者正式接受。回复轮保留真实 frame，执行动作按步骤绑定 frame/plan；所有回合统一执行裁决，裁决信息同源投影到 trace。实际存在的请求/结果与只读观察分别如实留痕，不伪造对象。新 reply-only producer 与来源完整性仍待实施。 本文最终决策段保留为历史，以上是当前规范关系说明，不代表实现缺口关闭；执行来源见 [B49 收口](../../../tasks/slices/B49-core-semantics-and-adr-review.md#716-c02-实施基线收口)。
+
 - **2026-10-27 B40 enforced_by 更新（证据映射，不改决策段）**：原 `quality/acceptance/scenarios/gap-wt04-non-exploration-frame-badges.yml` 已退役（B26 `5ce6261d` 起 `JudgmentProtocol.frame_type/1` 只产 `creative_exploration/capability_gap/casual_reply`，`question_answer/meta_discussion` 无生产者），替代场景为 `au01-turnresult-recorder-ui-consistency.yml` 与 `au01-ordinary-chat-two-turn-roundtrip.yml`（current-HEAD browser-surface 复跑）。退役理由见 `quality/acceptance/known-gaps.md` retired 表与 `tasks/slices/B40-judgment-era-acceptance-reanchor.md` §7。
 
 - B13b 裁决（2026-10-22，修复-独立 slice `PLANNER-SEMANTIC-BOUNDARY`）：`DialogueFrame.validate/1` 未在主链调用，主链（`dialogue_planning_service.judgment_frame/4`、agent-run step frame）由构造已知合法结构代替 envelope 校验；judgment narrative/reason 无 forbidden 语义扫描即进 `author_visible_draft`，`author_visible_draft` 仅按 ADR-0001 #5 三项扫描；完整语义族拦截与真实页面断言由该 slice 统一收敛（与 ADR-0003 gaps 同根）。

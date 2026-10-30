@@ -99,3 +99,11 @@
 
 - AU-08 历史 evidence `au08-adoption-reading-projection` 仍可作为背景，但当前可复跑入口应优先使用 `p1-chapter-adoption-reading`、`p1-chapter-edit-then-accept`、`p1-chapter-expansion-multichapter` 等 `tauri_slice_verify.sh --list` 中的 slice。
 - Reading Projection 的“当前可读”与“异步 projection refresh job/status machine”应分开验收；前者是 AU-08 文件级核心，后者是后续 P1 能力。
+
+## 阅读投影状态与失败恢复补验
+
+- 状态：**todo（2026-10-30 承接 AU08 C2/C3/C4；历史阅读/导出/no-write 批次保持完成）**。
+- 来源：[AU-08](../../docs/design/acceptance/author/AU-08-reading-mode.md)、[全量对账 A05/D13/F17](../2026-10-27-design-to-execution-reconciliation.md)。`ReadingMode.tsx` 已有 FRESH/STALE/REBUILDING/FAILED 与重试消费，旧文档“没有真实 producer”需按现链核对；本项不默认重建 projection job。
+- 下一步：对账 B28 R4、现有 manifest、投影读取与刷新错误链，冻结状态来自何处、失败期间旧内容如何展示、何时允许重试及转回 FRESH；补缺失的失败/整组失败/重建中/恢复与 no-write 矩阵。
+- 完整后果：采纳后过期提示与实际版本一致，重建中/失败诚实可见，旧内容不得伪装为最新，重试成功后消费同一作品的已采纳正文；离线、跨作品切换、重复刷新及刷新中失败均无权威正文或采纳状态变更。不能把用户发一句“刷新”或直接调用后端当页面证明。
+- 边界与证明：复用 ReadingMode、TanStack Query、现有投影读取和刷新入口；先做局部状态/失败反例，再由外部真实 Tauri 驱动阅读、故障、重试和恢复，核对网络/状态/持久事实。若发现缺少真实能力再按本原范围最小修复，产品验收感知 no；不是重做 B28 修订或 B46 待办箱。

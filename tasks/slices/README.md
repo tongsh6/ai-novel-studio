@@ -34,15 +34,15 @@
 | [B39-evidence-seeking-authoring.md](B39-evidence-seeking-authoring.md) | 求证式创作：Base、统一探索、准备判断与证据闭环；D1–D7 决策材料、CP 边界与实施前置见原文。 |
 | [B40-judgment-era-acceptance-reanchor.md](B40-judgment-era-acceptance-reanchor.md) | **done（2026-10-29，§10.2 同族批次）**：current-HEAD 18 场景重锚（17 PASS + au05-adoption-safety-freshness retired）；判断纪元事件/父子 turn/确定性替身判断分支重锚；全部 evidence `surface=browser` 如实，native 缺口与残余见 §10.6。 |
 | [B41-quality-evidence-foundation.md](B41-quality-evidence-foundation.md) | **done（2026-10-27，CP0–CP5）**：标准 YAML 解析与单一 manifest 校验（212 场景/2 drafts）、active-only 批次与 0/1/64–69 退出码分层、E2E 聚合 blocked/freshness/来源驱动、verdict v2 生成读取同源与真实消费者、known-gaps 类型词表与 B40/B42 交接；不含产品功能验收。 |
-| [B42-model-behavior-evidence-tier.md](B42-model-behavior-evidence-tier.md) | **doing（CP0–CP3 + §12 证据完整性回补 done；CP4 blocked-by-author）**：机制/模型行为与原生证据分层；§12 已把“必需/不适用/未执行”声明、证据链重算、逐维度完整性与原因传播落进 release 结果层（211/211 quality JS 测试），真实模型/页面仍归 CP4（ADR-0030 前置）。 |
-| [B43-gate-order-residual.md](B43-gate-order-residual.md) | Gate 幂等输入、behavior/slot 顺序与真实 blocked/Replay 链；实施前置与 CP0 核查边界见原文。 |
+| [B42-model-behavior-evidence-tier.md](B42-model-behavior-evidence-tier.md) | 机制/模型行为与原生证据分层；§12 完整性回补、CP4 产品/driver/预注册/资源前置以原任务为准，设计接受不代签真实运行。 |
+| [B43-gate-order-residual.md](B43-gate-order-residual.md) | 统一执行裁决 producer、逐步 Gate、幂等/behavior/blocked 与回放；B49 裁决承接及原完整范围见原文。 |
 | [B44-persistence-transition-boundary.md](B44-persistence-transition-boundary.md) | **done（2026-10-29，CP0–CP3）**：章摘要走 ADR-0019 通用矩阵、审读报告走 A-narrow 维护类生命周期（通用矩阵∪TENTATIVE→SUPERSEDED）；两 repo 移除 update_all，逐行 changeset + 事务回滚；stale 报告不可再裁决翻 ACCEPTED。CP3 current-HEAD 页面回归 d3-summary-lazy-repair + au13-review-adjudication-roundtrip PASS（browser-surface 如实记录）。残余：native AX 覆盖、单活跃替换页面场景、ADR-0019 适用范围说明待作者复核。 |
-| [B45-schema-legacy-governance.md](B45-schema-legacy-governance.md) | **todo（治理，不增业务字段）**：legacy/现役/真实消费者、失效 `$ref` 与意外 `z.any()`、旧 enum；隔离/显式 opaque/补定义或退役，依赖 B49 与五账 schema 决策。 |
+| [B45-schema-legacy-governance.md](B45-schema-legacy-governance.md) | 现役/legacy schema、统一裁决词表与 wire、动作兼容、分层输出契约及必要边界校验；状态与范围见原文。 |
 | [B46-persistent-adoption-inbox.md](B46-persistent-adoption-inbox.md) | **todo**：AU05/AU09 统一持久 adoption inbox 与待处理视图；重开/新会话恢复后仍可处理，处理后消失、版本/幂等/作品隔离。 |
 | [B47-canon-freshness-and-conflict-detection.md](B47-canon-freshness-and-conflict-detection.md) | **done（2026-10-29，CP0–CP3）**：O1 章正文/O2 角色对象级 freshness（纯函数+persistence 只读快照+application 决策前编排）；stale/conflict 决策前 fail_with_recovery 零写入、fresh 正常采纳并在既有 receipt 留前后版本；真实页面矩阵 `b47-canon-freshness` current-HEAD PASS（stale/conflict/fresh 三作品，surface=browser 如实）。残余：StateTrace 新表、legacy 候选、memory 对象、edit_then_accept、B29 持久层差异。 |
-| [B48-character-revision-noop-and-ambiguity.md](B48-character-revision-noop-and-ambiguity.md) | **blocked（待作者裁决）**：B29 old==new no-op 与同名歧义；拒绝 no-op、显式幂等回执或仅收紧歧义，裁决前不改代码，不一律同名追问。 |
-| [B49-core-semantics-and-adr-review.md](B49-core-semantics-and-adr-review.md) | 主链语义与 ADR 状态评审；R1–R7 裁决包、typed contract/历史兼容/lineage 边界及下游承接见 §7。 |
-| [B50-multi-agent-current-boundary.md](B50-multi-agent-current-boundary.md) | **blocked（待作者裁决）**：process-isolated Multi-Agent/24x7 保留、延期或 supersede；不新建 runtime，tech08“全部通过”不得当验收事实。 |
+| [B48-character-revision-noop-and-ambiguity.md](B48-character-revision-noop-and-ambiguity.md) | 角色无变化反馈与上下文感知同名歧义；C04 裁决、实施 checkpoint、B29 T2 的新验收与未闭环范围见原文，不从索引推断完成。 |
+| [B49-core-semantics-and-adr-review.md](B49-core-semantics-and-adr-review.md) | 主链语义与 ADR 收敛；R1–R7 逐项裁决、ADR-0031 整体接受及原 B01/B43/B45 承接见 §7。 |
+| [B50-multi-agent-current-boundary.md](B50-multi-agent-current-boundary.md) | Multi-Agent/24x7 与统一 AgentRun 的边界裁决；C05 选择、当前适用范围及延期能力重新开放条件见原文 §6，不从旧映射推断产品完成。 |
 | [B51-tech-stack-current-rebase.md](B51-tech-stack-current-rebase.md) | **todo**：技术栈与 canonical 引用重定；当前依赖/lock/CI/Tauri 为准，PaperTrail 与 revision/trace 二选一闭环，非倒装依赖。 |
 | [B52-longrun-batch-draft.md](B52-longrun-batch-draft.md) | **deferred（作者重新开放批量需求才启动）**：多单元后台执行、逐章 tentative、checkpoint 跨重启不重复；不拿 UA01 durable 或 B39 顶替 LongRunner。 |
 | [B53-p2-500k-milestone.md](B53-p2-500k-milestone.md) | **deferred（P1 B/C 与作者预算后）**：≥500K、每章≥2000、分卷、25 章连续性、重开续写与导出；作品级阈值，禁止脚本堆字，P3/P4 不吞并。 |
@@ -56,6 +56,11 @@
 | [B61-native-acceptance-driver-coverage.md](B61-native-acceptance-driver-coverage.md) | **done（2026-10-28，CP0–CP3）**：AU11×2 + AU07×3 补齐 native AX/CGEvent 驱动 + evidence checker + allowlist，5/5 原生 PASS（42/41/29/29/29 checks，trace count=1），registry 已 active；verdict surface/driver 改以证据 summary 为准。原 browser-surface 证据只读保留。 |
 | [B62-native-coverage-b40-family.md](B62-native-coverage-b40-family.md) | **done（2026-10-28，CP0–CP3）**：B40 CP3 家族 6 个 tauri 场景 native PASS（37/33/29/37/30/38 checks，`driver=ax-native-system-ui / surface=tauri`），current 证据已由 native 替换；vs10 按 surface=browser 移出。 |
 | [B63-known-gaps-remediation.md](B63-known-gaps-remediation.md) | 探索与 E10 证据缺口处置；历史交付见原文，R2 质量物料引用裁决与 R4 登记分别由 §6.2/§6.3 维护。 |
+| [B64-coordinate-aware-memory-consumption.md](B64-coordinate-aware-memory-consumption.md) | 目标章节与记忆有效窗在普通 recall、专业 writer/evaluator 和观察中的一致消费；静态缺口、契约准备及验收范围见原任务。 |
+| [B65-local-http-websocket-origin-boundary.md](B65-local-http-websocket-origin-boundary.md) | 桌面本机 HTTP/WS 来源边界；精确来源、实际配置与真实客户端反例，区别 CORS、身份和业务授权。 |
+| [B66-local-workspace-backup-restore.md](B66-local-workspace-backup-restore.md) | 作者可用的本地快照与恢复；先准备范围/一致性/敏感文件/覆盖/自动触发契约，后续实施条件见原任务。 |
+| [B67-revision-aware-ledger-maintenance.md](B67-revision-aware-ledger-maintenance.md) | 章节修订后的派生账面一致性；旧贡献失效、乱序/并发、来源与作者裁决保护，不等同于单纯补 trace。 |
+| [B68-experience-rule-governance.md](B68-experience-rule-governance.md) | Experience Engine 的证据、提炼建议、审阅、规则生命周期与后续消费；原条件收编统一落点，启动条件见原任务。 |
 | [B30-chapter-structure-maintenance.md](B30-chapter-structure-maintenance.md) | **done（2026-10-27，CP0–CP5 + 完成审计后原生补验收口）**：既有章节重编号/结构维护与卷章类型边界；`maintain_chapter_structure`、old→new 变更计划、两阶段原子 seq 事务、采纳 renumber effect、蓝图 object_kind 防护、ref-first 消费者迁移；原生确定性矩阵（场景1 36/36、场景2 12/12）+ strata/iq3_s scoped 真实模型原生 26/26（T1 采纳全链/T2 越界澄清零写入，不冒充全矩阵）；档案类型边界缺陷修复（`e83c06c5`）+ 原生 T8 6/6；失败批次只读保留；stage 存量清理需授权。 |
 | [B31-author-reply-run-binding.md](B31-author-reply-run-binding.md) | 作者补充输入与待回复任务的稳定绑定；包含原生五场景、问题源动作、目标版本、持久化与三次恢复证据，以及历史失败批次和已登记限制。执行状态见原任务。 |
 | `VS00D-G-GAP-RECONCILIATION.md` | **done（2026-10-24；差距回收仪式 22 项开放全裁决；无产品代码变更）**：VS-00D G1–G7 无一项可诚实关闭——G1/G3/G5/G7 承接 B27+B26（B27 slice 明确消费；trigger=并行共享入口迁移完成），G2/G4/G6 降级 C 轨/后续 checkpoint（G6 机制链已有 B11D/VS-00E 真实 Tauri 证据，长篇效果归狗粮观察）；NEM-GAP 01/04/06 trigger、02/05/08 C 轨；B 轨 B1/B2/B8 销账、B3/B5/B6/B7/B10 降级 C 轨、B4 用户门控；NEXT B 轨表修订后重扫 22→19 开放。诚实边界：契约文档 §6/§11 状态更新归 B27 owner（不碰并行工作树）、G1–G7 未关闭、降级非删除。 |
@@ -198,6 +203,24 @@
 | `AU11-missing-workstate-policy.md` | **checkpoint closed / AU-11 file-level closed**：SC-AU11-02 缺当前作品上下文不编造已由 `au11-missing-workstate-policy` 真实 Tauri / quality acceptance 证明。真实工作台创建无章节/正文/人物状态的 work 后，输入“帮我看看这一章哪里不成立”，trace/why 显式记录 chapter/prose/character missing，assistant 要求补材料且 no tool/adoption/write。 |
 | `AU11-creative-partner-conversational-voice.md` | **设计（backlog，未开工）/ NEXT Order 60**：trivial/模糊输入（如「测试」）的对话回应偏系统诊断腔（「系统运行正常」），偏离愿景 `00` §2/§2.2「作者面对可感知的创作伙伴」。提示词/persona 层（`planner.ex` `form_frame` system_prompt 增补创作伙伴口吻约束），只改 `assistant_message` 语气，不改路由/AgentRun 主链/UI 阶段流/写入边界。分析性验收（非 0/1 不变量，参 memory `prose-ai-taste-findings`）；地板模型下收益有限，待排期。 |
 
+| [AU05-adoption-safety-freshness.md](AU05-adoption-safety-freshness.md) | 历史高风险候选采纳安全与新鲜度；退役原因和后续承接以原文为准，不恢复不可达生产者。 |
+| [AU05-canon-conflict-recovery.md](AU05-canon-conflict-recovery.md) | Canon 冲突采纳与作者确认/恢复的历史验收及边界。 |
+| [AU05-conflict-cross-work-recovery.md](AU05-conflict-cross-work-recovery.md) | 跨作品采纳拒绝与冲突恢复边界，保留已有验证与承接。 |
+| [AU05-stale-conflict-cross-work-freshness.md](AU05-stale-conflict-cross-work-freshness.md) | 过期来源、冲突及跨作品的采纳保护；各 checkpoint 证据与后续归属。 |
+| [B23-awaiting-author-reason-and-exit-surface.md](B23-awaiting-author-reason-and-exit-surface.md) | 停等原因与继续方式的作者可见链路、恢复及原生证据。 |
+| [NEM04-scene-craft-planning.md](NEM04-scene-craft-planning.md) | 场级 craft 规划、存储槽位与简报多场展开的原始决策和实现证据。 |
+| [P1-chapter-adoption-reading.md](P1-chapter-adoption-reading.md) | 正文采纳后进入真实阅读投影，未采纳内容隔离。 |
+| [P1-chapter-draft-generation.md](P1-chapter-draft-generation.md) | 单章正文草稿的主链产出、待采纳边界与验收。 |
+| [P1-chapter-expansion.md](P1-chapter-expansion.md) | 单章续写累积、归属与连贯性 checkpoint。 |
+| [P1-chapter-plan-minimum.md](P1-chapter-plan-minimum.md) | 从作品到章节计划的最小承重闭环。 |
+| [P1-word-count-audit.md](P1-word-count-audit.md) | 正文有效字数审计及开放 B/C 重复、缺章后果；状态从原文读取。 |
+| [SI-001-scenario-invariants-i3-nonce.md](SI-001-scenario-invariants-i3-nonce.md) | I3 输入随机标识符贯通至作者产物的场景不变量。 |
+| [SI-002-scenario-invariants-ci-enforcement.md](SI-002-scenario-invariants-ci-enforcement.md) | 场景不变量的 CI 强制与 Layer-A 接线。 |
+| [SI-003-scenario-invariants-i1-causal.md](SI-003-scenario-invariants-i1-causal.md) | I1 产物与真实来源字节的因果绑定。 |
+| [SI-004-scenario-invariants-i2-variation.md](SI-004-scenario-invariants-i2-variation.md) | I2 独立输入的产物身份差异验证。 |
+| [UA01-judgment-structured-call-reliability.md](UA01-judgment-structured-call-reliability.md) | 历史结构化调用可靠性与探针证据；当前单调用协议与残余沿 B26/B27，不恢复旧 call2。 |
+| [VS00F-information-ledger.md](VS00F-information-ledger.md) | 信息账、设计引用与规则的原始交付和条件项。 |
+
 旧 `VS-001..018` 与旧 `DAG.md` 已删除；它们引用的 phase roadmap、旧 ADR 和 Router-first 语义不再作为有效执行事实。
 
 ## 最小结构
@@ -222,7 +245,8 @@
 - Boundary:
 - Consumer:
 - Proof:
-- Acceptance Driver:
+- Acceptance Driver: 外部真实页面入口、用户操作与证据；产品验收感知逻辑默认为 no。
+- Exploration: 通用探索可达、最小 Base、观察回流与 used_context_refs 绑定；不适用须说明。
 
 ## 3. 涉及范围
 
@@ -263,6 +287,6 @@
 ## 试行原则
 
 - slice 文件不是表格填空；它必须帮助接手者理解链路。
-- 如果 Contract / Invariant / Boundary / Consumer / Proof / Acceptance Driver 写不出来，优先缩小或重切 slice。
+- 如果 Contract / Invariant / Boundary / Consumer / Proof / Acceptance Driver / Exploration 写不出来，先补 slice 设计再编码；最小实现步只能降低单步风险，不能缩小既有完整验收范围。
 - 不为了满足结构而制造未来抽象。
 - 试行期允许更新本 README 和 `docs/engineering/vertical-slice.md`，但要在 slice 决策日志里说明原因。

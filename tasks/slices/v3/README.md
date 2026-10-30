@@ -30,4 +30,4 @@
 
 > 注：`tasks/slices/` 顶层还有 P1-* / AU0*/ VS-0* / SI-00* 等执行层 slice，归属见 `../README.md`。
 >
-> 当前对账入口：[全量设计到执行任务对账](../../2026-10-27-design-to-execution-reconciliation.md) 与 [00c §9.13](../../../docs/design/00c-state-and-contract-atlas.md#913-全量设计对账与后续承接2026-10-27)。求证式创作的新血缘是 `B39-evidence-seeking-authoring` / `VS-00K` / `ADR-0030`（均 Proposed）；验收重锚与证据地基为 B40–B42；其他后续承接 B43–B58 见总账。历史 slice 只作 as-built 索引，当前执行状态、剩余后果和验收仍以各原任务为准，不以本目录或 DAG 的旧状态代替。
+> 当前对账入口：[全量设计到执行任务对账](../../2026-10-27-design-to-execution-reconciliation.md) 与 [00c §9.13](../../../docs/design/00c-state-and-contract-atlas.md#913-全量设计对账与后续承接2026-10-27)。求证式创作的新血缘是 `B39-evidence-seeking-authoring` / `VS-00K` / `ADR-0030`（ADR-0030/VS-00K 已于 2026-10-29 Accepted；B39 实施状态见原任务）；验收重锚与证据地基为 B40–B42；其他后续承接 B43–B58 见总账。历史 slice 只作 as-built 索引，当前执行状态、剩余后果和验收仍以各原任务为准，不以本目录或 DAG 的旧状态代替。

@@ -60,7 +60,7 @@ docs/design/             docs/design/tech-stack/
 | 文档 | 对应 v2 子系统 |
 |---|---|
 | [`07-provider.md`](./07-provider.md) | §08 Provider Abstraction 在 Elixir 上的实现 |
-| [`08-multi-agent.md`](./08-multi-agent.md) | §12 Multi-Agent Composition 在 OTP 上的映射 |
+| [`08-multi-agent.md`](./08-multi-agent.md) | §12 Multi-Agent Composition 的历史技术映射与后续方向；C05 的首期延期边界和触发条件见 B50，不能作为当前产品已验收证据 |
 | [`09-schema-codegen.md`](./09-schema-codegen.md) | ADR-0001 等 JSON Schema → Ecto + Zod codegen |
 | [`10-observability.md`](./10-observability.md) | §09 Observability 的 OTel-erlang 落地 |
 

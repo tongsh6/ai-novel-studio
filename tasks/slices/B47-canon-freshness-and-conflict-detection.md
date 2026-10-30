@@ -1,6 +1,6 @@
 # B47：Canon Freshness 与持久冲突发现
 
-- 状态：**done（2026-10-29，CP0–CP3）**。CP3 真实 Tauri 页面矩阵 `b47-canon-freshness` current-HEAD PASS（stale/conflict 零写入 + fresh 采纳对照；surface=browser 如实，不冒充 native）；残余见 §10（StateTrace、legacy 候选、memory 对象、edit_then_accept、B29 持久层差异）。
+- 状态：**doing（2026-10-29 CP0–CP3 历史交付保留；2026-10-30 C07=A 已确认，持久层一致性后续 §10.1/§10.4 待实施与验证）**。原 browser 页面矩阵不冒充 native，§10 其它残余仍保持开放；新裁决不改写历史证据，也不表示整体已闭环。
 - 登记日期：2026-10-27；来源：当前部分安全检查依赖候选预声明 `canon_conflicts`，不能证明系统会从当前持久事实自动发现冲突或过期。
 - 2026-10-29 本轮范围：CP0 冻结 + CP1 对象级基线比较/自动 stale 检测 + CP2 采纳重 gate/receipt 前后版本/幂等；**不做**真实 Tauri/长跑/页面矩阵（CP3 交接 Lead）。
 - 上游：[AU05-canon-conflict-recovery](AU05-canon-conflict-recovery.md)、[AU05-file-level-closure](AU05-file-level-closure.md)、[B28](B28-whole-chapter-revision.md)、[B29](B29-existing-character-role-revision.md)、[B36](B36-localized-revision-algorithm.md)。
@@ -247,8 +247,47 @@
 3. **legacy 候选无基线元数据**（历史 prose append/overwrite 候选、旧 memory 型设定）：`canon_freshness_verdict` 返回 nil，保持既有 overwrite/high-risk 确认与持久化事务行为；不伪造 stale 判定。若需要，按对象补 contract 后扩第二批。
 4. **memory/confirmed 设定对象未纳入自动冲突**：无可靠对象级 revision/fingerprint（只有 source_ref/状态链），沿用 AU05 候选自报 `canon_conflicts` legacy gate；新增自动检测需要先补该对象 contract（非本批泛化）。
 5. **`edit_then_accept`（modify_draft）路径未做决策前 freshness 预检**：其持久化事务仍会重校验并零写入（B28/B36 既有），但失败仍走 `{:error, reason}` 局部错误，不产生带 `canon_freshness` 的 TurnResult；登记为下一 checkpoint 候选。
-6. **B29 持久层 `old_role` fallback 与边界 strict 的差异**：采纳路径现由边界 freshness 严格拒绝 fingerprint 变化（B47 Invariant）；持久层 `validate_character_fingerprint/3` 在 `old_role` 等于当前值时仍放行。是否统一收紧持久层属产品裁决，未在本批擅自改动既有守卫。
+6. **B29 持久层 `old_role` fallback 与边界 strict 的差异**：采纳路径现由边界 freshness 严格拒绝 fingerprint 变化（B47 Invariant）；持久层 `validate_character_fingerprint/3` 在 `old_role` 等于当前值时仍放行。2026-10-30 已按 C07=A 确认统一整体指纹规则，执行承接见 §10.3/§10.4；当前守卫尚未修改。
 7. **format plan digest 与持久层 join 语义**：`canon_snapshot` 的 base 正文按 `accepted_chapter_scopes/2`（scene seq 升序、空片段剔除、`\n\n` 连接）复算；与 `chapter_revision_context/2`、`persist_formatting_plan` 当前实现一致，但三处依赖同一约定，后续抽公共纯函数时需保持。
+
+### 10.1 角色持久层过期策略裁决材料
+
+- 状态：**todo（2026-10-30 C07=A 作者前置已解除；持久守卫、原子性与回归尚未实施）**。
+- 逐项讨论入口：[裁决包 C07](../2026-10-27-design-to-execution-reconciliation.md#108-c07角色持久层的过期校验)。本节维护选择及后续实施状态，不重开已经交付的历史 CP 证据。
+- 事实：入口 freshness 严格拒绝 fingerprint 变化；`AdoptionRepository.validate_character_fingerprint/3` 仍允许 fingerprint 不同但 `old_role` 等于当前 narrative_role 的情况。此次仅核实代码差异，不据此声称已有误写事故。
+- **A（推荐）**：变更写入在持久层也严格核对整体 fingerprint。统一权威写入边界，但无关字段改变也会使旧候选失效，作者需重新生成/确认；补直接仓储、并发/事务及真实页面回归。
+- **B**：保留差异，继续依赖应用入口 strict；零行为变化，但直接仓储消费者的边界仍不同，风险不能标关闭。
+- **C**：按字段级版本重设契约，降低无关字段更新导致的失效；需要先定义版本、冲突和回执，不把 old_role 相等直接当完整版本一致。
+- 幂等边界：新写入与真实同一请求重放分开。不得因收紧校验重复写入，也不得仅凭“当前已是目标值”就宣称同一请求重放。B48 管候选无变化体验，本节管持久化前置，两项分别裁决。
+- 裁决已生效，见 §10.3；数据未迁移、旧记录未改，memory/设定对象扩展不由本项授权，其 contract 准备仍见 §10 第4项。
+
+### 10.2 C07 取舍说明
+
+- 本轮仅复核代码差异：角色 fingerprint 包含 id/name/aliases/narrative_role/role/summary/status/updated_at 等，所以只改简介也会改变整体 fingerprint。现应用边界会把旧候选判 stale，仓储仍可能因 old_role 未变而放行；不据此声称正常入口已被绕过或已有误写事故。
+- **A（推荐）**是把当前已定义的整体基线规则一致落实到持久写入边界；代价是看似无关字段改变也需刷新候选/重新确认。不能只删除 fallback 就宣称完成：须核查比较与写入的完整原子版本保护边界，并用并发/直接仓储/真实页面反例证明。
+- **B**保留两层差异：暂不改变行为，但语义风险仍开放，不以入口目前能拦住代签所有路径。
+- **C**重新定义字段级基线：可减少无关字段变化引发的阻断，但要明确本次修订依赖哪些字段、如何检测竞争更新，并同步应用与持久层；不能只保留 old_role 回退而仍宣称整对象 fingerprint 一致。
+- 无论选哪种，真实同一请求的幂等回放与新写入分开；不能把“当前刚好等于目标值”直接当作已有同一请求成功回执。与 C04 无变化反馈衔接，但不混淆它们的业务含义。
+- 以上为裁决前取舍说明；作者已选 A，见 §10.3。此次没有改 guard、事务或数据。
+
+### 10.3 C07 裁决记录
+
+- 日期：2026-10-30；来源：本聊天展示 A 持久层统一整体指纹、B 暂留两层差异、C 重设字段级版本三方案，推荐 A 后，作者回复原文 **“A”**。
+- 已生效选择：**C07=A**。变更写入在持久层同样遵守当前整对象 fingerprint 基线，不能仅因 old_role 未变就放行整体版本已变化的候选；应用与持久边界保持一致。
+- 已说明代价：简介等非目标字段改变也可能使旧候选失效，需要刷新候选或基于新事实重新确认；本项不改为字段级版本策略，也不悄悄更新旧候选基线绕过检查。
+- 原子性与幂等：核实并证明比较到写入的完整原子版本保护，不能只删 fallback 或只包一个事务就宣称安全。同一真实请求的幂等重放与新写入、C04 无变化反馈分别定义，不重复写入、不伪造成功重放。
+- 本次仅记录裁决与执行计划；旧 B47 页面证据保留，不代签新持久层矩阵，未修改 guard/事务/schema/数据库。当前进入 C08。
+
+### 10.4 C07 实施 checkpoint
+
+| CP | 范围与完成标准 | 状态 |
+|---|---|---|
+| CP0 | 审计所有调用方、既有事务/版本保护与幂等回执；冻结整体 fingerprint、检查到写入的原子性、过期恢复和旧候选读取语义；区分同请求重放与目标值已满足 | todo |
+| CP1 | 持久变更入口执行同一整体版本规则，去除未授权 old_role 放宽路径；用实际适配的原子条件/版本机制保护竞争更新，不新增平行版本体系 | todo |
+| CP2 | 直接仓储及真实采纳链的 fresh/stale、简介等非目标字段变化、检查后竞争更新、跨作品/错误引用、真实幂等/不同请求/no-op 矩阵；拒绝时零 canon 变更 | todo |
+| CP3 | 外部驱动真实角色修订页面与恢复/回放，证明过期拒绝、合法新基线修订、无重复写入；回归 B29/B47/C04，原生与 browser、局部与完整范围分开报告 | todo |
+
+C07 只承接 §10 第6项，不因它完成而关闭 StateTrace、legacy、memory/设定、edit_then_accept 或原生覆盖等其它残余。幂等输入识别与 B43 共用既有事实，C04 无变化结果与 B48 对齐，不复制第二套判据；实施前按本任务完整七问、架构边界及当前 ub-mode 要求执行。
 
 ## 11. CP3 执行记录与交接清单（2026-10-29，Lead 已执行）
 

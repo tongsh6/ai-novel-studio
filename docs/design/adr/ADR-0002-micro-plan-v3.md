@@ -390,6 +390,8 @@ v3 不继承 v2 Router-first 拓扑，也不把 v2 intent routing 结果直接�
 
 ## enforcement_gaps
 
+**2026-10-30 ADR-0031 承接说明**：[ADR-0031](ADR-0031-core-chain-semantics-narrowing-v3.md) 已由作者正式接受。总体 AgentPlan 保留；MicroPlan 是每个执行步骤的单动作建议，退役旧 primary plan 唯一性作为执行约束的要求。建议不等于批准，逐步 gate 和真实 frame/plan 绑定继续保护；代码/兼容迁移仍待承接任务。 本文最终决策段保留为历史，以上是当前规范关系说明，不代表实现缺口关闭；执行来源见 [B49 收口](../../../tasks/slices/B49-core-semantics-and-adr-review.md#716-c02-实施基线收口)。
+
 - **2026-10-27 B40 enforced_by 更新（证据映射，不改决策段）**：原 `quality/acceptance/scenarios/au10-micro-plan-entry.yml`（legacy MicroPlan 入口，05 月旧证据）已退役；判断纪元规划链替代证据为 `judgment-plan-multi-step`（多步计划真实页面）与 `p1-chapter-plan-minimum`（judgment→orchestrator→toolbox 规划链）。pr-smoke 由新增 `pr-smoke-core-reply` 承接。见 `tasks/slices/B40-judgment-era-acceptance-reanchor.md` §7/§10。
 
 - B13b 裁决（2026-10-22，伪缺口修正）：ADR-0002 #3 要求 `MicroPlan.frame_ref` 引用 primary `DialogueFrame`，但 agent-run step plan 实际引用 `primary: false` 的 step frame（`judgment_plan.ex:428,575-594`），`primary` 字段全仓无消费者；「一个 primary frame 至多一个 primary MicroPlan」规则因 step frame 非 primary 而无执行载体（step plan 按 `mp_<run>_<seq>` 逐 step 新建并各自 re-gate）。待作者裁决 primary 语义（见 B13b 汇总「需要作者裁决的问题」）后按 slice 收敛。

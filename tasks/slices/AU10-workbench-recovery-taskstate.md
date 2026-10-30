@@ -60,3 +60,11 @@
 ## 7. 试行反馈
 
 - `TaskRunner` 之前只有 async demo runner，未提供可包裹真实同步产品动作的生命周期入口；本 checkpoint 增加 `track/3` 作为过渡。完整后台 LongRunner streaming 仍需后续单独收敛。
+
+## FAILED 任务状态真实页面补验
+
+- 状态：**todo（2026-10-30 承接既有 FAILED 余项；RUNNING/CHECKPOINT/COMPLETED 历史证据不改）**。
+- 来源：本任务目标及 [AU-10 SC-AU10-D2](../../docs/design/acceptance/author/AU-10-workbench-ui.md)。当前 `quality/acceptance/scenarios/au10-workbench-recovery-taskstate.yml` 只声明成功三态，不能替代 FAILED 的真实页面闭环。
+- 下一步：核对现役导出/TaskRunner.track 失败来源、Channel task_state 与前端错误/重试表现，设计可重复的外部故障与恢复输入；先区分 handler 异常、路径/文件失败和用户取消的真实语义，不新增验收专用失败开关。
+- 完整后果：从真实导出入口触发失败，首屏显示真实失败原因且不报导出成功；故障解除后新请求可成功，旧失败记录与新执行身份不混用。异常/取消零意外正文写入、不遗留半成品冒充完整导出，重复提交不重复不可逆副作用。
+- Proof/Boundary：既有 task_state 契约、application/export、web、前端状态消费及外部文件/进程故障驱动；局部 Channel 证据加真实原生页面/文件输出对账。完整批量 LongRunner 仍归 B52 的触发条件，不能因本项补验重新开启批量任务。

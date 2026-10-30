@@ -74,3 +74,11 @@
   保持一致）」四组 + 风格段，与写作侧逐字节同段——同源口径拿到了机器证据。
 - credo 抓到 `do_execute_tool_step` 圈复杂度 10（memory_reader 的 `||` 顶爆）→ 拆
   `reader_deps/1` 读端口清单 helper（顺带把 6 个 reader 缺省收拢一处，新 reader 依查点更醒目）。
+
+## 7. B15 卷蓝图增量回归
+
+- 状态：**todo（2026-10-30 登记既有回归余项；原 G1–G3 完成记录不变，本项尚未复跑）**。
+- 来源：[全量对账 B15](../2026-10-27-design-to-execution-reconciliation.md#42-契约adr-与-schema)、[ADR-0028 enforcement_gaps](../../docs/design/adr/ADR-0028-volume-structure-and-open-volume-action-v3.md#enforcement_gaps) 明确卷蓝图 additive 变更后 CA04 仍只有 2026-08-24 的历史证据，须独立回归。
+- 下一步：核对当前 carry 登记表、卷蓝图消费点、现有 CA04/CA03 driver 与历史 summary，冻结当前 HEAD 的回归输入和断言；沿既有外部真实页面入口复跑三条携带行为与未开放门，不新增卷功能或专用 packet。
+- 完整后果：正文的进度/收官守则、规划的事实/风格、世界观的阵容三条原行为均须保留；空来源诚实缺席、未批准的 G4/G5 门保持边界；核对 blueprint 有/无时的 additive 兼容与未采纳零 canon 写入。同步 CA03 回归预期及证据，不能只验证新增蓝图段存在。
+- 依赖与边界：沿现有 ADR-0028/VS-00C 与本任务的 G1–G3 契约；B39 后续迁移固定携带的路线不授权在本回归扩门。先区分 driver 漂移与真实产品回归，再按真实根因交原 owner；原生与 browser、确定性与实模证据分别标明，历史 summary 不作为当前 HEAD 的通过结论。

@@ -99,6 +99,8 @@ VS-03 证明 stale / duplicate confirmation 不产生新执行，cancel action �
 
 ## enforcement_gaps
 
+**2026-10-30 ADR-0031 承接说明**：[ADR-0031](ADR-0031-core-chain-semantics-narrowing-v3.md) 已由作者正式接受。按真实生产/消费链定义现役 available_actions；无现役消费者的旧动作/next-step 字段要求退出当前规范，但需逐项审计与历史读取兼容。普通回复可无业务按钮但仍有统一裁决；已有恢复/采纳能力保留，字段清理及页面回归未完成。 本文最终决策段保留为历史，以上是当前规范关系说明，不代表实现缺口关闭；执行来源见 [B49 收口](../../../tasks/slices/B49-core-semantics-and-adr-review.md#716-c02-实施基线收口)。
+
 - B13b 裁决（2026-10-22，降级：收窄 ADR 冻结动作集）：实际生产者只有 `answer_clarification`/`confirm_before_execute`/`reject_or_cancel_confirmation`/`cancel_pending_behavior`（`execution_orchestrator.ex:203-220`）及 candidate/artifact 动作；`retry_action`/`narrow_scope` 的恢复面由 DS03 的 AgentRun 控制坞承载（2026-07-28 真实 Tauri 三场景 PASS），`continue_dialogue`/`no_further_action` 无生产者、无 UI 消费者。ADR-0007 应缩窄冻结集，或为 canonical recovery action 另开 slice。
 - B13b 裁决（2026-10-22，降级：字段退役）：线格式只有 `available_actions`（`turn_result_v3.json:56`），`primary_next_action` 全仓无生产者/消费者；schema 遗留 optional `next_action`（`:35`）也无生产者。primary next step 由 `behavior_state.active.required_next_action` 表达（`execution_orchestrator.ex:189`）；ADR-0007 Contract 影响与 draft VS-05 §2 的 `primary_next_action` 必填应退役（§11.4：走新增 ADR）。
 

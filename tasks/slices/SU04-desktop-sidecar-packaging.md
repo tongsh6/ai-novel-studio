@@ -71,3 +71,13 @@ curl -s http://127.0.0.1:4658/api/provider/health    # → {"connected":...}
   偏好/密钥回写后端（`loadAndSyncModelProviderState`）恢复。
 - **CI 真实验证**：`release.yml` 已加各 OS `setup-beam` + `build_sidecar.sh`；首个 tag 触发的真实
   跑通（尤其 Windows `bin/sidecar.bat`、Linux）需在 CI 上观察确认。
+
+## 现役故障与生命周期契约核对
+
+- 状态：**todo（2026-10-30 承接现役启动/退出故障矩阵；历史正常冷启动与退出证据保持原范围，本项未实现或补验）**。
+- 来源：[桌面设计 §2–§3](../../docs/design/tech-stack/05-desktop.md#3-启动流程) 的就绪/健康检查及优雅退出要求，与本任务 as-built 的 release 解包/spawn/退出流程对账；不机械恢复旧 splash 或示例端口/轮询间隔。
+- 已核事实：`frontend/src-tauri/src/lib.rs:991–997` 启动失败只输出错误，`shutdown_sidecar` 直接 kill/wait；`WorkspaceChat.tsx:2079–2107` 已有约 30 次启动连接重试与最终加载失败，不能描述为“没有任何恢复”。自动迁移失败在 `NovelPersistence.Application` 重新抛出；当前证据未覆盖这些失败如何进入作者可操作的恢复链。
+- 下一步：核对实际打包启动配置、子进程所有权、解包完成判据、迁移/监听就绪、前端启动状态及退出时序，冻结启动中/就绪/失败/退出的真实来源和最小恢复方式。先明确受影响消费者和七问，不默认新增常驻 watchdog、第二进程管理器或自动重启策略。
+- 完整后果：半解包、启动/迁移失败、端口占用、已启动后退出及应用关闭分别有可核的失败类别和处置；不会把无后端冒充已就绪，不误杀非本应用进程，不产生重复 sidecar；退出/恢复遵循当前数据与运行状态边界，不静默重放创作。作者反馈与实际状态同源，失败证据及恢复后果可追溯。
+- 证明：外部系统 UI 驱动真实打包应用，在隔离 profile/数据目录准备故障前置，观察窗口/重试或恢复动作，并结合进程、端口、日志及数据校验；正常冷启动、恢复后可用与退出无孤儿均须复验。CI 仅构建包或使用 dummy archive 的 Rust 测试不能代签生命周期；产品不增加验收开关/隐藏钩子。
+- 依赖与条件：[B51](B51-tech-stack-current-rebase.md) 校准现役部署表述，[B65](B65-local-http-websocket-origin-boundary.md) 负责 HTTP/WS 来源，[B66](B66-local-workspace-backup-restore.md) 负责尚待冻结的备份恢复；本项不借故障恢复改写作者现有数据。签名、公证、各平台真实 release 的外部条件继续沿上节保留，不阻塞本机契约核对，也不因本机通过宣布跨平台完成。

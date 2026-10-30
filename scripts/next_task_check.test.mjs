@@ -40,16 +40,20 @@ test("只改原任务为 done 就能挡住陈旧排期，不依赖 NEXT 双写",
     rejects(check(next(), { ...files, "tasks/slices/A.md": task(status) }), "来源已终结");
   }
 });
-test("当前只能选可推进来源，blocked/deferred 仍可作为有条件候选", () => {
+test("当前与候选只选可推进来源，blocked/deferred 单列阻塞引用", () => {
   for (const status of ["todo", "pending", "doing"]) {
     assert.deepEqual(check(next(), { ...files, "tasks/slices/A.md": task(status) }), []);
   }
   for (const status of ["blocked", "deferred"]) {
     rejects(check(next(), { ...files, "tasks/slices/A.md": task(status) }), "当前任务来源为");
-    assert.deepEqual(check(next(), { ...files, "tasks/slices/B.md": task(status) }), []);
+    rejects(check(next(), { ...files, "tasks/slices/B.md": task(status) }), "候选来源为");
+    assert.deepEqual(check(next({ candidates: "", blocked: "[条件](slices/B.md)" }), {
+      ...files, "tasks/slices/B.md": task(status),
+    }), []);
   }
 });
 test("当前至多一项，候选不能重复编号或重复排同一来源", () => {
+  rejects(check(next({ current: row("A!") })), "非法任务编号");
   rejects(check(next({ current: row() + "\n" + row("B", "B.md"), candidates: "" })), "当前任务至多一项");
   rejects(check(next({ candidates: row() })), "重复任务编号");
   rejects(check(next({ candidates: row("C", "A.md") })), "原任务被重复排期");
@@ -149,12 +153,33 @@ test("拒绝增加历史节、损坏表格、缺少规则链接", () => {
   rejects(check(next().replace(row(), row().slice(0, -1))), "表格缺少边界");
   rejects(check(next().replace("](README.md)", "](unknown.md)")), "更新规则链接");
 });
-test("限制规模，防止长行或大量候选重新把 NEXT 变为总台账", () => {
+test("说明和单行保持精简，不能把历史材料塞进 NEXT", () => {
   rejects(check(next() + "\n".repeat(81) + "尾"), "超过 80 行");
   rejects(check(next() + "长".repeat(6001)), "6000 字符");
-  const candidates = Array.from({ length: 6 }, (_, i) => row("C" + i, "C" + i + ".md")).join("\n");
-  const sources = Object.fromEntries(Array.from({ length: 6 }, (_, i) => ["tasks/slices/C" + i + ".md", task()]));
-  rejects(check(next({ candidates }), { ...files, ...sources }), "候选至多五项");
+  rejects(check(next({ candidates: row("B", "B.md").replace("推进真实任务", "长".repeat(6001)) })), "6000 字符");
+});
+test("说明与单行的精简边界可达，任务行不挤占说明空间", () => {
+  // next fixture 有六行非表格内容；补到 80 行仍应允许。
+  assert.deepEqual(check(next() + "\n" + Array(74).fill("说明").join("\n")), []);
+  const prefix = "# NEXT\n> [更新规则](README.md)\n## 当前任务\n## 后续候选\n## 阻塞\n";
+  const blocked = "说明".repeat(3000).slice(0, 6000 - prefix.length);
+  assert.deepEqual(check(next({ blocked })), []);
+  rejects(check(next({ blocked: blocked + "字" })), "6000 字符");
+  const base = row("B", "B.md");
+  const candidates = base.replace("推进真实任务", "字".repeat(6000 - base.length + "推进真实任务".length));
+  assert.deepEqual(check(next({ candidates })), []);
+});
+test("候选数量不限，超过旧总长度仍逐项核验来源及终态", () => {
+  const candidates = Array.from({ length: 200 }, (_, i) => row("C" + i, "C" + i + ".md")).join("\n");
+  const sources = Object.fromEntries(Array.from({ length: 200 }, (_, i) => ["tasks/slices/C" + i + ".md", task()]));
+  const text = next({ candidates });
+  assert.ok(text.split("\n").length > 80);
+  assert.ok(text.length > 6000);
+  assert.deepEqual(check(text, { ...files, ...sources }), []);
+  sources["tasks/slices/C199.md"] = task("done");
+  rejects(check(text, { ...files, ...sources }), "C199 来源已终结");
+  delete sources["tasks/slices/C199.md"];
+  rejects(check(text, { ...files, ...sources }), "C199 状态来源不可读");
 });
 test("旅程只保留覆盖，不允许复制 next/queued 或队首镜像", () => {
   for (const status of ["**next**", "queued（后续）"]) {

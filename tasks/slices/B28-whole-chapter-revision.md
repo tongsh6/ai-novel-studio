@@ -389,3 +389,51 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 - **PASS**：compile -Werror、mix test **2282/0**（首跑在高负载下有 1 个 2s assert_receive 时序 flake，单文件重跑 3/3 + 全量重跑 2/2 绿，已证伪非回归）、format、credo（602 files/0）、xref 无环、arch、codegen.enums、enum lint、**adr_trace 28/28（含 ADR-0029 enforced_by 裸路径修复）**、log-noise 17/17、I3/I1/I2/I-CACHE 全 PASS、前端 typecheck/lint/**621 tests**/build、codegen drift 0、frontend_audit --quick 27/27（全量 tauri build 按约束 NOT-RUN）、design trace 19/0/0、quality manifest、next_task_check、**ai_static_scan --top 10 exit 0（blocking 0，2 条历史 gitleaks disposition）**、task_done --slice b28-whole-chapter-revision exit 0（manifest git_head=bbf31209）。
 - **已知非本批新增红（如实登记，不冒充绿）**：① `mix dialyzer` 39 errors 为 HEAD `a60c9024` 既有基线（本批未新增；上轮 WIP 的 +1 已消除）；② `pnpm format:check` 19 文件 prettier 不符为既有（CI workflow 不跑该项）；③ 上述 load 下 2s 测试超时建议后续放宽/去 flake（不属本批产品回归）。
 - **task_done 口径**：干净树上 `touched_files=[]` 走 “UI evidence not required”，不核验原生 Tauri；StructurePanel 类型边界修复的原生证据由 B30 原生批次提供，final 队列清空时带 diff 再跑一次 task_done 闭环。
+
+## 元原则整改：作者范围与否定约束
+
+- 状态：**todo（2026-10-30 作者同意进入整改；原整章修订/排版业务与历史完成记录保留，本节尚未实现或验收）**。
+- 来源：元原则业务补核（`../../artifacts/task-audit/2026-10-30-principles/b-business-supplement.json`） 对现役范围选择与采纳校验的静态核对；本节是“否定整章词被 whole_chapter 误授权”的唯一执行入口，不重新启动旧 CP0–CP5。
+
+### 当前缺口与目标链
+
+`PendingArtifactWorkflow.chapter_modification_scope/1` 从 `run.goal.text` 按词选择范围：未命中排版分支后，只要出现“整章/全章/整篇/全文/通读”即选 `whole_chapter`，没有处理否定或条件。常规章级修订采用这个默认值，并写入 AuthoringTask/输出契约；`LocalizedRevision.validate_scope/4` 对 `whole_chapter` 不执行目标段集合外的差异保护。因此“不要整章重写，只改第一段”等原话不能只因仍在 prompt 中，就被认为权限范围已正确。
+
+上述结论来自代码分支阅读，不是数据库、页面或真实模型误写复现。参数解析本身可以属于 APP；问题是把语义上明确否定的范围当作正面授权。整改须形成：
+
+```text
+完整作者原话与有效上下文（含否定、条件、明确保留项）
+→ 模型提出与该意图一致的修订范围/效果
+→ APP绑定真实章/片段、基线版本与可验证范围约束
+→ writer按同一任务生成候选/patch
+→ diff与采纳事务校验范围、字节、版本及作者批准
+→ 真实回执、阅读/后续请求与回放
+```
+
+不能只补一个“不要整章”关键词例外，也不能把原先机械守卫全部删除或无条件相信模型自报的扩大范围。全章输入覆盖是材料完整性，不等于获准改动整章；未知作用范围须先利用真实材料消歧，只有作者才能决定的部分再询问，不能靠默认值扩大写入。
+
+### 本轮开工七问
+
+1. **Contract**：原 B28 的稳定章节身份、完整材料、format_only/内容修订与采纳边界，B35 覆盖完整性、B36 分段/patch/版本契约，以及 ADR-0030/0031 的模型判断、真实来源与统一裁决。CP0 先明确既有载体如何表达授权范围与保留要求，不在本节新增枚举、字段或长度阈值。
+2. **Invariant**：否定/条件和局部限制不被扩成全章授权；材料读全不等于可全改；目标段外非授权字节保留；未知/歧义/过期/错误引用不得写入；候选正文/patch 保留实际模型来源；同请求幂等、失败无额外权威变更，真实无变化可以据证说明而非生成伪改稿。
+3. **Boundary**：application 的共享语义、章级修订任务/范围形成与候选绑定；domain 的纯范围契约；persistence 的 LocalizedRevision/diff、基线读取与采纳事务；web/frontend 消费原候选、预览、范围/回执。模型产建议和替换内容，APP核真实目标与效果；不新建正文存储或第二修订引擎，不改作者存量数据。
+4. **Consumer**：真实主输入发起的章级修订、writer与质量复核、候选预览/采纳、ReadingMode/Why，以及后续上下文读取；必须共用同一作用范围与真实基线，不能只改生成提示。
+5. **Proof**：正式回归“不要整章重写，只改第一段”“通读全文后只修第二段”“不是仅排版，需要修改指定句子”等否定/条件输入，并对照整章内容修订、仅排版、局部修订和证据支持的无变化；覆盖输入→scope→目标→diff→采纳→阅读/回放。先锁住当前错误选择，再验证目标外不变及越界拒绝，不以结果未写坏推定范围本来正确。
+6. **Acceptance Driver**：复用外部原生 Tauri 的 B28/B36 修订入口，在隔离作品中输入自然原话→必要取证→候选/patch→作者查看并采纳→阅读/刷新/重开/回放，捕获任务范围、真实请求、diff、receipt与持久事实。具体 driver/用例在 CP0 预注册；产品验收感知逻辑 **no**，机制与真实模型语义分别留证。
+7. **Exploration**：模型通过现有章节读取获得真实目标材料、范围/版本/覆盖；观察进入后续请求。若无变化或条件不成立，依据必须可追；不预装反例答案，不把全章读取权限变成整章修改权限。
+
+### 本轮 CP0–CP3
+
+| CP | 完整工作与关闭证据 | 状态 |
+|---|---|---|
+| CP0 | 审计 scope 默认值、显式覆盖选项、原话/goal 来源、目标段解析、writer输出契约与采纳消费者；冻结正面/否定/条件/歧义及保留项的同源映射和反例矩阵，区分全章材料与修改授权 | todo |
+| CP1 | 修正范围形成与绑定，避免词面命中扩大作用域；沿现有判断链与真实目标/版本形成明确约束，条件未成立可据证无变化，范围不明不生成越权候选 | todo |
+| CP2 | 贯穿 AuthoringTask、writer/evaluator、preview、diff/patch与采纳事务；验证目标外保真、完整覆盖、stale/跨作品/歧义/重复/失败回滚，真实回执与后续读取一致 | todo |
+| CP3 | 外部真实 Tauri与真实模型完成否定/条件和三个原范围的对照矩阵，含必要采纳、恢复与回放；保留失败与原生/browser/局部证据边界，完整后果齐备后关闭本节 | todo |
+
+### 与 B33 / B35 / B36 的分工
+
+- [B33 语义判断整改](B33-authoring-intent-judgment-reliability.md#元原则整改语义判断与机械守卫分工) 负责讨论/条件/执行等共享判断结果不被后置词法路由强迫；本节负责选定修订后，作者范围如何贯穿真实目标与写入保护。两处不能用各自局部测试代签另一链路。
+- [B35](B35-revision-adoption-scope-integrity.md) 负责完整覆盖与防丢稿保护，包括长度风险和显式缩写的语义复核；本轮不以修复否定范围为名取消现有安全下限，也不擅自冻结新比例。长度不是范围的唯一证据，相关后果沿 B35 保留。
+- [B36](B36-localized-revision-algorithm.md) 负责真实段身份、版本、目标外 diff 与确定性 patch 应用；正确的原文/目标不能由模型自报或另一套分段器替代。若需要调整 B36 实现，范围与回归仍由其既有契约约束，不重新实现局部编辑能力。
+- B27 维护专业调用共同语义，B43 提供统一裁决/trace；采纳、原正文历史和前后版本关系继续保持。整改不授权 stage 修复，不把原生 scoped 历史改成新全矩阵 PASS；当前只补任务定义，未改代码或测试。

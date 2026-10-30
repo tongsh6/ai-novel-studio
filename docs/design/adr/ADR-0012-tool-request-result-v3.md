@@ -121,6 +121,8 @@ v2 中已有 provider 调用、repository 调用或 service 结果可以迁移�
 
 ## enforcement_gaps
 
+**2026-10-30 ADR-0031 承接说明**：[ADR-0031](ADR-0031-core-chain-semantics-narrowing-v3.md) 已由作者正式接受。输出按消费边界分层：创作 artifact 强 contract，内部读取明确类型/字段/错误及必要运行时检查，探索观察有来源/范围契约，wire 沿同源规则。opaque 不是免检，复用同一 schema 不等于第二真源。悬空引用、必要校验及失败矩阵仍由 B45 等闭合。 本文最终决策段保留为历史，以上是当前规范关系说明，不代表实现缺口关闭；执行来源见 [B49 收口](../../../tasks/slices/B49-core-semantics-and-adr-review.md#716-c02-实施基线收口)。
+
 - B13b 裁决（2026-10-22，降级：契约缺失不可校验）：Toolbox 只校验 registry/dispatchable/grants（`toolbox.ex:31-55`）；`ToolOutputContract` 仅覆盖 creative 路径（`creative_tool_adapter.ex:107-112` 等）；`text_analysis`/`character_roster` 的 `output_contract_ref`（`capability_registry.ex:45,60`）没有冻结 schema 文件，adapter 返回内部 typed map（`text_analysis_adapter.ex:21-26`、`character_roster_adapter.ex:18-23`）。规则 4 应收窄为「creative/作者可见 artifact 工具必须校验；内部只读工具由 adapter typed output 保证」；若要统一校验，须先冻结两个 output schema 再开 slice（见 B13b 汇总「需要作者裁决的问题」）。
 
 ### B13b 裁决（2026-10-22）

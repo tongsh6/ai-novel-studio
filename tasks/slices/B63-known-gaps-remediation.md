@@ -86,7 +86,7 @@ E2E-01 §E10 判据逐项证据：
 
 ### 6.2 R2 质量物料引用裁决
 
-- 状态：**blocked（待作者选择；发现来源见 [B60](B60-backend-dialyzer-baseline.md) §8.2 R2）**。
+- 状态：**done（2026-10-30 作者确认 C03=A，不回退 turn_id；关闭语义悬案，当前行为保持）**。发现来源见 [B60](B60-backend-dialyzer-baseline.md) §8.2 R2。
 
 事实：`AuthoringTaskBuilder.for_quality_evaluation/1` 原 `text(attrs[:source_ref]) || text(attrs[:turn_id])` 兜底永不触发（`text(nil)=""` 为真值）；B60 删死兜底后行为不变 =「source_ref 为空时**不回退** turn_id」，最终 `{:error, {:authoring_task_invalid, :material_ref_required}}`。调用方 `turn_execution_service.ex:2062` 传正文 artifact ref 与 turn_id；构建 error 时 task=nil。2026-10-28 追完整链：`ProseQualityService.evaluate` 仍执行确定性检查；配置语义 provider 时，`ProseQualityEvaluator.evaluate(%{task: nil}, ...)` 在 provider 调用前返回 `authoring_task_required`，`ProseQualityService.run_semantic` 将其转为 `review_status=:unavailable`。没有语义 provider 时走既有确定性模式。不能把 task=nil 概括成整项“已跳过且只缺日志”。
 
@@ -96,7 +96,15 @@ E2E-01 §E10 判据逐项证据：
 | B | 恢复回退：source_ref 空 → turn_id | 行为变化；prose material ref 变成 turn（无正文内容绑定），需改调用方/测试/契约文档，且 source_refs 与 material ref 语义混淆 | ❌ |
 | C | 在 A 基础上保留确定性检查与语义 unavailable，补原始缺引用原因的可观测性 | 须先核当前 quality 事件/trace/replay 是否已能解释原因，有缺口才补；若改为 skipped 或 completed 则是另一项行为/契约变更，不能称只加日志 | 待取证，不预建独立 slice |
 
-状态：**待作者选 A/B/C**；推荐 A，2026-10-28 仅纠正事实和 C 的边界。本节是 R2 裁决与后续处置的唯一入口，B60 保留发现记录；确认前保持 open，不把本轮文档更新当作关闭。
+上表保留评审选项；作者的明确选择与生效边界见 §6.2.1。本节继续作为 R2 的唯一决策来源，B60 保留原始发现，不再作为待作者阻塞。
+
+#### 6.2.1 C03 裁决记录
+
+- 日期：2026-10-30；来源：本聊天说明正文候选引用与轮次 ID 不天然等价，推荐保持不回退后，作者回复原文 **“同意推荐，C03 选 A，继续下一项裁决。”**。
+- 已生效选择：**C03=A**。quality evaluation 的正文材料继续绑定具体正文候选引用，不将缺失 source_ref 兜底为 turn_id；B60 删除不可达兜底的行为保持。
+- 结果边界：缺正文引用导致 AuthoringTask 构建失败时，配置语义评估器的路径仍按既有 unavailable 处理；确定性检查可继续，没有语义 provider 时沿既有确定性模式。不把缺引用的语义评估记成已通过，也不据此宣布整个创作任务必然失败。
+- 关闭范围：只关闭“是否应回退 turn_id”的语义悬案，未新增日志、schema、评估成功路径或 C 选项的观测功能。若以后发现原因不可解释，先核现有事件/trace，再按既定契约与真实消费者处理，不新建空观测 slice。
+- 本次仅记录作者选择并移除对应 NEXT 阻塞；未改产品代码、存量数据或模型配置，未运行真实模型。
 
 ### 6.3 R4（建议「保持登记」；引用 [B60](B60-backend-dialyzer-baseline.md) §8.2 R4）
 
