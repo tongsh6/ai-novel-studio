@@ -104,8 +104,22 @@
 
 ## 现役动作与卡片矩阵核对
 
-- 状态：**todo（2026-10-30 承接原 §6 P1/P2 动作、卡片及 UI hygiene 后果；旧文件级完成批次不改）**。
+- 状态：**doing（2026-10-31 CP0 矩阵核对 done：现役三卡+Default 兜底、动作成功/失败/重复/禁用/过期/跨作品/视口均有实现或证据；CP1 当前 HEAD 复跑与未知卡片告警证据待补）**。
 - 下一步：以 [当前 UI contract](../../docs/design/07-workbench-ui-contract.md) / [VS-05](../../docs/design/contracts/VS-05-ui-roundtrip-contract-pack.md) 为集合，核对 action_result 各真实状态、未知 card/缺字段降级、disabled/stale/replay/跨作品和 viewport 的真实消费者与既有证据，排除已退役卡型；产出可复跑矩阵，不恢复旧十卡集合。
 - 完整后果：真实工作台正确显示成功、失败、重复/不可执行动作，未知数据不能导致空白崩溃、错误成功或可点击越权按钮；文案依 copy 真源、可访问性与设计 token 可追溯。核对 hidden metadata 时按真实产品用途判断，不能按字符串机械删除。
 - 去重：B43 负责裁决/幂等生产者，B48 负责角色 no-op/歧义；[AU08](AU08-file-level-closure.md#阅读投影状态与失败恢复补验) 负责投影失败，[任务状态补验](AU10-workbench-recovery-taskstate.md#failed-任务状态真实页面补验) 负责 FAILED，[AU07](AU07-trace-replay-integrity.md#p1-消费者与余项核对) 负责深回放。本项只补真实前端消费和跨状态体验缺口，不重复建后端状态机。
 - Proof：局部组件/契约负例与外部真实 Tauri 输入、点击、刷新/恢复/跨作品矩阵分别留证；所有验收依用户可见语义，生产验收感知 no。实现前补该 checkpoint 七问与对应 Pencil/设计帧，不以组件 render 代替完整页面。
+
+### 动作与卡片矩阵 CP0（2026-10-31）
+
+| 面 | 现役集合/实现 | 已有证据 | 缺口 |
+|---|---|---|---|
+| card_type | `candidate_set` / `confirmation_card` / `result_card` + `DefaultCard` 兜底（未知卡只渲染 title/body，不造决策语义）；ADR-0024 已替代旧十卡集合 | 组件/契约测试；AU09/AU04 真实页面卡 | 未知 card 是否“产生开发侧告警”需核对当前实现；若静默则登记 |
+| action_result 成功/失败/重复 | `handleAvailableAction` 处理 result、duplicate、catch 失败文案；AU04 confirm/idempotency、AU09 adoption 真实 PASS | 当前 HEAD AU04/AU09 | 失败/取消 action 的页面矩阵仍有历史/局部证据 |
+| disabled/stale/expired/history/cross-work/rebased | AU04 各场景（部分历史 PASS）+ ActionValidator/gate | AU04 系列场景 | 当前 HEAD 未全部重跑；`au04-confirm-before-execute`/idempotency 刚重跑 PASS |
+| 未知/缺字段降级 | `DefaultCard`、schema safeParse 失败路径（B06 等） | 单测/组件 | 真实页面未知卡注入入口未验证 |
+| 视口矩阵 | `au10-workbench-matrix-layout` 1280x800；其它视口 | 历史场景 | 当前 HEAD 未重跑 |
+| 文案/可访问性/token | copy.ts 集中；设计 trace 脚本 | 前端门禁 | 新增动作/卡未新增，未扩 scope |
+| 去重 | B43 裁决/幂等、B48 no-op、AU08 投影失败、AU10-FAILED、AU07 深回放 | — | 本项只补前端消费/跨状态体验，不复制后端状态机 |
+
+**CP1 下一步**：仅对当前 HEAD 仍缺真实页面证据的项做 scoped 复跑/补测：未知卡片告警、失败/取消动作、视口矩阵；不重新跑已 PASS 的 AU04/AU09 核心链，不建新卡。

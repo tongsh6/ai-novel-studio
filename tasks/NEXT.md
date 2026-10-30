@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU10-MATRIX | 核对当前卡片/动作结果、未知/失效/跨作品与视口矩阵，按 owner 去重后补消费证据 | [原任务小节](slices/AU10-file-level-closure.md#现役动作与卡片矩阵核对) |
+| AU10-MATRIX | CP0 done：三卡+Default、动作状态/跨作品/视口矩阵已核；CP1 只补未知卡告警、失败/取消动作、视口等当前 HEAD 缺口 | [原任务小节](slices/AU10-file-level-closure.md#现役动作与卡片矩阵核对) |
 
 ## 后续候选
 
