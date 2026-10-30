@@ -90,7 +90,7 @@ tauri/summary.json`。配套 test-support：slice_verify 四栏摘要 clause（�
 
 ## B06 分账契约与真实消费 checkpoint
 
-- 状态：**doing（2026-10-31 CP0/CP1 done：三账枚举、面板 DTO schema/codegen、前端 safeParse、空账/历史/失败正反例已落地；CP2 真实页面脉络/审读回归待做）**。
+- 状态：**done（2026-10-31 CP0–CP2 完成：三账枚举/DTO schema/safeParse/历史空账正反例 + 真实 Tauri 脉络与审读裁决回归 PASS；读取失败页面外部诱发仍为登记残差）**。
 - 来源：[VS-00F §2/§7](../../docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md#2-对象模型ledgerentry-统一信封-分账-payload)、[全量对账 B06](../2026-10-27-design-to-execution-reconciliation.md#42-契约adr-与-schema) 要求分账状态与 payload 的 schema/codegen 承接；不是重新创造五账领域。
 - 只读事实：`LedgerEntry` 仍在 Elixir 中分别声明 promise/conflict/emotion 状态；`ledger_entry.json` 的 status/payload 仍为宽泛 string/object。真实消费链已存在：`LedgerViewService.threads/1` → Channel `get_ledger_threads` → `socket.ts` 的手写 `LedgerThreadEntry`/类型断言 → `StructurePanel` 脉络面板。生成的 `LedgerEntrySchema` 与实际投影字段不同，不能将领域信封直接强套到 wire，也不能以存在生成物代替实际校验。
 - 下一步：逐账核对现役领域值、更新/读取 producer、持久形状、面板 DTO、探索/规划消费者与历史空值；形成“字段/状态—契约真源—生成物—校验点—真实消费者”矩阵。先判定哪些约束已冻结且有消费者、哪些属于合法局部投影或尚待契约澄清，再决定最小 schema/codegen/适配范围；本次不冻结新字段、状态或阈值。
@@ -130,6 +130,15 @@ tauri/summary.json`。配套 test-support：slice_verify 四栏摘要 clause（�
 - 前端：`LedgerThreadEntry/LedgerThreads` 改为 generated 类型；新增 `ledgerThreadsWire.parseLedgerThreads`，schema 校验失败 **显式抛错**（不伪装空账），合法空账/历史缺 optional 字段/合法条目通过；`get_ledger_threads` 接收处使用。
 - 测试：合法空账、合法条目、历史条目缺 payload/source_refs、未知 ledger 显式失败、缺分组/非对象失败；frontend 652/652、typecheck/lint 通过；后端枚举全量 mix 1048/0。
 - 未完成：CP2 真实 Tauri 工作台五账查看 + 原审读/裁决回归；读取失败在页面显式错误态的证据；模型消费未涉及。
+
+### B06 CP2 真实页面证据（2026-10-31）
+
+- `au12-character-identity-merge` 真实 Tauri 窗口 PASS：打开档案→脉络 tab 显示五条脉络，`arc_ledger_unified_to_single_subject`、`merge_performed_no_adoption_or_content_write` 等断言通过；证据 `artifacts/slice-verify/au12-character-identity-merge-tauri/`。该场景直接触发 `channel.get_ledger_threads.done` 与面板读取，证明 DTO schema/前端解析不阻断真实消费。
+- `au13-review-adjudication-roundtrip` 真实 Tauri 窗口 PASS：五账只读面板 + 8 findings 全处置（accept_drift/dismiss/revise_design/revise_prose），审读/裁决回归通过；证据 `artifacts/slice-verify/au13-review-adjudication-roundtrip-tauri/`。
+- 合法空账：审读场景覆盖空 report/五账 readonly 视图；非法 DTO/未知 ledger 由 `parseLedgerThreads` 单测显式失败，不伪装空账。
+- 残差：读取失败页面显式错误态未被外部故障注入驱动（代码路径为 reject → StructurePanel archiveError，单测覆盖 schema 失败）；模型侧未消费该面板 DTO，未伪造模型证据。
+- 门禁：frontend 652/652、typecheck/lint；backend mix 1048/0、enum codegen in sync；两个真实页面场景 PASS。
+
 
 
 
