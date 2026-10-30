@@ -60,9 +60,33 @@ node scripts/task_done_check.mjs
 
 ## P2 立项修订的采纳落位与同源消费
 
-- 状态：**todo（2026-10-30 只启动原 P2 的契约准备；P1 pending correction 已完成，后续物化未获本次规划替代验收）**。
+- 状态：**doing（2026-10-31 CP0 契约准备 done：已列字段权威源/现有落位/消费者与 A/B/C 方案；CP1 实现待做）**。
 - 来源：本任务 §6、[AU-12](../../docs/design/acceptance/author/AU-12-work-profile.md) AU12-I1/I7、[CA01 写入余项](CA01-planning-context-completion.md)。用户场景是“修订作品立项并采纳后，档案和后续模型使用同一新事实”。
 - 已核事实：`AdoptionRepository` 的 `work_skeleton_suggestion` 仅允许 target_length/planned_volumes/serial_form；`world_setting` 沿记忆类型落位。这些不能证明 premise/theme/main_goal 或题材/卖点/读者/基调等通用修订已回写 works，也不能由自然语言关键词自动推断应覆盖哪个立项字段。
 - CP0（可推进）：列清现有字段权威源、artifact 类型/显式目标、producer、采纳事务、版本及读模型消费者；比较复用既有结构化提案与扩展最小契约的差异，形成字段落位/不落位/缺失值/锁定及冲突处理方案。契约接受前不把任意 world_setting 全量覆盖 works、不新增平行资料表。
 - 后续完整闭环：同一明确修订经真实作者采纳才修改授权字段，未采纳/放弃/过期/跨作品/重复请求不误写；保持 revision 与真实 StateTrace，概览、通用探索、后续判断/专业模型请求同源更新，历史事实可回查。采纳前后字节与来源不得由 APP 补写创作内容。
 - Proof/Boundary：domain 字段/版本规则，application 作者意图/采纳编排，persistence works/现有回执，web/前端概览与真实候选动作。外部真实 Tauri 从概览提出修订→候选→采纳→刷新/新会话→模型实际请求核对；A2 同轮来源证据并入，不用 pending 卡出现冒充最终落位。B39 负责按需求证，B45 协同必要 schema，CA01 仅指向本 owner 不维护另一份状态。
+
+### CP0 契约准备记录（2026-10-31）
+
+**字段权威源（works 行，Work.changeset optimistic_lock）**
+- 通用立项：title/genre/core_selling_point/target_reader/tone_preference；
+- NEM-GAP-01：premise/theme/main_goal；
+- 全书骨架：target_length/planned_volumes/serial_form；
+- revision 由 changeset 递增，与作者手工编辑同一冲突语义。
+
+**现有落位能力**
+- `work_skeleton_suggestion` 采纳仅允许 `skeleton_field in target_length/planned_volumes/serial_form` + `skeleton_value`；缺失/非法字段拒绝（不静默吞）。
+- `world_setting` 落记忆，不写 works；无自然语言自动推断字段，不能证明 premise/theme/main_goal 或通用立项修订已回写。
+- producer：`fact_inventory_service` skeleton prompt 仅 3 个骨架字段（VS-00G owner）；无通用立项字段的显式提案项。
+- 消费者缺口：`WorkService.to_dto` 仅 id/title/genre/status/revision/timestamps，概览契约读不到 premise/theme/main_goal/卖点/读者/基调；`ContextAssembler.current_work_context_parts` 只列 genre/core_selling_point/target_reader/tone_preference/protagonist 等，**premise/theme/main_goal 未证实进入模型请求**。
+- 零写入：pending 候选不改 works；采纳事务中 work update 才落 revision；无 StateTrace 专门覆盖（沿用既有 adoption 回执）。
+
+**方案比较**
+- **A（推荐）**：扩展现有 `work_skeleton_suggestion`/显式 field-value 提案白名单到通用立项标量字段（premise/theme/main_goal/core_selling_point/target_reader/tone_preference）+ producer 显式项 + Work DTO/概览消费 + ContextAssembler 同源字段；无新表、无自然语言推断。
+- **B**：新 artifact type `work_profile_revision`，契约面更大、需新 schema/动作，暂不推荐。
+- **C**：只保留 memory/known-gap，不满足 AU-12 后果。
+- 字段缺失/非法：继续拒绝采纳；锁定冲突：沿用 revision conflict；跨作品：run work_id 绑定，不做跨作品写；重复请求按幂等回执。
+- 未采纳/放弃/过期：零 works 写入；显示候选与来源字节由现有 artifact/rationale 保持，APP 不补写创作内容。
+
+**CP1 下一步**：实现 A 的 domain 字段白名单/persistence 落位 + DTO/概览/ContextAssembler 消费，补局部测试；再预注册真实 Tauri 概览修订→候选→采纳→刷新/新会话→模型请求字节证据（不新建平行资料表、不改 B39 规划所有权）。

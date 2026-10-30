@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU12-WRITEBACK | CP0 准备立项字段/显式提案/版本与采纳落位契约；后续档案和模型消费同源 | [原任务小节](slices/AU12-correction-intent-roundtrip.md#p2-立项修订的采纳落位与同源消费) |
+| AU12-WRITEBACK | CP0 done：字段权威源/现有 skeleton 白名单/消费者缺口与 A/B/C 方案已冻结；CP1 实现显式立项字段提案+DTO/上下文消费待做 | [原任务小节](slices/AU12-correction-intent-roundtrip.md#p2-立项修订的采纳落位与同源消费) |
 
 ## 后续候选
 

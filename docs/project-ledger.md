@@ -1328,3 +1328,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **SU04 CP1 就绪探测**：spawn 后 TCP 127.0.0.1:4658 等待 15s，提前退出/超时分类并回收 Child；Rust 12/12 测试通过。作者可见失败分类与真实打包故障复验仍待做。
 
 - 2026-10-31 — **SU04 CP1 实现完成/阻塞**：作者可见失败分类 command+前端恢复文案；Rust 12/12、前端 657/657；真实 release 打包应用故障复验缺外部 harness（navtive 路径为 debug app 不 spawn sidecar），按预算阻塞。当前任务切 AU12-WRITEBACK。
+
+- 2026-10-31 — **AU12-WRITEBACK CP0**：列清 works 字段权威源、skeleton 白名单仅 3 字段、world_setting 不写 works、DTO/ContextAssembler 消费者缺口；冻结 A（扩展现有显式 field-value 提案+DTO/模型消费）推荐/B 新 artifact/C known-gap；未改代码。
