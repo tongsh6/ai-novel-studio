@@ -1,5 +1,7 @@
 # Backend 后端栈
 
+> **现行校准（B51，2026-10-31）**：本文是 2026-04 草案；§2.4 paper_trail、§2.5 langchain_elixir + instructor_lite、GenStage/Horde 与 OTel 均**不是当前实现**。当前实际：`Req` + 自研 Provider Gateway/adapter；修订审计 `source_revision_ref + StateTrace`（PaperTrail 生产零调用、dev/stage versions=0，去留待裁决）；长跑只用 OTP GenServer/Task/DynamicSupervisor；观测是 `telemetry` + LogEmit JSONL。下方历史段保留以说明来源，不再作为“锁死/必须”；依赖证据见 [B51](../../../tasks/slices/B51-tech-stack-current-rebase.md)。
+
 > 状态：草案
 >
 > 目的：定义 Elixir 后端的完整栈、版本基线、关键纪律。本文不展开具体子系统的设计（那些在 [`07-provider.md`](./07-provider.md)、[`08-multi-agent.md`](./08-multi-agent.md) 等）。
@@ -16,14 +18,14 @@ db_orm:          Ecto 3.x
 db_alpha:        SQLite via ecto_sqlite3
 db_beta:         PostgreSQL via postgrex / ecto_sql
 migrations:      Ecto.Migration
-revision_audit:  paper_trail (Hibernate Envers 等价)
-event_bus:       Phoenix.PubSub + Distributed Erlang
-long_run:        GenServer + GenStage + Task.Supervisor
+revision_audit:  source_revision_ref + StateTrace（当前；paper_trail 历史休眠/待裁决）
+event_bus:       Phoenix.PubSub（当前单节点；跨节点未实现）
+long_run:        GenServer + Task/DynamicSupervisor（当前；GenStage 历史）
 schema_validate: Ecto.Changeset + Dialyxir
-llm_client:      langchain_elixir + instructor_lite + 自封装 Provider Gateway
+llm_client:      Req + 自封装 Provider Gateway/adapter（当前；langchain/instructor 历史）
 http_client:     Req
 testing:         ExUnit + Mox + StreamData
-observability:   opentelemetry-erlang + Phoenix.Telemetry
+observability:   telemetry + LogEmit JSONL（当前；OTel 历史）
 release:         Mix Release (单二进制)
 ```
 
@@ -81,7 +83,9 @@ Phoenix 退化为 API server + WebSocket gateway。
 - 跨表关联通过 `belongs_to / has_many` + 显式 `foreign_key`
 - Adoption boundary 必须用 `Ecto.Multi.run/4` 保证原子性
 
-### 2.4 paper_trail（revision audit）
+### 2.4 paper_trail（revision audit，历史方案；当前生产未使用）
+
+> **B51 现行**：PaperTrail 依赖/表存在但生产无调用，versions 存量 0；当前权威修订链为 `source_revision_ref + StateTrace`。去留待作者裁决，本段不构成实现要求。
 
 > 状态：✅ 基线（已实测，2026-04-26）。详见 [`verification/paper-trail-ecto-compatibility.md`](./verification/paper-trail-ecto-compatibility.md)。
 
@@ -104,7 +108,9 @@ Phoenix 退化为 API server + WebSocket gateway。
 - 自实现 audit log（增加复杂度）
 - Ecto.Changeset.prepare_changes 钩子（要重复造轮子）
 
-### 2.5 langchain_elixir + instructor_lite
+### 2.5 langchain_elixir + instructor_lite（历史调研；当前未采用）
+
+> **B51 现行**：当前无 langchain_elixir/instructor_lite 依赖；Provider 走 Req + 自研 Gateway/adapter。本段只保留选型历史与证据链接，不作为当前实现或依赖要求。
 
 > 状态：✅ 基线（已实测，2026-04-26 含 `instructor_lite` 补评）。详见 [`verification/structured-output-library-choice.md`](./verification/structured-output-library-choice.md)。
 >

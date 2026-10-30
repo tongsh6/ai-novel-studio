@@ -1,5 +1,7 @@
 # 技术栈总纲
 
+> **现行校准（B51，2026-10-31）**：本文 2026-04 的“最终方案”yaml/图是历史设计痕迹，不是当前依赖锁死声明。当前实际以 `mix.exs`、`frontend/package.json`、`frontend/src-tauri/Cargo.toml`、lock/CI 为准：**无 langchain_elixir/instructor_lite、GenStage/Horde、OpenTelemetry 依赖**；LLM 客户端是 `Req` + 自研 Provider Gateway/adapter，修订审计是 `source_revision_ref + StateTrace`（PaperTrail 依赖/表存在但生产零调用、dev/stage versions=0，去留待 B51 裁决）。历史方案保留以说明来源，不反向要求安装/恢复旧库；差异矩阵见 [B51 slice](../../../tasks/slices/B51-tech-stack-current-rebase.md)。
+
 > 状态：草案
 >
 > 目的：把"v2 应该用什么技术栈实现"这个问题从讨论收敛成可执行的工程基线。本文不重复 [`../README.md`](../README.md) 的系统设计语义，只回答语义如何落地。
@@ -54,14 +56,14 @@ db_orm:          Ecto 3.x
 db_alpha:        SQLite (Ecto.Adapters.SQLite3)
 db_beta:         PostgreSQL (Ecto.Adapters.Postgres)
 migrations:      Ecto.Migration
-revision_audit:  paper_trail (Hibernate Envers 等价)
-event_bus:       Phoenix.PubSub (in-node) + Distributed Erlang (cross-node)
-long_run:        GenServer + GenStage + Task.Supervisor
+revision_audit:  source_revision_ref + StateTrace（当前；paper_trail 历史休眠/待裁决）
+event_bus:       Phoenix.PubSub（当前单节点；Distributed Erlang 跨节点未实现）
+long_run:        GenServer + Task/DynamicSupervisor（当前；GenStage 历史方案）
 schema_validate: Ecto.Changeset + Dialyxir (static analysis)
-llm_client:      langchain_elixir + instructor_lite + 自封装 Provider Gateway
+llm_client:      Req + 自封装 Provider Gateway/adapter（当前；langchain/instructor 历史方案）
 http_client:     Req
 testing:         ExUnit + Mox + StreamData (property-based)
-observability:   opentelemetry-erlang + Phoenix.Telemetry
+observability:   telemetry + LogEmit/JSONL（当前；OTel 历史方案）
 
 # Frontend (independent SPA, shared between Tauri shell and Web)
 language:        TypeScript 5.x
@@ -97,6 +99,7 @@ prototype:       pencil (already locked in v2)
 ## 3. 阶段 1 形态
 
 ```mermaid
+%% 历史设计图（2026-04）：LangChain 节点仅为当时方案，当前 Provider 直接走自研 Gateway。
 flowchart TB
     User([作者])
     
@@ -137,6 +140,7 @@ flowchart TB
 ## 4. 阶段 2 形态
 
 ```mermaid
+%% 历史设计图（2026-04）：LangChain 节点仅为当时方案，当前 Provider 直接走自研 Gateway。
 flowchart TB
     Browser1([Browser<br/>作者 A])
     Browser2([Browser<br/>作者 B])

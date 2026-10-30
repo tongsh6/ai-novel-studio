@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B51 | CP0 依赖矩阵 + CP1 PaperTrail 只读证据 done（0 versions/无生产调用）；去留 A/B/C 待裁决；CP2 引用/状态修订待做 | [原任务](slices/B51-tech-stack-current-rebase.md) |
+| B51 | CP0/CP1 done；CP2 partial：tech-stack 00/03 + 07 旧卡已校准；CP2 余项/CP3 与 PaperTrail A/B/C 待做 | [原任务](slices/B51-tech-stack-current-rebase.md) |
 
 ## 后续候选
 

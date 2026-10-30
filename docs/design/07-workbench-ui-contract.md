@@ -428,9 +428,11 @@ UI 不应：
 - 把 optional detail 当成 blocking slot。
 - 直接把输入写入 production state。
 
-结构化字段仅在以下情况使用：
+> **现行校准（B51，2026-10-31）**：`clarification_prompt` 卡片已由 ADR-0024 决策 3 废弃；当前决策面是 `candidate_set` / `confirmation_card` / `result_card` + `author_question` 语义，不再以该卡作为结构化字段前提。
 
-1. TurnResult 明确给出 `clarification_prompt` card。
+结构化字段/选项仅在以下情况使用：
+
+1. TurnResult 给出当前契约内的候选卡、确认卡或独立 `author_question`（不再有 `clarification_prompt` card）。
 2. fields 来自 TurnResult，不由 UI 根据 schema 生成。
 3. 字段数量少，且服务当前 blocking path。
 4. 提交后仍作为 AuthorActionInput 进入 Orchestrator。

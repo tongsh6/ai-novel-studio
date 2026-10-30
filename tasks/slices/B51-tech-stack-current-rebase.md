@@ -1,6 +1,6 @@
 # B51：技术栈与 Canonical 引用当前重定
 
-- 状态：**doing（2026-10-31 CP0 依赖矩阵 + CP1 PaperTrail 只读证据 done；PaperTrail 去留待裁决，CP2 引用/状态修订待做）**。
+- 状态：**doing（2026-10-31 CP0/CP1 done；CP2 partial：tech-stack 00/03 与 07 旧卡引用已按实际校准；PaperTrail 去留待裁决，CP2 余项/CP3 待做）**。
 - 登记日期：2026-10-27；来源：tech-stack 锁死依赖与当前自研 Gateway/codegen/Tauri sidecar 不一致，glossary/UI 引用和多处完成状态也互相矛盾。
 - 上游：`docs/design/tech-stack/**`、`docs/design/foundation/30-contract-glossary.md`、`docs/design/07-workbench-ui-contract.md`、[B50](B50-multi-agent-current-boundary.md)、[B49](B49-core-semantics-and-adr-review.md)。
 
@@ -81,3 +81,10 @@
 - 无论选项：`source_revision_ref`/StateTrace/Replay 覆盖是当前权威；CI 未勾项归属另行在 CP2/CP3 标注。
 
 **CP2/CP3 下一步**：按当前实际修订 tech-stack/canonical 引用与状态链（07 退役卡、glossary 死链、S4/S7、D6/I5/B22/B34 等），并复核 AGENTS/frontend_audit/CI 口径；PaperTrail 执行等作者裁决。
+
+### CP2 修订记录（2026-10-31，partial）
+
+- `docs/design/tech-stack/00-overview.md`：顶部加 B51 现行校准块；yaml 的 revision_audit/event_bus/long_run/llm_client/observability 改为当前实际并标历史方案；Mermaid 图标注 LangChain 节点为历史设计。
+- `docs/design/tech-stack/03-backend.md`：顶部加现行校准；yaml 实际化；§2.4 paper_trail、§2.5 langchain/instructor 标为历史方案/当前未采用，不构成实现要求。
+- `docs/design/07-workbench-ui-contract.md`：结构化字段前提从已退役 `clarification_prompt` 卡改为当前 candidate/confirmation/author_question 语义。
+- 仍待 CP2 余项：glossary 死链/错 ADR、S4/S7/D6/I5/B22/B34 等状态链到当前证据、其他 tech-stack 子文档声明；CP3：AGENTS/frontend_audit/目录命令/secret/card/sidecar/CI 口径复核。PaperTrail 执行待作者 A/B/C。

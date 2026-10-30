@@ -1340,3 +1340,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **VS-00G CP5e 当前 HEAD PASS**：A3 面板确认→档案恰 1 行、A2 暂定注入→否决→缺席守则恢复；A2 driver 接受真空/非真空两种当前守则文案（不放宽行为）；CP5 余项仍登记；当前任务切 B51。
 
 - 2026-10-31 — **B51 CP0/CP1**：实际依赖矩阵（无 langchain/instructor/GenStage/Horde/OTel；Req+自研 Gateway/telemetry），PaperTrail 依赖/表存在但生产零调用、dev/stage versions=0，现链用 source_revision_ref+StateTrace；去留 A（推荐历史休眠）/B supersede 移除/C 延期待裁决；CP2 引用修订待做。
+
+- 2026-10-31 — **B51 CP2 partial**：tech-stack 00/03 加现行校准并实际化 yaml，历史 langchain/instructor/GenStage/OTel/PaperTrail 段标历史；07 结构化字段前提移除已退役 clarification_prompt 卡。CP2 余项（glossary/状态链）与 CP3 待做；PaperTrail 去留待裁决。
