@@ -111,6 +111,22 @@ function sha256Hex(text) {
   return execFileSync("shasum", ["-a", "256"], { input: String(text ?? "") }).toString().split(/\s+/)[0];
 }
 
+function countFirstExisting(db, names) {
+  for (const name of names) {
+    try {
+      return Number(all(db, `SELECT COUNT(*) AS n FROM ${name}`)[0].n);
+    } catch {
+      // 表不存在（故障期被重命名）：尝试下一个候选名
+    }
+  }
+  return null;
+}
+
+function sqliteTablesInDb(db, pattern) {
+  const rows = all(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE ?", [pattern]);
+  return rows.map((row) => String(row.name)).sort();
+}
+
 function sqliteTables(dir, pattern) {
   return withDb(dir, (db) => {
     const rows = all(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE ?", [pattern]);
@@ -151,7 +167,9 @@ function dbSnapshot(dir) {
         drafts: Number(all(db, "SELECT COUNT(*) AS n FROM drafts")[0].n),
         versions: Number(all(db, "SELECT COUNT(*) AS n FROM versions")[0].n),
         author_action_receipts: Number(all(db, "SELECT COUNT(*) AS n FROM author_action_receipts")[0].n),
-        chapter_summaries: Number(all(db, "SELECT COUNT(*) AS n FROM chapter_summaries")[0].n),
+        // H1 故障期表被外部重命名为 *_fault；计数取任一存在的表，保证捕获本身不因
+        // 被测故障而失败（证据消费者另行断言表名/零写入）。
+        chapter_summaries: countFirstExisting(db, ["chapter_summaries", "chapter_summaries_fault"]),
         memory_items: Number(all(db, "SELECT COUNT(*) AS n FROM memory_items")[0].n),
       },
       chapters: chapterRows.map((row) => ({
@@ -163,7 +181,7 @@ function dbSnapshot(dir) {
       chapter_text: chapterTexts,
       chapter_content_sha: chapterSha,
       sqlite_tables: {
-        chapter_summaries: sqliteTables(dir, "chapter_summaries"),
+        chapter_summaries: sqliteTablesInDb(db, "chapter_summaries%"),
       },
       agent_event_unavailable_sources: traceUnavailableSources(db),
     };
@@ -421,7 +439,6 @@ export function verify(dir, sliceIdArg) {
     } else {
       scenarioChecks.prompt_has_real_facts = prompt.text.includes(expectedTitle);
       scenarioChecks.prompt_no_availability = !prompt.text.includes("## 上下文可用性");
-      scenarioChecks.prompt_no_read_failure = !prompt.text.includes("读取失败");
     }
 
     const assemble = turnId ? contextAssembleFor(appRecords, turnId) : null;

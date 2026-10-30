@@ -6,13 +6,12 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU03-CONTEXT | CP0–CP2 已完成（契约/source_status 接线 + 同 turn 故障矩阵 7 条、trace 同源、零写入、跨作品/恢复；全量 2365/0）；下一步 CP3：外部原生 Tauri + 真实模型故障注入（SQLite 投影表独占锁）→ 同 turn 请求含可用性段/作者反馈不称空/零写；解锁后恢复事实重入 | [原任务小节](slices/AU03-file-level-closure.md#当前上下文缺失与读取失败补验) |
+| B27 | 先§9核实际请求材料与引用同源，区分取到/供给/观察/自报使用；原定向硬化与停止全量retest裁决保留 | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B27 | 先§9核实际请求材料与引用同源，区分取到/供给/观察/自报使用；原定向硬化与停止全量retest裁决保留 | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B39 | CP1 正文求证与逐次模型输入证据；后续准备/恢复/迁移仍按完整 slice 验收 | [原任务](slices/B39-evidence-seeking-authoring.md) |
 | B64 | CP0 核对旧章/新章记忆有效窗；真实目标贯穿 recall、writer/evaluator，保留历史查询语义 | [原任务](slices/B64-coordinate-aware-memory-consumption.md) |
 | B47-C07 | 角色持久层整对象指纹、原子性与真实重复请求幂等；其它残余仍留原任务 | [原任务小节](slices/B47-canon-freshness-and-conflict-detection.md#101-角色持久层过期策略裁决材料) |

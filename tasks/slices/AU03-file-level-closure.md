@@ -187,7 +187,7 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 
 ## 当前上下文缺失与读取失败补验
 
-- 状态：**doing（2026-10-30 CP0–CP2 done：契约/接线 + 本地故障矩阵（同次真实判断请求、trace、零写入、跨作品/恢复）；CP3 外部原生 Tauri 故障注入 + 真实模型待执行）**。
+- 状态：**done（2026-10-30 CP0–CP3；外部原生 Tauri + 真实模型故障注入通过 66/66，读取失败/未知与真实空同源表达闭环；残余 known-gap：prose/plot mission inputs 的可用性消费、模型措辞不代签）**。
 - 设计依据：本文件 §3 的空作品、有背景无会话、fetcher 失败三类场景；[AU-03](../../docs/design/acceptance/author/AU-03-context.md) 的上下文诚实边界。既有 missing WorkState 的单场景与普通成功 prompt 不能代签整个矩阵。
 - 下一步：按当前 B26/B27/ADR-0031 的真实入口重核 ContextAssembler、错误返回及 author-safe 提示，列明 empty/work-only/fetcher-failure 的可见事实与禁称内容；校正旧 frame/envelope 断言，先区分缺实现与缺证据。
 - 完整后果：真实页面在空作品时不虚构事实，有背景无会话时不虚构“刚才讨论”，读取失败时不把未知当空事实或成功读取；恢复后当前作品事实进入后续请求，作品切换不串上下文。机制故障注入只在外部 harness/test support，真实模型措辞与机制接线分层取证。
@@ -200,7 +200,7 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 | CP0 | 定位真实 fetcher→ContextAssembler→同次 provider 请求→trace/作者反馈路径；逐来源区分成功有值、成功为空、未取得/未知与读取失败，核对部分失败和已有可用事实；冻结最小错误/覆盖表达及各类继续/停止条件，不先发明新 Context 类或全局状态机 | **done（2026-10-30）**：静态链路审计 + 纯函数探针；证据 `artifacts/task-audit/2026-10-30-au03-context-cp0/{audit-map.json,probe.json,probe.exs}`；契约见下“CP0 记录” |
 | CP1 | 在同一事实源上接通组装结果、请求渲染与反馈；若继续调用模型，该次实际请求须包含受影响来源的安全错误类别/未知范围和仍可信的事实；不得把失败渲染为已确认的“无作品/0 章/没有记忆”。若因身份/权限等必要底座不足而停止，诚实记录未派发而不是声称模型已获知 | **done（2026-10-30）**：DialogueContext additive `source_status` + `source_status_summary`；ContextAssembler 9 元组/旧 fetcher 兼容与失败 `:unavailable`；生产 fetcher 逐来源 safe 包装（保留已成功事实）；judgment prompt 同次请求「上下文可用性」段 + work/facts 不再把失败渲染为空；6 处 trace/观测带 author-safe 状态。新测试 8 条 + 全量 2358/0；证据见下节 CP1 记录 |
 | CP2 | 局部验证 empty/work-only/异常/非 ok/部分失败、跨作品切换及恢复；核对实际发送内容和来源声明，失败不伪造空事实，旧记录缺字段保持未知；恢复后真实事实进入后续请求，重试不复活旧授权、不写 canon | **done（2026-10-30）**：新增同 turn 矩阵 7 条（走 `plan_agent_run` 真实判断步 + 捕获实际 provider prompt + trace 观测）：raise/非 ok→可用性段；部分失败保留 work、章节未知不渲染 0 章；真实空（生产 fetcher）可 0 章；work-only/旧 5 元组兼容；跨作品 A/B 隔离 + 故障→恢复真实事实重入；canon 计数不变。发现并修复 CP1 漏网：规划上下文步 `judgment_observation` 未带状态（仅 emit/trace 有）。全量 2365/0；证据见下节 CP2 记录 |
-| CP3 | 外部真实工作台触发缺失/读取故障→作者可见反馈→故障解除→恢复对话；将同一 turn/run 的实际请求、来源状态、回复/trace 与恢复后请求对齐。分开报告局部故障矩阵、真实入口机制与真实模型如何处理未知；未取到请求或仅日志有 error 不算该链完成 | todo |
+| CP3 | 外部真实工作台触发缺失/读取故障→作者可见反馈→故障解除→恢复对话；将同一 turn/run 的实际请求、来源状态、回复/trace 与恢复后请求对齐。分开报告局部故障矩阵、真实入口机制与真实模型如何处理未知；未取到请求或仅日志有 error 不算该链完成 | **done（2026-10-30）**：外部原生 Tauri + strata/iq3_s 单槽，外部 harness 重命名投影表注入故障 → H3/H1/H2 三场景 66/66 checks：H1 同 turn 真实请求含可用性段/读取失败且不称新对话/0章；app-log source_status chapters=unavailable/work=ok；agent_events trace unavailable 含 chapters；故障期零 canon 写入；恢复后请求重含真实作品/章节事实、表名恢复、canon 同 hash；strata 结束 loaded=null。证据 `artifacts/slice-verify/au03-context-read-failure-tauri-strata-native-au03cp3c/`；批次 a/b 为 harness 缺陷（故障期计数/嵌套读表、种子文案误判）只读保留 |
 
 - **继续与停止不预设为一刀切**：非关键材料失败时，可在明确未知/覆盖边界下保留合法回复、现有只读取证或必要询问；失败是否阻断由真实身份、权限、操作需求和已接受 policy 决定。关键事实缺失不得猜测执行，但本整改不把任何 fetch 失败都升级为整轮禁止调用模型。
 - **同次请求证明**：错误表达使用必要的安全类别、受影响来源和恢复信息，不把原始异常、凭据或内部日志整段注入模型。能证明“日志记录了失败”与“模型该次确实收到失败/未知事实”是两项证据；若请求没有派发，单列停止事实。
@@ -261,6 +261,19 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 - 判据：llm-calls 按 `turn_id` 对齐该轮真实 provider 请求；app-log `context.assemble.done.source_status` 与请求段一致（H1 chapters=unavailable、work=ok）；DB `agent_events.payload.context_source_status.unavailable_sources` 含 chapters；H1 前后 canon 计数/正文 hash 不变；H2 表名恢复、请求含真实 title/章节事实；strata 单槽结束 unload 核验。
 - 证据目录：`artifacts/slice-verify/au03-context-read-failure-tauri-strata-native-<tag>/`；runner 注册五处 + scenario manifest（210 scenarios）。
 - 预算：B37 分型等待（input/turn/candidate/adoption/maintenance/restore/export）+ 10s 心跳；同因失败 ≤2 次，超预算记录 root-cause 并升级；不重跑换分。
+
+### CP3 记录（2026-10-30，原生故障注入 + 真实模型）
+
+- 配置：slice `au03-context-read-failure`；seed `scripts/seed_au03_context_status.exs`；驱动 `scripts/native_au03_drive.mjs`；核验 `scripts/native_au03_evidence.mjs`；runner 五处注册 + scenario manifest（210 scenarios）。strata/iq3_s 单槽；开始记录 loader、结束 unload 核验 `loaded=null`。
+- 故障注入（仅外部 harness）：隔离测试 DB 上 `ALTER TABLE chapter_summaries RENAME TO chapter_summaries_fault` 注入、反向恢复；产品代码不读 env/slice/testid/故障开关。预检 `artifacts/task-audit/2026-10-30-au03-context-cp3/preflight_fault.exs` 证明只影响 chapters 来源、work/其它来源保留。
+- 批次：`au03cp3a`（驱动在故障期 capture 时因对缺失表计数失败，harness 缺陷只读保留）；`au03cp3b`（嵌套只读连接读表名返回空 + 种子作品 core_selling_point 含“读取失败”导致真实场景误判，harness 断言缺陷只读保留）；**`au03cp3c` 最终通过 checks 66/66**，runner exit 0。
+- 关键证据（`artifacts/slice-verify/au03-context-read-failure-tauri-strata-native-au03cp3c/`）：
+  - H3 baseline：真实请求含作品 title/章节事实，无「上下文可用性」段；模型 reply 引用真实正文。
+  - H1 fault：同 turn 真实 provider 请求含「## 上下文可用性」「读取失败」「章节事实」，不出现「无——这是新对话或尚未创建作品」「全书 0 章」；app-log `context.assemble.done.source_status`：`chapters=unavailable, work=ok`；`agent_events.payload.context_source_status.unavailable_sources` 含 `chapters`；故障期 DB 生产表/草稿/摘要计数与章节正文 hash 不变（零 canon 写入）；H1 截图/AX/WS 帧保留。
+  - H2 recovery：投影表恢复为 `chapter_summaries`；后续请求重新含真实 title/章节事实、无可用性段；canon hash 与 baseline 一致。
+  - 模型行为诚实记录：H1 模型经会话历史复述了上一轮已确认事实（未复述“读取失败”措辞）；APP 请求/来源状态/trace 与零写成立；模型措辞不由自动化代签。
+- 门禁：runner 内质量门禁 + 全量后端（本轮无产品源码变更，仍跑 format/compile/credo/xref/arch/test/I1–I3/manifest/task_done/静态扫描）见 `artifacts/gates/2026-10-30-au03-cp3/`。
+- 残余 known-gap：① `prose_drafting_with_quality`/`plot_outline_with_context` 的 mission inputs 仍以空 `work_snapshot`/0 章渲染（writer prompt 未消费 source_status），归 B39/B27 专业 run 上下文消费继续；② 真实模型对“未知”的措辞只报告不代签；③ 故障注入为投影表 DDL（真实 DB 层），不覆盖连接级/网络级故障，属另一种故障类别未验；④ 历史数据缺字段映射 unknown 按现行契约（旧 fetcher 无状态按 :empty 兼容）保留，不伪造迁移；⑤ I10 不代签。
 
 ## 历史搜索命中定位与只读回看
 
