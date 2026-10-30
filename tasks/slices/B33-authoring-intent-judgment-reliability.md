@@ -95,7 +95,7 @@
 
 ## 元原则整改：语义判断与机械守卫分工
 
-- 状态：**todo（2026-10-30 作者同意进入整改；本节为 B29/B30/B33 后置词法路由机制族的唯一执行入口，尚未实现或验收）**。
+- 状态：**doing（2026-10-30 CP0–CP2 done：现役链路核实/契约冻结、词法后置约束移除与矩阵回归完成；CP3 待外部原生驱动 + 真实模型执行窗口）**。本节为 B29/B30/B33 后置词法路由机制族的唯一执行入口。
 - 本节承接新的现役机制问题，不重开或改写 2026-10-25 的历史交付。上方 v1“明确动作终局只许 execute/ask/gap”与“一次 explore 后必须 execute”的旧判据不能直接作为本轮目标；当前恢复顺序以本节、[B39](B39-evidence-seeking-authoring.md)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md) 和 [ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md) 为准。请求必须真实推进、权限与作者采纳边界继续保留。
 
 ### 问题与整改方向
@@ -109,6 +109,66 @@
 - **作者负责**：作品方向与权威采纳、高影响取舍，以及确实无法通过现有材料解决的歧义。不能因为系统词法门失败，就要求作者重复已给出的目标或用工具名重述原话。
 
 整改不是删除全部守卫：必须保留合法输出组合、原文/观察来源、真实目标/跨作品隔离、能力可用性、权限与预算、版本/幂等、已发布未答问题的保护、采纳与 I1/I2/I3/N-NARR。无效结构仍可有界纠正；纠正只针对实际违反的契约，不以纠正提示重新预定作者语义。模型错判也不能因格式合法就被算作通过，须有真实语义反例与实际效果证明。
+
+### CP0 记录（2026-10-30 done）
+
+- 证据：`artifacts/task-audit/2026-10-30-b33-semantics-cp0/cp0-map.json`（现役链路、三反例当前行为、冻结契约、CP3 预注册）；纯规则反例 `artifacts/task-audit/2026-10-30-principles/b33-probe.json` 的 6 份源码 sha256 已逐一复算，与当前工作树一致（probe 证据仍对应当前代码）。本节只读核实，未调用 provider/模型/数据库/页面。
+
+#### 现役链路映射（语义责任 → 实际输入/观察 → 结果 → 机械检查）
+
+| 语义责任 | 当前实现与调用点 | 实际读取 | 结果/终局 | 问题 |
+|---|---|---|---|---|
+| 创作动作意图 | `AuthoringTaskPolicy.explicit_action_intent/1`（:58-71），唯一调用点 `JudgmentProtocol.validate_action_intent_route/3`（:333-352） | 仅 `author_text` 词法；不读 observations、否定/条件、真实结果 | reply/creative/await → `:action_intent_requires_execute` 一次纠错（:271-289）；第 2 次仍违反 → APP `fallback_action_intent_judgment/4`（:411-430）生成 `await_author` 澄清，`application_wrong_route_fallback`（:446-459）+ `judgment.wrong_route` | 词法命中即可否决有依据的回复；条件性 no-op/已取证无变化被当作“吞掉动作”；APP 代写澄清 |
+| 章节结构维护 | `ChapterStructureMaintenance.intent?/1`（:16-24），唯一调用点 `validate_maintenance_route/3`（:834-852） | 仅 `author_text` 词法；不读 `discussion_only`/observations | reply → `:maintenance_capability_required` 纠错（:189-196）；耗尽 → `{:error,{:judgment_protocol_violation,...}}`（整轮失败） | “只解释”也被强制走维护能力 |
+| 角色身份修订 | `CharacterProfile.revision_intent?/1`（:97-110），唯一调用点 `validate_character_profile_route/3`（:856-878） | 仅 `author_text` 词法；谓词内部讨论豁免会被“指定/确立/改判/设为/定为/调整为”抵消 | reply → `:character_profile_capability_required` 纠错（:167-176）；耗尽 → 整轮失败 | “讨论+先不要生成候选”被强制修订能力 |
+| 讨论/否定/条件 | `TurnInteractionService.discussion_only?/1`（:249-253）→ options（:714-715） | 只被 action-intent guard 读取；维护/角色 guard 不读 | 讨论只豁免动作意图 guard；`discussion_only_violation` 仅约束 creative/author-registration（:942-950） | 豁免面不一致；否定/条件无任何机械读取 |
+| 观察/取证 | `options.observation_count`（:709） | 只用于 `await_author` 的 anaphoric explore-before-ask（:960-970） | 三条词法 guard 不读观察 | “已读证明无错别字”无法改变 revise 拒绝 |
+| 下游消费 | `dialogue_planning_service`（:1731/:1936/:1942） | judgment.action/capability/narrative/narrative_source | TurnResult/事件；非 provider output 的 fallback narrative 可见性降 developer；`judgment.wrong_route` 只走 LogEmit | APP 文本进入澄清通道，边界需在 CP1 清除 |
+
+#### 三条反例当前行为（冻结）
+
+1. **条件性错别字修订**：“帮我修改第3章正文中的错别字；如果没有错别字，就告诉我无需修改。”→ `:revise_content`；reply 在 0/1/3 个观察下均被 `action_intent_requires_execute` 拒绝，最终 APP fallback 反而要求作者指出章节/段落。
+2. **只解释编号**：“这本书的章节编号为什么采用全书连续编号？只解释，不要修改。”→ 维护意图命中，reply 被 `maintenance_capability_required` 拒绝，耗尽后整轮失败。
+3. **讨论主角**：“讨论一下把陆晨指定为主角是否合理，先不要生成候选。”→ “指定”抵消讨论豁免，reply 被 `character_profile_capability_required` 拒绝。
+边界：probe 证明当前纯判定/纠偏路径；不证明真实模型已返回这些回复或线上发生事故。`application_wrong_route_fallback` 明确标记应用来源，不指控其伪造 provider 字节；要修的是 APP 从词法分类预定语义方向。
+
+#### 冻结契约（CP1 实现依据）
+
+1. **语义方向归模型**：单一判断调用内由模型理解完整原话、否定/条件、上下文与实际观察，选择 reply/discussion/execute/explore/plan/ask/gap；APP 不因词法命中否决有依据的 reply/讨论/条件性 no-op，也不替模型选能力。
+2. **APP 保留客观机械检查**：tool/schema 合法组合；execute capability 在本轮真实目录；目标 ref 存在/唯一/版本/跨作品隔离；权限/预算/幂等；已发布未答问题保护（M06）；作者显式“只聊/先不要生成”对生成/写入操作的禁止；指代历史材料时 explore-before-ask；narrative 必须来自真实 provider 字节；采纳边界与 I1/I2/I3/N-NARR。
+3. **删除项**：三个词法谓词 + 三处后置 guard、动作意图纠错/APP fallback 澄清、`judgment.wrong_route` 事件（整改后无生产者）；不新增关键词补丁、classifier、第二控制循环或 schema。
+4. **合法终局不新增枚举**：沿用既有 reply/creative_directions/execute/explore/plan/await_author/capability_gap；条件不成立时 reply/no-op 合法且零候选零写入；讨论时 reply 合法且“先不要生成候选”保持。
+5. **不减少既有守卫**：B29/B30/B48/B28 的 execute/目标/事务/采纳边界、B35/B36 的零写入与数据完整性不变；本轮只移除“由词法预定语义方向”的机械否决。
+6. 交付顺序：CP1 在同一判断主链移除后置词法约束并修正纠错提示/提示词语义；CP2 确定性回归 + 无 provider replay + B43/TurnResult 同源；CP3 真实 Tauri + 真实模型 scoped 验收。
+
+#### CP3 预注册（不执行，先冻结）
+
+- 场景：S1 条件性 no-op（“帮我修改第3章正文中的错别字；如果没有错别字，就告诉我无需修改。”→ 可先取证；条件不成立时 reply 说明无需修改、零候选零写入；若声称已检查必须有真实观察）；S2 只解释编号（reply 解释、零结构候选/零写入）；S3 讨论主角（reply 讨论、零候选/零角色写入、“先不要生成”保持）；S4 明确写章正例（execute prose_writing 或 explore 后 execute）；S5 明确重编号正例（execute maintain_chapter_structure，边界仅列表编号）；S6 讨论期违规候选负例（若模型生成候选/写入，`discussion_only` 机械守卫拒绝并只保留讨论）。
+- 驱动：复用 `scripts/native_*` 外部原生 Tauri 驱动（AX/截图/网络帧/app-log/只读 DB 快照），真实产品入口，产品代码零验收感知。
+- 证据：`artifacts/slice-verify/<scenario>-tauri/` 的 summary/verdict/native 证据/provider 请求响应/trace/DB 前后快照；失败只读保留，scoped 复验只针对失败类型。
+- 资源：真实模型单槽串行；运行前记录 `lms ps`/内存，一次只加载一个；结束/失败/中断必须 unload 并验证为空（LM：`lms unload --all` + `lms ps` 空；Strata：POST `/api/models/unload` 后 `loaded=null`）。无可用资源窗口时 CP3 记 blocked，不伪造 PASS。
+- 判定：越权写入、错误身份/版本、讨论期候选、无观察伪报已检查均 fail；stub/确定性只能证明机制，不能替代真实模型行为。
+
+### CP1 记录（2026-10-30 done）
+
+- 实现（同一判断主链；无新增 schema、枚举或调用）：
+  - 删除 `AuthoringTaskPolicy.explicit_action_intent/1`、`action_intent_capability/1`、`action_intent_label/1`、`discussion_intent_text?/1` 及其词法正则；
+  - 删除 `ChapterStructureMaintenance.intent?/1`；
+  - 删除 `CharacterProfile.revision_intent?/1`、`design_new_protagonist_intent?/1` 与 `@role_assignment_re`（`narrative_role_from_text/1`、`resolve_target/3` 等客观绑定保留）；
+  - `JudgmentProtocol` 移除 `validate_action_intent_route/3`、`validate_maintenance_route/3`、动作意图纠错、`fallback_action_intent_judgment/4`、`application_wrong_route_fallback`、`judgment.wrong_route` 事件与三条对应 `correction_content`；`validate_character_profile_route/3` 收窄为“execute revise_character_profile 的真实目标/角色值校验”；
+  - `AuthoringTaskPolicy.judgment_rules` 只增加条件句/否定限定/讨论语境的语义指导（模型职责），不新增关键词路由或补丁集。
+- 保留的机械检查：tool/schema 合法组合、execute capability 在本轮目录、目标 ref 存在/唯一/版本/跨作品隔离、M06 未答问题保护、`discussion_only` 显式限制守卫（仅生成/写入操作）、指代历史材料时的 explore-before-ask、narrative 必须来自真实 provider 字节、采纳与 I1/I2/I3/N-NARR。
+- 正式回归：三条反例的 reply 直接通过（1 次 provider 调用、无纠错、无 `wrong_route`、`narrative_source=provider_output`）；明确写章/设计角色/修订/重编号正例仍 execute；讨论期违规候选仍有界纠错、耗尽结构化失败；工具参数错误仍一次纠错，纠错后普通回复由模型决定；reply narrative 仍可 verify 到真实 provider 字节。
+- 测试与门禁：`judgment_protocol_test` 70/70；后端全量 **2344 tests / 0 failures**；`mix compile --warnings-as-errors`、`mix format --check-formatted`、`mix credo --strict`（no issues）、`mix xref`（No cycles）、`scripts/arch_check.exs` 通过。B29/B30 历史词法谓词用例已删除或改写成 CP2 矩阵；其 execute/目标/候选/事务测试保留。
+
+### CP2 记录（2026-10-30 done）
+
+- 扩展矩阵（`judgment_protocol_test.exs`）：条件性 no-op、条件修订、只解释编号、讨论主角、先别改再讨论、只分析共 6 条自然输入 × reply 直接通过；写章/设计角色/修订/重编号 4 组对照正例仍 execute；讨论期违规候选有界纠错 + 耗尽失败；工具参数错误一次纠错；reply narrative 绑定真实 provider 字节。
+- 有界恢复：`discussion_only_violation` 连续两次 → `{:error, {:judgment_protocol_violation, ...}}`，不静默放行；结构错误纠错后由模型决定后续动作（不代写终局）。
+- 决策/trace/结果同源：judgment `narrative_source` 仍为 provider output（测试 verify），`judgment.wrong_route` 字段/事件已无生产者且不进入 TurnResult；全量后端套件（含 B43/B41 等既有测试）0 失败。
+- 历史读取与 no-provider replay：`ReplayService` 14/14（含“replay report does not call provider”）、`TraceReplayService` 6/6 通过；本轮不重跑真实模型。
+- 证据：`artifacts/task-audit/2026-10-30-b33-semantics-cp12/{judgment-protocol-test.log,mix-test.log,replay-tests.log}`。
+- 残余：`discussion_only?` 对“先不要生成候选”这类否定式物质化词仍会把“生成/候选”当作物质化而不触发守卫——该反例的机械兜底退化为模型自律，登记待 B34 语料/后续整改；明确动作请求若模型选择 reply，APP 不再机械否决，是否真正推进由 CP3 真实模型证据判定，不能用确定性测试代签。
 
 ### 本轮开工七问
 
@@ -134,10 +194,10 @@
 
 | CP | 完整工作与关闭证据 | 状态 |
 |---|---|---|
-| CP0 | 核三个谓词/guard 的当前调用方、讨论与观察豁免、纠正提示和应用 fallback；形成语义责任→实际输入/观察→结果→机械检查映射，冻结正反例、合法终局及现役契约差异；没有新增 schema/调用则明确复用 | todo |
-| CP1 | 在同一判断主链修正词法后置约束与纠错提示；模型负责语义，APP保留真实结构/身份/权限/版本守卫；清除不再成立的能力强迫和伪缺口澄清，不新增关键词补丁集或静默默认 | todo |
-| CP2 | 贯穿已有探索、条件无变化/讨论/实际执行、真实失败与有界恢复；B43 决策/trace/TurnResult 同源，问题状态与采纳边界不回归；三条原反例及扩展矩阵正式测试、历史读取与 no-provider replay 通过 | todo |
-| CP3 | 外部真实 Tauri + 真实模型完成三类自然输入、对照执行及必要采纳/恢复/回放；分别核模型理解、实际观察、执行效果与零越权，保留失败分母；完整范围满足后关闭本节 | todo |
+| CP0 | 核三个谓词/guard 的当前调用方、讨论与观察豁免、纠正提示和应用 fallback；形成语义责任→实际输入/观察→结果→机械检查映射，冻结正反例、合法终局及现役契约差异；没有新增 schema/调用则明确复用 | **done（2026-10-30）**：`cp0-map.json`；probe 源码 sha256 复核一致；契约 6 条与 CP3 预注册见上 |
+| CP1 | 在同一判断主链修正词法后置约束与纠错提示；模型负责语义，APP保留真实结构/身份/权限/版本守卫；清除不再成立的能力强迫和伪缺口澄清，不新增关键词补丁集或静默默认 | **done（2026-10-30）**：三谓词/三后置 guard/APP fallback/wrong_route 事件移除；保留客观守卫；见上 CP1 记录 |
+| CP2 | 贯穿已有探索、条件无变化/讨论/实际执行、真实失败与有界恢复；B43 决策/trace/TurnResult 同源，问题状态与采纳边界不回归；三条原反例及扩展矩阵正式测试、历史读取与 no-provider replay 通过 | **done（2026-10-30）**：矩阵/有界恢复/同源断言/replay 20/20；见上 CP2 记录 |
+| CP3 | 外部真实 Tauri + 真实模型完成三类自然输入、对照执行及必要采纳/恢复/回放；分别核模型理解、实际观察、执行效果与零越权，保留失败分母；完整范围满足后关闭本节 | **todo（下一步）**：复用 `scripts/lib/native_ui` + 既有 native 驱动模式落地 6 场景外部驱动；真实模型单槽运行、结束卸载并核验为空；证据目录 `artifacts/slice-verify/<scenario>-tauri/` |
 
 ### 分工与恢复
 

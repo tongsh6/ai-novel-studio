@@ -23,13 +23,6 @@ defmodule NovelApplication.CharacterProfile do
   @allowed_fields ["narrative_role"]
   @effects ["character_field_update"]
 
-  # 硬门禁只识别叙事身份的赋值关系；“主角状态改为警惕”里的主角是对象，不是目标身份。
-  @role_assignment_re ~r/
-    (?:(?:指定|确立|改判|调整).*?(?:为|成|作|当|是)|设为|改为|定为|当做|当作|作为|设成|改成|改判)
-    \s*(?:唯一|主要|本作的?|本书的?|这部书的)?(?:主角|反派|配角|次要|群像)
-    |(?:确立|调整).*?(?:主角|反派|配角|次要|群像)(?:身份|地位)
-  /ux
-
   @doc "判断输入/候选所需的目标角色事实（读端口优先 aux，降级 WorkArchive 只读）。"
   def targets(work_id) when is_binary(work_id) do
     case aux_character_context(work_id) do
@@ -92,30 +85,6 @@ defmodule NovelApplication.CharacterProfile do
       if String.contains?(text, keyword), do: value
     end)
   end
-
-  @doc "作者原话是否表达「已有角色叙事身份修订」（区别于讨论/设计新角色）。"
-  def revision_intent?(text) when is_binary(text) do
-    assignment =
-      text
-      |> String.split(~r/[，,；;。！？!?\n]+/u, trim: true)
-      |> Enum.any?(&Regex.match?(@role_assignment_re, &1))
-
-    discussion_only =
-      String.contains?(text, ["讨论", "适合", "是否", "怎么", "如何", "先聊", "只聊", "别改", "不要改", "如果", "假如"]) and
-        not String.contains?(text, ["指定", "确立", "改判", "设为", "定为", "调整为"])
-
-    assignment and not discussion_only and not design_new_protagonist_intent?(text)
-  end
-
-  def revision_intent?(_text), do: false
-
-  @doc "作者是否在「设计/创建新主角」（该意图仍走 character_design，不走本能力）。"
-  def design_new_protagonist_intent?(text) when is_binary(text) do
-    String.contains?(text, ["设计", "创建", "新增", "加一个", "加个", "塑造"]) and
-      String.contains?(text, ["主角", "反派", "配角", "角色", "人物"])
-  end
-
-  def design_new_protagonist_intent?(_text), do: false
 
   @doc "是否「唯一主角/替换原主角/只保留一个主角」——需要把其它角色变化列给作者裁决。"
   def exclusive_protagonist_intent?(text) when is_binary(text) do

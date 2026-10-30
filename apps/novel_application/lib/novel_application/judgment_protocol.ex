@@ -5,7 +5,6 @@ defmodule NovelApplication.JudgmentProtocol do
   alias NovelApplication.{
     AgentNarrativeSource,
     AuthoringTaskPolicy,
-    ChapterStructureMaintenance,
     CharacterProfile,
     JudgmentToolContract,
     PendingArtifactWorkflow,
@@ -71,28 +70,7 @@ defmodule NovelApplication.JudgmentProtocol do
   defp validate_response(fun, prompt, input, profile, attempt, provider_result, previous_tools) do
     case decode(provider_result, profile, input, previous_tools, attempt) do
       {:ok, judgment} ->
-        maybe_emit_action_intent_correction_outcome(judgment, input)
         {:ok, Map.put(judgment, :provider_call_count, attempt)}
-
-      {:error, {:action_intent_requires_execute, info}} ->
-        log_output_validation(attempt, {:action_intent_requires_execute, info})
-
-        if attempt >= @max_attempts do
-          emit_wrong_route(info, input, provider_result, "ask_author_after_correction")
-          fallback_action_intent_judgment(info, input, provider_result, attempt)
-        else
-          retry_input = put_action_intent_correction_info(input, info)
-
-          correct_or_reject(
-            fun,
-            prompt,
-            retry_input,
-            profile,
-            attempt,
-            {:action_intent_requires_execute, info},
-            tool_names(provider_result)
-          )
-        end
 
       {:error, reason} ->
         log_output_validation(attempt, reason)
@@ -164,13 +142,6 @@ defmodule NovelApplication.JudgmentProtocol do
       "保留同一作者输入、来源、目标、范围与权限，不要猜测作者选择。"
   end
 
-  defp correction_content(:character_profile_capability_required) do
-    "本次响应未通过契约校验：character_profile_capability_required（这是已有角色叙事身份修订请求，但响应没有走对应能力）。" <>
-      "必须用 judgment_decision.execute，capability=revise_character_profile，并从「角色索引」逐字复制该角色的 character_ref；" <>
-      "只改 narrative_role，不新建角色、不写正文/演化记忆；不得回退 reply/character_evolution/character_design（设计新角色除外）。" <>
-      "同名/别名歧义用 ask_author 列候选；不存在/越界用澄清或 report_capability_gap。"
-  end
-
   defp correction_content(:character_target_ambiguous) do
     "本次响应未通过契约校验：character_target_ambiguous（作者点名的角色在角色索引里同名/别名歧义）。" <>
       "用 ask_author 列出候选 character_ref+name 让作者选择，不得猜；不要新建角色。"
@@ -186,14 +157,6 @@ defmodule NovelApplication.JudgmentProtocol do
       "narrative_role 只能取 PROTAGONIST/ANTAGONIST/SUPPORTING/MINOR/ENSEMBLE_POV；请用 ask_author 澄清或按作者原话选择合法值。"
   end
 
-  defp correction_content(:maintenance_capability_required) do
-    "本次响应未通过契约校验：maintenance_capability_required（这是章节结构维护请求，但响应没有走维护能力）。" <>
-      "作者要求的是既有章结构维护（重编号/只改列表编号）：必须用 judgment_decision.execute，capability=maintain_chapter_structure；" <>
-      "只重编号，不生成大纲、不新建章、不改 title/正文/归卷/章数。不得回退 reply/plot_outline/prose_writing。" <>
-      "缺目标/越界/同名歧义时用 ask_author 具体澄清或 report_capability_gap。保留同一作者输入、目标、对象与范围。"
-  end
-
-  # M16：judgment_decision 各 action 专属字段互斥；纠错给出具体冲突字段与正确形态。
   defp correction_content({:incompatible_operation_fields, detail}) do
     "本次响应未通过契约校验：incompatible_operation_fields（动作与字段不匹配）。" <>
       to_string(detail) <>
@@ -268,19 +231,6 @@ defmodule NovelApplication.JudgmentProtocol do
   defp correction_content({:invalid_tool_combination, _detail}),
     do: correction_content(:invalid_tool_combination)
 
-  defp correction_content({:action_intent_requires_execute, info}) do
-    intent_label = AuthoringTaskPolicy.action_intent_label(info.intent)
-    capability = AuthoringTaskPolicy.action_intent_capability(info.intent)
-
-    "本次响应未通过契约校验：action_intent_requires_execute（作者明确动作被普通回复/方向候选/等待吞掉）。" <>
-      "作者这轮明确要求#{intent_label}；必须转到实际执行或具体澄清，不能以 reply/propose_creative_directions/await_author 结束。" <>
-      "若对象/范围明确：用 judgment_decision.execute，capability=#{capability}，并从上下文复制真实对象 ref（不得编造）；" <>
-      "若只是需要计划/正文事实：可先 explore，但取证后必须 execute；若缺对象/范围/段：用 ask_author 具体问清；" <>
-      "确有系统能力缺口才用 report_capability_gap。保留同一作者输入、目标、对象范围与权限，不扩大范围、不补字段。" <>
-      "（上一轮终局：#{info.action}#{if(info.capability, do: "/" <> to_string(info.capability), else: "")}）"
-  end
-
-  # B35 CP3/task-94：字段级反馈（未允许字段/必填/内容修订用 adopted_content_ref）+ 合法最小示例。
   defp correction_content({:invalid_tool_arguments, detail}) do
     disallowed =
       case Map.get(detail, :disallowed, []) do
@@ -327,139 +277,6 @@ defmodule NovelApplication.JudgmentProtocol do
     "本次响应未通过契约校验：#{inspect(reason) |> String.slice(0, @error_excerpt_chars)}。" <>
       "保留同一作者输入、来源、目标、范围与权限，只纠正不合法结构；不要扩大操作或复述失败响应。"
   end
-
-  # B33 CP2：作者明确动作意图但模型终局为 reply/creative/await（非 execute/ask/gap）→
-  # 一次有界纠错；不是关键词路由（不直接选能力），只在输出校验后纠偏。
-  defp validate_action_intent_route(operation, args, options) do
-    author_text = Keyword.get(options, :author_text, "")
-
-    with true <- Keyword.get(options, :profile) == :judgment,
-         false <- Keyword.get(options, :discussion_only, false),
-         intent when not is_nil(intent) <-
-           AuthoringTaskPolicy.explicit_action_intent(author_text),
-         true <- operation in ["reply", "creative_directions", "await_author"] do
-      {:error,
-       {:action_intent_requires_execute,
-        %{
-          intent: intent,
-          action: operation,
-          capability: field(args, :capability),
-          target_ref:
-            field(args, :adopted_content_ref) || field(args, :pending_artifact_ref) ||
-              field(args, :character_ref)
-        }}}
-    else
-      _ -> :ok
-    end
-  end
-
-  defp put_action_intent_correction_info(input, info) do
-    options =
-      input
-      |> Map.get(:options, [])
-      |> Keyword.put(:action_intent_correction_info, info)
-
-    Map.put(input, :options, options)
-  end
-
-  defp maybe_emit_action_intent_correction_outcome(judgment, input) do
-    info = input |> Map.get(:options, []) |> Keyword.get(:action_intent_correction_info)
-
-    if info do
-      emit_wrong_route(info, input, judgment.provider_result, "execute_after_correction",
-        correction_attempted: true
-      )
-    end
-  end
-
-  defp emit_wrong_route(info, input, provider_result, terminal_reason) do
-    emit_wrong_route(info, input, provider_result, terminal_reason, [])
-  end
-
-  defp emit_wrong_route(info, input, provider_result, terminal_reason, opts) do
-    LogEmit.emit(
-      :judgment,
-      :wrong_route,
-      :done,
-      wrong_route_event_payload(info, input, provider_result, terminal_reason, opts)
-    )
-  end
-
-  @doc false
-  def wrong_route_event_payload(info, input, provider_result, terminal_reason, opts \\ []) do
-    %{
-      author_intent: Atom.to_string(info.intent),
-      action: info.action,
-      capability: info.capability,
-      target_ref: info.target_ref,
-      prompt_tokens: prompt_tokens(provider_result),
-      correction_attempted: Keyword.get(opts, :correction_attempted, true),
-      terminal_reason: terminal_reason,
-      author_input_chars:
-        String.length(Keyword.get(input |> Map.get(:options, []), :author_text, ""))
-    }
-  end
-
-  defp prompt_tokens(provider_result) do
-    output = field(provider_result, :provider_output)
-    usage = field(output, :usage) || %{}
-
-    field(usage, :input_tokens) || field(usage, :prompt_tokens) ||
-      field(usage, :total_tokens)
-  end
-
-  defp fallback_action_intent_judgment(info, input, provider_result, attempt) do
-    question = action_intent_clarification(info.intent)
-    source = action_intent_fallback_source(provider_result, question)
-
-    args = %{
-      question: question,
-      reason: "action_intent_unresolved",
-      dialogue_goal: AuthoringTaskPolicy.action_intent_label(info.intent)
-    }
-
-    judgment =
-      normalized("await_author", args, nil, provider_result, question, source, input)
-      |> Map.put(:provider_call_count, attempt)
-      |> Map.put(:wrong_route, info)
-      |> Map.put(:wrong_route_correction_attempted, true)
-
-    {:ok, judgment}
-  end
-
-  defp action_intent_clarification(:write_chapter) do
-    "请指出要先写哪一章正文（章名或序号）以及本轮范围（首稿/续写/整章），我再继续生成待采纳候选；不会自行新建章节或猜测对象。"
-  end
-
-  defp action_intent_clarification(:design_character) do
-    "请确认要设计的角色定位（主角/反派/配角）和大致方向，我再生成待采纳角色候选；不会凭空新建角色。"
-  end
-
-  defp action_intent_clarification(:revise_content) do
-    "请指出要修订的具体章节与段落/句子，以及要改成的目标；我再继续生成修订候选，不会猜测或扩大修改范围。"
-  end
-
-  defp action_intent_clarification(_intent) do
-    "请确认这轮要执行的具体动作和对象范围，我再继续；不会猜测或写入作品事实。"
-  end
-
-  defp action_intent_fallback_source(provider_result, question) do
-    output = field(provider_result, :provider_output) || %{}
-    run_ref = field(output, :provider_run_ref) || "application_action_intent"
-    call_ref = field(output, :provider_call_ref) || "application_action_intent"
-
-    %{
-      source_type: "application_wrong_route_fallback",
-      provider_run_ref: run_ref,
-      provider_call_ref: call_ref,
-      provider_output_ref: run_ref,
-      source_hash: sha256(question),
-      source_byte_range: %{start: 0, length: byte_size(question)},
-      narrative_hash: sha256(question)
-    }
-  end
-
-  defp sha256(text), do: :sha256 |> :crypto.hash(text) |> Base.encode16(case: :lower)
 
   # 探索预算用尽/伪工具文本：多给一次有界重试，避免直接终局（M03/M17 key-set）。
   defp correct_or_reject(fun, prompt, input, profile, attempt, reason, previous_tools)
@@ -717,11 +534,9 @@ defmodule NovelApplication.JudgmentProtocol do
 
     with :ok <- validate_tools(calls, profile),
          {:ok, operation, args, call} <- operation(calls, profile),
-         :ok <- validate_maintenance_route(operation, args, options),
          :ok <- validate_character_profile_route(operation, args, options),
          {:ok, args} <- {:ok, sanitize_operation_args(operation, args, options)},
          :ok <- validate_operation(operation, args, options),
-         :ok <- validate_action_intent_route(operation, args, options),
          {:ok, text, source} <- narrative(result, call, args) do
       judgment = normalized(operation, args, call, result, text, source, input)
       validate_inline_plan(judgment, input)
@@ -829,48 +644,13 @@ defmodule NovelApplication.JudgmentProtocol do
 
   defp operation(_, _), do: {:error, :invalid_tool_combination}
 
-  # B30 CP1：结构维护意图必须走 maintain_chapter_structure（不能回退 reply/大纲/新正文）；
-  # 允许先 explore 取证、或 ask/gap 澄清；否则有界纠错。
-  defp validate_maintenance_route(operation, args, options) do
-    author_text = Keyword.get(options, :author_text, "")
-
-    if ChapterStructureMaintenance.intent?(author_text) do
-      cond do
-        operation == "execute" and
-            field(args, :capability) == "maintain_chapter_structure" ->
-          :ok
-
-        operation in ["capability_gap", "await_author", "explore"] ->
-          :ok
-
-        true ->
-          {:error, :maintenance_capability_required}
-      end
+  # B29 CP1（B33 整改后保留的客观检查）：execute revise_character_profile 仍校验真实目标、
+  # 唯一 character_ref 与可由作者原话确定的目标叙事角色；reply/讨论/澄清不再由词法预定。
+  defp validate_character_profile_route(operation, args, options) do
+    if operation == "execute" and field(args, :capability) == "revise_character_profile" do
+      validate_character_profile_execute(args, options, Keyword.get(options, :author_text, ""))
     else
       :ok
-    end
-  end
-
-  # B29 CP1：角色叙事身份修订意图必须走 revise_character_profile，并绑定唯一 character_ref；
-  # 允许先 explore 取证、或 ask/gap 澄清；设计新角色仍走 character_design。
-  defp validate_character_profile_route(operation, args, options) do
-    author_text = Keyword.get(options, :author_text, "")
-
-    cond do
-      not CharacterProfile.revision_intent?(author_text) ->
-        :ok
-
-      operation == "execute" and field(args, :capability) == "revise_character_profile" ->
-        validate_character_profile_execute(args, options, author_text)
-
-      operation == "execute" and CharacterProfile.design_new_protagonist_intent?(author_text) ->
-        :ok
-
-      operation in ["capability_gap", "await_author", "explore"] ->
-        :ok
-
-      true ->
-        {:error, :character_profile_capability_required}
     end
   end
 

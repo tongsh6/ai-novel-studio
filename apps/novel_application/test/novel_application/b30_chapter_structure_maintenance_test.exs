@@ -149,14 +149,6 @@ defmodule NovelApplication.B30ChapterStructureMaintenanceTest do
              )
   end
 
-  test "intent? 只识别结构维护原话" do
-    assert ChapterStructureMaintenance.intent?("把第2卷章节编号理顺，内容不要动")
-    assert ChapterStructureMaintenance.intent?("只修正第二卷的列表编号，不改变章节内容定位")
-
-    refute ChapterStructureMaintenance.intent?("写一段新的正文")
-    refute ChapterStructureMaintenance.intent?("帮我生成章节大纲")
-  end
-
   test "未确认零写入：维护判断产出可审阅 change plan 候选（无 provider/无写入）" do
     judgment = %{
       action: "execute",

@@ -12,17 +12,6 @@ defmodule NovelApplication.ChapterStructureMaintenance do
   @effect "display_number_only"
   @operation "renumber_chapters"
 
-  @doc "作者原话是否表达章节结构维护（重编号）意图。"
-  def intent?(text) when is_binary(text) do
-    normalized = text
-
-    (String.contains?(normalized, ["编号", "序号", "章号", "重编号", "列表号"]) or
-       String.contains?(normalized, ["章节顺序", "结构编号", "编号理顺"])) and
-      String.contains?(normalized, ["卷", "章", "章节", "目录", "列表"])
-  end
-
-  def intent?(_text), do: false
-
   @doc """
   从读端口事实 + 作者原话构建 change plan（纯函数，不访问 DB）。
 

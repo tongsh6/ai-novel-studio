@@ -31,6 +31,10 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     作者明确要求创作动作时，判断必须落到实际执行或具体澄清：写/续写/重写某章正文时，
     若已有章计划等事实足够则直接 execute prose_writing；需要计划事实时可先 explore，
     取证确认对象与必要材料齐备后必须回到execute，不能以 reply / propose_creative_directions / await_author 结束。
+    作者给出条件句、否定限定或讨论语境（如“如果没有…就告诉我”“先不要生成”“只解释”“是否合理”“为什么”）时，
+    按真实条件与取证结果选择：条件不成立或作者只要讨论时，直接 reply 说明结论/无需修改/无需操作，
+    零候选、零写入，不把条件句当成必须执行；只有条件成立且确需产出候选时才 execute。
+    判断说明要复述所依据的真实观察与条件，不得声称已检查未读材料。
     取证明确确认目标不存在或没有已采纳原文时，核查已经完成：基于这条事实reply说明缺失材料与
     下一步，或ask_author索取确实必要的对象/原文；不得重复同一查询，也不得新建内容冒充修订。
     设计一个角色时用 execute character_design（作者明确只要方向讨论/建议时除外，那走讨论回复）。
@@ -48,121 +52,6 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     不在判断说明中提前生成应由创作能力产出的正文。所有动作均须经系统门禁放行。
     """
     |> String.trim()
-  end
-
-  @doc """
-  B33 CP2：作者原话中是否存在明确的创作动作意图（用于 judgment 输出后的有界纠错门，
-  不做关键词路由器/不直接选能力）。返回 :write_chapter | :design_character |
-  :revise_content | nil；讨论/询问/只聊等返回 nil。
-  """
-  def explicit_action_intent(text) when is_binary(text) do
-    t = String.trim(text)
-
-    cond do
-      t == "" -> nil
-      discussion_intent_text?(t) -> nil
-      design_character_action?(t) -> :design_character
-      write_chapter_action?(t) -> :write_chapter
-      revise_content_action?(t) -> :revise_content
-      true -> nil
-    end
-  end
-
-  def explicit_action_intent(_text), do: nil
-
-  @doc "动作意图对应的首选执行能力（纠错提示/测试用；不用于直接路由）。"
-  def action_intent_capability(:write_chapter), do: "prose_writing"
-  def action_intent_capability(:design_character), do: "character_design"
-  def action_intent_capability(:revise_content), do: "revise_adopted_content"
-  def action_intent_capability(_intent), do: nil
-
-  @doc "动作意图的人话标签。"
-  def action_intent_label(:write_chapter), do: "写/续写/重写某章正文"
-  def action_intent_label(:design_character), do: "设计角色"
-  def action_intent_label(:revise_content), do: "修订某章内容"
-  def action_intent_label(_intent), do: "创作动作"
-
-  defp discussion_intent_text?(text) do
-    String.contains?(text, [
-      "只讨论",
-      "只聊",
-      "先聊",
-      "先讨论",
-      "不要改",
-      "别改",
-      "不要写",
-      "别写",
-      "先别写",
-      "先别动笔",
-      "分析一下",
-      "给点建议"
-    ])
-  end
-
-  defp design_character_action?(text) do
-    String.contains?(text, ["设计", "创建", "新增", "塑造", "加个", "加一个", "写一个"]) and
-      String.contains?(text, ["主角", "反派", "配角", "角色", "人物"]) and
-      not String.contains?(text, ["建议", "方向", "讨论", "是否", "怎么", "如何", "吗", "要不要", "候选"])
-  end
-
-  defp write_chapter_action?(text) do
-    action_verb =
-      String.contains?(text, [
-        "帮我写",
-        "写一下",
-        "写出来",
-        "续写",
-        "接着写",
-        "继续写",
-        "往下写",
-        "重写",
-        "起草",
-        "生成正文",
-        "写第",
-        "写这章",
-        "写本章"
-      ])
-
-    target =
-      String.contains?(text, ["正文", "章节", "章", "首稿", "这一章", "本章", "下一章"]) or
-        Regex.match?(~r/第\s*[0-9一二三四五六七八九十]+\s*章/u, text)
-
-    action_verb and target and
-      not String.contains?(text, [
-        "建议",
-        "方向",
-        "讨论",
-        "是否",
-        "怎么",
-        "如何",
-        "写完",
-        "进度",
-        "质量",
-        "矛盾",
-        "评价"
-      ])
-  end
-
-  defp revise_content_action?(text) do
-    verb =
-      String.contains?(text, [
-        "修订",
-        "修改",
-        "改一下",
-        "改一改",
-        "改改",
-        "改得",
-        "调整",
-        "改成",
-        "改为"
-      ])
-
-    target =
-      String.contains?(text, ["正文", "内容", "段落", "句子", "情节", "这一章", "本章"]) or
-        Regex.match?(~r/第\s*[0-9一二三四五六七八九十]+\s*章/u, text)
-
-    verb and target and
-      not String.contains?(text, ["建议", "方向", "讨论", "是否", "怎么", "如何", "吗", "不改", "别改"])
   end
 
   @doc "规则内容 hash：共享段或判断段变更必须改变它（供 prompt 捕获/漂移测试）。"

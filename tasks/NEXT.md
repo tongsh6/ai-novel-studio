@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B33-SEMANTICS | CP0 校准 B29/B30/B33 的语义判断与机械守卫分工；登记只讨论、条件无变化等反例，保留身份/权限/采纳保护 | [原任务小节](slices/B33-authoring-intent-judgment-reliability.md#元原则整改语义判断与机械守卫分工) |
+| B33-SEMANTICS | CP0–CP2 已完成（语义分工冻结、词法后置约束移除、矩阵/有界恢复/replay 回归）；下一步 CP3：复用既有 native 驱动模式落地 6 场景外部真实 Tauri + 真实模型验收（单槽、结束卸载），保身份/权限/采纳边界 | [原任务小节](slices/B33-authoring-intent-judgment-reliability.md#元原则整改语义判断与机械守卫分工) |
 
 ## 后续候选
 

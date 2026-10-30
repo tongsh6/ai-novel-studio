@@ -68,47 +68,13 @@ defmodule NovelApplication.B29CharacterProfileTest do
     assert {:error, :target_missing} = CharacterProfile.resolve_target("指定阿鸢为主角", roster())
   end
 
-  test "narrative_role 白名单/设计新角色/讨论区分" do
+  test "narrative_role 白名单从原话映射（修订意图路由已移交 B33 判断链）" do
     assert CharacterProfile.narrative_role_from_text("指定沈砚为主角") == "PROTAGONIST"
     assert CharacterProfile.narrative_role_from_text("把顾青改成反派") == "ANTAGONIST"
     assert CharacterProfile.narrative_role_from_text("把已有角色的叙事身份从配角改为主角") == "PROTAGONIST"
     assert CharacterProfile.narrative_role_from_text("把阿鸢设为配角") == "SUPPORTING"
     assert CharacterProfile.narrative_role_from_text("把沈砚定为主角") == "PROTAGONIST"
     assert CharacterProfile.narrative_role_from_text("随便聊聊") == nil
-
-    assert CharacterProfile.revision_intent?("指定老沈为主角")
-    assert CharacterProfile.revision_intent?("把已有角色的叙事身份从配角改为主角")
-
-    refute CharacterProfile.revision_intent?("老沈适合当主角吗？只讨论不改")
-    refute CharacterProfile.revision_intent?("设计一个新主角")
-    assert CharacterProfile.design_new_protagonist_intent?("设计一个新主角")
-  end
-
-  test "身份守卫不把章节调整或角色状态更新误判为叙事身份变更" do
-    for separator <- ["，", "；", "\n"] do
-      refute CharacterProfile.revision_intent?(
-               "先读完第01章正文#{separator}再调整章节大纲#{separator}最后更新主角当前状态"
-             )
-    end
-
-    for text <- [
-          "调整主角当前状态",
-          "把主角状态改为警惕",
-          "指定主角下一步行动",
-          "先把章节编号改为连续，再更新主角状态"
-        ] do
-      refute CharacterProfile.revision_intent?(text), text
-    end
-
-    for text <- [
-          "指定老沈为主角",
-          "把已有角色的叙事身份从配角改为主角",
-          "把顾青调整为反派",
-          "确立沈砚的主角身份",
-          "先调整章节大纲，再把沈砚定为唯一主角"
-        ] do
-      assert CharacterProfile.revision_intent?(text), text
-    end
   end
 
   test "候选 payload：目标旧→新 + 唯一主角时其它角色变化供裁决（不默认应用）" do
