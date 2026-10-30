@@ -1,6 +1,6 @@
 # B58：作者批准策略统一与审计
 
-- 状态：**todo（先对账现有 receipt/audit，再决定是否需新实体，未开工）**。
+- 状态：**doing（2026-10-31 CP0 对账 done：现有 receipt/trace 可承接大部分批准语义，缺 approval policy registry/risk 映射与部分字段；CP1 最小契约待做，未建新实体）**。
 - 登记日期：2026-10-27；来源：`32-human-approval-policy` 仍是草案，统一 approval policy 映射、approval_record 与死亡/结局/高预算等风险矩阵未形成完整证据。
 - 上游：`docs/design/quality/32-human-approval-policy.md`、[AU04](AU04-file-level-closure.md)、[AU05](AU05-file-level-closure.md)、[AU13-ledgers-and-reconciliation](../../docs/design/acceptance/author/AU-13-ledgers-and-reconciliation.md)。
 
@@ -33,6 +33,34 @@
 | CP1 | 若确有缺口，冻结最小 approval contract（对象/版本/动作/结果/来源/失败），优先扩展现有 receipt/trace；只有不可替代时才论证新实体 | 未开工 |
 | CP2 | 实现统一审计与风险矩阵：死亡/结局/高预算/stale/重复/取消/跨作品；不可 bypass 与失败回滚 | 未开工 |
 | CP3 | 真实 Tauri 与 replay 全链，作者 why 可见批准依据；同步 32 文档，未覆盖类型保持 deferred | 未开工 |
+
+## CP0 对账记录（2026-10-31）
+
+### 现有事实源
+- `author_action_receipts`（`AuthorActionReceipt`）：work/session/source_turn_ref/action_id/action_type/idempotency_key/status/result + 唯一索引；负责作者动作幂等与结果回执，不区分 approval/adoption 语义。
+- `decision_traces`（`DecisionTraceRecord`）：decision_type/gate 结果/context/tool/behavior/state trace refs/redaction/replay policy；承接 why/replay 与 gate 决策，不是批准对象记录。
+- `interactions` 内 `turn_result`：behavior 值（confirmation 生命周期）、`adoption_state.pending/resolved`、`truthfulness`；确认/采纳/放弃的页面事实主要在 TurnResult/Interaction。
+- `StateTrace`/ledger 状态与 adoption/confirmation 业务结果；`ReplayService` 提供 author-safe why/replay。
+- capability registry 的 `risk_class` 仅描述工具风险，不是 approval policy 或批准记录。
+
+### 32 文档节点映射
+| 32 节点 | 现有可承接事实 | 缺口 |
+|---|---|---|
+| §6.1 作品定位 | adoption accepted + action receipt + interaction | `approval_policy_ref/risk_class/base_revision` 未显式落 |
+| §6.2 主角/反派重大设定 | adoption + character dossier + receipt | 同左；“已有大量下游内容后修改需 confirmation”未策略化 |
+| §6.3 主线/核心冲突/结局方向 | adoption + plan/decision trace | 大修 confirmation policy 未注册；branch 未建模 |
+| §6.4/6.5 卷纲/章节细纲 | adoption/ledger + receipt | 同左 |
+| §6.6 重大人物命运（死亡/黑化/背叛等） | 无专门消费者；只能靠通用 confirmation/behavior | **真实缺口**：无 death/fate approval policy 与风险矩阵 |
+| §6.7 大高潮方向 | 通用 confirmation/adoption | 无卷级高潮 confirmation policy |
+| §6.8 结局方向 | 通用 adoption | “永远 human approval”未成为机械 gate；无分支/结局专用审计 |
+| §7 低风险自动继续 | capability registry/authoring task policy | 自动继续策略分散，未映射 policy id |
+| §11 审批记录字段 | receipt.status/result、decision_traces、adoption resolved | `approval_policy_ref/target_type/decision_note/decided_by/base_revision` 等未统一；无跨 adoption/confirmation/edit 的统一查询 |
+| §12/13 UI/bypass | behavior/why/replay/quality finding override | 32 的 bypass_policy 未进入机械门序 |
+
+### CP0 结论
+- **不需要先建 `approval_record` 新表**：现有 receipt + decision_trace + interaction/adoption 事实已覆盖动作、对象、结果、幂等与回放；新建第二套批准状态机会与 `author_action_receipts`/TurnResult 冲突。
+- 真实缺口是：`approval_policy` 未实现（policy id/risk_class/default_behavior/required_user_action/bypass_policy/audit_level）；死亡/结局/高潮/高预算等节点无机械 policy；approval record 字段未统一映射，尤其 approval_policy_ref、base_revision、decision_note、decided_by、target_type。
+- CP1 应优先冻结**additive contract/mapping**（现有 receipt/decision_trace 字段扩展或结果 map 约定 + policy catalog），不建新实体；若 CP1 证明现有 receipt 无法承载，再按“不可替代”论证最小增量。
 
 ## 4. 非目标
 

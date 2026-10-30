@@ -1244,3 +1244,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **AU09-EVOLUTION done**：CP0/CP1 补 CHARACTER_PROFILE 到 creative_facts/prompt；重锚 AU09 taxonomy driver（按 artifact_type 等待 pending、候选方案 radio+保存、关闭记忆页）并扩展新会话 writer recall 断言；真实 Tauri 场景 PASS，`llm-calls` prompt 含演化 nonce/人物当前状态，verifier 增召回断言；supersede/跨作品角色演化页面矩阵登记残差。当前任务切 B72。
 
 - 2026-10-31 — **B72 CP1 blocked**：审计确认生成器/persona/manifest 未实现，CP1 需真实模型校准+核心批次；当前无模型资源窗口（lms ps 仅 embedding IDLE，未加载 LLM），未生成候选、未改 corpus。登记阻塞条件；当前任务切 B58 CP0。
+
+- 2026-10-31 — **B58 CP0**：对账 32 批准策略与现有 `author_action_receipts`/`decision_traces`/interaction adoption/confirmation/StateTrace；结论：不需要先建 approval_record 表，动作/结果/幂等/回放已覆盖；真实缺口=approval_policy registry/risk 映射、命运/结局/高潮/高预算机械 policy、record 字段统一。CP1 待冻结 additive 契约，未改代码/DB。

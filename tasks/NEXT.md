@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B58 | CP0 对账现有 receipt/trace 与批准语义；缺口成立后才冻结最小契约，不先建新实体 | [原任务](slices/B58-human-approval-policy-unification.md) |
+| B58 | CP0 done：receipt/trace 可承接大部分动作/结果/回放，真实缺口=approval_policy 未实现、命运/结局/高潮/预算无机械 policy、record 字段未统一；CP1 冻结 additive 契约/映射，不建新实体 | [原任务](slices/B58-human-approval-policy-unification.md) |
 
 ## 后续候选
 
