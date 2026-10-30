@@ -27,7 +27,7 @@
 
 ## CP0 最小本地快照恢复契约准备
 
-- 状态：**todo（仅准备范围、事实与选项；本节是 NEXT 的可推进状态来源）**。
+- 状态：**done（2026-10-31 CP0 准备完成：数据/敏感文件/一致性/恢复/自动触发选项与推荐已成文；CP1 起实施仍待作者接受契约与数据写入授权）**。
 - 下一步：只读盘点当前 desktop profile 的数据库、必要持久文件、偏好/secret 与日志位置，列出现有备份/导出能力及消费者；使用虚构结构示例形成包清单、恢复前预检/确认流程和失败矩阵，不复制真实作者数据。
 - 必须提交的具体取舍：
   1. 快照单位是当前 profile 的工作区还是单作品，以及跨作品引用、会话/待处理数据怎样保持完整。
@@ -56,3 +56,26 @@
 - [B51](B51-tech-stack-current-rebase.md) 校准备份与技术栈声明；本任务不因补齐文档而安装新库、替换 secret 后端、开启云同步或自动运行备份任务。
 - 原正文导出继续由原消费链负责，不将其重命名为工作区备份，也不把验收 SQLite 复制脚本直接注册为生产能力。
 - 所有开发验收使用隔离数据和原生 UI；不改写历史证据。CP0 后先核作者的具体接受记录，再选择实现 checkpoint；缺少该记录时只继续准备材料。
+
+### CP0 准备材料（2026-10-31）
+
+**现役存储事实（只读盘点）**
+- DB：`<data_dir>/ai_novel_studio.db`（SQLite，`pool_size: 1`，启动自动迁移）；`data_dir = <app_data_dir>/profiles/<AI_NOVEL_DESKTOP_PROFILE>` 或无 profile 时 app_data_dir；开发/验收用 `NOVEL_DATA_DIR` 注入。
+- `<data_dir>/secret.key`：本机 secret_key_base（≥64B，权限随文件系统）。
+- `<data_dir>/log/app/*.jsonl`、`<data_dir>/log/llm-calls/*.jsonl`：业务日志与 LLM 调用留痕（可能含正文/提示内容）。
+- `<data_dir>/runtime/sidecar-<version>/`：release 解包运行时（可重建，不必备份）。
+- 配置目录 `<app_config_dir>/profiles/<profile>/`：`preferences.json`（最近打开作品/助手显示名等）、`provider-secrets.json`（provider API key，Rust 外置文件）。
+- 现有能力只有作品正文/档案导出（`export_work`）与验收用 SQLite 复制脚本；**没有工作区备份/恢复功能**。正文导出不能当工作区备份。
+
+**必须取舍与推荐（待作者接受）**
+1. **快照单位**：推荐 **profile 级工作区**（单 DB 已含全部作品、会话、采纳、pending、trace）；单作品导出会漏跨作品引用与会话/pending。若作者只要单作品，需明确跨作品引用与 pending 的降级规则。
+2. **一致性**：推荐**显式静默/停写窗口 + SQLite 在线备份（`.backup`/`VACUUM INTO`）**，不直接 raw copy WAL/SHM；生成 manifest（格式版本、app version、DB schema、创建时间、文件大小/SHA-256、完整性 `PRAGMA integrity_check`）。运行中任务/写入竞争必须先停新任务或明确拒绝备份；不可用“先复制再说”。
+3. **敏感文件**：推荐备份包默认包含 DB（作品事实）+ preferences，**默认排除 provider-secrets.json、secret.key 与 log/llm-calls**；日志/密钥如需纳入必须单独勾选并警告。恢复包不得自动读取或复用包内密钥；secret.key 本轮不迁移（恢复后本机生成/保留）。
+4. **恢复目标**：首闭环推荐**恢复到新隔离 profile**（可审阅、可回滚），覆盖当前 profile 必须二次确认 + 恢复前自动保护快照 + 版本兼容预检 + 失败回滚；损坏/不兼容/缺清单在改权威数据前拒绝，不因包内内容自动授权覆盖。
+5. **UI/自动触发**：首个手动备份/恢复入口放设置/工作区管理；**自动备份明确延期**（重新开放条件：手动闭环稳定 + 保留/清理/资源/错误反馈方案接受），不因本任务开启每日/每章后台备份。
+
+**最小包/流程示例（虚构）**
+`workspace-backup-<profile>-<utc>.zip` 含 `manifest.json`（tool_version/schema_version/app_version/files[{path,size,sha256}]/sensitive_excluded[]）、`db/ai_novel_studio.db`、`config/preferences.json`；排除 secrets/logs。恢复流程：选包→读 manifest/完整性→兼容预检→选新 profile 或覆盖（二次确认）→保护快照→事务/切换→重开核对→失败回滚。
+**验证方案**：虚构 fixture/隔离 profile 的备份→恢复→重开；坏清单、版本不符、中断、并发写入、缺文件负例；外部真实 Tauri 页面手动入口与进程/文件证据。真实作者数据操作需单独授权。
+
+**CP1–CP4**：按接受后的契约实施；本节 done 不代表实施或数据操作获批。

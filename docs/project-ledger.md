@@ -1334,3 +1334,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **AU12-WRITEBACK CP1 partial/阻塞**：显式 field-value 白名单扩至 premise/theme/main_goal/卖点/读者/基调并类型校验；Work DTO/档案概览/ContextAssembler 同源消费；测试全绿。作者概览修订的显式 producer（judgment/chat tool）未裁决，A/B/C 待选；未加新 artifact。当前任务切 AU09-DIRECTION。
 
 - 2026-10-31 — **AU09-DIRECTION CP0/裁决材料**：choose_candidate 只走 gate/action_result，未持久化方向；MemoryType 无方向类型；选项 A（推荐显式 WORK_DIRECTION，需 schema 授权）/B（IDEA+metadata）/C（known-gap）；未写记忆/未改代码；当前任务切 B66-PREP。
+
+- 2026-10-31 — **B66-PREP CP0 done**：盘点 data/config 目录（DB/secret.key/logs/runtime/preferences/provider-secrets）；推荐 profile 级快照、SQLite 在线备份+manifest/完整性、默认排除 secrets/logs、先恢复隔离 profile、自动备份延期；CP1+ 待作者接受契约与数据授权。当前任务切 VS-00G。
