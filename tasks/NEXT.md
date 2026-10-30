@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B58 | CP0–CP2 done；CP3 partial：replay/Why 批准依据链路+单测完成；AU04 确认场景两次未产出 needs_confirmation，按预算停止待 reanchor | [原任务](slices/B58-human-approval-policy-unification.md) |
+| B58 | CP0–CP2 done；CP3 partial：AU09 真实 Tauri adoption 批准 replay PASS；AU04 确认场景两次未产出 needs_confirmation，confirmation 路径待 reanchor | [原任务](slices/B58-human-approval-policy-unification.md) |
 
 ## 后续候选
 

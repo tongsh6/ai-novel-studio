@@ -97,6 +97,13 @@
 - 测试：receipt list 隔离、projection 单测、前端 why 映射；backend **1055/0**、frontend **654/654** + typecheck/lint。
 - 证据路径（机制）：`artifacts/slice-verify/` 本轮无 PASS；测试为局部证据，不能当 CP3 真实页面完成。
 
+### 真实页面 PASS（2026-10-31，adoption 路径）
+- 当前 HEAD 运行并扩展 `au09-memory-taxonomy-write-policy`（真实 Tauri + 外部 driver）**PASS**：角色演化采纳后，候选 turn 的 replay 接口返回
+  `trace_summary.approvals=[{approval_policy_ref: high_risk_canon_change, risk_class: HIGH, decision: ACCEPTED, decided_by: author}]`；
+  证据 `artifacts/slice-verify/au09-memory-taxonomy-write-policy-tauri/approval-replay.json`。
+- 作者可见 why 映射由 `traceSummaryView` 单测覆盖（「批准依据：…」）；replay 报告本身是作者安全入口，不泄漏 receipt 内部 id。
+- 该 PASS 覆盖 active policy 的 adoption 路径；confirmation 路径（AU04）仍未闭环。
+
 ### 未完成/真实页面重锚
 - 尝试当前 HEAD 既有 `au04-confirm-before-execute` 两次：均未收到 `status=needs_confirmation` + `confirm_before_execute` 的 turn_result（driver 200s bounded 超时）。未进入确认/批准动作，故无法取得 approval-replay/Why 页面证据。
 - 根因范围：既有 AU04 场景的 seed/driver/判断链在当前 HEAD 未产出确认卡；不是本次 replay/Why 代码路径。按预算（同因 2 次）停止，登记 reanchor，不做第三次盲跑。

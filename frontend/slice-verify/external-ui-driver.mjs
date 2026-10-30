@@ -18896,6 +18896,39 @@ async function driveAu09MemoryTaxonomyWritePolicy(page) {
     `adopted character memory did not show 当前状态 type label: ${evoRowText}`,
   );
 
+  // B58 CP3：采纳后的候选 turn replay 必须可读到 author-safe 批准依据。
+  const joinForApproval = latestChannelJoinReply();
+  const approvalWorkId =
+    joinForApproval?.body?.response?.work_id ??
+    joinForApproval?.body?.work_id ??
+    evolution.turnResult.work_id ??
+    null;
+  const approvalSessionId =
+    joinForApproval?.body?.response?.session_id ??
+    joinForApproval?.body?.session_id ??
+    evolution.turnResult.session_id ??
+    null;
+  assert(approvalWorkId && approvalSessionId, "B58 approval replay needs real work/session");
+  const approvalReplayResponse = await fetch(
+    `${baseUrl}/api/works/${encodeURIComponent(approvalWorkId)}/sessions/${encodeURIComponent(approvalSessionId)}/turns/${encodeURIComponent(evolution.turnResult.turn_id)}/replay`,
+  );
+  assert(approvalReplayResponse.ok, `B58 approval replay HTTP ${approvalReplayResponse.status}`);
+  const approvalReplay = await approvalReplayResponse.json();
+  const approvalRecords = approvalReplay.trace_summary?.approvals ?? [];
+  const adoptedApproval = approvalRecords.find(
+    (entry) => entry.approval_policy_ref === "approval_policy.high_risk_canon_change",
+  );
+  assert(
+    adoptedApproval?.decision === "ACCEPTED" &&
+      adoptedApproval?.risk_class === "HIGH" &&
+      adoptedApproval?.decided_by === "author",
+    `B58 adoption approval replay missing ACCEPTED record: ${JSON.stringify(approvalRecords)}`,
+  );
+  fs.writeFileSync(
+    path.join(artifactDir, "approval-replay.json"),
+    JSON.stringify({ turn_id: evolution.turnResult.turn_id, approvals: approvalRecords }, null, 2),
+  );
+
   // CP2：新会话创作请求必须真实召回已采纳角色演化记忆；外部证据=真实 writer prompt。
   await closeMemoryPage();
   const newSessionResume = page.waitForResponse(
@@ -18942,6 +18975,8 @@ async function driveAu09MemoryTaxonomyWritePolicy(page) {
       turn_ids: [design.turnResult.turn_id, evolution.turnResult.turn_id, evoAdopt.body.turn_id, recallTurn.turnResult.turn_id],
       recall_turn_id: recallTurn.turnResult.turn_id,
       recall_prompt_has_memory: writerPrompt.includes(evoNonce),
+      approval_replay_decision: adoptedApproval.decision,
+      approval_replay_policy: adoptedApproval.approval_policy_ref,
       recall_fact_lines: recallAppLog.fact_lines,
       design_turn_id: design.turnResult.turn_id,
       evolution_turn_id: evolution.turnResult.turn_id,
