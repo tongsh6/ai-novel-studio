@@ -112,12 +112,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp author_behavior_stimulus(%{"action" => "reply"} = fixture) do
+  defp author_behavior_stimulus(%{"action" => "reply"} = fixture, _prompt_text) do
     text = Map.get(fixture, "reply_text", "（B70 确定性语料回放）已按当前作品事实处理，本轮不写作品事实。")
     {:ok, Result.new(text)}
   end
 
-  defp author_behavior_stimulus(%{"action" => "ask_author"}) do
+  defp author_behavior_stimulus(%{"action" => "ask_author"}, _prompt_text) do
     {:ok,
      Result.new("需要作者补充目标信息后才能继续。", nil,
        tool_calls: [
@@ -133,8 +133,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
      )}
   end
 
-  defp author_behavior_stimulus(%{"action" => "execute", "capability" => capability} = fixture) do
+  defp author_behavior_stimulus(%{"action" => "execute", "capability" => capability} = fixture, prompt_text) do
     expression = Map.fetch!(fixture, "expression")
+
+    arguments = %{
+      "action" => "execute",
+      "capability" => capability,
+      "dialogue_goal" => Map.get(fixture, "dialogue_goal", expression),
+      "reason" => "B73 deterministic execute stimulus"
+    }
 
     {:ok,
      Result.new("已生成待采纳候选；保存前不会写入作品事实。", nil,
@@ -142,18 +149,28 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
          %{
            id: "tool-b73-execute",
            name: "judgment_decision",
-           arguments: %{
-             "action" => "execute",
-             "capability" => capability,
-             "dialogue_goal" => Map.get(fixture, "dialogue_goal", expression),
-             "reason" => "B73 deterministic execute stimulus"
-           }
+           arguments: author_behavior_pending_arguments(arguments, fixture, prompt_text, capability)
          }
        ]
      )}
   end
 
-  defp author_behavior_stimulus(_fixture), do: nil
+  defp author_behavior_stimulus(_fixture, _prompt_text), do: nil
+
+  defp author_behavior_pending_arguments(arguments, fixture, prompt_text, capability)
+       when capability in ["revise_pending_artifact", "discard_pending_artifact"] do
+    role = Map.get(fixture, "target_role", "original")
+
+    target =
+      (message_state_facts(prompt_text)["pending_adoptions"] || [])
+      |> Enum.find(fn entry ->
+        if role == "revision", do: not is_nil(entry["revision_of"]), else: is_nil(entry["revision_of"])
+      end)
+
+    Map.put(arguments, "pending_artifact_ref", target && target["artifact_ref"])
+  end
+
+  defp author_behavior_pending_arguments(arguments, _fixture, _prompt_text, _capability), do: arguments
 
   defp author_behavior_profile_stimulus(%{"action" => "execute", "capability" => capability}, prompt_text) do
     profile_ref =
