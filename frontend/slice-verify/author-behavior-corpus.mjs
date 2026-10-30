@@ -8,6 +8,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
+import {
+  buildExplorationPlan,
+  failureFingerprint,
+  shrinkFailureTrace,
+  summarizeExploration,
+} from "../../scripts/lib/quality/author_behavior_explorer.mjs";
+import { evaluateCase } from "../../scripts/lib/quality/author_behavior_oracle.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 const baseUrl = process.env.SLICE_VERIFY_BASE_URL ?? "http://127.0.0.1:5768";
@@ -144,20 +151,39 @@ async function waitWorkbench(page) {
   await page.waitForTimeout(1_200);
 }
 
+async function waitComposerUsable(page) {
+  const composer = page.locator(chatInputSelector).first();
+  await composer.waitFor({ state: "visible", timeout: 15_000 });
+  // 不同真实状态可能把发送按钮换成“发送指示/回答”等可见语义；只做有界等待，
+  // 具体发送在 sendAndObserve 里按可见语义选择真实控件（失败回退 Enter）。
+  await page
+    .getByRole("button", { name: /发送|回答|提交/ })
+    .first()
+    .waitFor({ state: "visible", timeout: 8_000 })
+    .catch(() => {});
+  await page.waitForTimeout(200);
+}
+
 async function switchWork(page, workTitle) {
   const header = page.getByTitle("作品").first();
   await header.click();
   const item = page.getByRole("menuitem").filter({ hasText: workTitle }).first();
-
   await item.waitFor({ timeout: 10_000 });
+  const itemText = ((await item.innerText().catch(() => "")) ?? "").trim();
+  if (itemText.includes("当前")) {
+    // 已是当前作品：真实菜单里该项不可再切换，关闭菜单后按当前页面继续。
+    await page.keyboard.press("Escape");
+    await waitComposerUsable(page);
+    return;
+  }
   await item.click();
   await page.waitForFunction(
     (title) => document.body.innerText.includes(title),
     workTitle,
     { timeout: 20_000 },
   );
-  await page.locator(chatInputSelector).waitFor({ timeout: 20_000 });
-  await page.waitForTimeout(400);
+  // 作品切换加载期间 composer 可能保留但发送不可用；等到真实发送控件可用再继续。
+  await waitComposerUsable(page);
 }
 
 async function sendAndObserve(page, expression, label) {
@@ -170,19 +196,24 @@ async function sendAndObserve(page, expression, label) {
   await composer.fill(expression);
   await page.waitForTimeout(400);
 
-  const sendButton = page.getByRole("button", { name: "发送", exact: true }).first();
-  await sendButton.waitFor({ state: "visible", timeout: 20_000 });
-  if (await sendButton.isDisabled()) {
-    await page.waitForFunction(
-      () => {
-        const buttons = Array.from(document.querySelectorAll("button"));
-        const send = buttons.find((button) => (button.textContent ?? "").trim() === "发送");
-        return send && !send.disabled;
-      },
-      { timeout: 10_000 },
-    );
+  const sendButton = page.getByRole("button", { name: /发送|回答|提交/ }).first();
+  try {
+    await sendButton.waitFor({ state: "visible", timeout: 15_000 });
+    if (await sendButton.isDisabled()) {
+      await page.waitForFunction(
+        () => {
+          const buttons = Array.from(document.querySelectorAll("button"));
+          const send = buttons.find((button) => /发送|回答|提交/u.test(button.textContent ?? ""));
+          return send && !send.disabled;
+        },
+        { timeout: 10_000 },
+      );
+    }
+    await sendButton.click();
+  } catch {
+    // 真实产品同样支持 Enter 发送；按钮语义变化时用键盘提交。
+    await composer.press("Enter");
   }
-  await sendButton.click();
 
   // 发送成功的可见证据：作者输入出现在真实消息流中；否则视为发送未生效。
   await page.waitForFunction(
@@ -249,7 +280,16 @@ async function sendAndObserve(page, expression, label) {
 async function main() {
   const corpus = exportCorpus();
   const casesById = new Map(corpus.cases.map((testCase) => [testCase.id, testCase]));
-  const selected = subsetCaseIds.map((caseId) => {
+  const exploreSeed = process.env.AUTHOR_BEHAVIOR_EXPLORE_SEED ?? "";
+  const explorePool = (process.env.AUTHOR_BEHAVIOR_EXPLORE_POOL ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const isExploration = exploreSeed !== "" || explorePool.length > 0;
+  const selectedIds = isExploration
+    ? (explorePool.length > 0 ? explorePool : subsetCaseIds)
+    : subsetCaseIds;
+  const selected = selectedIds.map((caseId) => {
     const testCase = casesById.get(caseId);
     assert(testCase, `unknown case id: ${caseId}`);
     return testCase;
@@ -259,26 +299,131 @@ async function main() {
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   const observations = [];
   const caseOrder = [];
+  let exploration = null;
+  let plan = null;
+  let stepResults = [];
 
   try {
     await waitWorkbench(page);
 
-    const ordered = [...selected].sort(
-      (left, right) =>
-        Object.keys(stateWorkTitles).indexOf(left.state_id) -
-        Object.keys(stateWorkTitles).indexOf(right.state_id),
-    );
-    let currentWorkTitle = null;
+    if (isExploration) {
+      plan = buildExplorationPlan(corpus, {
+        seed: Number(exploreSeed || 20261030),
+        poolCaseIds: selectedIds,
+      });
+      let currentWorkTitle = null;
 
-    for (const testCase of ordered) {
-      const workTitle = stateWorkTitles[testCase.state_id];
-      assert(workTitle, `state without work title mapping: ${testCase.state_id}`);
-      if (workTitle !== currentWorkTitle) {
-        await switchWork(page, workTitle);
-        currentWorkTitle = workTitle;
+      for (const step of plan.steps) {
+        if (step.action === "switch_work") {
+          if (currentWorkTitle !== step.work_title) {
+            await switchWork(page, step.work_title);
+            currentWorkTitle = step.work_title;
+          }
+          stepResults.push({
+            step_index: step.index,
+            status: "pass",
+            reasons: [],
+            violations: [],
+            observed: null,
+          });
+          continue;
+        }
+
+        const testCase = casesById.get(step.case_id);
+        assert(testCase, `unknown case id: ${step.case_id}`);
+        const workTitle = stateWorkTitles[step.state_id];
+        assert(workTitle, `state without work title mapping: ${step.state_id}`);
+        if (currentWorkTitle !== workTitle) {
+          await switchWork(page, workTitle);
+          currentWorkTitle = workTitle;
+        }
+
+        const label = `${step.case_id}-step${step.index}`;
+        const observation = await sendAndObserve(page, step.expression, label);
+        // 证据 label 带 step 后缀（截图可区分多次发送）；判卷 observation 仍按冻结 case_id 对齐。
+        observation.case_id = step.case_id;
+        observations.push(observation);
+        caseOrder.push({
+          step_index: step.index,
+          action: step.action,
+          case_id: step.case_id,
+          state_id: step.state_id,
+          work_title: workTitle,
+        });
+
+        const evaluated = evaluateCase(corpus, testCase, {
+          observed: observation.observed,
+          evidence_refs: observation.evidence_refs,
+        });
+        stepResults.push({
+          step_index: step.index,
+          status: evaluated.status,
+          reasons: evaluated.reasons,
+          violations: evaluated.violations,
+          observed: observation.observed,
+        });
       }
-      caseOrder.push({ case_id: testCase.id, state_id: testCase.state_id, work_title: workTitle });
-      observations.push(await sendAndObserve(page, testCase.expression, testCase.id));
+
+      exploration = summarizeExploration({
+        plan,
+        stepResults,
+        corpusSha: corpus.corpus_sha ?? null,
+      });
+      fs.writeFileSync(
+        artifact("exploration.json"),
+        JSON.stringify({ ...exploration, generated_at: new Date().toISOString() }, null, 2),
+      );
+
+      if (exploration.status !== "pass") {
+        const shrink = shrinkFailureTrace({
+          plan,
+          stepResults,
+          violationCode: exploration.violations[0]?.behavior ?? null,
+          failureReason: exploration.failures[0]?.reasons?.[0] ?? null,
+        });
+        fs.writeFileSync(
+          artifact("failure-trace.json"),
+          JSON.stringify(
+            {
+              seed: plan.seed,
+              plan_hash: plan.plan_hash,
+              corpus_sha: corpus.corpus_sha ?? null,
+              exploration,
+              shrink,
+              replay_command:
+                "AUTHOR_BEHAVIOR_EXPLORE_SEED=" + plan.seed +
+                " AUTHOR_BEHAVIOR_EXPLORE_POOL=" + selectedIds.join(",") +
+                " bash scripts/slice_verify.sh author-behavior-explore",
+              dedupe_fingerprint: failureFingerprint({
+                violationCode: exploration.violations[0]?.behavior ?? null,
+                failureReason: exploration.failures[0]?.reasons?.[0] ?? null,
+                corpusSha: corpus.corpus_sha ?? null,
+                planHash: plan.plan_hash,
+              }),
+            },
+            null,
+            2,
+          ),
+        );
+      }
+    } else {
+      const ordered = [...selected].sort(
+        (left, right) =>
+          Object.keys(stateWorkTitles).indexOf(left.state_id) -
+          Object.keys(stateWorkTitles).indexOf(right.state_id),
+      );
+      let currentWorkTitle = null;
+
+      for (const testCase of ordered) {
+        const workTitle = stateWorkTitles[testCase.state_id];
+        assert(workTitle, `state without work title mapping: ${testCase.state_id}`);
+        if (workTitle !== currentWorkTitle) {
+          await switchWork(page, workTitle);
+          currentWorkTitle = workTitle;
+        }
+        caseOrder.push({ case_id: testCase.id, state_id: testCase.state_id, work_title: workTitle });
+        observations.push(await sendAndObserve(page, testCase.expression, testCase.id));
+      }
     }
   } finally {
     fs.writeFileSync(
@@ -293,21 +438,30 @@ async function main() {
         2,
       ),
     );
-    fs.writeFileSync(artifact("observations.json"), JSON.stringify({
-      run: {
-        tier: "pr-smoke",
-        provider: "slice_verify_author_behavior_corpus",
-        batch_refs: [artifactDir],
-        verdict_refs: [],
-        case_ids: subsetCaseIds,
-      },
-      cases: observations.map((entry) => ({
-        case_id: entry.case_id,
-        evidence_refs: entry.evidence_refs,
-        observed: entry.observed,
-        assistant_text: entry.assistant_text,
-      })),
-    }, null, 2));
+    fs.writeFileSync(
+      artifact("observations.json"),
+      JSON.stringify(
+        {
+          run: {
+            tier: isExploration ? "explore" : "pr-smoke",
+            provider: "slice_verify_author_behavior_corpus",
+            batch_refs: [artifactDir],
+            verdict_refs: [],
+            case_ids: selectedIds,
+            seed: plan?.seed ?? null,
+            plan_hash: plan?.plan_hash ?? null,
+          },
+          cases: observations.map((entry) => ({
+            case_id: entry.case_id,
+            evidence_refs: entry.evidence_refs,
+            observed: entry.observed,
+            assistant_text: entry.assistant_text,
+          })),
+        },
+        null,
+        2,
+      ),
+    );
     await browser.close();
   }
 
@@ -325,22 +479,35 @@ async function main() {
   );
   const evaluation = JSON.parse(evaluationOutput);
   const summary = {
-    slice_id: "author-behavior-corpus",
+    slice_id: isExploration ? "author-behavior-explore" : "author-behavior-corpus",
     provider: "slice_verify_author_behavior_corpus",
     corpus_sha: corpus.corpus_sha ?? null,
     case_order: caseOrder,
     evaluation: evaluation.evaluation,
     coverage: evaluation.coverage_summary,
+    exploration,
     generated_at: new Date().toISOString(),
   };
   fs.writeFileSync(artifact("summary.json"), JSON.stringify(summary, null, 2));
 
   console.log(
-    `[author-behavior] cases=${caseOrder.length} pass=${evaluation.evaluation.pass} ` +
-      `fail=${evaluation.evaluation.fail} unknown=${evaluation.evaluation.unknown}`,
+    `[author-behavior] mode=${isExploration ? "explore" : "replay"} cases=${caseOrder.length} ` +
+      `pass=${evaluation.evaluation.pass} fail=${evaluation.evaluation.fail} unknown=${evaluation.evaluation.unknown}`,
   );
+  if (exploration) {
+    console.log(
+      `[author-behavior] seed=${exploration.seed} plan_hash=${exploration.plan_hash.slice(0, 12)} ` +
+        `steps=${exploration.steps} transitions=${exploration.coverage.transition_keys.length} ` +
+        `status=${exploration.status}`,
+    );
+  }
 
-  if (!evaluation.ok || evaluation.evaluation.fail > 0 || evaluation.evaluation.unknown > 0) {
+  if (
+    !evaluation.ok ||
+    evaluation.evaluation.fail > 0 ||
+    evaluation.evaluation.unknown > 0 ||
+    (exploration && exploration.status !== "pass")
+  ) {
     process.exitCode = 1;
   }
 }

@@ -1,0 +1,69 @@
+id: author-behavior-explore
+title: "B70 author-behavior 状态驱动探索（seeded 非固定操作顺序 + 每步不变量 + 转移覆盖）"
+tier: nightly
+surface: browser
+default_provider: slice_verify
+status_note: >-
+  active（2026-10-30 CP2）：同一真实浏览器工作台外部 driver，由 seed 生成非固定操作序列
+  （作品切换/发送交错），逐步调用 author_behavior oracle 检查 G1–G6；记录轨迹、转移覆盖、
+  失败缩化与去重指纹。确定性替身只证明机制/判卷，不代签真实模型语义或文学质量（I10）。
+entrypoint: scripts/quality_accept.sh author-behavior-explore --surface browser
+contract:
+  - tasks/slices/B70-author-behavior-corpus-and-state-exploration.md §5–§6.4
+  - docs/design/acceptance/author-behavior-corpus-and-state-exploration.md §10（状态探索/失败缩化）
+  - docs/engineering/scenario-acceptance.md
+invariants:
+  - I-B70E-1 seeded 可复现：同 seed 同 plan_hash/同操作序列；不同 seed 序列不同。
+  - I-B70E-2 非固定顺序：操作序列由 seed 生成，driver 不按 corpus 声明顺序执行。
+  - I-B70E-3 每步不变量：每个 send 后独立判卷 G1–G6，不只结尾检查；unknown/fail 不放行。
+  - I-B70E-4 失败可缩化：失败保留完整轨迹 + 同违规类别最小动作序列 + 重放命令/指纹。
+  - I-B70E-5 转移覆盖：记录真实状态/动作/运行态转移，未触达目标不算覆盖。
+setup:
+  provider: slice_verify
+  seed: scripts/seed_author_behavior_states.exs
+  explore_seed: 20261030
+  explore_pool: [C-F1-001, C-F1-002, C-F2-002, C-F3-001, C-F3-003, C-F3-005]
+  env_note: 隔离 DB（ARTIFACT_DIR/database）；corpus/fixtures 由 slice_verify.sh 注入；
+    AUTHOR_BEHAVIOR_EXPLORE_SEED 决定序列；产品 runtime 不感知。
+user_flow:
+  - open: 外部 Playwright 打开真实浏览器工作台
+  - explore: 按 seed 计划在 S1/S2/S3 间切换并发送冻结表达（顺序非固定）
+  - observe: 每步从隔离 DB 读取 judgment/canon 事实并独立判卷
+  - summarize: 落 exploration.json（轨迹/转移/覆盖/逐步结果），失败时落 failure-trace.json + 缩化
+evidence:
+  required:
+    - screenshot
+    - backend_log
+    - summary_json
+    - persistence_snapshot
+  extra_artifacts:
+    - observations.json
+    - coverage.json
+    - exploration.json
+    - db-snapshots.json
+    - corpus.json
+  artifact_dir: artifacts/slice-verify/author-behavior-explore
+assertions:
+  ui:
+    - 每个 send 步骤由真实工作台执行并留下截图。
+    - 每个 switch 步骤通过真实作品菜单完成，页面显示目标作品。
+  network:
+    - 每个 send 步骤的最终 judgment/awaiting 事件来自真实产品链。
+  data:
+    - exploration.plan_hash 同 seed 可复现；不同 seed 操作序列不同。
+    - 每个 send 步骤均调用 oracle，逐步 status 全部 pass；unknown/fail 不记 PASS。
+    - 记录 state/action/run_state 转移键；未触达目标只记声明/缺口。
+    - 失败时保留完整轨迹、同违规类别最小序列、replay_command 与 dedupe_fingerprint。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+anti_hooks_verification: >-
+  探索计划/动作选择/判卷/缩化全部在仓外 harness；产品代码不读取 seed/corpus/verdict/探索 env。
+prerequisites:
+  - B70 CP1 固定回放场景仍须通过（同一 driver 的 replay 模式）。
+  - 真实模型语义仍由 B42/CP3 流程独立判定。
+known_not_closed:
+  - 探索动作当前限于作品切换 + 发送（采纳/拒绝/编辑/断线恢复等动作留 CP3）。
+  - 确定性替身只证明机制；多 seed 探索不自动证明语义质量，未触发目标不算覆盖。

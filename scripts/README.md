@@ -44,6 +44,7 @@
 | `quality_manifest_check.sh` | quality manifest 门禁：PyYAML 标准解析 + `scripts/lib/quality/manifest.mjs` 语义校验（非法 YAML/重复键/词表/未注册/draft 硬失败；B41 CP1）。 |
 | `author_behavior_check.mjs` | B70 CP0 author-behavior 冻结语料/状态/oracle/覆盖报告格式校验（PyYAML 标准解析；schema/引用/provenance/split/holdout 泄漏/覆盖报告一致性；exit 66 格式错误）。 |
 | `lib/quality/author_behavior_oracle.mjs` | B70 CP1 author-behavior 确定性 oracle 评估器：allowed action/effect、硬违规（错对象/未授权写/重复副作用/虚假完成/讨论强制写）、unknown 不判 PASS、覆盖报告生成（`author-behavior-coverage-report/v1`）。 |
+| `lib/quality/author_behavior_explorer.mjs` | B70 CP2 seeded 状态探索器：确定性 PRNG/探索计划、逐步状态转移与覆盖汇总、失败缩化（保同一类别最小序列）、去重指纹；正反例见同目录测试。 |
 | `lib/quality/author_behavior_generator.mjs` | B70 CP1 离线确定性语料生成器：模板生成候选 + generated_frozen provenance（source_refs/generator/时间），只产候选、不自动冻结/不标 holdout；正反例见同目录测试。 |
 | `seed_au03_context_source_ui.exs` | AU-03 context source UI 验收 seed。 |
 | `seed_author_behavior_states.exs` | B70 CP1 author-behavior 状态夹具 seed（S1 部分多章/S2 空骨架/S3 待采纳候选），仅浏览器隔离 DB 使用。 |
