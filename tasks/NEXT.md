@@ -6,12 +6,13 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B27 | §9 CP0 已完成（实际请求字节 vs supplied 声明错配复现、双 profile 探针、同源材料契约与 CP1–CP3 预注册）；下一步 CP1：由同一渲染事实派生 supplied/available-not-supplied，接 reply_record/trace，并补红测 | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
+| B70 | CP0 冻结作者目标模板、冻结语料、状态/oracle、provenance/split 与覆盖报告格式，核对 B27/B34/UI driver/dogfood/B41/B42 复用边界；随后进入最小真实页面闭环 | [原任务](slices/B70-author-behavior-corpus-and-state-exploration.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
+| B27 | §9 CP0 已完成；下一步 CP1：由同一渲染事实派生 supplied/available-not-supplied，接 reply_record/trace，并补红测；现有工作区修改保持不动 | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B39 | CP1 正文求证与逐次模型输入证据；后续准备/恢复/迁移仍按完整 slice 验收 | [原任务](slices/B39-evidence-seeking-authoring.md) |
 | B64 | CP0 核对旧章/新章记忆有效窗；真实目标贯穿 recall、writer/evaluator，保留历史查询语义 | [原任务](slices/B64-coordinate-aware-memory-consumption.md) |
 | B47-C07 | 角色持久层整对象指纹、原子性与真实重复请求幂等；其它残余仍留原任务 | [原任务小节](slices/B47-canon-freshness-and-conflict-detection.md#101-角色持久层过期策略裁决材料) |
