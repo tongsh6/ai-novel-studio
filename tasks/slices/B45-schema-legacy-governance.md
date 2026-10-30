@@ -62,6 +62,31 @@
 - 三链每条字段的类型/空值/失败/历史兼容正反例与测试入口；
 - 13 个部分承接 schema 的逐项处置（现役补链/历史兼容/未来预留/语义待裁决）与证据。
 
+### 8.5 首批三链字段级映射（2026-10-31，CP0）
+
+#### A. 统一裁决 / TurnResult / trace / replay
+
+| 字段/结构 | 设计依据 | producer | 转换/序列化 | 校验点 | consumer | 持久/历史 | 处置 |
+|---|---|---|---|---|---|---|---|
+| `orchestrator_decision`（v3 未声明） | ADR-0031 §2.1/R2=A；B43 §10 | `OrchestratorDecision`（reply_only/exploration/capability_gap/require_clarification/allow_tool…）经 `TurnResultBuilder.build/8` | 只投影 decision_id/type/status/first_blocking_gate/required_author_action/decision_trace_ref（`maybe_add_decision/2`） | 当前 `TurnResultSchema`（barrel）无该字段 typed 规则，v3 `catchall(any)` 宽容；**不是实际校验** | `frontend/src/lib/turnResultWire.ts` safeParse、WorkspaceChat/Why、B43 Replay | 旧 turn 无该字段；新 turn 才产生。无迁移、不得回填伪造 | CP1 冻结 optional schema（含 decision_type 枚举/reply_only 等）并在 barrel 组合；B43 产业务事实，B45 定契约与兼容测试 |
+| `trace_summary`（`z.record(any)`） | ADR-0014/0031 §2.1 | `TraceWriter.record/4`（含 decision_id/reason_codes/orchestrator_decision） | 已脱敏 map | 无 typed 局部契约；Why 读取时自行取键 | `traceSummaryView.ts`、Replay/Why | 历史 trace 格式保留；缺 decision 的旧 trace 按 trace 读取 | CP1 决定 typed 局部契约或显式 opaque；至少把 decision_type/decision_id/decision_trace_ref 纳入可校验字段，未知键保留 |
+| `truthfulness`（`z.record(any)`） | 00c/ADR-0004 诚实性 | `TurnResultBuilder.build_truthfulness/3` | map | 无 typed 契约 | 前端/B43 验收断言 | 历史无字段时消费方需容忍 | CP1 冻结必要布尔/枚举字段（tool_called/production_write_performed/decision_type 等） |
+| `turn_result_v2` 15 broken refs / 18 any | ADR-0015 历史冻结 | 无现役 producer | codegen 双前缀路径未解析 → any | barrel 仅历史导出 | 无现役消费者（仅类型导出） | 历史冻结，不迁移 | 不把 v2 any 当现役 SSOT；CP1 决定保留历史方式（修 ref 或标注 legacy），禁止用它约束当前 wire |
+
+#### B. `agent_run_state`
+
+| 结构 | 依据 | producer | 转换 | 校验点 | consumer | 历史 | 处置 |
+|---|---|---|---|---|---|---|---|
+| `agent_run_state` Channel 事件 | DS01 §9；B45 §7.2 | `workspace_channel.agent_run_state_payload/2`（run + runtime 快照） | run struct → string keys；`trigger/interrupt_state` stringify atom | **无 JSON schema/safeParse**；前端 `AgentRunStateData` 为手写接口（socket.ts:295） | `frontend/src/lib/socket.ts` 事件、`agentRunAnchoring.ts`、WorkspaceChat | 无 schema 版本；缺字段靠 optional | 38 份 schema 中无对应文件；由 DS01 §9 建 schema/codegen/live/dead/unknown/恢复权限验证；B45 只记录映射方法与缺口，不抢建 |
+
+#### C. 五账 status/payload 与面板 DTO
+
+| 结构 | 依据 | producer | 转换 | 校验点 | consumer | 历史 | 处置 |
+|---|---|---|---|---|---|---|---|
+| 领域 `LedgerEntry` 信封 | VS-00F §2.1/ADR-0026 | `LedgerRepository.upsert`、`LedgerMaintenance` | domain struct → persistence map → `to_map` | `ledger_entry.json` 生成 TS：`ledger: z.any()`、payload/catchall open；无运行时 safeParse | 前端无直接消费 | DB 存 payload/map；历史缺 revision/裁决字段按读取默认 | 领域信封不是面板 DTO；CP1 把 ledger 字段收紧到 `enums/ledger.json` 或明确 opaque，payload 分账局部契约由 VS-00F B06 owner |
+| 面板 `LedgerThreadEntry` | ui43 §5 / `LedgerViewService` | `LedgerViewService.threads/1`（`thread_entry/1` Map.take） | DB map → 按五账分组 map | 无 schema；前端 socket.ts:870 手写 interface | `get_ledger_threads` Channel、StructurePanel 脉络 | 空账返回空列表（不伪造） | DTO 使用 `id` 而非领域 `entry_id`/`work_ref`，不能强套领域信封；CP2 新增面板 DTO 契约或复用 generated 局部 schema，并保留历史读 |
+| `ledger_information_payload.json` | VS-00F §2.4 | 未见真实 producer/validator | JSON 文件存在但未接入 | 无 | 无 | — | CP1 判“未来预留/待裁决”，无消费者不生成新功能 |
+
 ## 4. 非目标
 
 - 不删除所有旧 schema 或把所有 `z.any()` 都当错误。
