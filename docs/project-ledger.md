@@ -1276,3 +1276,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B57 CP1 partial**：新增 b57-injection-boundary 真实 Tauri 场景 PASS（A 越权无自动 action/write、E secret 无 sk- 泄漏、F 正常创作不受阻）；B 内容夹带/C 观察夹带/D 伪完成仍待受控 fixture，未改产品代码/未调模型；manifest 221/223。
 
 - 2026-10-31 — **B57 CP1 blocked（部分）**：A/E/F 真实 Tauri PASS；B/C/D 需受控内容/observation fixture 或 B39/UA01 入口，当前未就绪，登记阻塞；未改产品代码/未预建 Guard；当前任务切 AU08-REFRESH。
+
+- 2026-10-31 — **AU08-REFRESH CP0**：核清 ReadingMode 四态来自 TanStack Query（FAILED/REBUILDING/STALE/FRESH），查询只读无写；补 stale/rebuilding/failed 优先于旧章节单测；登记服务端权威版本能力缺口与真实页面故障/重试矩阵待补，未改产品逻辑。

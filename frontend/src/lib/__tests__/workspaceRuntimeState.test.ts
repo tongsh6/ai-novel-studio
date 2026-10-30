@@ -169,6 +169,33 @@ describe("WorkspaceRuntimeState", () => {
         }),
       ),
     ).toBe("failed");
+
+    // AU08-REFRESH：刷新中的旧内容、缓存过期都保持 stale，不伪装 ready/最新。
+    for (const refreshStatus of ["REBUILDING", "STALE"]) {
+      expect(
+        getReadingProjectionStatus(
+          deriveWorkspaceRuntimeState({
+            readingProjection: {
+              chapters: [{ id: "chapter-1" }],
+              activeChapterId: "chapter-1",
+              refreshStatus,
+            },
+          }),
+        ),
+      ).toBe("stale");
+    }
+
+    // 显式 FAILED 优先于有旧章节；失败不把旧内容显示为 ready。
+    expect(
+      getReadingProjectionStatus(
+        deriveWorkspaceRuntimeState({
+          readingProjection: {
+            chapters: [{ id: "chapter-1" }],
+            refreshStatus: "FAILED",
+          },
+        }),
+      ),
+    ).toBe("failed");
   });
 
   it("keeps completed task state visible instead of collapsing it to idle", () => {

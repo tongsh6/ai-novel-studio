@@ -102,8 +102,24 @@
 
 ## 阅读投影状态与失败恢复补验
 
-- 状态：**todo（2026-10-30 承接 AU08 C2/C3/C4；历史阅读/导出/no-write 批次保持完成）**。
+- 状态：**doing（2026-10-31 CP0 对账 done：四态来自 TanStack Query 客户端状态，失败/刷新/旧内容语义已核；CP1 真实页面故障/重试矩阵待补）**。
 - 来源：[AU-08](../../docs/design/acceptance/author/AU-08-reading-mode.md)、[全量对账 A05/D13/F17](../2026-10-27-design-to-execution-reconciliation.md)。`ReadingMode.tsx` 已有 FRESH/STALE/REBUILDING/FAILED 与重试消费，旧文档“没有真实 producer”需按现链核对；本项不默认重建 projection job。
 - 下一步：对账 B28 R4、现有 manifest、投影读取与刷新错误链，冻结状态来自何处、失败期间旧内容如何展示、何时允许重试及转回 FRESH；补缺失的失败/整组失败/重建中/恢复与 no-write 矩阵。
 - 完整后果：采纳后过期提示与实际版本一致，重建中/失败诚实可见，旧内容不得伪装为最新，重试成功后消费同一作品的已采纳正文；离线、跨作品切换、重复刷新及刷新中失败均无权威正文或采纳状态变更。不能把用户发一句“刷新”或直接调用后端当页面证明。
 - 边界与证明：复用 ReadingMode、TanStack Query、现有投影读取和刷新入口；先做局部状态/失败反例，再由外部真实 Tauri 驱动阅读、故障、重试和恢复，核对网络/状态/持久事实。若发现缺少真实能力再按本原范围最小修复，产品验收感知 no；不是重做 B28 修订或 B46 待办箱。
+
+
+### CP0 对账（2026-10-31）
+
+- `ReadingMode` 四态来源：
+  - FAILED = `projection.isError`（含连接/读取失败）；即使有旧 data 也显示失败，不冒充 ready；
+  - REBUILDING = `isFetching`（手动/自动 refetch）；
+  - STALE = `isStale && data`（缓存被 invalidate 后的旧内容，明确 banner）；
+  - FRESH = 有 data 且非以上状态；无 data 时 null。
+- `readingProjectionQuery`：`staleTime: Infinity`、`refetchOnMount: always`、`refetchOnWindowFocus: false`、`retry: false`；查询只读 `getToc` + `getChapterContent`，无写入路径。
+- 状态派生 `deriveReadingProjectionState`：error/FAILED→failed；非数组→unknown；空→empty；STALE/REBUILDING→stale；其余→ready。CP1 已补单测覆盖 stale/rebuilding/failed 优先于旧章节。
+- **真实缺口**：
+  1. 四态是客户端缓存语义，不是服务端权威 projection version/revision；离线/跨进程无版本比较，无法证明“过期提示与实际版本一致”；
+  2. 没有可外部注入的失败/部分失败/重试夹具入口；`retry=false` 下 FAILED 后只能手动 refetch；
+  3. 旧内容在 STALE/REBUILDING 展示有 banner，但失败期间旧内容是否展示由 `hasContent`（仅 ready/stale）决定；需真实页面证明失败不伪装最新。
+- CP1 计划：外部真实 Tauri 驱动阅读、断连/读取失败、手动重试、恢复与跨作品切换；记录网络/状态/持久事实，证明无权威正文/采纳状态变更；若需服务端版本能力，先登记设计缺口，不在本项预建 projection job。
