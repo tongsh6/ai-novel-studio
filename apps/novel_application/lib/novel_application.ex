@@ -246,6 +246,7 @@ defmodule NovelApplication do
     %{
       roster: &NovelPersistence.WorkArchiveRepo.characters/1,
       chapter_index: &NovelPersistence.LedgerRepository.chapter_index/1,
+      summaries: &NovelPersistence.LedgerRepository.accepted_summaries_by_seq/1,
       profile: &NovelPersistence.WorkArchiveRepo.profile/1,
       # CP2b 节拍端口：达到章数节拍时全量对账并物化报告（TENTATIVE 作者裁决）。
       reconcile: fn work_id, current_seq ->

@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B67 | CP0 done；CP1 partial：arc/conflict 旧章不回退+历史出处幂等；删除最新出场/旧贡献重算、持久版本原子性、页面矩阵待做 | [原任务](slices/B67-revision-aware-ledger-maintenance.md) |
+| B67 | CP0 done；CP1 partial：旧章不回退 + 当前摘要出场重算已做（仍出现对象）；完全无当前出现/冲突账重算、持久版本、页面矩阵待做 | [原任务](slices/B67-revision-aware-ledger-maintenance.md) |
 
 ## 后续候选
 

@@ -39,6 +39,8 @@ defmodule NovelApplication.LedgerMaintenance do
           optional(:profile) => (String.t() -> map()),
           # VS-00F CP2b 节拍端口：达到章数节拍时全量对账并物化报告（失败容忍由端口内部承担）。
           optional(:reconcile) => (String.t(), non_neg_integer() -> term()),
+          # B67：当前已采纳摘要按章序读端口；旧章回改/旧贡献失效后重算最近出场。
+          optional(:summaries) => (String.t() -> [{non_neg_integer(), String.t()}]),
           required(:repo) => %{
             required(:list) => (String.t() -> [map()]),
             required(:upsert) => (map() -> {:ok, map()} | {:error, term()})
@@ -72,6 +74,9 @@ defmodule NovelApplication.LedgerMaintenance do
           record_sighting(deps.repo, work_id, character, chapter_id, current, text, summary_ref)
         end)
 
+      # B67：旧章回改/旧贡献失效 → 从当前已采纳摘要重算最近出场。
+      recomputed_count = recompute_arc_sightings(deps, work_id, index)
+
       # 停滞窗口锚定本次采纳章的 seq（写作进度），不是章索引最大 seq——索引里
       # 含未写的计划章，用它会把窗口提前拉爆（增量规划先扩章、后逐章写的形态）。
       stalled_count = recompute_stalls(deps.repo, work_id, index, current.seq)
@@ -101,6 +106,7 @@ defmodule NovelApplication.LedgerMaintenance do
         chapter_id: chapter_id,
         ledger: "arc",
         sighted: sighted_count,
+        recomputed: recomputed_count,
         stalled: stalled_count,
         leaked: leaked_count,
         emotion: emotion_status,
@@ -110,6 +116,7 @@ defmodule NovelApplication.LedgerMaintenance do
       {:ok,
        %{
          sighted: sighted_count,
+         recomputed: recomputed_count,
          stalled: stalled_count,
          leaked: leaked_count,
          emotion: emotion_status
@@ -270,6 +277,74 @@ defmodule NovelApplication.LedgerMaintenance do
 
   defp hydrate_emotion_seq(payload, _stored, _ledger, _chapter_index, changed?),
     do: {payload, changed?}
+
+  # B67：用当前已采纳摘要重算弧光 last_seen；只在对象仍于当前事实中出现时把
+  # 进度降级到真实最大出现章。完全无出现的对象暂保持历史（known-gap，需契约
+  # 裁决 RETIRED/STALLED 语义），不静默删除历史或凭空造新出处。
+  defp recompute_arc_sightings(deps, work_id, index) do
+    case deps[:summaries] do
+      summaries when is_function(summaries, 1) ->
+        summaries_by_seq = summaries.(work_id)
+        seq_to_ref = seq_to_chapter_ref(index)
+
+        deps.repo.list.(work_id)
+        |> Enum.filter(&(&1.ledger == "arc"))
+        |> Enum.map(fn entry ->
+          recompute_arc_entry(deps.repo, entry, summaries_by_seq, seq_to_ref)
+        end)
+        |> Enum.count(& &1)
+
+      _ ->
+        0
+    end
+  rescue
+    _ -> 0
+  end
+
+  defp recompute_arc_entry(repo, entry, summaries_by_seq, seq_to_ref) do
+    last_seen_seq = Map.get(entry.payload, "last_seen_seq")
+    label = Map.get(entry, :subject_label) || Map.get(entry, "subject_label")
+
+    with true <- is_integer(last_seen_seq),
+         true <- is_binary(label) and String.length(label) >= 2,
+         [_ | _] = occurrences <- entry_occurrences(summaries_by_seq, label) do
+      {max_seq, note} = Enum.max_by(occurrences, fn {seq, _} -> seq end)
+
+      if max_seq < last_seen_seq do
+        persist_recomputed_arc(repo, entry, max_seq, note, seq_to_ref)
+      else
+        false
+      end
+    else
+      _ -> false
+    end
+  end
+
+  defp entry_occurrences(summaries_by_seq, label) do
+    summaries_by_seq
+    |> Enum.filter(fn {_seq, text} -> String.contains?(extraction_text(text), label) end)
+    |> Enum.map(fn {seq, text} -> {seq, presence_note(extraction_text(text))} end)
+  end
+
+  defp persist_recomputed_arc(repo, entry, max_seq, note, seq_to_ref) do
+    payload =
+      entry.payload
+      |> Map.put("last_seen_seq", max_seq)
+      |> Map.put(
+        "last_seen_chapter",
+        Map.get(seq_to_ref, max_seq, entry.payload["last_seen_chapter"])
+      )
+      |> then(fn p -> if note in [nil, ""], do: p, else: Map.put(p, "presence_note", note) end)
+
+    updated = %{entry | payload: payload, revision: entry.revision + 1}
+    match?({:ok, _}, repo.upsert.(updated))
+  end
+
+  defp seq_to_chapter_ref(index) do
+    index
+    |> Enum.flat_map(fn {ref, %{seq: seq}} -> if is_integer(seq), do: [{seq, ref}], else: [] end)
+    |> Map.new()
+  end
 
   defp recompute_stalls(repo, work_id, chapter_index, current_seq) do
     threshold =

@@ -33,12 +33,14 @@ defmodule NovelApplication.LedgerMaintenanceTest do
     }
   end
 
-  defp deps(agent) do
-    %{
+  defp deps(agent, summaries \\ nil) do
+    base = %{
       roster: fn _work_id -> roster() end,
       chapter_index: fn _work_id -> chapter_index() end,
       repo: fake_repo(agent)
     }
+
+    if summaries, do: Map.put(base, :summaries, summaries), else: base
   end
 
   defp summary_with_characters(text) do
@@ -90,6 +92,45 @@ defmodule NovelApplication.LedgerMaintenanceTest do
     entries = Agent.get(agent, & &1)
     assert entries["char-ly"].status == "STALLED"
     assert entries["char-lh"].status == "ON_TRACK"
+  end
+
+  test "B67：旧章修订移除最新出场后按当前摘要重算，进度降回真实最大出现章" do
+    {:ok, agent} = Agent.start_link(fn -> %{} end)
+
+    # 第 10 章初版：凌渊出场 → last_seen=10
+    assert {:ok, _} =
+             LedgerMaintenance.run(
+               %{
+                 work_id: "w",
+                 chapter_id: "ch-10",
+                 summary_text: summary_with_characters("凌渊出场。")
+               },
+               deps(agent)
+             )
+
+    # 第 10 章修订后当前摘要不再有凌渊；第 3 章仍有凌渊出场。
+    summaries = fn _work_id ->
+      [
+        {3, summary_with_characters("凌渊在第3章出场。")},
+        {10, summary_with_characters("林浩独自行动。")}
+      ]
+    end
+
+    assert {:ok, %{recomputed: 1, stalled: 0}} =
+             LedgerMaintenance.run(
+               %{
+                 work_id: "w",
+                 chapter_id: "ch-10",
+                 summary_text: summary_with_characters("林浩独自行动。")
+               },
+               deps(agent, summaries)
+             )
+
+    entry = Agent.get(agent, & &1)["char-ly"]
+    assert entry.payload["last_seen_seq"] == 3
+    assert entry.payload["last_seen_chapter"] == "ch-3"
+    assert entry.payload["presence_note"] =~ "凌渊在第3章出场"
+    assert entry.status == "ON_TRACK"
   end
 
   test "缺人物栏降级情节栏提炼；整段无栏降级全文" do
