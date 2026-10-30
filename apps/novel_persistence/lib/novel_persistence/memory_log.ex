@@ -54,8 +54,18 @@ defmodule NovelPersistence.MemoryLog do
           {:ok, map()} | {:error, :cursor_not_found}
   def transcript_page(session_id, opts \\ []) when is_binary(session_id) and is_list(opts) do
     page_limit = opts |> Keyword.get(:limit, 30) |> normalize_limit()
+
+    case Keyword.get(opts, :around_turn_id) do
+      turn_id when is_binary(turn_id) and turn_id != "" ->
+        transcript_around_page(session_id, turn_id, page_limit)
+
+      _ ->
+        transcript_before_page(session_id, page_limit, Keyword.get(opts, :before_id))
+    end
+  end
+
+  defp transcript_before_page(session_id, page_limit, before_id) do
     fetch_size = page_limit + 1
-    before_id = Keyword.get(opts, :before_id)
 
     with {:ok, query} <- transcript_page_query(session_id, before_id) do
       rows =
@@ -76,6 +86,8 @@ defmodule NovelPersistence.MemoryLog do
          limit: page_limit,
          returned_count: length(entries),
          has_more_before: length(rows) > page_limit,
+         has_more_after: false,
+         around_turn_id: nil,
          before_id: entries |> List.first() |> interaction_id(),
          after_id: entries |> List.last() |> interaction_id()
        }}
@@ -119,6 +131,68 @@ defmodule NovelPersistence.MemoryLog do
   end
 
   defp canonical_adoption_entry(entry), do: entry
+
+  # AU03-SEARCH：围绕命中 turn 的只读定位页。先定位目标 interaction，再取前后窗口；
+  # 不改变既有分页语义（by before_id）也不写任何状态。
+  defp transcript_around_page(session_id, turn_id, page_limit) do
+    base = Interaction |> where([i], i.session_id == ^session_id)
+
+    target =
+      base
+      |> where([i], i.turn_id == ^turn_id)
+      |> order_by([i], asc: i.inserted_at, asc: i.id)
+      |> limit(1)
+      |> Repo.one()
+
+    if is_nil(target) do
+      {:error, :turn_not_found}
+    else
+      before_limit = div(page_limit, 2)
+      after_limit = max(page_limit - before_limit - 1, 0)
+
+      before_rows =
+        base
+        |> where(
+          [i],
+          i.inserted_at < ^target.inserted_at or
+            (i.inserted_at == ^target.inserted_at and i.id < ^target.id)
+        )
+        |> order_by([i], desc: i.inserted_at, desc: i.id)
+        |> limit(^before_limit + 1)
+        |> Repo.all()
+
+      after_rows =
+        base
+        |> where(
+          [i],
+          i.inserted_at > ^target.inserted_at or
+            (i.inserted_at == ^target.inserted_at and i.id > ^target.id)
+        )
+        |> order_by([i], asc: i.inserted_at, asc: i.id)
+        |> limit(^after_limit + 1)
+        |> Repo.all()
+
+      entries =
+        before_rows
+        |> Enum.take(before_limit)
+        |> Enum.reverse()
+        |> Kernel.++([target])
+        |> Kernel.++(Enum.take(after_rows, after_limit))
+        |> Enum.map(&canonical_interaction/1)
+
+      {:ok,
+       %{
+         entries: entries,
+         limit: page_limit,
+         returned_count: length(entries),
+         has_more_before: length(before_rows) > before_limit,
+         has_more_after: length(after_rows) > after_limit,
+         around_turn_id: turn_id,
+         before_id: entries |> List.first() |> interaction_id(),
+         after_id: entries |> List.last() |> interaction_id()
+       }}
+    end
+  end
 
   defp transcript_page_query(session_id, nil) do
     {:ok, where(Interaction, [i], i.session_id == ^session_id)}

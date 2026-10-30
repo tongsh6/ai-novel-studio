@@ -140,6 +140,9 @@ defmodule NovelApplication.WorkSessionService do
 
       {:error, :cursor_not_found} ->
         {:error, :cursor_not_found}
+
+      {:error, :turn_not_found} ->
+        {:error, :turn_not_found}
     end
   end
 
@@ -300,6 +303,8 @@ defmodule NovelApplication.WorkSessionService do
       limit: page.limit,
       returned_count: page.returned_count,
       has_more_before: page.has_more_before,
+      has_more_after: Map.get(page, :has_more_after, false),
+      around_turn_id: Map.get(page, :around_turn_id),
       before_id: page.before_id,
       after_id: page.after_id
     }

@@ -80,6 +80,47 @@ defmodule NovelWeb.WorkSessionsControllerTest do
     assert is_binary(body["transcript_page"]["before_id"])
   end
 
+  test "GET transcript around_turn_id 返回包含目标 turn 的定位页", %{conn: conn, work: work} do
+    {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+    for index <- 1..35 do
+      {:ok, _} =
+        MemoryLog.record(%{
+          workspace_id: work.id,
+          session_id: session.id,
+          turn_id: "turn-around-#{index}",
+          role: "user",
+          content: %{text: "第#{index}句"}
+        })
+    end
+
+    conn =
+      get(conn, "/api/works/#{work.id}/sessions/#{session.id}/transcript", %{
+        "around_turn_id" => "turn-around-18"
+      })
+
+    body = json_response(conn, 200)
+    texts = Enum.map(body["transcript"], & &1["text"])
+
+    assert "第18句" in texts
+    assert body["transcript_page"]["around_turn_id"] == "turn-around-18"
+    assert body["transcript_page"]["has_more_before"] == true
+    assert body["transcript_page"]["has_more_after"] == true
+    assert length(body["transcript"]) == 30
+    assert List.last(texts) == "第32句"
+  end
+
+  test "GET transcript around_turn_id 未知 turn 返回 404", %{conn: conn, work: work} do
+    {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+    conn =
+      get(conn, "/api/works/#{work.id}/sessions/#{session.id}/transcript", %{
+        "around_turn_id" => "turn-missing"
+      })
+
+    assert json_response(conn, 404)["error"] == "turn_not_found"
+  end
+
   test "GET /api/works/:work_id/sessions searches sessions", %{conn: conn, work: work} do
     {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "第三章节奏"})
 

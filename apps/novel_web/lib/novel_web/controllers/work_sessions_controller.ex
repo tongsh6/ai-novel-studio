@@ -112,6 +112,7 @@ defmodule NovelWeb.WorkSessionsController do
     opts =
       [
         before_id: Map.get(params, "before_id"),
+        around_turn_id: Map.get(params, "around_turn_id"),
         limit: Map.get(params, "limit")
       ]
       |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
@@ -129,7 +130,8 @@ defmodule NovelWeb.WorkSessionsController do
 
         json(conn, serialize_transcript_page_snapshot(snapshot))
 
-      {:error, reason} when reason in [:work_not_found, :session_not_found, :cursor_not_found] ->
+      {:error, reason}
+      when reason in [:work_not_found, :session_not_found, :cursor_not_found, :turn_not_found] ->
         LogEmit.emit(:work_session, :transcript_page, :error, %{
           duration_ms: System.monotonic_time(:millisecond) - t0,
           work_id: work_id,
@@ -283,6 +285,8 @@ defmodule NovelWeb.WorkSessionsController do
       limit: page.limit,
       returned_count: page.returned_count,
       has_more_before: page.has_more_before,
+      has_more_after: Map.get(page, :has_more_after, false),
+      around_turn_id: Map.get(page, :around_turn_id),
       before_id: page.before_id,
       after_id: page.after_id
     }

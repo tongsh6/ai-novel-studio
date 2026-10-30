@@ -1312,3 +1312,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **AU03-SEARCH CP0**：核对现有 session search 仅返回列表、无 turn 命中/定位；冻结 search_hits（work/session/turn/role/snippet，限量、无全文平台）+ transcript around_turn_id + 只读高亮设计；CP1 实施待做，未改代码。
 
 - 2026-10-31 — **AU03-SEARCH CP1 partial**：新增 work-scoped `search_hits`（turn/role/snippet，limit 50，work 隔离）+ service/API/路由；service/controller 测试，全量 backend 1057/0。around_turn 定位、前端只读高亮与 Tauri 页面证据待做；未建全文平台。
+
+- 2026-10-31 — **AU03-SEARCH CP1 around**：`transcript_page` 支持 `around_turn_id` 定位页（前后窗口、has_more_after、未知 turn 404），controller/参数/序列化接线；controller 测试覆盖 turn-18 与未知 turn；backend 1057/0。前端命中列表/只读高亮与 Tauri 证据待做。
