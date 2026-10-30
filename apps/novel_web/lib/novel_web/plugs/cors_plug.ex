@@ -15,6 +15,8 @@ defmodule NovelWeb.Plugs.CORSPlug do
 
   import Plug.Conn
 
+  alias NovelWeb.OriginPolicy
+
   @allow_methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
   @allow_headers "content-type, authorization"
 
@@ -51,18 +53,6 @@ defmodule NovelWeb.Plugs.CORSPlug do
 
   defp allowed_origin(_headers), do: nil
 
-  # Tauri webview 与本机来源白名单。localhost/127.0.0.1 允许任意端口（覆盖
-  # 浏览器调试与 Vite dev），其余一律不放行。
-  defp allowed?("tauri://localhost"), do: true
-
-  defp allowed?(origin) do
-    String.starts_with?(origin, [
-      "http://tauri.localhost",
-      "https://tauri.localhost",
-      "http://localhost",
-      "https://localhost",
-      "http://127.0.0.1",
-      "https://127.0.0.1"
-    ])
-  end
+  # B65：精确来源判定唯一由 OriginPolicy 负责（禁止前缀匹配）。
+  defp allowed?(origin), do: OriginPolicy.allowed_origin?(origin)
 end

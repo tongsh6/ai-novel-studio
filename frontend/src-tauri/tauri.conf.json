@@ -5,7 +5,7 @@
   "identifier": "com.ai-novel-studio.app",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://127.0.0.1:5769",
+    "devUrl": "http://127.0.0.1:5768",
     "beforeDevCommand": "bash ../scripts/before-tauri-dev.sh",
     "beforeBuildCommand": "pnpm build"
   },

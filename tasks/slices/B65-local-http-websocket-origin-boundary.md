@@ -1,6 +1,6 @@
 # B65：本地 HTTP / WebSocket 来源边界
 
-- 状态：**todo（2026-10-30 登记；可从 CP0 实际来源/部署矩阵核对开始，尚未修改产品或运行连接验收）**。
+- 状态：**doing（2026-10-31 CP0/CP1 完成，CP2 HTTP/配置矩阵完成、WS 握手待补；CP3 外部真实页面/隔离来源待做）**。
 - 类型：Desktop Boundary / Security / Acceptance Slice。
 - 来源：阶段 1 的本机桌面通信边界与本次设计→代码对账；独立于 [B57](B57-sec-injection-boundary.md) 的提示注入防线和 [B58](B58-human-approval-policy-unification.md) 的作者批准语义。
 
@@ -30,12 +30,35 @@
 
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
-| CP0 | 核对真实 Tauri 各平台来源、dev/stage/release 最终配置及本地调用者；冻结 scheme/host/port、无 Origin/null/错误形状和 HTTP/WS 拒绝语义，预注册正反例与驱动；区分来源修复和新增鉴权 | todo |
-| CP1 | 依据 CP0 修复精确来源判定与配置接线；同源策略或有依据的平台差异只有一个 owner；合法 loopback/Tauri 路径兼容，后缀伪装不被视为本机 | 未开工 |
-| CP2 | 补 HTTP OPTIONS/实际请求、WS 握手/连接、配置覆盖、缺失/畸形来源与合法客户端矩阵；证据明确服务端拒绝、浏览器阻止和仅无 CORS 头的不同后果 | 未开工 |
+| CP0 | 核对真实 Tauri 各平台来源、dev/stage/release 最终配置及本地调用者；冻结 scheme/host/port、无 Origin/null/错误形状和 HTTP/WS 拒绝语义，预注册正反例与驱动；区分来源修复和新增鉴权 | **done（2026-10-31，§6）**：冻结 Tauri 三来源 + dev 5768/隔离验收 5769 精确端口；发现并修正 tauri devUrl 5769 vs Vite 5768 不一致；禁止前缀匹配；Origin≠认证 |
+| CP1 | 依据 CP0 修复精确来源判定与配置接线；同源策略或有依据的平台差异只有一个 owner；合法 loopback/Tauri 路径兼容，后缀伪装不被视为本机 | **done（2026-10-31，§6）**：新增 `NovelWeb.OriginPolicy` 唯一 owner；CORSPlug 委托精确判定；dev/prod/runtime 三处 `check_origin` 从 false 改为 policy MFA；devUrl/端口单一化 |
+| CP2 | 补 HTTP OPTIONS/实际请求、WS 握手/连接、配置覆盖、缺失/畸形来源与合法客户端矩阵；证据明确服务端拒绝、浏览器阻止和仅无 CORS 头的不同后果 | **partial（2026-10-31，§6）**：HTTP 端点 GET/OPTIONS、合法/伪本机/null/错误端口、配置覆盖矩阵通过；WS 真实握手（非信任 Origin 403/无业务副作用）待 CP3 外部 probe |
 | CP3 | 外部真实 Tauri 设置/创作正常，隔离非信任来源请求按冻结策略被拒且无业务副作用；恢复/重连回归与文档/配置同步，保留失败证据 | 未开工 |
 
 CP1/CP2 只能证明局部边界；完整 slice 要有真实客户端与最终运行配置证据。不能用 HTTP 通过替代 WS、用 dev 通过替代 release，或用 loopback 地址替代来源/身份判断。
+
+## 6. CP0/CP1/CP2 记录（2026-10-31）
+
+### 6.1 真实来源与配置核对（CP0）
+
+- Tauri 打包来源：`tauri://localhost`（macOS/Linux 自定义协议）、`http://tauri.localhost` / `https://tauri.localhost`（Windows）；来自 `docs/design/tech-stack/11-deployment.md` 与 Tauri 2 约定。
+- 开发来源：`frontend/.env` 单一来源为 `VITE_DEV_PORT=5768`；`scripts/dev.sh`/Vite 默认 5768；但 `frontend/src-tauri/tauri.conf.json` 的 `devUrl` 曾硬编码 5769、`before-tauri-dev.sh` fallback 5769，与 `.env`/Vite 不一致。已在 CP1 统一为 5768（tauri.conf/beforeDev 同步），隔离验收 `tauri_slice_verify.sh` 仍用 5769 并允许其作为精确 dev/test 来源。
+- 配置现状：`config/dev.exs`/`config/prod.exs` 原 `check_origin: false`，`config/runtime.exs` 未覆盖 Origin 策略；`UserSocket.connect` 不自行校验。CP1 三处统一改为 `{NovelWeb.OriginPolicy, :allowed_uri?, []}`，无第二 owner。
+- 本地调用者：Tauri webview（HTTP fetch/WS）、Vite dev 浏览器调试、隔离验收 driver；stage/release 仍只监听 127.0.0.1，不扩大远程监听。
+- 冻结拒绝语义：Origin 精确匹配允许列表才回 CORS 头/接受 WS；无 Origin 的本地非浏览器客户端不因 CORS 被拒（CORS 只服务浏览器跨源），WS 无 Origin 仍由 Phoenix 默认语义处理；null/畸形/后缀伪装/错误端口一律不信任。Origin/CORS **不是身份认证**，不替代作品/会话/adoption 门禁；不新增设备令牌或远程鉴权。
+
+### 6.2 CP1 实现
+
+- `apps/novel_web/lib/novel_web/origin_policy.ex`（新增）：`trusted_origins/0`、`allowed_origin?/1`（CORS header 字符串精确匹配）、`allowed_uri?/1`（Phoenix socket `check_origin` MFA，URI→精确字符串）。
+- `CORSPlug` 改为委托 `OriginPolicy`，删除 `String.starts_with?` 前缀匹配；非允许来源不加 CORS 头、不 halt；允许的 OPTIONS 仍 204。
+- `config/dev.exs`/`config/prod.exs`/`config/runtime.exs` 的 `check_origin: false` → `{NovelWeb.OriginPolicy, :allowed_uri?, []}`；`tauri.conf.json` devUrl、`before-tauri-dev.sh` 统一 5768。
+
+### 6.3 CP2 HTTP/配置矩阵（WS 待补）
+
+- `origin_policy_test.exs`：合法 Tauri 三来源 + dev 5768/5769；拒绝后缀伪装（localhost.example.invalid 等）、错误 scheme/端口、null、路径、非字符串。
+- `cors_plug_test.exs`：允许来源回显/OPTIONS 204；错误端口/前缀伪装/null 无 CORS 头且不 halt；无 Origin no-op。
+- `cors_endpoint_test.exs`：真实 endpoint pipeline `/health` GET 合法/伪本机/null/错误端口；允许 OPTIONS 204；dev/prod/runtime 三配置断言 policy MFA 且不再 false。
+- 未覆盖：真实 WS handshake（非信任 Origin 应被拒绝、合法 Tauri/dev Origin 可通过）需外部 probe；CP3 与真实 Tauri 页面一起做，不能用 HTTP 通过替代 WS。
 
 ## 4. 依赖与不授权范围
 

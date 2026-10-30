@@ -95,5 +95,5 @@ config :novel_web, NovelWeb.Endpoint,
   secret_key_base: System.get_env("SECRET_KEY_BASE", "stage_secret_replace_in_deploy_via_env"),
   debug_errors: false,
   code_reloader: false,
-  check_origin: false,
+  check_origin: {NovelWeb.OriginPolicy, :allowed_uri?, []},
   server: true

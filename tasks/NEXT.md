@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B65 | CP0 核对 dev/stage/release 的 HTTP/WS 来源矩阵；修正伪本机前缀风险，鉴权范围另冻结 | [原任务](slices/B65-local-http-websocket-origin-boundary.md) |
+| B65 | CP0/CP1 done；CP2 HTTP/配置矩阵完成、WS 真实握手待补；CP3 外部真实 Tauri 正常链 + 隔离非信任来源拒绝/零副作用待做 | [原任务](slices/B65-local-http-websocket-origin-boundary.md) |
 
 ## 后续候选
 

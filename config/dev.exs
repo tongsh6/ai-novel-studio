@@ -96,4 +96,4 @@ config :novel_web, NovelWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: System.get_env("PHOENIX_PORT", "4657") |> String.to_integer()],
   debug_errors: true,
   code_reloader: false,
-  check_origin: false
+  check_origin: {NovelWeb.OriginPolicy, :allowed_uri?, []}

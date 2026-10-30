@@ -66,5 +66,6 @@ if config_env() == :prod and System.get_env("RELEASE_NAME") do
     http: [ip: {127, 0, 0, 1}, port: port],
     url: [host: "localhost", port: port],
     secret_key_base: secret_key_base,
+    check_origin: {NovelWeb.OriginPolicy, :allowed_uri?, []},
     server: System.get_env("PHX_SERVER", "true") != "false"
 end
