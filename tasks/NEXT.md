@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B42-PREP | 按原任务准备入口核对真实来源、能力缺口与验收前置；不预建无消费者结构 | [原任务](slices/B42-prompt-context-observability.md) |
+| B42-PREP | 准备 AU-15 setup/测量分账、预注册与 driver/verifier；真实运行仍待 B39 接线和资源窗口 | [原任务小节](slices/B42-model-behavior-evidence-tier.md#101-au-15-预注册与-driver-准备) |
 
 ## 后续候选
 
