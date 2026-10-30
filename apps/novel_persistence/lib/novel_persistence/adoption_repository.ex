@@ -1605,14 +1605,30 @@ defmodule NovelPersistence.AdoptionRepository do
       # C07=A：fetch/整体 fingerprint 校验/条件更新在同一事务内完成；竞争更新由
       # updated_at 条件更新拒绝（0 行 → stale_base），不做 fetch 后无条件写。
       Repo.transaction(fn ->
-        with {:ok, character} <- fetch_character_for_revision(work_uuid, character_ref),
-             {:ok, receipt} <-
-               apply_character_revision(character, new_role, expected_fingerprint, opts) do
-          receipt
-        else
-          {:error, reason} -> Repo.rollback(reason)
-        end
+        revise_character_in_transaction(
+          work_uuid,
+          character_ref,
+          expected_fingerprint,
+          new_role,
+          opts
+        )
       end)
+    end
+  end
+
+  defp revise_character_in_transaction(
+         work_uuid,
+         character_ref,
+         expected_fingerprint,
+         new_role,
+         opts
+       ) do
+    with {:ok, character} <- fetch_character_for_revision(work_uuid, character_ref),
+         {:ok, receipt} <-
+           apply_character_revision(character, new_role, expected_fingerprint, opts) do
+      receipt
+    else
+      {:error, reason} -> Repo.rollback(reason)
     end
   end
 

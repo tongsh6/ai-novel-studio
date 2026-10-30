@@ -305,7 +305,9 @@ C07 只承接 §10 第6项，不因它完成而关闭 StateTrace、legacy、memo
 ### 10.5 C07 CP0–CP2 门禁（2026-10-31）
 
 - 后端聚焦：`b29_character_revision_test.exs` 6/0、`b47_canon_freshness_adoption_test.exs` + `b29_character_revision_adoption_test.exs` 17/0。
-- 全量 `mix test`：**1040 tests / 0 failures**（application）+ 各 app 全绿；format/compile 通过。CP3 页面矩阵仍 todo。
+- 全量 `mix test`：**1040 tests / 0 failures**（application）+ 各 app 全绿；format/compile 通过；`credo --strict` 对新增函数嵌套提示已重构为事务 helper 后 0 issues；xref/arch/I1–I3/quality manifest 通过。
+- 门禁残余：`task_done` UI evidence gate 仍因 native B30 复跑在 `workbench_ready` AX 等待超时（本次及此前同因 ≥2 次，非代码失败；app/backend 侧无对应产品异常证据），无晚于本次改动的 native surface summary；确定性真实 Tauri（Playwright）B64 summary 的 surface=browser，不被 task_done 接受。未改门禁规则、未用 browser 证据冒充 native。静态扫描本轮仅 gitleaks 历史处置 + manifest stale 项，0 findings in touched files。
+- CP3 页面矩阵仍 todo。
 
 ## 11. CP3 执行记录与交接清单（2026-10-29，Lead 已执行）
 

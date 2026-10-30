@@ -39,7 +39,7 @@
 | CP0 | 旧报告/动作语义盘点、标准 PyYAML、真实观察与 trap 数据形状、失败测试 | **done**：系统 `python3` 缺 PyYAML，使用 `artifacts/b73-tooling/venv` 隔离安装项目指定 6.0.3，不改全局环境；`author_behavior_observation.mjs` 分开 TENTATIVE/canon/hash/ref/trap 证据，负例先行后接实现。 |
 | CP1 | P0：17/17 回放、F2/F3 execute、TENTATIVE/canon/hash/ref、10 traps、HO3、当前 HEAD verdict | **done（证据分层见下）**：断点前 17-case 与 execute 链路证据齐全；当前 HEAD 的 negative/actions 两个新场景 verdict pass。17-case 旧批次不冒充当前 HEAD 全量 verdict。 |
 | CP2 | P1：同名/多候选/stale/跨作品/读取失败、多轮动作与恢复、seeded 行动模型 | **done**：当前 HEAD 的 actions/read-failure 两个独立场景 verdict pass；seeded v2 逐步行动与转移覆盖；另有 seed 42 变体证据。 |
-| CP3 | 影响面复验、标准门禁、I1/I2/I3、静态扫描闭环与最终边界 | **in_progress**：manifest 与 driver 静态检查已过；其余后端/前端/不变量/静态扫描结果待本 CP 收尾后登记。 |
+| CP3 | 影响面复验、标准门禁、I1/I2/I3、静态扫描闭环与最终边界 | **in_progress**：后端/前端/不变量/局部与场景验证已完成；最终静态扫描 18/21 pass，Credo 已恢复，剩余他人 B30 native 证据过期阻断与 4 条历史 gitleaks 处置；全量 format 另有 23 个非本任务文件失败，Tauri DMG 为 dev warning，未宣称全绿。 |
 
 ### 3.1 P0 链路与 execute 证据（断点前批次，非当前 HEAD verdict）
 
@@ -89,7 +89,12 @@
 - 已通过：`PATH=artifacts/b73-tooling/venv/bin:$PATH bash scripts/quality_manifest_check.sh`（218 scenarios / 2 drafts / 220 manifests，PyYAML 6.0.3；B64 缺 manifest 的既有 warning 不属于本任务）。
 - 已通过：`node --check frontend/slice-verify/author-behavior-corpus.mjs`、`cd frontend && pnpm exec eslint slice-verify/author-behavior-corpus.mjs`、`bash -n scripts/slice_verify.sh`、`node scripts/author_behavior_check.mjs --json`。
 - 已通过上述三个真实页面场景及其 B41 verdict。
-- 后端/前端标准门禁、I1/I2/I3、format/lint/manifest/next_task_check 和 `ai_static_scan` 的完整结果将在 CP3 执行后追加；未执行前不声称全绿。
+- 后端：`mix format --check-formatted`、`mix compile --warnings-as-errors`、`mix credo --strict`、xref cycles、`scripts/arch_check.exs` 均通过；全量 `mix test` **2396 tests / 0 failures**。
+- 前端：`pnpm typecheck`、`pnpm lint`、`pnpm test`（43 files / **636 tests**）通过；`frontend_audit.sh` 为 26 pass / 2 warn（本机 DMG bundle 失败，脚本按 dev warning 返回 0），`check_design_trace.sh` 19/19 通过。
+- 局部与不变量：author-behavior **47/47** node:test；I3 3/3、I1 4/4、I2 3 pairs 全 pass；`next_task_check` 最终通过。
+- 格式：`author-behavior-corpus.mjs` 与 `slice-verify/README.md` 的 Prettier/ESLint 通过；全量 `pnpm format:check` 仍有 **23 个非本任务文件**失败，未为求绿修改他人文件。
+- ub-mode：crapper/dryer/mutator 对当前 JS 变更分别报告 `No source files to analyze/mutate`，不将其写成 mutation 通过证明。
+- 静态扫描闭环：最终 `bash scripts/ai_static_scan.sh --top 10` 为 **18/21 pass**，Credo 已恢复通过；4 条 gitleaks 均为既有处置（B63 文档、E10 spec id、Pencil fileToken 为 false_positive，ProjectGod 历史项为 accepted_risk），另 1 条 `task-done-manifest` 为他人 B30 native 证据过期 pending，touched=0。未将这些问题登记为 B73 修复或豁免，CP3 保留 in_progress。
 
 ## 5. 剩余边界（不得隐藏）
 

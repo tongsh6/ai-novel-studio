@@ -1150,3 +1150,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B64 转 partial-blocked，队列切换到 B47-C07**：B64 CP3 确定性真实 Tauri 矩阵 PASS（`artifacts/slice-verify/b64-coordinate-memory-tauri/`，三 turn writer 事实窗口+Why 行，verifier passed）；真实模型一次预注册运行 `judgment_protocol_violation` 失败（只读、未重试、loaded=null），与 B39 AU15 A2-run2 同类判断协议失败，待作者/跨切面处理后复验。按保守路线不擅自扩到该跨切面修复；NEXT 当前任务切为 B47-C07（CP0–CP2 已完成，CP3 页面矩阵与角色持久层 §10.1 待做）。
 
 - 2026-10-31 — **B47-C07 CP0–CP2：角色持久层统一整体 fingerprint 与原子校验**：删除 `old_role` fallback，写入严格整体 fingerprint；fetch/校验/`updated_at` 条件更新进入同一事务，0 行→stale_base；已满足目标且 expected==current 记为 noop 回执（非同一请求重放），旧基线重放 stale；无 schema/migration/平行版本表。仓储 6/0（非目标字段过期、旧基线重放、no-op、并发单提交、跨作品/缺失/非法角色）、采纳链 17/0。CP3 真实页面未做。
+
+- 2026-10-31 — **B47-C07 CP0–CP2 门禁与残留**：全量 mix test 1040/0、credo/xref/arch/I1–I3/manifest 通过（credo 嵌套提示重构事务 helper 后清零）；task_done UI evidence 仍因 B30 native `workbench_ready` AX 超时（同因多次）缺晚于改动 native summary，browser B64 summary 不被接受；静态扫描 gitleaks 历史处置+manifest stale，0 findings in touched files。CP3 真实角色修订页面未做。
