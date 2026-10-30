@@ -15,6 +15,7 @@
 | `au02-candidate-continuation.mjs` | 候选续写的既有专用驱动。 |
 | `au10-micro-plan-entry.mjs` | micro plan 入口的既有专用驱动。 |
 | `au10-workbench-render-stability.mjs` | 工作台渲染稳定性驱动。 |
+| `author-behavior-corpus.mjs` | B70 CP1 数据驱动语料驱动：按冻结 corpus 切换合成状态作品、发送自然表达、采集隔离 DB 事实并调用 author-behavior oracle 判卷/覆盖报告。 |
 | `q1c-adopted-content-revision.mjs` | 已采纳内容修订驱动。 |
 | `q1c-adopted-content-revision-audit.mjs` | 修订证据审计。 |
 | `vs10-observability-spine.mjs` | 可观测链路驱动。 |

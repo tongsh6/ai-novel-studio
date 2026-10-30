@@ -211,7 +211,7 @@ EOF
         echo "[quality-accept] runner slice_verify requires surface=browser, got $scenario_surface" >&2
         exit 64
       fi
-      if ! bash "$PROJECT_ROOT/scripts/slice_verify.sh" "$scenario_id"; then
+      if ! SLICE_VERIFY_PROVIDER="$scenario_provider" bash "$PROJECT_ROOT/scripts/slice_verify.sh" "$scenario_id"; then
         echo "[quality-accept] failed: $scenario_id" >&2
         record_verdict fail "runner_failed" quality_accept_runner_failed || true
         echo "[quality-accept] inspect artifacts: $artifact_dir" >&2

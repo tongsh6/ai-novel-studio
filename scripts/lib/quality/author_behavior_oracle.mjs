@@ -151,14 +151,20 @@ export function evaluateCase(corpus, testCase, observation) {
   };
 }
 
-export function evaluateCorpus(corpus, observations) {
+export function evaluateCorpus(corpus, observations, options = {}) {
   const byCase = new Map(
     (Array.isArray(observations?.cases) ? observations.cases : Array.isArray(observations) ? observations : []).map(
       (entry) => [entry.case_id, entry],
     ),
   );
+  const selectedIds = Array.isArray(options.caseIds) && options.caseIds.length > 0
+    ? new Set(options.caseIds)
+    : null;
+  const selectedCases = (corpus.cases?.cases ?? []).filter(
+    (testCase) => selectedIds === null || selectedIds.has(testCase.id),
+  );
 
-  const results = (corpus.cases?.cases ?? []).map((testCase) => {
+  const results = selectedCases.map((testCase) => {
     const observation = byCase.get(testCase.id) ?? null;
     if (observation === null) {
       return {
@@ -205,6 +211,10 @@ export function buildCoverageReport(corpus, evaluation, runMeta = {}) {
     if (targetResults.length > 0 && targetResults.every((result) => result.status === "unknown")) {
       gaps.push(`target_all_unknown:${targetId}`);
     }
+  }
+  const evaluatedIds = new Set(results.map((result) => result.case_id));
+  for (const testCase of corpus.cases?.cases ?? []) {
+    if (!evaluatedIds.has(testCase.id)) gaps.push(`case_not_run:${testCase.id}`);
   }
   if ((corpus.cases?.cases ?? []).some((testCase) => testCase.split === "explore")) {
     gaps.push("explore_split_present_but_not_relaxed");

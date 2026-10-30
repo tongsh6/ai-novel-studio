@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B70 | CP0 已完成；CP1 进行中：oracle 评估器/覆盖报告/正反例已实现（17/17），尚缺数据驱动浏览器 spec + 确定性 fixture/seed + 场景注册与真实页面 verdict；下一步先落 spec/provider/seed 并用浏览器跑通 corpus 子集、生成覆盖报告，再收口 CP1 | [原任务](slices/B70-author-behavior-corpus-and-state-exploration.md) |
+| B70 | CP0–CP1 已完成（冻结格式 + 数据驱动浏览器闭环 6/6、oracle/覆盖报告/verdict、生成器正反例 20/20）；下一步 CP2：状态驱动探索（动作选择/随机种子/全局不变量/状态转移覆盖/失败轨迹与缩化），至少一个非固定操作顺序场景由外部真实页面闭环 | [原任务](slices/B70-author-behavior-corpus-and-state-exploration.md) |
 
 ## 后续候选
 

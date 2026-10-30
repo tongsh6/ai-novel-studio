@@ -88,13 +88,28 @@ echo "[slice-verify] slice: $SLICE_ID"
 echo "[slice-verify] artifacts: $ARTIFACT_DIR"
 
 cd "$PROJECT_ROOT"
+
+# B70 CP1：数据驱动语料场景使用隔离 DB + 合成状态 seed + 确定性语料替身。
+if [[ "$SLICE_ID" == "author-behavior-corpus" ]]; then
+  export NOVEL_TEST_DB_DIR="$ARTIFACT_DIR/database"
+  mkdir -p "$NOVEL_TEST_DB_DIR"
+  export AUTHOR_BEHAVIOR_CORPUS_JSON="$ARTIFACT_DIR/corpus.json"
+  export AUTHOR_BEHAVIOR_DB_PATH="$NOVEL_TEST_DB_DIR/ai_novel_studio_test.sqlite3"
+fi
+
 MIX_ENV=test mix ecto.create --quiet >/dev/null 2>&1 || true
 MIX_ENV=test mix ecto.migrate --quiet >/dev/null
+
+if [[ "$SLICE_ID" == "author-behavior-corpus" ]]; then
+  MIX_ENV=test mix run scripts/seed_author_behavior_states.exs >"$ARTIFACT_DIR/seed.log" 2>&1
+fi
 
 MIX_ENV=test \
   PHOENIX_TEST_PORT="$PHOENIX_PORT" \
   PHOENIX_PORT="$PHOENIX_PORT" \
   SLICE_VERIFY_APP_LOG_DIR="$ARTIFACT_DIR/app-log" \
+  SLICE_VERIFY_PROVIDER="${SLICE_VERIFY_PROVIDER:-slice_verify}" \
+  AUTHOR_BEHAVIOR_CORPUS_JSON="${AUTHOR_BEHAVIOR_CORPUS_JSON:-}" \
   mix run --no-start --no-halt scripts/slice_verify_server.exs >"$ARTIFACT_DIR/backend.log" 2>&1 &
 PHX_PID=$!
 wait_for_url "$API_URL/health" "Phoenix"
@@ -110,6 +125,9 @@ wait_for_url "$BASE_URL" "Vite"
 
 SLICE_VERIFY_BASE_URL="$BASE_URL" \
   SLICE_VERIFY_ARTIFACT_DIR="$ARTIFACT_DIR" \
+  AUTHOR_BEHAVIOR_CORPUS_JSON="${AUTHOR_BEHAVIOR_CORPUS_JSON:-}" \
+  AUTHOR_BEHAVIOR_DB_PATH="${AUTHOR_BEHAVIOR_DB_PATH:-}" \
+  AUTHOR_BEHAVIOR_CASE_IDS="${AUTHOR_BEHAVIOR_CASE_IDS:-}" \
   node "$SPEC_PATH"
 
 echo "[slice-verify] passed: $SLICE_ID"

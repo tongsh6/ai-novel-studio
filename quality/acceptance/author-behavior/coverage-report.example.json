@@ -1,23 +1,23 @@
 {
   "schema": "author-behavior-coverage-report/v1",
-  "generated_at": "2026-10-30T14:35:43.312Z",
+  "generated_at": "2026-10-30T14:58:50.776Z",
   "corpus": {
     "targets": 3,
     "states": 3,
-    "cases": 9,
+    "cases": 12,
     "splits": {
-      "dev": 4,
-      "regression": 2,
+      "dev": 6,
+      "regression": 3,
       "holdout": 3,
       "explore": 0
     },
-    "corpus_sha": "a0bc61a36f30083c13cb5606a34e01c03aee97fee3e19002f9991ec7d67ce613"
+    "corpus_sha": "148819831cd9bd1dabf31f8e3f94cff601012d2e3a69ab38af3e659868799c4c"
   },
   "coverage": {
     "targets": [
       {
         "target_id": "F1-progress-query",
-        "cases": 3,
+        "cases": 4,
         "states": [
           "S1-partial-multichapter",
           "S3-pending-candidate-context"
@@ -42,7 +42,7 @@
       },
       {
         "target_id": "F3-world-foreshadow-boundary",
-        "cases": 3,
+        "cases": 5,
         "states": [
           "S1-partial-multichapter",
           "S3-pending-candidate-context"

@@ -55,9 +55,19 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defstruct []
 
   @impl true
-  def complete(_state, _model, prompt, _params) do
+  def complete(state, model, prompt, params) do
     prompt_text = prompt_text(prompt)
 
+    case author_behavior_result(prompt_text) do
+      nil -> complete_core(state, model, prompt, params, prompt_text)
+      {:ok, result} -> {:ok, result}
+    end
+  end
+
+  # B70 CP1：corpus-aware 确定性分支（仅当 harness 设置 AUTHOR_BEHAVIOR_CORPUS_JSON）。
+  # 命中冻结表达时按 case 允许结果集合返回最小合法行为（reply/ask_author）；
+  # 不写产品事实，不改变其它 prompt 的既有替身路径。产品 runtime 不读取该 env。
+  defp complete_core(_state, _model, prompt, _params, prompt_text) do
     # D1 CP2：替身把收到的 prompt 落到 llm 日志目录（HTTP 层记录器在替身场景不落盘）——
     # 场景化验收由此获得 prompt 级外部证据（守则文案/阵容段是否真进 prompt）。
     # 仅 test/support 行为，产品零感知。
@@ -78,6 +88,56 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  @author_behavior_env "AUTHOR_BEHAVIOR_CORPUS_JSON"
+
+  defp author_behavior_result(prompt_text) do
+    with path when is_binary(path) and path != "" <- System.get_env(@author_behavior_env),
+         true <- judgment_prompt?(prompt_text),
+         cases when is_list(cases) and cases != [] <- author_behavior_cases(path),
+         %{"expected" => expected} <-
+           Enum.find(cases, fn entry -> String.contains?(prompt_text, entry["expression"]) end) do
+      allowed = Map.get(expected || %{}, "allowed_actions") || []
+
+      cond do
+        "reply" in allowed ->
+          {:ok, Result.new("（B70 确定性语料回放）已按当前作品事实处理，本轮不写作品事实。")}
+
+        "ask_author" in allowed ->
+          {:ok,
+           Result.new("需要作者补充目标信息后才能继续。", nil,
+             tool_calls: [
+               %{
+                 id: "tool-b70-ask-author",
+                 name: "ask_author",
+                 arguments: %{
+                   "question" => "请具体说明要处理的作品对象、章节与期望结果；我会按真实目标继续。",
+                   "options" => []
+                 }
+               }
+             ]
+           )}
+
+        true ->
+          nil
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  defp author_behavior_cases(path) do
+    case File.read(path) do
+      {:ok, raw} ->
+        case Jason.decode(raw) do
+          {:ok, %{"cases" => cases}} when is_list(cases) -> cases
+          _ -> []
+        end
+
+      _ ->
+        []
     end
   end
 

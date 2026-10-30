@@ -2,6 +2,8 @@
 
 本目录是 B70 的冻结验证资产：**少量人工作者目标模板 + 离线冻结语料 + 状态矩阵 + oracle + provenance/split + 覆盖报告格式**。它只服务产品外验证 harness，不注册产品 runtime，不改变生产 contract。
 
+设计语义、执行/判卷边界与 CP 验收要求见 [作者行为语料生成与状态探索验证设计](../../../docs/design/acceptance/author-behavior-corpus-and-state-exploration.md)；本 README 只索引运行资产，不另复制设计。
+
 ## 格式与文件
 
 | 文件 | schema | 作用 |
@@ -40,5 +42,5 @@
 ## 当前状态
 
 - CP0（2026-10-30 done）：格式、首批代表目标族/状态/负例与复用边界已冻结。
-- CP1（进行中）：确定性 oracle 评估器与 CLI `--evaluate`/覆盖报告已实现并有正反例测试（17/17 node:test），但尚无数据驱动浏览器 run/场景 PASS；不得以 oracle 单测代替页面闭环。
+- CP1（2026-10-30 done，确定性闭环）：数据驱动浏览器 spec 跑通 corpus 子集（6/6 pass、0 fail/unknown），`quality_accept` verdict pass，覆盖报告通过 schema；oracle/validator/生成器正反例 20/20 node:test。真实模型语义留 CP3，状态探索留 CP2。
 - 语料为合成样书，不含作者真实作品数据；生成模型默认不读取真实材料。

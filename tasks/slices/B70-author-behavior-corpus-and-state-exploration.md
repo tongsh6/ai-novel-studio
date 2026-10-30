@@ -1,7 +1,8 @@
 # B70：作者行为语料生成与状态探索验证体系
 
-- 状态：**doing（2026-10-30 CP0 done：目标模板/状态/冻结语料/oracle/provenance-split/覆盖报告格式与复用边界已冻结；CP1 最小数据驱动闭环待实现）**。
+- 状态：**doing（2026-10-30 CP0–CP1 done：格式冻结 + 数据驱动浏览器闭环（6/6 pass、确定性判卷、覆盖报告/verdict）；CP2 状态探索/CP3 覆盖分层待实现）**。
 - 类型：验证基础设施；仓内管理、运行时外挂、证据内生、判卷外部，不新增生产验收感知能力。
+- 设计真源：[作者行为语料生成与状态探索验证设计](../../docs/design/acceptance/author-behavior-corpus-and-state-exploration.md)；实现由其他实现者承接，本文只维护执行状态、证据与未闭环后果。
 - 来源：作者指出现有真实页面验收多为从历史日志提取的固定输入与操作剧本，覆盖过窄；独立开发阶段不能依赖持续人工创作生产语料。作者确认采用“少量人工目标模板 + 离线生成与冻结 + 自动状态探索 + 失败驱动回归”的方向，并同意先登记任务再开始 CP0。
 - 关联：[B27](B27-systematic-prompt-and-intent-integration.md) 自然语言语义与 20 例案例、[B34](B34-author-intent-corpus-validation.md) 历史语料与覆盖矩阵、[B37](B37-acceptance-wait-supervision.md) 外部运行监督、[B40](B40-judgment-era-acceptance-reanchor.md) 场景重锚、[B41](B41-quality-evidence-foundation.md) manifest/verdict、[B42](B42-model-behavior-evidence-tier.md) 机制/模型行为证据分层。
 
@@ -64,7 +65,7 @@
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
 | CP0 | 盘点 B27/B34、现有 UI driver、dogfood/native runner、B41/B42 的可复用边界；冻结目标模板、案例、oracle、provenance/split、覆盖报告格式与执行分层；确定首批代表场景和负例 | **done（2026-10-30）**：`quality/acceptance/author-behavior/` 五类格式冻结（README + targets/states/cases/oracles + 5 JSON Schema + coverage-report example）；校验器 `scripts/lib/quality/author_behavior.mjs` + CLI + 10 条正反例测试；复用映射/首批目标族与负例/执行分层见下 CP0 记录 |
-| CP1 | 最小数据驱动闭环：至少 3 个作者目标族，包含多表达、多状态及同句异境/歧义负例；共享外部 UI driver 穿过真实主链；自动硬断言与证据 verdict；生成器/oracle 正反例通过 | todo |
+| CP1 | 最小数据驱动闭环：至少 3 个作者目标族，包含多表达、多状态及同句异境/歧义负例；共享外部 UI driver 穿过真实主链；自动硬断言与证据 verdict；生成器/oracle 正反例通过 | **done（2026-10-30，确定性闭环）**：数据驱动浏览器 spec `frontend/slice-verify/author-behavior-corpus.mjs` 从冻结 corpus 子集（F1/F2/F3 × S1/S2/S3，6 cases，含同句异境与空作品歧义负例）驱动真实工作台；隔离 DB + 状态 seed；corpus-aware 确定性替身（仅 test/support，env 注入，产品无感知）；oracle 6/6 pass、0 fail/unknown；`quality_accept` verdict pass（quality-verdict/v2, evidence 4/4）；覆盖报告 `author-behavior-coverage-report/v1` 通过；生成器/validator/oracle 正反例 20/20 node:test。真实模型语义不在本 CP 代签 |
 | CP2 | 状态驱动探索：动作选择、随机种子、全局不变量、状态/转移覆盖、失败轨迹保存与缩化；至少一个非固定操作顺序场景由外部真实页面闭环 | todo |
 | CP3 | 覆盖扩展与分层：按 B34/新发现缺口扩展目标族；PR 受影响子集、后台/夜间探索、真实模型语义子集入口；失败转回归、完整门禁与文档索引；真实模型语义结论仍归对应产品/B42 流程，不以 stub 代签 | todo |
 
@@ -103,6 +104,21 @@ CP1 只是最小实现 checkpoint，不替代 CP2 状态探索和 CP3 覆盖/分
   4. 场景注册（`scenarios.yml` + manifest，evidence verdict）与 `quality_accept` 跑通；覆盖报告落 `artifacts/author-behavior/`。
 - 诚实边界：当前只有判卷器与格式/正反例，没有真实页面数据驱动 run；不得把 oracle 单测当 CP1 完成。真实模型语义子集仍属 CP3/B42 流程。
 
+## 6.3 CP1 完成记录（2026-10-30 done，确定性闭环）
+
+- 交付：
+  - 数据驱动 spec `frontend/slice-verify/author-behavior-corpus.mjs`：Playwright 操作真实浏览器工作台——按状态切换合成作品（作品菜单可见语义）、发送冻结表达、从隔离 DB 读取该轮最终 `judgment_decided`/`awaiting_author`、canon 计数与 assistant 文本；调用 oracle/CLI 生成 observations/coverage/summary；不硬编码逐条剧本（表达来自 corpus）+ 少量 driver 逻辑。
+  - 状态 seed `scripts/seed_author_behavior_states.exs`（S1 部分多章/S2 空骨架/S3 待采纳候选，合成作品）；隔离 DB 落 `ARTIFACT_DIR/database`。
+  - 确定性语料替身：仅在 `scripts/slice_verify_server.exs` 既有 slice_verify 上按 `AUTHOR_BEHAVIOR_CORPUS_JSON` env 增加 corpus-aware 分支（reply/ask_author）；产品 runtime 不读 env/语料，不新增验收钩子。
+  - 场景注册 `author-behavior-corpus`（browser/pr-smoke/slice_verify，manifest + scenarios.yml），`quality_accept` verdict pass；覆盖报告 schema/示例更新。
+  - 离线确定性生成器 `scripts/lib/quality/author_behavior_generator.mjs`（模板生成候选 + generated_frozen provenance，仅候选、不自动冻结/不标 holdout）+ 3 条正反例测试；corpus 增加 2 条 generated_frozen 表达（dev），总 12 cases（dev 6/regression 3/holdout 3）。
+- 运行证据（`artifacts/slice-verify/author-behavior-corpus/` + 归档 `artifacts/author-behavior/author-behavior-corpus-20261030/`）：
+  - 子集 6 cases：C-F1-001/C-F3-001/C-F2-002/C-F1-002/C-F3-003/C-F3-005（3 目标族 × 3 状态；dev/regression/holdout；C-F3-001 vs C-F3-005 同句异境；C-F2-002 空作品歧义 → ask_author）。
+  - oracle：total 6 / pass 6 / fail 0 / unknown 0；每 case 最终 action 来自隔离 DB 真实事件；canon 计数零变化（ask_author 不写）。
+  - `quality_accept`: `[accept-verdict] status=pass schema=quality-verdict/v2 evidence=4/4`、exit 0；覆盖报告 `runs {tier:pr-smoke, provider:slice_verify_author_behavior_corpus, total6, pass6, fail0, unknown0}`，gaps 诚实列出未跑 6 cases + `real_model_semantics_not_covered_by_deterministic_run`。
+  - 静态/门禁：全量 mix test **2374/0**（test/support 变更）、format/compile -Werror/credo strict/xref/arch、I1/I2/I3、manifest 211 scenarios、task_done manifest、静态扫描仅 gitleaks 历史处置；前端 ESLint 含新 spec 通过。
+- 诚实边界（不冒充）：本 CP 是**确定性替身 + 真实页面主链**接线/判卷闭环，不是真实模型语义 PASS；F2 仅覆盖 ask_author 分支（execute prose 路径留 CP3 real-model 子集）；未跑 corpus 的 6 个 case（含 execute 正例/负例）与 explore split；状态探索/失败缩化 = CP2；覆盖扩展/PR 选择/真模语义分层 = CP3。I10 不代签。
+
 ## 7. 验证与恢复
 
 - 文档/排期：`node scripts/next_task_check.mjs`；差距来源变化时按规则运行 `bash scripts/gap_ledger.sh`。
@@ -113,4 +129,4 @@ CP1 只是最小实现 checkpoint，不替代 CP2 状态探索和 CP3 覆盖/分
 
 ## 8. 当前未闭环与下一步
 
-当前只有任务登记和方向确认，尚无新语料格式、生成器、共享状态探索器或新场景 PASS。下一步完成 CP0 资产映射与格式冻结，再进入 CP1 最小真实页面闭环；不先建设独立仓库、大型语料平台或生产内嵌验收功能。
+CP0 冻结资产与设计真源已就绪，CP1 判卷器/覆盖报告已有局部实现，但数据驱动真实页面 run、场景 verdict、CP2 状态探索和 CP3 分层仍未闭环。实现者从设计真源 §15–§16 与上方 CP1 实施进度接续；不得把格式、oracle 单测或覆盖示例冒充页面 PASS。

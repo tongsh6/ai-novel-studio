@@ -1220,6 +1220,14 @@ scenarios:
     manifest: quality/acceptance/scenarios/vs10-observability-spine.yml
     driver: frontend/slice-verify/vs10-observability-spine.mjs
     entrypoint: scripts/quality_accept.sh vs10-observability-spine --surface browser
+  - id: author-behavior-corpus
+    title: "B70 author-behavior 冻结语料数据驱动闭环（浏览器 + 确定性判卷）"
+    tier: pr-smoke
+    surface: browser
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/author-behavior-corpus.yml
+    driver: frontend/slice-verify/author-behavior-corpus.mjs
+    entrypoint: scripts/quality_accept.sh author-behavior-corpus --surface browser
   - id: e2e-01-full-chain
     title: "E2E-01 端到端全链路聚合验收"
     tier: nightly

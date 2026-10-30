@@ -1,0 +1,71 @@
+id: author-behavior-corpus
+title: "B70 author-behavior 冻结语料数据驱动闭环（浏览器真实工作台 + 确定性判卷）"
+tier: pr-smoke
+surface: browser
+default_provider: slice_verify
+status_note: >-
+  active（2026-10-30 CP1）：外部 Playwright 操作真实浏览器工作台，按冻结 corpus 子集切换
+  合成状态作品（S1/S2/S3）、发送自然表达、从隔离 DB 采集真实 agent/持久化事实，调用
+  author-behavior oracle 自动判卷并写覆盖报告。确定性语料替身只证明接线与判卷，不代签
+  真实模型语义/文学质量（I10）。
+entrypoint: scripts/quality_accept.sh author-behavior-corpus --surface browser
+contract:
+  - tasks/slices/B70-author-behavior-corpus-and-state-exploration.md §5–§6.2
+  - quality/acceptance/author-behavior/README.md（author-behavior-*/v1 格式）
+  - docs/engineering/scenario-acceptance.md
+invariants:
+  - I-B70-1 数据驱动：case/状态/表达来自冻结 corpus，不在 driver 里重复硬编码剧本。
+  - I-B70-2 外部驱动：真实浏览器工作台可见语义（切作品/输入/发送），产品无验收感知。
+  - I-B70-3 判卷硬事实：canon 零写/对象身份/重复副作用/虚假完成由 oracle 自动判定。
+  - I-B70-4 未知不 PASS：证据不足/未触发允许集记 unknown；真实模型语义不由此场景代签。
+setup:
+  provider: slice_verify
+  seed: scripts/seed_author_behavior_states.exs
+  env_note: 隔离 DB（ARTIFACT_DIR/database）；语料导出到 ARTIFACT_DIR/corpus.json；
+    provider fixture 仅 test/support 注册，产品 runtime 不感知。
+  case_subset: [C-F1-001, C-F3-001, C-F2-002, C-F1-002, C-F3-003, C-F3-005]
+user_flow:
+  - open: 外部 Playwright 打开真实浏览器工作台并等待服务连接
+  - switch: 通过真实作品菜单切换到 S1/S2/S3 合成作品
+  - send: 逐 case 发送冻结自然表达
+  - observe: 从隔离 DB 读取该轮最终 judgment action/capability、canon 计数与 assistant 文本
+  - evaluate: 调用 author_behavior_check --evaluate 生成 pass/fail/unknown 与覆盖报告
+evidence:
+  required:
+    - screenshot
+    - backend_log
+    - summary_json
+    - persistence_snapshot
+  extra_artifacts:
+    - observations.json
+    - coverage.json
+    - db-snapshots.json
+    - corpus.json
+  artifact_dir: artifacts/slice-verify/author-behavior-corpus
+assertions:
+  ui:
+    - 每个 case 在真实工作台完成一次输入/发送并留下截图。
+    - 切换作品后工作台显示目标作品标题与可输入 composer。
+  network:
+    - 每个 case 的最终 judgment_decided 来自真实产品链（隔离 DB agent_events）。
+    - 汇总 summary 由外部 driver 落盘，不经产品代码上报。
+  data:
+    - oracle 对每个 case 产出 pass/fail/unknown；fail/unknown 不得记 PASS。
+    - canon 计数在允许零写的 case 前后不变；ask_author case 不产生 canon 写入。
+    - 覆盖报告通过 author-behavior-coverage-report/v1 校验。
+  llm:
+    - 确定性语料替身只证明接线；真实模型语义子集留给 B70 CP3/B42 流程。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+anti_hooks_verification: >-
+  driver 只用真实可见语义（作品菜单/输入框/发送按钮/页面文本）、隔离 DB 只读查询与
+  artifact 落盘；产品代码不读取 corpus/verdict/slice id 或执行验收动作。
+prerequisites:
+  - B70 CP0 冻结语料/状态/oracle/覆盖报告格式已提交。
+  - 浏览器 runner 的确定性 provider 仅 test/support 注册；隔离 DB 无真实作品数据。
+known_not_closed:
+  - 本场景只跑 5 个代表性 case（3 目标族/3 状态/dev+regression+holdout）；不替代 CP2 状态探索与 CP3 覆盖扩展。
+  - 真实模型语义与文学质量不代签；探索随机种子/失败缩化由 CP2 承接。

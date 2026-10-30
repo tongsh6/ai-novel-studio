@@ -32,6 +32,8 @@ function parseArgs(argv) {
     writeExample: null,
     evaluate: null,
     coverageOut: null,
+    exportJson: null,
+    caseIds: [],
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -47,6 +49,13 @@ function parseArgs(argv) {
       options.evaluate = path.resolve(argv[(index += 1)] ?? "");
     } else if (arg === "--coverage-out") {
       options.coverageOut = path.resolve(argv[(index += 1)] ?? "");
+    } else if (arg === "--export-json") {
+      options.exportJson = path.resolve(argv[(index += 1)] ?? "");
+    } else if (arg === "--case-ids") {
+      options.caseIds = String(argv[(index += 1)] ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
     } else if (arg === "--help" || arg === "-h") {
       options.help = true;
     } else {
@@ -63,7 +72,8 @@ function main() {
     console.log(
       "usage: node scripts/author_behavior_check.mjs [--root <repo>] [--json] " +
         "[--report <coverage-report.json>] [--write-example <path>] " +
-        "[--evaluate <observations.json>] [--coverage-out <report.json>]",
+        "[--evaluate <observations.json>] [--coverage-out <report.json>] [--export-json <corpus.json>] " +
+        "[--case-ids C-1,C-2]",
     );
     return 0;
   }
@@ -93,6 +103,26 @@ function main() {
     if (!reportValidation.ok) reportFailures.push(...reportValidation.errors);
   }
 
+  if (options.exportJson) {
+    fs.writeFileSync(
+      options.exportJson,
+      `${JSON.stringify(
+        {
+          schema: "author-behavior-runtime-corpus/v1",
+          corpus_sha: validation.stats.corpus_sha,
+          exported_at: new Date().toISOString(),
+          targets: corpus.targets?.targets ?? [],
+          states: corpus.states?.states ?? [],
+          cases: corpus.cases?.cases ?? [],
+          oracles: corpus.oracles ?? {},
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    console.error(`已导出运行时语料: ${options.exportJson}`);
+  }
+
   if (options.writeExample) {
     const example = coverageReportExample(corpus, validation);
     fs.writeFileSync(options.writeExample, `${JSON.stringify(example, null, 2)}\n`);
@@ -111,7 +141,8 @@ function main() {
       console.error(`无法读取观察证据 ${options.evaluate}: ${error.message}`);
       return 66;
     }
-    evaluation = evaluateCorpus(corpus, observations);
+    const caseIds = options.caseIds.length > 0 ? options.caseIds : observations.run?.case_ids ?? [];
+    evaluation = evaluateCorpus(corpus, observations, { caseIds });
     coverageReport = buildCoverageReport(corpus, evaluation, {
       tier: observations.run?.tier ?? "deterministic",
       provider: observations.run?.provider ?? "unknown",

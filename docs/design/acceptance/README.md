@@ -33,6 +33,7 @@
 | 文档 | 作用 | 当前状态 |
 |------|------|----------|
 | [SCENARIO-BLUEPRINT](SCENARIO-BLUEPRINT.md) | 从完整功能蓝图出发，识别跨 AU/SU 的主流程场景和缺口 | 当前覆盖主线与二轮收口顺序；SU-01 → SU-03、AU-01 → AU-12、E2E-01 已按 2026-06-22 口径完成二轮复核，剩余 P1/P2 按文件级矩阵和 quality manifest 滚动收敛 |
+| [作者行为语料与状态探索](author-behavior-corpus-and-state-exploration.md) | B70 数据驱动语料、真实 UI 回放、状态探索、oracle、覆盖报告与低成本分层的设计真源 | CP0 资产已冻结；CP1–CP3 实现与证据以 B70 原任务为准，设计不代签场景 PASS |
 | [E2E-01](e2e/E2E-01-full-chain.md) | 用真实 LLM / SQLite / Channel 证明主链端到端路径 | 文件级可交付 / 三轮 security checkpoint 已复核：12/13 已验收；1/13 已测试；0/13 部分实现；P0/P1/P2 已关闭，2026-06-22 已复跑 E2E 聚合 runner、E4 downgrade、E6 read-only tool trace、E9 ReplayReport 六问真实页面 checkpoint，并新增 E8/E13 `e2e-01-channel-action-security` 外部协议 fuzz；E10 为 AU-07 cross-reference |
 
 ### 系统用户验收（3 文档）
