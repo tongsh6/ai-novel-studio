@@ -1,6 +1,6 @@
 # B67：章节修订后的派生账面一致性
 
-- 状态：**doing（2026-10-31 CP0 done；CP1 partial：旧章不倒退 + 当前摘要出场重算已做；对象完全无当前出现/冲突账重算、持久版本、页面未做）**。
+- 状态：**doing（2026-10-31 CP0 done；CP1 partial：旧章不倒退、当前摘要出场重算含“完全无当前出现”机械失效；冲突账重算、持久版本、页面未做）**。
 - 来源：修订后必须重新对齐连续性；现有增量记账以本次处理章更新最近出场/推进，缺少旧章修订和旧贡献失效的完整矩阵。本轮已有弧光账纯函数反例，尚未进行数据库或真实页面复现。
 - 上游：[VS-00F 原任务](VS-00F-five-ledgers-three-state.md)、[VS-00F 契约](../../docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md)、[ADR-0026](../../docs/design/adr/ADR-0026-five-ledgers-three-state-reconciliation-v3.md)、[B28](B28-whole-chapter-revision.md)、[B30](B30-chapter-structure-maintenance.md)。本项负责派生值与有效来源的正确性；VS00F-TRACE 负责权威变更留痕，不能互相代签。
 
@@ -74,9 +74,10 @@ arc_recompute_stall(上述条目, current_seq=12, threshold=8)
   - 依据：VS-00F `last_seen_chapter` ≠“最后一次处理章”，旧章回改不能把最近出场写成第 3 章；停滞判定继续按真实最近出场。
 - 追加 CP1 进展（同轮）：`LedgerMaintenance` 新增可选 `summaries` 端口（生产接 `LedgerRepository.accepted_summaries_by_seq/1`）；在本次出场记账后、停滞计算前，对每个 arc 条目从当前已采纳摘要重算 `last_seen`：
   - 若对象仍在当前事实中出现且最大出现 seq 小于已存 last_seen → 降级到真实最大出现章/更新 presence_note/revision；
-  - 若对象完全不在当前事实中出现 → 暂保持历史（known-gap：需契约裁决 RETIRED/STALLED/保留历史），不静默删除历史；
+  - 若对象完全不在当前事实中出现（且 summaries 非空）→ 进度置 0/空、presence_note 删除、机械态置 STALLED，source_refs 历史保留；不自动 RETIRED，作者可再裁决；summaries 为空时跳过避免误失效；
   - 测试：旧章修订移除第10章最新出场后，按当前摘要回到第3章真实出场（recomputed=1、状态按窗口重算）。
-- 未完成（CP1 剩余，明确不冒充）：完全无当前出现的失效语义、冲突账推进重算、持久版本原子性/旧任务晚到/重编号组合、真实页面/模型矩阵。
+- 完全无当前出现语义（同轮冻结并实现）：summaries 非空且对象在所有当前摘要中都未出现 → `last_seen_seq=0`、`last_seen_chapter=nil`、删除 `presence_note`、机械态 STALLED；source_refs 历史保留；已裁决态不改；重复维护幂等，不重复涨 revision。测试覆盖 initial ch10→修订后完全消失。
+- 未完成（CP1 剩余，明确不冒充）：冲突账推进重算、持久版本原子性/旧任务晚到/重编号组合、真实页面/模型矩阵。
 - 作者裁决/终态：本次未改裁决保护；单调 guard 不把 DRIFTED/RESUMED/RETIRED 等机械改写。
 - 门禁：domain ledger_entry 8/0、application ledger_maintenance 7/0、ledger_reconciliation 25/0；全量 mix test 1040/0。
 - 明确未做：持久层原子/版本更新、跨章竞争、重编号组合、真实 Tauri 页面矩阵、真实模型消费。

@@ -284,15 +284,7 @@ defmodule NovelApplication.LedgerMaintenance do
   defp recompute_arc_sightings(deps, work_id, index) do
     case deps[:summaries] do
       summaries when is_function(summaries, 1) ->
-        summaries_by_seq = summaries.(work_id)
-        seq_to_ref = seq_to_chapter_ref(index)
-
-        deps.repo.list.(work_id)
-        |> Enum.filter(&(&1.ledger == "arc"))
-        |> Enum.map(fn entry ->
-          recompute_arc_entry(deps.repo, entry, summaries_by_seq, seq_to_ref)
-        end)
-        |> Enum.count(& &1)
+        recompute_arc_entries(deps.repo, work_id, summaries.(work_id), index)
 
       _ ->
         0
@@ -301,22 +293,63 @@ defmodule NovelApplication.LedgerMaintenance do
     _ -> 0
   end
 
+  defp recompute_arc_entries(repo, work_id, [], _index), do: 0
+
+  defp recompute_arc_entries(repo, work_id, summaries_by_seq, index) do
+    seq_to_ref = seq_to_chapter_ref(index)
+
+    repo.list.(work_id)
+    |> Enum.filter(&(&1.ledger == "arc"))
+    |> Enum.map(fn entry -> recompute_arc_entry(repo, entry, summaries_by_seq, seq_to_ref) end)
+    |> Enum.count(& &1)
+  end
+
   defp recompute_arc_entry(repo, entry, summaries_by_seq, seq_to_ref) do
     last_seen_seq = Map.get(entry.payload, "last_seen_seq")
     label = Map.get(entry, :subject_label) || Map.get(entry, "subject_label")
 
     with true <- is_integer(last_seen_seq),
-         true <- is_binary(label) and String.length(label) >= 2,
-         [_ | _] = occurrences <- entry_occurrences(summaries_by_seq, label) do
-      {max_seq, note} = Enum.max_by(occurrences, fn {seq, _} -> seq end)
-
-      if max_seq < last_seen_seq do
-        persist_recomputed_arc(repo, entry, max_seq, note, seq_to_ref)
-      else
-        false
-      end
+         true <- is_binary(label) and String.length(label) >= 2 do
+      reconcile_arc_occurrences(
+        repo,
+        entry,
+        entry_occurrences(summaries_by_seq, label),
+        seq_to_ref
+      )
     else
       _ -> false
+    end
+  end
+
+  defp reconcile_arc_occurrences(repo, entry, [], _seq_to_ref) do
+    # 冻结语义：当前已采纳摘要都未出现该对象 → 不冒认最近出场；历史 source_refs
+    # 保留，进度置 0/空并机械 STALLED，作者可再裁决 RETIRED/保留。
+    invalidate_arc_entry(repo, entry)
+  end
+
+  defp reconcile_arc_occurrences(repo, entry, occurrences, seq_to_ref) do
+    {max_seq, note} = Enum.max_by(occurrences, fn {seq, _} -> seq end)
+
+    if max_seq < entry.payload["last_seen_seq"] do
+      persist_recomputed_arc(repo, entry, max_seq, note, seq_to_ref)
+    else
+      false
+    end
+  end
+
+  defp invalidate_arc_entry(repo, entry) do
+    if Map.get(entry.payload, "last_seen_seq") in [nil, 0] do
+      false
+    else
+      payload =
+        entry.payload
+        |> Map.put("last_seen_seq", 0)
+        |> Map.put("last_seen_chapter", nil)
+        |> Map.delete("presence_note")
+
+      status = if entry.status in ["ON_TRACK", "STALLED"], do: "STALLED", else: entry.status
+      updated = %{entry | payload: payload, status: status, revision: entry.revision + 1}
+      match?({:ok, _}, repo.upsert.(updated))
     end
   end
 

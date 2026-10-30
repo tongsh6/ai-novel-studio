@@ -133,6 +133,50 @@ defmodule NovelApplication.LedgerMaintenanceTest do
     assert entry.status == "ON_TRACK"
   end
 
+  test "B67：对象在当前摘要完全消失时置 last_seen=0/空并机械 STALLED，历史出处保留" do
+    {:ok, agent} = Agent.start_link(fn -> %{} end)
+
+    {:ok, _} =
+      LedgerMaintenance.run(
+        %{work_id: "w", chapter_id: "ch-10", summary_text: summary_with_characters("凌渊出场。")},
+        deps(agent)
+      )
+
+    before_entry = Agent.get(agent, & &1)["char-ly"]
+    before_refs = before_entry.source_refs
+
+    summaries = fn _work_id -> [{10, summary_with_characters("林浩独自行动。")}] end
+
+    assert {:ok, %{recomputed: 1}} =
+             LedgerMaintenance.run(
+               %{
+                 work_id: "w",
+                 chapter_id: "ch-10",
+                 summary_text: summary_with_characters("林浩独自行动。")
+               },
+               deps(agent, summaries)
+             )
+
+    entry = Agent.get(agent, & &1)["char-ly"]
+    assert entry.payload["last_seen_seq"] == 0
+    assert entry.payload["last_seen_chapter"] == nil
+    refute Map.has_key?(entry.payload, "presence_note")
+    assert entry.status == "STALLED"
+    assert entry.source_refs == before_refs
+    assert entry.revision == before_entry.revision + 1
+
+    # 幂等：再次维护不重复失效 / 不加 revision。
+    assert {:ok, %{recomputed: 0}} =
+             LedgerMaintenance.run(
+               %{
+                 work_id: "w",
+                 chapter_id: "ch-10",
+                 summary_text: summary_with_characters("林浩独自行动。")
+               },
+               deps(agent, summaries)
+             )
+  end
+
   test "缺人物栏降级情节栏提炼；整段无栏降级全文" do
     {:ok, agent} = Agent.start_link(fn -> %{} end)
 
