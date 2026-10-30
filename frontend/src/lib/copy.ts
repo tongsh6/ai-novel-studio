@@ -663,6 +663,7 @@ export const TRACE = {
   decisions: {
     replyOnly: "AI 回应",
     exploration: "探索方向",
+    capabilityGap: "能力缺口",
     executionCandidate: "生成草稿",
     downgrade: "降级为对话",
     confirmationRequired: "需要确认",

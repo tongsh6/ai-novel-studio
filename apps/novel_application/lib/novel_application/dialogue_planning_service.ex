@@ -1542,10 +1542,7 @@ defmodule NovelApplication.DialoguePlanningService do
     candidates = judgment_candidates(judgment, frame.frame_id)
     log_judgment_decided(judgment, frame.frame_type, length(candidates))
 
-    reply_decision =
-      if judgment.action == "reply" do
-        OrchestratorDecision.reply_only(turn_id, frame.frame_id)
-      end
+    reply_decision = form_r_decision(judgment, turn_id, frame.frame_id)
 
     {trace, trace_summary} =
       TraceWriter.record(frame, %{turn_id: turn_id}, context, decision: reply_decision)
@@ -1583,6 +1580,40 @@ defmodule NovelApplication.DialoguePlanningService do
        }}
     end
   end
+
+  # B43 CP2：Form R 各出口 -> 统一裁决（按真实行为映射，不伪报 reply_only）。
+  defp form_r_decision(%{action: "reply"}, turn_id, frame_ref),
+    do: OrchestratorDecision.reply_only(turn_id, frame_ref)
+
+  defp form_r_decision(%{action: "author_content_registration"}, turn_id, frame_ref),
+    do:
+      OrchestratorDecision.reply_only(turn_id, frame_ref, [
+        "author_content_registration_pending_adoption"
+      ])
+
+  defp form_r_decision(%{action: "creative_directions"}, turn_id, frame_ref),
+    do: OrchestratorDecision.exploration(turn_id, frame_ref)
+
+  defp form_r_decision(%{action: "capability_gap", narrative: narrative}, turn_id, frame_ref),
+    do:
+      OrchestratorDecision.capability_gap(turn_id, frame_ref, [
+        "capability_gap_unfulfilled",
+        capability_gap_reason(narrative)
+      ])
+
+  defp form_r_decision(%{action: "await_author"}, turn_id, frame_ref),
+    do:
+      OrchestratorDecision.require_clarification(turn_id, frame_ref, %{
+        action_type: "answer_author_question"
+      })
+
+  defp form_r_decision(_judgment, turn_id, frame_ref),
+    do: OrchestratorDecision.reply_only(turn_id, frame_ref, ["unclassified_form_r"])
+
+  defp capability_gap_reason(narrative) when is_binary(narrative),
+    do: String.slice(narrative, 0, 120)
+
+  defp capability_gap_reason(_), do: "capability_gap"
 
   defp maybe_attach_question(result, %{action: "await_author"} = judgment, run),
     do: NovelApplication.AuthorQuestion.attach(result, judgment, run)

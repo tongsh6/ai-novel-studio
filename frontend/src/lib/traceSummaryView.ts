@@ -40,6 +40,7 @@ const assistantRoleTextPattern =
 const decisionLabels: Record<string, string> = {
   reply_only: TRACE.decisions.replyOnly,
   exploration: TRACE.decisions.exploration,
+  capability_gap: TRACE.decisions.capabilityGap,
   downgrade: TRACE.decisions.downgrade,
   confirmation_required: TRACE.decisions.confirmationRequired,
   clarification_required: TRACE.decisions.clarificationRequired,

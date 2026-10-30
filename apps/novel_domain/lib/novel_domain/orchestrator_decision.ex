@@ -14,6 +14,8 @@ defmodule NovelDomain.OrchestratorDecision do
           | :allow_tool
           | :allow_agent_run
           | :reply_only
+          | :exploration
+          | :capability_gap
           | :replay_existing
   @type decision_status :: :decided | :failed | :emitted
 
@@ -96,6 +98,8 @@ defmodule NovelDomain.OrchestratorDecision do
     allow_tool: ["tool_dispatched", "result_not_adoption"],
     allow_agent_run: ["agent_run_created", "internal_steps_require_regate"],
     reply_only: ["no_action_executed", "no_behavior_opened", "no_write"],
+    exploration: ["no_action_executed", "no_write", "read_only_evidence_preserved"],
+    capability_gap: ["no_action_executed", "no_write", "goal_unfulfilled"],
     replay_existing: ["no_action_executed", "reuse_recorded_decision"]
   }
 
@@ -105,6 +109,42 @@ defmodule NovelDomain.OrchestratorDecision do
   @spec truthfulness_constraints(t()) :: [String.t()]
   def truthfulness_constraints(%__MODULE__{} = decision) do
     Map.get(@truthfulness_by_type, decision.decision_type, [])
+  end
+
+  @doc "B43 CP2：只读探索回复裁决（不批准执行，探索观察仍由 observation 事实承载）。"
+  @spec exploration(String.t(), String.t(), [String.t()]) :: t()
+  def exploration(turn_id, frame_ref, reason_codes \\ ["exploration_no_execution"]) do
+    reply_only(turn_id, frame_ref, reason_codes)
+    |> Map.put(:decision_type, :exploration)
+    |> update_truthfulness()
+  end
+
+  @doc "B43 CP2：能力缺口回复裁决（无执行/写入，目标未完成）。"
+  @spec capability_gap(String.t(), String.t(), [String.t()]) :: t()
+  def capability_gap(turn_id, frame_ref, reason_codes \\ ["capability_gap_unfulfilled"]) do
+    reply_only(turn_id, frame_ref, reason_codes)
+    |> Map.put(:decision_type, :capability_gap)
+    |> update_truthfulness()
+  end
+
+  @doc "B43 CP2：等待作者回答的裁决；不执行、不写入，明确需要作者动作。"
+  @spec require_clarification(String.t(), String.t(), map() | nil, [String.t()]) :: t()
+  def require_clarification(
+        turn_id,
+        frame_ref,
+        required_author_action \\ nil,
+        reason_codes \\ ["author_question_required"]
+      ) do
+    reply_only(turn_id, frame_ref, reason_codes)
+    |> Map.put(:decision_type, :require_clarification)
+    |> Map.put(:required_author_action, required_author_action)
+    |> update_truthfulness()
+  end
+
+  defp update_truthfulness(decision) do
+    Map.put(decision, :turn_result_policy, %{
+      truthfulness_constraints: Map.fetch!(@truthfulness_by_type, decision.decision_type)
+    })
   end
 
   @doc """

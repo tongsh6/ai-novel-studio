@@ -446,12 +446,14 @@ defmodule NovelApplication.TraceWriter do
 
   defp decision_type_for(:downgrade_to_dialogue), do: :downgrade
   defp decision_type_for(:require_confirmation), do: :confirmation_required
-  defp decision_type_for(:require_clarification), do: :clarification_required
   defp decision_type_for(:reject), do: :rejected
   defp decision_type_for(:fail_with_recovery), do: :recovery
   defp decision_type_for(:allow_tool), do: :tool_allowed
   defp decision_type_for(:allow_agent_run), do: :agent_run_allowed
+  defp decision_type_for(:require_clarification), do: :clarification_required
   defp decision_type_for(:reply_only), do: :reply_only
+  defp decision_type_for(:exploration), do: :exploration
+  defp decision_type_for(:capability_gap), do: :capability_gap
   defp decision_type_for(:replay_existing), do: :replay_existing
 
   defp no_behavior_reason(:creative_exploration), do: "exploration stays conversational"

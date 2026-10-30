@@ -162,6 +162,38 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert judgment_result.turn_result.assistant_message.text == narrative
   end
 
+  test "await_author 产出 require_clarification 统一裁决而非 reply_only" do
+    narrative = "需要你确认：这一章要按现有大纲扩写，还是先调整冲突方向？"
+
+    provider_execution =
+      judgment_execution("await_author", nil, narrative: narrative, reply_included: true)
+
+    assert {:ok, spec} =
+             DialoguePlanningService.plan_agent_run(
+               %{
+                 text: "这一章接下来怎么改？",
+                 workspace_id: "ws-await",
+                 work_id: "work-await",
+                 session_id: "session-await",
+                 turn_id: "turn-await"
+               },
+               nil,
+               provider_execution
+             )
+
+    {:ok, run} = AgentRun.new(spec.run_attrs)
+    {_context_result, judgment_result} = drive_judgment(spec, run, fn _event -> :ok end)
+
+    turn_result = judgment_result.turn_result
+    assert turn_result.orchestrator_decision.decision_type == :require_clarification
+    assert turn_result.trace_summary.decision_type == :clarification_required
+
+    assert turn_result.orchestrator_decision.required_author_action.action_type ==
+             "answer_author_question"
+
+    assert turn_result.author_question != nil
+  end
+
   test "判断 reply 可携带候选方向（S2 候选随判断结构携带）" do
     narrative = "你在比较方向；我给你两个可选切入。\n\n方向一从底层账单切入，方向二从矿区追击切入。"
 
@@ -195,6 +227,8 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
     turn_result = judgment_result.turn_result
     assert turn_result.frame_summary.frame_type == :creative_exploration
+    assert turn_result.orchestrator_decision.decision_type == :exploration
+    assert turn_result.trace_summary.decision_type == :exploration
     assert [first, second] = turn_result.candidate_directions
     assert first.title == "底层账单切入"
     assert second.title == "矿区追击切入"
@@ -233,6 +267,11 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
     turn_result = judgment_result.turn_result
     assert turn_result.frame_summary.frame_type == :capability_gap
+    assert turn_result.orchestrator_decision.decision_type == :capability_gap
+    assert turn_result.trace_summary.decision_type == :capability_gap
+
+    assert "capability_gap_unfulfilled" in turn_result.trace_summary.reason_codes
+
     assert Map.get(turn_result, :candidate_directions, []) == []
     assert turn_result.available_actions == []
     assert turn_result.assistant_message.text == narrative

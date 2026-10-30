@@ -14,7 +14,7 @@ defmodule NovelApplication.TraceReplayService do
   alias NovelPersistence.WorkSessionRepo
 
   @decision_types ~w(
-    reply_only exploration downgrade confirmation_required clarification_required rejected
+    reply_only exploration capability_gap downgrade confirmation_required clarification_required rejected
     recovery fail_with_recovery tool_allowed tool_dispatched adopt_tentative cancel_waiting
     author_action replay_existing agent_run_allowed
   )a
