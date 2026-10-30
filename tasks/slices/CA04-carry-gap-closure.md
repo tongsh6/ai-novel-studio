@@ -77,8 +77,18 @@
 
 ## 7. B15 卷蓝图增量回归
 
-- 状态：**todo（2026-10-30 登记既有回归余项；原 G1–G3 完成记录不变，本项尚未复跑）**。
+- 状态：**done（2026-10-31 当前 HEAD 真实 Tauri 回归 PASS：含卷蓝图 additive 的 writer prompt 与三条 carry/未开放门均通过；无产品修复）**。
 - 来源：[全量对账 B15](../2026-10-27-design-to-execution-reconciliation.md#42-契约adr-与-schema)、[ADR-0028 enforcement_gaps](../../docs/design/adr/ADR-0028-volume-structure-and-open-volume-action-v3.md#enforcement_gaps) 明确卷蓝图 additive 变更后 CA04 仍只有 2026-08-24 的历史证据，须独立回归。
 - 下一步：核对当前 carry 登记表、卷蓝图消费点、现有 CA04/CA03 driver 与历史 summary，冻结当前 HEAD 的回归输入和断言；沿既有外部真实页面入口复跑三条携带行为与未开放门，不新增卷功能或专用 packet。
 - 完整后果：正文的进度/收官守则、规划的事实/风格、世界观的阵容三条原行为均须保留；空来源诚实缺席、未批准的 G4/G5 门保持边界；核对 blueprint 有/无时的 additive 兼容与未采纳零 canon 写入。同步 CA03 回归预期及证据，不能只验证新增蓝图段存在。
 - 依赖与边界：沿现有 ADR-0028/VS-00C 与本任务的 G1–G3 契约；B39 后续迁移固定携带的路线不授权在本回归扩门。先区分 driver 漂移与真实产品回归，再按真实根因交原 owner；原生与 browser、确定性与实模证据分别标明，历史 summary 不作为当前 HEAD 的通过结论。
+
+### B15 CP0/CP1 记录（2026-10-31）
+
+- 当前 HEAD 先跑既有 `ca04-carry-gap-closure`（无蓝图 seed）**PASS**：prose/planning/world 三条 carry、G4/G5 gated、tentative/no-write 全通过。
+- 再给 seed 第一卷写入 E14-E17 蓝图（goal_conflict/arc_stage/subplots_start/climaxes/new_settings），driver 新增真实 writer prompt 断言：
+  - prompt 含 `## 当前卷蓝图（设计态）`、`第03章：巡检收网`、`目标冲突` 与蓝图内容；
+  - 三条 carry/未开放门/无生产写入仍 PASS。
+- 证据：`artifacts/slice-verify/ca04-carry-gap-closure-tauri/`；场景 `ca04-carry-gap-closure` PASS。
+- 结论：卷蓝图 additive 变更未使 CA04 三条携带行为退化；不需要产品修复。无蓝图路径由当前 HEAD 首跑 PASS 记录；单测层面 `WorkSkeleton.volume_blueprint_section` 无蓝图返回空已有既有覆盖。
+- 未新增卷功能/packet；B39 迁移路线未扩门。

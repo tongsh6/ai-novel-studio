@@ -1296,3 +1296,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **UA01-PROMPT-T3T5 blocked**：T4 finding 结构渲染+单测完成；D2 页面 driver 超时（事件到 run_completed 但无 ui-state）、T5 provenance 需 A/B/C 裁决、T3 前缀校验待；未重复盲跑/未改 schema；当前任务切 B71。
 
 - 2026-10-31 — **B71 CP1 blocked（待 ADR 裁决）**：CP0 完成；目标统一 AgentRun 原生多轮与现役 ADR-0030/0031 冲突，需作者/ADR owner 选 A（正式修订/supersede，推荐）/B（现役 additive 实验）/C（延期）；未改 schema/代码/契约；当前任务切 CA04-B15。
+
+- 2026-10-31 — **CA04-B15 done**：当前 HEAD 无蓝图/含蓝图两次真实 Tauri PASS；含蓝图时 writer prompt 携带设计态蓝图且三条 carry/G4-G5 gate/tentative no-write 全部保持；seed/driver 增加蓝图断言；无产品修复。当前任务切 Q1C-NATIVE。

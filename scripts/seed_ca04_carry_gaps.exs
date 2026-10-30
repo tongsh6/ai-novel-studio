@@ -4,6 +4,8 @@
 # 数据源可带；生成与采纳全部由外部 driver 在真实页面发起。
 alias NovelApplication.{WorkService, WorkSessionService}
 alias NovelPersistence.AdoptionRepository
+import Ecto.Query
+alias NovelPersistence.{Repo, Schemas.Volume}
 
 chapter_plan = """
 第01章：黑市对账夜: 沈洛潜入黑市核对灵气账单，摊主交出一枚刻着编号的旧账牌。
@@ -46,6 +48,34 @@ session_id = snapshot.active_session.id
     content: String.trim(chapter_plan),
     summary: "CA04 三章计划"
   })
+
+# B15：卷蓝图 additive 回归——给已采纳大纲的第一卷写入 E14-E17 设计槽，
+# 验证有蓝图时三条 carry 行为不退化；无蓝图诚实缺席由既有场景/单测覆盖。
+case Repo.one(
+       from(v in Volume,
+         where: v.work_id == ^work.id,
+         order_by: [asc: v.seq],
+         limit: 1
+       )
+     ) do
+  nil ->
+    IO.puts("[ca04-carry-gaps-seed] no volume materialized for blueprint fixture")
+
+  volume ->
+    volume
+    |> Ecto.Changeset.change(
+      blueprint: %{
+        "goal_conflict" => "沈洛必须在巡检收网前拿到暗抽主账",
+        "arc_stage" => "从独自取证到敢于借黑市之力",
+        "subplots_start" => "旧账牌兑现链路",
+        "climaxes" => "第03章：巡检收网",
+        "new_settings" => "黑市灵气配给分级制度"
+      }
+    )
+    |> Repo.update!()
+
+    IO.puts("[ca04-carry-gaps-seed] blueprint volume=#{volume.title}")
+end
 
 {:ok, _character} =
   AdoptionRepository.persist(%{

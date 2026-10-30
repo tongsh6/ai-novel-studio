@@ -27034,6 +27034,7 @@ async function driveCa03CarryRegistryObservability(page) {
       prose_turn_id: prose.turnResult.turn_id,
       planning_turn_id: planning.turnResult.turn_id,
       prose_parent_turn_id: String(prose.turnResult.turn_id ?? "").split(":agent:")[0],
+      blueprint_section_carried: true,
       planning_parent_turn_id: String(planning.turnResult.turn_id ?? "").split(":agent:")[0],
       prose_carried: proseCarried,
       prose_gated: proseGated,
@@ -27126,6 +27127,21 @@ async function driveCa04CarryGapClosure(page) {
     `Prose carry missed approved carriers: ${JSON.stringify(prose.carryRecord)}`,
   );
 
+  // B15：有卷蓝图时 additive 兼容——writer/planning prompt 必须携带设计态蓝图，
+  // 且三条既有 carry 不退化（上方断言已覆盖）。
+  const blueprintPrompt = readLlmCallRecords()
+    .map((record) => String(record?.prompt ?? ""))
+    .find(
+      (prompt) =>
+        prompt.includes("## 当前卷蓝图（设计态）") && prompt.includes("第03章：巡检收网"),
+    );
+  assert(
+    blueprintPrompt &&
+      blueprintPrompt.includes("目标冲突") &&
+      blueprintPrompt.includes("沈洛必须在巡检收网前拿到暗抽主账"),
+    "B15 blueprint additive section missing from real writer prompt",
+  );
+
   // ② 规划：G2——作品事实与风格被带上（同源同段）。
   const planning = await sendAndCollect(
     "请按已有三章往后规划接下来三章的章节大纲，保持为待采纳草稿。",
@@ -27175,6 +27191,7 @@ async function driveCa04CarryGapClosure(page) {
       planning_turn_id: planning.turnResult.turn_id,
       world_turn_id: world.turnResult.turn_id,
       prose_parent_turn_id: String(prose.turnResult.turn_id ?? "").split(":agent:")[0],
+      blueprint_section_carried: true,
       planning_parent_turn_id: String(planning.turnResult.turn_id ?? "").split(":agent:")[0],
       world_parent_turn_id: String(world.turnResult.turn_id ?? "").split(":agent:")[0],
       prose_carried: prose.carryRecord.carried.map(String),

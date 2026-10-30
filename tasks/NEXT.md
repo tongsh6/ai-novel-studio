@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| CA04-B15 | 核对卷蓝图增量后的三条 carry 行为、诚实缺席与未开放门；沿既有页面驱动补验 | [原任务小节](slices/CA04-carry-gap-closure.md#7-b15-卷蓝图增量回归) |
+| Q1C-NATIVE | 核对原生 driver，补设定修订→覆盖→刷新→追问链；保留 browser 历史，不重复实现修订 | [原任务小节](slices/Q1C-adopted-content-revision.md#q1c-原生页面补验) |
 
 ## 后续候选
 
@@ -15,7 +15,6 @@
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B48 | 无变化普通说明、真正歧义才追问；依赖 B43 裁决同源，完成四场景验收 | [原任务](slices/B48-character-revision-noop-and-ambiguity.md) |
 | VS-00G | 核对 CP5e A2/A3 历史证据与当前版本，明确 scoped 补验；触发 C/记忆富化与 B39 协同 | [原任务](slices/VS-00G-fact-inventory-run.md) |
-| Q1C-NATIVE | 核对原生 driver，补设定修订→覆盖→刷新→追问链；保留 browser 历史，不重复实现修订 | [原任务小节](slices/Q1C-adopted-content-revision.md#q1c-原生页面补验) |
 | P1-AUDIT-BC | 核对重复段/章、计划与采纳来源和 ReadingMode；冻结缺章率口径，闭合展示与报告一致性 | [原任务小节](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外) |
 | AU03-SEARCH | 核对历史搜索命中 turn 身份、分页定位与高亮；保持历史只读和作品隔离 | [原任务小节](slices/AU03-file-level-closure.md#历史搜索命中定位与只读回看) |
 | UA01-LOG-B13 | 只读核对 run_failed 与三源日志的关联键及失败链，依实际缺口补验；vendor live 单独核凭据/资源 | [原任务小节](slices/UA01-provider-execution-stream-unification.md#10-b13-运行失败日志关联) |
