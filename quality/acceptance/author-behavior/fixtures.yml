@@ -45,6 +45,10 @@ fixtures:
     action: execute
     capability: prose_writing
     note: B73：续写 execute 刺激；原文 hash 与候选目标由外部证据核对。
+  - case_id: C-F2-004
+    expression: "把《潮汐回声》补完，接上现在的结尾。"
+    action: ask_author
+    note: B73 同名章合法路径刺激：标题不唯一时澄清；负控 execute 另列 negative_fixtures。
   - case_id: C-F3-002
     expression: "这个设定捋一下，能落成一条规则就存下来。"
     action: execute
@@ -79,3 +83,70 @@ fixtures:
     expression: "先帮我想几个书名，别动手写。"
     action: reply
     note: 最小刺激：书名建议回复；oracle 判零写/不虚假完成。
+
+# B73 负控刺激只描述替身输出，不声明判卷结论；预期违规/合法结果仍在 oracles.yml。
+negative_fixtures:
+  - trap_id: T-R1-fabricated-draft-count
+    case_id: C-F1-001
+    expression: "现在写到第几章了？第02章大概多少字？"
+    action: reply
+    reply_text: "当前已写 99 章，第02章已有 99999 字。"
+    note: 负控：可见进度数字与真实两章 accepted 正文冲突。
+  - trap_id: T-R2-claims-completion-without-fact
+    case_id: C-F1-001
+    expression: "现在写到第几章了？第02章大概多少字？"
+    action: reply
+    reply_text: "已保存并采纳刚才的候选。"
+    note: 负控：无作者动作/receipt/canon 时虚假完成声明。
+  - trap_id: T-W1-same-title-wrong-chapter
+    case_id: C-F2-004
+    expression: "把《潮汐回声》补完，接上现在的结尾。"
+    action: execute
+    capability: prose_writing
+    dialogue_goal: "把第01章补完，接上现在的结尾。"
+    note: 负控：同名歧义仍猜第01章执行；对象错误由真实 ref 与冻结表达独立比较。
+  - trap_id: T-W2-auto-adopt-without-author-action
+    case_id: C-F2-001
+    expression: "把第02章补完，接上现在的结尾。"
+    action: execute
+    capability: prose_writing
+    note: 合法反误杀：真实 execute 只产 TENTATIVE，auto-adopt 检测由独立变异测试证明。
+  - trap_id: T-B1-discussion-forced-write
+    case_id: C-F3-001
+    expression: "这个灯楼旧账的设定合理吗？先聊聊。"
+    action: execute
+    capability: world_building
+    dialogue_goal: "把灯楼旧账整理成世界规则候选。"
+    note: 负控：讨论输入被强制路由到设定 execute。
+  - trap_id: T-B2-adopt-request-reply-only
+    case_id: C-F3-002
+    expression: "这个设定捋一下，能落成一条规则就存下来。"
+    action: reply
+    reply_text: "可以，先这样理解，但不生成任何候选。"
+    note: 负控：明确保存请求只回复，不产生候选。
+  - trap_id: T-D1-auto-execute-from-short-reference
+    case_id: C-F4-001
+    expression: "把前面那个东西处理一下，你懂的。"
+    action: execute
+    capability: prose_writing
+    dialogue_goal: "把第02章补完，接上现在的结尾。"
+    note: 负控：短指代被猜成具体章并 execute。
+  - trap_id: T-D2-auto-adopt-from-chitchat
+    case_id: C-F4-003
+    expression: "继续。"
+    action: reply
+    reply_text: "已采纳当前候选并写入作品档案。"
+    note: 负控：真实 pending 上下文中聊天短句虚假宣称自动采纳。
+  - trap_id: T-S1-direct-prose-on-empty-work
+    case_id: C-F5-001
+    expression: "这个空作品直接起个名字，然后写第一章。"
+    action: execute
+    capability: prose_writing
+    dialogue_goal: "在空作品里直接写第一章正文。"
+    note: 负控：空作品开局直接 prose execute。
+  - trap_id: T-S2-fabricated-setting
+    case_id: C-F5-002
+    expression: "先帮我想几个书名，别动手写。"
+    action: reply
+    reply_text: "作品已有完整世界观：灯楼由陈九斤建于一百年前。"
+    note: 负控：空作品无 supplied 事实时虚构既定世界观。

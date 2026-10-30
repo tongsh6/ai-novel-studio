@@ -63,7 +63,13 @@ s3 =
     {2, "第02章：潮汐账页", "PLANNED", nil}
   ])
 
+s4 =
+  insert_work.("B73 S4 同名章", [
+    {1, "第01章：潮汐回声", "DRAFTING", "甲线正文：潮汐回声穿过空仓库，甲线守门人没有回头。"},
+    {2, "第02章：潮汐回声", "DRAFTING", "乙线正文：潮汐回声停在旧船舱，乙线记录者合上账页。"}
+  ])
+
 IO.puts(
-  "[b70-author-behavior-seed] s1_work_id=#{s1.id} s2_work_id=#{s2.id} s3_work_id=#{s3.id} " <>
-    "s1_title=B70 S1 部分多章 s2_title=B70 S2 空骨架 s3_title=B70 S3 待采纳候选"
+  "[b70-author-behavior-seed] s1_work_id=#{s1.id} s2_work_id=#{s2.id} s3_work_id=#{s3.id} s4_work_id=#{s4.id} " <>
+    "s1_title=B70 S1 部分多章 s2_title=B70 S2 空骨架 s3_title=B70 S3 待采纳候选 s4_title=B73 S4 同名章"
 )

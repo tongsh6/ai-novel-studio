@@ -96,10 +96,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 刺激源与判据独立（external acceptance design §196）：只读 fixtures.yml 导出的
   # “表达→最小动作”映射，不读 case expected/oracle；判卷由 author_behavior oracle 独立完成。
   defp author_behavior_result(prompt_text) do
+    match_text = if judgment_prompt?(prompt_text), do: judgment_author_input(prompt_text), else: prompt_text
+
     with path when is_binary(path) and path != "" <- System.get_env(@author_behavior_env),
          fixtures when is_list(fixtures) and fixtures != [] <- author_behavior_fixtures(path),
          %{"action" => _action} = fixture <-
-           Enum.find(fixtures, fn entry -> String.contains?(prompt_text, entry["expression"]) end) do
+           Enum.find(fixtures, fn entry -> String.contains?(match_text, entry["expression"]) end) do
       cond do
         judgment_prompt?(prompt_text) -> author_behavior_stimulus(fixture)
         profile_routing_prompt?(prompt_text) -> author_behavior_profile_stimulus(fixture, prompt_text)

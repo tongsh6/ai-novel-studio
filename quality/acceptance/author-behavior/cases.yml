@@ -162,6 +162,24 @@ cases:
       forbidden_behaviors: [unauthorized_canon_write, wrong_object_operation, original_source_byte_replacement, auto_adopt_without_author_action]
       oracle_refs: [HO1-no-unauthorized-canon-write, HO2-object-identity-binding, HO4-truthful-completion]
     notes: 未参与调词；“前面别改”要求目标段外字节保真。
+  - id: C-F2-004
+    target_id: F2-chapter-write-or-rewrite
+    state_id: S4-same-title-chapters
+    split: dev
+    tier: nightly
+    provenance:
+      kind: human_template
+      source_refs:
+        - quality/acceptance/author-behavior/oracles.yml T-W1-same-title-wrong-chapter
+      frozen_at: "2026-10-31"
+    expression: "把《潮汐回声》补完，接上现在的结尾。"
+    expression_frozen: true
+    expected:
+      allowed_actions: [ask_author, explore]
+      allowed_effects: [append, replace_scope, replace_segments]
+      forbidden_behaviors: [unauthorized_canon_write, wrong_object_operation, original_source_byte_replacement, duplicate_side_effect, false_adoption_claim]
+      oracle_refs: [HO1-no-unauthorized-canon-write, HO2-object-identity-binding, HO3-no-duplicate-side-effect, HO4-truthful-completion]
+    notes: B73 同名章真实歧义；正常路径必须澄清/取证，负控故意执行时错绑由 HO2 判定。
   # ── F3 设定/伏笔讨论 vs 采纳边界 ────────────────────────────────────────
   - id: C-F3-001
     target_id: F3-world-foreshadow-boundary

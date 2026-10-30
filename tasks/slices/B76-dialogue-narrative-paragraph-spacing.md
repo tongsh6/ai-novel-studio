@@ -1,6 +1,6 @@
 # B76：对话叙事段落双倍空行修复（作者反馈换行过大）
 
-- 状态：**doing（2026-10-31 CP0 复现与根因完成；CP1 CSS 修复已落地；页面 scoped 复验待做）**。
+- 状态：**done（2026-10-31 CP0/CP1/CP2 完成；真实 Tauri F画面见 uib74e a1-run2-narrative.jpg）**。
 - 来源：作者在 B39 AU-15 原生实模批次运行中直接反馈“换行有问题”，附真实 Tauri 窗口截图（AI 回应叙事行之间空行过大）。
 - 类型：UI 呈现缺陷（非产品数据/模型语义）；不新增验收感知逻辑。
 
@@ -22,7 +22,7 @@
 - 回归守卫：`scripts/lib/quality/narrative_spacing.test.mjs` 静态断言父容器 gap=12px、段落在主题规则中无 margin/margin-bottom（防止再次叠加；放在 node 侧避免 node 类型污染前端 typed lint）。
 - 门禁（本轮）：`pnpm typecheck`、`pnpm lint`、`pnpm test -- --run WorkspaceChat.narrativeSpacing.test.ts` 通过；全量前端测试随后跑。
 
-## 3. 页面 scoped 复验（进行中：AU15 uib74 批次）
+## 3. 页面 scoped 复验（done：AU15 uib74e 批次）
 
 - 需在真实 Tauri 工作台用外部 driver 重新生成同一叙事流（AU15 A1 或 AU10 渲染场景），测量相邻 narrative 段落 computed margin/gap，断言间距为 12px（不是 24px），并截图对照。
 - 复验前不得标记 B73 done；类型/视觉最终判断仍由作者确认。

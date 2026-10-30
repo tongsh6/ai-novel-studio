@@ -12,9 +12,7 @@
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B74 | 作者反馈候选动作按钮平铺；方向 A：按候选对象分组卡片+主次操作；纯函数/渲染/CSS/测试已完成，真实 Tauri scoped 页面复验进行中 | [原任务](slices/B74-candidate-actions-grouped-primary.md) |
 | B75 | 工作台弹出层 click-outside/Esc 关闭；AU15 驱动发现会话弹层只能再点按钮 toggle；CP0 待做 | [原任务](slices/B75-workbench-popover-outside-close.md) |
-| B76 | 作者反馈对话叙事段落换行过大；CP0 根因=父 flex gap 12px + 段落 margin 12px 叠加为 24px；CP1 已改 margin:0 并加静态守卫；下一步真实 Tauri scoped 复验间距 12px 后收口 | [原任务](slices/B76-dialogue-narrative-paragraph-spacing.md) |
 | B72 | 作者选择先做 P2：CP0 离线 LLM 语料扩增设计已冻结；下一步 CP1 生成 manifest/candidate 与原始批次，未调用模型；P0/P1 缺口不由本任务销账 | [原任务](slices/B72-author-behavior-offline-corpus-expansion.md) |
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B64 | CP0 核对旧章/新章记忆有效窗；真实目标贯穿 recall、writer/evaluator，保留历史查询语义 | [原任务](slices/B64-coordinate-aware-memory-consumption.md) |

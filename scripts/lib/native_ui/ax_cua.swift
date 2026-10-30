@@ -216,6 +216,14 @@ func main() {
     case "set":
         guard let el = elementAt(pid: pid, path: args[3]) else { json(["ok": false, "error": "no_element"]); exit(4) }
         json(["ok": AXUIElementSetAttributeValue(el, kAXValueAttribute as CFString, args[4] as CFString) == .success])
+    case "scrollto":
+        guard let el = elementAt(pid: pid, path: args[3]) else { json(["ok": false, "error": "no_element"]); exit(4) }
+        let ok = AXUIElementPerformAction(el, "AXScrollToVisible" as CFString) == .success
+        if !ok, let (pt, sz) = frameOf(el) {
+            // 回退：把元素中心作为滚轮目标再滚动到视口附近（仍为用户可见输入语义）。
+            mouseScroll(CGPoint(x: pt.x + sz.width / 2, y: pt.y + sz.height / 2), dy: -600)
+        }
+        json(["ok": ok, "method": ok ? "axscrolltovisible" : "wheel"])
     case "focus":
         guard let el = elementAt(pid: pid, path: args[3]) else { json(["ok": false, "error": "no_element"]); exit(4) }
         let f = AXUIElementSetAttributeValue(el, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success

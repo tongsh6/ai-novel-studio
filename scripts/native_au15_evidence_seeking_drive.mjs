@@ -14,7 +14,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { clickAt, pressKey, readJson, scrollAt, sleep, textOf, typeText } from "./lib/native_ui/driver.mjs";
+import { clickAt, pressKey, readJson, scrollAt, scrollToPath, sleep, textOf, typeText } from "./lib/native_ui/driver.mjs";
 import {
   NativeScenarioHarness,
   ROOT,
@@ -710,7 +710,13 @@ async function runScenario(spec) {
   const { turnId, runId } = await sendAuthorInput(spec.natural_input, label);
   const { turnResult, questions, pauses } = await waitTurn(turnId, spec, label);
   const dbAfter = dbSnapshot();
-  // B74：在候选卡片渲染后滚动到会话底部，截取“章节内容+保存按钮”同一屏页面证据。
+  // B74/B76 页面复验：分别滚动到叙事段与候选保存动作，截取真实 Tauri 页面证据。
+  if (await scrollToFirstText(/已阅读章节正文|已核查章节/)) {
+    harness.capture(`${label}-narrative`);
+  }
+  if (await scrollToFirstText(/保存原稿|保存到作品档案/)) {
+    harness.capture(`${label}-candidate`);
+  }
   await scrollConversationToBottom();
 
   harness.capture(`${label}-after`);
@@ -784,6 +790,26 @@ async function runScenario(spec) {
 }
 
 // ── 主流程 ─────────────────────────────────────────────────────────────────
+
+
+function findNodeByText(nodes, pattern) {
+  return nodes.find((node) => {
+    const text = [node.title, node.desc, node.value].filter(Boolean).join(" ");
+    return pattern.test(text) && Array.isArray(node.frame) && node.frame[2] > 0 && node.frame[3] > 0;
+  });
+}
+
+async function scrollToFirstText(pattern) {
+  const node = findNodeByText(harness.dumpNodes(), pattern);
+  if (!node?.path) return false;
+  try {
+    scrollToPath(harness.APP, node.path);
+    await sleep(500);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function scrollConversationToBottom() {
   const nodes = harness.dumpNodes();

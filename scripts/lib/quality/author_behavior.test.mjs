@@ -37,9 +37,9 @@ test("冻结语料通过校验且统计稳定", () => {
   const result = validateAuthorBehaviorCorpus(CORPUS);
   assert.equal(result.ok, true, JSON.stringify(result.errors));
   assert.equal(result.stats.targets, 5);
-  assert.equal(result.stats.states, 3);
-  assert.equal(result.stats.cases, 17);
-  assert.equal(result.stats.splits.dev, 9);
+  assert.equal(result.stats.states, 4);
+  assert.equal(result.stats.cases, 18);
+  assert.equal(result.stats.splits.dev, 10);
   assert.equal(result.stats.splits.regression, 4);
   assert.equal(result.stats.splits.holdout, 4);
   assert.equal(result.stats.targets, 5);
@@ -125,6 +125,19 @@ test("目标族无案例/状态无案例被拒绝", () => {
   assert.equal(result.ok, false);
   const codes = new Set(result.errors.map((error) => error.code));
   assert.ok(codes.has("target_without_cases"));
+});
+
+test("B73 negative fixture 必须引用真实 case/trap 且保持冻结表达", () => {
+  const corpus = cloneCorpus();
+  corpus.fixtures.negative_fixtures[0].case_id = "C-NOT-FOUND";
+  corpus.fixtures.negative_fixtures[1].trap_id = "T-NOT-FOUND";
+  corpus.fixtures.negative_fixtures[2].expression = "改过的输入";
+  const result = validateAuthorBehaviorCorpus(corpus);
+  assert.equal(result.ok, false);
+  const codes = new Set(result.errors.map((error) => error.code));
+  assert.ok(codes.has("negative_fixture_unknown_case"));
+  assert.ok(codes.has("negative_fixture_unknown_trap"));
+  assert.ok(codes.has("negative_fixture_expression_mismatch"));
 });
 
 test("覆盖报告 corpus 计数/stat sha 不一致被拒绝", () => {

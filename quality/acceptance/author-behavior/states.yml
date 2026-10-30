@@ -67,3 +67,20 @@ states:
       has_chapter_plan: true
       has_pending_candidate: true
       has_world_facts: true
+  - id: S4-same-title-chapters
+    summary: 两章标题都为潮汐回声且均有 accepted 正文；只按标题续写时必须澄清，不得猜首条或最新。
+    seed:
+      kind: synthetic_work
+      chapters: 2
+      accepted_prose_chapters: [1, 2]
+      chapter_plans: [1, 2]
+      pending_candidates: 0
+      memory_items: 0
+    fixture:
+      work_title: "B73 S4 同名章"
+    dimensions:
+      has_chapters: true
+      has_accepted_prose: true
+      has_chapter_plan: true
+      has_pending_candidate: false
+      has_world_facts: false

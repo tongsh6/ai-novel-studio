@@ -63,9 +63,9 @@
 | [B68-experience-rule-governance.md](B68-experience-rule-governance.md) | Experience Engine 的证据、提炼建议、审阅、规则生命周期与后续消费；原条件收编统一落点，启动条件见原任务。 |
 | [B69-renumber-idempotent-temp-seq.md](B69-renumber-idempotent-temp-seq.md) | **doing（2026-10-30 CP0）**：B33 CP3 真实模型原生发现的重编号数据完整性缺陷——from==to 项残留临时 seq=1000001；契约/复现已冻结，修复与 scoped 复验待执行。 |
 | [B70-author-behavior-corpus-and-state-exploration.md](B70-author-behavior-corpus-and-state-exploration.md) | **done（2026-10-30 CP0–CP3 验证基础设施）**：5 目标族/17 cases、真实 UI 回放与 seeded 探索、PR/nightly/失败转回归和实模 blocked 入口；真实模型、6 not-run cases、完整动作/native 覆盖仍属残余，详见原任务。 |
-| [B71-provider-message-fidelity.md](B71-provider-message-fidelity.md) || [B74-candidate-actions-grouped-primary.md](B74-candidate-actions-grouped-primary.md) | 候选动作按对象分组卡片+主次操作：作者反馈按钮平铺；纯函数/渲染/CSS/测试完成，真实 Tauri 页面复验进行中。 |
+| [B71-provider-message-fidelity.md](B71-provider-message-fidelity.md) || [B74-candidate-actions-grouped-primary.md](B74-candidate-actions-grouped-primary.md) | 候选动作按对象分组卡片+主次操作：作者反馈按钮平铺；已按 A 方向落地，真实 Tauri 页面证据见 uib74e，作者可继续提文案/批量细化。 |
 | [B75-workbench-popover-outside-close.md](B75-workbench-popover-outside-close.md) | 工作台弹出层 click-outside/Esc 关闭；AU15 驱动发现的会话弹层 UX 缺口，CP0 待做。 |
-| [B76-dialogue-narrative-paragraph-spacing.md](B76-dialogue-narrative-paragraph-spacing.md) | 对话叙事段落双倍空行修复：作者反馈换行过大；根因 flex gap+margin 叠加；CSS 修复与静态守卫已落地，真实页面 scoped 复验待做。 |
+| [B76-dialogue-narrative-paragraph-spacing.md](B76-dialogue-narrative-paragraph-spacing.md) | 对话叙事段落双倍空行修复：作者反馈换行过大；根因 flex gap+margin 叠加；CSS 修复、静态守卫与真实 Tauri 页面复验完成。 |
  AI Novel Studio 原生多轮创作请求体：AgentRun 为事实源、Request IR 为投影，贯通求证、工具结果、tentative 候选与作者边界；目标设计不以现役最低能力妥协，状态见原任务。 |
 | [B72-author-behavior-offline-corpus-expansion.md](B72-author-behavior-offline-corpus-expansion.md) | 作者行为离线 LLM 语料扩增（P2）：生成 manifest/候选、去重与 holdout、人工冻结及真实 UI 抽样；CP0 设计已就绪，实现状态与证据见原任务。 |
 | [B30-chapter-structure-maintenance.md](B30-chapter-structure-maintenance.md) | **done（2026-10-27，CP0–CP5 + 完成审计后原生补验收口）**：既有章节重编号/结构维护与卷章类型边界；`maintain_chapter_structure`、old→new 变更计划、两阶段原子 seq 事务、采纳 renumber effect、蓝图 object_kind 防护、ref-first 消费者迁移；原生确定性矩阵（场景1 36/36、场景2 12/12）+ strata/iq3_s scoped 真实模型原生 26/26（T1 采纳全链/T2 越界澄清零写入，不冒充全矩阵）；档案类型边界缺陷修复（`e83c06c5`）+ 原生 T8 6/6；失败批次只读保留；stage 存量清理需授权。 |

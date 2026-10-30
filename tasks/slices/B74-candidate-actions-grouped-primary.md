@@ -1,6 +1,6 @@
 # B74：候选动作按对象分组与主次层级（作者反馈按钮平铺 UX）
 
-- 状态：**doing（2026-10-31 CP0/CP1 done；真实 Tauri scoped 页面复验多次受模型/滚动取证影响未闭环，保持开放）**。
+- 状态：**done（2026-10-31 CP0/CP1/CP2 完成；真实 Tauri scoped 页面证据见 uib74e；作者可继续提文案/批量操作细化）**。
 - 来源：作者在 B39 AU-15 实模原生窗口反馈“这么多按钮平铺在一起，不是一个友好优雅的 UX 设计和实现”，并选择方向 A：按候选对象分组卡片 + 主次操作。
 - 类型：UI/UX 呈现重构；不改变 adoption 契约/动作集合/产品数据。
 
@@ -21,7 +21,7 @@
 - CSS：新增 `.candidateActionArea/.candidateActionCard/...`（白底细边框卡片、组内 actions 横排、ungrouped 独立），不改既有全局按钮样式。
 - 测试：`frontend/src/lib/candidateActionGroups.test.ts` 3 条纯函数测试（组顺序/动作顺序/标题、ungrouped 隔离、原稿/修订标题+hint）；前端 typecheck/lint/全量 test 628/628 通过。
 
-## 3. 真实页面 scoped 复验（未闭环，保留证据）
+## 3. 真实页面 scoped 复验（done，2026-10-31 uib74e）
 
 - 目标：真实 Tauri + 真实模型候选下，同一 turn 多候选显示为多张对象卡，保存按钮直接位于对应候选内容卡内、与正文同卡；无动作契约回归。
 - 尝试记录（新 tag，均不覆盖既有证据）：
@@ -29,11 +29,14 @@
   2. `uib74b`（scoped a1-run2，分组卡旧版）：driver_rc=0/runner pass，截图确认叙事段落间距修复，但动作仍在底栏（该 build 早于“贴内容卡”改动）。
   3. `uib74c`（scoped a1-run2，内容卡动作版）：Tauri build 已含最新 UI；native 截图仅拍到质量 finding 卡，AX/滚动未到达候选卡，未形成候选区视觉证据。
   4. `uib74d`（加滚轮取证后 scoped a1-run2）：turn_timeout，失败只读保留；未获截图。
-- 结论：**代码与组件测试已证明内容卡内动作顺序（正文先于保存按钮）；真实 Tauri 候选区视觉复验未闭环**。下一步需在 A1 成功 run 后用 scroll-locate-candidate 驱动截图（或改用可稳定定位候选卡的浏览器 surface），不得把组件测试当页面 PASS。
-- 验证前不得把 B74 标 done；最终视觉/文案是否“优雅”仍由作者确认。
+- 最终成功批次 `uib74e`（scoped a1-run2，新 tag；driver_rc=0/runner passed，mechanism pass/model observed，loaded null→null）：给既有 native driver 增加 AX `AXScrollToVisible`（CUA `scrollto`）+ 滚轮兜底，成功截取：
+  - `artifacts/slice-verify/b39-au15-uib74e-native/a1-run2-candidate.jpg`：第03章正文候选内容卡内直接出现「保存原稿 / 放弃原稿 / 编辑原稿后保存」，与正文同卡；角色设定草稿单独成卡（AX 中其 `保存到作品档案/不保存/修改后保存` 动作在该对象卡内）。
+  - `a1-run2-narrative.jpg`：叙事段落间距已收紧（B76 同步验证）。
+- 结论：真实页面视觉证据已闭环；组件测试/纯函数测试/页面截图三者一致。作者若希望进一步的文案细化（如“保存角色档案”）或批量操作，按 §4 后续取舍另行处理，不阻塞本次结构修复。
 
 ## 4. 残余
 
 - 同轮候选很多时卡片纵向变长；是否加“全部保存/批量操作”、卡片折叠、只展开首个候选，属后续 UX 取舍（需作者确认，不在本次擅自扩大）。
 - 伴生候选的“保存到作品档案”是否应改成类型专属主按钮文案（如“保存角色档案”）可作为下一轮文案优化。
+- 本次真实页面证据为 scoped A1（隔离 fixture setup，非 D6-A 正式 A1/A2）；不改变 AU-15 正式验收结论。
 - 会话栏弹层 click-outside/Esc 关闭缺口由 AU15 驱动发现，另立 B75 候选，不混入本 slice。
