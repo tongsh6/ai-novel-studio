@@ -14,7 +14,6 @@
 |---|---|---|
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B48 | 无变化普通说明、真正歧义才追问；依赖 B43 裁决同源，完成四场景验收 | [原任务](slices/B48-character-revision-noop-and-ambiguity.md) |
-| AU08-REFRESH | 核对现役四态与失败/重试/旧内容口径，补真实页面恢复和零权威写入矩阵 | [原任务小节](slices/AU08-file-level-closure.md#阅读投影状态与失败恢复补验) |
 | AU10-FAILED | 核对真实导出失败生产者，补 FAILED 首屏、恢复/新请求及输出完整性证据 | [原任务小节](slices/AU10-workbench-recovery-taskstate.md#failed-任务状态真实页面补验) |
 | AU10-MATRIX | 核对当前卡片/动作结果、未知/失效/跨作品与视口矩阵，按 owner 去重后补消费证据 | [原任务小节](slices/AU10-file-level-closure.md#现役动作与卡片矩阵核对) |
 | UA01-PROMPT-T3T5 | 按当前单调用及 ADR-0031 核对修订尾部、finding 保真与计划面板 N-NARR；按现役消费者接续 | [原任务小节](slices/UA01-agentic-loop-prompt-hardening.md#t3-t5-当前语义审计与承接) |
