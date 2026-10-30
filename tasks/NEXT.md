@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B39 | CP1 正文求证与逐次模型输入证据；后续准备/恢复/迁移仍按完整 slice 验收 | [原任务](slices/B39-evidence-seeking-authoring.md) |
+| B39 | CP1 进行中（CP1a done：共享 ExplorationStep + 正文 flow 只读探索/观察进 writer prompt；CP1b mission 观察 refs、CP1c used_context_refs/Base 快照、最小准备判断、A0/A1/A2 场景与实模分层证据待做）；后续准备/恢复/迁移仍按完整 slice 验收 | [原任务](slices/B39-evidence-seeking-authoring.md) |
 
 ## 后续候选
 

@@ -1425,6 +1425,109 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
   defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 
+  test "B39 CP1：正文 run 开放只读探索步，观察进后续 writer prompt 且 0 provider/tool 消耗被正确计账" do
+    parent = self()
+
+    evaluator = fn _prompt ->
+      {:ok,
+       %{
+         provider_call_ref: "pc-b39-cp1-evaluator",
+         content: Jason.encode!(%{"findings" => []})
+       }}
+    end
+
+    writer = fn prompt ->
+      cond do
+        plan_draft_prompt?(prompt) ->
+          {:ok,
+           with_provider_call(
+             prose_plan_draft(prompt, exploration: {"archive_read", "stats"}),
+             "pc-b39-cp1-plan"
+           )}
+
+        mission_prompt?(prompt) ->
+          {:ok, with_provider_call(mission_result(), "pc-b39-cp1-mission")}
+
+        true ->
+          send(parent, {:writer_prompt, prompt})
+
+          {:ok,
+           with_provider_call(
+             %{
+               provider_call_id: "pc-b39-cp1-writer",
+               content:
+                 Jason.encode!(%{
+                   items: [
+                     %{
+                       item_id: "b39-cp1-prose",
+                       title: "第01章：开端",
+                       body: "岑雾在灯楼里核对旧账，确认前文承诺的时间没有断。",
+                       rationale: "基于检索观察生成的首稿候选。"
+                     }
+                   ],
+                   self_report: %{
+                     assumptions: [],
+                     intended_reader_effect: "克制",
+                     used_context_refs: [],
+                     risk_flags: []
+                   }
+                 })
+             },
+             "pc-b39-cp1-writer"
+           )}
+      end
+    end
+
+    run_id =
+      start_prose_run!(
+        %{
+          text: "按前文约定补写第01章正文草稿，再复核。",
+          session_id: "session-b39-cp1",
+          turn_id: "turn-b39-cp1",
+          quality_provider_execution: %Execution{result_fn: evaluator}
+        },
+        writer,
+        parent
+      )
+
+    events = collect_agent_events_until(:run_completed, 8_000)
+
+    plan_event = find_event!(events, :plan_drafted)
+    target_refs = Enum.map(plan_event.payload.plan_steps, & &1.target_tool_ref)
+    assert "archive_read" in target_refs
+
+    exploration_events =
+      for {:exploration_observed, event} <- events, do: event
+
+    explore_event =
+      Enum.find(exploration_events, fn event ->
+        event.payload[:tool] == "archive_read" and event.payload[:query] == "stats"
+      end)
+
+    assert explore_event
+
+    assert_receive {:writer_prompt, writer_prompt}, 1_000
+    assert writer_prompt =~ "已完成观察"
+
+    # 观察内容（含真实 refs 的 summary）进入后续 writer 真实请求，而不只是内部状态。
+    assert writer_prompt =~ explore_event.payload.summary
+
+    assert {:ok, state} = AgentRunService.state(run_id)
+    assert state.run.status == :completed
+    # context + 只读探索 + chapter_mission + prose_writing = 4 步；
+    # 探索步 0 provider / 0 tool，工具调用仍只有 prose_writing。
+    assert length(state.run.completed_step_refs) == 4
+    assert state.run.consumed_budget.steps == 4
+    assert state.run.consumed_budget.tool_calls == 1
+    assert state.run.consumed_budget.provider_calls == 4
+
+    assert Enum.any?(
+             state.observations,
+             &(&1.structured_payload[:stage] == :exploration_observed and
+                 &1.source_ref == "explore:archive_read:2")
+           )
+  end
+
   defp prose_plan_draft(prompt, opts \\ []) do
     prompt = prompt_text(prompt)
 
@@ -1442,6 +1545,26 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     requested_chapter_raw = Keyword.get(opts, :requested_chapter_raw, requested_chapter_raw)
     risk_hint = Keyword.get(opts, :risk_hint, "low")
 
+    exploration_step =
+      case Keyword.get(opts, :exploration) do
+        {tool, query} ->
+          [
+            Map.put(
+              NovelApplication.TestAgenticLoopFixtures.plan_step(
+                "explore_readonly_prose",
+                tool,
+                "按需读取作品事实。",
+                success_criteria: ["exploration_observed"]
+              ),
+              "exploration_query",
+              query
+            )
+          ]
+
+        _ ->
+          []
+      end
+
     NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
       reasoning,
       [
@@ -1450,27 +1573,30 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           "context_assemble",
           "读取正文写作上下文",
           success_criteria: ["prose_context_attached"]
-        ),
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
-          "derive_chapter_mission",
-          "chapter_mission",
-          "按本章计划与作品脉络推导本章使命",
-          success_criteria: ["chapter_mission_derived"]
-        ),
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
-          "draft_prose_with_quality",
-          "prose_writing",
-          "生成正文草稿并触发质量复核",
-          kind: "act",
-          write_intent: "tentative",
-          risk_hint: risk_hint,
-          authoring_intent: authoring_intent,
-          target_chapter: target_chapter,
-          target_chapter_ref: target_chapter_ref,
-          requested_chapter_raw: requested_chapter_raw,
-          success_criteria: ["prose_fragment_created", "quality_review_completed"]
         )
-      ],
+      ] ++
+        exploration_step ++
+        [
+          NovelApplication.TestAgenticLoopFixtures.plan_step(
+            "derive_chapter_mission",
+            "chapter_mission",
+            "按本章计划与作品脉络推导本章使命",
+            success_criteria: ["chapter_mission_derived"]
+          ),
+          NovelApplication.TestAgenticLoopFixtures.plan_step(
+            "draft_prose_with_quality",
+            "prose_writing",
+            "生成正文草稿并触发质量复核",
+            kind: "act",
+            write_intent: "tentative",
+            risk_hint: risk_hint,
+            authoring_intent: authoring_intent,
+            target_chapter: target_chapter,
+            target_chapter_ref: target_chapter_ref,
+            requested_chapter_raw: requested_chapter_raw,
+            success_criteria: ["prose_fragment_created", "quality_review_completed"]
+          )
+        ],
       reason_codes: Keyword.get(opts, :reason_codes, ["agent_plan_drafted"]),
       tool_name: Keyword.get(opts, :tool_name, "agent_plan_draft")
     )

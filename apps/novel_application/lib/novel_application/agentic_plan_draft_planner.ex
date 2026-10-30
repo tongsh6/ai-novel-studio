@@ -534,8 +534,17 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     end
   end
 
+  # B39 CP1：检索步（共享 ExplorationStep，0 provider 调用）；不得为单一要素加专用分支。
   defp plan_step_targets("prose_drafting_with_quality_v1"),
-    do: ["context_assemble", "chapter_mission", "prose_writing"]
+    do: [
+      "context_assemble",
+      "chapter_mission",
+      "prose_search",
+      "chapter_read",
+      "archive_read",
+      "memory_recall",
+      "prose_writing"
+    ]
 
   defp plan_step_targets("character_design_with_context_v1"),
     do: ["character_roster", "character_design"]
@@ -766,6 +775,10 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   defp step_catalog("prose_drafting_with_quality_v1") do
     """
     - context_assemble | explore | 读取正文写作上下文
+    - prose_search | explore | 检索已采纳正文；必须携带 exploration_query
+    - chapter_read | explore | 读取指定章节正文/摘要；必须携带 exploration_query
+    - archive_read | explore | 读取作品档案/统计；必须携带 exploration_query
+    - memory_recall | explore | 检索已确认记忆；必须携带 exploration_query
     - chapter_mission | explore | 写前推理：按本章计划与作品脉络/进度推导本章使命（必排在 prose_writing 之前，prose_writing 依赖它）
     - prose_writing | act | 生成正文草稿并触发质量复核
     """

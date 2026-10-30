@@ -15,6 +15,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentObservationAssembler
+  alias NovelApplication.AgentRunFlows.ExplorationStep
   alias NovelApplication.AgentRunFlows.StepTracePersistence
   alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.ContextAssembler
@@ -468,114 +469,18 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
 
   defp string_list(_values), do: []
 
-  # CP5b 计划内检索步：ExplorationService 内联只读（0 提供者调用，不经 Toolbox），
-  # 观察进流 + exploration_observed 事件；exploration_query 缺失或工具失败记为
-  # 失败观察（诚实呈现，后续步/修订自行应对），不硬失败整个 run。
+  # CP5b/B39 CP1：计划内检索步由共享 ExplorationStep 执行（观察进流 +
+  # author-visible exploration_observed；工具失败记 :failed 观察，不硬失败 run）。
   defp execute_exploration_decision_step(run, sequence, decision, snapshot) do
-    # 本步只由 target_tool_ref ∈ @exploration_step_targets 的决策进入；`|| ""` 让
-    # 类型系统看到 binary（nil 会被 ExplorationService 诚实判为非法工具）。
-    tool = decision.target_tool_ref || ""
-    query = decision.exploration_query || ""
-    work_id = run.work_id || run.workspace_id || ""
-
-    observation_data =
-      case NovelApplication.ExplorationService.run(work_id, tool, query) do
-        {:ok, observation} ->
-          observation
-
-        {:error, reason} ->
-          # 真实工具失败：失败类文案 + :failed 分类（只有这里算「检索未完成」）。
-          %{
-            tool: tool,
-            query: query,
-            summary: "检索步执行失败：#{inspect(reason)}",
-            refs: [],
-            outcome: :failed,
-            facts: %{},
-            activity_summary: NovelApplication.ExplorationService.activity_failure_summary(tool)
-          }
-      end
-
-    # B24 CP2（I-EXPLORE-READ-8）：作者可见活动行用集中人类可读文案；工具 id /
-    # 查询原文只留在 structured_payload / decision / trace。
-    activity = NovelApplication.ExplorationService.activity_summary(observation_data)
-
-    emit_stage(
+    ExplorationStep.execute(
+      run,
+      sequence,
+      decision,
       snapshot,
-      :exploration_observed,
-      activity,
-      ["exploration_observed", tool],
-      ["explore:#{tool}:#{sequence}"],
-      exploration_event_payload(tool, query, observation_data)
+      target_set: @exploration_step_targets,
+      namespace: "plan_explore",
+      observation_suffix: "jp_tool"
     )
-
-    {:ok, observation} =
-      AgentObservation.new(%{
-        observation_id: tool_observation_id(run, sequence),
-        run_ref: run.run_id,
-        step_ref: current_step_ref(run, sequence),
-        observation_type: :custom,
-        source_ref: "explore:#{tool}:#{sequence}",
-        summary: observation_data.summary,
-        structured_payload:
-          Map.merge(
-            %{stage: :exploration_observed},
-            NovelApplication.ExplorationService.observation_metadata(observation_data)
-          ),
-        evidence_refs: ["explore:#{tool}:#{sequence}"],
-        confidence: 1.0
-      })
-
-    {:ok,
-     %{
-       step: exploration_step(run, sequence, activity),
-       observations: [observation],
-       provider_call_count: 0,
-       # B24 CP2（I-EXPLORE-READ-5）：与判断循环同口径——签名不含 sequence，
-       # 同 tool+同 query（含 offset）才判 no-progress，续读页不误停。
-       progress_signature: "#{run.run_id}:plan_explore:#{tool}:#{query}"
-     }}
-  end
-
-  # B24 §1.1(c)：观察元数据进 developer payload；nil 不写入（wire 的 author-safe
-  # payload 会把 atom 含 nil 字符串化，null 语义会被误读成 "nil"）。
-  # B28 T4 R10：outcome/facts 结构化分类随观察进 payload，供 no_progress 终止
-  # 澄清机械派生（作者面不渲染本段）。
-  defp exploration_event_payload(tool, query, observation) do
-    base =
-      %{
-        stage: :exploration_observed,
-        tool: tool,
-        query: query,
-        refs: observation.refs,
-        summary: observation.summary
-      }
-      |> Map.merge(NovelApplication.ExplorationService.observation_metadata(observation))
-
-    [:chapter_ref, :chapter_seq, :next_offset, :prose_total_chars, :prose_range]
-    |> Enum.reduce(base, fn key, acc ->
-      case Map.get(observation, key) do
-        nil -> acc
-        value -> Map.put(acc, key, value)
-      end
-    end)
-  end
-
-  defp exploration_step(run, sequence, activity) do
-    {:ok, step} =
-      AgentStep.new(%{
-        step_id: current_step_ref(run, sequence),
-        run_ref: run.run_id,
-        sequence: sequence,
-        status: :completed,
-        goal: activity,
-        observation_refs: [tool_observation_id(run, sequence)],
-        state_snapshot_ref: state_snapshot_ref(run, sequence, "judgment_plan_explore"),
-        idempotency_key:
-          "#{run.run_id}:#{sequence}:judgment_plan_explore:goal_v#{run.goal.version}"
-      })
-
-    step
   end
 
   defp execute_context_decision_step(run, sequence, spec, snapshot) do

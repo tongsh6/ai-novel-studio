@@ -1,6 +1,6 @@
 # B39：求证式创作——最小供给、Run 级探索与证据闭环
 
-- 状态：**todo（2026-10-29 作者已正式接受 ADR-0030/VS-00K/AU-15；设计前置解除，CP1 待实施准备；CP1–CP4 产品实现及验收未完成）**。
+- 状态：**doing（2026-10-30 CP1 开工；作者已正式接受 ADR-0030/VS-00K/AU-15；CP1a 正文 flow 只读探索步+观察进 writer 已落地；CP1b/c/d 与 A0/A1/A2、实模证据未完成；CP1–CP4 不得整体标 done）**。
 - 登记日期：2026-10-27；来源：作者指出持续增加 APP 主动投喂只会不断补漏洞，要求先把元原则深化到全部承重设计，而非先做时间线专用设计。
 - 上游：[00 §2.4](../../docs/design/00-vision-and-engineering-roadmap.md#24-创作信息获取元原则最小供给按需求证证据闭环2026-10-27-用户拍板)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[VS-00K](../../docs/design/contracts/VS-00K-evidence-seeking-authoring-contract-pack.md)、[AU-15](../../docs/design/acceptance/author/AU-15-evidence-seeking-authoring.md)。
 - 当前可依已接受基线进入 CP1 设计与实现；本会话继续逐项作者裁决，尚未启动产品施工或实模运行。执行与资源边界见 §9.7.17。
@@ -56,7 +56,7 @@
 | CP | 完整工作与完成标准 | 状态 |
 |---|---|---|
 | CP0 | 元原则落到主链、运行时、Context、AgentRun、写前推理、要素模型、工程与验收；形成 ADR-0030 / VS-00K / AU-15 / B39 和索引、atlas、不变量、旧条款处置矩阵。只登记设计，不声称实现 | **done（2026-10-27）**：主链/领域/契约/工程文档完成处置；候选 #20–#23；ADR trace 28/28、NEXT ok、新文档链接通过、差距快照 20 项开放无意外减少、diff check 通过；未运行产品功能测试或 Tauri |
-| CP1 | 正文 run 开放现有只读探索；共享判断循环探索执行，观察进入使命与 writer；保留现有携带，不新建时间表；首个完整用户场景具备必要的最小准备判断；完成 SC-AU15-A0/A1/A2，确定性机制与真实模型行为分层取证 | todo；设计前置已解除，尚未开工 |
+| CP1 | 正文 run 开放现有只读探索；共享判断循环探索执行，观察进入使命与 writer；保留现有携带，不新建时间表；首个完整用户场景具备必要的最小准备判断；完成 SC-AU15-A0/A1/A2，确定性机制与真实模型行为分层取证 | **doing（CP1a checkpoint 2026-10-30）**：共享 `ExplorationStep` + 判断计划/正文 flow 同源接线；prose 计划/执行器/目录开放检索步（0 provider/tool），观察进流并已进入后续 writer prompt；单测证明预算/事件/后续请求观察；**未完成**：观察带真实 refs 进 chapter_mission（CP1b）、used_context_refs 集合校验与 Base/observation trace 快照（CP1c）、最小准备判断、SC-AU15-A0/A1/A2 场景与真实模型分层证据（CP1d/验收）；不得以本 checkpoint 代签 CP1 或 AU-15 |
 | CP2 | 写前准备可返回通用信息缺口并触发有界 plan revision；建立 Base/观察 refs 与 used_context_refs 对账；明确“可先求证”与“只能由作者裁决”的 clarification 边界；未知、歧义、冲突与越界引用完成 SC-AU15-B1/C1 | 未开工 |
 | CP3 | 规划、修订、写后质量与恢复复用同一求证链；完成 SC-AU15-B2/C2；真实 provider 请求、trace、replay 与作者可见证据一致 | 未开工 |
 | CP4 | 依据真实 run 的引用、重复查询和质量证据逐块迁移固定携带；领域读模型（包括是否需要时间线）按真实缺口单独立项；完成 SC-AU15-D1 | 未开工 |
@@ -536,6 +536,20 @@ git diff --check
 - 未闭环（不得读作完成）：CP1 未开工（ADR-0030 Proposed）；SC-AU15 未注册（release tier 仍 0 场景）；本轮未运行真实模型；无 native AU-15 证据；历史 P1 native 实模证据存在（判断循环探索），但不能替代 CP1 未接线与 AU-15 未注册；`judgment-explore-internal`/B62/B63 相关 WIP 属其他任务，不作为本任务证据。
 - ADR Accepted 后的建议开工顺序：① 作者裁决 9.7 D1–D7 → ② CP1 接线（9.3）+ 机制测试 → ③ 登记 AU15 场景/driver/verifier（draft 先永不执行，真实 PASS 后按证据改 active）→ ④ 低成本探针（授权后，不计分母）→ ⑤ A0/A1/A2 ≥2 独立 run + B42 sidecars → ⑥ B42 CP4 结果层判定 → ⑦ 按 tasks/README 更新状态/台账。
 - 恢复指引：先读本节 + §8.4 + `artifacts/completion-audit/2026-10-28-b39-cp1-preread/report.md` + B42 §6/§10/§11 + AU-15；不要从历史 p1/agentic-loop 证据推断 AU-15 已通过。
+
+### 9.9 CP1a 接线 checkpoint（2026-10-30，未完成 CP1）
+
+- 交付：
+  - 新增 `NovelApplication.AgentRunFlows.ExplorationStep`（application 层共享只读探索执行）：目录/工具集由调用点分账、`ExplorationService` 内联 0 provider 调用、工具失败归一 `:failed` 观察、author-visible `exploration_observed` + developer `AgentObservation` + `AgentStep`、no-progress namespace 由调用点给；不新增 agent loop、不新增表。
+  - `judgment_plan` 迁移到共享模块（行为/事件/payload 保持；原私有三处漂移之一收敛）；`dialogue_planning_service` 内联路径仍待后续迁移（CP1 残余，不冒充三处已统一）。
+  - 正文 flow：计划目标/执行器白名单/planner target 与 step_catalog 开放 `prose_search/chapter_read/archive_read/memory_recall`；机械决策携带 `exploration_query`；计划内检索步走共享模块，0 provider/0 tool，观察进 snapshot 并随 `author_input_text` 的“已完成观察”段进入真实 writer prompt。
+- 测试：`agent_run_prose_drafting_flow_test.exs` 新增 focused 场景——4 步计划含 `archive_read` 检索，author 侧 `exploration_observed` 带 tool/query/真实 summary，writer prompt 含该观察内容；`completed_step_refs=4`、`steps=4`、`tool_calls=1`、`provider_calls=4`（检索步不增 provider/tool）；相关 flow tests 23/23。
+- 残余（CP1 未完成，不得代签）：
+  1. CP1b：观察以 author-safe + 真实 refs 进入 `chapter_mission`（`ChapterMissionInputs` additive observation items）与 writer AuthoringTask refs/trace；当前 writer 仅收到 summary 行，使命尚未消费观察。
+  2. CP1c：`self_report.used_context_refs ⊆ Base refs ∪ 实际观察 refs` 的 domain 纯校验、Base/observation 逐调用同源 trace 快照（D1 方案）、未绑定 ref 记 unknown/不修改 artifact 字节。
+  3. 最小准备判断（D3-A）与 A0/A1/A2 场景、AU-15 registry/driver/verifier、确定性机制与真实模型行为分层取证；跨重启恢复归 CP3。
+  4. `dialogue_planning_service` 两处探索内联实现迁移、续读/no-progress 跨 flow 预算累计证据。
+- 门禁：见 `artifacts/gates/2026-10-30-b39-cp1a/`。
 
 ## 10. 当前初始供给整改的消费交接
 

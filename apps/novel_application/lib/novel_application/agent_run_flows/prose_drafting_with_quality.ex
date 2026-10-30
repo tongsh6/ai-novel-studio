@@ -11,6 +11,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentObservationAssembler
+  alias NovelApplication.AgentRunFlows.ExplorationStep
   alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.ChapterMissionService
   alias NovelApplication.ContextAssembler
@@ -38,7 +39,9 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   @plan_exhausted_replan_reason "计划步骤已走完，但正文候选尚未生成。"
   # B23 CP3：计划耗尽停等的作者可见 summary 只由结构骨架词 + 模型计划里的 step
   # description 组成（限量），不引入 provider raw prompt / assistant payload。
-  @checked_step_targets [@context_step_target, @mission_step_target]
+  # B39 CP1：正文 run 开放现有只读探索目录（共享 ExplorationStep 执行，0 provider 调用）。
+  @exploration_step_targets ~w(prose_search chapter_read archive_read memory_recall)
+  @checked_step_targets [@context_step_target, @mission_step_target | @exploration_step_targets]
   @checked_description_limit 3
   @checked_description_max_chars 60
 
@@ -366,7 +369,12 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   defp mechanical_execute_decision(step, run, sequence, snapshot, meta) do
     target = map_get(step, :target_tool_ref)
 
-    with true <- target in [@context_step_target, @mission_step_target, "prose_writing"],
+    with true <-
+           target in [
+             @context_step_target,
+             @mission_step_target,
+             "prose_writing" | @exploration_step_targets
+           ],
          {:ok, decision} <-
            AgentNextStepDecision.new(%{
              decision_id:
@@ -383,6 +391,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
              target_chapter_ref: map_get(step, :target_chapter_ref),
              requested_chapter_raw: map_get(step, :requested_chapter_raw),
              target_word_count: map_get(step, :target_word_count),
+             exploration_query: map_get(step, :exploration_query),
              reason_codes: plan_step_reason_codes(step, target, meta),
              observation_refs: observation_refs(Map.get(snapshot, :observations, [])),
              evaluation_of_last: meta_evaluation(meta, sequence),
@@ -1738,6 +1747,25 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     {:execute,
      fn run, sequence, snapshot ->
        execute_mission_decision_step(run, sequence, spec, decision, snapshot)
+     end, decision}
+  end
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{decision_type: :execute_step, target_tool_ref: target} = decision,
+         _spec
+       )
+       when target in @exploration_step_targets do
+    {:execute,
+     fn run, sequence, snapshot ->
+       ExplorationStep.execute(
+         run,
+         sequence,
+         decision,
+         snapshot,
+         target_set: @exploration_step_targets,
+         namespace: "prose_explore",
+         observation_suffix: "prose_explore"
+       )
      end, decision}
   end
 
