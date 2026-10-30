@@ -1,6 +1,6 @@
 # B67：章节修订后的派生账面一致性
 
-- 状态：**doing（2026-10-31 CP0/CP1 done：旧章不倒退、arc/conflict 按当前摘要重算与机械失效；CP2 持久版本/竞争、CP3 页面矩阵未做）**。
+- 状态：**doing（2026-10-31 CP0/CP1 done；CP2 partial：LedgerRepository 事务内 revision CAS/并发/过期拒绝已落地，重编号组合/StateTrace 协同与 CP3 页面未做）**。
 - 来源：修订后必须重新对齐连续性；现有增量记账以本次处理章更新最近出场/推进，缺少旧章修订和旧贡献失效的完整矩阵。本轮已有弧光账纯函数反例，尚未进行数据库或真实页面复现。
 - 上游：[VS-00F 原任务](VS-00F-five-ledgers-three-state.md)、[VS-00F 契约](../../docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md)、[ADR-0026](../../docs/design/adr/ADR-0026-five-ledgers-three-state-reconciliation-v3.md)、[B28](B28-whole-chapter-revision.md)、[B30](B30-chapter-structure-maintenance.md)。本项负责派生值与有效来源的正确性；VS00F-TRACE 负责权威变更留痕，不能互相代签。
 
@@ -62,7 +62,7 @@ arc_recompute_stall(上述条目, current_seq=12, threshold=8)
 |---|---|---|
 | CP0 | 复现现役旧章/删除贡献反例，盘点五账、摘要完整性及实际调用顺序；冻结失效、当前进度、作者裁决、版本原子性和失败恢复的最小契约 | **done（2026-10-31，§6）**：红测复现 arc/conflict 倒退；冻结“历史出处只追加、进度指针单调、删除贡献须当前事实重算”；不做页面/模型 |
 | CP1 | 在既有事实源上实现可解释的贡献更新/失效与必要重算；只处理实际需修复账种，不用追加 ref 或 max(seq) 假装全部一致 | **done（2026-10-31，§6）**：arc/conflict 旧章不回退；当前摘要重算仍出现对象；完全无当前出现 → 机械 STALLED/DORMANT + 进度 0/空、历史 source_refs 保留、裁决态不改；重复维护幂等；不用追加 ref/max 冒充一致 |
-| CP2 | 接入持久版本/采纳边界与失败恢复；验证同章及跨章竞争、旧任务晚到、重复和重编号；与 VS00F-TRACE 协同留痕，保护人工裁决 | todo |
+| CP2 | 接入持久版本/采纳边界与失败恢复；验证同章及跨章竞争、旧任务晚到、重复和重编号；与 VS00F-TRACE 协同留痕，保护人工裁决 | **partial（2026-10-31，§6）**：upsert 事务内 revision CAS、过期拒绝、并发单提交、重复幂等、旧调用兼容；待重编号组合、旧任务晚到页面级、StateTrace 协同 |
 | CP3 | 真实页面完成多章→旧章修订/移除→脉络/审读→刷新重开/探索验证，保留历史依据；必要实模消费另分证，完整矩阵通过才关闭 | todo |
 
 ## 6. CP0/CP1 记录（2026-10-31）
@@ -85,6 +85,14 @@ arc_recompute_stall(上述条目, current_seq=12, threshold=8)
 - CP1 收尾（同轮）：`LedgerMaintenance` 增加 conflict 当前事实重算：从当前已采纳摘要 + 章 `chapter_role` 找出仍推进主线的最大 seq，低于已存 last_advanced 时降级；无当前推进章时置 last_advanced 0/空、机械 DORMANT、历史 source_refs 保留；重复维护幂等。测试：第10章推进→修订为过渡、仅第3章推进 → conflict 重算回第3章（conflict_recomputed=1）；author adjudication 态不被改写。
 - CP1 完成范围：arc/conflict 两个现役机械账；emotion/information 本轮未产生旧章失效反例，不改其现有规则；不把“重算”当作重新裁决故事事实。
 - 仍未做：持久层 revision 条件/并发/旧任务晚到/重编号组合（CP2）、真实页面/模型矩阵（CP3）；CP2/CP3 未开工。
+
+- CP2 进展（同轮）：`LedgerRepository.upsert/1` 改为事务内 CAS：
+  - 读 existing → TENTATIVE → ACCEPTED 在同一 `Repo.transaction`；
+  - 已存在行要求 `attrs.revision == existing.revision + 1`（生产维护/裁决均递增 revision），否则 `{:error, :stale_ledger_revision}`，不覆盖较新账面；
+  - 条件 `update_all` 以 `id + revision + ACCEPTED` 匹配，0 行即 stale 回滚；TENTATIVE→ACCEPTED 再以新 revision 条件下推；
+  - attrs 无 revision 的旧脚本/种子保留兼容更新（同事务，无 revision 断言）。
+  - 测试：过期 revision 拒绝且不覆盖、并发同 revision 只有一提交/另一 stale、无 revision 兼容、幂等；`adoption_repository_test` 中模拟“已推进态”的直改 status 改为 `LedgerEntry.adjudicate`（真实裁决递增 revision），不再用旧 revision 手改绕过 CAS。
+- CP2 未完成：章重编号后的 seq/版本组合、旧任务晚到页面级证据、StateTrace 与 VS00F-TRACE 协同留痕、维护失败恢复的页面/业务状态；CP3 真实页面矩阵。
 
 ## 5. 非目标与恢复
 

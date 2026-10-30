@@ -59,31 +59,108 @@ defmodule NovelPersistence.LedgerRepository do
   """
   @spec upsert(map()) :: {:ok, map()} | {:error, term()}
   def upsert(attrs) when is_map(attrs) do
+    case Repo.transaction(fn -> do_upsert(attrs) end) do
+      {:ok, result} -> result
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # CP2：同一事务内按 revision 条件更新；读取-写回竞争时后写者得到
+  # `:stale_ledger_revision` 而不是静默覆盖。attrs.revision 为 nil 的旧脚本/种子
+  # 调用保留兼容（仍做同事务读取+更新，但不做 revision 前置断言）。
+  defp do_upsert(attrs) do
+    case fetch_ledger(attrs) do
+      nil -> insert_ledger(attrs)
+      existing -> update_ledger(existing, attrs)
+    end
+  end
+
+  defp fetch_ledger(attrs) do
+    Repo.one(
+      from(e in LedgerEntry,
+        where:
+          e.work_id == ^attrs.work_id and e.ledger == ^attrs.ledger and
+            e.subject_ref == ^attrs.subject_ref
+      )
+    )
+  end
+
+  defp insert_ledger(attrs) do
     tentative_attrs = Map.put(attrs, :adoption_status, AdoptionStatus.tentative())
 
-    existing =
-      Repo.one(
-        from(e in LedgerEntry,
-          where:
-            e.work_id == ^attrs.work_id and e.ledger == ^attrs.ledger and
-              e.subject_ref == ^attrs.subject_ref
-        )
-      )
-
-    tentative_result =
-      case existing do
-        nil -> %LedgerEntry{} |> LedgerEntry.changeset(tentative_attrs) |> Repo.insert()
-        entry -> entry |> LedgerEntry.changeset(tentative_attrs) |> Repo.update()
-      end
-
-    with {:ok, tentative} <- tentative_result,
-         {:ok, accepted} <-
-           tentative
-           |> LedgerEntry.changeset(%{adoption_status: AdoptionStatus.accepted()})
-           |> Repo.update() do
+    with {:ok, tentative} <-
+           %LedgerEntry{} |> LedgerEntry.changeset(tentative_attrs) |> Repo.insert(),
+         {:ok, accepted} <- mark_tentative_then_accept(tentative) do
       {:ok, to_map(accepted)}
     else
-      {:error, changeset} -> {:error, changeset}
+      {:error, changeset} -> Repo.rollback(changeset)
+    end
+  end
+
+  defp update_ledger(existing, attrs) do
+    expected_revision = Map.get(attrs, :revision)
+
+    if is_integer(expected_revision) and expected_revision != existing.revision + 1 do
+      Repo.rollback(:stale_ledger_revision)
+    else
+      update_ledger_fields(existing, attrs)
+    end
+  end
+
+  defp update_ledger_fields(existing, attrs) do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    next_revision = existing.revision + 1
+
+    set =
+      attrs
+      |> Map.take([
+        :subject_kind,
+        :subject_label,
+        :design_ref,
+        :status,
+        :payload,
+        :source_refs,
+        :last_event_chapter
+      ])
+      |> Map.to_list()
+      |> Keyword.merge(
+        adoption_status: AdoptionStatus.tentative(),
+        revision: next_revision,
+        updated_at: now
+      )
+
+    query =
+      from(e in LedgerEntry,
+        where:
+          e.id == ^existing.id and e.revision == ^existing.revision and
+            e.adoption_status == ^AdoptionStatus.accepted()
+      )
+
+    case Repo.update_all(query, set: set) do
+      {1, _} ->
+        updated = Repo.get!(LedgerEntry, existing.id)
+        mark_tentative_then_accept(updated)
+
+      {0, _} ->
+        Repo.rollback(:stale_ledger_revision)
+    end
+  end
+
+  defp mark_tentative_then_accept(%LedgerEntry{} = tentative) do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    query =
+      from(e in LedgerEntry,
+        where:
+          e.id == ^tentative.id and e.revision == ^tentative.revision and
+            e.adoption_status == ^AdoptionStatus.tentative()
+      )
+
+    case Repo.update_all(query,
+           set: [adoption_status: AdoptionStatus.accepted(), updated_at: now]
+         ) do
+      {1, _} -> {:ok, Repo.get!(LedgerEntry, tentative.id)}
+      {0, _} -> Repo.rollback(:stale_ledger_revision)
     end
   end
 

@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B67 | CP0/CP1 done：旧章不倒退、arc/conflict 当前摘要重算与无出现机械失效；CP2 持久版本/竞争与 CP3 页面矩阵待做 | [原任务](slices/B67-revision-aware-ledger-maintenance.md) |
+| B67 | CP0/CP1 done；CP2 partial：LedgerRepository 事务内 revision CAS/过期拒绝/并发单提交已落地；重编号组合、StateTrace 协同、CP3 页面矩阵待做 | [原任务](slices/B67-revision-aware-ledger-maintenance.md) |
 
 ## 后续候选
 

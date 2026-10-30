@@ -95,6 +95,53 @@ defmodule NovelPersistence.LedgerRepositoryTest do
     assert labels == ["凌渊", "林浩"]
   end
 
+  test "CP2：过期 revision 写入拒绝且不覆盖较新账面", %{work_id: work_id} do
+    assert {:ok, first} = LedgerRepository.upsert(arc_attrs(work_id))
+    assert first.revision == 1
+
+    assert {:ok, second} =
+             LedgerRepository.upsert(arc_attrs(work_id, %{status: "STALLED", revision: 2}))
+
+    assert second.revision == 2
+
+    # 同一个过期 revision=2 再写：期望 current+1=3，必须 stale，不覆盖 second。
+    assert {:error, :stale_ledger_revision} =
+             LedgerRepository.upsert(arc_attrs(work_id, %{status: "DRIFTED", revision: 2}))
+
+    assert [only] = LedgerRepository.list(work_id)
+    assert only.revision == 2
+    assert only.status == "STALLED"
+  end
+
+  test "CP2：并发同 revision 只有一个提交，另一个 stale", %{work_id: work_id} do
+    {:ok, _first} = LedgerRepository.upsert(arc_attrs(work_id))
+
+    results =
+      1..2
+      |> Task.async_stream(
+        fn _ ->
+          LedgerRepository.upsert(arc_attrs(work_id, %{status: "STALLED", revision: 2}))
+        end,
+        max_concurrency: 2,
+        timeout: 10_000
+      )
+      |> Enum.map(fn {:ok, result} -> result end)
+
+    assert Enum.count(results, &match?({:ok, _}, &1)) == 1
+    assert Enum.any?(results, &match?({:error, :stale_ledger_revision}, &1))
+    assert [only] = LedgerRepository.list(work_id)
+    assert only.revision == 2
+  end
+
+  test "CP2：旧脚本/种子 attrs 无 revision 时保持兼容更新", %{work_id: work_id} do
+    {:ok, _first} = LedgerRepository.upsert(arc_attrs(work_id))
+    attrs = arc_attrs(work_id, %{status: "STALLED"}) |> Map.delete(:revision)
+
+    assert {:ok, updated} = LedgerRepository.upsert(attrs)
+    assert updated.status == "STALLED"
+    assert updated.revision == 2
+  end
+
   test "I-L1 持久化兜底：source_refs 空写入被拒", %{work_id: work_id} do
     assert {:error, changeset} = LedgerRepository.upsert(arc_attrs(work_id, %{source_refs: []}))
     refute changeset.valid?

@@ -1166,3 +1166,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B67 CP1 继续：完全无当前出现的机械失效**：当前摘要非空且对象在所有已采纳摘要中消失时，arc last_seen 置 0/空、删除 presence_note、机械态 STALLED，source_refs 历史保留，已裁决态不改；重复维护幂等。测试 initial ch10→修订后完全消失；maintenance 9/0、domain 8/0、全量 mix test 1042/0、credo 0 issues。冲突账重算/持久版本/页面仍 todo。
 
 - 2026-10-31 — **B67 CP1 done**：arc/conflict 旧章不回退；当前摘要重算仍出现对象、完全无当前出现机械失效（arc STALLED/last_seen0，conflict DORMANT/last_advanced0，历史 source_refs 保留、裁决态不改、幂等）；conflict 按当前已采纳摘要+chapter_role 重算。master tests：maintenance 10/0、domain 8/0、全量 mix 1043/0、credo 0 issues。CP2 持久版本/并发、CP3 页面/模型未做。
+
+- 2026-10-31 — **B67 CP2 进展：账目 upsert 事务内 revision CAS**：LedgerRepository.upsert 同事务读/TENTATIVE/ACCEPTED，已存在行要求 incoming revision=current+1，条件 update_all 0 行即 stale 回滚；过期 revision 拒绝且不覆盖、并发同 revision 单提交、无 revision 旧脚本兼容；测试直改 status 改为 LedgerEntry.adjudicate（递增 revision）。persistence ledger repo 7/0、全量 mix 1043/0、credo 0 issues。重编号/StateTrace/页面仍 todo，CP2 partial。

@@ -608,7 +608,10 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert entry.payload["planned_reveal_seq"] == 1
 
       # 重物化幂等：不堆第二条,也不把状态打回（模拟已推进态）。
-      {:ok, revealed} = NovelDomain.LedgerEntry.new(Map.put(entry, :status, "REVEALED"))
+      # B67-CP2：账目写入要求 revision CAS；裁决转移走 adjudicate（递增 revision），
+      # 不能手改 status 后复用旧 revision。
+      {:ok, hidden_entry} = NovelDomain.LedgerEntry.new(entry)
+      {:ok, revealed} = NovelDomain.LedgerEntry.adjudicate(hidden_entry, "REVEALED")
       {:ok, _} = NovelPersistence.LedgerRepository.upsert(Map.from_struct(revealed))
 
       assert {:ok, _} = persist_plan.("turn-plan-2", "as-plan-2")
