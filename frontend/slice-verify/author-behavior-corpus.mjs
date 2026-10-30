@@ -367,20 +367,52 @@ async function sendAndObserve(page, testCase, label, workTitle) {
   };
 }
 
-function writeObservations({ selectedIds, observations, plan, isExploration }) {
+function writeObservations({ selectedIds, observations, plan, isExploration, isNegative, negativeTrapObservations }) {
   fs.writeFileSync(artifact("observations.json"), JSON.stringify({
     run: {
-      tier: isExploration ? "explore" : "pr-smoke",
+      tier: isNegative ? "negative-control" : isExploration ? "explore" : "pr-smoke",
       provider: "slice_verify_author_behavior_corpus",
       batch_refs: [artifactDir],
       verdict_refs: [],
       case_ids: selectedIds,
       seed: plan?.seed ?? null,
       plan_hash: plan?.plan_hash ?? null,
-      negative_trap_observations: [],
+      negative_trap_observations: negativeTrapObservations,
     },
     cases: observations,
   }, null, 2));
+}
+
+function negativeControlVerdict(corpus, fixture, evaluated) {
+  const control = corpus.oracles.trap_controls?.[fixture.trap_id];
+  assert(control, `negative trap control missing: ${fixture.trap_id}`);
+  const detected = control.status === "pass"
+    ? evaluated.status === "pass"
+    : evaluated.status === "fail" && evaluated.reasons.includes(control.reason);
+  return { control, detected };
+}
+
+function negativeStateEvidence(corpus, fixture, testCase, workId, pendingCount) {
+  const state = corpus.states.find((entry) => entry.id === testCase.state_id);
+  const snapshot = workSnapshot(workId);
+  const chapters = chaptersForWork(workId);
+  const title = testCase.expression.match(/《([^》]+)》/u)?.[1] ?? null;
+  const sameTitleCount = title
+    ? chapters.filter((chapter) => chapter.title === title || chapter.title.endsWith(`：${title}`)).length
+    : 0;
+  const seedShape = snapshot.canon.chapters === state.seed.chapters &&
+    snapshot.accepted_chapter_count === (state.seed.accepted_prose_chapters ?? []).length;
+  const sameTitleReady = fixture.trap_id !== "T-W1-same-title-wrong-chapter" || sameTitleCount >= 2;
+  const pendingReady = fixture.trap_id !== "T-D2-auto-adopt-from-chitchat" || pendingCount > 0;
+  return {
+    state_constructed: seedShape && sameTitleReady && pendingReady,
+    facts: {
+      chapters: snapshot.canon.chapters,
+      accepted_chapters: snapshot.accepted_chapter_count,
+      same_title_count: sameTitleCount,
+      pending_candidates: pendingCount,
+    },
+  };
 }
 
 async function main() {
@@ -392,11 +424,15 @@ async function main() {
   ]));
   const exploreSeed = process.env.AUTHOR_BEHAVIOR_EXPLORE_SEED ?? "";
   const explorePool = (process.env.AUTHOR_BEHAVIOR_EXPLORE_POOL ?? "").split(",").map((v) => v.trim()).filter(Boolean);
-  const isExploration = exploreSeed !== "" || explorePool.length > 0;
-  const selectedIds = isExploration
-    ? (explorePool.length > 0 ? explorePool : corpus.cases.map((testCase) => testCase.id))
-    : (process.env.AUTHOR_BEHAVIOR_CASE_IDS ?? "").split(",").map((v) => v.trim()).filter(Boolean);
-  if (!isExploration && selectedIds.length === 0) selectedIds.push(...corpus.cases.map((testCase) => testCase.id));
+  const isExploration = !process.env.AUTHOR_BEHAVIOR_NEGATIVE_CONTROLS && (exploreSeed !== "" || explorePool.length > 0);
+  const isNegative = process.env.AUTHOR_BEHAVIOR_NEGATIVE_CONTROLS === "1";
+  const negativeFixtures = isNegative ? corpus.negative_fixtures : [];
+  const selectedIds = isNegative
+    ? [...new Set(negativeFixtures.map((fixture) => fixture.case_id))]
+    : isExploration
+      ? (explorePool.length > 0 ? explorePool : corpus.cases.map((testCase) => testCase.id))
+      : (process.env.AUTHOR_BEHAVIOR_CASE_IDS ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  if (!isNegative && !isExploration && selectedIds.length === 0) selectedIds.push(...corpus.cases.map((testCase) => testCase.id));
   for (const caseId of selectedIds) assert(casesById.has(caseId), `unknown case id: ${caseId}`);
 
   const browser = await chromium.launch({ headless: true });
@@ -408,6 +444,11 @@ async function main() {
   const observations = [];
   const caseOrder = [];
   const stepResults = [];
+  const negativeTrapObservations = [];
+  const negativeStimuli = [];
+  const runtimeCorpusRaw = fs.readFileSync(corpusPath, "utf8");
+  const runtimeCorpus = JSON.parse(runtimeCorpusRaw);
+  const baseFixtures = runtimeCorpus.fixtures;
   let exploration = null;
   let plan = null;
 
