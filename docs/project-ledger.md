@@ -1234,3 +1234,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B46 CP2 done**：前端 resume 优先 work-wide inbox（旧快照回退 session），既有候选卡/档案显示跨会话 pending；动作后立即移除、失败保留；channel 持久 source turn 回退支持新会话处理；frontend 653/653、typecheck/lint。CP3 真实页面矩阵与来源 session 标注残差。
 
 - 2026-10-31 — **B46 CP3 partial**：新增 b46-cross-session-inbox 真实 Tauri 场景 PASS（pending→新会话 inbox→档案采纳→刷新移除/resolved 保留/唯一 CONFIRMED 事实）；修复通用 author_action 持久 source turn 回退、pending_artifact_available work-wide、driver DB/verifier 注册；新场景登记 221/223 manifest。跨会话 discard/edit/重复/跨作品/只读页面矩阵未分别驱动。
+
+- 2026-10-31 — **B46 done**：真实 Tauri 跨会话 inbox accept+discard 均 PASS（新会话/第三会话、刷新移除/resolved、唯一 CONFIRMED）；产品修复持久 source turn 回退与 work-wide pending available；档案待处理卡新增放弃动作；backend 1050/0、frontend 653/653、manifest 221/223。edit/重复/跨作品/只读页面变体登记残差。当前任务切 B40-C06。

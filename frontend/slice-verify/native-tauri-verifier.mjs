@@ -3768,6 +3768,7 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
         "adoption_uses_existing_real_author_action",
         "processed_pending_removed_and_resolved_preserved",
         "confirmed_fact_written_once",
+        "cross_session_discard_uses_existing_action",
       ],
     };
   }

@@ -52,7 +52,7 @@ import type {
 import styles from "./StructurePanel.module.css";
 import type { ArtifactEntry } from "./WorkspaceChat";
 
-export type StructurePanelArtifactAction = "accept" | "edit_then_accept";
+export type StructurePanelArtifactAction = "accept" | "edit_then_accept" | "discard";
 
 export interface StructurePanelActionState {
   enabled: boolean;
@@ -1903,6 +1903,7 @@ function renderPendingSection(
       {artifacts.map((artifact) => {
         const acceptAction = getArtifactActionState(artifact, "accept");
         const editAction = getArtifactActionState(artifact, "edit_then_accept");
+        const discardAction = getArtifactActionState(artifact, "discard");
 
         return (
           <div key={artifact.artifact_id} className={styles.cardAccent}>
@@ -1926,6 +1927,14 @@ function renderPendingSection(
                 onClick={() => onArtifactAction(artifact, "edit_then_accept")}
               >
                 {STRUCTURE_PANEL.requestRevision}
+              </button>
+              <button
+                className={styles.btnGhost}
+                disabled={!discardAction.enabled}
+                title={discardAction.disabledReason}
+                onClick={() => onArtifactAction(artifact, "discard")}
+              >
+                {STRUCTURE_PANEL.discardPending}
               </button>
             </div>
           </div>

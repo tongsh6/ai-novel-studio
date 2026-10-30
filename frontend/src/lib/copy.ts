@@ -879,6 +879,7 @@ export const STRUCTURE_PANEL = {
   newRulePrompt: "请基于当前作品风格和设定，帮我制定一条能约束后续创作的写作规则或风格规则。",
   acceptSetting: "采纳设定",
   requestRevision: "提出修改",
+  discardPending: "放弃候选",
   detailTitle: "详情",
   detailHint: "详情为当前作品的只读档案，修改需回到工作台对话处理。",
   viewDetail: "查看详情",

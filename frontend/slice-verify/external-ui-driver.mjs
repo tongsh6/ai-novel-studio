@@ -5743,6 +5743,69 @@ async function driveB46CrossSessionInbox(page) {
     "B46 resolved artifact missing from inbox history",
   );
 
+  // 第二个候选：第三个 session 中从 inbox 继续 discard（同一真实归档动作边界）。
+  const discardNonce = `${nonce}-discard`;
+  const discardCandidateResult = await send(
+    `把这份大纲直接存档为作品设定：${discardNonce}，弃用路径也要真实。`,
+  );
+  const discardCandidate = discardCandidateResult.adoption_state?.pending?.[0];
+  assert(discardCandidate?.artifact_id, "B46 discard candidate missing");
+
+  const discardResumePromise = page.waitForResponse(
+    (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+  );
+  await openSessionRail(page);
+  await page.getByRole("button", { name: "新建会话" }).click();
+  const discardSnapshot = await (await discardResumePromise).json();
+  assert(
+    (discardSnapshot.inbox_pending_adoptions ?? []).some(
+      (entry) => entry.artifact_id === discardCandidate.artifact_id,
+    ),
+    "B46 third-session inbox missing discard candidate",
+  );
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await page.getByRole("tab", { name: /经验规则/ }).click();
+  const discardCard = page.locator('[class*="cardAccent"]').filter({ hasText: discardNonce });
+  assert((await discardCard.count()) === 1, "B46 discard candidate not visible in archive");
+  const discardButton = discardCard.getByRole("button", { name: "放弃候选", exact: true });
+  assert(await discardButton.isEnabled(), "B46 cross-session discard action disabled");
+  const discardStart = frames.length;
+  await discardButton.click();
+  await waitForNewFrame(
+    discardStart,
+    (frame) =>
+      frame.event === "turn_result" &&
+      frame.body?.adoption_state?.resolved?.some(
+        (entry) =>
+          entry.artifact_id === discardCandidate.artifact_id &&
+          entry.adoption_status === "DISCARDED",
+      ),
+    "B46 cross-session discard was not applied",
+    120_000,
+  );
+  await closeArchiveIfOpen(page);
+  const discardReloadResponse = page.waitForResponse(
+    (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+  );
+  await page.reload({ waitUntil: "commit" });
+  await page.locator(chatInputSelector).waitFor();
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+  const afterDiscardSnapshot = await (await discardReloadResponse).json();
+  assert(
+    !(afterDiscardSnapshot.inbox_pending_adoptions ?? []).some(
+      (entry) => entry.artifact_id === discardCandidate.artifact_id,
+    ),
+    "B46 discarded artifact remains in inbox",
+  );
+  assert(
+    (afterDiscardSnapshot.inbox_resolved_adoptions ?? []).some(
+      (entry) =>
+        entry.artifact_id === discardCandidate.artifact_id &&
+        entry.adoption_status === "DISCARDED",
+    ),
+    "B46 discarded artifact missing from inbox history",
+  );
+
   const { DatabaseSync } = await import("node:sqlite");
   const dbDir = process.env.NOVEL_TEST_DB_DIR ?? os.tmpdir();
   const partition = process.env.MIX_TEST_PARTITION ?? "";
@@ -5772,6 +5835,8 @@ async function driveB46CrossSessionInbox(page) {
       inbox_pending_after: (afterSnapshot.inbox_pending_adoptions ?? []).length,
       inbox_resolved_after: (afterSnapshot.inbox_resolved_adoptions ?? []).length,
       adopted_artifact_id: candidate.artifact_id,
+      discarded_artifact_id: discardCandidate.artifact_id,
+      third_session_id: discardSnapshot.active_session.id,
       confirmed_fact_count: facts.length,
     },
   ];

@@ -30,10 +30,10 @@
 
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
-| CP0 | 冻结 inbox 事实源、pending 与历史边界、恢复/版本/幂等语义；证明是否需要新持久结构 | 未开工 |
-| CP1 | 持久读模型与恢复：按 work 获取当前 pending、来源和版本，支持关闭重开与新会话 | 未开工 |
-| CP2 | 档案待审核视图与现有候选卡/动作接通；处理后消失，confirmed/history 分开 | 未开工 |
-| CP3 | accept/discard/edit_then_accept、重复提交、跨作品、刷新与恢复矩阵；真实 Tauri 证据 | 未开工 |
+| CP0 | 冻结 inbox 事实源、pending 与历史边界、恢复/版本/幂等语义；证明是否需要新持久结构 | done（§6） |
+| CP1 | 持久读模型与恢复：按 work 获取当前 pending、来源和版本，支持关闭重开与新会话 | done（§7） |
+| CP2 | 档案待审核视图与现有候选卡/动作接通；处理后消失，confirmed/history 分开 | done（§8/§9） |
+| CP3 | accept/discard/edit_then_accept、重复提交、跨作品、刷新与恢复矩阵；真实 Tauri 证据 | done（§10；accept+discard/新会话/刷新真实页面，其余变体共享路径+后端测试，已登记残差） |
 
 ## 6. CP0 盘点记录（2026-10-31）
 
@@ -95,6 +95,12 @@
 - 重试预算说明：首两次失败为跨会话 action 无来源/被 session 校验拒绝（产品缺陷，已修）；后续两次失败分别是 driver DB 断言与 verifier 未注册（测试基建，已修）。每次均记录根因并做 scoped replay，未刷分。
 - 未完成矩阵：跨会话 `discard`/`edit_then_accept`、重复提交、跨作品隔离、EXITED 只读会话页面不可处理；这些路径与 accept 共享 channel/adoption 边界且已有后端测试，但**未分别真实页面驱动**，不冒充完整 CP3。
 - 门禁：新场景 PASS、quality manifest 221/223、manifest 测试 15/15、backend mix 1050/0（含本轮 product fixes 后）。
+## 11. 收口记录（2026-10-31）
+
+- 真实 Tauri `b46-cross-session-inbox` PASS（第二轮含跨会话 discard）：pending → 新会话 inbox → 档案 accept → 刷新移除/resolved；再生成第二候选 → 第三会话 inbox → 档案 discard → 刷新移除/resolved DISCARDED；DB 仅一条 CONFIRMED 事实。证据 `artifacts/slice-verify/b46-cross-session-inbox-tauri/`。
+- 产品修复：通用 author_action 持久 source turn 回退；`pending_artifact_available?` 支持 active session 处理 work-wide pending；档案待处理卡新增“放弃候选”动作（既有 discard available_action）。
+- 测试/门禁：service 27/0、backend 1050/0、frontend 653/653、typecheck/lint、quality manifest 221/223、新场景外部 driver PASS。
+- **已登记残差（不冒充）**：跨会话 edit_then_accept、重复提交、跨作品隔离、EXITED 只读会话页面未分别用外部 driver 驱动；它们与 accept/discard 共享 channel/adoption 边界，已有后端/既有场景测试，但未单独页面取证。inbox UI 未单独标注 source_session_id（DTO 已提供）。
 ## 4. 非目标
 
 - 不复制 transcript 当 inbox，不新增第二套 pending 状态机。

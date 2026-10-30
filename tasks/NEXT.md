@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B46 | CP0–CP2 done；CP3 partial：跨会话 accept 真实 Tauri PASS；discard/edit/重复/跨作品/只读页面矩阵待补 | [原任务](slices/B46-persistent-adoption-inbox.md) |
+| B40-C06 | CP0 核定旧 fallback 退役及现有纠错/最终失败的替代覆盖；随后同步 registry 并验页面，不只删除旧场景 | [原任务小节](slices/B40-judgment-era-acceptance-reanchor.md#13-候选失败策略裁决材料) |
 
 ## 后续候选
 
@@ -15,7 +15,6 @@
 | B72 | 作者选择先做 P2：CP0 离线 LLM 语料扩增设计已冻结；下一步 CP1 生成 manifest/candidate 与原始批次，未调用模型；P0/P1 缺口不由本任务销账 | [原任务](slices/B72-author-behavior-offline-corpus-expansion.md) |
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B48 | 无变化普通说明、真正歧义才追问；依赖 B43 裁决同源，完成四场景验收 | [原任务](slices/B48-character-revision-noop-and-ambiguity.md) |
-| B40-C06 | CP0 核定旧 fallback 退役及现有纠错/最终失败的替代覆盖；随后同步 registry 并验页面，不只删除旧场景 | [原任务小节](slices/B40-judgment-era-acceptance-reanchor.md#13-候选失败策略裁决材料) |
 | AU09-EVOLUTION | 采纳角色演化后新会话请求/Why 的真实召回与终态过滤；复用 B64 坐标规则 | [原任务小节](slices/AU09-memory-taxonomy-write-policy.md#cp2-角色演化记忆的真实召回) |
 | B58 | CP0 对账现有 receipt/trace 与批准语义；缺口成立后才冻结最小契约，不先建新实体 | [原任务](slices/B58-human-approval-policy-unification.md) |
 | VS00F-TRACE | 核对章摘要/账面维护的真实变更与 StateTrace；闭合自动/作者变更、幂等、回滚及持久回放 | [原任务小节](slices/VS-00F-five-ledgers-three-state.md#维护-statetrace-后续-checkpoint) |
