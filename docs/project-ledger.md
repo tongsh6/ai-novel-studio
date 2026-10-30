@@ -1222,3 +1222,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **VS00F-B06 CP1**：新增 conflict/promise/emotion 三账 enum SSOT + Foundation 生成；新增 ledger_thread_entry/threads 面板 DTO schema（44 份）并 codegen；前端类型派生、parseLedgerThreads 显式失败不伪装空账；空账/历史 optional/未知 ledger 测试；frontend 652/652、backend 1048/0。真实页面 CP2 待做。
 
 - 2026-10-31 — **VS00F-B06 done**：三账 enum/DTO schema/codegen/前端 safeParse/空账历史正反例；真实 Tauri AU12 脉络面板与 AU13 审读裁决回归 PASS；读取失败页面外部故障注入为残差；当前任务切 B42-PREP。
+
+- 2026-10-31 — **B42-PREP done**：新增只读 au15_preregistration_check（不加载模型/不写产品）；就绪矩阵 ready=预注册/单槽卸载/预算/证据维度/harness，blocked=D6-A setup/作者语义裁决/资源窗口/B39 分发；单测覆盖；真实运行仍 blocked。manifest 计数测试同步当前 220/222；quality node tests 281/282（1 项既有 release known_fact 漂移）。当前任务切 B46。

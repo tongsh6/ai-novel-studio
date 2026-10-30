@@ -200,12 +200,22 @@ bash scripts/quality_accept.sh --tier release-real-llm          # exit 65 no sce
 
 ### 10.1 AU-15 预注册与 driver 准备
 
-- 状态：**todo（2026-10-30 明确 CP4 可独立推进的准备入口；真实运行仍按上节 blocked，未注册可执行场景、未产生新 PASS）**。
+- 状态：**done（2026-10-31 B42-PREP 准备完成：预注册/场景/harness/预算/证据维度就绪检查与矩阵可审阅；D6-A setup、作者语义裁决、资源窗口仍 blocked，真实运行未开始）**。
 - 范围与来源：消费已接受的 [AU-15](../../docs/design/acceptance/author/AU-15-evidence-seeking-authoring.md)、[VS-00K](../../docs/design/contracts/VS-00K-evidence-seeking-authoring-contract-pack.md)、B39 §4/§9 的既有 CP 与预注册，以及本任务 §6/§12 的证据词表和完整性规则；只细化准备步骤，不改通过阈值、失败分母或作者裁决。
 - 下一步：核对 A0/A1/A2 与后续场景的产品接线、真实 Tauri 外部驱动入口、verifier 采集点和现有证据适配，形成缺口—owner—依赖矩阵；将运行前必须确定的自然输入、保留措辞、参数、重复安排、必需证据与结果判定落实成可审阅预注册方案。未就绪入口写明依赖，不以占位/blocked 假场景填满 registry。
 - 准备交付物：区分真实创作/采纳 setup 与测量 run，说明样本来源、版本、适用性与复用条件；列出用户操作→请求/观察/产物→持久事实→页面反馈的 driver/verifier 路径；对接 Base、观察、后续请求、used refs、准备结果、恢复/replay 与模型/driver 身份，区分 unknown、not_executed、evidence_missing 和明确失败。独立重复、保留措辞与失败分母沿已接受契约，不因当前难以采集而删要求。
 - 完成边界：准备 checkpoint 完成只表示方案、接口与依赖可审阅，不能把产品接线、真实场景登记、模型资源窗口或运行结果标为完成。B39 所需能力就绪后才冻结可执行版本并登记场景；资源安排明确后再真实运行。文学收益仍归 I10，B27 的独立语义 rubric 不并入 AU-15。
 - 归属：B42 负责证据与运行前声明，B39 负责产品与场景语义；本项可先推进，不加载模型、不写产品数据、不改历史 artifact，也不替作者安排评审人或新增资源授权。
+
+### 10.1 准备交付记录（2026-10-31）
+
+- 新增只读检查器 `scripts/au15_preregistration_check.mjs`：读取 `artifacts/model-contracts/b39-cp1/au15-preregistration.json` + 场景 manifest + harness 文件存在性，输出 `artifacts/b42-prep/readiness.{json,md}`；**不加载模型、不调 provider、不写产品数据**。
+- 就绪矩阵（当前 `overall=not_ready`）：
+  - ready：预注册 schema/single_slot+unload/budget（input 120s、turn 360s、heartbeat 10s、A1_A2_runs=2、retries=0）/no_run_until/证据维度 9 项/scenario blocked+strata+iq3_s/harness 文件存在；
+  - blocked：**D6-A 前置未满足**（真实模型创作+外部页面采纳）、**作者/指定评审语义裁决未完成**、**作者资源窗口未授权**、**B39 D6-A setup 与测量分账未就绪**。
+- 测试：`scripts/lib/quality/au15_preregistration_check.test.mjs` 验证 exit 0、overall=not_ready、四类 blocker 存在且 mode 为 preparation-only；`node --test scripts/lib/quality/*.test.mjs` 281/282（剩余 1 项为既有 release-real-llm known_fact 期望漂移，另记）。
+- 准备边界：未登记可执行场景、未产生新 PASS、未改阈值/失败分母/作者裁决；真实运行仍须 B39 接线 + 资源窗口 + 作者评审。
+
 
 ## 11. 本轮验证与残余（2026-10-27，Lead 裁决后更新）
 
