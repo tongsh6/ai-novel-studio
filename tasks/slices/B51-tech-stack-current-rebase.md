@@ -1,6 +1,6 @@
 # B51：技术栈与 Canonical 引用当前重定
 
-- 状态：**todo（文档/必要 ADR，未开工；不倒装依赖）**。
+- 状态：**doing（2026-10-31 CP0 依赖矩阵 + CP1 PaperTrail 只读证据 done；PaperTrail 去留待裁决，CP2 引用/状态修订待做）**。
 - 登记日期：2026-10-27；来源：tech-stack 锁死依赖与当前自研 Gateway/codegen/Tauri sidecar 不一致，glossary/UI 引用和多处完成状态也互相矛盾。
 - 上游：`docs/design/tech-stack/**`、`docs/design/foundation/30-contract-glossary.md`、`docs/design/07-workbench-ui-contract.md`、[B50](B50-multi-agent-current-boundary.md)、[B49](B49-core-semantics-and-adr-review.md)。
 
@@ -53,3 +53,31 @@
 - 所有“锁定/必须”均有当前依赖证据或正式退役记录；旧“等待批准才能编码”只标历史阶段。
 - PaperTrail 二选一闭环：真实版本记录可回查，或 ADR 明确 supersede 且现有 refs 足以证明 replay/stale。
 - 恢复时先读 B50/B49 的最新裁决、当前代码与 lock，不从旧技术文档直接恢复实现。
+
+### CP0 依赖/运行时矩阵（2026-10-31，只读）
+
+**方法**：以 `mix.exs`/`apps/*/mix.exs`、`frontend/package.json`、`frontend/src-tauri/Cargo.toml`、lock/CI 为实际证据；`docs/design/tech-stack/00/03` 的声明逐项对账。
+
+| 面 | 文档声明 | 当前实际 | 处置 |
+|---|---|---|---|
+| LLM 客户端 | langchain_elixir + instructor_lite + Gateway | **无这两个依赖**；实际 Req + 自研 Provider Gateway/adapter + codegen | 文档按实际修订；不重装旧库 |
+| 长跑/并发 | GenServer + GenStage + Task.Supervisor | GenServer/Task/DynamicSupervisor 等 OTP；**无 GenStage/Horde** | 文档修订；B50 首期延期不恢复 |
+| 观测 | OTel 声明 | `telemetry` + 自研 JSONL/LogEmit/ProviderRun；无 OTel 依赖 | 文档修订；不引入 OTel |
+| 后端关键依赖 | Phoenix/Req/SQLite 等 | phoenix/bandit/req/ecto/ecto_sqlite3/jason/telemetry 等 | 一致 |
+| 前端 | React/TanStack/Zustand/Tailwind/Radix/Zod/Vitest/Playwright | 与 package.json 一致（含 codegen json-schema-to-zod） | 一致 |
+| Tauri | Tauri 2 + dialog/log | tauri 2.10.3 + plugin-log/dialog，serde/log | 一致 |
+| PaperTrail | 审计层 | 依赖+config+migration+versions 表存在；**生产代码无调用**（仅测试/spike） | 见 CP1 证据，去留待裁决 |
+
+### CP1 PaperTrail 只读证据（2026-10-31）
+
+- `apps/novel_persistence/mix.exs` 有 `{:paper_trail, "~> 1.1"}`；`config/config.exs` 配 binary_id UUID；`priv/repo/migrations/20260427000002_add_versions.exs` 建 `versions`。spike 兼容性记录在 `docs/design/tech-stack/verification/paper-trail-ecto-compatibility.md`。
+- `grep PaperTrail. apps` 仅命中测试 `paper_trail_test.exs`；生产 `lib` 无调用。
+- 只读 SQLite 存量：`priv/ai_novel_studio_dev.db` **versions=0**、`priv/ai_novel_studio_stage.db` **versions=0**。
+- 现生产修订链：`source_revision_ref`（mutation/draft/decision/character_profile_revision/renumber 等）+ `StateTrace`/Replay/Projection；未发现 versions 消费。
+- **去留选项（需作者裁决；不直接删表/卸载依赖）**：
+  - **A（推荐）**：保留依赖/表为**历史休眠**，明确“新链不使用 PaperTrail，revision/StateTrace 为权威”，文档与 ADR 注记；不动历史数据。
+  - **B**：正式 supersede 并移除依赖/表（需作者授权、SQLite 表重建/历史保留方案；CI/锁文件变更）。
+  - **C**：延期，仅登记证据；保持现状但不得把 versions 当生产审计证据。
+- 无论选项：`source_revision_ref`/StateTrace/Replay 覆盖是当前权威；CI 未勾项归属另行在 CP2/CP3 标注。
+
+**CP2/CP3 下一步**：按当前实际修订 tech-stack/canonical 引用与状态链（07 退役卡、glossary 死链、S4/S7、D6/I5/B22/B34 等），并复核 AGENTS/frontend_audit/CI 口径；PaperTrail 执行等作者裁决。

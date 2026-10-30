@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B51 | CP0/CP1 核对依赖、引用及 PaperTrail 存量/消费者；形成去留材料，后续规范修订不倒装依赖 | [原任务](slices/B51-tech-stack-current-rebase.md) |
+| B51 | CP0 依赖矩阵 + CP1 PaperTrail 只读证据 done（0 versions/无生产调用）；去留 A/B/C 待裁决；CP2 引用/状态修订待做 | [原任务](slices/B51-tech-stack-current-rebase.md) |
 
 ## 后续候选
 

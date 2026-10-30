@@ -1338,3 +1338,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B66-PREP CP0 done**：盘点 data/config 目录（DB/secret.key/logs/runtime/preferences/provider-secrets）；推荐 profile 级快照、SQLite 在线备份+manifest/完整性、默认排除 secrets/logs、先恢复隔离 profile、自动备份延期；CP1+ 待作者接受契约与数据授权。当前任务切 VS-00G。
 
 - 2026-10-31 — **VS-00G CP5e 当前 HEAD PASS**：A3 面板确认→档案恰 1 行、A2 暂定注入→否决→缺席守则恢复；A2 driver 接受真空/非真空两种当前守则文案（不放宽行为）；CP5 余项仍登记；当前任务切 B51。
+
+- 2026-10-31 — **B51 CP0/CP1**：实际依赖矩阵（无 langchain/instructor/GenStage/Horde/OTel；Req+自研 Gateway/telemetry），PaperTrail 依赖/表存在但生产零调用、dev/stage versions=0，现链用 source_revision_ref+StateTrace；去留 A（推荐历史休眠）/B supersede 移除/C 延期待裁决；CP2 引用修订待做。
