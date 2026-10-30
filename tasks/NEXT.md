@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| P1-AUDIT-BC | 核对重复段/章、计划与采纳来源和 ReadingMode；冻结缺章率口径，闭合展示与报告一致性 | [原任务小节](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外) |
+| P1-AUDIT-BC | CP0 done：重复段落/章与缺章率口径冻结（只读审计、不改门槛）；CP1 实现 domain/persistence/DTO/ReadingMode/verifier 待做 | [原任务小节](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外) |
 
 ## 后续候选
 

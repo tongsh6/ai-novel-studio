@@ -1,6 +1,6 @@
 # P1 Word Count Audit / 10 万字最小长篇正文有效字数审计
 
-- 状态：checkpoint A 已闭环（2026-05-31，确定性 Tauri 通过）；B/C 未做
+- 状态：checkpoint A 已闭环（2026-05-31）；B/C CP0 口径冻结（2026-10-31），实现/页面证据待做
 - 类型：Product Slice / Novel Output Milestone P1
 - 来源：`docs/product/novel-output-milestones.md` §2 统计口径、§3 阶段目标、§4.1 数量标准、§5 P1 Done、§7 #4、§8 验收产物；`docs/product/user-journeys.md` Journey D7 / G / J；`tasks/slices/P1-chapter-adoption-reading.md`「后续 checkpoint（未做）」。
 - 当前目标：在已采纳正文进入阅读投影并显示有效字数之后，补齐**确定性审计层**——把"哪些章是空章 / 短章 / 达标"和"是否达到 P1 门槛（单章≥1000、总≥100,000）"算出来，并让真实工作台的阅读消费者（ReadingMode）看得到，不达标的章节有明确标记。
@@ -107,3 +107,31 @@ P1 已经能：生成章节计划 → 生成正文草稿 → 采纳进入作品�
 - **F1（语义归属，中）**：短章/空章/字数门槛在设计上属「小说质量门禁」（v2 31 `serialization_retention`/`pacing` → `quality_finding`，ADR-0012 投影到 `warning_card`）。当前实现为 reading projection 派生字段（`audit`/`audit_status`）+ ReadingMode 内联 badge，违反 `v3-quality-gates` §4.3「质量发现不能直接…刷新阅读投影」的分离原则。后果：`audit_status` 无 severity/action/can_override，进不了 adoption risk、不能 BLOCK/CONFIRM。未来若需"短章提示补写 / 阻断低质量章采纳"，应收敛到 `quality_finding` + policy + `warning_card`，从 reading projection 解耦。**当前合规依据**：`v3-quality-gates` §4.2 明确首批不要求完整运行质量门、line 200「完整质量门禁后续 creative quality slice 逐步进入」，故 P1 展示型审计可接受。
 - **F2（阶段硬编码，低）**：`ReadingProjectionRepo` 的 `@audit_stage :p1` 写死。阶段应来自 work 级目标里程碑配置（v2 31 §7 阶段默认门禁 + milestones §3 分阶段阈值）。P2+ work 会用 P1 阈值（1000）错判。当前只有 P1，暂可接受。
 - **F3（read model 偏离，低）**：既有 reading projection toc 实现（非本次引入）未遵循 v2 ADR-0009 最小字段集（无 `source_revision_refs`/`projection_status`/`toc_id`）；v3 ADR-0016 又「不冻结最终 projection read model」。故加 audit 字段不违反任何已冻结契约，但若未来对齐 ADR-0009 / 冻结 projection read model，audit 字段应一并纳入设计。
+
+### checkpoint B/C CP0 口径冻结（2026-10-31）
+
+**现有事实**
+- `ProseAudit.summarize/2` 仅接收各已采纳章有效字数，输出 total/chapter counts/empty/short/ok/meets_threshold；`ReadingProjectionRepo.toc` 只对已采纳章节标注 audit_status。
+- 无重复段落/重复章统计，无计划 seq 与已采纳章缺失率；`word-count.json` 由外部 verifier 产出基础版。
+
+**B 重复段落/重复章定义（确定性，无模型）**
+1. 段落切分：对每章已采纳正文按空行（`\n\s*\n`）切段，逐段 `trim`、内部连续空白归一为单空格、去掉纯标点空段；段文本为空不参与。
+2. 段落指纹：归一化文本的 SHA-256；同一指纹在同一章内重复只记一次章内重复，跨章出现记一次跨章重复（按不同章计数，不按出现次数膨胀）。
+3. 重复章：两章归一化全文 SHA-256 相同（trim+空白归一+换行归一）→ duplicate chapter 对；仅同作品、已采纳正文参与。
+4. 输出（只读审计，不阻断采纳）：
+   - `duplicate_paragraph_count`：跨章重复指纹数（unique fingerprint with >1 chapters）
+   - `duplicate_paragraph_chapter_pairs`：供 why/审计溯源的有界摘要（最多 20 对，含章 id/seq/fingerprint 前缀）
+   - `duplicate_chapter_count` / `duplicate_chapter_pairs`（同上，有界）
+5. 不修改正文/采纳事实；不把重复当错误自动删除；只作为 P1 审计信号。
+
+**C 缺章率定义（确定性）**
+- 计划范围：当前作品章节计划中 status 非 ARCHIVED 的 seq 集合（含已规划未写章）。
+- 已采纳范围：reading projection 中含已采纳正文的章节 seq。
+- `missing_chapter_count = |planned_seq - accepted_seq|`；`missing_chapter_rate = missing/count(planned_seq)`（planned=0 时为 0 且 `missing_not_applicable=true`，不伪造 0% 达标）。
+- 输出进 `audit`：`planned_chapter_count`、`missing_chapter_count`、`missing_chapter_rate`(float 0..1)、`duplicate_*` 字段；`meets_threshold` 不因新字段改变（P1 门槛口径仍按 milestones，缺章/重复作为独立审计维度展示，是否升为硬门槛需作者后续裁决）。
+
+**消费面**
+- `ReadingProjectionRepo.toc` 的 `audit` 增字段；`ReadingProjectionService`/`get_toc` 透传；ReadingMode 顶栏显示缺章/重复审计摘要（真实产品能力，无验收 hook）。
+- `word-count.json` 外部 verifier 补 `chapter_audit`、`duplicate`、`missing` 维度；不写生产路径。
+
+**CP1 实施顺序**：domain 纯函数 + 单测 → persistence toc/审计 + 回归 → DTO/channel → ReadingMode 展示/单测 → verifier/artifact → Tauri 页面场景。；不修改字数口径与 P1 阈值。
