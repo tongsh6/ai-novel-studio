@@ -689,6 +689,69 @@
           "minLength": 1
         }
       }
+    },
+    "orchestrator_decision": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "B43/B45：本轮统一裁决投影（ADR-0031 R2=A）。旧记录可缺失；缺失不等于伪造已产生。",
+      "required": [
+        "decision_id",
+        "decision_type",
+        "decision_status",
+        "decision_trace_ref"
+      ],
+      "properties": {
+        "decision_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision_type": {
+          "type": "string",
+          "enum": [
+            "downgrade_to_dialogue",
+            "require_confirmation",
+            "require_clarification",
+            "reject",
+            "fail_with_recovery",
+            "allow_tool",
+            "allow_agent_run",
+            "reply_only",
+            "exploration",
+            "capability_gap",
+            "replay_existing"
+          ]
+        },
+        "decision_status": {
+          "type": "string",
+          "enum": [
+            "decided",
+            "failed",
+            "emitted"
+          ]
+        },
+        "first_blocking_gate": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "required_author_action": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "decision_trace_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
     }
   }
 }

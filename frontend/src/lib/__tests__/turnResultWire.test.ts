@@ -36,6 +36,37 @@ describe("validateTurnResultPayload", () => {
     expect(validateTurnResultPayload(validPayload)).toEqual([]);
   });
 
+  it("B45/B43：合法 orchestrator_decision（reply_only）无 issue", () => {
+    const payload = {
+      ...validPayload,
+      orchestrator_decision: {
+        decision_id: "decision_1",
+        decision_type: "reply_only",
+        decision_status: "decided",
+        first_blocking_gate: null,
+        required_author_action: null,
+        decision_trace_ref: "trace_1",
+      },
+    };
+    expect(validateTurnResultPayload(payload)).toEqual([]);
+  });
+
+  it("B45/B43：未知 decision_type 产生 path 漂移 issue，不冒充通过", () => {
+    const payload = {
+      ...validPayload,
+      orchestrator_decision: {
+        decision_id: "decision_bad",
+        decision_type: "mystery_decision",
+        decision_status: "decided",
+        decision_trace_ref: null,
+      },
+    };
+    const issues = validateTurnResultPayload(payload);
+    expect(
+      issues.some((issue) => issue.path.startsWith("orchestrator_decision")),
+    ).toBe(true);
+  });
+
   it("漂移 payload 返回带 path 的 issue", () => {
     const issues = validateTurnResultPayload({
       ...validPayload,

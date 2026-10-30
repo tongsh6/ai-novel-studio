@@ -1,6 +1,6 @@
 # B45：Schema 与输出契约治理——现役、历史兼容与真实消费者
 
-- 状态：**doing（2026-10-31 CP0/CP1 done：38 份 schema 盘点、三链字段映射、13 项处置与错误/兼容矩阵已冻结；CP2 实施未开工）**。
+- 状态：**doing（2026-10-31 CP0/CP1 done；CP2 partial：turn_result_v3 已加 optional orchestrator_decision typed 契约并 codegen/前端校验；trace_summary/truthfulness、ledger enum、agent_run_state 与 CP3 未做）**。
 - 登记日期：2026-10-27；来源：v2 `$ref` 缺失导致 `z.any()`、旧 enum 与现行 v3 不一致、部分生成物无法提供有效校验。
 - 上游：[B49](B49-core-semantics-and-adr-review.md)、[B06 五账 schema](../2026-10-27-design-to-execution-reconciliation.md)、[DS01](DS01-decision-surface-schema-gate.md)、[schemas/README](../../docs/design/schemas/README.md)。
 
@@ -30,7 +30,7 @@
 |---|---|---|
 | CP0 | 全量 `$ref`/enum/生成物盘点；交付 §7 字段/状态→producer→转换→校验→consumer→历史兼容映射与首批三链修改清单；逐项处理13个部分承接schema，保留legacy/现役/血缘/any分类 | **done（2026-10-31，§8）**：38 份 schema/$ref/生成物/消费者全量盘点（artifact）；三链字段级矩阵；13 部分枚举逐项处置；active/legacy/any/未来预留分类明确 |
 | CP1 | 冻结逐类处置与错误矩阵：真实所需类型含 reply_only、schema/opaque/local contract、失败与空结果区别、动作/旧字段兼容；与 B43/B06 联动，不盲补旧架构 | **done（2026-10-31，§8.7）**：冻结四类处置（active-typed/active-opaque/legacy-frozen/future-reserved）与 invalid≠empty、unknown enum、历史缺字段兼容规则；CP2 按此实施 |
-| CP2 | 实施必要 schema/codegen/registry/读取兼容及真实边界校验；typed map/opaque 不免检，悬空 schema 不冒充已校验；不让 legacy 进入当前 wire 误校验 | 未开工 |
+| CP2 | 实施必要 schema/codegen/registry/读取兼容及真实边界校验；typed map/opaque 不免检，悬空 schema 不冒充已校验；不让 legacy 进入当前 wire 误校验 | **partial（2026-10-31，§9）**：v3 加 optional orchestrator_decision（typed enum/status/trace ref）、codegen 重放、前端合法/非法 decision_type 测试；trace_summary/truthfulness/ledger enum/agent_run_state 未做 |
 | CP3 | codegen/新旧 v3/内部输出回归与负例，真实前端/模型消费证据，文档/README 更新；旧兼容测试逐项归属，运行时缺口不由纯 schema 通过代签 | 未开工 |
 
 ## 8. CP0 盘点记录（2026-10-31）
@@ -126,6 +126,13 @@
 | 领域 `LedgerEntry` 信封 | VS-00F §2.1/ADR-0026 | `LedgerRepository.upsert`、`LedgerMaintenance` | domain struct → persistence map → `to_map` | `ledger_entry.json` 生成 TS：`ledger: z.any()`、payload/catchall open；无运行时 safeParse | 前端无直接消费 | DB 存 payload/map；历史缺 revision/裁决字段按读取默认 | 领域信封不是面板 DTO；CP1 把 ledger 字段收紧到 `enums/ledger.json` 或明确 opaque，payload 分账局部契约由 VS-00F B06 owner |
 | 面板 `LedgerThreadEntry` | ui43 §5 / `LedgerViewService` | `LedgerViewService.threads/1`（`thread_entry/1` Map.take） | DB map → 按五账分组 map | 无 schema；前端 socket.ts:870 手写 interface | `get_ledger_threads` Channel、StructurePanel 脉络 | 空账返回空列表（不伪造） | DTO 使用 `id` 而非领域 `entry_id`/`work_ref`，不能强套领域信封；CP2 新增面板 DTO 契约或复用 generated 局部 schema，并保留历史读 |
 | `ledger_information_payload.json` | VS-00F §2.4 | 未见真实 producer/validator | JSON 文件存在但未接入 | 无 | 无 | — | CP1 判“未来预留/待裁决”，无消费者不生成新功能 |
+
+## 9. CP2 实施记录（2026-10-31，partial）
+
+- `turn_result_v3.json` 新增 optional `orchestrator_decision`：decision_id、decision_type 枚举（含 reply_only/exploration/capability_gap/require_clarification 等 ADR-0031 类型）、decision_status、first_blocking_gate、required_author_action、decision_trace_ref；旧记录可缺失，缺失不等于伪造已产生。
+- 运行 `pnpm codegen:schemas` 重放，生成物 `frontend/src/generated/foundation/turn_result_v3.ts` 得到 typed union；`TurnResultSchema` 通过 barrel 继承。
+- 前端 `turnResultWire` 测试：合法 reply_only decision 无 issue；未知 decision_type 产生 `orchestrator_decision` 路径漂移 issue，不冒充通过；全量 frontend 638/638、typecheck 通过。全量 backend mix 1048/0（schema 变更只由前端消费）。
+- 未完成：trace_summary/truthfulness 的 typed 局部契约、ledger enum 同源（领域硬编码漂移）、agent_run_state schema（DS01 §9 owner）、错误/历史兼容运行时负例与 CP3 真实消费证据。
 
 ## 4. 非目标
 

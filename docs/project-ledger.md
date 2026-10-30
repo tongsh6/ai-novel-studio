@@ -1190,3 +1190,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B45 CP0 三链字段级映射**：orchestrator_decision/trace_summary/truthfulness 的 producer→校验→consumer→历史矩阵补齐；确认 agent_run_state 无 schema、前端 AgentRunStateData 为手写平行类型；五账领域信封/面板 LedgerThreadEntry/ledger_information_payload 三层投影与缺口登记。CP1 错误/兼容矩阵待冻结。
 
 - 2026-10-31 — **B45 CP0/CP1 done**：38 份 schema 盘点 + 三链字段矩阵 + 13 项处置（8 无消费者、memory_* 5 个 active、mutation/retention/source active）冻结；CP1 冻结 active-typed/active-opaque/legacy-frozen/future-reserved 四类与 invalid≠empty/unknown enum/历史缺字段规则；首批变更清单交 CP2。ledger 枚举与领域硬编码漂移、agent_run_state 无 schema 已登记。
+
+- 2026-10-31 — **B45 CP2 首批 schema 实施**：turn_result_v3 新增 optional orchestrator_decision（decision_id/type/status/gate/required_action/trace_ref），codegen 重放生成 typed TS；turnResultWire 测试合法 reply_only 通过、未知 decision_type 产生漂移 issue；frontend 638/638、typecheck、全量 backend mix 1048/0。trace_summary/truthfulness、ledger enum、agent_run_state 仍 todo。
