@@ -1256,3 +1256,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B58 CP3 adoption 页面 PASS**：扩展 AU09 taxonomy 场景，角色演化采纳后真实 replay 返回 trace_summary.approvals（high_risk_canon_change/HIGH/ACCEPTED/author），证据 approval-replay.json；Why 映射单测。confirmation 路径 AU04 仍两次未产出确认卡，保持 reanchor。
 
 - 2026-10-31 — **B58 CP3 blocked**：AU09 真实 adoption 批准 replay PASS（approvals=high_risk_canon_change/HIGH/ACCEPTED/author）；AU04 confirmation 两次实际产出 needs_clarification 而非确认卡，确认 gate 生产链缺失，按同因预算停止并登记阻塞，B58 不标 done；当前任务切 AU07-P1。
+
+- 2026-10-31 — **AU07-P1 done**：核对 registry snapshot 已持久化并由 replay chain 消费、旧查询/partial/scope 负例已关闭；多类型 replay UI 后端链已有但 UI 无真实 consumer，developer 双视图无入口/权限，均登记 deferred；reason catalog 保持静态映射不建新实体。当前任务切 VS00F-TRACE。

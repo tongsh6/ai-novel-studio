@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU07-P1 | 核对 developer 权限、多类型 replay、原因目录与 registry snapshot 的真实消费者；与 B43/VS-00F/B39 去重 | [原任务小节](slices/AU07-trace-replay-integrity.md#p1-消费者与余项核对) |
+| VS00F-TRACE | 核对章摘要/账面维护的真实变更与 StateTrace；闭合自动/作者变更、幂等、回滚及持久回放 | [原任务小节](slices/VS-00F-five-ledgers-three-state.md#维护-statetrace-后续-checkpoint) |
 
 ## 后续候选
 
@@ -14,7 +14,6 @@
 |---|---|---|
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B48 | 无变化普通说明、真正歧义才追问；依赖 B43 裁决同源，完成四场景验收 | [原任务](slices/B48-character-revision-noop-and-ambiguity.md) |
-| VS00F-TRACE | 核对章摘要/账面维护的真实变更与 StateTrace；闭合自动/作者变更、幂等、回滚及持久回放 | [原任务小节](slices/VS-00F-five-ledgers-three-state.md#维护-statetrace-后续-checkpoint) |
 | B57 | CP0 准备现有作者输入/作品观察对抗矩阵；求证与外部资料部分等对应入口，实模另按资源安排 | [原任务](slices/B57-sec-injection-boundary.md) |
 | AU04-AU06 | 核对 T16 的现役确认生产者、终态历史、持久绑定及恢复范围；与 B43/B58 去重后补页面矩阵 | [原任务](slices/AU04-AU06-author-action-binding.md) |
 | AU08-REFRESH | 核对现役四态与失败/重试/旧内容口径，补真实页面恢复和零权威写入矩阵 | [原任务小节](slices/AU08-file-level-closure.md#阅读投影状态与失败恢复补验) |

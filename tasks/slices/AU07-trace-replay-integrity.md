@@ -54,8 +54,24 @@ P1：developer 双视图权限、多类型 replay UI、reason catalog、ToolTrac
 
 ## P1 消费者与余项核对
 
-- 状态：**todo（2026-10-30 明确原 §3 P1 尾项的恢复入口；原 checkpoint/file-level P0 完成记录不变，后续未闭环）**。
+- 状态：**done（2026-10-31 消费者与余项核对完成：registry snapshot/旧查询/partial/负例已有真实消费者；多类型 replay UI 与 developer 双视图无当前真实消费者，登记 deferred 候选，不伪造实现）**。
 - 来源：本任务 §3 与 [全量对账 F18/E29](../2026-10-27-design-to-execution-reconciliation.md#46-验收ui-与质量证据) 的原 AU07 承接；范围仍是 developer 双视图权限、多类型 replay UI、reason catalog 与 ToolTrace 独立 registry snapshot。
 - 下一步：按现有 trace producer、持久查询、ReplayService 与 Why/开发者视图消费者逐项核对剩余能力和证据，区分已经完成的旧 turn scoped query、partial replay、scope 负例与真正开放项；形成不重复建设的实施/补验矩阵，冻结该 checkpoint 七问后进入实现。
 - 完整后果：author/developer 权限与脱敏一致，多类型 trace 可据真实引用解释，缺引用诚实 partial；registry/reason 信息来自保存事实或对应版本，不能用当前目录伪造历史。外部真实页面验证可见解释、权限差、跨作品/会话/turn 隔离及回放不调模型/不写生产数据；局部查询通过不能代签完整 UI。
 - 依赖与去重：B43 负责新增统一裁决 producer 与其回放，VS-00F 负责权威维护 StateTrace；本项消费这些来源，不再生成平行裁决/状态记录。B39 的 Observation/version/stale/no-provider 回放增量仍随其 CP3，当前先核对既有 Tool/Behavior/State 消费；旧 workspace_id 迁移继续作为原 P2，不借本项扩成全量迁移。
+
+
+### P1 CP0 核对记录（2026-10-31）
+
+| P1 项 | 当前事实/真实消费者 | 结论 |
+|---|---|---|
+| ToolTrace 独立 registry snapshot | `trace_writer.tool_registry_snapshot` 在工具执行时保存 name/version/status/layer/input-output contract/read-write scopes/grants；persisted `tool_trace_refs` 携带 `registry_snapshot/contract_refs/grant_summary/request_summary/result_summary/io_redaction`。`ReplayService.build_chain_summary` 从保存的 ref 还原 `tool_trace` 步骤，非当前 registry 目录；author-safe Redactor 输出。测试：replay_service/tool trace 既有测试。 | **done**（独立快照已存在，消费入口=replay report；无独立 UI 需求，不重复建 snapshot 存储） |
+| 旧 turn scoped 查询 | `au07-persisted-trace-query` 已关闭 | done（历史 checkpoint） |
+| partial replay UI | `au07-partial-replay-ui` 已关闭；Why 显示缺引用诚实 partial | done（历史 checkpoint） |
+| scope 负例 | `au07-trace-query-scope-negative-matrix` 已关闭 | done（历史 checkpoint） |
+| 多类型 replay UI（Tool/Behavior/State 链） | 后端 `replay_report.chain_summary` 已含 tool_trace/behavior_trace/state_trace 步骤与 registry/grants；前端 `getTurnReplay` 只消费 `trace_summary`，Why 不渲染这些链。无当前真实作者消费者要求展开；若加需设计脱敏边界（author_safe vs developer）。 | **open/deferred**：后端已具备，UI 未消费；不新建平行 API，登记为后续 UI 候选，需作者/设计确认可见范围 |
+| developer 双视图权限 | 现有 developer 可见性用于 AgentRun stage events（`visibility=developer`），WorkspaceChat 只渲染 author 事件；无 developer replay 页面、无角色/权限模型、无独立 redaction profile。当前产品无真实 developer 用户/入口。 | **deferred（无真实 consumer）**：不先建权限/双视图；需作者明确 developer 入口与授权后再设计，避免验收专用后门 |
+| reason catalog | reason/gate/decision 文案在 `frontend/src/lib/copy.ts` 与 `traceSummaryView` 静态映射；后端 trace 保存 reason code，未保存独立 catalog 版本。现有消费者=Why 文案，无第二语言/外部消费者。 | **deferred/不建**：当前静态映射足够，不新建 catalog 实体；跨版本历史 reason 由保存的 code 与前端映射解释，缺失时诚实显示原 code |
+| 去重关系 | B43 负责统一裁决 producer；VS-00F 负责状态维护 StateTrace；B39 Observation/version/stale 回放增量仍随其 CP3。本项不生成平行裁决/状态记录。 | 边界确认，无重复建设 |
+
+**结论**：P1 的“核对 + 去重”完成。registry snapshot/旧查询/partial/负例均有真实消费者与证据；多类型 replay UI 与 developer 双视图没有当前真实作者/开发者 consumer，登记 deferred（不伪造实现）；reason catalog 维持现有静态映射，不建新实体。父任务 AU-07 的 P0 文件级完成记录不变，P2 旧 workspace_id 迁移不在本 checkpoint 扩张。
