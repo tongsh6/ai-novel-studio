@@ -48,7 +48,7 @@ function supplementFor(scenario) {
     case "N1":
       return "按当前请求继续：只改我点名的第一段，其余段落逐字保留，不要扩大范围。";
     case "N2":
-      return "按当前请求继续：只改我点名的第二段，第一段与其余字节逐字保留。";
+      return "把第03章第二段改得更克制、更潮湿一些：保留灯芯与门闩的细节，只改这一段文字，第一段与其余字节逐字保留。";
     case "N3":
       return "本轮只检查，不要修改任何正文；把结论告诉我即可，不要生成候选。";
     case "N4":
@@ -174,7 +174,7 @@ function authorQuestionDefault() {
   return "先按当前作品事实继续，保持人物与情节一致；具体细节由你决定，不要停下来问我。";
 }
 
-async function rawRespondToAuthorQuestion(label, body, question) {
+async function rawRespondToAuthorQuestion(label, body, question, scenario = null) {
   const actions = (body.available_actions ?? []).filter(
     (action) =>
       action.action_type === "author_choice" && action.question_ref === question.question_ref,
@@ -185,11 +185,15 @@ async function rawRespondToAuthorQuestion(label, body, question) {
     actions.find((action) => action.response_kind !== "free_text");
   const choiceOptions = options.filter((option) => option.kind !== "free_text");
   const recommended = choiceOptions.find((option) => option.recommended) ?? choiceOptions[0] ?? null;
+  const preferFreeText =
+    !choiceOptions.some((option) => option.recommended) &&
+    options.some((option) => option.kind === "free_text") &&
+    /具体|方向|字词|怎么|如何|改法/.test(String(question.question ?? ""));
   const startedAt = nowIso();
   let chosenLabel = null;
   let replyText = null;
 
-  if (recommended) {
+  if (recommended && !preferFreeText) {
     const nodes = harness.dumpNodes();
     const button =
       findButtonByText(nodes, (value) => value === recommended.label) ??
@@ -209,7 +213,7 @@ async function rawRespondToAuthorQuestion(label, body, question) {
     if (!textarea) throw new Error(`author_question_textarea_not_found:${label}`);
     harness.safeClick(textarea, `${label}:reply-textarea`);
     await sleep(250);
-    replyText = authorQuestionDefault();
+    replyText = scenario ? supplementFor(scenario) : authorQuestionDefault();
     typeText(harness.APP, replyText);
     await sleep(500);
     const sendButton = findButtonByText(harness.dumpNodes(), (value) => value === "发送回复");
@@ -462,7 +466,7 @@ async function waitScenarioTurn(turnId, scenario, label) {
         throw new Error(`author_question_repeated_without_progress:${label}:${question.question_ref}`);
       }
       await harness.runStep("maintenance", `author_question:${label}:${questions + 1}`, () =>
-        rawRespondToAuthorQuestion(label, body, question),
+        rawRespondToAuthorQuestion(label, body, question, scenario),
       );
       questions += 1;
       await sleep(800);
@@ -503,7 +507,16 @@ function receiptMatchesArtifact(body, artifactId) {
 async function adoptPending(pendingEntry, label) {
   const artifactId = String(pendingEntry.artifact_id ?? pendingEntry.id ?? "");
   if (!artifactId) throw new Error(`pending_artifact_id_missing:${label}`);
-  const buttonLabels = ["保存到作品", "保存为章节正文", "应用分段方案", "采纳", "接受"];
+  const buttonLabels = [
+    "保存修订稿",
+    "保存修订稿为章节正文",
+    "保存分段方案",
+    "应用分段方案",
+    "保存到作品",
+    "保存为章节正文",
+    "采纳",
+    "接受",
+  ];
   const startedAt = nowIso();
   let chosen = null;
   for (const buttonLabel of buttonLabels) {
@@ -567,10 +580,27 @@ async function adoptPending(pendingEntry, label) {
 async function runScenario(config, scenario) {
   const label = scenario.id;
   const { message, turnId, runId } = await sendAuthorInput(scenario.input, label);
-  const { turnResult, finalKind, questions } = await waitScenarioTurn(turnId, scenario, label);
+  let turnResult;
+  let finalKind;
+  let questions = 0;
+  let scenarioError = null;
+  try {
+    ({ turnResult, finalKind, questions } = await waitScenarioTurn(turnId, scenario, label));
+  } catch (error) {
+    if (/author_question_repeated_without_progress|author_question_reply_limit/.test(String(error?.message ?? ""))) {
+      // 作者问题重复/超过两轮不同回复：按规则 bounded 失败该场景，但保留批次继续跑后续场景；
+      // 该轮零候选零写入由证据核验（N2/N1 允许 reply/ask 安全分支）。
+      scenarioError = String(error.message);
+      finalKind = "author_question_loop";
+      turnResult = { status: "awaiting_author", assistant_message: { text: "" } };
+    } else {
+      throw error;
+    }
+  }
   const pending = pendingOf(turnResult);
   let adoption = null;
-  if (scenario.adopt && pending.length > 0 && String(turnResult.status ?? "") !== "failed") {
+  const shouldAdopt = scenario.adopt === true || scenario.expect?.adopt === true;
+  if (shouldAdopt && pending.length > 0 && String(turnResult.status ?? "") !== "failed") {
     adoption = await harness.runStep("adoption", `adopt:${label}`, () =>
       adoptPending(pending[0], label),
     );
@@ -583,8 +613,10 @@ async function runScenario(config, scenario) {
   const assistantText = String(turnResult?.assistant_message?.text ?? "");
   const turnStatus = String(turnResult?.status ?? "");
   const outcomeKind =
-    turnStatus === "failed"
-      ? "guarded_rejection"
+    scenarioError
+      ? "author_question_loop"
+      : turnStatus === "failed"
+        ? "guarded_rejection"
       : firstPending
         ? "candidate"
         : nonEmptyText(assistantText)
@@ -603,6 +635,7 @@ async function runScenario(config, scenario) {
     final_kind: finalKind,
     outcome_kind: outcomeKind,
     run_id: runId,
+    scenario_error: scenarioError,
     judgment_events: runJudgmentEvents(harness.transport(), turnId),
     frame_type: turnResult?.frame_summary?.frame_type ?? null,
     pending_count: pending.length,

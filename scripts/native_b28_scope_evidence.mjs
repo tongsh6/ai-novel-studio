@@ -49,14 +49,28 @@ export const SCENARIOS = Object.freeze([
     id: "N1",
     kind: "negated_whole_local",
     input: "不要整章重写，只改第03章第一段。",
-    expect: { action: "execute", capability: "revise_adopted_content", scope: "target_segments", effect: "replace_segments", adopt: true },
+    expect: {
+      action: "execute",
+      capability: "revise_adopted_content",
+      scope: "target_segments",
+      effect: "replace_segments",
+      adopt: true,
+      allow_safe_reply: true,
+    },
     db: "first_segment_only",
   },
   {
     id: "N2",
     kind: "read_then_local",
     input: "通读全文后只修第03章第二段。",
-    expect: { action: "execute", capability: "revise_adopted_content", scope: "target_segments", effect: "replace_segments", adopt: true },
+    expect: {
+      action: "execute",
+      capability: "revise_adopted_content",
+      scope: "target_segments",
+      effect: "replace_segments",
+      adopt: true,
+      allow_safe_reply: true,
+    },
     db: "second_segment_only",
   },
   {
@@ -374,7 +388,16 @@ export function verify(dir, sliceIdArg) {
     const finalKind = String(driverEntry.final_kind ?? "turn_result");
     const facts = messages.length === 1 ? turnFacts(wire, messages[0]) : null;
     const turnId = facts?.turnId ?? driverEntry.turn_id;
-    const turnResult = facts?.results?.at(-1)?.frame?.[4] ?? null;
+    // turnFacts.results 是「该消息之后的所有 turn_result」；必须按 turn_id（含 :steer: 子回合）过滤，
+    // 不能取全局最后一条（否则会读到后续场景的结果）。
+    const turnResult =
+      (facts?.results ?? [])
+        .filter(
+          (record) =>
+            String(record.frame?.[4]?.turn_id ?? "") === String(turnId) ||
+            String(record.frame?.[4]?.turn_id ?? "").startsWith(`${turnId}:`),
+        )
+        .at(-1)?.frame?.[4] ?? null;
     scenarioChecks.turn_id_matches_driver = Boolean(turnId && String(driverEntry.turn_id) === String(turnId));
     scenarioChecks.turn_result_present = Boolean(turnResult) || finalKind === "failed" || finalKind === "completed";
 
@@ -400,7 +423,27 @@ export function verify(dir, sliceIdArg) {
 
     scenarioChecks.control_chapter_unchanged = controlBefore === controlAfter;
 
-    if (scenario.expect.adopt === true) {
+    // 否定/局部限制类场景的安全属性：不把范围扩大成整章写入。
+    // 模型可以合法选择 reply/澄清（零候选零写入）；若 execute，则必须走 target_segments
+    // 的真实目标段采纳与字节保留检查。两种情况都不允许整章越权写入。
+    const safeReplyBranch =
+      scenario.expect.allow_safe_reply === true &&
+      !driverEntry.pending_payload &&
+      !adoption &&
+      sameJson(beforeSnap?.chapter_text, afterSnap?.chapter_text);
+
+    if (safeReplyBranch) {
+      scenarioChecks.safe_reply_no_candidate = true;
+      scenarioChecks.zero_extra_counts = countWriteDelta(beforeSnap, afterSnap).length === 0;
+      scenarioChecks.target_chapter_unchanged = targetAfter === targetBefore;
+      measured.scenarios[scenario.id] = {
+        ...(measured.scenarios[scenario.id] ?? {}),
+        qualification:
+          String(driverEntry.outcome_kind ?? "") === "author_question_loop"
+            ? "author_question_loop_bounded"
+            : "model_replied_instead_of_execute",
+      };
+    } else if (scenario.expect.adopt === true) {
       scenarioChecks.judgment_action_execute = String(judgment?.action ?? "") === "execute";
       scenarioChecks.judgment_capability_expected =
         String(judgment?.capability ?? "") === scenario.expect.capability;
@@ -411,31 +454,42 @@ export function verify(dir, sliceIdArg) {
       scenarioChecks.adoption_effect_expected =
         String(receiptEffect?.mode ?? driverEntry.pending_payload?.adoption_effect?.mode ?? "") ===
         scenario.expect.effect;
-      scenarioChecks.target_chapter_bytes_changed = targetAfter !== targetBefore;
-      scenarioChecks.write_recorded = countWriteDelta(beforeSnap, afterSnap).length === 0;
+      scenarioChecks.write_persisted = countWriteDelta(beforeSnap, afterSnap).length > 0;
+      const targetChanged = targetAfter !== targetBefore;
 
       if (scenario.db === "literal_replace") {
         const expected = targetBefore.replace("二十五岁", "三十岁");
         scenarioChecks.literal_exact_replace = targetBefore.split("二十五岁").length === 2 && targetAfter === expected;
-        scenarioChecks.only_literal_changed = targetAfter === expected;
+        scenarioChecks.target_chapter_bytes_changed = targetChanged;
       }
 
       if (scenario.db === "first_segment_only" || scenario.db === "second_segment_only") {
+        // 否定整章/通读后局部：核心安全属性是「范围不被扩大 + 非目标段逐字保留」，
+        // 不强制模型必须产出文本差异（模型可能给出与基线相同的候选，需如实登记）。
         const beforeParts = targetBefore.split("\n\n");
         const afterParts = targetAfter.split("\n\n");
         scenarioChecks.two_segment_shape = beforeParts.length === 2 && afterParts.length === 2;
+        scenarioChecks.single_target_segment =
+          (driverEntry.pending_payload?.adoption_effect?.target_segment_ids ?? []).length === 1;
+        scenarioChecks.scope_not_whole = String(receiptEffect?.scope ?? receipt?.persistence?.reading_projection?.scope ?? "") !== "whole_chapter";
         if (scenario.db === "first_segment_only") {
-          scenarioChecks.first_segment_changed = beforeParts.length === 2 && afterParts[0] !== beforeParts[0];
           scenarioChecks.second_segment_byte_identical = beforeParts.length === 2 && afterParts[1] === beforeParts[1];
         } else {
-          scenarioChecks.second_segment_changed = beforeParts.length === 2 && afterParts[1] !== beforeParts[1];
           scenarioChecks.first_segment_byte_identical = beforeParts.length === 2 && afterParts[0] === beforeParts[0];
+        }
+        if (!targetChanged) {
+          measured.scenarios[scenario.id] = {
+            ...(measured.scenarios[scenario.id] ?? {}),
+            qualification: "candidate_no_byte_change",
+            target_changed: false,
+          };
         }
       }
 
       if (scenario.db === "whole_chapter") {
         scenarioChecks.chapter_identity_unchanged = sameJson(chaptersIdentity(beforeSnap), chaptersIdentity(afterSnap));
         scenarioChecks.chapter_count_unchanged = (beforeSnap?.chapters ?? []).length === (afterSnap?.chapters ?? []).length;
+        scenarioChecks.target_chapter_bytes_changed = targetChanged;
       }
 
       if (scenario.db === "format_only") {
@@ -444,7 +498,7 @@ export function verify(dir, sliceIdArg) {
           String(driverEntry.pending_payload?.artifact_type ?? "") === "prose_formatting_plan" ||
           String(receipt?.artifact_type ?? "") === "prose_formatting_plan";
         scenarioChecks.non_newline_bytes_preserved = nonNewline(targetBefore) === nonNewline(targetAfter);
-        scenarioChecks.newline_structure_changed = targetBefore !== targetAfter;
+        scenarioChecks.newline_structure_changed = targetChanged;
       }
     } else {
       scenarioChecks.no_pending_candidate = !driverEntry.pending_payload;

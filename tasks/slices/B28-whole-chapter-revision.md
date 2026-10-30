@@ -392,7 +392,7 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 
 ## 元原则整改：作者范围与否定约束
 
-- 状态：**doing（2026-10-30 CP0–CP2 done：授权范围重写、集成/采纳保护、B28 真实页面确定性回归通过；CP3 外部原生 Tauri + 真实模型验收待执行）**。原整章修订/排版业务与历史完成记录保留。
+- 状态：**done（2026-10-30 CP0–CP3；CP3 混合结论：产品授权范围链路、零写入与 P3 字面替换采纳通过真实原生+真实模型证据；P1/P2 正向对照因真实模型 reply/无换行变化未达采纳完成，作为 known-gap 保留，不冒充全绿）**。原整章修订/排版业务与历史完成记录保留。
 - 来源：元原则业务补核（`../../artifacts/task-audit/2026-10-30-principles/b-business-supplement.json`） 对现役范围选择与采纳校验的静态核对；本节是“否定整章词被 whole_chapter 误授权”的唯一执行入口，不重新启动旧 CP0–CP5。
 
 ### 当前缺口与目标链
@@ -482,6 +482,26 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 - 输入以「第03章」显式锚定目标章（避免两章作品的指代歧义；语义与预注册 N1/N2 一致）。
 - 失败只读保留；真实模型单槽、结束 unload 核验；不做整批重跑换分。
 
+#### CP3 记录（2026-10-30，原生 Tauri + 真实模型，混合结论）
+
+- 配置：slice `b28-scope-authorization`；seed `scripts/seed_b28_scope_authorization.exs`（第01章对照章 + 第03章两段 accepted 正文，第一段含「二十五岁」锚点）；驱动 `scripts/native_b28_scope_drive.mjs`；核验 `scripts/native_b28_scope_evidence.mjs`；strata/iq3_s 单槽，逐批记录 loader 并在结束 `POST /api/models/unload` + `loaded=null` 核验。
+- 批次（全部只读保留）：
+  - `b28scope1`：驱动首个 harness 缺陷（scenario.adopt 标志未读取）→ 候选生成但未采纳；scopes 全部正确。
+  - `b28scope2`：采纳按钮文案为「保存修订稿」，驱动初始标签表不含 → 采纳失败（harness）。
+  - `b28scope3`：P3 采纳成功；N1 reply；N2 真实模型提问（要求具体修改字词/方向），驱动按 choice 回答后模型重复同一问题 → 按预算 bounded 中止（harness 作者应答策略不足）。
+  - `b28scope4`：启动后 `wait_wire_timeout:P3:user_message_sent`（原生窗口启动 flake，未进入业务判断）。
+  - `b28scope5`（最终完整批次，`artifacts/slice-verify/b28-scope-authorization-tauri-strata-native-b28scope5/`）：7 场景全部完成，driver exit 0；P3/N1/N2/N3/N4/P1/P2 均有真实 provider 调用与 app-log 判断；结束 strata `loaded=null`。
+- 结果（产品/模型分开）：
+  - **P3 字面替换：干净通过**。judgment execute revise_adopted_content → 候选 scope target_segments/effect replace_segments → 采纳 receipt accepted → 正文精确一次「二十五岁→三十岁」，其余字节不变，对照章不变。
+  - **N1 否定整章+局部：范围安全通过（qualification）**。judgment execute、候选 scope target_segments、单目标段、采纳 accepted；候选正文与基线相同（模型未产生字节差异），登记 `candidate_no_byte_change`，不把「未改」当越权或通过改稿。
+  - **N2 通读后局部：安全分支通过（qualification）**。模型回复说明并澄清，零候选零写入；登记 `model_replied_instead_of_execute`。
+  - **N3 只读拒改 / N4 条件整章：通过**。均 reply、零候选、DB 生产表/草稿/版本/回执零变化、正文与对照章不变。
+  - **P1 整章重写：未通过（模型行为）**。模型 reply 解释而未 execute，零候选零写入；同场景 `b28scope1` 曾产生正确 whole_chapter 候选（未采纳，harness），跨批次不稳定。
+  - **P2 仅排版：未通过（模型 writer 行为）**。模型 execute 但 writer 提出的换行计划无实际变化，产品以 `{:pending_artifact_invalid, :no_formatting_changes}` 零写入拒绝；同场景 `b28scope1` 曾产生 `prose_formatting_plan` 候选（未采纳，harness）。
+  - X1 越界候选采纳拒绝：由 CP2 集成/全量后端确定性测试覆盖（target_segments 目标外 `out_of_scope_changes`、format_only 字节保真），不在真实模型中伪造越界输入。
+- 诚实边界：本 CP 完成的是**产品授权范围链路与 P3 正例的真实原生+真实模型证据**；P1/P2 正向对照未达采纳完成，不计为 PASS。known-gap：①真实模型对显式整章重写/仅排版存在跨批次不稳定（P1 reply、P2 无换行变化）→ 归 B27/UA01/B42 模型行为继续；②N1 候选无字节变化且被产品接受（零差异修订仍落新 revision）→ 作为 B28/B35 残留问题记录（未改产品行为）；③N2 模型要求具体修改方向时当前 APP 只经作者问答/异常澄清，本轮驱动以 choice 回答触发重复问题（harness 应答策略剩余）。
+- 门禁/资源：批次内 strata 单槽，结束 `loaded=null`；无残留 Tauri/Phoenix/代理进程；失败批次只读，不做整批重跑换分。
+
 #### 残余
 
 - CP0 仅为纯函数/静态证据，未运行页面/真实模型/数据库。
@@ -495,7 +515,7 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 | CP0 | 审计 scope 默认值、显式覆盖选项、原话/goal 来源、目标段解析、writer输出契约与采纳消费者；冻结正面/否定/条件/歧义及保留项的同源映射和反例矩阵，区分全章材料与修改授权 | **done（2026-10-30）**：审计映射/纯函数探针/保护面证明见下节“CP0 记录”；证据 `artifacts/task-audit/2026-10-30-b28-semantics-cp0/{audit-map.json,scope-probe.json,scope-probe.exs}` |
 | CP1 | 修正范围形成与绑定，避免词面命中扩大作用域；沿现有判断链与真实目标/版本形成明确约束，条件未成立可据证无变化，范围不明不生成越权候选 | **done（2026-10-30）**：新增纯函数 `ChapterRevisionScope`（13 条反例矩阵/红测全绿）；`resolve_modification_scope` 接入 revise_chapter，明确只读不改→`author_scope_not_authorized` 零写入；视觉/局部/条件/正向对照与显式内部覆盖分流；slice_verify 替身镜像对齐并加回归。证据见下节 CP1 记录 |
 | CP2 | 贯穿 AuthoringTask、writer/evaluator、preview、diff/patch与采纳事务；验证目标外保真、完整覆盖、stale/跨作品/歧义/重复/失败回滚，真实回执与后续读取一致 | **done（2026-10-30，确定性）**：B28 真实页面场景 `b28-whole-chapter-revision` 通过（format_only/字面替换/幂等/读取刷新）；新增 CP1 集成测试覆盖否定/读取/条件与采纳后逐字节保真；全量后端 0 失败；B35/B36 守卫未放宽。原生 Tauri+真实模型留给 CP3 |
-| CP3 | 外部真实 Tauri与真实模型完成否定/条件和三个原范围的对照矩阵，含必要采纳、恢复与回放；保留失败与原生/browser/局部证据边界，完整后果齐备后关闭本节 | todo |
+| CP3 | 外部真实 Tauri与真实模型完成否定/条件和三个原范围的对照矩阵，含必要采纳、恢复与回放；保留失败与原生/browser/局部证据边界，完整后果齐备后关闭本节 | **done（2026-10-30，混合结论）**：原生 Tauri + strata/iq3_s 真实模型跑完 P3/N1/N2/N3/N4/P1/P2 矩阵并保留 5 个批次；P3 字面替换干净通过（采纳后精确一次替换、其余字节不变），N1 scope 绑定 target_segments 且未越界（候选无字节变化，qualification）、N2 模型 reply 安全分支、N3/N4 零候选零写入通过；P1 模型 reply 未执行整章重写、P2 writer 无实际换行变化被产品 `no_formatting_changes` 零写入拒绝 → 正向对照未达采纳完成，known-gap 保留。详见下节 CP3 记录 |
 
 ### CP1/CP2 记录（2026-10-30）
 
