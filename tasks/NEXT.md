@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU03-CONTEXT | 按 CP0–CP3 梳理读取失败/未知/真实空的同源状态及模型输入、停止/降级与恢复验证 | [原任务小节](slices/AU03-file-level-closure.md#当前上下文缺失与读取失败补验) |
+| AU03-CONTEXT | CP0 已完成（链路/来源审计、失败 vs 未知 prompt sha 相同复现、四类来源状态与最小表达契约、CP1 接线计划、CP2/CP3 预注册）；下一步 CP1：source_status 接线 + 同次请求可用性段 + trace/反馈，先红测 | [原任务小节](slices/AU03-file-level-closure.md#当前上下文缺失与读取失败补验) |
 
 ## 后续候选
 

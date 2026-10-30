@@ -187,7 +187,7 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 
 ## 当前上下文缺失与读取失败补验
 
-- 状态：**todo（2026-10-30 承接 SC-AU03-B1/B2/B3；原文件级完成批次保留，本矩阵尚未补验）**。
+- 状态：**doing（2026-10-30 CP0 done：读取失败/未知/真实空的当前模型输入表达已复现并冻结契约；CP1–CP3 待实现与真实页面/模型验收）**。
 - 设计依据：本文件 §3 的空作品、有背景无会话、fetcher 失败三类场景；[AU-03](../../docs/design/acceptance/author/AU-03-context.md) 的上下文诚实边界。既有 missing WorkState 的单场景与普通成功 prompt 不能代签整个矩阵。
 - 下一步：按当前 B26/B27/ADR-0031 的真实入口重核 ContextAssembler、错误返回及 author-safe 提示，列明 empty/work-only/fetcher-failure 的可见事实与禁称内容；校正旧 frame/envelope 断言，先区分缺实现与缺证据。
 - 完整后果：真实页面在空作品时不虚构事实，有背景无会话时不虚构“刚才讨论”，读取失败时不把未知当空事实或成功读取；恢复后当前作品事实进入后续请求，作品切换不串上下文。机制故障注入只在外部 harness/test support，真实模型措辞与机制接线分层取证。
@@ -197,7 +197,7 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
-| CP0 | 定位真实 fetcher→ContextAssembler→同次 provider 请求→trace/作者反馈路径；逐来源区分成功有值、成功为空、未取得/未知与读取失败，核对部分失败和已有可用事实；冻结最小错误/覆盖表达及各类继续/停止条件，不先发明新 Context 类或全局状态机 | todo |
+| CP0 | 定位真实 fetcher→ContextAssembler→同次 provider 请求→trace/作者反馈路径；逐来源区分成功有值、成功为空、未取得/未知与读取失败，核对部分失败和已有可用事实；冻结最小错误/覆盖表达及各类继续/停止条件，不先发明新 Context 类或全局状态机 | **done（2026-10-30）**：静态链路审计 + 纯函数探针；证据 `artifacts/task-audit/2026-10-30-au03-context-cp0/{audit-map.json,probe.json,probe.exs}`；契约见下“CP0 记录” |
 | CP1 | 在同一事实源上接通组装结果、请求渲染与反馈；若继续调用模型，该次实际请求须包含受影响来源的安全错误类别/未知范围和仍可信的事实；不得把失败渲染为已确认的“无作品/0 章/没有记忆”。若因身份/权限等必要底座不足而停止，诚实记录未派发而不是声称模型已获知 | todo |
 | CP2 | 局部验证 empty/work-only/异常/非 ok/部分失败、跨作品切换及恢复；核对实际发送内容和来源声明，失败不伪造空事实，旧记录缺字段保持未知；恢复后真实事实进入后续请求，重试不复活旧授权、不写 canon | todo |
 | CP3 | 外部真实工作台触发缺失/读取故障→作者可见反馈→故障解除→恢复对话；将同一 turn/run 的实际请求、来源状态、回复/trace 与恢复后请求对齐。分开报告局部故障矩阵、真实入口机制与真实模型如何处理未知；未取到请求或仅日志有 error 不算该链完成 | todo |
@@ -205,6 +205,26 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 - **继续与停止不预设为一刀切**：非关键材料失败时，可在明确未知/覆盖边界下保留合法回复、现有只读取证或必要询问；失败是否阻断由真实身份、权限、操作需求和已接受 policy 决定。关键事实缺失不得猜测执行，但本整改不把任何 fetch 失败都升级为整轮禁止调用模型。
 - **同次请求证明**：错误表达使用必要的安全类别、受影响来源和恢复信息，不把原始异常、凭据或内部日志整段注入模型。能证明“日志记录了失败”与“模型该次确实收到失败/未知事实”是两项证据；若请求没有派发，单列停止事实。
 - **分工**：本小节拥有空/未知/错误及恢复语义；[B27 请求材料同源](B27-systematic-prompt-and-intent-integration.md#9-元原则整改实际请求材料与引用同源) 负责当前共通请求的材料/来源声明接线与对账。共享构造器和来源事实，不能在两处维护独立错误映射或复制执行状态；B39 的专业 run 求证与恢复仍按其完整 CP 承接。
+
+### CP0 记录（2026-10-30 done）
+
+- 证据：`artifacts/task-audit/2026-10-30-au03-context-cp0/{audit-map.json,probe.json,probe.exs}`（只读静态 + 纯函数探针，未起服务/未调 provider/未写产品数据）。
+- 现役链路：生产 fetcher `NovelPersistence.WorkspaceContext.context_fetcher_with_query/0`（单体 8 元组，work/chapters/conversation/memory/behavior/interaction 各查询无 rescue）→ `ContextAssembler.safe_fetch/4`（异常或非 `{:ok,...}` → `@empty_fetch` 全 nil/[] + 仅日志）→ `DialogueContext`（无 source status）→ `DialoguePlanningService.judgment_work_section/1` 把 nil 渲染为「无——这是新对话或尚未创建作品」→ flows/trace 仅记 `context_ref_count`。
+- 纯函数探针结论：
+  - `fetcher raise` 与「生产 fetcher 成功但作品不存在（未知 UUID）」生成的模型 prompt **sha256 完全相同**（`f338d5df…`），均含「无——这是新对话或尚未创建作品」；读取失败与未知/空不可区分。
+  - `成功但空` 同形态；`work-only` 成功时 work 段渲染、facts 渲染「全书 0 章」，conversation/memory 缺段。
+  - 「部分失败」无法表达：任一来源 raise 即整轮全空，已有可用事实丢失；`DialogueContext` 无可用性字段。
+- 冻结契约（CP1 实现依据）：
+  1. 来源状态四类：成功有值 `:ok`、成功为空 `:empty`、未取得/未知 `:unknown`、读取失败 `:unavailable`；unknown 与 unavailable 不得渲染为确认空事实。
+  2. `DialogueContext` 增 additive `source_status`（work/conversation/memory/behavior/chapters/interaction）；不新建 Context 类/全局状态机；旧 fetcher 5/6/7/8 元组兼容，生产 fetcher 追加第 9 项 statuses。
+  3. 生产 fetcher 在来源边界 safe 包装，仅记录安全类别/受影响来源；prompt 不注入原始异常/凭据/内部日志。
+  4. 同次模型请求追加「上下文可用性（APP 客观状态）」段：逐项列 unavailable/unknown 并禁止渲染为空作品/0 章/没有讨论/没有记忆；可用事实照常渲染。
+  5. 读取失败不得渲染成“新对话或尚未创建作品”；真实空仍按既有语义（可零/无），但来源状态为 `:ok/:empty`。
+  6. trace/assemble 日志/turn 级反馈带同一安全状态（author-safe），refs 仅为有值来源。
+  7. 继续/停止：非关键来源（conversation/memory/behavior）unavailable → 可在未知边界下继续；work/chapters unavailable → 不得声称空事实/猜身份，写入请求因无真实 ref/版本自然零写入/询问；关键底座不足则诚实停止并记录未派发。
+- CP2 预注册：raise/非 ok→unavailable、work 成功+chapters 失败的部分保留、真实空作品、work-only、跨作品切换/恢复、旧 fetcher 兼容；断言 prompt 含可用性段且不含错误空事实，零写入。
+- CP3 预注册：外部原生 Tauri + 真实模型；外部 harness 以 SQLite 独占锁故障注入只读投影表（产品无验收感知），验证故障期同 turn 请求含 unavailability、作者反馈/trace 不称空、零 canon 写入；解锁后恢复请求含真实事实；无会话/记忆的 empty 对照。证据目录/预算/失败只读保留已冻结。
+- 残余：CP0 未运行产品故障/页面/真实模型；“未知 vs 真实空”的作者可见文案在 CP2/CP3 冻结；历史数据缺失字段映射 unknown 按现有契约核对，不伪造迁移。
 
 ## 历史搜索命中定位与只读回看
 
