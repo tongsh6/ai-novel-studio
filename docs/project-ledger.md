@@ -1318,3 +1318,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **AU03-SEARCH CP1 核心 PASS**：前端命中列表/只读 around 定位/高亮接线；真实 Tauri `au03-session-history-readonly` PASS，新增 verifier 断言 `turn_level_search_hit_located_and_highlighted`（search_hit_located/highlighted/turn_id/session_id/snippet_matched）；残余空/多结果/ARCHIVED/跨作品页面矩阵。
 
 - 2026-10-31 — **AU03-SEARCH done**：真实 Tauri 场景 PASS 覆盖命中定位/高亮、多结果、空态、ARCHIVED；verifier 断言 located/highlighted/multiple-empty/archived；跨作品隔离用 work-scoped API/单测证明（页面未单独覆盖，已登记残余）。当前任务切 UA01-LOG-B13。
+
+- 2026-10-31 — **UA01-LOG-B13 CP0 blocked**：盘清 run_failed 生产者/Provider/工具失败/trace 键位；现无外部场景到最终 run_failed，AU04 provider 失败场景复跑超时（missing 多事件，自身疑漂移）；需受控失败触发与同 run/turn 三源关联补验；未改代码/日志。当前任务切 SU04-LIFECYCLE。

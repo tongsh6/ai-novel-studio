@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| UA01-LOG-B13 | 只读核对 run_failed 与三源日志的关联键及失败链，依实际缺口补验；vendor live 单独核凭据/资源 | [原任务小节](slices/UA01-provider-execution-stream-unification.md#10-b13-运行失败日志关联) |
+| SU04-LIFECYCLE | 核对 sidecar 启动/迁移失败、就绪与退出状态，冻结故障恢复/无孤儿矩阵 | [原任务小节](slices/SU04-desktop-sidecar-packaging.md#现役故障与生命周期契约核对) |
 
 ## 后续候选
 
@@ -15,7 +15,6 @@
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B48 | 无变化普通说明、真正歧义才追问；依赖 B43 裁决同源，完成四场景验收 | [原任务](slices/B48-character-revision-noop-and-ambiguity.md) |
 | VS-00G | 核对 CP5e A2/A3 历史证据与当前版本，明确 scoped 补验；触发 C/记忆富化与 B39 协同 | [原任务](slices/VS-00G-fact-inventory-run.md) |
-| SU04-LIFECYCLE | 核对 sidecar 启动/迁移失败、就绪与退出状态，冻结故障恢复/无孤儿矩阵 | [原任务小节](slices/SU04-desktop-sidecar-packaging.md#现役故障与生命周期契约核对) |
 | AU12-WRITEBACK | CP0 准备立项字段/显式提案/版本与采纳落位契约；后续档案和模型消费同源 | [原任务小节](slices/AU12-correction-intent-roundtrip.md#p2-立项修订的采纳落位与同源消费) |
 | AU09-DIRECTION | 准备长期方向的类型、并存/替换、有效范围与废弃方案，具体接受前不写记忆 | [原任务小节](slices/AU09-work-direction-memory-recall.md#6-当前契约与裁决材料准备) |
 | B66-PREP | CP0 准备本地快照/恢复范围、一致性、敏感文件和覆盖/回滚选项；不操作作者数据 | [原任务小节](slices/B66-local-workspace-backup-restore.md#cp0-最小本地快照恢复契约准备) |
@@ -32,6 +31,7 @@
 - **B71 CP1**：CP0 完成；CP1 目标 Request IR/原生多轮需修订或 supersede ADR-0030/0031 与 UA-01/VS-00I，涉及 ADR 裁决，AI 不自行改协议。选项 A（推荐，正式修订/supersede 目标）/B（现役 additive 实验，不改 ADR）/C（延期）；未裁决前不改代码/契约，见 [B71](slices/B71-provider-message-fidelity.md#cp1-阻塞记录2026-10-31)。
 - **Q1C-NATIVE**：Q1c 场景注册为 browser surface，无 Tauri 原生 driver 入口；不能把 browser summary 当原生证据，未伪造/未重写修订链。解除条件=接原生 Q1c 外部 driver 并留当前 HEAD 原生事实，见 [Q1C](slices/Q1C-adopted-content-revision.md#原生补验-cp0阻塞记录2026-10-31)。
 - **P1-AUDIT-BC 页面**：CP0/CP1 实现/artifact writer 完成；真实 Tauri 场景两次在同一 stale projection banner 断言失败（服务端 STALE 未被 ReadingMode 消费，属 AU08 已登记缺口），按预算停止；未放宽断言。解除依赖=AU08 投影新鲜度消费修复/口项确认后重锚，见 [P1](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外)。
+- **UA01-LOG-B13**：CP0 只读 done；现无外部场景把 run 驱动到最终 run_failed，AU04 provider 失败场景复跑超时（自身漂移）；需受控失败触发+同 run/turn 三源关联补验，未改代码/日志，见 [UA01](slices/UA01-provider-execution-stream-unification.md#b13-cp0-只读核对2026-10-31)。
 - **B01 后续**：CP0 done；origin_frame_ref 为合成串，CP1 需 A（新增 nullable origin_turn_ref + origin_frame_ref 可空，推荐）/B（origin_ref_kind + turn:<id>）/C（保持 known-gap）之一；涉及 SQLite 表重建/历史兼容，待作者授权 migration，未改 schema/DB。见 [B01 小节](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界)。
 - **B43 后续**：CP0/CP1 done；CP2 Form R 出口/Replay 同源已落地；**MissingPolicy 在 Gate 之后才评估**，统一门序涉及 ADR-0005 gate 集合与验收判据，需作者/ADR owner 在 A（新增 missing_policy gate，推荐）/B（decide 前 preflight）/C（仅标注）/D（只覆盖 prose flow）间裁决；CP3/CP4 未开工，见 [B43](slices/B43-gate-order-residual.md)。
 - **B67 后续**：CP0/CP1 done；CP2 revision CAS/重编号/旧任务晚到已落地，但维护 StateTrace 依赖 [VS00F-TRACE](slices/VS-00F-five-ledgers-three-state.md#维护-statetrace-后续-checkpoint) owner 先冻结生产/存储/回放契约；CP3 页面矩阵未开工，见 [B67](slices/B67-revision-aware-ledger-maintenance.md)。

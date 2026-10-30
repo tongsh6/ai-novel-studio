@@ -201,8 +201,23 @@
 
 ## 10. B13 运行失败日志关联
 
-- 状态：**todo（2026-10-30 明确承接既有 B13；只读审计未开工，未重开已完成的 ProviderExecution 主链）**。
+- 状态：**blocked（2026-10-31 CP0 只读核对 done：run_failed/三源键位与缺失证据已盘；现无外部场景能把 run 驱动到最终 run_failed，CP1 补验缺触发入口）**。
 - 来源：[全量对账 B13](../2026-10-27-design-to-execution-reconciliation.md#42-契约adr-与-schema) 已要求核对 `agent_run.run_failed` 的 base turn/work/session 与三源日志串联；此小节是该余项唯一执行状态入口，不新增观测平台。
 - 下一步：只读核对当前失败事件生产者、app/Provider/trace 三源关联字段、失败/取消/恢复的实际记录，区分历史缺口与现状；输出缺失键、消费者与最小修复/补验矩阵。已有日志不够时记录具体缺证，不伪造运行结果，不默认启动 vendor live。
 - 后续闭环：按实际缺口在既有日志/事件契约补齐真实来源，验证正常失败、provider 错误、取消/恢复与跨作品隔离，并从真实工作台失败反馈追到同次调用/trace；日志不能泄漏正文秘密或凭据，回放不重新调用模型。纯静态核对只能关闭审计 checkpoint，不能代替补验。
 - 依赖与边界：与 B43 的统一裁决/trace 来源对齐，保留已有 ProviderExecution 接口和历史读取；vendor live 仍按 T35 的凭据/资源条件另行核实，原历史“缺凭据”不当作当前检查结果。developer 身份展示仍需真实消费者；本次不改生产代码或日志数据。
+
+### B13 CP0 只读核对（2026-10-31）
+
+**生产者/键位**
+- 最终失败：`AgentRunServer.settle_run_failed/3` 发 `agent_run.run_failed.error`（LogEmit payload 只有 run_id/reason_code/outcome_detail）→ 安全兜底 TurnResult（`trace_summary.decision_type=:run_failed`、agent_run.status=failed）→ `emit(:run_failed)` → `persist_run_state`。
+- Provider 失败：`ProviderGateway.emit_provider_execution_result` 发 `provider_gateway.complete.error`（provider/model/duration/reason_code/outcome_detail）；turn_id/work/session 由 `LogEmit` 从 Logger metadata（TurnBinding）补，payload 本身不含。
+- 工具失败：`toolbox.execute.error`（turn 绑定由 TurnBinding 保证）；AU04 fixture 已有真实 provider/工具失败证据。
+- trace：失败兜底 TurnResult 自身带 `trace_summary.decision_type=run_failed`，但没有为最终 run_failed 落独立 DecisionTrace 行；失败 run 的 replay 能力待核。
+
+**缺口/证据**
+- 现有 registry 无“最终 run_failed”失败场景；AU04 fixture 只到工具失败后恢复，且本次复跑 `au04-confirmation-tool-failure-recovery` 在 native 校验阶段超时（missing `orchestrator.decide.done/channel.author_action.*`/`provider_gateway.complete.error`/`toolbox.execute.error`/ui_state），不能当 B13 证据——该场景自身疑有漂移，登记残余。
+- 因此无法用当前外部入口证明 app/Provider/trace 三源在同一次失败调用上可 join；不能伪造运行。
+- 需补：受控失败触发（让 run 最终 failed，而非工具失败后恢复）＋外部页面驱动＋同 turn/run/step 三源关联断言；若需 UI 恢复动作/author 可见失败反馈，一并纳入。
+
+**边界**：本次只读、未改生产代码/日志数据、未启动 vendor live；不新增观测平台。
