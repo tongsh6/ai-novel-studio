@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| UA01-PROMPT-T3T5 | 按当前单调用及 ADR-0031 核对修订尾部、finding 保真与计划面板 N-NARR；按现役消费者接续 | [原任务小节](slices/UA01-agentic-loop-prompt-hardening.md#t3-t5-当前语义审计与承接) |
+| UA01-PROMPT-T3T5 | CP0 done：T3 无 revised_tail 但前缀无机械校验；T4 finding 结构化观察未渲染；T5 计划描述无 provenance。CP1 先做 T4，T5 需 schema/迁移裁决 | [原任务小节](slices/UA01-agentic-loop-prompt-hardening.md#t3-t5-当前语义审计与承接) |
 
 ## 后续候选
 

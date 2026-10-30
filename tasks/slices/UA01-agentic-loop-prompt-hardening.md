@@ -123,8 +123,23 @@ xref/arch、I1/I2/I3/N-NARR/I-CACHE、静态扫描；Acceptance Driver=既有外
 
 ## T3-T5 当前语义审计与承接
 
-- 状态：**todo（2026-10-30 承接原 T3/T4/T5 的现役核对与未闭环后果；本次只登记入口，未改 prompt、协议或代码）**。
+- 状态：**doing（2026-10-31 CP0 现役核对 done：T3 旧 revised_tail 已被完整单调用修订取代但确定性前缀/校验未证；T4 finding 结构化观察未渲染；T5 计划描述溯源未闭合）**。
 - 来源：本文件 §3 T3/T4/T5 与 [全量对账 E05](../2026-10-27-design-to-execution-reconciliation.md#45-其余任务)。旧任务表含七月协议假设，须先按当前 B26/B27 单调用主链及 [ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md) 复核；ADR-0022 保留历史血缘，不恢复其已被替代的协议形态。
 - 下一步：沿现役计划起草/修订 producer、完成前缀/cursor、finding 观察渲染、计划面板来源绑定与 N-NARR 证据逐项核对，记录已实现、需补接线和需修订的旧表述；现有工具/字段能满足的直接复用，不先冻结 `revised_tail` 等旧建议字段，也不恢复两段式调用。
 - 完整后果：T3 保持真实已完成步骤与执行历史，修订不重放已完成副作用或错位 cursor；T4 保留 finding 的 gate/severity/summary、来源与覆盖信息，裁剪不得伪造完整观察；T5 将作者可见 PlanStep.description 的来源与字节证明闭合到真实计划面板。契约、实现、局部负例与外部真实页面分别取证，不能用一次 prompt 快照关闭整个范围。
 - 依赖与边界：与 B43 的逐步裁决/执行、B45 的必要 schema、B39 的观察消费协同，职责仍由原任务负责，不另建规划器或 prompt 体系。T6 已完成的前缀治理、T7 身份注入不重做；live vendor/cache、developer 身份展示等原条件项不混入本次 T3–T5。若需实模验证，先提交具体样本/预算与资源安排，不因排入候选自动运行。
+
+### T3-T5 CP0 现役核对（2026-10-31）
+
+| 项 | 现役实现事实 | 结论/缺口 |
+|---|---|---|
+| T3 修订协议 | 现行单调用 `agent_plan_revision`，prompt 要求「输出完整修订后计划；已完成前缀保留，未完成追加/替换」；`revision_meta` 由 app 生成 plan_revision；无 `revised_tail`/废弃列表字段（旧七月建议已被 B26/B27 单调用取代）。 | 旧 revised_tail 不再适用；但「保留已完成前缀」目前靠 prompt + runtime cursor，**无确定性合并/前缀 hash 校验**；需补 focused 测试/必要时机械校验，不能只信模型。 |
+| T4 finding 观察保真 | `observation_lines/1` 只渲染 `observation_id / observation_type: summary`，`take(-8)` 截断；finding gate/severity/summary/来源/覆盖在 structured_payload，不进修订 prompt。 | **真实缺口**：修订观察保真不足；需按 AssemblyPolicy 字符预算紧凑渲染 structured finding 字段，不能裁剪成伪造完整观察。 |
+| T5 PlanStep.description 溯源 | 计划起草/修订有 `author_narrative_source`（author_reasoning 的 content/tool_arguments 源绑定）；`PlanStep.description` 未做 per-description hash，ProviderRunLog 不存 arguments 原文；N-NARR driver 只验 reasoning 前缀。 | **真实缺口**：作者可见计划面板描述无字节级 provenance；需 provenance 小扩展/持久化（schema 变更需授权），不能把 description 重新归类为结构。 |
+| 依赖/去重 | B43 裁决、B45 schema、B39 观察消费；T6 前缀/T7 身份已完成不重做。 | 边界确认。 |
+
+**CP1 计划**：
+1. T4 先做最小机械渲染（structured_payload 的 finding 字段 + 预算/截断标记），focused prompt 测试 + D2 场景复跑；
+2. T3 补确定性前缀/cursor 测试；若证明需要机械合并再冻结契约，不恢复 revised_tail 字段；
+3. T5 需要 provenance 字段/存储扩展，涉及 schema/迁移，先向作者给出 A（加 description hash provenance）/B（仅运行时 arguments 哈希落 trace，不改表）/C（登记 known-gap）选项后再实施。
+- 不调用真实模型；不恢复两段式调用；不改 ADR-0022 分类。
