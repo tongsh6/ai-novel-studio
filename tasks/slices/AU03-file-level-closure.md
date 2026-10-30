@@ -277,8 +277,29 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 
 ## 历史搜索命中定位与只读回看
 
-- 状态：**todo（2026-10-30 承接 SC-AU03-C3/P2；已有会话搜索与只读打开不重做）**。
+- 状态：**doing（2026-10-31 CP0 核对 done：现有搜索只返回 session 列表，无 turn 命中/定位；已冻结最小 hit 契约与分页定位设计，CP1 待实施）**。
 - 设计依据：本文件 §3、[Journey B4](../../docs/product/user-journeys.md#3-journey-b作品空间会话与上下文分层) 要求搜索命中后定位对应 turn。只读核对 `frontend/src/components/WorkspaceChat.tsx` 的 searchSessions 消费只更新 sessions 列表；尚未证明命中 turn 的定位与高亮闭环。
 - 下一步：核定搜索结果的会话/turn 身份、匹配范围、分页定位与退出搜索的状态；查实际 API/DTO/视图能复用什么，再补最小定位契约与 UI 设计追溯，不能凭 title 或文本截断猜 turn。
 - 完整后果：从真实历史搜索进入指定匹配消息并可见命中；较旧分页命中、多个结果、归档会话、空结果与跨作品隔离均可验证。浏览历史保持只读，不恢复旧 pending/action/loading、不调用模型、不修改 transcript；“从这里继续”仍走既有分支操作。
 - Boundary/Consumer/Proof：现有 session search → web/application/persistence 查询 → WorkspaceChat 历史视图；以 scope/稳定消息身份局部测试和外部真实 Tauri 搜索/定位/返回证据证明；不新建全文搜索平台，不把检索结果自动塞进模型上下文。
+
+### 搜索命中定位 CP0（2026-10-31）
+
+**现状**
+- `WorkSessionRepo.search/2`：work 内按 session title/summary 或 transcript 文本匹配，返回 **session 列表**；`WorkSessionService.search/2`→`/api/works/:id/sessions?query=`→前端 `searchSessions` 只 `setSessions(result)`。
+- 没有任何 turn 级命中身份、匹配片段或定位参数；`transcript_page` 只支持 `beforeId`（向前翻页），无 around_turn/cursor 定位。
+- 历史只读打开已有（`show/2` read_only + WorkspaceChat 历史视图），不恢复 pending/action/loading。
+
+**缺口**
+1. 搜索无法返回命中的 session/turn/role/snippet，无法“进入指定匹配消息并可见命中”；
+2. 无 `around_turn_id`/定位分页契约，旧分页命中无法稳定展开到目标 turn；
+3. 未证明空结果、多结果、归档会话、跨作品隔离在 hit 层的表现。
+
+**CP1 最小契约（拟）**
+- backend `WorkSessionRepo.search_hits(work_id, query, opts)`：只读查询 interactions（role user/assistant），work+session 隔离，`needle downcase` 子串匹配（与现有口径一致，不引入全文平台）；返回 `[%{session_id, turn_id, role, snippet, inserted_at}]`，限制数量（如 50），空 query 返回 []；
+- service/controller：`GET /api/works/:id/sessions/search_hits?query=`（或 sessions 响应 additive `hits`），DTO 带 work/session/turn identity；
+- transcript page 支持 `around_turn_id`（或命中 turn 的稳定 cursor）：返回包含目标 turn 的页与前后窗口，保持既有只读/分页语义；
+- frontend：搜索结果展示 hit 列表（session/title/snippet），点击打开只读历史并定位/高亮目标 turn；退出搜索回原状态；无结果/多个结果/归档/跨作品用例；
+- 历史视图只读，不恢复旧 pending/action/loading、不调模型、不改 transcript；“从这里继续”仍走既有 branch 动作。
+
+**不新建全文搜索平台**；命中只用于定位，不自动塞入模型上下文。CP1 先做只读 hit + 分页定位局部测试，再补真实 Tauri 页面证据。
