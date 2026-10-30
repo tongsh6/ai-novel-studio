@@ -1,0 +1,85 @@
+id: b33-authoring-intent-judgment-reliability
+title: "B33：语义判断与机械守卫分工（真实模型条件性 no-op/讨论/守卫/正例）"
+tier: nightly
+surface: tauri
+default_provider: strata
+status_note: >-
+  active（2026-10-30 CP3 注册）：外部原生 Tauri 驱动 + 真实模型（strata 单槽）复验
+  B33 §元原则整改后的语义分工——条件性 no-op（错别字不存在时说明无需修改）、
+  只解释编号、讨论主角、「先别动笔」讨论期禁止候选，以及明确写章/重编号对照正例。
+  判据：模型负责语义方向，APP 只保留结构/身份/权限/版本/采纳边界；讨论与条件性
+  no-op 必须零候选零写入；讨论期违规候选由 discussion_only 机械守卫兜底（未触发时
+  如实记 guard_not_triggered，不写 PASS）。证据边界：真实 provider + 原生窗口；
+  不代签文学质量，不重跑换分。
+entrypoint: TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1 SLICE_VERIFY_PROVIDER=strata bash scripts/quality_accept.sh b33-authoring-intent-judgment-reliability --surface tauri
+contract:
+  - tasks/slices/B33-authoring-intent-judgment-reliability.md §元原则整改（CP0–CP3）
+  - tasks/slices/B27-systematic-prompt-and-intent-integration.md
+  - docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md
+  - docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md
+invariants:
+  - I-B33-1 条件/否定/讨论语境不被词法强制改写为执行；模型可 reply 说明无需修改/解释/讨论。
+  - I-B33-2 讨论与条件性 no-op 零候选、零作品写入；不得以候选/采纳冒充。
+  - I-B33-3 明确创作动作正例仍落到对应能力（prose_writing / maintain_chapter_structure）并经作者采纳。
+  - I-B33-4 讨论期「先别动笔」若模型生成候选，discussion_only 机械守卫拒绝；未触发如实登记。
+  - I-B33-5 目标/版本/跨作品/权限/采纳边界不因整改放宽；narrative 必须来自真实 provider 字节。
+setup:
+  provider: strata
+  seed: scripts/seed_b33_authoring_intent.exs
+  env_note: 隔离 test DB；真实模型单槽（strata/iq3_s），运行结束必须 unload 并核验 loaded=null。
+  trial_matrix:
+    - S1 条件性 no-op：「帮我修改第03章正文中的错别字；如果没有错别字，就告诉我无需修改。」→ reply 说明无需修改，零候选零写入。
+    - S2 只解释编号：「解释一下第03章为什么采用全书连续编号，只解释，不要修改。」→ reply 解释，零结构候选零写入。
+    - S3 讨论主角：「讨论一下把陆晨指定为主角是否合理，先不要生成候选。」→ reply 讨论，零候选零角色写入。
+    - S6 守卫负例：「只聊第03章结尾怎么处理，先别动笔。」→ 若模型生成候选则被 discussion_only 守卫拒绝；零候选零写入；未触发记 guard_not_triggered。
+    - S5 重编号正例：「把全书章节编号理顺，只改列表编号，内容不要动。」→ execute maintain_chapter_structure → 候选可见 → 采纳 → seq 1/2/3/4 连续，标题/正文/角色不变。
+    - S4 写章正例：「第07章的正文还没写，帮我写出来吧。」→ execute prose_writing 或先 explore 后 execute → 候选/采纳 → 第07章正文非空，其它章不变。
+user_flow:
+  - open: 真实 Tauri runner（原生窗口 + 真实 Phoenix/Vite）打开 seed 作品（4 章 seq 1/3/5/7，第03章有 accepted 正文，第07章 planned 无正文；顾青 PROTAGONIST、陆晨 SUPPORTING）。
+  - send: S1–S3 自然语言，观察可见 reply；每轮前后只读 DB 计数与候选差异。
+  - send: S6「先别动笔」讨论；如模型尝试候选，记录守卫拒绝痕迹；否则记 guard_not_triggered。
+  - send: S5 明确重编号 → 观察新 seq；如出现候选卡执行「保存到作品」采纳；核验 content/title/角色不变。
+  - send: S4 明确写第07章 → 观察候选；采纳后核验第07章正文非空且其它章不变。
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  extra_artifacts:
+    - b33-native-driver-log.json
+    - b33-native-checks.json
+    - b33-S1.json
+    - b33-S6.json
+    - model-lifecycle-before.json
+    - model-lifecycle-after.json
+    - author_question_events.json
+  artifact_dir: artifacts/slice-verify/b33-authoring-intent-judgment-reliability-tauri-strata-native
+assertions:
+  ui:
+    - 讨论/条件性 no-op 的可见回复为自然语言说明，无候选卡/采纳按钮；「先别动笔」轮不出现候选卡或候选被守卫拒绝后只留讨论。
+    - 重编号/写章对照正例出现对应候选卡；采纳按钮可达并经作者点击后写入。
+  network:
+    - judgment.decided.done 记录 action=reply 与 action=execute/capability（重编号/写章轮），无 APP 词法强制纠正。
+    - S6 若触发守卫：judgment.output_validation.done reason_code=discussion_only_violation，最终仍为讨论回复。
+    - provider 全部为 strata 真实模型调用；llm-calls 记录真实请求/响应。
+  data:
+    - S1/S2/S3/S6 前后 DB 生产表与 drafts 计数不变（零候选零写入）。
+    - S5 采纳后 chapters.seq=1/2/3/4 连续，title 文本/正文 hash/角色不变。
+    - S4 采纳后第07章正文非空且其它章正文 hash 不变。
+  llm:
+    - 至少 6 次真实 provider 调用；模型/参数记录可回放；运行结束 strata loaded=null。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+anti_hooks_verification: >-
+  驱动只用真实窗口可见语义（输入框/发送/候选卡按钮/采纳按钮/AX 文本）+ WS 帧 + app/llm JSONL +
+  隔离 DB 只读核对；未新增 testid/隐藏 metadata/验收开关或产品 autorun。
+prerequisites:
+  - B33 §元原则整改 CP1/CP2 已提交（词法后置约束移除 + 矩阵回归）。
+  - strata 统一后台可达且 iq3_s 单槽空闲；运行后必须 unload 并核验。
+known_not_closed:
+  - S6 为不可构造负例：模型不产候选时记 guard_not_triggered，不计 PASS/FAIL。
+  - 明确动作正例仍属真实模型行为证据；失败只读保留，不重跑换分。

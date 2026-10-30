@@ -95,7 +95,7 @@
 
 ## 元原则整改：语义判断与机械守卫分工
 
-- 状态：**doing（2026-10-30 CP0–CP2 done：现役链路核实/契约冻结、词法后置约束移除与矩阵回归完成；CP3 待外部原生驱动 + 真实模型执行窗口）**。本节为 B29/B30/B33 后置词法路由机制族的唯一执行入口。
+- 状态：**done（2026-10-30 CP0–CP3：词法后置路由移除 + 矩阵回归 + 外部原生 Tauri 真实模型 6 场景验收；语义整改完成，模型行为残余如实登记）**。本节为 B29/B30/B33 后置词法路由机制族的唯一执行入口。
 - 本节承接新的现役机制问题，不重开或改写 2026-10-25 的历史交付。上方 v1“明确动作终局只许 execute/ask/gap”与“一次 explore 后必须 execute”的旧判据不能直接作为本轮目标；当前恢复顺序以本节、[B39](B39-evidence-seeking-authoring.md)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md) 和 [ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md) 为准。请求必须真实推进、权限与作者采纳边界继续保留。
 
 ### 问题与整改方向
@@ -197,7 +197,7 @@
 | CP0 | 核三个谓词/guard 的当前调用方、讨论与观察豁免、纠正提示和应用 fallback；形成语义责任→实际输入/观察→结果→机械检查映射，冻结正反例、合法终局及现役契约差异；没有新增 schema/调用则明确复用 | **done（2026-10-30）**：`cp0-map.json`；probe 源码 sha256 复核一致；契约 6 条与 CP3 预注册见上 |
 | CP1 | 在同一判断主链修正词法后置约束与纠错提示；模型负责语义，APP保留真实结构/身份/权限/版本守卫；清除不再成立的能力强迫和伪缺口澄清，不新增关键词补丁集或静默默认 | **done（2026-10-30）**：三谓词/三后置 guard/APP fallback/wrong_route 事件移除；保留客观守卫；见上 CP1 记录 |
 | CP2 | 贯穿已有探索、条件无变化/讨论/实际执行、真实失败与有界恢复；B43 决策/trace/TurnResult 同源，问题状态与采纳边界不回归；三条原反例及扩展矩阵正式测试、历史读取与 no-provider replay 通过 | **done（2026-10-30）**：矩阵/有界恢复/同源断言/replay 20/20；见上 CP2 记录 |
-| CP3 | 外部真实 Tauri + 真实模型完成三类自然输入、对照执行及必要采纳/恢复/回放；分别核模型理解、实际观察、执行效果与零越权，保留失败分母；完整范围满足后关闭本节 | **todo（下一步）**：复用 `scripts/lib/native_ui` + 既有 native 驱动模式落地 6 场景外部驱动；真实模型单槽运行、结束卸载并核验为空；证据目录 `artifacts/slice-verify/<scenario>-tauri/`。驱动准备已完成只读核实（见下“CP3 驱动准备”）。 |
+| CP3 | 外部真实 Tauri + 真实模型完成三类自然输入、对照执行及必要采纳/恢复/回放；分别核模型理解、实际观察、执行效果与零越权，保留失败分母；完整范围满足后关闭本节 | **done（2026-10-30，混合结论）**：6 场景外部原生驱动 + 真实模型（strata/iq3_s 单槽，结束 unload 核验）完成；S2/S5 干净通过，S1/S4 需 1 次作者补充（no_progress 暂停），S6 guard 未触发，S3 跨批次不稳定，S5 暴露并修复 B69 重编号缺陷；失败批次只读保留，模型行为残余登记见“CP3 记录”。 |
 
 ### CP3 驱动准备（2026-10-30 只读核实，未执行）
 
@@ -205,6 +205,15 @@
 - 结论：新建 `scripts/native_b33_drive.mjs` + `scripts/native_b33_evidence.mjs`（结构镜像 B62/B40 family；底层直接复用 `lib/native_ui/scenario_driver.mjs`、`scenario_evidence.mjs`、`native_b30_evidence.mjs#unloadStrataModel`；b40 evidence 的 provider 硬断言为 slice_verify，不可整文件复用）；新增 seed exs、场景 yml，并在 `tauri_slice_verify.sh` 的 3 条 allowlist（:406/:440/:461）+ verify/seed 分流注册新 slice id；一次 app 启动串行跑 6 场景，顺序 S1→S2→S3→S6→S5→S4，每场景前后 DB 生产表计数差分。
 - 决议（Lead 采纳推荐）：① author_question 自动应答代码复制进 b33 驱动，不改共享 harness；② 先加确定性接线冒烟（明确不构成 CP3 PASS 证据）；③ S6 若模型零候选导致 `guard_not_triggered`，单列为本节未闭环缺口，如实写 verdict，不伪造 PASS。
 - 硬前置：Strata 统一后台可达（runner 已硬校验，不可达 exit 65）且真实模型单槽空闲；Tauri 辅助功能/已构建 app；端口空闲。无模型窗口时 CP3 记 blocked，不伪造。
+
+### CP3 记录（2026-10-30，外部原生 Tauri + 真实模型）
+
+- 驱动/证据：`scripts/native_b33_drive.mjs` + `scripts/native_b33_evidence.mjs`（镜像 B62/B40 结构；复用 `lib/native_ui/scenario_driver.mjs`，strata 单槽生命周期记录/卸载核验；作者问答/暂停面板自动应答 ≤2 次）；场景注册 `b33-authoring-intent-judgment-reliability`（`tauri_slice_verify.sh` 三条 allowlist + seed + verify 分流）、seed `scripts/seed_b33_authoring_intent.exs`、manifest `quality/acceptance/scenarios/b33-authoring-intent-judgment-reliability.yml`（registry 208 scenarios）。
+- 环境：真实 Tauri 原生窗口 + 真实 Phoenix/Vite + Strata `iq3_s`（单槽；`model-lifecycle-before/after` 记录，结束 `loaded=null`，`lms ps` 仅作者预存 embedding IDLE 未被本工作加载）。
+- **批次 A（修复前，`artifacts/slice-verify/b33-authoring-intent-judgment-reliability-tauri-strata-native-b33cp3full1/`）**：74 checks 中 73 pass；S1/S2/S3/S6 clean（S1 需作者补充 1 次；S6 `guard_not_triggered`，零候选）；S4 judgment execute prose_writing、候选采纳、第07章正文非空（需作者补充 1 次）；**S5 暴露产品缺陷**：from==to 章残留临时 seq=1000001 → 立 B69 修复。
+- **批次 B（B69 修复后回归，`...-b33cp3full2/`）**：S5 seq=[1,2,3,4]、标题/正文 hash/角色不变检查通过（B69 修复真实模型回归）；S2/S6/S1 同前（S1 作者补充 1 次）；**模型行为残余**：S3 本次「讨论」却 execute revise_character_profile（与其 narrative 自述矛盾，生成角色候选未采纳，零写入）；S4 本次 explore→execute prose_writing 但 writer/候选未产出，turn 以 capability_gap 收束（未采纳、未写正文）；同场景批次 A 中 S3/S4 分别通过（S4 经补充后采纳成功），说明模型判断/执行存在跨批次不稳定，非机制回归。
+- 驱动接线失败批次 `b33smoke1`–`b33smoke4` 保留只读：分别暴露「只等 turn_result 未识别 awaiting_author」「嵌套等待账」「暂停面板选择器」等 harness 缺陷，均已修复并复跑；不作为产品失败或通过证据。
+- 结论边界：本 CP 证明「词法后置约束移除后，真实模型在真实原生页面可给出条件性 no-op/解释/讨论/重编号/写章结果，且 APP 客观检查（零写入/采纳边界/来源/provider 身份/卸载）成立」；**不把模型语义表现写成 CP3 全绿**。残余登记：①S3 讨论期误 execute（生成角色候选未采纳）跨批次不稳定 → 归 B27/UA01 模型行为 known-gap 持续观察；②S1/S4 出现重复 explore 触发 no_progress 暂停、需作者补充一次 → 归 B27/UA01/B39 收敛性 known-gap；③S4 writer 无候选/格式失败需按 B42 evidence 分层继续采集（失败批次只读保留）；④S6 guard 未触发（负例不可构造），保留确定性测试覆盖，不写 PASS。I10 文学盲评不在此代签。
 
 ### 分工与恢复
 

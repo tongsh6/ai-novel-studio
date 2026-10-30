@@ -2058,21 +2058,9 @@ defmodule NovelPersistence.AdoptionRepository do
 
     mapping_result =
       Repo.transaction(fn ->
-        targets
-        |> Enum.with_index(1)
-        |> Enum.each(fn {target, index} ->
-          temp_seq = temp_offset + index
-
-          target.chapter
-          |> Ecto.Changeset.change(%{seq: temp_seq})
-          |> Repo.update!()
-        end)
-
-        Enum.each(targets, fn target ->
-          target.chapter
-          |> Ecto.Changeset.change(%{seq: target.new_seq})
-          |> Repo.update!()
-        end)
+        apply_renumber_temp!(targets, temp_offset)
+        apply_renumber_final!(targets)
+        verify_renumber_applied!(targets)
 
         %{mapping: targets, work_id: work_uuid, at: ts}
       end)
@@ -2088,6 +2076,40 @@ defmodule NovelPersistence.AdoptionRepository do
     _error in Ecto.ConstraintError -> {:error, :duplicate_seq}
     _error in Ecto.StaleEntryError -> {:error, :partial_failure}
     _ -> {:error, :partial_failure}
+  end
+
+  # B69：两阶段重编号必须写「数据库当前事实」。from_seq == to_seq 时对 phase1 之前
+  # 的 struct 做 change(%{seq: 同值}) 是空 changeset，Repo.update! 不产生 UPDATE，
+  # 会把 phase1 的临时 seq（1_000_000+）留在持久事实里。
+  defp apply_renumber_temp!(targets, temp_offset) do
+    targets
+    |> Enum.with_index(1)
+    |> Enum.each(fn {target, index} ->
+      update_chapter_seq!(target.chapter.id, temp_offset + index)
+    end)
+  end
+
+  defp apply_renumber_final!(targets) do
+    Enum.each(targets, fn target ->
+      update_chapter_seq!(target.chapter.id, target.new_seq)
+    end)
+  end
+
+  # 事务内复核：持久 seq 必须等于 committed mapping；任何偏差整体回滚，不静默成功。
+  defp verify_renumber_applied!(targets) do
+    Enum.each(targets, fn target ->
+      actual = Repo.get!(Chapter, target.chapter.id).seq
+      if actual != target.new_seq, do: raise("renumber_seq_not_applied")
+    end)
+  end
+
+  defp update_chapter_seq!(chapter_id, seq) do
+    {updated, _} =
+      Chapter
+      |> where([c], c.id == ^chapter_id)
+      |> Repo.update_all(set: [seq: seq])
+
+    if updated != 1, do: raise("renumber_update_count_mismatch")
   end
 
   defp renumber_conflict_reason(%Ecto.Changeset{} = changeset) do

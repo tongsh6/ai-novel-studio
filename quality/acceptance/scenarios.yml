@@ -1474,6 +1474,14 @@ scenarios:
     manifest: quality/acceptance/scenarios/b29-existing-character-role-revision.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: bash scripts/quality_accept.sh b29-existing-character-role-revision --surface tauri
+  - id: b33-authoring-intent-judgment-reliability
+    title: "B33 语义判断与机械守卫分工（真实模型条件性 no-op/讨论/守卫/正例）"
+    tier: nightly
+    surface: tauri
+    default_provider: strata
+    manifest: quality/acceptance/scenarios/b33-authoring-intent-judgment-reliability.yml
+    driver: scripts/native_b33_evidence.mjs
+    entrypoint: TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1 SLICE_VERIFY_PROVIDER=strata bash scripts/quality_accept.sh b33-authoring-intent-judgment-reliability --surface tauri
   # 原生 UI 由本机外部系统 CUA 驱动（非仓库内 Chromium driver）；仓库内落地的是
   # 原生证据检查器与外部传输代理，产品代码不含验收感知逻辑。
   - id: b26-business-output-roundtrip

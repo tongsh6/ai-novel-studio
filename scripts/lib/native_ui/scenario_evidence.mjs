@@ -303,7 +303,13 @@ export function assertWaitLedger(
 
 export function assertCommonEvidence(
   dir,
-  { sliceId, minScreenshots = 3, minimumWaits = 8, requiredKinds } = {},
+  {
+    sliceId,
+    minScreenshots = 3,
+    minimumWaits = 8,
+    requiredKinds,
+    allowVerificationFailureMarker = false,
+  } = {},
 ) {
   assert(fs.existsSync(path.join(dir, "native-driver-ready.json")), "缺少 native-driver-ready.json");
   assert(fs.existsSync(path.join(dir, "native-ui-complete.json")), "缺少 native-ui-complete.json");
@@ -316,7 +322,15 @@ export function assertCommonEvidence(
   assert.equal(ui.app_bundle, APP_BUNDLE);
   assert.equal(ui.scope, sliceId, "native-ui-complete.scope 与场景不一致");
   assert(!fs.existsSync(path.join(dir, "ui-frames.json")), "原生批次不得存在浏览器 ui-frames 证据");
-  assert(!fs.existsSync(path.join(dir, "failure.json")), "批次存在 failure.json，不得判 PASS");
+  const failurePath = path.join(dir, "failure.json");
+  if (fs.existsSync(failurePath)) {
+    const failure = JSON.parse(fs.readFileSync(failurePath, "utf8"));
+    const runnerMarker = failure?.reason === "native_evidence_verification_failed";
+    assert(
+      allowVerificationFailureMarker && runnerMarker,
+      "批次存在 failure.json，不得判 PASS",
+    );
+  }
   assert(Array.isArray(ui.screenshots), "native-ui-complete.screenshots 缺失");
   assert(
     ui.screenshots.length >= minScreenshots,
@@ -343,7 +357,12 @@ export function assertCommonEvidence(
 
 export function assertProviderAndWire(
   dir,
-  { minUserMessages = 1, minTurnResults = 1, minProviderStarts = 1 } = {},
+  {
+    minUserMessages = 1,
+    minTurnResults = 1,
+    minProviderStarts = 1,
+    expectProviders = ["slice_verify"],
+  } = {},
 ) {
   const appRecords = logs(path.join(dir, "app-log"));
   const llmRecords = logs(path.join(dir, "llm-calls"));
@@ -354,12 +373,16 @@ export function assertProviderAndWire(
     providerStarts.length >= minProviderStarts,
     `provider_gateway.complete.start 不足: ${providerStarts.length}`,
   );
-  const providers = [...new Set(providerStarts.map((record) => record.provider))];
-  assert(same(providers, ["slice_verify"]), `确定性批次 provider 必须是 slice_verify，实测: ${providers.join(",")}`);
+  const providers = [...new Set(providerStarts.map((record) => record.provider))].sort();
+  const expected = [...expectProviders].sort();
+  assert(
+    same(providers, expected),
+    `批次 provider 必须是 ${expected.join(",")}，实测: ${providers.join(",")}`,
+  );
   assert(llmRecords.length > 0, "缺少 llm-calls 调用记录");
   assert(
-    llmRecords.every((record) => record.provider === "slice_verify"),
-    "llm-calls 必须全部来自 slice_verify",
+    llmRecords.every((record) => expected.includes(record.provider)),
+    `llm-calls 必须全部来自 ${expected.join(",")}；实测: ${[...new Set(llmRecords.map((r) => r.provider))].join(",")}`,
   );
   const wire = transport(dir);
   const userMessages = wire.filter(
@@ -388,14 +411,26 @@ export function behaviorAssertions(checks) {
 
 // 原生 summary 同时携带 behavior.assertions（E2E 聚合器读这里）与顶层 assertions
 // （B26 原生 summary 的既有读法），两者是同一次核验的事实视图。
-export function writeNativeSummary(dir, { sliceId, checks, measured, extra = {} }) {
+export function writeNativeSummary(
+  dir,
+  {
+    sliceId,
+    checks,
+    measured,
+    extra = {},
+    provider = "slice_verify",
+    driver = NATIVE_DRIVER,
+    scope = "native_system_ui",
+    boundary = null,
+  },
+) {
   const assertions = behaviorAssertions(checks);
   const summary = {
     slice_id: sliceId,
     surface: "tauri",
-    driver: NATIVE_DRIVER,
-    provider: "slice_verify",
-    scope: "native_system_ui",
+    driver,
+    provider,
+    scope,
     verified_at: new Date().toISOString(),
     git_head: gitHead(),
     checks,
@@ -405,6 +440,7 @@ export function writeNativeSummary(dir, { sliceId, checks, measured, extra = {} 
     behavior: { assertions },
     assertions,
     measured,
+    ...(boundary ? { evidence_boundary: boundary } : {}),
     ...extra,
   };
   rewrite(dir, "summary.json", summary);

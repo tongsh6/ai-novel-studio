@@ -61,6 +61,7 @@
 | [B66-local-workspace-backup-restore.md](B66-local-workspace-backup-restore.md) | 作者可用的本地快照与恢复；先准备范围/一致性/敏感文件/覆盖/自动触发契约，后续实施条件见原任务。 |
 | [B67-revision-aware-ledger-maintenance.md](B67-revision-aware-ledger-maintenance.md) | 章节修订后的派生账面一致性；旧贡献失效、乱序/并发、来源与作者裁决保护，不等同于单纯补 trace。 |
 | [B68-experience-rule-governance.md](B68-experience-rule-governance.md) | Experience Engine 的证据、提炼建议、审阅、规则生命周期与后续消费；原条件收编统一落点，启动条件见原任务。 |
+| [B69-renumber-idempotent-temp-seq.md](B69-renumber-idempotent-temp-seq.md) | **doing（2026-10-30 CP0）**：B33 CP3 真实模型原生发现的重编号数据完整性缺陷——from==to 项残留临时 seq=1000001；契约/复现已冻结，修复与 scoped 复验待执行。 |
 | [B30-chapter-structure-maintenance.md](B30-chapter-structure-maintenance.md) | **done（2026-10-27，CP0–CP5 + 完成审计后原生补验收口）**：既有章节重编号/结构维护与卷章类型边界；`maintain_chapter_structure`、old→new 变更计划、两阶段原子 seq 事务、采纳 renumber effect、蓝图 object_kind 防护、ref-first 消费者迁移；原生确定性矩阵（场景1 36/36、场景2 12/12）+ strata/iq3_s scoped 真实模型原生 26/26（T1 采纳全链/T2 越界澄清零写入，不冒充全矩阵）；档案类型边界缺陷修复（`e83c06c5`）+ 原生 T8 6/6；失败批次只读保留；stage 存量清理需授权。 |
 | [B31-author-reply-run-binding.md](B31-author-reply-run-binding.md) | 作者补充输入与待回复任务的稳定绑定；包含原生五场景、问题源动作、目标版本、持久化与三次恢复证据，以及历史失败批次和已登记限制。执行状态见原任务。 |
 | `VS00D-G-GAP-RECONCILIATION.md` | **done（2026-10-24；差距回收仪式 22 项开放全裁决；无产品代码变更）**：VS-00D G1–G7 无一项可诚实关闭——G1/G3/G5/G7 承接 B27+B26（B27 slice 明确消费；trigger=并行共享入口迁移完成），G2/G4/G6 降级 C 轨/后续 checkpoint（G6 机制链已有 B11D/VS-00E 真实 Tauri 证据，长篇效果归狗粮观察）；NEM-GAP 01/04/06 trigger、02/05/08 C 轨；B 轨 B1/B2/B8 销账、B3/B5/B6/B7/B10 降级 C 轨、B4 用户门控；NEXT B 轨表修订后重扫 22→19 开放。诚实边界：契约文档 §6/§11 状态更新归 B27 owner（不碰并行工作树）、G1–G7 未关闭、降级非删除。 |

@@ -6,13 +6,12 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B33-SEMANTICS | CP0–CP2 已完成（语义分工冻结、词法后置约束移除、矩阵/有界恢复/replay 回归）；下一步 CP3：复用既有 native 驱动模式落地 6 场景外部真实 Tauri + 真实模型验收（单槽、结束卸载），保身份/权限/采纳边界 | [原任务小节](slices/B33-authoring-intent-judgment-reliability.md#元原则整改语义判断与机械守卫分工) |
+| B28-SCOPE | CP0 区分读取整章与修改整章授权，梳理否定范围→真实目标→diff/采纳的整改和验证要求 | [原任务小节](slices/B28-whole-chapter-revision.md#元原则整改作者范围与否定约束) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B28-SCOPE | CP0 区分读取整章与修改整章授权，梳理否定范围→真实目标→diff/采纳的整改和验证要求 | [原任务小节](slices/B28-whole-chapter-revision.md#元原则整改作者范围与否定约束) |
 | AU03-CONTEXT | 按 CP0–CP3 梳理读取失败/未知/真实空的同源状态及模型输入、停止/降级与恢复验证 | [原任务小节](slices/AU03-file-level-closure.md#当前上下文缺失与读取失败补验) |
 | B27 | 先§9核实际请求材料与引用同源，区分取到/供给/观察/自报使用；原定向硬化与停止全量retest裁决保留 | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B39 | CP1 正文求证与逐次模型输入证据；后续准备/恢复/迁移仍按完整 slice 验收 | [原任务](slices/B39-evidence-seeking-authoring.md) |

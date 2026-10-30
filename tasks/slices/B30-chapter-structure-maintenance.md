@@ -158,3 +158,7 @@ CP3 的引用与投影后果属于完整范围，不能在 CP1/CP2 后改写为�
 “这本书的章节编号为什么采用全书连续编号？只解释，不要修改。”在现役结构意图谓词/后置 guard 中仍会命中维护要求；这不是作者已经授权重编号。该共享机制族统一交 [B33 元原则整改](B33-authoring-intent-judgment-reliability.md#元原则整改语义判断与机械守卫分工)，此处不另设状态或 CP，也不重开本任务已完成的结构维护批次。
 
 B33 负责完整作者语义与合法讨论/条件出口；本任务保留真实章身份、变更计划、编号映射、版本/幂等及事务回滚，模型建议不得直接写编号。明确维护请求的原能力与采纳回归仍须保留，不能以删除结构安全校验修复词法语义强迫；历史原生/实模与失败批次按原范围留存。
+
+## B69 修复关联（2026-10-30）
+
+- B33 CP3 真实模型原生批次发现：dense 重编号中 `from_seq == to_seq` 的章会在两阶段事务第二阶段被空 changeset 跳过，残留临时 seq `1000001`（receipt 仍 accepted）。系统性修复与新回归见 [B69](B69-renumber-idempotent-temp-seq.md)；本任务历史 T1–T6 证据保留，修复后 `b30-chapter-renumber-roundtrip` 真实页面场景重新通过（`artifacts/slice-verify/b30-chapter-renumber-roundtrip-tauri/`）。

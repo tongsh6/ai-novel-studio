@@ -117,6 +117,35 @@ defmodule NovelPersistence.B30RenumberTest do
     assert replay.object_count == 2
   end
 
+  test "B69：from==to 的章不得残留临时 seq，事务后全部 seq=to_seq", ctx do
+    [c1, c2, c3] = ctx.chapters
+
+    # dense 重编号中允许“某章编号不变、其它章位移”；from==to 项不得因 changeset 空操作
+    # 而把 phase1 的临时 seq（1_000_000 级）留在持久事实里。
+    mapping = [
+      %{"chapter_ref" => "chapter:#{c1.id}", "new_seq" => 11},
+      %{"chapter_ref" => "chapter:#{c2.id}", "new_seq" => 13},
+      %{"chapter_ref" => "chapter:#{c3.id}", "new_seq" => 12}
+    ]
+
+    expected = [
+      %{"chapter_ref" => "chapter:#{c1.id}", "expected_seq" => 11},
+      %{"chapter_ref" => "chapter:#{c2.id}", "expected_seq" => 12},
+      %{"chapter_ref" => "chapter:#{c3.id}", "expected_seq" => 13}
+    ]
+
+    assert {:ok, receipt} = AdoptionRepository.renumber_chapters(ctx.work.id, mapping, expected)
+    assert receipt.committed
+
+    assert Repo.get!(Chapter, c1.id).seq == 11
+    assert Repo.get!(Chapter, c2.id).seq == 13
+    assert Repo.get!(Chapter, c3.id).seq == 12
+
+    persisted = chapters_for(ctx.work.id) |> Enum.map(& &1.seq) |> Enum.sort()
+    assert persisted == [11, 12, 13]
+    refute Enum.any?(persisted, &(&1 >= 1_000_000)), "不得残留临时 seq: #{inspect(persisted)}"
+  end
+
   test "stale/duplicate_seq/cross_work/out_of_range/no_target 拒绝且零写入", ctx do
     [c1, c2, _c3] = ctx.chapters
     mapping = [%{"chapter_ref" => "chapter:#{c1.id}", "new_seq" => 13}]
