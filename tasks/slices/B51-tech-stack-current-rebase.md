@@ -87,4 +87,5 @@
 - `docs/design/tech-stack/00-overview.md`：顶部加 B51 现行校准块；yaml 的 revision_audit/event_bus/long_run/llm_client/observability 改为当前实际并标历史方案；Mermaid 图标注 LangChain 节点为历史设计。
 - `docs/design/tech-stack/03-backend.md`：顶部加现行校准；yaml 实际化；§2.4 paper_trail、§2.5 langchain/instructor 标为历史方案/当前未采用，不构成实现要求。
 - `docs/design/07-workbench-ui-contract.md`：结构化字段前提从已退役 `clarification_prompt` 卡改为当前 candidate/confirmation/author_question 语义。
-- 仍待 CP2 余项：glossary 死链/错 ADR、S4/S7/D6/I5/B22/B34 等状态链到当前证据、其他 tech-stack 子文档声明；CP3：AGENTS/frontend_audit/目录命令/secret/card/sidecar/CI 口径复核。PaperTrail 执行待作者 A/B/C。
+- glossary 旧 ADR 编号/死引用校准（2026-10-31）：§10 第 11/12/13/16/17/18/19/22 条原引 v1 旧 ADR（0003/0004/0005/0008/0009/0010/0011/0014）或已退役文件，改为当前权威文档/现行 ADR（04/04a/05、ADR-0028、domain/24、domain/27、域/33），并明确“旧号不可再引用”。
+- 仍待 CP2 余项：S4/S7/D6/I5/B22/B34 等状态链到当前证据、其他 tech-stack 子文档声明；CP3：AGENTS/frontend_audit/目录命令/secret/card/sidecar/CI 口径复核。PaperTrail 执行待作者 A/B/C。
