@@ -18,9 +18,21 @@ import {
   readCoverageReport,
   coverageReportExample,
 } from "./lib/quality/author_behavior.mjs";
+import {
+  evaluateCorpus,
+  buildCoverageReport,
+  summarizeEvaluation,
+} from "./lib/quality/author_behavior_oracle.mjs";
 
 function parseArgs(argv) {
-  const options = { root: DEFAULT_PROJECT_ROOT, json: false, report: null, writeExample: null };
+  const options = {
+    root: DEFAULT_PROJECT_ROOT,
+    json: false,
+    report: null,
+    writeExample: null,
+    evaluate: null,
+    coverageOut: null,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--root") {
@@ -31,6 +43,10 @@ function parseArgs(argv) {
       options.report = path.resolve(argv[(index += 1)] ?? "");
     } else if (arg === "--write-example") {
       options.writeExample = path.resolve(argv[(index += 1)] ?? "");
+    } else if (arg === "--evaluate") {
+      options.evaluate = path.resolve(argv[(index += 1)] ?? "");
+    } else if (arg === "--coverage-out") {
+      options.coverageOut = path.resolve(argv[(index += 1)] ?? "");
     } else if (arg === "--help" || arg === "-h") {
       options.help = true;
     } else {
@@ -46,7 +62,8 @@ function main() {
   if (options.help) {
     console.log(
       "usage: node scripts/author_behavior_check.mjs [--root <repo>] [--json] " +
-        "[--report <coverage-report.json>] [--write-example <path>]",
+        "[--report <coverage-report.json>] [--write-example <path>] " +
+        "[--evaluate <observations.json>] [--coverage-out <report.json>]",
     );
     return 0;
   }
@@ -79,16 +96,53 @@ function main() {
   if (options.writeExample) {
     const example = coverageReportExample(corpus, validation);
     fs.writeFileSync(options.writeExample, `${JSON.stringify(example, null, 2)}\n`);
-    console.log(`已写入覆盖报告格式示例: ${options.writeExample}`);
+    console.error(`已写入覆盖报告格式示例: ${options.writeExample}`);
+  }
+
+  let evaluation = null;
+  let coverageReport = null;
+  const evaluationFailures = [];
+
+  if (options.evaluate) {
+    let observations;
+    try {
+      observations = JSON.parse(fs.readFileSync(options.evaluate, "utf8"));
+    } catch (error) {
+      console.error(`无法读取观察证据 ${options.evaluate}: ${error.message}`);
+      return 66;
+    }
+    evaluation = evaluateCorpus(corpus, observations);
+    coverageReport = buildCoverageReport(corpus, evaluation, {
+      tier: observations.run?.tier ?? "deterministic",
+      provider: observations.run?.provider ?? "unknown",
+      batch_refs: observations.run?.batch_refs ?? [],
+      verdict_refs: observations.run?.verdict_refs ?? [],
+      blocked: observations.run?.blocked ?? 0,
+    });
+    const coverageValidation = validateCoverageReport(coverageReport, corpus, validation);
+    if (!coverageValidation.ok) evaluationFailures.push(...coverageValidation.errors);
+    if (options.coverageOut) {
+      fs.writeFileSync(options.coverageOut, `${JSON.stringify(coverageReport, null, 2)}\n`);
+      console.error(`已写入覆盖报告: ${options.coverageOut}`);
+    }
   }
 
   const output = {
-    ok: validation.ok && reportFailures.length === 0,
+    ok: validation.ok && reportFailures.length === 0 && evaluationFailures.length === 0,
     stats: validation.stats,
     errors: validation.errors,
     warnings: validation.warnings,
     report_errors: reportFailures,
     report: options.report,
+    evaluation: evaluation ? summarizeEvaluation(evaluation) : null,
+    coverage_summary: coverageReport
+      ? {
+          runs: coverageReport.runs,
+          gaps: coverageReport.coverage.gaps,
+          targets: coverageReport.coverage.targets,
+        }
+      : null,
+    evaluation_errors: evaluationFailures,
   };
 
   if (options.json) {
@@ -101,6 +155,19 @@ function main() {
     );
     for (const error of validation.errors) console.error(`  ERROR ${error.code}: ${error.detail}`);
     for (const error of reportFailures) console.error(`  REPORT ERROR ${error.code}: ${error.detail}`);
+    if (output.evaluation) {
+      console.log(
+        `[author-behavior] evaluation total=${output.evaluation.total} pass=${output.evaluation.pass} ` +
+          `fail=${output.evaluation.fail} unknown=${output.evaluation.unknown}`,
+      );
+      for (const failure of output.evaluation.failures) {
+        console.error(`  FAIL ${failure.case_id}: ${failure.reasons.join(",")}`);
+      }
+      for (const unknown of output.evaluation.unknowns) {
+        console.error(`  UNKNOWN ${unknown.case_id}: ${unknown.reasons.join(",")}`);
+      }
+    }
+    for (const error of evaluationFailures) console.error(`  COVERAGE ERROR ${error.code}: ${error.detail}`);
     for (const warning of validation.warnings) console.error(`  WARN ${warning.code}: ${warning.detail}`);
   }
 

@@ -90,6 +90,19 @@ CP1 只是最小实现 checkpoint，不替代 CP2 状态探索和 CP3 覆盖/分
 - 验证：`node scripts/author_behavior_check.mjs --report quality/acceptance/author-behavior/coverage-report.example.json` 通过；`node --test scripts/lib/quality/author_behavior.test.mjs` 10/10（含重复 id、未知引用、holdout 泄漏、provenance 缺失、未知动作/效果/禁止行为、目标/状态无案例、覆盖报告计数/sha 不一致）。
 - 残余（不冒充完成）：尚无数据驱动 runner/状态探索器/场景 PASS；真实模型 holdout 未预注册运行；覆盖报告仅格式示例，真实统计在 CP1/CP2 生成；真实作品数据未使用；I10 不代签。
 
+## 6.2 CP1 实施进度（2026-10-30，进行中；CP1 未完成）
+
+- 已完成（判卷/证据侧，确定性）：
+  - `scripts/lib/quality/author_behavior_oracle.mjs`：消费冻结 corpus + 外部 driver 观察，产出每 case `pass/fail/unknown`、违规类别（映射全局不变量）与 `author-behavior-coverage-report/v1`；allowed action/effect 集合 + 硬违规（错对象/未授权 canon 写/重复副作用/虚假完成/讨论强制 execute/auto-adopt）+ 证据不足/`supplied unknown` → unknown（不判 PASS）。
+  - CLI 扩展：`node scripts/author_behavior_check.mjs --evaluate <observations.json> --coverage-out <report.json>`；覆盖报告进入既有 schema 校验。
+  - 正反例测试：`scripts/lib/quality/author_behavior_oracle.test.mjs` 7 条（全部 case 允许集可 pass；disallowed action、错对象、未授权写、重复副作用、虚假完成、讨论强制 execute 均被抓；证据缺失/unknown 不 PASS；覆盖报告生成与 schema 校验）；与 corpus 校验器合计 17/17 node:test。
+- 未完成（阻断 CP1 标 done 的页面闭环）：
+  1. 数据驱动浏览器 spec `frontend/slice-verify/author-behavior-corpus.mjs`（外部 Playwright，复用既有 workbench 可见语义）执行 corpus 子集（步骤：按状态切换作品 → 发送冻结表达 → 等 turn_result/候选 → 采集观察 → 调用 oracle → 写 summary/覆盖报告）。
+  2. 确定性 provider fixture（test support，仅浏览器 runner 注入；按 corpus 表达返回允许的 reply/ask_author 行为）与 `scripts/slice_verify_server.exs`/`slice_verify.sh` 的 provider/seed 接线；不注册生产 runtime。
+  3. 状态 seed `scripts/seed_author_behavior_states.exs`（S1/S2/S3 合成作品）与隔离 DB。
+  4. 场景注册（`scenarios.yml` + manifest，evidence verdict）与 `quality_accept` 跑通；覆盖报告落 `artifacts/author-behavior/`。
+- 诚实边界：当前只有判卷器与格式/正反例，没有真实页面数据驱动 run；不得把 oracle 单测当 CP1 完成。真实模型语义子集仍属 CP3/B42 流程。
+
 ## 7. 验证与恢复
 
 - 文档/排期：`node scripts/next_task_check.mjs`；差距来源变化时按规则运行 `bash scripts/gap_ledger.sh`。
