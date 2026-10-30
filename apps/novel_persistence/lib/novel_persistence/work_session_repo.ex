@@ -202,6 +202,26 @@ defmodule NovelPersistence.WorkSessionRepo do
     |> Enum.uniq_by(& &1["artifact_id"])
   end
 
+  @doc "按 work+turn 读取持久 assistant turn_result（B46 跨会话动作来源；work 隔离）。"
+  @spec turn_result(String.t(), String.t()) :: map() | nil
+  def turn_result(work_id, turn_id) when is_binary(work_id) and is_binary(turn_id) do
+    Interaction
+    |> where([i], i.workspace_id == ^work_id and i.turn_id == ^turn_id and i.role == "assistant")
+    |> order_by([i], desc: i.updated_at, desc: i.inserted_at, desc: i.id)
+    |> limit(1)
+    |> Repo.one()
+    |> case do
+      nil ->
+        nil
+
+      row ->
+        row
+        |> MemoryLog.canonical_interaction()
+        |> Map.get(:content, %{})
+        |> Map.get("turn_result")
+    end
+  end
+
   @doc "Touch last_opened_at for resume ordering."
   @spec touch(WorkSession.t()) :: {:ok, WorkSession.t()} | {:error, Ecto.Changeset.t()}
   def touch(%WorkSession{} = session) do

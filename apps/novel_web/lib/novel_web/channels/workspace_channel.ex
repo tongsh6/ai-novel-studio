@@ -3139,7 +3139,15 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   defp source_turn_for_artifact_action(socket, requested_ref, artifact_id) do
-    requested_turn_result = requested_ref && source_turn_result(socket, requested_ref)
+    # B46：跨会话 pending 动作的来源 turn 不在当前 socket 缓存，按 work+turn
+    # 从持久 interactions 取回；仍走既有 adoption workflow，不复制状态机。
+    requested_turn_result =
+      requested_ref &&
+        (source_turn_result(socket, requested_ref) ||
+           NovelApplication.WorkSessionService.turn_result(
+             socket.assigns[:work_id],
+             requested_ref
+           ))
 
     cond do
       artifact_resolved?(socket, artifact_id) ->

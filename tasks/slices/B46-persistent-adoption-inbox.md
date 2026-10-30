@@ -1,6 +1,6 @@
 # B46：持久 Adoption Inbox 与待处理视图
 
-- 状态：**doing（2026-10-31 CP0/CP1 done：work-wide adoption_inbox 读模型与 resume/show DTO 已落地；CP2 前端 inbox 视图/跨会话动作、CP3 页面矩阵待做）**。
+- 状态：**doing（2026-10-31 CP0/CP1 done；CP2 partial：跨会话动作来源读回已实现，前端 inbox 视图/只读限制/处理器重放待做；CP3 页面矩阵未做）**。
 - 登记日期：2026-10-27；来源：待处理项主要依赖 transcript/runtime pending state，重开或换会话后缺少集中恢复与处理入口。
 - 上游：[AU05](AU05-file-level-closure.md)、[AU09](AU09-file-level-closure.md)、[AU09-archive-stats-current](AU09-archive-stats-current.md)、[B31](B31-author-reply-run-binding.md)。
 
@@ -67,6 +67,12 @@
 - 全量 backend mix **1049/0**（首次运行一条既有 AgentRunRuntime timing 失败，单测与复跑均通过，登记为既有 flake，非本次回归）。frontend 未消费新字段，未声称 UI 完成。
 
 **CP2 下一步**：前端 resume 类型/待处理视图消费 inbox（含 source session/turn），动作前按 source turn 取回并走既有 adoption workflow；只读会话不得处理；处理成功从 inbox 移除。CP3 再用真实 Tauri 关闭重开/新会话矩阵验收。
+## 8. CP2 进展（2026-10-31，partial）
+
+- `WorkSessionRepo.turn_result(work_id, turn_id)`：按 work+turn 读取持久 assistant interactions 的 turn_result，work 隔离、非 assistant 不可见。
+- `WorkSessionService.turn_result/2` 暴露给 web；`workspace_channel.source_turn_for_artifact_action/3` 当前 socket 缓存未命中时回退到持久 turn_result，使跨会话 pending 动作能把原 source turn 交给既有 adoption workflow（不复制状态机/不自动采纳）。
+- 测试：`turn_result` work+turn 命中、非 assistant/未知 turn/跨作品不可见；service 27/0；全量 mix 1050/0。
+- 未完成：前端 inbox 视图（source session 标注、待处理列表、处理后消失）、只读会话禁止处理、动作 payload 是否携带 source session 的约定、真实页面矩阵/重复提交/刷新恢复证据。CP2 保持 partial。
 ## 4. 非目标
 
 - 不复制 transcript 当 inbox，不新增第二套 pending 状态机。

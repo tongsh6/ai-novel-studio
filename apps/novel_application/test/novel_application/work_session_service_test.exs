@@ -855,6 +855,30 @@ defmodule NovelApplication.WorkSessionServiceTest do
     refute Enum.any?(snapshot3.inbox_pending_adoptions, &(&1.artifact_id == "other-a1"))
   end
 
+  test "turn_result 按 work+turn 取回持久来源；跨作品/非 assistant 不可见", %{work: work} do
+    {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+    result = %{
+      turn_id: "turn-source",
+      adoption_state: %{
+        pending: [%{artifact_id: "source-a1", artifact_type: "plot_direction", payload: %{}}],
+        resolved: []
+      }
+    }
+
+    record(work.id, session.id, "turn-source", "assistant", "候选", result)
+    record(work.id, session.id, "turn-source-user", "user", "作者消息", nil)
+
+    assert %{"turn_id" => "turn-source"} =
+             WorkSessionService.turn_result(work.id, "turn-source")
+
+    assert WorkSessionService.turn_result(work.id, "turn-source-user") == nil
+    assert WorkSessionService.turn_result(work.id, "missing-turn") == nil
+
+    {:ok, other_work} = WorkService.create(%{title: "其他作品"})
+    assert WorkSessionService.turn_result(other_work.id, "turn-source") == nil
+  end
+
   defp record(
          work_id,
          session_id,

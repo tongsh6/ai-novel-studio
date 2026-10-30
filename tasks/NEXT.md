@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B46 | CP0/CP1 done：work-wide adoption_inbox 读模型/resume-show DTO 已落地；CP2 前端 inbox 视图与跨会话动作、CP3 真实页面矩阵待做 | [原任务](slices/B46-persistent-adoption-inbox.md) |
+| B46 | CP0/CP1 done；CP2 partial：跨会话来源 turn 读回已实现；前端 inbox 视图/只读限制/动作重放、CP3 页面矩阵待做 | [原任务](slices/B46-persistent-adoption-inbox.md) |
 
 ## 后续候选
 

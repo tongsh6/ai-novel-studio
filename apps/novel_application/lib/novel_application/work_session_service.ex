@@ -51,6 +51,12 @@ defmodule NovelApplication.WorkSessionService do
     end
   end
 
+  @doc "B46：按 work+turn 读取持久 turn_result，供跨会话待处理动作取回来源。"
+  @spec turn_result(String.t(), String.t()) :: map() | nil
+  def turn_result(work_id, turn_id) when is_binary(work_id) and is_binary(turn_id) do
+    WorkSessionRepo.turn_result(work_id, turn_id)
+  end
+
   @doc "Return a work-scoped session snapshot without changing the active session."
   @spec show(String.t(), String.t()) ::
           {:ok, map()} | {:error, :work_not_found | :session_not_found}

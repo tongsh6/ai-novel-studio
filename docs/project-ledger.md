@@ -1228,3 +1228,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B46 CP0**：确认待处理事实=interactions.turn_result.adoption_state，现有 JSON 足够无需新表；adoption_state 读模型按 work+session，新会话不可见旧 pending 且动作依赖当前 socket source turn；CP1 拟复用现有存储做 work-wide inbox + 按 source ref 取回，动作是否切 session 留待冻结。
 
 - 2026-10-31 — **B46 CP1**：WorkSessionRepo.adoption_inbox work-wide 读模型（复用 interactions，无新表）；pending/resolved 条目 add source_session_id；resume/show 增加 inbox_* 字段并由 controller 透传；跨会话 pending/resolve/跨作品测试通过；mix 1049/0（一条既有 AgentRunRuntime flake，复跑通过）。CP2 前端 inbox/动作待做。
+
+- 2026-10-31 — **B46 CP2 partial**：新增 WorkSessionRepo.turn_result（work+turn 持久来源，work 隔离）与 channel 缓存未命中回退，跨会话 pending 动作可使用持久 source turn；测试 27/0、mix 1050/0。前端 inbox 视图/只读处理限制/动作重放与 CP3 页面仍未做。
