@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| VS00F-B06 | 首批五账链：明确领域信封到面板 DTO 的字段投影、分账状态/载荷、运行时校验与历史读取 | [原任务小节](slices/VS-00F-five-ledgers-three-state.md#b06-分账契约与真实消费-checkpoint) |
+| VS00F-B06 | CP0 盘点完成：五账状态/payload/producer/持久/面板 DTO 矩阵已核；CP1 面板 DTO schema/safeParse、三账 enum 词表、历史/空账正反例待做 | [原任务小节](slices/VS-00F-five-ledgers-three-state.md#b06-分账契约与真实消费-checkpoint) |
 
 ## 后续候选
 

@@ -90,7 +90,7 @@ tauri/summary.json`。配套 test-support：slice_verify 四栏摘要 clause（�
 
 ## B06 分账契约与真实消费 checkpoint
 
-- 状态：**todo（2026-10-30 从既有冻结契约补回执行入口；原 CP0–CP4 完成记录保留，本项未实施或验收）**。
+- 状态：**doing（2026-10-31 CP0 盘点完成：五账状态/payload/producer/持久/面板 DTO/历史矩阵已核；面板 DTO schema/校验与真实页面回归待做）**。
 - 来源：[VS-00F §2/§7](../../docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md#2-对象模型ledgerentry-统一信封-分账-payload)、[全量对账 B06](../2026-10-27-design-to-execution-reconciliation.md#42-契约adr-与-schema) 要求分账状态与 payload 的 schema/codegen 承接；不是重新创造五账领域。
 - 只读事实：`LedgerEntry` 仍在 Elixir 中分别声明 promise/conflict/emotion 状态；`ledger_entry.json` 的 status/payload 仍为宽泛 string/object。真实消费链已存在：`LedgerViewService.threads/1` → Channel `get_ledger_threads` → `socket.ts` 的手写 `LedgerThreadEntry`/类型断言 → `StructurePanel` 脉络面板。生成的 `LedgerEntrySchema` 与实际投影字段不同，不能将领域信封直接强套到 wire，也不能以存在生成物代替实际校验。
 - 下一步：逐账核对现役领域值、更新/读取 producer、持久形状、面板 DTO、探索/规划消费者与历史空值；形成“字段/状态—契约真源—生成物—校验点—真实消费者”矩阵。先判定哪些约束已冻结且有消费者、哪些属于合法局部投影或尚待契约澄清，再决定最小 schema/codegen/适配范围；本次不冻结新字段、状态或阈值。
@@ -99,6 +99,30 @@ tauri/summary.json`。配套 test-support：slice_verify 四栏摘要 clause（�
 - 归属与依赖：VS-00F 负责五账对象与真实消费者范围，[B45](B45-schema-legacy-governance.md) 协同 schema/生成/opaque/历史兼容纪律；维护 StateTrace 仍由上节负责。本项不冻结 R2/design_ref、不启动 durable/dismiss/Experience Engine，不把“契约缺口”解释成现有全部账面数据均非法。
 
 - 2026-10-30 首批 schema 排期：按 [B45 §7](B45-schema-legacy-governance.md#7-字段与消费者映射交付2026-10-30-纳入队列) 交付本链字段/状态的 producer、转换、真实校验、consumer 与历史兼容映射及具体修改清单；映射不是实际接线完成，不改变本 checkpoint 的完整验收范围。
+
+### B06 CP0 盘点（2026-10-31）
+
+| 账 | 领域状态（`LedgerEntry`） | 现役 payload 键 | producer/更新路径 | 持久/历史 | 面板 DTO 消费 |
+|---|---|---|---|---|---|
+| arc | ON_TRACK/STALLED/DRIFTED/RESUMED/COMPLETED/RETIRED（机械 only ON_TRACK/STALLED） | last_seen_chapter/last_seen_seq/presence_note | LedgerMaintenance 采纳后记账 + B67 recompute | ledger_entries payload map；旧记录缺 seq/chapter 按读取 | `thread_entry` Map.take → socket 手写 `LedgerThreadEntry` → StructurePanel |
+| conflict | ACTIVE/DORMANT/REVIVED/ABSORBED/ABANDONED/RESOLVED（机械 ACTIVE/DORMANT） | line_kind/last_advanced_chapter/last_advanced_seq | record_main_conflict + dormancy/recompute | 同上 | 同上 |
+| information | HIDDEN/PARTIALLY_REVEALED/REVEALED/LEAKED | fact/planned_reveal/planned_reveal_seq | plan info 建账 + 前指泄露 + 释放 | 同上；`ledger_information_payload.json` 生成但无真实校验 consumer | 同上 |
+| promise | OPEN/PROGRESSING/FULFILLED/BROKEN/RELEASED | promise_kind/content（genre 种子） | ensure_genre_promise；裁决转移 | 同上 | 同上 |
+| emotion_curve | MATCHED/DEVIATED/UNPLANNED | intended/realized/seq | record_emotion_curve 每采纳章一条 | 同上 | 按状态计数显示 |
+
+**面板 DTO 现状**：`LedgerViewService.threads/1` 输出 `id/ledger/subject_label/subject_ref/status/payload/source_refs/last_event_chapter`；前端 `socket.ts` 手写 `LedgerThreadEntry`/`LedgerThreads`，无运行时 schema/safeParse；`payload` 为 `Record<string,unknown>`，status 为 string；与 `ledger_entry.json` 领域信封不同（不是 `entry_id/work_ref/design_ref/revision`）。
+
+**缺口/冻结项（CP1 前置）**：
+1. conflict/promise/emotion_curve 没有独立 enum JSON（仅 arc/information/ledger 有）；领域硬编码状态集，生成物缺三账状态词表。
+2. 面板 DTO 无 schema/生成类型/运行时校验，跨账错用 status/payload 不会被页面校验发现。
+3. `ledger_entry.status` 仍是宽泛 string，payload open；信息 payload schema 无消费者。
+4. 读取失败与合法空账需区分：当前 `threads/1` DB 异常会冒出而非诚实空；Channel 未在校验失败时给出明确处置。
+5. 历史空值/旧 payload 读取需测试；投影不能获得写入权（只读 Map.take）。
+
+**CP1 最小范围（拟）**：补 conflict/promise/emotion_curve enum JSON 或明确由领域生成治理；新增面板 DTO schema（ledger enum + status string + payload open/opaque）并生成前端类型，`get_ledger_threads` 接收处 safeParse（告警容错，不静默改数据）；空账/读取失败/历史缺字段正反例；真实 Tauri 脉络面板查看与审读/裁决回归。
+
+- 未完成：面板 DTO schema/codegen/safeParse、三账 enum 词表、真实页面回归；本记录不冻结新 payload 字段/阈值。
+
 
 ## 2026-10-30 章节修订派生账面的承接
 
