@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B43 | CP0/CP1 done；CP2 partial：普通 reply_only 裁决已生产并同源挂 trace/结果；awaiting/capability_gap 映射、六 flow open_behavior/slot、CP3 blocked 页面待做 | [原任务](slices/B43-gate-order-residual.md) |
+| B43 | CP0/CP1 done；CP2 partial：reply_only 裁决已生产且 trace/结果同源（含 decision_id）；awaiting/capability_gap/creative_directions 映射、六 flow open_behavior/slot、CP3 blocked 页面待做 | [原任务](slices/B43-gate-order-residual.md) |
 
 ## 后续候选
 

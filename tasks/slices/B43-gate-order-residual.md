@@ -85,7 +85,8 @@
 - `NovelDomain.OrchestratorDecision`：新增 `:reply_only` 类型与 truthfulness 约束 `no_action_executed/no_behavior_opened/no_write`；新增确定性工厂 `reply_only(turn_id, frame_ref, reason_codes)`（不调用模型、不产生 MicroPlan/批准动作/gate 结果）。
 - `DialoguePlanningService.finalize_judgment_reply`：判断 `action == "reply"` 时构造 reply_only decision，trace 写入后挂 `decision_trace_ref=trace.trace_id`，并以 `TurnResultBuilder.build(frame, trace_summary, candidates, decision)` 投影到 TurnResult/orchestrator_decision/truthfulness。
 - 测试：`dialogue_planning_service_test` 简单对话断言 `orchestrator_decision.decision_type == :reply_only`、`decision_trace_ref == trace_summary.trace_ref`、truthfulness decision_type 同源；全量 mix 1046/0、credo 0 issues。
-- 未完成（CP2 剩余）：awaiting_author/capability_gap 出口未映射（不能一律伪报 reply_only）；六个 agent run flow 与 TurnExecutionService 的 open_behavior/slot/MissingPolicy 统一进门未做；Replay/Why 对 reply_only decision 的消费断言与历史无 decision 记录兼容未做。
+- Trace 同源（同轮）：`TraceWriter.record/4` 接受 `decision:` opts，trace 的 decision_type/no_tool_reason/event_order 由同一 reply_only decision 派生；trace_summary 写入 `orchestrator_decision/decision_id/reason_codes`。测试断言 trace_summary 的 decision_id 与 TurnResult.orchestrator_decision 相同、decision_trace_ref=trace_ref；Replay 仍以 DecisionTrace 为读取源。
+- 未完成（CP2 剩余）：awaiting_author/capability_gap/creative_directions/author_content_registration 出口未映射（不能一律伪报 reply_only）；六个 agent run flow 与 TurnExecutionService 的 open_behavior/slot/MissingPolicy 统一进门未做；历史无 decision 记录兼容/页面证据未做。
 
 ## 4. 非目标
 

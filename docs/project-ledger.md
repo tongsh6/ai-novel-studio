@@ -1178,3 +1178,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B43 CP1 done：幂等 payload digest**：ActionIdempotencyLedger 对 input.payload 做确定性 SHA-256；同 key 同 payload duplicate、异 payload conflict；持久回执 result 写 digest（无 schema 变更），历史无 digest 按 legacy duplicate；channel 冲突返回 author-safe `:idempotency_payload_conflict`，不 dispatch、不产生第二回执。测试纯函数 + 真实 channel（receipt count=1）；全量 mix 1046/0、credo 0 issues。
 
 - 2026-10-31 — **B43 CP2 进展：reply_only 统一裁决**：OrchestratorDecision 新增 reply_only 类型/约束/确定性工厂；判断 reply 内联终结路径生成 decision 并挂 trace/decision_trace_ref，TurnResult/truthfulness 同源投影；测试简单对话断言类型、trace ref、truthfulness 一致；全量 mix 1046/0、credo 0 issues。awaiting/capability_gap、六 flow open_behavior/slot、blocked 页面仍 todo。
+
+- 2026-10-31 — **B43 CP2 同源留痕**：TraceWriter.record/4 接受 reply_only decision，trace decision_type/no_tool_reason/event_order 与 trace_summary 的 decision_id/reason_codes 均从同一 decision 派生；测试断言 trace_summary.decision_id == TurnResult.orchestrator_decision.decision_id、decision_trace_ref == trace_ref。全量 mix 1046/0、credo 0 issues。awaiting/capability/creative/author_content 出口与六 flow 门序、blocked 页面仍 todo。

@@ -17,22 +17,23 @@ defmodule NovelApplication.TraceWriter do
 
   @doc "Record reply-only/exploration trace."
   @spec record(DialogueFrame.t(), map(), DialogueContext.t() | nil) :: {DecisionTrace.t(), map()}
-  def record(%DialogueFrame{} = frame, turn_result, context \\ nil) do
+  def record(%DialogueFrame{} = frame, turn_result, context \\ nil, opts \\ []) do
     trace_id = allocate_trace_id()
     context_refs = if context, do: context.context_refs, else: []
+    decision = Keyword.get(opts, :decision)
 
     trace = %DecisionTrace{
       trace_id: trace_id,
       turn_id: frame.turn_id,
       frame_ref: frame.frame_id,
-      decision_type: decision_type(frame.frame_type),
-      no_tool_reason: to_string(frame.tool_need.reason_code),
+      decision_type: reply_trace_decision_type(frame, decision),
+      no_tool_reason: reply_trace_no_tool_reason(frame, decision),
       no_behavior_reason: no_behavior_reason(frame.frame_type),
       no_write_reason: "this turn does not perform production write",
       turn_result_ref: turn_result[:turn_id] || frame.turn_id,
       replay_policy: %{use_recorded_frame: true, recall_provider: false},
       redaction_level: :author_safe,
-      event_order: build_event_order(context)
+      event_order: build_reply_event_order(context, decision)
     }
 
     summary =
@@ -45,10 +46,39 @@ defmodule NovelApplication.TraceWriter do
         context_refs: format_context_refs(context_refs),
         has_context: context != nil and DialogueContext.has_context?(context)
       }
+      |> maybe_put_reply_decision(decision)
       |> maybe_put_reply_record(frame)
 
     {trace, TraceRedactor.author_safe(summary)}
   end
+
+  defp reply_trace_decision_type(_frame, %OrchestratorDecision{decision_type: type}),
+    do: decision_type_for(type)
+
+  defp reply_trace_decision_type(frame, _decision), do: decision_type(frame.frame_type)
+
+  defp reply_trace_no_tool_reason(_frame, %OrchestratorDecision{reason_codes: codes})
+       when is_list(codes) and codes != [],
+       do: Enum.join(codes, ",")
+
+  defp reply_trace_no_tool_reason(frame, _decision), do: to_string(frame.tool_need.reason_code)
+
+  defp build_reply_event_order(context, %OrchestratorDecision{}) do
+    base = build_event_order(context)
+    List.insert_at(base, -2, :orchestrator_decision_recorded)
+  end
+
+  defp build_reply_event_order(context, _decision), do: build_event_order(context)
+
+  defp maybe_put_reply_decision(summary, %OrchestratorDecision{} = decision) do
+    Map.merge(summary, %{
+      orchestrator_decision: decision.decision_type,
+      decision_id: decision.decision_id,
+      reason_codes: decision.reason_codes
+    })
+  end
+
+  defp maybe_put_reply_decision(summary, _decision), do: summary
 
   @doc "Record trace with OrchestratorDecision and gate results."
   @spec record_with_decision(
@@ -421,6 +451,7 @@ defmodule NovelApplication.TraceWriter do
   defp decision_type_for(:fail_with_recovery), do: :recovery
   defp decision_type_for(:allow_tool), do: :tool_allowed
   defp decision_type_for(:allow_agent_run), do: :agent_run_allowed
+  defp decision_type_for(:reply_only), do: :reply_only
   defp decision_type_for(:replay_existing), do: :replay_existing
 
   defp no_behavior_reason(:creative_exploration), do: "exploration stays conversational"

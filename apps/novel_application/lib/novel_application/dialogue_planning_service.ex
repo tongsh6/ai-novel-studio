@@ -1542,13 +1542,16 @@ defmodule NovelApplication.DialoguePlanningService do
     candidates = judgment_candidates(judgment, frame.frame_id)
     log_judgment_decided(judgment, frame.frame_type, length(candidates))
 
-    {trace, trace_summary} = TraceWriter.record(frame, %{turn_id: turn_id}, context)
-
     reply_decision =
       if judgment.action == "reply" do
         OrchestratorDecision.reply_only(turn_id, frame.frame_id)
-        |> Map.put(:decision_trace_ref, trace.trace_id)
       end
+
+    {trace, trace_summary} =
+      TraceWriter.record(frame, %{turn_id: turn_id}, context, decision: reply_decision)
+
+    reply_decision =
+      if reply_decision, do: Map.put(reply_decision, :decision_trace_ref, trace.trace_id)
 
     turn_result =
       frame
