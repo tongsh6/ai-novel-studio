@@ -142,7 +142,8 @@
   - `apps/novel_persistence/.../schemas/foundation/turn_result.ex`（v2 镜像）→ 历史持久化声明，无现役引用；保留。
   - `frontend/src/lib/schemas.ts` 的 `TurnResultV2Schema` 导出 → 仅历史类型，无运行时 safeParse；当前 wire 校验在 `turnResultWire.ts`/`TurnResultSchema`。
   - v2 的 15 个 broken ref 继续 legacy，不修成“看起来已解析”；不伪造历史。
-- 未完成：agent_run_state schema（DS01 §9 owner）、内部输出（ToolResult/Observation）负例、模型消费证据；CP3 仍 partial。
+- 内部输出负例（同轮）：新增 `AgentObservation` 契约测试 5/0——合法通过；缺 summary/source_ref、非法 type、confidence 越界、evidence_refs 为空经 `validate/1` 拒绝；同时登记已知边界：`new/normalize` 对非法 type 会降级 `:custom`、非法 confidence 会降为 `1.0`（容错而非拒绝），与 CP1 “unknown enum 不静默合法”存在张力，需决定是否收紧（可能影响调用方）；`ToolResult` 当前无 schema/validator，仍为缺口。
+- 未完成：agent_run_state schema（DS01 §9 owner）、ToolResult 契约、模型消费证据；CP3 仍 partial。
 
 ## 4. 非目标
 

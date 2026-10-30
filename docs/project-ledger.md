@@ -1200,3 +1200,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B45 CP2 done / CP3 partial**：B45 范围 schema/codegen 完成（v3 decision/trace/truthfulness typed、本地 ref、ledger enum）；legacy v2/phase 明确不进入当前 wire；agent_run_state 交 DS01。真实 Tauri AU13 页面 PASS，实际 wire 含 allow_tool/reply_only decision 与 typed trace/truthfulness，无 schema 漂移。旧兼容归属/内部输出负例/模型消费仍 todo。
 
 - 2026-10-31 — **B45 CP3 旧兼容归属**：phase_next_action_compat/turn_result_validator 53+21 tests 归 legacy-owned（无生产调用点），v2 持久化镜像与 barrel 导出仅历史；当前 wire 校验仍 turnResultWire/TurnResultSchema；v2 broken refs 不伪造修复。内部输出负例/模型消费仍 todo。
+
+- 2026-10-31 — **B45 CP3 内部输出负例**：新增 AgentObservation 契约测试 5/0（缺字段/非法 type/confidence/空 evidence 经 validate 拒绝；new normalize 对非法 type/confidence 的降级边界已登记）；ToolResult 仍无 schema/validator（缺口）；全量 mix 1048/0。模型消费证据仍 todo。
