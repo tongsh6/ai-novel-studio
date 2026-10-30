@@ -83,6 +83,8 @@ import {
   authorQuestionQueryKey,
   mergeResumedTranscript,
   pendingAdoptionQueryKey,
+  snapshotPendingAdoptions,
+  snapshotResolvedAdoptions,
   searchSessions,
   getSessionSnapshot,
   getSessionTranscriptPage,
@@ -1844,8 +1846,12 @@ export function WorkspaceChat() {
         pendingAdoptionQueryKey(snapshot.work.id, snapshot.active_session.id),
         pendingAdoptionTurnResults(snapshot),
       );
-      setResumePendingAdoptions(snapshot.pending_adoptions as unknown as ArtifactEntry[]);
-      setResumeResolvedAdoptions(snapshot.resolved_adoptions as unknown as ArtifactEntry[]);
+      setResumePendingAdoptions(
+        snapshotPendingAdoptions(snapshot) as unknown as ArtifactEntry[],
+      );
+      setResumeResolvedAdoptions(
+        snapshotResolvedAdoptions(snapshot) as unknown as ArtifactEntry[],
+      );
       setMessages(restoredMessages);
       resumeRestoredTranscriptRef.current = restoredMessages.length > 0;
       setTranscriptRestored(restoredMessages.length > 0);
@@ -2023,8 +2029,12 @@ export function WorkspaceChat() {
         return;
       const restored = transcriptToMessages(snapshot.transcript) as ChatMessage[];
       setMessages((prev) => mergeResumedTranscript(prev, restored));
-      setResumePendingAdoptions(snapshot.pending_adoptions as unknown as ArtifactEntry[]);
-      setResumeResolvedAdoptions(snapshot.resolved_adoptions as unknown as ArtifactEntry[]);
+      setResumePendingAdoptions(
+        snapshotPendingAdoptions(snapshot) as unknown as ArtifactEntry[],
+      );
+      setResumeResolvedAdoptions(
+        snapshotResolvedAdoptions(snapshot) as unknown as ArtifactEntry[],
+      );
       queryClient.setQueryData(
         pendingAdoptionQueryKey(workId, sessionId),
         pendingAdoptionTurnResults(snapshot),
@@ -2807,6 +2817,13 @@ export function WorkspaceChat() {
         setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionDuplicate }]);
         setLoading(false);
       }
+      // B46 CP2：处理后立即从 inbox/session 待处理快照移除该 artifact；
+      // 失败（result null）保留，下一轮恢复仍可见。
+      if (result && action.target_ref) {
+        setResumePendingAdoptions((prev) =>
+          prev.filter((artifact) => artifact.artifact_id !== action.target_ref),
+        );
+      }
       return result;
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionFailure }]);
@@ -3268,8 +3285,12 @@ export function WorkspaceChat() {
         pendingAdoptionQueryKey(snapshot.work.id, snapshot.active_session.id),
         pendingAdoptionTurnResults(snapshot),
       );
-      setResumePendingAdoptions(snapshot.pending_adoptions as unknown as ArtifactEntry[]);
-      setResumeResolvedAdoptions(snapshot.resolved_adoptions as unknown as ArtifactEntry[]);
+      setResumePendingAdoptions(
+        snapshotPendingAdoptions(snapshot) as unknown as ArtifactEntry[],
+      );
+      setResumeResolvedAdoptions(
+        snapshotResolvedAdoptions(snapshot) as unknown as ArtifactEntry[],
+      );
       setMessages(restoredMessages);
       setTranscriptRestored(restoredMessages.length > 0);
       resumeRestoredTranscriptRef.current = restoredMessages.length > 0;

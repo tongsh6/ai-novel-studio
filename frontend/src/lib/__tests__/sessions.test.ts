@@ -1,5 +1,10 @@
 import { mergeResumedTranscript } from "../sessions";
-import { pendingAdoptionTurnResults, pendingAdoptionQueryKey } from "../sessions";
+import {
+  pendingAdoptionTurnResults,
+  pendingAdoptionQueryKey,
+  snapshotPendingAdoptions,
+  snapshotResolvedAdoptions,
+} from "../sessions";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -261,6 +266,49 @@ describe("跨分页待采纳操作凭据", () => {
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
     expect(pendingAdoptionTurnResults({})).toEqual([]);
+  });
+
+  it("B46：优先 work-wide inbox，旧快照回退 session 字段", () => {
+    const sessionResult = {
+      schema_version: "3.0-draft",
+      turn_id: "turn-session",
+      phase: "completed",
+      status: "conversational",
+      assistant_message: { text: "session" },
+    } as never;
+    const inboxResult = {
+      schema_version: "3.0-draft",
+      turn_id: "turn-inbox",
+      phase: "completed",
+      status: "conversational",
+      assistant_message: { text: "inbox" },
+    } as never;
+
+    expect(
+      pendingAdoptionTurnResults({
+        pending_adoption_turn_results: [sessionResult],
+        inbox_pending_adoption_turn_results: [inboxResult],
+      })[0],
+    ).toBe(inboxResult);
+    expect(
+      pendingAdoptionTurnResults({ pending_adoption_turn_results: [sessionResult] })[0],
+    ).toBe(sessionResult);
+
+    expect(
+      snapshotPendingAdoptions({
+        pending_adoptions: [{ artifact_id: "session" }],
+        inbox_pending_adoptions: [{ artifact_id: "inbox" }],
+      }),
+    ).toEqual([{ artifact_id: "inbox" }]);
+    expect(snapshotPendingAdoptions({ pending_adoptions: [{ artifact_id: "session" }] })).toEqual([
+      { artifact_id: "session" },
+    ]);
+    expect(
+      snapshotResolvedAdoptions({
+        resolved_adoptions: [{ artifact_id: "session" }],
+        inbox_resolved_adoptions: [{ artifact_id: "inbox" }],
+      }),
+    ).toEqual([{ artifact_id: "inbox" }]);
   });
 
   it("不同作品及会话使用不同缓存身份", () => {

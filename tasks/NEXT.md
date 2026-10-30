@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B46 | CP0/CP1 done；CP2 partial：跨会话来源 turn 读回已实现；前端 inbox 视图/只读限制/动作重放、CP3 页面矩阵待做 | [原任务](slices/B46-persistent-adoption-inbox.md) |
+| B46 | CP0/CP1/CP2 done：跨会话 inbox 经候选卡/档案呈现，来源 turn 回退与处理后移除已接线；CP3 真实页面矩阵待做 | [原任务](slices/B46-persistent-adoption-inbox.md) |
 
 ## 后续候选
 

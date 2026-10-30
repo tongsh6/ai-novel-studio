@@ -54,6 +54,10 @@ export interface WorkspaceResumeSnapshot {
   pending_adoption_turn_results?: WireTurnResult[];
   open_author_question_turn_results?: WireTurnResult[];
   resolved_adoptions: Record<string, unknown>[];
+  // B46：work-wide adoption inbox（可缺省，旧快照按 session 字段回退）。
+  inbox_pending_adoptions?: Record<string, unknown>[];
+  inbox_pending_adoption_turn_results?: WireTurnResult[];
+  inbox_resolved_adoptions?: Record<string, unknown>[];
   resume_trace_refs: string[];
 }
 
@@ -67,6 +71,10 @@ export interface WorkspaceSessionSnapshot {
   pending_adoption_turn_results?: WireTurnResult[];
   open_author_question_turn_results?: WireTurnResult[];
   resolved_adoptions: Record<string, unknown>[];
+  // B46：work-wide adoption inbox（可缺省，旧快照按 session 字段回退）。
+  inbox_pending_adoptions?: Record<string, unknown>[];
+  inbox_pending_adoption_turn_results?: WireTurnResult[];
+  inbox_resolved_adoptions?: Record<string, unknown>[];
   resume_trace_refs: string[];
 }
 
@@ -174,10 +182,28 @@ export function turnAgentRunActivityPath(
 
 // Design: docs/design/adr/ADR-0027-author-obligation-state-v3.md D3
 // 待办操作凭据独立于聊天分页，仍经统一 TurnResult 契约入口校验。
+// B46：优先 work-wide inbox（跨会话待处理）；旧服务端无 inbox 字段时回退 session-scoped。
 export function pendingAdoptionTurnResults(
-  snapshot: Pick<WorkspaceResumeSnapshot, "pending_adoption_turn_results">,
+  snapshot: Pick<
+    WorkspaceResumeSnapshot,
+    "pending_adoption_turn_results" | "inbox_pending_adoption_turn_results"
+  >,
 ): WireTurnResult[] {
-  return (snapshot.pending_adoption_turn_results ?? []).map(parseIncomingTurnResult);
+  const selected =
+    snapshot.inbox_pending_adoption_turn_results ?? snapshot.pending_adoption_turn_results;
+  return (selected ?? []).map(parseIncomingTurnResult);
+}
+
+export function snapshotPendingAdoptions<T = Record<string, unknown>>(
+  snapshot: Pick<WorkspaceResumeSnapshot, "pending_adoptions" | "inbox_pending_adoptions">,
+): T[] {
+  return (snapshot.inbox_pending_adoptions ?? snapshot.pending_adoptions ?? []) as T[];
+}
+
+export function snapshotResolvedAdoptions<T = Record<string, unknown>>(
+  snapshot: Pick<WorkspaceResumeSnapshot, "resolved_adoptions" | "inbox_resolved_adoptions">,
+): T[] {
+  return (snapshot.inbox_resolved_adoptions ?? snapshot.resolved_adoptions ?? []) as T[];
 }
 
 export function openAuthorQuestionTurnResults(

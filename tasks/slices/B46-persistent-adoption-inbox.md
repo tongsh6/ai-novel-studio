@@ -1,6 +1,6 @@
 # B46：持久 Adoption Inbox 与待处理视图
 
-- 状态：**doing（2026-10-31 CP0/CP1 done；CP2 partial：跨会话动作来源读回已实现，前端 inbox 视图/只读限制/处理器重放待做；CP3 页面矩阵未做）**。
+- 状态：**doing（2026-10-31 CP0/CP1/CP2 done：跨会话 inbox 经既有候选卡呈现、来源 turn 读回、处理后移除/只读隐藏已落地；CP3 真实页面矩阵待做）**。
 - 登记日期：2026-10-27；来源：待处理项主要依赖 transcript/runtime pending state，重开或换会话后缺少集中恢复与处理入口。
 - 上游：[AU05](AU05-file-level-closure.md)、[AU09](AU09-file-level-closure.md)、[AU09-archive-stats-current](AU09-archive-stats-current.md)、[B31](B31-author-reply-run-binding.md)。
 
@@ -73,6 +73,13 @@
 - `WorkSessionService.turn_result/2` 暴露给 web；`workspace_channel.source_turn_for_artifact_action/3` 当前 socket 缓存未命中时回退到持久 turn_result，使跨会话 pending 动作能把原 source turn 交给既有 adoption workflow（不复制状态机/不自动采纳）。
 - 测试：`turn_result` work+turn 命中、非 assistant/未知 turn/跨作品不可见；service 27/0；全量 mix 1050/0。
 - 未完成：前端 inbox 视图（source session 标注、待处理列表、处理后消失）、只读会话禁止处理、动作 payload 是否携带 source session 的约定、真实页面矩阵/重复提交/刷新恢复证据。CP2 保持 partial。
+## 9. CP2 实施记录（2026-10-31）
+
+- 前端 `WorkspaceResumeSnapshot` 增加 inbox 字段；`pendingAdoptionTurnResults` 优先 work-wide inbox（旧服务端无字段回退 session）；新增 `snapshotPendingAdoptions`/`snapshotResolvedAdoptions`。
+- `WorkspaceChat` 初始 resume/reconcile/restore 统一使用 inbox 快照 → 既有候选卡与档案待处理区显示跨会话 pending；只读会话仍把 pending 清空、不可处理。
+- 动作成功后立即从 `resumePendingAdoptions` 移除目标 artifact（失败保留），配合 channel 持久 source turn 回退，使新会话中的旧 pending 可直接 accept/discard/edit_then_accept；处理后下次恢复从 inbox 消失。
+- 测试：inbox 优先/旧快照回退/快照摘要 helper；frontend 653/653、typecheck/lint 通过。
+- 残差：inbox 条目视觉上未单独标注来源 session（DTO 已有 source_session_id，UI 沿用候选卡）；跨会话动作的重复提交/revision 失效/刷新恢复矩阵与真实页面证据归 CP3。
 ## 4. 非目标
 
 - 不复制 transcript 当 inbox，不新增第二套 pending 状态机。
