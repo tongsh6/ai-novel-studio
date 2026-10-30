@@ -425,8 +425,19 @@ git diff --check                                # clean
 
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
-| CP0 | 审计旧 fallback 生产/消费与现有纠错，冻结旧目标退役依据及替代映射：合格候选来源、有界成功恢复、耗尽失败、原请求/重试入口、零伪造 | todo |
-| CP1 | 按已确认目标同步 registry/manifest/verifier 与必要清理；旧证据保留、明确替代场景，不添加产品验收钩子、不把运行状态直接改成 PASS | todo |
-| CP2 | 外部驱动真实产品入口验证替代矩阵；机制/真实模型行为、browser/native 分证；更新 known-gaps 与受影响聚合结果，仅在完整范围满足后关闭本节 | todo |
+| CP0 | 审计旧 fallback 生产/消费与现有纠错，冻结旧目标退役依据及替代映射：合格候选来源、有界成功恢复、耗尽失败、原请求/重试入口、零伪造 | **done（§13.4）** |
+| CP1 | 按已确认目标同步 registry/manifest/verifier 与必要清理；旧证据保留、明确替代场景，不添加产品验收钩子、不把运行状态直接改成 PASS | **done（§13.4）** |
+| CP2 | 外部驱动真实产品入口验证替代矩阵；机制/真实模型行为、browser/native 分证；更新 known-gaps 与受影响聚合结果，仅在完整范围满足后关闭本节 | **done（browser-surface 机制；native/真实模型另登记，§13.4）** |
 
 当前 `scenarios.yml` 仍保留旧 blocked 登记及历史原因，不能据此重新要求作者选择“让空候选进入 APP 补齐”；最新设计真源是 §13.2。实现/验证尚未执行是剩余工作，原作者裁决阻塞已经解除。
+
+### 13.4 C06 执行记录（2026-10-31）
+
+- **CP0 审计**：`Planner.fallback_candidates/1` 仍存在但判断纪元 `judgment_candidates/2` 不再调用；坏/空候选在当前协议层 `validate_response/correct_or_reject` 安全失败或有界纠错，不会进入应用固定补候选。作者 C06=A：退役旧 APP 补齐目标，保留通用纠错与作者可恢复/重试。
+- **CP1 退役**：`au02-candidate-fallback-ui` 从 `scenarios.yml` registry 移除、scenario manifest 删除、`tauri_slice_verify.sh --list/description/allowlist` 清理；历史 artifacts 保留，不重写历史 PASS。`known-gaps` 从 blocked 表移入 retired 表并写明替代证据；manifest 220/222、manifest tests 15/15。
+- **CP2 替代页面证据（browser-surface）**：
+  - 有效候选链 `au02-candidate-continuation` 真实 Tauri 窗口外部 driver **PASS**（candidate_selection 继续对话、无 adoption/write）；
+  - 坏协议/坏结构友好失败与恢复 `au01-frame-validation-friendly-error` 真实 Tauri 窗口 driver **PASS**（安全终局、内部原因不外泄、后续普通 chat 正常）；
+  - 有界纠错重试矩阵由 `judgment_protocol_test` 覆盖；未伪造候选、无产品验收钩子。
+- **未覆盖/分层**：native 系统 surface 未重跑（replacement 场景为 browser-surface）；真实模型行为归 B42/B27 的独立资源窗口，不在此代签；旧场景 driver/verifier 代码未删除（registry 不可达，保留历史实现，登记为清理残差）。
+- 结论：C06 退役目标与替代机制验证完成，registry/known-gaps 同步；不以旧 fallback PASS 冒充当前实现。

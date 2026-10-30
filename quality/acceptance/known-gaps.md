@@ -1,6 +1,6 @@
 # Known Acceptance Gaps
 
-> 2026-10-30 C06 裁决更新：作者已选择退役 APP 固定补候选目标，保留现有有界纠错及失败恢复。下方 `au02-candidate-fallback-ui` 的 blocked/旧原因是尚未迁移的运行登记；替代验证与 registry 退役未执行，不能标 PASS/已关闭，也不再等待作者允许旧 APP 补齐路线。唯一执行来源见 [B40 §13](../../tasks/slices/B40-judgment-era-acceptance-reanchor.md#13-候选失败策略裁决材料)。
+> 2026-10-31 C06 执行更新：作者已选择退役 APP 固定补候选目标；`au02-candidate-fallback-ui` 已从 registry/manifest 移除并进入下方 retired 表，替代证据为有效候选链 `au02-candidate-continuation`、坏协议友好失败链 `au01-frame-validation-friendly-error` 及 JudgmentProtocol 有界纠错单测。唯一执行来源见 [B40 §13](../../tasks/slices/B40-judgment-era-acceptance-reanchor.md#13-候选失败策略裁决材料)。
 
 本文件登记已经进入 manifest、但当前不能作为质量 gate 执行的场景。Known gap 不是通过状态，也不能进入 `pr-smoke`。
 
@@ -10,7 +10,6 @@
 
 | 场景 | 类型 | blocked 原因 | 触发 re-anchor |
 |---|---|---|---|
-| `au02-candidate-fallback-ui` | `implementation_missing` / 契约演进 | 判断纪元候选帧只能由 `propose_creative_directions` 产生；坏/空候选在协议校验层安全失败或落 `casual_reply`（候选丢弃），到不了应用 `Planner.fallback_candidates`（无当前可达生产者）。 | 协议/产品裁决允许空候选进入应用兜底，或真实模型产出该路径；不得用旧帧纪元证据代签 |
 
 登记批次：`tasks/slices/VS00D-G-GAP-RECONCILIATION.md`（2026-10-24）、B27 CP3c/CP3d-B 退役批次（2026-10-24）与 B40 复核批次（2026-10-27）；下一批开工前重扫差距台账时复核本表。
 
@@ -63,6 +62,7 @@
 
 | `au02-candidate-fallback-ui` | blocked（`implementation_missing`/契约演进） | 判断纪元候选帧只能由 `propose_creative_directions` 工具产生；坏/空候选 payload 在协议校验层安全失败或落为 `casual_reply`（候选被丢弃），到不了应用 `Planner.fallback_candidates`；应用兜底代码仍在但无当前可达生产者 | 触发=协议/产品裁决允许 creative_exploration 空候选进入应用兜底，或真实模型产出该路径；不得用旧帧纪元证据代签 |
 | `au01-garbage-json-recovery` | **retired** | 判断纪元 provider 契约=自然语言 content+可选原生工具调用，不再要求可解析 JSON 结构；旧「乱码 JSON 降级」无当前生产者 | `au01-frame-validation-friendly-error`（协议损坏安全终局）+ `agent-provider-execution-error-author-safe` |
+| `au02-candidate-fallback-ui` | **retired（B40-C06=A，2026-10-31）** | 作者裁决退役 APP 固定补候选目标；坏/空候选由 JudgmentProtocol 有界纠错，仍失败时作者可见安全终局，不伪造候选 | `au02-candidate-continuation`（有效候选继续对话 PASS）、`au01-frame-validation-friendly-error`（坏结构友好失败/恢复 PASS）、`judgment_protocol_test` 有界纠错重试矩阵 |
 
 ## 2026-10-27 B40 CP3 当前 PASS（browser-surface，如实标注）
 

@@ -735,15 +735,6 @@ scenarios:
     manifest: quality/acceptance/scenarios/au02-natural-exploration-no-slot-form.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au02-natural-exploration-no-slot-form --surface tauri
-  - id: au02-candidate-fallback-ui
-    title: "候选坏格式 fallback 仍渲染可用候选卡"
-    tier: nightly
-    surface: tauri
-    status: blocked
-    blocked_reason: "B40 CP3（2026-10-27）：判断纪元候选帧只能由 propose_creative_directions 工具产生（frame_type=creative_exploration）；坏/空候选 payload 在协议校验层安全失败或落为普通回复（casual_reply 丢弃候选），到不了应用层 Planner.fallback_candidates，因此「坏候选 → 应用兜底候选 UI」无当前可达生产者。应用兜底代码仍在，但缺确定性/真实生产者。触发条件=判断协议允许 creative_exploration 且候选为空时进入应用兜底（产品/契约裁决），或真实模型产出该路径；不得用旧帧纪元证据代签。"
-    manifest: quality/acceptance/scenarios/au02-candidate-fallback-ui.yml
-    driver: frontend/slice-verify/external-ui-driver.mjs
-    entrypoint: scripts/quality_accept.sh au02-candidate-fallback-ui --surface tauri
   - id: au02-candidate-multiturn-context
     title: "候选方向继续讨论后的多轮上下文保持"
     tier: nightly

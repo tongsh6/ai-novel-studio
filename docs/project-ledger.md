@@ -1236,3 +1236,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B46 CP3 partial**：新增 b46-cross-session-inbox 真实 Tauri 场景 PASS（pending→新会话 inbox→档案采纳→刷新移除/resolved 保留/唯一 CONFIRMED 事实）；修复通用 author_action 持久 source turn 回退、pending_artifact_available work-wide、driver DB/verifier 注册；新场景登记 221/223 manifest。跨会话 discard/edit/重复/跨作品/只读页面矩阵未分别驱动。
 
 - 2026-10-31 — **B46 done**：真实 Tauri 跨会话 inbox accept+discard 均 PASS（新会话/第三会话、刷新移除/resolved、唯一 CONFIRMED）；产品修复持久 source turn 回退与 work-wide pending available；档案待处理卡新增放弃动作；backend 1050/0、frontend 653/653、manifest 221/223。edit/重复/跨作品/只读页面变体登记残差。当前任务切 B40-C06。
+
+- 2026-10-31 — **B40-C06 done**：退役 au02-candidate-fallback-ui（registry/manifest 删除、known-gaps retired、替代证据 au02-candidate-continuation 与 au01-frame-validation-friendly-error 真实页面 PASS + judgment_protocol 有界纠错测试）；manifest 220/222；native/真实模型分层残差。当前任务切 AU09-EVOLUTION。
