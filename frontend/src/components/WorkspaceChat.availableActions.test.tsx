@@ -448,9 +448,11 @@ describe("WorkspaceChat session controls", () => {
       sessions: [session({ id: "active", title: "当前会话" })],
       activeSessionId: "active",
       sessionSearch: "",
+      searchHits: [],
       canCreateSession: true,
       creatingSession: false,
       onSessionSearch: (query) => searched.push(query),
+      onOpenSearchHit: vi.fn(),
       onOpenSession: vi.fn(),
       onCreateSession: () => {
         createCount += 1;
@@ -472,6 +474,37 @@ describe("WorkspaceChat session controls", () => {
     expect(createCount).toBe(1);
   });
 
+  it("shows turn-level search hits and opens the selected hit", () => {
+    const opened: string[] = [];
+    const tree = WorkspaceSessionList({
+      sessions: [],
+      activeSessionId: "active",
+      sessionSearch: "林瑶",
+      searchHits: [
+        {
+          session_id: "session-1",
+          session_title: "历史会话",
+          turn_id: "turn-1",
+          role: "assistant",
+          snippet: "妹妹林瑶的伏笔在旧账牌里。",
+          inserted_at: null,
+        },
+      ],
+      canCreateSession: true,
+      creatingSession: false,
+      onSessionSearch: vi.fn(),
+      onOpenSearchHit: (hit) => opened.push(hit.turn_id),
+      onOpenSession: vi.fn(),
+      onCreateSession: vi.fn(),
+      onArchiveSession: vi.fn(),
+    });
+
+    const hitButton = findButtonsByText(tree, "妹妹林瑶的伏笔在旧账牌里。")[0];
+    hitButton?.props.onClick?.();
+
+    expect(opened).toEqual(["turn-1"]);
+  });
+
   it("archives only exited history sessions from the list", () => {
     const archived: string[] = [];
     const tree = WorkspaceSessionList({
@@ -482,9 +515,11 @@ describe("WorkspaceChat session controls", () => {
       ],
       activeSessionId: "active",
       sessionSearch: "",
+      searchHits: [],
       canCreateSession: false,
       creatingSession: false,
       onSessionSearch: vi.fn(),
+      onOpenSearchHit: vi.fn(),
       onOpenSession: vi.fn(),
       onCreateSession: vi.fn(),
       onArchiveSession: (item) => archived.push(item.id),

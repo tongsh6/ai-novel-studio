@@ -4620,6 +4620,12 @@ describe("native Tauri slice verifier", () => {
         readonly_send_disabled: true,
         readonly_visible_text: "林瑶留下的旧线索应该藏在矿区档案室。",
         active_session_restored: true,
+        search_hit_located: true,
+        search_hit_highlighted: true,
+        search_hit_turn_id: "turn_history_1",
+        search_hit_session_id: "session-history",
+        search_hit_count: 1,
+        search_hit_snippet_matched: true,
       },
     ];
 
@@ -4646,6 +4652,7 @@ describe("native Tauri slice verifier", () => {
         "old_pending_adoptions_not_restored",
         "chat_input_and_send_disabled_while_viewing_history",
         "active_session_view_can_be_restored",
+        "turn_level_search_hit_located_and_highlighted",
       ],
     });
   });

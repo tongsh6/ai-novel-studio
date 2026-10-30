@@ -24844,6 +24844,12 @@ function sessionHistoryReadonlyBehavior(records, evidence, _options) {
   if (uiState.readonly_input_disabled !== true) return null;
   if (uiState.readonly_send_disabled !== true) return null;
   if (uiState.active_session_restored !== true) return null;
+  if (uiState.search_hit_located !== true) return null;
+  if (uiState.search_hit_highlighted !== true) return null;
+  if (Number(uiState.search_hit_count ?? 0) < 1) return null;
+  if (uiState.search_hit_snippet_matched !== true) return null;
+  if (!String(uiState.search_hit_turn_id ?? "").trim()) return null;
+  if (uiState.search_hit_session_id !== uiState.readonly_session_id) return null;
 
   return {
     slice_id: "au03-session-history-readonly",
@@ -24858,6 +24864,7 @@ function sessionHistoryReadonlyBehavior(records, evidence, _options) {
       "old_pending_adoptions_not_restored",
       "chat_input_and_send_disabled_while_viewing_history",
       "active_session_view_can_be_restored",
+      "turn_level_search_hit_located_and_highlighted",
     ],
   };
 }

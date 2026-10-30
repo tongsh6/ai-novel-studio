@@ -33,8 +33,20 @@ export interface SessionTranscriptPageInfo {
   limit: number;
   returned_count: number;
   has_more_before: boolean;
+  has_more_after?: boolean;
+  around_turn_id?: string | null;
   before_id: string | null;
   after_id: string | null;
+}
+
+// AU03-SEARCH：work 内 turn 级只读搜索命中（用于定位历史消息）。
+export interface SessionSearchHit {
+  session_id: string;
+  session_title: string | null;
+  turn_id: string;
+  role: string;
+  snippet: string;
+  inserted_at: string | null;
 }
 
 export interface WorkspaceResumeSnapshot {
@@ -131,6 +143,13 @@ function url(path: string): string {
 
 export function resumeSessionPath(workId: string): string {
   return `/api/works/${encodeURIComponent(workId)}/sessions/resume`;
+}
+
+export function searchSessionHitsPath(workId: string, query: string): string {
+  const params = new URLSearchParams();
+  if (query.trim()) params.set("query", query.trim());
+  const suffix = params.toString();
+  return `/api/works/${encodeURIComponent(workId)}/sessions/search_hits${suffix ? `?${suffix}` : ""}`;
 }
 
 export function searchSessionsPath(workId: string, query: string): string {
@@ -238,11 +257,21 @@ export async function getSessionSnapshot(
 export async function getSessionTranscriptPage(
   workId: string,
   sessionId: string,
-  options: { beforeId?: string | null; limit?: number } = {},
+  options: { beforeId?: string | null; aroundTurnId?: string | null; limit?: number } = {},
 ): Promise<WorkspaceSessionTranscriptPage> {
   const res = await fetch(url(sessionTranscriptPagePath(workId, sessionId, options)));
   if (!res.ok) throw new Error(`getSessionTranscriptPage failed: HTTP ${res.status}`);
   return (await res.json()) as WorkspaceSessionTranscriptPage;
+}
+
+export async function searchSessionHits(
+  workId: string,
+  query: string,
+): Promise<SessionSearchHit[]> {
+  const res = await fetch(url(searchSessionHitsPath(workId, query)));
+  if (!res.ok) throw new Error(`searchSessionHits failed: HTTP ${res.status}`);
+  const body = (await res.json()) as { hits: SessionSearchHit[] };
+  return body.hits;
 }
 
 export async function searchSessions(workId: string, query: string): Promise<WorkSessionDto[]> {

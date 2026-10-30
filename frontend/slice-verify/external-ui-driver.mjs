@@ -2740,9 +2740,61 @@ async function driveAu03SessionHistoryReadonly(page) {
   );
   assert(seededHistorySession?.id, "Seeded history session was not available through sessions API");
 
+  // AU03-SEARCH：turn 级 hit 必须可定位到目标消息并高亮，不只是 session 列表。
+  const hitResponse = await fetch(
+    `${baseUrl}/api/works/${encodeURIComponent(workId)}/sessions/search_hits?query=${encodeURIComponent("矿区档案室")}`,
+  );
+  assert(hitResponse.ok, `Failed to search turn hits: HTTP ${hitResponse.status}`);
+  const hitBody = await hitResponse.json();
+  const seededHit = (hitBody.hits ?? []).find(
+    (hit) =>
+      hit.session_id === seededHistorySession.id &&
+      String(hit.snippet ?? "").includes("林瑶留下的旧线索"),
+  );
+  assert(
+    seededHit?.turn_id,
+    `Seeded history session did not return a turn-level search hit: ${JSON.stringify(hitBody.hits)}`,
+  );
+
   await openSessionRail(page);
   const searchBox = page.getByPlaceholder("搜索会话");
   await searchBox.waitFor({ timeout: 10_000 });
+  await searchBox.fill("矿区档案室");
+
+  await page.getByText("匹配消息", { exact: true }).waitFor({ timeout: 10_000 });
+  const searchHitButton = page
+    .locator("button")
+    .filter({ hasText: "林瑶留下的旧线索" })
+    .first();
+  await searchHitButton.waitFor({ timeout: 10_000 });
+  await searchHitButton.click();
+
+  await page.waitForFunction(
+    (snippet) =>
+      document.body.innerText.includes(snippet) &&
+      document.body.innerText.includes("返回当前会话"),
+    "林瑶留下的旧线索",
+    { timeout: 15_000 },
+  );
+
+  const searchHitHighlighted = await page.evaluate(() =>
+    [...document.querySelectorAll("[class]")].some((element) =>
+      String(element.className).includes("searchHitMessage"),
+    ),
+  );
+  assert(searchHitHighlighted, "Search hit target message was not highlighted after locate");
+
+  await page.getByRole("button", { name: "返回当前会话" }).click();
+  await page.waitForFunction(
+    () =>
+      !document.body.innerText.includes("正在只读查看历史 transcript") &&
+      document.querySelector('input[placeholder="输入你的想法、问题或指令..."]')?.disabled ===
+        false,
+    undefined,
+    { timeout: 15_000 },
+  );
+
+  await openSessionRail(page);
   await searchBox.fill("林瑶旧线索");
 
   const historySessionButton = page.locator("button").filter({ hasText: "林瑶旧线索讨论" }).first();
@@ -2829,6 +2881,13 @@ async function driveAu03SessionHistoryReadonly(page) {
       readonly_input_disabled: readonlySnapshot.input_disabled,
       readonly_send_disabled: readonlySnapshot.send_disabled,
       active_session_restored: true,
+      search_hit_located: true,
+      search_hit_highlighted: searchHitHighlighted,
+      search_hit_turn_id: seededHit.turn_id,
+      search_hit_session_id: seededHit.session_id,
+      search_hit_role: seededHit.role,
+      search_hit_snippet_matched: String(seededHit.snippet ?? "").includes("林瑶留下的旧线索"),
+      search_hit_count: Array.isArray(hitBody.hits) ? hitBody.hits.length : 0,
       readonly_visible_text: readonlySnapshot.visible_text,
       active_visible_text: activeRestored.visible_text,
       socket_connected: true,

@@ -86,6 +86,7 @@ import {
   snapshotPendingAdoptions,
   snapshotResolvedAdoptions,
   searchSessions,
+  searchSessionHits,
   getSessionSnapshot,
   getSessionTranscriptPage,
   getTurnReplay,
@@ -93,6 +94,7 @@ import {
   createWorkSession,
   archiveWorkSession,
   transcriptToMessages,
+  type SessionSearchHit,
   type SessionTranscriptPageInfo,
   type WorkSessionDto,
 } from "../lib/sessions";
@@ -415,9 +417,11 @@ export interface WorkspaceSessionListProps {
   sessions: WorkSessionDto[];
   activeSessionId: string | null;
   sessionSearch: string;
+  searchHits: SessionSearchHit[];
   canCreateSession: boolean;
   creatingSession: boolean;
   onSessionSearch: (query: string) => void;
+  onOpenSearchHit: (hit: SessionSearchHit) => void;
   onOpenSession: (session: WorkSessionDto) => void;
   onCreateSession: () => void;
   onArchiveSession: (session: WorkSessionDto) => void;
@@ -427,9 +431,11 @@ export function WorkspaceSessionList({
   sessions,
   activeSessionId,
   sessionSearch,
+  searchHits,
   canCreateSession,
   creatingSession,
   onSessionSearch,
+  onOpenSearchHit,
   onOpenSession,
   onCreateSession,
   onArchiveSession,
@@ -454,6 +460,28 @@ export function WorkspaceSessionList({
           <Plus size={14} aria-hidden="true" />
         </button>
       </div>
+      {sessionSearch.trim() !== "" && (
+        <div className={styles.sessionHits}>
+          <div className={styles.sessionHitsTitle}>{WORKBENCH.sessionSearchHitsTitle}</div>
+          {searchHits.length === 0 ? (
+            <div className={styles.sessionHitEmpty}>{WORKBENCH.sessionSearchEmpty}</div>
+          ) : (
+            searchHits.map((hit) => (
+              <button
+                key={`${hit.session_id}:${hit.turn_id}`}
+                type="button"
+                className={styles.sessionHit}
+                onClick={() => onOpenSearchHit(hit)}
+              >
+                <span className={styles.sessionHitTitle}>
+                  {hit.session_title ?? hit.session_id}
+                </span>
+                <span className={styles.sessionHitSnippet}>{hit.snippet}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
       {sessions.slice(0, 5).map((session) => (
         <div key={session.id} className={styles.sessionItemShell}>
           <button
@@ -1355,6 +1383,8 @@ export function WorkspaceChat() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<WorkSessionDto[]>([]);
   const [sessionSearch, setSessionSearch] = useState("");
+  const [sessionSearchHits, setSessionSearchHits] = useState<SessionSearchHit[]>([]);
+  const [highlightedTurnId, setHighlightedTurnId] = useState<string | null>(null);
   const [readOnlySession, setReadOnlySession] = useState<WorkSessionDto | null>(null);
   const [readOnlySourceTurnRef, setReadOnlySourceTurnRef] = useState<string | null>(null);
   const [transcriptPage, setTranscriptPage] = useState<SessionTranscriptPageInfo | null>(null);
@@ -3244,11 +3274,46 @@ export function WorkspaceChat() {
     setSessionSearch(query);
     if (!context.workId || context.workId === "lobby") return;
 
+    if (query.trim() === "") {
+      setSessionSearchHits([]);
+      return;
+    }
+
     try {
-      const result = await searchSessions(context.workId, query);
+      const [result, hits] = await Promise.all([
+        searchSessions(context.workId, query),
+        searchSessionHits(context.workId, query),
+      ]);
       setSessions(result);
+      setSessionSearchHits(hits);
     } catch {
       setSessions([]);
+      setSessionSearchHits([]);
+    }
+  };
+
+  const handleOpenSearchHit = async (hit: SessionSearchHit) => {
+    if (!context.workId || context.workId === "lobby") return;
+
+    try {
+      const [snapshot, page] = await Promise.all([
+        getSessionSnapshot(context.workId, hit.session_id),
+        getSessionTranscriptPage(context.workId, hit.session_id, {
+          aroundTurnId: hit.turn_id,
+        }),
+      ]);
+      const restoredMessages = transcriptToMessages(page.transcript) as ChatMessage[];
+      setReadOnlySession(snapshot.session);
+      setReadOnlySourceTurnRef(hit.turn_id);
+      setHighlightedTurnId(hit.turn_id);
+      setTranscriptPage(page.transcript_page);
+      setMessages(restoredMessages);
+      setResumePendingAdoptions([]);
+      setResumeResolvedAdoptions([]);
+      setTranscriptRestored(restoredMessages.length > 0);
+      resumeRestoredTranscriptRef.current = restoredMessages.length > 0;
+    } catch {
+      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sessionOpenFailure }]);
     }
   };
 
@@ -3393,6 +3458,7 @@ export function WorkspaceChat() {
       }
       setReadOnlySession(shouldOpenReadOnly ? snapshot.session : null);
       setReadOnlySourceTurnRef(shouldOpenReadOnly ? sourceTurnRef : null);
+      setHighlightedTurnId(null);
       setTranscriptPage(snapshot.transcript_page);
       setMessages(restoredMessages);
       setResumePendingAdoptions(
@@ -4262,12 +4328,16 @@ export function WorkspaceChat() {
                 sessions={sessions}
                 activeSessionId={activeSessionId}
                 sessionSearch={sessionSearch}
+                searchHits={sessionSearchHits}
                 canCreateSession={
                   socketConnected && Boolean(context.workId) && context.workId !== "lobby"
                 }
                 creatingSession={creatingSession}
                 onSessionSearch={(query) => {
                   void handleSessionSearch(query);
+                }}
+                onOpenSearchHit={(hit) => {
+                  void handleOpenSearchHit(hit);
                 }}
                 onOpenSession={(session) => {
                   void handleOpenSession(session);
@@ -4809,7 +4879,13 @@ export function WorkspaceChat() {
 
               return (
                 <Fragment key={messageKey}>
-                  <div className={msg.role === "user" ? styles.userMsg : styles.assistantMsg}>
+                  <div
+                    className={`${msg.role === "user" ? styles.userMsg : styles.assistantMsg}${
+                      highlightedTurnId !== null && msg.turnId === highlightedTurnId
+                        ? ` ${styles.searchHitMessage}`
+                        : ""
+                    }`}
+                  >
                     <div className={styles.role}>
                       {assistantRoleLabel(msg.role, assistantDisplayName)}
                     </div>

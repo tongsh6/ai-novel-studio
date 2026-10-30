@@ -567,6 +567,11 @@
   width: min(var(--conversation-content-width), 100%);
 }
 
+.searchHitMessage {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .userMsg > .role,
 .assistantMsg > .role {
   font-weight: 600;
@@ -1703,6 +1708,62 @@
   padding: 0 8px;
   color: var(--foreground-primary);
   background-color: var(--surface-primary);
+  font-family: var(--sans);
+  font-size: 12px;
+}
+
+.sessionHits {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 8px;
+}
+
+.sessionHitsTitle {
+  color: var(--foreground-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+}
+
+.sessionHit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background-color: var(--surface-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.sessionHit:hover,
+.sessionHit:focus {
+  background-color: var(--surface-secondary);
+}
+
+.sessionHitTitle {
+  overflow: hidden;
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sessionHitSnippet {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: var(--foreground-secondary);
+  font-family: var(--sans);
+  font-size: 11px;
+}
+
+.sessionHitEmpty {
+  color: var(--foreground-secondary);
   font-family: var(--sans);
   font-size: 12px;
 }
