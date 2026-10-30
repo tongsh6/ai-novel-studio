@@ -1246,6 +1246,16 @@ scenarios:
     manifest: quality/acceptance/scenarios/author-behavior-real-llm-subset.yml
     driver: frontend/slice-verify/author-behavior-corpus.mjs
     entrypoint: scripts/quality_accept.sh author-behavior-real-llm-subset --surface browser
+  - id: b27-request-source-native
+    title: "B27 §9 CP3 外部原生 Tauri + 真实模型 M1/M2（供给声明与 memory 观察回流）"
+    tier: release-real-llm
+    surface: tauri
+    default_provider: strata
+    status: blocked
+    blocked_reason: "真实模型 scoped evidence 批次已 PASS（cp3c）；复跑依赖 Strata 单槽资源窗口/预注册，语义仅覆盖本批 M1/M2，不进入 nightly。"
+    manifest: quality/acceptance/scenarios/b27-request-source-native.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: bash scripts/quality_accept.sh b27-request-source-native --surface tauri --provider strata
   - id: e2e-01-full-chain
     title: "E2E-01 端到端全链路聚合验收"
     tier: nightly

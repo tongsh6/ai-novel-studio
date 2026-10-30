@@ -477,7 +477,7 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 
 ## 9. 元原则整改：实际请求材料与引用同源
 
-- 状态：**doing（2026-10-30 §9 CP0–CP2 done：契约冻结 + 同源声明接线 + 构造器矩阵；CP3 外部原生 Tauri+真实模型 M1/M2 待执行）**。原 retest6 结论与停止全量复测裁决保留。
+- 状态：**doing（2026-10-30 §9 CP0–CP3 done：契约冻结 + 同源声明接线 + 构造器矩阵 + 外部原生 Tauri/真实模型 M1/M2；原 CP4 measured FAIL/known-gap、第二方复核与停止全量复测裁决保留）**。
 - 来源：[愿景 §2.4](../../docs/design/00-vision-and-engineering-roadmap.md#24-创作信息获取元原则最小供给按需求证证据闭环2026-10-27-用户拍板)、已接受的 [ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)/[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md) 及 B39 D1/D7。模型负责判断信息需求和相关性，APP 必须如实提供自己实际发送的材料与边界，不能以检索/记账事实替代供给事实。
 - 已核静态链：`WorkspaceContext` 先召回 memory 并记录 reference，`ContextAssembler` 据 `memory_summary` 生成 context ref；`DialoguePlanningService` 将全部 context refs 写为 `supplied_context_refs`，但当前普通/写作判断 context block 未渲染该 `memory_summary`，`reply_record` 仍继承该声明。此证据限定于该共通初始请求链，未运行真实模型；不等于“模型永远无法经后续 memory_recall 获取材料”。
 
@@ -507,7 +507,7 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 | CP0 | 逐一定位当前普通/写作判断等共通初始调用、实际消息字节、材料取得/裁剪/发送点与声明消费者；冻结最小同源材料映射及 Base/按需观察分界，列清被省略、失败、未知、旧记录无证据的形状和真实 driver；不直接把全部 memory 加回首轮 | **done（2026-10-30）**：链路/声明消费者审计 + 双 profile 字节探针；证据 `artifacts/task-audit/2026-10-30-b27-request-source-cp0/{audit-map.json,probe.json,probe.exs}`；契约与 CP1–CP3 预注册见下 |
 | CP1 | 让实际请求内容和 supplied refs/已有版本/覆盖由同一构造事实派生；原本仅 retrieved 的材料不得标 supplied。必要 Base 才主动供给，其余沿通用探索取证；保留原消费者能取得事实的路径，接通当前返回/trace；普通回复统一 decision 与 B43 同源，不另造决定 | **done（2026-10-30）**：`judgment_protocol_input` 以同一 sections 列表派生 context_block + supplied/available/supplied_observation_refs/unavailable_sources/rendered_sections；memory 初始请求不渲染→available（保留 memory_recall 路径）；写作 profile 未渲染 conversation/behavior/memory 不再声明 supplied；reply_record/trace 继承同源字段；新增 9 条测试（双 profile/探索/部分失败/legacy 不回填/跨作品/去重/无 ref 章节），全量 2374/0 |
 | CP2 | 补材料有/无/被裁剪、ref 有但内容无、内容有但来源未知、fetch 失败/部分失败、重复读取、跨作品及历史恢复矩阵；旧记录无发送证据不得回填已供给/已使用。校验初始请求和后续请求各自可见范围，回放不调模型、不写生产事实 | **done（2026-10-30，构造器矩阵）**：新增测试覆盖 ref 有内容无（memory→available）、内容有 ref 无（chapters 不发明 ref）、探索观察渲染才计入且重复 ref 去重、旧 reply_record 无同源字段→空/unknown 不回填、跨作品不共享 supplied/available；部分/失败复用 AU03 CP2 矩阵证据；历史回放不调模型/不写生产事实由现有 replay/why 套件与全量门禁保持（未改 replay 路径）。真实模型 M1/M2 留 CP3 |
-| CP3 | 外部真实工作台触发相关查询/讨论及恢复，核对实际请求材料→来源声明→回复/Why/持久记录；必要的按需读取须有观察进入后续请求证据。局部、真实入口机制、真实模型使用/语义分别报告；仅日志出现 ref 或 UI 卡显示来源不算通过 | todo |
+| CP3 | 外部真实工作台触发相关查询/讨论及恢复，核对实际请求材料→来源声明→回复/Why/持久记录；必要的按需读取须有观察进入后续请求证据。局部、真实入口机制、真实模型使用/语义分别报告；仅日志出现 ref 或 UI 卡显示来源不算通过 | **done（2026-10-30）**：外部原生 Tauri + Strata iq3_s 真模 M1/M2 批次 cp3c PASS（driver+runner，23/23 证据检查）：初始请求不含/不声明 memory supplied；模型 memory_recall 观察进入后续请求；回复/Why/trace 同源；M2 无关问题不虚假声明；零 canon 写；单槽卸载 loaded=null。cp3/cp3b 为 verifier 判据 bug 的只读失败批次，已保留并记录；未以 stub 代签 | 未注册 quality 场景（按 B28 CP4 先例以非注册 evidence 批次运行）；真实模型语义仍只覆盖本批 scoped case；I10 不代签 |
 
 #### CP0 记录（2026-10-30 done）
 
@@ -537,6 +537,17 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 - 测试（CP1/CP2）：`apps/novel_application/test/novel_application/b27_request_source_test.exs` 9 条：普通 profile（supplied=work/conversation/behavior，memory available 且 prompt 无 memory 内容）；写作 profile（只 supplied work，其余 available，prompt 无对应内容）；探索观察仅默认 profile 渲染时计入 supplied_observation_refs；部分失败（work supplied、chapters unavailable、不渲染 0 章）；reply_record 继承同源字段；chapters 内容无 ref 不发明 ref；重复观察 ref 去重；legacy reply_record 空/unknown 不回填；跨作品 supplied/available 不相交。
 - 门禁/证据：全量 mix test **2374/0**；format/compile -Werror/credo strict/xref/arch、I1/I2/I3、manifest 210 scenarios、task_done、静态扫描见 `artifacts/gates/2026-10-30-b27-cp12/`。
 - 残余：CP3 外部原生 Tauri + 真实模型 M1/M2 未执行（目录/探针/log 不等于真实模型供给）；`rendered_context_sections` 当前覆盖 judgment 两条 profile，专业 run（writer）未接；author-visible Why 字段展示未新增 UI（trace 已有数据）；I10 不代签。
+
+#### §9 CP3 记录（2026-10-30 done，外部原生 Tauri + 真实模型）
+
+- 预注册：`artifacts/model-contracts/b27-cp3/preregistration.json`（scope M1/M2、strata iq3_s、单槽/unload、input120s/turn360s、零重试、I10 不代签；verifier 判据修正以 amendment 记录，未改产品/prompt/预算）。
+- 实现（仓外 harness，产品零感知）：`scripts/seed_b27_request_source.exs`（合成作品 + 已确认 memory + 1 章 accepted 正文）；`scripts/native_b27_request_source_drive.mjs`（AX/CGEvent 真实 Tauri 窗口，M1/M2 自然输入、Why 面板、问题预算、模型生命周期）；`scripts/native_b27_request_source_evidence.mjs`（读 llm-calls 请求字节/app-log/DB/Why/生命周期并 23 项检查；含正反例测试）；`scripts/native_b27_request_source_batch.sh`（预注册校验 + detached 编排 + unload 核验）；`tauri_slice_verify.sh` 注册 `b27-request-source-native`（seed/原生证据核验）。
+- 证据（只读保留）：cp3/cp3b 两类失败均为证据判据 bug（memory 标记选错、M2 对话历史误判、描述性“已采纳”误报），保留原批次；修正后 **cp3c PASS**：
+  - `artifacts/slice-verify/b27-request-source-native-tauri-strata-native-cp3c/`：`summary.json` status=pass、23/23 checks、provider_calls=6、`m1_request_indexes=[0]`、`m1_recall_request_indexes=[1..5]`；driver_rc=0/runner_rc=0；`model-lifecycle-before/after` loaded_before=null/loaded_after=null/unloaded=true；`batch-cp3c.state.json` strata_after loaded=null。
+  - M1：初始请求无 memory 内容（“灵源矿区”不在请求 0），模型先 `memory_recall`（app-log）后回复“林瑶失踪指向灵源矿区”；后续真实请求含 observation 内容；Why 面板含同源事实+“参考来源/持久 trace”；零 canon 写（1 章/1 draft/0 receipt 不变）。M2：进度事实回复，未声称使用/依赖记忆材料，无虚假完成/采纳。
+  - 模型行为（只报本批 scoped 事实，不代签语义）：M1 按需取证路径成立，回答与 seed memory 一致；M2 进度回答与作品事实一致；未做独立第二 judge，不宣称全量语义门槛或文学质量。
+- 门禁：见 `artifacts/gates/2026-10-30-b27-cp3/`（全量 mix、I1–I3、manifest、node 测试、task_done、静态扫描）。
+- 残余：未注册 quality 场景（B28 CP4 先例：非注册 evidence 批次）；真模语义仅 scoped；原 CP4 known-gap（M01r2/M02/M08r2/M16r1/M18r1）与第二方复核仍按原裁决保留；I10 不代签。
 
 ### 9.4 承接与停止线
 

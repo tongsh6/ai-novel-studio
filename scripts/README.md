@@ -52,6 +52,10 @@
 | `lib/quality/author_behavior_explorer.mjs` | B70 CP2 seeded 状态探索器：确定性 PRNG/探索计划、逐步状态转移与覆盖汇总、失败缩化（保同一类别最小序列）、去重指纹；正反例见同目录测试。 |
 | `lib/quality/author_behavior_generator.mjs` | B70 CP1 离线确定性语料生成器：模板生成候选 + generated_frozen provenance（source_refs/generator/时间），只产候选、不自动冻结/不标 holdout；正反例见同目录测试。 |
 | `seed_au03_context_source_ui.exs` | AU-03 context source UI 验收 seed。 |
+| `seed_b27_request_source.exs` | B27 §9 CP3 原生实模 seed：合成作品 + 已确认 memory + 1 章 accepted 正文。 |
+| `native_b27_request_source_drive.mjs` | B27 §9 CP3 外部原生 Tauri 驱动：M1/M2 自然输入、Why 面板、问题预算、strata 单槽生命周期。 |
+| `native_b27_request_source_evidence.mjs` | B27 §9 CP3 证据核验：请求字节/供给声明/memory 观察回流/Why/trace/zero-write/卸载；含正反例测试。 |
+| `native_b27_request_source_batch.sh` | B27 §9 CP3 批次编排：预注册校验、detached 运行、结束 unload 核验。 |
 | `seed_author_behavior_states.exs` | B70 CP1 author-behavior 状态夹具 seed（S1 部分多章/S2 空骨架/S3 待采纳候选），仅浏览器隔离 DB 使用。 |
 | `seed_au03_current_work_context_ssot.exs` | AU-03 当前作品上下文 SSOT seed。 |
 | `seed_au03_long_session_compression.exs` | AU-03 长会话压缩 seed。 |

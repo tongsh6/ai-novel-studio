@@ -1,0 +1,63 @@
+id: b27-request-source-native
+title: "B27 §9 CP3 外部原生 Tauri + 真实模型 M1/M2（供给声明与 memory 观察回流）"
+tier: release-real-llm
+surface: tauri
+default_provider: strata
+status: blocked
+blocked_reason: >-
+  真实模型 scoped evidence 批次（cp3c PASS）已完成，但复跑依赖 Strata 单槽资源窗口/预注册，
+  且语义只覆盖本批 M1/M2；不进入 nightly。作者/资源窗口确认前 blocked；未注册为自动 PASS。
+entrypoint: bash scripts/quality_accept.sh b27-request-source-native --surface tauri --provider strata
+contract:
+  - tasks/slices/B27-systematic-prompt-and-intent-integration.md §9（CP3 预注册/记录）
+  - docs/design/00-vision-and-engineering-roadmap.md §2.4
+  - docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md
+  - docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md
+invariants:
+  - I-B27S-1 初始请求不得声明/包含未实际渲染的 memory（available≠supplied）。
+  - I-B27S-2 按需 memory_recall 的观察只有实际进入后续 provider 请求才计入 supplied。
+  - I-B27S-3 回复/Why/trace 同源；未知/失败不补造；zero canon write。
+  - I-B27S-4 真实模型单槽；结束/失败必须 unload 并核验 loaded=null；I10 不由 AI 代签。
+setup:
+  provider: strata
+  model: iq3_s
+  seed: scripts/seed_b27_request_source.exs
+  harness: scripts/native_b27_request_source_batch.sh + native_b27_request_source_drive.mjs + native_b27_request_source_evidence.mjs
+  preregistration: artifacts/model-contracts/b27-cp3/preregistration.json（运行前写入）
+user_flow:
+  - open: 外部 AX/CGEvent 打开真实 Tauri 工作台并选择合成作品
+  - ask_m1: 发送依赖已确认 memory 的问题；模型按需 memory_recall，后续请求带观察内容
+  - ask_m2: 发送无关进度问题；不得虚假声明 memory/完成
+  - verify: 读取 llm-calls 请求字节/app-log/DB/Why/生命周期并做 23 项外部检查
+evidence:
+  required:
+    - screenshot
+    - backend_log
+    - summary_json
+    - persistence_snapshot
+  extra_artifacts:
+    - b27-request-source-native-driver-log.json
+    - b27-native-checks.json
+    - llm-calls
+    - app-log
+    - model-lifecycle-before.json
+    - model-lifecycle-after.json
+  artifact_dir: artifacts/slice-verify/b27-request-source-native-tauri-strata-native-cp3c
+assertions:
+  ui:
+    - M1/M2 由真实 Tauri 窗口输入与回复；Why 面板可见来源事实。
+  data:
+    - 初始请求无 memory 内容；后续真实请求含 memory_recall 观察；回复/Why 一致；零 canon 写。
+    - 模型生命周期 loaded_before=loaded_after=null（结束后卸载核验）。
+  llm:
+    - 真实 Strata iq3_s 请求/响应由 llm-calls 记录；不以 stub 代签语义。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+prerequisites:
+  - 预注册 + Strata 单槽资源窗口 + 作者授权。
+known_not_closed:
+  - 原 CP4 measured FAIL/known-gap（M01r2/M02/M08r2/M16r1/M18r1）与第二方复核仍保留。
+  - 本批只证 M1/M2 scoped 机制/模型行为；不宣称全量语义门槛或文学质量。

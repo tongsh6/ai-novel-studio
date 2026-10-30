@@ -6,13 +6,13 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B27 | §9 CP0–CP2 已完成（同源渲染、reply_record/provenance、trace 接线与红测）；下一步 CP3：外部原生 Tauri + 真实模型 M1/M2（初始请求不得声称未供给记忆；memory_recall 观察进入下一请求；reply/Why/trace 一致；zero canon write），并补 writer/专业作者 same-source 声明残余；实模按资源窗口/B42 预注册 | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
+| B39 | CP1 正文求证与逐次模型输入证据；后续准备/恢复/迁移仍按完整 slice 验收 | [原任务](slices/B39-evidence-seeking-authoring.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B39 | CP1 正文求证与逐次模型输入证据；后续准备/恢复/迁移仍按完整 slice 验收 | [原任务](slices/B39-evidence-seeking-authoring.md) |
+| B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B64 | CP0 核对旧章/新章记忆有效窗；真实目标贯穿 recall、writer/evaluator，保留历史查询语义 | [原任务](slices/B64-coordinate-aware-memory-consumption.md) |
 | B47-C07 | 角色持久层整对象指纹、原子性与真实重复请求幂等；其它残余仍留原任务 | [原任务小节](slices/B47-canon-freshness-and-conflict-detection.md#101-角色持久层过期策略裁决材料) |
 | B65 | CP0 核对 dev/stage/release 的 HTTP/WS 来源矩阵；修正伪本机前缀风险，鉴权范围另冻结 | [原任务](slices/B65-local-http-websocket-origin-boundary.md) |
