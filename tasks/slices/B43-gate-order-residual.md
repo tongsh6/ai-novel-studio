@@ -1,6 +1,6 @@
 # B43：统一执行裁决与 Gate 残余——行为输入、幂等输入与回放
 
-- 状态：**todo（2026-10-30 ADR-0031 已正式接受，设计前置解除；CP0–CP4 未开工，未完成）**。
+- 状态：**doing（2026-10-31 CP0 盘点进行中：裁决 producer/trace/幂等输入/blocked 页面调用点已核；未实现 CP1–CP4）**。
 - 登记日期：2026-10-27；来源：12 门与 allow 路径已验收，但 blocked 页面、open_behavior/slot 顺序和同键异 payload 仍未闭合。
 - 上游：ADR-0005、[GATE-ORDER-CLOSURE](GATE-ORDER-CLOSURE-execution-gate-order-12.md)、[B40](B40-judgment-era-acceptance-reanchor.md)、[B49](B49-core-semantics-and-adr-review.md)。
 
@@ -33,6 +33,44 @@
 | CP2 | 统一裁决 producer 与 reply_only 路径、裁决同源 trace/结果/回放；open_behavior/slot 在六个 flow 与 TurnExecutionService 统一进门，MissingPolicy 与 GateResult 顺序一致 | 未开工 |
 | CP3 | 普通回复/执行/作者动作/停等与 blocked 真实页面及 replay：真实裁决、正确 first_blocking_gate/reason、无虚构工具/写入、DecisionTrace/why 可读；历史记录兼容 | 未开工 |
 | CP4 | 回归 allow 路径、B40 的场景重锚及既有 adoption/action 测试；不为通过而弱化负例 | 未开工 |
+
+## 8. CP0 盘点（2026-10-31，进行中）
+
+### 8.1 现有裁决 producer（真实调用点）
+
+`ExecutionOrchestrator.decide/3` 现役调用点：
+- `prose_revision_service.ex:86`（无 gate_context）
+- `agent_run_flows/prose_drafting_with_quality.ex:1223`
+- `character_design_with_context.ex:273`
+- `judgment_plan.ex:518`
+- `character_evolution_with_context.ex:300`
+- `plot_outline_with_context.ex:653`
+- `world_building_with_context.ex:300`
+- `dialogue_gateway.ex:725`（confirmation re-gate，带 binding/open_behavior/idempotency）
+- `pending_artifact_workflow.ex:537/1300/1438`
+
+### 8.2 Trace 现状
+
+- allow_tool 路径：`TraceWriter.record_with_tool/7`（turn_execution_service、prose_revision、pending_artifact、agent_run step）。
+- blocked/decision：`BlockedDecisionTrace` + `TraceWriter.record_with_decision/5`，用于阻断出口。
+- `TraceWriter` 仍有 `decision_type(_) -> :reply_only` 的兜底（trace_writer.ex:415），但本轮未找到真实普通回复 producer 显式构造 `OrchestratorDecision(decision_type: :reply_only)`；`reply_only_decision_recorded` 仅存在于 trace/replay 类型枚举（trace_writer.ex:438、trace_replay_service.ex:24）。这是 B43 CP2 要补的真实缺口，不能用 trace 兜底冒充统一裁决。
+
+### 8.3 幂等输入现状
+
+- `ActionIdempotencyLedger` 查 receipt 键为 work/session/turn/action/idempotency_key；本轮未读到 payload digest 比较。
+- `AuthorQuestion` 已有 payload_digest 先例可复用（§2 Contract）。
+- 同 key 异 payload 的拒绝/恢复语义仍待 CP0 冻结。
+
+### 8.4 Blocked 页面现状
+
+- `BlockedDecisionTrace` 已有持久化通道（经 `DialogueGateway.persist_turn_trace/4`），但 blocked 证据主要是单测；真实页面 first_blocking_gate/reason、no-tool/no-write、Replay 未见现役外部场景（B43 原缺口 3）。
+
+### 8.5 CP0 待冻结项
+
+1. 普通回复 reply_only 的判决由谁生产、何时进入 `TurnResult.orchestrator_decision`、与 trace/replay 字段一致；
+2. 六类出口（普通回复/执行/作者动作/等待/失败/阻断）→ decision_type/trace/返回/historical 映射；
+3. 同 key 同/异 payload 的 receipt 字段与拒绝错误码；
+4. blocked 场景 driver 的种子与判据（候选 `agent-gate-blocked-lineage`）。
 
 ## 4. 非目标
 

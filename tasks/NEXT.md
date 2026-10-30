@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B43 | CP0 与 B45 对齐统一裁决的生产、转换、校验、返回/trace/回放映射；B01 提供真实来源，保留幂等与阻断完整范围 | [原任务](slices/B43-gate-order-residual.md) |
+| B43 | CP0 盘点进行中：裁决 producer/trace/幂等/blocked 调用点已核；待冻结出口映射、同键异 payload、blocked 页面 driver | [原任务](slices/B43-gate-order-residual.md) |
 
 ## 后续候选
 
