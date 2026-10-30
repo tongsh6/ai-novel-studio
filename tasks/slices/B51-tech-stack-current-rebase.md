@@ -1,6 +1,6 @@
 # B51：技术栈与 Canonical 引用当前重定
 
-- 状态：**doing（2026-10-31 CP0/CP1 done；CP2 partial：tech-stack 00/03 与 07 旧卡引用已按实际校准；PaperTrail 去留待裁决，CP2 余项/CP3 待做）**。
+- 状态：**blocked（CP0–CP3 材料/修订完成：依赖矩阵、PaperTrail 只读证据、tech-stack/glossary/S4-S7/desktop 校准、前端审计门禁；仅 PaperTrail 去留 A/B/C 待作者裁决后执行）**。
 - 登记日期：2026-10-27；来源：tech-stack 锁死依赖与当前自研 Gateway/codegen/Tauri sidecar 不一致，glossary/UI 引用和多处完成状态也互相矛盾。
 - 上游：`docs/design/tech-stack/**`、`docs/design/foundation/30-contract-glossary.md`、`docs/design/07-workbench-ui-contract.md`、[B50](B50-multi-agent-current-boundary.md)、[B49](B49-core-semantics-and-adr-review.md)。
 
@@ -91,4 +91,6 @@
 - ADR-0024 S4/S7 状态按 B13B 校准（2026-10-31）：S4 降级为触发型（DS04 条件保留），S7 预算缺口路径已闭环、非预算 await 缩窄保留；`00c` 同步。
 - `docs/design/tech-stack/05-desktop.md` 顶部按 as-built 校准：端口 4658、tar 解包/marker、进程组退出、数据/secret 路径；原 4000/externalBin/Tauri sidecar manager 标历史。
 - CP3 门禁：`frontend_audit.sh` 27 Pass/0 Fail；`check_design_trace.sh` 19 通过/0 失败。
-- 仍待：D6/I5/B22/B34 等历史状态引用（多数已在全量对账/原任务有当前证据链，需逐条核对是否仍有“已闭环/待办”矛盾）；其他 tech-stack 子文档声明；AGENTS/目录命令逐项复核。PaperTrail 执行待作者 A/B/C。
+- D6/I5/B22/B34 逐条核对（2026-10-31）：D6 仅见 ADR-0023 历史检查点（已标注判断纪元前、不作当前证据）与 ADR-0030 正式前置；I5 是质量契约不变量；B22 见 provider §25 方向冻结 + CP4 自适应校准；B34 见语料验收文档，均无“已闭环/待办”矛盾需要改。
+- CP3 口径：AGENTS 前端栈/桌面优先与 package/Cargo/tauri 配置一致；frontend_audit 27/0、design_trace 19/0；secret local-file 方案与门禁一致；卡片集合以 ADR-0024 为准；sidecar 以 05-desktop as-built 校准为准。
+- **唯一阻塞**：PaperTrail 去留 A（推荐历史休眠）/B（supersede 移除依赖/表，需授权与历史方案）/C（延期）；未裁决前不删表/不卸载依赖。

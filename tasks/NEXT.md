@@ -6,17 +6,17 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B51 | CP0/CP1 done；CP2 mostly（tech-stack/07/glossary/S4-S7/05-desktop 校准，D6/I5/B22/B34 待逐条）；CP3 门禁已跑；PaperTrail A/B/C 待裁决 | [原任务](slices/B51-tech-stack-current-rebase.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
-| B48 | 无变化普通说明、真正歧义才追问；依赖 B43 裁决同源，完成四场景验收 | [原任务](slices/B48-character-revision-noop-and-ambiguity.md) |
 
 ## 阻塞
 
+- **B27**：CP0–CP3 done；CP4 measured FAIL/known-gap 与第二方复核待作者裁决/实模窗口，见 [B27](slices/B27-systematic-prompt-and-intent-integration.md)。
+- **B48**：依赖 B43 裁决同源，四场景验收待 B43 门序裁决后启动，见 [B48](slices/B48-character-revision-noop-and-ambiguity.md)。
+- **B51**：CP0–CP3 done；仅 PaperTrail 去留 A（推荐历史休眠）/B（supersede 移除，需授权）/C（延期）待裁决；见 [B51](slices/B51-tech-stack-current-rebase.md)。
 - **B72 CP1**：缺离线生成器实现与真实模型窗口；见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#阻塞记录2026-10-31-cp1)。
 - **VS00F-TRACE CP1**：A（推荐持久 StateTrace，需 schema 授权）/B（明确 no-trace 边界）/C（延期）；见 [VS00F](slices/VS-00F-five-ledgers-three-state.md#cp0-盘点2026-10-31)。
 - **B57 CP1 B/C/D**：需 B39/UA01 受控观察/外部资料 fixture；A/E/F 已 PASS；见 [B57](slices/B57-sec-injection-boundary.md#阻塞记录2026-10-31)。
