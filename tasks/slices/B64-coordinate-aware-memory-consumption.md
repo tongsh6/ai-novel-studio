@@ -1,6 +1,6 @@
 # B64：按真实写作坐标消费记忆有效窗
 
-- 状态：**doing（2026-10-31 CP0–CP2 done；CP3 进行中：确定性真实 Tauri 页面矩阵 PASS，真实模型消费一次失败待处理；B64 未 done）**。
+- 状态：**partial-blocked（2026-10-31 CP0–CP2 done；CP3 确定性真实 Tauri 矩阵 PASS；真实模型消费一次 `judgment_protocol_violation` 失败，按预算停止，待作者/跨切面判断协议处理后复验；B64 未 done）**。
 - 来源：有效期已在普通 recall 路径验证，但 CA02 的专业创作事实读端口没有目标章或有效窗输入；本轮只读代码核对发现消费边界不一致，尚未运行数据库、真实模型或页面反例。
 - 上游：[AU09 有效窗原任务](AU09-validity-window-recall.md)、[CA02](CA02-writing-facts-context.md)、[VS-00C](../../docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md)、[B39](B39-evidence-seeking-authoring.md)。本项保护既有章节级窗口，不等待 B54 新建故事时间读模型，也不重复建设 B39 的求证循环。
 

@@ -6,16 +6,16 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B64 | CP0–CP2 done；CP3 partial：确定性真实 Tauri 三 turn 矩阵 PASS（writer 事实窗口+Why 行）；真实模型一次运行 `judgment_protocol_violation` 失败（只读、未重试），真实模型消费未成立；待判断协议处理再复验 | [原任务](slices/B64-coordinate-aware-memory-consumption.md) |
+| B47-C07 | CP3 真实页面冲突/stale/覆盖确认矩阵（§11 清单）+ §10.1 角色持久层整对象指纹/原子性/幂等；CP0–CP2 已完成 | [原任务小节](slices/B47-canon-freshness-and-conflict-detection.md#101-角色持久层过期策略裁决材料) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
+| B64 | **partial-blocked**：CP0–CP2 done；CP3 确定性真实 Tauri 三 turn PASS；真实模型一次 `judgment_protocol_violation` 失败（只读、未重试），待判断协议处理/作者裁决后再预注册复验 | [原任务](slices/B64-coordinate-aware-memory-consumption.md) |
 | B39 | **partial-blocked**：CP1 机制/模型证据与 B74–B76 UI 已收口；D6-A setup 第01章成立、第02章候选区 AX 定位同因失败停止；正式 AU-15 A1/A2 待 setup 稳定性修复 + 作者/指定评审，不自行扩大 | [原任务](slices/B39-evidence-seeking-authoring.md) |
 | B72 | 作者选择先做 P2：CP0 离线 LLM 语料扩增设计已冻结；下一步 CP1 生成 manifest/candidate 与原始批次，未调用模型；P0/P1 缺口不由本任务销账 | [原任务](slices/B72-author-behavior-offline-corpus-expansion.md) |
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
-| B47-C07 | 角色持久层整对象指纹、原子性与真实重复请求幂等；其它残余仍留原任务 | [原任务小节](slices/B47-canon-freshness-and-conflict-detection.md#101-角色持久层过期策略裁决材料) |
 | B65 | CP0 核对 dev/stage/release 的 HTTP/WS 来源矩阵；修正伪本机前缀风险，鉴权范围另冻结 | [原任务](slices/B65-local-http-websocket-origin-boundary.md) |
 | B67 | CP0 复核旧章修订/移除贡献的账面反例；冻结重算、来源版本和作者裁决保护 | [原任务](slices/B67-revision-aware-ledger-maintenance.md) |
 | B43 | CP0 与 B45 对齐统一裁决的生产、转换、校验、返回/trace/回放映射；B01 提供真实来源，保留幂等与阻断完整范围 | [原任务](slices/B43-gate-order-residual.md) |
