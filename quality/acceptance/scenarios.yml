@@ -119,6 +119,14 @@ scenarios:
     manifest: quality/acceptance/scenarios/su03-assistant-display-name.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh su03-assistant-display-name --surface tauri
+  - id: b57-injection-boundary
+    title: "提示注入边界：作者越权/secret 请求无自动写入，正常创作不误伤"
+    tier: nightly
+    surface: tauri
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/b57-injection-boundary.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh b57-injection-boundary --surface tauri
   - id: au01-ordinary-chat-two-turn-roundtrip
     title: "普通聊天两轮真实工作台闭环"
     tier: nightly

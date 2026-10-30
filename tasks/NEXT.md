@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B57 | CP0 done：结构防线/对抗矩阵冻结；CP1 外部真实只读对抗（越权/内容指令/观察/伪已读/secret）+正常对照待执行 | [原任务](slices/B57-sec-injection-boundary.md) |
+| B57 | CP0 done；CP1 partial：A 越权/E secret/F 正常对照真实 Tauri PASS；B 内容夹带/C 观察夹带/D 伪完成待受控 fixture 页面验证 | [原任务](slices/B57-sec-injection-boundary.md) |
 
 ## 后续候选
 

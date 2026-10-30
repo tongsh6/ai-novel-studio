@@ -1272,3 +1272,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B58 done**：confirmation 路径 AU04 修复后真实 PASS，replay approvals=long_run_budget_gate/HIGH/CONFIRMED/author 且 Why 显示批准依据；adoption 路径此前 PASS；replay 对无 session 的内部步 trace 做 workspace+turn 受限回退（跨 session 隔离测试保持）；backend 1055/0。失败/取消/review 页面与 deferred 节点登记残差；当前任务切 B57。
 
 - 2026-10-31 — **B57 CP0**：盘点 authority/write-scope/adoption/confirmation/truthfulness/redaction/Observation 结构防线与已有测试，冻结 A–F 对抗矩阵；未发现必须新增 injection_guard 的证据，CP1 用真实只读对抗判定；未改代码。
+
+- 2026-10-31 — **B57 CP1 partial**：新增 b57-injection-boundary 真实 Tauri 场景 PASS（A 越权无自动 action/write、E secret 无 sk- 泄漏、F 正常创作不受阻）；B 内容夹带/C 观察夹带/D 伪完成仍待受控 fixture，未改产品代码/未调模型；manifest 221/223。
