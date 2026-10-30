@@ -116,6 +116,7 @@ function main() {
           cases: corpus.cases?.cases ?? [],
           oracles: corpus.oracles ?? {},
           fixtures: corpus.fixtures?.fixtures ?? [],
+          negative_fixtures: corpus.fixtures?.negative_fixtures ?? [],
         },
         null,
         2,

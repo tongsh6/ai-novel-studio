@@ -349,6 +349,23 @@ export function validateAuthorBehaviorCorpus(corpus) {
     }
   }
 
+  const declaredTrapIds = new Set(
+    (oracles.target_oracles ?? []).flatMap((oracle) => (oracle.negative_traps ?? []).map((trap) => trap.id)),
+  );
+  const negativeFixtureTrapIds = new Set();
+  for (const fixture of corpus.fixtures?.negative_fixtures ?? []) {
+    const testCase = cases.find((entry) => entry.id === fixture.case_id);
+    if (!testCase) addError("negative_fixture_unknown_case", `${fixture.trap_id}:${fixture.case_id}`);
+    else if (normalizeExpression(fixture.expression) !== normalizeExpression(testCase.expression)) {
+      addError("negative_fixture_expression_mismatch", fixture.trap_id);
+    }
+    if (!declaredTrapIds.has(fixture.trap_id)) addError("negative_fixture_unknown_trap", fixture.trap_id);
+    if (negativeFixtureTrapIds.has(fixture.trap_id)) addError("negative_fixture_duplicate_trap", fixture.trap_id);
+    negativeFixtureTrapIds.add(fixture.trap_id);
+    if (!FIXTURE_ACTIONS.includes(fixture.action)) addError("fixture_invalid_action", `${fixture.trap_id}:${fixture.action}`);
+    if (!oracles.trap_controls?.[fixture.trap_id]) addError("negative_fixture_control_missing", fixture.trap_id);
+  }
+
   for (const [expression, matching] of expressionIndex.entries()) {
     const splits = new Set(matching.map((testCase) => testCase.split));
     if (splits.has("holdout") && (splits.has("dev") || splits.has("regression"))) {

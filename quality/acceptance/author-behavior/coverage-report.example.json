@@ -1,17 +1,17 @@
 {
   "schema": "author-behavior-coverage-report/v1",
-  "generated_at": "2026-10-30T16:34:52.900Z",
+  "generated_at": "2026-10-30T17:10:14.578Z",
   "corpus": {
     "targets": 5,
-    "states": 3,
-    "cases": 17,
+    "states": 4,
+    "cases": 18,
     "splits": {
-      "dev": 9,
+      "dev": 10,
       "regression": 4,
       "holdout": 4,
       "explore": 0
     },
-    "corpus_sha": "eb040420eeb424c0332f78ee6cb9dcd949454b79a78c87357780f0e52ccac3c8"
+    "corpus_sha": "654f61079cae3b7633b0e9e14be75d4227e12a6f18a5bebda7322957189c3351"
   },
   "coverage": {
     "targets": [
@@ -30,10 +30,11 @@
       },
       {
         "target_id": "F2-chapter-write-or-rewrite",
-        "cases": 3,
+        "cases": 4,
         "states": [
           "S1-partial-multichapter",
-          "S2-empty-skeleton"
+          "S2-empty-skeleton",
+          "S4-same-title-chapters"
         ],
         "splits": [
           "dev",

@@ -24,6 +24,23 @@
           "note": {"type": "string", "minLength": 8}
         }
       }
+    },
+    "negative_fixtures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["trap_id", "case_id", "expression", "action", "note"],
+        "properties": {
+          "trap_id": {"type": "string"},
+          "case_id": {"type": "string"},
+          "expression": {"type": "string", "minLength": 2},
+          "action": {"enum": ["reply", "ask_author", "execute"]},
+          "capability": {"enum": ["prose_writing", "world_building"]},
+          "reply_text": {"type": "string", "minLength": 1},
+          "dialogue_goal": {"type": "string", "minLength": 2},
+          "note": {"type": "string", "minLength": 8}
+        }
+      }
     }
   }
 }
