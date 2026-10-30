@@ -49,7 +49,8 @@
 - `MemoryRecallRepo.recall/3`：`opts[:at_chapter_id]` 优先于“最大已采纳 seq”，未知目标 → position=nil 不约束；无目标保持旧回退。新增显式目标测试（目标第2章排除第4章才生效的设定）。
 - `NovelApplication.persistence_memory_reader/0` 改为 arity-2 reader；`TurnExecutionService.creative_memory_sections/5` 接收 `resolved_chapter_ref`，`chapter:<uuid>` 合法时向 reader 传 `at_chapter_id`；/1 reader 旧注入继续兼容。新增应用测试断言目标章 UUID 被传入，writer/evaluator 同源使用该 facts。
 - 边界：未改 schema、时间线、历史查询、规划消费或页面；未知/无效目标不 fail-hard；B39 最小供给方向不变。
-- 门禁：`mix format --check-formatted`、`mix compile --warnings-as-errors`、全量 `mix test`（1039 tests, 0 failures）；另需 credo/xref/arch/I1–I3 与页面矩阵（CP2/CP3）。
+- 门禁：`mix format --check-formatted`、`mix compile --warnings-as-errors`、全量 `mix test`（1039 tests, 0 failures）、credo/xref/arch、I1/I2/I3 均通过。
+- 门禁残余：`task_done` UI evidence gate 因 B30 原生复跑连续 2 次在 `workbench_ready` AX 等待超时（app/backend app-log 已 ready、无产品异常；属 native AX harness 环境不稳，同因 2 次停止），当前无晚于本次代码改动的 Tauri summary；登记为环境/证据缺口，不用 B64 机制/单测替代 UI gate，也未改 task_done 规则。
 
 ## 2. 消费者矩阵与待冻结语义
 
