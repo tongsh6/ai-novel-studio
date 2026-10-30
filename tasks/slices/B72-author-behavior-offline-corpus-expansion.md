@@ -1,6 +1,6 @@
 # B72：作者行为离线 LLM 语料扩增（P2）
 
-- 状态：**doing（2026-10-31 CP0 设计 done；CP1 离线生成实现与原始批次待实施，尚未调用模型或修改正式 corpus）**。
+- 状态：**blocked（2026-10-31 CP0 done；CP1 需离线生成器实现 + 真实模型校准/核心批次，超出当前授权的实现/资源窗口，未调用模型、未改正式 corpus）**。
 - 类型：验证资产与外部生成工具；实现交由其他实现者，本文维护执行状态与证据。
 - 来源：B70 交付后审计确认当前仅 17 cases、15 条人工模板 + 2 条确定性模板生成，尚无真正 LLM 扩增。作者明确选择先做一次 P2 离线语料扩增，再处理 P0/P1 的运行/动作缺口。
 - 上游：[B70](B70-author-behavior-corpus-and-state-exploration.md)（done，验证基础设施）；设计真源：[作者行为离线语料扩增设计](../../docs/design/acceptance/author-behavior-offline-corpus-expansion.md)。
@@ -63,6 +63,13 @@ CP1 生成不等于冻结，CP2 冻结不等于全部执行，CP3 资产数量�
 - 真实页面：既有 `bash scripts/quality_accept.sh author-behavior-corpus --surface browser` 或对应当前注册入口；证据写 `artifacts/slice-verify/` 与 `artifacts/author-behavior/`。
 - 实现完成后执行覆盖范围内的项目门禁、I1/I2/I3 和静态扫描；不得用生成调用或 oracle 单测替代真实页面抽样。
 - 恢复时先读设计真源、CP 状态和 generation manifest；不得把原始候选当作已接受语料，不得从历史 verdict 推断当前 HEAD 通过。
+
+### 阻塞记录（2026-10-31 CP1）
+
+- 当前只有 CP0 设计与任务登记：`author-behavior-offline-corpus-expansion` 生成器、persona sidecar、manifest/candidate 与原始批次均未实现。
+- CP1 明确要求“≤60 校准并复核质量，再开放 300–500 核心扩增”，这是真实模型长跑；本仓规则要求单槽、预注册（范围/预算/判据/证据目录）并绑定作者资源窗口。当前会话未获得该资源窗口，也没有可执行的生成器实现，不能以离线 fixture 冒充 CP1。
+- 只读核对：`lms ps` 仅 embedding 模型 IDLE，无 LLM 加载；未加载/未调用任何生成模型；未产生 candidate 包或正式 corpus 变更。
+- 解除条件：作者/指定实现者提供 (a) CP1 离线生成器实现与 manifest/persona 契约落位；(b) 明确模型资源窗口与生成预算（校准最多 60，随后按质量决定是否扩量）；(c) 预注册文档与证据目录。解除后按 §5–§6 执行，不把生成/候选当冻结或 PASS。
 
 ## 7. 当前状态与下一步
 

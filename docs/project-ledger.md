@@ -1242,3 +1242,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **AU09-EVOLUTION CP0/CP1**：审计普通召回/创作事实链/角色演化写入；补 `CHARACTER_PROFILE` 到 `creative_facts` 的 `character_profiles` 组与 writer prompt「人物档案演化」；archive/context 单测与 mix 1050/0。CP2 真实页面因既有 au09 taxonomy driver 中间帧/按钮文案陈旧 reanchor，未闭环，不代签。
 
 - 2026-10-31 — **AU09-EVOLUTION done**：CP0/CP1 补 CHARACTER_PROFILE 到 creative_facts/prompt；重锚 AU09 taxonomy driver（按 artifact_type 等待 pending、候选方案 radio+保存、关闭记忆页）并扩展新会话 writer recall 断言；真实 Tauri 场景 PASS，`llm-calls` prompt 含演化 nonce/人物当前状态，verifier 增召回断言；supersede/跨作品角色演化页面矩阵登记残差。当前任务切 B72。
+
+- 2026-10-31 — **B72 CP1 blocked**：审计确认生成器/persona/manifest 未实现，CP1 需真实模型校准+核心批次；当前无模型资源窗口（lms ps 仅 embedding IDLE，未加载 LLM），未生成候选、未改 corpus。登记阻塞条件；当前任务切 B58 CP0。

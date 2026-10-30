@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B72 | CP0 离线 LLM 语料扩增设计已冻结；CP1 生成 manifest/candidate 与原始批次，不调用模型 | [原任务](slices/B72-author-behavior-offline-corpus-expansion.md) |
+| B58 | CP0 对账现有 receipt/trace 与批准语义；缺口成立后才冻结最小契约，不先建新实体 | [原任务](slices/B58-human-approval-policy-unification.md) |
 
 ## 后续候选
 
@@ -14,7 +14,6 @@
 |---|---|---|
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B48 | 无变化普通说明、真正歧义才追问；依赖 B43 裁决同源，完成四场景验收 | [原任务](slices/B48-character-revision-noop-and-ambiguity.md) |
-| B58 | CP0 对账现有 receipt/trace 与批准语义；缺口成立后才冻结最小契约，不先建新实体 | [原任务](slices/B58-human-approval-policy-unification.md) |
 | VS00F-TRACE | 核对章摘要/账面维护的真实变更与 StateTrace；闭合自动/作者变更、幂等、回滚及持久回放 | [原任务小节](slices/VS-00F-five-ledgers-three-state.md#维护-statetrace-后续-checkpoint) |
 | B57 | CP0 准备现有作者输入/作品观察对抗矩阵；求证与外部资料部分等对应入口，实模另按资源安排 | [原任务](slices/B57-sec-injection-boundary.md) |
 | AU04-AU06 | 核对 T16 的现役确认生产者、终态历史、持久绑定及恢复范围；与 B43/B58 去重后补页面矩阵 | [原任务](slices/AU04-AU06-author-action-binding.md) |
@@ -38,6 +37,7 @@
 
 ## 阻塞
 
+- **B72 CP1**：CP0 设计 done；CP1 需要离线生成器实现 + 真实模型 ≤60 校准/核心批次，当前无实现与模型资源窗口（未加载模型、未改 corpus），待作者/指定实现者提供生成器与预算后解除，见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#阻塞记录2026-10-31-cp1)。
 - **B01 后续**：CP0 done；origin_frame_ref 为合成串，CP1 需 A（新增 nullable origin_turn_ref + origin_frame_ref 可空，推荐）/B（origin_ref_kind + turn:<id>）/C（保持 known-gap）之一；涉及 SQLite 表重建/历史兼容，待作者授权 migration，未改 schema/DB。见 [B01 小节](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界)。
 - **B43 后续**：CP0/CP1 done；CP2 Form R 出口/Replay 同源已落地；**MissingPolicy 在 Gate 之后才评估**，统一门序涉及 ADR-0005 gate 集合与验收判据，需作者/ADR owner 在 A（新增 missing_policy gate，推荐）/B（decide 前 preflight）/C（仅标注）/D（只覆盖 prose flow）间裁决；CP3/CP4 未开工，见 [B43](slices/B43-gate-order-residual.md)。
 - **B67 后续**：CP0/CP1 done；CP2 revision CAS/重编号/旧任务晚到已落地，但维护 StateTrace 依赖 [VS00F-TRACE](slices/VS-00F-five-ledgers-three-state.md#维护-statetrace-后续-checkpoint) owner 先冻结生产/存储/回放契约；CP3 页面矩阵未开工，见 [B67](slices/B67-revision-aware-ledger-maintenance.md)。
