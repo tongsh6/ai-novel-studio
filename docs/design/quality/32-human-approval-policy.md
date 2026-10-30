@@ -1,6 +1,6 @@
 # Human Approval Policy v2
 
-> 状态：草案
+> 状态：草案（B58 CP1 已冻结最小 additive 契约：复用 author_action_receipts/decision_traces，不建 approval_record 表；死亡/结局/高潮/预算专用 policy 仍 deferred）
 >
 > 角色：`docs/design/05-turn-behavior-and-state-model.md`、`docs/design/07-workbench-ui-contract.md` 与小说 Domain 文档之间的人工确认策略层。
 >
@@ -135,6 +135,22 @@ adoption 关注“是否把这个产物写入 authoritative state”。
 - `CHECKPOINT_BEFORE_CONTINUE`
 - `ADOPTION_REQUIRED`
 - `BLOCK_UNTIL_USER_DECISION`
+
+### 5.1 最小 policy catalog（B58 CP1 冻结）
+
+当前只注册已有真实消费者的 policy；没有 consumer 的高风险节点保持 deferred，不造假 gate。
+
+| approval_policy_id | 适用 | risk_class | default_behavior | required_user_action | bypass_policy | audit_level | status |
+|---|---|---|---|---|---|---|---|
+| `approval_policy.high_risk_canon_change` | tentative artifact 采纳、覆盖/重大 canon 变更 | `HIGH` | `ADOPTION_REQUIRED` | accept / discard / edit_then_accept | `none`（HIGH/CRITICAL 不允许自动 bypass；仅作者动作或已注册 policy 例外） | `author_safe` | active（consumer=adoption/author_action receipt） |
+| `approval_policy.long_run_budget_gate` | 高预算/长跑启动前确认 | `HIGH` | `CONFIRM_BEFORE_EXECUTE` | confirm / cancel | `none` | `author_safe` | active（consumer=confirmation behavior） |
+
+以下节点当前没有可注册的真实 policy consumer，保持 deferred；**不得用文案/按钮存在冒充已实现**：
+
+- 人物死亡/黑化/背叛/核心能力觉醒（§6.6）：需要状态变更 consumer 与 branch 语义。
+- 结局方向（§6.8）：需要结局规划/高优先级 planning source consumer。
+- 大高潮方向（§6.7）：需要卷级规划 consumer 与 downstream invalidation。
+- 高预算具体阈值：当前只有通用 confirmation，阈值/预算单位未冻结。
 
 `default_behavior` 是 Domain policy decision enum，不等同于 runtime `NextAction`，但必须可映射：
 
@@ -404,6 +420,34 @@ Human Approval Policy 决定：
 - `DISCARDED`
 - `BRANCHED`
 - `CANCELLED`
+
+### 11.1 additive 实现映射（B58 CP1 冻结）
+
+**不新增 `approval_record` 表或第二套批准状态机。** 每次作者批准复用一条 `author_action_receipts` 记录；`approval_record` 是权威事实的投影，不是新实体。
+
+| approval_record 字段 | 现有来源/映射 | 状态 |
+|---|---|---|
+| `approval_record_id` | `author_action_receipts.id`（UUID） | 已有 |
+| `approval_policy_ref` | receipt.result 新增键；由 action/target/policy catalog 机械解析 | additive |
+| `source_turn_ref` | receipt.source_turn_ref | 已有 |
+| `source_task_ref` | receipt.result 新增键（如 long_run task ref/run_id） | additive |
+| `target_ref` | receipt.result.target_artifact_ref 或 action target_ref | 已有 |
+| `target_type` | receipt.result 新增键（artifact_type/object_type） | additive |
+| `risk_class` | receipt.result 新增键；来自 policy catalog，不由模型自报 | additive |
+| `decision` | receipt.status/result 与 adoption_status 映射：ACCEPTED/EDITED_ACCEPTED/CONFIRMED/EDITED_CONFIRMED/REJECTED/DISCARDED/CANCELLED/BRANCHED | 映射 |
+| `decision_note` | receipt.result 新增键（仅作者明确输入时；无则不编造） | additive |
+| `decided_by` | 固定 `author`（当前唯一批准主体） | 常量 |
+| `decided_at` | receipt.inserted_at | 已有 |
+| `base_revision` | receipt.result.revision_base（adoption 已有）或新增键 | additive/已有 |
+
+**Decision 映射约束**
+
+- `ACCEPTED`/`DISCARDED` 等既有 adoption_status 必须原样保留，不能二次改写。
+- `EDITED_CONFIRMED`/`EDITED_ACCEPTED` 只在作者实际编辑后确认时出现；不得因 UI 打开编辑框自动标记。
+- 失败/重复/过期动作不得产生新的有效 approval record；幂等重复只返回原 receipt。
+- `decided_by=author` 是当前唯一值；harness/模型/自动流程不得写作者批准。
+- `approval_policy_ref/risk_class/base_revision` 缺失时不补默认值伪造完整；记录为 missing 并在 why/replay 如实显示。
+- 审计读取经 `AuthorActionReceiptRepo` + `DecisionTraceRecord`/ReplayService；不新增查询服务时先复用现有入口。
 
 审批记录进入：
 

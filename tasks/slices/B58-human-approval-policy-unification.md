@@ -1,6 +1,6 @@
 # B58：作者批准策略统一与审计
 
-- 状态：**doing（2026-10-31 CP0 对账 done：现有 receipt/trace 可承接大部分批准语义，缺 approval policy registry/risk 映射与部分字段；CP1 最小契约待做，未建新实体）**。
+- 状态：**doing（2026-10-31 CP0/CP1 done：批准语义对账完成；32 §5.1/§11.1 已冻结最小 policy catalog 与 receipt/trace additive 映射，不建新实体；CP2 实现与风险矩阵待做）**。
 - 登记日期：2026-10-27；来源：`32-human-approval-policy` 仍是草案，统一 approval policy 映射、approval_record 与死亡/结局/高预算等风险矩阵未形成完整证据。
 - 上游：`docs/design/quality/32-human-approval-policy.md`、[AU04](AU04-file-level-closure.md)、[AU05](AU05-file-level-closure.md)、[AU13-ledgers-and-reconciliation](../../docs/design/acceptance/author/AU-13-ledgers-and-reconciliation.md)。
 
@@ -29,8 +29,8 @@
 
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
-| CP0 | 对账 32 的每类批准语义与现有 receipt/trace：已满足、缺字段、缺查询、真正缺口；确认无需新实体的部分不建表 | 未开工 |
-| CP1 | 若确有缺口，冻结最小 approval contract（对象/版本/动作/结果/来源/失败），优先扩展现有 receipt/trace；只有不可替代时才论证新实体 | 未开工 |
+| CP0 | 对账 32 的每类批准语义与现有 receipt/trace：已满足、缺字段、缺查询、真正缺口；确认无需新实体的部分不建表 | **done（§CP0）** |
+| CP1 | 若确有缺口，冻结最小 approval contract（对象/版本/动作/结果/来源/失败），优先扩展现有 receipt/trace；只有不可替代时才论证新实体 | **done（32 §5.1/§11.1；§CP1）** |
 | CP2 | 实现统一审计与风险矩阵：死亡/结局/高预算/stale/重复/取消/跨作品；不可 bypass 与失败回滚 | 未开工 |
 | CP3 | 真实 Tauri 与 replay 全链，作者 why 可见批准依据；同步 32 文档，未覆盖类型保持 deferred | 未开工 |
 
@@ -61,6 +61,15 @@
 - **不需要先建 `approval_record` 新表**：现有 receipt + decision_trace + interaction/adoption 事实已覆盖动作、对象、结果、幂等与回放；新建第二套批准状态机会与 `author_action_receipts`/TurnResult 冲突。
 - 真实缺口是：`approval_policy` 未实现（policy id/risk_class/default_behavior/required_user_action/bypass_policy/audit_level）；死亡/结局/高潮/高预算等节点无机械 policy；approval record 字段未统一映射，尤其 approval_policy_ref、base_revision、decision_note、decided_by、target_type。
 - CP1 应优先冻结**additive contract/mapping**（现有 receipt/decision_trace 字段扩展或结果 map 约定 + policy catalog），不建新实体；若 CP1 证明现有 receipt 无法承载，再按“不可替代”论证最小增量。
+
+## CP1 冻结记录（2026-10-31）
+
+- 真源：[32 §5.1 最小 policy catalog](../../docs/design/quality/32-human-approval-policy.md#51-最小-policy-catalogb58-cp1-冻结) 与 [§11.1 additive 实现映射](../../docs/design/quality/32-human-approval-policy.md#111-additive-实现映射b58-cp1-冻结)。
+- **不建新实体**：`approval_record` 是 `author_action_receipts` + `decision_traces` + interaction 的投影；新表会与幂等 receipt/第二状态机冲突。
+- 当前 active policy 仅两条：`approval_policy.high_risk_canon_change`（ADOPTION_REQUIRED）与 `approval_policy.long_run_budget_gate`（CONFIRM_BEFORE_EXECUTE），均由既有 consumer 承接。
+- deferred（无真实 consumer，不造假 gate）：人物命运/死亡、结局方向、大高潮方向、高预算具体阈值。
+- 字段映射：已有 id/source_turn_ref/target_ref/decided_at 复用；`approval_policy_ref/target_type/risk_class/source_task_ref/decision_note` 走 additive result 键；`base_revision` 复用 adoption revision_base；`decided_by=author`；缺失字段不得补默认伪造。
+- **CP2 下一步**：在 receipt result 记录 additive 字段（或复用结果 map），实现 decision 映射与读取；风险矩阵只覆盖已有真实 consumer 的节点；无 producer 的高风险节点保持 deferred；真实页面/回放证明不可 bypass、重复/过期/跨作品不执行。
 
 ## 4. 非目标
 

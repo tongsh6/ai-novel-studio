@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B58 | CP0 done：receipt/trace 可承接大部分动作/结果/回放，真实缺口=approval_policy 未实现、命运/结局/高潮/预算无机械 policy、record 字段未统一；CP1 冻结 additive 契约/映射，不建新实体 | [原任务](slices/B58-human-approval-policy-unification.md) |
+| B58 | CP0/CP1 done：32 §5.1/§11.1 冻结最小 policy catalog 与 receipt/trace additive 映射，不建新实体；CP2 实现记录/decision 映射与已 consumer 风险矩阵 | [原任务](slices/B58-human-approval-policy-unification.md) |
 
 ## 后续候选
 
