@@ -1226,3 +1226,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B42-PREP done**：新增只读 au15_preregistration_check（不加载模型/不写产品）；就绪矩阵 ready=预注册/单槽卸载/预算/证据维度/harness，blocked=D6-A setup/作者语义裁决/资源窗口/B39 分发；单测覆盖；真实运行仍 blocked。manifest 计数测试同步当前 220/222；quality node tests 281/282（1 项既有 release known_fact 漂移）。当前任务切 B46。
 
 - 2026-10-31 — **B46 CP0**：确认待处理事实=interactions.turn_result.adoption_state，现有 JSON 足够无需新表；adoption_state 读模型按 work+session，新会话不可见旧 pending 且动作依赖当前 socket source turn；CP1 拟复用现有存储做 work-wide inbox + 按 source ref 取回，动作是否切 session 留待冻结。
+
+- 2026-10-31 — **B46 CP1**：WorkSessionRepo.adoption_inbox work-wide 读模型（复用 interactions，无新表）；pending/resolved 条目 add source_session_id；resume/show 增加 inbox_* 字段并由 controller 透传；跨会话 pending/resolve/跨作品测试通过；mix 1049/0（一条既有 AgentRunRuntime flake，复跑通过）。CP2 前端 inbox/动作待做。

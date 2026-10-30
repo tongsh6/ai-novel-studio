@@ -222,6 +222,10 @@ defmodule NovelWeb.WorkSessionsController do
       pending_adoption_turn_results: snapshot.pending_adoption_turn_results,
       open_author_question_turn_results: snapshot.open_author_question_turn_results,
       resolved_adoptions: snapshot.resolved_adoptions,
+      inbox_pending_adoptions: Map.get(snapshot, :inbox_pending_adoptions, []),
+      inbox_pending_adoption_turn_results:
+        Map.get(snapshot, :inbox_pending_adoption_turn_results, []),
+      inbox_resolved_adoptions: Map.get(snapshot, :inbox_resolved_adoptions, []),
       resume_trace_refs: snapshot.resume_trace_refs
     }
   end
@@ -237,6 +241,10 @@ defmodule NovelWeb.WorkSessionsController do
       pending_adoption_turn_results: snapshot.pending_adoption_turn_results,
       open_author_question_turn_results: snapshot.open_author_question_turn_results,
       resolved_adoptions: snapshot.resolved_adoptions,
+      inbox_pending_adoptions: Map.get(snapshot, :inbox_pending_adoptions, []),
+      inbox_pending_adoption_turn_results:
+        Map.get(snapshot, :inbox_pending_adoption_turn_results, []),
+      inbox_resolved_adoptions: Map.get(snapshot, :inbox_resolved_adoptions, []),
       resume_trace_refs: snapshot.resume_trace_refs
     }
   end

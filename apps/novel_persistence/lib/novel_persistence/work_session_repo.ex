@@ -123,26 +123,51 @@ defmodule NovelPersistence.WorkSessionRepo do
 
   @doc "完整会话采纳投影；只读有采纳状态的回合，不受聊天分页或上下文窗口裁剪。"
   def adoption_state(work_id, session_id) do
-    rows =
+    work_id
+    |> adoption_rows(session_id)
+    |> build_adoption_projection()
+  end
+
+  @doc """
+  Work-wide 待处理工作箱读模型（B46）。复用 interactions 的 turn_result
+  adoption_state，不新增 inbox 表；来源 session 随 pending 条目返回。
+  """
+  @spec adoption_inbox(String.t()) :: map()
+  def adoption_inbox(work_id) do
+    work_id
+    |> adoption_rows(nil)
+    |> build_adoption_projection()
+  end
+
+  defp adoption_rows(work_id, session_id) do
+    query =
       Interaction
-      |> where([i], i.workspace_id == ^work_id and i.session_id == ^session_id)
-      |> where([i], i.role == "assistant")
+      |> where([i], i.workspace_id == ^work_id and i.role == "assistant")
       |> where(
         [i],
         fragment("json_array_length(?, '$.turn_result.adoption_state.pending') > 0", i.content) or
           fragment("json_array_length(?, '$.turn_result.adoption_state.resolved') > 0", i.content)
       )
-      |> order_by([i], desc: i.updated_at, desc: i.inserted_at, desc: i.id)
-      |> Repo.all()
-      |> Enum.map(&MemoryLog.canonical_interaction/1)
 
+    query =
+      if is_binary(session_id),
+        do: where(query, [i], i.session_id == ^session_id),
+        else: query
+
+    query
+    |> order_by([i], desc: i.updated_at, desc: i.inserted_at, desc: i.id)
+    |> Repo.all()
+    |> Enum.map(&MemoryLog.canonical_interaction/1)
+  end
+
+  defp build_adoption_projection(rows) do
     resolved = adoption_entries(rows, "resolved")
     resolved_ids = MapSet.new(resolved, & &1["artifact_id"])
 
     pending =
       rows
       |> adoption_entries("pending")
-      |> Enum.reject(&MapSet.member?(resolved_ids, &1["artifact_id"]))
+      |> Enum.reject(fn entry -> MapSet.member?(resolved_ids, entry["artifact_id"]) end)
 
     source_turns = MapSet.new(pending, & &1["source_turn_ref"])
 
@@ -165,9 +190,14 @@ defmodule NovelPersistence.WorkSessionRepo do
       result
       |> get_in(["adoption_state", key])
       |> List.wrap()
-      |> Enum.map(
-        &Map.put(&1, "source_turn_ref", &1["source_turn_ref"] || result["turn_id"] || row.turn_id)
-      )
+      |> Enum.map(fn entry ->
+        entry
+        |> Map.put(
+          "source_turn_ref",
+          entry["source_turn_ref"] || result["turn_id"] || row.turn_id
+        )
+        |> Map.put("source_session_id", row.session_id)
+      end)
     end)
     |> Enum.uniq_by(& &1["artifact_id"])
   end

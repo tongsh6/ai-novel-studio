@@ -24,6 +24,7 @@ defmodule NovelApplication.WorkSessionService do
       transcript_entries = Enum.map(transcript, &interaction_dto(&1, summaries_by_turn))
       turn_results = transcript_turn_results(transcript_entries)
       adoptions = WorkSessionRepo.adoption_state(work_id, session.id)
+      inbox = WorkSessionRepo.adoption_inbox(work.id)
 
       {:ok,
        %{
@@ -38,6 +39,10 @@ defmodule NovelApplication.WorkSessionService do
          pending_adoption_turn_results:
            Enum.map(adoptions.pending_adoption_turn_results, &strip_agent_run_activity/1),
          resolved_adoptions: Enum.map(adoptions.resolved_adoptions, &normalize_atom_keys/1),
+         inbox_pending_adoptions: Enum.map(inbox.pending_adoptions, &normalize_atom_keys/1),
+         inbox_pending_adoption_turn_results:
+           Enum.map(inbox.pending_adoption_turn_results, &strip_agent_run_activity/1),
+         inbox_resolved_adoptions: Enum.map(inbox.resolved_adoptions, &normalize_atom_keys/1),
          resume_trace_refs: resume_trace_refs(turn_results)
        }}
     else
@@ -59,6 +64,7 @@ defmodule NovelApplication.WorkSessionService do
       transcript_entries = Enum.map(transcript, &interaction_dto(&1, summaries_by_turn))
       turn_results = transcript_turn_results(transcript_entries)
       adoptions = WorkSessionRepo.adoption_state(work_id, session.id)
+      inbox = WorkSessionRepo.adoption_inbox(work.id)
       read_only? = session.status != "ACTIVE"
 
       {:ok,
@@ -84,6 +90,10 @@ defmodule NovelApplication.WorkSessionService do
              else: Enum.map(adoptions.pending_adoption_turn_results, &strip_agent_run_activity/1)
            ),
          resolved_adoptions: Enum.map(adoptions.resolved_adoptions, &normalize_atom_keys/1),
+         inbox_pending_adoptions: Enum.map(inbox.pending_adoptions, &normalize_atom_keys/1),
+         inbox_pending_adoption_turn_results:
+           Enum.map(inbox.pending_adoption_turn_results, &strip_agent_run_activity/1),
+         inbox_resolved_adoptions: Enum.map(inbox.resolved_adoptions, &normalize_atom_keys/1),
          resume_trace_refs: resume_trace_refs(turn_results)
        }}
     else

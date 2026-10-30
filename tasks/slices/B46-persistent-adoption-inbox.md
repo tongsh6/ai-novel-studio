@@ -1,6 +1,6 @@
 # B46：持久 Adoption Inbox 与待处理视图
 
-- 状态：**doing（2026-10-31 CP0 盘点完成：pending 事实/读模型/session scoping/动作恢复路径已核；work-wide inbox 读模型与跨会话处理待做）**。
+- 状态：**doing（2026-10-31 CP0/CP1 done：work-wide adoption_inbox 读模型与 resume/show DTO 已落地；CP2 前端 inbox 视图/跨会话动作、CP3 页面矩阵待做）**。
 - 登记日期：2026-10-27；来源：待处理项主要依赖 transcript/runtime pending state，重开或换会话后缺少集中恢复与处理入口。
 - 上游：[AU05](AU05-file-level-closure.md)、[AU09](AU09-file-level-closure.md)、[AU09-archive-stats-current](AU09-archive-stats-current.md)、[B31](B31-author-reply-run-binding.md)。
 
@@ -58,6 +58,15 @@
 
 **未决**：动作是否需要前端先切换 source session（实现成本低）还是服务端跨 session 直接采纳（体验好、改动大）；CP1 先按“服务端按 source ref 取回，不要求切换”做可行性验证，若来源契约不足则登记 blocker 并给作者选项。
 
+## 7. CP1 实施记录（2026-10-31）
+
+- `WorkSessionRepo.adoption_inbox(work_id)`：复用 interactions 的 turn_result adoption_state，work-scoped 查询 pending/resolved/turn_results；不新增表。
+- `adoption_entries/2` 为每个 pending/resolved 条目 additive 增加 `source_session_id`（session-scoped `adoption_state` 同样获得该标注；现有 DTO 结构兼容）。
+- `WorkSessionService.resume/1` 与 `show/2` 增加 `inbox_pending_adoptions`、`inbox_pending_adoption_turn_results`、`inbox_resolved_adoptions`；session-scoped `pending_*` 语义保持不变；controller snapshot DTO 透传（Map.get 兼容旧调用）。
+- 测试 `work_session_service_test`：两个会话各 pending 条目→active session 只看到本 session pending，inbox 汇总两 session 且 source_session_id 正确；跨会话 resolve 后 inbox pending 去掉、resolved 保留；跨作品隔离；26/0。
+- 全量 backend mix **1049/0**（首次运行一条既有 AgentRunRuntime timing 失败，单测与复跑均通过，登记为既有 flake，非本次回归）。frontend 未消费新字段，未声称 UI 完成。
+
+**CP2 下一步**：前端 resume 类型/待处理视图消费 inbox（含 source session/turn），动作前按 source turn 取回并走既有 adoption workflow；只读会话不得处理；处理成功从 inbox 移除。CP3 再用真实 Tauri 关闭重开/新会话矩阵验收。
 ## 4. 非目标
 
 - 不复制 transcript 当 inbox，不新增第二套 pending 状态机。

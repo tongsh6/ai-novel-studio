@@ -776,6 +776,85 @@ defmodule NovelApplication.WorkSessionServiceTest do
     end
   end
 
+  test "work-wide adoption inbox 跨会话恢复 pending，session 视图保持原语义", %{work: work} do
+    {:ok, s1} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+    record(work.id, s1.id, "turn-inbox-1", "assistant", "候选一", %{
+      turn_id: "turn-inbox-1",
+      adoption_state: %{
+        pending: [
+          %{
+            artifact_id: "inbox-a1",
+            artifact_type: "plot_direction",
+            adoption_status: "TENTATIVE",
+            payload: %{}
+          }
+        ],
+        resolved: []
+      }
+    })
+
+    {:ok, s2} =
+      WorkSessionRepo.create_active(%{"work_id" => work.id, "title" => "第二会话"})
+
+    record(work.id, s2.id, "turn-inbox-2", "assistant", "候选二", %{
+      turn_id: "turn-inbox-2",
+      adoption_state: %{
+        pending: [
+          %{
+            artifact_id: "inbox-a2",
+            artifact_type: "plot_direction",
+            adoption_status: "TENTATIVE",
+            payload: %{}
+          }
+        ],
+        resolved: []
+      }
+    })
+
+    {:ok, snapshot} = WorkSessionService.resume(work.id)
+    assert snapshot.active_session.id == s2.id
+    assert Enum.map(snapshot.pending_adoptions, & &1.artifact_id) == ["inbox-a2"]
+
+    inbox_pending = snapshot.inbox_pending_adoptions
+    assert Enum.sort(Enum.map(inbox_pending, & &1.artifact_id)) == ["inbox-a1", "inbox-a2"]
+
+    source_sessions =
+      inbox_pending
+      |> Enum.map(&(Map.get(&1, :source_session_id) || Map.get(&1, "source_session_id")))
+      |> Enum.sort()
+
+    assert source_sessions == Enum.sort([s1.id, s2.id])
+    assert length(snapshot.inbox_pending_adoption_turn_results) == 2
+
+    record(work.id, s1.id, "turn-inbox-1-resolve", "assistant", "已放弃候选一", %{
+      turn_id: "turn-inbox-1-resolve",
+      adoption_state: %{
+        pending: [],
+        resolved: [%{artifact_id: "inbox-a1", adoption_status: "DISCARDED"}]
+      }
+    })
+
+    {:ok, snapshot2} = WorkSessionService.resume(work.id)
+    assert Enum.map(snapshot2.inbox_pending_adoptions, & &1.artifact_id) == ["inbox-a2"]
+    assert Enum.map(snapshot2.inbox_resolved_adoptions, & &1.artifact_id) == ["inbox-a1"]
+
+    # 跨作品隔离
+    {:ok, other_work} = WorkService.create(%{title: "其他作品"})
+    {:ok, other_session} = WorkSessionRepo.ensure_active_for_work(other_work.id)
+
+    record(other_work.id, other_session.id, "turn-other", "assistant", "其他作品候选", %{
+      turn_id: "turn-other",
+      adoption_state: %{
+        pending: [%{artifact_id: "other-a1", artifact_type: "plot_direction", payload: %{}}],
+        resolved: []
+      }
+    })
+
+    {:ok, snapshot3} = WorkSessionService.resume(work.id)
+    refute Enum.any?(snapshot3.inbox_pending_adoptions, &(&1.artifact_id == "other-a1"))
+  end
+
   defp record(
          work_id,
          session_id,
