@@ -86,6 +86,14 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
 
     assert_broadcast("turn_result", %{turn_id: first_dispatch_turn_id})
 
+    # B58 CP2：确认动作的 approval 投影随 receipt 持久化；缺失字段不伪造。
+    receipt = Repo.get_by!(AuthorActionReceipt, idempotency_key: "ik-confirm-persisted")
+    assert receipt.result["approval_policy_ref"] == "approval_policy.long_run_budget_gate"
+    assert receipt.result["risk_class"] == "HIGH"
+    assert receipt.result["decision"] == "CONFIRMED"
+    assert receipt.result["decided_by"] == "author"
+    assert receipt.result["target_type"] == nil
+
     socket = Phoenix.Socket.assign(socket, :action_idempotency_ledger, %{})
 
     assert {:reply, {:ok, %{received: true, action_status: "accepted", duplicate: true}}, socket} =

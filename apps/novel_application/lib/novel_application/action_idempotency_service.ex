@@ -33,7 +33,9 @@ defmodule NovelApplication.ActionIdempotencyService do
   @spec record(AuthorActionInput.t(), scope(), map()) :: :ok | {:error, term()}
   def record(%AuthorActionInput{} = input, scope, result) when is_map(result) do
     persisted_result =
-      Map.put(result, :payload_digest, ActionIdempotencyLedger.payload_digest(input))
+      result
+      |> Map.put(:payload_digest, ActionIdempotencyLedger.payload_digest(input))
+      |> then(&NovelApplication.ApprovalAudit.enrich(input, &1))
 
     with true <- inject_persistence?(),
          {:ok, attrs} <- ActionIdempotencyLedger.key_attrs(input, scope),

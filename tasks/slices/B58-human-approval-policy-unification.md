@@ -1,6 +1,6 @@
 # B58：作者批准策略统一与审计
 
-- 状态：**doing（2026-10-31 CP0/CP1 done：批准语义对账完成；32 §5.1/§11.1 已冻结最小 policy catalog 与 receipt/trace additive 映射，不建新实体；CP2 实现与风险矩阵待做）**。
+- 状态：**doing（2026-10-31 CP0/CP1 done，CP2 partial：approval additive 字段已随 receipt 持久化并有集成测试；deferred 节点与真实页面/replay 证据待 CP3）**。
 - 登记日期：2026-10-27；来源：`32-human-approval-policy` 仍是草案，统一 approval policy 映射、approval_record 与死亡/结局/高预算等风险矩阵未形成完整证据。
 - 上游：`docs/design/quality/32-human-approval-policy.md`、[AU04](AU04-file-level-closure.md)、[AU05](AU05-file-level-closure.md)、[AU13-ledgers-and-reconciliation](../../docs/design/acceptance/author/AU-13-ledgers-and-reconciliation.md)。
 
@@ -31,7 +31,7 @@
 |---|---|---|
 | CP0 | 对账 32 的每类批准语义与现有 receipt/trace：已满足、缺字段、缺查询、真正缺口；确认无需新实体的部分不建表 | **done（§CP0）** |
 | CP1 | 若确有缺口，冻结最小 approval contract（对象/版本/动作/结果/来源/失败），优先扩展现有 receipt/trace；只有不可替代时才论证新实体 | **done（32 §5.1/§11.1；§CP1）** |
-| CP2 | 实现统一审计与风险矩阵：死亡/结局/高预算/stale/重复/取消/跨作品；不可 bypass 与失败回滚 | 未开工 |
+| CP2 | 实现统一审计与风险矩阵：死亡/结局/高预算/stale/重复/取消/跨作品；不可 bypass 与失败回滚 | **partial（§CP2）**：approval audit 投影/持久化完成；命运/结局/预算 deferred，页面/replay 归 CP3 |
 | CP3 | 真实 Tauri 与 replay 全链，作者 why 可见批准依据；同步 32 文档，未覆盖类型保持 deferred | 未开工 |
 
 ## CP0 对账记录（2026-10-31）
@@ -70,6 +70,22 @@
 - deferred（无真实 consumer，不造假 gate）：人物命运/死亡、结局方向、大高潮方向、高预算具体阈值。
 - 字段映射：已有 id/source_turn_ref/target_ref/decided_at 复用；`approval_policy_ref/target_type/risk_class/source_task_ref/decision_note` 走 additive result 键；`base_revision` 复用 adoption revision_base；`decided_by=author`；缺失字段不得补默认伪造。
 - **CP2 下一步**：在 receipt result 记录 additive 字段（或复用结果 map），实现 decision 映射与读取；风险矩阵只覆盖已有真实 consumer 的节点；无 producer 的高风险节点保持 deferred；真实页面/回放证明不可 bypass、重复/过期/跨作品不执行。
+
+## CP2 实施记录（2026-10-31，partial）
+
+- 新增 `NovelApplication.ApprovalAudit.enrich/2`（纯函数）：对已有 consumer 的 adoption/confirmation 动作补 32 §11.1 冻结字段：
+  - `approval_policy_ref`：canon 动作→`approval_policy.high_risk_canon_change`，确认动作→`approval_policy.long_run_budget_gate`；
+  - `risk_class=HIGH`、`target_type`（仅真实 artifact_type/target_type）、`decision`（ACCEPTED/EDITED_ACCEPTED/DISCARDED/REJECTED/CANCELLED/CONFIRMED）、`decided_by=author`；
+  - `source_task_ref`（run_id/long_run_task_ref）与 `base_revision`（仅真实字段）；缺失不补默认。
+- `ActionIdempotencyService.record/3` 在写 receipt 前调用 enrich，字段随 `author_action_receipts.result` 持久化；重复查找仍返回原 receipt，不产生第二份批准记录。
+- 测试：
+  - `approval_audit_test`：adopt/edit/discard/confirm/cancel/failed、缺字段不伪造、未知动作不补 policy、base_revision/source_task_ref 透传；4/0；
+  - channel 集成测试：真实 `author_action` 后 receipt 含 policy/risk/decision/decided_by，`target_type` 缺失保持 nil；5/0；
+  - 全量 mix **1054/0**。
+- 未完成/不冒充：
+  - 人物命运/结局/大高潮/高预算具体阈值仍无真实 consumer，保持 deferred（32 §5.1），未实现假 gate；
+  - 页面/replay 可见批准依据、失败回滚与不可 bypass 的真实页面矩阵归 CP3；stale/重复/取消/跨作品继续由既有 AU04/AU05 场景与测试承接，未在本 CP 重跑；
+  - 未改表/schema/前端，approval_record 仍是 receipt/trace 投影。
 
 ## 4. 非目标
 

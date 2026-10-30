@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B58 | CP0/CP1 done：32 §5.1/§11.1 冻结最小 policy catalog 与 receipt/trace additive 映射，不建新实体；CP2 实现记录/decision 映射与已 consumer 风险矩阵 | [原任务](slices/B58-human-approval-policy-unification.md) |
+| B58 | CP0/CP1 done；CP2 partial：approval audit 投影随 receipt 持久化+测试；CP3 真实页面/replay 可见批准依据、失败/取消矩阵待做 | [原任务](slices/B58-human-approval-policy-unification.md) |
 
 ## 后续候选
 
