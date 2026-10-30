@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU03-CONTEXT | CP0–CP1 已完成（契约冻结 + source_status/可用性段/trace 接线，全量 2358/0）；下一步 CP2：本地故障矩阵（raise/非 ok/部分保留/真实空/work-only/跨作品切换/恢复）+ 旧 fetcher 兼容 + 零写入，再进入 CP3 原生故障注入 | [原任务小节](slices/AU03-file-level-closure.md#当前上下文缺失与读取失败补验) |
+| AU03-CONTEXT | CP0–CP2 已完成（契约/source_status 接线 + 同 turn 故障矩阵 7 条、trace 同源、零写入、跨作品/恢复；全量 2365/0）；下一步 CP3：外部原生 Tauri + 真实模型故障注入（SQLite 投影表独占锁）→ 同 turn 请求含可用性段/作者反馈不称空/零写；解锁后恢复事实重入 | [原任务小节](slices/AU03-file-level-closure.md#当前上下文缺失与读取失败补验) |
 
 ## 后续候选
 

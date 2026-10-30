@@ -1034,7 +1034,8 @@ defmodule NovelApplication.DialoguePlanningService do
          step: judgment_agent_step(run, sequence, "组装创作上下文"),
          observations: [
            judgment_observation(run, sequence, "已组装本轮创作上下文。", "context:#{turn_id}", %{
-             stage: :context_assembled
+             stage: :context_assembled,
+             context_source_status: NovelDomain.DialogueContext.source_status_summary(context)
            })
          ],
          stage_state: %{judgment_context: context, judgment_input: input},

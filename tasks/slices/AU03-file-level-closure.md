@@ -187,7 +187,7 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 
 ## 当前上下文缺失与读取失败补验
 
-- 状态：**doing（2026-10-30 CP0–CP1 done：契约冻结 + source_status 接线/同次请求可用性段/trace 反馈；CP2 本地故障矩阵与 CP3 原生真实模型验收待执行）**。
+- 状态：**doing（2026-10-30 CP0–CP2 done：契约/接线 + 本地故障矩阵（同次真实判断请求、trace、零写入、跨作品/恢复）；CP3 外部原生 Tauri 故障注入 + 真实模型待执行）**。
 - 设计依据：本文件 §3 的空作品、有背景无会话、fetcher 失败三类场景；[AU-03](../../docs/design/acceptance/author/AU-03-context.md) 的上下文诚实边界。既有 missing WorkState 的单场景与普通成功 prompt 不能代签整个矩阵。
 - 下一步：按当前 B26/B27/ADR-0031 的真实入口重核 ContextAssembler、错误返回及 author-safe 提示，列明 empty/work-only/fetcher-failure 的可见事实与禁称内容；校正旧 frame/envelope 断言，先区分缺实现与缺证据。
 - 完整后果：真实页面在空作品时不虚构事实，有背景无会话时不虚构“刚才讨论”，读取失败时不把未知当空事实或成功读取；恢复后当前作品事实进入后续请求，作品切换不串上下文。机制故障注入只在外部 harness/test support，真实模型措辞与机制接线分层取证。
@@ -199,7 +199,7 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 |---|---|---|
 | CP0 | 定位真实 fetcher→ContextAssembler→同次 provider 请求→trace/作者反馈路径；逐来源区分成功有值、成功为空、未取得/未知与读取失败，核对部分失败和已有可用事实；冻结最小错误/覆盖表达及各类继续/停止条件，不先发明新 Context 类或全局状态机 | **done（2026-10-30）**：静态链路审计 + 纯函数探针；证据 `artifacts/task-audit/2026-10-30-au03-context-cp0/{audit-map.json,probe.json,probe.exs}`；契约见下“CP0 记录” |
 | CP1 | 在同一事实源上接通组装结果、请求渲染与反馈；若继续调用模型，该次实际请求须包含受影响来源的安全错误类别/未知范围和仍可信的事实；不得把失败渲染为已确认的“无作品/0 章/没有记忆”。若因身份/权限等必要底座不足而停止，诚实记录未派发而不是声称模型已获知 | **done（2026-10-30）**：DialogueContext additive `source_status` + `source_status_summary`；ContextAssembler 9 元组/旧 fetcher 兼容与失败 `:unavailable`；生产 fetcher 逐来源 safe 包装（保留已成功事实）；judgment prompt 同次请求「上下文可用性」段 + work/facts 不再把失败渲染为空；6 处 trace/观测带 author-safe 状态。新测试 8 条 + 全量 2358/0；证据见下节 CP1 记录 |
-| CP2 | 局部验证 empty/work-only/异常/非 ok/部分失败、跨作品切换及恢复；核对实际发送内容和来源声明，失败不伪造空事实，旧记录缺字段保持未知；恢复后真实事实进入后续请求，重试不复活旧授权、不写 canon | todo |
+| CP2 | 局部验证 empty/work-only/异常/非 ok/部分失败、跨作品切换及恢复；核对实际发送内容和来源声明，失败不伪造空事实，旧记录缺字段保持未知；恢复后真实事实进入后续请求，重试不复活旧授权、不写 canon | **done（2026-10-30）**：新增同 turn 矩阵 7 条（走 `plan_agent_run` 真实判断步 + 捕获实际 provider prompt + trace 观测）：raise/非 ok→可用性段；部分失败保留 work、章节未知不渲染 0 章；真实空（生产 fetcher）可 0 章；work-only/旧 5 元组兼容；跨作品 A/B 隔离 + 故障→恢复真实事实重入；canon 计数不变。发现并修复 CP1 漏网：规划上下文步 `judgment_observation` 未带状态（仅 emit/trace 有）。全量 2365/0；证据见下节 CP2 记录 |
 | CP3 | 外部真实工作台触发缺失/读取故障→作者可见反馈→故障解除→恢复对话；将同一 turn/run 的实际请求、来源状态、回复/trace 与恢复后请求对齐。分开报告局部故障矩阵、真实入口机制与真实模型如何处理未知；未取到请求或仅日志有 error 不算该链完成 | todo |
 
 - **继续与停止不预设为一刀切**：非关键材料失败时，可在明确未知/覆盖边界下保留合法回复、现有只读取证或必要询问；失败是否阻断由真实身份、权限、操作需求和已接受 policy 决定。关键事实缺失不得猜测执行，但本整改不把任何 fetch 失败都升级为整轮禁止调用模型。
@@ -237,6 +237,21 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 - 测试：新增 `au03_context_status_test.exs` 8 条（raise/非 ok → unavailable + 可用性段且不声称新对话；9 元组部分保留不渲染 0 章；真实空作品可 0 章；work-only 不声称讨论；旧 5 元组兼容；to_prompt_text 分流；summary）；持久层 WorkspaceContext/ChapterSummaryReader/InteractionLifecycle 合同测试更新为 9 元组（机械补位，原断言未放宽）；全量 mix test **2358/0**。
 - 门禁：format/compile -Werror/credo strict/xref/arch、I1/I2/I3、manifest 209 scenarios、task_done `20261030T141318Z`、静态扫描无 blocking；B30 原生确定性场景复跑 PASS（30/30+T8 6/6，作为 UI 证据新鲜度回归，非本 CP 语义证明）。
 - 残余：① `prose_drafting_with_quality` 等专业 run 的 writer prompt 仍沿用旧上下文渲染（本轮只补 trace 元数据；其上下文块是否需同步“可用性”段由 CP2 按真实入口判定）；② 真实页面故障矩阵/恢复与真实模型如何处理未知 = CP2/CP3；③ 未新增 UI 文案，作者可见措辞在 CP2/CP3 以真实请求/trace 收口。
+
+### CP2 记录（2026-10-30 done）
+
+- 方法：`apps/novel_application/test/novel_application/au03_context_turn_matrix_test.exs`（7 条，Sandbox+真实 Repo）：经 `DialoguePlanningService.plan_agent_run(input, fetcher, provider_execution)` 驱动真实机械 context 步 + 判断步，provider 捕获**该次实际判断 prompt**；同时读取 context 步 `AgentObservation.structured_payload.context_source_status` 作为 trace/反馈同源证据；每个故障用例比较 drafts/chapters 计数前后一致（零 canon 写入）。故障 fetcher 只在 test support 注入，产品代码无验收/故障感知。
+- 覆盖与断言：
+  1. `raise` fetcher → prompt 含「上下文可用性/读取失败」，不含「无——这是新对话或尚未创建作品」，不含「全书 0 章」；trace 观测 `unavailable_sources` 含 work；turn_result 叙事来自真实 provider 字节；零写入。
+  2. 非 ok 返回 → 同 unavailable 语义。
+  3. 部分失败（9 元组 work=:ok + chapters=:unavailable）→ prompt 保留「AU03 部分保留作品」、章节标未知、不渲染 0 章；trace unavailable_sources 含 chapters。
+  4. 真实空作品（`WorkspaceContext.context_fetcher_with_query/0` 生产路径）→ prompt 可渲染「0 章中已写 0 章」，无可用性段、无 unavailable。
+  5. work-only（旧 5 元组）→ 无可用性段、不声称刚才讨论；旧合同缺状态按既有空事实语义兼容。
+  6. 旧 5 元组空 → 保留「无——这是新对话或尚未创建作品」（兼容），不伪造读取失败。
+  7. 跨作品甲/乙：故障请求无 A/B 标题串入；`work_A` 恢复真实 fetcher 后请求含「AU03 作品甲」不含乙，`work_B` 反之；恢复后无可用性段；全程 canon 计数不变。
+- 附加修复：CP1 只把状态写入 `emit_judgment_stage` 与 flow context observation，**规划服务自身 context 步的 `judgment_observation` 仍只有 stage**；CP2 发现后补 `context_source_status`，使 trace/反馈与同次请求真正同源（无测试代签）。
+- 门禁：format/compile -Werror/credo strict/xref/arch、全量 mix test **2365/0**（新增 7）、I1/I2/I3、manifest 209 scenarios、task_done `20261030T141643Z`、静态扫描无 blocking。
+- 残余/后续：① `prose_drafting_with_quality`/`plot_outline_with_context` 的 mission inputs 仍以 `work_snapshot %{}`/`written_chapters 0` 渲染（writer prompt 尚未消费 source_status），本 CP 以 judgment 路径为主、未改其渲染；作为 known-gap 保留（归 B39/B27 专业 run 上下文消费继续，CP3 不代签）；② 真实页面故障注入与真实模型如何措辞“未知” = CP3；③ 未新增 UI 文案，作者可见措辞以同次请求/trace 证据收口。
 
 ## 历史搜索命中定位与只读回看
 
