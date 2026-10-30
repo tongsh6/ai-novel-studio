@@ -1,17 +1,17 @@
 {
   "schema": "author-behavior-coverage-report/v1",
-  "generated_at": "2026-10-30T15:06:03.832Z",
+  "generated_at": "2026-10-30T15:20:47.117Z",
   "corpus": {
-    "targets": 3,
+    "targets": 5,
     "states": 3,
-    "cases": 12,
+    "cases": 17,
     "splits": {
-      "dev": 6,
-      "regression": 3,
-      "holdout": 3,
+      "dev": 9,
+      "regression": 4,
+      "holdout": 4,
       "explore": 0
     },
-    "corpus_sha": "a371f510f0885abdf23bfb70d557f3c2b2090fc9fd63d89b14c98ba834c2c6c2"
+    "corpus_sha": "8d15108c4c4eae1905847566b6051bdb361e28bec8d6c23f6f5b51c7acc909b3"
   },
   "coverage": {
     "targets": [
@@ -52,6 +52,30 @@
           "regression",
           "holdout"
         ]
+      },
+      {
+        "target_id": "F4-delegation-or-short-reference",
+        "cases": 3,
+        "states": [
+          "S1-partial-multichapter",
+          "S2-empty-skeleton",
+          "S3-pending-candidate-context"
+        ],
+        "splits": [
+          "dev",
+          "holdout"
+        ]
+      },
+      {
+        "target_id": "F5-work-setup-empty-start",
+        "cases": 2,
+        "states": [
+          "S2-empty-skeleton"
+        ],
+        "splits": [
+          "dev",
+          "regression"
+        ]
       }
     ],
     "negative_traps_declared": [
@@ -60,7 +84,11 @@
       "T-W1-same-title-wrong-chapter",
       "T-W2-auto-adopt-without-author-action",
       "T-B1-discussion-forced-write",
-      "T-B2-adopt-request-reply-only"
+      "T-B2-adopt-request-reply-only",
+      "T-D1-auto-execute-from-short-reference",
+      "T-D2-auto-adopt-from-chitchat",
+      "T-S1-direct-prose-on-empty-work",
+      "T-S2-fabricated-setting"
     ],
     "negative_traps_evaluated": [],
     "oracles_declared": [
@@ -68,7 +96,8 @@
       "HO2-object-identity-binding",
       "HO4-truthful-completion",
       "HO5-supplied-vs-used",
-      "HO3-no-duplicate-side-effect"
+      "HO3-no-duplicate-side-effect",
+      "HO6-unknown-not-empty"
     ],
     "oracles_executed": [],
     "oracles_evaluated": [],

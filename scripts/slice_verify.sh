@@ -103,6 +103,8 @@ fi
 
 if [[ "$SLICE_ID" == "author-behavior-explore" ]]; then
   export AUTHOR_BEHAVIOR_EXPLORE_SEED="${AUTHOR_BEHAVIOR_EXPLORE_SEED:-20261030}"
+  # CP3：覆盖扩展后探索 pool；可被 env 覆盖（负控/缩化重放）。
+  export AUTHOR_BEHAVIOR_EXPLORE_POOL="${AUTHOR_BEHAVIOR_EXPLORE_POOL:-C-F1-001,C-F1-002,C-F2-002,C-F3-001,C-F3-003,C-F3-005,C-F4-001,C-F4-002,C-F4-003,C-F5-001,C-F5-002}"
 fi
 
 MIX_ENV=test mix ecto.create --quiet >/dev/null 2>&1 || true

@@ -36,12 +36,13 @@ function expectError(corpus, code) {
 test("冻结语料通过校验且统计稳定", () => {
   const result = validateAuthorBehaviorCorpus(CORPUS);
   assert.equal(result.ok, true, JSON.stringify(result.errors));
-  assert.equal(result.stats.targets, 3);
+  assert.equal(result.stats.targets, 5);
   assert.equal(result.stats.states, 3);
-  assert.equal(result.stats.cases, 12);
-  assert.equal(result.stats.splits.dev, 6);
-  assert.equal(result.stats.splits.regression, 3);
-  assert.equal(result.stats.splits.holdout, 3);
+  assert.equal(result.stats.cases, 17);
+  assert.equal(result.stats.splits.dev, 9);
+  assert.equal(result.stats.splits.regression, 4);
+  assert.equal(result.stats.splits.holdout, 4);
+  assert.equal(result.stats.targets, 5);
   assert.equal(
     result.stats.splits.dev + result.stats.splits.regression + result.stats.splits.holdout + result.stats.splits.explore,
     result.stats.cases,

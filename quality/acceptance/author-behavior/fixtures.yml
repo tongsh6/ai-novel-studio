@@ -55,3 +55,23 @@ fixtures:
     expression: "先不急着定，这个灯楼旧账的设定合理吗？先聊聊。你觉得合理吗？"
     action: reply
     note: 预留。
+  - case_id: C-F4-001
+    expression: "把前面那个东西处理一下，你懂的。"
+    action: reply
+    note: 最小刺激：讨论回复；ORACLE 判零写/不猜对象。
+  - case_id: C-F4-002
+    expression: "嗯，那个改一下。"
+    action: ask_author
+    note: 最小刺激：澄清提问；oracle 判零写。
+  - case_id: C-F4-003
+    expression: "继续。"
+    action: reply
+    note: 预留/负控样：短指代回复；oracle 判不自动采纳。
+  - case_id: C-F5-001
+    expression: "这个空作品直接起个名字，然后写第一章。"
+    action: ask_author
+    note: 最小刺激：空作品澄清；oracle 判不直接产正文。
+  - case_id: C-F5-002
+    expression: "先帮我想几个书名，别动手写。"
+    action: reply
+    note: 最小刺激：书名建议回复；oracle 判零写/不虚假完成。

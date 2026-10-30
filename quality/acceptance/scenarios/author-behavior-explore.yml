@@ -1,5 +1,5 @@
 id: author-behavior-explore
-title: "B70 author-behavior 状态驱动探索（seeded 非固定操作顺序 + 每步不变量 + 转移覆盖）"
+title: "B70 author-behavior 状态驱动探索（seeded 非固定顺序 + 逐步不变量 + 转移覆盖 + B34 缺口扩展）"
 tier: nightly
 surface: browser
 default_provider: slice_verify
@@ -22,7 +22,7 @@ setup:
   provider: slice_verify
   seed: scripts/seed_author_behavior_states.exs
   explore_seed: 20261030
-  explore_pool: [C-F1-001, C-F1-002, C-F2-002, C-F3-001, C-F3-003, C-F3-005]
+  explore_pool: [C-F1-001, C-F1-002, C-F2-002, C-F3-001, C-F3-003, C-F3-005, C-F4-001, C-F4-002, C-F4-003, C-F5-001, C-F5-002]
   env_note: 隔离 DB（ARTIFACT_DIR/database）；corpus/fixtures 由 slice_verify.sh 注入；
     AUTHOR_BEHAVIOR_EXPLORE_SEED 决定序列；产品 runtime 不感知。
 user_flow:

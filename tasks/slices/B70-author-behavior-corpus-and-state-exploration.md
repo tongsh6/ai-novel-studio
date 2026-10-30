@@ -1,6 +1,6 @@
 # B70：作者行为语料生成与状态探索验证体系
 
-- 状态：**doing（2026-10-30 CP0–CP2 done：格式冻结 + 固定回放 6/6 + seeded 状态探索（非固定顺序、逐步不变量、失败缩化）；CP3 覆盖扩展/分层/真模入口待实现）**。
+- 状态：**done（2026-10-30 CP0–CP3 交付）**：格式冻结/固定回放/seeded 状态探索/覆盖扩展（5 目标族 17 cases）/PR 子集/夜间多 seed/失败转回归/真实模型 blocked 预注册入口；真实模型语义运行与 I10 仍按 B42/作者授权，不在本任务内代签。
 - 类型：验证基础设施；仓内管理、运行时外挂、证据内生、判卷外部，不新增生产验收感知能力。
 - 设计真源：[作者行为语料生成与状态探索验证设计](../../docs/design/acceptance/author-behavior-corpus-and-state-exploration.md)；实现由其他实现者承接，本文只维护执行状态、证据与未闭环后果。
 - 来源：作者指出现有真实页面验收多为从历史日志提取的固定输入与操作剧本，覆盖过窄；独立开发阶段不能依赖持续人工创作生产语料。作者确认采用“少量人工目标模板 + 离线生成与冻结 + 自动状态探索 + 失败驱动回归”的方向，并同意先登记任务再开始 CP0。
@@ -67,7 +67,7 @@
 | CP0 | 盘点 B27/B34、现有 UI driver、dogfood/native runner、B41/B42 的可复用边界；冻结目标模板、案例、oracle、provenance/split、覆盖报告格式与执行分层；确定首批代表场景和负例 | **done（2026-10-30）**：`quality/acceptance/author-behavior/` 五类格式冻结（README + targets/states/cases/oracles + 5 JSON Schema + coverage-report example）；校验器 `scripts/lib/quality/author_behavior.mjs` + CLI + 10 条正反例测试；复用映射/首批目标族与负例/执行分层见下 CP0 记录 |
 | CP1 | 最小数据驱动闭环：至少 3 个作者目标族，包含多表达、多状态及同句异境/歧义负例；共享外部 UI driver 穿过真实主链；自动硬断言与证据 verdict；生成器/oracle 正反例通过 | **done（2026-10-30，确定性闭环）**：数据驱动浏览器 spec `frontend/slice-verify/author-behavior-corpus.mjs` 从冻结 corpus 子集（F1/F2/F3 × S1/S2/S3，6 cases，含同句异境与空作品歧义负例）驱动真实工作台；隔离 DB + 状态 seed；corpus-aware 确定性替身（仅 test/support，env 注入，产品无感知）；oracle 6/6 pass、0 fail/unknown；`quality_accept` verdict pass（quality-verdict/v2, evidence 4/4）；覆盖报告 `author-behavior-coverage-report/v1` 通过；生成器/validator/oracle 正反例 20/20 node:test。真实模型语义不在本 CP 代签 |
 | CP2 | 状态驱动探索：动作选择、随机种子、全局不变量、状态/转移覆盖、失败轨迹保存与缩化；至少一个非固定操作顺序场景由外部真实页面闭环 | **done（2026-10-30）**：seeded 探索器 + 浏览器场景 `author-behavior-explore`；seed 20261030 同 seed 两次 plan_hash/序列一致、seed 7 序列不同，均 15 steps/6 cases pass；每步 oracle G1–G6；真实页面负控失败保存 + 同类别缩化（minimal 1 步）通过。动作限于切换作品/发送（采纳/编辑/断线等留 CP3） |
-| CP3 | 覆盖扩展与分层：按 B34/新发现缺口扩展目标族；PR 受影响子集、后台/夜间探索、真实模型语义子集入口；失败转回归、完整门禁与文档索引；真实模型语义结论仍归对应产品/B42 流程，不以 stub 代签 | todo |
+| CP3 | 覆盖扩展与分层：按 B34/新发现缺口扩展目标族；PR 受影响子集、后台/夜间探索、真实模型语义子集入口；失败转回归、完整门禁与文档索引；真实模型语义结论仍归对应产品/B42 流程，不以 stub 代签 | **done（2026-10-30）**：新增 F4 delegation/短指代、F5 work_setup 空作品开局（B34 缺口），corpus 17 cases/5 targets；11-case 探索真实页面 verdict pass（5/5 目标族执行）；PR 子集选择器+测试；夜间多 seed detached runner（预注册/预算/心跳/终止）实跑 seeds 11/13 2/2 pass；真实模型 release-real-llm blocked 入口 + holdout-only 预注册（4 cases，未加载模型）；失败转回归 promoter（只接受硬违规、拒绝 fixture 不兼容、指纹去重）+ 台账。真模语义/I10 仍不代签 |
 
 CP1 只是最小实现 checkpoint，不替代 CP2 状态探索和 CP3 覆盖/分层后果；全部计划内范围未闭环前不得将 B70 标 done。
 
@@ -135,6 +135,17 @@ CP1 只是最小实现 checkpoint，不替代 CP2 状态探索和 CP3 覆盖/分
   - seed 7：`plan_hash=59d045ae5b0c…`、操作顺序不同、12 转移、6/6 pass（非固定操作顺序）。
   - 负控（seed 3，pool 故意含 C-F3-002 与 fixture 不兼容的刺激）：exit 1（预期）、真实页面执行后保存 failure-trace：`failures=[{step C-F3-002, action_not_allowed:reply}]`，缩化保留同一类别、minimal_steps=1（仅该 send）、replay_command 与 dedupe_fingerprint；批次只读归档，不当作产品缺陷或 PASS。
 - 诚实边界：探索动作目前只有作品切换 + 发送（采纳/拒绝/编辑/离线恢复等动作留 CP3 或后续）；未在有效 pool 上触发真实失败（缩化路径由页面负控 + 单测证明）；确定性替身不代签真实模型语义/文学质量；随机探索不自动证明语义覆盖，未触达目标只记声明/缺口。
+
+## 6.5 CP3 完成记录（2026-10-30 done，覆盖扩展与分层）
+
+- 覆盖扩展（按 B34 缺口）：新增目标族 **F4-delegation-or-short-reference**（delegation/chitchat_noise/other_unclassified ≳9 历史样本，“你懂的/那个改一下/继续”不得猜对象自动执行/采纳）与 **F5-work-setup-empty-start**（work_setup 8，HIGH，空作品起名/开局先澄清或计划，不直接产正文/不虚构设定）；corpus 17 cases / 5 targets（dev 9/regression 4/holdout 4），新增 fixtures 5 条；oracles 增 4 个负例陷阱（T-D1/T-D2/T-S1/T-S2）。
+- 真实页面覆盖证据（`artifacts/author-behavior/coverage-expanded-11cases/`）：探索场景 seed 20261030 pool=11 → **quality_accept verdict pass**，28 steps/18 转移，11/11 cases 逐步 pass；覆盖报告 targets：F1 2/F2 1/F3 3/**F4 3/F5 2** 全部执行；剩余 gaps 为未跑 6 cases（含 execute 路径/生成表达）与 real-model 未覆盖。
+- PR 受影响子集：`scripts/lib/quality/author_behavior_pr_subset.mjs` + CLI + 4 测试；规则覆盖 corpus/harness/judgment/core/agent/domain/docs/tests/未知路径保守全选；示例：judgment_protocol+cases+design docs → tier nightly/17 cases；docs-only → none；未知 → 全选并标 conservative。
+- 后台/夜间探索：`scripts/author_behavior_nightly.sh` 需先写 `author-behavior-nightly-preregistration/v1`（scope/seeds/budget/criteria/evidence_dir），逐 seed 预算 240s、心跳、pidfile、termination；detached 实跑 seeds 11/13：**2/2 pass**，证据 `artifacts/author-behavior/nightly-cp3-20261030T152315Z/`（preregistration/state/termination/heartbeat/results/per-seed summary）。
+- 真实模型语义子集入口：`scripts/author_behavior_real_llm_plan.mjs` 生成 holdout-only 预注册（本 corpus 4 holdout cases；单槽/卸载命令/预算/判据/I10 不代签）；场景 `author-behavior-real-llm-subset`（release-real-llm, **blocked**）登记于 registry + manifest；**未加载/运行模型**，生成预注册 `artifacts/author-behavior/real-llm-prereg-20261030.json`。
+- 失败转回归：`scripts/lib/quality/author_behavior_promote.mjs` + CLI + 2 测试；只接受含 G1–G6 硬违规的失败，fixture 不兼容/驱动失败明确拒转；输出 derived_frozen regression 候选（保留原失败指纹/plan_hash/violation）并写 `regressions.json` 台账；现有页面负控（fixture 不兼容）被正确地拒绝，无真实产品失败可登记。
+- 门禁/索引：全量 mix test 与 I1–I3、node 测试 34/34、manifest 213 scenarios、task_done、静态扫描；文档索引 author-behavior README/scripts README/设计真源指针同步。证据 `artifacts/gates/2026-10-30-b70-cp3/`。
+- 残余（不代签）：真实模型语义运行 blocked（需作者授权资源窗口+B42 预注册/证据链，单槽/unload 前置）；探索动作仍限切作品/发送（采纳/编辑/断线恢复未覆盖）；6 个 not-run cases（execute prose 路径等）；I10 文学质量只能作者指定负责人/时机盲评。
 
 ## 7. 验证与恢复
 

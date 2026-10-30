@@ -1236,6 +1236,16 @@ scenarios:
     manifest: quality/acceptance/scenarios/author-behavior-explore.yml
     driver: frontend/slice-verify/author-behavior-corpus.mjs
     entrypoint: scripts/quality_accept.sh author-behavior-explore --surface browser
+  - id: author-behavior-real-llm-subset
+    title: "B70 author-behavior 真实模型 holdout 语义子集（预注册入口，blocked）"
+    tier: release-real-llm
+    surface: browser
+    default_provider: strata
+    status: blocked
+    blocked_reason: "需要作者授权资源窗口 + B42 预注册/单槽卸载/model_behavior 证据链；未预注册不运行真实模型，stub 不代签语义。"
+    manifest: quality/acceptance/scenarios/author-behavior-real-llm-subset.yml
+    driver: frontend/slice-verify/author-behavior-corpus.mjs
+    entrypoint: scripts/quality_accept.sh author-behavior-real-llm-subset --surface browser
   - id: e2e-01-full-chain
     title: "E2E-01 端到端全链路聚合验收"
     tier: nightly

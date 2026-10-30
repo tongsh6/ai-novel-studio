@@ -1,0 +1,52 @@
+id: author-behavior-real-llm-subset
+title: "B70 author-behavior 真实模型 holdout 语义子集（预注册入口，blocked 未运行）"
+tier: release-real-llm
+surface: browser
+default_provider: strata
+status: blocked
+blocked_reason: >-
+  需要作者授权资源窗口 + B42 前置（预注册、单槽/unload、model_behavior 证据链）。本入口只冻结
+  范围/预算/判据/清理要求；未预注册不运行真实模型，不用 stub 代签语义，不做 I10 文学质量判定。
+entrypoint: scripts/quality_accept.sh author-behavior-real-llm-subset --surface browser
+contract:
+  - tasks/slices/B70-author-behavior-corpus-and-state-exploration.md §5–§6.5
+  - docs/design/acceptance/author-behavior-corpus-and-state-exploration.md §12（真实模型语义子集）
+  - tasks/slices/B42-model-behavior-evidence-tier.md（预注册/单槽/model_behavior）
+invariants:
+  - I-B70R-1 仅 holdout：子集只取 holdout case，dev/regression 不参与实模调词/判定。
+  - I-B70R-2 单槽与卸载：一次一个模型；结束/失败/中断必须卸空（LM `lms unload --all`+`lms ps`；Strata unload+loaded=null）。
+  - I-B70R-3 不代签：stub 不能证明模型语义；I10 文学质量只由作者指定负责人/时机盲评。
+  - I-B70R-4 预注册先行：范围/预算/判据/证据目录写入预注册后才可运行；失败批次只读。
+setup:
+  provider: strata
+  case_source: quality/acceptance/author-behavior/cases.yml（holdout 子集）
+  preregistration: scripts/author_behavior_real_llm_plan.mjs 输出（holdout-only）
+  status_note: blocked；未加载模型；运行前置见 blocked_reason。
+user_flow:
+  - blocked: 作者授权资源窗口并确认预注册后，由外部页面 driver 执行 holdout 子集
+  - verify: 真实产品链 + 真实模型请求/响应 + B42 model_behavior 证据；逐 case 判机制/S 语义
+evidence:
+  required:
+    - screenshot
+    - backend_log
+    - summary_json
+    - persistence_snapshot
+  artifact_dir: artifacts/author-behavior/real-llm-subset
+assertions:
+  ui:
+    - 未运行时不得产出 PASS/verdict；入口只登记 blocked。
+  data:
+    - 预注册只含 holdout case；不出现 dev/regression 表达。
+    - 运行结束必须卸载模型并验证为空。
+  llm:
+    - 真实模型语义结论归 B42/作者流程；本场景不以自动化分数替代文学质量盲评。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+prerequisites:
+  - B42 预注册与模型行为证据链就绪。
+  - 作者授权资源窗口；单槽/unload 操作记录。
+known_not_closed:
+  - 本入口 blocked，尚未运行真实模型；不得据此声称语义或文学质量 PASS。

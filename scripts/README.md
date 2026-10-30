@@ -44,6 +44,11 @@
 | `quality_manifest_check.sh` | quality manifest 门禁：PyYAML 标准解析 + `scripts/lib/quality/manifest.mjs` 语义校验（非法 YAML/重复键/词表/未注册/draft 硬失败；B41 CP1）。 |
 | `author_behavior_check.mjs` | B70 CP0 author-behavior 冻结语料/状态/oracle/覆盖报告格式校验（PyYAML 标准解析；schema/引用/provenance/split/holdout 泄漏/覆盖报告一致性；exit 66 格式错误）。 |
 | `lib/quality/author_behavior_oracle.mjs` | B70 CP1 author-behavior 确定性 oracle 评估器：allowed action/effect、硬违规（错对象/未授权写/重复副作用/虚假完成/讨论强制写）、unknown 不判 PASS、覆盖报告生成（`author-behavior-coverage-report/v1`）。 |
+| `lib/quality/author_behavior_pr_subset.mjs` | B70 CP3 PR 受影响子集：变更路径→应跑 case/场景映射（docs-only 空集、未知路径保守全选）；CLI `author_behavior_pr_subset.mjs`。 |
+| `author_behavior_real_llm_plan.mjs` | B70 CP3 真实模型 holdout-only 预注册生成器（不加载模型；单槽/卸载/预算/判据/I10 不代签）；对应 scenario release-real-llm blocked。 |
+| `author_behavior_nightly.sh` | B70 CP3 夜间/后台多 seed 探索 runner：必须带预注册 JSON，逐 seed 预算/心跳/pidfile/termination，失败只读保留。 |
+| `lib/quality/author_behavior_promote.mjs` | B70 CP3 失败→regression 候选：只接受 G1–G6 硬违规、指纹去重、写 regressions.json 台账；fixture 不兼容/驱动失败拒转。 |
+| `lib/quality/author_behavior_real_llm.mjs` | B70 CP3 实模预注册构造（holdout-only/单槽/卸载/语义与 I10 边界）；CLI 为 `author_behavior_real_llm_plan.mjs`。 |
 | `lib/quality/author_behavior_explorer.mjs` | B70 CP2 seeded 状态探索器：确定性 PRNG/探索计划、逐步状态转移与覆盖汇总、失败缩化（保同一类别最小序列）、去重指纹；正反例见同目录测试。 |
 | `lib/quality/author_behavior_generator.mjs` | B70 CP1 离线确定性语料生成器：模板生成候选 + generated_frozen provenance（source_refs/generator/时间），只产候选、不自动冻结/不标 holdout；正反例见同目录测试。 |
 | `seed_au03_context_source_ui.exs` | AU-03 context source UI 验收 seed。 |

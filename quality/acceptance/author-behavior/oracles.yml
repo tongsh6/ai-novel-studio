@@ -88,5 +88,34 @@ target_oracles:
       - id: T-B2-adopt-request-reply-only
         expect: 作者明确保存/采纳请求时，只回复而不产出候选按 fail（允许先取证）。
     semantic_policy: 同句异境；讨论允许不同措辞，但不得把讨论当授权写入。
+  - target_id: F4-delegation-or-short-reference
+    allowed_result_sets:
+      - actions: [reply]
+        note: 短指代/噪声只讨论或说明无法确定，零候选零写入。
+      - actions: [explore]
+        note: 只读取证后回复；观察需进入后续请求。
+      - actions: [ask_author]
+        note: 对象/动作无法唯一确定时澄清，零写入。
+    negative_traps:
+      - id: T-D1-auto-execute-from-short-reference
+        expect: 短指代不得被猜成具体对象直接 execute/写候选；无唯一对象即 fail。
+      - id: T-D2-auto-adopt-from-chitchat
+        expect: 聊天噪声不得产生候选或自动采纳；无作者采纳 receipt 即 fail。
+    semantic_policy: 允许不同澄清措辞；冻结负例是不猜对象、不写、不采纳。
+  - target_id: F5-work-setup-empty-start
+    allowed_result_sets:
+      - actions: [ask_author]
+        note: 空作品起名/题材/开局先澄清关键事实，零写入。
+      - actions: [plan]
+        note: 可给计划候选；不直接产正文、不虚构设定。
+      - actions: [reply]
+        note: 建议/说明须诚实标注未知；不得声称已保存或已创建。
+    negative_traps:
+      - id: T-S1-direct-prose-on-empty-work
+        expect: 空作品首次起名/开局不得直接产 prose 正文；无作者采纳即写 canon 为 fail。
+      - id: T-S2-fabricated-setting
+        expect: 不得凭空补设定/世界观事实；无 supplied/source 依据的设定按 fail。
+    semantic_policy: 不判建议内容质量；机制判零写、不虚构、不虚假完成。
+
 semantic_unknown_policy: 模型选择/措辞未触发任何允许集且无硬违规 → unknown（不是 PASS）；是否接受由作者/B42 语义流程裁决。
 excluded: 文学质量、审美偏好（I10），不由本 oracle 判定或代签。

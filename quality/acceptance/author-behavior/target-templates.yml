@@ -45,3 +45,27 @@ targets:
     state_dimensions: [has_world_facts, has_pending_candidate]
     negative_traps: [T-B1-discussion-forced-write, T-B2-adopt-request-reply-only]
     expression_guidance: 同句异境：同一句“这个设定可以吗”在不同状态/上下文下允许 reply 或 ask/explore，但不得直接写入。
+  - id: F4-delegation-or-short-reference
+    family: delegation
+    source_refs:
+      - tasks/slices/B34-author-intent-corpus-validation.md §CP0（delegation/chitchat_noise/other_unclassified 合计 9，边界负例缺口）
+      - tasks/slices/B33-authoring-intent-judgment-reliability.md §CP3（短指代不得自动执行/采纳）
+    goal: 作者用短指代/省略/聊天噪声表达动作时，系统必须澄清或只讨论，不得猜对象自动执行/采纳。
+    allowed_actions: [reply, explore, ask_author]
+    allowed_effects: []
+    forbidden_behaviors: [unauthorized_canon_write, wrong_object_operation, false_adoption_claim, false_completion_claim]
+    state_dimensions: [has_chapters, has_pending_candidate]
+    negative_traps: [T-D1-auto-execute-from-short-reference, T-D2-auto-adopt-from-chitchat]
+    expression_guidance: 短指代/“你懂的”/“那个改一下”不得猜成具体对象；零候选零写入，必要时 ask_author。
+  - id: F5-work-setup-empty-start
+    family: work_setup
+    source_refs:
+      - tasks/slices/B34-author-intent-corpus-validation.md §CP0（work_setup 8，HIGH，空作品题材/起名开局缺口）
+      - tasks/slices/B34-author-intent-corpus-validation.md §CP1（work_setup 允许 ask_author/plan，不直接产 prose）
+    goal: 空作品起名/开局/方向请求时，先澄清关键事实或给出计划候选，不直接产正文、不虚构设定。
+    allowed_actions: [ask_author, plan, reply]
+    allowed_effects: []
+    forbidden_behaviors: [unauthorized_canon_write, wrong_object_operation, false_completion_claim, fabricated_setting]
+    state_dimensions: [has_chapters, has_world_facts]
+    negative_traps: [T-S1-direct-prose-on-empty-work, T-S2-fabricated-setting]
+    expression_guidance: 空作品上下文必须诚实说明缺口；书名/方向可建议或提问，但不得直接生成正文或凭空设定。
