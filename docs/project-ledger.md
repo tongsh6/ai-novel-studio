@@ -1322,3 +1322,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **UA01-LOG-B13 CP0 blocked**：盘清 run_failed 生产者/Provider/工具失败/trace 键位；现无外部场景到最终 run_failed，AU04 provider 失败场景复跑超时（missing 多事件，自身疑漂移）；需受控失败触发与同 run/turn 三源关联补验；未改代码/日志。当前任务切 SU04-LIFECYCLE。
 
 - 2026-10-31 — **SU04-LIFECYCLE CP0**：只读核对 sidecar 解包/就绪/迁移/端口/退出：无安装完成 marker、spawn≠ready、失败无分类、退出未杀进程组；冻结 CP1 最小修复（marker/复用判据、health 就绪分类、进程组退出、打包应用故障复验）；未改代码。
+
+- 2026-10-31 — **SU04-LIFECYCLE CP1 partial**：解包 marker/staging 原子替换（半解包不再误判已安装）与 Unix 进程组 TERM/KILL 退出实现；Rust 测试通过；就绪分类/真实打包应用故障复验待做。

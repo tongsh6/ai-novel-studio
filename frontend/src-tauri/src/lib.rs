@@ -655,6 +655,14 @@ fn sidecar_bin_path(install_dir: &Path) -> PathBuf {
 
 // 首启把 release tarball 从只读 resource 目录解包到可写数据目录（按版本隔离，
 // 升级自动重解），返回安装目录；已安装则直接复用。tar 保留权限与可执行位。
+//
+// CP1（SU04 生命周期）：安装完成以 `.install-complete` marker 为准，且 bin 必须同时
+// 存在才复用；tar 失败只污染 staging 目录，成功后才原子替换正式目录，避免半解包
+// 被下一次启动误判为已安装。
+fn sidecar_install_complete(install_dir: &Path) -> bool {
+    install_dir.join(".install-complete").is_file() && sidecar_bin_path(install_dir).exists()
+}
+
 fn ensure_sidecar_installed(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let resource_dir = app
         .path()
@@ -665,7 +673,7 @@ fn ensure_sidecar_installed(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .join("runtime")
         .join(format!("sidecar-{}", env!("CARGO_PKG_VERSION")));
 
-    if sidecar_bin_path(&install_dir).exists() {
+    if sidecar_install_complete(&install_dir) {
         return Ok(install_dir);
     }
 
@@ -681,22 +689,40 @@ fn ensure_sidecar_installed(app: &tauri::AppHandle) -> Result<PathBuf, String> {
             )
         })?;
 
-    // 干净重解：清掉同版本残留半成品，避免坏状态。
-    let _ = std::fs::remove_dir_all(&install_dir);
-    std::fs::create_dir_all(&install_dir)
-        .map_err(|error| format!("failed to create {}: {error}", install_dir.display()))?;
+    let staging_dir =
+        install_dir.with_file_name(format!("sidecar-{}.staging", env!("CARGO_PKG_VERSION")));
+
+    // 失败批次保留只读：staging 残留可用于诊断，下次启动先清 staging 再重解。
+    let _ = std::fs::remove_dir_all(&staging_dir);
+    std::fs::create_dir_all(&staging_dir)
+        .map_err(|error| format!("failed to create {}: {error}", staging_dir.display()))?;
 
     let status = Command::new("tar")
         .arg("-xzf")
         .arg(&archive)
         .arg("-C")
-        .arg(&install_dir)
+        .arg(&staging_dir)
         .status()
         .map_err(|error| format!("failed to run tar: {error}"))?;
 
     if !status.success() {
         return Err(format!("tar extraction failed with status {status}"));
     }
+
+    // 解包成功后才替换正式目录并写 marker；marker 缺失的旧目录按半解包处理。
+    let _ = std::fs::remove_dir_all(&install_dir);
+    std::fs::rename(&staging_dir, &install_dir).map_err(|error| {
+        format!(
+            "failed to activate sidecar install {}: {error}",
+            install_dir.display()
+        )
+    })?;
+
+    std::fs::write(
+        install_dir.join(".install-complete"),
+        env!("CARGO_PKG_VERSION"),
+    )
+    .map_err(|error| format!("failed to write sidecar install marker: {error}"))?;
 
     Ok(install_dir)
 }
@@ -728,7 +754,8 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> Result<Child, String> {
     // 本机单实例 sidecar，不需要 Erlang 分布式 / epmd。
     // cwd 设为可写数据目录：GUI（LaunchServices）启动时 cwd 是只读的 "/"，
     // 任何 cwd 相对路径写入都会 erofs 崩溃。
-    Command::new(&bin)
+    let mut command = Command::new(&bin);
+    command
         .arg("start")
         .current_dir(&data_dir)
         .env("PATH", path)
@@ -736,7 +763,16 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> Result<Child, String> {
         .env("PHOENIX_PORT", SIDECAR_PORT)
         .env("RELEASE_DISTRIBUTION", "none")
         .stdout(Stdio::from(stdout))
-        .stderr(Stdio::from(stderr))
+        .stderr(Stdio::from(stderr));
+
+    // Unix：独立进程组，退出时杀整组，避免 release 引导脚本派生的子进程成为孤儿。
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+
+    command
         .spawn()
         .map_err(|error| format!("failed to spawn sidecar: {error}"))
 }
@@ -745,6 +781,19 @@ fn shutdown_sidecar(app: &tauri::AppHandle) {
     if let Some(state) = app.try_state::<SidecarChild>() {
         if let Ok(mut guard) = state.0.lock() {
             if let Some(mut child) = guard.take() {
+                #[cfg(unix)]
+                {
+                    // 进程组 leader 的 pid 同时是组 id；负号向整组发 TERM，wait 超时再 KILL。
+                    let group = format!("-{}", child.id());
+                    let _ = Command::new("/bin/kill").arg("-TERM").arg(&group).status();
+                    for _ in 0..20 {
+                        if let Ok(Some(_)) = child.try_wait() {
+                            return;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    let _ = Command::new("/bin/kill").arg("-KILL").arg(&group).status();
+                }
                 let _ = child.kill();
                 let _ = child.wait();
             }
@@ -754,6 +803,28 @@ fn shutdown_sidecar(app: &tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sidecar_install_requires_marker_and_bin() {
+        let dir = std::env::temp_dir().join(format!(
+            "sidecar-install-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("bin")).expect("mkdir");
+        assert!(!super::sidecar_install_complete(&dir));
+
+        std::fs::write(super::sidecar_bin_path(&dir), b"#!/bin/sh\n").expect("write bin");
+        assert!(!super::sidecar_install_complete(&dir));
+
+        std::fs::write(dir.join(".install-complete"), "test").expect("write marker");
+        assert!(super::sidecar_install_complete(&dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn normalize_purpose_models_keeps_whitelisted_non_empty_entries() {
         let mut input = std::collections::HashMap::new();

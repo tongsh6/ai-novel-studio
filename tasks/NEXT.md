@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| SU04-LIFECYCLE | CP0 done：已冻结解包 marker/就绪/迁移/端口/退出孤儿缺口矩阵；CP1 修复与真实打包应用故障复验待做 | [原任务小节](slices/SU04-desktop-sidecar-packaging.md#现役故障与生命周期契约核对) |
+| SU04-LIFECYCLE | CP0 done；CP1 partial：安装 marker/staging+进程组退出实现并有 Rust 测试；就绪分类与真实打包应用故障复验待做 | [原任务小节](slices/SU04-desktop-sidecar-packaging.md#现役故障与生命周期契约核对) |
 
 ## 后续候选
 
