@@ -525,22 +525,33 @@ export class NativeScenarioHarness {
       await sleep(200);
     }
     typeText(this.APP, text);
-    await sleep(700);
-    nodes = this.dumpNodes();
-    composer = this.findComposer(nodes);
-    const typedValue = String(composer?.value ?? "");
-    if (typedValue.trim() !== "" && !typedValue.includes(text.slice(0, 3))) {
-      // CGEvent 偶发丢字：仅在 AX 能读到非空值且确实不含预期文本时重试一次；
-      // 最终仍以 user_message 帧文本严格核对（帧文本不等即等待超时失败）。
-      this.safeClick(composer, `${label}:composer-retry`);
-      await sleep(250);
-      pressKey(this.APP, "cmd+a");
-      pressKey(this.APP, "delete");
-      await sleep(200);
-      typeText(this.APP, text);
-      await sleep(600);
-      nodes = this.dumpNodes();
+    // 长中文输入用 CGEvent 逐字注入，固定 sleep 会在最后几个字到达前点击发送，
+    // 导致 user_message 帧被截断。以 AX composer value 与目标文本严格相等为发送前提。
+    let typedValue = "";
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const deadline = Date.now() + 6_000;
+      while (Date.now() < deadline) {
+        composer = this.findComposer(this.dumpNodes());
+        typedValue = String(composer?.value ?? "");
+        if (typedValue === text) break;
+        await sleep(200);
+      }
+      if (typedValue === text) break;
+      if (attempt === 0) {
+        // 仍然只重试一次真实键盘输入；绝不旁路提交。
+        this.safeClick(composer, `${label}:composer-retry`);
+        await sleep(250);
+        pressKey(this.APP, "cmd+a");
+        pressKey(this.APP, "delete");
+        await sleep(200);
+        typeText(this.APP, text);
+        await sleep(400);
+      }
     }
+    if (typedValue !== text) {
+      throw new Error(`composer_text_incomplete:${label}:got=${typedValue.length}:want=${text.length}`);
+    }
+    nodes = this.dumpNodes();
     this.clickSend(nodes);
     let sent = await this.tryPollWire(
       (wire) => this.sentUserMessageSince(wire, startedAt, text),

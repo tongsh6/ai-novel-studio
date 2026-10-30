@@ -135,7 +135,7 @@ export function evaluateCase(corpus, testCase, observation) {
 
   const actionAllowed = action !== null && allowedActions.includes(action);
   const effectsAllowed = effects.every((effect) => allowedEffects.includes(effect));
-  const candidateRequired = action === "execute" && allowedEffects.length > 0;
+  const candidateRequired = ["execute", "author_content_registration"].includes(action) && allowedEffects.length > 0;
   const candidateCount = asInteger(observed.candidate_count);
   const candidateStatuses = observed.candidate_statuses ?? [];
   const candidateTypes = observed.candidate_types ?? [];

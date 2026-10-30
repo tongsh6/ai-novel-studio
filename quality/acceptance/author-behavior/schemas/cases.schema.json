@@ -20,6 +20,8 @@
           "state_id": {"type": "string"},
           "split": {"enum": ["dev", "regression", "holdout", "explore"]},
           "tier": {"enum": ["pr-smoke", "nightly", "explore"]},
+          "journey_id": {"type": "string"},
+          "sequence": {"type": "integer", "minimum": 0},
           "provenance": {
             "type": "object",
             "required": ["kind", "frozen_at"],

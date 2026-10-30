@@ -601,6 +601,25 @@ git diff --check
 - UI 反馈（同批真实窗口发现，已另立 slice）：B76 叙事段落 gap+margin 双倍空行已修复 + node 静态守卫；B74 候选动作按对象分组卡并贴回内容卡下（组件测试证明正文先于保存按钮），真实 Tauri 候选区视觉复验受模型 run/滚动取证影响未闭环，保持 doing；B75 会话弹层 click-outside/Esc 关闭缺口 todo。
 - 残余：D6-A setup、正式 A1/A2 判据与人工评审、A2-run2/A1-run1 known-gap、B42 完整性接入、UI 页面复验、对话内联探索迁移。
 
+### 9.14 D6-A 真实 setup 尝试与停止记录（2026-10-31，未完成正式 A1/A2）
+
+- 预注册更新（`artifacts/model-contracts/b39-cp1/au15-preregistration.json`，gitignored）：`setup.mode=d6a`、`setup.provenance=真实模型创作+外部页面采纳`、`scope.setup_mode=d6a`，证据 tag `au15d6a*`。
+- 实现（test-support，仅脚本/harness，产品零感知）：
+  - `scripts/seed_au15_evidence_seeking.exs` 支持 `AU15_SETUP_MODE=d6a`：只建空章节骨架（第01/02 DRAFTING 无正文、第03/04 PLANNED），不预置 accepted fixture。
+  - 原生驱动增加 `runSetupPhase`：真实模型写第01/02章 → 真实 UI 候选出现 → 点击「保存原稿」→ 读取 DB accepted 草稿与关键词；setup 失败阻止进入测量并只读保留。
+  - batch 增加 setup/measurement 分账（state/batch.json/d6a_precondition）、setup.json 校验；证据汇总输出 setup 证据与 blocked 理由。
+  - `scenario_driver.rawTypeAndSend` 修复长中文输入截断：以 AX composer value 严格等于目标文本作为发送前提（此前 76 字输入在 48 字处被发送，导致模型看到截断指令）。
+- 尝试结果（失败批次均只读保留，不覆盖）：
+  1. `au15d6a`：driver 作用域 bug `setup is not defined`（实现错误，已修）。
+  2. `au15d6a2`：长输入截断导致 `wait_wire_timeout`（test-support 缺陷，已修）。
+  3. `au15d6a3`：setup ch1 采纳成功但 `dbAcceptedTexts` 引用错误 `DB_PATH` → 关键词误判 fail（实现错误，已修）。
+  4. `au15d6a4`：**setup ch1 成功**（setup.json ok=true，accepted_drafts 0→1，hash 变化，关键词 答应/三天/回灯楼 全中；截图与 DB 只读证据在 `artifacts/slice-verify/b39-au15-au15d6a4-native/`）；setup ch2 在 turn_result 早于候选渲染时误判无候选（实现错误，已修）。
+  5. `au15d6a5`：候选等待未包 heartbeat → `driver_idle_timeout`（已修）。
+  6. `au15d6a6`：候选按钮未滚入视口/未进 AX → `candidate_timeout`（已修：先滚动再轮询）。
+  7. `au15d6a7`：候选轮询中 AX dump 失败 → `external_driver_failed`（未修根因；与 6 同属“候选区 AX/滚动定位不稳定”，**连续 2 次同因失败，停止重试**，按规范记录 root-cause）。
+- 结论：D6-A setup **第01章真实创作+页面采纳已成立**；第02章及测量 A0/A1/A2 **未执行**。正式 AU-15 A1/A2 仍 blocked；B39 CP1 不 done。已知缺口：①候选区在原生 AX/滚动定位不稳定（建议改用 Playwright/browser surface 或给原生 harness 增加稳定可见性等待，而不是继续盲试）；②ch2 未完成；③作者/指定评审语义裁决未做。
+- 预注册/预算：仅本轮 7 次 setup 预热尝试（前 6 次为 harness 实现缺陷，第 7 次同因停止）；未把失败计入测量分母，也未跑正式测量批次。
+
 ## 10. 当前初始供给整改的消费交接
 
 - [B27 §9](B27-systematic-prompt-and-intent-integration.md#9-元原则整改实际请求材料与引用同源) 负责当前共通初始请求的实际材料与 supplied refs 同源；[AU03](AU03-file-level-closure.md#当前上下文缺失与读取失败补验) 负责真实空/未知/fetch 失败及恢复语义。其执行状态只在各原任务维护，本节不复制。

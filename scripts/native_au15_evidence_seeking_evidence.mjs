@@ -183,12 +183,20 @@ if (!driverLog) {
 }
 
 const runs = Array.isArray(driverLog.runs) ? driverLog.runs : [];
+const setupEvidence = readJson("setup.json");
+const setupMode = driverLog.setup_mode ?? "isolated_fixture";
+const setupOk = setupMode === "d6a" ? setupEvidence?.ok === true : null;
 const setup = {
-  mode: driverLog.setup_mode ?? "isolated_fixture",
-  d6a_precondition: driverLog.d6a_precondition ?? "not_satisfied",
+  mode: setupMode,
+  d6a_precondition:
+    driverLog.d6a_precondition ??
+    (setupMode === "d6a" ? (setupOk ? "satisfied_by_driver" : "failed_or_missing") : "not_satisfied"),
+  evidence: setupEvidence,
   measurement_runs: runs.map((run) => run.id),
   note:
-    "本批 setup 为 scripts/seed_au15_evidence_seeking.exs 隔离 fixture，不是 D6-A 的真实模型创作 + 外部页面采纳。",
+    setupMode === "d6a"
+      ? "本批 setup 由真实模型创作 + 外部真实页面采纳前置章节（D6-A）；setup 与测量分账，setup 失败只读保留。"
+      : "本批 setup 为 scripts/seed_au15_evidence_seeking.exs 隔离 fixture，不是 D6-A 的真实模型创作 + 外部页面采纳。",
 };
 
 const globalChecks = [];
@@ -625,11 +633,7 @@ const summary = {
   strata_endpoint: driverLog.strata_endpoint ?? null,
   git_head: gitHead(),
   generated_at: new Date().toISOString(),
-  setup: {
-    ...setup,
-    note:
-      "本批 setup 为 scripts/seed_au15_evidence_seeking.exs 隔离 fixture；不是 D6-A 的真实模型创作 + 外部页面采纳。setup 与测量分账，正式 A1/A2 验收仍需 D6-A 前置与人工语义复核。",
-  },
+  setup,
   mechanism: {
     status: mechanismStatus,
     failing_runs: mechanismFailures.map((result) => ({ run_id: result.run_id, failing_checks: result.failing_checks })),
@@ -663,7 +667,9 @@ const summary = {
   formal_acceptance: {
     status: "blocked",
     blocked_reason:
-      "正式 AU-15 A1/A2 仍须 D6-A setup（真实模型创作 + 外部真实页面采纳前置章节）与作者/指定评审的语义相容裁决；本批为隔离 fixture 的机制/模型行为 scoped 证据，不写成正式 PASS。",
+      setupMode === "d6a" && setupOk
+        ? "D6-A setup 已由真实模型创作 + 外部页面采纳完成；正式 AU-15 A1/A2 仍须作者/指定评审对语义相容与模型行为做人工裁决，本批机制/模型行为 scoped 证据不代签 PASS。"
+        : "正式 AU-15 A1/A2 仍须 D6-A setup（真实模型创作 + 外部真实页面采纳前置章节）与作者/指定评审的语义相容裁决；本批为隔离 fixture 的机制/模型行为 scoped 证据，不写成正式 PASS。",
   },
   model_lifecycle: lifecycle,
   db_counts: {

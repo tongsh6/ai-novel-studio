@@ -13,6 +13,8 @@ alias NovelPersistence.Schemas.{Chapter, Draft, Scene, Volume}
 # 诚实边界：本 seed 是隔离 fixture，只用于机制/探针证据，不等于 D6-A 的
 # “前置章节由真实模型创作 + 外部真实页面采纳”；正式 AU-15 A1/A2 验收仍须
 # 按预注册用 D6-A setup 产生前置章节并人工复核。setup 与测量分账另行记录。
+setup_mode = System.get_env("AU15_SETUP_MODE", "isolated_fixture")
+
 {:ok, work} =
   WorkService.create(%{
     "title" => "AU15 Evidence Work",
@@ -46,12 +48,24 @@ chapter_02_prose =
     "她把半枚铜钥匙放在最高那层窗台上，让风把钥匙吹干，" <>
     "每天傍晚都来点灯，把灯芯挑得比往常亮些，好让从码头回来的人远远看见。"
 
-chapter_specs = [
-  {1, "第01章：灯楼旧约", "DRAFTING", "灯楼夜话，顾青守灯。", chapter_01_prose},
-  {2, "第02章：两场雨", "DRAFTING", "两场雨之间的等待。", chapter_02_prose},
-  {3, "第03章：灯楼夜戏", "PLANNED", "待写：灯楼的夜戏。", nil},
-  {4, "第04章：归期", "PLANNED", "待写：归期将至。", nil}
-]
+chapter_specs =
+  if setup_mode == "d6a" do
+    # D6-A：前置章节由真实模型创作 + 外部页面采纳；seed 只建空章节骨架，
+    # 不预置任何 accepted 正文。测量仍使用第03/04章作为目标章。
+    [
+      {1, "第01章：灯楼旧约", "DRAFTING", "灯楼夜话，顾青守灯。", nil},
+      {2, "第02章：两场雨", "DRAFTING", "两场雨之间的等待。", nil},
+      {3, "第03章：灯楼夜戏", "PLANNED", "待写：灯楼的夜戏。", nil},
+      {4, "第04章：归期", "PLANNED", "待写：归期将至。", nil}
+    ]
+  else
+    [
+      {1, "第01章：灯楼旧约", "DRAFTING", "灯楼夜话，顾青守灯。", chapter_01_prose},
+      {2, "第02章：两场雨", "DRAFTING", "两场雨之间的等待。", chapter_02_prose},
+      {3, "第03章：灯楼夜戏", "PLANNED", "待写：灯楼的夜戏。", nil},
+      {4, "第04章：归期", "PLANNED", "待写：归期将至。", nil}
+    ]
+  end
 
 chapters =
   Enum.map(chapter_specs, fn {seq, title, status, summary, prose} ->
@@ -94,5 +108,5 @@ IO.puts(
   "[au15-evidence-seeking-seed] work_id=#{work.id} session_id=#{session_id} " <>
     "chapter_count=#{length(chapters)} " <>
     "chapter_3_id=#{chapter_three.id} chapter_4_id=#{chapter_four.id} " <>
-    "setup_mode=isolated_fixture"
+    "setup_mode=#{setup_mode}"
 )

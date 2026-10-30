@@ -38,10 +38,11 @@ test("冻结语料通过校验且统计稳定", () => {
   assert.equal(result.ok, true, JSON.stringify(result.errors));
   assert.equal(result.stats.targets, 5);
   assert.equal(result.stats.states, 4);
-  assert.equal(result.stats.cases, 18);
+  assert.equal(result.stats.cases, 28);
   assert.equal(result.stats.splits.dev, 10);
   assert.equal(result.stats.splits.regression, 4);
   assert.equal(result.stats.splits.holdout, 4);
+  assert.equal(result.stats.splits.explore, 10);
   assert.equal(result.stats.targets, 5);
   assert.equal(
     result.stats.splits.dev + result.stats.splits.regression + result.stats.splits.holdout + result.stats.splits.explore,

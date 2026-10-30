@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B39 | CP1 进行中/部分 blocked：CP1a–CP1d + AU15 scoped 真模批 au15cp1a（机制 4/5、A2-run2 fail、A1-run2/A2-run1 observed）；正式 A1/A2 需 D6-A 真实 setup + 作者/指定评审，当前不自行扩大；B74/B75/B76 UI 反馈已收口 | [原任务](slices/B39-evidence-seeking-authoring.md) |
+| B39 | CP1 进行中/部分 blocked：CP1a–CP1d + AU15 scoped 真模批 au15cp1a（机制 4/5、A2-run2 fail、A1-run2/A2-run1 observed）；D6-A setup 已实现并成立第01章真模创作+页面采纳，第02章因候选区 AX 定位连续同因失败停止；正式 A1/A2 仍需 setup 修复+作者/指定评审，不自行扩大 | [原任务](slices/B39-evidence-seeking-authoring.md) |
 
 ## 后续候选
 

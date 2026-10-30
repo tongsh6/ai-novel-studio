@@ -92,6 +92,33 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
     assert (arguments[:capability] || arguments["capability"]) == "world_building"
   end
 
+  test "B73 pending 修订 fixture 从真实目录绑定原稿 ref", %{corpus: corpus} do
+    expression = "请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。"
+
+    File.write!(corpus, Jason.encode!(%{
+      "fixtures" => [
+        %{
+          "case_id" => "C-F3-E03",
+          "expression" => expression,
+          "action" => "execute",
+          "capability" => "revise_pending_artifact",
+          "target_role" => "original",
+          "note" => "pending revision"
+        }
+      ]
+    }))
+
+    prompt = [
+      %{role: "system", content: "创作判断器\n{\"pending_adoptions\":[{\"artifact_ref\":\"as_original\",\"revision_of\":null}]}"},
+      %{role: "user", content: "## 作者输入\n#{expression}"}
+    ]
+    assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
+    assert [%{name: "judgment_decision"} = call] = result.tool_calls
+    arguments = call[:arguments] || call["arguments"]
+    assert (arguments[:capability] || arguments["capability"]) == "revise_pending_artifact"
+    assert (arguments[:pending_artifact_ref] || arguments["pending_artifact_ref"]) == "as_original"
+  end
+
   test "B73 负控回复文本只来自 fixture，不复用 oracle 预期", %{corpus: corpus} do
     expression = "现在写到第几章了？第02章大概多少字？"
 

@@ -41,8 +41,15 @@ PIDFILE="$STATE_DIR/batch-$TAG.pid"
 PREREG_CHECK="$STATE_DIR/batch-$TAG.prereg-check.json"
 # 证据目录 = 预注册 b39-au15-<batch>-native 前缀；内部 runs/<A0|A1|A2>-runN/ 分 run 保存。
 DIR="$ROOT/artifacts/slice-verify/b39-au15-$TAG-native"
+SETUP_MODE="${AU15_SETUP_MODE:-isolated_fixture}"
 STRATA="${NOVEL_STRATA_ENDPOINT:-http://127.0.0.1:47831}"
 STRATA_BASE="${STRATA%/v1}"
+if [[ "$SETUP_MODE" == "d6a" ]]; then
+  SETUP_PRECONDITION="driver_required"
+else
+  SETUP_PRECONDITION="not_satisfied"
+fi
+export AU15_SETUP_MODE="$SETUP_MODE"
 mkdir -p "$STATE_DIR"
 
 write_state() {
@@ -145,11 +152,11 @@ NODE
 
 # setup 与测量分账：本批 setup 是隔离 fixture（scripts/seed_au15_evidence_seeking.exs），
 # 不是 D6-A 真实创作/采纳；如实写进 batch state，正式验收仍 blocked。
-write_state "preregistration_verified" "\"preregistration\":\"$PREREG\",\"prereg_check\":\"$PREREG_CHECK\",\"setup_mode\":\"isolated_fixture\",\"d6a_precondition\":\"not_satisfied\",\"authorization\":\"lead_task_request\""
+write_state "preregistration_verified" "\"preregistration\":\"$PREREG\",\"prereg_check\":\"$PREREG_CHECK\",\"setup_mode\":\"$SETUP_MODE\",\"d6a_precondition\":\"$SETUP_PRECONDITION\",\"authorization\":\"lead_task_request\""
 
 PREFLIGHT="$(curl -s --max-time 3 "$STRATA_BASE/api/models" || echo '{}')"
 PREFLIGHT_LOADED="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);process.stdout.write(JSON.stringify(j.loaded??null))}catch{process.stdout.write("unknown")}})' <<<"$PREFLIGHT")"
-write_state "running" "\"preregistration\":\"$PREREG\",\"preflight\":$PREFLIGHT,\"preflight_loaded\":$PREFLIGHT_LOADED,\"setup_mode\":\"isolated_fixture\",\"d6a_precondition\":\"not_satisfied\",\"started_at\":\"$(date -u +%FT%TZ)\""
+write_state "running" "\"preregistration\":\"$PREREG\",\"preflight\":$PREFLIGHT,\"preflight_loaded\":$PREFLIGHT_LOADED,\"setup_mode\":\"$SETUP_MODE\",\"d6a_precondition\":\"$SETUP_PRECONDITION\",\"started_at\":\"$(date -u +%FT%TZ)\""
 
 export TAURI_NATIVE_SYSTEM_DRIVER=1
 export TAURI_NATIVE_TRANSPORT_PROXY=1
@@ -207,10 +214,10 @@ done
 
 # 批次证据索引：setup 与测量分账、失败分母、目录映射（不覆盖任何既有批次）。
 if [[ -d "$DIR" ]]; then
-  node - "$DIR" "$TAG" "$DRIVER_RC" "$RUNNER_RC" "$LOADED_AFTER" <<'NODE' || true
+  node - "$DIR" "$TAG" "$DRIVER_RC" "$RUNNER_RC" "$LOADED_AFTER" "$SETUP_MODE" <<'NODE' || true
 const fs = require("node:fs");
 const path = require("node:path");
-const [dir, tag, driverRc, runnerRc, loadedAfter] = process.argv.slice(2);
+const [dir, tag, driverRc, runnerRc, loadedAfter, setupMode] = process.argv.slice(2);
 const runs = fs.existsSync(path.join(dir, "runs"))
   ? fs.readdirSync(path.join(dir, "runs")).sort().map((runId) => ({
       run_id: runId,
@@ -227,13 +234,22 @@ const batch = {
   preregistration_evidence_dir_template: "artifacts/slice-verify/b39-au15-<A0|A1|A2>-native-<batch>",
   dir_mapping_note:
     "预注册模板的每场景目录由本批单目录 runs/<A0|A1|A2>-runN/ 承载；setup 与 measurement 分账见 setup 字段。",
-  setup: {
-    mode: "isolated_fixture",
-    seed: "scripts/seed_au15_evidence_seeking.exs",
-    d6a_precondition: "not_satisfied",
-    note:
-      "setup 使用隔离 fixture（非 D6-A 真实模型创作 + 外部页面采纳）；正式 A1/A2 验收仍 blocked。",
-  },
+  setup: (() => {
+    const setupJson = fs.existsSync(path.join(dir, "setup.json"))
+      ? JSON.parse(fs.readFileSync(path.join(dir, "setup.json"), "utf8"))
+      : null;
+    return {
+      mode: setupMode,
+      seed: "scripts/seed_au15_evidence_seeking.exs",
+      d6a_precondition:
+        setupMode === "d6a" ? (setupJson?.ok === true ? "satisfied_by_driver" : "failed_or_missing") : "not_satisfied",
+      evidence: setupJson,
+      note:
+        setupMode === "d6a"
+          ? "setup 由真实模型创作 + 外部页面采纳；setup 与测量分账，正式 A1/A2 仍待作者/指定评审。"
+          : "setup 使用隔离 fixture（非 D6-A 真实模型创作 + 外部页面采纳）；正式 A1/A2 验收仍 blocked。",
+    };
+  })(),
   measurement: {
     planned_runs: 5,
     attempted_runs: runs.length,
@@ -263,7 +279,15 @@ fs.writeFileSync(path.join(dir, "batch.json"), JSON.stringify(batch, null, 2));
 NODE
 fi
 
-if [[ "$DRIVER_RC" -eq 0 && "$RUNNER_RC" -eq 0 && "$LOADED_AFTER" == "null" ]]; then
+SETUP_OK=1
+if [[ "$SETUP_MODE" == "d6a" ]]; then
+  SETUP_OK=0
+  if [[ -f "$DIR/setup.json" ]] && node -e 'const fs=require("fs");const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.exit(j.ok===true?0:1)' "$DIR/setup.json"; then
+    SETUP_OK=1
+  fi
+fi
+
+if [[ "$DRIVER_RC" -eq 0 && "$RUNNER_RC" -eq 0 && "$LOADED_AFTER" == "null" && "$SETUP_OK" -eq 1 ]]; then
   write_state "finished" "\"preregistration\":\"$PREREG\",\"driver_rc\":$DRIVER_RC,\"runner_rc\":$RUNNER_RC,\"loaded_after\":null,\"artifact_dir\":\"$DIR\",\"finished_at\":\"$(date -u +%FT%TZ)\""
   echo "[au15-batch] passed driver_rc=$DRIVER_RC runner_rc=$RUNNER_RC loaded_after=null dir=$DIR"
   exit 0

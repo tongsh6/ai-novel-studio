@@ -1,17 +1,17 @@
 {
   "schema": "author-behavior-coverage-report/v1",
-  "generated_at": "2026-10-30T17:10:14.578Z",
+  "generated_at": "2026-10-30T17:39:29.004Z",
   "corpus": {
     "targets": 5,
     "states": 4,
-    "cases": 18,
+    "cases": 28,
     "splits": {
       "dev": 10,
       "regression": 4,
       "holdout": 4,
-      "explore": 0
+      "explore": 10
     },
-    "corpus_sha": "654f61079cae3b7633b0e9e14be75d4227e12a6f18a5bebda7322957189c3351"
+    "corpus_sha": "668f641872e91177d08fb8e33811fbf0c8e72bfc9313be1479abda97b83c2811"
   },
   "coverage": {
     "targets": [
@@ -30,7 +30,7 @@
       },
       {
         "target_id": "F2-chapter-write-or-rewrite",
-        "cases": 4,
+        "cases": 5,
         "states": [
           "S1-partial-multichapter",
           "S2-empty-skeleton",
@@ -38,12 +38,13 @@
         ],
         "splits": [
           "dev",
-          "holdout"
+          "holdout",
+          "explore"
         ]
       },
       {
         "target_id": "F3-world-foreshadow-boundary",
-        "cases": 5,
+        "cases": 14,
         "states": [
           "S1-partial-multichapter",
           "S3-pending-candidate-context"
@@ -51,7 +52,8 @@
         "splits": [
           "dev",
           "regression",
-          "holdout"
+          "holdout",
+          "explore"
         ]
       },
       {

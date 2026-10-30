@@ -103,7 +103,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
          %{"action" => _action} = fixture <-
            Enum.find(fixtures, fn entry -> String.contains?(match_text, entry["expression"]) end) do
       cond do
-        judgment_prompt?(prompt_text) -> author_behavior_stimulus(fixture)
+        judgment_prompt?(prompt_text) -> author_behavior_stimulus(fixture, prompt_text)
         profile_routing_prompt?(prompt_text) -> author_behavior_profile_stimulus(fixture, prompt_text)
         true -> nil
       end

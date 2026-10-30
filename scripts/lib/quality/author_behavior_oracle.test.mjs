@@ -17,14 +17,15 @@ const CASES = CORPUS.cases.cases;
 function allowedObservation(testCase) {
   const allowedActions = testCase.expected.allowed_actions;
   const action = allowedActions.includes("reply") ? "reply" : allowedActions[0];
-  const effects = action === "execute" ? testCase.expected.allowed_effects.slice(0, 1) : [];
+  const creative = ["execute", "author_content_registration"].includes(action);
+  const effects = creative ? testCase.expected.allowed_effects.slice(0, 1) : [];
   return {
     action,
-    capability: action === "execute" ? "world_building" : null,
+    capability: creative ? "world_building" : null,
     effects,
-    candidate_count: action === "execute" ? 1 : 0,
-    candidate_statuses: action === "execute" ? ["TENTATIVE"] : [],
-    candidate_types: action === "execute"
+    candidate_count: creative ? 1 : 0,
+    candidate_statuses: creative ? ["TENTATIVE"] : [],
+    candidate_types: creative
       ? [testCase.target_id === "F2-chapter-write-or-rewrite" ? "prose_fragment" : "world_rule_seed"]
       : [],
     canon_write_delta: {},
@@ -109,6 +110,21 @@ test("B73 execute 允许集必须实际产生 TENTATIVE 候选，空 execute 不
   const testCase = caseById("C-F2-001");
   const result = evaluateCase(CORPUS, testCase, {
     observed: { ...allowedObservation(testCase), action: "execute", candidate_count: 0 },
+  });
+  assert.equal(result.status, "fail");
+  assert.ok(result.reasons.includes("candidate_missing"));
+});
+
+test("B73 原文登记也必须有 TENTATIVE 候选，不能以 action 名绕过", () => {
+  const testCase = caseById("C-F3-E02");
+  const result = evaluateCase(CORPUS, testCase, {
+    observed: {
+      ...allowedObservation(testCase),
+      action: "author_content_registration",
+      candidate_count: 0,
+      candidate_statuses: [],
+      candidate_types: [],
+    },
   });
   assert.equal(result.status, "fail");
   assert.ok(result.reasons.includes("candidate_missing"));

@@ -4,7 +4,7 @@ schema: author-behavior-targets/v1
 frozen_at: "2026-10-30"
 frozen_by: b70-cp0
 outcome_vocabulary:
-  actions: [reply, explore, execute, plan, ask_author, await_author, capability_gap, adopt, discard_pending_artifact]
+  actions: [reply, explore, execute, plan, ask_author, await_author, capability_gap, adopt, discard_pending_artifact, author_content_registration]
   adoption_effects: [replace_scope, replace_segments, append, format_paragraphs, renumber_chapters, new_chapter]
   note: 复用 B26 判断协议动作与采纳 effect 词汇；不新增第二套 decision 语义。
 
@@ -39,7 +39,7 @@ targets:
       - tasks/slices/B34-author-intent-corpus-validation.md §CP1（world_foreshadow 讨论 vs 采纳）
       - tasks/slices/B33-authoring-intent-judgment-reliability.md §CP3（讨论期零候选零写入）
     goal: 作者讨论设定/伏笔是否合理时只讨论零候选；明确要求保存/采纳时才产出待采纳候选。
-    allowed_actions: [reply, explore, execute]
+    allowed_actions: [reply, explore, execute, author_content_registration]
     allowed_effects: [append]
     forbidden_behaviors: [unauthorized_canon_write, discussion_forced_execute, duplicate_side_effect, false_adoption_claim]
     state_dimensions: [has_world_facts, has_pending_candidate]

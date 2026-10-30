@@ -73,6 +73,27 @@ const RUN_SPECS = [
   },
 ];
 
+const SETUP_MODE = process.env.AU15_SETUP_MODE ?? "isolated_fixture";
+
+// D6-A setup：前置章节由真实模型创作 + 外部真实页面采纳；seed 只提供空章节骨架。
+// setup 与测量分账，setup 失败只读保留并阻止进入测量（不把 setup 失败当成功测量）。
+const SETUP_SPECS = [
+  {
+    id: "setup-ch1",
+    label: "d6a-setup-ch1",
+    input:
+      "写第01章：灯楼旧约。顾青在灯楼守灯，沈砚从雨里回来；让沈砚亲口答应顾青：三天后一定回灯楼接她一起去城西，并留下半枚铜钥匙。只写这一章，不要停下来问我。",
+    keywords: ["答应", "三天", "回灯楼"],
+  },
+  {
+    id: "setup-ch2",
+    label: "d6a-setup-ch2",
+    input:
+      "写第02章：两场雨。承接第01章：第一场雨过了三天才停，沈砚没有回来；又过了两星期城西的账才清，顾青把半枚铜钥匙放在窗台，每天傍晚点灯等他。只写这一章，不要停下来问我。",
+    keywords: ["三天", "两星期", "钥匙"],
+  },
+];
+
 const RUN_IDS = (process.env.AU15_SCENARIO_RUN_IDS ?? "")
   .split(":")
   .map((id) => id.trim())
@@ -193,6 +214,24 @@ function dbSnapshot() {
 }
 
 const CANON_COUNT_KEYS = ["chapters", "volumes", "scenes", "memory_items", "characters", "receipts", "accepted_hash"];
+
+function dbAcceptedTexts() {
+  const python = [
+    "import sqlite3, sys, json",
+    "db = sqlite3.connect(sys.argv[1], timeout=20)",
+    "rows = db.execute(\"SELECT id, content FROM drafts WHERE status='ACCEPTED' ORDER BY id\").fetchall()",
+    "print(json.dumps([{'id': row[0], 'content': row[1]} for row in rows], ensure_ascii=False))",
+  ];
+  try {
+    const output = execFileSync("python3", ["-c", python.join("\n"), harness.dbFile], {
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    return JSON.parse(output).map((row) => ({ id: String(row.id), content: String(row.content ?? "") }));
+  } catch {
+    return [];
+  }
+}
 
 function canonUnchanged(before, after) {
   if (!before || !after || before.error || after.error) return false;
@@ -878,6 +917,91 @@ async function scrollConversationToBottom() {
   }
 }
 
+async function adoptSetupCandidate(label, dbBefore) {
+  await scrollToFirstText(/保存原稿/);
+  const save = findButtonByText(harness.dumpNodes(), (value) => value === "保存原稿");
+  if (!save) throw new Error(`setup_save_button_not_found:${label}`);
+  harness.safeClick(save, `${label}:save`);
+  await sleep(800);
+  // 采纳动作如弹出确认框，按用户默认确认路径点击一次（不绕过产品校验）。
+  const confirm = findButtonByText(harness.dumpNodes(), (value) => value === "确认保存" || value === "确认");
+  if (confirm) {
+    harness.safeClick(confirm, `${label}:confirm`);
+    await sleep(800);
+  }
+  const deadline = Date.now() + 180_000;
+  while (Date.now() < deadline) {
+    harness.checkSupervisor();
+    const snapshot = dbSnapshot();
+    if (Number(snapshot?.accepted_drafts ?? 0) > Number(dbBefore?.accepted_drafts ?? 0)) {
+      const texts = dbAcceptedTexts();
+      return { snapshot, accepted_text: texts.at(-1)?.content ?? "" };
+    }
+    await sleep(500);
+  }
+  throw new Error(`setup_adoption_timeout:${label}`);
+}
+
+async function runSetupPhase() {
+  const runs = [];
+  const dbBefore = dbSnapshot();
+  for (const spec of SETUP_SPECS) {
+    const before = dbSnapshot();
+    const { turnId, runId } = await sendAuthorInput(spec.input, spec.label);
+    await waitTurn(turnId, { scenario: "SETUP", id: spec.id }, spec.label);
+    // turn_result 可能先于候选卡渲染；以用户可见的「保存原稿」按钮出现作为候选就绪判据。
+    // 候选动作按钮可能只在滚入视口后才进入 AX 树；先滚动到会话底部再轮询按钮。
+    await harness.runStep("candidate", `${spec.id}:prose_candidate`, async () => {
+      const deadline = Date.now() + 300_000;
+      while (Date.now() < deadline) {
+        harness.checkSupervisor();
+        await scrollConversationToBottom();
+        if (findButtonByText(harness.dumpNodes(), (value) => value === "保存原稿")) return;
+        await sleep(1_000);
+      }
+      throw new Error(`setup_no_prose_candidate:${spec.id}`);
+    });
+    await scrollToFirstText(/保存原稿/);
+    harness.capture(`${spec.id}-candidate`);
+    const adoption = await harness.runStep("adoption", `${spec.label}:adopt`, () =>
+      adoptSetupCandidate(spec.label, before),
+    );
+    const acceptedText = adoption.accepted_text;
+    const keywordChecks = Object.fromEntries(
+      spec.keywords.map((keyword) => [keyword, acceptedText.includes(keyword)]),
+    );
+    const ok = Object.values(keywordChecks).every(Boolean);
+    const record = {
+      id: spec.id,
+      input: spec.input,
+      turn_id: turnId,
+      run_id: runId,
+      candidate_count: pending.length,
+      accepted_drafts_before: before?.accepted_drafts ?? null,
+      accepted_drafts_after: adoption.snapshot?.accepted_drafts ?? null,
+      accepted_hash_before: before?.accepted_hash ?? null,
+      accepted_hash_after: adoption.snapshot?.accepted_hash ?? null,
+      keyword_checks: keywordChecks,
+      accepted_excerpt: acceptedText.slice(0, 280),
+      ok,
+      at: nowIso(),
+    };
+    runs.push(record);
+    writeJson("setup.json", { mode: "d6a", ok: runs.every((entry) => entry.ok), runs, at: nowIso() });
+    harness.capture(`${spec.id}-adopted`);
+    if (!ok) throw new Error(`setup_keyword_missing:${spec.id}`);
+  }
+  const acceptedAfter = dbSnapshot();
+  return {
+    mode: "d6a",
+    ok: runs.every((entry) => entry.ok),
+    runs,
+    accepted_drafts_before: dbBefore?.accepted_drafts ?? null,
+    accepted_drafts_after: acceptedAfter?.accepted_drafts ?? null,
+    at: nowIso(),
+  };
+}
+
 async function main() {
   const config = {
     slice_id: "au15-evidence-seeking-native",
@@ -885,8 +1009,8 @@ async function main() {
     model: "iq3_s",
     strata_endpoint: STRATA_ENDPOINT,
     work_title: WORK_TITLE,
-    setup_mode: "isolated_fixture",
-    d6a_precondition: "not_satisfied",
+    setup_mode: SETUP_MODE,
+    d6a_precondition: SETUP_MODE === "d6a" ? "driver_required" : "not_satisfied",
     scenario_order: ACTIVE_RUNS.map((spec) => `${spec.scenario}:${spec.id}`),
     run_specs: ACTIVE_RUNS,
     preregistration: "artifacts/model-contracts/b39-cp1/au15-preregistration.json",
@@ -894,10 +1018,12 @@ async function main() {
   writeJson("native-au15-config.json", config);
   const before = await writeModelBefore();
   const dbBeforeAll = dbSnapshot();
+  let dbMeasurementStart = dbBeforeAll;
   const results = [];
   let failure = null;
   let afterLifecycle = null;
   let workId = null;
+  let setup = null;
 
   try {
     await harness.runStep("maintenance", "launch_app", () => harness.rawLaunchApp());
@@ -905,6 +1031,13 @@ async function main() {
     await ensureWorkSelected(harness, null, WORK_TITLE, "initial");
     harness.capture("01-workbench");
   await verifySessionPopoverDismiss();
+    if (SETUP_MODE === "d6a") {
+      setup = await runSetupPhase();
+      writeJson("setup.json", setup);
+      // 测量零写基线在 setup 之后取：setup 的真实采纳是允许的 canon 写，
+      // 不能把它算进测量 run 的“零 canon 写”判据。
+      dbMeasurementStart = dbSnapshot();
+    }
     const resumeRecords = appLogRecords().filter((record) => record.event === "work_session.resume.done");
     workId = resumeRecords.at(-1)?.work_id ?? null;
     writeJson("native-au15-config.json", { ...config, work_id: workId });
@@ -935,10 +1068,12 @@ async function main() {
       session_switches: sessionSwitches,
       model_lifecycle_before: before,
       model_lifecycle_after: afterLifecycle,
+      setup,
       db_snapshot_before: dbBeforeAll,
+      db_snapshot_measurement_start: dbMeasurementStart,
       db_snapshot_after: dbAfterAll,
-      zero_canon_write: canonUnchanged(dbBeforeAll, dbAfterAll),
-      artifact_bytes_unchanged: dbBeforeAll?.accepted_hash === dbAfterAll?.accepted_hash,
+      zero_canon_write: canonUnchanged(dbMeasurementStart, dbAfterAll),
+      artifact_bytes_unchanged: dbMeasurementStart?.accepted_hash === dbAfterAll?.accepted_hash,
       failure,
       transport_frames: harness.transport().length,
     });
