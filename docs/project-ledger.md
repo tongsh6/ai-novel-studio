@@ -1260,3 +1260,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **AU07-P1 done**：核对 registry snapshot 已持久化并由 replay chain 消费、旧查询/partial/scope 负例已关闭；多类型 replay UI 后端链已有但 UI 无真实 consumer，developer 双视图无入口/权限，均登记 deferred；reason catalog 保持静态映射不建新实体。当前任务切 VS00F-TRACE。
 
 - 2026-10-31 — **VS00F-TRACE CP0**：盘点采纳/账面维护/审读/摘要维护；确认 adoption `state_trace_refs` 仅 summary-level 嵌入引用、LedgerMaintenance 只有业务日志无 StateTrace；需作者裁决“最小持久 trace”或“明确 maintenance 不承诺逐条 trace”后进入 CP1；未改代码/schema。
+
+- 2026-10-31 — **VS00F-TRACE blocked（待裁决）**：CP0 盘点完成；选项 A 新增最小持久 StateTrace（推荐，需 schema/迁移授权）/B 明确 maintenance 不承诺逐条 trace 并关闭债务/C 延期。未建实体、未改验收边界；当前任务切 AU04-AU06。

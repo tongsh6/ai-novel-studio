@@ -81,7 +81,7 @@ tauri/summary.json`。配套 test-support：slice_verify 四栏摘要 clause（�
 
 ## 维护 StateTrace 后续 checkpoint
 
-- 状态：**doing（2026-10-31 CP0 盘点 done：adoption 仅有 summary-level state_trace refs，LedgerMaintenance 只有业务日志、无 StateTrace；CP1 需冻结最小可持久 trace，未实施）**。
+- 状态：**blocked（2026-10-31 CP0 盘点 done；CP1 需作者/ADR owner 裁决“最小持久 StateTrace 新实体” vs “明确 maintenance 不承诺逐条 trace” vs 延期，涉及 schema/迁移或验收边界，未实施）**。
 - 来源：本文件 CP1 剩余登记、[VS-00F 契约 §3.2](../../docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md#32-增量更新的自动通过首次契约化-25-93-policy)、[全量对账 B05/E10](../2026-10-27-design-to-execution-reconciliation.md#42-契约adr-与-schema)。权威账面每次真实变更须有 StateTrace；业务日志或面板可读不能替代权威变化回放。
 - 下一步：从章摘要/账面维护及作者裁决的实际入口盘点变更、事务结果、现有 StateTrace producer/存储/读取方，确定哪些已有记录、哪些只有业务日志，再冻结同源追踪与失败矩阵。该盘点不修改旧记录、不预建第二 trace 系统。
 - 完整后果：覆盖系统发起与作者发起两类合法权威变更，真实前后状态、来源与作品/会话/turn 关联可追溯；失败/回滚不产生虚假权威 diff，重复请求不重复变更；既有 Replay/Why 消费保存的事实，回放无 provider 调用与生产写入。章摘要维护的同源缺口若仍存在，须明确同批修复或具体承接，不能只补一处日志便关闭维护 trace 债。
