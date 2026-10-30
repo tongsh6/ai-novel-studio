@@ -477,7 +477,7 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 
 ## 9. 元原则整改：实际请求材料与引用同源
 
-- 状态：**todo（2026-10-30 作者同意元原则整改；当前共通初始供给的材料/引用接线待实施，原 retest6 结论与停止全量复测裁决保留）**。
+- 状态：**doing（2026-10-30 §9 CP0 done：实际请求字节 vs supplied 声明错配已复现并冻结同源材料契约；CP1–CP3 待实现与真实页面/模型验收）**。原 retest6 结论与停止全量复测裁决保留。
 - 来源：[愿景 §2.4](../../docs/design/00-vision-and-engineering-roadmap.md#24-创作信息获取元原则最小供给按需求证证据闭环2026-10-27-用户拍板)、已接受的 [ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)/[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md) 及 B39 D1/D7。模型负责判断信息需求和相关性，APP 必须如实提供自己实际发送的材料与边界，不能以检索/记账事实替代供给事实。
 - 已核静态链：`WorkspaceContext` 先召回 memory 并记录 reference，`ContextAssembler` 据 `memory_summary` 生成 context ref；`DialoguePlanningService` 将全部 context refs 写为 `supplied_context_refs`，但当前普通/写作判断 context block 未渲染该 `memory_summary`，`reply_record` 仍继承该声明。此证据限定于该共通初始请求链，未运行真实模型；不等于“模型永远无法经后续 memory_recall 获取材料”。
 
@@ -504,10 +504,30 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
-| CP0 | 逐一定位当前普通/写作判断等共通初始调用、实际消息字节、材料取得/裁剪/发送点与声明消费者；冻结最小同源材料映射及 Base/按需观察分界，列清被省略、失败、未知、旧记录无证据的形状和真实 driver；不直接把全部 memory 加回首轮 | todo |
+| CP0 | 逐一定位当前普通/写作判断等共通初始调用、实际消息字节、材料取得/裁剪/发送点与声明消费者；冻结最小同源材料映射及 Base/按需观察分界，列清被省略、失败、未知、旧记录无证据的形状和真实 driver；不直接把全部 memory 加回首轮 | **done（2026-10-30）**：链路/声明消费者审计 + 双 profile 字节探针；证据 `artifacts/task-audit/2026-10-30-b27-request-source-cp0/{audit-map.json,probe.json,probe.exs}`；契约与 CP1–CP3 预注册见下 |
 | CP1 | 让实际请求内容和 supplied refs/已有版本/覆盖由同一构造事实派生；原本仅 retrieved 的材料不得标 supplied。必要 Base 才主动供给，其余沿通用探索取证；保留原消费者能取得事实的路径，接通当前返回/trace；普通回复统一 decision 与 B43 同源，不另造决定 | todo |
 | CP2 | 补材料有/无/被裁剪、ref 有但内容无、内容有但来源未知、fetch 失败/部分失败、重复读取、跨作品及历史恢复矩阵；旧记录无发送证据不得回填已供给/已使用。校验初始请求和后续请求各自可见范围，回放不调模型、不写生产事实 | todo |
 | CP3 | 外部真实工作台触发相关查询/讨论及恢复，核对实际请求材料→来源声明→回复/Why/持久记录；必要的按需读取须有观察进入后续请求证据。局部、真实入口机制、真实模型使用/语义分别报告；仅日志出现 ref 或 UI 卡显示来源不算通过 | todo |
+
+#### CP0 记录（2026-10-30 done）
+
+- 证据：`artifacts/task-audit/2026-10-30-b27-request-source-cp0/{audit-map.json,probe.json,probe.exs}`（只读静态 + 双 profile prompt 探针；未起服务/未调 provider）。
+- 现役链路：`WorkspaceContext.fetch_memory_summary` 先 recall 并记录 reference（retrieved/记账，先于发送）→ `ContextAssembler.build_refs` 按 DTO 生成 work/conversation/memory/behavior refs → `DialoguePlanningService.judgment_protocol_input` 把 **context.context_refs 全量**写为 `supplied_context_refs`，但 `write_judgment_context_block` 只渲染 work/availability/facts/chapters/named，`judgment_context_block` 渲染 work/availability/facts/chapters/pending/named/conversation/behavior，**两处都不渲染 memory_summary** → `JudgmentProtocol.reply_record` 继承该声明 → `TraceWriter`/`TurnResultBuilder`/AuthorQuestion 消费到 trace/Why。模型看不到声明本身，声明是 APP 侧事实。
+- 探针结论（同一 context，memory/conversation/behavior 都有值）：
+  - 普通 profile：声明 4 个 ref（work/conversation/memory/behavior），请求字节只有 work/conversation/behavior，**memory 内容缺失但被声明 supplied**。
+  - 写作 profile：声明 4 个 ref，请求字节只有 work，**conversation/behavior/memory 全未渲染却全部声明 supplied**。
+  - 通用探索目录（memory_recall 等）在 prompt 中；按需取证路径存在，但不能以目录存在替代实际供给声明。
+- 形状冻结：ref 有内容无（memory）、内容有 ref 无（chapters 事实）、retrieved-unrendered（memory/写作 profile 的 conversation/behavior）、failed/unavailable（AU03 source_status 不生成虚假 supplied）、exploration observation（只有该次渲染才计入 supplied provenance）、legacy 无请求字节（unknown，不回填）。
+- 冻结契约（CP1 依据）：
+  1. `supplied` = 该次请求真实渲染进 context_block 的来源 ref/内容 + 作者原话/必要 Base；不得从 DTO 全量 refs 直接声明。
+  2. available-not-supplied 单独记录（memory 初始请求属此类）；不把全部 memory 塞回首轮，保留 memory_recall 按需路径。
+  3. 写作 profile 未渲染的 conversation/behavior/memory 不得声明 supplied。
+  4. 探索观察仅在实际渲染进入该次请求后计入 supplied provenance（复用 observation_refs）。
+  5. 失败/未知/旧记录无请求证据不生成虚假声明，标 unknown 不回填。
+  6. 声明由同一渲染决策派生，消费到 reply_record/trace/Why；不新增表/五套 enum/日志系统，chapters 无 ref 时以“渲染段 + 真实读取”记录，不发明 ref。
+- CP2 预注册：双 profile 有/无 memory、有/无 explorations、ref-无内容、内容-无 ref、AU03 失败/部分失败、重复/重试、跨作品、历史回放不调模型不回填。
+- CP3 预注册：外部原生 Tauri + 真实模型 M1（问题依赖已确认 memory：首轮不得声明 memory supplied，模型按需 memory_recall，后续请求实际含观察内容并带 observation 供给声明，回复/Why/trace 一致，零 canon 写）与 M2（无关问题不虚假声明）；单槽、结束 unload、失败只读。
+- 残余：CP0 未运行真实模型/页面；chapters 无 ref 的 Base 记录方式在 CP1 冻结；旧记录按 unknown；I10 不代签。
 
 ### 9.4 承接与停止线
 

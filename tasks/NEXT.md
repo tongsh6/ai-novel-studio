@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B27 | 先§9核实际请求材料与引用同源，区分取到/供给/观察/自报使用；原定向硬化与停止全量retest裁决保留 | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
+| B27 | §9 CP0 已完成（实际请求字节 vs supplied 声明错配复现、双 profile 探针、同源材料契约与 CP1–CP3 预注册）；下一步 CP1：由同一渲染事实派生 supplied/available-not-supplied，接 reply_record/trace，并补红测 | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 
 ## 后续候选
 
