@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU04-AU06 | CP0 done：确认卡丢失是产品回归（flow 丢弃 require_confirmation behavior，落 D4 generic question）；CP1 修复 behavior→confirmation TurnResult 并 scoped replay AU04 | [原任务](slices/AU04-AU06-author-action-binding.md) |
+| AU04-AU06 | CP1 partial：确认卡/plan/JSON 编码已修复，真实页面链路到 pending prose；但 ui_state 证据事件未落 app-log 导致 verifier 超时，待修 evidence 通道后复跑 | [原任务](slices/AU04-AU06-author-action-binding.md) |
 
 ## 后续候选
 

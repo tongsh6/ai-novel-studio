@@ -20,6 +20,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   alias NovelApplication.JudgmentProtocol
   alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.TurnExecutionService
+  alias NovelApplication.TurnResultBuilder
   alias NovelCommon.LogContext
   alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
@@ -1219,7 +1220,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       plan = %{plan | turn_id: frame.turn_id, frame_ref: frame.frame_id}
       emit_micro_plan(snapshot, plan)
 
-      {decision_result, _behavior} =
+      {decision_result, behavior} =
         ExecutionOrchestrator.decide(frame, plan,
           gate_context: ExecutionOrchestrator.gate_context_for_run(run)
         )
@@ -1238,22 +1239,76 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
           continuation_guidance(decision)
         )
       else
-        {:ok,
-         deviation_result(
-           run,
-           sequence,
-           "D4",
-           "Orchestrator 未允许执行 #{tool_name(plan)}：#{decision_result.decision_type}。",
-           "gate:#{decision_result.decision_id}",
-           %{
-             decision_type: decision_result.decision_type,
-             first_blocking_gate: decision_result.first_blocking_gate,
-             tool_name: tool_name(plan)
-           },
-           step: blocked_step(run, sequence, plan, decision_result)
-         )}
+        if decision_result.decision_type == :require_confirmation and
+             match?(%NovelDomain.BehaviorState{}, behavior) do
+          # AU-04 确认卡回归修复：require_confirmation 已经打开 behavior，必须返回
+          # confirmation TurnResult（confirmation_card/confirm actions），不能让通用
+          # D4 续行把它降成 author_question，否则作者看不到确认动作。
+          confirmation_gate_result(
+            run,
+            sequence,
+            plan,
+            frame,
+            decision_result,
+            behavior,
+            snapshot
+          )
+        else
+          {:ok,
+           deviation_result(
+             run,
+             sequence,
+             "D4",
+             "Orchestrator 未允许执行 #{tool_name(plan)}：#{decision_result.decision_type}。",
+             "gate:#{decision_result.decision_id}",
+             %{
+               decision_type: decision_result.decision_type,
+               first_blocking_gate: decision_result.first_blocking_gate,
+               tool_name: tool_name(plan)
+             },
+             step: blocked_step(run, sequence, plan, decision_result)
+           )}
+        end
       end
     end
+  end
+
+  # AU-04：确认门被 Orchestrator 拦下时，behavior 已打开。这里直接把该行为投影成
+  # confirmation TurnResult，并以 awaiting_author 结束本 run；不调用 continuation provider，
+  # 不落 D4 generic author_question。确认后由既有 author_action/re-gate 主链继续。
+  defp confirmation_gate_result(run, sequence, plan, frame, decision_result, behavior, snapshot) do
+    trace_summary = %{
+      trace_ref: "trace:#{frame.turn_id}",
+      frame_type: Atom.to_string(frame.frame_type),
+      decision_type: "confirmation_required",
+      reason_codes: List.wrap(decision_result.reason_codes),
+      no_tool_reason: "author_confirmation_required",
+      no_behavior_reason: "confirmation_behavior_opened",
+      no_write_reason: "no_action_executed",
+      source_turn_ref: run.parent_turn_ref
+    }
+
+    turn_result =
+      TurnResultBuilder.build(frame, trace_summary, [], decision_result, nil, nil, behavior)
+      |> Map.put(:plan, Map.from_struct(plan))
+
+    {:ok, decision, meta} = mechanical_await_author_decision(run, sequence, snapshot)
+
+    decision = %{
+      decision
+      | summary: "本轮需要作者确认后才会执行。",
+        reason_codes:
+          Enum.uniq(["author_confirmation_required" | List.wrap(decision.reason_codes)])
+    }
+
+    {:ok,
+     Map.merge(meta, %{
+       step: blocked_step(run, sequence, plan, decision_result),
+       observations: [],
+       turn_result: turn_result,
+       loop_status: :awaiting_author,
+       loop_decision: decision
+     })}
   end
 
   # 判断②续行修正指引（CP3b）：continue 决策携带的 guidance 必须传导到执行 brief

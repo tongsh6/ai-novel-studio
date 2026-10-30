@@ -1260,7 +1260,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     refute Enum.any?(superseded_event.refs, &(&1 in state.run.pending_artifact_refs))
   end
 
-  test "D4 gate deny revises plan without dispatching the prose writer" do
+  test "require_confirmation gate emits confirmation awaiting without dispatch or continuation" do
     parent = self()
 
     writer = fn prompt ->
@@ -1274,9 +1274,6 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              prose_plan_draft(prompt, risk_hint: "high"),
              "pc-agent-prose-d4-plan"
            )}
-
-        continuation_decision_prompt?(prompt) ->
-          continuation_decision("await_author", "")
 
         true ->
           send(parent, {:unexpected_writer_prompt, prompt})
@@ -1307,17 +1304,20 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert gate.payload.decision_type == :require_confirmation
     assert gate.payload.first_blocking_gate == "authority"
 
-    # CP3a：gate deny → 判断②观察（门禁裁决权在作者）→ 停等，不再产伪修订。
+    # AU-04 回归修复：require_confirmation 必须直接以 confirmation TurnResult 停等，
+    # 不再把 gate block 交给判断②续行（否则确认卡被 generic author_question 覆盖）。
     awaiting = find_event!(events, :awaiting_author)
-    assert "judgment_continuation" in awaiting.reason_codes
-    assert "agentic_deviation:D4" in awaiting.reason_codes
+    assert "author_confirmation_required" in awaiting.reason_codes
+    refute "judgment_continuation" in awaiting.reason_codes
+    refute "agentic_deviation:D4" in awaiting.reason_codes
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :awaiting_author
     assert state.run.consumed_budget.replans == 0
     assert state.run.consumed_budget.tool_calls == 0
-    # runtime 直连：起草 1 + 写前推理 1 + 判断② 1 = 3（writer 未派发）。
-    assert state.run.consumed_budget.provider_calls == 3
+
+    # runtime 直连：起草 1 + 写前推理 1 = 2（确认门不再调用判断② continuation）。
+    assert state.run.consumed_budget.provider_calls == 2
   end
 
   test "D7 deterministic missing chapter gap revises plan without calling writer provider" do
