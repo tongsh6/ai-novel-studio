@@ -69,6 +69,7 @@
 | `seed_au05_canon_conflict_recovery.exs` | AU-05 canon conflict recovery seed。 |
 | `seed_au05_conflict_cross_work_recovery.exs` | AU-05 跨作品 conflict recovery seed。 |
 | `seed_au05_stale_conflict_cross_work_freshness.exs` | AU-05 stale conflict freshness seed。 |
+| `b45_schema_inventory.mjs` | B45 CP0 schema 盘点：38 份 JSON schema 的 $ref 解析、生成物 z.any、前端/后端消费者与 legacy/active 分类；输出 artifacts/b45-schema-inventory。只读，不改 codegen/schema。 |
 | `verify_b65_origin_boundary.sh` / `b65_origin_probe_server.exs` | B65 隔离来源探针：test env 独立端口启动真实 Phoenix Endpoint，外部 curl 构造允许/拒绝 Origin 的 HTTP 与 WebSocket 握手；输出 WS 101/403、HTTP CORS 头证据。 |
 | `seed_b47_c07_character_freshness.exs` | B47-C07 CP3 角色 stale/fresh 页面种子：两隔离作品的 pending character_profile_revision 候选；stale 候选 base fingerprint 取 summary 更新前，fresh 与当前一致；供 `b47-c07-character-freshness` 真实页面矩阵使用。 |
 | `seed_b47_canon_freshness.exs` | B47 CP3 场景种子：三个真实持久 canon 作品（stale/conflict/fresh），构造产品同形 pending 正文修订候选（TurnResult.adoption_state.pending + available_actions + candidate_set），seed.log 输出每作品基线/版本/DB 快照字段供外部 driver/verifier 消费；`--check` 复验。 |

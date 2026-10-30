@@ -1184,3 +1184,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B43 CP2 Form R 出口映射**：reply→reply_only、creative_directions→exploration、capability_gap→capability_gap、await_author→require_clarification(required_author_action)、author_content_registration→reply_only+原因；TraceWriter/Replay 词表、前端能力缺口标签同步；trace/turn_result 同源。全量 mix 1047/0、frontend 636/636、typecheck 通过。六 flow open_behavior/slot、等待/失败出口、CP3 页面仍 todo。
 
 - 2026-10-31 — **B43 CP2 Replay 兼容**：TraceReplayService 读取 Form R 的 clarification_required/capability_gap/exploration trace，provider 零调用；非 reply 类型缺 StateTrace 诚实 partial，不伪报 complete；历史无 decision trace 继续可读。trace_replay 8/0、全量 mix 1047/0；六 flow 门序/页面仍 todo。
+
+- 2026-10-31 — **B45 CP0 盘点**：新增 b45_schema_inventory 只读盘点（38 schema/20 ref/33 any）；v2 15 个 $ref 不可解析（双前缀），phase_next_action_compat 生成 any 无消费者，v3/ledger/ui_card 为 active open shape；13 部分枚举 8 个无后端消费者。首批三链修改清单已记 §8.3；字段级矩阵未完成，CP0 partial。
