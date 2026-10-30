@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B43 | CP0/CP1 done；CP2 partial：Form R 出口映射/trace 同源/Replay 读取已验；六 flow open_behavior/slot、等待/失败出口、CP3 blocked 页面待做 | [原任务](slices/B43-gate-order-residual.md) |
+| B45 | CP0 交付38份 schema 的字段/状态→生产→转换→校验→消费/历史映射；逐项处置13个部分承接项，与 B43 协同 | [原任务](slices/B45-schema-legacy-governance.md) |
 
 ## 后续候选
 
@@ -14,7 +14,6 @@
 |---|---|---|
 | B72 | 作者选择先做 P2：CP0 离线 LLM 语料扩增设计已冻结；下一步 CP1 生成 manifest/candidate 与原始批次，未调用模型；P0/P1 缺口不由本任务销账 | [原任务](slices/B72-author-behavior-offline-corpus-expansion.md) |
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
-| B45 | CP0 交付38份 schema 的字段/状态→生产→转换→校验→消费/历史映射；逐项处置13个部分承接项，与 B43 协同 | [原任务](slices/B45-schema-legacy-governance.md) |
 | B01 | 真实入口来源贯穿生成、存储、trace/回放；保留原 judgment/frame/plan 语义边界范围 | [原任务小节](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界) |
 | DS01-RUN-STATE | 首批运行状态链：核对现役 wire 与恢复权限，补 schema/codegen/safeParse 和 live/dead/unknown 正反例 | [原任务小节](slices/DS01-decision-surface-schema-gate.md#9-ds03-agent_run_state-schema-承接) |
 | VS00F-B06 | 首批五账链：明确领域信封到面板 DTO 的字段投影、分账状态/载荷、运行时校验与历史读取 | [原任务小节](slices/VS-00F-five-ledgers-three-state.md#b06-分账契约与真实消费-checkpoint) |
@@ -47,6 +46,7 @@
 
 ## 阻塞
 
+- **B43 后续**：CP0/CP1 done；CP2 Form R 出口/Replay 同源已落地；**MissingPolicy 在 Gate 之后才评估**，统一门序涉及 ADR-0005 gate 集合与验收判据，需作者/ADR owner 在 A（新增 missing_policy gate，推荐）/B（decide 前 preflight）/C（仅标注）/D（只覆盖 prose flow）间裁决；CP3/CP4 未开工，见 [B43](slices/B43-gate-order-residual.md)。
 - **B67 后续**：CP0/CP1 done；CP2 revision CAS/重编号/旧任务晚到已落地，但维护 StateTrace 依赖 [VS00F-TRACE](slices/VS-00F-five-ledgers-three-state.md#维护-statetrace-后续-checkpoint) owner 先冻结生产/存储/回放契约；CP3 页面矩阵未开工，见 [B67](slices/B67-revision-aware-ledger-maintenance.md)。
 - **B65 后续**：CP0–CP2 done；真实 Tauri 正常链/恢复重连/隔离 HTTP+WS probe PASS；release 打包自定义协议 Origin 缺采集环境（packaged Tauri + 外部代理），CP3 未关闭，见 [B65](slices/B65-local-http-websocket-origin-boundary.md)。
 - **B64 实模后续**：CP0–CP2 done，CP3 确定性真实 Tauri 矩阵 PASS；真实模型一次 `judgment_protocol_violation` 失败（只读、未重试），待判断协议处理/作者裁决后再预注册复验，见 [B64](slices/B64-coordinate-aware-memory-consumption.md)。

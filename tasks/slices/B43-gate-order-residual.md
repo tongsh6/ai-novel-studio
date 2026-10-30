@@ -1,6 +1,6 @@
 # B43：统一执行裁决与 Gate 残余——行为输入、幂等输入与回放
 
-- 状态：**doing（2026-10-31 CP0/CP1 done；CP2 partial：Form R 回复/探索/能力缺口/等待/原文登记出口已映射统一裁决并同源；六 flow open_behavior/slot/MissingPolicy、CP3/CP4 未做）**。
+- 状态：**blocked（2026-10-31 CP0/CP1 done；CP2 Form R/Replay 同源已落地，但 MissingPolicy 与 open_behavior 的门序位置需先冻结设计；CP3/CP4 未开工）**。
 - 登记日期：2026-10-27；来源：12 门与 allow 路径已验收，但 blocked 页面、open_behavior/slot 顺序和同键异 payload 仍未闭合。
 - 上游：ADR-0005、[GATE-ORDER-CLOSURE](GATE-ORDER-CLOSURE-execution-gate-order-12.md)、[B40](B40-judgment-era-acceptance-reanchor.md)、[B49](B49-core-semantics-and-adr-review.md)。
 
@@ -88,6 +88,12 @@
 - Trace 同源（同轮）：`TraceWriter.record/4` 接受 `decision:` opts，trace 的 decision_type/no_tool_reason/event_order 由同一 reply_only decision 派生；trace_summary 写入 `orchestrator_decision/decision_id/reason_codes`。测试断言 trace_summary 的 decision_id 与 TurnResult.orchestrator_decision 相同、decision_trace_ref=trace_ref；Replay 仍以 DecisionTrace 为读取源。
 - Form R 出口映射（同轮）：`form_r_decision/3` 按真实行为构造统一裁决——reply→reply_only；creative_directions→exploration；capability_gap→capability_gap；await_author→require_clarification(required_author_action=answer_author_question)；author_content_registration→reply_only+`author_content_registration_pending_adoption`。TraceWriter 增加 exploration/capability_gap/require_clarification 映射；TraceReplayService 词表加 capability_gap；前端 copy/traceSummaryView 增加「能力缺口」标签。测试：exploration/capability_gap/await_author 断言 decision_type、trace_summary.decision_type（clarification_required）、required_author_action、author_question；全量 mix 1047/0、frontend 636/636、typecheck 通过。
 - Replay 读取（同轮）：`TraceReplayService` 能读取 clarification_required/capability_gap/exploration 的 Form R trace，provider 不调用；非 reply 类型因缺 StateTrace 可诚实返回 partial（不伪报 complete），已加测试。历史无 OrchestratorDecision 的旧 trace 仍按 trace 格式读取，不伪造 decision。
+- **阻塞（2026-10-31）**：MissingPolicy 当前在 `TurnExecutionService` 内、OrchestratorDecision/Gate 之后才评估（缺章时 trace 看起来 gate 已通过）；要统一门序必须先冻结四选一设计：
+  - A（推荐）在 GateOrder 增加显式 `missing_policy` gate（ADR-0005 gate 集合/顺序变更），flow 把真实坐标/缺失事实注入 gate_context；收益：trace first_blocking_gate 一致；代价：改 ADR 与 12 门版本。
+  - B）在 decide 前做确定性 preflight，trace 记为 pre-gate block，不新增 gate；收益：改动较小；代价：trace 与 GateResult 词表仍分叉。
+  - C）保持现状，只在 trace/session 标注 pre-execution block；代价：不满足本 slice 公认账。
+  - D）先只覆盖 prose_writing flow，其余五 flow 留缺口；代价：非完整 CP2。
+  该选择涉及 ADR-0005 门集合与验收判据，需作者/ADR owner 裁决，不能由实现自行扩门。CP3 blocked 页面 driver 也依赖该门序结论，故 B43 转 blocked，CP3/CP4 未开工。
 - 未完成（CP2 剩余）：六个 agent run flow 与 TurnExecutionService 的 open_behavior/slot/MissingPolicy 统一进门未做；真实页面 Why/Replay 证据、等待/失败出口映射未做。
 
 ## 4. 非目标
