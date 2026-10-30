@@ -103,4 +103,5 @@ curl -s http://127.0.0.1:4658/api/provider/health    # → {"connected":...}
 - **解包完成判据**：新增 `.install-complete` marker + bin 同时存在才复用（`sidecar_install_complete`）；解包到同版本 `.staging`，tar 成功后替换正式目录并写 marker；失败只留 staging，不把部分目录当已安装。
 - **退出/孤儿**：Unix 启动时 `process_group(0)` 建独立进程组；退出先向组发 TERM，最多等 2s，再 KILL，最后 kill/wait 兜底。
 - **测试**：Rust `sidecar_install_requires_marker_and_bin` 通过；`cargo check/test/fmt` 通过。
-- **仍缺**：就绪探测/失败分类（解包/迁移/端口/超时）进入作者可见恢复文案；真实打包应用的外部 UI 故障场景（正常冷启动、坏 archive/半解包、端口占用、退出无孤儿）未复验；不建第二进程管理器/不新增验收开关。
+- **就绪探测（本轮补）**：`spawn_sidecar` 后以 127.0.0.1:4658 TCP 探测等待 15s；成功才视为 ready；提前退出/超时返回分类错误并 kill/wait 回收 Child；Rust 测试覆盖监听/关闭端口。
+- **仍缺**：失败分类进入作者可见恢复文案（当前 Rust 仅 eprintln/启动错误，页面仍是通用加载失败）；真实打包应用的外部 UI 故障场景（正常冷启动、坏 archive/半解包、端口占用、退出无孤儿）未复验；不建第二进程管理器/不新增验收开关。

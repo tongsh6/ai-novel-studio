@@ -772,9 +772,49 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> Result<Child, String> {
         command.process_group(0);
     }
 
-    command
+    let mut child = command
         .spawn()
-        .map_err(|error| format!("failed to spawn sidecar: {error}"))
+        .map_err(|error| format!("failed to spawn sidecar: {error}"))?;
+
+    // 就绪分类：端口监听成功才算 ready；进程提前退出与超时都显式报错并回收子进程。
+    match wait_for_sidecar_port(
+        SIDECAR_PORT.parse().expect("valid sidecar port"),
+        std::time::Duration::from_secs(15),
+    ) {
+        Ok(()) => Ok(child),
+        Err(ready_error) => {
+            let early_exit = matches!(child.try_wait(), Ok(Some(_)));
+            let _ = child.kill();
+            let _ = child.wait();
+
+            if early_exit {
+                Err(format!("sidecar exited before ready: {ready_error}"))
+            } else {
+                Err(ready_error)
+            }
+        }
+    }
+}
+
+// CP1：就绪探测（端口可连接）——spawn 成功不代表 Phoenix 已完成迁移并开始监听。
+// 只做 std TCP 探测，避免引入新依赖；早退/超时返回分类错误，由启动路径记录。
+fn wait_for_sidecar_port(port: u16, timeout: std::time::Duration) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + timeout;
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+
+    while std::time::Instant::now() < deadline {
+        if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(200))
+            .is_ok()
+        {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+
+    Err(format!(
+        "sidecar port {port} was not ready within {}s",
+        timeout.as_secs()
+    ))
 }
 
 fn shutdown_sidecar(app: &tauri::AppHandle) {
@@ -823,6 +863,20 @@ mod tests {
         assert!(super::sidecar_install_complete(&dir));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sidecar_readiness_probe_detects_listening_and_closed_ports() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        assert!(
+            super::wait_for_sidecar_port(port, std::time::Duration::from_secs(1)).is_ok(),
+            "listening port should be ready"
+        );
+        drop(listener);
+
+        let closed = super::wait_for_sidecar_port(port, std::time::Duration::from_millis(300));
+        assert!(closed.is_err(), "closed port must not report ready");
     }
 
     #[test]

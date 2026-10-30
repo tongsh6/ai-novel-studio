@@ -1324,3 +1324,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **SU04-LIFECYCLE CP0**：只读核对 sidecar 解包/就绪/迁移/端口/退出：无安装完成 marker、spawn≠ready、失败无分类、退出未杀进程组；冻结 CP1 最小修复（marker/复用判据、health 就绪分类、进程组退出、打包应用故障复验）；未改代码。
 
 - 2026-10-31 — **SU04-LIFECYCLE CP1 partial**：解包 marker/staging 原子替换（半解包不再误判已安装）与 Unix 进程组 TERM/KILL 退出实现；Rust 测试通过；就绪分类/真实打包应用故障复验待做。
+
+- 2026-10-31 — **SU04 CP1 就绪探测**：spawn 后 TCP 127.0.0.1:4658 等待 15s，提前退出/超时分类并回收 Child；Rust 12/12 测试通过。作者可见失败分类与真实打包故障复验仍待做。
