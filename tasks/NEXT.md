@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B65 | CP0–CP2 done（精确来源策略 + HTTP/WS probe）；CP3 进行中：真实 Tauri B64 正常链 PASS、隔离来源拒绝 PASS；release 打包来源/恢复重连矩阵待做 | [原任务](slices/B65-local-http-websocket-origin-boundary.md) |
+| B67 | CP0 复核旧章修订/移除贡献的账面反例；冻结重算、来源版本和作者裁决保护 | [原任务](slices/B67-revision-aware-ledger-maintenance.md) |
 
 ## 后续候选
 
@@ -49,6 +49,7 @@
 
 ## 阻塞
 
+- **B65 后续**：CP0–CP2 done；真实 Tauri 正常链/恢复重连/隔离 HTTP+WS probe PASS；release 打包自定义协议 Origin 缺采集环境（packaged Tauri + 外部代理），CP3 未关闭，见 [B65](slices/B65-local-http-websocket-origin-boundary.md)。
 - **B64 实模后续**：CP0–CP2 done，CP3 确定性真实 Tauri 矩阵 PASS；真实模型一次 `judgment_protocol_violation` 失败（只读、未重试），待判断协议处理/作者裁决后再预注册复验，见 [B64](slices/B64-coordinate-aware-memory-consumption.md)。
 - **B39 实模后续**：CP1 机制/模型与 B74–B76 UI 已收口；D6-A setup 第01章成立、第02章候选区 AX 定位同因失败停止；正式 AU-15 待 setup 稳定性修复 + 作者/指定评审，见 [B39](slices/B39-evidence-seeking-authoring.md)。
 - **待材料｜PaperTrail 去留**：先完成版本存量与真实消费者的只读核对，再提交去留裁决，见 [B51](slices/B51-tech-stack-current-rebase.md)。

@@ -1,6 +1,6 @@
 # B65：本地 HTTP / WebSocket 来源边界
 
-- 状态：**doing（2026-10-31 CP0–CP2 done；CP3 进行中：真实 Tauri 正常链 + 隔离 HTTP/WS 探针已通过，release 打包来源/恢复重连矩阵未覆盖）**。
+- 状态：**blocked（2026-10-31 CP0–CP2 done；CP3 部分证据通过：真实 Tauri 正常链 + 恢复/重连 + 隔离 HTTP/WS 探针；release 打包后自定义协议 Origin 尚无外部采集手段，CP3 未关闭）**。
 - 类型：Desktop Boundary / Security / Acceptance Slice。
 - 来源：阶段 1 的本机桌面通信边界与本次设计→代码对账；独立于 [B57](B57-sec-injection-boundary.md) 的提示注入防线和 [B58](B58-human-approval-policy-unification.md) 的作者批准语义。
 
@@ -33,7 +33,7 @@
 | CP0 | 核对真实 Tauri 各平台来源、dev/stage/release 最终配置及本地调用者；冻结 scheme/host/port、无 Origin/null/错误形状和 HTTP/WS 拒绝语义，预注册正反例与驱动；区分来源修复和新增鉴权 | **done（2026-10-31，§6）**：冻结 Tauri 三来源 + dev 5768/隔离验收 5769 精确端口；发现并修正 tauri devUrl 5769 vs Vite 5768 不一致；禁止前缀匹配；Origin≠认证 |
 | CP1 | 依据 CP0 修复精确来源判定与配置接线；同源策略或有依据的平台差异只有一个 owner；合法 loopback/Tauri 路径兼容，后缀伪装不被视为本机 | **done（2026-10-31，§6）**：新增 `NovelWeb.OriginPolicy` 唯一 owner；CORSPlug 委托精确判定；dev/prod/runtime 三处 `check_origin` 从 false 改为 policy MFA；devUrl/端口单一化 |
 | CP2 | 补 HTTP OPTIONS/实际请求、WS 握手/连接、配置覆盖、缺失/畸形来源与合法客户端矩阵；证据明确服务端拒绝、浏览器阻止和仅无 CORS 头的不同后果 | **done（2026-10-31，§6）**：HTTP/配置矩阵 + 真实 WS handshake probe：允许 Tauri/dev Origin 101、伪本机/错误端口/null 403；HTTP 允许有 ACAO、拒绝无 CORS 头（浏览器阻止而非服务端身份拒绝，已如实区分） |
-| CP3 | 外部真实 Tauri 设置/创作正常，隔离非信任来源请求按冻结策略被拒且无业务副作用；恢复/重连回归与文档/配置同步，保留失败证据 | **doing/partial（2026-10-31，§6.5）**：CP1 后真实 Tauri B64 创作/新会话正常链 PASS；隔离 probe WS 拒绝/HTTP 无 CORS PASS；release 打包自定义协议来源、恢复/重连矩阵未覆盖 |
+| CP3 | 外部真实 Tauri 设置/创作正常，隔离非信任来源请求按冻结策略被拒且无业务副作用；恢复/重连回归与文档/配置同步，保留失败证据 | **partial-blocked（2026-10-31，§6.5）**：真实 Tauri B64 创作/新会话 PASS、AU10 恢复/重连 PASS、隔离 probe WS/HTTP PASS；release 打包自定义协议 Origin 缺采集环境，未关闭 |
 
 CP1/CP2 只能证明局部边界；完整 slice 要有真实客户端与最终运行配置证据。不能用 HTTP 通过替代 WS、用 dev 通过替代 release，或用 loopback 地址替代来源/身份判断。
 
@@ -72,7 +72,8 @@ CP1/CP2 只能证明局部边界；完整 slice 要有真实客户端与最终�
 ### 6.5 CP3 进行中证据
 
 - CP1 后真实 Tauri 正常链回归：`b64-coordinate-memory` PASS（三 turn 创作/新会话，HTTP+WS 正常通过来源策略）。
-- 未覆盖：release 打包后 `tauri://localhost`/`http://tauri.localhost` 实际 Origin、恢复/重连矩阵、设置页真实操作；这些需要 packaged Tauri 或补充页面场景，未用 dev harness 冒充生产来源。
+- 恢复/重连回归：`au10-workbench-recovery-reconnect` PASS（停服→离线→重启→WS rejoin→后续 turn 成功，`join_count_after_restore=4`）。
+- 未覆盖：release 打包后 `tauri://localhost`/`http://tauri.localhost` 实际 Origin（需要 packaged Tauri + 外部代理/服务器采集握手 Origin；当前 harness 跑 dev Vite 来源，不能冒充）；设置页真实操作未单独跑。B65 因此 blocked，待打包采集环境/SU04 工具后 scoped 复验，不重开全量。
 
 ## 4. 依赖与不授权范围
 
