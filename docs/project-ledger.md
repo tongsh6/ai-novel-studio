@@ -1170,3 +1170,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B67 CP2 进展：账目 upsert 事务内 revision CAS**：LedgerRepository.upsert 同事务读/TENTATIVE/ACCEPTED，已存在行要求 incoming revision=current+1，条件 update_all 0 行即 stale 回滚；过期 revision 拒绝且不覆盖、并发同 revision 单提交、无 revision 旧脚本兼容；测试直改 status 改为 LedgerEntry.adjudicate（递增 revision）。persistence ledger repo 7/0、全量 mix 1043/0、credo 0 issues。重编号/StateTrace/页面仍 todo，CP2 partial。
 
 - 2026-10-31 — **B67 CP2 追加：重编号后 recompute 接线**：LedgerMaintenance.recompute_work 从当前摘要/章索引重算 arc/conflict/stall/dormancy；workspace_channel 在 renumber_chapters 采纳成功后触发，失败只记日志不回滚采纳。测试重编号 seq10→6 后 last_seen 重算；全量 mix 1044/0、credo 0 issues。StateTrace 协同/旧任务晚到页面/CP3 页面仍 todo。
+
+- 2026-10-31 — **B67 CP2 追加：旧任务晚到矩阵**：先维护第10章再维护第3章，当前事实仍含第10章出场时 last_seen 保持10、不回退/不误报，历史 ch3 来源追加；maintenance 12/0。CP2 仍 partial：StateTrace 协同（VS00F-TRACE owner）与 CP3 页面矩阵未做。

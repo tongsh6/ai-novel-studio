@@ -276,6 +276,47 @@ defmodule NovelApplication.LedgerMaintenanceTest do
     assert after_entry.payload["last_seen_chapter"] == "ch-remap-6"
   end
 
+  test "B67 CP2：旧任务晚到（先处理第10章再处理第3章）不倒退最近出场/不误报停滞" do
+    {:ok, agent} = Agent.start_link(fn -> %{} end)
+
+    assert {:ok, _} =
+             LedgerMaintenance.run(
+               %{
+                 work_id: "w",
+                 chapter_id: "ch-10",
+                 summary_text: summary_with_characters("凌渊出场。")
+               },
+               deps(agent)
+             )
+
+    before = Agent.get(agent, & &1)["char-ly"]
+    assert before.payload["last_seen_seq"] == 10
+
+    # 旧任务（第3章维护）晚到：当前事实里第10章仍出现；不能回退、不能把状态误判。
+    summaries = fn _work_id ->
+      [
+        {3, summary_with_characters("凌渊在第3章出场。")},
+        {10, summary_with_characters("凌渊在第10章出场。")}
+      ]
+    end
+
+    assert {:ok, %{recomputed: 0, stalled: 0}} =
+             LedgerMaintenance.run(
+               %{
+                 work_id: "w",
+                 chapter_id: "ch-3",
+                 summary_text: summary_with_characters("凌渊在第3章出场。")
+               },
+               deps(agent, summaries)
+             )
+
+    entry = Agent.get(agent, & &1)["char-ly"]
+    assert entry.payload["last_seen_seq"] == 10
+    assert entry.payload["last_seen_chapter"] == "ch-10"
+    assert "chapter_summary:ch-3" in entry.source_refs
+    assert entry.status == "ON_TRACK"
+  end
+
   test "缺人物栏降级情节栏提炼；整段无栏降级全文" do
     {:ok, agent} = Agent.start_link(fn -> %{} end)
 
