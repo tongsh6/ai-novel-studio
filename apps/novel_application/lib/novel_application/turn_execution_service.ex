@@ -206,7 +206,13 @@ defmodule NovelApplication.TurnExecutionService do
       facts_truncated?: facts_truncated?,
       style_truncated?: style_truncated?
     } =
-      creative_memory_sections(frame, action, input[:context], input[:memory_reader])
+      creative_memory_sections(
+        frame,
+        action,
+        resolved_chapter_ref,
+        input[:context],
+        input[:memory_reader]
+      )
 
     # VS-00G CP1：承重事实完备性判定（机械准备，0 调用，ADR-0025）。按能力 manifest
     # 对现状快照逐项查缺，required 缺席且有守则→注入缺席守则（防主角真空被模型想象填补，
@@ -1238,14 +1244,39 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp progress_state_section(_frame, _action, _reader), do: ""
 
+  # B64：把本轮已解析的目标章 ref 传给事实读端口；/1 兼容旧注入（测试/无目标场景）。
+  defp read_creative_facts(reader, work_id, chapter_ref) when is_function(reader, 2) do
+    case memory_chapter_id(chapter_ref) do
+      nil -> reader.(work_id, [])
+      chapter_id -> reader.(work_id, at_chapter_id: chapter_id)
+    end
+  end
+
+  defp read_creative_facts(reader, work_id, _chapter_ref), do: reader.(work_id)
+
+  # resolved_chapter_ref 的协议形态是 chapter:<uuid>（B25）；只把合法 UUID 传入读端口，
+  # 其它/未知 ref 不伪装目标，保持“未知不约束”。
+  defp memory_chapter_id(ref) when is_binary(ref) do
+    candidate = String.replace_prefix(ref, "chapter:", "")
+
+    if Regex.match?(
+         ~r/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+         candidate
+       ) do
+      candidate
+    end
+  end
+
+  defp memory_chapter_id(_ref), do: nil
+
   # CA02（VS-00C §3.1 L3b/L4 最小形态）：确认记忆机械分组注入。仅 prose_writing；
   # memory_reader 未注入或无确认记忆时诚实缺席（06 §5.0）。每组按策略
   # facts_group_limit 截断（组内已按更新时间倒序），标题字串避开 stub/slice_verify
   # 内容级锚点（现有角色/作品章节/已采纳章节/目标情绪/已采纳正文）。
-  defp creative_memory_sections(frame, action, context, memory_reader) do
+  defp creative_memory_sections(frame, action, resolved_chapter_ref, context, memory_reader) do
     if CarryRegistry.carries?(:creative_facts, capability_name(action)) and
-         is_function(memory_reader, 1) do
-      facts = memory_reader.(frame.workspace_id)
+         (is_function(memory_reader, 1) or is_function(memory_reader, 2)) do
+      facts = read_creative_facts(memory_reader, frame.workspace_id, resolved_chapter_ref)
       limit = DialogueContext.policy(context).facts_group_limit
 
       sections = %{

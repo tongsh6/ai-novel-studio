@@ -96,16 +96,22 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 刺激源与判据独立（external acceptance design §196）：只读 fixtures.yml 导出的
   # “表达→最小动作”映射，不读 case expected/oracle；判卷由 author_behavior oracle 独立完成。
   defp author_behavior_result(prompt_text) do
-    match_text = if judgment_prompt?(prompt_text), do: judgment_author_input(prompt_text), else: prompt_text
+    match_text =
+      if judgment_prompt?(prompt_text), do: judgment_author_input(prompt_text), else: prompt_text
 
     with path when is_binary(path) and path != "" <- System.get_env(@author_behavior_env),
          fixtures when is_list(fixtures) and fixtures != [] <- author_behavior_fixtures(path),
          %{"action" => _action} = fixture <-
            Enum.find(fixtures, fn entry -> String.contains?(match_text, entry["expression"]) end) do
       cond do
-        judgment_prompt?(prompt_text) -> author_behavior_stimulus(fixture, prompt_text)
-        profile_routing_prompt?(prompt_text) -> author_behavior_profile_stimulus(fixture, prompt_text)
-        true -> nil
+        judgment_prompt?(prompt_text) ->
+          author_behavior_stimulus(fixture, prompt_text)
+
+        profile_routing_prompt?(prompt_text) ->
+          author_behavior_profile_stimulus(fixture, prompt_text)
+
+        true ->
+          nil
       end
     else
       _ -> nil
@@ -133,7 +139,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
      )}
   end
 
-  defp author_behavior_stimulus(%{"action" => "execute", "capability" => capability} = fixture, prompt_text) do
+  defp author_behavior_stimulus(
+         %{"action" => "execute", "capability" => capability} = fixture,
+         prompt_text
+       ) do
     expression = Map.fetch!(fixture, "expression")
 
     arguments = %{
@@ -149,7 +158,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
          %{
            id: "tool-b73-execute",
            name: "judgment_decision",
-           arguments: author_behavior_pending_arguments(arguments, fixture, prompt_text, capability)
+           arguments:
+             author_behavior_pending_arguments(arguments, fixture, prompt_text, capability)
          }
        ]
      )}
@@ -164,15 +174,21 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     target =
       (message_state_facts(prompt_text)["pending_adoptions"] || [])
       |> Enum.find(fn entry ->
-        if role == "revision", do: not is_nil(entry["revision_of"]), else: is_nil(entry["revision_of"])
+        if role == "revision",
+          do: not is_nil(entry["revision_of"]),
+          else: is_nil(entry["revision_of"])
       end)
 
     Map.put(arguments, "pending_artifact_ref", target && target["artifact_ref"])
   end
 
-  defp author_behavior_pending_arguments(arguments, _fixture, _prompt_text, _capability), do: arguments
+  defp author_behavior_pending_arguments(arguments, _fixture, _prompt_text, _capability),
+    do: arguments
 
-  defp author_behavior_profile_stimulus(%{"action" => "execute", "capability" => capability}, prompt_text) do
+  defp author_behavior_profile_stimulus(
+         %{"action" => "execute", "capability" => capability},
+         prompt_text
+       ) do
     profile_ref =
       case capability do
         "prose_writing" -> "prose_drafting_with_quality_v1"

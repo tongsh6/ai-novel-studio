@@ -54,19 +54,24 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
   test "B73 world execute 在 profile router 保持世界设定能力", %{corpus: corpus} do
     expression = "这个设定捋一下，能落成一条规则就存下来。"
 
-    File.write!(corpus, Jason.encode!(%{
-      "fixtures" => [
-        %{
-          "case_id" => "C-F3-002",
-          "expression" => expression,
-          "action" => "execute",
-          "capability" => "world_building",
-          "note" => "world execute stimulus"
-        }
-      ]
-    }))
+    File.write!(
+      corpus,
+      Jason.encode!(%{
+        "fixtures" => [
+          %{
+            "case_id" => "C-F3-002",
+            "expression" => expression,
+            "action" => "execute",
+            "capability" => "world_building",
+            "note" => "world execute stimulus"
+          }
+        ]
+      })
+    )
 
-    prompt = "AgentRun profile router\n## 作者输入\n#{expression}\n{\"profile_ref\":\"conversation_turn_v1\"}"
+    prompt =
+      "AgentRun profile router\n## 作者输入\n#{expression}\n{\"profile_ref\":\"conversation_turn_v1\"}"
+
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
     assert Jason.decode!(result.content)["profile_ref"] == "world_building_with_context_v1"
   end
@@ -75,17 +80,33 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
     prose_expression = "把第02章补完，接上现在的结尾。"
     world_expression = "这个设定捋一下，能落成一条规则就存下来。"
 
-    File.write!(corpus, Jason.encode!(%{
-      "fixtures" => [
-        %{"case_id" => "C-F2-001", "expression" => prose_expression, "action" => "execute", "capability" => "prose_writing", "note" => "prose"},
-        %{"case_id" => "C-F3-002", "expression" => world_expression, "action" => "execute", "capability" => "world_building", "note" => "world"}
-      ]
-    }))
+    File.write!(
+      corpus,
+      Jason.encode!(%{
+        "fixtures" => [
+          %{
+            "case_id" => "C-F2-001",
+            "expression" => prose_expression,
+            "action" => "execute",
+            "capability" => "prose_writing",
+            "note" => "prose"
+          },
+          %{
+            "case_id" => "C-F3-002",
+            "expression" => world_expression,
+            "action" => "execute",
+            "capability" => "world_building",
+            "note" => "world"
+          }
+        ]
+      })
+    )
 
     prompt = [
       %{role: "system", content: "创作判断器\n## 历史消息\n#{prose_expression}"},
       %{role: "user", content: "## 作者输入\n#{world_expression}"}
     ]
+
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
     assert [%{name: "judgment_decision"} = call] = result.tool_calls
     arguments = call[:arguments] || call["arguments"]
@@ -95,28 +116,38 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
   test "B73 pending 修订 fixture 从真实目录绑定原稿 ref", %{corpus: corpus} do
     expression = "请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。"
 
-    File.write!(corpus, Jason.encode!(%{
-      "fixtures" => [
-        %{
-          "case_id" => "C-F3-E03",
-          "expression" => expression,
-          "action" => "execute",
-          "capability" => "revise_pending_artifact",
-          "target_role" => "original",
-          "note" => "pending revision"
-        }
-      ]
-    }))
+    File.write!(
+      corpus,
+      Jason.encode!(%{
+        "fixtures" => [
+          %{
+            "case_id" => "C-F3-E03",
+            "expression" => expression,
+            "action" => "execute",
+            "capability" => "revise_pending_artifact",
+            "target_role" => "original",
+            "note" => "pending revision"
+          }
+        ]
+      })
+    )
 
     prompt = [
-      %{role: "system", content: "创作判断器\n{\"pending_adoptions\":[{\"artifact_ref\":\"as_original\",\"revision_of\":null}]}"},
+      %{
+        role: "system",
+        content:
+          "创作判断器\n{\"author_inputs\":[],\"pending_adoptions\":[{\"artifact_ref\":\"as_original\",\"revision_of\":null}]}"
+      },
       %{role: "user", content: "## 作者输入\n#{expression}"}
     ]
+
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
     assert [%{name: "judgment_decision"} = call] = result.tool_calls
     arguments = call[:arguments] || call["arguments"]
     assert (arguments[:capability] || arguments["capability"]) == "revise_pending_artifact"
-    assert (arguments[:pending_artifact_ref] || arguments["pending_artifact_ref"]) == "as_original"
+
+    assert (arguments[:pending_artifact_ref] || arguments["pending_artifact_ref"]) ==
+             "as_original"
   end
 
   test "B73 负控回复文本只来自 fixture，不复用 oracle 预期", %{corpus: corpus} do

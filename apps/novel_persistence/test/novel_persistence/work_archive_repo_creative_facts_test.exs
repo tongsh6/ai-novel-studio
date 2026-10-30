@@ -74,3 +74,82 @@ defmodule NovelPersistence.WorkArchiveRepoCreativeFactsTest do
            }
   end
 end
+
+defmodule NovelPersistence.WorkArchiveRepoCreativeFactsWindowTest do
+  @moduledoc """
+  B64 CP0/CP1：creative_facts 必须按目标章有效窗过滤；无目标保持既有行为。
+  """
+  use NovelPersistence.DataCase, async: true
+
+  alias NovelFoundation.Enums.MemorySourceType
+  alias NovelFoundation.Enums.MemoryStatus
+  alias NovelFoundation.Enums.MemoryType
+  alias NovelPersistence.Repo
+  alias NovelPersistence.Schemas.Chapter
+  alias NovelPersistence.Schemas.MemoryItem
+  alias NovelPersistence.Schemas.Volume
+  alias NovelPersistence.WorkArchiveRepo
+
+  defp insert_chapter!(work_id, seq) do
+    volume =
+      %Volume{} |> Volume.changeset(%{work_id: work_id, title: "卷", seq: 1}) |> Repo.insert!()
+
+    %Chapter{}
+    |> Chapter.changeset(%{work_id: work_id, volume_id: volume.id, title: "第#{seq}章", seq: seq})
+    |> Repo.insert!()
+  end
+
+  defp insert_memory!(work_id, content, opts) do
+    attrs =
+      Map.merge(
+        %{
+          id: Ecto.UUID.generate(),
+          work_id: work_id,
+          content: content,
+          type: Keyword.get(opts, :type, MemoryType.world_rule()),
+          scope: "WORK",
+          status: MemoryStatus.confirmed(),
+          source_type: MemorySourceType.author_confirmed(),
+          recallable: true
+        },
+        Map.new(Keyword.take(opts, [:valid_from, :valid_until]))
+      )
+
+    %MemoryItem{} |> MemoryItem.changeset(attrs) |> Repo.insert!()
+  end
+
+  defp contents(facts), do: Enum.map(facts.world_rules, & &1.content) |> Enum.sort()
+
+  test "目标章在窗口外时排除，窗口内/无窗保留；无目标保持既有行为" do
+    work_id = Ecto.UUID.generate()
+    ch2 = insert_chapter!(work_id, 2)
+    ch4 = insert_chapter!(work_id, 4)
+    ch8 = insert_chapter!(work_id, 8)
+    ch10 = insert_chapter!(work_id, 10)
+    target_ch3 = insert_chapter!(work_id, 3)
+
+    insert_memory!(work_id, "只在早期有效的设定", valid_until: %{"chapter_id" => ch4.id})
+    insert_memory!(work_id, "第8章后才生效的设定", valid_from: %{"chapter_id" => ch8.id})
+    insert_memory!(work_id, "贯穿全书的设定", [])
+
+    # 第10章（最大已写/目标）下早期设定应排除；目标第3章下未来设定应排除。
+    facts_at_10 = WorkArchiveRepo.creative_facts(work_id, at_chapter_id: ch10.id)
+    assert contents(facts_at_10) == ["第8章后才生效的设定", "贯穿全书的设定"]
+
+    facts_at_3 = WorkArchiveRepo.creative_facts(work_id, at_chapter_id: target_ch3.id)
+    assert contents(facts_at_3) == ["只在早期有效的设定", "贯穿全书的设定"]
+
+    # 未提供目标时保持旧行为（规划/历史消费者不被机械过滤）。
+    assert contents(WorkArchiveRepo.creative_facts(work_id)) ==
+             ["只在早期有效的设定", "第8章后才生效的设定", "贯穿全书的设定"]
+
+    # 目标未知（不存在章）不伪装确定：窗口不约束。
+    facts_unknown = WorkArchiveRepo.creative_facts(work_id, at_chapter_id: Ecto.UUID.generate())
+    assert contents(facts_unknown) == ["只在早期有效的设定", "第8章后才生效的设定", "贯穿全书的设定"]
+
+    # 窗口边界引用不存在章节：该侧不可解析 → 不约束该侧。
+    missing = Ecto.UUID.generate()
+    insert_memory!(work_id, "边界缺失的设定", valid_until: %{"chapter_id" => missing})
+    assert "边界缺失的设定" in contents(WorkArchiveRepo.creative_facts(work_id, at_chapter_id: ch2.id))
+  end
+end

@@ -1,6 +1,6 @@
 # B64：按真实写作坐标消费记忆有效窗
 
-- 状态：**todo（2026-10-30 设计反查登记；CP0 现役反例与契约准备可推进，产品实现和页面验收未开工）**。
+- 状态：**doing（2026-10-31 CP0/CP1 完成：目标章事实过滤、共享有效窗纯规则、writer/evaluator reader 接线；CP2/CP3 未完成）**。
 - 来源：有效期已在普通 recall 路径验证，但 CA02 的专业创作事实读端口没有目标章或有效窗输入；本轮只读代码核对发现消费边界不一致，尚未运行数据库、真实模型或页面反例。
 - 上游：[AU09 有效窗原任务](AU09-validity-window-recall.md)、[CA02](CA02-writing-facts-context.md)、[VS-00C](../../docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md)、[B39](B39-evidence-seeking-authoring.md)。本项保护既有章节级窗口，不等待 B54 新建故事时间读模型，也不重复建设 B39 的求证循环。
 
@@ -26,6 +26,30 @@
 | 现有测试 | [CA02 读端口测试](../../apps/novel_persistence/test/novel_persistence/work_archive_repo_creative_facts_test.exs) | 覆盖分组、确认态与 recallable，没有目标章/未来生效/过期窗口矩阵；已有普通 recall 测试仍须保留 |
 
 这些证据证明存在静态接线缺口，**不证明某次线上生成已发生错误**。CP0 先用可重复反例验证实际影响；已有 AU09 普通召回通过记录不改写。
+
+## 1.1 CP0 记录（2026-10-31）
+
+- 复现证据（只读代码）：
+  - `WorkArchiveRepo.creative_facts/1`（novel_persistence）只按 work/status/recallable/type 过滤，**未 select/消费 `valid_from/valid_until`，也没有目标章输入**；`MemoryRecallRepo.within_validity_window?/3` 已有章节 seq 窗口规则但为 private，仅普通 recall 使用。
+  - `MemoryRecallRepo.recall/3` 当前位置取“已采纳正文最大 seq”，不能用调用方明确目标章替代；未知位置不约束。
+  - 生产接线：`NovelApplication.persistence_memory_reader/0` 固定 `&WorkArchiveRepo.creative_facts/1`；`TurnExecutionService.creative_memory_sections/4` 只传 work_id；而同轮已有 `resolved_chapter_ref`（`chapter:<uuid>`）可用于目标章，writer 事实段与 evaluator 事实基线都消费同一 `creative_facts`。
+- 反例（待红）：第 10 章回写第 3 章时，一个 `valid_from=第8章` 的 world_rule 会被 `creative_facts/1` 无条件注入 writer/evaluator；普通 recall 会按最大已采纳 seq=10 把它当“当前有效”。目标章第 3 章时应排除。
+- CP0 冻结的最小契约（本次实现范围）：
+  1. 新增 `WorkArchiveRepo.creative_facts/2`，可选 `:at_chapter_id`（章节 UUID）；提供目标时按该章 seq 过滤窗口，未提供时保持现状（不改变规划/旧消费者行为）。
+  2. 窗口语义复用 AU09 章节 seq 规则：某侧无可解析 seq 则不约束；目标位置未知则不约束（未知不伪装确定，也不 fail-hard）。
+  3. 抽取纯函数 `NovelDomain.MemoryValidity`，recall 与 creative_facts 共用；普通 recall 增加可选 `:at_chapter_id`（显式目标优先于最大已采纳），无目标保持回退。
+  4. 应用层将 `resolved_chapter_ref`（去掉 `chapter:` 前缀）传入 memory reader；reader 保持 /1 兼容（旧测试注入），有 /2 时优先 /2。
+  5. 不在本 CP 改 schema/时间线/历史查询；不把窗口外记忆从档案/探索删除。
+- 驱动冻结（CP3 用）：外部原生 Tauri 通过产品入口建立章节与有效窗记忆 → 从主输入续写/重写第3章 → 核对 writer/evaluator 请求事实段与可见 Why；先用确定性 fixture 证明接线，再用真实模型观察行为，分开记录。
+
+## 1.2 CP1 实现记录（2026-10-31）
+
+- `NovelDomain.MemoryValidity.within_window?/4` + `window_seq/2`：从 recall 私有规则抽取的纯函数，3 条 domain 测试覆盖窗口内/外、未知位置、缺失边界。
+- `WorkArchiveRepo.creative_facts/2`：`opts[:at_chapter_id]` 提供时查 work 章节 seq 映射并按目标 seq 过滤 `valid_from/valid_until`；未提供时保持原查询/分组；select 增加 valid_from/valid_until 供后续 trace 消费。测试覆盖第10章/第3章目标、无目标、未知章、缺失边界。
+- `MemoryRecallRepo.recall/3`：`opts[:at_chapter_id]` 优先于“最大已采纳 seq”，未知目标 → position=nil 不约束；无目标保持旧回退。新增显式目标测试（目标第2章排除第4章才生效的设定）。
+- `NovelApplication.persistence_memory_reader/0` 改为 arity-2 reader；`TurnExecutionService.creative_memory_sections/5` 接收 `resolved_chapter_ref`，`chapter:<uuid>` 合法时向 reader 传 `at_chapter_id`；/1 reader 旧注入继续兼容。新增应用测试断言目标章 UUID 被传入，writer/evaluator 同源使用该 facts。
+- 边界：未改 schema、时间线、历史查询、规划消费或页面；未知/无效目标不 fail-hard；B39 最小供给方向不变。
+- 门禁：`mix format --check-formatted`、`mix compile --warnings-as-errors`、全量 `mix test`（1039 tests, 0 failures）；另需 credo/xref/arch/I1–I3 与页面矩阵（CP2/CP3）。
 
 ## 2. 消费者矩阵与待冻结语义
 
@@ -54,9 +78,9 @@ CP0 还须明确：未知当前位置、无窗口、无效章节引用、重编�
 
 | CP | 完整范围与完成标准 | 状态 |
 |---|---|---|
-| CP0 | 确认消费者矩阵、构造第 10 章回写第 3 章等反例；冻结目标/未知/规划/历史读取的最小适用性契约与驱动；核实缺口后才改代码 | todo |
-| CP1 | 真实章身份/作用范围贯穿需要它的读取端口；统一既有有效窗规则，保留无目标回退与历史可查；只修实际消费者 | todo |
-| CP2 | writer/evaluator、普通 recall、trace/why 及规划边界同源；覆盖窗口、重编号、错误引用、跨作品、恢复与当前值变化；回归独立修订路径 | todo |
+| CP0 | 确认消费者矩阵、构造第 10 章回写第 3 章等反例；冻结目标/未知/规划/历史读取的最小适用性契约与驱动；核实缺口后才改代码 | done（2026-10-31，§1.1；反例红测先失败后转绿） |
+| CP1 | 真实章身份/作用范围贯穿需要它的读取端口；统一既有有效窗规则，保留无目标回退与历史可查；只修实际消费者 | done（2026-10-31：`WorkArchiveRepo.creative_facts/2` + `MemoryRecallRepo.recall/3 :at_chapter_id` + `NovelDomain.MemoryValidity` 共享规则；TurnExecutionService 把 `resolved_chapter_ref` 传给 reader；无目标/未知保持旧回退；writer/evaluator 同源 facts） |
+| CP2 | writer/evaluator、普通 recall、trace/why 及规划边界同源；覆盖窗口、重编号、错误引用、跨作品、恢复与当前值变化；回归独立修订路径 | todo（下一步） |
 | CP3 | 外部真实 Tauri 完成旧章/新章与跨会话矩阵，分开记录确定性接线和真实模型消费；原 AU09 证据不外推，全部计划内后果齐备才关闭 | todo |
 
 ## 5. 非目标与恢复

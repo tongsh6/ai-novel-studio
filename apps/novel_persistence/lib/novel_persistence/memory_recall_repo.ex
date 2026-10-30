@@ -8,6 +8,7 @@ defmodule NovelPersistence.MemoryRecallRepo do
 
   import Ecto.Query
 
+  alias NovelDomain.MemoryValidity
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelPersistence.Repo
@@ -41,8 +42,8 @@ defmodule NovelPersistence.MemoryRecallRepo do
         # 有效期窗口外的设定不进入普通召回（AU09-I6）。valid_from/until.chapter_id 是
         # 章节 UUID（NarrativePosition，05-memory-retention §8.2），经 chapter_seq_map
         # 解析到同一 seq 排序空间后与 current_position 比较。
-        current_position = current_chapter_position(uuid)
         chapter_seq_map = chapter_seq_map(uuid)
+        current_position = call_position(uuid, opts, chapter_seq_map)
 
         uuid
         |> base_query()
@@ -83,30 +84,23 @@ defmodule NovelPersistence.MemoryRecallRepo do
     |> Map.new()
   end
 
-  # 有效期窗口判定：valid_from/valid_until.chapter_id 是章节 UUID，解析为该章 seq 后
-  # 与 current_position（最大已采纳章节 seq）比较。无可定位窗口的设定永远可召回；
-  # 当前位置未知时不限制；边界 chapter_id 无法解析（章节不存在）时该侧不约束。
-  defp within_validity_window?(memory, current_position, chapter_seq_map) do
-    from_seq = window_seq(Map.get(memory, :valid_from), chapter_seq_map)
-    until_seq = window_seq(Map.get(memory, :valid_until), chapter_seq_map)
-
-    cond do
-      is_nil(from_seq) and is_nil(until_seq) -> true
-      is_nil(current_position) -> true
-      not is_nil(from_seq) and current_position < from_seq -> false
-      not is_nil(until_seq) and current_position > until_seq -> false
-      true -> true
-    end
-  end
-
-  defp window_seq(position, chapter_seq_map) when is_map(position) do
-    case Map.get(position, "chapter_id") || Map.get(position, :chapter_id) do
+  # B64：显式目标章优先于“最大已采纳章节”；目标章 UUID 无法解析 → position=nil，
+  # 由纯规则按“未知不约束”处理（保留 AU09 的诚实未知语义，不 fail-hard）。
+  defp call_position(uuid, opts, chapter_seq_map) do
+    case Keyword.get(opts, :at_chapter_id) do
       id when is_binary(id) -> Map.get(chapter_seq_map, id)
-      _ -> nil
+      _ -> current_chapter_position(uuid)
     end
   end
 
-  defp window_seq(_position, _chapter_seq_map), do: nil
+  defp within_validity_window?(memory, current_position, chapter_seq_map) do
+    MemoryValidity.within_window?(
+      Map.get(memory, :valid_from),
+      Map.get(memory, :valid_until),
+      current_position,
+      chapter_seq_map
+    )
+  end
 
   @spec summary([recalled_memory()]) :: String.t() | nil
   def summary([]), do: nil

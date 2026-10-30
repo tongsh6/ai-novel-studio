@@ -96,6 +96,69 @@ defmodule NovelApplication.CreativeFactsContextTest do
     agent |> Agent.get(& &1) |> Enum.join("\n\n")
   end
 
+  defp run_with_target(chapter_id, memory_reader) do
+    {:ok, agent} = Agent.start_link(fn -> [] end)
+
+    complete = fn prompt ->
+      Agent.update(agent, &[prompt | &1])
+      {:ok, %{content: "正文内容。"}}
+    end
+
+    action = %{
+      action_id: "act-target",
+      action_type: :capability_invocation,
+      summary: "创作",
+      target_ref: "prose_writing",
+      target_chapter_ref: "chapter:#{chapter_id}",
+      write_intent: :tentative,
+      risk_hint: :low,
+      authoring_intent: nil,
+      requested_chapter_raw: nil,
+      target_chapter: nil
+    }
+
+    input = %{
+      frame: frame(),
+      plan: %MicroPlan{
+        plan_id: "plan-facts",
+        turn_id: "turn-facts",
+        frame_ref: "frame-facts",
+        plan_goal: %{summary: "创作"},
+        risk_hint: :low,
+        proposed_actions: [action]
+      },
+      decision: allow_decision(),
+      context: %DialogueContext{
+        workspace_id: @work,
+        assembly_policy: AssemblyPolicy.for_tier(:floor),
+        structured_chapters: [
+          %{id: chapter_id, seq: 3, title: "第3章", status: "DRAFTING"}
+        ]
+      },
+      author_input: %{text: "回写第3章"},
+      chapter_index_reader: fn _work -> [%{id: chapter_id, seq: 3, title: "第3章"}] end,
+      memory_reader: memory_reader,
+      provider_execution: %Execution{result_fn: complete}
+    }
+
+    {_turn_result, _trace} = TurnExecutionService.execute(input)
+    agent |> Agent.get(& &1) |> Enum.join("\n\n")
+  end
+
+  test "B64：有明确目标章时 memory_reader 收到 at_chapter_id（/2）" do
+    chapter_id = Ecto.UUID.generate()
+    {:ok, opts_agent} = Agent.start_link(fn -> nil end)
+    base = facts_reader()
+
+    reader = fn work_id, opts ->
+      Agent.update(opts_agent, fn _ -> opts end)
+      base.(work_id)
+    end
+
+    run_with_target(chapter_id, reader)
+    assert Agent.get(opts_agent, & &1) == [at_chapter_id: chapter_id]
+  end
+
   defp facts_reader(overrides \\ %{}) do
     base = %{
       foreshadowing: [%{summary: "灵脉断裂之谜", content: "第三章埋下的灵脉断裂尚未回收"}],

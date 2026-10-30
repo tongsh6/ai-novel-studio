@@ -470,7 +470,9 @@ defmodule NovelApplication do
   未启用真实持久化时返回 nil（无记忆注入，06 §5.0 诚实缺失）。
   """
   def persistence_memory_reader do
-    if inject_persistence?(), do: &NovelPersistence.WorkArchiveRepo.creative_facts/1
+    if inject_persistence?() do
+      fn work_id, opts -> NovelPersistence.WorkArchiveRepo.creative_facts(work_id, opts) end
+    end
   end
 
   defp inject_persistence? do

@@ -150,6 +150,45 @@ defmodule NovelPersistence.MemoryRecallRepoTest do
       assert windowed.id in ids
     end
 
+    test "explicit target chapter takes precedence over max accepted position (B64)" do
+      work_id = ID.uuid()
+      _ch1 = insert_accepted_chapter!(work_id, 1)
+      target_ch2 = insert_accepted_chapter!(work_id, 2)
+      ch4 = insert_chapter!(work_id, 4)
+      _ch10 = insert_accepted_chapter!(work_id, 10)
+
+      early =
+        insert_memory!(%{
+          work_id: work_id,
+          content: "盘古碑早期传闻",
+          status: MemoryStatus.confirmed(),
+          recallable: true
+        })
+
+      later =
+        insert_memory!(%{
+          work_id: work_id,
+          content: "盘古碑在第4章后揭示真相",
+          status: MemoryStatus.confirmed(),
+          recallable: true,
+          valid_from: %{"chapter_id" => ch4.id}
+        })
+
+      # 无显式目标：旧回退最大已采纳 seq=10，两条都在窗口内。
+      all_ids = work_id |> MemoryRecallRepo.recall("盘古碑") |> Enum.map(& &1.id)
+      assert early.id in all_ids
+      assert later.id in all_ids
+
+      # 明确回写第2章：第4章才生效的记忆不得进入普通召回。
+      target_ids =
+        work_id
+        |> MemoryRecallRepo.recall("盘古碑", at_chapter_id: target_ch2.id)
+        |> Enum.map(& &1.id)
+
+      assert early.id in target_ids
+      refute later.id in target_ids
+    end
+
     test "window referencing a non-existent chapter does not restrict that bound" do
       work_id = ID.uuid()
       insert_accepted_chapter!(work_id, 5)

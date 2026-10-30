@@ -8,6 +8,7 @@ defmodule NovelPersistence.WorkArchiveRepo do
 
   import Ecto.Query
 
+  alias NovelDomain.MemoryValidity
   alias NovelDomain.ProseWordCount
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemoryStatus
@@ -115,15 +116,15 @@ defmodule NovelPersistence.WorkArchiveRepo do
   world_rules 不含 STYLE_RULE（与档案 rules 面口径不同）——风格归 style 组，
   作为写作前风格锚与事实基线分开渲染。
   """
-  @spec creative_facts(String.t()) :: %{
+  @spec creative_facts(String.t(), keyword()) :: %{
           foreshadowing: [map()],
           world_rules: [map()],
           current_states: [map()],
           relationships: [map()],
           style: [map()]
         }
-  def creative_facts(work_id) when is_binary(work_id) do
-    all = memory_items(work_id, @creative_fact_types)
+  def creative_facts(work_id, opts \\ []) when is_binary(work_id) do
+    all = memory_items(work_id, @creative_fact_types, opts)
 
     %{
       foreshadowing: of_types(all, @foreshadowing_types),
@@ -160,36 +161,62 @@ defmodule NovelPersistence.WorkArchiveRepo do
     end)
   end
 
-  defp memory_items(work_id, types) do
+  defp memory_items(work_id, types, opts \\ []) do
     with_uuid(work_id, [], fn uuid ->
-      MemoryItem
-      |> where(
-        [m],
-        m.work_id == ^uuid and m.status in ^@confirmed_memory_statuses and
-          m.recallable == true and m.type in ^types
-      )
-      |> order_by([m], desc: m.updated_at, desc: m.inserted_at)
-      |> select([m], %{
-        id: m.id,
-        type: m.type,
-        scope: m.scope,
-        status: m.status,
-        source_type: m.source_type,
-        content: m.content,
-        summary: m.summary,
-        tags: m.tags,
-        weight: m.weight,
-        confidence: m.confidence,
-        locked: m.locked,
-        recallable: m.recallable,
-        reference_count: m.reference_count,
-        version: m.version,
-        updated_at: m.updated_at
-      })
-      |> Repo.all()
-      |> Enum.map(&normalize_memory_item/1)
+      items =
+        MemoryItem
+        |> where(
+          [m],
+          m.work_id == ^uuid and m.status in ^@confirmed_memory_statuses and
+            m.recallable == true and m.type in ^types
+        )
+        |> order_by([m], desc: m.updated_at, desc: m.inserted_at)
+        |> select([m], %{
+          id: m.id,
+          type: m.type,
+          scope: m.scope,
+          status: m.status,
+          source_type: m.source_type,
+          content: m.content,
+          summary: m.summary,
+          tags: m.tags,
+          weight: m.weight,
+          confidence: m.confidence,
+          locked: m.locked,
+          recallable: m.recallable,
+          reference_count: m.reference_count,
+          version: m.version,
+          valid_from: m.valid_from,
+          valid_until: m.valid_until,
+          updated_at: m.updated_at
+        })
+        |> Repo.all()
+        |> Enum.map(&normalize_memory_item/1)
+
+      filter_by_target_chapter(items, uuid, Keyword.get(opts, :at_chapter_id))
     end)
   end
+
+  # B64：提供明确目标章时按有效窗过滤；未提供目标时不改变既有消费行为（规划/历史消费者）。
+  # 目标章 UUID 无法解析时 position=nil → 纯规则按“未知不约束”处理。
+  defp filter_by_target_chapter(items, _uuid, nil), do: items
+
+  defp filter_by_target_chapter(items, uuid, at_chapter_id) when is_binary(at_chapter_id) do
+    seq_map =
+      Chapter
+      |> where([c], c.work_id == ^uuid)
+      |> select([c], {c.id, c.seq})
+      |> Repo.all()
+      |> Map.new()
+
+    position = Map.get(seq_map, at_chapter_id)
+
+    Enum.filter(items, fn item ->
+      MemoryValidity.within_window?(item[:valid_from], item[:valid_until], position, seq_map)
+    end)
+  end
+
+  defp filter_by_target_chapter(items, _uuid, _at_chapter_id), do: items
 
   defp accepted_drafts(work_id) do
     Draft
