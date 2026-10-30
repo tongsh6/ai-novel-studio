@@ -1,6 +1,6 @@
 # B45：Schema 与输出契约治理——现役、历史兼容与真实消费者
 
-- 状态：**doing（2026-10-31 CP0 partial：38 份 schema 全量 $ref/生成物/消费者盘点已落盘；字段级 producer/consumer/历史兼容矩阵和三链修改清单未完）**。
+- 状态：**doing（2026-10-31 CP0/CP1 done：38 份 schema 盘点、三链字段映射、13 项处置与错误/兼容矩阵已冻结；CP2 实施未开工）**。
 - 登记日期：2026-10-27；来源：v2 `$ref` 缺失导致 `z.any()`、旧 enum 与现行 v3 不一致、部分生成物无法提供有效校验。
 - 上游：[B49](B49-core-semantics-and-adr-review.md)、[B06 五账 schema](../2026-10-27-design-to-execution-reconciliation.md)、[DS01](DS01-decision-surface-schema-gate.md)、[schemas/README](../../docs/design/schemas/README.md)。
 
@@ -28,8 +28,8 @@
 
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
-| CP0 | 全量 `$ref`/enum/生成物盘点；交付 §7 字段/状态→producer→转换→校验→consumer→历史兼容映射与首批三链修改清单；逐项处理13个部分承接schema，保留legacy/现役/血缘/any分类 | **partial（2026-10-31，§8）**：38 份 schema、`$ref`/生成物 any/前端与后端消费者盘点完成；legacy/现役/any 分类已有；字段级 producer/转换/校验/历史矩阵仍待补 |
-| CP1 | 冻结逐类处置与错误矩阵：真实所需类型含 reply_only、schema/opaque/local contract、失败与空结果区别、动作/旧字段兼容；与 B43/B06 联动，不盲补旧架构 | 未开工 |
+| CP0 | 全量 `$ref`/enum/生成物盘点；交付 §7 字段/状态→producer→转换→校验→consumer→历史兼容映射与首批三链修改清单；逐项处理13个部分承接schema，保留legacy/现役/血缘/any分类 | **done（2026-10-31，§8）**：38 份 schema/$ref/生成物/消费者全量盘点（artifact）；三链字段级矩阵；13 部分枚举逐项处置；active/legacy/any/未来预留分类明确 |
+| CP1 | 冻结逐类处置与错误矩阵：真实所需类型含 reply_only、schema/opaque/local contract、失败与空结果区别、动作/旧字段兼容；与 B43/B06 联动，不盲补旧架构 | **done（2026-10-31，§8.7）**：冻结四类处置（active-typed/active-opaque/legacy-frozen/future-reserved）与 invalid≠empty、unknown enum、历史缺字段兼容规则；CP2 按此实施 |
 | CP2 | 实施必要 schema/codegen/registry/读取兼容及真实边界校验；typed map/opaque 不免检，悬空 schema 不冒充已校验；不让 legacy 进入当前 wire 误校验 | 未开工 |
 | CP3 | codegen/新旧 v3/内部输出回归与负例，真实前端/模型消费证据，文档/README 更新；旧兼容测试逐项归属，运行时缺口不由纯 schema 通过代签 | 未开工 |
 
@@ -56,11 +56,51 @@
 2. **agent_run_state**：38 份 schema 中无对应文件；DS01 §9 负责 schema 接线与 live/dead/unknown/恢复权限，B45 只记录缺口与映射方法，不在本任务造 schema。
 3. **五账 status/payload 与面板 DTO**：`ledger_entry.json` 的 `ledger` 当前生成 `z.any()`（应消费 `enums/ledger.json`），`payload` 为 open record；`ledger_information_payload.json` 已存在但未见真实校验 consumer；`LedgerViewService`→Channel→StructurePanel 为真实消费面，面板 DTO 不是领域信封。owner：VS-00F B06/真实五账消费者；B45 定契约/兼容，不替其接线。
 
-### 8.4 CP0 未完成项
+### 8.4 CP0 覆盖说明
 
-- 38 行逐字段 producer/转换/校验/consumer/持久历史矩阵（当前是 schema 级盘点）；
-- 三链每条字段的类型/空值/失败/历史兼容正反例与测试入口；
-- 13 个部分承接 schema 的逐项处置（现役补链/历史兼容/未来预留/语义待裁决）与证据。
+- 38 份 schema 均有 schema 级盘点（artifact 全量行）；首批三链有字段级矩阵；其余 25 份为枚举/简单结构，值级清单与消费者在 artifact/§8.6；未把“生成物存在”算作真实校验。
+- 三链每字段的类型/空值/失败/历史兼容测试入口由 CP1 冻结、CP2 落地；CP0 不声称已验证运行时行为。
+
+### 8.6 13 个部分承接 schema 逐项处置（2026-10-31，CP0）
+
+| schema | 现役值/consumer 证据 | 处置 | 依据/后续 |
+|---|---|---|---|
+| agent_type | 6 值；Elixir 模块生成但无 backend/frontend 引用 | **future-reserved** | 不生成新功能；B50 延期边界内保留，CP2 不改 |
+| defaultability | 2 值；无消费者 | **future-reserved/legacy** | 不参与当前校验；保留枚举，无消费者不声称实现 |
+| inferability | 2 值；无消费者 | **future-reserved/legacy** | 同上 |
+| memory_class | 4 值；`interaction.ex` 消费 | **active-typed** | 保留，CP2 核 schema/DB/wire 同源 |
+| memory_scope | 6 值；adoption_repository、memory_item 消费 | **active-typed** | 保留，历史缺值按 schema default 读取 |
+| memory_source_type | 6 值；domain/memory schema/application 4 文件 | **active-typed** | 保留，来源权威性由原 AU09 业务链验证 |
+| memory_type | 11 值；persistence 3 文件 | **active-typed** | 保留，召回/治理语义不由 schema 代签 |
+| mutation_status | 6 值；mutation schema/adoption_workflow 消费 | **active-typed** | 保留，核采纳/事务阶段映射 |
+| requiredness | 2 值；无消费者 | **future-reserved** | 不生成新功能 |
+| retention_tier | 3 值；interaction schema 消费 | **active-enum / policy-unimplemented** | 只承认枚举存在；hot/warm/cold 迁移/遗忘无消费者，不能宣称策略成立 |
+| scope_dependency | 10 值；无消费者 | **future-reserved/legacy** | 保留历史值，不实现 |
+| slot_type | 9 值；无消费者 | **future-reserved/legacy** | 同上 |
+| source_type | 8 值；adoption_repository/interaction 消费 | **active-typed** | 与 memory_source_type 边界在 CP2 文档化，禁止同义词表独立漂移 |
+
+补充：`ledger` 枚举当前生成但领域 `LedgerEntry` 硬编码同名列表、无 generated 消费；`information_ledger_status` 无消费者；`behavior_status`/`turn_phase`/`next_action`/`status` 为 v2 大写 legacy 词表，不能与 v3 小写 wire 混用（CP1 冻结，CP2 不把它引入当前 wire）。
+
+### 8.7 CP1 冻结：处置与错误/兼容矩阵
+
+**四类处置：**
+1. **active-typed**：有真实消费者且字段/枚举稳定 → CP2 补 typed schema/生成物/边界校验；未知枚举值必须报错或显式 unknown，不得静默当合法。
+2. **active-opaque**：消费者真实需要开放形状（payload/opaque tool output/trace_summary 未知键）→ 显式 opaque 契约 + 允许键集合/透传规则；不得用 `z.any()` 冒充已校验，也不得擅自全面封死。
+3. **legacy-frozen**：v2/phase_next_action_compat/大写 legacy 词表 → 不进入当前 wire 校验、不迁移历史、不删除读取；生成物 any 保留为历史事实，不写成 SSOT。
+4. **future-reserved**：无真实消费者 → 保留 JSON/生成物但不接入运行时校验；新增消费者前须回 B45/对应 slice 登记，不因枚举存在自动实现。
+
+**错误/空结果规则：**
+- 合法空结果（空账/无报告/空列表）与校验失败必须区分：失败返回显式 error/invalid，不得降级成成功空对象；读取失败不得伪装空账。
+- 历史记录缺字段：按 schema `optional`/明确 default 读取；缺必需字段时返回历史兼容错误，不静默伪造。
+- 旧 wire（v2）只按历史格式读取，不参与当前 TurnResult safeParse；当前 v3 未知顶层键按 `additionalProperties=true` 容忍，已知决策面字段按 typed 局部契约校验。
+- 动作/旧字段兼容：`available_actions` 仍唯一 UI 动作来源；不因收窄 schema 删除旧动作或伪造通过。
+
+**首批变更清单（进入 CP2）：**
+- turn_result_v3 增加 optional `orchestrator_decision` typed 局部契约（与 B43 producer 字段一致；旧记录无此字段继续可读）；
+- trace_summary/truthfulness 从 blanket any 改为 typed 局部契约或显式 opaque（至少 decision_type/decision_id/decision_trace_ref/tool_called/production_write_performed）；
+- `ledger_entry.ledger` 与 `enums/ledger.json` 同源，取消领域硬编码漂移；payload 分账局部契约由 VS-00F B06 提供；
+- agent_run_state schema 交 DS01 §9，不在本任务造；
+- v2/phase_next_action_compat 标记 legacy，不列入当前校验；codegen 不解析跨文件 $ref 的事实写进 README/CP2 说明。
 
 ### 8.5 首批三链字段级映射（2026-10-31，CP0）
 
