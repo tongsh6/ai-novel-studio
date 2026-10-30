@@ -151,7 +151,7 @@
 
 **影响**：AU-04 高风险确认主链当前不可用（产品回归），B58 CP3 confirmation 路径被阻塞；在修复前不把历史 PASS 当当前证据。
 
-## CP1：确认卡回归修复（2026-10-31，partial）
+## CP1：确认卡回归修复（2026-10-31，done）
 
 **实现**（`prose_drafting_with_quality`）：
 1. `execute_tool_decision_step` 保留 `ExecutionOrchestrator.decide` 返回的 behavior；
@@ -159,13 +159,14 @@
 3. 其他 gate block 仍按既有 D4/author_question 诚实失败；
 4. 修复 turn_result trace_summary 里直接塞 `%GateResult{}`（不可 JSON 编码导致 channel crash）、以及 confirmation 缺 `plan` 导致 "confirmation without stored plan — cannot re-gate"。
 
-**验证**：
+**验证（2026-10-31 完成）**：
 - flow 测试更新为确认门语义：`author_confirmation_required`、无 `judgment_continuation`/D4，provider_calls=2；全量 backend **1055/0**。
-- 真实 Tauri `au04-confirm-before-execute` 打到完整链路：ui-state 显示 confirmation_card（确认执行/拒绝）→ 点击确认 → `channel.author_action.done status=accepted` → prose_fragment pending；`artifact`/`confirmation_card_*`/`plan_carried_over_wire`/`tool_called_before_confirm=false` 等字段均为 true。
-- **但场景未 PASS**：native verifier 在 360s 内没读到 `slice_verify.ui_state.done`（app-log 只有 59 条、无该事件），超时分支退出；ui-state.json 已写出。根因在外部 evidence 事件未落入 app-log/driver 返回时序，不是确认主链；下次先修 evidence 通道再复跑。
-- 不能据此标 CP1 done；也未恢复 B58 CP3 confirmation 证据。
+- evidence 通道修复：AU04 driver ui-state 补 `confirm_turn_id/executed_turn_id`；native verifier 对确认 TurnResult 的 `:agent:N` 子 turn 与 user_message 父 turn 做前缀匹配（不再要求完全相同）。
+- 真实 Tauri `au04-confirm-before-execute` **PASS**：confirmation_card→确认→re-gate→prose pending；`confirm_action_behavior_ref`、`plan_carried_over_wire`、`tool_called_before_confirm=false` 等断言全过；证据 `artifacts/slice-verify/au04-confirm-before-execute-tauri/`。
+- 回归 `au04-confirm-idempotency-ui` **PASS**：快速双击只产生 1 次非 duplicate 确认、1 次 prose dispatch、1 份 pending artifact；证据目录同名。
+- verifier 单测 654/654 通过。
 
-**下一步**：定位 UI state 事件未写入 app-log（driver 返回/日志转发时序），修好后 scoped replay；PASS 后补 B58 confirmation approval replay。
+**残差**：AU04 其余矩阵（stale/ttl/disabled/history/cross-work/latest-context/tool-failure）未在本轮重跑；B58 CP3 confirmation approval replay 待补。
 
 ## 7. 试行反馈
 

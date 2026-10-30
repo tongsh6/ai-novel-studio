@@ -10927,6 +10927,8 @@ async function driveAu04ConfirmBeforeExecute(page) {
       confirmation_card_visible: true,
       confirmation_card_detail_visible: confirmationCardDetailVisible,
       confirmation_card_target_visible: confirmationCardTargetVisible,
+      confirm_turn_id: confirmTurnResult.turn_id,
+      executed_turn_id: executedTurnResult.turn_id,
       confirmation_card_no_write_visible: confirmationCardNoWriteVisible,
       confirmation_card_re_gate_visible: confirmationCardReGateVisible,
       pending_draft_visible: visibleTextIncludesPendingDraft(visibleText),

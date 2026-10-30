@@ -1,6 +1,6 @@
 # B58：作者批准策略统一与审计
 
-- 状态：**blocked（2026-10-31 CP0–CP2 done；CP3 partial：AU09 真实 adoption 批准 replay PASS；confirmation 路径被 AU04 确认卡缺失阻塞，需先修复/重锚 AU04 才能取证）**。
+- 状态：**doing（2026-10-31 CP0–CP2 done；CP3 partial：AU09 adoption 批准 replay PASS；AU04 confirmation 生产链已修复并真实 PASS，confirmation approval replay 待补）**。
 - 登记日期：2026-10-27；来源：`32-human-approval-policy` 仍是草案，统一 approval policy 映射、approval_record 与死亡/结局/高预算等风险矩阵未形成完整证据。
 - 上游：`docs/design/quality/32-human-approval-policy.md`、[AU04](AU04-file-level-closure.md)、[AU05](AU05-file-level-closure.md)、[AU13-ledgers-and-reconciliation](../../docs/design/acceptance/author/AU-13-ledgers-and-reconciliation.md)。
 

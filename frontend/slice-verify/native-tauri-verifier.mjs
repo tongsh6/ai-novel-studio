@@ -18661,9 +18661,14 @@ function findAu04ConfirmBeforeExecuteEvidence(records) {
 
   const turnRecords = records.filter((r) => String(r.turn_id ?? "") === confirmTurnId);
 
-  // 对话框自然语言路径（非按钮）发起。
-  const start = turnRecords.find(
-    (r) => r.event === "channel.user_message.start" && r.generate_micro_plan === false,
+  // 对话框自然语言路径（非按钮）发起。确认 TurnResult 的 turn_id 是 agent step 子引用，
+  // user_message.start 记录的是父 turn；按父子前缀匹配，仍要求同一 turn 家族。
+  const start = records.find(
+    (r) =>
+      r.event === "channel.user_message.start" &&
+      r.generate_micro_plan === false &&
+      (String(r.turn_id ?? "") === confirmTurnId ||
+        confirmTurnId.startsWith(`${String(r.turn_id ?? "")}:`)),
   );
   if (!start) return null;
 
@@ -18740,8 +18745,12 @@ function findAu04ConfirmIdempotencyUiEvidence(records) {
 
   const turnRecords = records.filter((r) => String(r.turn_id ?? "") === confirmTurnId);
 
-  const start = turnRecords.find(
-    (r) => r.event === "channel.user_message.start" && r.generate_micro_plan === false,
+  const start = records.find(
+    (r) =>
+      r.event === "channel.user_message.start" &&
+      r.generate_micro_plan === false &&
+      (String(r.turn_id ?? "") === confirmTurnId ||
+        confirmTurnId.startsWith(`${String(r.turn_id ?? "")}:`)),
   );
   if (!start) return null;
 
