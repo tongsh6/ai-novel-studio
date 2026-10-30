@@ -277,7 +277,7 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 
 ## 历史搜索命中定位与只读回看
 
-- 状态：**doing（2026-10-31 CP0/CP1 核心 done：search_hits + around_turn + 前端命中列表/只读定位高亮，真实 Tauri 场景 PASS；空/多结果/ARCHIVED/跨作品页面矩阵仍待补）**。
+- 状态：**done（2026-10-31 CP0/CP1 完成：search_hits + around_turn + 前端命中列表/只读定位高亮；真实 Tauri 场景 PASS，覆盖多结果/空态/ARCHIVED；跨作品隔离以 work-scoped API/单测证明，页面未单独覆盖已登记）**。
 - 设计依据：本文件 §3、[Journey B4](../../docs/product/user-journeys.md#3-journey-b作品空间会话与上下文分层) 要求搜索命中后定位对应 turn。只读核对 `frontend/src/components/WorkspaceChat.tsx` 的 searchSessions 消费只更新 sessions 列表；尚未证明命中 turn 的定位与高亮闭环。
 - 下一步：核定搜索结果的会话/turn 身份、匹配范围、分页定位与退出搜索的状态；查实际 API/DTO/视图能复用什么，再补最小定位契约与 UI 设计追溯，不能凭 title 或文本截断猜 turn。
 - 完整后果：从真实历史搜索进入指定匹配消息并可见命中；较旧分页命中、多个结果、归档会话、空结果与跨作品隔离均可验证。浏览历史保持只读，不恢复旧 pending/action/loading、不调用模型、不修改 transcript；“从这里继续”仍走既有分支操作。
@@ -313,4 +313,5 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 - controller `around_turn_id` 参数 + 序列化字段；测试覆盖 35 条中定位 turn-18（30 条、前后 has_more、末条第32）与未知 turn 404；全量 backend 1057/0。
 - frontend：`sessions.ts` 增 `SessionSearchHit`/`searchSessionHits`/`searchSessionHitsPath`、transcript page `aroundTurnId`；SessionRail 展示「匹配消息」hit 列表（session/snippet），WorkspaceChat 打开只读历史并用 `around_turn_id` 定位；目标 turn 加可见 outline 高亮、退出搜索回当前会话；copy 集中。
 - **真实 Tauri 证据 PASS**（`au03-session-history-readonly`，2026-10-31）：场景在原有只读回看基础上，经真实 `search_hits` API + 页面「匹配消息」列表点击命中 → 打开只读历史 → 目标消息可见且高亮 → 返回当前会话；native verifier 新增断言 `turn_level_search_hit_located_and_highlighted`，summary 含 `search_hit_located/highlighted/turn_id/session_id/snippet_matched`；场景 PASS。
-- 残余：空结果/多结果/ARCHIVED 会话/跨作品在**页面**层矩阵未逐一验证（后端空 query/跨作品有单测；ARCHIVED 由既有 archive 场景覆盖但不含 hit）；较旧分页命中仅 controller 单测（turn 18/35）。不新建全文搜索平台、不自动塞模型上下文。
+- **矩阵补验**：seed 增加第二条历史命中与 ARCHIVED 会话命中，driver 断言真实 hit API 精确 3 条、页面命中列表可见归档会话、空查询显示「没有匹配消息」；native verifier 新增 `turn_level_search_hit_multiple_and_empty_state`、`turn_level_search_hit_archived_session`，场景 PASS。
+- 残余：跨作品隔离在 service/controller 单测证明（work-scoped query），**未单独做页面跨作品矩阵**；较旧分页命中由 controller 测试（turn 18/35）。不新建全文搜索平台、不自动塞模型上下文。

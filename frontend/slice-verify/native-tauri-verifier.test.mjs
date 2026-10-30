@@ -4624,7 +4624,9 @@ describe("native Tauri slice verifier", () => {
         search_hit_highlighted: true,
         search_hit_turn_id: "turn_history_1",
         search_hit_session_id: "session-history",
-        search_hit_count: 1,
+        search_hit_count: 2,
+        search_hit_empty_state_visible: true,
+        search_hit_archived_visible: true,
         search_hit_snippet_matched: true,
       },
     ];
@@ -4653,6 +4655,8 @@ describe("native Tauri slice verifier", () => {
         "chat_input_and_send_disabled_while_viewing_history",
         "active_session_view_can_be_restored",
         "turn_level_search_hit_located_and_highlighted",
+        "turn_level_search_hit_multiple_and_empty_state",
+        "turn_level_search_hit_archived_session",
       ],
     });
   });

@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU03-SEARCH | 会话历史搜索的分页/loading/空态与跨作品隔离页面补验，按现有入口不新增搜索后端 | [原任务小节](slices/AU03-file-level-closure.md#历史搜索命中定位与只读回看) |
+| UA01-LOG-B13 | 只读核对 run_failed 与三源日志的关联键及失败链，依实际缺口补验；vendor live 单独核凭据/资源 | [原任务小节](slices/UA01-provider-execution-stream-unification.md#10-b13-运行失败日志关联) |
 
 ## 后续候选
 
@@ -15,7 +15,6 @@
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B48 | 无变化普通说明、真正歧义才追问；依赖 B43 裁决同源，完成四场景验收 | [原任务](slices/B48-character-revision-noop-and-ambiguity.md) |
 | VS-00G | 核对 CP5e A2/A3 历史证据与当前版本，明确 scoped 补验；触发 C/记忆富化与 B39 协同 | [原任务](slices/VS-00G-fact-inventory-run.md) |
-| UA01-LOG-B13 | 只读核对 run_failed 与三源日志的关联键及失败链，依实际缺口补验；vendor live 单独核凭据/资源 | [原任务小节](slices/UA01-provider-execution-stream-unification.md#10-b13-运行失败日志关联) |
 | SU04-LIFECYCLE | 核对 sidecar 启动/迁移失败、就绪与退出状态，冻结故障恢复/无孤儿矩阵 | [原任务小节](slices/SU04-desktop-sidecar-packaging.md#现役故障与生命周期契约核对) |
 | AU12-WRITEBACK | CP0 准备立项字段/显式提案/版本与采纳落位契约；后续档案和模型消费同源 | [原任务小节](slices/AU12-correction-intent-roundtrip.md#p2-立项修订的采纳落位与同源消费) |
 | AU09-DIRECTION | 准备长期方向的类型、并存/替换、有效范围与废弃方案，具体接受前不写记忆 | [原任务小节](slices/AU09-work-direction-memory-recall.md#6-当前契约与裁决材料准备) |

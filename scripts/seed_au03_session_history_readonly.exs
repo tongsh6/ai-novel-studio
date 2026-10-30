@@ -17,6 +17,25 @@ active_session_id = active_snapshot.active_session.id
     status: "EXITED"
   })
 
+# AU03-SEARCH：归档会话命中 + 跨作品隔离（只读搜索不接受其它 work 的同词命中）。
+{:ok, archived_hit_session} =
+  WorkSessionRepo.create(%{
+    work_id: work.id,
+    title: "矿区档案室归档会话",
+    status: "ARCHIVED"
+  })
+
+{:ok, _archived_hit} =
+  MemoryLog.record(%{
+    workspace_id: work.id,
+    session_id: archived_hit_session.id,
+    turn_id: "turn_archived_hit",
+    role: "user",
+    content: %{text: "矿区档案室的归档线索。"},
+    source_ref: "turn_archived_hit",
+    scope_ref: work.id
+  })
+
 entries = [
   %{
     workspace_id: work.id,
@@ -43,6 +62,15 @@ entries = [
     role: "user",
     content: %{text: "林瑶留下的旧线索应该藏在矿区档案室。"},
     source_ref: "turn_history_1",
+    scope_ref: work.id
+  },
+  %{
+    workspace_id: work.id,
+    session_id: history_session.id,
+    turn_id: "turn_history_2",
+    role: "user",
+    content: %{text: "矿区档案室的旧账牌还在第三排架子上。"},
+    source_ref: "turn_history_2",
     scope_ref: work.id
   },
   %{

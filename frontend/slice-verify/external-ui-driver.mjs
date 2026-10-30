@@ -2755,6 +2755,14 @@ async function driveAu03SessionHistoryReadonly(page) {
     seededHit?.turn_id,
     `Seeded history session did not return a turn-level search hit: ${JSON.stringify(hitBody.hits)}`,
   );
+  assert(
+    (hitBody.hits ?? []).length === 3,
+    `AU03-SEARCH expected exactly current-work turn hits (2 history + 1 archived), got ${JSON.stringify(hitBody.hits)}`,
+  );
+  const archivedHit = (hitBody.hits ?? []).find(
+    (hit) => hit.session_title === "矿区档案室归档会话",
+  );
+  assert(archivedHit, "AU03-SEARCH archived session with matching text was not hit");
 
   await openSessionRail(page);
   const searchBox = page.getByPlaceholder("搜索会话");
@@ -2762,6 +2770,9 @@ async function driveAu03SessionHistoryReadonly(page) {
   await searchBox.fill("矿区档案室");
 
   await page.getByText("匹配消息", { exact: true }).waitFor({ timeout: 10_000 });
+  const searchHitArchivedVisible =
+    (await page.getByText("矿区档案室归档会话", { exact: false }).count()) > 0;
+  assert(searchHitArchivedVisible, "AU03-SEARCH archived hit was not visible in hit list");
   const searchHitButton = page
     .locator("button")
     .filter({ hasText: "林瑶留下的旧线索" })
@@ -2795,6 +2806,10 @@ async function driveAu03SessionHistoryReadonly(page) {
   );
 
   await openSessionRail(page);
+  await searchBox.fill("绝对不存在的查询串-ZZZ");
+  await page.getByText("没有匹配消息", { exact: true }).waitFor({ timeout: 10_000 });
+  const searchHitEmptyStateVisible =
+    (await page.getByText("没有匹配消息", { exact: true }).count()) > 0;
   await searchBox.fill("林瑶旧线索");
 
   const historySessionButton = page.locator("button").filter({ hasText: "林瑶旧线索讨论" }).first();
@@ -2888,6 +2903,8 @@ async function driveAu03SessionHistoryReadonly(page) {
       search_hit_role: seededHit.role,
       search_hit_snippet_matched: String(seededHit.snippet ?? "").includes("林瑶留下的旧线索"),
       search_hit_count: Array.isArray(hitBody.hits) ? hitBody.hits.length : 0,
+      search_hit_empty_state_visible: searchHitEmptyStateVisible,
+      search_hit_archived_visible: searchHitArchivedVisible,
       readonly_visible_text: readonlySnapshot.visible_text,
       active_visible_text: activeRestored.visible_text,
       socket_connected: true,
