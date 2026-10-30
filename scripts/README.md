@@ -69,6 +69,7 @@
 | `seed_au05_canon_conflict_recovery.exs` | AU-05 canon conflict recovery seed。 |
 | `seed_au05_conflict_cross_work_recovery.exs` | AU-05 跨作品 conflict recovery seed。 |
 | `seed_au05_stale_conflict_cross_work_freshness.exs` | AU-05 stale conflict freshness seed。 |
+| `seed_b47_c07_character_freshness.exs` | B47-C07 CP3 角色 stale/fresh 页面种子：两隔离作品的 pending character_profile_revision 候选；stale 候选 base fingerprint 取 summary 更新前，fresh 与当前一致；供 `b47-c07-character-freshness` 真实页面矩阵使用。 |
 | `seed_b47_canon_freshness.exs` | B47 CP3 场景种子：三个真实持久 canon 作品（stale/conflict/fresh），构造产品同形 pending 正文修订候选（TurnResult.adoption_state.pending + available_actions + candidate_set），seed.log 输出每作品基线/版本/DB 快照字段供外部 driver/verifier 消费；`--check` 复验。 |
 | `seed_au08_volume_planning.exs` | AU-08 分卷规划 seed（只立 planned_volumes=2 骨架，卷/章由真实链路产出）。 |
 | `seed_au09_archive_real_data.exs` | AU-09 档案真实数据 seed。 |

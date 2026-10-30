@@ -38942,6 +38942,170 @@ async function driveB30VolumeBlueprintKindBoundary(page) {
 // B29 CP0：已有角色叙事身份修订的真实工作台隔离复现。
 // 目标：判清当前版本对「指定已有角色为主角」的真实绑定/产出/采纳/DB 字段/消费者行为，
 // 并区分 Character 主档案 narrative_role 与 CHARACTER_PROFILE 记忆两种事实。
+async function driveB47C07CharacterFreshness(page) {
+  const sliceId = "b47-c07-character-freshness";
+  const seedText = fs.existsSync(path.join(artifactDir, "seed.log"))
+    ? fs.readFileSync(path.join(artifactDir, "seed.log"), "utf8")
+    : "";
+  const works = seedText
+    .split("\n")
+    .filter((line) => line.startsWith("[b47-c07-character-freshness-seed] work="))
+    .map((line) => JSON.parse(line.slice(line.indexOf("work=") + 5)));
+  assert(works.length === 2, "B47-C07 seed.log did not contain stale/fresh works");
+
+  const dbPath = path.join(
+    process.env.NOVEL_TEST_DB_DIR ?? os.tmpdir(),
+    `ai_novel_studio_test${process.env.MIX_TEST_PARTITION ?? ""}.sqlite3`,
+  );
+  const { DatabaseSync } = await import("node:sqlite");
+
+  function characterSnapshot(workId) {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      const rows = db
+        .prepare(
+          "SELECT id, name, narrative_role, summary, status FROM characters WHERE work_id = ? ORDER BY id",
+        )
+        .all(workId);
+      return rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        narrative_role: row.narrative_role,
+        summary: row.summary,
+        status: row.status,
+      }));
+    } finally {
+      db.close();
+    }
+  }
+
+  const trials = [];
+  for (const scenario of ["stale", "fresh"]) {
+    const work = works.find((entry) => entry.scenario === scenario);
+    assert(work?.work_id && work?.work_title && work?.artifact_id, `B47-C07 seed missing ${scenario}`);
+    await ensureWorkSelectedByTitle(page, work.work_title, work.work_id);
+    await waitForVisibleWorkTitle(page, work.work_title);
+
+    const approveButton = page.getByRole("button", { name: /保存到作品/ }).first();
+    await approveButton.waitFor({ state: "visible", timeout: 30_000 });
+    const before = characterSnapshot(work.work_id);
+    const frameStart = frames.length;
+    await approveButton.click();
+
+    const actionFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "action_result" &&
+        (frame.body?.artifact_id === work.artifact_id ||
+          frame.body?.decision?.candidate_ref === work.artifact_id),
+      `No B47-C07 action_result for ${scenario}`,
+      60_000,
+    );
+    const turnFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.turn_id &&
+        frame.body.turn_id !== work.turn_id,
+      `No B47-C07 turn_result for ${scenario}`,
+      60_000,
+    );
+    await sleep(700);
+    const after = characterSnapshot(work.work_id);
+    const actionResult = actionFrame.body;
+    const turnResult = turnFrame.body;
+    const changed = before.some((row) => {
+      const current = after.find((item) => item.id === row.id);
+      return current && current.narrative_role !== row.narrative_role;
+    });
+    const decisionType =
+      actionResult.decision_type ?? actionResult.decision?.decision_type ?? null;
+    const rowsIdentical = JSON.stringify(before) === JSON.stringify(after);
+    const freshOnlyRoleChanged =
+      before.length === after.length &&
+      before.every((row) => {
+        const current = after.find((item) => item.id === row.id);
+        return (
+          current &&
+          current.name === row.name &&
+          current.summary === row.summary &&
+          current.status === row.status &&
+          current.narrative_role !== row.narrative_role
+        );
+      });
+
+    trials.push({
+      scenario,
+      work_id: work.work_id,
+      work_title: work.work_title,
+      artifact_id: work.artifact_id,
+      turn_id: work.turn_id,
+      declared_fingerprint: work.declared_fingerprint,
+      current_fingerprint: work.current_fingerprint,
+      expected_freshness_status: work.expected_freshness_status,
+      expected_decision: work.expected_decision,
+      expected_role_after: work.expected_role_after,
+      action_result: actionResult,
+      decision_type: decisionType,
+      turn_result: turnResult,
+      before_characters: before,
+      after_characters: after,
+      role_changed: changed,
+      rows_identical: rowsIdentical,
+      fresh_only_role_changed: freshOnlyRoleChanged,
+      visible_text: (await page.locator("body").innerText()).slice(-1600),
+    });
+    await page.screenshot({
+      path: path.join(artifactDir, `b47-c07-character-${scenario}.png`),
+      fullPage: true,
+    });
+  }
+
+  fs.writeFileSync(
+    path.join(artifactDir, "b47-c07-character-freshness.json"),
+    JSON.stringify({ slice_id: sliceId, trials, at: new Date().toISOString() }, null, 2),
+  );
+
+  const stale = trials.find((trial) => trial.scenario === "stale");
+  const fresh = trials.find((trial) => trial.scenario === "fresh");
+  const staleOk =
+    stale.action_result?.status === "failed" &&
+    stale.decision_type === "fail_with_recovery" &&
+    (stale.action_result?.decision?.reason_codes ?? []).includes("stale_base") &&
+    stale.role_changed === false &&
+    stale.rows_identical === true &&
+    stale.declared_fingerprint !== stale.current_fingerprint &&
+    (stale.action_result?.canon_freshness?.expected?.fingerprint ?? stale.declared_fingerprint) ===
+      stale.declared_fingerprint &&
+    (stale.action_result?.canon_freshness?.current?.fingerprint ?? stale.current_fingerprint) ===
+      stale.current_fingerprint;
+  const freshOk =
+    fresh.action_result?.status === "accepted" &&
+    fresh.decision_type === "adopt_tentative" &&
+    fresh.role_changed === true &&
+    fresh.fresh_only_role_changed === true &&
+    fresh.after_characters.some((row) => row.narrative_role === "PROTAGONIST");
+  assert(staleOk, "B47-C07 stale character candidate was not rejected with zero write");
+  assert(freshOk, "B47-C07 fresh character revision did not adopt role update");
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      socket_connected: true,
+      outcome: "done",
+      duration_ms: 0,
+      character_trials_completed: true,
+      trial_ids: ["stale", "fresh"],
+      trials,
+      checks: { stale_rejected_zero_write: staleOk, fresh_adopted_role_update: freshOk },
+      no_product_code_changed: true,
+    },
+  ];
+}
+
 const B29_SLICE_ID = "b29-existing-character-role-revision";
 
 async function driveB29ExistingCharacterRoleRevision(page) {
@@ -39827,6 +39991,7 @@ const drivers = {
   "b30-chapter-renumber-roundtrip": driveB30ChapterRenumberRoundtrip,
   "b30-volume-blueprint-kind-boundary": driveB30VolumeBlueprintKindBoundary,
   "b29-existing-character-role-revision": driveB29ExistingCharacterRoleRevision,
+  "b47-c07-character-freshness": driveB47C07CharacterFreshness,
   "agentic-loop-plan-replan-reasoning": driveAgenticLoopPlanReplanReasoning,
   "agentic-loop-no-deviation-direct": driveAgenticLoopNoDeviationDirect,
   "agent-plan-native-tool-calling-protocol": driveAgentPlanNativeToolCallingProtocol,

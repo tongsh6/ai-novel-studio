@@ -772,6 +772,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/b47-canon-freshness.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh b47-canon-freshness --surface tauri
+  - id: b47-c07-character-freshness
+    title: "角色修订持久层整体 fingerprint stale 拒绝与 fresh 采纳"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/b47-c07-character-freshness.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh b47-c07-character-freshness --surface tauri
   - id: au03-context-source-ui
     title: "上下文来源可见解释"
     tier: nightly

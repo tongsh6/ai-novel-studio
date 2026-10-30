@@ -1,0 +1,57 @@
+id: b47-c07-character-freshness
+title: 角色修订持久层整体 fingerprint stale 拒绝与 fresh 采纳
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh b47-c07-character-freshness --surface tauri
+
+contract:
+  - docs/design/adr/ADR-0019-adoption-status-transition-v3.md
+  - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
+  - docs/design/acceptance/author/AU-05-artifact-adoption.md
+  - tasks/slices/B47-canon-freshness-and-conflict-detection.md §10.4
+
+invariants:
+  - character-overall-fingerprint-strict-at-persistent-write-boundary
+  - stale-character-revision-zero-character-write
+  - no-old-role-fallback-bypass
+  - fresh-character-revision-updates-narrative-role-only
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_b47_c07_character_freshness.exs
+  provider: slice_verify
+  fixture: 两个隔离作品；stale 候选 base fingerprint 取 summary 更新前，fresh 与当前一致
+
+user_flow:
+  - open: 真实 Tauri 工作台作品菜单切换 stale/fresh 两作品
+  - stale: 点击「保存到作品」→ 整体 fingerprint 过期拒绝，角色字段零写
+  - fresh: 点击「保存到作品」→ 采纳成功，narrative_role 更新为 PROTAGONIST，其它字段/角色数不变
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - seed_log
+    - summary_json
+  artifact_dir: artifacts/slice-verify/b47-c07-character-freshness-tauri
+
+assertions:
+  ui:
+    - 两作品候选卡与「保存到作品」按钮真实可见
+    - stale 失败文案与 fresh 成功状态可见
+  network:
+    - stale action_result status=failed / decision=fail_with_recovery / reason stale_base
+    - fresh action_result status=accepted / decision=adopt_tentative
+  data:
+    - stale 前后 characters 行 narrative_role 完全一致
+    - fresh 后目标角色 narrative_role=PROTAGONIST，其它角色不变
+    - stale/fresh declared 与 current fingerprint 关系符合预期
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

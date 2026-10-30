@@ -287,7 +287,7 @@
 | CP0 | 审计所有调用方、既有事务/版本保护与幂等回执；冻结整体 fingerprint、检查到写入的原子性、过期恢复和旧候选读取语义；区分同请求重放与目标值已满足 | **done（2026-10-31，§10.5）**：唯一生产调用方=`AdoptionWorkflow.persist_character_revision`；直接仓储测试为第二消费者；无其它调用方；冻结 strict 整体 fingerprint、事务内 fetch+条件更新、no-op≠replay |
 | CP1 | 持久变更入口执行同一整体版本规则，去除未授权 old_role 放宽路径；用实际适配的原子条件/版本机制保护竞争更新，不新增平行版本体系 | **done（2026-10-31，§10.5）**：删除 old_role fallback；fetch/校验/`updated_at` 条件更新进同一事务；0 行→`stale_base`；无 migration/新版本表 |
 | CP2 | 直接仓储及真实采纳链的 fresh/stale、简介等非目标字段变化、检查后竞争更新、跨作品/错误引用、真实幂等/不同请求/no-op 矩阵；拒绝时零 canon 变更 | **done（2026-10-31，§10.5）**：仓储 6 tests（非目标字段过期、旧基线重放 stale、当前基线 no-op、并发单提交、跨作品/缺失/非法角色/零写入）；B47 采纳链 17 tests（fresh/stale/契约拒绝/角色冲突）通过 |
-| CP3 | 外部驱动真实角色修订页面与恢复/回放，证明过期拒绝、合法新基线修订、无重复写入；回归 B29/B47/C04，原生与 browser、局部与完整范围分开报告 | todo |
+| CP3 | 外部驱动真实角色修订页面与恢复/回放，证明过期拒绝、合法新基线修订、无重复写入；回归 B29/B47/C04，原生与 browser、局部与完整范围分开报告 | **done（browser surface，2026-10-31，§10.6）**：真实 Tauri 页面 stale/fresh 双作品矩阵 PASS；B29/B47 页面回归 PASS；原生 surface 与独立 replay 未覆盖，分开登记 |
 
 C07 只承接 §10 第6项，不因它完成而关闭 StateTrace、legacy、memory/设定、edit_then_accept 或原生覆盖等其它残余。幂等输入识别与 B43 共用既有事实，C04 无变化结果与 B48 对齐，不复制第二套判据；实施前按本任务完整七问、架构边界及当前 ub-mode 要求执行。
 
@@ -308,6 +308,17 @@ C07 只承接 §10 第6项，不因它完成而关闭 StateTrace、legacy、memo
 - 全量 `mix test`：**1040 tests / 0 failures**（application）+ 各 app 全绿；format/compile 通过；`credo --strict` 对新增函数嵌套提示已重构为事务 helper 后 0 issues；xref/arch/I1–I3/quality manifest 通过。
 - 门禁残余：`task_done` UI evidence gate 仍因 native B30 复跑在 `workbench_ready` AX 等待超时（本次及此前同因 ≥2 次，非代码失败；app/backend 侧无对应产品异常证据），无晚于本次改动的 native surface summary；确定性真实 Tauri（Playwright）B64 summary 的 surface=browser，不被 task_done 接受。未改门禁规则、未用 browser 证据冒充 native。静态扫描本轮仅 gitleaks 历史处置 + manifest stale 项，0 findings in touched files。
 - CP3 页面矩阵仍 todo。
+
+### 10.6 C07 CP3 真实页面矩阵（browser surface，2026-10-31）
+
+- 新场景 `b47-c07-character-freshness`（Playwright 驱动真实 Tauri 工作台，确定性 provider）：
+  - seed `scripts/seed_b47_c07_character_freshness.exs`：两个隔离作品，pending `character_profile_revision` 候选；stale 作品候选 base fingerprint 取 summary 更新前，角色字段未变；fresh 作品 fingerprint 与当前一致。
+  - driver `driveB47C07CharacterFreshness`：作品菜单切换两作品 → 点击「保存到作品」→ 采集 action_result/turn_result 与只读 characters 快照。
+  - verifier `findB47C07CharacterFreshnessEvidence` + behavior：stale 必须 failed/fail_with_recovery/reason `stale_base`、action_result expected/current fingerprint 与 seed 对应、characters 行完全不变；fresh 必须 accepted/adopt_tentative、仅 narrative_role 变 PROTAGONIST、其它字段不变。
+- 结果：`bash scripts/tauri_slice_verify.sh b47-c07-character-freshness` **PASS**，证据 `artifacts/slice-verify/b47-c07-character-freshness-tauri/{summary.json,b47-c07-character-freshness.json,*.png}`；summary 记录 surface=browser/headless-chromium（真实 Tauri 前端 + 真实后端，非 native system driver）。
+- 回归：`b29-existing-character-role-revision` PASS（含真实页面 idempotent 重放/刷新后主档案消费）；`b47-canon-freshness` PASS（章节 stale/conflict/fresh 未回归）。
+- 未覆盖（如实）：native system driver surface 未跑；C07 页面只点击一次 stale/fresh，独立回放/刷新恢复矩阵由 B29 页面回归的 T4/T5 与 CP2 幂等测试分担，不宣称 C07 页面上已完整覆盖 replay。CP3 关闭按 browser surface；native 覆盖属父任务既有残余。
+- 注册：`quality/acceptance/scenarios.yml` + manifest、`scripts/tauri_slice_verify.sh`（--list/allowlist/描述/seed）、分派与 verifier；manifest 220 scenarios / 222 manifests 通过。
 
 ## 11. CP3 执行记录与交接清单（2026-10-29，Lead 已执行）
 

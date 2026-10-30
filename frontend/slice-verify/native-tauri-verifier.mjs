@@ -1329,6 +1329,11 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "au09-memory-list-ux-redesign": ["slice_verify.ui_state.done"],
+  "b47-c07-character-freshness": [
+    "channel.join.done",
+    "channel.author_action.done",
+    "slice_verify.ui_state.done",
+  ],
   "b64-coordinate-memory": [
     "channel.join.done",
     "channel.user_message.start",
@@ -2862,6 +2867,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu12ProfileReadFailureDegradeEvidence(records);
   }
 
+  if (sliceId === "b47-c07-character-freshness") {
+    return findB47C07CharacterFreshnessEvidence(records);
+  }
+
   if (sliceId === "b47-canon-freshness") {
     return findB47CanonFreshnessEvidence(records);
   }
@@ -3682,6 +3691,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au12-correction-intent-roundtrip") {
     return au12CorrectionIntentRoundtripBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "b47-c07-character-freshness") {
+    return b47C07CharacterFreshnessBehavior(evidence);
   }
 
   if (sliceId === "b47-canon-freshness") {
@@ -26845,6 +26858,87 @@ function b47ReasonCodesInclude(trial, expected) {
   return expected.every((code) => codes.includes(code));
 }
 
+function findB47C07CharacterFreshnessEvidence(records) {
+  const sliceId = "b47-c07-character-freshness";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.character_trials_completed === true &&
+      Array.isArray(record.trials) &&
+      record.trials.length === 2,
+  );
+  if (!uiState) return null;
+
+  const byScenario = new Map(uiState.trials.map((trial) => [trial.scenario, trial]));
+  for (const scenario of ["stale", "fresh"]) {
+    const trial = byScenario.get(scenario);
+    if (!trial || !trial.work_id || !trial.artifact_id || !trial.action_result || !trial.turn_result) {
+      return null;
+    }
+    if (!Array.isArray(trial.before_characters) || !Array.isArray(trial.after_characters)) return null;
+  }
+
+  return {
+    slice_id: sliceId,
+    turn_id: byScenario.get("fresh").turn_result.turn_id,
+    turn_ids: uiState.trials.map((trial) => trial.turn_result.turn_id),
+    work_ids: uiState.trials.map((trial) => trial.work_id),
+    work_titles: uiState.trials.map((trial) => trial.work_title),
+    trials: uiState.trials,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function b47C07CharacterFreshnessBehavior(evidence) {
+  const byScenario = new Map((evidence.trials ?? []).map((trial) => [trial.scenario, trial]));
+  const stale = byScenario.get("stale");
+  const fresh = byScenario.get("fresh");
+  if (!stale || !fresh) return null;
+
+  const staleReasons = stale.action_result?.decision?.reason_codes ?? [];
+  if (stale.action_result?.status !== "failed") return null;
+  if ((stale.decision_type ?? stale.action_result?.decision_type ?? stale.action_result?.decision?.decision_type) !== "fail_with_recovery") return null;
+  if (!staleReasons.includes("stale_base")) return null;
+  if (stale.declared_fingerprint === stale.current_fingerprint) return null;
+  if (stale.role_changed !== false) return null;
+  if (stale.rows_identical !== true) return null;
+  if (stale.declared_fingerprint === stale.current_fingerprint) return null;
+  const staleAction = stale.action_result ?? {};
+  const staleExpected = staleAction.canon_freshness?.expected?.fingerprint ?? stale.declared_fingerprint;
+  const staleCurrent = staleAction.canon_freshness?.current?.fingerprint ?? stale.current_fingerprint;
+  if (staleExpected !== stale.declared_fingerprint) return null;
+  if (staleCurrent !== stale.current_fingerprint) return null;
+  const staleRolesUnchanged = stale.before_characters.every((row) => {
+    const current = stale.after_characters.find((item) => item.id === row.id);
+    return current && current.narrative_role === row.narrative_role;
+  });
+  if (!staleRolesUnchanged) return null;
+
+  if (fresh.action_result?.status !== "accepted") return null;
+  if ((fresh.decision_type ?? fresh.action_result?.decision_type ?? fresh.action_result?.decision?.decision_type) !== "adopt_tentative") return null;
+  if (fresh.role_changed !== true) return null;
+  if (fresh.fresh_only_role_changed !== true) return null;
+  if (!fresh.after_characters.some((row) => row.narrative_role === "PROTAGONIST")) return null;
+
+  return {
+    slice_id: "b47-c07-character-freshness",
+    behavior:
+      "character_revision_persistent_fingerprint_stale_is_rejected_zero_write_while_fresh_updates_role",
+    turn_ids: evidence.turn_ids,
+    work_ids: evidence.work_ids,
+    work_titles: evidence.work_titles,
+    assertions: [
+      "stale_work_opened_through_real_workbench_work_menu",
+      "stale_character_candidate_visible_and_clicked",
+      "stale_fingerprint_rejected_with_zero_character_write",
+      "fresh_work_opened_through_real_workbench_work_menu",
+      "fresh_character_candidate_visible_and_clicked",
+      "fresh_candidate_updates_narrative_role_only",
+    ],
+  };
+}
+
 function findB47CanonFreshnessEvidence(records) {
   const sliceId = "b47-canon-freshness";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -26897,7 +26991,7 @@ function b47CanonFreshnessBehavior(evidence) {
 
   // T1 stale：系统从持久 canon 检出基线过期，失败恢复且零写入。
   if (stale.action_result?.status !== "failed") return null;
-  if (stale.action_result?.decision_type !== "fail_with_recovery") return null;
+  if ((stale.decision_type ?? stale.action_result?.decision_type ?? stale.action_result?.decision?.decision_type) !== "fail_with_recovery") return null;
   if (stale.action_result?.canon_freshness?.status !== "stale") return null;
   if (!b47ReasonCodesInclude(stale, ["stale_base_version"])) return null;
   if (JSON.stringify(stale.action_result?.expected_versions ?? {}) !== JSON.stringify(stale.declared_versions ?? {})) return null;
@@ -26917,7 +27011,7 @@ function b47CanonFreshnessBehavior(evidence) {
 
   // T3 fresh 对照：基线一致 → 正常采纳，旧稿 SUPERSEDED、新稿 ACCEPTED、mutation +1。
   if (fresh.action_result?.status !== "accepted") return null;
-  if (fresh.action_result?.decision_type !== "adopt_tentative") return null;
+  if ((fresh.decision_type ?? fresh.action_result?.decision_type ?? fresh.action_result?.decision?.decision_type) !== "adopt_tentative") return null;
   if (fresh.action_result?.canon_freshness?.status !== "fresh") return null;
   // 产品 supersede 语义：旧 draft 行保留同 draft_id、revision 递增（旧 ref 变成历史版本），
   // 状态转 SUPERSEDED；因此按 draft_id 而不是含 revision 的 draft_ref 匹配。
