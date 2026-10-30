@@ -71,6 +71,27 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
     assert Jason.decode!(result.content)["profile_ref"] == "world_building_with_context_v1"
   end
 
+  test "B73 fixture 只匹配当前作者输入，不抢历史消息能力", %{corpus: corpus} do
+    prose_expression = "把第02章补完，接上现在的结尾。"
+    world_expression = "这个设定捋一下，能落成一条规则就存下来。"
+
+    File.write!(corpus, Jason.encode!(%{
+      "fixtures" => [
+        %{"case_id" => "C-F2-001", "expression" => prose_expression, "action" => "execute", "capability" => "prose_writing", "note" => "prose"},
+        %{"case_id" => "C-F3-002", "expression" => world_expression, "action" => "execute", "capability" => "world_building", "note" => "world"}
+      ]
+    }))
+
+    prompt = [
+      %{role: "system", content: "创作判断器\n## 历史消息\n#{prose_expression}"},
+      %{role: "user", content: "## 作者输入\n#{world_expression}"}
+    ]
+    assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
+    assert [%{name: "judgment_decision"} = call] = result.tool_calls
+    arguments = call[:arguments] || call["arguments"]
+    assert (arguments[:capability] || arguments["capability"]) == "world_building"
+  end
+
   test "B73 负控回复文本只来自 fixture，不复用 oracle 预期", %{corpus: corpus} do
     expression = "现在写到第几章了？第02章大概多少字？"
 

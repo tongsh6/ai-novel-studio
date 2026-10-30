@@ -598,7 +598,7 @@ git diff --check
   - mechanism：A0/A1-run1/A1-run2/A2-run1 pass；**A2-run2 fail**：判断探索额度拒绝后模型输出 `discussion_only_violation`，纠正重试仍失败（真实模型行为与判断循环边界，CP2 范围），失败计入分母未重试。
   - model_behavior：A1-run2/A2-run1 observed（读取真实承诺/时间事实、writer 请求字节含观察、used refs 全绑定）；A1-run1 unknown（自称查承诺但只读第02/03章未读到第01章承诺）；A0 observed_exploration（产品未强制，模型自行排 archive_read，A0 机制 ready/零写仍 pass）。
   - 正式 AU15 A1/A2 仍 blocked：setup 为隔离 fixture，非 D6-A 真实模型创作+外部采纳；需作者/指定评审语义裁决。
-- UI 反馈（同批真实窗口发现，已另立 slice）：B73 叙事段落 gap+margin 双倍空行已修复 + node 静态守卫；B74 候选动作按对象分组卡并贴回内容卡下（组件测试证明正文先于保存按钮），真实 Tauri 候选区视觉复验受模型 run/滚动取证影响未闭环，保持 doing；B75 会话弹层 click-outside/Esc 关闭缺口 todo。
+- UI 反馈（同批真实窗口发现，已另立 slice）：B76 叙事段落 gap+margin 双倍空行已修复 + node 静态守卫；B74 候选动作按对象分组卡并贴回内容卡下（组件测试证明正文先于保存按钮），真实 Tauri 候选区视觉复验受模型 run/滚动取证影响未闭环，保持 doing；B75 会话弹层 click-outside/Esc 关闭缺口 todo。
 - 残余：D6-A setup、正式 A1/A2 判据与人工评审、A2-run2/A1-run1 known-gap、B42 完整性接入、UI 页面复验、对话内联探索迁移。
 
 ## 10. 当前初始供给整改的消费交接
