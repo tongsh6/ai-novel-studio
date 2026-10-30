@@ -1280,3 +1280,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **AU08-REFRESH CP0**：核清 ReadingMode 四态来自 TanStack Query（FAILED/REBUILDING/STALE/FRESH），查询只读无写；补 stale/rebuilding/failed 优先于旧章节单测；登记服务端权威版本能力缺口与真实页面故障/重试矩阵待补，未改产品逻辑。
 
 - 2026-10-31 — **AU08-REFRESH CP1 blocked**：CP0 四态/单测完成；真实页面失败/重试需按 channel 请求注入投影读取失败的通用代理，当前 harness 仅消息投递故障代理；未停后端/未伪造故障，登记能力缺口；当前任务切 AU10-FAILED。
+
+- 2026-10-31 — **AU10-FAILED CP0 blocked**：盘点 ExportService 的 nothing_to_export/File 写失败与前端 exportError/FAILED task_state；真实页面触发缺少可控入口（空作品无导出按钮、原生目录不可控、无写失败代理），不新增验收开关；当前任务切 AU10-MATRIX。

@@ -63,8 +63,21 @@
 
 ## FAILED 任务状态真实页面补验
 
-- 状态：**todo（2026-10-30 承接既有 FAILED 余项；RUNNING/CHECKPOINT/COMPLETED 历史证据不改）**。
+- 状态：**blocked（2026-10-31 CP0 盘点 done：失败 producer 存在，但真实页面无确定性触发入口；需 fixture/故障注入或原生目录选择替身）**。
 - 来源：本任务目标及 [AU-10 SC-AU10-D2](../../docs/design/acceptance/author/AU-10-workbench-ui.md)。当前 `quality/acceptance/scenarios/au10-workbench-recovery-taskstate.yml` 只声明成功三态，不能替代 FAILED 的真实页面闭环。
 - 下一步：核对现役导出/TaskRunner.track 失败来源、Channel task_state 与前端错误/重试表现，设计可重复的外部故障与恢复输入；先区分 handler 异常、路径/文件失败和用户取消的真实语义，不新增验收专用失败开关。
 - 完整后果：从真实导出入口触发失败，首屏显示真实失败原因且不报导出成功；故障解除后新请求可成功，旧失败记录与新执行身份不混用。异常/取消零意外正文写入、不遗留半成品冒充完整导出，重复提交不重复不可逆副作用。
 - Proof/Boundary：既有 task_state 契约、application/export、web、前端状态消费及外部文件/进程故障驱动；局部 Channel 证据加真实原生页面/文件输出对账。完整批量 LongRunner 仍归 B52 的触发条件，不能因本项补验重新开启批量任务。
+
+### FAILED CP0 盘点（2026-10-31）
+
+- 失败 producer：
+  - `ExportService.export/2`：空作品返回 `{:error, :nothing_to_export}`；`write_export!/3` 用 `File.mkdir_p!/File.write!`，目录/权限/IO 失败会 raise，由 `TaskRunner.track` 收敛为 FAILED。
+  - Channel `export_work`：on_error 广播 FAILED task_state；成功链路 RUNNING→CHECKPOINT→COMPLETED 已有 channel 测试。
+- 前端：`ReadingMode.handleExport` catch push 错误显示 `exportError`，dialog 显示失败标题/原因，不显示成功；`exportBook` 监听 task_state 进度；`exportError` 后 dialog 可关闭/重新导出（实现上重试路径存在，未页面验证）。
+- 输出完整性：先渲染完整 markdown 再 `File.write!` 写目标文件；失败 raise 时不返回成功路径；旧失败/新请求没有显式执行身份字段（task_id 由 TaskRunner 生成）。
+- **真实页面入口缺口**：
+  1. 空作品在阅读模式 `hasContent=false`，导出按钮不渲染，无法从真实 UI 触发 `nothing_to_export`；
+  2. 文件/目录失败需要原生目录选择器返回不可写目录；外部自动化无法控制 Tauri 原生对话框，也没有按 slice 注入 `export_work` 文件写失败的代理；
+  3. 直接 push socket/改 DB 不是页面闭环；不新增验收专用失败开关。
+- 结论：失败 producer 与前端错误投影存在，但缺少可重复的真实页面故障入口；CP0 登记阻塞。解除条件=原生目录选择可注入/通用 export 文件失败 fixture（产品外 harness），或作者接受以 Channel+文件系统故障证据作为局部替代并明确不等同页面闭环。
