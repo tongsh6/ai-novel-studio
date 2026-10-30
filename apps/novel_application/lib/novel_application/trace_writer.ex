@@ -194,6 +194,7 @@ defmodule NovelApplication.TraceWriter do
       |> maybe_put_provider_refs(turn_result)
       |> maybe_put_quality(turn_result)
       |> maybe_put_evidence_usage(turn_result)
+      |> maybe_put_memory_window(turn_result)
       |> maybe_put_reply_record(frame)
 
     {trace, TraceRedactor.author_safe(summary)}
@@ -210,6 +211,14 @@ defmodule NovelApplication.TraceWriter do
         event_order: append_once(trace.event_order, :behavior_trace_recorded)
     }
   end
+
+  # B64：记忆有效窗按目标章的适用性留痕（Why 面板据此说明事实段是否按目标章过滤）。
+  defp maybe_put_memory_window(summary, %{memory_window: %{} = memory_window})
+       when map_size(memory_window) > 0 do
+    Map.put(summary, :memory_window, memory_window)
+  end
+
+  defp maybe_put_memory_window(summary, _turn_result), do: summary
 
   # CP1：本轮组装/执行期被省略的材料进入作者可见 trace（`06` §5.3 omission_notes / §7）。
   defp maybe_put_omissions(summary, %{omission_notes: [_ | _] = notes}) do

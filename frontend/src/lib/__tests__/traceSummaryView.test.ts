@@ -245,4 +245,26 @@ describe("traceSummaryView", () => {
     expect(toAuthorTraceSummary(null)).toBeNull();
     expect(toAuthorTraceSummary(undefined)).toBeNull();
   });
+
+  it("B64：展示作品事实按目标章过滤的适用性说明", () => {
+    const applied = toAuthorTraceSummary({
+      decision_type: "tool_dispatched",
+      tool_name: "prose_writing",
+      memory_window: {
+        target_chapter_ref: "chapter:abc",
+        target_chapter: "第3章",
+        applied: true,
+        position: "explicit_target",
+      },
+    });
+    expect(applied?.detailLines).toContain("作品事实已按目标章过滤：第3章。");
+    expect(JSON.stringify(applied)).not.toContain("chapter:abc");
+
+    const noTarget = toAuthorTraceSummary({
+      decision_type: "tool_dispatched",
+      tool_name: "prose_writing",
+      memory_window: { applied: false, position: "unknown_or_no_target" },
+    });
+    expect(noTarget?.detailLines).toContain("本轮未定位目标章，作品事实未按有效窗过滤。");
+  });
 });

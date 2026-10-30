@@ -141,8 +141,8 @@ defmodule NovelApplication.CreativeFactsContextTest do
       provider_execution: %Execution{result_fn: complete}
     }
 
-    {_turn_result, _trace} = TurnExecutionService.execute(input)
-    agent |> Agent.get(& &1) |> Enum.join("\n\n")
+    {turn_result, _trace} = TurnExecutionService.execute(input)
+    {agent |> Agent.get(& &1) |> Enum.join("\n\n"), turn_result.trace_summary}
   end
 
   test "B64：有明确目标章时 memory_reader 收到 at_chapter_id（/2）" do
@@ -155,8 +155,11 @@ defmodule NovelApplication.CreativeFactsContextTest do
       base.(work_id)
     end
 
-    run_with_target(chapter_id, reader)
+    {_prompts, trace_summary} = run_with_target(chapter_id, reader)
     assert Agent.get(opts_agent, & &1) == [at_chapter_id: chapter_id]
+    assert trace_summary.memory_window.target_chapter_ref == "chapter:#{chapter_id}"
+    assert trace_summary.memory_window.applied == true
+    assert trace_summary.memory_window.position == "explicit_target"
   end
 
   defp facts_reader(overrides \\ %{}) do

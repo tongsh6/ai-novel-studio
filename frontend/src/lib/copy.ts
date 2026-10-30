@@ -652,6 +652,11 @@ export const TRACE = {
   replayComplete: "已从持久 trace 生成结构化回放。",
   replayPartial: "这轮 trace 不完整，只展示已保存的部分解释。",
   replayNoProvider: "回放只读取已保存记录，不会重新调用模型。",
+  memoryWindow: {
+    applied: (chapter: string) => `作品事实已按目标章过滤：${chapter}。`,
+    noTarget: "本轮未定位目标章，作品事实未按有效窗过滤。",
+    unknownTarget: "目标章未知，作品事实沿用既有回退（未知不约束）。",
+  },
   previousDialogueSummary: (topic: string) => `上一轮围绕「${topic}」展开，AI 已给出回应。`,
   previousAuthorMention: (topic: string) => `上一轮作者提到「${topic}」。`,
   previousAssistantReply: "上一轮 AI 已给出回应。",

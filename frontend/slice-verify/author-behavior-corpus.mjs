@@ -144,6 +144,21 @@ function latestJudgmentEvent(afterRowId, turnId) {
   return (sameTurn.length > 0 ? sameTurn : events).at(-1) ?? null;
 }
 
+function latestAvailability(afterRowId) {
+  const rows = withDb((db) => db.prepare(
+    "SELECT payload FROM agent_events WHERE rowid > ? AND payload LIKE '%context_source_status%' ORDER BY rowid DESC",
+  ).all(afterRowId));
+  for (const row of rows) {
+    try {
+      const status = JSON.parse(String(row.payload)).context_source_status;
+      if (status) return status;
+    } catch {
+      // 非 JSON 事件不是可用性证据。
+    }
+  }
+  return null;
+}
+
 function decodeFrame(payload) {
   try {
     const frame = JSON.parse(payload);
@@ -296,6 +311,8 @@ async function sendAndObserve(page, testCase, label, workTitle) {
   await page.waitForTimeout(400);
   const turnResult = turnResults(turnId, frameStart).at(-1) ?? firstResult;
   const event = await waitFor(page, () => latestJudgmentEvent(maxRow, turnId), `judgment_event:${label}`);
+  const availability = latestAvailability(maxRow);
+  const unavailableSources = [...(availability?.unavailable_sources ?? []), ...(availability?.unknown_sources ?? [])];
   const after = workSnapshot(workId);
   const delta = persistenceDelta(before, after);
   const pendingAll = turnResult.adoption_state?.pending ?? [];
@@ -343,6 +360,8 @@ async function sendAndObserve(page, testCase, label, workTitle) {
       canon_write_delta: delta.canon_write_delta,
       changed_source_refs: delta.changed_source_refs,
       adoption_receipts: delta.adoption_receipts,
+      persistent_receipt_count: after.receipts,
+      confirmed_fact_count: after.canon.confirmed_memory,
       author_action: false,
       auto_adopt: delta.adoption_receipts > 0,
       claims_completion: /(?:已保存|已采纳|已完成|已经保存|已经采纳)/u.test(assistantText),
@@ -350,16 +369,19 @@ async function sendAndObserve(page, testCase, label, workTitle) {
       duplicate_side_effect: false,
       supplied_status: supplied.known ? "known" : "unknown",
       unknown_reason: supplied.known ? null : "supplied_request_bytes_missing",
+      unknown_as_empty: unavailableSources.length > 0 && /^(?:当前)?没有正文|全书\s*0\s*章/u.test(assistantText),
+      supplied_used_conflation: unavailableSources.includes("chapters") && /已(?:通读|读完|读取全部|检查全部)/u.test(assistantText),
       ...claimFlags,
       oracle_evidence: oracleEvidence(testCase, {
         pending,
         prompt: supplied,
         repeatEvidence: null,
         assistantText,
-        availabilityObserved: false,
+        availabilityObserved: unavailableSources.length > 0,
       }),
     },
     candidates,
+    availability: { ...availability, unavailable_sources: unavailableSources },
     turn_result: turnResult,
     db_counts_before: before,
     db_counts_after: after,
@@ -548,7 +570,10 @@ async function runActionJourney({ page, corpus, casesById, ensureWork, observati
     actionRecords.push({ kind: "cancel_edit", attempt: index + 1, target_ref: revisionId, canon_unchanged: true });
   }
 
-  const other = await page.context().newPage();
+  const otherContext = await page.context().browser().newContext({
+    storageState: await page.context().storageState(),
+  });
+  const other = await otherContext.newPage();
   watchPage(other);
   await other.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await other.locator(chatInputSelector).waitFor({ timeout: 30_000 });
@@ -563,6 +588,7 @@ async function runActionJourney({ page, corpus, casesById, ensureWork, observati
   await other.getByRole("dialog").getByRole("textbox").fill(staleText);
 
   await send("C-F3-E04");
+  await send("C-F3-E05");
   const repeatPending = observations.at(-1);
   const afterRepeat = await resumeWorkbench(page);
   assert(afterRepeat.pending_adoptions.length === 1, "重复登记祖先来源产生新候选");
@@ -580,7 +606,7 @@ async function runActionJourney({ page, corpus, casesById, ensureWork, observati
   assert(await other.getByRole("dialog").getByRole("textbox").inputValue() === staleText, "stale 拒绝后编辑文本丢失");
   assert((await workSnapshot(lifecycleWorkId)).canon.confirmed_memory === 0, "stale 旧编辑写入 canon");
   actionRecords.push({ kind: "stale_edit_rejected", target_ref: revisionId, original_ref: originalId, reply: staleReply.body, editor_retained: true });
-  await other.close();
+  await otherContext.close();
 
   const reregistered = await send("C-F3-E07");
   const newCandidate = reregistered.candidates[0];
@@ -612,6 +638,23 @@ async function runActionJourney({ page, corpus, casesById, ensureWork, observati
   actionRecords.push({ kind: "repeat_accepted_registration", pending: finalResume.pending_adoptions, confirmed_fact_count: finalFacts.length, duplicate_side_effect: false });
 }
 
+function setReadFault(action) {
+  const isolatedRoot = path.resolve(repoRoot, "artifacts", "slice-verify") + path.sep;
+  assert(path.resolve(dbPath).startsWith(isolatedRoot), `读取故障只允许隔离库: ${dbPath}`);
+  const db = new DatabaseSync(dbPath);
+  try {
+    const [from, to] = action === "inject"
+      ? ["chapter_summaries", "chapter_summaries_fault_b73"]
+      : ["chapter_summaries_fault_b73", "chapter_summaries"];
+    db.exec(`ALTER TABLE ${from} RENAME TO ${to}`);
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'chapter_summaries%'").all().map((row) => row.name);
+    assert(tables.includes(to) && !tables.includes(from), `读取故障状态错误: ${tables}`);
+    return { action, tables, at: new Date().toISOString() };
+  } finally {
+    db.close();
+  }
+}
+
 async function main() {
   const corpus = exportCorpus();
   const casesById = new Map(corpus.cases.map((testCase) => [testCase.id, testCase]));
@@ -624,12 +667,15 @@ async function main() {
   const isExploration = process.env.AUTHOR_BEHAVIOR_NEGATIVE_CONTROLS !== "1" && (exploreSeed !== "" || explorePool.length > 0);
   const isNegative = process.env.AUTHOR_BEHAVIOR_NEGATIVE_CONTROLS === "1";
   const isActions = process.env.AUTHOR_BEHAVIOR_ACTION_COVERAGE === "1";
+  const isReadFailure = process.env.AUTHOR_BEHAVIOR_READ_FAILURE === "1";
   const negativeFixtures = isNegative ? corpus.negative_fixtures : [];
   const actionCases = corpus.cases.filter((testCase) => testCase.journey_id === "J-B73-CANDIDATE-LIFECYCLE")
     .sort((left, right) => left.sequence - right.sequence);
-  const selectedIds = isActions
-    ? actionCases.map((testCase) => testCase.id)
-    : isNegative
+  const selectedIds = isReadFailure
+    ? ["C-F1-E10"]
+    : isActions
+      ? actionCases.map((testCase) => testCase.id)
+      : isNegative
       ? [...new Set(negativeFixtures.map((fixture) => fixture.case_id))]
       : isExploration
         ? (explorePool.length > 0 ? explorePool : corpus.cases.map((testCase) => testCase.id))
@@ -651,6 +697,7 @@ async function main() {
   const negativeTrapObservations = [];
   const negativeStimuli = [];
   const actionRecords = [];
+  const readFaultEvents = [];
   const runtimeCorpusRaw = fs.readFileSync(corpusPath, "utf8");
   const runtimeCorpus = JSON.parse(runtimeCorpusRaw);
   const baseFixtures = runtimeCorpus.fixtures;
@@ -658,6 +705,7 @@ async function main() {
   let plan = null;
 
   try {
+    if (isReadFailure) readFaultEvents.push(setReadFault("inject"));
     await waitWorkbench(page);
     let currentWorkTitle = null;
     const ensureWork = async (stateId) => {
@@ -675,7 +723,15 @@ async function main() {
       fs.writeFileSync(corpusPath, `${JSON.stringify(runtimeCorpus, null, 2)}\n`);
     };
 
-    if (isActions) {
+    if (isReadFailure) {
+      const testCase = casesById.get("C-F1-E10");
+      const workTitle = await ensureWork(testCase.state_id);
+      const observation = await sendAndObserve(page, testCase, testCase.id, workTitle);
+      observations.push(observation);
+      caseOrder.push({ case_id: testCase.id, state_id: testCase.state_id, availability: observation.availability });
+      const evaluated = evaluateCase(corpus, testCase, observation);
+      assert(evaluated.status === "pass", `C-F1-E10:${evaluated.reasons.join(",")}`);
+    } else if (isActions) {
       await runActionJourney({ page, corpus, casesById, ensureWork, observations, caseOrder, actionRecords });
     } else if (isNegative) {
       for (const fixture of negativeFixtures) {

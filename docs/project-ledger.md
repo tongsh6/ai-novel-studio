@@ -1140,3 +1140,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B64 CP0/CP1：按目标章消费记忆有效窗**：先红测证明 `creative_facts/1` 会无条件注入窗口外事实；新增 `NovelDomain.MemoryValidity` 纯规则并在普通 recall/creative_facts 共用；`creative_facts/2 opts[:at_chapter_id]` 按目标章 seq 过滤、无目标保持旧行为；`recall/3` 支持显式目标优先于最大已采纳；`NovelApplication.persistence_memory_reader` 改 arity-2，`TurnExecutionService` 将 `chapter:<uuid>` 目标传给事实 reader，writer/evaluator 同源。边界：未知/无效目标不约束、不改 schema/历史/规划；mix test 1039/0。CP2（trace/why、规划边界、重编号、修订路径）与 CP3（真实 Tauri 页面矩阵）未完成。
 
 - 2026-10-31 — **B64 CP1 门禁与证据缺口**：mix format/compile、全量 mix test 1039/0、credo/xref/arch、I1–I3 通过；task_done 的 UI evidence gate 因 B30 原生复跑连续 2 次 `workbench_ready` AX 等待超时（app/backend 日志显示 workbench 已 ready，属 native AX harness 不稳，同因≥2 停止），无晚于本次改动的 Tauri summary，登记为证据缺口；未用单测替代 UI gate、未改门禁规则。CP2/CP3 待做。
+
+- 2026-10-31 — **B64 CP2 进行中：Why 同源与窗口矩阵**：trace summary 增加 `memory_window`（目标章身份/是否按目标过滤/位置来源），Why 面板显示“事实已按目标章过滤”说明；persistence 窗口矩阵新增重编号重解析、跨作品、当前值更新、未知目标；writer/evaluator 既有同源事实测试保留。门禁 mix test 1039/0、前端 typecheck/test 通过；全量前端 lint 因并行作者未提交 author-behavior-corpus unused var 阻塞（非本改动文件），task_done UI evidence 环境缺口延续。残余恢复矩阵、独立修订路径显式回归、CP3 页面矩阵。

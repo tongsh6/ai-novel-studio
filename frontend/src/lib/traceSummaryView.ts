@@ -302,9 +302,24 @@ function detailLines(summary: TraceSummaryLike): string[] {
 
   // WR01c：使命从 detailLines 一句话行升级为独立结构化区块（missions），不再重复进明细行。
   lines.push(...aiMessageEnvelopeLines(summary.ai_message_envelope));
+  lines.push(...memoryWindowLines(summary.memory_window));
   lines.push(...replayIntegrityLines(summary));
 
   return unique(lines);
+}
+
+// B64：Why 面板与 writer/evaluator 同源说明——本轮事实是否按明确目标章过滤。
+function memoryWindowLines(value: unknown): string[] {
+  const window = objectValue(value);
+  if (!window) return [];
+
+  const applied = booleanValue(window.applied);
+  const target = stringValue(window.target_chapter);
+  const position = stringValue(window.position);
+
+  if (applied === true) return [TRACE.memoryWindow.applied(target ?? TRACE.memoryWindow.unknownTarget)];
+  if (position === "unknown_or_no_target") return [TRACE.memoryWindow.noTarget];
+  return [];
 }
 
 function replayIntegrityLines(summary: TraceSummaryLike): string[] {

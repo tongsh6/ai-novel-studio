@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B64 | CP0/CP1 done：`MemoryValidity` 共享规则、`creative_facts/2` 目标章过滤、`recall/3 :at_chapter_id`、TurnExecutionService 传 `resolved_chapter_ref`；全量 mix test 1039/0；下一步 CP2 同源矩阵/修订路径 + CP3 真实 Tauri 页面矩阵 | [原任务](slices/B64-coordinate-aware-memory-consumption.md) |
+| B64 | CP0/CP1 done；CP2 进行中：trace/why `memory_window` 与 Why 面板适用性、窗口/重编号/跨作品/当前值矩阵、writer/evaluator 同源已落地；待恢复矩阵/修订路径等价性 + CP3 真实 Tauri 页面矩阵；mix test 1039/0，全量前端 lint 被并行作者 WIP 阻塞 | [原任务](slices/B64-coordinate-aware-memory-consumption.md) |
 
 ## 后续候选
 

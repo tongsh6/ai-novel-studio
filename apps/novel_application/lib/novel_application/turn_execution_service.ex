@@ -413,6 +413,13 @@ defmodule NovelApplication.TurnExecutionService do
             provider_call_budget(provider_execution, quality_provider_execution, nil),
           quality_policy_action: quality_policy_action(quality),
           quality_review_status: quality_review_status(quality),
+          memory_window:
+            memory_window_meta(
+              action,
+              input[:memory_reader],
+              resolved_chapter_ref,
+              resolved_chapter
+            ),
           evidence_usage: evidence_usage
         },
         input[:context]
@@ -1243,6 +1250,21 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp progress_state_section(_frame, _action, _reader), do: ""
+
+  # B64：Why/trace 同源留痕——本轮是否按明确目标章过滤事实、目标章身份。
+  # 不记录事实正文（trace 只做来源与适用性留痕，正文仍在请求/候选材料里）。
+  defp memory_window_meta(action, memory_reader, resolved_chapter_ref, resolved_chapter) do
+    if CarryRegistry.carries?(:creative_facts, capability_name(action)) do
+      chapter_id = memory_chapter_id(resolved_chapter_ref)
+
+      %{
+        target_chapter_ref: resolved_chapter_ref,
+        target_chapter: resolved_chapter,
+        applied: is_function(memory_reader, 2) and is_binary(chapter_id),
+        position: if(is_binary(chapter_id), do: "explicit_target", else: "unknown_or_no_target")
+      }
+    end
+  end
 
   # B64：把本轮已解析的目标章 ref 传给事实读端口；/1 兼容旧注入（测试/无目标场景）。
   defp read_creative_facts(reader, work_id, chapter_ref) when is_function(reader, 2) do

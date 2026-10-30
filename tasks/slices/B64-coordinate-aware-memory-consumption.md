@@ -1,6 +1,6 @@
 # B64：按真实写作坐标消费记忆有效窗
 
-- 状态：**doing（2026-10-31 CP0/CP1 完成：目标章事实过滤、共享有效窗纯规则、writer/evaluator reader 接线；CP2/CP3 未完成）**。
+- 状态：**doing（2026-10-31 CP0/CP1 完成；CP2 进行中：数据/Why 同源与窗口/重编号/跨作品/当前值矩阵已落地，恢复矩阵与独立修订路径等价性核对待做；CP3 未开始）**。
 - 来源：有效期已在普通 recall 路径验证，但 CA02 的专业创作事实读端口没有目标章或有效窗输入；本轮只读代码核对发现消费边界不一致，尚未运行数据库、真实模型或页面反例。
 - 上游：[AU09 有效窗原任务](AU09-validity-window-recall.md)、[CA02](CA02-writing-facts-context.md)、[VS-00C](../../docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md)、[B39](B39-evidence-seeking-authoring.md)。本项保护既有章节级窗口，不等待 B54 新建故事时间读模型，也不重复建设 B39 的求证循环。
 
@@ -52,6 +52,16 @@
 - 门禁：`mix format --check-formatted`、`mix compile --warnings-as-errors`、全量 `mix test`（1039 tests, 0 failures）、credo/xref/arch、I1/I2/I3 均通过。
 - 门禁残余：`task_done` UI evidence gate 因 B30 原生复跑连续 2 次在 `workbench_ready` AX 等待超时（app/backend app-log 已 ready、无产品异常；属 native AX harness 环境不稳，同因 2 次停止），当前无晚于本次代码改动的 Tauri summary；登记为环境/证据缺口，不用 B64 机制/单测替代 UI gate，也未改 task_done 规则。
 
+## 1.3 CP2 进行中记录（2026-10-31）
+
+- trace/why 同源：`TurnExecutionService` 在 `trace_summary.memory_window` 记录 `target_chapter_ref/target_chapter/applied/position`（不记录事实正文）；`TraceWriter` 写入 summary；前端 `traceSummaryView` 在 Why「补充说明」显示“作品事实已按目标章过滤：{章}”或“未定位目标章，未按有效窗过滤”；前后端测试各覆盖。规划轮不消费该 meta，保持“规划可看全书/历史”的边界。
+- 窗口矩阵（persistence）：目标章窗口内/外、无目标保持旧行为、未知目标不约束、边界章节缺失、章序号重编号后按新 seq 重解析、跨作品隔离、记忆有效窗当前值更新后即时反映；均通过。
+- writer/evaluator：既有“同源 facts_context”测试保留；B64 目标章传参测试同时断言 trace memory_window 与 reader opts；二者共同证明同一过滤事实进入两处消费，非两套读取。
+- 规划边界：`plot_outline_with_context`/`judgment_plan` 仍注入 `memory_reader` 但不带目标章（/1 或显式空 opts），不因本轮修复把未来/历史材料机械过滤；保留既有规划语义。
+- 独立修订路径：核对 `ProseRevisionService` 当前只消费原正文/finding/`target_chapter_ref`，**未注入 CA02 creative_facts**，不存在同一静态缺口；不按猜测新增事实包；后续若设计加入需另建切片验收。
+- 门禁：全量 mix test 1039/0；前端 typecheck/test 通过；全量 lint 被并行作者未提交的 `frontend/slice-verify/author-behavior-corpus.mjs` unused var 阻塞（非本改动文件，已报告），本改动相关 lint 通过；task_done UI evidence 环境缺口延续。
+- 残余：恢复/当前值变化在真实恢复路径的矩阵、独立修订路径的显式回归测试、CP3 真实 Tauri 页面矩阵。
+
 ## 2. 消费者矩阵与待冻结语义
 
 | 消费者 | 本任务处理 |
@@ -81,7 +91,7 @@ CP0 还须明确：未知当前位置、无窗口、无效章节引用、重编�
 |---|---|---|
 | CP0 | 确认消费者矩阵、构造第 10 章回写第 3 章等反例；冻结目标/未知/规划/历史读取的最小适用性契约与驱动；核实缺口后才改代码 | done（2026-10-31，§1.1；反例红测先失败后转绿） |
 | CP1 | 真实章身份/作用范围贯穿需要它的读取端口；统一既有有效窗规则，保留无目标回退与历史可查；只修实际消费者 | done（2026-10-31：`WorkArchiveRepo.creative_facts/2` + `MemoryRecallRepo.recall/3 :at_chapter_id` + `NovelDomain.MemoryValidity` 共享规则；TurnExecutionService 把 `resolved_chapter_ref` 传给 reader；无目标/未知保持旧回退；writer/evaluator 同源 facts） |
-| CP2 | writer/evaluator、普通 recall、trace/why 及规划边界同源；覆盖窗口、重编号、错误引用、跨作品、恢复与当前值变化；回归独立修订路径 | todo（下一步） |
+| CP2 | writer/evaluator、普通 recall、trace/why 及规划边界同源；覆盖窗口、重编号、错误引用、跨作品、恢复与当前值变化；回归独立修订路径 | **doing**（2026-10-31：trace `memory_window` + Why 面板适用性行 + writer/evaluator 同源 facts；persistence 覆盖窗口/重编号/未知目标/跨作品/当前值变化；待恢复矩阵与独立修订路径等价性核对） |
 | CP3 | 外部真实 Tauri 完成旧章/新章与跨会话矩阵，分开记录确定性接线和真实模型消费；原 AU09 证据不外推，全部计划内后果齐备才关闭 | todo |
 
 ## 5. 非目标与恢复
