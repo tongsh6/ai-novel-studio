@@ -102,7 +102,7 @@
 
 ## 阅读投影状态与失败恢复补验
 
-- 状态：**doing（2026-10-31 CP0 对账 done：四态来自 TanStack Query 客户端状态，失败/刷新/旧内容语义已核；CP1 真实页面故障/重试矩阵待补）**。
+- 状态：**blocked（2026-10-31 CP0 done；CP1 真实页面故障/重试矩阵需要外部可注入的 channel/投影读取失败入口，当前 harness 只有消息投递故障代理，缺口未就绪）**。
 - 来源：[AU-08](../../docs/design/acceptance/author/AU-08-reading-mode.md)、[全量对账 A05/D13/F17](../2026-10-27-design-to-execution-reconciliation.md)。`ReadingMode.tsx` 已有 FRESH/STALE/REBUILDING/FAILED 与重试消费，旧文档“没有真实 producer”需按现链核对；本项不默认重建 projection job。
 - 下一步：对账 B28 R4、现有 manifest、投影读取与刷新错误链，冻结状态来自何处、失败期间旧内容如何展示、何时允许重试及转回 FRESH；补缺失的失败/整组失败/重建中/恢复与 no-write 矩阵。
 - 完整后果：采纳后过期提示与实际版本一致，重建中/失败诚实可见，旧内容不得伪装为最新，重试成功后消费同一作品的已采纳正文；离线、跨作品切换、重复刷新及刷新中失败均无权威正文或采纳状态变更。不能把用户发一句“刷新”或直接调用后端当页面证明。
@@ -123,3 +123,12 @@
   2. 没有可外部注入的失败/部分失败/重试夹具入口；`retry=false` 下 FAILED 后只能手动 refetch；
   3. 旧内容在 STALE/REBUILDING 展示有 banner，但失败期间旧内容是否展示由 `hasContent`（仅 ready/stale）决定；需真实页面证明失败不伪装最新。
 - CP1 计划：外部真实 Tauri 驱动阅读、断连/读取失败、手动重试、恢复与跨作品切换；记录网络/状态/持久事实，证明无权威正文/采纳状态变更；若需服务端版本能力，先登记设计缺口，不在本项预建 projection job。
+
+### CP1 阻塞记录（2026-10-31）
+
+- CP1 要求外部真实 Tauri 驱动阅读→读取失败→重试→恢复/跨作品切换，并证明无权威正文/采纳状态变更。真实失败需要让 `get_toc`/`get_chapter_content` channel 调用失败；当前外部 harness：
+  - 只有 `q3d-message-delivery-recovery` 的消息投递故障代理（对 Websocket delivery 注入），没有可按 slice 注入 `get_toc`/`get_chapter_content` 响应失败/超时的通用代理；
+  - `page.context().setOffline(true)` 会让整个 socket/服务断开，无法稳定区分“投影读取失败 vs 连接断开 vs 重连恢复”，且可能误触其它语义；
+  - 直接停后端/改 DB 会伪造状态，不能作为产品闭环证据。
+- 按“不无界等待/不伪造故障”原则停止，登记 harness 能力缺口：需要通用按 channel 请求注入错误/延迟并保留可观测恢复（B37/AU10 类）。解除后补失败/REBUILDING/STALE/重试/跨作品矩阵。
+- 未改产品逻辑；不把 CP0 单测当 CP1 真实页面证据。

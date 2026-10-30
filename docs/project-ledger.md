@@ -1278,3 +1278,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B57 CP1 blocked（部分）**：A/E/F 真实 Tauri PASS；B/C/D 需受控内容/observation fixture 或 B39/UA01 入口，当前未就绪，登记阻塞；未改产品代码/未预建 Guard；当前任务切 AU08-REFRESH。
 
 - 2026-10-31 — **AU08-REFRESH CP0**：核清 ReadingMode 四态来自 TanStack Query（FAILED/REBUILDING/STALE/FRESH），查询只读无写；补 stale/rebuilding/failed 优先于旧章节单测；登记服务端权威版本能力缺口与真实页面故障/重试矩阵待补，未改产品逻辑。
+
+- 2026-10-31 — **AU08-REFRESH CP1 blocked**：CP0 四态/单测完成；真实页面失败/重试需按 channel 请求注入投影读取失败的通用代理，当前 harness 仅消息投递故障代理；未停后端/未伪造故障，登记能力缺口；当前任务切 AU10-FAILED。

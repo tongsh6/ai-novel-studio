@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU08-REFRESH | CP0 done：四态=客户端缓存语义，失败/刷新/旧内容派生已补单测；CP1 真实页面失败/重试/跨作品零写入矩阵待补 | [原任务小节](slices/AU08-file-level-closure.md#阅读投影状态与失败恢复补验) |
+| AU10-FAILED | 核对真实导出失败生产者，补 FAILED 首屏、恢复/新请求及输出完整性证据 | [原任务小节](slices/AU10-workbench-recovery-taskstate.md#failed-任务状态真实页面补验) |
 
 ## 后续候选
 
@@ -14,7 +14,6 @@
 |---|---|---|
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B48 | 无变化普通说明、真正歧义才追问；依赖 B43 裁决同源，完成四场景验收 | [原任务](slices/B48-character-revision-noop-and-ambiguity.md) |
-| AU10-FAILED | 核对真实导出失败生产者，补 FAILED 首屏、恢复/新请求及输出完整性证据 | [原任务小节](slices/AU10-workbench-recovery-taskstate.md#failed-任务状态真实页面补验) |
 | AU10-MATRIX | 核对当前卡片/动作结果、未知/失效/跨作品与视口矩阵，按 owner 去重后补消费证据 | [原任务小节](slices/AU10-file-level-closure.md#现役动作与卡片矩阵核对) |
 | UA01-PROMPT-T3T5 | 按当前单调用及 ADR-0031 核对修订尾部、finding 保真与计划面板 N-NARR；按现役消费者接续 | [原任务小节](slices/UA01-agentic-loop-prompt-hardening.md#t3-t5-当前语义审计与承接) |
 | B71 | CP1 冻结 AgentRun 原生多轮 Request IR、工具/观察/候选与 provider 投影；先处理目标设计与现役 ADR 差异，不以现状降低目标 | [原任务](slices/B71-provider-message-fidelity.md) |
@@ -35,6 +34,7 @@
 - **B72 CP1**：CP0 设计 done；CP1 需要离线生成器实现 + 真实模型 ≤60 校准/核心批次，当前无实现与模型资源窗口（未加载模型、未改 corpus），待作者/指定实现者提供生成器与预算后解除，见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#阻塞记录2026-10-31-cp1)。
 - **VS00F-TRACE CP1 裁决**：CP0 已确认 adoption 仅 summary-level `state_trace_refs`、LedgerMaintenance 无 StateTrace。选项：A（推荐）新增最小持久 StateTrace/mutation receipt（work/chapter/turn、before/after digest、source refs、幂等），需 schema/迁移授权；B 明确 maintenance 只承诺业务日志+ledger revision/source_refs，不承诺逐条 trace 并关闭本债；C 延期。未裁决前不建实体、不改验收边界，见 [VS00F-TRACE](slices/VS-00F-five-ledgers-three-state.md#cp0-盘点2026-10-31)。
 - **B57 CP1 B/C/D**：A/E/F 真实 Tauri PASS；B 内容夹带/C 观察夹带/D 伪完成需要 B39/UA01 observation/外部资料受控 fixture 入口或作者授权测试数据，当前入口未就绪，未加产品钩子；解除后补全矩阵，见 [B57](slices/B57-sec-injection-boundary.md#阻塞记录2026-10-31)。
+- **AU08-REFRESH CP1**：CP0 done；真实页面失败/重试/跨作品矩阵需要按 channel 请求注入 `get_toc`/`get_chapter_content` 失败的通用外部代理，当前 harness 只有消息投递故障代理；未伪造故障、未停后端。解除后补 CP1，见 [AU08](slices/AU08-file-level-closure.md#cp1-阻塞记录2026-10-31)。
 - **B01 后续**：CP0 done；origin_frame_ref 为合成串，CP1 需 A（新增 nullable origin_turn_ref + origin_frame_ref 可空，推荐）/B（origin_ref_kind + turn:<id>）/C（保持 known-gap）之一；涉及 SQLite 表重建/历史兼容，待作者授权 migration，未改 schema/DB。见 [B01 小节](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界)。
 - **B43 后续**：CP0/CP1 done；CP2 Form R 出口/Replay 同源已落地；**MissingPolicy 在 Gate 之后才评估**，统一门序涉及 ADR-0005 gate 集合与验收判据，需作者/ADR owner 在 A（新增 missing_policy gate，推荐）/B（decide 前 preflight）/C（仅标注）/D（只覆盖 prose flow）间裁决；CP3/CP4 未开工，见 [B43](slices/B43-gate-order-residual.md)。
 - **B67 后续**：CP0/CP1 done；CP2 revision CAS/重编号/旧任务晚到已落地，但维护 StateTrace 依赖 [VS00F-TRACE](slices/VS-00F-five-ledgers-three-state.md#维护-statetrace-后续-checkpoint) owner 先冻结生产/存储/回放契约；CP3 页面矩阵未开工，见 [B67](slices/B67-revision-aware-ledger-maintenance.md)。
