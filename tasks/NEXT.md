@@ -14,7 +14,6 @@
 |---|---|---|
 | B72 | 作者选择先做 P2：CP0 离线 LLM 语料扩增设计已冻结；下一步 CP1 生成 manifest/candidate 与原始批次，未调用模型；P0/P1 缺口不由本任务销账 | [原任务](slices/B72-author-behavior-offline-corpus-expansion.md) |
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
-| B67 | CP0 复核旧章修订/移除贡献的账面反例；冻结重算、来源版本和作者裁决保护 | [原任务](slices/B67-revision-aware-ledger-maintenance.md) |
 | B43 | CP0 与 B45 对齐统一裁决的生产、转换、校验、返回/trace/回放映射；B01 提供真实来源，保留幂等与阻断完整范围 | [原任务](slices/B43-gate-order-residual.md) |
 | B45 | CP0 交付38份 schema 的字段/状态→生产→转换→校验→消费/历史映射；逐项处置13个部分承接项，与 B43 协同 | [原任务](slices/B45-schema-legacy-governance.md) |
 | B01 | 真实入口来源贯穿生成、存储、trace/回放；保留原 judgment/frame/plan 语义边界范围 | [原任务小节](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界) |
