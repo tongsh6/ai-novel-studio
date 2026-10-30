@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B67 | CP0/CP1 done；CP2 partial：LedgerRepository 事务内 revision CAS/过期拒绝/并发单提交已落地；重编号组合、StateTrace 协同、CP3 页面矩阵待做 | [原任务](slices/B67-revision-aware-ledger-maintenance.md) |
+| B67 | CP0/CP1 done；CP2 partial：revision CAS + 重编号后 recompute 接线已落地；StateTrace 协同、旧任务晚到页面、CP3 页面矩阵待做 | [原任务](slices/B67-revision-aware-ledger-maintenance.md) |
 
 ## 后续候选
 

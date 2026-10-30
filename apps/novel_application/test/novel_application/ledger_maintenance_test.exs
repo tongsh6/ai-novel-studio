@@ -237,6 +237,45 @@ defmodule NovelApplication.LedgerMaintenanceTest do
     assert entry.status in ["ACTIVE", "DORMANT"]
   end
 
+  test "B67 CP2：章重编号后 recompute_work 按当前 seq 重算机械进度" do
+    {:ok, agent} = Agent.start_link(fn -> %{} end)
+
+    {:ok, _} =
+      LedgerMaintenance.run(
+        %{work_id: "w", chapter_id: "ch-10", summary_text: summary_with_characters("凌渊出场。")},
+        deps(agent)
+      )
+
+    before = Agent.get(agent, & &1)["char-ly"]
+    assert before.payload["last_seen_seq"] == 10
+
+    # B30 重编号后的当前事实：原 ch10 → seq6，原 ch3 → seq2；摘要随章序重排。
+    renumbered_index = fn _work_id ->
+      Map.new(1..12, fn seq ->
+        role = if seq in [2, 6], do: "推进章", else: "过渡章"
+        {"ch-remap-#{seq}", %{seq: seq, title: "第#{seq}章", chapter_role: role}}
+      end)
+    end
+
+    summaries = fn _work_id ->
+      [
+        {2, summary_with_characters("凌渊在第3章出场。")},
+        {6, summary_with_characters("凌渊在第10章出场。")}
+      ]
+    end
+
+    recompute_deps =
+      deps(agent, summaries)
+      |> Map.put(:chapter_index, renumbered_index)
+
+    assert {:ok, %{current_seq: 6, arc: 1}} =
+             LedgerMaintenance.recompute_work("w", recompute_deps)
+
+    after_entry = Agent.get(agent, & &1)["char-ly"]
+    assert after_entry.payload["last_seen_seq"] == 6
+    assert after_entry.payload["last_seen_chapter"] == "ch-remap-6"
+  end
+
   test "缺人物栏降级情节栏提炼；整段无栏降级全文" do
     {:ok, agent} = Agent.start_link(fn -> %{} end)
 

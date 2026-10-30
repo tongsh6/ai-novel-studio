@@ -2383,6 +2383,7 @@ defmodule NovelWeb.WorkspaceChannel do
         record_action_turn_result(socket, turn_result)
         record_action_decision_trace(socket, turn_result)
         socket = remember_turn_result(socket, turn_result)
+        maybe_recompute_ledgers_after_renumber(action_result, socket)
         duration = System.monotonic_time(:millisecond) - t0
 
         LogEmit.emit(:channel, :adopt, :done, %{
@@ -2409,6 +2410,34 @@ defmodule NovelWeb.WorkspaceChannel do
         })
 
         {:reply, {:error, %{reason: reason}}, socket}
+    end
+  end
+
+  # B67 CP2：章节结构采纳成功后重算机械账面；失败只记日志，不回滚作者已成功的采纳。
+  defp maybe_recompute_ledgers_after_renumber(action_result, socket) do
+    if get_in(action_result, [:adoption_effect, :mode]) == "renumber_chapters" do
+      work_id = socket.assigns[:work_id]
+
+      if is_binary(work_id) do
+        try do
+          case NovelApplication.recompute_ledgers_after_structure_change(work_id) do
+            {:ok, counts} ->
+              LogEmit.emit(:ledger, :recompute_after_renumber, :done, counts)
+
+            {:degraded, reason} ->
+              LogEmit.emit(:ledger, :recompute_after_renumber, :error, %{
+                reason_code: :ledger_recompute_failed,
+                outcome_detail: inspect(reason)
+              })
+          end
+        rescue
+          error ->
+            LogEmit.emit(:ledger, :recompute_after_renumber, :error, %{
+              reason_code: :ledger_recompute_failed,
+              outcome_detail: Exception.message(error)
+            })
+        end
+      end
     end
   end
 

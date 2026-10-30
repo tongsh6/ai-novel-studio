@@ -1168,3 +1168,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B67 CP1 done**：arc/conflict 旧章不回退；当前摘要重算仍出现对象、完全无当前出现机械失效（arc STALLED/last_seen0，conflict DORMANT/last_advanced0，历史 source_refs 保留、裁决态不改、幂等）；conflict 按当前已采纳摘要+chapter_role 重算。master tests：maintenance 10/0、domain 8/0、全量 mix 1043/0、credo 0 issues。CP2 持久版本/并发、CP3 页面/模型未做。
 
 - 2026-10-31 — **B67 CP2 进展：账目 upsert 事务内 revision CAS**：LedgerRepository.upsert 同事务读/TENTATIVE/ACCEPTED，已存在行要求 incoming revision=current+1，条件 update_all 0 行即 stale 回滚；过期 revision 拒绝且不覆盖、并发同 revision 单提交、无 revision 旧脚本兼容；测试直改 status 改为 LedgerEntry.adjudicate（递增 revision）。persistence ledger repo 7/0、全量 mix 1043/0、credo 0 issues。重编号/StateTrace/页面仍 todo，CP2 partial。
+
+- 2026-10-31 — **B67 CP2 追加：重编号后 recompute 接线**：LedgerMaintenance.recompute_work 从当前摘要/章索引重算 arc/conflict/stall/dormancy；workspace_channel 在 renumber_chapters 采纳成功后触发，失败只记日志不回滚采纳。测试重编号 seq10→6 后 last_seen 重算；全量 mix 1044/0、credo 0 issues。StateTrace 协同/旧任务晚到页面/CP3 页面仍 todo。

@@ -455,6 +455,13 @@ defmodule NovelApplication do
   end
 
   @doc """
+  B67 CP2：结构变更后重算机械账面（B30 重编号等）；失败只记业务日志，不影响已成功采纳。
+  """
+  def recompute_ledgers_after_structure_change(work_id) when is_binary(work_id) do
+    NovelApplication.LedgerMaintenance.recompute_work(work_id, ledger_maintenance_deps())
+  end
+
+  @doc """
   返回角色主档案读端口：`(work_id) -> 当前作品已采纳角色列表`（设计 21 §7.2 主档案层）。
 
   供创作/角色设计上下文注入"现有角色"（VS-00C 同向 / AU09-character-dossier-roundtrip I-c）：

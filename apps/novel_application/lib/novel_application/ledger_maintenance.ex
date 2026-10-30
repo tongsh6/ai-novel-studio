@@ -607,6 +607,38 @@ defmodule NovelApplication.LedgerMaintenance do
     end)
   end
 
+  @doc """
+  B67 CP2：结构变更（如 B30 重编号）后按当前事实重算机械进度，不依赖新摘要触发。
+  不改裁决态、不写故事事实；无摘要时诚实跳过。
+  """
+  @spec recompute_work(String.t(), deps()) :: {:ok, map()} | {:degraded, term()}
+  def recompute_work(work_id, deps) when is_binary(work_id) do
+    case deps[:summaries] do
+      summaries when is_function(summaries, 1) ->
+        recompute_work_with_summaries(deps, work_id, summaries.(work_id))
+
+      _ ->
+        empty_recompute()
+    end
+  rescue
+    error -> {:degraded, error}
+  end
+
+  defp empty_recompute, do: {:ok, %{current_seq: 0, arc: 0, conflict: 0, stalled: 0}}
+
+  defp recompute_work_with_summaries(_deps, _work_id, []), do: empty_recompute()
+
+  defp recompute_work_with_summaries(deps, work_id, summaries_by_seq) do
+    index = deps.chapter_index.(work_id)
+    current_seq = summaries_by_seq |> Enum.map(fn {seq, _} -> seq end) |> Enum.max()
+    arc = recompute_arc_sightings(deps, work_id, index)
+    conflict = recompute_conflict_advancement(deps, work_id, index)
+    stalled = recompute_stalls(deps.repo, work_id, index, current_seq)
+    recompute_conflict_dormancy(deps.repo, work_id, index, current_seq)
+
+    {:ok, %{current_seq: current_seq, arc: arc, conflict: conflict, stalled: stalled}}
+  end
+
   @default_reconcile_cadence 10
 
   defp maybe_reconcile(deps, work_id, current_seq) do
