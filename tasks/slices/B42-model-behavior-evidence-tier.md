@@ -416,3 +416,20 @@ bash scripts/quality_manifest_check.sh                         # passed（207 sc
 | CP2 | 必要解析/读取/schema 兼容及实际 CLI/汇总回归，旧记录不能自证，原件不变；正反例与退出原因一致 | **done（2026-10-30）**：§13.4，228/228、manifest check、真实历史 artifact CLI 67 + sha256 unchanged |
 | CP3 | 整理局部证据、剩余真实采集/模型/页面缺口与原 owner 承接，复核新判据未反向伪造输入或削弱验证 | **done（2026-10-30）**：§13.5；B39 采集缺口与 CP4 blocked 如实登记 |
 | CP4 | AU-15 A0/A1/A2 预注册与真实运行 | **blocked**：见 §10，本整改不解除 |
+
+### 13.7 收口门禁（2026-10-30，B42 §13 commit `8219061c` + 本节文档）
+
+| 门禁 | 命令 | 结果 | 证据 |
+|---|---|---|---|
+| 质量库测试 | `node --test scripts/lib/quality/*.test.mjs` | **228/228 pass**（evidence_chain 49、release_layer 45） | `artifacts/gates/2026-10-30-b42-s13/` |
+| 清单检查 | `bash scripts/quality_manifest_check.sh` | passed（207 scenarios / 2 drafts / 209 manifests） | 同上 |
+| 后端 | `mix format --check-formatted`、`mix compile --warnings-as-errors`、`mix run scripts/arch_check.exs`、`mix test` | 全 exit 0；9 apps **2344 tests / 0 failures** | `backend.log` |
+| 循环/架构 | `mix xref graph --format cycles --fail-above 0`、`arch_check` | No cycles found；架构检查通过 | `mix-extra.log` |
+| ADR 追溯 | `mix run scripts/adr_trace.exs` | 30/30 Accepted、338 refs、0 pending | `mix-extra.log` |
+| 不变量 | `run_i3_nonce` / `run_i1_causal` / `run_i2_variation` | I3 3/3、I1 4/4、I2 3/3 disjoint / 0 violations | `mix-extra.log` |
+| 前端 | `pnpm typecheck && pnpm lint && pnpm test`；`pnpm build`；`frontend_audit.sh --quick`；`check_design_trace.sh` | 40 files/625 tests pass；build pass；audit PASS；design trace PASS | `frontend.log`、`frontend-extra.log` |
+| 任务收口 | `bash scripts/task_done.sh --slice b42-s13-binding --quick` | exit 0；manifest `artifacts/task-done/20261030T124527Z/manifest.json`；UI evidence not required（未改前端/UI） | `task-done.log` |
+| 静态扫描 | `bash scripts/ai_static_scan.sh --top 10` | exit 0；19/20 checks pass；gitleaks 4 条历史命中均既有 disposition（touched files 0），未新增/未放宽规则 | `static-scan.log`、`artifacts/static-scan/top10.md` |
+| 排期检查 | `node scripts/next_task_check.mjs`、`node --test scripts/next_task_check.test.mjs` | ok；27/27 | 本机输出 |
+
+- 未改产品代码（apps/、frontend/src、mix.exs、config/ 零 diff）；未启动真实模型/Phoenix/Vite/Tauri；未回填历史 artifact。
