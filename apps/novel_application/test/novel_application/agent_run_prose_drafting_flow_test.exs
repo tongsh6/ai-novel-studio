@@ -1471,7 +1471,14 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
            )}
 
         true ->
-          send(parent, {:writer_prompt, prompt})
+          writer_text = prompt_text(prompt)
+          send(parent, {:writer_prompt, writer_text})
+
+          [observation_ref | _] =
+            ~r/observation:obs_[A-Za-z0-9_]+/
+            |> Regex.scan(writer_text)
+            |> List.flatten()
+            |> Enum.uniq()
 
           {:ok,
            with_provider_call(
@@ -1490,7 +1497,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                    self_report: %{
                      assumptions: [],
                      intended_reader_effect: "克制",
-                     used_context_refs: [],
+                     used_context_refs: [observation_ref, "chapter:b39-invented"],
                      risk_flags: []
                    }
                  })
@@ -1563,6 +1570,21 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              &(&1.structured_payload[:stage] == :exploration_observed and
                  &1.source_ref == "explore:archive_read:2")
            )
+
+    # CP1c：自报 used refs 与同一请求 Base/observation 集合对账；越界只进 trace unbound，
+    # 不授予证据信用、不修改已生成 artifact 字节。
+    artifact_event = find_event!(events, :artifact_created)
+    turn_result = artifact_event.payload.turn_result
+    summary = turn_result.trace_summary
+
+    assert summary.used_context_refs_validation == "partial"
+    assert [observed_ref] = summary.used_context_refs
+    assert observed_ref =~ "observation:obs_"
+    assert summary.unbound_context_refs == ["chapter:b39-invented"]
+    assert observed_ref in summary.request_observation_refs
+    assert summary.request_base_refs != []
+    assert summary.used_context_refs_provider_call_ref == "pc-b39-cp1-writer"
+    assert Enum.any?(turn_result.adoption_state.pending, &(&1.artifact_type == :prose_fragment))
   end
 
   defp prose_plan_draft(prompt, opts \\ []) do

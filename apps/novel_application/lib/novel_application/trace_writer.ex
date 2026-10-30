@@ -193,6 +193,7 @@ defmodule NovelApplication.TraceWriter do
       |> maybe_put_decision_packet_ref(turn_result)
       |> maybe_put_provider_refs(turn_result)
       |> maybe_put_quality(turn_result)
+      |> maybe_put_evidence_usage(turn_result)
       |> maybe_put_reply_record(frame)
 
     {trace, TraceRedactor.author_safe(summary)}
@@ -318,6 +319,24 @@ defmodule NovelApplication.TraceWriter do
   end
 
   defp maybe_put_quality(summary, _turn_result), do: summary
+
+  # B39 CP1c/D1：逐调用 Base/observation 可见集合与 used refs 校验结果进 trace summary
+  # （author-safe ref 文本；不写原始 prompt，不修改 artifact 字节）。
+  defp maybe_put_evidence_usage(summary, %{evidence_usage: %{} = usage}) do
+    summary
+    |> maybe_put(:request_base_refs, Map.get(usage, :base_refs))
+    |> maybe_put(:request_observation_refs, Map.get(usage, :observation_refs))
+    |> maybe_put(:used_context_refs, Map.get(usage, :used_context_refs))
+    |> maybe_put(:unbound_context_refs, Map.get(usage, :unbound_context_refs))
+    |> maybe_put(:used_context_refs_validation, validation_text(Map.get(usage, :status)))
+    |> maybe_put(:used_context_refs_provider_call_ref, Map.get(usage, :provider_call_ref))
+  end
+
+  defp maybe_put_evidence_usage(summary, _turn_result), do: summary
+
+  defp validation_text(nil), do: nil
+  defp validation_text(status) when is_atom(status), do: Atom.to_string(status)
+  defp validation_text(status), do: status
 
   defp maybe_put(summary, _key, nil), do: summary
   defp maybe_put(summary, _key, ""), do: summary

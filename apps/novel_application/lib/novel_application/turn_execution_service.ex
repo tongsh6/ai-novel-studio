@@ -26,6 +26,7 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelApplication.ProseQualityService
   alias NovelApplication.TraceWriter
   alias NovelApplication.TurnResultBuilder
+  alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.QualityEvaluationRequest
   alias NovelCommon.Contracts.QualityEvaluationResult
   alias NovelCommon.Contracts.ToolRequest
@@ -374,6 +375,14 @@ defmodule NovelApplication.TurnExecutionService do
         quality_pacing_context(brief_result)
       )
 
+    evidence_usage =
+      evidence_usage(
+        authoring_task,
+        tool_result,
+        input[:observations],
+        writer_provider_call_ref(tool_result)
+      )
+
     {trace, trace_summary} =
       TraceWriter.record_with_tool(
         frame,
@@ -397,7 +406,8 @@ defmodule NovelApplication.TurnExecutionService do
           provider_call_budget:
             provider_call_budget(provider_execution, quality_provider_execution, nil),
           quality_policy_action: quality_policy_action(quality),
-          quality_review_status: quality_review_status(quality)
+          quality_review_status: quality_review_status(quality),
+          evidence_usage: evidence_usage
         },
         input[:context]
       )
@@ -601,6 +611,50 @@ defmodule NovelApplication.TurnExecutionService do
     |> maybe_put_progress_state(sections)
     |> maybe_put_planning_mission(sections)
     |> maybe_put_authoring_task(sections)
+  end
+
+  # B39 CP1c/D1：本次真实 writer 调用的 Base/observation 可见集合与模型自报 used refs
+  # 同一事实派生做集合校验；越界 ref 只在 trace 记 unbound，不改 artifact 字节、不授信。
+  defp evidence_usage(
+         %AuthoringTask{} = task,
+         %ToolResult{} = result,
+         observations,
+         provider_call_ref
+       ) do
+    materials = List.wrap(task.materials)
+
+    base_refs =
+      materials
+      |> Enum.reject(&(Map.get(&1, :kind) == :observation))
+      |> Enum.map(&(Map.get(&1, :ref) || Map.get(&1, "ref")))
+      |> Kernel.++(List.wrap(task.source_refs))
+
+    observation_refs =
+      materials
+      |> Enum.filter(&(Map.get(&1, :kind) == :observation))
+      |> Enum.map(&(Map.get(&1, :ref) || Map.get(&1, "ref")))
+      |> Kernel.++(observation_source_refs(observations))
+
+    used_refs =
+      get_in(result.output || %{}, [:self_report, :used_context_refs]) || []
+
+    NovelDomain.EvidenceUsage.validate(used_refs, base_refs, observation_refs)
+    |> Map.put(:provider_call_ref, provider_call_ref)
+  end
+
+  defp evidence_usage(_task, _result, _observations, _provider_call_ref), do: nil
+
+  defp observation_source_refs(observations) do
+    observations
+    |> List.wrap()
+    |> Enum.flat_map(fn
+      %NovelDomain.AgentObservation{} = observation ->
+        ["observation:#{observation.observation_id}"] ++
+          List.wrap(Map.get(observation.structured_payload, :source_refs, []))
+
+      _ ->
+        []
+    end)
   end
 
   defp maybe_put_author_goal_text(input, text) when is_binary(text) and text != "",

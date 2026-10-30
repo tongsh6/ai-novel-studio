@@ -1,6 +1,6 @@
 # B39：求证式创作——最小供给、Run 级探索与证据闭环
 
-- 状态：**doing（2026-10-30 CP1 开工；作者已正式接受 ADR-0030/VS-00K/AU-15；CP1a 只读探索步+观察进 writer、CP1b 观察 refs 进使命与 writer 任务材料已落地；CP1c/d 与 A0/A1/A2、实模证据未完成；CP1–CP4 不得整体标 done）**。
+- 状态：**doing（2026-10-30 CP1 开工；作者已正式接受 ADR-0030/VS-00K/AU-15；CP1a 只读探索步+观察进 writer、CP1b 观察 refs 进使命与 writer 材料、CP1c used refs 校验/逐调用 trace 已落地；最小准备判断与 A0/A1/A2、实模证据未完成；CP1–CP4 不得整体标 done）**。
 - 登记日期：2026-10-27；来源：作者指出持续增加 APP 主动投喂只会不断补漏洞，要求先把元原则深化到全部承重设计，而非先做时间线专用设计。
 - 上游：[00 §2.4](../../docs/design/00-vision-and-engineering-roadmap.md#24-创作信息获取元原则最小供给按需求证证据闭环2026-10-27-用户拍板)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[VS-00K](../../docs/design/contracts/VS-00K-evidence-seeking-authoring-contract-pack.md)、[AU-15](../../docs/design/acceptance/author/AU-15-evidence-seeking-authoring.md)。
 - 当前可依已接受基线进入 CP1 设计与实现；本会话继续逐项作者裁决，尚未启动产品施工或实模运行。执行与资源边界见 §9.7.17。
@@ -56,7 +56,7 @@
 | CP | 完整工作与完成标准 | 状态 |
 |---|---|---|
 | CP0 | 元原则落到主链、运行时、Context、AgentRun、写前推理、要素模型、工程与验收；形成 ADR-0030 / VS-00K / AU-15 / B39 和索引、atlas、不变量、旧条款处置矩阵。只登记设计，不声称实现 | **done（2026-10-27）**：主链/领域/契约/工程文档完成处置；候选 #20–#23；ADR trace 28/28、NEXT ok、新文档链接通过、差距快照 20 项开放无意外减少、diff check 通过；未运行产品功能测试或 Tauri |
-| CP1 | 正文 run 开放现有只读探索；共享判断循环探索执行，观察进入使命与 writer；保留现有携带，不新建时间表；首个完整用户场景具备必要的最小准备判断；完成 SC-AU15-A0/A1/A2，确定性机制与真实模型行为分层取证 | **doing（CP1a+CP1b checkpoint 2026-10-30）**：共享 `ExplorationStep` 接入判断计划/正文 flow（0 provider/tool、事件/观察/预算）；观察带 `observation:<id>` + 来源 refs 进入 `ChapterMissionInputs`（I-M1 bind 保留，使命 model 可引用）与 writer AuthoringTask 材料/source_refs，writer prompt 同时带内容与材料 ref；单测证明。**未完成**：used_context_refs ⊆ Base∪观察集合校验与逐调用同源 trace 快照（CP1c）、最小准备判断、SC-AU15-A0/A1/A2 场景与真实模型分层证据（CP1d/验收）；不得以 checkpoint 代签 CP1 或 AU-15 |
+| CP1 | 正文 run 开放现有只读探索；共享判断循环探索执行，观察进入使命与 writer；保留现有携带，不新建时间表；首个完整用户场景具备必要的最小准备判断；完成 SC-AU15-A0/A1/A2，确定性机制与真实模型行为分层取证 | **doing（CP1a+CP1b+CP1c checkpoint 2026-10-30）**：共享只读探索步 → 观察进使命/writer 材料；`EvidenceUsage` 纯校验 used refs ⊆ 当次请求 Base∪实际观察，越界只记 trace unbound、不改 artifact 字节；trace summary additive 记录 request_base_refs/request_observation_refs/used/unbound/provider_call_ref（partial 语义）。**未完成**：最小准备判断（D3-A）、SC-AU15-A0/A1/A2 driver/verifier/registry 与真实模型行为分层证据、外部请求字节交叉核对/B42 provider_calls 字段、dialogue 内联探索迁移；不得以 checkpoint 代签 CP1/AU-15 |
 | CP2 | 写前准备可返回通用信息缺口并触发有界 plan revision；建立 Base/观察 refs 与 used_context_refs 对账；明确“可先求证”与“只能由作者裁决”的 clarification 边界；未知、歧义、冲突与越界引用完成 SC-AU15-B1/C1 | 未开工 |
 | CP3 | 规划、修订、写后质量与恢复复用同一求证链；完成 SC-AU15-B2/C2；真实 provider 请求、trace、replay 与作者可见证据一致 | 未开工 |
 | CP4 | 依据真实 run 的引用、重复查询和质量证据逐块迁移固定携带；领域读模型（包括是否需要时间线）按真实缺口单独立项；完成 SC-AU15-D1 | 未开工 |
@@ -563,6 +563,19 @@ git diff --check
   3. SC-AU15-A0/A1/A2 driver/verifier/registry、真实模型行为分层证据、≥2 独立 run 与失败分母；A2 通用性（时间要素）与 diff 检查。
   4. `dialogue_planning_service` 两处探索内联实现迁移、跨 flow 预算累计/续读证据。
 - 门禁：见 `artifacts/gates/2026-10-30-b39-cp1b/`。
+
+### 9.11 CP1c 接线 checkpoint（2026-10-30，未完成 CP1）
+
+- 交付：
+  - 新增 `NovelDomain.EvidenceUsage` 纯校验：`used_context_refs ⊆ Base refs ∪ 实际观察 refs`；状态 `:ok | :partial | :all_unbound | :no_claim | :unknown`；越界 ref 记 `unbound_context_refs`，不给证据信用、不修改 artifact 字节；4 条 domain 测试。
+  - `TurnExecutionService` 在真实 writer tool result 之后、trace 记录之前，由同一请求事实派生 Base refs（task materials 非 observation + source_refs）与 observation refs（observation 材料 ref + 观察底层 source refs），校验模型自报 `used_context_refs`；结果随 trace meta 记录。
+  - `TraceWriter` additive 写 `request_base_refs` / `request_observation_refs` / `used_context_refs` / `unbound_context_refs` / `used_context_refs_validation` / `used_context_refs_provider_call_ref`（author-safe，不写 raw prompt）；turn_result 的 trace_summary/Why 消费同源。
+- 测试（prose CP1 场景扩展）：writer self_report 同时引用真实 observation ref 与虚构 `chapter:b39-invented`；trace summary `validation=partial`、`used_context_refs=[observation:…]`、`unbound_context_refs=[chapter:b39-invented]`、`request_observation_refs` 含该 observation ref、`request_base_refs` 非空、provider_call_ref 指向实际 writer 调用；已生成 prose pending 候选保持存在。相关测试 16/16；全量门禁见 `artifacts/gates/2026-10-30-b39-cp1c/`。
+- 残余（CP1 未完成）：
+  1. Base/observation 快照目前由 request 装配事实派生（AuthoringTask/observations），尚未与外部真实 provider 请求字节交叉核对；B42 `provider_calls[].request_observation_refs`/`observed_in_calls` sidecar 需在 AU-15 verifier 采集（CP1d）。
+  2. 最小准备判断未接：关键既有事实未核清时继续求证/询问的正式行为。
+  3. SC-AU15-A0/A1/A2 driver/verifier/registry、真实模型行为分层证据、≥2 独立 run/失败分母、A2 通用性与无领域分支 diff 检查。
+  4. `dialogue_planning_service` 两处探索内联实现迁移、跨 flow 预算累计/续读证据。
 
 ## 10. 当前初始供给整改的消费交接
 

@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B39 | CP1 进行中（CP1a+CP1b done：只读探索步、观察 refs 进使命/writer 任务材料；CP1c used_context_refs/Base 快照、最小准备判断、A0/A1/A2 场景与实模分层证据待做）；后续准备/恢复/迁移仍按完整 slice 验收 | [原任务](slices/B39-evidence-seeking-authoring.md) |
+| B39 | CP1 进行中（CP1a+CP1b+CP1c done：只读探索→观察进使命/writer→used refs 集合校验与逐调用 trace；最小准备判断、A0/A1/A2 场景与实模分层证据待做）；后续准备/恢复/迁移仍按完整 slice 验收 | [原任务](slices/B39-evidence-seeking-authoring.md) |
 
 ## 后续候选
 
