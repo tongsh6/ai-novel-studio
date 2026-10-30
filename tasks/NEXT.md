@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| DS01-RUN-STATE | 首批运行状态链：核对现役 wire 与恢复权限，补 schema/codegen/safeParse 和 live/dead/unknown 正反例 | [原任务小节](slices/DS01-decision-surface-schema-gate.md#9-ds03-agent_run_state-schema-承接) |
+| DS01-RUN-STATE | CP0 done/schema 已生成；CP1 前端类型派生+safeParse+live/dead/unknown 矩阵与真实页面恢复证据待做 | [原任务小节](slices/DS01-decision-surface-schema-gate.md#9-ds03-agent_run_state-schema-承接) |
 
 ## 后续候选
 

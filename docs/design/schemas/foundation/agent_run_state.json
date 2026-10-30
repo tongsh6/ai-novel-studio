@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgentRunState",
+  "description": "DS01 §9 / DS03：agent_run_state Channel 帧与 join 恢复快照的 wire 形状。runtime_live 是实时命令权限真源；历史快照缺该字段时为 unknown，不得当作 live。",
+  "type": "object",
+  "required": ["run_id", "run_mode", "status", "phase"],
+  "properties": {
+    "run_id": { "type": "string", "minLength": 1 },
+    "run_mode": { "type": "string", "enum": ["bounded", "durable"] },
+    "status": { "type": "string" },
+    "phase": { "type": "string" },
+    "long_run_task_ref": { "type": ["string", "null"] },
+    "workspace_id": { "type": ["string", "null"] },
+    "work_id": { "type": ["string", "null"] },
+    "session_id": { "type": ["string", "null"] },
+    "parent_turn_ref": { "type": ["string", "null"] },
+    "origin_frame_ref": { "type": ["string", "null"] },
+    "profile_ref": { "type": ["string", "null"] },
+    "trigger": { "type": ["object", "null"], "additionalProperties": true },
+    "current_activity": {
+      "type": ["object", "null"],
+      "properties": {
+        "kind": { "type": "string" },
+        "phase": { "type": "string" },
+        "completed_steps": { "type": "integer" },
+        "total_steps": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "goal": { "type": "object", "additionalProperties": true },
+    "plan_ref": { "type": ["string", "null"] },
+    "plan_version": { "type": ["integer", "null"] },
+    "current_step_ref": { "type": ["string", "null"] },
+    "completed_step_refs": { "type": "array", "items": { "type": "string" } },
+    "pending_artifact_refs": { "type": "array", "items": { "type": "string" } },
+    "interrupt_state": { "type": "object", "additionalProperties": true },
+    "budget": { "type": "object", "additionalProperties": true },
+    "consumed_budget": { "type": "object", "additionalProperties": true },
+    "current_task": { "type": "boolean" },
+    "remaining_steps": { "type": "integer" },
+    "recovered": { "type": "boolean" },
+    "runtime_live": { "type": ["boolean", "null"] },
+    "long_run_task": { "type": ["object", "null"], "additionalProperties": true }
+  },
+  "additionalProperties": true
+}

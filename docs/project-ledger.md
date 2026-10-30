@@ -1210,3 +1210,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B01 CP0 partial**：盘点入口 lineage：run_spec origin_frame_ref 默认合成 `frame_<turn_id>`、channel 动作再拼后缀、run 启动时无真实 primary frame；step plan 在 decide 前覆盖为真实 step frame。拟用显式 origin_turn_ref + 只加列不回填，旧合成值 legacy；migration/前端展示待确认，未改代码。
 
 - 2026-10-31 — **B01 blocked**：CP0 确认 origin_frame_ref 合成串；CP1 需 nullable origin_turn_ref/改列可空（SQLite 表重建）或 origin_ref_kind 双格式，涉及 schema/历史兼容，列 A/B/C 交作者授权；当前任务切 DS01-RUN-STATE。
+
+- 2026-10-31 — **DS01-RUN-STATE CP0**：盘点 agent_run_state 现役 producer/join 恢复/dead 广播/runtime_live 语义；新增 foundation/agent_run_state.json（39 份 schema）并 codegen，前端手写类型/safeParse 待接；live/dead/unknown 与历史快照规则冻结。

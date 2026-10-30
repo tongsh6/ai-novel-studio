@@ -77,7 +77,7 @@
 
 ## 9. DS03 agent_run_state Schema 承接
 
-- 状态：**todo（2026-10-30 承接 DS03 已登记尾项；原 DS01/DS03 已验批次保持完成，本项未实施）**。
+- 状态：**doing（2026-10-31 CP0 盘点完成并新增 agent_run_state schema/codegen；前端手写类型替换与 safeParse/live-dead-unknown 接线待做）**。
 - 来源：[DS03 §9 残余登记](DS03-awaiting-author-runtime-validity-and-recovery-surface.md#9-决策日志) 明确 `agent_run_state` schema/codegen 归 DS01；[全量对账 E04](../2026-10-27-design-to-execution-reconciliation.md#45-其余任务) 要求 additive schema/codegen/safeParse，覆盖 live/dead/unknown 与恢复，不改状态机。
 - 下一步：核对 `agent_run_state` 现役 producer、Channel 广播/join 恢复、历史快照及前端运行权限消费者，明确当前字段、可选性和缺失语义；以现有 wire 为依据冻结 schema 与兼容矩阵，不按旧示例虚构运行状态。
 - 完整后果：schema 源、codegen 类型、实际接收处 safeParse 和消费者同批接线；覆盖 live/dead/unknown、刷新重连、失效 bounded/durable 与旧记录缺字段。历史 snapshot 不能授权实时命令，unknown 不能静默变成 live；必要字段无效与合法缺省须有明确处置，不能仅靠类型编译冒充运行时校验。
@@ -85,3 +85,12 @@
 - 依赖与边界：与 B45 协同 schema/opaque/历史兼容规则，状态生产与权限语义仍由 DS03 真源负责；修改前完成该 checkpoint 七问。非预算 awaiting、新 flow 的 steer 时序、S4 clarification 与 Pencil 扩展仍沿各自既有条件，本项不重新实现 DS03 状态机、不扩卡型。
 
 - 2026-10-30 首批 schema 排期：按 [B45 §7](B45-schema-legacy-governance.md#7-字段与消费者映射交付2026-10-30-纳入队列) 交付本链字段/状态的 producer、转换、真实校验、consumer 与历史兼容映射及具体修改清单；映射不是实际接线完成，不改变本 checkpoint 的完整验收范围。
+
+### CP0 盘点与 schema 落地（2026-10-31）
+
+- 现役 producer：`workspace_channel.agent_run_state_payload/2`（run + runtime 快照），发射点包括稳态广播、join 恢复、dead bounded 快照、author_action/steer 响应内嵌。
+- 关键 liveness：`runtime_live?` 由 channel 注入（live snapshot=true；dead bounded=false；缺失/历史快照=unknown），前端 `agentRunRuntimeAuthority/1` 以 true/false/missing → live/dead/unknown，unknown/dead 不给实时命令。
+- 新增 `docs/design/schemas/foundation/agent_run_state.json`（39 份 schema），字段以现役 payload 为准：run_id/run_mode/status/phase 必填；workspace/work/session/parent/origin/profile/trigger/current_activity/goal/plan/refs/budget/consumed/interrupt/current_task/remaining_steps/recovered/runtime_live/long_run_task 可选；`additionalProperties=true` 保留扩展。
+- `pnpm codegen:schemas` 生成 `frontend/src/generated/foundation/agent_run_state.ts`；前端仍使用 `socket.ts:AgentRunStateData` 手写接口（待替换）。
+- CP1 实施清单：前端类型从 generated 派生；`onAgentRunState` 接入 safeParse，失败告警但容错透传，且失败/缺失 `runtime_live` 必须落 unknown，不能当 live；历史快照缺字段读取兼容；live/dead/unknown 正反例测试；复用 DS03 外部真实工作台驱动验证 live 恢复、dead 失效、unknown 禁止命令。
+- 未完成：schema 校验接线、前端类型替换、恢复矩阵真实页面证据。
