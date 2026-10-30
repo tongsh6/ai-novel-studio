@@ -1,0 +1,80 @@
+id: au03-context-read-failure
+title: "AU03-CONTEXT：读取失败/未知 vs 真实空（原生故障注入 + 真实模型）"
+tier: nightly
+surface: tauri
+default_provider: strata
+status_note: >-
+  active（2026-10-30 CP3 注册）：外部原生 Tauri 驱动 + 真实模型（strata 单槽）验证
+  AU03-CONTEXT 的读取失败/未知语义——baseline 正常请求、外部故障注入（重命名只读投影表）、
+  同 session 故障期请求、解除故障恢复请求。判据：同 turn 实际 provider 请求必须包含 APP
+  安全可用性段（读取失败/未知）；不得把失败渲染为“新对话/尚未创建作品/0 章”；作者可见
+  回复与 trace 观测携带同一安全状态；故障期零 canon 写入；恢复后真实事实重新进入请求。
+  产品代码不含验收/故障感知；故障由外部 harness 注入。
+entrypoint: TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1 SLICE_VERIFY_PROVIDER=strata bash scripts/quality_accept.sh au03-context-read-failure --surface tauri
+contract:
+  - tasks/slices/AU03-file-level-closure.md §当前上下文缺失与读取失败补验（CP0–CP3）
+  - docs/design/acceptance/author/AU-03-context.md
+  - docs/design/contracts/VS-00B-dialogue-context-grounding-contract-pack.md §2
+invariants:
+  - I-AU03-1 读取失败/未知不得渲染为已确认空事实（无作品/新对话/0 章/没有讨论）。
+  - I-AU03-2 同一次真实 provider 请求须携带 APP 客观来源状态；trace/观测/反馈与请求同源。
+  - I-AU03-3 故障期不写 canon；真实空 vs 读取失败在成功路径仍可区分。
+  - I-AU03-4 故障解除后恢复请求重新包含真实作品/章节事实，不串作品、无旧授权复活。
+setup:
+  provider: strata
+  seed: scripts/seed_au03_context_status.exs
+  env_note: 隔离 test DB；真实模型单槽（strata/iq3_s），结束必须 unload 并核验 loaded=null。
+  trial_matrix:
+    - H3 baseline：正常请求 → prompt 含真实作品事实，无可用性段。
+    - H1 fault：外部重命名 chapter_summaries 投影表 → 同 turn 请求含「上下文可用性/读取失败」，不称新对话/0章；反馈/trace 同源；零 canon 写入。
+    - H2 recovery：解除故障 → 后续请求重新含真实作品/章节事实，无可用性段。
+user_flow:
+  - open: 真实 Tauri runner 打开 seed 作品（第03章含 accepted 正文）。
+  - send: H3 自然事实问题 → 观察回复；读取该 turn 实际 provider 请求。
+  - fault: 外部 harness 对隔离 DB 执行 `ALTER TABLE chapter_summaries RENAME TO chapter_summaries_fault`（产品无感知）。
+  - send: H1 同 session 问题 → 检查同 turn 请求可用性段、回复/trace 安全状态、零 canon 写入。
+  - restore: 外部 harness 重命名回原表。
+  - send: H2 恢复问题 → 检查请求重新含真实事实且无可用性段。
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  extra_artifacts:
+    - au03-context-native-driver-log.json
+    - au03-native-checks.json
+    - au03-fault-events.json
+    - au03-H3.json
+    - au03-H1.json
+    - model-lifecycle-before.json
+    - model-lifecycle-after.json
+    - author_question_events.json
+  artifact_dir: artifacts/slice-verify/au03-context-read-failure-tauri-strata-native
+assertions:
+  ui:
+    - H1 回复不得声称“没有作品/0章/读取成功”；H2 恢复后回复可引用真实章节事实。
+  network:
+    - H1 同 turn provider 请求含 APP 可用性段与安全类别；llm-calls turn_id 对齐该轮。
+    - context.assemble.done 的 source_status 与请求段一致（chapters=unavailable，work=ok）。
+    - provider 全部为 strata；运行结束 loaded=null。
+  data:
+    - 故障期 DB 生产表/草稿/摘要计数与章节正文 hash 不变（零 canon 写入）。
+    - H1 trace agent_events 含 context_source_status.unavailable_sources 包含 chapters。
+    - H2 恢复后 chapter_summaries 表名恢复，请求含真实 title/章节事实。
+  llm:
+    - 至少 3 次真实 provider 调用；模型/参数记录可回放。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+anti_hooks_verification: >-
+  驱动只用真实窗口可见语义（输入/发送/AX 文本）+ WS 帧 + app/llm JSONL + 隔离 DB 只读核对；
+  故障注入仅在外部 harness 对隔离 DB 执行 DDL，产品代码不读取 env/slice/testid/故障开关。
+prerequisites:
+  - AU03-CONTEXT CP0–CP2 已提交（契约冻结、source_status 接线、本地故障矩阵）。
+  - strata 统一后台可达且 iq3_s 单槽空闲；运行后必须 unload 并核验。
+known_not_closed:
+  - 真实模型如何措辞“未知”只报告不代签；prose/plot mission inputs 的可用性消费另记 known-gap。
+  - 失败批次只读保留，不重跑换分。

@@ -253,6 +253,15 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 - 门禁：format/compile -Werror/credo strict/xref/arch、全量 mix test **2365/0**（新增 7）、I1/I2/I3、manifest 209 scenarios、task_done `20261030T141643Z`、静态扫描无 blocking。
 - 残余/后续：① `prose_drafting_with_quality`/`plot_outline_with_context` 的 mission inputs 仍以 `work_snapshot %{}`/`written_chapters 0` 渲染（writer prompt 尚未消费 source_status），本 CP 以 judgment 路径为主、未改其渲染；作为 known-gap 保留（归 B39/B27 专业 run 上下文消费继续，CP3 不代签）；② 真实页面故障注入与真实模型如何措辞“未知” = CP3；③ 未新增 UI 文案，作者可见措辞以同次请求/trace 证据收口。
 
+### CP3 执行注册（2026-10-30，冻结后执行）
+
+- slice id：`au03-context-read-failure`；seed `scripts/seed_au03_context_status.exs`（作品 + 第03章 accepted 正文）；驱动 `scripts/native_au03_drive.mjs`；证据 `scripts/native_au03_evidence.mjs`。
+- 场景：H3 baseline（真实事实）→ 外部注入故障（重命名 `chapter_summaries` 投影表）→ H1 fault（同 session，同 turn 请求必须含可用性段/读取失败，反馈与 trace 同源，零 canon 写入）→ 解除故障 → H2 recovery（请求重新含真实作品/章节事实，表名恢复）。
+- 故障注入：仅外部 harness 对**隔离测试 DB** 执行 `ALTER TABLE chapter_summaries RENAME TO chapter_summaries_fault` 及反向恢复（预检 `artifacts/task-audit/2026-10-30-au03-context-cp3/preflight_fault.exs` 已证明只影响 context chapters 来源、work 等已成功来源保留）；产品代码不读取 env/slice/testid/故障开关；失败批次只读保留，驱动失败路径尽力恢复表名并记录。
+- 判据：llm-calls 按 `turn_id` 对齐该轮真实 provider 请求；app-log `context.assemble.done.source_status` 与请求段一致（H1 chapters=unavailable、work=ok）；DB `agent_events.payload.context_source_status.unavailable_sources` 含 chapters；H1 前后 canon 计数/正文 hash 不变；H2 表名恢复、请求含真实 title/章节事实；strata 单槽结束 unload 核验。
+- 证据目录：`artifacts/slice-verify/au03-context-read-failure-tauri-strata-native-<tag>/`；runner 注册五处 + scenario manifest（210 scenarios）。
+- 预算：B37 分型等待（input/turn/candidate/adoption/maintenance/restore/export）+ 10s 心跳；同因失败 ≤2 次，超预算记录 root-cause 并升级；不重跑换分。
+
 ## 历史搜索命中定位与只读回看
 
 - 状态：**todo（2026-10-30 承接 SC-AU03-C3/P2；已有会话搜索与只读打开不重做）**。

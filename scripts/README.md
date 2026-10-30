@@ -94,6 +94,8 @@
 | `native_b33_evidence.mjs` | B33 CP3 证据 prepare/capture/verify（strata provider、零写入差分、seq/正文/角色不变断言、模型 unload 核验、summary）。 |
 | `native_b28_scope_drive.mjs` | B28-SCOPE CP3 外部原生 Tauri 真实模型驱动（7 场景串行：字面替换/否定整章+局部/通读后局部/只读拒改/条件整章/整章重写/仅排版；作者问答与运行暂停自动应答；strata 单槽生命周期记录、结束卸载）。 |
 | `native_b28_scope_evidence.mjs` | B28-SCOPE CP3 证据 prepare/capture/verify（strata provider、候选 scope/effect、采纳回执、目标段外字节逐字、零写入差分、对照章/章节身份不变、模型 unload 核验、summary）。 |
+| `native_au03_drive.mjs` | AU03-CONTEXT CP3 外部原生 Tauri 真实模型驱动（H3 baseline→外部注入投影表故障→H1 fault→解除→H2 recovery；故障仅外部 harness 执行 DDL，产品无感知；strata 单槽生命周期/卸载）。 |
+| `native_au03_evidence.mjs` | AU03-CONTEXT CP3 证据 prepare/capture/verify（同一 turn provider 请求可用性段、context.assemble source_status、trace unavailable_sources、零 canon 写入、投影表恢复与 unload 核验、summary）。 |
 | `native_b29_drive.mjs` | B29 原生外部系统 UI 驱动（AX/CGEvent）：确定性 T1–T5 + strata scoped T1/T2；关闭重开恢复、档案角色 roster、「谁是主角」追问；失败首因 JSON。 |
 | `native_b29_evidence.mjs` | B29 原生证据核验：确定性 23 checks 1:1 + strata scoped 21 checks（provider 来源/生命周期/author_question_events）；summary 明示 scope，不冒充全矩阵。 |
 | `native_p1_drive.mjs` / `native_p1_evidence.mjs` | P1 原生实模 scoped 创作旅程：创作/排版维护/真实关闭重开恢复+续写/真实目录面板导出；模型生命周期 before/after-unload、导出文件 hash、wait-ledger 全分型。 |
