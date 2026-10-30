@@ -6,13 +6,12 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU09-EVOLUTION | CP0/CP1 done：召回路径审计 + CHARACTER_PROFILE 进入创作事实链/单测；CP2 真实页面召回待 driver 重锚（au09-memory-taxonomy 卡在中间帧/按钮） | [原任务小节](slices/AU09-memory-taxonomy-write-policy.md#cp2-角色演化记忆的真实召回) |
+| B72 | CP0 离线 LLM 语料扩增设计已冻结；CP1 生成 manifest/candidate 与原始批次，不调用模型 | [原任务](slices/B72-author-behavior-offline-corpus-expansion.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B72 | 作者选择先做 P2：CP0 离线 LLM 语料扩增设计已冻结；下一步 CP1 生成 manifest/candidate 与原始批次，未调用模型；P0/P1 缺口不由本任务销账 | [原任务](slices/B72-author-behavior-offline-corpus-expansion.md) |
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B48 | 无变化普通说明、真正歧义才追问；依赖 B43 裁决同源，完成四场景验收 | [原任务](slices/B48-character-revision-noop-and-ambiguity.md) |
 | B58 | CP0 对账现有 receipt/trace 与批准语义；缺口成立后才冻结最小契约，不先建新实体 | [原任务](slices/B58-human-approval-policy-unification.md) |
