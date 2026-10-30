@@ -1332,3 +1332,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **AU12-WRITEBACK CP0**：列清 works 字段权威源、skeleton 白名单仅 3 字段、world_setting 不写 works、DTO/ContextAssembler 消费者缺口；冻结 A（扩展现有显式 field-value 提案+DTO/模型消费）推荐/B 新 artifact/C known-gap；未改代码。
 
 - 2026-10-31 — **AU12-WRITEBACK CP1 partial/阻塞**：显式 field-value 白名单扩至 premise/theme/main_goal/卖点/读者/基调并类型校验；Work DTO/档案概览/ContextAssembler 同源消费；测试全绿。作者概览修订的显式 producer（judgment/chat tool）未裁决，A/B/C 待选；未加新 artifact。当前任务切 AU09-DIRECTION。
+
+- 2026-10-31 — **AU09-DIRECTION CP0/裁决材料**：choose_candidate 只走 gate/action_result，未持久化方向；MemoryType 无方向类型；选项 A（推荐显式 WORK_DIRECTION，需 schema 授权）/B（IDEA+metadata）/C（known-gap）；未写记忆/未改代码；当前任务切 B66-PREP。

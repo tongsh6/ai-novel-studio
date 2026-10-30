@@ -42,8 +42,27 @@
 
 ## 6. 当前契约与裁决材料准备
 
-- 状态：**todo（2026-10-30 可独立准备；持久写入实施仍待本任务 T1 的具体契约接受）**。
+- 状态：**blocked（2026-10-31 契约/裁决材料已备；现役 choose_candidate 只评估不持久化方向，落位方案需作者接受后才实施 T2–T6）**。
 - 下一步：重核当前 `choose_candidate` → AdoptionBoundary → receipt/trace → 后续创作的消费者，保留已确认“方向长期可召回”的目标；按当前 MemoryType、ADR-0030/0031 和通用求证链比较落位方式，避免按七月建议直接增加枚举或固定 packet。
 - 待裁决材料：方向与硬约束/剧情事实的区别、有效范围、多方向并存或替换、作者废弃/冲突时的语义、可解释来源；类型命名随语义归属确定。旧 T1 的 CREATIVE_DIRECTION/CONSTRAINT 选项为历史提案，不能把它或“最新 N 条自然降权”当已冻结契约。
 - 交付：真实生产/消费矩阵、最小方案与选项影响、采纳/幂等/跨会话/有效期/废弃/Why 的完整验收范围；B64 的目标坐标规则与 B39 的求证入口明确复用。该准备不写记忆、不运行模型，不预先接受任何方案。
 - 实施放行：作者接受具体契约后再推进 T2–T6；完成普通回复统一裁决不等于方向持久化完成，方向写入也不等于真实模型正确消费。后续状态仍在本原任务，不另建创作方向 slice。
+
+### CP0 契约/裁决材料（2026-10-31）
+
+**现役链路事实**
+- 候选方向来源：判断协议 `candidate_directions`（direction_id/title/pitch/tone_tags/source_frame_ref/risk_hint），由 `judgment_candidates/2` 生成；无有效 title/pitch 被过滤。
+- 作者 `choose_candidate`：`DialogueGateway.handle_action/3` → `ActionValidator.validate` → `candidate_set_from_turn_result` → `chosen_candidate` → `AdoptionBoundary.evaluate`（missing/stability/cross-work/contract/freshness/conflict/overwrite/high-risk 等 gate）→ 只返回 `action_result` + `candidate_turn_result`。
+- **没有调用 `AdoptionRepository.persist`、没有 MemoryItem/方向持久记录**；`adoption_target_ref` 默认字符串 `"work_direction"` 仅作为候选元数据，无实际落位消费者。因此当前“方向采纳”不会形成长期可召回事实，也没有 scope/有效期/废弃/替换语义。
+- MemoryType 枚举无方向类型（`IDEA` 最近似但不等于长期方向）；`candidate_directions` 的 adoption_status 只在 TurnResult 内展示，不持久。
+- trace：可经 action receipt/decision 留痕，但没有方向事实的 before/after 版本与来源绑定。
+
+**方案比较（需作者接受具体契约后才实施）**
+- **A（推荐，最小语义增量）**：新增显式 `WORK_DIRECTION` 记忆类型/结构（author 接受 schema/代码生成改动），字段含 title/pitch/tone_tags/scope（本章/本卷/全书）/status（active/superseded/abandoned）/source candidate+turn/risk；采纳时同 scope 并存或替换需显式字段，废弃写 superseded_by；Why 可回查候选来源。
+- **B（不动枚举）**：把方向写入既有 `IDEA` 记忆并加结构化 metadata（scope/status/source/supersedes），由消费侧按 metadata 过滤；代价是语义借用、治理/权重语义需另行说明，长期可能与“灵感”混淆。
+- **C（不动持久化）**：只保留 action receipt/decision trace 与 TurnResult 展示，明确登记“方向不长期召回”的 known-gap，不冒充长期方向记忆。
+- 共同约束：只有作者采纳才写；未采纳/放弃/过期/跨作品/重复请求零写入；方向与硬约束/剧情事实分层，不覆盖既有 canon；B64 坐标、B39 求证入口复用；不按“最新 N 条自然降权”当契约。
+
+**验收范围（接受方案后）**：真实生产/消费矩阵；采纳/幂等/跨会话/有效范围/废弃/Why；概览/上下文/后续判断与专业模型请求同源；外部真实 Tauri 从候选选择→采纳→新会话召回→模型请求核对；无 pending 卡出现冒充落位。
+
+**实施放行**：等待作者选择 A/B/C；未接受前不写记忆、不改枚举/schema、不运行模型。

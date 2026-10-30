@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU09-DIRECTION | 准备长期方向的类型、并存/替换、有效范围与废弃方案，具体接受前不写记忆 | [原任务小节](slices/AU09-work-direction-memory-recall.md#6-当前契约与裁决材料准备) |
+| B66-PREP | CP0 准备本地快照/恢复范围、一致性、敏感文件和覆盖/回滚选项；不操作作者数据 | [原任务小节](slices/B66-local-workspace-backup-restore.md#cp0-最小本地快照恢复契约准备) |
 
 ## 后续候选
 
@@ -15,7 +15,6 @@
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B48 | 无变化普通说明、真正歧义才追问；依赖 B43 裁决同源，完成四场景验收 | [原任务](slices/B48-character-revision-noop-and-ambiguity.md) |
 | VS-00G | 核对 CP5e A2/A3 历史证据与当前版本，明确 scoped 补验；触发 C/记忆富化与 B39 协同 | [原任务](slices/VS-00G-fact-inventory-run.md) |
-| B66-PREP | CP0 准备本地快照/恢复范围、一致性、敏感文件和覆盖/回滚选项；不操作作者数据 | [原任务小节](slices/B66-local-workspace-backup-restore.md#cp0-最小本地快照恢复契约准备) |
 | B51 | CP0/CP1 核对依赖、引用及 PaperTrail 存量/消费者；形成去留材料，后续规范修订不倒装依赖 | [原任务](slices/B51-tech-stack-current-rebase.md) |
 
 ## 阻塞
@@ -32,6 +31,7 @@
 - **UA01-LOG-B13**：CP0 只读 done；现无外部场景把 run 驱动到最终 run_failed，AU04 provider 失败场景复跑超时（自身漂移）；需受控失败触发+同 run/turn 三源关联补验，未改代码/日志，见 [UA01](slices/UA01-provider-execution-stream-unification.md#b13-cp0-只读核对2026-10-31)。
 - **SU04-LIFECYCLE**：CP0/CP1 实现（marker/staging、进程组退出、端口就绪、作者可见失败分类）完成；真实 release 打包应用故障复验缺预注册外部 harness（现 native 路径是 debug app，不 spawn sidecar），按预算阻塞；解除=release-app 外部驱动+隔离 profile 故障矩阵，见 [SU04](slices/SU04-desktop-sidecar-packaging.md#现役故障与生命周期契约核对)。
 - **AU12-WRITEBACK**：CP0 done；CP1 落位/拒绝/DTO/概览/上下文消费已实现+测试；作者概览修订的显式提案 producer 未裁决（A 推荐：judgment/创作边界加显式 field-value 提案；B fact-inventory 全字段；C 作者表单），未加 artifact/tool，见 [AU12](slices/AU12-correction-intent-roundtrip.md#cp1-实施记录与-producer-阻塞2026-10-31)。
+- **AU09-DIRECTION**：契约/裁决材料已备；现役 choose_candidate 只评估不持久化方向（无 MemoryItem/scope/废弃/召回）。选项 A（推荐：显式 WORK_DIRECTION 类型+结构化字段，需 schema/枚举授权）/B（既有 IDEA+metadata）/C（known-gap）；接受前不写记忆/不改枚举，见 [AU09](slices/AU09-work-direction-memory-recall.md#cp0-契约裁决材料2026-10-31)。
 - **B01 后续**：CP0 done；origin_frame_ref 为合成串，CP1 需 A（新增 nullable origin_turn_ref + origin_frame_ref 可空，推荐）/B（origin_ref_kind + turn:<id>）/C（保持 known-gap）之一；涉及 SQLite 表重建/历史兼容，待作者授权 migration，未改 schema/DB。见 [B01 小节](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界)。
 - **B43 后续**：CP0/CP1 done；CP2 Form R 出口/Replay 同源已落地；**MissingPolicy 在 Gate 之后才评估**，统一门序涉及 ADR-0005 gate 集合与验收判据，需作者/ADR owner 在 A（新增 missing_policy gate，推荐）/B（decide 前 preflight）/C（仅标注）/D（只覆盖 prose flow）间裁决；CP3/CP4 未开工，见 [B43](slices/B43-gate-order-residual.md)。
 - **B67 后续**：CP0/CP1 done；CP2 revision CAS/重编号/旧任务晚到已落地，但维护 StateTrace 依赖 [VS00F-TRACE](slices/VS-00F-five-ledgers-three-state.md#维护-statetrace-后续-checkpoint) owner 先冻结生产/存储/回放契约；CP3 页面矩阵未开工，见 [B67](slices/B67-revision-aware-ledger-maintenance.md)。
