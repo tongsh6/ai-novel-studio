@@ -1310,3 +1310,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **P1-AUDIT-BC blocked（页面）**：B/C audit/ReadingMode/artifact writer 实现完成；真实 Tauri 两次同因失败于 stale projection banner 断言——adoption 后服务端 refresh=STALE，但 ReadingMode 四态是客户端 query 状态，refetchOnMount 后不显示 banner（AU08 已登记缺口）；按预算停止、未放宽断言；当前任务切 AU03-SEARCH。
 
 - 2026-10-31 — **AU03-SEARCH CP0**：核对现有 session search 仅返回列表、无 turn 命中/定位；冻结 search_hits（work/session/turn/role/snippet，限量、无全文平台）+ transcript around_turn_id + 只读高亮设计；CP1 实施待做，未改代码。
+
+- 2026-10-31 — **AU03-SEARCH CP1 partial**：新增 work-scoped `search_hits`（turn/role/snippet，limit 50，work 隔离）+ service/API/路由；service/controller 测试，全量 backend 1057/0。around_turn 定位、前端只读高亮与 Tauri 页面证据待做；未建全文平台。

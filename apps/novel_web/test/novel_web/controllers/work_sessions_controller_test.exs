@@ -99,6 +99,38 @@ defmodule NovelWeb.WorkSessionsControllerTest do
     assert id == session.id
   end
 
+  test "GET /api/works/:work_id/sessions/search_hits returns turn-level hits", %{
+    conn: conn,
+    work: work
+  } do
+    {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "历史搜索会话"})
+
+    {:ok, _} =
+      MemoryLog.record(%{
+        workspace_id: work.id,
+        session_id: session.id,
+        turn_id: "turn-hit-1",
+        role: "assistant",
+        content: %{text: "妹妹林瑶的伏笔在旧账牌里。"}
+      })
+
+    conn = get(conn, "/api/works/#{work.id}/sessions/search_hits", %{"query" => "林瑶"})
+    body = json_response(conn, 200)
+
+    assert [
+             %{
+               "session_id" => session_id,
+               "session_title" => "历史搜索会话",
+               "turn_id" => "turn-hit-1",
+               "role" => "assistant",
+               "snippet" => snippet
+             }
+           ] = body["hits"]
+
+    assert session_id == session.id
+    assert snippet =~ "林瑶"
+  end
+
   test "GET /api/works/:work_id/sessions/resume hides archived sessions by default", %{
     conn: conn,
     work: work

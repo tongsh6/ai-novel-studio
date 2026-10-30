@@ -880,6 +880,43 @@ defmodule NovelApplication.WorkSessionServiceTest do
     assert WorkSessionService.turn_result(other_work.id, "turn-source") == nil
   end
 
+  test "search_hits 返回 work 内 turn 级命中，跨作品隔离，空 query 为空", %{work: work} do
+    {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+    record(work.id, session.id, "turn-search-user", "user", "作者原话 AU03-HIT-非子", nil)
+
+    record(work.id, session.id, "turn-search-assistant", "assistant", "回复 AU03-HIT-助手", nil)
+
+    {:ok, other_work} = WorkService.create(%{title: "其他作品"})
+    {:ok, other_session} = WorkSessionRepo.ensure_active_for_work(other_work.id)
+
+    record(
+      other_work.id,
+      other_session.id,
+      "turn-search-other",
+      "user",
+      "其他作品 AU03-HIT-非子",
+      nil
+    )
+
+    hits = WorkSessionService.search_hits(work.id, "AU03-HIT-非子")
+    assert length(hits) == 1
+    assert [hit] = hits
+    assert hit.turn_id == "turn-search-user"
+    assert hit.role == "user"
+    assert hit.snippet =~ "AU03-HIT-非子"
+    assert hit.session_title == session.title
+
+    assistant_hits = WorkSessionService.search_hits(work.id, "AU03-HIT-助手")
+
+    assert Enum.any?(
+             assistant_hits,
+             &(&1.turn_id == "turn-search-assistant" and &1.role == "assistant")
+           )
+
+    assert WorkSessionService.search_hits(work.id, "   ") == []
+  end
+
   defp record(
          work_id,
          session_id,

@@ -211,6 +211,18 @@ defmodule NovelApplication.WorkSessionService do
     |> Enum.map(&session_dto/1)
   end
 
+  @doc "AU03-SEARCH：work 内 turn 级只读搜索命中（session 标题随 hit 返回，便于定位）。"
+  @spec search_hits(String.t(), String.t()) :: [map()]
+  def search_hits(work_id, query) when is_binary(work_id) and is_binary(query) do
+    work_id
+    |> WorkSessionRepo.search_hits(query)
+    |> Enum.map(fn hit ->
+      session = WorkSessionRepo.get_by_work(work_id, hit.session_id)
+
+      Map.put(hit, :session_title, session && session.title)
+    end)
+  end
+
   @doc "Create a new active session in one work."
   @spec create(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def create(work_id, attrs \\ %{}) do

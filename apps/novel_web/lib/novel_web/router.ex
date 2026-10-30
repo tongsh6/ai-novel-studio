@@ -40,6 +40,7 @@ defmodule NovelWeb.Router do
     get("/works/:work_id/memories/:id/references", MemoriesController, :references)
     get("/works/:work_id/sessions/resume", WorkSessionsController, :resume)
     get("/works/:work_id/sessions", WorkSessionsController, :index)
+    get("/works/:work_id/sessions/search_hits", WorkSessionsController, :search_hits)
     post("/works/:work_id/sessions", WorkSessionsController, :create)
     post("/works/:work_id/sessions/:id/archive", WorkSessionsController, :archive)
 

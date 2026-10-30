@@ -277,7 +277,7 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 
 ## 历史搜索命中定位与只读回看
 
-- 状态：**doing（2026-10-31 CP0 核对 done：现有搜索只返回 session 列表，无 turn 命中/定位；已冻结最小 hit 契约与分页定位设计，CP1 待实施）**。
+- 状态：**doing（2026-10-31 CP0 done；CP1 partial：work-scoped search_hits/API/测试完成，around_turn 分页定位与前端只读高亮/页面证据待做）**。
 - 设计依据：本文件 §3、[Journey B4](../../docs/product/user-journeys.md#3-journey-b作品空间会话与上下文分层) 要求搜索命中后定位对应 turn。只读核对 `frontend/src/components/WorkspaceChat.tsx` 的 searchSessions 消费只更新 sessions 列表；尚未证明命中 turn 的定位与高亮闭环。
 - 下一步：核定搜索结果的会话/turn 身份、匹配范围、分页定位与退出搜索的状态；查实际 API/DTO/视图能复用什么，再补最小定位契约与 UI 设计追溯，不能凭 title 或文本截断猜 turn。
 - 完整后果：从真实历史搜索进入指定匹配消息并可见命中；较旧分页命中、多个结果、归档会话、空结果与跨作品隔离均可验证。浏览历史保持只读，不恢复旧 pending/action/loading、不调用模型、不修改 transcript；“从这里继续”仍走既有分支操作。
@@ -303,3 +303,10 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 - 历史视图只读，不恢复旧 pending/action/loading、不调模型、不改 transcript；“从这里继续”仍走既有 branch 动作。
 
 **不新建全文搜索平台**；命中只用于定位，不自动塞入模型上下文。CP1 先做只读 hit + 分页定位局部测试，再补真实 Tauri 页面证据。
+
+### 搜索命中 CP1 记录（2026-10-31，partial）
+
+- backend `WorkSessionRepo.search_hits/3`：只读 interactions（user/assistant），work 隔离、去空白/大小写子串；返回 session_id/turn_id/role/snippet/inserted_at，limit ≤50；空 query → []。
+- `WorkSessionService.search_hits/2` 附 session_title；Web `GET /api/works/:work_id/sessions/search_hits` DTO；路由置于 `:id` 之前。
+- 测试：service（work 隔离、user/assistant 命中、snippet、空 query）27→28；controller hit turn/role/snippet/session title；全量 backend **1057/0**（web 146/0）。
+- 未做：`around_turn_id` 分页定位、前端 hit 列表/点击打开只读历史/高亮、退出搜索、空/多结果/归档/跨作品页面矩阵；无 Tauri 页面证据。不新建全文搜索平台、不自动塞模型上下文。

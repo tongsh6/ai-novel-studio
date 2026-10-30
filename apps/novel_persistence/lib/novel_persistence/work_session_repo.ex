@@ -112,6 +112,56 @@ defmodule NovelPersistence.WorkSessionRepo do
     end
   end
 
+  @doc """
+  AU03-SEARCH：work 内 turn 级只读搜索命中（不新建全文平台）。
+  query 去空白/大小写后对 user/assistant 文本做子串匹配；结果按更新时间倒序，
+  `opts[:limit]` 上限 50；空 query 返回 []。
+  """
+  @spec search_hits(String.t(), String.t(), keyword()) :: [map()]
+  def search_hits(work_id, query, opts \\ []) when is_binary(work_id) and is_binary(query) do
+    needle = query |> String.trim() |> String.downcase()
+    limit = Keyword.get(opts, :limit, 50) |> min(50) |> max(1)
+
+    if needle == "" do
+      []
+    else
+      Interaction
+      |> where([i], i.workspace_id == ^work_id and i.role in ["user", "assistant"])
+      |> order_by([i], desc: i.updated_at, desc: i.inserted_at)
+      |> Repo.all()
+      |> Enum.flat_map(fn row ->
+        text = hit_text(row)
+
+        case :binary.match(String.downcase(text), needle) do
+          {offset, _len} -> [hit(row, text, offset, limit)]
+          :nomatch -> []
+        end
+      end)
+      |> Enum.take(limit)
+    end
+  end
+
+  defp hit_text(row) do
+    case row.content do
+      %{"text" => text} when is_binary(text) -> text
+      %{text: text} when is_binary(text) -> text
+      _ -> ""
+    end
+  end
+
+  defp hit(row, text, offset, _limit) do
+    start = max(offset - 40, 0)
+    snippet = text |> String.slice(start, 120) |> String.trim()
+
+    %{
+      session_id: row.session_id,
+      turn_id: row.turn_id,
+      role: row.role,
+      snippet: snippet,
+      inserted_at: row.inserted_at
+    }
+  end
+
   @doc "Return full transcript for a session in insertion order."
   @spec transcript(String.t()) :: [NovelPersistence.Schemas.Interaction.t()]
   def transcript(session_id) when is_binary(session_id), do: MemoryLog.transcript(session_id)

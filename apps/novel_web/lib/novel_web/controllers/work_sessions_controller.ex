@@ -57,6 +57,25 @@ defmodule NovelWeb.WorkSessionsController do
     })
   end
 
+  def search_hits(conn, %{"work_id" => work_id} = params) do
+    query = Map.get(params, "query", "")
+
+    json(conn, %{
+      hits:
+        WorkSessionService.search_hits(work_id, query)
+        |> Enum.map(fn hit ->
+          %{
+            session_id: hit.session_id,
+            session_title: hit.session_title,
+            turn_id: hit.turn_id,
+            role: hit.role,
+            snippet: hit.snippet,
+            inserted_at: hit.inserted_at
+          }
+        end)
+    })
+  end
+
   def show(conn, %{"work_id" => work_id, "id" => session_id}) do
     t0 = System.monotonic_time(:millisecond)
 
