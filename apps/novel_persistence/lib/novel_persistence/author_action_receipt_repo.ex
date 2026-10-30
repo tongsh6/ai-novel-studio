@@ -4,6 +4,8 @@ defmodule NovelPersistence.AuthorActionReceiptRepo do
   """
 
   alias NovelPersistence.Repo
+  import Ecto.Query
+
   alias NovelPersistence.Schemas.AuthorActionReceipt
 
   @key_fields [
@@ -45,6 +47,22 @@ defmodule NovelPersistence.AuthorActionReceiptRepo do
         end
     end
   end
+
+  @doc "B58 CP3：按 work+session+source_turn 读取批准记录（why/replay 的 author-safe 来源）。"
+  @spec list_by_source_turn(String.t(), String.t(), String.t()) :: [AuthorActionReceipt.t()]
+  def list_by_source_turn(work_id, session_id, source_turn_ref)
+      when is_binary(work_id) and is_binary(source_turn_ref) do
+    AuthorActionReceipt
+    |> where([r], r.work_id == ^work_id and r.source_turn_ref == ^source_turn_ref)
+    |> maybe_filter_session(session_id)
+    |> order_by([r], asc: r.inserted_at, asc: r.id)
+    |> Repo.all()
+  end
+
+  defp maybe_filter_session(query, session_id) when is_binary(session_id),
+    do: where(query, [r], r.session_id == ^session_id)
+
+  defp maybe_filter_session(query, _session_id), do: query
 
   @spec entry_from_record(AuthorActionReceipt.t()) :: map()
   def entry_from_record(%AuthorActionReceipt{} = receipt) do

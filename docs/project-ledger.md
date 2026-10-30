@@ -1250,3 +1250,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B58 CP1**：32 §5.1 冻结最小 policy catalog（high_risk_canon_change/long_run_budget_gate active；命运/结局/高潮/具体预算 deferred，不造假 gate）；§11.1 冻结 additive 实现映射（approval_record 投影自 author_action_receipts/decision_traces，不建新表/第二状态机；字段缺失不得补默认）。CP2 实现与已 consumer 风险矩阵待做。
 
 - 2026-10-31 — **B58 CP2 partial**：新增 ApprovalAudit 纯映射，adoption/confirmation 动作补 policy_ref/risk_class/decision/decided_by/source_task_ref/base_revision 并随 author_action_receipts.result 持久化；缺字段不伪造；纯函数 4/0 + channel 集成 5/0，mix 1054/0。命运/结局/预算仍 deferred；页面/replay 归 CP3。
+
+- 2026-10-31 — **B58 CP2/CP3 partial**：receipt approval 字段持久化；replay/Why 增加 author-safe approvals 投影（trace_summary.approvals + 前端「批准依据」），receipt list 隔离/projection/why 单测；backend 1055/0、frontend 654/654。AU04 确认场景两次未产出 needs_confirmation，按预算停止登记 reanchor，未取得 CP3 真实页面证据。

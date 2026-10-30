@@ -72,6 +72,35 @@ defmodule NovelApplication.ApprovalAuditTest do
     assert cancelled.decision == "CANCELLED"
   end
 
+  test "project_receipt 只投影带 policy 的真实批准记录，不补 nil" do
+    receipt = %{
+      id: "receipt-1",
+      source_turn_ref: "turn-1",
+      action_id: "act-1",
+      action_type: "accept",
+      inserted_at: ~U[2026-10-31 00:00:00.000000Z],
+      result: %{
+        "approval_policy_ref" => "approval_policy.high_risk_canon_change",
+        "risk_class" => "HIGH",
+        "decision" => "ACCEPTED",
+        "decided_by" => "author",
+        "target_type" => "chapter_draft"
+      }
+    }
+
+    projection = ApprovalAudit.project_receipt(receipt)
+    assert projection["approval_record_id"] == "receipt-1"
+    assert projection["decision"] == "ACCEPTED"
+    assert projection["target_type"] == "chapter_draft"
+    assert projection["source_turn_ref"] == "turn-1"
+    refute Map.has_key?(projection, "decision_note")
+
+    nil_projection =
+      ApprovalAudit.project_receipt(%{id: "receipt-2", result: %{"status" => "accepted"}})
+
+    assert nil_projection == nil
+  end
+
   test "base_revision 只透传真实值；未知动作不补默认批准记录" do
     with_revision =
       ApprovalAudit.enrich(input("adopt"), %{

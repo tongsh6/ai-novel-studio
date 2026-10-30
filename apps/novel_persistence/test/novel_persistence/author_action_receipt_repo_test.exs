@@ -47,4 +47,46 @@ defmodule NovelPersistence.AuthorActionReceiptRepoTest do
       assert AuthorActionReceiptRepo.get(key_attrs).id == first.id
     end
   end
+
+  describe "list_by_source_turn/3（B58 CP3 why/replay 来源）" do
+    test "按 work/session/source_turn 过滤并保持插入顺序" do
+      work_id = ID.uuid()
+      session_id = ID.uuid()
+      other_session = ID.uuid()
+      other_work = ID.uuid()
+
+      base = %{
+        work_id: work_id,
+        session_id: session_id,
+        source_turn_ref: "turn-why-1",
+        action_id: "act-accept",
+        action_type: "accept",
+        idempotency_key: "ik-why-1"
+      }
+
+      assert {:ok, first} =
+               AuthorActionReceiptRepo.record(
+                 base,
+                 %{
+                   status: "accepted",
+                   approval_policy_ref: "approval_policy.high_risk_canon_change"
+                 }
+               )
+
+      assert {:ok, _other_session} =
+               AuthorActionReceiptRepo.record(
+                 %{base | session_id: other_session, idempotency_key: "ik-why-2"},
+                 %{status: "accepted"}
+               )
+
+      assert {:ok, _other_work} =
+               AuthorActionReceiptRepo.record(
+                 %{base | work_id: other_work, idempotency_key: "ik-why-3"},
+                 %{status: "accepted"}
+               )
+
+      receipts = AuthorActionReceiptRepo.list_by_source_turn(work_id, session_id, "turn-why-1")
+      assert Enum.map(receipts, & &1.id) == [first.id]
+    end
+  end
 end

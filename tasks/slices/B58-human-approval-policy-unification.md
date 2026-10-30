@@ -1,6 +1,6 @@
 # B58：作者批准策略统一与审计
 
-- 状态：**doing（2026-10-31 CP0/CP1 done，CP2 partial：approval additive 字段已随 receipt 持久化并有集成测试；deferred 节点与真实页面/replay 证据待 CP3）**。
+- 状态：**doing（2026-10-31 CP0/CP1 done，CP2 done；CP3 partial：replay/Why 批准依据链路已实现并单测，真实 Tauri AU04 场景两次未产出 needs_confirmation，按预算停止并登记 reanchor）**。
 - 登记日期：2026-10-27；来源：`32-human-approval-policy` 仍是草案，统一 approval policy 映射、approval_record 与死亡/结局/高预算等风险矩阵未形成完整证据。
 - 上游：`docs/design/quality/32-human-approval-policy.md`、[AU04](AU04-file-level-closure.md)、[AU05](AU05-file-level-closure.md)、[AU13-ledgers-and-reconciliation](../../docs/design/acceptance/author/AU-13-ledgers-and-reconciliation.md)。
 
@@ -31,8 +31,8 @@
 |---|---|---|
 | CP0 | 对账 32 的每类批准语义与现有 receipt/trace：已满足、缺字段、缺查询、真正缺口；确认无需新实体的部分不建表 | **done（§CP0）** |
 | CP1 | 若确有缺口，冻结最小 approval contract（对象/版本/动作/结果/来源/失败），优先扩展现有 receipt/trace；只有不可替代时才论证新实体 | **done（32 §5.1/§11.1；§CP1）** |
-| CP2 | 实现统一审计与风险矩阵：死亡/结局/高预算/stale/重复/取消/跨作品；不可 bypass 与失败回滚 | **partial（§CP2）**：approval audit 投影/持久化完成；命运/结局/预算 deferred，页面/replay 归 CP3 |
-| CP3 | 真实 Tauri 与 replay 全链，作者 why 可见批准依据；同步 32 文档，未覆盖类型保持 deferred | 未开工 |
+| CP2 | 实现统一审计与风险矩阵：死亡/结局/高预算/stale/重复/取消/跨作品；不可 bypass 与失败回滚 | **done（§CP2）**：approval audit 投影/持久化完成；命运/结局/预算 deferred（无 consumer），页面/replay 归 CP3 |
+| CP3 | 真实 Tauri 与 replay 全链，作者 why 可见批准依据；同步 32 文档，未覆盖类型保持 deferred | **partial（§CP3）**：replay API+Why UI 投影/单测完成；真实 AU04 页面确认卡未产出，reanchor |
 
 ## CP0 对账记录（2026-10-31）
 
@@ -86,6 +86,22 @@
   - 人物命运/结局/大高潮/高预算具体阈值仍无真实 consumer，保持 deferred（32 §5.1），未实现假 gate；
   - 页面/replay 可见批准依据、失败回滚与不可 bypass 的真实页面矩阵归 CP3；stale/重复/取消/跨作品继续由既有 AU04/AU05 场景与测试承接，未在本 CP 重跑；
   - 未改表/schema/前端，approval_record 仍是 receipt/trace 投影。
+
+## CP3 实施记录（2026-10-31，partial）
+
+### 已完成（机制与作者可见投影）
+- `AuthorActionReceiptRepo.list_by_source_turn/3`：按 work/session/source_turn 读取批准 receipt；跨 work/session 隔离有测试。
+- `ApprovalAudit.project_receipt/1`：receipt → author-safe 批准记录（policy_ref/risk/decision/decided_by/decided_at/base_revision/source_task_ref），缺失字段不补。
+- `TraceReplayService.fetch_turn_report/3` 在 `trace_summary.approvals` 返回该 turn 的批准记录；why/replay 仍走既有 author-safe 入口。
+- 前端 `traceSummaryView` 把 approvals 映射为 Why 补充说明（「批准依据：作品变更采纳 · 已采纳（作者，风险 HIGH）」等），不泄漏 receipt 内部 id；copy 集中管理。
+- 测试：receipt list 隔离、projection 单测、前端 why 映射；backend **1055/0**、frontend **654/654** + typecheck/lint。
+- 证据路径（机制）：`artifacts/slice-verify/` 本轮无 PASS；测试为局部证据，不能当 CP3 真实页面完成。
+
+### 未完成/真实页面重锚
+- 尝试当前 HEAD 既有 `au04-confirm-before-execute` 两次：均未收到 `status=needs_confirmation` + `confirm_before_execute` 的 turn_result（driver 200s bounded 超时）。未进入确认/批准动作，故无法取得 approval-replay/Why 页面证据。
+- 根因范围：既有 AU04 场景的 seed/driver/判断链在当前 HEAD 未产出确认卡；不是本次 replay/Why 代码路径。按预算（同因 2 次）停止，登记 reanchor，不做第三次盲跑。
+- 解除条件：先修/重锚 AU04 确认场景，使其真实产出确认卡与 author_action；再复用本 CP 已加入 driver 的 approval replay/why 断言。
+- 未覆盖：失败回滚/不可 bypass 的真实页面矩阵；deferred 节点仍 deferred。
 
 ## 4. 非目标
 

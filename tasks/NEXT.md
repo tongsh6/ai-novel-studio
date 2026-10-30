@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B58 | CP0/CP1 done；CP2 partial：approval audit 投影随 receipt 持久化+测试；CP3 真实页面/replay 可见批准依据、失败/取消矩阵待做 | [原任务](slices/B58-human-approval-policy-unification.md) |
+| B58 | CP0–CP2 done；CP3 partial：replay/Why 批准依据链路+单测完成；AU04 确认场景两次未产出 needs_confirmation，按预算停止待 reanchor | [原任务](slices/B58-human-approval-policy-unification.md) |
 
 ## 后续候选
 

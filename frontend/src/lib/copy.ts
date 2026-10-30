@@ -648,6 +648,22 @@ export const TRACE = {
   noContext: "本轮没有使用额外作品上下文。",
   detailLabel: "补充说明",
   integrityNote: "解释来自本轮已保存的 trace 摘要，不会重新调用模型或改写作品。",
+  approvals: {
+    prefix: "批准依据",
+    policies: {
+      "approval_policy.high_risk_canon_change": "作品变更采纳",
+      "approval_policy.long_run_budget_gate": "高预算执行确认",
+    } as Record<string, string>,
+    decisions: {
+      ACCEPTED: "已采纳",
+      EDITED_ACCEPTED: "编辑后采纳",
+      DISCARDED: "已放弃",
+      REJECTED: "已拒绝",
+      CANCELLED: "已取消",
+      CONFIRMED: "已确认",
+    } as Record<string, string>,
+    fallback: "已记录",
+  },
   replayUnavailable: "这轮没有可显示的已保存解释。",
   replayComplete: "已从持久 trace 生成结构化回放。",
   replayPartial: "这轮 trace 不完整，只展示已保存的部分解释。",

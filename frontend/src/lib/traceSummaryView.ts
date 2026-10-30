@@ -92,7 +92,7 @@ export function toAuthorTraceSummary(
   const noToolReason = stringValue(traceSummary.no_tool_reason);
   const primaryReason = reasonText(noToolReason, decisionType);
   const contextSources = contextSourceViews(traceSummary.context_refs);
-  const details = detailLines(traceSummary);
+  const details = [...detailLines(traceSummary), ...approvalLines(traceSummary.approvals)];
 
   return {
     primaryReason,
@@ -103,6 +103,27 @@ export function toAuthorTraceSummary(
     detailLines: details,
     integrityNote: TRACE.integrityNote,
   };
+}
+
+// B58 CP3：author-safe 批准记录 → Why 补充说明；缺字段如实保留“已记录”，不补造 decision。
+function approvalLines(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const approval = entry as Record<string, unknown>;
+    const policyRef = stringValue(approval.approval_policy_ref);
+    if (!policyRef) return [];
+    const policyLabel = TRACE.approvals.policies[policyRef] ?? policyRef;
+    const decision = stringValue(approval.decision);
+    const decisionLabel = decision ? (TRACE.approvals.decisions[decision] ?? decision) : TRACE.approvals.fallback;
+    const risk = stringValue(approval.risk_class);
+    const by = stringValue(approval.decided_by);
+    const meta = [by === "author" ? "作者" : by, risk ? `风险 ${risk}` : null]
+      .filter((part): part is string => Boolean(part))
+      .join("，");
+    return [`${TRACE.approvals.prefix}：${policyLabel} · ${decisionLabel}${meta ? `（${meta}）` : ""}`];
+  });
 }
 
 // WR01c：结构化使命 payload → 区块视图；缺 payload 时回退一句话 statement（旧 trace 兼容）。

@@ -10,7 +10,7 @@ defmodule NovelApplication.TraceReplayService do
   alias NovelApplication.WorkService
   alias NovelDomain.DecisionTrace
   alias NovelPersistence.InteractionLifecycle
-  alias NovelPersistence.TraceRepository
+  alias NovelPersistence.{AuthorActionReceiptRepo, TraceRepository}
   alias NovelPersistence.WorkSessionRepo
 
   @decision_types ~w(
@@ -50,6 +50,13 @@ defmodule NovelApplication.TraceReplayService do
            Map.merge(
              trace_summary(record, report),
              InteractionLifecycle.trace_metadata(work_id, session_id, turn_id, record.trace_id)
+           )
+           |> Map.put(
+             :approvals,
+             work_id
+             |> AuthorActionReceiptRepo.list_by_source_turn(session.id, turn_id)
+             |> Enum.map(&NovelApplication.ApprovalAudit.project_receipt/1)
+             |> Enum.reject(&is_nil/1)
            ),
          replay_report: replay_report_map(report)
        }}

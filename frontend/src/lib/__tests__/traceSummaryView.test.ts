@@ -267,4 +267,31 @@ describe("traceSummaryView", () => {
     });
     expect(noTarget?.detailLines).toContain("本轮未定位目标章，作品事实未按有效窗过滤。");
   });
+
+  it("B58：Why 补充说明展示 author-safe 批准依据，不泄漏内部 ref", () => {
+    const view = toAuthorTraceSummary({
+      decision_type: "reply_only",
+      approvals: [
+        {
+          approval_record_id: "receipt-internal-id",
+          approval_policy_ref: "approval_policy.high_risk_canon_change",
+          risk_class: "HIGH",
+          decision: "ACCEPTED",
+          decided_by: "author",
+          target_type: "chapter_draft",
+        },
+        {
+          approval_policy_ref: "approval_policy.long_run_budget_gate",
+          risk_class: "HIGH",
+          decided_by: "author",
+        },
+      ],
+    });
+
+    expect(view?.detailLines).toContain(
+      "批准依据：作品变更采纳 · 已采纳（作者，风险 HIGH）",
+    );
+    expect(view?.detailLines).toContain("批准依据：高预算执行确认 · 已记录（作者，风险 HIGH）");
+    expect(JSON.stringify(view)).not.toContain("receipt-internal-id");
+  });
 });

@@ -33,6 +33,45 @@ defmodule NovelApplication.ApprovalAudit do
     end
   end
 
+  @doc "B58 CP3：receipt → author-safe 批准记录投影（why/replay 消费）。"
+  @spec project_receipt(map()) :: map() | nil
+  def project_receipt(receipt) when is_map(receipt) do
+    result = receipt_result(receipt)
+
+    case map_value(result, :approval_policy_ref) do
+      ref when is_binary(ref) and ref != "" ->
+        %{
+          "approval_record_id" => map_value(receipt, :id),
+          "approval_policy_ref" => ref,
+          "risk_class" => map_value(result, :risk_class),
+          "target_type" => map_value(result, :target_type),
+          "target_ref" =>
+            map_value(result, :target_artifact_ref) || map_value(receipt, :action_id),
+          "decision" => map_value(result, :decision),
+          "decision_note" => map_value(result, :decision_note),
+          "decided_by" => map_value(result, :decided_by),
+          "decided_at" => map_value(receipt, :inserted_at),
+          "base_revision" => map_value(result, :base_revision),
+          "source_turn_ref" => map_value(receipt, :source_turn_ref),
+          "source_task_ref" => map_value(result, :source_task_ref),
+          "action_type" => map_value(receipt, :action_type)
+        }
+        |> reject_nil_values()
+
+      _ ->
+        nil
+    end
+  end
+
+  defp receipt_result(receipt) do
+    case map_value(receipt, :result) do
+      result when is_map(result) -> result
+      _ -> %{}
+    end
+  end
+
+  defp reject_nil_values(map), do: Map.reject(map, fn {_key, value} -> is_nil(value) end)
+
   defp policy_for(action_type) when action_type in @canon_actions,
     do: %{ref: @canon_policy, risk_class: "HIGH"}
 
