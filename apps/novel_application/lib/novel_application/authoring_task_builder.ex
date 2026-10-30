@@ -161,11 +161,11 @@ defmodule NovelApplication.AuthoringTaskBuilder do
       author_goal: blank_to_nil(text(attrs[:author_goal])),
       author_words: author_words(attrs),
       scope: prose_scope(attrs, kind),
-      materials: prose_materials(attrs),
+      materials: prose_materials(attrs) ++ observation_materials(attrs[:observations]),
       preserve: prose_preserve(kind, attrs),
       operation_effect: prose_effect(kind),
       output_contract: attrs[:output_contract] || output_contract(:json, @prose_contract_opts),
-      source_refs: string_list(attrs[:source_refs])
+      source_refs: string_list(attrs[:source_refs]) ++ observation_refs(attrs[:observations])
     })
   end
 
@@ -814,6 +814,38 @@ defmodule NovelApplication.AuthoringTaskBuilder do
       complete?: complete?,
       omission_note: if(complete?, do: nil, else: omissions)
     )
+  end
+
+  # B39 CP1b/D7：本 run 只读探索观察作为 writer 任务材料与来源 refs（additive）。
+  # 内容由 author_input_text 观察段承载；这里只登记可核验来源，避免把同一份观察
+  # 既当 Base 材料又当模型产出。
+  defp observation_materials(observations) do
+    observations
+    |> observation_list()
+    |> Enum.map(fn observation ->
+      kind =
+        Map.get(observation, :tool) || Map.get(observation.structured_payload, :tool) ||
+          "observation"
+
+      material(:observation, "observation:#{observation.observation_id}",
+        complete?: true,
+        omission_note: "单次只读观察；未覆盖全章/全书"
+      )
+      |> Map.put(:kind, :observation)
+      |> Map.put(:source, to_string(kind))
+    end)
+  end
+
+  defp observation_refs(observations) do
+    observations
+    |> observation_list()
+    |> Enum.map(&"observation:#{&1.observation_id}")
+  end
+
+  defp observation_list(observations) do
+    observations
+    |> List.wrap()
+    |> Enum.filter(&is_struct(&1, NovelDomain.AgentObservation))
   end
 
   defp revision_materials(attrs, base_ref) do

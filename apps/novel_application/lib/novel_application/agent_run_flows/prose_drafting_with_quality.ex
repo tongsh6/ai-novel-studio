@@ -773,7 +773,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         mission_author_success(run, sequence, turn_id, chapter, mission)
 
       nil ->
-        inputs = mission_inputs(run, spec, context, chapter)
+        inputs = mission_inputs(run, spec, context, chapter, Map.get(snapshot, :observations, []))
 
         provider_execution =
           spec
@@ -876,7 +876,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       Execution.dependency(purpose: :planner)
   end
 
-  defp mission_inputs(run, spec, context, chapter) do
+  defp mission_inputs(run, spec, context, chapter, observations) do
     work_id = run.work_id || run.workspace_id
 
     ChapterMissionInputs.build(%{
@@ -904,7 +904,8 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
           reader_dep(spec, :character_reader, &NovelApplication.persistence_character_reader/0),
           work_id,
           []
-        )
+        ),
+      observations: observation_input_items(observations)
     })
   end
 
@@ -1251,6 +1252,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
           text: author_input_text(run, plan, observations, guidance),
           author_goal_text: run.goal.text
         },
+        observations: observations,
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(spec, snapshot, :writer),
         quality_provider_execution: quality_provider_execution(spec, snapshot),
@@ -1523,7 +1525,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   defp author_input_text(run, plan, observations, guidance) do
     observation_text =
       observations
-      |> Enum.map(& &1.summary)
+      |> Enum.map(&observation_line/1)
       |> Enum.reject(&blank?/1)
       |> Enum.join("\n")
 
@@ -1544,6 +1546,58 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
 
   defp observation_section(""), do: nil
   defp observation_section(text), do: "已完成观察：\n#{text}"
+
+  # B39 CP1b/D7：观察内容 + 可核验来源同批进入后续请求；refs 用 observation:<id>
+  # 作为材料 ref，底层来源 refs 以只读文本列出，供模型区分来源/覆盖。
+  defp observation_line(%AgentObservation{} = observation) do
+    ref = "observation:#{observation.observation_id}"
+    source_refs = Map.get(observation.structured_payload, :source_refs, [])
+
+    case {blank?(observation.summary), List.wrap(source_refs)} do
+      {true, _} ->
+        nil
+
+      {false, []} ->
+        "[#{ref}] #{observation.summary}"
+
+      {false, refs} ->
+        "[#{ref}] #{observation.summary}（来源 refs：#{Enum.join(refs, ", ")}）"
+    end
+  end
+
+  defp observation_line(_observation), do: nil
+
+  defp observation_input_items(observations) do
+    observations
+    |> List.wrap()
+    |> Enum.flat_map(&observation_mission_item/1)
+  end
+
+  defp observation_mission_item(%AgentObservation{} = observation) do
+    if map_get(observation.structured_payload, :stage) == :exploration_observed do
+      [observation_mission_item_map(observation)]
+    else
+      []
+    end
+  end
+
+  defp observation_mission_item(_observation), do: []
+
+  defp observation_mission_item_map(observation) do
+    source_refs = List.wrap(Map.get(observation.structured_payload, :source_refs, []))
+
+    text =
+      case source_refs do
+        [] -> observation.summary
+        refs -> "#{observation.summary}（来源 refs：#{Enum.join(refs, ", ")}）"
+      end
+
+    %{
+      ref: "observation:#{observation.observation_id}",
+      group: :observation,
+      text: text
+    }
+  end
 
   defp frame(run, sequence, summary) do
     %DialogueFrame{

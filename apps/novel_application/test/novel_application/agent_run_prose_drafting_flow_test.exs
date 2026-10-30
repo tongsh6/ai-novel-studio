@@ -1446,7 +1446,29 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
            )}
 
         mission_prompt?(prompt) ->
-          {:ok, with_provider_call(mission_result(), "pc-b39-cp1-mission")}
+          mission_text = prompt_text(prompt)
+          send(parent, {:mission_prompt, mission_text})
+
+          [observation_ref | _] =
+            ~r/observation:obs_[A-Za-z0-9_]+/
+            |> Regex.scan(mission_text)
+            |> List.flatten()
+            |> Enum.uniq()
+
+          {:ok,
+           with_provider_call(
+             NovelApplication.TestAgenticLoopFixtures.mission_tool_call_result(
+               "我核对了本轮观察：本章先让主角找到压力来源，不提前揭示旧公司实验。",
+               "本章必须让主角从被动观察转向主动寻找出口。",
+               must_advance: [
+                 %{"text" => "让主角进入异常房间并找到压力来源", "basis_ref" => observation_ref}
+               ],
+               must_avoid: [
+                 %{"text" => "不直接点破旧公司实验", "basis_ref" => observation_ref}
+               ]
+             ),
+             "pc-b39-cp1-mission"
+           )}
 
         true ->
           send(parent, {:writer_prompt, prompt})
@@ -1484,7 +1506,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           text: "按前文约定补写第01章正文草稿，再复核。",
           session_id: "session-b39-cp1",
           turn_id: "turn-b39-cp1",
-          quality_provider_execution: %Execution{result_fn: evaluator}
+          quality_provider_execution: %Execution{result_fn: evaluator},
+          chapter_mission_writer: fn work_id, seq, mission_map ->
+            send(parent, {:mission_persisted, work_id, seq, mission_map})
+            {:ok, :stored, mission_map}
+          end
         },
         writer,
         parent
@@ -1511,6 +1537,17 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     # 观察内容（含真实 refs 的 summary）进入后续 writer 真实请求，而不只是内部状态。
     assert writer_prompt =~ explore_event.payload.summary
+
+    # CP1b：观察以 observation ref 进入使命输入，模型可引用且 bind 保留；
+    # writer AuthoringTask 材料/来源登记同一 observation ref。
+    assert_receive {:mission_prompt, mission_prompt}, 1_000
+    assert mission_prompt =~ "本 run 已取得的观察"
+    assert mission_prompt =~ "observation:obs_"
+    assert writer_prompt =~ "observation：observation:obs_"
+
+    assert_receive {:mission_persisted, "work-agent-prose-flow", 1, persisted_mission}, 1_000
+    persisted_advance = persisted_mission["must_advance"] || persisted_mission[:must_advance]
+    assert [%{"basis_ref" => "observation:" <> _} | _] = persisted_advance
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed

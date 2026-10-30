@@ -854,3 +854,42 @@ Profile：`local` = `:lmstudio` / `:strata`（同一套本机推理后端）；`
 7. **真实页面验收未闭环**：慢但持续出字的流在真实 Tauri 工作台上的场景化验收仍待 B22 CP4，不拿单测冒充。
 8. **诊断字段尚无真实调用抽样证据**：`timeout_kind` / ttft / chars / chunks 等 details 由单测覆盖，尚未在真实超时事件上抽样核对 llm-calls JSONL 与业务日志（B22 CP4 一并取证）。
 
+---
+
+## 26. Provider 多轮消息保真与请求投影（2026-10-30 登记，Proposed）
+
+> 来源：作者要求对照 Codex、Claude Code、dsh 的真实多轮请求，评估本项目请求体的完善方向。本节约束消息与 provider 投影，不替代 VS-00H 的系统身份、VS-00I 的前缀稳定契约、B26 的单调用协议或 B39 的统一求证链。执行任务为 `tasks/slices/B71-provider-message-fidelity.md`；当前仅登记设计与证据，未 Accepted、未实现。
+
+### 26.1 已核实事实与问题边界
+
+- 外部真实多轮样本保留原生 `assistant` 工具调用、`tool` / `tool_result` 结果、消息顺序和 provider 特定推理元数据；脱敏样本位于 `artifacts/client-http-bodies/`。
+- 本项目真实请求通常只有 `system + user`，一次契约纠错会形成 `system + user + user`。证据为 `log/llm-calls/stage/2026-10-29.jsonl` 第 8–9 行；这不等于真实 assistant 历史已完整进入请求。
+- `NovelAgent.Provider.normalize_messages/1` 当前只保留 `role` 和字符串 `content`，会丢弃 `tool_calls`、`tool_call_id`、结构化 content blocks、`reasoning_content`、`cache_control` 等字段，因而不能无损投影多轮消息。
+- 判断任务的共同规则、作品状态、会话摘要、操作目录和作者原话主要由一个大型 `user` 文档承载。 VS-00I 已定义 L0–L4 的稳定度与顺序，本设计不重新发明一套提示词骨架，也不移动其中有判例支撑的 L4。
+- Strata 自动前缀缓存已实际命中：上述日志第 9 行 `cached_tokens=19037`。因此目标是保持并扩展可证明的缓存收益，不是假定“当前没有缓存”后全局增加缓存字段。
+
+### 26.2 消息保真原则
+
+1. 内部消息表达不得再把所有内容压成 `role + string content`；需要在 CP1 按真实消费者确定最小无损消息契约及字段，不在本设计登记时提前冻结 DTO。
+2. Provider adapter 负责各自序列化：OpenAI 兼容通道的 `assistant.tool_calls` / `tool.tool_call_id`，Anthropic 的 content blocks / `tool_use` / `tool_result` / `cache_control`，DeepSeek 的 `reasoning_content` 等不得被通用归一化提前抹除。
+3. 不支持的字段不得跨 provider 盲发。Strata、LM Studio、DeepSeek、Anthropic 和其他 OpenAI 兼容服务分别经过能力与黄金请求矩阵验证。
+4. 作者原话、Provider 返回的 artifact 字段及其引用关系保持字节保真；消息重构不得修改 I1/I2/I3、N-NARR、作者采纳和 GateOrder 边界。
+5. 推理与签名元数据只在确有原生多轮消费者时按 provider 保存和回放；不得把 CoT/thinking 当作者可见叙事，也不得发明跨 provider 的统一 reasoning 格式。
+
+### 26.3 对话、重试与上下文投影
+
+- 稳定产品规则、动态作品材料、真实对话和本轮作者输入应有明确的消息/段落归属；具体投影继续服从 VS-00H、VS-00I 和现有 ContextAssembler，不新增第二套上下文真源。
+- 契约纠错若声明为多轮，应保留真实 assistant 响应及其原生工具调用，再追加纠错；若采用无状态重试，应重新构造完整请求并明确记录策略，不能用连续 `user` 消息冒充完整多轮历史。
+- 现有 B26 单调用 `tool_choice: auto`、封装探索入口与调用计数不变。本设计不新增原生探索工具入口，不建立 writer 内第二套工具循环；B39 的观察继续经统一 AgentRun 和既有请求构造进入后续调用。
+- 不迁移到 Responses API、不追求工具数量、不全局增加 `parallel_tool_calls` 或 `client_metadata`，也不把全量历史和作品档案无差别回送。
+
+### 26.4 缓存与流式兼容
+
+- 保持同调用点的稳定规则、工具 schema 和可复用上下文字节前缀稳定，易变版本与状态按 VS-00I 置后；不得为了缓存移动 L4 或改写作者/产物字节。
+- Anthropic 的显式断点只按 VS-00I 的既有矩阵细化；OpenAI Responses 的 `prompt_cache_key` 仅在未来真实消费者存在时评估，不发送到其他通道。
+- 对确认支持的 OpenAI 兼容通道可补 `stream_options.include_usage: true`；现有流解析已能消费 usage。Strata 当前已有 usage 与缓存命中，此字段属于兼容性增强而非紧急修复。
+
+### 26.5 验收方向
+
+CP1 先形成真实消费者、消息字段、重试策略和 provider 投影矩阵及黄金请求；后续实现必须证明：多轮消息顺序和工具调用 ID 关联不丢失、重试语义与声明一致、未知字段不越界发送、稳定前缀与缓存不退化、观察与引用仍进入实际后续请求。局部 golden/unit 证据不能替代外部自动化驱动真实 Tauri 工作台的场景验收；完整验收同时执行架构门禁和 I1/I2/I3。
+

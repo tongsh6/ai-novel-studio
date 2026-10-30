@@ -1,6 +1,6 @@
 # B39：求证式创作——最小供给、Run 级探索与证据闭环
 
-- 状态：**doing（2026-10-30 CP1 开工；作者已正式接受 ADR-0030/VS-00K/AU-15；CP1a 正文 flow 只读探索步+观察进 writer 已落地；CP1b/c/d 与 A0/A1/A2、实模证据未完成；CP1–CP4 不得整体标 done）**。
+- 状态：**doing（2026-10-30 CP1 开工；作者已正式接受 ADR-0030/VS-00K/AU-15；CP1a 只读探索步+观察进 writer、CP1b 观察 refs 进使命与 writer 任务材料已落地；CP1c/d 与 A0/A1/A2、实模证据未完成；CP1–CP4 不得整体标 done）**。
 - 登记日期：2026-10-27；来源：作者指出持续增加 APP 主动投喂只会不断补漏洞，要求先把元原则深化到全部承重设计，而非先做时间线专用设计。
 - 上游：[00 §2.4](../../docs/design/00-vision-and-engineering-roadmap.md#24-创作信息获取元原则最小供给按需求证证据闭环2026-10-27-用户拍板)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[VS-00K](../../docs/design/contracts/VS-00K-evidence-seeking-authoring-contract-pack.md)、[AU-15](../../docs/design/acceptance/author/AU-15-evidence-seeking-authoring.md)。
 - 当前可依已接受基线进入 CP1 设计与实现；本会话继续逐项作者裁决，尚未启动产品施工或实模运行。执行与资源边界见 §9.7.17。
@@ -56,7 +56,7 @@
 | CP | 完整工作与完成标准 | 状态 |
 |---|---|---|
 | CP0 | 元原则落到主链、运行时、Context、AgentRun、写前推理、要素模型、工程与验收；形成 ADR-0030 / VS-00K / AU-15 / B39 和索引、atlas、不变量、旧条款处置矩阵。只登记设计，不声称实现 | **done（2026-10-27）**：主链/领域/契约/工程文档完成处置；候选 #20–#23；ADR trace 28/28、NEXT ok、新文档链接通过、差距快照 20 项开放无意外减少、diff check 通过；未运行产品功能测试或 Tauri |
-| CP1 | 正文 run 开放现有只读探索；共享判断循环探索执行，观察进入使命与 writer；保留现有携带，不新建时间表；首个完整用户场景具备必要的最小准备判断；完成 SC-AU15-A0/A1/A2，确定性机制与真实模型行为分层取证 | **doing（CP1a checkpoint 2026-10-30）**：共享 `ExplorationStep` + 判断计划/正文 flow 同源接线；prose 计划/执行器/目录开放检索步（0 provider/tool），观察进流并已进入后续 writer prompt；单测证明预算/事件/后续请求观察；**未完成**：观察带真实 refs 进 chapter_mission（CP1b）、used_context_refs 集合校验与 Base/observation trace 快照（CP1c）、最小准备判断、SC-AU15-A0/A1/A2 场景与真实模型分层证据（CP1d/验收）；不得以本 checkpoint 代签 CP1 或 AU-15 |
+| CP1 | 正文 run 开放现有只读探索；共享判断循环探索执行，观察进入使命与 writer；保留现有携带，不新建时间表；首个完整用户场景具备必要的最小准备判断；完成 SC-AU15-A0/A1/A2，确定性机制与真实模型行为分层取证 | **doing（CP1a+CP1b checkpoint 2026-10-30）**：共享 `ExplorationStep` 接入判断计划/正文 flow（0 provider/tool、事件/观察/预算）；观察带 `observation:<id>` + 来源 refs 进入 `ChapterMissionInputs`（I-M1 bind 保留，使命 model 可引用）与 writer AuthoringTask 材料/source_refs，writer prompt 同时带内容与材料 ref；单测证明。**未完成**：used_context_refs ⊆ Base∪观察集合校验与逐调用同源 trace 快照（CP1c）、最小准备判断、SC-AU15-A0/A1/A2 场景与真实模型分层证据（CP1d/验收）；不得以 checkpoint 代签 CP1 或 AU-15 |
 | CP2 | 写前准备可返回通用信息缺口并触发有界 plan revision；建立 Base/观察 refs 与 used_context_refs 对账；明确“可先求证”与“只能由作者裁决”的 clarification 边界；未知、歧义、冲突与越界引用完成 SC-AU15-B1/C1 | 未开工 |
 | CP3 | 规划、修订、写后质量与恢复复用同一求证链；完成 SC-AU15-B2/C2；真实 provider 请求、trace、replay 与作者可见证据一致 | 未开工 |
 | CP4 | 依据真实 run 的引用、重复查询和质量证据逐块迁移固定携带；领域读模型（包括是否需要时间线）按真实缺口单独立项；完成 SC-AU15-D1 | 未开工 |
@@ -550,6 +550,19 @@ git diff --check
   3. 最小准备判断（D3-A）与 A0/A1/A2 场景、AU-15 registry/driver/verifier、确定性机制与真实模型行为分层取证；跨重启恢复归 CP3。
   4. `dialogue_planning_service` 两处探索内联实现迁移、续读/no-progress 跨 flow 预算累计证据。
 - 门禁：见 `artifacts/gates/2026-10-30-b39-cp1a/`。
+
+### 9.10 CP1b 接线 checkpoint（2026-10-30，未完成 CP1）
+
+- 交付：
+  - `ChapterMissionInputs.build` additive `observations`（`%{ref: "observation:<id>", group: :observation, text: 摘要+来源 refs}`）；`to_prompt_section` 新增“本 run 已取得的观察（按需求证；内容与来源同批）”组；复用 `refs/known_ref?/label` 与 `ChapterMission.bind/2` 的 I-M1 越界丢弃——模型只有复制真实 observation ref 才能保留依据，无观察不出 item。
+  - 正文 flow 把本 run 的 exploration observations 映射进 `mission_inputs`；`author_input_text` 观察段升级为 `[observation:<id>] 摘要（来源 refs：…）`；writer `AuthoringTask` materials 增加 `observation:<id>` 条目、`source_refs` 增加 observation refs；`TurnExecutionService` 透传 observations。D7 的“内容+可核验来源同批进入后续请求”在 writer prompt 中可见：材料段列出 observation ref，观察段列出底层来源 refs。
+- 测试（CP1a 场景扩展）：mission prompt 含“本 run 已取得的观察”和 `observation:<id>`；模型返回该 ref 后 `mission_persisted.must_advance.basis_ref` 保留 observation ref（bind 未丢弃）；writer prompt 同时含观察摘要与 `observation：observation:<id>` 材料行；预算仍 4 steps/1 tool/4 provider。相关测试 36/36（prose flow、domain mission inputs、authoring task builder）。
+- 残余（CP1 未完成）：
+  1. CP1c：`self_report.used_context_refs ⊆ Base refs ∪ 实际观察 refs` 的 domain 校验、逐 provider call 同源 Base/observation 快照（D1）、未绑定 ref unknown/不修改 artifact 字节；当前尚未限制模型自报 used refs。
+  2. 最小准备判断（D3-A）：关键既有事实未核清时继续求证/询问，再由模型/计划继续；当前只有探索目录与观察传递，无正式准备判断。
+  3. SC-AU15-A0/A1/A2 driver/verifier/registry、真实模型行为分层证据、≥2 独立 run 与失败分母；A2 通用性（时间要素）与 diff 检查。
+  4. `dialogue_planning_service` 两处探索内联实现迁移、跨 flow 预算累计/续读证据。
+- 门禁：见 `artifacts/gates/2026-10-30-b39-cp1b/`。
 
 ## 10. 当前初始供给整改的消费交接
 

@@ -90,7 +90,8 @@ defmodule NovelDomain.ChapterMissionInputs do
         promise_items(entries) ++
         emotion_items(entries) ++
         skeleton_items(Map.get(attrs, :work_snapshot), Map.get(attrs, :written_chapters)) ++
-        roster_items(Map.get(attrs, :roster))
+        roster_items(Map.get(attrs, :roster)) ++
+        observation_items(Map.get(attrs, :observations))
 
     %__MODULE__{
       mode: mode,
@@ -135,6 +136,7 @@ defmodule NovelDomain.ChapterMissionInputs do
       {:volume, "当前卷蓝图（设计态）"},
       {:planned, "已规划待写的章（设计态）"},
       {:previous_summary, "上一章实际写到哪（实现态摘要）"},
+      {:observation, "本 run 已取得的观察（按需求证；内容与来源同批）"},
       {:foreshadow, "未回收伏笔（进度态，按预期临近）"},
       {:secrecy, "后续章计划信息（不得提前揭示）"},
       {:arc, "角色弧光（进度态）"},
@@ -576,6 +578,20 @@ defmodule NovelDomain.ChapterMissionInputs do
   defp planning_header, do: "本轮规划（按当前进度态推导接下来该规划什么）"
 
   # ── 归一化 ──────────────────────────────────────────
+
+  # B39 CP1b：本 run 只读探索观察作为使命材料来源之一（additive；无观察不出 item）。
+  # ref 用 observation:<观察 id>，由 refs/known_ref?/bind 复用既有 I-M1 越界丢弃。
+  defp observation_items(observations) do
+    observations
+    |> List.wrap()
+    |> Enum.flat_map(fn
+      %{ref: ref, text: text} = item when is_binary(ref) and is_binary(text) ->
+        [%{ref: ref, group: Map.get(item, :group, :observation), text: text}]
+
+      _ ->
+        []
+    end)
+  end
 
   defp normalize_chapter(nil), do: nil
 

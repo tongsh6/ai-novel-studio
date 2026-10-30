@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B39 | CP1 进行中（CP1a done：共享 ExplorationStep + 正文 flow 只读探索/观察进 writer prompt；CP1b mission 观察 refs、CP1c used_context_refs/Base 快照、最小准备判断、A0/A1/A2 场景与实模分层证据待做）；后续准备/恢复/迁移仍按完整 slice 验收 | [原任务](slices/B39-evidence-seeking-authoring.md) |
+| B39 | CP1 进行中（CP1a+CP1b done：只读探索步、观察 refs 进使命/writer 任务材料；CP1c used_context_refs/Base 快照、最小准备判断、A0/A1/A2 场景与实模分层证据待做）；后续准备/恢复/迁移仍按完整 slice 验收 | [原任务](slices/B39-evidence-seeking-authoring.md) |
 
 ## 后续候选
 
@@ -36,6 +36,7 @@
 | AU10-MATRIX | 核对当前卡片/动作结果、未知/失效/跨作品与视口矩阵，按 owner 去重后补消费证据 | [原任务小节](slices/AU10-file-level-closure.md#现役动作与卡片矩阵核对) |
 | AU07-P1 | 核对 developer 权限、多类型 replay、原因目录与 registry snapshot 的真实消费者；与 B43/VS-00F/B39 去重 | [原任务小节](slices/AU07-trace-replay-integrity.md#p1-消费者与余项核对) |
 | UA01-PROMPT-T3T5 | 按当前单调用及 ADR-0031 核对修订尾部、finding 保真与计划面板 N-NARR；按现役消费者接续 | [原任务小节](slices/UA01-agentic-loop-prompt-hardening.md#t3-t5-当前语义审计与承接) |
+| B71 | CP1 冻结无损消息/重试消费者与 provider 投影矩阵；不改变 B26 单调用、VS-00I 缓存和 B39 writer 边界 | [原任务](slices/B71-provider-message-fidelity.md) |
 | VS-00G | 核对 CP5e A2/A3 历史证据与当前版本，明确 scoped 补验；触发 C/记忆富化与 B39 协同 | [原任务](slices/VS-00G-fact-inventory-run.md) |
 | CA04-B15 | 核对卷蓝图增量后的三条 carry 行为、诚实缺席与未开放门；沿既有页面驱动补验 | [原任务小节](slices/CA04-carry-gap-closure.md#7-b15-卷蓝图增量回归) |
 | Q1C-NATIVE | 核对原生 driver，补设定修订→覆盖→刷新→追问链；保留 browser 历史，不重复实现修订 | [原任务小节](slices/Q1C-adopted-content-revision.md#q1c-原生页面补验) |
