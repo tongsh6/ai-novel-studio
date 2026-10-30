@@ -1,0 +1,68 @@
+id: author-behavior-actions
+title: "B73 作者动作生命周期与 seeded 状态探索（采纳/拒绝/编辑/stale/恢复）"
+tier: nightly
+surface: browser
+default_provider: slice_verify
+status_note: >-
+  active（2026-10-31 B73）：外部 Playwright 按可复现行动计划驱动真实候选生命周期，覆盖重复采纳、
+  多候选、跨作品、离线重开、取消编辑、stale 旧编辑、编辑后采纳与重复登记；每步核对 G1–G6、
+  真实目标 ref、receipt 与 canon。确定性替身不代签真实模型语义或文学质量（I10）。
+entrypoint: scripts/quality_accept.sh author-behavior-actions --surface browser
+contract:
+  - tasks/slices/B73-author-behavior-runtime-and-action-coverage.md §1/§3
+  - docs/design/acceptance/author-behavior-corpus-and-state-exploration.md §8–§11
+  - docs/engineering/scenario-acceptance.md
+invariants:
+  - I-B73A-1 作者动作只能来自真实 UI；不得直接 push author_action 或直接写业务结果。
+  - I-B73A-2 execute 先产 TENTATIVE，作者采纳后才写 canon；重复采纳/登记不得重复 receipt 或事实。
+  - I-B73A-3 多候选对象独立；stale 旧编辑被拒绝且文本保留，跨作品不暴露旧对象动作。
+  - I-B73A-4 同 seed 同 plan_hash/动作序列；每步有结果与转移覆盖，缺步/unknown/fail 不 PASS。
+setup:
+  provider: slice_verify
+  seed: scripts/seed_author_behavior_states.exs
+  explore_seed: 20261031
+  env_note: 隔离 DB（ARTIFACT_DIR/database）；AUTHOR_BEHAVIOR_ACTION_COVERAGE=1 由 runner 按场景注入；
+    AUTHOR_BEHAVIOR_EXPLORE_SEED 控制恢复顺序和取消次数；产品 runtime 不感知。
+user_flow:
+  - open: 外部 Playwright 打开真实浏览器工作台
+  - generate: 经真实输入生成正文/世界设定与原文修订候选，先证 TENTATIVE 零 canon
+  - act: 双击采纳、取消/确认编辑、放弃、编辑后采纳与重复登记均由真实按钮或作者输入完成
+  - recover: 重开、离线恢复、跨作品与第二页面 stale 操作后核对真实状态
+  - summarize: 落 action-coverage/exploration/observations/coverage/summary 与 WS、截图、DB 证据
+evidence:
+  required:
+    - screenshot
+    - backend_log
+    - summary_json
+    - persistence_snapshot
+  extra_artifacts:
+    - action-coverage.json
+    - exploration.json
+    - observations.json
+    - coverage.json
+    - frames.json
+    - db-snapshots.json
+    - corpus.json
+  artifact_dir: artifacts/slice-verify/author-behavior-actions
+assertions:
+  ui:
+    - 采纳、取消、编辑与 stale 均操作真实控件；第二页面旧编辑提交后可见拒绝且文本保留。
+  network:
+    - 每个 author_action 的目标 ref/idempotency key 与 TurnResult resolved 状态可对账，无直接 Channel 注入。
+  data:
+    - 10 个有序 explore cases 全 pass；HO3 实际 executed/evaluated；重复 receipt/canon/CONFIRMED 为零增量。
+    - exploration 包含全部计划步、action_counts 和转移键；缺步或 oracle unknown/fail 时 runner 非零退出。
+  llm:
+    - 仅 slice_verify 确定性机制证据；不加载或调用真实模型，不声明模型语义覆盖。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+anti_hooks_verification: >-
+  driver 只用真实按钮/输入/重开、WS、只读 DB 与 harness 日志；动作计划与判卷在产品外，生产代码无验收感知。
+prerequisites:
+  - B70 固定回放和统一 oracle 可用；B41 quality-verdict/v2 入口不重造。
+known_not_closed:
+  - 生命周期依赖顺序保留；seed 只改变合法恢复顺序和取消次数，不声称随机覆盖全部动作组合。
+  - 完整 native 矩阵、真实模型语义和文学质量不在本场景代签。

@@ -1329,6 +1329,12 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "au09-memory-list-ux-redesign": ["slice_verify.ui_state.done"],
+  "b64-coordinate-memory": [
+    "channel.join.done",
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au09-validity-window-recall": [
     "channel.user_message.start",
     "context.assemble.done",
@@ -3376,6 +3382,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu09MemoryListUxRedesignEvidence(records);
   }
 
+  if (sliceId === "b64-coordinate-memory") {
+    return findB64CoordinateMemoryEvidence(records);
+  }
+
   if (sliceId === "au09-validity-window-recall") {
     return findAu09ValidityWindowRecallEvidence(records);
   }
@@ -4016,6 +4026,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au09-memory-list-ux-redesign") {
     return au09MemoryListUxRedesignBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "b64-coordinate-memory") {
+    return b64CoordinateMemoryBehavior(records, evidence);
   }
 
   if (sliceId === "au09-validity-window-recall") {
@@ -23051,6 +23065,54 @@ function au09CharacterCandidatePerItemAdoptionBehavior(
   };
 }
 
+function findB64CoordinateMemoryEvidence(records) {
+  const sliceId = "b64-coordinate-memory";
+  const states = records.filter(
+    (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+  );
+  const checks = states.map((record) => record.b64_check).filter(Boolean);
+  if (checks.length < 3) return null;
+
+  const oldCheck = checks.find((check) => check.label === "old-chapter");
+  const sessionCheck = checks.find((check) => check.label === "old-chapter-new-session");
+  const newCheck = checks.find((check) => check.label === "new-chapter");
+  if (!oldCheck || !sessionCheck || !newCheck) return null;
+
+  const oldOk =
+    oldCheck.prompt_facts_present === true &&
+    oldCheck.includes_early === true &&
+    oldCheck.includes_future === false &&
+    oldCheck.includes_core === true &&
+    oldCheck.why_line_present === true &&
+    oldCheck.why_has_no_early === true &&
+    oldCheck.why_has_no_future === true;
+  const sessionOk =
+    sessionCheck.prompt_facts_present === true &&
+    sessionCheck.includes_early === true &&
+    sessionCheck.includes_future === false &&
+    sessionCheck.includes_core === true &&
+    sessionCheck.why_line_present === true;
+  const newOk =
+    newCheck.prompt_facts_present === true &&
+    newCheck.includes_early === false &&
+    newCheck.includes_future === true &&
+    newCheck.includes_core === true &&
+    newCheck.why_line_present === true;
+
+  if (!oldOk || !sessionOk || !newOk) return null;
+
+  return {
+    slice_id: sliceId,
+    status: "done",
+    turn_id: oldCheck.turn_id,
+    turn_ids: checks.map((check) => check.turn_id),
+    checks,
+    screenshots: ["b64-old-chapter.png", "b64-new-chapter.png"],
+    note:
+      "确定性 provider 真实 Tauri 页面矩阵：旧章/新会话旧章/新章；writer prompt 事实窗口与 Why 目标章行同时成立。",
+  };
+}
+
 function findAu09ValidityWindowRecallEvidence(records) {
   const sliceId = "au09-validity-window-recall";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -23083,6 +23145,51 @@ function findAu09ValidityWindowRecallEvidence(records) {
     in_window_phrase: uiState.in_window_phrase,
     out_of_window_phrase: uiState.out_of_window_phrase,
     key_events: keyEvents,
+  };
+}
+
+function b64CoordinateMemoryBehavior(records, evidence) {
+  const states = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" && record.slice_id === "b64-coordinate-memory",
+  );
+  const checks = states.map((record) => record.b64_check).filter(Boolean);
+  if (checks.length < 3) return null;
+
+  const oldCheck = checks.find((check) => check.label === "old-chapter");
+  const sessionCheck = checks.find((check) => check.label === "old-chapter-new-session");
+  const newCheck = checks.find((check) => check.label === "new-chapter");
+  if (!oldCheck || !sessionCheck || !newCheck) return null;
+
+  const allChecks =
+    oldCheck.prompt_facts_present &&
+    oldCheck.includes_early &&
+    !oldCheck.includes_future &&
+    oldCheck.includes_core &&
+    oldCheck.why_line_present &&
+    sessionCheck.prompt_facts_present &&
+    sessionCheck.includes_early &&
+    !sessionCheck.includes_future &&
+    sessionCheck.includes_core &&
+    sessionCheck.why_line_present &&
+    newCheck.prompt_facts_present &&
+    !newCheck.includes_early &&
+    newCheck.includes_future &&
+    newCheck.includes_core &&
+    newCheck.why_line_present;
+  if (!allChecks) return null;
+
+  return {
+    slice_id: "b64-coordinate-memory",
+    behavior: "writer_facts_filter_by_target_chapter_window_and_why_same_source",
+    turn_ids: evidence.turn_ids,
+    checks,
+    assertions: [
+      "old_chapter_request_contains_early_and_unwindowed_facts_not_future",
+      "new_session_old_chapter_keeps_same_filter",
+      "new_chapter_request_contains_future_and_unwindowed_not_expired_early",
+      "why_panel_reports_target_chapter_filter_for_all_turns",
+    ],
   };
 }
 

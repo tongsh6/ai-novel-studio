@@ -4,6 +4,7 @@ import test from "node:test";
 import { DEFAULT_PROJECT_ROOT, loadAuthorBehaviorCorpus } from "./author_behavior.mjs";
 import {
   buildExplorationPlan,
+  buildLifecycleActionPlan,
   createSeededRandom,
   failureFingerprint,
   shrinkFailureTrace,
@@ -110,6 +111,44 @@ test("失败缩化：保留同一违规类别的最小动作序列，不冒充�
 
   // 另一个违规类别不能冒充原失败。
   assert.equal(shrinkFailureTrace({ plan: value, stepResults: results, violationCode: "false_completion_claim" }), null);
+});
+
+test("B73 生命周期行动计划可复现，包含真实作者动作并支持 seed 变化", () => {
+  const first = buildLifecycleActionPlan(CORPUS, { seed: 42 });
+  const second = buildLifecycleActionPlan(CORPUS, { seed: 42 });
+  const other = buildLifecycleActionPlan(CORPUS, { seed: 7 });
+  assert.deepEqual(first, second);
+  assert.notEqual(first.plan_hash, other.plan_hash);
+  assert.ok([1, 2].includes(first.cancel_edits));
+  assert.ok([
+    ["cross_work", "offline_reopen"],
+    ["offline_reopen", "cross_work"],
+  ].some((order) => JSON.stringify(order) === JSON.stringify(first.recovery_order)));
+  const sends = first.steps.filter((step) => step.action === "send");
+  assert.deepEqual(sends.map((step) => step.case_id), [
+    "C-F2-E01", "C-F3-E01", "C-F3-E02", "C-F3-E03", "C-F3-E04",
+    "C-F3-E05", "C-F3-E06", "C-F3-E07", "C-F3-E08", "C-F3-E09",
+  ]);
+  for (const action of [
+    "double_accept", "reload_multi_candidate", "cross_work", "offline_reopen",
+    "cancel_edit", "open_stale_editor", "repeat_pending_registration",
+    "submit_stale_edit", "edit_then_accept", "repeat_accepted_registration",
+  ]) {
+    assert.ok(first.steps.some((step) => step.action === action), `missing action ${action}`);
+  }
+
+  const results = first.steps.map((step) => ({
+    step_index: step.index,
+    status: "pass",
+    reasons: [],
+    violations: [],
+    observed: { action: step.action === "send" ? "reply" : null },
+  }));
+  const summary = summarizeExploration({ plan: first, stepResults: results, corpusSha: CORPUS.corpus_sha });
+  assert.equal(summary.status, "pass");
+  assert.equal(summary.steps, first.steps.length);
+  assert.ok(summary.coverage.action_counts.double_accept === 1);
+  assert.ok(summary.coverage.action_counts.cancel_edit === first.cancel_edits);
 });
 
 test("失败指纹稳定且随类别/语料/计划变化", () => {

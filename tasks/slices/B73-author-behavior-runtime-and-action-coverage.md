@@ -1,9 +1,9 @@
 # B73：作者行为运行链与动作覆盖补强
 
-- 状态：**in_progress（2026-10-31 开工）**。
+- 状态：**in_progress（CP0–CP2 已完成，CP3 门禁与静态扫描闭环进行中）**。
 - 类型：B70 后续 P0/P1 验证实现；只扩外部真实页面 driver、冻结验证资产、隔离 seed/test-support 与判卷，不重开 B70 基础设施范围。
 - 设计真源：[作者行为语料生成与状态探索验证设计](../../docs/design/acceptance/author-behavior-corpus-and-state-exploration.md) §8–§17；上游执行事实：[B70](B70-author-behavior-corpus-and-state-exploration.md) §6.3–§8。
-- 开工 HEAD：`338abd216ae6a8d9614995844c7e74fc3a957ab9`。所有新 verdict/覆盖报告必须绑定实际运行 HEAD，不继承旧 PASS。
+- 开工 HEAD：`338abd216ae6a8d9614995844c7e74fc3a957ab9`；当前复验 HEAD：`0f9d19116e513162ea744c019095553dbcfcff0d`。verdict 只绑定产生它的 HEAD，不继承旧 PASS。
 - 数据与模型边界：只用合成作品和 `ARTIFACT_DIR/database` 隔离 DB；真实作品/stage 数据不改，真实模型未授权、不加载/调用。确定性 provider 只证明机制，不代签模型语义或文学质量。
 
 ## 1. 范围与完成标准
@@ -32,17 +32,70 @@
 6. **Acceptance Driver**：复用 `author-behavior-corpus.mjs` 与 `slice_verify.sh` / `quality_accept.sh`，按 manifest 运行；产品新增验收感知逻辑：**no**，无新增生产 env、slice 识别、DOM hook、自动操作或 provider。
 7. **Exploration**：本 slice 不新增作品知识供给或专用 prompt packet。execute/只读查询沿用真实探索与 AgentRun 主链；外部观察只读真实 TurnResult、请求/日志和 DB，不声称实模语义或观察使用已证明。
 
-## 3. Checkpoint
+## 3. Checkpoint 与真实页面证据
 
 | CP | 范围 | 状态与证据 |
 |---|---|---|
-| CP0 | 盘点旧报告与产品动作语义；修通标准 PyYAML 环境；建立真实观察/trap 数据形状的失败测试 | **in_progress**：系统 `python3` 缺 PyYAML，使用 `artifacts/b73-tooling/venv` 隔离安装项目指定 6.0.3，不改全局环境；其余待实现。 |
-| CP1 | P0：17/17 页面回放、F2/F3 execute、TENTATIVE/canon/hash/ref、10 traps、HO3、当前 HEAD verdict | 未闭环。 |
-| CP2 | P1：新增有行为差异的状态与完整作者动作/多轮/恢复，接入 seeded 探索 | 未闭环。 |
-| CP3 | 影响面复验、标准门禁、I1/I2/I3、静态扫描闭环与最终边界 | 未闭环。 |
+| CP0 | 旧报告/动作语义盘点、标准 PyYAML、真实观察与 trap 数据形状、失败测试 | **done**：系统 `python3` 缺 PyYAML，使用 `artifacts/b73-tooling/venv` 隔离安装项目指定 6.0.3，不改全局环境；`author_behavior_observation.mjs` 分开 TENTATIVE/canon/hash/ref/trap 证据，负例先行后接实现。 |
+| CP1 | P0：17/17 回放、F2/F3 execute、TENTATIVE/canon/hash/ref、10 traps、HO3、当前 HEAD verdict | **done（证据分层见下）**：断点前 17-case 与 execute 链路证据齐全；当前 HEAD 的 negative/actions 两个新场景 verdict pass。17-case 旧批次不冒充当前 HEAD 全量 verdict。 |
+| CP2 | P1：同名/多候选/stale/跨作品/读取失败、多轮动作与恢复、seeded 行动模型 | **done**：当前 HEAD 的 actions/read-failure 两个独立场景 verdict pass；seeded v2 逐步行动与转移覆盖；另有 seed 42 变体证据。 |
+| CP3 | 影响面复验、标准门禁、I1/I2/I3、静态扫描闭环与最终边界 | **in_progress**：manifest 与 driver 静态检查已过；其余后端/前端/不变量/静态扫描结果待本 CP 收尾后登记。 |
 
-## 4. 执行日志与证据
+### 3.1 P0 链路与 execute 证据（断点前批次，非当前 HEAD verdict）
 
-- 2026-10-31：`git status` 确认 B72/AU15/B70 文档与 native 入口存在他人 WIP；本任务不修改这些文件。
-- 2026-10-31：旧扩展报告确认 11/17、10 traps evaluated=0、HO3 未执行；现有 driver 固定写 `author_action=false`、`object_mismatch=false`、`duplicate_side_effect=false`，不足以证明新增动作，需改为外部事实派生。
-- 真实页面、局部测试、门禁和未完成项将在对应 CP 完成后追加；本文是本任务唯一执行状态源。
+- `artifacts/author-behavior/b73-full17-validated-20261031/`：真实页面固定回放 **17/17 pass**，补齐旧 6 cases；`summary.json`、`observations.json`、逐 case 截图、WS、prompt 与隔离 DB 快照齐全。
+- `artifacts/author-behavior/b73-execute-validated-20261031/`：F2 两条 execute 均为 `prose_fragment` / `prose_drafting_with_quality_v1`，F3 明确保存为 `world_rule_seed` / `world_building_with_context_v1`；全部 `TENTATIVE`，canon 与 accepted 原文 hash 零变化，`production_write_performed=false`。
+- 这些证据只证明对应批次的真实链路；后续 HEAD 复验以 §3.2 的新场景 verdict 和影响面门禁为准，未把本目录写成当前 HEAD 的 17-case verdict。
+
+### 3.2 当前 HEAD 独立场景与 B41 verdict
+
+三份 verdict 均为 `quality-verdict/v2`、`status=pass`、evidence **4/4**、attempt=1、timeouts=0、`model_behavior=not_applicable`，且 `git_head=0f9d19116e513162ea744c019095553dbcfcff0d`：
+
+| 场景 | 真实页面结果与关键证据 | verdict |
+|---|---|---|
+| `author-behavior-negative` | 10/10 traps declared=executed=evaluated；每条 `state_constructed/stimulus_reached/detection_passed=true`。7 个故意违规 case 命中指定 fail，2 个合法路径 pass，覆盖同名错绑、讨论强写、虚假完成、短指代执行、空作品与自动采纳反误杀。证据：`artifacts/slice-verify/author-behavior-negative/{coverage.json,negative-stimuli.json,observations.json,summary.json}` | `artifacts/slice-verify/author-behavior-negative/verdict.json` |
+| `author-behavior-actions` | 10/10 有序 explore cases pass；HO3 executed/evaluated。重复直接采纳只有一个 receipt/accepted 增量；多候选、跨作品、离线重开、两次取消、stale 拒绝且编辑保留、编辑后采纳、pending/accepted 重复登记均通过。证据：`artifacts/slice-verify/author-behavior-actions/{exploration.json,action-coverage.json,observations.json,coverage.json,summary.json}` | `artifacts/slice-verify/author-behavior-actions/verdict.json` |
+| `author-behavior-read-failure` | 隔离库真实 `chapter_summaries` 故障使 `chapters=unavailable`；页面明确“无法读取/不知道”，`unknown_as_empty=false`、`supplied_used_conflation=false`，HO6 executed/evaluated；inject/restore 均留痕。证据：`artifacts/slice-verify/author-behavior-read-failure/{observations.json,read-fault.json,coverage.json,summary.json}` | `artifacts/slice-verify/author-behavior-read-failure/verdict.json` |
+
+### 3.3 Seeded 行动覆盖
+
+- 当前 HEAD `author-behavior-actions`：`author-behavior-explorer/v2`、seed `20261031`、22 步、22 个转移键，包含 double_accept、reload、cross_work、offline_reopen、cancel_edit、stale、edit_then_accept、repeat registration；`exploration.json` 逐步状态与 `action_counts` 完整。
+- 变体证据 `artifacts/author-behavior/b73-action-seed42-validated-20261031/`：seed 42 为 23 步、10/10 pass、22 个转移键；证明恢复顺序/取消次数可随 seed 变化，不声称覆盖全部随机动作组合。
+
+### 3.4 失败现场与根因（只读保留，不计 PASS）
+
+`artifacts/author-behavior/` 下保留 execute 子轮关联、跨实例占用、HMR 中断、世界设定路由、历史 fixture 误匹配、pending 修订路由、候选类型漏判、E05 漏执行、读取失败 fixture 误匹配等目录，例如：
+
+- `b73-execute-first-failure-20261031/`：driver 未关联 `parent:agent:N` 子 TurnResult；产品实际上已产 TENTATIVE，修复 driver 而非产品。
+- `b73-cross-instance-failure-20261031/`、`b73-action-cross-instance-startup-20261031/`：其它 WIP 占用默认端口，后续使用高端口和隔离 seed 核对。
+- `b73-negative-hmr-interruption-20261031/`：其它前端 WIP 触发整页重载，后续 `SLICE_VERIFY_STATIC_FRONTEND=1` 冻结本次页面资源。
+- `b73-world-route-failure-20261031/`、`b73-historical-fixture-mismatch-20261031/`：世界设定与历史 fixture 路由错误，修复当前输入匹配和 profile 一致性。
+- `b73-action-pending-route-failure-20261031/`：通用 fixture 错走 adopted 修订，改为从真实 pending 目录绑定原稿/修订稿 ref。
+- `b73-action-e05-missing-20261031/`：runner 漏发冻结 E05，不能算完成；补发后才形成最终 10/10。
+- `b73-read-failure-wrong-fixture-20261031/`：同表达命中旧 fixture，增加本批 case 过滤和可见 unknown 断言后复验。
+
+未通过换分方式删除这些分母；最终 PASS 均来自修正后的新批次，失败目录不作通过证据。
+
+## 4. 实现边界与验证记录
+
+- 外部观察：`author_behavior_observation.mjs` 分开候选增量、canon 增量、accepted 原文 hash、真实章 ref、子 turn parent 关联与 trap 状态/刺激/判卷。
+- 判卷：execute 与 `author_content_registration` 均要求目标族匹配的 TENTATIVE 候选；历史 CONFIRMED/receipt 可支持真实完成声明，零事实负控仍 fail；HO 执行/判定来自逐步证据，不从 case 引用复制。
+- 场景：`author-behavior-negative`、`author-behavior-actions`、`author-behavior-read-failure` 已注册 `quality/acceptance/scenarios.yml` 与独立 manifest，统一复用 `quality_accept.sh` + B41 verdict，没有第二套 verdict。
+- 隔离：所有场景只用合成 seed 和 artifact DB；读取故障只允许 `artifacts/slice-verify` 下的 DB，结束恢复表名；真实作品/stage 未修改。
+- 并发：使用独立高端口与静态前端避免他人实例和 HMR 干扰；没有修改 `trace_replay_service.ex`、`trace_writer.ex`、B64 seed、通用 external-ui-driver、native verifier 或 Tauri WIP。
+
+### 当前门禁记录
+
+- 已通过：`PATH=artifacts/b73-tooling/venv/bin:$PATH bash scripts/quality_manifest_check.sh`（218 scenarios / 2 drafts / 220 manifests，PyYAML 6.0.3；B64 缺 manifest 的既有 warning 不属于本任务）。
+- 已通过：`node --check frontend/slice-verify/author-behavior-corpus.mjs`、`cd frontend && pnpm exec eslint slice-verify/author-behavior-corpus.mjs`、`bash -n scripts/slice_verify.sh`、`node scripts/author_behavior_check.mjs --json`。
+- 已通过上述三个真实页面场景及其 B41 verdict。
+- 后端/前端标准门禁、I1/I2/I3、format/lint/manifest/next_task_check 和 `ai_static_scan` 的完整结果将在 CP3 执行后追加；未执行前不声称全绿。
+
+## 5. 剩余边界（不得隐藏）
+
+- 真实模型未授权，未加载/调用；所有 PASS 都是确定性机制证据，不证明真实模型语义、观察使用或文学质量。
+- 完整 native 矩阵未覆盖；当前独立场景均为 browser + Playwright，不以浏览器证据冒充 Tauri/native。
+- seeded 生命周期保留必要依赖顺序，只改变合法恢复顺序和取消次数，不声称穷尽动作组合或广泛真实作者代表性。
+- 读取失败只覆盖 `chapters`，不替代其它来源的故障矩阵。
+- 17-case 是断点前真实页面证据；本次没有把它重复运行来换当前 HEAD 标签，当前 HEAD 的独立 verdict 以 §3.2 为准。
+- B72、B39/AU15、B64、trace replay/writer 及其他 WIP 不属于本任务，未修改；相关 warning/失败不借本任务 PASS 抵消。

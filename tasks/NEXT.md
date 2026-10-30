@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B64 | CP0–CP2 done：目标章过滤/共享有效窗/Why 同源/窗口与重编号/跨作品矩阵/修订路径回归均已落地；下一步 CP3 真实 Tauri 页面矩阵（旧章/新章/跨会话，确定性接线与真实模型消费分列）；mix test 1039/0，全量前端 lint 与 task_done UI 证据仍受环境/并行 WIP 阻塞 | [原任务](slices/B64-coordinate-aware-memory-consumption.md) |
+| B64 | CP0–CP2 done；CP3 partial：确定性真实 Tauri 三 turn 矩阵 PASS（writer 事实窗口+Why 行）；真实模型一次运行 `judgment_protocol_violation` 失败（只读、未重试），真实模型消费未成立；待判断协议处理再复验 | [原任务](slices/B64-coordinate-aware-memory-consumption.md) |
 
 ## 后续候选
 

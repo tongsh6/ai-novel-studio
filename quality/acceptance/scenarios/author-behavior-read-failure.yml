@@ -1,0 +1,64 @@
+id: author-behavior-read-failure
+title: "B73 真实章节读取失败（unknown 不当空事实 + HO6）"
+tier: nightly
+surface: browser
+default_provider: slice_verify
+status_note: >-
+  active（2026-10-31 B73）：外部 harness 仅在隔离库重命名 chapter_summaries，真实页面请求穿过
+  context unavailable → 判断 → 可见 unknown 回复；同轮 trace 证明 chapters 不可读，HO6 实际执行并判卷。
+  确定性替身只证明机制，不代签真实模型语义或文学质量（I10）。
+entrypoint: scripts/quality_accept.sh author-behavior-read-failure --surface browser
+contract:
+  - tasks/slices/B73-author-behavior-runtime-and-action-coverage.md §1/§3
+  - docs/design/acceptance/author-behavior-corpus-and-state-exploration.md §8–§11（G6）
+  - docs/engineering/scenario-acceptance.md
+invariants:
+  - I-B73R-1 故障真实存在：隔离库 chapter_summaries 改名，同轮 context_source_status.chapters=unavailable。
+  - I-B73R-2 unknown 不是空：可见回复明确无法读取/不知道，不得说没有正文、0 章或已读全部。
+  - I-B73R-3 证据完整：HO6 executed/evaluated；故障与恢复事件、prompt/WS/DB/截图可重算，结束后表名恢复。
+setup:
+  provider: slice_verify
+  seed: scripts/seed_author_behavior_states.exs
+  env_note: 隔离 DB（ARTIFACT_DIR/database）；AUTHOR_BEHAVIOR_READ_FAILURE=1 由 runner 按场景注入；
+    故障仅由外部 driver 在隔离库构造，真实作品/stage 数据不改。
+user_flow:
+  - inject: 外部 driver 将隔离库 chapter_summaries 改名并记录故障事件
+  - send: 在真实工作台询问当前章节进度与字数
+  - observe: 读取同轮 TurnResult、context_source_status、assistant 文本、prompt 与 DB 前后快照
+  - evaluate: 独立 oracle 判 unknown_as_empty/supplied_used_conflation 与 HO6
+  - restore: 恢复表名并落 read-fault/observations/coverage/summary
+evidence:
+  required:
+    - screenshot
+    - backend_log
+    - summary_json
+    - persistence_snapshot
+  extra_artifacts:
+    - read-fault.json
+    - observations.json
+    - coverage.json
+    - frames.json
+    - db-snapshots.json
+    - corpus.json
+  artifact_dir: artifacts/slice-verify/author-behavior-read-failure
+assertions:
+  ui:
+    - 真实页面回复明确“无法读取”和“不知道”，不把故障展示成空作品或 0 章。
+  network:
+    - 同轮 user_message、TurnResult、judgment 与 prompt 日志可关联；context_source_status.chapters=unavailable。
+  data:
+    - unknown_as_empty=false、supplied_used_conflation=false；HO6 executed/evaluated；canon 无变化。
+    - read-fault.json 同时包含 inject/restore，最终 chapter_summaries 表名恢复。
+  llm:
+    - 仅 slice_verify 确定性机制证据；不加载或调用真实模型，不声明模型语义覆盖。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+anti_hooks_verification: >-
+  故障只在外部隔离库构造；页面只用作者可见输入，观测只读 WS/DB/日志；无生产故障开关或验收钩子。
+prerequisites:
+  - B70 固定回放与统一 oracle 可用；B41 quality-verdict/v2 入口不重造。
+known_not_closed:
+  - 本场景只覆盖 chapters 读取失败，不替代其它来源故障矩阵、完整 native 或真实模型语义评估。

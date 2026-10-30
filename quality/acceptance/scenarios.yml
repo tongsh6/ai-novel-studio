@@ -912,6 +912,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/au09-validity-window-recall.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au09-validity-window-recall --surface tauri
+  - id: b64-coordinate-memory
+    title: "写作事实按目标章有效窗过滤（旧章/新会话/新章）"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/b64-coordinate-memory.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh b64-coordinate-memory --surface tauri
   - id: au09-cross-work-memory-isolation
     title: "跨作品记忆与档案隔离"
     tier: nightly
@@ -1236,6 +1243,30 @@ scenarios:
     manifest: quality/acceptance/scenarios/author-behavior-explore.yml
     driver: frontend/slice-verify/author-behavior-corpus.mjs
     entrypoint: scripts/quality_accept.sh author-behavior-explore --surface browser
+  - id: author-behavior-negative
+    title: "B73 author-behavior 真实负控（状态构造 + 刺激到达 + 独立 oracle）"
+    tier: nightly
+    surface: browser
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/author-behavior-negative.yml
+    driver: frontend/slice-verify/author-behavior-corpus.mjs
+    entrypoint: scripts/quality_accept.sh author-behavior-negative --surface browser
+  - id: author-behavior-actions
+    title: "B73 作者动作生命周期与 seeded 状态探索（采纳/拒绝/编辑/stale/恢复）"
+    tier: nightly
+    surface: browser
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/author-behavior-actions.yml
+    driver: frontend/slice-verify/author-behavior-corpus.mjs
+    entrypoint: scripts/quality_accept.sh author-behavior-actions --surface browser
+  - id: author-behavior-read-failure
+    title: "B73 真实章节读取失败（unknown 不当空事实 + HO6）"
+    tier: nightly
+    surface: browser
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/author-behavior-read-failure.yml
+    driver: frontend/slice-verify/author-behavior-corpus.mjs
+    entrypoint: scripts/quality_accept.sh author-behavior-read-failure --surface browser
   - id: author-behavior-real-llm-subset
     title: "B70 author-behavior 真实模型 holdout 语义子集（预注册入口，blocked）"
     tier: release-real-llm

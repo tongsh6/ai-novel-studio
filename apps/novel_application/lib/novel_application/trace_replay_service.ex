@@ -126,9 +126,17 @@ defmodule NovelApplication.TraceReplayService do
   defp put_mission_summary(summary, state_refs) when is_list(state_refs) do
     Enum.reduce(state_refs, summary, fn ref, acc ->
       case map_value(ref, :kind) do
-        "chapter_mission" -> put_mission_fields(acc, ref, :chapter_mission)
-        "planning_mission" -> put_mission_fields(acc, ref, :planning_mission)
-        _other -> acc
+        "chapter_mission" ->
+          put_mission_fields(acc, ref, :chapter_mission)
+
+        "planning_mission" ->
+          put_mission_fields(acc, ref, :planning_mission)
+
+        "memory_window" ->
+          Map.put(acc, :memory_window, Map.drop(ref, ["kind", "ref", :kind, :ref]))
+
+        _other ->
+          acc
       end
     end)
   end

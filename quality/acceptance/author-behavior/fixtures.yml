@@ -40,6 +40,11 @@ fixtures:
     action: execute
     capability: prose_writing
     note: B73：只刺激正文 execute 判断；候选、目标绑定与 TENTATIVE 边界由真实主链和独立 oracle 判定。
+  - case_id: C-F2-E01
+    expression: "把第02章补完，接上现在的结尾。"
+    action: execute
+    capability: prose_writing
+    note: B73 重复采纳前置：章序号唯一定位，真实主链生成 TENTATIVE 后由作者双击。
   - case_id: C-F2-003
     expression: "还是从第02章断的地方往下写，前面别改。"
     action: execute
@@ -83,6 +88,29 @@ fixtures:
     expression: "先帮我想几个书名，别动手写。"
     action: reply
     note: 最小刺激：书名建议回复；oracle 判零写/不虚假完成。
+  - case_id: C-F1-E10
+    expression: "现在写到第几章了？第02章大概多少字？"
+    action: reply
+    reply_text: "当前作品章节信息暂时无法读取，我不知道已写多少章；不会把读取失败当成没有正文。"
+    note: B73 读取失败合法路径：明确 unknown，不声称空事实或已读正文。
+  - case_id: C-F3-E03
+    expression: "请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。"
+    action: execute
+    capability: revise_pending_artifact
+    target_role: original
+    note: B73 多轮纠正：从真实 pending 目录绑定原稿，不走 adopted 修订。
+  - case_id: C-F3-E04
+    expression: "请放弃原候选，保留修订稿。"
+    action: execute
+    capability: discard_pending_artifact
+    target_role: original
+    note: B73 反悔：只放弃真实原稿 ref，保留独立修订稿。
+  - case_id: C-F3-E06
+    expression: "请放弃修订稿。"
+    action: execute
+    capability: discard_pending_artifact
+    target_role: revision
+    note: B73 失效对象前置：只放弃真实修订稿 ref，使旧编辑随后失效。
 
 # B73 负控刺激只描述替身输出，不声明判卷结论；预期违规/合法结果仍在 oracles.yml。
 negative_fixtures:

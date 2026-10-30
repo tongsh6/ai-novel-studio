@@ -154,7 +154,7 @@ defmodule NovelApplication.TraceWriter do
       tool_trace_refs: [tool_trace_ref(req, result, decision)],
       # WR01c：使命结构化 payload 进 state_trace_refs（既有 {:array,:map} 列，零 migration）——
       # replay 重建与广播 summary 同源。
-      state_trace_refs: mission_state_refs(turn_result),
+      state_trace_refs: mission_state_refs(turn_result) ++ memory_window_state_refs(turn_result),
       event_order: [
         :author_input_received,
         :dialogue_frame_validated,
@@ -293,6 +293,14 @@ defmodule NovelApplication.TraceWriter do
   end
 
   defp mission_state_refs(_turn_result), do: []
+
+  # B64：记忆适用性随 trace 持久化，供 replay/Why 面板重建；不存事实正文，只存目标章/位置/applied。
+  defp memory_window_state_refs(%{memory_window: %{} = window}) when map_size(window) > 0 do
+    ref = "memory_window:" <> (window[:target_chapter_ref] || "unknown")
+    [Map.merge(%{"kind" => "memory_window", "ref" => ref}, window)]
+  end
+
+  defp memory_window_state_refs(_turn_result), do: []
 
   defp mission_state_ref(kind, ref, %{} = payload)
        when is_binary(ref) and ref != "" and map_size(payload) > 0 do

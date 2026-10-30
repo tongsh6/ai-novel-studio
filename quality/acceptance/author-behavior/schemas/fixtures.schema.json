@@ -18,9 +18,10 @@
           "case_id": {"type": "string"},
           "expression": {"type": "string", "minLength": 2},
           "action": {"enum": ["reply", "ask_author", "execute"]},
-          "capability": {"enum": ["prose_writing", "world_building"]},
+          "capability": {"enum": ["prose_writing", "world_building", "revise_pending_artifact", "discard_pending_artifact"]},
           "reply_text": {"type": "string", "minLength": 1},
           "dialogue_goal": {"type": "string", "minLength": 2},
+          "target_role": {"enum": ["original", "revision"]},
           "note": {"type": "string", "minLength": 8}
         }
       }
@@ -35,9 +36,10 @@
           "case_id": {"type": "string"},
           "expression": {"type": "string", "minLength": 2},
           "action": {"enum": ["reply", "ask_author", "execute"]},
-          "capability": {"enum": ["prose_writing", "world_building"]},
+          "capability": {"enum": ["prose_writing", "world_building", "revise_pending_artifact", "discard_pending_artifact"]},
           "reply_text": {"type": "string", "minLength": 1},
           "dialogue_goal": {"type": "string", "minLength": 2},
+          "target_role": {"enum": ["original", "revision"]},
           "note": {"type": "string", "minLength": 8}
         }
       }

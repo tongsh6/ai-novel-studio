@@ -242,6 +242,15 @@
 
 - [b29-existing-character-role-revision.yml](b29-existing-character-role-revision.yml)（**已注册 active/nightly**）：真实 Tauri 页面验证已有角色 narrative_role 修订闭环——seed 沈砚 ENSEMBLE_POV/别名老沈、顾青 PROTAGONIST、同名沈砚 MINOR/别名小沈、阿鸢 SUPPORTING + accepted 正文 → 「指定老沈为主角」→ judgment `revise_character_profile` + character_ref → 候选卡对象与 old→new（ENSEMBLE_POV→PROTAGONIST）→「保存到作品」→ 同 character_id 原子更新（receipt committed_changes/character_ref/old value/base+current fingerprint；角色数/ID/其它角色/正文 hash/记忆不变；顾青 PROTAGONIST 保留）→ 同名「指定沈砚为主角」ask_author 列候选零写入 → 讨论 reply 零候选 → 刷新/重开档案 roster 与「现在谁是主角？」返回「当前作品有 2 位主角（群像）：沈砚、顾青（以角色主档案为准）」→ 放弃候选原值不变、重复采纳幂等、跨作品零写入。driver `driveB29ExistingCharacterRoleRevision`，证据 `artifacts/slice-verify/b29-existing-character-role-revision-tauri/`（23 checks）。**边界**：确定性 provider 产品链；真实模型原话/改述与同名/讨论澄清由 CP4 `strata/iq3_s` 单槽 model_behavior 证据分开报告，不替代本 PASS。
 
+## B70/B73 作者行为场景
+
+- [author-behavior-corpus.yml](author-behavior-corpus.yml)：B70 冻结语料固定回放（active/pr-smoke/browser）。
+- [author-behavior-explore.yml](author-behavior-explore.yml)：B70 切作品/发送 seeded 探索（active/nightly/browser）。
+- [author-behavior-negative.yml](author-behavior-negative.yml)：B73 真实负控，逐 trap 记录状态构造、刺激到达与独立 oracle 判定（active/nightly/browser）。
+- [author-behavior-actions.yml](author-behavior-actions.yml)：B73 候选动作生命周期与 seeded 探索，含重复采纳、多候选、stale、跨作品、离线重开、取消与编辑后采纳（active/nightly/browser）。
+- [author-behavior-read-failure.yml](author-behavior-read-failure.yml)：B73 隔离库真实 chapters 读取失败，明确 unknown 且 HO6 实际判定（active/nightly/browser）。
+- [author-behavior-real-llm-subset.yml](author-behavior-real-llm-subset.yml)：真实模型 holdout 预注册入口（blocked；未加载模型，不代签语义）。
+
 ## Retired（B40 判断纪元验收重锚，2026-10-27）
 
 以下对象经 CP0 裁决正式退役（manifest 与 registry 条目已移除；历史失败证据只读保留在 `artifacts/`）：

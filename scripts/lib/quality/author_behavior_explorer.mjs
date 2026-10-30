@@ -114,6 +114,63 @@ export function buildExplorationPlan(corpus, { seed, poolCaseIds, extraSwitchSte
   };
 }
 
+export function buildLifecycleActionPlan(corpus, { seed, journeyId = "J-B73-CANDIDATE-LIFECYCLE" } = {}) {
+  const cases = corpusCases(corpus)
+    .filter((testCase) => testCase.journey_id === journeyId)
+    .sort((left, right) => left.sequence - right.sequence);
+  if (cases.length === 0) throw new Error(`lifecycle journey is empty: ${journeyId}`);
+
+  const random = createSeededRandom(seed);
+  const cancelEdits = 1 + Math.floor(random() * 2);
+  const recoveryOrder = random() < 0.5
+    ? ["cross_work", "offline_reopen"]
+    : ["offline_reopen", "cross_work"];
+  const steps = [];
+  let currentState = null;
+  const push = (action, testCase = null) => {
+    const stateId = testCase?.state_id ?? currentState;
+    steps.push({
+      index: steps.length,
+      action,
+      case_id: testCase?.id ?? null,
+      state_id: stateId,
+      expression: testCase?.expression ?? null,
+    });
+  };
+  const switchTo = (stateId) => {
+    currentState = stateId;
+    steps.push({ index: steps.length, action: "switch_work", state_id: stateId });
+  };
+
+  for (const testCase of cases) {
+    if (currentState !== testCase.state_id) switchTo(testCase.state_id);
+    push("send", testCase);
+    if (testCase.sequence === 0) push("double_accept", testCase);
+    if (testCase.sequence === 3) {
+      push("reload_multi_candidate", testCase);
+      recoveryOrder.forEach((action) => push(action, testCase));
+      for (let index = 0; index < cancelEdits; index += 1) push("cancel_edit", testCase);
+      push("open_stale_editor", testCase);
+    }
+    if (testCase.sequence === 5) push("repeat_pending_registration", testCase);
+    if (testCase.sequence === 6) push("submit_stale_edit", testCase);
+    if (testCase.sequence === 7) push("edit_then_accept", testCase);
+    if (testCase.sequence === 9) push("repeat_accepted_registration", testCase);
+  }
+
+  const planHash = crypto.createHash("sha256")
+    .update(JSON.stringify({ seed: Number(seed) >>> 0, cancelEdits, recoveryOrder, steps }))
+    .digest("hex");
+  return {
+    explorer_version: "author-behavior-explorer/v2",
+    seed: Number(seed) >>> 0,
+    plan_hash: planHash,
+    cancel_edits: cancelEdits,
+    recovery_order: recoveryOrder,
+    steps,
+  };
+}
+
 /** 把 plan 与 stepResults 汇总成转移/覆盖/失败报告。 */
 export function summarizeExploration({ plan, stepResults, corpusSha }) {
   const transitions = [];
@@ -132,6 +189,21 @@ export function summarizeExploration({ plan, stepResults, corpusSha }) {
       currentState = step.state_id;
       continue;
     }
+    if (step.action !== "send") {
+      transitions.push({
+        from: currentState,
+        action: step.action,
+        to: currentState,
+        run_state: result.observed?.run_state ?? "completed",
+      });
+      if (["fail", "unknown"].includes(result.status)) {
+        failures.push({ step_index: step.index, case_id: step.case_id, status: result.status, reasons: result.reasons });
+      }
+      for (const violation of result.violations ?? []) {
+        violations.push({ step_index: step.index, case_id: step.case_id, ...violation });
+      }
+      continue;
+    }
 
     const runState =
       result.observed?.action === "ask_author" ? "awaiting_author" : result.observed?.action === "reply" ? "completed" : "unknown";
@@ -146,9 +218,13 @@ export function summarizeExploration({ plan, stepResults, corpusSha }) {
 
   const stateCoverage = [...new Set(transitions.flatMap((transition) => [transition.from, transition.to]).filter(Boolean))];
   const transitionKeys = [...new Set(transitions.map((transition) => `${transition.from ?? "start"}->${transition.action}->${transition.to ?? "none"}`))];
+  const actionCounts = {};
+  for (const step of plan.steps.filter((entry) => !["send", "switch_work"].includes(entry.action))) {
+    actionCounts[step.action] = (actionCounts[step.action] ?? 0) + 1;
+  }
 
   return {
-    explorer_version: EXPLORER_VERSION,
+    explorer_version: plan.explorer_version ?? EXPLORER_VERSION,
     seed: plan.seed,
     plan_hash: plan.plan_hash,
     corpus_sha: corpusSha,
@@ -161,6 +237,7 @@ export function summarizeExploration({ plan, stepResults, corpusSha }) {
       transition_keys: transitionKeys,
       send_actions: plan.steps.filter((step) => step.action === "send").length,
       switch_actions: plan.steps.filter((step) => step.action === "switch_work").length,
+      action_counts: actionCounts,
     },
     invariants_checked: [
       "G1-no-unauthorized-canon-write",

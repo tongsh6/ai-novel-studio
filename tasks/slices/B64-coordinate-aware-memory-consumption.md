@@ -1,6 +1,6 @@
 # B64：按真实写作坐标消费记忆有效窗
 
-- 状态：**doing（2026-10-31 CP0/CP1/CP2 完成；CP3 真实 Tauri 页面矩阵未开始）**。
+- 状态：**doing（2026-10-31 CP0–CP2 done；CP3 进行中：确定性真实 Tauri 页面矩阵 PASS，真实模型消费一次失败待处理；B64 未 done）**。
 - 来源：有效期已在普通 recall 路径验证，但 CA02 的专业创作事实读端口没有目标章或有效窗输入；本轮只读代码核对发现消费边界不一致，尚未运行数据库、真实模型或页面反例。
 - 上游：[AU09 有效窗原任务](AU09-validity-window-recall.md)、[CA02](CA02-writing-facts-context.md)、[VS-00C](../../docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md)、[B39](B39-evidence-seeking-authoring.md)。本项保护既有章节级窗口，不等待 B54 新建故事时间读模型，也不重复建设 B39 的求证循环。
 
@@ -99,7 +99,23 @@ CP0 还须明确：未知当前位置、无窗口、无效章节引用、重编�
 | CP0 | 确认消费者矩阵、构造第 10 章回写第 3 章等反例；冻结目标/未知/规划/历史读取的最小适用性契约与驱动；核实缺口后才改代码 | done（2026-10-31，§1.1；反例红测先失败后转绿） |
 | CP1 | 真实章身份/作用范围贯穿需要它的读取端口；统一既有有效窗规则，保留无目标回退与历史可查；只修实际消费者 | done（2026-10-31：`WorkArchiveRepo.creative_facts/2` + `MemoryRecallRepo.recall/3 :at_chapter_id` + `NovelDomain.MemoryValidity` 共享规则；TurnExecutionService 把 `resolved_chapter_ref` 传给 reader；无目标/未知保持旧回退；writer/evaluator 同源 facts） |
 | CP2 | writer/evaluator、普通 recall、trace/why 及规划边界同源；覆盖窗口、重编号、错误引用、跨作品、恢复与当前值变化；回归独立修订路径 | **done**（2026-10-31：trace `memory_window` + Why 适用性行；窗口/重编号/未知目标/跨作品/当前值重读矩阵；writer/evaluator 同源 facts；普通 recall 显式目标；规划边界只核对；修订路径 26 测试回归且确认未注入 CA02；恢复矩阵=逐轮重读读者，无缓存，当前值变化测试覆盖） |
-| CP3 | 外部真实 Tauri 完成旧章/新章与跨会话矩阵，分开记录确定性接线和真实模型消费；原 AU09 证据不外推，全部计划内后果齐备才关闭 | todo（下一步：复用 AU09 validity seed/场景做普通 recall 回归，另建 B64 原生驱动，从主输入回写旧章并核对 llm-calls writer 请求事实/Why 行；跨会话/新目标重复；真实模型行为单列） |
+| CP3 | 外部真实 Tauri 完成旧章/新章与跨会话矩阵，分开记录确定性接线和真实模型消费；原 AU09 证据不外推，全部计划内后果齐备才关闭 | **doing/partial（2026-10-31）**：确定性真实 Tauri 矩阵 PASS（旧章/新会话旧章/新章三 turn，writer prompt 事实窗口 + Why 目标章行全成立，verifier passed）；真实模型同场景一次预注册运行在判断阶段 `judgment_protocol_violation` 失败（只读保留、未重试），真实模型消费未成立 |
+
+## 4.1 CP3 记录（2026-10-31，partial）
+
+- 外部真实 Tauri 场景 `b64-coordinate-memory` 已注册：
+  - seed `scripts/seed_b64_coordinate_memory.exs`：第01–10章已采纳（第03章留空，当前位置=10），第11章计划；B64EARLY 仅1–4章有效、B64FUTURE 第8章后生效、B64CORE 无窗口。
+  - driver `frontend/slice-verify/external-ui-driver.mjs`：真实页面主输入写第03章 → 新建会话再写第03章 → 写第11章；读取真实 `llm-calls` prompt 事实段与 Why 面板目标章行。
+  - tauri_slice_verify 注册 + `native-tauri-verifier` 证据/行为函数；验收 manifest `quality/acceptance/scenarios/b64-coordinate-memory.yml`（nightly 只判确定性接线，真实模型另行预注册）。
+- 确定性 provider 结果（PASS）：
+  - 证据 `artifacts/slice-verify/b64-coordinate-memory-tauri/`：`b64-coordinate-memory.json` 三 turn 全为 `includes_early/future/core` 预期组合 + `why_line_present=true`；`summary.json` status done、verifier passed；截图 `b64-old-chapter.png`/`b64-new-chapter.png`。
+  - 旧章：writer prompt 含 B64EARLY+B64CORE、不含 B64FUTURE；新会话旧章同；新章：含 B64FUTURE+B64CORE、不含过期 B64EARLY；三 turn Why 均显示“作品事实已按目标章过滤：…”。
+- 真实模型（strata/iq3_s）一次预注册运行（`artifacts/model-contracts/b64-cp3/preregistration.json`，证据 `artifacts/slice-verify/b64-coordinate-memory-tauri-strata/`）：
+  - 首个 turn 判断阶段连续两次输出被产品校验拒绝（`judgment_narrative_required` → `invalid_tool_arguments`），随后 `agent_run.run_failed: judgment_protocol_violation`；未进入 prose writer，自然无 writer prompt 事实段。
+  - 失败只读保留、未重试；模型生命周期核验 `strata loaded=null`（无本任务模型残留）。
+  - 该失败与 B39 AU15 A2-run2 的 `judgment_protocol_violation` 同属真实模型判断协议失败类，需 provider/prompt 侧系统处理，不在本 slice 盲修。
+- 实现补充（Why replay 同源）：`memory_window` 进入 `DecisionTrace.state_trace_refs` + TraceReplayService 重建，修复广播 summary 有、Why replay 丢失的问题（trace replay 测试覆盖）。
+- CP3 未关闭：真实模型消费未成立；待判断协议问题处理后再按预注册复验（不重试刷分）。
 
 ## 5. 非目标与恢复
 

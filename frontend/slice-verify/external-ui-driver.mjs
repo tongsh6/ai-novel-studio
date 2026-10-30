@@ -39673,6 +39673,127 @@ async function driveB29ExistingCharacterRoleRevision(page) {
     },
   ];
 }
+async function driveB64CoordinateMemory(page) {
+  const early = "B64EARLY";
+  const future = "B64FUTURE";
+  const core = "B64CORE";
+  const checks = [];
+
+  function writeB64Checks(entries) {
+    fs.writeFileSync(
+      path.join(artifactDir, "b64-coordinate-memory.json"),
+      JSON.stringify({ slice_id: sliceId, checks: entries, at: new Date().toISOString() }, null, 2),
+    );
+  }
+
+  function promptTextsSince(beforeCount) {
+    return readLlmCallRecords().map(llmCallPromptText).slice(beforeCount);
+  }
+
+  async function sendAndCapture(message, label, expectedTargetPattern) {
+    const promptBefore = readLlmCallRecords().length;
+    const frameBefore = frames.length;
+    await page.locator(chatInputSelector).fill(message);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    // 只接受本次发送后的新帧；否则跨会话/连续发送会误取上一轮旧 turn_result。
+    const deadline = Date.now() + 170_000;
+    let turnFrame = null;
+    while (Date.now() < deadline) {
+      turnFrame = frames
+        .slice(frameBefore)
+        .find(
+          (frame) =>
+            frame.direction === "received" &&
+            frame.event === "turn_result" &&
+            frame.body?.assistant_message != null,
+        );
+      if (turnFrame) break;
+      await page.waitForTimeout(250);
+    }
+    assert(turnFrame, `No new turn_result after send for ${label}`);
+    const turnResult = turnFrame.body;
+    const factsPrompt =
+      promptTextsSince(promptBefore).find(
+        (prompt) => prompt.includes("## 作品事实（作者已确认") || prompt.includes("世界规则与约束："),
+      ) ?? "";
+    const whyText = await openLatestWhyDialog(page);
+    // 读完 Why 后关闭对话框，后续会话切换针对真实页面入口（不能隔着 modal）。
+    await page.keyboard.press("Escape");
+    await page.getByRole("dialog").first().waitFor({ state: "hidden", timeout: 10_000 }).catch(() => {});
+    const check = {
+      label,
+      turn_id: turnResult.turn_id,
+      prompt_facts_present: factsPrompt.includes("作品事实"),
+      includes_early: factsPrompt.includes(early),
+      includes_future: factsPrompt.includes(future),
+      includes_core: factsPrompt.includes(core),
+      why_line_present: whyText.includes("作品事实已按目标章过滤：") && expectedTargetPattern.test(whyText),
+      why_has_no_early: !whyText.includes(early),
+      why_has_no_future: !whyText.includes(future),
+    };
+    checks.push(check);
+    writeB64Checks(checks);
+    return { turnResult, check };
+  }
+
+  const oldTurn = await sendAndCapture(
+    "写第03章：承接前后文把这一章正文写完，保持剧情连续，不要停下来问我。",
+    "old-chapter",
+    /第0?3章/,
+  );
+  assert(oldTurn.check.includes_early, "old chapter writer prompt missed early-window fact");
+  assert(!oldTurn.check.includes_future, "old chapter writer prompt leaked future-window fact");
+  assert(oldTurn.check.includes_core, "old chapter writer prompt missed unwindowed fact");
+  assert(oldTurn.check.why_line_present, "Why panel did not show target-chapter fact filter line");
+  await page.screenshot({ path: path.join(artifactDir, "b64-old-chapter.png"), fullPage: true });
+
+  const sessionSummary = page.locator("summary").filter({ hasText: /会话/ }).first();
+  await sessionSummary.waitFor({ state: "visible", timeout: 20_000 });
+  await sessionSummary.click();
+  const createButton = page.getByRole("button", { name: "新建会话" }).first();
+  await createButton.waitFor({ state: "visible", timeout: 20_000 });
+  await createButton.click();
+  await page.waitForFunction(
+    (selector) => {
+      const input = document.querySelector(selector);
+      return Boolean(input && !input.disabled && document.body.innerText.includes("同步已连接"));
+    },
+    chatInputSelector,
+    { timeout: 60_000 },
+  );
+  const afterSession = await sendAndCapture(
+    "写第03章：继续把这一章正文写完整，只写正文，不要问我。",
+    "old-chapter-new-session",
+    /第0?3章/,
+  );
+  assert(afterSession.check.includes_early, "new-session old chapter missed early-window fact");
+  assert(!afterSession.check.includes_future, "new-session old chapter leaked future-window fact");
+  assert(afterSession.check.why_line_present, "new-session Why panel missing target filter line");
+
+  const newTurn = await sendAndCapture(
+    "写第11章：从灯楼的新一天开始写这一章正文，不要问我。",
+    "new-chapter",
+    /第11章/,
+  );
+  assert(newTurn.check.includes_future, "new chapter writer prompt missed future-window fact");
+  assert(!newTurn.check.includes_early, "new chapter writer prompt leaked expired early fact");
+  assert(newTurn.check.includes_core, "new chapter writer prompt missed unwindowed fact");
+  assert(newTurn.check.why_line_present, "new chapter Why panel missing target filter line");
+  await page.screenshot({ path: path.join(artifactDir, "b64-new-chapter.png"), fullPage: true });
+
+  writeB64Checks(checks);
+  return checks.map((check) => ({
+    event: "slice_verify.ui_state.done",
+    slice_id: sliceId,
+    socket_connected: true,
+    outcome: "done",
+    duration_ms: 0,
+    turn_id: check.turn_id,
+    turn_ids: [check.turn_id],
+    b64_check: check,
+  }));
+}
+
 const drivers = {
   "ua01-agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
   "agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
@@ -39858,6 +39979,7 @@ const drivers = {
   "au09-memory-taxonomy-write-policy": driveAu09MemoryTaxonomyWritePolicy,
   "au09-memory-list-ux-redesign": driveAu09MemoryListUxRedesign,
   "au09-validity-window-recall": driveAu09ValidityWindowRecall,
+  "b64-coordinate-memory": driveB64CoordinateMemory,
   "au09-cross-work-memory-isolation": driveAu09CrossWorkMemoryIsolation,
   "au09-au03-session-memory-layering": driveAu09Au03SessionMemoryLayering,
   "au03-session-history-readonly": driveAu03SessionHistoryReadonly,

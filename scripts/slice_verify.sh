@@ -44,8 +44,8 @@ if [[ "$SLICE_ID" == "--list" ]]; then
 fi
 
 SPEC_PATH="$PROJECT_ROOT/frontend/slice-verify/${SLICE_ID}.mjs"
-# B70 CP2：探索场景与固定回放共享同一外部 driver（同一真实页面入口），仅由 env 切换计划。
-if [[ "$SLICE_ID" == "author-behavior-explore" ]]; then
+# B70/B73：各作者行为场景共享同一外部 driver（同一真实页面入口），仅由 env 切换计划。
+if [[ "$SLICE_ID" == "author-behavior-explore" || "$SLICE_ID" == "author-behavior-negative" || "$SLICE_ID" == "author-behavior-actions" || "$SLICE_ID" == "author-behavior-read-failure" ]]; then
   SPEC_PATH="$PROJECT_ROOT/frontend/slice-verify/author-behavior-corpus.mjs"
 fi
 if [[ ! -f "$SPEC_PATH" ]]; then
@@ -93,8 +93,8 @@ echo "[slice-verify] artifacts: $ARTIFACT_DIR"
 
 cd "$PROJECT_ROOT"
 
-# B70 CP1：数据驱动语料场景使用隔离 DB + 合成状态 seed + 确定性语料替身。
-if [[ "$SLICE_ID" == "author-behavior-corpus" || "$SLICE_ID" == "author-behavior-explore" ]]; then
+# B70/B73：数据驱动语料场景使用隔离 DB + 合成状态 seed + 确定性语料替身。
+if [[ "$SLICE_ID" == "author-behavior-corpus" || "$SLICE_ID" == "author-behavior-explore" || "$SLICE_ID" == "author-behavior-negative" || "$SLICE_ID" == "author-behavior-actions" || "$SLICE_ID" == "author-behavior-read-failure" ]]; then
   export NOVEL_TEST_DB_DIR="$ARTIFACT_DIR/database"
   mkdir -p "$NOVEL_TEST_DB_DIR"
   export AUTHOR_BEHAVIOR_CORPUS_JSON="$ARTIFACT_DIR/corpus.json"
@@ -107,11 +107,21 @@ if [[ "$SLICE_ID" == "author-behavior-explore" ]]; then
   # CP3：覆盖扩展后探索 pool；可被 env 覆盖（负控/缩化重放）。
   export AUTHOR_BEHAVIOR_EXPLORE_POOL="${AUTHOR_BEHAVIOR_EXPLORE_POOL:-C-F1-001,C-F1-002,C-F2-002,C-F3-001,C-F3-003,C-F3-005,C-F4-001,C-F4-002,C-F4-003,C-F5-001,C-F5-002}"
 fi
+if [[ "$SLICE_ID" == "author-behavior-negative" ]]; then
+  export AUTHOR_BEHAVIOR_NEGATIVE_CONTROLS=1
+fi
+if [[ "$SLICE_ID" == "author-behavior-actions" ]]; then
+  export AUTHOR_BEHAVIOR_ACTION_COVERAGE=1
+  export AUTHOR_BEHAVIOR_EXPLORE_SEED="${AUTHOR_BEHAVIOR_EXPLORE_SEED:-20261031}"
+fi
+if [[ "$SLICE_ID" == "author-behavior-read-failure" ]]; then
+  export AUTHOR_BEHAVIOR_READ_FAILURE=1
+fi
 
 MIX_ENV=test mix ecto.create --quiet >/dev/null 2>&1 || true
 MIX_ENV=test mix ecto.migrate --quiet >/dev/null
 
-if [[ "$SLICE_ID" == "author-behavior-corpus" || "$SLICE_ID" == "author-behavior-explore" ]]; then
+if [[ "$SLICE_ID" == "author-behavior-corpus" || "$SLICE_ID" == "author-behavior-explore" || "$SLICE_ID" == "author-behavior-negative" || "$SLICE_ID" == "author-behavior-actions" || "$SLICE_ID" == "author-behavior-read-failure" ]]; then
   MIX_ENV=test mix run scripts/seed_author_behavior_states.exs >"$ARTIFACT_DIR/seed.log" 2>&1
 fi
 
@@ -157,6 +167,7 @@ SLICE_VERIFY_BASE_URL="$BASE_URL" \
   AUTHOR_BEHAVIOR_CASE_IDS="${AUTHOR_BEHAVIOR_CASE_IDS:-}" \
   AUTHOR_BEHAVIOR_NEGATIVE_CONTROLS="${AUTHOR_BEHAVIOR_NEGATIVE_CONTROLS:-}" \
   AUTHOR_BEHAVIOR_ACTION_COVERAGE="${AUTHOR_BEHAVIOR_ACTION_COVERAGE:-}" \
+  AUTHOR_BEHAVIOR_READ_FAILURE="${AUTHOR_BEHAVIOR_READ_FAILURE:-}" \
   AUTHOR_BEHAVIOR_EXPLORE_SEED="${AUTHOR_BEHAVIOR_EXPLORE_SEED:-}" \
   AUTHOR_BEHAVIOR_EXPLORE_POOL="${AUTHOR_BEHAVIOR_EXPLORE_POOL:-}" \
   node "$SPEC_PATH"

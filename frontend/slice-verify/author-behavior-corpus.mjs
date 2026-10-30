@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import {
   buildExplorationPlan,
+  buildLifecycleActionPlan,
   failureFingerprint,
   shrinkFailureTrace,
   summarizeExploration,
@@ -389,10 +390,10 @@ async function sendAndObserve(page, testCase, label, workTitle) {
   };
 }
 
-function writeObservations({ selectedIds, observations, plan, isExploration, isNegative, isActions, negativeTrapObservations }) {
+function writeObservations({ selectedIds, observations, plan, isExploration, isNegative, isActions, isReadFailure, negativeTrapObservations }) {
   fs.writeFileSync(artifact("observations.json"), JSON.stringify({
     run: {
-      tier: isActions ? "action-coverage" : isNegative ? "negative-control" : isExploration ? "explore" : "pr-smoke",
+      tier: isReadFailure ? "read-failure" : isActions ? "action-coverage" : isNegative ? "negative-control" : isExploration ? "explore" : "pr-smoke",
       provider: "slice_verify_author_behavior_corpus",
       batch_refs: [artifactDir],
       verdict_refs: [],
@@ -492,16 +493,32 @@ function applyAuthorActionObservation(observation, before, after, duplicate) {
   return delta;
 }
 
-async function runActionJourney({ page, corpus, casesById, ensureWork, observations, caseOrder, actionRecords }) {
+async function runActionJourney({ page, corpus, casesById, ensureWork, observations, caseOrder, actionRecords, plan, stepResults }) {
+  const completedSteps = new Set();
+  const record = (action, caseId = null, observed = {}, stateId = null) => {
+    const step = plan.steps.find((entry) => !completedSteps.has(entry.index) && entry.action === action &&
+      (caseId === null || entry.case_id === caseId) && (stateId === null || entry.state_id === stateId));
+    assert(step, `action plan step missing: ${action}:${caseId ?? stateId ?? "current"}`);
+    completedSteps.add(step.index);
+    stepResults.push({ step_index: step.index, status: "pass", reasons: [], violations: [], observed });
+  };
+  const ensure = async (stateId) => {
+    const title = await ensureWork(stateId);
+    if (plan.steps.some((step) => !completedSteps.has(step.index) && step.action === "switch_work" && step.state_id === stateId)) {
+      record("switch_work", null, { run_state: "completed" }, stateId);
+    }
+    return title;
+  };
   const send = async (caseId) => {
     const testCase = casesById.get(caseId);
-    const workTitle = await ensureWork(testCase.state_id);
+    const workTitle = await ensure(testCase.state_id);
     const observation = await sendAndObserve(page, testCase, caseId, workTitle);
     observations.push(observation);
     caseOrder.push({ case_id: caseId, sequence: testCase.sequence, state_id: testCase.state_id });
     const evaluated = evaluateCase(corpus, testCase, observation);
     assert(evaluated.status === "pass", `${caseId}:${evaluated.reasons.join(",")}`);
     actionRecords.push({ kind: "send", case_id: caseId, turn_id: observation.turn_id, candidates: observation.candidates });
+    record("send", caseId, observation.observed);
     return observation;
   };
 
@@ -531,6 +548,7 @@ async function runActionJourney({ page, corpus, casesById, ensureWork, observati
     receipts_after: acceptAfter.receipts,
     duplicate_side_effect: duplicateAccept,
   });
+  record("double_accept", "C-F2-E01");
 
   await send("C-F3-E01");
   await send("C-F3-E02");
@@ -543,21 +561,27 @@ async function runActionJourney({ page, corpus, casesById, ensureWork, observati
   const originalId = restored.pending_adoptions.find((entry) => entry.artifact_id !== revisionId)?.artifact_id;
   assert(originalId, "多候选中找不到原稿身份");
   actionRecords.push({ kind: "reload_multi_candidate", pending: restored.pending_adoptions.map((entry) => entry.artifact_id) });
+  record("reload_multi_candidate", "C-F3-E03");
 
-  await ensureWork("S2-empty-skeleton");
-  const crossWorkButtons = await page.getByRole("button", { name: "保存到作品档案", exact: true }).count();
-  assert(crossWorkButtons === 0, "跨作品仍暴露旧候选采纳入口");
-  actionRecords.push({ kind: "cross_work_isolation", work_id: workIdForTitle("B70 S2 空骨架"), old_candidate_controls: crossWorkButtons });
-  await ensureWork("S1-partial-multichapter");
+  for (const recoveryAction of plan.recovery_order) {
+    if (recoveryAction === "cross_work") {
+      await ensure("S2-empty-skeleton");
+      const crossWorkButtons = await page.getByRole("button", { name: "保存到作品档案", exact: true }).count();
+      assert(crossWorkButtons === 0, "跨作品仍暴露旧候选采纳入口");
+      actionRecords.push({ kind: "cross_work_isolation", work_id: workIdForTitle("B70 S2 空骨架"), old_candidate_controls: crossWorkButtons });
+      await ensure("S1-partial-multichapter");
+    } else {
+      await page.context().setOffline(true);
+      await page.waitForTimeout(300);
+      await page.context().setOffline(false);
+      const recovered = await resumeWorkbench(page);
+      assert(recovered.pending_adoptions.length === 2, "离线重开后候选丢失或重复");
+      actionRecords.push({ kind: "offline_reopen", pending: recovered.pending_adoptions.map((entry) => entry.artifact_id) });
+    }
+    record(recoveryAction, "C-F3-E03");
+  }
 
-  await page.context().setOffline(true);
-  await page.waitForTimeout(300);
-  await page.context().setOffline(false);
-  const recovered = await resumeWorkbench(page);
-  assert(recovered.pending_adoptions.length === 2, "离线重开后候选丢失或重复");
-  actionRecords.push({ kind: "offline_reopen", pending: recovered.pending_adoptions.map((entry) => entry.artifact_id) });
-
-  for (let index = 0; index < 2; index += 1) {
+  for (let index = 0; index < plan.cancel_edits; index += 1) {
     const before = workSnapshot(lifecycleWorkId);
     const start = frames.length;
     await candidateActionButton(page, "edit_then_accept", "world_setting").click();
@@ -568,6 +592,7 @@ async function runActionJourney({ page, corpus, casesById, ensureWork, observati
     assert(authorActionsFor(revisionId, start).length === 0, "取消编辑却发送作者动作");
     assert(hashRows([workSnapshot(lifecycleWorkId).canon]) === hashRows([before.canon]), "取消编辑改变 canon");
     actionRecords.push({ kind: "cancel_edit", attempt: index + 1, target_ref: revisionId, canon_unchanged: true });
+    record("cancel_edit", "C-F3-E03");
   }
 
   const otherContext = await page.context().browser().newContext({
@@ -586,6 +611,7 @@ async function runActionJourney({ page, corpus, casesById, ensureWork, observati
   await candidateActionButton(other, "edit_then_accept", "world_setting").click();
   const staleText = "stale 旧编辑：沈砚不应被保存。资料校验标识B73MULTI。";
   await other.getByRole("dialog").getByRole("textbox").fill(staleText);
+  record("open_stale_editor", "C-F3-E03");
 
   await send("C-F3-E04");
   await send("C-F3-E05");
@@ -595,6 +621,7 @@ async function runActionJourney({ page, corpus, casesById, ensureWork, observati
   repeatPending.observed.oracle_evidence["HO3-no-duplicate-side-effect"] = { executed: true, evaluated: true };
   repeatPending.observed.duplicate_side_effect = false;
   actionRecords.push({ kind: "repeat_pending_registration", pending: afterRepeat.pending_adoptions.map((entry) => entry.artifact_id), duplicate_side_effect: false });
+  record("repeat_pending_registration", "C-F3-E05");
 
   await send("C-F3-E06");
   const staleStart = frames.length;
@@ -606,6 +633,7 @@ async function runActionJourney({ page, corpus, casesById, ensureWork, observati
   assert(await other.getByRole("dialog").getByRole("textbox").inputValue() === staleText, "stale 拒绝后编辑文本丢失");
   assert((await workSnapshot(lifecycleWorkId)).canon.confirmed_memory === 0, "stale 旧编辑写入 canon");
   actionRecords.push({ kind: "stale_edit_rejected", target_ref: revisionId, original_ref: originalId, reply: staleReply.body, editor_retained: true });
+  record("submit_stale_edit", "C-F3-E06");
   await otherContext.close();
 
   const reregistered = await send("C-F3-E07");
@@ -624,6 +652,7 @@ async function runActionJourney({ page, corpus, casesById, ensureWork, observati
   ).all(lifecycleWorkId));
   assert(confirmed.length === 1 && confirmed[0].content.includes(edited), "编辑后采纳未保存作者版本");
   actionRecords.push({ kind: "edit_then_accept", target_ref: newCandidate.artifact_id, sent_actions: authorActionsFor(newCandidate.artifact_id, editStart), result: editedAccepted, confirmed });
+  record("edit_then_accept", "C-F3-E07");
 
   const status = await send("C-F3-E08");
   assert(status.assistant_text.includes("岑舟"), "状态追问未使用编辑后版本");
@@ -636,6 +665,9 @@ async function runActionJourney({ page, corpus, casesById, ensureWork, observati
   repeatAccepted.observed.oracle_evidence["HO3-no-duplicate-side-effect"] = { executed: true, evaluated: true };
   repeatAccepted.observed.duplicate_side_effect = false;
   actionRecords.push({ kind: "repeat_accepted_registration", pending: finalResume.pending_adoptions, confirmed_fact_count: finalFacts.length, duplicate_side_effect: false });
+  record("repeat_accepted_registration", "C-F3-E09");
+  assert(completedSteps.size === plan.steps.length, `action plan incomplete: ${completedSteps.size}/${plan.steps.length}`);
+  return summarizeExploration({ plan, stepResults, corpusSha: corpus.corpus_sha ?? null });
 }
 
 function setReadFault(action) {
@@ -701,6 +733,11 @@ async function main() {
   const runtimeCorpusRaw = fs.readFileSync(corpusPath, "utf8");
   const runtimeCorpus = JSON.parse(runtimeCorpusRaw);
   const baseFixtures = runtimeCorpus.fixtures;
+  if (!isNegative) {
+    const selected = new Set(selectedIds);
+    runtimeCorpus.fixtures = baseFixtures.filter((fixture) => selected.has(fixture.case_id));
+    fs.writeFileSync(corpusPath, `${JSON.stringify(runtimeCorpus, null, 2)}\n`);
+  }
   let exploration = null;
   let plan = null;
 
@@ -729,10 +766,13 @@ async function main() {
       const observation = await sendAndObserve(page, testCase, testCase.id, workTitle);
       observations.push(observation);
       caseOrder.push({ case_id: testCase.id, state_id: testCase.state_id, availability: observation.availability });
+      assert(observation.assistant_text.includes("无法读取") && observation.assistant_text.includes("不知道"), "读取失败未明确呈现 unknown");
       const evaluated = evaluateCase(corpus, testCase, observation);
       assert(evaluated.status === "pass", `C-F1-E10:${evaluated.reasons.join(",")}`);
     } else if (isActions) {
-      await runActionJourney({ page, corpus, casesById, ensureWork, observations, caseOrder, actionRecords });
+      plan = buildLifecycleActionPlan(corpus, { seed: Number(exploreSeed || 20261031) });
+      exploration = await runActionJourney({ page, corpus, casesById, ensureWork, observations, caseOrder, actionRecords, plan, stepResults });
+      fs.writeFileSync(artifact("exploration.json"), JSON.stringify({ ...exploration, generated_at: new Date().toISOString() }, null, 2));
     } else if (isNegative) {
       for (const fixture of negativeFixtures) {
         const testCase = casesById.get(fixture.case_id);
@@ -832,8 +872,8 @@ async function main() {
     }
     if (isNegative) {
       fs.writeFileSync(artifact("negative-stimuli.json"), JSON.stringify(negativeStimuli, null, 2));
-      fs.writeFileSync(corpusPath, runtimeCorpusRaw);
     }
+    fs.writeFileSync(corpusPath, runtimeCorpusRaw);
     if (isActions) fs.writeFileSync(artifact("action-coverage.json"), JSON.stringify(actionRecords, null, 2));
     fs.writeFileSync(artifact("frames.json"), JSON.stringify(frames, null, 2));
     fs.writeFileSync(artifact("db-snapshots.json"), JSON.stringify(observations.map((entry) => ({
@@ -842,7 +882,7 @@ async function main() {
       before: entry.db_counts_before,
       after: entry.db_counts_after,
     })), null, 2));
-    writeObservations({ selectedIds, observations, plan, isExploration, isNegative, isActions, negativeTrapObservations });
+    writeObservations({ selectedIds, observations, plan, isExploration, isNegative, isActions, isReadFailure, negativeTrapObservations });
     await browser.close();
   }
 
@@ -854,7 +894,7 @@ async function main() {
   ], { cwd: repoRoot, encoding: "utf8" });
   const evaluation = JSON.parse(evaluationOutput);
   const summary = {
-    slice_id: isActions ? "author-behavior-actions" : isExploration ? "author-behavior-explore" : "author-behavior-corpus",
+    slice_id: isReadFailure ? "author-behavior-read-failure" : isActions ? "author-behavior-actions" : isNegative ? "author-behavior-negative" : isExploration ? "author-behavior-explore" : "author-behavior-corpus",
     provider: "slice_verify_author_behavior_corpus",
     corpus_sha: corpus.corpus_sha ?? null,
     case_order: caseOrder,
@@ -863,6 +903,7 @@ async function main() {
     exploration,
     negative_controls: isNegative ? negativeTrapObservations : null,
     action_coverage: isActions ? actionRecords : null,
+    read_fault: isReadFailure ? readFaultEvents : null,
     generated_at: new Date().toISOString(),
   };
   fs.writeFileSync(artifact("summary.json"), JSON.stringify(summary, null, 2));

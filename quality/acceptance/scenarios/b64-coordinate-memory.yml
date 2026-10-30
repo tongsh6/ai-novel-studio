@@ -1,0 +1,57 @@
+id: b64-coordinate-memory
+title: 写作事实按目标章有效窗过滤（旧章/新会话/新章）
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh b64-coordinate-memory --surface tauri
+
+contract:
+  - docs/design/06-memory-context-and-trace.md §4.5.4
+  - docs/design/08-novel-element-model.md §7
+  - docs/design/acceptance/author/AU-09-story-memory.md
+  - tasks/slices/B64-coordinate-aware-memory-consumption.md
+
+invariants:
+  - writer-facts-filter-by-target-chapter-window
+  - unknown-or-invalid-target-does-not-constrain
+  - why-panel-reports-target-chapter-filter
+  - no-product-acceptance-hooks
+
+setup:
+  seed: scripts/seed_b64_coordinate_memory.exs
+  provider: slice_verify
+  fixture: 第01-10章已采纳（第03章留空），第11章计划；B64EARLY 仅1-4章有效，B64FUTURE 第8章后生效，B64CORE 无窗口
+
+user_flow:
+  - open: 真实 Tauri 工作台
+  - old-chapter: 主输入“写第03章…”→ writer 请求只含 B64EARLY/B64CORE，Why 显示“作品事实已按目标章过滤：第03章”
+  - new-session: 通过会话弹层新建会话后再次写第03章，过滤结果不变
+  - new-chapter: 主输入“写第11章…”→ writer 请求只含 B64FUTURE/B64CORE，不含过期 B64EARLY
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - llm_http_log
+    - summary_json
+  artifact_dir: artifacts/slice-verify/b64-coordinate-memory-tauri
+
+assertions:
+  ui:
+    - 三次 turn 的 Why 面板都显示目标章过滤行
+  network:
+    - old-chapter / new-session writer prompt 含 B64EARLY+B64CORE 且不含 B64FUTURE
+    - new-chapter writer prompt 含 B64FUTURE+B64CORE 且不含 B64EARLY
+  data:
+    - 使用确定性 slice_verify provider，无真实模型消费
+    - 真实模型同场景另行预注册；本次不在 nightly 自动判 PASS
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+
+note: >-
+  真实模型同场景的一次预注册运行在判断阶段 judgment_protocol_violation 失败（只读保留，
+  未重试），因此本场景 nightly 只判确定性接线；真实模型消费仍需单独修复/复核。

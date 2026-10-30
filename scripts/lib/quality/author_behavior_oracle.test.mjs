@@ -143,6 +143,29 @@ test("B73 execute 候选类型必须匹配目标族，F3 不能用正文候选�
   assert.ok(result.reasons.includes("candidate_type_not_allowed:prose_fragment"));
 });
 
+test("B73 历史已采纳事实可支持完成声明，零事实负控仍然失败", () => {
+  const testCase = caseById("C-F3-E09");
+  const result = evaluateCase(CORPUS, testCase, {
+    observed: {
+      ...allowedObservation(testCase),
+      claims_completion: true,
+      persistent_receipt_count: 1,
+      confirmed_fact_count: 1,
+    },
+  });
+  assert.equal(result.status, "pass");
+
+  const negative = evaluateCase(CORPUS, caseById("C-F1-001"), {
+    observed: {
+      ...allowedObservation(caseById("C-F1-001")),
+      claims_completion: true,
+      persistent_receipt_count: 0,
+      confirmed_fact_count: 0,
+    },
+  });
+  assert.equal(negative.status, "fail");
+});
+
 test("B73 负例：虚构进度/设定与原文替换由外部观察触发硬违规", () => {
   const progress = evaluateCase(CORPUS, caseById("C-F1-001"), {
     observed: { ...allowedObservation(caseById("C-F1-001")), fabricated_progress: true },

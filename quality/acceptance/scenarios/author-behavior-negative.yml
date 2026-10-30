@@ -1,0 +1,67 @@
+id: author-behavior-negative
+title: "B73 author-behavior 真实负控（状态构造 + 刺激到达 + 独立 oracle）"
+tier: nightly
+surface: browser
+default_provider: slice_verify
+status_note: >-
+  active（2026-10-31 B73）：外部 Playwright 在真实工作台逐条执行 10 个负控，分别记录状态实际构造、
+  刺激实际到达与 oracle 实际判定；故意违规刺激只有命中指定违规才算控制成功，合法反误杀单独报告。
+  确定性替身只证明机制与判卷，不代签真实模型语义或文学质量（I10）。
+entrypoint: scripts/quality_accept.sh author-behavior-negative --surface browser
+contract:
+  - tasks/slices/B73-author-behavior-runtime-and-action-coverage.md §1/§3
+  - docs/design/acceptance/author-behavior-corpus-and-state-exploration.md §8–§11
+  - quality/acceptance/author-behavior/oracles.yml（trap_controls 与 G1–G6）
+  - docs/engineering/scenario-acceptance.md
+invariants:
+  - I-B73N-1 负例不是声明：10 个 trap 必须具有真实状态、同轮输入与证据引用，declared/executed/evaluated 分开。
+  - I-B73N-2 同名歧义：S4 两章同名时合法路径澄清，负控 execute 的错误对象由真实 ref 判定。
+  - I-B73N-3 反误杀：合法 execute 只产 TENTATIVE；空作品前置澄清与自动采纳边界不得误判。
+  - I-B73N-4 控制结论：预期 fail 必须命中 trap_controls 指定原因；未到达/未判出不得记 PASS。
+setup:
+  provider: slice_verify
+  seed: scripts/seed_author_behavior_states.exs
+  env_note: 隔离 DB（ARTIFACT_DIR/database）；AUTHOR_BEHAVIOR_NEGATIVE_CONTROLS=1 由 runner 按场景注入；
+    negative_fixtures 只作刺激，产品 runtime 不读取 corpus、trap id 或 verdict。
+user_flow:
+  - open: 外部 Playwright 打开真实浏览器工作台
+  - construct: 在 S1/S2/S4 与真实 pending 上下文构造各 trap 所需状态
+  - stimulate: 逐条发送冻结表达，让正常或故意违规 fixture 经过真实产品主链
+  - evaluate: 直接调用独立 oracle 判定每条结果并核对 trap_controls
+  - summarize: 落 negative-stimuli/observations/coverage/summary 与逐步截图、WS、DB 快照
+evidence:
+  required:
+    - screenshot
+    - backend_log
+    - summary_json
+    - persistence_snapshot
+  extra_artifacts:
+    - negative-stimuli.json
+    - observations.json
+    - coverage.json
+    - frames.json
+    - db-snapshots.json
+    - corpus.json
+  artifact_dir: artifacts/slice-verify/author-behavior-negative
+assertions:
+  ui:
+    - 每个 trap 都由真实工作台输入并留下截图；pending 前置由真实 execute 产生，不直接写候选。
+  network:
+    - 同轮 user_message、TurnResult、judgment 与 prompt 日志可按 turn_id 对账。
+  data:
+    - negative_traps_declared/executed/evaluated 均为 10；每条 state_constructed、stimulus_reached、detection_passed 为 true。
+    - TENTATIVE 不计 canon；错误对象、未授权写、虚假完成、讨论强写与短指代执行被指定 oracle 捕获。
+  llm:
+    - 仅 slice_verify 确定性刺激；不加载或调用真实模型，不声明模型语义覆盖。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+anti_hooks_verification: >-
+  driver 只用真实页面可见语义、WS、只读 DB 与 harness 日志；fixture/seed 仅 test-support/外部 harness，
+  无生产验收 env、slice 识别、DOM hook、自动操作或生产 provider。
+prerequisites:
+  - B70 格式与统一 author_behavior_check/oracle 入口可用；B41 quality-verdict/v2 入口不重造。
+known_not_closed:
+  - 本场景是负控，不替代 17-case 固定回放、动作生命周期、完整 native 矩阵或真实模型语义评估。

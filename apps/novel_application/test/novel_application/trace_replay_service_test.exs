@@ -112,6 +112,48 @@ defmodule NovelApplication.TraceReplayServiceTest do
     assert summary.planning_mission["status"] == "AUTHOR_EDITED"
   end
 
+  test "rebuilds memory_window from persisted state_trace_refs (B64 why-panel replay)", %{
+    work: work,
+    session: session
+  } do
+    turn_id = "turn-memory-window-#{System.unique_integer([:positive, :monotonic])}"
+
+    {:ok, _} =
+      TraceRepository.insert(%{
+        workspace_id: work.id,
+        session_id: session.id,
+        trace_id: "trace-memory-window-#{System.unique_integer([:positive, :monotonic])}",
+        turn_id: turn_id,
+        frame_ref: "frame-memory-window",
+        decision_type: "tool_dispatched",
+        no_tool_reason: "tool_was_dispatched",
+        no_behavior_reason: "tool_execution_completed",
+        no_write_reason: "tool_result_not_adoption_awaiting_adoption_boundary",
+        turn_result_ref: turn_id,
+        replay_policy: %{use_recorded_frame: true, recall_provider: false},
+        event_order: ["author_input_received", "turn_result_emitted"],
+        state_trace_refs: [
+          %{
+            "kind" => "memory_window",
+            "ref" => "memory_window:chapter:ch3",
+            "target_chapter_ref" => "chapter:ch3",
+            "target_chapter" => "第03章：旧誓",
+            "applied" => true,
+            "position" => "explicit_target"
+          }
+        ]
+      })
+
+    assert {:ok, report} = TraceReplayService.fetch_turn_report(work.id, session.id, turn_id)
+    summary = report.trace_summary
+
+    assert summary.memory_window["target_chapter_ref"] == "chapter:ch3"
+    assert summary.memory_window["target_chapter"] == "第03章：旧誓"
+    assert summary.memory_window["applied"] == true
+    refute Map.has_key?(summary.memory_window, "kind")
+    refute Map.has_key?(summary.memory_window, "ref")
+  end
+
   test "restores whitelisted first blocking gate from persisted no-write reason", %{
     work: work,
     session: session

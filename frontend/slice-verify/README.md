@@ -15,7 +15,7 @@
 | `au02-candidate-continuation.mjs` | 候选续写的既有专用驱动。 |
 | `au10-micro-plan-entry.mjs` | micro plan 入口的既有专用驱动。 |
 | `au10-workbench-render-stability.mjs` | 工作台渲染稳定性驱动。 |
-| `author-behavior-corpus.mjs` | B70 CP1/CP2 数据驱动驱动：固定回放与 seeded 探索共用同一真实工作台入口（切作品/发送/采集隔离 DB 事实/逐步 oracle），支持 seed 计划、失败缩化与覆盖报告。 |
+| `author-behavior-corpus.mjs` | B70/B73 数据驱动驱动：固定回放、真实负控、动作生命周期、读取失败与 seeded 探索共用真实工作台；采集 WS/截图/隔离 DB/prompt，逐步 oracle 与覆盖报告，产品无验收感知。 |
 | `q1c-adopted-content-revision.mjs` | 已采纳内容修订驱动。 |
 | `q1c-adopted-content-revision-audit.mjs` | 修订证据审计。 |
 | `vs10-observability-spine.mjs` | 可观测链路驱动。 |

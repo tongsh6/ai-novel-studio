@@ -12,6 +12,7 @@
 | `verdict_cli.mjs` | B41 CP4：verdict 读写 CLI（供 runner/聚合器调用）。 |
 | `verdict.test.mjs` | B41 CP4：verdict 构造/读取/迁移负例测试。 |
 | `accept_verdict.mjs` | B41 CP4 真实消费者：`quality_accept.sh` 每次 run 后生成/写入 verdict（确定性 provider pass；真实 provider pass 留 B42；证据缺失降级 evidence_missing；旧 PASS 先归档）。 |
+| `author_behavior_observation.mjs` | B73 产品外观察派生：子 turn 关联、TENTATIVE/canon/hash delta、真实章 ref 歧义、negative trap executed/evaluated 与虚构声明检查；`author_behavior_observation.test.mjs` 为对应回归。 |
 | `quality_accept_batch.test.mjs` | B41 CP2：批次状态分层/退出码 fixture 集成测试（pass/fail/skipped/evidence_missing/not_run）。 |
 | `e2e_status.mjs` | B41 CP3：E2E 聚合器状态/来源/freshness 纯函数。 |
 | `e2e_status.test.mjs` | B41 CP3：blocked/stale/evidence_missing/provider mismatch 等 fixture 测试。 |
