@@ -1344,3 +1344,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B51 CP2 partial**：tech-stack 00/03 加现行校准并实际化 yaml，历史 langchain/instructor/GenStage/OTel/PaperTrail 段标历史；07 结构化字段前提移除已退役 clarification_prompt 卡。CP2 余项（glossary/状态链）与 CP3 待做；PaperTrail 去留待裁决。
 
 - 2026-10-31 — **B51 CP2 续**：glossary §10 的 8 处 v1 旧 ADR 编号（0003/0004/0005/0008/0009/0010/0011/0014）改为当前权威文档/现行 ADR（04/04a/05、ADR-0028、domain/24/27/33），并标注旧号不可再引用；死文件引用标已退役。CP2 状态链余项/CP3 待做。
+
+- 2026-10-31 — **B51 CP2/CP3 续**：ADR-0024 S4/S7 与 00c 按 B13B 校准（S4 降级触发型、S7 部分闭环）；05-desktop 按 as-built 校准（4658/tar/marker/进程组/数据路径）；frontend_audit 27/0、design_trace 19/0。D6/I5/B22/B34 逐条核对与 PaperTrail 裁决待做。

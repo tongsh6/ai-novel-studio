@@ -318,7 +318,7 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | Contract | 定义位置 | 首个消费者 | 必须证明 |
 |---|---|---|---|
 | `TurnResultViewModel` | `07` | Workbench UI | UI 主渲染不读取内部对象 |
-| 决策面注册表（S1-S7） | `07` §4.1, `adr/ADR-0024-decision-surface-registry-v3.md` | Workbench UI / TurnResult builder | 作者决策只经入册决策面进入主链（N-SURF）；S4/S7 缺口由 CP2/CP3 补齐 |
+| 决策面注册表（S1-S7） | `07` §4.1, `adr/ADR-0024-decision-surface-registry-v3.md` | Workbench UI / TurnResult builder | 作者决策只经入册决策面进入主链（N-SURF）；S4/S7 现状按 B13B 校准：S4 降级为触发型（误判可复现/产品要求选项化澄清才开 DS04），S7 预算缺口路径已闭环、非预算 await 缩窄保留 |
 | `ui_card` | `07` §4.2, `adr/ADR-0024-decision-surface-registry-v3.md` | Workbench UI | card 只表达系统已裁决状态；信息通告 lane，不携带可提交动作 |
 | `AvailableAction` | `07` | Workbench UI | UI 不能发明 action |
 | `AuthorActionInput` | `07` | Dialogue Gateway | action 回传必须重新进入主链 |

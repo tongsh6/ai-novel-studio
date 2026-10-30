@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B51 | CP0/CP1 done；CP2 partial：tech-stack/07/glossary 旧 ADR 已校准；CP2 余项（S4/S7/D6/I5/B22/B34 状态链）/CP3 与 PaperTrail A/B/C 待做 | [原任务](slices/B51-tech-stack-current-rebase.md) |
+| B51 | CP0/CP1 done；CP2 mostly（tech-stack/07/glossary/S4-S7/05-desktop 校准，D6/I5/B22/B34 待逐条）；CP3 门禁已跑；PaperTrail A/B/C 待裁决 | [原任务](slices/B51-tech-stack-current-rebase.md) |
 
 ## 后续候选
 

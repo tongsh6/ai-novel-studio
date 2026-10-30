@@ -1,6 +1,8 @@
 # Desktop Shell 桌面壳
 
-> 状态：草案
+> **现行校准（B51/SU04，2026-10-31）**：本文 2026-04 草案中的 `:4000`、`externalBin`/Tauri sidecar manager、webview 加载 `http://localhost:4000`、SIGTERM 30s 等**不是当前实现**。当前 as-built：Tauri 内嵌前端静态资源；release sidecar 以 `sidecar.tar.gz` 资源首启解包到 `<data_dir>/runtime/sidecar-<version>/`（`.install-complete` marker + staging 原子替换），spawn `bin/sidecar start`，端口 **4658**（`PHOENIX_PORT`），启动后 TCP 就绪探测 15s；退出对独立进程组 TERM→2s→KILL 并 wait。数据目录为 `<app_data_dir>/profiles/<profile>`（或 `NOVEL_DATA_DIR`），secret key 落 `<data_dir>/secret.key`，provider secrets 落 config 目录。细节见 [SU04 slice](../../../tasks/slices/SU04-desktop-sidecar-packaging.md)。
+
+> 状态：草案（历史方案；以上校准为当前事实）
 >
 > 目的：定义阶段 1 单机桌面应用的封装方案——Tauri 2 + Mix Release sidecar 的具体集成。本文档不重复 [`03-backend.md`](./03-backend.md) 的后端栈，只回答"怎么把后端 + 前端 + 数据库打包成一个 macOS / Windows / Linux 桌面应用"。
 

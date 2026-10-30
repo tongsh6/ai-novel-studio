@@ -82,10 +82,10 @@ supersede 契约文档，将 card_type 集合改写为 `candidate_set` / `confir
 | S1 | 选择候选方向 | `candidate_directions` | `choose_candidate`（+ continue 语义复用 user_message 携带 candidate_selection） | 候选面板 | 已落地 |
 | S2 | 草稿采纳 | `adoption_state`（展示载体 `candidate_set` 卡） | `accept` / `discard` / `edit_then_accept` | 采纳卡 + 动作按钮 | 已落地（I1 绑定保护） |
 | S3 | 执行确认 | `behavior_state`（type=confirmation；展示载体 `confirmation_card` 卡） | `confirm_before_execute` / `reject_or_cancel_confirmation` / `cancel_pending_behavior` | 确认卡 + 动作按钮 | 已落地（命名见决策 3） |
-| S4 | 回答澄清 | `behavior_state`（type=clarification） | `answer_clarification` | **待补**：显式澄清 surface（问题文本 + 动作绑定），替换「隐式下一条消息」约定 | 缺口 → CP2 |
+| S4 | 回答澄清 | `behavior_state`（type=clarification） | `answer_clarification` | **现行（B13B B-24S4，2026-10-31）**：判断纪元无 `require_clarification` 生产者，`answer_clarification` 不可达；DS03 控制坞已成事实澄清回收面。**降级为触发型**：只有实测误判可复现或产品要求选项化澄清时开 `DS04-clarification-surface` | 降级，触发条件保留 |
 | S5 | 质量发现重写 | `quality_review` | `revise_from_findings` | 质量复核卡 | 已落地 |
 | S6 | 运行中控制 | `agent_run_state` + AgentEvent 流 | pause / resume / cancel / steer（agent_command 通道） | 运行组（AgentRunDialogueFlow） | 已落地（ADR-0021/0022 系） |
-| S7 | 运行恢复（awaiting_author） | **待补**：awaiting_author 时产出 TurnResult | steer / resume / cancel 语义的 available_actions | **待补**：恢复提示 + 动作 | 缺口 → CP3 |
+| S7 | 运行恢复（awaiting_author） | TurnResult（预算缺口路径已落地） | steer / resume / cancel 语义的 available_actions | **现行（B13B B-24S7，2026-10-31）**：预算缺口路径由 B20 CP3 产出带恢复动作 TurnResult，真实 Tauri `agentic-loop-budget-deviation-replan` 已证；剩余=非预算 await 无 TurnResult/agent_run_state 无 schema 载体，按同型 envelope 统一 settle | 部分闭环，缩窄保留 |
 | S8 | 本章使命裁决（2026-08-22 WR01b 修订增补） | `chapters.plan_direction["chapter_mission"]`（status=`ChapterMissionStatus`，经 `get_toc` 投影到档案） | `confirm_chapter_mission` / `rewrite_chapter_mission` / `discard_chapter_mission`（author_action，payload `chapter_ref`） | 档案「大纲与结构」逐章使命块（43 §5.0.3） | 已落地（VS-00E §16.8；设计态，不经采纳边界） |
 | S9 | 规划使命裁决（2026-08-24 WR01c 修订增补） | `works.planning_direction["planning_mission"]`（status=`ChapterMissionStatus`，经 `get_toc` 顶层投影到档案） | `confirm_planning_mission` / `rewrite_planning_mission` / `discard_planning_mission`（author_action，work 级，payload 无 ref） | 档案「大纲与结构」顶部工作级使命块（43 §5.0.4） | 已落地（VS-00E §16.10；设计态，不经采纳边界；作者版下轮规划 0 调用直取） |
 
