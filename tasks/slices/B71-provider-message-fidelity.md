@@ -1,6 +1,6 @@
 # B71：AI Novel Studio 原生多轮创作请求体
 
-- 状态：**todo（2026-10-30 目标设计登记；CP0 对照分析完成，CP1 目标契约未开工）**。
+- 状态：**blocked（2026-10-30 CP0 完成；CP1 目标 contract/ADR 迁移需作者/ADR owner 裁决，未擅自 supersede ADR-0030/0031 或改代码）**。
 - 来源：作者先要求对照 Codex、Claude Code、dsh 的真实多轮请求，随后明确“设计一个优秀、符合项目调性的请求体，不为现状妥协”。本文件已据此替换此前偏向现役最小修补的方案。
 - 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计proposed)。当前为 Proposed；登记不等于 Accepted 或实现。
 - 对账输入：[B26](B26-single-call-judgment-protocol.md)、[B39](B39-evidence-seeking-authoring.md)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md)、[VS-00I](../../docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md)、[UA-01](../../docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md)。它们是迁移事实与可能需要修订的决策，不是降低目标设计的约束。
@@ -97,3 +97,13 @@
 - 缓存比较按同调用点真实请求和 cached_tokens/TTFT，不把历史命中数当固定阈值，也不为缓存牺牲目标消息语义。
 - 外部脱敏样本位于 `artifacts/client-http-bodies/`；项目对照证据位于 `log/llm-calls/stage/2026-10-29.jsonl` 第 8–9 行。它们只证明协议差距，不是目标实现。
 - 恢复时先读 Provider §26、本任务及 CP1 产生的目标 contract pack，再核对 ADR-0030/0031、UA-01 和 VS-00I 的处置；不得从上一版保守分析推断单调用或 giant prompt 仍是目标。
+
+### CP1 阻塞记录（2026-10-31）
+
+- CP0 已完成目标对照；CP1 要求冻结 Authoring Run Transcript/Request IR/provider 投影，并处理 ADR-0030（evidence-seeking）、ADR-0031（core-chain semantics narrowing）与 UA-01/VS-00I 的迁移/修订。
+- 这些 ADR 当前是 Accepted/生效协议；B71 目标（统一 AgentRun 原生多轮、tool_call/observation 回流、显式 compaction）与其现役单调用/giant prompt 语义存在冲突。**AI 不能自行 supersede ADR 或同时保留两套协议**。
+- 需作者/ADR owner 裁决：
+  - **A（推荐，目标口径）**：正式修订/supersede ADR-0030/0031 为 B71 目标协议，CP1 冻结新 contract pack；迁移期明确旧协议退役条件。
+  - **B（增量口径）**：不改 ADR，仅在现役单调用内做 additive Request IR/投影实验，明确不宣称统一 AgentRun 目标完成。
+  - **C**：延期，保持登记。
+- 未裁决前：不写 schema、不改 provider/application、不冻结契约、不预注册场景；CP1 保持 blocked。

@@ -1294,3 +1294,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **UA01 T4 页面 reanchor**：D2 场景复跑一次超时（事件链 plan_revised/artifact_superseded/run_completed 有，但 driver 未写 ui-state，verifier 未 PASS）；未重复盲跑；T4 仍只有 prompt 局部证据，T5 待 A/B/C 裁决。
 
 - 2026-10-31 — **UA01-PROMPT-T3T5 blocked**：T4 finding 结构渲染+单测完成；D2 页面 driver 超时（事件到 run_completed 但无 ui-state）、T5 provenance 需 A/B/C 裁决、T3 前缀校验待；未重复盲跑/未改 schema；当前任务切 B71。
+
+- 2026-10-31 — **B71 CP1 blocked（待 ADR 裁决）**：CP0 完成；目标统一 AgentRun 原生多轮与现役 ADR-0030/0031 冲突，需作者/ADR owner 选 A（正式修订/supersede，推荐）/B（现役 additive 实验）/C（延期）；未改 schema/代码/契约；当前任务切 CA04-B15。
