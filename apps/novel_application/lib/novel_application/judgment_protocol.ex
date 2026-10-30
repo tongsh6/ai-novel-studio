@@ -974,12 +974,10 @@ defmodule NovelApplication.JudgmentProtocol do
     observations = input[:observations] || []
 
     %{
-      response_kind: if(operation == "reply", do: "plain_text", else: "structured_tool"),
       provider_call_ref: source.provider_call_ref,
       task_policy_version: AuthoringTaskPolicy.version(),
       protocol_version: JudgmentToolContract.version(),
       source_input_ref: input[:source_input_ref],
-      supplied_context_refs: input[:supplied_context_refs] || [],
       exploration_call_count: length(observations),
       observation_refs: Enum.flat_map(observations, &(&1[:refs] || [])),
       coverage:
@@ -987,9 +985,30 @@ defmodule NovelApplication.JudgmentProtocol do
           observations,
           &Map.take(&1, [:tool, :chapter_ref, :prose_range, :prose_total_chars, :next_offset])
         ),
-      model_interpretation_status: if(operation == "reply", do: "not_provided", else: "provided"),
-      model_interpretation: if(operation == "reply", do: nil, else: args),
       raw_content: text
+    }
+    |> Map.merge(reply_kind_fields(operation, args))
+    |> Map.merge(reply_provenance(input))
+  end
+
+  defp reply_kind_fields(operation, args) do
+    reply? = operation == "reply"
+
+    %{
+      response_kind: if(reply?, do: "plain_text", else: "structured_tool"),
+      model_interpretation_status: if(reply?, do: "not_provided", else: "provided"),
+      model_interpretation: if(reply?, do: nil, else: args)
+    }
+  end
+
+  # B27 §9：声明由请求构造事实派生；缺省空，旧记录不回填。
+  defp reply_provenance(input) do
+    %{
+      supplied_context_refs: input[:supplied_context_refs] || [],
+      available_context_refs: input[:available_context_refs] || [],
+      supplied_observation_refs: input[:supplied_observation_refs] || [],
+      unavailable_sources: input[:unavailable_sources] || [],
+      rendered_context_sections: input[:rendered_context_sections] || []
     }
   end
 

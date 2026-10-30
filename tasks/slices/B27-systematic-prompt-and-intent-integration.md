@@ -477,7 +477,7 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 
 ## 9. 元原则整改：实际请求材料与引用同源
 
-- 状态：**doing（2026-10-30 §9 CP0 done：实际请求字节 vs supplied 声明错配已复现并冻结同源材料契约；CP1–CP3 待实现与真实页面/模型验收）**。原 retest6 结论与停止全量复测裁决保留。
+- 状态：**doing（2026-10-30 §9 CP0–CP2 done：契约冻结 + 同源声明接线 + 构造器矩阵；CP3 外部原生 Tauri+真实模型 M1/M2 待执行）**。原 retest6 结论与停止全量复测裁决保留。
 - 来源：[愿景 §2.4](../../docs/design/00-vision-and-engineering-roadmap.md#24-创作信息获取元原则最小供给按需求证证据闭环2026-10-27-用户拍板)、已接受的 [ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)/[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md) 及 B39 D1/D7。模型负责判断信息需求和相关性，APP 必须如实提供自己实际发送的材料与边界，不能以检索/记账事实替代供给事实。
 - 已核静态链：`WorkspaceContext` 先召回 memory 并记录 reference，`ContextAssembler` 据 `memory_summary` 生成 context ref；`DialoguePlanningService` 将全部 context refs 写为 `supplied_context_refs`，但当前普通/写作判断 context block 未渲染该 `memory_summary`，`reply_record` 仍继承该声明。此证据限定于该共通初始请求链，未运行真实模型；不等于“模型永远无法经后续 memory_recall 获取材料”。
 
@@ -505,8 +505,8 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
 | CP0 | 逐一定位当前普通/写作判断等共通初始调用、实际消息字节、材料取得/裁剪/发送点与声明消费者；冻结最小同源材料映射及 Base/按需观察分界，列清被省略、失败、未知、旧记录无证据的形状和真实 driver；不直接把全部 memory 加回首轮 | **done（2026-10-30）**：链路/声明消费者审计 + 双 profile 字节探针；证据 `artifacts/task-audit/2026-10-30-b27-request-source-cp0/{audit-map.json,probe.json,probe.exs}`；契约与 CP1–CP3 预注册见下 |
-| CP1 | 让实际请求内容和 supplied refs/已有版本/覆盖由同一构造事实派生；原本仅 retrieved 的材料不得标 supplied。必要 Base 才主动供给，其余沿通用探索取证；保留原消费者能取得事实的路径，接通当前返回/trace；普通回复统一 decision 与 B43 同源，不另造决定 | todo |
-| CP2 | 补材料有/无/被裁剪、ref 有但内容无、内容有但来源未知、fetch 失败/部分失败、重复读取、跨作品及历史恢复矩阵；旧记录无发送证据不得回填已供给/已使用。校验初始请求和后续请求各自可见范围，回放不调模型、不写生产事实 | todo |
+| CP1 | 让实际请求内容和 supplied refs/已有版本/覆盖由同一构造事实派生；原本仅 retrieved 的材料不得标 supplied。必要 Base 才主动供给，其余沿通用探索取证；保留原消费者能取得事实的路径，接通当前返回/trace；普通回复统一 decision 与 B43 同源，不另造决定 | **done（2026-10-30）**：`judgment_protocol_input` 以同一 sections 列表派生 context_block + supplied/available/supplied_observation_refs/unavailable_sources/rendered_sections；memory 初始请求不渲染→available（保留 memory_recall 路径）；写作 profile 未渲染 conversation/behavior/memory 不再声明 supplied；reply_record/trace 继承同源字段；新增 9 条测试（双 profile/探索/部分失败/legacy 不回填/跨作品/去重/无 ref 章节），全量 2374/0 |
+| CP2 | 补材料有/无/被裁剪、ref 有但内容无、内容有但来源未知、fetch 失败/部分失败、重复读取、跨作品及历史恢复矩阵；旧记录无发送证据不得回填已供给/已使用。校验初始请求和后续请求各自可见范围，回放不调模型、不写生产事实 | **done（2026-10-30，构造器矩阵）**：新增测试覆盖 ref 有内容无（memory→available）、内容有 ref 无（chapters 不发明 ref）、探索观察渲染才计入且重复 ref 去重、旧 reply_record 无同源字段→空/unknown 不回填、跨作品不共享 supplied/available；部分/失败复用 AU03 CP2 矩阵证据；历史回放不调模型/不写生产事实由现有 replay/why 套件与全量门禁保持（未改 replay 路径）。真实模型 M1/M2 留 CP3 |
 | CP3 | 外部真实工作台触发相关查询/讨论及恢复，核对实际请求材料→来源声明→回复/Why/持久记录；必要的按需读取须有观察进入后续请求证据。局部、真实入口机制、真实模型使用/语义分别报告；仅日志出现 ref 或 UI 卡显示来源不算通过 | todo |
 
 #### CP0 记录（2026-10-30 done）
@@ -528,6 +528,15 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 - CP2 预注册：双 profile 有/无 memory、有/无 explorations、ref-无内容、内容-无 ref、AU03 失败/部分失败、重复/重试、跨作品、历史回放不调模型不回填。
 - CP3 预注册：外部原生 Tauri + 真实模型 M1（问题依赖已确认 memory：首轮不得声明 memory supplied，模型按需 memory_recall，后续请求实际含观察内容并带 observation 供给声明，回复/Why/trace 一致，零 canon 写）与 M2（无关问题不虚假声明）；单槽、结束 unload、失败只读。
 - 残余：CP0 未运行真实模型/页面；chapters 无 ref 的 Base 记录方式在 CP1 冻结；旧记录按 unknown；I10 不代签。
+
+#### CP1/CP2 记录（2026-10-30）
+
+- 实现（CP1）：
+  - `DialoguePlanningService`：判断请求构造改为「段列表 → 同一列表派生 block 与声明」——`write_judgment_context_sections/judgment_context_sections` 产出 `{name, text}`；`compose_context_sections` 渲染；`context_materials/4` 由已渲染段派生 `supplied_context_refs`（仅 work/conversation/behavior 实际渲染者）、`available_context_refs`（memory 等未渲染但已取得）、`supplied_observation_refs`（仅非写作 profile 且 observations 已渲染，dedupe）、`unavailable_sources`（AU03 source_status unknown/unavailable）、`rendered_context_sections`。`judgment_protocol_input` 采用这些字段作为唯一来源，不再把 `context.context_refs` 全量声明 supplied。
+  - `JudgmentProtocol.reply_record`：由 `reply_kind_fields` + `reply_provenance(input)` 合并构造；新增 available/supplied_observation/unavailable/rendered_sections 字段，旧输入缺省为空（unknown，不回填）；声明随 reply_record → TraceWriter/TurnResult/AuthorQuestion 进入 trace/Why。
+- 测试（CP1/CP2）：`apps/novel_application/test/novel_application/b27_request_source_test.exs` 9 条：普通 profile（supplied=work/conversation/behavior，memory available 且 prompt 无 memory 内容）；写作 profile（只 supplied work，其余 available，prompt 无对应内容）；探索观察仅默认 profile 渲染时计入 supplied_observation_refs；部分失败（work supplied、chapters unavailable、不渲染 0 章）；reply_record 继承同源字段；chapters 内容无 ref 不发明 ref；重复观察 ref 去重；legacy reply_record 空/unknown 不回填；跨作品 supplied/available 不相交。
+- 门禁/证据：全量 mix test **2374/0**；format/compile -Werror/credo strict/xref/arch、I1/I2/I3、manifest 210 scenarios、task_done、静态扫描见 `artifacts/gates/2026-10-30-b27-cp12/`。
+- 残余：CP3 外部原生 Tauri + 真实模型 M1/M2 未执行（目录/探针/log 不等于真实模型供给）；`rendered_context_sections` 当前覆盖 judgment 两条 profile，专业 run（writer）未接；author-visible Why 字段展示未新增 UI（trace 已有数据）；I10 不代签。
 
 ### 9.4 承接与停止线
 

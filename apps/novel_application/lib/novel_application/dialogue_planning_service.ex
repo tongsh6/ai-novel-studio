@@ -1101,6 +1101,93 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
+  # B27 §9 CP1：同一 sections 列表派生「实际渲染段」与供给声明，避免从 context DTO
+  # 全量 refs 猜 supplied。memory 在初始判断请求中不渲染 → available-not-supplied，
+  # 保持通用探索（memory_recall 等）按需取证；失败/未知来源只进 unavailable，不产生虚假 supplied。
+  defp context_materials(context, write_judgment?, sections, explorations) do
+    rendered_names =
+      sections
+      |> Enum.reject(fn {_name, text} -> text in [nil, ""] end)
+      |> Enum.map(fn {name, _text} -> name end)
+
+    refs = context.context_refs || []
+
+    by_type =
+      Enum.group_by(refs, fn ref -> Map.get(ref, :source_type) end)
+
+    conversation_ref =
+      Enum.find(by_type[:session_transcript] || [], fn _ -> true end) ||
+        Enum.find(by_type[:conversation] || [], fn _ -> true end)
+
+    supplied_refs =
+      []
+      |> append_if_rendered(hd_or_nil(by_type[:current_work]), "work", rendered_names)
+      |> append_if_rendered(conversation_ref, "conversation", rendered_names)
+      |> append_if_rendered(hd_or_nil(by_type[:behavior]), "behavior", rendered_names)
+
+    supplied_ids = Enum.map(supplied_refs, fn ref -> Map.get(ref, :context_ref) end)
+    supplied_ids = Enum.reject(supplied_ids, &is_nil/1)
+
+    available_ids =
+      refs
+      |> Enum.map(fn ref -> Map.get(ref, :context_ref) end)
+      |> Enum.reject(fn id -> is_nil(id) or id in supplied_ids end)
+
+    supplied_observation_refs =
+      if write_judgment? or explorations == [] do
+        []
+      else
+        explorations
+        |> Enum.flat_map(fn observation ->
+          observation
+          |> Map.get(:refs, [])
+          |> List.wrap()
+          |> Enum.map(&to_string/1)
+        end)
+        |> Enum.uniq()
+      end
+
+    unavailable_sources =
+      (context.source_status || %{})
+      |> Enum.filter(fn {_key, value} ->
+        normalize_source_status(value) in [:unavailable, :unknown]
+      end)
+      |> Enum.map(fn {key, _value} -> to_string(key) end)
+      |> Enum.sort()
+
+    %{
+      supplied_context_refs: supplied_ids,
+      available_context_refs: available_ids,
+      supplied_observation_refs: supplied_observation_refs,
+      unavailable_sources: unavailable_sources,
+      rendered_context_sections: rendered_names
+    }
+  end
+
+  defp hd_or_nil(nil), do: nil
+  defp hd_or_nil([first | _]), do: first
+  defp hd_or_nil([]), do: nil
+
+  defp append_if_rendered(refs, nil, _name, _rendered), do: refs
+
+  defp append_if_rendered(refs, ref, name, rendered) do
+    if name in rendered, do: refs ++ [ref], else: refs
+  end
+
+  defp normalize_source_status(value) when is_atom(value), do: value
+  defp normalize_source_status(value) when is_binary(value), do: safe_status_atom(value)
+  defp normalize_source_status(_value), do: nil
+
+  defp safe_status_atom(value) do
+    case value do
+      "unavailable" -> :unavailable
+      "unknown" -> :unknown
+      "ok" -> :ok
+      "empty" -> :empty
+      _ -> nil
+    end
+  end
+
   defp judgment_protocol_input(input, run, context, explorations) do
     budget = exploration_budget(explorations)
     explore_open? = budget.open?
@@ -1108,10 +1195,37 @@ defmodule NovelApplication.DialoguePlanningService do
     author_text = effective_author_text(input, run)
     write_judgment? = write_judgment_profile?(run)
 
+    base_sections =
+      if write_judgment? do
+        write_judgment_context_sections(context, author_text)
+      else
+        judgment_context_sections(context, author_text)
+      end
+
+    rendered_sections =
+      if write_judgment? do
+        base_sections
+      else
+        base_sections ++
+          [
+            {"explorations", exploration_sections(explorations, budget)},
+            {"adopted_targets", adopted_content_targets_section(context)}
+          ]
+      end
+
+    context_block = compose_context_sections(rendered_sections)
+
+    materials =
+      context_materials(context, write_judgment?, rendered_sections, explorations)
+
     protocol_input = %{
       author_text: author_text,
       source_input_ref: TurnInteractionService.input_ref(run),
-      supplied_context_refs: Enum.map(context.context_refs, & &1.context_ref),
+      supplied_context_refs: materials.supplied_context_refs,
+      available_context_refs: materials.available_context_refs,
+      supplied_observation_refs: materials.supplied_observation_refs,
+      unavailable_sources: materials.unavailable_sources,
+      rendered_context_sections: materials.rendered_context_sections,
       observations: explorations,
       # B33 CP1：消息处置段只保留一份。默认 profile 由 author_content_context 渲染（唯一一次）；
       # 写作判断按 keep-list 裁剪后连该历史段一起省略，避免重复/无关历史稀释动作意图。
@@ -1120,14 +1234,7 @@ defmodule NovelApplication.DialoguePlanningService do
           do: "",
           else: TurnInteractionService.context_section(context.interaction_state)
         ),
-      context_block:
-        if write_judgment? do
-          write_judgment_context_block(context, author_text)
-        else
-          judgment_context_block(context, author_text) <>
-            exploration_sections(explorations, budget) <>
-            adopted_content_targets_section(context)
-        end,
+      context_block: context_block,
       options:
         [
           plan_run: %{run | profile_ref: "judgment_plan_v1"},
@@ -1169,15 +1276,20 @@ defmodule NovelApplication.DialoguePlanningService do
   # 不含完整 plan track、全量候选、会话摘要、无关历史观察（探索段）与消息处置历史。
   @spec write_judgment_context_block(NovelDomain.DialogueContext.t(), String.t()) :: String.t()
   def write_judgment_context_block(context, author_text) do
+    context
+    |> write_judgment_context_sections(author_text)
+    |> compose_context_sections()
+  end
+
+  # B27 §9 CP1：按段构造，段名与字节同源产生；supplied/available 由同一 sections 列表派生。
+  defp write_judgment_context_sections(context, author_text) do
     [
-      judgment_work_section(context),
-      judgment_availability_section(context),
-      judgment_work_facts_section(context),
-      judgment_stable_chapters_section(context),
-      judgment_named_chapters_section(context, author_text)
+      {"work", judgment_work_section(context)},
+      {"availability", judgment_availability_section(context)},
+      {"work_facts", judgment_work_facts_section(context)},
+      {"chapters", judgment_stable_chapters_section(context)},
+      {"named_chapters", judgment_named_chapters_section(context, author_text)}
     ]
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join("\n\n")
   end
 
   @doc false
@@ -1793,18 +1905,28 @@ defmodule NovelApplication.DialoguePlanningService do
   @doc false
   @spec judgment_context_block(NovelDomain.DialogueContext.t(), String.t()) :: String.t()
   def judgment_context_block(context, author_text) do
+    context
+    |> judgment_context_sections(author_text)
+    |> compose_context_sections()
+  end
+
+  defp judgment_context_sections(context, author_text) do
     [
-      judgment_work_section(context),
-      judgment_availability_section(context),
-      judgment_work_facts_section(context),
-      judgment_stable_chapters_section(context),
-      judgment_pending_candidates_section(context),
-      judgment_named_chapters_section(context, author_text),
-      judgment_conversation_section(context),
-      context.open_behavior_summary || ""
+      {"work", judgment_work_section(context)},
+      {"availability", judgment_availability_section(context)},
+      {"work_facts", judgment_work_facts_section(context)},
+      {"chapters", judgment_stable_chapters_section(context)},
+      {"pending_candidates", judgment_pending_candidates_section(context)},
+      {"named_chapters", judgment_named_chapters_section(context, author_text)},
+      {"conversation", judgment_conversation_section(context)},
+      {"behavior", context.open_behavior_summary || ""}
     ]
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join("\n\n")
+  end
+
+  defp compose_context_sections(sections) do
+    sections
+    |> Enum.reject(fn {_name, text} -> text in [nil, ""] end)
+    |> Enum.map_join("\n\n", fn {_name, text} -> text end)
   end
 
   # AU03-CONTEXT CP1：读取失败/未知不得渲染为“新对话或尚未创建作品”。
