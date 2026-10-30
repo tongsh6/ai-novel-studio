@@ -18721,7 +18721,22 @@ async function driveAu09MemoryTaxonomyWritePolicy(page) {
   await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
 
   const adopt = async (beforeCount, pending, label) => {
-    await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
+    // 角色设计/演化会先进入候选方案组：选择方案 A 后按钮变为“保存方案 A 到作品档案”；
+    // 单个候选仍走既有直接采纳按钮。两者都使用作者可见语义，不依赖验收 hook。
+    const selectOptionA = page.getByRole("radio", { name: /^选择方案 A/ });
+    let selectedGroup = false;
+    for (let index = 0; index < (await selectOptionA.count()); index += 1) {
+      const radio = selectOptionA.nth(index);
+      if (!(await radio.isEnabled())) continue;
+      await radio.check();
+      selectedGroup = true;
+      break;
+    }
+    if (selectedGroup) {
+      await page.getByRole("button", { name: "保存方案 A 到作品档案", exact: true }).last().click();
+    } else {
+      await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
+    }
     return await waitForNewFrame(
       beforeCount,
       (frame) =>
@@ -18851,6 +18866,7 @@ async function driveAu09MemoryTaxonomyWritePolicy(page) {
   );
 
   // CP2：新会话创作请求必须真实召回已采纳角色演化记忆；外部证据=真实 writer prompt。
+  await closeMemoryPage();
   const newSessionResume = page.waitForResponse(
     (res) => res.url().endsWith("/sessions/resume") && res.ok(),
   );

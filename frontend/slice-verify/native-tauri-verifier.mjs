@@ -22909,11 +22909,12 @@ function au09MemoryTaxonomyWritePolicyBehavior(turnIds, _turnRecords, records, _
   if (uiState.evolution_memory_written !== true) return null;
   if (uiState.evolution_memory_type_shown !== true) return null;
   if (uiState.character_dossier_visible !== true) return null;
+  if (uiState.recall_prompt_has_memory !== true) return null;
 
   return {
     slice_id: "au09-memory-taxonomy-write-policy",
     behavior:
-      "character_dossier_writes_no_memory_while_character_evolution_adoption_writes_typed_character_memory",
+      "character_dossier_writes_no_memory_while_character_evolution_adoption_writes_typed_character_memory_and_new_session_recalls_it",
     turn_ids: turnIds,
     evolution_nonce: uiState.evolution_nonce,
     assertions: [
