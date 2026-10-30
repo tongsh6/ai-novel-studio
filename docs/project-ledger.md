@@ -1206,3 +1206,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B45 CP3 ToolResult 契约边界**：ToolResult.validate 检查必填/status/output/列表映射/completed_at；Toolbox.dispatch 返回前校验，坏 adapter 结果转 tool_result_contract_invalid 失败，不继续组装；新增 4 项契约测试，全量 mix 1048/0。Observation 负例/legacy 归属/AU13 页面证据已交，模型消费证据仍 todo。
 
 - 2026-10-31 — **B45 done**：CP0–CP3 收口；typed v3 decision/trace/truthfulness、codegen 本地 ref、ledger enum、ToolResult 边界、Observation 负例、legacy 归属、AU13 真实页面均留证；backend 1048/0、frontend 642/642、typecheck、task_done PASS（gitleaks 历史）；agent_run_state 交 DS01，v2 broken refs legacy 保留。
+
+- 2026-10-31 — **B01 CP0 partial**：盘点入口 lineage：run_spec origin_frame_ref 默认合成 `frame_<turn_id>`、channel 动作再拼后缀、run 启动时无真实 primary frame；step plan 在 decide 前覆盖为真实 step frame。拟用显式 origin_turn_ref + 只加列不回填，旧合成值 legacy；migration/前端展示待确认，未改代码。

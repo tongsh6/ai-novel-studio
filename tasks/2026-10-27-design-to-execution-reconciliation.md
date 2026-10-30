@@ -129,13 +129,38 @@
 
 #### B01 入口来源与语义边界
 
-- 状态：**todo（原 B01 条目的执行细化；2026-10-30 ADR-0031 已接受，设计前置解除，实施未开工）**。
+- 状态：**doing（2026-10-31 CP0 来源盘点完成：origin_frame_ref 为合成 turn 串、无真实 frame 对象；待冻结显式 turn ref 契约后进 CP1）**。
 - 范围：保留原 B01 的完整 judgment→frame→plan 语义边界与 B26/B27 后继校验；新增明确承接 [B49 R7](slices/B49-core-semantics-and-adr-review.md#715-c02-r7-裁决记录) 的真实入口引用。R7 修复只是原 B01 的一个 checkpoint，不代替其它语义/权限/registry/ref 校验。
 - 下一步：核对入口产生时间、实际 turn/frame 对象、现有 parent_turn_ref/author_input 关联及所有读取方，选择真实 frame ref 或显式 turn ref；不为字段名造空对象、不建第二 Router。
 - Checkpoint：CP0 明确来源契约、七问与原语义校验剩余矩阵 → CP1 真实来源贯穿生成/存储/trace/回放并保留历史读取 → CP2 原 B01 反例及引用存在性/作品会话隔离/幂等恢复 → CP3 外部真实工作台触发与 Why/持久回放验证。各项未开工。
 - 边界与消费者：domain 纯绑定规则，application 入口/PlannerBoundary，必要 persistence 引用读取与兼容；web/frontend 消费已有 trace/Why。消费者是统一裁决、逐步执行与作者追溯，不新增数据事实或无用途层。
 - 不变量与证明：来源类型与真实对象一致、不得跨作品/会话；Planner 不自批执行；回放不重调模型、不伪补历史。局部测试不能代签 UI，原 B01 全范围未覆盖时不标 done。
 - 状态只维护在本小节；上表保留设计差距与承接说明。具体驱动与字段迁移由 CP0 冻结，未触发存量数据修复授权。
+
+#### B01 CP0 记录（2026-10-31，partial）
+
+**冻结目标（待 CP1 前置确认）**：按 R7=A，入口 lineage 必须是可解析的真实 frame ref 或显式 turn ref；有真实 frame 对象时用 frame，否则显式 turn，不构造 `frame_<turn_id>` 冒充 frame；旧记录按 legacy 读取，不伪造/不回填。
+
+**真实调用链盘点：**
+
+| 环节 | 当前事实 | 判断 |
+|---|---|---|
+| `DialoguePlanningService.run_spec_for_profile/4` | `origin_frame_ref = input[:origin_frame_ref] || "frame_#{turn_id}"`；持久到 AgentRun | **合成串**，run 创建时没有对应的真实 `DialogueFrame` 对象 |
+| `workspace_channel` 全审读/事实盘点/修订入口 | `origin_frame_ref: "frame_#{source_turn_ref}_ledger_review"` 等后缀合成 | 同上；仅表达动作来源，不是 frame 身份 |
+| `AgentRunFlows.plan_from_decision/3` | 初始 `MicroPlan.frame_ref = run.origin_frame_ref`；随后各 flow 在 decide 前覆盖为真实 step frame | 合成串只在覆盖前短暂存在；step frame 本身真实 |
+| AgentRun 持久化/状态/事件 | `agent_run_records.origin_frame_ref`、`AgentRunService.state`、channel `agent_run_state`、run trace | 没有 turn/input ref 字段；合成串被当作 frame ref 暴露 |
+| 真实 primary frame | `judgment_frame/4` 等在 run 启动后才生成 `frame_<hash>`；没有建立到 run.origin 的映射 | 入口只能证明 turn，不能证明 frame |
+| Replay/Why | 读取 DecisionTrace/frame_ref、turn_result；不校验 origin_frame_ref 是否存在对应 frame | 当前不消费合成串做身份校验，但保留了不可验证 lineage |
+
+**CP1 修改清单（拟）**：
+1. `NovelDomain.AgentRun` 增加显式 `origin_turn_ref`（可选）；`origin_frame_ref` 只接受调用方提供的真实 frame ref，不再默认合成（无真实 frame 时为 nil）。
+2. persistence `agent_run_records` 增 nullable `origin_turn_ref` 列/读取兼容；旧 `origin_frame_ref` 合成值按 legacy 读取，不回填/不伪修；migration 只加列不改旧数据。
+3. application 入口（普通 user_message、全审读、事实盘点、修订、profile routing）写 `origin_turn_ref = turn_id`；若已有真实 frame ref（例如由调用方持有）才写 frame。
+4. `AgentRunService.state`/channel `agent_run_state`/trace/replay 消费新字段；step `MicroPlan.frame_ref` 保持真实 step frame，不使用合成串。
+5. 测试：真实 turn ref 贯穿生成→持久化→状态→回放；无真实 frame 时不得输出 frame ref；旧记录读取兼容；本地测试不代签 CP3 页面。
+
+**未决/风险**：是否新增列需确认 migration 审批（本记录主张“只加列、不回填”）；前端/Why 是否展示 origin turn 引用需按现有 trace 消费面决定；B65 的 origin 检查与本任务无关。
+
 
 ### 4.3 v3 slices 与整合台账
 
