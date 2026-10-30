@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CandidateDirectionSchema, TurnResultSchema } from "../schemas";
+import { LedgerEntrySchema } from "../../generated/foundation/ledger_entry";
 
 // v3 线格式（docs/design/schemas/foundation/turn_result_v3.json，ADR-0024）。
 const minimalValid = {
@@ -15,6 +16,28 @@ const minimalValid = {
   projection_refs: [],
   produced_at: "2026-07-15T00:00:00Z",
 };
+
+describe("LedgerEntrySchema", () => {
+  const entry = {
+    entry_id: "entry_1",
+    work_ref: "work_1",
+    ledger: "arc",
+    subject_kind: "character",
+    subject_ref: "char_1",
+    subject_label: "凌渊",
+    status: "ON_TRACK",
+    payload: { last_seen_seq: 3 },
+    source_refs: ["chapter_summary:ch_3"],
+  };
+
+  it("B45 CP2：ledger 本地 $ref 已解析为枚举，合法账名通过", () => {
+    expect(LedgerEntrySchema.safeParse(entry).success).toBe(true);
+  });
+
+  it("B45 CP2：未知 ledger 值被拒绝，不再由 z.any() 放行", () => {
+    expect(LedgerEntrySchema.safeParse({ ...entry, ledger: "budget" }).success).toBe(false);
+  });
+});
 
 describe("TurnResultSchema", () => {
   it("接受最小合法 payload（v3 draft）", () => {

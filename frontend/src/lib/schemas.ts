@@ -3,9 +3,9 @@
 // codegen 用 PascalCase + Schema 后缀；本文件提供别名，
 // 让消费者写 `TurnResultSchema` 而不是文件名 `TurnResultV3Schema`。
 //
-// 组合点（ADR-0024 决策 5）：codegen 不解析跨文件 $ref（ui_cards /
-// candidate_directions 在 turn_result_v3 生成物中降级为 any），
-// 本 barrel 用各自的 codegen 生成物在此收紧。这里只做组合，不手写形状。
+// 组合点（ADR-0024 决策 5）：B45 CP2 起 codegen 解析同树本地 $ref，v3 生成物
+// 已含 ui_card/candidate_direction typed 形状；本 barrel 仍用各自生成物组合收紧，
+// 这里只做组合，不手写形状。
 
 import { z } from "zod";
 import { AuthorChoiceActionSchema } from "../generated/foundation/author_choice_action";

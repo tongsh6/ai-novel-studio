@@ -1192,3 +1192,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B45 CP0/CP1 done**：38 份 schema 盘点 + 三链字段矩阵 + 13 项处置（8 无消费者、memory_* 5 个 active、mutation/retention/source active）冻结；CP1 冻结 active-typed/active-opaque/legacy-frozen/future-reserved 四类与 invalid≠empty/unknown enum/历史缺字段规则；首批变更清单交 CP2。ledger 枚举与领域硬编码漂移、agent_run_state 无 schema 已登记。
 
 - 2026-10-31 — **B45 CP2 首批 schema 实施**：turn_result_v3 新增 optional orchestrator_decision（decision_id/type/status/gate/required_action/trace_ref），codegen 重放生成 typed TS；turnResultWire 测试合法 reply_only 通过、未知 decision_type 产生漂移 issue；frontend 638/638、typecheck、全量 backend mix 1048/0。trace_summary/truthfulness、ledger enum、agent_run_state 仍 todo。
+
+- 2026-10-31 — **B45 CP2 codegen 本地 $ref + ledger 枚举**：codegen-schemas 生成前解析同树本地 ref（环检测），ledger_entry.ledger 由 z.any 变 z.enum，v3 ui_cards/candidate 获得 typed 形状；新增 LedgerEntrySchema 合法/未知账名测试；frontend 640/640、typecheck、backend mix 1048/0。trace_summary/truthfulness、agent_run_state、CP3 仍 todo。

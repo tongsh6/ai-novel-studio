@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "foundation/turn_result_v3.json",
   "title": "TurnResultV3",
-  "description": "v3 运行时 TurnResult 线格式（draft）。与 turn_result_v2.json 的关系：v2 是 ADR-0015 时代的历史冻结，v3 描述 UA-01 之后的真实主链输出，schema_version 当前为 '3.0-draft'（semver 收敛为 ADR-0024 Deferred 项）。additionalProperties=true：v3 draft 期容忍后端新增字段，漂移检测聚焦决策面字段与 ui_cards（ADR-0024 决策 5）；ui_cards / candidate_directions 的条目收紧由前端 barrel（lib/schemas.ts）用 ui_card.json / candidate_direction.json 生成物组合完成，codegen 不解析跨文件 $ref。",
+  "description": "v3 运行时 TurnResult 线格式（draft）。与 turn_result_v2.json 的关系：v2 是 ADR-0015 时代的历史冻结，v3 描述 UA-01 之后的真实主链输出，schema_version 当前为 '3.0-draft'（semver 收敛为 ADR-0024 Deferred 项）。additionalProperties=true：v3 draft 期容忍后端新增字段，漂移检测聚焦决策面字段与 ui_cards（ADR-0024 决策 5）；ui_cards / candidate_directions 的条目收紧由前端 barrel（lib/schemas.ts）用 ui_card.json / candidate_direction.json 生成物组合完成，B45 CP2 起 codegen 解析同树本地 $ref（ui_cards/candidate_directions 生成 typed 形状），barrel 仍组合收紧。",
   "type": "object",
   "required": [
     "turn_id",

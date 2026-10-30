@@ -3,11 +3,12 @@
 // Walks docs/design/schemas/ for *.json (the SSOT) and runs
 // json-schema-to-zod into frontend/src/generated/ mirroring the same path.
 //
-// A later hardening pass may add $ref resolution + tighter typing. For now $ref targets that
-// are not resolvable will fall through to z.any() (CLI default depth).
+// B45 CP2：生成前解析同目录树内的本地 $ref（json-schema-to-zod 不跨文件解析）。
+// 只展开可解析且无环的本地引用；不可解析/跨域引用保持原样，由 CLI 降级并记录为
+// legacy/缺口，不伪造通过。
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readdirSync, statSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -47,15 +48,42 @@ if (files.length === 0) {
   process.exit(1);
 }
 
+const schemaByPath = new Map(
+  files.map((file) => [relative(schemasRoot, file).replaceAll("\\", "/"), JSON.parse(readFileSync(file, "utf8"))]),
+);
+
+function resolveRefs(value, currentRel, seen = new Set()) {
+  if (Array.isArray(value)) return value.map((item) => resolveRefs(item, currentRel, seen));
+  if (!value || typeof value !== "object") return value;
+  if (typeof value.$ref === "string" && !value.$ref.startsWith("#")) {
+    const targetRel = relative(schemasRoot, join(schemasRoot, dirname(currentRel), value.$ref))
+      .replaceAll("\\", "/");
+    const target = schemaByPath.get(targetRel);
+    const nextSeen = new Set(seen).add(`${currentRel}#${value.$ref}`);
+    if (target && !seen.has(`${currentRel}#${value.$ref}`) && !nextSeen.has(targetRel)) {
+      const { $ref, ...siblings } = value;
+      return resolveRefs({ ...target, ...siblings }, targetRel, nextSeen);
+    }
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, resolveRefs(item, currentRel, seen)]),
+  );
+}
+
 let count = 0;
 for (const json of files) {
-  const rel = relative(schemasRoot, json).replace(/\.json$/, ".ts");
-  const out = join(generatedRoot, rel);
+  const rel = relative(schemasRoot, json).replaceAll("\\", "/");
+  const out = join(generatedRoot, rel.replace(/\.json$/, ".ts"));
   mkdirSync(dirname(out), { recursive: true });
   const name = nameFromPath(json);
+  const resolved = resolveRefs(schemaByPath.get(rel), rel);
+  const resolvedPath = join(here, "..", "..", "artifacts", "b45-codegen-resolved", rel);
+  mkdirSync(dirname(resolvedPath), { recursive: true });
+  writeFileSync(resolvedPath, `${JSON.stringify(resolved, null, 2)}\n`);
   execFileSync(
     "pnpm",
-    ["exec", "json-schema-to-zod", "-i", json, "-o", out, "-n", `${name}Schema`, "-t", name],
+    ["exec", "json-schema-to-zod", "-i", resolvedPath, "-o", out, "-n", `${name}Schema`, "-t", name],
     { stdio: "inherit" },
   );
   count++;
