@@ -189,8 +189,14 @@ defmodule NovelApplication.WorkSessionService do
   def pending_artifact_available?(work_id, session_id, artifact_id) do
     case WorkSessionRepo.get_by_work(work_id, session_id) do
       %WorkSession{status: "ACTIVE"} ->
-        WorkSessionRepo.adoption_state(work_id, session_id).pending_adoptions
-        |> Enum.any?(&(&1["artifact_id"] == artifact_id))
+        session_pending? =
+          WorkSessionRepo.adoption_state(work_id, session_id).pending_adoptions
+          |> Enum.any?(&(&1["artifact_id"] == artifact_id))
+
+        # B46：跨会话 inbox 的待处理也允许在 active session 处理；work 隔离不变。
+        session_pending? or
+          WorkSessionRepo.adoption_inbox(work_id).pending_adoptions
+          |> Enum.any?(&(&1["artifact_id"] == artifact_id))
 
       _ ->
         false

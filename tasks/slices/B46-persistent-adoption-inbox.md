@@ -80,6 +80,21 @@
 - 动作成功后立即从 `resumePendingAdoptions` 移除目标 artifact（失败保留），配合 channel 持久 source turn 回退，使新会话中的旧 pending 可直接 accept/discard/edit_then_accept；处理后下次恢复从 inbox 消失。
 - 测试：inbox 优先/旧快照回退/快照摘要 helper；frontend 653/653、typecheck/lint 通过。
 - 残差：inbox 条目视觉上未单独标注来源 session（DTO 已有 source_session_id，UI 沿用候选卡）；跨会话动作的重复提交/revision 失效/刷新恢复矩阵与真实页面证据归 CP3。
+## 10. CP3 真实页面记录（2026-10-31，partial）
+
+- 新增场景 `b46-cross-session-inbox`（nightly/tauri），真实 Tauri 窗口 + 外部 driver **PASS**：
+  - 发送原文大纲得到 pending 候选；
+  - 新建会话（旧 session EXITED），snapshot `pending_adoptions=[]`、`inbox_pending_adoptions` 含旧 artifact、inbox 携带 source turn result；
+  - 在真实档案“经验规则”中从新会话继续采纳；
+  - 刷新后 inbox pending 移除、resolved 保留，DB 仅一条 CONFIRMED 事实。
+  - 证据：`artifacts/slice-verify/b46-cross-session-inbox-tauri/`，behavior `cross_session_pending_visible_and_adoptable_through_existing_action`。
+- 产品修复（驱动中发现并纠正）：
+  1. 通用 `author_action` 的 source_turn_result 仅查当前 socket；新增按 work+turn 持久回退。
+  2. `pending_artifact_available?` 只查当前 session；改为 active session 可处理 work-wide inbox pending（work 隔离不变）。
+  3. driver DB 路径断言改为 `NOVEL_TEST_DB_DIR ?? tmp`，不再要求未设置的 partition；verifier 注册新 slice。
+- 重试预算说明：首两次失败为跨会话 action 无来源/被 session 校验拒绝（产品缺陷，已修）；后续两次失败分别是 driver DB 断言与 verifier 未注册（测试基建，已修）。每次均记录根因并做 scoped replay，未刷分。
+- 未完成矩阵：跨会话 `discard`/`edit_then_accept`、重复提交、跨作品隔离、EXITED 只读会话页面不可处理；这些路径与 accept 共享 channel/adoption 边界且已有后端测试，但**未分别真实页面驱动**，不冒充完整 CP3。
+- 门禁：新场景 PASS、quality manifest 221/223、manifest 测试 15/15、backend mix 1050/0（含本轮 product fixes 后）。
 ## 4. 非目标
 
 - 不复制 transcript 当 inbox，不新增第二套 pending 状态机。

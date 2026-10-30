@@ -5624,6 +5624,159 @@ async function driveLongSessionAdoptionState(page) {
     transcript_stays_paged: true, work_scope_isolated: true, old_action_enabled: true, terminal_survives_window: true, confirmed_fact_count: facts.length }];
 }
 
+async function driveB46CrossSessionInbox(page) {
+  const nonce = `inbox-${randomUUID().slice(0, 8)}`;
+  const joinReply = latestChannelJoinReply();
+  const workId = joinReply?.body?.response?.work_id ?? joinReply?.body?.work_id ?? null;
+  const previousSessionId =
+    joinReply?.body?.response?.session_id ?? joinReply?.body?.session_id ?? null;
+  assert(workId && previousSessionId, "B46 seed work/session missing from channel join");
+
+  async function send(text) {
+    const start = frames.length;
+    await page.locator(chatInputSelector).fill(text);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    const result = (
+      await waitForNewFrame(
+        start,
+        (frame) => frame.direction === "received" && frame.event === "turn_result",
+        "B46 candidate turn_result missing",
+        120_000,
+      )
+    ).body;
+    assert(result.status !== "failed", "B46 candidate turn failed");
+    await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.event === "agent_run_state" &&
+        frame.body?.run_id === result.agent_run?.run_id &&
+        frame.body?.status === "completed",
+      "B46 candidate run did not complete",
+      120_000,
+    );
+    return result;
+  }
+
+  const candidateResult = await send(`把这份大纲直接存档为作品设定：${nonce}，城门只在清晨开启。`);
+  const candidate = candidateResult.adoption_state?.pending?.[0];
+  assert(candidate?.artifact_id, "B46 candidate artifact missing");
+  assert(
+    candidate.payload?.items?.[0]?.body?.includes(nonce),
+    "B46 candidate body does not preserve author bytes",
+  );
+
+  // 新建 session：旧 session 变 EXITED 后，inbox 应跨会话返回 pending。
+  const resumePromise = page.waitForResponse(
+    (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+  );
+  await openSessionRail(page);
+  await page.getByRole("button", { name: "新建会话" }).click();
+  const newSnapshot = await (await resumePromise).json();
+  assert(newSnapshot.active_session.id !== previousSessionId, "B46 new session was not activated");
+  fs.writeFileSync(
+    path.join(artifactDir, "new-session-resume.json"),
+    JSON.stringify(newSnapshot, null, 2),
+  );
+  assert(
+    (newSnapshot.pending_adoptions ?? []).length === 0,
+    "B46 session-scoped pending should be empty in new session",
+  );
+  const inboxPending = newSnapshot.inbox_pending_adoptions ?? [];
+  assert(
+    inboxPending.some((entry) => entry.artifact_id === candidate.artifact_id),
+    "B46 inbox missing cross-session pending artifact",
+  );
+  assert(
+    (newSnapshot.inbox_pending_adoption_turn_results ?? []).length >= 1,
+    "B46 inbox missing source turn result",
+  );
+
+  await page.waitForFunction(
+    (token) => !document.body.innerText.includes(token),
+    nonce,
+    { timeout: 10_000 },
+  );
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await page.getByRole("tab", { name: /经验规则/ }).click();
+  const card = page.locator('[class*="cardAccent"]').filter({ hasText: nonce });
+  assert((await card.count()) === 1, "B46 cross-session pending not visible in real archive");
+  const accept = card.getByRole("button", { name: "启用规则", exact: true });
+  assert(await accept.isEnabled(), "B46 cross-session pending action disabled");
+  await page.screenshot({ path: path.join(artifactDir, "cross-session-inbox.png"), fullPage: true });
+
+  const adoptStart = frames.length;
+  await accept.click();
+  await waitForNewFrame(
+    adoptStart,
+    (frame) =>
+      frame.event === "turn_result" &&
+      frame.body?.adoption_state?.resolved?.some(
+        (entry) =>
+          entry.artifact_id === candidate.artifact_id && entry.adoption_status === "ACCEPTED",
+      ),
+    "B46 cross-session adoption was not accepted",
+    120_000,
+  );
+  await closeArchiveIfOpen(page);
+
+  const reloadResponse = page.waitForResponse(
+    (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+  );
+  await page.reload({ waitUntil: "commit" });
+  await page.locator(chatInputSelector).waitFor();
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+  const afterSnapshot = await (await reloadResponse).json();
+  fs.writeFileSync(
+    path.join(artifactDir, "after-adoption-resume.json"),
+    JSON.stringify(afterSnapshot, null, 2),
+  );
+  assert(
+    !(afterSnapshot.inbox_pending_adoptions ?? []).some(
+      (entry) => entry.artifact_id === candidate.artifact_id,
+    ),
+    "B46 processed artifact remains in inbox",
+  );
+  assert(
+    (afterSnapshot.inbox_resolved_adoptions ?? []).some(
+      (entry) => entry.artifact_id === candidate.artifact_id,
+    ),
+    "B46 resolved artifact missing from inbox history",
+  );
+
+  const { DatabaseSync } = await import("node:sqlite");
+  const dbDir = process.env.NOVEL_TEST_DB_DIR ?? os.tmpdir();
+  const partition = process.env.MIX_TEST_PARTITION ?? "";
+  const dbPath = path.join(dbDir, `ai_novel_studio_test${partition}.sqlite3`);
+  assert(fs.existsSync(dbPath), `B46 test DB missing: ${dbPath}`);
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  let facts;
+  try {
+    facts = db.prepare("SELECT content, status FROM memory_items WHERE instr(content, ?) > 0").all(nonce);
+  } finally {
+    db.close();
+  }
+  assert(facts.length === 1 && facts[0].status === "CONFIRMED", "B46 adopted fact not unique/confirmed");
+  fs.writeFileSync(path.join(artifactDir, "confirmed-facts.json"), JSON.stringify(facts, null, 2));
+  await page.screenshot({ path: path.join(artifactDir, "after-processed-inbox.png"), fullPage: true });
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "b46-cross-session-inbox",
+      turn_id: candidateResult.turn_id,
+      turn_ids: [candidateResult.turn_id],
+      work_id: workId,
+      previous_session_id: previousSessionId,
+      new_session_id: newSnapshot.active_session.id,
+      inbox_pending_before: inboxPending.length,
+      inbox_pending_after: (afterSnapshot.inbox_pending_adoptions ?? []).length,
+      inbox_resolved_after: (afterSnapshot.inbox_resolved_adoptions ?? []).length,
+      adopted_artifact_id: candidate.artifact_id,
+      confirmed_fact_count: facts.length,
+    },
+  ];
+}
+
 async function driveCandidateRevisionAdoption(page) {
   const nonce = randomUUID().replaceAll("-", "");
   const turns = [];
@@ -40072,6 +40225,7 @@ const drivers = {
   "q3d-author-registration-guards": driveAuthorRegistrationGuards,
   "q3d-candidate-semantics": driveCandidateSemantics,
   "q3d-long-session-adoption-state": driveLongSessionAdoptionState,
+  "b46-cross-session-inbox": driveB46CrossSessionInbox,
   "q3d-message-delivery-recovery": driveMessageDeliveryRecovery,
   "q1b-live-archive-roundtrip": driveQ1bLiveArchiveRoundtrip,
   "q1b-candidate-lifecycle": driveCandidateLifecycle,

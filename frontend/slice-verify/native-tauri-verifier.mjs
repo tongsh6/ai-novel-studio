@@ -153,6 +153,7 @@ export const nativeSliceIds = [
   "q3d-candidate-semantics",
   "q3d-author-registration-guards",
   "q3d-long-session-adoption-state",
+  "b46-cross-session-inbox",
   "q3d-message-delivery-recovery",
   "q3d-message-outcome-roundtrip",
   "q3c-author-content-materialization",
@@ -277,6 +278,12 @@ export const nativeSliceIds = [
 ];
 
 const sliceKeyEvents = {
+  "b46-cross-session-inbox": [
+    "work_session.create.done",
+    "work_session.resume.done",
+    "channel.author_action.done",
+    "slice_verify.ui_state.done",
+  ],
   "workspace-runtime-state": [
     "work_session.resume.done",
     "channel.join.done",
@@ -3419,7 +3426,20 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findVs10LogSpineEvidence(records);
   }
 
+  if (sliceId === "b46-cross-session-inbox") {
+    return findB46CrossSessionInboxEvidence(records);
+  }
+
   throw new Error(`Unknown native Tauri slice id: ${sliceId}`);
+}
+
+function findB46CrossSessionInboxEvidence(records) {
+  const ui = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "b46-cross-session-inbox",
+  );
+  return ui ? { turn_id: ui.turn_id, turn_ids: ui.turn_ids ?? [] } : null;
 }
 
 export function findSliceBehaviorEvidence(sliceId, records, evidence, options = {}) {
@@ -3729,6 +3749,27 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
       behavior: "stable_submission_retries_reuse_original_run_and_restore_truthful_receipt",
       assertions: ["external_receipt_loss_injected", "reload_and_reconnect_keep_identity", "completed_and_failed_receipts_are_terminal",
         "dead_runtime_is_not_restarted", "same_text_new_send_has_new_identity", "one_input_and_run_per_submission"] } : null;
+  }
+
+  if (sliceId === "b46-cross-session-inbox") {
+    const ui = records.find(
+      (record) =>
+        record.event === "slice_verify.ui_state.done" &&
+        record.slice_id === "b46-cross-session-inbox",
+    );
+    if (!ui || hasErrorEvent(turnRecords)) return null;
+    return {
+      slice_id: sliceId,
+      turn_ids: ui.turn_ids ?? [],
+      behavior: "cross_session_pending_visible_and_adoptable_through_existing_action",
+      assertions: [
+        "new_session_inbox_returns_old_pending_with_source_turn",
+        "session_scoped_pending_not_mixed",
+        "adoption_uses_existing_real_author_action",
+        "processed_pending_removed_and_resolved_preserved",
+        "confirmed_fact_written_once",
+      ],
+    };
   }
 
   if (sliceId === "q3d-long-session-adoption-state") {

@@ -1,0 +1,55 @@
+id: b46-cross-session-inbox
+title: "B46 跨会话持久待处理 inbox：新会话可见并继续采纳，处理后消失"
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh b46-cross-session-inbox --surface tauri
+
+contract:
+  - tasks/slices/B46-persistent-adoption-inbox.md
+  - docs/design/adr/ADR-0027-author-obligation-state-v3.md
+  - docs/design/contracts/VS-05-ui-roundtrip-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - cross-session-pending-adoption-visible
+  - session-scoped-pending-not-leaked-into-new-session
+  - source-turn-restored-from-persistence
+  - adoption-through-existing-action-resolves-inbox
+  - processed-artifact-disappears-from-inbox
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: 把原文大纲存档为作品设定，得到一个 pending 候选
+  - switch: 新建会话，旧会话变为 EXITED
+  - verify: 新会话 session-scoped pending 为空，但 work-wide inbox 返回旧候选与 source turn result
+  - click: 在真实档案待处理区从新会话继续采纳旧候选
+  - verify: 采纳成功，刷新后 inbox pending 移除、resolved 保留，DB 只有一条 CONFIRMED 事实
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/b46-cross-session-inbox-tauri
+
+assertions:
+  ui:
+    - 新会话打开档案可见旧会话 pending 候选并可继续采纳
+    - 采纳后待处理消失，不出现重复候选
+  network:
+    - 新会话 resume 的 pending_adoptions 为空，inbox_pending_adoptions 含旧 artifact
+    - inbox 携带 source turn result，采纳走既有 action
+  data:
+    - 刷新后 inbox pending 不含已采纳 artifact，resolved 保留
+    - 作品事实只为该候选生成唯一 CONFIRMED 记录
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

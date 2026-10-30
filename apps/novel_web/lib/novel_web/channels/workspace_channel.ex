@@ -3104,8 +3104,29 @@ defmodule NovelWeb.WorkspaceChannel do
     by_id_list = Map.values(socket.assigns[:turn_results_by_id] || %{})
 
     find_matching_turn_result(list, source_turn_ref, target_ref) ||
-      find_matching_turn_result(by_id_list, source_turn_ref, target_ref)
+      find_matching_turn_result(by_id_list, source_turn_ref, target_ref) ||
+      persisted_source_turn_result(socket, source_turn_ref, target_ref)
   end
+
+  # B46：跨会话 pending 动作的来源 turn 不在当前 socket 缓存时，按 work+turn 从
+  # 持久 interactions 取回；仍走既有 adoption workflow，不复制状态机。
+  defp persisted_source_turn_result(socket, source_turn_ref, target_ref)
+       when is_binary(source_turn_ref) do
+    case NovelApplication.WorkSessionService.turn_result(
+           socket.assigns[:work_id],
+           source_turn_ref
+         ) do
+      nil ->
+        nil
+
+      turn_result ->
+        if is_nil(target_ref) or pending_artifact?(turn_result, target_ref),
+          do: turn_result,
+          else: nil
+    end
+  end
+
+  defp persisted_source_turn_result(_socket, _source_turn_ref, _target_ref), do: nil
 
   defp find_matching_turn_result(list, source_turn_ref, target_ref) do
     match =

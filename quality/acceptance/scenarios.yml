@@ -1391,6 +1391,14 @@ scenarios:
     manifest: quality/acceptance/scenarios/q3d-long-session-adoption-state.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh q3d-long-session-adoption-state --surface tauri
+  - id: b46-cross-session-inbox
+    title: "B46 跨会话持久待处理 inbox：新会话可见并继续采纳，处理后消失"
+    tier: nightly
+    surface: tauri
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/b46-cross-session-inbox.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh b46-cross-session-inbox --surface tauri
   - id: q3d-candidate-semantics
     title: "Q3D 仅记录与创作方向动作语义"
     tier: nightly

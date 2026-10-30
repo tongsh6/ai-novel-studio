@@ -826,6 +826,7 @@ defmodule NovelApplication.WorkSessionServiceTest do
 
     assert source_sessions == Enum.sort([s1.id, s2.id])
     assert length(snapshot.inbox_pending_adoption_turn_results) == 2
+    assert WorkSessionService.pending_artifact_available?(work.id, s2.id, "inbox-a1")
 
     record(work.id, s1.id, "turn-inbox-1-resolve", "assistant", "已放弃候选一", %{
       turn_id: "turn-inbox-1-resolve",
