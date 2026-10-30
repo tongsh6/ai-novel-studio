@@ -74,10 +74,26 @@ curl -s http://127.0.0.1:4658/api/provider/health    # → {"connected":...}
 
 ## 现役故障与生命周期契约核对
 
-- 状态：**todo（2026-10-30 承接现役启动/退出故障矩阵；历史正常冷启动与退出证据保持原范围，本项未实现或补验）**。
+- 状态：**doing（2026-10-31 CP0 现役生命周期/故障源只读核对 done：已冻结就绪/解包/迁移/端口/退出缺口矩阵；CP1 修复与打包页面复验待做）**。
 - 来源：[桌面设计 §2–§3](../../docs/design/tech-stack/05-desktop.md#3-启动流程) 的就绪/健康检查及优雅退出要求，与本任务 as-built 的 release 解包/spawn/退出流程对账；不机械恢复旧 splash 或示例端口/轮询间隔。
 - 已核事实：`frontend/src-tauri/src/lib.rs:991–997` 启动失败只输出错误，`shutdown_sidecar` 直接 kill/wait；`WorkspaceChat.tsx:2079–2107` 已有约 30 次启动连接重试与最终加载失败，不能描述为“没有任何恢复”。自动迁移失败在 `NovelPersistence.Application` 重新抛出；当前证据未覆盖这些失败如何进入作者可操作的恢复链。
 - 下一步：核对实际打包启动配置、子进程所有权、解包完成判据、迁移/监听就绪、前端启动状态及退出时序，冻结启动中/就绪/失败/退出的真实来源和最小恢复方式。先明确受影响消费者和七问，不默认新增常驻 watchdog、第二进程管理器或自动重启策略。
 - 完整后果：半解包、启动/迁移失败、端口占用、已启动后退出及应用关闭分别有可核的失败类别和处置；不会把无后端冒充已就绪，不误杀非本应用进程，不产生重复 sidecar；退出/恢复遵循当前数据与运行状态边界，不静默重放创作。作者反馈与实际状态同源，失败证据及恢复后果可追溯。
 - 证明：外部系统 UI 驱动真实打包应用，在隔离 profile/数据目录准备故障前置，观察窗口/重试或恢复动作，并结合进程、端口、日志及数据校验；正常冷启动、恢复后可用与退出无孤儿均须复验。CI 仅构建包或使用 dummy archive 的 Rust 测试不能代签生命周期；产品不增加验收开关/隐藏钩子。
 - 依赖与条件：[B51](B51-tech-stack-current-rebase.md) 校准现役部署表述，[B65](B65-local-http-websocket-origin-boundary.md) 负责 HTTP/WS 来源，[B66](B66-local-workspace-backup-restore.md) 负责尚待冻结的备份恢复；本项不借故障恢复改写作者现有数据。签名、公证、各平台真实 release 的外部条件继续沿上节保留，不阻塞本机契约核对，也不因本机通过宣布跨平台完成。
+
+### CP0 现役生命周期核对（2026-10-31）
+
+| 面 | 现役事实 | 缺口/风险 |
+|---|---|---|
+| 解包完成判据 | `ensure_sidecar_installed` 先清同版本目录再 `tar -xzf`；成功返回，失败 `Err`；下次仅按 `bin/sidecar` 是否存在判断已安装 | 无安装完成 marker；tar 失败可能留下部分目录，若 bin 已落盘会被误判为已安装；半解包无专门状态 |
+| 启动就绪 | `spawn_sidecar` 成功即 `manage(SidecarChild)`；无 HTTP health/ready 轮询；前端 `WorkspaceChat` 约 30 次连接重试后显示加载失败 | 「子进程已 spawn」≠「后端已就绪」；端口占用/迁移失败只体现为连接失败，无分类；作者反馈与实际状态未同源 |
+| 迁移/端口失败 | 后端迁移失败在 `NovelPersistence.Application` 重新抛出，sidecar 退出；端口占用时 Phoenix 监听失败退出；stdout/stderr 落 `data/log/sidecar.out` | 失败类别未进入作者可操作恢复链；日志文件需外部查看，页面只有通用离线/加载失败 |
+| 退出/孤儿 | `shutdown_sidecar` 只 kill+wait 直接 Child，未建进程组；`on_window_event CloseRequested` 立即 `exit(0)`；`RunEvent::Exit` 再 shutdown | release `bin/sidecar start` 若派生/exec 行为变化，kill 直接子进程可能留孤儿；无退出后孤儿/端口残留自动核验 |
+| 恢复边界 | 正常冷启动/退出已有历史证据；本次未新增 watchdog/自动重启 | 不把无后端冒充已就绪；不误杀非本应用进程；不重放创作 |
+
+**CP1 最小计划（不建第二进程管理器）**
+1. 解包成功写完成 marker（含版本），仅 marker+bin 同时存在才复用；失败/半解包清理并保留失败证据；
+2. 启动就绪用既有后端 health/端口探测（复用现有端点，不新增验收开关），失败分类（解包/迁移/端口/超时）进入作者可见恢复文案；
+3. Unix 上以独立进程组启动并在退出时杀组+wait，验证无孤儿/端口残留；
+4. 外部系统 UI 驱动真实打包应用：正常冷启动、半解包/坏 archive、端口占用、退出无孤儿分别留证；CI Rust 测试/构建不能代签。
