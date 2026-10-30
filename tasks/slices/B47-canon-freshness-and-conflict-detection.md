@@ -1,6 +1,6 @@
 # B47：Canon Freshness 与持久冲突发现
 
-- 状态：**doing（2026-10-29 CP0–CP3 历史交付保留；2026-10-30 C07=A 已确认，持久层一致性后续 §10.1/§10.4 待实施与验证）**。原 browser 页面矩阵不冒充 native，§10 其它残余仍保持开放；新裁决不改写历史证据，也不表示整体已闭环。
+- 状态：**doing（2026-10-29 CP0–CP3 历史交付保留；2026-10-31 C07 CP0–CP2 done：持久层严格整体 fingerprint + 事务内条件更新 + no-op/replay 区分；CP3 外部真实角色修订页面待做）**。原 browser 页面矩阵不冒充 native，§10 其它残余仍保持开放；新裁决不改写历史证据，也不表示整体已闭环。
 - 登记日期：2026-10-27；来源：当前部分安全检查依赖候选预声明 `canon_conflicts`，不能证明系统会从当前持久事实自动发现冲突或过期。
 - 2026-10-29 本轮范围：CP0 冻结 + CP1 对象级基线比较/自动 stale 检测 + CP2 采纳重 gate/receipt 前后版本/幂等；**不做**真实 Tauri/长跑/页面矩阵（CP3 交接 Lead）。
 - 上游：[AU05-canon-conflict-recovery](AU05-canon-conflict-recovery.md)、[AU05-file-level-closure](AU05-file-level-closure.md)、[B28](B28-whole-chapter-revision.md)、[B29](B29-existing-character-role-revision.md)、[B36](B36-localized-revision-algorithm.md)。
@@ -280,14 +280,32 @@
 
 ### 10.4 C07 实施 checkpoint
 
+- 状态：**doing（2026-10-31 CP0–CP2 done；CP3 外部真实角色修订页面待做）**。
+
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
-| CP0 | 审计所有调用方、既有事务/版本保护与幂等回执；冻结整体 fingerprint、检查到写入的原子性、过期恢复和旧候选读取语义；区分同请求重放与目标值已满足 | todo |
-| CP1 | 持久变更入口执行同一整体版本规则，去除未授权 old_role 放宽路径；用实际适配的原子条件/版本机制保护竞争更新，不新增平行版本体系 | todo |
-| CP2 | 直接仓储及真实采纳链的 fresh/stale、简介等非目标字段变化、检查后竞争更新、跨作品/错误引用、真实幂等/不同请求/no-op 矩阵；拒绝时零 canon 变更 | todo |
+| CP0 | 审计所有调用方、既有事务/版本保护与幂等回执；冻结整体 fingerprint、检查到写入的原子性、过期恢复和旧候选读取语义；区分同请求重放与目标值已满足 | **done（2026-10-31，§10.5）**：唯一生产调用方=`AdoptionWorkflow.persist_character_revision`；直接仓储测试为第二消费者；无其它调用方；冻结 strict 整体 fingerprint、事务内 fetch+条件更新、no-op≠replay |
+| CP1 | 持久变更入口执行同一整体版本规则，去除未授权 old_role 放宽路径；用实际适配的原子条件/版本机制保护竞争更新，不新增平行版本体系 | **done（2026-10-31，§10.5）**：删除 old_role fallback；fetch/校验/`updated_at` 条件更新进同一事务；0 行→`stale_base`；无 migration/新版本表 |
+| CP2 | 直接仓储及真实采纳链的 fresh/stale、简介等非目标字段变化、检查后竞争更新、跨作品/错误引用、真实幂等/不同请求/no-op 矩阵；拒绝时零 canon 变更 | **done（2026-10-31，§10.5）**：仓储 6 tests（非目标字段过期、旧基线重放 stale、当前基线 no-op、并发单提交、跨作品/缺失/非法角色/零写入）；B47 采纳链 17 tests（fresh/stale/契约拒绝/角色冲突）通过 |
 | CP3 | 外部驱动真实角色修订页面与恢复/回放，证明过期拒绝、合法新基线修订、无重复写入；回归 B29/B47/C04，原生与 browser、局部与完整范围分开报告 | todo |
 
 C07 只承接 §10 第6项，不因它完成而关闭 StateTrace、legacy、memory/设定、edit_then_accept 或原生覆盖等其它残余。幂等输入识别与 B43 共用既有事实，C04 无变化结果与 B48 对齐，不复制第二套判据；实施前按本任务完整七问、架构边界及当前 ub-mode 要求执行。
+
+### 10.4.1 C07 实施记录（2026-10-31，CP0–CP2）
+
+- CP0 审计：`revise_character_narrative_role/5` 生产调用方只有 `AdoptionWorkflow.persist_character_revision/5`；直接仓储测试是第二消费者；没有其它写入口。原实现的问题：① old_role==current 可绕过整体 fingerprint；② `Character.narrative_role == new_role` 即返回 duplicate，不验证“同一请求”；③ fetch 在事务外，校验后无条件更新存在竞争窗口。
+- CP1 实现（`apps/novel_persistence/lib/novel_persistence/adoption_repository.ex`）：
+  - 删除 old_role fallback，`validate_character_fingerprint/2` 只接受整体 fingerprint 严格相等；
+  - `revise_character_narrative_role` 把 fetch/校验/更新放进 `Repo.transaction`，更新用 `where id+work_id+updated_at` 条件 `update_all`；0 行 → rollback `:stale_base`，不新增 revision 表/schema；
+  - 已满足目标且 expected==current → `duplicate: true, noop: true, committed: false` 回执（no-op，不称同一请求重放）；已满足目标但 expected 不等于 current → `stale_base`；
+  - 成功 receipt additive `noop: false`，保留 committed/duplicate/旧字段语义。
+- CP2 测试：`b29_character_revision_test.exs` 6 tests 覆盖 fresh、非目标字段（summary）变化导致整体 fingerprint 过期、旧基线重放 stale、当前基线 no-op、并发只一个提交、跨作品/目标缺失/非法角色零写入；`b47_canon_freshness_adoption_test.exs` + `b29_character_revision_adoption_test.exs` 17 tests 覆盖真实采纳链 fresh/stale/契约拒绝/角色冲突；全量 mix test 结果见 §10.5 门禁。
+- CP3 未做：外部真实角色修订页面（过期拒绝、合法新基线、恢复/回放）尚未新增/复跑；不把仓储/应用测试冒充页面证据。
+
+### 10.5 C07 CP0–CP2 门禁（2026-10-31）
+
+- 后端聚焦：`b29_character_revision_test.exs` 6/0、`b47_canon_freshness_adoption_test.exs` + `b29_character_revision_adoption_test.exs` 17/0。
+- 全量 `mix test`：**1040 tests / 0 failures**（application）+ 各 app 全绿；format/compile 通过。CP3 页面矩阵仍 todo。
 
 ## 11. CP3 执行记录与交接清单（2026-10-29，Lead 已执行）
 

@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B47-C07 | CP3 真实页面冲突/stale/覆盖确认矩阵（§11 清单）+ §10.1 角色持久层整对象指纹/原子性/幂等；CP0–CP2 已完成 | [原任务小节](slices/B47-canon-freshness-and-conflict-detection.md#101-角色持久层过期策略裁决材料) |
+| B47-C07 | CP0–CP2 done：持久层严格整体 fingerprint + 事务内条件更新 + no-op/replay 区分；仓储 6/0、采纳链 17/0；下一步 CP3 外部真实角色修订页面（过期拒绝/合法新基线/恢复回放） | [原任务小节](slices/B47-canon-freshness-and-conflict-detection.md#104-c07-实施-checkpoint) |
 
 ## 后续候选
 

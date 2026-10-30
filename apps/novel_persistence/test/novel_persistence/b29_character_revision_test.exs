@@ -134,8 +134,9 @@ defmodule NovelPersistence.B29CharacterRevisionTest do
     assert characters_for(ctx.work.id) |> Enum.map(& &1.id) |> Enum.sort() == before_ids
     assert Repo.get!(Draft, ctx.draft.id).content == body
 
-    # 幂等重放
-    assert {:ok, replay} =
+    # C07=A：成功后用旧基线重放不得仅凭 old_role 命中就冒充同一请求成功；
+    # 持久层严格整体 fingerprint，旧基线已过期 → stale，零重复写。
+    assert {:error, :stale_base} =
              AdoptionRepository.revise_character_narrative_role(
                ctx.work.id,
                "character:#{ctx.shen.id}",
@@ -144,7 +145,6 @@ defmodule NovelPersistence.B29CharacterRevisionTest do
                old_role: "ENSEMBLE_POV"
              )
 
-    assert replay.duplicate == true
     assert Repo.get!(Character, ctx.shen.id).narrative_role == "PROTAGONIST"
   end
 
@@ -185,6 +185,90 @@ defmodule NovelPersistence.B29CharacterRevisionTest do
 
     assert characters_for(ctx.work.id) |> Enum.map(&{&1.id, &1.narrative_role}) |> Enum.sort() ==
              before
+  end
+
+  test "C07=A：非目标字段变化使整体 fingerprint 过期，即使 old_role 相同也拒绝", ctx do
+    {:ok, fact} =
+      AdoptionRepository.character_profile_context(ctx.work.id, "character:#{ctx.shen.id}")
+
+    # 只改 summary（非 narrative_role），整体 fingerprint 已变。
+    ctx.shen
+    |> Character.changeset(%{summary: "主角候选，已补简介"})
+    |> Repo.update!()
+
+    assert {:error, :stale_base} =
+             AdoptionRepository.revise_character_narrative_role(
+               ctx.work.id,
+               "character:#{ctx.shen.id}",
+               fact.base_fingerprint,
+               "PROTAGONIST",
+               old_role: "ENSEMBLE_POV"
+             )
+
+    assert Repo.get!(Character, ctx.shen.id).narrative_role == "ENSEMBLE_POV"
+    assert Repo.get!(Character, ctx.shen.id).summary == "主角候选，已补简介"
+  end
+
+  test "C07=A：当前已满足目标角色的 no-op 与旧基线重放分开", ctx do
+    {:ok, before_fact} =
+      AdoptionRepository.character_profile_context(ctx.work.id, "character:#{ctx.shen.id}")
+
+    # 当前基线就是目标角色：no-op 回执，不写库，标记 noop 而非同一请求重放。
+    ctx.shen
+    |> Character.changeset(%{narrative_role: "PROTAGONIST"})
+    |> Repo.update!()
+
+    {:ok, current_fact} =
+      AdoptionRepository.character_profile_context(ctx.work.id, "character:#{ctx.shen.id}")
+
+    assert {:ok, noop} =
+             AdoptionRepository.revise_character_narrative_role(
+               ctx.work.id,
+               "character:#{ctx.shen.id}",
+               current_fact.base_fingerprint,
+               "PROTAGONIST"
+             )
+
+    assert noop.duplicate == true
+    assert noop.noop == true
+    assert noop.committed == false
+    assert Repo.get!(Character, ctx.shen.id).narrative_role == "PROTAGONIST"
+
+    # 旧基线（改前 ENSEMBLE_POV）重放：严格 stale，不是 no-op/duplicate。
+    assert {:error, :stale_base} =
+             AdoptionRepository.revise_character_narrative_role(
+               ctx.work.id,
+               "character:#{ctx.shen.id}",
+               before_fact.base_fingerprint,
+               "PROTAGONIST",
+               old_role: "ENSEMBLE_POV"
+             )
+  end
+
+  test "C07=A：检查后竞争更新只有一个提交，另一个 stale，零重复写", ctx do
+    {:ok, fact} =
+      AdoptionRepository.character_profile_context(ctx.work.id, "character:#{ctx.shen.id}")
+
+    results =
+      1..2
+      |> Task.async_stream(
+        fn _index ->
+          AdoptionRepository.revise_character_narrative_role(
+            ctx.work.id,
+            "character:#{ctx.shen.id}",
+            fact.base_fingerprint,
+            "PROTAGONIST"
+          )
+        end,
+        max_concurrency: 2,
+        timeout: 10_000
+      )
+      |> Enum.map(fn {:ok, result} -> result end)
+
+    committed = Enum.count(results, &match?({:ok, %{committed: true}}, &1))
+    assert committed == 1
+    assert Enum.any?(results, &match?({:error, :stale_base}, &1))
+    assert Repo.get!(Character, ctx.shen.id).narrative_role == "PROTAGONIST"
   end
 
   defp characters_for(work_id) do

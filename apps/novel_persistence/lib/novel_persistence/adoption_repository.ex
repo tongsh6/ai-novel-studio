@@ -1601,43 +1601,64 @@ defmodule NovelPersistence.AdoptionRepository do
         opts \\ []
       ) do
     with :ok <- validate_character_role_field(new_role),
-         {:ok, work_uuid} <- Ecto.UUID.cast(work_id),
-         {:ok, character} <- fetch_character_for_revision(work_uuid, character_ref) do
-      maybe_apply_character_revision(character, new_role, expected_fingerprint, opts)
-    end
-  end
-
-  defp maybe_apply_character_revision(character, new_role, expected_fingerprint, opts) do
-    if character.narrative_role == new_role do
-      # 幂等重放：目标已具备 new_role（opts 带 old_role 说明是同一变更的重复采纳）。
-      {:ok,
-       character_revision_receipt(character, character, expected_fingerprint,
-         duplicate: true,
-         old_role: Keyword.get(opts, :old_role) || character.narrative_role
-       )}
-    else
-      apply_character_revision(character, new_role, expected_fingerprint, opts)
+         {:ok, work_uuid} <- Ecto.UUID.cast(work_id) do
+      # C07=A：fetch/整体 fingerprint 校验/条件更新在同一事务内完成；竞争更新由
+      # updated_at 条件更新拒绝（0 行 → stale_base），不做 fetch 后无条件写。
+      Repo.transaction(fn ->
+        with {:ok, character} <- fetch_character_for_revision(work_uuid, character_ref),
+             {:ok, receipt} <-
+               apply_character_revision(character, new_role, expected_fingerprint, opts) do
+          receipt
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
     end
   end
 
   defp apply_character_revision(character, new_role, expected_fingerprint, opts) do
-    with :ok <- validate_character_fingerprint(character, expected_fingerprint, opts) do
-      update_character_narrative_role(character, new_role, expected_fingerprint)
+    current_fingerprint = character_base_fingerprint(character)
+
+    cond do
+      character.narrative_role == new_role and expected_fingerprint == current_fingerprint ->
+        # 当前基线已是目标角色：no-op 回执，不等于“同一请求重放”，也不写库。
+        {:ok,
+         character_revision_receipt(character, character, expected_fingerprint,
+           duplicate: true,
+           noop: true,
+           old_role: Keyword.get(opts, :old_role) || character.narrative_role
+         )}
+
+      character.narrative_role == new_role ->
+        {:error, :stale_base}
+
+      true ->
+        with :ok <- validate_character_fingerprint(character, expected_fingerprint) do
+          update_character_narrative_role(character, new_role, expected_fingerprint)
+        end
     end
   end
 
   defp update_character_narrative_role(character, new_role, expected_fingerprint) do
-    Repo.transaction(fn ->
-      {:ok, updated} =
-        character
-        |> Character.changeset(%{narrative_role: new_role})
-        |> Repo.update()
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
-      character_revision_receipt(character, updated, expected_fingerprint, duplicate: false)
-    end)
-    |> case do
-      {:ok, receipt} -> {:ok, receipt}
-      {:error, reason} -> {:error, {:partial_failure, reason}}
+    query =
+      from(c in Character,
+        where:
+          c.id == ^character.id and c.work_id == ^character.work_id and
+            c.updated_at == ^character.updated_at,
+        update: [set: [narrative_role: ^new_role, updated_at: ^now]]
+      )
+
+    case Repo.update_all(query, []) do
+      {1, _} ->
+        updated = Repo.get!(Character, character.id)
+
+        {:ok,
+         character_revision_receipt(character, updated, expected_fingerprint, duplicate: false)}
+
+      {0, _} ->
+        {:error, :stale_base}
     end
   end
 
@@ -1664,20 +1685,12 @@ defmodule NovelPersistence.AdoptionRepository do
 
   defp fetch_character_for_revision(_work_uuid, _ref), do: {:error, :target_missing}
 
-  defp validate_character_fingerprint(character, expected, opts) do
-    cond do
-      is_nil(expected) ->
-        {:error, :stale_base}
-
-      is_binary(expected) and expected == character_base_fingerprint(character) ->
-        :ok
-
-      is_binary(Keyword.get(opts, :old_role)) and
-          Keyword.get(opts, :old_role) == character.narrative_role ->
-        :ok
-
-      true ->
-        {:error, :stale_base}
+  defp validate_character_fingerprint(character, expected) do
+    if is_binary(expected) and expected == character_base_fingerprint(character) do
+      :ok
+    else
+      # C07=A：旧候选只能整体 fingerprint 匹配才可写；不再因 old_role 未变放行。
+      {:error, :stale_base}
     end
   end
 
@@ -1723,8 +1736,9 @@ defmodule NovelPersistence.AdoptionRepository do
 
   defp character_revision_receipt(before, after_character, expected_fingerprint, opts) do
     %{
-      committed: true,
+      committed: not Keyword.get(opts, :noop, false),
       duplicate: Keyword.get(opts, :duplicate, false),
+      noop: Keyword.get(opts, :noop, false),
       character_ref: "character:#{after_character.id}",
       field: "narrative_role",
       old: Keyword.get(opts, :old_role) || before.narrative_role,
