@@ -1268,3 +1268,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **AU04-AU06 CP1 partial**：修复 prose flow 丢弃 require_confirmation behavior（确认卡/plan/JSON 编码），真实 Tauri ui-state 已显示确认卡→确认→pending prose；但 verifier 未读到 slice_verify.ui_state.done 超时，场景未 PASS；flow 测试更新+全量 1055/0。
 
 - 2026-10-31 — **AU04-AU06 CP1 done**：确认卡回归修复（behavior→confirmation TurnResult/plan/JSON）后，真实 Tauri `au04-confirm-before-execute` 与 `au04-confirm-idempotency-ui` 均 PASS；修复 evidence turn 父子匹配；backend 1055/0、verifier 654/654。B58 confirmation 阻塞解除，当前任务回 B58 CP3。
+
+- 2026-10-31 — **B58 done**：confirmation 路径 AU04 修复后真实 PASS，replay approvals=long_run_budget_gate/HIGH/CONFIRMED/author 且 Why 显示批准依据；adoption 路径此前 PASS；replay 对无 session 的内部步 trace 做 workspace+turn 受限回退（跨 session 隔离测试保持）；backend 1055/0。失败/取消/review 页面与 deferred 节点登记残差；当前任务切 B57。

@@ -1,6 +1,6 @@
 # B58：作者批准策略统一与审计
 
-- 状态：**doing（2026-10-31 CP0–CP2 done；CP3 partial：AU09 adoption 批准 replay PASS；AU04 confirmation 生产链已修复并真实 PASS，confirmation approval replay 待补）**。
+- 状态：**done（2026-10-31 CP0–CP3：adoption 与 confirmation 两条真实 Tauri approval replay/Why 均 PASS；deferred 节点与失败/取消页面矩阵登记残差）**。
 - 登记日期：2026-10-27；来源：`32-human-approval-policy` 仍是草案，统一 approval policy 映射、approval_record 与死亡/结局/高预算等风险矩阵未形成完整证据。
 - 上游：`docs/design/quality/32-human-approval-policy.md`、[AU04](AU04-file-level-closure.md)、[AU05](AU05-file-level-closure.md)、[AU13-ledgers-and-reconciliation](../../docs/design/acceptance/author/AU-13-ledgers-and-reconciliation.md)。
 
@@ -32,7 +32,7 @@
 | CP0 | 对账 32 的每类批准语义与现有 receipt/trace：已满足、缺字段、缺查询、真正缺口；确认无需新实体的部分不建表 | **done（§CP0）** |
 | CP1 | 若确有缺口，冻结最小 approval contract（对象/版本/动作/结果/来源/失败），优先扩展现有 receipt/trace；只有不可替代时才论证新实体 | **done（32 §5.1/§11.1；§CP1）** |
 | CP2 | 实现统一审计与风险矩阵：死亡/结局/高预算/stale/重复/取消/跨作品；不可 bypass 与失败回滚 | **done（§CP2）**：approval audit 投影/持久化完成；命运/结局/预算 deferred（无 consumer），页面/replay 归 CP3 |
-| CP3 | 真实 Tauri 与 replay 全链，作者 why 可见批准依据；同步 32 文档，未覆盖类型保持 deferred | **partial（§CP3）**：replay API+Why UI 投影/单测完成；真实 AU04 页面确认卡未产出，reanchor |
+| CP3 | 真实 Tauri 与 replay 全链，作者 why 可见批准依据；同步 32 文档，未覆盖类型保持 deferred | **done（§CP3）**：adoption/confirmation 真实页面 replay/Why PASS；失败/取消/review 页面矩阵与 deferred 节点登记残差 |
 
 ## CP0 对账记录（2026-10-31）
 
@@ -110,6 +110,16 @@
 - 影响：B58 CP3 的 confirmation 真实页面批准依据、失败/取消矩阵无法取证；B58 不能标 done。
 - 解除条件：AU04 confirmation gate 生产链修复并真实重跑 PASS 后，复用 B58 driver 中 approval replay/why 断言收口 CP3。
 - deferred 节点：人物命运/结局/大高潮/高预算具体阈值仍 deferred。
+
+### CP3 完成记录（2026-10-31）
+
+- **confirmation 路径 RESOLVED**：AU04 确认卡回归已由 [AU04-AU06 CP1](AU04-AU06-author-action-binding.md#cp1确认卡回归修复2026-10-31done) 修复；真实 Tauri `au04-confirm-before-execute` PASS 并额外断言：
+  - 确认 turn replay 返回 `trace_summary.approvals=[{approval_policy_ref: long_run_budget_gate, risk_class: HIGH, decision: CONFIRMED, decided_by: author}]`；证据 `artifacts/slice-verify/au04-confirm-before-execute-tauri/approval-replay.json`；
+  - Why 弹窗显示「批准依据：高预算执行确认 · 已确认（作者，风险 HIGH）」。
+- **adoption 路径**（前轮）：`au09-memory-taxonomy-write-policy` PASS，approvals=`high_risk_canon_change/HIGH/ACCEPTED/author`；证据同名目录 `approval-replay.json`。
+- **trace 回退修复**：AgentRun 内部步 trace 可能无 `session_id`；`TraceReplayService` 先按 work+session+turn 精确查询，无结果时仅回退 **无 session** 的 work+turn trace（仍校验 workspace），跨 session 隔离测试保持通过。
+- **测试**：approval audit/projection/receipt list/replay controller fallback；backend **1055/0**；前端 Why 映射单测 654/654。
+- **残差（不冒充）**：confirmation 的 reject/cancel、失败、review adjudication 批准页面未分别驱动；deferred 节点（命运/结局/高潮/预算阈值）保持 deferred；无真实模型行为代签。
 
 ## 4. 非目标
 

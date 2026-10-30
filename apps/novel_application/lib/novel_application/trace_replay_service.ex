@@ -37,7 +37,7 @@ defmodule NovelApplication.TraceReplayService do
       when is_binary(work_id) and is_binary(session_id) and is_binary(turn_id) do
     with work when not is_nil(work) <- WorkService.get(work_id),
          session when not is_nil(session) <- WorkSessionRepo.get_by_work(work_id, session_id),
-         [record | _] <- TraceRepository.list_by_scope(work_id, session_id, turn_id) do
+         [record | _] <- trace_for_turn(work_id, session_id, turn_id) do
       trace = trace_from_record(record)
       report = ReplayService.build_report(trace)
 
@@ -70,6 +70,21 @@ defmodule NovelApplication.TraceReplayService do
 
       [] ->
         {:error, :trace_not_found}
+    end
+  end
+
+  # B58 CP3：AgentRun 内部步的决策 trace 由 step persister 落库时可能没有 session_id
+  # （历史/后台步），但 turn_id 在同一 workspace 内仍唯一。先按 work+session+turn 精确
+  # 查询；无结果时回退 work+turn，并仍校验 workspace，避免跨作品回放。route 已先验证
+  # work/session 存在，本回退不扩大授权范围。
+  defp trace_for_turn(work_id, session_id, turn_id) do
+    case TraceRepository.list_by_scope(work_id, session_id, turn_id) do
+      [] ->
+        TraceRepository.list_by_turn(turn_id)
+        |> Enum.filter(&(&1.workspace_id == work_id and is_nil(&1.session_id)))
+
+      records ->
+        records
     end
   end
 

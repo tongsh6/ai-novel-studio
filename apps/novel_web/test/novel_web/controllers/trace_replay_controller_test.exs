@@ -47,6 +47,35 @@ defmodule NovelWeb.TraceReplayControllerTest do
     assert body["replay_report"]["provider_called"] == false
   end
 
+  test "GET replay falls back to work+turn when step trace has no session_id", %{
+    conn: conn,
+    work: work,
+    session: session
+  } do
+    turn_id = "turn-controller-no-session-#{System.unique_integer([:positive, :monotonic])}"
+
+    {:ok, _} =
+      TraceRepository.insert(%{
+        workspace_id: work.id,
+        trace_id: "trace-controller-no-session-#{System.unique_integer([:positive, :monotonic])}",
+        turn_id: turn_id,
+        frame_ref: "frame-controller-no-session",
+        decision_type: "confirmation_required",
+        no_tool_reason: "author_confirmation_required",
+        no_behavior_reason: "confirmation_behavior_opened",
+        no_write_reason: "no_action_executed",
+        turn_result_ref: turn_id,
+        event_order: ["author_input_received", "confirmation_required"]
+      })
+
+    conn = get(conn, "/api/works/#{work.id}/sessions/#{session.id}/turns/#{turn_id}/replay")
+    body = json_response(conn, 200)
+
+    assert body["turn_id"] == turn_id
+    assert body["trace_summary"]["decision_type"] == "confirmation_required"
+    assert body["replay_report"]["provider_called"] == false
+  end
+
   test "GET replay surfaces partial status for incomplete scoped trace", %{
     conn: conn,
     work: work,
