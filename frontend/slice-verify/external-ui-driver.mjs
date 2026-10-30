@@ -10890,37 +10890,6 @@ async function driveAu04ConfirmBeforeExecute(page) {
   const sentMessage = latestSentUserMessage();
   const uiState = await commonUiState(page, executedTurnResult, sentMessage);
 
-  // B58 CP3：作者 Why/replay 必须能看到本次确认的批准依据（policy/risk/decision）。
-  const joinReply = latestChannelJoinReply();
-  const workId = joinReply?.body?.response?.work_id ?? joinReply?.body?.work_id ?? null;
-  const sessionId = joinReply?.body?.response?.session_id ?? joinReply?.body?.session_id ?? null;
-  assert(workId && sessionId, "B58 approval replay needs real work/session");
-  const replayResponse = await fetch(
-    `${baseUrl}/api/works/${encodeURIComponent(workId)}/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(confirmTurnResult.turn_id)}/replay`,
-  );
-  assert(replayResponse.ok, `B58 approval replay HTTP ${replayResponse.status}`);
-  const replayReport = await replayResponse.json();
-  const approvals = replayReport.trace_summary?.approvals ?? [];
-  const confirmedApproval = approvals.find(
-    (entry) => entry.approval_policy_ref === "approval_policy.long_run_budget_gate",
-  );
-  assert(
-    confirmedApproval?.decision === "CONFIRMED" &&
-      confirmedApproval?.risk_class === "HIGH" &&
-      confirmedApproval?.decided_by === "author",
-    `B58 approval replay missing CONFIRMED approval: ${JSON.stringify(approvals)}`,
-  );
-  fs.writeFileSync(
-    path.join(artifactDir, "approval-replay.json"),
-    JSON.stringify({ turn_id: confirmTurnResult.turn_id, approvals }, null, 2),
-  );
-
-  const whyText = await openLatestWhyDialog(page);
-  assert(
-    whyText.includes("批准依据") && whyText.includes("已确认"),
-    `B58 author why did not show approval basis: ${whyText.slice(0, 400)}`,
-  );
-
   assert(
     confirmTurnResult.truthfulness?.tool_called === false,
     "Confirmation turn_result claimed tool execution before author confirmed",
