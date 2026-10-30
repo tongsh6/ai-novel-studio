@@ -112,9 +112,15 @@ export const REASON_CODES = Object.freeze([
   "evidence_chain_partial",
   "evidence_chain_invalid",
   "evidence_requirements_invalid",
+  // B42 §13：实际请求输入绑定（缺失/未知 → evidence_missing；矛盾 → fail）。
+  "evidence_chain_derived_mismatch",
+  "observation_inclusion_unknown",
+  "observation_call_order_unknown",
+  "observation_not_included_in_request",
+  "used_context_refs_call_unknown",
 ]);
 
-// 证据链 blocker → 场景声明维度（B42 §12）：声明 not_applicable 的维度不阻塞 PASS。
+// 证据链 blocker → 场景声明维度（B42 §12/§13）：声明 not_applicable 的维度不阻塞 PASS。
 const BLOCKER_DIMENSION = Object.freeze({
   base_refs_unknown: "base_refs",
   used_context_refs_unknown: "used_context_refs",
@@ -122,6 +128,11 @@ const BLOCKER_DIMENSION = Object.freeze({
   preparation_outcome_unknown: "preparation",
   stale_on_restore_unknown: "restore",
   observation_not_linked_to_provider_call: "observation_link",
+  // B42 §13：请求侧包含/顺序未记录或无请求侧同源证据 → observation_link 维度不足。
+  observation_inclusion_unknown: "observation_link",
+  observation_call_order_unknown: "observation_link",
+  observation_not_included_in_request: "observation_link",
+  used_context_refs_call_unknown: "used_context_refs",
 });
 
 export class ReleaseLayerError extends Error {
@@ -328,6 +339,11 @@ export function evaluateModelBehaviorEvidence(input = {}) {
     details.evidence_binding = binding.binding_status;
     if (isPlainObject(chain.binding) && chain.binding.binding_status !== binding.binding_status) {
       details.evidence_binding_summary_mismatch = true;
+    }
+    // B42 §13：序列化的 links/blockers/violations 缓存与原始字段重算不一致 → 不能 PASS。
+    if (binding.derived_mismatch === true) {
+      details.evidence_chain_derived_mismatch = true;
+      codes.push("evidence_chain_derived_mismatch");
     }
     if (binding.violations.length > 0) {
       codes.push("evidence_chain_violated");

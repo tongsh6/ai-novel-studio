@@ -124,7 +124,7 @@
     },
     "evidence_chain": {
       "title": "quality-evidence-chain/v1",
-      "description": "B42 CP2：Base → Observation → 后续真实 provider 请求 → self_report used refs 的证据链。集合关系由 scripts/lib/quality/evidence_chain.mjs 强制：used_context_refs ⊆ Base refs ∪ 实际观察 refs；未读取/stale ref 不得获得证据信用；supplied≠used；未返回自报告=unknown；观察必须先于后续 provider 请求。缺 base_refs/used_context_refs 只记 unknown，不得反推。 B42 §12.2（2026-10-28 additive）：binding=verified 必须无任何 blocker；必需证据完整性由场景声明（$defs.evidence_requirements）逐维度判定，缺必需字段/未执行/未知→evidence_missing，硬违规→violated。",
+      "description": "B42 CP2：Base → Observation → 后续真实 provider 请求 → self_report used refs 的证据链。集合关系由 scripts/lib/quality/evidence_chain.mjs 强制：used_context_refs ⊆ Base refs ∪ 实际观察 refs；未读取/stale ref 不得获得证据信用；supplied≠used；未返回自报告=unknown；观察必须先于后续 provider 请求。缺 base_refs/used_context_refs 只记 unknown，不得反推。 B42 §12.2（2026-10-28 additive）：binding=verified 必须无任何 blocker；必需证据完整性由场景声明（$defs.evidence_requirements）逐维度判定，缺必需字段/未执行/未知→evidence_missing，硬违规→violated。 B42 §13（2026-10-30 additive）：inclusion 只由请求侧同源记录（request_observation_refs）授予，time_order 只证明顺序；缺失与显式空数组分开；used refs 只从产生自报告的调用授信；判定从原始字段重算，不信任序列化派生缓存。",
       "type": "object",
       "required": [
         "schema_version",
@@ -324,6 +324,13 @@
               },
               "metadata_missing": {
                 "type": "boolean"
+              },
+              "observed_in_calls_status": {
+                "enum": [
+                  "recorded",
+                  "unknown"
+                ],
+                "description": "B42 §13（additive 可选）：观察侧是否记录了 observed_in_calls。recorded=数组记录（含显式空数组）；unknown=历史 artifact/生产尚未记录。缺失不能反推“明确未被任何调用看到”。"
               }
             }
           }
@@ -407,7 +414,8 @@
                 ]
               },
               "real": {
-                "type": "boolean"
+                "type": "boolean",
+                "description": "B42 §13：只由 provider 分类决定；手填 real=true 不能把确定性 provider 变成真实模型证据。"
               },
               "request_observation_refs": {
                 "type": "array",
@@ -416,6 +424,17 @@
                   "minLength": 1
                 },
                 "uniqueItems": true
+              },
+              "real_claimed": {
+                "type": "boolean",
+                "description": "B42 §13（additive 可选）：输入是否手填 real=true。真实模型身份只由 provider 分类决定；确定性 provider 手填 real=true 记 deterministic_provider_claims_real 违规。"
+              },
+              "request_observation_refs_status": {
+                "enum": [
+                  "recorded",
+                  "unknown"
+                ],
+                "description": "B42 §13（additive 可选）：请求侧是否记录观察包含。recorded=数组记录（含显式空数组=请求明确不含观察）；unknown=缺失。只有 recorded 且包含该 observation_ref 才能授 inclusion 信用。"
               }
             }
           }
@@ -447,7 +466,8 @@
                 "type": [
                   "boolean",
                   "null"
-                ]
+                ],
+                "description": "B42 §13：只表达时间先后；true/false/null(时间缺失)。顺序≠请求实际包含。"
               },
               "linked_by": {
                 "enum": [
@@ -455,13 +475,21 @@
                   "explicit",
                   "time_order",
                   "none"
-                ]
+                ],
+                "description": "request_observation_ref=请求侧同源记录包含；explicit=observation.observed_in_calls 反向声称（只作交叉核对）；time_order=仅时间顺序（不授包含信用）；none=无后续真实调用。"
               },
               "provider_real": {
                 "type": [
                   "boolean",
                   "null"
                 ]
+              },
+              "includes_observation": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "description": "B42 §13（additive 可选）：该链接是否证明观察实际进入该请求。true=请求侧记录包含；false=请求侧记录明确未包含；null=任一侧未记录（顺序链接不证明包含）。"
               }
             }
           }
@@ -559,7 +587,9 @@
                   "observation_after_provider_call",
                   "used_refs_inferred_from_supplied",
                   "replay_provider_called",
-                  "observation_source_missing"
+                  "observation_source_missing",
+                  "observation_link_conflict",
+                  "deterministic_provider_claims_real"
                 ]
               }
             }
@@ -599,7 +629,8 @@
             },
             "real_observation_link_count": {
               "type": "integer",
-              "minimum": 0
+              "minimum": 0,
+              "description": "B42 §13：= 请求侧同源包含且真实 provider 调用的观察数；仅时间顺序的链接不计入。"
             },
             "used_bound_count": {
               "type": "integer",
@@ -608,6 +639,15 @@
             "used_unbound_count": {
               "type": "integer",
               "minimum": 0
+            },
+            "request_inclusion_link_count": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "B42 §13：请求侧同源记录证明“观察实际进入真实请求”的观察数（不含仅时间顺序）。"
+            },
+            "derived_mismatch": {
+              "type": "boolean",
+              "description": "B42 §13：序列化派生缓存（links/blockers/violations/unbound_refs）与原始字段重算不一致。true 时不得 verified，release 层按 evidence_missing 处理。"
             }
           }
         },
@@ -623,6 +663,14 @@
             "unknown"
           ],
           "description": "B42 §12.1（2026-10-28 additive，可选）：replay 证据三态。not_executed=明确未运行 replay，不能当作已验证不调 provider；no_provider_call=replay 已执行且证明未重调 provider，可作 replay 证据；provider_called=replay 重调 provider，不得作为证据信用；unknown=历史 artifact 未表达（旧布尔 replay_provider_called=false 不得反推“已验证未调用”）。"
+        },
+        "used_context_refs_provider_call_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "B42 §13（additive 可选）：产生 used_context_refs 自报告的实际 provider call（provider_call_ref）。缺失/null=无法定位报告调用；used 非空时不得授信，记 used_context_refs_call_unknown（evidence_missing）。",
+          "minLength": 1
         }
       }
     },

@@ -1,6 +1,6 @@
 # B42：真实模型行为与求证证据分层
 
-- 状态：**doing（CP0–CP3 历史交付保留；§12 证据完整性回补 2026-10-29 done；CP4 仍 blocked：ADR-0030 与作者前置未解除）**。
+- 状态：**doing（CP0–CP3 与 §12 历史交付保留；§13 实际请求输入绑定整改 CP0–CP3 done（2026-10-30）；CP4 真实运行仍 blocked：待 B39 接线、预注册/driver 与资源窗口）**。
 - 登记日期：2026-10-27；来源：`release` / `release-real-llm` 均为 0 注册场景，实模与 deterministic 结果混在 nightly，AU-15 还缺 Base→Observation→used refs 的证据字段。
 - 上游：[B41](B41-quality-evidence-foundation.md)、[AU-15](../../docs/design/acceptance/author/AU-15-evidence-seeking-authoring.md)、[B39](B39-evidence-seeking-authoring.md)、[tiers](../../quality/acceptance/tiers.md)。
 
@@ -31,7 +31,7 @@
 | CP1 | `release-real-llm` tier/结果层落地；与 deterministic nightly 分开汇总；模型/参数/actual_model/驱动可回放 | **done（2026-10-27）：结果层落地 + registry 空为已知未闭环**；`release_layer.mjs` + CLI + `quality_accept.sh --tier release|release-real-llm` 接线 + 测试；空 tier 显式 not_run（exit 65）；真实 provider PASS 反假绿规则落地；tier 非空不伪造 |
 | CP2 | 求证证据字段：`base_refs`、请求观察、`observation_refs/outcome/source_revision/coverage`、`observation_to_provider_call`、`used_context_refs/unbound_refs/unknown/preparation_outcome/stale_on_restore/replay_provider_called` | **done（2026-10-27）**：`evidence_chain.mjs` + 历史 artifact 只读读取 + 测试；集合/顺序/unknown 语义冻结 |
 | CP3 | 原生证据发现：run/final/failure/scoped checks/termination/native-transport/AX/DB snapshot 统一 run manifest，含生产指纹与 scoped 范围 | **done（2026-10-27）**：`native_run_manifest.mjs` + 真实历史目录验证 + 测试；final+failure 并存不得只看 final |
-| CP4 | AU-15 A0/A1/A2 预注册与真实运行；B27 语义 fixture 另按原 rubric，不与求证共享通过线；报告分机制/模型行为/文学评价。涉及 AU-15 的真实创作求证执行必须先经 ADR-0030 Accepted，证据基建不代替该决策 | **blocked（不在本 slice 本轮执行）**：ADR-0030=Proposed；登记见 §10，触发条件解除前不预注册、不真实运行、不写 PASS |
+| CP4 | AU-15 A0/A1/A2 预注册与真实运行；B27 语义 fixture 另按原 rubric，不与求证共享通过线；报告分机制/模型行为/文学评价。涉及 AU-15 的真实创作求证执行必须先经 ADR-0030 Accepted，证据基建不代替该决策 | **blocked（真实运行）**：ADR-0030/VS-00K/AU-15 已于 2026-10-29 Accepted；可准备预注册，产品/driver 与资源前置见 §10，未运行不写 PASS |
 
 ## 4. 非目标
 
@@ -100,10 +100,7 @@
 
 ### 6.5 CP4 阻塞登记（不代签）
 
-- AU-15 A0/A1/A2 的**真实运行**依赖 [ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md) 从 `Proposed` 变为 `Accepted`（作者裁决），以及 VS-00K/AU-15 冻结与真实 provider 凭据。当前 ADR-0030 为 Proposed。
-- 因此 CP4 的「预注册 + 真实运行」在本轮**不做**：不创建 AU-15 可执行场景、不加载/卸载模型、不写任何模型行为 PASS。B42 CP0–CP3 的证据基建不代替该决策。
-- **触发条件（明确）**：ADR-0030 被作者 `Accepted` → CP4 才执行 AU-15 A0/A1/A2 的预注册与真实运行（含 Lead 协调单槽真实模型窗口、run 结束 unload 并验证 loaded=null）；**不接受时 CP4 保持 blocked，不以历史证据/stub 替代**。
-- **状态**：`blocked`，承接方 B39（CP4 触发后回到 B42 记录结果，不得以历史探索场景/stub/HTTP 200 代签）。
+2026-10-27 的 ADR 接受前置已于 2026-10-29 由作者明确解除；当前 CP4 状态、剩余依赖和恢复顺序统一见 §10。可以先做预注册/场景设计，不能把设计接受或 B42 结果层完成当作 B39 产品能力及真实运行已就绪。
 
 ## 7. CP1 实现记录（2026-10-27，b42-verdict）
 
@@ -195,10 +192,20 @@ bash scripts/quality_accept.sh --tier release-real-llm          # exit 65 no sce
 
 见 §6.5。当前登记：
 
-- 状态：`blocked`；未创建 AU-15 可执行场景、未运行真实模型、无模型行为 PASS。
-- 阻塞条件：ADR-0030 `Proposed`（作者裁决未下）；AU-15/VS-00K 未冻结为可执行验收；真实 provider 凭据与单槽模型窗口未由作者/Lead 协调。
-- 触发后动作：ADR-0030 Accepted → 与 Lead 协调真实模型窗口 → 按 §6.2 冻结参数预注册 A0/A1/A2（含自然输入、模型/参数、≥2 独立重复、保留措辞、禁答集、失败分母）→ 真实运行并用 CP2/CP3 证据层判定 → 结果只写机制/模型行为分层，文学评价交 I10，不由自动分数代签。
+- 状态：`blocked`（真实运行）；尚未注册可执行 AU-15 场景、未运行真实模型、无模型行为 PASS。预注册与 driver 设计可先准备，不能将整项工作都视为作者阻塞。
+- 已解除：作者于 2026-10-29 明确接受 ADR-0030、VS-00K、AU-15 为 B39 实施基线，记录见 [B39 §9.7.17](B39-evidence-seeking-authoring.md#9717-c01-实施基线收口)。
+- 剩余前置：B39 场景所需产品接线与最小准备判断、外部 driver/verifier 和可执行场景登记、运行前参数/必需证据预注册、真实 provider 可用性与单槽模型窗口；设计接受不自动满足这些条件。
+- 恢复顺序：按已接受 AU-15 与 B39 CP 设计预注册/driver → 所需产品接线就绪 → 冻结自然输入、参数、必需证据、关键缺事实场景≥2独立重复及失败分母 → 协调资源窗口并真实运行 → 分别记录机制/实模/原生交互。文学评价仍交 I10。
 - 不得以历史探索场景、stub 批次、HTTP 200、旧 summary 代替；缺凭据只标 blocked。
+
+### 10.1 AU-15 预注册与 driver 准备
+
+- 状态：**todo（2026-10-30 明确 CP4 可独立推进的准备入口；真实运行仍按上节 blocked，未注册可执行场景、未产生新 PASS）**。
+- 范围与来源：消费已接受的 [AU-15](../../docs/design/acceptance/author/AU-15-evidence-seeking-authoring.md)、[VS-00K](../../docs/design/contracts/VS-00K-evidence-seeking-authoring-contract-pack.md)、B39 §4/§9 的既有 CP 与预注册，以及本任务 §6/§12 的证据词表和完整性规则；只细化准备步骤，不改通过阈值、失败分母或作者裁决。
+- 下一步：核对 A0/A1/A2 与后续场景的产品接线、真实 Tauri 外部驱动入口、verifier 采集点和现有证据适配，形成缺口—owner—依赖矩阵；将运行前必须确定的自然输入、保留措辞、参数、重复安排、必需证据与结果判定落实成可审阅预注册方案。未就绪入口写明依赖，不以占位/blocked 假场景填满 registry。
+- 准备交付物：区分真实创作/采纳 setup 与测量 run，说明样本来源、版本、适用性与复用条件；列出用户操作→请求/观察/产物→持久事实→页面反馈的 driver/verifier 路径；对接 Base、观察、后续请求、used refs、准备结果、恢复/replay 与模型/driver 身份，区分 unknown、not_executed、evidence_missing 和明确失败。独立重复、保留措辞与失败分母沿已接受契约，不因当前难以采集而删要求。
+- 完成边界：准备 checkpoint 完成只表示方案、接口与依赖可审阅，不能把产品接线、真实场景登记、模型资源窗口或运行结果标为完成。B39 所需能力就绪后才冻结可执行版本并登记场景；资源安排明确后再真实运行。文学收益仍归 I10，B27 的独立语义 rubric 不并入 AU-15。
+- 归属：B42 负责证据与运行前声明，B39 负责产品与场景语义；本项可先推进，不加载模型、不写产品数据、不改历史 artifact，也不替作者安排评审人或新增资源授权。
 
 ## 11. 本轮验证与残余（2026-10-27，Lead 裁决后更新）
 
@@ -301,10 +308,111 @@ bash scripts/quality_manifest_check.sh                         # passed（207 sc
 
 ### 12.5 残余与接回完整闭环
 
-1. **CP4 仍 blocked**：ADR-0030/VS-00K/AU-15 未 Accepted；本节不执行真实运行、不写模型行为 PASS、不注册 AU-15 场景。这是基建修复，不是 AU-15 完成。
+1. **CP4 真实运行仍 blocked**：设计已于 2026-10-29 Accepted，剩余产品/driver/预注册/资源条件见 §10；本节历史基建修复不是 AU-15 完成。
 2. **release/release-real-llm registry 仍 0 场景**：CLI PASS 分支只在 fixture 证据链上验证；首个真实场景归 CP4，`quality_accept --tier release-real-llm` 在真实场景登记前仍只会有 no scenarios/K5 evidence_missing，不得写成“tier 已非空”。
 3. **声明冻结的信任边界**：完整性依赖运行前冻结的声明；纯函数层能校验声明结构（反缩水）但不能自证声明是在看到结果之前写的。CP4 预注册时应把声明写进 manifest/artifact 并留 `declared_at`/来源 ref；当前契约已支持，未新增强制执行。
 4. **历史证据保持只读**：旧 artifact 不补写 `replay_status`/声明；读取一律 unknown → evidence_missing。任何历史数据修复需作者单独授权。
 5. **quality schema 同源校验**：新增字段由 `evidence_chain.test.mjs` 与 schema `$defs` 交叉校验；未改 B41 `quality-verdict/v2`。
 
 恢复：先复现 probe.json 反例，审读 §6/§8/§11、`quality/acceptance/tiers.md` §必需证据完整性 与 B39 §9，再改判定；不得通过放宽声明/删除维度让测试变绿。排队与实现完成不构成降低通过标准的作者裁决，也不代替 CP4。
+
+## 13. 元原则整改：实际请求输入绑定
+
+- 状态：**CP0–CP3 done（2026-10-30）；CP4 真实运行仍 blocked**。本节整改只动质量证据归一化/判定/读取与结果层，不动产品内容/provider/数据库；§12 历史交付保留。
+- 来源：[元原则审查 F05](../2026-10-27-design-to-execution-reconciliation.md#164-九类现役偏离与修复归属) 与已有纯函数反例：请求观察引用明确为空，当前 `time_order` 仍可令绑定为 verified。§12 历史完成只覆盖当时列出的完整性问题，不关闭这一新缺口。
+- 元原则：M3 要求真实观察进入真实请求。时间先后只用于验证顺序；工具返回、APP记录、反向索引和存盘 binding 摘要都不能单独证明请求实际包含材料。
+- 证据目录：CP0 复现/对照 `artifacts/quality-accept/b42-binding-cp0/{probe-pre-fix.json,probe-after-fix.json,probe.mjs}`；CP2 CLI/只读回归 `artifacts/quality-accept/b42-binding-cp2/`。基线 HEAD `e1685675` + 2026-10-30 文档队列 WIP；两个 probe 分别记录旧/新 `evidence_chain.mjs` sha256，纯函数调用，无 provider/model/页面/服务。
+
+### 13.1 CP0：真实来源、字段与历史兼容（2026-10-30 done）
+
+#### 13.1.1 来源核对（已核实事实）
+
+| 事实 | 位置 | 兼容/整改含义 |
+|---|---|---|
+| 请求侧观察关联目前无生产写入 | B39 §9 字段映射表；`readLlmCalls`（`evidence_chain.mjs` :1057）与 `readArtifactEvidence`（:1169）不产出 `request_observation_refs` | 历史/当前真实链只能 unknown；不能把时间顺序当输入证据 |
+| 缺失与显式空数组被归一成 `[]` | `normalizeProviderCall`（:298）与 `normalizeObservation`（:263）用 `?? []`；`buildObservationLinks`（:365）无显式引用时按时间顺序兜底 | 必须引入 recorded/unknown 三态；显式 [] = “明确未包含”，缺失 ≠ 未包含 |
+| 反向关联被当作有效链接 | `observed_in_calls` 只参与 explicit 链接，未与请求侧交叉核对 | 反向声称只作交叉核对；矛盾保留为违规 |
+| 自报告 used refs 无调用归属 | 真实 `quality_action` 帧只有 used_context_refs、无 provider_call_ref（抽查 16 处 co-occurrence 均为 null）；`readArtifactEvidence`（:1147/:1185）拍平成整 run 并集 | used 必须绑定报告调用；无法定位 → evidence_missing，不猜最后一次调用 |
+| real 标记可被手填 | `normalizeProviderCall`（:310）`raw.real===true \|\| class===real_model` | real 只由 provider 分类决定；手填冲突记违规 |
+| 判定信任序列化缓存 | `evaluateEvidenceChain`（:639）直接读 chain 上 links/blockers/violations/unbound | 必须从原始字段重算；缓存仅比对，不一致 → `evidence_chain_derived_mismatch` |
+
+#### 13.1.2 复现（CP0 pre-fix）
+
+纯函数 probe 覆盖 §13 反例：C1 请求关联缺失、C2 请求显式空数组、C3a 仅反向声称、C3b 反向声称与请求矛盾、C4 多观察部分覆盖、C5 used 借用其他调用、C6 自证缓存、C8 确定性 provider 手填 real —— **8 例均 verified**（应为 partial/violated）；C7a 逆序已 violated；C7b 时间缺失只 partial 但原因不可区分；C9 合法关联、C10 A0 为合法对照。证据：`probe-pre-fix.json`（旧模块 sha256 记录在文件内）。
+
+#### 13.1.3 判据冻结（additive 于 quality-evidence-chain/v1）
+
+1. **输入侧三态**：`observations[].observed_in_calls_status`、`provider_calls[].request_observation_refs_status` ∈ `recorded|unknown`；缺失=unknown；显式 `[]`=recorded。历史链缺字段 → unknown（不反推送达/未包含，也不授信）。
+2. **inclusion 只来自请求侧同源记录**：某真实调用 `request_observation_refs`（recorded）包含该 `observation_ref`，且 `ordered !== false`。
+3. **顺序≠包含**：`observation_to_provider_call[].includes_observation ∈ true|false|null`；time_order 只证明先后；`linked_by` 语义写入 schema 描述。
+4. **反向声称只作交叉核对**：仅 `observed_in_calls` → inclusion unknown（不足）；与请求记录矛盾 → `observation_link_conflict` 违规。
+5. **显式否认**：请求记录明确未包含且观察侧无声称 → `includes_observation=false`；场景 required 时 observation_link 记 fail（`observation_not_linked`），不因缺失而误判。
+6. **used 信用绑定报告调用**：新增 `used_context_refs_provider_call_ref`；信用集合 = Base ∪ 该调用请求实际包含观察的 refs/source_refs；used 非空但报告调用缺失 → `used_context_refs_call_unknown`（evidence_missing）；集合外 ref → `unbound_ref` 违规（detail=`not_in_reported_call` / `outside_base_and_observations`）。
+7. **逐观察完整性**：observation_link 存在当且仅当每个观察都有真实请求包含链接（不再由“任一有效链接”代签）。
+8. **真实模型身份**：`real` 只由 provider 分类决定；`real_claimed=true` 但分类非 real_model → `deterministic_provider_claims_real` 违规。
+9. **重算不信缓存**：判定从原始字段重算；序列化 links/blockers/violations/unbound 仅比对，不一致 → `evidence_chain_derived_mismatch`（binding 不得 verified；release 层 evidence_missing）。
+10. **判定分界**：recorded 矛盾/否定 → violated（fail）；unknown/缺失 → partial/blockers（evidence_missing）；包含成立但时间缺失 → `observation_call_order_unknown`（partial）；A0（observations 声明 N/A）与 Base 足够 + used 显式空不受影响。
+11. **版本与兼容**：仍 `quality-evidence-chain/v1`；新字段全部可选（schema `$defs.evidence_chain` 同步）；历史 artifact 只读、不补写；不新增 PASS。
+
+### 13.2 开工七问与验证范围
+
+1. **Contract**：ADR-0030/VS-00K 的观察因果与引用真实、B39 D1/D4/D7、现有 evidence-chain/requirements/结果层退出码与历史兼容。
+2. **Invariant**：无请求侧同源证据不标 verified；显式未包含不能得到 used 信用；缺失诚实 unknown/证据不足；原材料/历史证据不改写，机制与实模分层。
+3. **Boundary**：质量证据归一化/判定、schema 的必要兼容、CLI和结果层及对应测试；不借整改修改产品内容、provider或数据库。
+4. **Consumer**：证据链读取/校验与 release-real-llm 实际 CLI/汇总。B39/B27负责真实材料来源，分层规则不能变成另一个真源。
+5. **Proof**：§13.3 反例矩阵 + 合法对照 + 旧 artifact 只读兼容 + 解析→判定→CLI/汇总的原因和退出码一致；原必需维度不缩水。
+6. **Acceptance Driver**：工程消费者由真实 CLI 在隔离合成材料上验证（§13.4）；CP4 的真实模型/页面仍需原产品、driver、预注册及资源条件。本步通过不能代签它们，产品验收感知 no。
+7. **Exploration**：不新增小说要素或探索工具；只核证据关系。实际观察/请求和 used refs 同源的产品闭环继续归 B39/B27，不能用专用 packet 补漏。
+
+### 13.3 CP1：反例固化为正式回归（done）
+
+| 反例 | 用例/断言（`evidence_chain.test.mjs`） | 修复后结果 |
+|---|---|---|
+| C1 请求关联未记录 | `§13 C1`：time_order link `includes=null`、blocker `observation_inclusion_unknown` | partial；不得 verified |
+| C2 请求明确空数组 | `§13 C2`：includes=false；used 依赖 → `unbound_ref` | violated；completeness fail |
+| C3a 仅反向声称 | `§13 C3a` | partial |
+| C3b 反向声称与请求矛盾 | `§13 C3b`：`observation_link_conflict` | violated |
+| C4 多观察部分覆盖 | `§13 C4`：`observation_not_included_in_request` + completeness fail | 不得 verified |
+| C5 used 借用其他调用 | `§13 C5`：`unbound_ref` detail=`not_in_reported_call` | violated |
+| C6 自证缓存 | `§13 C6`：重算 + `derived_mismatch=true` | partial |
+| C7a 逆序 | 既有 `observation_after_provider_call` | violated |
+| C7b 时间缺失 | `§13 C7b`：`observation_call_order_unknown` | partial，不 fail |
+| C8 确定性 provider 手填 real | `§13 C8`：real=false + `deterministic_provider_claims_real` | violated |
+| C9 合法关联 | `§13 C9` | verified（合法对照） |
+| C10 A0 零探索 | `§13 C10` | verified / completeness complete |
+| 旧链缺字段 | `§13 历史链缺 request refs 状态`：validate 通过、unknown 重算 | partial；原件字段不补写 |
+
+实现清单：
+
+| 文件 | 行为变化 |
+|---|---|
+| `scripts/lib/quality/evidence_chain.mjs` | 新增 `RECORDING_STATUSES`；normalize 记录三态；`buildObservationLinks` 拆分请求包含/反向声称/顺序；新增 `deriveEvidenceFacts` 从原始字段重算 links/blockers/violations/used 信用；`evaluateEvidenceChain` 重算 + `derived_mismatch`；`evaluateEvidenceCompleteness` 逐观察包含 + fail/missing 分界；`validateEvidenceChain` 校验新可选字段；`readLlmCalls`/`readArtifactEvidence` 只在真实记录存在时透传 request refs，并支持选项式报告调用归属 |
+| `scripts/lib/quality/release_layer.mjs` | 新 blocker→维度映射；`derived_mismatch` → `evidence_chain_derived_mismatch`（evidence_missing）；REASON_CODES 登记 |
+| `quality/acceptance/evidence-schema.json` | additive：记录三态、`includes_observation`、`used_context_refs_provider_call_ref`、违规码、binding 计数/`derived_mismatch`；不升级版本、不加必填 |
+| `scripts/lib/quality/evidence_chain.test.mjs` | 49 tests（原 34 + §13 15）：反例矩阵、unknown/denial 分界、历史链兼容、schema 同源 |
+| `scripts/lib/quality/release_layer.test.mjs` | 45 tests：fixture 补请求包含/报告调用；denial→fail 与 unknown→evidence_missing 分界 |
+
+### 13.4 CP2：解析/读取/schema 兼容 + CLI/汇总回归（done）
+
+- `node --test scripts/lib/quality/*.test.mjs` → **228/228 pass**（evidence_chain 49、release_layer 45、其余不变）。
+- `bash scripts/quality_manifest_check.sh` → passed（207 scenarios / 2 drafts / 209 manifests；yaml=6.0.3）。
+- 实际 CLI：真实历史原生 artifact（116 文件）→ `release_layer_cli summarize --tier release-real-llm` exit 67 `evidence_missing`（`mechanism_layer_missing`）；命令前后全文件 sha256 **unchanged=true**。旧记录不能被新判据升级为 PASS，也未被误判 fail。证据：`artifacts/quality-accept/b42-binding-cp2/{summary.md,cli-historical.json,historical-readonly-hashes.json}`。
+- 历史链结构兼容：缺 §13 字段通过 validate、按 unknown 重算、字段不被补写（测试断言）。
+
+### 13.5 CP3：残余与承接（done，登记不代签）
+
+1. **生产侧缺口（B39）**：writer prompt 当前不写 observation refs（B39 §9 表），`used_context_refs` 帧无报告调用归属。B39 CP1 必须产出 `request_observation_refs`/`observed_in_calls`/报告调用 ref；此前真实链只能 partial/evidence_missing，CP4 不得运行或 PASS。
+2. **CP4 仍 blocked**：真实模型/页面/预注册/资源条件不变（§10）；本节修复只是判据与基建，不是 AU-15 完成。
+3. **历史证据只读**：未回填任何旧 artifact；任何历史数据修复需作者单独授权。
+4. **B41 verdict 未改**：`quality-verdict/v2` 与 release 退出码语义不变。
+5. **声明冻结信任边界**：evidence-requirements 仍由运行前冻结；本判据不能自证声明在看到结果前写（§12.5 残余保留）。
+
+### 13.6 checkpoint 状态
+
+| CP | 完整交付 | 状态 |
+|---|---|---|
+| CP0 | 核原始来源、字段与历史兼容，明确真实关联/未知/矛盾/不适用及输出调用范围；形成可执行反例清单 | **done（2026-10-30）**：§13.1，probe-pre-fix.json；判据 11 条冻结 |
+| CP1 | 将反例固化为失败测试后修改共享判定内核；请求关联和 used 信用同源，避免只删一个 fallback 留下旁路 | **done（2026-10-30）**：§13.3，49 evidence chain tests + 45 release tests，probe-after-fix 8 例修复 |
+| CP2 | 必要解析/读取/schema 兼容及实际 CLI/汇总回归，旧记录不能自证，原件不变；正反例与退出原因一致 | **done（2026-10-30）**：§13.4，228/228、manifest check、真实历史 artifact CLI 67 + sha256 unchanged |
+| CP3 | 整理局部证据、剩余真实采集/模型/页面缺口与原 owner 承接，复核新判据未反向伪造输入或削弱验证 | **done（2026-10-30）**：§13.5；B39 采集缺口与 CP4 blocked 如实登记 |
+| CP4 | AU-15 A0/A1/A2 预注册与真实运行 | **blocked**：见 §10，本整改不解除 |

@@ -96,6 +96,7 @@ function realModelChain(overrides = {}) {
         source_revision: "chapter-3@v7",
         coverage: { kind: "full", detail: "第3章全段" },
         observed_at: "2026-10-27T10:00:00Z",
+        observed_in_calls: ["pcall:writer-1"],
       },
     ],
     provider_calls: [
@@ -106,9 +107,13 @@ function realModelChain(overrides = {}) {
         provider: "strata",
         model: "iq3_s",
         actual_model: "iq3_s",
+        // B42 §13：合法链路需要请求侧同源记录观察包含，而不是时间顺序兜底。
+        request_observation_refs: ["obs:promise"],
       },
     ],
+    // B42 §13：used 自报告必须绑定产生它的 provider call，不能按整 run 并集授信。
     used_context_refs: ["base:chapter-3", "chapter:3"],
+    used_context_refs_provider_call_ref: "pcall:writer-1",
     preparation_outcome: "unknown",
     stale_on_restore: "unknown",
     replay_status: "not_executed",
@@ -370,19 +375,35 @@ test("真实模型 PASS：缺少参数/驱动身份 → evidence_missing", () =>
   assert.ok(summary.reason_codes.includes("missing_driver_identity"));
 });
 
-test("真实模型 PASS：观察与真实调用都记录却无可判链接 → fail observation_not_linked", () => {
+test("真实模型 PASS：请求记录明确未包含观察 → fail observation_not_linked（缺失只算 evidence_missing）", () => {
   const summary = buildReleaseLayerSummary({
     tier: "release-real-llm",
     retention_wording: retention(),
     results: [
       realModelResult({
         evidence_chain: realModelChain({
+          observations: [
+            {
+              observation_ref: "obs:promise",
+              query: "沈砚答应几天后回灯楼",
+              tool: "chapter_read",
+              outcome: "observed",
+              source_refs: ["chapter:3"],
+              source_revision: "chapter-3@v7",
+              coverage: { kind: "full", detail: "第3章全段" },
+              observed_at: "2026-10-27T10:00:00Z",
+              // B42 §13：观察侧不声称，请求侧显式记录未包含 → 否定证据（不是冲突）。
+              observed_in_calls: [],
+            },
+          ],
           provider_calls: [
             {
-              provider_call_ref: "pcall:writer-before",
-              at: "2026-10-27T09:59:00Z",
+              provider_call_ref: "pcall:writer-1",
+              at: "2026-10-27T10:00:05Z",
               turn_ref: "turn-1",
               provider: "strata",
+              // 显式空数组 = 请求记录明确不含任何观察（与“缺失→unknown”区分）。
+              request_observation_refs: [],
             },
           ],
         }),
@@ -393,6 +414,47 @@ test("真实模型 PASS：观察与真实调用都记录却无可判链接 → f
   assert.equal(summary.status, "fail");
   assert.ok(summary.reason_codes.includes("observation_not_linked"));
   assert.notEqual(summary.exit_code, 0);
+});
+
+test("真实模型 PASS：请求侧关联未记录（unknown）→ evidence_missing，不冒充通过也不误判 fail", () => {
+  const summary = buildReleaseLayerSummary({
+    tier: "release-real-llm",
+    retention_wording: retention(),
+    results: [
+      realModelResult({
+        evidence_chain: realModelChain({
+          observations: [
+            {
+              observation_ref: "obs:promise",
+              query: "沈砚答应几天后回灯楼",
+              tool: "chapter_read",
+              outcome: "observed",
+              source_refs: ["chapter:3"],
+              source_revision: "chapter-3@v7",
+              coverage: { kind: "full", detail: "第3章全段" },
+              observed_at: "2026-10-27T10:00:00Z",
+              observed_in_calls: [],
+            },
+          ],
+          provider_calls: [
+            {
+              provider_call_ref: "pcall:writer-1",
+              at: "2026-10-27T10:00:05Z",
+              turn_ref: "turn-1",
+              provider: "strata",
+              request_observation_refs: undefined,
+            },
+          ],
+          used_context_refs: ["base:chapter-3"],
+        }),
+        requires_observation_link: true,
+      }),
+    ],
+  });
+  assert.equal(summary.status, "evidence_missing");
+  assert.notEqual(summary.exit_code, 0);
+  assert.ok(summary.reason_codes.includes("required_observation_link_missing"));
+  assert.ok(!summary.reason_codes.includes("observation_not_linked"));
 });
 
 test("真实模型 PASS：完全没有 CP2 证据链（局部证据）→ evidence_missing", () => {

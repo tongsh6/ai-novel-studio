@@ -20,6 +20,7 @@ import {
   EVIDENCE_REQUIREMENTS_SCHEMA_VERSION,
   OBSERVATION_OUTCOMES,
   PREPARATION_OUTCOMES,
+  RECORDING_STATUSES,
   REPLAY_STATUSES,
   STALE_ON_RESTORE_VALUES,
   applyLegacyEvidenceFlags,
@@ -48,34 +49,53 @@ const schema = JSON.parse(
 );
 const CHAIN_SCHEMA = schema.$defs.evidence_chain;
 
+// B42 §13：合法证据链必须由请求侧记录观察包含（request_observation_refs），
+// 自报告 used refs 必须绑定产生该报告的实际 provider call。
+function observationOf(overrides = {}) {
+  return {
+    observation_ref: "obs:promise",
+    query: "沈砚答应几天后回灯楼",
+    tool: "chapter_read",
+    outcome: "observed",
+    source_refs: ["chapter:3"],
+    source_revision: "chapter-3@v7",
+    coverage: { kind: "full", detail: "第3章全段" },
+    observed_at: "2026-10-27T10:00:00Z",
+    observed_in_calls: ["pcall:writer-1"],
+    ...overrides,
+  };
+}
+
+function writerCallOf(overrides = {}) {
+  return {
+    provider_call_ref: "pcall:writer-1",
+    at: "2026-10-27T10:00:05Z",
+    turn_ref: "turn-1",
+    provider: "strata",
+    model: "iq3_s",
+    actual_model: "strata",
+    request_observation_refs: ["obs:promise"],
+    ...overrides,
+  };
+}
+
+const A1_DECLARED = Object.freeze({
+  dimensions: {
+    preparation: "not_applicable",
+    restore: "not_applicable",
+    replay: "not_applicable",
+  },
+});
+
 function baseInput(overrides = {}) {
   return {
     run_ref: "run_1",
     scenario_id: "au15-a1-observation-binding",
     base_refs: ["base:chapter-3", "base:author-intent"],
-    observations: [
-      {
-        observation_ref: "obs:promise",
-        query: "沈砚答应几天后回灯楼",
-        tool: "chapter_read",
-        outcome: "observed",
-        source_refs: ["chapter:3"],
-        source_revision: "chapter-3@v7",
-        coverage: { kind: "full", detail: "第3章全段" },
-        observed_at: "2026-10-27T10:00:00Z",
-      },
-    ],
-    provider_calls: [
-      {
-        provider_call_ref: "pcall:writer-1",
-        at: "2026-10-27T10:00:05Z",
-        turn_ref: "turn-1",
-        provider: "strata",
-        model: "iq3_s",
-        actual_model: "strata",
-      },
-    ],
+    observations: [observationOf()],
+    provider_calls: [writerCallOf()],
     used_context_refs: ["base:chapter-3", "chapter:3"],
+    used_context_refs_provider_call_ref: "pcall:writer-1",
     preparation_outcome: "ready",
     stale_on_restore: "none",
     replay_provider_called: false,
@@ -106,6 +126,26 @@ test("schema $defs 与模块常量同源（quality-evidence-chain/v1）", () => 
   for (const key of ["base_refs", "observations", "used_context_refs", "observation_to_provider_call"]) {
     assert.ok(required.has(key), `schema 必须要求 ${key}`);
   }
+  // B42 §13 additive：记录三态、请求包含、报告调用与新增违规码必须与模块同源。
+  assert.deepEqual(
+    [...CHAIN_SCHEMA.properties.observations.items.properties.observed_in_calls_status.enum].sort(),
+    [...RECORDING_STATUSES].sort(),
+  );
+  assert.deepEqual(
+    [...CHAIN_SCHEMA.properties.provider_calls.items.properties.request_observation_refs_status.enum].sort(),
+    [...RECORDING_STATUSES].sort(),
+  );
+  assert.ok(
+    CHAIN_SCHEMA.properties.observation_to_provider_call.items.properties.includes_observation,
+    "link 必须能表达 includes_observation（true/false/null）",
+  );
+  assert.ok(
+    CHAIN_SCHEMA.properties.used_context_refs_provider_call_ref,
+    "chain 必须能记录 used refs 的报告调用",
+  );
+  const violationCodes = CHAIN_SCHEMA.properties.violations.items.properties.code.enum;
+  assert.ok(violationCodes.includes("observation_link_conflict"));
+  assert.ok(violationCodes.includes("deterministic_provider_claims_real"));
 });
 
 test("provider 分类：确定性 / 真实 / 未知不得混淆", () => {
@@ -320,6 +360,31 @@ test("显式 request_observation_refs 关联优先于时间顺序", () => {
 
 // ---------- 结构校验 ----------
 
+test("validateEvidenceChain 拒绝非法的 B42 §13 记录状态/包含值", () => {
+  const chain = buildEvidenceChain(baseInput());
+  assert.ok(
+    validateEvidenceChain({
+      ...chain,
+      observations: [{ ...chain.observations[0], observed_in_calls_status: "maybe" }],
+    }).some((error) => error.includes("observed_in_calls_status")),
+  );
+  assert.ok(
+    validateEvidenceChain({
+      ...chain,
+      provider_calls: [{ ...chain.provider_calls[0], request_observation_refs_status: "empty" }],
+    }).some((error) => error.includes("request_observation_refs_status")),
+  );
+  assert.ok(
+    validateEvidenceChain({
+      ...chain,
+      observation_to_provider_call: chain.observation_to_provider_call.map((link) => ({
+        ...link,
+        includes_observation: "yes",
+      })),
+    }).some((error) => error.includes("includes_observation")),
+  );
+});
+
 test("validateEvidenceChain 拒绝非法版本/枚举/used 类型", () => {
   const chain = buildEvidenceChain(baseInput());
   assert.ok(validateEvidenceChain({ ...chain, schema_version: "quality-evidence-chain/v2" }).length > 0);
@@ -383,7 +448,11 @@ test("真实原生实模 artifact：观察→后续真实 provider 请求顺序�
   assert.ok(evidence.real_provider_call_count >= 1, "应识别真实 provider 调用");
   assert.ok(evidence.chain.observations.length > 0, "应发现真实观察 refs");
   assert.equal(evidence.chain.base_refs_status, "unknown");
-  assert.ok(evidence.chain.binding.real_observation_link_count >= 1, "观察必须先于后续真实 provider 请求");
+  // B42 §13：历史 artifact 能读出观察→真实调用的顺序，但没有请求侧 observation refs
+  // 记录，顺序不能冒充“请求实际包含该观察”。
+  assert.ok(evidence.chain.binding.observation_link_count >= 1, "应能读出观察→真实 provider 调用的顺序链接");
+  assert.equal(evidence.chain.binding.request_inclusion_link_count, 0);
+  assert.ok(evidence.chain.binding.blockers.includes("observation_inclusion_unknown"));
   assert.equal(evidence.chain.binding.binding_status, "unknown");
   assert.ok(evidence.chain.used_context_refs.length > 0);
   assert.deepEqual(evidence.chain.unbound_refs, []);
@@ -546,7 +615,7 @@ test("evaluateEvidenceCompleteness：A1 完整证据 + 未实现维度声明不�
   assert.deepEqual(completeness.missing_required, []);
   assert.equal(completeness.dimensions.replay.requirement, "not_applicable");
   assert.equal(completeness.dimensions.replay.observed, "not_executed");
-  assert.equal(completeness.dimensions.observation_link.observed, 1);
+  assert.equal(completeness.dimensions.observation_link.observed, "1/1");
 });
 
 test("evaluateEvidenceCompleteness：A0 合法零探索（Base 足够、无观察）→ complete", () => {
@@ -594,15 +663,16 @@ test("evaluateEvidenceCompleteness：缺 used refs / 来源元数据 / 未跑 re
   assert.equal(replayRequired.dimensions.replay.observed, "not_executed");
 });
 
-test("evaluateEvidenceCompleteness：观察与真实调用都记录却无可判链接 → fail", () => {
+test("evaluateEvidenceCompleteness：请求记录明确未包含观察（否定证据）→ fail", () => {
   const chain = buildEvidenceChain(
     baseInput({
+      observations: [observationOf({ observed_in_calls: [] })],
       provider_calls: [
-        {
-          provider_call_ref: "pcall:writer-before",
-          at: "2026-10-27T09:59:00Z",
-          provider: "strata",
-        },
+        writerCallOf({
+          provider_call_ref: "pcall:writer-after",
+          at: "2026-10-27T10:00:05Z",
+          request_observation_refs: [],
+        }),
       ],
       replay_status: "not_executed",
     }),
@@ -611,6 +681,26 @@ test("evaluateEvidenceCompleteness：观察与真实调用都记录却无可判�
   assert.equal(completeness.status, "missing");
   assert.ok(completeness.reason_codes.includes("required_observation_link_missing"));
   assert.ok(completeness.fail_codes.includes("observation_not_linked"));
+});
+
+test("evaluateEvidenceCompleteness：请求侧未记录（缺失而非否定）→ 只算 evidence_missing", () => {
+  const chain = buildEvidenceChain(
+    baseInput({
+      observations: [observationOf({ observed_in_calls: [] })],
+      provider_calls: [
+        writerCallOf({
+          provider_call_ref: "pcall:writer-after",
+          at: "2026-10-27T10:00:05Z",
+          request_observation_refs: undefined,
+        }),
+      ],
+      replay_status: "not_executed",
+    }),
+  );
+  const completeness = evaluateEvidenceCompleteness(chain, A1_REQUIREMENTS);
+  assert.equal(completeness.status, "missing");
+  assert.ok(completeness.reason_codes.includes("required_observation_link_missing"));
+  assert.deepEqual(completeness.fail_codes, []);
 });
 
 test("evaluateEvidenceCompleteness：仅记录确定性调用/未记录真实调用 → link 缺失只算 evidence_missing", () => {
@@ -664,4 +754,262 @@ test("读取 artifact 记录的证据链/必需证据声明：缺文件 null、�
 
   fs.writeFileSync(path.join(dir, "evidence-chain.json"), "{not json");
   assert.throws(() => readRecordedEvidenceChain(dir), /不是合法 JSON/);
+});
+
+// ---------- B42 §13：实际请求输入绑定（2026-10-30 CP0 反例 → CP1 回归） ----------
+//
+// 判据：顺序只证明先后；inclusion 只由请求侧同源记录授予；缺失≠显式空；
+// used refs 只从产生该自报告的 provider call 所见材料授信；旧派生缓存必须重算。
+
+test("§13 C1：请求侧关联未记录 → time_order 不授 inclusion，不能 verified", () => {
+  const chain = buildEvidenceChain(
+    baseInput({
+      observations: [observationOf({ observed_in_calls: [] })],
+      provider_calls: [writerCallOf({ request_observation_refs: undefined })],
+    }),
+  );
+  const link = chain.observation_to_provider_call.find(
+    (item) => item.observation_ref === "obs:promise",
+  );
+  assert.equal(link.linked_by, "time_order");
+  assert.equal(link.includes_observation, null, "缺失必须记 unknown，不能当作已包含/明确未包含");
+  assert.equal(chain.observations[0].observed_in_calls_status, "recorded");
+  assert.equal(chain.provider_calls[0].request_observation_refs_status, "unknown");
+  assert.equal(chain.binding.binding_status, "partial");
+  assert.ok(chain.binding.blockers.includes("observation_inclusion_unknown"));
+  assert.equal(chain.binding.request_inclusion_link_count, 0);
+  const completeness = evaluateEvidenceCompleteness(chain, A1_DECLARED);
+  assert.equal(completeness.status, "missing");
+  assert.ok(completeness.reason_codes.includes("required_observation_link_missing"));
+  assert.deepEqual(completeness.fail_codes, [], "纯缺失不是否定证据，只能 evidence_missing");
+});
+
+test("§13 C2：请求显式空数组（明确未包含）→ 无包含信用；used 依赖该观察 → 违规", () => {
+  const chain = buildEvidenceChain(
+    baseInput({
+      observations: [observationOf({ observed_in_calls: [] })],
+      provider_calls: [writerCallOf({ request_observation_refs: [] })],
+    }),
+  );
+  assert.equal(chain.provider_calls[0].request_observation_refs_status, "recorded");
+  const link = chain.observation_to_provider_call.find(
+    (item) => item.observation_ref === "obs:promise",
+  );
+  assert.equal(link.includes_observation, false);
+  assert.equal(chain.binding.binding_status, "violated");
+  assert.ok(chain.binding.reason_codes.includes("unbound_ref"), "used ref 只来自未入请求的观察");
+  const completeness = evaluateEvidenceCompleteness(chain, A1_DECLARED);
+  assert.equal(completeness.status, "missing");
+  assert.ok(completeness.fail_codes.includes("observation_not_linked"));
+});
+
+test("§13 C3a：只有 observation 反向声称 → 不足，不授 inclusion", () => {
+  const chain = buildEvidenceChain(
+    baseInput({
+      observations: [observationOf({ observed_in_calls: ["pcall:writer-1"] })],
+      provider_calls: [writerCallOf({ request_observation_refs: undefined })],
+    }),
+  );
+  const links = chain.observation_to_provider_call.filter(
+    (item) => item.observation_ref === "obs:promise",
+  );
+  assert.ok(links.some((link) => link.linked_by === "explicit"));
+  assert.ok(links.every((link) => link.includes_observation !== true));
+  assert.equal(chain.binding.binding_status, "partial");
+  assert.ok(chain.binding.blockers.includes("observation_inclusion_unknown"));
+  assert.equal(chain.binding.request_inclusion_link_count, 0);
+});
+
+test("§13 C3b：反向声称与请求记录矛盾 → 保留冲突为违规", () => {
+  const chain = buildEvidenceChain(
+    baseInput({
+      observations: [observationOf({ observed_in_calls: ["pcall:writer-1"] })],
+      provider_calls: [writerCallOf({ request_observation_refs: [] })],
+    }),
+  );
+  assert.equal(chain.binding.binding_status, "violated");
+  assert.ok(chain.binding.reason_codes.includes("observation_link_conflict"));
+});
+
+test("§13 C4：多条观察只有一条入请求 → 其余不得被有效链接遮盖", () => {
+  const chain = buildEvidenceChain(
+    baseInput({
+      observations: [
+        observationOf(),
+        observationOf({
+          observation_ref: "obs:timeline",
+          source_refs: ["chapter:9"],
+          observed_in_calls: [],
+          observed_at: "2026-10-27T10:00:01Z",
+          query: "时间关系",
+        }),
+      ],
+      provider_calls: [writerCallOf({ request_observation_refs: ["obs:promise"] })],
+      used_context_refs: ["chapter:3"],
+    }),
+  );
+  assert.notEqual(chain.binding.binding_status, "verified");
+  assert.equal(chain.binding.request_inclusion_link_count, 1);
+  assert.ok(chain.binding.blockers.includes("observation_not_included_in_request"));
+  const completeness = evaluateEvidenceCompleteness(chain, A1_DECLARED);
+  assert.equal(completeness.status, "missing");
+  assert.ok(completeness.fail_codes.includes("observation_not_linked"));
+});
+
+test("§13 C5：used ref 只被另一调用见过 → 不得借整 run 并集授信", () => {
+  const chain = buildEvidenceChain(
+    baseInput({
+      observations: [
+        observationOf(),
+        observationOf({
+          observation_ref: "obs:timeline",
+          source_refs: ["chapter:9"],
+          observed_in_calls: ["pcall:explore-0"],
+          observed_at: "2026-10-27T10:00:01Z",
+        }),
+      ],
+      provider_calls: [
+        writerCallOf({
+          provider_call_ref: "pcall:explore-0",
+          at: "2026-10-27T10:00:02Z",
+          request_observation_refs: ["obs:timeline"],
+        }),
+        writerCallOf({ request_observation_refs: ["obs:promise"] }),
+      ],
+      used_context_refs: ["chapter:9"],
+      used_context_refs_provider_call_ref: "pcall:writer-1",
+    }),
+  );
+  assert.equal(chain.binding.binding_status, "violated");
+  assert.ok(chain.binding.reason_codes.includes("unbound_ref"));
+  const violation = chain.violations.find((item) => item.code === "unbound_ref");
+  assert.equal(violation.ref, "chapter:9");
+  assert.equal(violation.provider_call_ref, "pcall:writer-1");
+});
+
+test("§13 C6：旧派生缓存（自证 links/verified）不被信任，按原始字段重算", () => {
+  const chain = buildEvidenceChain(
+    baseInput({
+      observations: [observationOf({ observed_in_calls: [] })],
+      provider_calls: [writerCallOf({ request_observation_refs: undefined })],
+    }),
+  );
+  assert.equal(chain.binding.binding_status, "partial");
+  const tampered = {
+    ...chain,
+    blockers: [],
+    violations: [],
+    observation_to_provider_call: chain.observation_to_provider_call.map((link) => ({
+      ...link,
+      includes_observation: true,
+      linked_by: "request_observation_ref",
+    })),
+    binding: { binding_status: "verified", reason_codes: [], violations: [], blockers: [] },
+  };
+  const evaluated = evaluateEvidenceChain(tampered);
+  assert.equal(evaluated.binding_status, "partial");
+  assert.ok(evaluated.blockers.includes("observation_inclusion_unknown"));
+  assert.equal(evaluated.derived_mismatch, true);
+});
+
+test("§13 C7b：显式包含但时间缺失 → 时间不能判，不冒充成立（不是否定证据）", () => {
+  const chain = buildEvidenceChain(
+    baseInput({
+      observations: [observationOf({ observed_at: null })],
+      provider_calls: [writerCallOf({ at: null })],
+    }),
+  );
+  assert.equal(chain.binding.binding_status, "partial");
+  assert.ok(chain.binding.blockers.includes("observation_call_order_unknown"));
+  const completeness = evaluateEvidenceCompleteness(chain, A1_DECLARED);
+  assert.equal(completeness.status, "missing");
+  assert.deepEqual(completeness.fail_codes, []);
+});
+
+test("§13 C8：确定性 provider 手填 real=true → 不得变成真实模型证据", () => {
+  const chain = buildEvidenceChain(
+    baseInput({
+      provider_calls: [writerCallOf({ provider: "slice_verify", real: true })],
+    }),
+  );
+  assert.equal(chain.provider_calls[0].real, false);
+  assert.equal(chain.binding.real_observation_link_count, 0);
+  assert.equal(chain.binding.request_inclusion_link_count, 0);
+  assert.equal(chain.binding.binding_status, "violated");
+  assert.ok(chain.binding.reason_codes.includes("deterministic_provider_claims_real"));
+});
+
+test("§13 C9：合法请求同源包含 + 完整元数据 + used 报告调用 → verified", () => {
+  const chain = buildEvidenceChain(baseInput());
+  assert.deepEqual(validateEvidenceChain(chain), []);
+  assert.equal(chain.binding.binding_status, "verified");
+  assert.equal(chain.binding.request_inclusion_link_count, 1);
+  assert.deepEqual(chain.violations, []);
+  assert.deepEqual(chain.blockers, []);
+  assert.equal(chain.binding.derived_mismatch, false);
+  const completeness = evaluateEvidenceCompleteness(chain, A1_DECLARED);
+  assert.equal(completeness.status, "complete");
+});
+
+test("§13 C10：A0 零探索不受输入绑定新规则误伤", () => {
+  const chain = buildEvidenceChain(
+    baseInput({
+      observations: [],
+      provider_calls: [],
+      used_context_refs: [],
+      used_context_refs_provider_call_ref: null,
+      replay_status: "no_provider_call",
+    }),
+  );
+  assert.equal(chain.binding.binding_status, "verified");
+  const completeness = evaluateEvidenceCompleteness(chain, {
+    dimensions: {
+      observations: "not_applicable",
+      observation_link: "not_applicable",
+      source_metadata: "not_applicable",
+      preparation: "not_applicable",
+      restore: "not_applicable",
+      replay: "not_applicable",
+    },
+  });
+  assert.equal(completeness.status, "complete");
+});
+
+test("§13：used 非空但无法定位报告调用 → evidence_missing（不猜最后一次调用）", () => {
+  const chain = buildEvidenceChain(
+    baseInput({ used_context_refs_provider_call_ref: null }),
+  );
+  assert.equal(chain.binding.binding_status, "partial");
+  assert.ok(chain.binding.blockers.includes("used_context_refs_call_unknown"));
+  const completeness = evaluateEvidenceCompleteness(chain, A1_DECLARED);
+  assert.equal(completeness.status, "missing");
+  assert.ok(completeness.reason_codes.includes("required_used_context_refs_missing"));
+});
+
+test("§13：used 含 Base∪观察之外的 ref → 必须有违规（不得因报告调用缺失而放行）", () => {
+  const chain = buildEvidenceChain(
+    baseInput({ used_context_refs: ["base:chapter-3", "chapter:99-never-read"] }),
+  );
+  assert.equal(chain.binding.binding_status, "violated");
+  assert.ok(chain.binding.reason_codes.includes("unbound_ref"));
+});
+
+test("§13：历史链缺 request refs 状态 → unknown，不得反推“明确未包含”", () => {
+  const chain = buildEvidenceChain(baseInput());
+  const legacy = {
+    ...chain,
+    observations: chain.observations.map(({ observed_in_calls_status, ...rest }) => rest),
+    provider_calls: chain.provider_calls.map(
+      ({ request_observation_refs_status, ...rest }) => rest,
+    ),
+  };
+  // 历史链缺 §13 可选字段仍必须通过结构校验（additive 兼容），但按 unknown 重算，
+  // 不得自证 verified；原件字段不被补写/改写。
+  assert.deepEqual(validateEvidenceChain(legacy), []);
+  const evaluated = evaluateEvidenceChain(legacy);
+  assert.equal(evaluated.binding_status, "partial");
+  assert.ok(evaluated.blockers.includes("observation_inclusion_unknown"));
+  assert.equal(evaluated.request_inclusion_link_count, 0);
+  assert.equal(legacy.observations[0].observed_in_calls_status, undefined);
+  assert.equal(legacy.provider_calls[0].request_observation_refs_status, undefined);
 });

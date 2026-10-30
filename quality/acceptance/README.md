@@ -94,14 +94,14 @@ node scripts/lib/quality/release_layer_cli.mjs summarize --tier release-real-llm
 - 读 registry + B41 `batch.json` + 每场景 verdict + CP2 证据链 + CP3 原生 run，输出 `quality-release-layer/v1`：counts / layers{mechanism, model_behavior} / separation（`single_verdict_allowed=false`）/ replay 身份 / failure_denominator / blocked·not_run·evidence_missing 列表 / 空 tier 已知事实。
 - 退出码：pass `0`、fail `1`、blocked/skipped `65`、evidence_missing `67`、not_run `69`、usage `64`、config（非法 tier/跨 tier batch）`66`。
 - **真实 provider passthrough（K5，Lead 裁决）**：runner 成功但 `record_verdict pass` 返回 2（无 B42 模型行为证据）时，单场景 exit `67`、批量记 `evidence_missing`，不写 `passed`、不计 batch PASS（B41 CP4「真实 provider PASS 需模型行为证据」的入口一致化）。
-- **当前两个 tier 均 0 场景**（已知事实）：空 tier = `not_run` + `empty_tier` + exit 65，不是 PASS；tier 非空归 B42 CP4（blocked，ADR-0030 Proposed）。
+- **当前两个 tier 均 0 场景**（已知事实）：空 tier = `not_run` + `empty_tier` + exit 65，不是 PASS；tier 非空归 B42 CP4（设计已 Accepted；真实运行待产品/driver/预注册/资源前置）。
 - 真实模型 PASS 判据：真实 provider 响应正文（非 HTTP 200）、≥2 独立重复全过、未调词保留措辞、model/actual_model/params/driver 可回放、CP2 观察链接无违规、CP3 原生 run 非 fail；缺凭据只能 blocked。
 
 ## B42 CP2：求证证据链（quality-evidence-chain/v1）
 
 - 模块：`scripts/lib/quality/evidence_chain.mjs`；sidecar：`evidence-chain.json`（写入拒绝覆盖）。
 - **集合关系**：`used_context_refs ⊆ Base refs ∪ 实际观察 refs`（`observed/empty/ambiguous/conflict` 可获信用；`error`=未读取、`stale`=过期、缺 outcome=unknown 均不获信用）；Base 未记录时非法 ref 记 `unresolved`（unknown）而非越界；Base 已记录时越界 → `unbound_ref` 违规。
-- **顺序**：`observation_to_provider_call` 支持 `request_observation_ref`/`time_order` 链接；观察晚于后续 provider 请求 → 违规；观察未被任何真实请求引用 → blocker。
+- **包含与顺序（B42 §13）**：inclusion 只由请求侧同源记录（`provider_calls[].request_observation_refs`，`request_observation_refs_status=recorded`）授予；`time_order` 只证明先后、不授包含信用（`includes_observation=null`）。`observed_in_calls` 只作交叉核对（与请求记录矛盾 → `observation_link_conflict` 违规）。缺失（unknown）与显式空数组（recorded）分开：缺失只算 evidence_missing；显式未包含且场景 required → fail（`observation_not_linked`）。观察晚于后续真实请求 → 违规。used refs 只从产生该自报告的调用（`used_context_refs_provider_call_ref`）请求中实际包含的观察授信，不能借整 run 并集补证；无法定位报告调用 → `used_context_refs_call_unknown`（evidence_missing）。判定从原始字段重算，序列化 links/blockers/violations 缓存不一致 → `evidence_chain_derived_mismatch`（不 PASS）。
 - **诚实未知**：未返回 used refs → `used_context_refs=null` + `status=unknown`，不得由 supplied/Base 推导；`preparation_outcome`/`stale_on_restore`/`replay_provider_called` 显式记录，replay 重调 provider 不得作为 replay 信用。
 - 历史 artifact（ws frames / native-transport / app-log / llm-calls）可只读读取作验证资产；历史证据缺 Base/outcome/coverage → binding 只能是 unknown/partial（不得冒充 evidence-bound PASS）。测试：`node --test scripts/lib/quality/evidence_chain.test.mjs`。
 

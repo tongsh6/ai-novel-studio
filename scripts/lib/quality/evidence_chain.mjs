@@ -59,6 +59,11 @@ export const REPLAY_STATUSES = Object.freeze([
 // 证据链绑定状态。任何 PASS 相关的模型行为判定都不接受 violated/unknown。
 export const BINDING_STATUSES = Object.freeze(["verified", "partial", "unknown", "violated"]);
 
+// B42 §13：请求/观察两侧记录的“有没有写这个字段”三态。
+// recorded=数组记录（显式空数组也是记录）；unknown=缺失（旧 artifact/生产尚未写）。
+// 缺失不得反推“明确未包含/未被看到”，也不得授包含信用。
+export const RECORDING_STATUSES = Object.freeze(["recorded", "unknown"]);
+
 // ---------- 场景必需证据声明（B42 §12.1，additive，同 v1 兼容） ----------
 //
 // 每个 release-real-llm 场景在运行前声明各证据维度的适用性：
@@ -260,6 +265,8 @@ function normalizeObservation(raw, index) {
     : nonEmptyString(coverageRaw)
       ? { kind: coverageRaw, detail: null }
       : { kind: "unknown", detail: null };
+  const observedInCallsRecorded =
+    raw?.observed_in_calls !== undefined || raw?.provider_call_refs !== undefined;
   const observedInCalls = uniqueStrings(raw?.observed_in_calls ?? raw?.provider_call_refs ?? []);
   const observation = {
     observation_ref: observationRef,
@@ -273,6 +280,7 @@ function normalizeObservation(raw, index) {
     run_ref: stringOrNull(raw?.run_ref ?? raw?.run_id),
     turn_ref: stringOrNull(raw?.turn_ref ?? raw?.turn_id),
     observed_in_calls: observedInCalls,
+    observed_in_calls_status: observedInCallsRecorded ? "recorded" : "unknown",
     stale:
       raw?.stale === true ||
       raw?.is_stale === true ||
@@ -297,6 +305,11 @@ function normalizeObservations(observations) {
 
 function normalizeProviderCall(raw, index) {
   const provider = stringOrNull(raw?.provider) ?? "unknown";
+  const providerClass = classifyProvider(provider);
+  // B42 §13：请求侧“有没有记录观察包含”必须与“记录为空数组”区分。
+  // 缺失（旧 artifact / 当前产品尚未写）→ unknown；显式 [] → recorded（明确未包含）。
+  const requestRefsRecorded =
+    raw?.request_observation_refs !== undefined || raw?.observation_refs !== undefined;
   return {
     provider_call_ref: refToken(raw?.provider_call_ref ?? raw?.call_ref) ?? `provider_call:${index}`,
     at: timestampOrNull(raw?.at ?? raw?.ts ?? raw?.timestamp ?? raw?.emitted_at),
@@ -304,11 +317,15 @@ function normalizeProviderCall(raw, index) {
     run_ref: stringOrNull(raw?.run_ref ?? raw?.run_id),
     step: stringOrNull(raw?.step),
     provider,
-    provider_class: classifyProvider(provider),
+    provider_class: providerClass,
     model: stringOrNull(raw?.model),
     actual_model: stringOrNull(raw?.actual_model),
-    real: raw?.real === true || classifyProvider(provider) === "real_model",
+    // B42 §13：真实模型身份只由 provider 分类决定；手填 real=true 不能把确定性
+    // provider 变成真实模型证据（real_claimed 保留冲突以便判违规）。
+    real: providerClass === "real_model",
+    real_claimed: raw?.real === true,
     request_observation_refs: uniqueStrings(raw?.request_observation_refs ?? raw?.observation_refs ?? []),
+    request_observation_refs_status: requestRefsRecorded ? "recorded" : "unknown",
   };
 }
 
@@ -362,40 +379,72 @@ function classifyObservationRefs(observations) {
   return { creditable, unread, stale, unknownMetadata };
 }
 
+// B42 §13：请求侧观察包含判定。
+// - request_observation_refs_status=recorded 才可判 true/false；缺失一律 unknown；
+// - observation.observed_in_calls 只是观察侧反声称，单独不能授包含信用。
+function requestIncludesObservation(call, observationRef) {
+  if (!call || !nonEmptyString(observationRef)) return null;
+  if (call.request_observation_refs_status !== "recorded") return null;
+  return Array.isArray(call.request_observation_refs)
+    ? call.request_observation_refs.includes(observationRef)
+    : null;
+}
+
 function buildObservationLinks(observations, providerCalls) {
   const links = [];
   const calls = sortedByTime(providerCalls);
   for (const observation of observations) {
+    const observationRef = observation.observation_ref;
     const observationTime = observation.observed_at ? Date.parse(observation.observed_at) : null;
-    const explicitCallRefs = uniqueStrings([
-      ...observation.observed_in_calls,
-      ...calls
-        .filter((call) => call.request_observation_refs.includes(observation.observation_ref))
-        .map((call) => call.provider_call_ref),
-    ]);
-    const explicitCalls = explicitCallRefs
-      .map((ref) => calls.find((call) => call.provider_call_ref === ref))
-      .filter(Boolean);
-    if (explicitCalls.length > 0) {
-      for (const call of explicitCalls) {
-        const ordered =
-          observationTime !== null && call.at !== null
-            ? Date.parse(call.at) >= observationTime
-            : null;
-        links.push({
-          observation_ref: observation.observation_ref,
-          provider_call_ref: call.provider_call_ref,
-          ordered,
-          linked_by:
-            call.request_observation_refs.includes(observation.observation_ref)
-              ? "request_observation_ref"
-              : "explicit",
-          provider_real: call.real,
-        });
+    const seen = new Set();
+    const pushLink = (call, linkedBy, includesObservation) => {
+      const callRef = call ? call.provider_call_ref : null;
+      const key = `${callRef ?? "none"}|${linkedBy}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const ordered =
+        call && observationTime !== null && call.at !== null
+          ? Date.parse(call.at) >= observationTime
+          : null;
+      links.push({
+        observation_ref: observationRef,
+        provider_call_ref: callRef,
+        ordered,
+        linked_by: linkedBy,
+        includes_observation: includesObservation,
+        provider_real: call ? call.real : null,
+      });
+    };
+    // 1) 请求侧同源记录列出该观察 → 唯一的包含信用来源。
+    for (const call of calls) {
+      if (requestIncludesObservation(call, observationRef) === true) {
+        pushLink(call, "request_observation_ref", true);
       }
-      continue;
     }
-    // 没有显式引用时按“同 turn 或全体真实 provider call 中最早的后续调用”建立顺序链接。
+    // 2) 观察侧反向声称：只作交叉核对；与请求记录矛盾时由判定层保留冲突。
+    for (const claimedCallRef of observation.observed_in_calls) {
+      const call = calls.find((item) => item.provider_call_ref === claimedCallRef);
+      if (!call) {
+        const key = `${claimedCallRef}|explicit`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          links.push({
+            observation_ref: observationRef,
+            provider_call_ref: claimedCallRef,
+            ordered: null,
+            linked_by: "explicit",
+            includes_observation: null,
+            provider_real: null,
+          });
+        }
+        continue;
+      }
+      const includes = requestIncludesObservation(call, observationRef);
+      if (includes === true) continue; // 与请求记录一致，已由 1) 建链接
+      pushLink(call, "explicit", includes);
+    }
+    if (links.some((link) => link.observation_ref === observationRef)) continue;
+    // 3) 两侧都没有记录：只建立顺序链接；顺序≠包含（inclusion 只能是 unknown/false）。
     const candidates = calls.filter((call) => {
       const sameTurn =
         observation.turn_ref && call.turn_ref ? observation.turn_ref === call.turn_ref : true;
@@ -406,27 +455,253 @@ function buildObservationLinks(observations, providerCalls) {
     const candidate = candidates[0];
     if (!candidate) {
       links.push({
-        observation_ref: observation.observation_ref,
+        observation_ref: observationRef,
         provider_call_ref: null,
         ordered: null,
         linked_by: "none",
+        includes_observation: null,
         provider_real: null,
       });
       continue;
     }
-    const ordered =
-      observationTime !== null && candidate.at !== null
-        ? Date.parse(candidate.at) >= observationTime
-        : null;
-    links.push({
-      observation_ref: observation.observation_ref,
-      provider_call_ref: candidate.provider_call_ref,
-      ordered,
-      linked_by: "time_order",
-      provider_real: candidate.real,
-    });
+    pushLink(candidate, "time_order", requestIncludesObservation(candidate, observationRef));
   }
   return links;
+}
+
+// ---------- B42 §13：派生事实重算（不信任 artifact 自带缓存） ----------
+
+function eligibleRealCallsFor(observation, realCalls) {
+  const observationTime = observation.observed_at ? Date.parse(observation.observed_at) : null;
+  return realCalls.filter((call) => {
+    const sameTurn =
+      observation.turn_ref && call.turn_ref ? observation.turn_ref === call.turn_ref : true;
+    if (!sameTurn) return false;
+    if (observationTime !== null && call.at !== null) return Date.parse(call.at) >= observationTime;
+    return true;
+  });
+}
+
+function deniedByRequest(call, observation) {
+  return requestIncludesObservation(call, observation.observation_ref) === false;
+}
+
+function deriveObservationInclusion(observations, links, realCalls, blockers, violations) {
+  if (observations.length === 0) return new Set();
+  if (realCalls.length === 0) {
+    blockers.push("observation_not_linked_to_provider_call");
+    return new Set();
+  }
+  const includedRefs = new Set();
+  for (const observation of observations) {
+    const own = links.filter((link) => link.observation_ref === observation.observation_ref);
+    const included = own.filter(
+      (link) => link.includes_observation === true && link.provider_real === true,
+    );
+    if (included.length === 0) {
+      // 否定证据只来自请求侧 recorded 记录；缺失/未记录只能 unknown。
+      const eligible = eligibleRealCallsFor(observation, realCalls);
+      const denied =
+        own.some((link) => link.includes_observation === false) ||
+        (eligible.length > 0 &&
+          eligible.every((call) => call.request_observation_refs_status === "recorded"));
+      blockers.push(
+        denied ? "observation_not_included_in_request" : "observation_inclusion_unknown",
+      );
+      continue;
+    }
+    includedRefs.add(observation.observation_ref);
+    if (included.some((link) => link.ordered === null)) {
+      blockers.push("observation_call_order_unknown");
+    }
+  }
+  for (const link of links) {
+    // 显式关联但时间逆序 → 否定证据；不能继续标 verified。
+    if (link.ordered === false) {
+      violations.push({
+        code: "observation_after_provider_call",
+        observation_ref: link.observation_ref,
+        provider_call_ref: link.provider_call_ref,
+      });
+    }
+    // observation 反向声称见到的调用，其请求记录明确没有该观察 → 保留矛盾。
+    if (link.linked_by === "explicit" && link.includes_observation === false) {
+      violations.push({
+        code: "observation_link_conflict",
+        observation_ref: link.observation_ref,
+        provider_call_ref: link.provider_call_ref,
+      });
+    }
+  }
+  return includedRefs;
+}
+
+function deriveUsedCredit(chain, facts) {
+  const { observations, links, reportCall, baseRecorded, baseRefs, stale, unread } = facts;
+  const usedKnown = Array.isArray(chain.used_context_refs);
+  const used = usedKnown ? uniqueStrings(chain.used_context_refs) : [];
+  const usedSource = chain.used_context_refs_source ?? (usedKnown ? "self_report" : "missing");
+  const violations = [];
+  const blockers = [];
+  const unboundRefs = [];
+  const unresolvedRefs = [];
+  const observedRefs = new Set();
+  for (const observation of observations) {
+    for (const ref of observationRefsOf(observation)) observedRefs.add(ref);
+  }
+  // 只从“产生该自报告的 provider 调用请求里实际包含的观察”授信（不能整 run 并集补证）。
+  const reportCredit = new Set();
+  if (reportCall) {
+    for (const link of links) {
+      if (link.provider_call_ref !== reportCall.provider_call_ref) continue;
+      if (link.includes_observation !== true || link.provider_real !== true) continue;
+      if (link.ordered === false) continue;
+      const observation = observations.find((item) => item.observation_ref === link.observation_ref);
+      if (!observation) continue;
+      for (const ref of observationRefsOf(observation)) reportCredit.add(ref);
+    }
+  }
+  if (usedSource === "inferred_supplied") {
+    violations.push({
+      code: "used_refs_inferred_from_supplied",
+      detail: "used_context_refs 不得由 supplied/Base refs 推导（supplied≠used）",
+    });
+  }
+  const usedBound = [];
+  if (!usedKnown) {
+    return { usedKnown, used, usedSource, usedBound, violations, blockers, unboundRefs, unresolvedRefs };
+  }
+  if (used.length > 0 && !reportCall) blockers.push("used_context_refs_call_unknown");
+  for (const ref of used) {
+    if (stale.has(ref)) {
+      violations.push({ code: "stale_observation_credited", ref });
+      continue;
+    }
+    if (unread.has(ref)) {
+      violations.push({ code: "unread_ref_credited", ref });
+      continue;
+    }
+    if (baseRefs.has(ref) || reportCredit.has(ref)) {
+      usedBound.push(ref);
+      continue;
+    }
+    if (!observedRefs.has(ref)) {
+      // 硬边界：Base ∪ 全部观察之外的 ref 永远不能授信。
+      if (baseRecorded) {
+        violations.push({ code: "unbound_ref", ref, detail: "outside_base_and_observations" });
+        unboundRefs.push(ref);
+      } else {
+        unresolvedRefs.push(ref);
+      }
+      continue;
+    }
+    if (!reportCall) continue; // 无法定位报告调用：已记 blocker，不伪判越界。
+    const tiedDenied = observations.some(
+      (observation) =>
+        observationRefsOf(observation).includes(ref) && deniedByRequest(reportCall, observation),
+    );
+    if (tiedDenied) {
+      // 报告调用请求记录明确不含该观察：used 信用只能来自整 run 并集 → 违规。
+      violations.push({
+        code: "unbound_ref",
+        ref,
+        provider_call_ref: reportCall.provider_call_ref,
+        detail: "not_in_reported_call",
+      });
+      unboundRefs.push(ref);
+    } else if (!baseRecorded) {
+      unresolvedRefs.push(ref);
+    }
+  }
+  return { usedKnown, used, usedSource, usedBound, violations, blockers, unboundRefs, unresolvedRefs };
+}
+
+/**
+ * 从 chain 原始字段重算派生事实（B42 §13）。判定不信任 artifact 自带的
+ * links/blockers/violations/binding 缓存；它们只用于与重算结果比对。
+ */
+function deriveEvidenceFacts(chain) {
+  const observations = Array.isArray(chain.observations) ? chain.observations : [];
+  const providerCalls = Array.isArray(chain.provider_calls) ? chain.provider_calls : [];
+  const calls = sortedByTime(providerCalls);
+  const realCalls = calls.filter((call) => call.real === true);
+  const baseRefs = new Set(Array.isArray(chain.base_refs) ? chain.base_refs : []);
+  const baseRecorded = chain.base_refs_status === "recorded";
+  const preparation = PREPARATION_OUTCOMES.includes(chain.preparation_outcome)
+    ? chain.preparation_outcome
+    : "unknown";
+  const staleOnRestore = STALE_ON_RESTORE_VALUES.includes(chain.stale_on_restore)
+    ? chain.stale_on_restore
+    : "unknown";
+  const replayStatus = resolveReplayStatus(chain);
+  const violations = [];
+  const blockers = [];
+  if (!baseRecorded) blockers.push("base_refs_unknown");
+  if (!Array.isArray(chain.used_context_refs)) blockers.push("used_context_refs_unknown");
+  if (preparation === "unknown") blockers.push("preparation_outcome_unknown");
+  if (staleOnRestore === "unknown") blockers.push("stale_on_restore_unknown");
+  if (observations.some((observation) => observation.metadata_missing === true)) {
+    blockers.push("observation_metadata_missing");
+  }
+
+  const { unread, stale } = classifyObservationRefs(observations);
+  const links = buildObservationLinks(observations, calls);
+  const includedObservationRefs = deriveObservationInclusion(
+    observations,
+    links,
+    realCalls,
+    blockers,
+    violations,
+  );
+  for (const observation of observations) {
+    if (isCreditableObservation(observation) && observation.source_refs.length === 0) {
+      violations.push({ code: "observation_source_missing", observation_ref: observation.observation_ref });
+    }
+  }
+  for (const call of calls) {
+    // 确定性 provider 手填 real=true 不能变成真实模型证据。
+    if (call.real_claimed === true && call.real !== true) {
+      violations.push({
+        code: "deterministic_provider_claims_real",
+        provider_call_ref: call.provider_call_ref,
+        provider: call.provider,
+      });
+    }
+  }
+  if (replayStatus === "provider_called") {
+    violations.push({
+      code: "replay_provider_called",
+      detail: "replay 默认不重调模型；重调 provider 的运行不得作为 replay 证据信用",
+    });
+  }
+
+  const reportCallRef = stringOrNull(chain.used_context_refs_provider_call_ref);
+  const reportCall = reportCallRef
+    ? calls.find((call) => call.provider_call_ref === reportCallRef) ?? null
+    : null;
+  const credit = deriveUsedCredit(chain, {
+    observations,
+    links,
+    reportCall,
+    baseRecorded,
+    baseRefs,
+    stale,
+    unread,
+  });
+  const unboundRefs = uniqueStrings(credit.unboundRefs);
+  return {
+    links,
+    violations: [...violations, ...credit.violations],
+    blockers: uniqueStrings([...blockers, ...credit.blockers]),
+    unbound_refs: unboundRefs,
+    unresolved_refs: uniqueStrings(credit.unresolvedRefs),
+    used_bound_count: credit.usedBound.length,
+    used_unbound_count: unboundRefs.length,
+    request_inclusion_link_count: includedObservationRefs.size,
+    real_observation_link_count: includedObservationRefs.size,
+    used_known: credit.usedKnown,
+    used_refs: credit.used,
+  };
 }
 
 /**
@@ -437,6 +712,7 @@ function buildObservationLinks(observations, providerCalls) {
  * @param {Array} [input.observations] 实际观察（observation_ref/outcome/source_refs/source_revision/coverage/observed_at）
  * @param {Array} [input.provider_calls] 后续真实 provider 请求
  * @param {string[]|null} [input.used_context_refs] 模型自报告 used refs；null 表示未返回（unknown）
+ * @param {string|null} [input.used_context_refs_provider_call_ref] 产出该自报告的 provider call（B42 §13）
  * @param {"self_report"|"inferred_supplied"|"missing"} [input.used_context_refs_source]
  */
 export function buildEvidenceChain(input = {}) {
@@ -446,9 +722,7 @@ export function buildEvidenceChain(input = {}) {
   const usedRaw = input.used_context_refs;
   const usedKnown = Array.isArray(usedRaw);
   const used = usedKnown ? uniqueStrings(usedRaw.map(refToken)) : [];
-  const usedSource =
-    input.used_context_refs_source ??
-    (usedKnown ? "self_report" : "missing");
+  const usedSource = input.used_context_refs_source ?? (usedKnown ? "self_report" : "missing");
   const preparationOutcome = PREPARATION_OUTCOMES.includes(input.preparation_outcome)
     ? input.preparation_outcome
     : "unknown";
@@ -461,90 +735,7 @@ export function buildEvidenceChain(input = {}) {
     : input.replay_provider_called === true
       ? "provider_called"
       : "unknown";
-  const replayProviderCalled = replayStatus === "provider_called";
-  const baseRefSet = new Set(base.refs);
-  const { creditable, unread, stale, unknownMetadata } = classifyObservationRefs(observations);
-
-  const violations = [];
-  const blockers = [];
-  const unboundRefs = [];
-  const unresolvedRefs = [];
-
-  if (base.status === "unknown") blockers.push("base_refs_unknown");
-  if (!usedKnown) blockers.push("used_context_refs_unknown");
-  if (preparationOutcome === "unknown") blockers.push("preparation_outcome_unknown");
-  if (staleOnRestore === "unknown") blockers.push("stale_on_restore_unknown");
-  if (observations.some((observation) => observation.metadata_missing)) {
-    blockers.push("observation_metadata_missing");
-  }
-
-  for (const ref of used) {
-    if (stale.has(ref)) {
-      violations.push({ code: "stale_observation_credited", ref });
-      continue;
-    }
-    if (unread.has(ref)) {
-      violations.push({ code: "unread_ref_credited", ref });
-      continue;
-    }
-    if (baseRefSet.has(ref) || creditable.has(ref)) continue;
-    if (unknownMetadata.has(ref)) {
-      // 观察确实存在，但缺少 outcome/coverage/source_revision，不能获得“已读到”信用。
-      blockers.push("observation_metadata_missing");
-      if (!blockers.includes("observation_not_linked_to_provider_call")) {
-        // 留待链接判定，这里不重复。
-      }
-      continue;
-    }
-    if (base.status === "recorded") {
-      violations.push({ code: "unbound_ref", ref });
-      unboundRefs.push(ref);
-    } else {
-      // Base 未记录时无法判断该 ref 是越界还是 Base/观察来源；如实记 unresolved。
-      unresolvedRefs.push(ref);
-    }
-  }
-
-  // supplied refs 只说明“APP 提供了什么”，绝不参与 used 推导（supplied≠used）。
   const suppliedRefs = uniqueStrings(input.supplied_refs ?? []);
-  if (usedSource === "inferred_supplied") {
-    violations.push({
-      code: "used_refs_inferred_from_supplied",
-      detail: "used_context_refs 不得由 supplied/Base refs 推导（supplied≠used）",
-    });
-  }
-
-  const observationLinks = buildObservationLinks(observations, providerCalls);
-  for (const link of observationLinks) {
-    if (link.ordered === false) {
-      violations.push({
-        code: "observation_after_provider_call",
-        observation_ref: link.observation_ref,
-        provider_call_ref: link.provider_call_ref,
-      });
-    }
-  }
-  const realLinked = observationLinks.filter(
-    (link) => link.ordered === true && link.provider_real === true,
-  );
-  if (observations.length > 0 && realLinked.length === 0) {
-    blockers.push("observation_not_linked_to_provider_call");
-  }
-  for (const observation of observations) {
-    if (isCreditableObservation(observation) && observation.source_refs.length === 0) {
-      violations.push({
-        code: "observation_source_missing",
-        observation_ref: observation.observation_ref,
-      });
-    }
-  }
-  if (replayProviderCalled) {
-    violations.push({
-      code: "replay_provider_called",
-      detail: "replay 默认不重调模型；重调 provider 的运行不得作为 replay 证据信用",
-    });
-  }
-
   const chain = {
     schema_version: EVIDENCE_CHAIN_SCHEMA_VERSION,
     run_ref: stringOrNull(input.run_ref),
@@ -555,21 +746,28 @@ export function buildEvidenceChain(input = {}) {
     observations,
     observation_refs: uniqueStrings(observations.flatMap(observationRefsOf)),
     provider_calls: providerCalls,
-    observation_to_provider_call: observationLinks,
+    observation_to_provider_call: [],
     used_context_refs: usedKnown ? used : null,
     used_context_refs_status: usedKnown ? "reported" : "unknown",
     used_context_refs_source: usedSource,
+    used_context_refs_provider_call_ref: stringOrNull(input.used_context_refs_provider_call_ref),
     supplied_refs: suppliedRefs,
-    unbound_refs: uniqueStrings(unboundRefs),
-    unresolved_refs: uniqueStrings(unresolvedRefs),
+    unbound_refs: [],
+    unresolved_refs: [],
     preparation_outcome: preparationOutcome,
     stale_on_restore: staleOnRestore,
-    replay_provider_called: replayProviderCalled,
+    replay_provider_called: replayStatus === "provider_called",
     replay_status: replayStatus,
-    blockers: uniqueStrings(blockers),
-    violations,
+    blockers: [],
+    violations: [],
     generated_at: timestampOrNull(input.generated_at) ?? new Date().toISOString(),
   };
+  const derived = deriveEvidenceFacts(chain);
+  chain.observation_to_provider_call = derived.links;
+  chain.unbound_refs = derived.unbound_refs;
+  chain.unresolved_refs = derived.unresolved_refs;
+  chain.blockers = derived.blockers;
+  chain.violations = derived.violations;
   chain.binding = evaluateEvidenceChain(chain);
   return chain;
 }
@@ -617,6 +815,13 @@ export function validateEvidenceChain(chain) {
   if (chain.replay_status !== undefined && !REPLAY_STATUSES.includes(chain.replay_status)) {
     errors.push(`replay_status 必须属于 ${REPLAY_STATUSES.join(" | ")}（可选字段；缺省按历史 artifact 记 unknown）`);
   }
+  if (
+    chain.used_context_refs_provider_call_ref !== undefined &&
+    chain.used_context_refs_provider_call_ref !== null &&
+    !nonEmptyString(chain.used_context_refs_provider_call_ref)
+  ) {
+    errors.push("used_context_refs_provider_call_ref 必须是非空字符串或 null（B42 §13，可选）");
+  }
   (chain.observations ?? []).forEach((observation, index) => {
     if (!isPlainObject(observation)) {
       errors.push(`observations[${index}] 必须是 object`);
@@ -625,16 +830,58 @@ export function validateEvidenceChain(chain) {
     if (!OBSERVATION_OUTCOMES.includes(observation.outcome)) {
       errors.push(`observations[${index}].outcome 必须属于 ${OBSERVATION_OUTCOMES.join(" | ")}`);
     }
+    if (
+      observation.observed_in_calls_status !== undefined &&
+      !RECORDING_STATUSES.includes(observation.observed_in_calls_status)
+    ) {
+      errors.push(
+        `observations[${index}].observed_in_calls_status 必须属于 ${RECORDING_STATUSES.join(" | ")}（B42 §13，可选）`,
+      );
+    }
+  });
+  (chain.provider_calls ?? []).forEach((call, index) => {
+    if (!isPlainObject(call)) {
+      errors.push(`provider_calls[${index}] 必须是 object`);
+      return;
+    }
+    if (
+      call.request_observation_refs_status !== undefined &&
+      !RECORDING_STATUSES.includes(call.request_observation_refs_status)
+    ) {
+      errors.push(
+        `provider_calls[${index}].request_observation_refs_status 必须属于 ${RECORDING_STATUSES.join(" | ")}（B42 §13，可选）`,
+      );
+    }
+  });
+  (chain.observation_to_provider_call ?? []).forEach((link, index) => {
+    if (!isPlainObject(link)) {
+      errors.push(`observation_to_provider_call[${index}] 必须是 object`);
+      return;
+    }
+    if (
+      link.includes_observation !== undefined &&
+      link.includes_observation !== null &&
+      typeof link.includes_observation !== "boolean"
+    ) {
+      errors.push(
+        `observation_to_provider_call[${index}].includes_observation 必须是 boolean|null（B42 §13，可选）`,
+      );
+    }
   });
   return errors;
 }
 
+function sameStringSet(left, right) {
+  return JSON.stringify(uniqueStrings(left).sort()) === JSON.stringify(uniqueStrings(right).sort());
+}
+
 /**
- * 判定证据链绑定状态。纯读取 chain 上的归一化字段。
+ * 判定证据链绑定状态（B42 §13：从原始字段重算派生事实，不信任序列化缓存）。
  *
  * @returns {{binding_status: string, reason_codes: string[], violations: object[], blockers: string[],
  *   observation_link_count: number, real_observation_link_count: number,
- *   used_bound_count: number, used_unbound_count: number}}
+ *   request_inclusion_link_count: number, used_bound_count: number, used_unbound_count: number,
+ *   derived_mismatch: boolean}}
  */
 export function evaluateEvidenceChain(chain) {
   if (!isPlainObject(chain)) {
@@ -645,42 +892,51 @@ export function evaluateEvidenceChain(chain) {
       blockers: ["invalid_chain"],
       observation_link_count: 0,
       real_observation_link_count: 0,
+      request_inclusion_link_count: 0,
       used_bound_count: 0,
       used_unbound_count: 0,
+      derived_mismatch: false,
     };
   }
-  const violations = Array.isArray(chain.violations) ? chain.violations : [];
-  const blockers = uniqueStrings(chain.blockers ?? []);
-  const links = Array.isArray(chain.observation_to_provider_call)
+  const derived = deriveEvidenceFacts(chain);
+  const recordedLinks = Array.isArray(chain.observation_to_provider_call)
     ? chain.observation_to_provider_call
     : [];
-  const realLinks = links.filter((link) => link.ordered === true && link.provider_real === true);
-  const used = Array.isArray(chain.used_context_refs) ? chain.used_context_refs : [];
-  const unbound = new Set(uniqueStrings(chain.unbound_refs ?? []));
-  const usedBound = used.filter((ref) => !unbound.has(ref));
-
-  // B42 §12.2：verified 必须没有任何 blocker；过去只检查 base/used/metadata 三个条件，
-  // preparation/restore/链接等 blocker 会被吞掉，从而把不完整证据读成 verified。
+  const recordedViolationCodes = (Array.isArray(chain.violations) ? chain.violations : [])
+    .map((violation) => (isPlainObject(violation) ? violation.code : null))
+    .filter(nonEmptyString);
+  // B42 §13：旧 artifact 自带的 links/blockers/violations/unbound 缓存不可信；
+  // 以原始字段重算结果为准，不一致时保留 derived_mismatch 且不得 verified。
+  const derivedMismatch =
+    JSON.stringify(recordedLinks) !== JSON.stringify(derived.links) ||
+    !sameStringSet(Array.isArray(chain.blockers) ? chain.blockers : [], derived.blockers) ||
+    !sameStringSet(recordedViolationCodes, derived.violations.map((violation) => violation.code)) ||
+    !sameStringSet(
+      Array.isArray(chain.unbound_refs) ? chain.unbound_refs : [],
+      derived.unbound_refs,
+    );
+  const blockers = derivedMismatch
+    ? uniqueStrings([...derived.blockers, "evidence_chain_derived_mismatch"])
+    : derived.blockers;
+  const violations = derived.violations;
+  // B42 §12.2：verified 必须没有任何 blocker；missing/unknown 只能 evidence_missing。
   let bindingStatus;
   if (violations.length > 0) bindingStatus = "violated";
   else if (chain.base_refs_status !== "recorded") bindingStatus = "unknown";
   else if (blockers.length > 0) bindingStatus = "partial";
   else bindingStatus = "verified";
-
-  const reasonCodes = [
-    ...violations.map((violation) => violation.code),
-    ...blockers,
-  ];
   return {
     binding_status: bindingStatus,
-    reason_codes: uniqueStrings(reasonCodes),
+    reason_codes: uniqueStrings([...violations.map((violation) => violation.code), ...blockers]),
     violations,
     blockers,
     replay_status: resolveReplayStatus(chain),
-    observation_link_count: links.length,
-    real_observation_link_count: realLinks.length,
-    used_bound_count: usedBound.length,
-    used_unbound_count: unbound.size,
+    observation_link_count: derived.links.length,
+    real_observation_link_count: derived.real_observation_link_count,
+    request_inclusion_link_count: derived.request_inclusion_link_count,
+    used_bound_count: derived.used_bound_count,
+    used_unbound_count: derived.used_unbound_count,
+    derived_mismatch: derivedMismatch,
   };
 }
 
@@ -793,35 +1049,54 @@ export function resolveReplayStatus(chain) {
 }
 
 /**
- * 必需证据完整性判定（B42 §12.2）。纯函数，只读归一化 chain + 声明。
+ * 必需证据完整性判定（B42 §12.2 / §13）。纯函数，只读 chain 原始字段 + 声明。
  *
  * - `status=complete` 才允许进入模型行为 PASS 判定；
- * - 必需维度缺失 → 原因码（evidence_missing）；只有 `observation_link` 缺失属于
- *   “场景核心因果断言不成立”，按 fail 处理（`fail_codes`）。
+ * - 必需维度缺失 → 原因码（evidence_missing）；只有“记录之间互相否定”的
+ *   observation_link 缺失属于因果断言被证据否定，按 fail 处理（`fail_codes`）。
  */
 export function evaluateEvidenceCompleteness(chain, requirements) {
   const normalized = normalizeEvidenceRequirements(requirements);
   const observations = Array.isArray(chain?.observations) ? chain.observations : [];
-  const links = Array.isArray(chain?.observation_to_provider_call) ? chain.observation_to_provider_call : [];
-  const realLinks = links.filter((link) => link?.ordered === true && link?.provider_real === true);
-  const recordedRealCalls = (Array.isArray(chain?.provider_calls) ? chain.provider_calls : []).filter(
-    (call) => call?.real === true,
+  const providerCalls = Array.isArray(chain?.provider_calls) ? chain.provider_calls : [];
+  const derived = deriveEvidenceFacts(chain);
+  const recordedRealCalls = providerCalls.filter((call) => call?.real === true).length;
+  const includedRefs = new Set();
+  for (const link of derived.links) {
+    if (link?.includes_observation !== true || link?.provider_real !== true) continue;
+    if (link?.ordered !== true) continue;
+    if (nonEmptyString(link.observation_ref)) includedRefs.add(link.observation_ref);
+  }
+  const allIncluded =
+    observations.length > 0 &&
+    observations.every((observation) => includedRefs.has(observation?.observation_ref));
+  const metadataComplete = observations.filter(
+    (observation) => observation?.metadata_missing !== true,
   ).length;
-  const metadataComplete = observations.filter((observation) => observation?.metadata_missing !== true).length;
-  const unboundRefs = Array.isArray(chain?.unbound_refs) ? chain.unbound_refs : [];
-  const replayStatus = resolveReplayStatus(chain);
   const usedStatus = chain?.used_context_refs_status ?? "unknown";
   const usedSource = chain?.used_context_refs_source ?? "missing";
+  const used = Array.isArray(chain?.used_context_refs) ? chain.used_context_refs : [];
+  const reportCallRef = stringOrNull(chain?.used_context_refs_provider_call_ref);
+  const reportCallKnown = reportCallRef
+    ? providerCalls.some((call) => call?.provider_call_ref === reportCallRef)
+    : false;
+  const usedFullyCredited =
+    used.length === 0
+      ? usedStatus === "reported" && usedSource !== "inferred_supplied"
+      : reportCallKnown &&
+        derived.used_bound_count === used.length &&
+        derived.unbound_refs.length === 0;
+  const replayStatus = resolveReplayStatus(chain);
   const preparation = chain?.preparation_outcome ?? "unknown";
   const staleOnRestore = chain?.stale_on_restore ?? "unknown";
 
   const present = {
     base_refs: chain?.base_refs_status === "recorded",
     observations: observations.length > 0,
-    observation_link: realLinks.length > 0,
+    observation_link: allIncluded,
     source_metadata: observations.length > 0 && metadataComplete === observations.length,
     used_context_refs:
-      usedStatus === "reported" && usedSource !== "inferred_supplied" && unboundRefs.length === 0,
+      usedStatus === "reported" && usedSource !== "inferred_supplied" && usedFullyCredited,
     preparation: preparation !== "unknown",
     restore: staleOnRestore !== "unknown",
     replay: replayStatus === "no_provider_call",
@@ -829,9 +1104,14 @@ export function evaluateEvidenceCompleteness(chain, requirements) {
   const observed = {
     base_refs: chain?.base_refs_status ?? "unknown",
     observations: observations.length,
-    observation_link: realLinks.length,
+    observation_link: `${includedRefs.size}/${observations.length}`,
     source_metadata: `${metadataComplete}/${observations.length}`,
-    used_context_refs: { status: usedStatus, source: usedSource, unbound_count: unboundRefs.length },
+    used_context_refs: {
+      status: usedStatus,
+      source: usedSource,
+      bound_count: derived.used_bound_count,
+      unbound_count: derived.unbound_refs.length,
+    },
     preparation,
     restore: staleOnRestore,
     replay: replayStatus,
@@ -848,12 +1128,15 @@ export function evaluateEvidenceCompleteness(chain, requirements) {
     if (requirement !== "required" || ok) continue;
     missingRequired.push(dimension);
     reasonCodes.push(EVIDENCE_DIMENSION_REASON_CODES[dimension]);
-    // observation_link 的“fail vs evidence_missing”分界：
-    // 观察与真实 provider 调用都已记录、却没有可判顺序的链接 → 因果断言被证据否定 → fail；
-    // 任一侧未记录（历史 artifact/骨架链）→ 无法判断 → 只能 evidence_missing。
-    if (dimension === "observation_link" && observations.length > 0 && recordedRealCalls > 0) {
-      failCodes.push("observation_not_linked");
-    }
+    if (dimension !== "observation_link" || observations.length === 0) continue;
+    if (recordedRealCalls === 0) continue;
+    // fail 只来自已记录证据之间的否定：顺序矛盾 / 反向声称冲突 / 请求记录明确未包含。
+    const contradiction =
+      derived.blockers.includes("observation_not_included_in_request") ||
+      derived.violations.some((violation) =>
+        ["observation_after_provider_call", "observation_link_conflict"].includes(violation.code),
+      );
+    if (contradiction) failCodes.push("observation_not_linked");
   }
   return {
     status: missingRequired.length === 0 ? "complete" : "missing",
@@ -1083,6 +1366,13 @@ export function readLlmCalls(file, relative = null) {
         Number(response.status) === 200,
       request_message_count: Array.isArray(body.messages) ? body.messages.length : 0,
       request_params: extractRequestParams(body),
+      // B42 §13：真实 artifact 只有在请求侧显式记录观察 refs 时才产出该字段；
+      // 未记录保持 undefined → normalizeProviderCall 记 unknown（不得推断包含/未包含）。
+      request_observation_refs: Array.isArray(row.request_observation_refs)
+        ? uniqueStrings(row.request_observation_refs.map(refToken))
+        : Array.isArray(request.observation_refs)
+          ? uniqueStrings(request.observation_refs.map(refToken))
+          : undefined,
       response_has_body: isPlainObject(response.body) || nonEmptyString(response.body),
       real: classifyProvider(provider) === "real_model",
       source_file: relative ?? file,
@@ -1176,9 +1466,13 @@ export function readArtifactEvidence(artifactDir, options = {}) {
         provider: call.provider,
         model: call.model,
         actual_model: call.actual_model,
+        ...(call.request_observation_refs !== undefined
+          ? { request_observation_refs: call.request_observation_refs }
+          : {}),
       })),
     used_context_refs: usedReported ? usedFlat : null,
     used_context_refs_source: usedReported ? "self_report" : "missing",
+    used_context_refs_provider_call_ref: options.used_context_refs_provider_call_ref ?? null,
     preparation_outcome: options.preparation_outcome ?? "unknown",
     stale_on_restore: options.stale_on_restore ?? "unknown",
     replay_provider_called: options.replay_provider_called === true,
