@@ -1212,3 +1212,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B01 blocked**：CP0 确认 origin_frame_ref 合成串；CP1 需 nullable origin_turn_ref/改列可空（SQLite 表重建）或 origin_ref_kind 双格式，涉及 schema/历史兼容，列 A/B/C 交作者授权；当前任务切 DS01-RUN-STATE。
 
 - 2026-10-31 — **DS01-RUN-STATE CP0**：盘点 agent_run_state 现役 producer/join 恢复/dead 广播/runtime_live 语义；新增 foundation/agent_run_state.json（39 份 schema）并 codegen，前端手写类型/safeParse 待接；live/dead/unknown 与历史快照规则冻结。
+
+- 2026-10-31 — **DS01-RUN-STATE CP1**：agent_run_state 前端类型改 generated，新增 agentRunStateWire safeParse（失败告警+容错，runtime_live 强制 unknown），onAgentRunState/ack 均校验；live/dead/unknown 测试；frontend 647/647、typecheck。真实页面恢复证据待 CP2。

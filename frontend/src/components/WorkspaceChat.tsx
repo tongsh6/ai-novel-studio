@@ -180,6 +180,7 @@ import {
   upsertAssistantTurnResultMessage,
 } from "../lib/agentRunAnchoring";
 import type { CandidateDirection as CandidateDirectionContract } from "../lib/schemas";
+import { parseAgentRunState } from "../lib/agentRunStateWire";
 import { parseIncomingTurnResult, type WireTurnResult } from "../lib/turnResultWire";
 import { toAuthorTraceSummary, type TraceSummaryView } from "../lib/traceSummaryView";
 import { framePresentationForSummary } from "../lib/framePresentation";
@@ -557,13 +558,17 @@ function turnResultAgentRunId(turnResult: TurnResult | undefined): string | null
   return typeof runId === "string" && runId.trim() !== "" ? runId : null;
 }
 
+function normalizeAgentRunMode(value: unknown): "bounded" | "durable" {
+  return value === "durable" ? "durable" : "bounded";
+}
+
 function stateFromTurnResult(turnResult: TurnResult): AgentRunStateData | null {
   const runId = turnResultAgentRunId(turnResult);
   if (!runId) return null;
 
   return {
     run_id: runId,
-    run_mode: turnResult.agent_run?.run_mode ?? "bounded",
+    run_mode: normalizeAgentRunMode(turnResult.agent_run?.run_mode),
     status: turnResult.agent_run?.status ?? "completed",
     phase: turnResult.agent_run?.phase ?? "completed",
     long_run_task_ref: turnResult.agent_run?.long_run_task_ref ?? null,
@@ -2397,7 +2402,7 @@ export function WorkspaceChat() {
       for (const result of response.turn_results ?? []) {
         handleTurnResultRef.current(parseIncomingTurnResult(result));
       }
-      const acknowledgedState = response.agent_run_state;
+      const acknowledgedState = parseAgentRunState(response.agent_run_state);
       if (acknowledgedState) {
         setAgentRunStates((prev) => ({
           ...prev,
@@ -2423,7 +2428,7 @@ export function WorkspaceChat() {
 
       const acknowledgedState: AgentRunStateData = {
         run_id: response.run_id,
-        run_mode: response.run_mode ?? "bounded",
+        run_mode: normalizeAgentRunMode(response.run_mode),
         status: "running",
         phase: "executing",
         long_run_task_ref: response.long_run_task_ref ?? null,

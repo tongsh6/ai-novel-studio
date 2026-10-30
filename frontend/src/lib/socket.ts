@@ -292,46 +292,9 @@ export interface AgentRunTriggerData {
   quality_finding_refs?: string[];
 }
 
-export interface AgentRunStateData {
-  run_id: string;
-  run_mode: string;
-  status: string;
-  phase: string;
-  long_run_task_ref?: string | null;
-  work_id?: string | null;
-  session_id?: string | null;
-  parent_turn_ref?: string | null;
-  origin_frame_ref?: string | null;
-  profile_ref?: string | null;
-  trigger?: AgentRunTriggerData | null;
-  current_activity?: {
-    kind?: string;
-    phase?: string;
-    completed_steps?: number;
-    total_steps?: number;
-  } | null;
-  goal?: { text?: string; version?: number };
-  current_step_ref?: string | null;
-  completed_step_refs?: string[];
-  pending_artifact_refs?: string[];
-  interrupt_state?: Record<string, unknown>;
-  current_task?: boolean;
-  remaining_steps?: number;
-  recovered?: boolean;
-  runtime_live?: boolean | null;
-  long_run_task?: {
-    task_id?: string;
-    status?: string;
-    phase?: string;
-    current_unit_ref?: string | null;
-    completed_unit_refs?: string[];
-    pending_artifact_refs?: string[];
-    progress?: number;
-    step?: string;
-    checkpoint_data?: Record<string, unknown>;
-    updated_at?: string | null;
-  } | null;
-}
+import { parseAgentRunState, type AgentRunStateData as AgentRunStateDataWire } from "./agentRunStateWire";
+
+export type AgentRunStateData = AgentRunStateDataWire;
 
 export type AgentCommand = "pause" | "resume" | "cancel" | "steer";
 
@@ -343,7 +306,10 @@ export function onAgentRunState(
   channel: Channel,
   callback: (state: AgentRunStateData) => void,
 ): void {
-  channel.on("agent_run_state", (payload: AgentRunStateData) => callback(payload));
+  channel.on("agent_run_state", (payload: unknown) => {
+    const parsed = parseAgentRunState(payload);
+    if (parsed) callback(parsed);
+  });
 }
 
 // 服务端 agent_command 拒绝携带结构化 reason（not_found /

@@ -77,7 +77,7 @@
 
 ## 9. DS03 agent_run_state Schema 承接
 
-- 状态：**doing（2026-10-31 CP0 盘点完成并新增 agent_run_state schema/codegen；前端手写类型替换与 safeParse/live-dead-unknown 接线待做）**。
+- 状态：**doing（2026-10-31 CP0/CP1 done：agent_run_state schema/codegen、前端 generated 类型、safeParse 容错、live/dead/unknown 测试已落地；真实页面恢复/失效证据待做）**。
 - 来源：[DS03 §9 残余登记](DS03-awaiting-author-runtime-validity-and-recovery-surface.md#9-决策日志) 明确 `agent_run_state` schema/codegen 归 DS01；[全量对账 E04](../2026-10-27-design-to-execution-reconciliation.md#45-其余任务) 要求 additive schema/codegen/safeParse，覆盖 live/dead/unknown 与恢复，不改状态机。
 - 下一步：核对 `agent_run_state` 现役 producer、Channel 广播/join 恢复、历史快照及前端运行权限消费者，明确当前字段、可选性和缺失语义；以现有 wire 为依据冻结 schema 与兼容矩阵，不按旧示例虚构运行状态。
 - 完整后果：schema 源、codegen 类型、实际接收处 safeParse 和消费者同批接线；覆盖 live/dead/unknown、刷新重连、失效 bounded/durable 与旧记录缺字段。历史 snapshot 不能授权实时命令，unknown 不能静默变成 live；必要字段无效与合法缺省须有明确处置，不能仅靠类型编译冒充运行时校验。
@@ -93,4 +93,12 @@
 - 新增 `docs/design/schemas/foundation/agent_run_state.json`（39 份 schema），字段以现役 payload 为准：run_id/run_mode/status/phase 必填；workspace/work/session/parent/origin/profile/trigger/current_activity/goal/plan/refs/budget/consumed/interrupt/current_task/remaining_steps/recovered/runtime_live/long_run_task 可选；`additionalProperties=true` 保留扩展。
 - `pnpm codegen:schemas` 生成 `frontend/src/generated/foundation/agent_run_state.ts`；前端仍使用 `socket.ts:AgentRunStateData` 手写接口（待替换）。
 - CP1 实施清单：前端类型从 generated 派生；`onAgentRunState` 接入 safeParse，失败告警但容错透传，且失败/缺失 `runtime_live` 必须落 unknown，不能当 live；历史快照缺字段读取兼容；live/dead/unknown 正反例测试；复用 DS03 外部真实工作台驱动验证 live 恢复、dead 失效、unknown 禁止命令。
-- 未完成：schema 校验接线、前端类型替换、恢复矩阵真实页面证据。
+### CP1 前端接线记录（2026-10-31）
+
+- `frontend/src/lib/socket.ts` 的 `AgentRunStateData` 改为从 `generated/foundation/agent_run_state` 派生（不再手写 wire 接口）。
+- 新增 `frontend/src/lib/agentRunStateWire.ts`：
+  - `validateAgentRunStatePayload/1` → 返回 path/message issue；
+  - `parseAgentRunState/1` 校验失败 **告警但容错透传**，并强制 `runtime_live=null`（unknown），绝不把漂移 payload 当 live；非对象 payload 返回 null 不回调；同一 run_id 只告警一次。
+- `onAgentRunState` 与 WorkspaceChat 的 `agent_run_state` ack 均经该入口；`stateFromTurnResult`/author action ack 的 `run_mode` 归一到 bounded/durable。
+- 测试 `frontend/src/lib/__tests__/agentRunStateWire.test.ts`：合法 live、历史缺 runtime_live=unknown、漂移告警且 runtime_live 强制 unknown、非对象拒绝、live/dead/unknown authority；frontend 全量 647/647、typecheck 通过。
+- 未完成：DS03 真实工作台 live 恢复/dead 失效/unknown 禁止命令页面证据；历史快照读取回归与 schema/后端产物一致性检查。
