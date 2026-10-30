@@ -29162,6 +29162,7 @@ async function driveAgenticLoopProseDeviationReplan(page, config) {
       (finalTurnResultFrame.body?.adoption_state?.pending ?? []).length === 1,
       `${signal} improved TurnResult did not expose exactly the improved pending candidate`,
     );
+
   } else if (allowCandidateTurnResult) {
     assert(
       finalTurnResultArrived,

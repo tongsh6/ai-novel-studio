@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| UA01-PROMPT-T3T5 | CP0 done；T4 finding 结构渲染+单测完成，真实 D2 场景未跑；T3 前缀校验/T5 provenance 待，T5 需 schema/迁移 A/B/C 裁决 | [原任务小节](slices/UA01-agentic-loop-prompt-hardening.md#t3-t5-当前语义审计与承接) |
+| UA01-PROMPT-T3T5 | CP0 done；T4 finding 结构渲染+单测完成；D2 页面复跑超时（events 有，ui-state 缺失）待定位；T3 前缀校验/T5 provenance 待，T5 需 A/B/C 裁决 | [原任务小节](slices/UA01-agentic-loop-prompt-hardening.md#t3-t5-当前语义审计与承接) |
 
 ## 后续候选
 

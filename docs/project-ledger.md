@@ -1290,3 +1290,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **UA01-PROMPT-T3T5 CP0**：现役为完整单调用修订（无 revised_tail）；发现 T4 修订 prompt 只渲染 observation summary、结构化 finding 字段缺失；T5 PlanStep.description 无 provenance/N-NARR 未闭合；T3 前缀保留无机械校验。CP1 先做 T4，T5 需 schema/迁移裁决；未改代码。
 
 - 2026-10-31 — **UA01 T4**：quality observation 增加 findings 结构，planner 修订 prompt 按 5 条/240 字渲染 gate/severity/summary，超限显式 +N；单测 39/0、全量 1056/0（含既有 AgentRunRuntime flake 单跑通过）。T4 真实 D2 页面未跑；T3 前缀校验/T5 provenance 待；未调模型。
+
+- 2026-10-31 — **UA01 T4 页面 reanchor**：D2 场景复跑一次超时（事件链 plan_revised/artifact_superseded/run_completed 有，但 driver 未写 ui-state，verifier 未 PASS）；未重复盲跑；T4 仍只有 prompt 局部证据，T5 待 A/B/C 裁决。

@@ -152,5 +152,10 @@ xref/arch、I1/I2/I3/N-NARR/I-CACHE、静态扫描；Acceptance Driver=既有外
   - 渲染 `finding [<gate>, severity=<severity>] <summary>`，summary-only 不再冒充完整 finding。
 - 测试：`agentic_plan_draft_planner_test` 新增 7 findings → 5 条 + `…(+2)`，并断言 gate/severity/明细；39/0。
 - 全量 backend **1056/0**（首次 AgentRunRuntime 既有 flake，单测复跑通过，登记非本次回归）。
-- **未闭环**：T4 真实页面 D2 场景未复跑（当前仅 prompt/局部测试）；T3 完成前缀无机械 hash 校验；T5 仍无 PlanStep.description provenance，需作者裁决 A/B/C。
+- **未闭环**：T4 真实页面 D2 场景复跑一次超时（app log 有 plan_revised/artifact_superseded/run_completed，但 driver 未写出 ui-state；根因未定位，未据此宣称页面 PASS）；T3 完成前缀无机械 hash 校验；T5 仍无 PlanStep.description provenance，需作者裁决 A/B/C。
 - 未调用真实模型；未改 schema/迁移。
+
+### T4 页面复跑记录（2026-10-31）
+
+- 运行 `agentic-loop-quality-deviation-replan` 一次：AgentRun 事件链出现 `plan_revised(agentic_deviation:D2)`、`artifact_superseded`、`run_completed`，但 native verifier 360s 内未读到 `slice_verify.ui_state.done`，driver 未写出 ui-state → 场景未 PASS。
+- 按同因预算未重复盲跑；不把局部 prompt 测试/事件链当真实页面 PASS。D2 流程走的是判断②续行，不是 `AgenticPlanDraftPlanner.revision_prompt`，T4 finding 渲染的页面消费者尚未找到；需要先定位该 driver 超时根因，再选一个真正消费 revision_prompt 的页面入口。
