@@ -338,8 +338,15 @@ Q1B 第十轮模型已经提出“保留或替代已保存编辑版”，但作�
 
 ## Q1c 原生页面补验
 
-- 状态：**todo（2026-10-30 承接已登记的 Q1c-specific 原生证据缺口；原 CP1–CP5/browser 收口不改，本项尚未执行）**。
+- 状态：**blocked（2026-10-31 CP0 盘点：Q1c 场景/驱动只注册为 browser surface，无 Tauri 原生驱动入口；未伪造原生证据）**。
 - 来源：本文件顶部诚实边界与 [全量对账 E15](../2026-10-27-design-to-execution-reconciliation.md#45-其余任务)。B28 的原生正文修订证据不能替代 Q1c 的 `world_setting` 修订链。
 - 下一步：先核对现役 `q1c-adopted-content-revision` 场景、原生驱动可达性、当前采纳/修订契约与旧 AU-05/09/12 漂移记录，明确最小补验输入和断言；区分 driver 漂移与产品回归，不直接恢复旧调用协议或重新实现已落地修订能力。
 - 完整后果：外部驱动真实 Tauri 工作台完成设定采纳→修订命中 accepted 目标→覆盖确认→旧版 SUPERSEDED/新版 CONFIRMED→刷新与追问消费新值，核对来源/修订双向引用及零重复权威事实；保持歧义、stale、跨作品、放弃等原拒绝边界及既有回归承接，不用正文替身场景代签设定链。
 - 证据与条件：当前 HEAD 的原生 summary、操作/网络/持久事实分别留证，旧 browser 与中断批次保持原边界；确定性机制与真实模型语义分开，结构补验不自动重跑长时间实模链。若发现产品缺陷，回原 Q1c 范围修复并复验；真实模型批次须有具体预注册与资源窗口，产品代码不新增验收感知逻辑。
+
+### 原生补验 CP0/阻塞记录（2026-10-31）
+
+- 现状：`q1c-adopted-content-revision` 在 quality registry 注册为 `surface: browser`，driver 为独立 `frontend/slice-verify/q1c-adopted-content-revision.mjs`；`tauri_slice_verify` 的 native action/driver map 没有 Q1c 分支，原生 Tauri 窗口入口不可达。
+- 不能把 browser-surface summary 当原生 Tauri 证据；也不能在未接线时直接恢复旧调用协议或重写已落地修订能力。
+- 解除条件：为 Q1c 增加/接线真实 Tauri 外部 driver（复用既有设置采纳→修订→覆盖确认→SUPERSEDED/CONFIRMED→刷新追问链），按当前 HEAD 原生 summary/操作/网络/持久事实分别留证；需独立 runtime 预算。
+- 未改产品代码；当前 browser 证据边界保持原登记。

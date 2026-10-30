@@ -1298,3 +1298,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B71 CP1 blocked（待 ADR 裁决）**：CP0 完成；目标统一 AgentRun 原生多轮与现役 ADR-0030/0031 冲突，需作者/ADR owner 选 A（正式修订/supersede，推荐）/B（现役 additive 实验）/C（延期）；未改 schema/代码/契约；当前任务切 CA04-B15。
 
 - 2026-10-31 — **CA04-B15 done**：当前 HEAD 无蓝图/含蓝图两次真实 Tauri PASS；含蓝图时 writer prompt 携带设计态蓝图且三条 carry/G4-G5 gate/tentative no-write 全部保持；seed/driver 增加蓝图断言；无产品修复。当前任务切 Q1C-NATIVE。
+
+- 2026-10-31 — **Q1C-NATIVE CP0 blocked**：Q1c 场景/驱动只注册 browser surface，tauri_slice_verify 无 Q1c native 入口；不伪造原生证据/不恢复旧协议；登记解除条件，当前任务切 P1-AUDIT-BC。

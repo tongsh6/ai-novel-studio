@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| Q1C-NATIVE | 核对原生 driver，补设定修订→覆盖→刷新→追问链；保留 browser 历史，不重复实现修订 | [原任务小节](slices/Q1C-adopted-content-revision.md#q1c-原生页面补验) |
+| P1-AUDIT-BC | 核对重复段/章、计划与采纳来源和 ReadingMode；冻结缺章率口径，闭合展示与报告一致性 | [原任务小节](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外) |
 
 ## 后续候选
 
@@ -15,7 +15,6 @@
 | B27 | §9 CP0–CP3 done（同源供给声明、构造器矩阵、外部原生 Tauri+真实模型 M1/M2 cp3c PASS）；原 CP4 measured FAIL/known-gap 与第二方复核仍按作者裁决保留，不重启全量 retest | [原任务](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B48 | 无变化普通说明、真正歧义才追问；依赖 B43 裁决同源，完成四场景验收 | [原任务](slices/B48-character-revision-noop-and-ambiguity.md) |
 | VS-00G | 核对 CP5e A2/A3 历史证据与当前版本，明确 scoped 补验；触发 C/记忆富化与 B39 协同 | [原任务](slices/VS-00G-fact-inventory-run.md) |
-| P1-AUDIT-BC | 核对重复段/章、计划与采纳来源和 ReadingMode；冻结缺章率口径，闭合展示与报告一致性 | [原任务小节](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外) |
 | AU03-SEARCH | 核对历史搜索命中 turn 身份、分页定位与高亮；保持历史只读和作品隔离 | [原任务小节](slices/AU03-file-level-closure.md#历史搜索命中定位与只读回看) |
 | UA01-LOG-B13 | 只读核对 run_failed 与三源日志的关联键及失败链，依实际缺口补验；vendor live 单独核凭据/资源 | [原任务小节](slices/UA01-provider-execution-stream-unification.md#10-b13-运行失败日志关联) |
 | SU04-LIFECYCLE | 核对 sidecar 启动/迁移失败、就绪与退出状态，冻结故障恢复/无孤儿矩阵 | [原任务小节](slices/SU04-desktop-sidecar-packaging.md#现役故障与生命周期契约核对) |
@@ -33,6 +32,7 @@
 - **AU10-FAILED CP1**：CP0 盘点完成；失败 producer/前端错误投影存在，但真实页面无法确定性触发（空作品导出按钮隐藏、原生目录选择不可控、无 export 写失败代理）；不新增验收开关，登记阻塞，见 [AU10](slices/AU10-workbench-recovery-taskstate.md#failed-cp0-盘点2026-10-31)。
 - **UA01-PROMPT-T3T5**：T4 finding 结构渲染已完成（局部测试）；D2 页面 driver 超时、T5 provenance 需 schema/迁移 A/B/C 裁决、T3 前缀校验待；未重复盲跑、未改 schema。解除后补页面与 provenance，见 [UA01](slices/UA01-agentic-loop-prompt-hardening.md#阻塞记录2026-10-31)。
 - **B71 CP1**：CP0 完成；CP1 目标 Request IR/原生多轮需修订或 supersede ADR-0030/0031 与 UA-01/VS-00I，涉及 ADR 裁决，AI 不自行改协议。选项 A（推荐，正式修订/supersede 目标）/B（现役 additive 实验，不改 ADR）/C（延期）；未裁决前不改代码/契约，见 [B71](slices/B71-provider-message-fidelity.md#cp1-阻塞记录2026-10-31)。
+- **Q1C-NATIVE**：Q1c 场景注册为 browser surface，无 Tauri 原生 driver 入口；不能把 browser summary 当原生证据，未伪造/未重写修订链。解除条件=接原生 Q1c 外部 driver 并留当前 HEAD 原生事实，见 [Q1C](slices/Q1C-adopted-content-revision.md#原生补验-cp0阻塞记录2026-10-31)。
 - **B01 后续**：CP0 done；origin_frame_ref 为合成串，CP1 需 A（新增 nullable origin_turn_ref + origin_frame_ref 可空，推荐）/B（origin_ref_kind + turn:<id>）/C（保持 known-gap）之一；涉及 SQLite 表重建/历史兼容，待作者授权 migration，未改 schema/DB。见 [B01 小节](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界)。
 - **B43 后续**：CP0/CP1 done；CP2 Form R 出口/Replay 同源已落地；**MissingPolicy 在 Gate 之后才评估**，统一门序涉及 ADR-0005 gate 集合与验收判据，需作者/ADR owner 在 A（新增 missing_policy gate，推荐）/B（decide 前 preflight）/C（仅标注）/D（只覆盖 prose flow）间裁决；CP3/CP4 未开工，见 [B43](slices/B43-gate-order-residual.md)。
 - **B67 后续**：CP0/CP1 done；CP2 revision CAS/重编号/旧任务晚到已落地，但维护 StateTrace 依赖 [VS00F-TRACE](slices/VS-00F-five-ledgers-three-state.md#维护-statetrace-后续-checkpoint) owner 先冻结生产/存储/回放契约；CP3 页面矩阵未开工，见 [B67](slices/B67-revision-aware-ledger-maintenance.md)。
