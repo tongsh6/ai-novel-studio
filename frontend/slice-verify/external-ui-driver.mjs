@@ -16144,6 +16144,56 @@ async function driveP1WordCountAudit(page) {
   const milestoneProgressVisible = visibleText.includes("P1 进度");
   const belowMinChapter = Number(base.chapter_word_count ?? 0) < 1000;
 
+  // P1 checkpoint B/C：真实 get_toc 回复必须带重复/缺章审计，ReadingMode 必须可见。
+  const tocReply = [...frames]
+    .reverse()
+    .find(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.response?.audit &&
+        Array.isArray(frame.body.response.volumes),
+    );
+  assert(tocReply, "P1 B/C: no get_toc reply with audit found");
+  const audit = tocReply.body.response.audit;
+  assert(
+    Number.isInteger(audit.planned_chapter_count) &&
+      Number.isInteger(audit.duplicate_paragraph_count) &&
+      Number.isInteger(audit.duplicate_chapter_count) &&
+      Number.isInteger(audit.missing_chapter_count),
+    `P1 B/C: audit missing duplicate/missing fields: ${JSON.stringify(audit)}`,
+  );
+  const missingSummaryVisible = visibleText.includes("缺章");
+  assert(missingSummaryVisible, "P1 B/C: ReadingMode missing-chapter audit summary not visible");
+
+  const outputDir = path.join(process.cwd(), "artifacts/novel-output/p1-word-count-audit");
+  fs.mkdirSync(outputDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(outputDir, "word-count.json"),
+    JSON.stringify(
+      {
+        work_id: tocReply.body.response.work_id,
+        total_word_count: tocReply.body.response.total_word_count,
+        audit,
+        chapters: tocReply.body.response.volumes.flatMap((volume) =>
+          volume.chapters.map((chapter) => ({
+            id: chapter.id,
+            title: chapter.title,
+            seq: chapter.seq,
+            word_count: chapter.word_count,
+            audit_status: chapter.audit_status,
+          })),
+        ),
+      },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(
+    path.join(artifactDir, "b15-audit.json"),
+    JSON.stringify({ audit, missingSummaryVisible }, null, 2),
+  );
+
   assert(shortBadgeVisible, "短章 badge not visible in TOC for a sub-1000-word adopted chapter");
   assert(milestoneProgressVisible, "P1 milestone progress not visible in reading mode top bar");
   assert(!milestoneMet, "Milestone must not be marked met for a single short chapter");
@@ -16159,6 +16209,12 @@ async function driveP1WordCountAudit(page) {
       milestone_progress_visible: milestoneProgressVisible,
       milestone_met: milestoneMet,
       below_min_chapter: belowMinChapter,
+      audit_planned_chapter_count: audit.planned_chapter_count,
+      audit_missing_chapter_count: audit.missing_chapter_count,
+      audit_missing_chapter_rate: audit.missing_chapter_rate,
+      audit_duplicate_paragraph_count: audit.duplicate_paragraph_count,
+      audit_duplicate_chapter_count: audit.duplicate_chapter_count,
+      audit_missing_summary_visible: missingSummaryVisible,
     },
   ];
 }

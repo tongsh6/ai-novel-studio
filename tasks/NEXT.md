@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| P1-AUDIT-BC | CP0 done；CP1 后端/前端实现完成（duplicate/missing audit + ReadingMode）；word-count.json 维度与真实 Tauri 页面证据待补 | [原任务小节](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外) |
+| P1-AUDIT-BC | CP0/CP1 实现 done（audit/ReadingMode/artifact writer）；页面场景被既有 stale-banner 时序断言阻断，待 reanchor 后跑 B/C 证据 | [原任务小节](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外) |
 
 ## 后续候选
 
