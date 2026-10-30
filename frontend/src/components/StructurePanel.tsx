@@ -149,6 +149,9 @@ function profileStatusLabel(status?: string): string {
 function profileRows(profile: WorkProfile | null): { label: string; value: string }[] {
   return [
     { label: STRUCTURE_PANEL.profile.genre, value: profileText(profile?.genre) },
+    { label: STRUCTURE_PANEL.profile.premise, value: profileText(profile?.premise) },
+    { label: STRUCTURE_PANEL.profile.theme, value: profileText(profile?.theme) },
+    { label: STRUCTURE_PANEL.profile.mainGoal, value: profileText(profile?.main_goal) },
     {
       label: STRUCTURE_PANEL.profile.coreSellingPoint,
       value: profileText(profile?.core_selling_point),

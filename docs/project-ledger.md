@@ -1330,3 +1330,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **SU04 CP1 实现完成/阻塞**：作者可见失败分类 command+前端恢复文案；Rust 12/12、前端 657/657；真实 release 打包应用故障复验缺外部 harness（navtive 路径为 debug app 不 spawn sidecar），按预算阻塞。当前任务切 AU12-WRITEBACK。
 
 - 2026-10-31 — **AU12-WRITEBACK CP0**：列清 works 字段权威源、skeleton 白名单仅 3 字段、world_setting 不写 works、DTO/ContextAssembler 消费者缺口；冻结 A（扩展现有显式 field-value 提案+DTO/模型消费）推荐/B 新 artifact/C known-gap；未改代码。
+
+- 2026-10-31 — **AU12-WRITEBACK CP1 partial/阻塞**：显式 field-value 白名单扩至 premise/theme/main_goal/卖点/读者/基调并类型校验；Work DTO/档案概览/ContextAssembler 同源消费；测试全绿。作者概览修订的显式 producer（judgment/chat tool）未裁决，A/B/C 待选；未加新 artifact。当前任务切 AU09-DIRECTION。

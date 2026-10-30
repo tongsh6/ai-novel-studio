@@ -12,6 +12,34 @@ defmodule NovelApplication.WorkServiceTest do
     :ok
   end
 
+  describe "work profile DTO (AU12)" do
+    test "exposes top-level profile anchors for overview and model consumers" do
+      {:ok, work} =
+        WorkService.create(%{
+          title: "立项 DTO",
+          premise: "底层稽查员追查暗抽。",
+          theme: "制度性掠夺",
+          main_goal: "在收网前拿到主账",
+          core_selling_point: "账单式赛博修仙",
+          target_reader: "硬设定读者",
+          tone_preference: "克制紧张",
+          target_length: 120_000,
+          planned_volumes: 2,
+          serial_form: "连载"
+        })
+
+      assert work.premise == "底层稽查员追查暗抽。"
+      assert work.theme == "制度性掠夺"
+      assert work.main_goal == "在收网前拿到主账"
+      assert work.core_selling_point == "账单式赛博修仙"
+      assert work.target_reader == "硬设定读者"
+      assert work.tone_preference == "克制紧张"
+      assert work.target_length == 120_000
+      assert work.planned_volumes == 2
+      assert work.serial_form == "连载"
+    end
+  end
+
   describe "list/0" do
     test "empty initially, then newest-first after creates" do
       assert WorkService.list() == []

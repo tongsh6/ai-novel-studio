@@ -60,7 +60,7 @@ node scripts/task_done_check.mjs
 
 ## P2 立项修订的采纳落位与同源消费
 
-- 状态：**doing（2026-10-31 CP0 契约准备 done：已列字段权威源/现有落位/消费者与 A/B/C 方案；CP1 实现待做）**。
+- 状态：**blocked（2026-10-31 CP0 done；CP1 落位/拒绝/DTO/概览/上下文消费已实现+测试；作者从概览提出修订的显式提案 producer 契约未裁决）**。
 - 来源：本任务 §6、[AU-12](../../docs/design/acceptance/author/AU-12-work-profile.md) AU12-I1/I7、[CA01 写入余项](CA01-planning-context-completion.md)。用户场景是“修订作品立项并采纳后，档案和后续模型使用同一新事实”。
 - 已核事实：`AdoptionRepository` 的 `work_skeleton_suggestion` 仅允许 target_length/planned_volumes/serial_form；`world_setting` 沿记忆类型落位。这些不能证明 premise/theme/main_goal 或题材/卖点/读者/基调等通用修订已回写 works，也不能由自然语言关键词自动推断应覆盖哪个立项字段。
 - CP0（可推进）：列清现有字段权威源、artifact 类型/显式目标、producer、采纳事务、版本及读模型消费者；比较复用既有结构化提案与扩展最小契约的差异，形成字段落位/不落位/缺失值/锁定及冲突处理方案。契约接受前不把任意 world_setting 全量覆盖 works、不新增平行资料表。
@@ -90,3 +90,19 @@ node scripts/task_done_check.mjs
 - 未采纳/放弃/过期：零 works 写入；显示候选与来源字节由现有 artifact/rationale 保持，APP 不补写创作内容。
 
 **CP1 下一步**：实现 A 的 domain 字段白名单/persistence 落位 + DTO/概览/ContextAssembler 消费，补局部测试；再预注册真实 Tauri 概览修订→候选→采纳→刷新/新会话→模型请求字节证据（不新建平行资料表、不改 B39 规划所有权）。
+
+### CP1 实施记录与 producer 阻塞（2026-10-31）
+
+**已实现**
+- persistence `work_skeleton_suggestion` 显式 field-value 白名单扩展：target_length/planned_volumes/serial_form + premise/theme/main_goal/core_selling_point/target_reader/tone_preference；数值/文本类型校验，缺失/非法拒绝，不写记忆、不建平行表；revision 沿用 Work.changeset optimistic lock。
+- `WorkService.to_dto` 暴露通用立项字段；`WorkArchiveRepo.profile` 已有 premise/theme/main_goal，前端 `WorkProfile`/StructurePanel 概览新增「前提/主题/主线目标」行（copy 集中）。
+- `ContextAssembler.current_work_context_parts` 加入 premise/theme/main_goal，使模型上下文与 works 同源。
+- 测试：adoption 落位/拒绝 (54/0)、Work DTO、全量 backend **1058/0**、前端 **657/657**+lint。
+
+**producer 阻塞（需裁决）**
+- 现役 producer 只有 VS-00G fact inventory 的 3 个 skeleton 字段；作者从档案概览点「提出立项修订」走自然语言，judgment/chat 没有生成 `work_skeleton_suggestion` 显式字段项的工具/契约，因此真实页面 `概览修订→候选→采纳→刷新/新会话→模型请求` 无法闭环。
+- 选项：
+  - **A（推荐，最小）**：在现役 judgment/创作工具边界增加显式「立项字段修订提案」能力（复用 work_skeleton_suggestion + field/value，无新表/ADR），概览入口改为提交结构化修订意图；
+  - **B**：扩展 fact inventory 生成全部立项字段提案（只覆盖批量盘点，不覆盖概览点改）；
+  - **C**：先做作者可编辑表单单写 works（新增 UI/版本边界，不等于候选采纳链）。
+- 未裁决前不加新 artifact/tool、不改 acceptance；不把 world_setting 全量覆盖 works。

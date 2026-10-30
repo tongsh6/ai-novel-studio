@@ -912,6 +912,10 @@ export function getReviewReport(channel: Channel, workId: string): Promise<Revie
 export interface WorkProfile {
   title?: string;
   genre?: string;
+  // AU12：NEM-GAP-01 创作向顶层锚，档案概览与模型上下文同源消费。
+  premise?: string | null;
+  theme?: string | null;
+  main_goal?: string | null;
   core_selling_point?: string;
   target_reader?: string;
   tone_preference?: string;

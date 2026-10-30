@@ -263,7 +263,11 @@ defmodule NovelPersistence.AdoptionRepository do
   # 「works 字段类提案落位=立项字段回写」）。字段白名单硬校验；值缺失/字段非法
   # 一律拒绝采纳（不静默吞掉作者授权）。revision 经 Work.changeset optimistic_lock
   # 正常递增，与作者手工立项编辑同一冲突语义。
-  @skeleton_writable_fields ~w(target_length planned_volumes serial_form)
+  @skeleton_numeric_fields ~w(target_length planned_volumes)
+  @skeleton_text_fields ~w(
+    serial_form premise theme main_goal core_selling_point target_reader tone_preference
+  )
+  @skeleton_writable_fields @skeleton_numeric_fields ++ @skeleton_text_fields
 
   defp maybe_apply_work_skeleton(repo, attrs) do
     if work_skeleton_artifact?(Map.get(attrs, :artifact_type)) do
@@ -283,6 +287,12 @@ defmodule NovelPersistence.AdoptionRepository do
 
       is_nil(value) ->
         {:error, :skeleton_value_missing}
+
+      field in @skeleton_numeric_fields and (not is_integer(value) or value <= 0) ->
+        {:error, {:invalid_skeleton_value, field}}
+
+      field in @skeleton_text_fields and (not is_binary(value) or String.trim(value) == "") ->
+        {:error, {:invalid_skeleton_value, field}}
 
       true ->
         case repo.get(Work, Map.fetch!(attrs, :work_id)) do

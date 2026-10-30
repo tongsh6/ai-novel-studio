@@ -427,7 +427,48 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert mutation.mutation_type == "adopt_artifact"
     end
 
-    test "rejects work_skeleton_suggestion with illegal field or missing value" do
+    # AU12 CP1：显式 field-value 提案扩展到通用立项标量字段（premise/theme/main_goal/
+    # 卖点/读者/基调），仍拒绝非法字段/缺失值/类型不符；不写记忆、不建平行表。
+    test "adopts explicit work profile field proposal into works" do
+      {:ok, work} = NovelPersistence.WorkRepo.create(%{title: "立项回写作品"})
+
+      for {field, value} <- [
+            {"premise", "一名底层稽查员追查被公司暗抽的灵气。"},
+            {"theme", "制度性掠夺与个人取证"},
+            {"main_goal", "在巡检收网前拿到暗抽主账"},
+            {"core_selling_point", "账单式赛博修仙"},
+            {"target_reader", "偏好硬设定与悬疑推进的连载读者"},
+            {"tone_preference", "克制、紧张、具象"}
+          ] do
+        assert {:ok, persisted} =
+                 AdoptionRepository.persist(%{
+                   actor_ref: "author",
+                   work_id: work.id,
+                   source_turn_ref: "turn-profile-#{field}",
+                   artifact_id: "as-profile-#{field}",
+                   artifact_type: :work_skeleton_suggestion,
+                   base_revision: 1,
+                   content: "作者确认的立项修订",
+                   summary: field,
+                   skeleton_field: field,
+                   skeleton_value: value
+                 })
+
+        assert persisted.mutation_status == "APPLIED"
+        assert persisted.work_planning_updated == true
+        refute Map.has_key?(persisted, :memory_item_id)
+      end
+
+      updated = Repo.get!(NovelPersistence.Schemas.Work, work.id)
+      assert updated.premise == "一名底层稽查员追查被公司暗抽的灵气。"
+      assert updated.theme == "制度性掠夺与个人取证"
+      assert updated.main_goal == "在巡检收网前拿到暗抽主账"
+      assert updated.core_selling_point == "账单式赛博修仙"
+      assert updated.target_reader == "偏好硬设定与悬疑推进的连载读者"
+      assert updated.tone_preference == "克制、紧张、具象"
+    end
+
+    test "rejects work_skeleton_suggestion with illegal field, missing or invalid value" do
       {:ok, work} = NovelPersistence.WorkRepo.create(%{title: "规划回写拒绝"})
 
       base = %{
@@ -441,16 +482,27 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
         summary: "非法"
       }
 
-      assert {:error, {:invalid_skeleton_field, "premise"}} =
+      assert {:error, {:invalid_skeleton_field, "not_a_field"}} =
                AdoptionRepository.persist(
-                 Map.merge(base, %{skeleton_field: "premise", skeleton_value: "文本"})
+                 Map.merge(base, %{skeleton_field: "not_a_field", skeleton_value: "文本"})
                )
 
       assert {:error, :skeleton_value_missing} =
                AdoptionRepository.persist(Map.put(base, :skeleton_field, "target_length"))
 
+      assert {:error, {:invalid_skeleton_value, "target_length"}} =
+               AdoptionRepository.persist(
+                 Map.merge(base, %{skeleton_field: "target_length", skeleton_value: "30 万"})
+               )
+
+      assert {:error, {:invalid_skeleton_value, "premise"}} =
+               AdoptionRepository.persist(
+                 Map.merge(base, %{skeleton_field: "premise", skeleton_value: "   "})
+               )
+
       untouched = Repo.get!(NovelPersistence.Schemas.Work, work.id)
       assert untouched.target_length == nil
+      assert untouched.premise == nil
       assert MutationLog.list_by_turn("turn-skeleton-reject") == []
     end
 
