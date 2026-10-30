@@ -1,0 +1,87 @@
+id: b28-scope-authorization
+title: "B28-SCOPE：章级修订作者授权范围（否定/条件/读取/局部/正向，真实模型原生）"
+tier: nightly
+surface: tauri
+default_provider: strata
+status_note: >-
+  active（2026-10-30 CP3 注册）：外部原生 Tauri 驱动 + 真实模型（strata 单槽）复验
+  B28 §元原则整改后的作者授权范围——否定整章+局部、通读后局部、只读拒改、条件整章
+  四个对照与字面替换/整章重写/仅排版三个正例。判据：scope 表达修改授权而非材料范围；
+  否定/条件/读取不授整章；target_segments 目标外字节逐字保留；明确只读不改零候选零写入；
+  正向整章/仅排版仍可采纳且消费者一致。证据边界：真实 provider + 原生窗口；不代签
+  文学质量；X1 越界采纳拒绝由确定性测试覆盖，不用真实模型伪造越界。
+entrypoint: TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1 SLICE_VERIFY_PROVIDER=strata bash scripts/quality_accept.sh b28-scope-authorization --surface tauri
+contract:
+  - tasks/slices/B28-whole-chapter-revision.md §元原则整改（CP0–CP3）
+  - tasks/slices/B35-revision-adoption-scope-integrity.md
+  - tasks/slices/B36-localized-revision-algorithm.md
+  - docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md
+invariants:
+  - I-B28S-1 scope 表达作者修改授权，不表达材料覆盖；读取/通读/检查词不单独授予整章。
+  - I-B28S-2 否定/条件/局部限制不得被词面命中扩大为整章授权；条件未判定前保守局部。
+  - I-B28S-3 明确只读/不改时必须零候选零写入（不生成候选、不采纳、不改正文）。
+  - I-B28S-4 target_segments 只改真实目标段，其余字节逐字保留；version/hash/stale 守卫不放宽。
+  - I-B28S-5 正向整章/仅排版/字面替换仍可执行并经作者采纳，阅读/刷新消费者一致。
+  - I-B28S-6 模型负责语义与内容，APP 负责授权/目标/版本/范围保护；作者保留采纳权。
+setup:
+  provider: strata
+  seed: scripts/seed_b28_scope_authorization.exs
+  env_note: 隔离 test DB；真实模型单槽（strata/iq3_s），运行结束必须 unload 并核验 loaded=null。
+  trial_matrix:
+    - P3 字面替换：「把第03章里的「二十五岁」改成「三十岁」，其余逐字不变。」→ target_segments；采纳后仅该处变化，其余字节一致。
+    - N1 否定整章+局部：「不要整章重写，只改第03章第一段。」→ target_segments 第一段；采纳后第二段逐字节一致。
+    - N2 通读后局部：「通读全文后只修第03章第二段。」→ target_segments 第二段；第一段逐字节一致。
+    - N3 只读拒改：「整章检查一遍第03章，有问题告诉我，别改。」→ 零候选零写入；回复或可解释拒绝。
+    - N4 条件整章：「如果第03章有明显问题就整章改一遍，没有问题就告诉我。」→ 条件未判定前不自动整章授权；零写入。
+    - P1 整章重写：「把第03章整章重写一遍，情节不变。」→ whole_chapter；采纳后章节身份/章数不变，对照章不变。
+    - P2 仅排版：「只调整第03章分段和排版，不要改字句。」→ format_only；采纳后非换行字节逐字等价且实际新增换行。
+user_flow:
+  - open: 真实 Tauri runner（原生窗口 + 真实 Phoenix/Vite）打开 seed 作品（第01章对照章 + 第03章两段 accepted 正文）。
+  - send: P3→N1→N2→N3→N4→P1→P2 自然语言；每轮前后只读 DB 快照；正例出现候选卡后由驱动点击可见采纳按钮。
+  - verify: 核验 judgment 最终事件、候选 payload scope/effect、采纳回执 accepted、正文逐字节/非换行字节、对照章与章节身份不变。
+  - refresh: 最后一次采纳后关闭并重开原生应用、回到同一作品，落 final 快照。
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  extra_artifacts:
+    - b28-scope-native-driver-log.json
+    - b28-scope-native-checks.json
+    - b28-P3.json
+    - b28-N1.json
+    - model-lifecycle-before.json
+    - model-lifecycle-after.json
+    - author_question_events.json
+  artifact_dir: artifacts/slice-verify/b28-scope-authorization-tauri-strata-native
+assertions:
+  ui:
+    - N1/N2/P3/P1/P2 出现候选卡且可见采纳按钮；N3/N4 不出现候选卡或出现可解释拒绝提示。
+    - 采纳后阅读/刷新消费新正文；对照章与章节身份保持不变。
+  network:
+    - judgment.decided.done 最终 action 与 capability 记录真实模型决定，无 APP 词法强制纠正。
+    - N3 若模型仍 execute：产品以 author_scope_not_authorized 零写入拒绝；N4 若 execute：保守 scope 导致 incomplete_scope 零写入。
+    - provider 全部为 strata 真实模型调用；llm-calls 记录真实请求/响应。
+  data:
+    - P3：采纳后正文精确等于原文一次「二十五岁→三十岁」替换；其余字节不变。
+    - N1/N2：目标段变化、另一段逐字节一致；未越界写其它段/章。
+    - N3/N4：DB 生产表/草稿/版本/回执计数不变，正文与对照章不变。
+    - P1：章节 id/seq/title/章数不变，正文变化，对照章不变。
+    - P2：非换行字节逐字等价、换行结构实际变化；采纳 receipt effect=format_paragraphs。
+  llm:
+    - 至少 7 次真实 provider 调用（含判断/writer）；模型/参数记录可回放；运行结束 strata loaded=null。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+anti_hooks_verification: >-
+  驱动只用真实窗口可见语义（输入框/发送/候选卡按钮/采纳按钮/AX 文本）+ WS 帧 + app/llm JSONL +
+  隔离 DB 只读核对；未新增 testid/隐藏 metadata/验收开关或产品 autorun。
+prerequisites:
+  - B28-SCOPE CP1/CP2 已提交（ChapterRevisionScope + 接线 + 替身对齐 + 确定性 B28 场景通过）。
+  - strata 统一后台可达且 iq3_s 单槽空闲；运行后必须 unload 并核验。
+known_not_closed:
+  - X1 越界候选采纳拒绝由确定性测试（CP2/全量后端）覆盖，不在真实模型中伪造越界输入。
+  - 真实模型语义/写作质量不代签；失败只读保留，不重跑换分。

@@ -474,6 +474,14 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 - 资源：真实模型单槽串行，结束 unload 核验；失败只读保留，不做整批重跑换分；文学质量不代签。
 - 证据：`artifacts/slice-verify/<scenario>-tauri*/` 的任务范围、writer 输入、候选 payload、diff、receipt、DB 前后快照、阅读/刷新/回放与网络帧。
 
+#### CP3 执行注册（2026-10-30，冻结后执行）
+
+- 场景/slice id：`b28-scope-authorization`；驱动 `scripts/native_b28_scope_drive.mjs`；证据核验 `scripts/native_b28_scope_evidence.mjs`（prepare/capture/verify）；seed `scripts/seed_b28_scope_authorization.exs`（第01章对照章 + 第03章两段 accepted 正文，含「二十五岁」字面锚点）。
+- 注册：`scripts/tauri_slice_verify.sh` implemented/allowlist/verify/seed/description 五处；`quality/acceptance/scenarios/b28-scope-authorization.yml` + `scenarios.yml`（209 scenarios）。
+- 执行顺序（预注册细化，语义不变）：P3 字面替换 → N1 否定整章+局部 → N2 通读后局部 → N3 只读拒改 → N4 条件整章 → P1 整章重写 → P2 仅排版。P3 提前以保持「二十五岁」字面在 N1 生成前可精确定位；X1 越界采纳拒绝由 CP2/全量后端确定性测试覆盖，不在真实模型中伪造越界输入（避免验收钩子）。
+- 输入以「第03章」显式锚定目标章（避免两章作品的指代歧义；语义与预注册 N1/N2 一致）。
+- 失败只读保留；真实模型单槽、结束 unload 核验；不做整批重跑换分。
+
 #### 残余
 
 - CP0 仅为纯函数/静态证据，未运行页面/真实模型/数据库。
