@@ -53,6 +53,40 @@ defmodule NovelApplication.TraceReplayServiceTest do
     assert report.replay_report.result_status == "complete"
   end
 
+  test "reads Form R non-reply decision types without provider call (clarification/gap)",
+       %{work: work, session: session} do
+    for decision_type <- ["clarification_required", "capability_gap", "exploration"] do
+      turn_id = "turn-form-r-#{decision_type}-#{System.unique_integer([:positive, :monotonic])}"
+
+      {:ok, _} =
+        TraceRepository.insert(%{
+          workspace_id: work.id,
+          session_id: session.id,
+          trace_id: "trace-form-r-#{System.unique_integer([:positive, :monotonic])}",
+          turn_id: turn_id,
+          frame_ref: "frame-form-r",
+          decision_type: decision_type,
+          no_tool_reason: "reply_only_no_execution",
+          no_behavior_reason: "reply-only turn does not open durable behavior",
+          no_write_reason: "this turn does not perform production write",
+          turn_result_ref: turn_id,
+          replay_policy: %{use_recorded_frame: true, recall_provider: false},
+          event_order: [
+            "author_input_received",
+            "orchestrator_decision_recorded",
+            "turn_result_emitted"
+          ]
+        })
+
+      assert {:ok, report} = TraceReplayService.fetch_turn_report(work.id, session.id, turn_id)
+      assert report.trace_summary.decision_type == decision_type
+      assert report.replay_report.provider_called == false
+
+      # Form R 非 reply 类型可能因缺少 StateTrace 而 partial；读取本身必须诚实可读。
+      assert report.replay_report.result_status in ["complete", "partial"]
+    end
+  end
+
   test "rebuilds mission fields from persisted state_trace_refs (WR01c why-panel replay)", %{
     work: work,
     session: session

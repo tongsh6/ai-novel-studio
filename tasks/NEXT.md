@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B43 | CP0/CP1 done；CP2 partial：Form R 出口（回复/探索/能力缺口/等待/原文登记）已映射并同源；六 flow open_behavior/slot、等待/失败出口、CP3 blocked 页面待做 | [原任务](slices/B43-gate-order-residual.md) |
+| B43 | CP0/CP1 done；CP2 partial：Form R 出口映射/trace 同源/Replay 读取已验；六 flow open_behavior/slot、等待/失败出口、CP3 blocked 页面待做 | [原任务](slices/B43-gate-order-residual.md) |
 
 ## 后续候选
 

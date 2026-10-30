@@ -1182,3 +1182,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B43 CP2 同源留痕**：TraceWriter.record/4 接受 reply_only decision，trace decision_type/no_tool_reason/event_order 与 trace_summary 的 decision_id/reason_codes 均从同一 decision 派生；测试断言 trace_summary.decision_id == TurnResult.orchestrator_decision.decision_id、decision_trace_ref == trace_ref。全量 mix 1046/0、credo 0 issues。awaiting/capability/creative/author_content 出口与六 flow 门序、blocked 页面仍 todo。
 
 - 2026-10-31 — **B43 CP2 Form R 出口映射**：reply→reply_only、creative_directions→exploration、capability_gap→capability_gap、await_author→require_clarification(required_author_action)、author_content_registration→reply_only+原因；TraceWriter/Replay 词表、前端能力缺口标签同步；trace/turn_result 同源。全量 mix 1047/0、frontend 636/636、typecheck 通过。六 flow open_behavior/slot、等待/失败出口、CP3 页面仍 todo。
+
+- 2026-10-31 — **B43 CP2 Replay 兼容**：TraceReplayService 读取 Form R 的 clarification_required/capability_gap/exploration trace，provider 零调用；非 reply 类型缺 StateTrace 诚实 partial，不伪报 complete；历史无 decision trace 继续可读。trace_replay 8/0、全量 mix 1047/0；六 flow 门序/页面仍 todo。

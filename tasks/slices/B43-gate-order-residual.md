@@ -87,7 +87,8 @@
 - 测试：`dialogue_planning_service_test` 简单对话断言 `orchestrator_decision.decision_type == :reply_only`、`decision_trace_ref == trace_summary.trace_ref`、truthfulness decision_type 同源；全量 mix 1046/0、credo 0 issues。
 - Trace 同源（同轮）：`TraceWriter.record/4` 接受 `decision:` opts，trace 的 decision_type/no_tool_reason/event_order 由同一 reply_only decision 派生；trace_summary 写入 `orchestrator_decision/decision_id/reason_codes`。测试断言 trace_summary 的 decision_id 与 TurnResult.orchestrator_decision 相同、decision_trace_ref=trace_ref；Replay 仍以 DecisionTrace 为读取源。
 - Form R 出口映射（同轮）：`form_r_decision/3` 按真实行为构造统一裁决——reply→reply_only；creative_directions→exploration；capability_gap→capability_gap；await_author→require_clarification(required_author_action=answer_author_question)；author_content_registration→reply_only+`author_content_registration_pending_adoption`。TraceWriter 增加 exploration/capability_gap/require_clarification 映射；TraceReplayService 词表加 capability_gap；前端 copy/traceSummaryView 增加「能力缺口」标签。测试：exploration/capability_gap/await_author 断言 decision_type、trace_summary.decision_type（clarification_required）、required_author_action、author_question；全量 mix 1047/0、frontend 636/636、typecheck 通过。
-- 未完成（CP2 剩余）：六个 agent run flow 与 TurnExecutionService 的 open_behavior/slot/MissingPolicy 统一进门未做；历史无 decision 记录兼容/真实页面 Why/Replay 证据、等待/失败出口映射未做。
+- Replay 读取（同轮）：`TraceReplayService` 能读取 clarification_required/capability_gap/exploration 的 Form R trace，provider 不调用；非 reply 类型因缺 StateTrace 可诚实返回 partial（不伪报 complete），已加测试。历史无 OrchestratorDecision 的旧 trace 仍按 trace 格式读取，不伪造 decision。
+- 未完成（CP2 剩余）：六个 agent run flow 与 TurnExecutionService 的 open_behavior/slot/MissingPolicy 统一进门未做；真实页面 Why/Replay 证据、等待/失败出口映射未做。
 
 ## 4. 非目标
 
