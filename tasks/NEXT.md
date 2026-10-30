@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU09-EVOLUTION | 采纳角色演化后新会话请求/Why 的真实召回与终态过滤；复用 B64 坐标规则 | [原任务小节](slices/AU09-memory-taxonomy-write-policy.md#cp2-角色演化记忆的真实召回) |
+| AU09-EVOLUTION | CP0/CP1 done：召回路径审计 + CHARACTER_PROFILE 进入创作事实链/单测；CP2 真实页面召回待 driver 重锚（au09-memory-taxonomy 卡在中间帧/按钮） | [原任务小节](slices/AU09-memory-taxonomy-write-policy.md#cp2-角色演化记忆的真实召回) |
 
 ## 后续候选
 

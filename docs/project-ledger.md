@@ -1238,3 +1238,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B46 done**：真实 Tauri 跨会话 inbox accept+discard 均 PASS（新会话/第三会话、刷新移除/resolved、唯一 CONFIRMED）；产品修复持久 source turn 回退与 work-wide pending available；档案待处理卡新增放弃动作；backend 1050/0、frontend 653/653、manifest 221/223。edit/重复/跨作品/只读页面变体登记残差。当前任务切 B40-C06。
 
 - 2026-10-31 — **B40-C06 done**：退役 au02-candidate-fallback-ui（registry/manifest 删除、known-gaps retired、替代证据 au02-candidate-continuation 与 au01-frame-validation-friendly-error 真实页面 PASS + judgment_protocol 有界纠错测试）；manifest 220/222；native/真实模型分层残差。当前任务切 AU09-EVOLUTION。
+
+- 2026-10-31 — **AU09-EVOLUTION CP0/CP1**：审计普通召回/创作事实链/角色演化写入；补 `CHARACTER_PROFILE` 到 `creative_facts` 的 `character_profiles` 组与 writer prompt「人物档案演化」；archive/context 单测与 mix 1050/0。CP2 真实页面因既有 au09 taxonomy driver 中间帧/按钮文案陈旧 reanchor，未闭环，不代签。

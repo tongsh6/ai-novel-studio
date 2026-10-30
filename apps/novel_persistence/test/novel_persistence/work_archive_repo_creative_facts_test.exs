@@ -36,6 +36,7 @@ defmodule NovelPersistence.WorkArchiveRepoCreativeFactsTest do
     insert_memory!(work_id, MemoryType.world_rule(), "灵气交易需魂契")
     insert_memory!(work_id, MemoryType.constraint(), "不写穿越元素")
     insert_memory!(work_id, MemoryType.current_state(), "沈砚重伤未愈")
+    insert_memory!(work_id, MemoryType.character_profile(), "凌渊断臂后改用左手剑")
     insert_memory!(work_id, MemoryType.relationship(), "沈砚与白露敌对")
     insert_memory!(work_id, MemoryType.style_rule(), "对白优先")
     insert_memory!(work_id, MemoryType.author_preference(), "章尾留钩子")
@@ -49,6 +50,7 @@ defmodule NovelPersistence.WorkArchiveRepoCreativeFactsTest do
              ["不写穿越元素", "灵气交易需魂契"]
 
     assert Enum.map(facts.current_states, & &1.content) == ["沈砚重伤未愈"]
+    assert Enum.map(facts.character_profiles, & &1.content) == ["凌渊断臂后改用左手剑"]
     assert Enum.map(facts.relationships, & &1.content) == ["沈砚与白露敌对"]
     assert Enum.map(facts.style, & &1.content) |> Enum.sort() == ["对白优先", "章尾留钩子"]
   end
@@ -69,6 +71,7 @@ defmodule NovelPersistence.WorkArchiveRepoCreativeFactsTest do
              foreshadowing: [],
              world_rules: [],
              current_states: [],
+             character_profiles: [],
              relationships: [],
              style: []
            }

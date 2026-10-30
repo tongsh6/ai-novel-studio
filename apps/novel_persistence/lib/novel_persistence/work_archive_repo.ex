@@ -105,6 +105,7 @@ defmodule NovelPersistence.WorkArchiveRepo do
     MemoryType.world_rule(),
     MemoryType.constraint(),
     MemoryType.current_state(),
+    MemoryType.character_profile(),
     MemoryType.relationship(),
     MemoryType.style_rule(),
     MemoryType.author_preference()
@@ -120,6 +121,7 @@ defmodule NovelPersistence.WorkArchiveRepo do
           foreshadowing: [map()],
           world_rules: [map()],
           current_states: [map()],
+          character_profiles: [map()],
           relationships: [map()],
           style: [map()]
         }
@@ -130,6 +132,7 @@ defmodule NovelPersistence.WorkArchiveRepo do
       foreshadowing: of_types(all, @foreshadowing_types),
       world_rules: of_types(all, [MemoryType.world_rule(), MemoryType.constraint()]),
       current_states: of_types(all, [MemoryType.current_state()]),
+      character_profiles: of_types(all, [MemoryType.character_profile()]),
       relationships: of_types(all, [MemoryType.relationship()]),
       style: of_types(all, [MemoryType.style_rule(), MemoryType.author_preference()])
     }

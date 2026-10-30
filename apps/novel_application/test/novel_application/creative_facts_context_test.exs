@@ -167,6 +167,7 @@ defmodule NovelApplication.CreativeFactsContextTest do
       foreshadowing: [%{summary: "灵脉断裂之谜", content: "第三章埋下的灵脉断裂尚未回收"}],
       world_rules: [%{summary: "灵气交易需契约", content: "任何灵气交易必须签订魂契"}],
       current_states: [%{summary: "沈砚重伤未愈", content: "左臂经脉受损，无法全力出手"}],
+      character_profiles: [%{summary: "凌渊改用左手剑", content: "断臂后左手剑已成新的战斗习惯"}],
       relationships: [%{summary: "沈砚与白露敌对", content: "黑市冲突后势同水火"}],
       style: [%{summary: "对白优先", content: "多用对白推进，少用心理独白"}]
     }
@@ -182,6 +183,7 @@ defmodule NovelApplication.CreativeFactsContextTest do
     assert prompts =~ "伏笔与情节事实：\n- 灵脉断裂之谜：第三章埋下的灵脉断裂尚未回收"
     assert prompts =~ "世界规则与约束：\n- 灵气交易需契约：任何灵气交易必须签订魂契"
     assert prompts =~ "人物当前状态：\n- 沈砚重伤未愈"
+    assert prompts =~ "人物档案演化：\n- 凌渊改用左手剑"
     assert prompts =~ "人物关系：\n- 沈砚与白露敌对"
     assert prompts =~ "## 写作风格与作者偏好（作者已确认，写作遵循）"
     assert prompts =~ "- 对白优先：多用对白推进，少用心理独白"
@@ -191,7 +193,13 @@ defmodule NovelApplication.CreativeFactsContextTest do
     prompts =
       run(
         "prose_writing",
-        facts_reader(%{world_rules: [], current_states: [], relationships: [], style: []})
+        facts_reader(%{
+          world_rules: [],
+          current_states: [],
+          character_profiles: [],
+          relationships: [],
+          style: []
+        })
       )
 
     assert prompts =~ "伏笔与情节事实："
@@ -205,6 +213,7 @@ defmodule NovelApplication.CreativeFactsContextTest do
           foreshadowing: [],
           world_rules: [],
           current_states: [],
+          character_profiles: [],
           relationships: [],
           style: []
         })

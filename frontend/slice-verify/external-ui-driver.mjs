@@ -18757,7 +18757,19 @@ async function driveAu09MemoryTaxonomyWritePolicy(page) {
 
   // Phase A — 角色主体写主档案、不写记忆。
   const designBefore = frames.length;
-  const design = await sendOrdinaryChatTurn(page, "帮我设计一个主角，叫林烬。", designBefore);
+  const designChat = await sendOrdinaryChatTurn(page, "帮我设计一个主角，叫林烬。", designBefore);
+  const designPendingFrame = await waitForNewFrame(
+    designBefore,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      (frame.body?.adoption_state?.pending ?? []).some(
+        (entry) => entry.artifact_type === "character_seed",
+      ),
+    "character design did not produce a pending character_seed turn_result",
+    120_000,
+  );
+  const design = { ...designChat, turnResult: designPendingFrame.body };
   const seedPending = design.turnResult.adoption_state?.pending?.[0];
   assert(
     seedPending && seedPending.artifact_type === "character_seed",
@@ -18793,11 +18805,23 @@ async function driveAu09MemoryTaxonomyWritePolicy(page) {
   // nonce 必须同时含字母与数字（slice_verify 的 random_identifier_tokens 要求），故用 EVOK+纯数字时间戳。
   const evoNonce = `EVOK${Date.now()}`;
   const evoBefore = frames.length;
-  const evolution = await sendOrdinaryChatTurn(
+  const evolutionChat = await sendOrdinaryChatTurn(
     page,
     `更新林烬的当前状态（标记 ${evoNonce}）：他在这一章右臂重伤了。`,
     evoBefore,
   );
+  const evolutionPendingFrame = await waitForNewFrame(
+    evoBefore,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      (frame.body?.adoption_state?.pending ?? []).some(
+        (entry) => entry.artifact_type === "character_evolution_seed",
+      ),
+    "character evolution did not produce a pending character_evolution_seed turn_result",
+    120_000,
+  );
+  const evolution = { ...evolutionChat, turnResult: evolutionPendingFrame.body };
   const evoPending = evolution.turnResult.adoption_state?.pending?.[0];
   assert(
     evoPending && evoPending.artifact_type === "character_evolution_seed",
@@ -18826,6 +18850,41 @@ async function driveAu09MemoryTaxonomyWritePolicy(page) {
     `adopted character memory did not show 当前状态 type label: ${evoRowText}`,
   );
 
+  // CP2：新会话创作请求必须真实召回已采纳角色演化记忆；外部证据=真实 writer prompt。
+  const newSessionResume = page.waitForResponse(
+    (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+  );
+  await openSessionRail(page);
+  await page.getByRole("button", { name: "新建会话" }).click();
+  await newSessionResume;
+  await page.locator(chatInputSelector).waitFor();
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+
+  const recallBefore = frames.length;
+  const recallTurn = await sendOrdinaryChatTurn(
+    page,
+    "写一段正文：林烬带着伤继续赶路，保持与已确认状态一致。",
+    recallBefore,
+  );
+  let writerPrompt = null;
+  for (let attempt = 0; attempt < 40 && !writerPrompt; attempt += 1) {
+    writerPrompt = readLlmCallRecords()
+      .map((record) => String(record?.prompt ?? ""))
+      .find(
+        (prompt) =>
+          prompt.includes("artifact_type：prose_fragment") &&
+          prompt.includes(evoNonce) &&
+          prompt.includes("人物当前状态："),
+      );
+    if (!writerPrompt) await sleep(200);
+  }
+  assert(writerPrompt, "New-session writer prompt did not recall adopted character evolution memory");
+  const recallAppLog = readAppLogRecords().find(
+    (record) =>
+      record.event === "context.creative_facts.done" && record.turn_id === recallTurn.turnResult.turn_id,
+  );
+  assert(recallAppLog, "New-session writer turn did not emit creative facts context record");
+
   const sentMessage = latestSentUserMessage();
   const uiState = await commonUiState(page, evoAdopt.body, sentMessage);
 
@@ -18833,7 +18892,10 @@ async function driveAu09MemoryTaxonomyWritePolicy(page) {
     {
       ...uiState,
       turn_id: evoAdopt.body.turn_id,
-      turn_ids: [design.turnResult.turn_id, evolution.turnResult.turn_id, evoAdopt.body.turn_id],
+      turn_ids: [design.turnResult.turn_id, evolution.turnResult.turn_id, evoAdopt.body.turn_id, recallTurn.turnResult.turn_id],
+      recall_turn_id: recallTurn.turnResult.turn_id,
+      recall_prompt_has_memory: writerPrompt.includes(evoNonce),
+      recall_fact_lines: recallAppLog.fact_lines,
       design_turn_id: design.turnResult.turn_id,
       evolution_turn_id: evolution.turnResult.turn_id,
       adoption_turn_id: evoAdopt.body.turn_id,

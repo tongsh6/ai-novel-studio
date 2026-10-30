@@ -1327,6 +1327,7 @@ defmodule NovelApplication.TurnExecutionService do
     {:foreshadowing, "伏笔与情节事实"},
     {:world_rules, "世界规则与约束"},
     {:current_states, "人物当前状态"},
+    {:character_profiles, "人物档案演化"},
     {:relationships, "人物关系"}
   ]
 
