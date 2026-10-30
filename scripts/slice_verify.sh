@@ -99,6 +99,7 @@ if [[ "$SLICE_ID" == "author-behavior-corpus" || "$SLICE_ID" == "author-behavior
   mkdir -p "$NOVEL_TEST_DB_DIR"
   export AUTHOR_BEHAVIOR_CORPUS_JSON="$ARTIFACT_DIR/corpus.json"
   export AUTHOR_BEHAVIOR_DB_PATH="$NOVEL_TEST_DB_DIR/ai_novel_studio_test.sqlite3"
+  export SLICE_VERIFY_LLM_LOG_DIR="${SLICE_VERIFY_LLM_LOG_DIR:-$ARTIFACT_DIR/llm-calls}"
 fi
 
 if [[ "$SLICE_ID" == "author-behavior-explore" ]]; then
@@ -118,6 +119,7 @@ MIX_ENV=test \
   PHOENIX_TEST_PORT="$PHOENIX_PORT" \
   PHOENIX_PORT="$PHOENIX_PORT" \
   SLICE_VERIFY_APP_LOG_DIR="$ARTIFACT_DIR/app-log" \
+  SLICE_VERIFY_LLM_LOG_DIR="${SLICE_VERIFY_LLM_LOG_DIR:-}" \
   SLICE_VERIFY_PROVIDER="${SLICE_VERIFY_PROVIDER:-slice_verify}" \
   AUTHOR_BEHAVIOR_CORPUS_JSON="${AUTHOR_BEHAVIOR_CORPUS_JSON:-}" \
   mix run --no-start --no-halt scripts/slice_verify_server.exs >"$ARTIFACT_DIR/backend.log" 2>&1 &
@@ -135,6 +137,7 @@ wait_for_url "$BASE_URL" "Vite"
 
 SLICE_VERIFY_BASE_URL="$BASE_URL" \
   SLICE_VERIFY_ARTIFACT_DIR="$ARTIFACT_DIR" \
+  SLICE_VERIFY_LLM_LOG_DIR="${SLICE_VERIFY_LLM_LOG_DIR:-}" \
   AUTHOR_BEHAVIOR_CORPUS_JSON="${AUTHOR_BEHAVIOR_CORPUS_JSON:-}" \
   AUTHOR_BEHAVIOR_DB_PATH="${AUTHOR_BEHAVIOR_DB_PATH:-}" \
   AUTHOR_BEHAVIOR_CASE_IDS="${AUTHOR_BEHAVIOR_CASE_IDS:-}" \

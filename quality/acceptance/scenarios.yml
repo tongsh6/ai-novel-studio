@@ -1256,6 +1256,16 @@ scenarios:
     manifest: quality/acceptance/scenarios/b27-request-source-native.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: bash scripts/quality_accept.sh b27-request-source-native --surface tauri --provider strata
+  - id: au15-evidence-seeking-native
+    title: "B39 CP1 AU-15 外部原生 Tauri + 真实模型 A0/A1/A2（最小供给/按需求证/证据闭环）"
+    tier: release-real-llm
+    surface: tauri
+    default_provider: strata
+    status: blocked
+    blocked_reason: "真实模型 scoped 机制/模型行为证据批次已执行（au15cp1a）；正式 A1/A2 仍须 D6-A setup（真实模型创作+外部真实页面采纳前置章节）与人工复核（作者/指定评审语义裁决），复跑依赖 Strata 单槽资源窗口/预注册，不进入 nightly。"
+    manifest: quality/acceptance/scenarios/au15-evidence-seeking-native.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: bash scripts/quality_accept.sh au15-evidence-seeking-native --surface tauri --provider strata
   - id: e2e-01-full-chain
     title: "E2E-01 端到端全链路聚合验收"
     tier: nightly

@@ -32,7 +32,9 @@
       "properties": {
         "targets": {"type": "array"},
         "negative_traps_declared": {"type": "array", "items": {"type": "string"}},
+        "negative_traps_executed": {"type": "array", "items": {"type": "string"}},
         "negative_traps_evaluated": {"type": "array", "items": {"type": "string"}},
+        "negative_trap_results": {"type": "array"},
         "oracles_declared": {"type": "array", "items": {"type": "string"}},
         "oracles_executed": {"type": "array", "items": {"type": "string"}},
         "oracles_evaluated": {"type": "array", "items": {"type": "string"}},

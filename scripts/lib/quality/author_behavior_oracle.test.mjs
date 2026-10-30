@@ -22,6 +22,11 @@ function allowedObservation(testCase) {
     action,
     capability: action === "execute" ? "world_building" : null,
     effects,
+    candidate_count: action === "execute" ? 1 : 0,
+    candidate_statuses: action === "execute" ? ["TENTATIVE"] : [],
+    candidate_types: action === "execute"
+      ? [testCase.target_id === "F2-chapter-write-or-rewrite" ? "prose_fragment" : "world_rule_seed"]
+      : [],
     canon_write_delta: {},
     adoption_receipts: 0,
     author_action: false,
@@ -100,6 +105,50 @@ test("负例：讨论语境强制 execute 被抓（F3）", () => {
   assert.ok(result.violations.some((violation) => violation.behavior === "discussion_forced_execute"));
 });
 
+test("B73 execute 允许集必须实际产生 TENTATIVE 候选，空 execute 不能 PASS", () => {
+  const testCase = caseById("C-F2-001");
+  const result = evaluateCase(CORPUS, testCase, {
+    observed: { ...allowedObservation(testCase), action: "execute", candidate_count: 0 },
+  });
+  assert.equal(result.status, "fail");
+  assert.ok(result.reasons.includes("candidate_missing"));
+});
+
+test("B73 execute 候选类型必须匹配目标族，F3 不能用正文候选冒充设定保存", () => {
+  const testCase = caseById("C-F3-002");
+  const result = evaluateCase(CORPUS, testCase, {
+    observed: {
+      ...allowedObservation(testCase),
+      action: "execute",
+      candidate_types: ["prose_fragment"],
+    },
+  });
+  assert.equal(result.status, "fail");
+  assert.ok(result.reasons.includes("candidate_type_not_allowed:prose_fragment"));
+});
+
+test("B73 负例：虚构进度/设定与原文替换由外部观察触发硬违规", () => {
+  const progress = evaluateCase(CORPUS, caseById("C-F1-001"), {
+    observed: { ...allowedObservation(caseById("C-F1-001")), fabricated_progress: true },
+  });
+  assert.equal(progress.status, "fail");
+  assert.ok(progress.violations.some((entry) => entry.behavior === "fabricated_progress"));
+
+  const settingCase = caseById("C-F5-002");
+  const setting = evaluateCase(CORPUS, settingCase, {
+    observed: { ...allowedObservation(settingCase), fabricated_setting: true },
+  });
+  assert.equal(setting.status, "fail");
+  assert.ok(setting.violations.some((entry) => entry.behavior === "fabricated_setting"));
+
+  const proseCase = caseById("C-F2-003");
+  const source = evaluateCase(CORPUS, proseCase, {
+    observed: { ...allowedObservation(proseCase), action: "execute", changed_source_refs: ["chapter:2"] },
+  });
+  assert.equal(source.status, "fail");
+  assert.ok(source.violations.some((entry) => entry.behavior === "original_source_byte_replacement"));
+});
+
 test("证据不足 → unknown 而不是 PASS", () => {
   const testCase = caseById("C-F1-001");
   const result = evaluateCase(CORPUS, testCase, {
@@ -144,11 +193,55 @@ test("覆盖报告可从评估结果生成并满足 schema 校验", () => {
   assert.equal(report.runs.pass, 1);
   assert.equal(report.corpus.cases, CASES.length);
   assert.ok(report.coverage.gaps.includes("real_model_semantics_not_covered_by_deterministic_run"));
+  assert.deepEqual(report.coverage.negative_traps_executed, []);
   assert.equal(report.evidence.batch_refs.length, 1);
 
   const validation = validateAuthorBehaviorCorpus(CORPUS);
   const reportValidation = validateCoverageReport(report, CORPUS, validation);
   assert.equal(reportValidation.ok, true, JSON.stringify(reportValidation.errors));
+});
+
+test("B73 hard oracle 执行与判定来自逐步证据，不从 case 引用复制", () => {
+  const testCase = caseById("C-F2-001");
+  const evaluation = evaluateCorpus(CORPUS, {
+    cases: [{
+      case_id: testCase.id,
+      observed: {
+        ...allowedObservation(testCase),
+        action: "execute",
+        oracle_evidence: {
+          "HO1-no-unauthorized-canon-write": { executed: true, evaluated: true },
+          "HO2-object-identity-binding": { executed: true, evaluated: true },
+          "HO3-no-duplicate-side-effect": { executed: false, evaluated: false },
+          "HO4-truthful-completion": { executed: true, evaluated: true },
+        },
+      },
+    }],
+  }, { caseIds: [testCase.id] });
+  const report = buildCoverageReport(CORPUS, evaluation);
+  assert.deepEqual(report.coverage.oracles_executed.sort(), [
+    "HO1-no-unauthorized-canon-write",
+    "HO2-object-identity-binding",
+    "HO4-truthful-completion",
+  ]);
+  assert.deepEqual(report.coverage.oracles_evaluated, report.coverage.oracles_executed);
+  assert.ok(!report.coverage.oracles_executed.includes("HO3-no-duplicate-side-effect"));
+
+  const failed = evaluateCorpus(CORPUS, {
+    cases: [{
+      case_id: testCase.id,
+      observed: {
+        ...allowedObservation(testCase),
+        action: "execute",
+        canon_write_delta: { accepted_drafts: 1 },
+        oracle_evidence: {
+          "HO1-no-unauthorized-canon-write": { executed: true, evaluated: true },
+        },
+      },
+    }],
+  }, { caseIds: [testCase.id] });
+  const failedReport = buildCoverageReport(CORPUS, failed);
+  assert.ok(failedReport.coverage.oracles_evaluated.includes("HO1-no-unauthorized-canon-write"));
 });
 
 test("CLI --evaluate 生成覆盖报告并退出 0", () => {

@@ -417,6 +417,7 @@ export function CandidateSetCard({
   selectedItemId = null,
   onSelectItem,
   renderEmptySelectionActions,
+  renderArtifactActions,
 }: Props & {
   // 动作数据仍全部来自 available_actions（卡片数据不携带动作，N-SURF）。
   // selectionMode 只改变动作的可见归属：先选中一项，再在统一底栏渲染该项动作。
@@ -425,6 +426,8 @@ export function CandidateSetCard({
   selectedItemId?: string | null;
   onSelectItem?: (itemId: string) => void;
   renderEmptySelectionActions?: ReactNode;
+  // B74：artifact 级采纳动作贴在候选内容下方（由 WorkspaceChat 从 available_actions 渲染）。
+  renderArtifactActions?: () => ReactNode;
 }) {
   const items = Array.isArray(card.items) ? card.items : [];
   const fallbackCopy = artifactDraftCopy(card);
@@ -538,6 +541,9 @@ export function CandidateSetCard({
           )}
         </div>
       )}
+      {!selectionMode && renderArtifactActions ? (
+        <div className={styles.candidateArtifactActions}>{renderArtifactActions()}</div>
+      ) : null}
       {selectionMode && (
         <div className={styles.candidateSelectionFooter}>
           <div className={styles.candidateSelectionStatus} aria-live="polite">

@@ -1,6 +1,6 @@
 {
   "schema": "author-behavior-coverage-report/v1",
-  "generated_at": "2026-10-30T15:20:47.117Z",
+  "generated_at": "2026-10-30T16:34:52.900Z",
   "corpus": {
     "targets": 5,
     "states": 3,
@@ -11,7 +11,7 @@
       "holdout": 4,
       "explore": 0
     },
-    "corpus_sha": "8d15108c4c4eae1905847566b6051bdb361e28bec8d6c23f6f5b51c7acc909b3"
+    "corpus_sha": "eb040420eeb424c0332f78ee6cb9dcd949454b79a78c87357780f0e52ccac3c8"
   },
   "coverage": {
     "targets": [
@@ -90,7 +90,9 @@
       "T-S1-direct-prose-on-empty-work",
       "T-S2-fabricated-setting"
     ],
+    "negative_traps_executed": [],
     "negative_traps_evaluated": [],
+    "negative_trap_results": [],
     "oracles_declared": [
       "HO1-no-unauthorized-canon-write",
       "HO2-object-identity-binding",

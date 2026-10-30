@@ -158,6 +158,17 @@ func json(_ obj: [String: Any]) {
     if let data = try? JSONSerialization.data(withJSONObject: obj), let s = String(data: data, encoding: .utf8) { print(s) }
 }
 
+
+func mouseScroll(_ point: CGPoint, dy: Int32) {
+    let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)
+    move?.post(tap: .cghidEventTap)
+    usleep(80_000)
+    if let scroll = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: dy, wheel2: 0, wheel3: 0) {
+        scroll.location = point
+        scroll.post(tap: .cghidEventTap)
+    }
+}
+
 func main() {
     let args = CommandLine.arguments
     guard args.count >= 2, args[1] != "--help" else { print("usage: axcua <cmd> <app> ..."); exit(64) }
@@ -194,6 +205,13 @@ func main() {
             app2.activate(options: [.activateIgnoringOtherApps]); usleep(120_000)
         }
         mouseClick(CGPoint(x: x, y: y), count: args.count > 5 ? (Int(args[5]) ?? 1) : 1)
+        json(["ok": true])
+    case "scrollxy":
+        let x = Double(args[3]) ?? 0, y = Double(args[4]) ?? 0, dy = Int32(args[5] ?? "0") ?? 0
+        if let app2 = NSWorkspace.shared.runningApplications.first(where: { $0.processIdentifier == pid }) {
+            app2.activate(options: [.activateIgnoringOtherApps]); usleep(120_000)
+        }
+        mouseScroll(CGPoint(x: x, y: y), dy: dy)
         json(["ok": true])
     case "set":
         guard let el = elementAt(pid: pid, path: args[3]) else { json(["ok": false, "error": "no_element"]); exit(4) }

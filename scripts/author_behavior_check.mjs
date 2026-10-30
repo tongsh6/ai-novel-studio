@@ -150,6 +150,7 @@ function main() {
       batch_refs: observations.run?.batch_refs ?? [],
       verdict_refs: observations.run?.verdict_refs ?? [],
       blocked: observations.run?.blocked ?? 0,
+      negative_trap_observations: observations.run?.negative_trap_observations ?? [],
     });
     const coverageValidation = validateCoverageReport(coverageReport, corpus, validation);
     if (!coverageValidation.ok) evaluationFailures.push(...coverageValidation.errors);

@@ -43,6 +43,7 @@
 
 ## 当前状态
 
-- CP0（2026-10-30 done）：格式、首批代表目标族/状态/负例与复用边界已冻结。
-- CP1（2026-10-30 done，确定性闭环）：数据驱动浏览器 spec 跑通 corpus 子集（6/6 pass、0 fail/unknown），`quality_accept` verdict pass，覆盖报告通过 schema；oracle/validator/生成器正反例 20/20 node:test。真实模型语义留 CP3，状态探索留 CP2。
+- B70（2026-10-30 done，CP0–CP3 验证基础设施）：当前冻结 corpus 为 **5 目标族 / 3 合成状态 / 17 cases**，split 为 dev 9 / regression 4 / holdout 4 / explore 0；表达来源为 15 条 human_template + 2 条离线 deterministic template generated_frozen，无真实作品数据。
+- 扩展真实页面批次执行 **11/17 cases（确定性 11 pass）**；未跑 C-F1-003、C-F1-G01、C-F3-G01、C-F2-001、C-F2-003、C-F3-002。4 个 holdout 中 2 个有确定性运行、2 个未跑，真实模型仍只有 blocked 预注册，未加载/运行模型。
+- 报告区分 declared/executed/evaluated：扩展批次 10 个负例陷阱 evaluated=0，HO3 未执行；`regressions.json` 尚无真实产品失败被 promoter 入库。覆盖、动作和实模残余以 [B70 原任务](../../../tasks/slices/B70-author-behavior-corpus-and-state-exploration.md) §6.5/§8 为准；历史 verdict 不自动代表后续 HEAD。
 - 语料为合成样书，不含作者真实作品数据；生成模型默认不读取真实材料。

@@ -1,6 +1,6 @@
 # 作者行为语料生成与状态探索验证设计
 
-> 状态：B70 当前实施设计基线（2026-10-30）。作者已确认方向；CP0 冻结资产已存在，CP1–CP3 仍按任务证据验收，设计接受不代表实现或场景 PASS。
+> 状态：B70 当前设计真源（2026-10-30 建立；2026-10-31 完成复核）。CP0–CP3 验证基础设施已交付；真实模型语义、完整动作空间和未跑案例仍是明确边界，不随 scoped done 自动关闭。
 >
 > 执行状态唯一来源：[B70](../../../tasks/slices/B70-author-behavior-corpus-and-state-exploration.md)。
 >
@@ -349,18 +349,25 @@ CP1 新场景先取得稳定、可诊断证据，再决定是否进入 blocking 
 
 完整范围仍由 B70 原任务维护，任一 CP 完成不得替代其他计划内后果。
 
-## 16. 当前实现交接时必须复核的差距
+## 16. 交付复核与当前剩余边界
 
-以下是设计复核发现的实现边界，不是新的产品需求：
+### 已处置的设计缺口
 
-1. **真实观察缺省必须为 unknown。** 当前评估库对缺省 `supplied_status` 的合成输入较宽松；真实 driver 不得依赖该缺省，CP1 收口前应通过观察 schema 或评估器修正保证缺失不放行。
-2. **覆盖报告不能复制声明当执行。** 当前 `negative_traps_covered`/`oracles_covered` 主要来源于声明引用；CP1 必须补 declared/executed/evaluated 区分或等效显式语义。
-3. **负例状态必须真实存在。** 例如同名章错绑陷阱需要实际同名/多目标状态，不能只凭目标模板里的 trap id 记覆盖。
-4. **HO6 与未引用 oracle 需要处置。** 没有案例触发的 oracle 应进入 gap 或明确 scoped not_applicable，不能在示例中空 gaps 后被读成完整覆盖。
-5. **完整路径尚未由当前评估器证明。** 终局 action 通过不等于 explore→reply/execute 的观察链已验证；涉及求证的案例必须消费 B42 证据，不能只看终局。
-6. **example 不是运行报告。** `coverage-report.example.json` 只证明格式，不能作为场景执行、真实覆盖或 PASS 证据。
+- 缺省 `supplied_status` 已改为不能 PASS，只有显式 known 才具备通过资格。
+- fixture 刺激源与 case expected/oracle 已分离，避免同一份预期答案既生成响应又判卷。
+- 覆盖报告已区分 declared/executed/evaluated；example 继续只作格式样例。
+- HO6 已进入 F5 案例并在扩展批次执行；不再只是未引用声明。
 
-这些差距由实现者在对应 CP 内闭环，不需要为它们另建平行任务或修改生产产品语义。
+### 仍然开放、不得被 scoped done 隐藏的边界
+
+1. **负例实际覆盖不足。** 当前 10 个 trap 在 11-case 扩展批次中 evaluated=0；同名错绑、自动采纳等风险不能凭 trap id 或合成 observation 单测写成真实页面覆盖。
+2. **部分 oracle 未执行。** HO3 在扩展批次未执行，必须与已执行的 HO1/HO2/HO4/HO5/HO6 分开报告。
+3. **语料未全部运行。** 当前 17 cases 中 6 个 not-run，包括两条 generated_frozen、F2 execute prose 正例/ holdout 与 F3 明确保存 execute 路径。
+4. **完整路径与实模仍未证明。** 终局 action 通过不代替 explore→reply/execute 的观察链；4 个实模 holdout 仅预注册，真实模型运行和 B42 模型行为判定仍为 0。
+5. **动作与表面有限。** 探索动作仍限切作品/发送，采纳、拒绝、编辑、断线恢复和完整 native 矩阵不在已交付覆盖内。
+6. **证据有版本边界。** 各 verdict 绑定产生它的 HEAD；后续产品提交必须按 PR 子集或对应 tier 复验，不能自动继承历史 PASS。
+
+这些残余不是要求重开 B70 的验证基础设施范围，而是后续语料/场景扩展和 B39/B42 实模工作的真实输入。
 
 ## 17. 完成后的诚实边界
 

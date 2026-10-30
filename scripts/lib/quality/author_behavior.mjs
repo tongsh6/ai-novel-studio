@@ -32,7 +32,7 @@ export const SCHEMAS = Object.freeze({
 export const SPLITS = Object.freeze(["dev", "regression", "holdout", "explore"]);
 export const TIERS = Object.freeze(["pr-smoke", "nightly", "explore"]);
 export const PROVENANCE_KINDS = Object.freeze(["human_template", "derived_frozen", "generated_frozen"]);
-export const FIXTURE_ACTIONS = Object.freeze(["reply", "ask_author"]);
+export const FIXTURE_ACTIONS = Object.freeze(["reply", "ask_author", "execute"]);
 
 export class AuthorBehaviorError extends Error {
   constructor(message, errors = []) {
@@ -491,7 +491,9 @@ export function coverageReportExample(corpus, corpusValidation) {
       negative_traps_declared: (corpus.oracles?.target_oracles ?? []).flatMap((oracle) =>
         (oracle.negative_traps ?? []).map((trap) => trap.id),
       ),
+      negative_traps_executed: [],
       negative_traps_evaluated: [],
+      negative_trap_results: [],
       oracles_declared: [...new Set(cases.flatMap((testCase) => testCase.expected?.oracle_refs ?? []))],
       oracles_executed: [],
       oracles_evaluated: [],

@@ -1,0 +1,82 @@
+id: au15-evidence-seeking-native
+title: "B39 CP1 AU-15 外部原生 Tauri + 真实模型 A0/A1/A2（最小供给/按需求证/证据闭环）"
+tier: release-real-llm
+surface: tauri
+default_provider: strata
+status: blocked
+blocked_reason: >-
+  真实模型 scoped 机制/模型行为证据批次已执行（au15cp1a，隔离 fixture setup），但正式
+  AU-15 A1/A2 仍须 D6-A setup（前置章节由真实模型创作 + 外部真实页面采纳）及人工复核
+  （作者/指定评审的语义相容裁决）；复跑还依赖 Strata 单槽资源窗口与预注册。当前前置为
+  隔离 fixture，不进入 nightly，未注册为自动 PASS。
+entrypoint: bash scripts/quality_accept.sh au15-evidence-seeking-native --surface tauri --provider strata
+contract:
+  - tasks/slices/B39-evidence-seeking-authoring.md §9.5（CP1 预注册）/§9.12（CP1d 记录）
+  - docs/design/acceptance/author/AU-15-evidence-seeking-authoring.md §2–§6
+  - docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md
+  - docs/design/contracts/VS-00K-evidence-seeking-authoring-contract-pack.md
+  - artifacts/model-contracts/b39-cp1/au15-preregistration.json
+invariants:
+  - I-AU15-N1 Base 已足够时不强制探索：A0 零探索仍是成功信号，且准备判断必须区分 ready/missing。
+  - I-AU15-N2 A1/A2 观察来自真实作品读取；观察内容/refs 与真实 provider 请求字节同源对账，不只信日志 ref。
+  - I-AU15-N3 used_context_refs 不越界（未自报记 unknown，不从 supplied 推导）；采纳前零 canon 写、artifact 字节不变。
+  - I-AU15-N4 真实模型单槽；结束/失败必须 unload 并核验 loaded=null；机制、模型行为、文学/语义分层报告，I10 不代签。
+setup:
+  provider: strata
+  model: iq3_s
+  seed: scripts/seed_au15_evidence_seeking.exs
+  setup_mode: isolated_fixture
+  d6a_precondition: not_satisfied
+  harness: scripts/native_au15_evidence_seeking_batch.sh + native_au15_evidence_seeking_drive.mjs + native_au15_evidence_seeking_evidence.mjs
+  preregistration: artifacts/model-contracts/b39-cp1/au15-preregistration.json
+user_flow:
+  - open: 外部 AX/CGEvent 打开真实 Tauri 工作台并选择合成作品（第01章 accepted 承诺正文；第02章 accepted 时间事实；第03/04章 planned）。
+  - a0: 作者自然输入“写一个全新的第01章开头，题材你定，不需要承接前文。”；验证无强制探索仍 preparation ready、零 canon 写。
+  - a1: 作者自然输入“接着前文写第03章，把沈砚答应顾青的事接着写，不要问我。”跑第 1 个独立 run；第 2 个 run 用未参与调词的保留措辞“第03章从顾青在灯楼等沈砚写起，前情里两人说好的事要接上，别停下来问我。”。
+  - a2: 作者自然输入“接着前文写第04章，注意时间线已经过了多久，不能写错。”跑第 1 个独立 run；第 2 个 run 用保留措辞“第04章开头交代一下，两人上次分开到现在一共过了多久，别写错天数。”。
+  - questions: 真实模型提问时按作者默认决策应答（options 推荐项 / 具体自由文本），最多 2 次并落 author_question_events。
+  - verify: 读取 llm-calls 请求/响应字节、app-log、native-transport、AX/截图、只读 DB 快照，按 run 对账观察 refs/内容、used refs 绑定、准备判断与零 canon 写；结束核验 strata loaded=null。
+evidence:
+  required:
+    - screenshot
+    - native_screenshots
+    - websocket_frames
+    - native_transport_jsonl
+    - app_jsonl
+    - llm_http_log
+    - persistence_snapshot
+    - summary_json
+  artifact_dir: artifacts/slice-verify/b39-au15-au15cp1a-native
+assertions:
+  ui:
+    - A0/A1/A2 由真实 Tauri 窗口 WorkspaceChat 输入与回复；AX 文本与截图可见探索活动/候选/为什么面板。
+    - 真实模型提问或运行暂停由作者默认决策应答，不出现旁路提交或产品 autorun。
+  network:
+    - llm-calls 记录的真实 provider 请求/响应来自 strata；A1/A2 后续 writer 请求字节包含 observation refs 或观察内容。
+    - native-transport 记录 turn_result.trace_summary 的 request_base_refs/request_observation_refs/used_context_refs/unbound 与 preparation_decided/exploration_observed 事件。
+  data:
+    - A0 无强制探索且 preparation ready；A1/A2 观察来自真实章节读取（chapter_read/prose_search 等只读目录）。
+    - 每 run 前后 canon 表计数与 accepted 正文 hash 不变（候选未经采纳不写作品）；used_context_refs 不越界。
+    - 运行结束 strata loaded=null；失败/未知只读保留并计入分母，不重试刷分。
+  llm:
+    - 真实模型为 strata/iq3_s 单槽；模型行为层要求 A1/A2 各 2 个独立 run 全满足观察→请求证据，否则记 unknown/evidence_missing，不判 PASS。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+anti_hooks_verification: >-
+  驱动只用真实窗口可见语义（作品菜单/输入框/发送按钮/会话栏/候选与为什么面板可见文本）+ 外部 WS/HTTP
+  代理帧 + app/llm JSONL + 隔离 DB 只读核对；未新增 testid、隐藏 metadata、验收开关或产品 autorun。
+prerequisites:
+  - 预注册 artifacts/model-contracts/b39-cp1/au15-preregistration.json 已落盘（schema/单槽/分型预算/≥2 独立 run）。
+  - Strata 统一后台可达且 iq3_s 单槽空闲；运行结束或失败必须 unload 并核验 loaded=null。
+  - 正式 A1/A2 还需 D6-A setup（真实模型创作 + 外部页面采纳前置章节）与作者语义裁决；隔离 fixture 仅作机制/探针证据。
+known_not_closed:
+  - 本批 setup 为隔离 fixture，不代签 D6-A 前置链路；正式 A1/A2 仍 blocked。
+  - au15cp1a 实测：A0 模型在 prose plan 自行探索 archive_read（机制 pass；A0“不强制探索”模型行为记 observed_exploration，不判产品机制失败）。
+  - au15cp1a 实测：A1-run1 模型未读第01章承诺来源即执行写作（观察未覆盖关键人物承诺，模型行为 unknown）；A1-run2 读第01章后成立（observed）。
+  - au15cp1a 实测：A2-run2 判断阶段探索额度拒绝（exploration_not_available）后触发 discussion_only_violation，run failed_recoverable（judgment_protocol_violation），计入分母只读保留；A2-run1 成立（observed）。
+  - au15cp1a 实测：driver 会话栏新建会话后的 app-log 轮询基线 bug 已修复（本批 app-log/session_id 可证 A1/A2 两个 run 会话独立），下批复跑应正确记录 fresh_session。
+  - 文学质量、承诺/天数语义相容由作者或指定评审裁决，自动化不代签。
+  - CP2（缺口 replan/ask、used refs 机械处置）与 CP3（跨重启恢复/续读预算）不在本场景范围；未覆盖后果继续保留为缺口。

@@ -147,6 +147,11 @@ import {
   candidateDiscussionCollapsedText,
   candidateContinuationText,
 } from "../lib/copy";
+import {
+  artifactIdsRenderedInCards,
+  describeCandidateActionGroups,
+  pendingArtifactForCard,
+} from "../lib/candidateActionGroups";
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
 import {
   buildAgentRunInputPresentation,
@@ -2959,6 +2964,24 @@ export function WorkspaceChat() {
     return styles.btnSecondary;
   };
 
+  // B74：候选动作统一渲染（内容卡内与底栏共用），主操作优先由 visibleActionClassName 决定。
+  const renderTurnActionButtons = (turnResult: TurnResult, actions: AvailableAction[]) => (
+    <>
+      {actions.map((action) => (
+        <button
+          key={action.action_id}
+          type="button"
+          className={visibleActionClassName(action)}
+          disabled={action.enabled === false || loading}
+          title={actionTitle(turnResult, action)}
+          onClick={() => handleVisibleAvailableAction(turnResult, action)}
+        >
+          {actionLabel(turnResult, action)}
+        </button>
+      ))}
+    </>
+  );
+
   const handleVisibleAvailableAction = (turnResult: TurnResult, action: AvailableAction) => {
     // edit_then_accept 需要作者先编辑正文，打开编辑弹窗而不是直接提交。
     if (action.action_type === "edit_then_accept") {
@@ -4817,11 +4840,25 @@ export function WorkspaceChat() {
                             const selectionKey = `${turnResult.turn_id}:${
                               card.candidate_set_ref ?? ci
                             }`;
+                            const candidateArtifact = pendingArtifactForCard(
+                              turnResult.adoption_state?.pending ?? [],
+                              card,
+                            );
+                            const cardArtifactActions = candidateArtifact
+                              ? visibleAvailableActions(turnResult).filter(
+                                  (action) => action.target_ref === candidateArtifact.artifact_id,
+                                )
+                              : [];
                             return (
                               <CandidateSetCard
                                 key={cardKey}
                                 card={card}
                                 selectionMode={selectionMode}
+                                renderArtifactActions={
+                                  cardArtifactActions.length > 0
+                                    ? () => renderTurnActionButtons(turnResult, cardArtifactActions)
+                                    : undefined
+                                }
                                 selectedItemId={selectedCandidateItemIds[selectionKey] ?? null}
                                 onSelectItem={
                                   selectionMode
@@ -5043,44 +5080,76 @@ export function WorkspaceChat() {
                       msg.turnResult &&
                       visibleAvailableActions(msg.turnResult).length > 0 &&
                       (() => {
-                        const actions = visibleAvailableActions(msg.turnResult);
+                        const pending = msg.turnResult.adoption_state?.pending ?? [];
+                        const renderedArtifactIds = artifactIdsRenderedInCards(
+                          pending,
+                          msg.turnResult.ui_cards ?? [],
+                        );
+                        // B74：已贴在候选内容卡下的 artifact 动作不重复出现在底栏；
+                        // 未匹配到内容卡的候选（容错/未来卡片类型）仍在底栏按对象成卡。
+                        const actions = visibleAvailableActions(msg.turnResult).filter(
+                          (action) =>
+                            !(
+                              typeof action.target_ref === "string" &&
+                              renderedArtifactIds.has(action.target_ref)
+                            ),
+                        );
                         const groupRole = qualityRevisionActionGroupRole(msg.turnResult, actions);
-                        return (
-                          <div
-                            className={groupRole ? styles.artifactActionGroup : styles.cardActions}
+                        if (actions.length === 0) return null;
+                        const { groups, ungrouped } = describeCandidateActionGroups(
+                          actions,
+                          pending,
+                          groupRole,
+                        );
+                        const renderActionButton = (
+                          action: (typeof actions)[number],
+                          secondaryOnly = false,
+                        ) => (
+                          <button
+                            key={action.action_id}
+                            type="button"
+                            className={
+                              secondaryOnly ? styles.btnSecondary : visibleActionClassName(action)
+                            }
+                            disabled={action.enabled === false || loading}
+                            title={actionTitle(msg.turnResult!, action)}
+                            onClick={() => {
+                              if (msg.turnResult) {
+                                handleVisibleAvailableAction(msg.turnResult, action);
+                              }
+                            }}
                           >
-                            {groupRole && (
-                              <div className={styles.artifactActionGroupHeader}>
-                                <span className={styles.artifactActionGroupTitle}>
-                                  {groupRole === "original"
-                                    ? CARD.tentativeArtifact.originalActionGroupTitle
-                                    : CARD.tentativeArtifact.revisionActionGroupTitle}
-                                </span>
-                                <span className={styles.artifactActionGroupHint}>
-                                  {CARD.tentativeArtifact.actionGroupHint}
-                                </span>
+                            {actionLabel(msg.turnResult!, action)}
+                          </button>
+                        );
+                        return (
+                          <div className={styles.candidateActionArea}>
+                            {groups.map((group) => (
+                              <section
+                                key={group.artifact.artifact_id}
+                                className={styles.candidateActionCard}
+                                aria-label={group.title}
+                              >
+                                <div className={styles.candidateActionCardHeader}>
+                                  <span className={styles.candidateActionCardTitle}>
+                                    {group.title}
+                                  </span>
+                                  {group.hint && (
+                                    <span className={styles.candidateActionCardHint}>
+                                      {group.hint}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className={styles.candidateActionCardActions}>
+                                  {group.actions.map((action) => renderActionButton(action as (typeof actions)[number]))}
+                                </div>
+                              </section>
+                            ))}
+                            {ungrouped.length > 0 && (
+                              <div className={styles.candidateActionUngrouped}>
+                                {ungrouped.map((action) => renderActionButton(action as (typeof actions)[number], true))}
                               </div>
                             )}
-                            <div className={groupRole ? styles.cardActions : undefined}>
-                              {actions.map((action) => (
-                                <button
-                                  key={action.action_id}
-                                  type="button"
-                                  className={
-                                    groupRole ? visibleActionClassName(action) : styles.btnSecondary
-                                  }
-                                  disabled={action.enabled === false || loading}
-                                  title={actionTitle(msg.turnResult!, action)}
-                                  onClick={() => {
-                                    if (msg.turnResult) {
-                                      handleVisibleAvailableAction(msg.turnResult, action);
-                                    }
-                                  }}
-                                >
-                                  {actionLabel(msg.turnResult!, action)}
-                                </button>
-                              ))}
-                            </div>
                           </div>
                         );
                       })()}

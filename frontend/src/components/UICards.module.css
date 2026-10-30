@@ -310,6 +310,15 @@
   align-items: start;
 }
 
+.candidateArtifactActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle, #e6ded3);
+}
+
 .candidateItemActions {
   display: flex;
   flex-wrap: wrap;

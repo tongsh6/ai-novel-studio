@@ -26,6 +26,8 @@ states:
       chapter_plans: [1, 2, 3]
       pending_candidates: 0
       memory_items: 2
+    fixture:
+      work_title: "B70 S1 部分多章"
     dimensions:
       has_chapters: true
       has_accepted_prose: true
@@ -40,6 +42,8 @@ states:
       chapter_plans: []
       pending_candidates: 0
       memory_items: 0
+    fixture:
+      work_title: "B70 S2 空骨架"
     dimensions:
       has_chapters: false
       has_accepted_prose: false
@@ -55,6 +59,8 @@ states:
       chapter_plans: [1, 2]
       pending_candidates: 1
       memory_items: 2
+    fixture:
+      work_title: "B70 S3 待采纳候选"
     dimensions:
       has_chapters: true
       has_accepted_prose: true

@@ -1,6 +1,6 @@
 # B39：求证式创作——最小供给、Run 级探索与证据闭环
 
-- 状态：**doing（2026-10-30 CP1 开工；作者已正式接受 ADR-0030/VS-00K/AU-15；CP1a–CP1c 已落地；CP1d 最小准备判断 + AU-15 sidecar verifier/预注册已落地，真实 A0/A1/A2 页面/实模证据未执行；CP1–CP4 不得整体标 done）**。
+- 状态：**doing（2026-10-31 CP1 进展：CP1a–CP1d 落地；AU-15 原生真模 scoped 批 au15cp1a 已跑（机制 4/5 run pass、A2-run2 失败、A1-run2/A2-run1 模型行为 observed、A1-run1 unknown）；正式 A1/A2 仍 blocked 于 D6-A setup/评审；CP1 与 B39 不得 done）**。
 - 登记日期：2026-10-27；来源：作者指出持续增加 APP 主动投喂只会不断补漏洞，要求先把元原则深化到全部承重设计，而非先做时间线专用设计。
 - 上游：[00 §2.4](../../docs/design/00-vision-and-engineering-roadmap.md#24-创作信息获取元原则最小供给按需求证证据闭环2026-10-27-用户拍板)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[VS-00K](../../docs/design/contracts/VS-00K-evidence-seeking-authoring-contract-pack.md)、[AU-15](../../docs/design/acceptance/author/AU-15-evidence-seeking-authoring.md)。
 - 当前可依已接受基线进入 CP1 设计与实现；本会话继续逐项作者裁决，尚未启动产品施工或实模运行。执行与资源边界见 §9.7.17。
@@ -56,7 +56,7 @@
 | CP | 完整工作与完成标准 | 状态 |
 |---|---|---|
 | CP0 | 元原则落到主链、运行时、Context、AgentRun、写前推理、要素模型、工程与验收；形成 ADR-0030 / VS-00K / AU-15 / B39 和索引、atlas、不变量、旧条款处置矩阵。只登记设计，不声称实现 | **done（2026-10-27）**：主链/领域/契约/工程文档完成处置；候选 #20–#23；ADR trace 28/28、NEXT ok、新文档链接通过、差距快照 20 项开放无意外减少、diff check 通过；未运行产品功能测试或 Tauri |
-| CP1 | 正文 run 开放现有只读探索；共享判断循环探索执行，观察进入使命与 writer；保留现有携带，不新建时间表；首个完整用户场景具备必要的最小准备判断；完成 SC-AU15-A0/A1/A2，确定性机制与真实模型行为分层取证 | **doing（CP1a–CP1d checkpoint 2026-10-30）**：只读探索→观察进使命/writer→used refs trace 校验；新增最小准备判断（continue_exploration/ready_to_write，A0 无探索仍 ready，A1 观察后 ready）；AU-15 evidence sidecar（llm-calls 请求字节对账 request_observation_refs/observed_in_calls、used refs 绑定、zero-write、准备事件）+正反例测试；AU-15 预注册已写（A0/A1/A2、iq3_s 单槽/unload、2 次独立 run）。**未完成**：真实 Tauri A0/A1/A2 driver/registry/实模 run（D6-A 前置真实创作/采纳）、B42 完整性接入、对话内联探索迁移；不得以 checkpoint 代签 CP1/AU-15 |
+| CP1 | 正文 run 开放现有只读探索；共享判断循环探索执行，观察进入使命与 writer；保留现有携带，不新建时间表；首个完整用户场景具备必要的最小准备判断；完成 SC-AU15-A0/A1/A2，确定性机制与真实模型行为分层取证 | **doing（CP1a–CP1d + AU-15 scoped 真模批 2026-10-31）**：只读探索→观察进使命/writer→used refs trace→最小准备判断；AU-15 sidecar/预注册；原生 Tauri 驱动/注册已实现并跑 au15cp1a（A0×1+A1×2+A2×2）：**A0/A1-run1/A1-run2/A2-run1 mechanism pass，A2-run2 真实模型 judgment_protocol_violation fail；模型行为 A1-run2/A2-run1 observed，A1-run1 unknown、A0 自行探索**。**未完成/blocked**：D6-A 真实 setup（真实创作+外部采纳前置章节）、正式 A1/A2 完整判据、B42 完整性接入、对话内联探索迁移；A2-run2/A1-run1 记 known-gap，不重试刷分；场景保持 blocked，不代签 CP1/AU-15 |
 | CP2 | 写前准备可返回通用信息缺口并触发有界 plan revision；建立 Base/观察 refs 与 used_context_refs 对账；明确“可先求证”与“只能由作者裁决”的 clarification 边界；未知、歧义、冲突与越界引用完成 SC-AU15-B1/C1 | 未开工 |
 | CP3 | 规划、修订、写后质量与恢复复用同一求证链；完成 SC-AU15-B2/C2；真实 provider 请求、trace、replay 与作者可见证据一致 | 未开工 |
 | CP4 | 依据真实 run 的引用、重复查询和质量证据逐块迁移固定携带；领域读模型（包括是否需要时间线）按真实缺口单独立项；完成 SC-AU15-D1 | 未开工 |
@@ -589,6 +589,17 @@ git diff --check
   2. 实模 2 次独立 run、失败分母、自然措辞保留、A2 累计十七天兼容性与无领域分支 diff 检查未执行。
   3. B42 `quality-evidence-chain`/release-real-llm 完整性接入未接；当前 sidecar 为外部证据产物。
   4. `dialogue_planning_service` 两处探索内联迁移、跨 flow 预算累计/续读证据仍属残余。
+
+### 9.13 AU-15 原生真模 scoped 批次与 UI 反馈（2026-10-31，CP1 未完成）
+
+- 原生驱动/注册（仅 test-support/脚本，产品零感知）：`scripts/seed_au15_evidence_seeking.exs`、`scripts/native_au15_evidence_seeking_drive.mjs`、`scripts/native_au15_evidence_seeking_evidence.mjs`（复用 au15 sidecar，含 4 条正反例）、`scripts/native_au15_evidence_seeking_batch.sh`（预注册校验/detached/heartbeat/unload 终验/失败只读），`tauri_slice_verify.sh` 注册 `au15-evidence-seeking-native`；场景 `quality/acceptance/scenarios/au15-evidence-seeking-native.yml`（release-real-llm/blocked，D6-A setup 为隔离 fixture，`known_not_closed` 记录会话弹层 UX 缺口）。
+- 批次 au15cp1a（证据 `artifacts/slice-verify/b39-au15-au15cp1a-native/`，预注册 `artifacts/model-contracts/b39-cp1/au15-preregistration.json`）：
+  - 5 runs：A0×1 + A1×2 + A2×2；单槽 strata/iq3_s，loaded_before=null → loaded_after=null，零 canon 写；A1/A2 每场景 2 独立 session。
+  - mechanism：A0/A1-run1/A1-run2/A2-run1 pass；**A2-run2 fail**：判断探索额度拒绝后模型输出 `discussion_only_violation`，纠正重试仍失败（真实模型行为与判断循环边界，CP2 范围），失败计入分母未重试。
+  - model_behavior：A1-run2/A2-run1 observed（读取真实承诺/时间事实、writer 请求字节含观察、used refs 全绑定）；A1-run1 unknown（自称查承诺但只读第02/03章未读到第01章承诺）；A0 observed_exploration（产品未强制，模型自行排 archive_read，A0 机制 ready/零写仍 pass）。
+  - 正式 AU15 A1/A2 仍 blocked：setup 为隔离 fixture，非 D6-A 真实模型创作+外部采纳；需作者/指定评审语义裁决。
+- UI 反馈（同批真实窗口发现，已另立 slice）：B73 叙事段落 gap+margin 双倍空行已修复 + node 静态守卫；B74 候选动作按对象分组卡并贴回内容卡下（组件测试证明正文先于保存按钮），真实 Tauri 候选区视觉复验受模型 run/滚动取证影响未闭环，保持 doing；B75 会话弹层 click-outside/Esc 关闭缺口 todo。
+- 残余：D6-A setup、正式 A1/A2 判据与人工评审、A2-run2/A1-run1 known-gap、B42 完整性接入、UI 页面复验、对话内联探索迁移。
 
 ## 10. 当前初始供给整改的消费交接
 

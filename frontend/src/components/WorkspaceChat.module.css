@@ -782,9 +782,11 @@
 }
 
 .agenticLoopPlanSteps,
-/* 46§9.4.2 文档流段落体：模型叙事成段渲染（意图开场段/阶段结论段）。 */
+/* 46§9.4.2 文档流段落体：模型叙事成段渲染（意图开场段/阶段结论段）。
+   段落间距只由父容器 .agenticLoopReasoning 的 flex gap 统一控制；
+   这里不再加 margin，否则 gap + margin 叠加会形成双倍空行（2026-10-31 作者反馈换行过大）。 */
 .agenticLoopNarrativeParagraph {
-  margin: 0 0 12px;
+  margin: 0;
   min-width: 0;
   font-family: var(--sans);
   font-size: 14px;
@@ -792,10 +794,6 @@
   color: #262626;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.agenticLoopNarrativeParagraph:last-child {
-  margin-bottom: 0;
 }
 
 /* 46§9.4.4 活动行：仅进行中指示（spinner 文字形态），完成即收起。 */
@@ -1084,6 +1082,59 @@
   flex-wrap: wrap;
   gap: 12px;
   margin-top: 4px;
+}
+
+.candidateActionArea {
+  display: flex;
+  width: 100%;
+  max-width: 880px;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.candidateActionCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #e6ded3;
+  border-radius: 10px;
+  background-color: #fffdf9;
+}
+
+.candidateActionCardHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.candidateActionCardTitle {
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.candidateActionCardHint {
+  color: var(--foreground-secondary);
+  font-family: var(--sans);
+  font-size: 12px;
+}
+
+.candidateActionCardActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.candidateActionUngrouped {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .artifactActionGroup {

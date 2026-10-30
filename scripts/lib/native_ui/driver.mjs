@@ -32,6 +32,7 @@ export function findByText(nodes, text, { role = null, exact = false } = {}) {
 }
 export function click(node, appName, action = "AXPress") { return JSON.parse(cua(["click", appName, node.path, action])); }
 export function clickAt(appName, x, y, count = 1) { return JSON.parse(cua(["clickxy", appName, String(Math.round(x)), String(Math.round(y)), String(count)])); }
+export function scrollAt(appName, x, y, dy) { return JSON.parse(cua(["scrollxy", appName, String(Math.round(x)), String(Math.round(y)), String(Math.round(dy))])); }
 export function clickText(nodes, text, appName, opts) {
   const node = findByText(nodes, text, opts);
   if (!node) throw new Error(`clickText not found: ${text}`);

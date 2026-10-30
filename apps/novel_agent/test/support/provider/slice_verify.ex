@@ -58,20 +58,20 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   def complete(state, model, prompt, params) do
     prompt_text = prompt_text(prompt)
 
+    # 仅 test/support：所有分支统一留同次 prompt 字节，author-behavior 的 supplied 判定
+    # 不能只看页面输入或产品自报。日志目录只由外部 harness 注入。
+    log_received_prompt(prompt_text, prompt)
+
     case author_behavior_result(prompt_text) do
       nil -> complete_core(state, model, prompt, params, prompt_text)
       {:ok, result} -> {:ok, result}
     end
   end
 
-  # B70 CP1：corpus-aware 确定性分支（仅当 harness 设置 AUTHOR_BEHAVIOR_CORPUS_JSON）。
-  # 命中冻结表达时按 case 允许结果集合返回最小合法行为（reply/ask_author）；
+  # B70/B73：corpus-aware 确定性分支（仅当 harness 设置 AUTHOR_BEHAVIOR_CORPUS_JSON）。
+  # 命中冻结表达时只返回 fixture 声明的 reply/ask_author/execute 刺激；
   # 不写产品事实，不改变其它 prompt 的既有替身路径。产品 runtime 不读取该 env。
   defp complete_core(_state, _model, prompt, _params, prompt_text) do
-    # D1 CP2：替身把收到的 prompt 落到 llm 日志目录（HTTP 层记录器在替身场景不落盘）——
-    # 场景化验收由此获得 prompt 级外部证据（守则文案/阵容段是否真进 prompt）。
-    # 仅 test/support 行为，产品零感知。
-    log_received_prompt(prompt_text, prompt)
     maybe_delay_su02_slow_work_switch(prompt_text)
     maybe_delay_archive_slow(prompt_text)
     maybe_delay_agent_cancel(prompt_text)
@@ -97,21 +97,25 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # “表达→最小动作”映射，不读 case expected/oracle；判卷由 author_behavior oracle 独立完成。
   defp author_behavior_result(prompt_text) do
     with path when is_binary(path) and path != "" <- System.get_env(@author_behavior_env),
-         true <- judgment_prompt?(prompt_text),
          fixtures when is_list(fixtures) and fixtures != [] <- author_behavior_fixtures(path),
-         %{"action" => action} <-
+         %{"action" => _action} = fixture <-
            Enum.find(fixtures, fn entry -> String.contains?(prompt_text, entry["expression"]) end) do
-      author_behavior_stimulus(action)
+      cond do
+        judgment_prompt?(prompt_text) -> author_behavior_stimulus(fixture)
+        profile_routing_prompt?(prompt_text) -> author_behavior_profile_stimulus(fixture, prompt_text)
+        true -> nil
+      end
     else
       _ -> nil
     end
   end
 
-  defp author_behavior_stimulus("reply") do
-    {:ok, Result.new("（B70 确定性语料回放）已按当前作品事实处理，本轮不写作品事实。")}
+  defp author_behavior_stimulus(%{"action" => "reply"} = fixture) do
+    text = Map.get(fixture, "reply_text", "（B70 确定性语料回放）已按当前作品事实处理，本轮不写作品事实。")
+    {:ok, Result.new(text)}
   end
 
-  defp author_behavior_stimulus("ask_author") do
+  defp author_behavior_stimulus(%{"action" => "ask_author"}) do
     {:ok,
      Result.new("需要作者补充目标信息后才能继续。", nil,
        tool_calls: [
@@ -127,7 +131,50 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
      )}
   end
 
-  defp author_behavior_stimulus(_action), do: nil
+  defp author_behavior_stimulus(%{"action" => "execute", "capability" => capability} = fixture) do
+    expression = Map.fetch!(fixture, "expression")
+
+    {:ok,
+     Result.new("已生成待采纳候选；保存前不会写入作品事实。", nil,
+       tool_calls: [
+         %{
+           id: "tool-b73-execute",
+           name: "judgment_decision",
+           arguments: %{
+             "action" => "execute",
+             "capability" => capability,
+             "dialogue_goal" => Map.get(fixture, "dialogue_goal", expression),
+             "reason" => "B73 deterministic execute stimulus"
+           }
+         }
+       ]
+     )}
+  end
+
+  defp author_behavior_stimulus(_fixture), do: nil
+
+  defp author_behavior_profile_stimulus(%{"action" => "execute", "capability" => capability}, prompt_text) do
+    profile_ref =
+      case capability do
+        "prose_writing" -> "prose_drafting_with_quality_v1"
+        "world_building" -> "world_building_with_context_v1"
+        _ -> nil
+      end
+
+    if profile_ref do
+      response =
+        profile_route_response(
+          profile_ref,
+          "按本轮确定性 execute 刺激保持能力与后续工作流一致。",
+          ["author_behavior_fixture_capability"],
+          prompt_text
+        )
+
+      {:ok, Result.new(Jason.encode!(response))}
+    end
+  end
+
+  defp author_behavior_profile_stimulus(_fixture, _prompt_text), do: nil
 
   defp author_behavior_fixtures(path) do
     case File.read(path) do

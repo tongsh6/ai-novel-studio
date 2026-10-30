@@ -37,16 +37,20 @@ fixtures:
     note: 预留：当前未入 CP1 子集。
   - case_id: C-F2-001
     expression: "把第02章补完，接上现在的结尾。"
-    action: ask_author
-    note: 预留：execute 路径不在 CP1 子集。
+    action: execute
+    capability: prose_writing
+    note: B73：只刺激正文 execute 判断；候选、目标绑定与 TENTATIVE 边界由真实主链和独立 oracle 判定。
   - case_id: C-F2-003
     expression: "还是从第02章断的地方往下写，前面别改。"
-    action: ask_author
-    note: 预留。
+    action: execute
+    capability: prose_writing
+    note: B73：续写 execute 刺激；原文 hash 与候选目标由外部证据核对。
   - case_id: C-F3-002
     expression: "这个设定捋一下，能落成一条规则就存下来。"
-    action: reply
-    note: 预留：execute 候选路径未在 CP1 子集；fixture 不宣称行为正确。
+    action: execute
+    capability: world_building
+    dialogue_goal: "把灯楼旧账这条设定整理成世界规则，保存为待采纳候选。"
+    note: B73：明确保存请求的 execute 刺激；只允许真实主链产出待采纳候选。
   - case_id: C-F1-G01
     expression: "现在写到第几章了？第02章大概多少字？现在到哪一步了？"
     action: reply
