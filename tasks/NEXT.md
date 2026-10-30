@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B45 | CP0 交付38份 schema 的字段/状态→生产→转换→校验→消费/历史映射；逐项处置13个部分承接项，与 B43 协同 | [原任务](slices/B45-schema-legacy-governance.md) |
+| B01 | 真实入口来源贯穿生成、存储、trace/回放；保留原 judgment/frame/plan 语义边界范围 | [原任务小节](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界) |
 
 ## 后续候选
 
