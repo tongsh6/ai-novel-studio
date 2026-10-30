@@ -1288,3 +1288,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **AU10-MATRIX done**：未知卡告警在 wire schema 校验层已存在、DefaultCard 容错有测试；当前 HEAD AU04/AU09 动作链 PASS；disabled/stale/ttl/history/cross-work/视口历史证据未全量重跑，登记 stale 残差；无产品修复/不恢复旧卡集合；当前任务切 UA01-PROMPT-T3T5。
 
 - 2026-10-31 — **UA01-PROMPT-T3T5 CP0**：现役为完整单调用修订（无 revised_tail）；发现 T4 修订 prompt 只渲染 observation summary、结构化 finding 字段缺失；T5 PlanStep.description 无 provenance/N-NARR 未闭合；T3 前缀保留无机械校验。CP1 先做 T4，T5 需 schema/迁移裁决；未改代码。
+
+- 2026-10-31 — **UA01 T4**：quality observation 增加 findings 结构，planner 修订 prompt 按 5 条/240 字渲染 gate/severity/summary，超限显式 +N；单测 39/0、全量 1056/0（含既有 AgentRunRuntime flake 单跑通过）。T4 真实 D2 页面未跑；T3 前缀校验/T5 provenance 待；未调模型。

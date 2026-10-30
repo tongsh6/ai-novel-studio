@@ -1182,14 +1182,49 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   defp observation_lines(_snapshot), do: "none"
 
   defp observation_line(%AgentObservation{} = observation) do
-    "- #{observation.observation_id} / #{observation.observation_type}: #{observation.summary}"
+    observation
+    |> base_observation_line()
+    |> append_finding_lines(observation.structured_payload)
   end
 
   defp observation_line(observation) when is_map(observation) do
-    "- #{map_get(observation, :observation_id)} / #{map_get(observation, :observation_type)}: #{map_get(observation, :summary)}"
+    observation
+    |> base_observation_line()
+    |> append_finding_lines(map_get(observation, :structured_payload))
   end
 
   defp observation_line(observation), do: "- #{inspect(observation)}"
+
+  defp base_observation_line(observation) do
+    "- #{map_get(observation, :observation_id)} / #{map_get(observation, :observation_type)}: #{map_get(observation, :summary)}"
+  end
+
+  # T4（UA01 T3-T5）：finding 的结构字段必须进入修订观察，不能被 summary 摘要冒充。
+  # 上限 5 条、每条 summary 240 字；超出部分显式标 …(+N)，不伪造完整观察。
+  defp append_finding_lines(line, %{} = payload) do
+    findings = map_get(payload, :findings) |> List.wrap()
+
+    if findings == [] do
+      line
+    else
+      shown = Enum.take(findings, 5)
+      hidden = max(length(findings) - length(shown), 0)
+
+      finding_lines =
+        Enum.map(shown, fn finding ->
+          gate = map_get(finding, :quality_gate_ref) || map_get(finding, :gate) || "unknown_gate"
+          severity = map_get(finding, :severity) || "unknown"
+          summary = map_get(finding, :summary) || ""
+          summary = String.slice(to_string(summary), 0, 240)
+          "  · finding [#{gate}, severity=#{severity}] #{summary}"
+        end)
+
+      tail = if hidden > 0, do: ["  · finding …(+#{hidden})"], else: []
+      Enum.join([line | finding_lines ++ tail], "\n")
+    end
+  end
+
+  defp append_finding_lines(line, _payload), do: line
 
   defp next_plan_version(%AgentRun{} = run) do
     case run.plan_version || map_get(run.plan, :version) do

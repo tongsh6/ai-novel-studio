@@ -1812,7 +1812,8 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         structured_payload: %{
           review_status: status,
           finding_count: finding_count,
-          policy_action: quality_policy_action(turn_result)
+          policy_action: quality_policy_action(turn_result),
+          findings: quality_findings(turn_result)
         },
         evidence_refs: ["turn:#{frame.turn_id}" | tool_and_quality_refs(turn_result)]
       })
@@ -2088,6 +2089,18 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     |> case do
       findings when is_list(findings) -> length(findings)
       _ -> 0
+    end
+  end
+
+  # T4（UA01 T3-T5）：修订观察保留 finding 的结构事实（id/gate/severity/summary），
+  # 由 planner 的 observation_lines 按预算紧凑渲染；不把 summary 当完整观察。
+  defp quality_findings(turn_result) do
+    turn_result
+    |> Map.get(:quality_review, %{})
+    |> map_get(:findings)
+    |> case do
+      findings when is_list(findings) -> findings
+      _ -> []
     end
   end
 

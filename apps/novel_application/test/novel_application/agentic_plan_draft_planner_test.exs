@@ -773,6 +773,42 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     ])
   end
 
+  test "T4 修订 prompt 渲染 finding 的 gate/severity/summary，超限显式标省略" do
+    findings =
+      for index <- 1..7 do
+        %{
+          quality_gate_ref: "quality_gate.style_fit",
+          severity: :warn,
+          summary: "第#{index}项：对白推进不足，需补充人物反应。"
+        }
+      end
+
+    observations = [
+      %{
+        observation_id: "obs_finding_group",
+        observation_type: :quality_review,
+        summary: "质量复核已完成，记录 7 项需关注问题。",
+        structured_payload: %{findings: findings}
+      }
+    ]
+
+    prompt =
+      AgenticPlanDraftPlanner.revision_prompt(
+        probe_run(),
+        %{observations: observations},
+        ["第01章：开端"],
+        "质量复核要求补足步骤"
+      )
+
+    text = prompt.messages |> hd() |> Map.fetch!(:content)
+
+    assert text =~ "finding [quality_gate.style_fit, severity=warn]"
+    assert text =~ "第1项：对白推进不足"
+    assert text =~ "finding …(+2)"
+    # summary-only 不能冒充完整 observation：finding 明细必须出现。
+    assert text =~ "## 最近观察"
+  end
+
   defp assert_ordered(text, markers) do
     offsets =
       Enum.map(markers, fn marker ->
