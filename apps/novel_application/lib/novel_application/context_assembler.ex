@@ -28,6 +28,8 @@ defmodule NovelApplication.ContextAssembler do
              [map()]}
           | {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil, [String.t()],
              [map()], map()}
+          | {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil, [String.t()],
+             [map()], map(), map()}
   @spec assemble(String.t(), (String.t() -> fetcher_return())) :: DialogueContext.t()
   def assemble(workspace_id, fetcher \\ &default_fetch/1) do
     assemble_for_input(workspace_id, nil, fetcher, [])
@@ -50,7 +52,7 @@ defmodule NovelApplication.ContextAssembler do
     # CP1（关 G10 / AU-03 SC-B3）：fetcher 异常/非 ok 时不让整轮崩溃，降级为**明确**空上下文
     # 并留痕（context.assemble.fallback），后续 Planner 在空上下文下诚实说明读不到，而不是编造。
     {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters, structured_chapters,
-     interaction_state} =
+     interaction_state, source_status} =
       safe_fetch(fetcher, workspace_id, author_text, session_id)
 
     refs = build_refs(snapshot, conv_summary, mem_summary, behavior_summary, session_id)
@@ -63,6 +65,7 @@ defmodule NovelApplication.ContextAssembler do
       has_conversation: conv_summary != nil,
       has_session_summary: session_summary?(conv_summary),
       has_memory: mem_summary != nil,
+      source_status: Enum.into(source_status, %{}, fn {k, v} -> {to_string(k), to_string(v)} end),
       duration_ms: duration
     })
 
@@ -73,6 +76,7 @@ defmodule NovelApplication.ContextAssembler do
       memory_summary: mem_summary,
       open_behavior_summary: behavior_summary,
       interaction_state: interaction_state,
+      source_status: source_status,
       current_chapters: chapters,
       structured_chapters: structured_chapters,
       context_refs: refs,
@@ -86,7 +90,15 @@ defmodule NovelApplication.ContextAssembler do
   defp default_fetch(_workspace_id), do: {:ok, nil, nil, nil, nil}
 
   # 明确空上下文（fetcher 失败时的降级形态）。
-  @empty_fetch {:ok, nil, nil, nil, nil, [], [], %{}}
+  @unavailable_status %{
+    work: :unavailable,
+    conversation: :unavailable,
+    memory: :unavailable,
+    behavior: :unavailable,
+    chapters: :unavailable,
+    interaction: :unavailable
+  }
+  @empty_fetch {:ok, nil, nil, nil, nil, [], [], %{}, @unavailable_status}
 
   # fetcher 异常或返回非 {:ok, ...} 时降级为明确空上下文 + 留痕，不让整轮崩溃（G10 / AU-03 SC-B3）。
   defp safe_fetch(fetcher, workspace_id, author_text, session_id) do
@@ -113,38 +125,55 @@ defmodule NovelApplication.ContextAssembler do
 
   # fetcher 可返回 5 或 6 元组；统一补齐为带章节列表的 6 元组（缺省空列表）。非 ok 返回也降级为空。
   defp normalize_fetch_result(
+         {:ok, snapshot, conv, mem, behavior, chapters, structured_chapters, state, statuses}
+       )
+       when is_map(state) and is_map(statuses) do
+    {titles, entries} = normalize_chapter_payload(chapters, structured_chapters)
+    status = normalize_source_status(statuses, snapshot, conv, mem, behavior, titles, state)
+    {:ok, snapshot, conv, mem, behavior, titles, entries, state, status}
+  end
+
+  defp normalize_fetch_result(
          {:ok, snapshot, conv, mem, behavior, chapters, structured_chapters, state}
        )
        when is_map(state) do
     {titles, entries} = normalize_chapter_payload(chapters, structured_chapters)
-    {:ok, snapshot, conv, mem, behavior, titles, entries, state}
+    status = infer_source_status(snapshot, conv, mem, behavior, titles, state)
+    {:ok, snapshot, conv, mem, behavior, titles, entries, state, status}
   end
 
   defp normalize_fetch_result({:ok, snapshot, conv, mem, behavior, chapters, structured_chapters}) do
     {titles, entries} = normalize_chapter_payload(chapters, structured_chapters)
-    {:ok, snapshot, conv, mem, behavior, titles, entries, %{}}
+    status = infer_source_status(snapshot, conv, mem, behavior, titles, %{})
+    {:ok, snapshot, conv, mem, behavior, titles, entries, %{}, status}
   end
 
   defp normalize_fetch_result({:ok, snapshot, conv, mem, behavior, chapters}),
     do: normalize_six_tuple(snapshot, conv, mem, behavior, chapters)
 
   defp normalize_fetch_result({:ok, snapshot, conv, mem, behavior}),
-    do: {:ok, snapshot, conv, mem, behavior, [], [], %{}}
+    do:
+      {:ok, snapshot, conv, mem, behavior, [], [], %{},
+       infer_source_status(snapshot, conv, mem, behavior, [], %{})}
 
   defp normalize_fetch_result(_other), do: @empty_fetch
 
   defp normalize_six_tuple(snapshot, conv, mem, behavior, chapters) do
-    cond do
-      structured_chapter_list?(chapters) ->
-        entries = normalize_structured_chapters(chapters)
-        {:ok, snapshot, conv, mem, behavior, titles_from_structured(entries), entries, %{}}
+    {titles, entries} =
+      cond do
+        structured_chapter_list?(chapters) ->
+          entries = normalize_structured_chapters(chapters)
+          {titles_from_structured(entries), entries}
 
-      is_list(chapters) ->
-        {:ok, snapshot, conv, mem, behavior, normalize_chapters(chapters), [], %{}}
+        is_list(chapters) ->
+          {normalize_chapters(chapters), []}
 
-      true ->
-        {:ok, snapshot, conv, mem, behavior, [], [], %{}}
-    end
+        true ->
+          {[], []}
+      end
+
+    {:ok, snapshot, conv, mem, behavior, titles, entries, %{},
+     infer_source_status(snapshot, conv, mem, behavior, titles, %{})}
   end
 
   defp normalize_chapter_payload(chapters, structured_chapters) do
@@ -304,6 +333,48 @@ defmodule NovelApplication.ContextAssembler do
       {:arity, 1} -> fetcher.(workspace_id)
     end
   end
+
+  @source_keys [:work, :conversation, :memory, :behavior, :chapters, :interaction]
+  @known_statuses [:ok, :empty, :unknown, :unavailable]
+
+  # AU03-CONTEXT CP1：来源状态规范化——生产 fetcher 显式提供；旧 fetcher 按值推断。
+  # 旧合同无法表达 unknown/unavailable，推断只给 :ok/:empty，保持既有 prompt 字节不变；
+  # 失败/非 ok 由 @empty_fetch 显式标 :unavailable。
+  defp normalize_source_status(statuses, snapshot, conv, mem, behavior, titles, state) do
+    inferred = infer_source_status(snapshot, conv, mem, behavior, titles, state)
+
+    Enum.reduce(@source_keys, inferred, fn key, acc ->
+      value = Map.get(statuses, key) || Map.get(statuses, to_string(key))
+      normalized = normalize_status_value(value)
+
+      if normalized in @known_statuses, do: Map.put(acc, key, normalized), else: acc
+    end)
+  end
+
+  defp normalize_status_value(value) when is_atom(value) and value in @known_statuses, do: value
+  defp normalize_status_value(value) when is_binary(value), do: status_from_string(value)
+  defp normalize_status_value(_value), do: nil
+
+  defp status_from_string(value) do
+    Enum.find(@known_statuses, fn status -> to_string(status) == value end)
+  end
+
+  defp infer_source_status(snapshot, conv, mem, behavior, titles, state) do
+    %{
+      work: inferred_status(snapshot),
+      conversation: inferred_status(conv),
+      memory: inferred_status(mem),
+      behavior: inferred_status(behavior),
+      chapters: inferred_status(titles),
+      interaction: inferred_status(state)
+    }
+  end
+
+  defp inferred_status(nil), do: :empty
+  defp inferred_status(""), do: :empty
+  defp inferred_status([]), do: :empty
+  defp inferred_status(value) when is_map(value) and map_size(value) == 0, do: :empty
+  defp inferred_status(_value), do: :ok
 
   defp build_refs(snapshot, conv_summary, mem_summary, behavior_summary, session_id) do
     {conversation_type, conversation_id} = conversation_ref_identity(session_id)

@@ -187,7 +187,7 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 
 ## 当前上下文缺失与读取失败补验
 
-- 状态：**doing（2026-10-30 CP0 done：读取失败/未知/真实空的当前模型输入表达已复现并冻结契约；CP1–CP3 待实现与真实页面/模型验收）**。
+- 状态：**doing（2026-10-30 CP0–CP1 done：契约冻结 + source_status 接线/同次请求可用性段/trace 反馈；CP2 本地故障矩阵与 CP3 原生真实模型验收待执行）**。
 - 设计依据：本文件 §3 的空作品、有背景无会话、fetcher 失败三类场景；[AU-03](../../docs/design/acceptance/author/AU-03-context.md) 的上下文诚实边界。既有 missing WorkState 的单场景与普通成功 prompt 不能代签整个矩阵。
 - 下一步：按当前 B26/B27/ADR-0031 的真实入口重核 ContextAssembler、错误返回及 author-safe 提示，列明 empty/work-only/fetcher-failure 的可见事实与禁称内容；校正旧 frame/envelope 断言，先区分缺实现与缺证据。
 - 完整后果：真实页面在空作品时不虚构事实，有背景无会话时不虚构“刚才讨论”，读取失败时不把未知当空事实或成功读取；恢复后当前作品事实进入后续请求，作品切换不串上下文。机制故障注入只在外部 harness/test support，真实模型措辞与机制接线分层取证。
@@ -198,7 +198,7 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
 | CP0 | 定位真实 fetcher→ContextAssembler→同次 provider 请求→trace/作者反馈路径；逐来源区分成功有值、成功为空、未取得/未知与读取失败，核对部分失败和已有可用事实；冻结最小错误/覆盖表达及各类继续/停止条件，不先发明新 Context 类或全局状态机 | **done（2026-10-30）**：静态链路审计 + 纯函数探针；证据 `artifacts/task-audit/2026-10-30-au03-context-cp0/{audit-map.json,probe.json,probe.exs}`；契约见下“CP0 记录” |
-| CP1 | 在同一事实源上接通组装结果、请求渲染与反馈；若继续调用模型，该次实际请求须包含受影响来源的安全错误类别/未知范围和仍可信的事实；不得把失败渲染为已确认的“无作品/0 章/没有记忆”。若因身份/权限等必要底座不足而停止，诚实记录未派发而不是声称模型已获知 | todo |
+| CP1 | 在同一事实源上接通组装结果、请求渲染与反馈；若继续调用模型，该次实际请求须包含受影响来源的安全错误类别/未知范围和仍可信的事实；不得把失败渲染为已确认的“无作品/0 章/没有记忆”。若因身份/权限等必要底座不足而停止，诚实记录未派发而不是声称模型已获知 | **done（2026-10-30）**：DialogueContext additive `source_status` + `source_status_summary`；ContextAssembler 9 元组/旧 fetcher 兼容与失败 `:unavailable`；生产 fetcher 逐来源 safe 包装（保留已成功事实）；judgment prompt 同次请求「上下文可用性」段 + work/facts 不再把失败渲染为空；6 处 trace/观测带 author-safe 状态。新测试 8 条 + 全量 2358/0；证据见下节 CP1 记录 |
 | CP2 | 局部验证 empty/work-only/异常/非 ok/部分失败、跨作品切换及恢复；核对实际发送内容和来源声明，失败不伪造空事实，旧记录缺字段保持未知；恢复后真实事实进入后续请求，重试不复活旧授权、不写 canon | todo |
 | CP3 | 外部真实工作台触发缺失/读取故障→作者可见反馈→故障解除→恢复对话；将同一 turn/run 的实际请求、来源状态、回复/trace 与恢复后请求对齐。分开报告局部故障矩阵、真实入口机制与真实模型如何处理未知；未取到请求或仅日志有 error 不算该链完成 | todo |
 
@@ -225,6 +225,18 @@ AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04
 - CP2 预注册：raise/非 ok→unavailable、work 成功+chapters 失败的部分保留、真实空作品、work-only、跨作品切换/恢复、旧 fetcher 兼容；断言 prompt 含可用性段且不含错误空事实，零写入。
 - CP3 预注册：外部原生 Tauri + 真实模型；外部 harness 以 SQLite 独占锁故障注入只读投影表（产品无验收感知），验证故障期同 turn 请求含 unavailability、作者反馈/trace 不称空、零 canon 写入；解锁后恢复请求含真实事实；无会话/记忆的 empty 对照。证据目录/预算/失败只读保留已冻结。
 - 残余：CP0 未运行产品故障/页面/真实模型；“未知 vs 真实空”的作者可见文案在 CP2/CP3 冻结；历史数据缺失字段映射 unknown 按现有契约核对，不伪造迁移。
+
+### CP1 记录（2026-10-30 done）
+
+- 改动（同源事实 → 同次请求渲染 → trace/反馈）：
+  - `NovelDomain.DialogueContext`：additive `source_status`（work/conversation/memory/behavior/chapters/interaction → `:ok|:empty|:unknown|:unavailable`）；`to_prompt_text/1` 分流——`unavailable/unknown` 渲染“读取失败/未知，不得当作无作品或新对话”，缺失状态保持既有字节语义；新增 `source_status_summary/1`（author-safe：sources/unavailable_sources/unknown_sources）。
+  - `ContextAssembler`：接受生产 9 元组（追加 statuses）；旧 5/6/7/8 元组按值推断 `:ok/:empty`（既有 stub/测试字节不变）；异常/非 ok 的 `@empty_fetch` 显式全 `:unavailable`；assemble 完成日志携带 `source_status`；context 结构携带状态。
+  - `NovelPersistence.WorkspaceContext`：两个生产 fetcher 改为逐来源 safe 包装（work/chapters/conversation/memory/behavior/interaction），单来源失败只记安全类别（`context.source.error`：source/reason_category/degraded_to，不含原始异常）并保留其它已成功来源，返回第 9 项 statuses。
+  - `DialoguePlanningService`：判断上下文两条裁剪路径均插入「## 上下文可用性（APP 客观状态，不得改写）」段，列出 unavailable/unknown 并禁止渲染为空作品/0章/没有讨论/没有记忆；work 段在读取失败时输出“事实未知”而非“新对话”；work/chapters 未取得时不再渲染「0 章」类事实。
+  - trace/观测：judgment/prose/character/plot/world 五处 context 观测与 planning emit 均带 `context_source_status`（安全摘要，不是原始错误）。
+- 测试：新增 `au03_context_status_test.exs` 8 条（raise/非 ok → unavailable + 可用性段且不声称新对话；9 元组部分保留不渲染 0 章；真实空作品可 0 章；work-only 不声称讨论；旧 5 元组兼容；to_prompt_text 分流；summary）；持久层 WorkspaceContext/ChapterSummaryReader/InteractionLifecycle 合同测试更新为 9 元组（机械补位，原断言未放宽）；全量 mix test **2358/0**。
+- 门禁：format/compile -Werror/credo strict/xref/arch、I1/I2/I3、manifest 209 scenarios、task_done `20261030T141318Z`、静态扫描无 blocking；B30 原生确定性场景复跑 PASS（30/30+T8 6/6，作为 UI 证据新鲜度回归，非本 CP 语义证明）。
+- 残余：① `prose_drafting_with_quality` 等专业 run 的 writer prompt 仍沿用旧上下文渲染（本轮只补 trace 元数据；其上下文块是否需同步“可用性”段由 CP2 按真实入口判定）；② 真实页面故障矩阵/恢复与真实模型如何处理未知 = CP2/CP3；③ 未新增 UI 文案，作者可见措辞在 CP2/CP3 以真实请求/trace 收口。
 
 ## 历史搜索命中定位与只读回看
 

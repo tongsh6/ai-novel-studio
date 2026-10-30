@@ -9,6 +9,8 @@ defmodule NovelPersistence.WorkspaceContext do
   import Ecto.Query, only: [from: 2]
 
   alias NovelDomain.VolumeBlueprint
+  require NovelCommon.LogEmit, as: LogEmit
+
   alias NovelFoundation.Enums.StructureStatus
   alias NovelPersistence.ChapterSummaryRepo
   alias NovelPersistence.MemoryLog
@@ -38,14 +40,35 @@ defmodule NovelPersistence.WorkspaceContext do
   @spec context_fetcher() :: function()
   def context_fetcher do
     fn workspace_id ->
-      snapshot = fetch_workspace_info(workspace_id)
-      conv_summary = fetch_conversation_summary(workspace_id)
+      {snapshot, work_status} =
+        safe_source(workspace_id, :work, fn -> fetch_workspace_info(workspace_id) end)
 
-      structured_chapters = fetch_structured_chapters(workspace_id)
+      {conv_summary, conversation_status} =
+        safe_source(workspace_id, :conversation, fn ->
+          fetch_conversation_summary(workspace_id)
+        end)
 
-      {:ok, snapshot, conv_summary, fetch_memory_summary(workspace_id, nil),
-       fetch_behavior_summary(workspace_id), titles_from_structured_chapters(structured_chapters),
-       structured_chapters}
+      {structured_chapters, chapters_status} =
+        safe_source(workspace_id, :chapters, fn -> fetch_structured_chapters(workspace_id) end)
+
+      structured_chapters = structured_chapters || []
+
+      {mem_summary, memory_status} =
+        safe_source(workspace_id, :memory, fn -> fetch_memory_summary(workspace_id, nil) end)
+
+      {behavior_summary, behavior_status} =
+        safe_source(workspace_id, :behavior, fn -> fetch_behavior_summary(workspace_id) end)
+
+      {:ok, snapshot, conv_summary, mem_summary, behavior_summary,
+       titles_from_structured_chapters(structured_chapters), structured_chapters, %{},
+       %{
+         work: work_status,
+         conversation: conversation_status,
+         memory: memory_status,
+         behavior: behavior_status,
+         chapters: chapters_status,
+         interaction: :empty
+       }}
     end
   end
 
@@ -58,15 +81,45 @@ defmodule NovelPersistence.WorkspaceContext do
   @spec context_fetcher_with_query() :: function()
   def context_fetcher_with_query do
     fn workspace_id, author_text, session_id ->
-      snapshot = fetch_workspace_info(workspace_id)
-      conv_summary = fetch_conversation_summary(workspace_id, session_id)
+      {snapshot, work_status} =
+        safe_source(workspace_id, :work, fn -> fetch_workspace_info(workspace_id) end)
 
-      structured_chapters = fetch_structured_chapters(workspace_id)
+      {conv_summary, conversation_status} =
+        safe_source(workspace_id, :conversation, fn ->
+          fetch_conversation_summary(workspace_id, session_id)
+        end)
 
-      {:ok, snapshot, conv_summary, fetch_memory_summary(workspace_id, author_text),
-       fetch_behavior_summary(workspace_id, session_id),
+      {structured_chapters, chapters_status} =
+        safe_source(workspace_id, :chapters, fn -> fetch_structured_chapters(workspace_id) end)
+
+      structured_chapters = structured_chapters || []
+
+      {mem_summary, memory_status} =
+        safe_source(workspace_id, :memory, fn ->
+          fetch_memory_summary(workspace_id, author_text)
+        end)
+
+      {behavior_summary, behavior_status} =
+        safe_source(workspace_id, :behavior, fn ->
+          fetch_behavior_summary(workspace_id, session_id)
+        end)
+
+      {interaction_state, interaction_status} =
+        safe_source(workspace_id, :interaction, fn ->
+          NovelPersistence.InteractionLifecycle.context(workspace_id, session_id)
+        end)
+
+      {:ok, snapshot, conv_summary, mem_summary, behavior_summary,
        titles_from_structured_chapters(structured_chapters), structured_chapters,
-       NovelPersistence.InteractionLifecycle.context(workspace_id, session_id)}
+       interaction_state,
+       %{
+         work: work_status,
+         conversation: conversation_status,
+         memory: memory_status,
+         behavior: behavior_status,
+         chapters: chapters_status,
+         interaction: interaction_status
+       }}
     end
   end
 
@@ -97,6 +150,40 @@ defmodule NovelPersistence.WorkspaceContext do
       |> Enum.reduce_while(:ok, &persist_interaction/2)
     end
   end
+
+  # AU03-CONTEXT CP1：来源边界 safe 包装。异常/非 ok 不丢弃其它已成功来源；
+  # 只记录安全类别（不把原始异常/凭据写入日志或 prompt），由 ContextAssembler 统一表达。
+  defp safe_source(workspace_id, key, fun) do
+    value = fun.()
+    {value, source_status(value)}
+  rescue
+    _error ->
+      LogEmit.emit(:context, :source, :error, %{
+        workspace_id: workspace_id,
+        source: key,
+        reason_category: "unavailable",
+        degraded_to: "source_unavailable"
+      })
+
+      {nil, :unavailable}
+  catch
+    kind, _reason ->
+      LogEmit.emit(:context, :source, :error, %{
+        workspace_id: workspace_id,
+        source: key,
+        reason_category: "unavailable",
+        catch_kind: kind,
+        degraded_to: "source_unavailable"
+      })
+
+      {nil, :unavailable}
+  end
+
+  defp source_status(nil), do: :empty
+  defp source_status(""), do: :empty
+  defp source_status([]), do: :empty
+  defp source_status(value) when is_map(value) and map_size(value) == 0, do: :empty
+  defp source_status(_value), do: :ok
 
   # ── private fetchers ─────────────────────────────
 

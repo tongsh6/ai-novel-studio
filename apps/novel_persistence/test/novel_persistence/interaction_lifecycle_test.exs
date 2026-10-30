@@ -64,14 +64,14 @@ defmodule NovelPersistence.InteractionLifecycleTest do
     assert {:ok, _} = InteractionLifecycle.call(:receive, attrs)
     fetcher = NovelPersistence.WorkspaceContext.context_fetcher_with_query()
 
-    assert {:ok, _, nil, _, _, _, _, state} =
+    assert {:ok, _, nil, _, _, _, _, state, _source_status} =
              fetcher.(attrs.workspace_id, attrs.text, attrs.session_id)
 
     assert [%{text: text}] = state.author_inputs
     assert text == attrs.text
     assert {:ok, _} = InteractionLifecycle.call(:status, %{attrs | status: :completed})
 
-    assert {:ok, _, summary, _, _, _, _, _} =
+    assert {:ok, _, summary, _, _, _, _, _, _source_status} =
              fetcher.(attrs.workspace_id, "下一句", attrs.session_id)
 
     assert summary =~ attrs.text

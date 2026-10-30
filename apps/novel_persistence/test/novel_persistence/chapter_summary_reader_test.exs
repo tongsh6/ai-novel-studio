@@ -77,7 +77,8 @@ defmodule NovelPersistence.ChapterSummaryReaderTest do
 
     fetcher = WorkspaceContext.context_fetcher()
 
-    assert {:ok, _snapshot, _conv, _mem, _behavior, titles, structured} = fetcher.(work_id)
+    assert {:ok, _snapshot, _conv, _mem, _behavior, titles, structured, %{}, _source_status} =
+             fetcher.(work_id)
 
     assert titles == [
              "第01章：底层灵气账单",

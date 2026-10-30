@@ -849,7 +849,8 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
         structured_payload: %{
           current_chapter_count: length(context.current_chapters || []),
           structured_chapter_count: length(context.structured_chapters || []),
-          context_ref_count: length(context.context_refs || [])
+          context_ref_count: length(context.context_refs || []),
+          context_source_status: NovelDomain.DialogueContext.source_status_summary(context)
         },
         evidence_refs: ["context:#{turn_id}"]
       })

@@ -34,7 +34,7 @@ defmodule NovelPersistence.WorkspaceContextTest do
 
       fetcher = WorkspaceContext.context_fetcher()
 
-      assert {:ok, nil, summary, nil, nil, [], []} = fetcher.(ws_id)
+      assert {:ok, nil, summary, nil, nil, [], [], %{}, _source_status} = fetcher.(ws_id)
       assert String.contains?(summary, "user: 我想写赛博修仙")
       assert String.contains?(summary, "assistant: 可以从灵气代码化切入")
     end
@@ -42,7 +42,7 @@ defmodule NovelPersistence.WorkspaceContextTest do
     test "returns nil conversation summary when workspace has no interactions" do
       fetcher = WorkspaceContext.context_fetcher()
 
-      assert {:ok, nil, nil, nil, nil, [], []} = fetcher.("ws-empty-context")
+      assert {:ok, nil, nil, nil, nil, [], [], %{}, _source_status} = fetcher.("ws-empty-context")
     end
 
     test "returns accepted chapter titles so Planner can resolve continuation target" do
@@ -70,7 +70,7 @@ defmodule NovelPersistence.WorkspaceContextTest do
                   summary: "",
                   has_prose: true
                 }
-              ]} = fetcher.(work.id)
+              ], %{}, _source_status} = fetcher.(work.id)
     end
 
     test "returns structured chapter plan_direction for prose writing L2" do
@@ -112,7 +112,7 @@ defmodule NovelPersistence.WorkspaceContextTest do
                     "emotion" => "压迫、悬疑"
                   }
                 }
-              ]} = fetcher.(work.id)
+              ], %{}, _source_status} = fetcher.(work.id)
     end
 
     test "returns relevant confirmed memory summary and records references" do
@@ -123,7 +123,7 @@ defmodule NovelPersistence.WorkspaceContextTest do
 
       fetcher = WorkspaceContext.context_fetcher_with_query()
 
-      assert {:ok, nil, nil, summary, nil, [], [], _interaction_state} =
+      assert {:ok, nil, nil, summary, nil, [], [], _interaction_state, _source_status} =
                fetcher.(work_id, "林烬为什么要去灵源矿区？", nil)
 
       assert summary =~ "林瑶失踪与灵源矿区有关"
@@ -150,7 +150,7 @@ defmodule NovelPersistence.WorkspaceContextTest do
 
       fetcher = WorkspaceContext.context_fetcher_with_query()
 
-      assert {:ok, _snapshot, summary, nil, nil, [], [], _interaction_state} =
+      assert {:ok, _snapshot, summary, nil, nil, [], [], _interaction_state, _source_status} =
                fetcher.(work.id, "他叫什么？", active_session.id)
 
       assert String.contains?(summary, "user: 第一会话主角叫林烬")
@@ -182,7 +182,7 @@ defmodule NovelPersistence.WorkspaceContextTest do
 
       fetcher = WorkspaceContext.context_fetcher_with_query()
 
-      assert {:ok, snapshot, summary, nil, nil, [], [], _interaction_state} =
+      assert {:ok, snapshot, summary, nil, nil, [], [], _interaction_state, _source_status} =
                fetcher.(work.id, "主角现在的核心动机是什么？", active_session.id)
 
       assert snapshot.title == "灵源纪元"
@@ -220,7 +220,8 @@ defmodule NovelPersistence.WorkspaceContextTest do
 
       fetcher = WorkspaceContext.context_fetcher_with_query()
 
-      assert {:ok, snapshot, active_summary, memory_summary, nil, [], [], _interaction_state} =
+      assert {:ok, snapshot, active_summary, memory_summary, nil, [], [], _interaction_state,
+              _source_status} =
                fetcher.(work.id, "请结合当前蓝桥计划和银槐誓约继续说明", active_session.id)
 
       assert snapshot.title == "灵源纪元"
@@ -245,13 +246,15 @@ defmodule NovelPersistence.WorkspaceContextTest do
 
       fetcher = WorkspaceContext.context_fetcher_with_query()
 
-      assert {:ok, _snapshot, active_summary, nil, nil, [], [], _interaction_state} =
+      assert {:ok, _snapshot, active_summary, nil, nil, [], [], _interaction_state,
+              _source_status} =
                fetcher.(work.id, "主角叫什么？", active_session.id)
 
       assert active_summary =~ "林澈"
       refute active_summary =~ "林烬"
 
-      assert {:ok, _snapshot, archived_summary, nil, nil, [], [], _interaction_state} =
+      assert {:ok, _snapshot, archived_summary, nil, nil, [], [], _interaction_state,
+              _source_status} =
                fetcher.(work.id, "主角叫什么？", archived_session.id)
 
       assert archived_summary == nil
@@ -269,7 +272,7 @@ defmodule NovelPersistence.WorkspaceContextTest do
 
       fetcher = WorkspaceContext.context_fetcher()
 
-      assert {:ok, _snapshot, summary, nil, nil, [], []} = fetcher.(work.id)
+      assert {:ok, _snapshot, summary, nil, nil, [], [], %{}, _source_status} = fetcher.(work.id)
       assert summary =~ "当前会话事实"
       refute summary =~ "归档会话事实"
     end
@@ -284,7 +287,7 @@ defmodule NovelPersistence.WorkspaceContextTest do
 
       fetcher = WorkspaceContext.context_fetcher_with_query()
 
-      assert {:ok, _snapshot, summary, nil, nil, [], [], _interaction_state} =
+      assert {:ok, _snapshot, summary, nil, nil, [], [], _interaction_state, _source_status} =
                fetcher.(work.id, "继续最新设定", session.id)
 
       assert String.contains?(summary, "会话早期摘要")
@@ -315,7 +318,8 @@ defmodule NovelPersistence.WorkspaceContextTest do
 
       fetcher = WorkspaceContext.context_fetcher_with_query()
 
-      assert {:ok, _snapshot, _summary, nil, behavior_summary, [], [], _interaction_state} =
+      assert {:ok, _snapshot, _summary, nil, behavior_summary, [], [], _interaction_state,
+              _source_status} =
                fetcher.(work.id, "继续前要看当前等待态", session.id)
 
       assert behavior_summary =~ "待作者确认"
@@ -349,7 +353,7 @@ defmodule NovelPersistence.WorkspaceContextTest do
 
       fetcher = WorkspaceContext.context_fetcher_with_query()
 
-      assert {:ok, _snapshot, _summary, nil, nil, [], [], _interaction_state} =
+      assert {:ok, _snapshot, _summary, nil, nil, [], [], _interaction_state, _source_status} =
                fetcher.(work.id, "现在还有等待态吗？", session.id)
     end
 
@@ -380,7 +384,8 @@ defmodule NovelPersistence.WorkspaceContextTest do
 
       fetcher = WorkspaceContext.context_fetcher()
 
-      assert {:ok, _snapshot, _summary, _mem, _behavior, ["第01章：起", "第02章：承"], [first, second]} =
+      assert {:ok, _snapshot, _summary, _mem, _behavior, ["第01章：起", "第02章：承"], [first, second],
+              %{}, _source_status} =
                fetcher.(work.id)
 
       assert is_binary(first.volume_id)
@@ -418,7 +423,8 @@ defmodule NovelPersistence.WorkspaceContextTest do
 
       fetcher = WorkspaceContext.context_fetcher()
 
-      assert {:ok, _snapshot, _summary, _mem, _behavior, ["第01章：底层灵气账单"], [chapter]} =
+      assert {:ok, _snapshot, _summary, _mem, _behavior, ["第01章：底层灵气账单"], [chapter], %{},
+              _source_status} =
                fetcher.(work.id)
 
       assert is_binary(chapter.volume_id)
@@ -442,7 +448,7 @@ defmodule NovelPersistence.WorkspaceContextTest do
 
       fetcher = WorkspaceContext.context_fetcher()
 
-      assert {:ok, _snapshot, _summary, nil, nil, [], []} = fetcher.(work.id)
+      assert {:ok, _snapshot, _summary, nil, nil, [], [], %{}, _source_status} = fetcher.(work.id)
     end
   end
 
@@ -458,7 +464,7 @@ defmodule NovelPersistence.WorkspaceContextTest do
                ])
 
       fetcher = WorkspaceContext.context_fetcher()
-      assert {:ok, nil, summary, nil, nil, [], []} = fetcher.(ws_id)
+      assert {:ok, nil, summary, nil, nil, [], [], %{}, _source_status} = fetcher.(ws_id)
       assert String.contains?(summary, "user: 第一轮")
       assert String.contains?(summary, "assistant: 收到第一轮")
     end

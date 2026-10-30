@@ -739,21 +739,27 @@ defmodule NovelApplication.DialoguePlanningService do
   # 作品事实块（B27 CP4 M01/M16/M20）：持久化只读投影，回答版本/完成度/统计问题。
   # 与「章节列表」分开：列表是索引，本段是当前 canon 的计数/版本/历史事实。
   defp judgment_work_facts_section(%DialogueContext{} = context) do
-    chapters = context.structured_chapters || []
-    written = Enum.filter(chapters, &(Map.get(&1, :has_prose) == true))
-    snapshot = context.current_work_snapshot || %{}
-
-    if written == [] and map_size(snapshot) == 0 do
+    # AU03-CONTEXT CP1：work/chapters 未取得时不得渲染「0 章」等确认空事实；
+    # 由「上下文可用性」段说明未知边界。
+    if source_unavailable?(context, :work) or source_unavailable?(context, :chapters) do
       ""
     else
-      lines =
-        [whole_book_facts_line(snapshot, chapters)] ++
-          Enum.map(written, &chapter_facts_line/1) ++
-          session_adoption_facts_lines(context)
+      chapters = context.structured_chapters || []
+      written = Enum.filter(chapters, &(Map.get(&1, :has_prose) == true))
+      snapshot = context.current_work_snapshot || %{}
 
-      "## 作品事实（持久化只读投影；版本/完成度/统计以本段为准，SUPERSEDED 不计入当前；" <>
-        "字符数=正文原始字符长度，有效字数=去标点/空白口径）\n" <>
-        Enum.join(Enum.reject(lines, &(&1 in [nil, ""])), "\n")
+      if written == [] and map_size(snapshot) == 0 do
+        ""
+      else
+        lines =
+          [whole_book_facts_line(snapshot, chapters)] ++
+            Enum.map(written, &chapter_facts_line/1) ++
+            session_adoption_facts_lines(context)
+
+        "## 作品事实（持久化只读投影；版本/完成度/统计以本段为准，SUPERSEDED 不计入当前；" <>
+          "字符数=正文原始字符长度，有效字数=去标点/空白口径）\n" <>
+          Enum.join(Enum.reject(lines, &(&1 in [nil, ""])), "\n")
+      end
     end
   end
 
@@ -1019,7 +1025,8 @@ defmodule NovelApplication.DialoguePlanningService do
 
       emit_judgment_stage(snapshot, :goal_understood, "已组装当前作品上下文。", ["context_assembled"], %{
         stage: :context_assembled,
-        context_ref_count: length(context.context_refs)
+        context_ref_count: length(context.context_refs),
+        context_source_status: NovelDomain.DialogueContext.source_status_summary(context)
       })
 
       {:ok,
@@ -1163,6 +1170,7 @@ defmodule NovelApplication.DialoguePlanningService do
   def write_judgment_context_block(context, author_text) do
     [
       judgment_work_section(context),
+      judgment_availability_section(context),
       judgment_work_facts_section(context),
       judgment_stable_chapters_section(context),
       judgment_named_chapters_section(context, author_text)
@@ -1786,6 +1794,7 @@ defmodule NovelApplication.DialoguePlanningService do
   def judgment_context_block(context, author_text) do
     [
       judgment_work_section(context),
+      judgment_availability_section(context),
       judgment_work_facts_section(context),
       judgment_stable_chapters_section(context),
       judgment_pending_candidates_section(context),
@@ -1797,17 +1806,72 @@ defmodule NovelApplication.DialoguePlanningService do
     |> Enum.join("\n\n")
   end
 
-  defp judgment_work_section(%DialogueContext{current_work_snapshot: snapshot})
-       when is_map(snapshot) and map_size(snapshot) > 0 do
-    # 缺席字段诚实缺席（06 §5.0）：nil/空串不渲染占位行（CA01 创作锚字段可选）。
-    "## 当前作品上下文\n" <>
-      (snapshot
-       |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
-       |> Enum.map_join("\n", fn {key, value} -> "- #{key}: #{value}" end))
+  # AU03-CONTEXT CP1：读取失败/未知不得渲染为“新对话或尚未创建作品”。
+  # 可用性状态来自 ContextAssembler（生产 fetcher 逐来源 safe 包装），旧构造缺省时保持既有语义。
+  @availability_labels %{
+    work: "当前作品事实",
+    conversation: "会话历史",
+    memory: "相关记忆",
+    behavior: "未完成行为/上轮状态",
+    chapters: "章节事实",
+    interaction: "待采纳候选/交互状态"
+  }
+
+  defp context_source_status(%DialogueContext{source_status: status}, key) when is_map(status) do
+    Map.get(status, key) || Map.get(status, to_string(key))
   end
 
-  defp judgment_work_section(_context),
-    do: "## 当前作品上下文\n（无——这是新对话或尚未创建作品）"
+  defp context_source_status(_context, _key), do: nil
+
+  defp source_unavailable?(context, key) do
+    context_source_status(context, key) in [:unavailable, :unknown, "unavailable", "unknown"]
+  end
+
+  defp source_status_label(status) when status in [:unavailable, "unavailable"], do: "读取失败"
+  defp source_status_label(_status), do: "未取得/未知"
+
+  defp judgment_availability_section(%DialogueContext{} = context) do
+    entries =
+      Enum.flat_map(@availability_labels, fn {key, label} ->
+        status = context_source_status(context, key)
+
+        if status in [:unavailable, :unknown, "unavailable", "unknown"] do
+          ["- #{label}：#{source_status_label(status)}（未知）"]
+        else
+          []
+        end
+      end)
+
+    if entries == [] do
+      ""
+    else
+      "## 上下文可用性（APP 客观状态，不得改写）\n" <>
+        Enum.join(entries, "\n") <>
+        "\n（以上来源本轮未知或读取失败：不得解释为不存在、空、0 章、没有讨论或没有记忆；" <>
+        "不得据此猜身份或写入，必要时向作者澄清或明确说明未知。）"
+    end
+  end
+
+  defp judgment_work_section(%DialogueContext{} = context) do
+    snapshot = context.current_work_snapshot || %{}
+
+    cond do
+      source_unavailable?(context, :work) ->
+        "## 当前作品上下文\n" <>
+          "（#{source_status_label(context_source_status(context, :work))}：当前作品事实未知，" <>
+          "不得当作无作品或新对话，不得声称 0 章。）"
+
+      map_size(snapshot) > 0 ->
+        # 缺席字段诚实缺席（06 §5.0）：nil/空串不渲染占位行（CA01 创作锚字段可选）。
+        "## 当前作品上下文\n" <>
+          (snapshot
+           |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
+           |> Enum.map_join("\n", fn {key, value} -> "- #{key}: #{value}" end))
+
+      true ->
+        "## 当前作品上下文\n（无——这是新对话或尚未创建作品）"
+    end
+  end
 
   # T2a（长上下文病灶结构性收口，历史两段式时期发现）：章节段有界投影——超限时首章+最近 N。
   # CP-C（VS-00I §4）：稳定列表不消费作者输入（L2）；作者点名章在 L3 单独补充，

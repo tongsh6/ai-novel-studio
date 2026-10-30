@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU03-CONTEXT | CP0 已完成（链路/来源审计、失败 vs 未知 prompt sha 相同复现、四类来源状态与最小表达契约、CP1 接线计划、CP2/CP3 预注册）；下一步 CP1：source_status 接线 + 同次请求可用性段 + trace/反馈，先红测 | [原任务小节](slices/AU03-file-level-closure.md#当前上下文缺失与读取失败补验) |
+| AU03-CONTEXT | CP0–CP1 已完成（契约冻结 + source_status/可用性段/trace 接线，全量 2358/0）；下一步 CP2：本地故障矩阵（raise/非 ok/部分保留/真实空/work-only/跨作品切换/恢复）+ 旧 fetcher 兼容 + 零写入，再进入 CP3 原生故障注入 | [原任务小节](slices/AU03-file-level-closure.md#当前上下文缺失与读取失败补验) |
 
 ## 后续候选
 
