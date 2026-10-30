@@ -44,7 +44,7 @@
 ### 8.2 分类结论（初版）
 
 - **legacy-frozen（非现役线）**：`turn_result_v2.json`（ADR-0015 时代，仅 barrel 历史导出；15 个 broken ref 的 18 个 any 不应误当现役 SSOT）。
-- **legacy-compat（生成但无消费者）**：`phase_next_action_compat.json` 生成整份 `z.any()`，前端/后端均未找到真实消费者；CP1 决定保留历史或标记 legacy。
+- **legacy-compat（生成但无现役生产消费者）**：`phase_next_action_compat.json` 生成整份 `z.any()`；后端 `PhaseNextActionCompat` 会读原始 JSON，但其唯一调用方 `TurnResultValidator` 当前无生产调用点，测试为历史契约测试（`phase_next_action_compat_test.exs` 53/0、`turn_result_validator_test.exs` 21/0）；保留为 legacy-owned，不接入当前 wire。
 - **active + intentional open shape**：`turn_result_v3`（9 个 any：ui_cards/candidate_directions/adoption_state/trace_summary/truthfulness 等，部分由 barrel 组合收紧；additionalProperties=true 为 draft 惯例）、`artifact_adoption_entry`（payload/catchall）、`ledger_entry`（ledger 枚举 + payload/catchall）、`ui_card`（items/catchall）。
 - **active 且前端真实消费**：`user_message_submission`（socket/WorkspaceChat/AuthorQuestionReply `.parse`）、`turn_result_v3`（`turnResultWire.ts` safeParse + WorkspaceChat/UICards 类型）、`candidate_direction`、`ui_card`、`author_choice_action`（barrel safeParse）、`artifact_adoption_entry`。
 - **后端生成枚举**：20 份 enums 全部由 `mix codegen.enums` 生成 Foundation 模块；28 个 Elixir 枚举文件。实际消费者：adoption_status 28 文件、memory_source_type 4、memory_type 3、memory_scope/source_type/mutation_status 2、memory_class/retention_tier 1；agent_type/defaultability/inferability/information_ledger_status/ledger/requiredness/scope_dependency/slot_type **当前未找到消费者**（不能自动当实现范围）。
@@ -137,7 +137,12 @@
 - trace_summary/truthfulness typed（同轮）：v3 schema 为两者声明已知键类型（trace_ref/decision_type/decision_id/reason_codes/tool_called/production_write_performed/execution_blocked 等），`additionalProperties=true` 保留后端扩展键；生成物 typed，barrel 继承。前端测试：已知键合法通过、truthfulness.tool_called 类型错误被拒绝；全量 frontend 642/642、typecheck、backend mix 1048/0。
 - legacy 处置（同轮）：`turn_result_v2` 仅 barrel 历史导出、不进入 TurnResultSchema 当前 safeParse；`phase_next_action_compat` 生成物保留但无消费者，不接入运行时校验；两者在 §8.7 标 legacy-frozen，不删读取、不冒充现役。
 - CP3 真实页面证据（同轮）：`au13-arc-ledger-roundtrip` 真实 Tauri 页面 PASS；实际 turn_result 含 `orchestrator_decision`（allow_tool 与 reply_only）、typed `trace_summary`（decision_id/decision_type/reason_codes/reply_record 扩展键）、`truthfulness`，页面正常消费且无 schema 漂移阻断。证据目录 `artifacts/slice-verify/au13-arc-ledger-roundtrip-tauri/`。
-- 未完成：agent_run_state schema（DS01 §9 owner）、旧兼容测试逐项归属、内部输出（ToolResult/Observation）负例、模型消费证据；CP3 仍 partial。
+- 旧兼容测试归属（同轮）：
+  - `apps/novel_foundation/test/novel_foundation/phase_next_action_compat_test.exs`（53/0）与 `turn_result_validator_test.exs`（21/0）→ legacy-owned，不删不改写为当前 wire 验收；`TurnResultValidator` 无生产调用点，不能冒充现役出口校验。
+  - `apps/novel_persistence/.../schemas/foundation/turn_result.ex`（v2 镜像）→ 历史持久化声明，无现役引用；保留。
+  - `frontend/src/lib/schemas.ts` 的 `TurnResultV2Schema` 导出 → 仅历史类型，无运行时 safeParse；当前 wire 校验在 `turnResultWire.ts`/`TurnResultSchema`。
+  - v2 的 15 个 broken ref 继续 legacy，不修成“看起来已解析”；不伪造历史。
+- 未完成：agent_run_state schema（DS01 §9 owner）、内部输出（ToolResult/Observation）负例、模型消费证据；CP3 仍 partial。
 
 ## 4. 非目标
 

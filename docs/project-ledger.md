@@ -1198,3 +1198,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B45 CP2 trace/truthfulness typed**：v3 trace_summary/truthfulness 已知键 typed、additionalProperties 保留扩展；生成物与 barrel 继承；前端测试合法键通过、tool_called 类型错误拒绝；frontend 642/642、typecheck、backend mix 1048/0。agent_run_state/legacy/CP3 仍 todo。
 
 - 2026-10-31 — **B45 CP2 done / CP3 partial**：B45 范围 schema/codegen 完成（v3 decision/trace/truthfulness typed、本地 ref、ledger enum）；legacy v2/phase 明确不进入当前 wire；agent_run_state 交 DS01。真实 Tauri AU13 页面 PASS，实际 wire 含 allow_tool/reply_only decision 与 typed trace/truthfulness，无 schema 漂移。旧兼容归属/内部输出负例/模型消费仍 todo。
+
+- 2026-10-31 — **B45 CP3 旧兼容归属**：phase_next_action_compat/turn_result_validator 53+21 tests 归 legacy-owned（无生产调用点），v2 持久化镜像与 barrel 导出仅历史；当前 wire 校验仍 turnResultWire/TurnResultSchema；v2 broken refs 不伪造修复。内部输出负例/模型消费仍 todo。
