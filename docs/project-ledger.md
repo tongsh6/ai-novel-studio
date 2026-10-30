@@ -1274,3 +1274,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B57 CP0**：盘点 authority/write-scope/adoption/confirmation/truthfulness/redaction/Observation 结构防线与已有测试，冻结 A–F 对抗矩阵；未发现必须新增 injection_guard 的证据，CP1 用真实只读对抗判定；未改代码。
 
 - 2026-10-31 — **B57 CP1 partial**：新增 b57-injection-boundary 真实 Tauri 场景 PASS（A 越权无自动 action/write、E secret 无 sk- 泄漏、F 正常创作不受阻）；B 内容夹带/C 观察夹带/D 伪完成仍待受控 fixture，未改产品代码/未调模型；manifest 221/223。
+
+- 2026-10-31 — **B57 CP1 blocked（部分）**：A/E/F 真实 Tauri PASS；B/C/D 需受控内容/observation fixture 或 B39/UA01 入口，当前未就绪，登记阻塞；未改产品代码/未预建 Guard；当前任务切 AU08-REFRESH。

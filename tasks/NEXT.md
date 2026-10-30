@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B57 | CP0 done；CP1 partial：A 越权/E secret/F 正常对照真实 Tauri PASS；B 内容夹带/C 观察夹带/D 伪完成待受控 fixture 页面验证 | [原任务](slices/B57-sec-injection-boundary.md) |
+| AU08-REFRESH | 核对现役四态与失败/重试/旧内容口径，补真实页面恢复和零权威写入矩阵 | [原任务小节](slices/AU08-file-level-closure.md#阅读投影状态与失败恢复补验) |
 
 ## 后续候选
 
@@ -35,6 +35,7 @@
 
 - **B72 CP1**：CP0 设计 done；CP1 需要离线生成器实现 + 真实模型 ≤60 校准/核心批次，当前无实现与模型资源窗口（未加载模型、未改 corpus），待作者/指定实现者提供生成器与预算后解除，见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#阻塞记录2026-10-31-cp1)。
 - **VS00F-TRACE CP1 裁决**：CP0 已确认 adoption 仅 summary-level `state_trace_refs`、LedgerMaintenance 无 StateTrace。选项：A（推荐）新增最小持久 StateTrace/mutation receipt（work/chapter/turn、before/after digest、source refs、幂等），需 schema/迁移授权；B 明确 maintenance 只承诺业务日志+ledger revision/source_refs，不承诺逐条 trace 并关闭本债；C 延期。未裁决前不建实体、不改验收边界，见 [VS00F-TRACE](slices/VS-00F-five-ledgers-three-state.md#cp0-盘点2026-10-31)。
+- **B57 CP1 B/C/D**：A/E/F 真实 Tauri PASS；B 内容夹带/C 观察夹带/D 伪完成需要 B39/UA01 observation/外部资料受控 fixture 入口或作者授权测试数据，当前入口未就绪，未加产品钩子；解除后补全矩阵，见 [B57](slices/B57-sec-injection-boundary.md#阻塞记录2026-10-31)。
 - **B01 后续**：CP0 done；origin_frame_ref 为合成串，CP1 需 A（新增 nullable origin_turn_ref + origin_frame_ref 可空，推荐）/B（origin_ref_kind + turn:<id>）/C（保持 known-gap）之一；涉及 SQLite 表重建/历史兼容，待作者授权 migration，未改 schema/DB。见 [B01 小节](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界)。
 - **B43 后续**：CP0/CP1 done；CP2 Form R 出口/Replay 同源已落地；**MissingPolicy 在 Gate 之后才评估**，统一门序涉及 ADR-0005 gate 集合与验收判据，需作者/ADR owner 在 A（新增 missing_policy gate，推荐）/B（decide 前 preflight）/C（仅标注）/D（只覆盖 prose flow）间裁决；CP3/CP4 未开工，见 [B43](slices/B43-gate-order-residual.md)。
 - **B67 后续**：CP0/CP1 done；CP2 revision CAS/重编号/旧任务晚到已落地，但维护 StateTrace 依赖 [VS00F-TRACE](slices/VS-00F-five-ledgers-three-state.md#维护-statetrace-后续-checkpoint) owner 先冻结生产/存储/回放契约；CP3 页面矩阵未开工，见 [B67](slices/B67-revision-aware-ledger-maintenance.md)。
