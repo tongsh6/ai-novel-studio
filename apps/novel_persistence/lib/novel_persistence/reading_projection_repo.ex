@@ -51,11 +51,17 @@ defmodule NovelPersistence.ReadingProjectionRepo do
           |> Enum.map(&volume_with_chapters(&1, chapters))
           |> Enum.reject(&(Map.get(&1, :chapters) == []))
 
+        planned_seqs = Enum.map(chapters, & &1.seq)
+        chapter_contents = accepted_contents_by_chapter(work_id, chapters)
+        accepted_seqs = Enum.map(chapter_contents, & &1.seq)
+
         audit =
           rendered_volumes
           |> Enum.flat_map(& &1.chapters)
           |> Enum.map(& &1.word_count)
           |> ProseAudit.summarize(@audit_stage)
+          |> Map.merge(ProseAudit.duplicate_analysis(chapter_contents))
+          |> Map.merge(ProseAudit.missing_analysis(planned_seqs, accepted_seqs))
 
         %{
           work_id: work_id,
@@ -422,6 +428,35 @@ defmodule NovelPersistence.ReadingProjectionRepo do
       |> Enum.map(&Map.take(&1, [:id, :title, :seq, :word_count, :summary, :plan_direction]))
 
     Map.put(volume, :chapters, volume_chapters)
+  end
+
+  # P1 checkpoint B/C：已采纳正文按章聚合（只读，供重复/缺章审计）。
+  defp accepted_contents_by_chapter(work_id, chapters) do
+    seq_by_chapter = Map.new(chapters, &{&1.id, &1.seq})
+
+    scene_to_chapter =
+      Scene
+      |> where([s], s.work_id == ^work_id)
+      |> order_by([s], asc: s.chapter_id, asc: s.seq)
+      |> select([s], %{id: s.id, chapter_id: s.chapter_id, seq: s.seq})
+      |> Repo.all()
+
+    drafts = accepted_drafts_by_scene(Enum.map(scene_to_chapter, & &1.id), work_id)
+
+    scene_to_chapter
+    |> Enum.chunk_by(& &1.chapter_id)
+    |> Enum.map(fn scenes ->
+      chapter_id = scenes |> hd() |> Map.fetch!(:chapter_id)
+
+      content =
+        scenes
+        |> Enum.map(fn scene -> drafts |> Map.get(scene.id) |> draft_content() end)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join("\n\n")
+
+      %{id: chapter_id, seq: Map.get(seq_by_chapter, chapter_id), content: content}
+    end)
+    |> Enum.reject(&(&1.content == "" or is_nil(&1.seq)))
   end
 
   # 每章有效字数：以"阅读模式实际展示的内容"为准——每个 scene 取最新已采纳草稿，

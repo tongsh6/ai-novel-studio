@@ -216,6 +216,23 @@ export function ReadingMode() {
             </>
           )}
         </div>
+        {hasContent && audit && (
+          <span className={styles.auditSummary}>
+            {audit.missingNotApplicable
+              ? READING.auditClean
+              : [
+                  READING.auditMissingChapters(audit.missingChapterCount, audit.plannedChapterCount),
+                  audit.duplicateParagraphCount > 0
+                    ? READING.auditDuplicateParagraphs(audit.duplicateParagraphCount)
+                    : null,
+                  audit.duplicateChapterCount > 0
+                    ? READING.auditDuplicateChapters(audit.duplicateChapterCount)
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+          </span>
+        )}
         {hasContent && (
           <button
             className={styles.exportBtn}

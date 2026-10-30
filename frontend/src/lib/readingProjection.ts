@@ -29,6 +29,12 @@ export interface ReadingWorkAudit {
   shortChapterCount: number;
   emptyChapterCount: number;
   meetsThreshold: boolean;
+  plannedChapterCount: number;
+  missingChapterCount: number;
+  missingChapterRate: number;
+  missingNotApplicable: boolean;
+  duplicateParagraphCount: number;
+  duplicateChapterCount: number;
 }
 
 export interface ReadingTocView {
@@ -71,6 +77,15 @@ function normalizeWorkAudit(audit: WorkAudit | null | undefined): ReadingWorkAud
     shortChapterCount: safeWordCount(audit.short_chapter_count),
     emptyChapterCount: safeWordCount(audit.empty_chapter_count),
     meetsThreshold: audit.meets_threshold === true,
+    plannedChapterCount: safeWordCount(audit.planned_chapter_count),
+    missingChapterCount: safeWordCount(audit.missing_chapter_count),
+    missingChapterRate:
+      typeof audit.missing_chapter_rate === "number" && Number.isFinite(audit.missing_chapter_rate)
+        ? audit.missing_chapter_rate
+        : 0,
+    missingNotApplicable: audit.missing_not_applicable === true,
+    duplicateParagraphCount: safeWordCount(audit.duplicate_paragraph_count),
+    duplicateChapterCount: safeWordCount(audit.duplicate_chapter_count),
   };
 }
 

@@ -1302,3 +1302,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **Q1C-NATIVE CP0 blocked**：Q1c 场景/驱动只注册 browser surface，tauri_slice_verify 无 Q1c native 入口；不伪造原生证据/不恢复旧协议；登记解除条件，当前任务切 P1-AUDIT-BC。
 
 - 2026-10-31 — **P1-AUDIT-BC CP0**：冻结重复段落/重复章（归一化段落 SHA-256、跨章 pair/有界摘要）与缺章率（planned_seq vs accepted_seq，planned=0 明确 N/A）口径；审计只读、不自动删除、不改变 P1 阈值；CP1 实现 domain/persistence/DTO/ReadingMode/verifier。未改代码。
+
+- 2026-10-31 — **P1-AUDIT-BC CP1 partial**：domain 重复段落/章 + 缺章率纯函数与测试；persistence toc audit 合并新字段；前端 WorkAudit/ReadingWorkAudit/ReadingMode 摘要；backend 1056/0、frontend 654/654。word-count.json 与 Tauri 页面证据待补；未改 P1 阈值/字数口径。

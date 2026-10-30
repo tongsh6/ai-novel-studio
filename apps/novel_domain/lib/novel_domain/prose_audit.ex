@@ -17,6 +17,8 @@ defmodule NovelDomain.ProseAudit do
 
   alias NovelDomain.NovelMilestone
 
+  @duplicate_pair_limit 20
+
   @type chapter_status :: :empty | :short | :ok
 
   @type work_audit :: %{
@@ -77,4 +79,124 @@ defmodule NovelDomain.ProseAudit do
           total_word_count >= total_target
     }
   end
+
+  @doc """
+  确定性重复段落/重复章统计（P1 checkpoint B）。
+
+  输入每章 `%{id, seq, content}`（只应传已采纳正文）。段落按空行切分，归一化
+  空白后取 SHA-256；跨章重复按"不同章"去重计数，重复章按全文归一化 hash 判等。
+  只读审计，不删除/改写正文；pair 摘要上限 #{@duplicate_pair_limit}。
+  """
+  @spec duplicate_analysis([map()]) :: map()
+  def duplicate_analysis(chapters) when is_list(chapters) do
+    chapters =
+      chapters
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn chapter ->
+        %{
+          id: Map.get(chapter, :id) || Map.get(chapter, "id"),
+          seq: Map.get(chapter, :seq) || Map.get(chapter, "seq"),
+          paragraphs: paragraphs(Map.get(chapter, :content) || Map.get(chapter, "content")),
+          full: full_fingerprint(Map.get(chapter, :content) || Map.get(chapter, "content"))
+        }
+      end)
+      |> Enum.reject(&is_nil(&1.id))
+
+    paragraph_groups =
+      chapters
+      |> Enum.flat_map(fn chapter ->
+        chapter.paragraphs
+        |> Enum.uniq()
+        |> Enum.map(&{&1, chapter})
+      end)
+      |> Enum.group_by(fn {fingerprint, _chapter} -> fingerprint end)
+      |> Enum.filter(fn {_fingerprint, entries} ->
+        entries |> Enum.map(fn {_f, chapter} -> chapter.id end) |> Enum.uniq() |> length() > 1
+      end)
+
+    chapter_groups =
+      chapters
+      |> Enum.filter(&(&1.full != nil))
+      |> Enum.group_by(& &1.full)
+      |> Enum.filter(fn {_hash, entries} -> length(entries) > 1 end)
+
+    %{
+      duplicate_paragraph_count: length(paragraph_groups),
+      duplicate_paragraph_chapter_pairs:
+        paragraph_groups
+        |> Enum.take(@duplicate_pair_limit)
+        |> Enum.map(fn {fingerprint, entries} ->
+          %{
+            fingerprint: String.slice(fingerprint, 0, 16),
+            chapter_ids:
+              entries |> Enum.map(fn {_fingerprint, chapter} -> chapter.id end) |> Enum.uniq(),
+            chapter_seqs:
+              entries |> Enum.map(fn {_fingerprint, chapter} -> chapter.seq end) |> Enum.uniq()
+          }
+        end),
+      duplicate_chapter_count: length(chapter_groups),
+      duplicate_chapter_pairs:
+        chapter_groups
+        |> Enum.take(@duplicate_pair_limit)
+        |> Enum.map(fn {hash, entries} ->
+          %{
+            fingerprint: String.slice(hash, 0, 16),
+            chapter_ids: Enum.map(entries, & &1.id),
+            chapter_seqs: Enum.map(entries, & &1.seq)
+          }
+        end)
+    }
+  end
+
+  @doc """
+  确定性缺章统计（P1 checkpoint C）：计划 seq 与已采纳正文 seq 的差集。
+  planned 为空时明确 `missing_not_applicable=true`，rate=0，不伪造 0% 达标。
+  """
+  @spec missing_analysis([integer()], [integer()]) :: map()
+  def missing_analysis(planned_seqs, accepted_seqs)
+      when is_list(planned_seqs) and is_list(accepted_seqs) do
+    planned = planned_seqs |> Enum.filter(&is_integer/1) |> Enum.uniq() |> Enum.sort()
+    accepted = accepted_seqs |> Enum.filter(&is_integer/1) |> Enum.uniq()
+    missing = Enum.reject(planned, &(&1 in accepted))
+
+    %{
+      planned_chapter_count: length(planned),
+      missing_chapter_count: length(missing),
+      missing_chapter_rate: if(planned == [], do: 0.0, else: length(missing) / length(planned)),
+      missing_chapter_seqs: missing,
+      missing_not_applicable: planned == []
+    }
+  end
+
+  defp paragraphs(content) when is_binary(content) do
+    content
+    |> String.split(~r/\n\s*\n/u, trim: true)
+    |> Enum.map(&normalize_text/1)
+    |> Enum.reject(fn text -> text == "" or punctuation_only?(text) end)
+    |> Enum.map(&sha256/1)
+    |> Enum.uniq()
+  end
+
+  defp paragraphs(_content), do: []
+
+  defp full_fingerprint(content) when is_binary(content) do
+    text =
+      content
+      |> String.replace(~r/\s+/u, " ")
+      |> String.trim()
+
+    if text == "", do: nil, else: sha256(text)
+  end
+
+  defp full_fingerprint(_content), do: nil
+
+  defp normalize_text(text) do
+    text |> String.replace(~r/\s+/u, " ") |> String.trim()
+  end
+
+  defp punctuation_only?(text) do
+    Regex.replace(~r/[\p{P}\p{S}\s]+/u, text, "") == ""
+  end
+
+  defp sha256(text), do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
 end

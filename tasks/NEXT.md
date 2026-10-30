@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| P1-AUDIT-BC | CP0 done：重复段落/章与缺章率口径冻结（只读审计、不改门槛）；CP1 实现 domain/persistence/DTO/ReadingMode/verifier 待做 | [原任务小节](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外) |
+| P1-AUDIT-BC | CP0 done；CP1 后端/前端实现完成（duplicate/missing audit + ReadingMode）；word-count.json 维度与真实 Tauri 页面证据待补 | [原任务小节](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外) |
 
 ## 后续候选
 

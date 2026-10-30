@@ -151,6 +151,12 @@ describe("normalizeReadingToc audit (P1)", () => {
         short_chapter_count: 1,
         empty_chapter_count: 0,
         meets_threshold: false,
+        planned_chapter_count: 3,
+        missing_chapter_count: 1,
+        missing_chapter_rate: 1 / 3,
+        missing_not_applicable: false,
+        duplicate_paragraph_count: 2,
+        duplicate_chapter_count: 1,
       },
       volumes: [
         {
@@ -173,6 +179,11 @@ describe("normalizeReadingToc audit (P1)", () => {
     expect(view?.audit?.minChapterWords).toBe(1000);
     expect(view?.audit?.shortChapterCount).toBe(1);
     expect(view?.audit?.meetsThreshold).toBe(false);
+    expect(view?.audit?.plannedChapterCount).toBe(3);
+    expect(view?.audit?.missingChapterCount).toBe(1);
+    expect(view?.audit?.missingNotApplicable).toBe(false);
+    expect(view?.audit?.duplicateParagraphCount).toBe(2);
+    expect(view?.audit?.duplicateChapterCount).toBe(1);
   });
 
   it("surfaces empty-chapter marker", () => {

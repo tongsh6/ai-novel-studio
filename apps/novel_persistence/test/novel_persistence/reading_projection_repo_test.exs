@@ -57,6 +57,33 @@ defmodule NovelPersistence.ReadingProjectionRepoTest do
       refute scenes |> Enum.map_join("", & &1.content) =~ "不能出现"
     end
 
+    test "P1 audit 带重复段落/重复章与缺章率（checkpoint B/C）" do
+      work_id = Ecto.UUID.generate()
+
+      %{chapter: c1} =
+        insert_reading_chain(work_id, "第一卷", "第一章", "共有段落A。\n\n共有段落B。", :accepted)
+
+      %{chapter: c2} =
+        insert_reading_chain(work_id, "第二卷", "第二章", "共有段落A。\n\n共有段落B。", :accepted)
+
+      %{chapter: c3} =
+        insert_reading_chain(work_id, "第三卷", "第三章", "未采纳内容", :tentative)
+
+      toc = ReadingProjectionRepo.toc(work_id)
+      audit = toc.audit
+
+      assert audit.duplicate_paragraph_count == 2
+      assert audit.duplicate_chapter_count == 1
+      assert [pair] = audit.duplicate_chapter_pairs
+      assert Enum.sort(pair.chapter_ids) == Enum.sort([c1.id, c2.id])
+
+      assert audit.planned_chapter_count == 3
+      assert audit.missing_chapter_count == 1
+      assert audit.missing_chapter_seqs == [c3.seq]
+      assert_in_delta audit.missing_chapter_rate, 1 / 3, 0.0001
+      assert audit.missing_not_applicable == false
+    end
+
     test "TOC 顶层带工作级规划使命（WR01c）；无使命时诚实为 nil" do
       {:ok, work} = NovelPersistence.WorkRepo.create(%{title: "规划使命投影作品"})
       assert ReadingProjectionRepo.toc(work.id).planning_direction == nil

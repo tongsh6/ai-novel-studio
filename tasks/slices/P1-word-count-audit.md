@@ -1,6 +1,6 @@
 # P1 Word Count Audit / 10 万字最小长篇正文有效字数审计
 
-- 状态：checkpoint A 已闭环（2026-05-31）；B/C CP0 口径冻结（2026-10-31），实现/页面证据待做
+- 状态：checkpoint A 已闭环；B/C CP0 口径冻结、CP1 后端/前端实现完成（2026-10-31），word-count.json/Tauri 页面证据待补
 - 类型：Product Slice / Novel Output Milestone P1
 - 来源：`docs/product/novel-output-milestones.md` §2 统计口径、§3 阶段目标、§4.1 数量标准、§5 P1 Done、§7 #4、§8 验收产物；`docs/product/user-journeys.md` Journey D7 / G / J；`tasks/slices/P1-chapter-adoption-reading.md`「后续 checkpoint（未做）」。
 - 当前目标：在已采纳正文进入阅读投影并显示有效字数之后，补齐**确定性审计层**——把"哪些章是空章 / 短章 / 达标"和"是否达到 P1 门槛（单章≥1000、总≥100,000）"算出来，并让真实工作台的阅读消费者（ReadingMode）看得到，不达标的章节有明确标记。
@@ -135,3 +135,12 @@ P1 已经能：生成章节计划 → 生成正文草稿 → 采纳进入作品�
 - `word-count.json` 外部 verifier 补 `chapter_audit`、`duplicate`、`missing` 维度；不写生产路径。
 
 **CP1 实施顺序**：domain 纯函数 + 单测 → persistence toc/审计 + 回归 → DTO/channel → ReadingMode 展示/单测 → verifier/artifact → Tauri 页面场景。；不修改字数口径与 P1 阈值。
+
+### checkpoint B/C CP1 实施记录（2026-10-31，partial）
+
+- domain `ProseAudit.duplicate_analysis/1`：空行切段、trim/空白归一、SHA-256；跨章重复段落按不同章去重；重复章按全文归一化 hash；pair 摘要上限 20；纯标点/空段不参与。11 个 domain 测试（含空白差异/同章重复/空内容）。
+- domain `ProseAudit.missing_analysis/2`：planned seq vs accepted seq 差集/rate；planned=0 明确 `missing_not_applicable=true`，不伪造达标；非法 seq 过滤去重。
+- persistence `ReadingProjectionRepo.toc`：读取已采纳正文按章聚合，audit merge duplicate + missing 字段；新增投影测试（重复段落 2、重复章 1、缺章 1/3）。
+- frontend：`WorkAudit` 新字段、`ReadingWorkAudit` 归一、ReadingMode 顶栏显示缺章/重复摘要（copy 集中、CSS module）；readingProjection audit 单测。
+- 门禁：domain/persistence tests、全量 backend **1056/0**、frontend **654/654** + typecheck/lint。
+- **仍缺**：外部 verifier `word-count.json` 补 duplicate/missing 维度、真实 Tauri 页面证据；`meets_threshold` 未因新维度改变（硬门槛需作者裁决）。未改 P1 阈值/字数口径。

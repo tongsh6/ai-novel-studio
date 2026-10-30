@@ -560,6 +560,14 @@ export interface WorkAudit {
   short_chapter_count?: number;
   empty_chapter_count?: number;
   meets_threshold?: boolean;
+  // P1 checkpoint B/C（只读审计，不改变 P1 门槛）
+  planned_chapter_count?: number;
+  missing_chapter_count?: number;
+  missing_chapter_rate?: number;
+  missing_chapter_seqs?: number[];
+  missing_not_applicable?: boolean;
+  duplicate_paragraph_count?: number;
+  duplicate_chapter_count?: number;
 }
 
 // WR01b：落章计划的本章使命（plan_direction.chapter_mission，VS-00E §16.8）。

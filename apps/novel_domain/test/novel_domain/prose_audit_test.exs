@@ -70,4 +70,68 @@ defmodule NovelDomain.ProseAuditTest do
       assert audit.meets_threshold == true
     end
   end
+
+  describe "duplicate_analysis/1（P1 checkpoint B）" do
+    test "跨章重复段落计数按章去重；同章重复不膨胀" do
+      result =
+        ProseAudit.duplicate_analysis([
+          %{id: "c1", seq: 1, content: "雨夜开城门。\n\n他走进巷子。\n\n雨夜开城门。"},
+          %{id: "c2", seq: 2, content: "雨夜开城门。\n\n另一段完全不同的话。"},
+          %{id: "c3", seq: 3, content: "只有这一段。"}
+        ])
+
+      assert result.duplicate_paragraph_count == 1
+      assert [%{chapter_ids: ["c1", "c2"]}] = result.duplicate_paragraph_chapter_pairs
+      assert result.duplicate_chapter_count == 0
+    end
+
+    test "重复章按全文归一化 hash；空白差异不改变判等" do
+      result =
+        ProseAudit.duplicate_analysis([
+          %{id: "c1", seq: 1, content: "第一段。\n\n第二段。"},
+          %{id: "c2", seq: 2, content: "  第一段。 \n\n 第二段。 "},
+          %{id: "c3", seq: 3, content: "不同内容。"}
+        ])
+
+      assert result.duplicate_chapter_count == 1
+      assert [%{chapter_ids: ["c1", "c2"]}] = result.duplicate_chapter_pairs
+    end
+
+    test "空内容/纯标点不参与重复段落" do
+      result =
+        ProseAudit.duplicate_analysis([
+          %{id: "c1", seq: 1, content: "……\n\n"},
+          %{id: "c2", seq: 2, content: "。。。"}
+        ])
+
+      assert result.duplicate_paragraph_count == 0
+      assert result.duplicate_chapter_count == 0
+    end
+  end
+
+  describe "missing_analysis/2（P1 checkpoint C）" do
+    test "计划与已采纳 seq 的差集和比率" do
+      result = ProseAudit.missing_analysis([1, 2, 3, 4], [1, 3])
+      assert result.planned_chapter_count == 4
+      assert result.missing_chapter_count == 2
+      assert result.missing_chapter_rate == 0.5
+      assert result.missing_chapter_seqs == [2, 4]
+      assert result.missing_not_applicable == false
+    end
+
+    test "无计划时明确 N/A，不伪造 0% 达标" do
+      result = ProseAudit.missing_analysis([], [])
+      assert result.planned_chapter_count == 0
+      assert result.missing_chapter_count == 0
+      assert result.missing_chapter_rate == 0.0
+      assert result.missing_not_applicable == true
+    end
+
+    test "忽略非法输入并去重" do
+      result = ProseAudit.missing_analysis([1, 1, "x", 2], [1, 2, 2])
+      assert result.planned_chapter_count == 2
+      assert result.missing_chapter_count == 0
+      assert result.missing_chapter_rate == 0.0
+    end
+  end
 end
