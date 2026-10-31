@@ -346,6 +346,7 @@ Q1B 第十轮模型已经提出“保留或替代已保存编辑版”，但作�
 
 ### 原生补验 CP0/阻塞记录（2026-10-31）
 
+- 状态：todo（CP1 可独立推进：作者已选 A 补原生 driver；技术接线可做，需独立 runtime 预算）
 - 现状：`q1c-adopted-content-revision` 在 quality registry 注册为 `surface: browser`，driver 为独立 `frontend/slice-verify/q1c-adopted-content-revision.mjs`；`tauri_slice_verify` 的 native action/driver map 没有 Q1c 分支，原生 Tauri 窗口入口不可达。
 - 不能把 browser-surface summary 当原生 Tauri 证据；也不能在未接线时直接恢复旧调用协议或重写已落地修订能力。
 - 解除条件：为 Q1c 增加/接线真实 Tauri 外部 driver（复用既有设置采纳→修订→覆盖确认→SUPERSEDED/CONFIRMED→刷新追问链），按当前 HEAD 原生 summary/操作/网络/持久事实分别留证；需独立 runtime 预算。

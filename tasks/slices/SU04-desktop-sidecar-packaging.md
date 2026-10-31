@@ -112,3 +112,9 @@ curl -s http://127.0.0.1:4658/api/provider/health    # → {"connected":...}
 - Rust 12/12、`cargo fmt/check/test` 通过。
 - **阻塞**：现役 `tauri_slice_verify` native 路径构建的是 **debug app**（`cfg!(debug_assertions)` 不 spawn sidecar），无法复验 release 打包应用的半解包/端口占用/退出无孤儿；注册表也没有 release-app 外部驱动。按预算不启动无 harness 的打包故障重跑。
 - 解除条件：预注册 release-app 外部 UI 驱动（隔离 `AI_NOVEL_DESKTOP_PROFILE`/数据目录），分别做正常冷启动、坏 archive/半解包、端口占用、退出无孤儿并留进程/端口/日志/页面证据。
+
+## 可独立推进 release-app 预注册（2026-10-31）
+
+- 状态：todo（父任务整体仍 blocked：缺真实 release 打包应用的外部故障 harness；本小节只做 harness 建设准备）
+- 范围：预注册隔离 release-app 外部 UI 驱动（正常冷启动/坏包/端口占用/退出无孤儿），复用既有 native/CUA 驱动基础，不把 debug app 结果冒充 release 证据。
+- 验证：预注册文档 + harness 自检；真实 release 复验仍需打包环境，未获得前不标 CP 完成。

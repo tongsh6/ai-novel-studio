@@ -1,6 +1,6 @@
 # B48：角色修订 no-op 与同名歧义边界
 
-- 状态：**todo（2026-10-30 作者已确认 C04=A，产品取舍阻塞解除；实施与四场景验收尚未完成）**。
+- 状态：**doing（2026-10-30 作者已确认 C04=A；2026-10-31 CP0 契约与四场景冻结完成，CP1 实施待做）**。
 - 登记日期：2026-10-27；来源：B29 主业务已完成，但实模 T2 出现 old==new no-op 候选，且“跨轮已经唯一消歧”与“同名必须澄清”相冲突。
 - 上游：[B29](B29-existing-character-role-revision.md)、[B27](B27-systematic-prompt-and-intent-integration.md)、[B31](B31-author-reply-run-binding.md)。
 
@@ -77,9 +77,58 @@ B29 主业务 done 不能重开，T2 也不能记 PASS。任何硬化都不能�
 
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
-| CP0 | 对齐 B29 修订路由、持久角色身份/当前值、合法无变化出口及既有 copy/结果契约；冻结四场景与边界反例；核对 B43 统一裁决依赖 | todo |
+| CP0 | 对齐 B29 修订路由、持久角色身份/当前值、合法无变化出口及既有 copy/结果契约；冻结四场景与边界反例；核对 B43 统一裁决依赖 | **done（2026-10-31，见 §8）** |
 | CP1 | 先唯一解析身份，再根据真实当前值判 no-op；无变化普通说明、无候选/新修订；真实歧义询问，已消歧不重复问，正常修订保持候选采纳链 | todo |
 | CP2 | 接通统一裁决/trace/来源与 Why，回归缺目标、跨作品、错误身份、跨轮证据失效、重复请求和真实修改；不把合法 no-op 当错误路由反复纠错 | todo |
 | CP3 | 外部驱动真实 Tauri + 真实模型覆盖 no-op、真实修订、同名未消歧、跨轮已消歧；证明正确对象、无多余候选/写入、其它角色/正文不变，回归 B29/B31 | todo |
 
 本表只细化既有完整范围。若统一裁决 producer 尚未就绪，联动 B43 复用同一能力，不在 B48 复制一份；可独立推进 CP0，不把工程依赖误写为作者仍未裁决。固定文案遵守 copy 约束，真实模型与原生运行按具体预注册/资源安排执行；局部机制通过不代签 CP3 或 B29 T2。
+
+## 8. CP0 契约冻结记录（2026-10-31）
+
+**链路与现有契约（当前 HEAD 证据）**
+
+- 判断入口：`apps/novel_application/lib/novel_application/judgment_protocol.ex:649-675`（`validate_character_profile_route/execute`）在 execute 时校验真实目标、唯一 `character_ref` 与作者原话可确定目标叙事角色；**不比较 old/new**。
+- 候选构建：`pending_artifact_workflow.ex:377-430`（`revise_character_profile/4`）→ `character_profile.ex:66-95` `resolve_target/3`（身份/同名消歧）→ `character_profile.ex:120-160` `build_candidate/4` → `validate_changes/1` `character_profile.ex:141-175` → `pending_artifact_workflow.ex:403-470` `build_character_profile_candidate/5`。
+- 现状缺口：`build_candidate/4` 无条件生成 `changes = [%{field: "narrative_role", old: old, new: desired_role}]`，**没有 old==new 判断**；B29 T2 真实模型因此产生 `PROTAGONIST → PROTAGONIST` no-op 候选（B29:141，`pending=1`、DB 零写入）。
+- 采纳侧：`adoption_repository.ex:1684-1706` `apply_character_revision` 已有 duplicate 幂等（已等于 `new_role` 且 fingerprint 匹配 → committed duplicate 回执）；但只发生在作者采纳后，不能阻止无意义候选进入待办。
+- 结果契约：候选 → TurnResult `execution_candidate` + pending `character_profile_revision`（artifact_type）；采纳 → receipt（ADR-0019/ADR-0027）；文案由后端 `candidate_title/candidate_body`（`character_profile.ex:146-166`）与前端 `frontend/src/lib/copy.ts:181/187`（`acceptLabel: "保存到作品"`）承载，不新增卡型。
+- Trace：DecisionTrace `decision_type: :character_profile_revision`、事件 `character_profile_revision_candidate_built`（`pending_artifact_workflow.ex:463-470`）。
+
+**C04=A 落地语义冻结**
+
+1. `old == new`：不产生 candidate/revision/canon 变更；回合以普通作者可见说明呈现「当前已是该状态，本次无需修改」；**不新增**无变化业务回执（不新表、不新卡型、不新 receipt 语义）。
+2. 必须保留真实发生的事实：若本轮真实执行了角色读取/身份核对，trace/事件如实记录；不把「没改作品」写成「完全没执行」。
+3. 身份优先：同名但已由有效本轮/跨轮证据唯一定位 → 继续；真正歧义 → 询问且零写入；目标缺失/未知不得当成 no-op。
+4. 幂等独立：同一请求重复提交沿用原请求幂等保护；no-op 与幂等是两个问题，不互相替代。
+
+**四场景冻结（CP3 验收输入）**
+
+| 场景 | 输入 | 期望 |
+|---|---|---|
+| S1 no-op | 对已是 PROTAGONIST 的角色说「指定X为主角」 | 普通说明、无 pending 候选、无 revision/canon 变更、无采纳动作；trace 保留真实检查事实 |
+| S2 真实修订 | 配角 → 主角 | pending candidate（old≠new）、作者采纳后同一角色 id 更新、其它角色与正文不变 |
+| S3 同名未消歧 | 两个同名角色且无有效消歧依据 | 询问（await_author）、零候选、零写入 |
+| S4 跨轮唯一消歧 | 上一轮已唯一指向某角色，本轮继续同名引用 | 继续、不重复询问；按真实 old/new 落到 S2 或 S1 语义 |
+
+**边界反例矩阵**
+
+- 目标缺失（作者没说是谁）→ 询问/诚实失败，不得 no-op。
+- 跨作品或错误身份 → 拒绝，不得 no-op。
+- 跨轮证据失效（对象删除/改名/角色已变）→ 重新询问。
+- 重复请求（同 turn retry）→ 幂等，不重复候选。
+- 真实修改 → 候选链保持，不得被 no-op 守卫误伤。
+
+**B43 依赖结论**
+
+- CP1 的 no-op 出口在 application 本地（`CharacterProfile` / 待办 workflow）即可实现，不依赖 B43 `MissingPolicy` 门序；不新增 gate。
+- CP2 的统一裁决/trace 复用现有 ADR-0031 真实 trace 与 judgment decision；若 B43 后续修改共享 producer，B48 复用同一能力、不复制一份。
+- `B43` 只是工程依赖，不是作者裁决前置；NEXT 不再把 B48 整体写成「待 B43 裁决」。
+
+**CP1 实施约束（下一 checkpoint）**
+
+- 落点：`CharacterProfile.build_candidate/4` 返回 no-change 分支（或 workflow 判断），由 application 生成普通说明 TurnResult；不新增卡型/表。
+- 必须保留 frame/trace/事件顺序，`truthfulness.production_write_performed=false`。
+- 测试：纯函数 no-op/真实修订矩阵 + workflow 级（候选缺失、普通说明文案）+ 回归 B29 23 项确定性场景。
+
+**CP0 结论**：契约与四场景已冻结；CP0 done。CP1–CP3 按 §7 表推进；CP3 真实模型 + 真实 Tauri 需按预注册与资源窗口执行，未获窗口前不标完成。

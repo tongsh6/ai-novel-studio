@@ -160,6 +160,12 @@ xref/arch、I1/I2/I3/N-NARR/I-CACHE、静态扫描；Acceptance Driver=既有外
 - 运行 `agentic-loop-quality-deviation-replan` 一次：AgentRun 事件链出现 `plan_revised(agentic_deviation:D2)`、`artifact_superseded`、`run_completed`，但 native verifier 360s 内未读到 `slice_verify.ui_state.done`，driver 未写出 ui-state → 场景未 PASS。
 - 按同因预算未重复盲跑；不把局部 prompt 测试/事件链当真实页面 PASS。D2 流程走的是判断②续行，不是 `AgenticPlanDraftPlanner.revision_prompt`，T4 finding 渲染的页面消费者尚未找到；需要先定位该 driver 超时根因，再选一个真正消费 revision_prompt 的页面入口。
 
+### T3 前缀确定性（可独立推进，2026-10-31）
+
+- 状态：todo（不依赖 T5 裁决：补规划器前缀确定性测试/必要时机械合并，不恢复 revised_tail；不涉 schema/迁移）。
+- 范围：规划器 `AgenticPlanDraftPlanner` 前缀只靠 prompt+cursor 的现状，补确定性校验与回归测试；不改生产协议、不新增验收感知逻辑。
+- 验证：Mix 单测 + 既有 prompt 前缀快照对比；完成后更新本任务 CP 状态并复跑相关门禁。
+
 ### 阻塞记录（2026-10-31）
 
 - **T4 页面**：`agentic-loop-quality-deviation-replan` 复跑一次，事件链已到 `run_completed` 且存在最终 turn_result，但 driver 未写出 ui-state、verifier 未 PASS；未定位到产品错误（事件/预算正常），按同因预算停止，登记 driver/evidence reanchor。D2 流程不消费 `revision_prompt`，需另找真正消费入口。

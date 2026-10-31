@@ -132,3 +132,9 @@
   - 直接停后端/改 DB 会伪造状态，不能作为产品闭环证据。
 - 按“不无界等待/不伪造故障”原则停止，登记 harness 能力缺口：需要通用按 channel 请求注入错误/延迟并保留可观测恢复（B37/AU10 类）。解除后补失败/REBUILDING/STALE/重试/跨作品矩阵。
 - 未改产品逻辑；不把 CP0 单测当 CP1 真实页面证据。
+
+## 可独立推进 channel 故障注入代理（2026-10-31）
+
+- 状态：todo（父任务该 CP 仍 blocked：真实页面证据依赖注入代理；本小节只做产品外 harness）
+- 范围：通用按 channel（get_toc/get_chapter_content）注入错误/延迟的外部代理，复用既有 `q3d-message-delivery-recovery` 代理模式；不改产品代码、不增验收开关。
+- 验证：代理自检 + 在真实页面批次中证明注入命中与恢复；完成后回推 AU08 CP1 与 P1-AUDIT-BC 依赖。

@@ -1,6 +1,6 @@
 # B73：作者行为运行链与动作覆盖补强
 
-- 状态：**in_progress（CP0–CP2 已完成，CP3 门禁与静态扫描闭环进行中）**。
+- 状态：**doing（CP0–CP2 已完成，CP3 门禁与静态扫描闭环进行中）**。
 - 类型：B70 后续 P0/P1 验证实现；只扩外部真实页面 driver、冻结验证资产、隔离 seed/test-support 与判卷，不重开 B70 基础设施范围。
 - 设计真源：[作者行为语料生成与状态探索验证设计](../../docs/design/acceptance/author-behavior-corpus-and-state-exploration.md) §8–§17；上游执行事实：[B70](B70-author-behavior-corpus-and-state-exploration.md) §6.3–§8。
 - 开工 HEAD：`338abd216ae6a8d9614995844c7e74fc3a957ab9`；当前复验 HEAD：`0f9d19116e513162ea744c019095553dbcfcff0d`。verdict 只绑定产生它的 HEAD，不继承旧 PASS。
