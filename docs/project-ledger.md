@@ -1375,3 +1375,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **B71 CP1 复核通过 + ADR-0030/0031 转 Superseded（作者确认 A）**：CP1 六项交付复核全覆盖（VS-00L transcript/IR/投影/黄金请求/预注册/迁移映射）。已执行 ADR 状态转换并同步：ADR-0030/0031 状态与决策保留、design README、adr README 索引、00c 状态性引用、VS-00K→Superseded（由 VS-00L 取代）、UA-01/VS-00I 迁移注记、contracts README、B39 重锚至 B71 CP3/CP4。实现迁移（Request IR/投影/首个消费者）仍归 B71 CP2–CP4，旧实现与历史证据只读保留，不形成长期双轨；产品实现与真实页面/实模证据未开始。
 
+- 2026-10-31 — **B71 CP2 部分完成（IR/投影/G1–G6，未闭环生产接线）**：新增 `RequestIR` v1（run/system/messages/tools/projection/refs/provider_session、call_id 绑定、checkpoint/used_refs/禁止工具校验、legacy 适配器显式有限模式）与三类 provider 投影（Chat Completions / Anthropic Messages / Responses API）+ 能力门槛（完整/有限模式/拒绝路由）。G1–G6 黄金请求测试与既有 provider 测试 31/31 通过；credo 0、compile -Werror、format 通过。**未完成**：生产 adapter 仍消费 legacy prompt、真实只读观察与工具校验结果回流未接 IR、I-CACHE 重锚与 fixture 文件化待做——CP2 不得标 done，归 CP2 收尾/CP3 首个消费者。证据 `apps/novel_agent/lib/novel_agent/provider/request_ir*.ex`、`apps/novel_agent/test/novel_agent/provider/request_ir_test.exs`。
+

@@ -1,6 +1,6 @@
 # B71：AI Novel Studio 原生多轮创作请求体
 
-- 状态：**doing（2026-10-31 CP0 done；作者选 A，ADR-0033 Accepted；CP1 done 并复核通过——VS-00L Frozen、迁移映射、六类黄金请求与场景预注册；ADR-0030/0031 已转 Superseded；CP2 Request IR/投影实现进行中）**。
+- 状态：**doing（2026-10-31 CP0 done；作者选 A，ADR-0033 Accepted；CP1 done 并复核通过，ADR-0030/0031 已转 Superseded；CP2 进行中——Request IR v1 + 三类投影 + G1–G6 golden 已完成，生产 adapter/AgentRun 接线与真实观察回流未闭环）**。
 - 来源：作者先要求对照 Codex、Claude Code、dsh 的真实多轮请求，随后明确“设计一个优秀、符合项目调性的请求体，不为现状妥协”。本文件已据此替换此前偏向现役最小修补的方案。
 - 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)；目标方向与迁移规则已由 [ADR-0033](../../docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) Accepted（2026-10-31）；替换契约 [VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 已 Frozen，实现未开始。
 - 对账输入：[B26](B26-single-call-judgment-protocol.md)、[B39](B39-evidence-seeking-authoring.md)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md)、[VS-00I](../../docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md)、[UA-01](../../docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md)。它们是迁移事实与可能需要修订的决策，不是降低目标设计的约束。
@@ -84,7 +84,7 @@
 |---|---|---|
 | CP0 | 对三款外部真实多轮请求与本项目真实日志做目标对照；明确 AgentRun 原生会话、作者主权、求证和 replay 的目标方向；登记任务与设计 | **done（2026-10-30，仅文档）**：已替换此前现役最小修补方案；未修改产品代码 |
 | CP1 | 冻结目标 contract pack、Request IR、消息/工具/观察/校验/候选/checkpoint 语义、provider 投影与能力门槛、六类黄金请求和场景预注册；完成 ADR/现役协议差异及迁移裁决 | **done（2026-10-31，见 §7 交付记录）**：VS-00L Frozen + 逐条迁移映射 + G1–G6 + 场景预注册；待复核后旧 ADR 转 Superseded |
-| CP2 | 实现 canonical transcript/Request IR 与三类 provider 投影；建立真实只读观察和原生校验结果回流，黄金与 adapter 测试通过 | 未开工 |
+| CP2 | 实现 canonical transcript/Request IR 与三类 provider 投影；建立真实只读观察和原生校验结果回流，黄金与 adapter 测试通过 | **doing（2026-10-31）：IR v1 + 三类投影 + G1–G6 golden 完成（31 tests）；生产 adapter 接线与真实观察回流未闭环，归 CP2 收尾/CP3** |
 | CP3 | 以统一 AgentRun 接通首个创作消费者，完成求证→候选→校验→作者出口；接入预算、权限、trace、持久化和恢复，不形成第二控制环 | 未开工 |
 | CP4 | 覆盖规划/修订/质量与压缩恢复，完成真实 Tauri 全链、真实模型行为、缓存/usage、replay/Why 和全部门禁；处理现役迁移与旧协议退役 | 未开工 |
 | CP5 | 更新 ADR/contract/设计/索引/事实台账和恢复指引；逐项证明完整范围，不能以 adapter/golden 局部证据标 done | 未开工 |
@@ -115,3 +115,10 @@
 - **复核结论（2026-10-31，作者确认 A）**：CP1 六项交付（transcript/IR 与版本策略、消息/工具/观察/校验/候选/出口/checkpoint 语义、Base/Observation/used refs 绑定、三类投影与能力门槛、G1–G6、场景预注册 + 逐条迁移映射）全部覆盖；契约包内部链接有效。
 - **旧 ADR 已转 Superseded**：ADR-0030/0031 状态行、design README、adr README 索引、00c、VS-00K/UA-01/VS-00I 迁移注记、contracts README 与 B39 重锚已同步；实现迁移仍归 CP2–CP4，旧证据只读保留。
 - 本 CP 未修改产品 schema/provider/application，不声称 Request IR 已实现。
+
+### CP2 实现记录（2026-10-31，部分完成）
+
+- **IR v1**：`apps/novel_agent/lib/novel_agent/provider/request_ir.ex`——`RequestIR` struct（run/system/messages/tools/projection/refs/provider_session）、消息/块构造 helper、`validate/1` 数据边界校验（I-ART-4/5/6/7/9 可机械检查项：envelope、role/provenance、作者文本非空、call_id 唯一与关联、禁止 adopt/canon_write 工具、checkpoint covers/omissions、used_refs ⊆ base∪观察）与 `from_legacy/2` 迁移适配器（显式 `finite_mode: legacy_prompt`）。
+- **三类投影**：`RequestIR.Projection`（统一入口 + 能力门槛：完整能力 → `{:ok, body}`；缺能力无声明 → `{:error, {:unsupported_capability, missing}}`；有 `finite_mode` → `{:finite_mode, body, meta}`）与 `ChatCompletions` / `AnthropicMessages` / `ResponsesAPI` 三个投影模块（author 字节独立、application_base/checkpoint provenance 标记、assistant tool_calls↔tool result call_id 关联、checkpoint 覆盖范围/省略显式、system/tools 稳定前缀）。
+- **黄金请求 G1–G6**：`apps/novel_agent/test/novel_agent/provider/request_ir_test.exs` 16 tests（含 3 投影关键结构、能力门槛/有限模式、legacy、校验负例）；与本任务既有 provider 测试合计 31/31 通过。
+- **未闭环（不代签）**：现有生产 adapter 仍消费 legacy prompt（`normalize_messages/1`），尚未消费 IR；真实只读观察与工具校验结果回流仍在旧执行链，CP2 要求的“adapter 接线/真实观察回流”未完成——归 CP2 收尾或 CP3 首个消费者一并接线；I-CACHE 重锚与 golden fixture 文件化待做。

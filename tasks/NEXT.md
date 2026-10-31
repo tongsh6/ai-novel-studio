@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B71 | CP1 done 并复核通过（VS-00L Frozen、ADR-0030/0031 已 Superseded）；下一步 CP2：Request IR struct + Chat Completions/Anthropic/Responses 三类投影 + G1–G6 golden/adapter 测试 | [B71](slices/B71-provider-message-fidelity.md) |
+| B71 | CP2 进行中：Request IR v1 + 三类投影 + G1–G6 golden 已完成（31 tests）；下一步生产 adapter/AgentRun 接线与真实观察回流（CP2 收尾/CP3 首个消费者） | [B71](slices/B71-provider-message-fidelity.md) |
 
 ## 后续候选
 
