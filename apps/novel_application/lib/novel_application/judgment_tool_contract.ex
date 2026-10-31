@@ -21,6 +21,7 @@ defmodule NovelApplication.JudgmentToolContract do
       plan_tool(),
       registration(),
       directions(),
+      work_profile_revision(),
       gap()
     ]
   end
@@ -126,6 +127,25 @@ defmodule NovelApplication.JudgmentToolContract do
         author_reasoning: @text
       },
       ~w(candidate_directions author_reasoning)
+    )
+  end
+
+  defp work_profile_revision do
+    tool(
+      "propose_work_profile_revision",
+      "作者明确要求修订作品立项字段时，给出一个显式字段级修订提案（title/body/field/value），等待作者逐项采纳；不直接写 works，不用 world_setting 泛化覆盖。",
+      %{
+        title: @text,
+        body: @text,
+        field: %{
+          type: "string",
+          enum:
+            ~w(premise theme main_goal core_selling_point target_reader tone_preference target_length planned_volumes serial_form)
+        },
+        value: %{anyOf: [%{type: "string", minLength: 1}, %{type: "integer", minimum: 1}]},
+        author_reasoning: @text
+      },
+      ~w(title body field value author_reasoning)
     )
   end
 

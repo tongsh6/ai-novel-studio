@@ -3434,6 +3434,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       full_read_request?(prompt) ->
         full_read_decision_result(prompt)
 
+      # AU12 A：作者从概览发起立项修订 → 显式 field-value 提案（不造 world_setting）。
+      work_profile_revision_request?(prompt) ->
+        judgment_work_profile_revision_result(prompt)
+
       # 单调用协议按真实观察和当前只读请求收束，不依赖旧两调用的叙事回声。
       readonly_observation_reply?(prompt) ->
         judgment_cited_reply_decision_result(prompt)
@@ -3449,6 +3453,32 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       true ->
         judgment_decision_verdict_result(prompt)
     end
+  end
+
+  defp work_profile_revision_request?(prompt) do
+    input = judgment_author_input(prompt)
+    String.contains?(input, "修订当前作品的立项设定") or String.contains?(input, "修订作品立项")
+  end
+
+  defp judgment_work_profile_revision_result(prompt) do
+    reasoning = "作者要求修订作品立项，给出显式字段修订提案待采纳。"
+    author_reasoning = "作者从概览提出立项修订；只改一个显式字段，不写章节正文。"
+
+    Result.new(reasoning, usage_for(prompt, reasoning),
+      tool_calls: [
+        %{
+          "id" => "call_work_profile_revision",
+          "name" => "propose_work_profile_revision",
+          "arguments" => %{
+            "title" => "主线目标",
+            "body" => "让沈砚从被动卷入转向主动查账，在巡检收网前拿到暗抽主账。",
+            "field" => "main_goal",
+            "value" => "在巡检收网前拿到暗抽主账",
+            "author_reasoning" => author_reasoning
+          }
+        }
+      ]
+    )
   end
 
   defp readonly_observation_reply?(prompt) do

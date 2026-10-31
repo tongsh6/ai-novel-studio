@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU12-WRITEBACK | 作者选 A：实现显式 field-value 立项修订提案（judgment/创作工具）+概览→候选→采纳页面证据 | [原任务小节](slices/AU12-correction-intent-roundtrip.md#p2-立项修订的采纳落位与同源消费) |
+| AU12-WRITEBACK | A：propose_work_profile_revision 工具/协议/候选已实现+单测；旧 au12 场景需重锚并补概览修订→采纳→消费页面证据 | [原任务小节](slices/AU12-correction-intent-roundtrip.md#p2-立项修订的采纳落位与同源消费) |
 
 ## 后续候选
 

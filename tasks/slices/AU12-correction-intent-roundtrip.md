@@ -60,7 +60,7 @@ node scripts/task_done_check.mjs
 
 ## P2 立项修订的采纳落位与同源消费
 
-- 状态：**doing（2026-10-31 作者选 A：judgment/创作工具新增显式 field-value 立项修订提案；CP1 落位/DTO/概览消费已完成，producer 实施中）**。
+- 状态：**doing（2026-10-31 作者选 A：propose_work_profile_revision 工具/协议/候选附着已实现+单测；旧 au12 场景需按新语义 reanchor，页面证据待跑）**。
 - 来源：本任务 §6、[AU-12](../../docs/design/acceptance/author/AU-12-work-profile.md) AU12-I1/I7、[CA01 写入余项](CA01-planning-context-completion.md)。用户场景是“修订作品立项并采纳后，档案和后续模型使用同一新事实”。
 - 已核事实：`AdoptionRepository` 的 `work_skeleton_suggestion` 仅允许 target_length/planned_volumes/serial_form；`world_setting` 沿记忆类型落位。这些不能证明 premise/theme/main_goal 或题材/卖点/读者/基调等通用修订已回写 works，也不能由自然语言关键词自动推断应覆盖哪个立项字段。
 - CP0（可推进）：列清现有字段权威源、artifact 类型/显式目标、producer、采纳事务、版本及读模型消费者；比较复用既有结构化提案与扩展最小契约的差异，形成字段落位/不落位/缺失值/锁定及冲突处理方案。契约接受前不把任意 world_setting 全量覆盖 works、不新增平行资料表。
@@ -106,3 +106,12 @@ node scripts/task_done_check.mjs
   - **B**：扩展 fact inventory 生成全部立项字段提案（只覆盖批量盘点，不覆盖概览点改）；
   - **C**：先做作者可编辑表单单写 works（新增 UI/版本边界，不等于候选采纳链）。
 - 未裁决前不加新 artifact/tool、不改 acceptance；不把 world_setting 全量覆盖 works。
+
+### CP1 A producer 实施记录（2026-10-31）
+
+- `JudgmentToolContract` 新增 `propose_work_profile_revision`：显式 field 白名单（premise/theme/main_goal/卖点/读者/基调/体量/卷数/连载形态）+ title/body/value/author_reasoning；数值正整数校验、文本非空。
+- `JudgmentProtocol` 归一为 `work_profile_revision` 操作（frame_type execution_candidate）、校验 discussion_only/未知字段/非法值，输出 profile_revision 结构。
+- `DialoguePlanningService` 将该操作投影为 pending `work_skeleton_suggestion`（title/body/rationale 逐字来自 provider，带 skeleton_field/value）；available accept/discard/edit 走既有采纳；**未采纳零 works 写**，采纳后沿用 CP1 落位链。
+- 测试：judgment protocol 新增 2 组用例（成功/非法字段/数值）；全量 backend **1063/0**、frontend 657/657。
+- 文档：UA-01 §2.2.2 增加 C2 工具契约、映射/终态表行；fixture `slice_verify` 识别概览立项修订意图并返回该工具。
+- **待做**：旧 `au12-correction-intent-roundtrip` 场景/driver/verifier 仍期待旧 world_setting 语义，需按 A 重锚；新增/改造真实页面「概览修订→候选→采纳→概览/新会话消费」证据。

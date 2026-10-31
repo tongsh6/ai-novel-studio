@@ -31,7 +31,14 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.TurnInteractionService
   alias NovelApplication.TurnResultBuilder
   alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentPlan, AgentStep}
-  alias NovelDomain.{CandidateDirection, DialogueContext, DialogueFrame, OrchestratorDecision}
+
+  alias NovelDomain.{
+    CandidateDirection,
+    DialogueContext,
+    DialogueFrame,
+    OrchestratorDecision,
+    TentativeArtifactSet
+  }
 
   @profile_routing_allowed_tools ["judgment"]
   @profile_routing_profile_ref "judgment_loop_v1"
@@ -1381,6 +1388,7 @@ defmodule NovelApplication.DialoguePlanningService do
        when action in [
               "reply",
               "creative_directions",
+              "work_profile_revision",
               "author_content_registration",
               "capability_gap"
             ],
@@ -1562,7 +1570,8 @@ defmodule NovelApplication.DialoguePlanningService do
       |> maybe_attach_question(judgment, run)
 
     with {:ok, turn_result} <-
-           maybe_attach_author_content(turn_result, judgment, input, run, context) do
+           maybe_attach_author_content(turn_result, judgment, input, run, context),
+         {:ok, turn_result} <- maybe_attach_work_profile_revision(turn_result, judgment) do
       {:ok,
        %{
          step: judgment_agent_step(run, sequence, "判断并生成本轮回应"),
@@ -1592,6 +1601,9 @@ defmodule NovelApplication.DialoguePlanningService do
       ])
 
   defp form_r_decision(%{action: "creative_directions"}, turn_id, frame_ref),
+    do: OrchestratorDecision.exploration(turn_id, frame_ref)
+
+  defp form_r_decision(%{action: "work_profile_revision"}, turn_id, frame_ref),
     do: OrchestratorDecision.exploration(turn_id, frame_ref)
 
   defp form_r_decision(%{action: "capability_gap", narrative: narrative}, turn_id, frame_ref),
@@ -1675,6 +1687,72 @@ defmodule NovelApplication.DialoguePlanningService do
 
         {:ok, TurnResultBuilder.attach_author_artifact(turn_result, artifact_set)}
       end
+    end
+  end
+
+  defp maybe_attach_work_profile_revision(
+         turn_result,
+         %{action: "work_profile_revision"} = judgment
+       ) do
+    revision = judgment.profile_revision || %{}
+
+    with %{} = revision <- revision,
+         {:ok, artifact_set} <- work_profile_revision_artifact(turn_result, judgment, revision) do
+      LogEmit.emit(:judgment, :work_profile_revision_proposed, :done, %{
+        field: revision.field,
+        value: revision.value
+      })
+
+      {:ok, TurnResultBuilder.attach_author_artifact(turn_result, artifact_set)}
+    else
+      {:error, _reason} = error -> error
+      _ -> {:error, :invalid_work_profile_revision}
+    end
+  end
+
+  defp maybe_attach_work_profile_revision(turn_result, _judgment), do: {:ok, turn_result}
+
+  defp work_profile_revision_artifact(turn_result, judgment, revision) do
+    field = to_string(revision.field)
+    value = revision.value
+    title = to_string(revision.title)
+    body = to_string(revision.body)
+    rationale = to_string(revision.author_reasoning || judgment.narrative || "")
+
+    if title == "" or body == "" do
+      {:error, :invalid_work_profile_revision}
+    else
+      item_id = "ai_#{turn_result.turn_id}_#{field}"
+
+      provider_call_ref =
+        get_in(judgment, [:reply_record, :provider_call_ref]) ||
+          "judgment_tool:#{judgment.tool_call_id}"
+
+      {:ok,
+       %TentativeArtifactSet{
+         artifact_set_id:
+           "as_wpr_" <>
+             (:crypto.hash(
+                :sha256,
+                :erlang.term_to_binary({turn_result.turn_id, field, value, title, body})
+              )
+              |> Base.encode16(case: :lower)),
+         artifact_type: :work_skeleton_suggestion,
+         items: [
+           %{
+             item_id: item_id,
+             title: title,
+             body: body,
+             rationale: if(rationale == "", do: nil, else: rationale),
+             skeleton_field: field,
+             skeleton_value: value,
+             provider_call_ref: provider_call_ref
+           }
+         ],
+         source_turn_ref: turn_result.turn_id,
+         source_tool_result_ref:
+           "judgment_tool:#{judgment.tool_call_id || "work_profile_revision"}"
+       }}
     end
   end
 

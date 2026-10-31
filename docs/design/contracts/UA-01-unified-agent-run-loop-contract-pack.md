@@ -193,6 +193,7 @@ tools:
   - agent_plan_draft
   - register_author_content
   - propose_creative_directions
+  - propose_work_profile_revision
   - report_capability_gap
 tool_choice: auto
 ~~~
@@ -312,6 +313,23 @@ properties:
 - 采纳/删除/查看等操作菜单不是创作方向；不从普通文本列表机械提取、不给回复补默认候选。
 - 不调 writer、不生成正文或设定 canon；后续作者选择/采纳保持原边界。纯文字讨论仍可无工具。
 
+**C2. propose_work_profile_revision：显式立项字段修订提案（AU12 A，2026-10-31）**
+
+~~~yaml
+name: propose_work_profile_revision
+required: [title, body, field, value, author_reasoning]
+properties:
+  title: 作者可见候选标题
+  body: 作者可见修订说明（不写正文）
+  field: premise | theme | main_goal | core_selling_point | target_reader | tone_preference | target_length | planned_volumes | serial_form
+  value: 字符串（文本字段）或正整数（目标体量/卷数）
+  author_reasoning: 作者可见来源/理由原话
+~~~
+
+- 只接受上述显式字段白名单；数值字段要求正整数，文本字段非空；未知字段/非法值在协议层拒绝，不把 `world_setting` 泛化覆盖 works。
+- 一次提案只含一个字段；应用铸造 pending `work_skeleton_suggestion` 候选（title/body/author_reasoning 逐字来自 provider），投影 accept/discard/edit 动作；作者采纳后才写 works（revision 乐观锁），未采纳零工作区写入。
+- 与 `work_skeleton_suggestion` 既有采纳链同源；不另建平行资料表、不改 `world_setting` 记忆语义；来源/候选/采纳/幂等沿用 AU-12 既有边界。
+
 **D. report_capability_gap：保留 Q3B 的结构化缺口**
 
 - 必填 dialogue_goal、missing_effect、author_reasoning；可选 alternative_operation_refs 只引用当前真实可用操作。
@@ -327,6 +345,7 @@ properties:
 |---|---|---|
 | 对话判断：[]，content 非空 | reply | 整段 content 即回复；reply_included 由非空内容判定；仍建立 primary DialogueFrame，按 VS-00D §11.4 标明 casual_reply 展示默认及未知模型判断；candidate_directions=[]，无默认业务动作 |
 | [propose_creative_directions] | creative_directions | 校验并投影真实方向卡，不猜自然文本 |
+| [propose_work_profile_revision] | work_profile_revision | 校验显式 field/value→pending work_skeleton_suggestion 候选，不直接写 works |
 | [register_author_content] | author_content_registration | 来源验证→保真候选或返回已有对象→completed/stopped；等采纳的是候选，不是 awaiting_author 的 run |
 | [report_capability_gap] | capability_gap | 初始/续行均 completed/stopped，明确 goal_unfulfilled，零新业务写；不自动续行或隐式等作者 |
 | [ask_author]（对话/续行） | await_author | 按 2.2.2 A 投影、绑定、回传 |
@@ -354,6 +373,7 @@ judgment_decision 移除 reply_included、author_narrative、record_only、autho
 |---|---|---|---|
 | 普通回复合法（running） | completed / stopped | conversational / dialogue；reply_delivered；不推断作者目标已满足 | 持久原话/trace 后 run_completed；新输入起新判断，不自动续行 |
 | propose_creative_directions 成功 | completed / stopped | conversational / dialogue；directions_proposed；真实方向与可操作源，零 canon 写 | 原方向 ID/来源持久，刷新重用；选择是后续作者动作 |
+| propose_work_profile_revision 成功 | completed / stopped | conversational / completed；candidate_created；pending 立项修订候选，零 works 写 | 作者采纳后才回写 works；拒绝/未采纳零写，重复请求幂等 |
 | register_author_content 首次/合法重登记 | completed / stopped | conversational / completed；candidate_created；pending 候选、字节来源，零 canon 写 | 候选与 assistant Interaction 同提交边界；作者采纳是独立动作，不让本 run 假等待 |
 | register_author_content 来源已有 pending | completed / stopped | conversational / dialogue；source_already_pending；引用已有候选，不新增、不采纳 | 复用原来源的合法动作，不伪造 source_turn_ref 或重新登记 |
 | register_author_content 来源已 accepted | completed / stopped | conversational / dialogue；source_already_accepted；返回真实已采纳版本，不宣称本轮发生写入 | 不生成新候选；保留实际版本/编辑后正文和来源 |

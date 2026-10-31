@@ -80,6 +80,60 @@ defmodule NovelApplication.JudgmentProtocolTest do
     }
   end
 
+  test "立项修订工具显式 field/value 提案进入 judgment.profile_revision" do
+    revision_call =
+      call("propose_work_profile_revision", %{
+        "title" => "主线目标",
+        "body" => "让沈砚从被动卷入转向主动查账。",
+        "field" => "main_goal",
+        "value" => "在巡检收网前拿到暗抽主账。",
+        "author_reasoning" => "作者要求把主线目标定得更主动。"
+      })
+
+    result = response("", [revision_call])
+
+    assert {:ok, judgment} = JudgmentProtocol.request_judgment(execution([result]), %{}, input())
+    assert judgment.action == "work_profile_revision"
+    assert judgment.frame_type == "execution_candidate"
+    assert judgment.profile_revision.field == "main_goal"
+    assert judgment.profile_revision.value == "在巡检收网前拿到暗抽主账。"
+    assert judgment.profile_revision.title == "主线目标"
+  end
+
+  test "立项修订工具拒绝未知字段/数值字段非正整数" do
+    bad_field =
+      call("propose_work_profile_revision", %{
+        "title" => "任意字段",
+        "body" => "值",
+        "field" => "not_a_field",
+        "value" => "x",
+        "author_reasoning" => "r"
+      })
+
+    assert {:error, _} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [bad_field])]),
+               %{},
+               input()
+             )
+
+    bad_numeric =
+      call("propose_work_profile_revision", %{
+        "title" => "目标体量",
+        "body" => "约 30 万字",
+        "field" => "target_length",
+        "value" => "30万",
+        "author_reasoning" => "r"
+      })
+
+    assert {:error, _} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [bad_numeric])]),
+               %{},
+               input()
+             )
+  end
+
   test "普通文本完整保留，一次 auto；未提供模型判断保持未知" do
     text = "  本章尚未兑现开篇承诺。\n\n可以继续讨论结尾。\n"
     result = response(text, [])

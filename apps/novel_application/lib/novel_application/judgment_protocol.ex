@@ -370,7 +370,7 @@ defmodule NovelApplication.JudgmentProtocol do
 
     ## 决策与输出契约
     普通问答或分析整段 content 就是回复，无需调工具，无固定开场或空行格式。
-    需要可点击创作方向时用 propose_creative_directions；原文物化用 register_author_content；
+    需要可点击创作方向时用 propose_creative_directions；作者明确要求修订作品立项字段时用 propose_work_profile_revision（显式 field/value，一条只提一个字段）；原文物化用 register_author_content；
     真实缺少操作效果用 report_capability_gap；需要作者决定仅用 ask_author，可不给选项。
     单个创作产物用 judgment_decision.execute，capability 必须在本轮目录；只读取证仅用
     judgment_decision.explore + explore_request{tool,query}，不能直接调用探索目录里的 native tool。
@@ -627,6 +627,7 @@ defmodule NovelApplication.JudgmentProtocol do
       "ask_author" -> {:ok, "await_author", args, call}
       "register_author_content" -> {:ok, "author_content_registration", args, call}
       "propose_creative_directions" -> {:ok, "creative_directions", args, call}
+      "propose_work_profile_revision" -> {:ok, "work_profile_revision", args, call}
       "report_capability_gap" -> {:ok, "capability_gap", args, call}
       _ -> {:error, :invalid_tool_combination}
     end
@@ -722,6 +723,14 @@ defmodule NovelApplication.JudgmentProtocol do
     if Keyword.get(options, :discussion_only, false),
       do: {:error, :discussion_only_violation},
       else: :ok
+  end
+
+  defp validate_operation("work_profile_revision", args, options) do
+    if Keyword.get(options, :discussion_only, false) do
+      {:error, :discussion_only_violation}
+    else
+      validate_work_profile_revision(args)
+    end
   end
 
   defp validate_operation("author_content_registration", args, options) do
@@ -953,6 +962,7 @@ defmodule NovelApplication.JudgmentProtocol do
       character_ref: field(args, :character_ref),
       explore_request: explore_request(field(args, :explore_request)),
       candidate_directions: field(args, :candidate_directions) || [],
+      profile_revision: profile_revision_args(args),
       author_content_source_ref: field(args, :author_content_source_ref),
       question: field(args, :question),
       options: field(args, :options) || [],
@@ -1012,7 +1022,50 @@ defmodule NovelApplication.JudgmentProtocol do
     }
   end
 
+  @work_profile_revision_fields ~w(
+    premise theme main_goal core_selling_point target_reader tone_preference
+    target_length planned_volumes serial_form
+  )
+  @work_profile_numeric_fields ~w(target_length planned_volumes)
+
+  defp validate_work_profile_revision(args) do
+    field = field(args, :field)
+    value = field(args, :value)
+
+    cond do
+      field not in @work_profile_revision_fields ->
+        {:error, {:invalid_work_profile_field, field}}
+
+      not is_binary(field(args, :title)) or String.trim(field(args, :title)) == "" ->
+        {:error, :work_profile_revision_title_missing}
+
+      not is_binary(field(args, :body)) or String.trim(field(args, :body)) == "" ->
+        {:error, :work_profile_revision_body_missing}
+
+      field in @work_profile_numeric_fields and (not is_integer(value) or value <= 0) ->
+        {:error, {:invalid_work_profile_value, field}}
+
+      field not in @work_profile_numeric_fields and
+          (not is_binary(value) or String.trim(value) == "") ->
+        {:error, {:invalid_work_profile_value, field}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp profile_revision_args(args) do
+    %{
+      title: field(args, :title),
+      body: field(args, :body),
+      field: field(args, :field),
+      value: field(args, :value),
+      author_reasoning: field(args, :author_reasoning)
+    }
+  end
+
   defp frame_type("creative_directions"), do: "creative_exploration"
+  defp frame_type("work_profile_revision"), do: "execution_candidate"
   defp frame_type("capability_gap"), do: "capability_gap"
   defp frame_type(_), do: "casual_reply"
   defp explore_request(nil), do: nil

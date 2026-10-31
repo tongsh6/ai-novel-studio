@@ -1356,3 +1356,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **AU09 T5 PASS**：新增 `au09-work-direction-memory-recall` 真实页面场景 PASS（未采纳不写→采纳 adopt_tentative→新会话 memory=ok 召回→记忆页「创作方向」→解锁废弃→后续 has_memory=false）；manifest 222/224；backend 1060/0、frontend 657/657。T6 partial：taxonomy PASS，cross-work 超时/recall/validity 待复验。
 
 - 2026-10-31 — **AU09 done**：T5 新场景 PASS；T6 taxonomy/recall/validity PASS，cross-work 场景两次 native 超时（既有 driver 停滞）登记残余，方向隔离由单测覆盖；backend 1060/0、frontend 657/657。当前任务切 AU12-WRITEBACK（作者选 A）。
+
+- 2026-10-31 — **AU12 A producer**：新增 propose_work_profile_revision 判断工具（显式字段白名单/数值文本校验）→ pending work_skeleton_suggestion 候选（零 works 写，采纳走既有落位）；UA-01 C2/映射/终态更新；backend 1063/0、frontend 657/657。旧 au12 场景期待 world_setting，需按新语义 reanchor。
