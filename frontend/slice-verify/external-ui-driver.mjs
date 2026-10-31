@@ -6084,6 +6084,51 @@ async function driveB46CrossSessionInbox(page) {
   );
   await page.screenshot({ path: path.join(artifactDir, "cross-session-edit-adopt.png"), fullPage: true });
 
+  // B46 §12 E4（2026-10-31）：EXITED 旧会话历史只读——不提供待处理动作。
+  await openSessionRail(page);
+  const exitedHistoryButton = page.locator("button").filter({ hasText: "EXITED" }).first();
+  await exitedHistoryButton.waitFor({ timeout: 10_000 });
+  const exitedButtonText = ((await exitedHistoryButton.textContent()) ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  await exitedHistoryButton.click();
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("历史会话") &&
+      document.body.innerText.includes("返回当前会话"),
+    undefined,
+    { timeout: 15_000 },
+  );
+  const exitedReadonlySnapshot = await page.evaluate(() => {
+    const input = document.querySelector('input[placeholder="输入你的想法、问题或指令..."]');
+    const buttons = [...document.querySelectorAll("button")].map((button) =>
+      (button.textContent ?? "").trim(),
+    );
+    return {
+      visible_text: document.body.innerText,
+      input_disabled: Boolean(input?.disabled),
+      pending_action_buttons: buttons.filter((text) =>
+        ["启用规则", "放弃候选", "提出修改", "修改后保存", "保存修改后的版本"].includes(text),
+      ),
+    };
+  });
+  assert(exitedReadonlySnapshot.input_disabled, "B46 exited history input was not disabled");
+  assert(
+    exitedReadonlySnapshot.pending_action_buttons.length === 0,
+    `B46 exited history exposed pending actions: ${exitedReadonlySnapshot.pending_action_buttons.join(",")}`,
+  );
+  fs.writeFileSync(
+    path.join(artifactDir, "exited-history-readonly.json"),
+    JSON.stringify({ button_text: exitedButtonText, snapshot: exitedReadonlySnapshot }, null, 2),
+  );
+  await page.screenshot({ path: path.join(artifactDir, "exited-history-readonly.png"), fullPage: true });
+  await page.getByRole("button", { name: "返回当前会话" }).click();
+  await page.waitForFunction(
+    () => !document.body.innerText.includes("正在只读查看历史 transcript"),
+    undefined,
+    { timeout: 15_000 },
+  );
+
   return [
     {
       event: "slice_verify.ui_state.done",
@@ -6105,6 +6150,8 @@ async function driveB46CrossSessionInbox(page) {
       fourth_session_id: editSnapshot.active_session.id,
       edit_then_accept_saved: true,
       edited_fact_confirmed: editFacts.length === 1,
+      exited_history_readonly: true,
+      exited_history_pending_actions: 0,
     },
   ];
 }

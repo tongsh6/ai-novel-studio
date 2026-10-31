@@ -141,3 +141,10 @@
 - 证据：`artifacts/slice-verify/b46-cross-session-inbox-tauri/`（`cross-session-edit-adopt.png`、`edit-session-resume.json`、`after-edit-resume.json`、`edit-then-accept-facts.json`、`ui-state.json` 含 `edited_artifact_id/edited_turn_id/fourth_session_id`）；`quality_accept --surface tauri` PASS、verdict evidence 4/4。
 - 失败与预算：第 1 次运行在档案卡定位「修改后保存」按钮超时——根因为档案入口按钮文案是 **「提出修改」**（`copy.ts:907`），弹窗确认文案是「保存修改后的版本」，属 driver 选择器写错而非产品缺陷；修正后第 2 次运行 PASS，未改断言/未放宽守卫。
 - 剩余矩阵：E2 重复提交幂等（页面动作消失 + 后端幂等组合）、E3 跨作品隔离、E4 EXITED 只读；B46 未标 done。
+
+### E4 实施记录（2026-10-31）
+
+- driver 追加 EXITED 旧会话历史只读路径：session rail 选择 EXITED 会话（证据中按钮文本 `新会话EXITED`）→ 打开历史 transcript → 断言「历史会话/正在只读查看历史 transcript/返回当前会话」可见、输入框 disabled、页面**无**「启用规则/放弃候选/提出修改/修改后保存/保存修改后的版本」等待处理动作 → 返回当前会话。
+- 证据：`artifacts/slice-verify/b46-cross-session-inbox-tauri/exited-history-readonly.json`（`pending_action_buttons=[]`、`input_disabled=true`）、`exited-history-readonly.png`、`ui-state.json` 含 `exited_history_readonly/exited_history_pending_actions`；`quality_accept --surface tauri` PASS、verdict evidence 4/4。
+- 第 1 次运行即 PASS，未改产品代码、未改断言。
+- 剩余矩阵：E2 重复提交幂等（页面动作消失 + 后端幂等组合）、E3 跨作品隔离；B46 未标 done。

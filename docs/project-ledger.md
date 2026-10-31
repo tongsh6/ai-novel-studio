@@ -1389,3 +1389,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **B46 E1 done（跨会话 edit_then_accept 真实页面）**：`b46-cross-session-inbox` driver 追加第三候选跨会话编辑后采纳——新会话 inbox → 档案「提出修改」→ 编辑弹窗改写 → 保存修改后的版本 → `edit_then_accept` author_action（edited_content 全文）与 `EDITED_ACCEPTED` resolved；刷新后 inbox pending 移除/resolved 保留；DB 编辑后全文为唯一 CONFIRMED、原候选原文未写入。质量门禁 `quality_accept --surface tauri` PASS、verdict evidence 4/4。失败预算：第 1 次 driver 选择器误用「修改后保存」（档案入口实际文案「提出修改」），修正后第 2 次 PASS，未改断言/守卫。剩余 E2/E3/E4 未做，B46 不标 done。
 
+- 2026-10-31 — **B46 E4 done（EXITED 只读历史真实页面）**：`b46-cross-session-inbox` driver 追加 EXITED 旧会话路径——session rail 选择 EXITED → 历史只读 transcript（只读 banner/返回当前会话）→ 输入框 disabled、无启用/放弃/编辑等待处理动作 → 返回当前会话；证据 `exited-history-readonly.json`（pending_action_buttons=[]、input_disabled=true）与截图；quality_accept PASS、verdict 4/4，第 1 次运行即过、未改产品代码/断言。剩余 E2 幂等与 E3 跨作品隔离，B46 不标 done。
+
