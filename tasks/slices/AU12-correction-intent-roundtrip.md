@@ -60,7 +60,7 @@ node scripts/task_done_check.mjs
 
 ## P2 立项修订的采纳落位与同源消费
 
-- 状态：**blocked（2026-10-31 CP0 done；CP1 落位/拒绝/DTO/概览/上下文消费已实现+测试；作者从概览提出修订的显式提案 producer 契约未裁决）**。
+- 状态：**doing（2026-10-31 作者选 A：judgment/创作工具新增显式 field-value 立项修订提案；CP1 落位/DTO/概览消费已完成，producer 实施中）**。
 - 来源：本任务 §6、[AU-12](../../docs/design/acceptance/author/AU-12-work-profile.md) AU12-I1/I7、[CA01 写入余项](CA01-planning-context-completion.md)。用户场景是“修订作品立项并采纳后，档案和后续模型使用同一新事实”。
 - 已核事实：`AdoptionRepository` 的 `work_skeleton_suggestion` 仅允许 target_length/planned_volumes/serial_form；`world_setting` 沿记忆类型落位。这些不能证明 premise/theme/main_goal 或题材/卖点/读者/基调等通用修订已回写 works，也不能由自然语言关键词自动推断应覆盖哪个立项字段。
 - CP0（可推进）：列清现有字段权威源、artifact 类型/显式目标、producer、采纳事务、版本及读模型消费者；比较复用既有结构化提案与扩展最小契约的差异，形成字段落位/不落位/缺失值/锁定及冲突处理方案。契约接受前不把任意 world_setting 全量覆盖 works、不新增平行资料表。

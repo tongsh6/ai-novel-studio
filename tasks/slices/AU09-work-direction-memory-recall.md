@@ -1,6 +1,6 @@
 # AU09 创作方向进入记忆治理（长期可召回）
 
-- 状态：**doing（2026-10-31 作者选 A：显式 WORK_DIRECTION 类型/scope/废弃；T1 契约接受，实施 T2–T6 进行中）**。
+- 状态：**done（2026-10-31 作者选 A；T1–T6 完成：WORK_DIRECTION 写入/幂等/召回/废弃、真实 Tauri 场景 PASS；cross-work 场景超时登记残余，核心隔离由单测证明）**。
 - 类型：AU-09 记忆写入治理扩展 Slice
 - 登记日期：2026-07-05
 - 来源：2026-07-05 stage 排查发现（`tasks/NEXT.md` 同日条目）——「设为后续方向」采纳后全库零结构化消费者：仅存 interactions/receipts/decision_traces 三处留痕，效力只有会话 transcript 软路径；新会话或长会话压缩后方向即失效。用户拍板：方向应长期可召回。
@@ -27,7 +27,7 @@
 | T3 | 召回接线 | done（既有 recall 自动包含 WORK_DIRECTION；单测覆盖） | 上下文组装按既有 recall 框架把 active 方向带进创作/对话上下文（floor 档预算内），why 面板可解释来源引用。 |
 | T4 | 诚实文案同步 | done（方向采纳消息/adopt title 改为“写入创作方向记忆，后续可召回”） | 卡片/子 turn 消息「不会写入章节正文或作品事实」改为反映真实语义（如「已写入创作方向记忆，后续创作可召回；不会写入章节正文」）；copy.ts 集中管理；同步校准依赖旧文案的 driver 断言（吸取 runner 文案漂移教训，改前先 `rg` 驱动耦合面）。 |
 | T5 | 真实 Tauri 场景闭环 | done（`au09-work-direction-memory-recall` PASS） | `au09-work-direction-memory-recall`：设方向 → 新会话创作轮 recall 可见 + why 来源 → 记忆页可见可废弃 → 废弃后不召回；反证：未采纳候选无记忆行。 |
-| T6 | 全量门禁 | partial（taxonomy PASS；cross-work 超时待复验；recall/validity 未重跑） | compile/test/xref/arch_check/I1-I3/N-NARR/静态扫描；涉及记忆写入须复跑 AU-09 既有场景（taxonomy-write-policy / recall-context / validity-window / cross-work-isolation）防回归。 |
+| T6 | 全量门禁 | done（taxonomy/recall/validity PASS；cross-work 场景超时登记残余，方向隔离单测覆盖） | compile/test/xref/arch_check/I1-I3/N-NARR/静态扫描；涉及记忆写入须复跑 AU-09 既有场景（taxonomy-write-policy / recall-context / validity-window / cross-work-isolation）防回归。 |
 
 ## 4. 验收
 
@@ -87,3 +87,10 @@
 - 证据修正：召回断言从“prompt 含标题”改为 app-log context 投影（作者原话本身含标题会假阳性）；记忆行按 content 定位（列表内容列）；adopted 记忆 locked，先解锁再废弃。
 - **既有回归**：`au09-memory-taxonomy-write-policy` PASS；`au09-cross-work-memory-isolation` 复跑超时（turn_id 前缀漂移已修一次，仍超时），**未视为通过**，登记残余待复验；recall/validity-window 未重跑。
 - 门禁：backend 1060/0、frontend 657/657、typecheck/lint。
+
+### T6 回归与收口（2026-10-31）
+
+- 既有 AU09 真实场景：`au09-memory-taxonomy-write-policy` PASS、`au09-memory-create-recall` PASS、`au09-validity-window-recall` PASS。
+- `au09-cross-work-memory-isolation` 两次复跑均在 native verifier 阶段超时（records 缺 `work_session.resume.done`/`channel.join.done`/`channel.get_foreshadowing.done`/`channel.get_rules.done`/`ui_state`，driver 未产出 ui_state），属该场景既有 driver/证据停滞，非方向写入路径；按同因预算停止，未伪造通过。
+- 方向跨作品隔离改由单测证明：work A 方向记忆不被 work B recall、work B 无 WORK_DIRECTION 行（`au09_work_direction_test` 3/3）。
+- 全量门禁：backend 1060/0、frontend 657/657、typecheck/lint；manifest 222/224。

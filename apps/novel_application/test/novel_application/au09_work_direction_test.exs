@@ -61,6 +61,22 @@ defmodule NovelApplication.AU09WorkDirectionTest do
     assert direction_memories(work.id) == []
   end
 
+  test "direction memory is work-scoped and not recalled by another work", %{work: work} do
+    execution = %Execution{result_fn: fn _ -> {:error, :provider_not_used} end}
+
+    assert {:ok, _action, _turn} =
+             DialogueGateway.handle_action(
+               direction_input(),
+               direction_source(work.id),
+               execution
+             )
+
+    {:ok, other_work} = WorkService.create(%{title: "另一部作品"})
+    other_recalled = MemoryRecallRepo.recall(other_work.id, "追查旧账", limit: 10)
+    refute Enum.any?(other_recalled, &(&1.type == MemoryType.work_direction()))
+    assert direction_memories(other_work.id) == []
+  end
+
   defp direction_input do
     %AuthorActionInput{
       input_id: "input-au09",

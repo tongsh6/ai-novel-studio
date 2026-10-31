@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU09-DIRECTION | A 实施：T1–T5 done，新真实场景 PASS；T6 partial（taxonomy PASS，cross-work 超时/另两场景待复验） | [原任务](slices/AU09-work-direction-memory-recall.md) |
+| AU12-WRITEBACK | 作者选 A：实现显式 field-value 立项修订提案（judgment/创作工具）+概览→候选→采纳页面证据 | [原任务小节](slices/AU12-correction-intent-roundtrip.md#p2-立项修订的采纳落位与同源消费) |
 
 ## 后续候选
 
@@ -28,7 +28,6 @@
 - **P1-AUDIT-BC 页面**：两次 stale projection banner 断言失败，属 AU08 缺口；见 [P1](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外)。
 - **UA01-LOG-B13**：无外部最终 run_failed 触发；AU04 失败场景自身漂移；见 [UA01](slices/UA01-provider-execution-stream-unification.md#b13-cp0-只读核对2026-10-31)。
 - **SU04-LIFECYCLE**：实现完成；release 打包外部故障 harness 缺失；见 [SU04](slices/SU04-desktop-sidecar-packaging.md#现役故障与生命周期契约核对)。
-- **AU12-WRITEBACK**：落位/DTO/概览已完成；概览修订 producer 需 A（推荐）/B/C 裁决；见 [AU12](slices/AU12-correction-intent-roundtrip.md#cp1-实施记录与-producer-阻塞2026-10-31)。
 - **B66-PREP**：CP0 准备 done；CP1+ 需接受快照/恢复契约与数据授权；见 [B66](slices/B66-local-workspace-backup-restore.md#cp0-最小本地快照恢复契约准备)。
 - **B01 后续**：需 A（推荐 nullable origin_turn_ref）/B/C 与 migration 授权；见 [B01](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界)。
 - **B43 后续**：MissingPolicy 门序需 A（推荐）/B/C/D 裁决；见 [B43](slices/B43-gate-order-residual.md)。
