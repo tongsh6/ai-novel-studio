@@ -364,3 +364,23 @@ Q1B 第十轮模型已经提出“保留或替代已保存编辑版”，但作�
 - **子步骤**：S1 原生 driver（真实窗口走通采纳→修订→确认→追问，先出 AX/操作证据）→ S2 evidence verifier（16 断言按证据源判定）→ S3 batch/allowlist/`tauri_slice_verify` native 分支接线 → S4 真实批次（≤2）→ S5 文档/门禁/台账。
 - **风险**：候选卡/确认对话框文案与 AX 定位漂移；覆盖确认时序（采纳→对话框→确认→刷新）；只读 DB 快照时机（采纳后立即取）；revision/supersedes 链字段与现役 DB schema 对齐；确定性 provider 对 Q1c 输入的路由。
 - **边界**：不把 browser summary 当原生证据；不恢复旧调用协议/重写已落地修订能力；发现产品缺陷回 Q1c 范围修复并 scoped 复验；不代签真实模型语义/I10。
+
+#### 原生补验 S1 实现输入清单（2026-10-31，接线前冻结）
+
+**真实输入（与 browser driver 同义，非新增验收用文本）**
+- 源设定消息：`请把以下原文登记为作品设定，不要改写：岑舟今年二十五岁，是青云宗宗主，掌管东洲灵脉。资料校验标识<nonce>。`
+- 修订消息：`请把已保存的设定里岑舟的年龄从二十五岁改成三十岁，其他内容保持不变。资料校验标识<nonce>。`
+- 追问消息：`岑舟今年多少岁？请依据当前已保存的作品设定回答。`
+- 按钮/对话框文案（按用户可见语义定位，无 testid）：采纳 `保存到作品` / `保存到作品档案`；确认 `确认执行`（`frontend/src/lib/copy.ts:163,181,187,390`）。
+
+**接线点（S3）**
+- `scripts/tauri_slice_verify.sh`：native system driver allowlist（约 line 468）与 slice→driver/evidence dispatch（约 line 1210）增加 `q1c-adopted-content-revision` 分支；仅允许确定性 provider，不新增验收开关。
+- 新增 `scripts/native_q1c_batch.sh`（照 AU12 两段式：runner → ready → driver → summary），`scripts/native_q1c_drive.mjs`（AX/CGEvent 流程），`scripts/native_q1c_evidence.mjs`（16 断言只读核验：wire/app-log/DB/AX/等待账）。
+- 预注册 `artifacts/model-contracts/q1c-native/preregistration.json`；证据目录 `artifacts/slice-verify/q1c-adopted-content-revision-tauri-native-<tag>/`，`surface=tauri`。
+
+**断言→证据映射（S2 实现依据）**
+- 候选/采纳：wire `turn_result.adoption_state.pending/resolved`、`action_result.status=accepted`、`truthfulness.artifact_adopted`、app-log adoption 事件。
+- 修订关系/覆盖确认：wire `adoption_decision.decision_type=require_confirmation`、确认后 `turn_result`；DB `memory_items` revision/supersedes 链。
+- 权威事实唯一/旧版状态：只读 DB 快照（CONFIRMED/SUPERSEDED 计数与版本链）。
+- 追问消费新值：追问 `turn_result.assistant_message` 含“三十岁”且不含“二十五岁”；`trace_summary`/llm 请求材料含新版事实。
+- 页面可见：AX 文本含候选卡/确认对话框/追问回答要点。
