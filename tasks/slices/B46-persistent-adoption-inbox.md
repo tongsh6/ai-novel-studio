@@ -148,3 +148,9 @@
 - 证据：`artifacts/slice-verify/b46-cross-session-inbox-tauri/exited-history-readonly.json`（`pending_action_buttons=[]`、`input_disabled=true`）、`exited-history-readonly.png`、`ui-state.json` 含 `exited_history_readonly/exited_history_pending_actions`；`quality_accept --surface tauri` PASS、verdict evidence 4/4。
 - 第 1 次运行即 PASS，未改产品代码、未改断言。
 - 剩余矩阵：E2 重复提交幂等（页面动作消失 + 后端幂等组合）、E3 跨作品隔离；B46 未标 done。
+### E3 实施记录（2026-10-31）
+
+- driver 追加跨作品隔离路径：work A 生成第四候选（不处理）→ 真实作品菜单「快速新建未命名作品」创建 work B → reload 取 B resume（`inbox_pending_adoptions` 不含 A 候选）→ B 档案「经验规则」断言 A 候选不可见（`cardAccent` 计数 0）→ 切回 work A → reload 取 A resume（含该候选）→ A 档案断言候选卡可见。
+- 证据：`artifacts/slice-verify/b46-cross-session-inbox-tauri/isolation-work-{a,b}-resume.json`（B inbox_count=0、A inbox_count=1）、`cross-work-isolation.png`、`ui-state.json` 含 `isolated_artifact_id/isolation_work_b_id/cross_work_inbox_isolated`；`quality_accept --surface tauri` PASS、verdict evidence 4/4。
+- 第 1 次运行即 PASS，未改产品代码、未改断言；作品隔离由真实作品菜单与 resume API 页面证据承担。
+- 剩余矩阵：E2 重复提交幂等（页面动作消失 + 后端幂等组合）；B46 未标 done。

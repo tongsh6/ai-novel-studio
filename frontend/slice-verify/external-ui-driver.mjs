@@ -6129,6 +6129,64 @@ async function driveB46CrossSessionInbox(page) {
     { timeout: 15_000 },
   );
 
+  // B46 §12 E3（2026-10-31）：跨作品隔离——第四候选留在 work A，切到 work B 后
+  // 档案与 resume inbox 均不可见；切回 A 仍可处理。
+  const isolationNonce = `${nonce}-isolation`;
+  const isolationCandidateResult = await send(
+    `把这份大纲直接存档为作品设定：${isolationNonce}，跨作品隔离路径。`,
+  );
+  const isolationCandidate = isolationCandidateResult.adoption_state?.pending?.[0];
+  assert(isolationCandidate?.artifact_id, "B46 isolation candidate missing");
+
+  const workATitle = ((await workTitle(page).textContent()) ?? "").replace(/\s+/g, " ").trim();
+  const createdWork = await createWorkFromMenu(page, workId);
+  const workBId = createdWork.work_id;
+  assert(workBId && workBId !== workId, "B46 isolation work switch failed");
+
+  const bResumePromise = page.waitForResponse(
+    (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+  );
+  await page.reload({ waitUntil: "commit" });
+  await page.locator(chatInputSelector).waitFor();
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+  const bSnapshot = await (await bResumePromise).json();
+  fs.writeFileSync(path.join(artifactDir, "isolation-work-b-resume.json"), JSON.stringify(bSnapshot, null, 2));
+  assert(
+    !(bSnapshot.inbox_pending_adoptions ?? []).some(
+      (entry) => entry.artifact_id === isolationCandidate.artifact_id,
+    ),
+    "B46 cross-work inbox leaked artifact into work B",
+  );
+
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await page.getByRole("tab", { name: /经验规则/ }).click();
+  const leakedCards = page.locator('[class*="cardAccent"]').filter({ hasText: isolationNonce });
+  assert((await leakedCards.count()) === 0, "B46 cross-work artifact visible in work B archive");
+  await page.screenshot({ path: path.join(artifactDir, "cross-work-isolation.png"), fullPage: true });
+  await closeArchiveIfOpen(page);
+
+  await switchToWorkByTitle(page, workATitle);
+  const aResumePromise = page.waitForResponse(
+    (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+  );
+  await page.reload({ waitUntil: "commit" });
+  await page.locator(chatInputSelector).waitFor();
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+  const aSnapshot = await (await aResumePromise).json();
+  fs.writeFileSync(path.join(artifactDir, "isolation-work-a-resume.json"), JSON.stringify(aSnapshot, null, 2));
+  assert(
+    (aSnapshot.inbox_pending_adoptions ?? []).some(
+      (entry) => entry.artifact_id === isolationCandidate.artifact_id,
+    ),
+    "B46 work A inbox lost its pending artifact after cross-work switch",
+  );
+
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await page.getByRole("tab", { name: /经验规则/ }).click();
+  const aCard = page.locator('[class*="cardAccent"]').filter({ hasText: isolationNonce });
+  assert((await aCard.count()) === 1, "B46 work A archive lost isolated pending card");
+  await closeArchiveIfOpen(page);
+
   return [
     {
       event: "slice_verify.ui_state.done",
@@ -6152,6 +6210,9 @@ async function driveB46CrossSessionInbox(page) {
       edited_fact_confirmed: editFacts.length === 1,
       exited_history_readonly: true,
       exited_history_pending_actions: 0,
+      isolated_artifact_id: isolationCandidate.artifact_id,
+      isolation_work_b_id: workBId,
+      cross_work_inbox_isolated: true,
     },
   ];
 }

@@ -1391,3 +1391,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **B46 E4 done（EXITED 只读历史真实页面）**：`b46-cross-session-inbox` driver 追加 EXITED 旧会话路径——session rail 选择 EXITED → 历史只读 transcript（只读 banner/返回当前会话）→ 输入框 disabled、无启用/放弃/编辑等待处理动作 → 返回当前会话；证据 `exited-history-readonly.json`（pending_action_buttons=[]、input_disabled=true）与截图；quality_accept PASS、verdict 4/4，第 1 次运行即过、未改产品代码/断言。剩余 E2 幂等与 E3 跨作品隔离，B46 不标 done。
 
+- 2026-10-31 — **B46 E3 done（跨作品隔离真实页面）**：`b46-cross-session-inbox` driver 追加跨作品路径——A 留未处理第五候选 → 真实作品菜单快速新建 work B → B resume inbox 不含 A 候选、B 档案不可见 → 切回 A resume 含候选、档案可见；证据 `isolation-work-{a,b}-resume.json`（B=0/A=1）、`cross-work-isolation.png`、`ui-state.json` 新字段；quality_accept PASS、verdict 4/4，第 1 次运行即过。剩余 E2 幂等组合，B46 不标 done。
+

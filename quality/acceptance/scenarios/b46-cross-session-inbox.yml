@@ -43,6 +43,7 @@ assertions:
     - 采纳后待处理消失，不出现重复候选
     - 跨会话 inbox 候选可经「提出修改→保存修改后的版本」编辑后采纳，刷新后待处理消失（B46 §12 E1）
     - EXITED 旧会话历史为只读，不显示启用/放弃/编辑等待处理动作（B46 §12 E4）
+    - work A 的跨会话 inbox 候选在 work B 档案与 inbox 均不可见，切回 A 仍可处理（B46 §12 E3）
   network:
     - 新会话 resume 的 pending_adoptions 为空，inbox_pending_adoptions 含旧 artifact
     - inbox 携带 source turn result，采纳走既有 action
@@ -51,6 +52,7 @@ assertions:
     - 刷新后 inbox pending 不含已采纳 artifact，resolved 保留
     - 作品事实只为该候选生成唯一 CONFIRMED 记录
     - 编辑后内容为唯一 CONFIRMED 事实，原候选原文未写入
+    - work B resume inbox 不含 work A 候选；work A resume inbox 保留该候选
 
 anti_hooks:
   product_acceptance_logic_added: false

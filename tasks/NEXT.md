@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B46 | E1 edit_then_accept、E4 EXITED 只读真实页面 PASS（§12）；下一步 E3 跨作品隔离（需第二作品）/ E2 幂等组合，各一次真实页面 | [B46](slices/B46-persistent-adoption-inbox.md) |
+| B46 | E1 edit_then_accept、E3 跨作品隔离、E4 EXITED 只读真实页面 PASS（§12）；剩余 E2 重复提交幂等（页面动作消失 + 后端唯一事实组合），B46 收口在 E2 后 | [B46](slices/B46-persistent-adoption-inbox.md) |
 
 ## 后续候选
 
