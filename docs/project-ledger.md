@@ -1350,3 +1350,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **静态扫描闭环**：修复触达文件 Credo 5 类（context/adoption/search/prose/alias）→ Credo 0；gitleaks B65 示例 nonce 登记 false_positive；复扫 0 touched findings；backend 1058/0。残余：gitleaks 误报工具非零、task_done 需新鲜 Tauri UI 证据（未伪造）。
 
 - 2026-10-31 — **B51 done / ADR-0032 PaperTrail 逻辑退役（作者选 D）**：新增 ADR-0032，移除 paper_trail 依赖/config/第三方测试并 unlock；versions 表/migration 与历史数据保留；tech-stack 00/03/06/13 同步；backend 1058/0。队列当前切 AU09-DIRECTION（作者选 A）。
+
+- 2026-10-31 — **AU09 A 实施 T1–T4**：新增 WORK_DIRECTION 枚举（codegen in sync）；choose_candidate adopt_tentative 写 governed memory（scope WORK/来源 tags/幂等），未采纳不写；recall 单测含方向；文案改为“写入创作方向记忆，可召回”。T5 Tauri 场景/T6 门禁待做。

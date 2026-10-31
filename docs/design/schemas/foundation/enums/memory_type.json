@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "foundation/enums/memory_type.json",
   "title": "MemoryType",
-  "description": "记忆类型枚举。定义可治理的创作事实分类——区分铁律、事实、状态、灵感、约束等不同性质的记忆。冻结于 05-memory-retention-and-retrieval.md §4。",
+  "description": "记忆类型枚举。定义可治理的创作事实分类——区分铁律、事实、状态、灵感、约束等不同性质的记忆。冻结于 05-memory-retention-and-retrieval.md §4。 WORK_DIRECTION 为 AU09 方向采纳的长期可召回类型（2026-10-31 作者选 A，ADR/契约见 AU09 T1）。",
   "type": "string",
   "enum": [
     "WORLD_RULE",
@@ -14,6 +14,7 @@
     "STYLE_RULE",
     "CONSTRAINT",
     "AUTHOR_PREFERENCE",
+    "WORK_DIRECTION",
     "IDEA",
     "DRAFT_CONTEXT"
   ],

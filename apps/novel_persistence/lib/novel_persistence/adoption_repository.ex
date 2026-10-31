@@ -433,7 +433,7 @@ defmodule NovelPersistence.AdoptionRepository do
       content: Map.fetch!(attrs, :content),
       summary: Map.get(attrs, :summary),
       type: memory_type(attrs),
-      scope: MemoryScope.work(),
+      scope: memory_scope(attrs),
       status: MemoryStatus.confirmed(),
       source_type: MemorySourceType.author_confirmed(),
       source_id: mutation_id,
@@ -443,8 +443,32 @@ defmodule NovelPersistence.AdoptionRepository do
       source_confidence: Decimal.new("1.0000"),
       locked: true,
       recallable: true,
-      tags: ["adopted_artifact", to_string(Map.get(attrs, :artifact_type, SourceType.artifact()))]
+      tags:
+        ["adopted_artifact", to_string(Map.get(attrs, :artifact_type, SourceType.artifact()))] ++
+          List.wrap(Map.get(attrs, :extra_tags))
     }
+  end
+
+  defp memory_scope(attrs) do
+    value = Map.get(attrs, :direction_scope) || Map.get(attrs, :memory_scope)
+    value = value && to_string(value)
+
+    if value && MemoryScope.valid?(String.upcase(value)),
+      do: String.upcase(value),
+      else: MemoryScope.work()
+  end
+
+  @doc "AU09 T2：同一 work + candidate 已有方向采纳 mutation 时幂等跳过写入。"
+  @spec direction_mutation_exists?(String.t(), String.t()) :: boolean()
+  def direction_mutation_exists?(work_id, candidate_ref)
+      when is_binary(work_id) and is_binary(candidate_ref) do
+    Mutation
+    |> where(
+      [m],
+      m.target_scope == ^"work:#{work_id}" and m.target_object_ref == ^candidate_ref and
+        m.mutation_type == "adopt_artifact"
+    )
+    |> Repo.exists?()
   end
 
   # character_evolution_seed → 角色记忆（CHARACTER_PROFILE/CURRENT_STATE/RELATIONSHIP）。
@@ -452,6 +476,10 @@ defmodule NovelPersistence.AdoptionRepository do
   defp memory_type(%{artifact_type: type} = attrs)
        when type in [:character_evolution_seed, "character_evolution_seed"],
        do: character_evolution_memory_type(attrs)
+
+  defp memory_type(%{artifact_type: type})
+       when type in [:work_direction, "work_direction"],
+       do: MemoryType.work_direction()
 
   defp memory_type(%{artifact_type: type})
        when type in [:plot_direction, "plot_direction"],

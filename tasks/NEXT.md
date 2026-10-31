@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU09-DIRECTION | 作者已选 A：实现显式 WORK_DIRECTION 类型/范围/废弃与 choose_candidate 持久化/召回，补真实页面证据 | [原任务](slices/AU09-work-direction-memory-recall.md) |
+| AU09-DIRECTION | A 实施中：WORK_DIRECTION 类型/采纳持久化/幂等/召回/文案 done + 单测；T5 真实 Tauri 场景/T6 全量回归待做 | [原任务](slices/AU09-work-direction-memory-recall.md) |
 
 ## 后续候选
 

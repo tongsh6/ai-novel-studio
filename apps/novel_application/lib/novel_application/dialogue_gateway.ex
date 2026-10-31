@@ -154,8 +154,16 @@ defmodule NovelApplication.DialogueGateway do
           candidate_adoption_scope(source_turn_result)
         )
 
-      {:ok, candidate_action_result(action_input, decision),
-       candidate_turn_result(source_turn_result, chosen_candidate, decision)}
+      with :ok <-
+             persist_direction_adoption(
+               decision,
+               candidate_set,
+               chosen_candidate,
+               source_turn_result
+             ) do
+        {:ok, candidate_action_result(action_input, decision),
+         candidate_turn_result(source_turn_result, chosen_candidate, decision)}
+      end
     end
   end
 
@@ -202,6 +210,65 @@ defmodule NovelApplication.DialogueGateway do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # AU09 T2/A（2026-10-31）：方向采纳 adopt_tentative 时写 governed memory（WORK_DIRECTION）。
+  # 未采纳/需确认/拒绝/幂等重复均不写；写入失败让动作失败，不静默 accepted。
+  defp persist_direction_adoption(
+         %AdoptionDecision{decision_type: :adopt_tentative, adoption_decision_id: decision_id},
+         %CandidateSet{candidate_type: :direction} = candidate_set,
+         candidate,
+         source_turn_result
+       ) do
+    work_id = candidate.work_id || map_field(source_turn_result, :work_id)
+    candidate_ref = candidate.candidate_id
+
+    cond do
+      # lobby/legacy fixture 无真实 work UUID 上下文：不写方向记忆（生产真实采纳总有 work）。
+      not match?({:ok, _}, Ecto.UUID.cast(work_id)) ->
+        :ok
+
+      blank?(candidate_ref) ->
+        {:error, "direction adoption missing candidate identity"}
+
+      NovelPersistence.AdoptionRepository.direction_mutation_exists?(work_id, candidate_ref) ->
+        :ok
+
+      true ->
+        attrs = %{
+          actor_ref: "author",
+          work_id: work_id,
+          source_turn_ref: candidate_set.turn_id,
+          source_task_ref: "decision:#{decision_id}",
+          artifact_id: candidate_ref,
+          artifact_type: :work_direction,
+          base_revision: 1,
+          content: candidate.content_ref || candidate.summary,
+          summary: candidate.summary,
+          direction_scope: "WORK",
+          extra_tags: direction_tags(candidate, candidate_set, decision_id)
+        }
+
+        case NovelPersistence.AdoptionRepository.persist(attrs) do
+          {:ok, _persisted} ->
+            :ok
+
+          {:error, reason} ->
+            {:error, "direction adoption persistence failed: #{inspect(reason)}"}
+        end
+    end
+  end
+
+  defp persist_direction_adoption(_decision, _candidate_set, _candidate, _source_turn_result),
+    do: :ok
+
+  defp direction_tags(candidate, candidate_set, decision_id) do
+    [
+      "candidate:#{candidate.candidate_id}",
+      "candidate_set:#{candidate_set.candidate_set_id}",
+      "decision:#{decision_id}",
+      "risk:#{candidate.risk_hint || :low}"
+    ]
   end
 
   defp candidate_set_from_turn_result(source_turn_result, action_input) do
@@ -261,10 +328,9 @@ defmodule NovelApplication.DialogueGateway do
   defp normalize_candidate_set_stability(_), do: :tentative
 
   defp chosen_candidate(%CandidateSet{} = candidate_set, candidate_ref) do
-    if Enum.any?(candidate_set.candidates, &(&1.candidate_id == candidate_ref)) do
-      {:ok, %{candidate_id: candidate_ref}}
-    else
-      {:error, "candidate not found in source turn"}
+    case Enum.find(candidate_set.candidates, &(&1.candidate_id == candidate_ref)) do
+      nil -> {:error, "candidate not found in source turn"}
+      candidate -> {:ok, candidate}
     end
   end
 
@@ -545,7 +611,7 @@ defmodule NovelApplication.DialogueGateway do
   defp candidate_status(_decision), do: "conversational"
 
   defp candidate_decision_message(%AdoptionDecision{decision_type: :adopt_tentative}, title) do
-    "已将「#{title}」设为后续创作方向；这不会写入章节正文或作品事实。"
+    "已将「#{title}」写入创作方向记忆，后续创作可召回；不会写入章节正文。"
   end
 
   defp candidate_decision_message(%AdoptionDecision{decision_type: :require_confirmation}, title) do

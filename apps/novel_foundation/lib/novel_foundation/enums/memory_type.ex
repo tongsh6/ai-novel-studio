@@ -6,7 +6,7 @@ defmodule NovelFoundation.Enums.MemoryType do
 
   05-memory-retention-and-retrieval.md §4 记忆类型体系
 
-  记忆类型枚举。定义可治理的创作事实分类——区分铁律、事实、状态、灵感、约束等不同性质的记忆。冻结于 05-memory-retention-and-retrieval.md §4。
+  记忆类型枚举。定义可治理的创作事实分类——区分铁律、事实、状态、灵感、约束等不同性质的记忆。冻结于 05-memory-retention-and-retrieval.md §4。 WORK_DIRECTION 为 AU09 方向采纳的长期可召回类型（2026-10-31 作者选 A，ADR/契约见 AU09 T1）。
   """
 
   @values [
@@ -19,6 +19,7 @@ defmodule NovelFoundation.Enums.MemoryType do
     "STYLE_RULE",
     "CONSTRAINT",
     "AUTHOR_PREFERENCE",
+    "WORK_DIRECTION",
     "IDEA",
     "DRAFT_CONTEXT"
   ]
@@ -43,6 +44,7 @@ defmodule NovelFoundation.Enums.MemoryType do
   def style_rule, do: "STYLE_RULE"
   def constraint, do: "CONSTRAINT"
   def author_preference, do: "AUTHOR_PREFERENCE"
+  def work_direction, do: "WORK_DIRECTION"
   def idea, do: "IDEA"
   def draft_context, do: "DRAFT_CONTEXT"
 end

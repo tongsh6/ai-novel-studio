@@ -22,11 +22,11 @@
 
 | # | 任务 | 状态 | 说明 |
 |---|---|---|---|
-| T1 | 契约扩展与类型定名 | todo（含待拍板点） | 06 §4.5 增补 work_direction 采纳写入；记忆类型二选一待用户拍板：**A（推荐）新增 `CREATIVE_DIRECTION` 子类型**（语义独立、召回策略可单独调、记忆页可按类筛）/ B 复用既有 `CONSTRAINT`（零枚举变更，但方向与硬约束混淆）。多方向语义同步冻结：建议并存留痕、召回默认取最新 N 条（改选=新条目，旧条目自然降权，不静默删除）。 |
-| T2 | 采纳路径接线 | todo | `choose_candidate` 的 adopt_tentative 分支经既有治理写入边界写 memory_items（含 direction 标题/描述/tags、source_turn_ref/decision 引用）；未采纳/duplicate 不写；幂等（同 receipt 语义，重复采纳不重复写）。 |
-| T3 | 召回接线 | todo | 上下文组装按既有 recall 框架把 active 方向带进创作/对话上下文（floor 档预算内），why 面板可解释来源引用。 |
-| T4 | 诚实文案同步 | todo | 卡片/子 turn 消息「不会写入章节正文或作品事实」改为反映真实语义（如「已写入创作方向记忆，后续创作可召回；不会写入章节正文」）；copy.ts 集中管理；同步校准依赖旧文案的 driver 断言（吸取 runner 文案漂移教训，改前先 `rg` 驱动耦合面）。 |
-| T5 | 真实 Tauri 场景闭环 | todo | `au09-work-direction-memory-recall`：设方向 → 新会话创作轮 recall 可见 + why 来源 → 记忆页可见可废弃 → 废弃后不召回；反证：未采纳候选无记忆行。 |
+| T1 | 契约扩展与类型定名 | done（作者选 A：WORK_DIRECTION） | 06 §4.5 增补 work_direction 采纳写入；记忆类型二选一待用户拍板：**A（推荐）新增 `CREATIVE_DIRECTION` 子类型**（语义独立、召回策略可单独调、记忆页可按类筛）/ B 复用既有 `CONSTRAINT`（零枚举变更，但方向与硬约束混淆）。多方向语义同步冻结：建议并存留痕、召回默认取最新 N 条（改选=新条目，旧条目自然降权，不静默删除）。 |
+| T2 | 采纳路径接线 | done（choose_candidate adopt_tentative → memory_items，幂等） | `choose_candidate` 的 adopt_tentative 分支经既有治理写入边界写 memory_items（含 direction 标题/描述/tags、source_turn_ref/decision 引用）；未采纳/duplicate 不写；幂等（同 receipt 语义，重复采纳不重复写）。 |
+| T3 | 召回接线 | done（既有 recall 自动包含 WORK_DIRECTION；单测覆盖） | 上下文组装按既有 recall 框架把 active 方向带进创作/对话上下文（floor 档预算内），why 面板可解释来源引用。 |
+| T4 | 诚实文案同步 | done（方向采纳消息/adopt title 改为“写入创作方向记忆，后续可召回”） | 卡片/子 turn 消息「不会写入章节正文或作品事实」改为反映真实语义（如「已写入创作方向记忆，后续创作可召回；不会写入章节正文」）；copy.ts 集中管理；同步校准依赖旧文案的 driver 断言（吸取 runner 文案漂移教训，改前先 `rg` 驱动耦合面）。 |
+| T5 | 真实 Tauri 场景闭环 | doing（场景/驱动待建） | `au09-work-direction-memory-recall`：设方向 → 新会话创作轮 recall 可见 + why 来源 → 记忆页可见可废弃 → 废弃后不召回；反证：未采纳候选无记忆行。 |
 | T6 | 全量门禁 | todo | compile/test/xref/arch_check/I1-I3/N-NARR/静态扫描；涉及记忆写入须复跑 AU-09 既有场景（taxonomy-write-policy / recall-context / validity-window / cross-work-isolation）防回归。 |
 
 ## 4. 验收
@@ -66,3 +66,16 @@
 **验收范围（接受方案后）**：真实生产/消费矩阵；采纳/幂等/跨会话/有效范围/废弃/Why；概览/上下文/后续判断与专业模型请求同源；外部真实 Tauri 从候选选择→采纳→新会话召回→模型请求核对；无 pending 卡出现冒充落位。
 
 **实施放行**：等待作者选择 A/B/C；未接受前不写记忆、不改枚举/schema、不运行模型。
+
+### T1–T4 实施记录（2026-10-31，作者已选 A）
+
+- **T1 类型**：`memory_type.json` 新增 `WORK_DIRECTION` 并 codegen（foundation enum 同步，`codegen.enums --check` in sync）；方向语义独立于 CONSTRAINT/IDEA。
+- **T2 采纳接线**：`DialogueGateway` 在 `choose_candidate` 且 `AdoptionDecision=:adopt_tentative` 时写 `AdoptionRepository.persist`（artifact_type=:work_direction）：
+  - memory type WORK_DIRECTION、scope WORK、status CONFIRMED、recallable、summary=方向标题、content=pitch；
+  - tags 含 candidate/candidate_set/decision/risk；source_id=mutation；
+  - `direction_mutation_exists?/2` 幂等防重复写；写入失败让动作失败（不静默 accepted）；未采纳/拒绝/待确认不写；
+  - `chosen_candidate` 改返回完整候选（保留 candidate_id，供 work/risk 来源）。
+- **T3 召回**：既有 `MemoryRecallRepo` 只要求 confirmed+recallable+within window，WORK_DIRECTION 自动进入召回；单测验证 recall 返回该条。
+- **T4 文案**：后端候选后果消息改为「已写入创作方向记忆，后续创作可召回；不会写入章节正文。」；前端 `candidateAdoptTitle` 同步；未改写“继续讨论”语义（不采纳不写）。
+- **单测**：`au09_work_direction_test` 2/2（持久化/幂等/召回/未采纳不写）。
+- **仍缺**：T5 真实 Tauri `au09-work-direction-memory-recall`（设方向→新会话召回+why→记忆页可见可废弃→废弃后不召回；未采纳无行）与 T6 全量回归/静态扫描。

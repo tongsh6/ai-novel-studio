@@ -347,7 +347,7 @@ export const WORKBENCH = {
   candidateContinueTitle: "把这个方向作为下一轮讨论上下文，不会写入作品档案或章节正文。",
   candidateCollapsedExpandLabel: "展开",
   candidateAdoptLabel: "设为后续方向",
-  candidateAdoptTitle: "把这个方向作为后续创作依据；不会直接写入章节正文。",
+  candidateAdoptTitle: "把这个方向写入创作方向记忆，后续创作可召回；不会直接写入章节正文。",
   frameBadges: {
     creativeExploration: "探索方向",
     executionCandidate: "生成草稿",
