@@ -295,4 +295,70 @@ defmodule NovelApplication.B29CharacterProfileTest do
 
     assert result.turn_result.truthfulness.production_write_performed == false
   end
+
+  # B48 CP2：边界矩阵——缺目标/错误身份/同名歧义/跨轮失效都不得被当成 no-op。
+  test "B48 CP2 边界：缺目标/错误身份/同名歧义给可解释错误，不产普通说明" do
+    provider = %Execution{result_fn: fn _ -> flunk("角色身份核对失败不得调用 provider") end}
+    ctx = %{"character_profile_context" => %{roster: roster()}}
+
+    # 缺目标：作者没给出可定位角色（无 ref、名字不在 roster）
+    assert {:error, {:character_profile_invalid, :target_missing}} =
+             PendingArtifactWorkflow.run(
+               desired_judgment(%{character_ref: nil}),
+               ctx,
+               run("指定阿鸢为主角"),
+               context(),
+               provider
+             )
+
+    # 错误身份：模型 ref 不在当前 roster（跨轮对象失效/错误绑定）
+    assert {:error, {:character_profile_invalid, :target_missing}} =
+             PendingArtifactWorkflow.run(
+               desired_judgment(%{character_ref: "character:deadbeef"}),
+               ctx,
+               run("指定沈砚为主角"),
+               context(),
+               provider
+             )
+
+    # 同名未消歧：两个「沈砚」且无 ref/上下文唯一依据
+    assert {:error, {:character_profile_invalid, :target_ambiguous}} =
+             PendingArtifactWorkflow.run(
+               desired_judgment(%{character_ref: nil}),
+               ctx,
+               run("指定沈砚为主角"),
+               context(),
+               provider
+             )
+  end
+
+  # B48 CP2：统一裁决/trace 闭合；重复 no-op 请求仍是普通说明、零候选、零写入。
+  test "B48 CP2 no-op trace 闭合：TurnResult 引用本轮 DecisionTrace，重复请求不产候选" do
+    parent = self()
+    noop_roster = [target(@gu_ref, "顾青", [], "PROTAGONIST")]
+
+    input = %{
+      "character_profile_context" => %{roster: noop_roster},
+      trace_persister: fn _work, attrs ->
+        send(parent, {:trace, attrs})
+        :ok
+      end
+    }
+
+    judgment = desired_judgment(%{character_ref: @gu_ref})
+    provider = %Execution{result_fn: fn _ -> flunk("no-op 不得调用 provider") end}
+
+    for _attempt <- 1..2 do
+      assert {:ok, result} =
+               PendingArtifactWorkflow.run(judgment, input, run("指定顾青为主角"), context(), provider)
+
+      refute Map.get(result.turn_result, :adoption_state)
+      trace_ref = result.turn_result.orchestrator_decision.decision_trace_ref
+      assert is_binary(trace_ref)
+
+      assert_receive {:trace, attrs}
+      assert attrs.trace_id == trace_ref
+      assert to_string(attrs.decision_type) == "character_profile_revision"
+    end
+  end
 end

@@ -1,6 +1,6 @@
 # B48：角色修订 no-op 与同名歧义边界
 
-- 状态：**doing（2026-10-30 作者已确认 C04=A；2026-10-31 CP0 契约与四场景冻结、CP1 no-op 普通说明出口完成；CP2–CP3 待做，CP3 需真实模型窗口）**。
+- 状态：**doing（2026-10-30 作者已确认 C04=A；2026-10-31 CP0 契约冻结、CP1 no-op 普通说明出口、CP2 统一裁决/trace 与边界矩阵完成；CP3 需真实模型窗口）**。
 - 登记日期：2026-10-27；来源：B29 主业务已完成，但实模 T2 出现 old==new no-op 候选，且“跨轮已经唯一消歧”与“同名必须澄清”相冲突。
 - 上游：[B29](B29-existing-character-role-revision.md)、[B27](B27-systematic-prompt-and-intent-integration.md)、[B31](B31-author-reply-run-binding.md)。
 
@@ -79,7 +79,7 @@ B29 主业务 done 不能重开，T2 也不能记 PASS。任何硬化都不能�
 |---|---|---|
 | CP0 | 对齐 B29 修订路由、持久角色身份/当前值、合法无变化出口及既有 copy/结果契约；冻结四场景与边界反例；核对 B43 统一裁决依赖 | **done（2026-10-31，见 §8）** |
 | CP1 | 先唯一解析身份，再根据真实当前值判 no-op；无变化普通说明、无候选/新修订；真实歧义询问，已消歧不重复问，正常修订保持候选采纳链 | **done（2026-10-31，见 §9）** |
-| CP2 | 接通统一裁决/trace/来源与 Why，回归缺目标、跨作品、错误身份、跨轮证据失效、重复请求和真实修改；不把合法 no-op 当错误路由反复纠错 | todo |
+| CP2 | 接通统一裁决/trace/来源与 Why，回归缺目标、跨作品、错误身份、跨轮证据失效、重复请求和真实修改；不把合法 no-op 当错误路由反复纠错 | **done（2026-10-31，见 §10；Why 页面证据归 CP3）** |
 | CP3 | 外部驱动真实 Tauri + 真实模型覆盖 no-op、真实修订、同名未消歧、跨轮已消歧；证明正确对象、无多余候选/写入、其它角色/正文不变，回归 B29/B31 | todo |
 
 本表只细化既有完整范围。若统一裁决 producer 尚未就绪，联动 B43 复用同一能力，不在 B48 复制一份；可独立推进 CP0，不把工程依赖误写为作者仍未裁决。固定文案遵守 copy 约束，真实模型与原生运行按具体预注册/资源安排执行；局部机制通过不代签 CP3 或 B29 T2。
@@ -157,3 +157,36 @@ B29 主业务 done 不能重开，T2 也不能记 PASS。任何硬化都不能�
 - CP2：统一裁决/trace/来源与 Why 的页面消费、缺目标/跨作品/错误身份/跨轮证据失效/重复请求/真实修改的回归矩阵未做；
 - CP3：真实 Tauri + 真实模型四场景未跑（需预注册与资源窗口），B29 T2 历史 known-gap 保持原状；
 - 同名歧义询问路径为既有 `resolve_target`/`await_author` 行为，本轮未新增页面证据；no-op 说明文案为后端生成，未做前端 card/replay 特殊展示（A 方案不新增回执）。
+
+## 10. CP2 实施记录（2026-10-31）
+
+**统一裁决/trace 闭合**
+
+- no-op 结果改为先 `TraceWriter.record` 再构建 TurnResult：`OrchestratorDecision.reply_only` 注入 `decision_trace_ref = trace.trace_id`，`TurnResult.orchestrator_decision.decision_trace_ref` 与本轮持久化 trace 一致（ADR-0004 #3；B43 统一裁决投影复用既有 `form_r_decision` 语义，不新增第二控制环）。
+- `DialogueGateway.persist_turn_trace` 已接；trace `decision_type=:character_profile_revision`、`event_order` 含 `:character_profile_identity_checked` / `:character_profile_revision_no_change`，作者经既有 Why/replay 可回查「身份已核对、无需修改」；不新增无变化业务回执、卡型或页面。
+- 合法 no-op 是 execute 的正常终结（`{:ok, reply_only}`），不会落入 `character_profile_invalid` 错误面被动作纠错 loop 反复重试。
+
+**边界矩阵（新增测试）**
+
+- 缺目标（无 ref 且名字不在 roster）→ `{:error, {:character_profile_invalid, :target_missing}}`，不产普通说明、零候选；
+- 错误身份 / 跨轮对象失效（模型 ref 不在当前 roster）→ `target_missing`，不挑同名对象当 no-op；
+- 同名未消歧（两个「沈砚」且无唯一依据）→ `target_ambiguous`，零候选零写入；
+- 重复 no-op 请求（连续两次）→ 两次均 `reply_only` 普通说明、无 adoption_state、`provider_call_count=0`、trace 两次落盘且 `decision_trace_ref` 各自闭合（幂等，不产生候选）；
+- 真实修订（old≠new）→ 保持候选采纳链（CP1 测试覆盖，未误伤）。
+
+**验证**
+
+- `apps/novel_application/test/novel_application/b29_character_profile_test.exs`：10/10（新增边界矩阵 + trace 闭合/重复 no-op 2 条）；
+- `mix compile --warnings-as-errors`、`mix credo --strict`、`mix xref`、`arch_check`、全量 `mix test` 见本轮提交前门禁；
+- 无产品 schema/DB/provider/前端改动；无验收感知逻辑。
+
+**残余**
+
+- CP3 真实 Tauri + 真实模型四场景（no-op/真实修订/同名未消歧/跨轮已消歧）未跑，需预注册与资源窗口；Why 面板与页面证据归 CP3；B29 T2 历史 known-gap 保持原状；
+- 跨作品边界沿用既有读端口 work 绑定与持久层 guard（未在本 CP 新增页面证据）。
+
+### CP3 阻塞记录（2026-10-31）
+
+- 状态：**blocked（实现前置未建 + 需真实模型/原生 runtime 窗口）**：CP3 要求外部驱动真实 Tauri + 真实模型覆盖四场景；当前无 `native_b48_drive.mjs`/证据核验器（CP3 实施第一步），真实模型窗口未授权。
+- 预注册已就绪：`artifacts/b48-cp3/preregistration.json`（四场景判据、单槽串行/卸载验证、input120s/turn360s 等预算、2 批上限、失败批次只读、证据目录）。恢复时先按预注册实现 driver/evidence 并注册 allowlist，再申请窗口执行；不得用 browser summary 或确定性 provider 代签真实模型语义，I10 不适用。
+

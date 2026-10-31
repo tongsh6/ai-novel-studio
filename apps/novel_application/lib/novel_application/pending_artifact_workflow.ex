@@ -423,14 +423,6 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         "character_profile_no_change"
       ])
 
-    result =
-      TurnResultBuilder.build(frame, %{}, [], decision)
-      |> Map.merge(%{
-        workspace_id: run.workspace_id,
-        work_id: run.work_id,
-        session_id: run.session_id
-      })
-
     {trace, _summary} =
       TraceWriter.record(frame, %{turn_id: frame.turn_id}, context, decision: decision)
 
@@ -445,6 +437,18 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           :turn_result_emitted
         ]
     }
+
+    # B48 CP2 / ADR-0004 #3：统一裁决闭合——TurnResult 必须引用本轮 DecisionTrace，
+    # 作者经 Why/replay 可回查“身份已核对、无需修改”。
+    decision = %{decision | decision_trace_ref: trace.trace_id}
+
+    result =
+      TurnResultBuilder.build(frame, %{}, [], decision)
+      |> Map.merge(%{
+        workspace_id: run.workspace_id,
+        work_id: run.work_id,
+        session_id: run.session_id
+      })
 
     DialogueGateway.persist_turn_trace(
       {:ok, result, trace, [], context},
