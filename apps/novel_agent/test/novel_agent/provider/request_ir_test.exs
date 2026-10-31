@@ -334,4 +334,49 @@ defmodule NovelAgent.Provider.RequestIRTest do
       assert Enum.any?(body.messages, &(&1 == %{role: "user", content: @author_text}))
     end
   end
+
+  describe "adapter 桥（CP2 收尾，VS-00L §6/§8）" do
+    test "normalize_messages 保真原生工具字段（I-ART-8）" do
+      tool_calls = [
+        %{
+          id: "call-1",
+          type: "function",
+          function: %{name: "read_character", arguments: "{\"character_ref\":\"character:1\"}"}
+        }
+      ]
+
+      messages = [
+        %{role: "assistant", content: "", tool_calls: tool_calls},
+        %{role: "tool", content: "{\"status\":\"ok\"}", tool_call_id: "call-1"},
+        %{role: "user", content: "hi"}
+      ]
+
+      assert [assistant, tool, user] = NovelAgent.Provider.normalize_messages(messages)
+      assert assistant.tool_calls == tool_calls
+      assert tool.tool_call_id == "call-1"
+      assert user == %{role: "user", content: "hi"}
+    end
+
+    test "IR → provider prompt：OpenAI 兼容 adapter 消费结果与投影同源" do
+      ir = ir(g2_messages(), refs: observed_refs())
+
+      assert {:ok, prompt} = RequestIR.to_provider_prompt(ir)
+      assert prompt.ir_version == RequestIR.ir_version()
+
+      assert NovelAgent.Provider.normalize_messages(prompt) ==
+               elem(Projection.project(ir), 1).messages
+
+      assert NovelAgent.Provider.put_openai_tools(%{}, prompt).tools ==
+               elem(Projection.project(ir), 1).tools
+
+      assert NovelAgent.Provider.tool_specs(prompt) != []
+    end
+
+    test "legacy prompt 仍按原语义保留（不产生 ir_version/工具字段伪值）" do
+      assert [%{role: "user", content: "hello"}] =
+               NovelAgent.Provider.normalize_messages(%{
+                 messages: [%{role: "user", content: "hello"}]
+               })
+    end
+  end
 end

@@ -84,7 +84,7 @@
 |---|---|---|
 | CP0 | 对三款外部真实多轮请求与本项目真实日志做目标对照；明确 AgentRun 原生会话、作者主权、求证和 replay 的目标方向；登记任务与设计 | **done（2026-10-30，仅文档）**：已替换此前现役最小修补方案；未修改产品代码 |
 | CP1 | 冻结目标 contract pack、Request IR、消息/工具/观察/校验/候选/checkpoint 语义、provider 投影与能力门槛、六类黄金请求和场景预注册；完成 ADR/现役协议差异及迁移裁决 | **done（2026-10-31，见 §7 交付记录）**：VS-00L Frozen + 逐条迁移映射 + G1–G6 + 场景预注册；待复核后旧 ADR 转 Superseded |
-| CP2 | 实现 canonical transcript/Request IR 与三类 provider 投影；建立真实只读观察和原生校验结果回流，黄金与 adapter 测试通过 | **doing（2026-10-31）：IR v1 + 三类投影 + G1–G6 golden 完成（31 tests）；生产 adapter 接线与真实观察回流未闭环，归 CP2 收尾/CP3** |
+| CP2 | 实现 canonical transcript/Request IR 与三类 provider 投影；建立真实只读观察和原生校验结果回流，黄金与 adapter 测试通过 | **doing（2026-10-31）：IR v1 + 三类投影 + G1–G6 golden + OpenAI 兼容 adapter 桥完成；Anthropic adapter 主链接线、真实观察回流、I-CACHE 重锚与 fixture 文件化未闭环** |
 | CP3 | 以统一 AgentRun 接通首个创作消费者，完成求证→候选→校验→作者出口；接入预算、权限、trace、持久化和恢复，不形成第二控制环 | 未开工 |
 | CP4 | 覆盖规划/修订/质量与压缩恢复，完成真实 Tauri 全链、真实模型行为、缓存/usage、replay/Why 和全部门禁；处理现役迁移与旧协议退役 | 未开工 |
 | CP5 | 更新 ADR/contract/设计/索引/事实台账和恢复指引；逐项证明完整范围，不能以 adapter/golden 局部证据标 done | 未开工 |
@@ -122,3 +122,10 @@
 - **三类投影**：`RequestIR.Projection`（统一入口 + 能力门槛：完整能力 → `{:ok, body}`；缺能力无声明 → `{:error, {:unsupported_capability, missing}}`；有 `finite_mode` → `{:finite_mode, body, meta}`）与 `ChatCompletions` / `AnthropicMessages` / `ResponsesAPI` 三个投影模块（author 字节独立、application_base/checkpoint provenance 标记、assistant tool_calls↔tool result call_id 关联、checkpoint 覆盖范围/省略显式、system/tools 稳定前缀）。
 - **黄金请求 G1–G6**：`apps/novel_agent/test/novel_agent/provider/request_ir_test.exs` 16 tests（含 3 投影关键结构、能力门槛/有限模式、legacy、校验负例）；与本任务既有 provider 测试合计 31/31 通过。
 - **未闭环（不代签）**：现有生产 adapter 仍消费 legacy prompt（`normalize_messages/1`），尚未消费 IR；真实只读观察与工具校验结果回流仍在旧执行链，CP2 要求的“adapter 接线/真实观察回流”未完成——归 CP2 收尾或 CP3 首个消费者一并接线；I-CACHE 重锚与 golden fixture 文件化待做。
+
+### CP2 收尾进展（2026-10-31 续，adapter 桥）
+
+- **消息规范化保真（I-ART-8）**：`NovelAgent.Provider.normalize_messages/1` 现在保留 `tool_calls` / `tool_call_id` / `name` / `reasoning_content`，非 binary content 原样透传；不再把原生工具字段降级为 `role + string content`。legacy prompt 行为不变（现有调用方无回归）。
+- **adapter 桥**：`RequestIR.to_provider_prompt/2` 把 IR v1 投影为 provider-neutral structured prompt（messages 为 OpenAI wire 形状：system/application_base/user/assistant.tool_calls/tool；tools 保持 `Provider.tool_spec` 形状；带 `ir_version` 标记）。OpenAI-compatible / DeepSeek / LM Studio / Strata 等现有 adapter 可直接消费，无需重写请求体逻辑。
+- **同源证据**：`normalize_messages(桥 prompt) == ChatCompletions.project(ir).messages`、`put_openai_tools(%{}, 桥 prompt).tools == ChatCompletions.project(ir).tools`（测试断言）；provider 目录 **249/249** 通过，全量 `mix test` 0 failures，credo 0、xref 无环、arch_check 通过。
+- **未闭环（诚实登记）**：Anthropic adapter 主链仍走 legacy content 字符串结构（IR 的 Anthropic content-blocks 投影模块已就绪，adapter 尚未接 IR 多轮）；真实只读观察/工具校验结果回流（AgentRun/工具执行链）未接 IR；I-CACHE 重锚与 G1–G6 fixture 文件化留待 CP3 首个消费者一起做。CP2 仍不得标 done。

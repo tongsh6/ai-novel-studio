@@ -106,8 +106,28 @@ defmodule NovelAgent.Provider do
       role = Map.get(message, :role) || Map.get(message, "role")
       content = Map.get(message, :content) || Map.get(message, "content")
 
-      %{role: to_string(role || "user"), content: to_string(content || "")}
+      %{role: to_string(role || "user"), content: normalize_content(content)}
+      |> maybe_put_tool_field(:tool_calls, message)
+      |> maybe_put_tool_field(:tool_call_id, message)
+      |> maybe_put_tool_field(:name, message)
+      |> maybe_put_tool_field(:reasoning_content, message)
     end)
+  end
+
+  # B71 CP2（VS-00L I-ART-8）：消息规范化不得丢弃原生工具字段。
+  defp normalize_content(content) when is_binary(content), do: content
+  defp normalize_content(nil), do: ""
+  # 多模态/结构化 content 原样透传，不静默降级为字符串。
+  defp normalize_content(content), do: content
+
+  defp maybe_put_tool_field(normalized, key, message) do
+    value = Map.get(message, key) || Map.get(message, to_string(key))
+
+    if value in [nil, "", []] do
+      normalized
+    else
+      Map.put(normalized, key, value)
+    end
   end
 
   @spec supported_prompt?(term()) :: boolean()

@@ -13,6 +13,8 @@ defmodule NovelAgent.Provider.RequestIR do
 
   @ir_version "authoring-request-ir/v1"
 
+  alias NovelAgent.Provider.RequestIR.Projection.ChatCompletions
+
   @roles ~w(system application_base user assistant tool checkpoint author_exit)
   @provenances ~w(product application author model tool_result)
   @projection_targets ~w(chat_completions anthropic_messages responses_api)
@@ -418,6 +420,28 @@ defmodule NovelAgent.Provider.RequestIR do
       },
       refs: %{base_refs: [], observation_refs: [], used_refs: []}
     }
+  end
+
+  @doc """
+  B71 CP2（VS-00L §6）：IR v1 → provider-neutral structured prompt。
+
+  现有 adapter 可直接消费：messages 为 OpenAI wire 形状（system/application_base/
+  user/assistant.tool_calls/tool），tools 保持 `Provider.tool_spec` 形状交给各
+  adapter 渲染；`ir_version` 标记来源（legacy prompt 无此字段）。
+  """
+  @spec to_provider_prompt(t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def to_provider_prompt(%__MODULE__{} = ir, opts \\ []) do
+    with :ok <- validate(ir) do
+      body = ChatCompletions.project(ir)
+
+      {:ok,
+       %{
+         messages: body.messages,
+         tools: ir.tools,
+         tool_choice: Keyword.get(opts, :tool_choice, Map.get(ir.projection, :tool_choice)),
+         ir_version: ir.ir_version
+       }}
+    end
   end
 
   @doc "能力门槛：返回 capability_profile 缺失的必备能力。"

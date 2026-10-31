@@ -108,7 +108,9 @@ defmodule NovelAgent.Provider.RequestIR.Projection do
 
   def tool_name(tool), do: Map.get(tool, :name) || Map.get(tool, "name")
 
-  def tool_description(tool), do: Map.get(tool, :description) || Map.get(tool, "description")
+  def tool_description(tool) do
+    to_string(Map.get(tool, :description) || Map.get(tool, "description") || "")
+  end
 
   def tool_schema(tool) do
     Map.get(tool, :input_schema) || Map.get(tool, "input_schema") || %{}
