@@ -1383,3 +1383,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **B71 CP2 收尾进展 3（transcript 回流机制，未收口）**：新增 `NovelApplication.AuthoringTranscript`——application 层组装 application_base/作者原话/assistant tool_call/真实观察/校验结果/作者出口/checkpoint，`to_request_ir/2` 产出 RequestIR v1 并校验；6 条测试覆盖两轮观察回流 call_id 关联、used_refs 越界拒绝、校验失败原生回流、provenance、观察 status 如实、压缩/出口无伪作者消息。模块不发起 provider/不执行工具/不写库；生产接线与真实 run 页面/模型证据归 CP3 首个消费者，CP2 不标 done。全量 mix test 0 failures、credo 0、xref 无环、arch_check 通过。
 
+- 2026-10-31 — **B73 done（CP0–CP3）**：当前 HEAD `8ac8a6e3` 复跑三场景 `quality_accept --surface browser` 全部 PASS（verdict evidence 4/4、git_head 绑定该 HEAD）：negative 10 cases（2 合法路径 pass + 7 故意违规按预期拒绝）、actions 10/10、read-failure 1/1。author_behavior_check ok/errors=0/warnings=2；后端全量 mix test 0 failures、compile -Werror、credo 0、xref/arch、I1/I2/I3、静态扫描 19/20（gitleaks 4 条既有 disposition，touched=0）。残余分离：task-done-manifest/他人 B30 native 证据过期、23 个非本任务 format、Tauri DMG dev warning 均不属 B73，未为求绿改他人文件；真实模型未授权、完整 native 矩阵未覆盖按原 §5 保留开放缺口，不代签模型语义/I10。NEXT 移除 B73 候选。
+

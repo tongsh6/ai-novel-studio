@@ -1,6 +1,6 @@
 # B73：作者行为运行链与动作覆盖补强
 
-- 状态：**doing（CP0–CP2 已完成，CP3 门禁与静态扫描闭环进行中）**。
+- 状态：**done（2026-10-31，CP0–CP3 完成）**：当前 HEAD `8ac8a6e3` 三场景 quality_accept PASS（verdict 绑定该 HEAD）、标准门禁与静态扫描闭环；真实模型/native 矩阵与环境类残余按 §5/§6 如实登记，不由本任务代签。
 - 类型：B70 后续 P0/P1 验证实现；只扩外部真实页面 driver、冻结验证资产、隔离 seed/test-support 与判卷，不重开 B70 基础设施范围。
 - 设计真源：[作者行为语料生成与状态探索验证设计](../../docs/design/acceptance/author-behavior-corpus-and-state-exploration.md) §8–§17；上游执行事实：[B70](B70-author-behavior-corpus-and-state-exploration.md) §6.3–§8。
 - 开工 HEAD：`338abd216ae6a8d9614995844c7e74fc3a957ab9`；当前复验 HEAD：`0f9d19116e513162ea744c019095553dbcfcff0d`。verdict 只绑定产生它的 HEAD，不继承旧 PASS。
@@ -39,7 +39,7 @@
 | CP0 | 旧报告/动作语义盘点、标准 PyYAML、真实观察与 trap 数据形状、失败测试 | **done**：系统 `python3` 缺 PyYAML，使用 `artifacts/b73-tooling/venv` 隔离安装项目指定 6.0.3，不改全局环境；`author_behavior_observation.mjs` 分开 TENTATIVE/canon/hash/ref/trap 证据，负例先行后接实现。 |
 | CP1 | P0：17/17 回放、F2/F3 execute、TENTATIVE/canon/hash/ref、10 traps、HO3、当前 HEAD verdict | **done（证据分层见下）**：断点前 17-case 与 execute 链路证据齐全；当前 HEAD 的 negative/actions 两个新场景 verdict pass。17-case 旧批次不冒充当前 HEAD 全量 verdict。 |
 | CP2 | P1：同名/多候选/stale/跨作品/读取失败、多轮动作与恢复、seeded 行动模型 | **done**：当前 HEAD 的 actions/read-failure 两个独立场景 verdict pass；seeded v2 逐步行动与转移覆盖；另有 seed 42 变体证据。 |
-| CP3 | 影响面复验、标准门禁、I1/I2/I3、静态扫描闭环与最终边界 | **in_progress**：后端/前端/不变量/局部与场景验证已完成；最终静态扫描 18/21 pass，Credo 已恢复，剩余他人 B30 native 证据过期阻断与 4 条历史 gitleaks 处置；全量 format 另有 23 个非本任务文件失败，Tauri DMG 为 dev warning，未宣称全绿。 |
+| CP3 | 影响面复验、标准门禁、I1/I2/I3、静态扫描闭环与最终边界 | **done（2026-10-31）**：当前 HEAD `8ac8a6e3` 三场景 verdict PASS（evidence 4/4）复跑；author_behavior_check ok；后端/前端/不变量/静态扫描闭环与残余分离见 §6。 |
 
 ### 3.1 P0 链路与 execute 证据（断点前批次，非当前 HEAD verdict）
 
@@ -104,3 +104,27 @@
 - 读取失败只覆盖 `chapters`，不替代其它来源的故障矩阵。
 - 17-case 是断点前真实页面证据；本次没有把它重复运行来换当前 HEAD 标签，当前 HEAD 的独立 verdict 以 §3.2 为准。
 - B72、B39/AU15、B64、trace replay/writer 及其他 WIP 不属于本任务，未修改；相关 warning/失败不借本任务 PASS 抵消。
+
+## 6. CP3 收口记录（2026-10-31，当前 HEAD `8ac8a6e3`）
+
+**影响面复验（verdict 只绑定产生它的 HEAD，不复用旧 PASS）**
+
+| 场景 | 当前 HEAD 结果 | verdict |
+|---|---|---|
+| `author-behavior-negative` | 10 cases：pass=2（合法路径反误杀）、fail=7（故意违规按预期被拒），unknown=0；`quality_accept --surface browser` **PASS** | `evidence=4/4`、`status=pass`、`git_head=8ac8a6e3` |
+| `author-behavior-actions` | 10/10 seeded 有序 explore cases PASS（含 double_accept/reload/cross_work/offline_reopen/cancel_edit/stale/edit_then_accept/repeat registration） | 同上 |
+| `author-behavior-read-failure` | 1/1 replay PASS（`chapters=unavailable`、unknown 不当空事实） | 同上 |
+| `author_behavior_check` | `ok=true`、errors=0、warnings=2（既有） | — |
+
+**标准门禁（当前 HEAD）**
+
+- 后端：全量 `mix test` 0 failures、`mix compile --warnings-as-errors`、`credo --strict` 0 issues、`xref` 无环、`arch_check` 通过。
+- 不变量：I3 3/3、I1 4/4、I2 3 pairs 全 pass。
+- 静态扫描：19/20 pass；唯一失败为 gitleaks（4 条既有 disposition：B63 文档/E10 spec id/Pencil fileToken false_positive、ProjectGod 历史 accepted_risk），**touched=0**，不注册为 B73 修复或豁免。
+
+**残余分离（不属于 B73 完成条件，如实保留）**
+
+- `task-done-manifest` 类 pending 若出现，来自任务完成清单对 UI 证据新鲜度的判定（他人 B30 native 证据过期/环境项），不是 B73 场景失败；B73 三场景 verdict 均为当前 HEAD PASS。
+- 全量 `pnpm format:check` 的 23 个非本任务文件、Tauri DMG dev warning 不为求绿修改他人文件。
+- 真实模型未授权（未加载/未调用）；完整 native 矩阵未覆盖——按 §5 保留开放缺口，不以 browser 证据冒充 native，不以确定性机制证据代签真实模型语义或 I10 文学质量。
+- seeded 生命周期只改变合法恢复顺序/取消次数，不声称穷尽动作组合。

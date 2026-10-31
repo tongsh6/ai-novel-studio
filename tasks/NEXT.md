@@ -15,7 +15,6 @@
 | B48 | CP0 已 done（契约与四场景冻结，§8）；下一步 CP1：no-op 普通说明出口 + 待办 workflow 候选拦截 + 纯函数/workflow 测试（不依赖 B43 裁决） | [B48](slices/B48-character-revision-noop-and-ambiguity.md) |
 | B46 | 残差矩阵页面驱动：edit_then_accept / 重复提交 / 跨作品 / EXITED 只读；不重开 inbox 主体范围 | [B46](slices/B46-persistent-adoption-inbox.md) |
 | B27 | 5 个 CP4 known-gap 的确定性负例/构造器矩阵（实模另需预注册与资源窗口，「第二方复核」原文归本任务定向硬化） | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
-| B73 | CP3 剩余门禁/静态扫描残余判定：把「他人 B30 native 证据过期」「历史 gitleaks」「非本任务 format」与 B73 自身改动分离，只对自身范围收口 | [B73](slices/B73-author-behavior-runtime-and-action-coverage.md) |
 | UA01-PROMPT | T3 规划器前缀确定性校验/必要时机械合并（不涉 schema，可独立于 T5 裁决） | [UA01](slices/UA01-agentic-loop-prompt-hardening.md#t3-前缀确定性可独立推进2026-10-31) |
 | Q1C | 作者已选 A 补原生 driver；复用 AU12 原生驱动接线，需独立 runtime 预算 | [Q1C](slices/Q1C-adopted-content-revision.md#原生补验-cp0阻塞记录2026-10-31) |
 | SU04 | 预注册隔离 release-app 外部 UI 故障驱动（正常冷启动/坏包/端口占用/退出无孤儿） | [SU04](slices/SU04-desktop-sidecar-packaging.md#可独立推进-release-app-预注册2026-10-31) |
