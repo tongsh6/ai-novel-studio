@@ -22,7 +22,7 @@
 
 > **2026-10-30 ADR-0031 正式 Accepted，ADR-0022 Superseded**：作者明确接受 R1=B、R2=A、R3=B、R4=B、R5=B、R6=B、R7=A 的主链规范，并指定旧稿替代关系。普通回复统一裁决等仍为待实现目标；现有基础与缺口分列，接受记录与承接见 [B49 §7.16](../../../tasks/slices/B49-core-semantics-and-adr-review.md#716-c02-实施基线收口)。旧稿原文与历史证据保留。
 >
-> **2026-10-31 ADR-0033 Accepted（B71 作者选 A）**：统一 AgentRun 原生多轮目标与迁移规则生效；ADR-0030/0031 在 CP1 替换契约与迁移映射复核前仍为现役基线，复核后才转 Superseded，不形成长期双轨。实施与真实场景证据未闭环。
+> **2026-10-31 ADR-0033 Accepted（B71 作者选 A）**：统一 AgentRun 原生多轮目标与迁移规则生效。CP1 替换契约 [VS-00L](../contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 与逐条迁移映射已冻结并经作者复核通过，ADR-0030/0031 已转 Superseded（原则由 ADR-0033 §3 承接）；实施迁移（B71 CP2–CP4）与真实场景证据未闭环。
 
 ## 1. 定位
 
@@ -311,10 +311,10 @@ ADR-0005-execution-gate-order-v3.md
 | ADR-0027 | `ADR-0027-author-obligation-state-v3.md` | Accepted（2026-10-05 修订） | 消息接收先记录、统一结果回填、跨轮作者来源与采纳事实分层；原第六账提案未采纳 | D8 原始日志复核、ADR-0019/0021、Q3c | Q3D/Q1B 原消息/来源/去重链；2026-10-24 D4.1 迁移补充明确问题提交/receipt与恢复，原字节及采纳保护不变，未实施 |
 | ADR-0024 | `ADR-0024-decision-surface-registry-v3.md` | Accepted | 决策面注册表（S1-S7）与 ui_cards 信息通告边界：UI 决策契约中心从 card_type 集合改为决策面注册表、卡片命名与处置定案（10 卡→3 卡 + 废弃/Deferred）、S4 clarification / S7 awaiting_author 缺口填补方向、决策面 schema 进 codegen 闸门（N-SURF） | `notes/2026-07-15-dialogue-flow-decision-surface-review.md`, `07` §4, `contracts/VS-05` §4, ADR-0007/0008/0015 | `decision-surface` CP1（schema 闸门）→ CP2（clarification surface）→ CP3（awaiting_author TurnResult）；不变量 N-SURF |
 | ADR-0028 | `ADR-0028-volume-structure-and-open-volume-action-v3.md` | Accepted（2026-10-22，CP0–CP5 全落 + 真实 Tauri au08 三轮扩展 PASS；长尾缺口经 B13b 逐项裁决并诚实登记 enforcement_gaps） | 卷结构与开新卷动作：卷是 canonical middle-structure unit（arc 仍无对象）/ 卷级蓝图 E14-E17 存 `volumes.blueprint` map 列 / 卷身份 `(work_id,seq)` 与改名不重复建卷 / plot_outline 卷蓝图块 + 既有采纳管道 / 开新卷动作形态 A / 卷级收束优先级 / 意图与事实分离 | `contracts/VS-00J`（Frozen）、`08` §8 序位 6、`21`/`34`、NEM-GAP-07 | `tasks/slices/B11A-volume-blueprint.md` CP1-CP5；Accepted 前不授权代码 |
-| ADR-0030 | `ADR-0030-evidence-seeking-authoring-v3.md` | **Accepted（2026-10-29，作者正式接受；产品未实现）** | 求证式创作：最小可信底座 + 统一 AgentRun 只读探索与 plan revision + 观察/引用证据闭环；比较固定投喂、纯自由查询、Run 级求证与 writer 内循环，补充而不直改 ADR-0023/0025 | `00` §2.4、`00c` §4/§6.7/§7/§8.4/§9.12、`contracts/VS-00K`、ADR-0021/0022/0023/0025 | `tasks/slices/B39-evidence-seeking-authoring.md` CP1–CP4 实施与验收待完成；AU-15 真实模型与机制分证 |
-| ADR-0031 | `ADR-0031-core-chain-semantics-narrowing-v3.md` | **Accepted（2026-10-30；实现/验收缺口保留）** | 主链语义收敛：逐步执行、所有回合统一裁决（含 reply_only）、裁决与运行进度分工、真实动作与历史兼容、分层输出校验及真实入口来源；承接 ADR-0022 有效规则 | `00c`、ADR-0001/0002/0004/0007/0012/0022/0023/0025、B49 裁决记录 | 原 B01 执行小节、B43、B45 承接；ADR-0022 已按 R4 转 Superseded；B01/B43/B45 的实现缺口保留 |
+| ADR-0030 | `ADR-0030-evidence-seeking-authoring-v3.md` | **Superseded（2026-10-31，替代者 ADR-0033；原则承接、实现迁移中）** | 求证式创作：最小可信底座 + 统一 AgentRun 只读探索与 plan revision + 观察/引用证据闭环；原则由 ADR-0033 §3 承接，单调用 giant prompt 形态退役中 | `00` §2.4、`00c` §4/§6.7/§7/§8.4/§9.12、`contracts/VS-00K`、ADR-0021/0022/0023/0025 | B39 重锚至 B71 CP3/CP4；AU-15 真实模型与机制分证保留；历史证据不删除 |
+| ADR-0031 | `ADR-0031-core-chain-semantics-narrowing-v3.md` | **Superseded（2026-10-31，替代者 ADR-0033；原则承接、实现迁移中）** | 主链语义收敛：逐步执行、所有回合统一裁决、裁决与运行进度分工、真实动作与历史兼容、分层输出校验及真实入口来源；统一裁决/作者主权原则由 ADR-0033 §3 承接，单调用共享入口形态迁移中 | `00c`、ADR-0001/0002/0004/0007/0012/0022/0023/0025、B49 裁决记录 | 原 B01 执行小节、B43、B45 承接保留；B01/B43/B45 实现缺口保留；历史证据不删除 |
 | ADR-0032 | `ADR-0032-paper-trail-retirement-v3.md` | **Accepted（2026-10-31，作者选择 D）** | PaperTrail 逻辑退役：source_revision_ref+StateTrace 为唯一修订权威；移除依赖/配置/第三方测试；保留 versions 表与 migration，物理删除另授权 | B51 只读证据、`docs/project-ledger.md`、tech-stack 06/13 | B51；不触碰历史数据 |
-| ADR-0033 | `ADR-0033-authoring-run-transcript-request-ir-v3.md` | **Accepted（2026-10-31，作者选择 A；目标与迁移规则已接受，实现未闭环）** | 统一 AgentRun 为事实源，Authoring Run Transcript/Request IR 无损投影原生多轮、求证观察、校验失败与 tentative 候选；模型无 adopt/canon_write | Provider §26、ADR-0030/0031、UA-01、VS-00I/K | B71 CP1–CP5；CP1 复核后旧 ADR 才正式 Superseded |
+| ADR-0033 | `ADR-0033-authoring-run-transcript-request-ir-v3.md` | **Accepted（2026-10-31，作者选择 A；目标与迁移规则已接受，替代 ADR-0030/0031）** | 统一 AgentRun 为事实源，Authoring Run Transcript/Request IR 无损投影原生多轮、求证观察、校验失败与 tentative 候选；模型无 adopt/canon_write | Provider §26、ADR-0030/0031、UA-01、VS-00I/K、VS-00L | B71 CP1–CP5；CP1 复核通过（2026-10-31），ADR-0030/0031 已转 Superseded，实现迁移进行中 |
 
 ---
 

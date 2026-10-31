@@ -1,6 +1,6 @@
 # B71：AI Novel Studio 原生多轮创作请求体
 
-- 状态：**doing（2026-10-31 CP0 done；作者选 A，ADR-0033 Accepted；CP1 已完成——VS-00L 契约、逐条迁移映射、六类黄金请求与场景预注册冻结；待复核后旧 ADR 转 Superseded，CP2 实现未开始）**。
+- 状态：**doing（2026-10-31 CP0 done；作者选 A，ADR-0033 Accepted；CP1 done 并复核通过——VS-00L Frozen、迁移映射、六类黄金请求与场景预注册；ADR-0030/0031 已转 Superseded；CP2 Request IR/投影实现进行中）**。
 - 来源：作者先要求对照 Codex、Claude Code、dsh 的真实多轮请求，随后明确“设计一个优秀、符合项目调性的请求体，不为现状妥协”。本文件已据此替换此前偏向现役最小修补的方案。
 - 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)；目标方向与迁移规则已由 [ADR-0033](../../docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) Accepted（2026-10-31）；替换契约 [VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 已 Frozen，实现未开始。
 - 对账输入：[B26](B26-single-call-judgment-protocol.md)、[B39](B39-evidence-seeking-authoring.md)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md)、[VS-00I](../../docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md)、[UA-01](../../docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md)。它们是迁移事实与可能需要修订的决策，不是降低目标设计的约束。
@@ -112,4 +112,6 @@
 - **逐条迁移映射**（VS-00L §8）：ADR-0030/0031 原则保留、旧实现形态退役/转换；UA-01 单调用共享入口转 run 内多轮（工具/终态语义保留）；VS-00I 重锚到每个投影的稳定前缀；VS-00K/VS-00H/VS-02/02A/04/06 保留并入 IR；B26 工具/终态保留、调用载体转换；B39 重锚至 B71 CP3 首个消费者；B01 来源列转 IR provenance（旧列迁移归 B01）；B43 统一裁决 producer 保留、输入 frame 从 IR 派生；B45 IR v1 版本策略承接；B27/B33 纠错改为 tool result 回流；giant prompt 组装与 `normalize_messages/1` 退役/转换。
 - **场景与证据预注册**：`artifacts/model-contracts/b71-cp1/scenario-preregistration.json`——首个创作 AgentRun 场景、六类黄金请求真实 run 复跑、Strata/iq3_s 单槽串行与卸载核验、input120s/turn360s 等预算、2 批上限、机制/页面/模型行为分层。CP1 不执行真实 run。
 - **索引同步**：`docs/design/contracts/README.md` 登记 VS-00L；ADR 索引/design README 已由作者 WIP 更新。
-- **复核待办（不代签）**：旧 ADR-0030/0031 转 Superseded 需作者/ADR owner 复核后执行（ADR-0033 §7）；本 CP 不修改产品 schema/provider/application，不声称 Request IR 已实现。
+- **复核结论（2026-10-31，作者确认 A）**：CP1 六项交付（transcript/IR 与版本策略、消息/工具/观察/校验/候选/出口/checkpoint 语义、Base/Observation/used refs 绑定、三类投影与能力门槛、G1–G6、场景预注册 + 逐条迁移映射）全部覆盖；契约包内部链接有效。
+- **旧 ADR 已转 Superseded**：ADR-0030/0031 状态行、design README、adr README 索引、00c、VS-00K/UA-01/VS-00I 迁移注记、contracts README 与 B39 重锚已同步；实现迁移仍归 CP2–CP4，旧证据只读保留。
+- 本 CP 未修改产品 schema/provider/application，不声称 Request IR 已实现。

@@ -1,6 +1,7 @@
 # B39：求证式创作——最小供给、Run 级探索与证据闭环
 
 - 状态：**doing（2026-10-31 CP1 进展：CP1a–CP1d 落地；AU-15 原生真模 scoped 批 au15cp1a 已跑（机制 4/5 run pass、A2-run2 失败、A1-run2/A2-run1 模型行为 observed、A1-run1 unknown）；正式 A1/A2 仍 blocked 于 D6-A setup/评审；CP1 与 B39 不得 done）**。
+- **2026-10-31 迁移注记（ADR-0033 / VS-00L）**：本任务求证式创作目标实现重锚至 B71 CP3/CP4（统一 AgentRun 原生多轮 + Request IR 投影）；既有 CP1 证据与 D6-A setup 失败记录只读保留，后续 A1/A2 正式批次不再按旧单调用载体执行；本任务不再单独驱动实现。
 - 登记日期：2026-10-27；来源：作者指出持续增加 APP 主动投喂只会不断补漏洞，要求先把元原则深化到全部承重设计，而非先做时间线专用设计。
 - 上游：[00 §2.4](../../docs/design/00-vision-and-engineering-roadmap.md#24-创作信息获取元原则最小供给按需求证证据闭环2026-10-27-用户拍板)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[VS-00K](../../docs/design/contracts/VS-00K-evidence-seeking-authoring-contract-pack.md)、[AU-15](../../docs/design/acceptance/author/AU-15-evidence-seeking-authoring.md)。
 - 当前可依已接受基线进入 CP1 设计与实现；本会话继续逐项作者裁决，尚未启动产品施工或实模运行。执行与资源边界见 §9.7.17。

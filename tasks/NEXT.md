@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B71 | CP1 done：VS-00L 替换契约、逐条迁移映射、六类黄金请求与场景预注册已冻结；下一步复核后把 ADR-0030/0031 转 Superseded，再进 CP2（Request IR/三类投影实现） | [B71](slices/B71-provider-message-fidelity.md) |
+| B71 | CP1 done 并复核通过（VS-00L Frozen、ADR-0030/0031 已 Superseded）；下一步 CP2：Request IR struct + Chat Completions/Anthropic/Responses 三类投影 + G1–G6 golden/adapter 测试 | [B71](slices/B71-provider-message-fidelity.md) |
 
 ## 后续候选
 
@@ -35,6 +35,6 @@
 - **B67 后续**：维护 StateTrace 依赖 VS00F-TRACE 先冻结；见 [B67](slices/B67-revision-aware-ledger-maintenance.md)。
 - **B65 后续**：release 打包 Origin 采集环境缺失；见 [B65](slices/B65-local-http-websocket-origin-boundary.md)。
 - **B64 实模**：一次 judgment_protocol_violation 失败待裁决；见 [B64](slices/B64-coordinate-aware-memory-consumption.md)。
-- **B39 实模**：setup 第02章候选区 AX 同因失败停止；见 [B39](slices/B39-evidence-seeking-authoring.md)。
+- **B39 重锚**：目标实现由 B71 CP3/CP4 承接；原 setup 第02章候选区 AX 同因失败记录只读保留，不再单独驱动实现；见 [B39](slices/B39-evidence-seeking-authoring.md)。
 - **AU10-FAILED**：缺真实页面确定性失败触发（产品外 fixture/原生目录替身可先构造，真实页面证据仍需窗口）；见 [AU10](slices/AU10-workbench-recovery-taskstate.md#failed-cp0-盘点2026-10-31)。
 - **延期/条件**：多 Agent/24x7 [B50](slices/B50-multi-agent-current-boundary.md#61-延期实施与重新开放)；AU-15 [B42](slices/B42-model-behavior-evidence-tier.md#10-cp4blocked-登记不执行不代签)；I10 盲评 [安排](slices/VS00D-G-GAP-RECONCILIATION.md#i10-人工盲评安排)；stage 修复需授权 [B28](slices/B28-whole-chapter-revision.md)；B38/Experience [B38](slices/B38-world-rule-save-intent.md)/[B68](slices/B68-experience-rule-governance.md)。

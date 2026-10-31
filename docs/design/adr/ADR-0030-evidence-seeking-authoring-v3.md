@@ -1,6 +1,6 @@
 # ADR-0030：求证式创作——最小供给、Run 级探索与证据闭环
 
-- 状态：**Accepted（2026-10-29，作者明确同意将本 ADR 与 VS-00K/AU-15 接受为 B39 实施基线；实现与验收缺口保留）**
+- 状态：**Superseded（2026-10-31，B71 CP1 复核通过后由 [ADR-0033](ADR-0033-authoring-run-transcript-request-ir-v3.md) 取代；原 Accepted 记录保留于下）**——2026-10-29 作者明确同意将本 ADR 与 VS-00K/AU-15 接受为 B39 实施基线，实现与验收缺口保留。原则（最小 Base、统一只读探索、观察/来源分账、有界预算、诚实缺口）由 ADR-0033 §3 逐项承接；单调用 giant prompt 实现形态退役中（B71 CP2–CP4），历史证据不删除。
 - 来源文档：
   - `../00-vision-and-engineering-roadmap.md` §2.4
   - `../00c-state-and-contract-atlas.md` §4、§6.7、§7、§8.4、§9.12

@@ -1,6 +1,6 @@
 # 当前设计文档入口
 
-> 2026-10-31：作者在 B71 选择 A，正式接受 [ADR-0033](adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) 的统一 AgentRun 原生多轮目标与迁移规则。ADR-0030/0031 在 CP1 替换 contract pack 和迁移映射复核前仍为现役基线，复核后才转 Superseded；设计接受不代表 Request IR 或实现完成。
+> 2026-10-31：作者在 B71 选择 A，正式接受 [ADR-0033](adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) 的统一 AgentRun 原生多轮目标与迁移规则。CP1 替换契约 [VS-00L](contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 与逐条迁移映射已冻结并经作者复核通过，[ADR-0030](adr/ADR-0030-evidence-seeking-authoring-v3.md)/[ADR-0031](adr/ADR-0031-core-chain-semantics-narrowing-v3.md) 已转 Superseded（原则由 ADR-0033 §3 承接，实现迁移进行中 B71 CP2–CP4）；设计接受不代表 Request IR 或实现完成。
 
 > 2026-10-30：作者正式接受 [ADR-0031](adr/ADR-0031-core-chain-semantics-narrowing-v3.md)，[ADR-0022](adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md) 同步为 Superseded；旧稿原文与证据保留。统一裁决等新增实现、历史兼容与真实页面验收仍由原 B01/B43/B45 承接，设计接受不代表产品完成。
 

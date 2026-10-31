@@ -1,6 +1,6 @@
 # VS-00K Evidence-Seeking Authoring Contract Pack（求证式创作）
 
-> 状态：**Accepted（2026-10-29，作者与 ADR-0030/AU-15 一并接受为 B39 实施基线）**。产品仍待 B39 按完整 CP 实施与验收；字段全集、预算数值等未在本 pack 预先冻结。
+> 状态：**Superseded（2026-10-31，替代者 [VS-00L](VS-00L-authoring-run-transcript-request-ir-contract-pack.md)/ADR-0033；原 Accepted 记录保留）**：2026-10-29 作者与 ADR-0030/AU-15 一并接受为 B39 实施基线；2026-10-31 B71 CP1 复核通过后，求证原则由 ADR-0033 §3 承接、契约载体由 VS-00L 的 Transcript/Request IR 取代。历史证据不删除；B39 实施重锚至 B71 CP3/CP4，字段全集与预算数值仍不在本文冻结。
 > 上游：`../00-vision-and-engineering-roadmap.md` §2.4、`../notes/2026-08-11-establish-carry-process-write-pipeline.md`、ADR-0021/0022/0023/0025。
 > 冻结决策：`../adr/ADR-0030-evidence-seeking-authoring-v3.md`。
 > 执行与验收：`tasks/slices/B39-evidence-seeking-authoring.md`、`../acceptance/author/AU-15-evidence-seeking-authoring.md`。

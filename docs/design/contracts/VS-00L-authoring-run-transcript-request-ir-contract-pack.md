@@ -1,6 +1,6 @@
 # VS-00L Authoring Run Transcript / Request IR Contract Pack（统一 AgentRun 原生多轮）
 
-> 状态：**Frozen（2026-10-31，B71 CP1；ADR-0033 Accepted 目标方向的替换契约）**。本 pack 只冻结目标契约与迁移映射，不授权产品代码/schema/provider 实现；旧 ADR-0030/0031 在 CP1 复核通过后才转 Superseded（ADR-0033 §7），当前仍为现役实现基线。
+> 状态：**Frozen（2026-10-31，B71 CP1；ADR-0033 Accepted 目标方向的替换契约）**。本 pack 只冻结目标契约与迁移映射，不授权产品代码/schema/provider 实现。CP1 已由作者复核通过（2026-10-31）：ADR-0030/0031 已转 Superseded，原则由 ADR-0033 §3 承接，实现迁移进行中（B71 CP2–CP4）。
 > 上游：[ADR-0033](../adr/ADR-0033-authoring-run-transcript-request-ir-v3.md)、[Provider 抽象 §26](../foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)、[00 §2.2–§2.4](../00-vision-and-engineering-roadmap.md)。
 > 承接与对账：`VS-00K`、`UA-01`、`VS-00I`、`VS-00H`、`VS-02`、`VS-02A`、`VS-04`、`VS-06`、ADR-0030/0031。
 > 执行与验收：[B71 CP1–CP5](../../../tasks/slices/B71-provider-message-fidelity.md)。
@@ -239,7 +239,7 @@ AuthoringRequestIR v1 = {
 | giant prompt 组装（ContextAssembler / prompt builder） | 固定 packet/段落 + 动态事实 | **转换/退役**：Base 组装保留为 application_base；固定 packet 段落按 B39/AU15 迁移，不新增专用 packet | CP3–CP4 | §2 I-ART-9；B39 承接 |
 | `normalize_messages/1` 丢 tool 字段 | 最低公分母字符串消息 | **退役** | CP2 | 投影矩阵取代 |
 
-**旧 ADR 退役顺序（ADR-0033 §7）**：本 pack 与映射冻结 → 作者/ADR owner 复核 → ADR-0030/0031 转 Superseded → 同步 design README、00c、contracts/ADR 索引与相关任务 → CP2 起按新契约实现。复核前不得宣称旧协议已退役，也不得长期保留两套权威。
+**旧 ADR 退役执行记录（ADR-0033 §7）**：本 pack 与映射冻结（2026-10-31）→ 作者复核通过（2026-10-31，B71 CP1 汇报后作者确认 A）→ ADR-0030/0031 已转 Superseded → design README、00c、contracts/ADR 索引与 B39/UA-01/VS-00I/VS-00K 已同步迁移注记 → CP2 起按新契约实现。旧实现与证据只读保留，不形成长期双轨。
 
 ## 9. 验收与证据分层
 
@@ -285,4 +285,4 @@ AuthoringRequestIR v1 = {
 - [x] 迁移映射逐条覆盖 ADR-0030/0031、UA-01、VS-00I、VS-00K、VS-00H、VS-02/02A/04/06、B26/B39/B01/B43/B45/B27/B33。
 - [x] 场景与证据预注册写入 `artifacts/model-contracts/b71-cp1/scenario-preregistration.json`（真实 Tauri + 证据分层；执行归 CP3/CP4）。
 - [x] `docs/design/contracts/README.md`、`tasks/slices/B71-provider-message-fidelity.md`、`tasks/NEXT.md`、`docs/project-ledger.md` 同步。
-- [ ] 复核通过后：ADR-0030/0031 转 Superseded（需作者/ADR owner 复核）。
+- [x] 复核通过（2026-10-31，作者确认 A）：ADR-0030/0031 已转 Superseded，索引/00c/契约包/任务同步；实现迁移归 B71 CP2–CP4。

@@ -1373,3 +1373,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **B71 CP1 done（契约与迁移冻结，未实现）**：冻结 [VS-00L](docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md)——Authoring Run Transcript/Request IR v1、I-ART-1..12、消息/工具/观察/校验/候选/作者出口/checkpoint 语义、三类 provider 投影与能力门槛/有限模式/拒绝路由、六类黄金请求 G1–G6、逐条迁移映射（ADR-0030/0031、UA-01、VS-00I/K/H、VS-02/02A/04/06、B26/B39/B01/B43/B45/B27/B33）。场景与证据预注册 `artifacts/model-contracts/b71-cp1/scenario-preregistration.json`（首个创作 AgentRun + G1–G6 真实 run 复跑、Strata 单槽/卸载、预算与分层）。旧 ADR-0030/0031 仍为现役基线，CP1 复核通过后才转 Superseded；产品 schema/provider/application、真实页面与实模均未实现，不代签。
 
+- 2026-10-31 — **B71 CP1 复核通过 + ADR-0030/0031 转 Superseded（作者确认 A）**：CP1 六项交付复核全覆盖（VS-00L transcript/IR/投影/黄金请求/预注册/迁移映射）。已执行 ADR 状态转换并同步：ADR-0030/0031 状态与决策保留、design README、adr README 索引、00c 状态性引用、VS-00K→Superseded（由 VS-00L 取代）、UA-01/VS-00I 迁移注记、contracts README、B39 重锚至 B71 CP3/CP4。实现迁移（Request IR/投影/首个消费者）仍归 B71 CP2–CP4，旧实现与历史证据只读保留，不形成长期双轨；产品实现与真实页面/实模证据未开始。
+
