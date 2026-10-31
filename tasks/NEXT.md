@@ -6,13 +6,12 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| UA01-PROMPT | T3′：先与 plan cursor/运行期步骤状态协同设计（机械合并后 cursor 定位、已完成步骤是否重入 plan.steps、耗尽判定口径），单测级验证后再接生产；不涉 schema | [UA01](slices/UA01-agentic-loop-prompt-hardening.md#t3-前缀确定性可独立推进2026-10-31) |
+| Q1C | 作者已选 A 补原生 driver；复用 AU12 原生驱动接线，需独立 runtime 预算；先做 CP0 盘点（场景/驱动/断言） | [Q1C](slices/Q1C-adopted-content-revision.md#原生补验-cp0阻塞记录2026-10-31) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| Q1C | 作者已选 A 补原生 driver；复用 AU12 原生驱动接线，需独立 runtime 预算 | [Q1C](slices/Q1C-adopted-content-revision.md#原生补验-cp0阻塞记录2026-10-31) |
 | AU08 | 产品外通用按 channel 故障注入代理（get_toc/get_chapter_content），不增验收开关 | [AU08](slices/AU08-file-level-closure.md#可独立推进-channel-故障注入代理2026-10-31) |
 | UA01-LOG | 构造受控「最终 run_failed」外部触发 + 同 turn 三源 join 断言 | [UA01](slices/UA01-provider-execution-stream-unification.md#可独立推进-受控最终-run_failed-触发2026-10-31) |
 | B72 | 先实现离线生成器/manifest/persona 契约（不调模型），模型窗口后置 | [B72](slices/B72-author-behavior-offline-corpus-expansion.md#可独立推进-离线生成器契约2026-10-31) |
@@ -21,6 +20,7 @@
 
 - **B71-CP3a S1b**：同因失败 2 次达预算上限（已回退、主链全绿）；待作者从 A（推荐：slice_verify 判断 IR-aware 单测级改造+探针）/B（暂缓，按候选推进）/C（更大改造授权）中选择；见 [B71](slices/B71-provider-message-fidelity.md#cp3a-s1b-第二次尝试与预算耗尽2026-10-31停止盲试)。
 - **SU04 外部后续**：CP1 与真实 release app 四场景已 done；签名/公证（需 Apple 证书）、Intel/Windows/Linux CI 真实跑通、失败分类外部 AX 渠道改进为条件后续；见 [SU04](slices/SU04-desktop-sidecar-packaging.md#cp1-缺陷修复与四场景复验2026-10-31收口)。
+- **UA01 T3′**：校验模式接入尝试回退；待作者选择 A（推荐：维持完整计划契约，适配 fixture 后接入）/B（支持只产尾部，需 cursor 协同）/C（known-gap）；见 [UA01](slices/UA01-agentic-loop-prompt-hardening.md#t3-第二次尝试校验模式与暂停2026-10-31)。
 - **B27 CP4 语义**：确定性负例矩阵已冻结（`artifacts/model-contracts/b27-cp4-hardening/negative-matrix.json`，确定性侧无机械可修缺口）；模型语义 known-gap 关闭需实模预注册窗口 + 第二方复核；见 [B27](slices/B27-systematic-prompt-and-intent-integration.md)。
 - **B72 CP1 模型窗口**：离线生成器已入候选，真实模型资源窗口与生成预算未授权；见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#阻塞记录2026-10-31-cp1)。
 - **VS00F-TRACE CP1**：A（推荐持久 StateTrace，需 schema 授权）/B（明确 no-trace 边界）/C（延期）；见 [VS00F](slices/VS-00F-five-ledgers-three-state.md#cp0-盘点2026-10-31)。

@@ -1411,3 +1411,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **SU04 CP1 done（release-app 四场景 + 清理缺陷修复）**：外部复验发现启动失败清理只 kill 直接子进程、未杀进程组 → 端口冲突时 beam 残留（产品缺陷）；修复为 `terminate_sidecar_group`，正常退出与启动失败共用同一组终止路径，Rust 12/12；重建 release app 后 scoped 复验：cold-start、exit-no-orphan（AX 真实关窗）、bad-archive、port-conflict 四场景真实打包应用 PASS（port-conflict：无伪 ready、无本批残留、占用者未误杀）。残余：失败分类外部 AX 渠道待改进、SIGTERM 强杀不清理（待作者决策）、跨平台/签名/公证/I10 未代签。证据 `artifacts/slice-verify/su04-release-app/<scenario>-<ts>/`。NEXT 当前任务切 UA01-PROMPT T3′。
 
+- 2026-10-31 — **UA01 T3′ 校验模式尝试后暂停（待作者选契约方向）**：实现 `validate_completed_prefix/2`（只校验不合并，4 单测，planner 44/44）；接入 revision 构建链后 B23/B31 judgement-plan flow 2 例失败——现行 prompt 要求“完整修订计划并保留前缀”，而 test-support 修订 fixture 仍“只给尾部”，校验触发结构纠错改变事件链；已回退接入（52/52 全绿），保留未接线校验函数与单测。根因为产品契约选择：A（推荐，维持完整计划契约+适配 fixture）/B（支持只产尾部，需 cursor 协同）/C（known-gap）。NEXT 当前任务切 Q1C，UA01 T3′ 入阻塞待作者裁决。
+

@@ -162,7 +162,7 @@ xref/arch、I1/I2/I3/N-NARR/I-CACHE、静态扫描；Acceptance Driver=既有外
 
 ### T3 前缀确定性（可独立推进，2026-10-31）
 
-- 状态：**todo（实现尝试后回退，2026-10-31）**：`AgenticPlanDraftPlanner.enforce_completed_prefix/2` 与 4 条单测已实现（44/44），但接入 revision 构建链后改变「计划耗尽」既有契约（B31/B23 两个 flow 测试在 20s 内仍未进入 awaiting_author，而是继续执行探索步骤），属与 plan cursor/运行期步骤状态未协同；已回退生产接入，保留未接线纯函数与单测作为设计基础。
+- 状态：**blocked（T3′ 校验模式接入尝试后回退；待作者选择契约方向 A/B/C，2026-10-31）**：`AgenticPlanDraftPlanner.enforce_completed_prefix/2` 与 4 条单测已实现（44/44），但接入 revision 构建链后改变「计划耗尽」既有契约（B31/B23 两个 flow 测试在 20s 内仍未进入 awaiting_author，而是继续执行探索步骤），属与 plan cursor/运行期步骤状态未协同；已回退生产接入，保留未接线纯函数与单测作为设计基础。
 - 未接线实现：按 `run.completed_step_refs` 对应当前 plan 前缀校验身份字段；模型只产尾部时机械前置；空尾/仅重复前缀报 `:empty_revision_tail`。
 - 回退证据：接入后 `AgentRunJudgmentPlanFlowTest` 2 例失败（延长到 20s 仍不达 awaiting_author），回退后 53/53 全绿、全量各 app 0 failures；未改断言、未放宽守卫（超时仅用于诊断，已恢复原值）。
 - 下一步（T3′）：先与 plan cursor/运行期步骤状态协同设计（机械合并后 cursor 定位、已完成步骤是否重入 plan.steps、耗尽判定口径），再单测级验证接入，不重复盲接生产。
@@ -177,3 +177,13 @@ xref/arch、I1/I2/I3/N-NARR/I-CACHE、静态扫描；Acceptance Driver=既有外
   - C 登记 known-gap。
 - **T3**：完成前缀只靠 prompt+cursor，无确定性校验；需补规划器测试/必要时机械合并，不恢复 revised_tail。
 - 未裁决/未定位前不改 schema、不重复盲跑、不宣称页面 PASS。
+
+#### T3′ 第二次尝试（校验模式）与暂停（2026-10-31）
+
+- 实现（保留、未接线）：`AgenticPlanDraftPlanner.validate_completed_prefix/2`——只校验不合并：修订计划必须以已完成前缀（按 completed_step_refs 对应当前 plan 前缀的身份字段）开头且长度大于已完成数，否则 `{:error, :completed_prefix_changed}` 走既有结构纠错。4 条单测（planner 44/44）。
+- 接入 revision 构建链后 `AgentRunJudgmentPlanFlowTest` 2 例失败（B23 plan-exhaustion fixture 的修订计划只有 1 步尾部、无完整前缀；B31 slice_verify 修订 packet 同样无前缀/新尾部）→ 校验触发结构纠错改变事件链，未达 awaiting_author。已回退接入，保留未接线校验函数与单测；回退后 52/52 全绿。
+- 根因（契约问题，非实现 bug）：现行 prompt 要求“完整修订计划并保留已完成前缀”，而 B23/B31 的 test-support 修订 fixture 仍按“只给尾部”生成；两者不一致。是否允许“模型只产尾部”是产品契约选择，需作者裁决：
+  - **A（推荐，最小）**：维持“完整修订计划”契约——适配 slice_verify 修订 fixture（返回前缀+尾部）并接入校验；真实模型按 prompt 给出完整计划。
+  - **B**：支持“只产尾部”目标形态——需 plan cursor/运行期步骤状态协同设计（合并后 cursor 定位、已完成步骤重入、耗尽口径），范围较大。
+  - **C**：登记 known-gap，不实施确定性前缀校验。
+- 未代签：该选择不改变 T4/T5 状态；不新增 schema。
