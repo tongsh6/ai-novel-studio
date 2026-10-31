@@ -1415,3 +1415,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **Q1C 原生补验 CP0 冻结**：为 Q1c 设定修订链原生 Tauri 窗口补验冻结预注册（`artifacts/model-contracts/q1c-native/preregistration.json`）与 CP0 记录——16 条断言沿用 browser driver 语义，原生入口 WorkspaceChat（输入→采纳→修订→覆盖确认→追问），证据源映射（wire/app-log/只读 DB/AX/等待账本），复用 native_ui/AU12 两段式 batch 基建，预算 ≤2 批/600s/无实模；子步骤 S1 driver→S2 evidence→S3 batch/allowlist→S4 批次→S5 收口。不把 browser summary 当原生证据、不代签实模/I10。
 
+- 2026-10-31 — **Q1C 原生补验 S1/S3 代码进度（未接线未运行）**：新增 `scripts/native_q1c_drive.mjs`（真实窗口源设定→采纳→修订→覆盖确认→追问流程，node --check 通过）与 `scripts/native_q1c_batch.sh`（照 AU12 两段式编排，bash -n 通过）；未接线 `tauri_slice_verify` native 分支、无 verifier、未运行，不产生原生 PASS 证据。下一步：S2 evidence verifier（16 断言）→ S3 接线 → S4 批次（≤2）。
+

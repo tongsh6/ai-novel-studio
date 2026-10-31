@@ -384,3 +384,10 @@ Q1B 第十轮模型已经提出“保留或替代已保存编辑版”，但作�
 - 权威事实唯一/旧版状态：只读 DB 快照（CONFIRMED/SUPERSEDED 计数与版本链）。
 - 追问消费新值：追问 `turn_result.assistant_message` 含“三十岁”且不含“二十五岁”；`trace_summary`/llm 请求材料含新版事实。
 - 页面可见：AX 文本含候选卡/确认对话框/追问回答要点。
+
+#### 原生补验 S1/S3 代码进度（2026-10-31，未接线未运行）
+
+- `scripts/native_q1c_drive.mjs`（S1 driver，已实现）：真实窗口流程——发送源设定原文→轮询 pending→点「保存到作品(档案)」采纳→修订消息（年龄 25→30）→pending→采纳→按 `requires_confirmation` 点「确认执行」→确认后 adopted→追问「岑舟今年多少岁？」→`pollWire` 断言 turn_result + `pollAx` 断言页面含“三十岁”；输出 `native-q1c-report.json`。语法 `node --check` 通过；**尚未接线/运行**。
+- `scripts/native_q1c_batch.sh`（S3 编排，已实现）：照 AU12 两段式（runner→ready→driver→summary→state），改 slice/预注册/状态目录/驱动文件；`bash -n` 通过；**尚未接线/运行**。
+- 仍待：`native_q1c_evidence.mjs`（S2，16 断言 verifier）、`tauri_slice_verify.sh` native allowlist/dispatch 分支（S3）、真实批次（S4）。
+- 边界：未运行不产生证据，不得当原生 PASS；下一步 S2 verifier 后接线跑首批。
