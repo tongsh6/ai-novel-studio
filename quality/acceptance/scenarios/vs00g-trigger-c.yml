@@ -1,0 +1,63 @@
+id: vs00g-trigger-c
+title: R5 对话流盘点提议去重关闭与作者显式启动
+tier: nightly
+surface: tauri
+default_provider: slice_verify
+entrypoint: scripts/quality_accept.sh vs00g-trigger-c --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00G-fact-completeness-and-provisioning-contract-pack.md
+  - docs/design/acceptance/author/AU-14-provisioning-and-assumptions.md
+  - tasks/slices/VS-00G-fact-inventory-run.md
+
+invariants:
+  - proposal-source-is-real-r5-finding-not-author-text-keywords
+  - proposal-does-not-start-run-or-write-canon
+  - persisted-turn-result-deduplicates-unclosed-proposal-across-scans
+  - disposition-deduplicates-closed-proposal-across-restore-and-scans
+  - old-proposal-submission-rebinds-active-same-rule-finding
+  - explicit-click-reuses-start-fact-inventory-and-fact-inventory-v1
+  - no-new-card-type-state-table-or-production-acceptance-hook
+
+setup:
+  seed: scripts/seed_vs00g_trigger_c.exs
+  provider: slice_verify
+  preregistration: artifacts/model-contracts/vs00g-trigger-c/preregistration.json
+
+user_flow:
+  - open: 十章且主角档案为空的第一份真实作品
+  - click: 发起全书审读并查看对话流盘点提议
+  - click: 未关闭时再次审读，原提议保留且不新增提议
+  - click: 关闭盘点提议，旧提议绑定当前同规则 finding
+  - restore: 重开真实 Tauri 后提议动作不恢复，再审读仍不重提
+  - open: 第二份同条件作品，独立出现一次盘点提议
+  - click: 发起设定盘点后才启动既有 tentative 盘点链
+
+evidence:
+  required:
+    - native_screenshots
+    - native_transport_jsonl
+    - persistence_snapshot
+    - progress_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/vs00g-trigger-c-tauri-native-<tag>
+
+assertions:
+  ui:
+    - 提议含发起设定盘点与关闭盘点提议，未关闭再扫描不新增
+    - 关闭后当前页和重开恢复均无提议按钮
+    - 第二作品独立显示提议，点击后显示 tentative 盘点结果
+  network:
+    - dismiss 复用 adjudicate_finding 并携带 proposal_ref
+    - start 复用 start_fact_inventory 且绑定 report_id finding_index finding_rule
+    - 第一次显式点击前没有 start_fact_inventory
+  data:
+    - 提议与关闭阶段 accepted characters memory drafts 不变
+    - dismiss 持久化在活跃报告 finding，历史 TurnResult 阻止未关闭重提
+    - 显式盘点可产暂定设定但 accepted canon 仍为零
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

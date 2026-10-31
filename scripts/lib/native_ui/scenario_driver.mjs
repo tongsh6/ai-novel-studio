@@ -15,6 +15,7 @@ import {
   clickAt,
   dump,
   dumpAll,
+  frontmost,
   pressKey,
   readJson,
   screenshot,
@@ -418,13 +419,41 @@ export class NativeScenarioHarness {
         (node) => node.role === "AXPopUpButton" && String(node.desc ?? "") === "作品",
       );
       if (!trigger) throw new Error("work_menu_trigger_not_found");
-      this.safeClick(trigger, `${label}:menu-open:${attempt}`);
+      const before = frontmost();
+      clickAt(this.APP, trigger.frame[0] + trigger.frame[2] / 2, trigger.frame[1] + trigger.frame[3] / 2);
+      const clickResult = { ok: true, method: "cgevent", label: `${label}:menu-open:${attempt}` };
+      this.log.push({
+        op: "work_menu_open",
+        attempt,
+        at: this.nowIso(),
+        app_pid: appPid(this.APP),
+        frontmost_before: before,
+        frontmost_after: frontmost(),
+        trigger: {
+          path: trigger.path,
+          frame: trigger.frame,
+          enabled: trigger.enabled,
+          actions: trigger.actions,
+        },
+        click: clickResult,
+      });
       await sleep(800);
       nodes = this.dumpNodes();
       if (attempt === 1) {
         writeAX(nodes, path.join(this.dir, `${label}-work-menu.ax.txt`), this.APP);
         fs.writeFileSync(path.join(this.dir, `${label}-work-menu.text.txt`), this.axText(nodes));
       }
+      const menuItems = nodes.filter((node) => node.role === "AXMenuItem");
+      this.log.push({
+        op: "work_menu_after_dump",
+        attempt,
+        at: this.nowIso(),
+        menu_item_count: menuItems.length,
+        menu_item_titles: menuItems.map(textOf),
+        menu_count: nodes.filter((node) => node.role === "AXMenu").length,
+        target_present: menuItems.some((node) => textOf(node).includes(title)),
+        frontmost: frontmost(),
+      });
       let item =
         nodes.find((node) => node.role === "AXMenuItem" && node.title === title) ??
         nodes.find((node) => node.role === "AXMenuItem" && textOf(node).includes(title));
@@ -433,11 +462,21 @@ export class NativeScenarioHarness {
         // 匹配菜单项，命中后按 frame 中心做真实鼠标点击（仍是用户可见语义）。
         try {
           const allNodes = dumpAll(this.APP, 16_000);
+          const allMenuItems = allNodes.filter((node) => node.role === "AXMenuItem");
+          this.log.push({
+            op: "work_menu_after_dump_all",
+            attempt,
+            at: this.nowIso(),
+            menu_item_count: allMenuItems.length,
+            menu_item_titles: allMenuItems.map(textOf),
+            target_present: allMenuItems.some((node) => textOf(node).includes(title)),
+            frontmost: frontmost(),
+          });
           item =
             allNodes.find((node) => node.role === "AXMenuItem" && node.title === title) ??
             allNodes.find((node) => node.role === "AXMenuItem" && textOf(node).includes(title));
-          if (item) item = { ...item, __mouseOnly: true };
-        } catch {
+        } catch (error) {
+          this.log.push({ op: "work_menu_dump_all_error", attempt, error: error.message });
           item = null;
         }
       }
@@ -446,11 +485,22 @@ export class NativeScenarioHarness {
         await sleep(400);
         continue;
       }
-      if (item.__mouseOnly) {
-        clickAt(this.APP, item.frame[0] + item.frame[2] / 2, item.frame[1] + item.frame[3] / 2);
-      } else {
-        this.safeClick(item, `${label}:menuitem`);
-      }
+      this.log.push({
+        op: "work_menu_item_click",
+        attempt,
+        at: this.nowIso(),
+        item: { path: item.path, frame: item.frame, title: textOf(item) },
+        frontmost: frontmost(),
+      });
+      const itemClickResult = this.safeClick(item, `${label}:menuitem`);
+      this.log.push({
+        op: "work_menu_item_after_click",
+        click: itemClickResult,
+        attempt,
+        at: this.nowIso(),
+        visible_title: this.visibleWorkTitle(this.dumpNodes()),
+        frontmost: frontmost(),
+      });
       const switched = await this.pollAx(
         (_text, current) => this.visibleWorkTitle(current) === title,
         30_000,

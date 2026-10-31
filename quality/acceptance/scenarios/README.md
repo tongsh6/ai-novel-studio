@@ -7,6 +7,7 @@
 
 | 文件 | 场景 |
 |---|---|
+| `vs00g-trigger-c.yml` | VS00G 触发 C（**active/nightly**：真实 R5 提议；未关闭与关闭后跨扫描去重；原生恢复；活跃 finding 重绑；第二作品显式盘点；零新卡片/状态表/验收 hook） |
 | `b27-natural-author-intent.yml` | B27 自然语言意图→创作效果映射（**草案**：manifest+driver 方案就绪，未注册 driver） |
 | `b27-prompt-lifecycle-consistency.yml` | B27 统一任务语义真实工作台生命周期一致性（**active/nightly**：slice_verify 机制批次已 PASS，含 writer/evaluator 候选、待采纳、显式采纳、章摘要/trace、刷新恢复与下一轮持久事实；真实模型语义归 CP4 §6.1 矩阵） |
 | `b34-author-intent-corpus-fixtures.yml` | B34 真实作者意图确定性 fixture（**draft**：progress_query/work_setup/discussion/world_foreshadow 边界/delegation-noise；slice_verify + application/agent tests；不注册真实模型 nightly） |
@@ -99,6 +100,8 @@
 | `au07-state-trace-adoption-replay.yml` | 采纳与阅读投影携带可回放 StateTrace |
 | `au07-trace-why-entry.yml` | 工作台为什么入口与 author-safe trace 摘要 |
 | `au08-volume-structured-planning.yml` | 分卷规划物化为多卷目录（档案大纲与阅读目录按卷分层；B11A 2026-10-22 两轮扩展：规划产出卷蓝图行→档案逐卷只读可见卷蓝图→get_toc 两卷 blueprint CONFIRMED/source_ref 绑定采纳 artifact、章归属不变→真实正文草稿 turn 的 writer prompt 恰一份「当前卷蓝图（设计态）」段（不串卷/不进草稿）且 writing_coordinate volume_ref == TOC 当前卷 id→CP5 卷级收束守则段（全书优先措辞）位于卷蓝图段后空行分隔仅 1 次、非默认分支不出现→CP3 档案「规划下一卷」真实按钮→机械 scope（next_seq=3/next_chapter_seq=13）→scoped 候选仅第三卷蓝图+3 章→采纳→三卷 TOC 5/7/3、章 seq 1..15、前两卷不变、planner prompt 机械范围段 5/5 且旧全书卷数指令 0 次） |
+| `ua01-agent-run-failed-log-join.yml` | 最终 run_failed 的 wire/app-log/DB 三源关联（**active/nightly，2026-10-31 原生 8/8 PASS**；完整失败矩阵与独立 DecisionTrace 不在本场景关闭） |
+| `au08-reading-projection-failure-recovery.yml` | 阅读投影读取失败与手动重试恢复（原生 driver/预注册已接线；未取得批次 PASS 前不得宣称闭环） |
 | `au08-reading-return-context.yml` | 阅读返回工作台后保持同一 work/session 上下文 |
 | `au08-reading-readonly-no-write.yml` | 阅读模式查看、导出和返回保持只读 |
 | `au09-adopt-setting-recall.yml` | 档案伏笔规则采纳为可召回设定 |

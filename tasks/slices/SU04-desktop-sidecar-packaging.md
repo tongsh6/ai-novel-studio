@@ -115,7 +115,7 @@ curl -s http://127.0.0.1:4658/api/provider/health    # → {"connected":...}
 
 ## 可独立推进 release-app 预注册（2026-10-31）
 
-- 状态：todo（父任务整体仍 blocked：缺真实 release 打包应用的外部故障 harness；本小节只做 harness 建设准备）
+- 状态：done（2026-10-31 预注册与真实 release 四场景复验完成；跨平台、签名/公证、外部 SIGTERM 与外部 AX 分类渠道保留 known-gap）
 - 范围：预注册隔离 release-app 外部 UI 驱动（正常冷启动/坏包/端口占用/退出无孤儿），复用既有 native/CUA 驱动基础，不把 debug app 结果冒充 release 证据。
 - 验证：预注册文档 + harness 自检；真实 release 复验仍需打包环境，未获得前不标 CP 完成。
 

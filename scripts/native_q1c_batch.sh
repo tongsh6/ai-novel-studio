@@ -5,13 +5,13 @@
 # 窗口并等待外部 driver 的 typed wait 账；driver 必须由本脚本在 ready 之后拉起，否则
 # supervisor 会按 driver_idle 预算 fail-fast（不是产品缺陷）。
 #
-# 前置：预注册 artifacts/q1c-native/preregistration.json；provider=slice_verify，
+# 前置：预注册 artifacts/model-contracts/q1c-native/preregistration.json；provider=slice_verify，
 # 不加载真实模型；批次失败只读保留，不覆盖既有目录。
 #
 # 用法：
-#   bash scripts/native_au12_batch.sh <tag>             # 前台执行
-#   bash scripts/native_au12_batch.sh --detach <tag>    # detached 执行（pidfile/state）
-#   bash scripts/native_au12_batch.sh --status <tag>    # 查看批次状态
+#   bash scripts/native_q1c_batch.sh <tag>             # 前台执行
+#   bash scripts/native_q1c_batch.sh --detach <tag>    # detached 执行（pidfile/state）
+#   bash scripts/native_q1c_batch.sh --status <tag>    # 查看批次状态
 #
 # 产物：
 #   证据 artifacts/slice-verify/q1c-adopted-content-revision-tauri-native-<tag>/
@@ -38,7 +38,7 @@ esac
 STATE_DIR="$ROOT/artifacts/q1c-native"
 PREREG="$ROOT/artifacts/model-contracts/q1c-native/preregistration.json"
 if [[ -z "$TAG" ]]; then
-  echo "usage: bash scripts/native_au12_batch.sh [--detach|--status] <tag>" >&2
+  echo "usage: bash scripts/native_q1c_batch.sh [--detach|--status] <tag>" >&2
   exit 64
 fi
 if [[ ! "$TAG" =~ ^[a-z0-9-]+$ || ${#TAG} -gt 32 ]]; then

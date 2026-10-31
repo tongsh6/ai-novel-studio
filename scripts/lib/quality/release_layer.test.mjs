@@ -643,14 +643,37 @@ function runCli(args) {
   });
 }
 
-test("CLI：空 release-real-llm tier → exit 65 + JSON status=not_run + known_fact", () => {
-  const result = runCli(["summarize", "--tier", "release-real-llm", "--json"]);
+/** 空 registry fixture：固定「空 tier 已知事实」语义，不随真实 registry 演化而漂移。 */
+function emptyRegistryRoot(t) {
+  const dir = tmpDir(t, "release-layer-empty-registry-");
+  const acceptanceDir = path.join(dir, "quality/acceptance");
+  fs.mkdirSync(acceptanceDir, { recursive: true });
+  fs.writeFileSync(path.join(acceptanceDir, "scenarios.yml"), "scenarios: []\ndrafts: []\n");
+  return dir;
+}
+
+test("CLI：空 release-real-llm tier → exit 65 + JSON status=not_run + known_fact", (t) => {
+  // 真实仓库 release-real-llm 已注册 blocked 场景（B27/B39/B70），真实 CLI 会走
+  // batch_missing 分支；空 tier 语义用空 registry fixture 验证。
+  const root = emptyRegistryRoot(t);
+  const result = runCli(["summarize", "--tier", "release-real-llm", "--json", "--root", root]);
   assert.equal(result.status, 65, result.stderr);
   const summary = JSON.parse(result.stdout);
   assert.equal(summary.schema_version, RELEASE_LAYER_SCHEMA_VERSION);
   assert.equal(summary.status, "not_run");
   assert.equal(summary.exit_code, 65);
   assert.equal(summary.known_fact !== null, true);
+});
+
+test("CLI：真实仓库 release-real-llm 已注册场景但无批次 → not_run + batch_missing（不是已知空事实）", () => {
+  const result = runCli(["summarize", "--tier", "release-real-llm", "--json"]);
+  assert.equal(result.status, 65, result.stderr);
+  const summary = JSON.parse(result.stdout);
+  assert.equal(summary.status, "not_run");
+  assert.equal(summary.exit_code, 65);
+  assert.equal(summary.known_fact, null);
+  assert.ok(summary.reason_codes.includes("batch_missing"));
+  assert.ok(summary.registered_scenarios > 0);
 });
 
 test("CLI：tier 与 batch 不一致 → exit 66（跨 tier 不合并）", () => {

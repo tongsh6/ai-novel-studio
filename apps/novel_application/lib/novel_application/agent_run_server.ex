@@ -853,6 +853,10 @@ defmodule NovelApplication.AgentRunServer do
   defp settle_run_failed(state, reason, reason_codes) do
     LogEmit.emit(:agent_run, :run_failed, :error, %{
       run_id: state.run.run_id,
+      workspace_id: state.run.workspace_id,
+      work_id: state.run.work_id,
+      session_id: state.run.session_id,
+      turn_id: state.run.parent_turn_ref,
       reason_code: List.last(reason_codes),
       outcome_detail: reason |> inspect() |> String.slice(0, 300)
     })

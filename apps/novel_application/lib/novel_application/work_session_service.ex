@@ -164,6 +164,7 @@ defmodule NovelApplication.WorkSessionService do
         |> WorkSessionRepo.transcript()
         |> Enum.map(&turn_result_from_content(&1.content))
         |> Enum.map(&strip_agent_run_activity/1)
+        |> Enum.map(&NovelApplication.FactInventoryProposal.revalidate(&1, work_id))
         |> Enum.reject(&is_nil/1)
 
       {:ok,
@@ -329,6 +330,7 @@ defmodule NovelApplication.WorkSessionService do
       |> turn_result_from_content()
       |> strip_agent_run_activity()
       |> attach_agent_run_summary(summaries_by_turn)
+      |> NovelApplication.FactInventoryProposal.revalidate(interaction.workspace_id)
       |> project_author_question(interaction.workspace_id, interaction.session_id)
 
     %{

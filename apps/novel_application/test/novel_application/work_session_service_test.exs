@@ -46,6 +46,112 @@ defmodule NovelApplication.WorkSessionServiceTest do
       assert length(stored.content["turn_result"]["available_actions"]) == 2
     end
 
+    test "已关闭的盘点提议在所有恢复入口撤销，原始回执不改写", %{work: work} do
+      {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+      assert {:ok, _report} =
+               NovelPersistence.ReconciliationReportRepo.insert_superseding(%{
+                 work_id: work.id,
+                 findings: %{
+                   "items" => [
+                     %{
+                       "rule" => "protagonist_undermaterialized",
+                       "signal" => "样例",
+                       "proposed_disposition" => "revise_design",
+                       "disposition" => "dismiss"
+                     }
+                   ]
+                 },
+                 finding_count: 1
+               })
+
+      legacy = %{
+        turn_id: "legacy-inventory-proposal",
+        available_actions: [
+          %{
+            action_id: "inventory-start",
+            action_type: "start_fact_inventory",
+            label_key: "fact_inventory.start"
+          },
+          %{
+            action_id: "inventory-dismiss",
+            action_type: "adjudicate_finding",
+            label_key: "fact_inventory.dismiss"
+          },
+          %{action_id: "other", action_type: "discard", target_ref: "artifact"}
+        ]
+      }
+
+      record(work.id, session.id, "legacy-inventory-proposal", "assistant", "历史提议", legacy)
+      {:ok, resumed} = WorkSessionService.resume(work.id)
+      {:ok, shown} = WorkSessionService.show(work.id, session.id)
+      {:ok, paged} = WorkSessionService.transcript_page(work.id, session.id)
+      {:ok, channel} = WorkSessionService.restore_channel_turn_results(work.id, session.id)
+
+      for result <-
+            Enum.map([resumed, shown, paged], &hd(&1.transcript).turn_result) ++
+              channel.turn_results do
+        assert [%{"action_type" => "discard"}] = result["available_actions"]
+      end
+
+      [stored] = WorkSessionRepo.transcript(session.id)
+      assert length(stored.content["turn_result"]["available_actions"]) == 3
+    end
+
+    test "已持久化提议阻止同作品跨扫描重提，但不阻断其它作品", %{work: work} do
+      {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+      other_work = WorkService.create(%{title: "另一部作品"}) |> elem(1)
+
+      attrs = %{
+        findings: %{
+          "items" => [
+            %{
+              "rule" => "protagonist_undermaterialized",
+              "signal" => "十章仍缺主角",
+              "proposed_disposition" => "revise_design"
+            }
+          ]
+        },
+        finding_count: 1
+      }
+
+      assert {:ok, _first} =
+               NovelPersistence.ReconciliationReportRepo.insert_superseding(
+                 Map.put(attrs, :work_id, work.id)
+               )
+
+      base = %{
+        turn_id: "inventory-proposal-first",
+        assistant_message: %{text: "审读完成"},
+        available_actions: [],
+        ui_cards: []
+      }
+
+      proposed = NovelApplication.FactInventoryProposal.attach(base, work.id)
+      assert length(proposed.available_actions) == 2
+      record(work.id, session.id, base.turn_id, "assistant", "历史提议", proposed)
+
+      assert {:ok, _second} =
+               NovelPersistence.ReconciliationReportRepo.insert_superseding(
+                 Map.put(attrs, :work_id, work.id)
+               )
+
+      next = NovelApplication.FactInventoryProposal.attach(%{base | turn_id: "next"}, work.id)
+      # 跨扫描不重复发起（start），但原提议必须保留可关闭动作（dismiss-only），
+      # 否则作者失去关闭入口（VS00G 触发 C 原生批次发现的产品缺陷）。
+      assert Enum.map(next.available_actions, & &1.action_type) == ["adjudicate_finding"]
+      refute Enum.any?(next.available_actions, &(&1.action_type == "start_fact_inventory"))
+      refute next.assistant_message.text =~ "你可以发起设定盘点"
+
+      assert {:ok, _other_report} =
+               NovelPersistence.ReconciliationReportRepo.insert_superseding(
+                 Map.put(attrs, :work_id, other_work.id)
+               )
+
+      other = NovelApplication.FactInventoryProposal.attach(base, other_work.id)
+      assert length(other.available_actions) == 2
+    end
+
     test "旧小写 transcript 经恢复、回看、分页和 Channel 授权恢复均输出 canonical 状态", %{work: work} do
       {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
 

@@ -1,0 +1,62 @@
+id: au08-reading-projection-failure-recovery
+title: 阅读投影读取失败与手动重试恢复
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au08-reading-projection-failure-recovery --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-08-reading-mode.md
+  - docs/design/adr/ADR-0016-projection-hint-ui-v3.md
+  - tasks/slices/AU08-file-level-closure.md
+
+invariants:
+  - projection-read-error-is-honest-failed-not-latest
+  - retry-reads-current-accepted-prose-after-channel-recovery
+  - projection-fault-and-retry-do-not-write-production-facts
+  - external-channel-fault-is-bound-to-original-phoenix-ref
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 根据已采纳章节计划生成第01章正文草稿
+  - click: 保存为章节正文
+  - open: 阅读模式并观察 STALE 与已采纳正文
+  - inject: 外部代理对下一次 get_chapter_content 返回一次 error
+  - click: 刷新投影并观察 FAILED 与旧正文不再冒充最新
+  - click: 重试并观察同一已采纳正文恢复
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - persistence_snapshot
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au08-reading-projection-failure-recovery-tauri-native-<tag>
+
+assertions:
+  ui:
+    - stale projection banner and adopted prose are visible before fault
+    - failed projection banner is visible after injected error
+    - old prose is not presented as latest during failure
+    - manual retry restores the same accepted prose
+  network:
+    - channel_error_injected occurs exactly once for get_chapter_content
+    - synthetic phx_reply error reuses original ref and prevents upstream call
+    - retry sends a new get_chapter_content and receives real ok response
+    - no user_message or author_action occurs during fault and retry
+  data:
+    - accepted draft and memory snapshots are identical after adoption and after recovery
+    - summary surface is tauri and all checks pass
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

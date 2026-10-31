@@ -17,6 +17,7 @@ function cua(args) {
   return execFileSync(CUA, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, cwd: ROOT }).trim();
 }
 export function appPid(name) { try { return JSON.parse(cua(["pid", name])).pid; } catch { return null; } }
+export function frontmost() { try { return JSON.parse(cua(["frontmost"])); } catch (error) { return { error: error.message }; } }
 export function waitForApp(name, timeoutMs = 120_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) { if (appPid(name)) return true; execFileSync("sleep", ["0.5"]); }

@@ -105,6 +105,10 @@ import {
   type AvailableActionLike,
 } from "../lib/workbenchActions";
 import {
+  isFactInventoryProposalAction,
+  removeFactInventoryProposalActions,
+} from "../lib/factInventoryProposal";
+import {
   deriveWorkspaceRuntimeState,
   getPendingAdoptionCount,
   getVisibleWorkTitle,
@@ -2981,6 +2985,8 @@ export function WorkspaceChat() {
     if (action.action_type === "cancel_pending_behavior") return WORKBENCH.actionCancel;
     if (action.action_type === "answer_clarification") return WORKBENCH.actionAnswer;
     if (action.action_type === "choose_candidate") return WORKBENCH.candidateAdoptLabel;
+    if (action.label_key === "fact_inventory.start") return WORKBENCH.factInventoryProposalStart;
+    if (action.label_key === "fact_inventory.dismiss") return WORKBENCH.factInventoryProposalDismiss;
     const artifact = artifactForAction(turnResult, action);
     const revisionRole = qualityRevisionArtifactRole(turnResult, artifact);
     let base: string;
@@ -3027,7 +3033,9 @@ export function WorkspaceChat() {
   };
 
   const visibleActionClassName = (action: AvailableAction): string => {
-    if (action.action_type === "accept") return styles.btnPrimary;
+    if (action.action_type === "accept" || action.label_key === "fact_inventory.start") {
+      return styles.btnPrimary;
+    }
     if (action.action_type === "discard") return styles.btnDangerGhost;
     return styles.btnSecondary;
   };
@@ -3051,6 +3059,25 @@ export function WorkspaceChat() {
   );
 
   const handleVisibleAvailableAction = (turnResult: TurnResult, action: AvailableAction) => {
+    if (isFactInventoryProposalAction(action) && action.target_ref) {
+      const targetRef = action.target_ref;
+      void handleAvailableAction(turnResult, action).then((result) => {
+        if (!result) return;
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.turnResult?.turn_id === turnResult.turn_id && message.turnResult
+              ? {
+                  ...message,
+                  turnResult: removeFactInventoryProposalActions(message.turnResult, targetRef),
+                }
+              : message,
+          ),
+        );
+        if (result.run_id) rememberAuthorActionRunAck(result);
+        setLoading(false);
+      });
+      return;
+    }
     // edit_then_accept 需要作者先编辑正文，打开编辑弹窗而不是直接提交。
     if (action.action_type === "edit_then_accept") {
       setEditDialog({ turnResult, action, text: draftProseForAction(turnResult, action) });

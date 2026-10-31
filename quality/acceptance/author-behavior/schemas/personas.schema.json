@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "author-behavior-personas/v1",
+  "type": "object",
+  "required": ["schema", "frozen_at", "frozen_by", "personas"],
+  "properties": {
+    "schema": {"const": "author-behavior-personas/v1"},
+    "frozen_at": {"type": "string", "minLength": 1},
+    "frozen_by": {"type": "string", "minLength": 1},
+    "personas": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["persona_id", "experience", "narrative_preferences", "common_goals", "expression", "delegation", "clarification_patience", "adoption_habits", "write_sensitivity", "correction_frequency", "long_input_habit", "multi_work_behavior", "multi_turn_tendency"],
+        "properties": {
+          "persona_id": {"type": "string", "pattern": "^p-[a-z0-9-]+$"},
+          "experience": {"type": "string", "minLength": 1},
+          "narrative_preferences": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "common_goals": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "expression": {
+            "type": "object",
+            "required": ["brevity", "formality", "reference_style", "language_mix", "typo_habit"],
+            "properties": {
+              "brevity": {"type": "string", "minLength": 1},
+              "formality": {"type": "string", "minLength": 1},
+              "reference_style": {"type": "string", "minLength": 1},
+              "language_mix": {"type": "string", "minLength": 1},
+              "typo_habit": {"type": "string", "minLength": 1}
+            }
+          },
+          "delegation": {"type": "string", "minLength": 1},
+          "clarification_patience": {"type": "string", "minLength": 1},
+          "adoption_habits": {"type": "string", "minLength": 1},
+          "write_sensitivity": {"type": "string", "minLength": 1},
+          "correction_frequency": {"type": "string", "minLength": 1},
+          "long_input_habit": {"type": "string", "minLength": 1},
+          "multi_work_behavior": {"type": "string", "minLength": 1},
+          "multi_turn_tendency": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import type { AuthorActionPayload } from "./socket";
+import { factInventoryAuthorPayload } from "./factInventoryProposal";
 
 export interface AvailableActionLike {
   action_id: string;
@@ -100,7 +101,8 @@ export function toAuthorActionPayload(
   if (action.candidate_set_ref) payload.candidate_set_ref = action.candidate_set_ref;
   if (action.candidate_ref) payload.candidate_ref = action.candidate_ref;
   if (action.idempotency_key) payload.idempotency_key = action.idempotency_key;
-  if (authorPayload && Object.keys(authorPayload).length > 0) payload.payload = authorPayload;
+  const inputPayload = { ...factInventoryAuthorPayload(action), ...authorPayload };
+  if (Object.keys(inputPayload).length > 0) payload.payload = inputPayload;
 
   return payload;
 }

@@ -1460,7 +1460,7 @@ defmodule NovelWeb.WorkspaceChannel do
          %AuthorActionInput{action_type: "adjudicate_finding"} = action_input,
          _source_turn_result
        ) do
-    payload = action_input.payload
+    payload = fact_inventory_action_payload(socket, action_input)
 
     input = %{
       work_id: socket.assigns[:work_id],
@@ -1560,7 +1560,7 @@ defmodule NovelWeb.WorkspaceChannel do
          %AuthorActionInput{action_type: "start_fact_inventory"} = action_input,
          _source_turn_result
        ) do
-    payload = action_input.payload
+    payload = fact_inventory_action_payload(socket, action_input)
 
     case prepare_fact_inventory_trigger(socket, payload) do
       {:ok, trigger} ->
@@ -1944,6 +1944,24 @@ defmodule NovelWeb.WorkspaceChannel do
     })
 
     {:reply, {:error, %{reason: reason_text(reason)}}, socket}
+  end
+
+  defp fact_inventory_action_payload(socket, %AuthorActionInput{} = action_input) do
+    payload =
+      if is_map(action_input.payload) and map_size(action_input.payload) > 0 do
+        action_input.payload
+      else
+        NovelApplication.FactInventoryProposal.author_payload(
+          action_input.action_type,
+          action_input.target_ref
+        ) || %{}
+      end
+
+    NovelApplication.FactInventoryProposal.rebind_author_payload(
+      socket.assigns[:work_id],
+      action_input.action_type,
+      payload
+    )
   end
 
   defp adjudication_result(action_input, report, follow_up) do
@@ -2951,10 +2969,14 @@ defmodule NovelWeb.WorkspaceChannel do
   defp scope_source_turn_result(_socket, source_turn_result), do: source_turn_result
 
   defp scope_turn_result(socket, turn_result) do
+    work_id = socket.assigns[:work_id]
+
     turn_result
     |> Map.put_new(:workspace_id, socket.assigns[:workspace_id])
-    |> Map.put_new(:work_id, socket.assigns[:work_id])
+    |> Map.put_new(:work_id, work_id)
     |> Map.put_new(:session_id, socket.assigns[:session_id])
+    |> NovelApplication.FactInventoryProposal.revalidate(work_id)
+    |> NovelApplication.FactInventoryProposal.attach_if_adopted(work_id)
   end
 
   defp record_action_turn_result(socket, %{turn_id: turn_id} = turn_result)

@@ -106,6 +106,20 @@ defmodule NovelPersistence.ReconciliationReportRepo do
     end
   end
 
+  @doc "同作品同规则是否已有作者处置；包含历史报告，供对话提议持久去重。"
+  @spec finding_dispositioned?(String.t(), String.t()) :: boolean()
+  def finding_dispositioned?(work_id, rule) when is_binary(work_id) and is_binary(rule) do
+    from(r in ReconciliationReport, where: r.work_id == ^work_id, select: r.findings)
+    |> Repo.all()
+    |> Enum.any?(fn findings ->
+      (Map.get(findings || %{}, "items") || Map.get(findings || %{}, :items) || [])
+      |> Enum.any?(fn finding ->
+        (finding["rule"] || finding[:rule]) == rule and
+          (finding["disposition"] || finding[:disposition]) not in [nil, ""]
+      end)
+    end)
+  end
+
   @doc """
   写回裁决后的 findings（CP2c）；全部条目已裁决时报告转 ACCEPTED（裁决完成），
   否则保持 TENTATIVE。经 schema 矩阵守卫：SUPERSEDED 等 stale 报告不能翻成

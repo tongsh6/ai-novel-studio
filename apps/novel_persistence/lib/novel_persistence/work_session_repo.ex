@@ -254,6 +254,23 @@ defmodule NovelPersistence.WorkSessionRepo do
     |> Enum.uniq_by(& &1["artifact_id"])
   end
 
+  @doc "全作品历史 TurnResult 是否已有指定动作标签；用于跨会话/扫描的提议去重。"
+  @spec available_action_present?(String.t(), String.t()) :: boolean()
+  def available_action_present?(work_id, label_key)
+      when is_binary(work_id) and is_binary(label_key) do
+    Interaction
+    |> where([i], i.workspace_id == ^work_id and i.role == "assistant")
+    |> where(
+      [i],
+      fragment(
+        "EXISTS (SELECT 1 FROM json_each(?, '$.turn_result.available_actions') AS action WHERE json_extract(action.value, '$.label_key') = ?)",
+        i.content,
+        ^label_key
+      )
+    )
+    |> Repo.exists?()
+  end
+
   @doc "按 work+turn 读取持久 assistant turn_result（B46 跨会话动作来源；work 隔离）。"
   @spec turn_result(String.t(), String.t()) :: map() | nil
   def turn_result(work_id, turn_id) when is_binary(work_id) and is_binary(turn_id) do

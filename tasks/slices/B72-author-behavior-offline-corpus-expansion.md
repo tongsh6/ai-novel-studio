@@ -77,6 +77,9 @@ CP1 生成不等于冻结，CP2 冻结不等于全部执行，CP3 资产数量�
 
 ## 可独立推进 离线生成器契约（2026-10-31）
 
-- 状态：todo（真实模型窗口未授权；本小节只做不调模型的离线生成器/manifest/persona 契约与自检）
+- 状态：blocked（离线生成器/manifest/persona 已实现且契约测试通过；ub-mode mutation 两轮后仍未闭环，真实模型窗口未授权）
 - 范围：实现离线生成器、manifest/去重/holdout/persona 契约，不调用任何模型；模型校准批次待资源窗口。
-- 验证：生成器单测/契约校验通过后可进入真实模型校准；未获得模型窗口前不得宣称 CP1 完成。
+- 交付：`scripts/lib/quality/author_behavior_offline_generator.mjs` + 唯一 CLI `scripts/author_behavior_offline_generate.mjs`（仅显式 `--offline`）；`personas.json` 12 个行为画像及 generation-manifest/candidates/personas 三个 v1 schema。语义单元总变体上限、persona 优先覆盖、expected 仅从 seed 派生、pending 默认、失败留痕、旧 manifest 不可覆盖；正式 `cases.yml` 未改。
+- 验证：`node --test scripts/lib/quality/author_behavior_offline_generator.test.mjs` = 12/12，含 F5 holdout、精确重复/泄漏、失败候选、multi_turn 只候选不执行、accepted 人工审核与原子落盘。CLI help/语法通过。使用本机已有 Homebrew Bash 5.3 + PyYAML 6.0.3 后，`quality_manifest_check.sh` passed（224 scenarios / 2 drafts / 226 manifests），全量质量库 295/295；不再登记 PyYAML 环境缺口。
+- known-gap：mutation 首轮 41.0%、第二轮 51.5%（118/229 killed、111 survivors），同失败类型两轮后停止，质量门仍红。crapper 已按边界拆分校验函数，不声称 CRAP 通过。最终静态扫描 18 PASS / 2 FAIL、0 touched-file findings；唯一 blocking 是独立 checkpoint 未闭环导致旧 task-done manifest 过期，未伪造新 manifest。后续可选 A（推荐：作者批准专门 mutation 测试预算/负责人，逐项覆盖剩余验证分支）/B（接受当前契约能力但保留 known-gap，不宣称 ub-mode 完成）/C（进一步拆分实现减少可变异分支）。
+- 边界：未调用模型、未启动真实校准、未生成正式候选包、未改生产代码或正式 corpus；生成≠冻结≠执行≠PASS，CP1 仍 blocked。

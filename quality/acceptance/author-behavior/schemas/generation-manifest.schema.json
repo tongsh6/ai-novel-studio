@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "author-behavior-generation-manifest/v1",
+  "type": "object",
+  "required": ["schema", "generation_id", "created_at", "git_head", "base_corpus_sha", "generator", "input", "privacy", "budget", "output"],
+  "properties": {
+    "schema": {"const": "author-behavior-generation-manifest/v1"},
+    "generation_id": {"type": "string", "pattern": "^ab-[A-Za-z0-9-]+$"},
+    "created_at": {"type": "string", "minLength": 1},
+    "git_head": {"type": "string", "minLength": 1},
+    "base_corpus_sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "generator": {
+      "type": "object",
+      "required": ["generator_version", "provider", "model", "actual_model", "params", "prompt_template_sha"],
+      "properties": {
+        "generator_version": {"type": "string", "minLength": 1},
+        "provider": {"type": "string", "minLength": 1},
+        "model": {"type": "string", "minLength": 1},
+        "actual_model": {"type": "string", "minLength": 1},
+        "params": {"type": "object"},
+        "prompt_template_sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "input": {
+      "type": "object",
+      "required": ["stage", "asset_layer", "target_ids", "state_ids", "persona_ids", "semantic_cells", "source_case_ids", "max_candidates"],
+      "properties": {
+        "stage": {"enum": ["calibration", "core_semantic", "persona_exploration", "multi_turn"]},
+        "asset_layer": {"enum": ["core", "exploration", "journey"]},
+        "target_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "state_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "persona_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "semantic_cells": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["semantic_cell_id", "target_id", "state_id", "boundary_tags", "persona_ids", "styles", "max_variants", "review_value"],
+            "properties": {
+              "semantic_cell_id": {"type": "string", "minLength": 1},
+              "target_id": {"type": "string", "minLength": 1},
+              "state_id": {"type": "string", "minLength": 1},
+              "boundary_tags": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+              "persona_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+              "styles": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+              "max_variants": {"type": "integer", "minimum": 1, "maximum": 20},
+              "review_value": {"enum": ["new_boundary", "new_persona_behavior", "wording_variant"]},
+              "split": {"enum": ["dev", "holdout", "explore"]}
+            }
+          }
+        },
+        "source_case_ids": {"type": "array", "items": {"type": "string"}},
+        "max_candidates": {"type": "integer", "minimum": 1, "maximum": 500}
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "required": ["synthetic_only", "real_work_data"],
+      "properties": {
+        "synthetic_only": {"const": true},
+        "real_work_data": {"const": false}
+      }
+    },
+    "budget": {
+      "type": "object",
+      "required": ["max_calls", "max_duration_minutes"],
+      "properties": {
+        "max_calls": {"type": "integer", "minimum": 1, "maximum": 500},
+        "max_duration_minutes": {"type": "integer", "minimum": 1, "maximum": 120}
+      }
+    },
+    "output": {
+      "type": "object",
+      "required": ["candidate_uri", "status"],
+      "properties": {
+        "candidate_uri": {"type": "string", "minLength": 1},
+        "status": {"enum": ["preregistered", "completed", "completed_with_failures", "failed"]}
+      }
+    }
+  }
+}

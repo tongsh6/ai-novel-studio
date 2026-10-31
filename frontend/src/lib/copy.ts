@@ -348,6 +348,8 @@ export const WORKBENCH = {
   candidateCollapsedExpandLabel: "展开",
   candidateAdoptLabel: "设为后续方向",
   candidateAdoptTitle: "把这个方向写入创作方向记忆，后续创作可召回；不会直接写入章节正文。",
+  factInventoryProposalStart: "发起设定盘点",
+  factInventoryProposalDismiss: "关闭盘点提议",
   frameBadges: {
     creativeExploration: "探索方向",
     executionCandidate: "生成草稿",

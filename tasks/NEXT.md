@@ -6,18 +6,19 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| Q1C | CP0 冻结 done（预注册/16 断言映射/原生入口/复用基建/预算/证据）；下一步 S1 原生 driver（真实窗口采纳→修订→覆盖确认→追问），再做 evidence verifier 与 batch 接线 | [Q1C](slices/Q1C-adopted-content-revision.md#原生补验-cp0-冻结记录2026-10-31) |
+（无当前任务；队列当前可推进项已清空，阻塞项待作者裁决——见下）
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| AU08 | 产品外通用按 channel 故障注入代理（get_toc/get_chapter_content），不增验收开关 | [AU08](slices/AU08-file-level-closure.md#可独立推进-channel-故障注入代理2026-10-31) |
-| UA01-LOG | 构造受控「最终 run_failed」外部触发 + 同 turn 三源 join 断言 | [UA01](slices/UA01-provider-execution-stream-unification.md#可独立推进-受控最终-run_failed-触发2026-10-31) |
-| B72 | 先实现离线生成器/manifest/persona 契约（不调模型），模型窗口后置 | [B72](slices/B72-author-behavior-offline-corpus-expansion.md#可独立推进-离线生成器契约2026-10-31) |
 
 ## 阻塞
 
+- **B72 离线生成器质量门**：离线生成器/manifest/persona 已实现且契约测试 12/12，但 mutation 两轮后 51.5%、111 survivors；真实模型校准未授权。待 A（推荐：专门 mutation 测试预算/负责人）/B（保留 known-gap）/C（进一步拆分实现）；见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#可独立推进-离线生成器契约2026-10-31)。
+- **UA01 B13 完整失败矩阵**：独立 run_failed 触发与三源 join 已原生 8/8 done；独立 DecisionTrace、真实供应商、取消/恢复/跨作品及 AU04 漂移仍未闭环；见 [UA01](slices/UA01-provider-execution-stream-unification.md#可独立推进-受控最终-run_failed-触发2026-10-31)。
+- **AU08 原生故障恢复**：两批预注册预算耗尽，无原生 summary；parent_ref 关联已修并有单测但未复验。待作者选择 A（推荐：新 scoped 预算只重放单链）/B（暂缓并推进其他候选）；见 [AU08](slices/AU08-file-level-closure.md#原生批次预算耗尽2026-10-31)。
+- **Q1C 原生补验**：原生批次已超过预注册上限，停止重试；待作者选择 A（推荐：新启动诊断预注册与 scoped 预算）/B（暂缓，保留 browser 边界）/C（更大 harness 改造授权）；见 [Q1C](slices/Q1C-adopted-content-revision.md#原生补验-s1s4-预算耗尽与暂停2026-10-31)。
 - **B71-CP3a S1b**：同因失败 2 次达预算上限（已回退、主链全绿）；待作者从 A（推荐：slice_verify 判断 IR-aware 单测级改造+探针）/B（暂缓，按候选推进）/C（更大改造授权）中选择；见 [B71](slices/B71-provider-message-fidelity.md#cp3a-s1b-第二次尝试与预算耗尽2026-10-31停止盲试)。
 - **SU04 外部后续**：CP1 与真实 release app 四场景已 done；签名/公证（需 Apple 证书）、Intel/Windows/Linux CI 真实跑通、失败分类外部 AX 渠道改进为条件后续；见 [SU04](slices/SU04-desktop-sidecar-packaging.md#cp1-缺陷修复与四场景复验2026-10-31收口)。
 - **UA01 T3′**：校验模式接入尝试回退；待作者选择 A（推荐：维持完整计划契约，适配 fixture 后接入）/B（支持只产尾部，需 cursor 协同）/C（known-gap）；见 [UA01](slices/UA01-agentic-loop-prompt-hardening.md#t3-第二次尝试校验模式与暂停2026-10-31)。

@@ -1,0 +1,56 @@
+id: ua01-agent-run-failed-log-join
+title: 最终 run_failed 的 wire/app-log/DB 三源关联
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh ua01-agent-run-failed-log-join --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/adr/ADR-0018-business-log-schema-v3.md
+  - docs/design/adr/ADR-0024-decision-surface-registry-v3.md
+  - tasks/slices/UA01-provider-execution-stream-unification.md
+
+invariants:
+  - final-run-failed-has-author-safe-fallback
+  - provider-and-run-failed-logs-share-source-turn-context
+  - failed-run-wire-log-database-join-by-turn-and-run
+  - failed-run-does-not-adopt-or-write-production-facts
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 含既有 UA01PROVIDERFAIL 标记的创作请求
+  - observe: 最终 run_failed 与作者安全失败反馈
+  - verify: wire/app-log/DB 的 turn/work/session/run 关联一致
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - persistence_snapshot
+    - summary_json
+  artifact_dir: artifacts/slice-verify/ua01-agent-run-failed-log-join-tauri-native-<tag>
+
+assertions:
+  ui:
+    - author sees safe failure without raw provider payload
+    - no pending adoption appears
+  network:
+    - turn_result decision_type is run_failed and status is failed_recoverable
+    - provider error and run_failed logs share workspace/work/session/turn
+    - no author_action is sent
+  data:
+    - AgentRunLog run is failed with matching parent_turn_ref
+    - AgentEvent run_failed has matching run_id
+    - production table counts are unchanged
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -387,6 +387,7 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
       tool_result: %{status: tool_status, artifact_refs: [], errors: []},
       artifact_set: nil
     }
+    |> NovelApplication.FactInventoryProposal.attach(run.work_id)
   end
 
   defp coverage_skipped_note(%{rules_skipped: [_ | _] = skipped}) do

@@ -123,4 +123,58 @@ defmodule NovelPersistence.ReconciliationReportRepoTest do
              ) == 1
     end
   end
+
+  test "同作品同规则的历史处置跨报告可查，其它作品与未处置 finding 不去重" do
+    work_id = ID.uuid()
+    other_work_id = ID.uuid()
+
+    finding = %{
+      "rule" => "protagonist_undermaterialized",
+      "signal" => "样例",
+      "proposed_disposition" => "revise_design"
+    }
+
+    assert {:ok, first} =
+             ReconciliationReportRepo.insert_superseding(%{
+               work_id: work_id,
+               findings: %{"items" => [finding]},
+               finding_count: 1
+             })
+
+    refute ReconciliationReportRepo.finding_dispositioned?(
+             work_id,
+             "protagonist_undermaterialized"
+           )
+
+    assert {:ok, _} =
+             ReconciliationReportRepo.update_findings(work_id, first.id, [
+               Map.put(finding, "disposition", "dismiss")
+             ])
+
+    assert {:ok, _second} =
+             ReconciliationReportRepo.insert_superseding(%{
+               work_id: work_id,
+               findings: %{"items" => [finding]},
+               finding_count: 1
+             })
+
+    assert {:ok, _} =
+             ReconciliationReportRepo.insert_superseding(%{
+               work_id: other_work_id,
+               findings: %{"items" => [finding]},
+               finding_count: 1
+             })
+
+    assert ReconciliationReportRepo.finding_dispositioned?(
+             work_id,
+             "protagonist_undermaterialized"
+           )
+
+    refute ReconciliationReportRepo.finding_dispositioned?(
+             other_work_id,
+             "protagonist_undermaterialized"
+           )
+
+    refute ReconciliationReportRepo.finding_dispositioned?(work_id, "skeleton_missing")
+  end
 end

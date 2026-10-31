@@ -4,7 +4,8 @@
   - A1 已拍板：`SUPERSEDED` + 双向 revision link；enum/schema/migration/domain/application/UI 已落地。
   - 正式 browser 场景 `q1c-adopted-content-revision`（`slice_verify`）PASS：来源设定采纳 → 修订命中 accepted 目标 → 覆盖确认 → 旧版 `SUPERSEDED` / 新版 `CONFIRMED` → 追问读新值。
   - 四条拒绝矩阵：歧义（application）、stale / 跨作品（persistence 事务 guard）、放弃（application）；AU-05/09/12 由既有 application/domain 测试覆盖。Tauri 页面回归尝试 AU-05/AU-09 失败（既有场景漂移，未作为 Q1c 证据）。
-  - 诚实边界：Q1c-specific 真实页面证据是 browser surface；未跑 Q1c 原生 Tauri 场景。
+  - 诚实边界：Q1c-specific 真实页面证据是 browser surface（2026-10-21 收口时）；未跑通 Q1c 原生 Tauri 场景。
+  - 更新（2026-10-31）：registry 已按原生入口登记（`surface: tauri`，driver `scripts/native_q1c_batch.sh`）；原生批次预算耗尽仍 blocked、无原生 summary，顶部 closed 仅指 2026-10-21 的 browser 收口。
 - 类型：Journey D5 / Q1c；作者主权与 canon 修订边界
 - 上游：`tasks/slices/Q1B-live-archive-recheck.md` §9/§10（第十轮提出“保留或替代”，未执行）；`docs/product/user-journeys.md` D5；`docs/design/contracts/VS-04-adoption-boundary-contract-pack.md` §2/§4；`docs/design/adr/ADR-0019-adoption-status-transition-v3.md`；`docs/design/adr/ADR-0027-author-obligation-state-v3.md` D5；`docs/design/06-memory-context-and-trace.md` §4.4
 - 队列：`tasks/NEXT.md` Q1c（唯一 next）
@@ -338,19 +339,20 @@ Q1B 第十轮模型已经提出“保留或替代已保存编辑版”，但作�
 
 ## Q1c 原生页面补验
 
-- 状态：**blocked（2026-10-31 CP0 盘点：Q1c 场景/驱动只注册为 browser surface，无 Tauri 原生驱动入口；未伪造原生证据）**。
+- 状态：**blocked（2026-10-31 原生批次预算耗尽；S1–S3 接线已落地、registry 已登记 `surface: tauri`；仍无原生 PASS summary，不冒签）**。
 - 来源：本文件顶部诚实边界与 [全量对账 E15](../2026-10-27-design-to-execution-reconciliation.md#45-其余任务)。B28 的原生正文修订证据不能替代 Q1c 的 `world_setting` 修订链。
-- 下一步：先核对现役 `q1c-adopted-content-revision` 场景、原生驱动可达性、当前采纳/修订契约与旧 AU-05/09/12 漂移记录，明确最小补验输入和断言；区分 driver 漂移与产品回归，不直接恢复旧调用协议或重新实现已落地修订能力。
+- 下一步：原生入口已接线（S1–S3），当前停在真实批次执行；恢复需作者批准新的启动诊断预注册/预算（或选择暂缓/更大 harness 改造），失败批次只读保留，不恢复旧调用协议、不重写已落地修订能力。
 - 完整后果：外部驱动真实 Tauri 工作台完成设定采纳→修订命中 accepted 目标→覆盖确认→旧版 SUPERSEDED/新版 CONFIRMED→刷新与追问消费新值，核对来源/修订双向引用及零重复权威事实；保持歧义、stale、跨作品、放弃等原拒绝边界及既有回归承接，不用正文替身场景代签设定链。
 - 证据与条件：当前 HEAD 的原生 summary、操作/网络/持久事实分别留证，旧 browser 与中断批次保持原边界；确定性机制与真实模型语义分开，结构补验不自动重跑长时间实模链。若发现产品缺陷，回原 Q1c 范围修复并复验；真实模型批次须有具体预注册与资源窗口，产品代码不新增验收感知逻辑。
 
 ### 原生补验 CP0/阻塞记录（2026-10-31）
 
 - 状态：**doing（2026-10-31 CP0 冻结完成：场景/16 断言映射/原生驱动入口/复用基建/预算/证据/子步骤已冻结；预注册 `artifacts/model-contracts/q1c-native/preregistration.json`；下一步 S1 实现原生 driver）**
-- 现状：`q1c-adopted-content-revision` 在 quality registry 注册为 `surface: browser`，driver 为独立 `frontend/slice-verify/q1c-adopted-content-revision.mjs`；`tauri_slice_verify` 的 native action/driver map 没有 Q1c 分支，原生 Tauri 窗口入口不可达。
+- 现状（CP0 时）：`q1c-adopted-content-revision` 在 quality registry 注册为 `surface: browser`，driver 为独立 `frontend/slice-verify/q1c-adopted-content-revision.mjs`；`tauri_slice_verify` 的 native action/driver map 没有 Q1c 分支，原生 Tauri 窗口入口不可达。
+- 更新（2026-10-31 收口）：S1–S3 接线已落地，`scripts/tauri_slice_verify.sh --list` 含该场景；registry 已改 `surface: tauri`、driver `scripts/native_q1c_batch.sh`、entrypoint `--surface tauri`，manifest 证据目录改为原生 `artifacts/slice-verify/q1c-adopted-content-revision-tauri-native-<tag>`。**登记态不等于原生 PASS**：原生批次仍 blocked、无 summary。
 - 不能把 browser-surface summary 当原生 Tauri 证据；也不能在未接线时直接恢复旧调用协议或重写已落地修订能力。
 - 解除条件：为 Q1c 增加/接线真实 Tauri 外部 driver（复用既有设置采纳→修订→覆盖确认→SUPERSEDED/CONFIRMED→刷新追问链），按当前 HEAD 原生 summary/操作/网络/持久事实分别留证；需独立 runtime 预算。
-- 未改产品代码；当前 browser 证据边界保持原登记。
+- 未改产品代码；原 browser-surface 证据只读保留，但该场景 registry 已改原生 tauri 登记（见上条更新），不得再把 browser summary 当本场景当前入口证据。
 
 #### 原生补验 CP0 冻结记录（2026-10-31）
 
@@ -391,3 +393,18 @@ Q1B 第十轮模型已经提出“保留或替代已保存编辑版”，但作�
 - `scripts/native_q1c_batch.sh`（S3 编排，已实现）：照 AU12 两段式（runner→ready→driver→summary→state），改 slice/预注册/状态目录/驱动文件；`bash -n` 通过；**尚未接线/运行**。
 - 仍待：`native_q1c_evidence.mjs`（S2，16 断言 verifier）、`tauri_slice_verify.sh` native allowlist/dispatch 分支（S3）、真实批次（S4）。
 - 边界：未运行不产生证据，不得当原生 PASS；下一步 S2 verifier 后接线跑首批。
+
+#### 原生补验 S1–S4 预算耗尽与暂停（2026-10-31）
+
+- 状态：**blocked（原生批次已超过预注册 ≤2 的上限；停止重试，不追加 score-shopping 批次）**。
+- S1–S3 WIP：补齐 `native_q1c_drive.mjs` / `native_q1c_evidence.mjs` / `native_q1c_batch.sh` 与 `tauri_slice_verify.sh` 接线；新增共享 `adoption_contract.mjs` 和 3 条契约测试。driver 统一消费 prepare 配置，补齐 input/ack/turn/candidate/adoption/restore/maintenance 等待账、目标绑定回执、`needs_confirmation`、确认截图、真实重开、`native-ui-complete` 与失败收尾；verifier 按现役 `payload.items[].body` / `payload.revision_of` 和追问自身 `trace_summary.context_refs` 核验。上述仅为**确定性实现与局部测试证据，不是原生 PASS**。
+- 失败台账（全部只读保留）：
+  - `q1c-first/second/third-20261031`：native allowlist/dispatch 接线未就绪，未形成产品场景证据。
+  - `q1c-fourth/sixth-20261031`：会话中断前停留在 `workbench_ready:initial`，无 summary；不得解释为产品通过或失败。
+  - `q1c-fifth-20261031`：旧 driver `source_pending` 超时后 `driver_idle_timeout`，未形成修订链证据。
+  - `cp1-s1-01`：新 driver 在任何用户输入之前收到 `owned_native_window_process_exited`（`failure.json`，约 106s）；runner 随后正常清理 Phoenix。无 Q1c 消息、候选、采纳或修订断言结果，无原生 summary。
+- 根因边界：已确认的 nonce 双源、现役 payload 形状、确认事件/状态、回执目标绑定和 UI 收尾缺陷已在 harness 修复；`cp1-s1-01` 的原生进程退出原因**尚未确认**，未见应用 crash report，不得归因为 Q1c 产品回归，也不得通过放宽监督/断言规避。
+- 局部验证：`node --test scripts/native_q1c_evidence.test.mjs scripts/native_ui_wait.test.mjs` = 10/10；JS/bash 语法、`git diff --check` 与 `node scripts/next_task_check.mjs` 通过。未跑全量后端/前端测试，未生成完成 manifest，因为本 checkpoint 未闭环。
+- 静态扫描：`bash scripts/ai_static_scan.sh --top 10 --quick` = 17 PASS / 2 FAIL / 1 SKIP；compile/xref/arch/I3/I1/I2/N-NARR/I-CACHE/frontend typecheck/lint 等通过。Top 10 共 6 条、0 touched-file findings：5 条 gitleaks 既有处置（4 false_positive、1 accepted_risk）；唯一 blocking 是旧 task-done manifest 已过期，Q1c 原生未闭环，不伪造新完成 manifest，也不手工改为非阻断。详见 `artifacts/static-scan/top10.md` / `disposition.md`。
+- 资源：批次相关进程为空；`lms unload --all` 后无加载模型。资源复核 initially 只查 47831 统一控制面，遗漏了 18500 独立 runtime；作者指出后确认其 `/health` 为 `loaded=true`（iq3_s），已通过 Strata 自身模型页点击「卸载」。最终 UI 显示「未加载模型」、18500 不可连接、推理进程退出，47831 `loaded=null`。后续资源证据必须同时覆盖统一控制面与实际 runtime，不能只凭单一端口销账。
+- 恢复选项：A（推荐）由作者批准新的原生启动诊断预注册与预算，采集独立包 stdout/stderr 和进程退出证据后只做失败类型 scoped replay；B 暂缓原生补验，保留 browser closed 边界并按 NEXT 候选推进；C 授权更大的原生 harness 启动/生命周期改造。未选择前不追加原生批次。

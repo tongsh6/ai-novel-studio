@@ -224,6 +224,9 @@
 
 ## 可独立推进 受控最终 run_failed 触发（2026-10-31）
 
-- 状态：todo（父任务 B13 仍 blocked：无外部最终 run_failed 触发；本小节只做外部受控触发）
+- 状态：done（2026-10-31 原生 8/8；父任务 B13 的完整失败矩阵仍未闭环）
 - 范围：构造受控「最终 run_failed」外部触发（不增验收开关），并加同 turn 三源 join 断言（wire / app-log / DB）；AU04 失败场景漂移另行核对。
-- 验证：受控触发在真实页面批次中可复现最终 run_failed 且三源一致；完成后回写 B13 CP 状态。
+- 产品缺口与修复：CP0 发现 `settle_run_failed` 在 AgentRunServer 进程发日志时没有 turn metadata，旧 `agent_run.run_failed.error` 只有 run_id。先在 `agent_run_runtime_test` 复现 JSONL 缺字段，再显式补 `workspace_id/work_id/session_id/turn_id`；不改事件名、reason_code、失败语义或历史证据。
+- 真实证据：`artifacts/slice-verify/ua01-agent-run-failed-log-join-tauri-native-ua01-cp1-01/summary.json`，`surface=tauri / driver=ax-native-system-ui / provider=slice_verify`，8/8 checks。既有 `UA01PROVIDERFAIL` 经真实工作台产生最终 run_failed；wire、provider/run_failed 日志和 AgentRunLog/AgentEvent 同 base turn/work/session/run；作者只见安全失败提示，零 pending/采纳/生产写入。批次 `artifacts/ua01-run-failed/batch-ua01-cp1-01.state.json` driver/runner 均 0，无需第二批。
+- 局部与全量验证：新 JSONL + 既有 provider failure 2/2；后端全量 2512/0、前端 657/0、I1/I2/I3、compile/format/xref/arch、frontend audit 27 PASS、design trace 19 PASS、Tauri build 通过。
+- 未闭环：独立 DecisionTrace for run_failed、真实供应商错误、取消/恢复/跨作品矩阵、AU04 场景漂移、I10 不在本项关闭；`quality_manifest_check` 因本机缺 PyYAML 暂不能执行，未用非标准解析或全局安装绕过。

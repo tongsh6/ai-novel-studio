@@ -135,6 +135,18 @@
 
 ## 可独立推进 channel 故障注入代理（2026-10-31）
 
-- 状态：todo（父任务该 CP 仍 blocked：真实页面证据依赖注入代理；本小节只做产品外 harness）
-- 范围：通用按 channel（get_toc/get_chapter_content）注入错误/延迟的外部代理，复用既有 `q3d-message-delivery-recovery` 代理模式；不改产品代码、不增验收开关。
-- 验证：代理自检 + 在真实页面批次中证明注入命中与恢复；完成后回推 AU08 CP1 与 P1-AUDIT-BC 依赖。
+- 状态：blocked（代理自检 done；两批原生预算耗尽，真实 ReadingMode 注入/恢复证据未闭环，父任务该 CP 仍 blocked；本小节只做产品外 harness）
+- 范围：通用按 channel（get_toc/get_chapter_content）注入错误/延迟的外部代理，复用既有 `native_question_transport_proxy.mjs`；不改产品代码、不增验收开关。
+- 冻结契约：`transport-control.json.channel_faults[event] = {mode, count, delay_ms?}`；event 仅允许 `get_toc` / `get_chapter_content`，mode 仅 `error` / `delay`，count 1–10，delay 0–30000ms。按 Phoenix ref 精确消费；error 返回同 ref/topic 的 `phx_reply(status=error, reason=external_channel_fault)` 且不到上游；delay 后真实转发；次数耗尽自动恢复，全部动作写 `native-transport.jsonl`。
+- 代理证据：`node --test scripts/native_question_transport_proxy.test.mjs` = 7/7，覆盖规则消费/递减/数值边界/非法输入、同 ref error、真实 WS error 零上游后恢复、真实 WS delay 后恢复。`node scripts/next_task_check.mjs` 通过；静态扫描 17 PASS / 2 FAIL / 1 SKIP、0 touched-file findings，唯一 blocking 仍是未闭环任务的过期 task-done manifest。
+- ub-mode 质量门：新增 `consumeChannelFault` / `channelErrorReply` mutation 分别 24/24、2/2（均 100%）；整文件 40/71 = 56.3%，其余 31 个幸存变异位于既有 B26 HTTP/断线/改绑分支，因此 mutation 总门仍红，不声称通过。crapper 仅无覆盖率复杂度清单，不声称 CRAP 通过。
+- 下一步：真实 ReadingMode 页面中注入 `get_chapter_content` error，证明 FAILED 可见且旧内容不冒充最新；恢复后手动重试读到同一作品已采纳正文，并核对 no-write。完成后回推 AU08 CP1 与 P1-AUDIT-BC 依赖；legacy proxy 变异回归另行补齐，不用新增 helper 的 100% 代替整文件质量门。
+- 原生页面预注册：`artifacts/model-contracts/au08-channel-fault/preregistration.json`（批次 ≤2、单批 ≤600s、slice_verify、失败只读）；场景 `au08-reading-projection-failure-recovery` 的 driver/evidence/batch/registry 已接线，AX 三态、同 ref error/恢复帧与采纳前后 DB 快照为必需证据。`quality_manifest_check.sh` 当前被本机缺少 PyYAML 阻断，未改用非标准解析或自行全局安装。
+
+### 原生批次预算耗尽（2026-10-31）
+
+- `au08-cp1-01`：prepare 将 `seedFields` 返回的字段函数误当对象，SQLite 绑定 `undefined`；未启动窗口/产品操作。修正后在失败证据临时副本重放 prepare 通过，原目录未改。
+- `au08-cp1-02`：`source_pending` 120s timeout，无 summary。只读 wire 证明确定性 provider 实际已生成 `prose_fragment`（turn `message_...:agent:5`），根因是 driver 只匹配父消息 `turn_id`，未接受合法的 `agent_run.parent_turn_ref`；不是产品无候选。已抽 `turnMatchesMessage` 并新增 `native_au08_projection_evidence.test.mjs` 回归，但**未再跑页面**。
+- 两批达到预注册上限，停止第三批；STALE→error→FAILED→重试→FRESH 全链没有原生 summary，不能标 done，也不能回推 AU08 CP1/P1-AUDIT-BC 已解除。
+- 局部证据：代理测试 7/7 + parent_ref 回归 1/1，JS/bash 语法与 `git diff --check` 通过。`quality_manifest_check` 仍缺 PyYAML；mutation 总门 56.3% 与 legacy survivors 未闭环。
+- 恢复选项：A（推荐）作者批准新的 scoped 预注册/预算，只重放 parent_ref 修复后的单链，不整批刷分；B 暂缓原生页面，保留代理自检与 blocked 状态并推进其他候选。未选择前不再启动 AU08 原生批次。

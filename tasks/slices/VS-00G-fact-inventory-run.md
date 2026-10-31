@@ -162,3 +162,37 @@ lint、frontend audit、design trace、I1/I2/I3、Tauri release build 与 AI 静
 - 修正项：A2 driver 旧断言只认「尚未确立主角档案」；当前产品在显式空 roster 下使用 vacuum 守则「尚无任何角色档案」（AbsenceDirective 既有语义）。断言语义仍是“缺席守则已恢复”，接受两种当前产品文案，不放宽注入/否决行为。
 - 证据：`artifacts/slice-verify/au14-assumption-provisional-injection-tauri/`、`.../au14-assumption-confirm-roundtrip-tauri/`。
 - 余项不关闭：触发 C、假定寿命催办负债、works 级假定、记忆类注入富化仍登记在任务清单。
+
+### 触发 C CP0 冻结（2026-10-31）
+
+- 状态：doing（CP0 契约与预注册 done；CP1 产品实现与局部/全量门禁已落地，真实原生页面未闭环，预算耗尽待作者裁决）
+- **Contract**：复用 `protagonist_undermaterialized` R5 finding 作为唯一缺失来源，复用 `start_fact_inventory` 作为唯一启动入口，复用 `adjudicate_finding(disposition=dismiss)` 作为关闭与持久去重来源；不新增关键词触发器、卡片类型、状态表或第二 run。
+- **Invariant**：自动提议只提供入口，不自动启动 run、不写 canon、不自动采纳；同一 work+rule 只提一次，关闭/刷新后不重提；已 disposition 的 finding 不再展示。作者明确点击才进入既有 tentative 盘点链。
+- **Boundary**：application/web 只读现有 finding 并投影提议与作者动作；frontend 复用当前 finding/action 展示；persistence 只复用既有 disposition 与 canon 事实。不得把新提议写成模型回复或系统伪造 TurnResult。
+- **Consumer**：真实 WorkspaceChat 中的 R5 提议、关闭按钮与既有设定盘点入口。
+- **Proof**：R5→提议可见且无 author_action/canon→dismiss→刷新/再扫描无重提→作者点击后才 `start_fact_inventory`；关闭前后只读 DB 一致；无新卡片类型或验收 hook。
+- **Acceptance Driver**：外部 AX/CGEvent 驱动真实 Tauri WorkspaceChat，记录提议、关闭、刷新与显式启动；产品验收感知 no。
+- **Exploration**：提议源自既有 R5 对账事实，不从作者文本猜关键词；启动后仍走同一作品事实读取与 tentative 采纳边界。
+- 预注册：`artifacts/model-contracts/vs00g-trigger-c/preregistration.json`（批次 ≤2、单批 ≤600s、slice_verify、失败只读）。CP1 实现与真实页面验收未做。
+
+### 触发 C CP1 实现与原生未闭环（2026-10-31）
+
+- 状态：**done（2026-11-01 收口）**：实现+非原生门禁+输入路径对照+真实原生业务批次 PASS（`business-replay-08`，13/13，surface=tauri）；期间修复产品缺陷「重复审读后原提议丢失可关闭入口」。
+- **实现已落地，CP1 不得标 done**：`FactInventoryProposal` 从真实 R5 报告在审读/采纳 TurnResult 投影既有 `start_fact_inventory` 与 `adjudicate_finding(dismiss)`；不新增卡片、schema、状态表或第二 run。未关闭去重以全作品历史 TurnResult 的 `fact_inventory.start` 为已展示凭据；关闭去重读报告 disposition；旧提议提交由服务端重绑当前活跃同规则 finding；恢复历史只撤动作不改原始回执。
+- **非原生证据**：相关后端 36+48、前端 23；全量后端 2499/2499、前端 660/660、质量库 295/295；I1/I2/I3、compile/format/credo/xref/arch、frontend audit 27、design trace 19、Tauri build 通过。
+- **原生失败事实**：`cp1-01` 在 prepare 因含空格标题被 seed 读取器截断而失败，已修为只读 DB 标题；`cp1-02` 在作品选择阶段 `work_not_selected`，两次菜单尝试无目标项。两批均未进入审读/盘点，无原生 summary，原预算耗尽。
+- **scoped 观察**：`startup-01` 因新增诊断脚本嵌套等待账 `invalid_wait_begin` 失败，已拆开激活与作品选择步骤。按作者要求新增观察预注册 `artifacts/model-contracts/vs00g-trigger-c-observation/preregistration.json` 与 `observe-01`，只观察菜单、不重启、不执行业务动作；证据 `artifacts/slice-verify/vs00g-trigger-c-tauri-native-observe-01/native-vs00g-observation.json`。
+- **直接原因（已证实）**：两次 `AXPress` 均返回 `{ok:true, method:"axpress"}`，但 800ms 后主窗口 `AXMenuItem=0/AXMenu=0`，全窗口只有系统/Dock 菜单而无作品菜单；点击后的 HTTP/WS/author_action 均为空。因此失败发生在 harness 的菜单输入/投影阶段，不在 R5、报告、关闭或盘点业务链。
+- **实现原因（已证实）**：旧 `rawSwitchWork` 只用 `AXPress`，未记录点击返回/焦点/菜单角色，且 `AXPerformAction` 成功被误当作 UI 已改变；重复同一路径无法区分输入未送达、菜单未打开和 AX 投影缺失。新日志已补 safeClick 返回、frontmost、主窗口/全窗口菜单项和传输摘要；`frontmost` 探针初次漏应用参数的实现问题也已修为全局命令并自检通过。
+- **间接/设计原因（部分证实，部分待证）**：旧驱动把成功 AX 调用当作状态成功，缺少 postcondition 与输入路径对照；重启兜底会遮蔽第一次输入失败。macOS `activateIgnoringOtherApps` 已弃用、菜单可能依赖焦点/时序、Radix `DropdownMenu.Trigger` 与 `AXPress` 的映射均是**待证假设**，当前证据不能断言产品菜单缺陷或焦点根因。
+- **下一步边界**：需在独立预注册下做 `AXShowMenu` 与 CGEvent 的同窗口对照，才能判定输入路径；不得再按原路径刷批次。`observe-01` 仅证明观察完成，不签 CP1、原生业务 PASS 或产品缺陷结论。真实模型质量、works 级假定、记忆类富化与 I10 不在本 CP 关闭。
+- **输入对照补充（`input-01`）**：`AXShowMenu` 的 frontmost 确为 `com.ai-novel-studio.app`，返回 ok，但截图/AX 显示的是 WebView Copy/Speech/Inspect 上下文菜单（menu=2/items=12），不是 Radix 作品菜单，证明它不能替代普通左键。随后 CGEvent 未出现目标菜单，但其前置上下文菜单是否被 Escape 真正关闭没有独立证据，故本批不能判 CGEvent 无效，也不能判产品菜单有缺陷。需要全新窗口的普通 CGEvent 单独验证；本批不签业务 PASS。证据 `artifacts/slice-verify/vs00g-trigger-c-tauri-native-input-01/native-vs00g-input-path.json`。
+- **普通点击已证实（`click-01`）**：全新窗口仅一次 CGEvent 后，主窗口出现 Radix `AXMenu` 与 4 个 `AXMenuItem`，目标作品项精确命中，截图可见两作品；frontmost 正确。runner 的 evidence 脚本将 `verify` 误当目录的问题已修，临时副本核验 `all_checks_passed=true / pass_scope=input_path_observation`，原失败目录未改写。共用 `rawSwitchWork` 的菜单打开与菜单项选择已改用 CGEvent；业务复验预注册 `artifacts/model-contracts/vs00g-trigger-c-business/preregistration.json`。
+
+#### 触发 C CP1 收口（2026-11-01）：产品缺陷修复 + 原生 13/13
+
+- **产品缺陷（CP0→修复→scoped 复验）**：`FactInventoryProposal.attach/2` 把「已展示过 start」与「已处置」合并成同一个 `already_dispositioned?` 跳过，导致重复审读后 TurnResult 不附加任何动作——页面「关闭盘点提议」按钮消失、作者无法关闭原提议。修复：拆分 `dispositioned?`/`shown?` 两种去重语义——已处置完全不附加；已展示未处置时追加 **dismiss-only** 动作（不重复 start）并补「此前的盘点提议仍待处理」文案；新增单测覆盖；`fact_inventory_proposal_test` 5/5。
+- **driver/evidence 口径对齐（不降低判定意图）**：重复审读断言由「无任何提议动作」修正为「不重复 start、保留 dismiss」；dismiss 等待与 evidence 接受服务端**重绑到最新 report** 的 target_ref（以 `finding:` 绑定，并要求 payload.report_id 与新 report 一致）；「已展示」DB 凭据取第一次审读后 checkpoint（interactions 异步写入时序）。
+- **原生业务批次 PASS**：`artifacts/slice-verify/vs00g-trigger-c-tauri-native-business-replay-08/`，`summary.json`：`surface=tauri`、driver `ax-native-system-ui`、**13/13**、elapsed 29s；覆盖：提议来自既有 R5、无 run/canon 写入、重复审读不重复发起且原提议保留可关闭、关闭持久化且刷新/重启不重提、旧提议重绑活跃 finding、独立作品独立提议、显式发起走既有 fact_inventory_v1、无新卡片/验收 hook、关闭前后零 canon 写、wait 账完整。
+- **预算与失败批次（只读保留）**：`business-replay-01`（预注册路径格式）、`-02`（原提议保留断言时机）、`-03`（会话中断）、`-04`（重复发起断言过宽）、`-05`（dismiss target 重绑）、`-06`（evidence target/重绑口径）、`-07`（已展示 receipt 时序）——每批 root-cause 均已修正，失败目录不改写；`-08` 为修复后 scoped 回归 PASS。
+- **残余（不代签）**：真实模型质量、works 级假定、记忆类注入富化、I10 文学盲评不在本 CP；跨平台未验证。

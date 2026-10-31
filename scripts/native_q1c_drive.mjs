@@ -7,34 +7,37 @@
 //
 // 用法：node scripts/native_q1c_drive.mjs <batch-run-dir>
 import path from "node:path";
-import { readJson, sleep } from "./lib/native_ui/driver.mjs";
-import { NativeScenarioHarness, ROOT, ensureWorkSelected, frameBody } from "./lib/native_ui/scenario_driver.mjs";
+import { readJson } from "./lib/native_ui/driver.mjs";
+import {
+  actionMatchesArtifact,
+  isOverwriteConfirmation,
+} from "./lib/native_ui/adoption_contract.mjs";
+import {
+  NativeScenarioHarness,
+  ROOT,
+  ensureWorkSelected,
+  frameBody,
+  runEvidenceMode,
+} from "./lib/native_ui/scenario_driver.mjs";
 
 const dir = path.resolve(process.argv[2] ?? "");
 if (!dir) {
   console.error("usage: node scripts/native_q1c_drive.mjs <batch-run-dir>");
   process.exit(64);
 }
+const EVIDENCE = path.join(ROOT, "scripts/native_q1c_evidence.mjs");
 const harness = new NativeScenarioHarness(dir);
-const nonce = `Q1CNATIVE${Date.now()}`;
 
-const SOURCE_TEXT = `岑舟今年二十五岁，是青云宗宗主，掌管东洲灵脉。资料校验标识${nonce}。`;
-const SOURCE_MESSAGE = `请把以下原文登记为作品设定，不要改写：${SOURCE_TEXT}`;
-const REVISION_MESSAGE = `请把已保存的设定里岑舟的年龄从二十五岁改成三十岁，其他内容保持不变。资料校验标识${nonce}。`;
-const FOLLOWUP_MESSAGE = "岑舟今年多少岁？请依据当前已保存的作品设定回答。";
-
-const clickByTitle = (title, label) => {
-  const nodes = harness.dumpNodes();
-  const button = harness.findButton(nodes, title);
-  if (button) {
-    harness.safeClick(button, label);
-    return true;
-  }
-  const node = nodes.find(
+const findByTitle = (nodes, title) =>
+  harness.findButton(nodes, title) ??
+  nodes.find(
     (candidate) =>
       (candidate.role === "AXButton" || candidate.role === "AXStaticText") &&
       (candidate.title === title || candidate.value === title),
   );
+
+const clickByTitle = (title, label) => {
+  const node = findByTitle(harness.dumpNodes(), title);
   if (!node) return false;
   harness.safeClick(node, label);
   return true;
@@ -48,51 +51,88 @@ const wireFrames = (wire, direction, event) =>
 
 const pendingOf = (turnResult) =>
   (turnResult?.adoption_state?.pending ?? []).find(
-    (entry) => entry.artifact_type === "memory_item" || entry.artifact_type === "world_setting" || entry.artifact_type,
+    (entry) =>
+      entry.artifact_type === "memory_item" ||
+      entry.artifact_type === "world_setting" ||
+      entry.artifact_type === "character_profile" ||
+      Boolean(entry.artifact_type),
   );
 
 async function sendMessage(text, label) {
-  return harness.runStep("input", `${label}_send`, () => harness.rawTypeAndSend(text, label));
+  const sent = await harness.runStep("input", `${label}_send`, () =>
+    harness.rawTypeAndSend(text, label),
+  );
+  await harness.runStep("ack", `${label}_ack`, () =>
+    harness.pollWire((records) => harness.ackFor(records, sent), 30_000, `${label}_ack`),
+  );
+  return sent;
 }
 
 async function waitPending(turnId, label) {
-  return harness.pollWire(
-    (records) =>
-      wireFrames(records, "received", "turn_result").find((record) => {
-        const body = frameBody(record);
-        return body.turn_id === turnId && (body.adoption_state?.pending ?? []).length > 0;
-      }) ?? null,
-    120_000,
-    label,
+  return harness.runStep("turn", label, () =>
+    harness.pollWire(
+      (records) =>
+        wireFrames(records, "received", "turn_result").find((record) => {
+          const body = frameBody(record);
+          return body.turn_id === turnId && (body.adoption_state?.pending ?? []).length > 0;
+        }) ?? null,
+      120_000,
+      label,
+    ),
   );
 }
 
 async function acceptPending(pending, label) {
-  const acceptLabel = pending?.artifact_type === "world_setting" ? "保存到作品档案" : "保存到作品";
-  await harness.runStep("adoption", `${label}_accept`, () => {
+  const artifactId = pending?.artifact_id;
+  if (!artifactId) throw new Error(`${label}_pending_artifact_missing`);
+  const acceptLabel = pending.artifact_type === "world_setting" ? "保存到作品档案" : "保存到作品";
+  await harness.runStep("candidate", `${label}_accept_visible`, () =>
+    harness.pollAx(
+      (_text, nodes) => Boolean(findByTitle(nodes, acceptLabel) || findByTitle(nodes, "保存到作品")),
+      45_000,
+      `${label}_accept_visible`,
+    ),
+  );
+  return harness.runStep("adoption", `${label}_accept`, async () => {
+    const startedAt = harness.nowIso();
     const clicked =
       clickByTitle(acceptLabel, `${label}_accept`) || clickByTitle("保存到作品", `${label}_accept`);
     if (!clicked) throw new Error(`${label}_accept_button_missing:${acceptLabel}`);
-    return true;
+    const actionSent = await harness.pollWire(
+      (records) =>
+        wireFrames(records, "sent", "author_action").find((record) => {
+          const body = frameBody(record);
+          return record.at >= startedAt && body.action?.target_ref === artifactId;
+        }) ?? null,
+      30_000,
+      `${label}_author_action_sent`,
+    );
+    const actionId = frameBody(actionSent)?.action?.action_id ?? null;
+    return harness.pollWire(
+      (records) =>
+        wireFrames(records, "received", "action_result").find((record) => {
+          const body = frameBody(record);
+          return (
+            record.at >= actionSent.at &&
+            actionMatchesArtifact(body, artifactId, actionId) &&
+            (body.status === "accepted" || isOverwriteConfirmation(body))
+          );
+        }) ?? null,
+      60_000,
+      `${label}_action_result`,
+    );
   });
-  return harness.pollWire(
-    (records) => {
-      const action = wireFrames(records, "received", "action_result").find(
-        (record) => frameBody(record).status === "accepted" || frameBody(record).status === "requires_confirmation",
-      );
-      return action ?? null;
-    },
-    60_000,
-    `${label}_action_result`,
-  );
 }
 
-async function confirmIfRequired(actionResult) {
-  const body = frameBody(actionResult);
-  if (body?.status !== "requires_confirmation" && body?.decision_type !== "require_confirmation") {
-    return false;
-  }
-  await harness.runStep("adoption", "confirm_overwrite", () => {
+async function confirmIfRequired(actionResult, captureName) {
+  if (!isOverwriteConfirmation(frameBody(actionResult))) return false;
+  await harness.runStep("adoption", "confirm_overwrite", async () => {
+    await harness.pollAx(
+      (_text, nodes) => Boolean(findByTitle(nodes, "确认执行")),
+      30_000,
+      "confirm_overwrite_visible",
+    );
+    harness.capture(captureName);
     if (!clickByTitle("确认执行", "confirm_overwrite")) {
       throw new Error("confirm_button_missing");
     }
@@ -102,40 +142,35 @@ async function confirmIfRequired(actionResult) {
 }
 
 async function waitAdopted(artifactId, label) {
-  return harness.pollWire(
-    (records) =>
-      wireFrames(records, "received", "turn_result").find((record) => {
-        const body = frameBody(record);
-        return (
-          body.truthfulness?.artifact_adopted === true &&
-          (body.adoption_state?.resolved ?? []).some((entry) => entry.artifact_id === artifactId)
-        );
-      }) ?? null,
-    120_000,
-    label,
+  return harness.runStep("ack", label, () =>
+    harness.pollWire(
+      (records) =>
+        wireFrames(records, "received", "turn_result").find((record) => {
+          const body = frameBody(record);
+          return (
+            body.truthfulness?.artifact_adopted === true &&
+            (body.adoption_state?.resolved ?? []).some((entry) => entry.artifact_id === artifactId)
+          );
+        }) ?? null,
+      120_000,
+      label,
+    ),
   );
 }
 
 async function run() {
-  const configPath = path.join(dir, "native-q1c-config.json");
-  let config = {};
-  try {
-    config = readJson(configPath);
-  } catch {
-    config = {};
-  }
+  runEvidenceMode(EVIDENCE, "prepare", dir);
+  const config = readJson(path.join(dir, "native-q1c-config.json"));
 
   await harness.runStep("maintenance", "launch_app", () => harness.rawLaunchApp());
   await harness.runStep("maintenance", "workbench_ready:initial", () =>
     harness.rawWaitWorkbenchSettled("initial"),
   );
-  if (config.target?.work_id) {
-    await ensureWorkSelected(harness, config.target.work_id, config.target.work_title, "initial");
-  }
+  await ensureWorkSelected(harness, config.target.work_id, config.target.work_title, "initial");
   harness.capture("00-workbench");
+  runEvidenceMode(EVIDENCE, "capture", dir, ["start"]);
 
-  // 1. 源设定：登记原文 → pending → 采纳 → adopted。
-  const sourceSent = await sendMessage(SOURCE_MESSAGE, "source");
+  const sourceSent = await sendMessage(config.messages.source, "source");
   const sourceTurnId = String(frameBody(sourceSent)?.turn_id ?? "");
   const sourcePendingRecord = await waitPending(sourceTurnId, "source_pending");
   const sourcePending = pendingOf(frameBody(sourcePendingRecord));
@@ -144,62 +179,71 @@ async function run() {
   const sourceAdopted = await waitAdopted(sourcePending?.artifact_id, "source_adopted");
   harness.capture("02-source-adopted");
 
-  // 2. 修订：年龄 25→30 → pending（revision_of）→ 采纳 → 覆盖确认 → adopted。
-  const revisionSent = await sendMessage(REVISION_MESSAGE, "revision");
+  const revisionSent = await sendMessage(config.messages.revision, "revision");
   const revisionTurnId = String(frameBody(revisionSent)?.turn_id ?? "");
   const revisionPendingRecord = await waitPending(revisionTurnId, "revision_pending");
   const revisionPending = pendingOf(frameBody(revisionPendingRecord));
   harness.capture("03-revision-pending");
   const actionResult = await acceptPending(revisionPending, "revision");
-  await confirmIfRequired(actionResult);
+  const confirmationRequired = await confirmIfRequired(actionResult, "03b-revision-confirmation");
   const revisionAdopted = await waitAdopted(revisionPending?.artifact_id, "revision_adopted");
   harness.capture("04-revision-adopted");
 
-  // 3. 追问：页面必须读到新值（30 岁）而非旧值。
-  const followupSent = await sendMessage(FOLLOWUP_MESSAGE, "followup");
+  await harness.runStep("restore", "close_relaunch_after_revision", () =>
+    harness.rawCloseAppAndRelaunch(),
+  );
+  await harness.runStep("maintenance", "workbench_ready:final", () =>
+    harness.rawWaitWorkbenchSettled("final"),
+  );
+  await ensureWorkSelected(harness, config.target.work_id, config.target.work_title, "final");
+  harness.capture("04b-restarted");
+
+  const followupSent = await sendMessage(config.messages.followup, "followup");
   const followupTurnId = String(frameBody(followupSent)?.turn_id ?? "");
-  const followupRecord = await harness.pollWire(
-    (records) =>
-      wireFrames(records, "received", "turn_result").find((record) => {
-        const body = frameBody(record);
-        return body.turn_id === followupTurnId && body.assistant_message != null;
-      }) ?? null,
-    120_000,
-    "followup_turn_result",
+  const followupRecord = await harness.runStep("turn", "followup_turn_result", () =>
+    harness.pollWire(
+      (records) =>
+        wireFrames(records, "received", "turn_result").find((record) => {
+          const body = frameBody(record);
+          return body.turn_id === followupTurnId && body.assistant_message != null;
+        }) ?? null,
+      120_000,
+      "followup_turn_result",
+    ),
+  );
+  await harness.runStep("maintenance", "followup_new_value_visible", () =>
+    harness.pollAx(
+      (text) => text.includes(config.expected.new_age),
+      45_000,
+      "followup_new_value_visible",
+    ),
   );
   harness.capture("05-followup");
-  await harness.runStep("maintenance", "followup_new_value_visible", () =>
-    harness.pollAx((text) => text.includes("三十岁"), 45_000, "followup_new_value_visible"),
-  );
+  runEvidenceMode(EVIDENCE, "capture", dir, ["final"]);
 
-  const report = {
+  harness.writeDriverLog("native-q1c-report.json", {
+    slice_id: config.slice_id,
     audit: "q1c-adopted-content-revision-native",
     generated_at: new Date().toISOString(),
-    provider: "slice_verify",
-    nonce,
+    provider: config.provider,
+    nonce: config.nonce,
     source: { turn_id: sourceTurnId, adopted_turn: frameBody(sourceAdopted)?.turn_id ?? null },
     revision: {
       turn_id: revisionTurnId,
       adopted_turn: frameBody(revisionAdopted)?.turn_id ?? null,
-      confirmation_required: frameBody(actionResult)?.status === "requires_confirmation",
+      confirmation_required: confirmationRequired,
     },
     followup: {
       turn_id: followupTurnId,
       assistant_message: frameBody(followupRecord)?.assistant_message?.text ?? null,
       new_value_visible: true,
     },
-  };
-  const reportPath = path.join(dir, "native-q1c-report.json");
-  await import("node:fs").then((fs) => fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`));
-  await sleep(1_000);
+  });
+  harness.writeUiComplete(config.slice_id);
+  console.log(
+    `Q1c 原生驱动完成: work=${config.target.work_id} source=${sourceTurnId} ` +
+      `revision=${revisionTurnId} followup=${followupTurnId} screenshots=${harness.screenshots.length}`,
+  );
 }
 
-run().catch((error) => {
-  console.error(`[q1c-drive] error: ${error?.stack ?? error}`);
-  try {
-    harness.capture("99-error");
-  } catch {
-    /* ignore */
-  }
-  process.exit(1);
-});
+run().catch((error) => harness.fail(error));

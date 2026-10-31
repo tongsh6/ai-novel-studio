@@ -44,6 +44,8 @@
 | `lib/quality/au15_evidence.mjs` | B39 CP1d AU-15 证据 sidecar：解析 llm-calls 请求字节，对照 trace base/observation/used refs，产出机制/模型行为分层与 observed_in_calls；CLI `au15_evidence.mjs verify <dir> --scenario A0|A1|A2`。 |
 | `quality_manifest_check.sh` | quality manifest 门禁：PyYAML 标准解析 + `scripts/lib/quality/manifest.mjs` 语义校验（非法 YAML/重复键/词表/未注册/draft 硬失败；B41 CP1）。 |
 | `author_behavior_check.mjs` | B70 CP0 author-behavior 冻结语料/状态/oracle/覆盖报告格式校验（PyYAML 标准解析；schema/引用/provenance/split/holdout 泄漏/覆盖报告一致性；exit 66 格式错误）。 |
+| `author_behavior_offline_generate.mjs` | B72 离线生成唯一 CLI：仅显式 `--offline` 运行确定性执行器，真实模型校准未接线；生成 manifest/candidates/coverage 且旧文件不可覆盖，不自动改正式 corpus。 |
+| `lib/quality/author_behavior_offline_generator.mjs` / `.test.mjs` | B72 离线生成器与 12 条正反例：manifest/persona/semantic cell 校验、expected seed 派生、去重/holdout 泄漏、失败留痕、multi_turn 候选、审核与原子落盘；mutation 未闭环见 B72。 |
 | `lib/quality/author_behavior_oracle.mjs` | B70 CP1 author-behavior 确定性 oracle 评估器：allowed action/effect、硬违规（错对象/未授权写/重复副作用/虚假完成/讨论强制写）、unknown 不判 PASS、覆盖报告生成（`author-behavior-coverage-report/v1`）。 |
 | `lib/quality/author_behavior_pr_subset.mjs` | B70 CP3 PR 受影响子集：变更路径→应跑 case/场景映射（docs-only 空集、未知路径保守全选）；CLI `author_behavior_pr_subset.mjs`。 |
 | `author_behavior_real_llm_plan.mjs` | B70 CP3 真实模型 holdout-only 预注册生成器（不加载模型；单槽/卸载/预算/判据/I10 不代签）；对应 scenario release-real-llm blocked。 |
@@ -52,6 +54,11 @@
 | `lib/quality/author_behavior_real_llm.mjs` | B70 CP3 实模预注册构造（holdout-only/单槽/卸载/语义与 I10 边界）；CLI 为 `author_behavior_real_llm_plan.mjs`。 |
 | `lib/quality/author_behavior_explorer.mjs` | B70 CP2 seeded 状态探索器：确定性 PRNG/探索计划、逐步状态转移与覆盖汇总、失败缩化（保同一类别最小序列）、去重指纹；正反例见同目录测试。 |
 | `lib/quality/author_behavior_generator.mjs` | B70 CP1 离线确定性语料生成器：模板生成候选 + generated_frozen provenance（source_refs/generator/时间），只产候选、不自动冻结/不标 holdout；正反例见同目录测试。 |
+| `seed_vs00g_trigger_c.exs` / `native_vs00g_trigger_c_{drive,evidence}.mjs` / `native_vs00g_trigger_c_batch.sh` | VS00G 触发 C：两作品 R5 提议、未关闭/关闭后去重、原生恢复、活跃 finding 重绑与显式盘点；detached 批次 + 只读证据。 |
+| `native_vs00g_trigger_c_startup_{drive,evidence}.mjs` / `native_vs00g_trigger_c_startup_batch.sh` | VS00G scoped 前置诊断：仅窗口激活与作品选择，不签业务 CP。 |
+| `native_vs00g_trigger_c_observe_{drive,evidence}.mjs` / `native_vs00g_trigger_c_observe_batch.sh` | VS00G 菜单根因观察：记录 safeClick、frontmost、AX 菜单角色与点击后传输，不重启、不执行业务动作。 |
+| `native_vs00g_trigger_c_input_{drive,evidence}.mjs` / `native_vs00g_trigger_c_input_batch.sh` | VS00G AXShowMenu/CGEvent 输入对照：各一次菜单输入，验证目标 Radix 菜单项，不签业务。 |
+| `native_vs00g_trigger_c_click_batch.sh` | VS00G 新窗口普通 CGEvent 单点批次：禁用其它输入，证明目标菜单输入路径。 |
 | `seed_au03_context_source_ui.exs` | AU-03 context source UI 验收 seed。 |
 | `seed_b27_request_source.exs` | B27 §9 CP3 原生实模 seed：合成作品 + 已确认 memory + 1 章 accepted 正文。 |
 | `native_b27_request_source_drive.mjs` | B27 §9 CP3 外部原生 Tauri 驱动：M1/M2 自然输入、Why 面板、问题预算、strata 单槽生命周期。 |
@@ -98,7 +105,15 @@
 | `task_done.sh` | 任务完成统一门禁入口。 |
 | `task_done_check.mjs` | task-done manifest 与 UI evidence 检查。 |
 | `tauri_slice_verify.sh` | 启动 Tauri 的验收入口；默认交互为 Chromium，summary 如实标 browser；B26 的 `TAURI_NATIVE_SYSTEM_DRIVER=1` 使用外部系统 UI 驱动原生窗口。 |
-| `native_question_transport_proxy.mjs` | B26 原生验收外部 WebSocket/HTTP 代理；复用已安装 ws，按证据目录 control 文件丢 ack/断线或改绑负例，生产代码无感知。 |
+| `native_question_transport_proxy.mjs` | B26/AU08 原生验收外部 WebSocket/HTTP 代理；复用已安装 ws，按证据目录 control 文件丢 ack/断线、改绑负例，或对 `get_toc`/`get_chapter_content` 注入一次性 error/有界 delay，生产代码无感知。 |
+| `native_question_transport_proxy.test.mjs` | AU08 channel 故障契约与真实 WS 代理自检：error 零上游、ref/topic 绑定、耗次恢复、delay 上限与真实转发。 |
+| `native_au08_projection_drive.mjs` / `native_au08_projection_evidence.mjs` | AU08 原生 ReadingMode 故障恢复：真实生成/采纳→STALE→一次章节读取 error→FAILED→重试恢复；核验同 ref、AX、恢复帧与只读 DB 快照。 |
+| `native_au08_projection_batch.sh` | AU08 原生批次 detached/状态编排；预注册 `artifacts/model-contracts/au08-channel-fault/preregistration.json`，失败目录只读。 |
+| `native_au08_projection_evidence.test.mjs` | AU08 agent step `turn_result` 以 `agent_run.parent_turn_ref` 关联源消息的回归；防止误等父 turn_id 超时。 |
+| `native_ua01_run_failed_drive.mjs` / `native_ua01_run_failed_evidence.mjs` | UA01-LOG 原生最终 run_failed：既有 SliceVerify 标记触发，核验 wire/app-log/AgentRunLog/AgentEvent 的 turn/work/session/run 关联与作者安全；2026-10-31 `ua01-cp1-01` 原生 8/8 PASS。 |
+| `native_ua01_run_failed_batch.sh` | UA01-LOG 原生 detached 批次；预注册 `artifacts/model-contracts/ua01-run-failed/preregistration.json`，失败目录只读。 |
+| `native_q1c_drive.mjs` / `native_q1c_evidence.mjs` / `native_q1c_batch.sh` | Q1c 原生补验 WIP（blocked）：已采纳设定修订与版本链原生 driver/evidence/批次编排；registry 已按原生接线登记 `surface: tauri`（driver=`native_q1c_batch.sh`），但登记不等于原生 PASS，当前预算耗尽，不得作为原生 PASS 入口。 |
+| `native_q1c_evidence.test.mjs` | Q1c 现役候选 payload/revision_of、覆盖确认和回执目标绑定契约测试。 |
 | `native_business_evidence_check.mjs` | B26 原生业务结果与续行问题验收；按实际用户操作、传输和持久事实核对来源、幂等、采纳边界与缺口收尾。 |
 | `native_plan_evidence_check.mjs` | B26 既有多步计划场景的额外原生矩阵：同响应计划、独立起草与耗尽修订，核对来源、实际调用、编排和待采纳持久结果。 |
 | `native_question_evidence_check.mjs` | B26 原生问题回复：本次启动 nonce、原生截图、源动作日志与持久输入字节对账；不驱动产品、不接受 Chromium 证据。 |
@@ -139,6 +154,8 @@
 
 
 B26 扩展故障/分页模式额外设置 `TAURI_NATIVE_TRANSPORT_PROXY=1`：外部驱动可在产物目录写 `transport-control.json`，`drop_next_author_ack: true` 在下一次问题回答已被服务器接受后丢 ack 并断线，`tamper_next_author_action: {target_ref: ...}` 只改变外部 wire 作为跨 run 负例。生产代码无感知。完整帧进入 `native-transport.jsonl`；完成记录可声明 `transport_replay`、`paged_question_refs`、`cross_run_rejection`，checker 核对实际帧/分页/持久状态，不接受仅凭人工布尔断言。分页16轮必须成功且零方向/产物；失败批次应独立保留，不覆盖为成功。
+
+AU08 只读 channel 故障复用同一 control 文件，例如 `{"channel_faults":{"get_toc":{"mode":"error","count":1},"get_chapter_content":{"mode":"delay","count":1,"delay_ms":200}}}`。事件仅限 `get_toc` / `get_chapter_content`；`error` 返回同 ref/topic 的 `phx_reply(status=error, reason=external_channel_fault)` 且不调用上游，`delay` 上限 30000ms、到期真实转发；次数 1–10，耗尽自动恢复。代理日志以 `channel_error_injected` / `channel_delay_started` / `channel_delay_released` 记录实际命中，不能用控制文件本身冒充故障已发生。自检：`node --test scripts/native_question_transport_proxy.test.mjs`。
 
 
 原生验收可加 `TAURI_NATIVE_ARTIFACT_TAG=scope` 等目录标签（仅小写字母/数字/连字符，最多32字符），保留不同矩阵批次；标签只用于脚本证据路径，不进入产品。B26 作用域变体先完成两种问题答复，再创建未答问题、开启新会话并从历史入口只读查看，切换到新作品后用外部代理构造跨作品 target 负例；保存历史只读快照及完整帧，`scope_switch` 对账原问题版本/状态与两个作品输入均未改变。

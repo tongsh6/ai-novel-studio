@@ -16,6 +16,10 @@
 | `fixtures.yml` | `author-behavior-fixtures/v1` | 确定性页面 runner 的**刺激源**映射（表达→最小 reply/ask_author）；与 oracle 判据独立，不读 cases.expected，防止“同一份预期答案既生成响应又判卷”。 |
 | `schemas/*.json` | — | 五类格式的 JSON Schema（目标/状态/案例/oracle/覆盖报告）；schema 版本一旦冻结，改版须新版本槽位，不得原地漂移。 |
 | `coverage-report.example.json` | `author-behavior-coverage-report/v1` | 覆盖报告格式示例；真实报告由 CP1 生成到 `artifacts/author-behavior/`，不提交。 |
+| `personas.json` | `author-behavior-personas/v1` | B72 的 12 个行为画像：表达、委托、澄清耐心、采纳、写入敏感、纠正/反悔、长输入、多作品与多轮倾向；不使用现实人口刻板属性。 |
+| `schemas/personas.schema.json` | `author-behavior-personas/v1` | persona sidecar 的 JSON Schema。 |
+| `schemas/generation-manifest.schema.json` | `author-behavior-generation-manifest/v1` | 离线生成预注册：来源、输入语义单元、persona、预算、隐私、输出与失败留痕。 |
+| `schemas/generation-candidates.schema.json` | `author-behavior-generation-candidates/v1` | 候选包：审核状态、boundary/persona/layer、expected seed 派生、去重/泄漏、raw response 与覆盖报告；不等于冻结/PASS。 |
 
 机器校验：`node scripts/author_behavior_check.mjs`（PyYAML 经既有 `scripts/lib/quality/yaml_bridge.py` 解析，单一 YAML 解析源）；CLI 退出码 0 通过 / 66 格式或引用错误。
 

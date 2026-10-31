@@ -1,10 +1,9 @@
 id: q1c-adopted-content-revision
 title: 已采纳内容修订、覆盖确认与后续上下文
 tier: nightly
-surface: browser
-runner: slice_verify
+surface: tauri
 default_provider: slice_verify
-entrypoint: scripts/quality_accept.sh q1c-adopted-content-revision --surface browser
+entrypoint: scripts/quality_accept.sh q1c-adopted-content-revision --surface tauri
 
 contract:
   - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
@@ -24,13 +23,13 @@ invariants:
 setup:
   provider: slice_verify
   seed: null
-  artifact_dir: artifacts/slice-verify/q1c-adopted-content-revision
+  artifact_dir: artifacts/slice-verify/q1c-adopted-content-revision-tauri-native-<tag>
   prerequisites:
     - 使用隔离 test DB；不注册验收 provider 到 production runtime。
     - 产品代码不得读取 slice id、验收 env、URL query、localStorage 或隐藏 DOM metadata。
 
 user_flow:
-  - open: real browser workbench
+  - open: real Tauri workbench
   - send: 把作者原文登记为作品设定
   - click: 保存到作品档案
   - send: 请把已保存设定里岑舟的年龄从二十五岁改成三十岁
@@ -46,9 +45,9 @@ evidence:
     - screenshot
     - websocket_frames
     - app_jsonl
-    - audit_report
+    - persistence_snapshot
     - summary_json
-  artifact_dir: artifacts/slice-verify/q1c-adopted-content-revision
+  artifact_dir: artifacts/slice-verify/q1c-adopted-content-revision-tauri-native-<tag>
 
 assertions:
   ui:

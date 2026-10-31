@@ -580,6 +580,81 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert turn_result.agent_run.profile_ref == "judgment_loop_v1"
   end
 
+  test "run_failed and provider error JSONL share source turn correlation" do
+    parent = self()
+    old_enabled = Application.get_env(:novel_common, :log_jsonl_enabled)
+    old_dir = Application.get_env(:novel_common, :log_jsonl_dir)
+
+    dir =
+      Path.join(System.tmp_dir!(), "agent-run-failed-log-#{System.unique_integer([:positive])}")
+
+    Application.put_env(:novel_common, :log_jsonl_enabled, true)
+    Application.put_env(:novel_common, :log_jsonl_dir, dir)
+
+    on_exit(fn ->
+      if is_nil(old_enabled),
+        do: Application.delete_env(:novel_common, :log_jsonl_enabled),
+        else: Application.put_env(:novel_common, :log_jsonl_enabled, old_enabled)
+
+      if is_nil(old_dir),
+        do: Application.delete_env(:novel_common, :log_jsonl_dir),
+        else: Application.put_env(:novel_common, :log_jsonl_dir, old_dir)
+
+      File.rm_rf!(dir)
+    end)
+
+    execution = %Execution{
+      purpose: :conversation,
+      execute_fn: fn _prompt -> provider_activity_error_result() end
+    }
+
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :profile_routing,
+        %{
+          text: "失败日志必须关联源输入",
+          workspace_id: "ws-run-failed-join",
+          work_id: "work-run-failed-join",
+          session_id: "session-run-failed-join",
+          turn_id: "turn-run-failed-join"
+        },
+        nil,
+        execution
+      )
+
+    assert {:ok, _run_id} =
+             AgentRunService.start_bounded(spec.run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: event_sink_full(parent)
+             )
+
+    events = collect_full_events_until(:run_failed, 1_000)
+    failed = List.last(events)
+    path = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+
+    records =
+      wait_for(fn ->
+        case File.read(path) do
+          {:ok, content} ->
+            decoded = content |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1)
+
+            if Enum.any?(decoded, &(&1["event"] == "agent_run.run_failed.error")),
+              do: decoded,
+              else: nil
+
+          _ ->
+            nil
+        end
+      end)
+
+    failed_log = Enum.find(records, &(&1["event"] == "agent_run.run_failed.error"))
+    assert failed_log["workspace_id"] == "ws-run-failed-join"
+    assert failed_log["work_id"] == "work-run-failed-join"
+    assert failed_log["session_id"] == "session-run-failed-join"
+    assert failed_log["turn_id"] == "turn-run-failed-join"
+    assert failed_log["run_id"] == failed.payload.turn_result.agent_run.run_id
+  end
+
   test "provider generation timeout settles with structural reason code and author-safe fallback" do
     parent = self()
 

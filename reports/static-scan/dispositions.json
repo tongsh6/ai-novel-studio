@@ -106,5 +106,12 @@
     "updated_at": "2026-10-31",
     "handling": "命中为 WebSocket 握手用的 RFC 6455 示例 nonce（base64 的 the sample nonce），用于本地 Origin 边界探针，不是 provider/API 凭证；脚本只在本机 127.0.0.1 发握手请求。",
     "recommendation": "保留脚本；若后续改用随机 nonce 可消除该 fingerprint。"
+  },
+  "task-done-manifest|task-done-manifest|test_touched=2026-10-31T15|20|Task completion manifest and UI evidence check": {
+    "status": "deferred",
+    "owner": "kimi",
+    "updated_at": "2026-10-31",
+    "handling": "VS00G-TRIGGER-C 实现与非原生门禁完成，但原生业务验收未闭环；observe-01 只覆盖菜单根因观察，UA01 旧 summary 不能代签当前 UI。task_done 因此保持失败，不伪造新 summary 或修改判据。",
+    "recommendation": "独立预注册 AXShowMenu/CGEvent 对照并打通真实业务场景后重跑 task_done；也可由作者选择 browser 补验（保留边界）或暂缓。"
   }
 }

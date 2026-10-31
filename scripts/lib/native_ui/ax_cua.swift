@@ -177,6 +177,14 @@ func main() {
         if let d = try? JSONSerialization.data(withJSONObject: allApps()), let s = String(data: d, encoding: .utf8) { print(s) }
         exit(0)
     }
+    if cmd == "frontmost" {
+        if let app = NSWorkspace.shared.frontmostApplication {
+            json(["pid": app.processIdentifier, "bundle_identifier": app.bundleIdentifier ?? ""])
+        } else {
+            json(["pid": 0, "bundle_identifier": ""])
+        }
+        exit(0)
+    }
     guard args.count >= 3 else { print("usage: axcua <cmd> <app> ..."); exit(64) }
     let app = args[2]
     guard let pid = pidOf(app: app) else { json(["error": "app_not_running", "app": app]); exit(3) }
@@ -201,7 +209,8 @@ func main() {
         json(["ok": ok, "method": "axpress"])
     case "clickxy":
         let x = Double(args[3]) ?? 0, y = Double(args[4]) ?? 0
-        if let app2 = NSWorkspace.shared.runningApplications.first(where: { $0.processIdentifier == pid }) {
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier != pid,
+           let app2 = NSWorkspace.shared.runningApplications.first(where: { $0.processIdentifier == pid }) {
             app2.activate(options: [.activateIgnoringOtherApps]); usleep(120_000)
         }
         mouseClick(CGPoint(x: x, y: y), count: args.count > 5 ? (Int(args[5]) ?? 1) : 1)

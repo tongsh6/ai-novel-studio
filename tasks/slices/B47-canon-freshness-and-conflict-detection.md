@@ -252,7 +252,7 @@
 
 ### 10.1 角色持久层过期策略裁决材料
 
-- 状态：**todo（2026-10-30 C07=A 作者前置已解除；持久守卫、原子性与回归尚未实施）**。
+- 状态：**done（2026-10-31 C07=A 持久守卫、原子性、直接仓储/采纳回归与 browser 页面矩阵完成；native/replay 分层另登记）**。
 - 逐项讨论入口：[裁决包 C07](../2026-10-27-design-to-execution-reconciliation.md#108-c07角色持久层的过期校验)。本节维护选择及后续实施状态，不重开已经交付的历史 CP 证据。
 - 事实：入口 freshness 严格拒绝 fingerprint 变化；`AdoptionRepository.validate_character_fingerprint/3` 仍允许 fingerprint 不同但 `old_role` 等于当前 narrative_role 的情况。此次仅核实代码差异，不据此声称已有误写事故。
 - **A（推荐）**：变更写入在持久层也严格核对整体 fingerprint。统一权威写入边界，但无关字段改变也会使旧候选失效，作者需重新生成/确认；补直接仓储、并发/事务及真实页面回归。
@@ -280,7 +280,7 @@
 
 ### 10.4 C07 实施 checkpoint
 
-- 状态：**doing（2026-10-31 CP0–CP2 done；CP3 外部真实角色修订页面待做）**。
+- 状态：**done（2026-10-31 CP0–CP3 browser surface done；native surface 与独立 replay 未覆盖，分开登记）**。
 
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|

@@ -397,7 +397,7 @@ git diff --check                                # clean
 
 ## 13. 候选失败策略裁决材料
 
-- 状态：**todo（2026-10-30 作者已确认 C06=A；旧目标退役、替代覆盖与 registry 同步尚未执行）**。
+- 状态：**done（2026-10-31 C06=A 退役、替代覆盖与 registry 同步完成；native/真实模型另登记，见 §13.4）**。
 - 来源：§10.1、§11.3 的 `au02-candidate-fallback-ui`；逐项讨论入口见 [裁决包 C06](../2026-10-27-design-to-execution-reconciliation.md#107-c06坏候选后如何恢复)。本节是该裁决及后续处置的唯一状态入口。
 - 当前事实：协议会先安全拒绝/降级坏空候选；本次只读核对 `dialogue_planning_service.ex` 的 `judgment_candidates/2` 只映射过滤模型候选，没有调用旧 `Planner.fallback_candidates/1`。旧函数仍有三条通用方向定义，旧注释不能证明它在主链可达。
 - **A（推荐）**：退役“APP 自动补方向”的旧产品目标，保留安全失败和作者可恢复体验；需为旧场景给出退役依据与当前失败/恢复替代覆盖，不是只删负例。
