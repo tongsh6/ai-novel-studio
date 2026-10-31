@@ -398,11 +398,62 @@ defmodule NovelApplication.PendingArtifactWorkflow do
            build_character_profile_candidate(judgment, payload, input, run, context) do
       {:ok, result}
     else
+      # B48 CP1（C04=A）：old==new 的合法无变化出口——普通说明、零候选、零写入。
+      {:no_change, facts} ->
+        build_character_profile_no_change(judgment, facts, input, run, context)
+
       # with 链错误面是具体 atom code（:invalid_character_role/:target_ambiguous/
       # :target_missing/:unsupported_effect/:unsupported_field），没有嵌套
       # {:character_profile_invalid, _} 包装；原分支不可达（B60）。
-      {:error, reason} -> {:error, {:character_profile_invalid, reason}}
+      {:error, reason} ->
+        {:error, {:character_profile_invalid, reason}}
     end
+  end
+
+  # B48 CP1（C04=A）：身份核对后的合法无变化出口。普通说明、无 pending 候选、
+  # 无 production write；真实发生的身份核对保留在 trace 事件里（不把“没改作品”
+  # 写成“完全没执行”）。
+  defp build_character_profile_no_change(judgment, facts, input, run, context) do
+    frame = frame(judgment, input, run, :reply_only, nil)
+    message = NovelApplication.CharacterProfile.no_change_message(facts)
+    frame = %{frame | author_visible_draft: %{message: message}}
+
+    decision =
+      OrchestratorDecision.reply_only(frame.turn_id, frame.frame_id, [
+        "character_profile_no_change"
+      ])
+
+    result =
+      TurnResultBuilder.build(frame, %{}, [], decision)
+      |> Map.merge(%{
+        workspace_id: run.workspace_id,
+        work_id: run.work_id,
+        session_id: run.session_id
+      })
+
+    {trace, _summary} =
+      TraceWriter.record(frame, %{turn_id: frame.turn_id}, context, decision: decision)
+
+    trace = %{
+      trace
+      | decision_type: :character_profile_revision,
+        event_order: [
+          :author_input_received,
+          :dialogue_context_attached,
+          :character_profile_identity_checked,
+          :character_profile_revision_no_change,
+          :turn_result_emitted
+        ]
+    }
+
+    DialogueGateway.persist_turn_trace(
+      {:ok, result, trace, [], context},
+      run.workspace_id,
+      run.session_id,
+      field(input, :trace_persister)
+    )
+
+    {:ok, %{turn_result: result, artifact_refs: [], tool_call_count: 0, provider_call_count: 0}}
   end
 
   defp character_profile_facts(input, run) do

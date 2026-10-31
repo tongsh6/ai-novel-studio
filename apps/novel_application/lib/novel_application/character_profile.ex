@@ -105,6 +105,17 @@ defmodule NovelApplication.CharacterProfile do
       desired_role not in NarrativeRole.values() ->
         {:error, :invalid_character_role}
 
+      # B48 CP1（C04=A）：old==new 是合法无变化出口，不生成候选/修订；
+      # 由调用方转为普通说明，不把无变化当成错误路由。
+      Map.get(target, :narrative_role) == desired_role ->
+        {:no_change,
+         %{
+           character_ref: Map.get(target, :character_ref),
+           character_name: Map.get(target, :name),
+           old_role: desired_role,
+           desired_role: desired_role
+         }}
+
       true ->
         old = Map.get(target, :narrative_role)
         changes = [%{field: "narrative_role", old: old, new: desired_role}]
@@ -142,6 +153,15 @@ defmodule NovelApplication.CharacterProfile do
   end
 
   def validate_changes(_payload), do: {:error, :unsupported_field}
+
+  @doc """
+  B48（C04=A）：合法无变化出口的作者可见说明。
+
+  只陈述真实事实（角色当前叙事身份），不生成待采纳候选、不冒充模型过程叙事。
+  """
+  def no_change_message(%{character_name: name, old_role: role}) do
+    "#{name || "该角色"} 当前已是 #{role}，本次修订无需修改。"
+  end
 
   @doc "展示标题与差异正文（候选卡复用既有卡，不新增卡片类型）。"
   def candidate_title(payload), do: "#{payload.character_name} · 叙事身份修订"

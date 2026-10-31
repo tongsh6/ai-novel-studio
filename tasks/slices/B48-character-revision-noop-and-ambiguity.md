@@ -1,6 +1,6 @@
 # B48：角色修订 no-op 与同名歧义边界
 
-- 状态：**doing（2026-10-30 作者已确认 C04=A；2026-10-31 CP0 契约与四场景冻结完成，CP1 实施待做）**。
+- 状态：**doing（2026-10-30 作者已确认 C04=A；2026-10-31 CP0 契约与四场景冻结、CP1 no-op 普通说明出口完成；CP2–CP3 待做，CP3 需真实模型窗口）**。
 - 登记日期：2026-10-27；来源：B29 主业务已完成，但实模 T2 出现 old==new no-op 候选，且“跨轮已经唯一消歧”与“同名必须澄清”相冲突。
 - 上游：[B29](B29-existing-character-role-revision.md)、[B27](B27-systematic-prompt-and-intent-integration.md)、[B31](B31-author-reply-run-binding.md)。
 
@@ -78,7 +78,7 @@ B29 主业务 done 不能重开，T2 也不能记 PASS。任何硬化都不能�
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
 | CP0 | 对齐 B29 修订路由、持久角色身份/当前值、合法无变化出口及既有 copy/结果契约；冻结四场景与边界反例；核对 B43 统一裁决依赖 | **done（2026-10-31，见 §8）** |
-| CP1 | 先唯一解析身份，再根据真实当前值判 no-op；无变化普通说明、无候选/新修订；真实歧义询问，已消歧不重复问，正常修订保持候选采纳链 | todo |
+| CP1 | 先唯一解析身份，再根据真实当前值判 no-op；无变化普通说明、无候选/新修订；真实歧义询问，已消歧不重复问，正常修订保持候选采纳链 | **done（2026-10-31，见 §9）** |
 | CP2 | 接通统一裁决/trace/来源与 Why，回归缺目标、跨作品、错误身份、跨轮证据失效、重复请求和真实修改；不把合法 no-op 当错误路由反复纠错 | todo |
 | CP3 | 外部驱动真实 Tauri + 真实模型覆盖 no-op、真实修订、同名未消歧、跨轮已消歧；证明正确对象、无多余候选/写入、其它角色/正文不变，回归 B29/B31 | todo |
 
@@ -132,3 +132,28 @@ B29 主业务 done 不能重开，T2 也不能记 PASS。任何硬化都不能�
 - 测试：纯函数 no-op/真实修订矩阵 + workflow 级（候选缺失、普通说明文案）+ 回归 B29 23 项确定性场景。
 
 **CP0 结论**：契约与四场景已冻结；CP0 done。CP1–CP3 按 §7 表推进；CP3 真实模型 + 真实 Tauri 需按预注册与资源窗口执行，未获窗口前不标完成。
+
+## 9. CP1 实施记录（2026-10-31）
+
+**改动（application 层，不新增卡型/表/协议）**
+
+- `CharacterProfile.build_candidate/4`：在 `desired_role` 校验后新增 no-op 判定——`Map.get(target, :narrative_role) == desired_role` 时返回 `{:no_change, %{character_ref, character_name, old_role, desired_role}}`，不组装 `changes`、不产生候选；真实修订（old≠new）保持原候选链。
+- `CharacterProfile.no_change_message/1`：C04=A 的普通说明文案（真实事实：角色当前叙事身份；不含模型过程叙事、不冒充已保存）。
+- `pending_artifact_workflow.revise_character_profile/4`：`with` 链 else 捕获 `{:no_change, facts}`（不再落入 `:character_profile_invalid` 错误面），调用 `build_character_profile_no_change/5`：
+  - `frame_type: :reply_only`，`author_visible_draft.message` 为上述说明；
+  - `OrchestratorDecision.reply_only(..., ["character_profile_no_change"])`，`TurnResultBuilder.build` 产出无 `adoption_state`/无 pending/`available_actions == []`、`truthfulness.production_write_performed == false`；
+  - trace：`decision_type: :character_profile_revision`、`event_order` 含 `:character_profile_identity_checked` 与 `:character_profile_revision_no_change`（真实检查事实保留，不把「没改作品」写成「没执行」），经 `DialogueGateway.persist_turn_trace` 落盘；
+  - 零写入、零 provider（`provider_call_count=0`）。
+
+**测试（先红后绿）**
+
+- `apps/novel_application/test/novel_application/b29_character_profile_test.exs` 新增 2 条：
+  - 纯函数：old==new 返回 `{:no_change, ...}`；同角色 old≠new 仍返回候选 changes（防误伤真实修订）；
+  - workflow：no-op 回合为 reply_only、无 pending/无 adoption_state、`available_actions == []`、说明含角色名/枚举/「无需修改」且不含「候选」、零 provider 调用、`production_write_performed=false`。
+- 回归：该文件 8/8、B29 角色相关 27/27 全绿；`mix compile --warnings-as-errors`、`mix credo --strict`（0 issues）、`mix xref`（无环）、`mix run scripts/arch_check.exs` 通过。
+
+**残余（不代签）**
+
+- CP2：统一裁决/trace/来源与 Why 的页面消费、缺目标/跨作品/错误身份/跨轮证据失效/重复请求/真实修改的回归矩阵未做；
+- CP3：真实 Tauri + 真实模型四场景未跑（需预注册与资源窗口），B29 T2 历史 known-gap 保持原状；
+- 同名歧义询问路径为既有 `resolve_target`/`await_author` 行为，本轮未新增页面证据；no-op 说明文案为后端生成，未做前端 card/replay 特殊展示（A 方案不新增回执）。

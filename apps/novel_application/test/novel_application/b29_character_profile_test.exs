@@ -237,4 +237,62 @@ defmodule NovelApplication.B29CharacterProfileTest do
                %Execution{result_fn: fn _ -> flunk("不得调用 provider") end}
              )
   end
+
+  # B48 CP1（C04=A）：old==new 不产生候选；合法无变化出口用普通说明，保留真实检查事实。
+  test "B48 no-op：old==new 返回 no_change 事实，不生成候选变化" do
+    protagonist = target(@gu_ref, "顾青", [], "PROTAGONIST")
+
+    assert {:no_change,
+            %{character_ref: @gu_ref, old_role: "PROTAGONIST", desired_role: "PROTAGONIST"}} =
+             CharacterProfile.build_candidate(
+               protagonist,
+               "PROTAGONIST",
+               "指定顾青为主角",
+               roster()
+             )
+
+    # 真实修订仍走候选链（不得被 no-op 守卫误伤）
+    ensemble = target(@shen_ref, "沈砚", ["老沈"], "ENSEMBLE_POV")
+
+    assert {:ok, %{changes: [%{old: "ENSEMBLE_POV", new: "PROTAGONIST"}]}} =
+             CharacterProfile.build_candidate(
+               ensemble,
+               "PROTAGONIST",
+               "指定沈砚为主角",
+               roster()
+             )
+  end
+
+  test "B48 no-op：普通说明、无 pending 候选、零写入，不把无变化当错误路由" do
+    noop_roster = [
+      target(@gu_ref, "顾青", [], "PROTAGONIST"),
+      target(@shen_ref, "沈砚", ["老沈"], "ENSEMBLE_POV")
+    ]
+
+    judgment = desired_judgment(%{character_ref: @gu_ref})
+    provider = %Execution{result_fn: fn _ -> flunk("角色档案 no-op 不得调用 provider") end}
+
+    assert {:ok, result} =
+             PendingArtifactWorkflow.run(
+               judgment,
+               %{"character_profile_context" => %{roster: noop_roster}},
+               run("指定顾青为主角"),
+               context(),
+               provider
+             )
+
+    assert result.provider_call_count == 0
+    assert result.artifact_refs == []
+    refute Map.get(result.turn_result, :adoption_state)
+    assert result.turn_result.frame_summary.frame_type == :reply_only
+    assert result.turn_result.available_actions == []
+
+    message = result.turn_result.assistant_message.text
+    assert message =~ "顾青"
+    assert message =~ "PROTAGONIST"
+    assert message =~ "无需修改"
+    refute message =~ "候选"
+
+    assert result.turn_result.truthfulness.production_write_performed == false
+  end
 end
