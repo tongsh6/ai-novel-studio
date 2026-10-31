@@ -1362,3 +1362,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **AU12 A done**：明确字段提案工具→真实页面 pending 候选→作者采纳写 works.main_goal→概览/API/新会话模型请求同源消费，且无 world_setting 记忆副作用；旧 au12 场景已按新语义重锚 PASS（11 断言）。backend 1063/0、frontend 657/657、I1/I2/I3/manifest 全过。当前任务切 B66-PREP。
 
 - 2026-10-31 — **AU12 A 实现+场景 PASS，收口 blocked**：显式字段提案→pending 候选→作者采纳写 works.main_goal→概览/API/新会话模型请求消费 PASS（11 断言）；但 task_done 要求 surface=tauri，外部 driver 仍 surface=browser（真实 Tauri 窗口已启动、非 webview 驱动），登记 Q1C-NATIVE 残余，不伪造 surface。
+
+- 2026-10-31 — **原生 Tauri AX spike PASS**：`ax_cua dumpall` 可读真实 Tauri `AXWebArea`（打开档案/发送/输入框等）并可截图；`dump` 仅 menubar、`windows` 空列表不可作判据。结论：可建设 AU12 原生 driver，解决 task_done surface=tauri 阻塞。证据 `artifacts/native-spike/au12-ax-20261031/`。

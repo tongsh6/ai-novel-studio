@@ -129,4 +129,5 @@ node scripts/task_done_check.mjs
 
 - 场景 `au12-correction-intent-roundtrip` PASS（11 断言），但 `summary.json` 如实记录 `surface: "browser"`、`requested_surface: "tauri"`、`tauri_window_launched: true`；外部 driver 仍是 headless Chromium，不是原生 webview。
 - `task_done.sh` 因此拒绝：`UI summary must come from Tauri surface`；静态扫描 `task-done-manifest` 失败为同一环境能力缺口，未用假 summary 绕过。
-- 已登记残余：Q1C-NATIVE / 原生 Tauri webview driver；需作者裁决「补原生 driver」还是「调整验收 surface 判据」。
+- 已登记残余：Q1C-NATIVE / 原生 Tauri webview driver；**2026-10-31 作者选 A：补原生 driver**。
+- AX spike PASS：`ax_cua dumpall` 可读真实 Tauri `AXWebArea`（按钮/输入框/文本），`screenshot` 可截窗口；`dump` 仅 menubar、`windows` 返回空，二者不可用于判窗口。下一步实现 `native_au12_drive.mjs` 并重跑原生批次。证据 `artifacts/native-spike/au12-ax-20261031/`。
