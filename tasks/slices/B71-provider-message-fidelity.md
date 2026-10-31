@@ -84,7 +84,7 @@
 |---|---|---|
 | CP0 | 对三款外部真实多轮请求与本项目真实日志做目标对照；明确 AgentRun 原生会话、作者主权、求证和 replay 的目标方向；登记任务与设计 | **done（2026-10-30，仅文档）**：已替换此前现役最小修补方案；未修改产品代码 |
 | CP1 | 冻结目标 contract pack、Request IR、消息/工具/观察/校验/候选/checkpoint 语义、provider 投影与能力门槛、六类黄金请求和场景预注册；完成 ADR/现役协议差异及迁移裁决 | **done（2026-10-31，见 §7 交付记录）**：VS-00L Frozen + 逐条迁移映射 + G1–G6 + 场景预注册；待复核后旧 ADR 转 Superseded |
-| CP2 | 实现 canonical transcript/Request IR 与三类 provider 投影；建立真实只读观察和原生校验结果回流，黄金与 adapter 测试通过 | **doing（2026-10-31）：IR v1 + 三类投影 + G1–G6 golden + OpenAI 兼容/Anthropic adapter 桥完成；真实观察回流、I-CACHE 重锚与 fixture 接真实 run 未闭环（CP3 前置）** |
+| CP2 | 实现 canonical transcript/Request IR 与三类 provider 投影；建立真实只读观察和原生校验结果回流，黄金与 adapter 测试通过 | **doing（2026-10-31）：IR v1 + 三类投影 + G1–G6 golden + OpenAI 兼容/Anthropic adapter 桥 + application 层 transcript 观察/校验回流机制完成；生产接线（CP3 首个消费者）与真实 run 证据未闭环** |
 | CP3 | 以统一 AgentRun 接通首个创作消费者，完成求证→候选→校验→作者出口；接入预算、权限、trace、持久化和恢复，不形成第二控制环 | 未开工 |
 | CP4 | 覆盖规划/修订/质量与压缩恢复，完成真实 Tauri 全链、真实模型行为、缓存/usage、replay/Why 和全部门禁；处理现役迁移与旧协议退役 | 未开工 |
 | CP5 | 更新 ADR/contract/设计/索引/事实台账和恢复指引；逐项证明完整范围，不能以 adapter/golden 局部证据标 done | 未开工 |
@@ -138,3 +138,10 @@
   - 真实只读观察与工具校验结果回流（AgentRun/工具执行链 → transcript → 下一请求）未接 IR——这是 CP2 最后一项，也是 CP3 首个消费者的核心，需按 CP3 真实 Tauri 场景验收，不能以 adapter/单测代签；
   - I-CACHE 重锚（VS-00I I-CACHE-1 在 IR 投影上的测量）与 G1–G6 fixture 接真实 run 切片待 CP3；
   - 三类投影的纯函数与 adapter 桥均已有单测，但“完整 AgentRun 原生多轮”尚无真实 run 证据，不得宣称 CP2 done。
+
+### CP2 收尾进展 3（2026-10-31，application 层 transcript 回流机制）
+
+- 新增 `NovelApplication.AuthoringTranscript`：application 层按 VS-00L §3–§5 组装 transcript——`new/2`（application_base + 本轮作者原话，作者字节独立）、`append_assistant/3`（叙事 + 原生 tool_call）、`append_observation/3`（按 call_id 关联真实观察，status/refs/版本/覆盖/省略如实）、`append_validation/5`（校验失败作为 tool 原生结果回流，不追加 user 纠错）、`append_author_exit/3`、`append_checkpoint/6`（显式压缩）、`declare_used_refs/2`、`to_request_ir/2`（产出 RequestIR 并走 `validate/1`）。
+- 边界：本模块不发起 provider 调用、不执行工具、不写库；生产主链接线归 CP3。
+- 测试：`authoring_transcript_test.exs` 6 条——两轮观察回流按 call_id 进入下一请求、used_refs 越界拒绝（I-ART-9）、校验失败原生回流（I-ART-5）、application_base provenance（I-ART-3）、观察 status 如实（I-ART-4）、checkpoint/author_exit 无伪作者消息（I-ART-7）。
+- **仍未闭环**：真实 run 的观察回流（真实探索服务/工具执行 → transcript → 下一 provider 请求）与页面/模型证据是 CP3 首个消费者范围；I-CACHE 重锚、G1–G6 fixture 接真实 run 待 CP3。CP2 不标 done。

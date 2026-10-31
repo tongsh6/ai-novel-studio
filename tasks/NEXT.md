@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B71 | CP2 进行中：IR v1 + 三类投影 + G1–G6 + OpenAI 兼容/Anthropic adapter 桥完成（provider 测试全绿）；剩余真实观察/校验回流接 IR 与 I-CACHE 重锚——CP3 首个消费者范围，需真实 Tauri/实模窗口 | [B71](slices/B71-provider-message-fidelity.md) |
+| B71 | CP2 机制完成：IR v1/三类投影/G1–G6/adapter 桥/transcript 观察校验回流均已实现并有单测；剩余生产接线 + 真实 run 页面/模型证据 = CP3 首个消费者（需真实 Tauri 与实模窗口） | [B71](slices/B71-provider-message-fidelity.md) |
 
 ## 后续候选
 

@@ -1381,3 +1381,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **B71 CP2 收尾进展 2（Anthropic adapter IR 桥，未收口）**：Anthropic adapter 对 IR v1 桥新增 content-blocks 投影（assistant tool_calls→tool_use、observation/validation→tool_result、system 稳定前缀与 cache_control 规则、相邻同 role 合并满足交替约束），legacy 路径不变；新增 2 条桥测试（anthropic 14/14，provider 目录全绿）。未闭环：真实只读观察/校验结果回流未接 IR（CP3 首个消费者核心）、I-CACHE 重锚与 fixture 接真实 run 待 CP3；CP2 不标 done，不以 adapter/单测代签完整 AgentRun。
 
+- 2026-10-31 — **B71 CP2 收尾进展 3（transcript 回流机制，未收口）**：新增 `NovelApplication.AuthoringTranscript`——application 层组装 application_base/作者原话/assistant tool_call/真实观察/校验结果/作者出口/checkpoint，`to_request_ir/2` 产出 RequestIR v1 并校验；6 条测试覆盖两轮观察回流 call_id 关联、used_refs 越界拒绝、校验失败原生回流、provenance、观察 status 如实、压缩/出口无伪作者消息。模块不发起 provider/不执行工具/不写库；生产接线与真实 run 页面/模型证据归 CP3 首个消费者，CP2 不标 done。全量 mix test 0 failures、credo 0、xref 无环、arch_check 通过。
+
