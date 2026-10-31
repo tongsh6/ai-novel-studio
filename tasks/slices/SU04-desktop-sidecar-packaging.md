@@ -118,3 +118,19 @@ curl -s http://127.0.0.1:4658/api/provider/health    # → {"connected":...}
 - 状态：todo（父任务整体仍 blocked：缺真实 release 打包应用的外部故障 harness；本小节只做 harness 建设准备）
 - 范围：预注册隔离 release-app 外部 UI 驱动（正常冷启动/坏包/端口占用/退出无孤儿），复用既有 native/CUA 驱动基础，不把 debug app 结果冒充 release 证据。
 - 验证：预注册文档 + harness 自检；真实 release 复验仍需打包环境，未获得前不标 CP 完成。
+
+### CP1 release-app 外部复验（2026-10-31，partial）
+
+- 状态：doing（外部三场景 PASS；port-conflict 失败分类 PASS 但关窗后 sidecar 残留待 root-cause；父任务整体仍 blocked）
+
+- 预注册：`artifacts/model-contracts/su04-cp1-release/preregistration.json`（四场景/判据/隔离 HOME+profile/预算/fail-fast/失败只读）。
+- harness：`scripts/release_app_lifecycle_check.sh`（每个场景独立隔离 HOME 与 `AI_NOVEL_DESKTOP_PROFILE=release-verify`，记录 app.out/进程快照/端口状态/安装树/summary；失败写 failure.json 并只清理本批归属进程）。
+- 被测应用：`frontend/src-tauri/target/release/bundle/macos/AI Novel Studio.app`（06:32 构建，含 CP1 三个提交 `986256fc`/`c240e177`/`2b4cd31e`，Resources 含 sidecar.tar.gz）。
+- 结果（真实 release 打包应用外部驱动）：
+  - **cold-start PASS**：app 启动→sidecar 解包安装 `.install-complete`→4658 就绪；退出后端口释放、无本批进程。证据 `artifacts/slice-verify/su04-release-app/cold-start-20261031T103319Z/`。
+  - **exit-no-orphan PASS**：AX 关闭真实窗口（Tauri CloseRequested → RunEvent::Exit → shutdown_sidecar）→ app 退出→无本批 sidecar 进程、端口释放；证据 `exit-no-orphan-20261031T103302Z/`。
+  - **bad-archive PASS**：隔离副本替换 sidecar.tar.gz 为坏包→启动失败分类可核、无 `.install-complete`、无伪 ready；证据 `bad-archive-20261031T103347Z/`。
+  - **port-conflict FAIL（部分证据成立）**：外部占用 4658 后启动，失败分类可核（`log/sidecar.out` + `erl_crash_dump` 的 `eaddrinuse`），无伪 ready、占用者未被误杀；但 AX 关窗后仍有本批 sidecar 进程残留（pid 28770）→ 不标 PASS，登记 known-gap 待 root-cause（崩溃退出时序或清理逻辑缺口）。失败批次只读保留（`port-conflict-20261031T103324Z/103430Z/103903Z/`）。
+- **重要边界（产品待评估）**：外部 `SIGTERM` 强杀 app **不触发** Tauri 事件循环退出清理，会留下 sidecar 孤儿（首轮验证即暴露）；真实作者关窗路径已验证无孤儿。系统注销/崩溃/强杀场景是否应加信号处理，登记为待作者/后续决策的 known-gap，不在本批擅自加 watchdog。
+- 日志位置（外部可核）：隔离 HOME 下 `Library/Application Support/com.ai-novel-studio.app/profiles/release-verify/log/sidecar.out` 与 `erl_crash.dump`；Tauri 进程 stderr（app.out）在端口冲突时不写分类（分类在 `SidecarStatus` 内存状态 + 前端恢复文案），因此外部核验以 sidecar 日志/崩溃转储为准。
+- 未代签：跨平台（Intel/Windows/Linux）、签名/公证、真实模型语义、I10；port-conflict 清理缺口未修复前 CP1 不标 done。

@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| SU04 | 预注册隔离 release-app 外部 UI 故障驱动（正常冷启动/坏包/端口占用/退出无孤儿）；先写预注册与 harness 设计 | [SU04](slices/SU04-desktop-sidecar-packaging.md#可独立推进-release-app-预注册2026-10-31) |
+| SU04 | 预注册+harness 就绪，真实 release app 外部三场景 PASS（cold-start/exit-no-orphan/bad-archive）；port-conflict 失败分类 PASS 但关窗后 sidecar 残留（known-gap 待 root-cause，未标 PASS） | [SU04](slices/SU04-desktop-sidecar-packaging.md#cp1-release-app-外部复验2026-10-31partial) |
 
 ## 后续候选
 
