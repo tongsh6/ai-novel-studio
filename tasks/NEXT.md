@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| Q1C | 作者已选 A 补原生 driver；复用 AU12 原生驱动接线，需独立 runtime 预算；先做 CP0 盘点（场景/驱动/断言） | [Q1C](slices/Q1C-adopted-content-revision.md#原生补验-cp0阻塞记录2026-10-31) |
+| Q1C | CP0 冻结 done（预注册/16 断言映射/原生入口/复用基建/预算/证据）；下一步 S1 原生 driver（真实窗口采纳→修订→覆盖确认→追问），再做 evidence verifier 与 batch 接线 | [Q1C](slices/Q1C-adopted-content-revision.md#原生补验-cp0-冻结记录2026-10-31) |
 
 ## 后续候选
 

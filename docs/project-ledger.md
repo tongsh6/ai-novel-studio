@@ -1413,3 +1413,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **UA01 T3′ 校验模式尝试后暂停（待作者选契约方向）**：实现 `validate_completed_prefix/2`（只校验不合并，4 单测，planner 44/44）；接入 revision 构建链后 B23/B31 judgement-plan flow 2 例失败——现行 prompt 要求“完整修订计划并保留前缀”，而 test-support 修订 fixture 仍“只给尾部”，校验触发结构纠错改变事件链；已回退接入（52/52 全绿），保留未接线校验函数与单测。根因为产品契约选择：A（推荐，维持完整计划契约+适配 fixture）/B（支持只产尾部，需 cursor 协同）/C（known-gap）。NEXT 当前任务切 Q1C，UA01 T3′ 入阻塞待作者裁决。
 
+- 2026-10-31 — **Q1C 原生补验 CP0 冻结**：为 Q1c 设定修订链原生 Tauri 窗口补验冻结预注册（`artifacts/model-contracts/q1c-native/preregistration.json`）与 CP0 记录——16 条断言沿用 browser driver 语义，原生入口 WorkspaceChat（输入→采纳→修订→覆盖确认→追问），证据源映射（wire/app-log/只读 DB/AX/等待账本），复用 native_ui/AU12 两段式 batch 基建，预算 ≤2 批/600s/无实模；子步骤 S1 driver→S2 evidence→S3 batch/allowlist→S4 批次→S5 收口。不把 browser summary 当原生证据、不代签实模/I10。
+

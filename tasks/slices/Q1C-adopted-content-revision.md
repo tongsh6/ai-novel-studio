@@ -346,8 +346,21 @@ Q1B 第十轮模型已经提出“保留或替代已保存编辑版”，但作�
 
 ### 原生补验 CP0/阻塞记录（2026-10-31）
 
-- 状态：todo（CP1 可独立推进：作者已选 A 补原生 driver；技术接线可做，需独立 runtime 预算）
+- 状态：**doing（2026-10-31 CP0 冻结完成：场景/16 断言映射/原生驱动入口/复用基建/预算/证据/子步骤已冻结；预注册 `artifacts/model-contracts/q1c-native/preregistration.json`；下一步 S1 实现原生 driver）**
 - 现状：`q1c-adopted-content-revision` 在 quality registry 注册为 `surface: browser`，driver 为独立 `frontend/slice-verify/q1c-adopted-content-revision.mjs`；`tauri_slice_verify` 的 native action/driver map 没有 Q1c 分支，原生 Tauri 窗口入口不可达。
 - 不能把 browser-surface summary 当原生 Tauri 证据；也不能在未接线时直接恢复旧调用协议或重写已落地修订能力。
 - 解除条件：为 Q1c 增加/接线真实 Tauri 外部 driver（复用既有设置采纳→修订→覆盖确认→SUPERSEDED/CONFIRMED→刷新追问链），按当前 HEAD 原生 summary/操作/网络/持久事实分别留证；需独立 runtime 预算。
 - 未改产品代码；当前 browser 证据边界保持原登记。
+
+#### 原生补验 CP0 冻结记录（2026-10-31）
+
+- 状态：doing（CP0 冻结完成：预注册/断言映射/入口/复用/预算/证据/子步骤；下一步 S1 原生 driver）
+
+- **场景与断言（不降级）**：沿用 `frontend/slice-verify/q1c-adopted-content-revision-audit.mjs:482–499` 的 16 条断言：`source_pending_created` / `source_adopted` / `revision_candidate_created` / `revision_of_present` / `accepted_target_identified` / `overwrite_confirmation_required` / `exactly_one_confirmed_fact` / `old_version_not_confirmed` / `new_version_confirmed` / `one_superseded_fact` / `assistant_did_not_claim_done_without_candidate` / `followup_uses_new_version` / `followup_memory_context_is_new` 等；原生 driver/evidence 用同一语义集合，允许 >13 条。
+- **原生入口**：真实 Tauri 窗口 `WorkspaceChat`（当前真实产品入口）——输入“保存设定”→发送→候选卡「保存到作品」采纳→发送修订→候选显示修订关系→采纳时覆盖确认对话框→刷新/追问；AX/CGEvent 按用户可见文案定位（placeholder/按钮标题/对话框文案），不新增 testid/hook。
+- **证据源映射（每条断言必须落到可核证据）**：wire 帧（`user_message`/`turn_result`/`author_action`/`action_result`）、app-log（adoption/memory 事件）、只读 DB 快照（`memory_items` 的 CONFIRMED/SUPERSEDED、revision/supersedes 链、权威事实唯一性）、AX 文本/截图（页面可见：候选卡、确认对话框、追问内容）、`wait-stats`/heartbeat；summary `surface=tauri`。
+- **复用基建**：`scripts/lib/native_ui/driver.mjs`、`scenario_driver.mjs`、`scripts/native_ui_wait.mjs`、`scripts/native_question_transport_proxy.mjs`、AU12 两段式 batch 编排模式（`scripts/native_au12_batch.sh` 的 ready→driver→summary 流程），不建第二套 harness。
+- **预算**：原生批次 ≤2、单批 ≤600s、无真实模型（slice_verify 确定性 provider）；同因失败 ≤2，失败批次只读保留；证据目录 `artifacts/slice-verify/q1c-adopted-content-revision-tauri-native-<tag>/`。
+- **子步骤**：S1 原生 driver（真实窗口走通采纳→修订→确认→追问，先出 AX/操作证据）→ S2 evidence verifier（16 断言按证据源判定）→ S3 batch/allowlist/`tauri_slice_verify` native 分支接线 → S4 真实批次（≤2）→ S5 文档/门禁/台账。
+- **风险**：候选卡/确认对话框文案与 AX 定位漂移；覆盖确认时序（采纳→对话框→确认→刷新）；只读 DB 快照时机（采纳后立即取）；revision/supersedes 链字段与现役 DB schema 对齐；确定性 provider 对 Q1c 输入的路由。
+- **边界**：不把 browser summary 当原生证据；不恢复旧调用协议/重写已落地修订能力；发现产品缺陷回 Q1c 范围修复并 scoped 复验；不代签真实模型语义/I10。
