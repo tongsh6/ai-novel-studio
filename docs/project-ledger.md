@@ -1395,3 +1395,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **B46 done（CP0–CP3 + §12 残差矩阵）**：`b46-cross-session-inbox` 真实 Tauri 场景现覆盖跨会话 accept/discard/edit_then_accept、重复提交幂等、跨作品隔离、EXITED 只读；最终 verdict evidence 4/4。E2 证据 idempotency.json（卡片消失、accept action 仅 1 次）；E3 首次运行因 driver 断言顺序（先 resume 后页面）导致 A 侧 inbox 断言失败，页面档案卡可见证明候选未丢失，修正为页面主证据 + resume 辅助轮询后同因第 2 次 PASS，未改产品代码/未放宽页面语义。残余：inbox 条目未单列 source_session_id（DTO 已有，体验细化）；确定性 provider 证据不代签真实模型语义/I10。NEXT 当前任务切 B27。
 
+- 2026-10-31 — **B71 CP3a CP0 冻结**：盘点首个创作消费者生产调用点——`DialoguePlanningService.judgment_protocol_input/4` → `JudgmentProtocol.prompt/2` 产单条 user 大文档（tools/tool_choice auto），纠错为 messages 追加，观察当前不在同一 provider 会话回流。冻结 CP3a 分步：S1 call-site 消费 IR 桥（保留语义等价）、S2 观察/校验按 call_id 原生回流、S3 预算/权限/trace/持久化/恢复核对、S4 真实页面确定性场景 `b71-first-consumer`、S5 I-CACHE 重锚与 G1–G6 fixture；识别 slice_verify 解析/字节断言/纠错顺序/Anthropic 投影等风险；不签实模语义（CP3b）。NEXT 当前任务切 B71-CP3a。
+

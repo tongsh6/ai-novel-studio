@@ -85,7 +85,7 @@
 | CP0 | 对三款外部真实多轮请求与本项目真实日志做目标对照；明确 AgentRun 原生会话、作者主权、求证和 replay 的目标方向；登记任务与设计 | **done（2026-10-30，仅文档）**：已替换此前现役最小修补方案；未修改产品代码 |
 | CP1 | 冻结目标 contract pack、Request IR、消息/工具/观察/校验/候选/checkpoint 语义、provider 投影与能力门槛、六类黄金请求和场景预注册；完成 ADR/现役协议差异及迁移裁决 | **done（2026-10-31，见 §7 交付记录）**：VS-00L Frozen + 逐条迁移映射 + G1–G6 + 场景预注册；已复核通过，旧 ADR-0030/0031 已转 Superseded |
 | CP2 | 实现 canonical transcript/Request IR 与三类 provider 投影；建立真实只读观察和原生校验结果回流，黄金与 adapter 测试通过 | **机制完成、不单独标 done（2026-10-31）：IR v1 + 三类投影 + G1–G6 golden + OpenAI 兼容/Anthropic adapter 桥 + application 层 transcript 观察/校验回流机制已完成；生产接线与真实观察回流作为残差并入 CP3a** |
-| CP3a | 确定性接线（2026-10-31 从 CP3 拆出）：以统一 AgentRun 接通首个创作消费者并完成生产接线（IR 消费替换 call-site legacy prompt、观察/校验按 call_id 回流、预算/权限/trace/持久化/恢复），承接 CP2 残差；以确定性 provider 在真实页面驱动证明接线闭环，不签实模语义 | **todo（已入 NEXT 候选）** |
+| CP3a | 确定性接线（2026-10-31 从 CP3 拆出）：以统一 AgentRun 接通首个创作消费者并完成生产接线（IR 消费替换 call-site legacy prompt、观察/校验按 call_id 回流、预算/权限/trace/持久化/恢复），承接 CP2 残差；以确定性 provider 在真实页面驱动证明接线闭环，不签实模语义 | **doing（2026-10-31 CP0 冻结：调用点/分步/风险/验收冻结，见下节）** |
 | CP3b | 实模窗口验收（2026-10-31 从 CP3 拆出）：按预注册在真实 Tauri 原生窗口 + 真实模型单槽复跑首个创作 AgentRun 全场景与 G1–G6 真实 run 取证；CP3 只有在 CP3a + CP3b 均完成后才算 done | **blocked（需真实 Tauri + 实模资源窗口与预算；非决策阻塞）** |
 | CP4 | 覆盖规划/修订/质量与压缩恢复，完成真实 Tauri 全链、真实模型行为、缓存/usage、replay/Why 和全部门禁；处理现役迁移与旧协议退役 | 未开工 |
 | CP5 | 更新 ADR/contract/设计/索引/事实台账和恢复指引；逐项证明完整范围，不能以 adapter/golden 局部证据标 done | 未开工 |
@@ -165,3 +165,39 @@
 - 解除条件：① CP3a 接线完成并能产生对应 run 切片；② 作者/指定运行者批准模型资源窗口与生成预算（单槽 Strata `iq3_s`，批次 ≤2，场景 900s，input 120s/turn 360s 等）；③ 场景在 quality manifest 登记，driver、证据目录与卸载核验就绪。
 - 证据层：真实 Tauri 原生窗口 + 真实模型，按预注册复跑首个创作 AgentRun 全场景与 G1–G6 真实 run；证据面 `surface=tauri-native`，含 AX 截图/文本、wire 帧、app-log、llm-calls 请求字节、隔离 DB 前后快照、wait-stats/heartbeat。
 - 未授权事项：未获窗口前不启动实模批次、不伪造 PASS、不以 CP1 预注册或 CP2 机制证据代签。
+
+#### CP3a CP0 冻结记录（2026-10-31）
+
+**生产调用点现状（盘点）**
+
+- 首个创作消费者的 provider 请求由 `DialoguePlanningService.judgment_protocol_input/4`（`apps/novel_application/lib/novel_application/dialogue_planning_service.ex:1198`）组装 protocol_input（author_text/context_block/supplied refs/options），再由 `JudgmentProtocol.prompt/2`（`judgment_protocol.ex:328`）构造 **单条 user 大文档**：`%{messages: [%{role: "user", content: content(input, profile)}], tools: JudgmentToolContract.tools(profile), tool_choice: "auto"}`。
+- 纠错重试在 `JudgmentProtocol` 内以 `%{prompt | messages: prompt.messages ++ [correction]}` 追加（290/304 行）；provider 适配层统一走 `NovelAgent.Provider.normalize_messages/1`（CP2 已保真 tool 字段）。
+- 观察/工具结果目前**不在同一 provider 会话内回流**：execute 后由 `PendingArtifactWorkflow`/provider 工具链另行执行，下一轮判断重新组装 protocol_input（B27 §9 已修材料同源声明，但非原生多轮 tool 回流）。
+
+**目标数据流（CP3a）**
+
+`AgentRun/execution orchestration → NovelApplication.AuthoringTranscript（application_base + 作者原话 + 证据）→ RequestIR v1（tools/projection/refs）→ RequestIR.to_provider_prompt/2 → 现有 provider adapter`；观察/校验结果经 `append_observation/append_validation` 以 `call_id` 绑定进入下一真实请求；预算/权限/trace/持久化/恢复沿用既有 AgentRun 边界（不形成第二控制环）。
+
+**分步（每步独立可验，不缩小 CP3 范围）**
+
+| 步 | 内容 | 证据 |
+|---|---|---|
+| S1 | 让 `JudgmentProtocol.prompt/2` 的生产 call-site 消费 IR 桥：protocol_input → AuthoringTranscript → RequestIR → to_provider_prompt；先保持语义等价（协议约束/context_block 进入 application_base、作者原话独立 user、tools 不变） | 单测（prompt 结构/字节保真/tools 等价）+ 现有 judgment 测试回归 |
+| S2 | 观察/校验回流：为判断 run 提供原生工具结果回流路径（复用 AuthoringTranscript.append_observation/append_validation + call_id），下一请求含观察 | 单测 + 确定性 fixture（真实探索服务观察进入下一请求） |
+| S3 | 预算/权限/trace/持久化/恢复接线核对：复用既有 AgentRun 边界，不新增控制环 | 既有测试 + trace 断言 |
+| S4 | 真实页面确定性场景：`tauri_slice_verify` 新增/登记 `b71-first-consumer`，`slice_verify` 确定性 provider 驱动，断言观察 call_id 进入下一请求、used_refs 不越界、候选 tentative、采纳前零写入、replay 不调模型 | 真实 Tauri 页面证据（surface=browser 如实，native 归 CP3b 判定）+ verdict |
+| S5 | CP2 残差补齐：I-CACHE 在 IR 投影上的测量、G1–G6 fixture 文件化（接真实 run 切片） | 测量记录 + fixture 文件 |
+
+**风险与兼容（CP0 已识别）**
+
+- 单 user 大文档改为多消息/IR 后，`slice_verify` test-support provider 与既有字节断言可能依赖单条 user 消息；S1 需同步核对并对齐测试 provider（不改变产品语义）。
+- `JudgmentProtocol` 纠错追加（`messages ++ [correction]`）需在 IR 消息序列下保持顺序与来源；不得变成伪 user 纠错（I-ART-5）。
+- 作者原话独立消息后，B27 §9 的 `context_block`/supplied refs 同源断言需确认仍成立（内容不变，位置变化）。
+- Anthropic adapter 走 IR 桥时已具备 content-blocks 投影（CP2）；OpenAI 系 adapter 已保真工具字段。
+- 若 S2 需要新 schema/迁移或数据写入授权：登记子阻塞并回退作者，不自行扩权。
+
+**验收与边界**
+
+- 证据层：确定性 provider + 真实页面/原生窗口驱动；**不签真实模型语义**（CP3b/B42），I10 不代签。
+- 预注册：复用 `artifacts/model-contracts/b71-cp1/scenario-preregistration.json` 的场景定义；S4 的确定性场景证据目录 `artifacts/slice-verify/b71-first-consumer-tauri/`。
+- 恢复入口不变：先消费 IR（S1）→ 再接观察回流（S2）→ 最后补 trace/恢复与门禁（S3/S5）。

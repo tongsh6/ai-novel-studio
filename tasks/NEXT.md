@@ -6,14 +6,13 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B27 | 5 个 CP4 known-gap 的确定性负例/构造器矩阵（实模另需预注册与资源窗口，「第二方复核」原文归本任务定向硬化） | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
+| B71-CP3a | CP0 done：生产调用点/分步/风险/验收已冻结；下一步 S1——让 `JudgmentProtocol.prompt/2` 生产 call-site 消费 IR 桥并保持语义等价，再接观察回流/真实页面确定性场景 | [B71](slices/B71-provider-message-fidelity.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B71-CP3a | 承接 CP2 残差：统一 AgentRun 首个创作消费者生产接线（IR 消费替换 legacy prompt、观察/校验回流、预算/权限/trace/持久化/恢复），slice_verify 确定性页面取证；不签实模语义，需窗口部分见 CP3b | [B71](slices/B71-provider-message-fidelity.md#cp3a-确定性接线2026-10-31) |
-| UA01-PROMPT | T3 规划器前缀确定性校验/必要时机械合并（不涉 schema，可独立于 T5 裁决） | [UA01](slices/UA01-agentic-loop-prompt-hardening.md#t3-前缀确定性可独立推进2026-10-31) |
+| UA01-PROMPT | T3 规划器前缀确定性校验/必要时机械合并（不涉 schema，可独立于 T5 裁决；B71 CP3a 进行中时可并行） | [UA01](slices/UA01-agentic-loop-prompt-hardening.md#t3-前缀确定性可独立推进2026-10-31) |
 | Q1C | 作者已选 A 补原生 driver；复用 AU12 原生驱动接线，需独立 runtime 预算 | [Q1C](slices/Q1C-adopted-content-revision.md#原生补验-cp0阻塞记录2026-10-31) |
 | SU04 | 预注册隔离 release-app 外部 UI 故障驱动（正常冷启动/坏包/端口占用/退出无孤儿） | [SU04](slices/SU04-desktop-sidecar-packaging.md#可独立推进-release-app-预注册2026-10-31) |
 | AU08 | 产品外通用按 channel 故障注入代理（get_toc/get_chapter_content），不增验收开关 | [AU08](slices/AU08-file-level-closure.md#可独立推进-channel-故障注入代理2026-10-31) |
@@ -22,6 +21,7 @@
 
 ## 阻塞
 
+- **B27 CP4 语义**：确定性负例矩阵已冻结（`artifacts/model-contracts/b27-cp4-hardening/negative-matrix.json`，确定性侧无机械可修缺口）；模型语义 known-gap 关闭需实模预注册窗口 + 第二方复核；见 [B27](slices/B27-systematic-prompt-and-intent-integration.md)。
 - **B72 CP1 模型窗口**：离线生成器已入候选，真实模型资源窗口与生成预算未授权；见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#阻塞记录2026-10-31-cp1)。
 - **VS00F-TRACE CP1**：A（推荐持久 StateTrace，需 schema 授权）/B（明确 no-trace 边界）/C（延期）；见 [VS00F](slices/VS-00F-five-ledgers-three-state.md#cp0-盘点2026-10-31)。
 - **B57 CP1 B/C/D**：需 B39/UA01 受控观察/外部资料 fixture 与数据授权；A/E/F 已 PASS；见 [B57](slices/B57-sec-injection-boundary.md#阻塞记录2026-10-31)。
