@@ -1393,3 +1393,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **B46 E3 done（跨作品隔离真实页面）**：`b46-cross-session-inbox` driver 追加跨作品路径——A 留未处理第五候选 → 真实作品菜单快速新建 work B → B resume inbox 不含 A 候选、B 档案不可见 → 切回 A resume 含候选、档案可见；证据 `isolation-work-{a,b}-resume.json`（B=0/A=1）、`cross-work-isolation.png`、`ui-state.json` 新字段；quality_accept PASS、verdict 4/4，第 1 次运行即过。剩余 E2 幂等组合，B46 不标 done。
 
+- 2026-10-31 — **B46 done（CP0–CP3 + §12 残差矩阵）**：`b46-cross-session-inbox` 真实 Tauri 场景现覆盖跨会话 accept/discard/edit_then_accept、重复提交幂等、跨作品隔离、EXITED 只读；最终 verdict evidence 4/4。E2 证据 idempotency.json（卡片消失、accept action 仅 1 次）；E3 首次运行因 driver 断言顺序（先 resume 后页面）导致 A 侧 inbox 断言失败，页面档案卡可见证明候选未丢失，修正为页面主证据 + resume 辅助轮询后同因第 2 次 PASS，未改产品代码/未放宽页面语义。残余：inbox 条目未单列 source_session_id（DTO 已有，体验细化）；确定性 provider 证据不代签真实模型语义/I10。NEXT 当前任务切 B27。
+

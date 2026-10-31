@@ -5892,6 +5892,34 @@ async function driveB46CrossSessionInbox(page) {
     "B46 resolved artifact missing from inbox history",
   );
 
+  // B46 §12 E2（2026-10-31）：重复提交幂等——处理后卡片消失（不可重复触发）、
+  // 该候选的 accept author_action 只有一次；事实唯一由后续 DB 断言覆盖。
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await page.getByRole("tab", { name: /经验规则/ }).click();
+  const acceptedCards = page.locator('[class*="cardAccent"]').filter({ hasText: nonce });
+  assert((await acceptedCards.count()) === 0, "B46 accepted pending card still actionable");
+  await page.screenshot({ path: path.join(artifactDir, "idempotent-after-accept.png"), fullPage: true });
+  await closeArchiveIfOpen(page);
+  const acceptActionsForCandidate = frames.filter(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.target_ref === candidate.artifact_id &&
+      frame.body?.action?.action_type === "accept",
+  );
+  assert(
+    acceptActionsForCandidate.length === 1,
+    `B46 duplicate accept author_action observed: ${acceptActionsForCandidate.length}`,
+  );
+  fs.writeFileSync(
+    path.join(artifactDir, "idempotency.json"),
+    JSON.stringify(
+      { accepted_card_absent: true, accept_action_count: acceptActionsForCandidate.length },
+      null,
+      2,
+    ),
+  );
+
   // 第二个候选：第三个 session 中从 inbox 继续 discard（同一真实归档动作边界）。
   const discardNonce = `${nonce}-discard`;
   const discardCandidateResult = await send(
@@ -6166,26 +6194,48 @@ async function driveB46CrossSessionInbox(page) {
   await closeArchiveIfOpen(page);
 
   await switchToWorkByTitle(page, workATitle);
-  const aResumePromise = page.waitForResponse(
-    (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+
+  // 页面主证据（用户可见）：切回 work A 后档案待处理卡仍在。
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await page.getByRole("tab", { name: /经验规则/ }).click();
+  const aCard = page.locator('[class*="cardAccent"]').filter({ hasText: isolationNonce });
+  await aCard.first().waitFor({ timeout: 15_000 });
+  assert((await aCard.count()) === 1, "B46 work A archive lost isolated pending card");
+  await closeArchiveIfOpen(page);
+
+  // 辅助证据：resume inbox 在刷新后应恢复该候选项；允许最多 3 次刷新等待异步状态投影。
+  let aSnapshot = null;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const aResumePromise = page.waitForResponse(
+      (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+    );
+    await page.reload({ waitUntil: "commit" });
+    await page.locator(chatInputSelector).waitFor();
+    await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+    aSnapshot = await (await aResumePromise).json();
+
+    if (
+      (aSnapshot.inbox_pending_adoptions ?? []).some(
+        (entry) => entry.artifact_id === isolationCandidate.artifact_id,
+      )
+    ) {
+      break;
+    }
+
+    await sleep(500);
+  }
+
+  fs.writeFileSync(
+    path.join(artifactDir, "isolation-work-a-resume.json"),
+    JSON.stringify(aSnapshot, null, 2),
   );
-  await page.reload({ waitUntil: "commit" });
-  await page.locator(chatInputSelector).waitFor();
-  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
-  const aSnapshot = await (await aResumePromise).json();
-  fs.writeFileSync(path.join(artifactDir, "isolation-work-a-resume.json"), JSON.stringify(aSnapshot, null, 2));
   assert(
     (aSnapshot.inbox_pending_adoptions ?? []).some(
       (entry) => entry.artifact_id === isolationCandidate.artifact_id,
     ),
-    "B46 work A inbox lost its pending artifact after cross-work switch",
+    "B46 work A resume inbox missing isolated pending artifact",
   );
-
-  await page.getByRole("button", { name: "打开档案" }).first().click();
-  await page.getByRole("tab", { name: /经验规则/ }).click();
-  const aCard = page.locator('[class*="cardAccent"]').filter({ hasText: isolationNonce });
-  assert((await aCard.count()) === 1, "B46 work A archive lost isolated pending card");
-  await closeArchiveIfOpen(page);
 
   return [
     {
@@ -6213,6 +6263,7 @@ async function driveB46CrossSessionInbox(page) {
       isolated_artifact_id: isolationCandidate.artifact_id,
       isolation_work_b_id: workBId,
       cross_work_inbox_isolated: true,
+      idempotent_accept_action_count: acceptActionsForCandidate.length,
     },
   ];
 }

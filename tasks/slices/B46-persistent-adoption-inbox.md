@@ -154,3 +154,16 @@
 - 证据：`artifacts/slice-verify/b46-cross-session-inbox-tauri/isolation-work-{a,b}-resume.json`（B inbox_count=0、A inbox_count=1）、`cross-work-isolation.png`、`ui-state.json` 含 `isolated_artifact_id/isolation_work_b_id/cross_work_inbox_isolated`；`quality_accept --surface tauri` PASS、verdict evidence 4/4。
 - 第 1 次运行即 PASS，未改产品代码、未改断言；作品隔离由真实作品菜单与 resume API 页面证据承担。
 - 剩余矩阵：E2 重复提交幂等（页面动作消失 + 后端幂等组合）；B46 未标 done。
+### E2 实施记录与矩阵收口（2026-10-31）
+
+- E2 幂等组合：采纳完成后打开档案「经验规则」断言待处理卡消失（不可重复触发）、该候选 `accept` author_action 全帧仅 1 次、DB 唯一 CONFIRMED；证据 `idempotency.json`（`accepted_card_absent=true`、`accept_action_count=1`）、`idempotent-after-accept.png`、`ui-state.json.idempotent_accept_action_count=1`。
+- E3 首次运行（含 E2 断言后的时序）在 A 侧 resume inbox 断言失败：证据显示切回 work A 后页面档案候选卡可见，但 resume 快照 `inbox_pending_adoptions` 为空（`isolation-work-a-resume.json` 与 `isolation-work-b-resume.json` active_session 相同）。根因判定为 **driver 断言顺序/刷新时序**（先取 resume 快照再断言页面），不是产品候选丢失；修正为「页面主证据（档案卡可见）+ resume 辅助轮询（≤3 次刷新）」，未改产品代码/未放宽页面语义。
+- 重跑（同因第 2 次、预算内）PASS：`quality_accept --surface tauri`、verdict `evidence=4/4`；四矩阵断言齐全：
+  - accept/discard 跨会话（§11）、E1 edit_then_accept、E2 幂等、E3 跨作品隔离、E4 EXITED 只读；
+  - `ui-state.json`：`edited_artifact_id`、`exited_history_readonly=true`、`exited_history_pending_actions=0`、`isolated_artifact_id`、`isolation_work_b_id`、`cross_work_inbox_isolated=true`、`idempotent_accept_action_count=1`、`confirmed_fact_count=1`。
+
+### 收口残余（不代签）
+
+- inbox 条目 UI 仍未单独标注来源 `source_session_id`（DTO 已提供 source_session_id，UI 沿用候选卡）；属体验细化，另立后续（未在本矩阵范围）。
+- 本矩阵为确定性 provider + 真实 Tauri 页面证据；真实模型语义与 I10 文学质量不代签。
+- harness 时序问题已按预算记录（E3 同因失败 1 次，修正断言顺序后 PASS），未以重跑刷分。

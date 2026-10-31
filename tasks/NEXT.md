@@ -6,14 +6,13 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B46 | E1 edit_then_accept、E3 跨作品隔离、E4 EXITED 只读真实页面 PASS（§12）；剩余 E2 重复提交幂等（页面动作消失 + 后端唯一事实组合），B46 收口在 E2 后 | [B46](slices/B46-persistent-adoption-inbox.md) |
+| B27 | 5 个 CP4 known-gap 的确定性负例/构造器矩阵（实模另需预注册与资源窗口，「第二方复核」原文归本任务定向硬化） | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
 | B71-CP3a | 承接 CP2 残差：统一 AgentRun 首个创作消费者生产接线（IR 消费替换 legacy prompt、观察/校验回流、预算/权限/trace/持久化/恢复），slice_verify 确定性页面取证；不签实模语义，需窗口部分见 CP3b | [B71](slices/B71-provider-message-fidelity.md#cp3a-确定性接线2026-10-31) |
-| B27 | 5 个 CP4 known-gap 的确定性负例/构造器矩阵（实模另需预注册与资源窗口，「第二方复核」原文归本任务定向硬化） | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
 | UA01-PROMPT | T3 规划器前缀确定性校验/必要时机械合并（不涉 schema，可独立于 T5 裁决） | [UA01](slices/UA01-agentic-loop-prompt-hardening.md#t3-前缀确定性可独立推进2026-10-31) |
 | Q1C | 作者已选 A 补原生 driver；复用 AU12 原生驱动接线，需独立 runtime 预算 | [Q1C](slices/Q1C-adopted-content-revision.md#原生补验-cp0阻塞记录2026-10-31) |
 | SU04 | 预注册隔离 release-app 外部 UI 故障驱动（正常冷启动/坏包/端口占用/退出无孤儿） | [SU04](slices/SU04-desktop-sidecar-packaging.md#可独立推进-release-app-预注册2026-10-31) |
