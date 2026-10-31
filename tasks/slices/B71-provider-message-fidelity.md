@@ -1,8 +1,8 @@
 # B71：AI Novel Studio 原生多轮创作请求体
 
-- 状态：**doing（2026-10-31 CP0 done；作者选 A，ADR-0033 Accepted；CP1 done 并复核通过，ADR-0030/0031 已转 Superseded；CP2 进行中——Request IR v1 + 三类投影 + G1–G6 golden 已完成，生产 adapter/AgentRun 接线与真实观察回流未闭环）**。
+- 状态：**doing（2026-10-31 CP0 done；作者选 A，ADR-0033 Accepted；CP1 done 并复核通过，ADR-0030/0031 已转 Superseded；CP2 机制完成但不单独标 done，残差并入 CP3a；CP3 拆为 CP3a 确定性接线（todo，已入 NEXT 候选）/ CP3b 实模窗口验收（blocked，等真实 Tauri + 实模窗口））**。
 - 来源：作者先要求对照 Codex、Claude Code、dsh 的真实多轮请求，随后明确“设计一个优秀、符合项目调性的请求体，不为现状妥协”。本文件已据此替换此前偏向现役最小修补的方案。
-- 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)；目标方向与迁移规则已由 [ADR-0033](../../docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) Accepted（2026-10-31）；替换契约 [VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 已 Frozen，实现未开始。
+- 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)；目标方向与迁移规则已由 [ADR-0033](../../docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) Accepted（2026-10-31）；替换契约 [VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 已 Frozen，实现迁移中（CP2 机制完成，CP3a 生产接线未开始）。
 - 对账输入：[B26](B26-single-call-judgment-protocol.md)、[B39](B39-evidence-seeking-authoring.md)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md)、[VS-00I](../../docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md)、[UA-01](../../docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md)。它们是迁移事实与可能需要修订的决策，不是降低目标设计的约束。
 
 ## 1. 重新对照后的核心问题
@@ -83,9 +83,10 @@
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
 | CP0 | 对三款外部真实多轮请求与本项目真实日志做目标对照；明确 AgentRun 原生会话、作者主权、求证和 replay 的目标方向；登记任务与设计 | **done（2026-10-30，仅文档）**：已替换此前现役最小修补方案；未修改产品代码 |
-| CP1 | 冻结目标 contract pack、Request IR、消息/工具/观察/校验/候选/checkpoint 语义、provider 投影与能力门槛、六类黄金请求和场景预注册；完成 ADR/现役协议差异及迁移裁决 | **done（2026-10-31，见 §7 交付记录）**：VS-00L Frozen + 逐条迁移映射 + G1–G6 + 场景预注册；待复核后旧 ADR 转 Superseded |
-| CP2 | 实现 canonical transcript/Request IR 与三类 provider 投影；建立真实只读观察和原生校验结果回流，黄金与 adapter 测试通过 | **doing（2026-10-31）：IR v1 + 三类投影 + G1–G6 golden + OpenAI 兼容/Anthropic adapter 桥 + application 层 transcript 观察/校验回流机制完成；生产接线（CP3 首个消费者）与真实 run 证据未闭环** |
-| CP3 | 以统一 AgentRun 接通首个创作消费者，完成求证→候选→校验→作者出口；接入预算、权限、trace、持久化和恢复，不形成第二控制环 | 未开工 |
+| CP1 | 冻结目标 contract pack、Request IR、消息/工具/观察/校验/候选/checkpoint 语义、provider 投影与能力门槛、六类黄金请求和场景预注册；完成 ADR/现役协议差异及迁移裁决 | **done（2026-10-31，见 §7 交付记录）**：VS-00L Frozen + 逐条迁移映射 + G1–G6 + 场景预注册；已复核通过，旧 ADR-0030/0031 已转 Superseded |
+| CP2 | 实现 canonical transcript/Request IR 与三类 provider 投影；建立真实只读观察和原生校验结果回流，黄金与 adapter 测试通过 | **机制完成、不单独标 done（2026-10-31）：IR v1 + 三类投影 + G1–G6 golden + OpenAI 兼容/Anthropic adapter 桥 + application 层 transcript 观察/校验回流机制已完成；生产接线与真实观察回流作为残差并入 CP3a** |
+| CP3a | 确定性接线（2026-10-31 从 CP3 拆出）：以统一 AgentRun 接通首个创作消费者并完成生产接线（IR 消费替换 call-site legacy prompt、观察/校验按 call_id 回流、预算/权限/trace/持久化/恢复），承接 CP2 残差；以确定性 provider 在真实页面驱动证明接线闭环，不签实模语义 | **todo（已入 NEXT 候选）** |
+| CP3b | 实模窗口验收（2026-10-31 从 CP3 拆出）：按预注册在真实 Tauri 原生窗口 + 真实模型单槽复跑首个创作 AgentRun 全场景与 G1–G6 真实 run 取证；CP3 只有在 CP3a + CP3b 均完成后才算 done | **blocked（需真实 Tauri + 实模资源窗口与预算；非决策阻塞）** |
 | CP4 | 覆盖规划/修订/质量与压缩恢复，完成真实 Tauri 全链、真实模型行为、缓存/usage、replay/Why 和全部门禁；处理现役迁移与旧协议退役 | 未开工 |
 | CP5 | 更新 ADR/contract/设计/索引/事实台账和恢复指引；逐项证明完整范围，不能以 adapter/golden 局部证据标 done | 未开工 |
 
@@ -145,3 +146,22 @@
 - 边界：本模块不发起 provider 调用、不执行工具、不写库；生产主链接线归 CP3。
 - 测试：`authoring_transcript_test.exs` 6 条——两轮观察回流按 call_id 进入下一请求、used_refs 越界拒绝（I-ART-9）、校验失败原生回流（I-ART-5）、application_base provenance（I-ART-3）、观察 status 如实（I-ART-4）、checkpoint/author_exit 无伪作者消息（I-ART-7）。
 - **仍未闭环**：真实 run 的观察回流（真实探索服务/工具执行 → transcript → 下一 provider 请求）与页面/模型证据是 CP3 首个消费者范围；I-CACHE 重锚、G1–G6 fixture 接真实 run 待 CP3。CP2 不标 done。
+
+### CP3a 确定性接线（2026-10-31）
+
+- 状态：todo
+- 来源与关系：2026-10-31 排期再平衡时从 CP3 拆出，作为 CP3 的执行 checkpoint；**不缩小 CP3 范围**，CP3 done 仍须 CP3a + CP3b 全部完成。
+- 范围：以统一 AgentRun 接通首个创作消费者并完成生产接线——AgentRun/执行编排 → `AuthoringTranscript` → `RequestIR` → provider adapter 消费（替换 call-site 的 legacy prompt 组装）；真实只读观察与工具校验结果按 call_id 回流进下一请求；预算、权限、trace、持久化与恢复按既有契约接入。承接 CP2 残差：真实观察/校验回流生产接线、I-CACHE 重锚在 IR 投影上的测量、G1–G6 fixture 文件化。不形成第二控制环。
+- 证据层：确定性 provider（`slice_verify`）在真实页面/原生窗口驱动，产出接线与状态证据；**不签真实模型语义**（归 CP3b 与 B42）。
+- 边界：如接线需要新 schema/迁移或数据写入授权，先登记为子阻塞并回退作者授权，不自行扩权；不得用适配器或单测代替页面证据。
+- Proof：外部自动化驱动当前真实入口（`bash scripts/tauri_slice_verify.sh <b71 场景>` 或等价原生驱动）；观察 call_id 绑定进入下一请求、used_refs 不越界、候选保持 tentative、采纳前零写入、replay 不调模型。
+- 恢复入口：先让生产调用点消费 IR（`RequestIR.to_provider_prompt/2` 已有桥），再接 `AuthoringTranscript` 观察回流，最后补 trace/恢复与门禁。
+
+### CP3b 实模窗口验收（2026-10-31）
+
+- 状态：blocked
+- 阻塞原因：真实 Tauri 原生窗口 + 真实模型单槽资源窗口与预算尚未授权（资源型等待，非决策阻塞，无待裁决选项）；场景预注册 `artifacts/model-contracts/b71-cp1/scenario-preregistration.json` 已就绪。
+- 受影响 checkpoint：CP3 完成；B39 求证式创作的目标实现（重锚至 CP3/CP4）依赖本项；CP4 真实 Tauri 全链以其为前提。
+- 解除条件：① CP3a 接线完成并能产生对应 run 切片；② 作者/指定运行者批准模型资源窗口与生成预算（单槽 Strata `iq3_s`，批次 ≤2，场景 900s，input 120s/turn 360s 等）；③ 场景在 quality manifest 登记，driver、证据目录与卸载核验就绪。
+- 证据层：真实 Tauri 原生窗口 + 真实模型，按预注册复跑首个创作 AgentRun 全场景与 G1–G6 真实 run；证据面 `surface=tauri-native`，含 AX 截图/文本、wire 帧、app-log、llm-calls 请求字节、隔离 DB 前后快照、wait-stats/heartbeat。
+- 未授权事项：未获窗口前不启动实模批次、不伪造 PASS、不以 CP1 预注册或 CP2 机制证据代签。

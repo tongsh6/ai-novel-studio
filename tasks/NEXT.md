@@ -12,6 +12,7 @@
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
+| B71-CP3a | 承接 CP2 残差：统一 AgentRun 首个创作消费者生产接线（IR 消费替换 legacy prompt、观察/校验回流、预算/权限/trace/持久化/恢复），slice_verify 确定性页面取证；不签实模语义，需窗口部分见 CP3b | [B71](slices/B71-provider-message-fidelity.md#cp3a-确定性接线2026-10-31) |
 | B27 | 5 个 CP4 known-gap 的确定性负例/构造器矩阵（实模另需预注册与资源窗口，「第二方复核」原文归本任务定向硬化） | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
 | UA01-PROMPT | T3 规划器前缀确定性校验/必要时机械合并（不涉 schema，可独立于 T5 裁决） | [UA01](slices/UA01-agentic-loop-prompt-hardening.md#t3-前缀确定性可独立推进2026-10-31) |
 | Q1C | 作者已选 A 补原生 driver；复用 AU12 原生驱动接线，需独立 runtime 预算 | [Q1C](slices/Q1C-adopted-content-revision.md#原生补验-cp0阻塞记录2026-10-31) |
@@ -34,6 +35,6 @@
 - **B64 实模**：一次 judgment_protocol_violation 失败待裁决；见 [B64](slices/B64-coordinate-aware-memory-consumption.md)。
 - **B39 重锚**：目标实现由 B71 CP3/CP4 承接；原 setup 第02章候选区 AX 同因失败记录只读保留，不再单独驱动实现；见 [B39](slices/B39-evidence-seeking-authoring.md)。
 - **AU10-FAILED**：缺真实页面确定性失败触发（产品外 fixture/原生目录替身可先构造，真实页面证据仍需窗口）；见 [AU10](slices/AU10-workbench-recovery-taskstate.md#failed-cp0-盘点2026-10-31)。
-- **B71 CP3**：CP2 机制完成（IR v1/三类投影/adapter 桥/transcript 回流）；CP3 首个创作 AgentRun 需真实 Tauri + 实模窗口，预注册 `artifacts/model-contracts/b71-cp1/scenario-preregistration.json`；见 [B71](slices/B71-provider-message-fidelity.md)。
+- **B71 CP3b**：CP3a 确定性接线已入候选（不缩小 CP3 范围）；CP3b 需真实 Tauri 原生窗口 + 实模资源窗口与预算，属资源型等待而非决策阻塞；预注册 `artifacts/model-contracts/b71-cp1/scenario-preregistration.json`；见 [B71](slices/B71-provider-message-fidelity.md#cp3b-实模窗口验收2026-10-31)。
 - **B48 CP3**：CP0–CP2 done；CP3 需真实模型/原生 runtime 窗口 + native driver 前置，预注册 `artifacts/b48-cp3/preregistration.json`；见 [B48](slices/B48-character-revision-noop-and-ambiguity.md)。
 - **延期/条件**：多 Agent/24x7 [B50](slices/B50-multi-agent-current-boundary.md#61-延期实施与重新开放)；AU-15 [B42](slices/B42-model-behavior-evidence-tier.md#10-cp4blocked-登记不执行不代签)；I10 盲评 [安排](slices/VS00D-G-GAP-RECONCILIATION.md#i10-人工盲评安排)；stage 修复需授权 [B28](slices/B28-whole-chapter-revision.md)；B38/Experience [B38](slices/B38-world-rule-save-intent.md)/[B68](slices/B68-experience-rule-governance.md)。
