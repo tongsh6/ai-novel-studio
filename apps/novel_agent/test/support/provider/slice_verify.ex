@@ -1,4 +1,7 @@
 defmodule NovelAgent.Test.Provider.SliceVerify do
+  # B71 CP3a S1b：IR v1 投影的作者消息/application_base provenance 标记（test-support 适配）。
+  @application_base_marker "【应用数据"
+  @author_section_placeholder "（本轮作者原话见独立 user 消息）"
   @moduledoc """
   Deterministic provider for local slice verification.
 
@@ -5906,17 +5909,53 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp prompt_text(prompt) when is_binary(prompt), do: prompt
 
-  defp prompt_text(prompt) when is_map(prompt) do
-    prompt
-    |> NovelAgent.Provider.normalize_messages()
-    |> Enum.reject(&(&1.role == "system" and &1.content == SystemIdentity.content()))
-    |> Enum.map_join("\n", fn message -> "#{message.role}: #{message.content}" end)
+  # B71 CP3a S1b：IR v1 投影把作者原话作为独立 user 消息（application_base 带
+  # provenance 标记）。为让既有判断 fixture 的文本规则继续工作，把「最后一条非
+  # application_base 的 user 消息」重新拼为 legacy 的「## 作者输入」段；其余消息
+  # 按原顺序拼接。这是 test-support 适配，不改变产品语义。
+  defp prompt_text(prompt) when is_map(prompt) or is_list(prompt) do
+    messages =
+      prompt
+      |> NovelAgent.Provider.normalize_messages()
+      |> Enum.reject(&(&1.role == "system" and &1.content == SystemIdentity.content()))
+
+    # 仅 IR v1 投影（含 application_base provenance 消息）走新拼接；legacy 单 user
+    # prompt 行为保持不变。
+    if Enum.any?(messages, &String.starts_with?(to_string(&1.content), @application_base_marker)) do
+      prompt_text_from_messages(messages)
+    else
+      Enum.map_join(messages, "\n", fn message -> "#{message.role}: #{message.content}" end)
+    end
   end
 
-  defp prompt_text(prompt) when is_list(prompt) do
-    prompt
-    |> NovelAgent.Provider.normalize_messages()
-    |> Enum.reject(&(&1.role == "system" and &1.content == SystemIdentity.content()))
-    |> Enum.map_join("\n", fn message -> "#{message.role}: #{message.content}" end)
+  defp prompt_text_from_messages(messages) do
+    messages =
+      Enum.reject(messages, fn message ->
+        message.role == "system" and message.content == SystemIdentity.content()
+      end)
+
+    {user_messages, other_messages} = Enum.split_with(messages, &(&1.role == "user"))
+
+    author =
+      user_messages
+      |> Enum.reverse()
+      |> Enum.find_value(fn message ->
+        content = to_string(message.content)
+
+        if String.starts_with?(content, @application_base_marker) or
+             String.contains?(content, @author_section_placeholder) do
+          nil
+        else
+          content
+        end
+      end)
+
+    joined =
+      Enum.map_join(other_messages, "\n", fn message -> "#{message.role}: #{message.content}" end)
+
+    case author do
+      nil -> joined
+      author -> joined <> "\n## 作者输入\n" <> author
+    end
   end
 end

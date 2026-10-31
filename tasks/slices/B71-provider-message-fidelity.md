@@ -208,3 +208,11 @@
 - 测试（`judgment_protocol_test.exs` 新增 2 条）：IR v1 validate、工具目录 name 顺序等价、application_base 带 provenance + context_block、作者原话独立且不被 application_base 冒充（I-ART-2/3）、continuation profile 同样可用；文件 74/74、全量 `mix test` 0 failures、credo 0、compile -Werror、xref/arch 通过。
 - **S1b 下一步**：把 `DialoguePlanningService`（`dialogue_planning_service.ex:1320`）的 `JudgmentProtocol.prompt(protocol_input)` 调用切到 `prompt_ir` 投影，同步核对 `slice_verify` test-support 解析与既有单 user 断言（合法契约断言随实现演进需保留语义覆盖，不放宽门禁）；随后做真实页面确定性场景（S4）。
 - 边界：S1a 不改生产请求字节、不引入第二控制环；不签实模语义。
+
+#### CP3a S1b 尝试与回退记录（2026-10-31）
+
+- 尝试：把 `JudgmentProtocol.request/4` 的生产 prompt 从 `prompt/2` 切到 `prompt_for_production/2`（IR 投影优先，失败回退 legacy + `judgment.prompt_ir.error` 诊断）；`judgment_prompt_diagnostics` 与生产同源（拼接全部消息统计）。
+- 回归结果（快速失败，未合并）：`AgentRunJudgmentPlanFlowTest` 4 例、`WorkspaceChannelTest` 2 例失败（收不到 `:plan_drafted` / AgentRun ack 消息）。root-cause：slice_verify 测试替身的判断规则（`judgment_author_input/1` 等）依赖 legacy prompt 的「## 作者输入」文本形态；IR 投影把作者原话拆为独立 user 消息、application_base 中该段为占位后，判断规则不再命中，flow 走错分支。
+- 已做的安全适配（保留）：`slice_verify.prompt_text/1` 仅在 IR 形态（含 application_base provenance 消息）时把最后一条非 application_base 的 user 消息重拼为「## 作者输入」段；legacy prompt 行为不变（55/55、全量各 app 回归 0 failures）。修正了 test-support 模块属性的定义顺序（必须在首次引用前定义）。
+- 回退决定：生产 `request/4` 与 diagnostics 恢复 legacy `prompt/2`（主链请求字节不变），避免在测试替身尚未 IR-aware、flow 测试未适配时合并半成品；`prompt_ir/2`、`prompt_for_production/2` 保留为**未接线**的 S1b 起点（有单测）。
+- S1b 下一步（有明确计划）：①把 slice_verify 的判断规则改为 IR-aware（优先读结构化 messages 的最后作者 user 消息，而不是依赖拼接文本）；②同步 flow/白盒测试与 `judgment_prompt_diagnostics` 的文本统计口径；③再切换生产 `request/4` 并跑全量回归 + 真实页面确定性场景（S4）。

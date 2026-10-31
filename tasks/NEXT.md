@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B71-CP3a | S1a done：`prompt_ir/2` 旁路 + IR 投影测试（工具等价/作者独立/IR 校验）；下一步 S1b——切换 `DialoguePlanningService` call-site 并核对 slice_verify/既有断言 | [B71](slices/B71-provider-message-fidelity.md) |
+| B71-CP3a | S1a done（prompt_ir 旁路+测试）；S1b 首次切换因 slice_verify 判断依赖 legacy 文本形态而回退（主链已恢复全绿，root-cause 与保留适配见 B71）；下一步 S1b′：slice_verify 判断 IR-aware + flow 测试适配后再切生产 | [B71](slices/B71-provider-message-fidelity.md) |
 
 ## 后续候选
 

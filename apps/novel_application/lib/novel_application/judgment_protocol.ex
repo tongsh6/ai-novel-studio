@@ -52,6 +52,34 @@ defmodule NovelApplication.JudgmentProtocol do
       else: {:error, :provider_execution_required}
   end
 
+  @doc """
+  B71 CP3a S1b：判断请求的生产 prompt。
+
+  优先消费 Request IR v1 投影（`prompt_ir/2`）；IR 构造失败时回退 legacy `prompt/2`
+  并留下诊断，不静默改变请求语义。
+  """
+  @spec prompt_for_production(map(), atom()) :: map()
+  def prompt_for_production(input, profile \\ :judgment) do
+    # CP3a S1b 先接首个创作消费者（judgment profile）；continuation 沿用 legacy
+    # 构造（其输入形状为 goal_text/deviation_summary，不具 author_text），留待后续 CP。
+    if profile == :judgment do
+      case prompt_ir(input, profile) do
+        {:ok, %{prompt: prompt}} ->
+          prompt
+
+        {:error, reason} ->
+          LogEmit.emit(:judgment, :prompt_ir, :error, %{
+            reason_code: :ir_construction_failed,
+            reason: inspect(reason) |> String.slice(0, 200)
+          })
+
+          prompt(input, profile)
+      end
+    else
+      prompt(input, profile)
+    end
+  end
+
   defp invoke(fun, prompt, input, profile, attempt, previous_tools \\ []) do
     case fun.(prompt) do
       {:ok, provider_result} ->

@@ -1399,3 +1399,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **B71 CP3a S1a done**：新增 `JudgmentProtocol.prompt_ir/2` 旁路（不改生产 prompt 路径），把判断 protocol_input 经 AuthoringTranscript → RequestIR v1 → to_provider_prompt 投影；测试断言 IR validate、工具目录与 legacy 等价、application_base provenance/context_block、作者原话独立且不被冒充（I-ART-2/3）、continuation profile 可用。judgment_protocol 74/74、全量 mix test 0 failures、credo 0、compile -Werror、xref/arch 通过。S1b 待切换生产 call-site 并核对 slice_verify/既有断言；不签实模语义。
 
+- 2026-10-31 — **B71 CP3a S1b 首次切换回退（如实记录）**：将判断生产 prompt 切到 IR 投影后，AgentRunJudgmentPlanFlow 4 例与 WorkspaceChannel 2 例回归失败（收不到 plan_drafted/ack），root-cause 为 slice_verify 测试替身判断规则依赖 legacy「## 作者输入」文本形态；已回退生产 request/diagnostics 至 legacy（请求字节不变），保留 S1a `prompt_ir`/`prompt_for_production`（未接线）与 slice_verify 的条件 IR 文本适配（legacy 行为不变，属性顺序 bug 修正）。全量各 app 测试 0 failures。S1b 下一步：slice_verify 判断 IR-aware + flow 测试口径适配后再切生产。未合并半成品、未以局部测试冒充接线完成。
+
