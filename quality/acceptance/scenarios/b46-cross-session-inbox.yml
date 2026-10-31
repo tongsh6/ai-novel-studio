@@ -41,12 +41,15 @@ assertions:
   ui:
     - 新会话打开档案可见旧会话 pending 候选并可继续采纳
     - 采纳后待处理消失，不出现重复候选
+    - 跨会话 inbox 候选可经「修改后保存」编辑后采纳，刷新后待处理消失（B46 §12 E1）
   network:
     - 新会话 resume 的 pending_adoptions 为空，inbox_pending_adoptions 含旧 artifact
     - inbox 携带 source turn result，采纳走既有 action
+    - edit_then_accept author_action 携带 edited_content，resolved 为 EDITED_ACCEPTED
   data:
     - 刷新后 inbox pending 不含已采纳 artifact，resolved 保留
     - 作品事实只为该候选生成唯一 CONFIRMED 记录
+    - 编辑后内容为唯一 CONFIRMED 事实，原候选原文未写入
 
 anti_hooks:
   product_acceptance_logic_added: false

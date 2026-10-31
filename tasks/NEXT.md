@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B46 | CP0 done（§12 残差矩阵冻结：edit_then_accept/重复提交/跨作品/EXITED 只读四条）；下一步扩展现有 `b46-cross-session-inbox` driver+manifest 并各跑一次真实页面，失败同因≤2 | [B46](slices/B46-persistent-adoption-inbox.md) |
+| B46 | E1 跨会话 edit_then_accept 真实页面 PASS（§12；编辑后为唯一 CONFIRMED、原文未写入）；下一步 E3 跨作品隔离 / E4 EXITED 只读 / E2 幂等组合，各一次真实页面 | [B46](slices/B46-persistent-adoption-inbox.md) |
 
 ## 后续候选
 

@@ -1387,3 +1387,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **B46 残差矩阵 CP0 冻结**：现有 `b46-cross-session-inbox` 真实 Tauri 场景已覆盖跨会话 accept/discard；冻结四类残差（E1 edit_then_accept、E2 重复提交幂等、E3 跨作品隔离、E4 EXITED 只读）的页面驱动方案、断言（页面/网络/DB）、证据文件与预算（合计最多 4 次真实页面运行、同因≤2、失败只读）。实现扩展现有 driver+manifest，不新增第二套 runner；产品代码不新增验收感知逻辑；未完成矩阵不得以共享边界/后端测试冒充页面证据。CP0 只冻结方案，未改产品代码。
 
+- 2026-10-31 — **B46 E1 done（跨会话 edit_then_accept 真实页面）**：`b46-cross-session-inbox` driver 追加第三候选跨会话编辑后采纳——新会话 inbox → 档案「提出修改」→ 编辑弹窗改写 → 保存修改后的版本 → `edit_then_accept` author_action（edited_content 全文）与 `EDITED_ACCEPTED` resolved；刷新后 inbox pending 移除/resolved 保留；DB 编辑后全文为唯一 CONFIRMED、原候选原文未写入。质量门禁 `quality_accept --surface tauri` PASS、verdict evidence 4/4。失败预算：第 1 次 driver 选择器误用「修改后保存」（档案入口实际文案「提出修改」），修正后第 2 次 PASS，未改断言/守卫。剩余 E2/E3/E4 未做，B46 不标 done。
+

@@ -133,3 +133,11 @@
 - 失败预算：四矩阵合计最多 4 次真实页面运行，同一失败类型≤2 次；失败批次只读保留，不重跑换分。
 - 不在本 CP 修改 adoption/免写边界语义；若发现产品缺陷，按「CP0→契约→修复→scoped 复验→回归」处理并登记根因。
 - 未完成的矩阵不得以「共享边界/已有后端测试」冒充页面证据。
+
+### E1 实施记录（2026-10-31）
+
+- driver `driveB46CrossSessionInbox` 追加第三候选跨会话 edit_then_accept：生成候选 → 新建会话 inbox 可见 → 真实档案「经验规则」待处理卡点击「提出修改」→ 编辑弹窗改写内容 → 保存修改后的版本 → 等待 `edit_then_accept` author_action（`target_ref`=候选、`edited_content`=编辑后全文）与 `EDITED_ACCEPTED` resolved → 刷新后 inbox pending 移除/resolved 保留。
+- DB 断言：编辑后全文为**唯一 CONFIRMED 事实**；原候选原文（`编辑后保存路径也要真实`）**未写入**。
+- 证据：`artifacts/slice-verify/b46-cross-session-inbox-tauri/`（`cross-session-edit-adopt.png`、`edit-session-resume.json`、`after-edit-resume.json`、`edit-then-accept-facts.json`、`ui-state.json` 含 `edited_artifact_id/edited_turn_id/fourth_session_id`）；`quality_accept --surface tauri` PASS、verdict evidence 4/4。
+- 失败与预算：第 1 次运行在档案卡定位「修改后保存」按钮超时——根因为档案入口按钮文案是 **「提出修改」**（`copy.ts:907`），弹窗确认文案是「保存修改后的版本」，属 driver 选择器写错而非产品缺陷；修正后第 2 次运行 PASS，未改断言/未放宽守卫。
+- 剩余矩阵：E2 重复提交幂等（页面动作消失 + 后端幂等组合）、E3 跨作品隔离、E4 EXITED 只读；B46 未标 done。

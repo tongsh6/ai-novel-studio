@@ -5971,6 +5971,119 @@ async function driveB46CrossSessionInbox(page) {
   fs.writeFileSync(path.join(artifactDir, "confirmed-facts.json"), JSON.stringify(facts, null, 2));
   await page.screenshot({ path: path.join(artifactDir, "after-processed-inbox.png"), fullPage: true });
 
+  // B46 §12 E1（2026-10-31）：第三个候选跨会话 edit_then_accept——编辑后保存路径。
+  const editNonce = `${nonce}-edit`;
+  const editCandidateResult = await send(
+    `把这份大纲直接存档为作品设定：${editNonce}，编辑后保存路径也要真实。`,
+  );
+  const editCandidate = editCandidateResult.adoption_state?.pending?.[0];
+  assert(editCandidate?.artifact_id, "B46 edit candidate missing");
+
+  const editResumePromise = page.waitForResponse((res) =>
+    res.url().endsWith("/sessions/resume") && res.ok(),
+  );
+  await openSessionRail(page);
+  await page.getByRole("button", { name: "新建会话" }).click();
+  const editSnapshot = await (await editResumePromise).json();
+  fs.writeFileSync(path.join(artifactDir, "edit-session-resume.json"), JSON.stringify(editSnapshot, null, 2));
+  assert(
+    (editSnapshot.inbox_pending_adoptions ?? []).some(
+      (entry) => entry.artifact_id === editCandidate.artifact_id,
+    ),
+    "B46 edit-session inbox missing candidate",
+  );
+
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await page.getByRole("tab", { name: /经验规则/ }).click();
+  const editCard = page.locator('[class*="cardAccent"]').filter({ hasText: editNonce });
+  assert((await editCard.count()) === 1, "B46 edit candidate not visible in archive");
+  await editCard.getByRole("button", { name: "提出修改", exact: true }).click();
+
+  const editedText = `检索片段${editNonce}：城门只在清晨开启，编辑后保存。`;
+  const editTextarea = page.locator("textarea").first();
+  await editTextarea.waitFor({ timeout: 10_000 });
+  await editTextarea.fill(editedText);
+
+  const editStart = frames.length;
+  await page
+    .getByRole("button", { name: /保存修改后的版本|修改后保存|保存修改后/ })
+    .first()
+    .click();
+  await waitForNewFrame(
+    editStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "edit_then_accept" &&
+      frame.body?.action?.target_ref === editCandidate.artifact_id &&
+      frame.body?.action?.payload?.edited_content === editedText,
+    "B46 edit_then_accept author_action missing",
+    120_000,
+  );
+  await waitForNewFrame(
+    editStart,
+    (frame) =>
+      frame.event === "turn_result" &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) =>
+          entry.artifact_id === editCandidate.artifact_id &&
+          entry.adoption_status === "EDITED_ACCEPTED",
+      ),
+    "B46 edit_then_accept was not EDITED_ACCEPTED",
+    120_000,
+  );
+  await closeArchiveIfOpen(page);
+
+  const editReloadResponse = page.waitForResponse((res) =>
+    res.url().endsWith("/sessions/resume") && res.ok(),
+  );
+  await page.reload({ waitUntil: "commit" });
+  await page.locator(chatInputSelector).waitFor();
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+  const afterEditSnapshot = await (await editReloadResponse).json();
+  fs.writeFileSync(
+    path.join(artifactDir, "after-edit-resume.json"),
+    JSON.stringify(afterEditSnapshot, null, 2),
+  );
+  assert(
+    !(afterEditSnapshot.inbox_pending_adoptions ?? []).some(
+      (entry) => entry.artifact_id === editCandidate.artifact_id,
+    ),
+    "B46 edited artifact remains in inbox",
+  );
+  assert(
+    (afterEditSnapshot.inbox_resolved_adoptions ?? []).some(
+      (entry) =>
+        entry.artifact_id === editCandidate.artifact_id &&
+        entry.adoption_status === "EDITED_ACCEPTED",
+    ),
+    "B46 edited resolved missing from inbox history",
+  );
+
+  const editDb = new DatabaseSync(dbPath, { readOnly: true });
+  let editFacts;
+  let originalFacts;
+  try {
+    editFacts = editDb
+      .prepare("SELECT content, status FROM memory_items WHERE instr(content, ?) > 0")
+      .all(editedText);
+    originalFacts = editDb
+      .prepare("SELECT content FROM memory_items WHERE instr(content, ?) > 0")
+      .all("编辑后保存路径也要真实");
+  } finally {
+    editDb.close();
+  }
+  assert(
+    editFacts.length === 1 && editFacts[0].status === "CONFIRMED",
+    "B46 edited content is not the unique CONFIRMED fact",
+  );
+  assert(originalFacts.length === 0, "B46 original candidate bytes were persisted instead of edited content");
+  fs.writeFileSync(
+    path.join(artifactDir, "edit-then-accept-facts.json"),
+    JSON.stringify({ editFacts, originalFacts }, null, 2),
+  );
+  await page.screenshot({ path: path.join(artifactDir, "cross-session-edit-adopt.png"), fullPage: true });
+
   return [
     {
       event: "slice_verify.ui_state.done",
@@ -5987,6 +6100,11 @@ async function driveB46CrossSessionInbox(page) {
       discarded_artifact_id: discardCandidate.artifact_id,
       third_session_id: discardSnapshot.active_session.id,
       confirmed_fact_count: facts.length,
+      edited_artifact_id: editCandidate.artifact_id,
+      edited_turn_id: editCandidateResult.turn_id,
+      fourth_session_id: editSnapshot.active_session.id,
+      edit_then_accept_saved: true,
+      edited_fact_confirmed: editFacts.length === 1,
     },
   ];
 }
@@ -6096,7 +6214,10 @@ async function driveCandidateStaleModal(page) {
   await waitForNewFrame(discardStart, (f) => f.event === "agent_run_state" &&
     f.body?.run_id === discarded.agent_run?.run_id && f.body?.status === "completed", "放弃运行未完成");
   const submitStart = frames.length;
-  await page.getByRole("button", { name: "保存修改后的版本", exact: true }).click();
+  await page
+    .getByRole("button", { name: /保存修改后的版本|修改后保存|保存修改后/ })
+    .first()
+    .click();
   await waitForNewFrame(submitStart, (f) => f.event === "phx_reply" && f.body?.status === "error" &&
     f.body?.response?.reason === "pending artifact is no longer available", "旧编辑未被持久状态拒绝");
   assert(await page.getByRole("dialog").getByRole("textbox").inputValue() === edited, "失败后丢失编辑文本");
@@ -6200,7 +6321,10 @@ async function driveCandidateLifecycle(page) {
   const actionStart = frames.length;
   await page.getByRole("button", { name: "修改后保存", exact: true }).last().click();
   await page.getByRole("dialog").getByRole("textbox").fill(edited);
-  await page.getByRole("button", { name: "保存修改后的版本", exact: true }).click();
+  await page
+    .getByRole("button", { name: /保存修改后的版本|修改后保存|保存修改后/ })
+    .first()
+    .click();
   await waitForNewFrame(actionStart, (f) => f.event === "turn_result" && f.body?.adoption_state?.resolved?.some(
     (e) => e.artifact_id === c.artifact_id && e.adoption_status === "EDITED_ACCEPTED"), "作者修改后采纳失败");
   const sentAction = frames.slice(actionStart).find((f) => f.event === "author_action" && f.direction === "sent");
@@ -6309,7 +6433,10 @@ async function driveCandidateSemantics(page) {
     await page.getByRole("button", { name: label, exact: true }).first().click();
     if (edited) {
       await page.getByRole("dialog").getByRole("textbox").fill(edited);
-      await page.getByRole("button", { name: "保存修改后的版本", exact: true }).click();
+      await page
+    .getByRole("button", { name: /保存修改后的版本|修改后保存|保存修改后/ })
+    .first()
+    .click();
     }
     await waitForNewFrame(start, (f) => f.event === "turn_result" && f.body?.adoption_state?.resolved?.some(
       (entry) => entry.artifact_id === item.artifact_id && entry.adoption_status === status), "真实产物操作未产生正确结果");
