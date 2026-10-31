@@ -1,10 +1,12 @@
 defmodule NovelApplication.JudgmentProtocol do
   @moduledoc "B26/B27：单调用 auto 判断/续行协议；先校验整个响应，再交业务边界派发。"
   alias NovelAgent.Provider.{Execution, InferenceParams}
+  alias NovelAgent.Provider.RequestIR
 
   alias NovelApplication.{
     AgentNarrativeSource,
     AuthoringTaskPolicy,
+    AuthoringTranscript,
     CharacterProfile,
     JudgmentToolContract,
     PendingArtifactWorkflow,
@@ -331,6 +333,50 @@ defmodule NovelApplication.JudgmentProtocol do
       tools: JudgmentToolContract.tools(profile),
       tool_choice: "auto"
     }
+  end
+
+  @doc """
+  B71 CP3a S1a：判断请求的 Request IR v1 构造（新增旁路，不改变 prompt/2 生产路径）。
+
+  把 protocol_input 组装为 `AuthoringTranscript` → `RequestIR` → `to_provider_prompt`，
+  用于验证「生产 call-site 可消费 IR」的数据准备：工具目录等价、application_base 与
+  作者原话分离、作者字节保留。S1b 再把 `DialoguePlanningService` 调用点切换到该投影，
+  并在真实页面场景中取证。
+  """
+  @spec prompt_ir(map(), atom()) :: {:ok, map()} | {:error, term()}
+  def prompt_ir(input, profile \\ :judgment) do
+    author_text = Map.fetch!(input, :author_text)
+    base_text = ir_base_text(input, author_text, profile)
+
+    transcript =
+      AuthoringTranscript.new(
+        %{run_id: "judgment_ir_probe", work_id: "judgment_ir_probe"},
+        base_text: base_text,
+        author_text: author_text,
+        tools: JudgmentToolContract.tools(profile),
+        projection: %{target: "chat_completions", capability_profile: ir_full_capabilities()}
+      )
+
+    with {:ok, ir} <- AuthoringTranscript.to_request_ir(transcript),
+         {:ok, prompt} <- RequestIR.to_provider_prompt(ir, tool_choice: "auto") do
+      {:ok, %{prompt: prompt, ir: ir}}
+    end
+  end
+
+  # 协议/上下文段落与作者原话分离：作者输入段替换为指向独立作者消息的占位，
+  # 其余字节保持 content/2 的现有顺序与内容（S1b 再做正式拆分）。
+  defp ir_base_text(input, author_text, profile) do
+    input
+    |> content(profile)
+    |> String.replace(
+      "## 作者输入\n#{author_text}",
+      "## 作者输入\n（本轮作者原话见独立 user 消息）"
+    )
+  end
+
+  defp ir_full_capabilities do
+    RequestIR.required_capabilities()
+    |> Map.new(&{&1, true})
   end
 
   defp content(input, :judgment) do

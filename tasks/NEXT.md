@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B71-CP3a | CP0 done：生产调用点/分步/风险/验收已冻结；下一步 S1——让 `JudgmentProtocol.prompt/2` 生产 call-site 消费 IR 桥并保持语义等价，再接观察回流/真实页面确定性场景 | [B71](slices/B71-provider-message-fidelity.md) |
+| B71-CP3a | S1a done：`prompt_ir/2` 旁路 + IR 投影测试（工具等价/作者独立/IR 校验）；下一步 S1b——切换 `DialoguePlanningService` call-site 并核对 slice_verify/既有断言 | [B71](slices/B71-provider-message-fidelity.md) |
 
 ## 后续候选
 

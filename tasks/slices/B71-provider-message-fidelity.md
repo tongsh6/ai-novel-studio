@@ -201,3 +201,10 @@
 - 证据层：确定性 provider + 真实页面/原生窗口驱动；**不签真实模型语义**（CP3b/B42），I10 不代签。
 - 预注册：复用 `artifacts/model-contracts/b71-cp1/scenario-preregistration.json` 的场景定义；S4 的确定性场景证据目录 `artifacts/slice-verify/b71-first-consumer-tauri/`。
 - 恢复入口不变：先消费 IR（S1）→ 再接观察回流（S2）→ 最后补 trace/恢复与门禁（S3/S5）。
+
+#### CP3a S1a 实施记录（2026-10-31）
+
+- 新增 `JudgmentProtocol.prompt_ir/2`（旁路，不改变 `prompt/2` 生产路径）：把 protocol_input 经 `AuthoringTranscript` → `RequestIR` → `to_provider_prompt/2` 投影为 provider prompt；协议/上下文段落进入 application_base（作者输入段替换为「见独立 user 消息」占位），作者原话独立 user 消息且字节不变，tools 目录与 legacy 等价、tool_choice=auto。
+- 测试（`judgment_protocol_test.exs` 新增 2 条）：IR v1 validate、工具目录 name 顺序等价、application_base 带 provenance + context_block、作者原话独立且不被 application_base 冒充（I-ART-2/3）、continuation profile 同样可用；文件 74/74、全量 `mix test` 0 failures、credo 0、compile -Werror、xref/arch 通过。
+- **S1b 下一步**：把 `DialoguePlanningService`（`dialogue_planning_service.ex:1320`）的 `JudgmentProtocol.prompt(protocol_input)` 调用切到 `prompt_ir` 投影，同步核对 `slice_verify` test-support 解析与既有单 user 断言（合法契约断言随实现演进需保留语义覆盖，不放宽门禁）；随后做真实页面确定性场景（S4）。
+- 边界：S1a 不改生产请求字节、不引入第二控制环；不签实模语义。

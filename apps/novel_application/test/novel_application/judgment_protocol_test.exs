@@ -2,6 +2,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Test.Provider.SliceVerify
   alias NovelApplication.{AgentNarrativeSource, JudgmentProtocol, JudgmentToolContract}
   alias NovelCommon.Contracts.ProviderOutput
@@ -2096,5 +2097,51 @@ defmodule NovelApplication.JudgmentProtocolTest do
              })
 
     refute judgment.narrative_source.source_type =~ "application"
+  end
+
+  # B71 CP3a S1a：判断请求的 IR v1 旁路构造（不改变 prompt/2 生产路径）。
+  describe "B71 CP3a S1a：judgment Request IR 旁路" do
+    test "prompt_ir 产出 IR v1：工具目录等价、application_base 与作者原话分离" do
+      input = input(capabilities: ["prose_writing"], explore: true)
+      legacy = JudgmentProtocol.prompt(input)
+
+      assert {:ok, %{prompt: prompt, ir: ir}} = JudgmentProtocol.prompt_ir(input)
+
+      assert ir.ir_version == "authoring-request-ir/v1"
+      assert :ok = RequestIR.validate(ir)
+
+      # 工具目录与 legacy prompt 等价（name 顺序一致）
+      legacy_tools = Enum.map(legacy.tools, & &1.name)
+      prompt_tools = Enum.map(prompt.tools, & &1.name)
+      assert prompt_tools == legacy_tools
+      assert prompt.tool_choice == "auto"
+
+      # 投影：system + application_base（带 provenance）+ 独立作者消息（字节不变）
+      assert [%{role: "system"} | rest] = prompt.messages
+      assert Enum.any?(prompt.messages, &(&1.role == "user" and &1.content == input.author_text))
+
+      application_base =
+        Enum.find(prompt.messages, fn message ->
+          message.role == "user" and String.contains?(message.content, "application_base")
+        end)
+
+      assert application_base
+      assert String.contains?(application_base.content, input.context_block)
+      assert String.contains?(application_base.content, "（本轮作者原话见独立 user 消息）")
+      # 作者原话不得被 application_base 冒充（I-ART-2/I-ART-3）
+      refute String.contains?(application_base.content, "## 作者输入\n" <> input.author_text)
+      assert length(rest) >= 2
+    end
+
+    test "prompt_ir 对 continuation profile 同样可用" do
+      input =
+        input(capabilities: ["ask_author"])
+        |> Map.put(:goal_text, "继续当前任务")
+        |> Map.put(:deviation_summary, "偏离事实摘要")
+
+      assert {:ok, %{prompt: prompt}} = JudgmentProtocol.prompt_ir(input, :continuation)
+      assert Enum.any?(prompt.messages, &(&1.role == "user" and &1.content == input.author_text))
+      assert prompt.tools != []
+    end
   end
 end

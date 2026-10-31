@@ -1397,3 +1397,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **B71 CP3a CP0 冻结**：盘点首个创作消费者生产调用点——`DialoguePlanningService.judgment_protocol_input/4` → `JudgmentProtocol.prompt/2` 产单条 user 大文档（tools/tool_choice auto），纠错为 messages 追加，观察当前不在同一 provider 会话回流。冻结 CP3a 分步：S1 call-site 消费 IR 桥（保留语义等价）、S2 观察/校验按 call_id 原生回流、S3 预算/权限/trace/持久化/恢复核对、S4 真实页面确定性场景 `b71-first-consumer`、S5 I-CACHE 重锚与 G1–G6 fixture；识别 slice_verify 解析/字节断言/纠错顺序/Anthropic 投影等风险；不签实模语义（CP3b）。NEXT 当前任务切 B71-CP3a。
 
+- 2026-10-31 — **B71 CP3a S1a done**：新增 `JudgmentProtocol.prompt_ir/2` 旁路（不改生产 prompt 路径），把判断 protocol_input 经 AuthoringTranscript → RequestIR v1 → to_provider_prompt 投影；测试断言 IR validate、工具目录与 legacy 等价、application_base provenance/context_block、作者原话独立且不被冒充（I-ART-2/3）、continuation profile 可用。judgment_protocol 74/74、全量 mix test 0 failures、credo 0、compile -Werror、xref/arch 通过。S1b 待切换生产 call-site 并核对 slice_verify/既有断言；不签实模语义。
+
