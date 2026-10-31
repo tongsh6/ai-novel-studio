@@ -802,8 +802,8 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> Result<Child, String> {
         Ok(()) => Ok(child),
         Err(ready_error) => {
             let early_exit = matches!(child.try_wait(), Ok(Some(_)));
-            let _ = child.kill();
-            let _ = child.wait();
+            // 启动失败同样必须杀整个进程组，否则引导脚本派生的 beam 会残留。
+            terminate_sidecar_group(&mut child);
 
             if early_exit {
                 Err(format!("sidecar exited before ready: {ready_error}"))
@@ -835,25 +835,31 @@ fn wait_for_sidecar_port(port: u16, timeout: std::time::Duration) -> Result<(), 
     ))
 }
 
+// CP1：统一终止 sidecar。正常退出与启动失败清理必须走同一路径——只 kill 直接
+// 子进程（release 引导脚本）会留下它派生的 beam 子进程成为孤儿。
+fn terminate_sidecar_group(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        // 进程组 leader 的 pid 同时是组 id；负号向整组发 TERM，wait 超时再 KILL。
+        let group = format!("-{}", child.id());
+        let _ = Command::new("/bin/kill").arg("-TERM").arg(&group).status();
+        for _ in 0..20 {
+            if let Ok(Some(_)) = child.try_wait() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let _ = Command::new("/bin/kill").arg("-KILL").arg(&group).status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 fn shutdown_sidecar(app: &tauri::AppHandle) {
     if let Some(state) = app.try_state::<SidecarChild>() {
         if let Ok(mut guard) = state.0.lock() {
             if let Some(mut child) = guard.take() {
-                #[cfg(unix)]
-                {
-                    // 进程组 leader 的 pid 同时是组 id；负号向整组发 TERM，wait 超时再 KILL。
-                    let group = format!("-{}", child.id());
-                    let _ = Command::new("/bin/kill").arg("-TERM").arg(&group).status();
-                    for _ in 0..20 {
-                        if let Ok(Some(_)) = child.try_wait() {
-                            return;
-                        }
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                    }
-                    let _ = Command::new("/bin/kill").arg("-KILL").arg(&group).status();
-                }
-                let _ = child.kill();
-                let _ = child.wait();
+                terminate_sidecar_group(&mut child);
             }
         }
     }

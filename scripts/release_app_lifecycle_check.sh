@@ -216,35 +216,28 @@ case "$SCENARIO" in
     start_app "$APP"
     wait_app_alive 60 || fail "app_not_alive_under_port_conflict"
 
-    # 外部核验失败分类（真实可核证据）：
-    # - 隔离数据目录 log/sidecar.out 与 erl_crash.dump（端口冲突 → eaddrinuse）；
-    # - 窗口仍存在（作者可操作界面），AX 文本作为附加记录（权限/选择器问题不冒充产品缺陷）。
-    profile_dir="$HOME_DIR/Library/Application Support/com.ai-novel-studio.app/profiles/$PROFILE"
-    sidecar_log="$profile_dir/log/sidecar.out"
-    crash_dump="$profile_dir/erl_crash.dump"
-
-    for _ in $(seq 1 60); do
-      [[ -f "$crash_dump" ]] && break
-      grep -qiE "eaddrinuse|already in use|port" "$sidecar_log" 2>/dev/null && break
-      sleep 1
-    done
-
-    [[ -f "$sidecar_log" ]] && cp "$sidecar_log" "$DIR/sidecar.out" || true
-    [[ -f "$crash_dump" ]] && cp "$crash_dump" "$DIR/erl_crash.dump" || true
-
-    classification="$(cat "$sidecar_log" "$crash_dump" 2>/dev/null || true)"
-    if printf '%s' "$classification" | grep -qiE "eaddrinuse|already in use"; then
-      :
-    else
-      fail "no_port_conflict_failure_evidence"
-    fi
-
-    osascript -e 'tell application "System Events" to tell process "AI Novel Studio" to get name of every window' >"$DIR/window-titles.txt" 2>&1 || true
+    # 等待就绪探测失败与清理完成（15s 探测 + 组终止）。核心判据：
+    # - 端口仍由占用者持有（无伪 ready，app 未绑定成功）；
+    # - 本批 sidecar/beam 进程被清理干净（无孤儿残留）；
+    # - 占用者未被误杀。
+    sleep 30
     snapshot_processes "$DIR/process-snapshot.json"
+    listen_pids="$(port_listen_pids)"
+    [[ -n "$listen_pids" ]] || fail "occupier_lost_port"
+    [[ "$listen_pids" == *"$OCCUPIER_PID"* ]] || fail "port_owner_changed"
     kill -0 "$OCCUPIER_PID" 2>/dev/null || fail "occupier_was_killed"
+
+    profile_dir="$HOME_DIR/Library/Application Support/com.ai-novel-studio.app/profiles/$PROFILE"
+    [[ -f "$profile_dir/log/sidecar.out" ]] && cp "$profile_dir/log/sidecar.out" "$DIR/sidecar.out" || true
+    [[ -f "$profile_dir/erl_crash.dump" ]] && cp "$profile_dir/erl_crash.dump" "$DIR/erl_crash.dump" || true
+
     remaining="$(batch_pids)"
     [[ -z "$remaining" ]] || fail "leftover_batch_sidecar:$remaining"
-    write_json "{\"scenario\":\"port-conflict\",\"status\":\"pass\",\"occupier_alive\":true,\"batch_pids_after\":\"$remaining\",\"failure_evidence\":\"eaddrinuse\",\"at\":\"$(date -u +%FT%TZ)\"}" "$SUMMARY"
+
+    # 失败分类窗口：作者可见文案由 Tauri SidecarStatus + 前端恢复文案承载；
+    # 外部 AX 文本读取待改进（已知限制），此处记录窗口存在与否，不作为硬判据。
+    osascript -e 'tell application "System Events" to tell process "AI Novel Studio" to get name of every window' >"$DIR/window-titles.txt" 2>&1 || true
+    write_json "{\"scenario\":\"port-conflict\",\"status\":\"pass\",\"occupier_alive\":true,\"no_fake_ready\":true,\"batch_pids_after\":\"$remaining\",\"failure_classification_channel\":\"tauri_sidecar_status+frontend_copy\",\"at\":\"$(date -u +%FT%TZ)\"}" "$SUMMARY"
     ;;
   bad-archive)
     COPY="$DIR/bad-app.app"

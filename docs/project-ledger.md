@@ -1409,3 +1409,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **SU04 CP1 release-app 外部复验（partial）**：新增预注册与 `scripts/release_app_lifecycle_check.sh`（隔离 HOME+profile），驱动真实 release 打包应用（含 CP1 marker/进程组/就绪探测/失败分类）——cold-start、exit-no-orphan（AX 真实关窗）、bad-archive 三场景 PASS；port-conflict 失败分类可核（sidecar.out + erl_crash_dump eaddrinuse、无伪 ready、占用者未误杀）但关窗后存在本批 sidecar 残留进程（known-gap 待 root-cause，不标 PASS）。发现外部 SIGTERM 强杀不触发 Tauri 退出清理（侧车孤儿），真实作者关窗路径无孤儿——系统注销/崩溃清理待作者/后续决策，不擅自加 watchdog。证据 `artifacts/slice-verify/su04-release-app/<scenario>-<ts>/`；未代签跨平台/签名/I10。NEXT 当前任务保持 SU04（下一步 port-conflict root-cause）。
 
+- 2026-10-31 — **SU04 CP1 done（release-app 四场景 + 清理缺陷修复）**：外部复验发现启动失败清理只 kill 直接子进程、未杀进程组 → 端口冲突时 beam 残留（产品缺陷）；修复为 `terminate_sidecar_group`，正常退出与启动失败共用同一组终止路径，Rust 12/12；重建 release app 后 scoped 复验：cold-start、exit-no-orphan（AX 真实关窗）、bad-archive、port-conflict 四场景真实打包应用 PASS（port-conflict：无伪 ready、无本批残留、占用者未误杀）。残余：失败分类外部 AX 渠道待改进、SIGTERM 强杀不清理（待作者决策）、跨平台/签名/公证/I10 未代签。证据 `artifacts/slice-verify/su04-release-app/<scenario>-<ts>/`。NEXT 当前任务切 UA01-PROMPT T3′。
+

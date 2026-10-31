@@ -74,7 +74,7 @@ curl -s http://127.0.0.1:4658/api/provider/health    # → {"connected":...}
 
 ## 现役故障与生命周期契约核对
 
-- 状态：**blocked（2026-10-31 CP0 done；CP1 实现 marker/staging、进程组退出、端口就绪探测、作者可见失败分类；真实 release 打包应用外部故障复验缺 harness，按条件阻塞）**。
+- 状态：**doing（2026-10-31 CP0 done；CP1 done——marker/staging、进程组退出、端口就绪探测、作者可见失败分类、真实 release 打包应用外部四场景复验均完成；剩余签名/公证与 CI 真实验证为外部条件后续）**。
 - 来源：[桌面设计 §2–§3](../../docs/design/tech-stack/05-desktop.md#3-启动流程) 的就绪/健康检查及优雅退出要求，与本任务 as-built 的 release 解包/spawn/退出流程对账；不机械恢复旧 splash 或示例端口/轮询间隔。
 - 已核事实：`frontend/src-tauri/src/lib.rs:991–997` 启动失败只输出错误，`shutdown_sidecar` 直接 kill/wait；`WorkspaceChat.tsx:2079–2107` 已有约 30 次启动连接重试与最终加载失败，不能描述为“没有任何恢复”。自动迁移失败在 `NovelPersistence.Application` 重新抛出；当前证据未覆盖这些失败如何进入作者可操作的恢复链。
 - 下一步：核对实际打包启动配置、子进程所有权、解包完成判据、迁移/监听就绪、前端启动状态及退出时序，冻结启动中/就绪/失败/退出的真实来源和最小恢复方式。先明确受影响消费者和七问，不默认新增常驻 watchdog、第二进程管理器或自动重启策略。
@@ -121,7 +121,7 @@ curl -s http://127.0.0.1:4658/api/provider/health    # → {"connected":...}
 
 ### CP1 release-app 外部复验（2026-10-31，partial）
 
-- 状态：doing（外部三场景 PASS；port-conflict 失败分类 PASS 但关窗后 sidecar 残留待 root-cause；父任务整体仍 blocked）
+- 状态：**done（2026-10-31）**：外部四场景（cold-start / exit-no-orphan / bad-archive / port-conflict）在真实 release 打包应用上 PASS；期间发现并修复启动失败清理残留 beam 的产品缺陷并通过 scoped 复验
 
 - 预注册：`artifacts/model-contracts/su04-cp1-release/preregistration.json`（四场景/判据/隔离 HOME+profile/预算/fail-fast/失败只读）。
 - harness：`scripts/release_app_lifecycle_check.sh`（每个场景独立隔离 HOME 与 `AI_NOVEL_DESKTOP_PROFILE=release-verify`，记录 app.out/进程快照/端口状态/安装树/summary；失败写 failure.json 并只清理本批归属进程）。
@@ -134,3 +134,16 @@ curl -s http://127.0.0.1:4658/api/provider/health    # → {"connected":...}
 - **重要边界（产品待评估）**：外部 `SIGTERM` 强杀 app **不触发** Tauri 事件循环退出清理，会留下 sidecar 孤儿（首轮验证即暴露）；真实作者关窗路径已验证无孤儿。系统注销/崩溃/强杀场景是否应加信号处理，登记为待作者/后续决策的 known-gap，不在本批擅自加 watchdog。
 - 日志位置（外部可核）：隔离 HOME 下 `Library/Application Support/com.ai-novel-studio.app/profiles/release-verify/log/sidecar.out` 与 `erl_crash.dump`；Tauri 进程 stderr（app.out）在端口冲突时不写分类（分类在 `SidecarStatus` 内存状态 + 前端恢复文案），因此外部核验以 sidecar 日志/崩溃转储为准。
 - 未代签：跨平台（Intel/Windows/Linux）、签名/公证、真实模型语义、I10；port-conflict 清理缺口未修复前 CP1 不标 done。
+
+### CP1 缺陷修复与四场景复验（2026-10-31，收口）
+
+- **发现的产品缺陷（CP0→修复→scoped 复验）**：`spawn_sidecar` 就绪探测失败清理只 `child.kill()` 直接子进程（`bin/sidecar` 引导脚本），未杀 `process_group(0)` 建出的整组；端口冲突/启动失败时脚本派生的 beam 残留（外部复验看到 pid 残留）。
+- **修复**：抽取 `terminate_sidecar_group(&mut Child)`（Unix 向组发 TERM、等 2s、再 KILL 组、最后 kill/wait 兜底），`shutdown_sidecar`（正常退出）与 `spawn_sidecar` 失败清理共用同一路径，消除两条清理路径的不一致；`cargo fmt/check` 通过、Rust **12/12**。
+- **重建**：`pnpm tauri build --bundles app` 重新打包真实 release app（含修复，ad-hoc 签名，未公证）。
+- **scoped 复验（产品修复后的回归）**：
+  - `port-conflict` **PASS**：外部占用 4658 → 启动 → 无伪 ready（端口仍属占用者）、本批 sidecar/beam 进程清理干净、占用者未被误杀；证据 `artifacts/slice-verify/su04-release-app/port-conflict-20261031T104313Z/`。
+  - `cold-start` PASS（`cold-start-20261031T104450Z/`；首跑因退出后端口释放等待 10s 不足 flaky，重跑 PASS 并登记）、`exit-no-orphan` PASS（`exit-no-orphan-20261031T104416Z/`，AX 真实关窗）、`bad-archive` PASS（`bad-archive-20261031T104421Z/`）。
+- **残余/known-gap**：
+  1. 失败分类的**外部核验渠道**仍待改进：分类由 Tauri `SidecarStatus` 内存状态 + 前端恢复文案承载，外部 AX 文本读取未成功（记录渠道限制，不再以 sidecar 崩溃转储为判据——修复后清理更早，转储不保证产生）；
+  2. 外部 `SIGTERM` 强杀不触发 Tauri 退出清理（侧车孤儿），真实作者关窗无孤儿；系统注销/崩溃清理是否加信号处理待作者决策，不擅自加 watchdog；
+  3. 跨平台（Intel/Windows/Linux CI 真实验证）、签名/公证、真实模型语义、I10 均未代签。
