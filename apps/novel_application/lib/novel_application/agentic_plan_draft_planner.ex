@@ -347,6 +347,101 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     })
   end
 
+  # T3（UA01）：修订计划的已完成前缀确定性校验/机械合并（不恢复旧 revised_tail）。
+  #
+  # - 只有 revision tool 生效；draft 不受影响。
+  # - 已完成步骤（按 run.completed_step_refs 对应的当前 plan 前缀）的身份字段必须被
+  #   模型修订计划保留；否则用当前已完成前缀机械替换模型给的前缀，只采用其尾部。
+  # - 修订计划尾巴为空（模型只给前缀）时报错走结构纠错，不静默接受空计划。
+  @doc false
+  @spec enforce_completed_prefix(AgentRun.t(), AgentPlan.t()) ::
+          {:ok, AgentPlan.t(), :not_applicable | :preserved | :merged} | {:error, term()}
+  def enforce_completed_prefix(
+        %AgentRun{plan: %AgentPlan{steps: current_steps}} = run,
+        %AgentPlan{} = revised
+      ) do
+    completed_count = min(length(run.completed_step_refs || []), length(current_steps))
+    completed = Enum.take(current_steps, completed_count)
+    revised_steps = List.wrap(revised.steps)
+
+    cond do
+      completed == [] ->
+        {:ok, revised, :not_applicable}
+
+      # 完整修订计划且已完成前缀逐字段一致 → 直接采用；但只有前缀没有新尾部视为
+      # 「空修订」（无进展），报错走结构纠错。
+      same_prefix?(completed, revised_steps, completed_count) and
+          length(revised_steps) >= completed_count ->
+        if length(revised_steps) == completed_count do
+          {:error, :empty_revision_tail}
+        else
+          {:ok, revised, :preserved}
+        end
+
+      revised_steps == [] ->
+        {:error, :empty_revision_tail}
+
+      true ->
+        # 目标形态（T3）：模型可以只产尾部。机械前置已完成前缀后，若没有新增尾部
+        # （只重复前缀/无实质修订）则报错，避免无进展地接受"空修订"。
+        tail = revision_tail(completed, revised_steps, completed_count)
+
+        if tail == [] do
+          {:error, :empty_revision_tail}
+        else
+          NovelCommon.LogEmit.emit(:plan_draft, :completed_prefix, :done, %{
+            action: :merged,
+            completed_steps: completed_count,
+            tail_steps: length(tail)
+          })
+
+          {:ok, %{revised | steps: completed ++ tail}, :merged}
+        end
+    end
+  end
+
+  def enforce_completed_prefix(_run, %AgentPlan{} = plan), do: {:ok, plan, :not_applicable}
+
+  # 模型可能给「完整计划」「部分前缀+尾部」或「只产尾部」三种形态：
+  # - 完整计划/部分前缀：按已重叠的前缀长度丢弃重叠段，只取尾部；
+  # - 只产尾部：无重叠，整体作为尾部。
+  defp revision_tail(completed, revised_steps, completed_count) do
+    overlap =
+      Enum.zip(completed, revised_steps)
+      |> Enum.take_while(fn {completed_step, revised_step} ->
+        prefix_identity(completed_step) == prefix_identity(revised_step)
+      end)
+      |> length()
+
+    cond do
+      overlap > 0 -> Enum.drop(revised_steps, overlap)
+      length(revised_steps) > completed_count -> Enum.drop(revised_steps, completed_count)
+      true -> revised_steps
+    end
+  end
+
+  defp same_prefix?(completed, revised_steps, count) do
+    length(revised_steps) >= count and
+      revised_steps
+      |> Enum.take(count)
+      |> Enum.zip(completed)
+      |> Enum.all?(fn {revised_step, completed_step} ->
+        prefix_identity(revised_step) == prefix_identity(completed_step)
+      end)
+  end
+
+  defp prefix_identity(step) when is_map(step) do
+    {
+      Map.get(step, :step_id),
+      Map.get(step, :kind),
+      Map.get(step, :target_tool_ref),
+      Map.get(step, :target_chapter_ref),
+      Map.get(step, :target_word_count)
+    }
+  end
+
+  defp prefix_identity(step), do: step
+
   defp plan_steps(parsed) do
     cond do
       is_list(map_get(parsed, :steps)) ->

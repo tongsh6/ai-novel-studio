@@ -162,9 +162,11 @@ xref/arch、I1/I2/I3/N-NARR/I-CACHE、静态扫描；Acceptance Driver=既有外
 
 ### T3 前缀确定性（可独立推进，2026-10-31）
 
-- 状态：todo（不依赖 T5 裁决：补规划器前缀确定性测试/必要时机械合并，不恢复 revised_tail；不涉 schema/迁移）。
-- 范围：规划器 `AgenticPlanDraftPlanner` 前缀只靠 prompt+cursor 的现状，补确定性校验与回归测试；不改生产协议、不新增验收感知逻辑。
-- 验证：Mix 单测 + 既有 prompt 前缀快照对比；完成后更新本任务 CP 状态并复跑相关门禁。
+- 状态：**todo（实现尝试后回退，2026-10-31）**：`AgenticPlanDraftPlanner.enforce_completed_prefix/2` 与 4 条单测已实现（44/44），但接入 revision 构建链后改变「计划耗尽」既有契约（B31/B23 两个 flow 测试在 20s 内仍未进入 awaiting_author，而是继续执行探索步骤），属与 plan cursor/运行期步骤状态未协同；已回退生产接入，保留未接线纯函数与单测作为设计基础。
+- 未接线实现：按 `run.completed_step_refs` 对应当前 plan 前缀校验身份字段；模型只产尾部时机械前置；空尾/仅重复前缀报 `:empty_revision_tail`。
+- 回退证据：接入后 `AgentRunJudgmentPlanFlowTest` 2 例失败（延长到 20s 仍不达 awaiting_author），回退后 53/53 全绿、全量各 app 0 failures；未改断言、未放宽守卫（超时仅用于诊断，已恢复原值）。
+- 下一步（T3′）：先与 plan cursor/运行期步骤状态协同设计（机械合并后 cursor 定位、已完成步骤是否重入 plan.steps、耗尽判定口径），再单测级验证接入，不重复盲接生产。
+- 残余：确定性前缀校验未接入生产；T3 原 prompt 前缀稳定性快照对比未单独新增（既有 I-CACHE/VS-00I 覆盖），T4/T5 状态不变。
 
 ### 阻塞记录（2026-10-31）
 

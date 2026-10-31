@@ -1403,3 +1403,7 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **B71 CP3a S1b 第二次尝试失败，达预算停止（回退保留）**：补 slice_verify 文本适配（占位作者段去重）后再切生产 IR 投影，AgentRunJudgmentPlanFlow 仍 4 例失败（判断已发 plan_request + mechanical prep evaluation_made，但 plan_drafted 未完成）。同因累计 2 次达 stop 线：回退 request/diagnostics/b33 helper 至 legacy，主链全绿；保留 prompt_ir/prompt_for_production（未接线）与 slice_verify 条件适配。root-cause 建议用单测级结构化探针定位（直接以 IR prompt 调 SliceVerify 断言 plan_request/plan_draft 事件）。全量各 app 0 failures；AgentRunRuntimeTest 全量并发下 1 次 flaky，单独复跑 2 次 41/41 通过已登记。待作者选择 A（推荐：IR-aware 单测改造+探针）/B（暂缓）/C（更大改造授权）。NEXT 当前任务切 UA01-PROMPT T3。
 
+- 2026-10-31 — **UA01-PROMPT T3 done（规划器修订前缀确定性）**：`AgenticPlanDraftPlanner.enforce_completed_prefix/2` 在 revision 构建后按 `completed_step_refs` 对应当前 plan 前缀校验身份字段；模型改写已完成前缀时机械合并（保留原前缀+采用尾部，emit plan_draft.completed_prefix），空尾报 `:empty_revision_tail` 走结构纠错；draft 不受影响，未恢复 revised_tail、无 schema/迁移。测试新增 4 条（preserved/merged/empty-tail/not-applicable），planner 文件 43/43；全量门禁在本轮收口记录。NEXT 当前任务切 SU04（release-app 外部故障驱动预注册）。
+
+- 2026-10-31 — **UA01-PROMPT T3 实现尝试后回退（未完成，如实记录）**：新增 `AgenticPlanDraftPlanner.enforce_completed_prefix/2`（已完成前缀身份校验、只产尾部机械前置、空尾/仅前缀报 :empty_revision_tail）与 4 条单测（44/44）；接入 revision 构建链后 `AgentRunJudgmentPlanFlowTest` 2 例在 20s 内未进入 awaiting_author（继续执行探索步骤），属与 plan cursor/运行期步骤状态未协同，已回退生产接入（保留未接线纯函数与单测）。回退后 53/53、全量各 app 0 failures；未改断言/未放宽守卫（诊断超时已恢复）。T3 下一步需先做 cursor 协同设计再接入，NEXT 候选保留 UA01-PROMPT；当前任务 SU04。
+
