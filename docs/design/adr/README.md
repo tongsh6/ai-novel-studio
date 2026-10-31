@@ -21,6 +21,8 @@
 > **2026-10-27 B49 评审材料（历史记录：当时 Proposed，已被下方 2026-10-30 接受记录取代，不作为当前状态）**：`ADR-0031-core-chain-semantics-narrowing-v3.md` 已起草，承接主链语义收窄（primary / reply-only / `OrchestratorDecision` / 动作集 / 只读 output 校验分层）与 ADR-0022 现行语义。它**不是** Accepted：接受前不改变任何 Accepted ADR 的决策段与实现边界；评审证据矩阵、A/B/C 选项与作者裁决包见 [`tasks/slices/B49-core-semantics-and-adr-review.md`](../../../tasks/slices/B49-core-semantics-and-adr-review.md)。ADR-0022 的状态处置（Superseded / Deferred / 重写）由作者拍板，AI 不代签。
 
 > **2026-10-30 ADR-0031 正式 Accepted，ADR-0022 Superseded**：作者明确接受 R1=B、R2=A、R3=B、R4=B、R5=B、R6=B、R7=A 的主链规范，并指定旧稿替代关系。普通回复统一裁决等仍为待实现目标；现有基础与缺口分列，接受记录与承接见 [B49 §7.16](../../../tasks/slices/B49-core-semantics-and-adr-review.md#716-c02-实施基线收口)。旧稿原文与历史证据保留。
+>
+> **2026-10-31 ADR-0033 Accepted（B71 作者选 A）**：统一 AgentRun 原生多轮目标与迁移规则生效；ADR-0030/0031 在 CP1 替换契约与迁移映射复核前仍为现役基线，复核后才转 Superseded，不形成长期双轨。实施与真实场景证据未闭环。
 
 ## 1. 定位
 
@@ -312,6 +314,7 @@ ADR-0005-execution-gate-order-v3.md
 | ADR-0030 | `ADR-0030-evidence-seeking-authoring-v3.md` | **Accepted（2026-10-29，作者正式接受；产品未实现）** | 求证式创作：最小可信底座 + 统一 AgentRun 只读探索与 plan revision + 观察/引用证据闭环；比较固定投喂、纯自由查询、Run 级求证与 writer 内循环，补充而不直改 ADR-0023/0025 | `00` §2.4、`00c` §4/§6.7/§7/§8.4/§9.12、`contracts/VS-00K`、ADR-0021/0022/0023/0025 | `tasks/slices/B39-evidence-seeking-authoring.md` CP1–CP4 实施与验收待完成；AU-15 真实模型与机制分证 |
 | ADR-0031 | `ADR-0031-core-chain-semantics-narrowing-v3.md` | **Accepted（2026-10-30；实现/验收缺口保留）** | 主链语义收敛：逐步执行、所有回合统一裁决（含 reply_only）、裁决与运行进度分工、真实动作与历史兼容、分层输出校验及真实入口来源；承接 ADR-0022 有效规则 | `00c`、ADR-0001/0002/0004/0007/0012/0022/0023/0025、B49 裁决记录 | 原 B01 执行小节、B43、B45 承接；ADR-0022 已按 R4 转 Superseded；B01/B43/B45 的实现缺口保留 |
 | ADR-0032 | `ADR-0032-paper-trail-retirement-v3.md` | **Accepted（2026-10-31，作者选择 D）** | PaperTrail 逻辑退役：source_revision_ref+StateTrace 为唯一修订权威；移除依赖/配置/第三方测试；保留 versions 表与 migration，物理删除另授权 | B51 只读证据、`docs/project-ledger.md`、tech-stack 06/13 | B51；不触碰历史数据 |
+| ADR-0033 | `ADR-0033-authoring-run-transcript-request-ir-v3.md` | **Accepted（2026-10-31，作者选择 A；目标与迁移规则已接受，实现未闭环）** | 统一 AgentRun 为事实源，Authoring Run Transcript/Request IR 无损投影原生多轮、求证观察、校验失败与 tentative 候选；模型无 adopt/canon_write | Provider §26、ADR-0030/0031、UA-01、VS-00I/K | B71 CP1–CP5；CP1 复核后旧 ADR 才正式 Superseded |
 
 ---
 

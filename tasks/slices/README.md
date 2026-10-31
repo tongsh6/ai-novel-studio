@@ -63,7 +63,7 @@
 | [B68-experience-rule-governance.md](B68-experience-rule-governance.md) | Experience Engine 的证据、提炼建议、审阅、规则生命周期与后续消费；原条件收编统一落点，启动条件见原任务。 |
 | [B69-renumber-idempotent-temp-seq.md](B69-renumber-idempotent-temp-seq.md) | **done（2026-10-30 CP0–CP3）**：B33 CP3 真实模型原生发现的重编号数据完整性缺陷——from==to 项残留临时 seq=1000001；已修复（两阶段按 DB 当前事实写并事务内复核）并 scoped 复验，台账见 docs/project-ledger.md。 |
 | [B70-author-behavior-corpus-and-state-exploration.md](B70-author-behavior-corpus-and-state-exploration.md) | **done（2026-10-30 CP0–CP3 验证基础设施）**：5 目标族/17 cases、真实 UI 回放与 seeded 探索、PR/nightly/失败转回归和实模 blocked 入口；真实模型、6 not-run cases、完整动作/native 覆盖仍属残余，详见原任务。 |
-| [B71-provider-message-fidelity.md](B71-provider-message-fidelity.md) | **blocked（CP1 待 ADR-0030/0031 修订/supersede 口径裁决）**：原生多轮创作请求体：AgentRun 为事实源、Request IR 为投影，贯通求证、工具结果、tentative 候选与作者边界；状态见原任务。 |
+| [B71-provider-message-fidelity.md](B71-provider-message-fidelity.md) | **doing（2026-10-31 作者选 A，CP1 契约/迁移中）**：ADR-0033 统一 AgentRun 原生多轮目标与迁移规则 Accepted；替换 contract pack、六类黄金请求和旧 ADR 退役待完成，实现未开始。 |
 | [B74-candidate-actions-grouped-primary.md](B74-candidate-actions-grouped-primary.md) | 候选动作按对象分组卡片+主次操作：作者反馈按钮平铺；已按 A 方向落地，真实 Tauri 页面证据见 uib74e，作者可继续提文案/批量细化。 |
 | [B75-workbench-popover-outside-close.md](B75-workbench-popover-outside-close.md) | 工作台弹出层 click-outside/Esc 关闭；已实现并在真实 Tauri `uib74f` 验证 click-outside/Esc，done。 |
 | [B76-dialogue-narrative-paragraph-spacing.md](B76-dialogue-narrative-paragraph-spacing.md) | 对话叙事段落双倍空行修复：作者反馈换行过大；根因 flex gap+margin 叠加；CSS 修复、静态守卫与真实 Tauri 页面复验完成。 |

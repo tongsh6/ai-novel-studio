@@ -6,12 +6,13 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B48 | CP0 已 done（契约与四场景冻结，§8）；下一步 CP1：no-op 普通说明出口 + 待办 workflow 候选拦截 + 纯函数/workflow 测试（不依赖 B43 裁决） | [B48](slices/B48-character-revision-noop-and-ambiguity.md) |
+| B71 | CP1 done：VS-00L 替换契约、逐条迁移映射、六类黄金请求与场景预注册已冻结；下一步复核后把 ADR-0030/0031 转 Superseded，再进 CP2（Request IR/三类投影实现） | [B71](slices/B71-provider-message-fidelity.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
+| B48 | CP0 已 done（契约与四场景冻结，§8）；下一步 CP1：no-op 普通说明出口 + 待办 workflow 候选拦截 + 纯函数/workflow 测试（不依赖 B43 裁决） | [B48](slices/B48-character-revision-noop-and-ambiguity.md) |
 | B46 | 残差矩阵页面驱动：edit_then_accept / 重复提交 / 跨作品 / EXITED 只读；不重开 inbox 主体范围 | [B46](slices/B46-persistent-adoption-inbox.md) |
 | B27 | 5 个 CP4 known-gap 的确定性负例/构造器矩阵（实模另需预注册与资源窗口，「第二方复核」原文归本任务定向硬化） | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
 | B73 | CP3 剩余门禁/静态扫描残余判定：把「他人 B30 native 证据过期」「历史 gitleaks」「非本任务 format」与 B73 自身改动分离，只对自身范围收口 | [B73](slices/B73-author-behavior-runtime-and-action-coverage.md) |
@@ -28,7 +29,6 @@
 - **VS00F-TRACE CP1**：A（推荐持久 StateTrace，需 schema 授权）/B（明确 no-trace 边界）/C（延期）；见 [VS00F](slices/VS-00F-five-ledgers-three-state.md#cp0-盘点2026-10-31)。
 - **B57 CP1 B/C/D**：需 B39/UA01 受控观察/外部资料 fixture 与数据授权；A/E/F 已 PASS；见 [B57](slices/B57-sec-injection-boundary.md#阻塞记录2026-10-31)。
 - **UA01-PROMPT-T5**：T5 需 schema/迁移 A/B/C 裁决；D2 driver 超时；T3 已入候选；见 [UA01](slices/UA01-agentic-loop-prompt-hardening.md#阻塞记录2026-10-31)。
-- **B71 CP1**：需修订/supersede ADR-0030/0031；A（推荐）/B additive/C 延期；见 [B71](slices/B71-provider-message-fidelity.md#cp1-阻塞记录2026-10-31)。
 - **P1-AUDIT-BC 页面**：两次 stale projection banner 断言失败，依赖 AU08 投影新鲜度缺口或断言重锚；见 [P1](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外)。
 - **B01 后续**：需 A（推荐 nullable origin_turn_ref）/B/C 与 migration 授权；见 [B01](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界)。
 - **B43 后续**：MissingPolicy 门序需 A（推荐）/B/C/D 裁决（工程依赖，不阻塞 B48 CP0）；见 [B43](slices/B43-gate-order-residual.md)。

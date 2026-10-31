@@ -1,8 +1,8 @@
 # B71：AI Novel Studio 原生多轮创作请求体
 
-- 状态：**blocked（2026-10-30 CP0 完成；CP1 目标 contract/ADR 迁移需作者/ADR owner 裁决，未擅自 supersede ADR-0030/0031 或改代码）**。
+- 状态：**doing（2026-10-31 CP0 done；作者选 A，ADR-0033 Accepted；CP1 已完成——VS-00L 契约、逐条迁移映射、六类黄金请求与场景预注册冻结；待复核后旧 ADR 转 Superseded，CP2 实现未开始）**。
 - 来源：作者先要求对照 Codex、Claude Code、dsh 的真实多轮请求，随后明确“设计一个优秀、符合项目调性的请求体，不为现状妥协”。本文件已据此替换此前偏向现役最小修补的方案。
-- 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计proposed)。当前为 Proposed；登记不等于 Accepted 或实现。
+- 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)；目标方向与迁移规则已由 [ADR-0033](../../docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) Accepted（2026-10-31）；替换契约 [VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 已 Frozen，实现未开始。
 - 对账输入：[B26](B26-single-call-judgment-protocol.md)、[B39](B39-evidence-seeking-authoring.md)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md)、[VS-00I](../../docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md)、[UA-01](../../docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md)。它们是迁移事实与可能需要修订的决策，不是降低目标设计的约束。
 
 ## 1. 重新对照后的核心问题
@@ -83,7 +83,7 @@
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
 | CP0 | 对三款外部真实多轮请求与本项目真实日志做目标对照；明确 AgentRun 原生会话、作者主权、求证和 replay 的目标方向；登记任务与设计 | **done（2026-10-30，仅文档）**：已替换此前现役最小修补方案；未修改产品代码 |
-| CP1 | 冻结目标 contract pack、Request IR、消息/工具/观察/校验/候选/checkpoint 语义、provider 投影与能力门槛、六类黄金请求和场景预注册；完成 ADR/现役协议差异及迁移裁决 | 未开工；下一步 |
+| CP1 | 冻结目标 contract pack、Request IR、消息/工具/观察/校验/候选/checkpoint 语义、provider 投影与能力门槛、六类黄金请求和场景预注册；完成 ADR/现役协议差异及迁移裁决 | **done（2026-10-31，见 §7 交付记录）**：VS-00L Frozen + 逐条迁移映射 + G1–G6 + 场景预注册；待复核后旧 ADR 转 Superseded |
 | CP2 | 实现 canonical transcript/Request IR 与三类 provider 投影；建立真实只读观察和原生校验结果回流，黄金与 adapter 测试通过 | 未开工 |
 | CP3 | 以统一 AgentRun 接通首个创作消费者，完成求证→候选→校验→作者出口；接入预算、权限、trace、持久化和恢复，不形成第二控制环 | 未开工 |
 | CP4 | 覆盖规划/修订/质量与压缩恢复，完成真实 Tauri 全链、真实模型行为、缓存/usage、replay/Why 和全部门禁；处理现役迁移与旧协议退役 | 未开工 |
@@ -98,12 +98,18 @@
 - 外部脱敏样本位于 `artifacts/client-http-bodies/`；项目对照证据位于 `log/llm-calls/stage/2026-10-29.jsonl` 第 8–9 行。它们只证明协议差距，不是目标实现。
 - 恢复时先读 Provider §26、本任务及 CP1 产生的目标 contract pack，再核对 ADR-0030/0031、UA-01 和 VS-00I 的处置；不得从上一版保守分析推断单调用或 giant prompt 仍是目标。
 
-### CP1 阻塞记录（2026-10-31）
+### CP1 裁决与迁移记录（2026-10-31，作者选 A）
 
-- CP0 已完成目标对照；CP1 要求冻结 Authoring Run Transcript/Request IR/provider 投影，并处理 ADR-0030（evidence-seeking）、ADR-0031（core-chain semantics narrowing）与 UA-01/VS-00I 的迁移/修订。
-- 这些 ADR 当前是 Accepted/生效协议；B71 目标（统一 AgentRun 原生多轮、tool_call/observation 回流、显式 compaction）与其现役单调用/giant prompt 语义存在冲突。**AI 不能自行 supersede ADR 或同时保留两套协议**。
-- 需作者/ADR owner 裁决：
-  - **A（推荐，目标口径）**：正式修订/supersede ADR-0030/0031 为 B71 目标协议，CP1 冻结新 contract pack；迁移期明确旧协议退役条件。
-  - **B（增量口径）**：不改 ADR，仅在现役单调用内做 additive Request IR/投影实验，明确不宣称统一 AgentRun 目标完成。
-  - **C**：延期，保持登记。
-- 未裁决前：不写 schema、不改 provider/application、不冻结契约、不预注册场景；CP1 保持 blocked。
+- 作者明确选择 **A**：按 B71 目标协议正式修订/supersede 现役协议，接受统一 AgentRun 原生多轮、tool_call/observation 回流与显式 compaction，不采用仅限现役 additive 的目标缩减，也不再延期。
+- [ADR-0033](../../docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) 已 Accepted 目标方向与迁移规则；ADR-0030 的最小 Base/证据闭环与 ADR-0031 的统一裁决/作者主权/真实来源等兼容原则必须逐项承接。
+- **旧 ADR 状态边界**：ADR-0030/0031 在 CP1 替换 contract pack 和逐条迁移映射复核前仍为现役基线；复核通过后才转 Superseded。当前不是协议真空，也不是长期双轨。
+- CP1 可交付：Request IR、消息/工具/观察/校验/候选/checkpoint 语义、三类 provider 投影与能力门槛、六类黄金请求、场景预注册，以及 B39/B01/B43/B45、UA-01、VS-00I 的逐条迁移映射。
+- 仍未授权或完成：产品 schema/provider/application 实现、旧协议实际退役、真实页面与真实模型证据。CP1 只做契约与迁移文档，完成后另行复核。
+
+### CP1 交付记录（2026-10-31）
+
+- **替换契约**：[VS-00L Authoring Run Transcript / Request IR Contract Pack](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) Frozen——术语/不变量 I-ART-1..12、Transcript 消息类型（system/application_base/user/assistant/tool/checkpoint/author_exit）、tool call 与 observation/validation 的 call_id 绑定、Base/Observation/used refs 证据绑定、Request IR v1 结构与版本策略、消息/工具/观察/校验/候选/作者出口/checkpoint 语义规则、三类 provider 投影（Chat Completions / Anthropic Messages / Responses API）与能力门槛/显式有限模式/拒绝路由、缓存与 VS-00I 前缀稳定性承接、六类黄金请求 G1–G6 定义、验收分层与 enforcement_gaps。
+- **逐条迁移映射**（VS-00L §8）：ADR-0030/0031 原则保留、旧实现形态退役/转换；UA-01 单调用共享入口转 run 内多轮（工具/终态语义保留）；VS-00I 重锚到每个投影的稳定前缀；VS-00K/VS-00H/VS-02/02A/04/06 保留并入 IR；B26 工具/终态保留、调用载体转换；B39 重锚至 B71 CP3 首个消费者；B01 来源列转 IR provenance（旧列迁移归 B01）；B43 统一裁决 producer 保留、输入 frame 从 IR 派生；B45 IR v1 版本策略承接；B27/B33 纠错改为 tool result 回流；giant prompt 组装与 `normalize_messages/1` 退役/转换。
+- **场景与证据预注册**：`artifacts/model-contracts/b71-cp1/scenario-preregistration.json`——首个创作 AgentRun 场景、六类黄金请求真实 run 复跑、Strata/iq3_s 单槽串行与卸载核验、input120s/turn360s 等预算、2 批上限、机制/页面/模型行为分层。CP1 不执行真实 run。
+- **索引同步**：`docs/design/contracts/README.md` 登记 VS-00L；ADR 索引/design README 已由作者 WIP 更新。
+- **复核待办（不代签）**：旧 ADR-0030/0031 转 Superseded 需作者/ADR owner 复核后执行（ADR-0033 §7）；本 CP 不修改产品 schema/provider/application，不声称 Request IR 已实现。
