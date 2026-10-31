@@ -385,7 +385,7 @@ Elixir Ecto schema + Frontend Zod schema 都从 JSON Schema codegen。如果 cod
 | 库 | 版本 | 最近活跃 | 风险点 | 实测状态 |
 |---|---|---|---|---|
 | `swarm`（已移出主依赖） | 3.4 | 2019 起无主版本更新 | 原跨节点 process registry 候选，已改用 Horde | — |
-| `paper_trail` | 1.1.2 | 2024-08-30 后无正式 release；2025-2026 主要是 bot / dependabot 活动 | revision audit 关键路径（替代 Hibernate Envers）| ✅ 当前栈通过（2026-04-26）：双库 8/8 断言全过，Multi rollback 不留孤立 version。风险从阻塞项降为监控项，但不能删除。详见 [`verification/paper-trail-ecto-compatibility.md`](./verification/paper-trail-ecto-compatibility.md)。 |
+| `paper_trail` | （已退役） | 2024-08-30 后无正式 release；2025-2026 主要是 bot / dependabot 活动 | **已按 ADR-0032 逻辑退役（2026-10-31）**：不再是依赖/生产路径；versions 表仅历史痕迹 | 历史 spike 见 [`verification/paper-trail-ecto-compatibility.md`](./verification/paper-trail-ecto-compatibility.md)；物理删表另授权。 |
 | ~~`instructor` (instructor_ex)~~ → `instructor_lite` | ~~0.1.0~~ → 1.2.0 | 2025-06 起 5 次 1.x release（最新 2026-02-01），活跃维护；但维护者集中度高、生态较小 | 结构化输出主依赖（intent slot / artifact / card payload）| ✅ 通过（2026-04-26 二跑实测，含 `instructor_lite` 1.2 补评）：四路径全部 normal 20/20，决策切换为 D 主 + A 副 + C fallback，`instructor_ex` 0.1.0 退场。详见 [`verification/structured-output-library-choice.md`](./verification/structured-output-library-choice.md) §7。 |
 | `ex_machina` | 2.7 | 维护趋缓 | 测试 fixture 工厂，非关键但渗透测试代码 | — |
 | `fuse` | 2.x | 维护稀疏 | circuit breaker（[`07-provider.md`](./07-provider.md) §9）| — |
@@ -401,7 +401,7 @@ Elixir Ecto schema + Frontend Zod schema 都从 JSON Schema codegen。如果 cod
 ⚠️ **替代方案 + 抽象层**：
 
 - **默认采用 Horde**：Horde 是当前社区主流的跨节点 process registry，活跃维护中；不再把 Swarm 放入主依赖清单
-- **`paper_trail`**：当前栈已实测可用（详见 [`verification/paper-trail-ecto-compatibility.md`](./verification/paper-trail-ecto-compatibility.md)），但 upstream 维护活性仍弱；保留自封装 audit log fallback，Ecto / Elixir / OTP 升级时必须复跑 spike。
+- **`paper_trail`**：已按 ADR-0032 逻辑退役（2026-10-31），不再作为依赖/生产路径；历史 spike 仅选型证据。
 - **`instructor_lite`**：业务代码经 `Provider.Gateway` 中转，不直接 `import` InstructorLite；切换到 langchain 结构化输出 / 直连 Req / 历史 `instructor` 0.1.0 的成本约 3-5 天（spike 已验证四条等价路径，函数签名差异在 Provider Gateway 内部消化）。维护者集中度高是可接受但必须监控的 bus-factor 风险；如上游停滞，优先 fork 小库或退回 Gateway 直连 Req。
 - **Streaming structured output**：`instructor_lite` 不把 streaming 作为一等目标。Phase 0/1 默认采用 non-streaming finalize 生成结构化对象，再用 Phoenix Channel 流式推送进度/文本；如果后续必须做“流式结构化字段填充”，改走 Provider Gateway 直连 Req + SSE 增量解析，或重新评估 `langchain`/legacy `instructor` streaming 路径。
 - **`ex_machina` → 自实现 fixture helpers**：测试工厂模式不复杂，自实现避免依赖

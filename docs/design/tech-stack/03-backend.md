@@ -1,6 +1,6 @@
 # Backend 后端栈
 
-> **现行校准（B51，2026-10-31）**：本文是 2026-04 草案；§2.4 paper_trail、§2.5 langchain_elixir + instructor_lite、GenStage/Horde 与 OTel 均**不是当前实现**。当前实际：`Req` + 自研 Provider Gateway/adapter；修订审计 `source_revision_ref + StateTrace`（PaperTrail 生产零调用、dev/stage versions=0，去留待裁决）；长跑只用 OTP GenServer/Task/DynamicSupervisor；观测是 `telemetry` + LogEmit JSONL。下方历史段保留以说明来源，不再作为“锁死/必须”；依赖证据见 [B51](../../../tasks/slices/B51-tech-stack-current-rebase.md)。
+> **现行校准（B51，2026-10-31）**：本文是 2026-04 草案；§2.4 paper_trail、§2.5 langchain_elixir + instructor_lite、GenStage/Horde 与 OTel 均**不是当前实现**。当前实际：`Req` + 自研 Provider Gateway/adapter；修订审计 `source_revision_ref + StateTrace`（PaperTrail 已按 ADR-0032 逻辑退役，versions 表仅历史痕迹）；长跑只用 OTP GenServer/Task/DynamicSupervisor；观测是 `telemetry` + LogEmit JSONL。下方历史段保留以说明来源，不再作为“锁死/必须”；依赖证据见 [B51](../../../tasks/slices/B51-tech-stack-current-rebase.md)。
 
 > 状态：草案
 >
@@ -18,7 +18,7 @@ db_orm:          Ecto 3.x
 db_alpha:        SQLite via ecto_sqlite3
 db_beta:         PostgreSQL via postgrex / ecto_sql
 migrations:      Ecto.Migration
-revision_audit:  source_revision_ref + StateTrace（当前；paper_trail 历史休眠/待裁决）
+revision_audit:  source_revision_ref + StateTrace（PaperTrail 已逻辑退役，ADR-0032）
 event_bus:       Phoenix.PubSub（当前单节点；跨节点未实现）
 long_run:        GenServer + Task/DynamicSupervisor（当前；GenStage 历史）
 schema_validate: Ecto.Changeset + Dialyxir
@@ -85,7 +85,7 @@ Phoenix 退化为 API server + WebSocket gateway。
 
 ### 2.4 paper_trail（revision audit，历史方案；当前生产未使用）
 
-> **B51 现行**：PaperTrail 依赖/表存在但生产无调用，versions 存量 0；当前权威修订链为 `source_revision_ref + StateTrace`。去留待作者裁决，本段不构成实现要求。
+> **B51/ADR-0032 现行**：PaperTrail 已逻辑退役，依赖/配置/第三方测试移除；当前唯一权威修订链为 `source_revision_ref + StateTrace`。versions 表与 migration 保留为历史痕迹，物理删除另授权；本段为历史选型记录。
 
 > 状态：✅ 基线（已实测，2026-04-26）。详见 [`verification/paper-trail-ecto-compatibility.md`](./verification/paper-trail-ecto-compatibility.md)。
 

@@ -6,6 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
+| AU09-DIRECTION | 作者已选 A：实现显式 WORK_DIRECTION 类型/范围/废弃与 choose_candidate 持久化/召回，补真实页面证据 | [原任务](slices/AU09-work-direction-memory-recall.md) |
 
 ## 后续候选
 
@@ -16,7 +17,6 @@
 
 - **B27**：CP0–CP3 done；CP4 measured FAIL/known-gap 与第二方复核待作者裁决/实模窗口，见 [B27](slices/B27-systematic-prompt-and-intent-integration.md)。
 - **B48**：依赖 B43 裁决同源，四场景验收待 B43 门序裁决后启动，见 [B48](slices/B48-character-revision-noop-and-ambiguity.md)。
-- **B51**：CP0–CP3 done；仅 PaperTrail 去留 A（推荐历史休眠）/B（supersede 移除，需授权）/C（延期）待裁决；见 [B51](slices/B51-tech-stack-current-rebase.md)。
 - **B72 CP1**：缺离线生成器实现与真实模型窗口；见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#阻塞记录2026-10-31-cp1)。
 - **VS00F-TRACE CP1**：A（推荐持久 StateTrace，需 schema 授权）/B（明确 no-trace 边界）/C（延期）；见 [VS00F](slices/VS-00F-five-ledgers-three-state.md#cp0-盘点2026-10-31)。
 - **B57 CP1 B/C/D**：需 B39/UA01 受控观察/外部资料 fixture；A/E/F 已 PASS；见 [B57](slices/B57-sec-injection-boundary.md#阻塞记录2026-10-31)。
@@ -29,7 +29,6 @@
 - **UA01-LOG-B13**：无外部最终 run_failed 触发；AU04 失败场景自身漂移；见 [UA01](slices/UA01-provider-execution-stream-unification.md#b13-cp0-只读核对2026-10-31)。
 - **SU04-LIFECYCLE**：实现完成；release 打包外部故障 harness 缺失；见 [SU04](slices/SU04-desktop-sidecar-packaging.md#现役故障与生命周期契约核对)。
 - **AU12-WRITEBACK**：落位/DTO/概览已完成；概览修订 producer 需 A（推荐）/B/C 裁决；见 [AU12](slices/AU12-correction-intent-roundtrip.md#cp1-实施记录与-producer-阻塞2026-10-31)。
-- **AU09-DIRECTION**：方向未持久化；A（推荐 WORK_DIRECTION 需 schema 授权）/B IDEA+metadata/C known-gap；见 [AU09](slices/AU09-work-direction-memory-recall.md#cp0-契约裁决材料2026-10-31)。
 - **B66-PREP**：CP0 准备 done；CP1+ 需接受快照/恢复契约与数据授权；见 [B66](slices/B66-local-workspace-backup-restore.md#cp0-最小本地快照恢复契约准备)。
 - **B01 后续**：需 A（推荐 nullable origin_turn_ref）/B/C 与 migration 授权；见 [B01](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界)。
 - **B43 后续**：MissingPolicy 门序需 A（推荐）/B/C/D 裁决；见 [B43](slices/B43-gate-order-residual.md)。

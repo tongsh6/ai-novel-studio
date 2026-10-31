@@ -1348,3 +1348,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B51 CP2/CP3 续**：ADR-0024 S4/S7 与 00c 按 B13B 校准（S4 降级触发型、S7 部分闭环）；05-desktop 按 as-built 校准（4658/tar/marker/进程组/数据路径）；frontend_audit 27/0、design_trace 19/0。D6/I5/B22/B34 逐条核对与 PaperTrail 裁决待做。
 
 - 2026-10-31 — **静态扫描闭环**：修复触达文件 Credo 5 类（context/adoption/search/prose/alias）→ Credo 0；gitleaks B65 示例 nonce 登记 false_positive；复扫 0 touched findings；backend 1058/0。残余：gitleaks 误报工具非零、task_done 需新鲜 Tauri UI 证据（未伪造）。
+
+- 2026-10-31 — **B51 done / ADR-0032 PaperTrail 逻辑退役（作者选 D）**：新增 ADR-0032，移除 paper_trail 依赖/config/第三方测试并 unlock；versions 表/migration 与历史数据保留；tech-stack 00/03/06/13 同步；backend 1058/0。队列当前切 AU09-DIRECTION（作者选 A）。

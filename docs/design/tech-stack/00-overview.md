@@ -1,6 +1,6 @@
 # 技术栈总纲
 
-> **现行校准（B51，2026-10-31）**：本文 2026-04 的“最终方案”yaml/图是历史设计痕迹，不是当前依赖锁死声明。当前实际以 `mix.exs`、`frontend/package.json`、`frontend/src-tauri/Cargo.toml`、lock/CI 为准：**无 langchain_elixir/instructor_lite、GenStage/Horde、OpenTelemetry 依赖**；LLM 客户端是 `Req` + 自研 Provider Gateway/adapter，修订审计是 `source_revision_ref + StateTrace`（PaperTrail 依赖/表存在但生产零调用、dev/stage versions=0，去留待 B51 裁决）。历史方案保留以说明来源，不反向要求安装/恢复旧库；差异矩阵见 [B51 slice](../../../tasks/slices/B51-tech-stack-current-rebase.md)。
+> **现行校准（B51，2026-10-31）**：本文 2026-04 的“最终方案”yaml/图是历史设计痕迹，不是当前依赖锁死声明。当前实际以 `mix.exs`、`frontend/package.json`、`frontend/src-tauri/Cargo.toml`、lock/CI 为准：**无 langchain_elixir/instructor_lite、GenStage/Horde、OpenTelemetry 依赖**；LLM 客户端是 `Req` + 自研 Provider Gateway/adapter，修订审计是 `source_revision_ref + StateTrace`；PaperTrail 已按 ADR-0032 逻辑退役（依赖/配置/第三方测试移除，versions 表与 migration 仅留历史痕迹，物理删除另授权）。历史方案保留以说明来源，不反向要求安装/恢复旧库；差异矩阵见 [B51 slice](../../../tasks/slices/B51-tech-stack-current-rebase.md)。
 
 > 状态：草案
 >
@@ -56,7 +56,7 @@ db_orm:          Ecto 3.x
 db_alpha:        SQLite (Ecto.Adapters.SQLite3)
 db_beta:         PostgreSQL (Ecto.Adapters.Postgres)
 migrations:      Ecto.Migration
-revision_audit:  source_revision_ref + StateTrace（当前；paper_trail 历史休眠/待裁决）
+revision_audit:  source_revision_ref + StateTrace（PaperTrail 已逻辑退役，ADR-0032）
 event_bus:       Phoenix.PubSub（当前单节点；Distributed Erlang 跨节点未实现）
 long_run:        GenServer + Task/DynamicSupervisor（当前；GenStage 历史方案）
 schema_validate: Ecto.Changeset + Dialyxir (static analysis)

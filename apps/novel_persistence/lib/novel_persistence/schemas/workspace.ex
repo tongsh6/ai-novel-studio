@@ -3,7 +3,7 @@ defmodule NovelPersistence.Schemas.Workspace do
   第一张业务表 schema。Phase 0 Week 2 T5 用于打通 Ecto/Repo/migration 链路。
 
   字段规模有意保持最小（id / name / description / timestamps），
-  避免与 paper_trail（T7）/ workspace 业务字段（Phase 1 真接入时）耦合。
+  避免与已退役 PaperTrail（T7）历史表/ workspace 业务字段（Phase 1 真接入时）耦合。
   """
 
   use Ecto.Schema

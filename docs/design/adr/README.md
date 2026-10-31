@@ -311,6 +311,7 @@ ADR-0005-execution-gate-order-v3.md
 | ADR-0028 | `ADR-0028-volume-structure-and-open-volume-action-v3.md` | Accepted（2026-10-22，CP0–CP5 全落 + 真实 Tauri au08 三轮扩展 PASS；长尾缺口经 B13b 逐项裁决并诚实登记 enforcement_gaps） | 卷结构与开新卷动作：卷是 canonical middle-structure unit（arc 仍无对象）/ 卷级蓝图 E14-E17 存 `volumes.blueprint` map 列 / 卷身份 `(work_id,seq)` 与改名不重复建卷 / plot_outline 卷蓝图块 + 既有采纳管道 / 开新卷动作形态 A / 卷级收束优先级 / 意图与事实分离 | `contracts/VS-00J`（Frozen）、`08` §8 序位 6、`21`/`34`、NEM-GAP-07 | `tasks/slices/B11A-volume-blueprint.md` CP1-CP5；Accepted 前不授权代码 |
 | ADR-0030 | `ADR-0030-evidence-seeking-authoring-v3.md` | **Accepted（2026-10-29，作者正式接受；产品未实现）** | 求证式创作：最小可信底座 + 统一 AgentRun 只读探索与 plan revision + 观察/引用证据闭环；比较固定投喂、纯自由查询、Run 级求证与 writer 内循环，补充而不直改 ADR-0023/0025 | `00` §2.4、`00c` §4/§6.7/§7/§8.4/§9.12、`contracts/VS-00K`、ADR-0021/0022/0023/0025 | `tasks/slices/B39-evidence-seeking-authoring.md` CP1–CP4 实施与验收待完成；AU-15 真实模型与机制分证 |
 | ADR-0031 | `ADR-0031-core-chain-semantics-narrowing-v3.md` | **Accepted（2026-10-30；实现/验收缺口保留）** | 主链语义收敛：逐步执行、所有回合统一裁决（含 reply_only）、裁决与运行进度分工、真实动作与历史兼容、分层输出校验及真实入口来源；承接 ADR-0022 有效规则 | `00c`、ADR-0001/0002/0004/0007/0012/0022/0023/0025、B49 裁决记录 | 原 B01 执行小节、B43、B45 承接；ADR-0022 已按 R4 转 Superseded；B01/B43/B45 的实现缺口保留 |
+| ADR-0032 | `ADR-0032-paper-trail-retirement-v3.md` | **Accepted（2026-10-31，作者选择 D）** | PaperTrail 逻辑退役：source_revision_ref+StateTrace 为唯一修订权威；移除依赖/配置/第三方测试；保留 versions 表与 migration，物理删除另授权 | B51 只读证据、`docs/project-ledger.md`、tech-stack 06/13 | B51；不触碰历史数据 |
 
 ---
 

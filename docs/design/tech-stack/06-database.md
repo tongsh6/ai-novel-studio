@@ -13,7 +13,7 @@ orm:             Ecto 3.x
 adapter_alpha:   ecto_sqlite3 (Stage 1: 单机)
 adapter_beta:    postgrex (Stage 2: B/S)
 migration:       Ecto.Migration（手写, 不依赖 codegen）
-revision_audit:  paper_trail  # 历史选型；2026-10-27 对账发现生产调用未检出，当前以 persisted source_revision_ref + StateTrace 为另一实现路径，保留/替代/退役由 B51 评审，不视为已完成生产基线。
+revision_audit:  source_revision_ref + StateTrace  # 当前权威；PaperTrail 已按 ADR-0032 逻辑退役，versions 表仅历史痕迹。
 schema_source:   docs/design/schemas/*.json （SSOT, codegen Ecto schema）
 multi_tenant:    workspace_id 列 + Ecto query scope
 event_emit:      after_commit hook → Phoenix.PubSub
@@ -326,7 +326,9 @@ end
 
 ---
 
-## 6. paper_trail Revision Audit
+## 6. paper_trail Revision Audit（历史方案；ADR-0032 已逻辑退役）
+
+> **现行（2026-10-31）**：PaperTrail 依赖/配置/产品测试已移除，`source_revision_ref + StateTrace` 为唯一修订权威；`versions` 表/migration 保留为历史 schema 痕迹，不参与生产，物理删除另授权。以下为历史选型/兼容性记录，不构成当前实现要求。
 
 ### 6.1 启用
 
