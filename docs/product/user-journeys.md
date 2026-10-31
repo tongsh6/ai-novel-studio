@@ -140,7 +140,7 @@ Longest Closed Prefix：B1-B12（B12 为 AU-12 CP1 works 立项档案只读概�
 
 Current Breakpoint：Journey B 当前连续前缀已闭环到 B12 CP1。用户 2026-06-17 调整队列先做 AU12，CP1 已闭环；AU-09 文件级收口也已完成，核心记忆治理链 P0 已关闭。本轮执行顺序按用户指定进入 AU-10 文件级审计。
 
-Next Proof：本轮下一 proof 是 AU-10 文件级工作台矩阵。B12 后续 proof 是 CP2 accepted-artifact 类立项要素、缺字段/失败矩阵、跨作品切换矩阵，以及 CP3 correction 修订入口。
+Next Proof：B12 的 correction 修订入口已于 2026-10-31 原生 surface 闭环；后续 proof 是 CP2 accepted-artifact 类立项要素、缺字段/失败矩阵、跨作品切换矩阵。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -155,7 +155,7 @@ Next Proof：本轮下一 proof 是 AU-10 文件级工作台矩阵。B12 后续 
 | B9 | 最新 Work 背景与当前 session transcript 分层进入 context | AU-03 / AU-09 | DialogueContext / ContextSourceRef | closed | Tauri/LMStudio + Application/Persistence test | `artifacts/slice-verify/au03-current-work-context-ssot-tauri-lmstudio/summary.json`；`bash scripts/tauri_slice_verify.sh --real-lmstudio au03-current-work-context-ssot` | 已证明历史只读 transcript 打开后返回 active session，下一轮 prompt 使用最新 Work 背景 + 当前 active session transcript，旧历史 session 未覆盖当前作品事实。 |
 | B10 | 作者能在 why 面板看到上下文来源摘要 | AU-03 / AU-07 | TraceSummaryView | closed | Tauri automation | `artifacts/slice-verify/au03-context-source-ui-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au03-context-source-ui` | 真实工作台普通回复 why 面板显示 current work / recent dialogue / memory 三类 author-safe 来源摘要，不暴露 raw prompt。 |
 | B11 | 长会话压缩，旧 turn 进入 summary，最新 turn 保持顺序 | AU-03 | DialogueContext / DecisionTrace | closed | Tauri automation + Application/Persistence test | `artifacts/slice-verify/au03-long-session-compression-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au03-long-session-compression` | 已证明超过窗口的旧 turn 进入 `work_sessions.summary`，Planner request messages 只携带 early summary + 最新 transcript 窗口，不携带旧 turn 原文；2026-06-21 额外 real LMStudio 尝试完成 provider 调用但未产出 UI summary，不作为当前验收证据。 |
-| B12 | 作者在作品档案核对 AI 使用的立项设定 | AU-12 / AU-03 | CurrentWorkSnapshot / WorkArchiveView | checkpoint closed | Tauri automation | `artifacts/slice-verify/au12-work-profile-overview-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au12-work-profile-overview` | CP1 已证明真实工作台作品档案「概览」显示 works 立项字段且 DTO/UI/日志不泄漏内部 Work UUID；accepted 状态矩阵、缺字段/失败、跨作品切换、no-write 计数和 correction 修订仍待后续。 |
+| B12 | 作者在作品档案核对 AI 使用的立项设定，并从概览发起修订 | AU-12 / AU-03 | CurrentWorkSnapshot / WorkArchiveView / TurnResult adoption_state | checkpoint closed | Tauri automation（含原生 AX driver） | `artifacts/slice-verify/au12-work-profile-overview-tauri/summary.json`；`artifacts/slice-verify/au12-correction-intent-roundtrip-tauri-native-au12-final3-20261031/summary.json`；`bash scripts/quality_accept.sh au12-correction-intent-roundtrip --surface tauri` | CP1 已证明真实工作台作品档案「概览」显示 works 立项字段且 DTO/UI/日志不泄漏内部 Work UUID；correction 修订入口已闭环（概览「提出立项修订」→pending 候选→作者采纳→works 同源 →概览/后续请求消费，原生 surface 11/11）；accepted 状态矩阵、缺字段/失败、跨作品切换、no-write 计数仍待后续。 |
 | B13 | 模型执行期间打开作品档案仍可读快照 | AU-12 / AU-10 | WorkArchiveView / StructurePanel | closed | Tauri automation | `artifacts/slice-verify/au12-archive-concurrent-model-run-read-snapshot-tauri/summary.json`；`bash scripts/quality_accept.sh au12-archive-concurrent-model-run-read-snapshot --surface tauri` | StructurePanel 常驻挂载保留快照 + 仅 workId 变才重置 + loading/error 诚实状态条；执行期间打开档案显示立项快照（非空白）+「正在更新作品档案」指示，开档案只读 no-write，turn 完成后刷新。已知边界：channel 串行下执行期间 archive 读排队、turn 完成才返回，实时并发读取归后端异步化（AU-10）后续。 |
 
 当前连续断点：
@@ -480,7 +480,7 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 | Journey | Closed Prefix | Current Breakpoint | P0/P1 Gaps | Evidence Level | Health |
 |---|---|---|---:|---|---|
 | A 启动与供应商 | A1-A4 | A5 provider runtime config | 多个 SU-01 P0/P1 | Tauri + API | watch |
-| B 作品与上下文 | B1-B12 CP1 | AU12 CP2/CP3 后续 | 0（当前连续链路） | Tauri/LMStudio | closed-prefix |
+| B 作品与上下文 | B1-B12 CP1（含 AU12 correction 修订） | AU12 剩余矩阵（accepted/缺字段/跨作品） | 0（当前连续链路） | Tauri/LMStudio + 原生 AX | closed-prefix |
 | C 自然对话与探索 | C1-C6/C9-C10/C12-C13 已验范围保留；C7 补矩阵/C8 blocked | C14 联合作者交互 → C15 一般输入绑定；C8 待恢复 | 回复绑定/任务语义/当前协议未闭环 | 历史 Tauri + 当前源码；新链待验 | needs-focus |
 | D 创作生命周期 | D1-D3、原 D5、P1 与 VS-00C 的已验范围 | D12 全章 → D13 结构 → D14 角色 → D15 创作复验 | 完整对象维护与长期质量未闭环 | 历史 Tauri/browser + tests；新链待验 | needs-focus |
 | E 执行与行为 | E1-E2 局部 | E3/E4 lifecycle completion | 多个 P0 | Mixed | needs-focus |

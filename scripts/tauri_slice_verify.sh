@@ -466,7 +466,7 @@ case "$SLICE_VERIFY_PROVIDER" in
 esac
 
 if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
-  if [[ "$SLICE_ID" != "b26-author-question-roundtrip" && "$SLICE_ID" != "b26-business-output-roundtrip" && "$SLICE_ID" != "judgment-plan-multi-step" && "$SLICE_ID" != "b31-author-reply-run-binding" && "$SLICE_ID" != "b28-whole-chapter-revision" && "$SLICE_ID" != "b30-chapter-renumber-roundtrip" && "$SLICE_ID" != "b30-volume-blueprint-kind-boundary" && "$SLICE_ID" != "b29-existing-character-role-revision" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au11-missing-workstate-policy" && "$SLICE_ID" != "au07-tooltrace-registry-redacted-io" && "$SLICE_ID" != "e2e-01-readonly-tool-trace" && "$SLICE_ID" != "e2e-01-replay-report" && "$SLICE_ID" != "b33-authoring-intent-judgment-reliability" && "$SLICE_ID" != "b28-scope-authorization" && "$SLICE_ID" != "au03-context-read-failure" && "$SLICE_ID" != "b27-request-source-native" && "$SLICE_ID" != "au15-evidence-seeking-native" && "$SLICE_ID" != "b64-coordinate-memory" && "$SLICE_ID" != "b47-c07-character-freshness" ]] && ! is_b40_family_native_slice "$SLICE_ID"; then
+  if [[ "$SLICE_ID" != "b26-author-question-roundtrip" && "$SLICE_ID" != "b26-business-output-roundtrip" && "$SLICE_ID" != "judgment-plan-multi-step" && "$SLICE_ID" != "b31-author-reply-run-binding" && "$SLICE_ID" != "b28-whole-chapter-revision" && "$SLICE_ID" != "b30-chapter-renumber-roundtrip" && "$SLICE_ID" != "b30-volume-blueprint-kind-boundary" && "$SLICE_ID" != "b29-existing-character-role-revision" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au11-missing-workstate-policy" && "$SLICE_ID" != "au07-tooltrace-registry-redacted-io" && "$SLICE_ID" != "e2e-01-readonly-tool-trace" && "$SLICE_ID" != "e2e-01-replay-report" && "$SLICE_ID" != "b33-authoring-intent-judgment-reliability" && "$SLICE_ID" != "b28-scope-authorization" && "$SLICE_ID" != "au03-context-read-failure" && "$SLICE_ID" != "b27-request-source-native" && "$SLICE_ID" != "au15-evidence-seeking-native" && "$SLICE_ID" != "b64-coordinate-memory" && "$SLICE_ID" != "b47-c07-character-freshness" && "$SLICE_ID" != "au12-correction-intent-roundtrip" ]] && ! is_b40_family_native_slice "$SLICE_ID"; then
     echo "Native system driver is currently registered only for B26/B28/B29/B30/B31/P1/AU11/AU07/B40-family roundtrips" >&2
     exit 64
   fi
@@ -1579,6 +1579,8 @@ verify_native_slice() {
       node "$PROJECT_ROOT/scripts/native_au11_evidence.mjs" verify "$ARTIFACT_DIR" "$SLICE_ID"
     elif [[ "$SLICE_ID" == "au07-tooltrace-registry-redacted-io" || "$SLICE_ID" == "e2e-01-readonly-tool-trace" || "$SLICE_ID" == "e2e-01-replay-report" ]]; then
       node "$PROJECT_ROOT/scripts/native_au07_evidence.mjs" verify "$ARTIFACT_DIR" "$SLICE_ID"
+    elif [[ "$SLICE_ID" == "au12-correction-intent-roundtrip" ]]; then
+      node "$PROJECT_ROOT/scripts/native_au12_evidence.mjs" verify "$ARTIFACT_DIR"
     elif is_b40_family_native_slice "$SLICE_ID"; then
       node "$PROJECT_ROOT/scripts/native_b40_family_evidence.mjs" verify "$ARTIFACT_DIR" "$SLICE_ID"
     else
@@ -1948,6 +1950,10 @@ write_tauri_dev_config \
   "bash $PROJECT_ROOT/scripts/before-tauri-dev.sh"
 
 case "$SLICE_ID" in
+  au12-correction-intent-roundtrip)
+    # AU12 原生批次：由驱动通过产品 HTTP API 创建带立项字段作品，无 seed 脚本。
+    SEED_SCRIPT=""
+    ;;
   su02-empty-start-unnamed-work)
     SEED_SCRIPT=""
     ;;

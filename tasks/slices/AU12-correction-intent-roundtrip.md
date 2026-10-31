@@ -60,7 +60,7 @@ node scripts/task_done_check.mjs
 
 ## P2 立项修订的采纳落位与同源消费
 
-- 状态：**blocked（实现、真实页面流程、新会话消费均 PASS；task_done 要求 UI 证据 surface=tauri，当前外部 driver 只能产生 surface=browser，原生 webview/CUA driver 未就绪；不伪造 surface）**。
+- 状态：**done（2026-10-31）**：实现、真实页面流程、新会话消费均 PASS；2026-10-31 原生 Tauri 窗口（AX/CGEvent 外部驱动）批次 `au12-final3-20261031` PASS（11/11，`surface=tauri`），task_done UI gate 不再阻塞。
 - 来源：本任务 §6、[AU-12](../../docs/design/acceptance/author/AU-12-work-profile.md) AU12-I1/I7、[CA01 写入余项](CA01-planning-context-completion.md)。用户场景是“修订作品立项并采纳后，档案和后续模型使用同一新事实”。
 - 已核事实：`AdoptionRepository` 的 `work_skeleton_suggestion` 仅允许 target_length/planned_volumes/serial_form；`world_setting` 沿记忆类型落位。这些不能证明 premise/theme/main_goal 或题材/卖点/读者/基调等通用修订已回写 works，也不能由自然语言关键词自动推断应覆盖哪个立项字段。
 - CP0（可推进）：列清现有字段权威源、artifact 类型/显式目标、producer、采纳事务、版本及读模型消费者；比较复用既有结构化提案与扩展最小契约的差异，形成字段落位/不落位/缺失值/锁定及冲突处理方案。契约接受前不把任意 world_setting 全量覆盖 works、不新增平行资料表。
@@ -131,3 +131,18 @@ node scripts/task_done_check.mjs
 - `task_done.sh` 因此拒绝：`UI summary must come from Tauri surface`；静态扫描 `task-done-manifest` 失败为同一环境能力缺口，未用假 summary 绕过。
 - 已登记残余：Q1C-NATIVE / 原生 Tauri webview driver；**2026-10-31 作者选 A：补原生 driver**。
 - AX spike PASS：`ax_cua dumpall` 可读真实 Tauri `AXWebArea`（按钮/输入框/文本），`screenshot` 可截窗口；`dump` 仅 menubar、`windows` 返回空，二者不可用于判窗口。下一步实现 `native_au12_drive.mjs` 并重跑原生批次。证据 `artifacts/native-spike/au12-ax-20261031/`。
+
+### P2 收口（2026-10-31，原生 Tauri surface PASS）
+
+- **原生 drive**：`scripts/native_au12_drive.mjs` 用 macOS AX/CGEvent 操作真实 Tauri `AXWebArea`（`dumpall` 读取），同义路径为打开工作台→选择作品→打开档案→概览→点「提出立项修订」→pending 候选→点「采纳为全书规划」→概览同源显示→关闭档案→新请求；产品代码不读取 driver。
+- **证据核验**：`scripts/native_au12_evidence.mjs` 只读消费隔离批次证据（ready/ui-complete/transport/app-log/llm-calls/AX 文本截图/只读 SQLite），断言与浏览器 canonical driver 同源，仅把驱动面从 Chromium 换成原生窗口。
+- **批次编排**：`scripts/native_au12_batch.sh` 负责两段式编排（native runner ready 后拉起外部 driver、双 rc 记账、失败只读保留）；`tauri_slice_verify.sh` native allowlist/证据分派/无 seed 登记已接线；`task_done.sh` 支持 `--ui-summary` 复用已产出原生 summary，以及 `TAURI_NATIVE_SYSTEM_DRIVER=1` 走 AU12 原生批次。
+- **正式批次**：`artifacts/slice-verify/au12-correction-intent-roundtrip-tauri-native-au12-final3-20261031/`
+  - `summary.json`：`surface=tauri`、`driver=ax-native-system-ui`、`provider=slice_verify`、11/11、`git_head=c0f991d0`；
+  - 断言语义：真实 Tauri 窗口启动、概览可见动作发出 `generate_micro_plan=true` user_message、显式字段提案 pending、采纳前零 production write、真实 accept action_result、仅 `works.main_goal` 回写且 revision 递增、无 `world_setting` 记忆副作用、概览显示采纳值、后续真实请求 prompt 含采纳值、生产表零回退；
+  - wire 帧 112 条（含 2 user_message/3 turn_result/1 author_action/1 action_result），等待账 17 完成/0 超时，清理 `remaining=[]`。
+- **失败批次只读保留**：`au12-final-20261031`（driver 未启动导致 `driver_idle_timeout`）、`au12-final2-20261031`（batch 缺 `TAURI_NATIVE_TRANSPORT_PROXY` 导致无 wire 证据、input 超时）；根因、修复与预算升级见 `artifacts/au12-writeback/root-cause-20261031.md`。两批均为 harness 编排缺陷，非产品缺陷。
+- **残余（不代签）**：
+  - `provider=slice_verify` 确定性替身，模型语义质量不属本批（归 B42/真实模型窗口）；
+  - 原生 driver 目前只覆盖 AU12，其它 slice 的 native surface 仍按各自 known-gap 登记；
+  - AX 文本+截图为人工可核验证据，未做像素级视觉回归；I10 文学盲评不适用于本 slice。

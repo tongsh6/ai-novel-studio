@@ -15,7 +15,6 @@
 
 ## 阻塞
 
-- **AU12-WRITEBACK 页面收口**：工具/协议/候选/采纳/概览/API/新会话消费 PASS；`task_done` 要求 `surface: tauri`，现外部 driver 只能 `surface: browser`（真实 Tauri 窗口已启动但非 webview 驱动），原生 webview/CUA driver 未就绪；见 [AU12](slices/AU12-correction-intent-roundtrip.md#p2-立项修订的采纳落位与同源消费)。
 - **B27**：CP0–CP3 done；CP4 measured FAIL/known-gap 与第二方复核待作者裁决/实模窗口，见 [B27](slices/B27-systematic-prompt-and-intent-integration.md)。
 - **B48**：依赖 B43 裁决同源，四场景验收待 B43 门序裁决后启动，见 [B48](slices/B48-character-revision-noop-and-ambiguity.md)。
 - **B72 CP1**：缺离线生成器实现与真实模型窗口；见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#阻塞记录2026-10-31-cp1)。
