@@ -1401,3 +1401,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **B71 CP3a S1b 首次切换回退（如实记录）**：将判断生产 prompt 切到 IR 投影后，AgentRunJudgmentPlanFlow 4 例与 WorkspaceChannel 2 例回归失败（收不到 plan_drafted/ack），root-cause 为 slice_verify 测试替身判断规则依赖 legacy「## 作者输入」文本形态；已回退生产 request/diagnostics 至 legacy（请求字节不变），保留 S1a `prompt_ir`/`prompt_for_production`（未接线）与 slice_verify 的条件 IR 文本适配（legacy 行为不变，属性顺序 bug 修正）。全量各 app 测试 0 failures。S1b 下一步：slice_verify 判断 IR-aware + flow 测试口径适配后再切生产。未合并半成品、未以局部测试冒充接线完成。
 
+- 2026-10-31 — **B71 CP3a S1b 第二次尝试失败，达预算停止（回退保留）**：补 slice_verify 文本适配（占位作者段去重）后再切生产 IR 投影，AgentRunJudgmentPlanFlow 仍 4 例失败（判断已发 plan_request + mechanical prep evaluation_made，但 plan_drafted 未完成）。同因累计 2 次达 stop 线：回退 request/diagnostics/b33 helper 至 legacy，主链全绿；保留 prompt_ir/prompt_for_production（未接线）与 slice_verify 条件适配。root-cause 建议用单测级结构化探针定位（直接以 IR prompt 调 SliceVerify 断言 plan_request/plan_draft 事件）。全量各 app 0 failures；AgentRunRuntimeTest 全量并发下 1 次 flaky，单独复跑 2 次 41/41 通过已登记。待作者选择 A（推荐：IR-aware 单测改造+探针）/B（暂缓）/C（更大改造授权）。NEXT 当前任务切 UA01-PROMPT T3。
+

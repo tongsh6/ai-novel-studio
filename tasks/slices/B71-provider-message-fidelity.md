@@ -216,3 +216,11 @@
 - 已做的安全适配（保留）：`slice_verify.prompt_text/1` 仅在 IR 形态（含 application_base provenance 消息）时把最后一条非 application_base 的 user 消息重拼为「## 作者输入」段；legacy prompt 行为不变（55/55、全量各 app 回归 0 failures）。修正了 test-support 模块属性的定义顺序（必须在首次引用前定义）。
 - 回退决定：生产 `request/4` 与 diagnostics 恢复 legacy `prompt/2`（主链请求字节不变），避免在测试替身尚未 IR-aware、flow 测试未适配时合并半成品；`prompt_ir/2`、`prompt_for_production/2` 保留为**未接线**的 S1b 起点（有单测）。
 - S1b 下一步（有明确计划）：①把 slice_verify 的判断规则改为 IR-aware（优先读结构化 messages 的最后作者 user 消息，而不是依赖拼接文本）；②同步 flow/白盒测试与 `judgment_prompt_diagnostics` 的文本统计口径；③再切换生产 `request/4` 并跑全量回归 + 真实页面确定性场景（S4）。
+
+#### CP3a S1b 第二次尝试与预算耗尽（2026-10-31，停止盲试）
+
+- 第二次尝试：在 slice_verify 文本适配基础上（IR 形态把最后非 application_base 的 user 消息重拼为「## 作者输入」，并删除 application_base 内占位作者段以免正则先命中），再次切换生产 `request/4` 到 IR 投影。结果：`AgentRunJudgmentPlanFlowTest` 仍 4 例失败（收不到 `plan_drafted`；mailbox 显示判断已发 `plan_request` 与 mechanical prep `evaluation_made`，但 plan draft 阶段未完成）。
+- 预算：同一失败类型累计 2 次（达到 stop 线），已回退生产 request/diagnostics/b33 helper 到 legacy，主链测试恢复全绿；不再进行第三次盲试。
+- 根因状态（未完全定位）：slice_verify 的判断规则仍依赖 legacy 单 user 文本形态；仅改 `prompt_text` 拼接不足，判断→plan draft 的事件链在 IR prompt 下出现偏差。建议下一步用**单测级结构化探针**（直接以 IR prompt 调 SliceVerify.complete 并断言 `plan_request/plan_draft` 事件与 payload），而不是继续在生产路径上试切。
+- 保留：`prompt_ir/2`、`prompt_for_production/2`（未接线）、slice_verify 条件适配（legacy 行为不变）；全量各 app 测试 0 failures；`AgentRunRuntimeTest` 在全量并发下出现 1 次 flaky，单独复跑 2 次均 41/41 通过，登记为已知 flaky（非本次改动、单独调查）。
+- 待作者选择（不擅自扩范围）：**A（推荐）**先做 slice_verify 判断 IR-aware 的单测级改造 + 结构化探针定位，完成后重新评估 S1b；**B** 暂缓 S1b，按 NEXT 候选推进（UA01-PROMPT T3 等）；**C** 授权更大范围改造（IR-aware 判断契约/新 flow），另行设计评审。

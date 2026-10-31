@@ -6,13 +6,12 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B71-CP3a | S1a done（prompt_ir 旁路+测试）；S1b 首次切换因 slice_verify 判断依赖 legacy 文本形态而回退（主链已恢复全绿，root-cause 与保留适配见 B71）；下一步 S1b′：slice_verify 判断 IR-aware + flow 测试适配后再切生产 | [B71](slices/B71-provider-message-fidelity.md) |
+| UA01-PROMPT | T3 规划器前缀确定性校验/必要时机械合并（不涉 schema，可独立于 T5 裁决；B71 CP3a S1b 预算耗尽待作者选项期间并行） | [UA01](slices/UA01-agentic-loop-prompt-hardening.md#t3-前缀确定性可独立推进2026-10-31) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| UA01-PROMPT | T3 规划器前缀确定性校验/必要时机械合并（不涉 schema，可独立于 T5 裁决；B71 CP3a 进行中时可并行） | [UA01](slices/UA01-agentic-loop-prompt-hardening.md#t3-前缀确定性可独立推进2026-10-31) |
 | Q1C | 作者已选 A 补原生 driver；复用 AU12 原生驱动接线，需独立 runtime 预算 | [Q1C](slices/Q1C-adopted-content-revision.md#原生补验-cp0阻塞记录2026-10-31) |
 | SU04 | 预注册隔离 release-app 外部 UI 故障驱动（正常冷启动/坏包/端口占用/退出无孤儿） | [SU04](slices/SU04-desktop-sidecar-packaging.md#可独立推进-release-app-预注册2026-10-31) |
 | AU08 | 产品外通用按 channel 故障注入代理（get_toc/get_chapter_content），不增验收开关 | [AU08](slices/AU08-file-level-closure.md#可独立推进-channel-故障注入代理2026-10-31) |
@@ -21,6 +20,7 @@
 
 ## 阻塞
 
+- **B71-CP3a S1b**：同因失败 2 次达预算上限（已回退、主链全绿）；待作者从 A（推荐：slice_verify 判断 IR-aware 单测级改造+探针）/B（暂缓，按候选推进）/C（更大改造授权）中选择；见 [B71](slices/B71-provider-message-fidelity.md#cp3a-s1b-第二次尝试与预算耗尽2026-10-31停止盲试)。
 - **B27 CP4 语义**：确定性负例矩阵已冻结（`artifacts/model-contracts/b27-cp4-hardening/negative-matrix.json`，确定性侧无机械可修缺口）；模型语义 known-gap 关闭需实模预注册窗口 + 第二方复核；见 [B27](slices/B27-systematic-prompt-and-intent-integration.md)。
 - **B72 CP1 模型窗口**：离线生成器已入候选，真实模型资源窗口与生成预算未授权；见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#阻塞记录2026-10-31-cp1)。
 - **VS00F-TRACE CP1**：A（推荐持久 StateTrace，需 schema 授权）/B（明确 no-trace 边界）/C（延期）；见 [VS00F](slices/VS-00F-five-ledgers-three-state.md#cp0-盘点2026-10-31)。

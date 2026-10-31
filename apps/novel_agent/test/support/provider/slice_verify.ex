@@ -5951,7 +5951,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       end)
 
     joined =
-      Enum.map_join(other_messages, "\n", fn message -> "#{message.role}: #{message.content}" end)
+      other_messages
+      |> Enum.map_join("\n", fn message -> "#{message.role}: #{message.content}" end)
+      # application_base 中的作者输入占位不得抢占尾部真实作者段的正则匹配。
+      |> String.replace(
+        "## 作者输入\n（本轮作者原话见独立 user 消息）",
+        "## 作者输入（内容见独立消息）"
+      )
 
     case author do
       nil -> joined
