@@ -358,4 +358,109 @@ defmodule NovelAgent.Provider.AnthropicTest do
   defp anthropic_sse(event, payload) do
     "event: #{event}\ndata: #{Jason.encode!(payload)}\n\n"
   end
+
+  describe "IR v1 桥（B71 CP2，VS-00L §6.2）" do
+    test "IR → Anthropic Messages：tool_use/tool_result content blocks + 轮次交替" do
+      test_pid = self()
+
+      mock = fn _url, body, _opts ->
+        send(test_pid, {:anthropic_body, body})
+        {:error, :http_error, 401, "Unauthorized"}
+      end
+
+      state = %Anthropic{api_key: "k", model: "c", timeout: 100, http_fn: mock, log_fn: nil}
+      prompt = ir_provider_prompt()
+
+      assert {:error, _error} = Anthropic.complete(state, nil, prompt, %InferenceParams{})
+      assert_received {:anthropic_body, body}
+
+      assert [%{name: "read_character", input_schema: %{type: "object"}}] = body.tools
+
+      assert Enum.any?(body.messages, fn message ->
+               message.role == "assistant" and
+                 Enum.any?(message.content, &(&1.type == "tool_use" and &1.id == "call-1"))
+             end)
+
+      assert Enum.any?(body.messages, fn message ->
+               Enum.any?(
+                 message.content,
+                 &(&1.type == "tool_result" and &1.tool_use_id == "call-1")
+               )
+             end)
+
+      roles = Enum.map(body.messages, & &1.role)
+
+      refute Enum.chunk_every(roles, 2, 1, :discard)
+             |> Enum.any?(fn [left, right] -> left == right end)
+
+      assert body[:system] != nil
+    end
+
+    test "legacy prompt 仍走原字符串/块路径（无 ir_version 时不进入桥）" do
+      test_pid = self()
+
+      mock = fn _url, body, _opts ->
+        send(test_pid, {:anthropic_body, body})
+        {:error, :http_error, 401, "Unauthorized"}
+      end
+
+      state = %Anthropic{api_key: "k", model: "c", timeout: 100, http_fn: mock, log_fn: nil}
+      prompt = [%{role: "user", content: "hi"}]
+
+      assert {:error, _error} = Anthropic.complete(state, nil, prompt, %InferenceParams{})
+      assert_received {:anthropic_body, body}
+      assert [%{role: "user", content: "hi"}] == body.messages
+    end
+
+    defp ir_provider_prompt do
+      alias NovelAgent.Provider.RequestIR
+
+      ir =
+        RequestIR.new(%{
+          run: %{run_id: "run-anthropic", work_id: "work-1"},
+          system: %{
+            identity_ref: "identity:authoring/v1",
+            instructions: "你是创作 run，只在作者授权边界内行动。",
+            run_role: "creation_run"
+          },
+          messages: [
+            RequestIR.message(:application_base, :application, [
+              RequestIR.text_block("run goal: 读取角色事实并生成 tentative 候选")
+            ]),
+            RequestIR.message(:user, :author, [RequestIR.text_block("把沈砚的年龄改成三十岁")]),
+            RequestIR.message(:assistant, :model, [
+              RequestIR.text_block("先读取角色事实。"),
+              RequestIR.tool_call_block(
+                "read_character",
+                %{"character_ref" => "character:1"},
+                "call-1"
+              )
+            ]),
+            RequestIR.message(:tool, :tool_result, [
+              RequestIR.observation_block("call-1", %{
+                status: "ok",
+                source_refs: [%{ref: "character:1", version: 2}],
+                content: %{"narrative_role" => "ENSEMBLE_POV"}
+              })
+            ])
+          ],
+          tools: [
+            %{name: "read_character", description: "读取角色", input_schema: %{type: "object"}}
+          ],
+          projection: %{
+            target: "anthropic_messages",
+            capability_profile: %{},
+            usage_streaming: false
+          },
+          refs: %{
+            base_refs: [],
+            observation_refs: [%{ref: "character:1", version: 2}],
+            used_refs: []
+          }
+        })
+
+      assert {:ok, prompt} = RequestIR.to_provider_prompt(ir)
+      prompt
+    end
+  end
 end

@@ -1379,3 +1379,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **B71 CP2 收尾进展（adapter 桥，未收口）**：`Provider.normalize_messages/1` 保真原生工具字段（tool_calls/tool_call_id/name/reasoning_content、非 binary content 透传，I-ART-8），legacy 行为不变；新增 `RequestIR.to_provider_prompt/2` 把 IR v1 投影为 provider-neutral prompt，OpenAI-compatible/DeepSeek/LM Studio/Strata adapter 可直接消费，与 ChatCompletions 投影同源（测试断言 normalize/工具注入等价）。provider 目录 249/249、全量 mix test 0 failures、credo 0、xref 无环、arch_check 通过。未闭环：Anthropic adapter 主链未接 IR content-blocks、真实只读观察/校验回流未接 IR、I-CACHE 重锚与 G1–G6 fixture 文件化待 CP3；CP2 不标 done。
 
+- 2026-10-31 — **B71 CP2 收尾进展 2（Anthropic adapter IR 桥，未收口）**：Anthropic adapter 对 IR v1 桥新增 content-blocks 投影（assistant tool_calls→tool_use、observation/validation→tool_result、system 稳定前缀与 cache_control 规则、相邻同 role 合并满足交替约束），legacy 路径不变；新增 2 条桥测试（anthropic 14/14，provider 目录全绿）。未闭环：真实只读观察/校验结果回流未接 IR（CP3 首个消费者核心）、I-CACHE 重锚与 fixture 接真实 run 待 CP3；CP2 不标 done，不以 adapter/单测代签完整 AgentRun。
+

@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B71 | CP2 进行中：IR v1 + 三类投影 + G1–G6 + OpenAI 兼容 adapter 桥/normalize 保真完成（provider 249/249）；剩余 Anthropic adapter IR 接线、真实观察回流、I-CACHE 重锚——归 CP2 收尾/CP3 首个消费者 | [B71](slices/B71-provider-message-fidelity.md) |
+| B71 | CP2 进行中：IR v1 + 三类投影 + G1–G6 + OpenAI 兼容/Anthropic adapter 桥完成（provider 测试全绿）；剩余真实观察/校验回流接 IR 与 I-CACHE 重锚——CP3 首个消费者范围，需真实 Tauri/实模窗口 | [B71](slices/B71-provider-message-fidelity.md) |
 
 ## 后续候选
 

@@ -158,6 +158,31 @@ defmodule NovelAgent.Provider.Anthropic do
     end
   end
 
+  # B71 CP2（VS-00L §6.2）：IR v1 桥（`%{ir_version: ...}` structured prompt）投影为
+  # Anthropic Messages content blocks——assistant tool_calls → tool_use，
+  # observation/validation → tool_result（tool_use_id 关联），相邻同 role 合并满足
+  # Messages API 的交替约束；legacy prompt 仍走下方原路径。
+  defp anthropic_messages(%{ir_version: _} = prompt) do
+    messages = NovelAgent.Provider.normalize_messages(prompt)
+
+    {system_messages, chat_messages} =
+      Enum.split_with(messages, fn message -> message.role == "system" end)
+
+    system_prompt =
+      case Enum.map(system_messages, & &1.content) do
+        [] -> nil
+        parts -> Enum.join(parts, "\n\n")
+      end
+
+    blocks =
+      chat_messages
+      |> Enum.map(&ir_to_anthropic_message/1)
+      |> Enum.reject(&is_nil/1)
+      |> merge_adjacent_roles()
+
+    {system_prompt, blocks}
+  end
+
   defp anthropic_messages(prompt) do
     messages = NovelAgent.Provider.normalize_messages(prompt)
 
@@ -177,6 +202,87 @@ defmodule NovelAgent.Provider.Anthropic do
       end
 
     {system_prompt, fallback_messages}
+  end
+
+  defp ir_to_anthropic_message(%{role: "assistant"} = message) do
+    text_blocks =
+      case message.content do
+        content when is_binary(content) and content != "" -> [%{type: "text", text: content}]
+        _ -> []
+      end
+
+    tool_blocks =
+      message
+      |> Map.get(:tool_calls, [])
+      |> Enum.map(fn call ->
+        %{
+          type: "tool_use",
+          id: anthropic_tool_call_id(call),
+          name: anthropic_tool_call_name(call),
+          input: anthropic_tool_arguments(call)
+        }
+      end)
+
+    case text_blocks ++ tool_blocks do
+      [] -> nil
+      blocks -> %{role: "assistant", content: blocks}
+    end
+  end
+
+  defp ir_to_anthropic_message(%{role: "tool"} = message) do
+    case Map.get(message, :tool_call_id) do
+      nil ->
+        %{role: "user", content: [%{type: "text", text: to_string(message.content)}]}
+
+      call_id ->
+        %{
+          role: "user",
+          content: [
+            %{type: "tool_result", tool_use_id: call_id, content: to_string(message.content)}
+          ]
+        }
+    end
+  end
+
+  defp ir_to_anthropic_message(%{role: role} = message) do
+    %{role: role, content: [%{type: "text", text: to_string(message.content)}]}
+  end
+
+  defp anthropic_tool_call_id(call), do: Map.get(call, :id) || Map.get(call, "id")
+
+  defp anthropic_tool_call_name(call) do
+    get_in(call, [:function, :name]) || get_in(call, ["function", "name"]) || Map.get(call, :name)
+  end
+
+  defp anthropic_tool_arguments(call) do
+    arguments = get_in(call, [:function, :arguments]) || get_in(call, ["function", "arguments"])
+
+    case arguments do
+      args when is_map(args) -> args
+      args when is_binary(args) -> decode_anthropic_arguments(args)
+      _ -> %{}
+    end
+  end
+
+  defp decode_anthropic_arguments(arguments) do
+    case Jason.decode(arguments) do
+      {:ok, map} when is_map(map) -> map
+      _ -> %{}
+    end
+  end
+
+  # Anthropic Messages API 要求 user/assistant 交替；相邻同 role 合并 content blocks，
+  # 不改变任何 block 的顺序或字节。
+  defp merge_adjacent_roles(messages) do
+    Enum.reduce(messages, [], fn %{role: role, content: content}, acc ->
+      case List.last(acc) do
+        %{role: ^role, content: previous} ->
+          List.replace_at(acc, -1, %{role: role, content: previous ++ content})
+
+        _ ->
+          acc ++ [%{role: role, content: content}]
+      end
+    end)
   end
 
   defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
