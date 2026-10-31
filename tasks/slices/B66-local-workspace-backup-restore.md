@@ -1,6 +1,6 @@
 # B66：本地工作区备份与恢复
 
-- 状态：**todo（2026-10-30，仅 CP0 最小契约与材料准备可推进；CP1 之后待具体方案接受，未实施、未备份或恢复作者数据）**。
+- 状态：**doing（2026-10-31 作者接受 A：profile 级快照/恢复契约；排除 secrets/logs，恢复隔离+覆盖确认；CP1 实施中，未自动备份）**。
 - 类型：Desktop Data Recovery / Design Preparation Slice。
 - 来源：[数据库设计 §8](../../docs/design/tech-stack/06-database.md#8-备份与恢复)、[部署设计 §5.1](../../docs/design/tech-stack/11-deployment.md#51-阶段-1) 已登记阶段 1 的本地备份/恢复，但没有作者可操作的完整产品任务承接。
 

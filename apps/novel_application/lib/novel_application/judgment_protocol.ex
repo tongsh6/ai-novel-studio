@@ -18,7 +18,8 @@ defmodule NovelApplication.JudgmentProtocol do
   @pending_target_capabilities ~w(revise_pending_artifact discard_pending_artifact)
   @adopted_target_capabilities ~w(revise_adopted_content)
   @judgment_tool_names ~w(judgment_decision ask_author agent_plan_draft register_author_content
-                          propose_creative_directions report_capability_gap)
+                          propose_creative_directions propose_work_profile_revision
+                          report_capability_gap)
   @error_excerpt_chars 400
   @write_intent_reason_re ~r/写入|保存|存档|落库|存入|登记进|写进/
   @type judgment :: map()
@@ -1032,26 +1033,31 @@ defmodule NovelApplication.JudgmentProtocol do
     field = field(args, :field)
     value = field(args, :value)
 
-    cond do
-      field not in @work_profile_revision_fields ->
-        {:error, {:invalid_work_profile_field, field}}
-
-      not is_binary(field(args, :title)) or String.trim(field(args, :title)) == "" ->
-        {:error, :work_profile_revision_title_missing}
-
-      not is_binary(field(args, :body)) or String.trim(field(args, :body)) == "" ->
-        {:error, :work_profile_revision_body_missing}
-
-      field in @work_profile_numeric_fields and (not is_integer(value) or value <= 0) ->
-        {:error, {:invalid_work_profile_value, field}}
-
-      field not in @work_profile_numeric_fields and
-          (not is_binary(value) or String.trim(value) == "") ->
-        {:error, {:invalid_work_profile_value, field}}
-
-      true ->
-        :ok
+    with :ok <- validate_work_profile_field(field),
+         :ok <- validate_work_profile_text(args, :title, :work_profile_revision_title_missing),
+         :ok <- validate_work_profile_text(args, :body, :work_profile_revision_body_missing) do
+      validate_work_profile_value(field, value)
     end
+  end
+
+  defp validate_work_profile_field(field) when field in @work_profile_revision_fields, do: :ok
+  defp validate_work_profile_field(field), do: {:error, {:invalid_work_profile_field, field}}
+
+  defp validate_work_profile_text(args, key, error) do
+    value = field(args, key)
+    if is_binary(value) and String.trim(value) != "", do: :ok, else: {:error, error}
+  end
+
+  defp validate_work_profile_value(field, value) when field in @work_profile_numeric_fields do
+    if is_integer(value) and value > 0,
+      do: :ok,
+      else: {:error, {:invalid_work_profile_value, field}}
+  end
+
+  defp validate_work_profile_value(field, value) do
+    if is_binary(value) and String.trim(value) != "",
+      do: :ok,
+      else: {:error, {:invalid_work_profile_value, field}}
   end
 
   defp profile_revision_args(args) do

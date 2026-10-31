@@ -29,8 +29,11 @@ user_flow:
   - click: 概览
   - click: 提出立项修订
   - observe: real user_message with generate_micro_plan=true
-  - observe: Planner/MicroPlan/Orchestrator allow world_building
-  - observe: TurnResult contains pending world_setting artifact and accept/edit/discard actions
+  - observe: judgment proposes an explicit field/value work_profile_revision
+  - observe: TurnResult contains pending work_skeleton_suggestion artifact and accept/edit/discard actions
+  - click: 采纳为全书规划 (real accept action)
+  - observe: works.main_goal updated, archive overview shows same value, no world_setting memory written
+  - create: new session and send a continuation request; verify model request consumes the adopted value
   - confirm: no author_action, adoption evaluation, or production write happens before author choice
 
 evidence:
@@ -44,17 +47,19 @@ assertions:
   ui:
     - profile correction action is visible in the real archive overview
     - pending correction artifact is visible after the turn
+    - archive overview shows the adopted main_goal value
   network:
     - user_message is sent from the visible profile action
     - user_message uses generate_micro_plan=true
-    - turn_result includes pending world_setting adoption state
+    - turn_result includes pending work_skeleton_suggestion state with explicit main_goal value
   data:
-    - planner frame and micro plan are recorded
-    - orchestrator allows world_building
-    - pending artifact requires adoption
+    - judgment decision action is work_profile_revision
+    - pending artifact requires adoption and carries skeleton_field/skeleton_value
     - accept, edit_then_accept, and discard actions are available
     - no author_action is sent before author choice
     - no adoption evaluation or production write occurs before author choice
+    - accept writes works.main_goal and no world_setting memory
+    - adopted main_goal value appears in the next session's real model request prompts
 
 anti_hooks:
   product_acceptance_logic_added: false

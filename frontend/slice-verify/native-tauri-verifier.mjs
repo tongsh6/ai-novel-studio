@@ -1656,12 +1656,11 @@ const sliceKeyEvents = {
   ],
   "au12-correction-intent-roundtrip": [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.start",
-    "planner.form_frame.done",
-    "planner.form_micro_plan.done",
-    "orchestrator.decide.done",
-    "toolbox.execute.done",
-    "dialogue_gateway.handle_input.done",
+    "judgment.decided.done",
+    "channel.author_action.start",
+    "adoption.evaluate.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
@@ -14123,40 +14122,48 @@ function findAu12CorrectionIntentRoundtripEvidence(records) {
       record.slice_id === sliceId &&
       record.correction_intent_sent_from_profile === true &&
       record.generate_micro_plan === true &&
-      record.decision_type === "allow_tool" &&
-      record.tool_name === "world_building" &&
-      record.tool_status === "succeeded" &&
-      record.pending_artifact_type === "world_setting" &&
+      record.frame_type === "execution_candidate" &&
+      record.decision_type === "exploration" &&
+      record.pending_artifact_type === "work_skeleton_suggestion" &&
       record.pending_artifact_requires_adoption === true &&
+      record.pending_field === "main_goal" &&
+      record.pending_value === "在巡检收网前拿到暗抽主账" &&
       record.available_accept_action === true &&
       record.available_edit_action === true &&
       record.available_discard_action === true &&
       record.production_write_performed === false &&
-      record.tool_called === true &&
       record.no_author_action_sent === true &&
-      record.no_adoption_event_before_author_choice === true &&
       record.pending_card_visible === true &&
+      record.accepted_works_main_goal === "在巡检收网前拿到暗抽主账" &&
+      record.overview_shows_value === true &&
+      record.adopted_value_in_next_request === true &&
+      record.no_world_setting_memory_leak === true &&
       record.real_archive_opened === true &&
       record.overview_tab_clicked === true,
   );
   if (!uiState) return null;
   if (!uiState.turn_id || !uiState.work_id) return null;
 
-  const toolbox = records.find(
+  const parentTurnId = String(uiState.turn_id).includes(":agent:")
+    ? String(uiState.turn_id).split(":agent:")[0]
+    : String(uiState.turn_id);
+  const judgment = records.find(
     (record) =>
-      record.event === "toolbox.execute.done" &&
-      record.turn_id === uiState.turn_id &&
-      record.tool_name === "world_building" &&
-      record.tool_outcome === "succeeded",
+      record.event === "judgment.decided.done" &&
+      record.turn_id === parentTurnId &&
+      record.action === "work_profile_revision",
   );
-  // B40 §10.2 重锚：done 记录在父 turn（uiState.turn_id 是 "<parent>:agent:N" 子 turn）。
-  const uiParentTurnId = String(uiState.turn_id).split(":agent:")[0];
+  if (!judgment) return null;
+  const context = records.find(
+    (record) => record.event === "context.assemble.done" && record.turn_id === parentTurnId,
+  );
+  if (!context) return null;
   const done = records.find(
     (record) =>
       record.event === "channel.user_message.done" &&
-      (record.turn_id === uiState.turn_id || record.turn_id === uiParentTurnId),
+      (record.turn_id === uiState.turn_id || record.turn_id === parentTurnId),
   );
-  if (!toolbox || !done) return null;
+  if (!done) return null;
 
   return {
     slice_id: sliceId,
@@ -14165,7 +14172,7 @@ function findAu12CorrectionIntentRoundtripEvidence(records) {
     work_id: uiState.work_id,
     work_title: uiState.work_title,
     pending_artifact_type: uiState.pending_artifact_type,
-    tool_name: uiState.tool_name,
+    pending_field: uiState.pending_field,
     decision_type: uiState.decision_type,
     key_events: keyEvents,
   };
@@ -21396,22 +21403,20 @@ function au12ProfileReadFailureDegradeBehavior(records, evidence, _options) {
   };
 }
 
-function au12CorrectionIntentRoundtripBehavior(turnIds, turnRecords, records, evidence, _options) {
+function au12CorrectionIntentRoundtripBehavior(turnIds, turnRecords, records, evidence) {
   if (turnIds.length !== 1) return null;
   if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
-  // B40 §10.2 重锚：工具执行落在 "<parent>:agent:N" 子 turn；作者消息/判断决策/上下文装配
-  // 在父 turn。planner.form_frame/form_micro_plan 与 dialogue_gateway.* 已退役，当前判断
-  // 纪元语义位 = judgment.decided.done（execute + capability world_building）。
+
   const parentTurnId = String(turnIds[0]).includes(":agent:")
     ? String(turnIds[0]).split(":agent:")[0]
     : String(turnIds[0]);
   if (!turnsHaveGenerateMicroPlan([parentTurnId], records, true)) return null;
+
   const judgment = records.find(
     (record) =>
       record.event === "judgment.decided.done" &&
       record.turn_id === parentTurnId &&
-      record.action === "execute" &&
-      record.capability === "world_building",
+      record.action === "work_profile_revision",
   );
   if (!judgment) return null;
   if (
@@ -21421,63 +21426,53 @@ function au12CorrectionIntentRoundtripBehavior(turnIds, turnRecords, records, ev
   ) {
     return null;
   }
-  if (!turnsHaveEvent(turnIds, turnRecords, "orchestrator.decide.done")) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "toolbox.execute.done")) return null;
-  const authorActionPrefix = records.some(
-    (record) =>
-      (record.turn_id === parentTurnId || turnIds.includes(record.turn_id)) &&
-      String(record.event ?? "").startsWith("channel.author_action."),
-  );
-  if (authorActionPrefix) return null;
-  const adoptionPrefix = records.some(
-    (record) =>
-      (record.turn_id === parentTurnId || turnIds.includes(record.turn_id)) &&
-      String(record.event ?? "").startsWith("adoption.evaluate."),
-  );
-  if (adoptionPrefix) return null;
 
   const uiState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === "au12-correction-intent-roundtrip" &&
-      record.turn_id === turnIds[0],
+      record.slice_id === "au12-correction-intent-roundtrip",
   );
   if (!uiState) return null;
   if (uiState.correction_intent_sent_from_profile !== true) return null;
-  if (uiState.decision_type !== "allow_tool") return null;
-  if (uiState.tool_name !== "world_building") return null;
-  if (uiState.tool_status !== "succeeded") return null;
-  if (uiState.pending_artifact_type !== "world_setting") return null;
+  if (uiState.frame_type !== "execution_candidate") return null;
+  if (uiState.decision_type !== "exploration") return null;
+  if (uiState.pending_artifact_type !== "work_skeleton_suggestion") return null;
   if (uiState.pending_artifact_requires_adoption !== true) return null;
+  if (uiState.pending_field !== "main_goal") return null;
+  if (uiState.pending_value !== "在巡检收网前拿到暗抽主账") return null;
   if (uiState.available_accept_action !== true) return null;
   if (uiState.available_edit_action !== true) return null;
   if (uiState.available_discard_action !== true) return null;
   if (uiState.production_write_performed !== false) return null;
-  if (uiState.tool_called !== true) return null;
   if (uiState.no_author_action_sent !== true) return null;
-  if (uiState.no_adoption_event_before_author_choice !== true) return null;
   if (uiState.pending_card_visible !== true) return null;
+  if (uiState.accepted_works_main_goal !== "在巡检收网前拿到暗抽主账") return null;
+  if (uiState.overview_shows_value !== true) return null;
+  if (uiState.adopted_value_in_next_request !== true) return null;
+  if (uiState.no_world_setting_memory_leak !== true) return null;
 
   return {
     slice_id: "au12-correction-intent-roundtrip",
-    behavior: "work_profile_correction_intent_returns_to_dialogue_and_adoption_boundary",
+    behavior: "work_profile_correction_explicit_field_proposal_adopted_into_works",
     turn_ids: turnIds,
     work_id: evidence.work_id,
     work_title: evidence.work_title,
-    decision_type: evidence.decision_type,
-    tool_name: evidence.tool_name,
-    pending_artifact_type: evidence.pending_artifact_type,
+    turn_id: uiState.turn_id,
+    pending_field: uiState.pending_field,
+    pending_value: uiState.pending_value,
+    accepted_works_main_goal: uiState.accepted_works_main_goal,
     assertions: [
       "author_clicked_visible_profile_correction_action",
       "real_workbench_sent_user_message_with_generate_micro_plan",
-      "judgment_decided_world_building_single_capability",
-      "orchestrator_allowed_world_building_tool",
-      "world_building_created_pending_world_setting_artifact",
-      "pending_artifact_requires_author_adoption",
+      "judgment_proposed_explicit_work_profile_field",
+      "pending_work_skeleton_candidate_requires_author_adoption",
       "accept_edit_and_discard_actions_available",
       "no_author_action_sent_before_author_choice",
-      "no_adoption_evaluation_before_author_choice",
       "no_direct_production_write_from_profile_panel",
+      "author_accept_wrote_works_main_goal_only",
+      "archive_overview_and_api_show_same_value",
+      "adopted_value_enters_next_session_model_request",
+      "no_world_setting_memory_side_effect",
     ],
   };
 }

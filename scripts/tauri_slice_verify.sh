@@ -1301,7 +1301,7 @@ native_action_description() {
       echo "create a real work with seed profile fields -> externally stop the slice Phoenix service -> open real archive overview -> verify honest profile read failure and no-write boundary -> restart service -> click retry -> verify real fields recover"
       ;;
     au12-correction-intent-roundtrip)
-      echo "create a real work -> open real archive profile overview -> click visible profile correction action -> verify user_message/MicroPlan/world_building produces pending world_setting adoption without direct write"
+      echo "create a real work -> open real archive profile overview -> click visible profile correction action -> verify explicit field/value work_skeleton_suggestion pending -> accept writes works.main_goal -> overview/API/new-session request consume it, no world_setting memory"
       ;;
     b47-canon-freshness)
       echo "seed three real works (stale / conflict / fresh) -> open each from the real workbench work menu -> click the pending prose revision 保存为章节正文 -> verify stale/conflict are blocked with zero write and author-safe recovery copy, fresh adoption supersedes old drafts and materializes the candidate as the single accepted prose"

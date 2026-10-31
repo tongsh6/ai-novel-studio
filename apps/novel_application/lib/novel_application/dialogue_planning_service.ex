@@ -1973,6 +1973,7 @@ defmodule NovelApplication.DialoguePlanningService do
     }
   end
 
+  defp reply_frame_type("execution_candidate"), do: :execution_candidate
   defp reply_frame_type("creative_exploration"), do: :creative_exploration
   defp reply_frame_type("question_answer"), do: :question_answer
   defp reply_frame_type("meta_discussion"), do: :meta_discussion

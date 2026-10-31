@@ -1358,3 +1358,7 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **AU09 done**：T5 新场景 PASS；T6 taxonomy/recall/validity PASS，cross-work 场景两次 native 超时（既有 driver 停滞）登记残余，方向隔离由单测覆盖；backend 1060/0、frontend 657/657。当前任务切 AU12-WRITEBACK（作者选 A）。
 
 - 2026-10-31 — **AU12 A producer**：新增 propose_work_profile_revision 判断工具（显式字段白名单/数值文本校验）→ pending work_skeleton_suggestion 候选（零 works 写，采纳走既有落位）；UA-01 C2/映射/终态更新；backend 1063/0、frontend 657/657。旧 au12 场景期待 world_setting，需按新语义 reanchor。
+
+- 2026-10-31 — **AU12 A done**：明确字段提案工具→真实页面 pending 候选→作者采纳写 works.main_goal→概览/API/新会话模型请求同源消费，且无 world_setting 记忆副作用；旧 au12 场景已按新语义重锚 PASS（11 断言）。backend 1063/0、frontend 657/657、I1/I2/I3/manifest 全过。当前任务切 B66-PREP。
+
+- 2026-10-31 — **AU12 A 实现+场景 PASS，收口 blocked**：显式字段提案→pending 候选→作者采纳写 works.main_goal→概览/API/新会话模型请求消费 PASS（11 断言）；但 task_done 要求 surface=tauri，外部 driver 仍 surface=browser（真实 Tauri 窗口已启动、非 webview 驱动），登记 Q1C-NATIVE 残余，不伪造 surface。

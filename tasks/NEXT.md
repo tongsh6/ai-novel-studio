@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU12-WRITEBACK | A：propose_work_profile_revision 工具/协议/候选已实现+单测；旧 au12 场景需重锚并补概览修订→采纳→消费页面证据 | [原任务小节](slices/AU12-correction-intent-roundtrip.md#p2-立项修订的采纳落位与同源消费) |
+
 
 ## 后续候选
 
@@ -15,6 +15,7 @@
 
 ## 阻塞
 
+- **AU12-WRITEBACK 页面收口**：工具/协议/候选/采纳/概览/API/新会话消费 PASS；`task_done` 要求 `surface: tauri`，现外部 driver 只能 `surface: browser`（真实 Tauri 窗口已启动但非 webview 驱动），原生 webview/CUA driver 未就绪；见 [AU12](slices/AU12-correction-intent-roundtrip.md#p2-立项修订的采纳落位与同源消费)。
 - **B27**：CP0–CP3 done；CP4 measured FAIL/known-gap 与第二方复核待作者裁决/实模窗口，见 [B27](slices/B27-systematic-prompt-and-intent-integration.md)。
 - **B48**：依赖 B43 裁决同源，四场景验收待 B43 门序裁决后启动，见 [B48](slices/B48-character-revision-noop-and-ambiguity.md)。
 - **B72 CP1**：缺离线生成器实现与真实模型窗口；见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#阻塞记录2026-10-31-cp1)。
@@ -28,7 +29,6 @@
 - **P1-AUDIT-BC 页面**：两次 stale projection banner 断言失败，属 AU08 缺口；见 [P1](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外)。
 - **UA01-LOG-B13**：无外部最终 run_failed 触发；AU04 失败场景自身漂移；见 [UA01](slices/UA01-provider-execution-stream-unification.md#b13-cp0-只读核对2026-10-31)。
 - **SU04-LIFECYCLE**：实现完成；release 打包外部故障 harness 缺失；见 [SU04](slices/SU04-desktop-sidecar-packaging.md#现役故障与生命周期契约核对)。
-- **B66-PREP**：CP0 准备 done；CP1+ 需接受快照/恢复契约与数据授权；见 [B66](slices/B66-local-workspace-backup-restore.md#cp0-最小本地快照恢复契约准备)。
 - **B01 后续**：需 A（推荐 nullable origin_turn_ref）/B/C 与 migration 授权；见 [B01](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界)。
 - **B43 后续**：MissingPolicy 门序需 A（推荐）/B/C/D 裁决；见 [B43](slices/B43-gate-order-residual.md)。
 - **B67 后续**：维护 StateTrace 依赖 VS00F-TRACE 先冻结；见 [B67](slices/B67-revision-aware-ledger-maintenance.md)。

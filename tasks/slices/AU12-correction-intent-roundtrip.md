@@ -60,7 +60,7 @@ node scripts/task_done_check.mjs
 
 ## P2 立项修订的采纳落位与同源消费
 
-- 状态：**doing（2026-10-31 作者选 A：propose_work_profile_revision 工具/协议/候选附着已实现+单测；旧 au12 场景需按新语义 reanchor，页面证据待跑）**。
+- 状态：**blocked（实现、真实页面流程、新会话消费均 PASS；task_done 要求 UI 证据 surface=tauri，当前外部 driver 只能产生 surface=browser，原生 webview/CUA driver 未就绪；不伪造 surface）**。
 - 来源：本任务 §6、[AU-12](../../docs/design/acceptance/author/AU-12-work-profile.md) AU12-I1/I7、[CA01 写入余项](CA01-planning-context-completion.md)。用户场景是“修订作品立项并采纳后，档案和后续模型使用同一新事实”。
 - 已核事实：`AdoptionRepository` 的 `work_skeleton_suggestion` 仅允许 target_length/planned_volumes/serial_form；`world_setting` 沿记忆类型落位。这些不能证明 premise/theme/main_goal 或题材/卖点/读者/基调等通用修订已回写 works，也不能由自然语言关键词自动推断应覆盖哪个立项字段。
 - CP0（可推进）：列清现有字段权威源、artifact 类型/显式目标、producer、采纳事务、版本及读模型消费者；比较复用既有结构化提案与扩展最小契约的差异，形成字段落位/不落位/缺失值/锁定及冲突处理方案。契约接受前不把任意 world_setting 全量覆盖 works、不新增平行资料表。
@@ -115,3 +115,18 @@ node scripts/task_done_check.mjs
 - 测试：judgment protocol 新增 2 组用例（成功/非法字段/数值）；全量 backend **1063/0**、frontend 657/657。
 - 文档：UA-01 §2.2.2 增加 C2 工具契约、映射/终态表行；fixture `slice_verify` 识别概览立项修订意图并返回该工具。
 - **待做**：旧 `au12-correction-intent-roundtrip` 场景/driver/verifier 仍期待旧 world_setting 语义，需按 A 重锚；新增/改造真实页面「概览修订→候选→采纳→概览/新会话消费」证据。
+
+### P2 实现与页面证据（2026-10-31，作者选 A；task_done 待原生 surface）
+
+- **CP1 producer**：`propose_work_profile_revision` 显式字段白名单/值校验 → `work_profile_revision` 操作 → pending `work_skeleton_suggestion`（title/body/rationale 逐字 provider，未采纳零 works 写）。
+- **CP2 真实页面采纳**：`au12-correction-intent-roundtrip` 重锚 PASS——概览「提出立项修订」→ pending 候选（main_goal）→ 作者点「采纳为全书规划」→ `works.main_goal` 回写、概览与 API 同源显示、无 `world_setting` 记忆副作用。
+- **CP3 后续消费**：新会话真实请求 prompt 含采纳后的 `main_goal`，证明不是只写库。
+- 证据：`artifacts/slice-verify/au12-correction-intent-roundtrip-tauri/summary.json`，behavior `work_profile_correction_explicit_field_proposal_adopted_into_works`，11 条断言；`work-profile-revision.json`。
+- 门禁：backend 1063/0、frontend 657/657、typecheck/lint、I1/I2/I3、manifest 222/224。
+- 注：为支持 API 数据核对，`WorksController.serialize/1` 增补只读立项字段（title/genre/status 等之外），不改变写路径。
+
+### 收口阻塞（2026-10-31）
+
+- 场景 `au12-correction-intent-roundtrip` PASS（11 断言），但 `summary.json` 如实记录 `surface: "browser"`、`requested_surface: "tauri"`、`tauri_window_launched: true`；外部 driver 仍是 headless Chromium，不是原生 webview。
+- `task_done.sh` 因此拒绝：`UI summary must come from Tauri surface`；静态扫描 `task-done-manifest` 失败为同一环境能力缺口，未用假 summary 绕过。
+- 已登记残余：Q1C-NATIVE / 原生 Tauri webview driver；需作者裁决「补原生 driver」还是「调整验收 surface 判据」。

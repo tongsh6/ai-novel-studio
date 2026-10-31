@@ -925,6 +925,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp single_fixture_operation(args, text) do
     cond do
+      # AU12 A：显式立项修订工具参数原样透传（title/body/field/value/author_reasoning）。
+      is_binary(args["field"]) and not is_nil(args["value"]) and is_binary(args["title"]) ->
+        {"propose_work_profile_revision", args}
+
       args["author_content_registration"] == true ->
         {"register_author_content",
          %{

@@ -22803,6 +22803,7 @@ async function driveAu12CorrectionIntentRoundtrip(page) {
   });
   await ensureWorkSelectedByTitle(page, seed.title, work.id);
   await waitForVisibleWorkTitle(page, seed.title);
+  await page.keyboard.press("Escape");
 
   const frameStart = frames.length;
   const logStart = readAppLogRecords().length;
@@ -22819,91 +22820,208 @@ async function driveAu12CorrectionIntentRoundtrip(page) {
       frame.body?.work_id === work.id &&
       frame.body?.generate_micro_plan === true &&
       String(frame.body?.text ?? "").includes("修订当前作品的立项设定") &&
-      String(frame.body?.text ?? "").includes("待采纳的设定修订草稿") &&
-      String(frame.body?.text ?? "").includes("不要直接写入作品档案"),
+      String(frame.body?.text ?? "").includes("待采纳的设定修订草稿"),
     "Work profile correction intent was not sent through the real user_message channel",
     30_000,
   );
 
+  // AU12 A（2026-10-31）：概览修订必须落到显式 field-value pending 候选，
+  // 不再走 world_setting 泛化工具；pending 卡出现前必须零 works 写。
   const turnFrame = await waitForNewFrame(
     frameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "turn_result" &&
       frame.body?.work_id === work.id &&
-      frame.body?.orchestrator_decision?.decision_type === "allow_tool" &&
-      frame.body?.tool_result?.tool_name === "world_building" &&
-      frame.body?.tool_result?.status === "succeeded" &&
-      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "world_setting",
-    "Work profile correction did not return a pending world_setting artifact",
+      frame.body?.frame_summary?.frame_type === "execution_candidate" &&
+      (frame.body?.adoption_state?.pending ?? []).some(
+        (entry) => entry.artifact_type === "work_skeleton_suggestion",
+      ),
+    "Work profile correction did not return a pending work_skeleton_suggestion candidate",
     200_000,
   );
   const turnResult = turnFrame.body;
-  const pendingArtifact = turnResult.adoption_state.pending[0];
+  const pendingArtifact = (turnResult.adoption_state.pending ?? []).find(
+    (entry) => entry.artifact_type === "work_skeleton_suggestion",
+  );
+  console.error("[au12-correction] stage: turn_result received");
+  const pendingItem =
+    pendingArtifact?.payload?.items?.[0] ?? pendingArtifact?.items?.[0] ?? null;
+  const pendingField = pendingItem?.skeleton_field ?? null;
+  const pendingValue = pendingItem?.skeleton_value ?? null;
   const actions = turnResult.available_actions ?? [];
   const actionTypes = actions.map((action) => action.action_type);
 
   await waitForNewAppLogRecord(
     logStart,
     (record) =>
-      record.event === "toolbox.execute.done" &&
-      record.turn_id === turnResult.turn_id &&
-      record.tool_name === "world_building" &&
-      record.tool_outcome === "succeeded",
-    "No toolbox.execute.done world_building log was recorded for profile correction",
-    60_000,
-  );
-  // B40 §10.2 重锚：工具执行 TurnResult 落在 `<parent>:agent:N` 子 turn，而
-  // channel.user_message.done 记录在父 turn；两者同源，任一匹配即可。
-  const correctionParentTurnId = String(turnResult.turn_id ?? "").split(":agent:")[0];
-  await waitForNewAppLogRecord(
-    logStart,
-    (record) =>
-      record.event === "channel.user_message.done" &&
-      (record.turn_id === turnResult.turn_id || record.turn_id === correctionParentTurnId),
-    "No channel.user_message.done log was recorded for profile correction",
+      record.event === "judgment.decided.done" &&
+      record.turn_id === (String(turnResult.turn_id ?? "").split(":agent:")[0] || turnResult.turn_id) &&
+      record.action === "work_profile_revision",
+    "No judgment.decided.done work_profile_revision log was recorded",
     60_000,
   );
 
-  await page.waitForFunction(() => document.body.innerText.includes("保存到作品档案"), {
-    timeout: 30_000,
-  });
   const visibleText = await page.locator("body").innerText();
-  const sameTurnRecords = readAppLogRecords().filter(
-    (record) => record.turn_id === turnResult.turn_id,
-  );
-  const authorActionSent = frames.some(
+  const pendingCardVisible =
+    visibleText.includes("全书规划建议") ||
+    visibleText.includes("采纳为全书规划") ||
+    visibleText.includes("待保存草稿");
+  const noAuthorActionBeforeAccept = !frames.some(
     (frame) =>
       frame.direction === "sent" &&
       frame.event === "author_action" &&
       frame.body?.turn_id === turnResult.turn_id,
   );
-  const adoptionEventEmitted = sameTurnRecords.some((record) =>
-    String(record.event ?? "").startsWith("adoption.evaluate."),
-  );
-  const hasAcceptAction = actionTypes.includes("accept");
-  const hasEditAction = actionTypes.includes("edit_then_accept");
-  const hasDiscardAction = actionTypes.includes("discard");
-  const pendingCardVisible =
-    visibleText.includes("待保存草稿") || visibleText.includes("保存到作品档案");
 
-  assert(turnResult.truthfulness?.tool_called === true, "Correction turn did not call a tool");
+  assert(pendingArtifact, "Pending work_skeleton_suggestion artifact missing");
+  assert(pendingField === "main_goal", `Pending field was not main_goal: ${pendingField}`);
   assert(
-    turnResult.truthfulness?.production_write_performed === false,
-    "Correction turn claimed a direct production write",
+    pendingValue === "在巡检收网前拿到暗抽主账",
+    `Pending value did not carry the explicit proposal value: ${pendingValue}`,
   );
   assert(
     pendingArtifact.requires_adoption === true,
     "Correction artifact does not require adoption",
   );
-  assert(hasAcceptAction, "Correction artifact did not expose an accept action");
-  assert(hasEditAction, "Correction artifact did not expose an edit_then_accept action");
-  assert(hasDiscardAction, "Correction artifact did not expose a discard action");
-  assert(!authorActionSent, "Correction intent sent an author_action before the author chose");
-  assert(!adoptionEventEmitted, "Correction intent evaluated adoption before the author chose");
+  assert(actionTypes.includes("accept"), "Correction artifact did not expose an accept action");
+  assert(
+    actionTypes.includes("edit_then_accept"),
+    "Correction artifact did not expose an edit_then_accept action",
+  );
+  assert(actionTypes.includes("discard"), "Correction artifact did not expose a discard action");
+  assert(noAuthorActionBeforeAccept, "Correction intent sent an author_action before author chose");
   assert(pendingCardVisible, "Correction pending artifact was not visible to the author");
+  assert(
+    turnResult.truthfulness?.production_write_performed === false,
+    "Correction turn claimed a direct production write",
+  );
 
-  const uiState = await commonUiState(page, turnResult, sentFrame);
+  console.error("[au12-correction] stage: pending assertions passed");
+  // ── 作者采纳 → works 字段写入，概览/API 同源可见，且不写 world_setting 记忆。
+  const adoptFrameStart = frames.length;
+  await page.getByRole("button", { name: "采纳为全书规划" }).first().click();
+  const actionResultFrame = await waitForNewFrame(
+    adoptFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "action_result" &&
+      frame.body?.status === "accepted",
+    "Accept action for work profile revision was not accepted",
+    60_000,
+  );
+  const adoptedTurnFrame = await waitForNewFrame(
+    adoptFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true,
+    "Work profile revision adoption did not resolve",
+    120_000,
+  );
+  const adoptedTurnResult = adoptedTurnFrame.body;
+
+  console.error("[au12-correction] stage: adoption frames received");
+  const workResponse = await fetch(`${baseUrl}/api/works/${encodeURIComponent(work.id)}`);
+  assert(workResponse.ok, `GET work failed: HTTP ${workResponse.status}`);
+  const workBody = await workResponse.json();
+  assert(
+    workBody.work?.main_goal === "在巡检收网前拿到暗抽主账",
+    `Work main_goal was not updated after adoption: ${JSON.stringify(workBody.work?.main_goal)}`,
+  );
+
+  const memoriesResponse = await fetch(
+    `${baseUrl}/api/works/${encodeURIComponent(work.id)}/memories`,
+  );
+  assert(memoriesResponse.ok, `GET memories failed: HTTP ${memoriesResponse.status}`);
+  const memoriesBody = await memoriesResponse.json();
+  const memories = Array.isArray(memoriesBody.data) ? memoriesBody.data : [];
+  const leakedWorldSettingMemory = memories.some(
+    (memory) =>
+      String(memory.content ?? "").includes("在巡检收网前拿到暗抽主账") ||
+      String(memory.summary ?? "").includes("主线目标"),
+  );
+  assert(
+    !leakedWorldSettingMemory,
+    "Work profile revision adoption wrote a world_setting memory (should only write works)",
+  );
+
+  console.error("[au12-correction] stage: api checks passed");
+  // 回到真实档案概览，确认作者可见同源更新（不整页 reload，避免丢当前 work 上下文）。
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: /打开档案|^档案$/ }).first().click();
+  await page.getByRole("tab", { name: "概览" }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes("在巡检收网前拿到暗抽主账"),
+    undefined,
+    { timeout: 30_000 },
+  );
+  console.error("[au12-correction] stage: overview value visible");
+  const overviewShowsValue = (await page.locator("body").innerText()).includes(
+    "在巡检收网前拿到暗抽主账",
+  );
+  assert(overviewShowsValue, "Archive overview did not show the adopted main_goal value");
+
+  // ── 新会话真实模型请求核对：采纳后的 works 字段必须进入后续请求上下文。
+  await page.getByRole("button", { name: "关闭档案" }).first().click();
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  const llmCountBefore = readLlmCallRecords().length;
+  const resume = page.waitForResponse(
+    (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+  );
+  await openSessionRail(page);
+  await page.getByRole("button", { name: "新建会话" }).click();
+  await resume;
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+
+  await sendOrdinaryChatTurn(
+    page,
+    "请围绕刚刚修订的主线目标，继续推进下一段冲突。",
+    frames.length,
+  );
+  const nextRequestPrompts = readLlmCallRecords()
+    .slice(llmCountBefore)
+    .map((record) => llmCallPromptText(record));
+  const adoptedValueInNextRequest = nextRequestPrompts.some((prompt) =>
+    prompt.includes("在巡检收网前拿到暗抽主账"),
+  );
+  assert(
+    adoptedValueInNextRequest,
+    "New-session model request did not consume the adopted main_goal value",
+  );
+
+  const uiState = {
+    event: "slice_verify.ui_state.done",
+    turn_id: turnResult.turn_id,
+    work_id: work.id,
+    session_id: sentFrame.body?.session_id ?? null,
+    profile_ref: turnResult.agent_run?.profile_ref ?? null,
+    outcome: "done",
+  };
+
+  const audit = {
+    slice_id: "au12-correction-intent-roundtrip",
+    work_id: work.id,
+    work_title: seed.title,
+    turn_id: turnResult.turn_id,
+    adopted_turn_id: adoptedTurnResult.turn_id,
+    action_result_status: actionResultFrame.body?.status,
+    frame_type: turnResult.frame_summary?.frame_type,
+    decision_type: turnResult.orchestrator_decision?.decision_type,
+    pending_artifact_type: pendingArtifact.artifact_type,
+    pending_field: pendingField,
+    pending_value: pendingValue,
+    pending_card_visible: pendingCardVisible,
+    accepted_works_main_goal: workBody.work?.main_goal,
+    overview_shows_value: overviewShowsValue,
+    adopted_value_in_next_request: adoptedValueInNextRequest,
+    no_world_setting_memory_leak: !leakedWorldSettingMemory,
+  };
+  fs.writeFileSync(
+    path.join(artifactDir, "work-profile-revision.json"),
+    JSON.stringify(audit, null, 2),
+  );
 
   return [
     {
@@ -22914,19 +23032,23 @@ async function driveAu12CorrectionIntentRoundtrip(page) {
       turn_id: turnResult.turn_id,
       correction_intent_sent_from_profile: true,
       generate_micro_plan: sentFrame.body?.generate_micro_plan === true,
+      frame_type: turnResult.frame_summary?.frame_type,
       decision_type: turnResult.orchestrator_decision?.decision_type,
-      tool_name: turnResult.tool_result?.tool_name,
-      tool_status: turnResult.tool_result?.status,
       pending_artifact_type: pendingArtifact.artifact_type,
       pending_artifact_requires_adoption: pendingArtifact.requires_adoption === true,
-      available_accept_action: hasAcceptAction,
-      available_edit_action: hasEditAction,
-      available_discard_action: hasDiscardAction,
+      pending_field: pendingField,
+      pending_value: pendingValue,
+      available_accept_action: actionTypes.includes("accept"),
+      available_edit_action: actionTypes.includes("edit_then_accept"),
+      available_discard_action: actionTypes.includes("discard"),
       production_write_performed: turnResult.truthfulness?.production_write_performed === true,
-      tool_called: turnResult.truthfulness?.tool_called === true,
-      no_author_action_sent: !authorActionSent,
-      no_adoption_event_before_author_choice: !adoptionEventEmitted,
+      no_author_action_sent: noAuthorActionBeforeAccept,
       pending_card_visible: pendingCardVisible,
+      accepted_turn_id: adoptedTurnResult.turn_id,
+      accepted_works_main_goal: workBody.work?.main_goal,
+      overview_shows_value: overviewShowsValue,
+      adopted_value_in_next_request: adoptedValueInNextRequest,
+      no_world_setting_memory_leak: !leakedWorldSettingMemory,
       real_archive_opened: true,
       overview_tab_clicked: true,
       user_message_text: sentFrame.body?.text,
