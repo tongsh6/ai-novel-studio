@@ -904,6 +904,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/au09-memory-taxonomy-write-policy.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au09-memory-taxonomy-write-policy --surface tauri
+  - id: au09-work-direction-memory-recall
+    title: "AU09 创作方向采纳写入记忆、新会话召回、记忆页废弃后停止召回"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au09-work-direction-memory-recall.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au09-work-direction-memory-recall --surface tauri
   - id: au09-memory-list-ux-redesign
     title: "记忆列表 UX 重构：全局浅色调 + 可扫读语义状态/类型/召回"
     tier: nightly

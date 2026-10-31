@@ -26,8 +26,8 @@
 | T2 | 采纳路径接线 | done（choose_candidate adopt_tentative → memory_items，幂等） | `choose_candidate` 的 adopt_tentative 分支经既有治理写入边界写 memory_items（含 direction 标题/描述/tags、source_turn_ref/decision 引用）；未采纳/duplicate 不写；幂等（同 receipt 语义，重复采纳不重复写）。 |
 | T3 | 召回接线 | done（既有 recall 自动包含 WORK_DIRECTION；单测覆盖） | 上下文组装按既有 recall 框架把 active 方向带进创作/对话上下文（floor 档预算内），why 面板可解释来源引用。 |
 | T4 | 诚实文案同步 | done（方向采纳消息/adopt title 改为“写入创作方向记忆，后续可召回”） | 卡片/子 turn 消息「不会写入章节正文或作品事实」改为反映真实语义（如「已写入创作方向记忆，后续创作可召回；不会写入章节正文」）；copy.ts 集中管理；同步校准依赖旧文案的 driver 断言（吸取 runner 文案漂移教训，改前先 `rg` 驱动耦合面）。 |
-| T5 | 真实 Tauri 场景闭环 | doing（场景/驱动待建） | `au09-work-direction-memory-recall`：设方向 → 新会话创作轮 recall 可见 + why 来源 → 记忆页可见可废弃 → 废弃后不召回；反证：未采纳候选无记忆行。 |
-| T6 | 全量门禁 | todo | compile/test/xref/arch_check/I1-I3/N-NARR/静态扫描；涉及记忆写入须复跑 AU-09 既有场景（taxonomy-write-policy / recall-context / validity-window / cross-work-isolation）防回归。 |
+| T5 | 真实 Tauri 场景闭环 | done（`au09-work-direction-memory-recall` PASS） | `au09-work-direction-memory-recall`：设方向 → 新会话创作轮 recall 可见 + why 来源 → 记忆页可见可废弃 → 废弃后不召回；反证：未采纳候选无记忆行。 |
+| T6 | 全量门禁 | partial（taxonomy PASS；cross-work 超时待复验；recall/validity 未重跑） | compile/test/xref/arch_check/I1-I3/N-NARR/静态扫描；涉及记忆写入须复跑 AU-09 既有场景（taxonomy-write-policy / recall-context / validity-window / cross-work-isolation）防回归。 |
 
 ## 4. 验收
 
@@ -79,3 +79,11 @@
 - **T4 文案**：后端候选后果消息改为「已写入创作方向记忆，后续创作可召回；不会写入章节正文。」；前端 `candidateAdoptTitle` 同步；未改写“继续讨论”语义（不采纳不写）。
 - **单测**：`au09_work_direction_test` 2/2（持久化/幂等/召回/未采纳不写）。
 - **仍缺**：T5 真实 Tauri `au09-work-direction-memory-recall`（设方向→新会话召回+why→记忆页可见可废弃→废弃后不召回；未采纳无行）与 T6 全量回归/静态扫描。
+
+### T5 真实场景 PASS（2026-10-31）
+
+- 新增 `au09-work-direction-memory-recall`（seed p1、provider slice_verify、外部 driver + native verifier 注册；manifest 222/224）。
+- 真实页面：未采纳方向不在记忆页 → 点击「设为后续方向」→ `adopt_tentative` → 新会话请求 `context.assemble.done` 显示 `memory=ok/has_memory=true` → 记忆页出现「创作方向」行 → 解锁后废弃 → 后续请求 `has_memory=false/memory=empty`（不再召回）；证据 `artifacts/slice-verify/au09-work-direction-memory-recall-tauri/`，summary behavior `adopted_work_direction_persists_recalls_across_session_and_stops_after_deprecate`，4 条断言。
+- 证据修正：召回断言从“prompt 含标题”改为 app-log context 投影（作者原话本身含标题会假阳性）；记忆行按 content 定位（列表内容列）；adopted 记忆 locked，先解锁再废弃。
+- **既有回归**：`au09-memory-taxonomy-write-policy` PASS；`au09-cross-work-memory-isolation` 复跑超时（turn_id 前缀漂移已修一次，仍超时），**未视为通过**，登记残余待复验；recall/validity-window 未重跑。
+- 门禁：backend 1060/0、frontend 657/657、typecheck/lint。

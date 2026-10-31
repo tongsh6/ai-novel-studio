@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| AU09-DIRECTION | A 实施中：WORK_DIRECTION 类型/采纳持久化/幂等/召回/文案 done + 单测；T5 真实 Tauri 场景/T6 全量回归待做 | [原任务](slices/AU09-work-direction-memory-recall.md) |
+| AU09-DIRECTION | A 实施：T1–T5 done，新真实场景 PASS；T6 partial（taxonomy PASS，cross-work 超时/另两场景待复验） | [原任务](slices/AU09-work-direction-memory-recall.md) |
 
 ## 后续候选
 

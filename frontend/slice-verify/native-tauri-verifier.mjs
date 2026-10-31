@@ -265,6 +265,7 @@ export const nativeSliceIds = [
   "au09-character-candidate-per-item-adoption",
   "au12-archive-concurrent-model-run-read-snapshot",
   "au09-memory-taxonomy-write-policy",
+  "au09-work-direction-memory-recall",
   "au09-memory-list-ux-redesign",
   "au09-validity-window-recall",
   "au09-cross-work-memory-isolation",
@@ -1342,6 +1343,14 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "au09-memory-list-ux-redesign": ["slice_verify.ui_state.done"],
+  "au09-work-direction-memory-recall": [
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "slice_verify.ui_state.done",
+  ],
   "b47-c07-character-freshness": [
     "channel.join.done",
     "channel.author_action.done",
@@ -3424,6 +3433,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu09Au03SessionMemoryLayeringEvidence(records);
   }
 
+  if (sliceId === "au09-work-direction-memory-recall") {
+    return findAu09WorkDirectionMemoryRecallEvidence(records);
+  }
+
   if (sliceId === "au11-quality-diagnosis-message-envelope") {
     return findAu11QualityDiagnosisMessageEnvelopeEvidence(records);
   }
@@ -4110,6 +4123,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au09-memory-list-ux-redesign") {
     return au09MemoryListUxRedesignBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au09-work-direction-memory-recall") {
+    return au09WorkDirectionMemoryRecallBehavior(records, evidence);
   }
 
   if (sliceId === "b64-coordinate-memory") {
@@ -22867,6 +22884,56 @@ function findAu09MemoryListUxRedesignEvidence(records) {
     container_bg: uiState.container_bg,
     row_count: uiState.row_count,
     key_events: keyEvents,
+  };
+}
+
+function findAu09WorkDirectionMemoryRecallEvidence(records) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au09-work-direction-memory-recall",
+  );
+  if (!uiState) return null;
+
+  return {
+    slice_id: "au09-work-direction-memory-recall",
+    turn_ids: Array.isArray(uiState.turn_ids) ? uiState.turn_ids : [],
+    work_id: uiState.work_id ?? "unknown",
+    session_id: uiState.session_id ?? "unknown",
+    key_events: keyEventsForSlice("au09-work-direction-memory-recall"),
+    direction_title: uiState.direction_title,
+    adoption_decision_type: uiState.adoption_decision_type,
+  };
+}
+
+function au09WorkDirectionMemoryRecallBehavior(records, evidence) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au09-work-direction-memory-recall",
+  );
+  if (!uiState) return null;
+  if (uiState.unadopted_memory_absent !== true) return null;
+  if (uiState.adoption_decision_type !== "adopt_tentative") return null;
+  if (uiState.new_session_recall_visible !== true) return null;
+  if (uiState.memory_page_visible !== true) return null;
+  if (uiState.memory_type_label_visible !== true) return null;
+  if (uiState.deprecated !== true) return null;
+  if (uiState.deprecated_recall_absent !== true) return null;
+
+  return {
+    slice_id: "au09-work-direction-memory-recall",
+    behavior: "adopted_work_direction_persists_recalls_across_session_and_stops_after_deprecate",
+    turn_ids: evidence.turn_ids ?? [],
+    source_turn_id: uiState.source_turn_id,
+    adopted_turn_id: uiState.adopted_turn_id,
+    direction_title: uiState.direction_title,
+    assertions: [
+      "unadopted_direction_not_written",
+      "adopted_direction_written_and_labeled_work_direction",
+      "new_session_context_recalled_direction_memory",
+      "deprecated_direction_no_longer_recalled",
+    ],
   };
 }
 

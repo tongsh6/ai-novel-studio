@@ -1,0 +1,60 @@
+id: au09-work-direction-memory-recall
+title: AU09 创作方向采纳写入记忆、新会话召回、记忆页废弃后停止召回
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au09-work-direction-memory-recall --surface tauri
+
+contract:
+  - docs/design/06-memory-context-and-trace.md
+  - docs/design/domain/21-novel-object-model.md
+  - docs/design/acceptance/author/AU-09-story-memory.md
+  - tasks/slices/AU09-work-direction-memory-recall.md
+
+invariants:
+  - adopted-direction-writes-governed-memory
+  - unadopted-direction-does-not-write-memory
+  - direction-cross-session-recall-bound-to-real-prompt
+  - deprecated-direction-not-recalled
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: creative direction request and observe candidate directions
+  - open: memory management before adoption and observe no direction memory
+  - click: 设为后续方向 on the real candidate action
+  - observe: adoption turn_result reports adopt_tentative and direction memory is persisted
+  - create: a new session, send a creative continuation request containing the direction
+  - verify: request prompt recalls the adopted direction; memory page shows WORK_DIRECTION and 创作方向 label
+  - click: 废弃 in memory detail and observe DEPRECATED/不可召回
+  - send: the same continuation request and verify the deprecated direction is no longer recalled
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - llm_http_log
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au09-work-direction-memory-recall-tauri
+
+assertions:
+  ui:
+    - unadopted candidate is absent from memory management
+    - adopted direction appears in memory management with 创作方向 type and can be deprecated
+    - terminal deprecated state shows 不可召回
+  network:
+    - choose_candidate action is accepted and decisions type is adopt_tentative
+  data:
+    - memory write happens only for adopted direction
+    - new-session request prompt recalls the adopted direction
+    - after deprecate, later request prompt no longer recalls it
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -934,6 +934,7 @@ export const STRUCTURE_PANEL = {
     locked: "已锁定",
   },
   memoryTypeLabels: {
+    WORK_DIRECTION: "创作方向",
     FORESHADOWING: "伏笔",
     PLOT_FACT: "剧情事实",
     WORLD_RULE: "世界规则",
@@ -1349,6 +1350,7 @@ export const MEMORY = {
     unlockedMark: "—",
   },
   typeLabels: {
+    WORK_DIRECTION: "创作方向",
     WORLD_RULE: "世界观规则",
     CHARACTER_PROFILE: "人物设定",
     CURRENT_STATE: "当前状态",

@@ -1352,3 +1352,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-31 — **B51 done / ADR-0032 PaperTrail 逻辑退役（作者选 D）**：新增 ADR-0032，移除 paper_trail 依赖/config/第三方测试并 unlock；versions 表/migration 与历史数据保留；tech-stack 00/03/06/13 同步；backend 1058/0。队列当前切 AU09-DIRECTION（作者选 A）。
 
 - 2026-10-31 — **AU09 A 实施 T1–T4**：新增 WORK_DIRECTION 枚举（codegen in sync）；choose_candidate adopt_tentative 写 governed memory（scope WORK/来源 tags/幂等），未采纳不写；recall 单测含方向；文案改为“写入创作方向记忆，可召回”。T5 Tauri 场景/T6 门禁待做。
+
+- 2026-10-31 — **AU09 T5 PASS**：新增 `au09-work-direction-memory-recall` 真实页面场景 PASS（未采纳不写→采纳 adopt_tentative→新会话 memory=ok 召回→记忆页「创作方向」→解锁废弃→后续 has_memory=false）；manifest 222/224；backend 1060/0、frontend 657/657。T6 partial：taxonomy PASS，cross-work 超时/recall/validity 待复验。

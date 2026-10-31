@@ -19210,6 +19210,180 @@ async function driveAu09MemoryTaxonomyWritePolicy(page) {
   ];
 }
 
+async function driveAu09WorkDirectionMemoryRecall(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const { sourceTurnResult, candidate } = await createCandidateSourceTurn(
+    page,
+    "我想写一个赛博修仙故事，但还没想好小说创作方向，给我几个方向。",
+  );
+  const directionTitle = String(candidate.title ?? "").trim();
+  const directionPitch = String(candidate.pitch ?? "").trim();
+  assert(directionTitle, "Candidate direction has no title");
+  assert(directionPitch, "Candidate direction has no pitch");
+
+  const openMemoryPage = async () => {
+    await page.getByRole("button", { name: /记忆/ }).first().click();
+    await page.waitForFunction(() => document.body.innerText.includes("记忆管理"), undefined, {
+      timeout: 10_000,
+    });
+  };
+  const closeMemoryPage = async () => {
+    await page
+      .getByRole("button", { name: "返回工作台" })
+      .first()
+      .click()
+      .catch(() => {});
+    await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  };
+
+  // ── 未采纳：记忆页不得有方向行。
+  await openMemoryPage();
+  const memoryBeforeAdoption = await page.locator("body").innerText();
+  assert(
+    !memoryBeforeAdoption.includes(directionTitle),
+    "Unadopted direction was already visible in memory management",
+  );
+  await closeMemoryPage();
+
+  // ── 采纳方向：真实按钮 → choose_candidate → WORK_DIRECTION 写入。
+  const adoptStart = frames.length;
+  await page
+    .getByRole("button", { name: /设为后续方向|采用这个方向/ })
+    .first()
+    .click();
+  const adopted = (
+    await waitForNewFrame(
+      adoptStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.truthfulness?.candidate_selected === true &&
+        frame.body?.truthfulness?.candidate_adopted === true,
+      "Direction adoption turn_result was not received",
+      120_000,
+    )
+  ).body;
+  assert(
+    adopted.adoption_decision?.decision_type === "adopt_tentative",
+    `Direction adoption decision was not adopt_tentative: ${JSON.stringify(adopted.adoption_decision)}`,
+  );
+
+  // ── 新会话：真实创作轮必须召回该方向（writer/判断 prompt 字节证据）。
+  const resume = page.waitForResponse((res) => res.url().endsWith("/sessions/resume") && res.ok());
+  await openSessionRail(page);
+  await page.getByRole("button", { name: "新建会话" }).click();
+  await resume;
+  await page.locator(chatInputSelector).waitFor();
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+
+  const recallPrompt = `请围绕「${directionTitle}」这个创作方向，继续讨论下一段冲突。`;
+  const recallFrameStart = frames.length;
+  const recallLogStart = readAppLogRecords().length;
+  await sendOrdinaryChatTurn(page, recallPrompt, recallFrameStart);
+  // 真实召回证据用 context.assemble 来源投影：memory=ok 且 has_memory=true。
+  // 不用“prompt 含标题”判断——作者原话本身含标题，会假阳性；新会话日志从起点后取。
+  const recallLog = await waitForNewAppLogRecord(
+    recallLogStart,
+    (record) =>
+      record.event === "context.assemble.done" &&
+      record.has_memory === true &&
+      record.source_status?.memory === "ok",
+    "New-session request did not assemble the adopted direction memory",
+    20_000,
+  );
+  const recalled = recallLog.has_memory === true;
+
+  // ── 记忆页可见、可废弃。
+  await openMemoryPage();
+  // 记忆列表「内容」列展示 content（方向 pitch），标题在详情里；按内容定位真实行。
+  const memoryRow = page.locator("tr", { hasText: directionPitch }).first();
+  await memoryRow.waitFor({ timeout: 10_000 });
+  const memoryPageText = await page.locator("body").innerText();
+  assert(memoryPageText.includes("创作方向"), "Memory page did not label WORK_DIRECTION type");
+  await memoryRow.click();
+  await page.waitForFunction(() => document.body.innerText.includes("记忆详情"), undefined, {
+    timeout: 10_000,
+  });
+  // Adoption 写入的记忆是 locked（adopted confirmed）：先解锁，废弃才可用。
+  if ((await page.getByRole("button", { name: "解锁" }).count()) > 0) {
+    await page.getByRole("button", { name: "解锁" }).click();
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll("button")].some(
+          (btn) => (btn.textContent ?? "").trim() === "废弃" && btn.disabled === false,
+        ),
+      undefined,
+      { timeout: 10_000 },
+    );
+  }
+  await page.getByRole("button", { name: "废弃" }).click();
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("DEPRECATED") &&
+      document.body.innerText.includes("不可召回"),
+    undefined,
+    { timeout: 10_000 },
+  );
+  await page.getByRole("button", { name: "×" }).first().click();
+  await page.waitForTimeout(200);
+  await closeMemoryPage();
+
+  // ── 废弃后：新的创作请求不得再召回该方向。
+  const deprecatedLogStart = readAppLogRecords().length;
+  await sendOrdinaryChatTurn(page, recallPrompt, frames.length);
+  const deprecatedRecallLog = await waitForNewAppLogRecord(
+    deprecatedLogStart,
+    (record) =>
+      record.event === "context.assemble.done" &&
+      record.has_memory === false &&
+      record.source_status?.memory === "empty",
+    "Deprecated direction was still recalled into a later request",
+    20_000,
+  );
+  const recalledAfterDeprecate = deprecatedRecallLog.has_memory === true;
+  assert(!recalledAfterDeprecate, "Deprecated direction was still recalled into a later request");
+
+  await page.screenshot({ path: path.join(artifactDir, "au09-work-direction.png"), fullPage: true });
+  fs.writeFileSync(
+    path.join(artifactDir, "work-direction-evidence.json"),
+    JSON.stringify(
+      {
+        source_turn_id: sourceTurnResult.turn_id,
+        adopted_turn_id: adopted.turn_id,
+        direction_title: directionTitle,
+        direction_pitch: directionPitch,
+        decision_type: adopted.adoption_decision?.decision_type,
+        recalled_context_has_memory: recalled,
+        deprecated_recall_absent: !recalledAfterDeprecate,
+      },
+      null,
+      2,
+    ),
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au09-work-direction-memory-recall",
+      turn_ids: [sourceTurnResult.turn_id, adopted.turn_id],
+      work_id: sourceTurnResult.work_id ?? null,
+      session_id: sourceTurnResult.session_id ?? null,
+      source_turn_id: sourceTurnResult.turn_id,
+      adopted_turn_id: adopted.turn_id,
+      direction_title: directionTitle,
+      direction_pitch: directionPitch,
+      unadopted_memory_absent: true,
+      adoption_decision_type: adopted.adoption_decision?.decision_type,
+      new_session_recall_visible: recalled,
+      memory_page_visible: true,
+      memory_type_label_visible: true,
+      deprecated: true,
+      deprecated_recall_absent: !recalledAfterDeprecate,
+    },
+  ];
+}
+
 async function driveAu09MemoryListUxRedesign(page) {
   const activeNonce = "UX记忆甲7K3";
   const terminalNonce = "UX记忆乙9M2";
@@ -19528,10 +19702,13 @@ async function driveAu09CrossWorkMemoryIsolation(page) {
   const recallTurnResult = recallFrame.body;
   const sentMessage = latestSentUserMessage();
 
+  // AgentRun 子 turn 与父用户 turn 的 turn_id 允许前缀匹配（同一逻辑轮）。
+  const recallTurnParent = String(recallTurnResult.turn_id ?? "").split(":agent:")[0];
   const contextDone = await waitForAppLogRecord(
     (record) =>
       record.event === "context.assemble.done" &&
-      record.turn_id === recallTurnResult.turn_id &&
+      (record.turn_id === recallTurnResult.turn_id ||
+        String(record.turn_id ?? "").split(":agent:")[0] === recallTurnParent) &&
       record.work_id === sentMessage.body?.work_id &&
       record.has_memory === true,
     "Current work memory was not recalled for cross-work isolation probe",
@@ -40741,6 +40918,7 @@ const drivers = {
   "au09-character-candidate-per-item-adoption": driveAu09CharacterCandidatePerItemAdoption,
   "au12-archive-concurrent-model-run-read-snapshot": driveAu12ArchiveConcurrentModelRunReadSnapshot,
   "au09-memory-taxonomy-write-policy": driveAu09MemoryTaxonomyWritePolicy,
+  "au09-work-direction-memory-recall": driveAu09WorkDirectionMemoryRecall,
   "au09-memory-list-ux-redesign": driveAu09MemoryListUxRedesign,
   "au09-validity-window-recall": driveAu09ValidityWindowRecall,
   "b64-coordinate-memory": driveB64CoordinateMemory,
