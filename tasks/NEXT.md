@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B46 | 残差矩阵页面驱动：edit_then_accept / 重复提交 / 跨作品 / EXITED 只读（browser/tauri + 确定性 provider）；不重开 inbox 主体范围 | [B46](slices/B46-persistent-adoption-inbox.md) |
+| B46 | CP0 done（§12 残差矩阵冻结：edit_then_accept/重复提交/跨作品/EXITED 只读四条）；下一步扩展现有 `b46-cross-session-inbox` driver+manifest 并各跑一次真实页面，失败同因≤2 | [B46](slices/B46-persistent-adoption-inbox.md) |
 
 ## 后续候选
 

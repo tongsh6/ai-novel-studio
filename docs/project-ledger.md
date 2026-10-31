@@ -1385,3 +1385,5 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 
 - 2026-10-31 — **B73 done（CP0–CP3）**：当前 HEAD `8ac8a6e3` 复跑三场景 `quality_accept --surface browser` 全部 PASS（verdict evidence 4/4、git_head 绑定该 HEAD）：negative 10 cases（2 合法路径 pass + 7 故意违规按预期拒绝）、actions 10/10、read-failure 1/1。author_behavior_check ok/errors=0/warnings=2；后端全量 mix test 0 failures、compile -Werror、credo 0、xref/arch、I1/I2/I3、静态扫描 19/20（gitleaks 4 条既有 disposition，touched=0）。残余分离：task-done-manifest/他人 B30 native 证据过期、23 个非本任务 format、Tauri DMG dev warning 均不属 B73，未为求绿改他人文件；真实模型未授权、完整 native 矩阵未覆盖按原 §5 保留开放缺口，不代签模型语义/I10。NEXT 移除 B73 候选。
 
+- 2026-10-31 — **B46 残差矩阵 CP0 冻结**：现有 `b46-cross-session-inbox` 真实 Tauri 场景已覆盖跨会话 accept/discard；冻结四类残差（E1 edit_then_accept、E2 重复提交幂等、E3 跨作品隔离、E4 EXITED 只读）的页面驱动方案、断言（页面/网络/DB）、证据文件与预算（合计最多 4 次真实页面运行、同因≤2、失败只读）。实现扩展现有 driver+manifest，不新增第二套 runner；产品代码不新增验收感知逻辑；未完成矩阵不得以共享边界/后端测试冒充页面证据。CP0 只冻结方案，未改产品代码。
+

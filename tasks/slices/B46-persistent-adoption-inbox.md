@@ -114,3 +114,22 @@
 - accept/discard/edit_then_accept 均不重复写入；pending 与 confirmed/历史展示正确。
 - 跨作品只读隔离，缺来源/版本时诚实降级，不把旧候选冒充当前有效。
 - 恢复时先读 B31、AU05/AU09 和 VS-04；若现有持久结构足够，不新增表。
+
+## 12. 残差矩阵 CP0 冻结（2026-10-31）
+
+范围：现有 `b46-cross-session-inbox` 场景已用真实 Tauri 外部 driver 覆盖「跨会话 accept」「跨会话 discard」（driver `driveB46CrossSessionInbox`，§11）。本节冻结剩余四类残差的页面驱动方案；实现前不做任何产品语义变更。
+
+| 矩阵 | 目标行为 | 现有能力/入口 | 需新增 driver 步骤 | 断言（页面/网络/DB） | 证据 | 预算 |
+|---|---|---|---|---|---|---|
+| E1 编辑后采纳 | 跨会话 inbox 待处理可用 `edit_then_accept` 真实完成采纳，保存的是编辑后内容 | 档案待处理卡「先修改内容，再保存到作品」（`copy.ts:400`）；adoption 边界已有 EDIT_THEN_ACCEPT | 打开编辑 → 修改正文 → 保存；等待 resolved 帧 | resolved `EDITED_ACCEPTED`；DB 仅一条 CONFIRMED 且内容=编辑后；inbox 移除；旧 pending 不再可处理 | `cross-session-edit-adopt.png` + resume JSON | 一次真实页面运行 |
+| E2 重复提交幂等 | 同一 inbox 候选的重复采纳/放弃不产生第二次写入 | acceptance/adoption 已有 duplicate 幂等（持久层）；页面动作成功后按钮消失 | 成功后 reload 断言动作消失；若能定位 DOM 残留则触发第二次并断言被拒 | 第二次无新增 receipt/DB 行；页面动作不可重复触发；resume resolved 只一条 | resume JSON 前后对比 | 首轮先用页面「动作消失」+ 后端幂等证据；仅当页面可触发时补第二次点击 |
+| E3 跨作品隔离 | work A 的 inbox pending 不得出现在 work B，处理亦不得跨作品生效 | 现有 work 切换入口（`openWorkMenu`/作品菜单）；inbox 已按 work 隔离（后端） | 切到 work B → 打开档案经验规则 → 断言 A 候选不可见；resume inbox 不含 A artifact；切回 A 仍在 | B 页面无 A 候选；B resume `inbox_pending_adoptions` 不含 A artifact；切回 A 可见 | `cross-work-isolation.png` + B/A resume JSON | 一次真实页面运行 |
+| E4 EXITED 只读 | 旧 session 已 EXITED 后的历史只读 transcript 不提供待处理动作 | 历史会话只读视图（AU-03）；inbox 跨会话可见但历史只读 | 新会话后打开旧会话历史 transcript | 历史只读视图无「启用规则/放弃候选」按钮（不存在或 disabled）；inbox 仍从当前 active session 可见 | `exited-history-readonly.png` | 一次真实页面运行 |
+
+**实现与证据约束**
+
+- 扩展现有 `b46-cross-session-inbox` 场景 driver 与 manifest assertions（不新增第二套 runner/verdict）；若单场景时长超预算，再拆 `b46-inbox-residual-matrix` 独立场景。
+- 产品代码不新增验收感知逻辑；页面动作一律使用用户可见语义（role/label/文案）。
+- 失败预算：四矩阵合计最多 4 次真实页面运行，同一失败类型≤2 次；失败批次只读保留，不重跑换分。
+- 不在本 CP 修改 adoption/免写边界语义；若发现产品缺陷，按「CP0→契约→修复→scoped 复验→回归」处理并登记根因。
+- 未完成的矩阵不得以「共享边界/已有后端测试」冒充页面证据。
