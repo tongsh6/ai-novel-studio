@@ -280,30 +280,15 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert_receive {:agent_event, :run_failed, _}, 2000
 
-    assert {:ok, compacted} =
-             AgentRunService.compact_transcript(run_id, %{
-               covers: %{call_ids: ["compact-call"], turn_range: "turn_1"},
-               source_refs: [%{ref: "work:work_1", version: 1}],
-               versions: %{"work:work_1" => 1},
-               omissions: ["较早的工具调用细节已省略，可回查原始记录。"],
-               summary: "已读取当前作品，后续创作仅使用这些已确认材料。"
-             })
+    # 作者显式压缩：只表达整理意图，范围/证据/摘要由 canonical 事实派生。
+    assert {:ok, receipt} = AgentRunService.compact_transcript(run_id)
+    assert %{compacted: true, covered_exchanges: 1} = receipt
+    assert receipt.summary =~ "1 项已完成操作"
+    assert [_ | _] = receipt.omissions
 
-    assert Enum.map(compacted.messages, & &1.role) == [
-             "application_base",
-             "user",
-             "assistant",
-             "tool",
-             "checkpoint"
-           ]
-
-    assert AgentRunService.compact_transcript(run_id, %{
-             covers: %{call_ids: ["compact-call"], turn_range: "turn_1"},
-             source_refs: [%{ref: "work:work_1", version: 1}],
-             versions: %{"work:work_1" => 1},
-             omissions: ["较早的工具调用细节已省略，可回查原始记录。"],
-             summary: "已读取当前作品，后续创作仅使用这些已确认材料。"
-           }) == {:ok, compacted}
+    # 同一作者动作再次触发是幂等回执，不重复追加 checkpoint、不报错。
+    assert {:ok, %{compacted: false, reason: :nothing_to_compact}} =
+             AgentRunService.compact_transcript(run_id)
 
     assert {:ok, state} = AgentRunService.state(run_id)
     task = LongRunTaskLog.get(state.run.long_run_task_ref)
@@ -313,7 +298,16 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert task.checkpoint_data["agent_run"]["authoring_transcript_ref"]["run_id"] == run_id
     refute Map.has_key?(task.checkpoint_data, "authoring_transcript")
 
-    assert {:ok, before_ir} = AuthoringTranscript.to_request_ir(compacted)
+    assert Enum.map(restored.messages, & &1.role) == [
+             "application_base",
+             "user",
+             "assistant",
+             "tool",
+             "checkpoint"
+           ]
+
+    in_memory = state.stage_state[:judgment_transcript]
+    assert {:ok, before_ir} = AuthoringTranscript.to_request_ir(in_memory)
     assert {:ok, after_ir} = AuthoringTranscript.to_request_ir(restored)
 
     assert RequestIR.Projection.project(before_ir) == RequestIR.Projection.project(after_ir)
@@ -368,13 +362,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
       try do
         assert {:error, :checkpoint_persistence_failed} =
-                 AgentRunService.compact_transcript(run_id, %{
-                   covers: %{call_ids: ["compact-failure-call"], turn_range: "turn_1"},
-                   source_refs: [],
-                   versions: %{},
-                   omissions: ["逐字工具结果保留在原始记录"],
-                   summary: "已核对角色，摘要不代表作者采纳。"
-                 })
+                 AgentRunService.compact_transcript(run_id)
 
         assert {:ok, after_state} = AgentRunService.state(run_id)
         assert after_state.stage_state == before_state.stage_state
@@ -2719,14 +2707,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         end
       end)
 
-    attrs = %{
-      covers: %{call_ids: ["bounded-compact-call"], turn_range: "turn_1"},
-      source_refs: [],
-      versions: %{},
-      omissions: ["原始工具结果仍可回查"],
-      summary: "已核对角色，摘要不代表采纳。"
-    }
-
     SQL.query!(Repo, """
     CREATE TEMP TRIGGER reject_bounded_private_history BEFORE UPDATE OF authoring_transcript
     ON agent_runs BEGIN SELECT RAISE(ABORT, 'bounded private history unavailable'); END
@@ -2734,7 +2714,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     try do
       assert {:error, :checkpoint_persistence_failed} =
-               AgentRunService.compact_transcript(run_id, attrs)
+               AgentRunService.compact_transcript(run_id)
 
       assert {:ok, after_failure_state} = AgentRunService.state(run_id)
       assert after_failure_state.stage_state == before_state.stage_state
@@ -2745,14 +2725,18 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       SQL.query!(Repo, "DROP TRIGGER reject_bounded_private_history")
     end
 
-    assert {:ok, compacted} = AgentRunService.compact_transcript(run_id, attrs)
+    assert {:ok, receipt} = AgentRunService.compact_transcript(run_id)
+    assert %{compacted: true, covered_exchanges: 1} = receipt
+    assert receipt.summary =~ "1 项已完成操作"
 
-    assert Enum.any?(compacted.messages, &(&1.role == "checkpoint"))
     after_record = AgentRunLog.get_run(run_id)
     assert after_record.authoring_transcript != before_record.authoring_transcript
 
+    assert {:ok, restored} = AuthoringTranscript.restore(after_record.authoring_transcript)
+    assert Enum.any?(restored.messages, &(&1.role == "checkpoint"))
+
     assert after_record.authoring_transcript["transcript"]["messages"] ==
-             compacted.messages |> Jason.encode!() |> Jason.decode!()
+             restored.messages |> Jason.encode!() |> Jason.decode!()
 
     assert after_record.long_run_task_ref == nil
   end

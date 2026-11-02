@@ -16,6 +16,8 @@ defmodule NovelApplication.AgentRunServer do
   alias NovelApplication.AgentRunPersistence
   alias NovelApplication.AgentRunService
   alias NovelApplication.AuthorActionAdmission
+  alias NovelApplication.AuthoringReplay
+  alias NovelApplication.TranscriptCompaction
   alias NovelApplication.TurnInteractionService
   alias NovelCommon.Contracts.AgentEvent
   alias NovelDomain.AgentNextStepDecision
@@ -103,10 +105,16 @@ defmodule NovelApplication.AgentRunServer do
   @spec command(GenServer.server(), :pause | :cancel) :: :ok
   def command(server, command), do: GenServer.cast(server, {:command, command})
 
-  @spec compact_transcript(GenServer.server(), map(), timeout()) ::
-          {:ok, map()} | {:error, term()}
-  def compact_transcript(server, attrs, timeout \\ 5_000),
-    do: GenServer.call(server, {:command, {:compact_transcript, attrs}}, timeout)
+  @doc """
+  作者显式压缩命令（VS-00L §16.2/§16.4）。
+
+  调用方只表达整理意图；覆盖范围、来源证据、摘要与省略说明全部由
+  `TranscriptCompaction` 从 canonical 事实派生。只在没有执行中任务的安全点受理，
+  持久化成功提交后才推进内存并回报；作者可见回执经 `AuthoringReplay` 投影。
+  """
+  @spec compact_transcript(GenServer.server(), timeout()) :: {:ok, map()} | {:error, term()}
+  def compact_transcript(server, timeout \\ 5_000),
+    do: GenServer.call(server, {:command, :compact_transcript}, timeout)
 
   @spec resume(GenServer.server(), timeout()) ::
           :ok | {:error, :awaiting_author_requires_input | :not_resumable}
@@ -283,7 +291,7 @@ defmodule NovelApplication.AgentRunServer do
 
   @impl true
   def handle_call(
-        {:command, {:compact_transcript, _attrs}},
+        {:command, :compact_transcript},
         _from,
         %{
           current_task_ref: ref
@@ -292,15 +300,13 @@ defmodule NovelApplication.AgentRunServer do
       when not is_nil(ref),
       do: {:reply, {:error, :execution_in_progress}, state}
 
-  def handle_call({:command, {:compact_transcript, attrs}}, _from, state) do
-    case AuthoringSession.compact(Map.get(state.stage_state, :judgment_transcript), attrs) do
-      {:ok, transcript} ->
-        next = merge_stage_state(state, AuthoringSession.transcript_state(transcript))
+  def handle_call({:command, :compact_transcript}, _from, state) do
+    case TranscriptCompaction.plan(Map.get(state.stage_state, :judgment_transcript)) do
+      {:ok, :nothing_to_compact} ->
+        {:reply, {:ok, TranscriptCompaction.receipt(:nothing_to_compact)}, state}
 
-        case commit_transcript_checkpoint(next) do
-          :ok -> {:reply, {:ok, transcript}, next}
-          {:error, _reason} = error -> {:reply, error, state}
-        end
+      {:ok, plan} ->
+        apply_compaction(plan, state)
 
       {:error, _reason} = error ->
         {:reply, error, state}
@@ -2205,6 +2211,45 @@ defmodule NovelApplication.AgentRunServer do
   defp persist_run_state(state), do: state
 
   defp persist_event(%AgentEvent{}), do: :ok
+
+  # 作者显式压缩只追加 canonical checkpoint 并由同一 submit 边界持久化；不改变运行
+  # 状态、不产生 TurnResult/运行事件。失败保留旧 state，作者不会看到成功回执。
+  defp apply_compaction(plan, state) do
+    transcript = Map.get(state.stage_state, :judgment_transcript)
+
+    case AuthoringSession.compact(transcript, plan) do
+      {:ok, compacted} ->
+        next = merge_stage_state(state, AuthoringSession.transcript_state(compacted))
+
+        case commit_transcript_checkpoint(next) do
+          :ok -> {:reply, {:ok, compaction_receipt(plan, compacted)}, next}
+          {:error, _reason} = error -> {:reply, error, state}
+        end
+
+      {:error, _reason} = error ->
+        {:reply, error, state}
+    end
+  end
+
+  # 作者可见面只经既有 AuthoringReplay 边界投影：摘要、省略说明与来源显示名，
+  # 不含 call_id、ref 原值、版本或 canonical 内容。
+  defp compaction_receipt(plan, compacted) do
+    Map.merge(TranscriptCompaction.receipt(plan), author_visible_compaction(compacted))
+  end
+
+  defp author_visible_compaction(compacted) do
+    case compacted |> AuthoringReplay.checkpoint_summaries() |> List.last() do
+      %{} = summary ->
+        %{
+          summary: Map.get(summary, :summary),
+          omissions: Map.get(summary, :omissions, []),
+          sources: Map.get(summary, :source_names, [])
+        }
+
+      nil ->
+        %{}
+    end
+  end
 
   # 显式压缩承诺可恢复历史；bounded/durable 都先用同一 snapshot 事务提交，
   # 成功后才推进 GenServer 内存。这里不能使用运行日志的 best-effort 写入语义。

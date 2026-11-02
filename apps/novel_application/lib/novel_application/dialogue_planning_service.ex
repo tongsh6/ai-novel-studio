@@ -66,7 +66,6 @@ defmodule NovelApplication.DialoguePlanningService do
   @fact_inventory_profile_ref FactInventory.profile_ref()
   @fact_inventory_allowed_tools ["fact_inventory"]
   @tool_confirmation_profile_ref ToolConfirmation.profile_ref()
-  @tool_confirmation_allowed_tools ~w(prose_writing plot_outline character_design character_evolution world_building text_analysis)
 
   @spec agent_run_candidate?(String.t()) :: boolean()
   def agent_run_candidate?(text) when is_binary(text) do
@@ -284,7 +283,7 @@ defmodule NovelApplication.DialoguePlanningService do
     do: {:ok, pending_model_plan(run_id)}
 
   defp agent_run_agent_plan(run_id, :tool_confirmation),
-    do: {:ok, pending_model_plan(run_id)}
+    do: {:ok, ToolConfirmation.pending_plan(run_id)}
 
   defp agent_run_agent_plan(run_id, :readonly_batch_context) do
     {:ok, pending_model_plan(run_id)}
@@ -3085,15 +3084,7 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
-  defp run_budget(_text, :tool_confirmation) do
-    %{
-      max_steps: 4,
-      max_tool_calls: 1,
-      max_provider_calls: 14,
-      max_replans: 0,
-      max_pending_artifacts: 3
-    }
-  end
+  defp run_budget(_text, :tool_confirmation), do: ToolConfirmation.run_budget()
 
   defp run_budget(_text, :readonly_batch_context) do
     %{
@@ -3156,7 +3147,7 @@ defmodule NovelApplication.DialoguePlanningService do
   defp allowed_tools(:world_building_with_context), do: @world_building_allowed_tools
   defp allowed_tools(:prose_revision_from_findings), do: @revision_allowed_tools
   defp allowed_tools(:readonly_batch_context), do: @readonly_batch_allowed_tools
-  defp allowed_tools(:tool_confirmation), do: @tool_confirmation_allowed_tools
+  defp allowed_tools(:tool_confirmation), do: ToolConfirmation.allowed_tools()
   defp allowed_tools(:ledger_reconciliation), do: @ledger_reconciliation_allowed_tools
   defp allowed_tools(:fact_inventory), do: @fact_inventory_allowed_tools
 

@@ -387,7 +387,7 @@ defmodule NovelApplication.ActionRoundtripTest do
         idempotency_key: "ik1"
       }
 
-      assert {:error, :author_action_scope_unavailable} =
+      assert {:error, :retired_synchronous_confirmation} =
                DialogueGateway.handle_action(input, @valid_source)
     end
 
@@ -402,7 +402,7 @@ defmodule NovelApplication.ActionRoundtripTest do
         idempotency_key: "ik1"
       }
 
-      assert {:error, :author_action_scope_unavailable} =
+      assert {:error, :retired_synchronous_confirmation} =
                DialogueGateway.handle_action(input, @source_with_plan)
     end
 
@@ -529,7 +529,7 @@ defmodule NovelApplication.ActionRoundtripTest do
         flunk("retired synchronous confirmation must not call provider")
       end
 
-      assert {:error, :author_action_scope_unavailable} =
+      assert {:error, :retired_synchronous_confirmation} =
                DialogueGateway.handle_action(input, source, %Execution{result_fn: result_fn})
     end
 
@@ -553,7 +553,7 @@ defmodule NovelApplication.ActionRoundtripTest do
         action_type: "confirm_before_execute"
       }
 
-      assert {:error, :author_action_scope_unavailable} =
+      assert {:error, :retired_synchronous_confirmation} =
                DialogueGateway.handle_action(input, @valid_source)
     end
 

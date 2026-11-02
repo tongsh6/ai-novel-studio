@@ -690,13 +690,23 @@ defmodule NovelApplication.AgentRunService do
   @spec cancel(String.t()) :: :ok | {:error, :not_found}
   def cancel(run_id), do: command(run_id, :cancel)
 
-  @doc "在运行安全点显式压缩 canonical 会话；同一 durable checkpoint 继续负责恢复。"
-  @spec compact_transcript(String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def compact_transcript(run_id, attrs) when is_binary(run_id) and is_map(attrs) do
+  @doc """
+  作者显式压缩 canonical 会话（VS-00L §16.2/§16.4）。
+
+  只表达整理意图：覆盖范围、来源证据、摘要与省略说明由 `TranscriptCompaction`
+  从 canonical 事实派生，调用方不能传入或伪造压缩内容。只在没有执行中任务的
+  安全点受理；durable/bounded 同一提交边界先持久化、成功后才推进内存。
+  回执只含作者可见的整理项数/摘要/省略/来源显示名。
+  """
+  @spec compact_transcript(String.t()) :: {:ok, map()} | {:error, term()}
+  def compact_transcript(run_id) when is_binary(run_id) do
     case lookup(run_id) do
-      {:ok, pid} -> AgentRunServer.compact_transcript(pid, attrs)
+      {:ok, pid} -> AgentRunServer.compact_transcript(pid)
       error -> error
     end
+  catch
+    :exit, {:timeout, _call} -> {:error, :compact_timeout}
+    :exit, reason -> {:error, {:compact_call_exit, reason}}
   end
 
   @doc """

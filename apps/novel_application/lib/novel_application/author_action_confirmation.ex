@@ -13,7 +13,6 @@ defmodule NovelApplication.AuthorActionConfirmation do
   alias NovelApplication.AgentRunServer
   alias NovelApplication.AgentRunService
   alias NovelApplication.AuthorActionAdmission
-  alias NovelApplication.DialoguePlanningService
   alias NovelDomain.{AgentRun, AuthorActionInput}
   alias NovelPersistence.WorkSessionRepo
 
@@ -41,9 +40,8 @@ defmodule NovelApplication.AuthorActionConfirmation do
   def handle(work_id, session_id, %AuthorActionInput{} = action_input, opts)
       when is_binary(work_id) and is_binary(session_id) do
     with {:ok, source_ctx} <- load_source(work_id, session_id, action_input),
-         {:ok, plan, spec} <-
-           build_plan(work_id, session_id, action_input, source_ctx, opts) do
-      dispatch(work_id, session_id, action_input, source_ctx, plan, spec, opts)
+         {:ok, plan} <- build_plan(work_id, session_id, action_input, source_ctx, opts) do
+      dispatch(work_id, session_id, action_input, source_ctx, plan, opts)
     end
   end
 
@@ -100,9 +98,7 @@ defmodule NovelApplication.AuthorActionConfirmation do
         context_fetcher: Keyword.get(opts, :context_fetcher)
       }
 
-      spec = DialoguePlanningService.run_spec_for_profile(:tool_confirmation, input, nil)
-
-      with {:ok, run} <- AgentRun.new(spec.run_attrs),
+      with {:ok, run} <- AgentRun.new(ToolConfirmation.run_attrs(input)),
            admission = %{
              action_input: action_input,
              work_id: work_id,
@@ -111,7 +107,7 @@ defmodule NovelApplication.AuthorActionConfirmation do
              source_turn_result: source_ctx.source
            },
            {:ok, plan} <- AuthorActionAdmission.prepare(run, admission) do
-        {:ok, plan, spec}
+        {:ok, plan}
       end
     end
   end
@@ -133,7 +129,7 @@ defmodule NovelApplication.AuthorActionConfirmation do
     end
   end
 
-  defp dispatch(_work_id, _session_id, action_input, source_ctx, plan, _spec, opts) do
+  defp dispatch(_work_id, _session_id, action_input, source_ctx, plan, opts) do
     case live_source_owner(source_ctx.source_run_id) do
       {:ok, pid, %{status: :awaiting_author}} ->
         case AgentRunServer.handoff_author_action(pid, plan, opts) do

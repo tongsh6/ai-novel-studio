@@ -18,72 +18,47 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
   alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.TraceWriter
   alias NovelApplication.TurnExecutionService
-  alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentStep
   alias NovelDomain.ConfirmationBinding
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
 
-  @profile_ref "tool_confirmation_v1"
-  @step_target "author_action_confirmation"
+  alias NovelApplication.AgentRunFlows.ToolConfirmationRun
 
+  @doc "非采纳确认子 run 的 profile；唯一来源在 `ToolConfirmationRun`。"
   @spec profile_ref() :: String.t()
-  def profile_ref, do: @profile_ref
+  def profile_ref, do: ToolConfirmationRun.profile_ref()
+
+  @doc "非采纳确认子 run 的允许工具；唯一来源在 `ToolConfirmationRun`。"
+  @spec allowed_tools() :: [String.t()]
+  def allowed_tools, do: ToolConfirmationRun.allowed_tools()
+
+  @doc "非采纳确认子 run 的真实预算；唯一来源在 `ToolConfirmationRun`。"
+  @spec run_budget() :: map()
+  def run_budget, do: ToolConfirmationRun.run_budget()
+
+  @doc "非采纳确认子 run 的初始计划；唯一来源在 `ToolConfirmationRun`。"
+  @spec pending_plan(String.t()) :: map()
+  def pending_plan(run_id), do: ToolConfirmationRun.pending_plan(run_id)
+
+  @doc "构造非采纳确认子 run 的启动 attrs；构造实现在 `ToolConfirmationRun`。"
+  @spec run_attrs(map()) :: map()
+  def run_attrs(input), do: ToolConfirmationRun.run_attrs(input)
 
   @spec steps(map()) :: no_return()
   def steps(_spec) do
     raise ArgumentError, "tool_confirmation_v1 requires next_step_planner/1"
   end
 
-  @spec next_step_planner(map()) :: NovelApplication.AgentRunServer.next_step_planner()
+  @spec next_step_planner(map()) :: function()
   def next_step_planner(spec) when is_map(spec) do
     fn run, sequence, _snapshot ->
       if sequence == 1 do
-        {:execute, step_fun(spec), execute_decision(run, sequence), %{provider_call_count: 0}}
+        {:execute, step_fun(spec), ToolConfirmationRun.execute_decision(run, sequence), %{provider_call_count: 0}}
       else
-        {:complete, complete_decision(run, sequence), %{provider_call_count: 0}}
+        {:complete, ToolConfirmationRun.complete_decision(run, sequence), %{provider_call_count: 0}}
       end
     end
-  end
-
-  defp execute_decision(run, sequence) do
-    {:ok, decision} =
-      AgentNextStepDecision.new(%{
-        decision_id: "and_#{run.run_id}_#{sequence}_tool_confirmation",
-        run_ref: run.run_id,
-        sequence: sequence,
-        decision_type: :execute_step,
-        summary: "重新组装当前上下文并执行作者已确认的动作。",
-        target_tool_ref: @step_target,
-        write_intent: :tentative,
-        risk_hint: :medium,
-        reason_codes: ["author_confirmed_action", "current_context_regate"],
-        observation_refs: [],
-        evaluation_of_last: %{advanced: true, plan_holds: true, new_constraint: nil},
-        confidence: 1.0
-      })
-
-    decision
-  end
-
-  defp complete_decision(run, sequence) do
-    {:ok, decision} =
-      AgentNextStepDecision.new(%{
-        decision_id: "and_#{run.run_id}_#{sequence}_tool_confirmation_done",
-        run_ref: run.run_id,
-        sequence: sequence,
-        decision_type: :goal_satisfied,
-        summary: "作者确认的动作已处理。",
-        target_tool_ref: nil,
-        write_intent: :none,
-        risk_hint: :low,
-        reason_codes: ["author_action_processed"],
-        observation_refs: [],
-        evaluation_of_last: %{advanced: true, plan_holds: true, new_constraint: nil},
-        confidence: 1.0
-      })
-
-    decision
   end
 
   defp step_fun(spec) do
@@ -367,7 +342,7 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
       provider_call_count: provider_calls,
       tool_call_count: get_in(trace_summary, [:execution_counts, :tool_calls]) || 0,
       loop_status: :completed,
-      loop_decision: complete_decision(run, sequence + 1),
+      loop_decision: ToolConfirmationRun.complete_decision(run, sequence + 1),
       progress_signature: "#{run.run_id}:tool_confirmation:#{turn_result.turn_id}"
     }
   end

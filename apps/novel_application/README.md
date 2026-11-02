@@ -48,7 +48,9 @@ be found at <https://hexdocs.pm/novel_application>.
 - [authoring_replay.ex](lib/novel_application/authoring_replay.ex)：消费统一 run 解析，严格校验 task header/run/work/parent 后读取 v3 或正确 v2 canonical；缺版本/错绑不补造。
 - [agent_run_server.ex](lib/novel_application/agent_run_server.ex)：状态机、received/staged 转换与提交后发布；结果/问题/状态/压缩统一走 `AgentRunPersistence`，不再自带序列化与 durable task 写入细节。
 - [agent_run_persistence.ex](lib/novel_application/agent_run_persistence.ex)：AgentRun snapshot 的唯一投影/写入请求边界；run/step/author-safe event、私有 checkpoint 编码调用与 durable task header/progress/step 投影，定义 delivery/status/compaction/question 四种事件语义；checkpoint_version 的唯一所属点。
-- [agent_run_service.ex](lib/novel_application/agent_run_service.ex)：离线恢复复用同一私有选择/校验，不自动执行 Provider；durable task 初始 header 引用同一 checkpoint_version。
+- [agent_run_service.ex](lib/novel_application/agent_run_service.ex)：离线恢复复用同一私有选择/校验，不自动执行 Provider；durable task 初始 header 引用同一 checkpoint_version。`compact_transcript/1` 是作者显式压缩的唯一公共入口：只表达整理意图，不接收调用方压缩内容。
+- [transcript_compaction.ex](lib/novel_application/transcript_compaction.ex)：B71 显式压缩的唯一派生边界（VS-00L §16.2/§16.4）：从 canonical 事实派生命中范围（全部未覆盖的完整交换）、来源 refs/版本、作者安全摘要与省略说明；不调模型、无阈值、不改写 transcript；`AgentRunServer` 是第一个真实消费者。
+- [transcript_compaction_test.exs](test/novel_application/transcript_compaction_test.exs)：完整交换选择、未完成/重复结果/已覆盖排除、证据一致、作者可见回执无内部标识、空会话幂等与确定性回归。
 - [agent_run_persistence_test.exs](test/novel_application/agent_run_persistence_test.exs)：delivery/status/compaction/question 四种 snapshot 请求语义与 durable task header 投影回归。
 - [agent_run_runtime_test.exs](test/novel_application/agent_run_runtime_test.exs)：bounded 终局/失败留存、压缩回滚、v3 错 ref 不回退、v2 缺身份 partial 回归。
 - [agent_run_history_binding_test.exs](test/novel_application/agent_run_history_binding_test.exs)：11 项 source/修订 child/旧数据/重载同源定位回归。

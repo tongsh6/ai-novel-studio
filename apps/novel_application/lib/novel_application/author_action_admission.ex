@@ -165,7 +165,9 @@ defmodule NovelApplication.AuthorActionAdmission do
 
     transaction =
       AgentRunLog.transaction(fn ->
-        with {:ok, source_ctx} <- load_source_context(plan.run, plan.action_input),
+        with :ok <- ensure_receipt_absent(plan),
+             :ok <- ensure_behavior_not_consumed(plan),
+             {:ok, source_ctx} <- load_source_context(plan.run, plan.action_input),
              :ok <- ensure_expected_source(plan.expected_source, source_ctx.source),
              :ok <- ActionValidator.validate(plan.action_input, source_ctx.source),
              {:ok, behavior} <- current_behavior(plan.run, plan.action_input, source_ctx.source),
@@ -230,6 +232,34 @@ defmodule NovelApplication.AuthorActionAdmission do
   end
 
   defp classify_handoff_transaction({:error, reason}, _plan), do: {:error, reason}
+
+  # 同键已有 receipt 必须先于行为/来源可用性核验判定：首次受理后行为已关闭，
+  # 但重复请求只回查同一 receipt/run（VS-00L §16.10），不能误报行为未打开。
+  defp ensure_receipt_absent(plan) do
+    case AuthorActionReceiptRepo.get(plan.key_attrs) do
+      nil -> :ok
+      _receipt -> {:error, :duplicate}
+    end
+  end
+
+  # 相反动作在同一确认行为上的竞争：行为消费权由 receipt 唯一事实判定（§16.14），
+  # 不能依赖“当前行为是否仍打开”的时序校验来决定谁取得执行权。
+  defp ensure_behavior_not_consumed(plan) do
+    case behavior_ref(plan.action_input) do
+      nil ->
+        :ok
+
+      behavior_ref ->
+        case AuthorActionReceiptRepo.get_by_behavior(
+               plan.run.work_id,
+               plan.run.session_id,
+               behavior_ref
+             ) do
+          nil -> :ok
+          _receipt -> {:error, {:behavior_consumed, behavior_ref}}
+        end
+    end
+  end
 
   defp load_source_context(run, input) do
     case WorkSessionRepo.assistant_entry(run.work_id, run.session_id, input.source_turn_ref) do
