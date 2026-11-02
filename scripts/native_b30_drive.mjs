@@ -8,13 +8,16 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
-  CUA,
   appPid,
   activate,
+  bindRunningTarget,
+  buildTarget,
   click,
   clickAt,
   dump,
+  focused,
   pressKey,
+  setValue,
   readJson,
   screenshot,
   sleep,
@@ -35,7 +38,7 @@ if (!dir || !sliceId) {
   process.exit(64);
 }
 const ready = readJson(path.join(dir, "native-driver-ready.json"));
-const APP = ready.bundle_identifier;
+let APP = buildTarget(ready, dir);
 const EVIDENCE = path.join(ROOT, "scripts/native_b30_evidence.mjs");
 const STRATA = ready.provider === "strata";
 // B37 分型预算：确定性 provider 用默认；真实模型走 strata 预算
@@ -275,6 +278,7 @@ async function launchEmbeddedApp() {
     await sleep(500);
   }
   if (!appPid(APP)) throw new Error("native_app_did_not_launch");
+  APP = bindRunningTarget(APP);
   activate(APP);
 }
 
@@ -362,7 +366,7 @@ function clickMenuItemByMouse(item, label) {
 
 function focusedNode() {
   try {
-    return JSON.parse(execFileSync(CUA, ["focused", APP], { encoding: "utf8" }));
+    return focused(APP);
   } catch {
     return null;
   }
@@ -471,10 +475,11 @@ async function restartApp(label) {
     const deadline = Date.now() + 12_000;
     while (Date.now() < deadline) {
       checkSupervisor();
-      if (appPid(APP)) break;
+      if (appPid({ ...APP, pid: null })) break;
       await sleep(400);
     }
-    if (!appPid(APP)) throw new Error("native_app_did_not_relaunch");
+    if (!appPid({ ...APP, pid: null })) throw new Error("native_app_did_not_relaunch");
+    APP = bindRunningTarget(APP, { relaunch: true });
     activate(APP);
   });
   return waitWorkbenchReady(`${label}:restored`);
@@ -563,7 +568,7 @@ async function fillComposer(text, label) {
     }
     if (!verifiedBy) {
       try {
-        const response = JSON.parse(execFileSync(CUA, ["set", APP, composer.path, text], { encoding: "utf8" }));
+        const response = setValue(APP, composer.path, text);
         log.push({ op: "composer_ax_set", label, ok: response.ok === true });
       } catch (error) {
         log.push({ op: "composer_ax_set_failed", label, error: error.message });

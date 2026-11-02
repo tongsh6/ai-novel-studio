@@ -6,6 +6,8 @@
 |---|---|
 | `process_tree.sh` | 进程树终止与清理 helper，被 stage/dev/Tauri 验收脚本复用。 |
 | `tauri_dev_config.sh` | 生成 Tauri dev runtime overlay config，避免启动脚本改写 `frontend/src-tauri/tauri.conf.json`。 |
+| `tauri_toolchain.sh` | Tauri dev/native build 共享的只读工具链定位：优先保留现有 PATH，缺失时仅把 `CARGO_HOME/bin` 或原始用户 home 的 `.cargo/bin` 前置到本次子进程 PATH；不安装/切换、不读隔离 HOME。被 `scripts/tauri_slice_verify.sh`、`scripts/frontend_audit.sh` 复用。 |
+| `tauri_toolchain.test.mjs` | `tauri_toolchain.sh` 的受控最小 PATH/fake toolchain 回归：fallback、含空格 CARGO_HOME、不替换现有工具、隔离 HOME 不采用、缺失失败与两入口接线；不读写用户凭证。 |
 | `b31-question-proof.mjs` | B31 浏览器驱动与原生验证器共用的纯回复证明/预算 helper；不操作页面或产品。测试在 frontend/slice-verify/b31-question-proof.test.mjs。 |
 | `b28-chapter-fixture.mjs` | B28 原浏览器与原生验收共用的原始合成正文、旧全文兼容归一及ADR-0029计划/预览字节与实际分段校验；正文仍必须通过真实UI编辑采纳。 |
 | `native_ui/` | [外部系统 UI 驱动](native_ui/README.md)：macOS AX/CGEvent 驱动真实 Tauri 窗口（原生验收 harness），含高层工作台动作与等待账；产品不读取。 |

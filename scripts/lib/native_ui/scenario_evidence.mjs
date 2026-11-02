@@ -100,23 +100,30 @@ const productPrefixes = ["frontend/src/", "frontend/src-tauri/src/"];
 const productPath = (file) =>
   productPrefixes.some((prefix) => file.startsWith(prefix)) || /^apps\/[^/]+\/lib\//.test(file);
 
-export function productionFingerprint() {
-  const listing = execFileSync(
-    "git",
-    ["-C", ROOT, "ls-files", "--", "frontend/src", "frontend/src-tauri/src", "apps"],
-    { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
-  );
-  const files = listing
-    .split("\n")
-    .map((file) => file.trim())
+function gitList(root, args) {
+  return execFileSync("git", ["-C", root, ...args], {
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+  });
+}
+
+export function productionFingerprint(root = ROOT) {
+  const paths = ["frontend/src", "frontend/src-tauri/src", "apps"];
+  // tracked + untracked（遵循 .gitignore）；分批列出后按 path 去重，避免新增合法
+  // 未提交模块被漏掉，也不把 test/support/artifacts 纳入产品指纹。
+  const listing = [
+    ...gitList(root, ["ls-files", "--", ...paths]).split("\n"),
+    ...gitList(root, ["ls-files", "--others", "--exclude-standard", "--", ...paths]).split("\n"),
+  ];
+  const files = [...new Set(listing.map((file) => file.trim()))]
     .filter((file) => file && productPath(file))
     .sort();
   const hashes = {};
   for (const file of files) {
-    const absolute = path.join(ROOT, file);
+    const absolute = path.join(root, file);
     hashes[file] = fs.existsSync(absolute) ? shaFile(absolute) : "missing";
   }
-  const head = execFileSync("git", ["-C", ROOT, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const head = gitList(root, ["rev-parse", "HEAD"]).trim();
   return { head, file_count: files.length, files: hashes };
 }
 
@@ -166,19 +173,16 @@ export function writeNativeFrames(dir) {
   return frames;
 }
 
+const isSentUserMessage = (record, text) =>
+  record.direction === "sent" &&
+  isFrame(record) &&
+  frameEvent(record) === "user_message" &&
+  String(frameBody(record)?.text ?? "") === text;
+
 export function sentUserMessages(wire, text) {
   const seen = new Set();
   return wire.filter((record) => {
-    if (
-      !(
-        record.direction === "sent" &&
-        isFrame(record) &&
-        frameEvent(record) === "user_message" &&
-        String(frameBody(record)?.text ?? "") === text
-      )
-    ) {
-      return false;
-    }
+    if (!isSentUserMessage(record, text)) return false;
     const turnId = String(frameBody(record)?.turn_id ?? "");
     if (seen.has(turnId)) return false;
     seen.add(turnId);
@@ -186,28 +190,101 @@ export function sentUserMessages(wire, text) {
   });
 }
 
+// Phoenix 请求身份：请求帧与它的 ACK 必须属于同一 join_ref/request_ref/topic
+// 生命周期。request_ref 只在同一 join 内唯一，不能跨 join/topic 复用。
+// user_message 与 author_action 共用此边界，各自只保留领域成功解析。
+export function requestIdentity(record, label = "user_message") {
+  assert.equal(record?.direction, "sent", `${label} 必须是发送方向`);
+  assert(typeof record?.at === "string" && record.at !== "", `${label} 缺 at`);
+  const frame = frameOf(record);
+  assert(frame, `${label} 缺真实 WS 帧`);
+  const [joinRef, requestRef, topic] = frame;
+  assert(typeof joinRef === "string" && joinRef !== "", `${label} 缺 join_ref`);
+  assert(typeof requestRef === "string" && requestRef !== "", `${label} 缺 request_ref`);
+  assert(typeof topic === "string" && topic !== "", `${label} 缺 topic`);
+  return { joinRef, requestRef, topic };
+}
+
+const isRecord = (value) => value !== null && typeof value === "object";
+
+function runRefMatches(body, runRef) {
+  if (runRef === null) return true;
+  if (!isRecord(body) || body.run_ref !== runRef) return false;
+  return body.run_id === undefined || body.run_id === runRef;
+}
+
+function agentRunMatches(body, agentRunId) {
+  if (agentRunId === null) return true;
+  const run = isRecord(body) ? body.agent_run : null;
+  return isRecord(run) && run.run_id === agentRunId;
+}
+
+function broadcastFrameMatches(record, { topic, at, event, direction }) {
+  if (record?.direction !== direction || !isFrame(record)) return false;
+  const frame = frameOf(record);
+  if (frame[2] !== topic) return false;
+  if (event !== null && frame[3] !== event) return false;
+  return at === null || record.at >= at;
+}
+
+// broadcast 帧（agent_event/turn_result）由 Channel 广播，真实 join_ref/request_ref 为 null；
+// 因此只能按 owning topic + 广播方向 + 实际 run 绑定，不能要求它们等于作者请求 ref。
+export function broadcastFrames(
+  wire,
+  {
+    topic,
+    at = null,
+    runRef = null,
+    agentRunId = null,
+    event = null,
+    direction = "received",
+  } = {},
+) {
+  assert(typeof topic === "string" && topic !== "", "广播筛选缺 owning topic");
+  return wire.filter((record) => {
+    if (!broadcastFrameMatches(record, { topic, at, event, direction })) return false;
+    const body = frameBody(record);
+    return runRefMatches(body, runRef) && agentRunMatches(body, agentRunId);
+  });
+}
+
+function requestReplyMatches(record, identity, at) {
+  if (record?.direction !== "received" || !isFrame(record)) return false;
+  if (typeof record.at !== "string" || record.at < at) return false;
+  const frame = frameOf(record);
+  return (
+    frame[0] === identity.joinRef &&
+    frame[1] === identity.requestRef &&
+    frame[2] === identity.topic &&
+    frameEvent(record) === "phx_reply"
+  );
+}
+
+// 请求回复的唯一共享读取边界：只按请求自己的 join/request/topic 与发送时刻之后的
+// 接收方向 phx_reply 匹配。缺 ACK/多义 ACK 的失败关闭由领域消费者决定。
+export function requestReplies(wire, identity, since) {
+  return wire.filter((record) => requestReplyMatches(record, identity, since));
+}
+
+function successfulAck(reply, turnId) {
+  if (!reply) return undefined;
+  const body = frameBody(reply);
+  return body?.status === "ok" && body?.response?.turn_id === turnId ? reply : undefined;
+}
+
 export function turnFacts(wire, messageRecord) {
   const turnId = String(frameBody(messageRecord)?.turn_id ?? "");
   assert(turnId, "user_message 缺 turn_id");
-  const ack = wire.find(
-    (record) =>
-      record.direction === "received" &&
-      isFrame(record) &&
-      record.at >= messageRecord.at &&
-      record.frame[1] === messageRecord.frame[1] &&
-      frameEvent(record) === "phx_reply" &&
-      frameBody(record)?.status === "ok" &&
-      frameBody(record)?.response?.turn_id === turnId,
-  );
-  const results = wire.filter(
-    (record) =>
-      record.direction === "received" &&
-      isFrame(record) &&
-      record.at >= messageRecord.at &&
-      frameEvent(record) === "turn_result",
-  );
+  const identity = requestIdentity(messageRecord);
+  const replies = requestReplies(wire, identity, messageRecord.at);
+  assert(replies.length <= 1, `同一请求的 ACK 多义，拒绝猜取: ${identity.requestRef}`);
+  const results = broadcastFrames(wire, {
+    topic: identity.topic,
+    at: messageRecord.at,
+    event: "turn_result",
+  });
   assert(results.length, `缺少 turn_result: ${turnId}`);
-  return { turnId, message: messageRecord, ack, results };
+  return { turnId, message: messageRecord, ack: successfulAck(replies[0], turnId), results };
 }
 
 // ── 原生批次通用证据（ready / ui-complete / 等待账 / 截图 / provider）─────────────

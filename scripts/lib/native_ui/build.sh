@@ -6,7 +6,9 @@ ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 OUT_DIR="$ROOT/artifacts/tools"
 mkdir -p "$OUT_DIR"
 CACHE_DIR="${CLANG_MODULE_CACHE_PATH:-$OUT_DIR/clang-module-cache}"
-if [[ ! -x "$OUT_DIR/ax_cua" || "$ROOT/scripts/lib/native_ui/ax_cua.swift" -nt "$OUT_DIR/ax_cua" ]]; then
-  CLANG_MODULE_CACHE_PATH="$CACHE_DIR" swiftc -O "$ROOT/scripts/lib/native_ui/ax_cua.swift" -o "$OUT_DIR/ax_cua"
+CORE="$ROOT/scripts/lib/native_ui/ax_cua_core.swift"
+ENTRY="$ROOT/scripts/lib/native_ui/ax_cua.swift"
+if [[ ! -x "$OUT_DIR/ax_cua" || "$CORE" -nt "$OUT_DIR/ax_cua" || "$ENTRY" -nt "$OUT_DIR/ax_cua" ]]; then
+  CLANG_MODULE_CACHE_PATH="$CACHE_DIR" swiftc -O -parse-as-library "$CORE" "$ENTRY" -o "$OUT_DIR/ax_cua"
 fi
 echo "$OUT_DIR/ax_cua"

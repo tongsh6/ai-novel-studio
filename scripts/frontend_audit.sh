@@ -18,6 +18,9 @@
 
 set -eo pipefail
 
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$PROJECT_ROOT/scripts/lib/tauri_toolchain.sh"
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -214,7 +217,8 @@ echo "--- 6. Tauri Build ---"
 if [[ "$QUICK_MODE" == true ]]; then
   pass "Quick mode: build check skipped"
 else
-  if command -v cargo &>/dev/null; then
+  # 非 quick 才定位构建工具；找不到时沿用既有 audit 口径报告未构建。
+  if tauri_toolchain_ensure "${HOME:-}" "${CARGO_HOME:-}"; then
     if (cd frontend && npx tauri build --ci 2>&1 | tail -10); then
       pass "Tauri build succeeded"
     else

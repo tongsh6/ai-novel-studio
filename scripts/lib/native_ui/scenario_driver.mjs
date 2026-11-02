@@ -10,8 +10,6 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
   appPid,
-  activate,
-  click,
   clickAt,
   dump,
   dumpAll,
@@ -20,10 +18,16 @@ import {
   readJson,
   screenshot,
   sleep,
+  startupObservation,
   textOf,
-  typeText,
   writeAX,
   Step,
+  bindTarget,
+  buildTarget,
+  composerExpectation,
+  inputBoundary,
+  relaunchTarget,
+  targetResolution,
 } from "./driver.mjs";
 import { cleanupNativeApp } from "../native_app_ownership.mjs";
 
@@ -45,10 +49,18 @@ export const isVisibleNode = (node) =>
   Array.isArray(node.frame) && node.frame[1] > 0 && node.frame[2] > 0 && node.frame[3] > 0;
 
 export class NativeScenarioHarness {
-  constructor(dir) {
+  constructor(dir, io = {}) {
     this.dir = path.resolve(dir);
+    // 只读探测与输入边界分开注入：failure 采集只能走 io，不允许借 input 改变现场。
+    this.io = {
+      dump: io.dump ?? dump,
+      screenshot: io.screenshot ?? screenshot,
+      startup: io.startup ?? startupObservation,
+    };
     this.ready = readJson(path.join(this.dir, "native-driver-ready.json"));
-    this.APP = this.ready.bundle_identifier;
+    this.target = buildTarget(this.ready, this.dir);
+    this.APP = this.target;
+    this.input = null;
     this.provider = this.ready.provider ?? "slice_verify";
     this.dbFile = path.join(this.dir, "database", "ai_novel_studio_test.sqlite3");
     this.step = new Step(this.dir);
@@ -65,6 +77,50 @@ export class NativeScenarioHarness {
 
   writeJson(name, value) {
     fs.writeFileSync(path.join(this.dir, name), JSON.stringify(value, null, 2));
+  }
+
+  ensureInput() {
+    if (!this.input) this.input = inputBoundary(this.APP);
+    return this.input;
+  }
+
+  unboundTarget() {
+    return { ...this.target, pid: null };
+  }
+
+  // 显式绑定本批实际 PID；只有 relaunch 分支允许换代。
+  bindBatchTarget(resolution, { relaunch = false } = {}) {
+    this.target = relaunch ? relaunchTarget(this.target, resolution) : bindTarget(this.target, resolution);
+    this.APP = this.target;
+    this.input = inputBoundary(this.target);
+    this.log.push({
+      op: "target_bound",
+      at: this.nowIso(),
+      relaunch,
+      run_ref: this.target.run_ref,
+      app_path: this.target.app_path,
+      executable_path: this.target.executable_path,
+      pid: this.target.pid,
+      generation: this.target.generation,
+      // 只读启动事实（isFinishedLaunching/launchDate/activationPolicy/isHidden）随本批身份落盘。
+      startup: resolution.startup ?? null,
+    });
+    return this.target;
+  }
+
+  async waitTargetResolution(timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    let last = null;
+    while (Date.now() < deadline) {
+      this.checkSupervisor();
+      last = targetResolution(this.unboundTarget());
+      if (last.ok) return last;
+      if (last.reason !== "target_not_running") {
+        throw new Error(`target_resolution_failed:${last.reason}`);
+      }
+      await sleep(300);
+    }
+    throw new Error(`native_app_did_not_launch:${last?.reason ?? "timeout"}`);
   }
 
   supervisorFailure() {
@@ -113,26 +169,59 @@ export class NativeScenarioHarness {
   }
 
   dumpNodes() {
-    let nodes = dump(this.APP, AX_MAX_NODES);
+    // 纯观测：AX 读取绝不 activate/key/click；窗口不可得时如实返回原始事实。
+    return this.io.dump(this.APP, AX_MAX_NODES);
+  }
+
+  // 正常交互需要关闭 tooltip/恢复前台时，走这个显式动作，而不是藏在读路径里。
+  recoverInteractionSurface(reason) {
+    if (!this.input) return { ok: false, reason: "input_unbound" };
+    const frontmostBefore = frontmost();
+    const activation = this.input.activate();
+    const escape = this.input.key("escape", { focusRequired: false });
+    this.log.push({
+      op: "interaction_recovery",
+      reason,
+      at: this.nowIso(),
+      frontmost_before: frontmostBefore,
+      activation,
+      escape,
+    });
+    return { activation, escape };
+  }
+
+  activateForInteraction(reason) {
+    const frontmostBefore = frontmost();
+    const activation = this.input.activate();
+    this.log.push({
+      op: "interaction_activation",
+      reason,
+      at: this.nowIso(),
+      frontmost_before: frontmostBefore,
+      activation,
+    });
+    return activation;
+  }
+
+  // 供正常交互步骤使用：沿用原 dumpNodes 的 tooltip 恢复行为，但恢复动作是命名的。
+  dumpNodesForInteraction(reason = "interaction") {
+    let nodes = this.dumpNodes();
     for (let attempt = 0; attempt < 12 && !this.mainWindowDump(nodes); attempt += 1) {
-      try {
-        pressKey(this.APP, "escape");
-      } catch {
-        /* tooltip may already be gone */
-      }
-      try {
-        activate(this.APP);
-      } catch {
-        /* ignore activation failure */
-      }
+      this.recoverInteractionSurface(reason);
       execFileSync("sleep", ["0.25"]);
-      try {
-        nodes = dump(this.APP, AX_MAX_NODES);
-      } catch {
-        nodes = [];
-      }
+      nodes = this.dumpNodes();
     }
     return nodes;
+  }
+
+  // 启动/失败观测只读；任何观测错误都折成事实字段，不抛给调用方。
+  observeStartup(reason) {
+    const at = this.nowIso();
+    try {
+      return { at, reason, ...this.io.startup(this.APP) };
+    } catch (error) {
+      return { at, reason, ok: false, error: error.message };
+    }
   }
 
   axText(nodes) {
@@ -146,14 +235,16 @@ export class NativeScenarioHarness {
       this.checkSupervisor();
       let nodes = null;
       try {
-        nodes = this.dumpNodes();
+        nodes = this.dumpNodesForInteraction(`poll_ax:${label}`);
       } catch {
         await sleep(600);
         continue;
       }
       lastText = this.axText(nodes);
       if (predicate(lastText, nodes)) return { nodes, text: lastText };
-      if (!nodes.some((node) => node.role === "AXWindow")) activate(this.APP);
+      if (!nodes.some((node) => node.role === "AXWindow")) {
+        this.activateForInteraction(`poll_ax:${label}`);
+      }
       await sleep(600);
     }
     throw new Error(`wait_ax_timeout:${label}:${lastText.slice(-400)}`);
@@ -165,30 +256,42 @@ export class NativeScenarioHarness {
       this.checkSupervisor();
       let nodes = null;
       try {
-        nodes = this.dumpNodes();
+        nodes = this.dumpNodesForInteraction(`try_poll_ax:${label}`);
       } catch {
         await sleep(600);
         continue;
       }
       const text = this.axText(nodes);
       if (predicate(text, nodes)) return { nodes, text };
-      if (!nodes.some((node) => node.role === "AXWindow")) activate(this.APP);
+      if (!nodes.some((node) => node.role === "AXWindow")) {
+        this.activateForInteraction(`try_poll_ax:${label}`);
+      }
       await sleep(600);
     }
     return null;
   }
 
   // ── 证据采集（AX 树 + 可见文本 + 窗口截图）──────────────────────────────────
-  screenshotSafe(filePath) {
+  screenshotSafe(filePath, { allowFullScreenFallback = true } = {}) {
     try {
-      screenshot(this.APP, filePath);
+      this.io.screenshot(this.APP, filePath);
       return { ok: true };
     } catch (error) {
       this.log.push({ op: "screenshot_flake", filePath, error: error.message, at: this.nowIso() });
       try {
-        screenshot(this.APP, filePath);
+        this.io.screenshot(this.APP, filePath);
         return { ok: true, retried: true };
       } catch (retryError) {
+        if (!allowFullScreenFallback) {
+          // 失败取证只观察本批 target；整屏兜底会看到其它应用，不能用来补失败现场。
+          this.log.push({
+            op: "screenshot_failed",
+            filePath,
+            error: retryError.message,
+            at: this.nowIso(),
+          });
+          return { ok: false, reason: retryError.message };
+        }
         // 窗口动画/遮挡期间 screencapture -l 会失败；整屏兜底仍写入同一证据文件，
         // AX 树与可见文本始终是主证据，截图 flake 不中断真实工作台链路。
         try {
@@ -302,15 +405,17 @@ export class NativeScenarioHarness {
       if (!Array.isArray(node.frame) || node.frame.length < 4) {
         throw new Error(`click_failed:${label}:${reason}:no_frame`);
       }
-      clickAt(this.APP, node.frame[0] + node.frame[2] / 2, node.frame[1] + node.frame[3] / 2);
-      return { ok: true, method: "mouse", label, fallback_from: reason };
+      // 回退也走同一 target/PID 的 CGEvent 投递，并由边界核前台/权限；不再有全局点击。
+      const result = this.ensureInput().clickAt(node.frame[0] + node.frame[2] / 2, node.frame[1] + node.frame[3] / 2);
+      return { ...result, method: "mouse", label, fallback_from: reason, target_pid: this.target.pid };
     };
     try {
-      const result = click(node, this.APP);
-      if (result && result.ok === false) return mouseFallback("axpress_rejected");
+      const result = this.ensureInput().click(node.path);
       return { ...result, label };
     } catch (error) {
-      return mouseFallback(error.message);
+      // 只有 AXPress 本身被拒才做同目标鼠标回退；归属/权限/前台/焦点失败直接失败。
+      if (error?.reason === "axpress_failed") return mouseFallback(error.reason);
+      throw error;
     }
   }
 
@@ -347,15 +452,21 @@ export class NativeScenarioHarness {
   }
 
   async rawLaunchApp() {
-    execFileSync("open", [this.ready.app_path]);
-    const deadline = Date.now() + 90_000;
-    while (Date.now() < deadline) {
-      this.checkSupervisor();
-      if (appPid(this.APP)) break;
-      await sleep(400);
-    }
-    if (!appPid(this.APP)) throw new Error("native_app_did_not_launch");
-    activate(this.APP);
+    execFileSync("open", [this.target.app_path]);
+    const resolution = await this.waitTargetResolution(90_000);
+    this.bindBatchTarget(resolution);
+    const startupBefore = this.observeStartup("launch:before_activation");
+    // attempt 先落盘：activate 抛错时仍保留激活前观测，不再丢掉整段 launch 事实。
+    this.log.push({ op: "launch_activation_attempt", at: this.nowIso(), startup: startupBefore });
+    const activation = this.input.activate();
+    const startupAfter = this.observeStartup("launch:after_activation");
+    this.log.push({
+      op: "launch_activation",
+      at: this.nowIso(),
+      ...activation,
+      startup_before: startupBefore,
+      startup_after: startupAfter,
+    });
   }
 
   async rawWaitWorkbench(label, timeoutMs = 170_000) {
@@ -413,7 +524,7 @@ export class NativeScenarioHarness {
 
   async rawSwitchWork(title, label) {
     for (let attempt = 1; attempt <= 2; attempt += 1) {
-      let nodes = this.dumpNodes();
+      let nodes = this.dumpNodesForInteraction(`work_switch:${label}`);
       if (this.visibleWorkTitle(nodes) === title) return nodes;
       const trigger = nodes.find(
         (node) => node.role === "AXPopUpButton" && String(node.desc ?? "") === "作品",
@@ -438,7 +549,7 @@ export class NativeScenarioHarness {
         click: clickResult,
       });
       await sleep(800);
-      nodes = this.dumpNodes();
+      nodes = this.dumpNodesForInteraction(`work_menu:${label}`);
       if (attempt === 1) {
         writeAX(nodes, path.join(this.dir, `${label}-work-menu.ax.txt`), this.APP);
         fs.writeFileSync(path.join(this.dir, `${label}-work-menu.text.txt`), this.axText(nodes));
@@ -498,7 +609,7 @@ export class NativeScenarioHarness {
         click: itemClickResult,
         attempt,
         at: this.nowIso(),
-        visible_title: this.visibleWorkTitle(this.dumpNodes()),
+        visible_title: this.visibleWorkTitle(this.dumpNodesForInteraction(`work_menu_item:${label}`)),
         frontmost: frontmost(),
       });
       const switched = await this.pollAx(
@@ -517,23 +628,30 @@ export class NativeScenarioHarness {
   }
 
   async rawCloseAppAndRelaunch() {
+    const previousPid = this.target.pid;
     await cleanupNativeApp(this.dir);
     await sleep(500);
-    execFileSync("open", [this.ready.app_path]);
-    const deadline = Date.now() + 12_000;
-    while (Date.now() < deadline) {
-      this.checkSupervisor();
-      if (appPid(this.APP)) break;
-      await sleep(300);
-    }
-    if (!appPid(this.APP)) throw new Error("native_app_did_not_relaunch");
-    activate(this.APP);
+    execFileSync("open", [this.target.app_path]);
+    const resolution = await this.waitTargetResolution(12_000);
+    this.bindBatchTarget(resolution, { relaunch: true });
+    this.input.recordRelaunch(previousPid, this.target.pid);
+    const startupBefore = this.observeStartup("relaunch:before_activation");
+    this.log.push({ op: "relaunch_activation_attempt", at: this.nowIso(), previous_pid: previousPid, startup: startupBefore });
+    const activation = this.input.activate();
+    this.log.push({
+      op: "relaunch_activation",
+      at: this.nowIso(),
+      previous_pid: previousPid,
+      ...activation,
+      startup_before: startupBefore,
+      startup_after: this.observeStartup("relaunch:after_activation"),
+    });
   }
 
   // 在真实作品菜单里尝试切到目标作品；不重启应用（重启必须在 restore 分型步内做，
   // 否则监督会把「原生窗口进程退出」判成非法退出）。返回是否已选中。
   async rawTrySelectWork(title, label) {
-    let nodes = this.dumpNodes();
+    let nodes = this.dumpNodesForInteraction(`select_work:${label}`);
     if (this.visibleWorkTitle(nodes) === title) return true;
     try {
       nodes = await this.rawSwitchWork(title, `${label}:menu`);
@@ -550,74 +668,77 @@ export class NativeScenarioHarness {
       timeoutMs,
       `input_ready:${label}`,
     );
+    const composer = this.findComposer(result.nodes);
+    const send = this.findSendButton(result.nodes);
+    this.log.push({
+      op: "input_ready_state",
+      at: this.nowIso(),
+      target_pid: this.target.pid,
+      composer: composer
+        ? { path: composer.path, role: composer.role, enabled: composer.enabled ?? null, focused: composer.focused ?? null }
+        : null,
+      send: send ? { title: send.title, enabled: send.enabled ?? null, focused: send.focused ?? null } : null,
+    });
     await sleep(900);
     return result;
   }
 
-  clickSend(nodes) {
+  clickSend(nodes, expectedFocus = null) {
     const button = this.findSendButton(nodes);
-    if (button) this.safeClick(button, "send-button");
-    else pressKey(this.APP, "return");
+    if (button?.enabled === false) throw new Error("send_button_disabled");
+    this.log.push({
+      op: "send_click",
+      at: this.nowIso(),
+      target_pid: this.target.pid,
+      method: button ? "button" : "return_key",
+      button_enabled: button?.enabled ?? null,
+      button_focused: button?.focused ?? null,
+    });
+    if (button) return this.safeClick(button, "send-button");
+    return this.ensureInput().key("return", { focusRequired: true, expected: expectedFocus });
   }
 
   async rawTypeAndSend(text, label) {
     this.checkSupervisor();
     const startedAt = this.nowIso();
-    let nodes = this.dumpNodes();
+    let nodes = this.dumpNodesForInteraction(`type_and_send:${label}`);
     let composer = this.findComposer(nodes);
     if (!composer) throw new Error("composer_not_found");
-    this.safeClick(composer, `${label}:composer`);
+    if (composer.enabled === false) throw new Error(`composer_disabled:${label}`);
+    const expected = composerExpectation(composer);
+    const input = this.ensureInput();
+
+    // 激活返回/前台确认由边界记录；focused 必须指回同一个 composer path。
+    const activation = input.activate();
+    this.log.push({ op: "input_activation", at: this.nowIso(), ...activation });
+    input.focus(composer.path, expected);
     await sleep(350);
     const value = String(composer.value ?? "");
     if (value.trim() !== "") {
-      pressKey(this.APP, "cmd+a");
-      pressKey(this.APP, "delete");
+      input.clear(expected);
       await sleep(200);
     }
-    typeText(this.APP, text);
-    // 长中文输入用 CGEvent 逐字注入，固定 sleep 会在最后几个字到达前点击发送，
-    // 导致 user_message 帧被截断。以 AX composer value 与目标文本严格相等为发送前提。
+    input.type(text, expected);
+    // 长中文输入逐块投递；AX composer value 与目标文本严格相等才是发送前提。
+    // 失败只做一次有界观察，不自动重复输入同一段文本。
     let typedValue = "";
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const deadline = Date.now() + 6_000;
-      while (Date.now() < deadline) {
-        composer = this.findComposer(this.dumpNodes());
-        typedValue = String(composer?.value ?? "");
-        if (typedValue === text) break;
-        await sleep(200);
-      }
+    const deadline = Date.now() + 6_000;
+    while (Date.now() < deadline) {
+      composer = this.findComposer(this.dumpNodesForInteraction(`type_and_send:observed:${label}`));
+      typedValue = String(composer?.value ?? "");
       if (typedValue === text) break;
-      if (attempt === 0) {
-        // 仍然只重试一次真实键盘输入；绝不旁路提交。
-        this.safeClick(composer, `${label}:composer-retry`);
-        await sleep(250);
-        pressKey(this.APP, "cmd+a");
-        pressKey(this.APP, "delete");
-        await sleep(200);
-        typeText(this.APP, text);
-        await sleep(400);
-      }
+      await sleep(200);
     }
     if (typedValue !== text) {
       throw new Error(`composer_text_incomplete:${label}:got=${typedValue.length}:want=${text.length}`);
     }
-    nodes = this.dumpNodes();
-    this.clickSend(nodes);
-    let sent = await this.tryPollWire(
+    nodes = this.dumpNodesForInteraction(`type_and_send:send:${label}`);
+    this.clickSend(nodes, expected);
+    return this.pollWire(
       (wire) => this.sentUserMessageSince(wire, startedAt, text),
-      8_000,
+      10_000,
+      `${label}:user_message_sent`,
     );
-    if (!sent) {
-      // 发送按钮偶发未命中（焦点/渲染抖动）：真实 UI 重试一次点击，不做旁路提交。
-      await sleep(400);
-      this.clickSend(this.dumpNodes());
-      sent = await this.pollWire(
-        (wire) => this.sentUserMessageSince(wire, startedAt, text),
-        10_000,
-        `${label}:user_message_sent`,
-      );
-    }
-    return sent;
   }
 
   // ── 「为什么」决策溯源面板：按钮文案 + 面板可见文本 ─────────────────────────────
@@ -655,7 +776,8 @@ export class NativeScenarioHarness {
     this.writeJson("native-ui-complete.json", {
       harness_run_ref: this.ready.run_ref,
       driver: "ax-native-system-ui",
-      app_bundle: "com.ai-novel-studio.app",
+      app_bundle: this.target.bundle_identifier,
+      input_target: this.target,
       screenshots: this.screenshots,
       scope,
     });
@@ -668,31 +790,79 @@ export class NativeScenarioHarness {
       driver: "ax-native-system-ui",
       finished_at: this.nowIso(),
       captures: this.captures,
+      input_target: this.target,
       log: this.log,
       ...value,
     });
   }
 
+  // 失败现场采集只观察同一本批 target/PID：AX 读取、窗口截图、启动事实全部只读。
+  // 不调用 input（activate/key/click/type），不重启、不切换；窗口/AX 不可得时只记录缺失原因。
+  observeFailureScene() {
+    const observation = { at: this.nowIso(), startup: this.observeStartup("failure") };
+    let nodes = null;
+    try {
+      nodes = this.dumpNodes();
+    } catch (error) {
+      observation.ax = { ok: false, reason: error.message };
+    }
+    if (nodes) {
+      const hasAxWindow = nodes.some((node) => node.role === "AXWindow");
+      const hasAxWebArea = nodes.some((node) => node.role === "AXWebArea");
+      observation.ax = {
+        ok: true,
+        node_count: nodes.length,
+        main_window: this.mainWindowDump(nodes),
+        has_ax_window: hasAxWindow,
+        has_ax_web_area: hasAxWebArea,
+      };
+      try {
+        writeAX(nodes, path.join(this.dir, "failure.ax.txt"), this.APP);
+        fs.writeFileSync(path.join(this.dir, "failure.text.txt"), this.axText(nodes));
+      } catch (error) {
+        observation.ax.evidence_write_error = error.message;
+      }
+    }
+    try {
+      observation.screenshot = this.screenshotSafe(path.join(this.dir, "failure.jpg"), {
+        allowFullScreenFallback: false,
+      });
+    } catch (error) {
+      observation.screenshot = { ok: false, reason: error.message };
+    }
+    return observation;
+  }
+
   async fail(error) {
     this.failing = true;
+    let observation;
     try {
-      const nodes = this.dumpNodes();
-      writeAX(nodes, path.join(this.dir, "failure.ax.txt"), this.APP);
-      fs.writeFileSync(path.join(this.dir, "failure.text.txt"), this.axText(nodes));
-      this.screenshotSafe(path.join(this.dir, "failure.jpg"));
-    } catch {
-      /* app may be gone */
+      observation = this.observeFailureScene();
+    } catch (captureError) {
+      observation = { at: this.nowIso(), error: captureError.message };
     }
-    if (!fs.existsSync(path.join(this.dir, "failure.json"))) {
-      this.writeJson("failure.json", {
-        at: this.nowIso(),
-        phase: this.phase,
-        driver: "ax-native-system-ui",
-        reason: error.message,
-        stack: String(error.stack ?? "").split("\n").slice(0, 6),
-        captures: this.captures,
-        log_tail: this.log.slice(-14),
-      });
+    // failure.json 可能已由监督进程先写；观测单独落盘，保证原因不因竞态丢失。
+    try {
+      this.writeJson("failure-observation.json", observation);
+    } catch (writeError) {
+      this.log.push({ op: "failure_observation_write_failed", error: writeError.message, at: this.nowIso() });
+    }
+    try {
+      if (!fs.existsSync(path.join(this.dir, "failure.json"))) {
+        this.writeJson("failure.json", {
+          at: this.nowIso(),
+          phase: this.phase,
+          driver: "ax-native-system-ui",
+          input_target: this.target,
+          reason: error.message,
+          stack: String(error.stack ?? "").split("\n").slice(0, 6),
+          observation,
+          captures: this.captures,
+          log_tail: this.log.slice(-14),
+        });
+      }
+    } catch (writeError) {
+      this.log.push({ op: "failure_json_write_failed", error: writeError.message, at: this.nowIso() });
     }
     console.error(error);
     process.exitCode = 1;

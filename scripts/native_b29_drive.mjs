@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 import {
   appPid,
   activate,
+  bindRunningTarget,
+  buildTarget,
   click,
   clickAt,
   dump,
@@ -33,7 +35,7 @@ if (!dir) {
   process.exit(64);
 }
 const ready = readJson(path.join(dir, "native-driver-ready.json"));
-const APP = ready.bundle_identifier;
+let APP = buildTarget(ready, dir);
 const PROVIDER = ready.provider ?? "slice_verify";
 const STRATA = PROVIDER === "strata";
 // 分型预算：确定性 provider 用默认预算；真实模型按 B37 strata 预算（input120/turn360/candidate300/adoption180/maintenance300/restore30）。
@@ -324,6 +326,7 @@ async function rawLaunchApp() {
     await sleep(400);
   }
   if (!appPid(APP)) throw new Error("native_app_did_not_launch");
+  APP = bindRunningTarget(APP);
   activate(APP);
 }
 
@@ -384,10 +387,11 @@ async function rawCloseAppAndRelaunch(label) {
   const deadline = Date.now() + 12_000;
   while (Date.now() < deadline) {
     checkSupervisor();
-    if (appPid(APP)) break;
+    if (appPid({ ...APP, pid: null })) break;
     await sleep(300);
   }
-  if (!appPid(APP)) throw new Error("native_app_did_not_relaunch");
+  if (!appPid({ ...APP, pid: null })) throw new Error("native_app_did_not_relaunch");
+  APP = bindRunningTarget(APP, { relaunch: true });
   activate(APP);
 }
 

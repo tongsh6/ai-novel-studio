@@ -4,16 +4,41 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { appPid, waitForApp, dump, writeAX, screenshot, textOf, findByText, click, typeText, pressKey, activate, waitUntil, sleep, jsonWrite, readJson } from "./driver.mjs";
+import {
+  bindTarget,
+  buildTarget,
+  click,
+  composerExpectation,
+  dump,
+  inputBoundary,
+  readJson,
+  screenshot,
+  sleep,
+  targetResolution,
+  textOf,
+  waitUntil,
+  writeAX,
+} from "./driver.mjs";
 
 export const APP = "AI Novel Studio";
 
-export function launchApp(batchDir, { appName = APP, timeoutMs = 120_000 } = {}) {
+// 批次入口必须从 ready 构造本批 target，启动后绑定实际 PID；不再按名字找 app。
+export function launchApp(batchDir, { timeoutMs = 120_000 } = {}) {
   const ready = readJson(path.join(batchDir, "native-driver-ready.json"));
-  execFileSync("open", [ready.app_path]);
-  if (!waitForApp(appName, timeoutMs)) throw new Error("native_app_did_not_launch");
-  activate(appName);
-  return ready;
+  const base = buildTarget(ready, batchDir);
+  execFileSync("open", [base.app_path]);
+  const deadline = Date.now() + timeoutMs;
+  let resolution = null;
+  while (Date.now() < deadline) {
+    resolution = targetResolution({ ...base, pid: null });
+    if (resolution.ok) break;
+    if (resolution.reason !== "target_not_running") throw new Error(`target_resolution_failed:${resolution.reason}`);
+    execFileSync("sleep", ["0.5"]);
+  }
+  if (!resolution?.ok) throw new Error("native_app_did_not_launch");
+  const target = bindTarget(base, resolution);
+  inputBoundary(target).activate();
+  return target;
 }
 
 export async function waitWorkbench(appName = APP, timeoutMs = 180_000) {
@@ -41,17 +66,22 @@ export function composer(appName = APP) {
   return nodes.find((n) => n.role === "AXTextField" && String(n.desc ?? "").includes("输入"));
 }
 
-// 从可见主输入发送一条消息（唯一一次由调用方保证）。
-export async function sendMessage(appName, text) {
-  const field = composer(appName);
+// 从可见主输入发送一条消息（唯一一次由调用方保证）。target 必须是 launchApp 绑定结果。
+export async function sendMessage(target, text) {
+  if (!target || typeof target !== "object") throw new Error("unowned_input_target");
+  const boundary = inputBoundary(target);
+  const field = composer(target);
   if (!field) throw new Error("composer_not_found");
-  click(field, appName);
+  const expected = composerExpectation(field);
+  boundary.click(field.path);
+  boundary.focus(field.path, expected);
   await sleep(400);
-  typeText(appName, text);
+  boundary.type(text, expected);
   await sleep(800);
-  const nodes = dump(appName);
+  const nodes = dump(target);
   const send = nodes.find((n) => n.role === "AXButton" && textOf(n).includes("发送"));
-  if (send) click(send, appName); else pressKey(appName, "return");
+  if (send) boundary.click(send.path);
+  else boundary.key("return", { focusRequired: true, expected });
   await sleep(800);
 }
 
@@ -75,45 +105,45 @@ export function archiveOpen(nodes) {
   return nodes.some((n) => textOf(n).includes("关闭档案"));
 }
 
-export async function openArchive(appName = APP, timeoutMs = 30_000) {
-  let nodes = dump(appName);
+export async function openArchive(target, timeoutMs = 30_000) {
+  let nodes = dump(target);
   if (!archiveOpen(nodes)) {
     const button = findByText(nodes, "打开档案", { role: "AXButton" });
     if (!button) throw new Error("archive_button_not_found");
-    click(button, appName);
-    nodes = await waitUntil(appName, (ns) => archiveOpen(ns), timeoutMs, "archive_open");
+    click(button, target);
+    nodes = await waitUntil(target, (ns) => archiveOpen(ns), timeoutMs, "archive_open");
   }
   return nodes;
 }
 
-export async function closeArchive(appName = APP) {
-  const nodes = dump(appName);
+export async function closeArchive(target) {
+  const nodes = dump(target);
   const button = findByText(nodes, "关闭档案", { role: "AXButton" }) ?? findByText(nodes, "关闭档案");
-  if (button) click(button, appName);
+  if (button) click(button, target);
   await sleep(600);
 }
 
-export async function openArchiveTab(appName, tabName) {
-  const nodes = await openArchive(appName);
+export async function openArchiveTab(target, tabName) {
+  const nodes = await openArchive(target);
   const tab = findByText(nodes, tabName);
   if (!tab) throw new Error(`archive_tab_not_found: ${tabName}`);
-  click(tab, appName);
+  click(tab, target);
   await sleep(800);
-  return dump(appName);
+  return dump(target);
 }
 
-export async function openReading(appName = APP) {
-  let nodes = dump(appName);
+export async function openReading(target) {
+  const nodes = dump(target);
   const button = findByText(nodes, "阅读", { role: "AXButton" });
   if (!button) throw new Error("reading_button_not_found");
-  click(button, appName);
-  return waitUntil(appName, (ns) => flatText(ns).includes("阅读模式"), 30_000, "reading_open");
+  click(button, target);
+  return waitUntil(target, (ns) => flatText(ns).includes("阅读模式"), 30_000, "reading_open");
 }
 
-export async function closeReading(appName = APP) {
-  const nodes = dump(appName);
+export async function closeReading(target) {
+  const nodes = dump(target);
   const back = findByText(nodes, "返回工作台");
-  if (back) click(back, appName);
+  if (back) click(back, target);
   await sleep(600);
 }
 

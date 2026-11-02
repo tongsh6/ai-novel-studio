@@ -9,15 +9,18 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import {
-  CUA,
   Step,
   activate,
   appPid,
+  bindRunningTarget,
+  buildTarget,
   click,
   clickAt,
   dump,
   dumpAll,
+  focus,
   pressKey,
+  setValue,
   readJson,
   screenshot,
   sleep,
@@ -35,7 +38,7 @@ if (!dir) {
   process.exit(64);
 }
 const ready = readJson(path.join(dir, "native-driver-ready.json"));
-const APP = ready.bundle_identifier;
+let APP = buildTarget(ready, dir);
 if (ready.provider !== "strata") throw new Error(`P1 真实模型批次 provider 必须是 strata，实测: ${ready.provider}`);
 const EVIDENCE = path.join(ROOT, "scripts/native_p1_evidence.mjs");
 const DB_FILE = path.join(dir, "database", "ai_novel_studio_test.sqlite3");
@@ -378,6 +381,7 @@ async function rawLaunchApp() {
     await sleep(400);
   }
   if (!appPid(APP)) throw new Error("native_app_did_not_launch");
+  APP = bindRunningTarget(APP);
   activate(APP);
 }
 
@@ -456,11 +460,12 @@ async function rawCloseAppAndRelaunch() {
   const deadline = Date.now() + 12_000;
   while (Date.now() < deadline) {
     checkSupervisor();
-    if (appPid(APP)) break;
+    if (appPid({ ...APP, pid: null })) break;
     await sleep(300);
   }
-  const newPid = appPid(APP);
-  if (!newPid) throw new Error("native_app_did_not_relaunch");
+  if (!appPid({ ...APP, pid: null })) throw new Error("native_app_did_not_relaunch");
+  APP = bindRunningTarget(APP, { relaunch: true });
+  const newPid = APP.pid;
   activate(APP);
   const entry = { op: "restore", label: "real_restart", at: nowIso(), old_pid: oldPid, new_pid: newPid, cleanup };
   log.push(entry);
@@ -914,14 +919,6 @@ const CHOOSE_BUTTON = /^(Open|选择|选取|打开|Select)$/i;
 const CANCEL_BUTTON = /^(Cancel|取消)$/i;
 const PANEL_MARKER = /选择导出目录|请选择保存导出文件的文件夹|New Folder|Cancel|Open/;
 
-function cuaCommand(args) {
-  try {
-    return JSON.parse(execFileSync(CUA, args, { encoding: "utf8" }).trim());
-  } catch (error) {
-    return { error: String(error.message ?? error) };
-  }
-}
-
 function writeDialogEvidence(name, nodes) {
   writeAllNodesAX(nodes, path.join(dir, `${name}.ax.txt`));
   fs.writeFileSync(path.join(dir, `${name}.text.txt`), axText(nodes));
@@ -948,8 +945,8 @@ async function navigatePanelToDirectory(exportDir) {
       await sleep(500);
       continue;
     }
-    const setResult = cuaCommand(["set", APP, field.path, exportDir]);
-    const focusResult = cuaCommand(["focus", APP, field.path]);
+    const setResult = setValue(APP, field.path, exportDir);
+    const focusResult = focus({ path: field.path, role: field.role }, APP);
     log.push({ op: "export_goto_set", attempt, field_path: field.path, set: setResult, focus: focusResult });
     await sleep(300);
     pressKey(APP, "return");
