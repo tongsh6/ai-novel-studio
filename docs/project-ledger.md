@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-03 **B71 CP4b-2 实模 usage/缓存观察 + G6 状态收口**：实模批次 03 的 9 次真实调用统计——input 281,482 / output 6,116 / **cached 99,591（≈35.4%，最高单次 52,392）**、latency 4.1–63.5s、ttft 全 null（未走流式）；原生多轮请求确有 provider 前缀缓存收益，但只作观察、不设阈值/不作 PASS 判据（VS-00L §6.5）。G6 压缩后的机制层已有确定性测试（checkpoint covers/refs 进入投影、作者原话字节不变 + transcript_compaction 端到端），真实请求因压缩前端未实现而**未触发、不代签**。
+
 > 2026-11-03 **B71 CP3b G1–G4 真实请求字节切片证据**：新增离线分析脚本（6 项测试）对实模批次 03 的 9 条真实请求做 VS-00L §7 切片：追加式前缀全部通过；G1 首轮结构（system×2 → application_base → 独立 author → scope_update）、G2 观察后（唯一 call_id 36/36 绑定 tool result，回放去重）、G3 校验失败后（failed validation 作为 tool result 回流）、G4 候选后（submit_tentative_artifact ×2 + report_quality_findings）均成立；G5/G6 未触发明确不代签。这是对既有真实证据的离线分析，不是新批次。
 
 > 2026-11-03 **B71 §16.14 工具确认/拒绝原生驱动就绪（批次被锁屏阻塞）**：实现 `native_b71_confirmation_drive.mjs` + C1–C11 判据（unknown/证据缺失不 PASS）+ batch confirm/reject 分支，Node 849/849；按真实产品结构修正口径——确认是**同一 AgentRun 续行**（源运行在线时由其 AgentRunServer 串行交接，trigger 重绑本次 receipt/behavior/author、active_behavior_ref 清空），非新 run id。只读环境探测：前台为 `com.apple.loginwindow`（macOS 锁屏），未启动批次；同一条件阻塞行为覆盖 01c/#6 与 CP4b-2 实模。解锁后按批签发确认/拒绝/行为覆盖批次。完整 B71 仍未 done。

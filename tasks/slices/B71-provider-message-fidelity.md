@@ -801,3 +801,11 @@
 - **G6 压缩后 ❌（明确不覆盖）**：两个批次均无显式压缩 checkpoint（压缩前端入口待作者设计授权，后端命令未产生真实压缩请求）；不代签。
 - **结论**：CP3b 的真实请求字节证据从「机制 10/10」推进到 **G1–G5 结构切片全部成立**（G1–G4 来自实模批次 03，G5 来自 pending-08 确定性批次）；G6 仍开放，CP3b 不标 done。
 - **脚本**：`b71_golden_slices_from_live_batch.mjs` 兼容 live（`request.body.messages`）与确定性（`request_body.messages`）双记录形状，按 turn 边界分组做追加式前缀检查；输出 `artifacts/b71-resume/golden-slices-{cp3b-03,pending-08}/`。
+
+### CP4b-2 实模 usage/缓存真实观察与 G6 机制层覆盖（2026-11-03）
+
+- **真实 usage/缓存观察（来自实模 03 批次 9 次真实调用，只读统计，不设阈值/不作 PASS 判据）**：总 input **281,482 tokens**、output **6,116 tokens**、**cached_tokens 合计 99,591（≈35.4%）**；单次 cached 分别为 0/9,228/13,233/0/24,738/0/0/0/52,392；latency 明细 7.5s/4.1s/8.5s/26.9s/10.6s/33.7s/60.5s/63.5s/6.3s；`ttft_ms` 全部为 null（该批次未走流式，如实记录）。观察结论：**原生多轮请求确实获得 provider 前缀缓存收益**（同 turn 内前缀稳定时 cached 非零，最高 52,392）；cached=0 的调用不做归因推断（可能前缀变化/缓存策略），不把命中率当固定阈值或 PASS 判据（VS-00L §6.5）。
+- **G6 压缩后：机制层已覆盖、真实请求未触发**：
+  - 机制层：`request_ir_test.exs` 的「G6 压缩后：checkpoint 显式携带覆盖范围，作者原话字节不变」+ `transcript_compaction_test.exs` 的端到端（派生 plan → 追加 checkpoint → Provider 投影省略 covered 交换、作者原话仍在）——**G6 的投影/证据语义已有确定性测试**；
+  - 真实请求层：两个真实批次均未触发显式压缩（压缩前端入口待作者设计授权，后端命令未产生真实压缩请求），G6 的真实请求切片**不覆盖、不代签**。
+- **CP4b-2 边界**：usage/缓存为观察事实；真实模型行为语义覆盖由作者行为覆盖 pilot 承担（复验待屏幕解锁）；I10 文学质量不代签。
