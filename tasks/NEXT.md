@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B71-CP4b | 确定性部分已收口（能力事实/流式工具/Responses 传输、显式压缩派生、确认交接与架构解耦、全量门禁）；剩余：pending-02 原生批次与确认/拒绝原生页面、压缩前端设计授权、实模 CP3b/CP4b-2、CP5 最终收口 | [B71](slices/B71-provider-message-fidelity.md) |
+| B71-CP4b | 确定性+原生核心已收口（能力事实/流式工具/Responses 传输/显式压缩派生/确认交接/架构解耦；pending 08 原生 77/77；CP3b 实模协议层机制 10/10 PASS）；剩余：§16.14 确认/拒绝原生页面（驱动实现中）、作者行为覆盖 pilot 复验（需屏幕解锁）、压缩前端设计授权、CP4b-2 实模行为/缓存/usage、CP5 最终收口 | [B71](slices/B71-provider-message-fidelity.md) |
 
 ## 后续候选
 

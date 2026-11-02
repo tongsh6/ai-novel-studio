@@ -1,6 +1,6 @@
 # B71：AI Novel Studio 原生多轮创作请求体
 
-- 状态：**doing（2026-11-02 CP3a/CP3c/CP4a done；CP4b 私有历史/结果事务局部门禁通过；CP3b 实模窗口 blocked；CP4b/CP5 未闭环）**。
+- 状态：**doing（2026-11-03 更新：CP2/CP3a/CP3c/CP4a done；CP3b 实模协议层 PASS（机制 10/10，真实模型创作链）；CP4b 确定性实现与核心验收完成——能力事实单一来源/SSE 工具调用/Responses 传输/显式压缩派生与 Channel 消费者/§16.14 确认交接与两个真实缺陷修复/私有历史/逐调用引用/继承性 compile 环解耦；pending 对话修订原生 08 批次 77/77 PASS。未闭环：§16.14 工具确认/拒绝原生页面、作者行为覆盖 pilot 复验（B70/B72 已接入实现，01b 因 macOS 锁屏环境失败）、压缩前端入口（待作者设计授权）、CP4b-2 实模行为/缓存/usage、CP5 最终收口）**。
 - 来源：作者先要求对照 Codex、Claude Code、dsh 的真实多轮请求，随后明确“设计一个优秀、符合项目调性的请求体，不为现状妥协”。本文件已据此替换此前偏向现役最小修补的方案。
 - 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)；目标方向与迁移规则已由 [ADR-0033](../../docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) Accepted（2026-10-31）；替换契约 [VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 已 Frozen，首个判断消费者已完成 canonical 原生多轮接线，其余消费者与完整迁移归 CP4。
 - 对账输入：[B26](B26-single-call-judgment-protocol.md)、[B39](B39-evidence-seeking-authoring.md)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md)、[VS-00I](../../docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md)、[UA-01](../../docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md)。它们是迁移事实与可能需要修订的决策，不是降低目标设计的约束。
@@ -100,6 +100,7 @@
 - 缓存比较按同调用点真实请求和 cached_tokens/TTFT，不把历史命中数当固定阈值，也不为缓存牺牲目标消息语义。
 - 外部脱敏样本位于 `artifacts/client-http-bodies/`；项目对照证据位于 `log/llm-calls/stage/2026-10-29.jsonl` 第 8–9 行。它们只证明协议差距，不是目标实现。
 - 恢复时先读 Provider §26、本任务及 CP1 产生的目标 contract pack，再核对 ADR-0030/0031、UA-01 和 VS-00I 的处置；不得从上一版保守分析推断单调用或 giant prompt 仍是目标。
+- **2026-11-03 恢复入口（当前）**：已提交并 push 的关键提交——`c3a1ce64` 能力事实源/流式/Responses；`cd52359f` 压缩+确认交接+旧同步支路退役；`7ab80d4f` web 消费者；`dde97619`/`954cf79f` 原生读侧与批次记录；`78739d01` CP5 契约/索引/台账；`74fe6b63` pending-08 最终源码 PASS；`e79032cd` CP3b 实模协议层 PASS；`f0f07956`/`75b4ec2e` B70 行为覆盖接入与 HO4 修复；`94efb842` 行为覆盖 pilot 记录。剩余工作的直接入口：① §16.14 确认页面——设计稿 `artifacts/b71-resume/confirmation-native-scenario-plan.md`，实现后等屏幕解锁由 Lead 逐批签发；② 作者行为覆盖——预注册 `behavior-pilot-preregistration-01*.json`（01 判据误报作废、01b 锁屏环境失败），屏幕可用后签发 01c + `C-F3-002`；③ 压缩前端——需作者批准 UI 设计增补（UI 46 §9.7 冻结槽位/Pencil 无帧/UI 47 无文案），未授权前不实现；④ CP4b-2 实模行为/缓存/usage——在 CP3b 协议层证据基础上按预注册单列；⑤ CP5 最终收口——随剩余项完成更新 §17/ADR/台账并复跑全量扫描。
 
 ### CP1 裁决与迁移记录（2026-10-31，作者选 A）
 
