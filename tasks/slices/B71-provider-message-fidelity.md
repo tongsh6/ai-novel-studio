@@ -788,3 +788,14 @@
 - **口径修正（按真实产品结构）**：确认不是新 run id，而是**同一 AgentRun 续行**（源运行在线时由 AgentRunServer 串行处理交接，trigger 重绑本次 receipt/behavior/author、`active_behavior_ref` 清空，子运行在提交后接管）；判据 C3 按真实结构验证并标注，若要求严格新 run id 属产品变更、不在本场景代签。确认场景用确定性 `slice_verify`（无 strata 单槽）。
 - **环境阻塞**：只读探测当前前台为 `com.apple.loginwindow`（pid 171，**macOS 屏幕锁定**），不可交互 → 未启动任何批次。同一条件同时阻塞：§16.14 确认/拒绝原生批次、作者行为覆盖 01c/#6 复验、CP4b-2 实模批次。
 - **解锁后的签发顺序（预注册提案已就绪）**：① `cp4b-confirmation-01-confirm`（C1–C11，C6 not_applicable）；② `cp4b-confirmation-02-reject`（C6 零副作用为主）；③ 行为覆盖 `cp4b-behavior-01c-cf1003` + `cp4b-behavior-02-cf3002`；④ 视需要 CP4b-2 实模行为/缓存补充批。全部 1 批/0 重试/1800s、窗口安静、新目录不存在、卸载/cleanup 核验。
+
+### CP3b G1–G4 真实请求字节切片证据（2026-11-03，离线分析，非新批次）
+
+- **方法与边界**：新增 `scripts/b71_golden_slices_from_live_batch.mjs`（+6 项测试），只读取已验证实模批次 03 的 `llm-calls` 原始请求记录做 VS-00L §7 切片分析；不重跑、不改写原证据、不代签模型语义。报告 `artifacts/b71-resume/golden-slices-cp3b-03/live-golden-slices.{json,md}`。
+- **请求序列事实**：9 条真实请求、追加式前缀**全部通过**（#0→#8 逐条前缀严格相等，仅追加）；阶段工具目录在 #3 起从 7 工具切换为 1 工具（阶段投影）。
+- **G1 首轮 ✅**：每条请求均为 `system ×2 → application_base（带【应用数据·application_base·非作者原话】header）→ 独立 author user → scope_update`；application_base 在 author 之前；作者原话字节独立（sha256 记录）。
+- **G2 观察后 ✅**：唯一 call_id 36 个全部在其后续请求的 tool result 中按 `tool_call_id` 出现（回放出现在后续请求是追加式 transcript 的真实字节，按唯一 id 去重判定；回放总出现次数单独记录）。
+- **G3 校验失败后 ✅**：后续请求中存在 `status=failed` 的 validation_result 作为原生 tool result 回流（requests #4–#8）。
+- **G4 候选后 ✅**：真实模型发出 `submit_tentative_artifact`（2 次）与 `report_quality_findings`，均为创作/质量原生工具。
+- **G5/G6 未覆盖（明确不代签）**：本批次未触发作者采纳/拒绝边界与显式压缩 checkpoint；分别由行为覆盖/§16.14 批次与压缩消费者场景承接。
+- **结论**：CP3b 的真实模型证据从「机制 10/10」推进到「机制 + G1–G4 切片均成立」；G5/G6 仍开放，CP3b 不标 done。

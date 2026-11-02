@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-03 **B71 CP3b G1–G4 真实请求字节切片证据**：新增离线分析脚本（6 项测试）对实模批次 03 的 9 条真实请求做 VS-00L §7 切片：追加式前缀全部通过；G1 首轮结构（system×2 → application_base → 独立 author → scope_update）、G2 观察后（唯一 call_id 36/36 绑定 tool result，回放去重）、G3 校验失败后（failed validation 作为 tool result 回流）、G4 候选后（submit_tentative_artifact ×2 + report_quality_findings）均成立；G5/G6 未触发明确不代签。这是对既有真实证据的离线分析，不是新批次。
+
 > 2026-11-03 **B71 §16.14 工具确认/拒绝原生驱动就绪（批次被锁屏阻塞）**：实现 `native_b71_confirmation_drive.mjs` + C1–C11 判据（unknown/证据缺失不 PASS）+ batch confirm/reject 分支，Node 849/849；按真实产品结构修正口径——确认是**同一 AgentRun 续行**（源运行在线时由其 AgentRunServer 串行交接，trigger 重绑本次 receipt/behavior/author、active_behavior_ref 清空），非新 run id。只读环境探测：前台为 `com.apple.loginwindow`（macOS 锁屏），未启动批次；同一条件阻塞行为覆盖 01c/#6 与 CP4b-2 实模。解锁后按批签发确认/拒绝/行为覆盖批次。完整 B71 仍未 done。
 
 > 2026-11-03 **B71 作者行为覆盖接入（B70/B72）与 pilot 首批**：按作者指出「实模未复用 B70/B72 能力」的缺口，实现冻结 case 选择器 + oracle(HO1–HO6) 判据 + behavior 驱动（Node 840/840），B72 保持 blocked 仅离线产候选。pilot #1（C-F1-003 holdout 零写）：驱动 PASS、**真实模型行为合法**（正确进度 52 字符=DB、零候选、遵守先别动手），runner 仅因 HO4 判据误报 FAIL（已修+证据副本复算 PASS）；复验批 01b 因 **macOS 锁屏**（loginwindow 前台）输入驱动失败、未触达产品/模型，按纪律不重跑。行为覆盖不标 done，待环境可用后复验；协议层实模 03 PASS 与行为覆盖分列。
