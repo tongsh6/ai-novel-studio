@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B71-CP4b | 补齐逐调用请求/响应绑定与工具确认入口，完成修订真实 Tauri 验收；能力、流式、压缩与实模继续按原任务收口 | [B71](slices/B71-provider-message-fidelity.md) |
+| B71-CP4b | 确定性部分已收口（能力事实/流式工具/Responses 传输、显式压缩派生、确认交接与架构解耦、全量门禁）；剩余：pending-02 原生批次与确认/拒绝原生页面、压缩前端设计授权、实模 CP3b/CP4b-2、CP5 最终收口 | [B71](slices/B71-provider-message-fidelity.md) |
 
 ## 后续候选
 

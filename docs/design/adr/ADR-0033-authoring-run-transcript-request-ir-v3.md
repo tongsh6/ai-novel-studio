@@ -1,6 +1,7 @@
 # ADR-0033：Authoring Run Transcript 与 Request IR——统一 AgentRun 的原生多轮创作会话
 
-- 状态：**Accepted（2026-10-31，作者在 B71 CP1 选择 A：按目标协议正式修订/supersede 现役协议；当前仅冻结目标方向与迁移规则，实施和替换契约未闭环）**
+- 状态：**Accepted（2026-10-31，作者在 B71 CP1 选择 A：按目标协议正式修订/supersede 现役协议）。实施进展（2026-11-03）：CP2 IR/投影/能力门槛、CP3a/CP3c 首个判断消费者与原生成、CP4a 创作/质量迁移、CP4b 规划/使命/修订/质量/确认交接/私有历史/逐调用引用/能力事实单一来源/显式压缩派生已完成确定性实现与验收；CP3b 实模与压缩前端设计授权、CP5 最终收口仍未闭环，真实模型行为不代签。**
+- 实施状态真源：`tasks/slices/B71-provider-message-fidelity.md`；契约状态更新见 [VS-00L §17](../contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md#17-实施状态更新2026-11-03)。
 - 日期：2026-10-31
 - 来源文档：
   - `../foundation/08-provider-abstraction.md` §26

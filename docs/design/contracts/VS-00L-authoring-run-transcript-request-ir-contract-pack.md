@@ -479,3 +479,42 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 - 确认子 run 重新读取当前上下文并经过 Orchestrator；通过后调用已有 TurnExecutionService/AuthoringSession 主链，保留真实预算、pcall/prun、原生 writer/quality 交换及持久历史。新 IR 只引入有来源的作者原消息和本次应用范围/作者动作事实，不回放旧 assistant/tool 执行，不把确认按钮文案伪装成作者原话，也不添加固定作品知识 packet。
 - 拒绝子 run 只处理作者决定，Provider/工具/canon 消耗为零。确认被当前 gate 阻止、工具失败和交付失败均有真实子结果与 trace，不只返回一个“已确认”ACK。Frontend 继续消费既有动作回执和运行事实，不猜运行状态。
 - 首个验收消费者为当前 WorkspaceChannel 的真实非采纳确认入口：覆盖确认/拒绝、两 Channel 竞争与重传、持久写入失败、离线来源、源子身份、调用与字节、当前上下文 re-gate、恢复/Why 和原生页面；局部测试不关闭整项范围。
+
+## 16.15 传输能力事实的落地细化（2026-11-03，CP4b 实施约束）
+
+- **单一派生边界**：`NovelAgent.Provider.CapabilityProfile` 是能力事实唯一派生点；事实来源是 adapter 的 `capabilities/1` 与 `projection_target/1`（按实际 route/state 派生），provider descriptor 只提供配置/UI 属性；adapter 未声明一律视为不可证，禁止默认置 true。必备清单唯一来自 `RequestIR.required_capabilities/0`，不得复制。
+- **身份比对优先**：IR 投影时写入构造 route 身份（provider/model/projection_target）；执行边界先比对身份——一致则信任已携带的能力事实、不再派生、不重复判缺失；仅当 purpose/route_hint 使执行 route 与构造 route 不同（真实变化点）时才按实际 route 重新派生并校验。无法比对身份的请求不进入该门槛。
+- **有限模式必须覆盖缺失项**：`finite_mode` 只有其受限集合覆盖每一个 missing 能力时才放行；`standalone_operation` 等不声明覆盖集合的模式不能绕过门槛（§6.4「显式有限模式」的落地语义）。
+- **流式工具调用无损**：SSE 响应中的原生 tool_calls 必须按 provider 协议累积（OpenAI `tool_calls[].index`；Anthropic `content_block_start(tool_use)` + `input_json_delta.partial_json`），保留 arguments 原始字节（`raw_arguments`）并复用非流式解析；带工具调用的流不得被误判为空响应。
+- **Responses 传输**：wire 目标由 adapter 声明；`wire_api: :responses` 走真实 `POST /responses` 与 items/function_call/function_call_output/usage 解析。Responses SSE 未实现时该 wire 必须如实声明 `streaming: false`，完整 AgentRun（必备能力含 streaming）被显式拒绝路由，不得静默降级。
+- **作者安全**：能力拒绝文案只输出中文能力名；内部 capability atom 仅出现在 reason details/诊断，不进入作者文案。
+
+## 16.16 显式压缩的产品触发（2026-11-03，CP4b 实施约束）
+
+- **触发者是作者**：显式压缩由作者动作经真实入口触发（`WorkspaceChannel` 的 `agent_command: compact_transcript`），只在无执行中任务的安全点受理；不按消息数/字符数/上下文规模自动触发，不引入隐式压缩触发器。
+- **命令只表达意图**：public 入口收敛为 `compact_transcript(run_id)`；`covers.call_ids`、source_refs、versions、摘要与省略说明全部由 application 的 `TranscriptCompaction.plan/1` 从 canonical 事实确定性派生（当前全部「未覆盖且已闭合」的完整工具交换），不调用模型；调用方不能传入或伪造压缩内容。
+- **持久与回执**：先经既有 durable checkpoint 提交边界持久化，成功后才推进内存并回报；回执只含作者可见的整理项数、摘要、省略说明与来源显示名，不含 call_id/ref 原值/版本/canonical 内容。无剩余交换时返回幂等 `nothing_to_compact`，不是错误。
+
+## 16.17 验收分层与实现记录（2026-11-03）
+
+- 机制层（确定性 adapter/投影/流式/压缩派生/确认交接测试）、页面层（真实 Tauri 外部自动化）、模型行为层（实模）必须分别报告；本节记录实现状态，不代签未执行的层级。
+- 非采纳确认交接的验收覆盖：确认/拒绝、两 Channel 竞争与重传、持久写入失败不启动、离线与已终态 source、源子身份、作者字节与应用范围、当前上下文 re-gate、恢复/Why、拒绝零 Provider；证据见 `tasks/slices/B71-provider-message-fidelity.md` 的 CP4b 收口记录与 `artifacts/b71-resume/worker-confirmation-acceptance-report.md`。
+- 显式压缩的前端入口存在真实设计缺口（UI 46 §9.7 冻结两槽位、Pencil 原型无对应帧、UI 47 无文案模板且禁作者界面出现 checkpoint 字样），在作者设计授权前不实现，不自行发明 UI。
+
+## 17. 实施状态更新（2026-11-03）
+
+§10 表格的当前状态（CP4b 确定性收口后；实模与页面级证据仍按分层单列）：
+
+| 未实现/未验后果 | 当前状态 |
+|---|---|
+| IR struct、投影实现、能力门槛代码 | **已实现**（CP2；CP4b 补齐能力事实单一来源/身份比对/finite_mode 覆盖/作者安全拒绝文案） |
+| 首个创作 AgentRun 原生多轮与观察回流 | **确定性原生页面已通过**（CP3c/CP4a/callrefs-07/pending 系列）；实模（CP3b）仍待 |
+| 压缩恢复、规划/修订/质量、replay/Why | 规划/修订/质量/压缩派生/确认交接**已实现并有确定性验收**；压缩前端入口待设计授权；实模仍待 |
+| ADR-0030/0031 Superseded 与索引/任务重锚 | 已完成（CP1 复核后执行） |
+| giant prompt/`normalize_messages`/固定 packet 实际退役 | 生产判断/创作/质量链已不使用 giant prompt 构造；`RequestIR.from_legacy` 迁移适配器已删除（§11 要求）；`normalize_messages/1` 保留为 provider wire 形状规范化，不是双轨 |
+| 三类 provider 的有限模式/拒绝路由反例 | **已实现**（能力矩阵 + finite_mode 覆盖校验 + Responses 无 SSE 时拒绝路由；单测覆盖） |
+| Responses 投影的生产消费者 | **仍开放**：`RequestIR.Projection.ResponsesAPI` 只有 golden 消费者；`wire_api: :responses` 在 adapter 内从 chat 形状转换，IR 投影目标暂由默认 route 决定 |
+| Responses 流式 SSE | **仍开放**：该 wire 声明 `streaming: false`，完整 AgentRun 显式拒绝路由 |
+| purpose/model 级能力差异 | **过渡态**：构造侧用默认 route 近似、执行边界按身份比对权威校验；下一步由调用方把 purpose/route_hint 传入 `capability_profile/2` |
+| 实模 CP3b/CP4b-2（真实模型行为/缓存/usage） | **未执行**（作者已授权，按预注册单独批次；不代签） |
+| CP5 收口与全量静态扫描 | 进行中 |
