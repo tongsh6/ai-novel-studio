@@ -508,7 +508,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 | 未实现/未验后果 | 当前状态 |
 |---|---|
 | IR struct、投影实现、能力门槛代码 | **已实现**（CP2；CP4b 补齐能力事实单一来源/身份比对/finite_mode 覆盖/作者安全拒绝文案） |
-| 首个创作 AgentRun 原生多轮与观察回流 | **确定性原生页面已通过**（CP3c/CP4a/callrefs-07/pending 系列）；实模（CP3b）仍待 |
+| 首个创作 AgentRun 原生多轮与观察回流 | **确定性原生页面已通过**（CP3c/CP4a/callrefs-07/pending 系列）；**实模 CP3b 协议层机制 PASS + G1–G4 真实切片已覆盖**（见下一行），G5 由确定性批次请求字节覆盖、G6 未触发 |
 | 压缩恢复、规划/修订/质量、replay/Why | 规划/修订/质量/压缩派生/确认交接**已实现并有确定性验收**；压缩前端入口待设计授权；实模仍待 |
 | ADR-0030/0031 Superseded 与索引/任务重锚 | 已完成（CP1 复核后执行） |
 | giant prompt/`normalize_messages`/固定 packet 实际退役 | 生产判断/创作/质量链已不使用 giant prompt 构造；`RequestIR.from_legacy` 迁移适配器已删除（§11 要求）；`normalize_messages/1` 保留为 provider wire 形状规范化，不是双轨 |
