@@ -80,8 +80,7 @@ defmodule NovelApplication.DialogueGatewayTest do
           receipt_id: "receipt-behavior-open",
           action_input: input,
           source_turn_result: source_turn_result,
-          behavior:
-            NovelDomain.BehaviorState.from_map(source_turn_result.behavior_state.active),
+          behavior: NovelDomain.BehaviorState.from_map(source_turn_result.behavior_state.active),
           author_turn_ref: "author-turn-behavior-open",
           author_text: "取消"
         })

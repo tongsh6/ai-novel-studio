@@ -706,7 +706,8 @@ defmodule NovelApplication.DialogueGateway do
       map_field(source_turn_result, :current_work_id) || map_field(source_turn_result, :work_id)
 
     session_id =
-      map_field(source_turn_result, :current_session_id) || map_field(source_turn_result, :session_id)
+      map_field(source_turn_result, :current_session_id) ||
+        map_field(source_turn_result, :session_id)
 
     with true <- is_binary(work_id) and is_binary(session_id),
          {:ok, %{receipt: receipt}} <-
@@ -715,11 +716,20 @@ defmodule NovelApplication.DialogueGateway do
            project_admitted_receipt(receipt, action_input, work_id, session_id) do
       {:ok, entry.result}
     else
-      false -> {:error, :author_action_scope_unavailable}
-      {:duplicate, receipt} -> project_admitted_receipt(receipt, action_input, work_id, session_id)
-      {:behavior_consumed, _receipt} -> {:error, :author_action_behavior_already_consumed}
-      {:conflict, _receipt} -> {:error, :idempotency_payload_conflict}
-      {:error, reason} -> {:error, reason}
+      false ->
+        {:error, :author_action_scope_unavailable}
+
+      {:duplicate, receipt} ->
+        project_admitted_receipt(receipt, action_input, work_id, session_id)
+
+      {:behavior_consumed, _receipt} ->
+        {:error, :author_action_behavior_already_consumed}
+
+      {:conflict, _receipt} ->
+        {:error, :idempotency_payload_conflict}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

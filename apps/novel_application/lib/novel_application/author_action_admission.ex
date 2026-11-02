@@ -173,7 +173,14 @@ defmodule NovelApplication.AuthorActionAdmission do
              {:ok, receipt} <- insert_behavior_receipt(plan, behavior, author),
              child_run = child_run(plan.run, receipt, behavior, author, plan.action_input),
              {:ok, decision} <-
-               commit_author_decision(child_run, receipt, source_ctx.source, behavior, author, store),
+               commit_author_decision(
+                 child_run,
+                 receipt,
+                 source_ctx.source,
+                 behavior,
+                 author,
+                 store
+               ),
              :ok <- commit_child_initial(child_run),
              {:ok, source_run} <-
                commit_source_handoff(source_state, source_ctx, receipt, child_run) do
@@ -331,7 +338,9 @@ defmodule NovelApplication.AuthorActionAdmission do
     behavior_ref = behavior.behavior_id
 
     status =
-      if plan.action_input.action_type == "confirm_before_execute", do: "accepted", else: "cancelled"
+      if plan.action_input.action_type == "confirm_before_execute",
+        do: "accepted",
+        else: "cancelled"
 
     result =
       plan.result
@@ -365,7 +374,10 @@ defmodule NovelApplication.AuthorActionAdmission do
       |> Map.put(:behavior_ref, behavior.behavior_id)
       |> Map.put(:author_turn_ref, author.turn_ref)
       |> Map.put(:source_run_id, author.source_run_id)
-      |> Map.put(:source_surface_ref, field(behavior, :target_ref) && "author_action:#{behavior.behavior_id}")
+      |> Map.put(
+        :source_surface_ref,
+        field(behavior, :target_ref) && "author_action:#{behavior.behavior_id}"
+      )
 
     status = if input.action_type == "confirm_before_execute", do: :running, else: :cancelled
     phase = if status == :running, do: :executing, else: :stopped

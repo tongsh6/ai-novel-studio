@@ -327,7 +327,13 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
 
   defp result_map(run, sequence, turn_result, trace, transcript, _snapshot, spec) do
     step_id = "step_#{run.run_id}_#{sequence}"
-    observations = AgentObservationAssembler.from_turn_result(turn_result, %{run_id: run.run_id, step_id: step_id})
+
+    observations =
+      AgentObservationAssembler.from_turn_result(turn_result, %{
+        run_id: run.run_id,
+        step_id: step_id
+      })
+
     trace_summary = Map.get(turn_result, :trace_summary) || %{}
 
     {:ok, step} =
@@ -354,8 +360,7 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
     %{
       step: step,
       observations: observations,
-      stage_state:
-        (if transcript, do: AuthoringSession.transcript_state(transcript), else: %{}),
+      stage_state: if(transcript, do: AuthoringSession.transcript_state(transcript), else: %{}),
       turn_result: turn_result,
       decision_trace: trace,
       artifact_refs: artifact_refs(turn_result),
@@ -441,7 +446,9 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
       answer_type: :confirm,
       idempotency_key: field(source_action, :idempotency_key) || action_input.idempotency_key,
       rebased_state_snapshot_ref: snapshot_ref,
-      gate_result_refs: ["gate_result:confirmation_re_gate:#{action_input.source_turn_ref}:#{turn_id}"],
+      gate_result_refs: [
+        "gate_result:confirmation_re_gate:#{action_input.source_turn_ref}:#{turn_id}"
+      ],
       trace_ref:
         field(source_action, :trace_ref) ||
           field(field(source, :trace_summary), :trace_ref) || "trace:#{turn_id}"

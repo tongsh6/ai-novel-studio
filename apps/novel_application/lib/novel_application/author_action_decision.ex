@@ -60,15 +60,13 @@ defmodule NovelApplication.AuthorActionDecision do
       behavior_type: behavior_type(field(active, :behavior_type)),
       lifecycle_status: lifecycle,
       blocking_actor: :author,
-      opened_at_turn_ref:
-        field(active, :opened_at_turn_ref) || ctx.action_input.source_turn_ref,
+      opened_at_turn_ref: field(active, :opened_at_turn_ref) || ctx.action_input.source_turn_ref,
       opened_by_decision_ref:
         field(active, :opened_by_decision_ref) || "decision:#{ctx.action_input.source_turn_ref}",
       frame_ref: field(active, :frame_ref) || "frame:#{ctx.action_input.source_turn_ref}",
       plan_ref: field(active, :plan_ref) || plan_ref(ctx.source_turn_result),
       target_ref: ctx.action_input.target_ref || field(active, :target_ref),
-      required_next_action:
-        field(active, :required_next_action) || ctx.action_input.action_type,
+      required_next_action: field(active, :required_next_action) || ctx.action_input.action_type,
       available_actions: [],
       prompt_contract: field(active, :prompt_contract) || %{},
       constraints: field(active, :constraints) || %{},

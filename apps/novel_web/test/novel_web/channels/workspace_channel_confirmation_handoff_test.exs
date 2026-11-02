@@ -5,7 +5,15 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.{AuthoringTranscript, WorkService, WorkSessionService}
-  alias NovelPersistence.{AgentRunLog, InteractionLifecycle, ProviderRunLog, Repo, WorkSessionRepo}
+
+  alias NovelPersistence.{
+    AgentRunLog,
+    InteractionLifecycle,
+    ProviderRunLog,
+    Repo,
+    WorkSessionRepo
+  }
+
   alias NovelPersistence.Schemas.AuthorActionReceipt
   alias NovelWeb.{UserSocket, WorkspaceChannel}
 
@@ -105,7 +113,10 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
            ]
 
     assert Repo.aggregate(AuthorActionReceipt, :count, :behavior_ref) == 1
-    assert length(AgentRunLog.list_by_parent_turn(ctx.work.id, ctx.session_id, source.turn_id)) == 1
+
+    assert length(AgentRunLog.list_by_parent_turn(ctx.work.id, ctx.session_id, source.turn_id)) ==
+             1
+
     assert AgentRunLog.get_run(source.run_id)
   end
 
@@ -125,7 +136,10 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
              WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
 
     assert Repo.aggregate(AuthorActionReceipt, :count, :behavior_ref) == 1
-    assert length(AgentRunLog.list_by_parent_turn(ctx.work.id, ctx.session_id, source.turn_id)) == 1
+
+    assert length(AgentRunLog.list_by_parent_turn(ctx.work.id, ctx.session_id, source.turn_id)) ==
+             1
+
     assert AgentRunLog.get_run(source.run_id)
   end
 

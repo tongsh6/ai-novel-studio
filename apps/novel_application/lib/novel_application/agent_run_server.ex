@@ -327,8 +327,11 @@ defmodule NovelApplication.AgentRunServer do
           source_state = %{state | run: result.source_run || state.run}
 
           case start_handoff_child(result, opts) do
-            {:ok, _pid} -> {:reply, {:ok, result}, source_state}
-            {:error, reason} -> {:reply, {:error, {:child_run_start_failed, reason}}, source_state}
+            {:ok, _pid} ->
+              {:reply, {:ok, result}, source_state}
+
+            {:error, reason} ->
+              {:reply, {:error, {:child_run_start_failed, reason}}, source_state}
           end
 
         other ->

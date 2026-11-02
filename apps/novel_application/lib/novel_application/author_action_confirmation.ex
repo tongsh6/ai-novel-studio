@@ -123,7 +123,8 @@ defmodule NovelApplication.AuthorActionConfirmation do
       |> field(:source_turn_ref)
 
     with true <- is_binary(author_turn_ref) and String.trim(author_turn_ref) != "",
-         entry when not is_nil(entry) <- WorkSessionRepo.user_entry(work_id, session_id, author_turn_ref),
+         entry when not is_nil(entry) <-
+           WorkSessionRepo.user_entry(work_id, session_id, author_turn_ref),
          text when is_binary(text) <- field(Map.get(entry, :content) || %{}, :text),
          true <- String.trim(text) != "" do
       {:ok, %{turn_ref: author_turn_ref, text: text}}
@@ -152,7 +153,8 @@ defmodule NovelApplication.AuthorActionConfirmation do
   end
 
   defp offline_dispatch(action_input, _source_ctx, plan, opts) do
-    store = Keyword.get(opts, :interaction_store) || NovelApplication.TurnInteractionService.store()
+    store =
+      Keyword.get(opts, :interaction_store) || NovelApplication.TurnInteractionService.store()
 
     case AuthorActionAdmission.admit_handoff(plan, nil, interaction_store: store) do
       {:ok, result} ->
