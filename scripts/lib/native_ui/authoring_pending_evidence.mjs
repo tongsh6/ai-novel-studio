@@ -799,15 +799,21 @@ const CANON_TABLES = Object.freeze([
   "author_action_receipts",
 ]);
 const OPS_COLUMNS = Object.freeze(["reference_count", "last_referenced_at"]);
-function tableSignature(snapshot, table) {
+
+// canon 内容口径：canon_sha256（已按 canon 定义排除账面列，如 memory_items 的
+// reference_count/last_referenced_at、works.updated_at）+ row_count。rows_sha256 仍保留在
+// checkpoint 证据里供审计，但不能用作“作品事实是否变化”的比较口径——真实 restore 时
+// WorkspaceChannel.join 的 WorkRepo.touch 只推进 works.updated_at 账面时钟，rows 会变而
+// canon 内容不变（cp4b-pending-06 实测：works rows_sha256 不同、canon_sha256 相同）。
+export function canonTableSignature(snapshot, table) {
   const tables = snapshot && snapshot.tables;
   const value = tables && tables[table];
   if (!value) return null;
-  return `${value.rows_sha256}\u0000${value.row_count}`;
+  return `${value.canon_sha256}\u0000${value.row_count}`;
 }
 
 const sameTable = (left, right, table) =>
-  tableSignature(left, table) === tableSignature(right, table);
+  canonTableSignature(left, table) === canonTableSignature(right, table);
 
 function sameTables(left, right, excluded = []) {
   return CANON_TABLES.filter((table) => !excluded.includes(table)).every((table) =>

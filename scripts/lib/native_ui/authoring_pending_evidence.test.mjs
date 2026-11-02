@@ -19,6 +19,7 @@ import {
   actionLabelsFor,
   actionResult,
   actionTurnResult,
+  canonTableSignature,
   followupReplyChecks,
   isPendingWaitMiss,
   locatePendingItem,
@@ -873,4 +874,22 @@ test("真实扁平 AX 树：跨消息块不得借用对方 Why", () => {
   assert.equal(located.ok, false);
   assert.equal(located.button, undefined);
   assert.equal(located.reason, "foreign_item_in_block");
+});
+
+test("canon 内容口径：仅账面列变化不算表变化，内容列变化仍算", () => {
+  // 真实 cp4b-pending-06：restore 时 works.updated_at 被 WorkRepo.touch 推进，
+  // rows_sha256 变化但 canon_sha256（内容口径）不变；不能因此误判 canon 写入。
+  const snapshotOf = ({ rows, canon, count = 1 }) => ({
+    tables: { works: { row_count: count, rows_sha256: rows, canon_sha256: canon } },
+  });
+  const base = snapshotOf({ rows: "a", canon: "c" });
+  const bookkeepingOnly = snapshotOf({ rows: "b", canon: "c" });
+  const contentChanged = snapshotOf({ rows: "b", canon: "d" });
+  assert.equal(canonTableSignature(base, "works"), canonTableSignature(bookkeepingOnly, "works"));
+  assert.notEqual(canonTableSignature(base, "works"), canonTableSignature(contentChanged, "works"));
+  assert.notEqual(
+    canonTableSignature(base, "works"),
+    canonTableSignature(snapshotOf({ rows: "a", canon: "c", count: 2 }), "works"),
+  );
+  assert.equal(canonTableSignature(base, "missing"), null);
 });
