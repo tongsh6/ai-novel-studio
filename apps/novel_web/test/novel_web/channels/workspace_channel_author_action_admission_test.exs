@@ -12,6 +12,14 @@ defmodule NovelWeb.AuthorActionAdmissionTestProvider do
   @impl true
   def health_check(_state), do: :ok
 
+  # 这两个 fixture 委托 Stub 的确定性输出；能力事实同样委托，避免把测试替身
+  # 伪装成「未声明能力」而被 Gateway 能力门槛拒绝（VS-00L §6.4）。
+  @impl true
+  def capabilities(state), do: Stub.capabilities(state)
+
+  @impl true
+  def projection_target(state), do: Stub.projection_target(state)
+
   @impl true
   def complete(state, model, prompt, params),
     do: execute(state, model, prompt, params, %{})

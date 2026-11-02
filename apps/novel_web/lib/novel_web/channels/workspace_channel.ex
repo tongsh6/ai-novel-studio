@@ -17,6 +17,7 @@ defmodule NovelWeb.WorkspaceChannel do
   alias NovelCommon.Contracts.AgentEvent
   alias NovelCommon.LogContext
   alias NovelDomain.{AuthorActionInput, BehaviorState}
+  alias NovelWeb.WorkspaceChannelCommandAck
 
   @current_turn_author_action_types [
     "confirm_before_execute",
@@ -654,15 +655,12 @@ defmodule NovelWeb.WorkspaceChannel do
   def handle_in("agent_command", %{"run_id" => run_id, "command" => command} = payload, socket) do
     case dispatch_agent_command(socket, run_id, command, payload) do
       :ok ->
+        {:reply, {:ok, WorkspaceChannelCommandAck.build(run_id, command)}, socket}
+
+      {:ok, compaction} when is_map(compaction) ->
         {:reply,
-         {:ok,
-          %{
-            received: true,
-            run_id: run_id,
-            command: command,
-            resolved_run_id: run_id,
-            binding_source: if(command == "steer", do: "explicit_steer", else: "active_run")
-          }}, socket}
+         {:ok, WorkspaceChannelCommandAck.build(run_id, command, %{compaction: compaction})},
+         socket}
 
       {:error, reason} ->
         {:reply, {:error, agent_command_error_payload(reason)}, socket}
@@ -1119,6 +1117,9 @@ defmodule NovelWeb.WorkspaceChannel do
             Map.get(payload, "text", ""),
             Map.get(payload, "expected_goal_version")
           )
+
+        "compact_transcript" ->
+          AgentRunService.compact_transcript(run_id)
 
         _ ->
           {:error, :unknown_command}
@@ -2237,7 +2238,10 @@ defmodule NovelWeb.WorkspaceChannel do
         payload = Map.merge(result, facts)
 
         broadcast!(socket, "action_result", payload)
-        socket = broadcast_committed_confirmation_results(socket, entry.turn_results)
+
+        socket =
+          broadcast_committed_confirmation_results(socket, entry.turn_results, duplicate?)
+
         log_author_action_done(socket, action_input, result)
 
         {:reply, {:ok, author_action_ack(result, duplicate: duplicate?, facts: facts)}, socket}
@@ -2251,12 +2255,16 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
-  defp broadcast_committed_confirmation_results(socket, turn_results) do
+  # 首次受理（duplicate?=false）向 topic 广播本次事务提交的作者决定结果，供前端
+  # 首次渲染；重传只回查同一 receipt/run（VS-00L §16.14），已提交结果随回执 facts
+  # 返回并 remember，不再次向 topic 广播，也不重复通知其他订阅者。作者重连回放由
+  # join 的持久恢复路径承担，不靠重传补发。
+  defp broadcast_committed_confirmation_results(socket, turn_results, duplicate?) do
     turn_results
     |> List.wrap()
     |> Enum.reduce(socket, fn turn_result, acc ->
       turn_result = scope_turn_result(acc, turn_result)
-      broadcast!(acc, "turn_result", turn_result)
+      if duplicate?, do: :ok, else: broadcast!(acc, "turn_result", turn_result)
       remember_turn_result(acc, turn_result)
     end)
   end

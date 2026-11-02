@@ -5,7 +5,7 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.{WorkService, WorkSessionService}
-  alias NovelPersistence.{InteractionLifecycle, Repo, WorkSessionRepo}
+  alias NovelPersistence.{AgentRunLog, InteractionLifecycle, Repo, WorkSessionRepo}
   alias NovelPersistence.Schemas.AuthorActionReceipt
   alias NovelPersistence.TraceRepository
   alias NovelWeb.{UserSocket, WorkspaceChannel}
@@ -24,6 +24,9 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
     on_exit(fn ->
       Application.put_env(:novel_web, :persistence, previous)
       restore_fact_persistence(previous_facts)
+      # 确认交接会启动真实 child AgentRun；先等 step/后台任务自然退出，避免下一条
+      # 用例在 owner 退出或并发写库时撞 SQLite busy。
+      NovelApplication.TestAgentRunCleanup.await_quiescent()
       Sandbox.stop_owner(pid)
     end)
   end
@@ -44,11 +47,14 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
     assert receipt.result["decided_by"] == "author"
     assert receipt.result["target_type"] == nil
 
-    assert receive_broadcast("turn_result", 10_000) |> payload_turn_id()
+    # VS-00L §16.14：首次受理必须向 topic 广播本次已提交的作者决定结果（新事实）。
+    decision_turn_id = receive_broadcast("turn_result", 10_000) |> payload_turn_id()
+    assert decision_turn_id == receipt.result["turn_id"]
+    refute decision_turn_id == source.turn_id
 
     socket = Phoenix.Socket.assign(socket, :action_idempotency_ledger, %{})
 
-    assert {:reply, {:ok, %{received: true, duplicate: true}}, _socket} =
+    assert {:reply, {:ok, %{received: true, duplicate: true} = duplicate_ack}, _socket} =
              WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
 
     expected_key = source.confirm["idempotency_key"]
@@ -58,8 +64,16 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
       idempotency_key: ^expected_key
     })
 
+    # 重传只回查同一 receipt/run：不新增 topic turn_result 广播，已提交结果只经
+    # 回执 facts 回放（前端重连回放另有 join 路径）。
     refute_broadcast("turn_result", %{}, 50)
+
+    assert duplicate_ack.run_id == receipt.result["run_id"]
+    assert Enum.any?(duplicate_ack.turn_results, &(payload_turn_id(&1) == decision_turn_id))
+
     assert Repo.aggregate(AuthorActionReceipt, :count, :behavior_ref) == 1
+
+    assert length(AgentRunLog.list_by_parent_turn(work.id, session_id, source.turn_id)) == 1
   end
 
   test "persisted same key different payload is rejected without second dispatch" do
@@ -417,12 +431,17 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
     end
   end
 
+  # 只消费 topic 广播（`%Phoenix.Socket.Broadcast{}`），与 `assert_broadcast/3`、
+  # `refute_broadcast/3` 的匹配语义保持一致。
+  #
+  # 本测试在测试进程内直接调用 `WorkspaceChannel.handle_in/3`，而 join 起的真实
+  # channel 进程同样订阅了 topic：一次 `broadcast!/3` 会以 `%Broadcast{}`（测试进程
+  # 直接订阅）和 `%Message{}`（channel 进程默认 handle_out 推给 transport）两种形态
+  # 同时到达。若这里连 `%Message{}` 一并消费，后续 `refute_broadcast` 会把**同一次**
+  # 广播的 `%Broadcast{}` 形态误判成第二次广播。生产客户端只收到一份 Message 帧。
   defp receive_broadcast(event, timeout) do
     receive do
       %Phoenix.Socket.Broadcast{event: ^event, payload: payload} ->
-        payload
-
-      %Phoenix.Socket.Message{event: ^event, payload: payload} ->
         payload
 
       {:agent_event, _event} ->

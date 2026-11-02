@@ -106,11 +106,9 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
                socket
              )
 
-    assert reason in [
-             "source_behavior_not_open",
-             "author_action_behavior_already_consumed",
-             "source_behavior_changed"
-           ]
+    # §16.14/§16.10：拒绝已消费该确认行为；后续相反动作必须由 receipt 唯一事实
+    # 判定为行为已消费，而不是依赖“当前行为是否仍打开”的时序校验。
+    assert reason == :author_action_behavior_already_consumed
 
     assert Repo.aggregate(AuthorActionReceipt, :count, :behavior_ref) == 1
 
