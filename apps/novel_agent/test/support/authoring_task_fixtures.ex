@@ -5,8 +5,57 @@ defmodule NovelAgent.TestSupport.AuthoringTaskFixtures do
   角色/设定/大纲的 output_contract.artifact_type 与运行时 ToolOutputContract 校验同源。
   """
 
+  alias NovelAgent.Provider.Execution
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
+
+  def provider_execution(result_fn, tool_name) do
+    %Execution{
+      result_fn: fn prompt ->
+        prompt
+        |> prompt_text()
+        |> result_fn.()
+        |> native_response(tool_name)
+      end
+    }
+  end
+
+  def prompt_text(prompt) when is_binary(prompt), do: prompt
+
+  def prompt_text(%{messages: messages, tools: tools}) do
+    Enum.map_join(messages, "\n", fn message ->
+      message.content <> "\n关联：" <> to_string(Map.get(message, :tool_call_id, ""))
+    end) <> "\n工具结构：" <> Jason.encode!(tools)
+  end
+
+  defp native_response({:ok, result}, tool_name) when is_map(result) do
+    content = Map.get(result, :content) || Map.get(result, "content")
+
+    if is_binary(content) and Map.get(result, :tool_calls) in [nil, []] do
+      arguments =
+        case {Jason.decode(content), tool_name} do
+          {{:ok, decoded}, _} when is_map(decoded) ->
+            decoded
+
+          {{:ok, decoded}, "submit_tentative_artifact"} when is_list(decoded) ->
+            %{items: decoded}
+
+          {{:ok, decoded}, "report_quality_findings"} when is_list(decoded) ->
+            %{findings: decoded}
+
+          _ ->
+            content
+        end
+
+      {:ok,
+       result
+       |> Map.put(:tool_calls, [%{id: "fixture-native-1", name: tool_name, arguments: arguments}])}
+    else
+      {:ok, result}
+    end
+  end
+
+  defp native_response(other, _tool_name), do: other
 
   @prose_contract %{
     kind: :json,

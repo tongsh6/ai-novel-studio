@@ -2,14 +2,17 @@ defmodule NovelAgent.CreativeProvider.Real do
   @moduledoc """
   Real provider adapter for creative tools.
 
-  It asks the injected LLM provider for strict JSON items and validates shape.
-  It never supplies demo content or UI/adoption wording.
+  `generate/2` and `generate_with_session/2,3` share one native Request IR exchange.
+  JSON text is parsed only as an explicitly marked finite response mode; it never
+  creates another request protocol or supplies demo/adoption wording.
   """
 
   @behaviour NovelAgent.CreativeProvider
 
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.Result, as: ProviderResult
+  alias NovelAgent.Provider.NativeToolExchange
+  alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.RequestIR.Operation
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.CreativeProviderResult
@@ -18,9 +21,7 @@ defmodule NovelAgent.CreativeProvider.Real do
 
   # 正文写作质量约束（show-don't-tell / 对白个性化 / 反 AI 套话 / 节奏）。
   # 面向真实作者的写作质量要求，集中在此便于维护（如日后扩充套话黑名单）。
-  # 注意位置：必须放在 stub/slice_verify provider 解析的
-  # 「用户创作简述：…上下文：…重要：」三锚点之后，否则会污染 brief/context 捕获
-  # （见记忆 creative-prompt-stub-anchor-coupling）。
+  # 这些约束属于完整阶段指令；动态创作简述与作品材料独立进入 scope。
   @prose_writing_guidelines """
   写作要求：
   - 用动作、神态、对白和具体细节表现情绪，禁止直接断言"他很生气""她很悲伤"这类总结句。
@@ -31,34 +32,9 @@ defmodule NovelAgent.CreativeProvider.Real do
   - 正文只写故事本身：不得出现"第N章"这类章节编号自指或对后文章节的预告，不得出现"待采纳""草稿""审校"等工作流程词，不要写解释正文的元评论。章节坐标与计划信息只是给你的背景，不是剧情事实。
   """
 
-  # B27 CP3d：creative provider 只接受带 AuthoringTask 的专业调用；未知工具显式失败，
-  # 不再有 legacy 无 task 模板或 generic fallback。
   @impl true
-  def generate(%CreativeRequest{task: nil}, _provider_execution) do
-    provider_error("authoring_task_required", "creative provider requires an authoring task")
-  end
-
-  @impl true
-  def generate(%CreativeRequest{tool_name: tool} = request, provider_execution) do
-    if supported_tool?(tool) do
-      case Execution.result_fn(provider_execution) do
-        result_fn when is_function(result_fn, 1) ->
-          result =
-            request
-            |> build_prompt()
-            |> do_generate(result_fn, _retry? = true, correction_contract(request))
-
-          enforce_companion_scope(result, request)
-
-        _ ->
-          provider_error(
-            "provider_execution_required",
-            "creative provider requires provider execution"
-          )
-      end
-    else
-      provider_error("unsupported_creative_tool", "unsupported creative tool: #{inspect(tool)}")
-    end
+  def generate(%CreativeRequest{} = request, provider_execution) do
+    request |> generate_with_session(provider_execution) |> elem(0)
   end
 
   defp enforce_companion_scope(
@@ -97,113 +73,242 @@ defmodule NovelAgent.CreativeProvider.Real do
 
   defp enforce_companion_scope(result, _request), do: result
 
-  defp do_generate(prompt, result_fn, retry?, contract) do
-    case result_fn.(prompt) do
-      {:ok, %ProviderResult{content: content} = result} when is_binary(content) ->
-        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?, contract)
+  @doc "把创作任务与前序 IR 合并为原生 tentative-artifact 请求。"
+  @spec request_ir(CreativeRequest.t()) :: {:ok, RequestIR.t()} | {:error, term()}
+  def request_ir(%CreativeRequest{task: %AuthoringTask{}} = request) do
+    {role, domain_schema, extra} = creative_role_schema(request)
 
-      {:ok, %{content: content} = result} when is_binary(content) ->
-        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?, contract)
+    instructions =
+      [
+        "#{role}只提出待作者审阅的 tentative 候选，不执行采纳或 canon 写入。",
+        AuthoringSemantics.static_block(request.task),
+        domain_schema,
+        extra
+      ]
+      |> Enum.reject(&(&1 in [nil, ""]))
+      |> Enum.join("\n\n")
 
-      {:ok, %{"content" => content} = result} when is_binary(content) ->
-        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?, contract)
+    scope =
+      [
+        AuthoringSemantics.dynamic_block(request.task),
+        "capability：#{request.tool_name}",
+        "artifact_type：#{request.artifact_type}",
+        "用户创作简述：#{request.creative_brief}",
+        "上下文：#{request.context_text}",
+        "重要：#{nonce_requirement()}",
+        execution_brief_section(request),
+        progress_state_section(request),
+        planning_mission_section(request),
+        revision_section(request)
+      ]
+      |> Enum.reject(&(&1 in [nil, ""]))
+      |> Enum.join("\n")
 
-      {:ok, content} when is_binary(content) ->
-        parse_or_retry(content, nil, prompt, result_fn, retry?, contract)
+    {run, projection} = operation_context(request)
 
-      {:error, error} ->
-        provider_error("provider_error", inspect(error), provider_error_type(error))
+    Operation.prepare(request.request_ir, run, %{
+      role: "creative_execution",
+      instructions: instructions,
+      scope: scope,
+      tool: tentative_artifact_tool(),
+      source_refs: source_refs(request),
+      versions: %{},
+      author_text: request.task.author_words,
+      projection: projection
+    })
+  end
 
-      other ->
-        provider_error(
-          "provider_response_unexpected",
-          "unexpected provider return: #{inspect(other)}"
+  def request_ir(%CreativeRequest{}), do: {:error, :authoring_task_required}
+
+  @doc "执行原生创作调用，返回业务结果与唯一的内部会话。"
+  @spec generate_with_session(CreativeRequest.t(), Execution.dependency(), keyword()) ::
+          {CreativeProviderResult.t(), map()}
+  def generate_with_session(request, provider_execution, opts \\ [])
+
+  def generate_with_session(%CreativeRequest{task: nil}, _provider_execution, _opts) do
+    {provider_error("authoring_task_required", "creative provider requires an authoring task"),
+     %{}}
+  end
+
+  def generate_with_session(%CreativeRequest{} = request, provider_execution, opts) do
+    with true <- supported_tool?(request.tool_name),
+         {:ok, ir} <- request_ir(request),
+         result_fn when is_function(result_fn, 1) <- Execution.result_fn(provider_execution) do
+      {result, session} =
+        NativeToolExchange.run(
+          ir,
+          result_fn,
+          "submit_tentative_artifact",
+          fn result -> parse_native_result(result, request) end,
+          &exchange_error/2,
+          Keyword.take(opts, [:validate_result, :max_provider_calls])
         )
-    end
-  end
 
-  # 真实 LLM 偶发输出非法 JSON（长上下文下字符串值内裸换行、JSON 外多余文字等），
-  # 与 Planner 的 frame JSON 重试同模式：携带失败片段重试一次，再失败才向上报错。
-  defp parse_or_retry(content, provider_call_ref, prompt, result_fn, retry?, contract) do
-    result = parse_content(content, provider_call_ref)
-
-    if retry? and invalid_json?(result) do
-      prompt
-      |> json_correction_prompt(content, contract)
-      |> do_generate(result_fn, false, contract)
+      {result, session}
     else
-      result
+      false ->
+        {provider_error("unsupported_creative_tool", "unsupported creative tool"), %{}}
+
+      {:error, reason} ->
+        {provider_error("invalid_request_ir", inspect(reason)), %{}}
+
+      _ ->
+        {provider_error("provider_execution_required", "creative provider requires execution"),
+         %{}}
     end
   end
 
-  defp invalid_json?(%CreativeProviderResult{
-         status: :error,
-         errors: [%{code: "provider_response_invalid"} | _]
-       }),
-       do: true
-
-  defp invalid_json?(_result), do: false
-
-  # 纠错只修协议/格式，不改变输出契约：契约片段由首次请求同一 task/output_contract
-  # 渲染，禁止在重试时放宽为别的结构（B27 §3.1 retry 纪律）。
-  defp json_correction_prompt(original_prompt, failed_content, contract) do
-    """
-    你上一次的输出不是合法 JSON，解析失败。请严格按首次请求的同一输出契约重新输出完整结果：
-    #{contract}
-    - 不要输出 JSON 以外的任何文字
-    - 字符串值内的换行必须写成 \\n 转义，不能出现裸换行
-
-    ## 你的上一次输出（截取前 300 字符）
-    #{String.slice(failed_content, 0, 300)}
-
-    ## 原始任务
-    #{original_prompt}
-    """
+  defp operation_context(%{request_ir: nil, run: nil, request_id: id}) do
+    {%{run_id: id}, %{finite_mode: %{name: "standalone_operation", durable_recovery: false}}}
   end
+
+  defp operation_context(request), do: {request.run, %{}}
+
+  defp source_refs(request) do
+    refs =
+      [request.source_turn_ref | List.wrap(request.task.source_refs)]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    Enum.map(refs, &%{ref: &1})
+  end
+
+  defp tentative_artifact_tool do
+    %{
+      name: "submit_tentative_artifact",
+      description: "提出待作者审阅的创作候选；不执行采纳、不修改权威作品事实。",
+      input_schema: %{
+        type: "object",
+        required: ["items"],
+        properties: %{
+          items: %{
+            type: "array",
+            minItems: 1,
+            items: %{
+              type: "object",
+              required: ["item_id", "title", "body"],
+              properties: %{
+                item_id: %{type: "string", minLength: 1},
+                title: %{type: "string", minLength: 1},
+                body: %{type: "string"},
+                rationale: %{anyOf: [%{type: "string"}, %{type: "null"}]}
+              },
+              additionalProperties: true
+            }
+          },
+          companion_artifacts: %{type: "array", items: %{type: "object"}},
+          self_report: %{type: "object"}
+        },
+        additionalProperties: false
+      }
+    }
+  end
+
+  defp exchange_error(code, reason),
+    do: provider_error(code, inspect(reason), provider_error_type(reason))
+
+  defp parse_native_result(result, request) do
+    result
+    |> decode_native_result()
+    |> enforce_parsed_companion_scope(request)
+  end
+
+  defp decode_native_result(result) do
+    call =
+      result
+      |> map_get(:tool_calls)
+      |> List.wrap()
+      |> Enum.find(fn call -> map_get(call, :name) == "submit_tentative_artifact" end)
+
+    if call do
+      case map_get(call, :arguments) do
+        arguments when is_map(arguments) ->
+          arguments |> Jason.encode!() |> parse_content(provider_call_ref(result))
+
+        _ ->
+          provider_error("provider_response_invalid", "native tool arguments must be an object")
+      end
+    else
+      case map_get(result, :content) do
+        text when is_binary(text) and text != "" ->
+          parse_content(text, provider_call_ref(result))
+
+        _ ->
+          provider_error(
+            "native_tool_call_required",
+            "expected submit_tentative_artifact tool call"
+          )
+      end
+    end
+  end
+
+  # 阶段输出/companion 范围校验属于同一次工具交换：在 parse 成功路径内拒绝，
+  # 由 NativeToolExchange 用原 call_id 回流并共享同一重试预算。
+  defp enforce_parsed_companion_scope(%CreativeProviderResult{status: :ok} = parsed, request),
+    do: enforce_companion_scope(parsed, request)
+
+  defp enforce_parsed_companion_scope(parsed, _request), do: parsed
 
   @creative_tool_names ~w(plot_outline character_design character_evolution world_building)
 
   # ── B27 CP3d：creative 角色模板（task 必填，角色差异保留在域段）─────────────
 
-  defp build_prompt(
-         %CreativeRequest{tool_name: "prose_writing", artifact_type: :prose_formatting_plan} =
-           request
-       ) do
-    render_creative_prompt(request, "本次你承担小说分段编辑的角色。", """
-    只提出换行计划，不重写或抄录正文。应用会把计划确定性应用于绑定版本的原文，供作者预览采纳。
-    items 必须只有一项：item_id 为你生成的短标识；title 为方案标题；body 为简短方案说明；rationale 为分段依据。
-    同一项必须含 line_break_changes 数组，每个元素恰好是 {"boundary_id":"从上下文原样复制的边界ID","lines":2}。
-    lines 只能为整数 0（取消换行）、1（换行）、2（空行分段）。只列需要改变的边界；未列边界原样保留。
-    必须至少改变一处，不能把原样返回冒充完成。根据语义、对话和阅读节奏选择分段，不要逐句机械分段。
-    不得编造 boundary_id，不得输出正文替换字段，不得返回伴生产物。
-    """)
+  defp creative_role_schema(%CreativeRequest{
+         tool_name: "prose_writing",
+         artifact_type: :prose_formatting_plan
+       }) do
+    {"本次你承担小说分段编辑的角色。",
+     """
+     只提出换行计划，不重写或抄录正文。应用会把计划确定性应用于绑定版本的原文，供作者预览采纳。
+     items 必须只有一项：item_id 为你生成的短标识；title 为方案标题；body 为简短方案说明；rationale 为分段依据。
+     同一项必须含 line_break_changes 数组，每个元素恰好是 {"boundary_id":"从上下文原样复制的边界ID","lines":2}。
+     lines 只能为整数 0（取消换行）、1（换行）、2（空行分段）。只列需要改变的边界；未列边界原样保留。
+     必须至少改变一处，不能把原样返回冒充完成。根据语义、对话和阅读节奏选择分段，不要逐句机械分段。
+     不得编造 boundary_id，不得输出正文替换字段，不得返回伴生产物。
+     """, ""}
   end
 
-  defp build_prompt(%CreativeRequest{tool_name: "prose_writing"} = request),
-    do: prose_prompt(request)
-
-  defp build_prompt(%CreativeRequest{tool_name: "plot_outline"} = request),
-    do: outline_prompt(request)
-
-  defp build_prompt(%CreativeRequest{tool_name: "character_design"} = request),
-    do: character_design_prompt(request)
-
-  defp build_prompt(%CreativeRequest{tool_name: "character_evolution"} = request),
-    do: character_evolution_prompt(request)
-
-  defp build_prompt(%CreativeRequest{tool_name: "world_building"} = request),
-    do: world_building_prompt(request)
-
-  defp supported_tool?(tool), do: tool == "prose_writing" or tool in @creative_tool_names
-
-  defp prose_prompt(request) do
+  defp creative_role_schema(%CreativeRequest{tool_name: "prose_writing"} = request) do
     extra =
       if revision?(request),
         do: @prose_writing_guidelines <> "\n" <> prose_revision_guidance(request),
         else: @prose_writing_guidelines
 
-    render_creative_prompt(request, "本次你承担小说正文写作助手的角色。", prose_domain_schema(), extra: extra)
+    {"本次你承担小说正文写作助手的角色。", prose_domain_schema(), extra}
   end
+
+  defp creative_role_schema(%CreativeRequest{tool_name: "plot_outline"} = request) do
+    role =
+      if revision?(request),
+        do: "本次你承担章计划修订助手的角色。",
+        else: "本次你承担章计划助手的角色。"
+
+    {role, outline_domain_schema(), ""}
+  end
+
+  defp creative_role_schema(%CreativeRequest{tool_name: "character_design"} = request) do
+    role =
+      if revision?(request),
+        do: "本次你承担小说角色设定修订助手的角色。",
+        else: "本次你承担小说角色设计助手的角色。"
+
+    {role, character_design_domain_schema(), ""}
+  end
+
+  defp creative_role_schema(%CreativeRequest{tool_name: "character_evolution"}) do
+    {"本次你承担小说角色连续性助手的角色。", character_evolution_domain_schema(), ""}
+  end
+
+  defp creative_role_schema(%CreativeRequest{tool_name: "world_building"} = request) do
+    role =
+      if revision?(request),
+        do: "本次你承担小说设定修订助手的角色。",
+        else: "本次你承担小说设定与连续性设计助手的角色。"
+
+    {role, world_building_domain_schema(request), ""}
+  end
+
+  defp supported_tool?(tool), do: tool == "prose_writing" or tool in @creative_tool_names
 
   # 修订类正文：B28 CP1 按任务 modification_scope 分支渲染；
   # 基线段落/未要求修改内容必须保留，且不得把修订表达成“继续往后写”。
@@ -277,93 +382,8 @@ defmodule NovelAgent.CreativeProvider.Real do
     |> String.trim()
   end
 
-  defp outline_prompt(request) do
-    role =
-      if revision?(request),
-        do: "本次你承担章计划修订助手的角色。",
-        else: "本次你承担章计划助手的角色。"
-
-    render_creative_prompt(request, role, outline_domain_schema())
-  end
-
-  defp character_design_prompt(request) do
-    role =
-      if revision?(request),
-        do: "本次你承担小说角色设定修订助手的角色。",
-        else: "本次你承担小说角色设计助手的角色。"
-
-    render_creative_prompt(request, role, character_design_domain_schema())
-  end
-
-  defp character_evolution_prompt(request) do
-    render_creative_prompt(
-      request,
-      "本次你承担小说角色连续性助手的角色。",
-      character_evolution_domain_schema()
-    )
-  end
-
-  defp world_building_prompt(request) do
-    role =
-      if revision?(request),
-        do: "本次你承担小说设定修订助手的角色。",
-        else: "本次你承担小说设定与连续性设计助手的角色。"
-
-    render_creative_prompt(request, role, world_building_domain_schema(request))
-  end
-
-  # 统一的 creative prompt 骨架：L1 角色句 + 共享语义静态段 → 角色域 schema →
-  # L3 材料（三锚点/执行简述/账面/使命/修订要求）→ L4 输出契约置尾。
-  defp render_creative_prompt(%CreativeRequest{} = request, role, domain_schema, opts \\ []) do
-    extra = Keyword.get(opts, :extra, "")
-
-    """
-    #{role}请严格按本任务输出契约返回，不要附加任何额外文字。
-
-    #{task_blocks(request)}
-
-    #{domain_schema}
-
-    capability：#{request.tool_name}
-    artifact_type：#{request.artifact_type}
-    用户创作简述：#{request.creative_brief}
-    上下文：#{request.context_text}
-
-    重要：#{nonce_requirement()}
-    #{execution_brief_section(request)}
-    #{progress_state_section(request)}
-    #{planning_mission_section(request)}
-    #{revision_section(request)}
-    #{extra}
-    #{output_contract_tail(request)}
-    """
-    |> String.trim()
-  end
-
-  defp task_blocks(%CreativeRequest{task: %AuthoringTask{} = task}) do
-    [AuthoringSemantics.static_block(task), AuthoringSemantics.dynamic_block(task)]
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join("\n\n")
-  end
-
   defp revision?(%CreativeRequest{task: %AuthoringTask{kind: :revision}}), do: true
   defp revision?(_request), do: false
-
-  # 输出契约只承诺运行时真正强制/允许的字段（Audit F05）；角色域 schema 保留在上文。
-  defp output_contract_tail(%CreativeRequest{task: %AuthoringTask{} = task}) do
-    contract = task.output_contract || %{}
-    required = contract_map_get(contract, :required_keys) |> List.wrap() |> Enum.reject(&blank?/1)
-    companions = contract_map_get(contract, :allow_companions) == true
-    item_keys = Enum.reject(required, &(&1 == "items"))
-
-    """
-    输出契约（只返回 JSON，不要附加 JSON 以外的文字）：
-    - 只返回 JSON 数组，或一个含 "items" 非空数组的 JSON 对象；每个 item 必须含 #{Enum.join(item_keys, "、")}。
-    - 伴生产物：#{if companions, do: "允许，没有则 []", else: "不允许"}；不得为凑数引入无依据的伴生对象。
-    - 本角色其余结构与字段要求见上文；字符串值内的换行必须写成 \\\\n 转义。
-    """
-    |> String.trim()
-  end
 
   defp prose_domain_schema do
     """
@@ -502,30 +522,9 @@ defmodule NovelAgent.CreativeProvider.Real do
     |> String.trim()
   end
 
-  defp contract_map_get(map, key) when is_map(map) do
-    Map.get(map, key) || Map.get(map, Atom.to_string(key))
-  end
-
-  defp contract_map_get(_map, _key), do: nil
-
-  # I3 种子贯通要求：creative 模板统一从此渲染，避免同一规则手写多份（审计 X2）。
   defp nonce_requirement do
     "如果用户创作简述中出现任意随机标识符串（字母数字组合），必须在至少一个条目的 title/body/rationale 中原样保留至少一处。"
   end
-
-  # 纠错提示里的契约片段：与首次请求同一 task/output_contract，禁止重试时改变结构。
-  defp correction_contract(%CreativeRequest{task: %AuthoringTask{} = task}) do
-    contract = task.output_contract || %{}
-
-    required =
-      contract |> contract_map_get(:required_keys) |> List.wrap() |> Enum.reject(&blank?/1)
-
-    companions = contract_map_get(contract, :allow_companions) == true
-
-    "- 结构必须与首次请求完全一致（JSON；必须字段：#{Enum.join(required, "、")}；伴生产物：#{if companions, do: "允许", else: "不允许"}）；不得改成其它结构或放宽必填字段。"
-  end
-
-  defp blank?(value), do: not is_binary(value) or String.trim(value) == ""
 
   # VS-00E：场级执行简述（已由 application 渲染成文本）追加在 prose 三锚点之后，
   # 不污染 stub/slice_verify 的「用户创作简述：/上下文：/重要：」捕获。缺省为空。
@@ -657,6 +656,9 @@ defmodule NovelAgent.CreativeProvider.Real do
     {:error,
      %{code: "invalid_items", message: "creative tool output items must be a non-empty list"}}
   end
+
+  defp map_get(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
+  defp map_get(_, _), do: nil
 
   defp provider_call_ref(result) when is_map(result) do
     Map.get(result, :provider_call_ref) || Map.get(result, "provider_call_ref") ||

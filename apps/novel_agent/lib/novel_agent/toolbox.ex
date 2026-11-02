@@ -2,9 +2,11 @@ defmodule NovelAgent.Toolbox do
   @moduledoc """
   Agent-side toolbox runtime.
 
-  The toolbox validates registry/grants and dispatches to adapters. It returns
-  ToolResult only; artifact assembly, UI cards, available actions, and adoption
-  semantics are application responsibilities.
+  The toolbox validates registry/grants and dispatches to adapters through one
+  internal `{ToolResult, session}` pipeline. `execute/1,2` projects only the
+  ToolResult for compatibility, while `execute_with_session/2,3` returns the complete
+  tuple for application orchestration. Artifact assembly, author-safe UI cards,
+  available actions, and adoption semantics remain application responsibilities.
   """
 
   require NovelCommon.LogEmit, as: LogEmit
@@ -17,14 +19,16 @@ defmodule NovelAgent.Toolbox do
   alias NovelCommon.LogContext
 
   @spec execute(ToolRequest.t()) :: ToolResult.t()
-  def execute(%ToolRequest{} = req), do: execute_impl(req, nil)
+  def execute(%ToolRequest{} = req), do: req |> execute_with_session(nil) |> elem(0)
 
   @spec execute(ToolRequest.t(), Execution.dependency()) :: ToolResult.t()
   def execute(%ToolRequest{} = req, provider_execution) do
-    execute_impl(req, provider_execution)
+    req |> execute_with_session(provider_execution) |> elem(0)
   end
 
-  defp execute_impl(%ToolRequest{} = req, provider_execution) do
+  @spec execute_with_session(ToolRequest.t(), Execution.dependency(), keyword()) ::
+          {ToolResult.t(), map()}
+  def execute_with_session(%ToolRequest{} = req, provider_execution, opts \\ []) do
     t0 = System.monotonic_time(:millisecond)
     LogContext.put_tool_request(req.tool_request_id)
 
@@ -33,53 +37,60 @@ defmodule NovelAgent.Toolbox do
       tool_request_id: req.tool_request_id
     })
 
-    result =
+    {result, session} =
       cond do
         is_nil(CapabilityRegistry.get(req.tool_name)) ->
-          failed(req, "unknown_tool", "tool not found in production registry")
+          {failed(req, "unknown_tool", "tool not found in production registry"),
+           %{tool_call_count: 0}}
 
         not CapabilityRegistry.dispatchable?(req.tool_name) ->
-          failed(req, "tool_not_dispatchable", "tool is disabled or deprecated")
+          {failed(req, "tool_not_dispatchable", "tool is disabled or deprecated"),
+           %{tool_call_count: 0}}
 
         not CapabilityRegistry.grants_valid?(
           req.tool_name,
           req.read_scope_grants,
           req.write_scope_grants
         ) ->
-          failed(req, "grant_scope_violation", "requested grants exceed registry scopes")
+          {failed(req, "grant_scope_violation", "requested grants exceed registry scopes"),
+           %{tool_call_count: 0}}
 
         true ->
           LogContext.with_step("tool.#{req.tool_name}", fn ->
-            dispatch(req, provider_execution)
+            dispatch(req, provider_execution, opts)
           end)
       end
 
     emit_done(req, result, System.monotonic_time(:millisecond) - t0)
-    result
+    {result, session}
   end
 
-  defp dispatch(%ToolRequest{} = req, provider_execution) do
-    case ToolAdapterRegistry.adapter_for(req.tool_name) do
-      nil ->
-        failed(req, "no_handler", "no adapter registered for tool")
-
-      _adapter ->
-        req.tool_name
-        |> ToolAdapterRegistry.execute(req, provider_execution)
-        |> ensure_contract(req)
-    end
+  defp dispatch(%ToolRequest{} = req, provider_execution, opts) do
+    req.tool_name
+    |> ToolAdapterRegistry.execute_with_session(req, provider_execution, opts)
+    |> ensure_contract(req)
   end
 
   # B45 CP3：工具适配器返回后先校验本地契约；不合格转失败结果，绝不把坏 output
-  # 当成功事实继续组装/采纳。
-  defp ensure_contract(%ToolResult{} = result, req) do
+  # 当成功事实继续组装/采纳。内部统一返回 {ToolResult, session}。malformed adapter
+  # 仍保留其已发生的派发 session（tool_call_count=1），不能因结果形状坏而抹掉事实。
+  defp ensure_contract({result, session}, req) do
+    {ensure_contract_result(result, req), session}
+  end
+
+  defp ensure_contract(_other, req) do
+    {failed(req, "tool_result_contract_invalid", "tool_result must be a ToolResult struct"),
+     %{tool_call_count: 0}}
+  end
+
+  defp ensure_contract_result(%ToolResult{} = result, req) do
     case ToolResult.validate(result) do
       [] -> result
       errors -> failed(req, "tool_result_contract_invalid", Enum.join(errors, "; "))
     end
   end
 
-  defp ensure_contract(_other, req) do
+  defp ensure_contract_result(_other, req) do
     failed(req, "tool_result_contract_invalid", "tool_result must be a ToolResult struct")
   end
 

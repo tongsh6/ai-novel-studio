@@ -21,6 +21,7 @@ defmodule NovelAgent.Provider.Anthropic do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.AnthropicStream
   alias NovelAgent.Provider.HTTP
+  alias NovelAgent.Provider.RequestIR.Projection.AnthropicMessages
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Usage
   alias NovelFoundation.UpstreamError
@@ -56,6 +57,13 @@ defmodule NovelAgent.Provider.Anthropic do
 
   defp do_complete(%__MODULE__{} = state, prompt, params, http_opts)
        when is_binary(prompt) or is_list(prompt) or is_map(prompt) do
+    case prepare_native_prompt(prompt) do
+      {:ok, prepared} -> complete_validated(state, prepared, params, http_opts)
+      {:error, _reason} -> projection_error()
+    end
+  end
+
+  defp complete_validated(state, prompt, params, http_opts) do
     start_time = System.monotonic_time(:millisecond)
     {system_prompt, messages} = anthropic_messages(prompt)
     body = %{model: state.model, max_tokens: 4096, messages: messages}
@@ -93,6 +101,22 @@ defmodule NovelAgent.Provider.Anthropic do
   def execute(%__MODULE__{api_key: key} = state, _model, prompt, params, ctx)
       when is_binary(key) and key != "" and
              (is_binary(prompt) or is_list(prompt) or is_map(prompt)) do
+    case prepare_native_prompt(prompt) do
+      {:ok, prepared} -> execute_validated(state, key, prepared, params, ctx)
+      {:error, _reason} -> AdapterExecution.materialize_result(projection_error(), ctx)
+    end
+  end
+
+  def execute(%__MODULE__{}, _model, _prompt, _params, ctx) do
+    {:error, error} =
+      :auth
+      |> UpstreamError.new("Anthropic API key 未配置", name())
+      |> UpstreamError.to_error_tuple()
+
+    AdapterExecution.materialize_result({:error, error}, ctx)
+  end
+
+  defp execute_validated(state, key, prompt, params, ctx) do
     if NovelAgent.Provider.tool_call_prompt?(prompt) do
       execute_tool_call(state, prompt, params, ctx)
     else
@@ -115,13 +139,56 @@ defmodule NovelAgent.Provider.Anthropic do
     end
   end
 
-  def execute(%__MODULE__{}, _model, _prompt, _params, ctx) do
-    {:error, error} =
-      :auth
-      |> UpstreamError.new("Anthropic API key 未配置", name())
-      |> UpstreamError.to_error_tuple()
+  defp projection_error do
+    :invalid_request
+    |> UpstreamError.new("历史工具参数无法无损转换为当前提供者的对象参数。", name())
+    |> UpstreamError.to_error_tuple()
+  end
 
-    AdapterExecution.materialize_result({:error, error}, ctx)
+  defp prepare_native_prompt(%{ir_version: _} = prompt) do
+    with {:ok, messages} <-
+           prompt
+           |> NovelAgent.Provider.normalize_messages()
+           |> map_validated(&prepare_native_message/1) do
+      {:ok, %{prompt | messages: messages}}
+    end
+  end
+
+  defp prepare_native_prompt(prompt), do: {:ok, prompt}
+
+  defp prepare_native_message(%{role: "assistant", tool_calls: calls} = message) do
+    with {:ok, calls} <- map_validated(calls, &prepare_native_call/1),
+         do: {:ok, %{message | tool_calls: calls}}
+  end
+
+  defp prepare_native_message(message), do: {:ok, message}
+
+  defp prepare_native_call(call) do
+    arguments = get_in(call, [:function, :arguments]) || get_in(call, ["function", "arguments"])
+    id = anthropic_tool_call_id(call)
+
+    with {:ok, input} <- AnthropicMessages.parse_arguments(arguments, id) do
+      {:ok,
+       %{
+         id: id,
+         type: "function",
+         function: %{name: anthropic_tool_call_name(call), arguments: input}
+       }}
+    end
+  end
+
+  defp map_validated(items, fun) do
+    items
+    |> Enum.reduce_while({:ok, []}, fn item, {:ok, acc} ->
+      case fun.(item) do
+        {:ok, value} -> {:cont, {:ok, [value | acc]}}
+        error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, values} -> {:ok, Enum.reverse(values)}
+      error -> error
+    end
   end
 
   # Anthropic 原生支持 {type: none}：禁用调用时仍保留工具定义。
@@ -255,20 +322,7 @@ defmodule NovelAgent.Provider.Anthropic do
   end
 
   defp anthropic_tool_arguments(call) do
-    arguments = get_in(call, [:function, :arguments]) || get_in(call, ["function", "arguments"])
-
-    case arguments do
-      args when is_map(args) -> args
-      args when is_binary(args) -> decode_anthropic_arguments(args)
-      _ -> %{}
-    end
-  end
-
-  defp decode_anthropic_arguments(arguments) do
-    case Jason.decode(arguments) do
-      {:ok, map} when is_map(map) -> map
-      _ -> %{}
-    end
+    get_in(call, [:function, :arguments])
   end
 
   # Anthropic Messages API 要求 user/assistant 交替；相邻同 role 合并 content blocks，

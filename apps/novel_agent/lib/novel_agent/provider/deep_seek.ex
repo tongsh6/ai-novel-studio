@@ -136,7 +136,7 @@ defmodule NovelAgent.Provider.DeepSeek do
   defp request_body(state, prompt, params, stream?) do
     %{
       model: state.model,
-      messages: NovelAgent.Provider.normalize_messages(prompt),
+      messages: replay_messages(prompt, state.model),
       stream: stream?,
       # 缺陷九跟进（2026-07-20）：provider 自己的安全上限先垫底，params.max_tokens
       # 非 nil 时 apply_params 覆盖——见 InferenceParams moduledoc。
@@ -156,6 +156,32 @@ defmodule NovelAgent.Provider.DeepSeek do
   end
 
   defp maybe_json_mode(body, _enabled, _prompt), do: body
+
+  # 私有回放材料只回到产生它的 provider/model；共享层不解释供应商字段。
+  defp replay_messages(prompt, model) do
+    prompt
+    |> NovelAgent.Provider.normalize_messages(include_provider_state: true)
+    |> Enum.map(&replay_message(&1, model))
+  end
+
+  defp replay_message(%{role: "assistant"} = message, model) do
+    {private, message} = Map.pop(message, :provider_state)
+
+    case private do
+      %{
+        "provider" => "deepseek",
+        "model" => ^model,
+        "payload" => %{"reasoning_content" => reasoning}
+      }
+      when is_binary(reasoning) ->
+        Map.put(message, :reasoning_content, reasoning)
+
+      _ ->
+        message
+    end
+  end
+
+  defp replay_message(message, _model), do: Map.delete(message, :provider_state)
 
   # DeepSeek API 约束：thinking 模式不支持强制具名 tool_choice（HTTP 400
   # "Thinking mode does not support this tool_choice"）。规划类调用依赖强制
@@ -231,8 +257,11 @@ defmodule NovelAgent.Provider.DeepSeek do
         "[DeepSeek] 调用成功，输入 #{usage.input_tokens} tokens，输出 #{usage.output_tokens} tokens"
       )
 
-      {:ok, Result.new(content, usage, tool_calls: tool_calls),
-       %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}}
+      {:ok,
+       Result.new(content, usage,
+         tool_calls: tool_calls,
+         provider_state: private_response_state(message, state.model)
+       ), %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}}
     else
       err = UpstreamError.new(:invalid_response, "DeepSeek API 响应内容为空", name())
       Logger.warning("[DeepSeek] #{err.message}")
@@ -241,6 +270,13 @@ defmodule NovelAgent.Provider.DeepSeek do
        %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}}
     end
   end
+
+  defp private_response_state(%{"reasoning_content" => reasoning}, model)
+       when is_binary(reasoning) do
+    %{"provider" => name(), "model" => model, "payload" => %{"reasoning_content" => reasoning}}
+  end
+
+  defp private_response_state(_message, _model), do: %{}
 
   defp handle_http_error(status, message, start_time) do
     duration = System.monotonic_time(:millisecond) - start_time

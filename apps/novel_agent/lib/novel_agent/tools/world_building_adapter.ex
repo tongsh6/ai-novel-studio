@@ -8,6 +8,18 @@ defmodule NovelAgent.Tools.WorldBuildingAdapter do
   alias NovelCommon.Contracts.ToolOutputContract
   alias NovelCommon.Contracts.ToolRequest
 
+  @spec execute_with_session(ToolRequest.t(), Execution.dependency(), keyword()) ::
+          {NovelCommon.Contracts.ToolResult.t(), map()}
+  def execute_with_session(%ToolRequest{} = req, provider_execution, opts \\ []),
+    do:
+      CreativeToolAdapter.execute_with_session(
+        req,
+        artifact_type(req),
+        provider_execution,
+        Real,
+        opts
+      )
+
   @spec execute(ToolRequest.t(), Execution.dependency()) ::
           NovelCommon.Contracts.ToolResult.t()
   def execute(%ToolRequest{} = req, provider_execution),

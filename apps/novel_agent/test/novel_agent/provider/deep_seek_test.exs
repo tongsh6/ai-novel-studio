@@ -3,11 +3,110 @@ defmodule NovelAgent.Provider.DeepSeekTest do
 
   alias NovelAgent.Provider.DeepSeek
   alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Provider.OpenAI
+  alias NovelAgent.Provider.RequestIR
 
   describe "name/0" do
     test "returns deepseek identifier" do
       assert DeepSeek.name() == "deepseek"
     end
+  end
+
+  test "私有推理从真实响应保留并只向同一 provider/model 回投，作者输出不携带它" do
+    private_text = "仅供协议回放的私有状态\n  保留空白。"
+
+    response = %{
+      "choices" => [
+        %{
+          "message" => %{
+            "content" => "先读角色。",
+            "reasoning_content" => private_text,
+            "tool_calls" => [
+              %{
+                "id" => "private-call",
+                "function" => %{"name" => "read_character", "arguments" => "{}"}
+              }
+            ]
+          }
+        }
+      ],
+      "usage" => %{}
+    }
+
+    parent = self()
+
+    http = fn _, body, _ ->
+      send(parent, {:private_wire, body})
+      {:ok, 200, response}
+    end
+
+    state = %DeepSeek{
+      api_key: "test",
+      endpoint: "https://example.invalid/v1",
+      model: "fixture-model",
+      timeout: 100,
+      http_fn: http,
+      log_fn: nil,
+      thinking: :enabled
+    }
+
+    assert {:ok, result} = DeepSeek.complete(state, nil, "读取角色", %InferenceParams{})
+    assert_receive {:private_wire, _initial}
+
+    private_state = %{
+      "provider" => "deepseek",
+      "model" => "fixture-model",
+      "payload" => %{"reasoning_content" => private_text}
+    }
+
+    assert Map.get(result, :provider_state) == private_state
+
+    ir =
+      RequestIR.new(%{
+        run: %{run_id: "private-replay"},
+        system: %{identity_ref: "fixture"},
+        projection: %{
+          target: "chat_completions",
+          capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
+        },
+        tools: [%{name: "read_character", input_schema: %{type: "object"}}],
+        messages: [RequestIR.message(:user, :author, [RequestIR.text_block("读取角色")])]
+      })
+
+    {ir, _} = RequestIR.append_assistant_result(ir, result)
+    ir = RequestIR.append_validation_result(ir, "private-call", "passed", "read_complete")
+    assert {:ok, prompt} = RequestIR.to_provider_prompt(ir)
+
+    assert {:ok, execution} =
+             DeepSeek.execute(state, nil, prompt, %InferenceParams{}, provider_ctx())
+
+    assert_receive {:private_wire, replay}
+    assistant = Enum.find(replay.messages, &(&1.role == "assistant"))
+    assert assistant.reasoning_content == private_text
+    refute Map.has_key?(assistant, :provider_state)
+    assert execution.result.provider_state == private_state
+    refute inspect(execution.output) =~ private_text
+    refute inspect(execution.events) =~ private_text
+
+    other = %OpenAI{
+      api_key: "test",
+      endpoint: "https://example.invalid/v1",
+      model: "fixture-model",
+      timeout: 100,
+      http_fn: http,
+      log_fn: nil
+    }
+
+    assert {:ok, _} = OpenAI.complete(other, nil, prompt, %InferenceParams{})
+    assert_receive {:private_wire, other_wire}
+    refute inspect(other_wire) =~ private_text
+    refute inspect(other_wire) =~ "provider_state"
+
+    assert {:ok, _} =
+             DeepSeek.complete(%{state | model: "another-model"}, nil, prompt, %InferenceParams{})
+
+    assert_receive {:private_wire, changed_model_wire}
+    refute inspect(changed_model_wire) =~ private_text
   end
 
   describe "from_config/0" do

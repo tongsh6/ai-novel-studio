@@ -3,13 +3,15 @@ defmodule NovelAgent.ProseQualityEvaluator do
   独立正文质量 evaluator（VS-00E §10.4）。
 
   与正文 writer **职责分离**：writer 写正文，本 evaluator 只读地评审正文是否实现场级目标，
-  输出**严格 JSON** 的 `QualityFinding` 列表，绝不生成修订正文、绝不修改作品事实。
-  可复用 Provider Gateway（注入 provider execution），但用独立 request contract 与独立 prompt
-  （不含正文三锚点）。非法 JSON 重试一次，二次失败诚实返回 error（上层记录不可用，不当通过）。
+  通过原生 `report_quality_findings` 工具返回 `QualityFinding`，绝不生成修订正文或修改作品事实。
+  质量 scope 追加到当前 canonical Request IR；没有前序 IR 时创建独立评审会话。旧 JSON
+  仅作为显式有限模式；有界协议纠错后仍失败则诚实返回 error，不冒充复核通过。
   """
 
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.Result, as: ProviderResult
+  alias NovelAgent.Provider.NativeToolExchange
+  alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.RequestIR.Operation
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.QualityEvaluationRequest
@@ -26,59 +28,195 @@ defmodule NovelAgent.ProseQualityEvaluator do
   end
 
   def evaluate(%QualityEvaluationRequest{} = request, provider_execution) do
-    case Execution.result_fn(provider_execution) do
-      result_fn when is_function(result_fn, 1) ->
-        request
-        |> build_prompt()
-        |> do_evaluate(result_fn, _retry? = true, correction_contract(request))
+    request |> evaluate_with_session(provider_execution) |> elem(0)
+  end
+
+  @doc "把质量任务叠加到既有创作 IR，使用独立的只读评审工具。"
+  @spec request_ir(QualityEvaluationRequest.t()) :: {:ok, RequestIR.t()} | {:error, term()}
+  def request_ir(%QualityEvaluationRequest{task: %AuthoringTask{} = task} = request) do
+    instructions =
+      [
+        "本次你承担小说正文质量评审助手的角色。只读评审，不重写正文，不修改作品事实。",
+        AuthoringSemantics.static_block(task),
+        findings_contract()
+      ]
+      |> Enum.join("\n\n")
+
+    scope =
+      [
+        material_coverage_statement(task),
+        AuthoringSemantics.dynamic_block(task),
+        review_tasks(request),
+        brief_section(request),
+        scene_units_section(request),
+        facts_section(request),
+        "待评审正文：\n#{request.prose_text}"
+      ]
+      |> Enum.reject(&(&1 in [nil, ""]))
+      |> Enum.join("\n")
+
+    {run, projection} = operation_context(request)
+
+    Operation.prepare(request.request_ir, run, %{
+      role: "quality_evaluation",
+      instructions: instructions,
+      scope: scope,
+      tool: quality_findings_tool(),
+      source_refs: quality_source_refs(request),
+      versions: %{},
+      author_text: task.author_words,
+      projection: projection
+    })
+  end
+
+  def request_ir(%QualityEvaluationRequest{}), do: {:error, :authoring_task_required}
+
+  @doc "执行原生质量评审，返回 findings 与追加后的内部会话。"
+  @spec evaluate_with_session(QualityEvaluationRequest.t(), Execution.dependency()) ::
+          {QualityEvaluationResult.t(), map()}
+  def evaluate_with_session(%QualityEvaluationRequest{task: nil}, _provider_execution) do
+    {QualityEvaluationResult.error(%{code: "authoring_task_required", message: "task required"}),
+     %{}}
+  end
+
+  def evaluate_with_session(%QualityEvaluationRequest{} = request, provider_execution) do
+    with {:ok, ir} <- request_ir(request),
+         result_fn when is_function(result_fn, 1) <- Execution.result_fn(provider_execution) do
+      NativeToolExchange.run(
+        ir,
+        result_fn,
+        "report_quality_findings",
+        &parse_native_result/1,
+        &exchange_error/2
+      )
+    else
+      {:error, reason} ->
+        {QualityEvaluationResult.error(%{code: "invalid_request_ir", message: inspect(reason)}),
+         %{}}
 
       _ ->
-        QualityEvaluationResult.error(%{
-          code: "provider_execution_required",
-          message: "evaluator requires provider execution"
-        })
+        {QualityEvaluationResult.error(%{
+           code: "provider_execution_required",
+           message: "evaluator requires provider execution"
+         }), %{}}
     end
   end
 
-  defp do_evaluate(prompt, result_fn, retry?, contract) do
-    case result_fn.(prompt) do
-      {:ok, %ProviderResult{content: content} = result} when is_binary(content) ->
-        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?, contract)
+  defp operation_context(%{request_ir: nil, run: nil, request_id: id}) do
+    {%{run_id: id}, %{finite_mode: %{name: "standalone_operation", durable_recovery: false}}}
+  end
 
-      {:ok, %{content: content} = result} when is_binary(content) ->
-        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?, contract)
+  defp operation_context(request), do: {request.run, %{}}
 
-      {:ok, content} when is_binary(content) ->
-        parse_or_retry(content, nil, prompt, result_fn, retry?, contract)
+  defp quality_source_refs(request) do
+    [request.source_turn_ref, request.source_ref | List.wrap(request.task.source_refs)]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
+    |> Enum.map(&%{ref: &1})
+  end
 
-      {:error, error} ->
-        QualityEvaluationResult.error(%{
-          code: "evaluator_provider_error",
-          message: inspect(error)
-        })
+  defp quality_findings_tool do
+    %{
+      name: "report_quality_findings",
+      description: "只读报告正文质量发现及原句证据，不重写正文或授权修订。",
+      input_schema: %{
+        type: "object",
+        required: ["findings"],
+        properties: %{
+          findings: %{
+            type: "array",
+            items: %{
+              type: "object",
+              required: [
+                "quality_finding_id",
+                "quality_gate_ref",
+                "validator_ref",
+                "summary",
+                "reasoning",
+                "evidence_spans",
+                "impact_scope",
+                "revision_scope",
+                "confidence"
+              ],
+              properties: %{
+                quality_finding_id: %{type: "string", minLength: 1},
+                quality_gate_ref: %{type: "string", minLength: 1},
+                validator_ref: %{type: "string", minLength: 1},
+                summary: %{type: "string", minLength: 1},
+                reasoning: %{type: "string", minLength: 1},
+                evidence_spans: %{
+                  type: "array",
+                  minItems: 1,
+                  items: %{
+                    type: "object",
+                    required: ["text", "sentence_start", "sentence_end"],
+                    properties: %{
+                      text: %{type: "string", minLength: 1},
+                      sentence_start: %{type: "integer", minimum: 1},
+                      sentence_end: %{type: "integer", minimum: 1}
+                    },
+                    additionalProperties: false
+                  }
+                },
+                impact_scope: %{type: "string", enum: ["local", "paragraph", "chapter"]},
+                revision_scope: %{type: "string", enum: ["local", "paragraph", "chapter"]},
+                confidence: %{type: "number", minimum: 0, maximum: 1}
+              },
+              additionalProperties: true
+            }
+          }
+        },
+        additionalProperties: false
+      }
+    }
+  end
 
-      other ->
-        QualityEvaluationResult.error(%{code: "evaluator_unexpected", message: inspect(other)})
+  defp exchange_error("provider_error", reason),
+    do:
+      QualityEvaluationResult.error(%{code: "evaluator_provider_error", message: inspect(reason)})
+
+  defp exchange_error("provider_response_unexpected", reason),
+    do: QualityEvaluationResult.error(%{code: "evaluator_unexpected", message: inspect(reason)})
+
+  defp exchange_error(code, reason),
+    do: QualityEvaluationResult.error(%{code: code, message: inspect(reason)})
+
+  defp parse_native_result(result) do
+    call =
+      result
+      |> Map.get(:tool_calls, Map.get(result, "tool_calls", []))
+      |> List.wrap()
+      |> Enum.find(fn call -> map_get(call, :name) == "report_quality_findings" end)
+
+    if call do
+      arguments = map_get(call, :arguments) || %{}
+
+      case parse_findings(Jason.encode!(%{findings: map_get(arguments, :findings)})) do
+        {:ok, findings} ->
+          QualityEvaluationResult.ok(findings, provider_call_ref(result))
+
+        :error ->
+          QualityEvaluationResult.error(%{
+            code: "evaluator_invalid_json",
+            message: "invalid findings"
+          })
+      end
+    else
+      case parse_findings(map_get(result, :content) || "") do
+        {:ok, findings} ->
+          QualityEvaluationResult.ok(findings, provider_call_ref(result))
+
+        :error ->
+          QualityEvaluationResult.error(%{
+            code: "native_tool_call_required",
+            message: "expected report_quality_findings tool call"
+          })
+      end
     end
   end
 
-  defp parse_or_retry(content, provider_call_ref, prompt, result_fn, retry?, contract) do
-    case parse_findings(content) do
-      {:ok, findings} ->
-        QualityEvaluationResult.ok(findings, provider_call_ref)
-
-      :error when retry? ->
-        prompt
-        |> correction_prompt(content, contract)
-        |> do_evaluate(result_fn, false, contract)
-
-      :error ->
-        QualityEvaluationResult.error(%{
-          code: "evaluator_invalid_json",
-          message: "evaluator did not return valid findings JSON"
-        })
-    end
-  end
+  defp map_get(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
+  defp map_get(_, _), do: nil
 
   defp parse_findings(content) do
     with {:ok, decoded} <- decode(content),
@@ -154,30 +292,6 @@ defmodule NovelAgent.ProseQualityEvaluator do
     Map.get(result, :provider_call_ref) || Map.get(result, "provider_call_ref")
   end
 
-  # CP3b：带 AuthoringTask 的评审渲染。规则来自 AuthoringSemantics，材料覆盖由 task
-  # 显式声明（不把单候选/片段当整章）；证据原句/字段要求仍是评审角色专属（L4）。
-  defp build_prompt(%QualityEvaluationRequest{task: %AuthoringTask{} = task} = request) do
-    """
-    本次你承担小说正文质量评审助手的角色。请只读地评审下面这段正文是否实现其写作目标，严格按 JSON
-    对象返回，不要附加任何额外文字，不要重写正文。
-
-    #{AuthoringSemantics.static_block(task)}
-
-    #{AuthoringSemantics.dynamic_block(task)}
-
-    #{material_coverage_statement(task)}
-
-    #{findings_contract()}
-
-    #{review_tasks(request)}
-
-    #{brief_section(request)}#{scene_units_section(request)}#{facts_section(request)}待评审正文：
-    #{request.prose_text}
-
-    只返回 JSON 对象。
-    """
-  end
-
   defp material_coverage_statement(%AuthoringTask{scope: scope}) do
     coverage = Map.get(scope || %{}, :coverage, :single)
 
@@ -220,8 +334,8 @@ defmodule NovelAgent.ProseQualityEvaluator do
   # 输出契约唯一文本：首次请求与纠错共用；字段要求与 valid_finding?/1 校验同源。
   defp findings_contract do
     """
-    输出契约（只返回 JSON 对象）：
-    顶层对象必须包含 "findings" 数组（没有问题则为空数组）。每个 finding 必填：
+    输出契约（调用 report_quality_findings，不直接回复 JSON 文本）：
+    工具参数必须包含 "findings" 数组（没有问题则为空数组）。每个 finding 必填：
     - "quality_finding_id"：稳定 finding 标识
     - "quality_gate_ref"：质量门 ref（如 quality_gate.character_logic / quality_gate.pacing）
     - "validator_ref"：validator ref（如 validator.scene_change / validator.emotional_transition）
@@ -236,10 +350,6 @@ defmodule NovelAgent.ProseQualityEvaluator do
     字符串值内的换行必须写成 \\n 转义。
     """
     |> String.trim()
-  end
-
-  defp correction_contract(%QualityEvaluationRequest{task: %AuthoringTask{} = task}) do
-    "- 结构必须与首次请求完全一致（quality_evaluation JSON；shared rules kind=#{task.kind}）；不得放宽必填字段或改变 findings 结构。"
   end
 
   defp brief_section(%QualityEvaluationRequest{execution_brief: brief})
@@ -288,19 +398,4 @@ defmodule NovelAgent.ProseQualityEvaluator do
 
   defp pacing_context_section(_request),
     do: "本次缺少章节结构参照；不得输出 narrative_pacing_fit finding。"
-
-  defp correction_prompt(original_prompt, failed_content, contract) do
-    """
-    你上一次的输出不是合法且字段完整的质量评审 JSON。请严格按首次请求的同一输出契约重
-    新输出完整结果：
-    #{contract}
-    不要输出 JSON 以外的任何文字。
-
-    ## 你的上一次输出（截取前 300 字符）
-    #{String.slice(failed_content, 0, 300)}
-
-    ## 原始任务
-    #{original_prompt}
-    """
-  end
 end

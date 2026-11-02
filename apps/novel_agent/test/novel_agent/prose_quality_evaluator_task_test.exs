@@ -2,7 +2,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTaskTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.ProseQualityEvaluator
-  alias NovelAgent.Provider.Execution
+  alias NovelAgent.TestSupport.AuthoringTaskFixtures
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.QualityEvaluationRequest
@@ -66,12 +66,13 @@ defmodule NovelAgent.ProseQualityEvaluatorTaskTest do
   end
 
   defp execution(agent, contents) do
-    %Execution{
-      result_fn: fn prompt ->
+    AuthoringTaskFixtures.provider_execution(
+      fn prompt ->
         Agent.update(agent, fn _ -> prompt end)
         {:ok, %{content: contents}}
-      end
-    }
+      end,
+      "report_quality_findings"
+    )
   end
 
   test "task-aware evaluator renders shared semantics, coverage statement, and findings contract" do
@@ -100,7 +101,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTaskTest do
     refute prompt =~ "读者效果目标（评审对照）"
   end
 
-  test "correction re-renders the full contract, not a partial restatement" do
+  test "原生纠错保留完整契约并通过工具结果回流" do
     {:ok, agent} = Agent.start_link(fn -> [] end)
 
     result_fn = fn prompt ->
@@ -114,14 +115,19 @@ defmodule NovelAgent.ProseQualityEvaluatorTaskTest do
     end
 
     result =
-      ProseQualityEvaluator.evaluate(request(evaluation_task()), %Execution{
-        result_fn: result_fn
-      })
+      ProseQualityEvaluator.evaluate(
+        request(evaluation_task()),
+        AuthoringTaskFixtures.provider_execution(
+          result_fn,
+          "report_quality_findings"
+        )
+      )
 
     assert result.status == :ok
     [_original, correction] = Agent.get(agent, & &1)
 
-    assert correction =~ "结构必须与首次请求完全一致"
+    assert correction =~ "evaluator_invalid_json"
+    assert correction =~ "report_quality_findings"
     assert correction =~ "quality_finding_id"
     assert correction =~ "evidence_spans"
     refute correction =~ "每个 finding 必须包含原句证据、句子位置、判断理由、影响范围、修订\n    范围和 0~1 置信度"

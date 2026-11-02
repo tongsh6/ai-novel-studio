@@ -3,7 +3,9 @@ defmodule NovelAgent.CreativeProvider.RealTest do
 
   alias NovelAgent.CreativeProvider.Real
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.Result, as: ProviderResult
+  alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.CreativeRequest
 
   alias NovelAgent.TestSupport.AuthoringTaskFixtures
@@ -23,6 +25,44 @@ defmodule NovelAgent.CreativeProvider.RealTest do
                %{item_id: "i1", title: "开篇", body: "夜色压在账单上。", rationale: nil}
              ])
 
+  test "复用计划会话进入 writer 时完整角色规则进入最新 scope，原消息不变" do
+    previous =
+      RequestIR.new(%{
+        run: %{run_id: "real-run", work_id: "real-work"},
+        system: %{identity_ref: "identity:authoring/v1"},
+        projection: %{
+          target: "chat_completions",
+          capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
+        },
+        messages: [
+          RequestIR.message(:application_base, :application, [RequestIR.text_block("首阶段只承担计划起草。")]),
+          RequestIR.message(:user, :author, [RequestIR.text_block(@request.task.author_words)])
+        ]
+      })
+
+    assert {:ok, writer} = Real.request_ir(%{@request | request_ir: previous})
+    assert Enum.take(writer.messages, length(previous.messages)) == previous.messages
+    latest = List.last(writer.messages).blocks |> Enum.map_join("", & &1.text)
+    assert latest =~ AuthoringSemantics.static_block(@request.task)
+    assert latest =~ "本次你承担小说正文写作助手的角色"
+    assert latest =~ "items 内正文条目必须包含以下键"
+    assert Enum.count(writer.messages, &(&1.role == "user")) == 1
+    assert writer.run == previous.run
+  end
+
+  test "独立外观明确标记有限会话且不把来源轮次冒充作品，真实 run 保持完整模式" do
+    assert {:ok, standalone} = Real.request_ir(@request)
+    assert standalone.run == %{run_id: @request.request_id}
+    assert standalone.projection.finite_mode.name == "standalone_operation"
+    assert standalone.projection.finite_mode.durable_recovery == false
+    refute standalone.projection.finite_mode.name == "legacy_json_content"
+
+    run = %{run_id: "actual-run", work_id: "actual-work", session_id: "actual-session"}
+    assert {:ok, bound} = Real.request_ir(%{@request | run: run})
+    assert bound.run == run
+    assert Map.get(bound.projection, :finite_mode) == nil
+  end
+
   # 字符串值内裸换行 → 非法 JSON（gpt-oss-120b 长上下文下的真实坏法，M2 长跑
   # 实测 10/12 次正文起草解析失败均属此类）。2026-07-20 起 parse_content 在
   # Jason.decode 前先过 NovelAgent.Provider.repair_unescaped_control_chars/1，
@@ -36,9 +76,95 @@ defmodule NovelAgent.CreativeProvider.RealTest do
   # 修不了——仍应触发既有的重试/诚实失败路径。
   @unrepairable_bad_json ~s([{"item_id": "i1", "title": "开篇", "body": "b",}])
 
-  defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
+  defp provider_execution(result_fn),
+    do: AuthoringTaskFixtures.provider_execution(result_fn, "submit_tentative_artifact")
 
-  test "repairs unescaped newline in string value without needing a retry" do
+  test "G4 writer uses native tentative tool and returns one canonical session" do
+    assert {:ok, initial_ir} = Real.request_ir(@request)
+    assert :ok = RequestIR.validate(initial_ir)
+    assert [%{name: "submit_tentative_artifact"}] = initial_ir.tools
+    assert Enum.any?(initial_ir.messages, &(&1.role == "scope_update"))
+
+    assert {:ok, initial_prompt} =
+             RequestIR.to_provider_prompt(initial_ir, tool_choice: "required")
+
+    result_fn = fn prompt ->
+      assert Enum.take(prompt.messages, length(initial_prompt.messages)) ==
+               initial_prompt.messages
+
+      {:ok,
+       %{
+         content: "",
+         tool_calls: [
+           %{
+             id: "writer-call-1",
+             name: "submit_tentative_artifact",
+             arguments: %{
+               items: [%{item_id: "i1", title: "开篇", body: "夜色压在账单上。", rationale: nil}]
+             }
+           }
+         ]
+       }}
+    end
+
+    assert {%{status: :ok, items: [%{body: "夜色压在账单上。"}]}, session} =
+             Real.generate_with_session(@request, %Execution{result_fn: result_fn})
+
+    assert session.provider_result.tool_calls |> hd() |> Map.get(:id) == "writer-call-1"
+    assert List.last(session.request_ir.messages).role == "assistant"
+    assert List.last(session.request_ir.messages).blocks |> Enum.any?(&(&1.type == "tool_call"))
+  end
+
+  test "并行工具响应整体拒绝并逐项回流后才允许下一次创作" do
+    test_pid = self()
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    result_fn = fn prompt ->
+      attempt = Agent.get_and_update(counter, &{&1, &1 + 1})
+      send(test_pid, {:native_prompt, attempt, prompt})
+
+      calls =
+        if attempt == 0 do
+          [
+            %{
+              id: "a",
+              name: "submit_tentative_artifact",
+              arguments: %{items: [%{item_id: "discard", title: "不能采纳", body: "未授权并行输出"}]}
+            },
+            %{id: "b", name: "canon_write", arguments: %{}}
+          ]
+        else
+          [
+            %{
+              id: "c",
+              name: "submit_tentative_artifact",
+              arguments: %{items: [%{item_id: "good", title: "重试", body: "真实重试输出"}]}
+            }
+          ]
+        end
+
+      {:ok, %{content: "", tool_calls: calls}}
+    end
+
+    assert {%{status: :ok, items: [%{item_id: "good"}]}, session} =
+             Real.generate_with_session(@request, %Execution{result_fn: result_fn})
+
+    assert_receive {:native_prompt, 1, retry_prompt}
+    feedback = Enum.filter(retry_prompt.messages, &(&1.role == "tool"))
+    assert Enum.map(feedback, & &1.tool_call_id) == ["a", "b"]
+    assert Enum.all?(feedback, &(Jason.decode!(&1.content)["status"] == "failed"))
+    assert :ok = RequestIR.validate(session.request_ir)
+  end
+
+  test "完整原生模式拒绝 JSON 文本响应且最后一次失败可恢复" do
+    execution = %Execution{result_fn: fn _ -> {:ok, %{content: @good_json}} end}
+    bound = %{@request | run: %{run_id: "bound-native-run", work_id: "bound-work"}}
+    assert {%{status: :error}, session} = Real.generate_with_session(bound, execution)
+    refute Map.has_key?(session.request_ir.projection, :finite_mode)
+    assert :ok = RequestIR.validate(session.request_ir)
+  end
+
+  test "显式有限模式修复 JSON 字符串中的裸换行并保留模式声明" do
     {:ok, agent} = Agent.start_link(fn -> 0 end)
 
     result_fn = fn _prompt ->
@@ -46,14 +172,19 @@ defmodule NovelAgent.CreativeProvider.RealTest do
       {:ok, %{content: @bad_json}}
     end
 
-    result = Real.generate(@request, provider_execution(result_fn))
+    {:ok, ir} = Real.request_ir(@request)
+    ir = %{ir | projection: Map.put(ir.projection, :finite_mode, %{name: "legacy_json_content"})}
+
+    {result, session} =
+      Real.generate_with_session(%{@request | request_ir: ir}, %Execution{result_fn: result_fn})
 
     assert result.status == :ok
     assert [%{body: "第一行\n第二行"}] = result.items
     assert Agent.get(agent, & &1) == 1
+    assert session.request_ir.projection.finite_mode.name == "legacy_json_content"
   end
 
-  test "retries once with a correction prompt when provider returns structurally invalid JSON" do
+  test "无效原生工具参数经校验结果回流后重试一次" do
     {:ok, agent} = Agent.start_link(fn -> [] end)
 
     result_fn = fn prompt ->
@@ -72,8 +203,10 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert [%{body: "夜色压在账单上。"}] = result.items
 
     [_first, correction] = Agent.get(agent, & &1)
-    # 重试 prompt 携带纠错指令与原任务（含三锚点，stub 解析兼容）。
-    assert correction =~ "不是合法 JSON"
+    assert correction =~ "provider_response_invalid"
+    assert correction =~ "关联：fixture-native-1"
+    refute correction =~ "原生创作调用不符合契约"
+    refute correction =~ "不是合法 JSON"
     assert correction =~ "用户创作简述："
     assert correction =~ "重要："
   end
@@ -133,7 +266,14 @@ defmodule NovelAgent.CreativeProvider.RealTest do
       result_fn: fn _prompt ->
         {:ok,
          %ProviderResult{
-           content: @good_json,
+           content: "",
+           tool_calls: [
+             %{
+               id: "native-writer",
+               name: "submit_tentative_artifact",
+               arguments: %{items: Jason.decode!(@good_json)}
+             }
+           ],
            provider_call_ref: "pcall-writer-dependency"
          }}
       end

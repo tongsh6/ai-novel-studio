@@ -14,12 +14,14 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
   defp captured_prompt(request) do
     {:ok, agent} = Agent.start_link(fn -> nil end)
 
-    execution = %Execution{
-      result_fn: fn prompt ->
-        Agent.update(agent, fn _ -> prompt end)
-        {:ok, %{content: @good_json}}
-      end
-    }
+    execution =
+      AuthoringTaskFixtures.provider_execution(
+        fn prompt ->
+          Agent.update(agent, fn _ -> prompt end)
+          {:ok, %{content: @good_json}}
+        end,
+        "submit_tentative_artifact"
+      )
 
     assert Real.generate(request, execution).status == :ok
     Agent.get(agent, & &1)
@@ -44,7 +46,8 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
     assert prompt =~ operation_marker
     assert prompt =~ "作者原话（逐字保留、可追溯）：作者原话 NONCE42"
     assert prompt =~ "本轮目标（应用据作者输入与已验证上下文归纳，来源可追溯）"
-    assert prompt =~ "只返回 JSON 数组"
+    assert prompt =~ "submit_tentative_artifact"
+    refute prompt =~ "只返回 JSON 数组"
     refute prompt =~ "本次你承担创作助手的角色"
     assert prompt =~ "用户创作简述："
     assert prompt =~ "上下文："
@@ -180,9 +183,9 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
     assert prompt =~ "目标段定位"
     assert prompt =~ "必须输出完整修订稿"
     assert prompt =~ "原样返回基线原文视为未执行修订"
-    # 修订仍保留共享语义与输出契约尾
     assert prompt =~ "## 创作协作共同规则"
-    assert prompt =~ "只返回 JSON 数组"
+    assert prompt =~ "submit_tentative_artifact"
+    refute prompt =~ "只返回 JSON 数组"
   end
 
   test "B28: format_only chapter revision renders ordered coverage + no continuation" do

@@ -360,6 +360,58 @@ defmodule NovelAgent.Provider.AnthropicTest do
   end
 
   describe "IR v1 桥（B71 CP2，VS-00L §6.2）" do
+    test "真实 adapter 在发送前拒绝其它协议的不可表示工具参数" do
+      parent = self()
+
+      state = %Anthropic{
+        api_key: "test",
+        model: "fixture",
+        timeout: 100,
+        log_fn: nil,
+        http_fn: fn _, _, _ ->
+          send(parent, :invalid_history_sent)
+          {:error, :http_error, 400, "bad"}
+        end,
+        eventsource_fn: fn _, _, _, _ ->
+          send(parent, :invalid_history_streamed)
+          {:ok, 200, ""}
+        end
+      }
+
+      prompt = ir_provider_prompt()
+
+      prompt = %{
+        prompt
+        | messages:
+            Enum.map(prompt.messages, fn
+              %{role: "assistant", tool_calls: calls} = message ->
+                %{
+                  message
+                  | tool_calls:
+                      Enum.map(calls, &put_in(&1, [:function, :arguments], "{\"query\":}"))
+                }
+
+              message ->
+                message
+            end)
+      }
+
+      assert {:error, %{type: :invalid_request}} =
+               Anthropic.complete(state, nil, prompt, %InferenceParams{})
+
+      assert {:error, %{error: %{type: :invalid_request}}} =
+               Anthropic.execute(
+                 state,
+                 nil,
+                 Map.put(prompt, :tool_choice, "none"),
+                 %InferenceParams{},
+                 provider_ctx()
+               )
+
+      refute_received :invalid_history_sent
+      refute_received :invalid_history_streamed
+    end
+
     test "IR → Anthropic Messages：tool_use/tool_result content blocks + 轮次交替" do
       test_pid = self()
 
@@ -374,7 +426,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
       assert {:error, _error} = Anthropic.complete(state, nil, prompt, %InferenceParams{})
       assert_received {:anthropic_body, body}
 
-      assert [%{name: "read_character", input_schema: %{type: "object"}}] = body.tools
+      assert [%{name: "read_character", input_schema: %{"type" => "object"}}] = body.tools
 
       assert Enum.any?(body.messages, fn message ->
                message.role == "assistant" and
@@ -449,7 +501,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
           ],
           projection: %{
             target: "anthropic_messages",
-            capability_profile: %{},
+            capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true}),
             usage_streaming: false
           },
           refs: %{

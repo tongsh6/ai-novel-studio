@@ -2,9 +2,9 @@ defmodule NovelCommon.Contracts.CreativeRequest do
   @moduledoc """
   Provider-facing creative generation request.
 
-  This envelope carries creative brief and context only. It does not carry UI
-  card text, adoption semantics, or authoritative artifact type chosen by the
-  planner.
+  This envelope carries the creative task, material scope, and an optional preceding
+  Request IR for canonical multi-turn authoring. It does not carry author UI text,
+  adoption authorization, or provider-session data for display.
   """
 
   @type t :: %__MODULE__{
@@ -20,6 +20,8 @@ defmodule NovelCommon.Contracts.CreativeRequest do
           planning_mission: String.t() | nil,
           revision: String.t() | nil,
           task: NovelCommon.Contracts.AuthoringTask.t() | nil,
+          run: map() | nil,
+          request_ir: map() | nil,
           provider_hints: map()
         }
 
@@ -48,6 +50,8 @@ defmodule NovelCommon.Contracts.CreativeRequest do
     # B27 CP3：专业调用共同任务语义（作者目标/来源、对象与范围、材料完整性、保留项、
     # 输出契约）。迁移期 nil 保持旧行为；迁移完成后所有专业调用必须携带。
     task: nil,
+    run: nil,
+    request_ir: nil,
     provider_hints: %{}
   ]
 end

@@ -21,7 +21,9 @@ defmodule NovelCommon.Contracts.QualityEvaluationRequest do
           scene_units: [map()],
           # B27 CP3：评审任务语义（材料覆盖/版本/范围，见 AuthoringTask）；
           # 迁移期 nil 保持旧行为。
-          task: NovelCommon.Contracts.AuthoringTask.t() | nil
+          task: NovelCommon.Contracts.AuthoringTask.t() | nil,
+          run: map() | nil,
+          request_ir: map() | nil
         }
 
   @enforce_keys [:request_id, :prose_text]
@@ -36,6 +38,8 @@ defmodule NovelCommon.Contracts.QualityEvaluationRequest do
     form_candidates: [],
     pacing_context: nil,
     scene_units: [],
-    task: nil
+    task: nil,
+    run: nil,
+    request_ir: nil
   ]
 end

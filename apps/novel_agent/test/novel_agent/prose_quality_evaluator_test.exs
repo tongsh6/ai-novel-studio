@@ -3,7 +3,9 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
 
   alias NovelAgent.ProseQualityEvaluator
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.Result, as: ProviderResult
+  alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.QualityEvaluationRequest
   alias NovelCommon.Contracts.QualityEvaluationResult
 
@@ -19,7 +21,49 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
   end
 
   defp findings_json(findings), do: Jason.encode!(%{"findings" => findings})
-  defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
+
+  test "复用其它角色会话进入 evaluator 时完整只读规则和输出契约进入最新 scope" do
+    request = request()
+
+    previous =
+      RequestIR.new(%{
+        run: %{run_id: "real-run", work_id: "real-work"},
+        system: %{identity_ref: "identity:authoring/v1"},
+        projection: %{
+          target: "chat_completions",
+          capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
+        },
+        messages: [
+          RequestIR.message(:application_base, :application, [RequestIR.text_block("首阶段只承担计划起草。")]),
+          RequestIR.message(:user, :author, [RequestIR.text_block(request.task.author_words)])
+        ]
+      })
+
+    assert {:ok, evaluator} = ProseQualityEvaluator.request_ir(%{request | request_ir: previous})
+    assert Enum.take(evaluator.messages, length(previous.messages)) == previous.messages
+    latest = List.last(evaluator.messages).blocks |> Enum.map_join("", & &1.text)
+    assert latest =~ AuthoringSemantics.static_block(request.task)
+    assert latest =~ "只读评审，不重写正文，不修改作品事实"
+    assert latest =~ "输出契约（调用 report_quality_findings"
+    assert Enum.count(evaluator.messages, &(&1.role == "user")) == 1
+    assert evaluator.run == previous.run
+  end
+
+  test "独立质量外观标记有限会话且不伪造作品身份，真实 run 不降级" do
+    request = request()
+    assert {:ok, standalone} = ProseQualityEvaluator.request_ir(request)
+    assert standalone.run == %{run_id: request.request_id}
+    assert standalone.projection.finite_mode.name == "standalone_operation"
+    assert standalone.projection.finite_mode.durable_recovery == false
+
+    run = %{run_id: "actual-quality-run", work_id: "actual-work"}
+    assert {:ok, bound} = ProseQualityEvaluator.request_ir(Map.put(request, :run, run))
+    assert bound.run == run
+    assert Map.get(bound.projection, :finite_mode) == nil
+  end
+
+  defp provider_execution(result_fn),
+    do: AuthoringTaskFixtures.provider_execution(result_fn, "report_quality_findings")
 
   defp valid_finding(overrides \\ %{}) do
     Map.merge(
@@ -42,6 +86,63 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
       },
       overrides
     )
+  end
+
+  test "G4 evaluator uses native finding tool and preserves the preceding session" do
+    assert {:ok, initial_ir} = ProseQualityEvaluator.request_ir(request())
+    assert [%{name: "report_quality_findings"}] = initial_ir.tools
+
+    assert {:ok, initial_prompt} =
+             RequestIR.to_provider_prompt(initial_ir, tool_choice: "required")
+
+    result_fn = fn prompt ->
+      assert Enum.take(prompt.messages, length(initial_prompt.messages)) ==
+               initial_prompt.messages
+
+      {:ok,
+       %{
+         content: "",
+         tool_calls: [
+           %{
+             id: "quality-call-1",
+             name: "report_quality_findings",
+             arguments: %{findings: []}
+           }
+         ]
+       }}
+    end
+
+    assert {%QualityEvaluationResult{status: :ok, findings: []}, session} =
+             ProseQualityEvaluator.evaluate_with_session(request(), %Execution{
+               result_fn: result_fn
+             })
+
+    assert session.provider_result.tool_calls |> hd() |> Map.get(:id) == "quality-call-1"
+    assert List.last(session.request_ir.messages).role == "assistant"
+  end
+
+  test "质量并行调用整体失败且所有 call 都留有闭合结果" do
+    execution = %Execution{
+      result_fn: fn _ ->
+        {:ok,
+         %{
+           content: "",
+           tool_calls: [
+             %{id: "a", name: "report_quality_findings", arguments: %{findings: []}},
+             %{id: "b", name: "report_quality_findings", arguments: %{findings: []}}
+           ]
+         }}
+      end
+    }
+
+    assert {%QualityEvaluationResult{status: :error}, session} =
+             ProseQualityEvaluator.evaluate_with_session(request(), execution)
+
+    assert {:ok, prompt} = RequestIR.to_provider_prompt(session.request_ir)
+    calls = for message <- prompt.messages, call <- Map.get(message, :tool_calls, []), do: call.id
+    results = for %{role: "tool", tool_call_id: id} <- prompt.messages, do: id
+    assert length(calls) == 4
+    assert calls == results
   end
 
   test "prompt is an evaluator prompt (not prose anchors) and never asks to rewrite" do
@@ -124,7 +225,10 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
       result_fn: fn _prompt ->
         {:ok,
          %ProviderResult{
-           content: findings_json([]),
+           content: "",
+           tool_calls: [
+             %{id: "native-quality", name: "report_quality_findings", arguments: %{findings: []}}
+           ],
            provider_call_ref: "pcall-evaluator-dependency"
          }}
       end
@@ -136,20 +240,28 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
            } = ProseQualityEvaluator.evaluate(request(), provider_execution)
   end
 
-  test "accepts bare JSON array of findings" do
+  test "显式有限模式只解析纯文本 JSON 响应" do
     complete = fn _prompt -> {:ok, %{content: Jason.encode!([valid_finding()])}} end
 
-    assert %QualityEvaluationResult{status: :ok, findings: [_]} =
-             ProseQualityEvaluator.evaluate(request(), provider_execution(complete))
+    {:ok, ir} = ProseQualityEvaluator.request_ir(request())
+    ir = %{ir | projection: Map.put(ir.projection, :finite_mode, %{name: "legacy_json_content"})}
+
+    assert {%QualityEvaluationResult{status: :ok, findings: [_]}, session} =
+             ProseQualityEvaluator.evaluate_with_session(
+               %{request() | request_ir: ir},
+               %Execution{result_fn: complete}
+             )
+
+    assert session.request_ir.projection.finite_mode.name == "legacy_json_content"
   end
 
-  test "retries when a finding omits author-verifiable evidence fields" do
+  test "缺失证据字段时以原生工具结果纠错" do
     test_pid = self()
 
     complete = fn prompt ->
       send(test_pid, {:prompt, prompt})
 
-      if prompt =~ "上一次的输出" do
+      if prompt =~ "evaluator_invalid_json" do
         {:ok, %{content: findings_json([valid_finding()])}}
       else
         {:ok,
@@ -174,7 +286,9 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     assert_receive {:prompt, first_prompt}
     assert_receive {:prompt, retry_prompt}
     refute first_prompt =~ "上一次的输出"
-    assert retry_prompt =~ "字段完整"
+    assert retry_prompt =~ "evaluator_invalid_json"
+    assert retry_prompt =~ "关联：fixture-native-1"
+    assert retry_prompt =~ "quality_finding_id"
   end
 
   test "double incomplete findings JSON degrades honestly" do

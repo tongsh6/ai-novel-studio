@@ -12,16 +12,23 @@ defmodule NovelAgent.AuthorizedToolExecutor do
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
 
+  @spec execute_with_session(ToolRequest.t(), Execution.dependency(), keyword()) ::
+          {ToolResult.t(), map()}
+  def execute_with_session(%ToolRequest{} = req, provider_execution, opts \\ []) do
+    if authorized_request?(req) do
+      Toolbox.execute_with_session(req, provider_execution, opts)
+    else
+      {failed(req), %{tool_call_count: 0}}
+    end
+  end
+
   @spec execute(ToolRequest.t()) :: ToolResult.t()
   def execute(%ToolRequest{} = req), do: execute(req, nil)
 
   @spec execute(ToolRequest.t(), Execution.dependency()) :: ToolResult.t()
   def execute(%ToolRequest{} = req, provider_execution) do
-    if authorized_request?(req) do
-      Toolbox.execute(req, provider_execution)
-    else
-      failed(req)
-    end
+    {result, _session} = execute_with_session(req, provider_execution)
+    result
   end
 
   defp authorized_request?(%ToolRequest{} = req) do

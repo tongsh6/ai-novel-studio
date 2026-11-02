@@ -2,7 +2,8 @@ defmodule NovelAgent.CreativeProvider.RealTaskPromptTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.CreativeProvider.Real
-  alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.{Execution, RequestIR}
+  alias NovelAgent.TestSupport.AuthoringTaskFixtures
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.CreativeRequest
@@ -12,12 +13,13 @@ defmodule NovelAgent.CreativeProvider.RealTaskPromptTest do
              ])
 
   defp execution(agent) do
-    %Execution{
-      result_fn: fn prompt ->
+    AuthoringTaskFixtures.provider_execution(
+      fn prompt ->
         Agent.update(agent, fn _ -> prompt end)
         {:ok, %{content: @good_json}}
-      end
-    }
+      end,
+      "submit_tentative_artifact"
+    )
   end
 
   defp base_task(kind, attrs) do
@@ -167,29 +169,46 @@ defmodule NovelAgent.CreativeProvider.RealTaskPromptTest do
     assert Agent.get(agent, & &1) == nil
   end
 
-  test "correction prompt re-renders the same output contract instead of relaxing it" do
-    task = revision_task()
-    request = request(task)
-
+  test "旧入口复用原生会话，并以工具结果纠正无效参数" do
+    request = request(revision_task())
     {:ok, agent} = Agent.start_link(fn -> [] end)
 
     result_fn = fn prompt ->
       calls = Agent.get_and_update(agent, &{&1, &1 ++ [prompt]})
 
       if calls == [] do
-        {:ok, %{content: ~s([{"item_id": "i1", "title": "x", "body": "b",}])}}
+        {:ok,
+         %{
+           content: "",
+           tool_calls: [
+             %{id: "bad-native", name: "submit_tentative_artifact", arguments: "{invalid"}
+           ]
+         }}
       else
-        {:ok, %{content: @good_json}}
+        {:ok,
+         %{
+           content: "",
+           tool_calls: [
+             %{
+               id: "good-native",
+               name: "submit_tentative_artifact",
+               arguments: %{items: [%{item_id: "i1", title: "开篇", body: "夜色压在账单上。"}]}
+             }
+           ]
+         }}
       end
     end
 
-    execution = %Execution{result_fn: result_fn}
-    assert Real.generate(request, execution).status == :ok
+    assert Real.generate(request, %Execution{result_fn: result_fn}).status == :ok
+    [original, correction] = Agent.get(agent, & &1)
+    assert original.ir_version == RequestIR.ir_version()
+    assert correction.tool_choice == "submit_tentative_artifact"
+    assert Enum.take(correction.messages, length(original.messages)) == original.messages
 
-    [_original, correction] = Agent.get(agent, & &1)
-    assert correction =~ "不是合法 JSON"
-    assert correction =~ "结构必须与首次请求完全一致"
-    refute correction =~ "或一个包含 \"items\" 数组的 JSON 对象"
-    assert correction =~ "伴生产物：允许"
+    assert Enum.any?(correction.messages, fn message ->
+             message.role == "tool" and message.content =~ "provider_response_invalid"
+           end)
+
+    refute Enum.any?(correction.messages, &(&1.content =~ "不是合法 JSON"))
   end
 end

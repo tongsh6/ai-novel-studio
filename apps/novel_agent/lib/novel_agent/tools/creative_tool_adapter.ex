@@ -2,6 +2,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
   @moduledoc false
 
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.NativeToolExchange
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.CreativeProviderResult
@@ -16,6 +17,129 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
     :world_rule_seed,
     :constraint_seed
   ]
+
+  @spec execute_with_session(ToolRequest.t(), atom(), Execution.dependency(), module(), keyword()) ::
+          {ToolResult.t(), map()}
+  def execute_with_session(
+        %ToolRequest{} = req,
+        artifact_type,
+        provider_execution,
+        provider_module,
+        opts \\ []
+      ) do
+    result_id = NovelFoundation.ID.unique("tr")
+    now = DateTime.utc_now()
+
+    with {:ok, _max_provider_calls} <- NativeToolExchange.validate_options(opts),
+         {:ok, normalized_type} <- ToolOutputContract.normalize_artifact_type(artifact_type),
+         {:ok, request} <- creative_request(req, normalized_type) do
+      exchange_opts = provider_exchange_opts(opts, req, result_id, now, normalized_type)
+
+      {result, session} =
+        provider_module.generate_with_session(request, provider_execution, exchange_opts)
+
+      {provider_result_to_tool_result(result, req, result_id, now, normalized_type), session}
+    else
+      {:error, code, message} when is_binary(code) ->
+        {failed_tool_result(req, result_id, now, [%{code: code, message: message}]),
+         %{tool_call_count: 0}}
+
+      {:error, %{code: code, message: message}} ->
+        {failed_tool_result(req, result_id, now, [%{code: code, message: message}]), %{}}
+    end
+  end
+
+  # 本地输出/ToolResult 契约先校验，再调用 application 的纯 validator。任何本地失败
+  # 都变成具体 feedback，由 NativeToolExchange 在原 call_id 上回流；不调用 app validator。
+  defp provider_exchange_opts(opts, req, result_id, now, artifact_type) do
+    app_validator = Keyword.get(opts, :validate_result)
+
+    opts
+    |> Keyword.take([:max_provider_calls])
+    |> Keyword.put(:validate_result, fn parsed ->
+      validate_provider_parsed(parsed, req, result_id, now, artifact_type, app_validator)
+    end)
+  end
+
+  defp validate_provider_parsed(
+         %CreativeProviderResult{} = parsed,
+         req,
+         result_id,
+         now,
+         artifact_type,
+         app_validator
+       ) do
+    case provider_result_to_tool_result(parsed, req, result_id, now, artifact_type) do
+      %ToolResult{status: :succeeded} = tool_result ->
+        case ToolResult.validate(tool_result) do
+          [] -> invoke_app_validator(app_validator, tool_result)
+          errors -> tool_result_contract_feedback(errors)
+        end
+
+      %ToolResult{status: :failed, errors: errors} ->
+        tool_errors_feedback(errors)
+    end
+  end
+
+  defp validate_provider_parsed(
+         _other,
+         _req,
+         _result_id,
+         _now,
+         _artifact_type,
+         _app_validator
+       ) do
+    {:error,
+     %{
+       reason_code: "creative_provider_result_invalid",
+       detail: %{},
+       message: "creative provider result must be a CreativeProviderResult"
+     }}
+  end
+
+  defp invoke_app_validator(nil, _tool_result), do: :ok
+
+  defp invoke_app_validator(validator, %ToolResult{} = tool_result)
+       when is_function(validator, 1),
+       do: validator.(tool_result)
+
+  # 入口已校验 nil/arity1；此分支只是防御。返回坏形状让 Native 走程序契约故障，
+  # 不重试、也不把回调返回值 inspect 后回流模型。
+  defp invoke_app_validator(_other, _tool_result), do: :invalid_validation_callback_result
+
+  defp tool_result_contract_feedback(errors) do
+    {:error,
+     %{
+       reason_code: "tool_result_contract_invalid",
+       detail: %{errors: errors},
+       message: "ToolResult contract invalid: #{Enum.join(errors, "; ")}"
+     }}
+  end
+
+  defp tool_errors_feedback([%{code: code, message: message} | _] = errors) do
+    {:error,
+     %{
+       reason_code: to_string(code),
+       detail: %{errors: Enum.map(errors, &tool_error_detail/1)},
+       message: if(is_binary(message), do: message, else: inspect(message))
+     }}
+  end
+
+  defp tool_errors_feedback(_errors) do
+    {:error,
+     %{
+       reason_code: "creative_output_invalid",
+       detail: %{},
+       message: "creative output did not satisfy the tool contract"
+     }}
+  end
+
+  defp tool_error_detail(%{code: code} = error) do
+    message = Map.get(error, :message)
+    %{code: to_string(code), message: if(is_binary(message), do: message, else: inspect(message))}
+  end
+
+  defp tool_error_detail(error), do: %{code: "unknown_error", message: inspect(error)}
 
   @spec execute(ToolRequest.t(), atom(), Execution.dependency(), module()) ::
           ToolResult.t()
@@ -61,6 +185,8 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
       # B27 CP3b：专业调用共同任务语义（application 组装、common 校验后由本 adapter 恢复）。
       # 无 task 的旧调用保持 nil（迁移期兼容，CP3d 清理清单）。
       task: task,
+      run: Map.get(req.input, "agent_run"),
+      request_ir: Map.get(req.input, "request_ir"),
       provider_hints: Map.get(req.input, "provider_hints", %{})
     }
   end

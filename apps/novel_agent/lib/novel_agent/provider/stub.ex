@@ -28,7 +28,6 @@ defmodule NovelAgent.Provider.Stub do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.StubChapterSummary
-  alias NovelAgent.Provider.SystemIdentity
 
   defstruct []
 
@@ -83,8 +82,35 @@ defmodule NovelAgent.Provider.Stub do
   defp infer_result(prompt) do
     text = prompt_text(prompt)
 
-    judgment_family_result(prompt, text) || infer_non_judgment_result(prompt, text)
+    native_stage_result(
+      NovelAgent.Provider.active_tool_name(prompt),
+      NovelAgent.Provider.operation_prompt_text(prompt)
+    ) || judgment_family_result(prompt, text) ||
+      infer_non_judgment_result(prompt, text)
   end
+
+  defp native_stage_result("submit_tentative_artifact", text),
+    do: native_tool_result("submit_tentative_artifact", creative_items_json(text))
+
+  defp native_stage_result("report_quality_findings", _text) do
+    Result.new("", nil,
+      tool_calls: [
+        %{
+          id: "native-report_quality_findings",
+          name: "report_quality_findings",
+          arguments: %{findings: []}
+        }
+      ]
+    )
+  end
+
+  defp native_stage_result(tool, text) when tool in ["agent_plan_draft", "agent_plan_revision"],
+    do: native_agent_plan_result(tool, text)
+
+  defp native_stage_result(tool, text) when tool in ["chapter_mission", "planning_mission"],
+    do: chapter_mission_result(tool, text)
+
+  defp native_stage_result(_tool, _text), do: nil
 
   # 同次返回 content 与明确工具输出，不再按有无 tools 生成两段应答。
   defp judgment_family_result(_prompt, text) do
@@ -92,6 +118,20 @@ defmodule NovelAgent.Provider.Stub do
       continuation_prompt?(text) -> continuation_decision_result(text)
       judgment_prompt?(text) -> judgment_decision_result(text)
       true -> nil
+    end
+  end
+
+  defp native_tool_result(name, content) do
+    case Jason.decode(content) do
+      {:ok, payload} ->
+        arguments = if is_list(payload), do: %{items: payload}, else: payload
+
+        Result.new("", nil,
+          tool_calls: [%{id: "native-#{name}", name: name, arguments: arguments}]
+        )
+
+      _ ->
+        Result.new("invalid native fixture", nil, tool_calls: [])
     end
   end
 
@@ -103,11 +143,12 @@ defmodule NovelAgent.Provider.Stub do
         creative_output_result(text)
 
       NovelAgent.Provider.tool_call_prompt?(prompt) and agent_plan_prompt?(text) ->
-        native_agent_plan_result(prompt, text)
+        tool = NovelAgent.Provider.tool_specs(prompt) |> hd() |> Map.fetch!(:name)
+        native_agent_plan_result(tool, text)
 
       # WR01 写前推理步：forced tool call 产本章使命（依据只取 prompt 材料里列名的 ref）。
       NovelAgent.Provider.tool_call_prompt?(prompt) and chapter_mission_prompt?(text) ->
-        chapter_mission_result(prompt, text)
+        chapter_mission_result(NovelAgent.Provider.tool_choice(prompt) || "chapter_mission", text)
 
       # B27 CP3c/CP3d：章摘要确定性四栏（stub 与 SliceVerify 共用单一 fixture 真源）。
       StubChapterSummary.prompt?(text) ->
@@ -127,7 +168,7 @@ defmodule NovelAgent.Provider.Stub do
   defp chapter_mission_prompt?(text),
     do: String.contains?(text, "写前推理器") or String.contains?(text, "规划前推理器")
 
-  defp chapter_mission_result(prompt, text) do
+  defp chapter_mission_result(tool, text) do
     refs =
       ~r/\[([a-z_]+:[^\]\s]+)\]/u
       |> Regex.scan(text)
@@ -145,14 +186,14 @@ defmodule NovelAgent.Provider.Stub do
       [secrecy && %{"text" => "不得提前揭示后续章的计划信息。", "basis_ref" => secrecy}]
       |> Enum.reject(&(&1 in [nil, false]))
 
-    planning? = String.contains?(text, "规划前推理器")
+    planning? = tool == "planning_mission"
     reasoning = mission_reasoning(planning?, foreshadow, arc)
     statement = mission_statement(planning?, foreshadow)
 
     Result.new(reasoning, nil,
       tool_calls: [
         %{
-          "name" => NovelAgent.Provider.tool_choice(prompt) || "chapter_mission",
+          "name" => tool,
           "arguments" => %{
             "author_reasoning" => reasoning,
             "statement" => statement,
@@ -637,9 +678,9 @@ defmodule NovelAgent.Provider.Stub do
     }
   end
 
-  defp native_agent_plan_result(prompt, prompt_text) do
+  defp native_agent_plan_result(tool, prompt_text) do
     response =
-      if agent_plan_revision_prompt?(prompt_text) do
+      if tool == "agent_plan_revision" do
         agent_plan_revision_response(prompt_text)
       else
         agent_plan_draft_response(prompt_text)
@@ -648,7 +689,7 @@ defmodule NovelAgent.Provider.Stub do
     Result.new(Map.fetch!(response, :reasoning), nil,
       tool_calls: [
         %{
-          "name" => NovelAgent.Provider.tool_specs(prompt) |> hd() |> Map.fetch!(:name),
+          "name" => tool,
           "arguments" => plan_tool_arguments(response)
         }
       ]
@@ -1217,15 +1258,28 @@ defmodule NovelAgent.Provider.Stub do
     end
   end
 
+  defp creative_anchor_parts(prompt) when is_map(prompt) or is_list(prompt) do
+    prompt
+    |> NovelAgent.Provider.normalize_messages()
+    |> Enum.find_value(fn message ->
+      case Map.get(message, :content) do
+        "【应用数据 · scope_update" <> _ = content -> creative_parts_from_text(content)
+        _ -> nil
+      end
+    end)
+  end
+
   defp creative_anchor_parts(prompt_text) do
     if task_aware_creative_prompt?(prompt_text) or
          String.contains?(prompt_text, "用户创作简述：") do
-      case Regex.run(~r/用户创作简述：(.+?)\n\s*上下文：(.+?)\n\s*重要：/su, prompt_text) do
-        [_, brief, context] -> {String.trim(brief), String.trim(context)}
-        _ -> nil
-      end
-    else
-      nil
+      creative_parts_from_text(prompt_text)
+    end
+  end
+
+  defp creative_parts_from_text(text) do
+    case Regex.run(~r/用户创作简述：(.*?)\n\s*上下文：(.*?)\n\s*重要：/su, text) do
+      [_, brief, context] -> {String.trim(brief), String.trim(context)}
+      _ -> nil
     end
   end
 
@@ -1353,12 +1407,5 @@ defmodule NovelAgent.Provider.Stub do
 
   # ── prompt 归一化 ──
 
-  defp prompt_text(prompt) when is_binary(prompt), do: prompt
-
-  defp prompt_text(prompt) when is_list(prompt) or is_map(prompt) do
-    prompt
-    |> NovelAgent.Provider.normalize_messages()
-    |> Enum.reject(&(&1.role == "system" and &1.content == SystemIdentity.content()))
-    |> Enum.map_join("\n", fn message -> "#{message.role}: #{message.content}" end)
-  end
+  defp prompt_text(prompt), do: NovelAgent.Provider.prompt_text(prompt)
 end

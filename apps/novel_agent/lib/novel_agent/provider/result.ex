@@ -16,6 +16,7 @@ defmodule NovelAgent.Provider.Result do
     :content,
     :usage,
     tool_calls: [],
+    provider_state: %{},
     provider_call_ref: nil,
     provider_run_ref: nil,
     provider_output: nil,
@@ -26,6 +27,7 @@ defmodule NovelAgent.Provider.Result do
           content: String.t(),
           usage: Usage.t() | nil,
           tool_calls: [map()],
+          provider_state: map(),
           provider_call_ref: String.t() | nil,
           provider_run_ref: String.t() | nil,
           provider_output: ProviderOutput.t() | nil,
@@ -38,7 +40,8 @@ defmodule NovelAgent.Provider.Result do
     %__MODULE__{
       content: content,
       usage: usage,
-      tool_calls: normalize_tool_calls(Keyword.get(opts, :tool_calls, []))
+      tool_calls: normalize_tool_calls(Keyword.get(opts, :tool_calls, [])),
+      provider_state: Keyword.get(opts, :provider_state, %{})
     }
   end
 

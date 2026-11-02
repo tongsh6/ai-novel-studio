@@ -52,7 +52,18 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTaskTest do
     %Execution{
       result_fn: fn prompt ->
         Agent.update(agent, fn _ -> prompt end)
-        {:ok, %{content: @good_json}}
+
+        {:ok,
+         %{
+           content: "",
+           tool_calls: [
+             %{
+               id: "task-artifact",
+               name: "submit_tentative_artifact",
+               arguments: %{items: Jason.decode!(@good_json)}
+             }
+           ]
+         }}
       end
     }
   end
@@ -71,7 +82,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTaskTest do
       CreativeToolAdapter.execute(tool_request(input), :prose_fragment, execution(agent), Real)
 
     assert result.status == :succeeded
-    prompt = Agent.get(agent, & &1)
+    prompt = agent |> Agent.get(& &1) |> NovelAgent.Provider.prompt_text()
     assert prompt =~ "## 创作协作共同规则"
     assert prompt =~ "本轮为首稿创作"
     assert prompt =~ "作者原话（逐字保留、可追溯）：把第一章开篇写出来 NONCE42"
