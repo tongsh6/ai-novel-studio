@@ -2,6 +2,8 @@ ExUnit.start(exclude: [:integration, :real_llm])
 
 Ecto.Adapters.SQL.Sandbox.mode(NovelPersistence.Repo, :manual)
 
+Code.require_file(Path.expand("support/agent_run_cleanup_helper.exs", __DIR__))
+
 defmodule NovelApplication.TestAssertions do
   @moduledoc false
 
@@ -22,6 +24,22 @@ end
 
 defmodule NovelApplication.TestAgenticLoopFixtures do
   @moduledoc false
+
+  import ExUnit.Assertions
+
+  def assert_authoring_transcript(state, run_id) do
+    transcript = Map.fetch!(state.stage_state, :judgment_transcript)
+    assert transcript.run.run_id == run_id
+
+    tool_names =
+      for message <- transcript.messages,
+          block <- message.blocks,
+          block.type == "tool_call",
+          do: block.name
+
+    assert "submit_tentative_artifact" in tool_names
+    transcript
+  end
 
   def reasoning_tail(packet) when is_map(packet) do
     tail = %{
@@ -83,6 +101,65 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
     prompt
     |> NovelAgent.Provider.normalize_messages()
     |> Enum.map_join("\n", fn message -> "#{message.role}: #{message.content}" end)
+  end
+
+  def native_artifact_result(items, opts \\ []) when is_list(items) do
+    %{
+      content: "",
+      provider_call_id: Keyword.get(opts, :provider_call_id),
+      tool_calls: [
+        %{
+          id: Keyword.get(opts, :call_id, "creative-call-1"),
+          name: "submit_tentative_artifact",
+          arguments: %{items: items}
+        }
+      ]
+    }
+  end
+
+  # 原生 fixture 直接声明工具参数；不从文本响应推断产品协议或补齐创作字节。
+  def native_tool_calls(tool_name, arguments) do
+    [
+      %{
+        id: "fixture-native-#{System.unique_integer([:positive, :monotonic])}",
+        name: tool_name,
+        arguments: arguments
+      }
+    ]
+  end
+
+  # 每次真实 Provider 调用必须有独立身份；固定 provider_call_id 会在
+  # ProviderRunLog 的唯一事实边界被正确判为跨调用冲突。测试 fixture 统一用
+  # 本函数按调用生成，不按分支临时拼 id，也不关闭事实持久化。
+  def unique_provider_call_id(prefix) when is_binary(prefix) do
+    "#{prefix}-#{System.unique_integer([:positive, :monotonic])}"
+  end
+
+  # 正式流程测试除应用态断言外，还要核对唯一事实边界真实落下的 run/event/output
+  # 配对：同一次调用的 event 与 output 必须指向同一 run 和 provider_call_ref。
+  def assert_provider_fact_pairs(agent_run_id) when is_binary(agent_run_id) do
+    runs = NovelPersistence.ProviderRunLog.list_runs(agent_run_id)
+    assert runs != []
+
+    Enum.each(runs, fn run ->
+      assert run.agent_run_id == agent_run_id
+
+      events = NovelPersistence.ProviderRunLog.list_events(run.id)
+      output = NovelPersistence.ProviderRunLog.get_output(run.id)
+
+      Enum.each(events, fn event ->
+        assert event.provider_run_id == run.id
+        assert event.provider_call_ref == run.provider_call_ref
+        assert event.agent_run_id == agent_run_id
+      end)
+
+      assert is_map(output)
+      assert output.provider_run_id == run.id
+      assert output.provider_call_ref == run.provider_call_ref
+      assert output.agent_run_id == agent_run_id
+    end)
+
+    runs
   end
 
   def plan_step(step_id, target_tool_ref, description, opts \\ []) do
