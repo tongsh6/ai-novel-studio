@@ -143,12 +143,13 @@ function referenceLogRows(db) {
   );
 }
 
-export function planningCanonSnapshot(dir) {
+export function planningCanonSnapshot(dir, { includeChapterFacts = true } = {}) {
   return withDb(dir, (db) => buildAuthoringCanonSnapshot({
     tables: Object.fromEntries(CANON_TABLES.map((table) =>
       [table, all(db, `SELECT * FROM ${table} ORDER BY id`)])),
     referenceLogs: referenceLogRows(db),
     at: new Date().toISOString(),
+    includeChapterFacts,
   }));
 }
 
@@ -162,11 +163,11 @@ function writeWhyCheckpoint(dir, checkpoint) {
   });
 }
 
-function writeRunCheckpoint(dir, checkpoint, canon) {
+function writeRunCheckpoint(dir, checkpoint, canon, { includeChapterFacts = true } = {}) {
   write(dir, `b71-${checkpoint}.json`, {
     checkpoint,
     db_production_counts: productionTableCounts(dir),
-    ...(canon ? { authoring_canon: planningCanonSnapshot(dir) } : {}),
+    ...(canon ? { authoring_canon: planningCanonSnapshot(dir, { includeChapterFacts }) } : {}),
   });
 }
 
@@ -193,5 +194,6 @@ export function capture(dir, checkpoint) {
     assert(revision, "before-revision 只属于修订批次");
   }
   if (revision) assertRevisionCheckpointOrder(dir, checkpoint);
-  return writeRunCheckpoint(dir, checkpoint, canon);
+  // live 实模：canon 快照只做表级内容签名（不解析章节设计态明细）。
+  return writeRunCheckpoint(dir, checkpoint, canon, { includeChapterFacts: !live });
 }

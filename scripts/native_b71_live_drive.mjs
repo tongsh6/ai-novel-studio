@@ -152,7 +152,9 @@ async function run() {
     ok: false,
     error: error.message,
   }));
-  write(dir, "strata-slot.json", strataLifecycleRecord({ before, after: before, unload: null }));
+  // 证据文件不得覆盖：开始只落 before 观测（不同名），卸载核验后的完整记录只在
+  // finally 写一次 strata-slot.json。
+  write(dir, "strata-slot-before.json", strataLifecycleRecord({ before, after: before, unload: null }));
 
   let driverLog = null;
   try {

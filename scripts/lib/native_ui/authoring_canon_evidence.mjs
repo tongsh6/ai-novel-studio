@@ -505,7 +505,11 @@ function normalizedLogs(value) {
   return ordered.map(({ log }) => log);
 }
 
-export function buildAuthoringCanonSnapshot({ tables, referenceLogs, at } = {}) {
+// includeChapterFacts=false 只服务 live 实模场景：L9 只需要表级内容签名，不需要
+// 章节设计态逐字段见证；真实 b71-first-consumer seed 的 chapter_mission 可能缺
+// decided_at 等设计态字段，不能为了 live 快照伪造或修改 seed。默认 true，planning/
+// revision 的严格解析不变。
+export function buildAuthoringCanonSnapshot({ tables, referenceLogs, at, includeChapterFacts = true } = {}) {
   const source = requireRecord(tables, "tables");
   const snapshotAt = requireString(at, "at");
   parseUtcTimestamp(snapshotAt);
@@ -527,7 +531,7 @@ export function buildAuthoringCanonSnapshot({ tables, referenceLogs, at } = {}) 
     version: SNAPSHOT_VERSION,
     at: snapshotAt,
     tables: snapshotTables,
-    chapters: chapterFacts(chapterRows),
+    chapters: includeChapterFacts ? chapterFacts(chapterRows) : {},
     memory_items: memoryStats(memoryRows),
     memory_reference_logs: normalizedLogs(referenceLogs),
   };

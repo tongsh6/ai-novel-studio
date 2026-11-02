@@ -85,7 +85,12 @@ STRATA_AFTER="$STATE_DIR/batch-$TAG.strata-after.json"
 mkdir -p "$STATE_DIR"
 
 if [[ "$LIVE" == "1" ]]; then
-  DIR="$ROOT/artifacts/slice-verify/${SLICE}-live-$TAG"
+  # CP3b 预注册可指定精确 live 证据目录（仍必须位于 artifacts/ 且不存在）。
+  DIR="${B71_LIVE_ARTIFACT_DIR:-$ROOT/artifacts/slice-verify/${SLICE}-live-$TAG}"
+  if [[ "$DIR" != "$ROOT/artifacts/"* ]]; then
+    echo "B71_LIVE_ARTIFACT_DIR 必须位于 $ROOT/artifacts/ 下: $DIR" >&2
+    exit 64
+  fi
 else
   DIR="$ROOT/artifacts/slice-verify/${SLICE}-tauri-native-$TAG"
 fi

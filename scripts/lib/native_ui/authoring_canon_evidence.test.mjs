@@ -1288,3 +1288,21 @@ test("works 的 canon hash 只排除最近打开时钟 updated_at，其它作品
     assert.notEqual(start.tables.works.canon_sha256, snapshot({ tables }).tables.works.canon_sha256, column);
   }
 });
+
+test("live canon 快照：includeChapterFacts=false 不解析章节设计态（真实 seed 缺 decided_at 仍可取表级签名）", () => {
+  // 真实 b71-first-consumer seed 的 chapter_mission 缺 decided_at；live 场景 L9 只
+  // 需要表级内容签名，不应为快照伪造字段，也不应因设计态明细严格解析而失败。
+  const tables = baseTables();
+  // 真实 seed 的 chapter_mission 是作者版（source=author）且缺 decided_at。
+  const authorMission = mission({ source: "author", status: "CONFIRMED" });
+  tables.chapters = [
+    chapterRow({ plan_direction: JSON.stringify({ chapter_role: "开篇", chapter_mission: authorMission }) }),
+  ];
+  assert.throws(() => snapshot({ tables }), /decided_at/u, "默认严格解析仍拒绝缺字段 mission");
+  const live = buildAuthoringCanonSnapshot({ tables, referenceLogs: [], at: START, includeChapterFacts: false });
+  assert.deepEqual(live.chapters, {});
+  assert.equal(live.version, SNAPSHOT_VERSION);
+  assert.deepEqual(Object.keys(live.tables).sort(), [...CANON_TABLES].sort());
+  assert.equal(live.tables.chapters.row_count, 1);
+  assert.match(live.tables.chapters.canon_sha256, /^[0-9a-f]{64}$/u);
+});
