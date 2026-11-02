@@ -809,3 +809,12 @@
   - 机制层：`request_ir_test.exs` 的「G6 压缩后：checkpoint 显式携带覆盖范围，作者原话字节不变」+ `transcript_compaction_test.exs` 的端到端（派生 plan → 追加 checkpoint → Provider 投影省略 covered 交换、作者原话仍在）——**G6 的投影/证据语义已有确定性测试**；
   - 真实请求层：两个真实批次均未触发显式压缩（压缩前端入口待作者设计授权，后端命令未产生真实压缩请求），G6 的真实请求切片**不覆盖、不代签**。
 - **CP4b-2 边界**：usage/缓存为观察事实；真实模型行为语义覆盖由作者行为覆盖 pilot 承担（复验待屏幕解锁）；I10 文学质量不代签。
+
+### 2026-11-03 当前 HEAD 完整门禁复验（确定性侧收口）
+
+- **HEAD `22fe2611`**（含 B70 行为覆盖接入、G 切片分析、§16.14 驱动、CP5 状态一致性修复；产品代码与 515c7c0b 一致）。
+- `mix compile --warnings-as-errors`：0 警告；`mix credo --strict`：no issues；`module-size` ratchet：通过（83 观察文件未增长）。
+- 后端全量：**2997 tests / 0 failures**（独立库 `/tmp/b71-round3-db`，`MIX_TEST_PARTITION=_r3`）。
+- 场景不变量（迁移后独立库，`mix ecto.migrate` 后）：I3 **3/3**、I1 **4/4**、I2 **3 pairs / 0 violations / 0 case_failures**、I-CACHE **全部 covered+enforced**、N-NARR **PASS**。
+- 统一静态扫描：**20 passed / 1 failed**（唯一 raw fail 为 gitleaks 5 个既有处置项：4 false_positive + 1 accepted_risk；**touched=0、blocking=0**）；Semgrep 0 findings。
+- 结论：确定性侧与已取得的原生/实模证据在当前源码下门禁全绿；未闭环项（§16.14 原生批次、行为覆盖复验、压缩前端、G6 真实请求）均为外部环境（屏幕锁定）或作者授权（UI 设计增补）阻塞，非代码门禁问题。
