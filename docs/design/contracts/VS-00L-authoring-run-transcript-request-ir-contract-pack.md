@@ -517,4 +517,5 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 | Responses 流式 SSE | **仍开放**：该 wire 声明 `streaming: false`，完整 AgentRun 显式拒绝路由 |
 | purpose/model 级能力差异 | **过渡态**：构造侧用默认 route 近似、执行边界按身份比对权威校验；下一步由调用方把 purpose/route_hint 传入 `capability_profile/2` |
 | 实模 CP3b/CP4b-2（真实模型行为/缓存/usage） | **CP3b 协议层机制 PASS**（2026-11-03 cp4b-live-03-cp3b：L1–L10 全 true、真实模型创作链、usage 9/9、strata 卸载核验；L11 Why 未观察如实记 null）；**未代签** G5/G6、完整 G1–G6 语义、I10 与作者行为覆盖（B70/B72 另列） |
-| CP5 收口与全量静态扫描 | 进行中 |
+| 作者行为覆盖（B70/B72 资产接入的实模批次） | **接入已实现**（冻结 cases 选择器 + oracles HO1–HO6 判据 + behavior 驱动，Node 840/840；输入不现场编、unknown 不 PASS、B72 仍 blocked 仅离线产候选）。pilot #1（C-F1-003 holdout 零写）真实模型行为合法（正确进度/零候选/遵守「先别动手」），HO4 判据误报已修；复验批 01b 因 macOS 锁屏环境失败（0 真实 Provider 请求），待环境可用后签发复验与 C-F3-002 批。**未 done** |
+| CP5 收口与全量静态扫描 | **主体完成**：B71 状态行/恢复指引/NEXT、§17 状态表、ADR-0033、§26、三处索引与事实台账已对齐（2026-11-03）；全量静态扫描 20 passed/1 failed（既有 gitleaks 5 项，touched=0、blocking=0）。最终收口随剩余项（§16.14 页面、行为覆盖、压缩前端、CP4b-2）完成后再补一次 |
