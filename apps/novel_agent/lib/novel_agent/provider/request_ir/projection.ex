@@ -4,7 +4,7 @@ defmodule NovelAgent.Provider.RequestIR.Projection do
 
   规则（VS-00L §6.4）：
   - 投影无损；能力不足必须显式 `finite_mode` 或 `reject`，不得静默丢字段后宣称完整 AgentRun。
-  - Provider 私有字段只允许出现在 `provider_session` / `projection`，不进入 run 事实。
+  - Provider 私有回放状态不进入 run 事实或默认 wire；只有来源 adapter 可按来源绑定回投。
   - `tentative_artifact` / `author_exit` 是应用侧事实，不直接投影为 provider 消息；
     其 refs 由 application_base 的 base_refs 承载（VS-00L §3.5/G4）。
   """
@@ -20,26 +20,20 @@ defmodule NovelAgent.Provider.RequestIR.Projection do
   @spec project(RequestIR.t()) ::
           {:ok, map()} | {:finite_mode, map(), map()} | {:error, term()}
   def project(%RequestIR{} = ir) do
-    with :ok <- RequestIR.validate(ir) do
+    with :ok <- RequestIR.validate(ir),
+         {:ok, mode} <- RequestIR.capability_mode(ir) do
       target = get_in(ir.projection, [:target])
       module = Map.get(@targets, target)
-      missing = RequestIR.missing_capabilities(Map.get(ir.projection, :capability_profile, %{}))
-      body = module.project(ir)
 
-      cond do
-        missing == [] ->
-          {:ok, body}
-
-        finite_mode = Map.get(ir.projection, :finite_mode) ->
-          {:finite_mode, body, %{missing: missing, finite_mode: finite_mode}}
-
-        true ->
-          {:error, {:unsupported_capability, missing}}
-      end
+      projection_result(module.project(ir), mode)
     end
   end
 
   def project(other), do: {:error, {:invalid_ir, other}}
+
+  defp projection_result({:error, _} = error, _mode), do: error
+  defp projection_result(body, nil), do: {:ok, body}
+  defp projection_result(body, mode), do: {:finite_mode, body, mode}
 
   # ── 投影公共语义（三个 provider 共用，不改变字节/顺序）────────────────────────
 
@@ -73,6 +67,14 @@ defmodule NovelAgent.Provider.RequestIR.Projection do
   @doc "非作者消息投影时的 provenance 标记（VS-00L §6.1：作者原话永远独立）。"
   def provenance_header(kind), do: "【应用数据 · #{kind} · 非作者原话】\n"
 
+  @doc "所有 Provider 共用的版本化 scope 文本；旧版本仅作为历史证据。"
+  def scope_update_text(message) do
+    "【应用数据 · scope_update · 以最新版本为准】\n" <>
+      "版本：" <>
+      Jason.encode!(json_value(Map.get(message, :versions, %{}))) <>
+      "\n" <> text_of(Map.get(message, :blocks, []))
+  end
+
   @doc """
   压缩 checkpoint 投影文本：显式携带覆盖范围与省略声明（I-ART-7），
   不把不可见截断当成正常历史。
@@ -83,7 +85,7 @@ defmodule NovelAgent.Provider.RequestIR.Projection do
         text_of(blocks)
 
       block ->
-        covers = get_in(block, [:covers, :turn_range]) || "unknown"
+        covers = block |> Map.fetch!(:covers) |> json_value() |> Jason.encode!()
 
         omissions =
           case Map.get(block, :omissions, []) do
@@ -91,18 +93,42 @@ defmodule NovelAgent.Provider.RequestIR.Projection do
             list -> "省略：" <> Enum.join(list, "; ") <> "\n"
           end
 
-        "【应用数据 · checkpoint · 覆盖 #{covers}】\n" <> omissions <> Map.get(block, :summary, "")
+        evidence =
+          "来源：" <>
+            Jason.encode!(json_value(Map.get(block, :source_refs, []))) <>
+            "\n版本：" <>
+            Jason.encode!(json_value(Map.get(block, :versions, %{}))) <> "\n"
+
+        "【应用数据 · checkpoint · 覆盖 #{covers}】\n" <>
+          evidence <> omissions <> Map.get(block, :summary, "")
     end
   end
 
   def checkpoint_text(_blocks), do: ""
 
-  @doc "observation/validation 的 content 投影：JSON 文本，保留 status/refs/版本。"
-  def structured_content(block) do
-    block
-    |> Map.drop([:type])
-    |> Jason.encode!()
-  end
+  @doc "observation/validation 的 content 投影：类型、status、refs 与版本均可辨识。"
+  def structured_content(block), do: Jason.encode!(json_value(block))
+
+  @doc """
+  统一 JSON 值边界：对象键规范为字符串，数组逐项保留，标量/结构体原样传递。
+
+  opaque observation content/coverage、工具参数与版本数据只在 producer 与
+  序列化边界经过这里；恢复不再把领域键误认为 canonical 结构键。
+  """
+  @spec json_value(term()) :: term()
+  def json_value(%_{} = struct), do: struct
+
+  def json_value(value) when is_map(value),
+    do: Map.new(value, fn {key, item} -> {json_key(key), json_value(item)} end)
+
+  def json_value(value) when is_list(value), do: Enum.map(value, &json_value/1)
+  def json_value(value), do: value
+
+  defp json_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp json_key(key) when is_binary(key), do: key
+  defp json_key(key) when is_integer(key), do: Integer.to_string(key)
+  defp json_key(key) when is_float(key), do: :erlang.float_to_binary(key, [:compact])
+  defp json_key(key), do: key
 
   def usage_streaming?(ir), do: Map.get(ir.projection, :usage_streaming, false) == true
 
@@ -113,6 +139,7 @@ defmodule NovelAgent.Provider.RequestIR.Projection do
   end
 
   def tool_schema(tool) do
-    Map.get(tool, :input_schema) || Map.get(tool, "input_schema") || %{}
+    (Map.get(tool, :input_schema) || Map.get(tool, "input_schema") || %{})
+    |> json_value()
   end
 end

@@ -4,21 +4,33 @@ defmodule NovelAgent.Provider.RequestIR.Projection.ChatCompletions do
 
   - assistant tool calls → `assistant.tool_calls[]`（`id` = call_id）
   - observation/validation → `role: "tool"` + `tool_call_id`
-  - application_base/checkpoint 加 provenance 标记；作者原话独立 user 消息、字节不变
+  - application_base/scope_update/application_notice/checkpoint 保留应用 provenance
+  - 作者原话独立 user 消息、字节不变；assistant 保留原始参数与私有推理引用
   """
 
-  alias NovelAgent.Provider.RequestIR.Projection
+  alias NovelAgent.Provider.RequestIR.{Compaction, Projection}
 
-  @spec project(struct()) :: map()
-  def project(ir) do
+  @spec project(struct(), keyword()) :: map()
+  def project(ir, opts \\ []) do
     %{
       messages:
         [%{role: "system", content: Projection.system_text(ir.system)}] ++
-          Enum.flat_map(ir.messages, &project_message/1),
+          Enum.flat_map(Compaction.project(ir.messages), fn message ->
+            message
+            |> project_message()
+            |> preserve_provider_state(message, Keyword.get(opts, :include_provider_state, false))
+          end),
       tools: Enum.map(ir.tools, &tool_schema/1),
       stream: Projection.usage_streaming?(ir)
     }
   end
+
+  # 内部 prompt bridge 可携带 opaque 状态；默认 HTTP 投影不输出私有材料。
+  defp preserve_provider_state([projected], %{role: "assistant", provider_state: state}, true)
+       when is_map(state) and map_size(state) > 0,
+       do: [Map.put(projected, :provider_state, state)]
+
+  defp preserve_provider_state(projected, _message, _include?), do: projected
 
   defp project_message(%{role: "system"} = message) do
     case Projection.text_of(message.blocks) do
@@ -27,10 +39,11 @@ defmodule NovelAgent.Provider.RequestIR.Projection.ChatCompletions do
     end
   end
 
-  defp project_message(%{role: "application_base"} = message) do
+  defp project_message(%{role: role} = message)
+       when role in ["application_base", "application_notice"] do
     case Projection.text_of(message.blocks) do
       "" -> []
-      text -> [%{role: "user", content: Projection.provenance_header("application_base") <> text}]
+      text -> [%{role: "user", content: Projection.provenance_header(role) <> text}]
     end
   end
 
@@ -38,6 +51,13 @@ defmodule NovelAgent.Provider.RequestIR.Projection.ChatCompletions do
     case Projection.checkpoint_text(message.blocks) do
       "" -> []
       text -> [%{role: "user", content: Projection.provenance_header("checkpoint") <> text}]
+    end
+  end
+
+  defp project_message(%{role: "scope_update"} = message) do
+    case Projection.text_of(message.blocks) do
+      "" -> []
+      _text -> [%{role: "user", content: Projection.scope_update_text(message)}]
     end
   end
 
@@ -54,10 +74,13 @@ defmodule NovelAgent.Provider.RequestIR.Projection.ChatCompletions do
 
     base = %{role: "assistant", content: text}
 
-    case calls do
-      [] -> [base]
-      _ -> [Map.put(base, :tool_calls, Enum.map(calls, &tool_call/1))]
-    end
+    assistant =
+      case calls do
+        [] -> base
+        _ -> Map.put(base, :tool_calls, Enum.map(calls, &tool_call/1))
+      end
+
+    [assistant]
   end
 
   defp project_message(%{role: "tool"} = message) do
@@ -81,7 +104,9 @@ defmodule NovelAgent.Provider.RequestIR.Projection.ChatCompletions do
       type: "function",
       function: %{
         name: Map.get(block, :name),
-        arguments: Jason.encode!(Map.get(block, :arguments, %{}))
+        arguments:
+          Map.get(block, :raw_arguments) ||
+            Jason.encode!(Projection.json_value(Map.get(block, :arguments, %{})))
       }
     }
   end

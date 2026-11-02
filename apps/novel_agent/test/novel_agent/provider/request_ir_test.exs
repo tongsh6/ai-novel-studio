@@ -83,9 +83,106 @@ defmodule NovelAgent.Provider.RequestIRTest do
     }
   end
 
+  defp exchange_with_arguments(arguments) do
+    g1_messages() ++
+      [
+        message(:assistant, :model, [
+          RequestIR.tool_call_block("read_character", arguments, "call-1")
+        ]),
+        message(:tool, :tool_result, [
+          RequestIR.validation_result_block("call-1", "failed", "missing_argument")
+        ])
+      ]
+  end
+
   describe "IR v1 数据边界校验" do
+    test "Anthropic 投影明确拒绝无法表示为对象的原始工具参数" do
+      call =
+        RequestIR.tool_call_block("read_character", %{}, "invalid-json")
+        |> Map.put(:raw_arguments, "{\"query\":}")
+
+      history =
+        g1_messages() ++
+          [
+            message(:assistant, :model, [call]),
+            message(:tool, :tool_result, [
+              RequestIR.validation_result_block("invalid-json", "failed", "invalid_arguments")
+            ])
+          ]
+
+      assert {:error, {:unrepresentable_tool_arguments, "invalid-json"}} =
+               Projection.project(ir(history, target: "anthropic_messages"))
+
+      assert {:ok, chat} = Projection.project(ir(history))
+
+      assert Enum.find(chat.messages, &(&1.role == "assistant")).tool_calls
+             |> hd()
+             |> get_in([:function, :arguments]) == "{\"query\":}"
+    end
+
+    test "生产请求桥拒绝未声明的能力缺口并保留显式有限模式" do
+      incomplete = ir(g1_messages(), capabilities: %{})
+      assert {:error, {:unsupported_capability, _}} = RequestIR.to_provider_prompt(incomplete)
+
+      finite = ir(g1_messages(), capabilities: %{}, finite_mode: %{name: "legacy_json_content"})
+
+      assert {:ok, %{finite_mode: %{name: "legacy_json_content"}}} =
+               RequestIR.to_provider_prompt(finite)
+    end
+
+    test "canonical 可记录待处理调用但不能把未闭合交换发送到下一请求" do
+      pending =
+        ir(
+          g1_messages() ++
+            [
+              message(:assistant, :model, [
+                RequestIR.tool_call_block("read_character", %{}, "pending")
+              ])
+            ]
+        )
+
+      assert :ok = RequestIR.validate(pending)
+      assert {:error, {:pending_tool_calls, ["pending"]}} = RequestIR.to_provider_prompt(pending)
+
+      interleaved = %{
+        pending
+        | messages: pending.messages ++ [message(:user, :author, [RequestIR.text_block("继续")])]
+      }
+
+      assert {:error, :interrupted_tool_exchange} = RequestIR.validate(interleaved)
+    end
+
+    test "工具结果不能先于其调用出现" do
+      reversed =
+        ir(
+          g1_messages() ++
+            [
+              message(:tool, :tool_result, [
+                RequestIR.validation_result_block("late", "failed", "invalid")
+              ]),
+              message(:assistant, :model, [
+                RequestIR.tool_call_block("read_character", %{}, "late")
+              ])
+            ]
+        )
+
+      assert {:error, :tool_result_before_call} = RequestIR.validate(reversed)
+    end
+
     test "G1 合法 IR 通过校验" do
       assert :ok = RequestIR.validate(ir(g1_messages()))
+    end
+
+    test "观察的来源和版本在进入压缩边界前必须合法" do
+      for invalid <- [%{versions: nil}, %{source_refs: [nil]}, %{source_refs: [%{ref: ""}]}] do
+        messages = g2_messages()
+        observation = List.last(messages)
+        [block] = observation.blocks
+        observation = %{observation | blocks: [Map.merge(block, invalid)]}
+
+        assert {:error, :invalid_observation_block} =
+                 RequestIR.validate(ir(List.replace_at(messages, -1, observation)))
+      end
     end
 
     test "缺少 system identity_ref 拒绝" do
@@ -107,8 +204,10 @@ defmodule NovelAgent.Provider.RequestIRTest do
             ])
           ]
 
-      assert {:error, {:forbidden_tool_name, "canon_write"}} =
-               RequestIR.validate(ir(messages))
+      assert :ok = RequestIR.validate(ir(messages))
+
+      assert {:error, {:pending_tool_calls, ["call-1"]}} =
+               RequestIR.to_provider_prompt(ir(messages))
     end
 
     test "观察必须绑定已有 call_id，且 status 如实（I-ART-4）" do
@@ -244,6 +343,67 @@ defmodule NovelAgent.Provider.RequestIRTest do
              )
     end
 
+    test "opaque JSON 边界：known/unknown 混合键、中文空白、结构体与工具参数统一编码" do
+      at = ~U[2026-11-01 00:00:00Z]
+
+      atom_block =
+        RequestIR.observation_block("call-1", %{
+          status: "ok",
+          versions: %{"character:1" => 2},
+          coverage: %{fields: ["summary"], nested: %{role: "domain"}},
+          content: %{
+            "未知" => %{"role" => "作者", "items" => [%{"text" => "a\n b"}]},
+            query: "查询\n  空白",
+            summary: "摘要",
+            at: at
+          }
+        })
+
+      string_block =
+        RequestIR.observation_block("call-1", %{
+          status: "ok",
+          versions: %{"character:1" => 2},
+          coverage: %{"fields" => ["summary"], "nested" => %{"role" => "domain"}},
+          content: %{
+            "query" => "查询\n  空白",
+            "summary" => "摘要",
+            "at" => at,
+            "未知" => %{"role" => "作者", "items" => [%{"text" => "a\n b"}]}
+          }
+        })
+
+      assert atom_block.content == string_block.content
+      assert atom_block.coverage == string_block.coverage
+
+      assert Projection.structured_content(atom_block) ==
+               Projection.structured_content(string_block)
+
+      decoded = Jason.decode!(Projection.structured_content(atom_block))
+      assert decoded["content"]["query"] == "查询\n  空白"
+      assert decoded["content"]["未知"] == %{"role" => "作者", "items" => [%{"text" => "a\n b"}]}
+      assert decoded["content"]["at"] == "2026-11-01T00:00:00Z"
+      assert decoded["coverage"]["nested"] == %{"role" => "domain"}
+
+      assert RequestIR.tool_call_block("read", %{query: "q", nested: %{role: "作者"}}, "call").arguments ==
+               %{"query" => "q", "nested" => %{"role" => "作者"}}
+
+      assert RequestIR.validation_result_block("call", "failed", "bad", %{
+               role: "作者",
+               nested: [%{type: "x"}]
+             }).detail == %{
+               "role" => "作者",
+               "nested" => [%{"type" => "x"}]
+             }
+
+      mixed = %{"a" => "开头", z: "末尾", nested: %{role: "作者"}}
+      canonical = %{"z" => "末尾", "a" => "开头", "nested" => %{"role" => "作者"}}
+
+      for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
+        assert Projection.project(ir(exchange_with_arguments(mixed), target: target)) ==
+                 Projection.project(ir(exchange_with_arguments(canonical), target: target))
+      end
+    end
+
     test "G3 校验失败后：失败作为原生 tool 结果回流，不追加 user 纠错消息" do
       messages =
         g1_messages() ++
@@ -335,6 +495,41 @@ defmodule NovelAgent.Provider.RequestIRTest do
     end
   end
 
+  describe "G7 动态 scope（VS-00L §14）" do
+    test "三种投影都保留 scope 顺序、版本和最新视图" do
+      scope = fn text, revision ->
+        message(:scope_update, :application, [RequestIR.text_block(text)], %{
+          versions: %{"scope_revision" => revision, "work" => 3}
+        })
+      end
+
+      first = ir(g1_messages() ++ [scope.("只读探索开放", 1)])
+      second = ir(g1_messages() ++ [scope.("只读探索开放", 1), scope.("只读探索关闭", 2)])
+
+      for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
+        first = %{first | projection: %{first.projection | target: target}}
+        second = %{second | projection: %{second.projection | target: target}}
+        assert {:ok, first_body} = Projection.project(first)
+        assert {:ok, second_body} = Projection.project(second)
+        first_items = Map.get(first_body, :messages, first_body[:input])
+        second_items = Map.get(second_body, :messages, second_body[:input])
+
+        assert Enum.take(second_items, length(first_items)) == first_items
+        last_item = List.last(second_items)
+
+        scope_text =
+          case target do
+            "chat_completions" -> last_item.content
+            "anthropic_messages" -> List.last(last_item.content).text
+            "responses_api" -> List.last(last_item.content).text
+          end
+
+        assert scope_text =~ "只读探索关闭"
+        assert scope_text =~ ~s("scope_revision":2)
+      end
+    end
+  end
+
   describe "adapter 桥（CP2 收尾，VS-00L §6/§8）" do
     test "normalize_messages 保真原生工具字段（I-ART-8）" do
       tool_calls = [
@@ -377,6 +572,34 @@ defmodule NovelAgent.Provider.RequestIRTest do
                NovelAgent.Provider.normalize_messages(%{
                  messages: [%{role: "user", content: "hello"}]
                })
+    end
+
+    test "CP4a：当前阶段工具投影与 canonical 工具历史分离" do
+      ir =
+        ir(g1_messages(),
+          tools:
+            tools() ++
+              [
+                %{
+                  name: "report_quality_findings",
+                  description: "质量复核",
+                  input_schema: %{type: "object"}
+                }
+              ]
+        )
+
+      assert {:ok, prompt} =
+               RequestIR.to_provider_prompt(ir,
+                 tool_names: ["report_quality_findings"],
+                 tool_choice: "report_quality_findings"
+               )
+
+      assert Enum.map(prompt.tools, & &1.name) == ["report_quality_findings"]
+      assert NovelAgent.Provider.tool_choice(prompt) == "report_quality_findings"
+      assert length(ir.tools) == 2
+
+      assert {:error, {:unknown_tool_names, ["missing_tool"]}} =
+               RequestIR.to_provider_prompt(ir, tool_names: ["missing_tool"])
     end
   end
 end

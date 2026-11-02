@@ -9,6 +9,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
   alias NovelAgent.Provider.MinimaxCN
   alias NovelAgent.Provider.OpenAI
   alias NovelAgent.Provider.OpenAISubscription
+  alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.Zhipu
 
   describe "vendor identity and defaults" do
@@ -48,6 +49,56 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
   end
 
   describe "complete/4" do
+    test "工具参数的原始 JSON 从 HTTP 响应穿过 canonical 会话逐字回投" do
+      for raw <- ["{\n  \"query\" : \"沈砚\", \"offset\":0\n}", "{\"query\":\"沈砚\",}"] do
+        response = %{
+          "choices" => [
+            %{
+              "message" => %{
+                "content" => "",
+                "tool_calls" => [
+                  %{
+                    "id" => "raw-call",
+                    "type" => "function",
+                    "function" => %{"name" => "read_character", "arguments" => raw}
+                  }
+                ]
+              }
+            }
+          ]
+        }
+
+        state = %OpenAI{
+          api_key: "test",
+          endpoint: "https://example.invalid/v1",
+          model: "fixture",
+          timeout: 100,
+          log_fn: nil,
+          http_fn: fn _, _, _ -> {:ok, 200, response} end
+        }
+
+        assert {:ok, result} = OpenAI.complete(state, nil, "prompt", %InferenceParams{})
+        assert [%{"raw_arguments" => ^raw}] = result.tool_calls
+
+        ir =
+          RequestIR.new(%{
+            run: %{run_id: "raw-fidelity"},
+            system: %{identity_ref: "fixture"},
+            projection: %{
+              target: "chat_completions",
+              capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
+            },
+            messages: [RequestIR.message(:user, :author, [RequestIR.text_block("读取角色")])]
+          })
+
+        {ir, _result} = RequestIR.append_assistant_result(ir, result)
+        ir = RequestIR.append_validation_result(ir, "raw-call", "failed", "fixture_validation")
+        assert {:ok, prompt} = RequestIR.to_provider_prompt(ir)
+        assistant = Enum.find(prompt.messages, &(&1.role == "assistant"))
+        assert [%{function: %{arguments: ^raw}}] = assistant.tool_calls
+      end
+    end
+
     test "sends OpenAI-compatible chat completion with Bearer auth" do
       test_pid = self()
 

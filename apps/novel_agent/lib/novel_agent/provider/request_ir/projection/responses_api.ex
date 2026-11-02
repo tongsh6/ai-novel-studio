@@ -8,13 +8,13 @@ defmodule NovelAgent.Provider.RequestIR.Projection.ResponsesAPI do
   - `previous_response_id` 只作优化，不进入本地 IR 事实源
   """
 
-  alias NovelAgent.Provider.RequestIR.Projection
+  alias NovelAgent.Provider.RequestIR.{Compaction, Projection}
 
   @spec project(struct()) :: map()
   def project(ir) do
     %{
       instructions: Projection.system_text(ir.system),
-      input: Enum.flat_map(ir.messages, &project_message/1),
+      input: Enum.flat_map(Compaction.project(ir.messages), &project_message/1),
       tools: Enum.map(ir.tools, &tool_schema/1),
       stream: Projection.usage_streaming?(ir)
     }
@@ -23,8 +23,9 @@ defmodule NovelAgent.Provider.RequestIR.Projection.ResponsesAPI do
   defp project_message(%{role: "system"} = message),
     do: message_item("system", message.blocks, nil)
 
-  defp project_message(%{role: "application_base"} = message),
-    do: message_item("user", message.blocks, "application_base")
+  defp project_message(%{role: role} = message)
+       when role in ["application_base", "application_notice"],
+       do: message_item("user", message.blocks, role)
 
   defp project_message(%{role: "checkpoint"} = message) do
     case Projection.checkpoint_text(message.blocks) do
@@ -39,6 +40,22 @@ defmodule NovelAgent.Provider.RequestIR.Projection.ResponsesAPI do
             content: [
               %{type: "input_text", text: Projection.provenance_header("checkpoint") <> text}
             ]
+          }
+        ]
+    end
+  end
+
+  defp project_message(%{role: "scope_update"} = message) do
+    case Projection.text_of(message.blocks) do
+      "" ->
+        []
+
+      _text ->
+        [
+          %{
+            type: "message",
+            role: "user",
+            content: [%{type: "input_text", text: Projection.scope_update_text(message)}]
           }
         ]
     end
@@ -66,7 +83,9 @@ defmodule NovelAgent.Provider.RequestIR.Projection.ResponsesAPI do
           type: "function_call",
           call_id: Map.get(block, :call_id),
           name: Map.get(block, :name),
-          arguments: Jason.encode!(Map.get(block, :arguments, %{}))
+          arguments:
+            Map.get(block, :raw_arguments) ||
+              Jason.encode!(Projection.json_value(Map.get(block, :arguments, %{})))
         }
       end)
 

@@ -3,6 +3,47 @@ defmodule NovelAgent.ProviderTest do
 
   alias NovelAgent.Provider
 
+  test "当前工具由目录和选择共同决定，不把多工具目录中的一个名字当成本阶段" do
+    tools = [%{name: "first", input_schema: %{}}, %{name: "second", input_schema: %{}}]
+    assert Provider.active_tool_name(%{tools: tools, tool_choice: "auto"}) == nil
+    assert Provider.active_tool_name(%{tools: tools, tool_choice: "second"}) == "second"
+    assert Provider.active_tool_name(%{tools: tools, tool_choice: "absent"}) == nil
+    assert Provider.active_tool_name(%{tools: [hd(tools)], tool_choice: "auto"}) == "first"
+    assert Provider.active_tool_name(%{tools: [hd(tools)], tool_choice: "none"}) == nil
+  end
+
+  test "专业操作视图保留首 Base 与原话；首阶段纠错不能误当角色切换" do
+    messages = [
+      %{role: "user", content: "【应用数据 · application_base】\n首阶段完整规则"},
+      %{role: "user", content: "作者原话 保留空白。"},
+      %{role: "user", content: "【应用数据 · scope_update】\n当前材料"}
+    ]
+
+    prompt = %{messages: messages}
+    first = Provider.operation_prompt_text(prompt)
+    assert first =~ "首阶段完整规则"
+    assert first =~ "作者原话 保留空白。"
+    assert first =~ "当前材料"
+    retry = %{prompt | messages: messages ++ [%{role: "assistant", content: "本阶段格式错误响应"}]}
+    assert Provider.operation_prompt_text(retry) == first
+  end
+
+  test "真正续阶段只消费当前 scope，无 scope legacy 保持全文" do
+    current = "【应用数据 · scope_update】\n新角色完整规则与当前材料"
+
+    prompt = %{
+      messages: [
+        %{role: "user", content: "【应用数据 · application_base】\n旧角色规则"},
+        %{role: "user", content: "【应用数据 · scope_update】\n旧材料"},
+        %{role: "assistant", content: "旧角色响应"},
+        %{role: "user", content: current}
+      ]
+    }
+
+    assert Provider.operation_prompt_text(prompt) == current
+    assert Provider.operation_prompt_text("单次 legacy 内容") == "单次 legacy 内容"
+  end
+
   # 缺陷十（2026-07-20）：现场实测 gpt-oss-120b 在 purpose: :writer 真实调用中
   # 采样退化——HTTP 200 正常返回，content 却是单字符刷满 1999 次。这不是任何
   # max_tokens 上限能挡住的失控生成（预算再大也只是刷更多同一字符），是内容
