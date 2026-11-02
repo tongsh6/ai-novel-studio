@@ -50,36 +50,49 @@ defmodule NovelApplication.AuthorActionDecision do
     }
   end
 
+  # 关闭行为：把「沿用源行为事实 + 本次作者决定」拆成少量纯 helper，避免单一函数
+  # 累积多个条件分支（Credo cyclomatic complexity）。
   defp closure_behavior(kind, turn_id, ctx) do
     active = ctx.behavior || %{}
     lifecycle = if kind == :confirm, do: :resolved, else: :cancelled
-    status = Atom.to_string(lifecycle)
 
     %BehaviorState{
       behavior_id: field(active, :behavior_id),
       behavior_type: behavior_type(field(active, :behavior_type)),
       lifecycle_status: lifecycle,
       blocking_actor: :author,
-      opened_at_turn_ref: field(active, :opened_at_turn_ref) || ctx.action_input.source_turn_ref,
-      opened_by_decision_ref:
-        field(active, :opened_by_decision_ref) || "decision:#{ctx.action_input.source_turn_ref}",
-      frame_ref: field(active, :frame_ref) || "frame:#{ctx.action_input.source_turn_ref}",
+      opened_at_turn_ref: behavior_turn_ref(active, :opened_at_turn_ref, ctx),
+      opened_by_decision_ref: behavior_decision_ref(active, ctx),
+      frame_ref: behavior_frame_ref(active, ctx),
       plan_ref: field(active, :plan_ref) || plan_ref(ctx.source_turn_result),
       target_ref: ctx.action_input.target_ref || field(active, :target_ref),
       required_next_action: field(active, :required_next_action) || ctx.action_input.action_type,
       available_actions: [],
       prompt_contract: field(active, :prompt_contract) || %{},
       constraints: field(active, :constraints) || %{},
-      resolution: %{
-        ref: "behavior_resolution:#{turn_id}",
-        status: status,
-        action_id: ctx.action_input.action_id,
-        action_type: ctx.action_input.action_type,
-        source_turn_ref: ctx.action_input.source_turn_ref,
-        idempotency_key: ctx.action_input.idempotency_key
-      },
+      resolution: behavior_resolution(turn_id, lifecycle, ctx),
       closed_at_turn_ref: turn_id,
       trace_ref: "trace:#{turn_id}"
+    }
+  end
+
+  defp behavior_turn_ref(active, key, ctx),
+    do: field(active, key) || ctx.action_input.source_turn_ref
+
+  defp behavior_decision_ref(active, ctx),
+    do: field(active, :opened_by_decision_ref) || "decision:#{ctx.action_input.source_turn_ref}"
+
+  defp behavior_frame_ref(active, ctx),
+    do: field(active, :frame_ref) || "frame:#{ctx.action_input.source_turn_ref}"
+
+  defp behavior_resolution(turn_id, lifecycle, ctx) do
+    %{
+      ref: "behavior_resolution:#{turn_id}",
+      status: Atom.to_string(lifecycle),
+      action_id: ctx.action_input.action_id,
+      action_type: ctx.action_input.action_type,
+      source_turn_ref: ctx.action_input.source_turn_ref,
+      idempotency_key: ctx.action_input.idempotency_key
     }
   end
 

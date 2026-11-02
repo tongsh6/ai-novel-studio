@@ -98,16 +98,16 @@ defmodule NovelApplication.AuthorActionConfirmation do
         context_fetcher: Keyword.get(opts, :context_fetcher)
       }
 
-      with {:ok, run} <- AgentRun.new(ToolConfirmation.run_attrs(input)),
-           admission = %{
-             action_input: action_input,
-             work_id: work_id,
-             session_id: session_id,
-             source_turn_ref: action_input.source_turn_ref,
-             source_turn_result: source_ctx.source
-           },
-           {:ok, plan} <- AuthorActionAdmission.prepare(run, admission) do
-        {:ok, plan}
+      admission = %{
+        action_input: action_input,
+        work_id: work_id,
+        session_id: session_id,
+        source_turn_ref: action_input.source_turn_ref,
+        source_turn_result: source_ctx.source
+      }
+
+      with {:ok, run} <- AgentRun.new(ToolConfirmation.run_attrs(input)) do
+        AuthorActionAdmission.prepare(run, admission)
       end
     end
   end

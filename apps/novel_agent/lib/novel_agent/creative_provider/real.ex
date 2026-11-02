@@ -12,7 +12,6 @@ defmodule NovelAgent.CreativeProvider.Real do
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.NativeToolExchange
   alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.RequestIR.Operation
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
@@ -151,8 +150,7 @@ defmodule NovelAgent.CreativeProvider.Real do
         {provider_error("unsupported_creative_tool", "unsupported creative tool"), %{}}
 
       {:error, reason} ->
-        {provider_error("invalid_request_ir", RequestIR.rejection_message(reason)),
-         %{}}
+        {provider_error("invalid_request_ir", RequestIR.rejection_message(reason)), %{}}
 
       _ ->
         {provider_error("provider_execution_required", "creative provider requires execution"),

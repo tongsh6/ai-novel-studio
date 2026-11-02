@@ -501,18 +501,16 @@ defmodule NovelApplication.AuthorActionAdmission do
   end
 
   defp commit_live_source_handoff(run, receipt, child_run) do
-    cond do
-      run.status in [:completed, :cancelled, :failed] ->
-        {:ok, run}
+    if run.status in [:completed, :cancelled, :failed] do
+      {:ok, run}
+    else
+      updated = handoff_run(run, receipt, child_run)
+      state = %{stage_state: %{}, events: [], event_sequence: 0}
 
-      true ->
-        updated = handoff_run(run, receipt, child_run)
-        state = %{stage_state: %{}, events: [], event_sequence: 0}
-
-        with {:ok, snapshot} <- AgentRunPersistence.snapshot(updated, state, :compaction),
-             {:ok, _record} <- AgentRunPersistence.commit(snapshot) do
-          {:ok, updated}
-        end
+      with {:ok, snapshot} <- AgentRunPersistence.snapshot(updated, state, :compaction),
+           {:ok, _record} <- AgentRunPersistence.commit(snapshot) do
+        {:ok, updated}
+      end
     end
   end
 

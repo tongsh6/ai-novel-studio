@@ -331,14 +331,7 @@ defmodule NovelApplication.AgentRunServer do
       case AuthorActionAdmission.admit_handoff(plan, state, interaction_store: store) do
         {:ok, result} ->
           source_state = %{state | run: result.source_run || state.run}
-
-          case start_handoff_child(result, opts) do
-            {:ok, _pid} ->
-              {:reply, {:ok, result}, source_state}
-
-            {:error, reason} ->
-              {:reply, {:error, {:child_run_start_failed, reason}}, source_state}
-          end
+          start_handoff_child_reply(result, opts, source_state)
 
         other ->
           {:reply, other, state}
@@ -655,6 +648,13 @@ defmodule NovelApplication.AgentRunServer do
         budget: grant.budget
       }
     )
+  end
+
+  defp start_handoff_child_reply(result, opts, source_state) do
+    case start_handoff_child(result, opts) do
+      {:ok, _pid} -> {:reply, {:ok, result}, source_state}
+      {:error, reason} -> {:reply, {:error, {:child_run_start_failed, reason}}, source_state}
+    end
   end
 
   defp start_handoff_child(result, opts) do

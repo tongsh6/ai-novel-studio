@@ -156,7 +156,6 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
     assert length(ProviderRunLog.list_usage_summaries(run_id_a)) == 1
   end
 
-
   test "confirm and reject racing on the same behavior: exactly one consumes it", ctx do
     source = seed_source(ctx.work.id, ctx.session_id, "opposite-race")
     socket_a = join_socket(ctx.work.id, ctx.session_id)

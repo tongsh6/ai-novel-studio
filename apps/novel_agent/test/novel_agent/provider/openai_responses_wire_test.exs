@@ -1,11 +1,12 @@
 defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
   use ExUnit.Case, async: false
 
+  alias NovelAgent.Provider.CapabilityProfile
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.OpenAI
-  alias NovelAgent.Provider.CapabilityProfile
   alias NovelAgent.Provider.OpenAICompatible
   alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.Result
 
   # VS-00L §6.3：Responses API 必须有真实生产传输，而不是「投影存在但不可达」。
   # `OpenAICompatible.endpoint_url/1` 过去固定 `/chat/completions`，HTTP body 也
@@ -196,7 +197,7 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
         })
 
       result =
-        NovelAgent.Provider.Result.new("", nil,
+        Result.new("", nil,
           tool_calls: [
             %{
               "id" => "call-read-1",

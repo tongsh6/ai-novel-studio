@@ -24,6 +24,7 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
   alias NovelDomain.MicroPlan
 
   alias NovelApplication.AgentRunFlows.ToolConfirmationRun
+  alias NovelApplication.AgentRunFlows.TurnBinding
 
   @doc "非采纳确认子 run 的 profile；唯一来源在 `ToolConfirmationRun`。"
   @spec profile_ref() :: String.t()
@@ -54,9 +55,11 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
   def next_step_planner(spec) when is_map(spec) do
     fn run, sequence, _snapshot ->
       if sequence == 1 do
-        {:execute, step_fun(spec), ToolConfirmationRun.execute_decision(run, sequence), %{provider_call_count: 0}}
+        {:execute, step_fun(spec), ToolConfirmationRun.execute_decision(run, sequence),
+         %{provider_call_count: 0}}
       else
-        {:complete, ToolConfirmationRun.complete_decision(run, sequence), %{provider_call_count: 0}}
+        {:complete, ToolConfirmationRun.complete_decision(run, sequence),
+         %{provider_call_count: 0}}
       end
     end
   end
@@ -67,7 +70,7 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
       source = Map.fetch!(spec, :source_turn_result)
       author = Map.fetch!(spec, :author_message)
       behavior_ref = Map.fetch!(spec, :behavior_ref)
-      turn_id = NovelApplication.AgentRunFlows.TurnBinding.bind(run, sequence)
+      turn_id = TurnBinding.bind(run, sequence)
 
       with {:ok, plan} <- source_plan(source),
            {:ok, context} <- assemble_context(run, author.text, spec),
@@ -79,77 +82,48 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
                confirmation_binding: binding,
                gate_context: gate_context(binding)
              ) do
-        execute_decision_step(
-          run,
-          sequence,
-          snapshot,
-          spec,
-          frame,
-          plan,
-          context,
-          decision,
-          behavior_ref,
-          binding
-        )
+        execute_decision_step(%{
+          run: run,
+          sequence: sequence,
+          snapshot: snapshot,
+          spec: spec,
+          frame: frame,
+          plan: plan,
+          context: context,
+          decision: decision,
+          behavior_ref: behavior_ref,
+          binding: binding
+        })
       else
         {:error, reason} -> {:error, {:tool_confirmation_prepare_failed, reason}}
       end
     end
   end
 
-  defp execute_decision_step(
-         run,
-         sequence,
-         snapshot,
-         spec,
-         frame,
-         plan,
-         context,
-         decision,
-         behavior_ref,
-         binding
-       ) do
-    if decision.decision_type == :allow_tool do
-      execute_allowed(
-        run,
-        sequence,
-        snapshot,
-        spec,
-        frame,
-        plan,
-        context,
-        decision,
-        behavior_ref,
-        binding
-      )
+  # 决策执行上下文（run/sequence/snapshot/spec/frame/plan/context/decision/behavior_ref/binding）
+  # 合并为单一 map，避免 10 元函数签名；执行体在函数开头解构，语义不变。
+  defp execute_decision_step(ctx) do
+    if ctx.decision.decision_type == :allow_tool do
+      execute_allowed(ctx)
     else
-      execute_blocked(
-        run,
-        sequence,
-        snapshot,
-        spec,
-        frame,
-        plan,
-        context,
-        decision,
-        behavior_ref,
-        binding
-      )
+      execute_blocked(ctx)
     end
   end
 
-  defp execute_allowed(
-         run,
-         sequence,
-         snapshot,
-         spec,
-         frame,
-         plan,
-         context,
-         decision,
-         behavior_ref,
-         binding
-       ) do
+  defp execute_allowed(ctx) do
+    %{
+      run: run,
+      sequence: sequence,
+      snapshot: snapshot,
+      spec: spec,
+      frame: frame,
+      plan: plan,
+      context: context,
+      decision: decision,
+      behavior_ref: behavior_ref,
+      binding: binding
+    } = ctx
+
     emit_stage(
       snapshot,
       :tool_started,
@@ -227,18 +201,20 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
      )}
   end
 
-  defp execute_blocked(
-         run,
-         sequence,
-         snapshot,
-         spec,
-         frame,
-         plan,
-         context,
-         decision,
-         behavior_ref,
-         binding
-       ) do
+  defp execute_blocked(ctx) do
+    %{
+      run: run,
+      sequence: sequence,
+      snapshot: snapshot,
+      spec: spec,
+      frame: frame,
+      plan: plan,
+      context: context,
+      decision: decision,
+      behavior_ref: behavior_ref,
+      binding: binding
+    } = ctx
+
     turn_result = %{
       schema_version: "3.0-draft",
       turn_id: frame.turn_id,
@@ -433,8 +409,7 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
   defp compact_ref(parts) do
     parts
     |> Enum.reject(&(is_nil(&1) or &1 == ""))
-    |> Enum.map(&to_string/1)
-    |> Enum.join(":")
+    |> Enum.map_join(":", &to_string/1)
   end
 
   defp gate_context(binding) do
