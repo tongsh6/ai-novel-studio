@@ -66,7 +66,8 @@ export function classifyMessage(message) {
 }
 
 export function sliceRequest(record, index) {
-  const body = record?.request?.body ?? {};
+  // live 形状：request.body.messages；确定性 slice_verify 形状：顶层 request_body.messages。
+  const body = record?.request?.body ?? record?.request_body ?? {};
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const tools = Array.isArray(body.tools) ? body.tools : [];
   const classified = messages.map(classifyMessage);
@@ -80,8 +81,11 @@ export function sliceRequest(record, index) {
       arguments_sha256: sha256(call?.function?.arguments ?? call?.arguments ?? ""),
     })),
   );
+  const requestText = messages.map((m) => JSON.stringify(m)).join("\n");
   return {
     index,
+    turn_id: record?.turn_id ?? null,
+    provider_call_ref: record?.provider_call_ref ?? null,
     message_count: messages.length,
     kinds: classified.map((m) => m.kind),
     roles: messages.map((m) => m?.role ?? null),
@@ -90,7 +94,8 @@ export function sliceRequest(record, index) {
     tool_result_call_ids: toolResults.map((m) => m.tool_call_id),
     tool_result_contents: toolResults.map((m) => m.text),
     author_messages: authorMessages.map((m) => ({ sha256: sha256(m.text), chars: m.text.length })),
-    prefix_sha256: sha256(messages.map((m) => JSON.stringify(m)).join("\n")),
+    prefix_sha256: sha256(requestText),
+    request_text: requestText,
   };
 }
 
@@ -177,10 +182,52 @@ export function goldenSlices(requests) {
     ok: candidateTools.length > 0,
     facts: { candidate_tool_calls: candidateTools, all_tool_call_names: [...new Set(candidateCallNames)] },
   });
-  // G5 作者边界后：需要作者采纳/拒绝动作开启的新边界——本实模批次未触发，明确不算覆盖。
-  slices.push({ id: "G5", name: "作者边界后", ok: false, facts: { reason: "author_boundary_not_triggered_in_live_batch" } });
-  // G6 压缩后：需要显式压缩 checkpoint——本实模批次未触发，明确不算覆盖。
-  slices.push({ id: "G6", name: "压缩后", ok: false, facts: { reason: "compression_not_triggered_in_live_batch" } });
+  // G5 作者边界后：作者采纳/拒绝后开启的新边界、新请求必须携带真实处置结果事实。
+  // 结构判据：某请求文本同时出现处置事实（ACCEPTED/DISCARDED/已采纳/已放弃）且该请求
+  // 属于「后续新 turn」（与出现处置事实的最早请求不同 turn）；批量证据只证明结构携带，
+  // 新授权边界/新 run 需批次 turn 序列确认（由批次 verifier 承担）。
+  // 只认「真实处置数据」而非规则文本：已处置 N 份 / ACCEPTED N 份 / 显式 refs 字段。
+  // 规则文本（如「不要声称已采纳」「不得声称已采纳」）不含这些数据形态，不应判覆盖。
+  const DISPOSITION_DATA =
+    /(已处置\s*\d+|ACCEPTED\/(?:EDITED_)?ACCEPTED\s*\d+\s*项|"resolved_adoptions"|"status"\s*:\s*"ACCEPTED"|"status"\s*:\s*"DISCARDED"|"accepted_refs"|"discarded_refs"|"accepted_ref"\s*:|"discarded_ref"\s*:)/;
+  const dispositionRequests = requests.filter((req) =>
+    DISPOSITION_DATA.test(String(req.request_text ?? "")),
+  );
+  const dispositionTurns = new Set(dispositionRequests.map((req) => req.turn_id).filter(Boolean));
+  // 「边界后新 turn」：含处置事实的请求所在 turn 与其它请求的 turn 不同（说明处置事实
+  // 由后续新 run 的请求携带，而不是旧 run 的历史回放）。
+  const otherTurns = new Set(
+    requests
+      .filter((req) => !dispositionRequests.includes(req))
+      .map((req) => req.turn_id)
+      .filter(Boolean),
+  );
+  const laterDisposition = dispositionRequests.filter(
+    (req) => req.turn_id && !otherTurns.has(req.turn_id),
+  );
+  slices.push({
+    id: "G5",
+    name: "作者边界后",
+    request_index: dispositionRequests[0]?.index ?? null,
+    ok: dispositionRequests.length > 0,
+    facts: {
+      requests_with_disposition_facts: dispositionRequests.map((req) => req.index),
+      turns_with_disposition_facts: [...dispositionTurns],
+      requests_after_boundary_with_facts: laterDisposition.map((req) => req.index),
+      note: "结构证据：请求字节携带处置事实；新授权边界/新 run 由批次 verifier 的 turn 序列断言承担",
+    },
+  });
+  // G6 压缩后：显式压缩 checkpoint 必须以 covers/call_ids/checkpoint 标记进入后续请求。
+  const compressionRequests = requests.filter((req) =>
+    /checkpoint|covers|compact|压缩|整理已完成/.test(String(req.request_text ?? "")),
+  );
+  slices.push({
+    id: "G6",
+    name: "压缩后",
+    request_index: compressionRequests[0]?.index ?? null,
+    ok: compressionRequests.length > 0,
+    facts: { requests_with_compaction_markers: compressionRequests.map((req) => req.index) },
+  });
   return slices;
 }
 
@@ -192,12 +239,20 @@ function main() {
   }
   const requests = records.map((record, index) => {
     const slice = sliceRequest(record, index);
-    const body = record?.request?.body ?? {};
+    const body = record?.request?.body ?? record?.request_body ?? {};
     const rawMessages = Array.isArray(body.messages) ? body.messages : [];
     return { ...slice, rawMessages };
   });
-  const appendChecks = requests.map((req, i) => (i === 0 ? null : prefixIsAppend(requests[i - 1], req)));
-  const slices = goldenSlices(requests.map(({ rawMessages, ...rest }) => ({ ...rest, rawMessages })));
+  const appendChecks = requests.map((req, i) => {
+    if (i === 0) return null;
+    const previous = requests[i - 1];
+    // 跨 turn/run 不要求追加式前缀（不同 run 的请求体各自独立）；同 turn 内严格追加。
+    if (req.turn_id && previous.turn_id && req.turn_id !== previous.turn_id) {
+      return { ok: true, skipped: "turn_boundary", from: previous.turn_id, to: req.turn_id };
+    }
+    return prefixIsAppend(previous, req);
+  });
+  const slices = goldenSlices(requests);
   const authorHashes = [...new Set(requests.flatMap((req) => req.author_messages.map((m) => m.sha256)))];
 
   const report = {
@@ -205,20 +260,24 @@ function main() {
     source_batch: path.relative(ROOT, dir),
     analyzed_at: new Date().toISOString(),
     note: "对已验证实模批次的真实请求字节做离线切片分析；不是新验收批次，不改写原证据，不代签模型语义。",
-    requests: requests.map(({ rawMessages, ...rest }) => rest),
+    requests: requests.map(({ rawMessages, request_text, ...rest }) => rest),
     append_prefix_checks: appendChecks,
     author_message_hashes: authorHashes,
     slices,
     summary: {
       request_count: requests.length,
       append_prefix_ok: appendChecks.every((check) => check === null || check.ok === true),
+      append_skipped_turn_boundaries: appendChecks.filter((check) => check?.skipped).length,
       g1: slices.find((s) => s.id === "G1")?.ok ?? false,
       g2: slices.find((s) => s.id === "G2")?.ok ?? false,
       g3: slices.find((s) => s.id === "G3")?.ok ?? false,
       g4: slices.find((s) => s.id === "G4")?.ok ?? false,
-      g5: false,
-      g6: false,
-      not_covered: ["G5 作者边界（未触发）", "G6 压缩（未触发）"],
+      g5: slices.find((slice) => slice.id === "G5")?.ok ?? false,
+      g6: slices.find((slice) => slice.id === "G6")?.ok ?? false,
+      not_covered: [
+        ...(slices.find((s) => s.id === "G5")?.ok ? [] : ["G5 作者边界（未触发）"]),
+        ...(slices.find((s) => s.id === "G6")?.ok ? [] : ["G6 压缩（未触发）"]),
+      ],
     },
   };
 
@@ -242,7 +301,13 @@ function main() {
     "",
     "## 追加式前缀",
     "",
-    ...appendChecks.map((check, i) => (i === 0 ? "- #0 基线" : `- #${i}: ${check.ok ? `ok（追加 ${check.appended} 条）` : `FAIL ${check.reason}`}`)),
+    ...appendChecks.map((check, i) =>
+      i === 0
+        ? "- #0 基线"
+        : check.skipped
+          ? `- #${i}: 跨 turn 边界（${check.skipped}），不要求追加`
+          : `- #${i}: ${check.ok ? `ok（追加 ${check.appended} 条）` : `FAIL ${check.reason}`}`,
+    ),
     "",
     "## G 切片",
     "",

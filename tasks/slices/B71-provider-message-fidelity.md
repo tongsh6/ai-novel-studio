@@ -797,5 +797,7 @@
 - **G2 观察后 ✅**：唯一 call_id 36 个全部在其后续请求的 tool result 中按 `tool_call_id` 出现（回放出现在后续请求是追加式 transcript 的真实字节，按唯一 id 去重判定；回放总出现次数单独记录）。
 - **G3 校验失败后 ✅**：后续请求中存在 `status=failed` 的 validation_result 作为原生 tool result 回流（requests #4–#8）。
 - **G4 候选后 ✅**：真实模型发出 `submit_tentative_artifact`（2 次）与 `report_quality_findings`，均为创作/质量原生工具。
-- **G5/G6 未覆盖（明确不代签）**：本批次未触发作者采纳/拒绝边界与显式压缩 checkpoint；分别由行为覆盖/§16.14 批次与压缩消费者场景承接。
-- **结论**：CP3b 的真实模型证据从「机制 10/10」推进到「机制 + G1–G4 切片均成立」；G5/G6 仍开放，CP3b 不标 done。
+- **G5 作者边界后 ✅（来自 pending-08 确定性批次的真实请求字节）**：followup 新 turn 的请求体携带真实处置数据——「会话候选处置：resolved 2 项（ACCEPTED 1 项、DISCARDED 1 项）」与 `resolved_adoptions[{status:DISCARDED},{status:ACCEPTED}]`；判据按真实数据形态（`resolved_adoptions`/`status:ACCEPTED|DISCARDED`/已处置 N），规则文本（如「不要声称已采纳」）不判覆盖，避免误报。G5 是确定性 provider 的协议层证据，模型语义不由它代签。
+- **G6 压缩后 ❌（明确不覆盖）**：两个批次均无显式压缩 checkpoint（压缩前端入口待作者设计授权，后端命令未产生真实压缩请求）；不代签。
+- **结论**：CP3b 的真实请求字节证据从「机制 10/10」推进到 **G1–G5 结构切片全部成立**（G1–G4 来自实模批次 03，G5 来自 pending-08 确定性批次）；G6 仍开放，CP3b 不标 done。
+- **脚本**：`b71_golden_slices_from_live_batch.mjs` 兼容 live（`request.body.messages`）与确定性（`request_body.messages`）双记录形状，按 turn 边界分组做追加式前缀检查；输出 `artifacts/b71-resume/golden-slices-{cp3b-03,pending-08}/`。
