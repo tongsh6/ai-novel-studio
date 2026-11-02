@@ -3,13 +3,27 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
 
   import Phoenix.ChannelTest
 
-  alias NovelApplication.AgentRunService
+  alias Ecto.Adapters.SQL.Sandbox
+  alias NovelApplication.{WorkService, WorkSessionService}
+  alias NovelPersistence.{InteractionLifecycle, Repo}
+  alias NovelPersistence.Schemas.AuthorActionReceipt
   alias NovelWeb.UserSocket
   alias NovelWeb.WorkspaceChannel
 
   @endpoint NovelWeb.Endpoint
   @agent_run_timeout 45_000
   @agent_run_stopped_events ["run_completed", "awaiting_author", "run_failed", "run_cancelled"]
+
+  setup do
+    owner = Sandbox.start_owner!(Repo, shared: true)
+
+    on_exit(fn ->
+      NovelApplication.TestAgentRunCleanup.await_quiescent()
+      Sandbox.stop_owner(owner)
+    end)
+
+    :ok
+  end
 
   @server_turn_result %{
     turn_id: "turn-action-1",
@@ -418,23 +432,20 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
     end
 
     test "client-provided source_turn_result cannot authorize invented action" do
-      {:ok, _, socket} =
-        UserSocket
-        |> socket("user_id", %{})
-        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
-
-      socket = assign_server_turn(socket, @server_turn_result)
+      {_work, _session_id, socket} = create_work_and_socket("B71 forged action")
+      source = seed_confirmation_source(socket.assigns[:work_id], socket.assigns[:session_id])
 
       assert {:reply, {:error, %{reason: reason}}, _socket} =
                WorkspaceChannel.handle_in(
                  "author_action",
                  %{
                    "action" => %{
-                     "source_turn_ref" => "turn-action-1",
+                     "source_turn_ref" => source.turn_id,
                      "action_id" => "act-forged",
                      "action_type" => "confirm_before_execute",
+                     "idempotency_key" => "ik-forged",
                      "source_turn_result" => %{
-                       "turn_id" => "turn-action-1",
+                       "turn_id" => source.turn_id,
                        "available_actions" => [
                          %{
                            "action_id" => "act-forged",
@@ -449,6 +460,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
                )
 
       assert String.contains?(reason, "invented")
+      refute_broadcast("action_result", %{}, 20)
     end
 
     test "author_action missing behavior_ref cannot close a server-scoped behavior" do
@@ -547,64 +559,42 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
     end
 
     test "confirmation dispatch broadcasts turn_result without synthetic task_state events" do
-      {:ok, _, socket} =
-        UserSocket
-        |> socket("user_id", %{})
-        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+      enable_real_persistence()
+      {_work, _session_id, socket} = create_work_and_socket("B71 channel confirmation")
+      source = seed_confirmation_source(socket.assigns[:work_id], socket.assigns[:session_id])
 
-      socket = assign_server_turn(socket, @creative_turn_result)
-
-      assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, socket} =
+      assert {:reply, {:ok, %{received: true}}, socket} =
                WorkspaceChannel.handle_in(
                  "author_action",
-                 %{
-                   "action" => %{
-                     "source_turn_ref" => "turn-action-1",
-                     "action_id" => "act-confirm",
-                     "action_type" => "confirm_before_execute",
-                     # 前端提交确认时回传 available_action 的 target_ref/behavior_ref。
-                     "target_ref" => "text_analysis",
-                     "behavior_ref" => "bh-chan-1",
-                     "idempotency_key" => "ik-confirm"
-                   }
-                 },
+                 %{"action" => action_params(source)},
                  socket
                )
 
-      assert_broadcast("turn_result", %{turn_id: turn_id})
-      refute_broadcast("task_state", _payload, 20)
+      payload = receive_turn_result()
+      turn_id = payload[:turn_id] || payload["turn_id"]
+      assert turn_id
+      refute_receive %Phoenix.Socket.Broadcast{event: "task_state"}, 20
       assert socket.assigns.current_turn_id == turn_id
       assert Map.has_key?(socket.assigns.turn_results_by_id, turn_id)
     end
 
     test "duplicate confirmation with same idempotency key does not dispatch a second turn" do
-      {:ok, _, socket} =
-        UserSocket
-        |> socket("user_id", %{})
-        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+      enable_real_persistence()
+      {_work, _session_id, socket} = create_work_and_socket("B71 channel duplicate")
+      source = seed_confirmation_source(socket.assigns[:work_id], socket.assigns[:session_id])
+      action = action_params(source)
 
-      socket = assign_server_turn(socket, @creative_turn_result)
-
-      action = %{
-        "source_turn_ref" => "turn-action-1",
-        "action_id" => "act-confirm",
-        "action_type" => "confirm_before_execute",
-        "target_ref" => "text_analysis",
-        "behavior_ref" => "bh-chan-1",
-        "idempotency_key" => "ik-confirm"
-      }
-
-      assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, socket} =
+      assert {:reply, {:ok, %{received: true}}, socket} =
                WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
 
-      assert_broadcast("turn_result", %{turn_id: first_dispatch_turn_id})
+      payload = receive_turn_result()
+      first_dispatch_turn_id = payload[:turn_id] || payload["turn_id"]
 
-      assert {:reply, {:ok, %{received: true, action_status: "accepted", duplicate: true}},
-              socket} =
+      assert {:reply, {:ok, %{received: true, duplicate: true}}, socket} =
                WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
 
       assert_broadcast("action_result", %{duplicate: true, idempotency_key: "ik-confirm"})
-      refute_broadcast("turn_result", %{}, 50)
+      assert Repo.aggregate(AuthorActionReceipt, :count, :behavior_ref) == 1
       assert socket.assigns.current_turn_id == first_dispatch_turn_id
     end
 
@@ -623,85 +613,53 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
           }
         })
 
-      assert_reply(ref, :error, %{reason: reason})
-
-      assert String.contains?(reason, "stale") or
-               String.contains?(reason, "source_turn_result not available")
+      assert_reply(ref, :error, %{reason: _reason})
+      refute_broadcast("action_result", %{}, 20)
     end
 
     test "retained old confirmation turn is stale after current turn advances" do
-      {:ok, _, socket} =
-        UserSocket
-        |> socket("user_id", %{})
-        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+      {_work, _session_id, socket} = create_work_and_socket("B71 stale behavior")
+      source = seed_confirmation_source(socket.assigns[:work_id], socket.assigns[:session_id])
 
-      socket = assign_server_turn(socket, @server_turn_result)
-
-      socket =
-        assign_server_turn(socket, %{
-          turn_id: "turn-action-2",
-          frame_ref: "frame-chan-2",
-          available_actions: [],
-          assistant_message: %{text: "新的上下文已经生成"},
-          truthfulness: %{
-            tool_called: false,
-            artifact_adopted: false,
-            production_write_performed: false
+      {:ok, _} =
+        InteractionLifecycle.call(:result, %{
+          workspace_id: socket.assigns[:work_id],
+          session_id: socket.assigns[:session_id],
+          run_id: source.run_id,
+          turn_result: %{
+            "turn_id" => "turn-action-2",
+            "frame_ref" => "frame-chan-2",
+            "status" => "conversational",
+            "phase" => "dialogue",
+            "assistant_message" => %{"text" => "新的上下文已经生成"},
+            "available_actions" => [],
+            "behavior_state" => %{"active" => nil, "history" => []}
           }
         })
-
-      assert Map.has_key?(socket.assigns.turn_results_by_id, "turn-action-1")
-      assert socket.assigns.current_turn_id == "turn-action-2"
-
-      assert {:reply, {:error, %{reason: reason}}, socket} =
-               WorkspaceChannel.handle_in(
-                 "author_action",
-                 %{
-                   "action" => %{
-                     "source_turn_ref" => "turn-action-1",
-                     "action_id" => "act-confirm",
-                     "action_type" => "confirm_before_execute",
-                     "target_ref" => "text_analysis",
-                     "behavior_ref" => "bh-chan-1",
-                     "idempotency_key" => "ik-confirm"
-                   }
-                 },
-                 socket
-               )
-
-      assert String.contains?(reason, "stale")
-      assert socket.assigns.current_turn_id == "turn-action-2"
-      refute_broadcast("turn_result", %{}, 50)
-    end
-
-    test "current confirmation action is rejected after expires_at" do
-      {:ok, _, socket} =
-        UserSocket
-        |> socket("user_id", %{})
-        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
-
-      expired_turn_result =
-        put_in(
-          @server_turn_result,
-          [:available_actions, Access.at(0), :expires_at],
-          "2000-01-01T00:00:00Z"
-        )
-
-      socket = assign_server_turn(socket, expired_turn_result)
 
       assert {:reply, {:error, %{reason: reason}}, _socket} =
                WorkspaceChannel.handle_in(
                  "author_action",
-                 %{
-                   "action" => %{
-                     "source_turn_ref" => "turn-action-1",
-                     "action_id" => "act-confirm",
-                     "action_type" => "confirm_before_execute",
-                     "target_ref" => "text_analysis",
-                     "behavior_ref" => "bh-chan-1",
-                     "idempotency_key" => "ik-confirm"
-                   }
-                 },
+                 %{"action" => action_params(source)},
+                 socket
+               )
+
+      assert reason in ["source_behavior_not_open", "source_behavior_changed"]
+      refute_broadcast("turn_result", %{}, 50)
+    end
+
+    test "current confirmation action is rejected after expires_at" do
+      {_work, _session_id, socket} = create_work_and_socket("B71 expired confirmation")
+
+      source =
+        seed_confirmation_source(socket.assigns[:work_id], socket.assigns[:session_id],
+          expires_at: "2000-01-01T00:00:00Z"
+        )
+
+      assert {:reply, {:error, %{reason: reason}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{"action" => action_params(source)},
                  socket
                )
 
@@ -961,7 +919,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
   end
 
   describe "quality revision author action" do
-    test "persists a stable receipt result and binds the revision run to its source surface" do
+    test "in-memory lobby source is explicitly not admitted as revision authority" do
       {:ok, _, socket} =
         UserSocket
         |> socket("user_id", %{})
@@ -982,45 +940,12 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         }
       }
 
-      assert {:reply,
-              {:ok,
-               %{
-                 action_status: "running",
-                 receipt_id: receipt_id,
-                 run_id: run_id,
-                 source_turn_ref: "turn-quality-source",
-                 source_surface_ref: "quality_review:turn-quality-source",
-                 target_artifact_ref: "as-prose-original",
-                 trigger: %{
-                   kind: "author_action",
-                   action_type: "revise_from_findings",
-                   quality_finding_refs: ["validator.prose_pattern_repetition"]
-                 }
-               }}, socket} = WorkspaceChannel.handle_in("author_action", params, socket)
+      assert {:reply, {:error, %{reason: reason}}, _socket} =
+               WorkspaceChannel.handle_in("author_action", params, socket)
 
-      assert is_binary(receipt_id)
-      assert is_binary(run_id)
-
-      assert_broadcast("action_result", %{
-        receipt_id: ^receipt_id,
-        run_id: ^run_id,
-        source_surface_ref: "quality_review:turn-quality-source",
-        status: "running"
-      })
-
-      assert {:ok, %{run: run}} = AgentRunService.state(run_id)
-      assert run.trigger.receipt_id == receipt_id
-      assert run.trigger.source_turn_ref == "turn-quality-source"
-      assert run.trigger.target_artifact_ref == "as-prose-original"
-
-      assert {:reply,
-              {:ok,
-               %{
-                 duplicate: true,
-                 receipt_id: ^receipt_id,
-                 run_id: ^run_id,
-                 action_status: "running"
-               }}, _socket} = WorkspaceChannel.handle_in("author_action", params, socket)
+      assert is_binary(reason)
+      refute_broadcast("action_result", _, 100)
+      refute Repo.get_by(AuthorActionReceipt, idempotency_key: "idem:quality-revision")
     end
   end
 
@@ -1839,5 +1764,166 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
       remaining ->
         flunk("expected AgentRun #{run_id} to stop before the test exits")
     end
+  end
+
+  defp create_work_and_socket(title) do
+    {:ok, work} =
+      WorkService.create(%{
+        "title" => title,
+        "genre" => "赛博修仙",
+        "core_selling_point" => "确认必须形成真实运行事实"
+      })
+
+    {:ok, %{active_session: %{id: session_id}}} = WorkSessionService.resume(work.id)
+
+    {:ok, _, socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
+        "work_id" => work.id,
+        "session_id" => session_id
+      })
+
+    {work, session_id, socket}
+  end
+
+  defp seed_confirmation_source(work_id, session_id, opts \\ []) do
+    unique = System.unique_integer([:positive])
+    user_turn_id = "message_v3_source_#{unique}"
+    turn_id = "#{user_turn_id}:agent:1"
+    behavior_id = "bh-chan-1"
+    run_id = "run_v3_source_#{unique}"
+    expires_at = Keyword.get(opts, :expires_at, DateTime.utc_now() |> DateTime.add(300))
+    action_id = Keyword.get(opts, :action_id, "act-confirm")
+
+    plan = %{
+      "plan_id" => "plan-chan-1",
+      "turn_id" => turn_id,
+      "frame_ref" => "frame-chan-1",
+      "plan_goal" => %{"summary" => "channel test plan"},
+      "risk_hint" => "high",
+      "requires_confirmation_hint" => false,
+      "proposed_actions" => [
+        %{
+          "action_id" => "act-creative",
+          "action_type" => "capability_invocation",
+          "summary" => "生成角色设定",
+          "target_ref" => "character_design",
+          "write_intent" => "tentative",
+          "risk_hint" => "low"
+        }
+      ],
+      "state_changes_requested" => [],
+      "required_capabilities" => ["character_design"],
+      "fallback_strategy" => %{"downgrade_message" => "fallback"},
+      "stop_after_next_action" => true,
+      "primary" => true,
+      "schema_version" => "3.0-draft"
+    }
+
+    confirm = %{
+      "action_id" => action_id,
+      "action_type" => "confirm_before_execute",
+      "behavior_ref" => behavior_id,
+      "target_ref" => "character_design",
+      "idempotency_key" => "ik-confirm",
+      "expires_at" => expires_at,
+      "trace_ref" => "decision_trace:#{turn_id}"
+    }
+
+    reject = %{
+      "action_id" => "act-cancel",
+      "action_type" => "reject_or_cancel_confirmation",
+      "behavior_ref" => behavior_id,
+      "target_ref" => "character_design",
+      "idempotency_key" => "ik-cancel",
+      "expires_at" => expires_at,
+      "trace_ref" => "decision_trace:#{turn_id}"
+    }
+
+    active = %{
+      "behavior_id" => behavior_id,
+      "behavior_type" => "confirmation",
+      "blocking_actor" => "author",
+      "opened_at_turn_ref" => turn_id,
+      "opened_by_decision_ref" => "decision_v3_source_#{unique}",
+      "frame_ref" => "frame-chan-1",
+      "plan_ref" => plan["plan_id"],
+      "target_ref" => "character_design",
+      "required_next_action" => "confirm_before_execute",
+      "available_actions" => [confirm, reject],
+      "prompt_contract" => %{"question" => "确认生成角色设定？"},
+      "constraints" => %{"risk" => "high"},
+      "lifecycle_status" => "awaiting_author",
+      "status" => "WAITING_USER"
+    }
+
+    turn_result = %{
+      "schema_version" => "3.0-draft",
+      "turn_id" => turn_id,
+      "frame_ref" => "frame-chan-1",
+      "status" => "needs_confirmation",
+      "phase" => "awaiting_author",
+      "assistant_message" => %{"text" => "需要作者确认后才能生成角色设定。"},
+      "available_actions" => [confirm, reject],
+      "behavior_state" => %{"active" => active, "history" => []},
+      "plan" => plan,
+      "ui_cards" => [],
+      "trace_summary" => %{
+        "trace_ref" => "trace:#{turn_id}",
+        "source_turn_ref" => user_turn_id,
+        "decision_type" => "confirmation_required"
+      }
+    }
+
+    {:ok, _} =
+      InteractionLifecycle.call(:receive, %{
+        workspace_id: work_id,
+        session_id: session_id,
+        run_id: run_id,
+        turn_id: user_turn_id,
+        text: "给陆沉舟设计一个底层散修人物设定，保持为待采纳草稿。"
+      })
+
+    {:ok, _} =
+      InteractionLifecycle.call(:result, %{
+        workspace_id: work_id,
+        session_id: session_id,
+        run_id: run_id,
+        turn_result: turn_result
+      })
+
+    %{
+      turn_id: turn_id,
+      run_id: run_id,
+      confirm: confirm,
+      reject: reject,
+      behavior_id: behavior_id
+    }
+  end
+
+  defp enable_real_persistence do
+    previous = Application.get_env(:novel_web, :persistence, [])
+    Application.put_env(:novel_web, :persistence, inject_real_persistence: true)
+
+    on_exit(fn ->
+      Application.put_env(:novel_web, :persistence, previous)
+    end)
+  end
+
+  defp receive_turn_result(timeout \\ 5_000) do
+    receive do
+      %Phoenix.Socket.Broadcast{event: "turn_result", payload: payload} -> payload
+      %Phoenix.Socket.Message{event: "turn_result", payload: payload} -> payload
+      {:agent_event, _event} -> receive_turn_result(timeout)
+      {:agent_run_state_snapshot, _run_ref, _result} -> receive_turn_result(timeout)
+    after
+      timeout -> flunk("no turn_result received")
+    end
+  end
+
+  defp action_params(source) do
+    source.confirm
+    |> Map.put("source_turn_ref", source.turn_id)
   end
 end

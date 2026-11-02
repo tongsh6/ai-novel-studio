@@ -7,6 +7,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
   alias NovelApplication.AgentRunService
   alias NovelApplication.WorkService
   alias NovelApplication.WorkSessionService
+  alias NovelCommon.Contracts.AgentEvent
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.{AgentRunLog, LongRunTaskLog, MemoryLog, Repo, WorkSessionRepo}
   alias NovelPersistence.AssumptionRepo
@@ -342,6 +343,178 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
       },
       1_000
     )
+  end
+
+  test "join and historical author event never expose private checkpoint_data" do
+    {:ok, work} = WorkService.create(%{"title" => "隐私边界作品"})
+    {:ok, %{active_session: %{id: session_id}}} = WorkSessionService.resume(work.id)
+    run_id = "run-private-checkpoint-#{System.unique_integer([:positive, :monotonic])}"
+    marker = "B71_PRIVATE_CHECKPOINT_#{System.unique_integer([:positive, :monotonic])}"
+
+    {:ok, task} =
+      LongRunTaskLog.create(%{
+        workspace_id: work.id,
+        task_type: "agent_run",
+        status: "PAUSED",
+        phase: "CHECKPOINT",
+        goal: "隐私边界长任务",
+        scope_ref: work.id,
+        created_by: "agent_run",
+        parent_turn_ref: "turn-private-checkpoint",
+        checkpoint_policy_ref: "agent_run_step_checkpoint_v1",
+        current_unit_ref: "step-private-checkpoint-1",
+        completed_unit_refs: ["step-private-checkpoint-1"],
+        pending_artifact_refs: ["artifact-private-checkpoint-1"],
+        checkpoint_data: %{
+          "agent_run" => %{
+            "run_id" => run_id,
+            "goal_version" => 1,
+            "completed_step_refs" => ["step-private-checkpoint-1"],
+            "checkpoint_version" => 2
+          },
+          "progress" => 42,
+          "step" => "私有检查点步骤",
+          "private_reasoning" => marker,
+          "private_prompt" => "PROMPT_#{marker}",
+          "authoring_transcript" => %{"private_transcript" => marker}
+        }
+      })
+
+    assert {:ok, _record} =
+             AgentRunLog.upsert_run(%{
+               id: run_id,
+               workspace_id: work.id,
+               work_id: work.id,
+               session_id: session_id,
+               parent_turn_ref: "turn-private-checkpoint",
+               origin_frame_ref: "frame-private-checkpoint",
+               run_mode: "durable",
+               profile_ref: "character_design_with_context_v1",
+               status: "running",
+               phase: "executing",
+               goal: %{"text" => "作为隐私边界长任务设计角色", "version" => 1},
+               goal_version: 1,
+               run_policy: %{"allowed_tool_refs" => ["character_roster"]},
+               authority_scope: %{
+                 "production_write" => false,
+                 "allowed_tools" => ["character_roster"]
+               },
+               budget: %{
+                 "max_steps" => 2,
+                 "max_tool_calls" => 2,
+                 "max_provider_calls" => 1,
+                 "max_replans" => 1
+               },
+               consumed_budget: %{
+                 "steps" => 1,
+                 "tool_calls" => 1,
+                 "provider_calls" => 0,
+                 "replans" => 0
+               },
+               completed_step_refs: ["step-private-checkpoint-1"],
+               interrupt_state: %{"status" => "none"},
+               long_run_task_ref: task.id
+             })
+
+    legacy_event_id = "evt-#{run_id}-legacy-resumed"
+
+    assert {:ok, _event} =
+             AgentRunLog.insert_event(%{
+               id: legacy_event_id,
+               run_id: run_id,
+               step_id: "step-private-checkpoint-1",
+               sequence: 1,
+               event_type: "run_resumed",
+               visibility: "author",
+               summary: "旧恢复事件",
+               reason_codes: ["durable_recovered"],
+               refs: [task.id],
+               payload: %{
+                 "long_run_task_ref" => task.id,
+                 "runtime_live" => false,
+                 "checkpoint_data" => task.checkpoint_data
+               }
+             })
+
+    legacy_record =
+      AgentRunLog.list_events(run_id)
+      |> Enum.find(&(&1.id == legacy_event_id))
+
+    assert legacy_record.payload["checkpoint_data"]["private_reasoning"] == marker
+
+    task_id = task.id
+
+    {:ok, _reply, socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
+        "work_id" => work.id,
+        "session_id" => session_id
+      })
+
+    {:ok, legacy_event} =
+      AgentEvent.new(%{
+        event_id: legacy_record.id,
+        run_ref: legacy_record.run_id,
+        step_ref: legacy_record.step_id,
+        sequence: legacy_record.sequence,
+        event_type: legacy_record.event_type,
+        visibility: legacy_record.visibility,
+        summary: legacy_record.summary,
+        reason_codes: legacy_record.reason_codes,
+        refs: legacy_record.refs,
+        payload: legacy_record.payload,
+        emitted_at: legacy_record.inserted_at
+      })
+
+    send(socket.channel_pid, {:agent_event, legacy_event})
+
+    assert_broadcast(
+      "agent_event",
+      %{event_id: ^legacy_event_id, payload: legacy_payload},
+      1_000
+    )
+
+    refute Map.has_key?(legacy_payload, :checkpoint_data)
+    refute Map.has_key?(legacy_payload, "checkpoint_data")
+    refute inspect(legacy_payload) =~ marker
+    assert legacy_payload["long_run_task_ref"] == task.id
+    assert legacy_payload["runtime_live"] == false
+
+    assert_broadcast(
+      "agent_event",
+      %{run_id: ^run_id, event_type: "run_resumed", payload: recovery_payload},
+      1_000
+    )
+
+    refute Map.has_key?(recovery_payload, :checkpoint_data)
+    refute Map.has_key?(recovery_payload, "checkpoint_data")
+    refute inspect(recovery_payload) =~ marker
+    assert recovery_payload.long_run_task_ref == task.id
+    assert recovery_payload.runtime_live == false
+
+    assert_broadcast(
+      "agent_run_state",
+      %{run_id: ^run_id, long_run_task: task_payload},
+      1_000
+    )
+
+    refute Map.has_key?(task_payload, :checkpoint_data)
+    refute Map.has_key?(task_payload, "checkpoint_data")
+    refute inspect(task_payload) =~ marker
+    assert task_payload.task_id == task_id
+    assert task_payload.status == "PAUSED"
+    assert task_payload.phase == "CHECKPOINT"
+    assert task_payload.current_unit_ref == "step-private-checkpoint-1"
+    assert task_payload.completed_unit_refs == ["step-private-checkpoint-1"]
+    assert task_payload.pending_artifact_refs == ["artifact-private-checkpoint-1"]
+    assert task_payload.progress == 42
+    assert task_payload.step == "后端运行进程已不存在，已从检查点恢复并等待作者确认"
+    assert task_payload.updated_at
+
+    persisted_task = LongRunTaskLog.get(task.id)
+    assert persisted_task.checkpoint_data["private_reasoning"] == marker
+    assert inspect(persisted_task.checkpoint_data) =~ "PROMPT_#{marker}"
   end
 
   # DS03 + B23 CP4：bounded runtime 已死时，首次 join 必须**一次性收口**为

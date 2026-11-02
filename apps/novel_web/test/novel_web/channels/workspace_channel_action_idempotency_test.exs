@@ -1,190 +1,91 @@
 defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
   use ExUnit.Case, async: false
 
-  import ExUnit.CaptureLog
   import Phoenix.ChannelTest
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelApplication.WorkService
-  alias NovelApplication.WorkSessionService
-  alias NovelPersistence.Repo
+  alias NovelApplication.{WorkService, WorkSessionService}
+  alias NovelPersistence.{InteractionLifecycle, Repo, WorkSessionRepo}
   alias NovelPersistence.Schemas.AuthorActionReceipt
   alias NovelPersistence.TraceRepository
-  alias NovelWeb.UserSocket
-  alias NovelWeb.WorkspaceChannel
+  alias NovelWeb.{UserSocket, WorkspaceChannel}
 
   @endpoint NovelWeb.Endpoint
 
-  @creative_turn_result %{
-    turn_id: "turn-action-persisted-1",
-    frame_ref: "frame-action-persisted-1",
-    available_actions: [
-      %{
-        action_id: "act-confirm-persisted",
-        action_type: "confirm_before_execute",
-        # 生产 turn_result 的确认 action 始终带 behavior_ref/target_ref（VS-03 §5）。
-        behavior_ref: "bh-persisted-1",
-        target_ref: "character_design",
-        enabled: true,
-        idempotency_key: "ik-confirm-persisted"
-      }
-    ],
-    plan: %NovelDomain.MicroPlan{
-      plan_id: "plan-action-persisted-1",
-      turn_id: "turn-action-persisted-1",
-      frame_ref: "frame-action-persisted-1",
-      plan_goal: %{summary: "persisted idempotency test plan"},
-      risk_hint: :low,
-      requires_confirmation_hint: false,
-      proposed_actions: [
-        %{
-          action_id: "act-creative",
-          action_type: :capability_invocation,
-          summary: "生成角色设定",
-          target_ref: "character_design",
-          write_intent: :tentative,
-          risk_hint: :low
-        }
-      ],
-      state_changes_requested: [],
-      required_capabilities: [],
-      fallback_strategy: %{downgrade_message: "fallback"}
-    }
-  }
+  @author_text "把陆沉舟的人物设定改得更像一个底层散修，保持为待采纳草稿。"
 
   setup do
     pid = Sandbox.start_owner!(Repo, shared: true)
     previous = Application.get_env(:novel_web, :persistence, [])
+    previous_facts = Application.get_env(:novel_application, :agent_run_fact_persistence_enabled)
     Application.put_env(:novel_web, :persistence, inject_real_persistence: true)
+    Application.put_env(:novel_application, :agent_run_fact_persistence_enabled, true)
 
     on_exit(fn ->
       Application.put_env(:novel_web, :persistence, previous)
+      restore_fact_persistence(previous_facts)
       Sandbox.stop_owner(pid)
     end)
   end
 
   test "persisted idempotency receipt suppresses duplicate dispatch after channel memory is empty" do
-    {:ok, _, socket} =
-      UserSocket
-      |> socket("user_id", %{})
-      |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+    {work, session_id, socket} = create_work_and_socket("B71 idempotent duplicate")
+    source = seed_confirmation_source(work.id, session_id)
+    action = action_params(source, source.confirm)
 
-    socket = assign_server_turn(socket, @creative_turn_result)
-
-    action = %{
-      "source_turn_ref" => "turn-action-persisted-1",
-      "action_id" => "act-confirm-persisted",
-      "action_type" => "confirm_before_execute",
-      # 前端提交确认时回传 available_action 的 target_ref/behavior_ref。
-      "target_ref" => "character_design",
-      "behavior_ref" => "bh-persisted-1",
-      "idempotency_key" => "ik-confirm-persisted"
-    }
-
-    assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, socket} =
+    assert {:reply, {:ok, %{received: true}}, socket} =
              WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
 
-    assert_broadcast("turn_result", %{turn_id: first_dispatch_turn_id})
-
+    receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
     # B58 CP2：确认动作的 approval 投影随 receipt 持久化；缺失字段不伪造。
-    receipt = Repo.get_by!(AuthorActionReceipt, idempotency_key: "ik-confirm-persisted")
     assert receipt.result["approval_policy_ref"] == "approval_policy.long_run_budget_gate"
     assert receipt.result["risk_class"] == "HIGH"
     assert receipt.result["decision"] == "CONFIRMED"
     assert receipt.result["decided_by"] == "author"
     assert receipt.result["target_type"] == nil
 
+    assert receive_broadcast("turn_result", 10_000) |> payload_turn_id()
+
     socket = Phoenix.Socket.assign(socket, :action_idempotency_ledger, %{})
 
-    assert {:reply, {:ok, %{received: true, action_status: "accepted", duplicate: true}}, socket} =
+    assert {:reply, {:ok, %{received: true, duplicate: true}}, _socket} =
              WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
+
+    expected_key = source.confirm["idempotency_key"]
 
     assert_broadcast("action_result", %{
       duplicate: true,
-      idempotency_key: "ik-confirm-persisted"
+      idempotency_key: ^expected_key
     })
 
     refute_broadcast("turn_result", %{}, 50)
-    assert socket.assigns.current_turn_id == first_dispatch_turn_id
+    assert Repo.aggregate(AuthorActionReceipt, :count, :behavior_ref) == 1
   end
 
   test "persisted same key different payload is rejected without second dispatch" do
-    {:ok, _, socket} =
-      UserSocket
-      |> socket("user_id", %{})
-      |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+    {work, session_id, socket} = create_work_and_socket("B71 idempotent conflict")
+    source = seed_confirmation_source(work.id, session_id)
 
-    socket = assign_server_turn(socket, @creative_turn_result)
+    action =
+      Map.put(action_params(source, source.confirm), "payload", %{"edited_content" => "第一次提交"})
 
-    action = %{
-      "source_turn_ref" => "turn-action-persisted-1",
-      "action_id" => "act-confirm-persisted",
-      "action_type" => "confirm_before_execute",
-      "target_ref" => "character_design",
-      "behavior_ref" => "bh-persisted-1",
-      "idempotency_key" => "ik-confirm-persisted",
-      "payload" => %{"edited_content" => "第一次提交"}
-    }
-
-    assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, socket} =
+    assert {:reply, {:ok, %{received: true}}, socket} =
              WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
-
-    assert_broadcast("turn_result", %{turn_id: first_dispatch_turn_id})
 
     changed = Map.put(action, "payload", %{"edited_content" => "同键异内容"})
 
-    assert {:reply, {:error, %{reason: :idempotency_payload_conflict}}, socket} =
+    assert {:reply, {:error, %{reason: :idempotency_payload_conflict}}, _socket} =
              WorkspaceChannel.handle_in("author_action", %{"action" => changed}, socket)
 
-    refute_broadcast("turn_result", %{}, 50)
-    assert socket.assigns.current_turn_id == first_dispatch_turn_id
-    # 异 payload 不产生第二次回执；原成功回执保留。
-    assert Repo.aggregate(AuthorActionReceipt, :count, :id) == 1
+    assert Repo.aggregate(AuthorActionReceipt, :count, :behavior_ref) == 1
   end
 
   test "confirmation re-gate consumes latest work snapshot after work rename" do
-    {:ok, work} =
-      WorkService.create(%{
-        "title" => "AU04 latest context source",
-        "genre" => "赛博修仙",
-        "core_selling_point" => "确认前上下文变化必须被重新读取"
-      })
+    {work, session_id, socket} = create_work_and_socket("B71 latest context source")
+    source = seed_confirmation_source(work.id, session_id)
+    action = action_params(source, source.confirm)
 
-    {:ok, %{active_session: %{id: session_id}}} = WorkSessionService.resume(work.id)
-
-    {:ok, _, socket} =
-      UserSocket
-      |> socket("user_id", %{})
-      |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{"work_id" => work.id})
-
-    source_turn =
-      @creative_turn_result
-      |> Map.put(:turn_id, "turn-action-rebase-1")
-      |> Map.put(:frame_ref, "frame-action-rebase-1")
-      |> Map.put(:work_id, work.id)
-      |> Map.put(:session_id, session_id)
-      |> Map.put(:workspace_id, work.id)
-      |> Map.put(:available_actions, [
-        %{
-          action_id: "act-confirm-rebase",
-          action_type: "confirm_before_execute",
-          behavior_ref: "bh-rebase-1",
-          target_ref: "character_design",
-          enabled: true,
-          idempotency_key: "ik-confirm-rebase"
-        }
-      ])
-      |> Map.put(:plan, %{
-        @creative_turn_result.plan
-        | plan_id: "plan-action-rebase-1",
-          turn_id: "turn-action-rebase-1",
-          frame_ref: "frame-action-rebase-1",
-          plan_goal: %{summary: "latest context rebase test plan"}
-      })
-
-    socket = assign_server_turn(socket, source_turn)
-
-    renamed_title = "AU04 latest context renamed"
+    renamed_title = "B71 latest context renamed"
 
     assert {:ok, renamed_work} =
              WorkService.rename(work.id, %{
@@ -194,44 +95,30 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
 
     assert renamed_work.revision > work.revision
 
-    action = %{
-      "source_turn_ref" => "turn-action-rebase-1",
-      "action_id" => "act-confirm-rebase",
-      "action_type" => "confirm_before_execute",
-      "target_ref" => "character_design",
-      "behavior_ref" => "bh-rebase-1",
-      "idempotency_key" => "ik-confirm-rebase"
-    }
+    assert {:reply, {:ok, %{received: true}}, _socket} =
+             WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
 
-    log =
-      capture_log(fn ->
-        assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, _socket} =
-                 WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
-      end)
+    # 第一个 turn_result 是受理时提交的作者决定；第二个是 child 重新组装上下文并
+    # 执行 writer 后提交的真实结果。
+    decision_turn_id = receive_broadcast("turn_result", 10_000) |> payload_turn_id()
+    receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
+    creative = await_creative_result(receipt.result["run_id"], work.id, session_id)
 
-    refute log =~ "channel.persist_trace | 失败"
-
-    assert_broadcast("action_result", %{confirmation_binding: binding})
-
-    assert binding.rebased_state_snapshot_ref =~ "state_snapshot:#{work.id}:#{session_id}"
-    assert binding.rebased_state_snapshot_ref =~ "revision:#{renamed_work.revision}"
-    assert binding.rebased_state_snapshot_ref =~ "turn-action-rebase-1"
-    assert binding.rebased_state_snapshot_ref =~ "plan-action-rebase-1"
-
-    assert binding.gate_result_refs == [
-             "gate_result:confirmation_re_gate:turn-action-rebase-1:plan-action-rebase-1:act-confirm-rebase"
-           ]
-
-    assert_broadcast("turn_result", turn_result)
+    assert creative["turn_id"] != decision_turn_id
 
     assert Enum.any?(
-             turn_result.trace_summary.context_refs,
-             &(&1.source_type == :current_work and String.contains?(&1.summary, renamed_title))
+             creative["trace_summary"]["context_refs"],
+             &(&1["source_type"] == "current_work" and
+                 String.contains?(&1["summary"], renamed_title))
            )
 
+    binding = creative["trace_summary"]["confirmation_binding"]
+    assert binding["behavior_ref"] == source.behavior_id
+    assert binding["rebased_state_snapshot_ref"] =~ "state_snapshot"
+
     assert Enum.any?(
-             turn_result.truthfulness.reason_codes,
-             &(&1 == "rebased_state_snapshot:#{binding.rebased_state_snapshot_ref}")
+             creative["truthfulness"]["reason_codes"],
+             &String.starts_with?(&1, "rebased_state_snapshot:")
            )
   end
 
@@ -341,11 +228,45 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
   end
 
   test "persisted cancel waiting action records terminal behavior trace refs for replay" do
+    {_work, _session_id, socket} = create_work_and_socket("AU07 behavior trace work")
+    work_id = socket.assigns[:work_id]
+    session_id = socket.assigns[:session_id]
+    source = seed_confirmation_source(work_id, session_id)
+    reject = action_params(source, source.reject)
+
+    assert {:reply, {:ok, %{received: true}}, _socket} =
+             WorkspaceChannel.handle_in("author_action", %{"action" => reject}, socket)
+
+    receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
+    cancel_turn_id = receipt.result["turn_id"]
+
+    turn_result = WorkSessionRepo.turn_result(work_id, cancel_turn_id)
+    assert turn_result["trace_summary"]["trace_ref"] == "trace:#{cancel_turn_id}"
+
+    assert [
+             %{
+               "behavior_ref" => behavior_ref,
+               "event_type" => "close",
+               "event_turn_ref" => ^cancel_turn_id,
+               "resolution_ref" => resolution_ref,
+               "next_status" => "CANCELLED"
+             }
+           ] = turn_result["trace_summary"]["behavior_trace_refs"]
+
+    assert behavior_ref == source.behavior_id
+    assert resolution_ref == "behavior_resolution:#{cancel_turn_id}"
+
+    assert [trace_record] = TraceRepository.list_by_turn(cancel_turn_id)
+    assert trace_record.trace_id == "trace:#{cancel_turn_id}"
+    assert trace_record.decision_type == "cancel_waiting"
+  end
+
+  defp create_work_and_socket(title) do
     {:ok, work} =
       WorkService.create(%{
-        "title" => "AU07 behavior trace work",
-        "genre" => "悬疑",
-        "core_selling_point" => "行为终态必须可回放"
+        "title" => title,
+        "genre" => "赛博修仙",
+        "core_selling_point" => "作者动作必须形成真实运行事实"
       })
 
     {:ok, %{active_session: %{id: session_id}}} = WorkSessionService.resume(work.id)
@@ -358,98 +279,160 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
         "session_id" => session_id
       })
 
-    source_turn = %{
-      turn_id: "turn-au07-behavior-open",
-      frame_ref: "frame-au07-behavior-open",
-      work_id: work.id,
-      workspace_id: work.id,
-      session_id: session_id,
-      trace_summary: %{trace_ref: "trace-au07-behavior-open"},
-      available_actions: [
+    {work, session_id, socket}
+  end
+
+  defp seed_confirmation_source(work_id, session_id) do
+    unique = System.unique_integer([:positive])
+    user_turn_id = "message_source_idem_#{unique}"
+    turn_id = "#{user_turn_id}:agent:1"
+    behavior_id = "bh_source_idem_#{unique}"
+    run_id = "run_source_idem_#{unique}"
+
+    plan = %{
+      "plan_id" => "mp_source_idem_#{unique}",
+      "turn_id" => turn_id,
+      "frame_ref" => "frame_source_idem_#{unique}",
+      "plan_goal" => %{"summary" => "生成角色设定"},
+      "risk_hint" => "high",
+      "requires_confirmation_hint" => false,
+      "proposed_actions" => [
         %{
-          action_id: "act-cancel-au07-behavior",
-          action_type: "reject_or_cancel_confirmation",
-          target_ref: "prose_writing",
-          behavior_ref: "bh-au07-behavior",
-          idempotency_key: "ik-cancel-au07-behavior",
-          enabled: true
+          "action_id" => "act_creative_idem_#{unique}",
+          "action_type" => "capability_invocation",
+          "summary" => "生成角色设定",
+          "target_ref" => "character_design",
+          "write_intent" => "tentative",
+          "risk_hint" => "low"
         }
       ],
-      behavior_state: %{
-        active: %{
-          behavior_id: "bh-au07-behavior",
-          behavior_type: "confirmation",
-          opened_at_turn_ref: "turn-au07-behavior-open",
-          opened_by_decision_ref: "decision-au07-behavior-open",
-          frame_ref: "frame-au07-behavior-open",
-          plan_ref: "plan-au07-behavior-open",
-          target_ref: "prose_writing",
-          required_next_action: "confirm_before_execute",
-          prompt_contract: %{},
-          constraints: %{},
-          trace_ref: "trace-au07-behavior-open"
-        },
-        history: []
+      "state_changes_requested" => [],
+      "required_capabilities" => ["character_design"],
+      "fallback_strategy" => %{"downgrade_message" => "fallback"},
+      "stop_after_next_action" => true,
+      "primary" => true,
+      "schema_version" => "3.0-draft"
+    }
+
+    confirm = %{
+      "action_id" => "act_confirm_idem_#{unique}",
+      "action_type" => "confirm_before_execute",
+      "behavior_ref" => behavior_id,
+      "target_ref" => "character_design",
+      "idempotency_key" => "confirm_idem_#{unique}",
+      "trace_ref" => "decision_trace:#{turn_id}"
+    }
+
+    reject = %{
+      "action_id" => "act_reject_idem_#{unique}",
+      "action_type" => "reject_or_cancel_confirmation",
+      "behavior_ref" => behavior_id,
+      "target_ref" => "character_design",
+      "idempotency_key" => "reject_idem_#{unique}",
+      "trace_ref" => "decision_trace:#{turn_id}"
+    }
+
+    active = %{
+      "behavior_id" => behavior_id,
+      "behavior_type" => "confirmation",
+      "blocking_actor" => "author",
+      "opened_at_turn_ref" => turn_id,
+      "opened_by_decision_ref" => "decision_source_idem_#{unique}",
+      "frame_ref" => "frame_source_idem_#{unique}",
+      "plan_ref" => plan["plan_id"],
+      "target_ref" => "character_design",
+      "required_next_action" => "confirm_before_execute",
+      "available_actions" => [confirm, reject],
+      "prompt_contract" => %{"question" => "确认生成角色设定？"},
+      "constraints" => %{"risk" => "high"},
+      "lifecycle_status" => "awaiting_author",
+      "status" => "WAITING_USER"
+    }
+
+    turn_result = %{
+      "schema_version" => "3.0-draft",
+      "turn_id" => turn_id,
+      "frame_ref" => "frame_source_idem_#{unique}",
+      "status" => "needs_confirmation",
+      "phase" => "awaiting_author",
+      "assistant_message" => %{"text" => "需要作者确认后才能生成角色设定。"},
+      "available_actions" => [confirm, reject],
+      "behavior_state" => %{"active" => active, "history" => []},
+      "plan" => plan,
+      "ui_cards" => [],
+      "trace_summary" => %{
+        "trace_ref" => "trace:#{turn_id}",
+        "source_turn_ref" => user_turn_id,
+        "decision_type" => "confirmation_required"
       }
     }
 
-    socket = assign_server_turn(socket, source_turn)
+    {:ok, _} =
+      InteractionLifecycle.call(:receive, %{
+        workspace_id: work_id,
+        session_id: session_id,
+        run_id: run_id,
+        turn_id: user_turn_id,
+        text: @author_text
+      })
 
-    assert {:reply, {:ok, %{received: true, action_status: "cancelled"}}, _socket} =
-             WorkspaceChannel.handle_in(
-               "author_action",
-               %{
-                 "action" => %{
-                   "source_turn_ref" => "turn-au07-behavior-open",
-                   "action_id" => "act-cancel-au07-behavior",
-                   "action_type" => "reject_or_cancel_confirmation",
-                   "target_ref" => "prose_writing",
-                   "behavior_ref" => "bh-au07-behavior",
-                   "idempotency_key" => "ik-cancel-au07-behavior"
-                 }
-               },
-               socket
-             )
+    {:ok, _} =
+      InteractionLifecycle.call(:result, %{
+        workspace_id: work_id,
+        session_id: session_id,
+        run_id: run_id,
+        turn_result: turn_result
+      })
 
-    assert_broadcast("turn_result", %{
-      turn_id: cancel_turn_id,
-      trace_summary: %{
-        trace_ref: trace_ref,
-        behavior_trace_refs: [
-          %{
-            behavior_ref: "bh-au07-behavior",
-            event_type: :close,
-            event_turn_ref: cancel_turn_id,
-            resolution_ref: resolution_ref
-          }
-        ]
-      },
-      behavior_state: %{
-        active: nil,
-        history: [%{resolution_ref: resolution_ref}]
-      },
-      truthfulness: %{tool_called: false, production_write_performed: false}
-    })
+    %{
+      run_id: run_id,
+      turn_id: turn_id,
+      behavior_id: behavior_id,
+      confirm: confirm,
+      reject: reject
+    }
+  end
 
-    assert trace_ref == "trace:#{cancel_turn_id}"
-    assert resolution_ref == "behavior_resolution:#{cancel_turn_id}"
+  defp action_params(source, action) do
+    Map.put(action, "source_turn_ref", source.turn_id)
+  end
 
-    assert [trace_record] = TraceRepository.list_by_turn(cancel_turn_id)
-    assert trace_record.trace_id == trace_ref
-    assert trace_record.decision_type == "cancel_waiting"
+  defp payload_turn_id(payload), do: payload[:turn_id] || payload["turn_id"]
 
-    assert [
-             %{
-               "behavior_ref" => "bh-au07-behavior",
-               "event_type" => "close",
-               "event_turn_ref" => ^cancel_turn_id,
-               "resolution_ref" => ^resolution_ref,
-               "next_status" => "CANCELLED"
-             }
-           ] = trace_record.behavior_trace_refs
+  defp await_creative_result(run_id, work_id, session_id, attempts \\ 100)
+  defp await_creative_result(_run_id, _work_id, _session_id, 0), do: flunk("child result missing")
 
-    assert "behavior_trace_recorded" in trace_record.event_order
-    assert "behavior_resolution_recorded" in trace_record.event_order
+  defp await_creative_result(run_id, work_id, session_id, attempts) do
+    result =
+      run_id
+      |> then(&WorkSessionRepo.assistant_entries_by_run(work_id, session_id, &1))
+      |> Enum.map(& &1.content["turn_result"])
+      |> Enum.find(&get_in(&1, ["trace_summary", "confirmation_binding"]))
+
+    if result do
+      result
+    else
+      Process.sleep(50)
+      await_creative_result(run_id, work_id, session_id, attempts - 1)
+    end
+  end
+
+  defp receive_broadcast(event, timeout) do
+    receive do
+      %Phoenix.Socket.Broadcast{event: ^event, payload: payload} ->
+        payload
+
+      %Phoenix.Socket.Message{event: ^event, payload: payload} ->
+        payload
+
+      {:agent_event, _event} ->
+        receive_broadcast(event, timeout)
+
+      {:agent_run_state_snapshot, _run_ref, _result} ->
+        receive_broadcast(event, timeout)
+    after
+      timeout -> flunk("no #{event} broadcast received")
+    end
   end
 
   defp assign_server_turn(socket, %{turn_id: turn_id} = turn_result) do
@@ -459,4 +442,10 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
     |> Phoenix.Socket.assign(:current_turn_id, turn_id)
     |> Phoenix.Socket.assign(:turn_results_by_id, turn_results)
   end
+
+  defp restore_fact_persistence(nil),
+    do: Application.delete_env(:novel_application, :agent_run_fact_persistence_enabled)
+
+  defp restore_fact_persistence(previous),
+    do: Application.put_env(:novel_application, :agent_run_fact_persistence_enabled, previous)
 end

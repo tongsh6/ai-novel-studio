@@ -16,7 +16,7 @@ defmodule NovelWeb.WorkspaceChannel do
   alias NovelApplication.WorkSessionService
   alias NovelCommon.Contracts.AgentEvent
   alias NovelCommon.LogContext
-  alias NovelDomain.AuthorActionInput
+  alias NovelDomain.{AuthorActionInput, BehaviorState}
 
   @current_turn_author_action_types [
     "confirm_before_execute",
@@ -414,8 +414,24 @@ defmodule NovelWeb.WorkspaceChannel do
 
         {:reply, {:error, %{reason: :idempotency_payload_conflict}}, socket}
 
+      {:error, reason} ->
+        LogEmit.emit(:channel, :author_action, :error, %{
+          work_id: socket.assigns[:work_id],
+          session_id: socket.assigns[:session_id],
+          turn_id: action_input.source_turn_ref,
+          action_id: action_input.action_id,
+          action_type: action_input.action_type,
+          reason_code: :author_action_receipt_invalid,
+          outcome_detail: inspect(reason)
+        })
+
+        {:reply, {:error, %{reason: reason_text(reason)}}, socket}
+
       {:duplicate, entry} ->
+        _ = attach_duplicate_action_run(entry)
         result = Map.put(entry.result, :duplicate, true)
+        facts = author_action_run_facts(entry, socket)
+        payload = Map.merge(result, facts)
 
         LogEmit.emit(:channel, :author_action, :done, %{
           work_id: socket.assigns[:work_id],
@@ -427,8 +443,8 @@ defmodule NovelWeb.WorkspaceChannel do
           duplicate: true
         })
 
-        broadcast!(socket, "action_result", result)
-        {:reply, {:ok, author_action_ack(result, duplicate: true)}, socket}
+        broadcast!(socket, "action_result", payload)
+        {:reply, {:ok, author_action_ack(result, duplicate: true, facts: facts)}, socket}
 
       :miss ->
         handle_author_action(socket, action_input, source_turn_result)
@@ -1008,8 +1024,17 @@ defmodule NovelWeb.WorkspaceChannel do
 
       Enum.each(recovered, &broadcast_recovered_agent_run(socket, &1))
 
-      {:ok, dead_bounded} = AgentRunService.list_dead_bounded(work_id, session_id)
-      Enum.each(dead_bounded, &broadcast_dead_bounded_agent_run(socket, &1))
+      case AgentRunService.list_dead_bounded(work_id, session_id) do
+        {:ok, dead_bounded} ->
+          Enum.each(dead_bounded, &broadcast_dead_bounded_agent_run(socket, &1))
+
+        {:error, reason} ->
+          LogEmit.emit(:channel, :agent_run_expired, :error, %{
+            work_id: work_id,
+            session_id: session_id,
+            reason: inspect(reason)
+          })
+      end
     end
   end
 
@@ -1154,9 +1179,18 @@ defmodule NovelWeb.WorkspaceChannel do
     }
   end
 
+  # checkpoint_data 是 application 私有的 canonical envelope，不是作者可见事实。
+  # 只在此作者边界按明确键名剥离（含历史已持久事件），不改写其余作者正文。
+  @author_private_payload_keys [
+    :turn_result,
+    "turn_result",
+    :checkpoint_data,
+    "checkpoint_data"
+  ]
+
   defp author_safe_agent_payload(payload) when is_map(payload) do
     payload
-    |> Map.drop([:turn_result, "turn_result"])
+    |> Map.drop(@author_private_payload_keys)
     |> stringify_atom_values()
   end
 
@@ -1251,7 +1285,6 @@ defmodule NovelWeb.WorkspaceChannel do
       pending_artifact_refs: task.pending_artifact_refs || [],
       progress: task_progress(task.phase, checkpoint_data),
       step: task_step(task, checkpoint_data),
-      checkpoint_data: author_safe_agent_payload(checkpoint_data),
       updated_at: timestamp_iso(task.updated_at)
     }
   end
@@ -1404,23 +1437,38 @@ defmodule NovelWeb.WorkspaceChannel do
         route_adoption_confirmation(socket, action_input, source_turn_result, draft_turn)
 
       :not_adoption ->
-        handle_dialogue_gateway_action(socket, action_input, source_turn_result)
+        handle_confirmation_author_action(socket, action_input)
     end
   end
 
   defp handle_author_action(
          socket,
          %AuthorActionInput{action_type: "revise_from_findings"} = action_input,
-         source_turn_result
+         _source_turn_result
        ) do
-    source_turn_result = scope_source_turn_result(socket, source_turn_result)
+    work_id = socket.assigns[:work_id]
+    session_id = socket.assigns[:session_id]
 
-    case NovelApplication.ActionValidator.validate(action_input, source_turn_result) do
-      {:error, reason} ->
-        {:reply, {:error, %{reason: reason}}, socket}
-
-      :ok ->
+    case NovelApplication.AuthorActionAdmission.source_turn_result(
+           work_id,
+           session_id,
+           action_input.source_turn_ref
+         ) do
+      {:ok, source_turn_result} ->
         start_revision_agent_run(socket, action_input, source_turn_result)
+
+      {:error, reason} ->
+        LogEmit.emit(:channel, :author_action, :error, %{
+          work_id: work_id,
+          session_id: session_id,
+          turn_id: action_input.source_turn_ref,
+          action_id: action_input.action_id,
+          action_type: action_input.action_type,
+          reason_code: :author_action_source_rejected,
+          outcome_detail: inspect(reason)
+        })
+
+        {:reply, {:error, %{reason: reason_text(reason)}}, socket}
     end
   end
 
@@ -2117,6 +2165,102 @@ defmodule NovelWeb.WorkspaceChannel do
 
   defp adoption_confirmation_source(_socket, _action_input), do: :not_adoption
 
+  # 非采纳工具确认/拒绝：统一作者动作受理。source 一律从持久 Interaction 读取，
+  # receipt/child run/作者决定结果/行为关闭同事务提交；旧同步执行已退役。
+  defp handle_confirmation_author_action(socket, action_input) do
+    channel_pid = self()
+
+    opts = [
+      event_sink: fn event -> send(channel_pid, {:agent_event, event}) end
+    ]
+
+    case NovelApplication.AuthorActionConfirmation.handle(
+           socket.assigns[:work_id],
+           socket.assigns[:session_id],
+           action_input,
+           opts
+         ) do
+      {:ok, %{receipt: receipt}} ->
+        finish_confirmation_author_action(socket, action_input, receipt, false)
+
+      {:duplicate, receipt} ->
+        finish_confirmation_author_action(socket, action_input, receipt, true)
+
+      {:conflict, _receipt} ->
+        LogEmit.emit(:channel, :author_action, :error, %{
+          work_id: socket.assigns[:work_id],
+          session_id: socket.assigns[:session_id],
+          turn_id: action_input.source_turn_ref,
+          action_id: action_input.action_id,
+          action_type: action_input.action_type,
+          reason_code: :idempotency_payload_conflict
+        })
+
+        {:reply, {:error, %{reason: :idempotency_payload_conflict}}, socket}
+
+      {:behavior_consumed, _receipt} ->
+        LogEmit.emit(:channel, :author_action, :error, %{
+          work_id: socket.assigns[:work_id],
+          session_id: socket.assigns[:session_id],
+          turn_id: action_input.source_turn_ref,
+          action_id: action_input.action_id,
+          action_type: action_input.action_type,
+          reason_code: :author_action_behavior_already_consumed
+        })
+
+        {:reply, {:error, %{reason: :author_action_behavior_already_consumed}}, socket}
+
+      {:error, reason} ->
+        LogEmit.emit(:channel, :author_action, :error, %{
+          work_id: socket.assigns[:work_id],
+          session_id: socket.assigns[:session_id],
+          turn_id: action_input.source_turn_ref,
+          action_id: action_input.action_id,
+          action_type: action_input.action_type,
+          reason_code: :author_action_admission_failed,
+          outcome_detail: inspect(reason)
+        })
+
+        {:reply, {:error, %{reason: reason_text(reason)}}, socket}
+    end
+  end
+
+  defp finish_confirmation_author_action(socket, action_input, receipt, duplicate?) do
+    scope = action_idempotency_scope(socket)
+
+    case NovelApplication.ActionIdempotencyService.project(receipt, action_input, scope) do
+      {:duplicate, entry} ->
+        result =
+          if duplicate?, do: Map.put(entry.result, :duplicate, true), else: entry.result
+
+        facts = author_action_run_facts(entry, socket)
+        payload = Map.merge(result, facts)
+
+        broadcast!(socket, "action_result", payload)
+        socket = broadcast_committed_confirmation_results(socket, entry.turn_results)
+        log_author_action_done(socket, action_input, result)
+
+        {:reply, {:ok, author_action_ack(result, duplicate: duplicate?, facts: facts)}, socket}
+
+      {:conflict, _entry} ->
+        {:reply, {:error, %{reason: :idempotency_payload_conflict}}, socket}
+
+      {:error, reason} ->
+        log_revision_admission_error(socket, action_input, reason)
+        {:reply, {:error, %{reason: reason_text(reason)}}, socket}
+    end
+  end
+
+  defp broadcast_committed_confirmation_results(socket, turn_results) do
+    turn_results
+    |> List.wrap()
+    |> Enum.reduce(socket, fn turn_result, acc ->
+      turn_result = scope_turn_result(acc, turn_result)
+      broadcast!(acc, "turn_result", turn_result)
+      remember_turn_result(acc, turn_result)
+    end)
+  end
+
   defp handle_dialogue_gateway_action(socket, action_input, source_turn_result) do
     source_turn_result = scope_source_turn_result(socket, source_turn_result)
 
@@ -2156,13 +2300,15 @@ defmodule NovelWeb.WorkspaceChannel do
 
   defp start_revision_agent_run(socket, action_input, source_turn_result) do
     trigger = revision_agent_run_trigger(action_input)
+    work_id = socket.assigns[:work_id]
+    session_id = socket.assigns[:session_id]
 
     input = %{
       text: "按质量发现重写正文草稿",
       workspace_id: socket.assigns[:workspace_id] || "lobby",
-      work_id: socket.assigns[:work_id] || socket.assigns[:workspace_id] || "lobby",
-      work_revision: current_work_revision(socket.assigns[:work_id]),
-      session_id: socket.assigns[:session_id],
+      work_id: work_id,
+      work_revision: current_work_revision(work_id),
+      session_id: session_id,
       turn_id: action_input.source_turn_ref,
       origin_frame_ref: "frame_#{action_input.source_turn_ref}_revision",
       source_turn_result: source_turn_result,
@@ -2178,29 +2324,40 @@ defmodule NovelWeb.WorkspaceChannel do
         nil
       )
 
-    case start_agent_run(spec.run_attrs, spec) do
-      {:agent_run_started, run_id, attrs} ->
-        run_mode = run_mode_string(attrs)
+    admission = %{
+      action_input: action_input,
+      work_id: work_id,
+      session_id: session_id,
+      source_turn_ref: action_input.source_turn_ref,
+      source_turn_result: source_turn_result
+    }
 
-        result = %{
-          action_id: action_input.action_id,
-          action_type: action_input.action_type,
-          idempotency_key: action_input.idempotency_key,
-          status: "running",
-          receipt_id: trigger.receipt_id,
-          run_id: run_id,
-          run_mode: run_mode,
-          long_run_task_ref: Map.get(attrs, :long_run_task_ref),
-          turn_id: Map.get(attrs, :parent_turn_ref),
-          source_turn_ref: trigger.source_turn_ref,
-          source_surface_ref: trigger.source_surface_ref,
-          target_artifact_ref: trigger.target_artifact_ref,
-          profile_ref: Map.get(attrs, :profile_ref),
-          goal: Map.get(attrs, :goal),
-          trigger: trigger
-        }
+    channel_pid = self()
 
-        socket = remember_action_result(socket, action_input, result)
+    runtime_opts =
+      agent_run_runtime_opts(spec) ++
+        [event_sink: fn event -> send(channel_pid, {:agent_event, event}) end]
+
+    case AgentRunService.start_author_action(spec.run_attrs, runtime_opts, admission) do
+      {:ok, %{receipt: receipt, duplicate?: duplicate?}} ->
+        finish_admitted_revision(socket, action_input, receipt, duplicate?)
+
+      {:error, reason} ->
+        log_revision_admission_error(socket, action_input, reason)
+        {:reply, {:error, %{reason: reason_text(reason)}}, socket}
+    end
+  end
+
+  defp finish_admitted_revision(socket, action_input, receipt, duplicate?) do
+    scope = action_idempotency_scope(socket)
+
+    case NovelApplication.ActionIdempotencyService.project(receipt, action_input, scope) do
+      {:duplicate, entry} ->
+        result =
+          if duplicate?, do: Map.put(entry.result, :duplicate, true), else: entry.result
+
+        facts = author_action_run_facts(entry, socket)
+        payload = Map.merge(result, facts)
 
         LogEmit.emit(:channel, :author_action, :done, %{
           work_id: socket.assigns[:work_id],
@@ -2208,29 +2365,36 @@ defmodule NovelWeb.WorkspaceChannel do
           turn_id: action_input.source_turn_ref,
           action_id: action_input.action_id,
           action_type: action_input.action_type,
-          action_status: :running,
-          run_id: run_id,
-          run_mode: run_mode,
+          action_status: result.status,
+          run_id: result.run_id,
+          run_mode: result.run_mode,
+          duplicate: duplicate?,
           candidate_ref: action_input.candidate_ref,
           candidate_set_ref: action_input.candidate_set_ref
         })
 
-        broadcast!(socket, "action_result", result)
-        {:reply, {:ok, author_action_ack(result)}, socket}
+        broadcast!(socket, "action_result", payload)
+        {:reply, {:ok, author_action_ack(result, duplicate: duplicate?, facts: facts)}, socket}
+
+      {:conflict, _entry} ->
+        {:reply, {:error, %{reason: :idempotency_payload_conflict}}, socket}
 
       {:error, reason} ->
-        LogEmit.emit(:channel, :author_action, :error, %{
-          work_id: socket.assigns[:work_id],
-          session_id: socket.assigns[:session_id],
-          turn_id: action_input.source_turn_ref,
-          action_id: action_input.action_id,
-          action_type: action_input.action_type,
-          reason_code: :agent_run_start_failed,
-          outcome_detail: inspect(reason)
-        })
-
+        log_revision_admission_error(socket, action_input, reason)
         {:reply, {:error, %{reason: reason_text(reason)}}, socket}
     end
+  end
+
+  defp log_revision_admission_error(socket, action_input, reason) do
+    LogEmit.emit(:channel, :author_action, :error, %{
+      work_id: socket.assigns[:work_id],
+      session_id: socket.assigns[:session_id],
+      turn_id: action_input.source_turn_ref,
+      action_id: action_input.action_id,
+      action_type: action_input.action_type,
+      reason_code: :author_action_admission_failed,
+      outcome_detail: inspect(reason)
+    })
   end
 
   defp revision_agent_run_trigger(action_input) do
@@ -2249,7 +2413,6 @@ defmodule NovelWeb.WorkspaceChannel do
 
     %{
       kind: "author_action",
-      receipt_id: action_input.input_id,
       action_id: action_input.action_id,
       action_type: action_input.action_type,
       source_turn_ref: action_input.source_turn_ref,
@@ -2259,7 +2422,7 @@ defmodule NovelWeb.WorkspaceChannel do
     }
   end
 
-  defp author_action_ack(result, opts \\ []) do
+  defp author_action_ack(result, opts) do
     result
     |> Map.take([
       :receipt_id,
@@ -2277,6 +2440,22 @@ defmodule NovelWeb.WorkspaceChannel do
     |> Map.put(:received, true)
     |> Map.put(:action_status, result.status)
     |> maybe_put_duplicate(Keyword.get(opts, :duplicate, false))
+    |> Map.merge(Keyword.get(opts, :facts, %{}))
+  end
+
+  # 作者动作回执只投影既有 agent_run_state 与已提交 TurnResult；运行事实来自
+  # AgentRunService.receipt_run_facts/3，不在 Channel 另造运行状态。
+  defp author_action_run_facts(entry, socket) do
+    case Map.get(entry, :run_state) do
+      %{run: _run} = state ->
+        %{
+          agent_run_state: agent_run_state_payload(state, socket),
+          turn_results: Map.get(entry, :turn_results, [])
+        }
+
+      _missing ->
+        %{}
+    end
   end
 
   defp maybe_put_duplicate(ack, true), do: Map.put(ack, :duplicate, true)
@@ -2378,6 +2557,22 @@ defmodule NovelWeb.WorkspaceChannel do
     assign(socket, :action_idempotency_ledger, ledger)
   end
 
+  # 新回执重复到达时附上原 run 的事件订阅；终局/缺失 run 不重建、不重跑。
+  defp attach_duplicate_action_run(entry) do
+    run_id = Map.get(entry.result, :run_id) || Map.get(entry.result, "run_id")
+
+    if is_binary(run_id) do
+      channel_pid = self()
+
+      _ =
+        AgentRunService.attach_event_sink(run_id, fn event ->
+          send(channel_pid, {:agent_event, event})
+        end)
+    end
+
+    :ok
+  end
+
   defp lookup_author_action_receipt(socket, action_input) do
     scope = action_idempotency_scope(socket)
 
@@ -2394,6 +2589,9 @@ defmodule NovelWeb.WorkspaceChannel do
           action_input,
           scope
         )
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -2913,45 +3111,48 @@ defmodule NovelWeb.WorkspaceChannel do
   defp candidate_source_turn_ref(selection),
     do: selection[:source_turn_ref] || selection["source_turn_ref"]
 
-  # ADR-0008 8-2：当前 workstream 最近一个 active author-blocking behavior 快照。
-  # 由 join restore（transcript 旧→新最后一处 behavior_state）与每轮 turn_result
-  # 广播维护，避免扫描混合顺序的 turn_results_list 复活已关闭 behavior。
-  defp previous_active_behavior(socket), do: Map.get(socket.assigns, :active_behavior)
-
-  # transcript 旧→新：取最后一处携带 behavior_state 的 turn 的 active（可能为 nil，
-  # 表示该 turn 已关闭/清空 behavior，不能继续向前找旧 open）。
-  defp latest_behavior_state(turn_results) when is_list(turn_results) do
-    turn_results
-    |> Enum.reduce(nil, fn turn_result, _acc ->
-      case map_field(turn_result, :behavior_state) do
-        %{} = behavior_state -> map_field(behavior_state, :active)
-        _ -> :no_behavior_state
-      end
-    end)
-    |> case do
-      :no_behavior_state -> nil
-      active -> active
+  # ADR-0008 8-2 / VS-00L §16.13：当前 workstream 最近一个明确 active behavior。
+  # 由 join restore 与每轮 turn_result 广播维护，不扫描混合顺序的 turn_results_list。
+  defp previous_active_behavior(socket) do
+    case Map.get(socket.assigns, :active_behavior) do
+      %BehaviorState{} = behavior -> BehaviorState.summary(behavior)
+      _ -> nil
     end
   end
 
-  defp remember_turn_result(socket, %{turn_id: turn_id} = turn_result) when is_binary(turn_id) do
-    turn_result = scope_turn_result(socket, turn_result)
-    list = [turn_result | socket.assigns[:turn_results_list] || []]
-    turn_results = Map.put(socket.assigns[:turn_results_by_id] || %{}, turn_id, turn_result)
+  # transcript 旧→新：复用领域投影取最后一处明确 behavior_state；缺字段保持，
+  # 明确 active nil 清空。
+  defp latest_behavior_state(turn_results) when is_list(turn_results) do
+    case BehaviorState.latest_snapshot(turn_results) do
+      {:ok, %BehaviorState{} = behavior} -> behavior
+      _ -> nil
+    end
+  end
 
-    socket
-    |> assign(:turn_results_list, list)
-    |> assign(:turn_results_by_id, turn_results)
-    |> assign(:current_turn_id, turn_id)
-    |> remember_active_behavior(turn_result)
+  defp remember_turn_result(socket, turn_result) when is_map(turn_result) do
+    case turn_result[:turn_id] || turn_result["turn_id"] do
+      turn_id when is_binary(turn_id) ->
+        turn_result = scope_turn_result(socket, turn_result)
+        list = [turn_result | socket.assigns[:turn_results_list] || []]
+        turn_results = Map.put(socket.assigns[:turn_results_by_id] || %{}, turn_id, turn_result)
+
+        socket
+        |> assign(:turn_results_list, list)
+        |> assign(:turn_results_by_id, turn_results)
+        |> assign(:current_turn_id, turn_id)
+        |> remember_active_behavior(turn_result)
+
+      _ ->
+        socket
+    end
   end
 
   defp remember_turn_result(socket, _turn_result), do: socket
 
   defp remember_active_behavior(socket, turn_result) do
-    case map_field(turn_result, :behavior_state) do
-      %{} = behavior_state -> assign(socket, :active_behavior, map_field(behavior_state, :active))
-      _ -> socket
+    case BehaviorState.read_snapshot(turn_result) do
+      :absent -> socket
+      {:ok, active} -> assign(socket, :active_behavior, active)
     end
   end
 

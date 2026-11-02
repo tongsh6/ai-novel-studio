@@ -3,12 +3,15 @@ defmodule NovelWeb.WorkspaceChannelLoggingTest do
 
   import Phoenix.ChannelTest
 
+  alias Ecto.Adapters.SQL.Sandbox
+  alias NovelPersistence.Repo
   alias NovelWeb.UserSocket
   alias NovelWeb.WorkspaceChannel
 
   @endpoint NovelWeb.Endpoint
 
   setup do
+    owner = Sandbox.start_owner!(Repo, shared: true)
     old_enabled = Application.get_env(:novel_common, :log_jsonl_enabled)
     old_dir = Application.get_env(:novel_common, :log_jsonl_dir)
 
@@ -22,6 +25,12 @@ defmodule NovelWeb.WorkspaceChannelLoggingTest do
       restore_env(:log_jsonl_enabled, old_enabled)
       restore_env(:log_jsonl_dir, old_dir)
       File.rm_rf(log_dir)
+    end)
+
+    # 后注册者先执行：先等待本模块 run/step 安静并停 owner，再恢复 env/删日志目录。
+    on_exit(fn ->
+      NovelApplication.TestAgentRunCleanup.await_quiescent()
+      Sandbox.stop_owner(owner)
     end)
 
     {:ok, log_dir: log_dir}

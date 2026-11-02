@@ -4,12 +4,27 @@ defmodule NovelWeb.WorkspaceChannelTest do
   import Phoenix.ChannelTest
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias NovelCommon.Contracts.AgentEvent
+  alias NovelDomain.BehaviorState
+  alias NovelPersistence.MemoryLog
+  alias NovelPersistence.WorkspaceContext
   alias NovelWeb.UserSocket
   alias NovelWeb.WorkspaceChannel
 
   @endpoint NovelWeb.Endpoint
   @agent_run_timeout 45_000
   @agent_run_stopped_events ["run_completed", "awaiting_author", "run_failed", "run_cancelled"]
+
+  setup do
+    owner = Sandbox.start_owner!(NovelPersistence.Repo, shared: true)
+
+    on_exit(fn ->
+      NovelApplication.TestAgentRunCleanup.await_quiescent()
+      Sandbox.stop_owner(owner)
+    end)
+
+    :ok
+  end
 
   test "join workspace:lobby returns success" do
     {:ok, _, socket} =
@@ -52,7 +67,6 @@ defmodule NovelWeb.WorkspaceChannelTest do
   end
 
   test "已接收候选继续的重传不重新校验消失的候选，也不激活历史会话" do
-    owner = Sandbox.start_owner!(NovelPersistence.Repo, shared: true)
     prior = Application.get_env(:novel_web, :persistence, [])
 
     Application.put_env(
@@ -61,10 +75,7 @@ defmodule NovelWeb.WorkspaceChannelTest do
       Keyword.put(prior, :inject_real_persistence, true)
     )
 
-    on_exit(fn ->
-      Application.put_env(:novel_web, :persistence, prior)
-      Sandbox.stop_owner(owner)
-    end)
+    on_exit(fn -> Application.put_env(:novel_web, :persistence, prior) end)
 
     {:ok, work} = NovelApplication.WorkService.create(%{title: "重复回执"})
     {:ok, old} = NovelApplication.WorkSessionService.create(work.id)
@@ -257,6 +268,162 @@ defmodule NovelWeb.WorkspaceChannelTest do
 
     assert_reply(ref, :error, %{reason: reason})
     assert String.contains?(reason, "source_turn_result not available")
+  end
+
+  test "join 恢复使用最后一处明确 behavior_state，并与模型 Base 摘要一致" do
+    {:ok, work} = NovelApplication.WorkService.create(%{title: "恢复行为一致"})
+    {:ok, session} = NovelApplication.WorkSessionService.create(work.id)
+
+    record_channel_turn_result(work.id, session.id, open_behavior_turn("turn-open", "bh-open"))
+    Process.sleep(2)
+
+    record_channel_turn_result(
+      work.id,
+      session.id,
+      ordinary_turn("turn-ordinary", "不携带行为字段的普通回复。")
+    )
+
+    {:ok, _reply, socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
+        "work_id" => work.id,
+        "session_id" => session.id
+      })
+
+    assert %BehaviorState{behavior_id: "bh-open"} = socket.assigns.active_behavior
+
+    assert {:ok, _snapshot, _summary, nil, behavior_summary, [], [], _interaction_state,
+            _source_status} =
+             WorkspaceContext.context_fetcher_with_query().(work.id, "继续", session.id)
+
+    assert behavior_summary =~ "待作者确认"
+  end
+
+  test "live turn_result 复用同一投影：缺字段保持、显式清空清空" do
+    {:ok, work} = NovelApplication.WorkService.create(%{title: "live 行为投影"})
+    {:ok, session} = NovelApplication.WorkSessionService.create(work.id)
+
+    record_channel_turn_result(work.id, session.id, open_behavior_turn("turn-open", "bh-live"))
+
+    {:ok, _reply, socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
+        "work_id" => work.id,
+        "session_id" => session.id
+      })
+
+    assert %BehaviorState{behavior_id: "bh-live"} = socket.assigns.active_behavior
+
+    push_live_turn_result(socket, ordinary_turn("turn-live-ordinary", "普通回复"))
+
+    assert %BehaviorState{behavior_id: "bh-live"} =
+             wait_live_active_behavior(
+               socket,
+               &match?(%BehaviorState{behavior_id: "bh-live"}, &1)
+             )
+
+    push_live_turn_result(socket, %{
+      "turn_id" => "turn-live-clear",
+      "assistant_message" => %{"text" => "已关闭。"},
+      "behavior_state" => %{"active" => nil, "history" => []}
+    })
+
+    assert wait_live_active_behavior(socket, &is_nil/1) == nil
+
+    push_live_turn_result(socket, open_behavior_turn("turn-live-open", "bh-live-2"))
+
+    assert %BehaviorState{behavior_id: "bh-live-2"} =
+             wait_live_active_behavior(
+               socket,
+               &match?(%BehaviorState{behavior_id: "bh-live-2"}, &1)
+             )
+  end
+
+  defp push_live_turn_result(socket, turn_result) do
+    turn_result =
+      Map.new(turn_result, fn {key, value} -> {live_turn_result_key(key), value} end)
+
+    {:ok, event} =
+      AgentEvent.new(%{
+        event_id: "evt-behavior-#{System.unique_integer([:positive, :monotonic])}",
+        run_ref: "run-behavior-read",
+        sequence: 1,
+        event_type: :artifact_created,
+        summary: "behavior read test",
+        payload: %{turn_result: turn_result}
+      })
+
+    send(socket.channel_pid, {:agent_event, event})
+    :ok
+  end
+
+  defp live_turn_result_key("turn_id"), do: :turn_id
+  defp live_turn_result_key("assistant_message"), do: :assistant_message
+  defp live_turn_result_key("behavior_state"), do: :behavior_state
+  defp live_turn_result_key(key), do: key
+
+  defp live_active_behavior(socket) do
+    socket.channel_pid
+    |> :sys.get_state()
+    |> Map.fetch!(:assigns)
+    |> Map.get(:active_behavior)
+  end
+
+  defp wait_live_active_behavior(socket, predicate, deadline \\ nil) do
+    deadline = deadline || System.monotonic_time(:millisecond) + 1_000
+    active_behavior = live_active_behavior(socket)
+
+    cond do
+      predicate.(active_behavior) ->
+        active_behavior
+
+      System.monotonic_time(:millisecond) < deadline ->
+        Process.sleep(5)
+        wait_live_active_behavior(socket, predicate, deadline)
+
+      true ->
+        flunk("live active_behavior did not settle, last value: #{inspect(active_behavior)}")
+    end
+  end
+
+  defp record_channel_turn_result(work_id, session_id, turn_result) do
+    {:ok, _interaction} =
+      MemoryLog.record(%{
+        workspace_id: work_id,
+        session_id: session_id,
+        turn_id: turn_result["turn_id"],
+        role: "assistant",
+        content: %{
+          "text" => turn_result["assistant_message"]["text"],
+          "turn_result" => turn_result
+        }
+      })
+
+    :ok
+  end
+
+  defp ordinary_turn(turn_id, text) do
+    %{"turn_id" => turn_id, "assistant_message" => %{"text" => text}}
+  end
+
+  defp open_behavior_turn(turn_id, behavior_id) do
+    %{
+      "turn_id" => turn_id,
+      "assistant_message" => %{"text" => "等待作者确认。"},
+      "behavior_state" => %{
+        "active" => %{
+          "behavior_id" => behavior_id,
+          "behavior_type" => "confirmation",
+          "status" => "WAITING_USER",
+          "lifecycle_status" => "awaiting_author",
+          "target_ref" => "prose_writing",
+          "required_next_action" => "confirm_before_execute"
+        },
+        "history" => []
+      }
+    }
   end
 
   defp assert_agent_run_stopped(run_id) do

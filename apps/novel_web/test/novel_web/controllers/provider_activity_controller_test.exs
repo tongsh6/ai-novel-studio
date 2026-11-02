@@ -94,6 +94,123 @@ defmodule NovelWeb.ProviderActivityControllerTest do
     assert [%{"provider_run_ref" => "prun-api"}] = body["provider_runs"]
   end
 
+  # B71 HTTP 出口：两个 alias 端点共用作者 payload 边界，历史 run_resumed 事件里的
+  # 私有 checkpoint_data envelope 与 marker 都不得出接口；公开 refs / false / null /
+  # 普通字符串必须保持原义，且原 DB 事件不被改写。
+  test "run_resumed checkpoint_data stays private on both provider activity endpoints", %{
+    conn: conn,
+    work: work,
+    session: session
+  } do
+    turn_id = "turn-private-checkpoint-http-api"
+
+    seeded =
+      seed_run_resumed_checkpoint_event!(
+        work.id,
+        session.id,
+        turn_id,
+        "run-private-checkpoint-http-api",
+        "evt-private-checkpoint-http-api"
+      )
+
+    run_id = seeded.run_id
+
+    for endpoint <- ["provider-runs", "agent-run-activity"] do
+      body =
+        conn
+        |> get("/api/works/#{work.id}/sessions/#{session.id}/turns/#{turn_id}/#{endpoint}")
+        |> json_response(200)
+
+      assert body["turn_id"] == turn_id
+      assert [%{"run_id" => ^run_id, "events" => [event]}] = body["agent_runs"]
+
+      payload = event["payload"]
+
+      refute Map.has_key?(payload, "checkpoint_data")
+      refute Map.has_key?(payload, "checkpoint-data")
+      refute inspect(payload) =~ seeded.marker
+      refute inspect(payload) =~ "PROMPT_#{seeded.marker}"
+
+      assert event["refs"] == [seeded.task_ref]
+      assert payload["long_run_task_ref"] == seeded.task_ref
+      assert payload["runtime_live"] == false
+      assert Map.has_key?(payload, "recovery_gate")
+      assert payload["recovery_gate"] == nil
+      assert payload["note"] == seeded.note
+      assert payload["note"] =~ "checkpoint_data"
+    end
+
+    persisted =
+      AgentRunLog.list_events(seeded.run_id)
+      |> Enum.find(&(&1.id == seeded.event_id))
+
+    assert persisted.payload["checkpoint_data"]["private_reasoning"] == seeded.marker
+    assert persisted.payload["checkpoint_data"]["private_prompt"] == "PROMPT_#{seeded.marker}"
+
+    assert inspect(persisted.payload["checkpoint_data"]["authoring_transcript"]) =~
+             seeded.marker
+
+    assert persisted.payload["runtime_live"] == false
+    assert persisted.payload["recovery_gate"] == nil
+    assert persisted.payload["note"] == seeded.note
+  end
+
+  defp seed_run_resumed_checkpoint_event!(work_id, session_id, turn_id, run_id, event_id) do
+    task_ref = "task-private-checkpoint-http-api"
+
+    marker =
+      "B71_PRIVATE_CHECKPOINT_HTTP_API_#{System.unique_integer([:positive, :monotonic])}"
+
+    note = "作者可见说明提到 checkpoint_data 字样也应原样保留"
+
+    assert {:ok, _run} =
+             AgentRunLog.upsert_run(%{
+               id: run_id,
+               workspace_id: work_id,
+               work_id: work_id,
+               session_id: session_id,
+               parent_turn_ref: turn_id,
+               origin_frame_ref: "frame-private-checkpoint-http-api",
+               run_mode: "durable",
+               profile_ref: "character_design_with_context_v1",
+               status: "running",
+               phase: "executing",
+               long_run_task_ref: task_ref
+             })
+
+    assert {:ok, _event} =
+             AgentRunLog.insert_event(%{
+               id: event_id,
+               run_id: run_id,
+               step_id: "step-private-checkpoint-http-api-1",
+               sequence: 1,
+               event_type: "run_resumed",
+               visibility: "author",
+               summary: "从检查点恢复",
+               reason_codes: ["durable_recovered"],
+               refs: [task_ref],
+               payload: %{
+                 "long_run_task_ref" => task_ref,
+                 "runtime_live" => false,
+                 "recovery_gate" => nil,
+                 "note" => note,
+                 "checkpoint_data" => %{
+                   "private_reasoning" => marker,
+                   "private_prompt" => "PROMPT_#{marker}",
+                   "authoring_transcript" => %{"messages" => [%{"content" => marker}]}
+                 }
+               }
+             })
+
+    %{
+      run_id: run_id,
+      event_id: event_id,
+      task_ref: task_ref,
+      marker: marker,
+      note: note
+    }
+  end
+
   defp seed_provider_activity!(work_id, session_id, turn_id, run_id) do
     assert {:ok, _run} =
              AgentRunLog.upsert_run(%{
