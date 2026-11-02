@@ -36,21 +36,29 @@ const scope = () => ({ role: "user", content: "【应用数据 · scope_update �
 const requestMessages = [system(), appBase(), author(), scope()];
 
 function llmRecord({ usage = true } = {}) {
+  // 真实 strata llm-calls 形状（cp3b smoke 实测）：request.body.messages；
+  // response.usage 为归一字段，response.body 是 chat.completion JSON 字符串。
+  const reply = "我先核对第01章现有内容，再给出候选。";
   return {
     ts: "2026-11-03T10:00:01.000Z",
+    step: "judgment",
     turn_id: TURN,
     provider_call_ref: "pcall_live_1",
     provider_run_ref: "prun_live_1",
     provider: "strata",
-    model: "iq3_s",
-    request_body: { messages: requestMessages, tools: [], tool_choice: "auto" },
+    request: { body: { messages: requestMessages, tools: [], tool_choice: "auto" } },
     response: {
       status: 200,
-      body: {
-        content: "我先核对第01章现有内容，再给出候选。",
-        tool_calls: [],
-        ...(usage ? { usage: { input_tokens: 1024, output_tokens: 128, total_tokens: 1152 } } : {}),
-      },
+      ...(usage
+        ? { usage: { model: "iq3_s", input_tokens: 1024, output_tokens: 128, cached_tokens: 0, latency_ms: 1000, ttft_ms: null } }
+        : {}),
+      body: JSON.stringify({
+        id: "chatcmpl-smoke",
+        object: "chat.completion",
+        model: "iq3_s",
+        choices: [{ index: 0, message: { role: "assistant", content: reply }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1024, completion_tokens: 128, total_tokens: 1152 },
+      }),
     },
   };
 }

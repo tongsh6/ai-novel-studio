@@ -10,7 +10,12 @@ import {
 const args = process.argv.slice(2);
 const unload = args.includes("--unload");
 const endpointIndex = args.indexOf("--endpoint");
-const endpoint = endpointIndex >= 0 ? args[endpointIndex + 1] : process.env.NOVEL_STRATA_ENDPOINT ?? DEFAULT_STRATA_ENDPOINT;
+// 允许传 .../v1（产品侧常见形式），统一剥掉 /v1 后缀，避免拼成 /v1/v1/models。
+const endpoint = String(
+  endpointIndex >= 0 ? args[endpointIndex + 1] : process.env.NOVEL_STRATA_ENDPOINT ?? DEFAULT_STRATA_ENDPOINT,
+)
+  .replace(/\/v1\/?$/u, "")
+  .replace(/\/+$/u, "");
 
 if (unload) {
   const result = await unloadStrata({ endpoint });

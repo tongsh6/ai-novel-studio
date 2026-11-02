@@ -17,7 +17,13 @@ import {
   writeNativeFrames,
 } from "./scenario_evidence.mjs";
 import { readConfig } from "./authoring_capture_evidence.mjs";
-import { summarizeModelBehavior, notSignedSlices } from "./live_run_wait.mjs";
+import {
+  notSignedSlices,
+  recordRequestMessages,
+  recordResponseToolCalls,
+  recordUsageFacts,
+  summarizeModelBehavior,
+} from "./live_run_wait.mjs";
 
 export const LIVE_CHECKS_SCHEMA = "b71-live-checks/v1";
 export const LIVE_CHECKPOINTS = Object.freeze(["start", "final"]);
@@ -42,10 +48,12 @@ function messageContent(message) {
 }
 
 function messagesOf(record) {
-  const body = record?.request_body;
-  assert(isObject(body), `llm-calls 记录缺 request_body：${record?.provider_call_ref ?? "unknown"}`);
-  assert(Array.isArray(body.messages), `llm-calls request_body 缺 messages：${record?.provider_call_ref ?? "unknown"}`);
-  return body.messages;
+  const messages = recordRequestMessages(record);
+  assert(
+    Array.isArray(messages),
+    `llm-calls 记录缺 request messages（request_body 或 request.body）：${record?.provider_call_ref ?? "unknown"}`,
+  );
+  return messages;
 }
 
 function isApplicationMessage(message) {
@@ -135,18 +143,6 @@ function canonTablesEqual(left, right) {
   return { equal: true, changed: [] };
 }
 
-function usageFacts(record) {
-  const body = record?.response?.body ?? record?.response ?? {};
-  const usage = body?.usage ?? record?.usage ?? null;
-  if (!isObject(usage)) return { present: false, fields: [] };
-  const fields = Object.keys(usage).filter((key) => usage[key] !== null && usage[key] !== undefined);
-  const hasKnownPair =
-    (typeof usage.prompt_tokens === "number" && typeof usage.completion_tokens === "number") ||
-    (typeof usage.input_tokens === "number" && typeof usage.output_tokens === "number") ||
-    typeof usage.total_tokens === "number";
-  return { present: fields.length > 0, known_pair: hasKnownPair, fields };
-}
-
 function countOf(table, checkpoint) {
   const counts = checkpoint?.db_production_counts ?? {};
   return typeof counts[table] === "number" ? counts[table] : null;
@@ -226,9 +222,7 @@ export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheck
     const ordered = orderedRecords(strataRecords, turnId);
     ordered.forEach((record, index) => {
       const messages = messagesOf(record);
-      const responseCalls = Array.isArray(record?.response?.body?.tool_calls)
-        ? record.response.body.tool_calls
-        : [];
+      const responseCalls = recordResponseToolCalls(record);
       for (const call of responseCalls) {
         const callId = call?.id ?? null;
         if (!callId || toolBinding.has(callId)) continue;
@@ -307,7 +301,7 @@ export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheck
   const l9 = canonCompare.equal && zeroWrites && pendingTentative;
 
   // L10 usage：每次真实调用都有 usage（prompt/completion 或 provider 原生字段）。
-  const usage = strataRecords.map((record) => ({ provider_call_ref: record.provider_call_ref ?? null, ...usageFacts(record) }));
+  const usage = strataRecords.map((record) => ({ provider_call_ref: record.provider_call_ref ?? null, ...recordUsageFacts(record) }));
   const l10 = usage.every((entry) => entry.present === true);
 
   // L11 Why 零 Provider：仅当驱动真实打开 Why 时判定。

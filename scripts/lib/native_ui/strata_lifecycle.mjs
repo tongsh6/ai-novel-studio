@@ -50,36 +50,48 @@ export function parseStrataState({ models = null, api = null } = {}) {
   };
 }
 
-// 单槽判据：加载态要求 /v1/models 的模型集合恰为 [iq3_s]（或 /api/models 的
-// current/loaded 指到 iq3_s）；卸载态要求 /v1/models 为空且 /api/models.loaded==null。
+// 单槽判据：/v1/models 的可用模型集合只能是空或恰为 [iq3_s]；是否加载只看
+// /api/models 的 loaded 字段（真实 strata 的 current 是内部 model id，不能替代 loaded）。
 export function strataSlotCheck(state, { model = DEFAULT_STRATA_MODEL } = {}) {
   if (!state || typeof state !== "object") {
-    return { ok: false, loaded: false, reason: "state_missing" };
+    return { ok: false, loaded: null, unloaded: false, reason: "state_missing" };
   }
+  if (state.error) return { ok: false, loaded: null, unloaded: false, reason: `strata_error:${state.error}` };
   const modelIds = Array.isArray(state.model_ids) ? state.model_ids : null;
-  const loaded = state.loaded ?? null;
-  if (state.error) return { ok: false, loaded: null, reason: `strata_error:${state.error}` };
   if (modelIds === null) {
-    return { ok: false, loaded: null, reason: "models_unavailable" };
+    return { ok: false, loaded: null, unloaded: false, reason: "models_unavailable" };
   }
-  const unloaded = modelIds.length === 0 && loaded === null;
-  if (unloaded) {
-    return { ok: true, loaded: false, reason: null, model_ids: [], loaded_state: null };
-  }
-  // 单槽以真实 /v1/models 列表为准：只允许恰为 [iq3_s]；多模型/空列表但 loaded 非空都失败。
-  const single = modelIds.length === 1 && modelIds[0] === model;
-  const apiPointsToModel =
-    (typeof state.current === "string" && state.current === model) ||
-    (typeof state.loaded === "string" && state.loaded === model);
-  if (single && (loaded === model || loaded === null)) {
-    return { ok: true, loaded: true, reason: null, model_ids: modelIds, loaded_state: loaded };
+  // 真实语义（cp3b smoke 校准）：/v1/models 列出**可用**模型，不等于已加载；
+  // `/api/models` 的 loaded=null 才是「未加载」。加载态 loaded 是 provider 原生字段，
+  // current 可能是内部 model id，不能当作「已加载 iq3_s」的替代证据。
+  const loadedFacts = state.loaded ?? null;
+  const loaded =
+    loadedFacts === null
+      ? false
+      : !(Array.isArray(loadedFacts) && loadedFacts.length === 0);
+  const single = modelIds.length === 0 || (modelIds.length === 1 && modelIds[0] === model);
+  // 卸载核验以 `/api/models.loaded=null` 为准（cp3b smoke 实测：真实卸载后 /v1/models
+  // 仍会列出可用模型 iq3_s，模型目录 ≠ 已加载）。/v1/models 列表只作为观测事实记录。
+  const unloaded = loaded === false;
+  if (!single) {
+    return {
+      ok: false,
+      loaded,
+      unloaded: false,
+      reason: `strata_single_slot_violation:${modelIds.join(",")}`,
+      model_ids: modelIds,
+      loaded_state: loadedFacts,
+    };
   }
   return {
-    ok: false,
-    loaded: true,
-    reason: `strata_single_slot_violation:${modelIds.join(",") || "empty"}:${String(loaded)}`,
+    ok: true,
+    loaded,
+    unloaded,
+    reason: null,
     model_ids: modelIds,
-    loaded_state: loaded,
+    loaded_state: loadedFacts,
+    current: state.current ?? null,
+    mode: state.mode ?? null,
   };
 }
 
@@ -131,9 +143,9 @@ export function strataLifecycleRecord({ before, after, unload, model = DEFAULT_S
   return {
     schema: STRATA_SLOT_SCHEMA,
     model,
-    loaded_before: beforeSlot.loaded ? true : beforeSlot.loaded === false ? false : null,
-    loaded_after: afterSlot.loaded ? true : afterSlot.loaded === false ? false : null,
-    unloaded: afterSlot.ok === true && afterSlot.loaded === false,
+    loaded_before: beforeSlot.loaded ?? null,
+    loaded_after: afterSlot.loaded ?? null,
+    unloaded: afterSlot.unloaded === true,
     before: { slot: beforeSlot, state: before ?? null },
     after: { slot: afterSlot, state: after ?? null },
     unload: unload ?? null,

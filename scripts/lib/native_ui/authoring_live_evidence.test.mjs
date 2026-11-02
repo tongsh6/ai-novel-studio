@@ -288,3 +288,35 @@ test("有候选且全部 TENTATIVE 时零写入成立，模型行为记录候选
   assert.equal(checks.model_behavior.pending_artifact_count, 1);
   assert.equal(checks.model_behavior.had_candidate, true);
 });
+
+test("真实 strata 记录形状：request.body.messages + response.usage + response.body 字符串同样判过", () => {
+  const reply = "我先核对现有材料，再给出候选。";
+  const record = {
+    ts: "2026-11-03T10:00:01.000Z",
+    step: "judgment",
+    turn_id: TURN,
+    provider_call_ref: "pcall_strata_1",
+    provider_run_ref: "prun_strata_1",
+    provider: "strata",
+    request: { body: { messages: [system(), appBase(), author(), scope()], tools: [], tool_choice: "auto" } },
+    response: {
+      status: 200,
+      usage: { model: "iq3_s", input_tokens: 9009, output_tokens: 11, cached_tokens: 0, latency_ms: 14701, ttft_ms: null },
+      body: JSON.stringify({
+        id: "chatcmpl-real-shape",
+        object: "chat.completion",
+        model: "iq3_s",
+        choices: [{ index: 0, message: { role: "assistant", content: reply }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 9009, completion_tokens: 11, total_tokens: 9020 },
+      }),
+    },
+  };
+  const checks = evaluate({ llmRecords: [record] });
+  assert.deepEqual(checks.failed_mechanism, []);
+  assert.equal(checks.checks.mechanism.ir_projection_structure, true);
+  assert.equal(checks.checks.mechanism.author_bytes_exact, true);
+  assert.equal(checks.checks.mechanism.usage_collected, true);
+  const usage = checks.measured.usage[0];
+  assert.equal(usage.present, true);
+  assert(usage.fields.includes("input_tokens"));
+});

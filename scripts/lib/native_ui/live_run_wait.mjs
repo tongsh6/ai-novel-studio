@@ -113,6 +113,52 @@ export function classifyTurnBody(body) {
   };
 }
 
+// 真实记录双形状：确定性 provider 用 `request_body`/`response.body` 对象；
+// 真实 strata llm-calls 用 `request.body.messages` 与 `response.body`（chat.completion
+// JSON 字符串）+ `response.usage`（归一字段）。判据只读取真实存在的字段。
+export function recordRequestMessages(record) {
+  const body = record?.request_body ?? record?.request?.body ?? null;
+  return Array.isArray(body?.messages) ? body.messages : null;
+}
+
+export function recordResponseBody(record) {
+  const body = record?.response?.body;
+  if (body !== null && typeof body === "object" && !Array.isArray(body)) return body;
+  if (typeof body === "string") {
+    try {
+      const parsed = JSON.parse(body);
+      return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+export function recordResponseToolCalls(record) {
+  const body = recordResponseBody(record);
+  if (Array.isArray(body?.tool_calls)) return body.tool_calls;
+  const choiceCalls = body?.choices?.[0]?.message?.tool_calls;
+  return Array.isArray(choiceCalls) ? choiceCalls : [];
+}
+
+export function recordUsageFacts(record) {
+  const response = record?.response ?? {};
+  const direct = response?.usage;
+  const body = recordResponseBody(record);
+  const usage =
+    direct !== null && typeof direct === "object" && Object.keys(direct).length > 0
+      ? direct
+      : body?.usage ?? null;
+  if (usage === null || typeof usage !== "object") return { present: false, known_pair: false, fields: [] };
+  const fields = Object.keys(usage).filter((key) => usage[key] !== null && usage[key] !== undefined);
+  const knownPair =
+    (typeof usage.prompt_tokens === "number" && typeof usage.completion_tokens === "number") ||
+    (typeof usage.input_tokens === "number" && typeof usage.output_tokens === "number") ||
+    typeof usage.total_tokens === "number";
+  return { present: fields.length > 0, known_pair: knownPair, fields };
+}
+
 // 模型行为事实汇总（L12）：调用次数、是否工具调用、是否候选、是否停等作者。
 export function summarizeModelBehavior({ turnBody = null, llmRecords = [], runStatus = null } = {}) {
   const classified = turnBody ? classifyTurnBody(turnBody) : null;
@@ -124,8 +170,7 @@ export function summarizeModelBehavior({ turnBody = null, llmRecords = [], runSt
   const replayObservations = new Map();
   let replayOnlyCalls = 0;
   for (const record of records) {
-    const body = record?.response?.body ?? {};
-    const responseCalls = Array.isArray(body.tool_calls) ? body.tool_calls : [];
+    const responseCalls = recordResponseToolCalls(record);
     for (const call of responseCalls) {
       const callId = call?.id ?? null;
       if (!callId || toolCallsById.has(callId)) continue;
@@ -136,7 +181,7 @@ export function summarizeModelBehavior({ turnBody = null, llmRecords = [], runSt
         arguments: call?.function?.arguments ?? call?.arguments ?? null,
       });
     }
-    const messages = Array.isArray(record?.request_body?.messages) ? record.request_body.messages : [];
+    const messages = recordRequestMessages(record) ?? [];
     for (const message of messages) {
       if (message?.role !== "assistant") continue;
       const messageCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];

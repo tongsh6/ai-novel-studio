@@ -36,9 +36,23 @@ test("单槽判据：恰为 iq3_s 且卸载态 loaded=null 分别成立，多模
   const loaded = strataSlotCheck(parseStrataState({ models: loadedModels, api: loadedApi }));
   assert.equal(loaded.ok, true);
   assert.equal(loaded.loaded, true);
+  assert.equal(loaded.unloaded, false);
   const unloaded = strataSlotCheck(parseStrataState({ models: unloadedModels, api: unloadedApi }));
   assert.equal(unloaded.ok, true);
   assert.equal(unloaded.loaded, false);
+  assert.equal(unloaded.unloaded, true);
+  // 真实 cp3b smoke 形状：/v1/models 列出可用 iq3_s、/api/models loaded=null。
+  // 是否加载只看 loaded：null=未加载（既是批次前常态，也是批次后卸载核验口径）；
+  // /v1/models 列表只是可用模型目录，不当作「已加载」或「未卸载」证据。
+  const catalogOnly = strataSlotCheck(
+    parseStrataState({
+      models: loadedModels,
+      api: { ok: true, status: 200, body: { mode: "real", current: "local-internal-id", loaded: null } },
+    }),
+  );
+  assert.equal(catalogOnly.ok, true);
+  assert.equal(catalogOnly.loaded, false);
+  assert.equal(catalogOnly.unloaded, true);
   const multi = strataSlotCheck(
     parseStrataState({
       models: { ok: true, body: { data: [{ id: "iq3_s" }, { id: "other" }] } },
@@ -49,6 +63,7 @@ test("单槽判据：恰为 iq3_s 且卸载态 loaded=null 分别成立，多模
   assert.match(multi.reason, /strata_single_slot_violation/u);
   const unknown = strataSlotCheck(parseStrataState({ models: null, api: null }));
   assert.equal(unknown.ok, false);
+  assert.equal(unknown.loaded, null);
   assert.equal(unknown.reason, "models_unavailable");
   assert.equal(strataSlotCheck(null).reason, "state_missing");
   const error = strataSlotCheck(parseStrataState({ models: { ok: false, error: "boom" }, api: null }));
