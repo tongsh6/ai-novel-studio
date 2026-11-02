@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { verifyLiveBatch } from "./authoring_live_evidence.mjs";
 import { APP_BUNDLE, NATIVE_DRIVER } from "./scenario_evidence.mjs";
@@ -74,7 +75,7 @@ const turnBody = {
   available_actions: [],
 };
 
-function checkpoint(name, { canonHash = "canon-content", counts = {} } = {}) {
+function checkpoint(name, { canonHash = "canon-content", counts = {}, design = "design-start" } = {}) {
   return {
     checkpoint: name,
     at: "2026-11-03T10:00:00.000Z",
@@ -89,12 +90,48 @@ function checkpoint(name, { canonHash = "canon-content", counts = {} } = {}) {
     authoring_canon: {
       version: 2,
       at: "2026-11-03T10:00:00.000Z",
+      chapters: {
+        "chapter-row": { approved_sha256: "approved-chapter", design_state_sha256: design },
+      },
       tables: {
         works: { row_count: 1, rows_sha256: "works-rows", canon_sha256: canonHash },
         author_action_receipts: { row_count: 0, rows_sha256: "receipts", canon_sha256: "receipts" },
       },
     },
   };
+}
+
+function writeLiveDatabase(dir) {
+  const dbDir = path.join(dir, "database");
+  fs.mkdirSync(dbDir, { recursive: true });
+  const db = new DatabaseSync(path.join(dbDir, "ai_novel_studio_test.sqlite3"));
+  db.exec(`
+    CREATE TABLE chapters (id TEXT PRIMARY KEY, work_id TEXT, volume_id TEXT, title TEXT, seq INTEGER, status TEXT, inserted_at TEXT, updated_at TEXT, summary TEXT, plan_direction TEXT);
+    CREATE TABLE agent_events (id TEXT, event_type TEXT, refs TEXT);
+    CREATE TABLE decision_traces (trace_id TEXT, turn_id TEXT, context_refs TEXT);
+    CREATE TABLE agent_runs (id TEXT, authoring_transcript TEXT);
+    CREATE TABLE mutations (id TEXT);
+  `);
+  const mission = {
+    chapter_mission: {
+      mission_id: "cm_live_1",
+      statement: "为第1章开场起头。",
+      source: "model",
+      status: "TENTATIVE",
+      provider_call_ref: "pcall_live_1",
+      must_advance: [{ text: "推进", basis_ref: "observation:obs_1" }],
+      must_avoid: [],
+    },
+    plot_progress: "同名的计划中干扰章。",
+  };
+  db.prepare("INSERT INTO chapters (id, work_id, volume_id, title, seq, status, inserted_at, updated_at, summary, plan_direction) VALUES (?,?,?,?,?,?,?,?,?,?)")
+    .run("chapter-row", WORK, null, "第一章", 1, "PLANNED", "2026-11-03T10:00:00.000Z", "2026-11-03T10:00:00.000Z", null, JSON.stringify(mission));
+  db.prepare("INSERT INTO agent_events (id, event_type, refs) VALUES (?,?,?)").run("ev-1", "exploration_observed", '["obs_1"]');
+  db.prepare("INSERT INTO decision_traces (trace_id, turn_id, context_refs) VALUES (?,?,?)").run("trace_1", TURN, null);
+  db.prepare("INSERT INTO agent_runs (id, authoring_transcript) VALUES (?,?)").run("run_live_1", JSON.stringify({
+    self_report: { used_context_refs: ["observation:obs_1"] },
+  }));
+  db.close();
 }
 
 function buildDir({ withStrataUnloaded = true, screenshots = 3 } = {}) {
@@ -172,7 +209,9 @@ function buildDir({ withStrataUnloaded = true, screenshots = 3 } = {}) {
     message: AUTHOR,
   });
   writeJson(path.join(dir, "b71-start.json"), checkpoint("start"));
-  writeJson(path.join(dir, "b71-final.json"), checkpoint("final"));
+  // 真实持久结构（L7/L9 的数据源）：DB 由 live 场景 seed 建出，verify 只读。
+  writeLiveDatabase(dir);
+  writeJson(path.join(dir, "b71-final.json"), checkpoint("final", { design: "design-final" }));
   writeJson(path.join(dir, "native-b71-driver-log.json"), {
     slice_id: "b71-first-consumer",
     provider: "strata",
@@ -204,6 +243,9 @@ test("live verifier：完整 provider=strata 批次通过机制判据并写 summ
   assert.equal(summary.verdict.mechanism, "pass");
   assert.equal(summary.verdict.full_g1_g6_signed, false);
   assert(summary.not_signed.includes("I10_literary_quality_not_signed"));
+  assert.equal(summary.tentative_design_derivations.length, 1);
+  assert.equal(summary.tentative_design_derivations[0].provider_call_ref, "pcall_live_1");
+  assert.equal(summary.refs.ok, true);
   assert(fs.existsSync(path.join(dir, "summary.json")));
   assert(fs.existsSync(path.join(dir, "native-b71-checks.json")));
   assert(fs.existsSync(path.join(dir, "native-ws-frames.json")));

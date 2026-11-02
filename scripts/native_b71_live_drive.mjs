@@ -94,18 +94,55 @@ async function collectModelBehavior({ terminal, turnBody, runStatus }) {
 // Why/replay 只读面板：有按钮则打开并在前后记录 Provider 计数；找不到按钮/打开失败
 // 如实记录 why_not_observed，不判产品失败（判据侧 L11 记为未触发）。
 async function observeWhy() {
+  // 真实创作 run 后 Why 按钮可能在长消息流下方（视口外）：先找可见按钮，
+  // 找不到时从完整 AX 树定位 enabled 的「为什么」按钮并滚到可见位置再找。
+  // 记录 scroll 尝试，便于区分「按钮不存在」与「存在但不可见」。
+  const scroll = { needed: false, ok: null, path: null, reason: null };
   let nodes = null;
   try {
     const probe = await harness.tryPollAx(
       (_text, candidate) => Boolean(harness.findWhyButton(candidate)),
-      30_000,
+      20_000,
     );
     nodes = probe?.nodes ?? null;
   } catch (error) {
-    return { opened: false, reason: `why_button_probe_failed:${error.message}` };
+    scroll.reason = `why_button_probe_failed:${error.message}`;
   }
   if (!nodes || !harness.findWhyButton(nodes)) {
-    return { opened: false, reason: "why_button_not_found" };
+    scroll.needed = true;
+    try {
+      const all = harness.dumpNodes();
+      const candidates = all.filter(
+        (node) =>
+          node.role === "AXButton" &&
+          (node.title === "为什么" || String(node.desc ?? "").includes("查看这轮回应的依据")),
+      );
+      const target = candidates.at(-1) ?? null;
+      if (!target || !target.path) {
+        scroll.ok = false;
+        scroll.reason = "why_button_not_in_ax_tree";
+      } else {
+        scroll.path = target.path;
+        harness.ensureInput().scrollTo(target.path);
+        const retry = await harness.tryPollAx(
+          (_text, candidate) => Boolean(harness.findWhyButton(candidate)),
+          20_000,
+        );
+        nodes = retry?.nodes ?? null;
+        scroll.ok = Boolean(nodes && harness.findWhyButton(nodes));
+        if (!scroll.ok) scroll.reason = "why_button_scrolled_but_not_visible";
+      }
+    } catch (error) {
+      scroll.ok = false;
+      scroll.reason = `why_button_scroll_failed:${error.message}`;
+    }
+  }
+  if (!nodes || !harness.findWhyButton(nodes)) {
+    return {
+      opened: false,
+      reason: scroll.reason ?? "why_button_not_found",
+      ...(scroll.needed ? { scroll } : {}),
+    };
   }
   const before = readProviderCounts();
   let opened = false;
@@ -137,6 +174,7 @@ async function observeWhy() {
     opened: true,
     before,
     after,
+    ...(scroll.needed ? { scroll } : {}),
     ...(panelText ? { panel_excerpt: panelText.text.slice(0, 800) } : {}),
     ...(closeError ? { close_error: closeError } : {}),
   };

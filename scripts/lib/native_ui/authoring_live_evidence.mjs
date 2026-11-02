@@ -9,11 +9,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  all,
   assertCommonEvidence,
   assertProviderAndWire,
   frameBody,
   frameEvent,
   read,
+  withDb,
   writeNativeFrames,
 } from "./scenario_evidence.mjs";
 import { readConfig } from "./authoring_capture_evidence.mjs";
@@ -24,6 +26,7 @@ import {
   recordUsageFacts,
   summarizeModelBehavior,
 } from "./live_run_wait.mjs";
+import { liveRefsCheck } from "./authoring_live_refs.mjs";
 
 export const LIVE_CHECKS_SCHEMA = "b71-live-checks/v1";
 export const LIVE_CHECKPOINTS = Object.freeze(["start", "final"]);
@@ -109,9 +112,33 @@ function extractRefs(value) {
 }
 
 function orderedRecords(records, turnId) {
+  // 双形状：确定性记录用 request_body，真实 strata 记录用 request.body；
+  // 只要记录携带可读 request messages 就属于同一 turn 的真实请求序列。
   return records
-    .filter((record) => record?.turn_id === turnId && isObject(record.request_body))
+    .filter((record) => record?.turn_id === turnId && recordRequestMessages(record) !== null)
     .sort((left, right) => String(left.ts ?? "").localeCompare(String(right.ts ?? "")));
+}
+
+// 同一创作 run 的请求链：真实 B71 bounded run 的工具步 turn 形如
+// `<parent_turn>:agent:<N>`，它们与 parent turn 共享同一条追加式 transcript；
+// 判据必须按 run 合并比较，不能按 turn_id 分段（否则前缀/回放会被真空跳过）。
+function runKeyOf(turnId) {
+  return String(turnId ?? "").replace(/:agent:\d+$/u, "");
+}
+
+function runSequences(records) {
+  const byRun = new Map();
+  for (const record of records) {
+    if (recordRequestMessages(record) === null) continue;
+    const key = runKeyOf(record.turn_id);
+    const list = byRun.get(key) ?? [];
+    list.push(record);
+    byRun.set(key, list);
+  }
+  for (const list of byRun.values()) {
+    list.sort((left, right) => String(left.ts ?? "").localeCompare(String(right.ts ?? "")));
+  }
+  return byRun;
 }
 
 function samePrefix(previous, next) {
@@ -148,9 +175,140 @@ function countOf(table, checkpoint) {
   return typeof counts[table] === "number" ? counts[table] : null;
 }
 
+// L9（Lead 03 裁定）：机制硬条件 + 允许并如实记录有支撑的 TENTATIVE 设计态派生。
+// - 硬条件：无 receipt/adoption、无 mutations、无 CONFIRMED/已采纳内容变化（章节行级
+//   approved hash 不变）、正文/其它 canon 表 hash 不变、无内存绑定新增；
+// - 允许：chapters.plan_direction 的 model/TENTATIVE mission 派生，但每条必须有真实
+//   pcall（在真实 llm-calls 中）+ decision_trace + basis_ref（observation/plan）支撑；
+//   无 pcall 或来源不明 → invalid，L9 失败。
+export function liveZeroWriteLayers({ startCanon, finalCanon, startCounts, finalCounts, dbFacts = null, strataRecords = [], pendingArtifacts = [] } = {}) {
+  const startTables = startCanon?.tables ?? {};
+  const finalTables = finalCanon?.tables ?? {};
+  const changedTables = [];
+  for (const name of new Set([...Object.keys(startTables), ...Object.keys(finalTables)])) {
+    if (name === "chapters") continue; // chapters 单独按行级证据判定（允许设计态派生）
+    const a = startTables[name];
+    const b = finalTables[name];
+    if (!a || !b) {
+      changedTables.push(name);
+      continue;
+    }
+    if (a.row_count !== b.row_count || a.canon_sha256 !== b.canon_sha256) changedTables.push(name);
+  }
+  const otherTablesEqual = changedTables.length === 0;
+
+  const startChapters = isObject(startCanon?.chapters) ? startCanon.chapters : {};
+  const finalChapters = isObject(finalCanon?.chapters) ? finalCanon.chapters : {};
+  const startIds = Object.keys(startChapters).sort();
+  const finalIds = Object.keys(finalChapters).sort();
+  const sameIdSet = startIds.length === finalIds.length && startIds.every((id, index) => id === finalIds[index]);
+  let chaptersApprovedEqual = sameIdSet;
+  for (const id of finalIds) {
+    const startRow = startChapters[id];
+    const finalRow = finalChapters[id];
+    if (!startRow || !finalRow || startRow.approved_sha256 !== finalRow.approved_sha256) {
+      chaptersApprovedEqual = false;
+    }
+  }
+
+  const counts = finalCounts ?? {};
+  const noReceipts =
+    (counts.author_action_receipts ?? 0) === 0 && (finalTables.author_action_receipts?.row_count ?? 0) === 0;
+  const noMemoryRows = (finalTables.memory_items?.row_count ?? 0) === 0;
+  const noMutations = dbFacts
+    ? Number(dbFacts.mutations_count ?? 0) === 0
+    : (counts.mutations ?? 0) === 0;
+  const pendingTentative = pendingArtifacts.every(
+    (artifact) => String(artifact?.adoption_status ?? "") === "TENTATIVE",
+  );
+
+  const pcallSet = new Set(strataRecords.map((record) => record.provider_call_ref).filter(Boolean));
+  const traceRows = Array.isArray(dbFacts?.decision_traces) ? dbFacts.decision_traces : [];
+  const traceIds = traceRows.map((row) => String(row?.trace_id ?? "")).filter(Boolean);
+  // 章节设计态变化必须由 start/final 的行级证据证明；旧快照（chapters 为 {} 或非行级
+  // 证据）无法证明变化时不做派生判定、也不据此 fail（记 design_state_evidence=missing）。
+  const hasRowLevelEvidence = (chapters) =>
+    isObject(chapters) &&
+    Object.values(chapters).some(
+      (entry) => isObject(entry) && typeof entry.design_state_sha256 === "string",
+    );
+  const rowLevelEvidenceAvailable = hasRowLevelEvidence(startChapters) && hasRowLevelEvidence(finalChapters);
+  const derivations = [];
+  const invalid = [];
+  for (const row of Array.isArray(dbFacts?.chapters_rows) ? dbFacts.chapters_rows : []) {
+    let planDirection = null;
+    try {
+      planDirection = JSON.parse(String(row?.plan_direction ?? ""));
+    } catch {
+      planDirection = null;
+    }
+    const mission = isObject(planDirection?.chapter_mission) ? planDirection.chapter_mission : null;
+    if (!mission) continue;
+    if (!rowLevelEvidenceAvailable) continue; // 无行级证据：无法证明本轮设计态变化，不判派生
+    const startRow = startChapters[row.id];
+    const finalRow = finalChapters[row.id];
+    if (!startRow || !finalRow) continue; // 新增/缺失章节行不在派生判定范围（由 approved 行集判定覆盖）
+    if (startRow.design_state_sha256 === finalRow.design_state_sha256) continue; // 本轮未变化的设计态不计派生
+    const basisRefs = [...(mission.must_advance ?? []), ...(mission.must_avoid ?? [])]
+      .map((item) => item?.basis_ref ?? null)
+      .filter((ref) => typeof ref === "string" && ref !== "");
+    const providerCallRef = mission.provider_call_ref ?? null;
+    const source = String(mission.source ?? "");
+    const status = String(mission.status ?? "");
+    const reasons = [];
+    if (source !== "model") reasons.push(`source_not_model:${source}`);
+    if (status !== "TENTATIVE") reasons.push(`status_not_tentative:${status}`);
+    if (!providerCallRef || !pcallSet.has(providerCallRef)) reasons.push(`pcall_not_in_real_calls:${providerCallRef}`);
+    if (basisRefs.length === 0 || !basisRefs.every((ref) => /^(?:observation|plan):/u.test(ref))) {
+      reasons.push("basis_ref_not_from_observation_or_plan");
+    }
+    if (traceIds.length === 0) reasons.push("decision_trace_missing");
+    const entry = {
+      chapter_id: row.id,
+      chapter_title: row.title ?? null,
+      mission_id: mission.mission_id ?? null,
+      statement: String(mission.statement ?? "").slice(0, 240),
+      source,
+      status,
+      provider_call_ref: providerCallRef,
+      basis_refs: basisRefs,
+      decision_trace_refs: traceIds,
+      approved_unchanged:
+        startChapters[row.id]?.approved_sha256 === finalChapters[row.id]?.approved_sha256,
+      valid: reasons.length === 0,
+      reason: reasons.length === 0 ? null : reasons.join(","),
+      why_not_canon:
+        "model/TENTATIVE 设计态派生（VS-00E §16.8 推理完成即存暂定），有真实 pcall/basis/decision_trace 支撑；非作者采纳、不写正文/canon 已采纳字段",
+    };
+    if (entry.valid) derivations.push(entry);
+    else invalid.push(entry);
+  }
+
+  return {
+    ok:
+      otherTablesEqual &&
+      chaptersApprovedEqual &&
+      noReceipts &&
+      noMemoryRows &&
+      noMutations === true &&
+      pendingTentative &&
+      invalid.length === 0,
+    other_tables_equal: otherTablesEqual,
+    changed_tables: changedTables,
+    chapters_approved_equal: chaptersApprovedEqual,
+    no_receipts: noReceipts,
+    no_memory_rows: noMemoryRows,
+    no_mutations: noMutations,
+    pending_tentative: pendingTentative,
+    design_state_evidence: rowLevelEvidenceAvailable ? "row_level" : "missing",
+    tentative_design_derivations: derivations,
+    invalid_design_derivations: invalid,
+  };
+}
+
 // L1–L12：真实 provider 记录的纯判据。返回 mechanism 必过项、model_behavior 事实与
 // not_signed 切片；未触发项为 null，不以“未发生”冒充成立。
-export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheckpoint, finalCheckpoint, driverLog, model = DEFAULT_LIVE_MODEL }) {
+export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheckpoint, finalCheckpoint, driverLog, dbFacts = null, model = DEFAULT_LIVE_MODEL }) {
   const authorText = String(config?.message ?? "");
   const records = Array.isArray(llmRecords) ? llmRecords : [];
   const strataRecords = records.filter((record) => record?.provider === "strata");
@@ -203,23 +361,28 @@ export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheck
     return true;
   });
 
-  // L4 追加式前缀：同一 turn 的后续真实请求以先前 messages 为严格前缀。
+  // L4 追加式前缀：同一创作 run（含 <turn>:agent:N step turn）的连续真实请求，
+  // 后续请求 messages 必须严格以先前为前缀。
+  const runs = runSequences(strataRecords);
   const l4Failures = [];
-  for (const turnId of turnIds) {
-    const ordered = orderedRecords(strataRecords, turnId).map((record) => messagesOf(record));
-    for (let index = 1; index < ordered.length; index += 1) {
-      if (!samePrefix(ordered[index - 1], ordered[index])) l4Failures.push({ turnId, index });
+  for (const [runKey, ordered] of runs) {
+    const messagesList = ordered.map((record) => messagesOf(record));
+    for (let index = 1; index < messagesList.length; index += 1) {
+      if (!samePrefix(messagesList[index - 1], messagesList[index])) {
+        l4Failures.push({ run_key: runKey, index });
+      }
     }
   }
   const l4 = l4Failures.length === 0;
 
   // L5/L6 工具调用/结果绑定与观察回流：唯一事实源 = 实时 provider 响应里的 tool_calls。
   // 请求 messages 里的 assistant.tool_calls 是追加式历史回放，只累加回放观测，不建立
-  // 新绑定；因此这里用 call_id 主键的 Map 前置归并，而不是事后过滤重复项。
+  // 新绑定；因此用 call_id 主键的 Map 前置归并，而不是事后过滤重复项。
+  // 跨 turn 的 step turn（<turn>:agent:N）按同一 run 合并：否则父 turn 最后一条调用的
+  // 结果会落在子 turn 的请求里而被误判「未回流」。
   const toolBinding = new Map();
   let replayOnlyCalls = 0;
-  for (const turnId of turnIds) {
-    const ordered = orderedRecords(strataRecords, turnId);
+  for (const [runKey, ordered] of runs) {
     ordered.forEach((record, index) => {
       const messages = messagesOf(record);
       const responseCalls = recordResponseToolCalls(record);
@@ -227,13 +390,16 @@ export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheck
         const callId = call?.id ?? null;
         if (!callId || toolBinding.has(callId)) continue;
         toolBinding.set(callId, {
-          turn_id: turnId,
+          run_key: runKey,
+          turn_id: record.turn_id,
           call_id: callId,
           name: call?.function?.name ?? call?.name ?? null,
           first_request_index: index,
+          last_request_in_run: index === ordered.length - 1,
           first_provider_call_ref: record.provider_call_ref ?? null,
           replayed_in_requests: 0,
           bound_in_later_request: false,
+          terminal_without_replay: false,
           observation_length: 0,
         });
       }
@@ -245,7 +411,8 @@ export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheck
       }
       const toolMessages = toolMessagesOf(messages);
       for (const binding of toolBinding.values()) {
-        if (binding.bound_in_later_request || binding.first_request_index >= index) continue;
+        if (binding.run_key !== runKey || binding.bound_in_later_request) continue;
+        if (binding.first_request_index >= index) continue;
         const hit = toolMessages.find((message) => message.tool_call_id === binding.call_id);
         if (hit) {
           binding.bound_in_later_request = true;
@@ -255,50 +422,53 @@ export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheck
     });
   }
   const toolBindings = [...toolBinding.values()];
-  const l5 = toolBinding.size === 0 ? null : toolBindings.every((entry) => entry.bound_in_later_request);
-  const l6 = toolBinding.size === 0 ? null : toolBindings.every((entry) => entry.bound_in_later_request && entry.observation_length > 0);
-
-  // L7 used_context_refs ⊆ base_refs ∪ observation_refs：仅当能从真实请求文本提取 refs 时判定；
-  // 否则如实记 not_observable，不当作通过。
-  const l7Facts = [];
-  for (const entry of requestMessages) {
-    const baseRefs = new Set();
-    const observedRefs = new Set();
-    for (const message of entry.messages) {
-      if (isApplicationBase(message)) {
-        for (const ref of extractRefs(messageContent(message))) baseRefs.add(ref);
-      }
-      if (message?.role === "tool") {
-        for (const ref of extractRefs(messageContent(message))) observedRefs.add(ref);
-      }
-    }
-    const toolArgsRefs = new Set();
-    for (const call of toolCallsOf(entry.messages)) {
-      for (const ref of extractRefs(call.arguments)) toolArgsRefs.add(ref);
-    }
-    if (baseRefs.size === 0) continue;
-    const allowed = new Set([...baseRefs, ...observedRefs]);
-    const violations = [...toolArgsRefs].filter((ref) => !allowed.has(ref));
-    l7Facts.push({ turn_id: entry.turnId, base_refs: baseRefs.size, observation_refs: observedRefs.size, used_refs: toolArgsRefs.size, violations });
+  // 真实 agent 边界：run 内最后一次请求发出的工具调用不会再有「后续真实请求」——
+  // 其结果由 run 终局（completed）与产品链处理证明，不要求回放到下一次模型请求；
+  // 其余所有调用都必须按 call_id 绑定 tool result 并出现在后续请求中。
+  for (const binding of toolBindings) {
+    binding.terminal_without_replay = binding.last_request_in_run && !binding.bound_in_later_request;
   }
-  const l7 = l7Facts.length === 0 ? null : l7Facts.every((facts) => facts.violations.length === 0);
+  const nonTerminalBindings = toolBindings.filter((entry) => !entry.terminal_without_replay);
+  const l5 = toolBinding.size === 0 ? null : nonTerminalBindings.every((entry) => entry.bound_in_later_request);
+  const l6 =
+    toolBinding.size === 0
+      ? null
+      : nonTerminalBindings.length > 0 &&
+        nonTerminalBindings.every((entry) => entry.bound_in_later_request && entry.observation_length > 0);
+
+  // L7 used_context_refs ⊆ base_refs ∪ observation_refs：Lead 03 裁定从产品持久结构读取
+  // （transcript self_report.used_context_refs / decision_traces.context_refs +
+  // agent_events.refs + 请求应用数据消息）；wire 启发式只作观测辅助，不参与判定；
+  // 无法提取 used 时 ok=null（unknown，不假过）。
+  const refsCheck = liveRefsCheck({
+    llmRecords: strataRecords,
+    agentEvents: Array.isArray(dbFacts?.agent_events) ? dbFacts.agent_events : [],
+    decisionTraces: Array.isArray(dbFacts?.decision_traces) ? dbFacts.decision_traces : [],
+    transcriptText: String(dbFacts?.transcript_text ?? ""),
+  });
+  const l7 = refsCheck.ok;
 
   // L8 作者字节：每条真实请求中作者原话逐字出现且独立成 user 消息。
   const l8 = nonBlank(authorText) && requestMessages.every((entry) => entry.messages.some((message) => isAuthorMessage(message, authorText)));
 
-  // L9 未采纳前零写入：canon 内容签名不变 + 无 mutations/receipts/memory/正文行；
-  // 若有 pending 候选必须全部 TENTATIVE。
+  // L9 未采纳零写入（Lead 03 裁定的分层口径）：其它 canon 表/正文 hash 不变、
+  // 章节已采纳字段不变、无 receipt/mutation/memory 行；允许并如实记录有 pcall/
+  // decision_trace/basis_ref 支撑的 model/TENTATIVE chapter_mission 派生。
   const startCanon = canonSnapshotOf(startCheckpoint);
   const finalCanon = canonSnapshotOf(finalCheckpoint);
-  const canonCompare = canonTablesEqual(startCanon, finalCanon);
-  const finalCounts = finalCheckpoint.db_production_counts ?? {};
-  const zeroWriteTables = ["mutations", "author_action_receipts", "memory_items", "chapters", "drafts"];
-  const zeroWrites = zeroWriteTables.every((table) => (countOf(table, finalCheckpoint) ?? 0) === 0);
   const pendingArtifacts = turnBodies.flatMap((body) =>
     Array.isArray(body?.adoption_state?.pending) ? body.adoption_state.pending : [],
   );
-  const pendingTentative = pendingArtifacts.every((artifact) => String(artifact?.adoption_status ?? "") === "TENTATIVE");
-  const l9 = canonCompare.equal && zeroWrites && pendingTentative;
+  const zeroWrite = liveZeroWriteLayers({
+    startCanon,
+    finalCanon,
+    startCounts: startCheckpoint.db_production_counts ?? {},
+    finalCounts: finalCheckpoint.db_production_counts ?? {},
+    dbFacts,
+    strataRecords,
+    pendingArtifacts,
+  });
+  const l9 = zeroWrite.ok;
 
   // L10 usage：每次真实调用都有 usage（prompt/completion 或 provider 原生字段）。
   const usage = strataRecords.map((record) => ({ provider_call_ref: record.provider_call_ref ?? null, ...recordUsageFacts(record) }));
@@ -352,9 +522,19 @@ export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheck
       tool_calls_verified: toolBinding.size,
       replay_only_tool_calls: replayOnlyCalls,
       tool_binding: toolBindings,
-      refs: l7Facts,
-      canon: { equal: canonCompare.equal, changed_tables: canonCompare.changed },
-      db_production_counts: finalCounts,
+      refs: refsCheck,
+      canon: {
+        equal: zeroWrite.other_tables_equal && zeroWrite.chapters_approved_equal,
+        other_tables_equal: zeroWrite.other_tables_equal,
+        changed_tables: zeroWrite.changed_tables,
+        chapters_approved_equal: zeroWrite.chapters_approved_equal,
+        no_receipts: zeroWrite.no_receipts,
+        no_memory_rows: zeroWrite.no_memory_rows,
+        no_mutations: zeroWrite.no_mutations,
+        tentative_design_derivations: zeroWrite.tentative_design_derivations,
+        invalid_design_derivations: zeroWrite.invalid_design_derivations,
+      },
+      db_production_counts: finalCheckpoint.db_production_counts ?? {},
       pending_artifacts: pendingArtifacts.map((artifact) => ({
         artifact_id: artifact?.artifact_id ?? null,
         artifact_type: artifact?.artifact_type ?? null,
@@ -374,10 +554,14 @@ export function verifyLiveBatch(dir) {
   const config = readConfig(dir);
   assert.equal(config.journey, "live", "live verifier 只接受 journey=live");
   assert.equal(config.provider, "strata", "live verifier 只接受 provider=strata");
+  // live 驱动的固定等待步：launch_app/workbench_ready/select_work/input_ready/
+  // author_creation_request/user_message_ack/live_run_terminal = 7 条（Why 触发再加）。
+  // 不能沿用 pending/revision 的 8 条门槛，否则会把正常 live 路径误杀；6 条已覆盖
+  // 输入/ack/终局/维护四个分型的真实等待。
   const common = assertCommonEvidence(dir, {
     sliceId: config.slice_id,
     minScreenshots: 3,
-    minimumWaits: 8,
+    minimumWaits: 6,
     requiredKinds: ["input", "ack", "turn", "maintenance"],
   });
   const evidence = assertProviderAndWire(dir, {
@@ -397,6 +581,25 @@ export function verifyLiveBatch(dir) {
   assert(strataSlot, "缺少 strata-slot.json（批次前后槽位/卸载核验）");
   assert.equal(strataSlot.unloaded, true, "strata 批次结束必须核验 loaded=null");
 
+  // L7/L9 的真实数据源：产品持久结构（DB），不在 wire 投影层猜。
+  const dbFacts = withDb(dir, (db) => {
+    const tableCount = (table) => {
+      try {
+        return Number(all(db, `SELECT COUNT(*) AS c FROM ${table}`)[0]?.c ?? 0);
+      } catch {
+        return 0;
+      }
+    };
+    const transcripts = all(db, "SELECT authoring_transcript FROM agent_runs");
+    return {
+      mutations_count: tableCount("mutations"),
+      chapters_rows: all(db, "SELECT * FROM chapters"),
+      agent_events: all(db, "SELECT event_type, refs FROM agent_events"),
+      decision_traces: all(db, "SELECT trace_id, turn_id, context_refs FROM decision_traces"),
+      transcripts,
+      transcript_text: transcripts.map((row) => String(row?.authoring_transcript ?? "")).join("\n"),
+    };
+  });
   const checks = b71LiveModelBehavior({
     dir,
     config,
@@ -405,6 +608,7 @@ export function verifyLiveBatch(dir) {
     startCheckpoint: checkpoints.start,
     finalCheckpoint: checkpoints.final,
     driverLog,
+    dbFacts,
     model: driverLog?.model ?? DEFAULT_LIVE_MODEL,
   });
   assert.equal(
@@ -427,6 +631,8 @@ export function verifyLiveBatch(dir) {
     model_behavior: checks.model_behavior,
     not_signed: checks.not_signed,
     measured: checks.measured,
+    refs: checks.measured?.refs ?? null,
+    tentative_design_derivations: checks.measured?.canon?.tentative_design_derivations ?? [],
     strata_slot: strataSlot,
     wait_ledger: common.ledger,
     screenshots: common.ui.screenshots,

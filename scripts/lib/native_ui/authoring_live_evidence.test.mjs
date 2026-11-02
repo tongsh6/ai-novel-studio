@@ -33,7 +33,7 @@ function record(messages, overrides = {}) {
   };
 }
 
-function checkpoint(name, { canonHash = "canon-content", counts = {}, tables = null } = {}) {
+function checkpoint(name, { canonHash = "canon-content", counts = {}, tables = null, chapters = null, design = "design-1" } = {}) {
   return {
     checkpoint: name,
     at: "2026-11-03T10:00:00.000Z",
@@ -48,6 +48,9 @@ function checkpoint(name, { canonHash = "canon-content", counts = {}, tables = n
     authoring_canon: {
       version: 2,
       at: "2026-11-03T10:00:00.000Z",
+      chapters: chapters ?? {
+        "chapter-row": { approved_sha256: "approved-chapter", design_state_sha256: design },
+      },
       tables:
         tables ??
         {
@@ -78,7 +81,7 @@ function driverLog(why = { opened: true, before: { llm_records: 1, provider_runs
   return { model: "iq3_s", run: { status: "completed" }, why };
 }
 
-function evaluate({ llmRecords, start = checkpoint("start"), final = checkpoint("final"), body = turnBody(), log = driverLog() } = {}) {
+function evaluate({ llmRecords, start = checkpoint("start"), final = checkpoint("final", { design: "design-1" }), body = turnBody(), log = driverLog(), dbFacts = null } = {}) {
   return b71LiveModelBehavior({
     dir: "/tmp/unused",
     config,
@@ -87,8 +90,37 @@ function evaluate({ llmRecords, start = checkpoint("start"), final = checkpoint(
     startCheckpoint: start,
     finalCheckpoint: final,
     driverLog: log,
+    dbFacts,
     model: "iq3_s",
   });
+}
+
+function designDbFacts({ mission = {}, transcriptUsed = [], agentEventRefs = ["obs_1"], traces = [{ trace_id: "trace_1", turn_id: TURN, context_refs: null }], mutations = 0 } = {}) {
+  return {
+    mutations_count: mutations,
+    chapters_rows: [
+      {
+        id: "chapter-row",
+        title: "第一章",
+        plan_direction: JSON.stringify({
+          chapter_mission: {
+            mission_id: "cm_live_1",
+            statement: "为第1章开场起头。",
+            source: "model",
+            status: "TENTATIVE",
+            provider_call_ref: "pcall_1",
+            must_advance: [{ text: "推进", basis_ref: "observation:obs_1" }],
+            must_avoid: [],
+            ...mission,
+          },
+        }),
+      },
+    ],
+    agent_events: [{ event_type: "exploration_observed", refs: JSON.stringify(agentEventRefs) }],
+    decision_traces: traces.map((trace) => ({ trace_id: trace.trace_id, turn_id: trace.turn_id, context_refs: trace.context_refs })),
+    transcripts: [{ authoring_transcript: JSON.stringify({ self_report: { used_context_refs: transcriptUsed } }) }],
+    transcript_text: JSON.stringify({ self_report: { used_context_refs: transcriptUsed } }),
+  };
 }
 
 test("机制正例：单请求结构/作者字节/零写入/usage/Why 零调用成立，未触发工具进 not_signed", () => {
@@ -218,21 +250,22 @@ test("L5/L6：只有 messages 回放、无实时响应 tool_calls 时不伪造�
   assert.equal(checks.model_behavior.tool_call_count, 0);
 });
 
-test("L7 反例：工具参数引用越出 base_refs ∪ observation_refs", () => {
-  const messages = [
-    system(),
-    appBase('材料：{"ref":"ref_base_1"}'),
-    author(),
-    scope(),
-    {
-      role: "assistant",
-      content: "",
-      tool_calls: [{ id: "call_1", type: "function", function: { name: "read_chapter", arguments: '{"chapter_ref":"ref_out_of_boundary"}' } }],
-    },
-    { role: "tool", tool_call_id: "call_1", content: "第01章正文" },
-  ];
-  const checks = evaluate({ llmRecords: [record(messages)] });
-  assert.equal(checks.checks.mechanism.used_context_refs_within_boundary, false);
+test("L7：used 从持久结构读取——越界失败、合法通过、不可提取记 null", () => {
+  const messages = [system(), appBase("材料：chapter:ch-1"), author(), scope()];
+  const records = [record(messages)];
+  const outOfBoundary = evaluate({
+    llmRecords: records,
+    dbFacts: designDbFacts({ transcriptUsed: ["observation:obs_out_of_boundary"] }),
+  });
+  assert.equal(outOfBoundary.checks.mechanism.used_context_refs_within_boundary, false);
+  assert(outOfBoundary.measured.refs.violations.length > 0);
+  const legal = evaluate({
+    llmRecords: records,
+    dbFacts: designDbFacts({ transcriptUsed: ["observation:obs_1", "execution_brief:chapter:ch-1"] }),
+  });
+  assert.equal(legal.checks.mechanism.used_context_refs_within_boundary, true);
+  const unknown = evaluate({ llmRecords: records });
+  assert.equal(unknown.checks.mechanism.used_context_refs_within_boundary, null);
 });
 
 test("L8 反例：真实请求中的作者原话被改写", () => {
@@ -319,4 +352,68 @@ test("真实 strata 记录形状：request.body.messages + response.usage + resp
   const usage = checks.measured.usage[0];
   assert.equal(usage.present, true);
   assert(usage.fields.includes("input_tokens"));
+});
+
+test("同一 run 的 <turn>:agent:N step turn 合并：前缀连续、跨段工具回放、最后一次调用由终局证明", () => {
+  const call = (id) => ({ id, type: "function", function: { name: "read_chapter", arguments: "{}" } });
+  const base = [system(), appBase(), author(), scope()];
+  const req1 = base;
+  const req2 = [...base, { role: "assistant", content: "", tool_calls: [call("call_1")] }, { role: "tool", tool_call_id: "call_1", content: "观察 1" }];
+  // 最后一次请求（run 内第 3 次）发出的 call_3 不再有后续请求：由 run 终局证明。
+  const req3 = [...req2, { role: "assistant", content: "", tool_calls: [call("call_2")] }, { role: "tool", tool_call_id: "call_2", content: "观察 2" }];
+  const records = [
+    record(req1, { ts: "2026-11-03T10:00:01.000Z", provider_call_ref: "pcall_1", turn_id: TURN, response: { status: 200, body: { usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 }, tool_calls: [call("call_1")] } } }),
+    record(req2, { ts: "2026-11-03T10:00:03.000Z", provider_call_ref: "pcall_2", turn_id: `${TURN}:agent:7`, response: { status: 200, body: { usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 }, tool_calls: [call("call_2")] } } }),
+    record(req3, { ts: "2026-11-03T10:00:05.000Z", provider_call_ref: "pcall_3", turn_id: `${TURN}:agent:7`, response: { status: 200, body: { usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 }, tool_calls: [call("call_3")] } } }),
+  ];
+  const checks = evaluate({ llmRecords: records });
+  assert.equal(checks.checks.mechanism.append_only_prefix, true, "跨 step turn 的前缀连续");
+  assert.equal(checks.checks.mechanism.tool_call_result_binding, true, "call_1/call_2 跨段回放绑定");
+  assert.equal(checks.checks.mechanism.observation_reaches_next_request, true);
+  const terminal = checks.measured.tool_binding.find((b) => b.call_id === "call_3");
+  assert.equal(terminal.terminal_without_replay, true, "最后一次调用由 run 终局证明，不要求回放");
+  assert.equal(checks.measured.tool_binding.filter((b) => !b.terminal_without_replay).length, 2);
+});
+
+
+test("L9 分层：有 pcall/decision_trace/basis_ref 支撑的 TENTATIVE 设计态派生允许，并单列", () => {
+  const messages = [system(), appBase("材料：chapter:ch-1"), author(), scope()];
+  const checks = evaluate({
+    llmRecords: [record(messages)],
+    dbFacts: designDbFacts({ transcriptUsed: ["observation:obs_1"] }),
+    final: checkpoint("final", { design: "design-2" }),
+  });
+  assert.equal(checks.checks.mechanism.unadopted_zero_write, true);
+  const layers = checks.measured.canon;
+  assert.equal(layers.other_tables_equal, true);
+  assert.equal(layers.chapters_approved_equal, true);
+  assert.equal(layers.tentative_design_derivations.length, 1);
+  assert.equal(layers.tentative_design_derivations[0].valid, true);
+  assert.equal(layers.tentative_design_derivations[0].provider_call_ref, "pcall_1");
+  assert(layers.tentative_design_derivations[0].basis_refs.includes("observation:obs_1"));
+});
+
+test("L9 分层反例：派生无真实 pcall / 来源非 model / 已采纳字段变化都失败", () => {
+  const messages = [system(), appBase("材料：chapter:ch-1"), author(), scope()];
+  const bogusPcall = evaluate({
+    llmRecords: [record(messages)],
+    dbFacts: designDbFacts({ transcriptUsed: ["observation:obs_1"], mission: { provider_call_ref: "pcall_not_in_llm" } }),
+    final: checkpoint("final", { design: "design-2" }),
+  });
+  assert.equal(bogusPcall.checks.mechanism.unadopted_zero_write, false);
+  assert(bogusPcall.measured.canon.invalid_design_derivations.length > 0);
+  const authorSource = evaluate({
+    llmRecords: [record(messages)],
+    dbFacts: designDbFacts({ transcriptUsed: ["observation:obs_1"], mission: { source: "author" } }),
+    final: checkpoint("final", { design: "design-2" }),
+  });
+  assert.equal(authorSource.checks.mechanism.unadopted_zero_write, false);
+  const approvedChanged = evaluate({
+    llmRecords: [record(messages)],
+    dbFacts: designDbFacts({ transcriptUsed: ["observation:obs_1"] }),
+    final: checkpoint("final", {
+      chapters: { "chapter-row": { approved_sha256: "approved-changed", design_state_sha256: "design-2" } },
+    }),
+  });
+  assert.equal(approvedChanged.checks.mechanism.unadopted_zero_write, false);
 });

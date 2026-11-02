@@ -391,6 +391,21 @@ function chapterFact(row, path) {
   };
 }
 
+// live 场景不解析 mission 明细（真实 seed 的 author mission 可能缺 decided_at），
+// 但 L9 需要区分「已采纳字段」与「设计态字段」：分别按原文取 hash。
+// approved = 行去掉 plan_direction/updated_at（已采纳内容事实）；design_state = plan_direction 原文。
+function liveChapterEvidence(rows) {
+  const facts = {};
+  for (const row of rows) {
+    const { plan_direction, updated_at, ...approved } = row;
+    facts[row.id] = {
+      approved_sha256: sha256(canonicalJson(approved)),
+      design_state_sha256: sha256(canonicalJson({ plan_direction: plan_direction ?? null })),
+    };
+  }
+  return facts;
+}
+
 function chapterFacts(rows) {
   const facts = {};
   for (const [index, row] of rows.entries()) {
@@ -531,7 +546,7 @@ export function buildAuthoringCanonSnapshot({ tables, referenceLogs, at, include
     version: SNAPSHOT_VERSION,
     at: snapshotAt,
     tables: snapshotTables,
-    chapters: includeChapterFacts ? chapterFacts(chapterRows) : {},
+    chapters: includeChapterFacts ? chapterFacts(chapterRows) : liveChapterEvidence(chapterRows),
     memory_items: memoryStats(memoryRows),
     memory_reference_logs: normalizedLogs(referenceLogs),
   };

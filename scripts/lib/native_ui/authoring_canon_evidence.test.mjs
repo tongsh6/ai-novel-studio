@@ -1300,7 +1300,11 @@ test("live canon 快照：includeChapterFacts=false 不解析章节设计态（�
   ];
   assert.throws(() => snapshot({ tables }), /decided_at/u, "默认严格解析仍拒绝缺字段 mission");
   const live = buildAuthoringCanonSnapshot({ tables, referenceLogs: [], at: START, includeChapterFacts: false });
-  assert.deepEqual(live.chapters, {});
+  // live 不解析 mission 明细，只保留行级「已采纳字段 / 设计态字段」hash 供 L9 分层判定。
+  assert.deepEqual(Object.keys(live.chapters), ["chapter-row"]);
+  assert.match(live.chapters["chapter-row"].approved_sha256, /^[0-9a-f]{64}$/u);
+  assert.match(live.chapters["chapter-row"].design_state_sha256, /^[0-9a-f]{64}$/u);
+  assert.equal(live.chapters["chapter-row"].mission, undefined);
   assert.equal(live.version, SNAPSHOT_VERSION);
   assert.deepEqual(Object.keys(live.tables).sort(), [...CANON_TABLES].sort());
   assert.equal(live.tables.chapters.row_count, 1);
