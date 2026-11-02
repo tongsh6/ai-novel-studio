@@ -451,8 +451,14 @@ export class NativeScenarioHarness {
     return this.findButton(nodes, "发送");
   }
 
-  async rawLaunchApp() {
+  // 真实启动入口：只 open 本批精确 app_path。测试覆盖该方法以验证启动观测的
+  // 落盘顺序，不启动真实窗口、不对产品做任何注入。
+  openApplication() {
     execFileSync("open", [this.target.app_path]);
+  }
+
+  async rawLaunchApp() {
+    this.openApplication();
     const resolution = await this.waitTargetResolution(90_000);
     this.bindBatchTarget(resolution);
     const startupBefore = this.observeStartup("launch:before_activation");
@@ -631,7 +637,7 @@ export class NativeScenarioHarness {
     const previousPid = this.target.pid;
     await cleanupNativeApp(this.dir);
     await sleep(500);
-    execFileSync("open", [this.target.app_path]);
+    this.openApplication();
     const resolution = await this.waitTargetResolution(12_000);
     this.bindBatchTarget(resolution, { relaunch: true });
     this.input.recordRelaunch(previousPid, this.target.pid);

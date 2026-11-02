@@ -24,6 +24,22 @@ _proc_tree_descendants() {
   printf '%s\n' "$pid"
 }
 
+# 进程组查询：优先 setuid `ps`；仅当执行环境明确拒绝/缺少 ps 时退化为
+# python3 的 os.getpgid（非 setuid）。两者都不可用时返回空串，调用方必须
+# 因此跳过「按进程组」信号，不能因为组身份未知而冒自杀风险。
+_proc_pgid() {
+  local pid="$1" pgid=""
+  pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')" || pgid=""
+  if [[ -z "$pgid" ]] && command -v python3 >/dev/null 2>&1; then
+    pgid="$(python3 -c 'import os,sys
+try:
+    print(os.getpgid(int(sys.argv[1])))
+except Exception:
+    pass' "$pid" 2>/dev/null)" || pgid=""
+  fi
+  printf '%s\n' "$pgid"
+}
+
 # 终止 pid 及其全部子孙（含同进程组的孤儿）。
 # 先 SIGTERM，宽限 grace 秒后对仍存活者 SIGKILL。
 #
@@ -37,22 +53,25 @@ kill_process_tree() {
   local pids
   pids="$(_proc_tree_descendants "$root" 2>/dev/null)"
 
-  # 目标进程组：候选取“ps 查到的 PGID”与“root 自身”（启用 set -m 后作业
+  # 目标进程组：候选取“ps/python 查到的 PGID”与“root 自身”（启用 set -m 后作业
   # 自成组、PGID==PID，故 root 即组 id；即使 root 已退出仍可凭此回收同组孤儿）。
   # 安全护栏：只对与当前 shell 进程组不同且 > 1 的组下手，绝不自杀；当 root 并非
-  # 组长时，对 -root 的信号会落空（ESRCH），无副作用。
+  # 组长时，对 -root 的信号会落空（ESRCH），无副作用。当前 shell/自身组身份不可
+  # 知时（ps 与 python 都被拒绝）跳过组信号，只回收已收集的子孙，绝不自杀。
   local shell_pgid current_pgid queried_pgid
-  shell_pgid="$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')"
-  current_pgid="$(ps -o pgid= -p "${BASHPID:-$$}" 2>/dev/null | tr -d ' ')"
-  queried_pgid="$(ps -o pgid= -p "$root" 2>/dev/null | tr -d ' ')"
+  shell_pgid="$(_proc_pgid $$)"
+  current_pgid="$(_proc_pgid "${BASHPID:-$$}")"
+  queried_pgid="$(_proc_pgid "$root")"
 
   local group_targets=""
   local cand
-  for cand in "$queried_pgid" "$root"; do
-    if [[ -n "$cand" && "$cand" -gt 1 && "$cand" != "$shell_pgid" && "$cand" != "$current_pgid" && " $group_targets " != *" $cand "* ]]; then
-      group_targets="$group_targets $cand"
-    fi
-  done
+  if [[ -n "$shell_pgid" && -n "$current_pgid" ]]; then
+    for cand in "$queried_pgid" "$root"; do
+      if [[ -n "$cand" && "$cand" -gt 1 && "$cand" != "$shell_pgid" && "$cand" != "$current_pgid" && " $group_targets " != *" $cand "* ]]; then
+        group_targets="$group_targets $cand"
+      fi
+    done
+  fi
 
   _proc_tree_signal() {
     local sig="$1" p g

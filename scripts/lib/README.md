@@ -4,7 +4,7 @@
 
 | 文件 | 角色 |
 |---|---|
-| `process_tree.sh` | 进程树终止与清理 helper，被 stage/dev/Tauri 验收脚本复用。 |
+| `process_tree.sh` | 进程树终止与清理 helper，被 stage/dev/Tauri 验收脚本复用。进程组查询优先 `ps`，setuid `ps` 被执行环境拒绝/缺失时退化为 `python3 os.getpgid`（非 setuid）；两者都不可用时跳过组信号、只按 `pgrep -P` 收集的子孙回收，安全护栏绝不自杀。 |
 | `tauri_dev_config.sh` | 生成 Tauri dev runtime overlay config，避免启动脚本改写 `frontend/src-tauri/tauri.conf.json`。 |
 | `tauri_toolchain.sh` | Tauri dev/native build 共享的只读工具链定位：优先保留现有 PATH，缺失时仅把 `CARGO_HOME/bin` 或原始用户 home 的 `.cargo/bin` 前置到本次子进程 PATH；不安装/切换、不读隔离 HOME。被 `scripts/tauri_slice_verify.sh`、`scripts/frontend_audit.sh` 复用。 |
 | `tauri_toolchain.test.mjs` | `tauri_toolchain.sh` 的受控最小 PATH/fake toolchain 回归：fallback、含空格 CARGO_HOME、不替换现有工具、隔离 HOME 不采用、缺失失败与两入口接线；不读写用户凭证。 |
@@ -13,8 +13,8 @@
 | `native_ui/` | [外部系统 UI 驱动](native_ui/README.md)：macOS AX/CGEvent 驱动真实 Tauri 窗口（原生验收 harness），含高层工作台动作与等待账；产品不读取。 |
 | `quality/` | [B41 质量证据地基](quality/README.md)：标准 YAML 解析桥、manifest 语义校验/查询 CLI、反例测试；被 `scripts/quality_manifest_check.sh`、`scripts/quality_accept.sh`、e2e 聚合器消费。 |
 
-| `native_app_ownership.mjs` | B37原生重开归属清理：精确匹配本批独立可执行路径，清理前复核PID身份，输出退出证据；由Tauri runner调用。 |
-| `native_app_ownership.test.mjs` | 重开/同名其他批次/参数伪匹配的归属回归。 |
+| `native_app_ownership.mjs` | B37原生重开归属清理：精确匹配本批独立可执行路径，清理前复核PID身份，输出退出证据；进程观测统一走 `native_ui/process_observation.mjs`（优先ps，setuid ps被环境拒绝时用pgrep+lsof等价精确归属），cleanup证据含 `process_observation`；由Tauri runner调用。 |
+| `native_app_ownership.test.mjs` | 重开/同名其他批次/参数伪匹配的归属回归；共享解析器行为由 `native_ui/process_observation.test.mjs` 覆盖。 |
 
 ## quality/（B41 证据基建）
 

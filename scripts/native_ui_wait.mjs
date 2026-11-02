@@ -3,8 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
-import { ownedNativeProcesses, nativeExecutablePath } from "./lib/native_app_ownership.mjs";
+import { nativeExecutablePath } from "./lib/native_app_ownership.mjs";
+import { ownProcesses } from "./lib/native_ui/process_observation.mjs";
 
 export const budgets = Object.freeze({ input: 30_000, ack: 30_000, turn: 120_000,
   candidate: 120_000, adoption: 90_000, maintenance: 180_000, export: 60_000, restore: 30_000 });
@@ -52,6 +52,9 @@ export async function supervise(dir, api, pids) {
   const ready = JSON.parse(fs.readFileSync(path.join(dir, "native-driver-ready.json"), "utf8"));
   const ledger = new WaitLedger(Date.parse(ready.ready_at), budgetsFor(ready.provider));
   let commandCount = 0, eventCount = 0, heartbeatAt = 0, nativeSeen = false;
+  // 实际使用的进程观测方式必须随 wait-stats 落盘：ps 不可用时的 pgrep+lsof
+  // 退化是环境事实，不能当作与 ps 完全无差别。
+  let processObservation = { method: null, fallback_reason: null };
   const started = Date.now();
   try {
     while (true) {
@@ -60,7 +63,7 @@ export async function supervise(dir, api, pids) {
       const now = Date.now(); ledger.check(now);
       for (const event of ledger.events.slice(eventCount)) fs.appendFileSync(path.join(dir, "wait-events.jsonl"), JSON.stringify(event) + "\n");
       eventCount = ledger.events.length;
-      write(dir, "wait-stats.json", ledger.stats());
+      write(dir, "wait-stats.json", { ...ledger.stats(), process_observation: processObservation });
       if (fs.existsSync(path.join(dir, "native-ui-complete.json"))) {
         if (ledger.active) throw new Error("completion_has_active_wait");
         return;
@@ -68,7 +71,11 @@ export async function supervise(dir, api, pids) {
       for (const pid of pids) { try { process.kill(pid, 0); } catch { throw new Error(`owned_process_exited:${pid}`); } }
       if (ready.app_mode === "embedded-native") {
         const executable = nativeExecutablePath(dir, ready);
-        const liveCount = () => ownedNativeProcesses(execFileSync("ps", ["-axo", "pid=,ppid=,command=", "-ww"], { encoding: "utf8" }), executable).length;
+        const liveCount = () => {
+          const snapshot = ownProcesses(executable);
+          processObservation = { method: snapshot.method, fallback_reason: snapshot.fallback_reason };
+          return snapshot.processes.length;
+        };
         let count = liveCount();
         if (nativeSeen && count === 0) {
           // journal先于关窗写入；跨一次轮询发生的restore不能被旧的active视图误判。
@@ -91,7 +98,7 @@ export async function supervise(dir, api, pids) {
       write(dir, "failure.json", { at: new Date().toISOString(), reason: error.message, active_wait: ledger.active,
         commands_processed: commandCount, elapsed_ms: Date.now() - started, budgets: ledger.budgets });
     }
-    write(dir, "wait-stats.json", { ...ledger.stats(), failure: error.message });
+    write(dir, "wait-stats.json", { ...ledger.stats(), failure: error.message, process_observation: processObservation });
     throw error;
   }
 }
