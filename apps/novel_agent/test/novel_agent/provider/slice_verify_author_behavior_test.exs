@@ -136,7 +136,7 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
       %{
         role: "system",
         content:
-          "创作判断器\n{\"author_inputs\":[],\"pending_adoptions\":[{\"artifact_ref\":\"as_original\",\"revision_of\":null}]}"
+          "创作判断器\n## 待采纳候选\n- ref=as_original | type=world_setting | status=TENTATIVE | title=沈砚旧书铺设定 | operations=revise_pending_artifact | body_preview=沈砚经营旧书铺。"
       },
       %{role: "user", content: "## 作者输入\n#{expression}"}
     ]

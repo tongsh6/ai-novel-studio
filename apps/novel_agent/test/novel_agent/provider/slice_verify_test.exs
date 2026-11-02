@@ -413,6 +413,40 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     assert prose_step.requested_chapter_raw == "第99章"
   end
 
+  test "CP4a 当前创作工具优先于历史续行协议文本" do
+    prompt = %{
+      messages: [
+        %{role: "user", content: "上一轮使用 continuation_decision；历史目录曾提到整章正文修订。"},
+        %{
+          role: "user",
+          content:
+            "【应用数据 · scope_update · 以最新版本为准】\n用户创作简述：写第01章：底层灵气账单正文草稿\n上下文：本章已有计划。\n重要：保留作者输入。\nartifact_type：prose_fragment"
+        }
+      ],
+      tools: [
+        %{
+          name: "submit_tentative_artifact",
+          description: "提出待作者审阅的创作候选",
+          input_schema: %{type: "object"}
+        }
+      ],
+      tool_choice: "submit_tentative_artifact"
+    }
+
+    for provider <- [SliceVerify, NovelAgent.Provider.Stub] do
+      assert {:ok, result} = provider.complete(nil, nil, prompt, %{})
+      assert [%{name: "submit_tentative_artifact", arguments: arguments}] = result.tool_calls
+      items = Map.get(arguments, :items) || Map.get(arguments, "items")
+      item = hd(items)
+      title = Map.get(item, :title) || Map.get(item, "title")
+
+      assert title =~ "底层灵气账单",
+             "provider=#{inspect(provider)} title=#{inspect(title)}"
+
+      refute title =~ "修订稿"
+    end
+  end
+
   test "AU04FAILTOOL marker fails only at creative tool provider stage" do
     plan_prompt = """
     proposed_actions
@@ -437,6 +471,242 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
 
     assert message == "AU04FAILTOOL fixture provider failure"
   end
+end
+
+defmodule NovelAgent.Provider.SliceVerifyOperationScopeTest do
+  use ExUnit.Case, async: true
+
+  alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Test.Provider.SliceVerify
+
+  @history """
+  本次你承担创作判断器的角色。你的两种续行方式使用 continuation_decision。
+  旧调用曾使用写前推理器和规划前推理器。
+  - profile_ref: fact_inventory_v1
+  - author_goal: 盘点旧材料，第01章。
+  - goal_version: 1
+  [ledger:information:foreshadow_old] 旧伏笔
+  [ledger:arc:old] 旧弧光
+  [plan:old] 旧章计划
+  """
+
+  @plan_scope """
+  ## 调用点参数
+  - profile_ref: prose_drafting_with_quality_v1
+  - plan_step_targets: context_assemble, chapter_mission, prose_writing, quality_review
+
+  ## 作品章节
+  - 第02章：当前码头
+
+  ## 本轮目标
+  - author_goal: 请续写第02章：当前码头。
+  - goal_version: 2
+  - current_plan_version: 1
+  """
+
+  @mission_scope """
+  当前应用目标：推进当前码头的线索。
+  目标版本：2
+  材料：
+  [ledger:information:foreshadow_current] 当前伏笔
+  [ledger:arc:current] 当前弧光
+  [plan:current] 当前章计划
+  """
+
+  for tool <- ["agent_plan_draft", "agent_plan_revision"] do
+    test "#{tool} 由当前工具决定，计划只读取最新 scope 的 profile、目标和章节" do
+      tool = unquote(tool)
+      assert {:ok, result} = complete(native_prompt(tool, @plan_scope))
+      assert [%{"name" => ^tool, "arguments" => arguments}] = result.tool_calls
+      steps = arguments.plan.steps
+      assert prose = Enum.find(steps, &(&1.target_tool_ref == "prose_writing"))
+      assert prose.authoring_intent == "continuation"
+      assert prose.target_chapter == "第02章：当前码头"
+      refute Enum.any?(steps, &(&1.target_tool_ref == "fact_inventory"))
+    end
+  end
+
+  for tool <- ["chapter_mission", "planning_mission"] do
+    test "#{tool} 不被旧判断或其它使命污染，引用只来自最新 scope" do
+      tool = unquote(tool)
+      assert {:ok, result} = complete(native_prompt(tool, @mission_scope))
+      assert [%{"name" => ^tool, "arguments" => arguments}] = result.tool_calls
+
+      assert Enum.map(arguments["must_advance"], & &1["basis_ref"]) == [
+               "ledger:information:foreshadow_current",
+               "ledger:arc:current",
+               "plan:current"
+             ]
+
+      refute inspect(result) =~ "foreshadow_old"
+      refute inspect(result) =~ "ledger:arc:old"
+
+      if tool == "planning_mission" do
+        assert arguments["statement"] =~ "接下来的章节"
+      else
+        assert arguments["statement"] =~ "本章"
+        refute arguments["statement"] =~ "接下来的章节"
+      end
+    end
+  end
+
+  test "没有 scope 的 legacy 单请求仍使用自身材料" do
+    for {tool, text} <- [
+          {"agent_plan_draft", "你是小说创作系统的 AgentRun 计划起草器。\n" <> @plan_scope},
+          {"planning_mission", "你是规划前推理器。\n" <> @mission_scope}
+        ] do
+      prompt = %{
+        messages: [%{role: "user", content: text}],
+        tools: [%{name: tool, input_schema: %{type: "object"}}],
+        tool_choice: tool
+      }
+
+      assert {:ok, result} = complete(prompt)
+      assert [%{"name" => ^tool}] = result.tool_calls
+    end
+  end
+
+  test "后续 writer 的种类与材料只来自本阶段，不受旧章计划污染" do
+    scope = """
+    ## 创作协作共同规则
+    本次你承担角色设计助手的角色。
+    capability：character_design
+    artifact_type：character_seed
+    用户创作简述：标识符 CURCHAR73X。帮我设计一个主角，是灵气稽查官。
+    上下文：当前作品背景。
+    重要：保留作者输入。
+    """
+
+    prompt = native_prompt("submit_tentative_artifact", scope)
+
+    prompt =
+      update_in(
+        prompt,
+        [:messages, Access.at(0), :content],
+        &(&1 <> "\nartifact_type：outline_draft\n用户创作简述：旧章计划 OLDPLAN82Q\n上下文：旧目录\n重要：旧要求。")
+      )
+
+    assert {:ok, result} = complete(prompt)
+    assert [%{name: "submit_tentative_artifact", arguments: %{items: [item]}}] = result.tool_calls
+    assert item["narrative_role"] == "PROTAGONIST"
+    assert item["body"] =~ "定位："
+    assert item["body"] =~ "动机："
+    assert item["body"] =~ "CURCHAR73X"
+    refute item["body"] =~ "OLDPLAN82Q"
+    refute item["body"] =~ "章功能定位："
+    refute item["body"] =~ "旧章计划"
+  end
+
+  test "后续 quality 不消费旧阶段的故障标记与过期正文" do
+    scope = "本次只读评审当前正文。\n待评审正文：林烬把账单放在桌上。"
+    prompt = native_prompt("report_quality_findings", scope)
+
+    prompt =
+      update_in(prompt, [:messages, Access.at(0), :content], &(&1 <> "\nVS00EEVALFAIL 旧阶段的评审故障。"))
+
+    assert {:ok, result} = complete(prompt)
+
+    assert [%{name: "report_quality_findings", arguments: %{"findings" => []}}] =
+             result.tool_calls
+  end
+
+  defp native_prompt(tool, scope) do
+    %{
+      ir_version: RequestIR.ir_version(),
+      messages: [
+        %{role: "user", content: "【应用数据 · scope_update · 以最新版本为准】\n" <> @history},
+        %{role: "assistant", content: "上一阶段的工作已完成，接着处理新任务。"},
+        %{role: "user", content: "【应用数据 · scope_update · 以最新版本为准】\n" <> scope}
+      ],
+      tools: [%{name: tool, input_schema: %{type: "object"}}],
+      tool_choice: "auto"
+    }
+  end
+
+  defp complete(prompt), do: SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+end
+
+defmodule NovelAgent.Provider.SliceVerifyWriterFaultScopeTest do
+  # 故障开关是进程外的环境变量；本组必须等异步测试结束后串行执行并恢复原值。
+  use ExUnit.Case, async: false
+
+  alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Test.Provider.SliceVerify
+
+  @timeout_env "SLICE_VERIFY_WRITER_TIMEOUT"
+  @prose_scope "capability：prose_writing\nartifact_type：prose_fragment\n用户创作简述：生成正文\n上下文：已有计划\n重要：保留作者输入。"
+
+  setup do
+    previous = System.get_env(@timeout_env)
+    System.put_env(@timeout_env, "1")
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env(@timeout_env, previous),
+        else: System.delete_env(@timeout_env)
+    end)
+
+    :ok
+  end
+
+  test "当前正文工具仍按预期超时，最新 scope 的缩小范围可恢复" do
+    assert {:error, %{type: :timeout}} =
+             complete(native_prompt("submit_tentative_artifact", @prose_scope))
+
+    retry_scope = @prose_scope <> "\n先只写当前章的第一个场景，500 字以内；写完就停。"
+    assert {:ok, _result} = complete(native_prompt("submit_tentative_artifact", retry_scope))
+  end
+
+  test "历史正文不得让续行或质量工具误超时" do
+    for {tool, scope} <- [
+          {"continuation_decision", "你的两种续行方式：继续或等待作者。"},
+          {"report_quality_findings", "本次进行质量复核。待评审正文：夜色落在城门上。"}
+        ] do
+      assert {:ok, _result} = complete(native_prompt(tool, scope, [@prose_scope]))
+    end
+  end
+
+  test "后续角色创作只按最新 scope 判定，不受历史正文或正文内容字段污染" do
+    current =
+      "capability：character_design\nartifact_type：character_seed\n用户创作简述：设计一个配角\n上下文：既有正文记录 artifact_type：prose_fragment，只是背景。\n重要：保留作者输入。"
+
+    assert {:ok, _result} =
+             complete(native_prompt("submit_tentative_artifact", current, [@prose_scope]))
+  end
+
+  test "历史缩小范围不能免除当前新正文请求的超时" do
+    old_retry = @prose_scope <> "\n先只写当前章的第一个场景，500 字以内；写完就停。"
+
+    assert {:error, %{type: :timeout}} =
+             complete(native_prompt("submit_tentative_artifact", @prose_scope, [old_retry]))
+  end
+
+  test "禁用工具或没有活动工具的 canonical 请求不走 legacy 故障判断" do
+    prompt = native_prompt("submit_tentative_artifact", @prose_scope)
+    assert {:ok, _result} = complete(%{prompt | tool_choice: "none"})
+    assert {:ok, _result} = complete(%{prompt | tools: [], tool_choice: nil})
+  end
+
+  test "无工具的 legacy 正文 fixture 保持原有超时与缩小范围恢复" do
+    assert {:error, %{type: :timeout}} = complete("JSON 数组\n" <> @prose_scope)
+    assert {:ok, _result} = complete("JSON 数组\n" <> @prose_scope <> "\n先只写当前章的第一个场景")
+  end
+
+  defp native_prompt(tool, scope, history \\ []) do
+    %{
+      ir_version: RequestIR.ir_version(),
+      messages:
+        Enum.map(history ++ [scope], fn text ->
+          %{role: "user", content: "【应用数据 · scope_update · 以最新版本为准】\n" <> text}
+        end),
+      tools: [%{name: tool, input_schema: %{type: "object"}}],
+      tool_choice: tool
+    }
+  end
+
+  defp complete(prompt), do: SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
 end
 
 defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
@@ -625,6 +895,43 @@ defmodule NovelAgent.Provider.SliceVerifyChapterWriterFixtureTest do
     refute body =~ "二十五岁"
     assert body =~ "灯楼九层，每层九盏"
     assert body =~ "第七盏灯不点自亮"
+  end
+
+  test "首个 canonical writer 保留 Base 中的修订规则，不能只取 scope 当成普通起草" do
+    author = "把二十五岁改成三十岁，其余逐字不变。"
+    legacy = writer_prompt("## 指定片段/段落内容修订", author)
+    [base, dynamic] = String.split(legacy, "capability：", parts: 2)
+
+    prompt = %{
+      ir_version: "authoring-request-ir/v1",
+      messages: [
+        %{role: "user", content: "【应用数据 · application_base · 非作者原话】\n" <> base},
+        %{role: "user", content: author},
+        %{role: "user", content: "【应用数据 · scope_update · 以最新版本为准】\ncapability：" <> dynamic}
+      ],
+      tools: [%{name: "submit_tentative_artifact", input_schema: %{type: "object"}}],
+      tool_choice: "submit_tentative_artifact"
+    }
+
+    corrections = [
+      %{role: "assistant", content: "前一次响应格式错误。"},
+      %{role: "user", content: "【应用数据 · application_notice · 非作者原话】\n请按原任务正确输出。"}
+    ]
+
+    for suffix <- [[], corrections] do
+      assert {:ok, result} =
+               SliceVerify.complete(
+                 nil,
+                 nil,
+                 %{prompt | messages: prompt.messages ++ suffix},
+                 %InferenceParams{}
+               )
+
+      assert [%{name: "submit_tentative_artifact", arguments: %{items: [item]}}] =
+               result.tool_calls
+
+      assert item["body"] == String.replace(@base_text, "二十五岁", "三十岁")
+    end
   end
 
   test "whole_chapter content writer prompt 命中；format_only 返回基线原文" do
@@ -1330,4 +1637,711 @@ defmodule NovelAgent.Provider.SliceVerifyB34AuthorIntentFixtureTest do
       assert result.content =~ "不自动执行或采纳"
     end
   end
+end
+
+defmodule NovelAgent.Provider.SliceVerifyQualityRevisionFixtureTest do
+  use ExUnit.Case, async: false
+
+  alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Test.Provider.SliceVerify
+
+  @retry_env "SLICE_VERIFY_QUALITY_REVISION_RETRY"
+  @body "他猛地侧身。\n他一刀劈下。\n他反手格挡。\n他迈步逼近。\n他咬住暗号ABC123继续逼近。"
+
+  setup do
+    old = System.get_env(@retry_env)
+    System.delete_env(@retry_env)
+
+    on_exit(fn ->
+      if old, do: System.put_env(@retry_env, old), else: System.delete_env(@retry_env)
+    end)
+
+    :ok
+  end
+
+  test "local quality revision rewrites only the finding sentence range and preserves bytes outside" do
+    assert {:ok, result} = complete(quality_prompt())
+
+    assert [%{name: "submit_tentative_artifact"} = call] = result.tool_calls
+    assert call.id == "native-submit_tentative_artifact"
+    assert [item] = call.arguments["items"]
+    assert [first, second, third | _tail] = String.split(@body, "\n")
+    assert [first, second, third] == ["他猛地侧身。", "他一刀劈下。", "他反手格挡。"]
+    outside = @body |> String.split("\n") |> Enum.drop(3) |> Enum.join("\n")
+    assert String.ends_with?(item["body"], "\n" <> outside)
+    assert String.contains?(item["body"], "他咬住暗号ABC123继续逼近。")
+    refute item["body"] == @body
+  end
+
+  test "retry env only injects current quality revision after its own failed validation" do
+    System.put_env(@retry_env, "1")
+
+    for _attempt <- 1..2 do
+      assert {:ok, invalid} = complete(quality_prompt())
+      assert [%{id: "native-submit_tentative_artifact", arguments: %{}}] = invalid.tool_calls
+    end
+
+    assert {:ok, valid} = complete(retry_prompt())
+    assert [%{id: "native-submit_tentative_artifact"} = call] = valid.tool_calls
+    assert is_list(call.arguments["items"])
+    assert hd(call.arguments["items"])["body"] != @body
+  end
+
+  test "retry env ignores a failed validation from an earlier operation scope" do
+    System.put_env(@retry_env, "1")
+
+    assert {:ok, invalid} = complete(quality_prompt_with_earlier_failure())
+    assert [%{arguments: %{}}] = invalid.tool_calls
+  end
+
+  test "retry env does not alter source writer or other operations" do
+    System.put_env(@retry_env, "1")
+
+    assert {:ok, source} = complete(source_writer_prompt())
+    assert [%{name: "submit_tentative_artifact"} = call] = source.tool_calls
+    assert is_list(call.arguments["items"])
+    assert hd(call.arguments["items"])["body"] =~ "他猛地侧身。"
+  end
+
+  defp complete(prompt) do
+    SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
+  end
+
+  defp quality_prompt(history \\ []) do
+    prompt(quality_scope(), history)
+  end
+
+  defp retry_prompt do
+    quality_prompt(retry_history())
+  end
+
+  defp retry_history do
+    failed = %{
+      role: "tool",
+      tool_call_id: "native-submit_tentative_artifact",
+      content:
+        Jason.encode!(%{
+          "type" => "validation_result",
+          "call_id" => "native-submit_tentative_artifact",
+          "status" => "failed",
+          "reason_code" => "invalid_items",
+          "detail" => %{}
+        })
+    }
+
+    call = %{
+      role: "assistant",
+      content: "",
+      tool_calls: [
+        %{
+          "id" => "native-submit_tentative_artifact",
+          "type" => "function",
+          "function" => %{"name" => "submit_tentative_artifact", "arguments" => "{}"}
+        }
+      ]
+    }
+
+    [call, failed]
+  end
+
+  defp quality_prompt_with_earlier_failure do
+    earlier = prompt(source_writer_scope())
+    [system, base, _earlier_scope] = earlier.messages
+    [call, failed] = retry_history()
+
+    %{
+      earlier
+      | messages:
+          [system, base] ++
+            [scope_message(source_writer_scope()), call, failed, scope_message(quality_scope())]
+    }
+  end
+
+  defp scope_message(scope) do
+    %{role: "user", content: "【应用数据 · scope_update · 以最新版本为准】\n版本：{}\n" <> scope}
+  end
+
+  defp source_writer_prompt do
+    source_writer_scope() |> prompt()
+  end
+
+  defp source_writer_scope do
+    """
+    capability：prose_writing
+    artifact_type：prose_fragment
+    用户创作简述：写第02章：矿区追击战正文草稿，短促动作追击
+    上下文：## 目标章结构
+    - 计划摘要：主角在废弃矿区遭遇巡检傀儡，短促的动作追击中且战且退。
+    重要：保留作者输入。
+    """
+  end
+
+  defp quality_scope do
+    """
+    capability：prose_writing
+    artifact_type：prose_fragment
+    用户创作简述：请基于下文给出的原正文进行局部修订：保留原有情节走向、人物状态与作品设定，只修改证据位置命中的句段。
+    上下文：原正文（第02章：矿区追击战正文草稿，短促动作追击）：
+    #{@body}
+    重要：保留作者输入与随机标识符 ABC123。
+
+    [质量修订要求]
+    本次修订范围：局部修订。
+    只修改证据位置命中的句段，命中范围外的文字应尽量逐字保持不变。
+    请仅针对以下质量问题修改上文「原正文」，逐项回应，不得改变情节走向或新增作品事实：
+    1. 连续动作句使用相同句首和标点骨架，且没有形成强度或后果递进。
+       位置：第 1–3 句
+       原句：他猛地侧身。他一刀劈下。他反手格挡。
+       判断理由：这些句子都只陈述一个动作；重复没有承担排比、仪式感或情绪升级功能。
+       修订策略：只改命中句段，让动作在风险、后果或视角上形成递进。
+    修订后保持与原正文相同的情节与人物状态，只解决上述问题；仍返回完整正文供作者对比。
+    """
+  end
+
+  defp prompt(scope, history \\ []) do
+    %{
+      messages:
+        [
+          %{role: "system", content: "identity_ref: identity:authoring/v1"},
+          %{role: "user", content: "【应用数据 · application_base · 非作者原话】\n输出契约。"},
+          %{role: "user", content: "【应用数据 · scope_update · 以最新版本为准】\n版本：{}\n" <> scope}
+        ] ++ history,
+      tools: [
+        %{
+          name: "submit_tentative_artifact",
+          input_schema: %{type: "object", properties: %{items: %{type: "array"}}}
+        }
+      ],
+      tool_choice: "submit_tentative_artifact"
+    }
+  end
+end
+
+defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
+  use ExUnit.Case, async: false
+
+  alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Test.Provider.SliceVerify
+  alias NovelAgent.Test.Support.PendingDialogueInput
+
+  @source_text "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识c0e885d9a7c04aaa。"
+  @revision_text "请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。"
+
+  defp native_judgment_prompt(author_text, candidates) do
+    directory = Enum.map_join(candidates, "\n", &directory_line/1)
+    facts = Jason.encode!(%{"author_inputs" => [], "pending_adoptions" => candidates})
+
+    """
+    本次你承担创作判断器的角色，与作者讨论并判断创作下一步。
+
+    ## 待采纳候选（真实对象，status=TENTATIVE；body_preview 为空时不得据此编造内容）
+    #{directory}
+
+    ## 消息处置与已有产物
+    下列是当前作品和会话的记录事实。
+    #{facts}
+
+    ## 作者输入
+    #{author_text}
+
+    ## 决策与输出契约
+    只输出一个工具或作者可见回复。
+    """
+  end
+
+  defp directory_line(candidate) do
+    "- ref=#{candidate["artifact_ref"]} | type=#{candidate["artifact_type"]} | " <>
+      "status=#{candidate["status"]} | title=#{candidate["title"]} | " <>
+      "operations=#{Enum.join(candidate["available_operations"], "/")} | " <>
+      "body_preview=#{candidate["body_preview"]}"
+  end
+
+  defp source_candidate do
+    %{
+      "artifact_ref" => "as_source::world_setting",
+      "artifact_type" => "world_setting",
+      "status" => "TENTATIVE",
+      "title" => "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺",
+      "available_operations" => ["revise_pending_artifact", "discard_pending_artifact"],
+      # 真实判断目录的 body_preview 可能截断，不能只靠它找目标。
+      "body_preview" => "把这份大纲直接存档为作品设定：主角",
+      "revision_of" => nil
+    }
+  end
+
+  # 当前操作 native IR：作者原话与 scope 分开，旧 scope 只作历史。
+  defp ir_judgment_prompt(author_text, current_scope, older_scope \\ nil) do
+    older =
+      if older_scope do
+        [
+          %{
+            role: "user",
+            content:
+              "【应用数据 · scope_update · 以最新版本为准】\n版本：{\"scope_revision\":1}\n" <>
+                older_scope
+          },
+          %{
+            role: "assistant",
+            content: "先核对旧目录。",
+            tool_calls: [
+              %{
+                id: "call-read",
+                type: "function",
+                function: %{name: "judgment_decision", arguments: "{\"action\":\"explore\"}"}
+              }
+            ]
+          },
+          %{role: "tool", tool_call_id: "call-read", content: "已读到旧目录。"}
+        ]
+      else
+        []
+      end
+
+    version = if older_scope, do: 2, else: 1
+
+    %{
+      ir_version: "1.0.0",
+      messages:
+        [
+          %{
+            role: "user",
+            content: "【应用数据 · application_base · 非作者原话】\n本次你承担创作判断器的角色。使用 judgment_decision。"
+          },
+          %{role: "user", content: author_text}
+        ] ++
+          older ++
+          [
+            %{
+              role: "user",
+              content:
+                "【应用数据 · scope_update · 以最新版本为准】\n版本：{\"scope_revision\":#{version}}\n" <>
+                  current_scope
+            }
+          ],
+      tools: [
+        %{name: "judgment_decision", description: "判断当前作者请求", input_schema: %{type: "object"}}
+      ],
+      tool_choice: "auto"
+    }
+  end
+
+  defp ir_directory(ref, title) do
+    "## 待采纳候选\n- ref=#{ref} | type=world_setting | status=TENTATIVE | title=#{title} | operations=revise_pending_artifact | body_preview=沈砚经营旧书铺。\n"
+  end
+
+  test "真实 consumer 只从当前 scope 选目标，旧 scope 目录不参与" do
+    prompt =
+      ir_judgment_prompt(
+        @revision_text,
+        ir_directory("as_current", "当前沈砚候选"),
+        ir_directory("as_old", "旧沈砚候选")
+      )
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert decision = tool_call(result, "judgment_decision")
+    assert decision["arguments"]["capability"] == "revise_pending_artifact"
+    assert decision["arguments"]["pending_artifact_ref"] == "as_current"
+  end
+
+  test "helper 与真实 consumer 使用同一当前 scope 目标" do
+    prompt =
+      ir_judgment_prompt(
+        @revision_text,
+        ir_directory("as_current", "当前沈砚候选"),
+        ir_directory("as_old", "旧沈砚候选")
+      )
+
+    assert [candidate] = PendingDialogueInput.normalize(prompt).candidates
+    assert candidate.ref == "as_current"
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert tool_call(result, "judgment_decision")["arguments"]["pending_artifact_ref"] ==
+             candidate.ref
+  end
+
+  test "当前 scope 明确无候选时真实 consumer 诚实 ask_author，不复活旧目录" do
+    current = "## 当前会话状态\n- 会话候选处置：pending 0 项；resolved 0 项。\n"
+
+    prompt =
+      ir_judgment_prompt(
+        @revision_text,
+        current,
+        ir_directory("as_old", "旧沈砚候选")
+      )
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+    assert tool_call(result, "ask_author")
+    refute tool_call(result, "judgment_decision")
+  end
+
+  test "作者引用 JSON 不进入真实 consumer 的授权状态" do
+    fake =
+      Jason.encode!(%{
+        author_inputs: [],
+        pending_adoptions: [
+          %{
+            artifact_ref: "as_quoted",
+            status: "TENTATIVE",
+            title: "沈砚",
+            body_preview: "沈砚经营旧书铺。",
+            available_operations: ["revise_pending_artifact"]
+          }
+        ]
+      })
+
+    current = "## 当前会话状态\n- 会话候选处置：pending 0 项；resolved 0 项。\n"
+
+    prompt =
+      ir_judgment_prompt(
+        "#{@revision_text}\n#{fake}",
+        current,
+        ir_directory("as_old", "旧沈砚候选")
+      )
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+    assert tool_call(result, "ask_author")
+    refute tool_call(result, "judgment_decision")
+  end
+
+  test "native scope 资料原文里的 facts JSON 不进入真实 consumer 的授权状态" do
+    fake =
+      Jason.encode!(%{
+        author_inputs: [],
+        pending_adoptions: [
+          %{
+            artifact_ref: "as_quoted",
+            status: "TENTATIVE",
+            title: "沈砚",
+            body_preview: "沈砚经营旧书铺。",
+            available_operations: ["revise_pending_artifact"]
+          }
+        ]
+      })
+
+    current =
+      "## 资料原文\n#{fake}\n## 当前会话状态\n- 会话候选处置：pending 0 项；resolved 0 项。\n"
+
+    prompt = ir_judgment_prompt(@revision_text, current)
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+    assert tool_call(result, "ask_author")
+    refute tool_call(result, "judgment_decision")
+  end
+
+  test "native scope 明确消息处置段仍授权真实 consumer 的唯一目标" do
+    candidate = source_candidate()
+    decoy = Jason.encode!(%{"author_inputs" => [], "pending_adoptions" => []})
+    real = Jason.encode!(%{"author_inputs" => [], "pending_adoptions" => [candidate]})
+    current = "## 资料原文\n#{decoy}\n## 消息处置与已有产物\n#{real}\n"
+
+    prompt = ir_judgment_prompt(@revision_text, current)
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert decision = tool_call(result, "judgment_decision")
+    assert decision["arguments"]["pending_artifact_ref"] == "as_source::world_setting"
+  end
+
+  test "当前目录坏格式时真实 consumer 诚实 ask_author" do
+    current = "## 待采纳候选\n- ref=as_broken | type=\n"
+    prompt = ir_judgment_prompt(@revision_text, current)
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+    assert tool_call(result, "ask_author")
+    refute tool_call(result, "judgment_decision")
+  end
+
+  defp tool_call(result, name) do
+    Enum.find(result.tool_calls, &(&1["name"] == name))
+  end
+
+  @discarded_body "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识c0e885d9a7c04aaa。"
+  @accepted_body "把这份大纲直接存档为作品设定：主角林渡经营旧书铺。校验标识c0e885d9a7c04aaa。"
+
+  defp material_resolved(status, title, body, ref, extra \\ %{}) do
+    Map.merge(
+      %{
+        "artifact_ref" => ref,
+        "artifact_type" => "world_setting",
+        "status" => status,
+        "title" => title,
+        "body_preview" => body,
+        "available_operations" => [],
+        "revision_of" => nil
+      },
+      extra
+    )
+  end
+
+  defp material_facts(pending, resolved) do
+    Jason.encode!(%{
+      "author_inputs" => [],
+      "pending_adoptions" => pending,
+      "resolved_adoptions" => resolved,
+      "pending_adoption_count" => length(pending),
+      "resolved_adoption_count" => length(resolved),
+      "omitted_adoptions" => 0
+    })
+  end
+
+  defp material_scope(pending, resolved, extra \\ "") do
+    extra <> "\n## 消息处置与已有产物\n" <> material_facts(pending, resolved) <> "\n"
+  end
+
+  defp chapter_context(total, written, planned) do
+    "## 章节列表（共 #{total} 章：已写 #{written} 章，计划中 #{planned} 章）\n"
+  end
+
+  defp resolved_g5_facts do
+    [
+      material_resolved(
+        "DISCARDED",
+        "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺",
+        @discarded_body,
+        "as_source"
+      ),
+      material_resolved(
+        "ACCEPTED",
+        "旧书铺修订稿",
+        @accepted_body,
+        "as_revision",
+        %{"revision_of" => "as_source", "available_operations" => ["revise_adopted_content"]}
+      )
+    ]
+  end
+
+  test "资料进度读取本轮 scope 的 ACCEPTED/DISCARDED 事实与完整 body_preview" do
+    current = material_scope([], resolved_g5_facts(), chapter_context(0, 0, 0))
+    prompt = ir_judgment_prompt("资料处理进度怎么样？", current)
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert result.tool_calls == []
+    assert result.content =~ "待采纳 0 份"
+    assert result.content =~ "已处置 2 份"
+    assert result.content =~ "ACCEPTED"
+    assert result.content =~ "DISCARDED"
+    assert result.content =~ "已采纳"
+    assert result.content =~ "已放弃"
+    assert result.content =~ "没有待采纳"
+    assert result.content =~ @accepted_body
+    assert result.content =~ @discarded_body
+    assert length(String.split(result.content, @accepted_body)) == 2
+    assert length(String.split(result.content, @discarded_body)) == 2
+    refute result.content =~ "其他处置"
+    refute result.content =~ "当前共 0 章"
+  end
+
+  test "明确章节进度仍使用真实章节统计，即使 scope 带有资料处置事实" do
+    current = material_scope([], resolved_g5_facts(), chapter_context(3, 2, 1))
+    prompt = ir_judgment_prompt("这本书的章节进度怎么样？", current)
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert result.tool_calls == []
+    assert result.content =~ "当前共 3 章：已写 2 章，计划中 1 章"
+    refute result.content =~ "ACCEPTED"
+    refute result.content =~ "DISCARDED"
+  end
+
+  test "当前 scope 没有资料状态时诚实说未知，不拿章节统计冒充" do
+    current = chapter_context(0, 0, 0)
+    prompt = ir_judgment_prompt("资料处理进度怎么样？", current)
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert result.tool_calls == []
+    assert result.content =~ "没有提供"
+    assert result.content =~ "无法确认"
+    refute result.content =~ "当前共 0 章"
+    refute result.content =~ "ACCEPTED"
+    refute result.content =~ "DISCARDED"
+  end
+
+  test "历史 scope 的候选处置事实不能补当前缺失的资料状态" do
+    older = material_scope([], resolved_g5_facts())
+    current = chapter_context(0, 0, 0)
+    prompt = ir_judgment_prompt("资料处理进度怎么样？", current, older)
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert result.tool_calls == []
+    assert result.content =~ "没有提供"
+    refute result.content =~ "ACCEPTED"
+    refute result.content =~ "DISCARDED"
+    refute result.content =~ @accepted_body
+    refute result.content =~ @discarded_body
+  end
+
+  test "当前 scope 目录坏格式时资料状态查询如实说无法解析" do
+    current = "## 待采纳候选\n- ref=as_broken | type=\n" <> chapter_context(0, 0, 0)
+    prompt = ir_judgment_prompt("资料处理进度怎么样？", current)
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert result.tool_calls == []
+    assert result.content =~ "无法解析"
+    assert result.content =~ "无法确认"
+    refute result.content =~ "待采纳 0 份"
+    refute result.content =~ "当前共 0 章"
+  end
+
+  test "泛化进度问句在本轮 scope 有资料处置事实时由资料状态拥有" do
+    current = material_scope([], resolved_g5_facts(), chapter_context(0, 0, 0))
+    prompt = ir_judgment_prompt("进度怎么样？", current)
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert result.content =~ "ACCEPTED"
+    assert result.content =~ "DISCARDED"
+    refute result.content =~ "当前共 0 章"
+  end
+
+  test "泛化进度问句在本轮 scope 无资料事实时仍走真实章节统计" do
+    current = chapter_context(3, 2, 1)
+    prompt = ir_judgment_prompt("进度怎么样？", current)
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert result.content =~ "当前共 3 章：已写 2 章，计划中 1 章"
+    refute result.content =~ "ACCEPTED"
+  end
+
+  test "资料处置意图分流不回归：放弃候选仍绑定本轮真实目录 ref" do
+    prompt =
+      native_judgment_prompt("请放弃原候选，把这份资料从待采纳里去掉，不要删除已保存事实。", [
+        source_candidate()
+      ])
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert decision = tool_call(result, "judgment_decision")
+    assert decision["arguments"]["action"] == "execute"
+    assert decision["arguments"]["capability"] == "discard_pending_artifact"
+    assert decision["arguments"]["pending_artifact_ref"] == "as_source::world_setting"
+  end
+
+  test "Q1B 原文登记先于内容名词识别：选 register_author_content 而不是 character_design" do
+    prompt = native_judgment_prompt(@source_text, [])
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert registration = tool_call(result, "register_author_content")
+    assert registration["arguments"][:author_content_source_ref] == "current"
+    refute tool_call(result, "judgment_decision")
+  end
+
+  test "正常设计新主角仍走 character_design，不被登记分支抢占" do
+    prompt = native_judgment_prompt("帮我设计一个主角，名字叫林烬，是灵气稽查官。", [])
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert decision = tool_call(result, "judgment_decision")
+    assert decision["arguments"]["action"] == "execute"
+    assert decision["arguments"]["capability"] == "character_design"
+    refute tool_call(result, "register_author_content")
+  end
+
+  test "修订目标用真实目录 title 唯一匹配，preview 截断不影响唯一 target" do
+    prompt = native_judgment_prompt(@revision_text, [source_candidate()])
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert decision = tool_call(result, "judgment_decision")
+    assert decision["arguments"]["action"] == "execute"
+    assert decision["arguments"]["capability"] == "revise_pending_artifact"
+    assert decision["arguments"]["pending_artifact_ref"] == "as_source::world_setting"
+  end
+
+  test "多个候选同样匹配改名对象时诚实 ask_author，不选 first/latest" do
+    first = %{source_candidate() | "artifact_ref" => "as_source::one", "title" => "沈砚候选一"}
+    second = %{source_candidate() | "artifact_ref" => "as_source::two", "title" => "沈砚候选二"}
+
+    prompt = native_judgment_prompt(@revision_text, [first, second])
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert tool_call(result, "ask_author")
+    refute tool_call(result, "judgment_decision")
+  end
+
+  test "缺候选目录时诚实 ask_author，不发 null ref execute" do
+    prompt = native_judgment_prompt(@revision_text, [])
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert tool_call(result, "ask_author")
+    refute tool_call(result, "judgment_decision")
+  end
+
+  test "目录未提供 revise 权限时诚实 ask_author，不靠 ref 猜" do
+    candidate = %{
+      source_candidate()
+      | "available_operations" => ["discard_pending_artifact"]
+    }
+
+    prompt = native_judgment_prompt(@revision_text, [candidate])
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert tool_call(result, "ask_author")
+    refute tool_call(result, "judgment_decision")
+  end
+
+  test "单一候选但作者点名对象不匹配时仍诚实 ask_author" do
+    candidate = %{
+      source_candidate()
+      | "title" => "另一份候选",
+        "body_preview" => "第一段文字。"
+    }
+
+    prompt = native_judgment_prompt(@revision_text, [candidate])
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert tool_call(result, "ask_author")
+    refute tool_call(result, "judgment_decision")
+  end
+
+  test "旧格式仅提供消息处置 JSON 时仍按同一解析结果唯一选目标" do
+    candidate = source_candidate()
+
+    facts =
+      Jason.encode!(%{
+        "author_inputs" => [],
+        "pending_adoptions" => [candidate]
+      })
+
+    prompt = """
+    本次你承担创作判断器的角色。
+
+    ## 消息处置与已有产物
+    #{facts}
+
+    ## 作者输入
+    #{@revision_text}
+    """
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert decision = tool_call(result, "judgment_decision")
+    assert decision["arguments"]["pending_artifact_ref"] == "as_source::world_setting"
+  end
+
+  test "非法 ref 注入需要 env 与作者标记同时出现，正常修订不触发" do
+    old = System.get_env("SLICE_VERIFY_PENDING_INVALID_REF")
+    System.put_env("SLICE_VERIFY_PENDING_INVALID_REF", "1")
+    on_exit(fn -> restore_env("SLICE_VERIFY_PENDING_INVALID_REF", old) end)
+
+    prompt = native_judgment_prompt(@revision_text, [source_candidate()])
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+    assert decision = tool_call(result, "judgment_decision")
+    assert decision["arguments"]["pending_artifact_ref"] == "as_source::world_setting"
+  end
+
+  defp restore_env(name, nil), do: System.delete_env(name)
+  defp restore_env(name, value), do: System.put_env(name, value)
 end

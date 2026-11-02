@@ -1,7 +1,4 @@
 defmodule NovelAgent.Test.Provider.SliceVerify do
-  # B71 CP3a S1b：IR v1 投影的作者消息/application_base provenance 标记（test-support 适配）。
-  @application_base_marker "【应用数据"
-  @author_section_placeholder "（本轮作者原话见独立 user 消息）"
   @moduledoc """
   Deterministic provider for local slice verification.
 
@@ -15,8 +12,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.StubChapterSummary
-  alias NovelAgent.Provider.SystemIdentity
   alias NovelAgent.Provider.Usage
+  alias NovelAgent.Test.Support.PendingDialogueInput
 
   @slow_work_switch_delay_ms 2_500
   @slow_work_switch_marker "SU02SLOW"
@@ -37,6 +34,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # B17 真实页面短验收：仅测试替身读取 harness env，令正文 writer 连续超时；
   # 作者点「先写第一场（500 字）」后 steer prompt 含缩小范围措辞，替身恢复成功。
   @writer_timeout_env "SLICE_VERIFY_WRITER_TIMEOUT"
+  # B71 质量卡修订真实页面：仅测试替身读取 harness env，令当前 quality_finding 局部修订的
+  # 首轮原生响应故意缺少 items；后续请求只有在同一 operation 历史里看到该调用已 failed
+  # validation（invalid_items）后才返回合法修订。默认关闭，且不识别 slice id/turn/时间。
+  @quality_revision_retry_env "SLICE_VERIFY_QUALITY_REVISION_RETRY"
+  # B71 失败历史正式负例：仅 test-support 在显式 env + 作者文本标记同时出现时，
+  # 把已唯一选中的合法目标替换为受控非法 ref，使真实 Gateway 仍走
+  # target_not_available 的两次判断失败路径；正常场景不命中。
+  @pending_invalid_ref_env "SLICE_VERIFY_PENDING_INVALID_REF"
+  @pending_invalid_ref_marker "B71_INVALID_PENDING_REF"
+  @pending_invalid_ref "artifact:b71-explicit-invalid-target"
+  @specialized_tools ~w(submit_tentative_artifact report_quality_findings agent_plan_draft agent_plan_revision chapter_mission planning_mission)
   # B23 CP5 真实页面场景：仅测试替身读取 harness env，令判断循环判 plan、计划起草与
   # 首轮修订都只排只读步（无产出步）→ replan 预算耗尽后机械停等
   # `plan_exhausted_without_completion`；作者 steer 文本带「按已核对结果先出方案」
@@ -59,16 +67,24 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   @impl true
   def complete(state, model, prompt, params) do
+    run_fixture(state, model, prompt, params, nil)
+  end
+
+  # 单次 fixture 执行与记录的唯一路径：完整/执行两个回调都从这里进出，
+  # 一次回调只写一条同次请求/响应配对。直接 complete 没有执行 ctx，引用保持未绑定。
+  defp run_fixture(state, model, prompt, params, ctx) do
     prompt_text = prompt_text(prompt)
 
-    # 仅 test/support：所有分支统一留同次 prompt 字节，author-behavior 的 supplied 判定
-    # 不能只看页面输入或产品自报。日志目录只由外部 harness 注入。
-    log_received_prompt(prompt_text, prompt)
+    result =
+      case author_behavior_result(prompt, prompt_text) do
+        nil -> complete_core(state, model, prompt, params, prompt_text)
+        {:ok, result} -> {:ok, result}
+      end
 
-    case author_behavior_result(prompt_text) do
-      nil -> complete_core(state, model, prompt, params, prompt_text)
-      {:ok, result} -> {:ok, result}
-    end
+    # 仅 test/support：所有分支统一留同次 prompt 字节与真实结果，author-behavior 的
+    # supplied 判定不能只看页面输入或产品自报。日志目录只由外部 harness 注入。
+    record_exchange(prompt_text, prompt, model, params, ctx, result)
+    result
   end
 
   # B70/B73：corpus-aware 确定性分支（仅当 harness 设置 AUTHOR_BEHAVIOR_CORPUS_JSON）。
@@ -82,7 +98,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     with :ok <- maybe_fail_provider_execution_prompt(prompt_text),
          :ok <- maybe_fail_tool_failure_prompt(prompt_text),
          :ok <- maybe_fail_summary_prompt(prompt_text),
-         :ok <- maybe_fail_writer_timeout_prompt(prompt_text) do
+         :ok <- maybe_fail_writer_timeout_prompt(prompt, prompt_text) do
       maybe_fail_plan_draft_prompt(prompt_text)
     end
     |> case do
@@ -98,9 +114,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # 刺激源与判据独立（external acceptance design §196）：只读 fixtures.yml 导出的
   # “表达→最小动作”映射，不读 case expected/oracle；判卷由 author_behavior oracle 独立完成。
-  defp author_behavior_result(prompt_text) do
+  defp author_behavior_result(prompt, prompt_text) do
+    material = PendingDialogueInput.material_text(prompt, prompt_text)
+
     match_text =
-      if judgment_prompt?(prompt_text), do: judgment_author_input(prompt_text), else: prompt_text
+      if judgment_prompt?(prompt_text), do: judgment_author_input(material), else: prompt_text
 
     with path when is_binary(path) and path != "" <- System.get_env(@author_behavior_env),
          fixtures when is_list(fixtures) and fixtures != [] <- author_behavior_fixtures(path),
@@ -108,10 +126,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
            Enum.find(fixtures, fn entry -> String.contains?(match_text, entry["expression"]) end) do
       cond do
         judgment_prompt?(prompt_text) ->
-          author_behavior_stimulus(fixture, prompt_text)
+          author_behavior_stimulus(fixture, material)
 
         profile_routing_prompt?(prompt_text) ->
-          author_behavior_profile_stimulus(fixture, prompt_text)
+          author_behavior_profile_stimulus(fixture, material)
 
         true ->
           nil
@@ -175,14 +193,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     role = Map.get(fixture, "target_role", "original")
 
     target =
-      (message_state_facts(prompt_text)["pending_adoptions"] || [])
+      prompt_text
+      |> PendingDialogueInput.candidates()
       |> Enum.find(fn entry ->
         if role == "revision",
-          do: not is_nil(entry["revision_of"]),
-          else: is_nil(entry["revision_of"])
+          do: not is_nil(entry.revision_of),
+          else: is_nil(entry.revision_of)
       end)
 
-    Map.put(arguments, "pending_artifact_ref", target && target["artifact_ref"])
+    Map.put(arguments, "pending_artifact_ref", target && target.ref)
   end
 
   defp author_behavior_pending_arguments(arguments, _fixture, _prompt_text, _capability),
@@ -232,7 +251,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     initial_events = AdapterExecution.initial_events(ctx)
     AdapterExecution.emit_events(ctx, initial_events, :running)
 
-    case complete(state, model, prompt, params) do
+    case run_fixture(state, model, prompt, params, ctx) do
       {:ok, %Result{content: content} = result} ->
         chunk_events =
           AdapterExecution.text_chunk_events(ctx, content, length(initial_events) + 1)
@@ -529,7 +548,166 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     String.contains?(prompt, "无需代价") and String.contains?(prompt, "违反既有规则")
   end
 
+  # 首轮注入只看当前 operation scope、env 与该 operation 自己的历史；不设全局计数器，
+  # 也不按调用时间/turn/slice id 猜。源 writer/evaluator/其它任务没有质量修订段，不命中。
+  defp quality_revision_retry_invalid?(scope, prompt) do
+    System.get_env(@quality_revision_retry_env) == "1" and
+      local_quality_revision_prompt?(scope) and
+      not failed_quality_revision_validation?(prompt)
+  end
+
+  defp local_quality_revision_prompt?(text) when is_binary(text) do
+    String.contains?(text, "[质量修订要求]") and
+      String.contains?(text, "本次修订范围：局部修订") and
+      String.contains?(text, "原句：") and
+      String.contains?(text, "capability：prose_writing") and
+      String.contains?(text, "artifact_type：prose_fragment")
+  end
+
+  defp local_quality_revision_prompt?(_text), do: false
+
+  defp invalid_quality_revision_result(scope) do
+    Result.new("", usage_for(scope, ""),
+      tool_calls: [
+        %{
+          id: "native-submit_tentative_artifact",
+          name: "submit_tentative_artifact",
+          arguments: %{}
+        }
+      ]
+    )
+  end
+
+  # 只在最新 scope_update 之后找同 operation 的调用与 validation；更早阶段的失败不计数。
+  defp failed_quality_revision_validation?(prompt) when is_map(prompt) or is_list(prompt) do
+    history =
+      prompt
+      |> NovelAgent.Provider.normalize_messages()
+      |> current_operation_history()
+
+    call_ids = quality_revision_call_ids(history)
+
+    Enum.any?(history, fn message ->
+      message.role == "tool" and
+        Map.get(message, :tool_call_id) in call_ids and
+        invalid_items_failure?(Map.get(message, :content))
+    end)
+  end
+
+  defp failed_quality_revision_validation?(_prompt), do: false
+
+  defp current_operation_history(messages) do
+    index =
+      messages
+      |> Enum.with_index()
+      |> Enum.reverse()
+      |> Enum.find_value(fn {message, index} ->
+        if scope_update_message?(message), do: index
+      end)
+
+    if is_integer(index), do: Enum.drop(messages, index + 1), else: []
+  end
+
+  defp scope_update_message?(%{role: "user", content: content}) when is_binary(content),
+    do: String.starts_with?(content, "【应用数据 · scope_update")
+
+  defp scope_update_message?(_message), do: false
+
+  defp quality_revision_call_ids(history) do
+    for message <- history,
+        message.role == "assistant",
+        call <- List.wrap(Map.get(message, :tool_calls)),
+        native_call_name(call) == "submit_tentative_artifact",
+        id = native_call_id(call),
+        is_binary(id),
+        do: id
+  end
+
+  defp native_call_name(%{"function" => %{"name" => name}}), do: name
+  defp native_call_name(%{function: %{name: name}}), do: name
+  defp native_call_name(%{"name" => name}), do: name
+  defp native_call_name(%{name: name}), do: name
+  defp native_call_name(_call), do: nil
+
+  defp native_call_id(%{"id" => id}) when is_binary(id), do: id
+  defp native_call_id(%{id: id}) when is_binary(id), do: id
+  defp native_call_id(_call), do: nil
+
+  defp invalid_items_failure?(content) when is_binary(content) do
+    case Jason.decode(content) do
+      {:ok,
+       %{
+         "type" => "validation_result",
+         "status" => "failed",
+         "reason_code" => "invalid_items"
+       }} ->
+        true
+
+      _ ->
+        false
+    end
+  end
+
+  defp invalid_items_failure?(_content), do: false
+
   defp response_result(prompt, prompt_text) do
+    case current_specialized_tool(prompt) do
+      nil ->
+        general_response_result(prompt, prompt_text)
+
+      tool ->
+        specialized_response_result(
+          tool,
+          NovelAgent.Provider.operation_prompt_text(prompt),
+          prompt
+        )
+    end
+  end
+
+  # 判断工具目录也可包含计划提案；只有本次单工具目录或显式具名选择才切换专业阶段。
+  defp current_specialized_tool(prompt) do
+    case NovelAgent.Provider.active_tool_name(prompt) do
+      name when name in @specialized_tools -> name
+      _ -> nil
+    end
+  end
+
+  defp specialized_response_result(tool, text, prompt)
+
+  defp specialized_response_result("agent_plan_draft", text, _prompt),
+    do: agent_plan_draft_result(text)
+
+  defp specialized_response_result("agent_plan_revision", text, _prompt),
+    do: agent_plan_revision_result(text)
+
+  defp specialized_response_result("submit_tentative_artifact", text, prompt) do
+    # 首操作保留 Base（其中可能有排版/修订纪律），但质量修订的材料必须取当前 scope；
+    # 首操作历史里可能还带着源 writer 的 scope，不能用更早的锚点取原正文。
+    if quality_revision_retry_invalid?(text, prompt) do
+      invalid_quality_revision_result(text)
+    else
+      content =
+        if local_quality_revision_prompt?(text) do
+          quality_revision_items(current_scope(prompt, text))
+        else
+          creative_items_response(text)
+        end
+
+      native_tool_result(text, "submit_tentative_artifact", content)
+    end
+  end
+
+  defp specialized_response_result("report_quality_findings", text, _prompt),
+    do: native_tool_result(text, "report_quality_findings", quality_evaluator_response(text))
+
+  defp specialized_response_result(tool, text, _prompt), do: mission_result(tool, text)
+
+  defp current_scope(prompt, text) when is_map(prompt) or is_list(prompt),
+    do: NovelAgent.Provider.latest_scope_text(prompt) || text
+
+  defp current_scope(_prompt, text), do: text
+
+  defp general_response_result(prompt, prompt_text) do
     cond do
       continuation_prompt?(prompt_text) ->
         continuation_result(prompt, prompt_text)
@@ -548,17 +726,30 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # VS-00F CP1（AU-13）+ B27 CP3d：章摘要确定性四栏唯一真源在
   # `NovelAgent.Provider.StubChapterSummary`（stub 与 SliceVerify 共用，避免双份漂移）。
   # B26 判断①：一次 auto 响应同时给出公开文本与可选原生工具。
-  defp judgment_result(_prompt, prompt_text) do
-    input = judgment_author_input(prompt_text)
+  defp judgment_result(prompt, prompt_text) do
+    # 统一当前材料视图：只带当前 scope（或本轮无 scope 请求）与当前作者原话，
+    # 不再把扁平历史传给后续意图/目标逻辑，避免旧 scope 或作者引用 JSON 被当授权。
+    material = PendingDialogueInput.material_text(prompt, prompt_text)
+    input = PendingDialogueInput.author_text(material)
 
     if plan_protocol_mode(input) != nil do
       plan_protocol_judgment(input)
     else
-      judgment_result_cond(prompt_text, input)
+      judgment_result_cond(material, input)
     end
   end
 
   defp judgment_result_cond(prompt_text, input) do
+    # B71：先识别“登记作者原文/处理现有候选”这类明确操作，再识别内容里的
+    # 角色/设定等名词；否则“存档为作品设定：主角……”会被 character_design 抢走。
+    if registration_or_candidate_handling_request?(prompt_text) do
+      regular_judgment_result(prompt_text)
+    else
+      judgment_result_cond_without_registration(prompt_text, input)
+    end
+  end
+
+  defp judgment_result_cond_without_registration(prompt_text, input) do
     cond do
       # B30 CP4：结构维护意图直接产出 execute/ask_author（不经过 generic 叙事覆盖，
       # 澄清问题保留具体卷号/当前卷数）；B28/Q1c 不命中该意图。
@@ -998,14 +1189,51 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # 判断②（ADR-0025 CP3a）：单调用续行——计划耗尽（D6 语义）判 continue
   # 补产出步；其余偏离（质量/门禁/缺章/工具故障）裁决权在作者，判 await_author。
-  defp maybe_fail_writer_timeout_prompt(prompt_text) do
-    if System.get_env(@writer_timeout_env) == "1" and prose_fragment_prompt?(prompt_text) and
-         not writer_timeout_retry_prompt?(prompt_text) do
+  defp maybe_fail_writer_timeout_prompt(prompt, prompt_text) do
+    scope = writer_timeout_scope(prompt, prompt_text)
+
+    if System.get_env(@writer_timeout_env) == "1" and is_binary(scope) and
+         not writer_timeout_retry_prompt?(scope) do
       {:error, %{type: :timeout, message: "fixture writer timeout"}}
     else
       :ok
     end
   end
+
+  # 故障只绑定当前请求；canonical 历史原样用于日志和响应，不能作为当前 writer 的判据。
+  defp writer_timeout_scope(prompt, prompt_text) do
+    cond do
+      current_writer_tool?(prompt) ->
+        scope = NovelAgent.Provider.latest_scope_text(prompt)
+        if current_prose_scope?(scope), do: scope
+
+      legacy_without_tools?(prompt) and prose_fragment_prompt?(prompt_text) ->
+        prompt_text
+
+      true ->
+        nil
+    end
+  end
+
+  defp current_writer_tool?(prompt) do
+    NovelAgent.Provider.active_tool_name(prompt) == "submit_tentative_artifact"
+  end
+
+  defp legacy_without_tools?(prompt) do
+    canonical? =
+      is_map(prompt) and (Map.has_key?(prompt, :ir_version) or Map.has_key?(prompt, "ir_version"))
+
+    not canonical? and NovelAgent.Provider.tool_specs(prompt) == []
+  end
+
+  defp current_prose_scope?(scope) when is_binary(scope) do
+    case Regex.run(~r/^artifact_type：([^\r\n]+)$/mu, scope) do
+      [_, artifact_type] -> String.trim(artifact_type) == "prose_fragment"
+      _ -> false
+    end
+  end
+
+  defp current_prose_scope?(_scope), do: false
 
   defp writer_timeout_retry_prompt?(text) do
     String.contains?(text, "先只写当前章的第一个场景") or
@@ -1114,14 +1342,57 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 并刻意多给一条越界依据（模型常见失误形态），由 app 侧绑定过滤机械丢弃。
   defp non_judgment_response_result(prompt, prompt_text) do
     if chapter_mission_prompt?(prompt_text) and NovelAgent.Provider.tool_call_prompt?(prompt) do
-      chapter_mission_result(prompt, prompt_text)
+      mission_result(NovelAgent.Provider.tool_choice(prompt) || "chapter_mission", prompt_text)
     else
       plan_or_default_response_result(prompt, prompt_text)
     end
   end
 
+  defp native_creative_tool?(prompt, name) do
+    prompt
+    |> NovelAgent.Provider.tool_specs()
+    |> Enum.any?(&(&1.name == name))
+  end
+
+  defp native_tool_result(prompt_text, name, content) when not is_binary(content),
+    do: native_tool_result(prompt_text, name, Jason.encode!(content))
+
+  defp native_tool_result(prompt_text, name, content) do
+    case Jason.decode(content) do
+      {:ok, payload} ->
+        arguments =
+          cond do
+            is_list(payload) -> %{items: payload}
+            is_map(payload) and is_map_key(payload, "items") -> payload
+            name == "report_quality_findings" -> payload
+            true -> %{items: [payload]}
+          end
+
+        Result.new("", usage_for(prompt_text, ""),
+          tool_calls: [%{id: "native-#{name}", name: name, arguments: arguments}]
+        )
+
+      _ ->
+        Result.new("invalid native fixture", usage_for(prompt_text, "invalid"), tool_calls: [])
+    end
+  end
+
   defp plan_or_default_response_result(prompt, prompt_text) do
     cond do
+      native_creative_tool?(prompt, "submit_tentative_artifact") ->
+        specialized_response_result(
+          "submit_tentative_artifact",
+          NovelAgent.Provider.operation_prompt_text(prompt),
+          prompt
+        )
+
+      native_creative_tool?(prompt, "report_quality_findings") ->
+        specialized_response_result(
+          "report_quality_findings",
+          NovelAgent.Provider.operation_prompt_text(prompt),
+          prompt
+        )
+
       agent_plan_revision_prompt?(prompt_text) and NovelAgent.Provider.tool_call_prompt?(prompt) ->
         agent_plan_revision_result(prompt_text)
 
@@ -1139,7 +1410,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp chapter_mission_prompt?(text),
     do: String.contains?(text, "写前推理器") or String.contains?(text, "规划前推理器")
 
-  defp chapter_mission_result(prompt, text) do
+  defp mission_result(tool, text) do
     refs =
       ~r/\[([a-z_]+:[^\]\s]+)\]/u
       |> Regex.scan(text)
@@ -1161,14 +1432,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       ]
       |> Enum.reject(&(&1 in [nil, false]))
 
-    planning? = String.contains?(text, "规划前推理器")
+    planning? = tool == "planning_mission"
     reasoning = mission_reasoning(planning?, foreshadow, arc)
     statement = mission_statement(planning?, foreshadow)
 
     Result.new(reasoning, nil,
       tool_calls: [
         %{
-          "name" => NovelAgent.Provider.tool_choice(prompt) || "chapter_mission",
+          "name" => tool,
           "arguments" => %{
             "author_reasoning" => reasoning,
             "statement" => statement,
@@ -2341,6 +2612,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp creative_content_items(prompt, brief, context) do
+    if local_quality_revision_prompt?(prompt) do
+      # B71 质量卡修订：只改 finding 命中的句段，范围外逐字节保留；不输出普通首稿。
+      quality_revision_items(prompt)
+    else
+      creative_content_items_cond(prompt, brief, context)
+    end
+  end
+
+  defp creative_content_items_cond(prompt, brief, context) do
     cond do
       # B28 CP1.5：章级修订任务（chapter-scoped）确定性产出覆盖顺序完整稿。
       # format_only：返回整章基线原文（允许的空白归一后等价）；content_revision：
@@ -2444,10 +2724,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp chapter_revision_prompt?(prompt) do
-    String.contains?(prompt, "整章仅排版修订（format_only）") or
-      String.contains?(prompt, "整章正文修订") or
-      String.contains?(prompt, "整章内容修订") or
-      String.contains?(prompt, "指定片段/段落内容修订")
+    Enum.any?(
+      ["## 整章仅排版修订（format_only）", "## 整章正文修订", "## 整章内容修订", "## 指定片段/段落内容修订"],
+      &String.contains?(prompt, &1)
+    )
   end
 
   defp chapter_revision_items(prompt, brief, context) do
@@ -2511,23 +2791,130 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end)
   end
 
-  defp log_received_prompt(prompt_text, prompt) do
+  # B71：真实质量卡修订 fixture。原文取自当前 operation scope 的「上下文」精确字节，
+  # 范围只取修订要求里的「位置：第 N–M 句」；按句边界替换命中句段，命中范围前后的
+  # 字节（含换行与 nonce 行）原样拼接。本函数只在 test/support 使用，不复刻生产 ScopeGuard。
+  defp quality_revision_items(prompt) do
+    {_brief, context} = creative_prompt_parts(prompt)
+    original = context |> String.split("：\n", parts: 2) |> List.last()
+    revised = replace_sentence_ranges(original, quality_revision_ranges(prompt))
+
+    %{
+      items: [
+        %{
+          item_id: "quality_revision_#{:erlang.phash2(prompt)}",
+          title: quality_revision_title(context),
+          body: revised,
+          rationale: "仅改写质量发现命中的句段；范围外正文与原暗码逐字节保留。"
+        }
+      ],
+      self_report: %{
+        assumptions: ["按当前质量修订要求与命中范围做局部改写"],
+        intended_reader_effect: nil,
+        used_context_refs: [],
+        risk_flags: []
+      }
+    }
+  end
+
+  defp quality_revision_title(context) do
+    case Regex.run(~r/原正文(?:（(.+?)）)?：/u, context) do
+      [_, title | _] when is_binary(title) and title != "" -> "#{title}（修订）"
+      _ -> "局部修订稿"
+    end
+  end
+
+  defp quality_revision_ranges(prompt) do
+    ~r/位置：第\s*(\d+)(?:\s*[–—\-~至]\s*(\d+))?\s*句/u
+    |> Regex.scan(prompt)
+    |> Enum.flat_map(fn
+      [_, start, stop] when stop not in [nil, ""] ->
+        range(start, stop)
+
+      [_, start | _] ->
+        range(start, start)
+
+      _ ->
+        []
+    end)
+  end
+
+  defp range(start_digits, stop_digits) do
+    with start when is_integer(start) <- positive_integer(start_digits),
+         stop when is_integer(stop) and stop >= start <- positive_integer(stop_digits) do
+      [{start, stop}]
+    else
+      _ -> []
+    end
+  end
+
+  defp positive_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, ""} when integer > 0 -> integer
+      _ -> nil
+    end
+  end
+
+  defp positive_integer(value) when is_integer(value) and value > 0, do: value
+  defp positive_integer(_value), do: nil
+
+  defp replace_sentence_ranges(body, []) when is_binary(body), do: body
+
+  defp replace_sentence_ranges(body, ranges) when is_binary(body) and is_list(ranges) do
+    spans = sentence_spans(body)
+
+    ranges
+    |> Enum.map(&range_span(&1, spans))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.sort_by(fn {start, _stop} -> -start end)
+    |> Enum.reduce(body, fn {start, stop}, acc ->
+      prefix = binary_part(acc, 0, start)
+      suffix = binary_part(acc, stop, byte_size(acc) - stop)
+      prefix <> local_revision_text() <> suffix
+    end)
+  end
+
+  defp replace_sentence_ranges(body, _ranges), do: body
+
+  defp range_span({start_index, end_index}, spans) when is_integer(start_index) do
+    with {first_start, _first_stop} <- Enum.at(spans, start_index - 1),
+         {_last_start, last_stop} <- Enum.at(spans, end_index - 1) do
+      {first_start, last_stop}
+    else
+      _ -> nil
+    end
+  end
+
+  defp range_span(_range, _spans), do: nil
+
+  # 单句 = 非终止标点片段 + 一个终止标点；行首空白不并入句段，从而保留在替换范围外。
+  defp sentence_spans(body) do
+    ~r/[^。！？!?]+[。！？!?]?/u
+    |> Regex.scan(body, return: :index)
+    |> Enum.map(fn [{start, length}] ->
+      text = binary_part(body, start, length)
+      leading = byte_size(text) - byte_size(String.trim_leading(text))
+      {start + leading, start + length}
+    end)
+    |> Enum.reject(fn {start, stop} ->
+      start >= stop or String.trim(binary_part(body, start, stop - start)) == ""
+    end)
+  end
+
+  defp local_revision_text do
+    "他猛地侧身让过刃锋，反手一刀劈在傀儡关节上；格挡的火星还没落下，退路已经被这一击撞开。"
+  end
+
+  defp record_exchange(prompt_text, prompt, model, params, ctx, result) do
     case Application.get_env(:novel_common, :llm_log_dir) do
       dir when is_binary(dir) and dir != "" ->
         File.mkdir_p!(dir)
-        file = Path.join(dir, "#{Date.utc_today()}.jsonl")
+        file = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
 
         line =
-          Jason.encode!(%{
-            ts: DateTime.utc_now() |> DateTime.to_iso8601(),
-            provider: "slice_verify",
-            prompt: prompt_text,
-            tools: if(is_map(prompt), do: Map.get(prompt, :tools, []), else: []),
-            tool_choice: if(is_map(prompt), do: Map.get(prompt, :tool_choice), else: nil),
-            work_id: Logger.metadata()[:work_id],
-            session_id: Logger.metadata()[:session_id],
-            turn_id: Logger.metadata()[:turn_id]
-          })
+          exchange_record(prompt_text, prompt, model, params, ctx, result)
+          |> Jason.encode!()
 
         File.write!(file, line <> "\n", [:append])
 
@@ -2536,7 +2923,76 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   rescue
     _error -> :ok
+  catch
+    _kind, _reason -> :ok
   end
+
+  # 旧顶层字段保持原样供既有 consumer 读取；response 与执行引用是同次追加证据。
+  # 本地 fixture 明确标注格式，不伪装成 HTTP 响应；provider_state 不落日志。
+  defp exchange_record(prompt_text, prompt, model, params, ctx, result) do
+    tools = if(is_map(prompt), do: Map.get(prompt, :tools, []), else: [])
+    tool_choice = if(is_map(prompt), do: Map.get(prompt, :tool_choice), else: nil)
+    refs = execution_refs(ctx)
+
+    %{
+      ts: DateTime.utc_now() |> DateTime.to_iso8601(),
+      provider: "slice_verify",
+      prompt: prompt_text,
+      request_format: "provider_prompt/v1",
+      response_format: "fixture_provider_result/v1",
+      request_body: %{
+        messages: NovelAgent.Provider.normalize_messages(prompt),
+        tools: tools,
+        tool_choice: tool_choice
+      },
+      tools: tools,
+      tool_choice: tool_choice,
+      model: model,
+      inference_params: plain(params),
+      work_id: Logger.metadata()[:work_id],
+      session_id: Logger.metadata()[:session_id],
+      turn_id: Logger.metadata()[:turn_id],
+      provider_call_ref: refs.call,
+      provider_run_ref: refs.run
+    }
+    |> Map.merge(response_record(result))
+  end
+
+  defp execution_refs(ctx) when is_map(ctx) do
+    %{
+      call: Map.get(ctx, :provider_call_ref),
+      run: Map.get(ctx, :provider_run_id)
+    }
+  end
+
+  defp execution_refs(_ctx), do: %{call: nil, run: nil}
+
+  defp response_record({:ok, %Result{} = result}) do
+    %{
+      response: %{
+        status: "ok",
+        body: %{
+          content: result.content,
+          tool_calls: plain(result.tool_calls),
+          usage: plain(result.usage)
+        }
+      }
+    }
+  end
+
+  defp response_record({:error, error}) do
+    %{response: %{status: "error", body: %{error: plain(error)}}}
+  end
+
+  # 把 fixture 返回的结构体归一成可编码纯数据；原生 id 与 raw arguments 原样保留。
+  defp plain(%_{} = struct), do: struct |> Map.from_struct() |> plain()
+
+  defp plain(map) when is_map(map),
+    do: Map.new(map, fn {key, value} -> {plain(key), plain(value)} end)
+
+  defp plain(list) when is_list(list), do: Enum.map(list, &plain/1)
+  defp plain(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> Enum.map(&plain/1)
+  defp plain(value), do: value
 
   defp character_evolution_seed_prompt?(prompt),
     do: String.contains?(prompt, "artifact_type：character_evolution_seed")
@@ -3017,6 +3473,80 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     "readonly_batch_context_v1" => "work_archive_read"
   }
 
+  # B71/G5：作者资料/候选处置是同一类“当前材料意图”，优先于内容里的角色/设定
+  # 名词识别，也优先于泛化章节进度匹配。唯一分流点只区分登记原文、修订/放弃候选、
+  # 查询资料/候选处置状态；只读当前作者原话与当前 scope 供给状态，不读 DB/ctx，
+  # 不靠排除词、nonce 或 slice id。
+  defp material_intent(prompt) do
+    input = judgment_author_input(prompt)
+
+    cond do
+      not is_nil(lifecycle_operation(input)) -> :lifecycle
+      registration_source_request?(input) -> :registration
+      material_status_query?(prompt, input) -> :status
+      true -> nil
+    end
+  end
+
+  defp registration_source_request?(input) do
+    contains_any?(input, [
+      "先只记录这份资料",
+      "上一条资料原文",
+      "重复登记同源样例"
+    ])
+  end
+
+  defp material_status_query?(prompt, input) do
+    material_object? = contains_any?(input, ["资料", "候选", "处置", "采纳", "放弃", "登记"])
+
+    status_word? =
+      contains_any?(input, [
+        "进度",
+        "状态",
+        "怎么样",
+        "如何",
+        "结果",
+        "数量",
+        "情况",
+        "处理到",
+        "咋样",
+        "怎样"
+      ])
+
+    chapter_object? =
+      contains_any?(input, ["章节", "章", "正文", "草稿", "全书", "多少字", "写到哪", "写完"])
+
+    cond do
+      contains_any?(input, ["读取结果回顾", "会话候选数量", "没说是哪份"]) -> true
+      material_object? and status_word? -> true
+      generic_progress_query?(input) and not chapter_object? -> material_scope_supplied?(prompt)
+      true -> false
+    end
+  end
+
+  defp generic_progress_query?(input) do
+    contains_any?(input, [
+      "进度怎么样",
+      "进度如何",
+      "处理进度",
+      "当前进度",
+      "进展怎么样",
+      "进展如何"
+    ])
+  end
+
+  defp material_scope_supplied?(prompt) do
+    PendingDialogueInput.material_state(prompt).supplied?
+  end
+
+  # B71：登记原文与候选处置是“操作”，优先于内容里的角色/设定名词识别。
+  # 仅看当前作者输入；不读未提供给模型的 DB/ctx。
+  defp registration_or_candidate_handling_request?(prompt) do
+    normalized = String.downcase(judgment_author_input(prompt))
+
+    archive_write_text?(normalized) or not is_nil(material_intent(prompt))
+  end
+
   defp judgment_verdict(prompt) do
     author_text = judgment_author_input(prompt)
     normalized = String.downcase(author_text)
@@ -3110,12 +3640,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       String.contains?(author_text, "不要直接写入作品档案")
   end
 
-  defp judgment_author_input(prompt) do
-    case Regex.run(~r/##\s*作者输入\s*\n(.*?)(?:\n##|\z)/su, prompt) do
-      [_, author_text] -> String.trim(author_text)
-      _ -> prompt
-    end
-  end
+  defp judgment_author_input(prompt), do: PendingDialogueInput.author_text(prompt)
 
   defp judgment_narrative_result(prompt) do
     narrative =
@@ -3924,7 +4449,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     author_text = judgment_author_input(prompt)
 
     narrative =
-      "我会按你的要求设计一个待采纳的角色候选（含结构化 narrative_role），确认前不会写入作品事实。"
+      "我会按你的要求设计一个待采纳的角色候选，并说明角色的叙事身份，确认前不会写入作品事实。"
 
     Result.new(narrative, nil,
       tool_calls: [
@@ -4191,33 +4716,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     "这件事需要多个相互依赖的步骤；我会先制定一份可预览的计划再逐步推进。"
   end
 
-  # 外部多轮场景的确定性提供者：从实际上下文选来源与状态，生产 provider 不含此逻辑。
-  defp message_state_request?(prompt) do
-    input = judgment_author_input(prompt)
+  # 外部多轮场景的确定性提供者：统一材料意图由 `material_intent/1` 拥有，
+  # 这里只保留既有调用点语义（回复、参数、叙事都消费同一决定）。
+  defp message_state_request?(prompt), do: not is_nil(material_intent(prompt))
 
-    contains_any?(input, [
-      "先只记录这份资料",
-      "上一条资料原文",
-      "资料处理进度",
-      "读取结果回顾",
-      "会话候选数量",
-      "请修改现有候选",
-      "请放弃原候选",
-      "请放弃修订稿",
-      "没说是哪份"
-    ])
-  end
-
-  defp message_state_facts(prompt) do
-    prompt
-    |> String.split("\n")
-    |> Enum.find_value(%{}, fn line ->
-      case Jason.decode(String.trim(line)) do
-        {:ok, %{"author_inputs" => _} = facts} -> facts
-        _ -> nil
-      end
-    end)
-  end
+  defp message_state_facts(prompt), do: PendingDialogueInput.message_state_facts(prompt)
 
   defp message_state_arguments(arguments, prompt) do
     if message_state_request?(prompt) do
@@ -4267,41 +4770,185 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       )
   end
 
+  @generic_target_hints ~w(候选 修订稿 原稿 设定 资料 内容 正文 角色 大纲)
+
   defp pending_lifecycle_arguments(arguments, prompt) do
     input = judgment_author_input(prompt)
-    pending = message_state_facts(prompt)["pending_adoptions"] || []
 
-    operation = lifecycle_operation(input)
-    target = lifecycle_target(pending, input)
+    case pending_lifecycle_plan(prompt) do
+      nil ->
+        arguments
 
-    cond do
-      String.contains?(input, "没说是哪份") ->
-        Map.merge(arguments, %{
-          "action" => "await_author",
-          "frame_type" => "meta_discussion",
-          "candidate_directions" => []
-        })
-
-      operation ->
+      %{status: :ready, operation: operation, target: target} ->
         Map.merge(arguments, %{
           "action" => "execute",
           "capability" => operation,
-          "dialogue_goal" =>
-            if(operation == "revise_pending_artifact",
-              do: "把沈砚改成林渡，保留其余内容和校验标识，只生成修订候选。",
-              else: "放弃指定候选，不写入作品事实。"
-            ),
+          "dialogue_goal" => input,
           "frame_type" => nil,
-          "pending_artifact_ref" => target && target["artifact_ref"],
+          "pending_artifact_ref" => pending_target_ref(target, input),
           "author_content_registration" => false,
           "record_only" => false,
           "candidate_directions" => []
         })
 
-      true ->
-        arguments
+      %{operation: operation, status: reason} ->
+        Map.merge(arguments, %{
+          "action" => "await_author",
+          "capability" => nil,
+          "dialogue_goal" => lifecycle_clarification(operation, reason),
+          "frame_type" => "meta_discussion",
+          "pending_artifact_ref" => nil,
+          "author_content_registration" => false,
+          "record_only" => false,
+          "candidate_directions" => []
+        })
     end
   end
+
+  # 唯一决策点：目录 + 操作 + 作者明示对象 → ready / 诚实澄清。
+  # 不按 first/latest 猜，也不把缺失 revision_of 当成原稿。
+  defp pending_lifecycle_plan(prompt) do
+    input = judgment_author_input(prompt)
+
+    case lifecycle_operation(input) do
+      nil -> nil
+      operation -> pending_lifecycle_plan_for_operation(operation, prompt, input)
+    end
+  end
+
+  defp pending_lifecycle_plan_for_operation(operation, prompt, input) do
+    all = PendingDialogueInput.candidates(prompt)
+    eligible = Enum.filter(all, &(operation in &1.operations))
+
+    cond do
+      String.contains?(input, "没说是哪份") ->
+        %{operation: operation, target: nil, status: :ambiguous}
+
+      PendingDialogueInput.candidate_state(prompt) == :bad_format ->
+        %{operation: operation, target: nil, status: :bad_format}
+
+      all == [] ->
+        %{operation: operation, target: nil, status: :no_candidates}
+
+      eligible == [] ->
+        %{operation: operation, target: nil, status: :operation_unavailable}
+
+      true ->
+        case select_lifecycle_target(eligible, input, operation) do
+          {:ok, target} -> %{operation: operation, target: target, status: :ready}
+          {:error, reason} -> %{operation: operation, target: nil, status: reason}
+        end
+    end
+  end
+
+  defp select_lifecycle_target(candidates, input, operation) do
+    candidates = lifecycle_candidates_for_operation(candidates, input, operation)
+    hints = lifecycle_target_hints(input, candidates)
+
+    cond do
+      candidates == [] ->
+        {:error, :operation_unavailable}
+
+      hints == [] and length(candidates) == 1 ->
+        {:ok, hd(candidates)}
+
+      hints == [] ->
+        {:error, :ambiguous}
+
+      true ->
+        case matching_lifecycle_candidates(candidates, hints) do
+          [target] -> {:ok, target}
+          [] -> {:error, :target_mismatch}
+          _ -> {:error, :ambiguous}
+        end
+    end
+  end
+
+  defp lifecycle_candidates_for_operation(candidates, input, "discard_pending_artifact") do
+    if String.contains?(input, "请放弃修订稿") do
+      Enum.filter(candidates, &(not is_nil(&1.revision_of)))
+    else
+      candidates
+    end
+  end
+
+  defp lifecycle_candidates_for_operation(candidates, _input, _operation), do: candidates
+
+  defp matching_lifecycle_candidates(candidates, hints) do
+    Enum.filter(candidates, fn candidate ->
+      Enum.any?(hints, &candidate_mentions?(candidate, &1))
+    end)
+  end
+
+  defp lifecycle_target_hints(input, candidates) do
+    rename_hints =
+      case Regex.run(~r/把(.{1,40}?)(?:改成|改为|换成|换为)/u, input) do
+        [_, source] -> [source]
+        _ -> []
+      end
+
+    quoted_hints =
+      ~r/「([^」]{2,})」|“([^”]{2,})”|"([^"]{2,})"/u
+      |> Regex.scan(input)
+      |> Enum.flat_map(fn captures -> captures |> tl() |> Enum.reject(&(&1 in [nil, ""])) end)
+
+    title_hints =
+      Enum.flat_map(candidates, fn candidate ->
+        title = candidate.title
+
+        if is_binary(title) and String.length(title) >= 2 and String.contains?(input, title) do
+          [title]
+        else
+          []
+        end
+      end)
+
+    (rename_hints ++ quoted_hints ++ title_hints)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == "" or &1 in @generic_target_hints))
+    |> Enum.uniq()
+  end
+
+  defp candidate_mentions?(candidate, hint) do
+    String.contains?(candidate.title || "", hint) or
+      String.contains?(candidate.body_preview || "", hint)
+  end
+
+  defp pending_target_ref(target, input) do
+    if System.get_env(@pending_invalid_ref_env) == "1" and
+         String.contains?(input, @pending_invalid_ref_marker) do
+      @pending_invalid_ref
+    else
+      target.ref
+    end
+  end
+
+  defp lifecycle_clarification("revise_pending_artifact", :no_candidates),
+    do: "当前没有可修改的待采纳候选；请先确认要修改哪一份，当前不会执行修改。"
+
+  defp lifecycle_clarification("revise_pending_artifact", :operation_unavailable),
+    do: "当前候选目录没有提供修改操作；请确认要处理的对象，当前不会执行修改。"
+
+  defp lifecycle_clarification("revise_pending_artifact", :ambiguous),
+    do: "我看到多个可修改的候选，无法唯一确定要改哪一份；请说明目标候选，当前不会执行修改。"
+
+  defp lifecycle_clarification("discard_pending_artifact", :no_candidates),
+    do: "当前没有可放弃的待采纳候选；请确认要放弃哪一份，当前不会执行放弃。"
+
+  defp lifecycle_clarification("discard_pending_artifact", :operation_unavailable),
+    do: "当前候选目录没有提供放弃操作；请确认要处理的对象，当前不会执行放弃。"
+
+  defp lifecycle_clarification("discard_pending_artifact", :ambiguous),
+    do: "我看到多个可放弃的候选，无法唯一确定目标；请说明要放弃哪一份，当前不会执行放弃。"
+
+  defp lifecycle_clarification(_operation, :target_mismatch),
+    do: "你点名的目标不在当前候选目录中；请确认目标候选，当前不会执行操作。"
+
+  defp lifecycle_clarification(_operation, :bad_format),
+    do: "当前候选目录格式无法解析，不能安全选择目标；请说明要处理的候选，当前不会执行操作。"
+
+  defp lifecycle_clarification(_operation, _reason),
+    do: "请说明要处理的候选，当前不会执行操作。"
 
   defp lifecycle_operation(input) do
     cond do
@@ -4310,14 +4957,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       String.contains?(input, "请放弃修订稿") -> "discard_pending_artifact"
       true -> nil
     end
-  end
-
-  defp lifecycle_target(pending, input) do
-    Enum.find(pending, fn entry ->
-      if String.starts_with?(input, "请放弃修订稿"),
-        do: entry["revision_of"] != nil,
-        else: entry["revision_of"] == nil and String.contains?(entry["body_preview"] || "", "沈砚")
-    end)
   end
 
   @doc """
@@ -4626,7 +5265,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
     source_adoptions = registration_adoptions(facts)
 
-    lifecycle_narrative(input, facts) ||
+    lifecycle_narrative(prompt, input, facts) ||
       cond do
         String.contains?(input, "会话候选数量") ->
           "当前待采纳 #{facts["pending_adoption_count"]} 份，已处置 #{facts["resolved_adoption_count"]} 份，摘要省略 #{facts["omitted_adoptions"]} 份。"
@@ -4651,27 +5290,128 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       end
   end
 
-  defp lifecycle_narrative(input, facts) do
+  defp lifecycle_narrative(prompt, input, _facts) do
     cond do
-      String.contains?(input, "资料处理进度") ->
-        "待采纳 #{facts["pending_adoption_count"]} 份，已处置 #{facts["resolved_adoption_count"]} 份。" <>
-          Enum.map_join(
-            (facts["pending_adoptions"] || []) ++ (facts["resolved_adoptions"] || []),
-            "；",
-            &"#{&1["status"]}：#{&1["body_preview"]}"
-          )
-
-      String.contains?(input, "请修改现有候选") ->
-        "我会按要求生成独立修订候选，保留原稿，不自动入档。"
-
-      String.contains?(input, "请放弃") ->
-        "我会放弃你指定的待采纳候选，不删除已保存的作品事实。"
-
       String.contains?(input, "没说是哪份") ->
         "请说明要修改哪份候选，当前不会执行修改。"
 
+      contains_any?(input, ["读取结果回顾", "会话候选数量"]) ->
+        nil
+
+      material_intent(prompt) == :status ->
+        material_state_narrative(prompt)
+
+      material_intent(prompt) == :lifecycle ->
+        lifecycle_plan_narrative(prompt)
+
       true ->
         nil
+    end
+  end
+
+  # 只消费当前 scope 的 material_state：pending 来自本轮目录/旧格式候选，
+  # resolved 来自当前明确状态段 JSON；不跨 scope、不读 DB/ctx。
+  defp material_state_narrative(prompt) do
+    state = PendingDialogueInput.material_state(prompt)
+
+    cond do
+      state.state == :bad_format ->
+        "本轮 scope 的候选目录格式无法解析；我无法确认待采纳或已处置数量，" <>
+          "也不会猜、不会用历史材料或章节统计补状态。"
+
+      state.supplied? ->
+        material_summary(state) <>
+          material_entry_sections(state) <>
+          material_omitted_note(state) <>
+          "以上只来自本轮 scope 的实际处置事实；采纳/放弃以候选卡与账本为准，不是我重新执行的操作。"
+
+      true ->
+        "本轮 scope 没有提供当前作者资料/候选的处置状态；我无法确认待采纳或已处置数量，" <>
+          "也不会用历史材料或章节统计补状态。"
+    end
+  end
+
+  defp material_summary(state) do
+    accepted = Enum.count(state.resolved, &accepted_material_status?/1)
+    discarded = Enum.count(state.resolved, &discarded_material_status?/1)
+
+    "待采纳 #{state.pending_count} 份；已处置 #{state.resolved_count} 份" <>
+      "（ACCEPTED #{accepted} 份、DISCARDED #{discarded} 份）。" <>
+      if(state.pending_count == 0,
+        do: "当前没有待采纳候选。",
+        else: "待采纳候选（TENTATIVE）：" <> material_sentence(state.pending)
+      )
+  end
+
+  defp material_entry_sections(state) do
+    accepted = Enum.filter(state.resolved, &accepted_material_status?/1)
+    discarded = Enum.filter(state.resolved, &discarded_material_status?/1)
+    other = (state.resolved -- accepted) -- discarded
+
+    [
+      {accepted, "已采纳（ACCEPTED）："},
+      {discarded, "已放弃（DISCARDED）："},
+      {other, "其他处置："}
+    ]
+    |> Enum.flat_map(fn
+      {[], _label} -> []
+      {entries, label} -> [label <> material_sentence(entries)]
+    end)
+    |> Enum.join()
+  end
+
+  defp material_omitted_note(%{omitted_count: count}) when count > 0 do
+    "另有 #{count} 份未在本轮材料中展示；不能据此断言不存在。"
+  end
+
+  defp material_omitted_note(_state), do: ""
+
+  defp material_entries(entries) do
+    Enum.map_join(entries, "；", &material_entry_text/1)
+  end
+
+  defp material_entry_text(entry) do
+    title = entry.title || "（无标题）"
+    body = entry.body_preview
+
+    cond do
+      blank?(body) -> title
+      body == title -> title
+      String.starts_with?(body, title) -> body
+      true -> "#{title}：#{body}"
+    end
+  end
+
+  defp blank?(value), do: not is_binary(value) or String.trim(value) == ""
+
+  defp material_sentence(entries) do
+    text = material_entries(entries)
+    text <> if(String.ends_with?(text, ["。", "！", "？", "；", ".", "!", "?"]), do: "", else: "。")
+  end
+
+  defp accepted_material_status?(entry) do
+    material_status(entry) in ["ACCEPTED", "EDITED_ACCEPTED"]
+  end
+
+  defp discarded_material_status?(entry), do: material_status(entry) == "DISCARDED"
+
+  defp material_status(entry) do
+    entry.status |> to_string() |> String.upcase()
+  end
+
+  defp lifecycle_plan_narrative(prompt) do
+    case pending_lifecycle_plan(prompt) do
+      nil ->
+        nil
+
+      %{status: :ready, operation: "revise_pending_artifact"} ->
+        "我会按要求生成独立修订候选，保留原稿，不自动入档。"
+
+      %{status: :ready, operation: "discard_pending_artifact"} ->
+        "我会放弃你指定的待采纳候选，不删除已保存的作品事实。"
+
+      %{operation: operation, status: reason} ->
+        lifecycle_clarification(operation, reason)
     end
   end
 
@@ -5907,61 +6647,5 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     |> Enum.uniq()
   end
 
-  defp prompt_text(prompt) when is_binary(prompt), do: prompt
-
-  # B71 CP3a S1b：IR v1 投影把作者原话作为独立 user 消息（application_base 带
-  # provenance 标记）。为让既有判断 fixture 的文本规则继续工作，把「最后一条非
-  # application_base 的 user 消息」重新拼为 legacy 的「## 作者输入」段；其余消息
-  # 按原顺序拼接。这是 test-support 适配，不改变产品语义。
-  defp prompt_text(prompt) when is_map(prompt) or is_list(prompt) do
-    messages =
-      prompt
-      |> NovelAgent.Provider.normalize_messages()
-      |> Enum.reject(&(&1.role == "system" and &1.content == SystemIdentity.content()))
-
-    # 仅 IR v1 投影（含 application_base provenance 消息）走新拼接；legacy 单 user
-    # prompt 行为保持不变。
-    if Enum.any?(messages, &String.starts_with?(to_string(&1.content), @application_base_marker)) do
-      prompt_text_from_messages(messages)
-    else
-      Enum.map_join(messages, "\n", fn message -> "#{message.role}: #{message.content}" end)
-    end
-  end
-
-  defp prompt_text_from_messages(messages) do
-    messages =
-      Enum.reject(messages, fn message ->
-        message.role == "system" and message.content == SystemIdentity.content()
-      end)
-
-    {user_messages, other_messages} = Enum.split_with(messages, &(&1.role == "user"))
-
-    author =
-      user_messages
-      |> Enum.reverse()
-      |> Enum.find_value(fn message ->
-        content = to_string(message.content)
-
-        if String.starts_with?(content, @application_base_marker) or
-             String.contains?(content, @author_section_placeholder) do
-          nil
-        else
-          content
-        end
-      end)
-
-    joined =
-      other_messages
-      |> Enum.map_join("\n", fn message -> "#{message.role}: #{message.content}" end)
-      # application_base 中的作者输入占位不得抢占尾部真实作者段的正则匹配。
-      |> String.replace(
-        "## 作者输入\n（本轮作者原话见独立 user 消息）",
-        "## 作者输入（内容见独立消息）"
-      )
-
-    case author do
-      nil -> joined
-      author -> joined <> "\n## 作者输入\n" <> author
-    end
-  end
+  defp prompt_text(prompt), do: NovelAgent.Provider.prompt_text(prompt)
 end
