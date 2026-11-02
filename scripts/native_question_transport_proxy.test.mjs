@@ -12,6 +12,7 @@ import {
   consumeChannelFault,
   createQuestionTransportProxy,
 } from "./native_question_transport_proxy.mjs";
+import { MAX_HTTP_CAPTURE_BYTES } from "./lib/native_ui/native_http_evidence.mjs";
 
 const frontendRequire = createRequire(new URL("../frontend/package.json", import.meta.url));
 const playwrightRequire = createRequire(frontendRequire.resolve("playwright/package.json"));
@@ -202,4 +203,119 @@ test("真实 WS 代理：delay 有界延迟真实上游调用，耗次后恢复"
   assert(logs.some((entry) => entry.direction === "sent" && entry.frame?.[1] === "ref-delay" && entry.delayed === true));
   assert(logs.some((entry) => entry.direction === "sent" && entry.frame?.[1] === "ref-delay-recovered" && !entry.delayed));
   assert.deepEqual(JSON.parse(fs.readFileSync(fixture.controlPath, "utf8")), {});
+});
+
+function httpGet(port, requestPath) {
+  return new Promise((resolve, reject) => {
+    const request = http.get({ host: "127.0.0.1", port, path: requestPath }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => resolve({ status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks) }));
+    });
+    request.on("error", reject);
+  });
+}
+
+async function httpProxyFixture(t, handler) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "au08-http-proxy-"));
+  const upstream = http.createServer(handler);
+  const upstreamPort = await listen(upstream);
+  const controlPath = path.join(dir, "transport-control.json");
+  const logPath = path.join(dir, "native-transport.jsonl");
+  fs.writeFileSync(controlPath, "{}");
+  const proxy = createQuestionTransportProxy({
+    target: `http://127.0.0.1:${upstreamPort}`,
+    controlPath,
+    logPath,
+  });
+  const proxyPort = await listen(proxy.server);
+  t.after(async () => {
+    proxy.close();
+    upstream.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  return { dir, logPath, proxyPort };
+}
+
+function readHttpLog(logPath, pathname) {
+  const rows = fs.readFileSync(logPath, "utf8").split("\n").filter(Boolean).map(JSON.parse);
+  return rows.find((row) => row.direction === "http" && row.path === pathname);
+}
+
+test("真实 HTTP 代理：chunked resume/replay 保留字节并记录完整 JSON、scope 与 request id", async (t) => {
+  const workId = "11111111-1111-4111-8111-111111111111";
+  const sessionId = "33333333-3333-4333-8333-333333333333";
+  const turnId = "turn-replay";
+  const fixture = await httpProxyFixture(t, (request, response) => {
+    const body = request.url.endsWith("/sessions/resume")
+      ? {
+          work: { id: workId },
+          active_session: { id: sessionId, work_id: workId },
+          pending_adoptions: [],
+          resolved_adoptions: [],
+        }
+      : { work_id: workId, session_id: sessionId, turn_id: turnId };
+    const payload = Buffer.from(JSON.stringify(body));
+    response.writeHead(200, { "content-type": "application/json" });
+    response.write(payload.subarray(0, 7));
+    response.end(payload.subarray(7));
+  });
+
+  const resumePath = `/api/works/${workId}/sessions/resume`;
+  const replayPath = `/api/works/${workId}/sessions/${sessionId}/turns/${turnId}/replay`;
+  const resume = await httpGet(fixture.proxyPort, resumePath);
+  const replay = await httpGet(fixture.proxyPort, replayPath);
+  assert.equal(resume.status, 200);
+  assert.equal(replay.status, 200);
+  assert.equal(JSON.parse(resume.body.toString("utf8")).active_session.id, sessionId);
+  assert.equal(JSON.parse(replay.body.toString("utf8")).turn_id, turnId);
+
+  const resumeLog = readHttpLog(fixture.logPath, resumePath);
+  const replayLog = readHttpLog(fixture.logPath, replayPath);
+  for (const [entry, scope] of [
+    [resumeLog, { kind: "resume", work_id: workId, session_id: null, turn_id: null }],
+    [replayLog, { kind: "replay", work_id: workId, session_id: sessionId, turn_id: turnId }],
+  ]) {
+    assert.equal(entry.method, "GET");
+    assert.equal(entry.status, 200);
+    assert.equal(entry.body_state.complete, true);
+    assert.equal(entry.body_state.json, "valid");
+    assert.equal(entry.body_state.truncated, false);
+    assert.deepEqual(entry.scope, scope);
+    assert.match(entry.request_id, /^http-\d+$/);
+  }
+  assert.equal(resumeLog.body.active_session.id, sessionId);
+  assert.equal(replayLog.body.turn_id, turnId);
+});
+
+test("真实 HTTP 代理：非法 JSON、不支持压缩与超限体如实标缺证据且不冒充完整", async (t) => {
+  const fixture = await httpProxyFixture(t, (request, response) => {
+    if (request.url.includes("/turns/bad-json/")) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end("not-json");
+      return;
+    }
+    if (request.url.includes("/turns/gzip/")) {
+      response.writeHead(200, { "content-type": "application/json", "content-encoding": "gzip" });
+      response.end("{\"gzip\":true}");
+      return;
+    }
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(Buffer.alloc(MAX_HTTP_CAPTURE_BYTES + 1, 0x20));
+  });
+  const paths = [
+    "/api/works/w/sessions/s/turns/bad-json/replay",
+    "/api/works/w/sessions/s/turns/gzip/replay",
+    "/api/works/w/sessions/s/turns/large/replay",
+  ];
+  for (const requestPath of paths) await httpGet(fixture.proxyPort, requestPath);
+  const logs = paths.map((requestPath) => readHttpLog(fixture.logPath, requestPath));
+  assert.equal(logs[0].body_state.json, "invalid");
+  assert.equal(logs[0].body, null);
+  assert.equal(logs[1].body_state.json, "unsupported_encoding");
+  assert.equal(logs[1].body, null);
+  assert.equal(logs[2].body_state.complete, false);
+  assert.equal(logs[2].body_state.json, "too_large");
+  assert.equal(logs[2].body_state.truncated, true);
+  assert.equal(logs[2].body, null);
 });

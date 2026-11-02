@@ -1,0 +1,104 @@
+{
+  "source": {
+    "batch": "cp4b-callrefs-03",
+    "read_only_from": [
+      "artifacts/slice-verify/b71-authoring-planning-tauri-native-cp4b-callrefs-03/llm-calls/2026-11-02.jsonl",
+      "artifacts/slice-verify/b71-authoring-planning-tauri-native-cp4b-callrefs-03/database/ai_novel_studio_test.sqlite3"
+    ],
+    "note": "只提取首判断失败形状：真实 raw tool_call 无 id，旧 canonical 无 provider_call_id 标记。内容/参数字节与真实响应一致，不重写原批次。"
+  },
+  "scope": {
+    "run_id": "run_mvyeiu1t_5",
+    "workspace_id": "3a7f096e-9db3-474d-b2cd-fbc12e1bceba",
+    "work_id": "3a7f096e-9db3-474d-b2cd-fbc12e1bceba",
+    "session_id": "2b362e6b-5a42-4427-b8e9-068396634457",
+    "parent_turn_ref": "message_1e48fb4c-5eab-4c82-8d97-d0c5ab1c96ba"
+  },
+  "providerRuns": [
+    {
+      "id": "prun_mvyeiu40_9",
+      "provider_call_ref": "pcall_mvyeiu40_8",
+      "agent_run_id": "run_mvyeiu1t_5",
+      "workspace_id": "3a7f096e-9db3-474d-b2cd-fbc12e1bceba",
+      "work_id": "3a7f096e-9db3-474d-b2cd-fbc12e1bceba",
+      "session_id": "2b362e6b-5a42-4427-b8e9-068396634457",
+      "parent_turn_ref": "message_1e48fb4c-5eab-4c82-8d97-d0c5ab1c96ba",
+      "status": "completed"
+    }
+  ],
+  "records": [
+    {
+      "provider": "slice_verify",
+      "request_format": "provider_prompt/v1",
+      "response_format": "fixture_provider_result/v1",
+      "provider_call_ref": "pcall_mvyeiu40_8",
+      "provider_run_ref": "prun_mvyeiu40_9",
+      "work_id": "3a7f096e-9db3-474d-b2cd-fbc12e1bceba",
+      "session_id": "2b362e6b-5a42-4427-b8e9-068396634457",
+      "turn_id": "message_1e48fb4c-5eab-4c82-8d97-d0c5ab1c96ba",
+      "request_body": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "请按先核对再补齐计划设计一个角色，再设计相关世界设定；这是一项可恢复的长任务。"
+          }
+        ]
+      },
+      "response": {
+        "status": "ok",
+        "body": {
+          "usage": null,
+          "content": "先核对作品材料，再设计角色和相关世界设定，全部产出留待作者采纳。",
+          "tool_calls": [
+            {
+              "name": "judgment_decision",
+              "arguments": {
+                "reason": "先核对作品材料，再设计角色和相关世界设定，全部产出留待作者采纳。",
+                "action": "plan",
+                "dialogue_goal": "请按先核对再补齐计划设计一个角色，再设计相关世界设定；这是一项可恢复的长任务。"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "consumedProviderCalls": 1,
+  "legacyTranscript": {
+    "run": {
+      "run_id": "run_mvyeiu1t_5",
+      "workspace_id": "3a7f096e-9db3-474d-b2cd-fbc12e1bceba",
+      "work_id": "3a7f096e-9db3-474d-b2cd-fbc12e1bceba",
+      "session_id": "2b362e6b-5a42-4427-b8e9-068396634457",
+      "parent_turn_ref": "message_1e48fb4c-5eab-4c82-8d97-d0c5ab1c96ba"
+    },
+    "messages": [
+      {
+        "role": "assistant",
+        "provenance": "model",
+        "provider_call_ref": "pcall_mvyeiu40_8",
+        "provider_run_ref": "prun_mvyeiu40_9",
+        "provider_state": {},
+        "source_refs": [],
+        "versions": {},
+        "blocks": [
+          {
+            "type": "text",
+            "text": "先核对作品材料，再设计角色和相关世界设定，全部产出留待作者采纳。"
+          },
+          {
+            "type": "tool_call",
+            "call_id": "call_judgment_decision",
+            "name": "judgment_decision",
+            "arguments": {
+              "action": "plan",
+              "dialogue_goal": "请按先核对再补齐计划设计一个角色，再设计相关世界设定；这是一项可恢复的长任务。",
+              "reason": "先核对作品材料，再设计角色和相关世界设定，全部产出留待作者采纳。"
+            },
+            "schema_version": "tools/v1"
+          }
+        ]
+      }
+    ]
+  }
+}

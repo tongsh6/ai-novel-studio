@@ -105,8 +105,8 @@
 | `task_done.sh` | 任务完成统一门禁入口。 |
 | `task_done_check.mjs` | task-done manifest 与 UI evidence 检查。 |
 | `tauri_slice_verify.sh` | 启动 Tauri 的验收入口；默认交互为 Chromium，summary 如实标 browser；B26 的 `TAURI_NATIVE_SYSTEM_DRIVER=1` 使用外部系统 UI 驱动原生窗口。 |
-| `native_question_transport_proxy.mjs` | B26/AU08 原生验收外部 WebSocket/HTTP 代理；复用已安装 ws，按证据目录 control 文件丢 ack/断线、改绑负例，或对 `get_toc`/`get_chapter_content` 注入一次性 error/有界 delay，生产代码无感知。 |
-| `native_question_transport_proxy.test.mjs` | AU08 channel 故障契约与真实 WS 代理自检：error 零上游、ref/topic 绑定、耗次恢复、delay 上限与真实转发。 |
+| `native_question_transport_proxy.mjs` | B26/AU08/B71 原生验收外部 WebSocket/HTTP 代理；复用已安装 ws，按证据目录 control 文件丢 ack/断线、改绑负例，或对 `get_toc`/`get_chapter_content` 注入一次性 error/有界 delay；HTTP 只对真实 session resume / turn replay 额外记录 method/完整 path/status/request_id/scope 与有界 response JSON 完成状态（非候选路径保持旧日志字段），压缩编码明确标 unsupported、超限/截断/非法 JSON 不冒充完整；不改请求头、不记录密钥，生产代码无感知。 |
+| `native_question_transport_proxy.test.mjs` | AU08 channel 故障契约与真实 WS/HTTP 代理自检：error 零上游、ref/topic 绑定、耗次恢复、delay 上限与真实转发；HTTP chunked resume/replay 完整 capture、scope/request id、非法 JSON/unsupported encoding/超限拒绝。 |
 | `native_au08_projection_drive.mjs` / `native_au08_projection_evidence.mjs` | AU08 原生 ReadingMode 故障恢复：真实生成/采纳→STALE→一次章节读取 error→FAILED→重试恢复；核验同 ref、AX、恢复帧与只读 DB 快照。 |
 | `native_au08_projection_batch.sh` | AU08 原生批次 detached/状态编排；预注册 `artifacts/model-contracts/au08-channel-fault/preregistration.json`，失败目录只读。 |
 | `native_au08_projection_evidence.test.mjs` | AU08 agent step `turn_result` 以 `agent_run.parent_turn_ref` 关联源消息的回归；防止误等父 turn_id 超时。 |
@@ -136,6 +136,8 @@
 | `native_au11_drive.mjs` / `native_au11_evidence.mjs` | B61 AU11×2 原生验收（AX/CGEvent 真实 Tauri 窗口）：打开工作台→发送质量诊断/缺 WorkState 用户话术→等回复可见→点「为什么」；核验 frame_type/decision_type/reply_record 覆盖/prompt 作品事实/回复字节/provider-free why/无工具无采纳无写入。 |
 | `native_au07_drive.mjs` / `native_au07_evidence.mjs` | B61 AU07×3 原生验收：发送角色阵容请求→等 AgentRun 内部只读 character_roster 步与最终回复→按 step turn_id 回查产品持久 trace（TraceRepository.list_by_turn）+ no-provider ReplayReport 六问；核验 registry snapshot/合同 refs/grant summary/redacted I/O/无生产写入。 |
 | `native_b40_family_drive.mjs` / `native_b40_family_evidence.mjs` | B62 B40 CP3 家族 6 个 tauri 场景原生验收（AX/CGEvent 真实 Tauri 窗口，按 `native-driver-ready.json` 的 `slice_id` 分流）：普通聊天两轮（au01-ordinary-chat / pr-smoke-core-reply）、空消息守卫、frame 校验友好错误、au02 自然探索候选卡、agent-step-regate（AgentRun 多步 12 门 allow + author-safe why）；证据含 AX/截图/app-log/llm-calls/等待账/只读 DB，检查项与 browser canonical 同源。 |
+| `native_b71_drive.mjs` / `native_b71_evidence.mjs` / `native_b71_batch.sh` | B71 原生请求验收：默认驱动全章阅读并核验观察回流；`B71_SLICE=b71-authoring-transcript` 驱动超时后的同 run 续行，核验原生创作/质量、应用结果闭合、阶段工具、严格前缀、durable checkpoint 与作者安全文案；`B71_SLICE=b71-authoring-profiles` 驱动角色设计 durable run，核验前序判断与创作共享 canonical transcript；`B71_SLICE=b71-authoring-planning` 驱动独立计划→重规划→角色与世界设定双候选，核验逐call闭合、durable版本/预算及Why无模型调用。 | `B71_SLICE=b71-authoring-pending` 驱动空作品 Q1B 原稿→对话修订→采纳/放弃→重启恢复→新请求，核验三 run、两稿、Why 0 调用、精确 receipt/canon 与 followup 真实 ACCEPTED/DISCARDED scope。 |
+| `native_b71_evidence.test.mjs` | B71 原生历史核验的正反例：按实际请求逐项比较调用 ID 与顺序，拒绝丢失、错序和伪造，不固定续行次数；计划场景覆盖错序/改写前缀/漏或重复结果/错误工具与预算，以及Why观察窗新增Provider调用的反例。 |
 | `verify_stage_process_ownership.sh` | stage/Tauri 进程 ownership 验收脚本。 |
 | `walkthrough_template.ts` | 产品体验走查脚本模板。 |
 

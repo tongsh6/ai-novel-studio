@@ -41289,6 +41289,7 @@ const drivers = {
   "p1-chapter-expansion-multichapter": driveP1ChapterExpansionMultichapter,
   "judgment-explore-chapter-plan": driveJudgmentExploreChapterPlan,
   "judgment-explore-chapter-full-read": driveJudgmentExploreChapterFullRead,
+  "b71-first-consumer": driveJudgmentExploreChapterFullRead,
   "judgment-explore-internal": driveJudgmentExploreInternal,
   "au13-arc-ledger-roundtrip": driveAu13ArcLedgerRoundtrip,
   "au13-review-adjudication-roundtrip": driveAu13ReviewAdjudicationRoundtrip,

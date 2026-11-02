@@ -2,8 +2,13 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import {
+  MAX_HTTP_CAPTURE_BYTES,
+  httpCaptureTarget,
+} from "./lib/native_ui/native_http_evidence.mjs";
 
 // 复用已安装 Playwright 的公开 utilsBundle 导出，不下载 WebSocket 依赖。
 const frontendRequire = createRequire(new URL("../frontend/package.json", import.meta.url));
@@ -40,6 +45,51 @@ export function channelErrorReply(frame) {
   ];
 }
 
+function parseCapturedJson(buffer) {
+  if (buffer.length === 0) return { json: "empty", body: null };
+  try {
+    const body = JSON.parse(buffer.toString("utf8"));
+    return body !== null && typeof body === "object" && !Array.isArray(body)
+      ? { json: "valid", body }
+      : { json: "invalid", body: null };
+  } catch {
+    return { json: "invalid", body: null };
+  }
+}
+
+function responseScope(target, body) {
+  if (target.kind === "resume") {
+    return {
+      kind: target.kind,
+      work_id: body?.work?.id ?? null,
+      session_id: body?.active_session?.id ?? null,
+      turn_id: null,
+    };
+  }
+  return {
+    kind: target.kind,
+    work_id: body?.work_id ?? null,
+    session_id: body?.session_id ?? null,
+    turn_id: body?.turn_id ?? null,
+  };
+}
+
+export function capturedHttpBody(chunks, tooLarge, encoding) {
+  if (tooLarge) return { complete: false, json: "too_large", body: null };
+  if (encoding && !["identity"].includes(String(encoding).toLowerCase())) {
+    return { complete: true, json: "unsupported_encoding", body: null };
+  }
+  const buffer = Buffer.concat(chunks);
+  const parsed = parseCapturedJson(buffer);
+  return {
+    complete: true,
+    json: parsed.json,
+    body: parsed.body,
+    bytes: buffer.length,
+    sha256: createHash("sha256").update(buffer).digest("hex"),
+  };
+}
+
 export function createQuestionTransportProxy({ target, controlPath, logPath }) {
   const sockets = new Set();
   const log = (entry) => fs.appendFileSync(logPath, JSON.stringify({ at: new Date().toISOString(), ...entry }) + "\n");
@@ -50,13 +100,83 @@ export function createQuestionTransportProxy({ target, controlPath, logPath }) {
     fs.writeFileSync(controlPath, JSON.stringify(control));
     return value;
   };
+  let httpSequence = 0;
   const server = http.createServer((request, response) => {
-    const upstream = http.request(new URL(request.url, target), { method: request.method, headers: request.headers }, (incoming) => {
-      log({ direction: "http", method: request.method, path: new URL(request.url, target).pathname, status: incoming.statusCode });
+    const startedAt = new Date().toISOString();
+    const targetUrl = new URL(request.url, target);
+    const captureTarget = httpCaptureTarget(request.method, request.url);
+    const requestId = `http-${++httpSequence}`;
+
+    if (!captureTarget) {
+      const upstream = http.request(targetUrl, { method: request.method, headers: request.headers }, (incoming) => {
+        log({ direction: "http", method: request.method, path: targetUrl.pathname, status: incoming.statusCode });
+        response.writeHead(incoming.statusCode, incoming.headers);
+        incoming.pipe(response);
+      });
+      upstream.on("error", () => { if (!response.headersSent) response.writeHead(502); response.end(); });
+      request.pipe(upstream);
+      return;
+    }
+
+    const chunks = [];
+    const state = { bytes: 0, tooLarge: false, ended: false, logged: false };
+    let upstreamStatus = 502;
+    const finish = (incoming) => {
+      if (state.logged) return;
+      state.logged = true;
+      const headers = incoming?.headers ?? {};
+      const declared = Number(headers["content-length"]);
+      const hasLength = headers["content-length"] !== undefined && Number.isFinite(declared);
+      const lengthMatches = !hasLength || state.bytes === declared;
+      const classification = capturedHttpBody(
+        chunks,
+        state.tooLarge,
+        headers["content-encoding"],
+      );
+      const complete = state.ended && lengthMatches && !state.tooLarge && classification.complete;
+      const json = state.ended
+        ? (lengthMatches ? classification.json : "length_mismatch")
+        : (state.tooLarge ? "too_large" : "aborted");
+      const bodyState = {
+        complete,
+        json,
+        bytes: state.bytes,
+        sha256: classification.sha256 ?? null,
+        truncated: state.tooLarge || !lengthMatches || !state.ended,
+        content_type: headers["content-type"] ?? null,
+        content_encoding: headers["content-encoding"] ?? null,
+      };
+      log({
+        direction: "http",
+        at: startedAt,
+        method: request.method,
+        path: request.url,
+        status: upstreamStatus,
+        request_id: requestId,
+        scope: captureTarget,
+        response_scope: complete ? responseScope(captureTarget, classification.body) : null,
+        body_state: bodyState,
+        body: complete ? classification.body : null,
+      });
+    };
+
+    const upstream = http.request(targetUrl, { method: request.method, headers: request.headers }, (incoming) => {
+      upstreamStatus = incoming.statusCode;
       response.writeHead(incoming.statusCode, incoming.headers);
+      incoming.on("data", (chunk) => {
+        state.bytes += chunk.length;
+        if (state.bytes <= MAX_HTTP_CAPTURE_BYTES) chunks.push(chunk);
+        else state.tooLarge = true;
+      });
+      incoming.on("end", () => { state.ended = true; finish(incoming); });
+      incoming.on("aborted", () => finish(incoming));
       incoming.pipe(response);
     });
-    upstream.on("error", () => { if (!response.headersSent) response.writeHead(502); response.end(); });
+    upstream.on("error", () => {
+      if (!response.headersSent) response.writeHead(502);
+      response.end();
+      finish(null);
+    });
     request.pipe(upstream);
   });
   const socketServer = new WebSocketServer({ noServer: true });

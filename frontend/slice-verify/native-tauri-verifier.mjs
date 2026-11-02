@@ -228,6 +228,7 @@ export const nativeSliceIds = [
   "judgment-explore-internal",
   "judgment-explore-chapter-plan",
   "judgment-explore-chapter-full-read",
+  "b71-first-consumer",
   "au13-arc-ledger-roundtrip",
   "au13-review-adjudication-roundtrip",
   "au13-revise-prose-sibling",
@@ -1163,6 +1164,13 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "judgment-explore-chapter-full-read": [
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "judgment.decided.done",
+    "slice_verify.ui_state.done",
+    "slice_verify.ws_agent_event",
+  ],
+  "b71-first-consumer": [
     "channel.user_message.start",
     "channel.user_message.done",
     "judgment.decided.done",
@@ -3138,8 +3146,8 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findJudgmentExploreChapterPlanEvidence(records);
   }
 
-  if (sliceId === "judgment-explore-chapter-full-read") {
-    return findJudgmentExploreChapterFullReadEvidence(records);
+  if (sliceId === "judgment-explore-chapter-full-read" || sliceId === "b71-first-consumer") {
+    return findJudgmentExploreChapterFullReadEvidence(records, sliceId);
   }
 
   if (sliceId === "b57-injection-boundary") {
@@ -3993,6 +4001,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "judgment-explore-chapter-plan") {
     return judgmentExploreChapterPlanBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "b71-first-consumer") {
+    return b71FirstConsumerBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "judgment-explore-chapter-full-read") {
@@ -17250,8 +17262,10 @@ function chapterFullReadIndexEntries(promptText) {
   }));
 }
 
-function findJudgmentExploreChapterFullReadEvidence(records) {
-  const sliceId = "judgment-explore-chapter-full-read";
+function findJudgmentExploreChapterFullReadEvidence(
+  records,
+  sliceId = "judgment-explore-chapter-full-read",
+) {
   const uiState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
@@ -17315,8 +17329,14 @@ function findJudgmentExploreChapterFullReadEvidence(records) {
   };
 }
 
-function judgmentExploreChapterFullReadBehavior(turnIds, turnRecords, records, evidence, options) {
-  const sliceId = "judgment-explore-chapter-full-read";
+function judgmentExploreChapterFullReadBehavior(
+  turnIds,
+  turnRecords,
+  records,
+  evidence,
+  options,
+  sliceId = "judgment-explore-chapter-full-read",
+) {
   const uiState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
@@ -17477,6 +17497,97 @@ function judgmentExploreChapterFullReadBehavior(turnIds, turnRecords, records, e
       "author_visible_activity_omits_tool_id_ref_uuid_json_offset",
       "exploration_turn_performed_no_production_write",
     ],
+  };
+}
+
+function b71FirstConsumerBehavior(turnIds, turnRecords, records, evidence, options) {
+  const behavior = judgmentExploreChapterFullReadBehavior(
+    turnIds,
+    turnRecords,
+    records,
+    evidence,
+    options,
+    "b71-first-consumer",
+  );
+  if (!behavior) return null;
+
+  const nativeRequest = b71NativeRequestEvidence(options, evidence);
+  if (!nativeRequest) return null;
+
+  return {
+    ...behavior,
+    behavior: "b71_native_authoring_run_observation_roundtrip",
+    native_request: nativeRequest,
+    assertions: [
+      ...behavior.assertions,
+      "assistant_tool_call_and_tool_observation_share_call_id",
+      "native_observation_carries_source_refs_and_next_offset",
+      "application_base_does_not_duplicate_observation_content",
+    ],
+  };
+}
+
+function b71NativeRequestEvidence(options, evidence) {
+  const records = options.provider === "slice_verify" ? options.promptRecords : options.llmRecords;
+  const bodies = (records ?? [])
+    .map((record) => record.request?.body ?? record.request_body)
+    .filter((body) => body && Array.isArray(body.messages));
+  const observations = [];
+
+  for (const body of bodies) {
+    for (const message of body.messages) {
+      if (message.role !== "tool") continue;
+
+      let observation;
+      try {
+        observation = JSON.parse(String(message.content ?? ""));
+      } catch {
+        return null;
+      }
+      if (observation.type !== "observation") continue;
+
+      const assistantHasCall = body.messages.some(
+        (candidate) =>
+          candidate.role === "assistant" &&
+          (candidate.tool_calls ?? []).some((call) => call.id === message.tool_call_id),
+      );
+      if (!assistantHasCall) return null;
+
+      observations.push({
+        call_id: message.tool_call_id,
+        source_refs: observation.source_refs ?? [],
+        next_offset: observation.next_offset ?? null,
+        summary: String(observation.content?.summary ?? ""),
+      });
+    }
+  }
+
+  if (observations.length < 2) return null;
+
+  const continuation = observations.find(
+    (observation) => observation.next_offset === 6000,
+  );
+  if (!continuation) return null;
+  if (!continuation.source_refs.includes(evidence.chapter_ref)) return null;
+  if (!observations.some((observation) => observation.summary.includes(CHAPTER_FULL_READ_ENDING_ANCHOR))) {
+    return null;
+  }
+
+  const baseDuplicatesObservation = bodies.some((body) =>
+    body.messages.some(
+      (message) =>
+        message.role === "user" &&
+        String(message.content ?? "").startsWith("【应用数据") &&
+        String(message.content ?? "").includes("### 观察 "),
+    ),
+  );
+  if (baseDuplicatesObservation) return null;
+
+  return {
+    observation_count: observations.length,
+    continuation_call_id: continuation.call_id,
+    continuation_chapter_ref: evidence.chapter_ref,
+    continuation_next_offset: continuation.next_offset,
   };
 }
 
