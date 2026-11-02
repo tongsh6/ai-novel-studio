@@ -314,6 +314,49 @@ defmodule NovelPersistence.AgentRunLogTest do
              )
   end
 
+  test "mark_runtime_lost reports a rejected write and leaves the run open" do
+    run_id = "run-runtime-lost-rejected-#{System.unique_integer([:positive, :monotonic])}"
+
+    assert {:ok, _run} = AgentRunLog.upsert_run(run_attrs(run_id, %{status: "running"}))
+    trigger = "reject_runtime_lost_#{System.unique_integer([:positive, :monotonic])}"
+
+    Repo.query!("""
+    CREATE TRIGGER #{trigger}
+    BEFORE UPDATE ON agent_runs
+    WHEN NEW.id = '#{run_id}' AND NEW.status = 'failed'
+    BEGIN SELECT RAISE(ABORT, 'runtime lost write rejected'); END
+    """)
+
+    try do
+      assert {:error, :write_failed} =
+               AgentRunLog.mark_runtime_lost(run_id, "runtime_lost_on_restart")
+
+      assert %{status: "running", failure_ref: nil} = AgentRunLog.get_run(run_id)
+    after
+      Repo.query!("DROP TRIGGER #{trigger}")
+    end
+  end
+
+  test "list_by_ids batches only within the given work/session scope" do
+    suffix = System.unique_integer([:positive, :monotonic])
+    run_id = "run-scoped-#{suffix}"
+    other_id = "run-other-scope-#{suffix}"
+
+    assert {:ok, _run} = AgentRunLog.upsert_run(run_attrs(run_id, %{}))
+
+    assert {:ok, _other} =
+             AgentRunLog.upsert_run(
+               run_attrs(other_id, %{work_id: "work-other", session_id: "session-other"})
+             )
+
+    assert [%{id: ^run_id}] =
+             AgentRunLog.list_by_ids("work-active", "session-active", [run_id])
+
+    assert [] = AgentRunLog.list_by_ids("work-active", "session-active", [other_id])
+    assert [] = AgentRunLog.list_by_ids("work-active", "session-other", [run_id])
+    assert [] = AgentRunLog.list_by_ids("work-active", "session-active", [])
+  end
+
   defp run_attrs(run_id, overrides) do
     %{
       id: run_id,

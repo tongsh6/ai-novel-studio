@@ -173,6 +173,47 @@ defmodule NovelPersistence.WorkSessionRepo do
   def transcript_page(session_id, opts \\ []) when is_binary(session_id),
     do: MemoryLog.transcript_page(session_id, opts)
 
+  @doc """
+  按真实 work（以及可选 session）读取最后一处明确携带 `turn_result.behavior_state`
+  的 assistant Interaction（VS-00L §16.13）。
+
+  查询命中“字段明确存在”，而不是“最近一条 assistant”：后续普通回复没有该字段时
+  不会遮住更早的明确快照。显式 session 精确匹配且排除归档；无 session 参数时保留
+  旧 work-wide 只读兼容（仍排除归档），该结果不能用于新作者动作授权。
+  """
+  @spec latest_behavior_interaction(String.t(), String.t() | nil) ::
+          NovelPersistence.Schemas.Interaction.t() | nil
+  def latest_behavior_interaction(work_id, session_id \\ nil) when is_binary(work_id) do
+    Interaction
+    |> where([i], i.workspace_id == ^work_id and i.role == "assistant")
+    |> where([i], fragment("json_type(?, '$.turn_result.behavior_state') IS NOT NULL", i.content))
+    |> scope_behavior_session(session_id)
+    |> order_by([i], desc: i.inserted_at, desc: i.id)
+    |> limit(1)
+    |> Repo.one()
+    |> case do
+      nil -> nil
+      interaction -> MemoryLog.canonical_interaction(interaction)
+    end
+  end
+
+  defp scope_behavior_session(query, session_id)
+       when is_binary(session_id) and session_id != "" do
+    from(i in query,
+      join: s in WorkSession,
+      on: i.session_id == s.id,
+      where: i.session_id == ^session_id and s.status != ^@archived_status
+    )
+  end
+
+  defp scope_behavior_session(query, _session_id) do
+    from(i in query,
+      left_join: s in WorkSession,
+      on: i.session_id == s.id,
+      where: is_nil(i.session_id) or s.status != ^@archived_status
+    )
+  end
+
   @doc "完整会话采纳投影；只读有采纳状态的回合，不受聊天分页或上下文窗口裁剪。"
   def adoption_state(work_id, session_id) do
     work_id
@@ -297,6 +338,131 @@ defmodule NovelPersistence.WorkSessionRepo do
 
       :error ->
         nil
+    end
+  end
+
+  @doc """
+  按 work+session+turn 批量读取完整 assistant Interaction。
+
+  只服务历史定位，不改变 `turn_result/2` 的 B46 work-only 跨会话语义；调用方已在
+  work 边界内时用它一次取回同源绑定，避免逐条查询。
+  """
+  @spec assistant_entries(String.t(), String.t(), [String.t()]) ::
+          [NovelPersistence.Schemas.Interaction.t()]
+  def assistant_entries(work_id, session_id, turn_ids)
+      when is_binary(work_id) and is_binary(session_id) and is_list(turn_ids) do
+    ids =
+      turn_ids
+      |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+      |> Enum.uniq()
+
+    with {:ok, _session} <- Ecto.UUID.cast(session_id),
+         [_ | _] <- ids do
+      Interaction
+      |> where(
+        [i],
+        i.workspace_id == ^work_id and i.session_id == ^session_id and
+          i.role == "assistant" and i.turn_id in ^ids
+      )
+      |> order_by([i], asc: i.inserted_at, asc: i.id)
+      |> Repo.all()
+      |> Enum.map(&MemoryLog.canonical_interaction/1)
+    else
+      _ -> []
+    end
+  end
+
+  @doc """
+  按 work+session+turn 读取单条完整 assistant Interaction。
+
+  与批量读取同作用域，供作者动作受理在同一事务内读取持久 source turn 及其
+  `agent_run_id`，不使用 socket 缓存或调用方传入的 source。
+  """
+  @spec assistant_entry(String.t(), String.t(), String.t()) ::
+          NovelPersistence.Schemas.Interaction.t() | nil
+  def assistant_entry(work_id, session_id, turn_id)
+      when is_binary(work_id) and is_binary(session_id) and is_binary(turn_id) do
+    entry(work_id, session_id, turn_id, "assistant")
+  end
+
+  @doc """
+  按 work+session+turn 读取单条完整 user Interaction（真实作者原字节）。
+
+  作者动作子运行只消费该持久原文，不把按钮文案冒充作者消息。
+  """
+  @spec user_entry(String.t(), String.t(), String.t()) ::
+          NovelPersistence.Schemas.Interaction.t() | nil
+  def user_entry(work_id, session_id, turn_id)
+      when is_binary(work_id) and is_binary(session_id) and is_binary(turn_id) do
+    entry(work_id, session_id, turn_id, "user")
+  end
+
+  defp entry(work_id, session_id, turn_id, role) do
+    with {:ok, _session} <- Ecto.UUID.cast(session_id),
+         true <- String.trim(turn_id) != "" do
+      Interaction
+      |> where(
+        [i],
+        i.workspace_id == ^work_id and i.session_id == ^session_id and i.role == ^role and
+          i.turn_id == ^turn_id
+      )
+      |> order_by([i], asc: i.inserted_at, asc: i.id)
+      |> limit(1)
+      |> Repo.one()
+      |> case do
+        nil -> nil
+        row -> MemoryLog.canonical_interaction(row)
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
+  当前作品/会话最后一份明确行为快照（§16.13）。
+
+  `:absent` 表示历史里没有任何明确快照；`{:ok, nil}` 表示最后一份明确快照声明
+  “当前没有开放行为”。后续不携带该字段的普通回复不会遮住更早的明确快照。
+  """
+  @spec latest_behavior_snapshot(String.t(), String.t()) ::
+          :absent | {:ok, NovelDomain.BehaviorState.t() | nil}
+  def latest_behavior_snapshot(work_id, session_id)
+      when is_binary(work_id) and is_binary(session_id) do
+    case latest_behavior_interaction(work_id, session_id) do
+      nil ->
+        :absent
+
+      interaction ->
+        interaction
+        |> Map.get(:content, %{})
+        |> Map.get("turn_result")
+        |> NovelDomain.BehaviorState.read_snapshot()
+    end
+  end
+
+  @doc """
+  按 work+session+run 读取已提交 assistant Interaction。
+
+  用于作者动作回执解析该 run 的真实 child 结果；查询带完整作用域并且只按
+  Interaction 内已提交的 `agent_run_id` 绑定，不按 parent turn 猜最新 run。
+  """
+  @spec assistant_entries_by_run(String.t(), String.t(), String.t()) ::
+          [NovelPersistence.Schemas.Interaction.t()]
+  def assistant_entries_by_run(work_id, session_id, run_id)
+      when is_binary(work_id) and is_binary(session_id) and is_binary(run_id) do
+    with {:ok, _session} <- Ecto.UUID.cast(session_id),
+         true <- String.trim(run_id) != "" do
+      Interaction
+      |> where(
+        [i],
+        i.workspace_id == ^work_id and i.session_id == ^session_id and i.role == "assistant" and
+          fragment("json_extract(?, '$.agent_run_id') = ?", i.content, ^run_id)
+      )
+      |> order_by([i], asc: i.inserted_at, asc: i.id)
+      |> Repo.all()
+      |> Enum.map(&MemoryLog.canonical_interaction/1)
+    else
+      _ -> []
     end
   end
 

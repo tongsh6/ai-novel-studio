@@ -20,6 +20,7 @@ defmodule NovelPersistence.Schemas.AuthorActionReceipt do
     field(:action_id, :string)
     field(:action_type, :string)
     field(:idempotency_key, :string)
+    field(:behavior_ref, :string)
     field(:status, :string)
     field(:result, :map)
 
@@ -42,7 +43,7 @@ defmodule NovelPersistence.Schemas.AuthorActionReceipt do
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(receipt, attrs) do
     receipt
-    |> cast(attrs, @required_fields)
+    |> cast(attrs, [:id, :behavior_ref | @required_fields])
     |> normalize_session()
     |> validate_required(@required_fields)
     |> unique_constraint(
@@ -53,6 +54,7 @@ defmodule NovelPersistence.Schemas.AuthorActionReceipt do
       name:
         :author_action_receipts_work_id_session_id_source_turn_ref_action_id_action_type_idempotency_key_index
     )
+    |> unique_constraint(:behavior_ref, name: :author_action_receipts_behavior_ref_index)
   end
 
   defp normalize_session(changeset) do

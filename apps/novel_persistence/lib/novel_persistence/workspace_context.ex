@@ -8,6 +8,7 @@ defmodule NovelPersistence.WorkspaceContext do
 
   import Ecto.Query, only: [from: 2]
 
+  alias NovelDomain.BehaviorState
   alias NovelDomain.VolumeBlueprint
   require NovelCommon.LogEmit, as: LogEmit
 
@@ -411,59 +412,38 @@ defmodule NovelPersistence.WorkspaceContext do
 
   defp fetch_behavior_summary(workspace_id, session_id)
        when is_binary(session_id) and session_id != "" do
-    from(i in Interaction,
-      join: s in WorkSession,
-      on: i.session_id == s.id,
-      where:
-        i.workspace_id == ^workspace_id and i.session_id == ^session_id and
-          s.status != ^@archived_status and i.role == "assistant",
-      order_by: [desc: i.inserted_at, desc: i.id],
-      limit: 1
-    )
-    |> Repo.one()
+    workspace_id
+    |> WorkSessionRepo.latest_behavior_interaction(session_id)
     |> latest_active_behavior_summary()
   end
 
   defp fetch_behavior_summary(workspace_id, _session_id) do
-    from(i in Interaction,
-      left_join: s in WorkSession,
-      on: i.session_id == s.id,
-      where:
-        i.workspace_id == ^workspace_id and i.role == "assistant" and
-          (is_nil(i.session_id) or s.status != ^@archived_status),
-      order_by: [desc: i.inserted_at, desc: i.id],
-      limit: 1
-    )
-    |> Repo.one()
+    workspace_id
+    |> WorkSessionRepo.latest_behavior_interaction()
     |> latest_active_behavior_summary()
   end
 
   defp latest_active_behavior_summary(%Interaction{content: content}) when is_map(content) do
     content
     |> map_field(:turn_result)
-    |> map_field(:behavior_state)
-    |> map_field(:active)
+    |> BehaviorState.read_snapshot()
     |> active_behavior_summary()
   end
 
   defp latest_active_behavior_summary(_interaction), do: nil
 
-  defp active_behavior_summary(active) when is_map(active) do
-    behavior_type = active |> map_field(:behavior_type) |> normalize_behavior_token()
-    target_label = active |> map_field(:target_ref) |> behavior_target_label()
+  defp active_behavior_summary({:ok, %BehaviorState{} = behavior}) do
+    target_label = behavior.target_ref |> behavior_target_label()
 
-    case behavior_type do
-      "confirmation" ->
+    case behavior.behavior_type do
+      :confirmation ->
         "当前有待作者确认的操作#{target_label}；确认或取消前不能执行工具或写入作品事实。"
 
-      "clarification" ->
+      :clarification ->
         "当前有待作者补充信息的追问；收到回答前不能继续执行。"
 
-      "recovery" ->
+      :recovery ->
         "当前有待作者处理的恢复步骤；完成前不要假设系统已继续执行。"
-
-      nil ->
-        nil
 
       _ ->
         "当前有待作者处理的动作#{target_label}；收到下一步前不能视为已完成。"

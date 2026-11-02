@@ -2,7 +2,7 @@ defmodule NovelPersistence.AuthorQuestionRepo do
   @moduledoc "B26：复用 Interaction/AgentEvent/Receipt 的问题交付和答复事务。"
   import Ecto.Query
   alias NovelPersistence.{AgentRunLog, AuthorActionReceiptRepo, InteractionLifecycle, Repo}
-  alias NovelPersistence.Schemas.{AgentEventRecord, Interaction, WorkSession}
+  alias NovelPersistence.Schemas.{Interaction, WorkSession}
 
   def results(work, session) do
     from(i in Interaction,
@@ -38,9 +38,15 @@ defmodule NovelPersistence.AuthorQuestionRepo do
         nil ->
           close_previous(attrs, result["author_question"]["question_ref"])
           unwrap(InteractionLifecycle.call(:result, attrs))
-          unwrap(AgentRunLog.upsert_run(attrs.run_record))
-          persist_events(attrs.events)
-          persist_checkpoint(attrs[:checkpoint])
+
+          unwrap(
+            AgentRunLog.commit_snapshot(attrs.run_record,
+              steps: Map.get(attrs, :steps, []),
+              events: attrs.events,
+              checkpoint: attrs[:checkpoint]
+            )
+          )
+
           persist_trace(attrs[:decision_trace])
           %{turn_result: result, duplicate: false}
 
@@ -98,9 +104,14 @@ defmodule NovelPersistence.AuthorQuestionRepo do
 
     content = put_in(row.content, ["turn_result", "author_question"], answered)
     row |> Interaction.changeset(%{content: content}) |> Repo.update() |> unwrap()
-    unwrap(AgentRunLog.upsert_run(attrs.run_record))
-    persist_events(attrs.events)
-    persist_checkpoint(attrs[:checkpoint])
+
+    unwrap(
+      AgentRunLog.commit_snapshot(attrs.run_record,
+        events: attrs.events,
+        checkpoint: attrs[:checkpoint]
+      )
+    )
+
     persist_trace(attrs[:decision_trace])
     receipt = unwrap(AuthorActionReceiptRepo.record(attrs.receipt_key, attrs.result))
     Map.put(receipt.result, "duplicate", false)
@@ -125,24 +136,6 @@ defmodule NovelPersistence.AuthorQuestionRepo do
       |> Repo.update()
       |> unwrap()
     end)
-  end
-
-  defp persist_events(events) do
-    Enum.each(events, fn attrs ->
-      %AgentEventRecord{}
-      |> AgentEventRecord.changeset(attrs)
-      |> Repo.insert(on_conflict: :nothing)
-      |> unwrap()
-    end)
-  end
-
-  defp persist_checkpoint(nil), do: :ok
-
-  defp persist_checkpoint(%{task_ref: ref, attrs: attrs}) do
-    case NovelPersistence.LongRunTaskLog.get(ref) do
-      nil -> Repo.rollback(:checkpoint_task_missing)
-      task -> NovelPersistence.LongRunTaskLog.update(task, attrs) |> unwrap()
-    end
   end
 
   defp persist_trace(nil), do: :ok

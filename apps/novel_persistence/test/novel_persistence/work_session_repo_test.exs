@@ -189,4 +189,118 @@ defmodule NovelPersistence.WorkSessionRepoTest do
              ]
     end
   end
+
+  describe "latest_behavior_interaction/2" do
+    test "按 work/session 取最后一处明确 behavior_state，不依赖最近 assistant", %{work: work} do
+      {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "行为读取"})
+      open = turn_result_with_behavior("turn-open", "bh-open", "WAITING_USER")
+
+      {:ok, _} = record_assistant(work.id, session.id, open)
+      Process.sleep(2)
+      {:ok, _} = record_assistant(work.id, session.id, ordinary_turn_result("turn-ordinary"))
+
+      assert %{turn_id: "turn-open"} =
+               WorkSessionRepo.latest_behavior_interaction(work.id, session.id)
+
+      Process.sleep(2)
+      closed = turn_result_with_clear("turn-clear")
+      {:ok, _} = record_assistant(work.id, session.id, closed)
+      Process.sleep(2)
+      {:ok, _} = record_assistant(work.id, session.id, ordinary_turn_result("turn-after-clear"))
+
+      assert %{turn_id: "turn-clear"} =
+               WorkSessionRepo.latest_behavior_interaction(work.id, session.id)
+    end
+
+    test "跨 work/session 严格隔离", %{work: work} do
+      {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "当前会话"})
+      {:ok, other_session} = WorkSessionRepo.create(%{work_id: work.id, title: "其他会话"})
+      {:ok, other_work} = WorkRepo.create(%{title: "另一个作品"})
+
+      {:ok, other_work_session} =
+        WorkSessionRepo.create(%{work_id: other_work.id, title: "其他作品会话"})
+
+      {:ok, _} =
+        record_assistant(
+          work.id,
+          other_session.id,
+          turn_result_with_behavior("turn-other-session", "bh-other-session", "WAITING_USER")
+        )
+
+      Process.sleep(2)
+
+      {:ok, _} =
+        record_assistant(
+          other_work.id,
+          other_work_session.id,
+          turn_result_with_behavior("turn-other-work", "bh-other-work", "WAITING_USER")
+        )
+
+      assert WorkSessionRepo.latest_behavior_interaction(work.id, session.id) == nil
+
+      assert %{turn_id: "turn-other-session"} =
+               WorkSessionRepo.latest_behavior_interaction(work.id, other_session.id)
+
+      assert %{turn_id: "turn-other-work"} =
+               WorkSessionRepo.latest_behavior_interaction(other_work.id, other_work_session.id)
+    end
+
+    test "归档 session 不参与显式或 work fallback 读取", %{work: work} do
+      {:ok, archived} =
+        WorkSessionRepo.create(%{work_id: work.id, title: "旧确认", status: "ARCHIVED"})
+
+      {:ok, _} =
+        record_assistant(
+          work.id,
+          archived.id,
+          turn_result_with_behavior("turn-archived", "bh-archived", "WAITING_USER")
+        )
+
+      assert WorkSessionRepo.latest_behavior_interaction(work.id, archived.id) == nil
+      assert WorkSessionRepo.latest_behavior_interaction(work.id) == nil
+    end
+  end
+
+  defp record_assistant(work_id, session_id, turn_result) do
+    MemoryLog.record(%{
+      workspace_id: work_id,
+      session_id: session_id,
+      turn_id: turn_result["turn_id"],
+      role: "assistant",
+      content: %{"text" => turn_result["assistant_message"]["text"], "turn_result" => turn_result}
+    })
+  end
+
+  defp ordinary_turn_result(turn_id) do
+    %{
+      "turn_id" => turn_id,
+      "assistant_message" => %{"text" => "普通回复，不携带行为快照。"}
+    }
+  end
+
+  defp turn_result_with_behavior(turn_id, behavior_id, status) do
+    %{
+      "turn_id" => turn_id,
+      "assistant_message" => %{"text" => "等待作者处理。"},
+      "behavior_state" => %{
+        "active" => %{
+          "behavior_id" => behavior_id,
+          "behavior_type" => "confirmation",
+          "status" => status,
+          "lifecycle_status" => "awaiting_author",
+          "target_ref" => "prose_writing",
+          "required_next_action" => "confirm_before_execute"
+        },
+        "history" => []
+      }
+    }
+  end
+
+  defp turn_result_with_clear(turn_id) do
+    %{
+      "turn_id" => turn_id,
+      "assistant_message" => %{"text" => "行为已关闭。"},
+      "behavior_state" => %{"active" => nil, "history" => []}
+    }
+  end
 end

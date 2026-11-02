@@ -357,6 +357,103 @@ defmodule NovelPersistence.WorkspaceContextTest do
                fetcher.(work.id, "现在还有等待态吗？", session.id)
     end
 
+    test "普通回复不携带 behavior_state 时保持最后一个明确 open 快照" do
+      {:ok, work} = WorkRepo.create(%{title: "行为普通回复"})
+      {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "等待确认"})
+
+      record_turn_result(
+        work.id,
+        session.id,
+        "turn-open",
+        turn_result_with_active_behavior("turn-open", "bh-keep")
+      )
+
+      Process.sleep(2)
+
+      record_turn_result(work.id, session.id, "turn-ordinary", %{
+        "turn_id" => "turn-ordinary",
+        "assistant_message" => %{"text" => "这是不携带行为字段的普通回复。"}
+      })
+
+      fetcher = WorkspaceContext.context_fetcher_with_query()
+
+      assert {:ok, _snapshot, _summary, nil, behavior_summary, [], [], _interaction_state,
+              _source_status} =
+               fetcher.(work.id, "继续", session.id)
+
+      assert behavior_summary =~ "待作者确认"
+      assert behavior_summary =~ "章节正文草稿"
+    end
+
+    test "明确关闭后普通回复仍保持关闭，不复活旧 active" do
+      {:ok, work} = WorkRepo.create(%{title: "行为关闭后普通回复"})
+      {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "关闭等待"})
+
+      record_turn_result(
+        work.id,
+        session.id,
+        "turn-open",
+        turn_result_with_active_behavior("turn-open", "bh-old")
+      )
+
+      Process.sleep(2)
+
+      record_turn_result(work.id, session.id, "turn-clear", %{
+        "turn_id" => "turn-clear",
+        "assistant_message" => %{"text" => "已关闭。"},
+        "behavior_state" => %{"active" => nil, "history" => []}
+      })
+
+      Process.sleep(2)
+
+      record_turn_result(work.id, session.id, "turn-after-clear", %{
+        "turn_id" => "turn-after-clear",
+        "assistant_message" => %{"text" => "关闭后的普通回复。"}
+      })
+
+      fetcher = WorkspaceContext.context_fetcher_with_query()
+
+      assert {:ok, _snapshot, _summary, nil, nil, [], [], _interaction_state, _source_status} =
+               fetcher.(work.id, "现在呢？", session.id)
+    end
+
+    test "会话作用域严格隔离，不借用其他会话的 open 行为" do
+      {:ok, work} = WorkRepo.create(%{title: "行为会话隔离"})
+      {:ok, current} = WorkSessionRepo.create(%{work_id: work.id, title: "当前会话"})
+      {:ok, other} = WorkSessionRepo.create(%{work_id: work.id, title: "其他会话"})
+
+      record_turn_result(
+        work.id,
+        other.id,
+        "turn-other",
+        turn_result_with_active_behavior("turn-other", "bh-other")
+      )
+
+      fetcher = WorkspaceContext.context_fetcher_with_query()
+
+      assert {:ok, _snapshot, _summary, nil, nil, [], [], _interaction_state, _source_status} =
+               fetcher.(work.id, "当前会话没有等待态", current.id)
+    end
+
+    test "作品作用域严格隔离，不借用其他作品的 open 行为" do
+      {:ok, work} = WorkRepo.create(%{title: "行为作品隔离"})
+      {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "当前作品会话"})
+      {:ok, other_work} = WorkRepo.create(%{title: "另一个作品"})
+      {:ok, other_session} = WorkSessionRepo.create(%{work_id: other_work.id, title: "另一个作品会话"})
+
+      record_turn_result(
+        other_work.id,
+        other_session.id,
+        "turn-other-work",
+        turn_result_with_active_behavior("turn-other-work", "bh-other-work")
+      )
+
+      fetcher = WorkspaceContext.context_fetcher_with_query()
+
+      assert {:ok, _snapshot, _summary, nil, nil, [], [], _interaction_state, _source_status} =
+               fetcher.(work.id, "当前作品没有等待态", session.id)
+    end
+
     # B11A CP4（VS-00J §4 消费面 2/3/4）：结构化章条目保留所属卷 additive keys。
     test "structured chapters carry volume identity/title/blueprint" do
       {:ok, work} = WorkRepo.create(%{title: "卷蓝图上下文"})

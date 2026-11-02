@@ -8,8 +8,16 @@ defmodule NovelPersistence.AgentRunLog do
 
   import Ecto.Query, only: [from: 2]
 
-  alias NovelPersistence.Repo
-  alias NovelPersistence.Schemas.{AgentEventRecord, AgentRunRecord, AgentRunStepRecord}
+  alias NovelPersistence.{LongRunTaskLog, Repo}
+
+  alias NovelPersistence.Schemas.{
+    AgentEventRecord,
+    AgentRunRecord,
+    AgentRunStepRecord,
+    LongRunTask
+  }
+
+  @authoring_format_version "authoring-transcript/v1"
 
   @spec upsert_run(map()) :: {:ok, AgentRunRecord.t()} | {:error, Ecto.Changeset.t()}
   def upsert_run(%{id: id} = attrs) when is_binary(id) do
@@ -48,23 +56,78 @@ defmodule NovelPersistence.AgentRunLog do
     |> Repo.insert()
   end
 
-  @spec insert_events([map()]) :: :ok | {:error, term()}
-  def insert_events(attrs_list) when is_list(attrs_list) do
+  @doc """
+  运行结果提交的统一事务边界。
+
+  callback 返回 `{:ok, value}` 时提交，返回 `{:error, reason}` 时由本函数回滚。
+  应用层在这个边界内编排 InteractionLifecycle 与 `commit_snapshot/2`，不直接使用
+  Repo，也不把模型/工具执行或作者等待放进事务。
+  """
+  @spec transaction((-> {:ok, term()} | {:error, term()})) ::
+          {:ok, term()} | {:error, term()}
+  def transaction(fun) when is_function(fun, 0) do
     Repo.transaction(fn ->
-      Enum.each(attrs_list, fn attrs ->
-        %AgentEventRecord{}
-        |> AgentEventRecord.changeset(attrs)
-        |> Repo.insert(on_conflict: :nothing)
-      end)
+      case fun.() do
+        {:ok, value} -> value
+        {:error, reason} -> Repo.rollback(reason)
+        other -> Repo.rollback({:invalid_transaction_result, other})
+      end
     end)
-    |> case do
-      {:ok, _value} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
+  rescue
+    error -> {:error, error}
+  catch
+    :exit, reason -> {:error, reason}
+  end
+
+  @doc """
+  B71 私有历史：同一事务提交 run、可选 step/事件与 durable checkpoint。
+
+  任一写入失败（含 run/step/event 身份错绑、task 缺失、task 绑定不符、v3 引用错绑、
+  SQL 拒绝、事件 changeset 错误）都回滚整个事务，调用方不得在失败后推进内存
+  canonical 或广播作者结果。
+  """
+  @spec commit_snapshot(map(), keyword()) :: {:ok, AgentRunRecord.t()} | {:error, term()}
+  def commit_snapshot(run_record, opts) when is_map(run_record) and is_list(opts) do
+    steps = Keyword.get(opts, :steps, [])
+    events = Keyword.get(opts, :events, [])
+    checkpoint = Keyword.get(opts, :checkpoint)
+
+    Repo.transaction(fn ->
+      run = upsert_run(run_record) |> unwrap!()
+      validate_associations!(run, steps, events, checkpoint)
+      Enum.each(steps, fn attrs -> insert_step(attrs) |> unwrap!() end)
+      Enum.each(events, fn attrs -> insert_event_record(attrs) |> unwrap!() end)
+      commit_checkpoint!(checkpoint, run)
+      run
+    end)
+  rescue
+    error -> {:error, error}
+  catch
+    :exit, reason -> {:error, reason}
   end
 
   @spec get_run(String.t()) :: AgentRunRecord.t() | nil
   def get_run(run_id) when is_binary(run_id), do: Repo.get(AgentRunRecord, run_id)
+
+  @doc """
+  按 work/session 批量读取运行记录，供历史定位一次取回显式绑定的候选。
+
+  查询本身带 scope，不会先读出其他作品或会话的私有 history 再交给 consumer 过滤。
+  """
+  @spec list_by_ids(String.t(), String.t(), [String.t()]) :: [AgentRunRecord.t()]
+  def list_by_ids(work_id, session_id, run_ids)
+      when is_binary(work_id) and is_binary(session_id) and is_list(run_ids) do
+    case normalize_ids(run_ids) do
+      [] ->
+        []
+
+      ids ->
+        from(r in AgentRunRecord,
+          where: r.work_id == ^work_id and r.session_id == ^session_id and r.id in ^ids
+        )
+        |> Repo.all()
+    end
+  end
 
   @spec list_steps(String.t()) :: [AgentRunStepRecord.t()]
   def list_steps(run_id) when is_binary(run_id) do
@@ -73,6 +136,23 @@ defmodule NovelPersistence.AgentRunLog do
       order_by: [asc: s.sequence]
     )
     |> Repo.all()
+  end
+
+  @doc "按 run id 批量读取已持久化步骤，供 child turn 的一次性步骤匹配。"
+  @spec list_steps_by_run_ids([String.t()]) :: %{String.t() => [AgentRunStepRecord.t()]}
+  def list_steps_by_run_ids(run_ids) when is_list(run_ids) do
+    case normalize_ids(run_ids) do
+      [] ->
+        %{}
+
+      ids ->
+        from(s in AgentRunStepRecord,
+          where: s.run_id in ^ids,
+          order_by: [asc: s.run_id, asc: s.sequence]
+        )
+        |> Repo.all()
+        |> Enum.group_by(& &1.run_id)
+    end
   end
 
   @spec list_events(String.t()) :: [AgentEventRecord.t()]
@@ -180,10 +260,12 @@ defmodule NovelPersistence.AgentRunLog do
 
   条件更新在单条 SQL 内完成（status 仍在非终态才更新），因此并发 join 至多一方
   得到 `{:ok, record}` 并负责本次失效广播；其余方得到 `:already_terminal`，不得
-  重复广播。零 migration：复用既有 status/phase/failure_ref/completed_at 列。
+  重复广播。数据库拒写/读取异常统一返回 `:write_failed`，调用方不得把旧记录当成
+  收口结果。零 migration：复用既有 status/phase/failure_ref/completed_at 列。
   """
   @spec mark_runtime_lost(String.t(), String.t()) ::
-          {:ok, AgentRunRecord.t()} | {:error, :not_found | :already_terminal}
+          {:ok, AgentRunRecord.t()}
+          | {:error, :not_found | :already_terminal | :write_failed}
   def mark_runtime_lost(run_id, failure_ref)
       when is_binary(run_id) and is_binary(failure_ref) do
     now = DateTime.utc_now()
@@ -209,11 +291,239 @@ defmodule NovelPersistence.AgentRunLog do
         {:ok, Repo.get!(AgentRunRecord, run_id)}
 
       {0, _} ->
-        if Repo.get(AgentRunRecord, run_id) == nil,
-          do: {:error, :not_found},
-          else: {:error, :already_terminal}
+        classify_runtime_lost_miss(run_id)
+    end
+  rescue
+    _error -> {:error, :write_failed}
+  catch
+    _kind, _reason -> {:error, :write_failed}
+  end
+
+  # 更新未命中时只允许“记录确实不存在”“记录已是合法终态”或“durable 不属于本
+  # 收口范围”三种情况；其余（例如并发写入后 bounded 仍非终态、读取失败）统一按
+  # 写入失败返回，调用方不得据此读取旧记录或宣布收口成功。
+  defp classify_runtime_lost_miss(run_id) do
+    case Repo.get(AgentRunRecord, run_id) do
+      nil ->
+        {:error, :not_found}
+
+      %{status: status} when status in ["completed", "cancelled", "failed"] ->
+        {:error, :already_terminal}
+
+      # durable 永远不进入 runtime-lost 收口；保留既有“未更新”返回值，调用方
+      # 不得据此读取非终态记录作为收口结果。
+      %{run_mode: "durable"} ->
+        {:error, :already_terminal}
+
+      _still_open ->
+        {:error, :write_failed}
+    end
+  rescue
+    _error -> {:error, :write_failed}
+  catch
+    _kind, _reason -> {:error, :write_failed}
+  end
+
+  defp insert_event_record(attrs) do
+    %AgentEventRecord{}
+    |> AgentEventRecord.changeset(attrs)
+    |> Repo.insert(on_conflict: :nothing)
+  end
+
+  defp validate_associations!(run, steps, events, checkpoint) do
+    Enum.each(steps, &require_run_id!(&1, run.id, :step_run_mismatch))
+    Enum.each(events, &require_run_id!(&1, run.id, :event_run_mismatch))
+    validate_checkpoint_binding!(run, checkpoint)
+  end
+
+  defp require_run_id!(attrs, run_id, reason) do
+    if attr(attrs, :run_id) == run_id, do: :ok, else: Repo.rollback(reason)
+  end
+
+  defp validate_checkpoint_binding!(_run, nil), do: :ok
+
+  defp validate_checkpoint_binding!(
+         _run,
+         %{task_ref: task_ref, attrs: attrs}
+       )
+       when is_binary(task_ref) and is_map(attrs),
+       do: :ok
+
+  defp validate_checkpoint_binding!(_run, _checkpoint), do: Repo.rollback(:invalid_checkpoint)
+
+  defp commit_checkpoint!(nil, _run), do: :ok
+
+  defp commit_checkpoint!(%{task_ref: ref, attrs: attrs}, run)
+       when is_binary(ref) and is_map(attrs) do
+    case LongRunTaskLog.get(ref) do
+      nil ->
+        Repo.rollback(:checkpoint_task_missing)
+
+      %LongRunTask{} = task ->
+        validate_task_ref_matches_run!(ref, run)
+        validate_task_binding!(task, run)
+
+        attrs = preserve_transcript_ref(attrs, task)
+        validate_checkpoint_header!(attrs, task, run)
+        validate_transcript_ref!(attrs, run)
+
+        task
+        |> LongRunTaskLog.update(attrs)
+        |> unwrap!()
     end
   end
+
+  defp commit_checkpoint!(_invalid, _run), do: Repo.rollback(:invalid_checkpoint)
+
+  defp validate_task_ref_matches_run!(task_ref, run) do
+    if is_binary(run.long_run_task_ref) and run.long_run_task_ref == task_ref do
+      :ok
+    else
+      Repo.rollback(:checkpoint_task_mismatch)
+    end
+  end
+
+  # task 与 run 必须真实绑定：workspace 字段在 task 侧存 work_id，parent turn 同源；
+  # 已写入 header 的 run_id 属于既有绑定，不能被同作品同父轮次的另一 run 接管。
+  defp validate_task_binding!(%LongRunTask{} = task, run) do
+    bound_run_id = nested_get(task.checkpoint_data, [:agent_run, :run_id])
+
+    cond do
+      task.workspace_id != run.work_id ->
+        Repo.rollback(:checkpoint_task_workspace_mismatch)
+
+      task.parent_turn_ref != run.parent_turn_ref ->
+        Repo.rollback(:checkpoint_task_parent_mismatch)
+
+      is_binary(bound_run_id) and bound_run_id != run.id ->
+        Repo.rollback(:checkpoint_task_run_mismatch)
+
+      true ->
+        :ok
+    end
+  end
+
+  # 无新 transcript 的状态更新省略私有字段；旧 v3 引用不能被整份 checkpoint_data 覆盖清空。
+  defp preserve_transcript_ref(attrs, %LongRunTask{} = task) do
+    data = attr(attrs, :checkpoint_data)
+    old_ref = nested_get(task.checkpoint_data, [:agent_run, :authoring_transcript_ref])
+    current_ref = nested_get(data, [:agent_run, :authoring_transcript_ref])
+
+    if is_map(data) and not is_nil(old_ref) and is_nil(current_ref) do
+      data
+      |> nested_put(["agent_run", "authoring_transcript_ref"], old_ref)
+      |> then(&put_attr(attrs, :checkpoint_data, &1))
+    else
+      attrs
+    end
+  end
+
+  # 新写入 header 只接受 v3；既有 v2 canonical 只读，snapshot 不得静默覆盖它。
+  # 未提供 checkpoint_data 的状态更新沿用旧 header，不制造空版本。
+  defp validate_checkpoint_header!(attrs, %LongRunTask{} = task, run) do
+    case attr(attrs, :checkpoint_data) do
+      nil ->
+        :ok
+
+      data when is_map(data) ->
+        validate_new_checkpoint_header!(data, task, run)
+
+      _other ->
+        Repo.rollback(:invalid_checkpoint)
+    end
+  end
+
+  defp validate_new_checkpoint_header!(data, task, run) do
+    legacy_version = nested_get(task.checkpoint_data, [:agent_run, :checkpoint_version])
+    agent_run = nested_get(data, [:agent_run])
+    version = nested_get(agent_run, [:checkpoint_version])
+    header_run_id = nested_get(agent_run, [:run_id])
+
+    cond do
+      legacy_version == 2 ->
+        Repo.rollback(:legacy_checkpoint_read_only)
+
+      not is_map(agent_run) ->
+        Repo.rollback(:checkpoint_header_missing)
+
+      version != 3 ->
+        Repo.rollback(:checkpoint_version_not_writable)
+
+      header_run_id != run.id ->
+        Repo.rollback(:checkpoint_run_mismatch)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_transcript_ref!(attrs, run) do
+    agent_run = nested_get(attr(attrs, :checkpoint_data), [:agent_run])
+    version = nested_get(agent_run, [:checkpoint_version])
+    ref = nested_get(agent_run, [:authoring_transcript_ref])
+
+    cond do
+      not is_nil(ref) and is_nil(run.authoring_transcript) ->
+        Repo.rollback(:authoring_transcript_missing)
+
+      not is_nil(ref) ->
+        validate_ref!(ref, run)
+
+      version == 3 and not is_nil(run.authoring_transcript) ->
+        Repo.rollback(:authoring_transcript_ref_missing)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_ref!(ref, run) when is_map(ref) do
+    keys = ref |> Map.keys() |> Enum.map(&normalize_key/1) |> Enum.sort()
+    run_id = attr(ref, :run_id)
+    version = attr(ref, :version)
+
+    if keys == ["run_id", "version"] and run_id == run.id and
+         version == @authoring_format_version do
+      :ok
+    else
+      Repo.rollback(:authoring_transcript_ref_mismatch)
+    end
+  end
+
+  defp validate_ref!(_ref, _run), do: Repo.rollback(:authoring_transcript_ref_mismatch)
+
+  defp attr(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
+  defp attr(_map, _key), do: nil
+
+  defp put_attr(attrs, key, value) do
+    if Map.has_key?(attrs, key),
+      do: Map.put(attrs, key, value),
+      else: Map.put(attrs, to_string(key), value)
+  end
+
+  defp nested_get(value, []), do: value
+
+  defp nested_get(value, [key | rest]) when is_map(value),
+    do: nested_get(attr(value, key), rest)
+
+  defp nested_get(_value, _path), do: nil
+
+  defp nested_put(value, [key], item) when is_map(value), do: Map.put(value, key, item)
+
+  defp nested_put(value, [key | rest], item) when is_map(value) do
+    child = Map.get(value, key)
+    Map.put(value, key, nested_put(if(is_map(child), do: child, else: %{}), rest, item))
+  end
+
+  defp normalize_key(key) when is_binary(key), do: key
+  defp normalize_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp normalize_key(key), do: key
+
+  defp unwrap!({:ok, value}), do: value
+  defp unwrap!({:error, reason}), do: Repo.rollback(reason)
 
   defp normalize_ids(ids) do
     ids

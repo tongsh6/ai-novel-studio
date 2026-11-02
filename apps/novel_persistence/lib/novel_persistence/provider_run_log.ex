@@ -1,16 +1,17 @@
 defmodule NovelPersistence.ProviderRunLog do
   @moduledoc """
-  Durable, author-safe ProviderExecution fact log.
+  Provider 执行事实的唯一持久提交边界。
 
-  The provider runtime may carry raw model text or provider error details in
-  memory. This repository stores only refs, status, usage, and summary facts
-  needed for audit and UI usage display.
+  Provider 运行时可以在内存中持有原始模型文本或错误细节；本模块只落库审计与
+  UI 用量展示所需的引用、状态、用量和摘要事实。run、event、output 在同一
+  read-compare-write 事务内提交，进入事务时先声明 SQLite 写意图并复用既有
+  busy_timeout；错误与正常载荷在比较/写入前统一为作者安全的持久 JSON 形态。
   """
 
   import Ecto.Query, only: [from: 2]
 
   alias NovelCommon.Contracts.{ProviderEvent, ProviderOutput, ProviderRun}
-  alias NovelPersistence.Repo
+  alias NovelPersistence.{ProviderFactMerge, Repo}
 
   alias NovelPersistence.Schemas.{
     ProviderEventRecord,
@@ -133,66 +134,183 @@ defmodule NovelPersistence.ProviderRunLog do
     events = facts |> Map.get(:events, []) |> Enum.filter(&match?(%ProviderEvent{}, &1))
     output = Map.get(facts, :output)
 
-    Repo.transaction(fn ->
-      {:ok, _run_record} = upsert_run(run_attrs(run, context))
+    run_attrs = run_attrs(run, context)
+    event_attrs = Enum.map(events, &event_attrs(&1, run, context))
+    output_attrs = if match?(%ProviderOutput{}, output), do: output_attrs(output, run, context)
 
-      Enum.each(events, fn event ->
-        {:ok, _event_record} = upsert_event(event_attrs(event, run, context))
-      end)
-
-      if match?(%ProviderOutput{}, output) do
-        {:ok, _output_record} = upsert_output(output_attrs(output, run, context))
-      end
-    end)
+    # VS-00L §16.12：本边界是 read-compare-write 事务，进入时先声明写意图，
+    # 复用数据库既有的 busy_timeout，避免 DEFERRED 读后在并发提交时升级失败。
+    Repo.transaction(
+      fn ->
+        with {:ok, _run_record} <- commit_run(run_attrs),
+             {:ok, _event_records} <- commit_events(run_attrs.id, event_attrs),
+             {:ok, _output_record} <- commit_output(run_attrs, output_attrs) do
+          :ok
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end,
+      mode: :immediate
+    )
     |> case do
-      {:ok, _value} -> :ok
-      {:error, reason} -> {:error, reason}
+      {:ok, :ok} ->
+        :ok
+
+      {:error, %{__exception__: true} = error} ->
+        {:error, {:provider_fact_transaction_failed, error.__struct__}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   rescue
-    error -> {:error, error}
+    error in [DBConnection.ConnectionError, DBConnection.OwnershipError, Exqlite.Error] ->
+      {:error, {:provider_fact_transaction_failed, error.__struct__}}
   end
 
-  defp upsert_run(%{id: id} = attrs) when is_binary(id) do
-    case Repo.get(ProviderRunRecord, id) do
+  defp commit_run(attrs) do
+    case Repo.get(ProviderRunRecord, attrs.id) do
       nil ->
-        %ProviderRunRecord{}
-        |> ProviderRunRecord.changeset(attrs)
-        |> Repo.insert()
+        case existing_run_call_owner(attrs.provider_call_ref) do
+          nil ->
+            insert_record(ProviderRunRecord, attrs, :provider_run)
+
+          %ProviderRunRecord{} ->
+            {:error, {:provider_run_call_ref_conflict, attrs.provider_call_ref}}
+        end
 
       %ProviderRunRecord{} = record ->
-        record
-        |> ProviderRunRecord.changeset(attrs)
-        |> Repo.update()
+        apply_decision(ProviderFactMerge.run(record, attrs), record, :provider_run)
     end
   end
 
-  defp upsert_event(%{id: id} = attrs) when is_binary(id) do
-    case Repo.get(ProviderEventRecord, id) do
+  defp commit_events(run_id, event_attrs) do
+    Enum.reduce_while(event_attrs, {:ok, nil}, fn attrs, _acc ->
+      case commit_event(run_id, attrs) do
+        {:ok, _record} -> {:cont, {:ok, nil}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp commit_event(run_id, attrs) do
+    with :ok <- ensure_event_owner(run_id, attrs) do
+      existing = Repo.get(ProviderEventRecord, attrs.id)
+
+      case Repo.get_by(ProviderEventRecord,
+             provider_run_id: attrs.provider_run_id,
+             sequence: attrs.sequence
+           ) do
+        %ProviderEventRecord{id: id} when id != attrs.id ->
+          {:error, {:provider_event_sequence_conflict, attrs.sequence}}
+
+        _ ->
+          apply_decision(ProviderFactMerge.event(existing, attrs), existing, :provider_event)
+      end
+    end
+  end
+
+  defp commit_output(_run_attrs, nil), do: {:ok, nil}
+
+  defp commit_output(run_attrs, attrs) do
+    with :ok <- ensure_output_owner(run_attrs, attrs) do
+      case Repo.get(ProviderOutputRecord, attrs.provider_run_id) do
+        nil ->
+          insert_output(attrs)
+
+        %ProviderOutputRecord{} = record ->
+          apply_decision(ProviderFactMerge.output(record, attrs), record, :provider_output)
+      end
+    end
+  end
+
+  defp insert_output(attrs) do
+    case existing_output_call_owner(attrs.provider_call_ref) do
       nil ->
-        %ProviderEventRecord{}
-        |> ProviderEventRecord.changeset(attrs)
-        |> Repo.insert()
+        insert_record(ProviderOutputRecord, attrs, :provider_output)
 
-      %ProviderEventRecord{} = record ->
-        record
-        |> ProviderEventRecord.changeset(attrs)
-        |> Repo.update()
+      %ProviderOutputRecord{} ->
+        {:error, {:provider_output_call_ref_conflict, attrs.provider_call_ref}}
     end
   end
 
-  defp upsert_output(%{provider_run_id: id} = attrs) when is_binary(id) do
-    case Repo.get(ProviderOutputRecord, id) do
-      nil ->
-        %ProviderOutputRecord{}
-        |> ProviderOutputRecord.changeset(attrs)
-        |> Repo.insert()
+  defp apply_decision(:unchanged, _record, _kind), do: {:ok, nil}
 
-      %ProviderOutputRecord{} = record ->
-        record
-        |> ProviderOutputRecord.changeset(attrs)
-        |> Repo.update()
+  defp apply_decision({:insert, attrs}, _existing, kind),
+    do: insert_record(schema_for(kind), attrs, kind)
+
+  defp apply_decision({:update, updates}, %{__struct__: _schema} = record, kind),
+    do: update_record(record, updates, kind)
+
+  defp apply_decision({:error, reason}, _record, _kind), do: {:error, reason}
+
+  defp schema_for(:provider_run), do: ProviderRunRecord
+  defp schema_for(:provider_event), do: ProviderEventRecord
+  defp schema_for(:provider_output), do: ProviderOutputRecord
+
+  defp insert_record(schema, attrs, kind) do
+    schema
+    |> struct()
+    |> schema.changeset(attrs)
+    |> Repo.insert()
+    |> write_result(kind)
+  end
+
+  defp update_record(record, updates, kind) do
+    schema = record.__struct__
+
+    record
+    |> schema.changeset(updates)
+    |> Repo.update()
+    |> write_result(kind)
+  end
+
+  defp write_result({:ok, record}, _kind), do: {:ok, record}
+
+  defp write_result({:error, %Ecto.Changeset{} = changeset}, kind) do
+    fields =
+      changeset.errors
+      |> Enum.map(fn {field, _error} -> field end)
+      |> Enum.uniq()
+
+    {:error, {write_error(kind), fields}}
+  end
+
+  defp write_result({:error, _other}, kind), do: {:error, {write_error(kind), []}}
+
+  defp write_error(:provider_run), do: :provider_run_write_failed
+  defp write_error(:provider_event), do: :provider_event_write_failed
+  defp write_error(:provider_output), do: :provider_output_write_failed
+
+  defp ensure_event_owner(run_id, attrs) do
+    if attrs.provider_run_id == run_id do
+      :ok
+    else
+      {:error, {:provider_event_run_conflict, attrs.id}}
     end
   end
+
+  defp ensure_output_owner(run_attrs, attrs) do
+    cond do
+      attrs.provider_run_id != run_attrs.id ->
+        {:error, {:provider_output_run_conflict, attrs.provider_run_id}}
+
+      attrs.provider_call_ref != run_attrs.provider_call_ref ->
+        {:error, {:provider_output_call_conflict, attrs.provider_call_ref}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp existing_run_call_owner(ref) when is_binary(ref) and ref != "",
+    do: Repo.get_by(ProviderRunRecord, provider_call_ref: ref)
+
+  defp existing_run_call_owner(_ref), do: nil
+
+  defp existing_output_call_owner(ref) when is_binary(ref) and ref != "",
+    do: Repo.get_by(ProviderOutputRecord, provider_call_ref: ref)
+
+  defp existing_output_call_owner(_ref), do: nil
 
   defp run_attrs(%ProviderRun{} = run, context) do
     %{
@@ -313,10 +431,12 @@ defmodule NovelPersistence.ProviderRunLog do
 
   defp output_summary(_), do: %{}
 
+  # §16.12 唯一存储边界：错误载荷与正常载荷使用同一作者安全 JSON 形态。
+  # atom/string 表示同一事实，在比较/写入前归一；归并不放宽逐字段严格比较。
   defp provider_event_payload(%ProviderEvent{event_type: :error, payload: payload}) do
     %{
       "reason_code" =>
-        map_get(payload, :reason_code) || map_get(payload, :type) || "provider_error"
+        safe_value(map_get(payload, :reason_code) || map_get(payload, :type) || "provider_error")
     }
   end
 
@@ -381,7 +501,8 @@ defmodule NovelPersistence.ProviderRunLog do
 
   defp error_summary(error) when is_map(error) and map_size(error) > 0 do
     %{
-      "type" => map_get(error, :type) || map_get(error, :reason_code) || "provider_error"
+      "type" =>
+        safe_value(map_get(error, :type) || map_get(error, :reason_code) || "provider_error")
     }
   end
 
