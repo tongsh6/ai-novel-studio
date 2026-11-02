@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AuthorActionResult",
+  "description": "VS-00L §16.10：author_action 受理回执的公开 wire 形状。receipt/run/source 是稳定身份引用；agent_run_state 与 turn_results 分别引用既有运行态/结果契约，不复制状态枚举。无 run 的其他合法动作 ACK 仍只带 received/action_status 等字段；agent_run_state 缺失时不表示 live。",
+  "type": "object",
+  "required": ["received", "action_status"],
+  "properties": {
+    "received": { "type": "boolean" },
+    "action_status": { "type": "string" },
+    "duplicate": { "type": "boolean" },
+    "receipt_id": { "type": ["string", "null"] },
+    "run_id": { "type": "string", "minLength": 1 },
+    "run_mode": { "type": "string" },
+    "long_run_task_ref": { "type": ["string", "null"] },
+    "turn_id": { "type": "string", "minLength": 1 },
+    "source_turn_ref": { "type": "string", "minLength": 1 },
+    "source_surface_ref": { "type": "string" },
+    "target_artifact_ref": { "type": "string" },
+    "profile_ref": { "type": "string" },
+    "goal": { "type": "object", "additionalProperties": true },
+    "trigger": { "type": ["object", "null"], "additionalProperties": true },
+    "agent_run_state": {
+      "anyOf": [{ "$ref": "agent_run_state.json" }, { "type": "null" }]
+    },
+    "turn_results": {
+      "type": "array",
+      "items": { "$ref": "turn_result_v3.json" }
+    }
+  },
+  "additionalProperties": true
+}

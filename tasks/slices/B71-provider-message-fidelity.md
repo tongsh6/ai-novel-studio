@@ -1,8 +1,8 @@
 # B71：AI Novel Studio 原生多轮创作请求体
 
-- 状态：**doing（2026-10-31 CP0 done；作者选 A，ADR-0033 Accepted；CP1 done 并复核通过，ADR-0030/0031 已转 Superseded；CP2 机制完成但不单独标 done，残差并入 CP3a；CP3 拆为 CP3a 确定性接线（todo，已入 NEXT 候选）/ CP3b 实模窗口验收（blocked，等真实 Tauri + 实模窗口））**。
+- 状态：**doing（2026-11-02 CP3a/CP3c/CP4a done；CP4b 私有历史/结果事务局部门禁通过；CP3b 实模窗口 blocked；CP4b/CP5 未闭环）**。
 - 来源：作者先要求对照 Codex、Claude Code、dsh 的真实多轮请求，随后明确“设计一个优秀、符合项目调性的请求体，不为现状妥协”。本文件已据此替换此前偏向现役最小修补的方案。
-- 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)；目标方向与迁移规则已由 [ADR-0033](../../docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) Accepted（2026-10-31）；替换契约 [VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 已 Frozen，实现迁移中（CP2 机制完成，CP3a 生产接线未开始）。
+- 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)；目标方向与迁移规则已由 [ADR-0033](../../docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) Accepted（2026-10-31）；替换契约 [VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 已 Frozen，首个判断消费者已完成 canonical 原生多轮接线，其余消费者与完整迁移归 CP4。
 - 对账输入：[B26](B26-single-call-judgment-protocol.md)、[B39](B39-evidence-seeking-authoring.md)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md)、[VS-00I](../../docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md)、[UA-01](../../docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md)。它们是迁移事实与可能需要修订的决策，不是降低目标设计的约束。
 
 ## 1. 重新对照后的核心问题
@@ -85,9 +85,11 @@
 | CP0 | 对三款外部真实多轮请求与本项目真实日志做目标对照；明确 AgentRun 原生会话、作者主权、求证和 replay 的目标方向；登记任务与设计 | **done（2026-10-30，仅文档）**：已替换此前现役最小修补方案；未修改产品代码 |
 | CP1 | 冻结目标 contract pack、Request IR、消息/工具/观察/校验/候选/checkpoint 语义、provider 投影与能力门槛、六类黄金请求和场景预注册；完成 ADR/现役协议差异及迁移裁决 | **done（2026-10-31，见 §7 交付记录）**：VS-00L Frozen + 逐条迁移映射 + G1–G6 + 场景预注册；已复核通过，旧 ADR-0030/0031 已转 Superseded |
 | CP2 | 实现 canonical transcript/Request IR 与三类 provider 投影；建立真实只读观察和原生校验结果回流，黄金与 adapter 测试通过 | **机制完成、不单独标 done（2026-10-31）：IR v1 + 三类投影 + G1–G6 golden + OpenAI 兼容/Anthropic adapter 桥 + application 层 transcript 观察/校验回流机制已完成；生产接线与真实观察回流作为残差并入 CP3a** |
-| CP3a | 确定性接线（2026-10-31 从 CP3 拆出）：以统一 AgentRun 接通首个创作消费者并完成生产接线（IR 消费替换 call-site legacy prompt、观察/校验按 call_id 回流、预算/权限/trace/持久化/恢复），承接 CP2 残差；以确定性 provider 在真实页面驱动证明接线闭环，不签实模语义 | **doing（2026-10-31 CP0 冻结：调用点/分步/风险/验收冻结，见下节）** |
+| CP3a | 确定性接线（2026-10-31 从 CP3 拆出）：以统一 AgentRun 接通首个创作消费者并完成生产接线（IR 消费替换 call-site legacy prompt、观察/校验按 call_id 回流、预算/权限/trace/持久化/恢复），承接 CP2 残差；以确定性 provider 在真实页面驱动证明接线闭环，不签实模语义 | **done（2026-11-01，见 CP3c 实施记录）**：生产接线、浏览器及原生确定性页面证据完成，不签实模语义 |
 | CP3b | 实模窗口验收（2026-10-31 从 CP3 拆出）：按预注册在真实 Tauri 原生窗口 + 真实模型单槽复跑首个创作 AgentRun 全场景与 G1–G6 真实 run 取证；CP3 只有在 CP3a + CP3b 均完成后才算 done | **blocked（需真实 Tauri + 实模资源窗口与预算；非决策阻塞）** |
-| CP4 | 覆盖规划/修订/质量与压缩恢复，完成真实 Tauri 全链、真实模型行为、缓存/usage、replay/Why 和全部门禁；处理现役迁移与旧协议退役 | 未开工 |
+| CP3c | 方案修订与稳定/恢复 checkpoint（2026-11-01）：先修订 ADR/VS-00L，再实现稳定层与动态 scope 分层更新、可恢复 canonical transcript；新增 G7 动态 scope 后与 G8 恢复后，不把整段 Base 刷新当终态 | **done（2026-11-01）**：canonical 整体重构、G7/G8、数据库离线恢复、原生 14/14 与门禁完成；不代表 CP3b/CP4/CP5 完成 |
+| CP4a | 统一创作/质量 canonical 主链：判断 → 原生创作调用 → 质量复核 → tentative artifact → 续行；迁移 creative/quality provider 与 TurnExecutionService，不形成第二控制环 | **done（2026-11-01）**：原生调用、阶段工具、应用结果闭合、durable checkpoint 与真实 Tauri 14/14 完成；不代表 CP3b/CP4b/CP5 完成 |
+| CP4b | 覆盖其它规划 profile、显式压缩恢复与旧协议退役；完成真实 Tauri 全链、真实模型行为、缓存/usage、replay/Why 和全部门禁 | **doing（2026-11-01，方案见末节）**：CP4b-1 统一机制与确定性页面；CP4b-2 实模行为、缓存/usage 与剩余证据。CP4 仅在 CP4a+CP4b 均完成后才算 done |
 | CP5 | 更新 ADR/contract/设计/索引/事实台账和恢复指引；逐项证明完整范围，不能以 adapter/golden 局部证据标 done | 未开工 |
 
 ## 6. 验证与恢复指引
@@ -224,3 +226,494 @@
 - 根因状态（未完全定位）：slice_verify 的判断规则仍依赖 legacy 单 user 文本形态；仅改 `prompt_text` 拼接不足，判断→plan draft 的事件链在 IR prompt 下出现偏差。建议下一步用**单测级结构化探针**（直接以 IR prompt 调 SliceVerify.complete 并断言 `plan_request/plan_draft` 事件与 payload），而不是继续在生产路径上试切。
 - 保留：`prompt_ir/2`、`prompt_for_production/2`（未接线）、slice_verify 条件适配（legacy 行为不变）；全量各 app 测试 0 failures；`AgentRunRuntimeTest` 在全量并发下出现 1 次 flaky，单独复跑 2 次均 41/41 通过，登记为已知 flaky（非本次改动、单独调查）。
 - 待作者选择（不擅自扩范围）：**A（推荐）**先做 slice_verify 判断 IR-aware 的单测级改造 + 结构化探针定位，完成后重新评估 S1b；**B** 暂缓 S1b，按 NEXT 候选推进（UA01-PROMPT T3 等）；**C** 授权更大范围改造（IR-aware 判断契约/新 flow），另行设计评审。
+
+### CP3c 实施记录（2026-11-01）
+
+- **按作者要求整体重构，不保留双轨**：首个判断消费者已从 `judgment_prompt_override` 迁移到唯一 `AuthoringTranscript`。初始 Base 只含角色规则与输出协议；版本、变更原因、source_refs 和当前权限/预算进入 `scope_update`。同一 turn 幂等，新作者 turn 独立追加，旧 body 不删、不改、不替换。
+- **统一原生消息链**：模型响应、工具参数原文、Provider 私有推理引用、观察、validation_result 和 application_notice 都进入 canonical transcript。三种 Provider 投影共享 scope 与 provenance；工具 ID 只在 Provider 输入边界分配。单个 explore 原生回流；模型计划包含多次读取时聚合成真实观察，不伪造逐步模型调用。
+- **G7/G8**：`AuthoringTranscript.checkpoint/1` / `restore/1` 是版本化 JSON 边界；durable checkpoint 保存 canonical transcript，进程终止后从数据库恢复相同投影与最新 scope，无 Provider 调用。离线事实恢复不等于 durable 自动重启执行，后者仍归 CP4。
+- **确定性证据**：全量后端 **2510 tests / 0 failures**；G7 三种投影、探索分页/预算关闭、计划内联读取、作者新 turn、续行 application goal 不伪造 user、G8 数据库恢复均通过；I1/I2/I3、compile --warnings-as-errors、credo strict、xref、arch、前端 typecheck/lint/660 tests、frontend_audit 27、design_trace 19、quality manifest 226 scenarios 均通过。
+- **真实页面分层**：`artifacts/slice-verify/b71-first-consumer-tauri/summary.json` 的浏览器驱动证据通过（两次 chapter_read、`next_offset=6000`、call_id、末页回复、零写入），但 `surface=browser`，不冒充原生。新增 `scripts/native_b71_{drive,evidence}.mjs` 与 `native_b71_batch.sh` 后，`artifacts/slice-verify/b71-first-consumer-tauri-native-cp3c-03/summary.json` 为 **surface=tauri / driver=ax-native-system-ui / 14 checks全过**：严格前缀、最新 scope 关闭、续读 query 与 footer 字节一致、call_id、末页可见回复、零生产写入均成立。
+- **验收故障留痕**：`cp3c-01` 因 harness CLI 同步返回值误用 `.catch()` 失败，未进入产品操作；`cp3c-02` 用户旅程完成，证据脚本误选首页观察而未过，已修为分别核对首页 footer 与下一次真实 query，并仅复核原批次，未重复模型动作。失败目录只读保留。
+- **门禁与边界**：统一静态扫描复跑成功，5 条 secret 命中均为既有 false_positive/accepted_risk；ADR-0032 缺少 `enforced_by` 是独立阻断，不在本 slice 修改。ub-tools 不支持 Elixir，不能作为后端质量门；本次 JS 验证明细的既有高复杂度不由本任务扩大重构。真实缓存收益未测量，不宣称优于既有请求；CP3b 实模资源窗口、完整 durable 恢复、CP4/CP5 仍未闭环。
+
+### CP4a 开工冻结（2026-11-01）
+
+- **范围**：creative/quality Request IR、原生 tentative/quality tool call、应用校验/物化回流、TurnExecutionService canonical 返回值、AgentRun 续行。其它规划 profile、显式压缩、自动重启执行和真实缓存收益归 CP4b，不写“范围外”，只记“下一 checkpoint/未闭环”。
+- **七问**：①消费 VS-00L §14–15、G4 与既有 AuthoringTask/ToolRequest 契约；②保护同一 run 唯一事实源、严格前缀、tentative-first、作者主权与 I1/I2/I3；③切穿 `novel_agent` 的 Request IR/creative/quality adapters 与 `novel_application` 的 TurnExecutionService/flow，不修改 web/前端产品路径，不新增 schema；④首个消费者为 `ProseDraftingWithQuality`，其余 creative 消费者复用同一适配器；⑤原生请求/校验/候选/续行测试 + 全量回归 + 真实页面；⑥由外部自动化驱动真实 Tauri 候选页，产品验收感知为 **no**；⑦writer/evaluator 复用同一只读观察，不新增固定作品 packet。
+- **实现纪律**：不让 agent 依赖 application transcript 模块；Request IR 是跨层契约，application 用 `AuthoringTranscript` 恢复。creative/quality 每次只调用一次 Provider，返回业务结果与内部会话数据；不得为同时取得候选和 transcript 重发请求。
+- **迁移纪律**：旧 JSON 文本生成与 `user` 纠错仅作显式有限模式兼容，目标生产链使用原生调用与校验结果。CP4a 不单独宣称 B71 或 CP4 完成，CP3b 实模和 CP4b 后果独立验收。
+
+### CP4a 实施与验证记录（2026-11-01，done）
+
+- **统一原生创作与质量主链**：`CreativeProvider.Real` / `ProseQualityEvaluator` 使用 `submit_tentative_artifact` / `report_quality_findings` 原生调用；`TurnExecutionService` 返回 TurnResult、DecisionTrace、canonical transcript。旧 JSON 仅保留显式 `legacy_json_content` 有限模式，不作为 CP4a 证据。
+- **阶段与工具边界**：Request IR 保留全部历史工具，当次 Provider 投影通过 `tool_names` 仅开放当前阶段工具，单工具阶段同名 `tool_choice` 强制绑定；续行 scope 同时携带角色/输出契约、目标、偏离、真实观察、版本与来源，避免复用历史 judgment 阶段。真实 Provider 调用在统一 step meta 中只计一次。
+- **原生结果闭合**：创作响应之后由应用追加 `tentative_artifact_validated`，质量响应之后追加 `quality_findings_validated`；两者都是 tool 原生 validation_result，不表示作者采纳或 canon 写入。续行响应先进入本次执行快照，再由后续 writer/quality 统一落 checkpoint，不用事后 patch 覆盖新历史。
+- **恢复与作者安全**：canonical Provider 参数统一 JSON 字符串键；versions/arguments/items 不与 transcript 结构字段混一恢复。checkpoint 新增应用结果字段，真实 run 的续行→writer→quality 及 validation_result 可经 JSON 恢复。作者可见消息继续使用自然语言和章节 display name，不透出 Request IR、provider_session、工具 code、call_id 或原始推理。
+- **验收场景**：新增 `b71-authoring-transcript`，复用 `native_b71_{drive,evidence,batch}` 和真实 Tauri 输入/按钮，驱动 writer timeout → scoped retry → 同 run 候选；证据核验覆盖严格前缀、当前阶段工具、应用结果闭合、durable checkpoint、作者安全文案与未采纳前无正文写入。产品验收感知为 no。
+- **局部与全量证据**：同种子全量后端 2516 tests / 0 failures；`mix compile --warnings-as-errors`、`mix credo --strict` 通过。I1 driver 已支持原生工具参数精确字节比较，I1/I2/I3 全部通过；quality manifest 227 scenarios / 2 drafts 通过。前端 typecheck/lint/test、frontend_audit、design_trace 已通过。xref/arch 通过。
+- **真实页面闭环**：`artifacts/slice-verify/b71-authoring-transcript-tauri-native-cp4a-07/summary.json` 与最终驱动复验 `...cp4a-08/summary.json` 均为 `surface=tauri / driver=ax-native-system-ui / provider=slice_verify`，14/14。作者明确选择“可恢复的长任务”后，真实 durable run 完成 writer timeout → scoped retry → 同 run 候选；严格前缀、阶段工具、原生结果闭合、durable checkpoint、作者安全文案与未采纳前无正文写入全部成立。早期输入焦点、历史文本误判创作类型、bounded 无长期任务等失败只读保留，未冒充 PASS；`cp4a-06` 的 bounded 旅程只作补充，不替代 durable 证据。CP3b 实模、CP4b、真实缓存收益不代签。
+
+### CP4a 门禁补充（2026-11-01）
+
+- `pnpm tauri build` 成功，生成 `.app` 与 `AI Novel Studio_0.1.0_aarch64.dmg`；本机无 Apple 公证凭据，未声称已公证。
+- 统一静态扫描 `bash scripts/ai_static_scan.sh --top 10`：18 passed / 2 failed / 0 skipped，本次改动文件 0 命中。5 个既有 gitleaks 项保持 false_positive/accepted_risk；另一任务 `artifacts/task-done/20261031T190849Z/manifest.json` 的 pending 未在本 slice 修改或代签，不宣称扫描全绿。
+- ub-tools：新增 CP4a 驱动/证据函数已按 crapper 结果拆分；dryer 无可分析源文件；mutator 仅 scan（69+149 sites），无诚实的独立 JS mutation runner，未宣称 mutation 通过。临时 `.metrics/` 已清理。
+
+### CP4b 开工冻结（2026-11-01）
+
+- **CP4b-1 当前 checkpoint**：统一其它创作 profile 的 canonical 会话与失败恢复，完成显式压缩/恢复、旧 JSON 请求协议退役及真实 Tauri 创作页。CP4b-2 的实模行为、缓存/usage 和剩余 replay/Why 证据是下一 checkpoint，不把本 checkpoint 写成 CP4b 全量完成。
+- **Contract**：消费 VS-00L §16、ADR-0033、UA-01 的 bounded/durable 语义、AuthoringTask/ToolRequest 和既有 DecisionTrace；新增 `AgentRunFlows.AuthoringSession` 唯一 application 会话边界，不新建数据库表或平行协议。
+- **Invariant**：同一 run 唯一事实源，严格追加前缀；作者原话/artifact 字节、tentative-first、作者裁决、I1/I2/I3、N-NARR、真实预算与 replay 不调模型。压缩必须显式声明覆盖/来源/版本/省略，不能静默丢弃。
+- **Boundary**：切穿 `novel_application` 的 flows/AgentRunServer/transcript/replay 与 `novel_agent` 的 RequestIR/creative/quality 投影；`novel_web/frontend` 仅消费 author-safe 投影，不让 agent 依赖 application transcript 模块，不新增 schema。
+- **Consumer**：五类其它创作 flow 是首批消费者；显式压缩由后续 run 与 durable restore 消费；Replay/Why 沿用既有 trace 服务，不重放模型。
+- **Proof**：五类 flow 的成功与失败 transcript、错误恢复、三类投影的压缩前后幂等、旧 JSON 不再形成独立请求、Replay/Why 来源边界、全量后端/I1/I2/I3/架构门禁，以及真实 Tauri 其它创作候选页。真实模型行为不以 stub 代签。
+- **Acceptance Driver**：复用真实 Tauri 工作台与外部 AX/传输证据，驱动其它创作 profile 从自然输入到 tentative 候选，核对 run 内请求与 durable 恢复；产品验收感知为 no，不新增隐藏 DOM、slice env 或自动操作。
+- **Exploration**：复用既有只读观察与 source refs，压缩保留 Base、作者原话、当前 scope 与未覆盖消息；摘要不能冒充未读事实。非要素物化的 profile 复用同样按需求证，不新增固定作品 packet。
+
+### CP4b-1 实施顺序
+
+1. 先用成功/失败用例固定五类 flow 的 transcript 与统一错误结果，再引入 `AuthoringSession` 并接线。
+2. 用三类 Provider 的黄金请求固定显式压缩、恢复和幂等，再接 durable 真实状态。
+3. 收敛 creative/quality 的旧独立 JSON prompt/纠错实现，保持显式有限模式仅限响应解析；接通 author-safe Replay/Why。
+4. 以真实 Tauri 其它创作页、全量门禁与 CP4b-2 的未闭环边界收口，不把局部 checkpoint 写成 CP4b 全量完成。
+
+### CP4b 系统性复核与重构（2026-11-01，进行中）
+
+- **开工与保护**：继续消费 §16 的既有范围。核对当前分支与全部 WIP；基线快照保存于 `artifacts/b71-resume/20261101-133908/`。B77 设计 WIP 不纳入本轮修改。后端基线 2522 tests / 0 failures；原生角色页历史 `cp4b-07` 为 11/11，但不是以下新代码的复验证据。
+- **压缩事实源**：先用失败测试复现任意 covers 删除同一历史、原文丢失、部分多调用折叠及损坏 checkpoint 崩溃，再重构为 canonical 消息永久追加 + `RequestIR.Compaction` 统一投影。精确 `covers.call_ids`、完整交换、refs/version、重叠与幂等均校验；旧 `turn_range` 只作历史说明。恢复时从消息重建 call_ids，不信任持久派生索引。
+- **原生交换**：`NativeToolExchange` 收敛创作/评审；未知或多工具响应整体验证失败且逐 call 回流，有限重试与末次拒绝都完整留存。生产 `to_provider_prompt` 消费能力门；有限 JSON 必须事先声明。判断/续行也逐 call 闭合协议校验；计划内联读取仍由真实聚合观察绑定，协议有效不等于执行批准。
+- **失败与持久化**：durable 压缩在数据库提交成功后才推进内存；真实 SQL 拒写/任务缺失测试保护不报假成功。五类 flow 共用 `AuthoringSession` 保留失败 transcript 与执行计数，正文 D1/D7 不再丢历史；工具预算来自派发边界，失败也累计前序 planner 消耗。旧 JSON 测试替身按原始 payload 迁移为原生工具响应，没有放宽协议。
+- **Replay/Why**：按作品/会话/父轮次或已记录步骤关联 durable 历史，并核对 run 身份；缺失/损坏/错绑为 partial，引用无显示名时不暴露内部 ref。新增三条完整性红测先失败，修复后连同作者安全回归 13/13。
+- **真实传输保真**：HTTP fixture 已复现参数原 JSON 被 adapter 丢弃、DeepSeek 私有回放字段不可达及用途模型只改日志不改 body。分别以 raw_arguments、来源绑定的 opaque provider_state、单一 execution_route 快照修复；默认/跨 Provider 或模型不回投私有状态。RunEnvelope 只存身份与目标，避免整个 AgentRun struct 进入 durable JSON；任意 validation.detail 与私有状态按 JSON payload 处理。
+- **工具边界**：crapper/dryer/mutator 已实际调用，当前安装版不支持 Elixir（输出无可分析源），不能据此声称后端 CRAP/mutation 达标。TS 作者历史投影 dryer 无重复，选定两处边界 mutation 2/2 killed；无覆盖率报告，CRAP 为 N/A，既有 view 高复杂度仍需单列。前端 typecheck/lint/661 tests、设计追溯 19/19、manifest 228 scenarios 已通过。Tauri `.app`/DMG 已构建；无 Apple 公证凭据，不声称已公证。
+- **验收诊断**：I3 3/3 通过；首次 I1 主链失败由更严格状态机揭示未闭合判断调用，未更改不变量判据。一个通用 Gateway 诊断探针被自动审批拒绝（无法确认真实 Provider/持久化副作用）；未执行该探针，改用已有测试中的确定性 provider 与测试日志定位。最终全量门禁与新代码原生页面复验仍待下述收口记录。
+- **明确保留的计划内后果**：具体路由模型能力尚未与 IR 声明绑定；工具请求仍走 final-only，SSE parser 尚未累积工具参数，不能宣称原生工具流式已完成。Responses 目前仍只有纯投影证据。真实模型 CP3b/CP4b-2、实际能力矩阵、显式压缩的真实产品触发/页面证据、真实 usage/cache 与最终 CP5 不由本轮确定性证据代签；B71 保持 doing。
+
+### CP4b 本轮验证与下一消费者（2026-11-01）
+
+- **局部门禁**：全量后端最终复跑 2561 tests / 0 failures；新增原生故障注入边界测试所在文件 62/62。compile --warnings-as-errors、credo --strict、xref 无编译环、arch_check 通过；I3 3/3、I1 4/4、I2 3/3（3 对不相交）通过；I-CACHE 七个调用点全部 covered/enforced。I-CACHE 离线 fixture 已迁为原生工具响应，writer 动态边界按 VS-00L/VS-00I 重锚到独立作者消息，静态规则/schema/enforce 判据保留。
+- **真实原生页面**：`b71-authoring-profiles-tauri-native-cp4b-fidelity-01` 为 11/11（含 Why 无 Provider 调用）；`b71-first-consumer-tauri-native-cp4b-fidelity-03` 为 14/14。正文恢复的 `...fidelity-04` 完成真实用户旅程，但旧核验把续行次数写死为一次而失败；`...fidelity-04-recheck` 用同批原始 wire/截图/DB 逐项比较调用 ID 和顺序，14/14，不重新操作产品。`evidence-recheck.json` 保存原批次与源文件哈希；原失败目录只读保留。
+- **验收故障根因**：`...fidelity-02` 的替身故障注入用历史正文标记匹配当前续行，导致错误超时；新增红测 62 条中 4 失败后，只修 test/support 的当前工具 + 最新 scope 判断，62/62 通过。外部 driver 现在遇真实 run_failed 立即失败，避免误等 turn timeout。历史核验增加 3 条正反例，拒绝丢失/错序/伪造前序调用；没有放宽产品权限或内容因果不变量。
+- **统一扫描**：首次 `bash scripts/ai_static_scan.sh --top 10` 为 18 passed / 2 failed，0 touched findings。前缀问题已闭合；剩余为 5 条既有 secret 处置项及旧 task completion manifest 过期。继续使用原 checker 的显式 manifest 参数，将本轮证据清单放在现有 `artifacts/b71-resume/`，不在禁止新增的 `artifacts/task-done/` 下建新体系；最终报告以 `artifacts/static-scan/{top10.md,report.json,disposition.md}` 为准。验证清单只证明当前树的检查与页面证据，不表示 B71 全量完成。
+
+**消费者完整性复核发现以下计划内链路仍未迁移，不能以本轮绿色测试宣布 CP4b/CP5 done：**
+
+| 下一步 | 当前事实与统一迁移要求 | 完成证据 |
+|---|---|---|
+| 独立计划起草与重规划 | `AgenticPlanDraftPlanner` 同时实现 draft/revise；judgment/prose/readonly flow 的独立调用仍用 giant user prompt 与文本重试，返回 meta 未带会话。inline plan 已迁移不覆盖 fallback/replan。必须共享 AuthoringSession/IR、原生 plan 校验与失败历史，删除另一套请求状态 | 首轮判断→独立计划→执行→重规划→durable/replay 的完整请求序列；失败重试不伪造 user；真实页面与预算不变 |
+| 章节/规划使命 | `ChapterMissionService` 的独立 user 请求和 user 纠错未进入 canonical；保存使命字段不等于保存原生调用 | 使命原生调用/校验/来源进入同一 transcript，后续 writer 使用真实使命，恢复不重调模型 |
+| 候选与已采纳内容修订 | `PendingArtifactWorkflow`、`ProseRevisionService` 仍调用丢 session 的 execute 外观，guard 纠错重构独立 request。必须沿作者新授权边界开启/保存新会话，同一修订内复用 IR 与原生失败回流 | 字节保留/目标范围/版本/采纳不变量、失败恢复、真实页面与 I1/I2/I3 |
+| 确认入口与叙述退役 | `DialogueGateway` 的确认路径仍丢 TES 第三返回值；泛型无 artifact 成功分支可能调用独立 `Planner.narrate_tool_result`。先核实真实消费者，统一持久新授权会话，无法证明使用的旧入口退役 | 确认执行→trace/checkpoint→Why 可追溯；不能把旧 run 的权限复活；无消费者残留 |
+| 实际能力、流式与压缩消费者 | 已统一实际路由，但 application 仍写 full_capabilities，tool SSE 未累积，Responses 无真实路由；显式压缩仍缺真实产品触发/页面证据 | 实际 route/model 能力快照 + 工具流/取消/usage 矩阵；压缩前后页面/恢复；按原预注册执行实模 G1–G8 |
+
+下一实现继续属于原 CP4b 完整闭环：优先独立计划与使命，然后修订/确认与旧入口退役，最后能力/流式/压缩真实消费者及实模；不新增平行任务，不以这里的局部顺序缩小原范围。
+
+### CP4b 独立计划与使命开工检查
+
+- **Contract**：VS-00L §16.6，AgentPlan/ChapterMission 既有领域契约；统一 AuthoringOperation 构造与 NativeToolExchange 协议交换，保留 AuthoringSession 为状态读写边界。
+- **Invariant**：作者原话/历史字节稳定、失败原生回流、实际预算、来源绑定、tentative 与逐步授权；应用目标不伪造 user，重试不产生第二业务控制环。
+- **Boundary**：novel_agent 原生交换 + novel_application 计划/使命服务、flows、AgentRunServer；domain 规则、persistence schema、web 与前端产品路径不改。
+- **Consumer**：JudgmentPlan/ProseDrafting/ReadonlyBatch 的独立计划与 replan，正文/大纲 flow 的使命步骤，以及紧随其后的真实创作调用与 durable 恢复。
+- **Proof**：先写失败测试固定前序历史、错误回流、0/1/2 调用数、领域规则与 JSON 恢复；验证规划 meta 在执行前进入下一 step，终局/失败不丢历史。随后全量门禁与原生场景，实模行为继续单列。
+- **Acceptance Driver**：复用外部原生 B71 驱动与现有计划场景，核对请求、wire、截图、DB checkpoint 的完整序列；产品验收感知为 no。缺少独立 replan 页面路径时保留缺口，不能以共享 helper 验过代签。
+- **Exploration**：复用既有计划索引/真实观察与 ChapterMissionInputs 来源；只在当前操作 scope 暴露相同材料，不新增默认知识 packet，后续消费同一证据 refs。
+
+### CP4b 独立计划与使命实现及原生复核（2026-11-01，未闭环）
+
+- **实现**：独立 draft/revise、chapter/planning mission 已共用 `RequestIR.Operation` / `AuthoringOperation` / `NativeToolExchange`。阶段切换携带该角色完整规则；计划传输重试与结构纠正共用实际调用预算；成功、失败、终局与预算停止保留 canonical。修复终局 replan 丢失版本/meta，以及离线 provider 用历史工具误判当前阶段的问题。上表两项旧入口问题已进入此实现检查点，不再作为未动工项。
+- **局部与全量证据**：`artifacts/b71-resume/planning-backend-full.log` 为 2611 tests / 0 failures；compile warnings-as-errors、credo、xref、arch 均通过。I3 3/3、I1 4/4、I2 三输入三对不相交；`planning-icache-final.log` 七个调用点全部 covered/enforced。I-CACHE 的 draft/revision 动态边界按 VS-00I 正式重锚至 scope_update；章节材料仍须存在于两个请求，未删规则换取通过。安装的 ub 工具不支持 Elixir，不能把 no-source 输出记成 CRAP/mutation 通过。
+- **原生批次实况**：`b71-authoring-planning-tauri-native-cp4b-planning-01` 的外部 AX 驱动退出 0，真实页面完成判断→独立起草→重规划→两次创作→Why；核验退出 1，失败为 `planning_stage_tools` 与 `no_production_write`。前者实际请求为 bridge 的具名字符串，而核验器仅接受 OpenAI 对象；后者全表计数相同，但 `memory_items` 完整行 hash 改变。未取得字段级前后证据前，不能直接归因为无害召回统计。原批次保持只读，不改写成 PASS；串行命令后续的 mission 批次未启动。
+- **下一修复边界**：外部核验须识别实际中立/投影工具选择且严格绑定当前工具。作品内容、治理状态与版本必须完整保护；若记录召回计数/时间变化，须与真实引用日志逐项对账，不能简单排除整张记忆表或忽略未知变化。补全快照后重新驱动真实页面，才可证明未发生隐式采纳。
+- **下一消费者设计约束**：对话修订已经处于当前作者输入创建的真实 run，应继承本 run 的判断/观察；卡片确认与按质量发现修订是新的作者动作，须重新授权并建立真实运行归属，不能继承旧 run 的执行权限。统一应用结果闭合与失败会话返回，避免各消费者复制私有 validation/retry。协议纠错与修订范围纠错必须共用实际调用预算，禁止嵌套两次重试形成四次调用。修订领域规则、目标/版本及采纳字节不变量维持原约束。
+- **入口审计与修复**：`Toolbox.execute_with_session/2` 的注册表/grant 预检失败曾直接返回 `ToolResult`，与声明的 `{ToolResult, session}` 不一致。DeepSeek worker 用公开入口红例固定后，把 Toolbox 内部收敛为单一元组管线，Toolbox/AuthorizedToolExecutor 旧 execute 外观只投影结果；leader 读实现并复跑 55 项聚焦测试通过。`DialoguePlanningService.pending_artifact_step` 当前覆盖 `stage_state` 的缺口仍待修订消费者迁移处理，不能混记为已修复。
+- **记忆字段审计结论**：`worker-memory-audit.md/json` 记录两次真实 recall UPDATE 与两条引用日志；leader 独立复算确认，仅将最终行 `reference_count` 还原为 0、`last_referenced_at` 还原为 null，即精确命中 start 完整行 hash，其余字段未变。这是从最终行和种子默认值验证出的历史状态，不是直接 before 行快照。依据 AU-09 既有引用统计语义，新验收分别检查 canon 全字段不变与引用统计有日志支撑，不修改生产代码以抑制真实统计，也不重写旧批次的失败事实。
+- **当前代码复验**：Toolbox 重构后 `artifacts/b71-resume/current-backend-full.log` 为 2620 tests / 0 failures，compile/credo/xref/arch、I1/I2/I3 均通过；前端 typecheck/lint/661 tests、design_trace 通过；完整 `frontend_audit` 首次打包子步骤失败产生两条警告，串行复跑 `current-frontend-audit-recheck.log` 为 27 pass / 0 warn / 0 fail；`current-tauri-build.log` 的 app/DMG 构建通过，临时签名、未公证。字段级快照原生复验与统一扫描见后，局部门禁不替代页面验收。
+- **快照核验自身验收**：新增 versioned canon/reference 快照后，leader 红例揭示旧引用日志未知列被白名单丢弃；已退回 worker 修正为全列保留，SQLite capture 与纯比较均有负例。leader 复跑 69 项 Node 测试与 229 scenarios / 2 drafts manifest 通过。纯模块真实 LCOV 下 CRAP 最高 9.0；mutation 实际 144 项、140 killed、4 项排序比较器变异在当前 Node 运行时不可区分（非跨引擎的形式等价证明），保留原工具 exit 3 和处置证据；Dryer 不支持 mjs，不写 PASS。
+- **原生 planning-02 未通过**：实际 UI 已走到 Why，final capture 因 `memory_reference_logs[0].id` 解码失败退出 1。真实 SQLite 在 TEXT 列保存 16 字节 UUID，而临时 DB 测试只模拟 BLOB，`node:sqlite` 文本解码丢失原字节。此为证据读取边界缺口；要求先补 TEXT 列二进制 UUID 红例，再由 SQLite 无损投影已知 UUID 字段，保留其它所有列。原失败目录保持失败，未给本批补造 final/summary。
+- **原生复验通过**：worker 补齐真实 TEXT + `CAST(? AS TEXT)` 的非法 UTF-8/NUL UUID 红例后，在 SQLite 读取边界无损投影五个已知 UUID 字段，`SELECT *` 仍保留全部未知列，纯 canon 判据未变；leader 复跑 69 项 Node 验收通过。`b71-authoring-planning-tauri-native-cp4b-planning-03/summary.json` 为真实 AX/Tauri **19/19**：判断→独立起草→重规划→两个 writer 共 5 次请求、plan_version=2/replans=1、durable 同源历史、两类 tentative、Why 无模型调用；9 张 canon 表内容不变，引用计数 +2 与两条新日志逐项相符。`b71-authoring-transcript-tauri-native-cp4b-mission-01/summary.json` 为 **16/16**，独立计划与章节使命的原生调用/校验进入后续 writer，正文失败续行、质量与 durable 历史闭合。两批均为确定性 `slice_verify`，不代签实模或全 B71 完成。
+- **统一扫描处置**：执行 `TASK_DONE_MANIFEST=artifacts/b71-resume/current-gate/manifest.json bash scripts/ai_static_scan.sh --top 10`，汇总退出 0；原始 checks 为 19 pass / 1 gitleaks fail。Top10 实际 5 项，touched=0、blocking=0：B65 示例 nonce、B63 历史 spec 标识、E2E spec 标识、Pencil 元数据按既有台账为 false_positive；另一分支历史 company-console 凭证为既有 accepted_risk。未改处置台账、未重写历史；后者轮换/历史清理仍归凭证所有者与原分支维护。详见 `artifacts/static-scan/{top10.md,disposition.md,report.json}`，不得表述成扫描零发现。本轮修复的是会话执行边界和核验缺口，没有新增扫描命中需要豁免。
+- **整体状态**：当前仅为 CP4b 计划内检查点；修订/确认、实际模型能力、工具流式、显式压缩产品消费者、实模与 CP5 仍未闭环。新的 leader/DeepSeek worker 分工已启用，worker 负责限定修改与测试，leader 负责设计及证据验收。
+
+### CP4b 修订/确认真实入口审计（下一检查点，尚未实现）
+
+- `artifacts/b71-resume/worker-action-entry-audit.md` 的静态证据已由 leader 对照真实 Channel、flow、service 入口复核：`revise_from_findings` 在 Channel 先校验动作，再创建新的 `prose_revision_from_findings_v1` run；权限与预算来自新 profile，不继承源 run。当前缺口是 `ProseRevisionService` 没有接收这个真实 run/snapshot，执行外观丢 session、flow 固定记一次 Provider 调用，失败也不带更新会话。迁移应接通已有运行，不能再创建嵌套 run。
+- 工具 `confirm_before_execute`（非采纳确认）仍同步执行 Gateway→TES，使用源 frame/turn id，丢弃第三返回值；Gateway 写 trace 时还未传真实 session。此入口需要明确的新作者动作运行归属与结果持久链，不能仅把 transcript 放进作者可见 TurnResult，或复活源 run 权限。采纳确认仍走 AdoptionWorkflow，不得混入此重构。
+- 保留的现役约束：receipt lookup 先于 stale 校验；同 key 同 payload 回放、异 payload 拒绝；新 run 仍逐步经过 Orchestrator；源候选与修订候选并存，修订不自动采纳、不自动追加质量循环。`source_turn_ref`、action input/receipt、目标 artifact/finding refs 与实际执行 turn 必须可互相追溯。
+- 持久化差异必须显式验收：修订 run 结果已通过 InteractionLifecycle 先持久后广播；工具确认目前是广播后 best-effort 写 Interaction，而且复用源 turn。一般 bounded run 也不能被测试擅自提升成 durable 来证明 canonical 可回查；需在后续设计明确 bounded 历史留存与 durable 执行恢复的边界。现有 durable-only AuthoringReplay 不可代签 bounded 修订恢复。
+- 下一实现先冻结统一应用结果校验/会话保存及共享重试预算，再迁移对话修订、质量修订、工具确认。外部场景复用 `quality-revision-action-run-anchoring` / `p1-prose-revision-candidate` 并补实际请求历史与持久证据；原生验收前不标完成。此顺序服务原 CP4b，不减少其完整范围。
+
+### CP4b 修订消费者开工检查
+
+- **Contract**：VS-00L §16.7、既有 AuthoringTask/ToolResult 与 ADR-0020 修订不自动采纳契约。内部纯校验回调不进入数据/持久协议；共享 NativeToolExchange 唯一重试预算与 AuthoringSession 结果保存边界。
+- **Invariant**：原作者/assistant/tool 字节与顺序保留；修订范围失败进入原 call 的失败结果；协议与应用纠错合计最多两次调用且受剩余预算限制；失败历史与实际计数不丢失；原候选保留、修订仍 tentative、无隐式采纳。
+- **Boundary**：先改 novel_agent 的交换/creative adapter 与 novel_application 的 PendingArtifactWorkflow、ProseRevisionService、对应 flows/TES。domain 修订规则、采纳写库与前端产品代码保持现役语义；后续确认和 bounded 留存所需的 web/persistence 边界属于同一完整闭环的下一检查点，不能提前标完成。
+- **Consumer**：真实对话候选/已采纳内容修订，以及 Channel 已建立的 prose_revision_from_findings run；不是另起 demo 或测试专用执行入口。
+- **Proof**：公开工具入口验证协议错误→应用拒绝、应用拒绝→协议错误均只发生两次调用；每次 call 有原生结果，纠错不新增 user，不触发第二 Toolbox 派发。应用测试验证实际 run/IR、章节与候选范围、0/1/2 预算、失败/终局会话、来源版本与既有采纳字节不变量；然后全量门禁与 I1/I2/I3。
+- **Acceptance Driver**：复用真实 Tauri 的 pending revision / quality-revision-action-run-anchoring 场景，外部 AX 输入或点击作者动作，核对请求、持久事实与可见候选；产品验收感知为 no。未覆盖的确认及 bounded 历史消费者继续列缺口；实模行为仍单列。
+- **Exploration**：修订材料来自已经解析的真实目标/来源/版本与当前 run 观察；保持既有探索可达和 used_context_refs 约束，不添加默认知识 packet。纯校验回调不物化作品要素，拒绝结果不变成新事实。
+
+### CP4b 修订交换审查与工具队列等待（2026-11-01）
+
+- agent 侧首轮已接入原生应用校验和两次共享预算；worker 的 105 项聚焦测试由 leader 复跑通过。但审查尚未接受：非函数 validator 被直接忽略，正常 tool-result 回流丢失独有 `feedback.message`，失败分支重复重试决策，实际工具派发计数还需在派发点记录。leader 的纯本地注入探针 `artifacts/b71-resume/leader-revision-boundary-probe.exs/.log` 已复现前两项，退出 1；不涉及真实模型或作品写入。
+- 返修和共享会话红测试已按同步派活规则提交，尚未执行。`dsh_status` 显示 bridge v2.1.0 为 active=2、running=0、queued=2；源码 `runDispatch` 只在 `wait=false` 注册 release，导致先前同步任务完成后槽位未归还。此为工具队列故障，不能记作 worker 正在实现或已完成。
+- leader 已准备项目外桥的最小补丁及隔离 VM 红绿证据：`artifacts/b71-resume/bridge-review/sync-slot-release.patch`、`verification.log`，覆盖同步、异步、幂等复用、等待超时、队列唤醒与启动失败。真实 `/Users/loong/scripts/dsh-mcp/server.mjs` 未修改；按本机策略等待用户授权修复或自行修复/重连。不得重复派发绕过队列，也不自行扩大到全局工具维护。
+- 应用消费者尚未接线，本检查点未闭环。两个待派任务幂等键分别为 `b71-revision-native-validation-review-fix-v1`、`b71-revision-session-red-tests-v1`；恢复后先核验真实队列/进程状态，再沿已有任务继续，不盲目重启。
+- **恢复记录**：用户已授权备份并修复桥，原文件保存于 `/Users/loong/backup-manifest/config/dsh-mcp-server.mjs.bak-20261101-183220`；实际补丁与语法/VM 红绿验证见 `artifacts/b71-resume/bridge-review/{applied.json,applied-verification.log}`。用户随后重连 MCP；leader 核验修复后哈希 `1485305b…898ec2038`，桥 active/running/queued 全为 0。两个待派幂等键在持久 job 元数据中均无记录，预期产物不存在，旧调用属于失效 host generation，确认此前未启动后才沿原幂等键恢复请求。已完成的首轮实现/只读审计未重派；agent 返修独占 Mix，另一任务仅写 application 测试，不运行。
+
+### CP4b 修订边界实施与审查（进行中）
+
+- **agent 返修已复核**：leader 复跑 113 项聚焦测试通过；独立探针确认非法 validator 返回 error 且 Provider=0，独有纠正指引确实进入下一原生请求。重试决定已收敛，实际工具派发计数由 adapter 边界记录。两个真实同步 worker 完成后 dsh_status 回到 0/2、运行/排队均 0，桥的槽位释放获得运行验证。
+- **共享会话边界已接线**：AuthoringSession 提供当前响应与 pending call 交集闭合、实际计数投影和真实 run/IR 请求绑定，AuthoringOperation 与 TES 已复用。leader 发现并退回修正 Domain/Common 同名 ToolRequest 错配及坏 IR 静默回退；正确消费 Common 契约后专项/真实消费者复跑 71 项通过。Pending 的新测试已先取得 23 tests/5 failures，5 项均为缺少 run/6，旧 18 项保持通过。
+- **Pending 首轮未接受**：worker 报告 65 项聚焦、89 项关键 flow 回归通过，但实现通过本地 checkpoint 往返、过滤新增 scope/application_notice/checkpoint 和 fixture 预归一掩盖共享恢复差异，违背追加式历史。另有 runtime snapshot 覆盖新鲜 WorkSession 投影、把 stage_state 放进 TurnResult 的边界混用。不能以这些绿色结果标检查点完成；相关局部补偿必须删除。
+- **根因实证**：`leader-canonical-recovery-probe.exs` / `leader-canonical-recovery-red.log` 使用正常 producer 的 fresh observation：结构化 refs 可恢复但三方投影中的当前 Chat 投影字节不同；字符串 refs 在 checkpoint restore 被拒绝。修复回到共享 IR/transcript/projection，要求三投影稳定、保留字符串和 raw arguments；业务 workflow 不负责历史规范化。
+- **当前分工**：一个 worker 修共享恢复并独占 Mix；另一个只补 Pending 边界红测试，覆盖最后真实请求与返回 canonical 的完整前缀、无私有状态 TurnResult、新鲜只读状态不可被旧 snapshot 重开放。质量修订测试也在既有入口准备；任何 UI/实模/持久化后果未验证前仍按未闭环处理。
+
+### CP4b 修订机制与作者出口收口（2026-11-02，局部验证完成）
+
+- **共享恢复**：JSON 值在共享 producer/projection/restore 边界规范，opaque content/coverage 不再因键名被递归误解释；string/map refs 均能恢复，伪 ref 与越界 used_refs 继续拒绝。三种 Provider 投影覆盖 fresh/restore 严格等价，raw_arguments 与作者/正文字符串不重编码。leader 的两个独立红探针已转绿，并复跑 39 项核心/会话测试通过。
+- **Pending 修订**：已删除 workflow 的历史过滤、局部 checkpoint 往返和 fixture 预归一。runtime snapshot 只供当前 run 历史；新读取的 WorkSession 投影独占只读与目标可用性，查询失败拒绝，旧投影不回退授权。内部状态只返回外层 flow 结果，不进入 TurnResult。leader 复跑 Pending/B28/Planning/真实 run 接线 68 项通过；新鲜度、完整请求前缀、schema→guard 两次上限及 private DTO 断言均成立。
+- **质量发现修订**：真实 flow 接入 execute_revision/6 的 run/snapshot，四步机械流程保持；成功/失败留存同一 canonical 与实际 0/1/2 次 Provider 消耗。旧 /5 与 /6 共用单一执行/组装/trace 管线；flow 仅返回本步 delta，revision_result 只存 finalize 必需的 TurnResult。预算上限与 execution_counts 分开。/5、revise/3 有限外观仍待随确认入口统一退役，不作为已完成的真实运行入口。
+- **作者出口**：恢复事件不再带 checkpoint_data，Channel 的 task DTO 只投影公开进度/状态/refs，旧持久事件同样剥离 private checkpoint；HTTP Provider activity 历史出口也补齐该边界，并保留 bool/null 与普通文本语义。DB 和内部恢复仍保留完整 canonical；未清空历史以换取测试通过。相关 service/controller/Channel 真实持久负例均通过。
+- **全量局部验证**：`revision-private-backend-final.log` 为 **2694 tests / 0 failures**，compile warnings-as-errors、credo 通过；xref/arch、I3 3/3、I1 4/4、I2 3 cases/3 pairs、I-CACHE 七点 covered/enforced 已通过。前端 typecheck/lint/**661 tests** 通过；`revision-frontend-audit.log` 为 27 pass / 0 warn / 0 fail（含 Tauri 构建），设计追溯 19 pass。最终扫描 UI 门禁按 pending 记录；这些局部证据不替代新修订 UI 或实模。
+- **验收登记纠偏**：既有 p1-prose-revision-candidate manifest 对齐真实四步机械流程、0 plan_drafted、正常场景 1 tool/1 Provider；错误的模型计划/2 次调用判据已移除。协议纠错两次的 B71 证据单列；原始历史结果不改写，manifest 229 scenarios / 2 drafts 校验通过。
+- **原生 UI 仍待**：已有 AX B71 driver 尚未点击质量修订；规范 seed 只落大纲，必须由真实页面生成正文/发现再触发作者动作。Source/action/receipt/run/child turn 要联合关联，LLM JSONL 不能只靠 turn_id 区分源草稿与修订。旧原生 19/19、16/16 是此前检查点证据，不能代签这些新修订入口。
+- **下一必做后果**：bounded canonical 目前仅在内存，缺私有持久载体；普通 step 的 run/events/checkpoint 跨表 best-effort，且发布时点需复核；AuthoringReplay 按 parent 最新 run 会混淆 source 与质量 child，turn_rev_* 需用持久 TurnResult 的真实 run_id 绑定。详见 `worker-bounded-transcript-persistence-inventory.md`。随后完成工具确认、实际能力/流式/压缩产品消费者、实模与 CP5；B71 继续 doing，不缩小原范围。
+- **最终扫描未放行**：执行 `TASK_DONE_MANIFEST=artifacts/b71-resume/revision-gate/manifest.json bash scripts/ai_static_scan.sh --top 10`，退出 1；18 checks pass / 2 fail。Top10 实际 6 项：既有 gitleaks 4 项 false_positive、1 项 accepted_risk（处置台账未改），新增流程项为“修订 UI evidence required but not verified”，保持 pending/blocking=1；touched findings=0。未借用旧原生 summary、未标为风险接受或关闭。修复方向是补新修订原生场景及其计划内持久化证据，完成后重新生成 verified manifest 并复扫。详见 `artifacts/static-scan/{top10.md,disposition.md,report.json}` 与 `revision-static-scan.log`。
+
+### CP4b 私有历史持久化开工检查（2026-11-02）
+
+- **Contract**：VS-00L §16.8、现有 authoring-transcript/v1 与 Interaction 运行归属；新增私有 `agent_runs.authoring_transcript`，durable v3 引用它，v2 仅只读兼容。本次不扩大公开 AgentRun/TurnResult schema。
+- **Invariant**：同一 run 只有一个 canonical 存储源；不可变身份严格匹配；旧消息完整前缀保留；显式压缩先持久后确认；源结果与修订 child 不混淆；历史回查不授予续跑权限。
+- **Boundary**：novel_application 负责 transcript 语义、身份绑定与状态转换；novel_persistence 负责私有存储和事务。复用已有 runtime/replay/问题事务，agent/domain 不新增 I/O，web/frontend 不接触 raw checkpoint。不改 B77 与无关 WIP。
+- **Consumer**：真实 bounded 修订 run、既有 durable checkpoint、AuthoringReplay/Why、AgentRunService 离线恢复；不是新建脚手架或测试专用存储。
+- **Proof**：红绿测试覆盖 bounded 终局/失败历史、v3 引用及 legacy v2、JSON 往返三投影、错会话/错父轮次/损坏、旧消息截断拒绝、缺 task/SQL 拒写全回滚、source+child 同 parent 与 turn_rev 身份；后续结果提交故障注入验证无虚假成功广播和真实消耗保留。编译基线已通过；全量和场景门在实现后复跑。
+- **Acceptance Driver**：补既有 B71 native AX 修订场景，真实生成正文/发现后点击修订，联合 Interaction/run/请求/回执身份核验；再打开 Why，确认不调用 Provider。产品验收感知为 no；该场景、普通结果原子提交和确认入口仍为计划内未闭环项。
+- **Exploration**：本步不物化新作品要素；只留存已有 Base/观察/used_refs，沿现有共享 IR 校验恢复，不补专用知识 packet、不推断未发生的模型认知。
+- **恢复核验**：桥 active/running/queued 均为 0，最近任务 completed；未重派原任务。保留此前 2694/661 的局部基线及 pending UI 门禁，新增实现不得沿用旧结果代签。
+
+### CP4b 私有历史首轮审查（进行中，未接受）
+
+- worker 已新增私有列、snapshot 事务、v3 引用及恢复 helper，并报告 persistence 365、application 目标集 164、web 17 项通过；application 全量 1195 中 9 项新的回查红测试失败。只迁移测试 DB，未改真实用户库。
+- leader 独立 `leader-private-history-boundary-probe.exs` 取得 **6 tests / 6 failures**：bounded 读取错误依赖 durable 版本；坏私有历史回退 v2；不带 transcript 的状态更新可改 session；同时改 row/checkpoint 也可重绑；未知格式可写；空 JSON 抛异常。该结果否定首轮边界完成声明，已交 worker 修复共享选择/写入边界，不能以目标集绿色代签。
+- 首批回查测试也经审查返修：身份冲突必须 partial/无错误活动，不指定任一方胜出；旧副本排除断言必须实际写入不同旧内容。现有 11 项测试通过静态语法/格式检查，运行验证仍待 Mix 独占窗口。
+- native 证据读取器须同步移除 `parent OR scope + latest`，改为真实 work/session/run/parent 与 task 引用精确关联、严格读取 v3 私有历史；旧批次证据保持原样。此实现与普通结果事务、身份消费者及真实修订 UI 均未闭环。
+- **存储返修复验**：leader 已复跑原 6 反例全部通过。另两组独立探针发现：`leader-private-history-json-probe.exs` 的 fresh 三投影成功，但存储 helper 自带的 JSON 转换把日期/时间 struct 展开，恢复三投影均抛 `Protocol.UndefinedError`；`leader-private-history-task-binding-probe.exs` 为 2/2 失败，同作品/父轮次可接管另一 run 的 task，新 checkpoint header 也可写错 run_id。已退回删除重复 codec、补既有/新 header 身份校验。不得把此版标已接受。
+- **回查真实红灯**：leader 实际运行 `agent_run_history_binding_test.exs` 为 11 tests / 9 failures（`leader-history-binding-red.log`）；错误覆盖 source/child、错作用域、冲突、旧数据歧义、私有列和重载摘要，非编译失败。待统一定位消费者实现。
+- **native 证据读取器已局部接受**：首轮 69 项绿色后，leader 独立 3 反例仍失败：正常换会话重连被拒，join 前及其它 request 的回复被接受。返修改为当前输入的 join_ref + request ref + 合法时间窗，精确读私有列/v3 引用，不回退旧副本。leader 复跑 73 正式 + 3 独立测试全通过；真实 LCOV 的目标函数 CRAP 最高 8.0，74 个 mutation 全部 killed，首轮“协议等价”猜测已撤销。证据 `leader-native-history-scope-green.log` 与 `worker-native-history-scope-review-quality.md`；Dryer 仍不支持 mjs。这只证明验收读取器，不代签新原生页面或完整 B71。
+- **存储局部通过**：leader 再次运行 `leader-private-history-final-{boundary,json,task}.log`，原 6 边界、JSON 三投影逐字一致、2 个 task 归属反例全部通过；worker persistence 全量 376、runtime/service/question/codec 112 项通过。task 回滚探针原来比较 create 返回的内存 map 与 DB map，leader 已修正为先回读 DB 基线，并撤销为旧断言增加的 `LongRunTaskLog` 通用 normalizer；保留原探针/红日志，未以修改断言隐藏两处实际归属漏洞。
+- **历史消费者首轮未接受**：统一 `AgentRunHistory` 已接 Why/Provider activity/会话重载，11 项历史绑定转绿，leader 复跑 65 项目标通过；新读边界 probe 发现缺版本时 consumer 补造 v2、v3 task 缺 parent 被接受。禁止补造版本，正在返修。原第三项把 workspace 与 work 强制相等的探针基线经真实 `WorkspaceChannel.join/3` 核验有误：topic 命名空间独立于作品；已保留原文件/红日志，改为验证合法 `workspace:lobby` 与缺失 workspace 的正反例，并在 §16.8 说明历史列的 work_id 语义。回查还须统一 batch row scope、畸形显式绑定和公共步骤解析；尚未最终接受。
+
+### CP4b 历史回查与普通结果提交（2026-11-02）
+
+- **回查局部接受**：consumer 已删除补造版本，v2/v3 的 task header/work/parent 均验证，scoped 批量读取与畸形显式绑定拒绝在同一 `AgentRunHistory`，步骤解析复用 `TurnBinding.parse/1`。leader 复验修正后的 4 个读边界探针及 92 项 application/persistence/HTTP 目标全部通过（`leader-history-read-boundary-green.log`、`leader-history-consumers-final.log`）。Why 仅输出安全摘要，Provider activity 不混 source/child，重载用 DB 白名单摘要；这不替代原生修订场景。
+- **原子交付测试准备**：首个准备 job `95b4407c-1005-4cf5-a465-d68dbe5f2e9d` 于 1200 秒超时，保留已写的 8 个候选测试；未整包重派。后续只补事务外发布断言/格式，再修正实际运行发现的问题 fixture 缺 `dialogue_goal` 与两个 unused warnings，将两种 SQL 拒写拆为独立用例。
+- **有效红灯**：`worker-atomic-valid-red.log` 为 **9 tests / 9 failures**，无构造器/编译错误；覆盖普通/候选/durable 发布时事实未同提交、两种 SQL 拒写仍广播成功、结果存储失败丢计数、失败终局先广播、问题提交失败丢历史/计数、取消晚到丢历史。原始 8/8 红日志中的一个 fixture 错误不冒充产品缺陷。
+- **实施设计**：执行完成后先归集真实 history/counts；应用编排使用 persistence 提供的事务边界，把实际持久结果（含作者原文去重裁决）作为状态推进输入，再以同一 snapshot builder 保存 Interaction/trace/run/step/events/private/task；最后发布。问题事务继续复用既有问题/回执规则。失败保留收到的事实，禁止重新执行 Provider、广播未提交成功或用 best-effort 掩盖失败；流式进度不冒充提交。实现转绿后将 snapshot 投影/写入职责收拢到单一应用模块，不保留逐分支补丁或第二份 canonical 缓存。
+- **剩余完整闭环**：普通提交实现、工具确认的新作者动作运行/幂等链、真实修订 AX 场景、实际模型能力/工具流式/显式压缩产品入口、实模与 CP5 均未完成；B71 继续 doing。
+- **逐调用证据补查**：只读 planning-03/mission-01 的 `worker-revision-native-call-join-audit.md/.json` 显示，14 行 `slice_verify` JSONL 只有请求、没有 response；12 个 canonical calls 中 10 个只在后续请求回显，独立 response join 为 0/12。重复原生 id 会被 IR 分配 canonical 后缀，原 id 保存在 `provider_call_id`，不能假定二者相等。既有批次各只有一个 run，不能代签 source/修订 child 共 parent 的关联。下一原生修订证据需同次请求/响应配对及真实 `provider_call_ref` 绑定；失败无响应也应通过实际 ProviderRun 归属关联，不能按时间/名称补造。原证据不改写，历史机制结论不扩展为未测的逐调用响应因果或实模证明。
+- **交付首轮审查未接受**：worker 报告 148 application / 35 persistence 目标绿，leader 独立复跑 105 核心目标通过；但 `leader-atomic-delivery-boundary-red-confirmed.log` 为 **5 tests / 5 failures**。新引入的 `replay_without_persistence` 将 DB 不可用推断为内存模式，在事务外重试并发布成功；另有非终态 step 事件未提交、取消 error3 历史丢失、未保存的失败 TurnResult 被广播、无新结果的 step 重写旧结果。已要求整体删除普通/问题两处 fail-open 前提，沿唯一提交边界返修，不接受以旧测试无 DB 所有权为由绕开事务。此独立探针另补输入处置状态一致性和独立 Channel namespace 的写入正例，尚待运行，不提前声称红绿。
+
+### CP4b 私有历史与原子交付局部门禁（2026-11-02）
+
+- **交付边界已复核**：普通/问题的 DB 错误回放分支已删除；模型/工具在事务外执行，收到的 canonical/实际消耗与待提交交付效果分开。Interaction/trace、run/step、非 stream 事件、私有历史及 durable checkpoint 同事务提交，实际原文去重裁决先于状态推进，成功后才发布。保存失败时只发表诚实失败通知；不带未提交 TurnResult、不自动重做模型调用。取消晚到 error3、无新结果的 step、输入处置状态、独立 Channel 命名空间均有正式回归及 leader 反例。
+- **替换失败回滚**：补查发现失败路径误用含 supersede 效果的 working state；`leader-atomic-delivery-supersede-red.log` 为 8 tests / 1 failure。已改用只含收到事实的 baseline，旧 pending/原候选保留，未提交的 `artifact_superseded` 不落库。原补充 probe 曾误用 `superseded_artifact_refs` 而未触发生产行为；已按真实 `supersede_artifact_refs` 更正后取得红灯，未把早先假绿当证据。
+- **Then Make it Right**：`AgentRunPersistence` 统一 snapshot 投影和写入请求，Server 保留状态机、received/staged 转换及提交后发布；普通结果/问题、状态快照、压缩、问题答复共用 run/step/event/private/task 构造。非 stream 过滤单点化，checkpoint_version 由该模块统一提供；私有 JSON 仍由 AuthoringCheckpoint 编解码，无第二份 canonical 缓存、无新执行循环。新增投影行为测试 6 项。
+- **测试设施修复**：首轮 full 为 2761 tests / 16 failures，集中在 4 个缺 Sandbox owner 的测试模块；实际目标复跑证实全部为测试设施问题，原断言保持。各模块持有唯一 shared owner，app/web 通过同一 `.ex` support helper 收尾，无全局 owner、无生产 test-aware fallback。helper 从 `.exs` 改为 `.ex` 消除 test_load_filters 警告，未改筛选规则。
+- **最终局部门禁**：`artifacts/b71-resume/snapshot-gate/backend-gates.json` 记录 compile warnings-as-errors、**2768 后端 tests / 0 failures**、xref 无环、arch、I3 3/3、I1 4/4、I2 3 cases/3 pairs、I-CACHE 七点 covered/enforced、Credo 全部 exit 0。前端 typecheck/lint/**661 tests** 全绿；native 证据读取器 73 正式 + 3 独立 Node tests 全绿。leader 8 个交付边界独立复验通过；这些是局部/确定性证据，不签新修订 UI 或实模。
+- **桌面构建/前端审计**：`snapshot-gate/frontend-audit.log` 为 27 pass / 0 warn / 0 fail，包含本机 Tauri app/DMG 构建成功；设计追溯 19 pass，未声称签名/公证或新 UI 场景通过。
+- **最终统一扫描**：执行 `TASK_DONE_MANIFEST=artifacts/b71-resume/snapshot-gate/manifest.json bash scripts/ai_static_scan.sh --top 10`，退出 1；**18 pass / 2 fail / 0 skipped**，6 findings / touched 0 / blocking 1。Top10 实际为既有 gitleaks 4 项 false_positive（B65 nonce、B63 spec 标识、E2E spec 标识、Pencil 元数据）、1 项 accepted_risk（其他历史分支的 company-console 凭证处置）与修订 UI evidence pending。Credo/编译/架构/场景不变量/前端/Semgrep 均通过；未改长期处置或豁免。此前 quick scan 的 alias 与过期 manifest 已解决，剩余唯一 pending 是真实修订 UI，处置方式为完成新场景再复扫。证据 `snapshot-gate/static-scan.log`、`artifacts/static-scan/{top10.md,disposition.md,report.json}`。
+- **仍未闭环**：工具确认的新作者动作运行与幂等链、请求/响应和 pcall 绑定、新修订真实 Tauri AX 场景、实际模型能力/工具流式/显式压缩产品入口、实模与 CP5。UI 门禁继续 pending，不能借用旧 planning-03/mission-01 结果。下一实现先补真实逐调用关联（已有 Result.provider_call_ref、execution ctx，IR 当前尚未保存该关联，slice_verify 仍只记录请求），再完成工具确认与修订场景；B71 不标 done。
+
+### CP4b 逐调用关联开工检查（2026-11-02）
+
+- **Contract**：VS-00L §16.9，现有 ProviderRun/Result 的 `provider_call_ref/provider_run_ref`；原生工具 id 与 canonical call_id 不合并，不新建执行身份或运行台账。
+- **Invariant**：同次请求/响应/运行/assistant 通过已有执行引用关联；重试逐次保留；缺失/歧义不猜。JSON 恢复与三类 Provider 投影保持字节等价，日志上下文不串线，作者出口无内部元数据/推理。
+- **Boundary**：novel_agent 的 Gateway/RequestIR 承接已有执行事实，novel_common LogContext/LLMLog 只管技术日志关联，application 的共享 checkpoint codec 保留元数据；test/support 负责 fixture 配对记录。domain/persistence 公共 schema 不增加新身份，web/frontend 无验收感知。
+- **Consumer**：真实 Gateway adapter 调用、AuthoringTranscript 恢复、新修订 native 证据对账；直接 complete 无 ctx 的兼容调用仍明确未绑定，不冒充真实 AgentRun。
+- **Proof**：Gateway 正常/失败/异常及嵌套作用域恢复；真实 HTTP 替身日志与 execution refs 一致；同 parent 不同 run 的 pcall 对账；协议首轮失败/末轮成功及重复原生 id；JSON 后引用保留且三投影不含这些内部字段；传输错误无假 assistant。然后完整后端与不变量门禁。
+- **Acceptance Driver**：既有 native B71 外部 AX runner 补修订场景，读取真实 request/response、canonical 与 ProviderRun，按 pcall 关联后验证候选/回执/Why；本步日志接线不代签未运行页面或实模，产品验收感知为 no。
+- **Exploration**：不物化新作品知识，只绑定既有真实调用与观察/校验历史；Base、used_context_refs、实际输入原文均不变，不加专用 packet。
+- **当前核验**：桥 0 running / 0 queued，旧任务均已终态，未重派。已核实 Gateway 分配引用、Result 携带引用而 RequestIR 丢失关联，slice_verify 只记请求。上一轮属于实质进展，goal 继续 active。
+
+### CP4b 逐调用关联实施与审查（进行中）
+
+- **日志侧**：LogContext 仅在实际 Gateway 调用作用域绑定/恢复 pcall/prun，turn 切换清旧引用；LLMLog 配对记录及编码失败占位保留实际引用。SliceVerify 的 complete/execute 共用一次执行/记录路径，新增明确 fixture 格式、实际 result/error 与 ctx 引用，旧请求字段保留；直接 complete 无 ctx 不沿用 Logger 偶然残留。leader 独立复跑 145 项目标通过，属于本地 adapter/fixture 接线证据，不签网络或实模。
+- **IR/恢复**：leader 先取得 6/6 属性缺失红，再独立复跑实现后的目标集通过。assistant 从实际 Result 追加可选 pcall/prun，JSON 恢复保留，三投影不输出内部引用，作者同名字样不删。引用拒绝全空白、非法 UTF-8 和非字符串；错误只含固定原因/字段名，不回显坏 payload。
+- **集成测试审查**：首版 test helper 手写 Gateway.execute→Result.with_execution，未覆盖生产附引用路径，已退回改为 Execution.dependency/result_fn；只通过实际 event_sink 核对 terminal facts，不在测试里补引用。临时移除生产附引用会使两条测试失败，随后按字节恢复并复验；Execution 生产文件无净改动。日志/IR目标最新证据见 `leader-call-log-acceptance.log`、`leader-execution-refs-final.log` 与 worker review。
+- **外部 verifier 首轮未接受**：三个 native consumer 已接显式 pcall+prun，而不再筛 parent 字符串；首轮 96 Node tests 与 141 mutations 虽绿，leader `leader-call-pair-boundary-probe.mjs` 仍取得 5/5 红：真实 raw_arguments+parsed arguments 形状被拒、额外未绑定 assistant 被忽略、canonical run/日志 work-session 冲突未拒、error 可混入成功内容。正在按真实 producer 形状和全量归属约束返修，不能以高分代签因果证据。
+- **关联局部复验**：生产 Execution.dependency/result_fn 集成与安全引用边界通过独立复验，完整后端 `call-ref-full-backend.log` 为 **2801/0**。Mix 1.19 的 helper 文件发现规则实测表明仅改扩展名不足，现按默认 `_helper.exs` 约定命名；目录形式 1238 tests/0 且无发现警告，不加 ignore 规则。外部关联器经过第二组 3 个 producer/parent 边界红例修复，leader 8 个独立反例与正式目标共61项通过；新 helper CRAP<10、173 mutations 全 killed。native verifier 编排仍有17项高CRAP残差，须随真实入口覆盖/重构闭合，未豁免。
+- **原生单批事实**：callrefs-01 因 worker PATH 缺Cargo在构建前失败（0调用）；共享工具链预检已修，leader独立测试通过。callrefs-02 构建成功但 worker 沙箱拒绝监督器 `ps`（0命令、0调用）；未绕过归属检查。leader确认进程/端口清理后，以单次本机授权执行 callrefs-03：真实AX driver成功、3截图，正式verifier拦下1项 `native_call_success_matches_canonical`，无新summary。`callrefs-03-join-diagnostic.json` 实测5 ProviderRuns/5配对记录/5实际消耗均同源，只有首判断的native_id不匹配；`callrefs-03-native-id-diff.json` 证实原响应只有name/arguments，无id。
+- **原 id 缺省的契约纠偏**：已核验 Provider.tool_call.id 现役为 optional，缺 id 不能被 verifier 偷偷改成非法，也不能给 fixture 补 id 来凑通过。按 §16.9 实现显式空的 `provider_call_id` 来源与 pcall/prun + 响应内位置关联，保留旧失败批次；协议特定的 HTTP id 要求仍由 adapter 校验，不由本地 fixture 代签。首轮归一化仍有已标记调用绕过冲突分配、JSON 字符串键丢来源两项缺陷，leader 的三个独立红例复现后已退回修复，复验 3/3 通过；canonical 唯一性与原 id 缺失/映射分别保留。
+- **原生逐调用基线（2026-11-02）**：全新 `b71-authoring-planning-tauri-native-cp4b-callrefs-04` 外部 AX 批次退出 0，summary **24/24**；5 ProviderRuns、5 配对请求/响应、5 consumed calls 与 canonical 全部绑定，其中 1 次原 id 未提供被明确计数。leader 已核对 checks、final 截图与 cleanup（remaining=[]）。这是确定性规划链路的当前原生证据，不代签修订/确认、HTTP 实模或文学质量；fixture 候选仍含测试标识与内部用语，不作为产品文案质量证明。旧 callrefs-01/02/03 证据不改写。
+- **续行状态**：job `1adc3cfd-92d0-46f5-856a-9001e1b45a66` 及返修 `083b3ce5-1292-43f6-89f9-5c92667a49a5` 均 completed；2026-11-02 续行核验桥 0 running / 0 queued，无待恢复旧任务、无运行中原生批次，不应重派。Node verifier 的 17 项高 CRAP 残差、新修订/确认及完整门禁仍开放。
+- **后续确认入口事实**：只读复核 `worker-confirmation-run-current-audit.md` 仍显示工具确认复用 source turn、丢 TES transcript、结果先广播后裸写；quality revision 的 lookup→start→receipt 存在两 Channel 同 key 竞态，receipt status 固定 running。无 reserve/update 接口、无 confirmation profile；需在后续统一作者动作受理/运行归属设计中闭合，不能用本轮 pcall 接线代签。
+
+### CP4b 作者动作原子受理开工检查（2026-11-02）
+
+- **Contract / Invariant**：VS-00L §16.10；receipt 唯一保存受理与 run 绑定，运行状态只读 AgentRun。启动前原子提交，重复动作零次新增执行，冲突/持久失败不广播成功；source/child 身份分离。
+- **Boundary / Consumer**：application 统一受理/运行编排，persistence 既有 receipt 与 run/Interaction 事务，web 质量修订真实入口先消费；domain/agent/frontend 不增加另一套授权或运行状态。工具确认后续复用，采纳仍由 AdoptionWorkflow 管理。
+- **Proof**：两个 Channel 同键并发仅一 run/一次执行；同键不同完整动作语义冲突；拒写 receipt 或初始 run 后零 Provider/零启动事件；已完成/失败运行的重传回执反映真实状态；源动作过期、错作品/会话、错目标与源权限扩张拒绝。先用真实数据库取得红，再实现并独立复验。
+- **Acceptance Driver**：后续既有 native AX driver 的质量发现卡片修订场景消费该入口并核对 source/child、pcall、receipt、候选与 Why；本步后端/Channel 测试不代签真实页面。产品验收感知为 no。
+- **Exploration**：不新增作品知识或 packet。实际修订继续使用当前会话投影与已接通的 AuthoringSession；动作来源只表达授权和 provenance，不把旧 run 权限/材料当作当前 Base。
+- **实施分步**：先迁移已存在的质量修订新 run，去除 Channel 先启动后记回执；确认同一行为的 confirm/reject 原子消费、确认新 profile 和页面验收仍是本 slice 下一 checkpoint。当前只是设计与开工检查，不声明这些能力已实现。
+- **前端消费者复核**：`WorkspaceChat.rememberAuthorActionRunAck` 当前仅凭 run_id 合成 running/executing/runtime_live=true，并优先用返回 turn_id 当 parent；这会把已完成重传和子结果错误投影为新运行。`handleAvailableAction` 对任意成功动作删除 resume pending，也会误把修订受理当原稿已解决。须在后端受理链验收后，统一消费既有 AgentRun 状态/已提交结果，保留原候选及跨会话回执边界；不以仅修后端 ACK 代签产品闭环。
+- **首消费者逐调用接线依据**：leader 只读核验旧 `b71-first-consumer-tauri-native-cp4b-fidelity-03` 的真实 ACK/TurnResult/DB，三者都绑定 `run_mvxgly17_5`，是 completed bounded judgment_loop；缺口不是没有真实 run，而是 native reader 只支持 durable JOIN，以及旧库未含新私有列/旧日志未配对。证据 `leader-first-consumer-run-inventory.json`。下一步让共享 reader 先按完整身份读取私有 run，durable 再额外核验 task/ref，首消费者使用真实 ACK 的 run_id 接 §16.9 后跑全新批次；不得把 bounded 改 durable 或修改旧证据。
+- **验收器结构审查**：worker `cb7965d9-2449-48b0-9baf-3f9cdf21104e` 已将 native verifier 按采集快照、证据读取/落盘、纯场景判据拆分。leader 独立探针先取得 1 正例通过 / 3 负例失败（观察早于调用、user 伪装调用、同请求重复 id）；返修后又从真实 RequestIR producer 取得 4 通过 / 2 失败（合法 validation_result 被误拒、空 id 被接受）。两轮均退回 worker 修复为同一完整 exchange parser，观察仅为其投影。最终 leader 的 6 独立例 + 正式目标 **71/71**；worker 全 Node **513/513**、目标 CRAP 最高 8、297 mutations killed。dryer 实测不支持 .mjs，无重复度分数；不是 GUI 重跑证据。失败与最终证据见 `leader-native-observation-*-red.log`、`leader-native-exchange-review-green.log` 及 `worker-native-exchange-review.md`。
+- **受理链独立验收**：job `a7c68de6-f252-47ec-80d5-f1b2eaee5992` 已 completed，persistence 377/application 1240/web 158（合计 1775）tests 全绿。leader 的 `MIX_ENV=test mix run artifacts/b71-resume/leader-action-admission-boundary-probe.exs` 则 exit 2，4 例中 2 绿 / 2 红：子结果错绑、未知 JSON 键通过；真实运行进程丢失仍重放旧 running、未知 receipt 版本被降为旧记录接受。首轮 probe 自身模块别名失误的日志独立保留为 `leader-action-admission-probe-alias-failure.log`，修正后当前 `leader-action-admission-boundary-review.log` 才是产品红测，不混为根因。
+- **本批恢复句柄**：受理返修新 job `bed0499d-75e7-419c-b78e-ef6701aa4a26` 正在执行并独占 Mix；要求复用运行事实读取/失活处置、向 ACK 投影既有 agent_run_state 与已提交结果，并补真实双 Channel/启动发布拒写证明。Node 首消费者 bounded 私有读取/pcall 接线 job `5b967aba-5b9e-4114-a2b2-6d923fa37f58` 独立执行，不运行 native。原子受理首轮、Node 两轮返修均已完成，不重派；这两个活动 job 沿原句柄等待，不并行启动 native/Mix/全扫描。受理修复仍未接受，前端尚未迁移，B71 保持 doing。
+- **本轮 quick scan 的准确边界**：worker 执行 `bash scripts/ai_static_scan.sh --top 10 --quick` 为 16 pass / 3 fail / 1 skip；leader 读 raw 日志确认新增两个运行问题是误用旧 task-done manifest（stale）和 Semgrep 写本机日志被沙箱拒绝，不应直接解释为仅剩 UI evidence pending。其余 5 findings 为既有 4 false_positive / 1 accepted_risk，处置未改；前端单测被 quick 模式跳过。受理返修完成后须使用当前显式 pending manifest、可写的工具日志运行上下文重新完整扫描，不能把本次 quick 结果当完整门禁。
+- **首消费者接线独立审查（续）**：`5b967aba...` 已 completed，worker 525 Node tests、CRAP 最高 8、108 mutations killed；leader 68 项目标复验通过，但新增真实临时 DB + WS 探针 3/3 红：共享 `turnFacts` 未把 ACK 绑定到 topic/join 生命周期，冲突 ACK 任选第一个，完成结果可来自另一 topic。返修 job `448a73f2-6232-4af6-86ee-a596bccac6be` 接管共享匹配器与探索事件作用域，仍仅 Node。真实 Phoenix 广播的 join_ref/request_ref 为 null（已核 callrefs-04 原 transport），修复不能误要求广播复用请求 join_ref。证据 `leader-bounded-ack-binding-probe.mjs` / `leader-bounded-ack-binding-red.log`。未跑新原生批次。
+- **前端迁移设计已核实**：现有 `deriveWorkspaceRuntimeState` 已用真实 resolved 集合覆盖旧 pending；删除 `handleAvailableAction` 的无条件 pending 移除即可恢复单一事实来源，不新建修订专用候选状态。ActionResult wire 类型应落既有 schema/codegen，运行片段复用 `agentRunStateWire`、结果复用 `turnResultWire` 和既有 upsert/merge；不得自行构造状态或用 child turn 当 parent。回执消费核对提交时的 work/session、当前连接及 run/source 归属，处理终态重复和迟到结果。已阅读 UI 46 §9.8 及 Pencil `EYiyl`/`dxUhh` 对应 frame 内容；不改布局、不新增验收 hook。该前端实现待受理返修交付后启动。
+
+### CP4b 动作回执前端消费者开工（2026-11-02）
+
+- **Contract / Invariant**：VS-00L §16.10、UI 46 §9.8、既有 AgentRunState/TurnResult wire；运行事实不由 run_id 推造，source/parent/child 不混淆，修订不隐式处置原稿，迟到回执不跨作品会话。
+- **Boundary / Consumer**：foundation JSON Schema → 既有 frontend codegen → socket 回执读取 → WorkspaceChat 的真实动作入口；复用运行态/结果 parser 与已有合并函数。后端正在独立返修，已确认新的 `agent_run_state/turn_results` wire 字段，前端可并行实现；此执行顺序不代表后端已验收。worker 不碰后端/原生 driver，Mix 仍单一所有者。
+- **Proof**：完成/失败/失活回执不得变成 running；同 run 重传不新增作者消息或重复工作回合；运行态与结果错绑/当前会话切换拒绝；修订后原稿仍 pending，真正 resolved 结果仍通过已有投影清除；schema/codegen/typecheck/lint/组件与行为测试。
+- **Acceptance Driver / Exploration**：后续 native AX 从真实质量卡选择 finding 并点击修订，核对回执、唯一运行回合、原稿/修订稿、Why 和逐调用证据。本步不新增作品知识/packet，不新增产品验收感知逻辑，局部前端测试不代签 native。
+- **首消费者局部收口**：shared bounded/private reader、pcall、WS request/broadcast/探索归属与无 scope 兼容清理已完成；leader 最终 **91+3** tests 全绿，worker 完整 Node **548** tests 全绿。原生预注册 `call-ref-native-preregistration-05.json`（首消费者 bounded、1 批、无自动重试、仅隔离测试库/本批应用）；待所有代码写入与 Mix 工作静止后执行，不用旧批次代签。
+- **受理返修超时后的独立核验**：`bed0499d-75e7-419c-b78e-ef6701aa4a26` 到 1800s 被桥终止，无最终交付；leader 只读 ps 确认无残留 BEAM 后接管验收，没有重派整项。已落盘代码使原 4 例全部通过，但扩展的 `leader-action-runtime-write-probe.exs` 为 5 例 / 1 失败：runtime-lost SQL 拒写以 Exqlite.Error 穿出 Channel。随后 `leader-action-bounded-crash-probe.exs` 1/1 红，直接观察已受理 bounded 子进程被 kill 后公共 AgentRunSupervisor 的 DOWN(:shutdown)；根因是沿用 transient 旧 init 自动重启，与 bounded 无执行恢复契约矛盾。故前述 full log 的 supervisor 缺失不能直接归因于超时：完整回归中断/失败事实保留，须在生命周期修复后重跑。不得据原目标测试绿签收。
+- **前端独立核验**：`617816bf-8281-4b7e-b809-6d51e78f312e` completed；schema/codegen、typecheck/lint、684 前端 tests 通过。但 leader `pnpm exec vitest run --config ../artifacts/b71-resume/leader-action-receipt-vitest.config.mjs` 得到 2/2 红：trigger/source 与 parent 冲突被 fallback 掩盖，带尾空格的不同 run_id 被 trim 成同一身份。另读实际组件确认 duplicate 在 scope 检查前写 UI、consumed=false 仍返回结果、revision finally 无 scope 保护；三条源码字符串测试不能证明异步行为。已退回将真实提交/交付责任收拢、以延迟 Promise 的可观察效果替代字符串断言，原稿仍只由服务端 resolved 事实处置。
+- **当前活动句柄（本节为最新恢复入口）**：`1f0edaec-37b2-49f8-b1ce-0a475443cc0f` 处理 bounded owner 生命周期/失活错误边界并独占 Mix；`a8a9c176-673c-4cc2-bcdc-85ab73976af3` 处理前端身份/异步交付返修，仅 pnpm/Node。最近 dsh list 均确认 running，不重派。原 bed 已 timed_out；617816、448a73、909ef6 及更早首消费者/验收器任务均终态。新 native callrefs-05 只预注册未执行，待二者验收、代码静止后运行。
+- **验收设计同步与剩余核对**：首消费者现役 scenario 已追加 bounded 私有历史、真实 WS owning scope、逐调用配对和持久证据要求，旧批次仍只读。另需在续行/角色/规划三个 durable consumer 的调用声明中显式要求 persisted run_mode=durable：当前共享 reader 支持两模式，只有首消费者声明了 requireRunMode；规划 outcome 已核实际 record.mode，但另两者仍有旧的隐含 durable 前置，应在新原生复验前补为明确约束，不能因支持 bounded 而削弱旧场景。
+- **bounded 生命周期局部收口（2026-11-02）**：`1f0edaec...` 已 completed，bounded owner 改 temporary，失活持久边界区分已终态/缺失/拒写，join 与 receipt 共用明确错误；未改 cleanup 吞监督器退出。worker persistence 378/application 1244/web 168（1790）tests 全绿，compile-Werror/format/Credo/xref/arch 通过。leader 独立复跑 `leader-action-runtime-write-probe.exs` **5/5** 与真实 kill 的 `leader-action-bounded-crash-probe.exs` **1/1**，均 exit 0，日志 `leader-owner-runtime-write-final.log` / `leader-owner-bounded-crash-final.log`。durable 仍保留既有策略，未代签自动恢复；当前无 worker 持有 Mix。
+- **前端第二轮审查**：`a8a9c176...` completed，身份原字节/显式 source 冲突 2 例已由 leader 复验通过；worker 692 tests 通过。但 `leader-action-delivery-probe.test.ts` 又取得 **3/3 红**：duplicate 跳过事实消费而不刷新 completed/child，duplicate 绕过来源校验，null 结果成员使交付抛错无法 settle。已退回移除“duplicate=不消费事实”的错误分流，保留统一校验与幂等 merge/upsert，不以丢事实避免复活。
+- **当前活动句柄更新**：前端交付返修 `0deda175-e1b7-4152-8889-ec4b76eefb15` 正在执行；durable 场景声明收口另派 `b71-explicit-consumer-run-modes-v1`（见当前 bridge job）。两者均不使用 Mix，不启动 GUI。上一“当前活动句柄”中的 1f0edaec/a8a9c176 均已终态，不重派。callrefs-05 仍只预注册；待源码静止后由 leader 执行，B71 不标 done。
+- **当前运行核验**：durable 声明 job `669db97b-d223-4884-9fc7-02b052b6179f` 已 completed，三条声明 durable/首消费者 bounded 均明确；leader 43 项历史/consumer 复验通过，worker 全 Node 549 通过。主线程已启动独立全量 `MIX_ENV=test mix test`（exec session `15247`，日志 `leader-admission-full-backend.log`），此时由主线程独占 Mix，不能并行启动 native/其它 Mix；前端 `0deda175...` 独立继续。首次新原生批次仍未运行。
+
+### CP4b 当前局部验收与原生输入取证（2026-11-02）
+
+- **当前代码的局部验证**：前端 `0deda175...` 已 completed，移除 duplicate shortcut、统一校验和事实交付、对坏 envelope/数组/成员安全收口。leader 的 delivery 3 例与 identity 2 例独立全部通过；文案另经 `1a3c5879...` 去除对不可核验回复的“已受理”断言。主线程完整 backend **2837 tests / 0 failures**、frontend typecheck/lint/**703 tests** 均 exit 0；两条 exec session 15247/9584 已结束，当前无 Mix owner。worker 纯前端边界 CRAP 最高 9、dryer 无候选、mutation 92 killed，均为局部门禁，不代签 DOM/native。
+- **callrefs-05 真实失败**：按预注册启动首消费者 bounded 新批次，构建与窗口启动成功，但输入阶段 `composer_text_incomplete:b71:got=0:want=26`，driver/批次 exit 1，未形成 summary。leader 查原 WS/隔离 DB：**0 user_message / 0 interactions / 0 AgentRun / 0 ProviderRun**；cleanup remaining=[]。旧批次证据保持原样，没有自动重试。本次是输入驱动自检失败，不能据此判产品主链失败。
+- **只读审计**：`2a74a8b7-9906-4399-b8a3-c89e477e2c85` completed，报告 `worker-native-input-ownership-audit.md/json`。成功/失败前后本批 AX/截图字节相同；灰标题栏不能证明具体 focus/IME/TCC 根因。代码已证实：按 bundle/name 首匹配、未核本批 app_path/PID；activate 返回被忽略；type/key/鼠标 fallback 使用全局 CGEvent，缺真实前台/焦点/权限证据。后续首先补外部输入归属与取证，不修改产品输入逻辑、不旁路 Channel、不操作 Codex/其它应用或系统权限。
+- **完整统一扫描**：`TASK_DONE_MANIFEST=artifacts/b71-resume/admission-gate/manifest.json SEMGREP_LOG_FILE=.../admission-gate/semgrep.log SEMGREP_SETTINGS_FILE=.../admission-gate/semgrep-settings.yml bash scripts/ai_static_scan.sh --top 10` exit 1，**18 pass / 2 fail / 0 skipped**，6 findings / touched 0 / blocking 1。Semgrep 及所有编译/架构/I3/I1/I2/N-NARR/I-CACHE/前端门均通过；失败是 gitleaks 的既有 4 false_positive + 1 accepted_risk，以及明确的修订 UI evidence pending。未改长期处置/豁免；旧 stale manifest 与日志权限失败已解决。快照在 `artifacts/b71-resume/admission-gate/{static-scan.log,report.json,top10.md,disposition.md,manifest.json}`，新原生输入/修订/确认仍未闭环。
+
+### CP4b 外部原生输入边界开工检查
+
+- **Contract / Invariant**：消费既有 B37 wait ledger、run ready/app_path 与原生证据协议；输入必须属于本批明确的应用/进程。API 调用返回不等于已激活/已聚焦，不得在无法确认目标时盲发全局事件；旧失败证据只读。
+- **Boundary / Consumer**：仅 `scripts/lib/native_ui` 的 Swift/Node 外部驱动及测试；`NativeScenarioHarness` 为真实消费者。frontend/apps 与系统配置不改，不添加产品验收 hook。
+- **Proof**：纯目标/输入策略与事件投递适配的行为测试覆盖错路径/PID、多义、激活未确认、权限/焦点失败时零投递；真实 Swift 编译、Node 回归。SDK 已核 AXIsProcessTrusted/CGPreflightPostEventAccess/CGEventPostToPid 声明，但当前没有真实输入故障根因结论。
+- **Acceptance Driver / Exploration**：修复验收后另预注册一批同一真实 Tauri 入口，保留输入前后归属/激活/焦点/权限/返回证据，仍以 AX 文本完全一致和真实 WS 为准；不以投递 API 成功或单测代签。此工具不物化作品知识，Exploration 不适用。
+- **外部输入首轮审查**：`d34fca47-b9ba-4004-b687-f11e51f9bf9e` completed，已改 exact path/PID target、输入证据与 CGEventPostToPid，Swift 编译/41 新用例/590 Node suite 通过；但 mutation exit 3（9 survivors），不能标门禁绿。leader `leader-native-input-boundary-probe.mjs` 为 **2 正例通过 / 5 负例失败**：truthy 非布尔权限被授予、probe 覆盖固定 target/request、同代重新绑定 PID、非法 PID、错误详情含输入文本。另查本机 NSRunningApplication.h 证实动态属性需主 runloop 轮次更新，当前 usleep 激活轮询不足；不是 callrefs-05 根因已实证。已派 `b71-native-input-boundary-review-v1` 返修上述统一边界/未杀死变异，不启动 GUI。
+- **确认基础只读准备**：`73a91158-768a-4347-a553-cecf7f6c981a` completed，报告 `worker-confirmation-admission-foundations-audit.md/json`；未测试/实施。核实无 behavior_id 持久聚合入口、BehaviorState summary 丢 resolution/精确终态、取消 reduced TurnResult/自由字符串 trace、确认合成文本被当作者原话、质量修订 origin_frame_ref 与实际 child frame 不同源、AU04 仍为 Chromium driver 而非原生 AX。均需后续契约/真实消费者收拢，不能由当前修订受理局部门禁代签工具确认或 CP5。
+- **最新恢复句柄**：当前仅外部输入返修 `5d9b5e94-9a8f-448e-b0b4-fed1d67ea586` 活动（幂等键 `b71-native-input-boundary-review-v1`，仅 Swift/Node 编译与纯测试，禁止真实 GUI/输入）。d34f/73a/2a74/0deda/669db/1a3c 及更早任务均终态，不重派；全部 root Mix/scan/native exec 已结束，无运行中应用批次。先沿本 job 等待并独立验收 7 例及实际 adapter/主 runloop 边界，再决定新的单批原生取证；callrefs-05 已用尽其单批，不自动重试，B71 仍 doing。
+
+### CP4b 行为快照与确认基础开工（2026-11-02）
+
+- **Contract / Invariant**：VS-00L §16.11、既有 VS-03 BehaviorState；新快照 JSON 往返保留精确生命周期、constraints/resolution，终态不得被非法字段或默认值恢复成开放；旧数据不回填事实，兼容 status 不扩枚举。
+- **Boundary / Consumer**：novel_domain 的纯 codec，以及既有 TurnResultBuilder/AdoptionWorkflow 消费与测试。无新表/迁移、无第二运行或行为台账，不改权限/active-history 分流。先读 domain mix.exs/同目录并完成编译基线。
+- **Proof**：实际 snapshot→JSON→from_map 的七类生命周期及解决细节；原字节引用保留；显式非法/冲突状态不 fallback；旧状态可识别边界和已有消费者回归。局部验证不签当前确认入口或 GUI。
+- **Acceptance Driver / Exploration**：后续 AU04 场景由原生外部驱动经过真实确认/拒绝入口验证持久终态、0 调用拒绝与新 run。当前只修现有生产者，不新增作品知识/packet，不加产品验收感知逻辑。
+- **审计结论纠偏**：旧 origin_frame_ref 迁移已由 B01 原小节承接且待作者迁移裁决，B71 不私迁旧列或造空 frame。另已读 `TraceWriter.record/4` 与 `attach_behavior/3`：`no_behavior_opened` 只说明不新开行为，不能据此断言它与关闭旧行为冲突；后续优先复用合法裁决/trace 路径，不仅因没有 cancel 枚举就发明新类型。旧取消 reduced TurnResult/持久顺序问题仍真实存在。
+- **callrefs-06 新证据**：输入边界返修 `5d9b5e94...` completed，leader 57 Node tests + 真实 Swift core 纯行为/编译独立通过，worker mutation 191/191 killed。新批次 `b71-first-consumer-tauri-native-cp4b-callrefs-06` 仍 exit 1，但已明确是 Swift→Node 契约错配：实际 focus 前 frontmost.pid 与目标 PID 7399 一致，AX/post 权限 true，Node 却读取 Swift 未产生的 `activation.frontmost_pid` 而报 not_frontmost。第二缺陷是 result 日志记录了事前 probe 的 activation，丢了实际操作返回。leader `leader-native-probe-wire-probe.mjs` 2/2 红；原批次 0 interactions/AgentRun/ProviderRun、cleanup=[]，未自动重试，不据此调整系统权限。
+- **最新活动句柄**：`84c1b007-dfcb-4004-bf42-efdabcf674cf` 修跨语言 probe/result 契约及真实 producer 测试（仅 Node/Swift，不 GUI/Mix）；`3f9ae842-e6cf-4df5-a341-24c30a250730` 实现 §16.11 行为快照保真并独占 Mix。5d9b5 及更早任务均终态；native exec 44978 已结束失败。先沿两个现有 job 等待、验收，不重派，不并行启动新 native。
+- **跨语言边界收口**：84c1b007 已 completed；Swift 的真实 `probeEvidence/operationEvidence` producer 经纯 seam 输出 JSON 后由 Node 消费。观测只认实际 top-level `frontmost`，不再读不存在的 `activation.frontmost_pid`；result 证据保留实际操作返回。leader 独立 **69/69**（含 7 条边界、2 条真实形状回归及 Swift seam）通过；worker 全 Node 609、mutation 204 killed。旧 leader7 的手造 facts 字段曾与真实 producer 不符，只迁移了该 fixture 一行，断言未放宽；leader 已复核。未签新 GUI，05/06 旧证据未改。
+- **行为 codec 首轮审查**：3f9ae842 已 completed；实际 summary/JSON/from_map 与现有 TurnResultBuilder/AdoptionWorkflow 已接完整 lifecycle/constraints/resolution。leader 独立七态 JSON 正例通过，但 `leader-behavior-codec-boundary-probe.exs` 3 例 / 2 失败：resolution/ref 冲突被忽略、纯空白 behavior_id 被接受。未将 codec 标为收口；返修只处理统一边界，不改变状态策略或旧记录。
+- **最新唯一活动句柄**：`c467f300-ca3a-4c25-ad5e-e5a3ee994c38`（`b71-behavior-codec-reference-review-v1`）独占 Mix，处理上述两个 codec 边界。84c1b007/3f9ae842 均终态，不重派；无运行中 native。完成并独立验收后才创建下一批原生取证；B71 仍 doing。
+- **引用三态复审**：c467f300 completed，leader 原 3 例和既有消费者目标已通过；补充 `leader-behavior-reference-presence-probe.exs` 的完整 JSON 矩阵仍 exit 2（内层 ref 非空、外层显式 null 被接受）。问题是 boundary helper 将 absent/null 过早归并，不是又一个特殊值缺 if。当前返修 `4288b3d6-bd5c-491c-b86e-5b53a7a71590` 独占 Mix，按 absent/null/value 三态解析后统一验证；禁止改矩阵或放松断言。callrefs-07 已预注册但未启动，须待本轮验收、源码静止后执行。
+- **当前收口事实**：4288b3d6 completed；leader 原 3 例与完整 presence 矩阵均 exit 0，worker domain 441 / application 消费者 50 通过，未改兼容枚举/旧记录。随后新原生 `b71-first-consumer-tauri-native-cp4b-callrefs-07` exit 0、**19/19**：真实窗口完成全章请求，3 ProviderRun/3 配对请求响应/3 consumed calls 与私有 canonical 同源，2 次探索（offset 0/6000），保持 bounded；12 条输入事件、0 拒绝，全部为本批 PID 44836，真实 activation requested/returned/confirmed 已落证。leader 已看最终截图、checks 与 cleanup=[]。这是确定性首消费者闭环，不签修订/确认或实模；05/06 失败证据保留。
+
+### CP4b 新修订真实页面开工检查
+
+- **Contract / Invariant**：VS-00L §16.7–16.10、VS-00E CP3、UI 46 §9.8；质量卡动作创建新 bounded run，协议纠错共享两次调用上限，原稿保留、局部范围外字节不变、无自动采纳；Source/child、真实 pcall/response、receipt 与 Why 精确绑定。
+- **Boundary / Consumer**：先补 test/support SliceVerify 的合法局部修订响应及仅测试环境的首轮非法响应模式；通过现有 Application/Gateway/NativeToolExchange 实际消费者验证。外部 native driver 从真实档案章节生成草稿，再点击真实质量卡，不在产品增加 hook/数据修补或验收分支。
+- **Proof**：首轮 invalid_items 的原响应与 failed validation 保留，第二轮通过且恰 2 个真实 pcall；非 finding 范围的原文原字节保留。然后 native 关联源运行与新修订运行、候选/回执/私有历史、Why 窗口零调用和 canon 快照；不能用旧 browser p1 或首消费者 summary 代签。
+- **Acceptance Driver / Exploration**：复用已验证的 NativeScenarioHarness、现有 `seed_p1_prose_revision_candidate.exs`（只种已采纳章节计划）及 B71 私有历史/调用/canon 证据模块。场景注册 `b71-authoring-revision`，原始来源也从页面生成；随后另覆盖对话 pending revision，二者仍属完整 B71。不新增作品知识/packet，模型材料仍来自已授权原稿/质量发现和当前投影。
+- **最新活动任务**：`394b7072-9637-4c48-befd-38e7aa1a1d71` 实现 test/support 的合法局部修订与首轮 invalid_items / 第二轮通过 fixture，并独占 Mix；`5155bc1e-e234-4f83-862a-c80326962b93` 实现新 native driver/verifier 与运行注册，仅 Node/脚本，不 Mix/GUI。两者均不启动真实批次，不重派旧任务。callrefs-07 已完成并清理，当前没有 native 进程；待两个交付验收后再预注册质量修订原生批次。
+
+### 当前完整范围复核（非缩范围）
+
+| 尚未闭环项 | 当前可核事实 / 必须补的证据 |
+|---|---|
+| 质量卡与对话 pending revision | 新质量卡 native 实现进行中；还要独立完成对话修订场景，不能用首消费者 19/19 或旧 browser P1 代签。 |
+| 工具确认/拒绝 | 既有入口仍为旧同步确认链；需持久行为事实读取、同一行为原子消费、新确认 run、真实来源与完整结果/trace，并以原生页面验证拒绝 0 调用。 |
+| 实际模型能力 / 原生工具流式 | 当前 `RequestIR.Operation` 仍默认把 required capabilities 全置 true；Gateway 能力查询只看默认 provider descriptor。必须改为实际选定 route/model 的可证声明，并验证工具调用 SSE、usage 与取消。 |
+| Responses 实际路由 | 当前 `/responses` 未接生产 adapter；只有 IR 的 ResponsesAPI 投影及相关 golden。`OpenAICompatible.endpoint_url` 仍固定 `/chat/completions`，投影测试不能代签真实传输。 |
+| 显式压缩与恢复入口 | 当前 `compact_transcript` 只有 application service/server 命令，web/frontend 无消费者。须接明确产品边界并以真实页面证明压缩范围/原字节回查；durable 自动执行恢复仍须单列验证。 |
+| 实模与最终收口 | CP3b/CP4b-2 的真实模型资源窗口、行为、缓存/usage，CP5 旧 facade/协议退役及最终全部门禁仍开放。B01 旧来源列迁移仍回原任务待裁决，不在 B71 私迁。 |
+
+以上来自当前代码与既有 contract 的逐项复核；不是新的完成标准，也不把局部机制绿当完整 B71 完成。
+
+### CP4b 质量修订交付复审（2026-11-02）
+
+- 原 fixture `394b7072-9637-4c48-befd-38e7aa1a1d71` 与原生工具 `5155bc1e-e234-4f83-862a-c80326962b93` 均已 completed；桥已核验正常、原任务无排队，无重复派原活。fixture 已经 leader 独立 4/4 复验，额外断言 child 终态私有 canonical 落库、pcall/prun 与内存及 consumed count 一致（`leader-quality-fixture-persistence-review.log`）。探针初始缺既有 helper 的装配失败独立保留，未计作产品缺陷。
+- 原生工具尚未接受：worker 本轮 Node 609、runner 18 通过，但 mutation 为 269 killed / 143 survived。leader 的真实 source producer + topic/time 反例 **5/5 红**（`leader-quality-driver-boundary-red.log`）：实际 `WorkspaceChat.onDraftChapter` 命令有“请根据已采纳章节计划生成”前缀；author_action/广播若只按 run/ref 匹配，会误接其它频道或动作前消息。
+- 当前返修 `90c66ed0-fee0-46a8-8afc-28d2baa99d8a` 仅改 Node 工具：把请求身份/回复匹配收归 `scenario_evidence` 单一边界，driver 与 verifier 同用真实 producer 形状和 owning topic/time；禁止改产品、fixture、leader 探针或运行 GUI/Mix。
+- 并行门禁 `8fc39a4d-d819-4f42-ad01-64fff4074d32` 为唯一 Mix owner，仅运行完整后端 compile/test/xref/arch/I3/I1/I2，不改源码，不运行 Node/前端/原生。两任务都沿现有 job wait 收取，不重复派活。
+- leader 继续发现三个独立验收缺口，`leader-quality-artifact-producer-probe.mjs` **3/3 红**：真实 finding 的 quote 不带换行但原文保留换行，应按已给的句位核验范围外原字节；多 item 时只比第一项会漏掉第二项篡改；v2 receipt 缺 run/receipt 身份仍被判通过。待当前返修终态后统一交回，不让两个 writer 并发改同一 helper。另需核对 source 侧实际 pcall/prun/response 完整 join，目前仅 child 做完整 join，source 只读 ProviderRun 引用。
+- 后续证据复审扩展至 **5/5 红**（`leader-quality-artifact-producer-expanded-red.log`）：新增显式 artifact 引用错误却回退到其它候选、第二请求 assistant tool_call 参数被改写仍通过两项反例。来源真实入口已静态追通：`WorkspaceChat.onDraftChapter` → `user_message` → 判断循环 → prose profile，不能省掉源判断调用的证据。
+- 已预注册但**未启动**新批次 `cp4b-quality-01`（`artifacts/b71-resume/quality-revision-native-preregistration-01.json`）：单批、零自动重试、仅隔离测试库/精确 app PID/fixture，child 恰 2 调用、source 全部实际调用 join、Why 0 调用。须先完成两组共 10 条 leader 反例、source 侧 join 与相应门禁，且 Mix/源码静止；callrefs-07 仍仅代表首消费者 19/19，B71 继续 doing。
+- **完整后端门禁复核**：`8fc39a4d-d819-4f42-ad01-64fff4074d32` 已 completed。leader 直接核对 `quality-revision-backend-gate/` 中七个 `.exit` 均为 0、九个 app 的测试行合计 **2864 / 0 failures**（foundation 96/common 73/agent 458/test 1/domain 441/persistence 378/application 1248/web 168/e2e 1）；xref 无环、arch 通过、I3 3/3、I1 4/4、I2 3 pairs/0 violations。compile 为增量 warnings-as-errors，默认 integration/real_llm tags 未跑。该证据不替代当前 Node/真实页面/实模/统一静态扫描。
+- **当前 Mix owner**：`a2878000-190d-4a19-bfe7-3009b5260e73` 仅在 `artifacts/b71-resume/quality-revision-producer/` 构造隔离 Channel probe，真实 source user_message → 作者动作 child，导出实际消息、finding、canonical、receipt 和 ProviderRun/日志给跨语言验收复核；禁止改产品/fixture/Node、禁止 GUI 和真实模型。Node 返修仍为 `90c66ed0-fee0-46a8-8afc-28d2baa99d8a`。此 probe 是局部 producer 取证，不能包装为外部页面验收。
+- **Channel producer 取证已终态**：a2878000 completed、最终 1 test/0 failures、43 项 producer 检查通过，Mix 已释放。真实输入从 seed 后的 TOC title/summary 按 `StructurePanel`/`WorkspaceChat` 模板构造，source ACK 为 judgment_loop，最终为 prose profile；source 输入 turn 与结果 turn 不同，child parent 绑定后者。source **5 calls（3 planner/writer/evaluator）**、child **2 calls**，真实 finding 的无换行 quote 与原文换行差异确认。leader 直接读取 `raw-source-child.json`，独立核对 7 个私有 assistant refs/ProviderRun/同次响应/consumed 对齐、receipt/source/child 归属、重试严格前缀、原稿及范围外字节，exit 0（`leader-quality-producer-pair-review.log`）。两次初始 probe 装配错误在 worker 报告单列，不计产品红灯。
+- **下一复审输入**：`leader-quality-captured-producer-probe.mjs` 已准备，直接消费上述原始 JSON 的 retry/artifact 产物；待 Node 返修终态、变异恢复后运行，不在源码变异过程中取测试结论。现仅 Node job90c66ed0 仍运行；无 Mix/native owner。真实页面批次仍未启动。
+- **Node 返修终态复验**：90c66ed0 于 1800 秒 timed_out（桥附 exit 0 不代表 completed）。leader 通过只读进程检查确认无残留 worker 测试/变异/Mix，再复跑 source/topic/time **5/5 通过**。原生及全部 Node tests 合计 673，沙箱首跑 671 通过/2 条 WS listen EPERM；仅该代理文件在本机回环端口补验 **7/7**，未改测试/规则。`scenario_evidence` 共享请求身份已落地，driver 与 verifier 均消费 owning topic/time。变异快照归档 `driver-boundary-review-metrics/`：共享边界 180 killed/0、纯判据 384 killed/0，run collector 48 killed/19 survived，门禁未完成。
+- **剩余具体失败**：`leader-quality-artifact-producer-probe.mjs` + `leader-quality-captured-producer-probe.mjs` 共 **7 tests，2 pass / 5 fail**（`leader-quality-artifact-captured-review.log`）。显式 artifact 错引用反例已通过；仍失败的是句位对应换行原文、多 item 完整字节比对、v2 receipt 缺身份、重试 assistant tool_call 原字节篡改，以及实际 Channel 产物的范围外字节正例。原生 source 仍缺完整逐调用 join。后续只修这些语义缺口/剩余变异，不整包重派原任务；新变异可使用工具默认 `--since-last-run` 保留未变函数已杀结果，禁止用新目录/清缓存掩盖存活项。
+- **最新唯一活动任务**：`7f03b108-4ee4-4868-ab77-58c7101979b4`（`b71-quality-revision-producer-fidelity-review-v1`）处理上述四类根因、实际产物正例、source 完整 join 及剩余质量门；仅 Node/测试，不 Mix/GUI/产品变更。同步派发正在等待，沿该 job 收取，不重复派原 job。90c66ed0 已 timed_out、a2878000 已 completed，当前无 Mix/native；待本次验收后才能执行预注册 cp4b-quality-01。
+- **source 请求前缀补验**：leader 从已捕获的真实 Channel 请求逐对验证 **5→8→11→14→17** 条消息，每个后续请求精确保留上一请求前缀，只追加 assistant/tool/当前范围；source writer 响应全部 item 的 id/title/body/rationale 与源候选原字节一致，exit 0（`leader-quality-source-prefix-review.log`）。这仍是 ChannelTest/fixture 证据，不代签真实页面或实模。
+- **并行只读准备**：`bf75b1be-7ae4-4ad4-9714-54853edb235d` 只审计下一项对话 pending revision 的真实入口、身份、fixture、已有场景和 native 证据复用差异，仅写审计产物；不改源码，不跑 Mix/Node/GUI。唯一源码 writer 仍为7f03b108，原生批次仍等待其交付验收。
+- **产物保真返修已交付、门禁未清零**：7f03b108 completed；leader 独立复跑原 **12/12 探针 + 75/75 正式目标测试** 通过，source/child 已各自完整 join，检查/measured 前缀分开；完整 item、v2 receipt、原生 retry tool_call 与真实 producer 正例通过。worker 全 Node 685/685、CRAP max9；mutation evidence 466 killed/17 survived、collector53/6，Dryer 不支持 mjs，不签门禁完成（`worker-quality-revision-producer-fidelity-report.md`）。
+- **新增范围边界真实红灯**：leader 复审发现 `sentenceBounds` 把选中句子前的换行/缩进纳入 selected 范围，删除它们会被误判通过；`leader-quality-span-boundary-probe.mjs` **2/2 红**，日志 `leader-quality-span-boundary-red.log`。返修只处理句位→原文区间的唯一边界与剩余可达/冗余 mutation，不增加逐例特判；当前 Node writer `9d0976e4-e5b0-41c1-8b8f-3ad34d889f0e`（`b71-quality-revision-span-boundary-quality-closure-v1`），同步等待中，禁止重复派活。新原生批次仍未启动。
+- **pending 审计纠偏已接受**：bf75b1be completed；leader 对源码/单测复核后由 `41b18a89-a83e-4c97-9f39-f44eda37e77f` 修正报告（原版另存 initial）。一次新修订 user_message 开启自己的新 run，内部 judgment→writer 同 run；不能把“单测只 start 一次”推成跨作者输入共用 run。新 TurnResult 只含修订稿，原稿/修订稿通过同 work/session 的投影共存，不能要求它们同属一个 TurnResult。单测自建 Execution 的3次不冒充实际 Gateway 数量。
+- **当前唯一 Mix owner**：`b9cabf04-67d1-44ad-bc56-c18b0d6165e4`（`b71-pending-dialogue-real-channel-producer-capture-v1`）仅在 `artifacts/b71-resume/pending-dialogue-producer/` 用既有 Q1B 两条输入和现有 SliceVerify 作真实 Channel→Gateway→私有历史/投影取证，不改产品/fixture/工具。与 Node writer9d0976e4 并行；原生运行须等两个现有任务释放并验收后再启动。
+- **范围与质量门局部接受**：9d0976e4 completed。leader 在同一探针另加“范围外重复原句必须允许”“选中段可保留原句并补充细节”两反例，揭示全篇 substring 禁止原句的错误前提；worker 统一修正为选区外字节保留与正文确有变化，未加逐例特判。leader 独立复验 **101/101（16 probe + 85 正式）**，并核 `.metrics` 为 evidence462/462、collector53/53，全 killed/0 survived；worker全Node695/695，CRAP max9，Dryer不支持mjs仍如实保留。证据 `leader-quality-span-closure-accepted.log` / `worker-quality-revision-span-closure-report.md`。
+- **pending 取证失败与分类纠偏**：b9cabf04 completed，最终 probe exit2，`pending-dialogue-producer/raw-source-revision.json` 保存完整失败。现役 SliceVerify 把作者登记原文误路由为 character_design（2 calls、2候选），随后 revise_pending_artifact 返回空 target，两次 planner 后失败；没有 writer/新修订候选/canon写入，正确拒错。**不能把全部结果都归 fixture limitation**：leader 独立读取持久快照确认失败 run 消耗2 calls、有2 ProviderRun/同次响应，却 `authoring_transcript=null`（`leader-pending-failure-history-review.log`）。这违反 §16.8 已收到历史不得丢弃；`JudgmentProtocol.correct_or_reject` 终局丢 transcript、`judgment_step` 仅透传二元 error 的路径已静态核实，须单独修复并保留失败校验/pcall/prun；不能靠修好fixture掩盖它。
+- **真实质量批次01**：`cp4b-quality-01`（root session68650/pid71647）终态 exit1、51.65s。真正Tauri已打开并激活目标PID72812；公共 `run()` 和 `driveRevision()` 重复写 `b71-start.json`，不可覆盖守卫在业务操作前拒绝。leader看截图、原始failure/cleanup：0 user_message/author_action/TurnResult，DB AgentRun/ProviderRun/Interaction均0，cleanup.remaining=[]。旧证据只读保留，不重跑覆盖。
+- **起始基线单一owner修复**：ed5c9a64-6422-4e50-81e0-d638ba1c025b completed，仅删 `driveRevision()` 重复capture块，公共run保留唯一start，未加if-exists/skip/overwrite。leader读关键代码并独立node --check通过，worker相关111 tests通过。真实01失败作为red，新批次作为green验收，不写源码字符串镜像测试。
+- **当前原生/Mix owner**：root 正执行已预注册新批 `cp4b-quality-02`（session5131/pid78486，`quality-revision-native-02-process.json`），单批/零自动重试，端口/进程预检均空闲，源码writer已停止。`e913668a-3a25-4a95-94db-ed935a733388` 仅静态审计判断失败私有历史carrier及消费者，禁止源码/Mix/GUI/liveDB，不影响本批。原生仍待实际结果，不签完成。
+- **真实质量批次02终态**：root session5131/pid78486 已 exit1（25.63s），native driver exit0，真实“档案章行生成→质量卡局部修订→独立修订候选→Why”全部操作完成，4张截图；cleanup.remaining=[]。source `run_mvytwd0k_5`、child `run_mvytwdys_22` 均 completed，原稿/修订稿待采纳2，child turn `turn_rev_mvytwdz0_23`。leader已看03修订截图和04 Why文本，并以共享只读join独立复核source5/child2请求响应/ProviderRun/私有canonical/consumed全部对应（`leader-quality-native-02-call-review.json`，两侧各5检查全true）。**批次仍未验收通过**：结果引用 `trace_mvytwdz9_2q`，DB仅有source trace，child DecisionTrace缺失；Why只能退化读摘要。未改旧证据/未覆盖summary/未自动重试。
+- **质量修订trace根因与当前执行**：`ProseRevisionService.revision_trace_summary` 的 `{_trace, tool_trace_summary} = TraceWriter.record_with_tool(...)` 丢弃真实trace；flow `revision_result/1`又只保留TurnResult，finalization未提供`decision_trace`，故现有原子提交没有收到它。`b6ccef01-effd-4afb-92e0-452decffaced`（`b71-quality-revision-decision-trace-delivery-v1`）现为唯一源码writer/Mix owner：保留同源trace，经私有stage结果送入既有runtime原子提交，禁止best-effort旁写/造trace/弱化verifier；先真实DB缺trace红测、SQL拒写回滚、Replay零调用，再相关门禁。当前无native，待此交付验收后再预注册下一原生批次。
+- **判断终局失败审计已接受**：e913668a completed，报告 `worker-judgment-failure-history-path-audit.md/json`。已定位最终协议拒绝/末次provider错误/降级失败丢当前transcript，末次拒绝未闭合最终call；post-provider业务校验、dispatch错误及prose continuation也要统一接现有私有失败事实边界。已有 `{:error, reason, step_state}` 与 `AuthoringSession.failure_result/inherit_result`、runtime error3 合并/提交链，无须另建carrier或第二canonical。不能把私有history塞入reason（会被日志/纠错文本/作者面消费）。
+
+### CP4b 判断失败历史后续设计（待质量trace任务释放后执行）
+
+- **Contract / Invariant**：消费VS-00L §16.7–16.8；协议失败与传输失败都保留实际收到的前缀、raw args、pcall/prun及计数，末次被拒原生call恰好一次failed validation；无writer/canon、无第三次越预算调用，不伪造没有发生的assistant/tool结果。
+- **Boundary / Consumer**：JudgmentProtocol与其两个生产消费者（DialoguePlanningService判断入口、ProseDraftingWithQuality continuation），复用现有AuthoringSession私有事实与AgentRunServer error3/snapshot；不新增错误运行框架、全局缓存、旁路persistence或reason内嵌私有对象。第一个消费者为真实Gateway后的failed bounded run与持久回放。
+- **Proof**：两次非法pending ref真实Gateway负例必须从“2 calls但私有历史空”转为2 assistant+2 failed validation、DB refs对应、0 writer/canon；再核首次响应后传输失败、请求构造0调用、后置业务/dispatch失败及continuation，保留新于snapshot的实际会话。reason/公开事件/TurnResult不得泄漏私有payload。成功前缀/计数不改变；正式负例不能靠修好SliceVerify绕过失败链。
+- **Acceptance Driver / Exploration**：现有pending Channel负例先复证失败历史，再补对话修订native入口；质量原生02不能代签此失败路径。该修复不增加作品知识或固定packet，Base/观察原来源和原字节不改变，产品验收感知为no。完整pending UI、确认、能力/流式/Responses、压缩恢复、实模和CP5均继续开放。
+
+### CP4b 真实trace闭合与设计态验收纠偏（2026-11-02）
+
+- b6ccef01 completed：保留同一次TraceWriter产出的DecisionTrace，经private revision_result送到finalization的decision_trace，由既有runtime与Interaction/run原子提交；没有新增persister或修改公共事务。worker application1250/0、相关门禁与I3/I1/I2通过。leader独立修订+Replay20项、结果提交11项均通过（`leader-quality-trace-delivery-review.log`、`leader-quality-trace-atomic-review.log`）。首命令误写一个不存在的提交测试路径，实际只执行前两文件20项；已核实路径并单独补跑11项，未把缺失测试计作通过。
+- 新原生 `cp4b-quality-03`（root session39277/pid3160）终态exit1、25.94s；driver完整完成4截图，cleanup.remaining=[]。child真实trace已能按trace_id+turn_id读取，Why出现“已从持久 trace 生成结构化回放/回放只读取已保存记录，不会重新调用模型”；最终仅两条断言失败：`canon_unchanged_except_action_receipt`、`why_panel_is_author_safe`。旧批次不改写，不以局部结果签完成。
+- **两项验收假设纠偏**：Why的额外“.includes(修订)”不是UI contract/TRACE文案要求；03已是真实持久回放，02仍只有fallback摘要。`chapters`变化经完整起始hash反事实诊断证明仅目标第2章新增 `plan_direction.chapter_mission` 与其updated_at，其余全字段字节不变（`leader-quality-native-03-chapter-delta-review.json`）。VS-00E §16.8 用户已拍板“推理完成即存暂定”，model/TENTATIVE使命是设计态、非canon，不能按整张章表hash直接判越权，也不能忽略整列/整表来放行。
+- **验收证据重构设计**：保留完整表hash，增加版本化章设计态前后见证，保护其余所有字段；新增source完成后、author_action前的before-revision快照。start→before-revision逐项核验source合法使命（目标章、同run真实pcall/prun、当前operation提供的basis refs、同次模型字段、应用派生身份与时间、作者版保护）；before-revision→final严格不变，仅允许已绑定action receipt与合法引用统计。source/child两段合起来覆盖完整场景，不缩小范围、不写waiver。旧v1缺见证不能补造允许；新版缺/坏/歧义证据关闭。Why保留scoped child HTTP/真实trace/零Provider/安全文案强条件，去除无契约依据的词汇要求。
+- **当前两个执行任务**：`e26cc0fb-bb2e-4131-a432-295cf2185800`（`b71-native-design-state-evidence-v1`）仅Node证据模型/driver/相关scenario与pure测试；`06412e71-e06e-43ee-b104-580ec6f542a5`（`b71-judgment-failure-canonical-delivery-v1`）是唯一Mix owner，按上节设计统一判断失败私有事实传递及两个生产消费者。两者文件边界隔离；为避免ROOT生产fingerprint在后端写入期间变化，Node worker不跑native_b71_test/全Node/原生，待两writer终态后由leader跑集成门。当前无native，先沿现有job等待，不重复派活。
+- **两任务已交付**：06412e71 completed，统一已开始交换的error3私有事实，末次被拒调用闭合，两个生产consumer传递会话，worker目标130/application1259与门禁/I3/I1/I2通过；e26cc0fb completed，snapshot v2/章设计态/两段比较/Why文案边界已落，pure338通过，mutation仍817 killed/100 survived/48 uncovered，不签全绿。leader待两writer停止后独立执行完整Node **733/733**（`leader-design-state-node-integration.log`）。
+- **真实失败历史独立复验通过**：新证据目录 `artifacts/b71-resume/pending-failure-history-review/` 复用原Channel采集装配而不修改旧raw，仅改变本次负例断言目标。实际失败run `run_mvyxrxlt_11` 的2调用、2assistant、2failed validation、原始参数/id、pcall/prun/ProviderRun、work/session/parent归属通过；0writer/canon/receipt，原候选不变，作者结果无private keys。raw的成功修订状态仍为fixture_limitation，不将其改签成功。组合命令3tests/1failure，唯一失败见下一条（`leader-judgment-failure-independent.log`）。
+- **失败事实别名新红灯**：`leader-judgment-failure-carrier-probe.exs` flat正例通过、nested error3反例失败：inner `stage_state.judgment_transcript` 已是newest，`inherit_failure`又补flat older，runtime按既有合并顺序反向覆盖。需在共享边界统一flat/nested两种已有载体，私有canonical只保留一个有效归属，明确处理nil/冲突，不能把private塞reason。
+- **使命真实producer复审未过**：`leader-mission-producer-shape-probe.mjs` 直接消费03的真实join/canonical/LLM/event/DB，pure predicate基线被误拒：新`recordForCall`要求日志不存在的`agent_run_id`，正式fixture自造该字段。其余负例已登记为实际request材料删除、pcall/prun错对、成功使命从设计态消失、同ref标签冲突；先修真实positive基线，再逐项验负例。诊断probe不重签旧v1批次；旧03无before-revision/v2见证的事实保留。
+- **当前返修句柄**：`7ab8ecef-a3a7-43d6-b4ea-665c23fafc15`（error-carrier shape review）唯一Mix owner，只改AuthoringSession共享失败边界/正式tests；`a46a5256-9a3e-4f33-b185-139c417e57ce`（design-state real-producer review）只改Node使命关联/材料证据与质量门。二者均沿现有job等待；全Node/fingerprint/native门等双方终态后由leader复验，当前无native。
+- **失败事实边界局部接受**：7ab8ecef completed；flat/nested两种载体收归唯一flat canonical，nil不盖有效会话，冲突用固定安全reason拒绝，其他nested业务字段/实际计数保留。worker正式targets146/application1264及门禁/I3/I1/I2通过。leader读关键代码并独立复跑carrier +真实Channel负例 **3/3**（`leader-error-carrier-final-review.log`），失败run `run_mvyzaafz_11` 保留2次真实响应/2failed校验与作用域/计数；未改fixture掩盖失败。Mix已释放。
+- **原生04预注册**：`quality-revision-native-preregistration-04.json` 已准备但未启动，目标为v2设计态/before-revision两段完整原生证据；仍单批/零自动重试。旧03仅保留其失败与真实trace/Why证据，不重签为新版通过。当前唯一运行任务为Node a46a5256，沿现有句柄等待，交付并独立验收后再启动04；全静态扫描仍须在本组源码静止后更新。
+- **真实使命证据复审通过**：a46a5256 completed；去除phantom日志字段，按同次pcall+prun/真实scope关联，并把实际请求scope投影、版本、材料区与canonical绑定；冲突label拒绝，已成功派生使命不能因before==after而跳过落点核验。leader真实产物探针 **5/5**、源码静止后的完整Node+当前LCOV **743/743**（`leader-mission-producer-shape-green.log`、`leader-design-state-full-coverage.log`）；五个目标模块CRAP gate exit0。mutation剩余项尚须用完整测试集重核，未据pure通过签质量门。
+- **真实Tauri质量修订原生04接受**：`cp4b-quality-04`（root session1271/pid5472）exit0、27.77s，**64/64**，driver=ax-native-system-ui/provider=slice_verify/surface=tauri；leader读summary/checks并看持久Why截图，cleanup.remaining=[]。source `run_mvyzpmaq_5` 为5实际调用/5配对/5consumed，child `run_mvyzpnau_22` 为2/2/2；首轮invalid_items→末轮passed，原稿/修订稿独立待采纳，全部item原字节匹配，child真实trace与Interaction/run提交，Why窗口0调用。source使命绑定真实pcall/prun与9个已供refs，合法丢弃1个未供basis；source仅目标章model/TENTATIVE设计态变化，引用增量2/日志2；revision段章/canon不变、receipt新增1、引用增量0。证据目录 `artifacts/slice-verify/b71-authoring-revision-tauri-native-cp4b-quality-04/`。这是确定性质量卡修订场景闭环，不是实模或完整B71 done。
+- **本组剩余质量门**：需用当前完整测试集/LCOV刷新增量mutation并执行统一full static scan，准确保留既有gitleaks处置与新结果；未修改baseline/dispositions。原生04通过只满足本质量修订UI证据，pending对话修订fixture/原生入口、工具确认、实际能力/流式/Responses、压缩恢复、实模与CP5继续开放。
+- **当前唯一质量/Mix owner**：`461a8623-03fd-4ce1-b470-1b2693369111`（`b71-quality04-mutation-and-full-static-gates-v1`）只运行门禁、不改源码：先用包含native_b71_test的完整测试集刷新增量mutation，再在.metrics稳定后生成指向04真实summary的当前manifest，执行 `bash scripts/ai_static_scan.sh --top 10`，归档到 `artifacts/b71-resume/quality04-gate/`。扫描阶段冻结tracked文件，避免自造manifest stale；无并行源码writer/native，结果与剩余Top10待独立复核。
+- **完整质量门已取证但未全绿**：461a8623 completed。完整mutation（含native集成测试）为1017 killed/66 survived/4 uncovered，exit3，逐项清单 `quality04-gate/mutation-report.md`；CRAP全部<10，Dryer不支持mjs。full scan命令 `bash scripts/ai_static_scan.sh --top 10` exit1、18pass/2fail/0skip，归档 `quality04-gate/static-scan/`。Top10实际5项且touched=0/blocking=0：B65握手nonce、B63文档spec标识、E2E spec标识、Pencil fileToken均为已有false_positive；ProjectGod历史凭证为已有accepted_risk。未改baseline/dispositions、未重写历史。
+- **Semgrep环境失败已单项复验**：worker规则扫描0findings，但version check写用户cache被沙箱拒绝；leader从本机Semgrep1.157.0源码核实`SEMGREP_VERSION_CACHE_PATH`并指定任务目录。沙箱启动另报系统证书库empty trust anchors；本机权限同命令复验exit0、514rules/2259targets/0findings（`quality04-gate/semgrep-host-review.log`、`semgrep-host-result.json`）。保留27条解析warning（15 Other syntax error/12 PartialParsing）；新B71模块确在scanned列表，相关touched YAML经PyYAML解析230场景、shell经bash -n通过。未安装/改证书/全局配置。旧full report仍18/2，不手改成19/1；后续源码收口后须带任务局部version cache重跑完整入口。
+- **源码指纹覆盖补查**：现`productionFingerprint()`只枚举git tracked，未覆盖B71未跟踪的新生产模块；04运行期间无其他writer，原64/64和实际页面证据保留，但自动化全源码覆盖仍需补齐并新批次取证。修复需包含tracked+untracked（遵循gitignore），保持productPath只限frontend/src、src-tauri/src与apps/*/lib；不纳入test/support/artifacts，不更改真实repo git状态。
+- **当前两个执行任务**：`782eea8f-f38b-46d7-8a75-79c4ce4ae4ca`（native evidence quality closure v2）只改Node证据/正式测试，收66存活与4未覆盖并补全指纹；`370bd3cf-66d4-414d-b033-ea6e72176d9a`（pending fixture native boundary）唯一Mix owner，只改test/support和正式测试，修明确登记操作优先级与当前候选目录读取，保留显式非法ref失败历史测试。两者均不改apps/*/lib/frontend生产源，Node生产指纹稳定；无native，待现有任务交付后复验与刷新完整扫描。
+
+### CP4b pending对话fixture实施七问（2026-11-02）
+
+- **Contract / Invariant**：VS-00L §16.7–16.8与既有Q1B作者原文/候选生命周期契约；原文登记保留合法作者原字节，目标必须来自本次实际供给且唯一、权限可用；两消息新run、修订内部同canonical、两稿待采纳、0canon；坏响应的2call失败历史回归不能因fixture修好而消失。
+- **Boundary / Consumer**：仅test/support统一作者意图/原生目录解析及其正式tests；不得向产品追加旧JSON packet、改作者原输入、偷读DB/未给模型的ctx或加production hook。现有SliceVerify→Gateway→真实Channel是第一消费者。
+- **Proof**：保持原Q1B两条消息，真实Gateway与私有落库/逐call对应；明确操作优先于内容里的角色名词，title/preview/operations来自真实目录；多目标歧义问作者，不发null-ref或first/latest执行。正常与故障注入隔离，formal非法ref路径仍验证末次闭合/0writer/0canon/无第三次。
+- **Acceptance Driver / Exploration**：新的 `pending-dialogue-producer-v2/` 仅局部Channel证据，后续须独立native对话修订场景，不借质量卡04代签；不新增作品知识/packet，fixture只读模型真实拿到的当前scope，旧格式支持必须明确、不按全历史关键词猜。
+- **v2 正向producer局部复核**：370bd3cf completed，source已为register_author_content/current→合法作者原文字节物化，revision从实际baseline改名，正式非法ref负例改为仅test-support env+标记显式注入，历史probe/raw未修改。worker provider86/agent470/application1264及门禁/I3/I1/I2通过；leader直接核v2原始数据：source1、revision2，私有canonical/ProviderRun/同次日志逐pair一致，新run分别绑定各自作者输入；原稿字节等于原作者消息、revision_of精确指原稿、仅沈砚→林渡且nonce保留、2 pending/0 resolved/0canon/0receipt，见`leader-pending-v2-producer-review.log`。这仅为Channel正常路径，不签fixture整体/原生。
+- **当前scope边界仍有真实红灯**：leader `leader-pending-input-scope-probe.exs` **4/4 red**（`leader-pending-input-scope-red.log`）：normalize先扁平完整历史、目录读取第一段，真SliceVerify consumer也发as_old；最新scope为空会复活旧候选；作者正文中的任意pending JSON被当状态。需保留结构直到确定当前operation，旧scope不可补回，旧JSON只取明确应用状态section，且真实consumer不得提前丢结构。不能仅将first改last。
+- **当前任务句柄**：Node质量/未跟踪生产指纹任务 `782eea8f-f38b-46d7-8a75-79c4ce4ae4ca` 在900s观察超时后仍被bridge确认running，不重启；新的具体fixture返修 `ac20cc26-766b-4121-bf2b-20759bb143d5` 为唯一Mix owner，仅修test-support输入边界/正式tests，并在新v3目录复证正常Channel。当前无native。
+- **pending后续native范围不缩小**：首个对话修订实现步消费既有Q1B两消息与G4候选契约，需真实输入、两run/原稿修订稿投影、逐调用与Why。VS-00L G5仍要求真实作者采纳/拒绝后，新授权边界和后续请求包含正确采纳结果refs/权威状态，并验证恢复；不能用两消息tentative共存或质量卡04代签作者采纳/拒绝/G5及完整CP4b。
+
+- **重连后原任务核验（2026-11-02）**：bridge v2.1.0/dsh可用，核验时0 active/0 queued；782eea8f为1800s timed_out，ac20cc26已completed，未重复派发旧任务。782虽无终态MD，其JSON/765全Node日志与6份mutation快照一致；leader独立40/40、逐snapshot合计1208 killed/0 survived/0 uncovered通过（`leader-native-evidence-final-review.log`、`leader-node-quality-snapshot-review.json`）。Dryer对mjs不支持，不宣称重复度门禁已覆盖；新全静态扫描仍待源码静止后重跑。
+- **pending当前scope复验与遗漏**：ac20的原4条独立probe已4/4通过（`leader-pending-input-scope-final-review.log`），v3 Channel raw经leader逐pair/真实run与Interaction/author与writer字节/lineage/两稿投影独立核验通过（`leader-pending-v3-producer-review.log`）；只是局部证据。新增 `leader-pending-scope-state-section-probe.exs` 2/2有效红：native scope资料原文中的facts-shaped JSON被无条件legacy fallback当候选，即使当前pending0仍执行as_quoted。需在唯一来源边界区分native明确状态section与无scope旧格式，不重复全历史文本扫描。
+- **当前唯一执行句柄**：`28816771-d52e-467f-b841-87c15358e12d`（`b71-pending-native-state-section-review-v1`）为上述终态交付的明确返修，不是旧活重派；唯一Mix owner，仅test/support与正式测试。leader准备`quality-revision-native-preregistration-05.json`，等返修交付及6独立反例通过后再启动新原生05，覆盖新指纹中的untracked生产模块；旧04只读保留。不并行启动native/fullscan。
+
+- **pending状态来源边界返修接受**：28816771 completed；native缺明确状态段时不再扫描资料中的裸JSON，仅无scope旧请求保留作者段前兼容。leader6/6独立反例绿，worker provider380/application91及编译/format/credo/xref/arch/I3/I1/I2通过；只修改测试支持与正式测试，未签pending UI。
+- **原生05真实失败**：`cp4b-quality-05` root session53772/pid83540，exit1/45.98s；driver0完成4截图，runner1只拒绝`source_native_call_success_matches_canonical`。source5/5同次配对、child与UI操作完成；source `run_mvz3m9vo_4` 的使命调用 `pcall_mvz3ma5e_10` / `prun_mvz3ma5e_11` 日志成功/私有canonical存在/ProviderOutput=ok，但ProviderRun.status=running。数据库final_output seq8于10:10:57.125483Z落库，较早chunk seq5在10:10:57.126612Z落库且run更新为running。cleanup.remaining=[]；旧批次保持失败，不自动重试。诊断`leader-quality-native-05-call-diagnostic.json`。
+
+### CP4b Provider 事实提交重构七问（2026-11-02）
+
+- **Contract**：VS-00L §16.9、§16.12，既有ProviderRun/Event/Output；不改模型协议或新增运行台账。
+- **Invariant**：同次真实调用身份固定；事实事务提交先于进展发布；事件幂等且终态不被晚到旧快照回滚；错误不伪造成功或重发Provider。
+- **Boundary**：仅application ProviderActivityProjector与persistence ProviderRunLog及正式tests，必要纯helper在既有app内并登记README。agent/common/domain/web/frontend、schema/migration/依赖不改；leader已读两app mix.exs/现有代码并完成mix compile基线。
+- **Consumer**：现有stage sink、ProviderActivityService、B71真实原生逐call核验共同消费同一持久事实，无旁路补状态。
+- **Proof**：leader `leader-provider-fact-order-probe.exs` 两条2/2有效红：终态→晚到chunk变running；stage发布时DB尚无该run。正式补乱序/重复/冲突归属/失败取消/事务回滚与发布可读，应用/持久层回归和全门禁。原05的真实event时间支持竞态，但测试不靠sleep概率复现。
+- **Acceptance Driver**：修复验收后另预注册一次native_b71_batch质量修订批次，明确source/child全部实际调用终态和完整页面；旧05不可改/重签。生产验收感知逻辑=no。
+- **Exploration**：不新增作品知识或物化要素，沿原authoring/request证据链，不增加Base packet；本重构不改变求证或引用供给。完整B71、pending/G5/确认/流式能力等缺口仍开放；fullscan在此次生产源收口后统一刷新。
+
+- **最新恢复句柄**：`d8363947-8272-4d8c-9f52-788852428d7e`（`b71-provider-fact-ordered-commit-v1`）正在实现§16.12，唯一Mix owner；仅Projector/ProviderRunLog及对应tests/索引。28816771已终态并由leader6/6独立验收。05原生批次已失败结束且精确应用cleanup=[]，无当前native；等d836原job交付后独立验收两红、全量局部门禁，再决定新批次与fullscan，不重复派活。完整B71仍doing。
+
+
+### CP4b 对话修订与 G5 作者边界原生场景设计（2026-11-02，待实现）
+
+- **Contract / Invariant**：消费VS-00L §16.7–16.9/G4–G5、VS-04与既有Q1B-candidate-lifecycle；两条作者消息分别创建新bounded judgment_loop run，修订内部判断→writer共享canonical。模型只能产候选；作品事实仅由真实作者采纳改变，放弃不触及已保存修订稿。新请求必须由新授权边界和真实持久投影生成，旧tool_call不作为本轮执行历史重放。
+- **Boundary / Consumer**：新增外部原生journey `b71-authoring-pending`，复用NativeScenarioHarness、Request/ACK身份边界、私有history、逐pcall/prun与canon快照；不借质量卡receipt/profile/finding规则冒充对话修订。第一消费者为真实WorkspaceChat→WorkspaceChannel→Application→Domain/Agent/Persistence→TurnResult/WorkSession投影。只建空作品/活动会话的seed，不预造候选/运行/结果；产品路径不加验收感知，若真实链发现缺口另立原任务实现步。
+- **Proof**：v3现有producer仅证明source1实际调用、revision2实际调用、原作者完整字节、模型响应完整items、原稿/修订稿分属两TurnResult且WorkSession投影并存。实施前在新的独立Channel取证目录追加真实accept/discard入口与边界后消息，读取真实actions/receipts/run/privatehistory/ProviderRun/LLM/持久投影，不手造新run/响应/来源字段；该局部产物用于校准原生判据，不签UI。新增原生判据须涵盖错topic/session/请求ref/多义目标/同item_id字节改变/缺原始请求/残留旧call/错误采纳对象/恢复丢状态负例。
+- **Acceptance Driver**：原生AX输入原Q1B原文登记（随机nonce）→输入明确沈砚改林渡、不要保存的修订请求→查看两份候选与修订Why→通过候选可见标题及所属AX结构定位真实保存按钮→保存修订稿→核对原稿仍待采纳→通过原稿可见语义放弃原稿（包含真实确认对话框，如有）→在restore分型步关闭并重启本批精确应用→核对同work/session已恢复，再输入“资料处理进度怎么样？”→核对新run请求中的真实ACCEPTED/DISCARDED refs与当前权限、作者可见回复/Why。不用全局last按钮代替对象绑定，不允许脚本push Channel。采纳与放弃各自前后窗口须0 Provider；边界后提问实际调用另行配对，不硬猜数量。
+- **状态与证据分段**：start→revision完成为0canon/0author_action receipt；采纳只增加与模型修订全文对应的CONFIRMED内容及真实receipt，原稿仍TENTATIVE；放弃只处置精确原稿，已保存内容原字节不变；恢复不得产生新候选或Provider调用。关键中间快照分别保存，不能仅用最终hash推导所有阶段。全部实际调用均有同scope/pcall/prun/canonical/request-response与真实预算，source/revision/边界后新run分别审计。
+- **Exploration**：不新增专用packet。新请求状态来自既有TurnInteractionService消息处置section、真实候选/已采纳对象目录和可用探索面；以实际request_body证明采纳结果refs/权威状态已进入本轮，不以DB存在或时间顺序代签。若当前最小Base无法提供所需指向，按通用求证原则修对应生产边界，再取证，不能让fixture偷读DB补齐。
+- **完整范围**：本场景覆盖原CP4b/G4–G5的一条完整对话候选作者边界，不替代工具确认、显式压缩/执行恢复、实际route能力/流式/Responses、实模窗口和CP5。当前仅设计；没有新的native/pending job，下一执行须先确认Provider事实提交任务终态并释放Mix。
+
+- **有序提交回归复审中**：d836仍running（900s等待到观察上限不代表任务终止，继续同job）；worker日志已记录persistence387/application1268零失败，但application-full另有27条持久化诊断：20 OwnershipError（无Sandbox checkout的DialoguePlanningService纯测试路径）、4固定pcall/prun或step归属冲突、3错误output内容冲突。不能由退出码0签全部事实持久链；错误摘要atom→JSON string是否被误判冲突，leader已准备只读独立`leader-provider-error-replay-probe.exs`，尚未执行，需等Mix owner释放后检验。
+- **并行证据脚本准备句柄**：`05bd97ad-c297-48b0-92aa-0b740d83a81e`（`b71-pending-author-boundary-producer-scaffold-v1`）只在新`pending-author-boundary-producer-01/`准备Phoenix.ChannelTest脚本和报告，不运行Mix/SQL/GUI、不改产品；用于source→revision→accept→discard→恢复→新请求的G5实际producer校准。不要把脚本准备误称取证完成。d836仍唯一Mix owner。
+- **原生06预注册已备**：`quality-revision-native-preregistration-06.json`，max1/auto_retry0/timeout1800；等待有序提交交付与leader复验，不在worker写生产源时启动。05保持失败，完整fullscan尚未刷新。
+
+- **有序提交首轮未签收**：d836 completed（1169s），原顺序两条leader测试绿；新增`leader-provider-error-replay-probe.exs`经真实JSON DB重放2/2红，合跑4tests/2fail（`leader-provider-fact-order-combined-review.log`）。error_summary.type/provider_event_payload.reason_code保留atom，DB值为string，归并因此误拒同一事实。需要唯一存储边界统一合法持久形态，真冲突仍拒绝。
+- **移除测试时序补偿的设计决定**：首轮worker按probe seed调入12次×5ms、错误文本匹配重试；其报告将busy归因Sandbox事务回收但未给生产实证，leader不接受该补偿作为完成实现。已读安装版Exqlite/EctoSqlite源码支持局部`Repo.transaction(..., mode: :immediate)`；临时双连接WAL机制probe证明DEFERRED读后升级可BUSY_SNAPSHOT(517)，IMMEDIATE在读取前取得写权（`leader-sqlite-write-ownership-review.log`），但这不是Ecto产品边界验收。返修须用当前真实消费者验证事务写意图，复用既有busy_timeout；若是测试owner生命周期问题，修测试明确回收，不为测试调生产sleep/retry或新开关。
+
+- **当前唯一Mix owner与待验收脚本**：`a25ddb10-b5f5-4aaa-8fc3-6555a9ce3169`（`b71-provider-fact-json-transaction-review-v1`）进行JSON形态/事务边界返修及相关测试fixture证据修正，d836已终态。`05bd97ad-c297-48b0-92aa-0b740d83a81e`在900s超时终止，但已写`pending-author-boundary-producer-01/probe.exs`及scaffold-report.md/json，报告明确prepared_not_run；leader核对了真实v3 action字段/路径/阶段设计，未运行Mix/数据库，不把超时退出码0当completed。现不重派整包；待a25终态独立验收后读取并运行现有G5probe，真实结果落新目录既定raw文件。native06/全扫描仍未启动，B71继续doing。
+
+- **§16.12返修接受并完成原生06复证**：a25 completed；leader沿原失败seed261964独立4/4通过（`leader-provider-fact-json-final-review.log`），已确认删除手写sleep/retry，持久形态归一且严格冲突比较保留。worker persistence390/application1268、targeted99及门禁通过，应用27条持久诊断归零。Ecto调用trace证明显式传入immediate，但Sandbox外层savepoint证据不冒充实际并发取锁；生产池真实链由06进一步验证。I1另11条既有持久库pc_*身份碰撞仍待隔离核验，未改规则。
+- **原生06实际结果**：root session26193/pid22697，exit0/25.78s，`b71-authoring-revision-tauri-native-cp4b-quality-06` **64/64**；leader读checks/DB并查看04-why截图。source `run_mvz5ah3d_4` 5/5配对且5条ProviderRun全completed；child `run_mvz5ai2w_22` 2/2配对且2条全completed。指纹覆盖523个tracked+untracked生产文件，含新ProviderFactMerge；两稿仍待采纳、局部范围与同次响应字节、两段canon/设计态、持久Why0调用均通过；cleanup.remaining=[]。这是确定性质量卡修订与事实提交闭环，不是完整B71/实模通过。旧05保持失败。
+- **G5脚本协议返修与首次局部取证**：70de2884 completed，修真实Phoenix Reply、leave旧channel后重连并用新socket、去除无契约关键词门；root运行`pending-author-boundary-producer-01/probe.exs` exit0/1test，raw 178/178。leader独立逐call source/revision/followup=1/2/1，真实两动作/0额外Provider、仅修订入档/原稿discarded、同会话新Channel恢复、后续请求实际scope中ACCEPTED/DISCARDED refs及judgment-only权限、不回放旧assistant/tool历史，见`leader-g5-producer-01-review.json`。有两项脚本编译warning（source描述键被后续source事实键覆盖、unused variable），不改原01证据；后续脚本迭代须消除，不能称零警告。
+- **G5回答消费仍未闭环**：01后续回答实际为“当前共0章…章节索引”，虽该文本来自真实fixture响应，却未回答资料处置问题；当前scope已真实供给状态，问题在test-support SliceVerify中泛化“进度怎么样”被章节分支抢占，尚无产品模型能力缺陷结论。leader `leader-g5-progress-intent-probe.exs` 基于01真实request复现1红（资料状态）/1绿（明确章节状态），日志`leader-g5-progress-intent-red.log`。下一实施统一资料/候选处置意图优先级并保留章节进度正例，不能改作者输入凑fixture；新producer02再取证，不重签01。G5原生场景仍待实现。
+- **当前无运行中worker/native/Mix**：a25/70de均终态，root G5 session1585已exit0。先完成本有序提交功能的完整扫描，使用新的任务局部测试库核验I1历史碰撞，保持规则不变；扫描期间冻结所有tracked文件。扫描完成后再推进G5 fixture/原生驱动，不重复派发旧任务。
+
+- **有序提交检查点完整回归/扫描归档**：root在全新`quality06-gate/backend-db`执行mix test，exit0、**2927 tests/0 failures**，9 app结果均通过，Provider事实持久诊断0；日志`quality06-gate/backend-full.log`。随后另建`quality06-gate/invariant-db`，带任务局部Semgrep log/settings/version-cache与指向quality06真实summary的manifest执行`bash scripts/ai_static_scan.sh --top 10`，52.08s、汇总exit0、**19pass/1raw fail/0skip**。唯一raw fail仍gitleaks exit1：5项既有Top10（B65 nonce、B63 spec、E2E spec、Pencil fileToken为false_positive，ProjectGod历史凭据为accepted_risk），touched0/blocking0；未改baseline/dispositions或历史。Semgrep0findings/2260targets，27解析warning保留；前端703/703、typecheck/lint/audit-quick/design-trace与manifest/NEXT等通过。完整报告不可改写，归档`quality06-gate/static-scan/`，旧main报告亦保存prior-fullscan。
+- **I1碰撞核验**：同一未修改规则在新局部库I1 4/4且Provider持久诊断0，I3 3/3、I2三组互异亦0诊断。该证据支持历史持久测试库pc_*碰撞归因；没有放宽同调用身份/处置规则或更改不变量driver。以后多次独立门禁继续用各自新库，不能复用本轮已写过的库当空库。
+- **扫描后进入下一G5实现步**：冻结已解除；当前两个新worker是`aa6abfeb-17b4-4f6c-a395-f93eb982859b`（`b71-g5-fixture-progress-scope-v1`，唯一Mix owner，test/support当前资料进度意图分流+formal tests+新producer02，禁止Node/产品lib写入）与`8cbbc6eb-8493-40b5-a67a-5b91cda7ebe3`（`b71-pending-native-g5-implementation-v1`，仅外部Node/seed/quality场景及tests，禁止Mix/GUI/native/生产源/test-support）。两任务消费已完成的原任务证据，非重复派活。Node任务实现完整G5原生链，不止两稿并存；fixture任务保留明确章节进度正例。所有root exec/native/fullscan已结束，无当前GUI批次。先沿两job等待并独立验收，再预注册pending原生批次；本轮fullscan是上述检查点源码快照，后续新改动需重新门禁。完整B71仍doing，实模/确认/能力流式/Responses/压缩执行恢复/CP5均未代签。
+
+- **G5 fixture独立验收**：aa6abfeb completed；统一material_intent与当前scope material_state，资料处置查询优先于泛化章节进度，明确章节进度不回归；leader原progress2+scope4+state-section2 **8/8**独立通过（`leader-g5-fixture-final-review.log`）。worker provider391/application目标211及compile/format/credo/xref/arch/I1I2I3（新库）通过，未把这些替代全量/native。
+- **02中间证据留存违规与补证**：worker在02反复运行并覆盖raw/log，最终只留一次；其报告所述首跑“其他处置”重复缺口的中间产物没有留存。leader已核worker stderr的明确overwrite/clean stale logs记录，不能补造已丢证据，也不把02当唯一验收来源。旧01/原红测试未改；最终02只读保留。leader另建`pending-author-boundary-producer-03/`，预注册max1/auto_retry0、输出存在即拒绝再跑，并记录fixture与probe hash。
+- **独立G5 producer03**：root session66300 exit0、1test/0fail、**183/183**，fixture_sources_unchanged=true。leader直接从raw核source `run_mvz6wlp3_3` /revision `run_mvz6wmgy_q` /followup `run_mvz6wogs_1q`，实际calls1/2/1逐pair/作用域/成功响应/完整canonical文本与原生参数一致；原作者字节、修订writer items、两稿投影1→2→1→0、两真实receipt、仅修订canon新增、accept/discard/restore均0Provider。新Channel同session恢复，实际新request scope含原稿DISCARDED/修订ACCEPTED，judgment-only、无旧assistant/tool执行历史；真实回复明确0pending/2resolved及两种结果，各完整body_preview只出现一次。独立复核`leader-g5-producer-03-review.json`。这是ChannelTest+fixture消费证据，不是原生UI/真实模型。
+- **原生G5单批准备**：已写`pending-native-preregistration-01.json`（b71-authoring-pending / cp4b-pending-01，1批/0自动重试/1800s），尚未启动。当前唯一活动worker仍`8cbbc6eb-8493-40b5-a67a-5b91cda7ebe3`（Node原生完整G5实现/质量门，禁止Mix/GUI/生产改动）。原并行wait继续等该job，不重派；aa6abfeb已终态，root当前无Mix/native。先验收Node交付及真实producer形状，再准备精确UI批次；完整B71继续doing。
+
+- **pending原生首轮交付未验收**：8cbbc6eb completed（1503s），Node798/798、manifest231scenarios/2drafts/233manifests、语法检查通过；CRAP最高10不满足under10，mutation686sites/454killed/0uncovered/**232survived** exit3，不能签质量门。没有运行原生批次。
+- **leader新增5条有效红**：`leader-pending-ax-ownership-probe.mjs` 3tests/1fail，目标缺按钮时祖先攀升借用了兄弟候选唯一按钮；`leader-pending-native-producer-boundary-probe.mjs` 10tests/4fail，作者引用section被当状态、新scope缺状态复活旧scope、旧新scope都有事实误拒合法最新、真实accept回执的adopt:<artifact>映射被拒。body取独立03，帧壳仅纯边界fixture，不冒充实际WS。其它真实writer/discard/parent/字节基线通过。日志分别`leader-pending-ax-ownership-red.log`与`leader-pending-native-producer-boundary-red.log`。
+- **外部证据边界返修设计**：候选动作须有明确AX所属边界，不能爬到含别的候选的root借按钮；当前状态只消费最新明确应用scope；accept/adopt映射复用既有adoption_contract并仍核target/source/receipt；driver终态按owning topic/request时间/parent/work/session绑定且失败及时退出；source作者来源须精确ref，writer对应合法passed校验。Why需完整work/session/turn路径，恢复不能仅凭200与正文出现。现有外部HTTP proxy只记method/path/status，需在外部代理（非产品）补有限、完整性明确的真实resume/replay响应采集并以真实HTTP producer→consumer测试闭环；不伪造已有字段/不截断当完整/不加产品hook。预注册pending01已增加这些前置门槛，尚未运行。
+- **工具确认只读现状审计**：55b929d9 completed，报告`worker-confirmation-current-entry-audit.md/json`；当前主链静态可达非采纳工具确认，历史实际capture为2026-10-30 AU04且非本轮重采。当前confirm旧Gateway路径复用source turn、无新AgentRun/behavior关闭snapshot；source行重复/原run等待等为静态结论，尚缺当前DB实测。confirm/reject同时用于AdoptionWorkflow采纳确认，必须分流；cancel_pending_behavior仅遗留模板/消费端，当前producer分支不可达。WorkspaceContext最后assistant、Channel最后turn、Frontend最近带behavior_state语义不一致；没有按behavior_id的权威claim。旧TraceWriter无cancel枚举即不能关闭行为的误判已排除。B01旧列迁移/历史回填仍由原任务授权，不由此私迁。
+- **最新两个执行句柄**：`47de1a49-b953-4b71-8751-8c5cca385674`（`b71-pending-native-boundary-review-v1`）仅外部Node/HTTP代理/正式tests收上述归属红灯与232survivor，禁止Mix/GUI/产品改动；`8e1011e4-6b86-4237-be53-1f17c771e04e`（`b71-confirmation-current-producer-v1`）唯一Mix owner，仅在新confirmation-current-producer-01证据目录准备并运行一次当前真实Channel来源/确认/拒绝/重复与相反动作诊断，不改产品或fixture、不手造confirmation。每次已有业务输出禁止覆盖；若当前原输入不再产生确认则留真实缺口并停止，不改prompt强迫。aa6abfeb/8cbbc6eb/55b929d9均终态，root没有运行中Mix或GUI。下一步沿现有两job等待验收；G5原生与完整B71仍未闭环。
+
+### CP4b 确认读取统一与 G5 质量收口（2026-11-02）
+
+- 两个既有 job 均已 completed。leader 已独立复跑 pending AX/producer 探针 **13/13**；worker Node 827/827，但 mutation **295 survived / 8 uncovered**，pending01 前置门未满足，未启动 GUI。不能以重复补可选链用例替代结构收敛：改为外部数据入口解析、内部判据去重，再串行执行完整门禁。
+- 当前 Channel producer01 实测确认创建 **0 新 AgentRun / 0 新 ProviderRun**，实际 writer/quality 有两次调用；确认原地复用源 turn 且不关闭 behavior，随后相反 reject 仍被接受。reject 本身 0 Provider。原始捕获在 `artifacts/b71-resume/confirmation-current-producer-01/attempt-01/`，属于确定性 Channel/数据库证据，不是原生或实模。
+- **Contract**：VS-00L §16.10–16.13、VS-03、§16.11 行为 codec。**Invariant**：明确清空或非法最新快照不复活旧行为，缺字段不等于清空，work/session 隔离；行为、受理和运行各有一个事实所有者。
+- **Boundary / Consumer**：纯领域投影 → 持久 Interaction 查询 → WorkspaceContext 的模型 Base 行为摘要 / WorkSessionService / Channel 恢复消费者；本步不改 provider、前端 UI、fixture 或历史数据库。
+- **Proof**：先红后绿，真实数据库矩阵覆盖 open→普通回复、open→closed→普通回复、非法最新快照、跨作品/会话、重复/冲突字段；恢复与模型摘要消费同一规则，保留旧无会话只读兼容证据。后端完整门禁和统一静态扫描在源码静止后执行。
+- **Acceptance Driver**：继续以现役外部 Tauri 驱动确认/拒绝/重连，当前仅完成读取基础不签完整确认闭环；产品验收感知逻辑 no。**Exploration**：非作品要素物化，探索面同步不适用；行为摘要只提供应用权限状态，不成为模型请求观察。
+- **完整后续**：按 behavior_id 的事务内校验与竞争消费、独立作者动作 run、确认时 re-gate、原作者字节/行动来源、新 run 的逐调用 canonical/预算/ProviderRun、拒绝零模型、父子运行交接、原子结果与恢复/Why/Tauri 均继续开放；本 checkpoint 不缩小范围。
+- **新活动句柄**：`e9bdd6e4-6a4c-4b26-97f4-7b090de8d55b` 只负责外部 HTTP 边界与测试；`0322459e-a684-4efd-b04b-3f4b89ff9f18` 只负责 pending 三个 Node 模块及各自测试。两者不跑 Mix/GUI/共享覆盖与 mutation，统一门禁待源码静止后串行执行。
+- **读取统一实施 owner**：`fc23ad05-53a2-459f-b444-e87128b9f8e2` 为唯一 Mix owner，实施 §16.13 的纯投影与实际模型摘要/恢复消费者；不修改确认执行、receipt/schema 或前端。
+- **HTTP 独立复验与新红**：e9bdd6e4、0322459e 均已终态。leader 在本机回环网络权限下复跑 HTTP/proxy/pending **49/49**（沙箱先报 listen EPERM，属环境限制）；从原 Channel raw 独立核对 8 项确认缺口事实，见 `leader-confirmation-producer-review.json`。新增完整 verifier 反例 `leader-pending-authority-probe.mjs` **26 tests / 2 failures**：source 的 authority_scope=null、allowed_tools=null 均被 76/76 接受。不能将缺失权限事实等同已证无写权限。
+- **外部边界第二次结构复审**：0322459e 把可选链改为逐层 isObject 守卫，逻辑运算位点反而 99→184；这不能作为“单次边界解析”的证据。共同前提为“每层判据可以将非法事实补成空对象/空集合”，现交由新任务移除分散责任，统一读入校验后再消费纯判据；保留新红，不启动 pending01。
+- **当前执行句柄**：`d00d8a14-029f-4c3b-8e69-dcff9a1770b9` 为唯一 Node/coverage/ub owner，处理上述权限红例、事实读取归一和当前完整变异门；`fc23ad05-53a2-459f-b444-e87128b9f8e2` 仍为唯一 Mix owner。root 不并行启动 Mix/native/fullscan；先等现有任务交付再验收，旧任务不重派。
+- **行为读取独立复审**：fc23ad05 已完成核心读取与两次全后端零失败；最后增补非法行为摘要的 `unavailable` 状态后正在第三次全量回归。leader 已用独立纯领域检查取得 target_ref atom/string 冲突被接受的红例，遂取消该 job 并确认无残留 BEAM，优先收口实现后再做最终全套。root 隔离 persistence probe **2 tests / 1 failure**（`leader-behavior-read-boundary-host-red.log`）：非法快照的 `unavailable` 已绿，目标双键冲突仍红；沙箱 PubSub eperm 单列保留。取消前 `worker-behavior-read-ssot` 是中间报告，不能当最终交付。
+- **当前唯一 Mix owner 已转交**：`02565966-e122-45db-af3e-0592c378f0fe` 仅收口 codec 已知字段冲突与正式测试，先完成格式/编译/静态规则，再对最终源码做一次完整后端与独立库不变量。`d00d8a14` 继续唯一 Node 变异 owner；无 GUI/fullscan。先等待并验收两项现有任务。
+- **共享 codec 复审续**：02565966 completed，known 字段统一校验已使原 2 个 leader probe 全绿，worker 全后端 **2959/0** 与 I1/I2/I3/架构门均通过。leader 新增 `leader-behavior-null-reference-probe.exs` **1/1 红**：现役通用 atom→string 比较把 `nil` 与字面量 `"nil"` 当成同值，nullable 引用仍可能丢失冲突。该根因须在共享值归一处消除，不能在各引用字段补条件；后续最终全套由 leader 在全部源码静止后统一执行，避免每个小步骤重复长套件。
+
+### 作者纠偏：先追源头，再决定校验（2026-11-02，当前执行依据）
+
+- 作者明确要求：**“校验 拦截要谨慎添加，要追寻源头去解决，思考为什么会出现，如果源头都不会出现的问题，就不要加拦截或者校验。”** 此要求约束后续设计、实现与验收，优先于此前为构造反例/清变异增加防御层的执行办法。
+- 作者随后强调这是**贯穿始终的重构原则**，并非本次 codec/验证器的局部例外。B71 全部后续实现、既有逻辑复审、测试与质量门处置均以真实来源和职责划分为起点；先修 producer/结构/所有权，必要外部边界一次校验，内部信任已经建立的契约。人工异常输入或指标本身不构成新增拦截的依据。
+- **事实纠正**：上述双键冲突与 nil/字符串反例是人工 map 探针，证明函数对该输入的行为，不证明生产链会产生这种输入。leader 追查 `BehaviorState.snapshot/summary → TurnResultBuilder/AdoptionWorkflow → TurnInteractionService → Ecto JSON → WorkSessionRepo/Channel → from_map`，尚未找到冲突双键 producer。因此撤回本轮额外 `@known_fields` 与 nil 双键拦截及其专属测试；进入本轮前已有 codec/WIP 保留，旧探针与历史证据不改写。
+- **实际源头保留**：`TurnResultBuilder.maybe_add_behavior(nil)` 按设计省略未变化字段，WorkspaceContext 旧查询却只读取最后 assistant；统一最后明确快照读取是实际语义修复。工具确认的实际问题仍为旧同步入口绕过统一运行受理/调用事实/结果提交，后续以改造该生产链解决，不能靠额外拒绝动作掩盖。
+- **外部验证器调整**：同一 reader 已取得的 DB/JSON 结构不再逐层重复检查。保留真实运行/动作/作用域身份、原文与响应字节、阶段写入与网络采集完整性证明；先修采集/转换来源，不为消灭未证明可达的变异扩充“任意非法输入”测试。原 pending01 尚未启动；其原始 mutation 零存活前置需按真实可达性和精简后结构重新审查，不据旧报告直接开启 GUI。
+- **此前任务终态**：d00d8a14 completed，Node863/863、CRAP最大9.2136，但原始 mutation **162 survived / 3 uncovered**；这些是精简前证据，不能代签新结构。71733fab 已按作者纠偏取消（代码/局部测试曾落盘，未作最终签收）。root 无运行中 Mix/native/fullscan。
+- **当前唯一执行句柄**：`625e95bc-42c2-4a4a-924e-6f92378a510d` 负责按实际来源清理本轮行为读取防御性增量，为唯一 Mix owner；`98d28801-38fb-4cfe-ac29-420b30907f57` 负责外部 pending 证据读取与重复 guard 精简，为唯一 Node owner。两者不运行 fullscan/GUI，定稿后由 leader 验收并统一门禁。完整 B71 继续 doing。
+- **清理交付与独立验收**：625e95bc/98d28801 均 completed。leader 对照入场备份确认既有 §16.11 codec 字节逻辑未回退，额外 known-fields/nil-string 拦截和专属测试已撤回；只新增真实快照读取语义。外部五模块减少 231 行；后续 6d8d4ce9 复审又撤回 proxy 必然保证的 request_id/complete-truncated 重复检查，并纠正“scope facts 来自模型”的误述：实际为应用生成 scope_update。旧探针与报告只读保留，不再据不可能输入扩充生产逻辑。
+- **当前源码完整回归**：leader 独立新库 `mix test` **2951 tests / 0 failures**；全脚本集 `node --test` + 当前 LCOV **863/863**；crapper 当前最大9.2（<10）；dryer 不支持 `.mjs`。日志与覆盖在 `artifacts/b71-resume/source-first-gate/` 和 `leader-source-first-backend-full.log`。未把 worker 较小的490集合冒充完整863集合。
+- **下一步**：当前无源码 writer/Mix/GUI，先对精简后版本做一次适配变更的变异测量和统一 full scan，结果按来源可达性处置；不恢复为追分加 guard。工具确认主链、pending 原生场景、实际模型/传输能力、压缩恢复与 CP5 仍按完整范围推进。
+- **当前质量 owner**：`2f03d0f9-d158-414d-b379-469ebfcb6e15` 只运行一次当前版本增量变异与来源可达性分析，禁止改源码/测试；使用相关8文件行为集而非冒称全863集合。当前 quality manifest 231/2/233 已通过。
+- **原生取证前置修订（未启动）**：原 pending01 尚未执行，旧预注册保留；新 `pending-native-preregistration-source-first-01.json` 仅修订前置顺序：先以真实页面查实际来源，质量待复核项单列，不由人工不可能输入阻止真实来源取证。原场景全部身份/字节/权限/阶段写入/恢复断言、1批/0自动重试/1800s/确定性provider均不变，不改任何不变量脚本或完整完成标准。先等当前变异任务终态并确认无并行进程，再执行唯一批次；不能把页面通过自动计作质量门或B71 done。
+- **变异测量终态**：2f03d0f9 completed，当前8文件行为集139/139，原始结果816 killed /150 survived /3 uncovered（exit3），5源码前后hash一致。150项尚未逐项判明，不当产品缺陷；3个未覆盖点中丢弃确认UI与SQLite16-byte UUID是实际待补证路径，URI捕获字符串的空值fallback已证重复。报告 `source-first-gate/mutation-review.md/json`，未因数字加guard或造豁免。
+- **pending01 实际首批失败**：root session93866 已exit1，driver1/runner1；Tauri当前前端构建成功，原生窗口启动，但首次activate在2007ms内未确认，作者输入前失败；未产生完整summary。实际AX/post权限均true，requested/returned均true但frontmost仍Codex；失败取证随后第二次activate在760ms确认本批PID30691，所以失败截图不能证明首次已激活。cleanup.remaining=[]，未自动重跑。证据目录 `artifacts/slice-verify/b71-authoring-pending-tauri-native-cp4b-pending-01/`。
+- **当前动作**：只读追启动/ready/activate/失败采集来源，不扩timeout、不补重试、不动产品输入。新审计 job 由 leader 沿现有句柄收取；全量扫描使用当前静止源码与“UI未闭环”事实，不能借旧quality06页面给pending01代签。下一实施仍围绕真实源头与工具确认主链。
+- **启动审计已收取**：9af37441 completed。代码证实 runner 的“Native window ready”实际指 bundle 就绪，driver 在进程可见后发 activate，Swift 独立等待2s；失败取证又通过 `dumpNodes()` 激活/Escape，改变现场。leader 独立只读 DB/WS 核对 **works1/session1，其余 interactions/AgentRun/ProviderRun/events/mutations/receipts均0，user_message帧0**，cleanup无残留（`source-first-gate/leader-pending01-failure-review.json`）。**根因边界**：本批没有 finishedLaunching/首次窗口出现的观测，不能据第二次成功断言首次一定因“窗口未就绪”失败，更不能立即增加窗口 gate 或扩大 timeout；需先明确启动/激活/取证的职责与真实时序。审计原报告中的高置信措辞以此复核边界为准。
+- **统一 full scan 已归档**：`bash scripts/ai_static_scan.sh --top 10` 在新独立库与任务内 Semgrep cache 下执行，exit1，**18 pass /2 fail /0 skipped**。I3/I1/I2、N-NARR、I-CACHE、编译/架构、前端703测试/typecheck/lint/audit/design-trace、Semgrep均通过；Top10实际6项，touched0/blocking1。4项既有false_positive（B65 nonce、B63 spec、E2E spec、Pencil fileToken）与1项ProjectGod历史凭据accepted_risk保留原处置；唯一pending为当前原生UI未闭环。未修改baseline/disposition或历史，归档 `artifacts/b71-resume/source-first-gate/static-scan/`。
+- **恢复入口**：当前无运行中worker/Mix/native；业务源码已冻结并完成上述局部/全量验证。下一步按作者贯穿原则推进实际工具确认生产链重构，同时以只读启动事实审计为基础处理原生取证阻塞；不重新开启人工非法map驱动的防御性加层。B71仍doing，未提交、未push、未标完整完成。
+
+### CP4b 工具确认生产链与只读取证实施（2026-11-02）
+
+- **上轮审计分类**：progress。已改变真实读取语义、精简不必要防御、完成当前全量门禁，并取得新的原生启动现场；不是仅等待或重述状态。本轮开工已重核 worktree/旧同步确认实现/§16.10，bridge 无活动任务。
+- **Contract**：消费 VS-00L §16.7–16.14、VS-03、既有 AuthorActionResult 与 AgentRun/Request IR；沿既有 receipt 表承载一次性行为受理，不新建执行状态机，不触及 B01 旧来源列迁移。
+- **Invariant**：作者决定只消费一次；先提交后启动；源运行只由自己的 owner 改写；新 run 独立授权/预算/canonical；作者字节与 Provider/artifact 因果保真；拒绝0Provider/0canon；旧历史不回填、不重放模型。
+- **Boundary**：application 的 admission/AgentRun/确认用例，domain 的纯行为转换，persistence 的 receipt 唯一事实与原子提交，web 的现役动作路由；agent 仅必要 profile 元数据，Provider adapter 与前端 UI 不另建旁路。
+- **Consumer**：WorkspaceChannel 当前非采纳确认按钮及既有 receipt 前端消费者；不是脚本专用入口。采纳确认留在 AdoptionWorkflow，旧同步工具确认执行应退役。
+- **Proof**：复用已实测的 source 创建过程得到当前 needs_confirmation，先复现确认无run/相反动作仍被接受，再验证新run与行为事实事务；两Channel竞争、重复/相反动作、写失败不启动、离线来源、不冒充源作者文本、逐调用引用/预算/canonical/trace、原有质量修订与采纳消费者回归。原始生产证据只读；不通过改fixture掩盖问题。
+- **Acceptance Driver**：现役外部 Tauri 主入口的确认/拒绝/重连场景；外部 driver 在真实新 producer 形状产生后接线。当前原生启动事实需单列，不新增产品验收感知逻辑。对已证实的 failure capture 改现场问题，先把采集收为只读；只追加真实OS启动观测，不新增 readiness gate、重试或更大timeout。
+- **Exploration**：确认不是新作品要素。产物仍经已有创作/探索主链同批可达；新授权边界从当前事实组装最小Base，旧观察留原run证据，不伪称进入新请求或默默复制整段历史。实际请求与used refs继续独立对账。
+- **执行句柄**：`439d5c51-2ce9-4892-a44f-5554879e0abf` 为唯一后端/Mix owner，按 §16.14 实施确认运行交接、receipt行为消费与真实Channel取证；`dabea37a-e14e-4065-bb6a-81f385476a2f` 仅负责外部失败只读取证和启动事实观测，禁止Mix/GUI/新批次。两域分别备份现有WIP，无全量扫描/GUI并行，先等交付再由leader验收。

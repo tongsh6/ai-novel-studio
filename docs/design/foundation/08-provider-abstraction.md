@@ -931,3 +931,16 @@ CP1 必须先冻结目标 contract pack、消息/工具/观察/校验/候选/检
 
 至少保留首轮、观察后、校验失败后、tentative 候选后、作者边界后和压缩后六类黄金请求。真实验收必须由外部自动化驱动当前 Tauri 工作台，证明模型按需求证、观察进入下一真实请求、候选仍 tentative、作者采纳才改变 canon、恢复/replay 不调模型，并执行 I1/I2/I3、N-NARR、架构与静态扫描门禁。局部 adapter 或 golden 测试不得替代完整场景。
 
+### 26.7 2026-11-01 修订：稳定层 + 动态 scope + 可恢复 transcript（Proposed）
+
+作者复核实现后确认，Codex、dsh、Claude Code 同样考虑用户主权与证据一致性，因此“刷新 Base”本身不是优势。目标投影进一步收敛为：
+
+- **稳定层**：产品宪法、run 角色、输出协议、工具 schema、作者原话与既有 assistant/tool 消息在同一 run 内保持来源、顺序和字节稳定，不因预算或作品状态变化而重写。
+- **动态 scope 以追加消息更新**：作品 revision、操作目录、权限、预算、观察和恢复状态以带版本、来源与变更原因的 `scope_update` 消息追加；最新 scope 决定后续执行视图，旧 scope 保留为证据，不波及稳定层。scope 不授予执行权，实际执行仍由 Orchestrator/gate 裁决。
+- **消息体采用追加式 transcript**：初始 Base 后只追加 scope_update、assistant、tool、checkpoint 等新事实，旧 body 不删、不改、不替换；后续请求以前序 body 为前缀，而不是重新生成整段上下文。
+- **canonical transcript**：`judgment_prompt_override` 已从首个判断消费者退役。`AuthoringTranscript` 是唯一请求事实源；durable checkpoint 保存可校验恢复的 canonical transcript，重建 Request IR 时保留 assistant/tool 顺序、call_id 与最新 scope，replay 不调模型。
+- **禁止整段 Base 刷新作为终态**：初始 Base 由稳定角色规则与输出协议构成；scope 变化只追加带版本、变更原因和 source_refs 的 `scope_update`。新作者 turn 同样追加，旧消息不删、不改、不替换。
+- **统一原生反馈**：工具失败以 `validation_result` 回流；无工具响应的协议纠错用 `application_notice`，不伪装作者输入。原始工具参数和 Provider 私有推理引用经 checkpoint 保真；一个计划包含多次读取时聚合为真实观察，不虚构逐步模型调用。
+
+验收新增 G7（动态 scope 后稳定前缀一致、权限/预算/revision 正确更新）与 G8（持久事实恢复后 transcript 等价、scope 当前、replay 无 Provider 调用）。实现必须分别证明确定性多轮、数据库离线恢复与真实页面接线；离线恢复事实不等于 durable 自动重启已闭环，后者仍归 CP4。
+

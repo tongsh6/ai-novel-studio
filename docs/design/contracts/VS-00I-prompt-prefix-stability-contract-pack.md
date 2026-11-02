@@ -160,6 +160,14 @@ provider 的 prompt cache 是字节级最长公共前缀复用。
 
 工具/profile 切换与任务状态变更必须留痕；schema 缓存稳定不是“不许对象可用性变化”。各实现任务按同一矩阵捕获实际请求，不能只计算字节前缀而不证明语义块被消费。
 
+### 4.2 B71 原生消息投影的前缀锚点（2026-11-01）
+
+按已冻结的 [VS-00L §14–16](VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 迁移：writer 的作者原话成为独立 user 消息，首次动态字节因此位于该消息，而非旧 giant prompt 的「本轮作者目标」标题。I-CACHE-1 仍要求全部共享规则、任务语义与固定 schema 位于共享前缀内；探针以其输入 AuthoringTask.author_words 的起点定位动态边界，保留原有 required_tails、工具字节恒等与 enforce 断言。evaluator 无作者原话时仍以对象/范围起点为界。
+
+判断/计划使用 auto；原生 writer/evaluator 的单工具阶段分别绑定 submit_tentative_artifact/report_quality_findings（VS-00L §15.1）。探针替身使用同样原生响应字段，避免旧 JSON 文本兼容路径代替当前生产路径。此处是消息载体迁移后的同义重锚，不是缓存命中收益或真实流式能力证明。
+
+独立计划/使命迁移后，CP-D 继续保护跨 run 的完整 L1：目标/计划版本进入 scope metadata，其第一个动态字节可能早于正文中的「本轮目标」标题，故 draft/revision 的动态边界是 scope_update 消息起点；起草/修订固定规则和工具 schema 仍须全处于共享区。原有章节目录检查保留为双边携带断言，并扩大为每条 fixture 章节均须出现在每个请求，避免删材料换共享率。使命若明确提供作者原话，则与 writer 一样以独立作者消息起点为界。不同版本的 scope 不冒充静态 L1；同 run 已有消息仍由 G7 严格前缀检查保护。
+
 ## 5. 厂商适配矩阵
 
 分层模型（§2）与调用对规则（§3）产出的 prompt 字节对所有 provider 相同；本表只列**adapter 层**为命中缓存需要做的事、能读到的命中字段、以及运行侧前提。"待核实"项在 CP-AB 以真实响应核实后回填，不预设。

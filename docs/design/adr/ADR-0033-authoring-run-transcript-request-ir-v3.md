@@ -148,3 +148,39 @@ CP1 必须冻结：
 | 首个真实创作 AgentRun 的原生求证、校验失败回流与 tentative 候选 | B71 CP3；真实请求、页面、DB、预算和逐步 gate 证据 |
 | 作者采纳/拒绝、压缩恢复、规划/修订/质量及 replay | B71 CP4；真实 Tauri、恢复与 no-provider replay |
 | 真实模型行为、完整门禁与旧协议实际退役 | B71 CP4–CP5；独立实模证据、I1/I2/I3 和消费者回归 |
+
+## 10. 2026-11-01 请求投影修订：稳定层、动态 scope 与可恢复 transcript（Proposed）
+
+作者复核 CP3a 实现后指出：Codex、dsh、Claude Code 同样考虑用户主权与证据一致性，整段刷新 Base 本身不构成项目优势，必须先修订方案再改实现。本修订不改变 §2 的 Accepted 主方向，但明确禁止把“每次重新生成整段 Base”误当成目标架构。
+
+### 10.1 稳定层与动态 scope
+
+- **稳定层在同一 run 内不得重写**：产品宪法、run 角色、输出协议、工具 schema、作者原话及既有 assistant/tool 消息必须保持来源、顺序与字节稳定。
+- **动态 scope 以追加消息更新**：作品 revision、操作目录、权限、预算、观察状态和恢复状态可以变化，但只能追加带版本、来源与变更原因的 `scope_update` 消息，不得借更新 scope 重写任务规则或历史消息。最新 scope 是后续执行的事实视图，旧 scope 仍保留为证据。
+- **执行授权仍在 Orchestrator/gate**：scope 只负责模型可见的事实，不授予执行权；动态更新不得造成旧权限复活，也不得为了缓存保留过期预算或操作目录。
+- **消息体采用追加式 transcript**：初始 Base 后只追加 scope_update、assistant、tool、checkpoint 等新事实，不整段替换或重写既有 body。`refresh_prompt` 以 fresh messages 全量替换旧前缀的当前实现属于迁移形态，必须改成追加式投影。
+
+### 10.2 Canonical transcript 与恢复
+
+- `judgment_prompt_override` 已从首个判断消费者的生产链移除，不再充当 canonical transcript 或恢复来源。`AuthoringTranscript` 统一持有 run envelope、稳定 Base、作者 turn、scope、assistant/tool 与私有回放元数据；Provider body 只是它的投影。
+- durable checkpoint 保存带版本的 canonical transcript；恢复时保留真实 assistant/tool 顺序与 call_id 关联，最新 scope 决定是否继续开放权限。不得用旧 prompt 冒充恢复，也不得为恢复重调模型。离线恢复事实与自动重启执行是不同边界，后者不在本修订中冒充完成。
+- 无工具调用的协议纠错使用带 application provenance 的 `application_notice`，不冒充作者新输入；工具调用失败仍使用 `validation_result`。模型计划产生的多次真实读取聚合为一个有来源的观察，不伪造逐步 Provider 调用。
+- 长会话仍只经显式 checkpoint 压缩，checkpoint 必须保留覆盖范围、来源 refs、版本与省略范围。
+
+### 10.3 新增验收证据
+
+在 G1–G6 之外增加：
+
+- **G7 动态 scope 后**：前次 body 是后次 body 的严格前缀；新增内容仅为 `scope_update`、assistant/tool 或 checkpoint，预算关闭、撤权和作品 revision 更新正确，旧权限不复活。
+- **G8 恢复后**：从持久 run 事实重建的 Request IR 与恢复前 transcript 语义等价、消息顺序与 call_id 关联保留、scope 为当前版本，replay 不调 Provider。
+- 缓存命中、语义漂移与恢复一致性分别留证；缓存指标不设固定阈值，但不得用未测量的“缓存收益”宣称方案优越。
+
+实施顺序改为：先按本修订更新 VS-00L 与 B71 验收口径，再写 G7/G8 红测试，最后修改生产实现。未经这些证据，不得把整段 Base 刷新视为 CP4 可接受终态。
+
+### 10.4 真实多轮样本的吸收映射
+
+- Codex 样本中的连续工具调用/输出与 compaction 证明追加式 input 的价值；本项目吸收严格前缀与显式检查点，但 checkpoint 必须保留可审计 refs、版本与省略范围，不以加密内容替代证据。
+- Claude Code 样本中的稳定 system/tools、交替 `tool_use/tool_result` 和 `cache_control` 证明稳定前缀与类型化消息可并存；本项目保留稳定层与 provider 原生缓存断点。
+- dsh 样本中的 `assistant → tool` 连续消息、`reasoning_content` 与 `stream_options.include_usage` 证明原生工具结果、推理回放与用量可并存；本项目只把推理句柄当 provider 私有回放数据，不把其当项目事实源。
+
+三者共同支持“追加而非重写”的请求模型；项目新增的仅是 `scope_update` 的版本化事实、tentative/canon 分层和作者采纳边界，不另造与这些成熟机制冲突的上下文形式。

@@ -4,7 +4,9 @@
 
 | 文件 | 角色 |
 |---|---|
+| [agent_run_state.json](agent_run_state.json) | AgentRun 运行态 Channel 帧/恢复快照；`runtime_live` 为实时命令权限真源，缺失按 unknown |
 | [artifact_adoption_entry.json](artifact_adoption_entry.json) | 同名基础契约的 JSON Schema |
+| [author_action_result.json](author_action_result.json) | VS-00L §16.10 `author_action` 受理回执；引用既有 `agent_run_state` / `turn_result_v3`，无 run ACK 兼容 |
 | [candidate_direction.json](candidate_direction.json) | 同名基础契约的 JSON Schema |
 | [ledger_entry.json](ledger_entry.json) | 同名基础契约的 JSON Schema |
 | [ledger_information_payload.json](ledger_information_payload.json) | 同名基础契约的 JSON Schema |
