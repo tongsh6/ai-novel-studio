@@ -5,10 +5,13 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   """
   alias NovelAgent.AuthorizedToolExecutor
 
+  alias NovelApplication.AgentRunFlows.AuthoringSession
+
   alias NovelApplication.{
     ActionValidator,
     AdoptionWorkflow,
     ArtifactAssembler,
+    AuthoringOperation,
     AuthoringTaskBuilder,
     CapabilityRegistry,
     ChapterRevisionScope,
@@ -20,7 +23,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     WorkSessionService
   }
 
-  alias NovelCommon.Contracts.ToolRequest
+  alias NovelCommon.Contracts.{ToolRequest, ToolResult}
 
   alias NovelDomain.{
     AuthorActionInput,
@@ -168,7 +171,21 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     end
   end
 
-  def run(judgment, input, run, context, provider) do
+  @doc """
+  无显式运行快照的兼容入口：与 `run/6` 共用同一条管线，仅从当前会话读取
+  候选投影；不另开 legacy 执行路径，也不丢弃会话 metadata。
+  """
+  def run(judgment, input, run, context, provider),
+    do: run(judgment, input, run, context, provider, %{})
+
+  @doc """
+  候选/已采纳内容修订的唯一入口。
+
+  `snapshot` 是当前 AgentRun 的运行快照，只提供当前 run 的 canonical 历史；
+  只读状态与候选可用性一律来自 `WorkSessionService.show/2` 的即时投影。所有返回
+  失败都携带实际执行会话与真实工具/Provider 计数，已有 transcript 历史优先保留。
+  """
+  def run(judgment, input, run, context, provider, snapshot) when is_map(snapshot) do
     turn = field(input, :turn_id) || run.parent_turn_ref
     NovelCommon.LogContext.put_turn(run.workspace_id, run.work_id, turn, run.session_id)
 
@@ -180,10 +197,26 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         revise_character_profile(judgment, input, run, context)
 
       chapter_revision_target?(judgment) ->
-        revise_chapter(judgment, input, run, context, provider)
+        with_current_session(run, snapshot, fn session ->
+          revise_chapter(judgment, input, run, context, provider, snapshot, session)
+        end)
 
       true ->
-        run_artifact_target(judgment, input, run, context, provider)
+        with_current_session(run, snapshot, fn session ->
+          run_artifact_target(judgment, input, run, context, provider, snapshot, session)
+        end)
+    end
+  end
+
+  # 当前持久会话投影是只读状态、候选可用性与版本的唯一来源；run snapshot 只带
+  # 当前 run 的 canonical 历史。查询失败直接拒绝，不得用 snapshot 旧投影继续。
+  defp with_current_session(run, snapshot, operation) do
+    case WorkSessionService.show(run.work_id || run.workspace_id, run.session_id) do
+      {:ok, session} ->
+        operation.(session)
+
+      _ ->
+        {:error, {:pending_artifact_invalid, :target_not_available}, step_state(%{}, snapshot)}
     end
   end
 
@@ -545,11 +578,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   defp chapter_ref?(ref) when is_binary(ref), do: String.starts_with?(ref, "chapter:")
   defp chapter_ref?(_ref), do: false
 
-  defp run_artifact_target(judgment, input, run, context, provider) do
-    with {:ok, snapshot} <-
-           WorkSessionService.show(run.work_id || run.workspace_id, run.session_id),
-         false <- snapshot.read_only,
-         {:ok, source, entry} <- source_for(judgment, snapshot),
+  defp run_artifact_target(judgment, input, run, context, provider, snapshot, session) do
+    with false <- field(session, :read_only),
+         {:ok, source, entry} <- source_for(judgment, session),
          true <- field(judgment, :capability) in operations(entry),
          :ok <- check_authority(run, field(judgment, :capability), entry),
          :ok <- check_budget(run, field(judgment, :capability)) do
@@ -558,20 +589,23 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           discard(judgment, source, entry, input, run, context)
 
         "revise_pending_artifact" ->
-          revise(judgment, source, entry, input, run, context, provider)
+          revise(judgment, entry, input, run, context, provider, snapshot, session)
 
         "revise_adopted_content" ->
-          revise_adopted(judgment, source, entry, input, run, context, provider)
+          revise_adopted(judgment, source, entry, input, run, context, provider, snapshot)
       end
     else
-      {:error, {:pending_artifact_invalid, _} = reason} -> {:error, reason}
-      _ -> {:error, {:pending_artifact_invalid, :target_not_available}}
+      {:error, {:pending_artifact_invalid, _} = reason} ->
+        {:error, reason, step_state(%{}, snapshot)}
+
+      _ ->
+        {:error, {:pending_artifact_invalid, :target_not_available}, step_state(%{}, snapshot)}
     end
   end
 
   # B28 CP1.5：章级修订（chapter-scoped）——从已采纳正文事实构造 chapter task，
   # writer 输入含覆盖顺序的整章正文；候选 payload 携带 adoption_effect/format_only base_text。
-  defp revise_chapter(judgment, input, run, context, provider, opts \\ []) do
+  defp revise_chapter(judgment, input, run, context, provider, snapshot, session, opts \\ []) do
     chapter_ref = field(judgment, :adopted_content_ref)
     work_id = run.work_id || run.workspace_id
     frame = frame(judgment, input, run, :execution_candidate, chapter_ref)
@@ -579,8 +613,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     chapter_title = chapter_revision_title(work_id, chapter_ref)
 
     with {:ok, modification_scope} <- resolve_modification_scope(run, opts),
-         {:ok, snapshot} <- WorkSessionService.show(work_id, run.session_id),
-         false <- snapshot.read_only,
+         false <- field(session, :read_only),
          :ok <- check_chapter_authority(run),
          :ok <- check_budget(run, "revise_adopted_content"),
          {:ok, facts} <- chapter_revision_facts(work_id, chapter_ref),
@@ -590,6 +623,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       tool = "prose_writing"
       plan = chapter_revision_plan(frame, tool)
       {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
+      previous_plan = Keyword.get(opts, :previous_plan)
 
       request =
         chapter_revision_request(%{
@@ -604,10 +638,21 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           chapter_title: chapter_title,
           judgment: judgment,
           run: run,
-          previous_plan: Keyword.get(opts, :previous_plan)
+          previous_plan: previous_plan
         })
+        |> AuthoringSession.bind_tool_request(run, snapshot)
 
-      result = AuthorizedToolExecutor.execute(request, provider)
+      {result, session} =
+        AuthorizedToolExecutor.execute_with_session(
+          request,
+          provider,
+          chapter_execution_options(
+            run,
+            facts,
+            modification_scope,
+            previous_plan
+          )
+        )
 
       {trace, summary} =
         TraceWriter.record_with_tool(
@@ -622,54 +667,47 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
       decision = %{decision | decision_trace_ref: trace.trace_id}
 
-      with {:ok, artifact} <-
-             ArtifactAssembler.assemble(result, frame.turn_id, %{
-               revision_base: chapter_ref,
-               revision_reason: run.goal.text,
-               target_chapter: chapter_title,
-               target_chapter_ref: chapter_ref
-             }),
-           {:ok, payload} <-
-             validated_chapter_payload(
-               facts,
-               modification_scope,
-               chapter_ref,
-               chapter_title,
-               revision_scope,
-               artifact
-             ),
-           :ok <- ensure_formatting_adjusted(payload, Keyword.get(opts, :previous_plan)) do
-        visible_title = chapter_candidate_title(chapter_title, modification_scope)
+      case result do
+        %ToolResult{status: :succeeded} ->
+          finish_chapter_revision(%{
+            frame: frame,
+            result: result,
+            session: session,
+            summary: summary,
+            decision: decision,
+            behavior: behavior,
+            trace: trace,
+            context: context,
+            input: input,
+            run: run,
+            snapshot: snapshot,
+            tool: tool,
+            chapter_ref: chapter_ref,
+            chapter_title: chapter_title,
+            facts: facts,
+            modification_scope: modification_scope,
+            revision_scope: revision_scope,
+            previous_plan: previous_plan
+          })
 
-        turn_result =
-          TurnResultBuilder.build(
-            frame,
-            summary,
-            [],
-            decision,
-            result,
-            artifact,
-            behavior,
-            %{
-              candidate_title: visible_title,
-              pending_payload: payload
-            }
+        _failed ->
+          chapter_execution_failure(
+            trace,
+            context,
+            input,
+            run,
+            snapshot,
+            session,
+            tool,
+            result
           )
-
-        finish(turn_result, trace, context, input, run, "revise_chapter", chapter_ref, 1)
-      else
-        {:error, {:formatting_plan_invalid, reason}} ->
-          {:error, {:pending_artifact_invalid, reason}}
-
-        {:error, _reason} ->
-          failed_revision(trace, context, input, run, tool)
       end
     else
-      # B60：`false <- snapshot.read_only` 失败时 else 收到的是 true（不是 false），
+      # B60：`false <- field(session, :read_only)` 失败时 else 收到的是 true（不是 false），
       # 原 `false ->` 分支不可达，只读会话修订会落到 WithClauseError（内部错误）。
       # 按可达语义改成 true -> 可解释拒绝：作者得到 :revision_not_allowed，不再 raise。
       true ->
-        {:error, {:pending_artifact_invalid, :revision_not_allowed}}
+        chapter_failure(:revision_not_allowed, snapshot)
 
       {:error, reason}
       when reason in [
@@ -678,13 +716,143 @@ defmodule NovelApplication.PendingArtifactWorkflow do
              :incomplete_scope,
              :author_scope_not_authorized
            ] ->
-        {:error, {:pending_artifact_invalid, reason}}
+        chapter_failure(reason, snapshot)
 
-      {:error, {:pending_artifact_invalid, _} = reason} ->
-        {:error, reason}
+      {:error, {:pending_artifact_invalid, reason}} ->
+        chapter_failure(reason, snapshot)
 
       {:error, reason} ->
-        {:error, reason}
+        {:error, reason, step_state(%{}, snapshot)}
+    end
+  end
+
+  defp chapter_failure(reason, snapshot),
+    do: {:error, {:pending_artifact_invalid, reason}, step_state(%{}, snapshot)}
+
+  # 章节格式计划的应用校验作为纯回调进入同一次原生交换：只读已归一 ToolResult，
+  # 复用既有 ProseFormatting 规则，不组装 artifact、不写库、不造 ID。
+  defp chapter_execution_options(run, facts, :format_only, previous_plan) do
+    run
+    |> AuthoringOperation.tool_execution_options()
+    |> Keyword.put(:validate_result, fn %ToolResult{} = result ->
+      validate_formatting_plan_result(result, facts.base_text, previous_plan)
+    end)
+  end
+
+  defp chapter_execution_options(run, _facts, _scope, _previous_plan),
+    do: AuthoringOperation.tool_execution_options(run)
+
+  defp validate_formatting_plan_result(%ToolResult{} = result, base_text, previous_plan) do
+    case formatting_plan_preview(tool_result_items(result), base_text) do
+      {:ok, %{preview: preview}} ->
+        if formatting_unchanged?(preview.text, previous_plan) do
+          validation_failure(
+            :no_formatting_changes,
+            "本轮换行方案与待调整的原方案相同，没有产生实际分段调整；请按作者当前要求重新选择边界，不能只改说明或标题。"
+          )
+        else
+          :ok
+        end
+
+      {:error, reason} ->
+        validation_failure(
+          reason,
+          "换行方案未通过当前章校验（#{reason}）；只能使用当前章真实边界，并至少实际改变一处换行。"
+        )
+    end
+  end
+
+  defp finish_chapter_revision(%{
+         frame: frame,
+         result: result,
+         session: session,
+         summary: summary,
+         decision: decision,
+         behavior: behavior,
+         trace: trace,
+         context: context,
+         input: input,
+         run: run,
+         snapshot: snapshot,
+         chapter_ref: chapter_ref,
+         chapter_title: chapter_title,
+         facts: facts,
+         modification_scope: modification_scope,
+         revision_scope: revision_scope,
+         previous_plan: previous_plan
+       }) do
+    with {:ok, artifact} <-
+           ArtifactAssembler.assemble(result, frame.turn_id, %{
+             revision_base: chapter_ref,
+             revision_reason: run.goal.text,
+             target_chapter: chapter_title,
+             target_chapter_ref: chapter_ref
+           }),
+         {:ok, payload} <-
+           validated_chapter_payload(
+             facts,
+             modification_scope,
+             chapter_ref,
+             chapter_title,
+             revision_scope,
+             artifact
+           ),
+         :ok <- ensure_formatting_adjusted(payload, previous_plan) do
+      visible_title = chapter_candidate_title(chapter_title, modification_scope)
+
+      turn_result =
+        TurnResultBuilder.build(
+          frame,
+          summary,
+          [],
+          decision,
+          result,
+          artifact,
+          behavior,
+          %{
+            candidate_title: visible_title,
+            pending_payload: payload
+          }
+        )
+
+      session = close_tentative_session(session)
+
+      finish(
+        turn_result,
+        trace,
+        context,
+        input,
+        run,
+        "revise_chapter",
+        chapter_ref,
+        revision_metadata(session, snapshot)
+      )
+    else
+      {:error, {:formatting_plan_invalid, reason}} ->
+        session =
+          close_failed_session(session, "tentative_artifact_invalid", %{
+            message: "换行方案未通过当前章校验（#{reason}）。"
+          })
+
+        {:error, {:pending_artifact_invalid, reason}, step_state(session, snapshot)}
+
+      {:error, _reason} ->
+        session =
+          close_failed_session(session, "tentative_artifact_assembly_failed", %{
+            message: "修订结果未能组装为可审阅候选。"
+          })
+
+        failed_revision(trace, context, input, run, "prose_writing", session, snapshot)
+    end
+  end
+
+  defp chapter_execution_failure(trace, context, input, run, snapshot, session, tool, result) do
+    case validation_failure_reason(result) do
+      nil ->
+        failed_revision(trace, context, input, run, tool, session, snapshot)
+
+      reason ->
+        {:error, {:pending_artifact_invalid, reason}, step_state(session, snapshot)}
     end
   end
 
@@ -1083,12 +1251,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       b28_candidate_payload(facts, scope, ref, chapter_candidate_title(title, scope), binding)
 
     if scope == :format_only do
-      [item] = artifact.items
-      changes = field(item, :line_break_changes)
-      source_hash = ProseFormatting.source_hash(facts.base_text)
-
-      case ProseFormatting.apply_plan(facts.base_text, source_hash, changes) do
-        {:ok, preview} ->
+      case formatting_plan_preview(artifact.items, facts.base_text) do
+        {:ok, %{changes: changes, source_hash: source_hash, preview: preview}} ->
           effect =
             Map.merge(payload.adoption_effect, %{
               "mode" => "format_paragraphs",
@@ -1106,6 +1270,24 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       {:ok, payload}
     end
   end
+
+  # 只读取 items 与当前章正文的纯函数；应用校验回调与候选 payload 共用同一规则。
+  defp formatting_plan_preview([item], base_text) when is_binary(base_text) do
+    changes = field(item, :line_break_changes)
+    source_hash = ProseFormatting.source_hash(base_text)
+
+    case ProseFormatting.apply_plan(base_text, source_hash, changes) do
+      {:ok, preview} -> {:ok, %{changes: changes, source_hash: source_hash, preview: preview}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp formatting_plan_preview(_items, _base_text), do: {:error, :invalid_formatting_plan}
+
+  defp formatting_unchanged?(_preview_text, nil), do: false
+
+  defp formatting_unchanged?(preview_text, previous_plan),
+    do: field(previous_plan, :formatting_preview) == preview_text
 
   defp b28_candidate_payload(
          facts,
@@ -1161,10 +1343,10 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       else: payload
   end
 
-  defp source_for(judgment, snapshot) do
+  defp source_for(judgment, session) do
     case field(judgment, :capability) do
-      "revise_adopted_content" -> source_adopted(snapshot, field(judgment, :adopted_content_ref))
-      _ -> source(snapshot, field(judgment, :pending_artifact_ref))
+      "revise_adopted_content" -> source_adopted(session, field(judgment, :adopted_content_ref))
+      _ -> source(session, field(judgment, :pending_artifact_ref))
     end
   end
 
@@ -1202,11 +1384,18 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     end
   end
 
-  defp source(snapshot, ref) do
-    entry = Enum.find(snapshot.pending_adoptions, &(field(&1, :artifact_id) == ref))
+  defp source(session, ref) do
+    entry =
+      session
+      |> field(:pending_adoptions)
+      |> List.wrap()
+      |> Enum.find(&(field(&1, :artifact_id) == ref))
 
     source =
-      Enum.find(snapshot.pending_adoption_turn_results, fn result ->
+      session
+      |> field(:pending_adoption_turn_results)
+      |> List.wrap()
+      |> Enum.find(fn result ->
         Enum.any?(
           field(field(result, :adoption_state), :pending) || [],
           &(field(&1, :artifact_id) == ref)
@@ -1216,9 +1405,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     if entry && source do
       {:ok,
        Map.merge(source, %{
-         work_id: snapshot.work.id,
-         current_work_id: snapshot.work.id,
-         session_id: snapshot.session.id
+         work_id: session.work.id,
+         current_work_id: session.work.id,
+         session_id: session.session.id
        }), entry}
     else
       {:error, :not_found}
@@ -1228,9 +1417,12 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   # Q1c：已采纳目标没有 pending turn result，直接从 resolved projection 取。
   # source.turn_id 只用于 trace provenance，用 accepted:<artifact_id> 明确表示
   # 这是已决事实，而不是某个 pending 回合。
-  defp source_adopted(snapshot, ref) do
+  defp source_adopted(session, ref) do
     entry =
-      Enum.find(snapshot.resolved_adoptions, fn entry ->
+      session
+      |> field(:resolved_adoptions)
+      |> List.wrap()
+      |> Enum.find(fn entry ->
         field(entry, :artifact_id) == ref and
           to_string(field(entry, :adoption_status)) in NovelDomain.AdoptionStatus.canon_statuses()
       end)
@@ -1239,9 +1431,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       {:ok,
        %{
          turn_id: "accepted:#{ref}",
-         work_id: snapshot.work.id,
-         current_work_id: snapshot.work.id,
-         session_id: snapshot.session.id
+         work_id: session.work.id,
+         current_work_id: session.work.id,
+         session_id: session.session.id
        }, entry}
     else
       {:error, :not_found}
@@ -1302,13 +1494,16 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           })
         )
 
-      finish(result, trace, context, input, run, "discard", ref, 0)
+      finish(result, trace, context, input, run, "discard", ref, %{
+        tool_call_count: 0,
+        provider_call_count: 0
+      })
     else
       _ -> {:error, {:pending_artifact_invalid, :target_not_available}}
     end
   end
 
-  defp revise(judgment, source, entry, input, run, context, provider) do
+  defp revise(judgment, entry, input, run, context, provider, snapshot, session) do
     if to_string(field(entry, :artifact_type)) == "prose_formatting_plan" do
       payload = field(entry, :payload) || %{}
       chapter_ref = field(entry, :target_chapter_ref) || field(payload, :target_chapter_ref)
@@ -1319,16 +1514,16 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           adopted_content_ref: chapter_ref
         })
 
-      revise_chapter(judgment, input, run, context, provider,
+      revise_chapter(judgment, input, run, context, provider, snapshot, session,
         modification_scope: :format_only,
         previous_plan: payload
       )
     else
-      revise_content(judgment, source, entry, input, run, context, provider)
+      revise_content(judgment, entry, input, run, context, provider, snapshot)
     end
   end
 
-  defp revise_content(judgment, _source, entry, input, run, context, provider) do
+  defp revise_content(judgment, entry, input, run, context, provider, snapshot) do
     ref = field(entry, :artifact_id)
     tool = revision_tool(entry)
     frame = frame(judgment, input, run, :execution_candidate, ref)
@@ -1360,91 +1555,167 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       decision: decision,
       behavior: behavior,
       entry: entry,
+      ref: ref,
       tool: tool,
       input: input,
       run: run,
       context: context,
-      provider: provider
+      provider: provider,
+      snapshot: snapshot,
+      mode: :pending
     }
 
     with true <- is_binary(tool),
          false <- OrchestratorDecision.blocks_execution?(decision),
          :ok <- check_revision_content(entry),
          {:ok, request} <- request(frame, plan, decision, entry, tool, run.goal.text, run) do
-      finish_revision(Map.put(ctx, :request, request))
+      request = AuthoringSession.bind_tool_request(request, run, snapshot)
+      execute_single_artifact_revision(Map.put(ctx, :request, request))
     else
-      false -> {:error, {:pending_artifact_invalid, :revision_not_allowed}}
-      true -> {:error, {:pending_artifact_invalid, :revision_not_allowed}}
-      {:error, {:pending_artifact_invalid, _} = reason} -> {:error, reason}
-      {:error, reason} -> {:error, {:authoring_task_invalid, reason}}
+      false -> revision_failure(:revision_not_allowed, snapshot)
+      true -> revision_failure(:revision_not_allowed, snapshot)
+      {:error, {:pending_artifact_invalid, reason}} -> revision_failure(reason, snapshot)
+      {:error, reason} -> {:error, {:authoring_task_invalid, reason}, step_state(%{}, snapshot)}
     end
   end
 
-  defp finish_revision(%{request: request} = ctx) do
+  defp revision_failure(reason, snapshot),
+    do: {:error, {:pending_artifact_invalid, reason}, step_state(%{}, snapshot)}
+
+  # pending / adopted 两条单 artifact 路径共用执行、trace、组装与闭合骨架；
+  # provenance 差异只由 mode 决定，不在两处复制执行协议。
+  defp execute_single_artifact_revision(%{request: request} = ctx) do
     %{
       frame: frame,
       plan: plan,
       decision: decision,
-      behavior: behavior,
       entry: entry,
-      input: input,
       run: run,
       context: context,
       provider: provider,
+      snapshot: snapshot,
       tool: tool
     } = ctx
 
-    ref = field(entry, :artifact_id)
-
     guard_scope = guard_scope_text(run, frame)
+    opts = single_revision_execution_options(run, entry, guard_scope)
 
-    case execute_revision_guarded(request, provider, entry, guard_scope) do
-      {:error, guard_reason, result} ->
-        TraceWriter.record_with_tool(
-          frame,
-          plan,
-          decision,
-          request,
-          result,
-          %{turn_id: frame.turn_id},
-          context
-        )
+    {result, session} = AuthorizedToolExecutor.execute_with_session(request, provider, opts)
 
-        {:error, {:pending_artifact_invalid, guard_reason}}
+    {trace, summary} =
+      TraceWriter.record_with_tool(
+        frame,
+        plan,
+        decision,
+        request,
+        result,
+        %{turn_id: frame.turn_id},
+        context
+      )
 
-      {:ok, result} ->
-        {trace, summary} =
-          TraceWriter.record_with_tool(
-            frame,
-            plan,
-            decision,
-            request,
-            result,
-            %{turn_id: frame.turn_id},
-            context
-          )
+    decision = %{decision | decision_trace_ref: trace.trace_id}
 
-        decision = %{decision | decision_trace_ref: trace.trace_id}
+    case result do
+      %ToolResult{status: :succeeded} ->
+        finish_single_artifact_revision(ctx, result, session, summary, decision, trace)
 
-        case ArtifactAssembler.assemble(result, frame.turn_id, %{
-               revision_base: ref,
-               revision_reason: run.goal.text,
-               authoring_intent: field(entry, :authoring_intent),
-               target_chapter: field(entry, :target_chapter),
-               target_chapter_ref: field(entry, :target_chapter_ref)
-             }) do
-          {:ok, artifact} ->
-            turn_result =
-              TurnResultBuilder.build(frame, summary, [], decision, result, artifact, behavior)
-              |> link_registration(entry)
+      _failed ->
+        case validation_failure_reason(result) do
+          nil ->
+            failed_revision(trace, context, ctx.input, run, tool, session, snapshot)
 
-            finish(turn_result, trace, context, input, run, "revise", ref, 1)
-
-          {:error, _reason} ->
-            failed_revision(trace, context, input, run, tool)
+          reason ->
+            {:error, {:pending_artifact_invalid, reason}, step_state(session, snapshot)}
         end
     end
   end
+
+  defp single_revision_execution_options(run, entry, guard_scope) do
+    base_body = TurnInteractionService.artifact_body(entry)
+
+    run
+    |> AuthoringOperation.tool_execution_options()
+    |> Keyword.put(:validate_result, fn %ToolResult{} = result ->
+      case revision_guard_violation(base_body, tool_result_body(result), guard_scope) do
+        nil -> :ok
+        {reason, guidance} -> validation_failure(reason, guidance)
+      end
+    end)
+  end
+
+  defp finish_single_artifact_revision(ctx, result, session, summary, decision, trace) do
+    %{
+      frame: frame,
+      entry: entry,
+      ref: ref,
+      input: input,
+      run: run,
+      context: context,
+      snapshot: snapshot,
+      tool: tool,
+      mode: mode
+    } = ctx
+
+    case ArtifactAssembler.assemble(
+           result,
+           frame.turn_id,
+           single_assembly_attrs(mode, entry, run)
+         ) do
+      {:ok, artifact} ->
+        turn_result =
+          TurnResultBuilder.build(frame, summary, [], decision, result, artifact, ctx.behavior)
+          |> link_single_revision(mode, entry)
+
+        session = close_tentative_session(session)
+
+        finish(
+          turn_result,
+          trace,
+          context,
+          input,
+          run,
+          single_operation(mode),
+          ref,
+          revision_metadata(session, snapshot)
+        )
+
+      {:error, _reason} ->
+        session =
+          close_failed_session(session, "tentative_artifact_assembly_failed", %{
+            message: "修订结果未能组装为可审阅候选。"
+          })
+
+        failed_revision(trace, context, input, run, tool, session, snapshot)
+    end
+  end
+
+  defp single_assembly_attrs(:pending, entry, run) do
+    %{
+      revision_base: field(entry, :artifact_id),
+      revision_reason: run.goal.text,
+      authoring_intent: field(entry, :authoring_intent),
+      target_chapter: field(entry, :target_chapter),
+      target_chapter_ref: field(entry, :target_chapter_ref)
+    }
+  end
+
+  defp single_assembly_attrs(:adopted, entry, run) do
+    %{
+      revision_base: field(entry, :artifact_id),
+      revision_reason: run.goal.text,
+      authoring_intent: nil,
+      target_chapter: nil,
+      # B25 CP2b：已采纳内容修订同样继承原候选的章节 ref（同名章场景不丢身份）。
+      target_chapter_ref: field(entry, :target_chapter_ref)
+    }
+  end
+
+  defp link_single_revision(result, :pending, entry), do: link_registration(result, entry)
+
+  defp link_single_revision(result, :adopted, entry), do: link_adopted_revision(result, entry)
+
+  defp single_operation(:pending), do: "revise"
+  defp single_operation(:adopted), do: "revise_adopted"
 
   defp link_registration(result, source) do
     update_in(result, [:adoption_state, :pending], fn entries ->
@@ -1464,7 +1735,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   # Q1c：修订已采纳内容。候选保留 revision_of / supersedes_ref 两个 ref：
   # revision_of 指被修订的 accepted artifact，supersedes_ref 指被替代的
   # accepted state（memory / draft）。采纳边界据此要求覆盖确认并在写入时退场旧版。
-  defp revise_adopted(judgment, _source, entry, input, run, context, provider) do
+  defp revise_adopted(judgment, _source, entry, input, run, context, provider, snapshot) do
     ref = field(entry, :artifact_id)
     tool = revision_tool(entry)
     frame = frame(judgment, input, run, :execution_candidate, ref)
@@ -1498,90 +1769,27 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       decision: decision,
       behavior: behavior,
       entry: entry,
+      ref: ref,
       tool: tool,
       input: input,
       run: run,
       context: context,
-      provider: provider
+      provider: provider,
+      snapshot: snapshot,
+      mode: :adopted
     }
 
     with true <- is_binary(tool),
          false <- OrchestratorDecision.blocks_execution?(decision),
          {:ok, request} <- request_adopted(frame, plan, decision, entry, tool, run.goal.text, run) do
-      finish_adopted_revision(Map.put(ctx, :request, request))
+      request = AuthoringSession.bind_tool_request(request, run, snapshot)
+      execute_single_artifact_revision(Map.put(ctx, :request, request))
     else
-      false -> {:error, {:pending_artifact_invalid, :revision_not_allowed}}
-      true -> {:error, {:pending_artifact_invalid, :revision_not_allowed}}
+      false -> revision_failure(:revision_not_allowed, snapshot)
+      true -> revision_failure(:revision_not_allowed, snapshot)
       # request_adopted/7 的错误面只有 {:authoring_task_invalid, _}（revision_input
       # 只转发 AuthoringTaskBuilder 错误）；嵌套 pending_artifact_invalid 不可达（B60）。
-      {:error, reason} -> {:error, {:authoring_task_invalid, reason}}
-    end
-  end
-
-  defp finish_adopted_revision(%{request: request} = ctx) do
-    %{
-      frame: frame,
-      plan: plan,
-      decision: decision,
-      behavior: behavior,
-      entry: entry,
-      input: input,
-      run: run,
-      context: context,
-      provider: provider,
-      tool: tool
-    } = ctx
-
-    ref = field(entry, :artifact_id)
-
-    guard_scope = guard_scope_text(run, frame)
-
-    case execute_revision_guarded(request, provider, entry, guard_scope) do
-      {:error, guard_reason, result} ->
-        TraceWriter.record_with_tool(
-          frame,
-          plan,
-          decision,
-          request,
-          result,
-          %{turn_id: frame.turn_id},
-          context
-        )
-
-        {:error, {:pending_artifact_invalid, guard_reason}}
-
-      {:ok, result} ->
-        {trace, summary} =
-          TraceWriter.record_with_tool(
-            frame,
-            plan,
-            decision,
-            request,
-            result,
-            %{turn_id: frame.turn_id},
-            context
-          )
-
-        decision = %{decision | decision_trace_ref: trace.trace_id}
-
-        case ArtifactAssembler.assemble(result, frame.turn_id, %{
-               revision_base: ref,
-               revision_reason: run.goal.text,
-               authoring_intent: nil,
-               target_chapter: nil,
-               # B25 CP2b：已采纳内容修订同样继承原候选的章节 ref（同名章场景不丢身份）。
-               target_chapter_ref: field(entry, :target_chapter_ref)
-             }) do
-          {:ok, artifact} ->
-            turn_result =
-              TurnResultBuilder.build(frame, summary, [], decision, result, artifact, behavior)
-              |> link_adopted_revision(entry)
-
-            finish(turn_result, trace, context, input, run, "revise_adopted", ref, 1)
-
-          {:error, _reason} ->
-            failed_revision(trace, context, input, run, tool)
-        end
+      {:error, reason} -> {:error, {:authoring_task_invalid, reason}, step_state(%{}, snapshot)}
     end
   end
 
@@ -1613,11 +1821,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   end
 
   # ── 修订范围/明确改动机械校验（task-24）────────────────────────────────
-  # B28 format_only 尚未实现：产品不能保证仅排版，但可以在执行后检查候选是否
-  # 明显违反作者范围（丢失段落/未落实明确改动/仅排版却改字句）。违反时携带
-  # 具体纠正指引重试一次；仍违反则诚实失败，不产出误导候选。
-  @revision_guard_correction "\n\n【修订校验未通过，必须修正】"
-
+  # 校验只读已归一 ToolResult，作为原生交换的纯回调执行；纠错由 NativeToolExchange
+  # 按原 call_id 回流并共享同一调用预算，application 不再二次派发工具。
   # 作者原话可能只有“那就整理一下吧”，范围信息在判断给出的 dialogue_goal（如“整理排版候选”）；
   # 机械校验用两者合并避免漏检，但作者原话/任务来源仍以 run.goal.text 为准。
   defp guard_scope_text(run, frame) do
@@ -1626,31 +1831,6 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     # `|| ""` 两个兜底均不可达（B60）。
     summary = frame.dialogue_goal.summary
     String.trim(goal <> "\n" <> to_string(summary))
-  end
-
-  defp execute_revision_guarded(request, provider, entry, author_text) do
-    result = AuthorizedToolExecutor.execute(request, provider)
-    base_body = TurnInteractionService.artifact_body(entry)
-
-    case revision_guard_violation(base_body, tool_result_body(result), author_text) do
-      nil ->
-        {:ok, result}
-
-      {reason, guidance} ->
-        corrected = put_revision_correction(request, guidance)
-        retry_result = AuthorizedToolExecutor.execute(corrected, provider)
-
-        case revision_guard_violation(base_body, tool_result_body(retry_result), author_text) do
-          nil -> {:ok, retry_result}
-          _ -> {:error, reason, retry_result}
-        end
-    end
-  end
-
-  defp put_revision_correction(%ToolRequest{input: input} = request, guidance) do
-    revision = Map.get(input, "revision", "")
-    corrected = revision <> @revision_guard_correction <> guidance
-    %{request | input: Map.put(input, "revision", corrected)}
   end
 
   defp tool_result_body(%{output: output}) when is_map(output) do
@@ -1848,7 +2028,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     end
   end
 
-  defp failed_revision(trace, context, input, run, tool) do
+  defp failed_revision(trace, context, input, run, tool, session, snapshot) do
     trace = %{trace | no_write_reason: "tool_result_not_adoptable"}
 
     DialogueGateway.persist_turn_trace(
@@ -1858,7 +2038,72 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       field(input, :trace_persister)
     )
 
-    {:error, {:pending_artifact_execution_failed, tool, trace.trace_id}}
+    {:error, {:pending_artifact_execution_failed, tool, trace.trace_id},
+     step_state(session, snapshot)}
+  end
+
+  defp validation_failure(reason, message) do
+    {:error, %{reason_code: to_string(reason), detail: %{message: message}, message: message}}
+  end
+
+  defp validation_failure_reason(%ToolResult{status: :failed, errors: errors}) do
+    case List.first(List.wrap(errors)) do
+      %{code: code} -> validation_reason(code)
+      _ -> nil
+    end
+  end
+
+  defp validation_failure_reason(_result), do: nil
+
+  defp validation_reason(code) when is_atom(code), do: validation_reason(Atom.to_string(code))
+
+  defp validation_reason("revision_scope_violation"), do: :revision_scope_violation
+  defp validation_reason("revision_change_not_applied"), do: :revision_change_not_applied
+  defp validation_reason("invalid_formatting_plan"), do: :invalid_formatting_plan
+  defp validation_reason("no_formatting_changes"), do: :no_formatting_changes
+  defp validation_reason("format_only_violation"), do: :format_only_violation
+  defp validation_reason("stale_base_version"), do: :stale_base_version
+  defp validation_reason(_code), do: nil
+
+  defp tool_result_items(%ToolResult{output: output}), do: tool_result_items(output)
+
+  defp tool_result_items(output) when is_map(output) do
+    Map.get(output, :items) || Map.get(output, "items") || []
+  end
+
+  defp tool_result_items(_output), do: []
+
+  defp close_tentative_session(session) do
+    AuthoringSession.validate_provider_result(
+      session,
+      "passed",
+      "tentative_artifact_validated",
+      %{
+        adoption_required: true,
+        canon_written: false,
+        execution_authorized: false
+      }
+    )
+  end
+
+  defp close_failed_session(session, reason_code, detail) do
+    AuthoringSession.validate_provider_result(session, "failed", reason_code, detail)
+  end
+
+  # 当前 session 来自 AuthoringSession.provider_metadata：有更新 IR 就原样返回，
+  # 只有完全没有新 IR 时才继承已有 snapshot transcript。模型实际消费的
+  # scope_update/application_notice/checkpoint 都是 canonical 历史，不做过滤或往返。
+  defp step_state(session, snapshot) do
+    metadata = AuthoringSession.provider_metadata(session)
+
+    if Map.has_key?(metadata, :judgment_transcript) do
+      metadata
+    else
+      Map.merge(
+        AuthoringSession.transcript_state(AuthoringSession.transcript(snapshot)),
+        metadata
+      )
+    end
   end
 
   defp request(frame, plan, decision, entry, tool, author_text, run) do
@@ -1960,16 +2205,20 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     }
   end
 
-  defp finish(result, trace, context, input, run, operation, target, calls) do
+  # 作者 TurnResult 只保留作者 DTO；内部 canonical/IR/provider 会话语义只随外层
+  # :stage_state 交给 runtime，不进入持久化或广播的 TurnResult。
+  defp finish(result, trace, context, input, run, operation, target, metadata) do
+    stage_state = if is_map(metadata), do: Map.get(metadata, :stage_state, %{}), else: %{}
+    counts = normalize_counts(metadata)
+
     result =
-      Map.merge(result, %{
+      result
+      |> Map.merge(%{
         workspace_id: run.workspace_id,
         work_id: run.work_id,
         session_id: run.session_id
       })
-
-    result =
-      NovelApplication.AgentFinalizer.attach_run_summary(result, %{
+      |> NovelApplication.AgentFinalizer.attach_run_summary(%{
         run_id: run.run_id,
         run_mode: run.run_mode,
         parent_turn_ref: run.parent_turn_ref,
@@ -1997,10 +2246,30 @@ defmodule NovelApplication.PendingArtifactWorkflow do
      %{
        turn_result: result,
        artifact_refs: refs,
-       tool_call_count: calls,
-       provider_call_count: calls
+       tool_call_count: counts.tool_call_count,
+       provider_call_count: counts.provider_call_count,
+       stage_state: stage_state
      }}
   end
+
+  defp revision_metadata(session, snapshot) do
+    state = step_state(session, snapshot)
+
+    %{
+      stage_state: state,
+      tool_call_count: Map.get(state, :tool_call_count) || 0,
+      provider_call_count: Map.get(state, :provider_call_count) || 0
+    }
+  end
+
+  defp normalize_counts(counts) when is_map(counts) do
+    %{
+      tool_call_count: Map.get(counts, :tool_call_count) || 0,
+      provider_call_count: Map.get(counts, :provider_call_count) || 0
+    }
+  end
+
+  defp normalize_counts(_count), do: %{tool_call_count: 0, provider_call_count: 0}
 
   defp revision_tool(entry), do: Map.get(@revision_tools, to_string(field(entry, :artifact_type)))
   defp field(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))

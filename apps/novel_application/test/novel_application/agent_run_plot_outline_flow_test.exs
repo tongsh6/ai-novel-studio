@@ -5,8 +5,23 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
   alias NovelApplication.AgentRunFlows.PlotOutlineWithContext
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.DialogueContext
+
+  alias Ecto.Adapters.SQL.Sandbox
+  alias NovelPersistence.Repo
+
+  setup do
+    owner = Sandbox.start_owner!(Repo, shared: true)
+
+    on_exit(fn ->
+      NovelApplication.TestAgentRunCleanup.await_quiescent()
+      Sandbox.stop_owner(owner)
+    end)
+
+    :ok
+  end
 
   @work "work-agent-outline-flow"
 
@@ -16,7 +31,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     result_fn = fn prompt ->
       cond do
         # WR02：规划前推理步（一条依据在材料内、一条越界必须被丢弃）。
-        prompt_contains?(prompt, "规划前推理器") ->
+        planning_mission_prompt?(prompt) ->
           send(parent, {:planning_mission_prompt, prompt})
 
           {:ok,
@@ -48,26 +63,24 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
         prompt_contains?(prompt, "AgentRun 下一步规划器") ->
           {:ok,
            %{
-             content:
-               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+             content: TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
            }}
 
         true ->
           send(parent, {:provider_prompt, prompt})
 
           {:ok,
-           %{
-             provider_call_id: "pc-agent-outline-writer",
-             content:
-               Jason.encode!([
-                 %{
-                   "item_id" => "outline-chapter-01",
-                   "title" => "第01章：债务入场",
-                   "body" => "林烬在矿区债务纠纷中第一次看见旧秩序的裂缝。",
-                   "rationale" => "建立主角压力与世界矛盾。"
-                 }
-               ])
-           }}
+           TestAgenticLoopFixtures.native_artifact_result(
+             [
+               %{
+                 "item_id" => "outline-chapter-01",
+                 "title" => "第01章：债务入场",
+                 "body" => "林烬在矿区债务纠纷中第一次看见旧秩序的裂缝。",
+                 "rationale" => "建立主角压力与世界矛盾。"
+               }
+             ],
+             provider_call_id: "pc-agent-outline-writer"
+           )}
       end
     end
 
@@ -75,7 +88,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
       text: "请基于当前作品规划十二章章节大纲。",
       workspace_id: @work,
       work_id: @work,
-      session_id: "session-agent-outline-flow",
+      session_id: "11111111-1111-4111-8111-111111111115",
       turn_id: "turn-agent-outline-flow",
       ledger_reader: fn _work_id ->
         [
@@ -158,13 +171,13 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     assert_receive {:agent_event, :tool_started, tool_started}, 500
     assert tool_started.summary =~ "章节大纲规划能力"
     assert_receive {:provider_prompt, provider_prompt}, 500
-    assert provider_prompt =~ "当前 AgentStep"
-    assert provider_prompt =~ "章节大纲"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "当前 AgentStep"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "章节大纲"
     # WR02：使命结论进规划 prompt（紧跟账面摘要段），越界条目不得出现。
-    assert provider_prompt =~ "## 本轮规划使命（写前推理，按账面与进度）"
-    assert provider_prompt =~ "本轮规划使命：接下来的章节必须给超期伏笔安排回收。"
-    assert provider_prompt =~ "· 必须推进：给旧账伏笔安排回收章"
-    refute provider_prompt =~ "越界依据"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "## 本轮规划使命（写前推理，按账面与进度）"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "本轮规划使命：接下来的章节必须给超期伏笔安排回收。"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "· 必须推进：给旧账伏笔安排回收章"
+    refute NovelAgent.Provider.prompt_text(provider_prompt) =~ "越界依据"
     assert_receive {:agent_event, :tool_completed, tool_completed}, 500
     assert tool_completed.summary =~ "章节大纲草稿已生成"
     assert_receive {:agent_event, :exploration_observed, tool_observation}, 500
@@ -180,11 +193,12 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     # B59 CP1：plot_outline 工具步 trace 落库（step turn_id + tool_trace_refs）。
     assert_receive {:step_trace, @work, trace_attrs}, 500
     assert trace_attrs.turn_id =~ ":agent:"
-    assert trace_attrs.session_id == "session-agent-outline-flow"
+    assert trace_attrs.session_id == "11111111-1111-4111-8111-111111111115"
     assert is_list(trace_attrs.tool_trace_refs) and trace_attrs.tool_trace_refs != []
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed
+    TestAgenticLoopFixtures.assert_authoring_transcript(state, run_id)
 
     # WR02：context + planning_mission + plot_outline 三步；推理 1 调用 + writer 1 调用。
     assert length(state.run.completed_step_refs) == 3
@@ -228,7 +242,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
 
     result_fn = fn prompt ->
       cond do
-        prompt_contains?(prompt, "规划前推理器") ->
+        planning_mission_prompt?(prompt) ->
           send(parent, {:planning_mission_prompt, prompt})
           {:error, :must_not_call_mission_model}
 
@@ -239,8 +253,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
         prompt_contains?(prompt, "AgentRun 下一步规划器") ->
           {:ok,
            %{
-             content:
-               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+             content: TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
            }}
 
         true ->
@@ -249,15 +262,21 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
           {:ok,
            %{
              provider_call_id: "pc-author-outline-writer",
-             content:
-               Jason.encode!([
+             content: "",
+             tool_calls:
+               TestAgenticLoopFixtures.native_tool_calls(
+                 "submit_tentative_artifact",
                  %{
-                   "item_id" => "outline-author-01",
-                   "title" => "第01章：收束支线",
-                   "body" => "按作者要求收束当前支线。",
-                   "rationale" => nil
+                   items: [
+                     %{
+                       "item_id" => "outline-author-01",
+                       "title" => "第01章：收束支线",
+                       "body" => "按作者要求收束当前支线。",
+                       "rationale" => nil
+                     }
+                   ]
                  }
-               ])
+               )
            }}
       end
     end
@@ -266,7 +285,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
       text: "请继续规划后续章节。",
       workspace_id: @work,
       work_id: @work,
-      session_id: "session-agent-outline-author",
+      session_id: "11111111-1111-4111-8111-111111111116",
       turn_id: "turn-agent-outline-author",
       ledger_reader: fn _work_id -> [] end,
       written_progress_reader: fn _work_id -> %{chapter_seq: 2, volume_seq: 1} end,
@@ -307,8 +326,8 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     refute_received {:planning_mission_persisted, _}
 
     assert_received {:provider_prompt, provider_prompt}
-    assert provider_prompt =~ "本轮规划使命（作者已定）：先收束当前支线，再开新章。"
-    assert provider_prompt =~ "· 必须推进：收束当前支线"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "本轮规划使命（作者已定）：先收束当前支线，再开新章。"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "· 必须推进：收束当前支线"
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed
@@ -322,19 +341,23 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     assert state.final_turn_result.trace_summary.planning_mission["status"] == "AUTHOR_EDITED"
   end
 
-  defp plan_draft_prompt?(prompt), do: prompt_contains?(prompt, "AgentRun 计划起草器")
+  defp planning_mission_prompt?(prompt),
+    do: Enum.any?(NovelAgent.Provider.tool_specs(prompt), &(&1.name == "planning_mission"))
+
+  defp plan_draft_prompt?(prompt),
+    do: Enum.any?(NovelAgent.Provider.tool_specs(prompt), &(&1.name == "agent_plan_draft"))
 
   defp plot_outline_plan_draft do
-    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+    TestAgenticLoopFixtures.plan_tool_call_result(
       "先读取章节大纲规划上下文，再生成章节大纲草稿。",
       [
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
+        TestAgenticLoopFixtures.plan_step(
           "context_assemble",
           "context_assemble",
           "先读取章节大纲规划上下文。",
           success_criteria: ["outline_context_observation_created"]
         ),
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
+        TestAgenticLoopFixtures.plan_step(
           "plot_outline",
           "plot_outline",
           "基于已读取的章节上下文生成章节大纲草稿。",
@@ -352,10 +375,10 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
 
     cond do
       String.contains?(prompt, "/ artifact_created:") ->
-        NovelApplication.TestAgenticLoopFixtures.done_next("已生成待采纳大纲候选，本轮目标已经满足。")
+        TestAgenticLoopFixtures.done_next("已生成待采纳大纲候选，本轮目标已经满足。")
 
       String.contains?(prompt, "outline_context /") ->
-        NovelApplication.TestAgenticLoopFixtures.continue_next(
+        TestAgenticLoopFixtures.continue_next(
           "基于已读取的章节上下文生成章节大纲草稿。",
           "plot_outline",
           write_intent: "tentative",
@@ -363,7 +386,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
         )
 
       true ->
-        NovelApplication.TestAgenticLoopFixtures.continue_next(
+        TestAgenticLoopFixtures.continue_next(
           "先读取章节大纲规划上下文。",
           "context_assemble",
           reason_codes: ["agentic_next_step", "missing_outline_context"]
@@ -372,7 +395,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
   end
 
   defp prompt_contains?(prompt, pattern), do: prompt_text(prompt) =~ pattern
-  defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
+  defp prompt_text(prompt), do: TestAgenticLoopFixtures.prompt_text(prompt)
 
   defp context do
     %DialogueContext{
@@ -397,7 +420,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
 
     result_fn = fn prompt ->
       cond do
-        prompt_contains?(prompt, "规划前推理器") ->
+        planning_mission_prompt?(prompt) ->
           {:ok,
            %{
              provider_call_id: "pc-scope-mission",
@@ -422,8 +445,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
         prompt_contains?(prompt, "AgentRun 下一步规划器") ->
           {:ok,
            %{
-             content:
-               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+             content: TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
            }}
 
         true ->
@@ -432,15 +454,21 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
           {:ok,
            %{
              provider_call_id: "pc-scope-writer",
-             content:
-               Jason.encode!([
+             content: "",
+             tool_calls:
+               TestAgenticLoopFixtures.native_tool_calls(
+                 "submit_tentative_artifact",
                  %{
-                   "item_id" => "outline-chapter-08",
-                   "title" => "第08章：归墟",
-                   "body" => "下一卷开篇：旧秩序裂开第一道口子。",
-                   "rationale" => "开启下一卷。"
+                   items: [
+                     %{
+                       "item_id" => "outline-chapter-08",
+                       "title" => "第08章：归墟",
+                       "body" => "下一卷开篇：旧秩序裂开第一道口子。",
+                       "rationale" => "开启下一卷。"
+                     }
+                   ]
                  }
-               ])
+               )
            }}
       end
     end
@@ -458,7 +486,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
       text: "请规划下一卷（第3卷）的卷蓝图与该卷开篇章节大纲。",
       workspace_id: @work,
       work_id: @work,
-      session_id: "session-scope-flow",
+      session_id: "11111111-1111-4111-8111-111111111117",
       turn_id: "turn-scope-flow",
       volume_scope: scope,
       ledger_reader: fn _work_id -> [] end,

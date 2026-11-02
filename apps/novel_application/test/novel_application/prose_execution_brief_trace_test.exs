@@ -109,7 +109,7 @@ defmodule NovelApplication.ProseExecutionBriefTraceTest do
        }}
     end
 
-    {_turn_result, _trace} =
+    {_turn_result, _trace, _transcript} =
       TurnExecutionService.execute(%{
         frame: frame(),
         plan: plan(target_chapter),

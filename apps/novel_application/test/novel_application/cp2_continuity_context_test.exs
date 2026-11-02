@@ -107,8 +107,11 @@ defmodule NovelApplication.CP2ContinuityContextTest do
       |> maybe_put(:chapter_prose_reader, opts[:prose_reader])
       |> maybe_put(:chapter_summary_reader, opts[:summary_reader])
 
-    {turn_result, _trace} = TurnExecutionService.execute(input)
-    prompts = agent |> Agent.get(& &1) |> Enum.join("\n\n")
+    {turn_result, _trace, _transcript} = TurnExecutionService.execute(input)
+
+    prompts =
+      agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1)
+
     {turn_result, prompts}
   end
 

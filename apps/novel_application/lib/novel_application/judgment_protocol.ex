@@ -1,7 +1,8 @@
 defmodule NovelApplication.JudgmentProtocol do
-  @moduledoc "B26/B27：单调用 auto 判断/续行协议；先校验整个响应，再交业务边界派发。"
+  @moduledoc "B26/B27/B71：canonical transcript 原生多轮判断；先校验整个响应，再交业务边界派发。"
   alias NovelAgent.Provider.{Execution, InferenceParams}
   alias NovelAgent.Provider.RequestIR
+  alias NovelApplication.AgentRunFlows.AuthoringSession
 
   alias NovelApplication.{
     AgentNarrativeSource,
@@ -17,6 +18,12 @@ defmodule NovelApplication.JudgmentProtocol do
   require NovelCommon.LogEmit, as: LogEmit
 
   @max_attempts 2
+  @observation_statuses %{
+    "failed" => "unavailable",
+    "partial" => "partial",
+    "truncated" => "truncated",
+    "stale" => "stale"
+  }
   @pending_target_capabilities ~w(revise_pending_artifact discard_pending_artifact)
   @adopted_target_capabilities ~w(revise_adopted_content)
   @judgment_tool_names ~w(judgment_decision ask_author agent_plan_draft register_author_content
@@ -47,43 +54,209 @@ defmodule NovelApplication.JudgmentProtocol do
       )
       |> Execution.result_fn()
 
-    if is_function(result_fn, 1),
-      do: invoke(result_fn, prompt(input, profile), input, profile, 1),
-      else: {:error, :provider_execution_required}
-  end
-
-  @doc """
-  B71 CP3a S1b：判断请求的生产 prompt。
-
-  优先消费 Request IR v1 投影（`prompt_ir/2`）；IR 构造失败时回退 legacy `prompt/2`
-  并留下诊断，不静默改变请求语义。
-  """
-  @spec prompt_for_production(map(), atom()) :: map()
-  def prompt_for_production(input, profile \\ :judgment) do
-    # CP3a S1b 先接首个创作消费者（judgment profile）；continuation 沿用 legacy
-    # 构造（其输入形状为 goal_text/deviation_summary，不具 author_text），留待后续 CP。
-    if profile == :judgment do
-      case prompt_ir(input, profile) do
-        {:ok, %{prompt: prompt}} ->
-          prompt
-
-        {:error, reason} ->
-          LogEmit.emit(:judgment, :prompt_ir, :error, %{
-            reason_code: :ir_construction_failed,
-            reason: inspect(reason) |> String.slice(0, 200)
-          })
-
-          prompt(input, profile)
+    if is_function(result_fn, 1) do
+      with {:ok, transcript} <- transcript_for_production(input, profile) do
+        invoke(result_fn, transcript, input, profile, 1)
       end
     else
-      prompt(input, profile)
+      {:error, :provider_execution_required}
     end
   end
 
-  defp invoke(fun, prompt, input, profile, attempt, previous_tools \\ []) do
+  @doc "当前 run 的唯一请求事实源；每次 Provider body 都是它的瞬时投影。"
+  @spec transcript_for_production(map(), atom()) ::
+          {:ok, AuthoringTranscript.t()} | {:error, term()}
+  def transcript_for_production(input, profile \\ :judgment) do
+    with {:ok, transcript} <- new_transcript(input, profile) do
+      transcript =
+        if profile == :judgment do
+          AuthoringTranscript.append_author_turn(
+            transcript,
+            Map.fetch!(input, :author_text),
+            Map.get(input, :source_input_ref, "author_turn:current")
+          )
+        else
+          transcript
+        end
+
+      {:ok, refresh_transcript(input, transcript, profile)}
+    end
+  end
+
+  @doc "生产投影入口；无 IR 时不回退 giant prompt，契约错误必须显式处理。"
+  @spec prompt_for_production(map(), atom()) :: map()
+  def prompt_for_production(input, profile \\ :judgment) do
+    with {:ok, transcript} <- transcript_for_production(input, profile),
+         {:ok, prompt} <- provider_prompt(transcript, profile) do
+      prompt
+    else
+      {:error, reason} -> raise ArgumentError, "invalid authoring transcript: #{inspect(reason)}"
+    end
+  end
+
+  defp refresh_transcript(input, transcript, profile) do
+    scope = profile_scope_text(input, profile)
+    transcript = ensure_profile_tools(transcript, profile)
+
+    case AuthoringTranscript.current_scope(transcript) do
+      %{text: ^scope} ->
+        transcript
+
+      previous ->
+        AuthoringTranscript.append_scope_update(
+          transcript,
+          scope,
+          scope_versions(input, previous),
+          scope_refs(input)
+        )
+    end
+  end
+
+  defp profile_scope_text(input, :judgment), do: judgment_scope_text(input)
+  defp profile_scope_text(input, :continuation), do: continuation_scope_text(input)
+
+  defp ensure_profile_tools(transcript, profile) do
+    with {:ok, ir} <- AuthoringTranscript.to_request_ir(transcript),
+         ir <- RequestIR.add_tools(ir, JudgmentToolContract.tools(profile)),
+         {:ok, transcript} <- AuthoringTranscript.from_request_ir(ir) do
+      transcript
+    end
+  end
+
+  defp scope_versions(input, previous) do
+    revision = if previous, do: previous.versions["scope_revision"] + 1, else: 1
+
+    reason =
+      Map.get(input, :scope_change_reason) ||
+        if(previous, do: "run_scope_changed", else: "initial_scope")
+
+    run = get_in(input, [:options, :plan_run]) || %{}
+    goal = Map.get(run, :goal) || %{}
+    authority_scope = Map.get(run, :authority_scope) || %{}
+
+    %{"scope_revision" => revision, "change_reason" => reason}
+    |> put_version("goal", Map.get(goal, :version))
+    |> put_version("work", Map.get(authority_scope, :work_revision))
+    |> put_version("plan", Map.get(run, :plan_version))
+  end
+
+  defp scope_refs(input) do
+    [Map.get(input, :source_input_ref) | Map.get(input, :supplied_context_refs, [])]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.map(&%{ref: &1})
+  end
+
+  defp put_version(versions, _key, nil), do: versions
+  defp put_version(versions, key, value), do: Map.put(versions, key, value)
+
+  @doc "把真实探索观察追加到模型已发出的 tool_call 之后。"
+  @spec observation_transcript(AuthoringTranscript.t(), map(), map()) :: AuthoringTranscript.t()
+  def observation_transcript(transcript, judgment, observation) do
+    call_id = judgment.tool_call_id || "call_judgment_decision"
+    AuthoringTranscript.append_observation(transcript, call_id, observation_payload(observation))
+  end
+
+  @doc "一个模型计划产生的多次读取聚合为一个有来源的结果，不伪造逐步 Provider 调用。"
+  @spec planned_observations_transcript(AuthoringTranscript.t(), map(), [map()], map()) ::
+          AuthoringTranscript.t()
+  def planned_observations_transcript(transcript, judgment, observations, coverage \\ %{}) do
+    payloads = Enum.map(observations, &observation_payload/1)
+
+    AuthoringTranscript.append_observation(transcript, judgment.tool_call_id, %{
+      status: planned_status(payloads),
+      source_refs: Enum.flat_map(payloads, & &1.source_refs) |> Enum.uniq(),
+      versions: Enum.reduce(payloads, %{}, &Map.merge(&2, &1.versions)),
+      coverage: %{
+        items: Enum.map(payloads, & &1.coverage),
+        coverage_note: Map.get(coverage, :coverage_note),
+        continuation_hint: Map.get(coverage, :continuation_hint)
+      },
+      omissions: Enum.flat_map(payloads, & &1.omissions) |> Enum.uniq(),
+      content: %{
+        summary: Enum.map_join(payloads, "\n\n", & &1.content.summary),
+        tool: "planned_exploration",
+        query: Enum.map_join(payloads, " / ", & &1.content.tool),
+        observations: Enum.map(payloads, & &1.content)
+      }
+    })
+  end
+
+  defp observation_payload(observation) do
+    %{
+      status: observation_status(observation),
+      source_refs: field(observation, :refs) || [],
+      versions: field(observation, :versions) || %{},
+      coverage:
+        observation
+        |> Map.take([:prose_range, :prose_total_chars, :chapter_ref])
+        |> Map.merge(%{
+          coverage_note: field(observation, :coverage_note),
+          continuation_hint: field(observation, :continue_hint)
+        }),
+      omissions: field(observation, :omissions) || [],
+      next_offset: field(observation, :next_offset),
+      content: %{
+        summary: field(observation, :summary),
+        tool: field(observation, :tool),
+        query: field(observation, :query),
+        facts: field(observation, :facts) || %{}
+      }
+    }
+  end
+
+  defp planned_status(payloads) do
+    statuses = Enum.map(payloads, & &1.status) |> Enum.uniq()
+
+    cond do
+      statuses == ["ok"] -> "ok"
+      Enum.all?(statuses, &(&1 == "unavailable")) -> "unavailable"
+      true -> "partial"
+    end
+  end
+
+  defp observation_status(observation) do
+    Map.get(@observation_statuses, to_string(field(observation, :outcome)), "ok")
+  end
+
+  defp provider_prompt(transcript, profile) do
+    with {:ok, ir} <- AuthoringTranscript.to_request_ir(transcript) do
+      RequestIR.to_provider_prompt(ir, profile_tool_options(profile))
+    end
+  end
+
+  defp profile_tool_options(profile) do
+    [
+      tool_names: Enum.map(JudgmentToolContract.tools(profile), & &1.name),
+      tool_choice: "auto"
+    ]
+  end
+
+  defp invoke(fun, transcript, input, profile, attempt, previous_tools \\ []) do
+    case provider_prompt(transcript, profile) do
+      {:ok, prompt} ->
+        invoke_prompt(fun, prompt, transcript, input, profile, attempt, previous_tools)
+
+      {:error, reason} ->
+        prompt_failure(reason, transcript, attempt)
+    end
+  end
+
+  defp invoke_prompt(fun, prompt, transcript, input, profile, attempt, previous_tools) do
     case fun.(prompt) do
       {:ok, provider_result} ->
-        validate_response(fun, prompt, input, profile, attempt, provider_result, previous_tools)
+        provider_result = ensure_provider_call_ids(transcript, provider_result)
+        transcript = AuthoringTranscript.append_provider_result(transcript, provider_result)
+
+        validate_response(
+          fun,
+          transcript,
+          input,
+          profile,
+          attempt,
+          provider_result,
+          previous_tools
+        )
 
       {:error, _reason} when attempt < @max_attempts ->
         LogEmit.emit(:judgment, :provider_retry, :start, %{
@@ -91,36 +264,68 @@ defmodule NovelApplication.JudgmentProtocol do
           reason_code: "provider_request_failed"
         })
 
-        invoke(fun, prompt, input, profile, attempt + 1, previous_tools)
+        invoke(fun, transcript, input, profile, attempt + 1, previous_tools)
 
-      {:error, _} = error ->
-        error
+      {:error, reason} ->
+        failure(reason, transcript, attempt)
     end
   end
 
-  defp validate_response(fun, prompt, input, profile, attempt, provider_result, previous_tools) do
+  # 请求构造失败没有真实 provider 调用；仍保留已创建的合法前缀，计数只含已发生调用。
+  defp prompt_failure(reason, transcript, attempt),
+    do: failure(reason, transcript, max(attempt - 1, 0))
+
+  defp ensure_provider_call_ids(transcript, result),
+    do: RequestIR.normalize_provider_result(transcript.call_ids, result)
+
+  defp validate_response(
+         fun,
+         transcript,
+         input,
+         profile,
+         attempt,
+         provider_result,
+         previous_tools
+       ) do
     case decode(provider_result, profile, input, previous_tools, attempt) do
       {:ok, judgment} ->
-        {:ok, Map.put(judgment, :provider_call_count, attempt)}
+        {:ok,
+         judgment
+         |> Map.put(:provider_call_count, attempt)
+         |> Map.put(:transcript, validated_transcript(transcript, judgment))}
 
       {:error, reason} ->
         log_output_validation(attempt, reason)
+        retry_or_degrade(fun, transcript, input, profile, attempt, provider_result, reason)
+    end
+  end
 
-        if reason == :exploration_not_available and attempt >= @max_attempts + 1 do
-          degrade_to_reply(provider_result, input, attempt)
-        else
-          # 纠错重试时把本次尝试的工具名带上：若本次是 ask_author（即使参数有误），
-          # 重试不得在没有作者回答的情况下改为 execute/revise 推进候选（M06）。
-          correct_or_reject(
-            fun,
-            prompt,
-            input,
-            profile,
-            attempt,
-            reason,
-            tool_names(provider_result)
+  defp retry_or_degrade(fun, transcript, input, profile, attempt, provider_result, reason) do
+    if reason == :exploration_not_available and attempt >= @max_attempts + 1 do
+      case degrade_to_reply(provider_result, input, attempt) do
+        {:ok, judgment} ->
+          {:ok, Map.put(judgment, :transcript, correction_transcript(transcript, reason))}
+
+        {:error, _reason} ->
+          reject(
+            {:judgment_protocol_violation, :exploration_not_available},
+            :exploration_not_available,
+            transcript,
+            attempt
           )
-        end
+      end
+    else
+      # 纠错重试时把本次尝试的工具名带上：若本次是 ask_author（即使参数有误），
+      # 重试不得在没有作者回答的情况下改为 execute/revise 推进候选（M06）。
+      correct_or_reject(
+        fun,
+        transcript,
+        input,
+        profile,
+        attempt,
+        reason,
+        tool_names(provider_result)
+      )
     end
   end
 
@@ -310,14 +515,12 @@ defmodule NovelApplication.JudgmentProtocol do
   end
 
   # 探索预算用尽/伪工具文本：多给一次有界重试，避免直接终局（M03/M17 key-set）。
-  defp correct_or_reject(fun, prompt, input, profile, attempt, reason, previous_tools)
+  defp correct_or_reject(fun, transcript, input, profile, attempt, reason, previous_tools)
        when reason in [:exploration_not_available, :judgment_narrative_required] and
               attempt < @max_attempts + 1 do
-    correction = %{role: "user", content: correction_content(reason)}
-
     invoke(
       fun,
-      %{prompt | messages: prompt.messages ++ [correction]},
+      correction_transcript(transcript, reason),
       input,
       profile,
       attempt + 1,
@@ -325,13 +528,11 @@ defmodule NovelApplication.JudgmentProtocol do
     )
   end
 
-  defp correct_or_reject(fun, prompt, input, profile, attempt, reason, previous_tools)
+  defp correct_or_reject(fun, transcript, input, profile, attempt, reason, previous_tools)
        when attempt < @max_attempts do
-    correction = %{role: "user", content: correction_content(reason)}
-
     invoke(
       fun,
-      %{prompt | messages: prompt.messages ++ [correction]},
+      correction_transcript(transcript, reason),
       input,
       profile,
       attempt + 1,
@@ -339,22 +540,93 @@ defmodule NovelApplication.JudgmentProtocol do
     )
   end
 
-  defp correct_or_reject(_, _, _, _, _, {family, _} = reason, _previous_tools)
+  defp correct_or_reject(_, transcript, _, _, attempt, {family, _} = reason, _previous_tools)
        when family in [:author_content_registration_invalid, :pending_artifact_invalid],
-       do: {:error, reason}
+       do: reject(reason, reason, transcript, attempt)
 
-  defp correct_or_reject(_, _, _, _, _, {:invalid_tool_arguments, _detail}, _previous_tools),
-    do: {:error, {:judgment_protocol_violation, :invalid_tool_arguments}}
+  defp correct_or_reject(
+         _,
+         transcript,
+         _,
+         _,
+         attempt,
+         {:invalid_tool_arguments, detail},
+         _previous_tools
+       ),
+       do:
+         reject(
+           {:judgment_protocol_violation, :invalid_tool_arguments},
+           {:invalid_tool_arguments, detail},
+           transcript,
+           attempt
+         )
 
-  defp correct_or_reject(_, _, _, _, _, reason, _previous_tools),
-    do: {:error, {:judgment_protocol_violation, reason}}
+  defp correct_or_reject(_, transcript, _, _, attempt, reason, _previous_tools),
+    do: reject({:judgment_protocol_violation, reason}, reason, transcript, attempt)
+
+  # 终局拒绝也走同一个失败出口：先按既有 correction_transcript 闭合末次真实调用，
+  # 再把最新会话与本次调用数放进 error3；reason 只保留结构类别。
+  defp reject(return_reason, close_reason, transcript, attempt) do
+    failure(return_reason, correction_transcript(transcript, close_reason), attempt)
+  end
+
+  defp failure(reason, transcript, actual_calls) do
+    {:error, reason,
+     AuthoringSession.failure_state(%{
+       transcript: transcript,
+       provider_call_count: actual_calls
+     })}
+  end
+
+  defp correction_transcript(transcript, reason) do
+    detail = %{message: correction_content(reason), reason: inspect(reason)}
+
+    case pending_call_ids(transcript) do
+      [] -> AuthoringTranscript.append_application_notice(transcript, correction_content(reason))
+      ids -> close_calls(transcript, ids, "failed", validation_reason_code(reason), detail)
+    end
+  end
+
+  # 求证调用由真实 observation 闭合；其它操作这里只确认协议有效，后续仍逐步过业务门。
+  defp validated_transcript(transcript, %{action: "explore"}), do: transcript
+
+  # 计划可能立即执行只读步骤，其真实聚合观察仍须绑定 judgment_decision 的原调用。
+  defp validated_transcript(transcript, %{action: "plan", tool_call_id: id}) do
+    validate_calls(transcript, pending_call_ids(transcript) -- [id])
+  end
+
+  defp validated_transcript(transcript, _judgment), do: complete_validation(transcript)
+
+  @doc "应用分流完成后，闭合尚未由真实观察返回的协议调用；不表示执行批准。"
+  @spec complete_validation(AuthoringTranscript.t()) :: AuthoringTranscript.t()
+  def complete_validation(transcript),
+    do: validate_calls(transcript, pending_call_ids(transcript))
+
+  defp validate_calls(transcript, ids) do
+    close_calls(transcript, ids, "passed", "judgment_validated", %{
+      execution_authorized: false,
+      canon_written: false
+    })
+  end
+
+  defp pending_call_ids(transcript) do
+    {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
+    {:ok, ids} = RequestIR.pending_call_ids(ir)
+    ids
+  end
+
+  defp close_calls(transcript, ids, status, reason, detail) do
+    Enum.reduce(ids, transcript, fn id, current ->
+      AuthoringTranscript.append_validation(current, id, status, reason, detail)
+    end)
+  end
 
   defp validation_reason_code({:invalid_tool_arguments, _detail}), do: "invalid_tool_arguments"
   defp validation_reason_code({_, reason}) when is_atom(reason), do: Atom.to_string(reason)
   defp validation_reason_code(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp validation_reason_code(_), do: "invalid_response"
 
-  @doc "实际生产构造器；固定 schema/profile，动态事实在消息中更新。"
+  @doc "历史输入的迁移构造器；生产请求统一从 canonical transcript 投影。"
   def prompt(input, profile \\ :judgment) do
     %{
       messages: [%{role: "user", content: content(input, profile)}],
@@ -363,44 +635,50 @@ defmodule NovelApplication.JudgmentProtocol do
     }
   end
 
-  @doc """
-  B71 CP3a S1a：判断请求的 Request IR v1 构造（新增旁路，不改变 prompt/2 生产路径）。
-
-  把 protocol_input 组装为 `AuthoringTranscript` → `RequestIR` → `to_provider_prompt`，
-  用于验证「生产 call-site 可消费 IR」的数据准备：工具目录等价、application_base 与
-  作者原话分离、作者字节保留。S1b 再把 `DialoguePlanningService` 调用点切换到该投影，
-  并在真实页面场景中取证。
-  """
+  @doc "从同一 canonical transcript 生成 Request IR 与生产投影。"
   @spec prompt_ir(map(), atom()) :: {:ok, map()} | {:error, term()}
   def prompt_ir(input, profile \\ :judgment) do
-    author_text = Map.fetch!(input, :author_text)
-    base_text = ir_base_text(input, author_text, profile)
-
-    transcript =
-      AuthoringTranscript.new(
-        %{run_id: "judgment_ir_probe", work_id: "judgment_ir_probe"},
-        base_text: base_text,
-        author_text: author_text,
-        tools: JudgmentToolContract.tools(profile),
-        projection: %{target: "chat_completions", capability_profile: ir_full_capabilities()}
-      )
-
-    with {:ok, ir} <- AuthoringTranscript.to_request_ir(transcript),
-         {:ok, prompt} <- RequestIR.to_provider_prompt(ir, tool_choice: "auto") do
-      {:ok, %{prompt: prompt, ir: ir}}
+    with {:ok, transcript} <- transcript_for_production(input, profile),
+         {:ok, ir} <- AuthoringTranscript.to_request_ir(transcript),
+         {:ok, prompt} <- RequestIR.to_provider_prompt(ir, profile_tool_options(profile)) do
+      {:ok, %{prompt: prompt, ir: ir, transcript: transcript}}
     end
   end
 
-  # 协议/上下文段落与作者原话分离：作者输入段替换为指向独立作者消息的占位，
-  # 其余字节保持 content/2 的现有顺序与内容（S1b 再做正式拆分）。
-  defp ir_base_text(input, author_text, profile) do
-    input
-    |> content(profile)
-    |> String.replace(
-      "## 作者输入\n#{author_text}",
-      "## 作者输入\n（本轮作者原话见独立 user 消息）"
-    )
+  defp new_transcript(input, profile) do
+    case Map.get(input, :transcript) do
+      nil ->
+        base_refs = Enum.map(Map.get(input, :supplied_context_refs, []), &%{ref: &1})
+        run = get_in(input, [:options, :plan_run]) || %{}
+
+        envelope =
+          run
+          |> RequestIR.run_envelope()
+          |> Map.put_new(:run_id, "judgment:#{Map.get(input, :source_input_ref, "current")}")
+          |> Map.put_new(:work_id, "judgment")
+
+        {:ok,
+         AuthoringTranscript.new(envelope,
+           base_text: ir_base_text(input, profile),
+           author_text: author_text(input, profile),
+           allow_authorless: profile != :judgment,
+           author_turn_ref: Map.get(input, :source_input_ref, "author_turn:current"),
+           base_refs: base_refs,
+           tools: JudgmentToolContract.tools(profile),
+           projection: %{target: "chat_completions", capability_profile: ir_full_capabilities()}
+         )}
+
+      transcript ->
+        {:ok, transcript}
+    end
   end
+
+  defp author_text(input, :judgment), do: Map.fetch!(input, :author_text)
+  defp author_text(input, _profile), do: Map.get(input, :author_text)
+
+  # 稳定协议与运行事实分层；动态事实只能通过 scope_update 追加。
+  defp ir_base_text(_input, :judgment), do: judgment_base_text() <> judgment_output_text()
+  defp ir_base_text(_input, :continuation), do: continuation_base_text()
 
   defp ir_full_capabilities do
     RequestIR.required_capabilities()
@@ -408,13 +686,26 @@ defmodule NovelApplication.JudgmentProtocol do
   end
 
   defp content(input, :judgment) do
-    options = Map.get(input, :options, [])
+    judgment_base_text() <>
+      judgment_scope_text(input) <>
+      "\n## 作者输入\n#{Map.fetch!(input, :author_text)}\n\n" <>
+      judgment_output_text()
+  end
 
+  defp content(input, :continuation), do: judgment_continuation_content(input)
+
+  defp judgment_base_text do
     """
     本次你承担创作判断器的角色，与作者讨论并判断创作下一步。
     共同任务规则版本：#{AuthoringTaskPolicy.version()}；工具协议版本：#{JudgmentToolContract.version()}。
     #{AuthoringTaskPolicy.rules()}
+    """
+  end
 
+  defp judgment_scope_text(input) do
+    options = Map.get(input, :options, [])
+
+    """
     ## 当前作品与实际观察
     #{Map.get(input, :context_block, "")}
 
@@ -424,9 +715,6 @@ defmodule NovelApplication.JudgmentProtocol do
     ## 当前可用操作（效果与权限，以本轮真实目录为准）
     #{AuthoringTaskPolicy.operations(options)}
     #{Map.get(input, :author_content_context, "")}
-
-    ## 作者输入
-    #{Map.fetch!(input, :author_text)}
 
     ## 来源与原文登记
     #{TurnInteractionService.author_registration_rules()}
@@ -442,14 +730,18 @@ defmodule NovelApplication.JudgmentProtocol do
     只讨论/比较时不改变 canon，也不得把建议包装成系统已定；最终选择由作者决定。
     execute 只填一个目标 ref 字段：待采纳候选用 pending_artifact_ref，已采纳内容用 adopted_content_ref；
     不得同时填两个，也不得把候选 ref 填进 adopted_content_ref。
+    只读探索当前允许：#{Keyword.get(options, :explore, false)}；目录：#{Jason.encode!(Keyword.get(options, :explore_tools, []))}。
+    """
+  end
 
+  defp judgment_output_text do
+    """
     ## 决策与输出契约
     普通问答或分析整段 content 就是回复，无需调工具，无固定开场或空行格式。
     需要可点击创作方向时用 propose_creative_directions；作者明确要求修订作品立项字段时用 propose_work_profile_revision（显式 field/value，一条只提一个字段）；原文物化用 register_author_content；
     真实缺少操作效果用 report_capability_gap；需要作者决定仅用 ask_author，可不给选项。
     单个创作产物用 judgment_decision.execute，capability 必须在本轮目录；只读取证仅用
     judgment_decision.explore + explore_request{tool,query}，不能直接调用探索目录里的 native tool。
-    只读探索当前允许：#{Keyword.get(options, :explore, false)}；目录：#{Jason.encode!(Keyword.get(options, :explore_tools, []))}。
     多个相互依赖的产物/阶段才用 judgment_decision.plan，且必须与 agent_plan_draft 同批返回。
     #{JudgmentToolContract.legal_combination_guidance()}
     内容修订（execute capability=revise_adopted_content）最小示例：
@@ -537,11 +829,23 @@ defmodule NovelApplication.JudgmentProtocol do
     """
   end
 
-  defp content(input, :continuation) do
+  defp judgment_continuation_content(input),
+    do: continuation_base_text() <> "\n" <> continuation_scope_text(input)
+
+  defp continuation_base_text do
     """
-    本次你根据真实产出与偏离判断是否继续当前任务。
     共同任务规则版本：#{AuthoringTaskPolicy.version()}；工具协议版本：#{JudgmentToolContract.version()}。
     #{AuthoringTaskPolicy.rules()}
+    """
+  end
+
+  defp continuation_scope_text(input) do
+    """
+    本次你根据真实产出与偏离判断是否继续当前任务，不再重复初始判断。
+    可以按已有事实修正时用 continuation_decision，action=continue 并给具体 guidance。
+    只有需要作者决定时用 ask_author；真正缺少能力效果用 report_capability_gap。
+    一次只返回一个工具，不能只给文本，不把应用故障或预算停止伪造成作者问题。
+    content 可同时自然说明；空 content 时 reason/question/author_reasoning 保留作者可见原话。
 
     ## 当前目标
     #{Map.fetch!(input, :goal_text)}
@@ -549,12 +853,6 @@ defmodule NovelApplication.JudgmentProtocol do
     #{Map.fetch!(input, :deviation_summary)}
     ## 当前观察
     #{Map.get(input, :observation_block) || "（暂无观察）"}
-
-    ## 决策与输出契约
-    可以按已有事实修正时用 continuation_decision，action=continue 并给具体 guidance。
-    只有需要作者决定时用 ask_author；真正缺少能力效果用 report_capability_gap。
-    一次只返回一个工具，不能只给文本，不把应用故障或预算停止伪造成作者问题。
-    content 可同时自然说明；空 content 时 reason/question/author_reasoning 保留作者可见原话。
     """
   end
 

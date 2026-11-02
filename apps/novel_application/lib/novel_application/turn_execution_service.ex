@@ -12,8 +12,10 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelAgent.AuthorizedToolExecutor
   alias NovelAgent.ProseQualityEvaluator
   alias NovelAgent.Provider.Execution
+  alias NovelApplication.AgentRunFlows.AuthoringSession
   alias NovelApplication.ArtifactAssembler
   alias NovelApplication.AuthoringTaskBuilder
+  alias NovelApplication.AuthoringTranscript
   alias NovelApplication.AuxTaskBuilder
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.CarryRegistry
@@ -84,10 +86,14 @@ defmodule NovelApplication.TurnExecutionService do
           # flows 侧写前/规划前推理与开新卷 range 随 turn 传入（实现读取，缺席即诚实降级）。
           optional(:chapter_mission) => map() | nil,
           optional(:planning_mission) => map() | nil,
-          optional(:volume_scope) => map() | nil
+          optional(:volume_scope) => map() | nil,
+          optional(:agent_run) => map(),
+          optional(:request_ir) => map() | nil,
+          optional(:authoring_transcript) => AuthoringTranscript.t() | nil
         }
 
-  @spec execute(execution_input()) :: {map(), NovelDomain.DecisionTrace.t()}
+  @spec execute(execution_input()) ::
+          {map(), NovelDomain.DecisionTrace.t(), AuthoringTranscript.t() | nil}
   def execute(%{frame: frame, plan: plan, decision: decision} = input) do
     action = hd(plan.proposed_actions)
 
@@ -344,18 +350,20 @@ defmodule NovelApplication.TurnExecutionService do
         decision,
         input,
         action,
-        Map.put(sections, :authoring_task, authoring_task)
+        Map.merge(sections, %{
+          authoring_task: authoring_task,
+          agent_run: input[:agent_run],
+          request_ir: input[:request_ir]
+        })
       )
 
     provider_execution = provider_execution(input)
     quality_provider_execution = quality_provider_execution(input)
 
-    tool_result =
-      case authoring_task_result do
-        {:error, reason} -> authoring_task_failed_result(req, reason)
-        {:ok, _task} -> dispatch_tool(req, provider_execution)
-      end
-      |> validate_outline_chapter_scope(input)
+    {tool_result, writer_session, execution_counts} =
+      dispatch_authoring_task(authoring_task_result, req, provider_execution)
+
+    tool_result = validate_outline_chapter_scope(tool_result, input)
 
     artifact_sets =
       assemble_artifacts(
@@ -367,19 +375,22 @@ defmodule NovelApplication.TurnExecutionService do
       )
 
     artifact_set = List.first(artifact_sets)
+    writer_session = append_writer_result(writer_session, tool_result, artifact_set)
 
     # VS-00E CP2：正文生成后运行独立质量评估（与 writer 逻辑分离），产出 QualityFinding +
     # 策略。只读，不改 artifact / 作品事实；evaluator 失败诚实降级为 quality_review_unavailable。
     quality =
-      run_prose_quality(
-        frame,
+      frame
+      |> run_prose_quality(
         action,
         tool_result,
         quality_provider_execution,
         brief_result,
         facts_context_text(creative_facts, style_guide),
-        quality_pacing_context(brief_result)
+        quality_pacing_context(brief_result),
+        writer_session[:request_ir]
       )
+      |> append_quality_validation()
 
     evidence_usage =
       evidence_usage(
@@ -425,6 +436,16 @@ defmodule NovelApplication.TurnExecutionService do
         input[:context]
       )
 
+    execution_counts =
+      Map.put(
+        execution_counts,
+        :provider_calls,
+        session_provider_calls(writer_session) +
+          session_provider_calls(is_map(quality) && Map.get(quality, :provider_session))
+      )
+
+    trace_summary = Map.put(trace_summary, :execution_counts, execution_counts)
+
     # ADR-0004 #3：决策 trace 闭合——trace 记录后把本轮 trace ref 回填到决策，
     # 使 TurnResult.orchestrator_decision 可追溯到实际 DecisionTrace。
     decision = %{decision | decision_trace_ref: trace.trace_id}
@@ -444,13 +465,15 @@ defmodule NovelApplication.TurnExecutionService do
         artifact_sets
       )
       |> Map.put(:assistant_message, %{text: assistant_message})
+      |> Map.update!(:truthfulness, &Map.put(&1, :tool_called, execution_counts.tool_calls > 0))
       |> maybe_put_quality_review(quality)
       # B13b §4.1 #11（WORKBENCH-CURRENT-VOLUME）：把本轮写作坐标（volume_ref/
       # authoring_mode/matched_chapter）aditively 装进 TurnResult，供真实工作台
       # 头部显示当前卷（get_toc 回退在 Channel/application 侧完成；JSONL 同一坐标）。
       |> Map.put(:writing_coordinate, coordinate_payload(coordinate))
 
-    {turn_result, trace}
+    transcript = canonical_transcript(quality[:provider_session] || writer_session)
+    {turn_result, trace, transcript}
   end
 
   # ── CP0: WritingCoordinate + MissingPolicyResult ──
@@ -493,6 +516,66 @@ defmodule NovelApplication.TurnExecutionService do
     }
   end
 
+  # 已有 IR 时只能由 IR 派生；损坏的 IR 由 AuthoringSession 显式拒绝，不能伪装成缺
+  # 席再回退旧 authoring_transcript。只有真正没有 IR 的会话才保留旧快照回退。
+  defp canonical_transcript(%{request_ir: ir} = session) when not is_nil(ir) do
+    session
+    |> AuthoringSession.provider_metadata()
+    |> Map.fetch!(:judgment_transcript)
+  end
+
+  defp canonical_transcript(session) when is_map(session),
+    do: Map.get(session, :authoring_transcript)
+
+  defp canonical_transcript(_session), do: nil
+
+  defp append_writer_result(session, %{status: :succeeded} = tool_result, artifact_set)
+       when not is_nil(artifact_set) do
+    AuthoringSession.validate_provider_result(
+      session,
+      "passed",
+      "tentative_artifact_validated",
+      %{
+        artifact_refs: tool_result.artifact_refs,
+        adoption_required: true,
+        canon_written: false
+      }
+    )
+  end
+
+  defp append_writer_result(session, tool_result, _artifact_set) do
+    AuthoringSession.validate_provider_result(
+      session,
+      "failed",
+      "creative_result_rejected",
+      %{
+        artifact_refs: tool_result.artifact_refs,
+        adoption_required: true,
+        canon_written: false
+      }
+    )
+  end
+
+  defp append_quality_validation(%{provider_session: session} = quality) when is_map(session) do
+    completed? = quality.review_status == :completed
+
+    session =
+      AuthoringSession.validate_provider_result(
+        session,
+        if(completed?, do: "passed", else: "failed"),
+        if(completed?, do: "quality_findings_validated", else: "quality_review_unavailable"),
+        %{
+          finding_count: length(quality.findings),
+          review_status: quality_review_status(quality),
+          policy_action: quality_policy_action(quality)
+        }
+      )
+
+    %{quality | provider_session: session}
+  end
+
+  defp append_quality_validation(quality), do: quality
+
   # hard missing 短路：不调用 provider，产出可解释 conversational TurnResult；trace 记 reply-only。
   defp blocked_result(
          frame,
@@ -513,7 +596,7 @@ defmodule NovelApplication.TurnExecutionService do
       |> Map.put(:assistant_message, %{text: blocked_message(coordinate, missing)})
       |> Map.put(:writing_coordinate, coordinate_payload(coordinate))
 
-    {turn_result, trace}
+    {turn_result, trace, canonical_transcript(input)}
   end
 
   defp blocked_message(
@@ -624,6 +707,8 @@ defmodule NovelApplication.TurnExecutionService do
     |> maybe_put_progress_state(sections)
     |> maybe_put_planning_mission(sections)
     |> maybe_put_authoring_task(sections)
+    |> Map.put("agent_run", sections[:agent_run])
+    |> Map.put("request_ir", sections[:request_ir])
   end
 
   # B39 CP1c/D1：本次真实 writer 调用的 Base/observation 可见集合与模型自报 used refs
@@ -2156,7 +2241,8 @@ defmodule NovelApplication.TurnExecutionService do
          quality_provider_execution,
          brief_result,
          facts_context,
-         pacing_context
+         pacing_context,
+         request_ir
        ) do
     if prose_writing_action?(action) do
       brief_text = render_execution_brief(brief_result)
@@ -2195,7 +2281,8 @@ defmodule NovelApplication.TurnExecutionService do
           scene_units,
           facts_context,
           pacing_context,
-          authoring_task
+          authoring_task,
+          request_ir
         )
 
       {prose_text, scenes} = prose_quality_input(tool_result)
@@ -2213,7 +2300,8 @@ defmodule NovelApplication.TurnExecutionService do
          _quality_execution,
          _brief,
          _facts,
-         _pacing
+         _pacing,
+         _request_ir
        ),
        do: nil
 
@@ -2231,8 +2319,8 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp quality_scene_units(_brief_result), do: []
 
-  # 独立 evaluator 通过单独的 quality provider execution 调用（与 writer 分离的
-  # provider 调用 + 独立 prompt）。未注入时为确定性评估。
+  # 独立 evaluator 通过单独的 quality provider execution 调用，在同一 canonical
+  # transcript 上追加只读质量 scope；未注入时为确定性评估。
   defp semantic_opts(
          quality_provider_execution,
          frame,
@@ -2240,7 +2328,8 @@ defmodule NovelApplication.TurnExecutionService do
          scene_units,
          facts_context,
          pacing_context,
-         authoring_task
+         authoring_task,
+         request_ir
        ) do
     case Execution.result_fn(quality_provider_execution) do
       result_fn when is_function(result_fn, 1) ->
@@ -2251,7 +2340,8 @@ defmodule NovelApplication.TurnExecutionService do
           scene_units,
           facts_context,
           pacing_context,
-          authoring_task
+          authoring_task,
+          request_ir
         )
 
       _ ->
@@ -2266,7 +2356,8 @@ defmodule NovelApplication.TurnExecutionService do
          scene_units,
          facts_context,
          pacing_context,
-         authoring_task
+         authoring_task,
+         request_ir
        ) do
     semantic_fn = fn text, ctx ->
       request = %QualityEvaluationRequest{
@@ -2280,15 +2371,19 @@ defmodule NovelApplication.TurnExecutionService do
         form_candidates: Map.get(ctx, :form_candidates, []),
         pacing_context: pacing_context,
         scene_units: scene_units,
-        task: authoring_task
+        task: authoring_task,
+        request_ir: request_ir
       }
 
-      case ProseQualityEvaluator.evaluate(request, provider_execution) do
+      {evaluation, session} =
+        ProseQualityEvaluator.evaluate_with_session(request, provider_execution)
+
+      case evaluation do
         %QualityEvaluationResult{status: :ok, findings: findings, provider_call_ref: ref} ->
-          {:ok, findings, ref}
+          {:ok, findings, ref, session}
 
         %QualityEvaluationResult{status: :error, error: error} ->
-          {:error, error}
+          {:error, error, session}
       end
     end
 
@@ -2496,6 +2591,12 @@ defmodule NovelApplication.TurnExecutionService do
     end
   end
 
+  defp session_provider_calls(session) when is_map(session) do
+    Map.get(session, :provider_call_count, 0) || 0
+  end
+
+  defp session_provider_calls(_session), do: 0
+
   defp map_value(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))
   end
@@ -2653,12 +2754,23 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp blank?(value), do: not is_binary(value) or String.trim(value) == ""
 
-  defp dispatch_tool(%ToolRequest{tool_name: tool_name} = req, result_fn)
+  defp dispatch_tool_with_session(%ToolRequest{tool_name: tool_name} = req, result_fn)
        when tool_name in @creative_tools do
-    AuthorizedToolExecutor.execute(req, result_fn)
+    AuthorizedToolExecutor.execute_with_session(req, result_fn)
   end
 
-  defp dispatch_tool(%ToolRequest{} = req, _result_fn), do: AuthorizedToolExecutor.execute(req)
+  defp dispatch_tool_with_session(%ToolRequest{} = req, _result_fn) do
+    AuthorizedToolExecutor.execute_with_session(req, nil)
+  end
+
+  defp dispatch_authoring_task({:error, reason}, req, _execution),
+    do: {authoring_task_failed_result(req, reason), %{}, %{tool_calls: 0}}
+
+  defp dispatch_authoring_task({:ok, _task}, req, execution) do
+    {result, session} = dispatch_tool_with_session(req, execution)
+
+    {result, session, %{tool_calls: Map.get(session, :tool_call_count, 0) || 0}}
+  end
 
   # B30 CP3-P2：plot_outline 的 chapter_ref 必须指向当前作品已有章；非法/跨作品 → 可解释失败
   # （不静默丢 ref 退回 title 新建，也不生成候选）。

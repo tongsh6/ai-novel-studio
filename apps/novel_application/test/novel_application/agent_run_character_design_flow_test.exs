@@ -1,9 +1,25 @@
 defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
   use ExUnit.Case, async: false
 
-  alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.{Execution, RequestIR}
   alias NovelApplication.AgentRunService
+  alias NovelApplication.AuthoringTranscript
   alias NovelApplication.DialoguePlanningService
+  alias NovelApplication.TestAgenticLoopFixtures
+
+  alias Ecto.Adapters.SQL.Sandbox
+  alias NovelPersistence.Repo
+
+  setup do
+    owner = Sandbox.start_owner!(Repo, shared: true)
+
+    on_exit(fn ->
+      NovelApplication.TestAgentRunCleanup.await_quiescent()
+      Sandbox.stop_owner(owner)
+    end)
+
+    :ok
+  end
 
   test "bounded roster-to-character-design run executes two re-gated steps and keeps artifact tentative" do
     parent = self()
@@ -16,7 +32,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
       text: "先看看当前已有角色，再帮我设计一个与主角形成镜像冲突的主要反派。",
       workspace_id: "work-agent-flow",
       work_id: "work-agent-flow",
-      session_id: "session-agent-flow",
+      session_id: "11111111-1111-4111-8111-111111111118",
       turn_id: "turn-agent-flow",
       # B59 CP1：注入同形 trace persister，证明 AgentRun 内部步 trace 走既有持久化通道。
       trace_persister: fn work, attrs ->
@@ -52,8 +68,8 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     assert_receive {:agent_event, :exploration_observed, roster_event}
     assert roster_event.summary =~ "林烬"
     assert_receive {:provider_prompt, provider_prompt}, 500
-    assert provider_prompt =~ "已完成观察"
-    assert provider_prompt =~ "林烬"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "已完成观察"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "林烬"
     assert_receive {:agent_event, :artifact_created, artifact_event}, 500
     assert_receive {:agent_event, :run_completed, _}, 500
 
@@ -61,7 +77,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     assert_receive {:step_trace, "work-agent-flow", trace_attrs}, 500
     assert trace_attrs.turn_id =~ ":agent:"
     assert trace_attrs.workspace_id == "work-agent-flow"
-    assert trace_attrs.session_id == "session-agent-flow"
+    assert trace_attrs.session_id == "11111111-1111-4111-8111-111111111118"
     assert is_list(trace_attrs.tool_trace_refs) and trace_attrs.tool_trace_refs != []
     assert_receive {:step_trace, "work-agent-flow", _}, 500
 
@@ -76,6 +92,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
 
     # CP2b：机械计划 0 调用（付费伪计划已消灭），只剩 design writer 1 调用。
     assert state.run.consumed_budget.provider_calls == 1
+    TestAgenticLoopFixtures.assert_authoring_transcript(state, run_id)
 
     assert Enum.any?(state.observations, &(&1.observation_type == :character_roster))
     assert Enum.any?(state.observations, &(&1.observation_type == :artifact_created))
@@ -88,6 +105,104 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     assert [%{adoption_status: "TENTATIVE"}] = turn_result.adoption_state.pending
   end
 
+  test "角色创作调用失败仍计入工具预算并保留原生失败历史" do
+    parent = self()
+
+    execution = %Execution{
+      result_fn: fn _prompt ->
+        {:error, %{type: :provider_error, message: "模型调用未完成"}}
+      end
+    }
+
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :character_design_with_context,
+        %{
+          text: "先看看当前已有角色，再帮我设计反派。",
+          workspace_id: "work-agent-failed-character",
+          work_id: "work-agent-failed-character",
+          session_id: "11111111-1111-4111-8111-111111111119",
+          turn_id: "turn-agent-failed-character",
+          character_reader: fn _work_id -> characters() end
+        },
+        nil,
+        execution
+      )
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(spec.run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             )
+
+    assert_receive {:agent_event, :run_failed, _}, 2000
+    assert {:ok, state} = AgentRunService.state(run_id)
+    assert state.run.status == :failed
+    assert state.run.consumed_budget.tool_calls == 2
+    assert state.run.consumed_budget.provider_calls >= 1
+    assert state.stage_state.judgment_transcript
+  end
+
+  test "原生候选校验最终失败后每个调用只保留一个拒绝结果" do
+    parent = self()
+
+    execution = %Execution{
+      result_fn: fn _prompt ->
+        {:ok,
+         %{
+           content: "",
+           tool_calls: [
+             %{
+               id: "invalid-artifact-#{System.unique_integer([:positive])}",
+               name: "submit_tentative_artifact",
+               arguments: %{"items" => []}
+             }
+           ]
+         }}
+      end
+    }
+
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :character_design_with_context,
+        %{
+          text: "先看看当前已有角色，再帮我设计反派。",
+          workspace_id: "work-agent-invalid-character",
+          work_id: "work-agent-invalid-character",
+          session_id: "11111111-1111-4111-8111-111111111120",
+          turn_id: "turn-agent-invalid-character",
+          character_reader: fn _work_id -> characters() end
+        },
+        nil,
+        execution
+      )
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(spec.run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             )
+
+    assert_receive {:agent_event, :run_failed, _}, 2000
+    assert {:ok, state} = AgentRunService.state(run_id)
+    transcript = state.stage_state.judgment_transcript
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
+    assert :ok = RequestIR.validate(ir)
+
+    blocks = Enum.flat_map(transcript.messages, & &1.blocks)
+    calls = Enum.filter(blocks, &(&1.type == "tool_call"))
+    validations = Enum.filter(blocks, &(&1.type == "validation_result"))
+    assert length(calls) == 2
+    assert length(validations) == length(calls)
+    assert Enum.all?(validations, &(&1.status == "failed"))
+
+    assert Enum.sort(Enum.map(calls, & &1.call_id)) ==
+             Enum.sort(Enum.map(validations, & &1.call_id))
+
+    assert state.run.consumed_budget.tool_calls == 2
+    assert state.run.consumed_budget.provider_calls == 2
+  end
+
   test "steer updates the following character design step input" do
     parent = self()
 
@@ -98,7 +213,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
       text: "先看看当前已有角色，再帮我设计一个主要反派。",
       workspace_id: "work-agent-steer",
       work_id: "work-agent-steer",
-      session_id: "session-agent-steer",
+      session_id: "11111111-1111-4111-8111-111111111121",
       turn_id: "turn-agent-steer"
     }
 
@@ -132,9 +247,9 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     assert {:ok, _} = AgentRunService.steer(run_id, "改成政治操盘者，不做武力型反派")
     assert_receive {:agent_event, :plan_adjusted, _}
     assert_receive {:provider_prompt, provider_prompt}, 500
-    assert provider_prompt =~ "改成政治操盘者"
-    assert provider_prompt =~ "已完成观察"
-    assert provider_prompt =~ "林烬"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "改成政治操盘者"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "已完成观察"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "林烬"
   end
 
   defp characters do
@@ -164,34 +279,35 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
         String.contains?(prompt_text, "AgentRun 下一步规划器") ->
           {:ok,
            %{
-             content:
-               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+             content: TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
            }}
 
-        String.contains?(prompt_text, "JSON 数组") ->
+        Enum.any?(
+          NovelAgent.Provider.tool_specs(prompt),
+          &(&1.name == "submit_tentative_artifact")
+        ) ->
           complete_character_design_prompt(parent, prompts, prompt)
 
         true ->
           {:ok,
            %{
-             content:
-               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+             content: TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
            }}
       end
     end
   end
 
   defp character_design_plan_draft do
-    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+    TestAgenticLoopFixtures.plan_tool_call_result(
       "先读取角色阵容，再基于阵容设计新的角色候选。",
       [
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
+        TestAgenticLoopFixtures.plan_step(
           "character_roster",
           "character_roster",
           "读取当前作品已确认角色阵容。",
           success_criteria: ["character_roster_observation_exists"]
         ),
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
+        TestAgenticLoopFixtures.plan_step(
           "character_design",
           "character_design",
           "基于已读取的角色阵容设计新的主要反派。",
@@ -207,7 +323,8 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
   defp complete_character_design_prompt(parent, prompts, prompt) do
     if prompts, do: Agent.update(prompts, &[prompt | &1])
     send(parent, {:provider_prompt, prompt})
-    {:ok, %{content: Jason.encode!([character_seed_item()])}}
+
+    {:ok, TestAgenticLoopFixtures.native_artifact_result([character_seed_item()])}
   end
 
   defp next_step_decision(prompt) do
@@ -215,10 +332,10 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
 
     cond do
       String.contains?(prompt, "/ artifact_created:") ->
-        NovelApplication.TestAgenticLoopFixtures.done_next("已生成待采纳角色候选，本轮目标已经满足。")
+        TestAgenticLoopFixtures.done_next("已生成待采纳角色候选，本轮目标已经满足。")
 
       String.contains?(prompt, "/ character_roster:") ->
-        NovelApplication.TestAgenticLoopFixtures.continue_next(
+        TestAgenticLoopFixtures.continue_next(
           "基于已读取的角色阵容设计新的主要反派。",
           "character_design",
           write_intent: "tentative",
@@ -226,7 +343,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
         )
 
       true ->
-        NovelApplication.TestAgenticLoopFixtures.continue_next(
+        TestAgenticLoopFixtures.continue_next(
           "先读取当前作品已确认角色阵容。",
           "character_roster",
           reason_codes: ["missing_roster_observation"]
@@ -234,5 +351,5 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     end
   end
 
-  defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
+  defp prompt_text(prompt), do: TestAgenticLoopFixtures.prompt_text(prompt)
 end

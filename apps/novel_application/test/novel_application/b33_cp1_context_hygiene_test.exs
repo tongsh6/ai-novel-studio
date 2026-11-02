@@ -152,12 +152,19 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
     diagnostics =
       DialoguePlanningService.judgment_prompt_diagnostics_for_test(write_protocol, true)
 
+    production_chars =
+      write_protocol
+      |> JudgmentProtocol.prompt_for_production()
+      |> Map.fetch!(:messages)
+      |> Enum.map_join("", & &1.content)
+      |> String.length()
+
     IO.puts("B33 CP1 prompt chars: default=#{default_chars} write_cropped=#{write_chars}")
 
     assert write_chars < default_chars
     assert write_chars * 5 < default_chars * 3
-    assert diagnostics.prompt_chars == write_chars
-    assert diagnostics.prompt_tokens == div(write_chars, 4)
+    assert diagnostics.prompt_chars == production_chars
+    assert diagnostics.prompt_tokens == div(production_chars, 4)
     assert diagnostics.cropped == true
     assert "work" in diagnostics.selected_sections
     refute "interaction" in diagnostics.selected_sections

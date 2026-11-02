@@ -15,8 +15,8 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentObservationAssembler
+  alias NovelApplication.AgentRunFlows.{AuthoringSession, StepTracePersistence}
   alias NovelApplication.AgentRunFlows.ExplorationStep
-  alias NovelApplication.AgentRunFlows.StepTracePersistence
   alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExecutionOrchestrator
@@ -183,7 +183,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
       |> Enum.at(index)
       |> mechanical_execute_decision(revised_run, sequence, snapshot, meta)
     else
-      mechanical_await_author_decision(run, sequence, snapshot)
+      mechanical_await_author_decision(run, sequence, snapshot, meta)
     end
   end
 
@@ -279,7 +279,13 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
   # 带结构事实——计划步数、已完成步数、已核对步骤（模型 plan description 原文，
   # 限量）、缺口（目标产出未完成）与建议下一步骨架词。只读 run.plan / snapshot
   # 状态，零 provider raw prompt / assistant_message 载荷（N-NARR）。
-  defp mechanical_await_author_decision(run, sequence, snapshot) do
+  # 停等说明来自已执行轨迹；已发生的修订事实仍随 meta 进入运行版本、预算和恢复记录。
+  defp mechanical_await_author_decision(
+         run,
+         sequence,
+         snapshot,
+         meta \\ %{provider_call_count: 0}
+       ) do
     AgentNextStepDecision.new(%{
       decision_id: "and_#{run.run_id}_#{sequence}_plan_exhausted",
       run_ref: run.run_id,
@@ -290,6 +296,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
       write_intent: :none,
       risk_hint: :medium,
       reason_codes: ["plan_exhausted_without_completion"],
+      plan_revision: map_get(meta, :plan_revision),
       observation_refs: [],
       evaluation_of_last: %{
         advanced: false,
@@ -299,7 +306,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
       confidence: 1.0
     })
     |> case do
-      {:ok, decision} -> {:ok, decision, %{provider_call_count: 0}}
+      {:ok, decision} -> {:ok, decision, meta}
       error -> error
     end
   end
@@ -565,9 +572,11 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
       }
     )
 
-    {turn_result, trace} =
+    {turn_result, trace, transcript} =
       TurnExecutionService.execute(%{
         frame: frame,
+        agent_run: run,
+        request_ir: AuthoringSession.request_ir(snapshot),
         plan: plan,
         decision: decision,
         candidates: [],
@@ -599,7 +608,11 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
     tool_result = Map.get(turn_result, :tool_result) || %{}
 
     if Map.get(tool_result, :status) == :failed do
-      {:error, {:tool_failed, tool_name(plan), Map.get(tool_result, :errors, [])}}
+      AuthoringSession.failure_result(
+        {:tool_failed, tool_name(plan), Map.get(tool_result, :errors, [])},
+        turn_result,
+        transcript
+      )
     else
       emit_stage(
         snapshot,
@@ -634,6 +647,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
          provider_call_count: provider_call_count(turn_result),
          progress_signature: progress_signature(turn_result)
        }}
+      |> AuthoringSession.put_transcript(transcript)
     end
   end
 

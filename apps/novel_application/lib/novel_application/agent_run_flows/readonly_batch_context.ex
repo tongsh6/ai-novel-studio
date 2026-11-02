@@ -123,7 +123,7 @@ defmodule NovelApplication.AgentRunFlows.ReadonlyBatchContext do
       |> Enum.at(index)
       |> mechanical_execute_decision(revised_run, sequence, snapshot, meta)
     else
-      mechanical_await_author_decision(run, sequence)
+      mechanical_await_author_decision(run, sequence, meta)
     end
   end
 
@@ -197,7 +197,8 @@ defmodule NovelApplication.AgentRunFlows.ReadonlyBatchContext do
     end
   end
 
-  defp mechanical_await_author_decision(run, sequence) do
+  # 无新增可执行步骤不等于没有发生修订；终局仍携带这次调用的计划、预算与会话事实。
+  defp mechanical_await_author_decision(run, sequence, meta \\ %{provider_call_count: 0}) do
     AgentNextStepDecision.new(%{
       decision_id: "and_#{run.run_id}_#{sequence}_readonly_batch_plan_exhausted",
       run_ref: run.run_id,
@@ -208,6 +209,7 @@ defmodule NovelApplication.AgentRunFlows.ReadonlyBatchContext do
       write_intent: :none,
       risk_hint: :medium,
       reason_codes: ["plan_exhausted_without_completion"],
+      plan_revision: map_get(meta, :plan_revision),
       observation_refs: [],
       evaluation_of_last: %{
         advanced: false,
@@ -217,7 +219,7 @@ defmodule NovelApplication.AgentRunFlows.ReadonlyBatchContext do
       confidence: 1.0
     })
     |> case do
-      {:ok, decision} -> {:ok, decision, %{provider_call_count: 0}}
+      {:ok, decision} -> {:ok, decision, meta}
       error -> error
     end
   end

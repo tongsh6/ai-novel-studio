@@ -4,6 +4,7 @@ defmodule NovelApplication.ToolProvenanceTest do
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Toolbox
   alias NovelApplication.CapabilityRegistry
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelApplication.TurnExecutionService
   alias NovelCommon.Contracts.CapabilityRegistryEntry
   alias NovelCommon.Contracts.ToolRequest
@@ -383,10 +384,13 @@ defmodule NovelApplication.ToolProvenanceTest do
 
         {:ok,
          %{
-           content:
-             Jason.encode!([
-               %{"item_id" => "i1", "title" => "续写", "body" => "新场景", "rationale" => nil}
-             ])
+           content: "",
+           tool_calls:
+             TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{
+               items: [
+                 %{"item_id" => "i1", "title" => "续写", "body" => "新场景", "rationale" => nil}
+               ]
+             })
          }}
       end
 
@@ -395,7 +399,7 @@ defmodule NovelApplication.ToolProvenanceTest do
         current_chapters: ["第01章：底层灵气账单", "第02章：宗门试炼"]
       }
 
-      {turn_result, _trace} =
+      {turn_result, _trace, _transcript} =
         TurnExecutionService.execute(%{
           frame: continuity_frame(),
           plan: continuity_plan(:continuation, nil),
@@ -406,7 +410,9 @@ defmodule NovelApplication.ToolProvenanceTest do
           chapter_prose_reader: reader
         })
 
-      tool_prompt = prompts |> Agent.get(&Enum.reverse/1) |> List.first()
+      tool_prompt =
+        prompts |> Agent.get(&Enum.reverse/1) |> List.first() |> NovelAgent.Provider.prompt_text()
+
       assert tool_prompt =~ "本章已采纳正文"
       assert tool_prompt =~ @prior
 
@@ -434,10 +440,13 @@ defmodule NovelApplication.ToolProvenanceTest do
 
         {:ok,
          %{
-           content:
-             Jason.encode!([
-               %{"item_id" => "i1", "title" => "开篇", "body" => "正文", "rationale" => nil}
-             ])
+           content: "",
+           tool_calls:
+             TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{
+               items: [
+                 %{"item_id" => "i1", "title" => "开篇", "body" => "正文", "rationale" => nil}
+               ]
+             })
          }}
       end
 
@@ -469,7 +478,7 @@ defmodule NovelApplication.ToolProvenanceTest do
         provider_execution: %Execution{result_fn: result_fn}
       })
 
-      prompts |> Agent.get(&Enum.reverse/1) |> List.first()
+      prompts |> Agent.get(&Enum.reverse/1) |> List.first() |> NovelAgent.Provider.prompt_text()
     end
 
     defp first_tool_prompt(intent, chapter, author_text, reader) do
@@ -480,10 +489,13 @@ defmodule NovelApplication.ToolProvenanceTest do
 
         {:ok,
          %{
-           content:
-             Jason.encode!([
-               %{"item_id" => "i1", "title" => "续写", "body" => "新场景", "rationale" => nil}
-             ])
+           content: "",
+           tool_calls:
+             TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{
+               items: [
+                 %{"item_id" => "i1", "title" => "续写", "body" => "新场景", "rationale" => nil}
+               ]
+             })
          }}
       end
 
@@ -496,7 +508,7 @@ defmodule NovelApplication.ToolProvenanceTest do
         chapter_prose_reader: reader
       })
 
-      prompts |> Agent.get(&Enum.reverse/1) |> List.first()
+      prompts |> Agent.get(&Enum.reverse/1) |> List.first() |> NovelAgent.Provider.prompt_text()
     end
 
     defp continuity_frame do
@@ -515,6 +527,45 @@ defmodule NovelApplication.ToolProvenanceTest do
         evidence_summary: %{},
         uncertainty: []
       }
+    end
+
+    test "non-creative dispatch reports the real tool count and never receives provider dependency" do
+      parent = self()
+
+      plan = %MicroPlan{
+        plan_id: "plan-analysis",
+        turn_id: "turn-cont",
+        frame_ref: "frame-cont",
+        plan_goal: %{summary: "分析文本"},
+        risk_hint: :low,
+        proposed_actions: [
+          %{
+            action_id: "act-analysis",
+            action_type: :capability_invocation,
+            summary: "读取当前角色阵容",
+            target_ref: "character_roster",
+            write_intent: :none,
+            risk_hint: :low
+          }
+        ]
+      }
+
+      {turn_result, _trace, _transcript} =
+        TurnExecutionService.execute(%{
+          frame: continuity_frame(),
+          plan: plan,
+          decision: allow_decision(),
+          author_input: %{text: "这是一段用于统计真实工具调用的文本。"},
+          provider_execution: %Execution{
+            result_fn: fn _prompt ->
+              send(parent, :non_creative_provider_called)
+              {:ok, %{content: "", tool_calls: []}}
+            end
+          }
+        })
+
+      refute_received :non_creative_provider_called
+      assert turn_result.trace_summary.execution_counts.tool_calls == 1
     end
 
     defp continuity_plan(intent, chapter) do

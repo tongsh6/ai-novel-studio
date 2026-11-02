@@ -83,7 +83,7 @@ defmodule NovelApplication.CP4ChapterPlanDirectionTest do
        }}
     end
 
-    {turn_result, _trace} =
+    {turn_result, _trace, _transcript} =
       TurnExecutionService.execute(%{
         frame: frame(),
         plan: plan(opts[:action]),
@@ -93,7 +93,8 @@ defmodule NovelApplication.CP4ChapterPlanDirectionTest do
         provider_execution: %Execution{result_fn: complete}
       })
 
-    {turn_result, agent |> Agent.get(& &1) |> Enum.join("\n\n")}
+    {turn_result,
+     agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1)}
   end
 
   defp frame do

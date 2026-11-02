@@ -9,8 +9,13 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.RequestIR
+  alias NovelApplication.AuthoringTranscript
   alias NovelApplication.DialogueGateway
+  alias NovelApplication.ProseRevisionService
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelApplication.TurnExecutionService
+  alias NovelDomain.AgentRun
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.AuthorActionInput
   alias NovelDomain.DialogueContext
@@ -93,7 +98,12 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
     assert String.starts_with?(revision_turn.trace_summary.tool_result_id, "tr_")
     assert revision_turn.trace_summary.replay_policy.recall_provider == false
     assert revision_turn.trace_summary.revision_provider_call_ref == "pc-revision"
-    assert revision_turn.trace_summary.provider_call_budget.revision_writer == 1
+
+    # 旧 standalone 外观与新 bound run 共用同一交换边界：允许上限取 NativeToolExchange
+    # 的默认/验证边界（2），实际消耗另记 execution_counts。仍只有一次 writer 调用，
+    # 没有额外质量或叙述调用。
+    assert revision_turn.trace_summary.provider_call_budget.revision_writer == 2
+    assert revision_turn.trace_summary.execution_counts == %{provider_calls: 1, tool_calls: 1}
 
     # 7. 原草稿保留：source turn 未被修订动作改写
     assert hd(source.adoption_state.pending).payload.items |> hd() |> Map.get(:body) == @bad_prose
@@ -138,6 +148,309 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
     assert reason =~ "provider"
   end
 
+  test "execute_revision/6 preserves the prior transcript prefix, original bytes, and real counts" do
+    parent = self()
+    source = run_prose_turn()
+    action = revision_action_input(source, "b71-success")
+    {:ok, prepared} = ProseRevisionService.prepare_revision(source, action)
+    {:ok, planned} = ProseRevisionService.plan_revision(source, action)
+    run = revision_run()
+    snapshot = prior_snapshot(run)
+    prior = snapshot.stage_state.judgment_transcript
+
+    provider = %Execution{
+      result_fn: fn prompt ->
+        send(parent, {:revision_prompt, prompt})
+
+        {:ok,
+         %{
+           provider_call_id: "pc-b71-success",
+           content: "",
+           tool_calls:
+             TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{
+               items: [
+                 %{
+                   item_id: "rev-b71-success",
+                   title: "第01章（修订）",
+                   body: @revised_body,
+                   rationale: nil
+                 }
+               ],
+               self_report: %{
+                 assumptions: [],
+                 intended_reader_effect: nil,
+                 used_context_refs: [],
+                 risk_flags: []
+               }
+             })
+         }}
+      end
+    }
+
+    assert {:ok, result} =
+             ProseRevisionService.execute_revision(
+               source,
+               action,
+               prepared,
+               planned,
+               provider,
+               %{run: run, snapshot: snapshot}
+             )
+
+    assert result.provider_call_count == 1
+    assert result.tool_call_count == 1
+
+    # 允许上限来自 run 剩余预算 clamp 到交换上限（2），实际消耗来自 session。
+    assert result.turn_result.trace_summary.provider_call_budget.revision_writer == 2
+
+    assert result.turn_result.trace_summary.execution_counts == %{
+             provider_calls: 1,
+             tool_calls: 1
+           }
+
+    # 对外 turn_result/action_result 不携带 canonical 会话、IR 或 Provider 私有结构。
+    for key <- [
+          :stage_state,
+          :judgment_transcript,
+          :request_ir,
+          :provider_result,
+          :execution
+        ] do
+      refute Map.has_key?(result.turn_result, key)
+      refute Map.has_key?(result.action_result, key)
+      refute Map.has_key?(result.turn_result.trace_summary, key)
+    end
+
+    transcript = result.stage_state.judgment_transcript
+    assert transcript.run.run_id == run.run_id
+    assert Enum.take(transcript.messages, length(prior.messages)) == prior.messages
+
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
+    assert {:ok, []} = RequestIR.pending_call_ids(ir)
+
+    assert result.artifact_set.revision_base == action.target_ref
+    [revised] = result.artifact_set.items
+    assert Map.get(revised, :body) == @revised_body
+
+    assert_receive {:revision_prompt, prompt}
+    assert NovelAgent.Provider.prompt_text(prompt) =~ @bad_prose
+    assert user_texts(transcript) == ["把这一段改得更有压迫感。"]
+
+    [original] = source.adoption_state.pending
+    assert original.payload.items |> hd() |> Map.get(:body) == @bad_prose
+  end
+
+  test "execute_revision/6 records a failed native exchange without fabricating an assistant response" do
+    parent = self()
+    source = run_prose_turn()
+    action = revision_action_input(source, "b71-failed-exchange")
+    {:ok, prepared} = ProseRevisionService.prepare_revision(source, action)
+    {:ok, planned} = ProseRevisionService.plan_revision(source, action)
+    run = revision_run(max_provider_calls: 2, consumed_provider_calls: 0)
+    snapshot = prior_snapshot(run)
+    prior = snapshot.stage_state.judgment_transcript
+
+    attempts = :counters.new(1, [])
+
+    provider = %Execution{
+      result_fn: fn prompt ->
+        send(parent, {:revision_prompt, prompt})
+        attempt = :counters.get(attempts, 1) + 1
+        :counters.add(attempts, 1, 1)
+
+        case attempt do
+          1 ->
+            {:ok,
+             %{
+               content: "",
+               tool_calls:
+                 TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{})
+             }}
+
+          2 ->
+            {:error, :transport_closed}
+        end
+      end
+    }
+
+    assert {:error, _reason, step_state} =
+             ProseRevisionService.execute_revision(
+               source,
+               action,
+               prepared,
+               planned,
+               provider,
+               %{run: run, snapshot: snapshot}
+             )
+
+    assert step_state.provider_call_count == 2
+    assert step_state.tool_call_count == 1
+
+    transcript = step_state.judgment_transcript
+    assert transcript.run.run_id == run.run_id
+    assert Enum.take(transcript.messages, length(prior.messages)) == prior.messages
+
+    assert_receive {:revision_prompt, first_prompt}
+    assert NovelAgent.Provider.prompt_text(first_prompt) =~ @bad_prose
+
+    calls = tool_call_blocks(transcript)
+    assert length(calls) == 1
+    assert hd(calls).arguments == %{}
+
+    assert [validation] = validation_blocks(transcript)
+    assert validation.call_id == hd(calls).call_id
+    assert validation.status == "failed"
+    assert validation.reason_code == "invalid_items"
+
+    assert Enum.count(transcript.messages, &(&1.role == "assistant")) == 1
+
+    [original] = source.adoption_state.pending
+    assert original.payload.items |> hd() |> Map.get(:body) == @bad_prose
+  end
+
+  test "execute_revision/6 spends only the remaining single provider call and closes the failed call" do
+    parent = self()
+    source = run_prose_turn()
+    action = revision_action_input(source, "b71-one-budget")
+    {:ok, prepared} = ProseRevisionService.prepare_revision(source, action)
+    {:ok, planned} = ProseRevisionService.plan_revision(source, action)
+    run = revision_run(max_provider_calls: 3, consumed_provider_calls: 2)
+    snapshot = prior_snapshot(run)
+
+    provider = %Execution{
+      result_fn: fn _prompt ->
+        send(parent, :provider_called)
+
+        {:ok,
+         %{
+           content: "",
+           tool_calls: TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{})
+         }}
+      end
+    }
+
+    assert {:error, _reason, step_state} =
+             ProseRevisionService.execute_revision(
+               source,
+               action,
+               prepared,
+               planned,
+               provider,
+               %{run: run, snapshot: snapshot}
+             )
+
+    assert_received :provider_called
+    refute_received :provider_called
+
+    assert step_state.provider_call_count == 1
+    assert step_state.tool_call_count == 1
+
+    transcript = step_state.judgment_transcript
+    [call] = tool_call_blocks(transcript)
+    [validation] = validation_blocks(transcript)
+    assert validation.call_id == call.call_id
+    assert validation.status == "failed"
+    assert validation.reason_code == "invalid_items"
+
+    [original] = source.adoption_state.pending
+    assert original.payload.items |> hd() |> Map.get(:body) == @bad_prose
+  end
+
+  test "execute_revision/6 reports the clamped allowed budget apart from the actual call" do
+    source = run_prose_turn()
+    action = revision_action_input(source, "b71-one-budget-success")
+    {:ok, prepared} = ProseRevisionService.prepare_revision(source, action)
+    {:ok, planned} = ProseRevisionService.plan_revision(source, action)
+    run = revision_run(max_provider_calls: 3, consumed_provider_calls: 2)
+    snapshot = prior_snapshot(run)
+
+    provider = %Execution{
+      result_fn: fn _prompt ->
+        {:ok,
+         %{
+           provider_call_id: "pc-b71-one-budget-success",
+           content: "",
+           tool_calls:
+             TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{
+               items: [
+                 %{
+                   item_id: "rev-b71-one-budget-success",
+                   title: "第01章（修订）",
+                   body: @revised_body,
+                   rationale: nil
+                 }
+               ],
+               self_report: %{
+                 assumptions: [],
+                 intended_reader_effect: nil,
+                 used_context_refs: [],
+                 risk_flags: []
+               }
+             })
+         }}
+      end
+    }
+
+    assert {:ok, result} =
+             ProseRevisionService.execute_revision(
+               source,
+               action,
+               prepared,
+               planned,
+               provider,
+               %{run: run, snapshot: snapshot}
+             )
+
+    # 剩余 1 次是本次允许上限；实际也只花 1 次，二者分开记录。
+    assert result.provider_call_count == 1
+    assert result.tool_call_count == 1
+    assert result.turn_result.trace_summary.provider_call_budget.revision_writer == 1
+
+    assert result.turn_result.trace_summary.execution_counts == %{
+             provider_calls: 1,
+             tool_calls: 1
+           }
+
+    [original] = source.adoption_state.pending
+    assert original.payload.items |> hd() |> Map.get(:body) == @bad_prose
+  end
+
+  test "execute_revision/6 does not call the provider when provider budget is exhausted" do
+    source = run_prose_turn()
+    action = revision_action_input(source, "b71-zero-budget")
+    {:ok, prepared} = ProseRevisionService.prepare_revision(source, action)
+    {:ok, planned} = ProseRevisionService.plan_revision(source, action)
+    run = revision_run(max_provider_calls: 2, consumed_provider_calls: 2)
+    snapshot = prior_snapshot(run)
+    prior = snapshot.stage_state.judgment_transcript
+
+    provider = %Execution{
+      result_fn: fn _prompt -> flunk("0 剩余 Provider 预算不得调用模型") end
+    }
+
+    assert {:error, _reason, step_state} =
+             ProseRevisionService.execute_revision(
+               source,
+               action,
+               prepared,
+               planned,
+               provider,
+               %{run: run, snapshot: snapshot}
+             )
+
+    # 前置预算拒绝是真实 0/0，已有历史原样保留，不伪造 assistant 或工具调用。
+    assert step_state.provider_call_count == 0
+    assert step_state.tool_call_count == 0
+
+    transcript = step_state.judgment_transcript
+    assert transcript.run.run_id == run.run_id
+    assert transcript.messages == prior.messages
+    assert tool_call_blocks(transcript) == []
+
+    [original] = source.adoption_state.pending
+    assert original.payload.items |> hd() |> Map.get(:body) == @bad_prose
+  end
+
   # ── helpers ─────────────────────────────────────────────
 
   defp revise(source) do
@@ -157,7 +470,8 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
     {:ok, _action_result, revision_turn} =
       DialogueGateway.handle_action(input, source, revise_complete(agent))
 
-    {revision_turn, agent |> Agent.get(& &1) |> Enum.join("\n\n")}
+    {revision_turn,
+     agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1)}
   end
 
   defp revise_action(turn_result) do
@@ -172,8 +486,9 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
         {:ok,
          %{
            provider_call_id: "pc-revision",
-           content:
-             Jason.encode!(%{
+           content: "",
+           tool_calls:
+             TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{
                items: [
                  %{item_id: "rev-item", title: "第01章（修订）", body: @revised_body, rationale: nil}
                ],
@@ -193,8 +508,9 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
     complete = fn _prompt ->
       {:ok,
        %{
-         content:
-           Jason.encode!(%{
+         content: "",
+         tool_calls:
+           TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{
              items: [%{item_id: "cp3-item", title: "第01章", body: @bad_prose, rationale: nil}],
              self_report: %{
                assumptions: [],
@@ -206,7 +522,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
        }}
     end
 
-    {turn_result, _trace} =
+    {turn_result, _trace, _transcript} =
       TurnExecutionService.execute(%{
         frame: frame(),
         plan: plan(),
@@ -225,8 +541,9 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
       result_fn: fn _prompt ->
         {:ok,
          %{
-           content:
-             Jason.encode!(%{
+           content: "",
+           tool_calls:
+             TestAgenticLoopFixtures.native_tool_calls("report_quality_findings", %{
                "findings" => [
                  %{
                    "quality_finding_id" => "qf_cp3_uniform",
@@ -338,5 +655,97 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
     assert [revision_pending] = revision_turn.adoption_state.pending
     assert to_string(revision_pending.artifact_type) == "prose_fragment"
     assert revision_turn.truthfulness.artifact_adopted == false
+  end
+
+  defp revision_action_input(source, suffix) do
+    revise = revise_action(source)
+
+    %AuthorActionInput{
+      input_id: "in-#{suffix}",
+      source_turn_ref: source.turn_id,
+      action_id: revise.action_id,
+      action_type: "revise_from_findings",
+      target_ref: revise.target_ref,
+      payload: %{"quality_finding_refs" => revise.quality_finding_refs},
+      idempotency_key: "idem-#{suffix}"
+    }
+  end
+
+  defp revision_run(opts \\ []) do
+    max_provider_calls = Keyword.get(opts, :max_provider_calls, 2)
+    consumed_provider_calls = Keyword.get(opts, :consumed_provider_calls, 0)
+
+    {:ok, run} =
+      AgentRun.new(%{
+        run_id: "run-b71-quality-revision-#{System.unique_integer([:positive])}",
+        run_mode: :bounded,
+        workspace_id: @work,
+        work_id: @work,
+        session_id: "session-b71-quality-revision",
+        parent_turn_ref: "turn-b71-quality-revision",
+        origin_frame_ref: "frame-b71-quality-revision",
+        profile_ref: "prose_revision_from_findings_v1",
+        status: :running,
+        phase: :executing,
+        goal: %{text: "按质量发现修订正文", version: 1},
+        authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
+        budget: %{
+          max_steps: 4,
+          max_tool_calls: 1,
+          max_provider_calls: max_provider_calls,
+          max_replans: 0,
+          max_pending_artifacts: 1
+        },
+        consumed_budget: %{
+          steps: 0,
+          execution_steps: 0,
+          tool_calls: 0,
+          provider_calls: consumed_provider_calls,
+          replans: 0
+        }
+      })
+
+    run
+  end
+
+  defp prior_snapshot(run) do
+    transcript =
+      AuthoringTranscript.new(run,
+        base_text: "角色规则：只提出待作者审阅的候选，不执行采纳。",
+        author_text: "把这一段改得更有压迫感。",
+        tools: [],
+        projection: %{
+          target: "chat_completions",
+          capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
+        }
+      )
+
+    %{stage_state: %{judgment_transcript: transcript}}
+  end
+
+  defp tool_call_blocks(%{messages: messages}) do
+    for message <- messages,
+        block <- Map.get(message, :blocks, []),
+        Map.get(block, :type) == "tool_call",
+        do: block
+  end
+
+  defp validation_blocks(%{messages: messages}) do
+    for message <- messages,
+        block <- Map.get(message, :blocks, []),
+        Map.get(block, :type) == "validation_result",
+        do: block
+  end
+
+  defp message_text(%{blocks: blocks}) do
+    blocks
+    |> Enum.filter(&(Map.get(&1, :type) == "text"))
+    |> Enum.map_join("", &Map.get(&1, :text, ""))
+  end
+
+  defp user_texts(transcript) do
+    transcript.messages
+    |> Enum.filter(&(Map.get(&1, :role) == "user"))
+    |> Enum.map(&message_text/1)
   end
 end

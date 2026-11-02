@@ -5,8 +5,23 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
   alias NovelApplication.AgentRunFlows.CharacterEvolutionWithContext
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.DialogueContext
+
+  alias Ecto.Adapters.SQL.Sandbox
+  alias NovelPersistence.Repo
+
+  setup do
+    owner = Sandbox.start_owner!(Repo, shared: true)
+
+    on_exit(fn ->
+      NovelApplication.TestAgentRunCleanup.await_quiescent()
+      Sandbox.stop_owner(owner)
+    end)
+
+    :ok
+  end
 
   @work "work-agent-character-evolution-flow"
 
@@ -26,27 +41,25 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
         prompt_contains?(prompt, "AgentRun 下一步规划器") ->
           {:ok,
            %{
-             content:
-               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+             content: TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
            }}
 
         true ->
           send(parent, {:provider_prompt, prompt})
 
           {:ok,
-           %{
-             provider_call_id: "pc-agent-character-evolution-writer",
-             content:
-               Jason.encode!([
-                 %{
-                   "item_id" => "evo-lin-current-state",
-                   "title" => "林烬：右臂重伤",
-                   "body" => "林烬在矿区冲突后右臂重伤，短期内无法继续正面突袭。",
-                   "memory_subtype" => "CURRENT_STATE",
-                   "rationale" => "该状态限制后续行动方式，并推动他转向策略布局。"
-                 }
-               ])
-           }}
+           TestAgenticLoopFixtures.native_artifact_result(
+             [
+               %{
+                 "item_id" => "evo-lin-current-state",
+                 "title" => "林烬：右臂重伤",
+                 "body" => "林烬在矿区冲突后右臂重伤，短期内无法继续正面突袭。",
+                 "memory_subtype" => "CURRENT_STATE",
+                 "rationale" => "该状态限制后续行动方式，并推动他转向策略布局。"
+               }
+             ],
+             provider_call_id: "pc-agent-character-evolution-writer"
+           )}
       end
     end
 
@@ -54,7 +67,7 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
       text: "更新林烬的当前状态：他在这一章右臂重伤了。",
       workspace_id: @work,
       work_id: @work,
-      session_id: "session-agent-character-evolution-flow",
+      session_id: "11111111-1111-4111-8111-111111111122",
       turn_id: "turn-agent-character-evolution-flow",
       # B59 CP1：注入同形 trace persister，证明内部工具步 trace 落既有持久化通道。
       trace_persister: fn work, attrs ->
@@ -98,9 +111,9 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
     assert_receive {:agent_event, :tool_started, tool_started}, 500
     assert tool_started.summary =~ "角色演化能力"
     assert_receive {:provider_prompt, provider_prompt}, 500
-    assert provider_prompt =~ "当前 AgentStep"
-    assert provider_prompt =~ "角色演化"
-    assert provider_prompt =~ "林烬"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "当前 AgentStep"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "角色演化"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "林烬"
     assert_receive {:agent_event, :tool_completed, tool_completed}, 500
     assert tool_completed.summary =~ "角色演化记忆草稿已生成"
     assert_receive {:agent_event, :exploration_observed, tool_observation}, 500
@@ -116,11 +129,12 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
     # B59 CP1：character_evolution 工具步 trace 落库。
     assert_receive {:step_trace, @work, trace_attrs}, 500
     assert trace_attrs.turn_id =~ ":agent:"
-    assert trace_attrs.session_id == "session-agent-character-evolution-flow"
+    assert trace_attrs.session_id == "11111111-1111-4111-8111-111111111122"
     assert is_list(trace_attrs.tool_trace_refs) and trace_attrs.tool_trace_refs != []
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed
+    TestAgenticLoopFixtures.assert_authoring_transcript(state, run_id)
     assert length(state.run.completed_step_refs) == 2
     assert state.run.consumed_budget.steps == 2
     assert state.run.consumed_budget.tool_calls == 1
@@ -153,16 +167,16 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
   defp plan_draft_prompt?(prompt), do: prompt_contains?(prompt, "AgentRun 计划起草器")
 
   defp character_evolution_plan_draft do
-    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+    TestAgenticLoopFixtures.plan_tool_call_result(
       "先读取角色演化上下文，再生成角色演化记忆草稿。",
       [
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
+        TestAgenticLoopFixtures.plan_step(
           "context_assemble",
           "context_assemble",
           "先读取角色演化上下文。",
           success_criteria: ["character_evolution_context_observation_created"]
         ),
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
+        TestAgenticLoopFixtures.plan_step(
           "character_evolution",
           "character_evolution",
           "基于已读取的角色上下文生成角色演化记忆草稿。",
@@ -180,10 +194,10 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
 
     cond do
       String.contains?(prompt, "/ artifact_created:") ->
-        NovelApplication.TestAgenticLoopFixtures.done_next("已生成待采纳角色演化候选，本轮目标已经满足。")
+        TestAgenticLoopFixtures.done_next("已生成待采纳角色演化候选，本轮目标已经满足。")
 
       String.contains?(prompt, "character_evolution_context /") ->
-        NovelApplication.TestAgenticLoopFixtures.continue_next(
+        TestAgenticLoopFixtures.continue_next(
           "基于已读取的角色上下文生成角色演化草稿。",
           "character_evolution",
           write_intent: "tentative",
@@ -191,7 +205,7 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
         )
 
       true ->
-        NovelApplication.TestAgenticLoopFixtures.continue_next(
+        TestAgenticLoopFixtures.continue_next(
           "先读取角色演化上下文。",
           "context_assemble",
           reason_codes: ["agentic_next_step", "missing_character_evolution_context"]
@@ -200,7 +214,7 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
   end
 
   defp prompt_contains?(prompt, pattern), do: prompt_text(prompt) =~ pattern
-  defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
+  defp prompt_text(prompt), do: TestAgenticLoopFixtures.prompt_text(prompt)
 
   defp context do
     %DialogueContext{

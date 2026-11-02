@@ -9,7 +9,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterEvolutionWithContext do
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgentObservationAssembler
-  alias NovelApplication.AgentRunFlows.StepTracePersistence
+  alias NovelApplication.AgentRunFlows.{AuthoringSession, StepTracePersistence}
   alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExecutionOrchestrator
@@ -347,9 +347,11 @@ defmodule NovelApplication.AgentRunFlows.CharacterEvolutionWithContext do
       }
     )
 
-    {turn_result, trace} =
+    {turn_result, trace, transcript} =
       TurnExecutionService.execute(%{
         frame: frame,
+        agent_run: run,
+        request_ir: AuthoringSession.request_ir(snapshot),
         plan: plan,
         decision: decision,
         candidates: [],
@@ -375,7 +377,11 @@ defmodule NovelApplication.AgentRunFlows.CharacterEvolutionWithContext do
     tool_result = Map.get(turn_result, :tool_result) || %{}
 
     if Map.get(tool_result, :status) == :failed do
-      {:error, {:tool_failed, tool_name(plan), Map.get(tool_result, :errors, [])}}
+      AuthoringSession.failure_result(
+        {:tool_failed, tool_name(plan), Map.get(tool_result, :errors, [])},
+        turn_result,
+        transcript
+      )
     else
       emit_stage(
         snapshot,
@@ -410,6 +416,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterEvolutionWithContext do
          provider_call_count: provider_call_count(turn_result),
          progress_signature: progress_signature(turn_result)
        }}
+      |> AuthoringSession.put_transcript(transcript)
     end
   end
 

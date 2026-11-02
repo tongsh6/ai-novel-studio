@@ -3,8 +3,8 @@ defmodule NovelApplication.AgentRunFlows.StepTracePersistence do
   B59：把 AgentRun 内部步的 `DecisionTrace` 落库。
 
   判断纪元起，工作台工具 turn 由 AgentRun flow 执行；每个内部步经
-  `TurnExecutionService.execute/1` 产生 `TurnResult` 与 `DecisionTrace`
-  （`TraceWriter.record_with_tool/7` 携带 registry snapshot / contract refs /
+  `TurnExecutionService.execute/1` 产生 `TurnResult`、`DecisionTrace` 与可选的
+  canonical transcript（`TraceWriter.record_with_tool/7` 携带 registry snapshot / contract refs /
   grant summary / redacted request-result summaries）。此前 5 个 flow 只取
   `TurnResult`、丢弃 trace，step trace 从未进 `TraceRepository`，导致 AU-07
   的 ToolTrace 持久回查与 ReplayReport 对 AgentRun step 不可达。

@@ -10,19 +10,18 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   B26：单次 auto 调用同时返回作者可见说明与计划；坏结构有界纠正一次。
   """
 
-  alias NovelAgent.Provider.Execution
-  alias NovelApplication.AgentNarrativeSource
+  alias NovelAgent.Provider.{Execution, NativeToolExchange, RequestIR}
+  alias NovelApplication.{AgentNarrativeSource, AuthoringOperation}
   alias NovelApplication.ProviderActivityProjector
   alias NovelDomain.{AgentObservation, AgentPlan, AgentRun}
 
-  @max_failed_planner_output_chars 600
   @draft_tool_name "agent_plan_draft"
   @revision_tool_name "agent_plan_revision"
 
   @type provider_execution :: Execution.dependency()
 
   @spec draft_plan_with_meta(AgentRun.t(), provider_execution(), map(), keyword()) ::
-          {:ok, AgentPlan.t(), map()} | {:error, term()}
+          {:ok, AgentPlan.t(), map()} | {:error, term(), map()}
   def draft_plan_with_meta(%AgentRun{} = run, provider_execution, snapshot \\ %{}, opts \\ []) do
     chapter_titles = chapter_index_payload(run, opts)
 
@@ -30,14 +29,14 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       run,
       provider_execution,
       snapshot,
-      draft_prompt(run, snapshot, chapter_titles),
+      operation_spec(run, snapshot, chapter_titles, :draft, nil, opts),
       @draft_tool_name,
       &draft_meta/2
     )
   end
 
   @spec revise_plan_with_meta(AgentRun.t(), provider_execution(), map(), keyword()) ::
-          {:ok, AgentPlan.t(), map()} | {:error, term()}
+          {:ok, AgentPlan.t(), map()} | {:error, term(), map()}
   def revise_plan_with_meta(%AgentRun{} = run, provider_execution, snapshot \\ %{}, opts \\ []) do
     revision_reason =
       opts
@@ -52,7 +51,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       revision_run,
       provider_execution,
       snapshot,
-      revision_prompt(run, snapshot, chapter_titles, revision_reason),
+      operation_spec(run, snapshot, chapter_titles, :revision, revision_reason, opts),
       @revision_tool_name,
       &revision_meta(&1, &2, revision_reason)
     )
@@ -139,16 +138,40 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
   defp titles_to_chapter_entries(_titles), do: []
 
-  defp request_plan_with_meta(run, provider_execution, snapshot, prompt, tool_name, meta_fun) do
-    with {:ok, result_fn} <- plan_result_fn(provider_execution, snapshot, :planner) do
-      request_plan(prompt, %{
-        tool_name: tool_name,
-        result_fn: result_fn,
-        run: run,
-        attempt: 1,
-        retry?: true,
-        meta_fun: meta_fun
-      })
+  defp request_plan_with_meta(run, provider_execution, snapshot, spec, tool_name, meta_fun) do
+    case AuthoringOperation.prepare(run, snapshot, spec) do
+      {:ok, ir} ->
+        execute_plan(ir, run, provider_execution, snapshot, tool_name, meta_fun)
+
+      {:error, reason} ->
+        {:error, reason,
+         %{
+           provider_call_count: 0,
+           judgment_transcript: get_in(snapshot, [:stage_state, :judgment_transcript])
+         }}
+    end
+  end
+
+  defp execute_plan(ir, run, provider_execution, snapshot, tool_name, meta_fun) do
+    case plan_result_fn(provider_execution, snapshot, :planner) do
+      {:ok, result_fn} ->
+        {parsed, session} =
+          NativeToolExchange.run(
+            ir,
+            result_fn,
+            tool_name,
+            fn result, attempt -> parse_plan_result(run, tool_name, result, attempt) end,
+            &exchange_error/2,
+            tool_choice: "auto",
+            retry_transport: true,
+            feedback: &plan_feedback(&1, run, tool_name),
+            on_retry: &on_plan_retry/3
+          )
+
+        finish_plan(parsed, session, meta_fun)
+
+      {:error, reason} ->
+        {:error, reason, AuthoringOperation.metadata(%{request_ir: ir, provider_call_count: 0})}
     end
   end
 
@@ -189,104 +212,94 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     end
   end
 
-  defp request_plan(prompt, ctx) do
-    ctx = Map.put(ctx, :prompt, prompt)
+  defp parse_plan_result(run, tool_name, result, attempt) do
+    ctx = %{run: run, provider_result: result, retry?: attempt == 1}
 
-    case ctx.result_fn.(prompt) do
-      {:ok, %{content: content} = provider_result} ->
-        provider_result
-        |> parse_tool_call_result_detailed(ctx.tool_name)
-        |> build_or_retry_plan(
-          Map.merge(ctx, %{content: content, provider_result: provider_result})
-        )
-
-      {:ok, %{"content" => content} = provider_result} ->
-        provider_result
-        |> parse_tool_call_result_detailed(ctx.tool_name)
-        |> build_or_retry_plan(
-          Map.merge(ctx, %{content: content, provider_result: provider_result})
-        )
-
-      {:ok, content} when is_binary(content) ->
-        provider_result = %{content: content, tool_calls: []}
-
-        provider_result
-        |> parse_tool_call_result_detailed(ctx.tool_name)
-        |> build_or_retry_plan(
-          Map.merge(ctx, %{content: content, provider_result: provider_result})
-        )
-
-      {:error, reason} ->
-        provider_retry_or_error(reason, ctx)
-
-      other ->
-        provider_retry_or_error({:invalid_plan_draft_result, other}, ctx)
-    end
-  end
-
-  # D4：provider 层错误与结构纠正重试共享同一次 retry 额度（两族互斥，最坏 2 调用）；
-  # provider 错无「纠正」语义——原样重发。
-  defp provider_retry_or_error(reason, %{retry?: true} = ctx) do
-    emit_plan_retry(:structure, :provider_error, reason)
-    request_plan(ctx.prompt, %{ctx | attempt: ctx.attempt + 1, retry?: false})
-  end
-
-  defp provider_retry_or_error(reason, _ctx), do: {:error, reason}
-
-  defp emit_plan_retry(stage, family, reason) do
-    NovelCommon.LogEmit.emit(:plan_draft, :retry, :start, %{
-      stage: stage,
-      family: family,
-      reason: inspect(reason) |> String.slice(0, 200)
-    })
-  end
-
-  defp build_or_retry_plan({:ok, parsed}, ctx) do
-    with {:ok, reasoning, origin, source_result} <- resolve_narrative(ctx, parsed),
+    with {:ok, parsed} <- parse_tool_call_result_detailed(result, tool_name),
+         {:ok, reasoning, origin, source} <- resolve_narrative(ctx, parsed),
          :ok <- validate_writing_intents(parsed, ctx),
-         {:ok, plan} <- build_plan(ctx.run, parsed),
-         :ok <- validate_plan_targets(ctx.run, plan),
-         {:ok, narrative_source} <-
-           narrative_source(source_result, reasoning, origin, ctx.tool_name) do
-      base_meta = %{
-        provider_call_count: ctx.attempt,
-        summary: reasoning,
-        author_narrative_source: narrative_source,
-        reason_codes: reason_codes(parsed),
-        confidence: confidence(parsed)
+         {:ok, plan} <- build_plan(run, parsed),
+         :ok <- validate_plan_targets(run, plan),
+         {:ok, binding} <- narrative_source(source, reasoning, origin, tool_name) do
+      %{
+        status: :ok,
+        plan: plan,
+        meta: %{
+          summary: reasoning,
+          author_narrative_source: binding,
+          reason_codes: reason_codes(parsed),
+          confidence: confidence(parsed)
+        }
       }
-
-      {:ok, plan, ctx.meta_fun.(plan, base_meta)}
     else
-      {:error, reason} -> retry_or_error(reason, ctx)
+      {:error, reason} -> rejected_plan(reason)
     end
   end
 
-  defp build_or_retry_plan({:error, reason}, ctx), do: retry_or_error(reason, ctx)
-
-  defp retry_or_error(reason, %{retry?: true} = ctx) do
-    emit_plan_retry(:structure, :correction, reason)
-
-    ctx.prompt
-    |> tool_call_correction_prompt(ctx.content, reason, ctx.run, ctx.tool_name)
-    |> request_plan(%{ctx | attempt: ctx.attempt + 1, retry?: false})
+  defp rejected_plan(reason) do
+    %{
+      status: :error,
+      reason: reason,
+      error: %{code: "agent_plan_protocol_violation", reason: reason}
+    }
   end
 
-  defp retry_or_error(reason, ctx) do
+  defp exchange_error("provider_error", reason),
+    do: %{status: :error, reason: reason, error: %{code: "provider_error"}}
+
+  defp exchange_error("provider_response_unexpected", result),
+    do: exchange_error("provider_error", {:invalid_plan_draft_result, result})
+
+  defp exchange_error("unexpected_tool_calls", %{received_count: 1}),
+    do: rejected_plan(:invalid_plan_tool_arguments)
+
+  defp exchange_error("unexpected_tool_calls", %{received_count: count}),
+    do: rejected_plan({:native_tool_call_count_invalid, count})
+
+  defp exchange_error("native_tool_call_required", _detail),
+    do: rejected_plan(:native_tool_call_required)
+
+  defp exchange_error("invalid_request_ir", reason),
+    do: exchange_error("provider_error", {:invalid_request_ir, reason})
+
+  defp exchange_error(_code, reason), do: rejected_plan(reason)
+
+  defp finish_plan(%{status: :ok, plan: plan, meta: meta}, session, meta_fun) do
+    operation =
+      AuthoringOperation.complete(session, "agent_plan_validated", %{
+        plan_ref: plan.plan_id,
+        plan_version: plan.version
+      })
+
+    {:ok, plan, meta_fun.(plan, Map.merge(meta, operation))}
+  end
+
+  defp finish_plan(
+         %{status: :error, error: %{code: "provider_error"}, reason: reason},
+         session,
+         _meta_fun
+       ),
+       do: {:error, reason, AuthoringOperation.metadata(session)}
+
+  defp finish_plan(%{status: :error, reason: reason}, session, _meta_fun) do
     NovelCommon.LogEmit.emit(:plan_draft, :output_validation, :done, %{
       outcome: "rejected",
-      tool_name: ctx.tool_name,
       reason: inspect(reason)
     })
 
-    # 对外保持既有终局 reason 原子（tests/协议兼容）；字段细节已进纠错回执与日志。
-    reason =
-      case reason do
-        {:invalid_plan_tool_arguments, _errors} -> :invalid_plan_tool_arguments
-        other -> other
-      end
+    {:error, {:agent_plan_protocol_violation, public_reason(reason)},
+     AuthoringOperation.metadata(session)}
+  end
 
-    {:error, {:agent_plan_protocol_violation, reason}}
+  defp public_reason({:invalid_plan_tool_arguments, _errors}), do: :invalid_plan_tool_arguments
+  defp public_reason(reason), do: reason
+
+  defp on_plan_retry(kind, reason, _attempt) do
+    NovelCommon.LogEmit.emit(:plan_draft, :retry, :start, %{
+      stage: :structure,
+      family: if(kind == :provider, do: :provider_error, else: :correction),
+      reason: inspect(reason) |> String.slice(0, 200)
+    })
   end
 
   # 只绑定当前有效响应；纠正调用不能沿用失败响应的作者文字。
@@ -640,32 +653,21 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
   defp plan_step_targets(_profile_ref), do: nil
 
-  # VS-00I CP-D：prompt 按 L0–L4 稳定度排序（只重排，不删段、不改措辞语义）。
-  # L1 = 角色句之后的调用点常量（profile 参数、计划要求、能力目录）；L2 = 作品章节；
-  # L3 = 本轮目标 / 版本 / run_id / 阶段状态；L4 = 输出契约置尾（见各 prompt 构造器）。
   @doc false
   @spec draft_context_block(AgentRun.t(), map(), map() | [String.t()]) :: String.t()
   def draft_context_block(%AgentRun{} = run, snapshot, chapter_titles) do
+    scope_sections(run, snapshot, chapter_titles)
+    |> Enum.join("\n\n")
+  end
+
+  defp scope_sections(run, snapshot, chapter_titles) do
     [
       """
-      ## 调用点参数（本调用点恒定）
+      ## 调用点参数
       - profile_ref: #{run.profile_ref}
       - plan_step_targets: #{Enum.join(allowed_targets(run), ", ")}
       - internal_observation_steps: #{Enum.join(internal_observation_steps(run.profile_ref), ", ")}
-      """,
-      """
-      ## 计划要求
-      - 计划必须是当前作者目标的 per-run 动态计划，不要复述固定模板。
-      - 每个 PlanStep 必须有 target_tool_ref，且只能来自 plan_step_targets；不在该列表中的能力（即使作品允许使用）不能作为独立 PlanStep。
-      - 能力目录中的「依赖」声明是硬约束：被依赖的步骤必须出现在计划中，且排在使用它的步骤之前，不可省略。
-      - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw / target_chapter_ref；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，并**逐字复制该条索引里的 chapter_ref 填入 target_chapter_ref**（同名章必须靠 ref 区分；列表中没有对应章或无法确定时两者都填 null）。
-      - authoring_intent 是枚举不是描述文字，只能取：continuation（续写既有章：保留已采纳正文接着写）｜ rewrite（推翻重写该章）｜ null（写新章）。作者说"接着写/继续写/往下写"必须填 continuation。
-      - 作者明确表达了篇幅诉求（如"写约 800 字""三百字左右"）时，prose_writing 步携带 target_word_count 整数估计；没有篇幅诉求填 null，不要硬编。
-      - tool arguments 顶层只能是 plan / author_reasoning / reason_codes / confidence 四个字段，不得加额外字段。
-      - 只起草计划，不声称已经执行，不输出工具结果。
-      - 普通路径应覆盖完成目标所需最少步骤；不要添加纯收束模型调用。
-      """,
-      """
+
       ## 可用能力说明
       #{step_catalog(run.profile_ref)}
       """,
@@ -674,12 +676,15 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       ## 本轮目标
       - author_goal: #{run.goal.text}
       - goal_version: #{run.goal.version}
+      - current_plan_version: #{run.plan_version || 1}
+      - next_plan_version: #{next_plan_version(run)}
       - stage_state_keys: #{stage_state_keys(snapshot)}
       - run_id: #{run.run_id}
-      """
+      """,
+      plan_arguments_contract(allowed_targets(run))
     ]
     |> Enum.reject(&(&1 == ""))
-    |> Enum.map_join("\n\n", &String.trim/1)
+    |> Enum.map(&String.trim/1)
   end
 
   # 与旧 Planner accepted_chapters_section 同一契约措辞：target_chapter 精确复制标题；
@@ -721,91 +726,115 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   @spec revision_context_block(AgentRun.t(), map(), map() | [String.t()], String.t()) ::
           String.t()
   def revision_context_block(%AgentRun{} = run, snapshot, chapter_titles, revision_reason) do
-    [
-      """
-      ## 修订要求
-      - 输出完整修订后计划；已经完成的前缀步骤应保留，未完成步骤应追加或替换为当前目标仍需要的步骤。
-      - 每个 PlanStep 必须有 target_tool_ref，且只能来自 plan_step_targets；不在该列表中的能力（即使作品允许使用）不能作为独立 PlanStep。
-      - 能力目录中的「依赖」声明是硬约束：被依赖的步骤必须出现在计划中，且排在使用它的步骤之前，不可省略。
-      - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw / target_chapter_ref；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，并**逐字复制该条索引里的 chapter_ref 填入 target_chapter_ref**（同名章必须靠 ref 区分；列表中没有对应章或无法确定时两者都填 null）。
-      - authoring_intent 是枚举不是描述文字，只能取：continuation（续写既有章：保留已采纳正文接着写）｜ rewrite（推翻重写该章）｜ null（写新章）。作者说"接着写/继续写/往下写"必须填 continuation。
-      - 作者明确表达了篇幅诉求（如"写约 800 字""三百字左右"）时，prose_writing 步携带 target_word_count 整数估计；没有篇幅诉求填 null，不要硬编。
-      - tool arguments 顶层只能是 plan / author_reasoning / reason_codes / confidence 四个字段，不得加额外字段。
-      - 只修订计划，不声称已经执行，不输出工具结果。
-      - 如果计划已走完但完成条件未满足，必须补足能够让运行继续取得真实进展的最少步骤。
-      """,
-      """
-      ## 调用点参数（本调用点恒定）
-      - profile_ref: #{run.profile_ref}
-      - plan_step_targets: #{Enum.join(allowed_targets(run), ", ")}
-      - internal_observation_steps: #{Enum.join(internal_observation_steps(run.profile_ref), ", ")}
-      """,
-      """
-      ## 可用能力说明
-      #{step_catalog(run.profile_ref)}
-      """,
-      String.trim(accepted_chapters_section(chapter_titles, run.goal.text)),
-      """
-      ## 本轮目标
-      - author_goal: #{run.goal.text}
-      - current_plan_version: #{run.plan_version || 1}
-      - next_plan_version: #{next_plan_version(run)}
-      - stage_state_keys: #{stage_state_keys(snapshot)}
-      - run_id: #{run.run_id}
-      """,
-      """
-      ## 修订触发原因
-      #{revision_reason}
-      """,
-      """
-      ## 当前计划
-      #{current_plan_json(run)}
-      """,
-      """
-      ## 最近观察
-      #{observation_lines(snapshot)}
-      """
-    ]
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.map_join("\n\n", &String.trim/1)
+    (scope_sections(run, snapshot, chapter_titles) ++
+       [
+         "## 修订触发原因\n#{revision_reason}",
+         "## 当前计划\n#{current_plan_json(run)}",
+         "## 最近观察\n#{observation_lines(snapshot)}"
+       ])
+    |> Enum.join("\n\n")
   end
 
-  # 单调用 auto：content 为作者可见 reasoning（可流式），计划结构走同名 native tool arguments。
-  @doc "单调用计划起草请求；共同任务策略与判断入口同源。"
+  @doc "与生产同源的原生计划起草投影。"
   def draft_prompt(%AgentRun{} = run, snapshot, chapter_titles) do
-    tool_prompt(@draft_tool_name, """
-    本次你承担 AgentRun 计划起草器的角色，只提出计划，不批准执行。
-    共同任务规则版本：#{NovelApplication.AuthoringTaskPolicy.version()}。
-    #{NovelApplication.AuthoringTaskPolicy.rules()}
-
-    #{draft_context_block(run, snapshot, chapter_titles)}
-
-    ## 输出契约
-    调用 agent_plan_draft 给出完整计划。说明必要步骤、依据与待采纳边界，不机械复述形态。
-    content 可以同时说明计划；author_reasoning 保留作者可见原话，空 content 时从该字段展示。
-    不执行步骤，不声称产物已经生成或采纳，不输出工具结果。
-
-    #{plan_arguments_contract(allowed_targets(run))}
-    """)
+    operation_prompt(
+      run,
+      snapshot,
+      operation_spec(run, snapshot, chapter_titles, :draft, nil, [])
+    )
   end
 
-  @doc "单调用计划修订请求，沿原任务与已完成前缀修订。"
+  @doc "与生产同源的原生计划修订投影。"
   def revision_prompt(%AgentRun{} = run, snapshot, chapter_titles, revision_reason) do
-    tool_prompt(@revision_tool_name, """
-    本次你承担 AgentRun 计划修订器的角色，只提出计划，不批准执行。
+    operation_prompt(
+      run,
+      snapshot,
+      operation_spec(run, snapshot, chapter_titles, :revision, revision_reason, [])
+    )
+  end
+
+  defp operation_prompt(run, snapshot, spec) do
+    {:ok, ir} = AuthoringOperation.prepare(run, snapshot, spec)
+
+    {:ok, prompt} =
+      RequestIR.to_provider_prompt(ir, tool_names: [spec.tool.name], tool_choice: "auto")
+
+    prompt
+  end
+
+  defp operation_spec(run, snapshot, chapters, kind, revision_reason, opts) do
+    tool_name = if kind == :draft, do: @draft_tool_name, else: @revision_tool_name
+
+    scope =
+      if kind == :draft,
+        do: draft_context_block(run, snapshot, chapters),
+        else: revision_context_block(run, snapshot, chapters, revision_reason)
+
+    %{
+      role: tool_name,
+      instructions: planner_instructions(kind, tool_name),
+      scope: scope,
+      tool: plan_tool(tool_name),
+      source_refs: planner_source_refs(run, chapters, snapshot),
+      versions: %{"goal_version" => run.goal.version, "plan_version" => run.plan_version || 1},
+      author_text: Keyword.get(opts, :author_text)
+    }
+  end
+
+  defp planner_source_refs(run, chapters, snapshot) do
+    {listed, _omitted} =
+      NovelApplication.ChapterListBudget.project_entries(
+        chapters_payload(chapters).entries,
+        run.goal.text
+      )
+
+    chapter_refs =
+      for entry <- listed,
+          id = Map.get(entry, :id),
+          is_binary(id),
+          do: "chapter:" <> id
+
+    observation_refs =
+      for observation <- snapshot |> map_get(:observations) |> List.wrap() |> Enum.take(-8),
+          ref <- List.wrap(map_get(observation, :evidence_refs)),
+          is_binary(ref),
+          do: ref
+
+    (chapter_refs ++ observation_refs) |> Enum.uniq() |> Enum.map(&%{ref: &1})
+  end
+
+  defp planner_instructions(kind, tool_name) do
+    role = if kind == :draft, do: "AgentRun 计划起草器", else: "AgentRun 计划修订器"
+    heading = if kind == :draft, do: "计划要求", else: "修订要求"
+
+    """
+    本次你承担 #{role}的角色，只提出计划，不批准执行。
     共同任务规则版本：#{NovelApplication.AuthoringTaskPolicy.version()}。
     #{NovelApplication.AuthoringTaskPolicy.rules()}
 
-    #{revision_context_block(run, snapshot, chapter_titles, revision_reason)}
+    ## #{heading}
+    #{plan_requirements(kind)}
+    - 每个 PlanStep 必须有 target_tool_ref，且只能来自本轮 plan_step_targets；不在该列表中的能力不能作为独立步骤。
+    - 能力目录中的「依赖」声明是硬约束：依赖步骤必须在使用它的步骤之前，不可省略。
+    - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw / target_chapter_ref；作者点名章按作品章节列表精确复制全名，并逐字复制该条索引里的 chapter_ref。无法确定时填 null。
+    - authoring_intent 只能取 continuation / rewrite / null（枚举，非描述文字）；作者要求接着写、继续写、往下写时必须填 continuation。
+    - 作者明确篇幅诉求时 prose_writing 步携带 target_word_count 整数估计；没有诉求填 null。
+    - 不执行步骤，不声称产物已经生成或采纳，不输出工具结果。
 
     ## 输出契约
-    调用 agent_plan_revision 给出完整修订计划，保留已完成前缀和当前任务对象/范围。
-    content 可同时说明事实、修订理由与影响范围；author_reasoning 保留作者可见原话。
-    不执行步骤，不声称产物已经生成或采纳，不输出工具结果。
-
-    #{plan_arguments_contract(allowed_targets(run))}
-    """)
+    调用 #{tool_name} 给出完整计划；content 可同时说明事实、理由和影响范围。
+    author_reasoning 保留作者可见说明原话，空 content 时从该字段展示。
+    #{plan_argument_rules()}
+    """
+    |> String.trim()
   end
+
+  defp plan_requirements(:draft),
+    do: "- 计划必须是当前作者目标的动态计划，不要复述固定模板。\n- 普通路径应覆盖完成目标所需最少步骤；不要添加纯收束模型调用。"
+
+  defp plan_requirements(:revision),
+    do:
+      "- 输出完整修订计划，保留已经完成的前缀步骤；未完成步骤只追加或替换为当前目标仍需要的步骤。\n- 如果计划已走完但完成条件未满足，必须补足能够让运行继续取得真实进展的最少步骤。"
 
   defp step_catalog("judgment_plan_v1") do
     """
@@ -908,39 +937,18 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   # P1 可达性：真实模型常把 arguments 只写成 {"plan":{...}}，漏掉另三个顶层必填字段。
   # 契约本身不改（schema 仍 required + additionalProperties=false）；prompt 给显式骨架，
   # 说明 plan 只是顶层字段之一，避免“只包 plan”的可达性缺口。
-  defp plan_arguments_contract(allowed_targets) do
-    step_target = List.first(List.wrap(allowed_targets)) || "context_assemble"
-
-    steps =
-      [plan_step_skeleton("s1", "explore", step_target, [])] ++
-        if "prose_writing" in List.wrap(allowed_targets) do
-          [
-            plan_step_skeleton("s2", "act", "prose_writing", [
-              {"write_intent", "tentative"},
-              {"authoring_intent", "continuation"},
-              {"target_chapter", "..."},
-              {"requested_chapter_raw", nil},
-              {"target_chapter_ref", nil}
-            ])
-          ]
-        else
-          []
-        end
-
-    skeleton =
-      Jason.encode!(%{
-        "plan" => %{"steps" => steps},
-        "author_reasoning" => "...",
-        "reason_codes" => ["agent_plan_drafted"],
-        "confidence" => 0.9
-      })
-
+  defp plan_arguments_contract(targets) do
     """
     ### arguments JSON 骨架（顶层四字段缺一不可，plan 不是唯一包裹）
-    必须返回一个 JSON object，顶层同时包含 plan / author_reasoning / reason_codes / confidence：
-    #{skeleton}
+    本轮合法字段与能力目标的最小示例（按当前任务填写，不照抄占位）：
+    #{plan_arguments_skeleton(targets)}
+    """
+    |> String.trim()
+  end
 
-    说明：
+  defp plan_argument_rules do
+    """
+    必须返回一个 JSON object，顶层同时包含 plan / author_reasoning / reason_codes / confidence：
     - plan 必须是 arguments 的一个顶层字段；只返回 {"plan":{...}} 会因缺少 author_reasoning / reason_codes / confidence 被校验拒绝。
     - plan.steps 每步必须含 step_id / kind / description / success_criteria / target_tool_ref；kind 只能是 explore 或 act。
     - prose_writing 步必须在 step 对象里显式写 "authoring_intent" 键：continuation / rewrite / null（写新章也要有该键，不能省略）；同时带 target_chapter / requested_chapter_raw / target_chapter_ref，无值填 null。
@@ -950,62 +958,36 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     |> String.trim()
   end
 
-  defp tool_call_correction_prompt(original_prompt, failed_content, reason, run, tool_name) do
-    original_text = original_prompt_text(original_prompt)
-    targets = correction_targets(run)
-    tool_name = correction_tool_name(tool_name, original_prompt, targets)
-    skeleton_target = List.first(targets) || "context_assemble"
+  defp plan_feedback(%{reason: reason}, run, tool_name) do
+    targets = allowed_targets(run)
 
-    tool_prompt(
-      tool_name,
+    message =
       """
       你上一次的 AgentRun 计划 tool call 无法被系统解析（#{inspect(reason)}）。请严格重新输出同一任务：
-      - 必须调用 #{tool_name}，且只调用这一个 tool（function name 必须是 #{tool_name}，不能把 auto 当 function name）
-      - tool arguments 顶层只能是四个字段：plan / author_reasoning / reason_codes / confidence（不得加 status、title、body 等额外字段）
-      - plan 只能是 {"steps": [PlanStep, ...]}；每个 PlanStep 必须有 step_id / kind / description / success_criteria / target_tool_ref
-      - prose_writing 步必须在 step 对象里显式写 "authoring_intent" 键：continuation / rewrite / null（写新章也要有该键，不能省略）；同时带 target_chapter / requested_chapter_raw / target_chapter_ref，无值填 null
-      - kind 只能取 "explore" 或 "act"；target_tool_ref 只能取本任务 plan_step_targets 列表中的值
-      - 检索步（prose_search/chapter_read/archive_read/memory_recall）可带 exploration_query 字符串；非检索步填 null 或省略
-      - 合法最小骨架（值按本任务填写，不要照抄占位）：
-        #{correction_skeleton_json(targets, skeleton_target)}
-      - 上次 arguments 未通过计划 schema 时，逐项核对顶层四字段 plan / author_reasoning / reason_codes / confidence：plan 只是其中一个顶层字段，不能只返回 {"plan":{...}}；也不要加额外字段。
+      - 必须调用 #{tool_name}，且只调用这一个 tool（function name 必须是 #{tool_name}，不能把 auto 当 function name）。
+      - arguments 是 JSON object，顶层只能是四个字段：plan / author_reasoning / reason_codes / confidence。
+      - plan 只是其中一个顶层字段，不能只返回 {"plan":{...}}；四个顶层字段缺一不可，不要添加 status、title、body 等额外字段。
+      - plan 只能是 {"steps": [PlanStep, ...]}；plan.steps 每步必须有 step_id / kind / description / success_criteria / target_tool_ref；kind 只能取 "explore" 或 "act"。
+      - prose_writing 步必须显式携带 authoring_intent（continuation / rewrite / null）；target_chapter / requested_chapter_raw / target_chapter_ref 无值填 null。
+      - 检索步（prose_search/chapter_read/archive_read/memory_recall）可带 exploration_query 字符串；非检索步填 null 或省略。
+      - 合法最小骨架（按当前任务填写，不照抄占位）：
+        #{plan_arguments_skeleton(targets)}
       #{targets_guidance(targets)}#{shape_guidance(reason, tool_name)}#{field_guidance(reason)}
-      ## 你的上一次 content（截取前 #{@max_failed_planner_output_chars} 字符）
-      #{String.slice(to_string(failed_content), 0, @max_failed_planner_output_chars)}
-
-      ## 原始任务
-      #{original_text}
       """
-    )
-  end
+      |> String.trim()
 
-  defp correction_tool_name(tool_name, _original_prompt, _targets)
-       when tool_name in [@draft_tool_name, @revision_tool_name],
-       do: tool_name
-
-  defp correction_tool_name(_tool_name, original_prompt, _targets) do
-    original_prompt
-    |> prompt_tool_name()
-    |> Kernel.||(@draft_tool_name)
-  end
-
-  defp prompt_tool_name(original_prompt) do
-    original_prompt
-    |> map_get(:tools)
-    |> List.wrap()
-    |> Enum.find_value(&known_plan_tool_name/1)
-  end
-
-  defp known_plan_tool_name(tool) do
-    case map_get(tool, :name) do
-      name when name in [@draft_tool_name, @revision_tool_name] -> name
-      _ -> nil
-    end
+    %{
+      reason_code: "agent_plan_protocol_violation",
+      detail: %{correction: message, reason: inspect(reason)},
+      message: message
+    }
   end
 
   # 纠错骨架必须包含 prose_writing 步的 authoring_intent（写新章也必须显式 null），
   # 否则模型照抄骨架仍会 missing_authoring_intent。
-  defp correction_skeleton_json(targets, skeleton_target) do
+  defp plan_arguments_skeleton(targets) do
+    skeleton_target = List.first(targets) || "context_assemble"
+
     steps =
       [plan_step_skeleton("s1", "explore", skeleton_target, [])] ++
         if "prose_writing" in List.wrap(targets) do
@@ -1042,9 +1024,6 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       Map.new(extra_fields)
     )
   end
-
-  # 调用点只传 %AgentRun{}（map）；非 map 分支被 dialyzer 证明不可达（B60）。
-  defp correction_targets(%{} = run), do: allowed_targets(run)
 
   defp targets_guidance([]), do: ""
 
@@ -1130,22 +1109,9 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   defp require_json_object(parsed) when is_map(parsed), do: {:ok, parsed}
   defp require_json_object(_parsed), do: {:error, :json_object_required}
 
-  defp tool_prompt(tool_name, content) do
-    %{
-      messages: [
-        %{role: "user", content: content}
-      ],
-      tools: [plan_tool(tool_name)],
-      tool_choice: "auto"
-    }
-  end
-
   defdelegate plan_tool(name \\ @draft_tool_name),
     to: NovelApplication.AgentPlanToolContract,
     as: :tool
-
-  defp original_prompt_text(%{messages: [%{content: content} | _]}), do: content
-  defp original_prompt_text(other), do: inspect(other)
 
   defp narrative_source(provider_result, summary, :content, _tool_name) do
     case AgentNarrativeSource.from_provider_result(provider_result, summary) do

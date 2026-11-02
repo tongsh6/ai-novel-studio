@@ -2,8 +2,16 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Test.Provider.SliceVerify
-  alias NovelApplication.{AgenticPlanDraftPlanner, AgentPlanToolContract, JudgmentToolContract}
+
+  alias NovelApplication.{
+    AgenticPlanDraftPlanner,
+    AgentPlanToolContract,
+    AuthoringTranscript,
+    JudgmentToolContract
+  }
+
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelDomain.AgentRun
 
@@ -72,6 +80,156 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       })
 
     %{content: content, tool_calls: tool_calls, provider_output: output}
+  end
+
+  @tag :b71_canonical
+  test "B71 独立起草纠错与计划修订沿同一 canonical 历史，作者原话保持独立" do
+    run = probe_run()
+    prior = prior_transcript(run)
+    broken = Map.put(plan_arguments(), "plan", "not-an-object")
+
+    responses = [
+      {:ok, provider_result_with_arguments("需要纠正计划结构。", broken)},
+      {:ok, provider_result(@narrative)},
+      {:ok,
+       provider_result_with_arguments("保留已有步骤，更新计划。", plan_arguments(), "agent_plan_revision")}
+    ]
+
+    execution = sequence_execution(responses)
+
+    assert {:ok, plan, draft_meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(run, execution, snapshot(prior))
+
+    assert draft_meta.provider_call_count == 2
+    draft = draft_meta.judgment_transcript
+    assert Enum.take(draft.messages, length(prior.messages)) == prior.messages
+
+    assert Enum.filter(draft.messages, &(&1.role == "user")) ==
+             Enum.filter(prior.messages, &(&1.role == "user"))
+
+    assert validation_statuses(draft) == ["failed", "passed"]
+    assert {:ok, draft_ir} = AuthoringTranscript.to_request_ir(draft)
+    assert {:ok, _} = RequestIR.to_provider_prompt(draft_ir)
+
+    assert_received {:canonical_plan_prompt, first}
+    assert_received {:canonical_plan_prompt, corrected}
+    assert first.ir_version == RequestIR.ir_version()
+    assert Enum.take(corrected.messages, length(first.messages)) == first.messages
+    assert Enum.any?(corrected.messages, &(&1.role == "tool" and &1.content =~ "failed"))
+
+    revision_run = %{run | plan: plan, plan_ref: plan.plan_id, plan_version: plan.version}
+
+    assert {:ok, revised, revision_meta} =
+             AgenticPlanDraftPlanner.revise_plan_with_meta(
+               revision_run,
+               execution,
+               snapshot(draft),
+               revision_reason: "已有候选尚未满足目标，需要继续推进。"
+             )
+
+    assert revised.version == plan.version + 1
+    assert revision_meta.provider_call_count == 1
+    transcript = revision_meta.judgment_transcript
+    assert Enum.take(transcript.messages, length(draft.messages)) == draft.messages
+    assert validation_statuses(transcript) == ["failed", "passed", "passed"]
+
+    assert tool_names(transcript) == [
+             "read_character",
+             "agent_plan_draft",
+             "agent_plan_draft",
+             "agent_plan_revision"
+           ]
+
+    assert Enum.count(transcript.messages, &(&1.role == "user")) == 1
+    assert Process.get(:canonical_plan_responses) == []
+  end
+
+  @tag :b71_canonical
+  test "B71 末次规划校验失败仍返回两次真实调用与闭合的失败历史" do
+    run = probe_run()
+    prior = prior_transcript(run)
+    broken = Map.put(plan_arguments(), "plan", "not-an-object")
+
+    execution =
+      sequence_execution(
+        List.duplicate({:ok, provider_result_with_arguments("结构仍不合法。", broken)}, 2)
+      )
+
+    assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments}, meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(run, execution, snapshot(prior))
+
+    assert meta.provider_call_count == 2
+    assert validation_statuses(meta.judgment_transcript) == ["failed", "failed"]
+    assert Enum.take(meta.judgment_transcript.messages, length(prior.messages)) == prior.messages
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(meta.judgment_transcript)
+    assert {:ok, _} = RequestIR.to_provider_prompt(ir)
+    assert Process.get(:canonical_plan_responses) == []
+  end
+
+  @tag :b71_canonical
+  test "B71 transport 两次失败也返回准确开销与可恢复会话，不伪造模型回复" do
+    prior = prior_transcript(probe_run())
+    execution = sequence_execution(List.duplicate({:error, %{type: :timeout}}, 2))
+
+    assert {:error, %{type: :timeout}, meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution, snapshot(prior))
+
+    assert meta.provider_call_count == 2
+    assert tool_names(meta.judgment_transcript) == ["read_character"]
+    assert Enum.take(meta.judgment_transcript.messages, length(prior.messages)) == prior.messages
+    assert Process.get(:canonical_plan_responses) == []
+  end
+
+  defp prior_transcript(run) do
+    AuthoringTranscript.new(Map.take(run, [:run_id, :work_id, :workspace_id, :session_id]),
+      base_text: "同一运行内保留真实证据与作者授权。",
+      author_text: "  请先核对人物，再续写第01章。\n",
+      author_turn_ref: run.parent_turn_ref,
+      tools: [%{name: "read_character", input_schema: %{type: "object"}}],
+      projection: %{
+        target: "chat_completions",
+        capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
+      }
+    )
+    |> AuthoringTranscript.append_assistant("先核对人物。", [
+      RequestIR.tool_call_block("read_character", %{}, "prior-read")
+    ])
+    |> AuthoringTranscript.append_observation("prior-read", %{
+      status: "ok",
+      source_refs: [%{ref: "character:1", version: 2}],
+      versions: %{"character:1" => 2},
+      content: %{name: "沈砚"}
+    })
+  end
+
+  defp snapshot(transcript), do: %{stage_state: %{judgment_transcript: transcript}}
+
+  defp sequence_execution(responses) do
+    Process.put(:canonical_plan_responses, responses)
+    parent = self()
+
+    %Execution{
+      result_fn: fn prompt ->
+        send(parent, {:canonical_plan_prompt, prompt})
+        [response | rest] = Process.get(:canonical_plan_responses)
+        Process.put(:canonical_plan_responses, rest)
+        response
+      end
+    }
+  end
+
+  defp validation_statuses(transcript) do
+    for message <- transcript.messages,
+        block <- message.blocks,
+        Map.get(block, :type) == "validation_result",
+        do: block.status
+  end
+
+  defp tool_names(transcript) do
+    for message <- transcript.messages,
+        block <- message.blocks,
+        Map.get(block, :type) == "tool_call",
+        do: block.name
   end
 
   test "empty assistant content falls back to author_reasoning tool argument with tool-narrative source binding" do
@@ -175,14 +333,15 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     end
 
     assert {:error,
-            {:agent_plan_protocol_violation, {:plan_step_target_not_allowed, ["world_building"]}}} =
+            {:agent_plan_protocol_violation, {:plan_step_target_not_allowed, ["world_building"]}},
+            %{provider_call_count: 2}} =
              AgenticPlanDraftPlanner.draft_plan_with_meta(run, %Execution{result_fn: result_fn})
 
     # 起草被拒后走了一次纠错重试（第二个单调用 prompt 是纠错 prompt）
     assert_received {:plan_prompt, _first}
     assert_received {:plan_prompt, retry_prompt}
 
-    retry_text = retry_prompt.messages |> hd() |> Map.fetch!(:content)
+    retry_text = feedback_text(retry_prompt)
     assert retry_text =~ "无法被系统解析"
   end
 
@@ -208,7 +367,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
     # 单调用 prompt 必须携带「作品章节」列表：target_chapter 契约要求模型精确复制列表全名，
     # 缺了列表点名章请求只能填 null → 被缺失策略误判"点名了不存在的章"（本回归的根因）。
-    text = plan_prompt.messages |> hd() |> Map.fetch!(:content)
+    text = prompt_text(plan_prompt)
     assert text =~ "## 作品章节"
     assert text =~ "- 第02章：矿区追击战"
     assert text =~ "精确复制全名"
@@ -231,7 +390,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
              )
 
     assert_received {:prompt, plan_prompt}
-    refute plan_prompt.messages |> hd() |> Map.fetch!(:content) =~ "## 作品章节"
+    refute prompt_text(plan_prompt) =~ "## 作品章节"
   end
 
   # 写作坐标解析（自帧纪元 Planner.form_micro_plan 载体迁移，2026-07 帧退役批次 2）：
@@ -254,7 +413,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
         end
       }
 
-      assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments}} =
+      assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments},
+              %{provider_call_count: 2}} =
                AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
     end
 
@@ -366,7 +526,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
     assert_received {:prompt, plan_prompt}
 
-    text = plan_prompt.messages |> hd() |> Map.fetch!(:content)
+    text = prompt_text(plan_prompt)
     refute text =~ removed_capability
   end
 
@@ -444,7 +604,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       end
     }
 
-    assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments}} =
+    assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments},
+            %{provider_call_count: 2}} =
              AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
   end
 
@@ -482,7 +643,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       {:error, %{type: :timeout, message: "persistent"}}
     end
 
-    assert {:error, %{type: :timeout}} =
+    assert {:error, %{type: :timeout}, %{provider_call_count: 2}} =
              AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), %Execution{
                result_fn: result_fn
              })
@@ -520,7 +681,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       end
     }
 
-    assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments}} =
+    assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments},
+            %{provider_call_count: 2}} =
              AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
   end
 
@@ -532,7 +694,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
     result_fn = fn prompt ->
       correction? =
-        prompt.messages |> hd() |> Map.fetch!(:content) |> String.contains?("无法被系统解析")
+        feedback_text(prompt) |> String.contains?("无法被系统解析")
 
       send(test_pid, {:plan_call, correction?})
       step = if correction?, do: good_step, else: bad_step
@@ -560,7 +722,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       {:ok, act_provider_result(bad_step)}
     end
 
-    assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments}} =
+    assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments},
+            %{provider_call_count: 2}} =
              AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), %Execution{
                result_fn: result_fn
              })
@@ -622,24 +785,24 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       end
     }
 
-    assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments}} =
+    assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments},
+            %{provider_call_count: 2}} =
              AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
   end
 
-  # VS-00I CP-D：L1 静态段在前、L2 作品章节居中、L3 本轮动态在后、L4 输出契约置尾。
-  # 防止后续改动把 run_id / goal / 章节等易变字段重新插回共享前缀。
-  test "VS-00I CP-D 起草 prompt 顺序：L1 → L2 → L3，输出要求置尾" do
+  # B71：角色、规则、输出协议先于动态 scope，目标和章节不得改写稳定前缀。
+  test "B71 起草请求把稳定输出契约与动态章节目标分层" do
     prompt =
       AgenticPlanDraftPlanner.draft_prompt(probe_run(), %{}, ["第01章：开端"])
 
-    text = prompt.messages |> hd() |> Map.fetch!(:content)
+    text = prompt_text(prompt)
 
     assert_ordered(text, [
       "## 计划要求",
+      "## 输出契约",
       "## 可用能力说明",
       "## 作品章节",
-      "## 本轮目标",
-      "## 输出契约"
+      "## 本轮目标"
     ])
 
     refute text =~ "## 当前 AgentRun"
@@ -660,7 +823,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     }
 
     reasoning_prompt = AgenticPlanDraftPlanner.draft_prompt(probe_run(), %{}, chapters)
-    text = reasoning_prompt.messages |> hd() |> Map.fetch!(:content)
+    text = prompt_text(reasoning_prompt)
 
     assert text =~ "target_chapter_ref"
     assert text =~ "逐字复制该条索引里的 chapter_ref"
@@ -697,9 +860,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     }
 
     text =
-      AgenticPlanDraftPlanner.draft_prompt(probe_run(), %{}, chapters).messages
-      |> hd()
-      |> Map.fetch!(:content)
+      AgenticPlanDraftPlanner.draft_prompt(probe_run(), %{}, chapters)
+      |> prompt_text()
 
     assert text =~
              "- 第 2 章「灰烬中的手印」[chapter_ref=chapter:11111111-1111-4111-8111-111111111111]"
@@ -709,7 +871,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     # 无 seq/id 的旧标题列表仍退回旧行格式（兼容手工上下文/测试夹具）。
     legacy = AgenticPlanDraftPlanner.draft_prompt(probe_run(), %{}, ["第01章：开端"])
 
-    legacy_text = legacy.messages |> hd() |> Map.fetch!(:content)
+    legacy_text = prompt_text(legacy)
     assert legacy_text =~ "- 第01章：开端"
     refute legacy_text =~ "[chapter_ref="
   end
@@ -744,13 +906,31 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     assert text =~ "第 1 章「灰烬中的手印」"
   end
 
+  defp feedback_text(%{messages: messages}) do
+    messages
+    |> Enum.reverse()
+    |> Enum.find_value("", fn
+      %{role: "tool", content: content} ->
+        case Jason.decode(content) do
+          {:ok, block} -> get_in(block, ["detail", "correction"])
+          _ -> nil
+        end
+
+      %{role: "user", content: content} ->
+        if String.contains?(content, "application_notice"), do: content
+
+      _ ->
+        nil
+    end)
+  end
+
   defp prompt_text(%{messages: messages}) do
     Enum.map_join(messages, "\n", fn message ->
       Map.get(message, :content) || Map.get(message, "content") || ""
     end)
   end
 
-  test "VS-00I CP-D 修订 prompt 顺序：修订要求与能力说明前置，动态计划在后" do
+  test "B71 修订请求把稳定协议与动态计划观察分层" do
     prompt =
       AgenticPlanDraftPlanner.revision_prompt(
         probe_run(),
@@ -759,17 +939,17 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
         "质量复核要求补足步骤"
       )
 
-    text = prompt.messages |> hd() |> Map.fetch!(:content)
+    text = prompt_text(prompt)
 
     assert_ordered(text, [
       "## 修订要求",
+      "## 输出契约",
       "## 可用能力说明",
       "## 作品章节",
       "## 本轮目标",
       "## 修订触发原因",
       "## 当前计划",
-      "## 最近观察",
-      "## 输出契约"
+      "## 最近观察"
     ])
   end
 
@@ -800,7 +980,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
         "质量复核要求补足步骤"
       )
 
-    text = prompt.messages |> hd() |> Map.fetch!(:content)
+    text = prompt_text(prompt)
 
     assert text =~ "finding [quality_gate.style_fit, severity=warn]"
     assert text =~ "第1项：对白推进不足"
@@ -877,7 +1057,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
     assert_received {:plan_prompt, 1, _first}
     assert_received {:plan_prompt, 2, correction}
-    correction_text = correction.messages |> hd() |> Map.fetch!(:content)
+    correction_text = feedback_text(correction)
 
     assert correction_text =~ "plan.steps[0] 缺少必填字段 success_criteria"
     assert correction_text =~ "含未允许字段 status"
@@ -908,7 +1088,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
              })
 
     assert_received {:plan_prompt, 2, correction}
-    correction_text = correction.messages |> hd() |> Map.fetch!(:content)
+    correction_text = feedback_text(correction)
     assert correction_text =~ "没有返回 native tool call"
     assert correction_text =~ "arguments 是 JSON object"
   end
@@ -920,7 +1100,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
     result_fn = fn _prompt -> {:ok, provider_result_with_arguments("仍非法。", invalid)} end
 
-    assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments}} =
+    assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments},
+            %{provider_call_count: 2}} =
              AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), %Execution{
                result_fn: result_fn
              })
@@ -955,7 +1136,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     draft =
       AgenticPlanDraftPlanner.draft_prompt(probe_run(), %{}, ["第01章：开端"])
 
-    draft_text = draft.messages |> hd() |> Map.fetch!(:content)
+    draft_text = prompt_text(draft)
 
     assert draft_text =~ "arguments JSON 骨架"
     assert draft_text =~ "plan / author_reasoning / reason_codes / confidence"
@@ -974,7 +1155,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
         "计划步骤已走完但完成条件未满足"
       )
 
-    revision_text = revision.messages |> hd() |> Map.fetch!(:content)
+    revision_text = prompt_text(revision)
     assert revision_text =~ "arguments JSON 骨架"
     assert revision_text =~ "顶层同时包含 plan / author_reasoning / reason_codes / confidence"
   end
@@ -1003,7 +1184,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
     assert_received {:plan_prompt, 1, _first}
     assert_received {:plan_prompt, 2, correction}
-    correction_text = correction.messages |> hd() |> Map.fetch!(:content)
+    correction_text = feedback_text(correction)
 
     assert correction_text =~ "缺少必填字段 author_reasoning"
     assert correction_text =~ "缺少必填字段 reason_codes"
@@ -1018,7 +1199,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     draft =
       AgenticPlanDraftPlanner.draft_prompt(probe_run(), %{}, ["第01章：开端"])
 
-    draft_text = draft.messages |> hd() |> Map.fetch!(:content)
+    draft_text = prompt_text(draft)
 
     assert draft_text =~ ~s("authoring_intent":"continuation")
     assert draft_text =~ "prose_writing 步必须在 step 对象里显式写"
@@ -1033,7 +1214,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
         "补足正文产出步"
       )
 
-    revision_text = revision.messages |> hd() |> Map.fetch!(:content)
+    revision_text = prompt_text(revision)
     assert revision_text =~ ~s("authoring_intent":"continuation")
     assert revision_text =~ "写新章也要有该键"
   end
@@ -1071,7 +1252,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     refute "auto" in tool_names
     assert correction.tool_choice == "auto"
 
-    correction_text = correction.messages |> hd() |> Map.fetch!(:content)
+    correction_text = feedback_text(correction)
     assert correction_text =~ "必须调用 agent_plan_draft"
     refute correction_text =~ "必须调用 auto"
     assert correction_text =~ "function name 必须是 agent_plan_draft"
@@ -1109,7 +1290,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     assert "agent_plan_revision" in tool_names
     refute "auto" in tool_names
 
-    correction_text = correction.messages |> hd() |> Map.fetch!(:content)
+    correction_text = feedback_text(correction)
     assert correction_text =~ "必须调用 agent_plan_revision"
     refute correction_text =~ "必须调用 auto"
   end

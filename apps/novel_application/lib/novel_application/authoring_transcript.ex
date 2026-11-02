@@ -17,6 +17,7 @@ defmodule NovelApplication.AuthoringTranscript do
   """
 
   alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.RequestIR.Compaction
 
   @type t :: %{
           run: map(),
@@ -31,11 +32,12 @@ defmodule NovelApplication.AuthoringTranscript do
         }
 
   @doc """
-  创建 transcript 骨架：application_base + 本轮作者原话。
+  创建 transcript 骨架：application_base + 可选的作者原话。
 
   opts:
   - `:base_text`（必须）应用提供的 Base 说明文本
-  - `:author_text`（必须）本轮作者原话（字节不变）
+  - `:author_text` 本轮作者原话（字节不变）；应用续行 goal 可为 nil
+  - `:allow_authorless` 无作者 turn 的续行允许省略 user，默认 false
   - `:author_turn_ref` 作者消息来源
   - `:base_refs` 应用主动提供的 refs
   - `:tools` run 角色工具目录（`RequestIR` 期望的 tool_spec 形状）
@@ -44,20 +46,17 @@ defmodule NovelApplication.AuthoringTranscript do
   @spec new(map(), keyword()) :: t()
   def new(run, opts) when is_map(run) do
     base_text = Keyword.fetch!(opts, :base_text)
-    author_text = Keyword.fetch!(opts, :author_text)
     base_refs = Keyword.get(opts, :base_refs, [])
 
-    messages = [
-      RequestIR.message(:application_base, :application, [RequestIR.text_block(base_text)], %{
-        source_refs: base_refs
-      }),
-      RequestIR.message(:user, :author, [RequestIR.text_block(author_text)], %{
-        source_refs: [%{ref: Keyword.get(opts, :author_turn_ref, "author_turn:current")}]
-      })
-    ]
+    messages =
+      [
+        RequestIR.message(:application_base, :application, [RequestIR.text_block(base_text)], %{
+          source_refs: base_refs
+        })
+      ] ++ author_messages(opts)
 
     %{
-      run: run,
+      run: RequestIR.run_envelope(run),
       system: Keyword.get(opts, :system, %{identity_ref: "identity:authoring/v1"}),
       messages: messages,
       tools: Keyword.get(opts, :tools, []),
@@ -69,9 +68,26 @@ defmodule NovelApplication.AuthoringTranscript do
     }
   end
 
-  @doc "追加模型产出的 assistant 消息（可见叙事 + 可选 tool_call）。"
-  @spec append_assistant(t(), String.t(), [map()]) :: t()
-  def append_assistant(transcript, narrative, tool_calls \\ []) do
+  defp author_messages(opts) do
+    case {Keyword.get(opts, :author_text), Keyword.get(opts, :allow_authorless, false)} do
+      {nil, true} ->
+        []
+
+      {nil, false} ->
+        raise ArgumentError, "author_text is required for an authoring run"
+
+      {text, _} ->
+        [
+          RequestIR.message(:user, :author, [RequestIR.text_block(text)], %{
+            source_refs: [%{ref: Keyword.get(opts, :author_turn_ref, "author_turn:current")}]
+          })
+        ]
+    end
+  end
+
+  @doc "追加模型产出的 assistant 消息（可见叙事 + 可选 tool_call 与 Provider 私有回放数据）。"
+  @spec append_assistant(t(), String.t(), [map()], map()) :: t()
+  def append_assistant(transcript, narrative, tool_calls \\ [], provider_state \\ %{}) do
     blocks =
       case {narrative, tool_calls} do
         {"", []} -> []
@@ -79,10 +95,10 @@ defmodule NovelApplication.AuthoringTranscript do
         {text, calls} -> [RequestIR.text_block(text) | calls]
       end
 
-    if blocks == [] do
+    if blocks == [] and provider_state == %{} do
       transcript
     else
-      message = RequestIR.message(:assistant, :model, blocks)
+      message = RequestIR.message(:assistant, :model, blocks, %{provider_state: provider_state})
       call_ids = Enum.map(tool_calls, &Map.get(&1, :call_id))
 
       %{
@@ -92,6 +108,172 @@ defmodule NovelApplication.AuthoringTranscript do
       }
     end
   end
+
+  @checkpoint_version "authoring-transcript/v1"
+  @json_payload_keys ~w(arguments versions items run tools provider_state detail content coverage)a
+  @canonical_keys ~w(
+    run system messages tools base_refs observation_refs used_refs projection call_ids
+    identity_ref instructions run_role target capability_profile finite_mode usage_streaming
+    native_multi_turn tool_calls tool_results streaming structured_output usage
+    role provenance blocks source_refs versions ref version type text call_id name arguments
+    schema_version status source_refs coverage omissions next_offset content reason_code detail
+    artifact_type items adoption_required canon_written artifact_refs kind refs covers summary
+    finding_count review_status policy_action turn_range
+    raw_arguments provider_call_id provider_state reasoning_content
+    provider_call_ref provider_run_ref
+  )a
+
+  @doc "追加版本化 scope 更新；初始 Base 和既有消息永远不变。"
+  @spec append_scope_update(t(), String.t(), map(), [map()]) :: t()
+  def append_scope_update(transcript, scope_text, versions \\ %{}, source_refs \\ [])
+      when is_binary(scope_text) and is_list(source_refs) do
+    message =
+      RequestIR.message(:scope_update, :application, [RequestIR.text_block(scope_text)], %{
+        versions: versions,
+        source_refs: source_refs
+      })
+
+    %{transcript | messages: transcript.messages ++ [message]}
+  end
+
+  @doc "追加新的作者 turn；同一 turn 重复构造保持幂等，作者字节不被改写。"
+  @spec append_author_turn(t(), String.t(), String.t()) :: t()
+  def append_author_turn(transcript, author_text, turn_ref) do
+    latest = transcript.messages |> Enum.filter(&(&1.role == "user")) |> List.last()
+
+    if latest && text_of(latest.blocks) == author_text && author_ref(latest) == turn_ref do
+      transcript
+    else
+      message =
+        RequestIR.message(:user, :author, [RequestIR.text_block(author_text)], %{
+          source_refs: [%{ref: turn_ref}]
+        })
+
+      %{transcript | messages: transcript.messages ++ [message]}
+    end
+  end
+
+  @doc "当前生效的 scope；旧 scope 仍保留在消息序列中供审计。"
+  @spec current_scope(t()) :: %{text: String.t(), versions: map(), source_refs: [map()]} | nil
+  def current_scope(transcript) do
+    transcript.messages
+    |> Enum.reverse()
+    |> Enum.find_value(fn message ->
+      if message.role == "scope_update" do
+        %{
+          text: text_of(message.blocks),
+          versions: Map.get(message, :versions, %{}),
+          source_refs: Map.get(message, :source_refs, [])
+        }
+      end
+    end)
+  end
+
+  defp text_of(blocks) do
+    blocks
+    |> Enum.filter(&(Map.get(&1, :type) == "text"))
+    |> Enum.map_join("", &Map.get(&1, :text, ""))
+  end
+
+  defp author_ref(message) do
+    case Map.get(message, :source_refs, []) do
+      [%{ref: ref} | _] -> ref
+      _ -> nil
+    end
+  end
+
+  @doc "生成只含 canonical run 事实的 JSON 检查点，不保存 Provider 请求或私有会话。"
+  @spec checkpoint(t()) :: map()
+  def checkpoint(transcript) do
+    %{
+      version: @checkpoint_version,
+      transcript:
+        Map.take(transcript, [
+          :run,
+          :system,
+          :messages,
+          :tools,
+          :base_refs,
+          :observation_refs,
+          :used_refs,
+          :projection,
+          :call_ids
+        ])
+    }
+  end
+
+  @doc "从 JSON 检查点恢复 canonical transcript；只校验和重建，不调用 Provider。"
+  @spec restore(map()) :: {:ok, t()} | {:error, term()}
+  def restore(%{"version" => @checkpoint_version, "transcript" => data}) when is_map(data),
+    do: restore_transcript(data)
+
+  def restore(%{version: @checkpoint_version, transcript: data}) when is_map(data),
+    do: restore_transcript(data)
+
+  def restore(_), do: {:error, :unsupported_transcript_checkpoint}
+
+  defp restore_transcript(data) do
+    transcript = normalize_checkpoint(data)
+
+    with :ok <- validate_checkpoint_shape(transcript),
+         {:ok, ir} <- to_request_ir(transcript) do
+      from_request_ir(ir)
+    end
+  end
+
+  defp validate_checkpoint_shape(transcript) do
+    maps = [:run, :system, :projection]
+    lists = [:messages, :tools, :base_refs, :observation_refs, :used_refs, :call_ids]
+    map_lists = [:messages, :tools]
+    ref_lists = [:base_refs, :observation_refs]
+
+    valid? =
+      Enum.all?(maps, &is_map(Map.get(transcript, &1))) and
+        Enum.all?(lists, &is_list(Map.get(transcript, &1))) and
+        Enum.all?(map_lists, &Enum.all?(Map.fetch!(transcript, &1), fn item -> is_map(item) end)) and
+        Enum.all?(
+          ref_lists,
+          &Enum.all?(Map.fetch!(transcript, &1), fn item -> valid_ref?(item) end)
+        ) and
+        Enum.all?(transcript.messages, &valid_message_shape?/1)
+
+    if valid?, do: :ok, else: {:error, :invalid_transcript_checkpoint}
+  end
+
+  # string ref 与结构化 ref 都是已支持输入；空值/伪 ref 不得进入 canonical 范围。
+  defp valid_ref?(ref) when is_binary(ref), do: String.trim(ref) != ""
+
+  defp valid_ref?(%{} = ref) do
+    case Map.get(ref, :ref) || Map.get(ref, "ref") do
+      key when is_binary(key) -> String.trim(key) != ""
+      _ -> false
+    end
+  end
+
+  defp valid_ref?(_ref), do: false
+
+  defp valid_message_shape?(%{blocks: blocks}) when is_list(blocks),
+    do: Enum.all?(blocks, &is_map/1)
+
+  defp valid_message_shape?(_), do: false
+
+  defp normalize_checkpoint(value) when is_map(value) do
+    Map.new(value, fn {key, item} ->
+      canonical = canonical_key(key)
+      restored = if canonical in @json_payload_keys, do: item, else: normalize_checkpoint(item)
+      {canonical, restored}
+    end)
+  end
+
+  defp normalize_checkpoint(value) when is_list(value),
+    do: Enum.map(value, &normalize_checkpoint/1)
+
+  defp normalize_checkpoint(value), do: value
+
+  defp canonical_key(key) when is_atom(key), do: key
+
+  defp canonical_key(key) when is_binary(key),
+    do: Enum.find(@canonical_keys, key, &(Atom.to_string(&1) == key))
 
   @doc """
   追加只读观察（真实工具查询结果，按 call_id 关联）。
@@ -124,12 +306,77 @@ defmodule NovelApplication.AuthoringTranscript do
     %{transcript | messages: transcript.messages ++ [message]}
   end
 
+  @doc "追加一次真实 Provider 响应，保留原生工具调用及无效参数原文供校验纠错。"
+  @spec append_provider_result(t(), map()) :: t()
+  def append_provider_result(transcript, result) do
+    with {:ok, ir} <- to_request_ir(transcript),
+         {ir, _result} <- RequestIR.append_assistant_result(ir, result),
+         {:ok, restored} <- from_request_ir(ir) do
+      restored
+    end
+  end
+
+  @doc "从跨层 Request IR 恢复 application canonical transcript，不调用 Provider。"
+  @spec from_request_ir(RequestIR.t()) :: {:ok, t()} | {:error, term()}
+  def from_request_ir(%RequestIR{} = ir) do
+    with :ok <- RequestIR.validate(ir) do
+      {:ok,
+       %{
+         run: ir.run,
+         system: ir.system,
+         messages: ir.messages,
+         tools: ir.tools,
+         base_refs: Map.get(ir.refs, :base_refs, []),
+         observation_refs: Map.get(ir.refs, :observation_refs, []),
+         used_refs: Map.get(ir.refs, :used_refs, []),
+         projection: ir.projection,
+         call_ids:
+           for(
+             message <- ir.messages,
+             block <- Map.get(message, :blocks, []),
+             Map.get(block, :type) == "tool_call",
+             do: Map.get(block, :call_id)
+           )
+       }}
+    end
+  end
+
+  @doc "追加无工具调用时的应用协议反馈；它不是作者的新指令。"
+  @spec append_application_notice(t(), String.t()) :: t()
+  def append_application_notice(transcript, text) when is_binary(text) do
+    message = RequestIR.message(:application_notice, :application, [RequestIR.text_block(text)])
+    %{transcript | messages: transcript.messages ++ [message]}
+  end
+
   @doc "追加作者出口（机器消息链结束；不投影为 provider 消息）。"
   @spec append_author_exit(t(), String.t(), map()) :: t()
   def append_author_exit(transcript, kind, refs \\ %{}) do
     block = RequestIR.author_exit_block(kind, refs)
     message = RequestIR.message(:author_exit, :application, [block])
     %{transcript | messages: transcript.messages ++ [message]}
+  end
+
+  @doc "追加按调用号绑定的压缩事件；canonical 原文保留，只有 Provider 投影折叠历史。"
+  @spec compact(t(), map(), [map()], map(), [String.t()], String.t()) ::
+          {:ok, t()} | {:error, term()}
+  def compact(transcript, covers, source_refs, versions, omissions, summary) do
+    with :ok <- Compaction.require_call_ids(covers) do
+      block = RequestIR.checkpoint_block(covers, source_refs, versions, omissions, summary)
+      checkpoint = RequestIR.message(:checkpoint, :application, [block])
+
+      if checkpoint in transcript.messages,
+        do: {:ok, transcript},
+        else: append_compaction(transcript, checkpoint)
+    end
+  end
+
+  defp append_compaction(transcript, checkpoint) do
+    compacted = %{transcript | messages: transcript.messages ++ [checkpoint]}
+
+    with :ok <- Compaction.validate(compacted.messages),
+         {:ok, _ir} <- to_request_ir(compacted) do
+      {:ok, compacted}
+    end
   end
 
   @doc "追加显式压缩 checkpoint（长会话唯一压缩表达，I-ART-7）。"

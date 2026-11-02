@@ -4,7 +4,14 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Test.Provider.SliceVerify
-  alias NovelApplication.{AdoptionWorkflow, PendingArtifactWorkflow, WorkService}
+
+  alias NovelApplication.{
+    AdoptionWorkflow,
+    PendingArtifactWorkflow,
+    TestAgenticLoopFixtures,
+    WorkService
+  }
+
   alias NovelDomain.DialogueContext
   alias NovelFoundation.Enums.AdoptionStatus
 
@@ -66,7 +73,13 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
       run_mode: :bounded,
       profile_ref: "judgment_loop_v1",
       budget: %{max_tool_calls: 3, max_provider_calls: 6},
-      consumed_budget: %{},
+      consumed_budget: %{
+        steps: 0,
+        execution_steps: 0,
+        tool_calls: 0,
+        provider_calls: 0,
+        replans: 0
+      },
       authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
       workspace_id: work.id,
       work_id: work.id,
@@ -110,10 +123,10 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
   defp provider(body, test_pid, changes \\ nil) do
     %Execution{
       result_fn: fn prompt ->
-        send(test_pid, {:chapter_writer_prompt, prompt})
+        send(test_pid, {:chapter_writer_prompt, NovelAgent.Provider.prompt_text(prompt)})
 
-        content =
-          Jason.encode!([
+        items =
+          [
             %{
               item_id: "chapter-revision-1",
               title: "第01章：灯楼夜雨（整章修订）",
@@ -123,17 +136,21 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
             |> then(fn item ->
               if changes, do: Map.put(item, :line_break_changes, changes), else: item
             end)
-          ])
+          ]
+
+        tool_calls =
+          TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{items: items})
 
         {:ok,
          %NovelAgent.Provider.Result{
-           content: content,
+           content: "",
+           tool_calls: tool_calls,
            provider_call_ref: "pcall-b28-chapter",
            provider_output: %NovelCommon.Contracts.ProviderOutput{
              provider_run_ref: "prun-b28-chapter",
              provider_call_ref: "pcall-b28-chapter",
              status: :ok,
-             content: %{text: content}
+             content: %{text: "", tool_calls: tool_calls}
            }
          }}
       end
@@ -227,7 +244,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
           {[%{boundary_id: "invented", lines: 2}], :invalid_formatting_plan},
           {[%{boundary_id: hd(view.boundaries).boundary_id, lines: 2}], :no_formatting_changes}
         ] do
-      assert {:error, {:pending_artifact_invalid, ^reason}} =
+      assert {:error, {:pending_artifact_invalid, ^reason}, failure_state} =
                PendingArtifactWorkflow.run(
                  judgment(c.chapter_ref),
                  %{},
@@ -235,6 +252,10 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                  c.context,
                  provider("模型方案", self(), changes)
                )
+
+      assert failure_state.tool_call_count == 1
+      assert failure_state.provider_call_count == 2
+      assert_native_format_rejection(failure_state.judgment_transcript, reason)
 
       saved = ReadingProjectionRepo.accepted_chapter_prose(c.work.id, c.chapter_ref)
       assert saved == c.base_text
@@ -309,7 +330,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
         goal: %{text: "把这份方案调整为紧凑排版，别改字句。", version: 1}
     }
 
-    assert {:error, {:pending_artifact_invalid, :no_formatting_changes}} =
+    assert {:error, {:pending_artifact_invalid, :no_formatting_changes}, no_change_state} =
              PendingArtifactWorkflow.run(
                j,
                %{},
@@ -317,6 +338,10 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                c.context,
                provider("只改说明", self(), changes)
              )
+
+    assert no_change_state.tool_call_count == 1
+    assert no_change_state.provider_call_count == 2
+    assert_native_format_rejection(no_change_state.judgment_transcript, :no_formatting_changes)
 
     assert {:ok, changed} =
              PendingArtifactWorkflow.run(
@@ -356,7 +381,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
         seq: 2
       })
 
-    assert {:error, {:pending_artifact_invalid, :incomplete_scope}} =
+    assert {:error, {:pending_artifact_invalid, :incomplete_scope}, incomplete_state} =
              PendingArtifactWorkflow.run(
                judgment("chapter:#{chapter.id}"),
                %{},
@@ -364,6 +389,8 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                c.context,
                %Execution{result_fn: fn _ -> flunk("无正文不得调用模型") end}
              )
+
+    assert incomplete_state.tool_call_count == 0 and incomplete_state.provider_call_count == 0
   end
 
   test "read-only 会话修订已采纳章 → 可解释拒绝（不 crash、不调用 writer）", c do
@@ -372,7 +399,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     {:ok, archived} = WorkSessionRepo.archive(c.session)
     assert archived.status != "ACTIVE"
 
-    assert {:error, {:pending_artifact_invalid, :revision_not_allowed}} =
+    assert {:error, {:pending_artifact_invalid, :revision_not_allowed}, read_only_state} =
              PendingArtifactWorkflow.run(
                judgment(c.chapter_ref),
                %{},
@@ -380,6 +407,8 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                c.context,
                %Execution{result_fn: fn _ -> flunk("read-only 会话不得调用修订 writer") end}
              )
+
+    assert read_only_state.tool_call_count == 0 and read_only_state.provider_call_count == 0
 
     # 拒绝路径零写入：原 accepted 正文与 session 状态不变，且没有新的 pending 候选。
     assert ReadingProjectionRepo.accepted_chapter_prose(c.work.id, c.chapter_ref) == c.base_text
@@ -539,7 +568,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     for text <- inputs do
       run = %{c.run | goal: %{text: text, version: 1}}
 
-      assert {:error, {:pending_artifact_invalid, reason}} =
+      assert {:error, {:pending_artifact_invalid, reason}, rejection_state} =
                PendingArtifactWorkflow.run(
                  judgment(c.chapter_ref, %{dialogue_goal: text}),
                  %{},
@@ -549,6 +578,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                )
 
       assert reason in [:target_missing, :target_ambiguous, :incomplete_scope]
+      assert rejection_state.tool_call_count == 0 and rejection_state.provider_call_count == 0
     end
 
     assert Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision}) == before
@@ -730,7 +760,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     for text <- inputs do
       run = %{c.run | goal: %{text: text, version: 1}}
 
-      assert {:error, {:pending_artifact_invalid, :author_scope_not_authorized}} =
+      assert {:error, {:pending_artifact_invalid, :author_scope_not_authorized}, scope_state} =
                PendingArtifactWorkflow.run(
                  judgment(c.chapter_ref, %{dialogue_goal: text}),
                  %{},
@@ -738,6 +768,8 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                  c.context,
                  %Execution{result_fn: fn _ -> flunk("未授权修改不得调用 writer") end}
                )
+
+      assert scope_state.tool_call_count == 0 and scope_state.provider_call_count == 0
     end
 
     assert Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision}) == before
@@ -751,7 +783,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
 
     before = Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision})
 
-    assert {:error, {:pending_artifact_invalid, :incomplete_scope}} =
+    assert {:error, {:pending_artifact_invalid, :incomplete_scope}, incomplete_state} =
              PendingArtifactWorkflow.run(
                judgment(c.chapter_ref, %{dialogue_goal: "按条件处理"}),
                %{},
@@ -760,6 +792,26 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                %Execution{result_fn: fn _ -> flunk("条件未判定不得自动生成整章候选") end}
              )
 
+    assert incomplete_state.tool_call_count == 0 and incomplete_state.provider_call_count == 0
+
     assert Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision}) == before
+  end
+
+  defp assert_native_format_rejection(transcript, reason) do
+    validations =
+      for message <- transcript.messages,
+          block <- message.blocks,
+          block.type == "validation_result",
+          do: block
+
+    assert length(validations) == 2
+    assert Enum.all?(validations, &(&1.reason_code == to_string(reason)))
+
+    refute Enum.any?(transcript.messages, fn message ->
+             message.role == "user" and
+               Enum.any?(message.blocks, fn block ->
+                 block.type == "text" and String.contains?(block.text, "修订校验未通过")
+               end)
+           end)
   end
 end

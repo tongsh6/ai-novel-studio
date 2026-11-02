@@ -9,6 +9,7 @@ defmodule NovelApplication.CreativeFactsContextTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelApplication.TurnExecutionService
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.DialogueContext
@@ -92,8 +93,8 @@ defmodule NovelApplication.CreativeFactsContextTest do
 
     input = if memory_reader, do: Map.put(input, :memory_reader, memory_reader), else: input
 
-    {_turn_result, _trace} = TurnExecutionService.execute(input)
-    agent |> Agent.get(& &1) |> Enum.join("\n\n")
+    {_turn_result, _trace, _transcript} = TurnExecutionService.execute(input)
+    agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1)
   end
 
   defp run_with_target(chapter_id, memory_reader) do
@@ -141,8 +142,10 @@ defmodule NovelApplication.CreativeFactsContextTest do
       provider_execution: %Execution{result_fn: complete}
     }
 
-    {turn_result, _trace} = TurnExecutionService.execute(input)
-    {agent |> Agent.get(& &1) |> Enum.join("\n\n"), turn_result.trace_summary}
+    {turn_result, _trace, _transcript} = TurnExecutionService.execute(input)
+
+    {agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1),
+     turn_result.trace_summary}
   end
 
   test "B64：有明确目标章时 memory_reader 收到 at_chapter_id（/2）" do
@@ -265,16 +268,25 @@ defmodule NovelApplication.CreativeFactsContextTest do
     writer = fn _prompt ->
       {:ok,
        %{
-         content:
-           Jason.encode!([
-             %{"item_id" => "p1", "title" => "第1章：开端", "body" => "正文内容。", "rationale" => nil}
-           ])
+         content: "",
+         tool_calls:
+           TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{
+             items: [
+               %{"item_id" => "p1", "title" => "第1章：开端", "body" => "正文内容。", "rationale" => nil}
+             ]
+           })
        }}
     end
 
     evaluator = fn prompt ->
       Agent.update(seen, fn _ -> prompt end)
-      {:ok, %{content: ~s({"findings": []})}}
+
+      {:ok,
+       %{
+         content: "",
+         tool_calls:
+           TestAgenticLoopFixtures.native_tool_calls("report_quality_findings", %{findings: []})
+       }}
     end
 
     input = %{
@@ -291,8 +303,8 @@ defmodule NovelApplication.CreativeFactsContextTest do
       memory_reader: facts_reader()
     }
 
-    {_turn_result, _trace} = TurnExecutionService.execute(input)
-    evaluator_prompt = Agent.get(seen, & &1)
+    {_turn_result, _trace, _transcript} = TurnExecutionService.execute(input)
+    evaluator_prompt = seen |> Agent.get(& &1) |> NovelAgent.Provider.prompt_text()
 
     assert evaluator_prompt =~ "作品事实基线"
     assert evaluator_prompt =~ "灵气交易需契约"

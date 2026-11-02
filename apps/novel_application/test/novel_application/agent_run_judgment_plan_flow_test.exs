@@ -13,8 +13,20 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
   alias NovelAgent.Test.Provider.SliceVerify
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelPersistence.Repo
+
+  setup do
+    owner = Sandbox.start_owner!(Repo, shared: true)
+
+    on_exit(fn ->
+      NovelApplication.TestAgentRunCleanup.await_quiescent()
+      Sandbox.stop_owner(owner)
+    end)
+
+    :ok
+  end
 
   test "旧任务的计划耗尽标记不能改写当前问题回复的单产物目标" do
     previous = System.get_env("SLICE_VERIFY_PLAN_EXHAUST")
@@ -47,8 +59,6 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
   end
 
   test "B31 原生前提原话穿过判断守卫进入计划耗尽等待，而非角色身份纠错" do
-    :ok = Sandbox.checkout(Repo)
-    :ok = Sandbox.mode(Repo, {:shared, self()})
     previous = System.get_env("SLICE_VERIFY_PLAN_EXHAUST")
     System.put_env("SLICE_VERIFY_PLAN_EXHAUST", "1")
 
@@ -120,10 +130,6 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
         {"先核对再补齐计划", 1, 1, 5}
       ] do
     test "#{mode} 从真实判断入口进入同一计划运行，按实际调用计数并保留待采纳边界" do
-      # step task 在独立进程执行仓储读写，需要共享 sandbox 所有权（同文件 B31 用例同一做法）；
-      # 缺失时 cold test-env 首跑会 OwnershipError → step_task_down → run_failed（非超时问题）。
-      :ok = Sandbox.checkout(Repo)
-      :ok = Sandbox.mode(Repo, {:shared, self()})
       parent = self()
       suffix = System.unique_integer([:positive])
 
@@ -180,6 +186,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
       assert {:ok, state} = AgentRunService.state(run_id)
       assert state.run.profile_ref == "judgment_plan_v1"
       assert state.run.status == :completed
+      TestAgenticLoopFixtures.assert_authoring_transcript(state, run_id)
       assert length(state.run.pending_artifact_refs) >= 2
       assert state.run.consumed_budget.tool_calls == 2
       assert state.run.consumed_budget.provider_calls == unquote(total)
@@ -214,7 +221,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
     result_fn = fn prompt ->
       text = prompt_text(prompt)
 
-      if plan_draft_prompt?(text) do
+      if plan_draft_prompt?(prompt) do
         send(parent, :plan_draft_called)
 
         {:ok,
@@ -244,18 +251,22 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
 
         {:ok,
          %{
-           provider_call_id: "pc-jp-tool",
-           content:
-             Jason.encode!(%{
-               items: [
-                 %{
-                   item_id: "jp-item-#{System.unique_integer([:positive])}",
-                   title: "计划步骤产出",
-                   body: "按计划步骤生成的候选内容。",
-                   rationale: "多步计划产出。"
-                 }
-               ]
-             })
+           provider_call_id: TestAgenticLoopFixtures.unique_provider_call_id("pc-jp-tool"),
+           content: "",
+           tool_calls:
+             TestAgenticLoopFixtures.native_tool_calls(
+               "submit_tentative_artifact",
+               %{
+                 items: [
+                   %{
+                     item_id: "jp-item-#{System.unique_integer([:positive])}",
+                     title: "计划步骤产出",
+                     body: "按计划步骤生成的候选内容。",
+                     rationale: "多步计划产出。"
+                   }
+                 ]
+               }
+             )
          }}
       end
     end
@@ -320,15 +331,16 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
 
     # 单调用起草 1 + 两个 act 步各 1 = 3（runtime 直连，无判断①入场）。
     assert state.run.consumed_budget.provider_calls == 3
+
+    # 每次实际调用必须有独立身份，并真实落成 run/event/output 配对事实。
+    assert TestAgenticLoopFixtures.assert_provider_fact_pairs(run_id) != []
   end
 
   test "judgment plan executes an in-plan retrieval step inline with zero provider calls (CP5b)" do
     parent = self()
 
     result_fn = fn prompt ->
-      text = prompt_text(prompt)
-
-      if plan_draft_prompt?(text) do
+      if plan_draft_prompt?(prompt) do
         {:ok,
          %{
            content: "先看作品统计，再补写正文。",
@@ -362,17 +374,21 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
         {:ok,
          %{
            provider_call_id: "pc-jp-explore-tool",
-           content:
-             Jason.encode!(%{
-               items: [
-                 %{
-                   item_id: "jp-explore-item-#{System.unique_integer([:positive])}",
-                   title: "计划步骤产出",
-                   body: "按计划步骤生成的候选内容。",
-                   rationale: "检索步之后的产出。"
-                 }
-               ]
-             })
+           content: "",
+           tool_calls:
+             TestAgenticLoopFixtures.native_tool_calls(
+               "submit_tentative_artifact",
+               %{
+                 items: [
+                   %{
+                     item_id: "jp-explore-item-#{System.unique_integer([:positive])}",
+                     title: "计划步骤产出",
+                     body: "按计划步骤生成的候选内容。",
+                     rationale: "检索步之后的产出。"
+                   }
+                 ]
+               }
+             )
          }}
       end
     end
@@ -438,10 +454,8 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
     parent = self()
 
     result_fn = fn prompt ->
-      text = prompt_text(prompt)
-
       cond do
-        revision_prompt?(text) ->
+        revision_prompt?(prompt) ->
           send(parent, :plan_revision_called)
 
           {:ok,
@@ -466,7 +480,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
              ]
            }}
 
-        plan_draft_prompt?(text) ->
+        plan_draft_prompt?(prompt) ->
           # CP4b 诱导：起草短计划（只读上下文，漏产出步）。
           {:ok,
            %{
@@ -493,17 +507,21 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
           {:ok,
            %{
              provider_call_id: "pc-jp-tool2",
-             content:
-               Jason.encode!(%{
-                 items: [
-                   %{
-                     item_id: "jp-rev-item-#{System.unique_integer([:positive])}",
-                     title: "修订后计划产出",
-                     body: "按修订后计划生成的正文候选。",
-                     rationale: "真计划修订闭环。"
-                   }
-                 ]
-               })
+             content: "",
+             tool_calls:
+               TestAgenticLoopFixtures.native_tool_calls(
+                 "submit_tentative_artifact",
+                 %{
+                   items: [
+                     %{
+                       item_id: "jp-rev-item-#{System.unique_integer([:positive])}",
+                       title: "修订后计划产出",
+                       body: "按修订后计划生成的正文候选。",
+                       rationale: "真计划修订闭环。"
+                     }
+                   ]
+                 }
+               )
            }}
       end
     end
@@ -548,6 +566,8 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
     assert state.run.status == :completed
     assert state.run.consumed_budget.replans == 1
     assert length(state.run.pending_artifact_refs) == 1
+
+    assert TestAgenticLoopFixtures.assert_provider_fact_pairs(run_id) != []
   end
 
   test "plan exhaustion surfaces structural author reasons without provider raw payload (B23 CP3)" do
@@ -558,7 +578,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
       text = prompt_text(prompt)
 
       cond do
-        revision_prompt?(text) ->
+        revision_prompt?(prompt) ->
           send(parent, :plan_revision_called)
 
           {:ok,
@@ -582,7 +602,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
              ]
            }}
 
-        plan_draft_prompt?(text) ->
+        plan_draft_prompt?(prompt) ->
           {:ok,
            %{
              content: "先只读核对，必要时再修订计划，#{raw_sentinel}-draft。",
@@ -690,9 +710,11 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
       else: step
   end
 
-  defp plan_draft_prompt?(text), do: String.contains?(text, "agent_plan_draft")
+  defp plan_draft_prompt?(prompt),
+    do: Enum.any?(NovelAgent.Provider.tool_specs(prompt), &(&1.name == "agent_plan_draft"))
 
-  defp revision_prompt?(text), do: String.contains?(text, "计划修订器")
+  defp revision_prompt?(prompt),
+    do: Enum.any?(NovelAgent.Provider.tool_specs(prompt), &(&1.name == "agent_plan_revision"))
 
-  defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
+  defp prompt_text(prompt), do: TestAgenticLoopFixtures.prompt_text(prompt)
 end

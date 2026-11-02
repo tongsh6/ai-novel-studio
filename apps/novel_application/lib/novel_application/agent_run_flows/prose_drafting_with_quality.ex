@@ -11,7 +11,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentObservationAssembler
-  alias NovelApplication.AgentRunFlows.ExplorationStep
+  alias NovelApplication.AgentRunFlows.{AuthoringSession, ExplorationStep}
   alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.ChapterMissionService
   alias NovelApplication.ContextAssembler
@@ -127,10 +127,18 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   defp exploration_observation?(_observation), do: false
 
   defp next_step_result(decision, spec, meta) do
-    if meta[:completion_without_goal],
-      do: {:complete, decision},
-      else: next_step_from_decision(decision, spec)
+    result =
+      if meta[:completion_without_goal],
+        do: {:complete, decision},
+        else: next_step_from_decision(decision, spec)
+
+    with_decision_meta(result, meta)
   end
+
+  defp with_decision_meta({status, decision}, meta) when status in [:complete, :await_author],
+    do: {status, decision, Map.delete(meta, :provider_call_count)}
+
+  defp with_decision_meta(result, _meta), do: result
 
   defp plan_for_run(run, snapshot, spec) do
     if model_plan_ready?(run.plan) do
@@ -252,10 +260,14 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
 
   defp continuation_judgment(run, sequence, snapshot, spec, deviation, continue_mode) do
     input = %{
+      transcript: Map.get(stage_state(snapshot), :judgment_transcript),
       goal_text: run.goal.text,
       deviation_summary: AgenticDeviationSignal.revision_reason(deviation),
       observation_block: continuation_observation_block(snapshot),
-      source_input_ref: NovelApplication.TurnInteractionService.input_ref(run)
+      source_input_ref: NovelApplication.TurnInteractionService.input_ref(run),
+      supplied_context_refs: continuation_source_refs(run, snapshot),
+      scope_change_reason: "continuation",
+      options: [plan_run: run]
     }
 
     case JudgmentProtocol.request_continuation(
@@ -265,12 +277,18 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
          ) do
       {:ok, %{action: "continue"} = continuation} ->
         continue_after_judgment(run, sequence, snapshot, deviation, continuation, continue_mode)
+        |> AuthoringSession.inherit_failure(continuation)
 
       {:ok, %{action: "await_author"} = continuation} ->
         continuation_await_decision(run, sequence, snapshot, deviation, continuation)
+        |> AuthoringSession.inherit_failure(continuation)
 
       {:ok, %{action: "capability_gap"} = continuation} ->
         continuation_gap_decision(run, sequence, snapshot, deviation, continuation)
+        |> AuthoringSession.inherit_failure(continuation)
+
+      {:error, reason, state} when is_map(state) ->
+        {:error, reason, state}
 
       {:error, reason} ->
         {:error, reason}
@@ -295,6 +313,15 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     end
   end
 
+  defp continuation_source_refs(run, snapshot) do
+    ([Map.get(run, :plan_ref)] ++
+       Enum.flat_map(Map.get(snapshot, :observations, []), fn observation ->
+         [observation.observation_id | List.wrap(observation.evidence_refs)]
+       end))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
   defp continue_after_judgment(run, sequence, snapshot, deviation, continuation, continue_mode) do
     steps = plan_steps(run.plan)
     index = plan_cursor(snapshot)
@@ -308,6 +335,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     meta =
       %{
         provider_call_count: continuation.provider_call_count,
+        judgment_transcript: continuation.transcript,
         agent_plan_cursor: min(index, max(length(steps) - 1, 0)),
         # replan 计数由 runtime 按 decision 的 plan_revision 事实自动 +1
         # （maybe_attach_replan），meta 不重复计。
@@ -372,6 +400,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         |> Map.put(:provider_call_count, continuation.provider_call_count)
         |> Map.put(:author_narrative, continuation.narrative)
         |> Map.put(:author_narrative_source, continuation.narrative_source)
+        |> Map.put(:stage_state, %{judgment_transcript: continuation.transcript})
         |> attach_deviation_meta(deviation, snapshot)
 
       {result, trace} = NovelApplication.AuthorQuestion.turn_result(run, continuation)
@@ -839,13 +868,19 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
           |> Execution.with_purpose(:planner)
           |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :planner)
 
-        case ChapterMissionService.derive(inputs, provider_execution, author_text: run.goal.text) do
+        case ChapterMissionService.derive(inputs, provider_execution,
+               run: run,
+               snapshot: snapshot
+             ) do
           {:ok, mission, meta} ->
             persisted = persist_tentative_mission(spec, run, chapter, mission)
+
             mission_success(run, sequence, turn_id, inputs, mission, meta, snapshot, persisted)
+            |> AuthoringSession.inherit_result(meta)
 
           {:error, reason, meta} ->
             mission_failure(run, sequence, turn_id, inputs, reason, meta)
+            |> AuthoringSession.inherit_result(meta)
         end
     end
   end
@@ -1326,6 +1361,8 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     end
   end
 
+  defp authoring_request_ir(snapshot), do: AuthoringSession.request_ir(snapshot)
+
   defp reader_dep(spec, key, fallback), do: Map.get(spec, key) || fallback.()
 
   defp do_execute_tool_step(
@@ -1355,9 +1392,11 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       }
     )
 
-    {turn_result, trace} =
+    {turn_result, trace, transcript} =
       TurnExecutionService.execute(%{
         frame: frame,
+        agent_run: run,
+        request_ir: authoring_request_ir(snapshot),
         plan: plan,
         decision: decision,
         candidates: [],
@@ -1402,9 +1441,11 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     case tool_step_outcome(turn_result, tool_result) do
       :tool_failed ->
         {:ok, tool_failure_deviation(run, sequence, plan, turn_result, tool_result)}
+        |> AuthoringSession.put_transcript(transcript)
 
       :deterministic_gap ->
         {:ok, deterministic_gap_deviation(run, sequence, plan, turn_result)}
+        |> AuthoringSession.put_transcript(transcript)
 
       :completed ->
         {:ok,
@@ -1417,6 +1458,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
              turn_result: turn_result,
              tool_result: tool_result,
              trace: trace,
+             transcript: transcript,
              context: execution_context,
              spec: spec,
              snapshot: snapshot
@@ -1470,6 +1512,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
          turn_result: turn_result,
          tool_result: tool_result,
          trace: trace,
+         transcript: transcript,
          context: context,
          spec: spec,
          snapshot: snapshot
@@ -1502,6 +1545,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
             step_id: step_id
           }),
       artifact_refs: artifact_refs(turn_result),
+      stage_state: AuthoringSession.transcript_state(transcript),
       turn_result: turn_result,
       tool_call_count: 1,
       provider_call_count: provider_call_count(turn_result),

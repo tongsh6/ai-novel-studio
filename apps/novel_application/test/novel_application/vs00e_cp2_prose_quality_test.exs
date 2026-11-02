@@ -5,6 +5,7 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelApplication.TurnExecutionService
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.DialogueContext
@@ -48,8 +49,9 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
       {:ok,
        %{
          provider_call_ref: "pc-cp2-evaluator",
-         content:
-           Jason.encode!(%{
+         content: "",
+         tool_calls:
+           TestAgenticLoopFixtures.native_tool_calls("report_quality_findings", %{
              "findings" => [
                quality_finding(),
                %{
@@ -105,8 +107,9 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
       {:ok,
        %{
          provider_call_id: "pc-cp2-writer",
-         content:
-           Jason.encode!(%{
+         content: "",
+         tool_calls:
+           TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{
              items: [%{item_id: "cp2-item", title: "第01章", body: @bad_prose, rationale: nil}],
              self_report: %{
                assumptions: [],
@@ -118,7 +121,7 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
        }}
     end
 
-    {turn_result, _trace} =
+    {turn_result, _trace, _transcript} =
       TurnExecutionService.execute(%{
         frame: frame(),
         plan: plan(),
@@ -137,7 +140,11 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
       {:ok,
        %{
          provider_call_ref: "pc-cp2-evaluator",
-         content: Jason.encode!(%{"findings" => [quality_finding()]})
+         content: "",
+         tool_calls:
+           TestAgenticLoopFixtures.native_tool_calls("report_quality_findings", %{
+             "findings" => [quality_finding()]
+           })
        }}
     end
   end

@@ -1,7 +1,9 @@
 defmodule NovelApplication.ChapterMissionServiceTest do
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider
+  alias NovelAgent.Provider.{Execution, RequestIR}
+  alias NovelApplication.AuthoringTranscript
   alias NovelApplication.ChapterMissionService
   alias NovelDomain.ChapterMission
   alias NovelDomain.ChapterMissionInputs
@@ -68,16 +70,19 @@ defmodule NovelApplication.ChapterMissionServiceTest do
     end
 
     assert {:ok, %ChapterMission{} = mission, meta} =
-             ChapterMissionService.derive(inputs(), execution(result_fn), author_text: "续写第三章")
+             ChapterMissionService.derive(inputs(), execution(result_fn),
+               run: fixture_run(),
+               author_text: "续写第三章"
+             )
 
     assert_receive {:prompt, prompt}
     assert prompt.tool_choice == "chapter_mission"
     assert [%{name: "chapter_mission"}] = prompt.tools
-    [%{content: content}] = prompt.messages
+    content = Provider.prompt_text(prompt)
     assert content =~ ChapterMissionService.prompt_anchor()
     assert content =~ "[ledger:information:foreshadow_a]"
     assert content =~ "[plan:3:chapter_role]"
-    assert content =~ "作者本轮请求：续写第三章"
+    assert Enum.any?(prompt.messages, &(&1.role == "user" and &1.content == "续写第三章"))
 
     assert mission.statement == "本章必须回收旧账牌伏笔。"
 
@@ -111,7 +116,9 @@ defmodule NovelApplication.ChapterMissionServiceTest do
        )}
     end
 
-    assert {:ok, mission, meta} = ChapterMissionService.derive(inputs(), execution(result_fn))
+    assert {:ok, mission, meta} =
+             ChapterMissionService.derive(inputs(), execution(result_fn), run: fixture_run())
+
     assert mission.statement == "按计划推进。"
     assert meta.narrative == "本章按计划推进，没有到期压力。"
     assert meta.narrative_source.source_type == "provider_output_tool_narrative"
@@ -132,7 +139,7 @@ defmodule NovelApplication.ChapterMissionServiceTest do
     end
 
     assert {:error, {:native_tool_call_required, "chapter_mission"}, %{provider_call_count: 2}} =
-             ChapterMissionService.derive(inputs(), execution(result_fn))
+             ChapterMissionService.derive(inputs(), execution(result_fn), run: fixture_run())
 
     assert Agent.get(counter, & &1) == 2
   end
@@ -150,7 +157,7 @@ defmodule NovelApplication.ChapterMissionServiceTest do
     end
 
     assert {:error, :mission_unbound, %{provider_call_count: 2}} =
-             ChapterMissionService.derive(inputs(), execution(result_fn))
+             ChapterMissionService.derive(inputs(), execution(result_fn), run: fixture_run())
 
     ok_fn = fn _prompt ->
       {:ok,
@@ -164,7 +171,7 @@ defmodule NovelApplication.ChapterMissionServiceTest do
     end
 
     assert {:ok, mission, %{provider_call_count: 1}} =
-             ChapterMissionService.derive(inputs(), execution(ok_fn))
+             ChapterMissionService.derive(inputs(), execution(ok_fn), run: fixture_run())
 
     assert mission.must_advance == []
     assert length(mission.dropped) == 1
@@ -172,38 +179,208 @@ defmodule NovelApplication.ChapterMissionServiceTest do
 
   test "provider 缺席或调用失败诚实返回 error" do
     assert {:error, :provider_execution_missing, %{provider_call_count: 0}} =
-             ChapterMissionService.derive(inputs(), nil)
+             ChapterMissionService.derive(inputs(), nil, run: fixture_run())
 
     failing = execution(fn _prompt -> {:error, :timeout} end)
 
     assert {:error, _reason, %{provider_call_count: 1}} =
-             ChapterMissionService.derive(inputs(), failing)
+             ChapterMissionService.derive(inputs(), failing, run: fixture_run())
   end
 
-  # VS-00I CP-D：推导要求（L1）前置、材料（L2）居中、作者请求（L3）与输出契约（L4）置尾。
-  test "VS-00I CP-D 章节使命 prompt 顺序：要求 → 材料 → 作者请求 → 输出契约" do
-    prompt = ChapterMissionService.mission_prompt(inputs(), "把这一章写得更紧凑", :prose)
-    text = prompt.messages |> hd() |> Map.fetch!(:content)
+  test "公开使命 prompt 同样使用 IR，规则与材料不冒充作者输入" do
+    author_text = "  把这一章写得更紧凑\n"
 
-    assert_ordered(text, [
-      "要求：",
-      "材料（每条以 [ref] 开头",
-      "作者本轮请求：",
-      "author_reasoning",
-      "调用 chapter_mission 工具"
-    ])
+    prompt =
+      ChapterMissionService.mission_prompt(inputs(), author_text, :prose, run: fixture_run())
+
+    assert Map.has_key?(prompt, :ir_version)
+    assert [%{content: ^author_text}] = Enum.filter(prompt.messages, &(&1.content == author_text))
+    rules = Enum.find(prompt.messages, &String.contains?(&1.content, "要求："))
+    material = Enum.find(prompt.messages, &String.contains?(&1.content, "材料（每条以 [ref] 开头"))
+    assert rules
+    assert material
+    assert rules.content =~ "author_reasoning"
+    assert rules.content =~ "调用 chapter_mission 工具"
+    assert material.content =~ "[plan:3:chapter_role]"
+    refute rules.content == author_text
+    refute material.content == author_text
   end
 
-  defp assert_ordered(text, markers) do
-    offsets =
-      Enum.map(markers, fn marker ->
-        case :binary.match(text, marker) do
-          {offset, _} -> offset
-          :nomatch -> flunk("prompt 缺少段落: #{inspect(marker)}")
-        end
+  test "没有真实 run 或历史时不伪造运行事实，也不调用 Provider" do
+    provider = execution(fn _ -> flunk("缺 run 不得调用模型") end)
+
+    assert {:error, :missing_run_envelope, %{provider_call_count: 0}} =
+             ChapterMissionService.derive(inputs(), provider)
+
+    assert {:error, :missing_run_envelope} =
+             ChapterMissionService.mission_prompt(inputs(), "续写第三章")
+  end
+
+  @tag :mission_canonical
+  test "使命请求保留真实前序会话，独立作者原话不重复，成功后可恢复" do
+    parent = self()
+    {run, transcript} = mission_conversation()
+    run = %{run | goal: %{text: "只补第三章结尾，保留已写正文", version: 2}}
+    {:ok, before_ir} = AuthoringTranscript.to_request_ir(transcript)
+    {:ok, before_prompt} = RequestIR.to_provider_prompt(before_ir)
+
+    provider =
+      execution(fn prompt ->
+        send(parent, {:canonical_mission_prompt, prompt})
+        {:ok, tool_call_result("先回收旧账牌。", valid_arguments())}
       end)
 
-    assert offsets == Enum.sort(offsets),
-           "prompt 段落顺序不符: #{inspect(markers)}"
+    assert {:ok, mission, meta} =
+             ChapterMissionService.derive(inputs(), provider,
+               run: run,
+               snapshot: %{stage_state: %{judgment_transcript: transcript}},
+               author_text: "不要把应用目标重复成作者发言"
+             )
+
+    assert_receive {:canonical_mission_prompt, prompt}
+    assert Enum.take(prompt.messages, length(before_prompt.messages)) == before_prompt.messages
+    assert Enum.count(prompt.messages, &(&1.role == "user" and &1.content == "  续写第三章\n")) == 1
+    refute Enum.any?(prompt.messages, &(&1.role == "user" and &1.content == "不要把应用目标重复成作者发言"))
+    assert Enum.map(prompt.tools, & &1.name) == ["chapter_mission"]
+
+    latest_scope =
+      Enum.find(Enum.reverse(prompt.messages), &String.contains?(&1.content, "scope_update"))
+
+    assert latest_scope.content =~ "当前应用目标：只补第三章结尾，保留已写正文"
+    assert latest_scope.content =~ ~s("goal_version":2)
+    assert mission.statement == "本章回收旧账牌。"
+    assert meta.provider_call_count == 1
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(meta.judgment_transcript)
+    assert {:ok, []} = RequestIR.pending_call_ids(ir)
+
+    assert {:ok, restored} =
+             meta.judgment_transcript
+             |> AuthoringTranscript.checkpoint()
+             |> Jason.encode!()
+             |> Jason.decode!()
+             |> AuthoringTranscript.restore()
+
+    assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored)
+    assert provider_wire(restored_ir) == provider_wire(ir)
+  end
+
+  @tag :mission_canonical
+  test "无效使命通过原生失败结果回流，下一真实请求保留响应与正确关联" do
+    parent = self()
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+    {run, transcript} = mission_conversation()
+
+    provider =
+      execution(fn prompt ->
+        attempt = Agent.get_and_update(attempts, &{&1 + 1, &1 + 1})
+        send(parent, {:mission_attempt, attempt, prompt})
+
+        args =
+          if attempt == 1,
+            do: %{
+              valid_arguments()
+              | "statement" => "",
+                "must_advance" => [%{"text" => "越界", "basis_ref" => "unread:fact"}]
+            },
+            else: valid_arguments()
+
+        {:ok, tool_call_result("核对材料。", args, call_id: "pc-mission-#{attempt}")}
+      end)
+
+    assert {:ok, _mission, meta} =
+             ChapterMissionService.derive(inputs(), provider,
+               run: run,
+               snapshot: %{stage_state: %{judgment_transcript: transcript}}
+             )
+
+    assert_receive {:mission_attempt, 1, first}
+    assert_receive {:mission_attempt, 2, second}
+    assert Enum.take(second.messages, length(first.messages)) == first.messages
+
+    feedback =
+      Enum.find(second.messages, fn message ->
+        message.role == "tool" and String.contains?(message.content, "mission_unbound")
+      end)
+
+    assert feedback
+    assert %{"status" => "failed", "call_id" => rejected_id} = Jason.decode!(feedback.content)
+    assert feedback.tool_call_id == rejected_id
+
+    assert Enum.any?(second.messages, fn message ->
+             Enum.any?(Map.get(message, :tool_calls, []), &(&1.id == rejected_id))
+           end)
+
+    assert meta.provider_call_count == 2
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(meta.judgment_transcript)
+    assert {:ok, []} = RequestIR.pending_call_ids(ir)
+  end
+
+  @tag :mission_canonical
+  test "最终坏使命与传输失败均保留可恢复会话及实际调用数" do
+    {run, transcript} = mission_conversation()
+    opts = [run: run, snapshot: %{stage_state: %{judgment_transcript: transcript}}]
+
+    invalid =
+      execution(fn _ ->
+        {:ok,
+         tool_call_result("错误依据。", %{valid_arguments() | "statement" => "", "must_advance" => []})}
+      end)
+
+    assert {:error, :mission_unbound, invalid_meta} =
+             ChapterMissionService.derive(inputs(), invalid, opts)
+
+    assert invalid_meta.provider_call_count == 2
+    assert {:ok, invalid_ir} = AuthoringTranscript.to_request_ir(invalid_meta.judgment_transcript)
+    assert {:ok, []} = RequestIR.pending_call_ids(invalid_ir)
+
+    failed = execution(fn _ -> {:error, :timeout} end)
+    assert {:error, _, failed_meta} = ChapterMissionService.derive(inputs(), failed, opts)
+    assert failed_meta.provider_call_count == 1
+
+    assert Enum.take(failed_meta.judgment_transcript.messages, length(transcript.messages)) ==
+             transcript.messages
+  end
+
+  defp provider_wire(ir) do
+    {:ok, prompt} = RequestIR.to_provider_prompt(ir)
+
+    %{messages: Provider.normalize_messages(prompt)}
+    |> Provider.put_openai_tools(prompt)
+    |> Jason.encode!()
+    |> Jason.decode!()
+  end
+
+  defp fixture_run, do: %{run_id: "run-mission", work_id: "work-mission", goal: %{text: "续写第三章"}}
+
+  defp mission_conversation do
+    run = %{run_id: "run-mission", work_id: "work-mission", goal: %{text: "续写第三章"}}
+    caps = Map.new(RequestIR.required_capabilities(), &{&1, true})
+
+    transcript =
+      AuthoringTranscript.new(run,
+        base_text: "作者保留采纳权",
+        author_text: "  续写第三章\n",
+        projection: %{target: "chat_completions", capability_profile: caps}
+      )
+      |> AuthoringTranscript.append_assistant("先核对已读材料。", [
+        RequestIR.tool_call_block("archive_read", %{}, "prior-read")
+      ])
+      |> AuthoringTranscript.append_observation("prior-read", %{
+        status: "ok",
+        source_refs: [],
+        content: %{summary: "第三章计划已读取"}
+      })
+
+    {run, transcript}
+  end
+
+  defp valid_arguments do
+    %{
+      "author_reasoning" => "先回收旧账牌。",
+      "statement" => "本章回收旧账牌。",
+      "must_advance" => [%{"text" => "回收旧账牌", "basis_ref" => "ledger:information:foreshadow_a"}],
+      "must_avoid" => [],
+      "confidence" => 0.9
+    }
   end
 end

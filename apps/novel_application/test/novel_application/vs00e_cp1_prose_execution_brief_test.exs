@@ -6,6 +6,7 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelApplication.TurnExecutionService
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.DialogueContext
@@ -97,8 +98,9 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
       {:ok,
        %{
          provider_call_id: "pc-cp1-writer",
-         content:
-           Jason.encode!(%{
+         content: "",
+         tool_calls:
+           TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{
              items: [%{item_id: "cp1-item", title: "第02章", body: "正文", rationale: nil}],
              self_report: %{
                assumptions: [],
@@ -110,7 +112,7 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
        }}
     end
 
-    {turn_result, _trace} =
+    {turn_result, _trace, _transcript} =
       TurnExecutionService.execute(%{
         frame: frame(),
         plan: plan(target_chapter),
@@ -120,7 +122,8 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
         provider_execution: %Execution{result_fn: complete}
       })
 
-    {turn_result, agent |> Agent.get(& &1) |> Enum.join("\n\n")}
+    {turn_result,
+     agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1)}
   end
 
   defp frame do

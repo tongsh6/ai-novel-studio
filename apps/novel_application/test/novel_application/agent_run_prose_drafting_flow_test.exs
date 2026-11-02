@@ -1,12 +1,28 @@
 defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   use ExUnit.Case, async: false
 
-  alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.{Execution, RequestIR}
   alias NovelApplication.AgentRunFlows.ProseDraftingWithQuality
   alias NovelApplication.AgentRunService
+  alias NovelApplication.AuthoringTranscript
   alias NovelApplication.DialoguePlanningService
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.DialogueContext
+
+  alias Ecto.Adapters.SQL.Sandbox
+  alias NovelPersistence.Repo
+
+  setup do
+    owner = Sandbox.start_owner!(Repo, shared: true)
+
+    on_exit(fn ->
+      NovelApplication.TestAgentRunCleanup.await_quiescent()
+      Sandbox.stop_owner(owner)
+    end)
+
+    :ok
+  end
 
   @work "work-agent-prose-flow"
   @bad_prose "他走进房间，看了看四周，坐了下来。他拿起书本，翻了翻几页，放了下来。他望向窗外，看了看天色，叹了口气。他端起茶杯，喝了一小口，搁了回去。"
@@ -25,8 +41,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         prompt_contains?(prompt, "AgentRun 下一步规划器") ->
           {:ok,
            %{
-             content:
-               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+             content: TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
            }}
 
         true ->
@@ -35,54 +50,58 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           {:ok,
            %{
              provider_call_id: "pc-agent-prose-writer",
-             content:
-               Jason.encode!(%{
-                 items: [
-                   %{
-                     item_id: "agent-prose-item",
-                     title: "第01章：开端",
-                     body: @bad_prose,
-                     rationale: "首稿候选。"
+             content: "",
+             tool_calls:
+               TestAgenticLoopFixtures.native_tool_calls(
+                 "submit_tentative_artifact",
+                 %{
+                   items: [
+                     %{
+                       item_id: "agent-prose-item",
+                       title: "第01章：开端",
+                       body: @bad_prose,
+                       rationale: "首稿候选。"
+                     }
+                   ],
+                   companion_artifacts: [
+                     %{
+                       artifact_type: "character_seed",
+                       item_id: "agent-prose-character",
+                       title: "岑雾",
+                       body: "巡夜人，负责追查灵气账单异常。",
+                       rationale: "正文中首次出场。",
+                       narrative_role: "SUPPORTING"
+                     },
+                     %{
+                       artifact_type: "foreshadowing_seed",
+                       item_id: "agent-prose-foreshadow",
+                       title: "账单上的蓝灰",
+                       body: "被抹除的账目都会留下蓝灰。",
+                       rationale: "正文新埋且尚未回收的线索。"
+                     },
+                     %{
+                       artifact_type: "world_rule_seed",
+                       item_id: "agent-prose-world-rule",
+                       title: "账目抹除规则",
+                       body: "灵气账目不能被无痕删除。",
+                       rationale: "正文建立的持续世界规则。"
+                     },
+                     %{
+                       artifact_type: "constraint_seed",
+                       item_id: "agent-prose-constraint",
+                       title: "暂不揭示账单来源",
+                       body: "前三章不解释异常账单的制造者。",
+                       rationale: "作者本轮明确要求。"
+                     }
+                   ],
+                   self_report: %{
+                     assumptions: [],
+                     intended_reader_effect: "压迫感",
+                     used_context_refs: ["prose_execution_brief"],
+                     risk_flags: []
                    }
-                 ],
-                 companion_artifacts: [
-                   %{
-                     artifact_type: "character_seed",
-                     item_id: "agent-prose-character",
-                     title: "岑雾",
-                     body: "巡夜人，负责追查灵气账单异常。",
-                     rationale: "正文中首次出场。",
-                     narrative_role: "SUPPORTING"
-                   },
-                   %{
-                     artifact_type: "foreshadowing_seed",
-                     item_id: "agent-prose-foreshadow",
-                     title: "账单上的蓝灰",
-                     body: "被抹除的账目都会留下蓝灰。",
-                     rationale: "正文新埋且尚未回收的线索。"
-                   },
-                   %{
-                     artifact_type: "world_rule_seed",
-                     item_id: "agent-prose-world-rule",
-                     title: "账目抹除规则",
-                     body: "灵气账目不能被无痕删除。",
-                     rationale: "正文建立的持续世界规则。"
-                   },
-                   %{
-                     artifact_type: "constraint_seed",
-                     item_id: "agent-prose-constraint",
-                     title: "暂不揭示账单来源",
-                     body: "前三章不解释异常账单的制造者。",
-                     rationale: "作者本轮明确要求。"
-                   }
-                 ],
-                 self_report: %{
-                   assumptions: [],
-                   intended_reader_effect: "压迫感",
-                   used_context_refs: ["prose_execution_brief"],
-                   risk_flags: []
                  }
-               })
+               )
            }}
       end
     end
@@ -93,30 +112,34 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       {:ok,
        %{
          provider_call_ref: "pc-agent-prose-evaluator",
-         content:
-           Jason.encode!(%{
-             "findings" => [
-               %{
-                 "quality_finding_id" => "qf_agent_character_agency",
-                 "quality_gate_ref" => "quality_gate.character_logic",
-                 "validator_ref" => "validator.character_agency",
-                 "severity" => "warn",
-                 "action" => "adoption_review",
-                 "summary" => "主角缺乏主动目标",
-                 "reasoning" => "正文只罗列被动动作，没有呈现主角的目标或选择。",
-                 "evidence_spans" => [
-                   %{
-                     "text" => "他走进房间，看了看四周，坐了下来。",
-                     "sentence_start" => 1,
-                     "sentence_end" => 1
-                   }
-                 ],
-                 "impact_scope" => "paragraph",
-                 "revision_scope" => "paragraph",
-                 "confidence" => 0.84
-               }
-             ]
-           })
+         content: "",
+         tool_calls:
+           TestAgenticLoopFixtures.native_tool_calls(
+             "report_quality_findings",
+             %{
+               "findings" => [
+                 %{
+                   "quality_finding_id" => "qf_agent_character_agency",
+                   "quality_gate_ref" => "quality_gate.character_logic",
+                   "validator_ref" => "validator.character_agency",
+                   "severity" => "warn",
+                   "action" => "adoption_review",
+                   "summary" => "主角缺乏主动目标",
+                   "reasoning" => "正文只罗列被动动作，没有呈现主角的目标或选择。",
+                   "evidence_spans" => [
+                     %{
+                       "text" => "他走进房间，看了看四周，坐了下来。",
+                       "sentence_start" => 1,
+                       "sentence_end" => 1
+                     }
+                   ],
+                   "impact_scope" => "paragraph",
+                   "revision_scope" => "paragraph",
+                   "confidence" => 0.84
+                 }
+               ]
+             }
+           )
        }}
     end
 
@@ -226,26 +249,52 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert_receive {:agent_event, :tool_started, tool_started}, 500
     assert tool_started.summary =~ "正文写作能力"
     assert_receive {:writer_prompt, writer_prompt}, 500
-    assert writer_prompt =~ "用户创作简述："
-    assert writer_prompt =~ "场级执行简述"
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "用户创作简述："
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "场级执行简述"
 
     # B27 CP3b：writer 由共享任务语义渲染（L1 静态段 + L3 动态事实），不再只靠模板
-    assert writer_prompt =~ "## 创作协作共同规则"
-    assert writer_prompt =~ "本轮任务语义："
-    assert writer_prompt =~ "## 材料与覆盖"
-    assert writer_prompt =~ "作者原话（逐字保留、可追溯）"
-    assert writer_prompt =~ "companion_artifacts"
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "## 创作协作共同规则"
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "本轮任务语义："
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "## 材料与覆盖"
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "作者原话（逐字保留、可追溯）"
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "companion_artifacts"
     # WR01：使命随简报进 writer prompt，带依据文本；越界条目不得出现。
-    assert writer_prompt =~ "本章使命：本章必须让主角从被动观察转向主动寻找出口。"
-    assert writer_prompt =~ "· 必须推进：让主角进入异常房间并找到压力来源（依据：情节推进：主角进入异常房间并发现压力来源）"
-    assert writer_prompt =~ "· 不得：不直接点破旧公司实验"
-    refute writer_prompt =~ "不存在的伏笔"
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "本章使命：本章必须让主角从被动观察转向主动寻找出口。"
+
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~
+             "· 必须推进：让主角进入异常房间并找到压力来源（依据：情节推进：主角进入异常房间并发现压力来源）"
+
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "· 不得：不直接点破旧公司实验"
+    refute NovelAgent.Provider.prompt_text(writer_prompt) =~ "不存在的伏笔"
     assert_receive {:evaluator_prompt, evaluator_prompt}, 500
-    assert evaluator_prompt =~ "质量评审"
-    # B27 CP3b：evaluator 消费同一任务语义，并显式声明材料覆盖范围
-    assert evaluator_prompt =~ "## 创作协作共同规则"
-    assert evaluator_prompt =~ "评审范围：单对象/片段"
-    refute evaluator_prompt =~ "用户创作简述："
+
+    calls_before_quality =
+      for message <- evaluator_prompt.messages,
+          call <- Map.get(message, :tool_calls, []),
+          do: call.function.name
+
+    assert "agent_plan_draft" in calls_before_quality
+    assert "chapter_mission" in calls_before_quality
+    assert "submit_tentative_artifact" in calls_before_quality
+
+    assert NovelAgent.Provider.prompt_text(evaluator_prompt) =~ "质量评审"
+    # B71 CP4a：质量 scope 追加在同一 canonical transcript 中，不重复创作输入。
+    assert NovelAgent.Provider.prompt_text(evaluator_prompt) =~ "## 创作协作共同规则"
+
+    assert Enum.any?(
+             NovelAgent.Provider.tool_specs(evaluator_prompt),
+             &(&1.name == "report_quality_findings")
+           )
+
+    assert %{content: quality_scope} =
+             evaluator_prompt.messages
+             |> Enum.filter(
+               &(&1.role == "user" and String.contains?(&1.content, "本次你承担小说正文质量评审助手的角色"))
+             )
+             |> List.last()
+
+    assert quality_scope =~ "评审范围：单对象/片段"
+    refute quality_scope =~ "用户创作简述："
     assert_receive {:agent_event, :tool_completed, tool_completed}, 500
     assert tool_completed.summary =~ "质量复核已完成"
     assert_receive {:agent_event, :exploration_observed, quality_event}, 500
@@ -320,8 +369,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         prompt_contains?(prompt, "AgentRun 下一步规划器") ->
           {:ok,
            %{
-             content:
-               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+             content: TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
            }}
 
         true ->
@@ -330,24 +378,28 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           {:ok,
            %{
              provider_call_id: "pc-author-mission-writer",
-             content:
-               Jason.encode!(%{
-                 items: [
-                   %{
-                     item_id: "author-mission-item",
-                     title: "第01章：开端",
-                     body: "沈洛按作者定下的使命，只做一件事：找到出口。",
-                     rationale: "首稿候选。"
+             content: "",
+             tool_calls:
+               TestAgenticLoopFixtures.native_tool_calls(
+                 "submit_tentative_artifact",
+                 %{
+                   items: [
+                     %{
+                       item_id: "author-mission-item",
+                       title: "第01章：开端",
+                       body: "沈洛按作者定下的使命，只做一件事：找到出口。",
+                       rationale: "首稿候选。"
+                     }
+                   ],
+                   companion_artifacts: [],
+                   self_report: %{
+                     assumptions: [],
+                     intended_reader_effect: "压迫感",
+                     used_context_refs: ["prose_execution_brief"],
+                     risk_flags: []
                    }
-                 ],
-                 companion_artifacts: [],
-                 self_report: %{
-                   assumptions: [],
-                   intended_reader_effect: "压迫感",
-                   used_context_refs: ["prose_execution_brief"],
-                   risk_flags: []
                  }
-               })
+               )
            }}
       end
     end
@@ -356,7 +408,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       {:ok,
        %{
          provider_call_ref: "pc-author-mission-evaluator",
-         content: Jason.encode!(%{"findings" => []})
+         content: "",
+         tool_calls:
+           TestAgenticLoopFixtures.native_tool_calls(
+             "report_quality_findings",
+             %{"findings" => []}
+           )
        }}
     end
 
@@ -396,9 +453,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       )
 
     assert_receive {:writer_prompt, writer_prompt}, 2_000
-    assert writer_prompt =~ "本章使命（作者已定）：这一章只写主角找到出口，不解释房间来历。"
-    assert writer_prompt =~ "· 必须推进：找到出口"
-    assert writer_prompt =~ "· 不得：不解释房间来历"
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "本章使命（作者已定）：这一章只写主角找到出口，不解释房间来历。"
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "· 必须推进：找到出口"
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "· 不得：不解释房间来历"
 
     events = collect_agent_events_until(:run_completed, 3_000)
     refute Enum.any?(events, fn {event_type, _event} -> event_type == :mission_derived end)
@@ -447,9 +504,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           {:ok,
            %{
              content:
-               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(
-                 continuation_next_step_decision(prompt)
-               )
+               TestAgenticLoopFixtures.reasoning_tail(continuation_next_step_decision(prompt))
            }}
 
         true ->
@@ -458,23 +513,27 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           {:ok,
            %{
              provider_call_id: "pc-agent-prose-cont-writer",
-             content:
-               Jason.encode!(%{
-                 items: [
-                   %{
-                     item_id: "agent-prose-cont-item",
-                     title: "第01章：开端",
-                     body: "他把亏空的名字一笔一笔誊到旧账页背面。",
-                     rationale: "续写候选。"
+             content: "",
+             tool_calls:
+               TestAgenticLoopFixtures.native_tool_calls(
+                 "submit_tentative_artifact",
+                 %{
+                   items: [
+                     %{
+                       item_id: "agent-prose-cont-item",
+                       title: "第01章：开端",
+                       body: "他把亏空的名字一笔一笔誊到旧账页背面。",
+                       rationale: "续写候选。"
+                     }
+                   ],
+                   self_report: %{
+                     assumptions: [],
+                     intended_reader_effect: "压迫感",
+                     used_context_refs: ["prose_execution_brief"],
+                     risk_flags: []
                    }
-                 ],
-                 self_report: %{
-                   assumptions: [],
-                   intended_reader_effect: "压迫感",
-                   used_context_refs: ["prose_execution_brief"],
-                   risk_flags: []
                  }
-               })
+               )
            }}
       end
     end
@@ -483,7 +542,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       {:ok,
        %{
          provider_call_ref: "pc-agent-prose-cont-eval",
-         content: Jason.encode!(%{"findings" => []})
+         content: "",
+         tool_calls:
+           TestAgenticLoopFixtures.native_tool_calls(
+             "report_quality_findings",
+             %{"findings" => []}
+           )
        }}
     end
 
@@ -517,7 +581,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              )
 
     assert_receive {:writer_prompt, writer_prompt}, 2_000
-    assert writer_prompt =~ prior_prose
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ prior_prose
 
     assert_receive {:agent_event, :artifact_created, artifact_event}, 2_000
     assert_receive {:agent_event, :run_completed, _}, 2_000
@@ -547,10 +611,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
       cond do
         String.contains?(p, "/ artifact_created:") ->
-          NovelApplication.TestAgenticLoopFixtures.done_next("候选已生成，本轮目标满足。")
+          TestAgenticLoopFixtures.done_next("候选已生成，本轮目标满足。")
 
         String.contains?(p, "prose_context /") ->
-          NovelApplication.TestAgenticLoopFixtures.continue_next(
+          TestAgenticLoopFixtures.continue_next(
             "接着第01章往下写。",
             "prose_writing",
             write_intent: "tentative",
@@ -558,7 +622,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           )
 
         true ->
-          NovelApplication.TestAgenticLoopFixtures.continue_next(
+          TestAgenticLoopFixtures.continue_next(
             "读取写作上下文。",
             "prose_context",
             write_intent: "none"
@@ -583,8 +647,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         prompt_contains?(prompt, "AgentRun 下一步规划器") ->
           {:ok,
            %{
-             content:
-               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(intentless_next.(prompt))
+             content: TestAgenticLoopFixtures.reasoning_tail(intentless_next.(prompt))
            }}
 
         true ->
@@ -593,23 +656,27 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           {:ok,
            %{
              provider_call_id: "pc-agent-prose-noint-writer",
-             content:
-               Jason.encode!(%{
-                 items: [
-                   %{
-                     item_id: "agent-prose-noint-item",
-                     title: "第01章：开端",
-                     body: "他把亏空的名字一笔一笔誊到旧账页背面。",
-                     rationale: "续写候选。"
+             content: "",
+             tool_calls:
+               TestAgenticLoopFixtures.native_tool_calls(
+                 "submit_tentative_artifact",
+                 %{
+                   items: [
+                     %{
+                       item_id: "agent-prose-noint-item",
+                       title: "第01章：开端",
+                       body: "他把亏空的名字一笔一笔誊到旧账页背面。",
+                       rationale: "续写候选。"
+                     }
+                   ],
+                   self_report: %{
+                     assumptions: [],
+                     intended_reader_effect: "压迫感",
+                     used_context_refs: ["prose_execution_brief"],
+                     risk_flags: []
                    }
-                 ],
-                 self_report: %{
-                   assumptions: [],
-                   intended_reader_effect: "压迫感",
-                   used_context_refs: ["prose_execution_brief"],
-                   risk_flags: []
                  }
-               })
+               )
            }}
       end
     end
@@ -618,7 +685,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       {:ok,
        %{
          provider_call_ref: "pc-agent-prose-noint-eval",
-         content: Jason.encode!(%{"findings" => []})
+         content: "",
+         tool_calls:
+           TestAgenticLoopFixtures.native_tool_calls(
+             "report_quality_findings",
+             %{"findings" => []}
+           )
        }}
     end
 
@@ -651,7 +723,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              )
 
     assert_receive {:writer_prompt, writer_prompt}, 2_000
-    assert writer_prompt =~ prior_prose, "intent 缺失但章有正文时前文必须进 writer prompt"
+
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ prior_prose,
+           "intent 缺失但章有正文时前文必须进 writer prompt"
 
     assert_receive {:agent_event, :artifact_created, artifact_event}, 2_000
     assert [pending] = artifact_event.payload.turn_result.adoption_state.pending
@@ -687,8 +761,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         prompt_contains?(prompt, "AgentRun 下一步规划器") ->
           {:ok,
            %{
-             content:
-               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+             content: TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
            }}
 
         true ->
@@ -697,23 +770,27 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           {:ok,
            %{
              provider_call_id: "pc-agent-prose-retry-writer",
-             content:
-               Jason.encode!(%{
-                 items: [
-                   %{
-                     item_id: "agent-prose-retry-item",
-                     title: "第01章：开端",
-                     body: @bad_prose,
-                     rationale: "首稿候选。"
+             content: "",
+             tool_calls:
+               TestAgenticLoopFixtures.native_tool_calls(
+                 "submit_tentative_artifact",
+                 %{
+                   items: [
+                     %{
+                       item_id: "agent-prose-retry-item",
+                       title: "第01章：开端",
+                       body: @bad_prose,
+                       rationale: "首稿候选。"
+                     }
+                   ],
+                   self_report: %{
+                     assumptions: [],
+                     intended_reader_effect: "压迫感",
+                     used_context_refs: ["prose_execution_brief"],
+                     risk_flags: []
                    }
-                 ],
-                 self_report: %{
-                   assumptions: [],
-                   intended_reader_effect: "压迫感",
-                   used_context_refs: ["prose_execution_brief"],
-                   risk_flags: []
                  }
-               })
+               )
            }}
       end
     end
@@ -722,7 +799,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       {:ok,
        %{
          provider_call_ref: "pc-agent-prose-retry-eval",
-         content: Jason.encode!(%{"findings" => []})
+         content: "",
+         tool_calls:
+           TestAgenticLoopFixtures.native_tool_calls(
+             "report_quality_findings",
+             %{"findings" => []}
+           )
        }}
     end
 
@@ -961,10 +1043,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       if plan_draft_prompt?(prompt) do
         {:ok,
          with_provider_call(
-           NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+           TestAgenticLoopFixtures.plan_tool_call_result(
              "先读取正文写作上下文（#{raw_sentinel}-draft）。",
              [
-               NovelApplication.TestAgenticLoopFixtures.plan_step(
+               TestAgenticLoopFixtures.plan_step(
                  "read_prose_context",
                  "context_assemble",
                  "读取正文写作上下文"
@@ -1045,24 +1127,30 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           {:ok,
            %{
              provider_call_id: "pc-agent-b17-scoped-writer",
-             content:
-               Jason.encode!(%{
-                 items: [
-                   %{
-                     item_id: "b17-scoped-prose",
-                     title: "第01章：底层灵气账单（第一场）",
-                     body: "陆沉舟把账单摊在桌面上，蓝灰的余额在灯下一点点暗下去。",
-                     rationale: "按作者缩小范围后的第一场生成。"
+             content: "",
+             tool_calls: [
+               %{
+                 id: "writer-scoped-call",
+                 name: "submit_tentative_artifact",
+                 arguments: %{
+                   items: [
+                     %{
+                       item_id: "b17-scoped-prose",
+                       title: "第01章：底层灵气账单（第一场）",
+                       body: "陆沉舟把账单摊在桌面上，蓝灰的余额在灯下一点点暗下去。",
+                       rationale: "按作者缩小范围后的第一场生成。"
+                     }
+                   ],
+                   companion_artifacts: [],
+                   self_report: %{
+                     assumptions: [],
+                     intended_reader_effect: "压迫感",
+                     used_context_refs: ["prose_execution_brief"],
+                     risk_flags: []
                    }
-                 ],
-                 companion_artifacts: [],
-                 self_report: %{
-                   assumptions: [],
-                   intended_reader_effect: "压迫感",
-                   used_context_refs: ["prose_execution_brief"],
-                   risk_flags: []
                  }
-               })
+               }
+             ]
            }}
 
         true ->
@@ -1075,7 +1163,14 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       {:ok,
        %{
          provider_call_ref: "pc-agent-b17-evaluator",
-         content: Jason.encode!(%{"findings" => []})
+         content: "",
+         tool_calls: [
+           %{
+             id: "quality-scoped-call",
+             name: "report_quality_findings",
+             arguments: %{findings: []}
+           }
+         ]
        }}
     end
 
@@ -1105,12 +1200,78 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     recovery_events = collect_agent_events_until(:run_completed, 5_000)
     assert find_event!(recovery_events, :run_completed)
     assert_receive {:scoped_writer_prompt, scoped_prompt}, 1_000
-    assert scoped_prompt =~ "先只写当前章的第一个场景"
+    assert NovelAgent.Provider.prompt_text(scoped_prompt) =~ "先只写当前章的第一个场景"
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed
     assert state.run.run_id == run_id
     assert length(state.run.pending_artifact_refs) == 1
+
+    transcript = state.stage_state.judgment_transcript
+
+    tool_names =
+      for message <- transcript.messages,
+          block <- message.blocks,
+          block.type == "tool_call",
+          do: block.name
+
+    assert tool_names == [
+             "agent_plan_draft",
+             "chapter_mission",
+             "continuation_decision",
+             "continuation_decision",
+             "submit_tentative_artifact",
+             "report_quality_findings"
+           ]
+
+    validation_results =
+      for message <- transcript.messages,
+          block <- message.blocks,
+          block.type == "validation_result",
+          do: {block.call_id, block.status, block.reason_code}
+
+    assert Enum.count(validation_results, &(elem(&1, 2) == "judgment_validated")) == 2
+
+    preparation_results = ["agent_plan_validated", "chapter_mission_validated"]
+    assert Enum.count(validation_results, &(elem(&1, 2) in preparation_results)) == 2
+
+    assert Enum.reject(
+             validation_results,
+             &(elem(&1, 2) in ["judgment_validated" | preparation_results])
+           ) == [
+             {"writer-scoped-call", "passed", "tentative_artifact_validated"},
+             {"quality-scoped-call", "passed", "quality_findings_validated"}
+           ]
+
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
+    assert {:ok, []} = RequestIR.pending_call_ids(ir)
+
+    assert Enum.any?(transcript.messages, fn message ->
+             message.role == "scope_update" and
+               Enum.any?(message.blocks, &(Map.get(&1, :text, "") =~ "D1 偏离信号"))
+           end)
+
+    assert {:ok, restored} =
+             transcript
+             |> AuthoringTranscript.checkpoint()
+             |> Jason.encode!()
+             |> Jason.decode!()
+             |> AuthoringTranscript.restore()
+
+    assert length(restored.messages) == length(transcript.messages)
+
+    assert Enum.zip(restored.messages, transcript.messages)
+           |> Enum.reject(fn {restored_message, original_message} ->
+             restored_message == original_message
+           end) == []
+
+    author_result = find_event!(recovery_events, :artifact_created).payload.turn_result
+    refute Map.has_key?(author_result, :request_ir)
+    refute Map.has_key?(author_result, :provider_session)
+    assert author_result.assistant_message.text =~ "正文草稿"
+    refute author_result.assistant_message.text =~ "writer-scoped-call"
+    refute author_result.assistant_message.text =~ "continuation_decision"
+    refute author_result.assistant_message.text =~ "prose_writing"
   end
 
   test "D2 actionable quality finding revises plan before waiting for author" do
@@ -1143,24 +1304,29 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
           {:ok,
            %{
-             provider_call_id: "pc-agent-prose-d2-writer",
-             content:
-               Jason.encode!(%{
-                 items: [
-                   %{
-                     item_id: "agent-prose-d2-item",
-                     title: "第01章：开端",
-                     body: "主角无需代价就复活并推翻既有规则。",
-                     rationale: "质量确认演练。"
+             provider_call_id:
+               TestAgenticLoopFixtures.unique_provider_call_id("pc-agent-prose-d2-writer"),
+             content: "",
+             tool_calls:
+               TestAgenticLoopFixtures.native_tool_calls(
+                 "submit_tentative_artifact",
+                 %{
+                   items: [
+                     %{
+                       item_id: "agent-prose-d2-item",
+                       title: "第01章：开端",
+                       body: "主角无需代价就复活并推翻既有规则。",
+                       rationale: "质量确认演练。"
+                     }
+                   ],
+                   self_report: %{
+                     assumptions: [],
+                     intended_reader_effect: "规则冲突",
+                     used_context_refs: ["prose_execution_brief"],
+                     risk_flags: ["rule_conflict"]
                    }
-                 ],
-                 self_report: %{
-                   assumptions: [],
-                   intended_reader_effect: "规则冲突",
-                   used_context_refs: ["prose_execution_brief"],
-                   risk_flags: ["rule_conflict"]
                  }
-               })
+               )
            }}
       end
     end
@@ -1201,7 +1367,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       {:ok,
        %{
          provider_call_ref: "pc-agent-prose-d2-eval-#{count}",
-         content: Jason.encode!(%{"findings" => findings})
+         content: "",
+         tool_calls:
+           TestAgenticLoopFixtures.native_tool_calls(
+             "report_quality_findings",
+             %{"findings" => findings}
+           )
        }}
     end
 
@@ -1258,6 +1429,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       Enum.find(events, fn {type, _event} -> type == :artifact_superseded end)
 
     refute Enum.any?(superseded_event.refs, &(&1 in state.run.pending_artifact_refs))
+
+    # 两次 writer 与复评都是真实调用：各自持久事实必须成对，不能共享固定身份。
+    assert TestAgenticLoopFixtures.assert_provider_fact_pairs(run_id) != []
   end
 
   test "require_confirmation gate emits confirmation awaiting without dispatch or continuation" do
@@ -1279,7 +1453,15 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           send(parent, {:unexpected_writer_prompt, prompt})
 
           {:ok,
-           %{provider_call_id: "pc-agent-prose-d4-writer", content: Jason.encode!(%{items: []})}}
+           %{
+             provider_call_id: "pc-agent-prose-d4-writer",
+             content: "",
+             tool_calls:
+               TestAgenticLoopFixtures.native_tool_calls(
+                 "submit_tentative_artifact",
+                 %{items: []}
+               )
+           }}
       end
     end
 
@@ -1346,7 +1528,15 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           send(parent, {:unexpected_writer_prompt, prompt})
 
           {:ok,
-           %{provider_call_id: "pc-agent-prose-d7-writer", content: Jason.encode!(%{items: []})}}
+           %{
+             provider_call_id: "pc-agent-prose-d7-writer",
+             content: "",
+             tool_calls:
+               TestAgenticLoopFixtures.native_tool_calls(
+                 "submit_tentative_artifact",
+                 %{items: []}
+               )
+           }}
       end
     end
 
@@ -1383,10 +1573,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   # WR01：写前推理步的确定性结果——一条依据在材料内（context() 的第 01 章计划字段）、
   # 一条越界依据（必须被 ChapterMission.bind 机械丢弃，不进 writer prompt）。
   defp mission_prompt?(prompt),
-    do: prompt_contains?(prompt, NovelApplication.ChapterMissionService.prompt_anchor())
+    do: Enum.any?(NovelAgent.Provider.tool_specs(prompt), &(&1.name == "chapter_mission"))
 
   defp mission_result do
-    NovelApplication.TestAgenticLoopFixtures.mission_tool_call_result(
+    TestAgenticLoopFixtures.mission_tool_call_result(
       "我核对了第01章计划与作品脉络：本章先让主角找到压力来源，不提前揭示旧公司实验。",
       "本章必须让主角从被动观察转向主动寻找出口。",
       must_advance: [
@@ -1398,10 +1588,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   end
 
   defp plan_draft_prompt?(prompt),
-    do: prompt_contains?(prompt, "AgentRun 计划起草器")
+    do: Enum.any?(NovelAgent.Provider.tool_specs(prompt), &(&1.name == "agent_plan_draft"))
 
   defp continuation_decision_prompt?(prompt),
-    do: prompt_contains?(prompt, "continuation_decision")
+    do: Enum.any?(NovelAgent.Provider.tool_specs(prompt), &(&1.name == "continuation_decision"))
 
   defp continuation_decision(action, guidance) do
     text = if action == "continue", do: "按观察继续修正：#{guidance}", else: "我先停下来，需要作者确认后继续。"
@@ -1420,8 +1610,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
        content: text,
        tool_calls: calls,
        provider_output: %NovelCommon.Contracts.ProviderOutput{
-         provider_run_ref: "prun-continuation",
-         provider_call_ref: "pcall-continuation",
+         provider_run_ref: TestAgenticLoopFixtures.unique_provider_call_id("prun-continuation"),
+         provider_call_ref: TestAgenticLoopFixtures.unique_provider_call_id("pcall-continuation"),
          status: :ok,
          content: %{text: text, tool_calls: calls}
        }
@@ -1430,7 +1620,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
   defp prompt_contains?(prompt, pattern), do: prompt_text(prompt) =~ pattern
 
-  defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
+  defp prompt_text(prompt), do: TestAgenticLoopFixtures.prompt_text(prompt)
 
   test "B39 CP1：正文 run 开放只读探索步，观察进后续 writer prompt 且 0 provider/tool 消耗被正确计账" do
     parent = self()
@@ -1439,7 +1629,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       {:ok,
        %{
          provider_call_ref: "pc-b39-cp1-evaluator",
-         content: Jason.encode!(%{"findings" => []})
+         content: "",
+         tool_calls:
+           TestAgenticLoopFixtures.native_tool_calls(
+             "report_quality_findings",
+             %{"findings" => []}
+           )
        }}
     end
 
@@ -1464,7 +1659,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
           {:ok,
            with_provider_call(
-             NovelApplication.TestAgenticLoopFixtures.mission_tool_call_result(
+             TestAgenticLoopFixtures.mission_tool_call_result(
                "我核对了本轮观察：本章先让主角找到压力来源，不提前揭示旧公司实验。",
                "本章必须让主角从被动观察转向主动寻找出口。",
                must_advance: [
@@ -1491,23 +1686,27 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
            with_provider_call(
              %{
                provider_call_id: "pc-b39-cp1-writer",
-               content:
-                 Jason.encode!(%{
-                   items: [
-                     %{
-                       item_id: "b39-cp1-prose",
-                       title: "第01章：开端",
-                       body: "岑雾在灯楼里核对旧账，确认前文承诺的时间没有断。",
-                       rationale: "基于检索观察生成的首稿候选。"
+               content: "",
+               tool_calls:
+                 TestAgenticLoopFixtures.native_tool_calls(
+                   "submit_tentative_artifact",
+                   %{
+                     items: [
+                       %{
+                         item_id: "b39-cp1-prose",
+                         title: "第01章：开端",
+                         body: "岑雾在灯楼里核对旧账，确认前文承诺的时间没有断。",
+                         rationale: "基于检索观察生成的首稿候选。"
+                       }
+                     ],
+                     self_report: %{
+                       assumptions: [],
+                       intended_reader_effect: "克制",
+                       used_context_refs: [observation_ref, "chapter:b39-invented"],
+                       risk_flags: []
                      }
-                   ],
-                   self_report: %{
-                     assumptions: [],
-                     intended_reader_effect: "克制",
-                     used_context_refs: [observation_ref, "chapter:b39-invented"],
-                     risk_flags: []
                    }
-                 })
+                 )
              },
              "pc-b39-cp1-writer"
            )}
@@ -1561,17 +1760,17 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert ready_event.payload.observation_count >= 1
 
     assert_receive {:writer_prompt, writer_prompt}, 1_000
-    assert writer_prompt =~ "已完成观察"
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "已完成观察"
 
     # 观察内容（含真实 refs 的 summary）进入后续 writer 真实请求，而不只是内部状态。
-    assert writer_prompt =~ explore_event.payload.summary
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ explore_event.payload.summary
 
     # CP1b：观察以 observation ref 进入使命输入，模型可引用且 bind 保留；
     # writer AuthoringTask 材料/来源登记同一 observation ref。
     assert_receive {:mission_prompt, mission_prompt}, 1_000
     assert mission_prompt =~ "本 run 已取得的观察"
     assert mission_prompt =~ "observation:obs_"
-    assert writer_prompt =~ "observation：observation:obs_"
+    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "observation：observation:obs_"
 
     assert_receive {:mission_persisted, "work-agent-prose-flow", 1, persisted_mission}, 1_000
     persisted_advance = persisted_mission["must_advance"] || persisted_mission[:must_advance]
@@ -1630,7 +1829,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         {tool, query} ->
           [
             Map.put(
-              NovelApplication.TestAgenticLoopFixtures.plan_step(
+              TestAgenticLoopFixtures.plan_step(
                 "explore_readonly_prose",
                 tool,
                 "按需读取作品事实。",
@@ -1645,10 +1844,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           []
       end
 
-    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+    TestAgenticLoopFixtures.plan_tool_call_result(
       reasoning,
       [
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
+        TestAgenticLoopFixtures.plan_step(
           "assemble_prose_context",
           "context_assemble",
           "读取正文写作上下文",
@@ -1657,13 +1856,13 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       ] ++
         exploration_step ++
         [
-          NovelApplication.TestAgenticLoopFixtures.plan_step(
+          TestAgenticLoopFixtures.plan_step(
             "derive_chapter_mission",
             "chapter_mission",
             "按本章计划与作品脉络推导本章使命",
             success_criteria: ["chapter_mission_derived"]
           ),
-          NovelApplication.TestAgenticLoopFixtures.plan_step(
+          TestAgenticLoopFixtures.plan_step(
             "draft_prose_with_quality",
             "prose_writing",
             "生成正文草稿并触发质量复核",
@@ -1757,10 +1956,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     cond do
       String.contains?(prompt, "/ artifact_created:") ->
-        NovelApplication.TestAgenticLoopFixtures.done_next("续写候选已生成并复核，本轮目标已经满足。")
+        TestAgenticLoopFixtures.done_next("续写候选已生成并复核，本轮目标已经满足。")
 
       String.contains?(prompt, "prose_context /") ->
-        NovelApplication.TestAgenticLoopFixtures.continue_next(
+        TestAgenticLoopFixtures.continue_next(
           "作者要求接着第01章继续写，按续写生成正文并复核。",
           "prose_writing",
           write_intent: "tentative",
@@ -1772,7 +1971,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         )
 
       true ->
-        NovelApplication.TestAgenticLoopFixtures.continue_next(
+        TestAgenticLoopFixtures.continue_next(
           "先读取正文写作上下文。",
           "context_assemble"
         )
@@ -1784,10 +1983,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     cond do
       String.contains?(prompt, "/ artifact_created:") ->
-        NovelApplication.TestAgenticLoopFixtures.done_next("已生成待采纳正文草稿并完成质量复核，本轮目标已经满足。")
+        TestAgenticLoopFixtures.done_next("已生成待采纳正文草稿并完成质量复核，本轮目标已经满足。")
 
       String.contains?(prompt, "prose_context /") ->
-        NovelApplication.TestAgenticLoopFixtures.continue_next(
+        TestAgenticLoopFixtures.continue_next(
           "基于已读取的正文上下文生成正文草稿并完成质量复核。",
           "prose_writing",
           write_intent: "tentative",
@@ -1795,7 +1994,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         )
 
       true ->
-        NovelApplication.TestAgenticLoopFixtures.continue_next(
+        TestAgenticLoopFixtures.continue_next(
           "先读取正文写作上下文。",
           "context_assemble",
           reason_codes: ["agentic_next_step", "missing_prose_context"]

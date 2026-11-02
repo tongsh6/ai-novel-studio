@@ -1,6 +1,7 @@
 defmodule NovelApplication.DialoguePlanningServiceTest do
   use ExUnit.Case, async: true
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentRunFlows.CharacterEvolutionWithContext
   alias NovelApplication.AgentRunFlows.PlotOutlineWithContext
@@ -8,6 +9,13 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
   alias NovelApplication.DialoguePlanningService
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelDomain.AgentRun
+  alias NovelPersistence.Repo
+
+  # 判断执行会经 ProviderActivityProjector 提交真实 Provider 事实；本测试必须
+  # 显式持有 Sandbox 连接，否则事实写入被 OwnershipError 拒绝后只剩日志噪音。
+  setup do
+    :ok = Sandbox.checkout(Repo)
+  end
 
   test "普通用户输入先规划为 bounded profile routing AgentRun，不在 run 外调用 provider" do
     assert {:ok, spec} =
@@ -307,7 +315,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
       {:ok, run} = AgentRun.new(spec.run_attrs)
 
-      assert {_context, {:error, ^reason}} =
+      assert {_context, {:error, ^reason, _state}} =
                drive_judgment_result(spec, run, fn _ -> :ok end)
     end
   end
@@ -776,8 +784,10 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
            content: narrative,
            tool_calls: calls,
            provider_output: %ProviderOutput{
-             provider_run_ref: "prun-judgment",
-             provider_call_ref: "pcall-judgment",
+             provider_run_ref:
+               NovelApplication.TestAgenticLoopFixtures.unique_provider_call_id("prun-judgment"),
+             provider_call_ref:
+               NovelApplication.TestAgenticLoopFixtures.unique_provider_call_id("pcall-judgment"),
              status: :ok,
              content: %{text: narrative, tool_calls: calls}
            }

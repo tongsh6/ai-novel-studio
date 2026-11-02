@@ -9,7 +9,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgentObservationAssembler
-  alias NovelApplication.AgentRunFlows.StepTracePersistence
+  alias NovelApplication.AgentRunFlows.{AuthoringSession, StepTracePersistence}
   alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.ChapterMissionService
   alias NovelApplication.ContextAssembler
@@ -332,7 +332,8 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
       |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :planner)
 
     case ChapterMissionService.derive(inputs, provider_execution,
-           author_text: run.goal.text,
+           run: run,
+           snapshot: snapshot,
            kind: :planning
          ) do
       {:ok, mission, meta} ->
@@ -348,9 +349,11 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
           snapshot,
           persisted
         )
+        |> AuthoringSession.inherit_result(meta)
 
       {:error, reason, meta} ->
         planning_mission_failure(run, sequence, turn_id, inputs, reason, meta)
+        |> AuthoringSession.inherit_result(meta)
     end
   end
 
@@ -700,9 +703,11 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
       }
     )
 
-    {turn_result, trace} =
+    {turn_result, trace, transcript} =
       %{
         frame: frame,
+        agent_run: run,
+        request_ir: AuthoringSession.request_ir(snapshot),
         plan: plan,
         decision: decision,
         candidates: [],
@@ -725,7 +730,11 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
     tool_result = Map.get(turn_result, :tool_result) || %{}
 
     if Map.get(tool_result, :status) == :failed do
-      {:error, {:tool_failed, tool_name(plan), Map.get(tool_result, :errors, [])}}
+      AuthoringSession.failure_result(
+        {:tool_failed, tool_name(plan), Map.get(tool_result, :errors, [])},
+        turn_result,
+        transcript
+      )
     else
       emit_stage(
         snapshot,
@@ -760,6 +769,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
          provider_call_count: provider_call_count(turn_result),
          progress_signature: progress_signature(turn_result)
        }}
+      |> AuthoringSession.put_transcript(transcript)
     end
   end
 

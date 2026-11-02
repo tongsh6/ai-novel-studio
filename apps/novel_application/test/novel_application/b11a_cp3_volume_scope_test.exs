@@ -219,8 +219,8 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
       }
       |> Map.merge(overrides)
 
-    {_turn_result, _trace} = TurnExecutionService.execute(input)
-    agent |> Agent.get(& &1) |> Enum.join("\n\n")
+    {_turn_result, _trace, _transcript} = TurnExecutionService.execute(input)
+    agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1)
   end
 
   defp index(text, needle), do: :binary.match(text, needle) |> elem(0)

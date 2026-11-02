@@ -69,6 +69,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert_received {:prompt, first_prompt}
     assert first_prompt =~ "## 探索目录"
     assert first_prompt =~ "只读探索当前允许：true"
+    [first_prompt_map] = drain_prompt_maps([])
 
     # exploration_observed 阶段事件已发
     assert_received {:stage_event, %{event_type: :exploration_observed} = stage_event}
@@ -84,11 +85,28 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert {:execute, judgment_step2, _d2, _m2} = spec.next_step_planner.(run, 3, snapshot2)
     assert {:ok, reply_result} = judgment_step2.(run, 3, snapshot2)
 
-    # 第二轮判断 prompt 携带观察段（检索结果字节进上下文）
-    prompts = drain_prompts([first_prompt])
-    observed_prompt = Enum.find(prompts, &String.contains?(&1, "## 探索观察"))
+    # 第二轮请求以原生 tool observation 回流，call_id 与首轮判断工具调用一致。
+    prompt_maps = drain_prompt_maps([])
+
+    observed_prompt =
+      Enum.find(prompt_maps, fn prompt ->
+        Enum.any?(prompt.messages, &(&1.role == "tool"))
+      end)
+
     assert observed_prompt
-    assert observed_prompt =~ "灵气账单"
+
+    assert Enum.take(observed_prompt.messages, length(first_prompt_map.messages)) ==
+             first_prompt_map.messages
+
+    tool_message = Enum.find(observed_prompt.messages, &(&1.role == "tool"))
+    assert is_binary(tool_message.tool_call_id)
+    assert tool_message.content =~ "灵气账单"
+
+    application_base =
+      Enum.find(observed_prompt.messages, &String.starts_with?(&1.content, "【应用数据"))
+
+    refute application_base.content =~ "### 观察 "
+    refute application_base.content =~ "陈九斤蹲在矿区"
 
     # reply 收束：回复引用检索事实
     assert reply_result.provider_call_count == 1
@@ -304,7 +322,19 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert second_prompt =~ "【续读】"
     assert second_prompt =~ ~s({"chapter_ref":"#{chapter_ref}","offset":6000})
 
-    assert second_prompt =~ "上一页【续读】给出的 query"
+    prompt_maps = drain_prompt_maps([])
+
+    second_prompt_map =
+      Enum.find(prompt_maps, fn prompt ->
+        Enum.any?(prompt.messages, &(&1.role == "tool"))
+      end)
+
+    assert second_prompt_map
+    tool_message = Enum.find(second_prompt_map.messages, &(&1.role == "tool"))
+    observation = Jason.decode!(tool_message.content)
+    assert observation["next_offset"] == 6000
+    assert chapter_ref in observation["source_refs"]
+
     # 第 3 轮：reply 引用末页独有事实（字节透传观察），单一 turn 收束
     snapshot3 = %{empty | stage_state: Map.merge(snapshot2.stage_state, explore2.stage_state)}
     assert {:execute, judgment_step3, _d3, _m3} = spec.next_step_planner.(run, 4, snapshot3)
@@ -313,17 +343,29 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert reply_result.turn_result.assistant_message.text =~ @last_page_anchor
     assert reply_result.stage_state.judgment_settled == "completed"
 
-    # 第三轮判断 prompt：两页观察都在场、引用末页事实；探索回合耗尽 → 目录关闭。
+    # 第三轮：历史 body 完整保留；最新 scope 关闭探索，旧目录只作证据不再生效。
     third_prompts = drain_prompts([])
     third_prompt = Enum.find(third_prompts, &String.contains?(&1, @last_page_anchor))
     assert third_prompt
-    refute third_prompt =~ "## 探索目录"
+    [third_prompt_map] = drain_prompt_maps([])
+
+    assert Enum.take(third_prompt_map.messages, length(second_prompt_map.messages)) ==
+             second_prompt_map.messages
+
+    latest_scope =
+      third_prompt_map.messages
+      |> Enum.filter(&String.starts_with?(&1.content, "【应用数据 · scope_update"))
+      |> List.last()
+
+    refute latest_scope.content =~ "## 探索目录"
+    assert latest_scope.content =~ "只读探索当前允许：false"
+    assert latest_scope.content =~ ~s("scope_revision":3)
 
     # B27 CP4 retest5 M18：预算关闭时如实投影「已执行来源/预算已用尽/不是能力缺失」
-    assert third_prompt =~ "## 探索预算状态（机械事实）"
-    assert third_prompt =~ "只读探索预算已用尽"
-    assert third_prompt =~ "不是系统没有探索能力"
-    assert third_prompt =~ "已执行来源：chapter_read"
+    assert latest_scope.content =~ "## 探索预算状态（机械事实）"
+    assert latest_scope.content =~ "只读探索预算已用尽"
+    assert latest_scope.content =~ "不是系统没有探索能力"
+    assert latest_scope.content =~ "已执行来源：chapter_read"
     # I-READ-9：模型可见章节索引同时给出 chapter_ref 与 seq/title。
     assert third_prompt =~ "[chapter_ref=#{chapter_ref}]"
     assert third_prompt =~ "第 1 章「#{@full_read_title}」"
@@ -480,8 +522,9 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   # 判断循环替身：首轮按作者 request 点名探索；观察页带【续读】footer 时**逐字抄
   # footer 的 JSON** 续读；两页观察都在时 reply 字节引用末页独有锚点（N-NARR）。
   defp full_read_execution(test_pid) do
-    scripted_judgment_execution(fn _prompt, text ->
+    scripted_judgment_execution(fn prompt, text ->
       send(test_pid, {:prompt, text})
+      send(test_pid, {:prompt_map, prompt})
 
       case observed_pages(text) do
         0 -> explore_chapter_decision("need_full_chapter", explore_ref_query(text))
@@ -573,23 +616,51 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   # ── 脚本执行 ──
 
   # 单调用判断循环脚本：首轮判断 explore（explore_request 点名 prose_search「灵气账单」）；
-  # prompt 带「探索观察」段后以整段 content 回复（叙事引用观察段中含引用词的行——字节透传）。
+  # prompt 带「探索观察」段或原生 tool observation 后以整段 content 回复。
   defp explore_then_reply_execution(test_pid) do
-    scripted_judgment_execution(fn _prompt, text ->
+    scripted_judgment_execution(fn prompt, text ->
       send(test_pid, {:prompt, text})
+      send(test_pid, {:prompt_map, prompt})
 
-      if String.contains?(text, "## 探索观察") do
-        {:narrative, "我检索了正文，依据如下：\n\n#{cited_observation(text)}"}
-      else
-        {:decision,
-         %{
-           "action" => "explore",
-           "reason" => "missing_work_facts_require_retrieval",
-           "explore_request" => %{"tool" => "prose_search", "query" => "灵气账单"}
-         }}
+      cond do
+        native_observation_prompt?(prompt) ->
+          {:narrative, "我检索了正文，依据如下：\n\n#{native_cited_observation(prompt)}"}
+
+        String.contains?(text, "## 探索观察") ->
+          {:narrative, "我检索了正文，依据如下：\n\n#{cited_observation(text)}"}
+
+        true ->
+          {:decision,
+           %{
+             "action" => "explore",
+             "reason" => "missing_work_facts_require_retrieval",
+             "explore_request" => %{"tool" => "prose_search", "query" => "灵气账单"}
+           }}
       end
     end)
   end
+
+  defp native_observation_prompt?(%{messages: messages}) do
+    Enum.any?(messages, fn message ->
+      message.role == "tool" and
+        match?({:ok, %{"type" => "observation"}}, Jason.decode(message.content))
+    end)
+  end
+
+  defp native_observation_prompt?(_prompt), do: false
+
+  defp native_cited_observation(%{messages: messages}) do
+    Enum.find_value(messages, "", &native_observation_summary/1)
+  end
+
+  defp native_observation_summary(%{role: "tool", content: content}) do
+    case Jason.decode(content) do
+      {:ok, %{"type" => "observation", "content" => %{"summary" => summary}}} -> summary
+      _ -> nil
+    end
+  end
+
+  defp native_observation_summary(_message), do: nil
 
   defp cited_observation(prompt_text) do
     prompt_text
@@ -639,11 +710,8 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     }
   end
 
-  defp prompt_to_text(%{messages: messages}) do
-    Enum.map_join(messages, "\n", fn message ->
-      Map.get(message, :content) || Map.get(message, "content") || ""
-    end)
-  end
+  defp prompt_to_text(%{messages: _messages} = prompt),
+    do: NovelAgent.Provider.prompt_text(prompt)
 
   defp prompt_to_text(prompt) when is_binary(prompt), do: prompt
 
@@ -664,6 +732,14 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   defp drain_prompts(acc) do
     receive do
       {:prompt, prompt} -> drain_prompts(acc ++ [prompt])
+    after
+      0 -> acc
+    end
+  end
+
+  defp drain_prompt_maps(acc) do
+    receive do
+      {:prompt_map, prompt} -> drain_prompt_maps(acc ++ [prompt])
     after
       0 -> acc
     end

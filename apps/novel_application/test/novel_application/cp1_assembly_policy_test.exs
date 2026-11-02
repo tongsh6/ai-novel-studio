@@ -92,7 +92,7 @@ defmodule NovelApplication.CP1AssemblyPolicyTest do
        }}
     end
 
-    {turn_result, _trace} =
+    {turn_result, _trace, _transcript} =
       TurnExecutionService.execute(%{
         frame: frame(),
         plan: plan(),
@@ -103,7 +103,7 @@ defmodule NovelApplication.CP1AssemblyPolicyTest do
         chapter_prose_reader: reader
       })
 
-    prompt = agent |> Agent.get(& &1) |> List.first()
+    prompt = agent |> Agent.get(& &1) |> List.first() |> NovelAgent.Provider.prompt_text()
     {turn_result, prompt}
   end
 
@@ -113,11 +113,10 @@ defmodule NovelApplication.CP1AssemblyPolicyTest do
       {turn_result, prompt} = run(AssemblyPolicy.for_tier(:floor), long)
 
       assert prompt =~ "本章更早的正文已省略"
-      # 注入的前文 excerpt 不应包含全部 3000 字（已裁到 ~2000）。
-      # 余量=静态模板体量（D1 CP2 伴生条件指导：800→1100；B27 CP3b 起 writer prompt
-      # 增加共享语义静态段（约 500-700 字）+ 任务动态段，故再留 700。断言语义不变：
-      # 裁剪必须发生，整体远小于「未裁剪 3000 字+模板」。
-      assert String.length(prompt) < 3000 + 1100 + 700
+
+      # B71 的累计 transcript 包含稳定 Base 和追加 scope，预算语义落在真实材料边界，
+      # 不再以包含全部协议文本的聚合长度冒充材料预算。
+      refute prompt =~ String.duplicate("甲", 2001)
       notes = turn_result.trace_summary[:omission_notes]
       assert is_list(notes) and length(notes) == 1
       assert hd(notes) =~ "超出本轮上下文预算"
@@ -179,7 +178,7 @@ defmodule NovelApplication.CP1AssemblyPolicyTest do
       chapter_prose_reader: reader
     })
 
-    prompt = agent |> Agent.get(& &1) |> List.first()
+    prompt = agent |> Agent.get(& &1) |> List.first() |> NovelAgent.Provider.prompt_text()
     assert prompt =~ "本章更早的正文已省略"
   end
 end

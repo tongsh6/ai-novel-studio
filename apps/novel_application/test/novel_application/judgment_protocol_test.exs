@@ -3,8 +3,17 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.Stub
   alias NovelAgent.Test.Provider.SliceVerify
-  alias NovelApplication.{AgentNarrativeSource, JudgmentProtocol, JudgmentToolContract}
+
+  alias NovelApplication.{
+    AgentNarrativeSource,
+    AuthoringTranscript,
+    DialoguePlanningService,
+    JudgmentProtocol,
+    JudgmentToolContract
+  }
+
   alias NovelCommon.Contracts.ProviderOutput
 
   defp response(text, calls, ref \\ "call-1") do
@@ -81,6 +90,77 @@ defmodule NovelApplication.JudgmentProtocolTest do
     }
   end
 
+  defp assistant_messages(%{messages: messages}),
+    do: Enum.filter(messages, &(Map.get(&1, :role) == "assistant"))
+
+  defp blocks(%{messages: messages}, type) do
+    for message <- messages,
+        block <- message.blocks,
+        Map.get(block, :type) == type,
+        do: block
+  end
+
+  defp tool_call_blocks(transcript), do: blocks(transcript, "tool_call")
+  defp validation_blocks(transcript), do: blocks(transcript, "validation_result")
+
+  defp response_with_execution_refs(text, calls, call_ref, run_ref) do
+    response(text, calls, call_ref)
+    |> Map.put(:provider_call_ref, call_ref)
+    |> Map.put(:provider_run_ref, run_ref)
+  end
+
+  test "判断与计划通过协议校验后闭合全部调用，但不授予执行或采纳权限" do
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([response("分步完成。", plan_pair())]),
+               %{},
+               input()
+             )
+
+    assert {:ok, proposed_ir} = AuthoringTranscript.to_request_ir(judgment.transcript)
+    assert {:ok, ["tool-judgment_decision"]} = RequestIR.pending_call_ids(proposed_ir)
+    transcript = JudgmentProtocol.complete_validation(judgment.transcript)
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
+    assert {:ok, []} = RequestIR.pending_call_ids(ir)
+    assert {:ok, _prompt} = RequestIR.to_provider_prompt(ir)
+
+    validations =
+      for message <- ir.messages,
+          block <- message.blocks,
+          block.type == "validation_result",
+          do: block
+
+    assert length(validations) == 2
+
+    assert Enum.all?(
+             validations,
+             &(&1.status == "passed" and
+                 &1.detail["execution_authorized"] == false and
+                 &1.detail["canon_written"] == false)
+           )
+  end
+
+  test "非法多调用纠错逐一关闭本次调用，不遗留 pending 或覆盖历史结果" do
+    bad = response("错误组合", [plan_decision_call(), call("unknown_operation", %{})])
+    good = response("只讨论创作目标。", [])
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(execution([bad, good]), %{}, input())
+
+    assert judgment.narrative == "只讨论创作目标。"
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(judgment.transcript)
+    assert {:ok, []} = RequestIR.pending_call_ids(ir)
+
+    validations =
+      for message <- ir.messages,
+          block <- message.blocks,
+          block.type == "validation_result",
+          do: block
+
+    assert length(validations) == 2
+    assert Enum.all?(validations, &(&1.status == "failed"))
+  end
+
   test "立项修订工具显式 field/value 提案进入 judgment.profile_revision" do
     revision_call =
       call("propose_work_profile_revision", %{
@@ -111,7 +191,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
         "author_reasoning" => "r"
       })
 
-    assert {:error, _} =
+    assert {:error, _, _state} =
              JudgmentProtocol.request_judgment(
                execution([response("", [bad_field])]),
                %{},
@@ -127,7 +207,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
         "author_reasoning" => "r"
       })
 
-    assert {:error, _} =
+    assert {:error, _, _state} =
              JudgmentProtocol.request_judgment(
                execution([response("", [bad_numeric])]),
                %{},
@@ -189,7 +269,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       options = Enum.map(values, &%{value: &1, label: "方向"})
       bad = response("说明", [call("ask_author", %{question: "选哪一个？", options: options})])
 
-      assert {:error, {:judgment_protocol_violation, :question_option_values_invalid}} =
+      assert {:error, {:judgment_protocol_violation, :question_option_values_invalid}, _state} =
                JudgmentProtocol.request_judgment(execution([bad]), %{}, input())
     end
   end
@@ -214,7 +294,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
           ],
           [call("ask_author", %{question: "选择？", options: [], record_only: true})]
         ] do
-      assert {:error, _} =
+      assert {:error, _, _state} =
                JudgmentProtocol.request_judgment(execution([response("说明", calls)]), %{}, input())
     end
   end
@@ -235,12 +315,12 @@ defmodule NovelApplication.JudgmentProtocolTest do
                input(author_content_sources: ["previous"])
              )
 
-    assert {:error, {:author_content_registration_invalid, :source_not_available}} =
+    assert {:error, {:author_content_registration_invalid, :source_not_available}, _state} =
              JudgmentProtocol.request_judgment(execution([result]), %{}, input())
 
     bad = response("说明", [call("register_author_content", Map.put(args, :body, "替代正文"))])
 
-    assert {:error, {:judgment_protocol_violation, :invalid_tool_arguments}} =
+    assert {:error, {:judgment_protocol_violation, :invalid_tool_arguments}, _state} =
              JudgmentProtocol.request_judgment(execution([bad]), %{}, input())
   end
 
@@ -287,7 +367,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       pending_artifact_targets: %{"actual" => ["revise_pending_artifact"]}
     ]
 
-    assert {:error, {:pending_artifact_invalid, :target_not_available}} =
+    assert {:error, {:pending_artifact_invalid, :target_not_available}, _state} =
              JudgmentProtocol.request_judgment(execution([result]), %{}, input(opts))
 
     explore =
@@ -305,7 +385,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
                input(explore: true, explore_tools: ["chapter_read"])
              )
 
-    assert {:error, {:judgment_protocol_violation, :exploration_not_available}} =
+    assert {:error, {:judgment_protocol_violation, :exploration_not_available}, _state} =
              JudgmentProtocol.request_judgment(execution([response("", [explore])]), %{}, input())
   end
 
@@ -339,7 +419,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert {:ok, %{action: "continue", provider_call_count: 1}} =
              JudgmentProtocol.request_continuation(execution([good]), %{}, continuation_input)
 
-    assert {:error, _} =
+    assert {:error, _, _state} =
              JudgmentProtocol.request_continuation(
                execution([response("继续", [])]),
                %{},
@@ -429,7 +509,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     invalid = response("错误动作", [call("not_registered", %{})])
 
-    assert {:error, %{type: :timeout}} =
+    assert {:error, %{type: :timeout}, _state} =
              JudgmentProtocol.request_judgment(
                execution([invalid, {:error, %{type: :timeout}}]),
                %{},
@@ -438,8 +518,152 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_received {:provider_request, original}
     assert_received {:provider_request, corrected}
-    assert length(corrected.messages) == length(original.messages) + 1
+    assert length(corrected.messages) == length(original.messages) + 2
     refute_receive {:provider_request, _}
+  end
+
+  test "首次校验失败后传输错误：保留首个 assistant 与失败校验，实际调用为二" do
+    invalid =
+      response_with_execution_refs(
+        "错误动作",
+        [call("not_registered", %{})],
+        "invalid",
+        "run-invalid"
+      )
+
+    assert {:error, %{type: :timeout}, state} =
+             JudgmentProtocol.request_judgment(
+               execution([invalid, {:error, %{type: :timeout}}]),
+               %{},
+               input()
+             )
+
+    assert state.provider_call_count == 2
+    transcript = state.judgment_transcript
+
+    assert [assistant] = assistant_messages(transcript)
+    assert assistant.provider_call_ref == "invalid"
+
+    assert [validation] = validation_blocks(transcript)
+    assert validation.status == "failed"
+    assert validation.reason_code == "tool_not_in_profile"
+
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, _second}
+    refute_receive {:provider_request, _third}
+  end
+
+  test "全部传输错误不伪造 assistant/tool 响应，实际调用仍为二" do
+    assert {:error, %{type: :timeout}, state} =
+             JudgmentProtocol.request_judgment(
+               execution([{:error, %{type: :timeout}}, {:error, %{type: :timeout}}]),
+               %{},
+               input()
+             )
+
+    assert state.provider_call_count == 2
+    transcript = state.judgment_transcript
+
+    assert assistant_messages(transcript) == []
+    assert tool_call_blocks(transcript) == []
+    assert validation_blocks(transcript) == []
+
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, _second}
+    refute_receive {:provider_request, _third}
+  end
+
+  test "未创建 IR 的零调用前置错误保持纯错误且不虚增计数" do
+    assert {:error, :provider_execution_required} =
+             JudgmentProtocol.request_judgment(%Execution{result_fn: nil}, %{}, input())
+
+    refute_receive {:provider_request, _}
+  end
+
+  test "已创建合法前缀的请求构造失败保留前缀，调用数不虚增" do
+    prefix =
+      AuthoringTranscript.new(
+        %{run_id: "run-prefix", work_id: "work-prefix"},
+        base_text: "前缀 Base",
+        author_text: "作者前缀原文",
+        tools: JudgmentToolContract.tools(:judgment),
+        projection: %{target: "chat_completions", capability_profile: %{}}
+      )
+
+    assert {:error, {:unsupported_capability, missing}, state} =
+             JudgmentProtocol.request_judgment(
+               execution([response("不应调用", [])]),
+               %{},
+               input() |> Map.put(:transcript, prefix)
+             )
+
+    assert missing != []
+    assert state.provider_call_count == 0
+    transcript = state.judgment_transcript
+    assert assistant_messages(transcript) == []
+    assert tool_call_blocks(transcript) == []
+    assert validation_blocks(transcript) == []
+
+    texts =
+      transcript.messages
+      |> Enum.filter(&(Map.get(&1, :role) == "user"))
+      |> Enum.map_join("", fn message ->
+        message.blocks
+        |> Enum.filter(&(Map.get(&1, :type) == "text"))
+        |> Enum.map_join("", &Map.get(&1, :text, ""))
+      end)
+
+    assert texts =~ "作者前缀原文"
+    refute_receive {:provider_request, _}
+  end
+
+  test "续行终局拒绝保留既有历史前缀，只计本次调用且不倒写已 passed 校验" do
+    ask = call("ask_author", %{"question" => "先改哪一段？", "options" => []})
+
+    assert {:ok, first} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [ask])]),
+               %{},
+               input()
+             )
+
+    assert_receive {:provider_request, _prior_request}
+
+    assert length(assistant_messages(first.transcript)) == 1
+    assert [passed] = validation_blocks(first.transcript)
+    assert passed.status == "passed"
+
+    continuation_input = %{
+      transcript: first.transcript,
+      goal_text: "写本章",
+      deviation_summary: "尚缺结尾",
+      observation_block: "已有前半章",
+      source_input_ref: "author-turn"
+    }
+
+    invalid = response("坏响应", [call("not_registered", %{})], "bad-continuation")
+
+    assert {:error, {:judgment_protocol_violation, :tool_not_in_profile}, state} =
+             JudgmentProtocol.request_continuation(
+               execution([invalid, invalid]),
+               %{},
+               continuation_input
+             )
+
+    # 本次续行只真实调用两次；历史里已有的一次判断调用不重算进本次 delta。
+    assert state.provider_call_count == 2
+    transcript = state.judgment_transcript
+
+    assert length(assistant_messages(transcript)) == 3
+    validations = validation_blocks(transcript)
+    assert [^passed, failed_second, failed_third] = validations
+    assert failed_second.status == "failed"
+    assert failed_third.status == "failed"
+    assert Enum.all?([failed_second, failed_third], &(&1.reason_code == "tool_not_in_profile"))
+
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, _second}
+    refute_receive {:provider_request, _third}
   end
 
   test "判断 prompt 的合法工具组合规则唯一且明确" do
@@ -471,10 +695,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert_receive {:provider_request, second}
     refute_receive {:provider_request, _}
 
-    # 保留原输入/工具集，只追加纠错消息
+    # 保留原输入/工具集；IR 以 assistant tool_call → tool 校验结果回流，不追加 user 纠错。
     assert hd(second.messages).content == hd(first.messages).content
     assert second.tools == first.tools
-    assert length(second.messages) == length(first.messages) + 1
+    assert length(second.messages) == length(first.messages) + 2
+    assert Enum.at(second.messages, -2).role == "assistant"
+    assert List.last(second.messages).role == "tool"
+    assert List.last(second.messages).tool_call_id == "tool-agent_plan_draft"
 
     correction = List.last(second.messages).content
     assert correction =~ "invalid_tool_combination"
@@ -487,7 +714,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     bad = response("先给计划。", [call("agent_plan_draft", plan_args())])
     still_bad = response("还是只有计划。", [call("agent_plan_draft", plan_args())])
 
-    assert {:error, {:judgment_protocol_violation, :invalid_tool_combination}} =
+    assert {:error, {:judgment_protocol_violation, :invalid_tool_combination}, _state} =
              JudgmentProtocol.request_judgment(execution([bad, still_bad]), %{}, input())
 
     assert_receive {:provider_request, _}
@@ -597,7 +824,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:error,
             {:author_content_registration_invalid,
-             :anaphoric_current_source_requires_explicit_text}} =
+             :anaphoric_current_source_requires_explicit_text}, _state} =
              JudgmentProtocol.request_judgment(
                execution([response("", [registration]), response("", [registration])]),
                %{},
@@ -623,7 +850,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert correction =~ "必须给出非空 content"
     assert correction =~ "仅标点占位"
 
-    assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}} =
+    assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}, _state} =
              JudgmentProtocol.request_judgment(
                execution([placeholder, placeholder]),
                %{},
@@ -766,24 +993,57 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert correction =~ "不得编造 ref"
   end
 
-  test "引用不存在的目标 ref 且纠正后仍不存在 → 终局拒绝" do
-    ghost =
-      execute_call(%{
-        "capability" => "revise_pending_artifact",
-        "pending_artifact_ref" => "as_ghost"
-      })
+  test "引用不存在的目标 ref 且纠正后仍不存在 → 终局拒绝仍保留两次实际调用与失败校验" do
+    arguments = %{
+      "action" => "execute",
+      "capability" => "revise_pending_artifact",
+      "pending_artifact_ref" => "as_ghost",
+      "dialogue_goal" => "修改候选",
+      "reason" => "按作者要求修改。"
+    }
+
+    first_call = %{call("judgment_decision", arguments) | id: "tool-ghost-1"}
+
+    second_call = %{call("judgment_decision", arguments) | id: "tool-ghost-2"}
 
     opts = [
       capabilities: ["revise_pending_artifact"],
       pending_artifact_targets: %{"as_real" => ["revise_pending_artifact"]}
     ]
 
-    assert {:error, {:pending_artifact_invalid, :target_not_available}} =
+    assert {:error, {:pending_artifact_invalid, :target_not_available}, state} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [ghost]), response("", [ghost])]),
+               execution([
+                 response_with_execution_refs("", [first_call], "pcall-ghost-1", "prun-ghost-1"),
+                 response_with_execution_refs("", [second_call], "pcall-ghost-2", "prun-ghost-2")
+               ]),
                %{},
                input(opts)
              )
+
+    assert state.provider_call_count == 2
+    transcript = state.judgment_transcript
+
+    assistants = assistant_messages(transcript)
+    assert length(assistants) == 2
+    assert Enum.map(assistants, & &1.provider_call_ref) == ["pcall-ghost-1", "pcall-ghost-2"]
+    assert Enum.map(assistants, & &1.provider_run_ref) == ["prun-ghost-1", "prun-ghost-2"]
+
+    assert [first, second] = tool_call_blocks(transcript)
+    assert first.call_id == "tool-ghost-1"
+    assert second.call_id == "tool-ghost-2"
+    assert first.arguments == arguments
+    assert second.arguments == arguments
+
+    validations = validation_blocks(transcript)
+    assert length(validations) == 2
+    assert Enum.all?(validations, &(&1.status == "failed"))
+    assert Enum.all?(validations, &(&1.reason_code == "target_not_available"))
+    assert Enum.map(validations, & &1.call_id) == ["tool-ghost-1", "tool-ghost-2"]
+
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, _second}
+    refute_receive {:provider_request, _third}
   end
 
   test "候选 ref 与已采纳 ref 字段混填 → 字段纠错，修复后可执行" do
@@ -1120,7 +1380,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert correction =~ "judgment_narrative_required"
     assert correction =~ "仅标点占位"
 
-    assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}} =
+    assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}, _state} =
              JudgmentProtocol.request_judgment(execution([dash, dash]), %{}, input())
   end
 
@@ -1143,7 +1403,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       pending_artifact_targets: %{"as_m06_a" => ["revise_pending_artifact"]}
     ]
 
-    assert {:error, {:judgment_protocol_violation, :await_author_unanswered}} =
+    assert {:error, {:judgment_protocol_violation, :await_author_unanswered}, _state} =
              JudgmentProtocol.request_judgment(
                execution([response("", [malformed_ask]), response("", [advance])]),
                %{},
@@ -1183,7 +1443,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert_receive {:provider_request, corrected}
     assert List.last(corrected.messages).content =~ "judgment_narrative_required"
 
-    assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}} =
+    assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}, _state} =
              JudgmentProtocol.request_judgment(execution([markup, markup]), %{}, input())
   end
 
@@ -1219,7 +1479,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
         []
       )
 
-    assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}} =
+    assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}, _state} =
              JudgmentProtocol.request_judgment(execution([pseudo, pseudo, pseudo]), %{}, input())
 
     # 3 次有界尝试后诚实拒绝（不是 1 次即终局）
@@ -1876,7 +2136,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, corrected}
-    correction = List.last(corrected.messages).content
+
+    correction =
+      corrected.messages
+      |> List.last()
+      |> Map.fetch!(:content)
+      |> Jason.decode!()
+      |> get_in(["detail", "message"])
 
     assert correction =~ "未允许字段："
     assert correction =~ "target_chapter_ref"
@@ -2069,7 +2335,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
         })
       ])
 
-    assert {:error, {:judgment_protocol_violation, :discussion_only_violation}} =
+    assert {:error, {:judgment_protocol_violation, :discussion_only_violation}, _state} =
              JudgmentProtocol.request_judgment(
                execution([violation, violation]),
                %{},
@@ -2126,11 +2392,44 @@ defmodule NovelApplication.JudgmentProtocolTest do
         end)
 
       assert application_base
-      assert String.contains?(application_base.content, input.context_block)
-      assert String.contains?(application_base.content, "（本轮作者原话见独立 user 消息）")
-      # 作者原话不得被 application_base 冒充（I-ART-2/I-ART-3）
-      refute String.contains?(application_base.content, "## 作者输入\n" <> input.author_text)
-      assert length(rest) >= 2
+      assert String.contains?(application_base.content, "## 决策与输出契约")
+      refute String.contains?(application_base.content, input.context_block)
+      refute String.contains?(application_base.content, "只读探索当前允许：")
+
+      scope_update = Enum.find(prompt.messages, &String.contains?(&1.content, "scope_update"))
+      assert scope_update
+      assert String.contains?(scope_update.content, input.context_block)
+      assert String.contains?(scope_update.content, "只读探索当前允许：true")
+      refute String.contains?(scope_update.content, "## 作者输入\n" <> input.author_text)
+      assert length(rest) >= 3
+    end
+
+    test "作者新输入只追加新的 turn 与 scope，不重写既有请求" do
+      first_input = input(explore: true)
+
+      assert {:ok, %{prompt: first, transcript: transcript}} =
+               JudgmentProtocol.prompt_ir(first_input)
+
+      next_input =
+        first_input
+        |> Map.put(:author_text, "基于已读事实，改为只比较两个方向")
+        |> Map.put(:source_input_ref, "author-turn-2")
+        |> Map.put(:context_block, "作品 revision=2")
+        |> Map.put(:transcript, transcript)
+        |> Map.put(:options, [])
+
+      assert {:ok, %{prompt: second, transcript: next}} = JudgmentProtocol.prompt_ir(next_input)
+      assert Enum.take(second.messages, length(first.messages)) == first.messages
+
+      assert Enum.any?(
+               second.messages,
+               &(&1.role == "user" and &1.content == next_input.author_text)
+             )
+
+      scope = NovelApplication.AuthoringTranscript.current_scope(next)
+      assert scope.text =~ "作品 revision=2"
+      assert scope.versions["change_reason"] == "run_scope_changed"
+      assert [%{ref: "author-turn-2"} | _] = scope.source_refs
     end
 
     test "prompt_ir 对 continuation profile 同样可用" do
@@ -2142,6 +2441,174 @@ defmodule NovelApplication.JudgmentProtocolTest do
       assert {:ok, %{prompt: prompt}} = JudgmentProtocol.prompt_ir(input, :continuation)
       assert Enum.any?(prompt.messages, &(&1.role == "user" and &1.content == input.author_text))
       assert prompt.tools != []
+    end
+
+    test "continuation 没有作者消息时保留 application goal，不伪造 user" do
+      input =
+        input(capabilities: ["ask_author"])
+        |> Map.delete(:author_text)
+        |> Map.put(:goal_text, "继续当前任务")
+        |> Map.put(:deviation_summary, "偏离事实摘要")
+
+      assert {:ok, %{prompt: prompt}} = JudgmentProtocol.prompt_ir(input, :continuation)
+      refute Enum.any?(prompt.messages, &(&1.role == "user" and &1.content == input.goal_text))
+      assert Enum.any?(prompt.messages, &String.contains?(&1.content, input.goal_text))
+    end
+
+    test "CP4a：续行继承创作历史并追加有版本的 scope，恢复后保持幂等" do
+      assert {:ok, %{prompt: creative, transcript: transcript}} =
+               JudgmentProtocol.prompt_ir(input(capabilities: ["prose_writing"]))
+
+      continuation_input = %{
+        transcript: transcript,
+        goal_text: "按原目标重试一次，完成本章正文候选",
+        deviation_summary: "正文调用超时，尚未形成候选",
+        observation_block: "已有章节计划，尚无本轮正文",
+        source_input_ref: "turn-cp4a",
+        supplied_context_refs: ["observation:timeout", "plan:chapter-1"],
+        scope_change_reason: "continuation",
+        options: [
+          plan_run: %{
+            goal: %{version: 3},
+            authority_scope: %{work_revision: 8},
+            plan_version: 2
+          }
+        ]
+      }
+
+      assert {:ok, %{prompt: continued, transcript: continued_transcript}} =
+               JudgmentProtocol.prompt_ir(continuation_input, :continuation)
+
+      assert Enum.take(continued.messages, length(creative.messages)) == creative.messages
+      scope = AuthoringTranscript.current_scope(continued_transcript)
+      assert scope.text =~ "continuation_decision"
+      assert scope.text =~ continuation_input.goal_text
+      assert scope.text =~ continuation_input.deviation_summary
+      assert scope.text =~ continuation_input.observation_block
+      assert scope.versions["scope_revision"] == 2
+      assert scope.versions["change_reason"] == "continuation"
+      assert scope.versions["goal"] == 3
+      assert scope.versions["work"] == 8
+      assert scope.versions["plan"] == 2
+
+      assert Enum.map(scope.source_refs, & &1.ref) == [
+               "turn-cp4a",
+               "observation:timeout",
+               "plan:chapter-1"
+             ]
+
+      tool_names = Enum.map(continued_transcript.tools, & &1.name)
+      assert "continuation_decision" in tool_names
+      assert "judgment_decision" in tool_names
+
+      projected_tool_names = Enum.map(continued.tools, & &1.name)
+      assert "continuation_decision" in projected_tool_names
+      refute "judgment_decision" in projected_tool_names
+      refute "submit_tentative_artifact" in projected_tool_names
+
+      assert {:ok, restored} =
+               continued_transcript
+               |> AuthoringTranscript.checkpoint()
+               |> AuthoringTranscript.restore()
+
+      assert {:ok, %{prompt: replayed}} =
+               JudgmentProtocol.prompt_ir(
+                 %{continuation_input | transcript: restored},
+                 :continuation
+               )
+
+      assert replayed.messages == continued.messages
+
+      assert {:ok, %{action: "continue"}} =
+               JudgmentProtocol.request_continuation(
+                 %Execution{
+                   result_fn: fn prompt ->
+                     {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
+
+                     output = %ProviderOutput{
+                       provider_run_ref: "cp4a-continuation-run",
+                       provider_call_ref: "cp4a-continuation-call",
+                       status: :ok,
+                       content: %{text: result.content, tool_calls: result.tool_calls}
+                     }
+
+                     {:ok, result |> Map.from_struct() |> Map.put(:provider_output, output)}
+                   end
+                 },
+                 %{},
+                 continuation_input
+               )
+    end
+  end
+
+  describe "B71 CP3a S1b：IR 生产探针" do
+    test "IR 判断请求保留任务上下文，确定性 provider 仍进入计划协议" do
+      input =
+        input()
+        |> Map.put(:author_text, "请按另行起草计划设计一个角色，再设计相关世界设定。")
+
+      prompt = JudgmentProtocol.prompt_for_production(input)
+
+      assert prompt.ir_version == RequestIR.ir_version()
+      assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
+      assert [%{name: "judgment_decision", arguments: arguments}] = result.tool_calls
+      assert arguments.action == "plan"
+    end
+
+    test "IR 判断请求保留角色设计执行路由" do
+      assert_ir_execute_route("先看看现有角色阵容，然后设计一个反派", "character_design")
+    end
+
+    test "IR 判断请求保留正文写作执行路由" do
+      assert_ir_execute_route("写下一章", "prose_writing")
+    end
+
+    test "真实 protocol_input 的 IR 请求保留角色设计执行路由" do
+      author_text = "先看看现有角色阵容，然后设计一个反派"
+
+      protocol_input =
+        DialoguePlanningService.judgment_protocol_input_for_test(
+          %{text: author_text},
+          %{
+            profile_ref: "judgment_loop_v1",
+            parent_turn_ref: "turn-ir-probe",
+            work_id: "work-ir-probe",
+            session_id: "session-ir-probe",
+            goal: %{text: author_text, version: 1}
+          },
+          %NovelDomain.DialogueContext{},
+          []
+        )
+
+      prompt = JudgmentProtocol.prompt_for_production(protocol_input)
+
+      assert prompt.ir_version == RequestIR.ir_version()
+      assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
+      assert [call] = result.tool_calls
+      arguments = Map.get(call, "arguments") || Map.get(call, :arguments)
+      assert Map.get(arguments, "action") == "execute"
+      assert Map.get(arguments, "capability") == "character_design"
+
+      assert {:ok, stub_result} = Stub.complete(nil, nil, prompt, %{})
+      assert [stub_call] = stub_result.tool_calls
+      assert stub_call.name == "judgment_decision"
+      assert stub_call.arguments.action == "execute"
+      assert stub_call.arguments.capability == "character_design"
+    end
+
+    defp assert_ir_execute_route(author_text, capability) do
+      prompt =
+        input()
+        |> Map.put(:author_text, author_text)
+        |> JudgmentProtocol.prompt_for_production()
+
+      assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
+      assert [call] = result.tool_calls
+      arguments = Map.get(call, "arguments") || Map.get(call, :arguments)
+      action = Map.get(arguments, "action") || Map.get(arguments, :action)
+      actual_capability = Map.get(arguments, "capability") || Map.get(arguments, :capability)
+      assert action == "execute"
+      assert actual_capability == capability
     end
   end
 end

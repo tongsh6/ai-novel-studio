@@ -12,8 +12,10 @@ defmodule NovelApplication.ChapterMissionService do
     flow 按用户拍板「降级继续写」处理，本模块不做任何权威层写入（I-M2）。
   """
 
-  alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.{Execution, NativeToolExchange, RequestIR}
   alias NovelApplication.AgentNarrativeSource
+  alias NovelApplication.AgentRunFlows.AuthoringSession
+  alias NovelApplication.AuthoringOperation
   alias NovelDomain.ChapterMission
   alias NovelDomain.ChapterMissionInputs
 
@@ -26,75 +28,111 @@ defmodule NovelApplication.ChapterMissionService do
           required(:provider_call_count) => non_neg_integer(),
           optional(:narrative) => String.t() | nil,
           optional(:narrative_source) => map() | nil,
-          optional(:provider_call_ref) => String.t() | nil
+          optional(:provider_call_ref) => String.t() | nil,
+          optional(:judgment_transcript) => map()
         }
 
   @spec tool_name(:prose | :planning) :: String.t()
   def tool_name(kind \\ :prose), do: Map.fetch!(@tool_names, kind)
 
-  @doc "prompt 锚点（测试替身按此识别推理调用；与 slice id/验收无关的真实产品语义）。"
+  @doc "真实使命阶段的角色锚点，供请求诊断识别当前推理职责。"
   @spec prompt_anchor(:prose | :planning) :: String.t()
   def prompt_anchor(kind \\ :prose), do: Map.fetch!(@prompt_anchors, kind)
 
   @doc """
-  推导本章使命。`opts[:author_text]` 为作者本轮原话（进 prompt，让使命对齐作者请求）。
+  推导本章使命。`opts[:run]` 或 `opts[:snapshot]` 必须提供真实运行来源。
+  `opts[:author_text]` 仅在首次创建会话时作为独立作者原话进入请求。
   """
   @spec derive(ChapterMissionInputs.t(), Execution.dependency() | nil, keyword()) ::
           {:ok, ChapterMission.t(), meta()} | {:error, term(), meta()}
   def derive(%ChapterMissionInputs{} = inputs, provider_execution, opts \\ []) do
     kind = if Keyword.get(opts, :kind) == :planning, do: :planning, else: :prose
 
+    case request_ir(inputs, kind, opts) do
+      {:ok, ir} ->
+        derive_with_execution(ir, inputs, provider_execution, kind)
+
+      {:error, reason} ->
+        {:error, reason, %{provider_call_count: 0}}
+    end
+  end
+
+  defp derive_with_execution(ir, inputs, provider_execution, kind) do
     case Execution.result_fn(provider_execution) do
       result_fn when is_function(result_fn, 1) ->
-        prompt = mission_prompt(inputs, Keyword.get(opts, :author_text), kind)
-
-        request(prompt, %{
-          result_fn: result_fn,
-          inputs: inputs,
-          prompt: prompt,
-          tool_name: tool_name(kind),
-          attempt: 1,
-          retry?: true
-        })
+        derive_from_exchange(ir, result_fn, inputs, kind)
 
       _ ->
-        {:error, :provider_execution_missing, %{provider_call_count: 0}}
+        {:error, :provider_execution_missing,
+         AuthoringOperation.metadata(%{request_ir: ir, provider_call_count: 0})}
     end
   end
 
   @doc false
-  @spec mission_prompt(ChapterMissionInputs.t(), String.t() | nil, :prose | :planning) :: map()
-  def mission_prompt(%ChapterMissionInputs{} = inputs, author_text, kind \\ :prose) do
-    material = ChapterMissionInputs.to_prompt_section(inputs)
+  @spec mission_prompt(ChapterMissionInputs.t(), String.t() | nil, :prose | :planning, keyword()) ::
+          map() | {:error, term()}
+  def mission_prompt(%ChapterMissionInputs{} = inputs, author_text, kind \\ :prose, opts \\ []) do
+    with {:ok, ir} <- request_ir(inputs, kind, Keyword.put(opts, :author_text, author_text)),
+         {:ok, prompt} <-
+           RequestIR.to_provider_prompt(ir,
+             tool_names: [tool_name(kind)],
+             tool_choice: tool_name(kind)
+           ) do
+      prompt
+    end
+  end
 
-    author_line =
-      case clean(author_text) do
-        nil -> ""
-        text -> "\n作者本轮请求：#{text}\n"
-      end
+  defp request_ir(inputs, kind, opts) do
+    run = operation_run(opts)
+    goal = map_get(run, :goal)
 
-    content = """
+    versions =
+      Keyword.get(opts, :versions, %{})
+      |> Map.delete(:goal_version)
+      |> Map.put("goal_version", map_get(goal, :version))
+
+    AuthoringOperation.prepare(run, Keyword.get(opts, :snapshot), %{
+      role: tool_name(kind),
+      instructions: instructions(kind),
+      scope: mission_scope(inputs, goal),
+      tool: mission_tool(kind),
+      source_refs: inputs |> ChapterMissionInputs.refs() |> Enum.sort() |> Enum.map(&%{ref: &1}),
+      versions: versions,
+      author_text: Keyword.get(opts, :author_text)
+    })
+  end
+
+  defp operation_run(opts) do
+    snapshot = Keyword.get(opts, :snapshot)
+
+    Keyword.get(opts, :run) || map_get(snapshot, :run) ||
+      map_get(AuthoringSession.transcript(snapshot), :run)
+  end
+
+  defp mission_scope(inputs, goal) do
+    """
+    当前应用目标：#{map_get(goal, :text) || "未提供"}
+    目标版本：#{map_get(goal, :version) || "未知"}
+
+    材料（每条以 [ref] 开头，方括号内的 ref 是唯一可引用的依据标识）：
+
+    #{ChapterMissionInputs.to_prompt_section(inputs)}
+    """
+  end
+
+  defp instructions(kind) do
+    """
     #{intro_line(kind)}
 
     要求：
     #{requirement_lines(kind)}
 
-    材料（每条以 [ref] 开头，方括号内的 ref 是唯一可引用的依据标识）：
-
-    #{material}
-    #{author_line}
     - author_reasoning：对作者说的一段话（第一人称，120 字以内）：核清了什么、判断是什么、
       只动哪里。
     - 不要写正文；不要发明材料里没有的事实；不要引用材料之外的 ref。
 
     调用 #{tool_name(kind)} 工具返回结构，只调用这一个工具。
     """
-
-    %{
-      messages: [%{role: "user", content: content}],
-      tools: [mission_tool(kind)],
-      tool_choice: tool_name(kind)
-    }
   end
 
   defp intro_line(:prose) do
@@ -167,98 +205,105 @@ defmodule NovelApplication.ChapterMissionService do
     }
   end
 
-  # ── 调用与解析 ───────────────────────────────────────
+  # 调用、失败回流与会话状态都由共享原生交换维护；本模块只解释使命契约。
+  defp derive_from_exchange(ir, result_fn, inputs, kind) do
+    {parsed, session} =
+      NativeToolExchange.run(
+        ir,
+        result_fn,
+        tool_name(kind),
+        &parse_mission(&1, inputs, tool_name(kind)),
+        &exchange_error(&1, &2, tool_name(kind)),
+        retry_transport: false,
+        feedback: &mission_feedback(&1, kind)
+      )
 
-  defp request(prompt, ctx) do
-    case ctx.result_fn.(prompt) do
-      {:ok, provider_result} when is_map(provider_result) ->
-        provider_result
-        |> tool_arguments(ctx.tool_name)
-        |> build_mission(provider_result, ctx)
+    case parsed do
+      %{status: :ok, mission: mission} ->
+        meta =
+          AuthoringOperation.complete(session, "#{tool_name(kind)}_validated", %{
+            mission_ref: ChapterMission.ref(mission),
+            dropped_basis_count: length(mission.dropped),
+            production_write_performed: false
+          })
 
-      {:ok, content} when is_binary(content) ->
-        retry_or_error(:native_tool_call_required, %{content: content}, ctx)
+        {:ok, mission,
+         Map.merge(meta, Map.take(parsed, [:narrative, :narrative_source, :provider_call_ref]))}
 
-      {:error, reason} ->
-        {:error, reason, %{provider_call_count: ctx.attempt}}
-
-      other ->
-        {:error, {:invalid_mission_result, other}, %{provider_call_count: ctx.attempt}}
+      %{status: :error, reason: reason} ->
+        {:error, reason, AuthoringOperation.metadata(session)}
     end
   end
 
-  defp build_mission({:ok, args}, provider_result, ctx) do
+  defp parse_mission(provider_result, inputs, tool_name) do
+    with {:ok, args} <- tool_arguments(provider_result, tool_name),
+         {:ok, mission} <- bound_mission(args, provider_result, inputs) do
+      {narrative, source} = narrative(provider_result, args, tool_name)
+
+      %{
+        status: :ok,
+        mission: mission,
+        narrative: narrative,
+        narrative_source: source,
+        provider_call_ref: mission.provider_call_ref
+      }
+    else
+      {:error, reason} -> mission_error(reason)
+    end
+  end
+
+  defp bound_mission(args, provider_result, inputs) do
     mission =
       args
       |> ChapterMission.new()
       |> Map.put(:mission_id, NovelFoundation.ID.unique("cm"))
       |> Map.put(:provider_call_ref, provider_call_ref(provider_result))
       |> ChapterMission.bind(
-        ChapterMissionInputs.refs(ctx.inputs),
-        &ChapterMissionInputs.label(ctx.inputs, &1)
+        ChapterMissionInputs.refs(inputs),
+        &ChapterMissionInputs.label(inputs, &1)
       )
 
     cond do
-      mission.degraded ->
-        retry_or_error(:mission_unbound, provider_result, ctx)
-
-      is_nil(mission.statement) ->
-        retry_or_error(:mission_statement_required, provider_result, ctx)
-
-      true ->
-        {narrative, source} = narrative(provider_result, args, ctx.tool_name)
-
-        {:ok, mission,
-         %{
-           provider_call_count: ctx.attempt,
-           narrative: narrative,
-           narrative_source: source,
-           provider_call_ref: mission.provider_call_ref
-         }}
+      mission.degraded -> {:error, :mission_unbound}
+      is_nil(mission.statement) -> {:error, :mission_statement_required}
+      true -> {:ok, mission}
     end
   end
 
-  defp build_mission({:error, reason}, provider_result, ctx),
-    do: retry_or_error(reason, provider_result, ctx)
+  defp exchange_error("native_tool_call_required", _detail, tool_name),
+    do: mission_error({:native_tool_call_required, tool_name})
 
-  defp retry_or_error(reason, provider_result, %{retry?: true} = ctx) do
-    corrected =
-      correction_prompt(ctx.prompt, map_get(provider_result, :content), reason, ctx.tool_name)
+  defp exchange_error("provider_error", reason, _tool_name),
+    do: mission_error(reason, "provider_error")
 
-    request(corrected, %{ctx | attempt: ctx.attempt + 1, retry?: false, prompt: corrected})
-  end
+  defp exchange_error(code, reason, _tool_name), do: mission_error({code, reason}, code)
 
-  defp retry_or_error(reason, _provider_result, ctx),
-    do: {:error, reason, %{provider_call_count: ctx.attempt}}
+  defp mission_error(reason), do: mission_error(reason, reason_code(reason))
+  defp mission_error(reason, code), do: %{status: :error, reason: reason, error: %{code: code}}
+  defp reason_code({code, _}) when is_atom(code), do: Atom.to_string(code)
+  defp reason_code(code) when is_atom(code), do: Atom.to_string(code)
 
-  defp correction_prompt(%{messages: messages} = prompt, previous_content, reason, tool_name) do
-    note = """
-    上一次输出无法使用（#{inspect(reason)}）。请重新调用 #{tool_name} 工具，且只调用这一个工具：
+  defp mission_feedback(parsed, kind) do
+    message = """
+    上一次输出无法使用（#{inspect(parsed.reason)}）。请重新调用 #{tool_name(kind)} 工具，且只调用这一个工具：
     - statement 必填；
     - must_advance / must_avoid 每条的 basis_ref 只能精确复制材料中方括号内列出的 ref，
       不得引用材料之外的标识；
     - 不要输出正文或解释性文字。
-    上一次输出片段：#{previous_content |> to_string() |> String.slice(0, 400)}
     """
 
-    %{prompt | messages: messages ++ [%{role: "user", content: note}]}
+    %{
+      reason_code: parsed.error.code,
+      message: message,
+      detail: %{expected_tool: tool_name(kind), correction: message}
+    }
   end
 
-  defp tool_arguments(provider_result, tool_name) do
-    case map_get(provider_result, :tool_calls) do
-      calls when is_list(calls) ->
-        calls
-        |> Enum.filter(&(map_get(&1, :name) == tool_name))
-        |> case do
-          [call] -> decode_arguments(map_get(call, :arguments), tool_name)
-          [] -> {:error, {:native_tool_call_required, tool_name}}
-          many -> {:error, {:native_tool_call_count_invalid, length(many)}}
-        end
+  # 原生交换已校验工具名称与单调用边界，这里只解析使命业务参数。
+  defp tool_arguments(%{tool_calls: [call]}, tool_name),
+    do: decode_arguments(map_get(call, :arguments), tool_name)
 
-      _ ->
-        {:error, :native_tool_call_required}
-    end
-  end
+  defp tool_arguments(_result, tool_name), do: {:error, {:native_tool_call_required, tool_name}}
 
   defp decode_arguments(args, tool_name) when is_map(args),
     do: {:ok, unwrap_envelope(args, tool_name)}
@@ -313,13 +358,4 @@ defmodule NovelApplication.ChapterMissionService do
     do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 
   defp map_get(_map, _key), do: nil
-
-  defp clean(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      trimmed -> trimmed
-    end
-  end
-
-  defp clean(_), do: nil
 end

@@ -5,9 +5,24 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
   alias NovelApplication.AgentRunFlows.WorldBuildingWithContext
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.ContextSourceRef
   alias NovelDomain.DialogueContext
+
+  alias Ecto.Adapters.SQL.Sandbox
+  alias NovelPersistence.Repo
+
+  setup do
+    owner = Sandbox.start_owner!(Repo, shared: true)
+
+    on_exit(fn ->
+      NovelApplication.TestAgentRunCleanup.await_quiescent()
+      Sandbox.stop_owner(owner)
+    end)
+
+    :ok
+  end
 
   @work "work-agent-world-flow"
 
@@ -22,26 +37,24 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
         prompt_contains?(prompt, "AgentRun 下一步规划器") ->
           {:ok,
            %{
-             content:
-               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+             content: TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
            }}
 
         true ->
           send(parent, {:provider_prompt, prompt})
 
           {:ok,
-           %{
-             provider_call_id: "pc-agent-world-writer",
-             content:
-               Jason.encode!([
-                 %{
-                   "item_id" => "foreshadowing-star-bridge",
-                   "title" => "星桥旧账",
-                   "body" => "一条跨三卷回收的伏笔线索，先以商队账册出现，后续牵出星桥封锁真相。",
-                   "rationale" => "让世界设定、角色债务和后续悬念共享同一条因果线。"
-                 }
-               ])
-           }}
+           TestAgenticLoopFixtures.native_artifact_result(
+             [
+               %{
+                 "item_id" => "foreshadowing-star-bridge",
+                 "title" => "星桥旧账",
+                 "body" => "一条跨三卷回收的伏笔线索，先以商队账册出现，后续牵出星桥封锁真相。",
+                 "rationale" => "让世界设定、角色债务和后续悬念共享同一条因果线。"
+               }
+             ],
+             provider_call_id: "pc-agent-world-writer"
+           )}
       end
     end
 
@@ -49,7 +62,7 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
       text: "请设计一个跨三卷回收的伏笔线索。",
       workspace_id: @work,
       work_id: @work,
-      session_id: "session-agent-world-flow",
+      session_id: "11111111-1111-4111-8111-111111111113",
       turn_id: "turn-agent-world-flow",
       # B59 CP1：注入同形 trace persister，证明内部工具步 trace 落既有持久化通道。
       trace_persister: fn work, attrs ->
@@ -93,8 +106,8 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
     assert_receive {:agent_event, :tool_started, tool_started}, 500
     assert tool_started.summary =~ "世界设定能力"
     assert_receive {:provider_prompt, provider_prompt}, 500
-    assert provider_prompt =~ "当前 AgentStep"
-    assert provider_prompt =~ "伏笔"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "当前 AgentStep"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "伏笔"
     assert_receive {:agent_event, :tool_completed, tool_completed}, 500
     assert tool_completed.summary =~ "世界设定草稿已生成"
     assert_receive {:agent_event, :exploration_observed, tool_observation}, 500
@@ -111,11 +124,12 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
     assert_receive {:step_trace, @work, trace_attrs}, 500
     assert trace_attrs.turn_id =~ ":agent:"
     assert trace_attrs.workspace_id == @work
-    assert trace_attrs.session_id == "session-agent-world-flow"
+    assert trace_attrs.session_id == "11111111-1111-4111-8111-111111111113"
     assert is_list(trace_attrs.tool_trace_refs) and trace_attrs.tool_trace_refs != []
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed
+    TestAgenticLoopFixtures.assert_authoring_transcript(state, run_id)
     assert length(state.run.completed_step_refs) == 2
     assert state.run.consumed_budget.steps == 2
     assert state.run.consumed_budget.tool_calls == 1
@@ -154,8 +168,7 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
         prompt_contains?(prompt, "AgentRun 下一步规划器") ->
           {:ok,
            %{
-             content:
-               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+             content: TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
            }}
 
         true ->
@@ -164,15 +177,21 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
           {:ok,
            %{
              provider_call_id: "pc-agent-world-style-rule-writer",
-             content:
-               Jason.encode!([
+             content: "",
+             tool_calls:
+               TestAgenticLoopFixtures.native_tool_calls(
+                 "submit_tentative_artifact",
                  %{
-                   "item_id" => "style-rule-cold-clue",
-                   "title" => "风格规则：冷线索优先",
-                   "body" => "风格规则：后续创作先呈现可验证线索，再解释情绪判断。\n适用文本范围：悬疑推进段落。\n禁止事项：不得直接替角色下结论。",
-                   "rationale" => "让后续写作保持冷峻、可追踪的叙事质感。"
+                   items: [
+                     %{
+                       "item_id" => "style-rule-cold-clue",
+                       "title" => "风格规则：冷线索优先",
+                       "body" => "风格规则：后续创作先呈现可验证线索，再解释情绪判断。\n适用文本范围：悬疑推进段落。\n禁止事项：不得直接替角色下结论。",
+                       "rationale" => "让后续写作保持冷峻、可追踪的叙事质感。"
+                     }
+                   ]
                  }
-               ])
+               )
            }}
       end
     end
@@ -181,7 +200,7 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
       text: "请制定一条后续创作必须遵守的写作规则和文风约束。",
       workspace_id: @work,
       work_id: @work,
-      session_id: "session-agent-world-style-rule-flow",
+      session_id: "11111111-1111-4111-8111-111111111114",
       turn_id: "turn-agent-world-style-rule-flow"
     }
 
@@ -203,8 +222,8 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
 
     artifact_event = receive_agent_event(:artifact_created)
     assert_receive {:provider_prompt, provider_prompt}, 500
-    assert provider_prompt =~ "artifact_type：style_rule_seed"
-    assert provider_prompt =~ "写作规则"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "artifact_type：style_rule_seed"
+    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "写作规则"
     receive_agent_event(:run_completed)
 
     assert {:ok, state} = AgentRunService.state(run_id)
@@ -229,19 +248,20 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
              "pc-agent-world-style-rule-writer"
   end
 
-  defp plan_draft_prompt?(prompt), do: prompt_contains?(prompt, "AgentRun 计划起草器")
+  defp plan_draft_prompt?(prompt),
+    do: Enum.any?(NovelAgent.Provider.tool_specs(prompt), &(&1.name == "agent_plan_draft"))
 
   defp world_building_plan_draft do
-    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+    TestAgenticLoopFixtures.plan_tool_call_result(
       "先读取世界设定上下文，再生成世界设定、伏笔或规则草稿。",
       [
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
+        TestAgenticLoopFixtures.plan_step(
           "context_assemble",
           "context_assemble",
           "先读取世界设定上下文。",
           success_criteria: ["world_building_context_observation_created"]
         ),
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
+        TestAgenticLoopFixtures.plan_step(
           "world_building",
           "world_building",
           "基于已读取的世界设定上下文生成世界设定、伏笔或规则草稿。",
@@ -259,11 +279,11 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
 
     cond do
       String.contains?(prompt, "/ artifact_created:") ->
-        NovelApplication.TestAgenticLoopFixtures.done_next("已生成待采纳世界设定候选，本轮目标已经满足。")
+        TestAgenticLoopFixtures.done_next("已生成待采纳世界设定候选，本轮目标已经满足。")
 
       String.contains?(prompt, "已组装世界设定上下文") or
           String.contains?(prompt, "stage_state_keys: context") ->
-        NovelApplication.TestAgenticLoopFixtures.continue_next(
+        TestAgenticLoopFixtures.continue_next(
           "基于已读取的作品设定上下文生成世界设定草稿。",
           "world_building",
           write_intent: "tentative",
@@ -271,7 +291,7 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
         )
 
       true ->
-        NovelApplication.TestAgenticLoopFixtures.continue_next(
+        TestAgenticLoopFixtures.continue_next(
           "先读取作品设定上下文。",
           "context_assemble",
           reason_codes: ["agentic_next_step", "missing_world_building_context"]
@@ -280,7 +300,7 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
   end
 
   defp prompt_contains?(prompt, pattern), do: prompt_text(prompt) =~ pattern
-  defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
+  defp prompt_text(prompt), do: TestAgenticLoopFixtures.prompt_text(prompt)
 
   defp context do
     %DialogueContext{

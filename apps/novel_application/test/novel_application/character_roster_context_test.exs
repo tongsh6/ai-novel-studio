@@ -100,8 +100,8 @@ defmodule NovelApplication.CharacterRosterContextTest do
     input =
       if character_reader, do: Map.put(input, :character_reader, character_reader), else: input
 
-    {_turn_result, _trace} = TurnExecutionService.execute(input)
-    agent |> Agent.get(& &1) |> Enum.join("\n\n")
+    {_turn_result, _trace, _transcript} = TurnExecutionService.execute(input)
+    agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1)
   end
 
   defp roster(list), do: fn _work -> list end

@@ -23,6 +23,7 @@ defmodule NovelApplication.ProseQualityService do
           form_candidates: [map()],
           review_status: :completed | :unavailable,
           evaluator_provider_call_ref: String.t() | nil,
+          provider_session: map() | nil,
           policy: ProseQualityPolicy.t()
         }
 
@@ -38,7 +39,7 @@ defmodule NovelApplication.ProseQualityService do
     form_candidates = ProseFormCandidateAnalyzer.detect(prose_text)
     semantic_ctx = Map.put(ctx, :form_candidates, form_candidates)
 
-    {semantic, review_status, evaluator_provider_call_ref} =
+    {semantic, review_status, evaluator_provider_call_ref, provider_session} =
       run_semantic(Keyword.get(opts, :semantic_fn), prose_text, semantic_ctx)
 
     scenes = normalize_scenes(Map.get(ctx, :scenes))
@@ -59,6 +60,7 @@ defmodule NovelApplication.ProseQualityService do
       form_candidates: form_candidates,
       review_status: review_status,
       evaluator_provider_call_ref: evaluator_provider_call_ref,
+      provider_session: provider_session,
       policy: policy
     }
   end
@@ -195,27 +197,33 @@ defmodule NovelApplication.ProseQualityService do
 
   defp span_text_offset(_span, _text), do: nil
 
-  defp run_semantic(nil, _text, _ctx), do: {[], :completed, nil}
+  defp run_semantic(nil, _text, _ctx), do: {[], :completed, nil, nil}
 
   defp run_semantic(fun, text, ctx) when is_function(fun, 2) do
     case safe_call(fun, text, ctx) do
+      {:ok, finding_maps, provider_call_ref, provider_session} when is_list(finding_maps) ->
+        {normalize_findings(finding_maps, ctx), :completed, provider_call_ref, provider_session}
+
       {:ok, finding_maps, provider_call_ref} when is_list(finding_maps) ->
-        {normalize_findings(finding_maps, ctx), :completed, provider_call_ref}
+        {normalize_findings(finding_maps, ctx), :completed, provider_call_ref, nil}
 
       {:ok, %{findings: finding_maps, provider_call_ref: provider_call_ref}}
       when is_list(finding_maps) ->
-        {normalize_findings(finding_maps, ctx), :completed, provider_call_ref}
+        {normalize_findings(finding_maps, ctx), :completed, provider_call_ref, nil}
 
       {:ok, finding_maps} when is_list(finding_maps) ->
-        {normalize_findings(finding_maps, ctx), :completed, nil}
+        {normalize_findings(finding_maps, ctx), :completed, nil, nil}
+
+      {:error, _reason, provider_session} ->
+        {[], :unavailable, nil, provider_session}
 
       _ ->
         # evaluator 失败/非法返回 → 质量复核未完成，不伪造通过
-        {[], :unavailable, nil}
+        {[], :unavailable, nil, nil}
     end
   end
 
-  defp run_semantic(_fun, _text, _ctx), do: {[], :completed, nil}
+  defp run_semantic(_fun, _text, _ctx), do: {[], :completed, nil, nil}
 
   defp normalize_findings(finding_maps, ctx) do
     finding_maps

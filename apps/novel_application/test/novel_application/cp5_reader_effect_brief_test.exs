@@ -5,6 +5,7 @@ defmodule NovelApplication.CP5ReaderEffectBriefTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelApplication.TurnExecutionService
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.DialogueContext
@@ -70,8 +71,9 @@ defmodule NovelApplication.CP5ReaderEffectBriefTest do
 
       {:ok,
        %{
-         content:
-           Jason.encode!(%{
+         content: "",
+         tool_calls:
+           TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{
              items: [
                %{
                  item_id: "cp5-item",
@@ -90,7 +92,7 @@ defmodule NovelApplication.CP5ReaderEffectBriefTest do
        }}
     end
 
-    {turn_result, _trace} =
+    {turn_result, _trace, _transcript} =
       TurnExecutionService.execute(%{
         frame: frame(),
         plan: plan(),
@@ -100,7 +102,8 @@ defmodule NovelApplication.CP5ReaderEffectBriefTest do
         provider_execution: %Execution{result_fn: complete}
       })
 
-    {turn_result, agent |> Agent.get(& &1) |> Enum.join("\n\n")}
+    {turn_result,
+     agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1)}
   end
 
   defp frame do

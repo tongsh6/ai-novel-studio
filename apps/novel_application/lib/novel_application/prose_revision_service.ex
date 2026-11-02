@@ -26,7 +26,10 @@ defmodule NovelApplication.ProseRevisionService do
 
   alias NovelAgent.AuthorizedToolExecutor
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.NativeToolExchange
+  alias NovelApplication.AgentRunFlows.AuthoringSession
   alias NovelApplication.ArtifactAssembler
+  alias NovelApplication.AuthoringOperation
   alias NovelApplication.AuthoringTaskBuilder
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.ExecutionOrchestrator
@@ -100,7 +103,12 @@ defmodule NovelApplication.ProseRevisionService do
   end
 
   @doc """
-  Executes the authorized revision tool call and returns action_result + TurnResult.
+  Executes the authorized revision tool call.
+
+  成功结果包含 `action_result`、`turn_result`、同一次 `TraceWriter` 产出的真实
+  `decision_trace`、执行计数与 `stage_state`。这是既有的显式有限外观：没有真实
+  run/snapshot，Provider 自声明 standalone，不伪造 run/work 身份；执行、组装、trace
+  与结果闭合仍和新入口共用同一条管线，但 standalone 不把该 trace 提交到 DB。
   """
   @spec execute_revision(
           map(),
@@ -113,52 +121,258 @@ defmodule NovelApplication.ProseRevisionService do
   def execute_revision(
         source_turn_result,
         %AuthorActionInput{} = action_input,
-        %{original: original, findings: findings},
-        %{frame: frame, plan: plan, decision: decision} = execution,
+        prepared,
+        planned,
         provider_execution
       ) do
-    with {:ok, provider_execution} <- require_provider_execution(provider_execution),
-         {:ok, req} <- build_request(frame, plan, decision, original, findings),
-         result = AuthorizedToolExecutor.execute(req, provider_execution),
-         {:ok, execution} <-
-           assemble_revision_artifact(
-             result,
-             frame.turn_id,
-             source_turn_result,
-             original,
-             findings,
-             %{
-               frame: frame,
-               plan: plan,
-               decision: decision,
-               behavior: Map.get(execution, :behavior),
-               req: req,
-               result: result
-             }
-           ) do
-      artifact_set = execution.artifact_set
-      emit_revised(source_turn_result, action_input, artifact_set, findings)
+    context = %{mode: :standalone, run: nil, snapshot: nil, opts: []}
 
-      trace_summary = revision_trace_summary(source_turn_result, action_input, execution)
-
-      turn_result =
-        TurnResultBuilder.revision_turn_result(
-          field(source_turn_result, :turn_id) || action_input.source_turn_ref,
-          artifact_set,
-          trace_summary: trace_summary,
-          # ADR-0004 #3：修订轮也把决策 trace ref 闭合到本轮 trace。
-          orchestrator_decision: revision_orchestrator_decision(execution.decision, trace_summary)
-        )
-
-      {:ok,
-       %{
-         artifact_set: artifact_set,
-         action_result: revise_action_result(action_input, artifact_set),
-         turn_result: turn_result,
-         execution: execution,
-         findings: findings
-       }}
+    case run_revision_pipeline(
+           source_turn_result,
+           action_input,
+           prepared,
+           planned,
+           provider_execution,
+           context
+         ) do
+      {:ok, result} -> {:ok, result}
+      {:error, reason, _session, _snapshot} -> {:error, reason}
     end
+  end
+
+  @doc """
+  B71 CP4b：把修订 writer 绑定到真实 AgentRun 的 canonical 会话。
+
+  成功结果附带 `stage_state.judgment_transcript` 与真实 provider/tool 计数；失败返回
+  `{:error, reason, step_state}`，保留已发生的会话和历史，供 runtime 合并预算。
+  """
+  @spec execute_revision(
+          map(),
+          AuthorActionInput.t(),
+          map(),
+          map(),
+          Execution.dependency(),
+          %{required(:run) => map(), required(:snapshot) => map()}
+        ) ::
+          {:ok, map()} | {:error, String.t(), map()}
+  def execute_revision(
+        source_turn_result,
+        %AuthorActionInput{} = action_input,
+        prepared,
+        planned,
+        provider_execution,
+        %{run: run, snapshot: snapshot}
+      )
+      when is_map(run) and is_map(snapshot) do
+    context = %{
+      mode: :bound,
+      run: run,
+      snapshot: snapshot,
+      opts: AuthoringOperation.tool_execution_options(run)
+    }
+
+    case run_revision_pipeline(
+           source_turn_result,
+           action_input,
+           prepared,
+           planned,
+           provider_execution,
+           context
+         ) do
+      {:ok, result} ->
+        {:ok, result}
+
+      {:error, reason, session, failed_snapshot} ->
+        {:error, reason, failure_step_state(session, failed_snapshot)}
+    end
+  end
+
+  # 唯一执行→组装→trace→结果管线。standalone 与 bound 只在这里决定请求绑定、
+  # 交换上限和外部失败形状；成功/失败都闭合真实原生调用，并从同一 session 取实际计数。
+  defp run_revision_pipeline(
+         source_turn_result,
+         %AuthorActionInput{} = action_input,
+         %{original: original, findings: findings},
+         %{frame: frame, plan: plan, decision: decision} = planned,
+         provider_execution,
+         context
+       ) do
+    with {:ok, provider_execution} <- require_provider_execution(provider_execution),
+         {:ok, budget} <- exchange_budget(context.opts),
+         :ok <- ensure_provider_budget(budget),
+         {:ok, req} <- build_request(frame, plan, decision, original, findings) do
+      request = bind_request(req, context)
+
+      execution = %{
+        frame: frame,
+        plan: plan,
+        decision: decision,
+        behavior: Map.get(planned, :behavior),
+        req: request,
+        result: nil
+      }
+
+      {result, session} =
+        AuthorizedToolExecutor.execute_with_session(request, provider_execution, context.opts)
+
+      pipeline = %{
+        source: source_turn_result,
+        action: action_input,
+        original: original,
+        findings: findings,
+        execution: %{execution | result: result},
+        budget: budget,
+        context: context
+      }
+
+      complete_revision(result, session, pipeline)
+    else
+      {:error, reason} -> {:error, reason, nil, context.snapshot}
+    end
+  end
+
+  # 交换上限只走 NativeToolExchange 既有验证边界：standalone 取默认上限，
+  # bound 取 AuthoringOperation 已按 run 剩余预算 clamp 的 opts；不另算一套。
+  defp exchange_budget(opts) do
+    case NativeToolExchange.validate_options(opts) do
+      {:ok, budget} -> {:ok, budget}
+      {:error, code, message} -> {:error, "#{code}: #{message}"}
+    end
+  end
+
+  defp bind_request(request, %{mode: :bound, run: run, snapshot: snapshot}),
+    do: AuthoringSession.bind_tool_request(request, run, snapshot)
+
+  defp bind_request(request, %{mode: :standalone}), do: request
+
+  defp ensure_provider_budget(budget) when is_integer(budget) and budget > 0, do: :ok
+
+  defp ensure_provider_budget(_budget),
+    do: {:error, "revision provider call budget exhausted"}
+
+  defp complete_revision(result, session, pipeline) do
+    case result do
+      %ToolResult{status: :succeeded} ->
+        assemble_completed_revision(result, session, pipeline)
+
+      %ToolResult{} = failed ->
+        fail_revision(
+          session,
+          failure_code(failed),
+          revision_failure_reason(failed),
+          pipeline
+        )
+    end
+  end
+
+  defp assemble_completed_revision(result, session, pipeline) do
+    case ArtifactAssembler.assemble(
+           result,
+           pipeline.execution.frame.turn_id,
+           provenance(pipeline.source, pipeline.original, pipeline.findings)
+         ) do
+      {:ok, artifact_set} ->
+        session =
+          close_session(session, "passed", "tentative_artifact_assembled", %{
+            adoption_required: true,
+            canon_written: false,
+            execution_authorized: false
+          })
+
+        execution = Map.put(pipeline.execution, :artifact_set, artifact_set)
+        emit_revised(pipeline.source, pipeline.action, artifact_set, pipeline.findings)
+        metadata = AuthoringSession.provider_metadata(session)
+
+        {decision_trace, trace_summary} =
+          revision_trace_summary(
+            pipeline.source,
+            pipeline.action,
+            execution,
+            pipeline.budget,
+            metadata
+          )
+
+        turn_result =
+          TurnResultBuilder.revision_turn_result(
+            field(pipeline.source, :turn_id) || pipeline.action.source_turn_ref,
+            artifact_set,
+            trace_summary: trace_summary,
+            orchestrator_decision:
+              revision_orchestrator_decision(execution.decision, trace_summary)
+          )
+
+        {:ok,
+         %{
+           artifact_set: artifact_set,
+           action_result: revise_action_result(pipeline.action, artifact_set),
+           turn_result: turn_result,
+           decision_trace: decision_trace,
+           execution: execution,
+           findings: pipeline.findings,
+           provider_call_count: metadata.provider_call_count,
+           tool_call_count: metadata.tool_call_count,
+           stage_state: metadata
+         }}
+
+      {:error, _reason} ->
+        fail_revision(
+          session,
+          "revision_artifact_assembly_failed",
+          revision_error_message(result),
+          pipeline
+        )
+    end
+  end
+
+  defp fail_revision(session, reason_code, reason, pipeline) do
+    session = close_session(session, "failed", reason_code, %{message: reason})
+    {:error, reason, session, pipeline.context.snapshot}
+  end
+
+  defp close_session(session, status, reason_code, detail) do
+    AuthoringSession.validate_provider_result(session, status, reason_code, detail)
+  end
+
+  defp revision_failure_reason(%ToolResult{status: :failed, errors: errors}) do
+    case List.first(List.wrap(errors)) do
+      %{code: code, message: message} when is_binary(message) -> "#{code}: #{message}"
+      %{code: code} -> to_text(code)
+      _ -> "revision generation failed: provider did not return a usable draft"
+    end
+  end
+
+  defp revision_failure_reason(_result),
+    do: "revision generation failed: provider did not return a usable draft"
+
+  defp failure_code(%ToolResult{errors: errors}) do
+    case List.first(List.wrap(errors)) do
+      %{code: code} -> to_text(code)
+      _ -> "revision_generation_failed"
+    end
+  end
+
+  # 真实 Provider 计数取交换 session；0 调用时沿用已有 snapshot 历史，不伪造模型响应。
+  defp failure_step_state(nil, snapshot) do
+    snapshot_step_state(snapshot, 0, 0)
+  end
+
+  defp failure_step_state(session, snapshot) do
+    metadata = AuthoringSession.provider_metadata(session)
+
+    if Map.has_key?(metadata, :judgment_transcript) do
+      metadata
+    else
+      snapshot_step_state(
+        snapshot,
+        metadata.provider_call_count,
+        metadata.tool_call_count
+      )
+    end
+  end
+
+  defp snapshot_step_state(snapshot, provider_calls, tool_calls) do
+    AuthoringSession.transcript_state(AuthoringSession.transcript(snapshot))
+    |> Map.merge(%{provider_call_count: provider_calls, tool_call_count: tool_calls})
   end
 
   defp require_provider_execution(provider_execution) do
@@ -267,27 +481,6 @@ defmodule NovelApplication.ProseRevisionService do
   defp requested_refs(_action_input), do: []
 
   # ── 修订生成 ───────────────────────────────────────────────
-
-  defp assemble_revision_artifact(
-         result,
-         turn_id,
-         source_turn_result,
-         original,
-         findings,
-         execution
-       ) do
-    case ArtifactAssembler.assemble(
-           result,
-           turn_id,
-           provenance(source_turn_result, original, findings)
-         ) do
-      {:ok, artifact_set} ->
-        {:ok, Map.put(execution, :artifact_set, artifact_set)}
-
-      {:error, _reason} ->
-        {:error, revision_error_message(result)}
-    end
-  end
 
   defp revision_frame(source_turn_result, %AuthorActionInput{} = action_input, turn_id) do
     %DialogueFrame{
@@ -615,10 +808,16 @@ defmodule NovelApplication.ProseRevisionService do
     }
   end
 
-  defp revision_trace_summary(source_turn_result, %AuthorActionInput{} = action_input, execution) do
+  defp revision_trace_summary(
+         source_turn_result,
+         %AuthorActionInput{} = action_input,
+         execution,
+         provider_call_budget,
+         metadata
+       ) do
     artifact_set = execution.artifact_set
 
-    {_trace, tool_trace_summary} =
+    {trace, tool_trace_summary} =
       TraceWriter.record_with_tool(
         execution.frame,
         execution.plan,
@@ -629,21 +828,28 @@ defmodule NovelApplication.ProseRevisionService do
         nil
       )
 
-    tool_trace_summary
-    |> Map.merge(%{
-      decision_type: "revise_from_findings",
-      orchestrator_decision: execution.decision.decision_type,
-      source_turn_ref: field(source_turn_result, :turn_id) || action_input.source_turn_ref,
-      revision_base: artifact_set.revision_base,
-      revision_artifact_ref: artifact_set.artifact_set_id,
-      quality_finding_refs: artifact_set.quality_finding_refs,
-      revision_provider_call_ref: provider_call_ref(artifact_set),
-      no_write_reason: "revision draft is tentative and not auto-adopted",
-      replay_policy: %{use_recorded_frame: true, recall_provider: false},
-      provider_call_budget: %{
-        revision_writer: if(provider_call_ref(artifact_set), do: 1, else: 0)
-      }
-    })
+    summary =
+      tool_trace_summary
+      |> Map.merge(%{
+        decision_type: "revise_from_findings",
+        orchestrator_decision: execution.decision.decision_type,
+        source_turn_ref: field(source_turn_result, :turn_id) || action_input.source_turn_ref,
+        revision_base: artifact_set.revision_base,
+        revision_artifact_ref: artifact_set.artifact_set_id,
+        quality_finding_refs: artifact_set.quality_finding_refs,
+        revision_provider_call_ref: provider_call_ref(artifact_set),
+        no_write_reason: "revision draft is tentative and not auto-adopted",
+        replay_policy: %{use_recorded_frame: true, recall_provider: false},
+        provider_call_budget: %{revision_writer: provider_call_budget},
+        execution_counts: %{
+          provider_calls: metadata.provider_call_count,
+          tool_calls: metadata.tool_call_count
+        }
+      })
+
+    # trace 与 author-safe summary 来自同一次 TraceWriter 调用：summary.trace_ref
+    # 指向真实可提交的 DecisionTrace，而不是只存在于内存的引用。
+    {trace, summary}
   end
 
   defp workspace_ref(source_turn_result) do

@@ -13,6 +13,7 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgentNarrativeSource
+  alias NovelApplication.AgentRunFlows.AuthoringSession
   alias NovelApplication.AgentRunFlows.CharacterDesignWithContext
   alias NovelApplication.AgentRunFlows.CharacterEvolutionWithContext
   alias NovelApplication.AgentRunFlows.FactInventory
@@ -22,6 +23,7 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.AgentRunFlows.ProseDraftingWithQuality
   alias NovelApplication.AgentRunFlows.ProseRevisionFromFindings
   alias NovelApplication.AgentRunFlows.ReadonlyBatchContext
+  alias NovelApplication.AgentRunFlows.ToolConfirmation
   alias NovelApplication.AgentRunFlows.WorldBuildingWithContext
   alias NovelApplication.ChapterListBudget
   alias NovelApplication.ContextAssembler
@@ -63,6 +65,8 @@ defmodule NovelApplication.DialoguePlanningService do
   @ledger_reconciliation_allowed_tools ["ledger_reconcile"]
   @fact_inventory_profile_ref FactInventory.profile_ref()
   @fact_inventory_allowed_tools ["fact_inventory"]
+  @tool_confirmation_profile_ref ToolConfirmation.profile_ref()
+  @tool_confirmation_allowed_tools ~w(prose_writing plot_outline character_design character_evolution world_building text_analysis)
 
   @spec agent_run_candidate?(String.t()) :: boolean()
   def agent_run_candidate?(text) when is_binary(text) do
@@ -114,6 +118,7 @@ defmodule NovelApplication.DialoguePlanningService do
           | :character_evolution_with_context
           | :world_building_with_context
           | :prose_revision_from_findings
+          | :tool_confirmation
           | :readonly_batch_context
           | :ledger_reconciliation
           | :fact_inventory
@@ -276,6 +281,9 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp agent_run_agent_plan(run_id, :prose_revision_from_findings),
+    do: {:ok, pending_model_plan(run_id)}
+
+  defp agent_run_agent_plan(run_id, :tool_confirmation),
     do: {:ok, pending_model_plan(run_id)}
 
   defp agent_run_agent_plan(run_id, :readonly_batch_context) do
@@ -502,15 +510,18 @@ defmodule NovelApplication.DialoguePlanningService do
   # B24 CP2：上一页观察带 next_offset 时补一条续读提示（真实章标题 + 上一页 footer
   # 的 query），让模型知道可以继续读而不是重复同一页；目录 query 说明由
   # ExplorationService.catalog_section 单点产出（I-EXPLORE-READ-7）。
-  defp exploration_sections(explorations, budget) do
+  defp exploration_sections(explorations, budget, native_observations?) do
     catalog = if budget.open?, do: "\n\n" <> ExplorationService.catalog_section(), else: ""
 
     observations =
-      case explorations do
-        [] ->
+      case {explorations, native_observations?} do
+        {[], _} ->
           ""
 
-        list ->
+        {list, true} ->
+          exploration_budget_section(list, budget)
+
+        {list, false} ->
           rendered =
             list
             |> Enum.with_index(1)
@@ -530,7 +541,7 @@ defmodule NovelApplication.DialoguePlanningService do
 
   # B27 CP4 retest5 M18：如实投影探索预算状态与已执行来源——预算关闭不等于
   # “系统没有探索能力”；模型据此基于已有观察收束或提出具体澄清。
-  # 仅由 exploration_sections/2 的非空 observations 分支调用（空列表在调用方短路）。
+  # 仅由 exploration_sections/3 的非空 observations 分支调用（空列表在调用方短路）。
   defp exploration_budget_section(explorations, budget) do
     tools =
       explorations
@@ -705,6 +716,18 @@ defmodule NovelApplication.DialoguePlanningService do
 
     tools = Enum.map(steps, &map_get(&1, :target_tool_ref)) |> Enum.uniq()
 
+    transcript =
+      JudgmentProtocol.planned_observations_transcript(
+        judgment.transcript,
+        judgment,
+        observations,
+        %{
+          coverage_note: coverage_note(observations),
+          continuation_hint:
+            continue_hint(observations, exploration_budget(explorations ++ observations))
+        }
+      )
+
     {:ok,
      %{
        step: judgment_agent_step(run, sequence, "按模型计划完成只读检索（#{length(observations)} 步）"),
@@ -717,7 +740,10 @@ defmodule NovelApplication.DialoguePlanningService do
            %{stage: :exploration_observed, tools: tools, step_count: length(observations)}
          )
        ],
-       stage_state: %{judgment_explorations: explorations ++ observations},
+       stage_state: %{
+         judgment_explorations: explorations ++ observations,
+         judgment_transcript: transcript
+       },
        provider_call_count: judgment.provider_call_count,
        progress_signature:
          "#{run.run_id}:explore:plan:#{length(explorations) + length(observations)}"
@@ -1065,46 +1091,151 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp judgment_step(provider_execution, input, state) do
     fn run, sequence, snapshot ->
-      # LogContext 是进程本地的；判断步与 context 步在不同 step task 进程，
-      # 必须各自设置 turn 关联（否则 judgment.decided.done 等业务日志失联）。
-      NovelCommon.LogContext.put_turn(
-        map_get(input, :workspace_id) || run.workspace_id,
-        map_get(input, :work_id) || run.work_id || run.workspace_id,
-        map_get(input, :turn_id) || run.parent_turn_ref,
-        map_get(input, :session_id) || run.session_id
+      execute_judgment_step(provider_execution, input, state, run, sequence, snapshot)
+    end
+  end
+
+  defp execute_judgment_step(provider_execution, input, state, run, sequence, snapshot) do
+    put_judgment_log_context(input, run)
+
+    # llm 调用日志步名（live 取证用；旧 planner 为 form_frame，判断循环为 judgment）。
+    NovelCommon.LogContext.put_step("judgment")
+
+    context = judgment_context(state)
+    explorations = judgment_explorations(state)
+
+    protocol_input =
+      judgment_protocol_input(
+        input,
+        run,
+        context,
+        explorations,
+        native_observations_option(state)
       )
 
-      # llm 调用日志步名（live 取证用；旧 planner 为 form_frame，判断循环为 judgment）。
-      NovelCommon.LogContext.put_step("judgment")
+    request_judgment_result(
+      provider_execution,
+      snapshot,
+      protocol_input,
+      run,
+      sequence,
+      input,
+      context,
+      explorations
+    )
+  end
 
-      context = judgment_context(state)
-      explorations = judgment_explorations(state)
-      protocol_input = judgment_protocol_input(input, run, context, explorations)
+  # LogContext 是进程本地的；判断步与 context 步在不同 step task 进程，
+  # 必须各自设置 turn 关联（否则 judgment.decided.done 等业务日志失联）。
+  defp put_judgment_log_context(input, run) do
+    NovelCommon.LogContext.put_turn(
+      map_get(input, :workspace_id) || run.workspace_id,
+      map_get(input, :work_id) || run.work_id || run.workspace_id,
+      map_get(input, :turn_id) || run.parent_turn_ref,
+      map_get(input, :session_id) || run.session_id
+    )
+  end
 
-      # 模型纠正与执行前检查共用业务规则；无效操作不能发布为已裁决并进入创作分支。
-      result =
-        with {:ok, judgment} <-
-               JudgmentProtocol.request_judgment(provider_execution, snapshot, protocol_input),
-             :ok <-
-               TurnInteractionService.validate_author_registration(
-                 judgment,
-                 protocol_input.options[:author_content_sources]
-               ) do
-          {:ok, judgment}
-        end
+  # 模型纠正与执行前检查共用业务规则；无效操作不能发布为已裁决并进入创作分支。
+  # 协议一旦开始交换，失败也返回真实会话/调用数（error3）；纯前置错误保持裸 error。
+  defp request_judgment_result(
+         provider_execution,
+         snapshot,
+         protocol_input,
+         run,
+         sequence,
+         input,
+         context,
+         explorations
+       ) do
+    case JudgmentProtocol.request_judgment(provider_execution, snapshot, protocol_input) do
+      {:ok, judgment} ->
+        validate_judgment_result(
+          judgment,
+          protocol_input,
+          run,
+          sequence,
+          input,
+          context,
+          snapshot,
+          explorations
+        )
 
-      case result do
-        {:ok, %{action: "explore"} = judgment} ->
-          emit_judgment_decided(snapshot, judgment)
-          judgment_explore_result(judgment, run, sequence, input, context, snapshot, explorations)
+      {:error, reason, state} when is_map(state) ->
+        {:error, reason, state}
 
-        {:ok, judgment} ->
-          emit_judgment_decided(snapshot, judgment)
-          dispatch_judgment(judgment, run, sequence, input, context, snapshot)
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
-        {:error, reason} ->
-          {:error, reason}
-      end
+  defp validate_judgment_result(
+         judgment,
+         protocol_input,
+         run,
+         sequence,
+         input,
+         context,
+         snapshot,
+         explorations
+       ) do
+    case TurnInteractionService.validate_author_registration(
+           judgment,
+           protocol_input.options[:author_content_sources]
+         ) do
+      :ok ->
+        handle_judgment(
+          judgment,
+          run,
+          sequence,
+          input,
+          context,
+          snapshot,
+          explorations
+        )
+
+      {:error, reason} ->
+        AuthoringSession.inherit_failure({:error, reason}, judgment)
+    end
+  end
+
+  defp handle_judgment(judgment, run, sequence, input, context, snapshot, explorations) do
+    emit_judgment_decided(snapshot, judgment)
+
+    case judgment.action do
+      "explore" ->
+        judgment_explore_result(
+          judgment,
+          run,
+          sequence,
+          input,
+          context,
+          snapshot,
+          explorations
+        )
+
+      _ ->
+        dispatch_with_transcript(judgment, run, sequence, input, context, snapshot)
+    end
+  end
+
+  defp dispatch_with_transcript(judgment, run, sequence, input, context, snapshot) do
+    case dispatch_judgment(judgment, run, sequence, input, context, snapshot) do
+      {:ok, result} ->
+        stage_state =
+          result
+          |> Map.get(:stage_state, %{})
+          |> Map.put_new(:judgment_transcript, judgment.transcript)
+          |> Map.update!(:judgment_transcript, &JudgmentProtocol.complete_validation/1)
+
+        {:ok, Map.put(result, :stage_state, stage_state)}
+
+      # 业务/派发失败仍继承本次判断会话；inner 若已产生更新会话则保持 inner。
+      {:error, reason, state} ->
+        AuthoringSession.inherit_failure({:error, reason, state}, judgment)
+
+      {:error, reason} ->
+        AuthoringSession.inherit_failure({:error, reason}, judgment)
     end
   end
 
@@ -1195,7 +1326,7 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
-  defp judgment_protocol_input(input, run, context, explorations) do
+  defp judgment_protocol_input(input, run, context, explorations, opts \\ []) do
     budget = exploration_budget(explorations)
     explore_open? = budget.open?
 
@@ -1215,7 +1346,12 @@ defmodule NovelApplication.DialoguePlanningService do
       else
         base_sections ++
           [
-            {"explorations", exploration_sections(explorations, budget)},
+            {"explorations",
+             exploration_sections(
+               explorations,
+               budget,
+               Keyword.get(opts, :native_observations, false)
+             )},
             {"adopted_targets", adopted_content_targets_section(context)}
           ]
       end
@@ -1242,6 +1378,7 @@ defmodule NovelApplication.DialoguePlanningService do
           else: TurnInteractionService.context_section(context.interaction_state)
         ),
       context_block: context_block,
+      scope_change_reason: scope_change_reason(budget, explorations),
       options:
         [
           plan_run: %{run | profile_ref: "judgment_plan_v1"},
@@ -1265,9 +1402,19 @@ defmodule NovelApplication.DialoguePlanningService do
           )
     }
 
+    protocol_input =
+      case Keyword.get(opts, :transcript) do
+        nil -> protocol_input
+        transcript -> Map.put(protocol_input, :transcript, transcript)
+      end
+
     emit_judgment_prompt_diagnostics(protocol_input, write_judgment?)
     protocol_input
   end
+
+  defp scope_change_reason(%{open?: true}, _explorations), do: "run_scope_refreshed"
+  defp scope_change_reason(_budget, []), do: "exploration_unavailable"
+  defp scope_change_reason(_budget, _explorations), do: "exploration_budget_exhausted"
 
   @doc false
   # 判断 profile 裁剪选择器（确定性；只按真实路由 profile_ref，不猜作者意图）。
@@ -1317,8 +1464,8 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp judgment_prompt_diagnostics(protocol_input, write_judgment?) do
-    prompt = JudgmentProtocol.prompt(protocol_input)
-    content = prompt.messages |> hd() |> Map.get(:content) || ""
+    prompt = JudgmentProtocol.prompt_for_production(protocol_input)
+    content = prompt.messages |> Enum.map_join("", &(&1.content || ""))
 
     %{
       prompt_chars: String.length(content),
@@ -1516,21 +1663,26 @@ defmodule NovelApplication.DialoguePlanningService do
                input,
                run,
                judgment_context(state),
-               execution
+               execution,
+               snapshot
              ) do
+        stage_state =
+          Map.merge(result.stage_state || %{}, %{
+            pending_artifact_request: nil,
+            pending_artifact_tool: nil,
+            judgment_settled: "completed"
+          })
+
         {:ok,
-         Map.merge(result, %{
+         result
+         |> Map.put(:stage_state, stage_state)
+         |> Map.merge(%{
            step: judgment_agent_step(run, seq, "候选处理完成"),
            observations: [
              judgment_observation(run, seq, "候选处理结果已返回。", result.turn_result.turn_id, %{
                operation: state.pending_artifact_request.capability
              })
            ],
-           stage_state: %{
-             pending_artifact_request: nil,
-             pending_artifact_tool: nil,
-             judgment_settled: "completed"
-           },
            progress_signature: "#{run.run_id}:pending:completed"
          })}
       end
@@ -1791,6 +1943,14 @@ defmodule NovelApplication.DialoguePlanningService do
       exploration_event_payload(tool, query, observation)
     )
 
+    request_observation =
+      observation
+      |> Map.put(:coverage_note, coverage_note([observation]))
+      |> Map.put(:continue_hint, continue_hint([observation], exploration_budget(explorations)))
+
+    transcript =
+      JudgmentProtocol.observation_transcript(judgment.transcript, judgment, request_observation)
+
     {:ok,
      %{
        step: judgment_agent_step(run, sequence, activity),
@@ -1806,12 +1966,22 @@ defmodule NovelApplication.DialoguePlanningService do
            )
          )
        ],
-       stage_state: %{judgment_explorations: explorations ++ [observation]},
+       stage_state: %{
+         judgment_explorations: explorations ++ [observation],
+         judgment_transcript: transcript
+       },
        provider_call_count: judgment.provider_call_count,
        # B24 CP2（I-EXPLORE-READ-5）：signature 去掉 sequence——同 tool+同 query
        # （含 offset）才命中 no-progress；不同 offset 的合法续读不误停。
        progress_signature: "#{run.run_id}:explore:#{tool}:#{query}"
      }}
+  end
+
+  defp native_observations_option(state) do
+    case map_get(state, :judgment_transcript) do
+      nil -> []
+      transcript -> [native_observations: true, transcript: transcript]
+    end
   end
 
   # B24 §1.1(c)：observation 元数据进 developer payload（chapter_ref 供验收独立核对
@@ -2614,6 +2784,25 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp agent_next_step_planner(
+         :tool_confirmation,
+         _text,
+         _context,
+         _context_fetcher,
+         provider_execution,
+         input
+       ) do
+    ToolConfirmation.next_step_planner(%{
+      source_turn_result: map_get(input, :source_turn_result),
+      action_input: map_get(input, :action_input),
+      author_message: map_get(input, :author_message),
+      behavior_ref: map_get(input, :behavior_ref),
+      receipt_id: map_get(input, :receipt_id),
+      context_fetcher: map_get(input, :context_fetcher),
+      provider_execution: provider_execution
+    })
+  end
+
+  defp agent_next_step_planner(
          :readonly_batch_context,
          _text,
          _context,
@@ -2896,6 +3085,16 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
+  defp run_budget(_text, :tool_confirmation) do
+    %{
+      max_steps: 4,
+      max_tool_calls: 1,
+      max_provider_calls: 14,
+      max_replans: 0,
+      max_pending_artifacts: 3
+    }
+  end
+
   defp run_budget(_text, :readonly_batch_context) do
     %{
       max_steps: 3,
@@ -2940,6 +3139,7 @@ defmodule NovelApplication.DialoguePlanningService do
   defp profile_ref(:world_building_with_context), do: @world_building_profile_ref
   defp profile_ref(:prose_revision_from_findings), do: @revision_profile_ref
   defp profile_ref(:readonly_batch_context), do: @readonly_batch_profile_ref
+  defp profile_ref(:tool_confirmation), do: @tool_confirmation_profile_ref
   defp profile_ref(:ledger_reconciliation), do: @ledger_reconciliation_profile_ref
   defp profile_ref(:fact_inventory), do: @fact_inventory_profile_ref
 
@@ -2956,6 +3156,7 @@ defmodule NovelApplication.DialoguePlanningService do
   defp allowed_tools(:world_building_with_context), do: @world_building_allowed_tools
   defp allowed_tools(:prose_revision_from_findings), do: @revision_allowed_tools
   defp allowed_tools(:readonly_batch_context), do: @readonly_batch_allowed_tools
+  defp allowed_tools(:tool_confirmation), do: @tool_confirmation_allowed_tools
   defp allowed_tools(:ledger_reconciliation), do: @ledger_reconciliation_allowed_tools
   defp allowed_tools(:fact_inventory), do: @fact_inventory_allowed_tools
 

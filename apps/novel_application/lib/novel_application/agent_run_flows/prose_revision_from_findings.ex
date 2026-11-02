@@ -13,6 +13,7 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentStep
   alias NovelDomain.AuthorActionInput
+  alias NovelDomain.DecisionTrace
 
   @profile_ref "prose_revision_from_findings_v1"
   @prepare_step_target "revision_prepare"
@@ -397,8 +398,9 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
       state = stage_state(snapshot)
 
       case Map.get(state, :revision_result) do
-        result when is_map(result) ->
-          final_turn_result = finalize(result.turn_result, run)
+        %{turn_result: turn_result, decision_trace: %DecisionTrace{} = decision_trace}
+        when is_map(turn_result) ->
+          final_turn_result = finalize(turn_result, run)
           step_id = current_step_ref(run, sequence)
           artifact_refs = artifact_refs(final_turn_result)
 
@@ -416,12 +418,16 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
              observations: observations,
              artifact_refs: artifact_refs,
              turn_result: final_turn_result,
+             # 与 TurnResult 同一 runtime 提交：runtime 只在同一事务里把 Interaction/
+             # DecisionTrace/run 一起写成功后才发布结果。
+             decision_trace: decision_trace,
+             stage_state: canonical_stage_state(state),
              progress_signature:
                "#{run.run_id}:revision_finalize:#{Enum.join(artifact_refs, ",")}"
            }}
 
         _missing ->
-          {:error, {:missing_revision_result_stage_state, Map.keys(state)}}
+          {:error, {:missing_revision_decision_trace_stage_state, Map.keys(state)}}
       end
     end
   end
@@ -450,7 +456,8 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
            action_input,
            prepared,
            execution,
-           provider_execution(spec, snapshot)
+           provider_execution(spec, snapshot),
+           %{run: run, snapshot: snapshot}
          ) do
       {:ok, result} ->
         emit_stage(
@@ -471,15 +478,21 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
          %{
            step: execute_step(run, sequence, result),
            observations: [execute_observation(run, sequence, result)],
-           stage_state: %{revision_result: result},
-           tool_call_count: 1,
-           provider_call_count: 1,
+           # 只返回本步 delta：runtime 负责与执行期间的 snapshot 合并。把整份旧
+           # stage_state 带回会覆盖期间更新的字段，因此这里只带新 canonical 与
+           # finalize 实际消费的 revision_result 业务字段。
+           stage_state:
+             result
+             |> Map.get(:stage_state, %{})
+             |> Map.put(:revision_result, revision_result(result)),
+           tool_call_count: Map.get(result, :tool_call_count, 0),
+           provider_call_count: Map.get(result, :provider_call_count, 0),
            progress_signature:
              "#{run.run_id}:revision_execute:#{result.artifact_set.artifact_set_id}:#{tool_result_ref(result)}"
          }}
 
-      {:error, reason} ->
-        {:error, {:revision_execute_failed, reason}}
+      {:error, reason, step_state} ->
+        {:error, {:revision_execute_failed, reason}, step_state}
     end
   end
 
@@ -838,6 +851,23 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
   end
 
   defp stage_state(snapshot), do: Map.get(snapshot, :stage_state, %{})
+
+  # finalize 只消费 turn_result 与同一次 TraceWriter 产出的真实 trace；不把
+  # execution/req.input 中的 run/IR 再复制成 checkpoint 内的第二份 SSOT。
+  # canonical transcript 从同一步快照继承。
+  defp revision_result(result) do
+    %{
+      turn_result: Map.get(result, :turn_result),
+      decision_trace: Map.get(result, :decision_trace)
+    }
+  end
+
+  defp canonical_stage_state(state) do
+    case Map.get(state, :judgment_transcript) do
+      nil -> %{}
+      transcript -> %{judgment_transcript: transcript}
+    end
+  end
 
   defp emit_stage(%{stage_sink: stage_sink}, event_type, summary, reason_codes, refs, payload)
        when is_function(stage_sink, 1) do

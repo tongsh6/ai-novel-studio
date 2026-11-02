@@ -13,6 +13,7 @@ defmodule NovelApplication.CreativeArtifactTest do
   alias NovelAgent.Toolbox
   alias NovelApplication.ArtifactAssembler
   alias NovelApplication.CapabilityRegistry
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelApplication.TurnResultBuilder
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
@@ -67,7 +68,7 @@ defmodule NovelApplication.CreativeArtifactTest do
       ]
 
       for {tool, artifact_type} <- cases do
-        result = Toolbox.execute(request(tool), fixed_json_provider([single_item(tool)]))
+        result = Toolbox.execute(request(tool), native_artifact_provider([single_item(tool)]))
 
         assert result.status == :succeeded
         assert result.output.artifact_type == artifact_type
@@ -96,7 +97,7 @@ defmodule NovelApplication.CreativeArtifactTest do
         result =
           Toolbox.execute(
             request("world_building", input),
-            fixed_json_provider([single_item(to_string(artifact_type))])
+            native_artifact_provider([single_item(to_string(artifact_type))])
           )
 
         assert result.status == :succeeded
@@ -164,7 +165,10 @@ defmodule NovelApplication.CreativeArtifactTest do
 
     test "accepts world_setting as a tentative artifact type" do
       result =
-        Toolbox.execute(request("world_building"), fixed_json_provider([single_item("world")]))
+        Toolbox.execute(
+          request("world_building"),
+          native_artifact_provider([single_item("world")])
+        )
 
       assert {:ok, %TentativeArtifactSet{} = artifact_set} =
                ArtifactAssembler.assemble(result, "turn-world")
@@ -176,7 +180,10 @@ defmodule NovelApplication.CreativeArtifactTest do
 
     test "carries authoring_intent + target_chapter provenance when provided" do
       result =
-        Toolbox.execute(request("prose_writing"), fixed_json_provider([single_item("prose")]))
+        Toolbox.execute(
+          request("prose_writing"),
+          native_artifact_provider([single_item("prose")])
+        )
 
       assert {:ok, %TentativeArtifactSet{} = artifact_set} =
                ArtifactAssembler.assemble(result, "turn-prose", %{
@@ -190,7 +197,10 @@ defmodule NovelApplication.CreativeArtifactTest do
 
     test "carries target_chapter_ref provenance only for valid chapter:<uuid>" do
       result =
-        Toolbox.execute(request("prose_writing"), fixed_json_provider([single_item("prose")]))
+        Toolbox.execute(
+          request("prose_writing"),
+          native_artifact_provider([single_item("prose")])
+        )
 
       chapter_ref = "chapter:#{Ecto.UUID.generate()}"
 
@@ -215,7 +225,10 @@ defmodule NovelApplication.CreativeArtifactTest do
 
     test "defaults provenance to nil when not provided (backward compatible)" do
       result =
-        Toolbox.execute(request("prose_writing"), fixed_json_provider([single_item("prose")]))
+        Toolbox.execute(
+          request("prose_writing"),
+          native_artifact_provider([single_item("prose")])
+        )
 
       assert {:ok, %TentativeArtifactSet{} = artifact_set} =
                ArtifactAssembler.assemble(result, "turn-prose")
@@ -254,7 +267,10 @@ defmodule NovelApplication.CreativeArtifactTest do
   describe "TurnResult semantic projection" do
     test "creative artifact emits candidate_set card without actions and separate available_actions" do
       result =
-        Toolbox.execute(request("character_design"), fixed_json_provider([single_item("char")]))
+        Toolbox.execute(
+          request("character_design"),
+          native_artifact_provider([single_item("char")])
+        )
 
       {:ok, artifact_set} = ArtifactAssembler.assemble(result, "turn-card")
       frame = frame("turn-card")
@@ -378,9 +394,10 @@ defmodule NovelApplication.CreativeArtifactTest do
     }
   end
 
-  defp fixed_json_provider(items) do
-    json = Jason.encode!(items)
-    provider_execution(fn _prompt -> {:ok, %{content: json}} end)
+  defp native_artifact_provider(items) do
+    provider_execution(fn _prompt ->
+      {:ok, TestAgenticLoopFixtures.native_artifact_result(items)}
+    end)
   end
 
   defp frame(turn_id) do

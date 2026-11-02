@@ -82,7 +82,9 @@ defmodule NovelApplication.CP4ContextFixesTest do
     assert final_prompt =~ "覆盖事实：本章正文已读 1–34357/34357 字符，已覆盖全章"
     assert final_prompt =~ "只读探索预算已用尽"
     assert final_prompt =~ "不是系统没有探索能力"
-    refute final_prompt =~ "## 探索目录"
+    final_scope = final_prompt |> String.split("【应用数据 · scope_update") |> List.last()
+    refute final_scope =~ "## 探索目录"
+    assert final_scope =~ "只读探索当前允许：false"
   end
 
   # ── M17：纯只读计划在判断循环内联执行后收束 ─────────────────
@@ -318,8 +320,11 @@ defmodule NovelApplication.CP4ContextFixesTest do
     provider = %Execution{result_fn: fn _prompt -> flunk("空基线不得调用 provider") end}
     context = %DialogueContext{workspace_id: work.id, interaction_state: %{}}
 
-    assert {:error, {:pending_artifact_invalid, :candidate_content_unavailable}} =
+    assert {:error, {:pending_artifact_invalid, :candidate_content_unavailable}, failure_state} =
              PendingArtifactWorkflow.run(judgment, %{}, run, context, provider)
+
+    assert %{tool_call_count: 0, provider_call_count: 0} = failure_state
+    refute Map.has_key?(failure_state, :judgment_transcript)
   end
 
   # ── retest2 根因回归：fetch → ContextAssembler 链保留 chapter_facts ──
@@ -577,21 +582,11 @@ defmodule NovelApplication.CP4ContextFixesTest do
 
   defp prompt_to_text(prompt) when is_binary(prompt), do: prompt
 
-  defp prompt_to_text(%{messages: messages}) when is_list(messages) do
-    Enum.map_join(messages, "\n", fn
-      %{content: content} when is_binary(content) -> content
-      %{"content" => content} when is_binary(content) -> content
-      _ -> ""
-    end)
-  end
+  defp prompt_to_text(%{messages: _messages} = prompt),
+    do: NovelAgent.Provider.prompt_text(prompt)
 
-  defp prompt_to_text(%{"messages" => messages}) when is_list(messages) do
-    Enum.map_join(messages, "\n", fn
-      %{"content" => content} when is_binary(content) -> content
-      %{content: content} when is_binary(content) -> content
-      _ -> ""
-    end)
-  end
+  defp prompt_to_text(%{"messages" => _messages} = prompt),
+    do: NovelAgent.Provider.prompt_text(prompt)
 
   defp prompt_to_text(other), do: inspect(other)
 

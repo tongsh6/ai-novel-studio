@@ -9,6 +9,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelApplication.TurnExecutionService
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
@@ -83,17 +84,20 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
 
       {:ok,
        %{
-         content:
-           Jason.encode!([
-             %{"item_id" => "i1", "title" => "稿", "body" => "正文", "rationale" => nil}
-           ])
+         content: "",
+         tool_calls:
+           TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{
+             items: [
+               %{"item_id" => "i1", "title" => "稿", "body" => "正文", "rationale" => nil}
+             ]
+           })
        }}
     end
   end
 
   describe "hard missing → 不调 provider" do
     test "重写显式命名的不存在章：provider 未被调用 + 可解释回复 + 无 artifact" do
-      {turn_result, _trace} =
+      {turn_result, _trace, _transcript} =
         TurnExecutionService.execute(%{
           frame: frame(),
           plan: plan(:rewrite, "第99章", nil),
@@ -111,7 +115,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
     end
 
     test "续写显式命名的不存在章：同样短路" do
-      {turn_result, _trace} =
+      {turn_result, _trace, _transcript} =
         TurnExecutionService.execute(%{
           frame: frame(),
           plan: plan(:continuation, "番外", nil),
@@ -130,7 +134,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
       {:ok, agent} = Agent.start_link(fn -> [] end)
       reader = fn _w, "第一章" -> "第一章已有正文" end
 
-      {turn_result, _trace} =
+      {turn_result, _trace, _transcript} =
         TurnExecutionService.execute(%{
           frame: frame(),
           plan: plan(:rewrite, "第一章", "第一章"),
@@ -149,7 +153,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
       {:ok, agent} = Agent.start_link(fn -> [] end)
       reader = fn _w, "第二章" -> "第二章已有正文" end
 
-      {_turn_result, _trace} =
+      {_turn_result, _trace, _transcript} =
         TurnExecutionService.execute(%{
           frame: frame(),
           plan: plan(:continuation, nil, nil),
@@ -166,7 +170,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
     test "确认派发路径：原计划已匹配（matched 非空）→ 不阻断、正常执行" do
       {:ok, agent} = Agent.start_link(fn -> [] end)
 
-      {_turn_result, _trace} =
+      {_turn_result, _trace, _transcript} =
         TurnExecutionService.execute(%{
           frame: frame(),
           plan: plan(:rewrite, "第99章", "第99章"),
