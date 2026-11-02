@@ -516,3 +516,22 @@ test("authoringScope 拒绝非 workspace topic、缺失作者输入和错绑 tur
   assert.throws(() => authoringScope([currentJoin, currentReply, input], input, { workId: "", parentTurnId: PARENT }), /必须是非空字符串/);
   assert.throws(() => authoringScope([currentJoin, currentReply, input], input, { workId: WORK, parentTurnId: 7 }), /必须是非空字符串/);
 });
+
+test("重连后 join_ref 复用：按作者输入所在连接段选择最新 join（cp4b-pending-04 真实形状）", () => {
+  const reconnectJoin = joinRecord("3", SESSION, T5);
+  const reconnectReply = replyRecord("3", SESSION, "2026-11-01T08:00:02.100Z");
+  const followup = messageRecord("3", "4", "2026-11-01T08:00:03.000Z");
+  const wire = [oldJoin, oldReply, currentJoin, currentReply, input, reconnectJoin, reconnectReply, followup];
+
+  // 旧消息仍绑定旧连接段（后续新 join 不改写既有作者输入的 join 归属）。
+  assert.deepEqual(scopeFor(wire, input), {
+    workspace_id: WORKSPACE,
+    work_id: WORK,
+    session_id: SESSION,
+    parent_turn_ref: PARENT,
+  });
+  // 重连后的作者消息绑定最新连接段的 join + 其自己的 join 回复。
+  assert.equal(scopeFor(wire, followup).session_id, SESSION);
+  // 重连 join 缺对应回复时失败关闭（不能借用旧连接的 join 回复）。
+  assert.throws(() => scopeFor([oldJoin, oldReply, currentJoin, currentReply, input, reconnectJoin, followup], followup), /join 回复/);
+});

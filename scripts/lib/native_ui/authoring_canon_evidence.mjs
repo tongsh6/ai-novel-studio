@@ -198,17 +198,32 @@ function normalizedRows(value, table) {
   return [...byId.keys()].sort().map((id) => byId.get(id));
 }
 
-function rowHashes(rows, excludeOps) {
-  const rowsHash = sha256(canonicalJson(rows));
-  if (!excludeOps) return { rows_sha256: rowsHash, canon_sha256: rowsHash };
-  const canonRows = rows.map((row) => {
+// 每个 canon 表在 canon_sha256 中排除的“运行账面列”（rows_sha256 仍保留全行原字节）：
+// - memory_items：引用计数/最近引用时间由读取投影维护，不是作者创作事实；
+// - works.updated_at：WorkspaceChannel.join 的「最近打开」时钟（WorkService.mark_opened
+//   → WorkRepo.touch），真实 restore/重连必然推进；它不是作品事实，作品内容/状态列仍
+//   全部纳入。
+const BOOKKEEPING_COLUMNS = Object.freeze({
+  memory_items: Object.freeze(["reference_count", "last_referenced_at"]),
+  works: Object.freeze(["updated_at"]),
+});
+
+function canonRows(rows, table) {
+  const columns = BOOKKEEPING_COLUMNS[table];
+  if (!columns) return rows;
+  return rows.map((row) => {
     const projected = { ...row };
-    for (const column of OPS_COLUMNS) delete projected[column];
+    for (const column of columns) delete projected[column];
     return projected;
   });
+}
+
+function rowHashes(rows, table) {
+  const rowsHash = sha256(canonicalJson(rows));
+  if (!BOOKKEEPING_COLUMNS[table]) return { rows_sha256: rowsHash, canon_sha256: rowsHash };
   return {
     rows_sha256: rowsHash,
-    canon_sha256: sha256(canonicalJson(canonRows)),
+    canon_sha256: sha256(canonicalJson(canonRows(rows, table))),
   };
 }
 
@@ -501,7 +516,7 @@ export function buildAuthoringCanonSnapshot({ tables, referenceLogs, at } = {}) 
     const rows = normalizedRows(source[table], table);
     if (table === "memory_items") memoryRows = rows;
     if (table === "chapters") chapterRows = rows;
-    const hashes = rowHashes(rows, table === "memory_items");
+    const hashes = rowHashes(rows, table);
     snapshotTables[table] = {
       row_count: rows.length,
       rows_sha256: hashes.rows_sha256,
@@ -527,8 +542,8 @@ function parseSnapshotTables(value) {
     const rowCount = requireCount(record.row_count, `${path}.row_count`);
     const rowsHash = requireHash(record.rows_sha256, `${path}.rows_sha256`);
     const canonHash = requireHash(record.canon_sha256, `${path}.canon_sha256`);
-    if (table !== "memory_items" && rowsHash !== canonHash) {
-      invalid(`${path}.canon_sha256`, "equal to rows_sha256 for non-memory canon tables");
+    if (!BOOKKEEPING_COLUMNS[table] && rowsHash !== canonHash) {
+      invalid(`${path}.canon_sha256`, "equal to rows_sha256 for non-bookkeeping canon tables");
     }
     parsed[table] = { row_count: rowCount, rows_sha256: rowsHash, canon_sha256: canonHash };
   }

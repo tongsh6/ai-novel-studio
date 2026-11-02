@@ -53,8 +53,13 @@ function exactScope(scope) {
 }
 
 // 本批真实 WS 事实：作者输入帧给出 work/session 与自己的 join_ref，join 回复
-// 按同一 join_ref/request ref 确认同一身份，topic 后缀给出 workspace。缺失、
-// 多义或身份错绑直接失败；不遍历同 topic 历史 join，也不按 DB “最新”行猜取。
+// 按同一 join_ref/request ref 确认同一身份，topic 后缀给出 workspace。
+//
+// Phoenix 的 join_ref 只在单条 socket 连接内唯一：应用重启/重连后新 socket 会复用
+// 相同 join_ref（真实批次 cp4b-pending-04 restore 后 join=5 出现两次）。因此“当前
+// join 生命周期”必须按时间落到作者输入所在的连接段：取发送时刻不晚于作者输入的
+// 最新 join；同一时刻多个 join 仍判多义拒绝猜取。join 回复再被限制在该 join 之后、
+// 作者输入之前，旧连接回复不会确认新连接。
 function authoringMessage(messageRecord, { workId, parentTurnId }) {
   assert(isFrame(messageRecord), "authoring_scope: 作者输入缺真实 WS 帧");
   const frame = frameOf(messageRecord);
@@ -87,8 +92,10 @@ function selectJoin(wire, { topic, joinRef, at }) {
     (record) => isJoinLifecycleFrame(record, topic, joinRef) && record.at <= at,
   );
   assert(joins.length > 0, "authoring_scope: 缺本批 join 帧，不能从 DB 行反填 session");
-  assert.equal(joins.length, 1, "authoring_scope: 当前 join_ref 生命周期多义，拒绝猜取");
-  return joins[0];
+  const newestAt = joins.reduce((max, record) => (record.at > max ? record.at : max), "");
+  const newest = joins.filter((record) => record.at === newestAt);
+  assert.equal(newest.length, 1, "authoring_scope: 当前 join_ref 生命周期多义，拒绝猜取");
+  return newest[0];
 }
 
 // join 回复必须同时绑定 join_ref（frame[0]）与 join 自己的 request ref

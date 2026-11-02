@@ -516,3 +516,42 @@ test("checkProductionFingerprint 比对批次前后产品源码指纹", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("重连后 join_ref/request_ref 复用：新连接 ACK 不得算给旧请求（真实 cp4b-pending-04 形状）", () => {
+  // 真实批次 restore 后，新 socket 的 join/ref 从同一起点重新计数：followup 与 source
+  // 都是 join_ref=5/request_ref=9。回复必须绑定请求所在 socket 连接段。
+  const firstJoin = frame("join-1", "request-1", TOPIC, "phx_join", { session: "s" }, "sent", T0);
+  const firstMessage = sent(T0);
+  const firstAck = okReply("run-old");
+  const secondJoin = frame("join-1", "request-1", TOPIC, "phx_join", { session: "s" }, "sent", T2);
+  const secondMessage = frame(
+    "join-1",
+    "request-1",
+    TOPIC,
+    "user_message",
+    { turn_id: "turn-2", text: "资料处理进度怎么样？" },
+    "sent",
+    T3,
+  );
+  const secondAck = frame(
+    "join-1",
+    "request-1",
+    TOPIC,
+    "phx_reply",
+    { status: "ok", response: { turn_id: "turn-2", run_id: "run-new" } },
+    "received",
+    "2026-11-02T02:00:00.400Z",
+  );
+  const wire = [firstJoin, firstMessage, firstAck, secondJoin, secondMessage, secondAck];
+
+  const identity = requestIdentity(firstMessage);
+  assert.deepEqual(requestReplies(wire, identity, firstMessage.at), [firstAck]);
+
+  // 旧连接内本请求的 ACK 缺失时失败关闭（不能借用新连接同 ref 的 ACK）。
+  assert.deepEqual(requestReplies([firstJoin, firstMessage, secondJoin, secondMessage, secondAck], identity, firstMessage.at), []);
+
+  // turnFacts 走同一共享边界：旧请求只认旧连接的 ACK。
+  const results = result({ agent_run: { run_id: "run-old" } }, { at: "2026-11-02T02:00:00.150Z" });
+  const facts = turnFacts([firstJoin, firstMessage, firstAck, results, secondJoin, secondMessage, secondAck], firstMessage);
+  assert.equal(facts.ack, firstAck);
+});

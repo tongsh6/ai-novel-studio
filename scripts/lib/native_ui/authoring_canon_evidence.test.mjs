@@ -1267,3 +1267,24 @@ test("revision 段：章设计态键集合与表行数不一致时失败关闭",
     false,
   );
 });
+
+test("works 的 canon hash 只排除最近打开时钟 updated_at，其它作品事实列仍纳入", () => {
+  const start = snapshot();
+  const opened = baseTables();
+  opened.works[0].updated_at = "2026-11-01T09:00:00.000000Z";
+  const reopened = snapshot({ tables: opened, at: FINAL });
+  // 真实 restore/channel join 的 WorkRepo.touch 只推进 updated_at：不算 canon 写入。
+  assert.equal(start.tables.works.canon_sha256, reopened.tables.works.canon_sha256);
+  assert.notEqual(start.tables.works.rows_sha256, reopened.tables.works.rows_sha256);
+  for (const [column, value] of [
+    ["title", "被改写的标题"],
+    ["status", "ACCEPTED"],
+    ["revision", 2],
+    ["main_goal", "新目标"],
+    ["future_column", "changed-unknown-column"],
+  ]) {
+    const tables = baseTables();
+    tables.works[0][column] = value;
+    assert.notEqual(start.tables.works.canon_sha256, snapshot({ tables }).tables.works.canon_sha256, column);
+  }
+});

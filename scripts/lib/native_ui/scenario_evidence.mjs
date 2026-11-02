@@ -248,9 +248,28 @@ export function broadcastFrames(
   });
 }
 
-function requestReplyMatches(record, identity, at) {
+// Phoenix 的 join_ref/request_ref 只在单条 socket 连接内唯一：重连/应用重启后，新连接的
+// ref 会从同一起点重新计数（真实批次 cp4b-pending-04 restore 后，followup 与 source 都是
+// join_ref=5/request_ref=9）。因此回复必须绑定到请求所在的 socket 连接段——下一条
+// sent phx_join 之后属于新连接，不能再当作此前请求的 ACK；否则会把新连接的 ACK 误算给
+// 旧请求（表现为“同请求 ACK 实测 2”）。
+function nextJoinAfter(wire, at) {
+  const joins = wire.filter(
+    (record) =>
+      record?.direction === "sent" &&
+      isFrame(record) &&
+      frameEvent(record) === "phx_join" &&
+      typeof record.at === "string" &&
+      record.at > at,
+  );
+  if (joins.length === 0) return null;
+  return joins.map((record) => record.at).sort()[0];
+}
+
+function requestReplyMatches(record, identity, at, nextJoinAt) {
   if (record?.direction !== "received" || !isFrame(record)) return false;
   if (typeof record.at !== "string" || record.at < at) return false;
+  if (nextJoinAt !== null && record.at >= nextJoinAt) return false;
   const frame = frameOf(record);
   return (
     frame[0] === identity.joinRef &&
@@ -260,10 +279,11 @@ function requestReplyMatches(record, identity, at) {
   );
 }
 
-// 请求回复的唯一共享读取边界：只按请求自己的 join/request/topic 与发送时刻之后的
-// 接收方向 phx_reply 匹配。缺 ACK/多义 ACK 的失败关闭由领域消费者决定。
+// 请求回复的唯一共享读取边界：按请求自己的 join/request/topic、发送时刻之后、且仍属于
+// 同一 socket 连接段的接收方向 phx_reply 匹配。缺 ACK/多义 ACK 的失败关闭由领域消费者决定。
 export function requestReplies(wire, identity, since) {
-  return wire.filter((record) => requestReplyMatches(record, identity, since));
+  const nextJoinAt = nextJoinAfter(wire, since);
+  return wire.filter((record) => requestReplyMatches(record, identity, since, nextJoinAt));
 }
 
 function successfulAck(reply, turnId) {

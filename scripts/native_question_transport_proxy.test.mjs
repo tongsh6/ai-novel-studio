@@ -4,6 +4,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
 import { createRequire } from "node:module";
 import {
   CHANNEL_FAULT_EVENTS,
@@ -288,7 +289,9 @@ test("真实 HTTP 代理：chunked resume/replay 保留字节并记录完整 JSO
   assert.equal(replayLog.body.turn_id, turnId);
 });
 
-test("真实 HTTP 代理：非法 JSON、不支持压缩与超限体如实标缺证据且不冒充完整", async (t) => {
+test("真实 HTTP 代理：gzip/br 压缩响应解压后判定完整，非法 JSON/坏压缩/未知编码/超限失败关闭", async (t) => {
+  // 真实 Phoenix 依客户端 accept-encoding 返回 gzip（cp4b-pending-04 的 resume/replay 均如此）；
+  // 代理对外原样透传压缩字节，只对证据副本解压判定，不能被标成“不支持编码”而丢掉真实证据。
   const fixture = await httpProxyFixture(t, (request, response) => {
     if (request.url.includes("/turns/bad-json/")) {
       response.writeHead(200, { "content-type": "application/json" });
@@ -297,7 +300,22 @@ test("真实 HTTP 代理：非法 JSON、不支持压缩与超限体如实标缺
     }
     if (request.url.includes("/turns/gzip/")) {
       response.writeHead(200, { "content-type": "application/json", "content-encoding": "gzip" });
-      response.end("{\"gzip\":true}");
+      response.end(zlib.gzipSync(Buffer.from(JSON.stringify({ gzip: true }))));
+      return;
+    }
+    if (request.url.includes("/turns/br/")) {
+      response.writeHead(200, { "content-type": "application/json", "content-encoding": "br" });
+      response.end(zlib.brotliCompressSync(Buffer.from(JSON.stringify({ br: true }))));
+      return;
+    }
+    if (request.url.includes("/turns/bad-gzip/")) {
+      response.writeHead(200, { "content-type": "application/json", "content-encoding": "gzip" });
+      response.end("not-gzip-bytes");
+      return;
+    }
+    if (request.url.includes("/turns/zstd/")) {
+      response.writeHead(200, { "content-type": "application/json", "content-encoding": "zstd" });
+      response.end("{}");
       return;
     }
     response.writeHead(200, { "content-type": "application/json" });
@@ -306,16 +324,27 @@ test("真实 HTTP 代理：非法 JSON、不支持压缩与超限体如实标缺
   const paths = [
     "/api/works/w/sessions/s/turns/bad-json/replay",
     "/api/works/w/sessions/s/turns/gzip/replay",
+    "/api/works/w/sessions/s/turns/br/replay",
+    "/api/works/w/sessions/s/turns/bad-gzip/replay",
+    "/api/works/w/sessions/s/turns/zstd/replay",
     "/api/works/w/sessions/s/turns/large/replay",
   ];
   for (const requestPath of paths) await httpGet(fixture.proxyPort, requestPath);
   const logs = paths.map((requestPath) => readHttpLog(fixture.logPath, requestPath));
   assert.equal(logs[0].body_state.json, "invalid");
   assert.equal(logs[0].body, null);
-  assert.equal(logs[1].body_state.json, "unsupported_encoding");
-  assert.equal(logs[1].body, null);
-  assert.equal(logs[2].body_state.complete, false);
-  assert.equal(logs[2].body_state.json, "too_large");
-  assert.equal(logs[2].body_state.truncated, true);
-  assert.equal(logs[2].body, null);
+  assert.equal(logs[1].body_state.complete, true);
+  assert.equal(logs[1].body_state.json, "valid");
+  assert.deepEqual(logs[1].body, { gzip: true });
+  assert.equal(logs[1].body_state.content_encoding, "gzip");
+  assert.equal(logs[2].body_state.json, "valid");
+  assert.deepEqual(logs[2].body, { br: true });
+  assert.equal(logs[3].body_state.json, "invalid");
+  assert.equal(logs[3].body, null);
+  assert.equal(logs[4].body_state.json, "unsupported_encoding");
+  assert.equal(logs[4].body, null);
+  assert.equal(logs[5].body_state.complete, false);
+  assert.equal(logs[5].body_state.json, "too_large");
+  assert.equal(logs[5].body_state.truncated, true);
+  assert.equal(logs[5].body, null);
 });

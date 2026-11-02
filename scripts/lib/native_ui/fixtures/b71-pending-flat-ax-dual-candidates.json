@@ -1,0 +1,1813 @@
+{
+ "schema": "native-ax-fixture/v1",
+ "source": "cp4b-pending-02-source-first 真实批次失败前 AX dump（原 /tmp 探针重现，nonce 脱敏）",
+ "captured_from": "real Tauri/WKWebView AXWebArea；Why/候选 article/动作按钮是同级兄弟",
+ "nonce": "0123456789abcdef",
+ "items": {
+  "source": {
+   "itemTitle": "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺",
+   "itemBody": "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识0123456789abcdef。",
+   "artifact_id": "as_fixture_source_0001",
+   "revision_of": null
+  },
+  "revision": {
+   "itemTitle": "旧书铺修订稿",
+   "itemBody": "把这份大纲直接存档为作品设定：主角林渡经营旧书铺。校验标识0123456789abcdef。",
+   "artifact_id": "as_fixture_revision_0001",
+   "revision_of": "as_fixture_source_0001"
+  }
+ },
+ "nodes": [
+  {
+   "path": "0",
+   "depth": 0,
+   "role": "AXWindow",
+   "title": "AI Novel Studio",
+   "desc": "",
+   "value": "",
+   "subrole": "AXStandardWindow",
+   "actions": [
+    "AXRaise"
+   ],
+   "enabled": null,
+   "focused": false,
+   "frame": [
+    224,
+    97,
+    1280,
+    801
+   ]
+  },
+  {
+   "path": "0/0",
+   "depth": 1,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    224,
+    97,
+    1280,
+    801
+   ]
+  },
+  {
+   "path": "0/0/0",
+   "depth": 2,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [],
+   "enabled": null,
+   "focused": false,
+   "frame": [
+    224,
+    97,
+    1280,
+    801
+   ]
+  },
+  {
+   "path": "0/0/0/0",
+   "depth": 3,
+   "role": "AXScrollArea",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    224,
+    129,
+    1280,
+    769
+   ]
+  },
+  {
+   "path": "0/0/0/0/0",
+   "depth": 4,
+   "role": "AXWebArea",
+   "title": "",
+   "desc": "AI Novel Studio",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": true,
+   "frame": [
+    224,
+    129,
+    1280,
+    769
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/0",
+   "depth": 5,
+   "role": "AXPopUpButton",
+   "title": "B71 pending author boundary 1",
+   "desc": "作品",
+   "value": "",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    248,
+    142,
+    320,
+    37
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/1",
+   "depth": 5,
+   "role": "AXPopUpButton",
+   "title": "AI",
+   "desc": "AI 名称",
+   "value": "",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    576,
+    142,
+    150,
+    37
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/2",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "subrole": "AXDetails",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    734,
+    142,
+    66,
+    37
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/2/0",
+   "depth": 6,
+   "role": "AXDisclosureTriangle",
+   "title": "会话",
+   "desc": "",
+   "value": "0",
+   "subrole": "AXSummary",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    734,
+    142,
+    66,
+    37
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/2/0/0",
+   "depth": 7,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "会话",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    765,
+    152,
+    24,
+    16
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/3",
+   "depth": 5,
+   "role": "AXButton",
+   "title": "阅读",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    807,
+    144,
+    63,
+    33
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/4",
+   "depth": 5,
+   "role": "AXButton",
+   "title": "记忆",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    877,
+    144,
+    63,
+    33
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/5",
+   "depth": 5,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "/",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    947,
+    152,
+    10,
+    17
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/6",
+   "depth": 5,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "全书",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    964,
+    152,
+    26,
+    16
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/7",
+   "depth": 5,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "无任务",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    1243,
+    152,
+    36,
+    16
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/8",
+   "depth": 5,
+   "role": "AXPopUpButton",
+   "title": "模型已连接",
+   "desc": "Stub · 当前模型：slice_verify",
+   "value": "",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    1286,
+    146,
+    98,
+    29
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/9",
+   "depth": 5,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "同步已连接",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    1412,
+    152,
+    60,
+    16
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/10",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    424,
+    -797,
+    12,
+    18
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/10/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "AI",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    424,
+    -796,
+    13,
+    15
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/11",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    424,
+    -771,
+    687,
+    264
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/11/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "欢迎使用 AI Novel Studio！\n\n本产品需要连接大语言模型（LLM）才能工作。\n请确保 LM Studio 已启动并加载模型（默认端口 1234）。\n\n你可以这样开始：\n• 「我想创建一部玄幻小说」\n• 「写一本都市小说，核心卖点是商战复仇」\n• 「帮我创作一部科幻小说，目标读者是大学生」\n\n输入你的想法，我们开始创作吧！",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    439,
+    -758,
+    359,
+    237
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/12",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    1292,
+    -487,
+    13,
+    18
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/12/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "你",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    1292,
+    -486,
+    12,
+    15
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/13",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    732,
+    -461,
+    572,
+    42
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/13/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识0123456789abcdef。",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    746,
+    -449,
+    544,
+    17
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/14",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    424,
+    -399,
+    12,
+    18
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/14/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "AI",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    424,
+    -398,
+    13,
+    15
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/15",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    424,
+    -373,
+    687,
+    66
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/15/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "你要把这份内容直接写入作品档案；我现在没有直接写入档案的能力，做不到这一步。最近的路径是：我先把内容整理成待采纳的设定候选，你在候选卡上采纳后它才会进入档案。",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    439,
+    -360,
+    653,
+    39
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/16",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "当前创作请求的工作过程",
+   "desc": "当前创作请求的工作过程",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    424,
+    -289,
+    235,
+    24
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/16/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "已完成",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    433,
+    -285,
+    36,
+    15
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/16/1",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "创作执行",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    487,
+    -286,
+    53,
+    17
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/16/2",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "第 2/2 步 · 约 46 字",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    549,
+    -285,
+    110,
+    16
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/17",
+   "depth": 5,
+   "role": "AXButton",
+   "title": "为什么",
+   "desc": "查看这轮回应的依据",
+   "value": "",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    424,
+    -255,
+    74,
+    30
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/18",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    443,
+    -192,
+    84,
+    21
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/18/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "世界设定草稿",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    443,
+    -190,
+    84,
+    17
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/19",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    443,
+    -159,
+    564,
+    44
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/19/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "这是待保存设定草稿。确认保存后会进入作品档案；未保存前不会写入作品事实。预览：把这份大纲直接存档为作品设定：主角沈砚经营旧书铺",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    443,
+    -157,
+    556,
+    39
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/20",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "subrole": "AXDocumentArticle",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    443,
+    -103,
+    564,
+    101
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/20/0",
+   "depth": 6,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    456,
+    -90,
+    538,
+    21
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/20/0/0",
+   "depth": 7,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    456,
+    -88,
+    334,
+    17
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/20/1",
+   "depth": 6,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    456,
+    -61,
+    538,
+    46
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/20/1/0",
+   "depth": 7,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识0123456789abcdef。",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    456,
+    -58,
+    403,
+    40
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/21",
+   "depth": 5,
+   "role": "AXButton",
+   "title": "保存到作品档案",
+   "desc": "保存后会进入作品档案，不会直接写章节正文。",
+   "value": "",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    443,
+    35,
+    130,
+    39
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/22",
+   "depth": 5,
+   "role": "AXButton",
+   "title": "不保存",
+   "desc": "不保存这份草稿，不会写入作品。",
+   "value": "",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    582,
+    35,
+    74,
+    39
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/23",
+   "depth": 5,
+   "role": "AXButton",
+   "title": "修改后保存",
+   "desc": "先修改内容，再保存到作品。",
+   "value": "",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    665,
+    35,
+    105,
+    39
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/24",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    1292,
+    111,
+    13,
+    18
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/24/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "你",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    1292,
+    112,
+    12,
+    15
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/25",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    692,
+    137,
+    613,
+    42
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/25/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    706,
+    149,
+    584,
+    17
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/26",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    424,
+    199,
+    12,
+    18
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/26/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "AI",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    424,
+    200,
+    13,
+    15
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/27",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "生成草稿：请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    424,
+    225,
+    66,
+    24
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/27/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "生成草稿",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    433,
+    229,
+    48,
+    16
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/28",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    424,
+    257,
+    687,
+    44
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/28/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "我会按要求生成独立修订候选，保留原稿，不自动入档。",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    439,
+    270,
+    348,
+    17
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/29",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "当前创作请求的工作过程",
+   "desc": "当前创作请求的工作过程",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    424,
+    319,
+    330,
+    24
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/29/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "已完成",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    433,
+    323,
+    36,
+    15
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/29/1",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "创作执行",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    487,
+    322,
+    53,
+    17
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/29/2",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "第 3/3 步 · 1 份草稿待采纳 · 约 46 字",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    549,
+    323,
+    205,
+    16
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/30",
+   "depth": 5,
+   "role": "AXButton",
+   "title": "为什么",
+   "desc": "查看这轮回应的依据",
+   "value": "",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    424,
+    353,
+    74,
+    30
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/31",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    443,
+    416,
+    153,
+    21
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/31/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "修订草稿：世界设定草稿",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    443,
+    418,
+    153,
+    17
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/32",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    443,
+    449,
+    564,
+    44
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/32/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "这是待保存设定草稿。确认保存后会进入作品档案；未保存前不会写入作品事实。预览：旧书铺修订稿",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    443,
+    451,
+    556,
+    39
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/33",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "subrole": "AXDocumentArticle",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    443,
+    505,
+    564,
+    127
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/33/0",
+   "depth": 6,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    456,
+    518,
+    538,
+    21
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/33/0/0",
+   "depth": 7,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "旧书铺修订稿",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    456,
+    520,
+    84,
+    17
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/33/1",
+   "depth": 6,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    456,
+    547,
+    538,
+    46
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/33/1/0",
+   "depth": 7,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "把这份大纲直接存档为作品设定：主角林渡经营旧书铺。校验标识0123456789abcdef。",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    456,
+    550,
+    403,
+    40
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/33/2",
+   "depth": 6,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    456,
+    601,
+    538,
+    18
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/33/2/0",
+   "depth": 7,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "创作依据：",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    456,
+    602,
+    60,
+    15
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/33/2/1",
+   "depth": 7,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "按作者要求修改名字，原稿保留。",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    515,
+    602,
+    180,
+    15
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/34",
+   "depth": 5,
+   "role": "AXButton",
+   "title": "保存到作品档案",
+   "desc": "保存后会进入作品档案，不会直接写章节正文。",
+   "value": "",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    443,
+    669,
+    130,
+    39
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/35",
+   "depth": 5,
+   "role": "AXButton",
+   "title": "不保存",
+   "desc": "不保存这份草稿，不会写入作品。",
+   "value": "",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    582,
+    669,
+    74,
+    39
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/36",
+   "depth": 5,
+   "role": "AXButton",
+   "title": "修改后保存",
+   "desc": "先修改内容，再保存到作品。",
+   "value": "",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    665,
+    669,
+    105,
+    39
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/37",
+   "depth": 5,
+   "role": "AXTextField",
+   "title": "",
+   "desc": "输入你的想法、问题或指令...",
+   "value": "",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    424,
+    842,
+    661,
+    40
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/37/0",
+   "depth": 6,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "subrole": "AXEmptyGroup",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    441,
+    853,
+    627,
+    18
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/38",
+   "depth": 5,
+   "role": "AXCheckBox",
+   "title": "本次只做一步",
+   "desc": "",
+   "value": "0",
+   "subrole": "AXToggle",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    1100,
+    842,
+    119,
+    40
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/39",
+   "depth": 5,
+   "role": "AXButton",
+   "title": "发送",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": false,
+   "focused": false,
+   "frame": [
+    1234,
+    842,
+    71,
+    40
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/40",
+   "depth": 5,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    1388,
+    209,
+    104,
+    16
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/40/0",
+   "depth": 6,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "作品档案",
+   "actions": [
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    1415,
+    210,
+    50,
+    13
+   ]
+  },
+  {
+   "path": "0/0/0/0/0/41",
+   "depth": 5,
+   "role": "AXButton",
+   "title": "打开档案",
+   "desc": "打开档案",
+   "value": "",
+   "actions": [
+    "AXPress",
+    "AXShowMenu",
+    "AXScrollToVisible"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    1388,
+    241,
+    104,
+    94
+   ]
+  },
+  {
+   "path": "0/1",
+   "depth": 1,
+   "role": "AXButton",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "subrole": "AXCloseButton",
+   "actions": [
+    "AXPress"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    232,
+    105,
+    16,
+    16
+   ]
+  },
+  {
+   "path": "0/2",
+   "depth": 1,
+   "role": "AXButton",
+   "title": "",
+   "desc": "this button also has an action to zoom the window",
+   "value": "",
+   "subrole": "AXFullScreenButton",
+   "actions": [
+    "AXPress",
+    "AXZoomWindow",
+    "AXShowMenu"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    278,
+    105,
+    16,
+    16
+   ]
+  },
+  {
+   "path": "0/2/0",
+   "depth": 2,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [],
+   "enabled": null,
+   "focused": false,
+   "frame": [
+    279,
+    106,
+    14,
+    14
+   ]
+  },
+  {
+   "path": "0/2/0/0",
+   "depth": 3,
+   "role": "AXGroup",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "actions": [],
+   "enabled": null,
+   "focused": false,
+   "frame": [
+    279,
+    106,
+    14,
+    14
+   ]
+  },
+  {
+   "path": "0/3",
+   "depth": 1,
+   "role": "AXButton",
+   "title": "",
+   "desc": "",
+   "value": "",
+   "subrole": "AXMinimizeButton",
+   "actions": [
+    "AXPress"
+   ],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    255,
+    105,
+    16,
+    16
+   ]
+  },
+  {
+   "path": "0/4",
+   "depth": 1,
+   "role": "AXStaticText",
+   "title": "",
+   "desc": "",
+   "value": "AI Novel Studio",
+   "actions": [],
+   "enabled": true,
+   "focused": false,
+   "frame": [
+    306,
+    105,
+    103,
+    16
+   ]
+  }
+ ]
+}

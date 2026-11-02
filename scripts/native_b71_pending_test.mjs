@@ -541,7 +541,7 @@ function writeEvidenceFiles(dir) {
     ready_at: readyAt,
     app_path: "/tmp/B71 Pending.app",
   });
-  for (const name of ["01-workbench", "02-source", "03-revision", "04-why", "05-accept", "06-discard", "07-restored", "08-final"]) {
+  for (const name of ["01-workbench", "after-source", "after-revision", "why", "after-accept", "after-discard", "after-restore", "final"]) {
     jpeg(path.join(dir, `${name}.jpg`));
   }
   writeJson(path.join(dir, "native-ui-complete.json"), {
@@ -549,7 +549,7 @@ function writeEvidenceFiles(dir) {
     driver: NATIVE_DRIVER,
     app_bundle: APP_BUNDLE,
     scope: SLICE_ID,
-    screenshots: ["01-workbench.jpg", "02-source.jpg", "03-revision.jpg", "04-why.jpg", "05-accept.jpg", "06-discard.jpg", "07-restored.jpg", "08-final.jpg"],
+    screenshots: ["01-workbench.jpg", "after-source.jpg", "after-revision.jpg", "why.jpg", "after-accept.jpg", "after-discard.jpg", "after-restore.jpg", "final.jpg"],
   });
   const commands = [];
   const events = [];
@@ -596,10 +596,10 @@ function writeAx(dir) {
     FOLLOWUP_TEXT,
     followupReply(),
   ].join("\n");
-  for (const name of ["after-source", "after-revision", "after-accept", "after-discard", "after-restore", "08-final"]) {
+  for (const name of ["after-source", "after-revision", "after-accept", "after-discard", "after-restore", "final"]) {
     fs.writeFileSync(path.join(dir, `${name}.text.txt`), base);
   }
-  fs.writeFileSync(path.join(dir, "04-why.text.txt"), `${base}\n${REPLAY_NOTE}`);
+  fs.writeFileSync(path.join(dir, "why.text.txt"), `${base}\n${REPLAY_NOTE}`);
 }
 
 function resumeHttpBody() {

@@ -322,7 +322,7 @@ async function restorePhase(harness, config, { knownItems, sourceItem, revisionI
       discard: labelsFor(revisionArtifact).discard,
     },
   ]);
-  harness.capture("07-restored");
+  harness.capture("after-restore");
   return { resolved_non_actionable: true, revision_body_visible: true };
 }
 
@@ -342,7 +342,7 @@ async function followupPhase(harness, config, followupText) {
   const replyText = String(frameBody(followupResult)?.assistant_message?.text ?? "");
   if (!replyText) throw new Error("followup assistant reply missing");
   await awaitVisible(harness, [replyText], "followup_reply");
-  harness.capture("08-final");
+  harness.capture("final");
   return { followup, followupResult, replyText };
 }
 
@@ -368,7 +368,7 @@ export async function drivePending(harness, config, { capture }) {
   const sourceItem = itemOf(sourceArtifact, "source");
   const sourceKnown = [{ itemTitle: sourceItem.title, itemBody: sourceItem.body }];
   await awaitVisible(harness, [sourceItem.title, sourceItem.body], "source_candidate");
-  harness.capture("02-source");
+  harness.capture("after-source");
   capture("after-source");
 
   const revision = await sendMessage(harness, revisionText, "revision", config);
@@ -392,11 +392,11 @@ export async function drivePending(harness, config, { capture }) {
     [sourceItem.title, sourceItem.body, revisionItem.title, revisionItem.body],
     "both_candidates",
   );
-  harness.capture("03-revision");
+  harness.capture("after-revision");
   capture("after-revision");
   capture("before-why");
   const why = await openRevisionWhy(harness, revisionItem.title, revisionItem.body, knownItems);
-  harness.capture("04-why");
+  harness.capture("why");
   capture("after-why");
   await closeWhy(harness);
 
@@ -431,7 +431,7 @@ export async function drivePending(harness, config, { capture }) {
     [sourceItem.title, sourceItem.body, revisionItem.body, labelsFor(sourceArtifact).discard],
     "original_still_pending",
   );
-  harness.capture("05-accept");
+  harness.capture("after-accept");
   capture("after-accept");
 
   const discardAction = selectPendingAction(sourceBody, {
@@ -470,7 +470,7 @@ export async function drivePending(harness, config, { capture }) {
     "discard_turn_result",
   );
   await awaitVisible(harness, [revisionItem.body], "accepted_content_after_discard");
-  harness.capture("06-discard");
+  harness.capture("after-discard");
   capture("after-discard");
 
   const restoreFacts = await restorePhase(harness, config, {

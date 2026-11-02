@@ -308,3 +308,83 @@ test("rawLaunchApp folds startup observation errors into facts without blocking 
   assert.match(recorded.startup_after.error, /startup_unavailable/);
 });
 
+// 失败留痕完整性：启动观测与原始 AX 不能只活在被 log_tail 截断的数组里
+// （cp4b-pending-02 真实批次因此丢了首次 activate 前的 startup 事实）。
+test("启动观测独立落盘，不依赖失败时的 log_tail", async () => {
+  const before = {
+    ok: true,
+    is_finished_launching: false,
+    activation_policy: "regular",
+    is_hidden: false,
+    is_active: false,
+    ax_window_count: 0,
+    has_ax_window: false,
+    has_ax_web_area: false,
+  };
+  const after = { ...before, is_finished_launching: true, ax_window_count: 1, has_ax_window: true, has_ax_web_area: true };
+  const calls = [];
+  const { dir, harness } = makeHarness({ dump: () => [], screenshot: () => ({ ok: true }) });
+  stubLaunchSeams(harness, {
+    calls,
+    startups: [before, after],
+    activate: () => ({ ok: true, requested: true, returned: true, confirmed: true, waited_ms: 431 }),
+  });
+
+  await harness.rawLaunchApp();
+
+  const observations = JSON.parse(fs.readFileSync(path.join(dir, "startup-observations.json"), "utf8"));
+  assert.equal(observations.length, 2);
+  assert.deepEqual(
+    observations.map((entry) => entry.reason),
+    ["launch:before_activation", "launch:after_activation"],
+  );
+  assert.equal(observations[0].is_finished_launching, false);
+  assert.equal(observations[0].ax_window_count, 0);
+  assert.equal(observations[1].is_finished_launching, true);
+  assert.equal(observations[1].has_ax_web_area, true);
+});
+
+test("失败新增完整 driver log 与原始 AX，且不改写原 failure reason", async () => {
+  const rawNodes = [
+    { path: "0", role: "AXWindow", title: "window", frame: [0, 0, 1280, 800] },
+    { path: "0/0", role: "AXButton", title: "为什么", frame: [10, 10, 80, 30] },
+  ];
+  let dumps = 0;
+  const { dir, harness } = makeHarness({
+    dump: () => {
+      dumps += 1;
+      return rawNodes;
+    },
+    screenshot: () => ({ ok: true }),
+    startup: () => ({ ok: true, is_finished_launching: true, ax_window_count: 1, has_ax_window: true, has_ax_web_area: true }),
+  });
+  harness.input = countingInput();
+  const original = new Error("pending_why_target:action_missing");
+  // 先制造一段真实启动观测/日志，再进入失败路径。
+  const calls = [];
+  stubLaunchSeams(harness, {
+    calls,
+    startups: [{ ok: true, is_finished_launching: false }],
+    activate: () => ({ ok: true, requested: true, returned: true, confirmed: true, waited_ms: 10 }),
+  });
+  await harness.rawLaunchApp();
+
+  await captureFailure(harness, original);
+
+  const failure = readFailure(dir);
+  assert.equal(failure.reason, "pending_why_target:action_missing");
+  assert.deepEqual(failure.log_tail, harness.log.slice(-14));
+  const driverLog = JSON.parse(fs.readFileSync(path.join(dir, "failure-driver-log.json"), "utf8"));
+  assert.equal(driverLog.log.length, harness.log.length);
+  assert.ok(driverLog.log.some((entry) => entry.op === "launch_activation_attempt"));
+  assert.ok(driverLog.log.some((entry) => entry.op === "launch_activation"));
+  assert.deepEqual(
+    driverLog.startup_observations.map((entry) => entry.reason),
+    ["launch:before_activation", "launch:after_activation", "failure"],
+  );
+  const persisted = JSON.parse(fs.readFileSync(path.join(dir, "startup-observations.json"), "utf8"));
+  assert.equal(persisted.length, 3);
+  const raw = JSON.parse(fs.readFileSync(path.join(dir, "failure-ax-raw.json"), "utf8"));
+  assert.deepEqual(raw.nodes, rawNodes);
+  assert.ok(dumps > 1, "失败时额外读取原始 AX dump");
+});

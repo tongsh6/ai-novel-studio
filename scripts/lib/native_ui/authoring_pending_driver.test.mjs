@@ -239,8 +239,8 @@ test("drivePending 按可见候选结构完成三输入/两动作/Why/恢复/新
   assert.equal(harness.driverLog.value.accept_action_id, fixture.acceptAction.action_id);
   assert.equal(harness.driverLog.value.discard_action_id, fixture.discardAction.action_id);
   assert.equal(harness.driverLog.value.followup_run_id, FOLLOWUP_RUN);
-  assert.ok(harness.captures.includes("04-why"));
-  assert.ok(harness.captures.includes("08-final"));
+  assert.ok(harness.captures.includes("why"));
+  assert.ok(harness.captures.includes("final"));
 });
 
 const turnIdentity = {

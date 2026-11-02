@@ -67,6 +67,7 @@ export class NativeScenarioHarness {
     this.log = [];
     this.captures = [];
     this.screenshots = [];
+    this.startupObservations = [];
     this.phase = "init";
     this.failing = false;
   }
@@ -217,11 +218,21 @@ export class NativeScenarioHarness {
   // 启动/失败观测只读；任何观测错误都折成事实字段，不抛给调用方。
   observeStartup(reason) {
     const at = this.nowIso();
+    let facts;
     try {
-      return { at, reason, ...this.io.startup(this.APP) };
+      facts = { at, reason, ...this.io.startup(this.APP) };
     } catch (error) {
-      return { at, reason, ok: false, error: error.message };
+      facts = { at, reason, ok: false, error: error.message };
     }
+    // 启动/重启观测独立落盘：批次失败时 log_tail 只有末尾若干条，不能因此丢掉
+    // 首次 activate 前后的真实 OS 事实（cp4b-pending-02 的取证缺口）。
+    this.startupObservations.push(facts);
+    try {
+      this.writeJson("startup-observations.json", this.startupObservations);
+    } catch (writeError) {
+      this.log.push({ op: "startup_observations_write_failed", error: writeError.message, at });
+    }
+    return facts;
   }
 
   axText(nodes) {
@@ -852,6 +863,36 @@ export class NativeScenarioHarness {
       this.writeJson("failure-observation.json", observation);
     } catch (writeError) {
       this.log.push({ op: "failure_observation_write_failed", error: writeError.message, at: this.nowIso() });
+    }
+    // 失败留痕完整性：只新增独立证据文件，不覆盖、不改写原 failure.json / reason。
+    // - 完整 driver log（含 launch/relaunch 启动观测），不受 log_tail 截断；
+    // - 原始 AX 节点（path/frame/order），供定位器修复与复核；
+    // - startup 观测独立文件（observeStartup 已增量落盘，这里保证失败时也存在）。
+    try {
+      this.writeJson("startup-observations.json", this.startupObservations);
+    } catch (writeError) {
+      this.log.push({ op: "startup_observations_write_failed", error: writeError.message, at: this.nowIso() });
+    }
+    try {
+      if (!fs.existsSync(path.join(this.dir, "failure-driver-log.json"))) {
+        this.writeJson("failure-driver-log.json", {
+          at: this.nowIso(),
+          phase: this.phase,
+          captures: this.captures,
+          startup_observations: this.startupObservations,
+          log: this.log,
+        });
+      }
+    } catch (writeError) {
+      this.log.push({ op: "failure_driver_log_write_failed", error: writeError.message, at: this.nowIso() });
+    }
+    try {
+      if (!fs.existsSync(path.join(this.dir, "failure-ax-raw.json"))) {
+        const rawNodes = this.io.dump(this.APP, AX_MAX_NODES);
+        this.writeJson("failure-ax-raw.json", { at: this.nowIso(), nodes: rawNodes });
+      }
+    } catch (rawError) {
+      this.log.push({ op: "failure_ax_raw_write_failed", error: rawError.message, at: this.nowIso() });
     }
     try {
       if (!fs.existsSync(path.join(this.dir, "failure.json"))) {

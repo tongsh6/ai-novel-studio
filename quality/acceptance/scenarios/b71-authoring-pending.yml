@@ -76,7 +76,7 @@ assertions:
   data:
     - source artifact item body 逐字等于本批带 nonce 的作者输入原文（含作者全部字节），不是模型改写
     - revision artifact 全 item 集 item_id/title/body/rationale 与同次 writer 响应同 item_id 字段精确相等；revision_of 指向原稿，原稿仍 TENTATIVE
-    - start→after-source→after-revision 与 restore→final 的 canon 9 表 hash/行数不变，0 receipt/0 memory 行
+    - start→after-source→after-revision 与 restore→final 的 canon 内容（9 表）与行数不变，0 receipt/0 memory 行；`works.updated_at` 是 WorkspaceChannel.join 的「最近打开」账面时钟（真实 restore/重连必然推进，非作者创作事实），按 canon 定义从内容 hash 排除但仍记录全行原字节
     - after-revision→after-accept 只新增一条 CONFIRMED memory 行与一条 accept receipt；memory 内容绑定修订全文、receipt.persistence.memory_item_id/source/mutation，原稿不自动处置
     - after-accept→after-discard 只新增一条 discard receipt；accepted memory 行逐字节不变，其它 canon/章/角色/ledger 全表 hash 不变
     - 合法 memory reference 增量逐日志核算，不忽略整表或未知列变化；来源/目标/动作错绑或缺证据即失败

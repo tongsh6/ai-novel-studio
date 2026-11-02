@@ -3,7 +3,16 @@
 // 只消费外部 AX 节点、真实 author_action 帧、同次 Provider 记录与 scope facts；
 // 不启动 GUI/Mix，不写产品路径。负例必须显式失败关闭，不能回退 first/last。
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
+// 真实批次 cp4b-pending-02 的原始 AX dump（nonce 脱敏）：Why/候选 article/动作按钮是
+// 同一 AXWebArea 下的同级兄弟，用于锁定扁平树定位语义，不用合成完美树替代真实形状。
+const FLAT_AX = JSON.parse(
+  fs.readFileSync(new URL("./fixtures/b71-pending-flat-ax-dual-candidates.json", import.meta.url), "utf8"),
+);
+const FLAT_NODES = FLAT_AX.nodes;
+const FLAT_ITEMS = FLAT_AX.items;
+const FLAT_KNOWN = [FLAT_ITEMS.source, FLAT_ITEMS.revision];
 import {
   actionAck,
   actionFrame,
@@ -168,7 +177,7 @@ test("AX 定位拒绝缺 item、重复 item、同 scope 多义按钮与不可见
   ];
   assert.equal(
     locateScopedButton(hidden, { itemTitle: REVISION_TITLE, itemBody: REVISION_BODY, label: ACCEPT_LABEL, knownItems: [{ itemTitle: REVISION_TITLE, itemBody: REVISION_BODY }] }).reason,
-    "action_missing",
+    "action_not_visible",
   );
 });
 
@@ -656,7 +665,7 @@ test("AX 可见性按 frame 的 y/宽/高判定，x=0 仍可见，零高度不�
   ];
   assert.equal(
     locateScopedButton(zeroHeight, { itemTitle: REVISION_TITLE, itemBody: REVISION_BODY, label: ACCEPT_LABEL, knownItems: known }).reason,
-    "action_missing",
+    "action_not_visible",
   );
   const tooShort = [
     ...base,
@@ -664,7 +673,7 @@ test("AX 可见性按 frame 的 y/宽/高判定，x=0 仍可见，零高度不�
   ];
   assert.equal(
     locateScopedButton(tooShort, { itemTitle: REVISION_TITLE, itemBody: REVISION_BODY, label: ACCEPT_LABEL, knownItems: known }).reason,
-    "action_missing",
+    "action_not_visible",
   );
 });
 
@@ -776,4 +785,92 @@ test("actionFrame 同动作重复发送必须失败，不能取第一条", () =>
     () => actionFrame([sent, { ...sent, at: "2026-11-02T10:00:01.000Z" }], { topic: `workspace:${WORK}`, since: at, action: payload }),
     /实测 2/,
   );
+});
+
+// ── 真实扁平 AX 树（真实批次 cp4b-pending-02 原始 dump，nonce 脱敏）────────────
+//
+// 真实 Tauri/WKWebView 中，候选 article、Why 按钮与动作按钮是同一 AXWebArea 下的
+// 同级兄弟；规则是「同级兄弟顺序 + 用户消息 marker」切出本消息块，块内唯一命中，
+// 并排除其它已知候选（不借兄弟候选按钮）。
+
+test("真实扁平 AX 树：修订稿 Why/采纳/放弃按消息块唯一命中", () => {
+  const revision = {
+    itemTitle: FLAT_ITEMS.revision.itemTitle,
+    itemBody: FLAT_ITEMS.revision.itemBody,
+    knownItems: FLAT_KNOWN,
+  };
+  const why = locateWhyButton(FLAT_NODES, revision);
+  assert.equal(why.ok, true);
+  assert.equal(why.button.path, "0/0/0/0/0/30");
+  assert.equal(why.scope_path, "0/0/0/0/0/24");
+  assert.equal(why.item_path, "0/0/0/0/0/33");
+
+  const accept = locateScopedButton(FLAT_NODES, { ...revision, label: "保存到作品档案" });
+  assert.equal(accept.ok, true);
+  assert.equal(accept.button.path, "0/0/0/0/0/34");
+
+  const discard = locateScopedButton(FLAT_NODES, { ...revision, label: "不保存" });
+  assert.equal(discard.ok, true);
+  assert.equal(discard.button.path, "0/0/0/0/0/35");
+});
+
+test("真实扁平 AX 树：源稿动作按自身消息块命中，离屏 Why 报 action_not_visible", () => {
+  const source = {
+    itemTitle: FLAT_ITEMS.source.itemTitle,
+    itemBody: FLAT_ITEMS.source.itemBody,
+    knownItems: FLAT_KNOWN,
+  };
+  const accept = locateScopedButton(FLAT_NODES, { ...source, label: "保存到作品档案" });
+  assert.equal(accept.ok, true);
+  assert.equal(accept.button.path, "0/0/0/0/0/21");
+  assert.equal(accept.scope_path, "0/0/0/0/0/12");
+  const discard = locateScopedButton(FLAT_NODES, { ...source, label: "不保存" });
+  assert.equal(discard.ok, true);
+  assert.equal(discard.button.path, "0/0/0/0/0/22");
+  // 源稿 Why 在真实 dump 中 frame.y=-255（滚动到视口上方）：命中在块内但不可见，
+  // 必须如实报 action_not_visible，不能跨块借用修订稿可见的 Why。
+  const why = locateWhyButton(FLAT_NODES, source);
+  assert.equal(why.ok, false);
+  assert.equal(why.reason, "action_not_visible");
+});
+
+test("真实扁平 AX 树：删掉自身动作后不得借用兄弟候选按钮，也不回退全局 first/last", () => {
+  const withoutRevisionAccept = FLAT_NODES.filter((node) => node.path !== "0/0/0/0/0/34");
+  const located = locateScopedButton(withoutRevisionAccept, {
+    itemTitle: FLAT_ITEMS.revision.itemTitle,
+    itemBody: FLAT_ITEMS.revision.itemBody,
+    label: "保存到作品档案",
+    knownItems: FLAT_KNOWN,
+  });
+  assert.equal(located.ok, false);
+  assert.equal(located.button, undefined);
+  // 外层块会出现源稿可见文本 → 显式 foreign_item_in_block（失败关闭），而不是借用 …/21。
+  assert.equal(located.reason, "foreign_item_in_block");
+});
+
+test("真实扁平 AX 树：同一消息块内动作标签重复必须 action_ambiguous", () => {
+  const duplicated = FLAT_NODES.map((node) =>
+    node.path === "0/0/0/0/0/35" ? { ...node, title: "保存到作品档案" } : node,
+  );
+  const located = locateScopedButton(duplicated, {
+    itemTitle: FLAT_ITEMS.revision.itemTitle,
+    itemBody: FLAT_ITEMS.revision.itemBody,
+    label: "保存到作品档案",
+    knownItems: FLAT_KNOWN,
+  });
+  assert.equal(located.ok, false);
+  assert.equal(located.reason, "action_ambiguous");
+  assert.equal(located.count, 2);
+});
+
+test("真实扁平 AX 树：跨消息块不得借用对方 Why", () => {
+  const withoutRevisionWhy = FLAT_NODES.filter((node) => node.path !== "0/0/0/0/0/30");
+  const located = locateWhyButton(withoutRevisionWhy, {
+    itemTitle: FLAT_ITEMS.revision.itemTitle,
+    itemBody: FLAT_ITEMS.revision.itemBody,
+    knownItems: FLAT_KNOWN,
+  });
+  assert.equal(located.ok, false);
+  assert.equal(located.button, undefined);
+  assert.equal(located.reason, "foreign_item_in_block");
 });

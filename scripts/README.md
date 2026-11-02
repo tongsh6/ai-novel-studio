@@ -107,8 +107,8 @@
 | `task_done.sh` | 任务完成统一门禁入口。 |
 | `task_done_check.mjs` | task-done manifest 与 UI evidence 检查。 |
 | `tauri_slice_verify.sh` | 启动 Tauri 的验收入口；默认交互为 Chromium，summary 如实标 browser；B26 的 `TAURI_NATIVE_SYSTEM_DRIVER=1` 使用外部系统 UI 驱动原生窗口。 |
-| `native_question_transport_proxy.mjs` | B26/AU08/B71 原生验收外部 WebSocket/HTTP 代理；复用已安装 ws，按证据目录 control 文件丢 ack/断线、改绑负例，或对 `get_toc`/`get_chapter_content` 注入一次性 error/有界 delay；HTTP 只对真实 session resume / turn replay 额外记录 method/完整 path/status/request_id/scope 与有界 response JSON 完成状态（非候选路径保持旧日志字段），压缩编码明确标 unsupported、超限/截断/非法 JSON 不冒充完整；不改请求头、不记录密钥，生产代码无感知。 |
-| `native_question_transport_proxy.test.mjs` | AU08 channel 故障契约与真实 WS/HTTP 代理自检：error 零上游、ref/topic 绑定、耗次恢复、delay 上限与真实转发；HTTP chunked resume/replay 完整 capture、scope/request id、非法 JSON/unsupported encoding/超限拒绝。 |
+| `native_question_transport_proxy.mjs` | B26/AU08/B71 原生验收外部 WebSocket/HTTP 代理；复用已安装 ws，按证据目录 control 文件丢 ack/断线、改绑负例，或对 `get_toc`/`get_chapter_content` 注入一次性 error/有界 delay；HTTP 只对真实 session resume / turn replay 额外记录 method/完整 path/status/request_id/scope 与有界 response JSON 完成状态（非候选路径保持旧日志字段），对外原样透传压缩字节、仅对证据副本解压（gzip/x-gzip/deflate/br）后判定完整 JSON，未知编码标 unsupported、超限/截断/非法 JSON 不冒充完整；不改请求头、不记录密钥，生产代码无感知。 |
+| `native_question_transport_proxy.test.mjs` | AU08 channel 故障契约与真实 WS/HTTP 代理自检：error 零上游、ref/topic 绑定、耗次恢复、delay 上限与真实转发；HTTP chunked resume/replay 完整 capture、scope/request id、gzip/br 解压后完整、非法 JSON/坏压缩/未知编码/超限拒绝。 |
 | `native_au08_projection_drive.mjs` / `native_au08_projection_evidence.mjs` | AU08 原生 ReadingMode 故障恢复：真实生成/采纳→STALE→一次章节读取 error→FAILED→重试恢复；核验同 ref、AX、恢复帧与只读 DB 快照。 |
 | `native_au08_projection_batch.sh` | AU08 原生批次 detached/状态编排；预注册 `artifacts/model-contracts/au08-channel-fault/preregistration.json`，失败目录只读。 |
 | `native_au08_projection_evidence.test.mjs` | AU08 agent step `turn_result` 以 `agent_run.parent_turn_ref` 关联源消息的回归；防止误等父 turn_id 超时。 |

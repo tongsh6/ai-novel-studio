@@ -3,7 +3,9 @@
 // 本模块只消费外部驱动/AX/真实 WS 帧/Provider 记录/实际请求 scope facts 与
 // 只读 checkpoint 事实；不做 I/O、不启 GUI、不按“最新/首个/末个”猜身份。
 // 关键边界：
-// - 保存/放弃/Why 都按候选可见标题+正文所属 AX 结构定位，缺失/多义 fail closed；
+// - 保存/放弃/Why 都按候选可见标题+正文定位；真实 WKWebView 扁平 AX 树里按钮与候选
+//   article 是同级兄弟，故路径归属不成立时按「同级兄弟顺序 + 用户消息 marker」切出本
+//   消息块，块内唯一命中并禁止借用兄弟候选按钮；缺失/多义/跨块/不可见 fail closed；
 // - author_action 帧、ACK、action_result、动作 TurnResult 各自按请求/广播身份唯一绑定；
 // - revision 全 item 集只与同次 writer 响应同 item_id 字段逐字比较；
 // - 新请求必须消费真实 ACCEPTED/DISCARDED refs/状态，回复必须等于同次 Provider 原字节；
@@ -123,6 +125,112 @@ function inScope(node, scopePath) {
   return path === scopePath || path.startsWith(`${scopePath}/`);
 }
 
+// ── 真实 WKWebView 扁平 AX 树的消息块归属 ──────────────────────────────────
+//
+// 真实 Tauri/WKWebView 的 AX 树把候选卡（title/body/rationale）、Why 按钮与候选动作
+// 按钮暴露为**同一 AXWebArea 父级下的同级兄弟**，不存在包含三者的候选容器（真实批次
+// cp4b-pending-02 原始 dump：Why=…/30、候选 article=…/33、动作按钮=…/34…36）。
+// 因此「按 item 自身路径向上找祖先容器」的模型在真实树上只能停在 item 子树，动作按钮
+// 永远不在 scope 内（pending 批次实测 action_missing）。
+//
+// 消息块模型：以 item 所在父级的兄弟顺序为源，用真实可见的说话人标记（用户消息
+// marker「你」）与对话结束标记（输入框/本次只做一步/发送）切出**本消息块**；块内还需
+// 排除其它已知候选的可见标题/正文（禁止借用兄弟候选按钮）。块内匹配必须唯一；
+// 命中但不可见时返回 action_not_visible（调用方可先滚动揭示再重试），不向更外层借用。
+const SPEAKER_MARKERS = new Set(["你", "AI"]);
+const USER_SPEAKER = "你";
+
+function parentPath(path) {
+  return String(path).split("/").slice(0, -1).join("/");
+}
+
+function lastPathIndex(path) {
+  return Number(String(path).split("/").at(-1));
+}
+
+function siblingNodes(nodes, parent) {
+  return nodes
+    .filter((node) => isObject(node) && typeof node.path === "string" && parentPath(node.path) === parent)
+    .sort((left, right) => lastPathIndex(left.path) - lastPathIndex(right.path));
+}
+
+function speakerMarker(nodes, node) {
+  if (node?.role !== "AXGroup") return null;
+  const texts = siblingNodes(nodes, node.path).map(nodeText).filter(nonBlank);
+  if (texts.length !== 1) return null;
+  return SPEAKER_MARKERS.has(texts[0]) ? texts[0] : null;
+}
+
+function conversationEndMarker(node) {
+  if (node?.role === "AXTextField" || node?.role === "AXCheckBox") return true;
+  return node?.role === "AXButton" && nodeText(node) === "发送";
+}
+
+// 在 levelPath 这一层，把 item 的该层祖先切进「你」(用户消息) 与下一消息/输入区之间。
+function messageBlockAt(nodes, levelPath, itemScopePath) {
+  const articlePath = ancestors(itemScopePath).find((path) => parentPath(path) === levelPath);
+  if (!articlePath) return null;
+  const siblings = siblingNodes(nodes, levelPath);
+  const index = siblings.findIndex((node) => node.path === articlePath);
+  if (index < 0) return null;
+  let start = 0;
+  for (let cursor = index; cursor >= 0; cursor -= 1) {
+    if (speakerMarker(nodes, siblings[cursor]) === USER_SPEAKER) { start = cursor; break; }
+  }
+  let end = siblings.length - 1;
+  for (let cursor = index + 1; cursor < siblings.length; cursor += 1) {
+    if (speakerMarker(nodes, siblings[cursor]) === USER_SPEAKER || conversationEndMarker(siblings[cursor])) {
+      end = cursor - 1;
+      break;
+    }
+  }
+  const paths = siblings.slice(start, end + 1).map((node) => node.path);
+  if (paths.length === 0) return null;
+  return { level: levelPath, paths };
+}
+
+function inMessageBlock(node, block) {
+  if (!isObject(node) || typeof node.path !== "string") return false;
+  return block.paths.some((path) => node.path === path || node.path.startsWith(`${path}/`));
+}
+
+function blockContainsText(nodes, block, value) {
+  return nonBlank(value) && nodes.some((node) => inMessageBlock(node, block) && nodeText(node) === value);
+}
+
+function foreignItemInBlock(nodes, block, { itemTitle, itemBody }, knownItems) {
+  return (knownItems ?? []).find(
+    (item) =>
+      isObject(item) &&
+      !(item.itemTitle === itemTitle && item.itemBody === itemBody) &&
+      (blockContainsText(nodes, block, item.itemTitle) || blockContainsText(nodes, block, item.itemBody)),
+  );
+}
+
+// 只有路径模型不成立时才尝试消息块模型；命中但不可见/禁用/多义直接失败关闭，不向更外层借用。
+function locateInMessageBlock(nodes, itemScopePath, { label, matcher, knownItems, itemTitle, itemBody }) {
+  for (const levelPath of ancestors(itemScopePath).slice(1)) {
+    const block = messageBlockAt(nodes, levelPath, itemScopePath);
+    if (!block) continue;
+    const foreign = foreignItemInBlock(nodes, block, { itemTitle, itemBody }, knownItems);
+    if (foreign) return { ok: false, reason: "foreign_item_in_block", foreign: foreign.itemTitle ?? null };
+    const matches = nodes.filter(
+      (node) => node?.role === "AXButton" && inMessageBlock(node, block) && matcher(nodeText(node), label, node),
+    );
+    if (matches.length === 0) continue;
+    if (matches.length > 1) return { ok: false, reason: "action_ambiguous", count: matches.length };
+    if (matches[0].enabled === false) return { ok: false, reason: "action_disabled" };
+    if (!isVisible(matches[0])) return { ok: false, reason: "action_not_visible" };
+    return {
+      ok: true,
+      button: matches[0],
+      scope_path: block.paths[0],
+      item_path: itemScopePath,
+    };
+  }
+  return { ok: false, reason: "action_missing" };
+}
+
 function ancestors(path) {
   const parts = String(path).split("/").filter(Boolean);
   return parts.map((_, index) => parts.slice(0, index + 1).join("/")).reverse();
@@ -162,7 +270,7 @@ function actionButtons(nodes, scopePath, label, matcher) {
       node?.role === "AXButton" &&
       inScope(node, scopePath) &&
       isVisible(node) &&
-      matcher(nodeText(node), label),
+      matcher(nodeText(node), label, node),
   );
 }
 
@@ -216,7 +324,17 @@ function locateOwnedButton(nodes, { itemTitle, itemBody, knownItems, label, matc
   if (!context.ok) return context;
   const buttons = actionButtons(nodes, context.boundary, label, matcher);
   if (buttons.length > 1) return { ok: false, reason: "action_ambiguous", count: buttons.length };
-  if (buttons.length === 0) return { ok: false, reason: "action_missing" };
+  if (buttons.length === 0) {
+    // 真实扁平 AX 树里 item 子树不含 Why/动作按钮：改用同级消息块模型，仍要求唯一、
+    // 可见、未禁用，并在块内排除其它已知候选（不借兄弟候选按钮）。
+    return locateInMessageBlock(nodes, context.item.scope.path, {
+      label,
+      matcher,
+      knownItems,
+      itemTitle,
+      itemBody,
+    });
+  }
   if (buttons[0].enabled === false) return { ok: false, reason: "action_disabled" };
   return {
     ok: true,
@@ -233,7 +351,8 @@ export function locateScopedButton(nodes, { itemTitle, itemBody, label, knownIte
     itemBody,
     knownItems,
     label,
-    matcher: (text, want) => text === want,
+    // 真实按钮的可见名来自 title（desc 是说明文案）；兼容无 desc 的纯 title 节点。
+    matcher: (text, want, node) => node?.title === want || text === want,
   });
 }
 

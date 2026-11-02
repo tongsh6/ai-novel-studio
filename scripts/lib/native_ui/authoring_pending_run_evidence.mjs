@@ -20,6 +20,7 @@ import {
   logs,
   productionTableCounts,
   read,
+  requestReplies,
   seedFields,
   withDb,
   write,
@@ -189,20 +190,16 @@ function completedForRun(results, runId, label) {
   return matches[0];
 }
 
-function isReplyToMessage(record, identity, since) {
-  if (get(record, "direction") !== "received") return false;
-  const frame = get(record, "frame");
-  if (!Array.isArray(frame) || frame.length < 5) return false;
-  if (frame[3] !== "phx_reply") return false;
-  if (!allOf(frame[0] === identity[0], frame[1] === identity[1], frame[2] === identity[2])) return false;
-  const at = get(record, "at");
-  return allOf(typeof at === "string", at >= since);
-}
-
 function ackForMessage(wire, sent, label) {
   const identity = frameOf(sent);
   assert(nonBlank(identity[0]) && nonBlank(identity[1]) && nonBlank(identity[2]), `${label}: 作者输入缺请求身份`);
-  const matches = list(wire).filter((record) => isReplyToMessage(record, identity, sent.at));
+  // 复用共享读取边界：回复必须与本请求同 socket 连接段（join_ref/request_ref 在重连后
+  // 会复用，真实批次 cp4b-pending-04 的 restore 后 followup 与 source 都是 5/9）。
+  const matches = requestReplies(
+    wire,
+    { joinRef: identity[0], requestRef: identity[1], topic: identity[2] },
+    sent.at,
+  );
   assert.equal(matches.length, 1, `${label}: 同请求 ACK 必须唯一，实测 ${matches.length}`);
   return matches[0];
 }
@@ -599,7 +596,7 @@ function whyReplayBound(evidence, checkpoints, revision, workId, sessionId) {
 }
 
 function uiAndWhyChecks(dir, evidence, checkpoints, revision, sourceItem, revisionItem, sourceArtifact, workId, sessionId) {
-  const whyText = axText(dir, "04-why");
+  const whyText = axText(dir, "why");
   const whyRefs = [
     ...revision.calls.refs.provider_call_refs,
     ...revision.calls.refs.provider_run_refs,
@@ -681,7 +678,7 @@ function restoreRuntimeChecks(dir, checkpoints, followup) {
       final.db_counts.agent_runs === afterRestore.db_counts.agent_runs + 1 &&
       final.db_counts.provider_runs > afterRestore.db_counts.provider_runs,
     followup_reply_visible:
-      nonBlank(followupReply) && textIncludes(dir, "08-final", [followupReply]),
+      nonBlank(followupReply) && textIncludes(dir, "final", [followupReply]),
     production_fingerprint_unchanged: checkProductionFingerprint(dir).unchanged,
   };
 }
@@ -720,7 +717,12 @@ function followupChecks(followup, followupEvidence, source, revision) {
       requestRoles.every((role) => role !== "assistant" && role !== "tool") &&
       !followupCallNames.includes("submit_tentative_artifact") &&
       !followupCallNames.some((name) => forbiddenTool(name)),
-    followup_pending_empty: followup.completed.adoption_state.pending.length === 0,
+    // TurnResultBuilder 对未变化字段按设计省略：followup 无待采纳候选时 adoption_state
+    // 可能整体缺省（真实 cp4b-pending-04）。缺省=无 pending；出现但非数组/非空则失败关闭。
+    followup_pending_empty: (() => {
+      const pending = followup.completed?.adoption_state?.pending;
+      return pending === undefined || (Array.isArray(pending) && pending.length === 0);
+    })(),
     followup_decision_trace_present: decisionTracePresent(followup.dir, followup.completed),
     followup_run_distinct: followup.runId !== source.runId && followup.runId !== revision.runId,
   };

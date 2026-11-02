@@ -5,6 +5,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import zlib from "node:zlib";
 import {
   MAX_HTTP_CAPTURE_BYTES,
   httpCaptureTarget,
@@ -74,19 +75,37 @@ function responseScope(target, body) {
   };
 }
 
+// 真实 Phoenix 响应默认按客户端 accept-encoding 返回 gzip（真实批次 cp4b-pending-04 的
+// resume/replay 均是 gzip）；代理对外仍原样透传压缩字节，只对**证据副本**做解压后完整
+// JSON 判定。仅未知编码保留 unsupported_encoding，解压失败如实标 invalid，不当作完整。
+const SUPPORTED_ENCODINGS = Object.freeze(["identity", "gzip", "x-gzip", "deflate", "br"]);
+
+function decodeCapturedBody(buffer, encoding) {
+  const normalized = String(encoding ?? "identity").toLowerCase().trim();
+  if (normalized === "" || normalized === "identity") return buffer;
+  if (!SUPPORTED_ENCODINGS.includes(normalized)) return null;
+  if (normalized === "gzip" || normalized === "x-gzip") return zlib.gunzipSync(buffer);
+  if (normalized === "deflate") return zlib.inflateSync(buffer);
+  return zlib.brotliDecompressSync(buffer);
+}
+
 export function capturedHttpBody(chunks, tooLarge, encoding) {
   if (tooLarge) return { complete: false, json: "too_large", body: null };
-  if (encoding && !["identity"].includes(String(encoding).toLowerCase())) {
-    return { complete: true, json: "unsupported_encoding", body: null };
-  }
   const buffer = Buffer.concat(chunks);
-  const parsed = parseCapturedJson(buffer);
+  let decoded;
+  try {
+    decoded = decodeCapturedBody(buffer, encoding);
+  } catch {
+    return { complete: true, json: "invalid", body: null, bytes: buffer.length };
+  }
+  if (decoded === null) return { complete: true, json: "unsupported_encoding", body: null };
+  const parsed = parseCapturedJson(decoded);
   return {
     complete: true,
     json: parsed.json,
     body: parsed.body,
     bytes: buffer.length,
-    sha256: createHash("sha256").update(buffer).digest("hex"),
+    sha256: createHash("sha256").update(decoded).digest("hex"),
   };
 }
 
