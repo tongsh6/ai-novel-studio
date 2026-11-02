@@ -187,9 +187,12 @@ defmodule I1CausalDriver do
       call_id = "pc_" <> Integer.to_string(System.unique_integer([:positive, :monotonic]))
 
       case Gateway.complete(prompt) do
-        {:ok, %ProviderResult{content: content} = result} ->
+        {:ok, %ProviderResult{content: content, tool_calls: tool_calls} = result} ->
+          raw_response =
+            if tool_calls in [nil, []], do: content, else: %{tool_calls: tool_calls}
+
           Agent.update(trace_agent, fn calls ->
-            [%{provider_call_id: call_id, prompt: prompt, raw_response: content} | calls]
+            [%{provider_call_id: call_id, prompt: prompt, raw_response: raw_response} | calls]
           end)
 
           {:ok, result |> Map.from_struct() |> Map.put(:provider_call_id, call_id)}
@@ -321,6 +324,34 @@ defmodule I1CausalDriver do
     end
   end
 
+  defp compare_against_raw(item, %{raw_response: %{tool_calls: tool_calls}})
+       when is_list(tool_calls) do
+    raw_items =
+      tool_calls
+      |> Enum.map(&(Map.get(&1, :arguments) || Map.get(&1, "arguments") || %{}))
+      |> Enum.map(fn
+        arguments when is_binary(arguments) ->
+          case Jason.decode(arguments) do
+            {:ok, decoded} when is_map(decoded) -> decoded
+            _ -> %{}
+          end
+
+        arguments when is_map(arguments) ->
+          arguments
+
+        _ ->
+          %{}
+      end)
+      |> Enum.flat_map(fn arguments ->
+        List.wrap(Map.get(arguments, "items") || Map.get(arguments, :items)) ++
+          List.wrap(
+            Map.get(arguments, "companion_artifacts") || Map.get(arguments, :companion_artifacts)
+          )
+      end)
+
+    compare_against_raw_items(item, raw_items)
+  end
+
   defp compare_against_raw(item, call) do
     case Jason.decode(call.raw_response |> strip_code_fence() |> String.trim()) do
       {:ok, raw_items} when is_list(raw_items) ->
@@ -344,21 +375,21 @@ defmodule I1CausalDriver do
   end
 
   defp compare_against_raw_items(item, raw_items) do
-        item_id = Map.get(item, :item_id)
-        raw_item = Enum.find(raw_items, &(Map.get(&1, "item_id") == item_id))
+    item_id = Map.get(item, :item_id)
+    raw_item = Enum.find(raw_items, &(Map.get(&1, "item_id") == item_id))
 
-        cond do
-          is_nil(raw_item) ->
-            %{
-              item_id: item_id,
-              outcome: :fail,
-              reason: "raw_response 中找不到 item_id=#{item_id} 的 raw_item",
-              item_title: Map.get(item, :title)
-            }
+    cond do
+      is_nil(raw_item) ->
+        %{
+          item_id: item_id,
+          outcome: :fail,
+          reason: "raw_response 中找不到 item_id=#{item_id} 的 raw_item",
+          item_title: Map.get(item, :title)
+        }
 
-          true ->
-            compare_fields(item, raw_item)
-        end
+      true ->
+        compare_fields(item, raw_item)
+    end
   end
 
   defp compare_fields(item, raw_item) do

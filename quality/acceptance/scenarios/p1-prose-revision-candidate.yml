@@ -7,6 +7,7 @@ entrypoint: scripts/quality_accept.sh p1-prose-revision-candidate --surface taur
 contract:
   - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
   - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md
   - docs/design/adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md
   - docs/engineering/scenario-acceptance.md
 
@@ -27,7 +28,7 @@ user_flow:
   - wait_for: quality review card with evidence/reason/scope/confidence + 局部修订所选问题 action
   - click: 局部修订所选问题
   - verify: revision author_action fast-acks with bounded AgentRun
-  - verify: revision AgentRun emits one model-drafted AgentPlan with revision_prepare, revision_plan, prose_writing, revision_finalize, then advances by mechanical cursor
+  - verify: revision AgentRun 通过流程内置的 4 步机械计划（revision_prepare, revision_plan, prose_writing, revision_finalize）推进，不产生模型起草的 AgentPlan，也不产生 plan_drafted 事件
   - wait_for: sibling tentative revision draft visible (修订草稿)
 
 evidence:
@@ -48,9 +49,10 @@ assertions:
     - prose_writing prose_fragment turn_result carrying quality_review.findings received
     - revise_from_findings author_action sent (target_ref = original artifact)
     - revise_from_findings phx_reply returns run_mode=bounded and profile_ref=prose_revision_from_findings_v1
-    - revision agent_event stream contains one plan_drafted payload whose target_tool_ref is revision_prepare and whose plan_steps are revision_prepare, revision_plan, prose_writing, revision_finalize
+    - revision agent_event 流不包含 plan_drafted 事件（流程机械构建计划并抑制伪计划事件）
+    - revision AgentRun 机械推进 4 步 revision_prepare, revision_plan, prose_writing, revision_finalize（流程构建计划，0 次模型计划 provider 调用）
     - revision agent_event stream contains source observation, Orchestrator gate, tool, artifact, and completion events
-    - revision agent_run_state completes with 4 steps, 1 tool call, 2 provider calls
+    - revision agent_run_state 完成时包含 4 步、1 次 tool 调用，正常正文修订生成恰好 1 次 provider 调用（机械计划贡献 0 次调用；本场景无故障注入，验证一次正常生成；协议纠错的两次调用证据在 B71 中单列，原 B71 范围保留）
     - revision turn_result received (trace_summary.decision_type = revise_from_findings)
   data:
     - prose_quality.evaluated emitted with finding_count>=1 (finding is not a story fact)

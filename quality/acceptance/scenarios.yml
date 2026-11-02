@@ -1496,6 +1496,48 @@ scenarios:
     manifest: quality/acceptance/scenarios/judgment-explore-chapter-full-read.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh judgment-explore-chapter-full-read --surface tauri
+  - id: b71-first-consumer
+    title: "B71：AgentRun 原生多轮创作请求与观察回流"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/b71-first-consumer.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh b71-first-consumer --surface tauri
+  - id: b71-authoring-transcript
+    title: "B71 CP4a：续行、原生创作与质量复核共享 canonical transcript"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/b71-authoring-transcript.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh b71-authoring-transcript --surface tauri
+  - id: b71-authoring-profiles
+    title: "B71 CP4b：角色设计与前序判断共享 canonical transcript"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/b71-authoring-profiles.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh b71-authoring-profiles --surface tauri
+  - id: b71-authoring-planning
+    title: "B71 CP4b：独立计划与重规划进入双创作候选的同一原生会话"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/b71-authoring-planning.yml
+    driver: scripts/native_b71_drive.mjs
+    entrypoint: scripts/quality_accept.sh b71-authoring-planning --surface tauri
+  - id: b71-authoring-revision
+    title: "B71：质量发现卡片触发局部修订的真实原生验收"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/b71-authoring-revision.yml
+    driver: scripts/native_b71_drive.mjs
+    entrypoint: scripts/quality_accept.sh b71-authoring-revision --surface tauri
+  - id: b71-authoring-pending
+    title: "B71 CP4b：对话候选修订→作者采纳/放弃→恢复→新请求"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/b71-authoring-pending.yml
+    driver: scripts/native_b71_drive.mjs
+    entrypoint: scripts/quality_accept.sh b71-authoring-pending --surface tauri
   - id: judgment-plan-multi-step
     title: "判断①判复杂 → 模型自产多能力计划 → 多产物停待采纳（ADR-0025 CP4）"
     tier: nightly

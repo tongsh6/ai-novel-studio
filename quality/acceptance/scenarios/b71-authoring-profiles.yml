@@ -1,0 +1,56 @@
+id: b71-authoring-profiles
+title: B71 CP4b：角色设计与前序判断共享 canonical transcript
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh b71-authoring-profiles --surface tauri
+
+contract:
+  - docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md
+  - docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/B71-provider-message-fidelity.md
+
+invariants:
+  - judgment-and-character-design-share-one-authoring-transcript
+  - native-validation-closes-each-creative-tool-call
+  - stage-tool-projection-does-not-rewrite-tool-history
+  - tentative-artifact-requires-author-adoption
+  - author-visible-copy-contains-no-internal-tool-or-request-identifiers
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: 通过真实入口先核对角色阵容，再设计与主角冲突的反派，并明确这是可恢复的长任务
+  - wait_for: 同一 run 产出待审角色候选
+  - verify: 原生判断与创作调用保留在同一 canonical transcript，创作结果由应用校验闭合
+  - verify: durable checkpoint 可恢复真实历史，页面只显示作者可读名称与说明
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - llm_http_log
+    - turn_result
+    - persistence_snapshot
+    - summary_json
+  artifact_dir: artifacts/slice-verify/b71-authoring-profiles-tauri
+
+assertions:
+  ui:
+    - 页面显示角色设定草稿与保存动作，不显示工具 code、call_id、Request IR、作品内部 ref 或原始推理
+  network:
+    - 创作请求保留先前 messages 的严格前缀，只开放当前阶段原生候选工具
+    - 前序 judgment_decision 与创作 submit_tentative_artifact 都保留；创作校验通过不等于作者采纳
+  data:
+    - 角色候选保持 tentative，未采纳前无角色或正文生产写入
+    - durable checkpoint 保留真实工具调用、应用校验与恢复所需 canonical transcript
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

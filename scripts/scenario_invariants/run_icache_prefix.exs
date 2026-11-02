@@ -129,42 +129,64 @@ defmodule ICachePrefixDriver do
 
     mission_a = mission_inputs(3, "第03章：巡检收网", "伏笔：旧账牌")
     mission_b = mission_inputs(4, "第04章：霓虹地牢试炼", "伏笔：断链标记")
+    mission_run_a = agent_run("run_icache_mission_a", "把这一章写得更紧凑", 1)
+    mission_run_b = agent_run("run_icache_mission_b", "保持文风继续推进", 1)
+
+    draft_a = AgenticPlanDraftPlanner.draft_prompt(run_a, snapshot_a, @chapter_titles)
+    draft_b = AgenticPlanDraftPlanner.draft_prompt(run_b, snapshot_b, @chapter_titles)
+
+    revised_a =
+      AgenticPlanDraftPlanner.revision_prompt(
+        revision_a,
+        revision_snapshot(revision_reason_a),
+        @chapter_titles,
+        revision_reason_a
+      )
+
+    revised_b =
+      AgenticPlanDraftPlanner.revision_prompt(
+        revision_b,
+        revision_snapshot(revision_reason_b),
+        @chapter_titles,
+        revision_reason_b
+      )
+
+    # CP-D 比较完整 L1；章节材料位于带版本的动态 scope，逐请求检查真实携带。
+    # 不把不同目标/计划版本放进静态层，也不为共享前缀删除章节材料。
+    Enum.each([draft_a, draft_b, revised_a, revised_b], fn prompt ->
+      text = NovelAgent.Provider.prompt_text(prompt)
+
+      Enum.each(@chapter_titles, fn chapter ->
+        unless String.contains?(text, chapter),
+          do: raise("I-CACHE planning material missing: #{chapter}")
+      end)
+    end)
 
     [
       shared_prefix_row(
         "draft",
         "cross_run",
-        AgenticPlanDraftPlanner.draft_prompt(run_a, snapshot_a, @chapter_titles),
-        AgenticPlanDraftPlanner.draft_prompt(run_b, snapshot_b, @chapter_titles),
-        "## 本轮目标",
-        ["普通路径应覆盖完成目标所需最少步骤；不要添加纯收束模型调用。", "- 第04章：巡检队的诱捕"],
+        draft_a,
+        draft_b,
+        "【应用数据 · scope_update",
+        ["普通路径应覆盖完成目标所需最少步骤；不要添加纯收束模型调用。"],
         true
       ),
       shared_prefix_row(
         "revision",
         "cross_run",
-        AgenticPlanDraftPlanner.revision_prompt(
-          revision_a,
-          revision_snapshot(revision_reason_a),
-          @chapter_titles,
-          revision_reason_a
-        ),
-        AgenticPlanDraftPlanner.revision_prompt(
-          revision_b,
-          revision_snapshot(revision_reason_b),
-          @chapter_titles,
-          revision_reason_b
-        ),
-        "## 本轮目标",
-        ["如果计划已走完但完成条件未满足，必须补足能够让运行继续取得真实进展的最少步骤。", "- 第04章：巡检队的诱捕"],
+        revised_a,
+        revised_b,
+        "【应用数据 · scope_update",
+        ["如果计划已走完但完成条件未满足，必须补足能够让运行继续取得真实进展的最少步骤。"],
         true
       ),
       shared_prefix_row(
         "chapter_mission",
         "cross_run",
-        ChapterMissionService.mission_prompt(mission_a, "把这一章写得更紧凑", :prose),
-        ChapterMissionService.mission_prompt(mission_b, "保持文风继续推进", :prose),
-        "材料（每条以 [ref] 开头",
+        ChapterMissionService.mission_prompt(mission_a, "把这一章写得更紧凑", :prose, run: mission_run_a),
+        ChapterMissionService.mission_prompt(mission_b, "保持文风继续推进", :prose, run: mission_run_b),
+        "把这一章写得更紧凑",
         ["- must_avoid：0 到 3 条，后续章计划信息的保密与全书进度守则优先，basis_ref 同上。"],
         true
       )
@@ -211,7 +233,8 @@ defmodule ICachePrefixDriver do
   # 生产渲染路径：CreativeRequest.task → Real/Evaluator 渲染 → Gateway L0 注入边界捕获，
   # 静态段（角色句+shared/operation/output 规则）必须在连续轮字节恒定，L3 动态段随后变化。
   defp professional_rows do
-    writer_a = writer_prompt(writer_task("接着第01章往下写一段正文", "chapter:one", "第01章：底层灵气账单"))
+    writer_input_a = writer_task("接着第01章往下写一段正文", "chapter:one", "第01章：底层灵气账单")
+    writer_a = writer_prompt(writer_input_a)
     writer_b = writer_prompt(writer_task("接着第02章往下写，并保持既有文风", "chapter:two", "第02章：旧服务器里的残诀"))
 
     evaluator_a = evaluator_prompt(evaluator_task("biz_icache_eval_a", "chapter:one"))
@@ -223,7 +246,7 @@ defmodule ICachePrefixDriver do
         "consecutive",
         writer_a,
         writer_b,
-        "## 本轮作者目标",
+        elem(writer_input_a, 0).author_words,
         ["## 创作协作共同规则", "## 本轮任务语义"],
         true
       ),
@@ -293,20 +316,25 @@ defmodule ICachePrefixDriver do
 
         {:ok,
          %{
-           content:
-             Jason.encode!(%{
-               "items" => [
-                 %{"item_id" => "i1", "title" => "片段", "body" => "正文", "rationale" => nil}
-               ],
-               "companion_artifacts" => [],
-               "self_report" => %{
-                 "assumptions" => [],
-                 "intended_reader_effect" => nil,
-                 "used_context_refs" => [],
-                 "risk_flags" => []
+           content: "",
+           tool_calls: [
+             %{
+               id: "writer-capture",
+               name: "submit_tentative_artifact",
+               arguments: %{
+                 "items" => [
+                   %{"item_id" => "i1", "title" => "片段", "body" => "正文", "rationale" => nil}
+                 ],
+                 "companion_artifacts" => [],
+                 "self_report" => %{
+                   "assumptions" => [],
+                   "intended_reader_effect" => nil,
+                   "used_context_refs" => [],
+                   "risk_flags" => []
+                 }
                }
-             }),
-           tool_calls: []
+             }
+           ]
          }}
       end
     }
@@ -366,7 +394,17 @@ defmodule ICachePrefixDriver do
 
         send(parent, {:icache_professional_prompt, normalize_captured_prompt(captured)})
 
-        {:ok, %{content: Jason.encode!(%{"findings" => []}), tool_calls: []}}
+        {:ok,
+         %{
+           content: "",
+           tool_calls: [
+             %{
+               id: "evaluator-capture",
+               name: "report_quality_findings",
+               arguments: %{"findings" => []}
+             }
+           ]
+         }}
       end
     }
 
@@ -402,10 +440,7 @@ defmodule ICachePrefixDriver do
     {second, tools_b} = capture(prompt_b, call_site <> "-b")
     if tools_a != tools_b, do: raise("I-CACHE profile schema drift at #{call_site}")
 
-    # 有 tool_choice 的判断/计划类调用必须是单调用 auto；writer/evaluator 无工具选择字段。
-    if call_site != "chapter_mission" and Map.has_key?(prompt_a, :tool_choice) and
-         (Map.get(prompt_a, :tool_choice) != "auto" or Map.get(prompt_b, :tool_choice) != "auto"),
-       do: raise("I-CACHE single-call auto required at #{call_site}")
+    assert_native_tool_choice!(call_site, prompt_a, prompt_b)
 
     shared = shared_prefix_bytes(first, second)
     total = min(byte_size(first), byte_size(second))
@@ -431,6 +466,25 @@ defmodule ICachePrefixDriver do
       tools_equal: true
     }
   end
+
+  defp assert_native_tool_choice!(call_site, prompt_a, prompt_b) do
+    case {Map.get(prompt_a, :tool_choice), Map.get(prompt_b, :tool_choice)} do
+      {nil, nil} ->
+        :ok
+
+      {choice, choice} ->
+        expected = native_tool_choice(call_site)
+        if choice != expected, do: raise("I-CACHE native stage tool drift at #{call_site}")
+
+      _ ->
+        raise("I-CACHE native stage tool mismatch at #{call_site}")
+    end
+  end
+
+  defp native_tool_choice("writer"), do: "submit_tentative_artifact"
+  defp native_tool_choice("evaluator"), do: "report_quality_findings"
+  defp native_tool_choice("chapter_mission"), do: "chapter_mission"
+  defp native_tool_choice(_call_site), do: "auto"
 
   defp marker_offset!(text, marker, call_site) do
     case :binary.matches(text, marker) do

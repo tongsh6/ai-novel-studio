@@ -1,0 +1,66 @@
+id: b71-first-consumer
+title: B71：AgentRun 原生多轮创作请求与观察回流
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh b71-first-consumer --surface tauri
+
+contract:
+  - docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md
+  - docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/B71-provider-message-fidelity.md
+
+invariants:
+  - authoring-run-transcript-is-request-source
+  - assistant-tool-call-and-observation-share-call-id
+  - observation-carries-source-refs-version-coverage-and-next-offset
+  - application-base-does-not-duplicate-observation-content
+  - continuation-query-consumed-verbatim-from-observation
+  - no-production-write-during-exploration-turn
+  - bounded-run-private-history-is-not-durable-recovery
+  - request-response-canonical-and-provider-run-bind-by-execution-refs
+  - websocket-request-and-broadcast-facts-have-explicit-owning-scope
+
+setup:
+  seed: scripts/seed_judgment_explore_chapter_full_read.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: 作者怀疑某章正文有重复、要求把全章核对一遍（该章有同名计划章，标题本身不唯一）
+  - verify: 首轮判断产生 explore tool_call，应用执行只读 chapter_read 后以同 call_id 的 tool observation 进入下一真实请求
+  - verify: 第二轮继续读取，观察携带同一 chapter_ref 与 next_offset=6000；末页后回复引用末页事实
+  - verify: application_base 不重复携带观察正文，探索与采纳前均无生产写入
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - llm_http_log
+    - turn_result
+    - persistence_snapshot
+    - summary_json
+  artifact_dir: artifacts/slice-verify/b71-first-consumer-tauri
+
+assertions:
+  ui:
+    - 页面出现人类可读的章节阅读活动与末页事实回复，不泄漏内部工具 JSON
+  network:
+    - 作者消息 ACK 按 join_ref/request_ref/topic 唯一绑定；冲突 ACK 不任选，完成结果和探索广播按 topic 与实际 run 归属
+    - 实际 provider 请求 messages 中同时存在 assistant tool_calls 与 role=tool 的观察结果，call_id 一致
+    - 每次实际请求与同次返回响应直接成对记录，通过已有 provider_call_ref/provider_run_ref 对应 ProviderRun 和 canonical assistant；不以下一请求回显或时间顺序替代响应证据
+    - 工具结果只引用同请求历史中在先且唯一的 assistant 调用；合法 observation/validation_result 均可回流，原生 id 缺省与 canonical 内部 id 分开计数
+    - 观察 type=observation，source_refs 含目标 chapter_ref，续读 next_offset=6000
+    - application_base 不含观察正文；续读 query 与上一页 footer 一致
+  data:
+    - 真实 ACK 的 run_id 指向同 workspace/work/session/parent 的 completed bounded agent_runs，保持 bounded，不为验收改 durable
+    - 私有 authoring-transcript/v1 与该 run 的完整身份一致，不要求 long_run_task，不从旧 checkpoint 或最新行猜取
+    - ProviderRun 数量、配对请求/响应与 consumed_provider_calls 一致；同 parent 其它 run 不进入调用、完成结果或 exploration_observed 计数
+    - 两次 exploration_observed，adoption_state.pending=[]，无 production write
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

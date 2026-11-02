@@ -1,0 +1,79 @@
+id: b71-authoring-revision
+title: B71：质量发现卡片触发局部修订的真实原生验收
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh b71-authoring-revision --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md
+  - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/ui/46-state-and-feedback.md
+  - docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/B71-provider-message-fidelity.md
+
+invariants:
+  - quality-finding-revision-creates-a-new-bounded-run
+  - source-and-child-runs-keep-distinct-canonical-history
+  - native-validation-and-application-revision-scope-share-one-exchange
+  - first-invalid-items-response-and-failed-validation-are-preserved
+  - second-request-strictly-inherits-first-history-and-appends-native-result
+  - revision-artifact-bytes-equal-last-legal-provider-response
+  - original-artifact-and-out-of-scope-bytes-remain-unchanged
+  - revision-is-not-auto-adopted-or-auto-resolved
+  - why-reads-scoped-persisted-replay-without-provider-calls
+  - author-action-receipt-and-child-result-are-scoped-and-stable
+
+setup:
+  seed: scripts/seed_p1_prose_revision_candidate.exs
+  provider: slice_verify
+
+user_flow:
+  - open: 真实 Tauri 工作台并选择隔离作品
+  - open: 打开作品档案并切到「大纲与结构」
+  - click: 在明确「第02章：矿区追击战」的行内点击「生成正文草稿」
+  - wait_for: 真实 source run 生成待采纳正文候选，并出现带原句/位置/判断理由/影响范围/置信度与「局部修订所选问题」的质量卡
+  - click: 「局部修订所选问题」
+  - verify: author_action 获得唯一 ACK，创建新的 bounded 修订 run；来源候选与 finding refs 绑定原结果
+  - wait_for: 修订 child run 完成，原稿与修订稿作为两个独立 tentative 候选显示
+  - click: 该修订 run 的「为什么」
+  - verify: Why 读取同作品/同会话/同 run 的持久回放，前后无 Provider 调用
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - llm_http_log
+    - turn_result
+    - action_result
+    - persistence_snapshot
+    - summary_json
+  artifact_dir: artifacts/slice-verify/b71-authoring-revision-tauri
+
+assertions:
+  ui:
+    - 质量卡显示原句、位置、判断理由、影响范围、置信度与按范围命名的「局部修订所选问题」动作
+    - 点击后原稿与修订稿都可独立处理，修订稿显示保存/编辑后保存/放弃动作，未自动采纳
+    - 修订动作只产生 author_action 回执，不产生第二条 user_message；一个 child run 只有一个 assistant 工作回合
+    - 为什么面板显示持久回放说明，不泄漏工具名、call_id、Request IR 或 Provider 私有引用
+  network:
+    - source 正文由明确章标题行的真实按钮触发；source run 身份来自该用户输入 ACK 与同 run 质量结果，不按最新结果猜取
+    - author_action 的 ACK 按同 join_ref/request_ref/topic 唯一绑定；payload.source_turn_ref 指向 source 结果、target_ref 指向原候选，quality_finding_refs 等于实际 source finding
+    - child ACK/action_result/agent_run_state 都绑定同一 receipt、新 run、source、target，且 child run != source run、run_mode=bounded、profile=prose_revision_from_findings_v1
+    - child 私有 canonical 按明确 run 读取；两次真实 pcall/prun 与同次请求/响应配对，第一轮 submit_tentative_artifact arguments={} 产生 invalid_items failed validation，第二轮在该历史后追加原生结果并 passed
+    - 第二请求严格保留第一请求 messages 前缀，只追加 assistant tool_call 与 tool validation_result，不出现伪 user 纠错
+    - 为什么只触发同作品/同会话/同 child turn 的 replay HTTP，观察窗内无新的 Provider 启动或请求
+  data:
+    - child 修订 artifact item 的 item_id/title/body/rationale 与最后合法 Provider 响应同 item_id 字段逐字相等
+    - 原稿 item 原字节与 TENTATIVE 状态保留；local finding 命中句段之外的原文原字节不变；无自动 adopt/discard/supersede
+    - child turn_result 与已提交 assistant Interaction、decision trace 相互绑定；receipt 持久且 source/child 同 work/session
+    - 作品事实（canon）在 source 完成前、作者动作点击前与最终读取两段均不变；唯一允许的是按 VS-00E §16.8 在 source 阶段落 chapters.plan_direction.chapter_mission 的暂定设计态，单独以逐章 protected 字段/mission/updated_at 见证核验，不是 waiver；child 阶段不得改变章计划
+    - before-revision 设计态边界由驱动在 source terminal 与质量卡之后、作者动作点击之前唯一登记；source→before-revision 只允许目标章 nil/旧 TENTATIVE→新 model/TENTATIVE 且绑定同次 pcall/prun/响应/请求 refs/真实 mission_derived 事件，作者版不被覆盖
+    - before-revision→final 章设计态严格不变，仅新增本次已绑定 action receipt；memory reference 合法增量逐条核算
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

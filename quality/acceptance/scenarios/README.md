@@ -7,6 +7,9 @@
 
 | 文件 | 场景 |
 |---|---|
+| `b71-authoring-pending.yml` | B71 CP4b 对话候选修订→作者采纳/放弃→恢复→新请求（**active/nightly 设计已接 driver，未取得真实批次 PASS 前不闭环**）：三 run 独立、两稿并存、Why 持久 replay/0 调用、采纳/放弃 0 Provider 与精确 receipt/唯一 CONFIRMED 事实、重启同 work/session 恢复、新请求真实 ACCEPTED/DISCARDED refs 与 judgment-only 权限；确定性 provider 不代签实模 |
+| `b71-authoring-planning.yml` | B71 CP4b 独立计划→重规划→角色与世界设定双候选的原生 durable 验收；校验请求前缀、原生结果、版本/预算、Why与零canon写入；确定性接线不代签实模 |
+| `b71-authoring-profiles.yml` | B71 CP4b 角色设计与前序判断共享 canonical transcript（真实 Tauri durable run；原生调用/应用校验/严格前缀/作者安全文案；确定性 provider 不代签实模） |
 | `vs00g-trigger-c.yml` | VS00G 触发 C（**active/nightly**：真实 R5 提议；未关闭与关闭后跨扫描去重；原生恢复；活跃 finding 重绑；第二作品显式盘点；零新卡片/状态表/验收 hook） |
 | `b27-natural-author-intent.yml` | B27 自然语言意图→创作效果映射（**草案**：manifest+driver 方案就绪，未注册 driver） |
 | `b27-prompt-lifecycle-consistency.yml` | B27 统一任务语义真实工作台生命周期一致性（**active/nightly**：slice_verify 机制批次已 PASS，含 writer/evaluator 候选、待采纳、显式采纳、章摘要/trace、刷新恢复与下一轮持久事实；真实模型语义归 CP4 §6.1 矩阵） |
@@ -202,6 +205,9 @@
 | `judgment-explore-internal.yml` | 判断探索：已采纳正文事实检索与出处引用（待复跑，blocked） |
 | `judgment-explore-chapter-plan.yml` | 判断探索：设计态章节计划检索与出处引用 |
 | `judgment-explore-chapter-full-read.yml` | 判断探索：长章按 chapter_ref 分页完整读取 + 续读 footer 逐字复用 + 末页事实引用（B24 CP3） |
+| `b71-first-consumer.yml` | B71：原生 assistant/tool 多轮请求、观察 refs/next_offset 回流与 Base 去重（复用长章页面链） |
+| `b71-authoring-transcript.yml` | B71 CP4a：超时后同 run 续行，原生创作/质量调用与应用结果闭合、阶段工具投影、durable checkpoint 与作者安全文案 |
+| `b71-authoring-revision.yml` | B71 质量发现卡片局部修订：真实档案章行→source 正文/质量 finding→author_action 新 bounded run→两次真实原生调用（首轮 invalid_items failed validation、次轮合法 local 修订）→原稿保留/范围外字节不变/Why 零调用；作品事实两段不变，source 阶段仅按 VS-00E §16.8 落暂定章使命并以逐章设计态见证单独核验，final 仅新增 receipt |
 | `judgment-plan-multi-step.yml` | 判断①判复杂 → 模型自产多能力计划 → 多产物停待采纳（ADR-0025 CP4；B13b BB-12 注册） |
 | `au13-arc-ledger-roundtrip.yml` | 弧光账自动更新、探索引用与后续正文投影 |
 | `au13-review-adjudication-roundtrip.yml` | 审读报告逐项裁决 + 提前收官/卷级负债（R10/R11）正触发 |

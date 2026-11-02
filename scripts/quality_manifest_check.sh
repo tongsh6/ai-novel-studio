@@ -14,6 +14,11 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
+# 系统 Python 可能不带 PyYAML；优先复用本机已有的 Homebrew Python，不安装依赖。
+if ! python3 -c "import yaml" >/dev/null 2>&1 && [[ -x /opt/homebrew/bin/python3 ]] && /opt/homebrew/bin/python3 -c "import yaml" >/dev/null 2>&1; then
+  export PATH="/opt/homebrew/bin:$PATH"
+fi
+
 if ! python3 -c "import yaml" >/dev/null 2>&1; then
   echo "[quality-manifest-check] 缺少 PyYAML：本门禁使用标准 YAML 解析器（PyYAML 6.0.3），不允许正则替代。" >&2
   echo "[quality-manifest-check] 安装：python3 -m pip install 'pyyaml==6.0.3'" >&2

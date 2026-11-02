@@ -1,0 +1,69 @@
+id: b71-authoring-planning
+title: B71 CP4b：独立计划与重规划进入双创作候选的同一原生会话
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh b71-authoring-planning --surface tauri
+
+contract:
+  - docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md
+  - docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/B71-provider-message-fidelity.md
+
+invariants:
+  - draft-and-revision-and-two-writers-share-one-canonical-transcript
+  - each-original-tool-call-has-one-ordered-native-result
+  - plan-validation-is-not-execution-or-adoption-authorization
+  - current-stage-tools-do-not-rewrite-canonical-history
+  - durable-plan-version-and-replan-budget-match-real-events
+  - why-reads-persisted-facts-without-provider-calls
+  - tentative-artifacts-require-author-adoption
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: 当前真实 Tauri 工作台并选择隔离作品
+  - send: 请按先核对再补齐计划设计一个角色，再设计相关世界设定；这是一项可恢复的长任务。
+  - wait_for: 同一运行完成独立起草、一次重规划、角色和世界设定两个创作步骤
+  - verify: 页面显示角色设定草稿、世界设定草稿和保存入口，均未采纳
+  - click: 最后一条结果的为什么按钮
+  - verify: 真实持久回放说明可读，打开面板前后无新增Provider调用
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - llm_http_log
+    - turn_result
+    - persistence_snapshot
+    - summary_json
+  artifact_dir: artifacts/slice-verify/b71-authoring-planning-tauri
+
+assertions:
+  ui:
+    - 真实窗口显示角色与世界设定两类草稿及保存入口，未执行采纳
+    - 为什么面板显示不调用模型的持久回放说明，不泄漏工具名、call_id、Request IR或私有推理
+  network:
+    - 实际请求依次为判断、独立agent_plan_draft、agent_plan_revision、两个独立submit_tentative_artifact
+    - 每个后续请求保留前次messages的严格字节前缀，当前阶段工具目录和tool_choice匹配
+    - 原生tool结果按原call_id闭合，计划校验不授予执行或采纳权限
+    - 为什么触发同作品同会话的真实replay查询，观察窗无Provider启动或请求
+  data:
+    - agent_runs与同一long_run_task及canonical run_id相互绑定，状态completed且run_mode为durable
+    - plan_version为2且replans为1，与唯一plan_revised事件和5次实际请求一致
+    - 两类创作结果均为TENTATIVE，持久pending引用精确覆盖两次创作的全部候选
+    - canon表（含作品档案works与正文drafts）前后计数和canon hash一致，未发生canon更新或隐式采纳
+    - start/final使用同一producer的versioned快照，含snapshot at、9表行数/全行hash/canon hash及每个memory的引用统计
+    - memory_items的canon hash仅排除reference_count与last_referenced_at，content/status/version/updated_at及未知新增列仍纳入
+    - memory_reference_logs用SELECT *捕获全部列，未知列完整保留并参与旧引用日志逐字比较；仅已知id字段把原始16-byte UUID归一为虚线小写
+    - 旧引用日志逐字不变，新日志仅属于已存在memory/work且场景为dialogue_context
+    - 每个memory的reference_count增量精确等于对应新增引用日志数；有新增时last_referenced_at不倒退、不早于最后日志且不晚于final快照，无新增时保持原样
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

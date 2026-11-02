@@ -1,0 +1,89 @@
+id: b71-authoring-pending
+title: "B71 CP4b：对话候选修订→作者采纳/放弃→恢复→新请求"
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh b71-authoring-pending --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md
+  - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
+  - docs/design/adr/ADR-0010-state-adoption-boundary-v3.md
+  - docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/B71-provider-message-fidelity.md
+
+invariants:
+  - source-revision-followup-are-three-distinct-bounded-judgment-runs
+  - source-candidate-body-equals-full-author-bytes
+  - revision-items-exactly-equal-same-writer-response-by-item-id
+  - revision-of-points-to-preserved-source-candidate
+  - author-accept-discard-are-zero-provider-author-actions
+  - accept-adds-only-one-confirmed-memory-row-bound-to-real-receipt
+  - discard-only-resolves-source-and-preserves-accepted-bytes
+  - why-replay-is-scoped-persisted-and-provider-free
+  - restore-rejoins-same-work-session-without-new-candidate-or-provider
+  - followup-request-consumes-accepted-discarded-refs-with-judgment-only-authority
+  - followup-reply-equals-same-provider-bytes-and-consumes-resolved-status
+  - all-runs-share-same-pcall-prun-request-response-canonical-and-budget-evidence
+
+setup:
+  seed: scripts/seed_b71_authoring_pending.exs
+  provider: slice_verify
+
+user_flow:
+  - open: 真实 Tauri 工作台并选择隔离的空作品
+  - type: 带本批随机 nonce 的 Q1B 原文登记消息（主角沈砚经营旧书铺）
+  - wait_for: source bounded judgment run 完成，待采纳原稿候选可见
+  - type: 只把沈砚改成林渡、其余内容与资料校验标识保留、生成修订候选不要保存
+  - wait_for: 新 revision bounded judgment run 完成，原稿与修订稿两稿同时可见
+  - click: 该修订稿的「为什么」
+  - verify: Why 读取同 work/session/turn 的持久 replay，前后 0 Provider 调用
+  - click: 按修订稿可见标题/正文所属 AX 结构定位的保存按钮（不得全局 first/last）
+  - verify: 真实 author_action ACK/action_result/TurnResult；原稿仍待采纳，仅修订全文形成 CONFIRMED 事实
+  - click: 按原稿可见标题/正文所属 AX 结构定位的放弃按钮；有真实确认框则确认
+  - verify: 精确原稿 DISCARDED，已采纳修订全文与 canon 字节不变
+  - close_and_relaunch: 仅关闭并重启本批精确 app_path/PID
+  - wait_for: 同一 work/session 通过真实 resume/join 恢复，无新候选/Provider
+  - type: 资料处理进度怎么样？
+  - wait_for: 新 followup run 完成；实际请求含 ACCEPTED/DISCARDED refs/状态与 judgment-only 权限，回复消费真实处置状态
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - llm_http_log
+    - turn_result
+    - action_result
+    - persistence_snapshot
+    - summary_json
+  artifact_dir: artifacts/slice-verify/b71-authoring-pending-tauri
+
+assertions:
+  ui:
+    - start/after-source/after-revision/after-accept/after-discard/after-restore/final 与 Why 前后分别唯一写入，顺序严格，截图与 AX 文本来自本批真实窗口
+    - 原稿/修订稿标题与正文在 after-revision 同时可见；采纳后原稿仍显示待处理动作；放弃后已采纳正文仍可见
+    - 保存/放弃/Why 都先由候选可见 item 标题+正文定位所属 AX 结构，再在该结构内唯一命中按钮；缺失/多义/禁用直接失败
+    - 重启只操作本批精确 app_path/PID；恢复后仍是同一 work/session，不出现新候选或新 Provider 调用
+  network:
+    - source/revision/followup 的 user_message 各自唯一 ACK、run_id、completed TurnResult；三个 run 互不相同且都是 bounded judgment_loop_v1
+    - author_action 帧按完整 action_id/action_type/idempotency_key/source_turn_ref/target_ref 唯一绑定；ACK 同 join/request/topic 唯一且 action_status 与 duplicate=false
+    - action_result 与动作 TurnResult 按 owning topic/发送后/action+artifact/parent turn 唯一绑定，不把源轮次当子结果
+    - 采纳与放弃前后 Provider/LLM 计数不变；Why 窗口 Provider/LLM/run 计数不变，并存在同 revision turn 的持久 replay HTTP 200
+    - 恢复存在同 work 的 sessions/resume HTTP 200；followup 的 user_message session 与原 session 一致且产生新 run/新 Provider 调用
+    - followup 实际请求的「消息处置与已有产物」只含真实 ACCEPTED/DISCARDED refs、pending 0 与真实全文预览；请求历史无旧 assistant/tool 执行，工具/权限无 adopt/production_write
+    - 作者可见回复逐字等于同次 Provider 响应内容，并消费 ACCEPTED/DISCARDED 状态与已采纳修订全文/标题
+  data:
+    - source artifact item body 逐字等于本批带 nonce 的作者输入原文（含作者全部字节），不是模型改写
+    - revision artifact 全 item 集 item_id/title/body/rationale 与同次 writer 响应同 item_id 字段精确相等；revision_of 指向原稿，原稿仍 TENTATIVE
+    - start→after-source→after-revision 与 restore→final 的 canon 9 表 hash/行数不变，0 receipt/0 memory 行
+    - after-revision→after-accept 只新增一条 CONFIRMED memory 行与一条 accept receipt；memory 内容绑定修订全文、receipt.persistence.memory_item_id/source/mutation，原稿不自动处置
+    - after-accept→after-discard 只新增一条 discard receipt；accepted memory 行逐字节不变，其它 canon/章/角色/ledger 全表 hash 不变
+    - 合法 memory reference 增量逐日志核算，不忽略整表或未知列变化；来源/目标/动作错绑或缺证据即失败
+    - 每个 run 的 pcall/prun/请求/响应/canonical 用 joinNativeCallEvidence 与 completed ProviderRun 严格配对；不把 source/revision/followup 的固定调用数 1/2/1 当通用契约
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

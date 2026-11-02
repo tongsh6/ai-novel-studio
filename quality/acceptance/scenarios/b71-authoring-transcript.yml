@@ -1,0 +1,58 @@
+id: b71-authoring-transcript
+title: B71 CP4a：续行、原生创作与质量复核共享 canonical transcript
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh b71-authoring-transcript --surface tauri
+
+contract:
+  - docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md
+  - docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/B71-provider-message-fidelity.md
+
+invariants:
+  - continuation-writer-and-quality-share-one-authoring-transcript
+  - application-validation-closes-each-native-tool-call
+  - stage-tool-projection-does-not-rewrite-tool-history
+  - tentative-artifact-requires-author-adoption
+  - author-visible-copy-contains-no-internal-tool-or-request-identifiers
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: 通过真实入口生成正文草稿并明确这是可恢复的长任务，外部测试替身令写作超时
+  - wait_for: 页面出现真实超时原因与缩小范围重试动作
+  - click: 「先写第一场（500 字）」
+  - verify: 同一 run 续行后生成待审正文候选并完成质量复核
+  - verify: 请求依次保留续行、原生创作与质量调用及其应用校验结果
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - llm_http_log
+    - turn_result
+    - persistence_snapshot
+    - summary_json
+  artifact_dir: artifacts/slice-verify/b71-authoring-transcript-tauri
+
+assertions:
+  ui:
+    - 页面显示人类可读的写作进展、待审正文候选和保存动作，不显示工具 code、call_id、Request IR 或原始推理
+  network:
+    - 独立计划与本章使命的原生调用和应用校验进入同一 writer 请求；校验通过不表示执行批准或采纳
+    - 后续请求保留先前 messages 的严格前缀，并按阶段追加 scope、assistant tool_call 与 validation_result
+    - 当前请求 tools 只包含当前阶段允许的工具；writer 与 evaluator 分开真实调用
+    - durable checkpoint 可恢复同一 canonical transcript，不依赖 provider 私有会话
+  data:
+    - recovered_run_id 与初始 run_id 相同，正文候选保持 tentative，未采纳前无正文写入
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

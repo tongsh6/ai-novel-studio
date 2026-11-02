@@ -29,6 +29,16 @@ L5 Evidence / Report
 | L4 Scenario Acceptance | 由外部自动化驱动真实 browser/Tauri 页面完成用户场景 | `scripts/quality_accept.sh`, `scripts/slice_verify.sh`, `scripts/tauri_slice_verify.sh` |
 | L5 Evidence / Report | 归档截图、WebSocket 帧、JSONL、summary 和长期处置记录 | `artifacts/`, `quality/reports/`, `reports/static-scan/dispositions.json` |
 
+## 本机 Manifest 门禁环境
+
+本机 `/opt/homebrew/bin/python3` 已提供 PyYAML 6.0.3；`/usr/bin/python3` 未提供该模块，不代表本机缺少依赖，也不需要安装。`scripts/quality_manifest_check.sh` 会优先使用 PATH 中的 `python3`，并在必要时复用上述 Homebrew 解释器。本机直接运行：
+
+```bash
+bash scripts/quality_manifest_check.sh
+```
+
+门禁必须由标准 YAML 解析器完成，不得因解释器选择问题改用正则解析。
+
 ## 承重 Slice 追踪字段
 
 每个承重 slice 应能追踪：
