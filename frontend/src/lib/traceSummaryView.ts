@@ -114,15 +114,22 @@ function approvalLines(value: unknown): string[] {
     const approval = entry as Record<string, unknown>;
     const policyRef = stringValue(approval.approval_policy_ref);
     if (!policyRef) return [];
-    const policyLabel = TRACE.approvals.policies[policyRef] ?? policyRef;
+    const policyLabel = TRACE.approvals.policies[policyRef] ?? TRACE.approvals.policyFallback;
     const decision = stringValue(approval.decision);
-    const decisionLabel = decision ? (TRACE.approvals.decisions[decision] ?? decision) : TRACE.approvals.fallback;
+    const decisionLabel = decision
+      ? (TRACE.approvals.decisions[decision] ?? TRACE.approvals.fallback)
+      : TRACE.approvals.fallback;
     const risk = stringValue(approval.risk_class);
     const by = stringValue(approval.decided_by);
-    const meta = [by === "author" ? "作者" : by, risk ? `风险 ${risk}` : null]
+    const meta = [
+      by === "author" ? "作者" : null,
+      risk ? (TRACE.approvals.riskLabels[risk.toUpperCase()] ?? "已记录风险等级") : null,
+    ]
       .filter((part): part is string => Boolean(part))
       .join("，");
-    return [`${TRACE.approvals.prefix}：${policyLabel} · ${decisionLabel}${meta ? `（${meta}）` : ""}`];
+    return [
+      `${TRACE.approvals.prefix}：${policyLabel} · ${decisionLabel}${meta ? `（${meta}）` : ""}`,
+    ];
   });
 }
 
@@ -158,7 +165,9 @@ function missionView(
   return {
     label,
     statement,
-    statusLabel: status ? (TRACE.missionSection.statusLabels[status] ?? status) : null,
+    statusLabel: status
+      ? (TRACE.missionSection.statusLabels[status] ?? TRACE.missionSection.recordedStatus)
+      : null,
     mustAdvance: missionItems(record?.must_advance),
     mustAvoid: missionItems(record?.must_avoid),
   };
@@ -325,6 +334,7 @@ function detailLines(summary: TraceSummaryLike): string[] {
   // WR01c：使命从 detailLines 一句话行升级为独立结构化区块（missions），不再重复进明细行。
   lines.push(...aiMessageEnvelopeLines(summary.ai_message_envelope));
   lines.push(...memoryWindowLines(summary.memory_window));
+  lines.push(...authoringHistoryLines(summary.authoring_history));
   lines.push(...replayIntegrityLines(summary));
 
   return unique(lines);
@@ -339,9 +349,27 @@ function memoryWindowLines(value: unknown): string[] {
   const target = stringValue(window.target_chapter);
   const position = stringValue(window.position);
 
-  if (applied === true) return [TRACE.memoryWindow.applied(target ?? TRACE.memoryWindow.unknownTarget)];
+  if (applied === true)
+    return [TRACE.memoryWindow.applied(target ?? TRACE.memoryWindow.unknownTarget)];
   if (position === "unknown_or_no_target") return [TRACE.memoryWindow.noTarget];
   return [];
+}
+
+function authoringHistoryLines(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((entry) => {
+    const history = objectValue(entry);
+    if (!history) return [];
+    const summary = stringValue(history.summary);
+    const omissions = stringArray(history.omissions).join("；");
+    const sources = stringArray(history.source_names).join("、");
+    return [
+      summary ? TRACE.authoringHistory.summary(summary) : null,
+      omissions ? TRACE.authoringHistory.omissions(omissions) : null,
+      sources ? TRACE.authoringHistory.sources(sources) : null,
+    ].filter((line): line is string => Boolean(line));
+  });
 }
 
 function replayIntegrityLines(summary: TraceSummaryLike): string[] {

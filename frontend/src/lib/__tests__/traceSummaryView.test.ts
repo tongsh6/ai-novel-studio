@@ -268,6 +268,35 @@ describe("traceSummaryView", () => {
     expect(noTarget?.detailLines).toContain("本轮未定位目标章，作品事实未按有效窗过滤。");
   });
 
+  it("shows canonical compaction without internal refs or enum codes", () => {
+    const view = toAuthorTraceSummary({
+      decision_type: "reply_only",
+      authoring_history: [
+        {
+          summary: "已保留确认过的作品背景。",
+          omissions: ["较早的工具调用细节已省略。"],
+          source_names: ["第03章：旧誓"],
+          source_refs: ["chapter:internal-03"],
+        },
+      ],
+      approvals: [
+        {
+          approval_policy_ref: "approval_policy.internal_v9",
+          risk_class: "INTERNAL_HIGH_V9",
+          decided_by: "author",
+        },
+      ],
+    });
+
+    expect(view?.detailLines).toContain("较早创作过程：已保留确认过的作品背景。");
+    expect(view?.detailLines).toContain("省略说明：较早的工具调用细节已省略。");
+    expect(view?.detailLines).toContain("参考来源：第03章：旧誓。");
+    const visibleText = JSON.stringify(view);
+    expect(visibleText).not.toContain("chapter:internal-03");
+    expect(visibleText).not.toContain("approval_policy.internal_v9");
+    expect(visibleText).not.toContain("INTERNAL_HIGH_V9");
+  });
+
   it("B58：Why 补充说明展示 author-safe 批准依据，不泄漏内部 ref", () => {
     const view = toAuthorTraceSummary({
       decision_type: "reply_only",
@@ -288,10 +317,8 @@ describe("traceSummaryView", () => {
       ],
     });
 
-    expect(view?.detailLines).toContain(
-      "批准依据：作品变更采纳 · 已采纳（作者，风险 HIGH）",
-    );
-    expect(view?.detailLines).toContain("批准依据：高预算执行确认 · 已记录（作者，风险 HIGH）");
+    expect(view?.detailLines).toContain("批准依据：作品变更采纳 · 已采纳（作者，高风险）");
+    expect(view?.detailLines).toContain("批准依据：高预算执行确认 · 已记录（作者，高风险）");
     expect(JSON.stringify(view)).not.toContain("receipt-internal-id");
   });
 });

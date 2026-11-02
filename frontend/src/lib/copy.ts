@@ -388,6 +388,7 @@ export const WORKBENCH = {
   adoptionIncomplete: "采纳未完成，请查看系统提示后重试。",
   actionFailure: "操作失败，请重试。",
   actionDuplicate: "该操作已处理，系统已避免重复执行。",
+  actionReceiptUnverifiable: "操作回执暂不可核验；请查看当前状态后再决定是否重试。",
   actionUnavailable: "当前动作不可用，请刷新或继续对话。",
   actionConfirm: "确认执行",
   actionReject: "拒绝",
@@ -663,6 +664,12 @@ export const TRACE = {
       "approval_policy.high_risk_canon_change": "作品变更采纳",
       "approval_policy.long_run_budget_gate": "高预算执行确认",
     } as Record<string, string>,
+    policyFallback: "其他授权依据",
+    riskLabels: {
+      HIGH: "高风险",
+      MEDIUM: "中风险",
+      LOW: "低风险",
+    } as Record<string, string>,
     decisions: {
       ACCEPTED: "已采纳",
       EDITED_ACCEPTED: "编辑后采纳",
@@ -677,6 +684,11 @@ export const TRACE = {
   replayComplete: "已从持久 trace 生成结构化回放。",
   replayPartial: "这轮 trace 不完整，只展示已保存的部分解释。",
   replayNoProvider: "回放只读取已保存记录，不会重新调用模型。",
+  authoringHistory: {
+    summary: (summary: string) => `较早创作过程：${summary}`,
+    omissions: (omissions: string) => `省略说明：${omissions}`,
+    sources: (sources: string) => `参考来源：${sources}。`,
+  },
   memoryWindow: {
     applied: (chapter: string) => `作品事实已按目标章过滤：${chapter}。`,
     noTarget: "本轮未定位目标章，作品事实未按有效窗过滤。",
@@ -754,6 +766,7 @@ export const TRACE = {
       CONFIRMED: "已确认",
       AUTHOR_EDITED: "作者改写",
     } as Record<string, string>,
+    recordedStatus: "已记录",
   },
   toolUsed: (name: string) => `本轮使用了工具：${name}。`,
   toolWithStatus: (name: string, status: string) =>

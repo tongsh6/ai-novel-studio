@@ -56,7 +56,6 @@ import {
   type AgentCommand,
   type AgentRunStateData,
   type AgentRunTriggerData,
-  type AuthorActionResult,
   type CandidateSelectionPayload,
   type SendMessageResult,
   type TaskStateData,
@@ -114,6 +113,12 @@ import {
   getVisibleWorkTitle,
   shouldShowWelcomeMessage,
 } from "../lib/workspaceRuntimeState";
+import type { AuthorActionCurrentScope } from "../lib/authorActionReceipt";
+import {
+  isAuthorActionDelivered,
+  submitAndDeliverAuthorAction,
+  type AuthorActionSubmissionResult,
+} from "../lib/authorActionSubmission";
 import {
   activeToolActivity,
   agentRunReasoningFlow,
@@ -1803,6 +1808,9 @@ export function WorkspaceChat() {
     setResumeResolvedAdoptions([]);
     setTranscriptRestored(false);
     setRevisionSubmittingTurnId(null);
+    setEditSubmitting(false);
+    setEditDialog(null);
+    setDiscardDialog(null);
     resumeRestoredTranscriptRef.current = false;
     // AU10 CP1：切换作品时保留 last-known 消息与标题，等 resume 快照到达后
     // 与等量运行时状态一起原子提交；避免「旧内容 → 空白 → 回填」和标题/消息混搭。
@@ -2472,46 +2480,6 @@ export function WorkspaceChat() {
     [activeSessionId, context.workId],
   );
 
-  const rememberAuthorActionRunAck = useCallback(
-    (response: AuthorActionResult) => {
-      if (!response.run_id) return;
-
-      const acknowledgedState: AgentRunStateData = {
-        run_id: response.run_id,
-        run_mode: normalizeAgentRunMode(response.run_mode),
-        status: "running",
-        phase: "executing",
-        long_run_task_ref: response.long_run_task_ref ?? null,
-        work_id: context.workId,
-        session_id: activeSessionId,
-        parent_turn_ref: response.turn_id ?? response.source_turn_ref ?? null,
-        profile_ref: response.profile_ref ?? null,
-        trigger: response.trigger ?? null,
-        current_activity: {
-          kind:
-            response.trigger?.action_type === "revise_from_findings"
-              ? "revision_draft_generation"
-              : "agent_run_execution",
-          phase: "preparing",
-          completed_steps: 0,
-          total_steps: 0,
-        },
-        goal: response.goal,
-        completed_step_refs: [],
-        pending_artifact_refs: [],
-        interrupt_state: { status: "none", requested_at: null },
-        current_task: true,
-        runtime_live: true,
-      };
-
-      setAgentRunStates((prev) => ({
-        ...prev,
-        [response.run_id!]: mergeAgentRunRuntimeState(prev[response.run_id!], acknowledgedState),
-      }));
-    },
-    [activeSessionId, context.workId],
-  );
-
   // DS03：not_found 意味着 runtime 已失活——本地立即把该 run 降为 dead，
   // 历史状态不再授予命令权限，控制坞切换到「重新发起」。
   const demoteAgentRunToDead = useCallback((run: AgentRunStateData) => {
@@ -2837,39 +2805,75 @@ export function WorkspaceChat() {
     }
   };
 
+  const currentAuthorActionScope = (): AuthorActionCurrentScope => ({
+    connectionToken: activeConnectionRef.current.token,
+    workId: activeConnectionRef.current.workId,
+    sessionId: visibleTranscriptSessionIdRef.current,
+  });
+
+  // 作者动作提交/交付的唯一入口：WorkspaceChat 只捕获 scope、提供真实 UI sink，
+  // 异步所有权（包括迟到回执与 request pending 收口）由 submitAndDeliverAuthorAction
+  // 统一持有。回执仍是运行/结果事实的唯一来源，不按 action/target 猜 pending。
   const handleAvailableAction = async (
     turnResult: TurnResult,
     action: AvailableActionLike,
     authorPayload?: Record<string, unknown>,
-  ): Promise<AuthorActionResult | null> => {
-    if (!channelRef.current || action.enabled === false || loading) return null;
-
-    setLoading(true);
-
-    try {
-      const result = await sendAuthorAction(
-        channelRef.current,
-        toAuthorActionPayload(turnResult.turn_id, action, authorPayload),
-      );
-      // 幂等：重复提交（同 idempotency_key）后端不重复执行并回 duplicate=true，
-      // 让作者看见"已处理"，而不是静默无反应。
-      if (result?.duplicate === true) {
-        setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionDuplicate }]);
-        setLoading(false);
-      }
-      // B46 CP2：处理后立即从 inbox/session 待处理快照移除该 artifact；
-      // 失败（result null）保留，下一轮恢复仍可见。
-      if (result && action.target_ref) {
-        setResumePendingAdoptions((prev) =>
-          prev.filter((artifact) => artifact.artifact_id !== action.target_ref),
-        );
-      }
-      return result;
-    } catch {
-      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionFailure }]);
-      setLoading(false);
+    options: { revisionTurnId?: string; onSettled?: () => void } = {},
+  ): Promise<AuthorActionSubmissionResult | null> => {
+    const channel = channelRef.current;
+    if (!channel || action.enabled === false || loading) {
+      options.onSettled?.();
       return null;
     }
+
+    const revisionTurnId = options.revisionTurnId ?? null;
+    setLoading(true);
+    if (revisionTurnId) setRevisionSubmittingTurnId(revisionTurnId);
+
+    const committed = {
+      ...currentAuthorActionScope(),
+      sourceTurnRef: turnResult.turn_id,
+    };
+
+    return submitAndDeliverAuthorAction({
+      action: toAuthorActionPayload(turnResult.turn_id, action, authorPayload),
+      committed,
+      send: (payload) => sendAuthorAction(channel, payload),
+      getCurrentScope: currentAuthorActionScope,
+      effects: {
+        publishDuplicate: () => {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", text: WORKBENCH.actionDuplicate },
+          ]);
+        },
+        publishFailure: () => {
+          setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionFailure }]);
+        },
+        publishUnverifiable: () => {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", text: WORKBENCH.actionReceiptUnverifiable },
+          ]);
+        },
+        applyTurnResult: (result) => handleTurnResultRef.current(result),
+        applyRuntime: (state) => {
+          setAgentRunStates((prev) => ({
+            ...prev,
+            [state.run_id]: mergeAgentRunRuntimeState(prev[state.run_id], state),
+          }));
+        },
+        settle: () => {
+          setLoading(false);
+          if (revisionTurnId) {
+            setRevisionSubmittingTurnId((current) =>
+              current === revisionTurnId ? null : current,
+            );
+          }
+          options.onSettled?.();
+        },
+      },
+    });
   };
 
   // VS-00E CP3：按质量发现重写——从本轮 available_actions 取出 revise_from_findings 动作，
@@ -2882,18 +2886,14 @@ export function WorkspaceChat() {
       (candidate) => candidate.action_type === "revise_from_findings",
     );
     if (!action) return;
-    setRevisionSubmittingTurnId(turnResult.turn_id);
-    try {
-      const result = await handleAvailableAction(turnResult, action, {
+    await handleAvailableAction(
+      turnResult,
+      action,
+      {
         quality_finding_refs: selectedFindingIds ?? action.quality_finding_refs ?? [],
-      });
-      if (result?.run_id) {
-        rememberAuthorActionRunAck(result);
-      }
-    } finally {
-      setRevisionSubmittingTurnId(null);
-      setLoading(false);
-    }
+      },
+      { revisionTurnId: turnResult.turn_id },
+    );
   };
 
   // 从待采纳 artifact 取出可编辑的正文（payload.content 优先，否则拼接 items 正文）。
@@ -2922,18 +2922,22 @@ export function WorkspaceChat() {
     if (!editDialog) return;
     const trimmed = editDialog.text.trim();
     if (trimmed === "") return;
+    const submittedTurnId = editDialog.turnResult.turn_id;
     setEditSubmitting(true);
-    try {
-      const result = await handleAvailableAction(editDialog.turnResult, editDialog.action, {
-        edited_content: trimmed,
-      });
-      if (result?.action_status === "accepted") {
-        setEditDialog(null);
-      } else {
-        setEditDialog((current) => (current ? { ...current, failed: true } : current));
-      }
-    } finally {
-      setEditSubmitting(false);
+    const result = await handleAvailableAction(
+      editDialog.turnResult,
+      editDialog.action,
+      { edited_content: trimmed },
+      { onSettled: () => setEditSubmitting(false) },
+    );
+    // stale 提交不触碰新视图；只有当前 scope 的交付才更新弹窗。
+    if (!result) return;
+    if (isAuthorActionDelivered(result)) {
+      setEditDialog(null);
+    } else {
+      setEditDialog((current) =>
+        current?.turnResult.turn_id === submittedTurnId ? { ...current, failed: true } : current,
+      );
     }
   };
 
@@ -3062,7 +3066,7 @@ export function WorkspaceChat() {
     if (isFactInventoryProposalAction(action) && action.target_ref) {
       const targetRef = action.target_ref;
       void handleAvailableAction(turnResult, action).then((result) => {
-        if (!result) return;
+        if (!isAuthorActionDelivered(result)) return;
         setMessages((prev) =>
           prev.map((message) =>
             message.turnResult?.turn_id === turnResult.turn_id && message.turnResult
@@ -3073,8 +3077,6 @@ export function WorkspaceChat() {
               : message,
           ),
         );
-        if (result.run_id) rememberAuthorActionRunAck(result);
-        setLoading(false);
       });
       return;
     }

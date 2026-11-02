@@ -4,7 +4,9 @@ import {
   UserMessageSubmissionSchema,
   type UserMessageSubmission,
 } from "../generated/foundation/user_message_submission";
+import type { AuthorActionResult } from "../generated/foundation/author_action_result";
 export type { UserMessageSubmission } from "../generated/foundation/user_message_submission";
+export type { AuthorActionResult } from "../generated/foundation/author_action_result";
 
 const DEFAULT_ENDPOINT: string = wsBaseUrl;
 export const LLM_TURN_TIMEOUT_MS = 300000;
@@ -309,7 +311,6 @@ export type AgentRunStateData = AgentRunState & {
     pending_artifact_refs?: string[];
     progress?: number;
     step?: string;
-    checkpoint_data?: Record<string, unknown>;
     updated_at?: string | null;
   } | null;
 };
@@ -402,23 +403,8 @@ export interface AuthorActionPayload {
   payload?: Record<string, unknown>;
 }
 
-export interface AuthorActionResult {
-  received: boolean;
-  action_status: string;
-  duplicate?: boolean;
-  receipt_id?: string | null;
-  run_id?: string;
-  run_mode?: string;
-  long_run_task_ref?: string | null;
-  turn_id?: string;
-  source_turn_ref?: string;
-  source_surface_ref?: string;
-  target_artifact_ref?: string;
-  profile_ref?: string;
-  goal?: { text?: string; version?: number };
-  trigger?: AgentRunTriggerData | null;
-}
-
+// VS-00L §16.10：公开 wire 类型由 foundation schema/codegen 派生；
+// run/source/receipt 字段与可选 agent_run_state/turn_results 不在前端另写一份。
 export function sendAuthorAction(
   channel: Channel,
   action: AuthorActionPayload,
