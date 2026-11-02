@@ -26,6 +26,10 @@ const MESSAGE = "「灰烬中的手印」这章我怀疑有重复，请把全章
 const CONTINUATION_MESSAGE = "先写第01章正文草稿，再做质量复核；这是一项可恢复的长任务。";
 const PLANNING_MESSAGE = "请按先核对再补齐计划设计一个角色，再设计相关世界设定；这是一项可恢复的长任务。";
 const CHARACTER_MESSAGE = "先看看当前已有角色阵容，然后设计一个与主角形成镜像冲突的主要反派；这是一项可恢复的长任务。";
+// CP3b 实模场景的真实作者自然语言创作请求：不携带验收专用标识/开关/固定期望，
+// 模型可自主选择只读求证或直接产出 tentative 候选。
+const LIVE_MESSAGE =
+  "先看看第01章现在的设定和正文，再按现有设定写一段更紧张的开场：主角在雨夜收到一封没有署名的信，生成待采纳的候选，先不要保存。";
 
 const SLICE_JOURNEYS = Object.freeze({
   "b71-first-consumer": "full-read",
@@ -57,8 +61,16 @@ export function readConfig(dir) {
 function readyFor(dir) {
   const ready = read(dir, "native-driver-ready.json");
   assert(SLICE_JOURNEYS[ready.slice_id], `未知原生 slice: ${ready.slice_id}`);
-  assert.equal(ready.provider, "slice_verify");
-  return { ...ready, journey: SLICE_JOURNEYS[ready.slice_id] };
+  assert(
+    ["slice_verify", "strata"].includes(ready.provider),
+    `原生批次 provider 必须是 slice_verify 或 strata，实测: ${ready.provider}`,
+  );
+  // provider=strata 即 CP3b 实模：同一 slice 切换到 live journey，判据/驱动按真实模型行为分层。
+  const journey = ready.provider === "strata" ? "live" : SLICE_JOURNEYS[ready.slice_id];
+  if (journey === "live") {
+    assert.equal(ready.slice_id, "b71-first-consumer", "live journey 只用于 b71-first-consumer");
+  }
+  return { ...ready, provider: ready.provider, journey };
 }
 
 function targetFor(dir, { includeSession = false } = {}) {
@@ -83,18 +95,22 @@ const messageFor = (journey) => JOURNEY_MESSAGES[journey];
 export function prepare(dir) {
   const ready = readyFor(dir);
   const pending = ready.journey === "pending";
-  const target = targetFor(dir, { includeSession: pending });
+  const live = ready.journey === "live";
+  const target = targetFor(dir, { includeSession: pending || live });
   const nonce = pending ? randomBytes(8).toString("hex") : null;
   write(dir, "production-sources-before.json", productionFingerprint());
   write(dir, "native-b71-config.json", {
     slice_id: ready.slice_id,
     journey: ready.journey,
+    provider: ready.provider,
     target,
     message: pending
       ? pendingSourceMessage(nonce)
       : ready.journey === "revision"
         ? ""
-        : messageFor(ready.journey),
+        : live
+          ? LIVE_MESSAGE
+          : messageFor(ready.journey),
     ...(pending
       ? {
           nonce,
@@ -168,7 +184,9 @@ export function capture(dir, checkpoint) {
   const journey = readConfig(dir).journey;
   const planning = journey === "planning";
   const revision = journey === "revision";
-  const canon = planning || revision;
+  // live 实模需要未采纳零写入的 canon 内容快照（start/final 对比），同 planning/revision。
+  const live = journey === "live";
+  const canon = planning || revision || live;
   if (isWhyCheckpoint(canon, checkpoint)) return writeWhyCheckpoint(dir, checkpoint);
   assert(RUN_CHECKPOINTS.includes(checkpoint), `未知 checkpoint: ${checkpoint}`);
   if (checkpoint === "before-revision") {
