@@ -17,6 +17,7 @@ import {
   verifyPendingBatch,
 } from "./lib/native_ui/authoring_pending_run_evidence.mjs";
 import { verifyLiveBatch } from "./lib/native_ui/authoring_live_evidence.mjs";
+import { verifyBehaviorBatch } from "./lib/native_ui/authoring_behavior_evidence.mjs";
 import {
   characterRequestChecks,
   characterOutcomeChecks,
@@ -325,6 +326,7 @@ const JOURNEY_VERIFIERS = Object.freeze({
   revision: verifyRevisionBatch,
   pending: verifyPendingBatch,
   live: verifyLiveBatch,
+  behavior: verifyBehaviorBatch,
 });
 
 export function verify(dir) {

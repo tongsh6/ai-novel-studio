@@ -51,6 +51,8 @@
 | `lib/quality/author_behavior_oracle.mjs` | B70 CP1 author-behavior 确定性 oracle 评估器：allowed action/effect、硬违规（错对象/未授权写/重复副作用/虚假完成/讨论强制写）、unknown 不判 PASS、覆盖报告生成（`author-behavior-coverage-report/v1`）。 |
 | `lib/quality/author_behavior_pr_subset.mjs` | B70 CP3 PR 受影响子集：变更路径→应跑 case/场景映射（docs-only 空集、未知路径保守全选）；CLI `author_behavior_pr_subset.mjs`。 |
 | `author_behavior_real_llm_plan.mjs` | B70 CP3 真实模型 holdout-only 预注册生成器（不加载模型；单槽/卸载/预算/判据/I10 不代签）；对应 scenario release-real-llm blocked。 |
+| `author_behavior_live_case.mjs` / `lib/quality/author_behavior_live_cases.mjs` | B71 实模作者行为输入选择器与 CLI：只从 B70 冻结 cases 取 `expression` 原文（`expression_frozen=true`；`generated_frozen` 必须带 generator/generated_at），按已批准 pilot 组/目标族/状态/split 选 case，persona 仅记录表达风格（不评分）；`--case/--field state_env` 供批次入口读取；拒绝现场造输入/未批准 case，explore split 默认拒绝。 |
+| `native_b71_behavior_drive.mjs` | B71 作者行为覆盖外部驱动（journey=behavior）：输入取 prepare 写入的冻结 case expression，真实窗口输入并等待 run 终局，采集 llm-calls/AX/WS/canon/usage/strata 生命周期；批次入口 `B71_SLICE=b71-first-consumer B71_PROVIDER=strata B71_BEHAVIOR_CASE=C-F1-003 bash scripts/native_b71_batch.sh <tag>`，输出 `b71-first-consumer-behavior-<tag>`（behavior-case.json/behavior-verdict.json/summary.json 分层），seed 用 `seed_author_behavior_states.exs --state` 或 `B70_AUTHOR_BEHAVIOR_STATE`；1 case 1 批、单槽 iq3_s、前后 loaded=null 核验。 |
 | `author_behavior_nightly.sh` | B70 CP3 夜间/后台多 seed 探索 runner：必须带预注册 JSON，逐 seed 预算/心跳/pidfile/termination，失败只读保留。 |
 | `lib/quality/author_behavior_promote.mjs` | B70 CP3 失败→regression 候选：只接受 G1–G6 硬违规、指纹去重、写 regressions.json 台账；fixture 不兼容/驱动失败拒转。 |
 | `lib/quality/author_behavior_real_llm.mjs` | B70 CP3 实模预注册构造（holdout-only/单槽/卸载/语义与 I10 边界）；CLI 为 `author_behavior_real_llm_plan.mjs`。 |

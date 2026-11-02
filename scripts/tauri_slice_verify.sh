@@ -2518,6 +2518,11 @@ if is_b71_family_slice "$SLICE_ID"; then
   B71_QUALITY_REVISION_RETRY="$(b71_route_field "$B71_ROUTE" quality_revision_retry)"
 fi
 
+# B70 作者行为覆盖批次：用状态夹具替换 B71 默认 seed（产品外脚本，隔离测试库）。
+if [[ -n "${TAURI_NATIVE_SEED_SCRIPT:-}" ]]; then
+  SEED_SCRIPT="$TAURI_NATIVE_SEED_SCRIPT"
+fi
+
 if [[ -n "${TAURI_NATIVE_REPLAY_SOURCE_DIR:-}" ]]; then
   echo "[tauri-slice-verify] scoped replay uses copied test data; original source remains read-only"
 elif [[ -n "$SEED_SCRIPT" ]]; then

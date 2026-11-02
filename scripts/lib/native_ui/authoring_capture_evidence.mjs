@@ -21,6 +21,11 @@ import {
   PENDING_REVISION_MESSAGE,
   pendingSourceMessage,
 } from "./authoring_pending_evidence.mjs";
+import {
+  PILOT_GROUP_CASE_IDS,
+  loadLiveCaseCorpus,
+  selectLiveCase,
+} from "../quality/author_behavior_live_cases.mjs";
 
 const MESSAGE = "「灰烬中的手印」这章我怀疑有重复，请把全章核对一遍。";
 const CONTINUATION_MESSAGE = "先写第01章正文草稿，再做质量复核；这是一项可恢复的长任务。";
@@ -65,12 +70,15 @@ function readyFor(dir) {
     ["slice_verify", "strata"].includes(ready.provider),
     `原生批次 provider 必须是 slice_verify 或 strata，实测: ${ready.provider}`,
   );
-  // provider=strata 即 CP3b 实模：同一 slice 切换到 live journey，判据/驱动按真实模型行为分层。
-  const journey = ready.provider === "strata" ? "live" : SLICE_JOURNEYS[ready.slice_id];
-  if (journey === "live") {
-    assert.equal(ready.slice_id, "b71-first-consumer", "live journey 只用于 b71-first-consumer");
+  // provider=strata 即实模：默认 live（CP3b 协议层）；带 B71_BEHAVIOR_CASE 时切换
+  // behavior journey（B70 作者行为覆盖，输入取冻结 case 原文）。
+  const behaviorCaseId = process.env.B71_BEHAVIOR_CASE ?? null;
+  const journey =
+    ready.provider === "strata" ? (behaviorCaseId ? "behavior" : "live") : SLICE_JOURNEYS[ready.slice_id];
+  if (journey === "live" || journey === "behavior") {
+    assert.equal(ready.slice_id, "b71-first-consumer", `${journey} journey 只用于 b71-first-consumer`);
   }
-  return { ...ready, provider: ready.provider, journey };
+  return { ...ready, provider: ready.provider, journey, behavior_case_id: behaviorCaseId };
 }
 
 function targetFor(dir, { includeSession = false } = {}) {
@@ -95,22 +103,49 @@ const messageFor = (journey) => JOURNEY_MESSAGES[journey];
 export function prepare(dir) {
   const ready = readyFor(dir);
   const pending = ready.journey === "pending";
-  const live = ready.journey === "live";
+  const live = ready.journey === "live" || ready.journey === "behavior";
+  const behavior = ready.journey === "behavior";
   const target = targetFor(dir, { includeSession: pending || live });
   const nonce = pending ? randomBytes(8).toString("hex") : null;
+  // 作者行为覆盖：输入必须是 B70 冻结 case 的 expression 原文（禁止现场造输入）。
+  let behaviorCase = null;
+  if (behavior) {
+    const caseId = String(ready.behavior_case_id ?? "");
+    assert(
+      PILOT_GROUP_CASE_IDS.includes(caseId),
+      `behavior case 必须是已批准的 pilot 组: ${caseId}`,
+    );
+    behaviorCase = selectLiveCase(loadLiveCaseCorpus(), caseId);
+    write(dir, "behavior-case.json", behaviorCase);
+  }
   write(dir, "production-sources-before.json", productionFingerprint());
   write(dir, "native-b71-config.json", {
     slice_id: ready.slice_id,
     journey: ready.journey,
     provider: ready.provider,
     target,
+    ...(behaviorCase
+      ? {
+          behavior: {
+            case_id: behaviorCase.case_id,
+            target_id: behaviorCase.target_id,
+            state_id: behaviorCase.state_id,
+            split: behaviorCase.split,
+            expression_sha256: behaviorCase.expression_sha256,
+            expected: behaviorCase.expected,
+            persona_id: behaviorCase.persona?.persona_id ?? null,
+          },
+        }
+      : {}),
     message: pending
       ? pendingSourceMessage(nonce)
       : ready.journey === "revision"
         ? ""
-        : live
-          ? LIVE_MESSAGE
-          : messageFor(ready.journey),
+        : behavior
+          ? behaviorCase.expression
+          : live
+            ? LIVE_MESSAGE
+            : messageFor(ready.journey),
     ...(pending
       ? {
           nonce,
@@ -185,8 +220,8 @@ export function capture(dir, checkpoint) {
   const journey = readConfig(dir).journey;
   const planning = journey === "planning";
   const revision = journey === "revision";
-  // live 实模需要未采纳零写入的 canon 内容快照（start/final 对比），同 planning/revision。
-  const live = journey === "live";
+  // live/behavior 实模需要未采纳零写入的 canon 内容快照（start/final 对比）。
+  const live = journey === "live" || journey === "behavior";
   const canon = planning || revision || live;
   if (isWhyCheckpoint(canon, checkpoint)) return writeWhyCheckpoint(dir, checkpoint);
   assert(RUN_CHECKPOINTS.includes(checkpoint), `未知 checkpoint: ${checkpoint}`);

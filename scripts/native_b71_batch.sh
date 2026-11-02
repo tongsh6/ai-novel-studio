@@ -68,6 +68,21 @@ if [[ "$B71_PROVIDER" != "slice_verify" && "$B71_PROVIDER" != "strata" ]]; then
   echo "unsupported B71_PROVIDER: $B71_PROVIDER (slice_verify|strata)" >&2
   exit 64
 fi
+# B70 作者行为覆盖：B71_BEHAVIOR_CASE 给出时进入 behavior journey（输入取冻结 case 原文）。
+BEHAVIOR_CASE="${B71_BEHAVIOR_CASE:-}"
+BEHAVIOR=0
+if [[ -n "$BEHAVIOR_CASE" ]]; then
+  BEHAVIOR=1
+  if [[ "$B71_PROVIDER" != "strata" ]]; then
+    echo "behavior batch 只接受 B71_PROVIDER=strata，实测: $B71_PROVIDER" >&2
+    exit 64
+  fi
+  if [[ "$SLICE" != "b71-first-consumer" ]]; then
+    echo "behavior batch 只接受 B71_SLICE=b71-first-consumer，实测: $SLICE" >&2
+    exit 64
+  fi
+fi
+
 LIVE=0
 if [[ "$B71_PROVIDER" == "strata" ]]; then
   LIVE=1
@@ -84,7 +99,14 @@ STRATA_BEFORE="$STATE_DIR/batch-$TAG.strata-before.json"
 STRATA_AFTER="$STATE_DIR/batch-$TAG.strata-after.json"
 mkdir -p "$STATE_DIR"
 
-if [[ "$LIVE" == "1" ]]; then
+if [[ "$BEHAVIOR" == "1" ]]; then
+  # 行为覆盖批次目录与预注册一致；仍必须位于 artifacts/ 且不存在。
+  DIR="${B71_BEHAVIOR_ARTIFACT_DIR:-$ROOT/artifacts/slice-verify/${SLICE}-behavior-$TAG}"
+  if [[ "$DIR" != "$ROOT/artifacts/"* ]]; then
+    echo "B71_BEHAVIOR_ARTIFACT_DIR 必须位于 $ROOT/artifacts/ 下: $DIR" >&2
+    exit 64
+  fi
+elif [[ "$LIVE" == "1" ]]; then
   # CP3b 预注册可指定精确 live 证据目录（仍必须位于 artifacts/ 且不存在）。
   DIR="${B71_LIVE_ARTIFACT_DIR:-$ROOT/artifacts/slice-verify/${SLICE}-live-$TAG}"
   if [[ "$DIR" != "$ROOT/artifacts/"* ]]; then
@@ -112,6 +134,17 @@ if [[ "$LIVE" == "1" ]]; then
     exit 1
   fi
 fi
+
+if [[ "$BEHAVIOR" == "1" ]]; then
+  # 作者行为覆盖：seed 用 B70 状态夹具（S1–S4 合成样书），输入取冻结 case 原文。
+  export B71_BEHAVIOR_CASE="$BEHAVIOR_CASE"
+  BEHAVIOR_STATE="$(node "$ROOT/scripts/author_behavior_live_case.mjs" --case "$BEHAVIOR_CASE" --field state_env)" || {
+    echo "behavior case 读取失败: $BEHAVIOR_CASE" >&2
+    exit 1
+  }
+  export B70_AUTHOR_BEHAVIOR_STATE="$BEHAVIOR_STATE"
+  export TAURI_NATIVE_SEED_SCRIPT="scripts/seed_author_behavior_states.exs"
+fi
 bash "$ROOT/scripts/tauri_slice_verify.sh" "$SLICE" >"$RUNNER_LOG" 2>&1 &
 RUNNER=$!
 
@@ -130,7 +163,9 @@ if [[ "$READY" != "1" ]]; then
 fi
 
 set +e
-if [[ "$LIVE" == "1" ]]; then
+if [[ "$BEHAVIOR" == "1" ]]; then
+  node "$ROOT/scripts/native_b71_behavior_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
+elif [[ "$LIVE" == "1" ]]; then
   node "$ROOT/scripts/native_b71_live_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
 else
   node "$ROOT/scripts/native_b71_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
