@@ -665,7 +665,9 @@ defmodule NovelApplication.JudgmentProtocol do
            author_turn_ref: Map.get(input, :source_input_ref, "author_turn:current"),
            base_refs: base_refs,
            tools: JudgmentToolContract.tools(profile),
-           projection: %{target: "chat_completions", capability_profile: ir_full_capabilities()}
+           # 能力事实由传输边界按实际 route 派生；应用层不得写死必备能力声明
+           # （VS-00L §6.4：缺能力必须显式 finite_mode 或拒绝路由）。
+           projection: %{target: "chat_completions"}
          )}
 
       transcript ->
@@ -679,11 +681,6 @@ defmodule NovelApplication.JudgmentProtocol do
   # 稳定协议与运行事实分层；动态事实只能通过 scope_update 追加。
   defp ir_base_text(_input, :judgment), do: judgment_base_text() <> judgment_output_text()
   defp ir_base_text(_input, :continuation), do: continuation_base_text()
-
-  defp ir_full_capabilities do
-    RequestIR.required_capabilities()
-    |> Map.new(&{&1, true})
-  end
 
   defp content(input, :judgment) do
     judgment_base_text() <>
