@@ -26,6 +26,11 @@ import {
   loadLiveCaseCorpus,
   selectLiveCase,
 } from "../quality/author_behavior_live_cases.mjs";
+import {
+  CONFIRMATION_CHECKPOINTS,
+  CONFIRMATION_MODES,
+  CONFIRMATION_REQUEST,
+} from "./authoring_confirmation_constants.mjs";
 
 const MESSAGE = "「灰烬中的手印」这章我怀疑有重复，请把全章核对一遍。";
 const CONTINUATION_MESSAGE = "先写第01章正文草稿，再做质量复核；这是一项可恢复的长任务。";
@@ -73,12 +78,29 @@ function readyFor(dir) {
   // provider=strata 即实模：默认 live（CP3b 协议层）；带 B71_BEHAVIOR_CASE 时切换
   // behavior journey（B70 作者行为覆盖，输入取冻结 case 原文）。
   const behaviorCaseId = process.env.B71_BEHAVIOR_CASE ?? null;
-  const journey =
-    ready.provider === "strata" ? (behaviorCaseId ? "behavior" : "live") : SLICE_JOURNEYS[ready.slice_id];
-  if (journey === "live" || journey === "behavior") {
+  const confirmationMode = process.env.B71_CONFIRMATION_ACTION ?? null;
+  let journey;
+  if (confirmationMode) {
+    assert(
+      CONFIRMATION_MODES[confirmationMode],
+      `未知 B71_CONFIRMATION_ACTION: ${confirmationMode}（confirm|reject）`,
+    );
+    journey = "confirmation";
+  } else if (ready.provider === "strata") {
+    journey = behaviorCaseId ? "behavior" : "live";
+  } else {
+    journey = SLICE_JOURNEYS[ready.slice_id];
+  }
+  if (journey === "live" || journey === "behavior" || journey === "confirmation") {
     assert.equal(ready.slice_id, "b71-first-consumer", `${journey} journey 只用于 b71-first-consumer`);
   }
-  return { ...ready, provider: ready.provider, journey, behavior_case_id: behaviorCaseId };
+  return {
+    ...ready,
+    provider: ready.provider,
+    journey,
+    behavior_case_id: behaviorCaseId,
+    confirmation_mode: confirmationMode,
+  };
 }
 
 function targetFor(dir, { includeSession = false } = {}) {
@@ -105,7 +127,8 @@ export function prepare(dir) {
   const pending = ready.journey === "pending";
   const live = ready.journey === "live" || ready.journey === "behavior";
   const behavior = ready.journey === "behavior";
-  const target = targetFor(dir, { includeSession: pending || live });
+  const confirmation = ready.journey === "confirmation";
+  const target = targetFor(dir, { includeSession: pending || live || confirmation });
   const nonce = pending ? randomBytes(8).toString("hex") : null;
   // 作者行为覆盖：输入必须是 B70 冻结 case 的 expression 原文（禁止现场造输入）。
   let behaviorCase = null;
@@ -137,15 +160,20 @@ export function prepare(dir) {
           },
         }
       : {}),
+    ...(confirmation
+      ? { confirmation: { mode: ready.confirmation_mode } }
+      : {}),
     message: pending
       ? pendingSourceMessage(nonce)
       : ready.journey === "revision"
         ? ""
         : behavior
           ? behaviorCase.expression
-          : live
-            ? LIVE_MESSAGE
-            : messageFor(ready.journey),
+          : confirmation
+            ? CONFIRMATION_REQUEST
+            : live
+              ? LIVE_MESSAGE
+              : messageFor(ready.journey),
     ...(pending
       ? {
           nonce,
@@ -220,15 +248,19 @@ export function capture(dir, checkpoint) {
   const journey = readConfig(dir).journey;
   const planning = journey === "planning";
   const revision = journey === "revision";
-  // live/behavior 实模需要未采纳零写入的 canon 内容快照（start/final 对比）。
+  // live/behavior/confirmation 实模需要未采纳零写入的 canon 内容快照。
+  const confirmation = journey === "confirmation";
   const live = journey === "live" || journey === "behavior";
-  const canon = planning || revision || live;
+  const canon = planning || revision || live || confirmation;
   if (isWhyCheckpoint(canon, checkpoint)) return writeWhyCheckpoint(dir, checkpoint);
-  assert(RUN_CHECKPOINTS.includes(checkpoint), `未知 checkpoint: ${checkpoint}`);
+  const allowedCheckpoints = confirmation ? CONFIRMATION_CHECKPOINTS : RUN_CHECKPOINTS;
+  assert(allowedCheckpoints.includes(checkpoint), `未知 checkpoint: ${checkpoint}`);
   if (checkpoint === "before-revision") {
     assert(revision, "before-revision 只属于修订批次");
   }
   if (revision) assertRevisionCheckpointOrder(dir, checkpoint);
-  // live 实模：canon 快照只做表级内容签名（不解析章节设计态明细）。
-  return writeRunCheckpoint(dir, checkpoint, canon, { includeChapterFacts: !live });
+  // live/behavior/confirmation 实模：canon 快照只做表级内容签名（不解析章节设计态明细）。
+  return writeRunCheckpoint(dir, checkpoint, canon, {
+    includeChapterFacts: !(live || confirmation),
+  });
 }

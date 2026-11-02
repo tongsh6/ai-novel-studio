@@ -68,11 +68,37 @@ if [[ "$B71_PROVIDER" != "slice_verify" && "$B71_PROVIDER" != "strata" ]]; then
   echo "unsupported B71_PROVIDER: $B71_PROVIDER (slice_verify|strata)" >&2
   exit 64
 fi
+# B71 §16.14 工具确认/拒绝原生场景（确定性 slice_verify provider，真实高风险来源）。
+CONFIRMATION_ACTION="${B71_CONFIRMATION_ACTION:-}"
+CONFIRMATION=0
+if [[ -n "$CONFIRMATION_ACTION" ]]; then
+  CONFIRMATION=1
+  case "$CONFIRMATION_ACTION" in
+    confirm | reject) ;;
+    *)
+      echo "B71_CONFIRMATION_ACTION 只能是 confirm 或 reject，实测: $CONFIRMATION_ACTION" >&2
+      exit 64
+      ;;
+  esac
+  if [[ "$B71_PROVIDER" != "slice_verify" ]]; then
+    echo "confirmation batch 只接受 B71_PROVIDER=slice_verify（确定性确认链），实测: $B71_PROVIDER" >&2
+    exit 64
+  fi
+  if [[ "$SLICE" != "b71-first-consumer" ]]; then
+    echo "confirmation batch 只接受 B71_SLICE=b71-first-consumer，实测: $SLICE" >&2
+    exit 64
+  fi
+fi
+
 # B70 作者行为覆盖：B71_BEHAVIOR_CASE 给出时进入 behavior journey（输入取冻结 case 原文）。
 BEHAVIOR_CASE="${B71_BEHAVIOR_CASE:-}"
 BEHAVIOR=0
 if [[ -n "$BEHAVIOR_CASE" ]]; then
   BEHAVIOR=1
+  if [[ "$CONFIRMATION" == "1" ]]; then
+    echo "B71_BEHAVIOR_CASE 与 B71_CONFIRMATION_ACTION 不能同时设置" >&2
+    exit 64
+  fi
   if [[ "$B71_PROVIDER" != "strata" ]]; then
     echo "behavior batch 只接受 B71_PROVIDER=strata，实测: $B71_PROVIDER" >&2
     exit 64
@@ -99,7 +125,14 @@ STRATA_BEFORE="$STATE_DIR/batch-$TAG.strata-before.json"
 STRATA_AFTER="$STATE_DIR/batch-$TAG.strata-after.json"
 mkdir -p "$STATE_DIR"
 
-if [[ "$BEHAVIOR" == "1" ]]; then
+if [[ "$CONFIRMATION" == "1" ]]; then
+  # §16.14 确认/拒绝批次目录与预注册一致；仍必须位于 artifacts/ 且不存在。
+  DIR="${B71_CONFIRMATION_ARTIFACT_DIR:-$ROOT/artifacts/slice-verify/b71-authoring-confirmation-tauri-native-$TAG}"
+  if [[ "$DIR" != "$ROOT/artifacts/"* ]]; then
+    echo "B71_CONFIRMATION_ARTIFACT_DIR 必须位于 $ROOT/artifacts/ 下: $DIR" >&2
+    exit 64
+  fi
+elif [[ "$BEHAVIOR" == "1" ]]; then
   # 行为覆盖批次目录与预注册一致；仍必须位于 artifacts/ 且不存在。
   DIR="${B71_BEHAVIOR_ARTIFACT_DIR:-$ROOT/artifacts/slice-verify/${SLICE}-behavior-$TAG}"
   if [[ "$DIR" != "$ROOT/artifacts/"* ]]; then
@@ -135,6 +168,12 @@ if [[ "$LIVE" == "1" ]]; then
   fi
 fi
 
+if [[ "$CONFIRMATION" == "1" ]]; then
+  # 确认/拒绝：seed 用真实已采纳章节计划来源（au04 高风险请求同款）。
+  export B71_CONFIRMATION_ACTION="$CONFIRMATION_ACTION"
+  export TAURI_NATIVE_SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+fi
+
 if [[ "$BEHAVIOR" == "1" ]]; then
   # 作者行为覆盖：seed 用 B70 状态夹具（S1–S4 合成样书），输入取冻结 case 原文。
   export B71_BEHAVIOR_CASE="$BEHAVIOR_CASE"
@@ -163,7 +202,9 @@ if [[ "$READY" != "1" ]]; then
 fi
 
 set +e
-if [[ "$BEHAVIOR" == "1" ]]; then
+if [[ "$CONFIRMATION" == "1" ]]; then
+  node "$ROOT/scripts/native_b71_confirmation_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
+elif [[ "$BEHAVIOR" == "1" ]]; then
   node "$ROOT/scripts/native_b71_behavior_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
 elif [[ "$LIVE" == "1" ]]; then
   node "$ROOT/scripts/native_b71_live_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
