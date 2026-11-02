@@ -60,6 +60,117 @@ defmodule NovelApplication.AgentRunServiceTest do
     assert AgentRunLog.list_events(durable_run_id) == []
   end
 
+  test "receipt facts share the same confirmed-loss boundary and fail closed out of scope" do
+    work_id = "work-receipt-facts-#{System.unique_integer([:positive, :monotonic])}"
+    session_id = "session-receipt-facts"
+    dead_run_id = "run-receipt-facts-dead-#{System.unique_integer([:positive, :monotonic])}"
+    durable_run_id = "run-receipt-facts-durable-#{System.unique_integer([:positive, :monotonic])}"
+
+    insert_run_record!(dead_run_id, work_id, session_id, "bounded")
+    insert_run_record!(durable_run_id, work_id, session_id, "durable")
+
+    assert {:ok, dead} = AgentRunService.receipt_run_facts(dead_run_id, work_id, session_id)
+    assert dead.run.status == :failed
+    assert dead.run.failure_ref == "runtime_lost_on_restart"
+    assert dead.runtime_live? == false
+
+    # 二次读取不再重复收口/留痕。
+    assert {:ok, %{run: %{status: :failed}}} =
+             AgentRunService.receipt_run_facts(dead_run_id, work_id, session_id)
+
+    assert length(AgentRunLog.list_events(dead_run_id)) == 1
+
+    # durable 不因 Registry 无进程被收口。
+    assert {:ok, durable} =
+             AgentRunService.receipt_run_facts(durable_run_id, work_id, session_id)
+
+    assert durable.run.status == :awaiting_author
+    assert durable.run.failure_ref == nil
+    assert durable.runtime_live? == false
+    assert AgentRunLog.list_events(durable_run_id) == []
+
+    assert {:error, :receipt_run_scope_mismatch} =
+             AgentRunService.receipt_run_facts(dead_run_id, "other-work", session_id)
+
+    assert {:error, :receipt_run_missing} =
+             AgentRunService.receipt_run_facts("missing-run", work_id, session_id)
+  end
+
+  test "receipt facts return an existing terminal bounded record without rewriting it" do
+    work_id = "work-terminal-#{System.unique_integer([:positive, :monotonic])}"
+    session_id = "session-terminal"
+    run_id = "run-terminal-#{System.unique_integer([:positive, :monotonic])}"
+
+    insert_run_record!(run_id, work_id, session_id, "bounded", "completed")
+
+    assert {:ok, %{run: run, runtime_live?: false}} =
+             AgentRunService.receipt_run_facts(run_id, work_id, session_id)
+
+    assert run.status == :completed
+    assert %{status: "completed", failure_ref: nil} = AgentRunLog.get_run(run_id)
+    assert AgentRunLog.list_events(run_id) == []
+  end
+
+  test "receipt facts treat an unknown Registry state as undecided and never close the run" do
+    work_id = "work-unknown-#{System.unique_integer([:positive, :monotonic])}"
+    session_id = "session-unknown"
+    run_id = "run-unknown-#{System.unique_integer([:positive, :monotonic])}"
+
+    insert_run_record!(run_id, work_id, session_id, "bounded")
+
+    parent = self()
+
+    holder =
+      spawn(fn ->
+        {:ok, _} = Registry.register(NovelApplication.AgentRunRegistry, run_id, nil)
+        send(parent, {:registry_holder, self()})
+
+        receive do
+          :stop -> :ok
+          _unknown -> exit(:unknown_registry_state)
+        end
+      end)
+
+    assert_receive {:registry_holder, ^holder}, 1_000
+
+    try do
+      assert {:ok, %{run: run, runtime_live?: nil}} =
+               AgentRunService.receipt_run_facts(run_id, work_id, session_id)
+
+      assert run.status == :awaiting_author
+      assert %{status: "awaiting_author", failure_ref: nil} = AgentRunLog.get_run(run_id)
+      assert AgentRunLog.list_events(run_id) == []
+    after
+      send(holder, :stop)
+    end
+  end
+
+  test "list_dead_bounded surfaces a rejected runtime-lost write instead of the old run" do
+    work_id = "work-rejected-#{System.unique_integer([:positive, :monotonic])}"
+    session_id = "session-rejected"
+    run_id = "run-rejected-#{System.unique_integer([:positive, :monotonic])}"
+
+    insert_run_record!(run_id, work_id, session_id, "bounded")
+    trigger = "reject_runtime_lost_#{System.unique_integer([:positive, :monotonic])}"
+
+    Repo.query!("""
+    CREATE TRIGGER #{trigger}
+    BEFORE UPDATE ON agent_runs
+    WHEN NEW.id = '#{run_id}' AND NEW.status = 'failed'
+    BEGIN SELECT RAISE(ABORT, 'runtime lost write rejected'); END
+    """)
+
+    try do
+      assert {:error, :runtime_lost_write_failed} =
+               AgentRunService.list_dead_bounded(work_id, session_id)
+
+      assert %{status: "awaiting_author", failure_ref: nil} = AgentRunLog.get_run(run_id)
+      assert AgentRunLog.list_events(run_id) == []
+    after
+      Repo.query!("DROP TRIGGER #{trigger}")
+    end
+  end
+
   test "live bounded run is never reaped by list_dead_bounded" do
     parent = self()
     run_id = unique_run_id()
@@ -128,7 +239,7 @@ defmodule NovelApplication.AgentRunServiceTest do
              end)
   end
 
-  defp insert_run_record!(run_id, work_id, session_id, run_mode) do
+  defp insert_run_record!(run_id, work_id, session_id, run_mode, status \\ "awaiting_author") do
     assert {:ok, _record} =
              AgentRunLog.upsert_run(%{
                id: run_id,
@@ -138,8 +249,9 @@ defmodule NovelApplication.AgentRunServiceTest do
                parent_turn_ref: "turn-#{run_id}",
                origin_frame_ref: "frame-#{run_id}",
                run_mode: run_mode,
+               long_run_task_ref: if(run_mode == "durable", do: "task-#{run_id}", else: nil),
                profile_ref: "character_design_with_context_v1",
-               status: "awaiting_author",
+               status: status,
                phase: "stopped",
                goal: %{"text" => "在现有基础上扩写第一章", "version" => 1},
                goal_version: 1,

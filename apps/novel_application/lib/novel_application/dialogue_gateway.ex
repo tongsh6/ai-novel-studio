@@ -7,18 +7,13 @@ defmodule NovelApplication.DialogueGateway do
 
   alias NovelAgent.Provider.Execution
   alias NovelApplication.ActionValidator
+  alias NovelApplication.AuthorActionConfirmation
   alias NovelApplication.AdoptionBoundary
-  alias NovelApplication.ContextAssembler
-  alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.ProseRevisionService
-  alias NovelApplication.TurnExecutionService
   alias NovelDomain.AdoptionDecision
   alias NovelDomain.AuthorActionInput
   alias NovelDomain.BehaviorState
   alias NovelDomain.CandidateSet
-  alias NovelDomain.ConfirmationBinding
-  alias NovelDomain.DialogueFrame
-  alias NovelDomain.MicroPlan
 
   def persist_turn_trace(result, ws_id, session_id, trace_persister) do
     maybe_persist_trace(
@@ -123,19 +118,10 @@ defmodule NovelApplication.DialogueGateway do
   def handle_action(
         %AuthorActionInput{action_type: "confirm_before_execute"} = action_input,
         source_turn_result,
-        provider_execution
+        _provider_execution
       ) do
-    case ActionValidator.validate(action_input, source_turn_result) do
-      {:error, reason} ->
-        {:error, reason}
-
-      :ok ->
-        # turn_result 携带的 plan 是 JSON 安全 map（broadcast/持久化要求，见
-        # handle_behavior_open）；进程内为 atom key、resume 恢复后为 string key，
-        # 统一经 MicroPlan.from_map 恢复 struct 再 re-gate（ADR-0009）。
-        plan = MicroPlan.from_map(source_turn_result[:plan] || source_turn_result["plan"])
-        confirm_with_plan(plan, action_input, source_turn_result, provider_execution)
-    end
+    # 旧同步确认执行已退役；保留公开入口时只委托统一持久受理，不在此起工具调用。
+    admit_author_action(action_input, source_turn_result)
   end
 
   def handle_action(
@@ -168,11 +154,19 @@ defmodule NovelApplication.DialogueGateway do
   end
 
   def handle_action(
-        %AuthorActionInput{action_type: action_type} = action_input,
+        %AuthorActionInput{action_type: "reject_or_cancel_confirmation"} = action_input,
         source_turn_result,
         _provider_execution
-      )
-      when action_type in ["reject_or_cancel_confirmation", "cancel_pending_behavior"] do
+      ) do
+    # 拒绝同样消费统一作者动作受理；按钮文案不再是作者消息，也不同步写作品事实。
+    admit_author_action(action_input, source_turn_result)
+  end
+
+  def handle_action(
+        %AuthorActionInput{action_type: "cancel_pending_behavior"} = action_input,
+        source_turn_result,
+        _provider_execution
+      ) do
     case ActionValidator.validate(action_input, source_turn_result) do
       :ok ->
         {:ok, cancel_waiting_action_result(action_input),
@@ -706,252 +700,38 @@ defmodule NovelApplication.DialogueGateway do
 
   defp blank?(value), do: is_nil(value) or value == ""
 
-  # ── confirmation re-gate (Strategy 1 / ADR-0009) ─
+  # 公开入口只委托统一持久受理；source 仍从持久 Interaction 重新读取。
+  defp admit_author_action(action_input, source_turn_result) do
+    work_id =
+      map_field(source_turn_result, :current_work_id) || map_field(source_turn_result, :work_id)
 
-  defp confirm_with_plan(nil, _action_input, _source_turn_result, _provider_execution) do
-    {:error, "confirmation without stored plan — cannot re-gate"}
-  end
+    session_id =
+      map_field(source_turn_result, :current_session_id) || map_field(source_turn_result, :session_id)
 
-  # 确认必须绑定 open confirmation（ADR-0009 / VS-03 §5）：绑定字段取自服务端授权的
-  # available_action 条目（AU04-I5：UI 不能自报权限字段）。
-  defp confirm_with_plan(plan, action_input, source_turn_result, provider_execution) do
-    context = confirmation_rebase_context(source_turn_result)
-
-    case build_confirmation_binding(action_input, source_turn_result, context) do
-      {:ok, binding} ->
-        handle_confirmation_dispatch(
-          action_input,
-          source_turn_result,
-          plan,
-          binding,
-          context,
-          provider_execution
-        )
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  # 从服务端授权的 available_action 条目构造 ConfirmationBinding：behavior_ref /
-  # target_ref / idempotency_key 取服务端下发值（ActionValidator 已验证该 action
-  # 存在且未过期），author_input_ref 取本次作者动作。缺 behavior_ref 等于没有
-  # open confirmation 可绑定 → 拒绝（VS-03 §5 规则 1）。
-  defp build_confirmation_binding(action_input, source_turn_result, context) do
-    source_action =
-      source_turn_result
-      |> map_field(:available_actions)
-      |> List.wrap()
-      |> Enum.find(%{}, &(map_field(&1, :action_id) == action_input.action_id))
-
-    ConfirmationBinding.build(%{
-      binding_id: confirmation_binding_id(action_input),
-      behavior_ref: map_field(source_action, :behavior_ref) || action_input.behavior_ref,
-      target_ref: map_field(source_action, :target_ref) || action_input.target_ref,
-      author_input_ref: action_input.input_id,
-      answer_type: :confirm,
-      idempotency_key: map_field(source_action, :idempotency_key) || action_input.idempotency_key,
-      rebased_state_snapshot_ref:
-        confirmation_rebased_state_snapshot_ref(action_input, source_turn_result, context),
-      gate_result_refs: confirmation_gate_result_refs(action_input, source_turn_result),
-      trace_ref: trace_ref(source_turn_result)
-    })
-  end
-
-  defp handle_confirmation_dispatch(
-         action_input,
-         source_turn_result,
-         plan,
-         binding,
-         context,
-         provider_execution
-       ) do
-    frame = frame_from_turn_result(source_turn_result)
-
-    # GATE-ORDER-CLOSURE（ADR-0005 gate 0/2/10）：确认 re-gate 注入真实运行期事实——
-    # 幂等 lineage（Channel/ActionValidator 已验证的 confirmation key）、
-    # open behavior 的解析结果（作者动作已满足）与 trace 通道可用性。
-    gate_context = %{
-      idempotency: %{key: binding.idempotency_key},
-      open_behavior: %{
-        behavior_id: binding.behavior_ref,
-        lifecycle_status: :awaiting_author
-      },
-      behavior_resolution: :author_confirmed
-    }
-
-    # trace readiness 只在真实持久化通道存在时接线；测试/内存 trace 路径缺席时
-    # gate 走「未接线」保守语义（in-memory trace 仍可回放，不伪造不可写事实）。
-    gate_context =
-      if NovelApplication.persistence_tracer(),
-        do: Map.put(gate_context, :trace_ready?, true),
-        else: gate_context
-
-    {decision, _behavior} =
-      ExecutionOrchestrator.decide(frame, plan,
-        confirmation_binding: binding,
-        gate_context: gate_context
-      )
-
-    ack = %{
-      action_id: action_input.action_id,
-      action_type: action_input.action_type,
-      status: "accepted",
-      idempotency_key: action_input.idempotency_key,
-      confirmation_binding: confirmation_binding_view(binding)
-    }
-
-    if decision.decision_type == :allow_tool do
-      {turn_result, trace} =
-        TurnExecutionService.execute(%{
-          frame: frame,
-          plan: plan,
-          decision: decision,
-          candidates: [],
-          context: context,
-          author_input: %{text: frame.author_visible_draft.message},
-          source_turn_ref: map_field(source_turn_result, :turn_id),
-          provider_execution: provider_execution,
-          quality_provider_execution: provider_execution,
-          chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader(),
-          chapter_summary_reader: NovelApplication.persistence_chapter_summary_reader(),
-          character_reader: NovelApplication.persistence_character_reader(),
-          assumption_reader: NovelApplication.persistence_assumption_character_reader(),
-          ledger_reader: NovelApplication.persistence_ledger_reader(),
-          memory_reader: NovelApplication.persistence_memory_reader(),
-          idempotency_suffix: "_confirmed"
-        })
-
-      maybe_persist_trace(
-        {:ok, turn_result, trace, [], nil},
-        frame.workspace_id,
-        nil,
-        NovelApplication.persistence_tracer()
-      )
-
-      {:ok, ack, turn_result}
+    with true <- is_binary(work_id) and is_binary(session_id),
+         {:ok, %{receipt: receipt}} <-
+           AuthorActionConfirmation.handle(work_id, session_id, action_input, []),
+         {:ok, entry} <-
+           project_admitted_receipt(receipt, action_input, work_id, session_id) do
+      {:ok, entry.result}
     else
-      {:ok, Map.put(ack, :status, "confirmed_but_blocked")}
+      false -> {:error, :author_action_scope_unavailable}
+      {:duplicate, receipt} -> project_admitted_receipt(receipt, action_input, work_id, session_id)
+      {:behavior_consumed, _receipt} -> {:error, :author_action_behavior_already_consumed}
+      {:conflict, _receipt} -> {:error, :idempotency_payload_conflict}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  # B6：确认后的 re-gate 必须基于确认时的最新上下文，而不是 source turn 创建时的
-  # 旧状态。这里复用生产 persistence fetcher，生成同一份 context 供 binding proof
-  # 与执行服务消费。
-  defp confirmation_rebase_context(source_turn_result) do
-    work_id = source_work_id(source_turn_result)
-    session_id = source_session_id(source_turn_result)
-
-    ContextAssembler.assemble_for_input(
-      work_id,
-      nil,
-      NovelApplication.persistence_fetcher() || (&empty_context/1),
-      session_id: session_id,
-      assembly_policy: NovelApplication.current_assembly_policy()
-    )
-  end
-
-  defp confirmation_binding_id(%AuthorActionInput{input_id: input_id}) when is_binary(input_id),
-    do: "cb_#{input_id}"
-
-  defp confirmation_rebased_state_snapshot_ref(action_input, source_turn_result, context) do
-    snapshot = context.current_work_snapshot
-
-    ([
-       "state_snapshot",
-       source_work_id(source_turn_result),
-       source_session_id(source_turn_result)
-     ] ++
-       snapshot_revision_ref_parts(snapshot) ++
-       [
-         map_field(source_turn_result, :turn_id),
-         source_plan_id(source_turn_result),
-         action_input.input_id
-       ])
-    |> compact_ref_parts()
-    |> Enum.join(":")
-  end
-
-  defp confirmation_gate_result_refs(action_input, source_turn_result) do
-    [
-      [
-        "gate_result",
-        "confirmation_re_gate",
-        map_field(source_turn_result, :turn_id),
-        source_plan_id(source_turn_result),
-        action_input.action_id
-      ]
-      |> compact_ref_parts()
-      |> Enum.join(":")
-    ]
-  end
-
-  defp source_plan_id(source_turn_result) do
-    source_turn_result
-    |> map_field(:plan)
-    |> map_field(:plan_id)
-  end
-
-  defp source_work_id(source_turn_result) do
-    map_field(source_turn_result, :current_work_id) ||
-      map_field(source_turn_result, :work_id) ||
-      map_field(source_turn_result, :workspace_id) ||
-      "recovered"
-  end
-
-  defp source_session_id(source_turn_result) do
-    map_field(source_turn_result, :current_session_id) ||
-      map_field(source_turn_result, :session_id)
-  end
-
-  defp snapshot_revision_ref_parts(snapshot) do
-    case map_field(snapshot, :revision) do
-      nil -> []
-      "" -> []
-      revision -> ["revision", revision]
+  defp project_admitted_receipt(receipt, action_input, work_id, session_id) do
+    case NovelApplication.ActionIdempotencyService.project(receipt, action_input, %{
+           work_id: work_id,
+           session_id: session_id
+         }) do
+      {:duplicate, entry} -> {:ok, entry}
+      {:conflict, _entry} -> {:error, :idempotency_payload_conflict}
+      {:error, reason} -> {:error, reason}
     end
-  end
-
-  defp compact_ref_parts(parts) do
-    parts
-    |> Enum.map(&ref_part/1)
-    |> Enum.reject(&blank?/1)
-  end
-
-  defp confirmation_binding_view(%ConfirmationBinding{} = binding) do
-    %{
-      binding_id: binding.binding_id,
-      behavior_ref: binding.behavior_ref,
-      target_ref: binding.target_ref,
-      author_input_ref: binding.author_input_ref,
-      answer_type: to_string(binding.answer_type),
-      idempotency_key: binding.idempotency_key,
-      rebased_state_snapshot_ref: binding.rebased_state_snapshot_ref,
-      gate_result_refs: binding.gate_result_refs,
-      trace_ref: binding.trace_ref
-    }
-  end
-
-  defp frame_from_turn_result(tr) do
-    # source turn_result 可能是 resume 恢复的 string-keyed 形态，refs 用 map_field 双取。
-    %DialogueFrame{
-      schema_version: "3.0-draft",
-      frame_id: map_field(tr, :frame_ref) || "recovered_frame",
-      turn_id: map_field(tr, :turn_id) || "recovered_turn",
-      workspace_id: source_work_id(tr),
-      primary: true,
-      frame_type: :confirmation_answer,
-      source_refs: %{
-        author_input_ref: "author_input:#{map_field(tr, :turn_id) || "recovered_turn"}",
-        dialogue_context_ref: nil
-      },
-      dialogue_goal: %{summary: "作者确认执行"},
-      tool_need: %{needs_tool: true, reason_code: :no_tool_needed},
-      execution_readiness: :ready,
-      author_visible_draft: %{message: "确认执行"},
-      evidence_summary: %{},
-      uncertainty: []
-    }
   end
 
   defp candidate_direction_to_boundary_candidate(candidate) do
@@ -980,13 +760,6 @@ defmodule NovelApplication.DialogueGateway do
   defp candidate_risk_hint("medium"), do: :medium
   defp candidate_risk_hint("low"), do: :low
   defp candidate_risk_hint(_), do: :low
-
-  defp ref_part(value) when is_binary(value), do: String.trim(value)
-  defp ref_part(value) when is_atom(value), do: Atom.to_string(value)
-  defp ref_part(nil), do: nil
-  defp ref_part(value), do: to_string(value)
-
-  defp empty_context(_workspace_id), do: {:ok, nil, nil, nil, nil}
 
   defp provider_boundary_error do
     {:error,

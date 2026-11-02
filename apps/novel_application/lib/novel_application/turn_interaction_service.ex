@@ -50,22 +50,45 @@ defmodule NovelApplication.TurnInteractionService do
   def record_result(_run, nil, _store, _trace), do: :ok
 
   def record_result(run, result, store, trace) when is_map(result) do
+    attrs = result_attrs(run, result, trace)
+    persist_result(attrs, store, result)
+  end
+
+  @doc """
+  构造结果登记 attrs；供统一事务编排在持久化裁决前复用，不自行打开事务。
+  """
+  def result_attrs(run, result, trace \\ nil) when is_map(result) do
     attrs = Map.put(scope(run), :turn_result, DialogueGateway.jsonable(result))
 
-    attrs =
-      if trace,
-        do:
-          Map.put(
-            attrs,
-            :decision_trace,
-            DialogueGateway.trace_to_attrs(trace, run.workspace_id, run.session_id)
-          ),
-        else: attrs
+    if trace,
+      do:
+        Map.put(
+          attrs,
+          :decision_trace,
+          DialogueGateway.trace_to_attrs(trace, run.work_id, run.session_id)
+        ),
+      else: attrs
+  end
+
+  @doc """
+  执行结果登记并返回实际持久化裁决：
+
+  - `:ok`：首次登记，调用方沿用收到的结果；
+  - `{:ok, persisted}`：登记边界复用了既有候选，调用方必须改用 `persisted`；
+  - `{:error, reason}`：登记失败，调用方不得广播成功结果。
+  """
+  def persist_result(attrs, store, original \\ nil) do
+    original = original || attrs.turn_result
 
     case call(store, :result, attrs) do
-      {:ok, %{turn_result: persisted}} -> {:ok, persisted_result(result, persisted)}
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
+      {:ok, %{turn_result: persisted}} ->
+        {:ok, persisted_result(original, persisted)}
+
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -414,7 +437,7 @@ defmodule NovelApplication.TurnInteractionService do
 
   defp scope(run) do
     %{
-      workspace_id: run.workspace_id,
+      workspace_id: run.work_id,
       session_id: run.session_id,
       run_id: run.run_id,
       status: run.status,

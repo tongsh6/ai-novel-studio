@@ -12,6 +12,10 @@ defmodule NovelApplication.AgentRunServer do
   alias NovelApplication.AgentEventPublisher
   alias NovelApplication.AgentNarrativeSource
   alias NovelApplication.AgentRunBudget
+  alias NovelApplication.AgentRunFlows.AuthoringSession
+  alias NovelApplication.AgentRunPersistence
+  alias NovelApplication.AgentRunService
+  alias NovelApplication.AuthorActionAdmission
   alias NovelApplication.TurnInteractionService
   alias NovelCommon.Contracts.AgentEvent
   alias NovelDomain.AgentNextStepDecision
@@ -19,10 +23,7 @@ defmodule NovelApplication.AgentRunServer do
   alias NovelDomain.AgentRun
   alias NovelDomain.AgentRunPolicy
   alias NovelDomain.AgentStep
-  alias NovelFoundation.Enums.{Status, TaskPhase}
-  alias NovelPersistence.{AgentRunLog, LongRunTaskLog}
-
-  @checkpoint_version 2
+  alias NovelPersistence.AgentRunLog
 
   @type step_snapshot :: %{
           required(:observations) => [AgentObservation.t()],
@@ -31,7 +32,7 @@ defmodule NovelApplication.AgentRunServer do
           optional(:provider_cancellation_token) => pid(),
           optional(:stage_sink) => (map() -> :ok)
         }
-  @type step_result :: {:ok, map()} | {:error, term()}
+  @type step_result :: {:ok, map()} | {:error, term()} | {:error, term(), map()}
   @type step_fun ::
           (AgentRun.t(), pos_integer() -> step_result())
           | (AgentRun.t(), pos_integer(), step_snapshot() -> step_result())
@@ -68,7 +69,8 @@ defmodule NovelApplication.AgentRunServer do
             event_sink: nil,
             defer_delivery: false,
             interaction_store: nil,
-            provider_cancellation_token: nil
+            provider_cancellation_token: nil,
+            author_action_receipt: nil
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
@@ -83,10 +85,16 @@ defmodule NovelApplication.AgentRunServer do
     %{
       id: {__MODULE__, run.run_id},
       start: {__MODULE__, :start_link, [opts]},
-      restart: :transient,
+      restart: restart_policy(run.run_mode),
       type: :worker
     }
   end
+
+  # bounded 没有检查点执行恢复契约：owner 异常退出后不得用旧 init 参数自动重建，
+  # 否则重启会再次 admit 同一 receipt，最终耗尽公共 DynamicSupervisor 的重启额度。
+  # durable 的恢复策略保持既有边界，不由本次 bounded 收口代签。
+  defp restart_policy(:bounded), do: :temporary
+  defp restart_policy(_mode), do: :transient
 
   @spec attach_event_sink(GenServer.server(), function() | nil) :: :ok
   def attach_event_sink(server, event_sink),
@@ -94,6 +102,11 @@ defmodule NovelApplication.AgentRunServer do
 
   @spec command(GenServer.server(), :pause | :cancel) :: :ok
   def command(server, command), do: GenServer.cast(server, {:command, command})
+
+  @spec compact_transcript(GenServer.server(), map(), timeout()) ::
+          {:ok, map()} | {:error, term()}
+  def compact_transcript(server, attrs, timeout \\ 5_000),
+    do: GenServer.call(server, {:command, {:compact_transcript, attrs}}, timeout)
 
   @spec resume(GenServer.server(), timeout()) ::
           :ok | {:error, :awaiting_author_requires_input | :not_resumable}
@@ -147,39 +160,181 @@ defmodule NovelApplication.AgentRunServer do
   @spec state(GenServer.server(), timeout()) :: map()
   def state(server, timeout \\ 5_000), do: GenServer.call(server, :state, timeout)
 
+  @doc "拥有者的已提交受理回执；非作者动作 run 为 nil。"
+  @spec author_action_receipt(GenServer.server(), timeout()) :: map() | nil
+  def author_action_receipt(server, timeout \\ 5_000),
+    do: GenServer.call(server, :author_action_receipt, timeout)
+
+  @doc """
+  源运行 owner 串行交接确认/拒绝动作（VS-00L §16.14）。
+
+  受理事务在调用进程内完成；child owner 只在提交成功后启动，初始事件不重复生成。
+  """
+  @spec handoff_author_action(GenServer.server(), map(), keyword(), timeout()) ::
+          {:ok, map()}
+          | {:duplicate, struct()}
+          | {:conflict, struct()}
+          | {:behavior_consumed, struct()}
+          | {:error, term()}
+  def handoff_author_action(server, plan, opts \\ [], timeout \\ 15_000),
+    do: GenServer.call(server, {:handoff_author_action, plan, opts}, timeout)
+
   @impl true
   def init(opts) do
     run = Keyword.fetch!(opts, :run)
     {:ok, provider_cancellation_token} = Execution.start_cancellation_token(%{run_id: run.run_id})
 
-    state = %__MODULE__{
-      run: run,
-      next_step_planner: Keyword.get(opts, :next_step_planner),
-      event_sink: Keyword.get(opts, :event_sink),
-      interaction_store: Keyword.get(opts, :interaction_store) || TurnInteractionService.store(),
-      provider_cancellation_token: provider_cancellation_token
-    }
+    admission = Keyword.get(opts, :author_action_admission)
 
-    state =
-      state
-      |> emit(
-        :run_started,
-        "AgentRun 已启动。",
-        ["agent_run_started", "profile_selected"],
-        [],
-        run_started_payload(run)
-      )
-      |> persist_run_state()
+    case prepare_author_action_admission(run, admission) do
+      {:committed, receipt} ->
+        state = %__MODULE__{
+          run: run,
+          next_step_planner: Keyword.get(opts, :next_step_planner),
+          event_sink: Keyword.get(opts, :event_sink),
+          interaction_store:
+            Keyword.get(opts, :interaction_store) || TurnInteractionService.store(),
+          provider_cancellation_token: provider_cancellation_token,
+          defer_delivery: true,
+          author_action_receipt: receipt
+        }
 
-    {:ok, state, {:continue, :run_next_step}}
+        {:ok, state, {:continue, :run_next_step}}
+
+      {:ok, run, plan} ->
+        state = %__MODULE__{
+          run: run,
+          next_step_planner: Keyword.get(opts, :next_step_planner),
+          event_sink: Keyword.get(opts, :event_sink),
+          interaction_store:
+            Keyword.get(opts, :interaction_store) || TurnInteractionService.store(),
+          provider_cancellation_token: provider_cancellation_token,
+          defer_delivery: not is_nil(plan)
+        }
+
+        state =
+          state
+          |> emit(
+            :run_started,
+            "AgentRun 已启动。",
+            ["agent_run_started", "profile_selected"],
+            [],
+            run_started_payload(run)
+          )
+
+        finish_author_action_admission(state, plan)
+
+      {:error, reason} ->
+        stop_cancellation_token(provider_cancellation_token)
+        {:stop, {:author_action_admission_failed, reason}}
+    end
+  end
+
+  defp prepare_author_action_admission(_run, {:committed, receipt}), do: {:committed, receipt}
+
+  defp prepare_author_action_admission(run, nil), do: {:ok, run, nil}
+
+  defp prepare_author_action_admission(run, spec) when is_map(spec) do
+    case AuthorActionAdmission.prepare(run, spec) do
+      {:ok, plan} -> {:ok, plan.run, plan}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp prepare_author_action_admission(_run, _spec),
+    do: {:error, :invalid_author_action_admission}
+
+  # 普通 run 沿用既有启动时序；作者动作 run 的 receipt/run/run_started 已由
+  # AuthorActionAdmission 在同一事务提交，成功后才发布启动事件并继续执行。
+  defp finish_author_action_admission(state, nil) do
+    {:ok, persist_run_state(state), {:continue, :run_next_step}}
+  end
+
+  defp finish_author_action_admission(state, plan) do
+    case AuthorActionAdmission.admit(plan, state) do
+      {:ok, receipt, run} ->
+        state = %{state | run: run, author_action_receipt: receipt}
+        state = publish_committed_events(%{state | events: []}, state)
+
+        {:ok, state, {:continue, :run_next_step}}
+
+      {:duplicate, receipt} ->
+        stop_cancellation_token(state.provider_cancellation_token)
+        {:stop, {:author_action_duplicate, receipt}}
+
+      {:conflict, receipt} ->
+        stop_cancellation_token(state.provider_cancellation_token)
+        {:stop, {:author_action_conflict, receipt}}
+
+      {:error, reason} ->
+        stop_cancellation_token(state.provider_cancellation_token)
+        {:stop, {:author_action_admission_failed, reason}}
+    end
+  end
+
+  defp stop_cancellation_token(token) do
+    if is_pid(token) and Process.alive?(token), do: GenServer.stop(token, :normal, 1_000)
+  catch
+    :exit, _reason -> :ok
   end
 
   @impl true
   def handle_continue(:run_next_step, state), do: run_next_step(state)
 
   @impl true
+  def handle_call(
+        {:command, {:compact_transcript, _attrs}},
+        _from,
+        %{
+          current_task_ref: ref
+        } = state
+      )
+      when not is_nil(ref),
+      do: {:reply, {:error, :execution_in_progress}, state}
+
+  def handle_call({:command, {:compact_transcript, attrs}}, _from, state) do
+    case AuthoringSession.compact(Map.get(state.stage_state, :judgment_transcript), attrs) do
+      {:ok, transcript} ->
+        next = merge_stage_state(state, AuthoringSession.transcript_state(transcript))
+
+        case commit_transcript_checkpoint(next) do
+          :ok -> {:reply, {:ok, transcript}, next}
+          {:error, _reason} = error -> {:reply, error, state}
+        end
+
+      {:error, _reason} = error ->
+        {:reply, error, state}
+    end
+  end
+
+  @impl true
   def handle_call(:state, _from, state) do
     {:reply, snapshot(state), state}
+  end
+
+  def handle_call(:author_action_receipt, _from, state) do
+    {:reply, state.author_action_receipt, state}
+  end
+
+  def handle_call({:handoff_author_action, plan, opts}, _from, state) do
+    if state.run.status != :awaiting_author do
+      {:reply, {:error, :source_run_not_awaiting_author}, state}
+    else
+      store = Keyword.get(opts, :interaction_store) || state.interaction_store
+
+      case AuthorActionAdmission.admit_handoff(plan, state, interaction_store: store) do
+        {:ok, result} ->
+          source_state = %{state | run: result.source_run || state.run}
+
+          case start_handoff_child(result, opts) do
+            {:ok, _pid} -> {:reply, {:ok, result}, source_state}
+            {:error, reason} -> {:reply, {:error, {:child_run_start_failed, reason}}, source_state}
+          end
+
+        other ->
+          {:reply, other, state}
+      end
+    end
   end
 
   # resume 是同步 call：命令被拒绝必须对作者可见（DS03）。awaiting_author 是系统
@@ -380,34 +535,69 @@ defmodule NovelApplication.AgentRunServer do
       payload_digest: request.payload_digest
     }
 
-    attrs =
-      Map.merge(request, %{
-        run_record: run_attrs(next.run),
-        events: new_event_attrs(state, next),
-        checkpoint: question_checkpoint(next),
-        result: result,
-        input: %{
-          workspace_id: request.workspace_id,
-          session_id: request.session_id,
-          run_id: run.run_id,
-          status: run.status,
-          goal_version: run.goal.version,
-          turn_id: "#{run.parent_turn_ref}:steer:#{run.goal.version}",
-          submission_id: submission_id,
-          text: request.text,
-          message_kind: "steer",
-          author_question_ref: request.question_ref,
-          author_action_ref: request.action_input.action_id,
-          author_choice_value: request.choice_value,
-          source_question_turn_ref: request.source_turn_ref
-        }
-      })
+    case AgentRunPersistence.snapshot(run, next, :question_answer, before: state) do
+      {:ok, snapshot} ->
+        commit_question_answer(
+          state,
+          next,
+          applied,
+          request,
+          submission_id,
+          result,
+          snapshot
+        )
 
-    case TurnInteractionService.commit_question(:question_answer, attrs, state.interaction_store) do
+      {:error, _reason} ->
+        {:reply, {:error, :checkpoint_persistence_failed}, state}
+    end
+  end
+
+  defp commit_question_answer(
+         state,
+         next,
+         applied,
+         request,
+         submission_id,
+         result,
+         snapshot
+       ) do
+    run = next.run
+
+    attrs =
+      Map.merge(
+        request,
+        Map.merge(snapshot, %{
+          result: result,
+          input: %{
+            workspace_id: request.workspace_id,
+            session_id: request.session_id,
+            run_id: run.run_id,
+            status: run.status,
+            goal_version: run.goal.version,
+            turn_id: "#{run.parent_turn_ref}:steer:#{run.goal.version}",
+            submission_id: submission_id,
+            text: request.text,
+            message_kind: "steer",
+            author_question_ref: request.question_ref,
+            author_action_ref: request.action_input.action_id,
+            author_choice_value: request.choice_value,
+            source_question_turn_ref: request.source_turn_ref
+          }
+        })
+      )
+
+    case TurnInteractionService.commit_question(
+           :question_answer,
+           attrs,
+           state.interaction_store
+         ) do
       {:ok, receipt} ->
         next = publish_committed_events(state, next)
         reply = {:reply, {:ok, receipt}, next}
-        if tuple_size(applied) == 4, do: Tuple.insert_at(reply, 3, elem(applied, 3)), else: reply
+
+        if tuple_size(applied) == 4,
+          do: Tuple.insert_at(reply, 3, elem(applied, 3)),
+          else: reply
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
@@ -456,6 +646,27 @@ defmodule NovelApplication.AgentRunServer do
         budget: grant.budget
       }
     )
+  end
+
+  defp start_handoff_child(result, opts) do
+    if result.receipt.action_type == "confirm_before_execute" do
+      action_input = %NovelDomain.AuthorActionInput{
+        input_id: result.receipt.id,
+        source_turn_ref: result.receipt.source_turn_ref,
+        action_id: result.receipt.action_id,
+        action_type: result.receipt.action_type,
+        target_ref: result.behavior.target_ref,
+        behavior_ref: result.behavior_ref,
+        idempotency_key: result.receipt.idempotency_key
+      }
+
+      start_opts =
+        NovelApplication.AuthorActionConfirmation.child_runtime_opts(result, action_input, opts)
+
+      AgentRunService.start_committed_author_action(result.child_run, start_opts, result.receipt)
+    else
+      {:ok, :no_child_owner_required}
+    end
   end
 
   @impl true
@@ -656,6 +867,15 @@ defmodule NovelApplication.AgentRunServer do
 
     task =
       Task.Supervisor.async_nolink(NovelApplication.AgentStepTaskSupervisor, fn ->
+        # 先等 server 把 running/executing 状态提交完成，再开始实际 step。这样
+        # “step 已开始执行”与“run 状态已持久”不会互相穿越：外部在收到 step 的
+        # provider 观察时，server 不会仍停在持久化回调里。
+        receive do
+          :step_task_start -> :ok
+        after
+          5_000 -> :ok
+        end
+
         # ADR-0018 / LogContext：Task 进程不继承 run server 的进程日志关联键，而
         # next_step_planner 内的独立计划起草/修订 provider 调用发生在该 step 的
         # TurnBinding.bind 之前。先按本 run 的源 turn 绑定，保证 provider 调用与
@@ -682,6 +902,7 @@ defmodule NovelApplication.AgentRunServer do
       |> put_run_phase(:executing)
       |> persist_run_state()
 
+    send(task.pid, :step_task_start)
     {:noreply, state}
   end
 
@@ -691,18 +912,27 @@ defmodule NovelApplication.AgentRunServer do
          %{run: %{interrupt_state: %{status: :cancel_requested}}} = state,
          result
        ) do
-    # 取消已先进入 run 命令序列：迟到结果仅计真实开销，不发布候选/问题/动作。
-    case result do
-      {:ok, facts} when is_map(facts) -> add_consumed_budget(state, facts)
-      _ -> add_consumed_budget(state, %{})
-    end
+    # 取消已先进入 run 命令序列：迟到结果只归集真实历史/消耗，不发布候选/问题/动作。
+    receive_step_facts(state, result)
   end
 
   defp handle_step_result(state, {:ok, %{turn_result: %{author_question: _}} = result}) do
+    working =
+      state
+      |> receive_step_facts(result)
+      |> Map.put(:defer_delivery, true)
+
+    {next, steps} =
+      prepare_recorded_result(
+        working,
+        result,
+        result[:artifact_refs] || [],
+        result.turn_result,
+        nil
+      )
+
     next =
-      %{state | defer_delivery: true}
-      |> merge_stage_state(result[:stage_state])
-      |> apply_recorded_result(result, result[:artifact_refs] || [], result.turn_result, nil)
+      next
       |> put_run_status(:awaiting_author)
       |> put_run_phase(:stopped)
       |> emit(
@@ -717,47 +947,28 @@ defmodule NovelApplication.AgentRunServer do
         ]
       )
 
-    attrs = %{
-      workspace_id: next.run.work_id,
-      session_id: next.run.session_id,
-      run_id: next.run.run_id,
-      status: :awaiting_author,
-      goal_version: next.run.goal.version,
-      turn_result: json_safe(result.turn_result),
-      run_record: run_attrs(next.run),
-      events: new_event_attrs(state, next),
-      checkpoint: question_checkpoint(next),
-      decision_trace:
-        if(result[:decision_trace],
-          do:
-            NovelApplication.DialogueGateway.trace_to_attrs(
-              result.decision_trace,
-              next.run.work_id,
-              next.run.session_id
-            )
-        )
-    }
+    case commit_question_delivery(working, next, steps, result[:decision_trace]) do
+      {:ok, committed} ->
+        publish_committed_events(working, committed)
 
-    case TurnInteractionService.commit_question(
-           :question_delivery,
-           attrs,
-           state.interaction_store
-         ) do
-      {:ok, _} ->
-        publish_committed_events(state, next)
-
-      {:error, _} ->
-        settle_run_failed(state, :interaction_persistence_failed, ["question_persistence_failed"])
+      {:error, _reason} ->
+        settle_commit_failed(working, :interaction_persistence_failed, [
+          "question_persistence_failed"
+        ])
     end
   end
 
   defp handle_step_result(state, {:ok, result}) when is_map(result) do
-    artifact_refs = Map.get(result, :artifact_refs, [])
-    turn_result = Map.get(result, :turn_result)
-
-    state =
+    # received 只含已归集的真实历史/消耗；staged 才叠加本步待提交的交付效果
+    # （supersede/pending/progress 等）。事务失败必须退回 received 基线，否则会把
+    # 未提交的交付效果写成事实（例如清掉旧 pending 并伪造 artifact_superseded）。
+    baseline =
       state
-      |> merge_stage_state(Map.get(result, :stage_state))
+      |> receive_step_facts(result)
+      |> Map.put(:defer_delivery, true)
+
+    working =
+      baseline
       |> sync_execution_steps()
       |> apply_superseded_artifacts(result)
       |> apply_progress_signature(
@@ -765,49 +976,83 @@ defmodule NovelApplication.AgentRunServer do
         Map.get(result, :observations, [])
       )
 
-    no_progress_stopped? = no_progress_stopped?(state)
+    no_progress_stopped? = no_progress_stopped?(working)
 
     {artifact_refs, turn_result, loop_status} =
       if no_progress_stopped?,
         do: {[], nil, nil},
-        else: {artifact_refs, turn_result, Map.get(result, :loop_status)}
+        else:
+          {Map.get(result, :artifact_refs, []), Map.get(result, :turn_result),
+           Map.get(result, :loop_status)}
 
-    case TurnInteractionService.record_result(
-           state.run,
+    prepare = fn committed, effective, persisted ->
+      # 持久化裁决复用了既有候选时，不得把旧候选重复广播/重写。
+      refs = if persisted, do: [], else: artifact_refs
+      prepare_recorded_result(committed, result, refs, effective, loop_status)
+    end
+
+    case commit_result(
+           working,
+           working.run,
            turn_result,
-           state.interaction_store,
-           result[:decision_trace]
+           result[:decision_trace],
+           prepare,
+           baseline
          ) do
-      :ok ->
-        apply_recorded_result(state, result, artifact_refs, turn_result, loop_status)
-
-      {:ok, persisted} ->
-        apply_recorded_result(
-          state,
-          Map.put(result, :turn_result, persisted),
-          [],
-          persisted,
-          loop_status
-        )
+      {:ok, committed} ->
+        committed
 
       {:error, _reason} ->
-        settle_run_failed(state, :interaction_persistence_failed, [
+        settle_commit_failed(baseline, :interaction_persistence_failed, [
           "interaction_persistence_failed"
         ])
     end
   end
 
-  defp handle_step_result(state, {:error, reason}) do
+  defp handle_step_result(state, {:error, reason, step_state}) when is_map(step_state) do
     state
-    |> add_consumed_budget(%{})
+    |> merge_stage_state(step_state)
+    |> add_consumed_budget(step_state)
     |> settle_run_failed(reason, ["step_failed" | failure_family_reason_codes(reason)])
+  end
+
+  defp handle_step_result(state, {:error, reason}) do
+    settle_run_failed(state, reason, ["step_failed" | failure_family_reason_codes(reason)])
   end
 
   defp handle_step_result(state, other) do
     handle_step_result(state, {:error, {:unexpected_step_result, other}})
   end
 
-  defp apply_recorded_result(state, result, artifact_refs, turn_result, loop_status) do
+  # 事务开始前的唯一收口：先归集本步 canonical 与实际预算，所有分支恰好计一次。
+  # ok 的 canonical 在 :stage_state；error3 的直接 meta 本身就是本步事实，不能只读
+  # :stage_state 而丢掉 judgment_transcript。取消晚到结果同样走这里，只归集不发布。
+  defp receive_step_facts(state, {:ok, facts}) when is_map(facts) do
+    state
+    |> merge_stage_state(Map.get(facts, :stage_state))
+    |> add_consumed_budget(facts)
+  end
+
+  defp receive_step_facts(state, {:error, _reason, facts}) when is_map(facts) do
+    state
+    |> merge_stage_state(Map.get(facts, :stage_state))
+    |> merge_stage_state(Map.delete(facts, :stage_state))
+    |> add_consumed_budget(facts)
+  end
+
+  # bare error 没有 step 事实，但已发生的 provider 事件仍是实际调用下界。
+  defp receive_step_facts(state, {:error, _reason}), do: add_consumed_budget(state, %{})
+
+  defp receive_step_facts(state, result) when is_map(result) do
+    state
+    |> merge_stage_state(Map.get(result, :stage_state))
+    |> add_consumed_budget(result)
+  end
+
+  defp receive_step_facts(state, _result), do: state
+
+  # 纯状态归并：不写库、不广播。实际持久化裁决（persisted）作为唯一起点。
+  defp prepare_recorded_result(state, result, artifact_refs, turn_result, loop_status) do
     step = Map.get(result, :step)
     observations = Map.get(result, :observations, [])
 
@@ -815,22 +1060,17 @@ defmodule NovelApplication.AgentRunServer do
       state
       |> apply_run_patch(Map.get(result, :run_patch))
       |> maybe_mark_step_completed(step)
-      |> add_consumed_budget(result)
       |> add_observations(observations)
       |> add_pending_artifacts(artifact_refs)
       |> collect_selection_artifact_result(turn_result)
-      |> persist_step_result(step, observations)
       |> emit_observations(observations)
 
-    if selection_scope_checkpoint?(state, loop_status, turn_result) do
-      state =
-        common
-        |> settle_selection_checkpoint(selection_scope(state))
-        |> persist_run_state()
+    steps = step_attrs_list(step, observations)
 
-      state
+    if selection_scope_checkpoint?(state, loop_status, turn_result) do
+      {prepare_selection_checkpoint(common, selection_scope(state)), steps}
     else
-      state =
+      next =
         common
         |> maybe_store_final_turn_result(turn_result)
         |> maybe_emit_artifact_created(artifact_refs, turn_result)
@@ -839,8 +1079,224 @@ defmodule NovelApplication.AgentRunServer do
         |> maybe_apply_loop_status(loop_status, Map.get(result, :loop_decision))
         |> maybe_stop_budget_exhausted()
 
-      persist_run_state(state)
+      {next, steps}
     end
+  end
+
+  defp step_attrs_list(%AgentStep{} = step, observations),
+    do: [AgentRunPersistence.step_attrs(step, observations)]
+
+  defp step_attrs_list(_step, _observations), do: []
+
+  # ── 结果交付的唯一事务路径 ───────────────────────────────────────────────
+  #
+  # 交互登记给出实际持久化裁决 → 纯状态归并 → run/step/事件/私有历史/durable
+  # checkpoint 同一事务 → 提交成功后才发布。模型/工具执行与作者等待都不进来。
+  defp commit_result(state, run, turn_result, trace, prepare, publish_from \\ nil) do
+    before = %{state | run: run, defer_delivery: true}
+    publish_from = publish_from || before
+
+    result =
+      AgentRunLog.transaction(fn ->
+        with {:ok, persisted} <- persist_result_decision(run, turn_result, trace, before),
+             effective = persisted || turn_result,
+             {next, steps} = prepare.(before, effective, persisted),
+             {:ok, next} <- persist_delivery_decision(next, effective, before),
+             {:ok, next} <- sync_delivery_status(next, before) do
+          commit_units(next, steps)
+        end
+      end)
+
+    case result do
+      {:ok, committed} ->
+        {:ok, publish_committed_events(publish_from, committed)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp persist_result_decision(_run, nil, _trace, _state), do: {:ok, nil}
+
+  defp persist_result_decision(run, turn_result, trace, state) when is_map(turn_result) do
+    attrs = TurnInteractionService.result_attrs(run, turn_result, trace)
+
+    case TurnInteractionService.persist_result(attrs, state.interaction_store, turn_result) do
+      :ok -> {:ok, nil}
+      {:ok, persisted} -> {:ok, persisted}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # 只登记本次新产生/变更的派生出口；继承的旧 final_turn_result 不是本次交付，
+  # 即使它非空也不能被重新登记或覆盖旧作者输入。
+  defp persist_delivery_decision(next, effective, state) do
+    delivery = next.final_turn_result
+
+    if is_map(delivery) and delivery != effective and delivery != state.final_turn_result do
+      attrs = TurnInteractionService.result_attrs(next.run, delivery)
+
+      case TurnInteractionService.persist_result(attrs, state.interaction_store, delivery) do
+        :ok -> {:ok, next}
+        {:ok, persisted} -> {:ok, %{next | final_turn_result: persisted}}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:ok, next}
+    end
+  end
+
+  # 去重裁决已在 persist_result_decision 先发生；状态推进后再把作者输入的处置状态
+  # 对齐本事务最终的 run 状态，避免发布时 assistant Interaction 已终态而 user 仍 running。
+  defp sync_delivery_status(next, before) do
+    if next.run.status == before.run.status do
+      {:ok, next}
+    else
+      case TurnInteractionService.record_status(next.run, next.interaction_store) do
+        :ok -> {:ok, next}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp commit_units(next, steps) do
+    with {:ok, snapshot} <-
+           AgentRunPersistence.snapshot(next.run, next, :delivery, steps: steps),
+         {:ok, _run} <- AgentRunPersistence.commit(snapshot) do
+      {:ok, next}
+    end
+  end
+
+  defp commit_question_delivery(working, next, steps, trace) do
+    with {:ok, attrs} <- question_delivery_attrs(next, steps, trace) do
+      deliver_question(attrs, next, working.interaction_store)
+    end
+  end
+
+  defp question_delivery_attrs(next, steps, trace) do
+    with {:ok, snapshot} <-
+           AgentRunPersistence.snapshot(next.run, next, :question_delivery, steps: steps) do
+      {:ok,
+       Map.merge(snapshot, %{
+         workspace_id: next.run.work_id,
+         session_id: next.run.session_id,
+         run_id: next.run.run_id,
+         status: :awaiting_author,
+         goal_version: next.run.goal.version,
+         turn_result: AgentRunPersistence.json_safe(next.final_turn_result),
+         decision_trace:
+           if(trace,
+             do:
+               NovelApplication.DialogueGateway.trace_to_attrs(
+                 trace,
+                 next.run.work_id,
+                 next.run.session_id
+               )
+           )
+       })}
+    end
+  end
+
+  defp deliver_question(attrs, next, store) do
+    AgentRunLog.transaction(fn -> commit_question_once(attrs, next, store) end)
+  end
+
+  defp commit_question_once(attrs, next, store) do
+    case TurnInteractionService.commit_question(:question_delivery, attrs, store) do
+      {:ok, _receipt} -> {:ok, next}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # 事务失败：run 诚实失败，live 保留已收到历史/消耗；只发布安全失败通知。
+  # 连失败事实也无法落库时不再递归重试，也不伪称已保存。
+  defp settle_commit_failed(state, reason, reason_codes, log? \\ true) do
+    if log?, do: log_run_failed(state, reason, reason_codes)
+
+    turn_result =
+      state.run |> safe_failure_turn_result(reason) |> preserve_committed_results(state)
+
+    before = %{state | defer_delivery: true, run: %{state.run | status: :failed, phase: :stopped}}
+
+    next =
+      before
+      |> maybe_store_final_turn_result(turn_result)
+      |> emit(:run_failed, failure_author_summary(reason), reason_codes, [], %{
+        turn_result: turn_result
+      })
+
+    result =
+      case commit_failure_delivery(next, turn_result) do
+        {:ok, committed} ->
+          publish_committed_events(before, committed)
+
+        {:error, safe_next} ->
+          publish_events_only(before, safe_next)
+      end
+
+    _ =
+      TurnInteractionService.record_status(%{next.run | status: :failed}, next.interaction_store)
+
+    result
+  end
+
+  # 失败事实也必须与 run/事件同事务。失败结果无法保存时退化为不含 TurnResult 的
+  # 安全通知；不重试同一失败结果，也不把未提交结果广播成已保存。
+  defp commit_failure_delivery(next, turn_result) do
+    case commit_failure_units(next, turn_result) do
+      {:ok, committed} -> {:ok, committed}
+      {:error, _reason} -> commit_safe_failure(next)
+    end
+  end
+
+  defp commit_failure_units(next, turn_result) do
+    AgentRunLog.transaction(fn ->
+      with {:ok, _persisted} <- persist_result_decision(next.run, turn_result, nil, next) do
+        commit_units(next, [])
+      end
+    end)
+  end
+
+  defp commit_safe_failure(next) do
+    safe_next = without_failure_turn_result(next)
+
+    case AgentRunLog.transaction(fn -> commit_units(safe_next, []) end) do
+      {:ok, committed} -> {:ok, committed}
+      {:error, _reason} -> {:error, safe_next}
+    end
+  end
+
+  defp without_failure_turn_result(state) do
+    events =
+      Enum.map(state.events, fn
+        %{event_type: :run_failed} = event ->
+          %{event | payload: Map.drop(event.payload || %{}, [:turn_result, "turn_result"])}
+
+        event ->
+          event
+      end)
+
+    %{state | final_turn_result: nil, events: events}
+  end
+
+  defp log_run_failed(state, reason, reason_codes) do
+    LogEmit.emit(:agent_run, :run_failed, :error, %{
+      run_id: state.run.run_id,
+      workspace_id: state.run.workspace_id,
+      work_id: state.run.work_id,
+      session_id: state.run.session_id,
+      turn_id: state.run.parent_turn_ref,
+      reason_code: List.last(reason_codes),
+      outcome_detail: reason |> inspect() |> String.slice(0, 300)
+    })
+  end
+
+  defp publish_events_only(before, after_state) do
+    after_state.events
+    |> Enum.drop(length(before.events))
+    |> Enum.each(&AgentEventPublisher.publish(&1, after_state.event_sink))
+
+    %{after_state | defer_delivery: false}
   end
 
   # ── S7（ADR-0024 #121）：对话流中不允许存在「run 停了但没有下文」的终局 ──
@@ -851,32 +1307,28 @@ defmodule NovelApplication.AgentRunServer do
   # ② 附带安全兜底 TurnResult（说明 + 全 false truthfulness），作者在对话流中始终有下文；
   #    恢复动作族（steer/resume available_actions）由 ADR-0024 CP3 扩展。
   defp settle_run_failed(state, reason, reason_codes) do
-    LogEmit.emit(:agent_run, :run_failed, :error, %{
-      run_id: state.run.run_id,
-      workspace_id: state.run.workspace_id,
-      work_id: state.run.work_id,
-      session_id: state.run.session_id,
-      turn_id: state.run.parent_turn_ref,
-      reason_code: List.last(reason_codes),
-      outcome_detail: reason |> inspect() |> String.slice(0, 300)
-    })
+    log_run_failed(state, reason, reason_codes)
 
     turn_result =
       state.run |> safe_failure_turn_result(reason) |> preserve_committed_results(state)
 
-    TurnInteractionService.record_result(
-      %{state.run | status: :failed},
-      turn_result,
-      state.interaction_store
-    )
+    prepare = fn committed, effective, _persisted ->
+      next =
+        committed
+        |> put_run_status(:failed)
+        |> put_run_phase(:stopped)
+        |> maybe_store_final_turn_result(effective)
+        |> emit(:run_failed, failure_author_summary(reason), reason_codes, [], %{
+          turn_result: effective
+        })
 
-    state
-    |> put_run_status(:failed)
-    |> maybe_store_final_turn_result(turn_result)
-    |> emit(:run_failed, failure_author_summary(reason), reason_codes, [], %{
-      turn_result: turn_result
-    })
-    |> persist_run_state()
+      {next, []}
+    end
+
+    case commit_result(state, %{state.run | status: :failed}, turn_result, nil, prepare) do
+      {:ok, committed} -> committed
+      {:error, _commit_reason} -> settle_commit_failed(state, reason, reason_codes, false)
+    end
   end
 
   defp preserve_committed_results(result, state) do
@@ -1104,7 +1556,7 @@ defmodule NovelApplication.AgentRunServer do
 
       AgentRun.budget_exhausted?(state.run) ->
         {summary, reason_codes} = budget_exhausted_outcome(state.run)
-        settle_budget_shortfall(state, summary, reason_codes)
+        prepare_budget_shortfall(state, summary, reason_codes)
 
       true ->
         state
@@ -1522,14 +1974,28 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp cancel_now(state) do
-    state
-    |> put_run_status(:cancelled)
-    |> put_run_phase(:stopped)
-    |> emit(:run_cancelled, "AgentRun 已取消。", [
-      "cancel_completed",
-      "provider_execution_cancelled"
-    ])
-    |> persist_run_state()
+    before =
+      %{state | defer_delivery: true}
+      |> put_run_status(:cancelled)
+      |> put_run_phase(:stopped)
+
+    next =
+      emit(before, :run_cancelled, "AgentRun 已取消。", [
+        "cancel_completed",
+        "provider_execution_cancelled"
+      ])
+
+    result =
+      case commit_units(next, []) do
+        {:ok, committed} ->
+          publish_committed_events(before, committed)
+
+        {:error, _reason} ->
+          publish_events_only(before, next)
+      end
+
+    _ = TurnInteractionService.record_status(next.run, next.interaction_store)
+    result
   end
 
   defp request_provider_cancellation(state, reason) do
@@ -1697,16 +2163,6 @@ defmodule NovelApplication.AgentRunServer do
     %{state | event_sequence: sequence, events: state.events ++ [event]}
   end
 
-  defp question_checkpoint(%{run: %{run_mode: :durable, long_run_task_ref: ref}} = state)
-       when is_binary(ref),
-       do: %{task_ref: ref, attrs: long_run_task_update_attrs(state.run, state)}
-
-  defp question_checkpoint(_state), do: nil
-
-  defp new_event_attrs(before, after_state) do
-    after_state.events |> Enum.drop(length(before.events)) |> Enum.map(&event_attrs/1)
-  end
-
   defp publish_committed_events(before, after_state) do
     after_state.events
     |> Enum.drop(length(before.events))
@@ -1733,331 +2189,53 @@ defmodule NovelApplication.AgentRunServer do
     TurnInteractionService.record_status(run, state.interaction_store)
 
     # 运行快照按 GenServer 命令序同步写入，避免旧异步快照覆盖已提交的问题/答复版本。
-    persist(fn ->
-      AgentRunLog.upsert_run(run_attrs(run))
-      persist_events_snapshot(run, state.events)
-      persist_long_run_checkpoint(run, state)
-    end)
-
-    state
+    # 这里是普通非结果快照，仍只保留既有 best-effort 语义；结果交付的完整事件
+    # 由 commit_units/2 与同一事务提交。
+    with {:ok, snapshot} <- AgentRunPersistence.snapshot(run, state, :status_snapshot),
+         :ok <- persist(fn -> AgentRunPersistence.commit(snapshot) end) do
+      state
+    else
+      _reason -> state
+    end
   end
 
   defp persist_run_state(state), do: state
 
-  defp persist_step_result(state, %AgentStep{} = step, observations) do
-    persist_async(fn -> AgentRunLog.insert_step(step_attrs(step, observations)) end)
-    state
-  end
-
-  defp persist_step_result(state, _step, _observations), do: state
-
   defp persist_event(%AgentEvent{}), do: :ok
 
-  defp persist_events_snapshot(%AgentRun{} = run, events) when is_list(events) do
-    if persist_events_snapshot?(run) do
-      events
-      |> Enum.reject(&(&1.event_type == :provider_progress))
-      |> Enum.map(&event_attrs/1)
-      |> AgentRunLog.insert_events()
-    else
+  # 显式压缩承诺可恢复历史；bounded/durable 都先用同一 snapshot 事务提交，
+  # 成功后才推进 GenServer 内存。这里不能使用运行日志的 best-effort 写入语义。
+  defp commit_transcript_checkpoint(%{run: %AgentRun{} = run} = state) do
+    with {:ok, snapshot} <- AgentRunPersistence.snapshot(run, state, :compaction),
+         {:ok, _run} <- AgentRunPersistence.commit(snapshot) do
       :ok
-    end
-  end
-
-  defp persist_events_snapshot(_run, _events), do: :ok
-
-  defp persist_events_snapshot?(%AgentRun{status: status}),
-    do: status in [:completed, :cancelled, :failed, :awaiting_author, :paused]
-
-  defp persist_async(fun) when is_function(fun, 0) do
-    cond do
-      not runtime_fact_persistence_enabled?() ->
-        :ok
-
-      async_persistence_enabled?() ->
-        Task.Supervisor.start_child(NovelApplication.BackgroundTaskSupervisor, fn ->
-          persist(fun)
-        end)
-
-        :ok
-
-      true ->
-        persist(fun)
+    else
+      {:error, _reason} -> {:error, :checkpoint_persistence_failed}
     end
   rescue
-    _error -> persist(fun)
+    error ->
+      LogEmit.emit(:agent_run, :checkpoint_persistence, :error, %{
+        run_id: run.run_id,
+        error_type: inspect(error.__struct__)
+      })
+
+      {:error, :checkpoint_persistence_failed}
   catch
-    _kind, _reason -> persist(fun)
+    :exit, _reason -> {:error, :checkpoint_persistence_failed}
   end
 
-  defp runtime_fact_persistence_enabled? do
-    Application.get_env(:novel_application, :agent_run_fact_persistence_enabled, true)
-  end
-
-  defp async_persistence_enabled? do
-    :novel_persistence
-    |> Application.get_env(NovelPersistence.Repo, [])
-    |> Keyword.get(:pool) != Ecto.Adapters.SQL.Sandbox
-  end
-
-  defp persist_long_run_checkpoint(
-         %AgentRun{run_mode: :durable, long_run_task_ref: task_ref} = run,
-         state
-       )
-       when is_binary(task_ref) and task_ref != "" do
-    persist(fn ->
-      case LongRunTaskLog.get(task_ref) do
-        nil -> :ok
-        task -> LongRunTaskLog.update(task, long_run_task_update_attrs(run, state))
-      end
-    end)
-  end
-
-  defp persist_long_run_checkpoint(_run, _state), do: :ok
+  defp commit_transcript_checkpoint(_state), do: {:error, :checkpoint_persistence_failed}
 
   defp persist(fun) when is_function(fun, 0) do
-    result =
-      case fun.() do
-        {:ok, _record} -> :ok
-        {:error, _changeset} -> :ok
-        _other -> :ok
-      end
-
-    result
+    case fun.() do
+      {:ok, _record} -> :ok
+      _other -> :error
+    end
   rescue
-    _error -> :ok
+    _error -> :error
   catch
-    :exit, _reason -> :ok
+    :exit, _reason -> :error
   end
-
-  defp long_run_task_update_attrs(%AgentRun{} = run, state) do
-    {status, phase} = long_run_status_phase(run.status)
-
-    %{
-      status: status,
-      phase: phase,
-      current_unit_ref: run.current_step_ref,
-      completed_unit_refs: run.completed_step_refs,
-      pending_artifact_refs: run.pending_artifact_refs,
-      consumed_budget: json_safe(run.consumed_budget),
-      checkpoint_data: long_run_checkpoint_data(run, state),
-      completed_at: long_run_completed_at(run.status)
-    }
-  end
-
-  defp long_run_status_phase(:completed), do: {Status.done(), TaskPhase.completed()}
-  defp long_run_status_phase(:cancelled), do: {Status.cancelled(), TaskPhase.cancelled()}
-  defp long_run_status_phase(:failed), do: {Status.error(), TaskPhase.failed()}
-
-  defp long_run_status_phase(status) when status in [:paused, :awaiting_author],
-    do: {Status.paused(), TaskPhase.checkpoint()}
-
-  defp long_run_status_phase(_status), do: {Status.running(), TaskPhase.running()}
-
-  defp long_run_completed_at(status) when status in [:completed, :cancelled, :failed],
-    do: DateTime.utc_now()
-
-  defp long_run_completed_at(_status), do: nil
-
-  defp long_run_checkpoint_data(%AgentRun{} = run, state) do
-    %{
-      "agent_run" =>
-        Map.merge(
-          %{
-            "run_id" => run.run_id,
-            "run_mode" => atom_string(run.run_mode),
-            "status" => atom_string(run.status),
-            "phase" => atom_string(run.phase),
-            "profile_ref" => run.profile_ref,
-            "goal_version" => run.goal.version,
-            "current_step_ref" => run.current_step_ref,
-            "completed_step_refs" => run.completed_step_refs,
-            "pending_artifact_refs" => run.pending_artifact_refs,
-            "consumed_budget" => json_safe(run.consumed_budget),
-            "event_sequence" => state.event_sequence,
-            "checkpoint_version" => @checkpoint_version
-          },
-          durable_fact_checkpoint_data(run.authority_scope)
-        ),
-      "progress" => long_run_progress(run),
-      "step" => long_run_step_label(run)
-    }
-  end
-
-  defp long_run_progress(%AgentRun{status: :completed}), do: 100
-  defp long_run_progress(%AgentRun{status: status}) when status in [:cancelled, :failed], do: 100
-
-  defp long_run_progress(%AgentRun{budget: %{max_steps: max}, consumed_budget: %{steps: steps}})
-       when is_integer(max) and max > 0 do
-    min(95, round(steps * 100 / max))
-  end
-
-  defp long_run_progress(_run), do: 50
-
-  defp long_run_step_label(%AgentRun{status: :completed}), do: "AgentRun 已完成"
-  defp long_run_step_label(%AgentRun{status: :cancelled}), do: "AgentRun 已取消"
-  defp long_run_step_label(%AgentRun{status: :failed}), do: "AgentRun 执行失败"
-  defp long_run_step_label(%AgentRun{current_step_ref: ref}) when is_binary(ref), do: ref
-  defp long_run_step_label(_run), do: "AgentRun 检查点"
-
-  defp run_attrs(%AgentRun{} = run) do
-    goal = json_safe(run.goal || %{})
-
-    %{
-      id: run.run_id,
-      workspace_id: run.workspace_id,
-      work_id: run.work_id,
-      session_id: run.session_id,
-      parent_turn_ref: run.parent_turn_ref,
-      origin_frame_ref: run.origin_frame_ref,
-      run_mode: atom_string(run.run_mode),
-      profile_ref: run.profile_ref,
-      trigger: json_safe(run.trigger),
-      status: atom_string(run.status),
-      phase: atom_string(run.phase),
-      goal: goal,
-      goal_version: Map.get(goal, "version", 1),
-      plan: json_safe(run.plan),
-      plan_ref: run.plan_ref,
-      plan_version: run.plan_version,
-      run_policy: json_safe(run.policy),
-      authority_scope: json_safe(run.authority_scope),
-      budget: json_safe(run.budget),
-      consumed_budget: json_safe(run.consumed_budget),
-      current_step_ref: run.current_step_ref,
-      completed_step_refs: run.completed_step_refs,
-      pending_artifact_refs: run.pending_artifact_refs,
-      active_behavior_ref: run.active_behavior_ref,
-      interrupt_state: json_safe(run.interrupt_state),
-      long_run_task_ref: run.long_run_task_ref,
-      failure_ref: run.failure_ref,
-      completed_at: terminal_completed_at(run.status)
-    }
-  end
-
-  defp step_attrs(%AgentStep{} = step, observations) do
-    observation_refs =
-      observations
-      |> Enum.filter(&match?(%AgentObservation{}, &1))
-      |> Enum.map(& &1.observation_id)
-      |> Kernel.++(step.observation_refs)
-      |> Enum.uniq()
-
-    %{
-      id: step.step_id,
-      run_id: step.run_ref,
-      sequence: step.sequence,
-      status: atom_string(step.status),
-      goal: step.goal,
-      micro_plan_ref: step.micro_plan_ref,
-      decision_ref: step.decision_ref,
-      tool_request_ref: step.tool_request_ref,
-      tool_result_ref: step.tool_result_ref,
-      observation_refs: observation_refs,
-      observation: observation_summary(observations),
-      state_snapshot_ref: step.state_snapshot_ref,
-      attempt: step.attempt,
-      idempotency_key: step.idempotency_key,
-      failure_ref: step.failure_ref,
-      started_at: parse_datetime(step.started_at),
-      completed_at: parse_datetime(step.completed_at) || DateTime.utc_now()
-    }
-  end
-
-  defp event_attrs(%AgentEvent{} = event) do
-    %{
-      id: event.event_id,
-      run_id: event.run_ref,
-      step_id: event.step_ref,
-      sequence: event.sequence,
-      event_type: atom_string(event.event_type),
-      visibility: atom_string(event.visibility),
-      summary: event.summary,
-      reason_codes: event.reason_codes,
-      refs: event.refs,
-      payload: event.payload |> Map.drop([:turn_result, "turn_result"]) |> json_safe()
-    }
-  end
-
-  defp observation_summary(observations) when is_list(observations) do
-    author_safe =
-      observations
-      |> Enum.filter(&match?(%AgentObservation{}, &1))
-      |> Enum.map(&AgentObservation.author_safe_summary/1)
-
-    %{
-      "count" => length(author_safe),
-      "items" => json_safe(author_safe),
-      "summaries" => Enum.map(author_safe, &Map.fetch!(&1, :summary))
-    }
-  end
-
-  defp terminal_completed_at(status) when status in [:completed, :cancelled, :failed],
-    do: DateTime.utc_now()
-
-  defp terminal_completed_at(_status), do: nil
-
-  defp parse_datetime(nil), do: nil
-  defp parse_datetime(%DateTime{} = datetime), do: datetime
-
-  defp parse_datetime(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> datetime
-      _error -> nil
-    end
-  end
-
-  defp parse_datetime(_value), do: nil
-
-  defp json_safe(nil), do: nil
-  defp json_safe(value) when is_boolean(value), do: value
-  defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
-
-  defp json_safe(%_struct{} = struct) do
-    struct
-    |> Map.from_struct()
-    |> json_safe()
-  end
-
-  defp json_safe(%{} = map) do
-    for {key, value} <- map, into: %{} do
-      {to_string(key), json_safe(value)}
-    end
-  end
-
-  defp json_safe(values) when is_list(values), do: Enum.map(values, &json_safe/1)
-  defp json_safe(value) when is_atom(value), do: Atom.to_string(value)
-  defp json_safe(value), do: value
-
-  defp durable_fact_checkpoint_data(authority_scope) do
-    %{}
-    |> maybe_put_fact("work_revision", scope_value(authority_scope, :work_revision))
-    |> maybe_put_fact("target_revision_ref", scope_value(authority_scope, :target_revision_ref))
-    |> maybe_put_fact("target_revision", scope_value(authority_scope, :target_revision))
-  end
-
-  defp maybe_put_fact(map, key, value) do
-    case nonblank_value(value) do
-      nil -> map
-      fact_value -> Map.put(map, key, fact_value)
-    end
-  end
-
-  defp scope_value(scope, key) when is_map(scope),
-    do: Map.get(scope, key) || Map.get(scope, Atom.to_string(key))
-
-  defp scope_value(_scope, _key), do: nil
-
-  defp nonblank_value(value) when is_binary(value) do
-    value = String.trim(value)
-    if value == "", do: nil, else: value
-  end
-
-  defp nonblank_value(nil), do: nil
-  defp nonblank_value(value), do: value
-
-  defp atom_string(value) when is_atom(value), do: Atom.to_string(value)
-  defp atom_string(value), do: to_string(value)
 
   defp snapshot(state) do
     %{
@@ -2164,7 +2342,7 @@ defmodule NovelApplication.AgentRunServer do
 
   defp turn_result_status(_result), do: nil
 
-  defp settle_selection_checkpoint(state, %{remaining_steps: remaining}) do
+  defp prepare_selection_checkpoint(state, %{remaining_steps: remaining}) do
     plan = put_plan_steps(state.run.plan, remaining)
     consumed = %{state.run.consumed_budget | execution_steps: 0}
 
@@ -2188,32 +2366,22 @@ defmodule NovelApplication.AgentRunServer do
     artifact_results = Map.get(state.stage_state, :selection_artifact_results, [])
     turn_result = merge_checkpoint_artifacts(turn_result, artifact_results, run.parent_turn_ref)
 
-    _ =
-      TurnInteractionService.record_result(
-        %{run | status: :awaiting_author},
-        turn_result,
-        state.interaction_store
-      )
-
-    state =
-      %{
-        state
-        | run: run,
-          stage_state:
-            state.stage_state
-            |> Map.delete(:selection_scope)
-            |> Map.delete(:selection_artifact_results)
-            |> Map.put(:scope_checkpoint, true)
-            |> Map.put(:agent_plan_cursor, 0),
-          final_turn_result: turn_result
-      }
-      |> put_run_status(:awaiting_author)
-      |> put_run_phase(:stopped)
-      |> emit(:awaiting_author, summary, ["scope_checkpoint", "plan_budget_shortfall"], [], %{
-        turn_result: turn_result
-      })
-
-    state
+    %{
+      state
+      | run: run,
+        stage_state:
+          state.stage_state
+          |> Map.delete(:selection_scope)
+          |> Map.delete(:selection_artifact_results)
+          |> Map.put(:scope_checkpoint, true)
+          |> Map.put(:agent_plan_cursor, 0),
+        final_turn_result: turn_result
+    }
+    |> put_run_status(:awaiting_author)
+    |> put_run_phase(:stopped)
+    |> emit(:awaiting_author, summary, ["scope_checkpoint", "plan_budget_shortfall"], [], %{
+      turn_result: turn_result
+    })
   end
 
   defp merge_checkpoint_artifacts(turn_result, [], _parent_turn_ref), do: turn_result
@@ -2257,21 +2425,40 @@ defmodule NovelApplication.AgentRunServer do
 
   # S7（ADR-0024）：预算缺口不是「run 停了但没有下文」。同一 await 事件携带
   # 作者决策面 TurnResult；动作只做显式预算授权，不自动扩预算，不绕过绝对硬上限。
-  defp settle_budget_shortfall(state, summary, reason_codes) do
+  defp prepare_budget_shortfall(state, summary, reason_codes) do
     turn_result = budget_shortfall_turn_result(state.run, summary)
-
-    _ =
-      TurnInteractionService.record_result(
-        %{state.run | status: :awaiting_author},
-        turn_result,
-        state.interaction_store
-      )
 
     state
     |> put_run_status(:awaiting_author)
     |> put_run_phase(:stopped)
     |> maybe_store_final_turn_result(turn_result)
     |> emit(:awaiting_author, summary, reason_codes, [], %{turn_result: turn_result})
+  end
+
+  defp settle_budget_shortfall(state, summary, reason_codes) do
+    run = %{state.run | status: :awaiting_author}
+    turn_result = budget_shortfall_turn_result(run, summary)
+
+    prepare = fn committed, effective, _persisted ->
+      next =
+        committed
+        |> put_run_status(:awaiting_author)
+        |> put_run_phase(:stopped)
+        |> maybe_store_final_turn_result(effective)
+        |> emit(:awaiting_author, summary, reason_codes, [], %{turn_result: effective})
+
+      {next, []}
+    end
+
+    case commit_result(state, run, turn_result, nil, prepare) do
+      {:ok, committed} ->
+        committed
+
+      {:error, _reason} ->
+        settle_commit_failed(state, :interaction_persistence_failed, [
+          "budget_checkpoint_persistence_failed"
+        ])
+    end
   end
 
   defp budget_shortfall_turn_result(%AgentRun{} = run, summary) do
@@ -2723,6 +2910,9 @@ defmodule NovelApplication.AgentRunServer do
     |> attach_terminal_plan_meta(decision, meta)
   end
 
+  defp handle_next_step_result({:error, reason, step_state}, _run, _sequence, _snapshot),
+    do: {:error, reason, step_state}
+
   defp handle_next_step_result({:error, reason}, _run, _sequence, _snapshot), do: {:error, reason}
 
   defp handle_next_step_result(other, _run, _sequence, _snapshot),
@@ -2741,6 +2931,7 @@ defmodule NovelApplication.AgentRunServer do
     # CP3b（判断②改进闭环）：续行重产出前，中间稿按 meta 声明被替代——快照上先移出
     # 待采纳集合放行 pending 预算；state 落地与 artifact_superseded 事件随步结果收口。
     run = apply_supersede_refs(run, supersede_refs(meta))
+    snapshot = AuthoringSession.execution_snapshot(snapshot, meta)
 
     if AgentRun.pending_artifact_budget_reached?(run) do
       complete_for_pending_artifact_budget(run, sequence, decision, meta)
@@ -2750,6 +2941,7 @@ defmodule NovelApplication.AgentRunServer do
       |> attach_loop_decision(decision, meta)
       |> attach_supersede_refs(meta)
     end
+    |> AuthoringSession.inherit_result(meta)
   end
 
   defp supersede_refs(meta) when is_map(meta),
@@ -2791,7 +2983,8 @@ defmodule NovelApplication.AgentRunServer do
      result
      |> maybe_attach_plan_run_patch(meta)
      |> maybe_attach_replan(decision)
-     |> Map.merge(Map.take(meta, [:turn_result, :decision_trace]))}
+     |> Map.merge(Map.take(meta, [:turn_result, :decision_trace, :stage_state]))
+     |> AuthoringSession.inherit_result(meta)}
   end
 
   defp attach_terminal_plan_meta(result, _decision, _meta), do: result
@@ -2941,14 +3134,14 @@ defmodule NovelApplication.AgentRunServer do
     |> Enum.map(fn {step, index} ->
       %{
         step_ref: plan_step_ref(step),
-        kind: step |> map_value(:kind) |> atom_string(),
-        status: step_status(index, active_index, stage) |> atom_string(),
+        kind: step |> map_value(:kind) |> AgentRunPersistence.atom_string(),
+        status: step_status(index, active_index, stage) |> AgentRunPersistence.atom_string(),
         target_tool_ref: map_value(step, :target_tool_ref),
         description: map_value(step, :description),
         success_criteria: string_list(map_value(step, :success_criteria)),
         depends_on: string_list(map_value(step, :depends_on)),
-        write_intent: step |> map_value(:write_intent) |> atom_string(),
-        risk_hint: step |> map_value(:risk_hint) |> atom_string(),
+        write_intent: step |> map_value(:write_intent) |> AgentRunPersistence.atom_string(),
+        risk_hint: step |> map_value(:risk_hint) |> AgentRunPersistence.atom_string(),
         authoring_intent: optional_atom_string(map_value(step, :authoring_intent)),
         target_chapter: map_value(step, :target_chapter),
         target_chapter_ref: map_value(step, :target_chapter_ref),
@@ -3020,7 +3213,7 @@ defmodule NovelApplication.AgentRunServer do
   defp map_value(_map, _key), do: nil
 
   defp optional_atom_string(nil), do: nil
-  defp optional_atom_string(value), do: atom_string(value)
+  defp optional_atom_string(value), do: AgentRunPersistence.atom_string(value)
 
   defp meta_value(meta, key) when is_map(meta),
     do: Map.get(meta, key) || Map.get(meta, Atom.to_string(key))
@@ -3039,7 +3232,19 @@ defmodule NovelApplication.AgentRunServer do
      |> maybe_attach_replan(decision)}
   end
 
-  defp attach_loop_decision({:error, reason}, _decision, _meta), do: {:error, reason}
+  defp attach_loop_decision({:error, reason, step_state}, _decision, meta)
+       when is_map(step_state) do
+    state =
+      Map.update(step_state, :provider_call_count, provider_call_count(meta, 0), fn count ->
+        count + provider_call_count(meta, 0)
+      end)
+
+    {:error, reason, state}
+  end
+
+  defp attach_loop_decision({:error, reason}, decision, meta),
+    do: attach_loop_decision({:error, reason, %{}}, decision, meta)
+
   defp attach_loop_decision(other, _decision, _meta), do: other
 
   defp provider_call_count(meta, default) when is_map(meta) do

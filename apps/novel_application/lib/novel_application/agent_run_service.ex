@@ -5,15 +5,17 @@ defmodule NovelApplication.AgentRunService do
 
   require NovelCommon.LogEmit, as: LogEmit
 
+  alias NovelApplication.AgentRunPersistence
   alias NovelApplication.AgentRunServer
+  alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.TurnInteractionService
   alias NovelCommon.Contracts.AgentEvent
   alias NovelDomain.AgentRun
   alias NovelFoundation.Enums.{Status, TaskPhase}
   alias NovelPersistence.{AgentRunLog, InteractionLifecycle, LongRunTaskLog}
 
-  @checkpoint_version 2
   @runtime_lost_failure_ref "runtime_lost_on_restart"
+  @terminal_run_statuses ["completed", "cancelled", "failed"]
 
   @type step_fun :: AgentRunServer.step_fun()
   @type next_step_planner :: AgentRunServer.next_step_planner()
@@ -40,6 +42,111 @@ defmodule NovelApplication.AgentRunService do
     |> Map.put_new(:phase, :executing)
     |> start_requested_run(opts)
   end
+
+  @doc """
+  作者动作新 run 的唯一启动入口：receipt + run + run_started 由 Server init
+  原子受理；duplicate 映射回原 run 并附加订阅，不把重复当启动失败更新原 run。
+  """
+  @spec start_author_action(map(), keyword(), map()) ::
+          {:ok, %{run_id: String.t(), receipt: map(), duplicate?: boolean()}}
+          | {:error, term()}
+  def start_author_action(attrs, opts, admission)
+      when is_map(attrs) and is_map(admission) do
+    attrs =
+      attrs
+      |> atomize_known()
+      |> Map.put(:run_mode, :bounded)
+      |> Map.put_new(:status, :running)
+      |> Map.put_new(:phase, :executing)
+
+    with {:ok, planner} <- next_step_planner(opts),
+         {:ok, run} <- AgentRun.new(attrs) do
+      start_admitted_run(run, planner, opts, admission)
+    end
+  end
+
+  defp start_admitted_run(run, planner, opts, admission) do
+    store = Keyword.get(opts, :interaction_store) || TurnInteractionService.store()
+    event_sink = Keyword.get(opts, :event_sink)
+
+    case DynamicSupervisor.start_child(
+           NovelApplication.AgentRunSupervisor,
+           {AgentRunServer,
+            [
+              run: run,
+              next_step_planner: planner,
+              event_sink: event_sink,
+              interaction_store: store,
+              author_action_admission: admission
+            ]}
+         ) do
+      {:ok, pid} ->
+        receipt = AgentRunServer.author_action_receipt(pid)
+        {:ok, %{run_id: run.run_id, receipt: receipt, duplicate?: false}}
+
+      {:error, {:author_action_duplicate, receipt}} ->
+        reuse_admitted_run(receipt, event_sink)
+
+      {:error, {:author_action_conflict, _receipt}} ->
+        {:error, :idempotency_payload_conflict}
+
+      {:error, {:author_action_admission_failed, reason}} ->
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  启动已在受理事务中提交 receipt/初始 run/作者决定结果的 child owner。
+
+  不再次 admit、不重新生成初始事件；提交后的 child 只接管自己的执行状态。
+  """
+  @spec start_committed_author_action(AgentRun.t(), keyword(), struct()) ::
+          {:ok, pid()} | {:error, term()}
+  def start_committed_author_action(%AgentRun{} = run, opts, receipt) do
+    store = Keyword.get(opts, :interaction_store) || TurnInteractionService.store()
+
+    DynamicSupervisor.start_child(
+      NovelApplication.AgentRunSupervisor,
+      {AgentRunServer,
+       [
+         run: run,
+         next_step_planner: Keyword.get(opts, :next_step_planner),
+         event_sink: Keyword.get(opts, :event_sink),
+         interaction_store: store,
+         author_action_admission: {:committed, receipt}
+       ]}
+    )
+  end
+
+  defp reuse_admitted_run(receipt, event_sink) do
+    case receipt_run_id(receipt) do
+      run_id when is_binary(run_id) and run_id != "" ->
+        attach_admitted_event_sink(run_id, event_sink)
+        {:ok, %{run_id: run_id, receipt: receipt, duplicate?: true}}
+
+      _missing ->
+        {:error, :receipt_run_missing}
+    end
+  end
+
+  defp receipt_run_id(receipt) do
+    case receipt.result || %{} do
+      %{"run_id" => run_id} -> run_id
+      %{run_id: run_id} -> run_id
+      _ -> nil
+    end
+  end
+
+  defp attach_admitted_event_sink(run_id, event_sink)
+       when is_binary(run_id) and is_function(event_sink, 1) do
+    _ = attach_event_sink(run_id, event_sink)
+    :ok
+  end
+
+  defp attach_admitted_event_sink(_run_id, _event_sink), do: :ok
 
   defp start_requested_run(attrs, opts) do
     # 同一输入的接收与启动不可被另一 Channel 的重传穿插。
@@ -221,43 +328,105 @@ defmodule NovelApplication.AgentRunService do
   第二次 join 时该 run 已是终态，不再命中、不再广播。durable run 不在
   `AgentRunLog.list_active_bounded/2` 的查询范围内，恢复路径零改动。
   """
-  @spec list_dead_bounded(String.t(), String.t()) :: {:ok, [map()]}
+  @spec list_dead_bounded(String.t(), String.t()) :: {:ok, [map()]} | {:error, atom()}
   def list_dead_bounded(work_id, session_id)
       when is_binary(work_id) and is_binary(session_id) do
-    states =
+    outcomes =
       work_id
       |> AgentRunLog.list_active_bounded(session_id)
       |> stable_record_sort()
-      |> Enum.flat_map(&reap_dead_bounded/1)
+      |> Enum.map(&reap_dead_bounded/1)
 
-    {:ok, states}
+    case Enum.find(outcomes, &match?({:error, _}, &1)) do
+      {:error, reason} ->
+        {:error, reason}
+
+      nil ->
+        states =
+          Enum.flat_map(outcomes, fn
+            {:ok, state} -> [state]
+            :skip -> []
+          end)
+
+        {:ok, states}
+    end
   rescue
-    _error -> {:ok, []}
+    _error -> {:error, :runtime_lost_unavailable}
   catch
-    _kind, _reason -> {:ok, []}
+    _kind, _reason -> {:error, :runtime_lost_unavailable}
   end
 
   # 条件更新保证并发 join 至多一方收口成功：成功方产生失效快照与留痕，
-  # 其余方看到 :already_terminal 后不再重复广播。
+  # 其余方看到 :already_terminal 后不再重复广播。写入失败或记录消失必须让
+  # 调用方看到错误，不能把旧的非终态记录当成收口结果广播。
   defp reap_dead_bounded(record) do
     with {:error, :not_found} <- lookup(record.id),
-         {:ok, closed_record} <-
-           AgentRunLog.mark_runtime_lost(record.id, @runtime_lost_failure_ref),
+         {:closed, closed_record} <- close_lost_bounded(record),
          {:ok, run} <- run_from_record(closed_record) do
-      emit_runtime_lost_trace(closed_record, record.status)
-
-      [
-        %{
-          run: run,
-          remaining_steps: 0,
-          current_task?: false,
-          recovered?: false,
-          runtime_live?: false
-        }
-      ]
+      {:ok,
+       %{
+         run: run,
+         remaining_steps: 0,
+         current_task?: false,
+         recovered?: false,
+         runtime_live?: false
+       }}
     else
-      _ -> []
+      {:already_terminal, _record} -> :skip
+      {:error, reason} -> {:error, reason}
+      _other -> :skip
     end
+  end
+
+  # 单一 bounded runtime-lost 收口入口：join 与回执事实读取共用。只有条件更新
+  # 真正把非终态 bounded run 置为 failed 的一方负责留痕，避免重复事件。
+  defp close_lost_bounded(%{run_mode: "bounded", status: status} = record)
+       when status in @terminal_run_statuses,
+       do: {:already_terminal, record}
+
+  defp close_lost_bounded(%{run_mode: "bounded"} = record) do
+    case AgentRunLog.mark_runtime_lost(record.id, @runtime_lost_failure_ref) do
+      {:ok, closed_record} ->
+        emit_runtime_lost_trace(closed_record, record.status)
+        {:closed, closed_record}
+
+      {:error, :already_terminal} ->
+        current_terminal_record(record.id)
+
+      {:error, :not_found} ->
+        {:error, :runtime_lost_missing}
+
+      {:error, :write_failed} ->
+        {:error, :runtime_lost_write_failed}
+    end
+  end
+
+  defp close_lost_bounded(record), do: {:unchanged, record}
+
+  # 只有持久层确认已是合法终态时才读取当前记录；记录消失按缺失处理，读取失败
+  # 按写入失败处理，绝不回退到调用方手里的旧 record。
+  defp current_terminal_record(run_id) do
+    case safe_get_run(run_id) do
+      {:ok, %{status: status} = record} when status in @terminal_run_statuses ->
+        {:already_terminal, record}
+
+      {:ok, nil} ->
+        {:error, :runtime_lost_missing}
+
+      {:ok, _still_open} ->
+        {:error, :runtime_lost_write_failed}
+
+      {:error, _reason} ->
+        {:error, :runtime_lost_write_failed}
+    end
+  end
+
+  defp safe_get_run(run_id) do
+    {:ok, AgentRunLog.get_run(run_id)}
+  rescue
+    _error -> {:error, :runtime_lost_read_failed}
+  catch
+    _kind, _reason -> {:error, :runtime_lost_read_failed}
   end
 
   # developer 留痕走既有两条通道（二者都保留）：
@@ -410,26 +579,92 @@ defmodule NovelApplication.AgentRunService do
   end
 
   defp receipt_runtime_state(run_id, work_id, session_id) do
+    case receipt_run_facts(run_id, work_id, session_id) do
+      {:ok, state} -> state
+      {:error, _reason} -> nil
+    end
+  end
+
+  @doc """
+  回执事实读取边界：用户消息 receipt 与作者动作 receipt 共用同一 run 执行事实，
+  不按 receipt 中一次写入的旧 status 冒充当前状态。
+
+  - Registry 有进程且作用域一致：`runtime_live?: true` 的 live 快照；
+  - Registry 明确无进程：读取持久 run；只有已确认丢失的 bounded 非终态 run
+    才沿用既有 runtime-lost 规则收口为 failed，保留 receipt/history/candidate；
+  - Registry/状态读取超时等不确定结果：返回持久快照但 `runtime_live?: nil`，
+    不宣布已死；
+  - 记录缺失、作用域不匹配、失活写入失败或状态读取失败：返回明确 error，
+    调用方失败闭合，不回退为旧 running，也不伪造收口事实。
+  """
+  @spec receipt_run_facts(String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, atom()}
+  def receipt_run_facts(run_id, work_id, session_id)
+      when is_binary(run_id) and is_binary(work_id) and is_binary(session_id) do
     case state(run_id) do
       {:ok, %{run: %{work_id: ^work_id, session_id: ^session_id}} = live} ->
-        Map.put(live, :runtime_live?, true)
+        {:ok, Map.put(live, :runtime_live?, true)}
+
+      {:ok, %{run: _run}} ->
+        {:error, :receipt_run_scope_mismatch}
 
       {:error, :not_found} ->
-        persisted_receipt_state(run_id, work_id, session_id, false)
+        persisted_receipt_facts(run_id, work_id, session_id, false)
 
-      _ ->
-        persisted_receipt_state(run_id, work_id, session_id, nil)
+      {:error, _uncertain} ->
+        persisted_receipt_facts(run_id, work_id, session_id, nil)
+    end
+  catch
+    :exit, _reason -> persisted_receipt_facts(run_id, work_id, session_id, nil)
+    _kind, _reason -> {:error, :receipt_run_unavailable}
+  end
+
+  def receipt_run_facts(_run_id, _work_id, _session_id),
+    do: {:error, :receipt_run_scope_unavailable}
+
+  defp persisted_receipt_facts(run_id, work_id, session_id, runtime_live) do
+    case safe_get_run(run_id) do
+      {:ok, %{work_id: ^work_id, session_id: ^session_id} = record} ->
+        with {:ok, record} <- maybe_close_lost_bounded(record, runtime_live),
+             {:ok, run} <- run_from_record(record) do
+          {:ok,
+           %{
+             run: run,
+             runtime_live?: runtime_live,
+             current_task?: false,
+             remaining_steps: 0
+           }}
+        else
+          {:error, reason} -> {:error, receipt_close_error(reason)}
+        end
+
+      {:ok, %{work_id: _, session_id: _}} ->
+        {:error, :receipt_run_scope_mismatch}
+
+      {:ok, nil} ->
+        {:error, :receipt_run_missing}
+
+      {:error, _reason} ->
+        {:error, :receipt_run_unavailable}
     end
   end
 
-  defp persisted_receipt_state(run_id, work_id, session_id, runtime_live) do
-    with %{work_id: ^work_id, session_id: ^session_id} = record <- AgentRunLog.get_run(run_id),
-         {:ok, run} <- run_from_record(record) do
-      %{run: run, runtime_live?: runtime_live, current_task?: false, remaining_steps: 0}
-    else
-      _ -> nil
+  defp receipt_close_error(:runtime_lost_missing), do: :receipt_run_missing
+  defp receipt_close_error(:runtime_lost_write_failed), do: :receipt_run_write_failed
+  defp receipt_close_error(:runtime_lost_read_failed), do: :receipt_run_unavailable
+  defp receipt_close_error(_reason), do: :receipt_run_state_unavailable
+
+  # 只有“Registry 已确认无进程”才允许收口；超时/未知结果不宣布已死。
+  defp maybe_close_lost_bounded(record, false) do
+    case close_lost_bounded(record) do
+      {:closed, closed_record} -> {:ok, closed_record}
+      {:already_terminal, current_record} -> {:ok, current_record}
+      {:unchanged, unchanged_record} -> {:ok, unchanged_record}
+      {:error, _reason} = error -> error
     end
   end
+
+  defp maybe_close_lost_bounded(record, _runtime_live), do: {:ok, record}
 
   @spec pause(String.t()) :: :ok | {:error, :not_found}
   def pause(run_id), do: command(run_id, :pause)
@@ -454,6 +689,15 @@ defmodule NovelApplication.AgentRunService do
 
   @spec cancel(String.t()) :: :ok | {:error, :not_found}
   def cancel(run_id), do: command(run_id, :cancel)
+
+  @doc "在运行安全点显式压缩 canonical 会话；同一 durable checkpoint 继续负责恢复。"
+  @spec compact_transcript(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def compact_transcript(run_id, attrs) when is_binary(run_id) and is_map(attrs) do
+    case lookup(run_id) do
+      {:ok, pid} -> AgentRunServer.compact_transcript(pid, attrs)
+      error -> error
+    end
+  end
 
   @doc """
   steer 是同步命令（DS03）：空文本拒绝，成功回执携带 run_id / parent_turn_ref /
@@ -607,7 +851,7 @@ defmodule NovelApplication.AgentRunService do
               "phase" => "planning",
               "goal_version" => get_in_goal(attrs, :version) || 1,
               "completed_step_refs" => [],
-              "checkpoint_version" => @checkpoint_version
+              "checkpoint_version" => AgentRunPersistence.checkpoint_version()
             },
             durable_fact_checkpoint_data(attrs)
           ),
@@ -669,8 +913,38 @@ defmodule NovelApplication.AgentRunService do
       recovered?: true,
       runtime_live?: false,
       long_run_task: task,
-      recovery_event: event
+      recovery_event: event,
+      authoring_transcript: nil,
+      authoring_history: %{status: :missing}
     }
+    |> restore_authoring_transcript(record, task)
+  end
+
+  defp restore_authoring_transcript(recovered, record, task) do
+    case AuthoringCheckpoint.restore(record, task.checkpoint_data || %{}) do
+      {:ok, nil, :none} ->
+        Map.put(recovered, :authoring_history, %{status: :missing})
+
+      {:ok, transcript, source} ->
+        recovered
+        |> Map.put(:authoring_transcript, transcript)
+        |> Map.put(:stage_state, %{judgment_transcript: transcript})
+        |> Map.put(:authoring_history, %{
+          status: :available,
+          source: source,
+          format_version: AuthoringCheckpoint.format_version()
+        })
+
+      {:partial, reason} ->
+        recovered
+        |> Map.put(:authoring_transcript_error, reason)
+        |> Map.put(:authoring_history, %{status: :partial, reason: reason})
+
+      {:error, reason} ->
+        recovered
+        |> Map.put(:authoring_transcript_error, reason)
+        |> Map.put(:authoring_history, %{status: :invalid, reason: reason})
+    end
   end
 
   defp run_from_record(record) do
@@ -753,7 +1027,7 @@ defmodule NovelApplication.AgentRunService do
     task_run = task.checkpoint_data && task.checkpoint_data["agent_run"]
 
     case task_run && task_run["checkpoint_version"] do
-      @checkpoint_version -> nil
+      version when version in [2, 3] -> nil
       nil -> "checkpoint_version_missing"
       _other -> "checkpoint_version_mismatch"
     end
@@ -870,8 +1144,7 @@ defmodule NovelApplication.AgentRunService do
         refs: [run.long_run_task_ref],
         payload: %{
           long_run_task_ref: run.long_run_task_ref,
-          runtime_live: Keyword.get(opts, :runtime_live?, false),
-          checkpoint_data: task.checkpoint_data || %{}
+          runtime_live: Keyword.get(opts, :runtime_live?, false)
         },
         emitted_at: DateTime.utc_now()
       })

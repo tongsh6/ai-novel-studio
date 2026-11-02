@@ -316,9 +316,10 @@ defmodule NovelApplication.TurnInteractionServiceTest do
                event_sink: fn event -> send(parent, {:event, event.event_type, event.payload}) end
              )
 
-    assert_receive {:event, :run_failed, %{turn_result: result}}, 2000
-    assert result.assistant_message.text =~ "结果未能保存"
-    assert result.truthfulness.production_write_performed == false
+    # 失败 TurnResult 无法持久时，安全失败通知不得携带未提交结果。
+    assert_receive {:event, :run_failed, payload}, 2000
+    refute Map.has_key?(payload, :turn_result)
+    refute Map.has_key?(payload, "turn_result")
     refute_receive {:event, :turn_result_ready, _}
     assert {:ok, %{run: %{status: :failed}}} = AgentRunService.state(run_id)
     assert [user] = MemoryLog.transcript(attrs.session_id)

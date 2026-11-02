@@ -56,6 +56,70 @@ defmodule NovelApplication.ActionIdempotencyLedger do
     |> Base.encode16(case: :lower)
   end
 
+  @doc """
+  完整作者动作语义摘要（version 2）：payload、target、behavior、candidate 等。
+
+  `input_id` 是每次重传重新分配的投递身份，必须排除，否则同一次动作永远无法
+  回放。key 已包含 work/session/source/action/type/client key，这里只补 key 之外
+  会影响动作语义的字段。
+  """
+  @spec action_semantic_digest(AuthorActionInput.t()) :: String.t()
+  def action_semantic_digest(%AuthorActionInput{} = input) do
+    %{
+      "payload" => normalize_digest_value(input.payload || %{}),
+      "target_ref" => normalize_ref(input.target_ref),
+      "behavior_ref" => normalize_ref(input.behavior_ref),
+      "candidate_set_ref" => normalize_ref(input.candidate_set_ref),
+      "candidate_ref" => normalize_ref(input.candidate_ref)
+    }
+    |> :erlang.term_to_binary([:deterministic])
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  @action_semantic_version 2
+
+  @doc "动作语义版本；新受理记录与旧 payload-only 摘要明确分开。"
+  @spec action_semantic_version() :: 2
+  def action_semantic_version, do: @action_semantic_version
+
+  @doc """
+  解析 receipt 的受理版本。
+
+  - `:legacy`：字段完全缺失，只能按旧 payload-only 历史边界回放；
+  - `{:supported, version}`：字段存在且是当前支持版本；
+  - `{:unsupported, version}`：字段存在但不是当前支持版本（含 nil/非法值），
+    调用方必须失败闭合，不能降级成 legacy 继续接受。
+  """
+  @spec admission_version(map()) :: :legacy | {:supported, pos_integer()} | {:unsupported, term()}
+  def admission_version(result) when is_map(result) do
+    cond do
+      Map.has_key?(result, :admission_version) ->
+        classify_admission_version(Map.get(result, :admission_version))
+
+      Map.has_key?(result, "admission_version") ->
+        classify_admission_version(Map.get(result, "admission_version"))
+
+      true ->
+        :legacy
+    end
+  end
+
+  defp classify_admission_version(version)
+       when version == @action_semantic_version,
+       do: {:supported, version}
+
+  defp classify_admission_version(version), do: {:unsupported, version}
+
+  defp normalize_ref(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_ref(value), do: value
+
   defp normalize_digest_value(value) when is_map(value) do
     value
     |> Enum.map(fn {key, val} -> {to_string(key), normalize_digest_value(val)} end)

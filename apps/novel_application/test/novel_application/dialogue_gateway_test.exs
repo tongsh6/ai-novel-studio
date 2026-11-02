@@ -1,12 +1,10 @@
 defmodule NovelApplication.DialogueGatewayTest do
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.Execution
+  alias NovelApplication.AuthorActionDecision
   alias NovelApplication.DialogueGateway
   alias NovelDomain.AuthorActionInput
   alias NovelDomain.DialogueFrame
-
-  defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
 
   # ── VS-00 reply-only tests ──────────────────────────
 
@@ -68,6 +66,7 @@ defmodule NovelApplication.DialogueGatewayTest do
             plan_ref: "plan-behavior-open",
             target_ref: "prose_writing",
             required_next_action: "confirm_before_execute",
+            lifecycle_status: "awaiting_author",
             prompt_contract: %{},
             constraints: %{},
             trace_ref: "trace-behavior-open"
@@ -76,16 +75,19 @@ defmodule NovelApplication.DialogueGatewayTest do
         }
       }
 
-      assert {:ok, action_result, turn_result} =
-               DialogueGateway.handle_action(
-                 input,
-                 source_turn_result,
-                 provider_execution(fn _prompt ->
-                   flunk("cancel waiting must not call provider")
-                 end)
-               )
+      decision =
+        AuthorActionDecision.build(:reject, %{
+          receipt_id: "receipt-behavior-open",
+          action_input: input,
+          source_turn_result: source_turn_result,
+          behavior:
+            NovelDomain.BehaviorState.from_map(source_turn_result.behavior_state.active),
+          author_turn_ref: "author-turn-behavior-open",
+          author_text: "取消"
+        })
 
-      assert action_result.status == "cancelled"
+      turn_result = decision.turn_result
+      assert turn_result.status == "cancelled"
       assert turn_result.phase == "cancelled"
       assert turn_result.trace_summary.trace_ref == "trace:#{turn_result.turn_id}"
 

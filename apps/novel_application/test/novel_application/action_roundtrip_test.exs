@@ -376,7 +376,7 @@ defmodule NovelApplication.ActionRoundtripTest do
       ]
     }
 
-    test "confirm_before_execute requires stored plan in source" do
+    test "confirm_before_execute is not executed by the retired synchronous gateway boundary" do
       input = %AuthorActionInput{
         input_id: "in-gw",
         source_turn_ref: "turn-1",
@@ -387,11 +387,11 @@ defmodule NovelApplication.ActionRoundtripTest do
         idempotency_key: "ik1"
       }
 
-      assert {:error, reason} = DialogueGateway.handle_action(input, @valid_source)
-      assert String.contains?(reason, "without stored plan")
+      assert {:error, :author_action_scope_unavailable} =
+               DialogueGateway.handle_action(input, @valid_source)
     end
 
-    test "confirm_before_execute with plan re-gates" do
+    test "confirm_before_execute with plan still requires persistent admission" do
       input = %AuthorActionInput{
         input_id: "in-gw-plan",
         source_turn_ref: "turn-1",
@@ -402,7 +402,8 @@ defmodule NovelApplication.ActionRoundtripTest do
         idempotency_key: "ik1"
       }
 
-      assert {:ok, _ack} = DialogueGateway.handle_action(input, @source_with_plan)
+      assert {:error, :author_action_scope_unavailable} =
+               DialogueGateway.handle_action(input, @source_with_plan)
     end
 
     test "reject_or_cancel_confirmation closes waiting behavior without tool or write" do
@@ -428,9 +429,29 @@ defmodule NovelApplication.ActionRoundtripTest do
         idempotency_key: "ik-reject"
       }
 
-      assert {:ok, ack, turn_result} = DialogueGateway.handle_action(input, source)
-      assert ack.status == "cancelled"
-      assert ack.action_type == "reject_or_cancel_confirmation"
+      behavior =
+        NovelDomain.BehaviorState.from_map(%{
+          "behavior_id" => "bh-1",
+          "behavior_type" => "confirmation",
+          "lifecycle_status" => "awaiting_author",
+          "opened_at_turn_ref" => "turn-1",
+          "opened_by_decision_ref" => "decision-1",
+          "frame_ref" => "frame-1",
+          "target_ref" => "text_analysis",
+          "required_next_action" => "confirm_before_execute"
+        })
+
+      decision =
+        NovelApplication.AuthorActionDecision.build(:reject, %{
+          receipt_id: "receipt-reject",
+          action_input: input,
+          source_turn_result: source,
+          behavior: behavior,
+          author_turn_ref: "author-turn-1",
+          author_text: "取消"
+        })
+
+      turn_result = decision.turn_result
       assert turn_result.status == "cancelled"
       assert turn_result.phase == "cancelled"
       assert turn_result.behavior_state.active == nil
@@ -505,31 +526,11 @@ defmodule NovelApplication.ActionRoundtripTest do
       }
 
       result_fn = fn _prompt ->
-        {:ok,
-         %{
-           content:
-             Jason.encode!([
-               %{"item_id" => "i1", "title" => "重写", "body" => "新正文", "rationale" => nil}
-             ])
-         }}
+        flunk("retired synchronous confirmation must not call provider")
       end
 
-      assert {:ok, ack, turn_result} =
+      assert {:error, :author_action_scope_unavailable} =
                DialogueGateway.handle_action(input, source, %Execution{result_fn: result_fn})
-
-      assert ack.status == "accepted"
-      assert ack.confirmation_binding.behavior_ref == "bh-p1"
-      assert ack.confirmation_binding.target_ref == "prose_writing"
-      assert ack.confirmation_binding.idempotency_key == "ik-p"
-      assert ack.confirmation_binding.rebased_state_snapshot_ref =~ "state_snapshot:"
-      assert ack.confirmation_binding.rebased_state_snapshot_ref =~ "turn-persist-1"
-
-      assert ack.confirmation_binding.gate_result_refs == [
-               "gate_result:confirmation_re_gate:turn-persist-1:plan-persist-1:act-confirm-p"
-             ]
-
-      assert turn_result.tool_result.tool_name == "prose_writing"
-      assert turn_result.truthfulness.tool_called == true
     end
 
     test "invented action rejected by gateway" do
@@ -552,8 +553,8 @@ defmodule NovelApplication.ActionRoundtripTest do
         action_type: "confirm_before_execute"
       }
 
-      assert {:error, reason} = DialogueGateway.handle_action(input, @valid_source)
-      assert String.contains?(reason, "stale")
+      assert {:error, :author_action_scope_unavailable} =
+               DialogueGateway.handle_action(input, @valid_source)
     end
 
     test "high risk candidate adoption requires confirmation and does not write production state" do

@@ -85,6 +85,25 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
     durable_eligible: false
   }
 
+  # 非采纳工具确认子运行（VS-00L §16.14）：只执行源动作已授权的创作能力，
+  # 不继承源 run 的剩余预算；实际范围仍由本次操作 authority_scope 给出。
+  @tool_confirmation_profile %{
+    profile_id: "tool_confirmation_v1",
+    allowed_tools: [
+      "prose_writing",
+      "plot_outline",
+      "character_design",
+      "character_evolution",
+      "world_building",
+      "text_analysis"
+    ],
+    required_observations: [],
+    completion_conditions: ["author_confirmed_action_processed"],
+    pause_conditions: ["target_work_missing", "run_budget_exhausted", "no_progress"],
+    run_policy_ref: "bounded_small_v1",
+    durable_eligible: false
+  }
+
   @readonly_batch_context_profile %{
     profile_id: "readonly_batch_context_v1",
     effect_summary: "批量只读作品档案、结构与统计，不生成候选，不保存或登记任何内容。",
@@ -140,6 +159,7 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
   def get("character_evolution_with_context_v1"), do: @character_evolution_profile
   def get("world_building_with_context_v1"), do: @world_building_profile
   def get("prose_revision_from_findings_v1"), do: @prose_revision_profile
+  def get("tool_confirmation_v1"), do: @tool_confirmation_profile
   def get("readonly_batch_context_v1"), do: @readonly_batch_context_profile
   def get("ledger_reconciliation_v1"), do: @ledger_reconciliation_profile
   def get("fact_inventory_v1"), do: @fact_inventory_profile
