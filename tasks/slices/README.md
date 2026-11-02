@@ -63,7 +63,7 @@
 | [B68-experience-rule-governance.md](B68-experience-rule-governance.md) | Experience Engine 的证据、提炼建议、审阅、规则生命周期与后续消费；原条件收编统一落点，启动条件见原任务。 |
 | [B69-renumber-idempotent-temp-seq.md](B69-renumber-idempotent-temp-seq.md) | **done（2026-10-30 CP0–CP3）**：B33 CP3 真实模型原生发现的重编号数据完整性缺陷——from==to 项残留临时 seq=1000001；已修复（两阶段按 DB 当前事实写并事务内复核）并 scoped 复验，台账见 docs/project-ledger.md。 |
 | [B70-author-behavior-corpus-and-state-exploration.md](B70-author-behavior-corpus-and-state-exploration.md) | **done（2026-10-30 CP0–CP3 验证基础设施）**：5 目标族/17 cases、真实 UI 回放与 seeded 探索、PR/nightly/失败转回归和实模 blocked 入口；真实模型、6 not-run cases、完整动作/native 覆盖仍属残余，详见原任务。 |
-| [B71-provider-message-fidelity.md](B71-provider-message-fidelity.md) | **doing（2026-11-01 CP3a/CP3c/CP4a done；CP3b 实模窗口 blocked；CP4b/CP5 未闭环）**：统一 canonical transcript 与原生创作/质量/续行；阶段工具、应用结果闭合、durable checkpoint 和真实 Tauri 14/14 已通过。 |
+| [B71-provider-message-fidelity.md](B71-provider-message-fidelity.md) | **doing（2026-11-03：CP2/CP3a/CP3c/CP4a done；CP3b 实模协议层机制 10/10 PASS + G1–G5 请求字节切片；CP4b 确定性实现与核心原生验收完成——能力事实单一来源/SSE 工具调用/Responses 传输/显式压缩派生与 Channel 消费者/§16.14 确认交接与两个真实缺陷修复/私有历史/逐调用引用/继承性 compile 环解耦；pending 08 原生 77/77）。未闭环：§16.14 确认/拒绝原生页面（驱动+C1–C11 就绪待屏幕）、作者行为覆盖 pilot 复验、压缩前端设计授权、G6 真实请求、CP4b-2 行为语义与 CP5 最终收口。执行状态以原任务为准。 |
 | [B74-candidate-actions-grouped-primary.md](B74-candidate-actions-grouped-primary.md) | 候选动作按对象分组卡片+主次操作：作者反馈按钮平铺；已按 A 方向落地，真实 Tauri 页面证据见 uib74e，作者可继续提文案/批量细化。 |
 | [B75-workbench-popover-outside-close.md](B75-workbench-popover-outside-close.md) | 工作台弹出层 click-outside/Esc 关闭；已实现并在真实 Tauri `uib74f` 验证 click-outside/Esc，done。 |
 | [B76-dialogue-narrative-paragraph-spacing.md](B76-dialogue-narrative-paragraph-spacing.md) | 对话叙事段落双倍空行修复：作者反馈换行过大；根因 flex gap+margin 叠加；CSS 修复、静态守卫与真实 Tauri 页面复验完成。 |
