@@ -773,3 +773,10 @@
 - **资源核验**：strata loaded before/after=false、unload HTTP 200、生产源码指纹 unchanged=true、cleanup remaining=[]、无 app/mix/proxy 残留；批次目录只读保留。
 - **边界（不代签）**：G5 作者边界/G6 压缩未触发、I10 文学质量、完整 G1–G6 语义、**作者行为覆盖（B70 cases/oracle 与 B72 语料另列）**；02 继续作部分实模证据。
 - **结论**：CP3b 的**协议层实模验收完成**（真实模型下的 IR 投影/多轮工具链/观察回流/refs 边界/零写入/usage 机制成立）；CP3b 全量语义覆盖按 B70/B72 行为资产另批推进，不混签。
+
+### 作者行为覆盖 pilot（B70/B72 接入，2026-11-03）
+
+- **接入设计（Lead 指出缺口后）**：实模协议层批次未复用项目既有 author-behavior 验证资产；已设计并实现 B70/B72 接入——输入只取 `quality/acceptance/author-behavior/cases.yml` 冻结表达（不现场造），判据接 `oracles.yml` HO1–HO6 与 target allowed_result_sets（legal/violation/unknown，unknown 不 PASS），B72 仅离线产候选不直进验收（保持 blocked，生成≠冻结≠PASS）。实现：`author_behavior_live_cases.mjs`/`authoring_behavior_evidence.mjs`/`native_b71_behavior_drive.mjs` + `seed_author_behavior_states.exs --state` + batch 路由；Node 840/840。
+- **pilot #1 批次（`cp4b-behavior-01-cf1003`，C-F1-003 holdout 零写）**：驱动完整 PASS；**真实模型行为完全合法**——1 次调用/0 工具/run completed，回复正确进度（3 章/已写 2 章/已采纳正文 52 字符=DB 28+24 ACCEPTED/无待采纳候选/SUPERSEDED 0），并遵守「先别动手」不生成候选；HO1 零写 pass、allowed_result legal、Why 未观察如实记 null、strata 卸载/cleanup/指纹核验通过。runner FAIL 唯一原因为 **HO4 判据误报**（把「已采纳正文合计 52 字符」这项既有事实引用当成操作型完成声明）——已修复（区分操作型声明 vs 既有事实引用，均有正反例），证据副本离线复算 PASS；原件保持 FAIL 不改写。
+- **pilot 复验批 01b（`cp4b-behavior-01b-cf1003`）**：FAIL，分类 **输入驱动失败（外部环境：macOS 屏幕锁定，`com.apple.loginwindow` 占据前台）**——activate 2005ms 未确认、startup `is_finished_launching=false/ax_window_count=0`、llm-calls 为空（0 真实 Provider 请求，未触达产品/模型/判据）；卸载/cleanup/指纹核验完成。按纪律不重跑，待环境解锁后另批复验。
+- **边界**：pilot 通过前作者行为覆盖不标 done；#1 的模型行为事实可作部分证据（不代签完整 G1–G6/I10）；B72 仍 blocked；§16.14 工具确认/拒绝原生页面独立剩余（设计稿 `artifacts/b71-resume/confirmation-native-scenario-plan.md`）。

@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-03 **B71 作者行为覆盖接入（B70/B72）与 pilot 首批**：按作者指出「实模未复用 B70/B72 能力」的缺口，实现冻结 case 选择器 + oracle(HO1–HO6) 判据 + behavior 驱动（Node 840/840），B72 保持 blocked 仅离线产候选。pilot #1（C-F1-003 holdout 零写）：驱动 PASS、**真实模型行为合法**（正确进度 52 字符=DB、零候选、遵守先别动手），runner 仅因 HO4 判据误报 FAIL（已修+证据副本复算 PASS）；复验批 01b 因 **macOS 锁屏**（loginwindow 前台）输入驱动失败、未触达产品/模型，按纪律不重跑。行为覆盖不标 done，待环境可用后复验；协议层实模 03 PASS 与行为覆盖分列。
+
 > 2026-11-03 **B71 CP3b 实模协议层机制 PASS**：`cp4b-live-03-cp3b`（HEAD ae5729dc）runner exit 0，**机制判据 10/10**——真实 strata 模型完成 judgment→explore→prose_writing 链（9 次真实调用/9 工具调用/1 份 TENTATIVE 候选/usage 9/9/turn ~260s）；L1–L10 全 true（含 L7 改按产品持久结构判定 used_refs、L9 分层零写入 + 1 条有 pcall/trace 支撑的 TENTATIVE 章设计态派生）；L11=null（AX 树无 Why 按钮，如实记录不假过）；strata 卸载 loaded=null、指纹 unchanged、cleanup remaining=[]。**不代签**：G5/G6 未触发、I10 文学质量、完整 G1–G6 语义、作者行为覆盖（B70/B72 另列）；02 为部分实模证据，01 为驱动缺陷只读保留。这意味着 B71 CP3b 的协议层目标达成；剩余为作者行为覆盖批次（B70 cases/oracle 接入）、§16.14 工具确认原生页面、压缩前端设计授权、CP5 最终收口。
 
 > 2026-11-03 **B71 CP3b 实模批次 02：真实模型进入创作链（部分证据，未 PASS）**：`cp4b-live-02-cp3b` 驱动完整跑通——**10 条真实 strata 请求、10 次工具调用、turn 约 267s、1 份待采纳草稿、usage 全 present**，DB 1 bounded run/10 ProviderRun/3 interactions、mutations/receipts/memory 均 0、生产指纹 unchanged、strata 前后 loaded=null、cleanup remaining=[]。runner 失败原因为判据/驱动缺陷（等待账下限、双形状过滤、turn 分段、L7 wire 启发式、L9 严格 canon），已修；Lead 裁定 L7 改从产品持久结构读 used_context_refs、L9 允许有 pcall/trace 支撑的 TENTATIVE 设计态派生（VS-00E §16.8，非 canon）并单列。02 登记为部分实模证据，CP3b 未闭环；01（驱动缺陷）同样只读保留。
