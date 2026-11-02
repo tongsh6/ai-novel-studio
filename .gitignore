@@ -98,3 +98,8 @@ playwright/
 
 # B41 CI：quality-manifest job 的标准 YAML 解析器 venv（本地不提交）
 .quality-venv/
+
+# 本地变异测试 / 覆盖率运行产物（工具生成，运行后不复用，不提交）
+/target/
+/.metrics/
+/coverage/
