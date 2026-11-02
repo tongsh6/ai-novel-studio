@@ -781,3 +781,10 @@
 - **pilot #1 批次（`cp4b-behavior-01-cf1003`，C-F1-003 holdout 零写）**：驱动完整 PASS；**真实模型行为完全合法**——1 次调用/0 工具/run completed，回复正确进度（3 章/已写 2 章/已采纳正文 52 字符=DB 28+24 ACCEPTED/无待采纳候选/SUPERSEDED 0），并遵守「先别动手」不生成候选；HO1 零写 pass、allowed_result legal、Why 未观察如实记 null、strata 卸载/cleanup/指纹核验通过。runner FAIL 唯一原因为 **HO4 判据误报**（把「已采纳正文合计 52 字符」这项既有事实引用当成操作型完成声明）——已修复（区分操作型声明 vs 既有事实引用，均有正反例），证据副本离线复算 PASS；原件保持 FAIL 不改写。
 - **pilot 复验批 01b（`cp4b-behavior-01b-cf1003`）**：FAIL，分类 **输入驱动失败（外部环境：macOS 屏幕锁定，`com.apple.loginwindow` 占据前台）**——activate 2005ms 未确认、startup `is_finished_launching=false/ax_window_count=0`、llm-calls 为空（0 真实 Provider 请求，未触达产品/模型/判据）；卸载/cleanup/指纹核验完成。按纪律不重跑，待环境解锁后另批复验。
 - **边界**：pilot 通过前作者行为覆盖不标 done；#1 的模型行为事实可作部分证据（不代签完整 G1–G6/I10）；B72 仍 blocked；§16.14 工具确认/拒绝原生页面独立剩余（设计稿 `artifacts/b71-resume/confirmation-native-scenario-plan.md`）。
+
+### §16.14 工具确认/拒绝原生驱动就绪与环境阻塞（2026-11-03）
+
+- **驱动与判据实现完成**：`native_b71_confirmation_drive.mjs`（真实高风险请求→needs_confirmation→按用户可见语义定位确认/拒绝→ACK/action_result/决定 TurnResult/子执行→Why 前后 Provider 计数→重复点击幂等→重启恢复不可再触发）+ `authoring_confirmation_evidence.mjs`（C1–C11，unknown/证据缺失不 PASS）+ batch `B71_CONFIRMATION_ACTION=confirm|reject` 分支；Node 849/849。
+- **口径修正（按真实产品结构）**：确认不是新 run id，而是**同一 AgentRun 续行**（源运行在线时由 AgentRunServer 串行处理交接，trigger 重绑本次 receipt/behavior/author、`active_behavior_ref` 清空，子运行在提交后接管）；判据 C3 按真实结构验证并标注，若要求严格新 run id 属产品变更、不在本场景代签。确认场景用确定性 `slice_verify`（无 strata 单槽）。
+- **环境阻塞**：只读探测当前前台为 `com.apple.loginwindow`（pid 171，**macOS 屏幕锁定**），不可交互 → 未启动任何批次。同一条件同时阻塞：§16.14 确认/拒绝原生批次、作者行为覆盖 01c/#6 复验、CP4b-2 实模批次。
+- **解锁后的签发顺序（预注册提案已就绪）**：① `cp4b-confirmation-01-confirm`（C1–C11，C6 not_applicable）；② `cp4b-confirmation-02-reject`（C6 零副作用为主）；③ 行为覆盖 `cp4b-behavior-01c-cf1003` + `cp4b-behavior-02-cf3002`；④ 视需要 CP4b-2 实模行为/缓存补充批。全部 1 批/0 重试/1800s、窗口安静、新目录不存在、卸载/cleanup 核验。
