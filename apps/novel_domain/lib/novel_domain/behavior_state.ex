@@ -9,9 +9,12 @@ defmodule NovelDomain.BehaviorState do
   alias NovelFoundation.Enums.BehaviorStatus
 
   @type behavior_type :: :clarification | :confirmation | :recovery
+  @lifecycles [:open, :awaiting_author, :resolving, :resolved, :cancelled, :failed, :superseded]
+  @lifecycle_by_string Map.new(@lifecycles, &{Atom.to_string(&1), &1})
   @type lifecycle ::
           :open | :awaiting_author | :resolving | :resolved | :cancelled | :failed | :superseded
   @type blocking_actor :: :author | :system | :tool | :none
+  @type snapshot_read :: :absent | {:ok, t() | nil}
 
   @type t :: %__MODULE__{
           behavior_id: String.t(),
@@ -159,6 +162,11 @@ defmodule NovelDomain.BehaviorState do
   @doc """
   从 `summary/1` / `behavior_state.active` map（JSON 往返或进程内 atom key 双形态）恢复 struct。
 
+  存在精确 `lifecycle_status` 时必须属于七类域生命周期，且与同时给出的兼容 `status`
+  映射一致；显式 nil、非法值、atom/string 双键冲突或新旧状态冲突都返回 nil，不回退
+  到 `status`、也不默认成 `awaiting_author`。缺少精确字段的旧快照按可识别的兼容
+  `status` 恢复；旧快照只有 `resolution_ref` 时只保留该引用，不补造 resolution 细节。
+
   用于「新 behavior 打开时读取同 workstream 上一个 primary behavior」的 supersede 决策；
   缺 behavior_id 或不可识别形态返回 nil（不伪造行为）。
   """
@@ -167,40 +175,221 @@ defmodule NovelDomain.BehaviorState do
   def from_map(%__MODULE__{} = behavior), do: behavior
 
   def from_map(map) when is_map(map) do
-    case behavior_id(map) do
-      nil ->
-        nil
-
-      behavior_id ->
-        %__MODULE__{
-          behavior_id: behavior_id,
-          behavior_type: behavior_type_from(behavior_type_value(map)),
-          lifecycle_status: lifecycle_from(lifecycle_value(map)),
-          blocking_actor: blocking_actor_from(blocking_actor_value(map)),
-          opened_at_turn_ref: text_field(map, :opened_at_turn_ref) || "",
-          opened_by_decision_ref: text_field(map, :opened_by_decision_ref) || "",
-          frame_ref: text_field(map, :frame_ref) || "",
-          plan_ref: text_field(map, :plan_ref),
-          target_ref: text_field(map, :target_ref),
-          required_next_action: text_field(map, :required_next_action) || "",
-          available_actions: list_field(map, :available_actions),
-          prompt_contract: map_field(map, :prompt_contract),
-          constraints: map_field(map, :constraints),
-          resolution: map_field(map, :resolution),
-          closed_at_turn_ref: text_field(map, :closed_at_turn_ref),
-          trace_ref: text_field(map, :trace_ref)
-        }
+    with {:ok, behavior_id} <- boundary_behavior_id(map),
+         {:ok, lifecycle_status} <- boundary_lifecycle_status(map),
+         {:ok, constraints} <- boundary_constraints(map),
+         {:ok, resolution} <- boundary_resolution(map) do
+      %__MODULE__{
+        behavior_id: behavior_id,
+        behavior_type: behavior_type_from(behavior_type_value(map)),
+        lifecycle_status: lifecycle_status,
+        blocking_actor: blocking_actor_from(blocking_actor_value(map)),
+        opened_at_turn_ref: text_field(map, :opened_at_turn_ref) || "",
+        opened_by_decision_ref: text_field(map, :opened_by_decision_ref) || "",
+        frame_ref: text_field(map, :frame_ref) || "",
+        plan_ref: text_field(map, :plan_ref),
+        target_ref: text_field(map, :target_ref),
+        required_next_action: text_field(map, :required_next_action) || "",
+        available_actions: list_field(map, :available_actions),
+        prompt_contract: map_field(map, :prompt_contract),
+        constraints: constraints,
+        resolution: resolution,
+        closed_at_turn_ref: text_field(map, :closed_at_turn_ref),
+        trace_ref: text_field(map, :trace_ref)
+      }
+    else
+      _ -> nil
     end
   end
 
   def from_map(_map), do: nil
 
   @doc """
+  读取一个 TurnResult 中**明确携带**的行为快照（VS-00L §16.13）。
+
+  返回三态，调用方不得把 `:absent` 与 `{:ok, nil}` 混为一谈：
+
+  - `:absent`：本 turn 根本没有 `behavior_state` 字段，当前行为保持上一条明确快照；
+  - `{:ok, nil}`：明确 `active: nil`，当前没有开放行为，不向前回退；
+  - `{:ok, %__MODULE__{}}`：真实 producer 写入的开放活动行为。
+
+  `active` map 统一走 `from_map/1` 的 §16.11 codec，本函数不另写一套解析。
+  """
+  @spec read_snapshot(term()) :: snapshot_read()
+  def read_snapshot(turn_result) when is_map(turn_result) do
+    case field(turn_result, :behavior_state) do
+      %{} = snapshot -> read_snapshot_active(snapshot)
+      _ -> :absent
+    end
+  end
+
+  def read_snapshot(_turn_result), do: :absent
+
+  @doc """
+  按既有 transcript 顺序（旧→新）读取最后一处明确携带的行为快照。
+
+  普通回复缺少 `behavior_state` 时保留上一条明确快照；明确 `active: nil` 清空。
+  输入空列表返回 `:absent`。
+  """
+  @spec latest_snapshot([map()]) :: snapshot_read()
+  def latest_snapshot(turn_results) when is_list(turn_results) do
+    Enum.reduce(turn_results, :absent, fn turn_result, last_explicit ->
+      case read_snapshot(turn_result) do
+        :absent -> last_explicit
+        explicit -> explicit
+      end
+    end)
+  end
+
+  def latest_snapshot(_turn_results), do: :absent
+
+  defp read_snapshot_active(snapshot) do
+    case field(snapshot, :active) do
+      nil -> {:ok, nil}
+      %{} = active -> {:ok, from_map(active)}
+      _ -> :absent
+    end
+  end
+
+  # 边界只解析一次：atom/string 双键同值接受，异值视为冲突而不是任选一个。
+  # 仅用 trim 判定身份是否全空白；合法身份返回原始字节，不裁剪。
+  defp boundary_behavior_id(map) do
+    case fetch_field(map, :behavior_id) do
+      {:ok, value} when is_binary(value) and value != "" ->
+        if String.trim(value) == "", do: :error, else: {:ok, value}
+
+      _ ->
+        :error
+    end
+  end
+
+  defp boundary_lifecycle_status(map) do
+    case fetch_field(map, :lifecycle_status) do
+      :absent ->
+        map |> fetch_field(:status) |> legacy_lifecycle_status()
+
+      {:ok, value} ->
+        with {:ok, lifecycle} <- exact_lifecycle_status(value),
+             :ok <- compatible_status(map, lifecycle) do
+          {:ok, lifecycle}
+        end
+
+      :conflict ->
+        :error
+    end
+  end
+
+  defp exact_lifecycle_status(value) when value in @lifecycles, do: {:ok, value}
+
+  defp exact_lifecycle_status(value) when is_binary(value),
+    do: Map.fetch(@lifecycle_by_string, value)
+
+  defp exact_lifecycle_status(_value), do: :error
+
+  # 精确 lifecycle 存在时，若同时给出兼容 status，必须映射到同一域事实。
+  defp compatible_status(map, lifecycle) do
+    case fetch_field(map, :status) do
+      :absent ->
+        :ok
+
+      {:ok, status} ->
+        if BehaviorStatus.valid?(status) and status == status_enum(lifecycle),
+          do: :ok,
+          else: :error
+
+      :conflict ->
+        :error
+    end
+  end
+
+  defp legacy_lifecycle_status({:ok, value}) when value in @lifecycles, do: {:ok, value}
+
+  defp legacy_lifecycle_status({:ok, value}) when is_binary(value) do
+    cond do
+      value == BehaviorStatus.open() -> {:ok, :open}
+      value == BehaviorStatus.waiting_user() -> {:ok, :awaiting_author}
+      value == "RESOLVING" -> {:ok, :resolving}
+      value == BehaviorStatus.resolved() -> {:ok, :resolved}
+      value == BehaviorStatus.cancelled() -> {:ok, :cancelled}
+      value == BehaviorStatus.expired() -> {:ok, :failed}
+      true -> :error
+    end
+  end
+
+  defp legacy_lifecycle_status(_field), do: :error
+
+  defp boundary_constraints(map) do
+    case fetch_field(map, :constraints) do
+      :absent -> {:ok, %{}}
+      {:ok, %{} = constraints} -> {:ok, constraints}
+      _ -> :error
+    end
+  end
+
+  defp boundary_resolution(map) do
+    case fetch_field(map, :resolution) do
+      :absent -> legacy_resolution(map)
+      {:ok, nil} -> nil_resolution(map)
+      {:ok, %{} = resolution} -> map_resolution(map, resolution)
+      _ -> :error
+    end
+  end
+
+  defp nil_resolution(map) do
+    case reference_presence(map, :resolution_ref) do
+      presence when presence in [:absent, :null] -> {:ok, nil}
+      _ -> :error
+    end
+  end
+
+  defp map_resolution(map, resolution) do
+    case consistent_resolution_ref(
+           reference_presence(resolution, :ref),
+           reference_presence(map, :resolution_ref)
+         ) do
+      :ok -> {:ok, resolution}
+      :error -> :error
+    end
+  end
+
+  # 引用存在性三态在解码边界只解析一次：absent / 显式 null / 值。
+  # atom/string 双键冲突或非法类型归入 :invalid，不任选、不补造。
+  defp reference_presence(map, key) do
+    case fetch_field(map, key) do
+      :absent -> :absent
+      {:ok, nil} -> :null
+      {:ok, ref} when is_binary(ref) and ref != "" -> {:value, ref}
+      _ -> :invalid
+    end
+  end
+
+  # 内层 ref 无值时，外层也只能缺省或显式 nil；内层有值时，外层缺省可接受，
+  # 显式 nil 是矛盾，同值接受、异值拒绝。比较只用原字节，不 trim。
+  defp consistent_resolution_ref(nested_ref, compat_ref)
+       when nested_ref in [:absent, :null] and compat_ref in [:absent, :null],
+       do: :ok
+
+  defp consistent_resolution_ref({:value, _ref}, :absent), do: :ok
+  defp consistent_resolution_ref({:value, ref}, {:value, ref}), do: :ok
+  defp consistent_resolution_ref(_nested_ref, _compat_ref), do: :error
+
+  # 旧快照只有 resolution_ref：只保留原引用，不补造 type/status/id 等丢失字段。
+  defp legacy_resolution(map) do
+    case reference_presence(map, :resolution_ref) do
+      :absent -> {:ok, nil}
+      :null -> {:ok, nil}
+      {:value, ref} -> {:ok, %{ref: ref}}
+      :invalid -> :error
+    end
+  end
+
+  @doc """
   behavior 摘要，即 schema `behavior_state.active` / `history[]` item 形状。
 
   `status` 是冻结的 `BehaviorStatus` 枚举（非内部 `lifecycle_status`）；`behavior_type`
-  为字符串。其余 UI 元数据（prompt_contract / available_actions 等）以 additional
-  property 形式保留，供前端展示。
+  为字符串。兼容 `status` 之外同时保留精确 `lifecycle_status`、`constraints` 与
+  `resolution`（nil 原样保留），供 JSON 往返恢复而不折叠域事实。其余 UI 元数据
+  （prompt_contract / available_actions 等）以 additional property 形式保留，供前端展示。
   """
   @spec summary(t()) :: map()
   def summary(%__MODULE__{} = behavior) do
@@ -208,6 +397,7 @@ defmodule NovelDomain.BehaviorState do
       behavior_id: behavior.behavior_id,
       behavior_type: Atom.to_string(behavior.behavior_type),
       status: status_enum(behavior.lifecycle_status),
+      lifecycle_status: Atom.to_string(behavior.lifecycle_status),
       blocking_actor: Atom.to_string(behavior.blocking_actor),
       opened_at_turn_ref: behavior.opened_at_turn_ref,
       opened_by_decision_ref: behavior.opened_by_decision_ref,
@@ -217,21 +407,15 @@ defmodule NovelDomain.BehaviorState do
       target_ref: behavior.target_ref,
       prompt_contract: behavior.prompt_contract,
       available_actions: behavior.available_actions,
+      constraints: behavior.constraints,
+      resolution: behavior.resolution,
       closed_at_turn_ref: behavior.closed_at_turn_ref,
       trace_ref: behavior.trace_ref,
       resolution_ref: resolution_ref(behavior)
     }
   end
 
-  defp behavior_id(map) do
-    case field(map, :behavior_id) do
-      value when is_binary(value) and value != "" -> value
-      _ -> nil
-    end
-  end
-
   defp behavior_type_value(map), do: field(map, :behavior_type)
-  defp lifecycle_value(map), do: field(map, :lifecycle_status) || field(map, :status)
   defp blocking_actor_value(map), do: field(map, :blocking_actor)
 
   defp behavior_type_from(value) when value in [:clarification, :confirmation, :recovery],
@@ -246,47 +430,6 @@ defmodule NovelDomain.BehaviorState do
   end
 
   defp behavior_type_from(_value), do: :confirmation
-
-  # summary/1 的 status 是冻结 BehaviorStatus 枚举；也兼容内部 lifecycle atom/字符串。
-  defp lifecycle_from(value)
-       when value in [
-              :open,
-              :awaiting_author,
-              :resolving,
-              :resolved,
-              :cancelled,
-              :failed,
-              :superseded
-            ],
-       do: value
-
-  defp lifecycle_from(value) when is_binary(value) do
-    cond do
-      value == BehaviorStatus.open() -> :open
-      value == BehaviorStatus.waiting_user() -> :awaiting_author
-      value == "RESOLVING" -> :resolving
-      value == BehaviorStatus.resolved() -> :resolved
-      value == BehaviorStatus.cancelled() -> :cancelled
-      value == BehaviorStatus.expired() -> :failed
-      true -> lifecycle_atom(value)
-    end
-  end
-
-  defp lifecycle_from(_value), do: :awaiting_author
-
-  defp lifecycle_atom(value)
-       when value in [
-              "open",
-              "awaiting_author",
-              "resolving",
-              "resolved",
-              "cancelled",
-              "failed",
-              "superseded"
-            ],
-       do: String.to_existing_atom(value)
-
-  defp lifecycle_atom(_value), do: :awaiting_author
 
   defp blocking_actor_from(value) when value in [:author, :system, :tool, :none], do: value
 
@@ -314,6 +457,25 @@ defmodule NovelDomain.BehaviorState do
       _ -> %{}
     end
   end
+
+  defp fetch_field(map, key) when is_map(map) do
+    case {Map.fetch(map, key), Map.fetch(map, Atom.to_string(key))} do
+      {{:ok, value}, :error} -> {:ok, value}
+      {:error, {:ok, value}} -> {:ok, value}
+      {{:ok, atom_value}, {:ok, string_value}} -> same_boundary_value(atom_value, string_value)
+      {:error, :error} -> :absent
+    end
+  end
+
+  defp same_boundary_value(atom_value, string_value)
+       when is_atom(atom_value) and is_binary(string_value) do
+    if Atom.to_string(atom_value) == string_value,
+      do: {:ok, atom_value},
+      else: :conflict
+  end
+
+  defp same_boundary_value(value, value), do: {:ok, value}
+  defp same_boundary_value(_atom_value, _string_value), do: :conflict
 
   defp field(map, key) when is_map(map) do
     case map do

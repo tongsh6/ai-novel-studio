@@ -31,6 +31,12 @@ defmodule NovelDomain.AgentRun do
           optional(:source_turn_ref) => String.t(),
           optional(:source_surface_ref) => String.t(),
           optional(:target_artifact_ref) => String.t(),
+          optional(:behavior_ref) => String.t(),
+          optional(:author_turn_ref) => String.t(),
+          optional(:source_run_id) => String.t(),
+          optional(:handoff) => map(),
+          optional(:handoff_reason) => String.t(),
+          optional(:successor_run_id) => String.t(),
           optional(:quality_finding_refs) => [String.t()]
         }
   @type budget :: %{
@@ -329,6 +335,12 @@ defmodule NovelDomain.AgentRun do
       source_turn_ref: normalized_optional_text(value(trigger, :source_turn_ref)),
       source_surface_ref: normalized_optional_text(value(trigger, :source_surface_ref)),
       target_artifact_ref: normalized_optional_text(value(trigger, :target_artifact_ref)),
+      behavior_ref: normalized_optional_text(value(trigger, :behavior_ref)),
+      author_turn_ref: normalized_optional_text(value(trigger, :author_turn_ref)),
+      source_run_id: normalized_optional_text(value(trigger, :source_run_id)),
+      handoff: optional_map(value(trigger, :handoff)),
+      handoff_reason: normalized_optional_text(value(trigger, :handoff_reason)),
+      successor_run_id: normalized_optional_text(value(trigger, :successor_run_id)),
       quality_finding_refs:
         trigger |> value(:quality_finding_refs) |> normalize_refs() |> Enum.uniq()
     }
@@ -341,6 +353,9 @@ defmodule NovelDomain.AgentRun do
   end
 
   defp normalize_trigger(_trigger), do: nil
+
+  defp optional_map(map) when is_map(map) and map_size(map) > 0, do: map
+  defp optional_map(_map), do: nil
 
   defp normalize_refs(refs) when is_list(refs),
     do: refs |> Enum.map(&to_string/1) |> Enum.reject(&(&1 == ""))

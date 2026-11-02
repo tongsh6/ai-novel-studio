@@ -2,6 +2,7 @@ defmodule NovelApplication.AdoptionWorkflowTest do
   use ExUnit.Case, async: true
 
   alias NovelApplication.AdoptionWorkflow
+  alias NovelDomain.BehaviorState
 
   describe "handle_adopt/2" do
     test "evaluates a pending artifact through adoption boundary" do
@@ -370,6 +371,55 @@ defmodule NovelApplication.AdoptionWorkflowTest do
                NovelFoundation.TurnResultValidator.validate_behavior_state(
                  turn_result.behavior_state
                )
+    end
+
+    test "从持久化 behavior 快照恢复时保留精确 lifecycle / constraints / resolution" do
+      previous_behavior = %BehaviorState{
+        behavior_id: "bh_old",
+        behavior_type: :confirmation,
+        lifecycle_status: :awaiting_author,
+        blocking_actor: :author,
+        opened_at_turn_ref: "turn-old",
+        opened_by_decision_ref: "dec-old",
+        frame_ref: "frame-old",
+        target_ref: "as-old",
+        required_next_action: "confirm_before_execute",
+        prompt_contract: %{summary: "旧确认"},
+        constraints: %{
+          "authority" => "author",
+          "budget" => %{"max_tool_calls" => 2},
+          "说明" => "原字节保留"
+        }
+      }
+
+      previous_json =
+        previous_behavior
+        |> BehaviorState.summary()
+        |> Jason.encode!()
+        |> Jason.decode!()
+
+      assert {:ok, _action_result, turn_result} =
+               AdoptionWorkflow.handle_adopt(source_turn_result(%{risk_hint: :high}), %{
+                 "artifact_id" => "as-1",
+                 "previous_behavior" => previous_json
+               })
+
+      assert [superseded] = turn_result.behavior_state.history
+
+      assert superseded.behavior_id == "bh_old"
+      assert superseded.lifecycle_status == "superseded"
+      assert superseded.status == "CANCELLED"
+
+      assert superseded.constraints == %{
+               "authority" => "author",
+               "budget" => %{"max_tool_calls" => 2},
+               "说明" => "原字节保留"
+             }
+
+      assert superseded.resolution[:ref] == "behavior_superseded:bh_old:bh_confirm_as-1"
+      assert superseded.resolution[:type] == "superseded"
+      assert superseded.resolution[:superseded_by] == "bh_confirm_as-1"
+      assert superseded.resolution[:reason_code] == "new_author_blocking_behavior_opened"
     end
 
     test "does not supersede a previous behavior that is already closed" do

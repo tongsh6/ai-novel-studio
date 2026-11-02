@@ -3,6 +3,7 @@ defmodule NovelApplication.TurnResultBuilderTest do
 
   alias NovelApplication.TurnResultBuilder
   alias NovelCommon.Contracts.ToolResult
+  alias NovelDomain.BehaviorState
   alias NovelDomain.DialogueFrame
   alias NovelDomain.OrchestratorDecision
 
@@ -130,5 +131,49 @@ defmodule NovelApplication.TurnResultBuilderTest do
     assert pending.payload["modification_scope"] == "format_only"
     assert pending.payload["base_text"] == "正文"
     assert pending.payload[:items] |> hd() |> Map.get(:body) == "正文"
+  end
+
+  describe "VS-00L §16.11 behavior 快照保真（真实 TurnResultBuilder 消费）" do
+    test "superseded 行为经 build/8 → JSON → from_map 仍保留精确事实" do
+      behavior = %BehaviorState{
+        behavior_id: "bh_superseded",
+        behavior_type: :confirmation,
+        lifecycle_status: :superseded,
+        blocking_actor: :author,
+        opened_at_turn_ref: "turn-old",
+        opened_by_decision_ref: "dec-old",
+        frame_ref: "frame-old",
+        target_ref: "as-old",
+        required_next_action: "confirm_before_execute",
+        prompt_contract: %{summary: "旧确认"},
+        constraints: %{"authority" => "author", "write_boundary" => "none"},
+        resolution: %{
+          ref: "behavior_superseded:bh_superseded:bh_new",
+          type: "superseded",
+          reason_code: "new_author_blocking_behavior_opened",
+          superseded_by: "bh_new"
+        },
+        closed_at_turn_ref: "turn-new"
+      }
+
+      turn_result = TurnResultBuilder.build(frame(), %{}, [], nil, nil, nil, behavior)
+      [summary] = turn_result.behavior_state.history
+
+      assert summary.lifecycle_status == "superseded"
+      assert summary.status == "CANCELLED"
+      assert summary.constraints == %{"authority" => "author", "write_boundary" => "none"}
+      assert summary.resolution[:ref] == "behavior_superseded:bh_superseded:bh_new"
+
+      restored =
+        summary
+        |> Jason.encode!()
+        |> Jason.decode!()
+        |> BehaviorState.from_map()
+
+      assert restored.lifecycle_status == :superseded
+      assert restored.constraints == %{"authority" => "author", "write_boundary" => "none"}
+      assert restored.resolution["ref"] == "behavior_superseded:bh_superseded:bh_new"
+      assert restored.resolution["reason_code"] == "new_author_blocking_behavior_opened"
+    end
   end
 end
