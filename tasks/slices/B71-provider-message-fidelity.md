@@ -745,3 +745,11 @@
 - **读侧修复（scripts，未改产品代码）**：① `scenario_evidence.requestReplies` 把回复绑定到请求所在 socket 连接段（下一条 sent phx_join 为界），重连后同 ref 不再误配；② `authoring_history_evidence.selectJoin` 取作者消息前最新 join；③ `authoring_pending_run_evidence` 的 followup 缺省 `adoption_state`=无 pending、捕获名对齐 manifest；④ `native_question_transport_proxy` 对 gzip/x-gzip/deflate/br 证据副本解压后判定完整 JSON（对外原样透传；未知编码/坏压缩/超限/非法 JSON 仍 fail-closed）；⑤ `authoring_canon_evidence` 把 `works.updated_at`（join 的「最近打开」账面时钟）与 `memory_items` 引用统计列排除出 `canon_sha256`，`rows_sha256` 保留全行原字节；⑥ 新增真实扁平 AX fixture（脱敏 artifact id）。Node 全量 479/479。
 - **纪律与预算**：03 为唯一签发批；04/05 由 worker 在用户自然语言“再试一次”后自行创建并执行（未先向 Lead 报告/获签发），已如实登记为**未授权批次**，其预注册不构成有效预算授权；05 在 setup 阶段被终止、无任何结论价值。后续任何批次必须由 Lead 签发预注册与预算。
 - **下一步**：以修复后的驱动+读侧重新预注册并取得完整 checks；批次需在窗口安静环境（用户不切换窗口/不抢前台）执行；通过前本场景不标 PASS，03/04 只作部分证据。
+
+### CP4b 对话修订作者边界原生完整 PASS（2026-11-03）
+
+- **07 批次（`cp4b-pending-07-canon-content`，唯一签发批，HEAD a4e4515f，窗口安静）**：runner exit 0，**77/77 checks 全过**（`summary.json` checks_passed=77/checks_total=77/all_checks_passed=true、`native-b71-checks.json` failed=[]），8 张截图（01-workbench/after-source/after-revision/why/after-accept/after-discard/after-restore/final），driver=`ax-native-system-ui`，生产源码指纹 `unchanged=true`。
+- **完整场景链真实成立**：作者原文登记（source run，1 次真实调用）→ 对话修订（revision run，2 次调用）→ 两稿同会话并存 → 修订 Why 持久 replay 且**零 Provider 调用** → 采纳修订（accept receipt + 单条 CONFIRMED memory 绑定）→ 放弃原稿（discard receipt，已保存内容原字节不变）→ 关闭重启本批应用并在同一 work/session 恢复（已决候选不可再触发）→ followup 新 run（1 次调用）消费真实 ACCEPTED/DISCARDED refs 与 judgment-only 权限。
+- **关键断言（77 项全 true，抽样）**：作者字节 source/revision 精确、`revision_of_source`、runs 互异、accept/discard ACK/result/receipt 且零 Provider、canon 四段（accept 只增绑定事实；restore/followup 零写入）、`why_replay_scoped_http`、`restore_same_session`、followup 新边界与回复消费状态、cleanup `remaining=[]`（`process_observation={method:"pgrep+lsof", fallback_reason:"EPERM"}`）、37 次真实等待。
+- **预算与失败历史**：01（未闭环）/02（定位器失败）/03（环境前台抢占失败）/04（驱动完整、verify 读侧失败）/05（未授权、setup 终止）/06（驱动完整、canon 读侧口径失败）/07 干净 PASS；01–06 批次目录只读保留，失败事实不改写、不重签。
+- **边界（不代签）**：本 PASS 是确定性 provider（`slice_verify`）驱动的真实 Tauri 页面证据，**不是实模**；完整 B71、CP3b 实模、§16.14 工具确认/拒绝原生页面、流式/Responses 真实路由、压缩前端入口（待设计授权）、CP5 最终收口仍开放。
