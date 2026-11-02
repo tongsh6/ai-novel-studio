@@ -14,6 +14,8 @@ defmodule NovelApplication.ProviderActivityProjector do
   alias NovelDomain.AgentRun
   alias NovelPersistence.ProviderRunLog
 
+  require Logger
+
   @spec with_stage_sink(Execution.dependency(), map() | nil, keyword()) :: Execution.dependency()
   def with_stage_sink(provider_execution, snapshot, opts \\ []) do
     provider_execution =
@@ -26,36 +28,41 @@ defmodule NovelApplication.ProviderActivityProjector do
 
       sink ->
         Execution.with_event_sink(provider_execution, fn execution_result ->
-          emit_provider_activity(sink, execution_result, opts)
-          record_provider_execution_async(snapshot, execution_result, opts)
+          publish_provider_activity(sink, snapshot, execution_result, opts)
         end)
     end
   end
 
-  defp record_provider_execution_async(snapshot, execution_result, opts) do
+  # VS-00L §16.12：同一批 run/event/output 先由唯一持久边界提交，成功后才发布
+  # 对应 stage 进展。失败保留真实模型结果，只记录不含原文的安全诊断，不重发
+  # Provider，也不发布声称已提交的进展。
+  defp publish_provider_activity(stage_sink, snapshot, execution_result, opts) do
+    case record_provider_execution(snapshot, execution_result, opts) do
+      :ok ->
+        emit_provider_activity(stage_sink, execution_result, opts)
+
+      {:error, reason} ->
+        Logger.error("provider activity persistence failed: #{inspect(reason)}")
+        :ok
+
+      {:skip, _reason} ->
+        # 运行时显式关闭事实存储或本批没有可记录事实：沿用既有 stage 语义，
+        # 不声明任何已提交事实。
+        emit_provider_activity(stage_sink, execution_result, opts)
+    end
+  end
+
+  defp record_provider_execution(snapshot, execution_result, opts) do
     cond do
       not runtime_fact_persistence_enabled?() ->
-        :ok
+        {:skip, :disabled}
 
       not recordable_provider_execution?(execution_result) ->
-        :ok
-
-      async_persistence_enabled?() ->
-        Task.Supervisor.start_child(NovelApplication.BackgroundTaskSupervisor, fn ->
-          record_provider_execution(snapshot, execution_result, opts)
-        end)
-
-        :ok
+        {:skip, :no_facts}
 
       true ->
-        record_provider_execution(snapshot, execution_result, opts)
+        ProviderRunLog.record_execution(execution_result, provider_run_context(snapshot, opts))
     end
-  rescue
-    _error ->
-      record_provider_execution(snapshot, execution_result, opts)
-  catch
-    _kind, _reason ->
-      record_provider_execution(snapshot, execution_result, opts)
   end
 
   defp runtime_fact_persistence_enabled? do
@@ -78,25 +85,6 @@ defmodule NovelApplication.ProviderActivityProjector do
     events? or match?(%ProviderOutput{}, Map.get(facts, :output))
   end
 
-  defp async_persistence_enabled? do
-    :novel_persistence
-    |> Application.get_env(NovelPersistence.Repo, [])
-    |> Keyword.get(:pool) != Ecto.Adapters.SQL.Sandbox
-  end
-
-  defp record_provider_execution(snapshot, execution_result, opts) do
-    context = provider_run_context(snapshot, opts)
-
-    case ProviderRunLog.record_execution(execution_result, context) do
-      :ok -> :ok
-      {:error, _reason} -> :ok
-    end
-  rescue
-    _error -> :ok
-  catch
-    :exit, _reason -> :ok
-  end
-
   defp emit_provider_activity(stage_sink, execution_result, opts)
        when is_function(stage_sink, 1) do
     execution_result
@@ -109,6 +97,7 @@ defmodule NovelApplication.ProviderActivityProjector do
         facts
         |> Map.get(:events, [])
         |> Enum.filter(&match?(%ProviderEvent{}, &1))
+        |> Enum.sort_by(& &1.sequence)
         |> Enum.each(&emit_provider_event(stage_sink, &1, facts, opts))
     end
   end

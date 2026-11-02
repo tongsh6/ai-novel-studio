@@ -1,11 +1,12 @@
 defmodule NovelApplication.AgentRunRuntimeTest do
   use ExUnit.Case, async: false
 
+  alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.{Execution, RequestIR}
   alias NovelApplication.AgentRunFlows.ReadonlyBatchContext
-  alias NovelApplication.AgentRunService
-  alias NovelApplication.DialoguePlanningService
+  alias NovelApplication.{AgentRunService, AuthoringTranscript, DialoguePlanningService}
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelCommon.Contracts.{ProviderEvent, ProviderOutput, ProviderRun}
   alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
@@ -92,6 +93,304 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:error, :received_input_not_found} =
              AgentRunService.message_receipt(id, "other-work", attrs.session_id)
+  end
+
+  test "失败 step 保留 canonical transcript 与真实 provider 计数" do
+    run_id = unique_run_id()
+
+    transcript =
+      AuthoringTranscript.new(
+        transcript_identity(run_id),
+        base_text: "仅生成待作者审阅的候选",
+        author_text: "先看角色阵容，再设计反派"
+      )
+
+    planner = fn _run, _sequence, _snapshot ->
+      {:error, :writer_failed, %{judgment_transcript: transcript, provider_call_count: 2}}
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_durable(base_run(run_id),
+               next_step_planner: planner,
+               event_sink: event_sink(self())
+             )
+
+    assert_receive {:agent_event, :run_failed, _}, 2000
+    assert {:ok, state} = AgentRunService.state(run_id)
+    assert state.run.status == :failed
+    assert state.run.consumed_budget.provider_calls == 2
+    assert state.stage_state.judgment_transcript == transcript
+
+    task = LongRunTaskLog.get(state.run.long_run_task_ref)
+    checkpoint = AuthoringTranscript.checkpoint(transcript)
+
+    assert get_in(AgentRunLog.get_run(run_id).authoring_transcript, ["transcript", "messages"]) ==
+             checkpoint.transcript.messages |> Jason.encode!() |> Jason.decode!()
+
+    assert task.checkpoint_data["agent_run"]["checkpoint_version"] == 3
+    assert task.checkpoint_data["agent_run"]["authoring_transcript_ref"]["run_id"] == run_id
+    refute Map.has_key?(task.checkpoint_data, "authoring_transcript")
+  end
+
+  test "执行失败仍合并前序规划与工具的独立调用预算" do
+    run_id = unique_run_id()
+
+    step = fn _run, _sequence ->
+      {:error, :writer_failed, %{provider_call_count: 1, tool_call_count: 1}}
+    end
+
+    planner = fn run, sequence, _snapshot ->
+      {:execute, step, test_execute_decision(run, sequence), %{provider_call_count: 2}}
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(base_run(run_id),
+               next_step_planner: planner,
+               event_sink: event_sink(self())
+             )
+
+    assert_receive {:agent_event, :run_failed, _}, 2000
+    assert {:ok, state} = AgentRunService.state(run_id)
+    assert state.run.consumed_budget.provider_calls == 3
+    assert state.run.consumed_budget.tool_calls == 1
+  end
+
+  @tag :authoring_meta
+  test "规划后的会话先交给执行步骤，并保留步骤产生的更新历史" do
+    parent = self()
+    run_id = unique_run_id()
+
+    planned =
+      AuthoringTranscript.new(transcript_identity(run_id),
+        base_text: "计划只作建议",
+        author_text: "  作者原话\n"
+      )
+
+    latest = AuthoringTranscript.append_application_notice(planned, "实际步骤已完成。")
+
+    step = fn run, sequence, snapshot ->
+      send(parent, {:execution_transcript, snapshot.stage_state[:judgment_transcript]})
+
+      {:ok,
+       %{
+         step: step_struct(run.run_id, sequence, "canonical-step"),
+         stage_state: %{judgment_transcript: latest},
+         loop_status: :completed
+       }}
+    end
+
+    planner = fn run, sequence, _snapshot ->
+      {:execute, step, test_execute_decision(run, sequence),
+       %{provider_call_count: 2, judgment_transcript: planned}}
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_durable(base_run(run_id),
+               next_step_planner: planner,
+               event_sink: event_sink(parent)
+             )
+
+    assert_receive {:execution_transcript, ^planned}, 2000
+    assert_receive {:agent_event, :run_completed, _}, 2000
+    assert {:ok, state} = AgentRunService.state(run_id)
+    assert state.stage_state.judgment_transcript == latest
+    assert state.run.consumed_budget.provider_calls == 2
+
+    checkpoint = AgentRunLog.get_run(run_id).authoring_transcript
+
+    assert {:ok, restored} = AuthoringTranscript.restore(checkpoint)
+    assert restored.messages == latest.messages
+  end
+
+  @tag :authoring_meta
+  test "规划后的失败或直接终局也持久保存已发生的会话" do
+    for mode <- [:step_failure, :complete] do
+      run_id = unique_run_id()
+
+      transcript =
+        AuthoringTranscript.new(transcript_identity(run_id),
+          base_text: "计划只作建议",
+          author_text: "作者目标"
+        )
+
+      meta = %{provider_call_count: 2, judgment_transcript: transcript}
+
+      planner = fn run, sequence, _snapshot ->
+        case mode do
+          :step_failure ->
+            {:execute, fn _, _, _ -> {:error, :step_rejected} end,
+             test_execute_decision(run, sequence), meta}
+
+          :complete ->
+            {:complete, test_complete_decision(run, sequence), meta}
+        end
+      end
+
+      assert {:ok, ^run_id} =
+               AgentRunService.start_durable(base_run(run_id),
+                 next_step_planner: planner,
+                 event_sink: event_sink(self())
+               )
+
+      terminal = if mode == :complete, do: :run_completed, else: :run_failed
+      assert_receive {:agent_event, ^terminal, _}, 2000
+      assert {:ok, state} = AgentRunService.state(run_id)
+      assert state.stage_state[:judgment_transcript] == transcript
+      assert state.run.consumed_budget.provider_calls == 2
+
+      assert %{"transcript" => %{"messages" => _}} =
+               AgentRunLog.get_run(run_id).authoring_transcript
+
+      task = LongRunTaskLog.get(state.run.long_run_task_ref)
+      assert task.checkpoint_data["agent_run"]["checkpoint_version"] == 3
+      refute Map.has_key?(task.checkpoint_data, "authoring_transcript")
+    end
+  end
+
+  test "显式压缩写入 durable checkpoint 并保持恢复请求语义" do
+    run_id = unique_run_id()
+    caps = Map.new(RequestIR.required_capabilities(), &{&1, true})
+
+    transcript =
+      AuthoringTranscript.new(
+        transcript_identity(run_id),
+        base_text: "仅生成待作者审阅的候选",
+        author_text: "先看角色阵容，再设计反派",
+        projection: %{target: "chat_completions", capability_profile: caps}
+      )
+      |> AuthoringTranscript.append_assistant("", [
+        RequestIR.tool_call_block("read_character", %{}, "compact-call")
+      ])
+      |> AuthoringTranscript.append_observation("compact-call", %{
+        status: "ok",
+        source_refs: [%{ref: "work:work_1", version: 1}],
+        versions: %{"work:work_1" => 1},
+        content: %{role: "主角"}
+      })
+
+    planner = fn _run, _sequence, _snapshot ->
+      {:error, :paused_for_compaction, %{judgment_transcript: transcript}}
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_durable(base_run(run_id),
+               next_step_planner: planner,
+               event_sink: event_sink(self())
+             )
+
+    assert_receive {:agent_event, :run_failed, _}, 2000
+
+    assert {:ok, compacted} =
+             AgentRunService.compact_transcript(run_id, %{
+               covers: %{call_ids: ["compact-call"], turn_range: "turn_1"},
+               source_refs: [%{ref: "work:work_1", version: 1}],
+               versions: %{"work:work_1" => 1},
+               omissions: ["较早的工具调用细节已省略，可回查原始记录。"],
+               summary: "已读取当前作品，后续创作仅使用这些已确认材料。"
+             })
+
+    assert Enum.map(compacted.messages, & &1.role) == [
+             "application_base",
+             "user",
+             "assistant",
+             "tool",
+             "checkpoint"
+           ]
+
+    assert AgentRunService.compact_transcript(run_id, %{
+             covers: %{call_ids: ["compact-call"], turn_range: "turn_1"},
+             source_refs: [%{ref: "work:work_1", version: 1}],
+             versions: %{"work:work_1" => 1},
+             omissions: ["较早的工具调用细节已省略，可回查原始记录。"],
+             summary: "已读取当前作品，后续创作仅使用这些已确认材料。"
+           }) == {:ok, compacted}
+
+    assert {:ok, state} = AgentRunService.state(run_id)
+    task = LongRunTaskLog.get(state.run.long_run_task_ref)
+    checkpoint = AgentRunLog.get_run(run_id).authoring_transcript
+
+    assert {:ok, restored} = AuthoringTranscript.restore(checkpoint)
+    assert task.checkpoint_data["agent_run"]["authoring_transcript_ref"]["run_id"] == run_id
+    refute Map.has_key?(task.checkpoint_data, "authoring_transcript")
+
+    assert {:ok, before_ir} = AuthoringTranscript.to_request_ir(compacted)
+    assert {:ok, after_ir} = AuthoringTranscript.to_request_ir(restored)
+
+    assert RequestIR.Projection.project(before_ir) == RequestIR.Projection.project(after_ir)
+    assert inspect(restored.messages) =~ "compact-call"
+    assert {:ok, body} = RequestIR.Projection.project(after_ir)
+    refute Enum.any?(body.messages, &(&1.role == "tool"))
+  end
+
+  test "durable 压缩持久失败不确认成功，也不推进内存历史" do
+    for failure <- [:missing_task, :rejected_checkpoint] do
+      run_id = unique_run_id()
+
+      transcript =
+        AuthoringTranscript.new(transcript_identity(run_id),
+          base_text: "作者保留最终裁决",
+          author_text: "核对角色"
+        )
+        |> AuthoringTranscript.append_assistant("", [
+          RequestIR.tool_call_block("read_character", %{}, "compact-failure-call")
+        ])
+        |> AuthoringTranscript.append_observation("compact-failure-call", %{
+          status: "ok",
+          source_refs: [],
+          content: %{summary: "已读取角色"}
+        })
+
+      planner = fn _run, _sequence, _snapshot ->
+        {:error, :paused_for_compaction, %{judgment_transcript: transcript}}
+      end
+
+      assert {:ok, ^run_id} =
+               AgentRunService.start_durable(base_run(run_id),
+                 next_step_planner: planner,
+                 event_sink: event_sink(self())
+               )
+
+      assert_receive {:agent_event, :run_failed, _}, 2000
+      assert {:ok, before_state} = AgentRunService.state(run_id)
+      task = LongRunTaskLog.get(before_state.run.long_run_task_ref)
+      before_record = AgentRunLog.get_run(run_id)
+
+      case failure do
+        :missing_task ->
+          Repo.delete!(task)
+
+        :rejected_checkpoint ->
+          SQL.query!(Repo, """
+          CREATE TEMP TRIGGER reject_b71_checkpoint BEFORE UPDATE OF authoring_transcript
+          ON agent_runs BEGIN SELECT RAISE(ABORT, 'private history unavailable'); END
+          """)
+      end
+
+      try do
+        assert {:error, :checkpoint_persistence_failed} =
+                 AgentRunService.compact_transcript(run_id, %{
+                   covers: %{call_ids: ["compact-failure-call"], turn_range: "turn_1"},
+                   source_refs: [],
+                   versions: %{},
+                   omissions: ["逐字工具结果保留在原始记录"],
+                   summary: "已核对角色，摘要不代表作者采纳。"
+                 })
+
+        assert {:ok, after_state} = AgentRunService.state(run_id)
+        assert after_state.stage_state == before_state.stage_state
+
+        assert AgentRunLog.get_run(run_id).authoring_transcript ==
+                 before_record.authoring_transcript
+
+        if failure == :rejected_checkpoint do
+          assert LongRunTaskLog.get(task.id).checkpoint_data == task.checkpoint_data
+        end
+      after
+        if failure == :rejected_checkpoint do
+          SQL.query!(Repo, "DROP TRIGGER reject_b71_checkpoint")
+        end
+      end
+    end
   end
 
   test "失败或进程失活后的重传只返回旧事实，不重建 bounded run" do
@@ -1033,6 +1332,190 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert "runtime_live" in recovered.recovery_event.reason_codes
   end
 
+  test "G8 durable checkpoint restores canonical transcript without provider replay" do
+    parent = self()
+    run_id = unique_run_id()
+    caps = Map.new(RequestIR.required_capabilities(), &{&1, true})
+
+    transcript =
+      AuthoringTranscript.new(
+        transcript_identity(run_id),
+        base_text: "稳定创作协议",
+        author_text: "读取事实后停止探索",
+        tools: [],
+        projection: %{target: "chat_completions", capability_profile: caps}
+      )
+      |> AuthoringTranscript.append_scope_update("探索开放", %{
+        "scope_revision" => 1
+      })
+      |> AuthoringTranscript.append_provider_result(%{
+        content: "先读取。",
+        tool_calls: [%{id: "call-1", name: "chapter_read", arguments: %{"offset" => 0}}]
+      })
+      |> AuthoringTranscript.append_observation("call-1", %{
+        status: "ok",
+        source_refs: [%{ref: "chapter:1", version: 2}],
+        content: %{summary: "第一页"}
+      })
+      |> AuthoringTranscript.append_scope_update("探索预算关闭", %{
+        "scope_revision" => 2
+      })
+
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
+    assert {:ok, original_body} = RequestIR.Projection.project(ir)
+
+    step = fn _run, sequence ->
+      send(parent, {:g8_step, sequence})
+
+      {:ok,
+       %{
+         step: step_struct(run_id, sequence, "step_#{run_id}_#{sequence}"),
+         observations: [],
+         stage_state: %{judgment_transcript: transcript}
+       }}
+    end
+
+    attrs =
+      base_run(run_id)
+      |> Map.put(:budget, %{
+        max_steps: 1,
+        max_tool_calls: 4,
+        max_provider_calls: 3,
+        max_replans: 1
+      })
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_durable(attrs,
+               next_step_planner: sequential_steps([step, step]),
+               event_sink: event_sink(parent)
+             )
+
+    assert_receive {:g8_step, 1}
+    assert_receive {:agent_event, :awaiting_author, "AgentRun 已达到预算上限。"}, 500
+    assert %{long_run_task_ref: task_ref} = AgentRunLog.get_run(run_id)
+    assert is_binary(task_ref)
+
+    persisted_task =
+      wait_for(fn ->
+        with %{status: "PAUSED"} = task <- LongRunTaskLog.get(task_ref),
+             %{authoring_transcript: %{} = checkpoint} <- AgentRunLog.get_run(run_id),
+             true <- checkpoint["transcript"]["messages"] != [] do
+          task
+        else
+          _ -> nil
+        end
+      end)
+
+    assert persisted_task.checkpoint_data["agent_run"]["authoring_transcript_ref"]["run_id"] ==
+             run_id
+
+    refute Map.has_key?(persisted_task.checkpoint_data, "authoring_transcript")
+
+    [{pid, _}] = Registry.lookup(NovelApplication.AgentRunRegistry, run_id)
+    DynamicSupervisor.terminate_child(NovelApplication.AgentRunSupervisor, pid)
+
+    assert {:ok, [recovered]} = AgentRunService.recover_durable("work_1", "sess_1")
+    assert recovered.runtime_live? == false
+    assert recovered.authoring_transcript
+
+    assert {:ok, restored_ir} =
+             AuthoringTranscript.to_request_ir(recovered.authoring_transcript)
+
+    assert RequestIR.Projection.project(restored_ir) == {:ok, original_body}
+
+    assert AuthoringTranscript.current_scope(recovered.authoring_transcript).text ==
+             "探索预算关闭"
+
+    checkpoint = LongRunTaskLog.get(task_ref).checkpoint_data
+    refute inspect(checkpoint) =~ "prompt_override"
+    refute_received :provider_called
+  end
+
+  test "durable recovery keeps private checkpoint internal while recovery event exposes public facts only" do
+    run_id = unique_run_id()
+    marker = "B71_PRIVATE_CHECKPOINT_#{System.unique_integer([:positive, :monotonic])}"
+    work_id = "work_private_checkpoint_#{run_id}"
+    session_id = "session_private_checkpoint_#{run_id}"
+    caps = Map.new(RequestIR.required_capabilities(), &{&1, true})
+
+    transcript =
+      AuthoringTranscript.new(
+        %{
+          run_id: run_id,
+          workspace_id: work_id,
+          work_id: work_id,
+          session_id: session_id,
+          parent_turn_ref: "turn_private_checkpoint_#{run_id}"
+        },
+        base_text: "稳定创作协议",
+        author_text: "读取事实后继续",
+        tools: [],
+        projection: %{target: "chat_completions", capability_profile: caps}
+      )
+      |> AuthoringTranscript.append_provider_result(%{
+        content: "作者可见正文",
+        provider_state: %{"reasoning_content" => marker}
+      })
+
+    {:ok, task} =
+      LongRunTaskLog.create(%{
+        workspace_id: work_id,
+        task_type: "agent_run",
+        status: "PAUSED",
+        phase: "CHECKPOINT",
+        goal: "隐私边界恢复任务",
+        scope_ref: work_id,
+        created_by: "agent_run",
+        parent_turn_ref: "turn_private_checkpoint_#{run_id}",
+        checkpoint_policy_ref: "agent_run_step_checkpoint_v1",
+        completed_unit_refs: ["step_private_checkpoint_1"],
+        checkpoint_data: %{
+          "agent_run" => %{
+            "run_id" => run_id,
+            "goal_version" => 1,
+            "checkpoint_version" => 2,
+            "completed_step_refs" => ["step_private_checkpoint_1"]
+          },
+          "progress" => 50,
+          "step" => "私有检查点",
+          "private_prompt" => "PROMPT_#{marker}",
+          "private_reasoning" => marker,
+          "authoring_transcript" => AuthoringTranscript.checkpoint(transcript)
+        }
+      })
+
+    insert_durable_run_record(run_id, task.id, %{
+      work_id: work_id,
+      session_id: session_id,
+      parent_turn_ref: "turn_private_checkpoint_#{run_id}",
+      completed_step_refs: ["step_private_checkpoint_1"]
+    })
+
+    assert {:ok, [recovered]} = AgentRunService.recover_durable(work_id, session_id)
+    assert recovered.runtime_live? == false
+    assert recovered.authoring_transcript
+    assert recovered.long_run_task.checkpoint_data["private_reasoning"] == marker
+    assert is_map(recovered.long_run_task.checkpoint_data["authoring_transcript"])
+
+    persisted = LongRunTaskLog.get(task.id)
+    assert persisted.checkpoint_data["private_reasoning"] == marker
+    assert inspect(persisted.checkpoint_data["authoring_transcript"]) =~ marker
+
+    event = recovered.recovery_event
+    assert event.event_type == :run_resumed
+    assert event.payload.long_run_task_ref == task.id
+    assert event.payload.runtime_live == false
+    refute Map.has_key?(event.payload, :checkpoint_data)
+    refute Map.has_key?(event.payload, "checkpoint_data")
+    refute inspect(event.payload) =~ marker
+
+    [persisted_event] = AgentRunLog.list_events(run_id)
+    assert persisted_event.payload["long_run_task_ref"] == task.id
+    assert persisted_event.payload["runtime_live"] == "false"
+    refute Map.has_key?(persisted_event.payload, "checkpoint_data")
+    refute inspect(persisted_event.payload) =~ marker
+  end
+
   test "durable live recovery marks stale when requested goal version changed" do
     parent = self()
     run_id = unique_run_id()
@@ -1889,7 +2372,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
           turn_id: "turn-flow"
         },
         nil,
-        fixed_json_provider([single_item("agent-antagonist")])
+        native_artifact_provider([single_item("agent-antagonist")])
       )
 
     assert {:ok, run_id} =
@@ -2010,7 +2493,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
           turn_id: "turn-budget"
         },
         nil,
-        fixed_json_provider([single_item("budget-antagonist")])
+        native_artifact_provider([single_item("budget-antagonist")])
       )
 
     assert spec.run_attrs.budget.max_steps == 1
@@ -2046,7 +2529,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
           turn_id: "turn-budget-recovery"
         },
         nil,
-        fixed_json_provider([single_item("budget-recovery-antagonist")])
+        native_artifact_provider([single_item("budget-recovery-antagonist")])
       )
 
     assert {:ok, run_id} =
@@ -2106,7 +2589,16 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
         true ->
           send(parent, :provider_called)
-          {:ok, %{content: Jason.encode!([single_item("repeat-antagonist")])}}
+
+          {:ok,
+           %{
+             content: "",
+             tool_calls:
+               TestAgenticLoopFixtures.native_tool_calls(
+                 "submit_tentative_artifact",
+                 %{items: [single_item("repeat-antagonist")]}
+               )
+           }}
       end
     end
 
@@ -2142,6 +2634,243 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert run.completed_step_refs == ["step_#{run_id}_1", "step_#{run_id}_2"]
     # CP2b：机械计划 0 调用，仅 design writer 1 调用。
     assert run.consumed_budget.provider_calls == 1
+  end
+
+  test "bounded terminal run keeps real canonical history in agent_runs private column only" do
+    run_id = unique_run_id()
+
+    transcript =
+      AuthoringTranscript.new(transcript_identity(run_id),
+        base_text: "bounded 仅生成待审阅候选",
+        author_text: "保留这段真实历史"
+      )
+      |> AuthoringTranscript.append_provider_result(%{
+        content: "真实模型响应",
+        provider_state: %{"reasoning_content" => "private-bounded-marker"}
+      })
+
+    planner = fn run, sequence, _snapshot ->
+      {:complete, test_complete_decision(run, sequence), %{judgment_transcript: transcript}}
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(base_run(run_id),
+               next_step_planner: planner,
+               event_sink: event_sink(self())
+             )
+
+    assert_receive {:agent_event, :run_completed, _}, 2000
+
+    record =
+      wait_for(fn ->
+        case AgentRunLog.get_run(run_id) do
+          %{authoring_transcript: %{}} = record -> record
+          _ -> nil
+        end
+      end)
+
+    assert record.run_mode == "bounded"
+    assert record.long_run_task_ref == nil
+    assert record.authoring_transcript["transcript"]["messages"] != []
+    assert inspect(record.authoring_transcript) =~ "private-bounded-marker"
+
+    [{pid, _}] = Registry.lookup(NovelApplication.AgentRunRegistry, run_id)
+    DynamicSupervisor.terminate_child(NovelApplication.AgentRunSupervisor, pid)
+
+    # bounded 失活后不重建运行，但已提交的私有历史仍可回查。
+    assert AgentRunLog.get_run(run_id).authoring_transcript == record.authoring_transcript
+  end
+
+  test "bounded explicit compaction commits private history before confirming and rolls back on SQL reject" do
+    run_id = unique_run_id()
+
+    transcript =
+      AuthoringTranscript.new(transcript_identity(run_id),
+        base_text: "bounded 压缩边界",
+        author_text: "核对角色"
+      )
+      |> AuthoringTranscript.append_assistant("", [
+        RequestIR.tool_call_block("read_character", %{}, "bounded-compact-call")
+      ])
+      |> AuthoringTranscript.append_observation("bounded-compact-call", %{
+        status: "ok",
+        source_refs: [],
+        content: %{summary: "已读取角色"}
+      })
+
+    planner = fn _run, _sequence, _snapshot ->
+      {:error, :paused_for_compaction, %{judgment_transcript: transcript}}
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(base_run(run_id),
+               next_step_planner: planner,
+               event_sink: event_sink(self())
+             )
+
+    assert_receive {:agent_event, :run_failed, _}, 2000
+    assert {:ok, before_state} = AgentRunService.state(run_id)
+
+    before_record =
+      wait_for(fn ->
+        case AgentRunLog.get_run(run_id) do
+          %{authoring_transcript: %{}} = record -> record
+          _ -> nil
+        end
+      end)
+
+    attrs = %{
+      covers: %{call_ids: ["bounded-compact-call"], turn_range: "turn_1"},
+      source_refs: [],
+      versions: %{},
+      omissions: ["原始工具结果仍可回查"],
+      summary: "已核对角色，摘要不代表采纳。"
+    }
+
+    SQL.query!(Repo, """
+    CREATE TEMP TRIGGER reject_bounded_private_history BEFORE UPDATE OF authoring_transcript
+    ON agent_runs BEGIN SELECT RAISE(ABORT, 'bounded private history unavailable'); END
+    """)
+
+    try do
+      assert {:error, :checkpoint_persistence_failed} =
+               AgentRunService.compact_transcript(run_id, attrs)
+
+      assert {:ok, after_failure_state} = AgentRunService.state(run_id)
+      assert after_failure_state.stage_state == before_state.stage_state
+
+      assert AgentRunLog.get_run(run_id).authoring_transcript ==
+               before_record.authoring_transcript
+    after
+      SQL.query!(Repo, "DROP TRIGGER reject_bounded_private_history")
+    end
+
+    assert {:ok, compacted} = AgentRunService.compact_transcript(run_id, attrs)
+
+    assert Enum.any?(compacted.messages, &(&1.role == "checkpoint"))
+    after_record = AgentRunLog.get_run(run_id)
+    assert after_record.authoring_transcript != before_record.authoring_transcript
+
+    assert after_record.authoring_transcript["transcript"]["messages"] ==
+             compacted.messages |> Jason.encode!() |> Jason.decode!()
+
+    assert after_record.long_run_task_ref == nil
+  end
+
+  test "durable v3 reference mismatch never falls back to a legacy embedded copy" do
+    run_id = unique_run_id()
+    work_id = "work_v3_ref_#{run_id}"
+    session_id = "session_v3_ref_#{run_id}"
+    parent_turn_ref = "turn_v3_ref_#{run_id}"
+
+    decoy =
+      AuthoringTranscript.checkpoint(
+        AuthoringTranscript.new(
+          %{
+            run_id: run_id,
+            workspace_id: work_id,
+            work_id: work_id,
+            session_id: session_id,
+            parent_turn_ref: parent_turn_ref
+          },
+          base_text: "旧副本诱饵",
+          author_text: "不应回退"
+        )
+      )
+
+    {:ok, task} =
+      LongRunTaskLog.create(%{
+        workspace_id: work_id,
+        task_type: "agent_run",
+        status: "PAUSED",
+        phase: "CHECKPOINT",
+        goal: "v3 错引用",
+        scope_ref: work_id,
+        created_by: "agent_run",
+        parent_turn_ref: parent_turn_ref,
+        checkpoint_data: %{
+          "agent_run" => %{
+            "run_id" => run_id,
+            "goal_version" => 1,
+            "checkpoint_version" => 3,
+            "authoring_transcript_ref" => %{
+              "run_id" => "other-run",
+              "version" => "authoring-transcript/v1"
+            }
+          },
+          "authoring_transcript" => decoy
+        }
+      })
+
+    insert_durable_run_record(run_id, task.id, %{
+      workspace_id: work_id,
+      work_id: work_id,
+      session_id: session_id,
+      parent_turn_ref: parent_turn_ref
+    })
+
+    assert {:ok, [recovered]} = AgentRunService.recover_durable(work_id, session_id)
+    refute recovered.authoring_transcript
+    assert recovered.authoring_history.status == :invalid
+    assert recovered.authoring_transcript_error == :authoring_transcript_ref_mismatch
+    refute inspect(recovered) =~ "旧副本诱饵"
+  end
+
+  test "durable v2 legacy checkpoint without full identity is reported partial, not backfilled" do
+    run_id = unique_run_id()
+    work_id = "work_v2_partial_#{run_id}"
+    session_id = "session_v2_partial_#{run_id}"
+    parent_turn_ref = "turn_v2_partial_#{run_id}"
+
+    legacy =
+      AuthoringTranscript.checkpoint(
+        AuthoringTranscript.new(%{run_id: run_id, work_id: work_id},
+          base_text: "旧格式只有部分身份",
+          author_text: "不应补造来源"
+        )
+      )
+
+    {:ok, task} =
+      LongRunTaskLog.create(%{
+        workspace_id: work_id,
+        task_type: "agent_run",
+        status: "PAUSED",
+        phase: "CHECKPOINT",
+        goal: "v2 缺身份",
+        scope_ref: work_id,
+        created_by: "agent_run",
+        parent_turn_ref: parent_turn_ref,
+        checkpoint_data: %{
+          "agent_run" => %{
+            "run_id" => run_id,
+            "goal_version" => 1,
+            "checkpoint_version" => 2
+          },
+          "authoring_transcript" => legacy
+        }
+      })
+
+    insert_durable_run_record(run_id, task.id, %{
+      workspace_id: work_id,
+      work_id: work_id,
+      session_id: session_id,
+      parent_turn_ref: parent_turn_ref
+    })
+
+    assert {:ok, [recovered]} = AgentRunService.recover_durable(work_id, session_id)
+    refute recovered.authoring_transcript
+    assert recovered.authoring_history.status == :partial
+    assert recovered.authoring_transcript_error == :legacy_checkpoint_identity_missing
+  end
+
+  defp transcript_identity(run_id) do
+    %{
+      run_id: run_id,
+      workspace_id: "ws_1",
+      work_id: "work_1",
+      session_id: "sess_1",
+      parent_turn_ref: "turn_1"
+    }
   end
 
   defp base_run(run_id) do
@@ -2366,16 +3095,14 @@ defmodule NovelApplication.AgentRunRuntimeTest do
      }}
   end
 
-  defp fixed_json_provider(items) do
-    json = Jason.encode!(items)
-
+  defp native_artifact_provider(items) do
     %Execution{
       result_fn: fn prompt ->
         result =
           cond do
             agent_plan_draft_prompt?(prompt) -> character_design_plan_draft()
             agent_next_step_prompt?(prompt) -> next_step_decision(prompt)
-            true -> json
+            true -> TestAgenticLoopFixtures.native_artifact_result(items)
           end
 
         provider_result(result)
@@ -2387,7 +3114,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     do: prompt_contains?(prompt, "AgentRun 下一步规划器")
 
   defp agent_plan_draft_prompt?(prompt),
-    do: prompt_contains?(prompt, "AgentRun 计划起草器")
+    do: Enum.any?(NovelAgent.Provider.tool_specs(prompt), &(&1.name == "agent_plan_draft"))
 
   defp prompt_contains?(prompt, pattern), do: prompt_text(prompt) =~ pattern
 
@@ -2519,16 +3246,16 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   end
 
   defp character_design_plan_draft do
-    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+    TestAgenticLoopFixtures.plan_tool_call_result(
       "先读取角色阵容，再基于阵容设计新的角色候选。",
       [
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
+        TestAgenticLoopFixtures.plan_step(
           "character_roster",
           "character_roster",
           "读取当前作品已确认角色阵容。",
           success_criteria: ["character_roster_observation_exists"]
         ),
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
+        TestAgenticLoopFixtures.plan_step(
           "character_design",
           "character_design",
           "基于已读取的角色阵容设计新的角色候选。",
@@ -2542,16 +3269,16 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   end
 
   defp readonly_batch_plan_draft do
-    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+    TestAgenticLoopFixtures.plan_tool_call_result(
       "先并行读取只读上下文，再汇总给作者，不写入作品也不生成候选。",
       [
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
+        TestAgenticLoopFixtures.plan_step(
           "readonly_batch_read",
           "readonly_batch",
           "并行读取作品、角色、规则和统计上下文",
           success_criteria: ["readonly_batch_observations_exist"]
         ),
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
+        TestAgenticLoopFixtures.plan_step(
           "readonly_batch_finalize",
           "readonly_batch",
           "汇总只读上下文并声明未写入作品事实",
@@ -2565,7 +3292,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   defp provider_result(%{content: _content, tool_calls: _tool_calls} = result), do: {:ok, result}
   defp provider_result(content), do: {:ok, %{content: content}}
 
-  defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
+  defp prompt_text(prompt), do: TestAgenticLoopFixtures.prompt_text(prompt)
 
   defp sequential_steps(steps) when is_list(steps) do
     fn run, sequence, _snapshot ->

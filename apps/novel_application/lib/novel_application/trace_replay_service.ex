@@ -6,8 +6,7 @@ defmodule NovelApplication.TraceReplayService do
   work and session ownership before building an author-safe ReplayReport.
   """
 
-  alias NovelApplication.ReplayService
-  alias NovelApplication.WorkService
+  alias NovelApplication.{AuthoringReplay, ReplayService, WorkService}
   alias NovelDomain.DecisionTrace
   alias NovelPersistence.{AuthorActionReceiptRepo, TraceRepository}
   alias NovelPersistence.InteractionLifecycle
@@ -39,7 +38,8 @@ defmodule NovelApplication.TraceReplayService do
          session when not is_nil(session) <- WorkSessionRepo.get_by_work(work_id, session_id),
          [record | _] <- trace_for_turn(work_id, session_id, turn_id) do
       trace = trace_from_record(record)
-      report = ReplayService.build_report(trace)
+      history = AuthoringReplay.fetch(work_id, session_id, turn_id)
+      report = trace |> ReplayService.build_report() |> apply_history_integrity(history)
 
       {:ok,
        %{
@@ -57,7 +57,8 @@ defmodule NovelApplication.TraceReplayService do
              |> AuthorActionReceiptRepo.list_by_source_turn(session.id, turn_id)
              |> Enum.map(&NovelApplication.ApprovalAudit.project_receipt/1)
              |> Enum.reject(&is_nil/1)
-           ),
+           )
+           |> put_authoring_history(history),
          replay_report: replay_report_map(report)
        }}
     else
@@ -72,6 +73,21 @@ defmodule NovelApplication.TraceReplayService do
         {:error, :trace_not_found}
     end
   end
+
+  defp put_authoring_history(summary, {:ok, history}),
+    do: Map.put(summary, :authoring_history, history)
+
+  defp put_authoring_history(summary, _history), do: summary
+
+  defp apply_history_integrity(report, {:error, :authoring_transcript}) do
+    %{
+      report
+      | result_status: :partial,
+        missing_trace_refs: Enum.uniq(report.missing_trace_refs ++ ["authoring_transcript"])
+    }
+  end
+
+  defp apply_history_integrity(report, _history), do: report
 
   # B58 CP3：AgentRun 内部步的决策 trace 由 step persister 落库时可能没有 session_id
   # （历史/后台步），但 turn_id 在同一 workspace 内仍唯一。先按 work+session+turn 精确

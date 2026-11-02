@@ -44,4 +44,28 @@ defmodule NovelApplication.AgentRunFlows.TurnBinding do
   @doc "只构造不绑定——仅供已在同一 step 内绑过的调用点复用，避免重复清空关联键。"
   @spec turn_id(struct(), sequence()) :: String.t()
   def turn_id(run, sequence), do: "#{run.parent_turn_ref}:agent:#{sequence}"
+
+  @doc """
+  解析数值步骤 turn_id，返回父轮次与步骤序号。
+
+  只做纯解析，不读持久层；调用方仍须校验 run 与 step 的归属。
+  """
+  @spec parse(String.t()) :: {:ok, String.t(), pos_integer()} | :error
+  def parse(turn_id) when is_binary(turn_id) do
+    case Regex.run(~r/\A(.+):agent:([1-9][0-9]*)\z/u, turn_id) do
+      [_, parent, sequence] -> {:ok, parent, String.to_integer(sequence)}
+      _ -> :error
+    end
+  end
+
+  def parse(_turn_id), do: :error
+
+  @doc "解析数值步骤的父轮次；调用方仍须校验持久运行与步骤归属。"
+  @spec parent_turn_ref(String.t()) :: {:ok, String.t()} | :error
+  def parent_turn_ref(turn_id) do
+    case parse(turn_id) do
+      {:ok, parent, _sequence} -> {:ok, parent}
+      :error -> :error
+    end
+  end
 end

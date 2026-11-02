@@ -6,18 +6,17 @@ defmodule NovelApplication.ProviderActivityService do
   provider while building the activity report.
   """
 
-  alias NovelApplication.WorkService
+  alias NovelApplication.{AgentRunHistory, WorkService}
   alias NovelPersistence.{AgentRunLog, ProviderRunLog, WorkSessionRepo}
 
   @doc """
   Fetch persisted ProviderRun activity for one author turn.
 
-  `turn_id` may be an AgentRun step turn (``"<parent_turn_ref>:agent:<sequence>"``,
-  e.g. judgment_plan / judgment_loop step results) rather than the author message
-  turn the run was started for. When the direct `parent_turn_ref` lookup returns no
-  run, the child-turn suffix is stripped and the parent message id is retried so
-  author-visible activity (including awaiting_author reasons) survives reload
-  hydration (B23 F2). Scope and author-safe filtering are unchanged.
+  The run is resolved by the shared history binding: a persisted assistant
+  Interaction's explicit run id wins only after work/session/parent checks;
+  legacy data may fall back to a unique scoped parent or a persisted step.
+  Conflicts and ambiguity yield no activity rather than aggregating another
+  run's events or cost. Scope and author-safe filtering are unchanged.
   """
   @spec fetch_turn_activity(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, :work_not_found | :session_not_found}
@@ -51,29 +50,10 @@ defmodule NovelApplication.ProviderActivityService do
     end
   end
 
-  # AgentRun.parent_turn_ref always points at the author message turn, while
-  # judgment_plan / judgment_loop persist their step TurnResults under child
-  # turns (``"<parent>:agent:<sequence>"``). A child turn therefore has no run
-  # of its own; strip the marker and retry with the parent message id. The
-  # parent id still goes through the same work/session-scoped query, so
-  # cross-work/session reads stay impossible.
   defp list_agent_runs_for_turn(work_id, session_id, turn_id) do
-    case AgentRunLog.list_by_parent_turn(work_id, session_id, turn_id) do
-      [] ->
-        case parent_turn_ref(turn_id) do
-          nil -> []
-          parent_turn_ref -> AgentRunLog.list_by_parent_turn(work_id, session_id, parent_turn_ref)
-        end
-
-      runs ->
-        runs
-    end
-  end
-
-  defp parent_turn_ref(turn_id) do
-    case String.split(turn_id, ":agent:", parts: 2) do
-      [parent, suffix] when parent != "" and suffix != "" -> parent
-      _ -> nil
+    case AgentRunHistory.resolve(work_id, session_id, turn_id) do
+      {:ok, run, _source} -> [run]
+      _missing_or_invalid -> []
     end
   end
 
@@ -206,6 +186,9 @@ defmodule NovelApplication.ProviderActivityService do
       "api_key",
       "assistant_message",
       "chain_of_thought",
+      # checkpoint_data 是 application 私有的 canonical envelope，不是作者可见事实；
+      # 历史 run_resumed 事件可能已带出该键，需在此作者边界按明确键名剥离。
+      "checkpoint_data",
       "messages",
       "provider_error_payload",
       "raw_messages",
@@ -226,6 +209,9 @@ defmodule NovelApplication.ProviderActivityService do
   defp stringify_atom_values(value) when is_list(value),
     do: Enum.map(value, &stringify_atom_values/1)
 
+  # JSON 标量语义：false / null 是值本身，不是 atom 枚举；保留原样。
+  defp stringify_atom_values(value) when is_boolean(value), do: value
+  defp stringify_atom_values(nil), do: nil
   defp stringify_atom_values(value) when is_atom(value), do: Atom.to_string(value)
   defp stringify_atom_values(value), do: value
 

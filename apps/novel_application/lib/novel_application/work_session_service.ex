@@ -3,9 +3,7 @@ defmodule NovelApplication.WorkSessionService do
   作品内会话用例层。负责为前端启动恢复提供 work-scoped resume snapshot。
   """
 
-  alias NovelApplication.TraceSummaryRef
-  alias NovelApplication.WorkService
-  alias NovelPersistence.AgentRunLog
+  alias NovelApplication.{AgentRunHistory, TraceSummaryRef, WorkService}
   alias NovelPersistence.Schemas.Interaction
   alias NovelPersistence.Schemas.WorkSession
   alias NovelPersistence.WorkSessionRepo
@@ -150,8 +148,8 @@ defmodule NovelApplication.WorkSessionService do
   Restore only the persisted turn results needed by WorkspaceChannel action lookup.
 
   This deliberately does not hydrate AgentRun events or provider usage. The HTTP
-  resume/show snapshots are responsible for user-facing transcript restoration;
-  channel join only needs enough state to validate later author actions.
+  resume/show snapshots and this channel join share the same batched run identity
+  resolution; channel join only needs enough state to validate later author actions.
   """
   @spec restore_channel_turn_results(String.t(), String.t()) ::
           {:ok, map()} | {:error, :work_not_found | :session_not_found}
@@ -159,11 +157,14 @@ defmodule NovelApplication.WorkSessionService do
       when is_binary(work_id) and is_binary(session_id) do
     with work when not is_nil(work) <- WorkService.get(work_id),
          %WorkSession{} = session <- WorkSessionRepo.get_by_work(work_id, session_id) do
+      transcript = WorkSessionRepo.transcript(session.id)
+      summaries_by_turn = agent_run_summary_by_turn(work_id, session.id, transcript)
+
       turn_results =
-        session.id
-        |> WorkSessionRepo.transcript()
+        transcript
         |> Enum.map(&turn_result_from_content(&1.content))
         |> Enum.map(&strip_agent_run_activity/1)
+        |> Enum.map(&attach_agent_run_summary(&1, summaries_by_turn))
         |> Enum.map(&NovelApplication.FactInventoryProposal.revalidate(&1, work_id))
         |> Enum.reject(&is_nil/1)
 
@@ -380,8 +381,8 @@ defmodule NovelApplication.WorkSessionService do
     case turn_id(turn_result) do
       turn_id when is_binary(turn_id) and turn_id != "" ->
         case Map.get(summaries_by_turn, turn_id) do
-          nil -> turn_result
-          run -> put_agent_run_summary(turn_result, run)
+          {:ok, run, _source} -> put_agent_run_summary(turn_result, run)
+          _missing_or_invalid -> drop_agent_run_summary(turn_result)
         end
 
       _ ->
@@ -394,46 +395,8 @@ defmodule NovelApplication.WorkSessionService do
   defp agent_run_summary_by_turn(_work_id, _session_id, []), do: %{}
 
   defp agent_run_summary_by_turn(work_id, session_id, transcript) do
-    turn_results =
-      transcript
-      |> Enum.map(&turn_result_from_content(&1.content))
-      |> Enum.filter(&is_map/1)
-
-    turn_ids =
-      turn_results
-      |> Enum.map(&turn_id/1)
-      |> Enum.filter(&(is_binary(&1) and &1 != ""))
-      |> Enum.uniq()
-
-    requested_run_ids_by_turn =
-      Enum.reduce(turn_results, %{}, fn turn_result, acc ->
-        case turn_id(turn_result) do
-          turn_id when is_binary(turn_id) and turn_id != "" ->
-            Map.put(acc, turn_id, get_in_any(turn_result, [:agent_run, :run_id]))
-
-          _ ->
-            acc
-        end
-      end)
-
-    work_id
-    |> AgentRunLog.list_by_parent_turns(session_id, turn_ids)
-    |> Enum.group_by(& &1.parent_turn_ref)
-    |> Map.new(fn {turn_id, runs} ->
-      {turn_id, select_agent_run(runs, Map.get(requested_run_ids_by_turn, turn_id))}
-    end)
-    |> Enum.reject(fn {_turn_id, run} -> is_nil(run) end)
-    |> Map.new()
+    AgentRunHistory.resolve_transcript_entries(work_id, session_id, transcript)
   end
-
-  defp select_agent_run([], _requested_run_id), do: nil
-
-  defp select_agent_run(runs, requested_run_id)
-       when is_binary(requested_run_id) and requested_run_id != "" do
-    Enum.find(runs, &(&1.id == requested_run_id))
-  end
-
-  defp select_agent_run(runs, _requested_run_id), do: List.last(runs)
 
   defp strip_agent_run_activity(turn_result) when is_map(turn_result) do
     case get_in_any(turn_result, [:agent_run]) do
@@ -458,33 +421,31 @@ defmodule NovelApplication.WorkSessionService do
 
   defp strip_agent_run_activity(turn_result), do: turn_result
 
-  defp put_agent_run_summary(turn_result, run) do
-    existing =
-      case get_in_any(turn_result, [:agent_run]) do
-        value when is_map(value) -> value
-        _ -> %{}
-      end
-
-    agent_run =
-      existing
-      |> Map.delete(:events)
-      |> Map.delete("events")
-      |> Map.delete(:provider_runs)
-      |> Map.delete("provider_runs")
-      |> Map.put(:run_id, run.id)
-      |> Map.put(:run_mode, run.run_mode)
-      |> Map.put(:status, run.status)
-      |> Map.put(:phase, run.phase)
-      |> Map.put(:profile_ref, run.profile_ref)
-      |> Map.put(:trigger, run.trigger)
-      |> Map.put(:long_run_task_ref, run.long_run_task_ref)
-      |> Map.put(:plan_ref, run.plan_ref)
-      |> Map.put(:plan_version, run.plan_version)
-      |> Map.put(:activity_loaded, false)
-
+  defp drop_agent_run_summary(turn_result) do
     turn_result
     |> Map.delete(:agent_run)
     |> Map.delete("agent_run")
+  end
+
+  # 只把当前 DB run 的白名单事实投影给作者；过期 TurnResult 的 status/phase/
+  # provider_run_count/events 等不得作为最新运行事实保留。
+  defp put_agent_run_summary(turn_result, run) do
+    agent_run = %{
+      run_id: run.id,
+      run_mode: run.run_mode,
+      status: run.status,
+      phase: run.phase,
+      parent_turn_ref: run.parent_turn_ref,
+      profile_ref: run.profile_ref,
+      trigger: run.trigger,
+      long_run_task_ref: run.long_run_task_ref,
+      plan_ref: run.plan_ref,
+      plan_version: run.plan_version,
+      activity_loaded: false
+    }
+
+    turn_result
+    |> drop_agent_run_summary()
     |> Map.put(:agent_run, agent_run)
   end
 

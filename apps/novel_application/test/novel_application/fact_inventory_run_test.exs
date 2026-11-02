@@ -10,6 +10,20 @@ defmodule NovelApplication.FactInventoryRunTest do
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TestAgenticLoopFixtures
 
+  alias Ecto.Adapters.SQL.Sandbox
+  alias NovelPersistence.Repo
+
+  setup do
+    owner = Sandbox.start_owner!(Repo, shared: true)
+
+    on_exit(fn ->
+      NovelApplication.TestAgentRunCleanup.await_quiescent()
+      Sandbox.stop_owner(owner)
+    end)
+
+    :ok
+  end
+
   # D5：全量退化 → 降批两半各自成功 → 提案合并去重（batch_fallback 事件留痕）。
   test "全量盘点退化 → 降批重试合并提案（D5）" do
     parent = self()
@@ -54,7 +68,7 @@ defmodule NovelApplication.FactInventoryRunTest do
       text: "从现有正文盘点角色、世界规则和伏笔，只生成待采纳提案。",
       workspace_id: "ws-d5-batch",
       work_id: "work-d5-batch",
-      session_id: "session-d5-batch",
+      session_id: "11111111-1111-4111-8111-111111111111",
       turn_id: "turn-d5-batch",
       material_reader: fn "work-d5-batch" -> eight end,
       skeleton_reader: fn "work-d5-batch" -> [] end
@@ -120,7 +134,7 @@ defmodule NovelApplication.FactInventoryRunTest do
       text: "从现有正文盘点角色、世界规则和伏笔，只生成待采纳提案。",
       workspace_id: "ws-fact-inventory",
       work_id: "work-fact-inventory",
-      session_id: "session-fact-inventory",
+      session_id: "11111111-1111-4111-8111-111111111112",
       turn_id: "turn-fact-inventory",
       material_reader: fn "work-fact-inventory" -> materials() end,
       # CP4d：这本书 target_length 缺位 → 盘点应同批产全书规划建议（其余字段已立不建议）

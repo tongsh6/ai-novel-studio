@@ -137,6 +137,7 @@ defmodule NovelApplication.WorkSessionServiceTest do
                )
 
       next = NovelApplication.FactInventoryProposal.attach(%{base | turn_id: "next"}, work.id)
+
       # 跨扫描不重复发起（start），但原提议必须保留可关闭动作（dismiss-only），
       # 否则作者失去关闭入口（VS00G 触发 C 原生批次发现的产品缺陷）。
       assert Enum.map(next.available_actions, & &1.action_type) == ["adjudicate_finding"]
@@ -668,9 +669,12 @@ defmodule NovelApplication.WorkSessionServiceTest do
       [entry] = snapshot.transcript
       agent_run = entry.turn_result[:agent_run]
 
-      assert map_field(agent_run, :run_id) == "run-original-draft"
-      assert map_field(agent_run, :profile_ref) == "prose_drafting_with_quality_v1"
-      refute map_has_key?(agent_run, :trigger)
+      # TurnResult 的 agent_run.run_id 是显式绑定，但该 run 不在持久表中；
+      # §16.8 要求 fail closed，不能回退到同 parent 的 child run，也不能把
+      # 未经验证的旧摘要当最新运行事实对外保留。
+      assert is_nil(agent_run)
+      refute inspect(snapshot) =~ "run-revision-child"
+      refute inspect(snapshot) =~ "run-original-draft"
     end
 
     test "does not include archived sessions in the default resume list", %{work: work} do

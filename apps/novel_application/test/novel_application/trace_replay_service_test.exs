@@ -260,12 +260,320 @@ defmodule NovelApplication.TraceReplayServiceTest do
     assert "tool_trace_refs" in report.replay_report.missing_trace_refs
   end
 
+  test "从同一运行的 canonical checkpoint 生成作者安全的历史说明", %{
+    work: work,
+    session: session
+  } do
+    turn_id = "turn-checkpoint-#{System.unique_integer([:positive, :monotonic])}"
+    run_id = "run-checkpoint-#{System.unique_integer([:positive, :monotonic])}"
+
+    transcript =
+      NovelApplication.AuthoringTranscript.new(
+        %{
+          run_id: run_id,
+          work_id: work.id,
+          workspace_id: work.id,
+          session_id: session.id,
+          parent_turn_ref: turn_id
+        },
+        base_text: "作者决定作品事实",
+        author_text: "设计灵源矿区"
+      )
+      |> NovelApplication.AuthoringTranscript.append_checkpoint(
+        %{turn_range: "turn-1"},
+        [%{ref: "chapter:internal-03", display_name: "第03章：旧誓", version: 2}],
+        %{"chapter:internal-03" => 2},
+        ["较早的工具调用细节已省略，原始记录仍可回查。"],
+        "已保留确认过的作品背景，候选仍待作者审阅。"
+      )
+
+    {:ok, task} =
+      NovelPersistence.LongRunTaskLog.create(%{
+        workspace_id: work.id,
+        task_type: "agent_run",
+        parent_turn_ref: turn_id,
+        status: "READY",
+        phase: "PLANNED",
+        checkpoint_data: %{
+          "agent_run" => %{"run_id" => run_id, "checkpoint_version" => 2},
+          "authoring_transcript" => NovelApplication.AuthoringTranscript.checkpoint(transcript)
+        }
+      })
+
+    {:ok, _} =
+      NovelPersistence.AgentRunLog.upsert_run(%{
+        id: run_id,
+        workspace_id: work.id,
+        work_id: work.id,
+        session_id: session.id,
+        parent_turn_ref: turn_id,
+        origin_frame_ref: "frame-checkpoint",
+        run_mode: "durable",
+        profile_ref: "character_design_with_context_v1",
+        status: "awaiting_author",
+        phase: "stopped",
+        long_run_task_ref: task.id
+      })
+
+    {:ok, _} =
+      TraceRepository.insert(%{
+        workspace_id: work.id,
+        session_id: session.id,
+        trace_id: "trace-checkpoint-#{System.unique_integer([:positive, :monotonic])}",
+        turn_id: turn_id,
+        frame_ref: "frame-checkpoint",
+        decision_type: "reply_only",
+        turn_result_ref: turn_id,
+        event_order: ["turn_result_emitted"]
+      })
+
+    assert [%{long_run_task_ref: task_ref}] =
+             NovelPersistence.AgentRunLog.list_by_parent_turn(work.id, session.id, turn_id)
+
+    assert %{"authoring_transcript" => checkpoint} =
+             NovelPersistence.LongRunTaskLog.get(task_ref).checkpoint_data
+
+    assert {:ok, _transcript} = NovelApplication.AuthoringTranscript.restore(checkpoint)
+    assert {:ok, report} = TraceReplayService.fetch_turn_report(work.id, session.id, turn_id)
+
+    assert [
+             %{
+               summary: "已保留确认过的作品背景，候选仍待作者审阅。",
+               omissions: ["较早的工具调用细节已省略，原始记录仍可回查。"],
+               source_names: ["第03章：旧誓"]
+             }
+           ] = report.trace_summary.authoring_history
+
+    refute inspect(report.trace_summary.authoring_history) =~ "chapter:internal-03"
+    assert report.replay_report.provider_called == false
+  end
+
   test "rejects a session that does not belong to the work", %{work: work} do
     {:ok, other_work} = WorkService.create(%{title: "另一作品"})
     {:ok, other_session} = WorkSessionRepo.create(%{work_id: other_work.id, title: "其他会话"})
 
     assert {:error, :session_not_found} =
              TraceReplayService.fetch_turn_report(work.id, other_session.id, "turn-x")
+  end
+
+  test "durable 历史缺失或损坏必须报告 partial，不能假装完整回放", context do
+    for checkpoint <- [nil, %{"version" => "unsupported", "transcript" => %{}}] do
+      %{turn_id: turn_id} = persist_authoring_history(context, checkpoint)
+
+      assert {:ok, report} =
+               TraceReplayService.fetch_turn_report(context.work.id, context.session.id, turn_id)
+
+      assert report.replay_report.result_status == "partial"
+      assert report.trace_summary.replay_result_status == "partial"
+      assert "authoring_transcript" in report.replay_report.missing_trace_refs
+      assert report.trace_summary.replay_missing_trace_refs_count == 1
+      assert report.replay_report.provider_called == false
+    end
+  end
+
+  test "bounded 无私有历史只在已记录零 Provider 消耗时返回 not_applicable", context do
+    for {consumed_budget, expected_status} <- [
+          {%{"provider_calls" => 0}, "complete"},
+          {%{"provider_calls" => 1}, "partial"},
+          {nil, "partial"}
+        ] do
+      id = System.unique_integer([:positive, :monotonic])
+      run_id = "run-bounded-history-#{id}"
+      turn_id = "turn-bounded-history-#{id}"
+
+      {:ok, _run} =
+        NovelPersistence.AgentRunLog.upsert_run(%{
+          id: run_id,
+          workspace_id: context.work.id,
+          work_id: context.work.id,
+          session_id: context.session.id,
+          parent_turn_ref: turn_id,
+          origin_frame_ref: "frame-bounded-history",
+          run_mode: "bounded",
+          profile_ref: "conversation_turn_v1",
+          status: "completed",
+          phase: "stopped",
+          consumed_budget: consumed_budget
+        })
+
+      {:ok, _trace} =
+        TraceRepository.insert(%{
+          workspace_id: context.work.id,
+          session_id: context.session.id,
+          trace_id: "trace-bounded-history-#{id}",
+          turn_id: turn_id,
+          frame_ref: "frame-bounded-history",
+          decision_type: "reply_only",
+          turn_result_ref: turn_id,
+          event_order: ["turn_result_emitted"]
+        })
+
+      assert {:ok, report} =
+               TraceReplayService.fetch_turn_report(context.work.id, context.session.id, turn_id)
+
+      assert report.replay_report.result_status == expected_status
+      assert report.replay_report.provider_called == false
+
+      if expected_status == "complete" do
+        refute Map.has_key?(report.trace_summary, :authoring_history)
+        refute "authoring_transcript" in report.replay_report.missing_trace_refs
+      else
+        assert "authoring_transcript" in report.replay_report.missing_trace_refs
+      end
+    end
+  end
+
+  test "durable checkpoint 必须属于当前运行，不能展示另一运行的历史", context do
+    turn_id = "turn-history-other-#{System.unique_integer([:positive, :monotonic])}"
+    run_id = "run-history-other-#{System.unique_integer([:positive, :monotonic])}"
+
+    checkpoint =
+      history_checkpoint("other-run", context.work.id, context.session.id, turn_id)
+
+    %{turn_id: ^turn_id} =
+      persist_authoring_history(context, checkpoint, run_id: run_id, turn_id: turn_id)
+
+    assert {:ok, report} =
+             TraceReplayService.fetch_turn_report(context.work.id, context.session.id, turn_id)
+
+    assert report.replay_report.result_status == "partial"
+    refute Map.has_key?(report.trace_summary, :authoring_history)
+  end
+
+  test "历史说明与来源名称不把内部调用和私有推理字段展示给作者" do
+    transcript =
+      NovelApplication.AuthoringTranscript.new(%{}, base_text: "作者主权", author_text: "检查旧誓")
+      |> NovelApplication.AuthoringTranscript.append_checkpoint(
+        %{turn_range: "早期轮次"},
+        [
+          "chapter:reference-only",
+          %{ref: "chapter:internal-03", display_name: "chapter:internal-03"}
+        ],
+        %{},
+        ["reasoning_content 含内部推理"],
+        "RequestIR 的 call_123 已执行"
+      )
+
+    [history] = NovelApplication.AuthoringReplay.checkpoint_summaries(transcript)
+    refute inspect(history) =~ "RequestIR"
+    refute inspect(history) =~ "reasoning_content"
+    refute inspect(history) =~ "chapter:internal-03"
+  end
+
+  test "实际步骤的 Why 可以找到同作品同会话的 durable 历史", context do
+    run_id = "run-history-#{System.unique_integer([:positive, :monotonic])}"
+    parent = "turn-history-#{System.unique_integer([:positive, :monotonic])}"
+    checkpoint = history_checkpoint(run_id, context.work.id, context.session.id, parent)
+
+    %{turn_id: ^parent, trace_id: trace_id} =
+      persist_authoring_history(context, checkpoint, run_id: run_id, turn_id: parent)
+
+    turn_id = parent <> ":agent:1"
+
+    {:ok, _} =
+      NovelPersistence.AgentRunLog.insert_step(%{
+        id: run_id <> ":step:1",
+        run_id: run_id,
+        sequence: 1,
+        status: "completed",
+        goal: "设计角色",
+        idempotency_key: run_id <> ":1"
+      })
+
+    {:ok, _} =
+      TraceRepository.insert(%{
+        workspace_id: context.work.id,
+        session_id: context.session.id,
+        trace_id: trace_id <> ":step",
+        turn_id: turn_id,
+        frame_ref: "frame-history-step",
+        decision_type: "reply_only",
+        turn_result_ref: turn_id,
+        event_order: ["turn_result_emitted"]
+      })
+
+    assert {:ok, report} =
+             TraceReplayService.fetch_turn_report(context.work.id, context.session.id, turn_id)
+
+    assert [%{summary: "已核对旧誓，候选尚未采纳。"}] = report.trace_summary.authoring_history
+    assert report.replay_report.provider_called == false
+  end
+
+  defp history_checkpoint(run_id, work_id, session_id, parent_turn_ref) do
+    NovelApplication.AuthoringTranscript.new(
+      %{
+        run_id: run_id,
+        work_id: work_id,
+        workspace_id: work_id,
+        session_id: session_id,
+        parent_turn_ref: parent_turn_ref
+      },
+      base_text: "作者决定作品事实",
+      author_text: "设计角色"
+    )
+    |> NovelApplication.AuthoringTranscript.append_checkpoint(
+      %{turn_range: "较早轮次"},
+      [],
+      %{},
+      ["省略细节"],
+      "已核对旧誓，候选尚未采纳。"
+    )
+    |> NovelApplication.AuthoringTranscript.checkpoint()
+  end
+
+  defp maybe_put_legacy_checkpoint(data, nil), do: data
+
+  defp maybe_put_legacy_checkpoint(data, checkpoint),
+    do: Map.put(data, "authoring_transcript", checkpoint)
+
+  defp persist_authoring_history(context, checkpoint, opts \\ []) do
+    id = System.unique_integer([:positive, :monotonic])
+    run_id = Keyword.get(opts, :run_id, "run-history-#{id}")
+    turn_id = Keyword.get(opts, :turn_id, "turn-history-#{id}")
+    trace_id = "trace-history-#{id}"
+
+    data =
+      %{"agent_run" => %{"run_id" => run_id, "checkpoint_version" => 2}}
+      |> maybe_put_legacy_checkpoint(checkpoint)
+
+    {:ok, task} =
+      NovelPersistence.LongRunTaskLog.create(%{
+        workspace_id: context.work.id,
+        task_type: "agent_run",
+        parent_turn_ref: turn_id,
+        status: "READY",
+        phase: "PLANNED",
+        checkpoint_data: data
+      })
+
+    {:ok, _} =
+      NovelPersistence.AgentRunLog.upsert_run(%{
+        id: run_id,
+        workspace_id: context.work.id,
+        work_id: context.work.id,
+        session_id: context.session.id,
+        parent_turn_ref: turn_id,
+        origin_frame_ref: "frame-history",
+        run_mode: "durable",
+        profile_ref: "character_design_with_context_v1",
+        status: "awaiting_author",
+        phase: "stopped",
+        long_run_task_ref: task.id
+      })
+
+    {:ok, _} =
+      TraceRepository.insert(%{
+        workspace_id: context.work.id,
+        session_id: context.session.id,
+        trace_id: trace_id,
+        turn_id: turn_id,
+        frame_ref: "frame-history",
+        decision_type: "reply_only",
+        turn_result_ref: turn_id,
+        event_order: ["turn_result_emitted"]
+      })
+
+    %{turn_id: turn_id, trace_id: trace_id}
   end
 
   test "does not return same-turn trace from a different session", %{work: work, session: session} do

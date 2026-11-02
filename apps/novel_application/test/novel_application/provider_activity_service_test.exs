@@ -76,15 +76,25 @@ defmodule NovelApplication.ProviderActivityServiceTest do
 
   # B23 CP1：judgment_plan / judgment_loop 把 TurnResult 持久化为子 turn
   # （`<parent>:agent:<sequence>`），而 AgentRun.parent_turn_ref 是父消息 id。
-  # 刷新后按持久 TurnResult 的 turn_id 补水时，必须回退到父 id 才能命中同一 run
-  # （否则 awaiting_author 理由丢失，前端回落到兜底句）。
+  # 回查必须命中该 run 的真实持久 step，不能只凭 parent 猜最新 run。
   test "resolves a child agent turn id to the parent message turn's run", %{
     work: work,
     session: session
   } do
     parent_turn_id = "message_parent_turn_b23"
     child_turn_id = "#{parent_turn_id}:agent:6"
-    seed_provider_activity!(work.id, session.id, parent_turn_id, "run-parent-turn-b23")
+    run_id = "run-parent-turn-b23"
+    seed_provider_activity!(work.id, session.id, parent_turn_id, run_id)
+
+    {:ok, _step} =
+      AgentRunLog.insert_step(%{
+        id: "#{run_id}:step:6",
+        run_id: run_id,
+        sequence: 6,
+        status: "completed",
+        goal: "判断计划步骤",
+        idempotency_key: "#{run_id}:6"
+      })
 
     assert {:ok, activity} =
              ProviderActivityService.fetch_turn_activity(work.id, session.id, child_turn_id)
@@ -194,6 +204,95 @@ defmodule NovelApplication.ProviderActivityServiceTest do
     assert "progress" in event_types
     assert "chunk" in event_types
     assert "final_output" in event_types
+  end
+
+  # B71 HTTP 出口：run_resumed 历史事件里持久化了 application 私有的
+  # checkpoint_data envelope。作者 payload 边界必须剥离该明确键（含历史事件），
+  # 同时保留公开事实与 JSON 标量语义（false / null / 普通字符串）。
+  test "keeps private run_resumed checkpoint_data out of the author activity payload", %{
+    work: work,
+    session: session
+  } do
+    turn_id = "turn-private-checkpoint-http-service"
+    run_id = "run-private-checkpoint-http-service"
+    event_id = "evt-private-checkpoint-http-service"
+    task_ref = "task-private-checkpoint-http-service"
+
+    marker =
+      "B71_PRIVATE_CHECKPOINT_HTTP_SERVICE_#{System.unique_integer([:positive, :monotonic])}"
+
+    note = "作者可见说明提到 checkpoint_data 字样也应原样保留"
+
+    assert {:ok, _run} =
+             AgentRunLog.upsert_run(%{
+               id: run_id,
+               workspace_id: work.id,
+               work_id: work.id,
+               session_id: session.id,
+               parent_turn_ref: turn_id,
+               origin_frame_ref: "frame-private-checkpoint-http-service",
+               run_mode: "durable",
+               profile_ref: "character_design_with_context_v1",
+               status: "running",
+               phase: "executing",
+               long_run_task_ref: task_ref
+             })
+
+    assert {:ok, _event} =
+             AgentRunLog.insert_event(%{
+               id: event_id,
+               run_id: run_id,
+               step_id: "step-private-checkpoint-http-service-1",
+               sequence: 1,
+               event_type: "run_resumed",
+               visibility: "author",
+               summary: "从检查点恢复",
+               reason_codes: ["durable_recovered"],
+               refs: [task_ref],
+               payload: %{
+                 "long_run_task_ref" => task_ref,
+                 "runtime_live" => false,
+                 "recovery_gate" => nil,
+                 "note" => note,
+                 "checkpoint_data" => %{
+                   "private_reasoning" => marker,
+                   "private_prompt" => "PROMPT_#{marker}",
+                   "authoring_transcript" => %{"messages" => [%{"content" => marker}]}
+                 }
+               }
+             })
+
+    assert {:ok, activity} =
+             ProviderActivityService.fetch_turn_activity(work.id, session.id, turn_id)
+
+    assert [%{run_id: ^run_id, events: [event]}] = activity.agent_runs
+
+    payload = event.payload
+
+    refute Map.has_key?(payload, "checkpoint_data")
+    refute Map.has_key?(payload, :checkpoint_data)
+    refute inspect(payload) =~ marker
+    refute inspect(payload) =~ "PROMPT_#{marker}"
+
+    assert event.refs == [task_ref]
+    assert payload["long_run_task_ref"] == task_ref
+    assert payload["runtime_live"] == false
+    assert Map.has_key?(payload, "recovery_gate")
+    assert payload["recovery_gate"] == nil
+    assert payload["note"] == note
+    assert payload["note"] =~ "checkpoint_data"
+
+    persisted =
+      AgentRunLog.list_events(run_id)
+      |> Enum.find(&(&1.id == event_id))
+
+    assert persisted.payload["checkpoint_data"]["private_reasoning"] == marker
+    assert persisted.payload["checkpoint_data"]["private_prompt"] == "PROMPT_#{marker}"
+
+    assert inspect(persisted.payload["checkpoint_data"]["authoring_transcript"]) =~ marker
+    assert persisted.payload["runtime_live"] == false
+    assert persisted.payload["recovery_gate"] == nil
+    assert persisted.payload["note"] == note
   end
 
   defp seed_provider_activity!(work_id, session_id, turn_id, run_id) do

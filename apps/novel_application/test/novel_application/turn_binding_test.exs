@@ -61,4 +61,14 @@ defmodule NovelApplication.AgentRunFlows.TurnBindingTest do
     assert TurnBinding.turn_id(run(), 3) == "turn_b15:agent:3"
     assert Logger.metadata()[:turn_id] == "untouched"
   end
+
+  test "parse/1 统一解析父轮次与步骤序号" do
+    assert TurnBinding.parse("turn_b15:agent:3") == {:ok, "turn_b15", 3}
+    assert TurnBinding.parse("turn:with:colon:agent:12") == {:ok, "turn:with:colon", 12}
+
+    assert TurnBinding.parse("turn_b15:agent:0") == :error
+    assert TurnBinding.parse("turn_b15:agent:ledger_reconcile") == :error
+    assert TurnBinding.parse("turn_b15") == :error
+    assert TurnBinding.parse(nil) == :error
+  end
 end
