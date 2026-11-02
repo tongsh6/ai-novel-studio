@@ -21,6 +21,8 @@
 | `before-tauri-dev.sh` | Tauri `beforeDevCommand` 启动 Vite 的入口。 |
 | `build_sidecar.sh` | Tauri sidecar 构建辅助。 |
 | `check_coverage.sh` | 覆盖率检查入口。 |
+| `check_module_size.mjs` | **模块规模 ratchet 门禁（docs/coding-standards/03 §3.2）**：扫描 `apps/*/lib`、`apps/*/test`、`frontend/src`；已登记观察文件只减不增（R1），新增超关注门槛文件必须拆分或登记豁免（R2）。`--check` 门禁 / `--report` 拆分排期报告 / `--write-baseline` 生成或降上限（新增观察文件需显式 `--register-new`）。接入 `scripts/ai_static_scan.sh` 与 CI `static-scan` job。 |
+| `check_module_size.test.mjs` | 上述门禁的正式测试（`node --test scripts/check_module_size.test.mjs`）：百分位、观察名单判定、ratchet/未登记/豁免/删除、baseline 只降不升与首次生成。 |
 | `check_design_trace.sh` | 前端组件设计追溯检查。 |
 | `check_log_noise.sh` | **业务日志噪声静态门禁（B13b BB-10 / ADR-0018 §6）**：扫生产 lib 的 `Logger.warning`，只允许既有 17 处 provider 适配器 unknown-error 分支（allowlist 显式登记）；新增 warning exit 1。CI `backend` job 强制运行；运行时 per-base-turn 行数/error 级断言由 Tauri verifier `log_noise` 通用断言承担。 |
 | `chapter_identity_audit.exs` | **B25 CP0 章节身份历史数据审计（只读）**：扫 chapters 的重复 `(work_id,title)` / 重复 `(work_id,seq)` / 空 title，输出 `artifacts/chapter-identity/audit.{md,json}`；不修复、不静默合并，修复动作由 B25 CP3 显式执行。 |
@@ -117,7 +119,7 @@
 | `native_business_evidence_check.mjs` | B26 原生业务结果与续行问题验收；按实际用户操作、传输和持久事实核对来源、幂等、采纳边界与缺口收尾。 |
 | `native_plan_evidence_check.mjs` | B26 既有多步计划场景的额外原生矩阵：同响应计划、独立起草与耗尽修订，核对来源、实际调用、编排和待采纳持久结果。 |
 | `native_question_evidence_check.mjs` | B26 原生问题回复：本次启动 nonce、原生截图、源动作日志与持久输入字节对账；不驱动产品、不接受 Chromium 证据。 |
-| `native_ui_wait.mjs` | B37 原生外部驱动的 begin/finish/status/wait 账本，分型预算、10秒心跳、进程/后端异常快速失败；产品不读取。 |
+| `native_ui_wait.mjs` | B37 原生外部驱动的 begin/finish/status/wait 账本，分型预算、10秒心跳、进程/后端异常快速失败；owned 进程观测走 `lib/native_ui/process_observation.mjs`，实际方式与 fallback 原因写入 `wait-stats.json.process_observation`；产品不读取。 |
 | `native_ui_wait.test.mjs` | 原生等待账本超时、重复身份、迟到完成及进程丢失的边界测试。 |
 | `native_b31_evidence.mjs` | B31 原生五 trial 前提与证据对账；prepare 仅创建隔离作品及 T3–T5 允许的协议 seed，verify 读取真实 UI/WS/持久结果。 |
 | `native_b28_evidence.mjs` | B28 原生前提、只读快照及矩阵对账；支持受限测试库副本scoped复验并逐项注明父批证据；T2按B36目标段与完整采纳结果校验。 |

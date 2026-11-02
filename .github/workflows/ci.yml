@@ -276,6 +276,9 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
 
+      - name: Module size ratchet (docs/coding-standards/03 §3.2)
+        run: node --test scripts/check_module_size.test.mjs && node scripts/check_module_size.mjs --check
+
       - name: Run AI static scan
         run: bash scripts/ai_static_scan.sh --top 10
 

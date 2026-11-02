@@ -153,6 +153,9 @@ run_check "arch-check" "Umbrella architecture boundary check" "architecture" "hi
 run_check "credo" "Credo strict static analysis" "maintainability" "medium" \
   "mix credo suggest --strict --format json"
 
+run_check "module-size" "Module size ratchet and outlier registry" "maintainability" "medium" \
+  "node --test scripts/check_module_size.test.mjs && node scripts/check_module_size.mjs --check"
+
 run_check "scenario-invariants-i3" "Scenario invariants — I3 nonce propagation" "correctness" "critical" \
   "MIX_ENV=test mix run scripts/scenario_invariants/run_i3_nonce.exs"
 

@@ -12,6 +12,7 @@
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
+| B78 | 存量大模块拆分（P1：WorkspaceChat / dialogue_planning_service / agent_run_server / turn_execution_service / adoption_repository）；治理机制与 ratchet 门禁已落地，本任务只做结构化拆分，须在 B71 收口后按「一次一个文件、独立 refactor commit」排期 | [B78](slices/B78-module-size-debt.md) |
 
 ## 阻塞
 

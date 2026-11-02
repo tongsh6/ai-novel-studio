@@ -23,5 +23,6 @@ novel_domain -> novel_foundation
 ```bash
 mix xref graph --format cycles --label compile-connected --fail-above 0
 mix run scripts/arch_check.exs
+node --test scripts/check_module_size.test.mjs && node scripts/check_module_size.mjs --check
 ```
 

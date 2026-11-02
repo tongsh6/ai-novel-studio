@@ -8,7 +8,7 @@
 |------|----------|------|
 | [01 — 常量与配置](01-constants-and-config.md) | 硬编码、Magic Number、配置泄漏 | 每一条规则可独立检查 |
 | [02 — 命名规范](02-naming-conventions.md) | 命名不一致、模糊命名 | 按语言/上下文分组 |
-| [03 — 模块边界](03-module-boundaries.md) | 模块职责漂移、循环依赖 | 按架构层级分组 |
+| [03 — 模块边界](03-module-boundaries.md) | 模块职责漂移、循环依赖、模块规模治理（ratchet 门禁） | 按架构层级分组 |
 | [04 — 错误处理](04-error-handling.md) | 源头优先、必要边界校验、错误传播 | 持续重构原则与错误传播层级 |
 | [05 — 测试规范](05-testing-standards.md) | 测试覆盖盲区、脆弱测试 | 按测试类型分组 |
 | [06 — Elixir 惯用模式](06-elixir-idioms.md) | 非惯用 Elixir 写法 | 按语言特性分组 |
