@@ -754,3 +754,22 @@
 - **最终源码复验（08）**：产品代码在本轮 Credo/结构清理后有变更（b23cb742），为保证「原生证据与最终源码一致」按新预注册重跑 `cp4b-pending-08-structure-clean`——**同样 77/77 PASS**（summary git_head=c5956d85、指纹 unchanged、cleanup remaining=[]、provider_calls 1/2/1、4 条 llm-calls、accept/discard receipts 与 accepted memory 同源）。**08 为最终源码版本的有效证据，07 作为旧 HEAD（a4e4515f）历史证据只读保留。**
 - **预算与失败历史**：01（未闭环）/02（定位器失败）/03（环境前台抢占失败）/04（驱动完整、verify 读侧失败）/05（未授权、setup 终止）/06（驱动完整、canon 读侧口径失败）/07（旧 HEAD PASS）/08（最终源码 PASS）；01–07 批次目录只读保留，失败事实不改写、不重签。
 - **边界（不代签）**：本 PASS 是确定性 provider（`slice_verify`）驱动的真实 Tauri 页面证据，**不是实模**；完整 B71、CP3b 实模、§16.14 工具确认/拒绝原生页面、流式/Responses 真实路由、压缩前端入口（待设计授权）、CP5 最终收口仍开放。
+
+### CP3b 实模批次 01/02 与判据口径裁定（2026-11-03）
+
+- **01 批次（`cp4b-live-01-cp3b`）**：FAIL，分类为驱动实现缺陷——live canon 快照误用全量章节设计态解析（b71-first-consumer seed 的 author mission 缺 `decided_at`），以及 `strata-slot.json` 二次写触发「证据不得覆盖」；capture start 即失败，**0 真实 Provider 请求**（未触达产品/模型）。批次后 strata 卸载核验 `loaded=null`、cleanup remaining=[]。
+- **02 批次（`cp4b-live-02-cp3b`）**：driver 完整跑通，**真实模型进入创作链**——10 条真实 Provider 请求（双形状：`request.body.messages` / `response.usage` / `response.body` chat.completion JSON 字符串）、**10 次工具调用**、turn 约 267s、DB 1 bounded run / 10 ProviderRun / 3 interactions、产出 **1 份待采纳草稿**、usage 10 条全 present、mutations/receipts/memory 均为 0、生产源码指纹 unchanged、cleanup remaining=[]、strata 前后 loaded=null。**这是「IR 原生多轮在真实模型下工作」的直接证据。**
+- **02 runner 失败为判据/驱动缺陷**（已修）：等待账下限写死 8、`orderedRecords` 仍按 `request_body` 过滤、L4/L5/L6 按 `turn_id` 分段（真实 bounded run 工具步 turn 为 `<parent>:agent:N`）、Why 按钮在长消息流下方视口外未被滚动观察。修复后对 02 证据副本离线计算：L1/L2/L3/L4/L5/L6/L8/L10 = true；L7 wire 启发式误报；L9 严格 canon hash 命中 TENTATIVE 章设计态派生。02 登记为**部分实模证据**，不标 PASS。
+- **判据口径裁定（Lead，2026-11-03）**：
+  - **L7**：wire 层是投影，refs 真实来源在产品持久结构——改从 `decision_traces.context_refs`/`agent_events.refs`/`authoring_transcript.self_report.used_context_refs` 读取 `used_context_refs`，做 `used ⊆ base ∪ observation` 集合包含校验；无法提取记 null（不假过）；wire 启发式只作观测辅助、不参与判定。
+  - **L9**：依据 VS-00E §16.8 用户拍板「推理完成即存暂定」，model/TENTATIVE 的 chapter_mission 是设计态、非 canon。L9 分层：硬条件=无 receipt/adoption/mutations、正文与已采纳字段 hash 不变、无内存绑定新增；允许并单列 `tentative_design_derivations`（每条必须有真实 pcall/prun + decision_trace 支撑、basis_ref 来自本次真实观察/计划、状态 TENTATIVE；无 pcall 或来源不明判失败）。
+- **03 批次**：由 Lead 追加授权 1 批（design 预注册 2 批已因驱动/判据缺陷消耗），修复后复验；通过前 CP3b 不标 done、02 只作部分证据。
+
+### CP3b 实模协议层机制 PASS（2026-11-03）
+
+- **03 批次（`cp4b-live-03-cp3b`，HEAD ae5729dc，窗口安静）**：runner exit 0，`B71 CP3b 实模机制判据通过: 10/10`；driver `provider_calls=9 tool_calls=9 terminal=completed`，turn 约 260s；真实模型完成 judgment→explore→prose_writing 链并产出 **1 份待采纳候选**（drafts=1 TENTATIVE），usage 9/9。
+- **L1–L10 全 true**：L1 canonical IR 投影结构、L2 无 giant user、L3 无 user/user 伪纠错、L4 追加式前缀（真实 bounded run 跨 `<parent>:agent:N` 合并）、L5 call_id 工具绑定、L6 observation 进入后续请求、**L7 `used_context_refs ⊆ base ∪ observation`（产品持久结构口径：transcript.self_report + decision_traces + agent_events，wire 仅作观测）**、L8 作者字节、**L9 分层未采纳零写入**、L10 usage。L11=null（本轮最终 AX 树无 Why 按钮，`why_button_not_in_ax_tree` 如实记录、不假过）。
+- **L9 分层实测**：其它 canon 表/正文 hash 不变、章节已采纳字段不变、无 receipt/mutation/memory；单列 1 条 `tentative_design_derivation`——第 1 章使命（model/TENTATIVE、真实 pcall、basis_refs=plan+observation、decision_trace、approved_unchanged），按 VS-00E §16.8 设计态派生、非 canon 写入。
+- **资源核验**：strata loaded before/after=false、unload HTTP 200、生产源码指纹 unchanged=true、cleanup remaining=[]、无 app/mix/proxy 残留；批次目录只读保留。
+- **边界（不代签）**：G5 作者边界/G6 压缩未触发、I10 文学质量、完整 G1–G6 语义、**作者行为覆盖（B70 cases/oracle 与 B72 语料另列）**；02 继续作部分实模证据。
+- **结论**：CP3b 的**协议层实模验收完成**（真实模型下的 IR 投影/多轮工具链/观察回流/refs 边界/零写入/usage 机制成立）；CP3b 全量语义覆盖按 B70/B72 行为资产另批推进，不混签。

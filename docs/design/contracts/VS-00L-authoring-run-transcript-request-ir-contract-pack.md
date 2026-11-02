@@ -516,5 +516,5 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 | Responses 投影的生产消费者 | **仍开放**：`RequestIR.Projection.ResponsesAPI` 只有 golden 消费者；`wire_api: :responses` 在 adapter 内从 chat 形状转换，IR 投影目标暂由默认 route 决定 |
 | Responses 流式 SSE | **仍开放**：该 wire 声明 `streaming: false`，完整 AgentRun 显式拒绝路由 |
 | purpose/model 级能力差异 | **过渡态**：构造侧用默认 route 近似、执行边界按身份比对权威校验；下一步由调用方把 purpose/route_hint 传入 `capability_profile/2` |
-| 实模 CP3b/CP4b-2（真实模型行为/缓存/usage） | **未执行**（作者已授权，按预注册单独批次；不代签） |
+| 实模 CP3b/CP4b-2（真实模型行为/缓存/usage） | **CP3b 协议层机制 PASS**（2026-11-03 cp4b-live-03-cp3b：L1–L10 全 true、真实模型创作链、usage 9/9、strata 卸载核验；L11 Why 未观察如实记 null）；**未代签** G5/G6、完整 G1–G6 语义、I10 与作者行为覆盖（B70/B72 另列） |
 | CP5 收口与全量静态扫描 | 进行中 |
