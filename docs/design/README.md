@@ -6,6 +6,8 @@
 
 > 2026-10-29：作者已正式接受 [ADR-0030](adr/ADR-0030-evidence-seeking-authoring-v3.md)、[VS-00K](contracts/VS-00K-evidence-seeking-authoring-contract-pack.md)、[AU-15](acceptance/author/AU-15-evidence-seeking-authoring.md) 为 B39 实施基线；产品与新增 CI 不变量仍待落实。各设计章节中带 2026-10-27 日期的 Proposed 增补保留为当时记录，当前决策状态以 ADR 正文为准。
 
+> 2026-11-01：[Goal-centric 持续运行目标架构初稿](00e-goal-centric-runtime-architecture-review.md)暂缓评审。作者指出尚需研究思考，且初稿未全面核对项目愿景与元原则；B77 已从 NEXT 移除，暂停 R1–R7 裁决及后续 ADR / 实现规划。`00d` 与现役 Accepted ADR 仍是实现基线。
+
 > 状态：当前唯一设计真源
 >
 > 适用范围：AI Novel Studio 当前产品、架构、contract、ADR、验收设计、UI 设计与 schema/codegen 追溯。

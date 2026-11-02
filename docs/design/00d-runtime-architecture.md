@@ -15,6 +15,8 @@
 > - 不冻结 DialogueFrame / MicroPlan 字段，留给 `02-dialogue-frame-and-micro-plan.md`
 > - 不冻结 capability registry 格式，留给 `03-capability-toolbox-contract.md`
 > - 不冻结 Execution Orchestrator API，留给 `04-execution-orchestrator.md`
+>
+> 2026-11-01 目标架构研究：[00e-goal-centric-runtime-architecture-review.md](00e-goal-centric-runtime-architecture-review.md)提出 Goal-centric 控制面与统一 WorkItem / Run-attempt，现为 Deferred；初稿尚未全面核对项目愿景与元原则，暂停 R1–R7 裁决，不替代本文及现役 ADR。
 
 ---
 

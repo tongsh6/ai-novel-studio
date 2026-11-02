@@ -182,6 +182,21 @@ flowchart TB
 | `AgentEvent.author_narrative` | `contracts/UA-01`, ADR-0031（承接历史 ADR-0022） | Workbench activity UI / Trace / Replay | 作者可见过程叙述必须来自模型输出字节 | Agentic Loop Plan / Reasoning Authorship v3 |
 | `LedgerEntry` | `contracts/VS-00F`, ADR-0026 | Ledger maintenance（采纳后 hook） | archive_read(ledgers) / progress_state_packet / 面板 / Trace | 账面=进度视图非事实本体；source_refs 非空（I-L1）；权威变更只经采纳 ∪ LOW 自动通过（I-L2） | ADR-0026（已落） |
 
+### 4.1 Goal-centric 研究候选对象（C1 / Deferred）
+
+以下来自 [`00e-goal-centric-runtime-architecture-review.md`](00e-goal-centric-runtime-architecture-review.md)，仅供后续愿景与元原则核对及作者研究，**暂不请求 R1–R7 裁决，不替代上表现行对象语义，不授权实现**。
+
+| 候选对象 | 来源 | 生成 / 推进者 | 首个消费者 | 关键边界 |
+|---|---|---|---|---|
+| `Goal` | `00e` §5.1 | 逻辑 Goal coordinator | 持续作品目标 / WorkbenchProjection | 持久目标、成功条件、总预算与版本；Worker completed 不自动等于 Goal completed |
+| `EventEnvelope` | `00e` §5.2 | Connector / 作者入口 / Durable Inbox | 规则过滤与模型分诊 | 外部负载不天然是作者命令；至少一次投递下接收与消费幂等 |
+| `WorkItem` | `00e` §5.3 | Router / Execution Orchestrator | 调度器 / Worker | 调度、依赖、lease、预算分配与等待；不是 AgentPlan 复制品 |
+| `AgentRun`（attempt 语义候选） | `00e` §5.4 | Worker / 统一 AgentRun runtime | AgentStep / Transcript / RunResult | WorkItem 的一次连续执行尝试；等待可挂起，恢复可新建 attempt |
+| `RunResult` / `Suspension` | `00e` §5.4、§5.6 | AgentRun | Goal coordinator / WorkItem | 表达完成、挂起、失败、取消及结果 refs，不直接成为 canon |
+| `WorkbenchProjection` | `00e` §5.6、§12 | Application projection builder | Workbench UI | 统一作者读模型；承接 ADR-0015 的 UI 不扩权，不让 UI 直读内部运行表 |
+
+候选不变量 G1–G15 见 `00e` §15；作者接受后再纳入 §7 统一编号并修订 #9、AgentRun 等现行条目。当前 TurnResult、bounded / durable 和 LongRunTask 语义仍以现役 ADR / contract 为准。
+
 ---
 
 ## 5. 状态族索引

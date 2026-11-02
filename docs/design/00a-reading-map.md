@@ -76,7 +76,8 @@ Execution Orchestrator 保留执行硬门禁。
 | # | 文档 | 状态 | 适用场景 |
 |---|---|---|---|
 | 3 | `00b-end-to-end-dialogue-flow.md` | 草案，已存在 | 需要理解 turn 主链 |
-| 4 | `00d-runtime-architecture.md` | 草案，已存在 | 需要理解控制面 / 数据面 / 横切层 |
+| 4 | `00d-runtime-architecture.md` | 草案，已存在 | 需要理解当前控制面 / 数据面 / 横切层 |
+| 4a | `00e-goal-centric-runtime-architecture-review.md` | **Deferred，暂缓评审** | 仅供研究；尚未全面核对项目愿景与元原则，不请求 R1–R7 裁决，不替代 `00d` |
 | 5 | `02-dialogue-frame-and-micro-plan.md` | 草案，已存在 | 准备冻结核心协议 |
 | 6 | `03-capability-toolbox-contract.md` | 草案，已存在 | 设计工具 / capability registry |
 | 7 | `04-execution-orchestrator.md` | 草案，已存在 | 设计执行权、状态机、门禁 |
