@@ -327,6 +327,65 @@ defmodule NovelAgent.Provider.GatewayTest do
   end
 
   describe "purpose model routing (D6)" do
+    test "用途路由必须同时决定真实 HTTP model 与运行记录" do
+      capture_strata_wire(model: "global-model", purpose_models: %{writer: "writer-model"})
+
+      assert {:ok, %{provider_run: run}} =
+               Gateway.execute(routing_tool_prompt(), nil, InferenceParams.new(),
+                 provider: :strata,
+                 purpose: :writer
+               )
+
+      assert_receive {:routing_wire_body, body}
+      assert body.model == "writer-model"
+      assert run.model == body.model
+    end
+
+    test "显式 model 优先于用途路由并进入真实 HTTP body" do
+      capture_strata_wire(model: "global-model", purpose_models: %{writer: "writer-model"})
+
+      assert {:ok, %{provider_run: run}} =
+               Gateway.execute(routing_tool_prompt(), "explicit-model", InferenceParams.new(),
+                 provider: :strata,
+                 purpose: :writer
+               )
+
+      assert_receive {:routing_wire_body, body}
+      assert body.model == "explicit-model"
+      assert run.model == body.model
+    end
+
+    test "route_hint 优先于粗粒度 purpose 且与真实请求一致" do
+      capture_strata_wire(
+        model: "global-model",
+        purpose_models: %{writer: "writer-model", fact_inventory: "inventory-model"}
+      )
+
+      assert {:ok, %{provider_run: run}} =
+               Gateway.execute(routing_tool_prompt(), nil, InferenceParams.new(),
+                 provider: :strata,
+                 purpose: :writer,
+                 route_hint: :fact_inventory
+               )
+
+      assert_receive {:routing_wire_body, body}
+      assert body.model == "inventory-model"
+      assert run.model == body.model
+    end
+
+    test "Strata 未选择模型时保留服务端路由，不发送日志占位名称" do
+      capture_strata_wire(model: nil)
+
+      assert {:ok, _execution} =
+               Gateway.execute(routing_tool_prompt(), nil, InferenceParams.new(),
+                 provider: :strata,
+                 purpose: :writer
+               )
+
+      assert_receive {:routing_wire_body, body}
+      refute Map.has_key?(body, :model)
+    end
+
     test "purpose hit routes to the configured model while others follow the global default" do
       RuntimeConfig.put_provider_config(:stub, purpose_models: %{writer: "m-d6-writer"})
 
@@ -1135,6 +1194,119 @@ defmodule NovelAgent.Provider.GatewayTest do
     end
   end
 
+  describe "execution log scope" do
+    setup do
+      old_dir = Application.get_env(:novel_common, :llm_log_dir)
+      dir = Path.join(System.tmp_dir!(), "novel-llm-scope-#{System.unique_integer([:positive])}")
+      Application.put_env(:novel_common, :llm_log_dir, dir)
+      Logger.reset_metadata([])
+
+      on_exit(fn ->
+        Logger.reset_metadata([])
+        restore_common_env(:llm_log_dir, old_dir)
+        File.rm_rf!(dir)
+      end)
+
+      %{dir: dir}
+    end
+
+    test "success log carries the same refs as ProviderRun and Result", %{dir: dir} do
+      http = fn _url, _body, _opts ->
+        {:ok, 200,
+         %{
+           "choices" => [%{"message" => %{"content" => "HTTP 替身成功正文"}}],
+           "model" => "stand-in-model",
+           "usage" => %{"prompt_tokens" => 3, "completion_tokens" => 4}
+         }}
+      end
+
+      RuntimeConfig.put_provider_config(:strata,
+        http_fn: http,
+        model: "stand-in-model",
+        endpoint: "http://stand-in.test/v1"
+      )
+
+      assert {:ok, %{provider_run: run, output: output}} =
+               Gateway.execute(tool_prompt(), nil, %InferenceParams{},
+                 provider: :strata,
+                 provider_call_ref: "pcall-log-success",
+                 provider_run_id: "prun-log-success"
+               )
+
+      assert run.provider_call_ref == "pcall-log-success"
+      assert run.provider_run_id == "prun-log-success"
+      assert output.provider_call_ref == "pcall-log-success"
+      assert output.provider_run_ref == "prun-log-success"
+
+      [record] = read_llm_records(dir)
+
+      assert record["provider"] == "strata"
+      assert record["provider_call_ref"] == "pcall-log-success"
+      assert record["provider_run_ref"] == "prun-log-success"
+      assert record["response"]["status"] == 200
+      assert record["request"]["body"]["messages"] != []
+      refute Map.has_key?(record["request"], "headers")
+      refute Jason.encode!(record) =~ "authorization"
+
+      refute Keyword.has_key?(Logger.metadata(), :provider_call_ref)
+      refute Keyword.has_key?(Logger.metadata(), :provider_run_ref)
+    end
+
+    test "error log carries the same refs as the failed ProviderRun", %{dir: dir} do
+      http = fn _url, _body, _opts -> {:error, :http_error, 503, "stand-in upstream failed"} end
+
+      RuntimeConfig.put_provider_config(:strata,
+        http_fn: http,
+        model: "stand-in-model",
+        endpoint: "http://stand-in.test/v1"
+      )
+
+      assert {:error, %{provider_run: run, output: output, error: error}} =
+               Gateway.execute(tool_prompt(), nil, %InferenceParams{},
+                 provider: :strata,
+                 provider_call_ref: "pcall-log-error",
+                 provider_run_id: "prun-log-error"
+               )
+
+      assert error.type == :provider_internal
+      assert run.provider_call_ref == "pcall-log-error"
+      assert run.provider_run_id == "prun-log-error"
+      assert run.status == :failed
+      assert output.provider_call_ref == "pcall-log-error"
+      assert output.provider_run_ref == "prun-log-error"
+
+      [record] = read_llm_records(dir)
+
+      assert record["provider_call_ref"] == "pcall-log-error"
+      assert record["provider_run_ref"] == "prun-log-error"
+      assert record["response"]["status"] == 503
+      refute record["response"]["status"] == 200
+
+      refute Keyword.has_key?(Logger.metadata(), :provider_call_ref)
+      refute Keyword.has_key?(Logger.metadata(), :provider_run_ref)
+    end
+
+    defp tool_prompt do
+      %{
+        messages: [%{role: "user", content: "读取当前作品。"}],
+        tools: [%{name: "read_work", description: "读取作品", input_schema: %{type: "object"}}],
+        tool_choice: "read_work"
+      }
+    end
+
+    defp read_llm_records(dir) do
+      path = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+
+      path
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(fn line ->
+        [_prefix, json] = String.split(line, "] ", parts: 2)
+        Jason.decode!(json)
+      end)
+    end
+  end
+
   describe "complete error handling" do
     test "returns error map for unknown providers" do
       # Temporarily override provider config to trigger unknown provider path.
@@ -1192,6 +1364,30 @@ defmodule NovelAgent.Provider.GatewayTest do
 
   defp restore_common_env(key, nil), do: Application.delete_env(:novel_common, key)
   defp restore_common_env(key, value), do: Application.put_env(:novel_common, key, value)
+
+  defp capture_strata_wire(config) do
+    recipient = self()
+
+    http = fn _url, body, _opts ->
+      send(recipient, {:routing_wire_body, body})
+
+      {:ok, 200,
+       %{
+         "choices" => [%{"message" => %{"content" => "路由探针已完成。"}}],
+         "model" => Map.get(body, :model, "server-selected-model")
+       }}
+    end
+
+    RuntimeConfig.put_provider_config(:strata, Keyword.put(config, :http_fn, http))
+  end
+
+  defp routing_tool_prompt do
+    %{
+      messages: [%{role: "user", content: "读取当前作品。"}],
+      tools: [%{name: "read_work", description: "读取作品", input_schema: %{type: "object"}}],
+      tool_choice: "auto"
+    }
+  end
 
   defp sse_delta(content, model, usage \\ nil) do
     payload =

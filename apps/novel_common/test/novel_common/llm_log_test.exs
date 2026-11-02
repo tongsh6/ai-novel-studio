@@ -105,4 +105,92 @@ defmodule NovelCommon.LLMLogTest do
 
     assert record["step"] == "tool.plot_outline"
   end
+
+  test "captures provider execution refs from the active call scope", %{dir: dir} do
+    :ok =
+      LogContext.with_provider_call("pcall-llm", "prun-llm", fn ->
+        LLMLog.append(%{
+          step: "provider_gateway.complete",
+          provider: "test-provider",
+          request: %{
+            method: "POST",
+            url: "http://llm.test/v1/chat",
+            body: %{"messages" => [%{"content" => "一段足够长的真实创作输入"}]}
+          },
+          response: %{
+            status: 200,
+            body: "ok",
+            model: "test-provider",
+            usage: %{},
+            duration_ms: 12
+          }
+        })
+      end)
+
+    [record] = read_records(dir)
+
+    assert record["provider_call_ref"] == "pcall-llm"
+    assert record["provider_run_ref"] == "prun-llm"
+  end
+
+  test "leaves provider execution refs unbound without an execution boundary", %{dir: dir} do
+    :ok =
+      LLMLog.append(%{
+        step: "provider_gateway.complete",
+        provider: "test-provider",
+        request: %{
+          method: "POST",
+          url: "http://llm.test/v1/chat",
+          body: %{"messages" => [%{"content" => "一段足够长的真实创作输入"}]}
+        },
+        response: %{status: 200, body: "ok", model: "test-provider", usage: %{}, duration_ms: 12}
+      })
+
+    [record] = read_records(dir)
+
+    refute Map.has_key?(record, "provider_call_ref")
+    refute Map.has_key?(record, "provider_run_ref")
+  end
+
+  test "encode failure fallback keeps execution refs and marks missing evidence", %{dir: dir} do
+    :ok =
+      LogContext.with_provider_call("pcall-fallback", "prun-fallback", fn ->
+        LLMLog.append(%{
+          step: "provider_gateway.complete",
+          provider: "test-provider",
+          request: %{
+            method: "POST",
+            url: "http://llm.test/v1/chat",
+            body: %{"messages" => [%{"content" => "一段足够长的真实创作输入"}], "bad" => make_ref()}
+          },
+          response: %{
+            status: 200,
+            body: "ok",
+            model: "test-provider",
+            usage: %{},
+            duration_ms: 12
+          }
+        })
+      end)
+
+    [record] = read_records(dir)
+
+    assert record["provider_call_ref"] == "pcall-fallback"
+    assert record["provider_run_ref"] == "prun-fallback"
+    assert record["evidence_status"] == "encode_failed"
+    assert is_binary(record["encode_error"])
+    refute Map.has_key?(record, "response")
+  end
+
+  defp read_records(dir) do
+    path = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+
+    path
+    |> File.read!()
+    |> String.split("\n", trim: true)
+    |> Enum.map(fn line ->
+      [_prefix, json] = String.split(line, "] ", parts: 2)
+      Jason.decode!(json)
+    end)
+  end
 end

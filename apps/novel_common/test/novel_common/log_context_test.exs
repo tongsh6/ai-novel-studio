@@ -62,6 +62,16 @@ defmodule NovelCommon.LogContextTest do
       refute Keyword.has_key?(meta, :behavior_id)
       refute Keyword.has_key?(meta, :tool_request_id)
     end
+
+    test "clears provider execution refs left by the previous turn" do
+      Logger.metadata(provider_call_ref: "pcall-old", provider_run_ref: "prun-old")
+
+      :ok = LogContext.put_turn("ws-new", "work-new", "turn-new")
+
+      meta = Logger.metadata()
+      refute Keyword.has_key?(meta, :provider_call_ref)
+      refute Keyword.has_key?(meta, :provider_run_ref)
+    end
   end
 
   describe "put_frame/1" do
@@ -134,6 +144,103 @@ defmodule NovelCommon.LogContextTest do
 
       meta = Logger.metadata()
       assert Keyword.fetch!(meta, :workspace_id) == "old-ws"
+    end
+  end
+
+  describe "with_provider_call/3" do
+    test "binds both allocated refs only inside the scope" do
+      assert :ok =
+               LogContext.with_provider_call("pcall-1", "prun-1", fn ->
+                 meta = Logger.metadata()
+                 assert Keyword.fetch!(meta, :provider_call_ref) == "pcall-1"
+                 assert Keyword.fetch!(meta, :provider_run_ref) == "prun-1"
+                 :ok
+               end)
+
+      meta = Logger.metadata()
+      refute Keyword.has_key?(meta, :provider_call_ref)
+      refute Keyword.has_key?(meta, :provider_run_ref)
+    end
+
+    test "restores the previous binding after normal, raise, throw, and exit" do
+      Logger.metadata(provider_call_ref: "pcall-prev", provider_run_ref: "prun-prev")
+
+      assert :done = LogContext.with_provider_call("pcall-normal", "prun-normal", fn -> :done end)
+      assert Keyword.fetch!(Logger.metadata(), :provider_call_ref) == "pcall-prev"
+
+      assert_raise RuntimeError, "boom", fn ->
+        LogContext.with_provider_call("pcall-raise", "prun-raise", fn -> raise "boom" end)
+      end
+
+      assert Keyword.fetch!(Logger.metadata(), :provider_call_ref) == "pcall-prev"
+      assert Keyword.fetch!(Logger.metadata(), :provider_run_ref) == "prun-prev"
+
+      assert :thrown =
+               catch_throw(
+                 LogContext.with_provider_call("pcall-throw", "prun-throw", fn ->
+                   throw(:thrown)
+                 end)
+               )
+
+      assert :exited =
+               catch_exit(
+                 LogContext.with_provider_call("pcall-exit", "prun-exit", fn -> exit(:exited) end)
+               )
+
+      assert Keyword.fetch!(Logger.metadata(), :provider_call_ref) == "pcall-prev"
+      assert Keyword.fetch!(Logger.metadata(), :provider_run_ref) == "prun-prev"
+    end
+
+    test "nested scopes restore the outer refs without touching unrelated metadata" do
+      LogContext.with_provider_call("pcall-outer", "prun-outer", fn ->
+        LogContext.put_step("outer-step")
+
+        LogContext.with_provider_call("pcall-inner", "prun-inner", fn ->
+          meta = Logger.metadata()
+          assert Keyword.fetch!(meta, :provider_call_ref) == "pcall-inner"
+          assert Keyword.fetch!(meta, :provider_run_ref) == "prun-inner"
+          assert Keyword.fetch!(meta, :current_step) == "outer-step"
+        end)
+
+        meta = Logger.metadata()
+        assert Keyword.fetch!(meta, :provider_call_ref) == "pcall-outer"
+        assert Keyword.fetch!(meta, :provider_run_ref) == "prun-outer"
+        assert Keyword.fetch!(meta, :current_step) == "outer-step"
+      end)
+    end
+
+    test "parallel scopes keep their own refs" do
+      parent = self()
+
+      tasks =
+        for index <- 1..2 do
+          Task.async(fn ->
+            LogContext.with_provider_call("pcall-#{index}", "prun-#{index}", fn ->
+              send(parent, {:in_scope, index, self(), Logger.metadata()})
+
+              receive do
+                {:release, ^index} -> :ok
+              end
+
+              {index, Keyword.fetch!(Logger.metadata(), :provider_call_ref)}
+            end)
+          end)
+        end
+
+      bindings =
+        for _ <- 1..2 do
+          assert_receive {:in_scope, index, pid, meta}
+          assert Keyword.fetch!(meta, :provider_call_ref) == "pcall-#{index}"
+          assert Keyword.fetch!(meta, :provider_run_ref) == "prun-#{index}"
+          {index, pid}
+        end
+
+      Enum.each(bindings, fn {index, pid} -> send(pid, {:release, index}) end)
+
+      assert tasks |> Enum.map(&Task.await/1) |> Enum.sort() == [
+               {1, "pcall-1"},
+               {2, "pcall-2"}
+             ]
     end
   end
 

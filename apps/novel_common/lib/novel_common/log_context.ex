@@ -31,7 +31,9 @@ defmodule NovelCommon.LogContext do
       frame_id: nil,
       behavior_id: nil,
       decision_id: nil,
-      tool_request_id: nil
+      tool_request_id: nil,
+      provider_call_ref: nil,
+      provider_run_ref: nil
     )
 
     :ok
@@ -92,6 +94,31 @@ defmodule NovelCommon.LogContext do
       fun.()
     after
       Logger.metadata(current_step: previous)
+    end
+  end
+
+  @doc """
+  在一次已分配的 Provider 调用/运行引用下执行 `fun`，结束后恢复先前的
+  `provider_call_ref` / `provider_run_ref`（支持嵌套、并行与异常退出）。
+
+  这里只管理这两个技术关联键：不生成新 id，不拷贝 `owner_refs` 或其他业务
+  上下文。Gateway 在实际 adapter 调用前后使用它，使 adapter 内的 `LLMLog`
+  能读到同次调用的真实引用；作用域外的日志保持未绑定。
+  """
+  @spec with_provider_call(String.t(), String.t(), (-> result)) :: result when result: var
+  def with_provider_call(call_ref, run_ref, fun)
+      when is_binary(call_ref) and is_binary(run_ref) and is_function(fun, 0) do
+    previous = Logger.metadata()
+
+    Logger.metadata(provider_call_ref: call_ref, provider_run_ref: run_ref)
+
+    try do
+      fun.()
+    after
+      Logger.metadata(
+        provider_call_ref: Keyword.get(previous, :provider_call_ref),
+        provider_run_ref: Keyword.get(previous, :provider_run_ref)
+      )
     end
   end
 

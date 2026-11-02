@@ -19,7 +19,9 @@ config :logger,
     behavior_id: nil,
     decision_id: nil,
     tool_request_id: nil,
-    current_step: nil
+    current_step: nil,
+    provider_call_ref: nil,
+    provider_run_ref: nil
   ]
 
 config :logger, :default_formatter,
@@ -32,7 +34,9 @@ config :logger, :default_formatter,
     :behavior_id,
     :decision_id,
     :tool_request_id,
-    :current_step
+    :current_step,
+    :provider_call_ref,
+    :provider_run_ref
   ]
 
 # ── Provider 通用配置 ──────────────────────────

@@ -32,6 +32,7 @@ defmodule NovelAgent.Provider.Gateway do
   alias NovelCommon.Contracts.ProviderEvent
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelCommon.Contracts.ProviderRun
+  alias NovelCommon.LogContext
   alias NovelFoundation.UpstreamError
 
   @provider_modules %{
@@ -210,11 +211,8 @@ defmodule NovelAgent.Provider.Gateway do
 
     provider_name = Keyword.get(opts, :provider, default_provider())
 
-    model_name =
-      model ||
-        Keyword.get(opts, :model) ||
-        purpose_route_model(provider_name, opts) ||
-        default_model(provider_name)
+    route = execution_route(provider_name, model, opts)
+    model_name = route_model_name(route)
 
     provider_call_ref = Keyword.get(opts, :provider_call_ref) || provider_call_ref()
     provider_run_id = Keyword.get(opts, :provider_run_id) || provider_run_id()
@@ -224,28 +222,33 @@ defmodule NovelAgent.Provider.Gateway do
     cancellation_token = Keyword.get(opts, :cancellation_token)
     started = System.monotonic_time(:millisecond)
 
-    LogEmit.emit(:provider_gateway, :complete, :start, %{
-      provider: provider_name,
-      model: model_name,
-      purpose: purpose,
-      route_hint: Keyword.get(opts, :route_hint)
-    })
-
     execution =
-      execute_provider(provider_name, model_name, prompt, params, %{
-        provider_name: provider_name,
-        model_name: model_name,
-        provider_call_ref: provider_call_ref,
-        provider_run_id: provider_run_id,
-        purpose: purpose,
-        content_visibility: Keyword.get(opts, :content_visibility, :developer),
-        owner_refs: owner_refs,
-        event_sink: event_sink,
-        cancellation_token: cancellation_token,
-        system_identity_ref: system_identity_ref
-      })
+      LogContext.with_provider_call(provider_call_ref, provider_run_id, fn ->
+        LogEmit.emit(:provider_gateway, :complete, :start, %{
+          provider: provider_name,
+          model: model_name,
+          purpose: purpose,
+          route_hint: Keyword.get(opts, :route_hint)
+        })
 
-    emit_provider_execution_result(provider_name, model_name, execution, started)
+        execution =
+          execute_provider(route, prompt, params, %{
+            provider_name: provider_name,
+            model_name: model_name,
+            provider_call_ref: provider_call_ref,
+            provider_run_id: provider_run_id,
+            purpose: purpose,
+            content_visibility: Keyword.get(opts, :content_visibility, :developer),
+            owner_refs: owner_refs,
+            event_sink: event_sink,
+            cancellation_token: cancellation_token,
+            system_identity_ref: system_identity_ref
+          })
+
+        emit_provider_execution_result(provider_name, model_name, execution, started)
+        execution
+      end)
+
     execution
   end
 
@@ -440,24 +443,49 @@ defmodule NovelAgent.Provider.Gateway do
      }}
   end
 
-  defp execute_provider(provider_name, model, prompt, params, ctx) do
+  # 路由只解析一次：adapter state、HTTP model、运行事实与超时共享同一配置快照。
+  defp execution_route(provider_name, model, opts) do
     case Map.fetch(provider_modules(), provider_name) do
       {:ok, module} ->
-        state = build_state(provider_name, module)
+        config = merged_config(provider_name, module, [], [])
+        selected = model || Keyword.get(opts, :model) || purpose_route_model(config, opts)
+        config = execution_model_config(config, selected)
+        state = state_from_config(module, config)
 
-        # B22：存活时限策略由 Gateway 单点解析并注入 ctx；adapter 只消费，不再用
-        # 单个 legacy `timeout` 兼任"总时长"和"静默窗口"（见 TimeoutPolicy）。
-        ctx = Map.put(ctx, :timeout_policy, resolve_timeout_policy(provider_name, module))
-        execute_adapter(module, state, model, prompt, params, ctx)
+        {:ok,
+         %{
+           module: module,
+           state: state,
+           model_name: Map.get(state, :model) || config[:model] || "unconfigured",
+           timeout_policy: TimeoutPolicy.resolve(provider_name, config)
+         }}
 
       :error ->
-        err =
-          UpstreamError.new(:provider_internal, "unknown provider: #{provider_name}", "gateway")
-
-        err
-        |> UpstreamError.to_error_tuple()
-        |> AdapterExecution.materialize_result(ctx)
+        {:error,
+         UpstreamError.new(:provider_internal, "unknown provider: #{provider_name}", "gateway")}
     end
+  end
+
+  defp execution_model_config(config, nil) do
+    # 显式 nil 是本地后台自行选择模型，不能把日志占位值写入 HTTP。
+    inherited_model = Application.get_env(:novel_agent, :provider, [])[:model]
+    if inherited_model, do: Keyword.put_new(config, :model, inherited_model), else: config
+  end
+
+  defp execution_model_config(config, model), do: Keyword.put(config, :model, model)
+
+  defp route_model_name({:ok, route}), do: route.model_name
+  defp route_model_name({:error, _error}), do: "unconfigured"
+
+  defp execute_provider({:ok, route}, prompt, params, ctx) do
+    ctx = Map.put(ctx, :timeout_policy, route.timeout_policy)
+    execute_adapter(route.module, route.state, route.model_name, prompt, params, ctx)
+  end
+
+  defp execute_provider({:error, error}, _prompt, _params, ctx) do
+    error
+    |> UpstreamError.to_error_tuple()
+    |> AdapterExecution.materialize_result(ctx)
   end
 
   defp execute_adapter(module, state, model, prompt, params, ctx) do
@@ -466,12 +494,6 @@ defmodule NovelAgent.Provider.Gateway do
     else
       AdapterExecution.execute(module, state, model, prompt, params, ctx)
     end
-  end
-
-  # B22 唯一解析点：provider 配置里的 legacy `timeout` 只作为静默窗口/非流式等待
-  # 的兜底，不再兼任总时长；总时长兜底默认关闭（见 TimeoutPolicy moduledoc）。
-  defp resolve_timeout_policy(provider_name, module) do
-    TimeoutPolicy.resolve(provider_name, merged_config(provider_name, module, [], []))
   end
 
   defp provider_run_id, do: NovelFoundation.ID.unique("prun")
@@ -540,9 +562,13 @@ defmodule NovelAgent.Provider.Gateway do
   end
 
   defp build_state(provider, module, override_config \\ [], opts \\ []) do
+    state_from_config(module, merged_config(provider, module, override_config, opts))
+  end
+
+  defp state_from_config(module, config) do
     if Code.ensure_loaded?(module) and function_exported?(module, :from_config, 0) do
       if function_exported?(module, :from_config, 1) do
-        module.from_config(merged_config(provider, module, override_config, opts))
+        module.from_config(config)
       else
         module.from_config()
       end
@@ -578,27 +604,6 @@ defmodule NovelAgent.Provider.Gateway do
     end
   end
 
-  # M5 狗粮排查（2026-08-25）：此处原为陈腐硬编码回落（"qwen/qwen3.6-35b-a3b"）——
-  # adapter 实际忽略该参数、按自身配置发 HTTP，于是 start/error 日志与 provider 事件
-  # 记的是一个从未被请求的模型名，直接误导排查（M4 B8b 同源病灶的日志变体）。
-  # 诚实解析：运行时配置 → 该 provider 的应用配置 → 全局 :provider 配置 →
-  # 明示 "unconfigured"（没人声明过就说没声明，不编造）。
-  defp default_model(provider_name) do
-    runtime_model = RuntimeConfig.provider_config(provider_name)[:model]
-
-    runtime_model ||
-      provider_app_config_model(provider_name) ||
-      Application.get_env(:novel_agent, :provider, [])[:model] ||
-      "unconfigured"
-  end
-
-  defp provider_app_config_model(provider_name) do
-    case Map.get(provider_modules(), provider_name) do
-      nil -> nil
-      module -> Application.get_env(:novel_agent, module, [])[:model]
-    end
-  end
-
   # D6 按用途路由（tasks/slices/D6-purpose-model-routing.md）：provider 配置里的
   # purpose_models 表（作者在模型设置里按用途覆盖；表空/键缺失=跟随全局默认模型）。
   # route_hint 先于 purpose——粒度细化通道（盘点 purpose=:tool 与其他工具共键，靠
@@ -611,11 +616,11 @@ defmodule NovelAgent.Provider.Gateway do
   }
   @purpose_route_keys Map.values(@purpose_route_key_names)
 
-  defp purpose_route_model(provider_name, opts) do
+  defp purpose_route_model(config, opts) do
     route_key = Keyword.get(opts, :route_hint) || Keyword.get(opts, :purpose)
 
     if route_key in @purpose_route_keys do
-      case RuntimeConfig.provider_config(provider_name)[:purpose_models] do
+      case config[:purpose_models] do
         %{} = models -> Map.get(models, route_key)
         _ -> nil
       end

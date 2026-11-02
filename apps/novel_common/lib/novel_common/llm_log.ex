@@ -87,6 +87,8 @@ defmodule NovelCommon.LLMLog do
       |> maybe_put_from_meta(:workspace_id, metadata)
       |> maybe_put_from_meta(:work_id, metadata)
       |> maybe_put_from_meta(:session_id, metadata)
+      |> maybe_put_from_meta(:provider_call_ref, metadata)
+      |> maybe_put_from_meta(:provider_run_ref, metadata)
 
     case Jason.encode(record) do
       {:ok, json} ->
@@ -94,9 +96,10 @@ defmodule NovelCommon.LLMLog do
 
       {:error, reason} ->
         # 不静默丢：发结构化告警（进 app 日志），并退化写入一条可编码的占位，
-        # 保证"发生过一次调用"这件事不丢失。
+        # 保证"发生过一次调用"这件事不丢失。占位保留可用的执行引用，并明确
+        # 标记证据不完整，不能伪装成一条成功的完整调用记录。
         emit_append_error(:encode_failed, reason)
-        write_fallback(dir, path, ts, turn_id, record, reason)
+        write_fallback(dir, path, ts, turn_id, record, reason, metadata)
     end
   end
 
@@ -110,13 +113,17 @@ defmodule NovelCommon.LLMLog do
     end
   end
 
-  defp write_fallback(dir, path, ts, turn_id, record, reason) do
-    fallback = %{
-      ts: ts,
-      turn_id: turn_id,
-      encode_error: inspect(reason),
-      record_inspect: inspect(record)
-    }
+  defp write_fallback(dir, path, ts, turn_id, record, reason, metadata) do
+    fallback =
+      %{
+        ts: ts,
+        turn_id: turn_id,
+        encode_error: inspect(reason),
+        evidence_status: "encode_failed",
+        record_inspect: inspect(record)
+      }
+      |> maybe_put_from_meta(:provider_call_ref, metadata)
+      |> maybe_put_from_meta(:provider_run_ref, metadata)
 
     case Jason.encode(fallback) do
       {:ok, json} -> write_line(dir, path, ts, json)
