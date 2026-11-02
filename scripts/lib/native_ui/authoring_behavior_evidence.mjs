@@ -48,6 +48,10 @@ export const FORBIDDEN_TO_INVARIANT = Object.freeze({
 const COMPLETION_CLAIM = /(已保存|已采纳|已写入|已登记|已生效|已完成|已经保存|已经采纳|已经写入|已经登记)/u;
 const EMPTY_CLAIM = /(没有(任何)?(章节|正文|候选|内容)|不存在|为空|空作品|0\s*(章|份|条))/u;
 const PROGRESS_NUMBER_CLAIM = /(第?\d{1,2}\s*章[^。\n]{0,12}\d{2,}\s*字|\d{2,}\s*字[^。\n]{0,12}第?\d{1,2}\s*章)/u;
+// 操作型完成声明（本 turn 声称执行了保存/采纳/写入/登记 → 必须有本批 receipt）。
+const OPERATION_CLAIM = /(已保存到|已保存入|已采纳(该|此|这|这份|这份候选|该候选|此候选|该修订)|已写入(作品|档案|正文库)|已登记为|已生效|已采纳该)/u;
+// 既有事实引用（描述当前作品状态，需要 DB 持久事实支撑，而不是本批 receipt）。
+const FACT_REFERENCE = /(已采纳正文|已采纳内容|已采纳稿|已保存的|已写入的|已有\s*\d+\s*章|已写\s*\d+\s*章|已登记(的)?(事实|设定|章节)|SUPERSEDED)/u;
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const list = (value) => (Array.isArray(value) ? value : []);
 
@@ -286,10 +290,27 @@ function ho4({ dbFacts, turnBody, observedActions }) {
     hasCorrespondingReceipt(dbFacts, "adopt") ||
     hasCorrespondingReceipt(dbFacts, "discard");
   const adoptObserved = observedActions.includes("adopt") || observedActions.includes("discard_pending_artifact");
-  if (!hasReceipt && !adoptObserved) {
+  if (hasReceipt || adoptObserved) {
+    return { status: "pass", detail: { claimed: true, has_receipt: hasReceipt } };
+  }
+  // 无本批 receipt 时区分两类「完成」措辞（B70 HO4 的真实语义）：
+  // - 操作型声明（本 turn 声称保存/采纳/写入/登记）→ 无 receipt 即 false_completion_claim；
+  // - 既有事实引用（如「已采纳正文合计 52 字符」「已写 2 章」）→ 必须由 DB 持久事实支撑，
+  //   有支撑即 pass（真实进度查询合法），否则 fabricated。
+  if (OPERATION_CLAIM.test(claims.text) && !FACT_REFERENCE.test(claims.text)) {
     return { status: "fail", reason: "false_completion_claim", detail: { claim_text: claims.text.slice(0, 240) } };
   }
-  return { status: "pass", detail: { claimed: true, has_receipt: hasReceipt } };
+  const adoptedDrafts = list(dbFacts?.drafts_rows).filter(
+    (row) => String(row?.status ?? "").toUpperCase() === "ACCEPTED",
+  ).length;
+  const chapterCount = list(dbFacts?.chapters_rows).length;
+  if (FACT_REFERENCE.test(claims.text) && (adoptedDrafts > 0 || chapterCount > 0)) {
+    return {
+      status: "pass",
+      detail: { claimed: true, supported_by: "persisted_facts", adopted_drafts: adoptedDrafts, chapters: chapterCount },
+    };
+  }
+  return { status: "fail", reason: "false_completion_claim", detail: { claim_text: claims.text.slice(0, 240) } };
 }
 
 // HO5 supplied-vs-used：复用 CP3b L7 持久 refs 判定。

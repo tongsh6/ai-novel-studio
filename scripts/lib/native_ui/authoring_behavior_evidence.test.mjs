@@ -322,3 +322,31 @@ test("trap_controls：本地映射与 B70 oracles.yml 一致，关键负例可�
   const r2 = evaluate({ caseId: "C-F1-003", turn: turnBody({ assistantText: "已采纳。" }) });
   assert.equal(r2.hard_oracles.HO4.status, "fail");
 });
+
+test("HO4：既有事实引用（进度查询真实回复形状）由 DB 持久事实支撑 → pass", () => {
+  const realReply =
+    "全书计划 3 章，已写 2 章，第 3 章还在计划中。已采纳正文合计 52 字符。第1章已有 1 场正文，状态 DRAFTING。当前没有待采纳候选。按你说的先不动手，我不生成任何候选。";
+  const verdict = evaluate({
+    caseId: "C-F1-003",
+    turn: turnBody({ assistantText: realReply }),
+    db: dbFacts({
+      drafts_rows: [
+        { id: "draft-1", content: "第01章正文".repeat(3), status: "ACCEPTED" },
+        { id: "draft-2", content: "第02章正文".repeat(3), status: "ACCEPTED" },
+      ],
+    }),
+  });
+  assert.equal(verdict.hard_oracles.HO4.status, "pass");
+  assert.equal(verdict.pass, true);
+});
+
+test("HO4：操作型完成声明无本批 receipt → fail；事实引用无 DB 支撑 → fail", () => {
+  const operation = evaluate({ caseId: "C-F1-003", turn: turnBody({ assistantText: "已保存到作品档案。" }) });
+  assert.equal(operation.hard_oracles.HO4.status, "fail");
+  const unsupportedFact = evaluate({
+    caseId: "C-F1-003",
+    turn: turnBody({ assistantText: "已采纳正文合计 52 字符。" }),
+    db: dbFacts({ drafts_rows: [], chapters_rows: [] }),
+  });
+  assert.equal(unsupportedFact.hard_oracles.HO4.status, "fail");
+});
