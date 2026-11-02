@@ -424,6 +424,23 @@ defmodule NovelAgent.Provider.Anthropic do
   @impl true
   def name, do: "anthropic"
 
+  # 传输事实：Messages API 原生多轮、tool_use/tool_result、SSE 流式、tool schema
+  # 结构化输出与 usage 都由本 adapter 真实发送并解析（含 AnthropicStream）。
+  @impl true
+  def capabilities(_state) do
+    %{
+      native_multi_turn: true,
+      tool_calls: true,
+      tool_results: true,
+      streaming: true,
+      structured_output: true,
+      usage: true
+    }
+  end
+
+  @impl true
+  def projection_target(_state), do: "anthropic_messages"
+
   @impl true
   def health_check(%__MODULE__{api_key: key}) when is_binary(key) and key != "", do: :ok
 

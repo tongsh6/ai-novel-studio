@@ -51,6 +51,7 @@ defmodule NovelAgent.Provider.AnthropicStream do
           accumulated_content_length: 0,
           author_narrative_open?: true,
           usage: nil,
+          tool_calls: %{},
           model: Map.get(state, :model),
           started: started,
           ttft_ms: nil,
@@ -233,15 +234,24 @@ defmodule NovelAgent.Provider.AnthropicStream do
 
   defp consume_decoded(acc, ctx, %{"type" => "content_block_delta"} = decoded) do
     acc
+    |> consume_tool_call_delta(decoded)
     |> mark_ttft()
     |> append_delta(ctx, text_delta(decoded))
   end
 
   defp consume_decoded(acc, _ctx, %{
          "type" => "content_block_start",
-         "content_block" => %{"type" => "tool_use"}
-       }) do
-    mark_ttft(acc)
+         "content_block" => %{"type" => "tool_use"} = block
+       } = decoded) do
+    entry = %{
+      id: present_string(Map.get(block, "id")),
+      name: present_string(Map.get(block, "name")),
+      partial_json: ""
+    }
+
+    acc
+    |> mark_ttft()
+    |> put_tool_call(tool_call_index(decoded), entry)
   end
 
   defp consume_decoded(acc, _ctx, %{"type" => "message_delta"} = decoded) do
@@ -313,6 +323,58 @@ defmodule NovelAgent.Provider.AnthropicStream do
     }
   end
 
+  # ── 原生工具调用累积（VS-00L §6.2 / I-ART-8）──────────────────────────────
+  #
+  # Anthropic Messages SSE 用 content_block_start 给出 tool_use 的 id/name，
+  # 再用 content_block_delta(input_json_delta.partial_json) 分片发送参数。这里按
+  # index 无损拼接原始参数字节，并复用共享 `decode_tool_arguments/1` 得到对象参数；
+  # `raw_arguments` 保留 provider 原字节供 canonical IR 回投。
+
+  defp tool_call_index(decoded) do
+    case Map.get(decoded, "index") do
+      index when is_integer(index) and index >= 0 -> index
+      _other -> 0
+    end
+  end
+
+  defp present_string(value) when is_binary(value) and value != "", do: value
+  defp present_string(_value), do: nil
+
+  defp put_tool_call(acc, index, entry),
+    do: %{acc | tool_calls: Map.put(acc.tool_calls, index, entry)}
+
+  defp consume_tool_call_delta(acc, %{
+         "delta" => %{"type" => "input_json_delta", "partial_json" => partial}
+       } = decoded)
+       when is_binary(partial) do
+    index = tool_call_index(decoded)
+    entry = Map.get(acc.tool_calls, index, %{id: nil, name: nil, partial_json: ""})
+
+    put_tool_call(acc, index, %{entry | partial_json: entry.partial_json <> partial})
+  end
+
+  defp consume_tool_call_delta(acc, _decoded), do: acc
+
+  defp completed_tool_calls(acc) do
+    acc.tool_calls
+    |> Enum.sort_by(fn {index, _entry} -> index end)
+    |> Enum.flat_map(fn {_index, entry} -> tool_call_payload(entry) end)
+  end
+
+  defp tool_call_payload(%{name: name} = entry) when is_binary(name) and name != "" do
+    raw = entry.partial_json
+
+    call = %{
+      "id" => entry.id,
+      "name" => name,
+      "arguments" => NovelAgent.Provider.decode_tool_arguments(raw)
+    }
+
+    if raw == "", do: [call], else: [Map.put(call, "raw_arguments", raw)]
+  end
+
+  defp tool_call_payload(_entry), do: []
+
   defp materialize_stream_result(%{
          state: state,
          ctx: ctx,
@@ -363,6 +425,7 @@ defmodule NovelAgent.Provider.AnthropicStream do
   defp provider_result(acc, {:ok, status, _body}, duration, _timeouts) when status in 200..299 do
     usage = usage_from_stream(acc.usage, acc.model, duration) |> Usage.put_ttft(acc.ttft_ms)
     content = acc.content |> Enum.reverse() |> Enum.join()
+    tool_calls = completed_tool_calls(acc)
 
     cond do
       is_map(acc.provider_error) ->
@@ -371,7 +434,7 @@ defmodule NovelAgent.Provider.AnthropicStream do
       acc.parse_error? ->
         error_result(:parse, "Anthropic API 事件流解析失败", status, usage, duration)
 
-      content == "" ->
+      content == "" and tool_calls == [] ->
         error_result(:invalid_response, "Anthropic API 响应内容为空", status, usage, duration)
 
       NovelAgent.Provider.degenerate_content?(content) ->
@@ -387,9 +450,9 @@ defmodule NovelAgent.Provider.AnthropicStream do
 
       true ->
         %{
-          result: {:ok, Result.new(content, usage)},
+          result: {:ok, Result.new(content, usage, tool_calls: tool_calls)},
           log_result:
-            {:ok, Result.new(content, usage),
+            {:ok, Result.new(content, usage, tool_calls: tool_calls),
              %{status: status, usage: usage, duration: duration, resp_body: "event_stream"}}
         }
     end

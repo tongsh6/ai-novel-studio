@@ -12,6 +12,7 @@ defmodule NovelAgent.CreativeProvider.Real do
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.NativeToolExchange
   alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.RequestIR.Operation
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
@@ -150,7 +151,8 @@ defmodule NovelAgent.CreativeProvider.Real do
         {provider_error("unsupported_creative_tool", "unsupported creative tool"), %{}}
 
       {:error, reason} ->
-        {provider_error("invalid_request_ir", inspect(reason)), %{}}
+        {provider_error("invalid_request_ir", RequestIR.rejection_message(reason)),
+         %{}}
 
       _ ->
         {provider_error("provider_execution_required", "creative provider requires execution"),
@@ -203,6 +205,11 @@ defmodule NovelAgent.CreativeProvider.Real do
       }
     }
   end
+
+  # 请求构造失败用作者安全文案（不回显内部 capability atom / IR 结构）；
+  # 其余工具协议错误保留内部 inspect 诊断。
+  defp exchange_error("invalid_request_ir", reason),
+    do: provider_error("invalid_request_ir", RequestIR.rejection_message(reason))
 
   defp exchange_error(code, reason),
     do: provider_error(code, inspect(reason), provider_error_type(reason))

@@ -74,6 +74,24 @@ defmodule NovelAgent.Provider.Stub do
   @impl true
   def name, do: "stub"
 
+  # Stub 是确定性测试替身：它模拟完整 AgentRun 的响应形态（含原生工具调用与
+  # 多轮消息），不是真实传输 provider；生产 provider 的能力事实由各自 adapter
+  # 真实声明。此声明只服务测试链路，不用于签真实模型/传输证据。
+  @impl true
+  def capabilities(_state) do
+    %{
+      native_multi_turn: true,
+      tool_calls: true,
+      tool_results: true,
+      streaming: true,
+      structured_output: true,
+      usage: true
+    }
+  end
+
+  @impl true
+  def projection_target(_state), do: "chat_completions"
+
   @impl true
   def health_check(_state), do: :ok
 

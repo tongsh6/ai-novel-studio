@@ -57,6 +57,14 @@ defmodule ICachePrefixDriver do
     @impl true
     def health_check(_state), do: :ok
 
+    # 能力事实委托单一真实来源（Stub）：capture 替身只捕获 Gateway 边界 prompt，
+    # 不自己复制能力清单（provider-capability 重构后缺声明会被能力门槛拒绝）。
+    @impl true
+    def capabilities(state), do: NovelAgent.Provider.Stub.capabilities(state)
+
+    @impl true
+    def projection_target(state), do: NovelAgent.Provider.Stub.projection_target(state)
+
     @impl true
     def name, do: "icache_capture"
   end

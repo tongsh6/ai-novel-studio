@@ -259,20 +259,6 @@ defmodule NovelAgent.Provider.RequestIRTest do
     end
   end
 
-  describe "legacy 适配器（迁移期）" do
-    test "旧 prompt 映射为 IR 并显式标记 legacy 有限模式" do
-      legacy = RequestIR.from_legacy(%{messages: [%{role: "user", content: "hello"}]})
-
-      assert :ok = RequestIR.validate(legacy)
-      assert legacy.projection.finite_mode == %{name: "legacy_prompt"}
-
-      assert {:finite_mode, body, meta} = Projection.project(legacy)
-      assert meta.finite_mode == %{name: "legacy_prompt"}
-      assert meta.missing == RequestIR.required_capabilities()
-      assert [%{role: "system"}, %{role: "user", content: "hello"}] = body.messages
-    end
-  end
-
   describe "能力门槛与显式有限模式（VS-00L §6.4）" do
     test "完整能力 → 正常投影" do
       assert {:ok, body} = Projection.project(ir(g1_messages()))

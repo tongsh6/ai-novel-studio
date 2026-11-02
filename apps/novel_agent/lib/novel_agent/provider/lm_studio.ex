@@ -253,6 +253,23 @@ defmodule NovelAgent.Provider.LMStudio do
   @impl true
   def name, do: "lmstudio"
 
+  # 传输事实：本地 OpenAI 兼容端点，原生多轮/tools/tool 消息/SSE/tool schema/usage
+  # 均由本 adapter 真实发送并解析。本地模型能力差异由模型自身决定，不由本声明掩盖。
+  @impl true
+  def capabilities(_state) do
+    %{
+      native_multi_turn: true,
+      tool_calls: true,
+      tool_results: true,
+      streaming: true,
+      structured_output: true,
+      usage: true
+    }
+  end
+
+  @impl true
+  def projection_target(_state), do: "chat_completions"
+
   @impl true
   def health_check(%__MODULE__{endpoint: endpoint, timeout: timeout, get_fn: get})
       when is_binary(endpoint) and endpoint != "" do

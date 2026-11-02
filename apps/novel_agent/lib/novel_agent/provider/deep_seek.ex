@@ -325,6 +325,23 @@ defmodule NovelAgent.Provider.DeepSeek do
   @impl true
   def name, do: "deepseek"
 
+  # 传输事实：OpenAI 兼容 Chat Completions 原生多轮、tools/tool 消息、SSE 流式、
+  # tool schema 结构化输出与 usage 都由本 adapter 真实发送并解析。
+  @impl true
+  def capabilities(_state) do
+    %{
+      native_multi_turn: true,
+      tool_calls: true,
+      tool_results: true,
+      streaming: true,
+      structured_output: true,
+      usage: true
+    }
+  end
+
+  @impl true
+  def projection_target(_state), do: "chat_completions"
+
   @impl true
   def health_check(%__MODULE__{api_key: key}) when is_binary(key) and key != "", do: :ok
 

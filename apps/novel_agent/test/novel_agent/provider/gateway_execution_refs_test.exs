@@ -76,6 +76,22 @@ defmodule NovelAgent.Provider.GatewayExecutionRefsFixtureProvider do
   @impl true
   def name, do: "gateway_execution_refs_fixture"
 
+  # 确定性测试替身：模拟完整 AgentRun 响应形态（含原生工具调用），不是真实传输。
+  @impl true
+  def capabilities(_state) do
+    %{
+      native_multi_turn: true,
+      tool_calls: true,
+      tool_results: true,
+      streaming: true,
+      structured_output: true,
+      usage: true
+    }
+  end
+
+  @impl true
+  def projection_target(_state), do: "chat_completions"
+
   defp valid_response?(text) do
     String.contains?(text, "UA01FIXTUREOK") or
       String.contains?(text, "原生工具响应不符合契约")

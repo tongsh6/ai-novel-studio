@@ -280,6 +280,23 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @impl true
   def name, do: "slice_verify"
 
+  # 确定性 slice 验证替身：模拟完整 AgentRun 传输形态（原生多轮/工具/流式/usage），
+  # 不是真实 provider 传输，不得据此签真实模型或传输证据。
+  @impl true
+  def capabilities(_state) do
+    %{
+      native_multi_turn: true,
+      tool_calls: true,
+      tool_results: true,
+      streaming: true,
+      structured_output: true,
+      usage: true
+    }
+  end
+
+  @impl true
+  def projection_target(_state), do: "chat_completions"
+
   defp emit_chunk_events(ctx, events) do
     Enum.each(events, fn event ->
       AdapterExecution.emit_events(ctx, [event], :running)

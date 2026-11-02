@@ -95,7 +95,22 @@ defmodule NovelAgent.Provider do
   """
   @callback name() :: String.t()
 
-  @optional_callbacks list_models: 1, execute: 5
+  @doc """
+  声明本 adapter 在当前 state（含选定 model/wire 配置）下真实可证的传输能力。
+
+  事实来源是 adapter 自身实现而不是 provider descriptor：只有 adapter 真正发送并
+  解析的能力才能声明为 true（VS-00L §6.4）。未实现该回调的 adapter 视为全部不可证，
+  能力门槛会显式拒绝路由而不是静默降级。保守/最小实现直接返回空 map。
+  """
+  @callback capabilities(state :: term()) :: %{optional(atom()) => boolean()}
+
+  @doc """
+  声明本次 route 的真实 wire 投影目标（`chat_completions` / `anthropic_messages` /
+  `responses_api`）。IR 投影按此事实选择，而不是由调用方猜测。
+  """
+  @callback projection_target(state :: term()) :: String.t()
+
+  @optional_callbacks list_models: 1, execute: 5, capabilities: 1, projection_target: 1
 
   @doc """
   Normalize legacy string prompts and chat prompts into OpenAI-compatible
@@ -354,6 +369,24 @@ defmodule NovelAgent.Provider do
 
   def extract_anthropic_tool_calls(_response), do: []
 
+  @doc """
+  把 provider 原生工具参数字节解析为对象参数（非流式响应与流式分片共用同一解析）。
+
+  JSON 非法或非对象时返回 `%{}`：原始字节仍由 `raw_arguments` 保真保留，本函数
+  不丢弃、不改写来源字节。
+  """
+  @spec decode_tool_arguments(term()) :: map()
+  def decode_tool_arguments(arguments) when is_map(arguments), do: arguments
+
+  def decode_tool_arguments(arguments) when is_binary(arguments) do
+    case Jason.decode(arguments) do
+      {:ok, decoded} when is_map(decoded) -> decoded
+      _other -> %{}
+    end
+  end
+
+  def decode_tool_arguments(_arguments), do: %{}
+
   # 缺陷十（2026-07-20，与缺陷九同批发现但成因独立）：写作调用现场实测抓到
   # gpt-oss-120b 采样退化——2000 token 上限内全部 1999 字符输出就是同一个字符
   # 重复（"@" 连续刷满），HTTP 200 正常返回，下游只是因为凑巧不是合法 JSON 才
@@ -450,16 +483,7 @@ defmodule NovelAgent.Provider do
 
   defp anthropic_tool_call(_block), do: []
 
-  defp decode_arguments(args) when is_map(args), do: args
-
-  defp decode_arguments(args) when is_binary(args) do
-    case Jason.decode(args) do
-      {:ok, decoded} when is_map(decoded) -> decoded
-      _ -> %{}
-    end
-  end
-
-  defp decode_arguments(_args), do: %{}
+  defp decode_arguments(args), do: decode_tool_arguments(args)
 
   defp map_get(map, key) when is_map(map) and is_atom(key) do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))

@@ -13,6 +13,8 @@ defmodule NovelAgent.Provider.RequestIR do
 
   @ir_version "authoring-request-ir/v1"
 
+  alias NovelAgent.Provider.CapabilityProfile
+  alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.RequestIR.Compaction
   alias NovelAgent.Provider.RequestIR.Projection
   alias NovelAgent.Provider.RequestIR.Projection.ChatCompletions
@@ -787,54 +789,22 @@ defmodule NovelAgent.Provider.RequestIR do
   defp drop_field(map, key), do: map |> Map.delete(key) |> Map.delete(to_string(key))
 
   @doc """
-  迁移期 legacy 适配器：把现有最低公分母 prompt 映射为 IR v1。
-
-  结论只能作为历史兼容输入：legacy prompt 无法区分 application_base 与作者消息，
-  因此标记 `projection.finite_mode = %{name: "legacy_prompt"}`，不得据此宣称完整
-  AgentRun 语义（VS-00L §4/§8）。
-  """
-  @spec from_legacy(NovelAgent.Provider.prompt(), keyword()) :: t()
-  def from_legacy(prompt, opts \\ []) do
-    legacy_messages =
-      prompt
-      |> NovelAgent.Provider.normalize_messages()
-      |> Enum.map(fn message ->
-        message(message.role, if(message.role == "user", do: "author", else: "application"), [
-          text_block(message.content)
-        ])
-      end)
-
-    tools =
-      case prompt do
-        %{tools: tools} when is_list(tools) -> tools
-        _ -> []
-      end
-
-    %__MODULE__{
-      run: Keyword.get(opts, :run, %{run_id: "legacy", work_id: "legacy"}),
-      system: Keyword.get(opts, :system, %{identity_ref: "legacy_prompt"}),
-      messages: legacy_messages,
-      tools: tools,
-      projection: %{
-        target: Keyword.get(opts, :target, "chat_completions"),
-        capability_profile: Keyword.get(opts, :capability_profile, %{}),
-        finite_mode: Keyword.get(opts, :finite_mode, %{name: "legacy_prompt"}),
-        usage_streaming: false
-      },
-      refs: %{base_refs: [], observation_refs: [], used_refs: []}
-    }
-  end
-
-  @doc """
   B71 CP2（VS-00L §6）：IR v1 → provider-neutral structured prompt。
 
   现有 adapter 可直接消费：messages 为 OpenAI wire 形状（system/application_base/
   user/assistant.tool_calls/tool），tools 保持 `Provider.tool_spec` 形状交给各
   adapter 渲染；`ir_version` 标记来源（legacy prompt 无此字段）。
+
+  能力事实（VS-00L §6.4）：IR 未显式声明 `capability_profile` 时，按当前实际选定
+  route 派生（与 `Gateway.execute/4` 同一路由解析），并把能力事实与 wire 目标写入
+  prompt 元数据；显式声明（测试/已解析/legacy finite_mode）不被覆盖。缺失必备能力
+  且无显式 `finite_mode` 时返回 `{:error, {:unsupported_capability, missing}}`，
+  由调用方拒绝路由，不允许静默降级。
   """
   @spec to_provider_prompt(t(), keyword()) :: {:ok, map()} | {:error, term()}
   def to_provider_prompt(%__MODULE__{} = ir, opts \\ []) do
-    with :ok <- validate(ir),
+    with {:ok, ir} <- resolve_projection_facts(ir),
+         :ok <- validate(ir),
          :ok <- validate_request_ready(ir.messages),
          {:ok, mode} <- capability_mode(ir),
          {:ok, tools} <- active_tools(ir, Keyword.get(opts, :tool_names)) do
@@ -844,20 +814,63 @@ defmodule NovelAgent.Provider.RequestIR do
         messages: body.messages,
         tools: tools,
         tool_choice: Keyword.get(opts, :tool_choice, Map.get(ir.projection, :tool_choice)),
-        ir_version: ir.ir_version
+        ir_version: ir.ir_version,
+        capability_profile: Map.get(ir.projection, :capability_profile, %{}),
+        provider_projection_target:
+          Map.get(ir.projection, :provider_projection_target, "chat_completions"),
+        provider_route: Map.get(ir.projection, :provider_route)
       }
 
       {:ok, if(mode, do: Map.put(prompt, :finite_mode, mode.finite_mode), else: prompt)}
     end
   end
 
-  @doc "统一能力门；显式有限模式即使能力齐全也不能被掩盖。"
+  # 能力事实只解析一次：未显式声明时按实际 route 派生；已声明时原样保留
+  # （显式空 map 表示「声明为缺失」，用于验证拒绝路由，不得被默认值覆盖）。
+  defp resolve_projection_facts(%__MODULE__{} = ir) do
+    if Map.has_key?(ir.projection, :capability_profile) do
+      {:ok, ir}
+    else
+      case Gateway.capability_profile() do
+        %{profile: profile} = facts ->
+          route_identity = %{
+            provider: facts.provider,
+            model: facts.model,
+            projection_target: facts.projection_target
+          }
+
+          {:ok,
+           %{
+             ir
+             | projection:
+                 ir.projection
+                 |> Map.put(:capability_profile, profile)
+                 |> Map.put_new(:provider_projection_target, facts.projection_target)
+                 |> Map.put_new(:provider_route, route_identity)
+           }}
+
+        _other ->
+          {:error, :missing_projection}
+      end
+    end
+  end
+
+  @doc """
+  统一能力门；显式有限模式即使能力齐全也不能被掩盖。
+
+  有限模式不是万能绕过：它声明的受限项必须覆盖每一个缺失的必备能力，否则仍按
+  拒绝路由处理（VS-00L §6.4：有限模式必须显式声明受限能力）。
+  """
   def capability_mode(%__MODULE__{} = ir) do
     missing = missing_capabilities(Map.get(ir.projection, :capability_profile, %{}))
 
     case Map.get(ir.projection, :finite_mode) do
       mode when is_map(mode) and map_size(mode) > 0 ->
-        {:ok, %{finite_mode: mode, missing: missing}}
+        if CapabilityProfile.finite_mode_covers?(mode, missing) do
+          {:ok, %{finite_mode: mode, missing: missing}}
+        else
+          {:error, {:unsupported_capability, missing}}
+        end
 
       _ when missing == [] ->
         {:ok, nil}
@@ -879,6 +892,21 @@ defmodule NovelAgent.Provider.RequestIR do
       {:error, {:unknown_tool_names, unknown}}
     end
   end
+
+  @doc """
+  把请求构造失败 reason 转为作者安全的可读文案。
+
+  只输出中文能力名，不回显内部 capability atom、prompt 内容或私有状态；
+  调用方（判断/创作/评审）用它生成作者可见失败原因。
+  """
+  @spec rejection_message(term()) :: String.t()
+  def rejection_message({:unsupported_capability, missing}) when is_list(missing) do
+    "当前模型缺少完整创作运行所需的传输能力（" <>
+      CapabilityProfile.labels(missing) <>
+      "），已拒绝本次请求；没有降级为静默丢弃字段的运行。"
+  end
+
+  def rejection_message(_reason), do: "本次请求无法构造为可用的模型请求，已拒绝。"
 
   @doc "能力门槛：返回 capability_profile 缺失的必备能力。"
   @spec missing_capabilities(map()) :: [atom()]

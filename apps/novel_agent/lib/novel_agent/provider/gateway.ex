@@ -24,6 +24,7 @@ defmodule NovelAgent.Provider.Gateway do
 
   alias NovelAgent.Provider
   alias NovelAgent.Provider.AdapterExecution
+  alias NovelAgent.Provider.CapabilityProfile
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.RuntimeConfig
@@ -320,22 +321,57 @@ defmodule NovelAgent.Provider.Gateway do
   @spec registered_providers() :: [atom()]
   def registered_providers, do: provider_modules() |> Map.keys()
 
-  @doc "返回当前 provider 对 AgentRun runtime 可声明的执行能力。"
+  @doc """
+  按当前默认 provider 的实际选定 route 派生可证能力事实（VS-00L §6.4）。
+
+  与 `execute/4` 使用同一 `execution_route/3` 解析（同一 provider/model 配置快照），
+  但不发送任何请求。返回值包含 `provider/model/profile/missing/projection_target`：
+  `profile` 是 adapter 声明的必备能力事实，`projection_target` 是本次 route 的真实
+  wire 投影目标；缺能力必须由调用方显式 `finite_mode` 或拒绝路由。
+  """
+  @spec capability_profile(String.t() | nil, keyword()) :: map()
+  def capability_profile(model \\ nil, opts \\ []) do
+    provider_name = Keyword.get(opts, :provider) || default_provider()
+    route_capability_facts(provider_name, execution_route(provider_name, model, opts))
+  end
+
+  @doc "按显式 provider 派生能力事实（设置页/诊断/测试），不改变运行时选择。"
+  @spec capability_profile_for(atom() | String.t(), String.t() | nil, keyword()) :: map()
+  def capability_profile_for(provider, model \\ nil, opts \\ []) do
+    case normalize_provider_id(provider) do
+      {:ok, provider_name} ->
+        route_capability_facts(provider_name, execution_route(provider_name, model, opts))
+
+      :error ->
+        route_capability_facts(provider, {:error, :unknown_provider})
+    end
+  end
+
+  @doc """
+  返回当前 provider 对 AgentRun runtime 可声明的执行能力事实。
+
+  兼容既有 `supports_streaming/supports_cancellation/cancel_strategy` 键，并展开
+  `CapabilityProfile.required/0` 的全部必备能力；所有值都来自实际 route 的 adapter
+  声明，不再只凭 provider descriptor 猜测。
+  """
   @spec provider_capabilities() :: map()
   def provider_capabilities do
-    provider = default_provider()
-    descriptor = provider_descriptor(provider)
+    %{provider: provider, model: model, profile: profile, missing: missing} =
+      capability_profile()
 
-    %{
+    descriptor = provider_descriptor(provider)
+    supports_cancellation = Map.get(descriptor, :supports_cancellation, false)
+
+    profile
+    |> Map.merge(%{
       provider: provider,
-      supports_streaming: Map.get(descriptor, :supports_streaming, false),
-      supports_cancellation: Map.get(descriptor, :supports_cancellation, false),
+      model: model,
+      missing_required: missing,
+      supports_streaming: Map.get(profile, :streaming, false),
+      supports_cancellation: supports_cancellation,
       cancel_strategy:
-        if(Map.get(descriptor, :supports_cancellation, false),
-          do: :provider_execution_cancel,
-          else: :not_available
-        )
-    }
+        if(supports_cancellation, do: :provider_execution_cancel, else: :not_available)
+    })
   end
 
   @doc "返回 provider 设置页所需的只读选项；不会返回 secret。"
@@ -419,6 +455,28 @@ defmodule NovelAgent.Provider.Gateway do
 
   # ---- private ----
 
+  # 能力事实按实际 route 派生；派生、投影目标与门槛的唯一实现在 CapabilityProfile。
+  defp route_capability_facts(provider, {:ok, route}),
+    do: CapabilityProfile.facts(provider, route)
+
+  defp route_capability_facts(provider, {:error, _error}),
+    do: CapabilityProfile.facts(provider, nil)
+
+  defp normalize_provider_id(provider) when is_atom(provider) do
+    if Map.has_key?(provider_modules(), provider), do: {:ok, provider}, else: :error
+  end
+
+  defp normalize_provider_id(provider) when is_binary(provider) do
+    with {:ok, provider} <- safe_existing_atom(provider),
+         true <- Map.has_key?(provider_modules(), provider) do
+      {:ok, provider}
+    else
+      _ -> :error
+    end
+  end
+
+  defp normalize_provider_id(_provider), do: :error
+
   defp provider_models(provider, module, attrs) do
     if Code.ensure_loaded?(module) and function_exported?(module, :list_models, 1) do
       with {:ok, config} <- normalize_provider_config(provider, attrs) do
@@ -478,8 +536,14 @@ defmodule NovelAgent.Provider.Gateway do
   defp route_model_name({:error, _error}), do: "unconfigured"
 
   defp execute_provider({:ok, route}, prompt, params, ctx) do
-    ctx = Map.put(ctx, :timeout_policy, route.timeout_policy)
-    execute_adapter(route.module, route.state, route.model_name, prompt, params, ctx)
+    case CapabilityProfile.enforce_route(route, ctx, prompt) do
+      :ok ->
+        ctx = Map.put(ctx, :timeout_policy, route.timeout_policy)
+        execute_adapter(route.module, route.state, route.model_name, prompt, params, ctx)
+
+      {:error, error} ->
+        AdapterExecution.materialize_result({:error, error}, ctx)
+    end
   end
 
   defp execute_provider({:error, error}, _prompt, _params, ctx) do
@@ -551,7 +615,11 @@ defmodule NovelAgent.Provider.Gateway do
       }
       |> Map.merge(Map.get(@provider_descriptors, provider, %{}))
 
+    # 展示能力与执行能力同源：streaming 取 adapter 的可证声明，而不是 descriptor 猜测。
+    capabilities = CapabilityProfile.from_adapter(module, state)
+
     descriptor
+    |> Map.merge(%{supports_streaming: Map.get(capabilities, :streaming, false)})
     |> Map.merge(%{
       id: provider,
       current: provider == current_provider,

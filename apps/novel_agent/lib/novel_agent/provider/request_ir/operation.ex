@@ -142,11 +142,9 @@ defmodule NovelAgent.Provider.RequestIR.Operation do
     %{ir | refs: Map.update(ir.refs, :base_refs, refs, &Enum.uniq(&1 ++ refs))}
   end
 
-  # 现有迁移期能力声明；实际路由模型的能力核验仍由 Gateway 的后续闭环承担。
+  # 只声明 wire 目标；能力事实由传输边界按实际 route 派生（VS-00L §6.4）。
+  # 这里不得写死必备能力，否则缺能力的 provider 会被伪装成完整 AgentRun provider。
   defp default_projection do
-    %{
-      target: "chat_completions",
-      capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-    }
+    %{target: "chat_completions"}
   end
 end

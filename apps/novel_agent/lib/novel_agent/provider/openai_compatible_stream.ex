@@ -60,6 +60,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
           accumulated_content_length: 0,
           author_narrative_open?: true,
           usage: nil,
+          tool_calls: %{},
           model: Map.get(state, :model),
           started: started,
           ttft_ms: nil,
@@ -209,6 +210,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
             acc
             |> update_usage(decoded)
             |> mark_ttft(decoded)
+            |> consume_tool_call_deltas(decoded)
             |> append_delta(ctx, delta_content(decoded))
 
           _ ->
@@ -311,6 +313,71 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
     }
   end
 
+  # ── 原生工具调用累积（VS-00L §6.1 / I-ART-8）──────────────────────────────
+  #
+  # OpenAI 兼容 SSE 把 tool_calls 拆成多个 delta：首个 delta 携带 index/id/name，
+  # 后续 delta 只携带 arguments 片段。这里按 index 无损拼接原始参数字节，再交给
+  # 与非流式响应同一个 `extract_openai_tool_calls/1` 解析，避免第二套解析语义。
+
+  defp consume_tool_call_deltas(acc, %{"choices" => choices}) when is_list(choices) do
+    Enum.reduce(choices, acc, fn choice, current ->
+      choice
+      |> Map.get("delta", %{})
+      |> Map.get("tool_calls", [])
+      |> Enum.reduce(current, &merge_tool_call_delta/2)
+    end)
+  end
+
+  defp consume_tool_call_deltas(acc, _decoded), do: acc
+
+  defp merge_tool_call_delta(delta, acc) when is_map(delta) do
+    index = normalize_tool_call_index(Map.get(delta, "index"))
+    entry = Map.get(acc.tool_calls, index, %{id: nil, name: nil, arguments: ""})
+    function = Map.get(delta, "function") || %{}
+
+    entry = %{
+      id: present_string(entry.id) || present_string(Map.get(delta, "id")),
+      name: present_string(entry.name) || present_string(Map.get(function, "name")),
+      arguments: entry.arguments <> arguments_fragment(Map.get(function, "arguments"))
+    }
+
+    %{acc | tool_calls: Map.put(acc.tool_calls, index, entry)}
+  end
+
+  defp merge_tool_call_delta(_delta, acc), do: acc
+
+  defp normalize_tool_call_index(index) when is_integer(index) and index >= 0, do: index
+  defp normalize_tool_call_index(_index), do: 0
+
+  defp present_string(value) when is_binary(value) and value != "", do: value
+  defp present_string(_value), do: nil
+
+  defp arguments_fragment(arguments) when is_binary(arguments), do: arguments
+  defp arguments_fragment(_arguments), do: ""
+
+  defp completed_tool_calls(acc) do
+    payloads =
+      acc.tool_calls
+      |> Enum.sort_by(fn {index, _entry} -> index end)
+      |> Enum.map(fn {_index, entry} -> tool_call_payload(entry) end)
+      |> Enum.reject(&is_nil/1)
+
+    NovelAgent.Provider.extract_openai_tool_calls(%{"tool_calls" => payloads})
+  end
+
+  defp tool_call_payload(%{name: name} = entry) when is_binary(name) and name != "" do
+    function =
+      case entry.arguments do
+        "" -> %{"name" => name}
+        arguments -> %{"name" => name, "arguments" => arguments}
+      end
+
+    call = %{"function" => function}
+    if entry.id, do: Map.put(call, "id", entry.id), else: call
+  end
+
+  defp tool_call_payload(_entry), do: nil
+
   defp materialize_stream_result(%{
          meta: meta,
          state: state,
@@ -363,12 +430,13 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
        when status in 200..299 do
     usage = usage_from_stream(acc.usage, acc.model, duration) |> Usage.put_ttft(acc.ttft_ms)
     content = acc.content |> Enum.reverse() |> Enum.join()
+    tool_calls = completed_tool_calls(acc)
 
     cond do
       acc.parse_error? ->
         error_result(meta, :parse, "#{meta.label} 事件流解析失败", status, usage, duration)
 
-      content == "" ->
+      content == "" and tool_calls == [] ->
         error_result(meta, :invalid_response, "#{meta.label} 响应内容为空", status, usage, duration)
 
       NovelAgent.Provider.degenerate_content?(content) ->
@@ -385,9 +453,9 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
 
       true ->
         %{
-          result: {:ok, Result.new(content, usage)},
+          result: {:ok, Result.new(content, usage, tool_calls: tool_calls)},
           log_result:
-            {:ok, Result.new(content, usage),
+            {:ok, Result.new(content, usage, tool_calls: tool_calls),
              %{status: status, usage: usage, duration: duration, resp_body: "event_stream"}}
         }
     end

@@ -72,6 +72,7 @@ defmodule NovelAgent.Provider.OpenAICompatible do
       @oac_supports_thinking Keyword.get(opts, :supports_thinking, false)
       @oac_api_key_required Keyword.get(opts, :api_key_required, true)
       @oac_thinking_style Keyword.get(opts, :thinking_style, :thinking_object)
+      @oac_wire_api Keyword.get(opts, :wire_api, :chat_completions)
 
       defstruct [
         :api_key,
@@ -85,7 +86,8 @@ defmodule NovelAgent.Provider.OpenAICompatible do
         :log_fn,
         :json_mode,
         :thinking,
-        :reasoning_effort
+        :reasoning_effort,
+        :wire_api
       ]
 
       @type t :: %__MODULE__{
@@ -103,7 +105,8 @@ defmodule NovelAgent.Provider.OpenAICompatible do
               log_fn: (String.t(), String.t(), map(), term(), integer() -> :ok) | nil,
               json_mode: boolean(),
               thinking: :enabled | :disabled,
-              reasoning_effort: String.t() | nil
+              reasoning_effort: String.t() | nil,
+              wire_api: :chat_completions | :responses
             }
 
       @impl true
@@ -126,6 +129,19 @@ defmodule NovelAgent.Provider.OpenAICompatible do
       @impl true
       def list_models(state), do: OpenAICompatible.list_models(oac_meta(), state)
 
+      @doc """
+      本 adapter 在当前 state（含 wire_api/model）下真实可证的传输能力。
+
+      来源是共享传输实现本身：Chat Completions wire 支持流式、原生工具与 usage；
+      Responses wire 当前只提供非流式真实传输，因此 streaming 如实为 false。
+      """
+      @impl true
+      def capabilities(state), do: OpenAICompatible.capabilities(oac_meta(), state)
+
+      @doc "本次 route 的真实 wire 投影目标（Responses API 路由不再停在投影层）。"
+      @impl true
+      def projection_target(state), do: OpenAICompatible.projection_target(state)
+
       @doc "从应用配置构建 state struct，可经 `:env_key` 从环境变量回退读取 API Key。"
       @spec from_config(keyword()) :: t()
       def from_config(config \\ Application.get_env(:novel_agent, __MODULE__, [])) do
@@ -145,7 +161,11 @@ defmodule NovelAgent.Provider.OpenAICompatible do
           json_mode: Keyword.get(config, :json_mode, false),
           thinking:
             OpenAICompatible.normalize_thinking(Keyword.get(config, :thinking, :disabled)),
-          reasoning_effort: Keyword.get(config, :reasoning_effort)
+          reasoning_effort: Keyword.get(config, :reasoning_effort),
+          wire_api:
+            OpenAICompatible.normalize_wire_api(
+              Keyword.get(config, :wire_api, @oac_wire_api)
+            )
         }
       end
 
@@ -164,39 +184,99 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   # ── 共享运行时实现（对任意 OpenAI 兼容 struct 生效，按字段读取）────────────
 
   @doc false
+  @spec capabilities(meta(), struct()) :: %{required(atom()) => boolean()}
+  def capabilities(_meta, state) do
+    %{
+      native_multi_turn: true,
+      tool_calls: true,
+      tool_results: true,
+      # Responses wire 目前只有真实非流式传输：流式解析能力如实为 false，
+      # 需要完整 AgentRun 的调用必须显式 finite_mode 或拒绝路由（VS-00L §6.4）。
+      streaming: normalize_wire_api(Map.get(state, :wire_api)) == :chat_completions,
+      structured_output: true,
+      usage: true
+    }
+  end
+
+  @doc false
+  @spec projection_target(struct()) :: String.t()
+  def projection_target(state) do
+    case normalize_wire_api(Map.get(state, :wire_api)) do
+      :responses -> "responses_api"
+      :chat_completions -> "chat_completions"
+    end
+  end
+
+  @doc false
+  @spec normalize_wire_api(term()) :: :chat_completions | :responses
+  def normalize_wire_api(value) when value in [:responses, "responses"], do: :responses
+  def normalize_wire_api(_value), do: :chat_completions
+
+  @doc false
   @spec complete(meta(), struct(), String.t() | nil, term(), term()) ::
           {:ok, Result.t()} | {:error, map()}
   def complete(meta, %{api_key: key} = state, _model, prompt, params) do
     case auth_headers(meta, key) do
       {:ok, headers} ->
-        start_time = System.monotonic_time(:millisecond)
-
-        body =
-          state
-          |> request_body(prompt, params, false)
-          |> maybe_thinking(meta, state)
-
-        url = endpoint_url(state.endpoint)
-        post = state.http_fn || (&HTTP.post/3)
-
-        result =
-          case post.(url, body, headers: headers, receive_timeout: state.timeout) do
-            {:ok, status, resp_body} when status in 200..299 ->
-              handle_success(meta, state, resp_body, start_time)
-
-            {:error, :http_error, status, message} ->
-              handle_http_error(meta, status, message, start_time)
-
-            {:error, reason, _status, message} ->
-              handle_connection_error(meta, reason, message, start_time)
-          end
-
-        if log = state.log_fn, do: log.(meta.vendor, url, body, result, start_time)
-        strip_attrs(result)
+        case normalize_wire_api(Map.get(state, :wire_api)) do
+          :responses -> complete_responses(meta, state, prompt, params, headers)
+          :chat_completions -> complete_chat(meta, state, prompt, params, headers)
+        end
 
       {:error, :auth_required} ->
         missing_key_error(meta)
     end
+  end
+
+  defp complete_chat(meta, state, prompt, params, headers) do
+    start_time = System.monotonic_time(:millisecond)
+
+    body =
+      state
+      |> request_body(prompt, params, false)
+      |> maybe_thinking(meta, state)
+
+    url = endpoint_url(state.endpoint)
+    post = state.http_fn || (&HTTP.post/3)
+
+    result =
+      case post.(url, body, headers: headers, receive_timeout: state.timeout) do
+        {:ok, status, resp_body} when status in 200..299 ->
+          handle_success(meta, state, resp_body, start_time)
+
+        {:error, :http_error, status, message} ->
+          handle_http_error(meta, status, message, start_time)
+
+        {:error, reason, _status, message} ->
+          handle_connection_error(meta, reason, message, start_time)
+      end
+
+    if log = state.log_fn, do: log.(meta.vendor, url, body, result, start_time)
+    strip_attrs(result)
+  end
+
+  # Responses API 真实传输：`/responses` + input items + 原生 function_call 输出。
+  # 该 wire 当前是非流式（capabilities/2 如实声明 streaming=false）。
+  defp complete_responses(meta, state, prompt, params, headers) do
+    start_time = System.monotonic_time(:millisecond)
+    body = responses_request_body(state, prompt, params)
+    url = responses_url(state.endpoint)
+    post = state.http_fn || (&HTTP.post/3)
+
+    result =
+      case post.(url, body, headers: headers, receive_timeout: state.timeout) do
+        {:ok, status, resp_body} when status in 200..299 ->
+          handle_responses_success(meta, state, resp_body, start_time)
+
+        {:error, :http_error, status, message} ->
+          handle_http_error(meta, status, message, start_time)
+
+        {:error, reason, _status, message} ->
+          handle_connection_error(meta, reason, message, start_time)
+      end
+
+    if log = state.log_fn, do: log.(meta.vendor, url, body, result, start_time)
+    strip_attrs(result)
   end
 
   @doc false
@@ -206,24 +286,12 @@ defmodule NovelAgent.Provider.OpenAICompatible do
       when is_binary(prompt) or is_list(prompt) or is_map(prompt) do
     case auth_headers(meta, key) do
       {:ok, headers} ->
-        if NovelAgent.Provider.tool_call_prompt?(prompt) do
-          execute_tool_call(meta, state, headers, prompt, params, ctx)
-        else
-          body =
-            state
-            |> request_body(prompt, params, true)
-            |> maybe_thinking(meta, state)
+        case normalize_wire_api(Map.get(state, :wire_api)) do
+          :responses ->
+            execute_responses(meta, state, headers, prompt, params, ctx)
 
-          url = endpoint_url(state.endpoint)
-
-          # B22：流式请求只设"最长静默窗口"（有数据就续命），总时长兜底默认关闭。
-          request_opts = [
-            headers: headers,
-            receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
-            connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
-          ]
-
-          OpenAICompatibleStream.execute(meta, state, url, body, request_opts, ctx)
+          :chat_completions ->
+            execute_chat(meta, state, headers, prompt, params, ctx)
         end
 
       {:error, :auth_required} ->
@@ -235,6 +303,59 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   def execute(meta, _state, _model, _prompt, _params, ctx) do
     missing_key_error(meta)
     |> AdapterExecution.materialize_result(ctx)
+  end
+
+  defp execute_chat(meta, state, headers, prompt, params, ctx) do
+    if NovelAgent.Provider.tool_call_prompt?(prompt) do
+      execute_tool_call(meta, state, headers, prompt, params, ctx)
+    else
+      body =
+        state
+        |> request_body(prompt, params, true)
+        |> maybe_thinking(meta, state)
+
+      url = endpoint_url(state.endpoint)
+
+      # B22：流式请求只设"最长静默窗口"（有数据就续命），总时长兜底默认关闭。
+      request_opts = [
+        headers: headers,
+        receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
+        connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
+      ]
+
+      OpenAICompatibleStream.execute(meta, state, url, body, request_opts, ctx)
+    end
+  end
+
+  defp execute_responses(meta, state, headers, prompt, params, ctx) do
+    start_time = System.monotonic_time(:millisecond)
+    body = responses_request_body(state, prompt, params)
+    url = responses_url(state.endpoint)
+    post = state.http_fn || (&HTTP.post/3)
+    initial_events = AdapterExecution.initial_events(ctx)
+    AdapterExecution.emit_events(ctx, initial_events, :running)
+
+    result =
+      case post.(url, body,
+             headers: headers,
+             receive_timeout: AdapterExecution.non_stream_timeout(ctx, state.timeout),
+             connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
+           ) do
+        {:ok, status, resp_body} when status in 200..299 ->
+          handle_responses_success(meta, state, resp_body, start_time)
+
+        {:error, :http_error, status, message} ->
+          handle_http_error(meta, status, message, start_time)
+
+        {:error, reason, _status, message} ->
+          handle_connection_error(meta, reason, message, start_time)
+      end
+
+    if log = state.log_fn, do: log.(meta.vendor, url, body, result, start_time)
+
+    result
+    |> strip_attrs()
+    |> AdapterExecution.materialize_result(ctx, initial_events: initial_events, emit: :terminal)
   end
 
   @doc false
@@ -309,6 +430,223 @@ defmodule NovelAgent.Provider.OpenAICompatible do
     endpoint
     |> String.trim_trailing("/")
     |> Kernel.<>("/chat/completions")
+  end
+
+  defp responses_url(endpoint) do
+    endpoint
+    |> String.trim_trailing("/")
+    |> Kernel.<>("/responses")
+  end
+
+  # Chat 形状的内部 prompt → Responses API body（VS-00L §6.3）。
+  # 消息一一投影为 input items：system/user 保留 role；assistant tool_calls →
+  # function_call（原始参数字节不变）；tool 结果 → function_call_output（call_id 关联）。
+  defp responses_request_body(state, prompt, params) do
+    %{input: responses_input(prompt), stream: false}
+    |> maybe_put_model(state.model)
+    |> responses_max_output_tokens(state.max_tokens, Map.get(params, :max_tokens))
+    |> maybe_put_response_param(Map.get(params, :temperature), :temperature)
+    |> maybe_put_response_param(Map.get(params, :top_p), :top_p)
+    |> responses_tools(prompt)
+  end
+
+  defp responses_input(prompt) do
+    prompt
+    |> NovelAgent.Provider.normalize_messages()
+    |> Enum.flat_map(&responses_input_item/1)
+  end
+
+  defp responses_input_item(%{role: "assistant"} = message) do
+    text = if is_binary(message.content), do: message.content, else: ""
+
+    text_items =
+      if text == "", do: [], else: [responses_message_item("assistant", text)]
+
+    text_items ++ Enum.flat_map(Map.get(message, :tool_calls, []), &responses_function_call/1)
+  end
+
+  defp responses_input_item(%{role: "tool"} = message) do
+    case Map.get(message, :tool_call_id) do
+      call_id when is_binary(call_id) and call_id != "" ->
+        [
+          %{
+            type: "function_call_output",
+            call_id: call_id,
+            output: responses_output_text(message.content)
+          }
+        ]
+
+      _other ->
+        []
+    end
+  end
+
+  defp responses_input_item(%{role: role, content: content}) when role in ["system", "user"] do
+    case content do
+      text when is_binary(text) and text != "" -> [responses_message_item(role, text)]
+      _other -> []
+    end
+  end
+
+  defp responses_input_item(_message), do: []
+
+  defp responses_message_item(role, text), do: %{type: "message", role: role, content: text}
+
+  defp responses_output_text(content) when is_binary(content), do: content
+  defp responses_output_text(content) when is_map(content), do: Jason.encode!(content)
+  defp responses_output_text(_content), do: ""
+
+  defp responses_function_call(%{id: id, function: %{name: name} = function})
+       when is_binary(name) do
+    arguments = Map.get(function, :arguments)
+
+    [
+      %{
+        type: "function_call",
+        call_id: id,
+        name: name,
+        arguments: responses_arguments_text(arguments)
+      }
+    ]
+  end
+
+  defp responses_function_call(%{id: id, name: name, arguments: arguments})
+       when is_binary(name) do
+    [
+      %{
+        type: "function_call",
+        call_id: id,
+        name: name,
+        arguments: responses_arguments_text(arguments)
+      }
+    ]
+  end
+
+  defp responses_function_call(_call), do: []
+
+  defp responses_arguments_text(arguments) when is_binary(arguments), do: arguments
+  defp responses_arguments_text(arguments) when is_map(arguments), do: Jason.encode!(arguments)
+  defp responses_arguments_text(_arguments), do: "{}"
+
+  defp responses_tools(body, prompt) do
+    specs = NovelAgent.Provider.tool_specs(prompt)
+
+    body
+    |> maybe_put_response_tools(specs)
+    |> maybe_put_response_tool_choice(NovelAgent.Provider.tool_choice(prompt))
+  end
+
+  defp maybe_put_response_tools(body, []), do: body
+
+  defp maybe_put_response_tools(body, specs) do
+    tools =
+      Enum.map(specs, fn spec ->
+        %{
+          type: "function",
+          name: spec.name,
+          description: spec.description,
+          parameters: spec.input_schema
+        }
+      end)
+
+    Map.put(body, :tools, tools)
+  end
+
+  defp maybe_put_response_tool_choice(body, nil), do: body
+  defp maybe_put_response_tool_choice(body, "none"), do: Map.put(body, :tool_choice, "none")
+  defp maybe_put_response_tool_choice(body, "auto"), do: Map.put(body, :tool_choice, "auto")
+
+  defp maybe_put_response_tool_choice(body, "required"),
+    do: Map.put(body, :tool_choice, "required")
+
+  defp maybe_put_response_tool_choice(body, name) when is_binary(name),
+    do: Map.put(body, :tool_choice, %{type: "function", name: name})
+
+  defp maybe_put_response_param(body, nil, _key), do: body
+  defp maybe_put_response_param(body, value, key), do: Map.put(body, key, value)
+
+  defp responses_max_output_tokens(body, _default, max) when is_integer(max) and max > 0,
+    do: Map.put(body, :max_output_tokens, max)
+
+  defp responses_max_output_tokens(body, default, _max) when is_integer(default) and default > 0,
+    do: Map.put(body, :max_output_tokens, default)
+
+  defp responses_max_output_tokens(body, _default, _max), do: body
+
+  defp handle_responses_success(meta, state, resp_body, start_time) do
+    {content, tool_calls} = responses_output(resp_body)
+    latency = System.monotonic_time(:millisecond) - start_time
+    usage = responses_usage(resp_body, state.model, latency)
+    attrs = %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}
+
+    if (is_binary(content) and content != "") or tool_calls != [] do
+      {:ok, Result.new(content, usage, tool_calls: tool_calls), attrs}
+    else
+      err = UpstreamError.new(:invalid_response, "#{meta.label} 响应内容为空", meta.vendor)
+      {:error, UpstreamError.to_error_tuple(err), attrs}
+    end
+  end
+
+  defp responses_output(resp_body) do
+    items = resp_body |> Map.get("output") |> List.wrap()
+    content = items |> Enum.flat_map(&responses_text_parts/1) |> Enum.join()
+    calls = Enum.flat_map(items, &responses_function_call_item/1)
+    {content, calls}
+  end
+
+  defp responses_text_parts(%{"type" => "message", "content" => blocks}) when is_list(blocks) do
+    Enum.flat_map(blocks, fn
+      %{"type" => type, "text" => text}
+      when type in ["output_text", "text"] and is_binary(text) ->
+        [text]
+
+      _block ->
+        []
+    end)
+  end
+
+  defp responses_text_parts(_item), do: []
+
+  defp responses_function_call_item(
+         %{"type" => "function_call", "name" => name, "arguments" => arguments} = item
+       )
+       when is_binary(name) do
+    id = Map.get(item, "call_id") || Map.get(item, "id")
+
+    [
+      %{
+        "id" => id,
+        "name" => name,
+        "arguments" => responses_decode_arguments(arguments),
+        "raw_arguments" => arguments
+      }
+    ]
+  end
+
+  defp responses_function_call_item(_item), do: []
+
+  defp responses_decode_arguments(arguments) when is_map(arguments), do: arguments
+
+  defp responses_decode_arguments(arguments) when is_binary(arguments) do
+    case Jason.decode(arguments) do
+      {:ok, value} when is_map(value) -> value
+      _other -> %{}
+    end
+  end
+
+  defp responses_decode_arguments(_arguments), do: %{}
+
+  defp responses_usage(resp_body, fallback_model, latency) do
+    usage = Map.get(resp_body, "usage") || %{}
+    cached = get_in(usage, ["input_tokens_details", "cached_tokens"]) || usage["cached_tokens"]
+
+    Usage.new(
+      usage["input_tokens"] || 0,
+      usage["output_tokens"] || 0,
+      Map.get(resp_body, "model") || fallback_model,
+      latency,
+      cached
+    )
   end
 
   defp request_body(state, prompt, params, stream?) do
