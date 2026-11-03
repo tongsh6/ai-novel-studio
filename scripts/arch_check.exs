@@ -37,10 +37,11 @@ defmodule ArchCheck do
   ]
 
   @web_forbidden [
-    # novel_web 是薄网关，不能直接碰数据库和 Agent 运行时内部
+    # novel_web 是薄网关，不能直接碰数据库和 Agent 运行时内部。
+    # NovelPersistence 的 Repo/Schema 之外，Repo wrapper（如 AgentRunLog）同样是
+    # 持久层内部；Web 只能经 Application 公开入口读取。
     ~r/Ecto\.Query/,
-    ~r/NovelPersistence\.Repo/,
-    ~r/NovelPersistence\.Schemas\./,
+    ~r/NovelPersistence\./,
     ~r/NovelAgent\.Runtime\./,
     ~r/NovelAgent\.(?:Turn|Router|Executor|Registry|Memory|Provider)\./,
   ]

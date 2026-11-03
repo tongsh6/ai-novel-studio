@@ -45,6 +45,7 @@ be found at <https://hexdocs.pm/novel_application>.
 
 - [authoring_checkpoint.ex](lib/novel_application/authoring_checkpoint.ex)：v3 `authoring_transcript_ref` 与 v2 内嵌副本的统一选择/身份校验；损坏/错绑不回退旧副本，v2 缺身份如实 partial；有数据但缺版本按未知格式拒绝。
 - [agent_run_history.ex](lib/novel_application/agent_run_history.ex)：work/session/turn 持久 run 身份的唯一解析边界；显式绑定、legacy parent/step、批量 row scope 与 scoped 批量读；显式畸形值 fail closed。
+- [agent_run_event_query.ex](lib/novel_application/agent_run_event_query.ex)：历史 `agent_events_since` 补拉的只读应用边界；按持久 run 校验 work/session 归属（含 dead run），返回 since 之后的作者可见事件语义 DTO，Web 只做 wire 序列化；scope/since 信任 Web 归一输入，应用内不重复校验，只校验真实外部 run_id 与持久归属。
 - [authoring_replay.ex](lib/novel_application/authoring_replay.ex)：消费统一 run 解析，严格校验 task header/run/work/parent 后读取 v3 或正确 v2 canonical；缺版本/错绑不补造。
 - [agent_run_server.ex](lib/novel_application/agent_run_server.ex)：状态机、received/staged 转换与提交后发布；结果/问题/状态/压缩统一走 `AgentRunPersistence`，不再自带序列化与 durable task 写入细节。
 - [agent_run_persistence.ex](lib/novel_application/agent_run_persistence.ex)：AgentRun snapshot 的唯一投影/写入请求边界；run/step/author-safe event、私有 checkpoint 编码调用与 durable task header/progress/step 投影，定义 delivery/status/compaction/question 四种事件语义；checkpoint_version 的唯一所属点。
@@ -63,6 +64,7 @@ be found at <https://hexdocs.pm/novel_application>.
 - [agent_run_runtime_test.exs](test/novel_application/agent_run_runtime_test.exs)：bounded 终局/失败留存、压缩回滚、v3 错 ref 不回退、v2 缺身份 partial 回归。
 - [agent_run_history_binding_test.exs](test/novel_application/agent_run_history_binding_test.exs)：11 项 source/修订 child/旧数据/重载同源定位回归。
 - [history_read_boundary_test.exs](test/novel_application/history_read_boundary_test.exs)：7 项真实持久负例（缺版本、task 身份、legacy scope、畸形显式绑定、批量 row 来源）。
+- [agent_run_event_query_test.exs](test/novel_application/agent_run_event_query_test.exs)：7 项只读边界回归（since/author-only、dead run、跨 work/session 拒绝、nil session 语义、缺失/空 run_id 拒绝）；scope/since 由 Web 归一，应用内信任。
 - [authoring_checkpoint_test.exs](test/novel_application/authoring_checkpoint_test.exs)：私有列/v3 引用/旧 v2/缺版本选择边界。
 - [agent_run_result_commit_test.exs](test/novel_application/agent_run_result_commit_test.exs)：结果提交/发布时序、失败与取消事实保留、原文去重及替换回滚回归。
 - [共享测试生命周期支持](test/support/README.md)：application 与 web 共用的 AgentRun 测试收尾，Sandbox owner 由各测试模块自行管理。
