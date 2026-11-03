@@ -24,6 +24,7 @@
 | `check_module_size.mjs` | **模块规模 ratchet 门禁（docs/coding-standards/03 §3.2）**：扫描 `apps/*/lib`、`apps/*/test`、`frontend/src`；已登记观察文件只减不增（R1），新增超关注门槛文件必须拆分或登记豁免（R2）。`--check` 门禁 / `--report` 拆分排期报告 / `--write-baseline` 生成或降上限（新增观察文件需显式 `--register-new`）。接入 `scripts/ai_static_scan.sh` 与 CI `static-scan` job。 |
 | `check_module_size.test.mjs` | 上述门禁的正式测试（`node --test scripts/check_module_size.test.mjs`）：百分位、观察名单判定、ratchet/未登记/豁免/删除、baseline 只降不升与首次生成。 |
 | `check_design_trace.sh` | 前端组件设计追溯检查。 |
+| `check_single_call_protocol.exs` | **单调用协议源码守卫（B26 CP2，L2 静态门禁）**：扫 `apps/*/lib/**/*.ex`，禁止旧两段式判断/计划协议构造（`request_narrative(`、`narrative_fn`、`draft_reasoning_prompt(`、`revision_reasoning_prompt(`、`tool_choice: "none"`）。行为级守卫见 `scripts/model_contracts/single_call_compliance.exs`。2026-11-04 从 application 测试迁出（原测试每次 `mix test` 全量扫描约 2.45s），CI `backend` job 强制运行。 |
 | `check_log_noise.sh` | **业务日志噪声静态门禁（B13b BB-10 / ADR-0018 §6）**：扫生产 lib 的 `Logger.warning`，只允许既有 17 处 provider 适配器 unknown-error 分支（allowlist 显式登记）；新增 warning exit 1。CI `backend` job 强制运行；运行时 per-base-turn 行数/error 级断言由 Tauri verifier `log_noise` 通用断言承担。 |
 | `chapter_identity_audit.exs` | **B25 CP0 章节身份历史数据审计（只读）**：扫 chapters 的重复 `(work_id,title)` / 重复 `(work_id,seq)` / 空 title，输出 `artifacts/chapter-identity/audit.{md,json}`；不修复、不静默合并，修复动作由 B25 CP3 显式执行。 |
 | `chapter_identity_repair.exs` | **B25 CP3 章节身份历史数据显式修复**：默认只读报告重复 `(work_id,title)` / `(work_id,seq)` / 空 title；`--fix-dup-seq` 显式重排重复 seq（每 work 1..n、保持相对顺序、事务、永不合并/删除/改 title）。修复后再执行唯一索引迁移；回滚 `mix ecto.rollback`。 |

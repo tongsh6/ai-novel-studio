@@ -99,10 +99,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-plt-
 
+      - name: Single-call protocol source guard (B26 CP2)
+        run: mix run scripts/check_single_call_protocol.exs
+
       - name: Dialyzer
         run: mix dialyzer
 
-      - run: mix test
+      # 2026-11-04 测试提速：PR 跑快集（排除 @tag :slow），全量由 nightly 承接。
+      - name: Test (PR fast set)
+        run: mix test --exclude slow
 
   frontend:
     name: Frontend (pnpm lint + test)

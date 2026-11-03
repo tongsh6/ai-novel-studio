@@ -1,0 +1,43 @@
+name: Nightly
+
+# 2026-11-04 测试提速：PR 快集（mix test --exclude slow）由 ci.yml 承接，
+# 全量测试（含 @tag :slow）在 nightly 跑，避免慢测试拖长 PR 反馈回路。
+# 慢集标注（@tag :slow）随实测补：见 quality/gates/ci.md §Nightly / Stage。
+
+on:
+  schedule:
+    # 每天 UTC 18:00（Asia/Shanghai 02:00）
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-full:
+    name: Elixir (mix test full suite)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Beam
+        uses: erlef/setup-beam@0f75c29430f34bb5af4cce5e3b7f6a8860fca236
+        with:
+          elixir-version: "1.19"
+          otp-version: "28"
+
+      - name: Cache Mix deps + build
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-
+
+      - run: mix deps.get
+
+      - name: Test (full suite, includes @tag :slow)
+        run: mix test
