@@ -711,22 +711,25 @@ export function evaluateConfirmation({
   const runtime = dir ? runtimeAfterBatch(dir) : null;
   const terminationLlm = Number(termination?.llm_calls);
   const llmStopped = Boolean(runtime) && Number.isFinite(terminationLlm) && Number(runtime.llm_calls) === terminationLlm;
+  // 运行态停止必须由独立实测证明（app=0/端口不监听/llm-calls 不再增长）；cleanup 自身的
+  // EPERM 降级只记 unverified，不能替代独立检查，也不能单独否决独立检查通过的结果。
+  const runtimeStopped =
+    Boolean(runtime) &&
+    runtime.app_processes === 0 &&
+    runtime.ports.backend_4657 === false &&
+    runtime.ports.transport_4661 === false &&
+    llmStopped;
   const c11 = {
-    ok:
-      remaining.length === 0 &&
-      fallback === null &&
-      Boolean(runtime) &&
-      runtime.app_processes === 0 &&
-      runtime.ports.backend_4657 === false &&
-      runtime.ports.transport_4661 === false &&
-      llmStopped,
+    ok: remaining.length === 0 && runtimeStopped,
     reason: null,
     detail: {
       remaining: remaining.length,
       process_observation: cleanup?.process_observation ?? null,
+      cleanup_observation_degraded: fallback !== null,
       runtime_after_batch: runtime,
       termination_llm_calls: Number.isFinite(terminationLlm) ? terminationLlm : null,
       llm_calls_stopped: llmStopped,
+      runtime_stopped: runtimeStopped,
     },
   };
   if (!c11.ok) c11.reason = "cleanup_unverified_or_runtime_not_stopped";

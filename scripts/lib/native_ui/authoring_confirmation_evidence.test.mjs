@@ -405,13 +405,20 @@ test("C10 硬门禁：恢复后决定/创作结果不可见或重启非零 delta
   assert.equal(replay.checks.C10_restore_not_actionable.ok, false);
 });
 
-test("C11 硬门禁：EPERM 降级或 llm-calls 未停止增长 fail", () => {
+test("C11 硬门禁：运行态停止必须独立实测；EPERM 只记 unverified 不能替代；llm-calls 增长 fail", () => {
+  // 独立实测通过（测试环境无 app/端口、llm-calls 与 termination 一致）：EPERM 降级记录但不否决。
   const degraded = evaluate("confirm", {
     cleanup: { remaining: [], process_observation: { method: "pgrep+lsof", fallback_reason: "EPERM" } },
   });
-  assert.equal(degraded.checks.C11_cleanup.ok, false);
+  assert.equal(degraded.checks.C11_cleanup.ok, true);
+  assert.equal(degraded.checks.C11_cleanup.detail.cleanup_observation_degraded, true);
+  // 运行态未停止（llm-calls 数量与 driver 终止观测不一致）→ fail。
   const growing = evaluate("confirm", { llmCalls: 2 });
   assert.equal(growing.checks.C11_cleanup.ok, false);
+  assert.equal(growing.checks.C11_cleanup.detail.runtime_stopped, false);
+  // cleanup remaining 非空 → fail。
+  const lingering = evaluate("confirm", { cleanup: { remaining: [{ pid: 1 }], process_observation: {} } });
+  assert.equal(lingering.checks.C11_cleanup.ok, false);
 });
 
 test("反例：拒绝路径出现 Provider 调用/canon 变化/非 CANCELLED receipt fail", () => {
