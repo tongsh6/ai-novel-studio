@@ -20,6 +20,9 @@ export const CONFIRMATION_MODES = Object.freeze({
 
 export const CONFIRMATION_CHECKPOINTS = Object.freeze([
   "start",
+  // C6 采样窗口：拒绝/确认动作「点击前」与「收到决定后」的 canon 快照。
+  "click-before",
+  "decision-after",
   "after-confirm",
   "after-duplicate",
   "after-restore",

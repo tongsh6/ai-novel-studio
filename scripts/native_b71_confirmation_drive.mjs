@@ -465,10 +465,12 @@ async function run() {
   // 时间窗与动作采样起点取点击前：确定性 provider 的子执行帧可能在 ACK 返回前到达。
   const clickAt = harness.nowIso();
   const clickBefore = readDbCounts();
+  runEvidenceMode(evidence, "capture", dir, ["click-before"]);
   const located = await clickConfirmation(mode, cardLines);
   const sent = await waitActionSent(action);
   const ack = await waitActionAck(sent);
   const decisionAfter = readDbCounts();
+  runEvidenceMode(evidence, "capture", dir, ["decision-after"]);
   const decisionTurn = await harness
     .runStep("turn", "confirmation_decision", () =>
       harness.pollWire(

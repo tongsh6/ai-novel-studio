@@ -448,7 +448,9 @@ export function evaluateConfirmation({
       String(childRun?.profile_ref ?? "") === "tool_confirmation_v1" &&
       String(childRun?.run_mode ?? "") === "bounded" &&
       String(childRun?.parent_turn_ref ?? "") === sourceTurnId &&
-      String(childRun?.status ?? "") === "completed" &&
+      (mode === "confirm"
+        ? String(childRun?.status ?? "") === "completed"
+        : ["cancelled", "completed"].includes(String(childRun?.status ?? ""))) &&
       String(childTrigger?.receipt_id ?? "") === String(actionReceipt?.id ?? "") &&
       String(childTrigger?.kind ?? "") === "author_action" &&
       String(childTrigger?.source_run_id ?? "") === sourceRunId &&
@@ -462,6 +464,7 @@ export function evaluateConfirmation({
       source_run_id: sourceRunId,
       child_run_id: childRunId,
       child_profile_ref: childRun?.profile_ref ?? null,
+      child_status: childRun?.status ?? null,
       child_parent_turn_ref: childRun?.parent_turn_ref ?? null,
       child_trigger_kind: childTrigger?.kind ?? null,
       source_handoff_receipt_id: handoff?.receipt_id ?? null,
@@ -533,45 +536,67 @@ export function evaluateConfirmation({
           : "duplicate_not_exercised_or_delta_nonzero";
   }
 
-  // C6 拒绝零副作用（reject mode，action-scoped 采样 click_before→decision_after；null 不 pass）。
-  const canon = canonContentEqual(checkpoints?.start, checkpoints?.final);
+  // C6 拒绝零副作用（reject mode）：采样窗 = 点击前 → 收到决定后（action-scoped）。
+  // canon 比较排除 author_action_receipts（行为受理记录，C4/C5 要求 receipt 唯一），
+  // 其余作品 canon 表必须一致；mutations 用 scoped delta；受理产生的 cancelled child run
+  // 属审计记录（agent_runs）不计副作用；Provider/llm-calls delta 必须为 0。
   const clickBefore = sampling?.click_before ?? null;
   const decisionAfter = sampling?.decision_after ?? null;
   const scopedDelta = (key) =>
     isObject(clickBefore) && isObject(decisionAfter) ? Number(decisionAfter[key]) - Number(clickBefore[key]) : null;
+  const beforeCanon = checkpoints?.["click-before"] ?? checkpoints?.start ?? null;
+  const afterCanon = checkpoints?.["decision-after"] ?? checkpoints?.final ?? null;
+  const canonAll = canonContentEqual(beforeCanon, afterCanon);
+  // 排除受理 receipt 表的 canon 比较（receipts 是行为受理审计，不是作品事实写入）。
+  const canonWorks = (() => {
+    const left = beforeCanon?.authoring_canon?.tables ?? null;
+    const right = afterCanon?.authoring_canon?.tables ?? null;
+    if (!isObject(left) || !isObject(right)) return { equal: false, changed: ["canon_evidence_missing"] };
+    const names = new Set([...Object.keys(left), ...Object.keys(right)]);
+    const changed = [];
+    for (const name of names) {
+      if (name === "author_action_receipts") continue;
+      const a = left[name];
+      const b = right[name];
+      if (!a || !b || a.row_count !== b.row_count || a.canon_sha256 !== b.canon_sha256) changed.push(name);
+    }
+    return { equal: changed.length === 0, changed };
+  })();
   const rejectReceipts = receipts.filter((receipt) => receipt.action_type === "reject_or_cancel_confirmation");
   const rejectResult = parseJsonField(rejectReceipts[0]?.result) ?? {};
   const rejectTrace = decisionTraceFor(db, [receiptTurnId, `${sourceTurnId}:author_action`]);
+  const childRunCancelled = String(childRun?.status ?? "") === "cancelled";
   const c6 =
     mode === "reject"
       ? {
           ok:
-            canon.equal &&
+            canonAll.reason !== "canon_evidence_missing" &&
+            canonWorks.equal &&
             scopedDelta("provider_runs") === 0 &&
-            scopedDelta("agent_runs") === 0 &&
-            scopedDelta("receipts") <= 1 &&
             scopedDelta("llm_calls") === 0 &&
-            Number(db.mutations_count ?? 0) === 0 &&
+            scopedDelta("mutations") === 0 &&
+            scopedDelta("receipts") <= 1 &&
             rejectReceipts.length === 1 &&
             String(rejectResult?.decision ?? "") === "CANCELLED" &&
             String(rejectResult?.decided_by ?? "") === "author" &&
             String(rejectTrace?.decision_type ?? "") === "cancel_waiting" &&
-            closureStatus === "cancelled",
+            closureStatus === "cancelled" &&
+            childRunCancelled,
           reason: null,
           detail: {
-            canon,
+            canon: { all: canonAll.equal, works: canonWorks.equal, changed_works: canonWorks.changed, changed_all: canonAll.changed ?? [] },
             scoped_delta: {
               provider_runs: scopedDelta("provider_runs"),
-              agent_runs: scopedDelta("agent_runs"),
-              receipts: scopedDelta("receipts"),
               llm_calls: scopedDelta("llm_calls"),
-              mutations_total: Number(db.mutations_count ?? 0),
+              mutations: scopedDelta("mutations"),
+              receipts: scopedDelta("receipts"),
             },
             reject_receipts: rejectReceipts.length,
             reject_decision: rejectResult?.decision ?? null,
             reject_decided_by: rejectResult?.decided_by ?? null,
             decision_trace_type: rejectTrace?.decision_type ?? null,
             closure_status: closureStatus,
+            child_run_status: childRun?.status ?? null,
           },
         }
       : { ok: null, reason: "confirm_mode", detail: {} };
@@ -786,7 +811,7 @@ export function evaluateConfirmation({
       receipts: receipts.length,
       action_receipts: actionReceipts.length,
       provider_runs: db.provider_runs_count,
-      canon,
+      canon: canonAll,
       executed_tool: toolResult?.tool_name ?? null,
       pending_artifact_type: list(executedBody?.adoption_state?.pending)[0]?.artifact_type ?? null,
       approval,

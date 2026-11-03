@@ -133,7 +133,7 @@ function dbFactsFor(mode, overrides = {}) {
         id: CHILD_RUN,
         profile_ref: "tool_confirmation_v1",
         run_mode: "bounded",
-        status: "completed",
+        status: mode === "confirm" ? "completed" : "cancelled",
         parent_turn_ref: SOURCE_TURN,
         active_behavior_ref: null,
         trigger: {
@@ -347,6 +347,8 @@ test("reject 正例：C6 零副作用（采样窗 delta=0/decision CANCELLED/aut
   const result = evaluate("reject");
   assert.deepEqual(result.failed, []);
   assert.equal(result.checks.C6_reject_zero_side_effect.ok, true);
+  assert.equal(result.checks.C6_reject_zero_side_effect.detail.child_run_status, "cancelled");
+  assert.equal(result.checks.C6_reject_zero_side_effect.detail.canon.works, true);
   assert.equal(result.checks.C7_confirmed_child_execution.ok, null);
 });
 
@@ -442,6 +444,13 @@ test("反例：拒绝路径出现 Provider 调用/canon 变化/非 CANCELLED rec
   const facts = dbFactsFor("reject");
   facts.receipts[0].result = { ...facts.receipts[0].result, decision: "CONFIRMED" };
   assert.equal(evaluate("reject", { dbFacts: facts }).checks.C6_reject_zero_side_effect.ok, false);
+  // scoped mutations 增长（点击前→决定后）→ fail
+  const mutated = evaluate("reject", {
+    driverLog: driverLogFor("reject", {
+      sampling: { click_before: counts(1), decision_after: { ...counts(1), mutations: 1 } },
+    }),
+  });
+  assert.equal(mutated.checks.C6_reject_zero_side_effect.ok, false);
 });
 
 test("反例：C2 ACK 身份/trigger 与 sent source_turn_ref 不符 fail", () => {
