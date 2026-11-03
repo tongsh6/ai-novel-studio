@@ -61,23 +61,6 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
     }
   }
 
-  @creative_turn_result %{
-    @server_turn_result
-    | plan: %NovelDomain.MicroPlan{
-        @server_turn_result.plan
-        | proposed_actions: [
-            %{
-              action_id: "act-creative",
-              action_type: :capability_invocation,
-              summary: "生成角色设定",
-              target_ref: "character_design",
-              write_intent: :tentative,
-              risk_hint: :low
-            }
-          ]
-      }
-  }
-
   @pending_adoption_turn_result %{
     turn_id: "turn-adopt-source",
     frame_ref: "frame-adopt-source",

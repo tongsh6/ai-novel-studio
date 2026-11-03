@@ -9,6 +9,7 @@ defmodule NovelAgent.Provider.AdapterExecution do
   """
 
   alias NovelAgent.Provider
+  alias NovelAgent.Provider.AuthorProseStream
   alias NovelAgent.Provider.CancellationToken
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Result
@@ -163,13 +164,13 @@ defmodule NovelAgent.Provider.AdapterExecution do
     content
     |> text_chunks(ctx)
     |> Enum.with_index(1)
-    |> Enum.reduce({[], 0, true, NovelAgent.Provider.AuthorProseStream.new()}, fn {chunk, index},
-                                                                             {events, accumulated,
-                                                                              author_open?, content_stream} ->
+    |> Enum.reduce({[], 0, true, AuthorProseStream.new()}, fn {chunk, index},
+                                                              {events, accumulated, author_open?,
+                                                               content_stream} ->
       length = String.length(chunk)
       next_accumulated = accumulated + length
       {author_delta, next_author_open?} = author_reasoning_delta(ctx, chunk, author_open?)
-      {next_content_stream, content_delta} = NovelAgent.Provider.AuthorProseStream.feed(content_stream, chunk)
+      {next_content_stream, content_delta} = AuthorProseStream.feed(content_stream, chunk)
 
       event =
         chunk_event!(ctx, first_sequence + index - 1,

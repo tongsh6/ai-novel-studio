@@ -4,7 +4,6 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
   alias NovelAgent.Provider.CapabilityProfile
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.OpenAI
-  alias NovelAgent.Provider.OpenAICompatible
   alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.Result
 
@@ -151,10 +150,12 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
       assert [tool] = body.tools
       assert tool.type == "function"
       assert tool.name == "read_character"
+
       assert tool.parameters == %{
                "type" => "object",
                "properties" => %{"query" => %{"type" => "string"}}
              }
+
       assert body.tool_choice == %{type: "function", name: "read_character"}
     end
 
@@ -213,7 +214,13 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
       assert {:ok, prompt} = RequestIR.to_provider_prompt(ir, tool_names: ["read_character"])
 
       assert {:ok, %{result: result}} =
-               OpenAI.execute(responses_state(mock), nil, prompt, %InferenceParams{}, provider_ctx())
+               OpenAI.execute(
+                 responses_state(mock),
+                 nil,
+                 prompt,
+                 %InferenceParams{},
+                 provider_ctx()
+               )
 
       assert result.content == "已读取"
 
