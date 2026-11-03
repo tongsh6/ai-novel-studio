@@ -2212,17 +2212,19 @@ defmodule NovelApplication.AgentRunServer do
 
   defp persist_event(%AgentEvent{}), do: :ok
 
-  # 作者显式压缩只追加 canonical checkpoint 并由同一 submit 边界持久化；不改变运行
-  # 状态、不产生 TurnResult/运行事件。失败保留旧 state，作者不会看到成功回执。
+  # 压缩只追加 canonical checkpoint 并追加一条 author-safe 整理记录；不改变运行状态、
+  # 不产生 TurnResult。失败保留旧 state 且不广播；作者不会看到成功回执。
   defp apply_compaction(plan, state) do
     transcript = Map.get(state.stage_state, :judgment_transcript)
 
     case AuthoringSession.compact(transcript, plan) do
       {:ok, compacted} ->
         next = merge_stage_state(state, AuthoringSession.transcript_state(compacted))
+        event = compaction_event(next, plan, compacted)
+        events = if match?({:ok, _event}, event), do: [elem(event, 1)], else: []
 
-        case commit_transcript_checkpoint(next) do
-          :ok -> {:reply, {:ok, compaction_receipt(plan, compacted)}, next}
+        case commit_transcript_checkpoint(next, events) do
+          :ok -> finalize_compaction(next, plan, compacted, event)
           {:error, _reason} = error -> {:reply, error, state}
         end
 
@@ -2230,6 +2232,49 @@ defmodule NovelApplication.AgentRunServer do
         {:reply, error, state}
     end
   end
+
+  # 先提交后发布：checkpoint 与整理记录在同一事务成功后才进入内存并广播。事件构造
+  # 失败只降级为「无整理记录」，不阻塞已成功的压缩、不改变作者语义。
+  defp finalize_compaction(next, plan, compacted, {:ok, event}) do
+    committed = %{next | event_sequence: event.sequence, events: next.events ++ [event]}
+    AgentEventPublisher.publish(event, committed.event_sink)
+    {:reply, {:ok, compaction_receipt(plan, compacted)}, committed}
+  end
+
+  defp finalize_compaction(next, plan, compacted, {:error, _errors}) do
+    {:reply, {:ok, compaction_receipt(plan, compacted)}, next}
+  end
+
+  # 整理记录是作者可见面的一手事实（VS-00L §18 提案方向）：只含真实整理项数与来源
+  # 显示名，不含 call_id、ref 原值、版本或 canonical 内容；作者可见文案仍由前端
+  # copy 渲染，事件 summary/payload 只作为事实来源。
+  defp compaction_event(state, plan, compacted) do
+    sequence = state.event_sequence + 1
+    view = author_visible_compaction(compacted)
+    covered = plan |> Map.get(:covers, %{}) |> Map.get(:call_ids, []) |> length()
+
+    payload =
+      %{covered_exchanges: covered, sources: Map.get(view, :sources, [])}
+      |> put_present(:retained_items, Map.get(plan, :retained_items))
+      |> put_present(:scope, Map.get(plan, :scope))
+
+    AgentEvent.new(%{
+      event_id: "evt_#{state.run.run_id}_#{sequence}",
+      run_ref: state.run.run_id,
+      step_ref: state.run.current_step_ref,
+      sequence: sequence,
+      event_type: :checkpoint_created,
+      visibility: :author,
+      summary: "较早的 #{covered} 项创作过程已整理",
+      reason_codes: ["transcript_compaction"],
+      refs: [],
+      payload: payload,
+      emitted_at: DateTime.utc_now()
+    })
+  end
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
 
   # 作者可见面只经既有 AuthoringReplay 边界投影：摘要、省略说明与来源显示名，
   # 不含 call_id、ref 原值、版本或 canonical 内容。
@@ -2251,10 +2296,13 @@ defmodule NovelApplication.AgentRunServer do
     end
   end
 
-  # 显式压缩承诺可恢复历史；bounded/durable 都先用同一 snapshot 事务提交，
-  # 成功后才推进 GenServer 内存。这里不能使用运行日志的 best-effort 写入语义。
-  defp commit_transcript_checkpoint(%{run: %AgentRun{} = run} = state) do
-    with {:ok, snapshot} <- AgentRunPersistence.snapshot(run, state, :compaction),
+  # 显式压缩承诺可恢复历史；bounded/durable 都先用同一 snapshot 事务提交 run、
+  # 私有 checkpoint 与本次新增 author-safe 事件，成功后才推进 GenServer 内存。
+  # 这里不能使用运行日志的 best-effort 写入语义。
+  defp commit_transcript_checkpoint(%{run: %AgentRun{} = run} = state, events)
+       when is_list(events) do
+    with {:ok, snapshot} <-
+           AgentRunPersistence.snapshot(run, state, :compaction, events: events),
          {:ok, _run} <- AgentRunPersistence.commit(snapshot) do
       :ok
     else
@@ -2272,7 +2320,7 @@ defmodule NovelApplication.AgentRunServer do
     :exit, _reason -> {:error, :checkpoint_persistence_failed}
   end
 
-  defp commit_transcript_checkpoint(_state), do: {:error, :checkpoint_persistence_failed}
+  defp commit_transcript_checkpoint(_state, _events), do: {:error, :checkpoint_persistence_failed}
 
   defp persist(fun) when is_function(fun, 0) do
     case fun.() do

@@ -37,9 +37,25 @@ defmodule NovelApplication.AgentRunPersistenceTest do
     assert event.event_type == "run_started"
   end
 
-  test "显式压缩只提交 run 与 checkpoint，不写事件" do
+  test "显式压缩默认不写事件，本次新增作者安全事件随 checkpoint 一起提交" do
     assert {:ok, %{events: []}} =
              snapshot(run(), [event(:run_started, 1)], :compaction)
+
+    record = event(:checkpoint_created, 5)
+
+    assert {:ok, %{events: [compacted_event]}} =
+             AgentRunPersistence.snapshot(
+               run(),
+               %{events: [], event_sequence: 4, stage_state: %{}},
+               :compaction,
+               events: [record]
+             )
+
+    assert compacted_event.id == record.event_id
+    assert compacted_event.event_type == "checkpoint_created"
+    assert compacted_event.visibility == "author"
+    assert compacted_event.sequence == 5
+    refute Map.has_key?(compacted_event.payload, "turn_result")
   end
 
   test "问题答复只提交本次新增事件" do

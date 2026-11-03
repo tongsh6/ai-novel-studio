@@ -8,7 +8,8 @@ defmodule NovelApplication.AgentRunPersistence do
 
   - 普通结果与问题交付：保存本次全部非 stream 事件。
   - 普通状态快照：沿用旧策略，只在 run 进入可持久终态时保存事件。
-  - 显式压缩：只提交 run 与 checkpoint，不使用 best-effort 语义。
+  - 显式压缩：提交 run、checkpoint 与本次新增的 author-safe 事件（如
+    `checkpoint_created` 整理记录）；事件由调用方显式传入，不使用 best-effort 语义。
   - 作者问题答复：只提交本次新增事件。
 
   本模块不执行 Provider、不持有流程状态、不复制 canonical；私有历史仍只经
@@ -82,7 +83,10 @@ defmodule NovelApplication.AgentRunPersistence do
     if persist_events_snapshot?(run), do: delivery_event_attrs(state.events), else: []
   end
 
-  defp snapshot_events(:compaction, _run, _state, _opts), do: []
+  # 压缩只持久化本次新增的作者安全事件（例如整理记录）；调用方未传时为空，
+  # 保持「压缩不隐式写事件」的旧语义。
+  defp snapshot_events(:compaction, _run, _state, opts),
+    do: delivery_event_attrs(Keyword.get(opts, :events, []))
 
   defp snapshot_events(:question_answer, _run, state, opts) do
     before = Keyword.fetch!(opts, :before)

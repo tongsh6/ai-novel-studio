@@ -245,4 +245,84 @@ defmodule NovelApplication.TranscriptCompactionTest do
     assert {:error, :transcript_not_found} = TranscriptCompaction.plan(nil)
     assert {:error, :transcript_not_found} = TranscriptCompaction.plan(%{})
   end
+
+  # ── 安全点维护派生（VS-00L §18 提案方向；阶段 4 基础设施） ─────────────────
+
+  test "维护派生保留当前工作回合，不整理最后一条作者消息之后的交换" do
+    transcript =
+      base_transcript()
+      |> append_exchange("call-1")
+      |> AuthoringTranscript.append_author_turn("继续写下一场。", "author_turn:turn-2")
+      |> append_exchange("call-2")
+
+    # keep=0 隔离验证「当前工作回合永不整理」；默认 K=4 由下一用例单独验证。
+    assert {:ok, plan} = TranscriptCompaction.plan_maintenance(transcript, keep_recent_items: 0)
+    assert plan.covers == %{call_ids: ["call-1"]}
+    assert plan.scope == "earlier_work_turns"
+    # 当前工作回合的交换（call-2）不计入整理范围，只作为保留项计数。
+    assert plan.retained_items == 1
+
+    # 显式整理语义不变：仍然整理全部未覆盖完整交换。
+    assert {:ok, explicit_plan} = TranscriptCompaction.plan(transcript)
+    assert explicit_plan.covers == %{call_ids: ["call-1", "call-2"]}
+  end
+
+  test "维护派生保留最近 keep_recent_items 项，只整理更早的交换" do
+    transcript =
+      base_transcript()
+      |> append_exchange("call-1")
+      |> append_exchange("call-2")
+      |> append_exchange("call-3")
+      |> append_exchange("call-4")
+      |> AuthoringTranscript.append_author_turn("继续。", "author_turn:turn-2")
+      |> append_exchange("call-5")
+
+    assert {:ok, plan} = TranscriptCompaction.plan_maintenance(transcript, keep_recent_items: 2)
+    assert plan.covers == %{call_ids: ["call-1", "call-2"]}
+    # 保留 = 最近 2 项（call-3/4）+ 当前工作回合（call-5）。
+    assert plan.retained_items == 3
+  end
+
+  test "只有当前工作回合时维护派生出幂等空结果（不整理）" do
+    transcript = base_transcript() |> append_exchange("call-1")
+
+    assert {:ok, :nothing_to_compact} =
+             TranscriptCompaction.plan_maintenance(transcript)
+
+    # 显式整理仍然可以整理当前回合（作者主动选择）。
+    assert {:ok, plan} = TranscriptCompaction.plan(transcript)
+    assert plan.covers == %{call_ids: ["call-1"]}
+  end
+
+  test "全部交换都在保留线内时维护派生不产生 plan" do
+    transcript =
+      base_transcript()
+      |> append_exchange("call-1")
+      |> append_exchange("call-2")
+      |> AuthoringTranscript.append_author_turn("继续。", "author_turn:turn-2")
+
+    assert {:ok, :nothing_to_compact} =
+             TranscriptCompaction.plan_maintenance(transcript, keep_recent_items: 4)
+  end
+
+  test "维护派生排除未完成与已覆盖交换，且非法参数使用默认保留项" do
+    transcript =
+      base_transcript()
+      |> append_exchange("call-1")
+      |> append_exchange("call-2")
+      |> append_exchange("call-3")
+      |> append_exchange("call-4")
+      |> append_exchange("call-5")
+      |> AuthoringTranscript.append_assistant("待完成。", [
+        RequestIR.tool_call_block("read_character", %{}, "call-pending")
+      ])
+      |> AuthoringTranscript.append_author_turn("继续。", "author_turn:turn-2")
+
+    # 非法参数回退默认 K=4：只整理最早的第 1 项；未完成交换不选。
+    assert {:ok, plan} =
+             TranscriptCompaction.plan_maintenance(transcript, keep_recent_items: "bad")
+
+    assert plan.covers == %{call_ids: ["call-1"]}
+    assert plan.retained_items == 4
+  end
 end
