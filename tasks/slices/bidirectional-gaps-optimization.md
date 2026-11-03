@@ -67,6 +67,15 @@
 - E4 `user_message.behavior_id`：接线读取或删除字段（不留死字段）。
 - E5 证据口径：`-tauri` 目录名 vs `summary.surface` 不符 → 证据指南补充「必须看 surface/driver/provider」；UA-01 D3 文档与 artifact 差异更正或标注。
 
+## 1.1 执行进度（2026-11-04）
+
+- **批次 A ✅ 完成**（`30b067ee`）：
+  - A1 删除 8 个幽灵 C2S 事件（`socket.ts` 死协议辅助函数；无 handler/无调用点）；
+  - A2 `action_result` 归位：新增 `onActionResult` 监听（跨窗口失效 open 问题查询、合并 `turn_results`（按 turn_id 幂等）、合并 `agent_run_state`）；前端 **744/744**。
+- **批次 B ⚠️ 待产品决策**（核对发现审核报告「后端孤岛」判定不完整）：
+  - `compact_transcript` **不是死代码**：Channel handler + `workspace_channel_compaction_test.exs`（4 用例，真实作者整理回执/canonical 不变/执行中拒绝）+ 应用层能力，均通过；
+  - 真实缺口是「**前端入口未交付**」——契约 §16.16 把「作者命令」列为两类入口之一，但 46 §9.9 A 方案（无感自动整理、作者零操作）未提供手动入口；
+  - **需产品拍板**：是否暴露手动整理入口（若不需要，修订 §16.16 为「作者命令入口未产品化，保留服务能力」）；本计划暂不改代码。
 ## 2. 实施顺序与验收
 
 | 批次 | 内容 | 预计 | 验收 |
