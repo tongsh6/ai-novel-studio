@@ -3528,4 +3528,96 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     Enum.each(subscribers, &send(&1, :stop))
   end
 
+  test "a killed step task fails the run instead of being swallowed as a subscriber DOWN" do
+    parent = self()
+    run_id = unique_run_id()
+
+    blocking_step = fn _run, sequence ->
+      send(parent, {:step_task_started, sequence, self()})
+
+      receive do
+        :never_release -> :ok
+      end
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(base_run(run_id),
+               next_step_planner: sequential_steps([blocking_step]),
+               event_sink: event_sink_full(parent)
+             )
+
+    assert_receive {:step_task_started, 1, task_pid}, 1_000
+    assert {:ok, %{current_task?: true}} = AgentRunService.state(run_id)
+
+    on_exit(fn -> if Process.alive?(task_pid), do: Process.exit(task_pid, :kill) end)
+
+    Process.exit(task_pid, :kill)
+
+    assert_receive {:agent_event_full, :run_failed, failed}, 1_000
+    assert "step_task_down" in failed.reason_codes
+
+    assert {:ok, state} = AgentRunService.state(run_id)
+    assert state.run.status == :failed
+    refute state.current_task?
+    refute_receive {:step_task_started, 2, _pid}, 20
+  end
+
+  test "a subscriber exit clears only its sink and leaves the running step task alive" do
+    parent = self()
+    run_id = unique_run_id()
+
+    blocking_step = fn _run, sequence ->
+      send(parent, {:step_task_started, sequence, self()})
+
+      receive do
+        :release_step ->
+          {:ok, %{step: step_struct(run_id, sequence, "step_#{sequence}"), observations: []}}
+      end
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(base_run(run_id),
+               next_step_planner: sequential_steps([blocking_step]),
+               event_sink: event_sink(parent)
+             )
+
+    assert_receive {:step_task_started, 1, task_pid}, 1_000
+    [{server, _}] = Registry.lookup(NovelApplication.AgentRunRegistry, run_id)
+
+    subscriber =
+      spawn_link(fn ->
+        receive do
+          {:attach, server} ->
+            NovelApplication.AgentRunServer.attach_event_sink(server, self(), fn _event -> :ok end)
+
+            send(parent, {:subscriber_attached, self()})
+        end
+
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    send(subscriber, {:attach, server})
+    assert_receive {:subscriber_attached, ^subscriber}, 1_000
+    assert wait_for(fn -> map_size(:sys.get_state(server).event_sinks) == 1 end)
+
+    on_exit(fn -> if Process.alive?(task_pid), do: send(task_pid, :release_step) end)
+
+    monitor_ref = Process.monitor(subscriber)
+    send(subscriber, :stop)
+    assert_receive {:DOWN, ^monitor_ref, :process, ^subscriber, :normal}, 1_000
+    assert wait_for(fn -> map_size(:sys.get_state(server).event_sinks) == 0 end)
+
+    assert Process.alive?(task_pid)
+
+    assert {:ok, %{run: %{status: :running}, current_task?: true}} =
+             AgentRunService.state(run_id)
+
+    send(task_pid, :release_step)
+    assert_receive {:agent_event, :run_completed, _summary}, 1_000
+
+    assert {:ok, %{run: %{status: :completed}, current_task?: false}} =
+             AgentRunService.state(run_id)
+  end
 end

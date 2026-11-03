@@ -795,6 +795,18 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   @impl true
+  # 真实执行 Task 的 DOWN：以 current_task_ref 精确归属，必须先于订阅者 DOWN 分派，
+  # 否则当前任务被通用分支吞掉，run 会停在 executing。
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{current_task_ref: ref} = state) do
+    state =
+      state
+      |> Map.put(:current_task_ref, nil)
+      |> Map.put(:current_task_pid, nil)
+      |> settle_run_failed({:step_task_down, reason}, ["step_task_down"])
+
+    {:noreply, state}
+  end
+
   # 多窗口订阅者退出：清理其 sink，避免向死进程发布。
   def handle_info({:DOWN, ref, :process, pid, _reason}, state) do
     case Map.get(state.event_sinks, pid) do
@@ -830,16 +842,6 @@ defmodule NovelApplication.AgentRunServer do
       true ->
         {:noreply, state, {:continue, :run_next_step}}
     end
-  end
-
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{current_task_ref: ref} = state) do
-    state =
-      state
-      |> Map.put(:current_task_ref, nil)
-      |> Map.put(:current_task_pid, nil)
-      |> settle_run_failed({:step_task_down, reason}, ["step_task_down"])
-
-    {:noreply, state}
   end
 
   def handle_info({:agent_stage_event, attrs}, state) when is_map(attrs) do
