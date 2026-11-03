@@ -273,8 +273,52 @@ async function waitRunPauseOrTerminal({ runId, timeoutMs = TURN_TIMEOUT_MS }) {
 }
 
 async function respondToRunPause(steerText, attempts) {
-  // 真实控制坞（用户可见入口）：AXTextField「调整当前任务/回复或补充」+ AXButton「发送调整」。
+  // 当前真实暂停 UI（ask_author 问题卡）：「回复此问题」按钮 + 底部 AXTextField + 「发送」。
+  // 注意页面提示：底部输入直接发送「会作为新请求」→ 必须走「回复此问题」路径才是同一 run 的作者回复。
   const nodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:pause_panel`);
+  const replyButton =
+    nodes.find((node) => node?.role === "AXButton" && String(node.title ?? "").includes("回复此问题")) ?? null;
+  attempts.push({ step: "find_reply_question", ok: Boolean(replyButton), title: replyButton?.title ?? null });
+  if (replyButton) {
+    harness.safeClick(replyButton, `${FLOW_LABEL}:reply_question`);
+    await sleep(600);
+    const replyNodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:reply_field`);
+    const field =
+      replyNodes.find(
+        (node) =>
+          node?.role === "AXTextField" &&
+          /调整当前任务|回复或补充|输入你的想法|补充方向/.test(String(node.title ?? node.desc ?? node.value ?? "")),
+      ) ??
+      replyNodes.find((node) => node?.role === "AXTextField") ??
+      null;
+    attempts.push({ step: "find_reply_field", ok: Boolean(field), desc: field?.desc ?? null, title: field?.title ?? null });
+    if (!field) return { ok: false, reason: "reply_field_not_found" };
+    harness.safeClick(field, `${FLOW_LABEL}:reply_field`);
+    await sleep(300);
+    typeText(harness.APP, steerText);
+    await sleep(800);
+    const send = findButtonByText(
+      harness.dumpNodesForInteraction(`${FLOW_LABEL}:reply_send`),
+      (value) => value === "发送" || value === "发送调整",
+    );
+    attempts.push({ step: "find_reply_send", ok: Boolean(send), title: send?.title ?? null });
+    if (!send) return { ok: false, reason: "reply_send_not_found", field_found: true };
+    harness.safeClick(send, `${FLOW_LABEL}:reply_send`);
+    await harness.pollWire(
+      (wire) =>
+        wire.find(
+          (entry) =>
+            entry?.direction === "sent" &&
+            Array.isArray(entry.frame) &&
+            ["user_message", "agent_command", "author_action"].includes(String(entry.frame[3] ?? "")),
+        ) ?? null,
+      60_000,
+      `${FLOW_LABEL}:steer_sent`,
+    );
+    return { ok: true, kind: "reply_question", text: steerText, sent: true };
+  }
+
+  // 回退路径（旧控制坞）：AXTextField「调整当前任务/回复或补充」+ AXButton「发送调整」。
   const field =
     nodes.find(
       (node) =>
