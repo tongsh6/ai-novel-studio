@@ -87,25 +87,33 @@ defmodule NovelApplication.ContextPressure do
     text
     |> String.split(",", trim: true)
     |> Enum.reduce(%{}, fn entry, acc ->
-      case String.split(entry, ":", parts: 2) do
-        [provider, window] ->
-          provider = String.trim(provider)
-
-          with true <- provider != "",
-               {value, ""} <- Integer.parse(String.trim(window)),
-               true <- value > 0 do
-            Map.put(acc, provider, value)
-          else
-            _ -> acc
-          end
-
-        _other ->
-          acc
+      case parse_window_entry(entry) do
+        nil -> acc
+        {provider, window} -> Map.put(acc, provider, window)
       end
     end)
   end
 
   def parse_window_overrides(_other), do: %{}
+
+  # 单条 `provider:window` 解析；非法项返回 nil 由调用方忽略（不猜测）。
+  defp parse_window_entry(entry) do
+    case String.split(entry, ":", parts: 2) do
+      [provider, window] ->
+        provider = String.trim(provider)
+
+        with true <- provider != "",
+             {value, ""} <- Integer.parse(String.trim(window)),
+             true <- value > 0 do
+          {provider, value}
+        else
+          _ -> nil
+        end
+
+      _other ->
+        nil
+    end
+  end
 
   @doc "保守模型窗口（token）；provider 未知时返回保守默认。"
   @spec window(String.t() | nil) :: pos_integer()
