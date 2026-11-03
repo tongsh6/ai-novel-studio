@@ -262,8 +262,22 @@ async function openWhyAndCount() {
     attempts.push({ strategy: "visible_probe", ok: false, reason: error.message });
   }
   if (!nodes || !harness.findWhyButton(nodes)) {
-    const candidates = candidatesOf();
-    attempts.push({ strategy: "scan", ok: candidates.length > 0, count: candidates.length });
+    // AX 树在 capture/动画后可能短暂重组：scan 有界重试并记录每次 dump 规模（防单次空树）。
+    let candidates = [];
+    let scanNodes = null;
+    for (let attempt = 0; attempt < 4 && candidates.length === 0; attempt += 1) {
+      const scan = candidatesOf();
+      candidates = scan;
+      try {
+        scanNodes = harness.dumpNodes();
+      } catch (error) {
+        attempts.push({ strategy: "scan", attempt, ok: false, reason: error.message });
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        continue;
+      }
+      attempts.push({ strategy: "scan", attempt, ok: candidates.length > 0, count: candidates.length, nodes: list(scanNodes).length });
+      if (candidates.length === 0) await new Promise((resolve) => setTimeout(resolve, 500));
+    }
     const target = candidates.at(-1) ?? null;
     if (target?.path) {
       try {
@@ -291,15 +305,33 @@ async function openWhyAndCount() {
     }
   }
   let panel = null;
-  try {
-    panel = await harness.pollAx(
-      (text) => text.includes("参考来源") && text.includes("不会重新调用模型"),
-      20_000,
-      "b71-confirmation:why_dialog",
-    );
-    attempts.push({ strategy: "panel_wait", ok: true });
-  } catch (error) {
-    attempts.push({ strategy: "panel_wait", ok: false, reason: error.message });
+  const waitPanel = async () => {
+    try {
+      panel = await harness.pollAx(
+        (text) => text.includes("参考来源") && text.includes("不会重新调用模型"),
+        20_000,
+        "b71-confirmation:why_dialog",
+      );
+      attempts.push({ strategy: "panel_wait", ok: true });
+    } catch (error) {
+      attempts.push({ strategy: "panel_wait", ok: false, reason: error.message });
+    }
+  };
+  await waitPanel();
+  if (!panel) {
+    // 面板未出现：可能是按钮 scan/AXPress 时机问题——重新 scan + AXPress 后重试 panel_wait 一次（仍失败则如实记录）。
+    const retry = candidatesOf();
+    const target = retry.at(-1) ?? null;
+    attempts.push({ strategy: "panel_retry_scan", ok: Boolean(target), count: retry.length });
+    if (target?.path) {
+      try {
+        harness.ensureInput().click(target.path);
+        attempts.push({ strategy: "panel_retry_axpress", ok: true, path: target.path });
+      } catch (error) {
+        attempts.push({ strategy: "panel_retry_axpress", ok: false, reason: error.message });
+      }
+      await waitPanel();
+    }
   }
   const after = readDbCounts();
   const llmDelta = Number(after.llm_calls) - Number(before.llm_calls);
