@@ -1,7 +1,7 @@
 // AUTO-GENERATED FROM docs/design/schemas/author_visible/display_names.json — DO NOT EDIT.
 // Run `pnpm codegen:author-visible` to regenerate. Author-visible surfaces must only use these display names.
 
-export const SOURCE_HASH = "72787dfe48259dac6260141e08d991337a2f3fe2999b30c256e6a406b3856dff";
+export const SOURCE_HASH = "15d71c1ee859e9530bf818443d8caa57f6f80db449ffa5881533a98f8b726489";
 
 export const DISPLAY_NAMES = {
   "action": {
@@ -109,6 +109,52 @@ export const DISPLAY_NAMES = {
     "authority_budget": "权限或预算策略要求先暂停。",
     "confirmation_required": "此操作需要作者明确确认。",
   },
+  "memory_scope": {
+    "GLOBAL": "全局",
+    "WORK": "整部作品",
+    "VOLUME": "当前卷",
+    "ARC": "故事线",
+    "CHAPTER": "当前章",
+    "SESSION": "当前会话",
+  },
+  "memory_source_type": {
+    "AUTHOR_CONFIRMED": "作者确认",
+    "AUTHOR_CREATED": "作者创建",
+    "AI_EXTRACTED": "AI 提取",
+    "CHAPTER_EXTRACTED": "章节提取",
+    "WORK_SETTING_IMPORTED": "作品设定导入",
+    "SESSION_CONTEXT": "会话上下文",
+  },
+  "memory_status": {
+    "DRAFT": "草稿",
+    "CONFIRMED": "已确认",
+    "STABILIZED": "已稳定",
+    "CONFLICTED": "有冲突",
+    "SUPERSEDED": "已被新版替代",
+    "DEPRECATED": "已弃用",
+    "ARCHIVED": "已归档",
+  },
+  "memory_tag": {
+    "adopted_artifact": "作者采纳内容",
+    "work_direction": "创作方向",
+    "risk:low": "低风险",
+    "risk:medium": "中风险",
+    "risk:high": "高风险",
+  },
+  "memory_type": {
+    "WORK_DIRECTION": "创作方向",
+    "WORLD_RULE": "世界观规则",
+    "CHARACTER_PROFILE": "人物设定",
+    "CURRENT_STATE": "当前状态",
+    "RELATIONSHIP": "人物关系",
+    "PLOT_FACT": "剧情事实",
+    "FORESHADOWING": "伏笔",
+    "STYLE_RULE": "写作风格",
+    "CONSTRAINT": "创作约束",
+    "AUTHOR_PREFERENCE": "作者偏好",
+    "IDEA": "灵感",
+    "DRAFT_CONTEXT": "草稿上下文",
+  },
   "model": {
     "__default__": "当前模型",
   },
@@ -190,6 +236,11 @@ export const FALLBACKS = {
   "error_code": "处理遇到问题",
   "frame_type": "创作进展",
   "gate": "前置检查",
+  "memory_scope": "记忆范围",
+  "memory_source_type": "来源未知",
+  "memory_status": "状态未知",
+  "memory_tag": "标签",
+  "memory_type": "记忆类型",
   "model": "当前模型",
   "provider": "当前模型服务",
   "reason_code": "已记录",
@@ -235,4 +286,4 @@ export const FORBIDDEN_TOKENS = {
 ],
 } as const;
 
-export type DisplayKind = "action" | "artifact_type" | "capability" | "context_source" | "decision" | "error_code" | "frame_type" | "gate" | "model" | "provider" | "reason_code" | "run_status" | "status" | "tool";
+export type DisplayKind = "action" | "artifact_type" | "capability" | "context_source" | "decision" | "error_code" | "frame_type" | "gate" | "memory_scope" | "memory_source_type" | "memory_status" | "memory_tag" | "memory_type" | "model" | "provider" | "reason_code" | "run_status" | "status" | "tool";

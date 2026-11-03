@@ -16,6 +16,11 @@ export type AuthorVisibleText = string & { readonly __authorVisible: unique symb
 const importMeta = import.meta as ImportMeta & { env?: { DEV?: boolean } };
 const isDev = importMeta.env?.DEV === true;
 
+/** 某 domain 的已登记内部 code 列表（用于过滤器/枚举 UI；顺序取 SSOT 定义序）。 */
+export function displayCodes(kind: DisplayKind): string[] {
+  return Object.keys(DISPLAY_NAMES[kind]);
+}
+
 /** 内部 code → 作者显示名；未登记 code 返回 domain 兜底文案。 */
 export function displayName(kind: DisplayKind, code: string | null | undefined): string {
   const table = DISPLAY_NAMES[kind] as Record<string, string>;

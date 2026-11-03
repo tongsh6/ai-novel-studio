@@ -5,6 +5,7 @@ import { listMemories } from "../lib/memoryApi";
 import type { MemoryItem, SearchParams } from "../lib/memoryApi";
 import { MemoryCreateDialog } from "./MemoryCreateDialog";
 import { MemoryDetailDrawer } from "./MemoryDetailDrawer";
+import { displayCodes } from "../lib/authorVisible";
 import { MEMORY } from "../lib/copy";
 import {
   memoryTypeLabel,
@@ -18,18 +19,10 @@ import {
 } from "../lib/memoryListView";
 import styles from "./MemoryListPage.module.css";
 
-const MEMORY_TYPES = ["", ...Object.keys(MEMORY.typeLabels)];
-const SCOPES = ["", "GLOBAL", "WORK", "VOLUME", "ARC", "CHAPTER", "SESSION"];
-const STATUSES = [
-  "",
-  "DRAFT",
-  "CONFIRMED",
-  "STABILIZED",
-  "CONFLICTED",
-  "SUPERSEDED",
-  "DEPRECATED",
-  "ARCHIVED",
-];
+// 过滤器选项直接来自作者可见 SSOT（code 为值、displayName 为文案），避免手写枚举漂移。
+const MEMORY_TYPES = ["", ...displayCodes("memory_type")];
+const SCOPES = ["", ...displayCodes("memory_scope")];
+const STATUSES = ["", ...displayCodes("memory_status")];
 
 const STATUS_TONE_CLASS: Record<MemoryStatusTone, string> = {
   confirmed: styles.statusConfirmed,

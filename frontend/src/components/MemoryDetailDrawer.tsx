@@ -2,7 +2,9 @@
 // Prototype: N/A (Phase 0 memory management maintenance page has no frozen screen frame)
 // NOTE: 此组件为 Phase 0 快速验证产物，待 UI 设计阶段需重新对照原型实现
 import { useCallback, useEffect, useState } from "react";
+import { displayName } from "../lib/authorVisible";
 import { MEMORY } from "../lib/copy";
+import { formatMemoryTime, memoryTagLabel } from "../lib/memoryListView";
 import type { MemoryItem, ReferenceLog } from "../lib/memoryApi";
 import {
   getMemoryReferences,
@@ -20,20 +22,6 @@ interface Props {
   onUpdated: (item: MemoryItem) => void;
   onClose: () => void;
 }
-
-const TYPE_LABELS: Record<string, string> = {
-  WORLD_RULE: "世界观规则",
-  CHARACTER_PROFILE: "人物设定",
-  CURRENT_STATE: "当前状态",
-  RELATIONSHIP: "人物关系",
-  PLOT_FACT: "剧情事实",
-  FORESHADOWING: "伏笔",
-  STYLE_RULE: "写作风格",
-  CONSTRAINT: "创作约束",
-  AUTHOR_PREFERENCE: "作者偏好",
-  IDEA: "灵感",
-  DRAFT_CONTEXT: "草稿上下文",
-};
 
 const STATUS_CLASS: Record<string, string> = {
   DRAFT: styles.statusDraft,
@@ -92,10 +80,10 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
 
         <div className={styles.badges}>
           <span className={`${styles.badge} ${STATUS_CLASS[item.status] ?? styles.statusDefault}`}>
-            {item.status}
+            {displayName("memory_status", item.status)}
           </span>
-          <span className={styles.badge}>{TYPE_LABELS[item.type] ?? item.type}</span>
-          <span className={styles.badge}>{item.scope}</span>
+          <span className={styles.badge}>{displayName("memory_type", item.type)}</span>
+          <span className={styles.badge}>{displayName("memory_scope", item.scope)}</span>
           {item.locked && <span className={styles.badge}>🔒 已锁定</span>}
           {!item.recallable && <span className={styles.badge}>不可召回</span>}
         </div>
@@ -120,7 +108,7 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
             <div>来源置信度: {item.source_confidence}</div>
             <div>引用次数: {item.reference_count}</div>
             <div>版本: {item.version}</div>
-            <div>来源类型: {item.source_type}</div>
+            <div>来源类型: {displayName("memory_source_type", item.source_type)}</div>
           </div>
         </section>
 
@@ -152,11 +140,15 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
           <section className={styles.section}>
             <label>标签</label>
             <div className={styles.tags}>
-              {item.tags.map((t) => (
-                <span key={t} className={styles.tag}>
-                  {t}
-                </span>
-              ))}
+              {item.tags.map((tag) => {
+                const label = memoryTagLabel(tag);
+                if (label === null) return null;
+                return (
+                  <span key={tag} className={styles.tag}>
+                    {label}
+                  </span>
+                );
+              })}
             </div>
           </section>
         )}
@@ -164,9 +156,11 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
         <section className={styles.section}>
           <label>时间</label>
           <div className={styles.grid}>
-            <div>创建: {item.created_at}</div>
-            <div>更新: {item.updated_at}</div>
-            {item.last_referenced_at && <div>最近引用: {item.last_referenced_at}</div>}
+            <div>创建: {formatMemoryTime(item.created_at)}</div>
+            <div>更新: {formatMemoryTime(item.updated_at)}</div>
+            {item.last_referenced_at && (
+              <div>最近引用: {formatMemoryTime(item.last_referenced_at)}</div>
+            )}
           </div>
         </section>
 
@@ -182,7 +176,7 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
                 <li key={reference.id} className={styles.traceItem}>
                   <div className={styles.traceMeta}>
                     <span>{referenceSceneLabel(reference.reference_scene)}</span>
-                    <span>{reference.inserted_at}</span>
+                    <span>{formatMemoryTime(reference.inserted_at)}</span>
                   </div>
                   <p className={styles.traceReason}>
                     {reference.reference_reason || MEMORY.traceNoReason}

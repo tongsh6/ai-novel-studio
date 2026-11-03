@@ -176,6 +176,52 @@
       "memory": "已确认设定",
       "work_archive": "作品档案",
       "session_transcript": "当前会话记录"
+    },
+    "memory_status": {
+      "DRAFT": "草稿",
+      "CONFIRMED": "已确认",
+      "STABILIZED": "已稳定",
+      "CONFLICTED": "有冲突",
+      "SUPERSEDED": "已被新版替代",
+      "DEPRECATED": "已弃用",
+      "ARCHIVED": "已归档"
+    },
+    "memory_type": {
+      "WORK_DIRECTION": "创作方向",
+      "WORLD_RULE": "世界观规则",
+      "CHARACTER_PROFILE": "人物设定",
+      "CURRENT_STATE": "当前状态",
+      "RELATIONSHIP": "人物关系",
+      "PLOT_FACT": "剧情事实",
+      "FORESHADOWING": "伏笔",
+      "STYLE_RULE": "写作风格",
+      "CONSTRAINT": "创作约束",
+      "AUTHOR_PREFERENCE": "作者偏好",
+      "IDEA": "灵感",
+      "DRAFT_CONTEXT": "草稿上下文"
+    },
+    "memory_scope": {
+      "GLOBAL": "全局",
+      "WORK": "整部作品",
+      "VOLUME": "当前卷",
+      "ARC": "故事线",
+      "CHAPTER": "当前章",
+      "SESSION": "当前会话"
+    },
+    "memory_source_type": {
+      "AUTHOR_CONFIRMED": "作者确认",
+      "AUTHOR_CREATED": "作者创建",
+      "AI_EXTRACTED": "AI 提取",
+      "CHAPTER_EXTRACTED": "章节提取",
+      "WORK_SETTING_IMPORTED": "作品设定导入",
+      "SESSION_CONTEXT": "会话上下文"
+    },
+    "memory_tag": {
+      "adopted_artifact": "作者采纳内容",
+      "work_direction": "创作方向",
+      "risk:low": "低风险",
+      "risk:medium": "中风险",
+      "risk:high": "高风险"
     }
   },
   "fallbacks": {
@@ -192,7 +238,12 @@
     "reason_code": "已记录",
     "gate": "前置检查",
     "decision": "处理中",
-    "context_source": "其他安全来源"
+    "context_source": "其他安全来源",
+    "memory_status": "状态未知",
+    "memory_type": "记忆类型",
+    "memory_scope": "记忆范围",
+    "memory_source_type": "来源未知",
+    "memory_tag": "标签"
   },
   "enum_sources": {
     "status": [

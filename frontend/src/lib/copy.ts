@@ -963,6 +963,7 @@ export const STRUCTURE_PANEL = {
   // WR01b（43 §5.0.3）：落章计划的本章使命与作者裁决面；文案与暂定设定的「确认/否决」区分。
   chapterMission: {
     label: "本章使命",
+    statusUnknown: "使命状态未知",
     statusLabels: {
       TENTATIVE: "【暂定】",
       CONFIRMED: "【已确认】",
@@ -985,6 +986,7 @@ export const STRUCTURE_PANEL = {
   // WR01c（ADR-0024 S9）：工作级规划使命裁决块（大纲与结构 tab 顶部）。
   planningMission: {
     label: "本轮规划使命",
+    statusUnknown: "使命状态未知",
     statusLabels: {
       TENTATIVE: "【暂定】",
       CONFIRMED: "【已确认】",
@@ -1108,6 +1110,7 @@ export const STRUCTURE_PANEL = {
       information: "信息与伏笔",
       emotion_curve: "情绪曲线",
     },
+    statusUnknown: "状态未知",
     statusLabels: {
       ON_TRACK: "延续中",
       STALLED: "停滞",
@@ -1330,37 +1333,6 @@ export const MEMORY = {
     lockedIcon: "已锁定",
     unlockedMark: "—",
   },
-  typeLabels: {
-    WORK_DIRECTION: "创作方向",
-    WORLD_RULE: "世界观规则",
-    CHARACTER_PROFILE: "人物设定",
-    CURRENT_STATE: "当前状态",
-    RELATIONSHIP: "人物关系",
-    PLOT_FACT: "剧情事实",
-    FORESHADOWING: "伏笔",
-    STYLE_RULE: "写作风格",
-    CONSTRAINT: "创作约束",
-    AUTHOR_PREFERENCE: "作者偏好",
-    IDEA: "灵感",
-    DRAFT_CONTEXT: "草稿上下文",
-  } as Record<string, string>,
-  statusLabels: {
-    DRAFT: "草稿",
-    CONFIRMED: "已确认",
-    STABILIZED: "已稳定",
-    CONFLICTED: "有冲突",
-    SUPERSEDED: "已被新版替代",
-    DEPRECATED: "已弃用",
-    ARCHIVED: "已归档",
-  } as Record<string, string>,
-  scopeLabels: {
-    GLOBAL: "全局",
-    WORK: "整部作品",
-    VOLUME: "当前卷",
-    ARC: "故事线",
-    CHAPTER: "当前章",
-    SESSION: "当前会话",
-  } as Record<string, string>,
 } as const;
 
 // ============================================================

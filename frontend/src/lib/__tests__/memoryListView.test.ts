@@ -10,14 +10,14 @@ import {
 } from "../memoryListView";
 
 describe("memoryListView（记忆列表语义映射）", () => {
-  it("把类型/状态/范围枚举映射到中文标签，未知值回退原值", () => {
+  it("把类型/状态/范围枚举映射到中文标签；未知值显示作者安全兜底（不展示内部 code）", () => {
     expect(memoryTypeLabel("CURRENT_STATE")).toBe("当前状态");
-    expect(memoryTypeLabel("UNKNOWN_TYPE")).toBe("UNKNOWN_TYPE");
+    expect(memoryTypeLabel("UNKNOWN_TYPE")).toBe("记忆类型");
     expect(memoryStatusLabel("DEPRECATED")).toBe("已弃用");
     expect(memoryStatusLabel("SUPERSEDED")).toBe("已被新版替代");
-    expect(memoryStatusLabel("WAT")).toBe("WAT");
+    expect(memoryStatusLabel("WAT")).toBe("状态未知");
     expect(memoryScopeLabel("WORK")).toBe("整部作品");
-    expect(memoryScopeLabel("XYZ")).toBe("XYZ");
+    expect(memoryScopeLabel("XYZ")).toBe("记忆范围");
   });
 
   it("状态语义色调按真实状态分配，不是装饰", () => {
