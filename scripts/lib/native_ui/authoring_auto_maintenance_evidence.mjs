@@ -180,9 +180,18 @@ function countLlmCalls(dir) {
 }
 
 export function runtimeAfterBatch(dir) {
+  let appPath = null;
+  try {
+    appPath = parseJson(fs.readFileSync(path.join(dir, "native-driver-ready.json"), "utf8"))?.app_path ?? null;
+  } catch {
+    appPath = null;
+  }
   const countApp = () => {
+    const fallback = "AI Novel Studio.app/Contents/MacOS/app";
+    const target = typeof appPath === "string" && appPath !== "" ? appPath : fallback;
+    const escaped = target.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
     try {
-      return execFileSync("pgrep", ["-f", "AI Novel Studio.app/Contents/MacOS/app"], { encoding: "utf8" })
+      return execFileSync("pgrep", ["-f", escaped], { encoding: "utf8" })
         .split("\n").filter(Boolean).length;
     } catch {
       return 0;

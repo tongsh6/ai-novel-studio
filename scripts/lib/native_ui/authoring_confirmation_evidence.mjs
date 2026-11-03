@@ -305,9 +305,13 @@ function countLlmCallsIn(dir) {
     );
 }
 
-function countAppProcesses() {
+function countAppProcesses(appPath = null) {
+  // 只统计本批 app_path 的进程（并发测试/同名测试进程不得干扰运行态判定）。
+  const fallback = "AI Novel Studio.app/Contents/MacOS/app";
+  const target = typeof appPath === "string" && appPath !== "" ? appPath : fallback;
+  const escaped = target.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   try {
-    return execFileSync("pgrep", ["-f", "AI Novel Studio.app/Contents/MacOS/app"], { encoding: "utf8" })
+    return execFileSync("pgrep", ["-f", escaped], { encoding: "utf8" })
       .split("\n")
       .filter(Boolean).length;
   } catch {
@@ -372,8 +376,14 @@ export function scanAuthorVisibleBatch(dir) {
 }
 
 export function runtimeAfterBatch(dir) {
+  let appPath = null;
+  try {
+    appPath = JSON.parse(fs.readFileSync(path.join(dir, "native-driver-ready.json"), "utf8"))?.app_path ?? null;
+  } catch {
+    appPath = null;
+  }
   return {
-    app_processes: countAppProcesses(),
+    app_processes: countAppProcesses(appPath),
     ports: { backend_4657: portListening(4657), transport_4661: portListening(4661) },
     llm_calls: countLlmCallsIn(dir),
   };
