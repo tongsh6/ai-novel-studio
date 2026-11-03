@@ -863,3 +863,11 @@
 - **资源**：strata 前后 loaded=null、unload 200、cleanup remaining=[]、生产指纹 unchanged、llm-calls=1、截图 3、无残留。
 - **历史**：#1（HO4 判据误报、证据副本复算 pass）→ 01b（锁屏环境失败）→ **01c2 clean PASS**；#1 保持「判据误报、不用于 PASS」、01b 保持环境失败登记。
 - **剩余**：#6（C-F3-002，execute→TENTATIVE）等 B1 effect echo（档位 A：append-only）实现 + 全量门禁后签发；预计 #6 若无 effect 证据判 `unknown`（不 PASS、不造假）。
+
+### 行为覆盖 pilot #2（C-F3-002）真实模型执行失败（2026-11-04）——如实未通过
+
+- **#6 批次（`cp4b-behavior-02-cf3002`，HEAD 1e13f8df，C-F3-002 / S1 / regression）**：driver_rc=0、runner_rc=1；**真实模型执行失败（产品 fail-closed）**：3 次真实 provider 调用、**0 工具调用、0 候选、0 pending**；模型输出被产品校验拒绝（作者安全文案：「模型返回的操作或来源没有通过校验，纠正后仍不符合约束。原请求已保留；没有生成候选或写入作品事实…」）。
+- **verdict：legal=false / pass=false / allowed_result=violation**：violations=`action_not_allowed:reply`（C-F3-002 allowed_actions=[execute, explore]，真实行为只有 reply）；unknown_reasons=`HO3:not_triggered:no_side_effect_action`；HO1 零写 pass、HO4 pass、**state_checks ok**（S1：chapters=3/plan=3/accepted=2/memory=2/pending=0，B11 seed 生效）。
+- **分类**：真实模型执行失败（产品 fail-closed），非 harness/驱动缺陷；**不重跑、不调判据、不造假**。B1 effect echo（1e13f8df）本次未获真实证据（无候选产出），不代签。
+- **行为覆盖 pilot 结论（如实）**：`01c2`（C-F1-003 holdout 零写）clean PASS；`#6`（C-F3-002 保存请求）真实模型执行失败、未通过——两条 pilot 结论按真实结果登记，不代签完整 G1–G6/I10；该失败反映真实模型（iq3_s）能力限制与产品 fail-closed 行为，不是产品缺陷或判据缺陷。
+- **资源**：strata 前后 loaded=null、unload 200、cleanup remaining=[]、生产指纹 unchanged、llm-calls=1（3 条 provider 调用）、截图 3、无残留。
