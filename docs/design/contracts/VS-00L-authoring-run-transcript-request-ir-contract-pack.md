@@ -376,7 +376,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 ### 16.4 实现落点（CP4b-1）
 
 - `AuthoringSession.request_ir/1` 只从外层运行快照的 `stage_state.judgment_transcript` 派生 IR；不得把外层快照误当成内部 transcript。成功结果沿用 flow pipeline 合并，失败结果由 `AgentRunServer` 先合并 transcript 与实际预算，再执行原有失败语义。
-- `AgentRunService.compact_transcript/2` 是显式压缩入口，只在没有执行中任务的安全点调用 `AuthoringSession.compact/2`。durable checkpoint 成功提交后才更新内存并报告成功，失败保留旧状态。`AuthoringTranscript.compact/6` 追加可恢复事件，`RequestIR.Compaction` 统一校验范围/证据并为三类 Provider 派生压缩视图；无隐式触发器，不覆盖原始消息，同一 checkpoint 重放幂等。
+- `AgentRunService.compact_transcript/2` 是显式压缩入口，只在没有执行中任务的安全点调用 `AuthoringSession.compact/2`。durable checkpoint 成功提交后才更新内存并报告成功，失败保留旧状态。`AuthoringTranscript.compact/6` 追加可恢复事件，`RequestIR.Compaction` 统一校验范围/证据并为三类 Provider 派生压缩视图；**显式压缩有两类入口：作者命令与会话安全点按上下文压力的自动维护（2026-11-04 §18 修订，见 §16.16）**，不覆盖原始消息，同一 checkpoint 重放幂等。
 - `AuthoringReplay` 从按作品、会话和轮次定位的 DecisionTrace/durable checkpoint 生成作者历史说明。`TraceSummaryView` 只呈现自然语言摘要、省略说明与已有来源显示名；未知工具、审批、使命状态使用通用作者文案，不把 code、call_id、作品/章节 ref、Provider 私有状态或推理原文作为显示兜底。
 - creative/quality 的旧 `generate/evaluate` 公开入口共享 `generate_with_session/evaluate_with_session` 的原生 Request IR 执行，不再建立独立 JSON 请求。响应中的 JSON 解析只能服务已标记的有限模式，不能恢复第二套提示协议。
 
@@ -489,9 +489,9 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 - **Responses 传输**：wire 目标由 adapter 声明；`wire_api: :responses` 走真实 `POST /responses` 与 items/function_call/function_call_output/usage 解析。Responses SSE 未实现时该 wire 必须如实声明 `streaming: false`，完整 AgentRun（必备能力含 streaming）被显式拒绝路由，不得静默降级。
 - **作者安全**：能力拒绝文案只输出中文能力名；内部 capability atom 仅出现在 reason details/诊断，不进入作者文案。
 
-## 16.16 显式压缩的产品触发（2026-11-03，CP4b 实施约束）
+## 16.16 显式压缩的产品触发（2026-11-03，2026-11-04 §18 修订）
 
-- **触发者是作者**：显式压缩由作者动作经真实入口触发（`WorkspaceChannel` 的 `agent_command: compact_transcript`），只在无执行中任务的安全点受理；不按消息数/字符数/上下文规模自动触发，不引入隐式压缩触发器。
+- **两类显式入口**：① 作者动作经真实入口触发（`WorkspaceChannel` 的 `agent_command: compact_transcript`）；② 应用在**安全点**（无执行中任务）按可配置上下文压力阈值自动发起**上下文维护**（2026-11-04 作者批准方案 A 后修订，理由与影响见 §18）。自动维护仍属显式压缩，必须满足：产生带 `covers.call_ids`/`source_refs`/`versions`/`omissions`/`summary` 的独立 checkpoint；不删除不改写原始消息（§16.2 不变）；成功后向作者可见面投影一条 author-safe 整理记录（真实数量与范围，不静默无形）；阈值只决定触发时机、不决定丢弃范围，且不得压缩未完成/未闭合交换、保留最近 K 项已完成交换（运行策略参数、不对作者暴露）；同批交换幂等；失败保留旧状态、不产生作者可见错误、下一安全点可重试；作者原话/当前 scope/未覆盖消息保持原序；作者可见面不出现技术用量与 `checkpoint`/`compact` 内部词。
 - **命令只表达意图**：public 入口收敛为 `compact_transcript(run_id)`；`covers.call_ids`、source_refs、versions、摘要与省略说明全部由 application 的 `TranscriptCompaction.plan/1` 从 canonical 事实确定性派生（当前全部「未覆盖且已闭合」的完整工具交换），不调用模型；调用方不能传入或伪造压缩内容。
 - **持久与回执**：先经既有 durable checkpoint 提交边界持久化，成功后才推进内存并回报；回执只含作者可见的整理项数、摘要、省略说明与来源显示名，不含 call_id/ref 原值/版本/canonical 内容。无剩余交换时返回幂等 `nothing_to_compact`，不是错误。
 
@@ -517,16 +517,18 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 | Responses 流式 SSE | **仍开放**：该 wire 声明 `streaming: false`，完整 AgentRun 显式拒绝路由 |
 | purpose/model 级能力差异 | **过渡态**：构造侧用默认 route 近似、执行边界按身份比对权威校验；下一步由调用方把 purpose/route_hint 传入 `capability_profile/2` |
 | 实模 CP3b/CP4b-2（真实模型行为/缓存/usage） | **CP3b 协议层机制 PASS**（2026-11-03 cp4b-live-03-cp3b：L1–L10 全 true、真实模型创作链、usage 9/9、strata 卸载核验；L11 Why 未观察如实记 null）；**G1–G5 切片已覆盖**（G1–G4 来自实模批次 03 的 9 条真实请求字节离线分析：追加式前缀全通过、G1 结构/G2 唯一 call_id 绑定/G3 failed validation 回流/G4 tentative artifact 工具；G5 来自 pending-08 确定性批次 followup 新 turn 请求字节：resolved_adoptions 携带 ACCEPTED/DISCARDED 真实处置数据，按数据形态判定不误报规则文本）；**未代签** G6（压缩未触发）、完整 G1–G6 语义、I10 与作者行为覆盖（B70/B72 另列） |
-| 作者行为覆盖（B70/B72 资产接入的实模批次） | **接入已实现**（冻结 cases 选择器 + oracles HO1–HO6 判据 + behavior 驱动，Node 840/840；输入不现场编、unknown 不 PASS、B72 仍 blocked 仅离线产候选）。pilot #1（C-F1-003 holdout 零写）真实模型行为合法（正确进度/零候选/遵守「先别动手」），HO4 判据误报已修；复验批 01b 因 macOS 锁屏环境失败（0 真实 Provider 请求），待环境可用后签发复验与 C-F3-002 批。**未 done** |
+| 作者行为覆盖（B70/B72 资产接入的实模批次） | **接入已实现 + pilot 已执行**：冻结 cases 选择器 + oracles HO1–HO6 + behavior 驱动（判据加固 B1–B18）；B11 seed 补齐 S1/S3 的 memory/chapter_plans（pending 无 API 构造，S3 差异如实登记）。**pilot #1（01c2，C-F1-003 holdout 零写）clean PASS**（真实模型正确进度事实、零写、state_checks 与 states.yml S1 逐项一致）；**pilot #2（#6，C-F3-002 保存请求）真实模型执行失败**（3 调用 0 工具 0 候选，产品 fail-closed，verdict violation——真实模型能力限制，不重跑/不调判据）；B1 effect echo 档位 A 已合入（append 已 echo，真实批次未触发验证）。**未代签完整 G1–G6/I10；未 done** |
 | §16.14 工具确认/拒绝原生页面 | **双路径原生 clean PASS**（2026-11-03：`cp4b-confirmation-01i-confirm` C1–C11 全过、`cp4b-confirmation-02c-reject` C1–C11 全过；含 Why 真打开 delta=0、重复不可触发且 delta=0、恢复可见+restart delta=0、运行态清理实测；此前 01–02b 失败均为驱动/判据缺陷，只读保留不用于 PASS）。作者可见 code 泄漏（displayName）另行修复 |
-| G6 压缩后 / CP4b-2 usage·缓存 | **G6 机制层已覆盖**（request_ir G6 测试 + transcript_compaction 端到端：checkpoint covers/refs/omissions 进入投影、作者原话字节不变）；**真实请求未触发**（压缩前端待设计授权），不代签。**CP4b-2 真实 usage/缓存观察已在实模 03 批次取得**（281,482 input / 6,116 output / 99,591 cached ≈35.4%，ttft null；只作观察不作判据） |
+| G6 压缩后 / CP4b-2 usage·缓存 | **G6 机制层已覆盖**（request_ir G6 测试 + transcript_compaction 端到端：checkpoint covers/refs/omissions 进入投影、作者原话字节不变）。**产品入口已实现（2026-11-04 作者批准方案 A，§18 Accepted）**：后端 `ContextPressure` 只读压力派生 + `plan_maintenance/2` 保留最近 K 项 + `checkpoint_created` author-safe 事件同边界持久化（**自动触发未激活、无生产消费者**）；前端细条视图/组件 + DialogueFlow 渲染 + 7 copy key + Why 入口已接线并过前端门禁；Pencil 两帧 Draft（PNG 待环境导出）。**真实请求未触发**（自动触发待 AX 场景验收），不代签。CP4b-2 真实 usage/缓存观察：实模 03 批次 281,482 input / 6,116 output / 99,591 cached ≈35.4%（只作观察不作判据） |
 | CP5 收口与全量静态扫描 | **主体完成**：B71 状态行/恢复指引/NEXT、§17 状态表、ADR-0033、§26、三处索引与事实台账已对齐（2026-11-03）；全量静态扫描 20 passed/1 failed（既有 gitleaks 5 项，touched=0、blocking=0）。最终收口随剩余项（§16.14 页面、行为覆盖、压缩前端、CP4b-2）完成后再补一次 |
 
-## 18. 变更提案（Proposed，待评审）：显式压缩的自动维护触发（2026-11-03）
+## 18. 变更记录（Accepted，2026-11-04）：显式压缩的自动维护触发（提案 2026-11-03）
 
-> 状态：**Proposed，不改变本 pack 的 Frozen 状态**。作者已于 2026-11-03 拍板方案 A
-> （无感自动整理 + 行内可展开细条）并同意提交本提案评审；评审通过前 **§16.4 / §16.16
-> 现行条款继续有效，自动触发不激活**。本节只新增提案，不修改冻结原文。
+> 状态：**Accepted（2026-11-04，作者批准）**。作者于 2026-11-03 拍板方案 A（无感自动整理 +
+> 行内可展开细条）并同意提交评审；2026-11-04 作者回复「按 A 推进」正式批准。本记录已按
+> 18.3 新条款替换 §16.4 / §16.16 原文（见上两节），本 pack 的 Frozen 状态与其余条款保持
+> 不变。**自动触发的工程启用仍待实现收口**：当前 `ContextPressure`/`plan_maintenance` 已就绪
+> 但无生产消费者，前端行内细条已接线；启用自动触发需要完成 AX 场景验收与最终门禁。
 
 ### 18.1 提案摘要
 
@@ -611,9 +613,13 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 
 ### 18.7 评审与落地状态
 
-- 本提案只新增本节；§16.4/§16.16 原文、Frozen 状态与 §17 状态表均未改动。
-- **评审通过后**需同步：更新 §16.4/§16.16 原文；更新 §11 版本/兼容记录；更新 §17 状态表
-  （G6/压缩前端项）；同步 B71 任务文档、UI 46 §9.9、UI 47 §7.9、后端实现与测试。
+- **2026-11-04 已按本提案替换 §16.4/§16.16 原文**（见上两节），Frozen 状态不变；§11 版本
+  记录、§17 状态表、B71 任务文档、UI 46 §9.9、UI 47 §7.9 已同步。
+- **实现进度（2026-11-04）**：后端基础设施已提交（`ContextPressure` 只读压力派生、`plan_maintenance/2`
+  保留最近 K 项、`checkpoint_created` author-safe 事件同边界持久化；**自动触发未激活、无生产消费者**）；
+  前端行内细条 + 展开面板 + copy 文案 + Why 入口已接线并过前端门禁；Pencil 两帧已 Draft。
+- **剩余**：安全点自动触发启用（需 AX 8 场景验收 + 最终门禁）、Pencil PNG 导出（环境限制待补）、
+  G6 压缩后真实请求证据。
 - 证据索引：
   - 设计与业界对比：`artifacts/b71-resume/compaction-ux-design-v2.md`（方案 A/B/C、业界证据、
     Pencil/46/47/AX/负担评估与 §4.7 提案原文）。
