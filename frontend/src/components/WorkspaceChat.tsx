@@ -2480,13 +2480,14 @@ export function WorkspaceChat() {
     blocked: budgetShortfallAwaiting,
   });
   // 等待起点：最后一个 awaiting_author 事件时间（提示条据此显示「已等待 X」）。
-  const awaitingAuthorSince = useMemo(() => {
+  // 事件数组本身是浅层派生，直接计算（避免 useMemo 依赖不稳定触发 exhaustive-deps 警告）。
+  const awaitingAuthorSince = (() => {
     if (!latestAgentRunHasModelQuestion) return null;
     const event = [...latestAgentRunEvents]
       .reverse()
       .find((entry) => entry.event_type === "awaiting_author" && entry.emitted_at);
     return event?.emitted_at ?? null;
-  }, [latestAgentRunHasModelQuestion, latestAgentRunEvents]);
+  })();
   // 回答模式下输入框承担自由文本回答：必须存在该问题的 free_text 授权动作（否则只能点选项）。
   const answerFreeTextAction = useMemo(() => {
     if (!activeModelQuestionResult) return null;
