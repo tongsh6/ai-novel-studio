@@ -14684,6 +14684,389 @@
           ]
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "EU5Qh",
+      "x": 14000,
+      "y": 0,
+      "name": "46§9.7-answer-mode",
+      "width": 1440,
+      "height": 900,
+      "fill": "$surface.primary",
+      "layout": "vertical",
+      "children": [
+        {
+          "type": "frame",
+          "id": "SVHQK",
+          "name": "topBar",
+          "width": "fill_container",
+          "height": 64,
+          "stroke": "$border.subtle",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "strokeAlignment": "inner",
+          "padding": [
+            0,
+            32
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "UBUYi",
+              "content": "46§9.7 等待即回答 · 底部回答模式（Draft）",
+              "fill": "#151515",
+              "fontFamily": "Geist",
+              "fontSize": 18,
+              "fontWeight": "normal",
+              "lineHeight": 1.6,
+              "width": "fill_container",
+              "textGrowth": "fixed-width"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "akZqr",
+          "name": "content",
+          "width": "fill_container",
+          "height": "fill_container",
+          "layout": "vertical",
+          "gap": 24,
+          "padding": [
+            32,
+            80
+          ],
+          "children": [
+            {
+              "type": "text",
+              "id": "Ch93h",
+              "content": "AI 编辑",
+              "fill": "#8A8178",
+              "fontFamily": "Geist",
+              "fontSize": 12,
+              "fontWeight": "bold",
+              "lineHeight": 1.6,
+              "width": "fill_container",
+              "textGrowth": "fixed-width"
+            },
+            {
+              "type": "text",
+              "id": "OvD2e",
+              "content": "问题：这一章按哪个方向写？A 推进主线冲突，B 铺垫人物伏笔。",
+              "fill": "#151515",
+              "fontFamily": "Geist",
+              "fontSize": 14,
+              "fontWeight": "normal",
+              "lineHeight": 1.6,
+              "width": "fill_container",
+              "textGrowth": "fixed-width"
+            },
+            {
+              "type": "text",
+              "id": "vUJPu",
+              "content": "等待你的回答",
+              "fill": "#8A8178",
+              "fontFamily": "Geist",
+              "fontSize": 12,
+              "fontWeight": "normal",
+              "lineHeight": 1.6,
+              "width": "fill_container",
+              "textGrowth": "fixed-width"
+            },
+            {
+              "type": "frame",
+              "id": "mt89L",
+              "name": "answerPanel",
+              "width": 880,
+              "layout": "vertical",
+              "gap": 12,
+              "padding": 20,
+              "cornerRadius": 12,
+              "fill": "#FBFAF7",
+              "stroke": "#D9D2C7",
+              "strokeWidth": 1,
+              "strokeAlignment": "inner",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "QkdIe",
+                  "content": "回答当前问题",
+                  "fill": "#6B6259",
+                  "fontFamily": "Geist",
+                  "fontSize": 13,
+                  "fontWeight": "bold",
+                  "lineHeight": 1.6,
+                  "width": "fill_container",
+                  "textGrowth": "fixed-width"
+                },
+                {
+                  "type": "text",
+                  "id": "zLFZy",
+                  "content": "回答后当前任务继续；要发起新任务请点「开始新讨论」。",
+                  "fill": "#6B6259",
+                  "fontFamily": "Geist",
+                  "fontSize": 12,
+                  "fontWeight": "normal",
+                  "lineHeight": 1.6,
+                  "width": "fill_container",
+                  "textGrowth": "fixed-width"
+                },
+                {
+                  "type": "text",
+                  "id": "ynJaN",
+                  "content": "这一章按哪个方向写？",
+                  "fill": "#151515",
+                  "fontFamily": "Geist",
+                  "fontSize": 15,
+                  "fontWeight": "normal",
+                  "lineHeight": 1.6,
+                  "width": "fill_container",
+                  "textGrowth": "fixed-width"
+                },
+                {
+                  "type": "frame",
+                  "id": "bU2hz",
+                  "name": "optionRow",
+                  "layout": "horizontal",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "Bjui9",
+                      "name": "pill-选项A",
+                      "padding": [
+                        8,
+                        16
+                      ],
+                      "cornerRadius": 999,
+                      "fill": "#F2EFEA",
+                      "stroke": "#D9D2C7",
+                      "strokeWidth": 1,
+                      "strokeAlignment": "inner",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "pzJNS",
+                          "content": "选项A",
+                          "fill": "#151515",
+                          "fontFamily": "Geist",
+                          "fontSize": 13,
+                          "fontWeight": "normal",
+                          "lineHeight": 1.6,
+                          "width": "fit_content",
+                          "textGrowth": "fixed-width"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "osEQT",
+                      "name": "pill-选项B",
+                      "padding": [
+                        8,
+                        16
+                      ],
+                      "cornerRadius": 999,
+                      "fill": "#F2EFEA",
+                      "stroke": "#D9D2C7",
+                      "strokeWidth": 1,
+                      "strokeAlignment": "inner",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "MDtEB",
+                          "content": "选项B",
+                          "fill": "#151515",
+                          "fontFamily": "Geist",
+                          "fontSize": 13,
+                          "fontWeight": "normal",
+                          "lineHeight": 1.6,
+                          "width": "fit_content",
+                          "textGrowth": "fixed-width"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "YcHdl",
+                      "name": "pill-回复此问题",
+                      "padding": [
+                        8,
+                        16
+                      ],
+                      "cornerRadius": 999,
+                      "fill": "#FFFFFF",
+                      "stroke": "#D9D2C7",
+                      "strokeWidth": 1,
+                      "strokeAlignment": "inner",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "MsTd6",
+                          "content": "回复此问题",
+                          "fill": "#151515",
+                          "fontFamily": "Geist",
+                          "fontSize": 13,
+                          "fontWeight": "normal",
+                          "lineHeight": 1.6,
+                          "width": "fit_content",
+                          "textGrowth": "fixed-width"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "aJiUE",
+                  "content": "开始新讨论",
+                  "fill": "#8A8178",
+                  "fontFamily": "Geist",
+                  "fontSize": 12,
+                  "fontWeight": "normal",
+                  "lineHeight": 1.6,
+                  "width": "fill_container",
+                  "textGrowth": "fixed-width"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "xBdER",
+      "x": 16000,
+      "y": 0,
+      "name": "46§9.7-question-record",
+      "width": 1440,
+      "height": 900,
+      "fill": "$surface.primary",
+      "layout": "vertical",
+      "children": [
+        {
+          "type": "frame",
+          "id": "QrIOG",
+          "name": "topBar",
+          "width": "fill_container",
+          "height": 64,
+          "stroke": "$border.subtle",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "strokeAlignment": "inner",
+          "padding": [
+            0,
+            32
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "uPtME",
+              "content": "46§9.7 等待即回答 · 消息流问题记录（只读，Draft）",
+              "fill": "#151515",
+              "fontFamily": "Geist",
+              "fontSize": 18,
+              "fontWeight": "normal",
+              "lineHeight": 1.6,
+              "width": "fill_container",
+              "textGrowth": "fixed-width"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "yLgBe",
+          "name": "content",
+          "width": "fill_container",
+          "height": "fill_container",
+          "layout": "vertical",
+          "gap": 32,
+          "padding": [
+            32,
+            80
+          ],
+          "children": [
+            {
+              "type": "text",
+              "id": "vlxDS",
+              "content": "AI 编辑",
+              "fill": "#8A8178",
+              "fontFamily": "Geist",
+              "fontSize": 12,
+              "fontWeight": "bold",
+              "lineHeight": 1.6,
+              "width": "fill_container",
+              "textGrowth": "fixed-width"
+            },
+            {
+              "type": "text",
+              "id": "GjJU7",
+              "content": "问题：这一章按哪个方向写？",
+              "fill": "#151515",
+              "fontFamily": "Geist",
+              "fontSize": 14,
+              "fontWeight": "normal",
+              "lineHeight": 1.6,
+              "width": "fill_container",
+              "textGrowth": "fixed-width"
+            },
+            {
+              "type": "text",
+              "id": "eIoOO",
+              "content": "等待你的回答",
+              "fill": "#8A8178",
+              "fontFamily": "Geist",
+              "fontSize": 12,
+              "fontWeight": "normal",
+              "lineHeight": 1.6,
+              "width": "fill_container",
+              "textGrowth": "fixed-width"
+            },
+            {
+              "type": "text",
+              "id": "jMgT0",
+              "content": "AI 编辑",
+              "fill": "#8A8178",
+              "fontFamily": "Geist",
+              "fontSize": 12,
+              "fontWeight": "bold",
+              "lineHeight": 1.6,
+              "width": "fill_container",
+              "textGrowth": "fixed-width"
+            },
+            {
+              "type": "text",
+              "id": "kVwSO",
+              "content": "问题：第三章是否采纳「雨夜追捕」作为开篇场？",
+              "fill": "#151515",
+              "fontFamily": "Geist",
+              "fontSize": 14,
+              "fontWeight": "normal",
+              "lineHeight": 1.6,
+              "width": "fill_container",
+              "textGrowth": "fixed-width"
+            },
+            {
+              "type": "text",
+              "id": "ZA7kP",
+              "content": "已收到回复",
+              "fill": "#8A8178",
+              "fontFamily": "Geist",
+              "fontSize": 12,
+              "fontWeight": "normal",
+              "lineHeight": 1.6,
+              "width": "fill_container",
+              "textGrowth": "fixed-width"
+            }
+          ]
+        }
+      ]
     }
   ],
   "variables": {

@@ -1,4 +1,5 @@
 // Design: docs/design/ui/46-state-and-feedback.md §9.7（2026-11-04 修订：等待即回答）
+// Prototype: novel-studio.pen → 46§9.7-answer-mode (EU5Qh)
 // 底部输入区接管形态：当前问题 + 结构化选项 + 自由回复 + 显式「开始新讨论」。
 // 回答消费原 run 的 steer 机制（author_choice）；「开始新讨论」才恢复新请求语义。
 import { AuthorQuestionReply } from "./AuthorQuestionReply";

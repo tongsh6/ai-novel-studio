@@ -1,4 +1,5 @@
 // Design: docs/design/ui/46-state-and-feedback.md §9.7（2026-11-04 修订：等待即回答）
+// Prototype: novel-studio.pen → 46§9.7-question-record (xBdER)
 // 消息流记录形态：问题文本 + 作答状态只读展示；回答操作由底部回答面板统一接管。
 import { WORKBENCH } from "../lib/copy";
 import type { WireTurnResult } from "../lib/turnResultWire";
