@@ -15,6 +15,7 @@ import {
   sendAuthorAction,
   sendAgentCommand,
   onAgentEvent,
+  onActionResult,
   onAgentRunState,
   getToc,
   getChapterContent,
@@ -332,6 +333,20 @@ describe("agent run socket helpers", () => {
 
     expect(ch.on).toHaveBeenCalledWith("agent_event", expect.any(Function));
     expect(ch.on).toHaveBeenCalledWith("agent_run_state", expect.any(Function));
+  });
+
+  it("registers action_result listener and forwards receipt", () => {
+    const ch = mockChannel();
+    const callback = vi.fn();
+
+    onActionResult(ch, callback);
+
+    expect(ch.on).toHaveBeenCalledWith("action_result", expect.any(Function));
+    const handler = (
+      ch.on as unknown as { mock: { calls: [string, (p: unknown) => void][] } }
+    ).mock.calls.find(([event]) => event === "action_result")?.[1];
+    handler?.({ received: true, action_status: "accepted" });
+    expect(callback).toHaveBeenCalledWith({ received: true, action_status: "accepted" });
   });
 
   it("pushes agent_command with run id and command", () => {

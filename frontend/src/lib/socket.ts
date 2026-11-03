@@ -418,6 +418,17 @@ export function sendAuthorAction(
   });
 }
 
+/**
+ * 作者动作受理回执（VS-00L §16.10）：后端在受理/裁决/预算动作成功后广播；
+ * 多窗口场景下其他窗口据此同步回执与 turn_results（与 turn_result 广播幂等去重）。
+ */
+export function onActionResult(
+  channel: Channel,
+  callback: (result: AuthorActionResult) => void,
+): void {
+  channel.on("action_result", (payload: AuthorActionResult) => callback(payload));
+}
+
 export interface TaskStateData {
   task_id: string;
   task_type?: string;
@@ -430,108 +441,6 @@ export interface TaskStateData {
 
 export function onTaskState(channel: Channel, callback: (state: TaskStateData) => void): void {
   channel.on("task_state", (payload: TaskStateData) => callback(payload));
-}
-
-export function confirm(channel: Channel, behaviorId: string): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    channel
-      .push("confirm", { behavior_id: behaviorId }, LLM_TURN_TIMEOUT_MS)
-      .receive("ok", (response) => resolve(response as Record<string, unknown>))
-      .receive("error", (error) => reject(new Error(String(error))))
-      .receive("timeout", () => reject(new Error("confirm timeout")));
-  });
-}
-
-export function rejectAction(
-  channel: Channel,
-  behaviorId: string,
-): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    channel
-      .push("reject", { behavior_id: behaviorId }, LLM_TURN_TIMEOUT_MS)
-      .receive("ok", (response) => resolve(response as Record<string, unknown>))
-      .receive("error", (error) => reject(new Error(String(error))))
-      .receive("timeout", () => reject(new Error("reject timeout")));
-  });
-}
-
-export function revise(
-  channel: Channel,
-  behaviorId: string,
-  feedback?: string,
-): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    channel
-      .push("revise", { behavior_id: behaviorId, feedback }, LLM_TURN_TIMEOUT_MS)
-      .receive("ok", (response) => resolve(response as Record<string, unknown>))
-      .receive("error", (error) => reject(new Error(String(error))))
-      .receive("timeout", () => reject(new Error("revise timeout")));
-  });
-}
-
-export function dismissCard(
-  channel: Channel,
-  behaviorId: string,
-): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    channel
-      .push("dismiss", { behavior_id: behaviorId })
-      .receive("ok", (response) => resolve(response as Record<string, unknown>))
-      .receive("error", (error) => reject(new Error(String(error))))
-      .receive("timeout", () => reject(new Error("dismiss timeout")));
-  });
-}
-
-export function resumeCheckpoint(
-  channel: Channel,
-  behaviorId: string,
-): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    channel
-      .push("resume", { behavior_id: behaviorId })
-      .receive("ok", (response) => resolve(response as Record<string, unknown>))
-      .receive("error", (error) => reject(new Error(String(error))))
-      .receive("timeout", () => reject(new Error("resume timeout")));
-  });
-}
-
-export function cancelCheckpoint(
-  channel: Channel,
-  behaviorId: string,
-): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    channel
-      .push("cancel", { behavior_id: behaviorId })
-      .receive("ok", (response) => resolve(response as Record<string, unknown>))
-      .receive("error", (error) => reject(new Error(String(error))))
-      .receive("timeout", () => reject(new Error("cancel timeout")));
-  });
-}
-
-export function branchCheckpoint(
-  channel: Channel,
-  behaviorId: string,
-): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    channel
-      .push("branch", { behavior_id: behaviorId })
-      .receive("ok", (response) => resolve(response as Record<string, unknown>))
-      .receive("error", (error) => reject(new Error(String(error))))
-      .receive("timeout", () => reject(new Error("branch timeout")));
-  });
-}
-
-export function retryAction(
-  channel: Channel,
-  behaviorId: string,
-): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    channel
-      .push("retry", { behavior_id: behaviorId })
-      .receive("ok", (response) => resolve(response as Record<string, unknown>))
-      .receive("error", (error) => reject(new Error(String(error))))
-      .receive("timeout", () => reject(new Error("retry timeout")));
-  });
 }
 
 export type ChapterAuditStatus = "empty" | "short" | "ok";

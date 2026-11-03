@@ -64,6 +64,7 @@ import {
   agentCommandErrorReason,
   onAgentEvent,
   onAgentRunState,
+  onActionResult,
   onTaskState,
   type AgentEventData,
   type AgentCommand,
@@ -2088,6 +2089,24 @@ export function WorkspaceChat() {
       setAgentRunLastEventAt((prev) => ({ ...prev, [event.run_ref]: Date.now() }));
       if (event.event_type === "run_completed" || event.event_type === "run_failed") {
         setLoading(false);
+      }
+    });
+    onActionResult(channel, (result) => {
+      if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
+      // 多窗口回执同步：回答/裁决/预算动作在另一窗口受理后，刷新问题状态与投影；
+      // turn_results 与官方 turn_result 广播可能双通道到达，handleTurnResult 按 turn_id 幂等。
+      void queryClient.invalidateQueries({
+        queryKey: authorQuestionQueryKey(work.id, activeSessionId),
+      });
+      for (const turnResult of result.turn_results ?? []) {
+        handleTurnResultRef.current(parseIncomingTurnResult(turnResult));
+      }
+      if (result.agent_run_state) {
+        const runState = result.agent_run_state;
+        setAgentRunStates((prev) => ({
+          ...prev,
+          [runState.run_id]: mergeAgentRunRuntimeState(prev[runState.run_id], runState),
+        }));
       }
     });
     onAgentRunState(channel, (state) => {
