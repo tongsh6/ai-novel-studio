@@ -16,41 +16,31 @@ import { assertCommonEvidence, writeNativeFrames } from "./scenario_evidence.mjs
 import { readConfig } from "./authoring_capture_evidence.mjs";
 import { checkAuthorVisibleTexts } from "./author_visible_check.mjs";
 
-export const MEMORY_DETAIL_SCHEMA = "b71-memory-detail-checks/v1";
-export const MEMORY_DETAIL_CHECKPOINTS = Object.freeze(["start", "memory-list", "memory-detail", "final"]);
-export const MEMORY_DETAIL_STATUS_CODES = Object.freeze([
-  "DRAFT",
-  "CONFIRMED",
-  "STABILIZED",
-  "CONFLICTED",
-  "SUPERSEDED",
-  "DEPRECATED",
-  "ARCHIVED",
-]);
-export const MEMORY_DETAIL_TYPE_CODES = Object.freeze([
-  "WORK_DIRECTION",
-  "WORLD_RULE",
-  "CHARACTER_PROFILE",
-  "CURRENT_STATE",
-  "RELATIONSHIP",
-  "PLOT_FACT",
-  "FORESHADOWING",
-  "STYLE_RULE",
-  "CONSTRAINT",
-  "AUTHOR_PREFERENCE",
-  "IDEA",
-  "DRAFT_CONTEXT",
-]);
-export const MEMORY_DETAIL_SCOPE_CODES = Object.freeze(["GLOBAL", "WORK", "VOLUME", "ARC", "CHAPTER", "SESSION"]);
-export const MEMORY_DETAIL_SOURCE_CODES = Object.freeze([
-  "AUTHOR_CONFIRMED",
-  "AUTHOR_CREATED",
-  "AI_EXTRACTED",
-  "CHAPTER_EXTRACTED",
-  "WORK_SETTING_IMPORTED",
-  "SESSION_CONTEXT",
-]);
-export const MEMORY_DETAIL_INTERNAL_REF_PREFIXES = Object.freeze([
+const MEMORY_DETAIL_SCHEMA = "b71-memory-detail-checks/v1";
+
+// 四类记忆维度直接消费既有作者可见展示名 SSOT（其 domains 由 codegen 校验）。
+const DISPLAY_NAMES_SSOT = JSON.parse(
+  fs.readFileSync(
+    new URL("../../../docs/design/schemas/author_visible/display_names.json", import.meta.url),
+    "utf8",
+  ),
+);
+const MEMORY_DETAIL_DISPLAY_NAMES = Object.freeze({
+  status: DISPLAY_NAMES_SSOT.domains.memory_status,
+  type: DISPLAY_NAMES_SSOT.domains.memory_type,
+  scope: DISPLAY_NAMES_SSOT.domains.memory_scope,
+  source: DISPLAY_NAMES_SSOT.domains.memory_source_type,
+});
+const MEMORY_DETAIL_STATUS_CODES = Object.freeze(Object.keys(MEMORY_DETAIL_DISPLAY_NAMES.status));
+const MEMORY_DETAIL_TYPE_CODES = Object.freeze(Object.keys(MEMORY_DETAIL_DISPLAY_NAMES.type));
+const MEMORY_DETAIL_SCOPE_CODES = Object.freeze(Object.keys(MEMORY_DETAIL_DISPLAY_NAMES.scope));
+const MEMORY_DETAIL_SOURCE_CODES = Object.freeze(Object.keys(MEMORY_DETAIL_DISPLAY_NAMES.source));
+const MEMORY_DETAIL_STATUS_WORDS = Object.freeze(Object.values(MEMORY_DETAIL_DISPLAY_NAMES.status));
+const MEMORY_DETAIL_TYPE_WORDS = Object.freeze(Object.values(MEMORY_DETAIL_DISPLAY_NAMES.type));
+const MEMORY_DETAIL_SCOPE_WORDS = Object.freeze(Object.values(MEMORY_DETAIL_DISPLAY_NAMES.scope));
+const MEMORY_DETAIL_SOURCE_WORDS = Object.freeze(Object.values(MEMORY_DETAIL_DISPLAY_NAMES.source));
+
+const MEMORY_DETAIL_INTERNAL_REF_PREFIXES = Object.freeze([
   "candidate:",
   "candidate_set:",
   "decision:",
@@ -62,14 +52,34 @@ export const MEMORY_DETAIL_INTERNAL_REF_PREFIXES = Object.freeze([
   "frame:",
   "plan:",
 ]);
-export const MEMORY_DETAIL_DUPLICATE_PREFIX = "candidate_set:candidate_set:";
+const MEMORY_DETAIL_DUPLICATE_PREFIX = "candidate_set:candidate_set:";
 
 const list = (value) => (Array.isArray(value) ? value : []);
 
-function readCaptureText(dir, name) {
-  const ax = path.join(dir, `${name}.ax.txt`);
-  const text = path.join(dir, `${name}.text.txt`);
-  return [fs.existsSync(ax) ? fs.readFileSync(ax, "utf8") : "", fs.existsSync(text) ? fs.readFileSync(text, "utf8") : ""].join("\n");
+const ASCII_IDENTIFIER = /[A-Za-z0-9_]+/gu;
+
+function tokenizeAsciiIdentifiers(text) {
+  return new Set(text.match(ASCII_IDENTIFIER) ?? []);
+}
+
+function findCodes(tokens, codes) {
+  return codes.filter((code) => tokens.has(code));
+}
+
+function findDisplayWords(text, words) {
+  return words.filter((word) => text.includes(word));
+}
+
+function scanFileHits(name, raw) {
+  const axText = name.endsWith(".ax.txt") ? raw : "";
+  const visibleText = name.endsWith(".text.txt") ? raw : "";
+  return checkAuthorVisibleTexts({ axText, visibleText }).hits.map((hit) => ({
+    file: name,
+    token: hit.token,
+    kind: hit.kind,
+    source: hit.source,
+    context: hit.text.slice(0, 240),
+  }));
 }
 
 // ── 全类别 AX 扫描（除 scan 外，还收集 memory 页面文本供判据）──────────────────
@@ -80,79 +90,34 @@ export function scanMemoryDetailTexts(dir) {
   const memoryTexts = [];
   for (const name of fs.readdirSync(dir).sort()) {
     if (!/\.(ax|text)\.txt$/u.test(name)) continue;
-    const file = path.join(dir, name);
-    const raw = fs.readFileSync(file, "utf8");
-    const axText = name.endsWith(".ax.txt") ? raw : "";
-    const visibleText = name.endsWith(".text.txt") ? raw : "";
+    const raw = fs.readFileSync(path.join(dir, name), "utf8");
     files.push(name);
     if (name.startsWith("memory-list.") || name.startsWith("memory-detail.")) memoryTexts.push(raw);
-    const scan = checkAuthorVisibleTexts({ axText, visibleText });
-    for (const hit of list(scan.hits)) {
-      hits.push({
-        file: name,
-        token: hit.token,
-        kind: hit.kind,
-        source: hit.source ?? null,
-        context: String(hit.text ?? "").slice(0, 240),
-      });
-    }
+    hits.push(...scanFileHits(name, raw));
   }
   return { ok: hits.length === 0, hits, files, memory_text: memoryTexts.join("\n") };
-}
-
-function findCodes(text, codes) {
-  return codes.filter((code) => new RegExp(`(^|[^A-Za-z0-9_])${code}([^A-Za-z0-9_]|$)`, "u").test(text));
 }
 
 function findRefPrefixes(text, prefixes) {
   return prefixes.filter((prefix) => text.includes(prefix));
 }
 
-export function evaluateMemoryDetail({
-  config,
-  scan,
-  driverLog = null,
-  cleanup = null,
-  termination = null,
-  runtime = null,
-}) {
-  const text = scan.memory_text ?? "";
-  const coveredText = [text, readCaptureTextSafe(driverLog, config)].join("\n");
-
-  // D1：全类别作者可见扫描零命中（含 internal_terms_zh）。
-  const d1 = {
-    ok: scan.ok,
-    reason: scan.ok ? null : "author_visible_internal_token_leak",
-    detail: { scanned_files: scan.files, hits: scan.hits.slice(0, 20) },
-  };
-
-  // D2：状态展示 displayName 中文（已确认/草稿/…），且无内部状态枚举 code。
-  const statusCodes = findCodes(coveredText, MEMORY_DETAIL_STATUS_CODES);
-  const statusWords = ["已确认", "草稿", "已稳定", "有冲突", "已被新版替代", "已弃用", "已归档"].filter((word) =>
-    coveredText.includes(word),
-  );
-  const d2 = {
-    ok: statusWords.length > 0 && statusCodes.length === 0,
+function memoryStatusCheck(statusCodes, statusWords) {
+  const ok = statusWords.length > 0 && statusCodes.length === 0;
+  return {
+    ok,
     reason: statusWords.length === 0 ? "memory_status_display_missing" : statusCodes.length > 0 ? "memory_status_code_leaked" : null,
     detail: { display_words: statusWords, code_leaks: statusCodes },
   };
+}
 
-  // D3：类型/范围/来源类型展示中文，且无内部枚举 code。
-  const typeCodes = findCodes(coveredText, MEMORY_DETAIL_TYPE_CODES);
-  const scopeCodes = findCodes(coveredText, MEMORY_DETAIL_SCOPE_CODES);
-  const sourceCodes = findCodes(coveredText, MEMORY_DETAIL_SOURCE_CODES);
-  const typeWords = ["世界观规则", "伏笔", "创作方向", "人物设定", "当前状态", "人物关系", "剧情事实", "作者偏好", "灵感", "创作约束", "写作风格", "草稿上下文"].filter((word) => coveredText.includes(word));
-  const scopeWords = ["整部作品", "全局", "当前卷", "故事线", "当前章", "当前会话"].filter((word) => coveredText.includes(word));
-  const sourceWords = ["作者确认", "作者创建", "AI 提取", "章节提取", "作品设定导入", "会话上下文"].filter((word) => coveredText.includes(word));
-  const d3 = {
-    ok:
-      typeWords.length > 0 &&
-      scopeWords.length > 0 &&
-      sourceWords.length > 0 &&
-      typeCodes.length === 0 &&
-      scopeCodes.length === 0 &&
-      sourceCodes.length === 0,
-    reason: null,
+function memoryDimensionsCheck({ typeCodes, scopeCodes, sourceCodes, typeWords, scopeWords, sourceWords }) {
+  const displaysPresent = [typeWords, scopeWords, sourceWords].every((words) => words.length > 0);
+  const codesAbsent = [typeCodes, scopeCodes, sourceCodes].every((codes) => codes.length === 0);
+  const ok = displaysPresent && codesAbsent;
+  return {
+    ok,
+    reason: ok ? null : "memory_dimension_display_missing_or_code_leaked",
     detail: {
       type_words: typeWords,
       scope_words: scopeWords,
@@ -162,7 +127,73 @@ export function evaluateMemoryDetail({
       source_code_leaks: sourceCodes,
     },
   };
-  if (!d3.ok) d3.reason = "memory_dimension_display_missing_or_code_leaked";
+}
+
+function localTimeCheck(localTime, isoTime) {
+  return {
+    ok: localTime && !isoTime,
+    reason: !localTime ? "local_time_missing" : isoTime ? "iso_time_leaked" : null,
+    detail: { local_time_found: localTime, iso_found: isoTime },
+  };
+}
+
+function navigationCheck(listVisible, detailVisible) {
+  return {
+    ok: listVisible && detailVisible,
+    reason: !listVisible ? "memory_list_not_visible" : !detailVisible ? "memory_detail_not_visible" : null,
+    detail: { memory_list_visible: listVisible, memory_detail_visible: detailVisible },
+  };
+}
+
+function runtimeStopped(runtime, terminationLlm) {
+  if (!runtime) return false;
+  return (
+    runtime.app_processes === 0 &&
+    runtime.ports.backend_4657 === false &&
+    runtime.ports.transport_4661 === false &&
+    Number.isFinite(terminationLlm) &&
+    Number(runtime.llm_calls) === terminationLlm
+  );
+}
+
+function cleanupCheck(cleanup, termination, runtime) {
+  const remaining = list(cleanup?.remaining);
+  const terminationLlm = Number(termination?.llm_calls);
+  const llmStopped = Boolean(runtime) && Number(runtime.llm_calls) === terminationLlm;
+  const ok = remaining.length === 0 && runtimeStopped(runtime, terminationLlm);
+  return {
+    ok,
+    reason: ok ? null : "cleanup_unverified_or_runtime_not_stopped",
+    detail: { remaining: remaining.length, runtime, llm_calls_stopped: llmStopped },
+  };
+}
+
+export function evaluateMemoryDetail({ scan, cleanup = null, termination = null, runtime = null }) {
+  const coveredText = scan.memory_text ?? "";
+  const tokens = tokenizeAsciiIdentifiers(coveredText);
+
+  // D1：全类别作者可见扫描零命中（含 internal_terms_zh）。
+  const d1 = {
+    ok: scan.ok,
+    reason: scan.ok ? null : "author_visible_internal_token_leak",
+    detail: { scanned_files: scan.files, hits: scan.hits.slice(0, 20) },
+  };
+
+  // D2：状态展示 displayName 中文（已确认/草稿/…），且无内部状态枚举 code。
+  const d2 = memoryStatusCheck(
+    findCodes(tokens, MEMORY_DETAIL_STATUS_CODES),
+    findDisplayWords(coveredText, MEMORY_DETAIL_STATUS_WORDS),
+  );
+
+  // D3：类型/范围/来源类型展示中文，且无内部枚举 code。
+  const d3 = memoryDimensionsCheck({
+    typeCodes: findCodes(tokens, MEMORY_DETAIL_TYPE_CODES),
+    scopeCodes: findCodes(tokens, MEMORY_DETAIL_SCOPE_CODES),
+    sourceCodes: findCodes(tokens, MEMORY_DETAIL_SOURCE_CODES),
+    typeWords: findDisplayWords(coveredText, MEMORY_DETAIL_TYPE_WORDS),
+    scopeWords: findDisplayWords(coveredText, MEMORY_DETAIL_SCOPE_WORDS),
+    sourceWords: findDisplayWords(coveredText, MEMORY_DETAIL_SOURCE_WORDS),
+  });
 
   // D4：tags 不出现内部 ref 前缀（candidate:/candidate_set:/decision: 等）。
   const refPrefixes = findRefPrefixes(coveredText, MEMORY_DETAIL_INTERNAL_REF_PREFIXES);
@@ -175,11 +206,7 @@ export function evaluateMemoryDetail({
   // D5：时间显示 YYYY-MM-DD HH:mm（非 ISO）。
   const localTime = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}/u.test(coveredText);
   const isoTime = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/u.test(coveredText);
-  const d5 = {
-    ok: localTime && !isoTime,
-    reason: !localTime ? "local_time_missing" : isoTime ? "iso_time_leaked" : null,
-    detail: { local_time_found: localTime, iso_found: isoTime },
-  };
+  const d5 = localTimeCheck(localTime, isoTime);
 
   // D6：candidate_set:candidate_set: 重复前缀不出现。
   const duplicatePrefix = coveredText.includes(MEMORY_DETAIL_DUPLICATE_PREFIX);
@@ -190,30 +217,12 @@ export function evaluateMemoryDetail({
   };
 
   // D7：导航成功（记忆管理页 + 记忆详情抽屉真实可见）。
-  const listVisible = text.includes("记忆管理");
-  const detailVisible = text.includes("记忆详情");
-  const d7 = {
-    ok: listVisible && detailVisible,
-    reason: !listVisible ? "memory_list_not_visible" : !detailVisible ? "memory_detail_not_visible" : null,
-    detail: { memory_list_visible: listVisible, memory_detail_visible: detailVisible },
-  };
+  const listVisible = coveredText.includes("记忆管理");
+  const detailVisible = coveredText.includes("记忆详情");
+  const d7 = navigationCheck(listVisible, detailVisible);
 
   // D8：清理（app 关闭、端口停止、llm-calls 停止）。
-  const remaining = list(cleanup?.remaining);
-  const terminationLlm = Number(termination?.llm_calls);
-  const llmStopped = Boolean(runtime) && Number.isFinite(terminationLlm) && Number(runtime.llm_calls) === terminationLlm;
-  const d8 = {
-    ok:
-      remaining.length === 0 &&
-      Boolean(runtime) &&
-      runtime.app_processes === 0 &&
-      runtime.ports.backend_4657 === false &&
-      runtime.ports.transport_4661 === false &&
-      llmStopped,
-    reason: null,
-    detail: { remaining: remaining.length, runtime, llm_calls_stopped: llmStopped },
-  };
-  if (!d8.ok) d8.reason = "cleanup_unverified_or_runtime_not_stopped";
+  const d8 = cleanupCheck(cleanup, termination, runtime);
 
   const checks = {
     D1_author_visible_no_internal_tokens: d1,
@@ -245,10 +254,6 @@ export function evaluateMemoryDetail({
     },
     not_signed: ["memory_write_flow_not_covered", "G1_G6_full_signed=false", "I10_literary_quality_not_signed"],
   };
-}
-
-function readCaptureTextSafe(_driverLog, _config) {
-  return "";
 }
 
 export function runtimeAfterBatch(dir) {
@@ -311,9 +316,7 @@ export function verifyMemoryDetailBatch(dir) {
   const cleanup = readJsonIfExists(path.join(dir, "native-app-cleanup.json"));
   const runtime = runtimeAfterBatch(dir);
   const result = evaluateMemoryDetail({
-    config,
     scan,
-    driverLog,
     cleanup,
     termination: driverLog?.termination ?? null,
     runtime,

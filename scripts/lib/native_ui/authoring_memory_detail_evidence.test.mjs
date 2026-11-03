@@ -6,10 +6,23 @@ import path from "node:path";
 import test from "node:test";
 import {
   evaluateMemoryDetail,
+  runtimeAfterBatch,
   scanMemoryDetailTexts,
   verifyMemoryDetailBatch,
 } from "./authoring_memory_detail_evidence.mjs";
 
+const DISPLAY_NAMES_SSOT = JSON.parse(
+  fs.readFileSync(
+    new URL("../../../docs/design/schemas/author_visible/display_names.json", import.meta.url),
+    "utf8",
+  ),
+);
+const MEMORY_DOMAIN_KEYS = Object.freeze({
+  status: "memory_status",
+  type: "memory_type",
+  scope: "memory_scope",
+  source: "memory_source_type",
+});
 const readyAt = new Date(Date.now() - 3600_000).toISOString();
 
 function writeJson(file, value) {
@@ -39,9 +52,7 @@ function memoryScan({ list = CLEAN_LIST_TEXT, detail = CLEAN_DETAIL_TEXT, extraH
 
 function baseArgs(overrides = {}) {
   return {
-    config: { slice_id: "b71-first-consumer", journey: "memory-detail", provider: "slice_verify" },
     scan: overrides.scan ?? memoryScan(),
-    driverLog: overrides.driverLog ?? { termination: { llm_calls: 0 }, navigation: [{ step: "ok" }] },
     cleanup: overrides.cleanup ?? { remaining: [], process_observation: { method: "pgrep+lsof" } },
     termination: overrides.termination ?? { llm_calls: 0 },
     runtime: overrides.runtime ?? {
@@ -55,14 +66,31 @@ function baseArgs(overrides = {}) {
 test("记忆详情正例：D1–D8 全过（全类别零命中/displayName/tags/时间/导航/清理）", () => {
   const result = evaluateMemoryDetail(baseArgs());
   assert.deepEqual(result.failed, []);
+  assert.deepEqual(result.required, [
+    "D1_author_visible_no_internal_tokens",
+    "D2_memory_status_display",
+    "D3_memory_dimensions_display",
+    "D4_tags_no_internal_ref",
+    "D5_local_time_format",
+    "D6_no_duplicate_ref_prefix",
+    "D7_navigation_visible",
+    "D8_cleanup",
+  ]);
   assert.equal(result.checks.D1_author_visible_no_internal_tokens.ok, true);
   assert.equal(result.checks.D2_memory_status_display.ok, true);
+  assert.equal(result.checks.D2_memory_status_display.reason, null);
   assert.equal(result.checks.D3_memory_dimensions_display.ok, true);
+  assert.equal(result.checks.D3_memory_dimensions_display.reason, null);
   assert.equal(result.checks.D4_tags_no_internal_ref.ok, true);
+  assert.equal(result.checks.D4_tags_no_internal_ref.reason, null);
   assert.equal(result.checks.D5_local_time_format.ok, true);
+  assert.equal(result.checks.D5_local_time_format.reason, null);
   assert.equal(result.checks.D6_no_duplicate_ref_prefix.ok, true);
+  assert.equal(result.checks.D6_no_duplicate_ref_prefix.reason, null);
   assert.equal(result.checks.D7_navigation_visible.ok, true);
+  assert.equal(result.checks.D7_navigation_visible.reason, null);
   assert.equal(result.checks.D8_cleanup.ok, true);
+  assert.equal(result.checks.D8_cleanup.reason, null);
 });
 
 test("反例：状态/维度内部 code 泄漏 → D2/D3 fail", () => {
@@ -71,7 +99,27 @@ test("反例：状态/维度内部 code 泄漏 → D2/D3 fail", () => {
   });
   const result = evaluateMemoryDetail(baseArgs({ scan: leaked }));
   assert.equal(result.checks.D2_memory_status_display.ok, false);
+  assert.equal(result.checks.D2_memory_status_display.reason, "memory_status_code_leaked");
   assert.equal(result.checks.D3_memory_dimensions_display.ok, false);
+  assert.equal(result.checks.D3_memory_dimensions_display.reason, "memory_dimension_display_missing_or_code_leaked");
+});
+
+test("反例：状态/维度展示缺失 → D2/D3 fail", () => {
+  const statusMissing = evaluateMemoryDetail(
+    baseArgs({
+      scan: memoryScan({ list: "记忆管理\n", detail: "记忆详情\n整部作品\n来源类型: 作者创建\n创建: 2026-11-04 10:00\n" }),
+    }),
+  );
+  assert.equal(statusMissing.checks.D2_memory_status_display.ok, false);
+  assert.equal(statusMissing.checks.D2_memory_status_display.reason, "memory_status_display_missing");
+
+  const typeMissing = evaluateMemoryDetail(
+    baseArgs({
+      scan: memoryScan({ list: "记忆管理\n", detail: "记忆详情\n已确认\n整部作品\n来源类型: 作者创建\n创建: 2026-11-04 10:00\n" }),
+    }),
+  );
+  assert.equal(typeMissing.checks.D3_memory_dimensions_display.ok, false);
+  assert.equal(typeMissing.checks.D3_memory_dimensions_display.reason, "memory_dimension_display_missing_or_code_leaked");
 });
 
 test("反例：ISO 时间 / candidate: 内部 ref / 重复前缀 分别 fail", () => {
@@ -79,10 +127,16 @@ test("反例：ISO 时间 / candidate: 内部 ref / 重复前缀 分别 fail", (
     baseArgs({ scan: memoryScan({ detail: CLEAN_DETAIL_TEXT.replace("2026-11-04 10:00", "2026-11-04T10:00:00Z") }) }),
   );
   assert.equal(iso.checks.D5_local_time_format.ok, false);
+  const bothTimes = evaluateMemoryDetail(
+    baseArgs({ scan: memoryScan({ detail: `${CLEAN_DETAIL_TEXT}2026-11-04T10:00:00Z\n` }) }),
+  );
+  assert.equal(bothTimes.checks.D5_local_time_format.ok, false);
+  assert.equal(bothTimes.checks.D5_local_time_format.reason, "iso_time_leaked");
   const ref = evaluateMemoryDetail(
     baseArgs({ scan: memoryScan({ detail: CLEAN_DETAIL_TEXT + "\n标签: candidate:cand_1 candidate_set:candset_1 decision:dec_1" }) }),
   );
   assert.equal(ref.checks.D4_tags_no_internal_ref.ok, false);
+  assert.equal(ref.checks.D4_tags_no_internal_ref.reason, "internal_ref_tag_leaked");
   const dup = evaluateMemoryDetail(
     baseArgs({ scan: memoryScan({ detail: CLEAN_DETAIL_TEXT + "\n标签: candidate_set:candidate_set:candset_1" }) }),
   );
@@ -91,15 +145,199 @@ test("反例：ISO 时间 / candidate: 内部 ref / 重复前缀 分别 fail", (
 
 test("反例：全类别扫描命中 / 导航缺失 / 清理失败 → D1/D7/D8 fail", () => {
   const hit = evaluateMemoryDetail(
-    baseArgs({ scan: memoryScan({ extraHits: [{ file: "memory-detail.ax.txt", token: "prose_writing", kind: "protocol_codes", source: "ax:value", context: "已确认「prose_writing」操作" }] }) }),
+    baseArgs({
+      scan: memoryScan({
+        extraHits: [
+          { file: "memory-detail.ax.txt", token: "prose_writing", kind: "protocol_codes", source: "ax:value", context: "已确认「prose_writing」操作" },
+          { file: "memory-detail.text.txt", token: "工作过程", kind: "internal_terms_zh", source: "visible", context: "工作过程" },
+        ],
+      }),
+    }),
   );
   assert.equal(hit.checks.D1_author_visible_no_internal_tokens.ok, false);
-  const nav = evaluateMemoryDetail(
+  assert.deepEqual(
+    hit.checks.D1_author_visible_no_internal_tokens.detail.hits.map((entry) => entry.token),
+    ["prose_writing", "工作过程"],
+  );
+  const navDetailMissing = evaluateMemoryDetail(
     baseArgs({ scan: memoryScan({ list: "记忆管理", detail: "普通内容" }) }),
   );
-  assert.equal(nav.checks.D7_navigation_visible.ok, false);
+  assert.equal(navDetailMissing.checks.D7_navigation_visible.ok, false);
+  assert.equal(navDetailMissing.checks.D7_navigation_visible.reason, "memory_detail_not_visible");
+  const navListMissing = evaluateMemoryDetail(
+    baseArgs({ scan: memoryScan({ list: "普通内容", detail: "记忆详情" }) }),
+  );
+  assert.equal(navListMissing.checks.D7_navigation_visible.ok, false);
+  assert.equal(navListMissing.checks.D7_navigation_visible.reason, "memory_list_not_visible");
   const cleanup = evaluateMemoryDetail(baseArgs({ cleanup: { remaining: [{ pid: 1 }] } }));
   assert.equal(cleanup.checks.D8_cleanup.ok, false);
+});
+
+test("SSOT 四 domain 每个 code 都被 exact token 识别为泄漏", () => {
+  const leakChecks = {
+    status: { check: "D2_memory_status_display", field: "code_leaks" },
+    type: { check: "D3_memory_dimensions_display", field: "type_code_leaks" },
+    scope: { check: "D3_memory_dimensions_display", field: "scope_code_leaks" },
+    source: { check: "D3_memory_dimensions_display", field: "source_code_leaks" },
+  };
+  for (const [key, domain] of Object.entries(MEMORY_DOMAIN_KEYS)) {
+    for (const code of Object.keys(DISPLAY_NAMES_SSOT.domains[domain])) {
+      const result = evaluateMemoryDetail(
+        baseArgs({ scan: memoryScan({ detail: `${CLEAN_DETAIL_TEXT}诊断标识: ${code}\n` }) }),
+      );
+      const check = result.checks[leakChecks[key].check];
+      assert.ok(
+        check.detail[leakChecks[key].field].includes(code),
+        `${domain}.${code} 应被识别为内部 code 泄漏`,
+      );
+      assert.equal(check.ok, false, `${domain}.${code} 泄漏时 ${leakChecks[key].check} 必须失败`);
+    }
+  }
+});
+
+test("标识符边界：非 exact token 不误判，中文相邻 exact token 仍命中", () => {
+  const nearMiss = `${CLEAN_DETAIL_TEXT}备注: WORKSHOP RECONFIRMED AUTHOR_CONFIRMED_EXTRA IDEA_DRAFT XWORK CONFIRMED2 GLOBAL_SCOPE\n`;
+  const clean = evaluateMemoryDetail(baseArgs({ scan: memoryScan({ detail: nearMiss }) }));
+  assert.deepEqual(clean.checks.D2_memory_status_display.detail.code_leaks, []);
+  assert.deepEqual(clean.checks.D3_memory_dimensions_display.detail.type_code_leaks, []);
+  assert.deepEqual(clean.checks.D3_memory_dimensions_display.detail.scope_code_leaks, []);
+  assert.deepEqual(clean.checks.D3_memory_dimensions_display.detail.source_code_leaks, []);
+  assert.equal(clean.checks.D2_memory_status_display.ok, true);
+  assert.equal(clean.checks.D3_memory_dimensions_display.ok, true);
+
+  const embedded = evaluateMemoryDetail(
+    baseArgs({ scan: memoryScan({ detail: `${CLEAN_DETAIL_TEXT}状态CONFIRMED，范围WORK，来源AUTHOR_CONFIRMED。\n` }) }),
+  );
+  assert.ok(embedded.checks.D2_memory_status_display.detail.code_leaks.includes("CONFIRMED"));
+  assert.ok(embedded.checks.D3_memory_dimensions_display.detail.scope_code_leaks.includes("WORK"));
+  assert.ok(embedded.checks.D3_memory_dimensions_display.detail.source_code_leaks.includes("AUTHOR_CONFIRMED"));
+});
+
+test("中文展示表按实际 SSOT 数据枚举：四 domain 全部展示值被识别", () => {
+  const domains = DISPLAY_NAMES_SSOT.domains;
+  const detail = [
+    "记忆详情",
+    ...Object.values(domains.memory_status),
+    ...Object.values(domains.memory_type),
+    ...Object.values(domains.memory_scope),
+    `来源类型: ${Object.values(domains.memory_source_type).join(" ")}`,
+    "创建: 2026-11-04 10:00",
+    "更新: 2026-11-04 10:00",
+  ].join("\n");
+  const result = evaluateMemoryDetail(baseArgs({ scan: memoryScan({ detail }) }));
+  const dimensions = result.checks.D3_memory_dimensions_display.detail;
+  assert.deepEqual(result.checks.D2_memory_status_display.detail.display_words, Object.values(domains.memory_status));
+  assert.deepEqual(dimensions.type_words, Object.values(domains.memory_type));
+  assert.deepEqual(dimensions.scope_words, Object.values(domains.memory_scope));
+  assert.deepEqual(dimensions.source_words, Object.values(domains.memory_source_type));
+  assert.equal(result.checks.D2_memory_status_display.ok, true);
+  assert.equal(result.checks.D3_memory_dimensions_display.ok, true);
+});
+
+test("D1 全类别扫描：真实文件中的协议码与中文内部术语仍被扫描", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-memory-scan-"));
+  try {
+    fs.writeFileSync(path.join(dir, "memory-list.text.txt"), "记忆管理\n工作过程\n");
+    fs.writeFileSync(
+      path.join(dir, "memory-detail.ax.txt"),
+      "\t\t0/0/0/0/0/1 AXStaticText, Value: prose_writing\n",
+    );
+    const scan = scanMemoryDetailTexts(dir);
+    assert.equal(scan.ok, false);
+    const tokens = new Set(scan.hits.map((hit) => hit.token));
+    assert.ok(tokens.has("工作过程"), "中文内部术语仍须被全类别扫描命中");
+    assert.ok(tokens.has("prose_writing"), "协议码仍须被全类别扫描命中");
+    const missing = scanMemoryDetailTexts(path.join(dir, "not-a-directory"));
+    assert.equal(missing.ok, false);
+    assert.deepEqual(missing.files, []);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("D8 清理判据：runtime 缺失/进程/端口/llm 未停均失败", () => {
+  const base = baseArgs();
+  const runtimes = [
+    null,
+    { app_processes: 1, ports: { backend_4657: false, transport_4661: false }, llm_calls: 0 },
+    { app_processes: 0, ports: { backend_4657: true, transport_4661: false }, llm_calls: 0 },
+    { app_processes: 0, ports: { backend_4657: false, transport_4661: true }, llm_calls: 0 },
+    { app_processes: 0, ports: { backend_4657: false, transport_4661: false }, llm_calls: 1 },
+  ];
+  for (const runtime of runtimes) {
+    const result = evaluateMemoryDetail({ ...base, runtime });
+    assert.equal(result.checks.D8_cleanup.ok, false);
+    assert.equal(result.checks.D8_cleanup.reason, "cleanup_unverified_or_runtime_not_stopped");
+    if (runtime?.llm_calls === 1) {
+      assert.equal(result.checks.D8_cleanup.detail.llm_calls_stopped, false);
+    }
+  }
+  const noEvidence = evaluateMemoryDetail({ ...base, cleanup: null, termination: null, runtime: null });
+  assert.equal(noEvidence.checks.D8_cleanup.ok, false);
+  assert.equal(noEvidence.checks.D8_cleanup.detail.remaining, 0);
+});
+
+test("runtimeAfterBatch：缺失/非法 ready 与 llm-calls 目录统计", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-memory-runtime-"));
+  try {
+    const empty = runtimeAfterBatch(dir);
+    assert.ok(Number.isInteger(empty.app_processes));
+    assert.equal(typeof empty.ports.backend_4657, "boolean");
+    assert.equal(typeof empty.ports.transport_4661, "boolean");
+    assert.equal(empty.llm_calls, 0);
+
+    writeJson(path.join(dir, "native-driver-ready.json"), { app_path: path.join(dir, "B71-no-such-app") });
+    assert.ok(Number.isInteger(runtimeAfterBatch(dir).app_processes));
+
+    fs.mkdirSync(path.join(dir, "llm-calls"));
+    writeJsonl(path.join(dir, "llm-calls", "a.jsonl"), [{ a: 1 }, { b: 2 }]);
+    fs.appendFileSync(path.join(dir, "llm-calls", "a.jsonl"), "not-json\n");
+    assert.equal(runtimeAfterBatch(dir).llm_calls, 2);
+
+    fs.writeFileSync(path.join(dir, "native-driver-ready.json"), "not-json");
+    assert.ok(Number.isInteger(runtimeAfterBatch(dir).app_processes));
+
+    fs.writeFileSync(path.join(dir, "native-driver-ready.json"), "null");
+    assert.ok(Number.isInteger(runtimeAfterBatch(dir).app_processes));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("verify 失败关闭：journey/provider/证据不足均不写通过结论", () => {
+  const journey = buildDir();
+  try {
+    const configPath = path.join(journey, "native-b71-config.json");
+    writeJson(configPath, { ...JSON.parse(fs.readFileSync(configPath, "utf8")), journey: "other" });
+    assert.throws(() => verifyMemoryDetailBatch(journey), /只接受 journey=memory-detail/u);
+  } finally {
+    fs.rmSync(journey, { recursive: true, force: true });
+  }
+
+  const provider = buildDir();
+  try {
+    const configPath = path.join(provider, "native-b71-config.json");
+    writeJson(configPath, { ...JSON.parse(fs.readFileSync(configPath, "utf8")), provider: "stub" });
+    assert.throws(() => verifyMemoryDetailBatch(provider), /只接受确定性 slice_verify/u);
+  } finally {
+    fs.rmSync(provider, { recursive: true, force: true });
+  }
+
+  const missingEvidence = buildDir();
+  try {
+    fs.rmSync(path.join(missingEvidence, "memory-detail.jpg"));
+    assert.throws(() => verifyMemoryDetailBatch(missingEvidence));
+  } finally {
+    fs.rmSync(missingEvidence, { recursive: true, force: true });
+  }
+
+  const noDriverLog = buildDir();
+  try {
+    fs.rmSync(path.join(noDriverLog, "native-b71-driver-log.json"));
+    assert.throws(() => verifyMemoryDetailBatch(noDriverLog), /B71 memory-detail 判据失败/u);
+  } finally {
+    fs.rmSync(noDriverLog, { recursive: true, force: true });
+  }
 });
 
 test("合成目录端到端：verify 通过并写 summary；内部 code 泄漏时失败关闭", () => {
@@ -108,6 +346,8 @@ test("合成目录端到端：verify 通过并写 summary；内部 code 泄漏�
   assert.deepEqual(result.failed, []);
   assert.equal(summary.verdict.mechanism, "pass");
   assert.equal(summary.verdict.p0_leak_fixed, true);
+  assert.equal(summary.verdict.full_g1_g6_signed, false);
+  assert.equal(summary.verdict.i10_signed, false);
   fs.rmSync(dir, { recursive: true, force: true });
 
   const failing = buildDir({ detail: CLEAN_DETAIL_TEXT.replace("已确认", "CONFIRMED") });
