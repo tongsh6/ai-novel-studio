@@ -80,13 +80,19 @@ export function selectConfirmationAction(turnResult, actionType) {
   );
   assert.equal(matches.length, 1, `confirmation action ${actionType} 必须唯一，实测 ${matches.length}`);
   const action = matches[0];
-  for (const field of ["action_id", "idempotency_key", "source_turn_ref", "target_ref", "behavior_ref"]) {
+  // 真实确认动作形状（cp4b-confirmation-01d 实测）：
+  // { action_id:"act_confirm_decision_…", action_type, target_ref:"prose_writing",
+  //   idempotency_key:"confirm_decision_…", behavior_ref:"bh_…", trace_ref, expires_at }
+  // ——没有 source_turn_ref（前端 schema 中该字段可选）；不得按候选动作形状要求它。
+  for (const field of ["action_id", "idempotency_key", "target_ref", "behavior_ref"]) {
     assert(
       typeof action[field] === "string" && action[field].trim() !== "",
       `confirmation action 缺 ${field}`,
     );
   }
-  assert.equal(action.source_turn_ref, turnId, "confirmation action source_turn_ref 与 TurnResult 不一致");
+  if (typeof action.source_turn_ref === "string" && action.source_turn_ref !== "") {
+    assert.equal(action.source_turn_ref, turnId, "confirmation action source_turn_ref 与 TurnResult 不一致");
+  }
   assert.notEqual(action.enabled, false, "confirmation action enabled=false");
   return action;
 }

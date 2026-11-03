@@ -168,7 +168,9 @@ async function waitActionAck(sent, action) {
   );
 }
 
-async function waitExecutedTurn(sourceTurnId) {
+async function waitExecutedTurn(sinceIso) {
+  // 确认路径：点击后出现带真实 tool_result 的 turn_result（浏览器 au04 同款判据）；
+  // 不按 parent 猜身份——身份由 evidence 判据按 wire/DB 真实字段校验。
   return harness.runStep("turn", "confirmed_child_turn", () =>
     harness.pollWire(
       (wire) =>
@@ -177,12 +179,37 @@ async function waitExecutedTurn(sourceTurnId) {
             record?.direction === "received" &&
             Array.isArray(record.frame) &&
             record.frame[3] === "turn_result" &&
-            (frameBody(record)?.tool_result !== null && frameBody(record)?.tool_result !== undefined
-              ? true
-              : String(frameBody(record)?.parent_turn_id ?? "") === sourceTurnId),
+            String(record.at ?? "") >= String(sinceIso ?? "") &&
+            frameBody(record)?.tool_result !== null &&
+            frameBody(record)?.tool_result !== undefined,
         ) ?? null,
       CONF.executed,
       "b71-confirmation:executed",
+    ),
+  );
+}
+
+async function waitRejectTurn(sinceIso, { sourceTurnId, userTurnId }) {
+  return harness.runStep("turn", "reject_turn", () =>
+    harness.pollWire(
+      (wire) =>
+        wire.find(
+          (record) => {
+            if (record?.direction !== "received" || !Array.isArray(record.frame)) return false;
+            if (record.frame[3] !== "turn_result") return false;
+            if (String(record.at ?? "") < String(sinceIso ?? "")) return false;
+            const body = frameBody(record) ?? {};
+            const parent = String(body.parent_turn_id ?? "");
+            const text = String(body.assistant_message?.text ?? "");
+            return (
+              parent === String(sourceTurnId ?? "") ||
+              parent === String(userTurnId ?? "") ||
+              /取消|拒绝|未启动/.test(text)
+            );
+          },
+        ) ?? null,
+      CONF.executed,
+      "b71-confirmation:reject_turn",
     ),
   );
 }
@@ -289,21 +316,26 @@ async function run() {
   const located = await clickConfirmation(mode, cardLines);
   const sent = await waitActionSent(action);
   const ack = await waitActionAck(sent, action);
+  const clickAt = harness.nowIso();
   const decisionTurn = await harness.runStep("turn", "confirmation_decision", () =>
     harness.pollWire(
       (wire) =>
         wire.find(
-          (record) =>
-            record?.direction === "received" &&
-            Array.isArray(record.frame) &&
-            record.frame[3] === "turn_result" &&
-            String(frameBody(record)?.parent_turn_id ?? "") === sourceTurnId,
+          (record) => {
+            if (record?.direction !== "received" || !Array.isArray(record.frame)) return false;
+            if (record.frame[3] !== "turn_result") return false;
+            const parent = String(frameBody(record)?.parent_turn_id ?? "");
+            return parent === sourceTurnId || parent === String(request.turnId);
+          },
         ) ?? null,
       60_000,
       "b71-confirmation:decision",
     ),
   ).catch(() => null);
-  const executedTurn = mode === "confirm" ? await waitExecutedTurn(sourceTurnId).catch(() => null) : null;
+  const executedTurn =
+    mode === "confirm"
+      ? await waitExecutedTurn(clickAt).catch(() => null)
+      : await waitRejectTurn(clickAt, { sourceTurnId, userTurnId: request.turnId }).catch(() => null);
   harness.capture("02-after-confirm");
   runEvidenceMode(evidence, "capture", dir, ["after-confirm"]);
 

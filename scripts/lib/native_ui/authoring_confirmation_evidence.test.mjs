@@ -291,13 +291,45 @@ test("无 needs_confirmation 帧时如实报不可触发（不合成）", () => 
   );
 });
 
-test("selectConfirmationAction：只接受唯一、源绑定、启用的真实动作", () => {
-  const action = selectConfirmationAction(needsBody(), "confirm_before_execute");
-  assert.equal(action.action_id, "confirm:as_1");
+test("selectConfirmationAction：真实确认动作（无 source_turn_ref）可用；唯一/启用校验保留", () => {
+  const realShape = [
+    {
+      action_id: "act_confirm_decision_mw0ty12z_1d",
+      action_type: "confirm_before_execute",
+      target_ref: "prose_writing",
+      idempotency_key: "confirm_decision_mw0ty12z_1d",
+      trace_ref: "decision_trace:message:agent:5",
+      behavior_ref: "bh_mw0ty134_1e",
+      expires_at: "2026-11-03T15:30:41.440507Z",
+    },
+    {
+      action_id: "act_reject_decision_mw0ty12z_1d",
+      action_type: "reject_or_cancel_confirmation",
+      target_ref: "prose_writing",
+      idempotency_key: "reject_decision_mw0ty12z_1d",
+      behavior_ref: "bh_mw0ty134_1e",
+    },
+  ];
+  const body = needsBody({ available_actions: realShape });
+  const confirm = selectConfirmationAction(body, "confirm_before_execute");
+  assert.equal(confirm.action_id, "act_confirm_decision_mw0ty12z_1d");
+  assert.equal(confirm.target_ref, "prose_writing");
+  const reject = selectConfirmationAction(body, "reject_or_cancel_confirmation");
+  assert.equal(reject.action_id, "act_reject_decision_mw0ty12z_1d");
+  const withSource = confirmActions();
+  assert.equal(selectConfirmationAction(needsBody({ available_actions: withSource }), "confirm_before_execute").action_id, "confirm:as_1");
   assert.throws(() => selectConfirmationAction(needsBody(), "accept"), /必须唯一/u);
   assert.throws(
     () => selectConfirmationAction(needsBody({ available_actions: confirmActions().map((entry) => ({ ...entry, enabled: false })) }), "confirm_before_execute"),
     /enabled=false/u,
+  );
+  assert.throws(
+    () =>
+      selectConfirmationAction(
+        needsBody({ available_actions: [{ ...confirmActions()[0], source_turn_ref: "turn-other" }] }),
+        "confirm_before_execute",
+      ),
+    /source_turn_ref 与 TurnResult 不一致/u,
   );
 });
 
