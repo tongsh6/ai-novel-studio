@@ -879,3 +879,13 @@
 - **internal_terms_zh 命中清单（P1 迁移输入，不判红不阻塞）**：`工作过程`、`任务控制`、`创作执行`、`确认回合`、`结构化回放`、`持久 trace`。
 - **批次历史**：A（`cp4b-confirm-01j-ax-leak`）FAIL 于 C10 旧正则（恢复文案已 displayName 化）——harness 缺陷已修（29638d09）；A2/B 复验 clean PASS；A 保持「不用于 PASS」登记。
 - **机制状态**：displayName 机制（SSOT + 双端 codegen + Presenter 唯一出口 + 共享扫描器 + AX 断言）已在真实页面验证；P1（中文术语/Why 术语/错误码）待迁移，迁移后删除扫描器 `categories` 收窄参数恢复全类别。
+
+### displayName P1 迁移完成（2026-11-04）
+
+- **P1-A `9e5c26b1`**：copy.ts 中文术语迁移（工作过程→本轮创作过程、任务控制→任务操作、创作执行→创作、确认回合→确认操作、已终止→已停止、结构化回放/持久 trace→依据回放/已保存推理记录）+ 助手名「AI 助手」/ a11y「助手名称」+ 测试期望同步。
+- **P1-B `6406b6fb`**：Why 面板迁 SSOT（decision 全集+unknown / context_source / gate+reason_code 句化 / run_status 补 pending·failed）；`traceSummaryView` 删除 5 张本地映射表 + toolNameLabel；copy 删 4 表 + mission status（**净 −31 行**）；测试固化内部术语清理。
+- **P1-C1 `9b0df153`**：`available_actions` 表驱动（SSOT action 域 label_key 全集 + action_type 兜底集）；**删除 5 处 `return action.action_type` 内部 code 直出**（真泄漏路径）；copy 删 2 条。
+- **P1-C2 `2f493b51`**：`Presenter.error_label/1` 错误码作者入口（未知兜底不回显 code）；失败 ToolResult 去 `inspect(reason)`；盘点确认作者面已无 error_code 直出。
+- **P1-C3 `8264b9c1`**：**删除迁移期收窄开关**（`AUTHOR_VISIBLE_MIGRATION_CATEGORIES`/`categories` 参数全删，**净 −81 行**）；扫描器恢复唯一全类别入口、`internal_terms_zh` 启用、confirmation AX 断言全类别判红；全类别扫描前端 245 条中文字面量**零命中**。
+- **测试**：harness 109/109、前端 730/730、presenter 12/0、tsc/eslint/prettier/module-size/compile/credo 全绿。
+- **收尾状态**：displayName 机制（SSOT 单一来源 + 双端 codegen + Presenter 唯一出口 + 共享扫描器全类别 + AX 通用断言）完整落地，无手写 token 列表/无收窄开关双轨。剩余：全类别 AX 回归批次（P1-AX confirm/reject）与压缩自动维护 AX（A3）。
