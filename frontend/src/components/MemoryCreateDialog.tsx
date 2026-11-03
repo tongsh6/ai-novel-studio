@@ -4,32 +4,13 @@
 import { useState } from "react";
 import { createMemory } from "../lib/memoryApi";
 import type { MemoryItem } from "../lib/memoryApi";
+import { displayCodes, displayName } from "../lib/authorVisible";
 import styles from "./MemoryCreateDialog.module.css";
 
-const MEMORY_TYPES = [
-  "WORLD_RULE",
-  "CHARACTER_PROFILE",
-  "CURRENT_STATE",
-  "RELATIONSHIP",
-  "PLOT_FACT",
-  "FORESHADOWING",
-  "STYLE_RULE",
-  "CONSTRAINT",
-  "AUTHOR_PREFERENCE",
-  "IDEA",
-  "DRAFT_CONTEXT",
-];
-
-const MEMORY_SCOPES = ["GLOBAL", "WORK", "VOLUME", "ARC", "CHAPTER", "SESSION"];
-
-const SOURCE_TYPES = [
-  "AUTHOR_CONFIRMED",
-  "AUTHOR_CREATED",
-  "AI_EXTRACTED",
-  "CHAPTER_EXTRACTED",
-  "WORK_SETTING_IMPORTED",
-  "SESSION_CONTEXT",
-];
+// 枚举来自作者可见 SSOT（value 为内部 code、文案为 displayName），避免手写枚举漂移。
+const MEMORY_TYPES = displayCodes("memory_type");
+const MEMORY_SCOPES = displayCodes("memory_scope");
+const SOURCE_TYPES = displayCodes("memory_source_type");
 
 interface Props {
   workId: string;
@@ -99,7 +80,7 @@ export function MemoryCreateDialog({ workId, onCreated, onClose }: Props) {
             <select value={type} onChange={(e) => setType(e.target.value)}>
               {MEMORY_TYPES.map((t) => (
                 <option key={t} value={t}>
-                  {t}
+                  {displayName("memory_type", t)}
                 </option>
               ))}
             </select>
@@ -109,7 +90,7 @@ export function MemoryCreateDialog({ workId, onCreated, onClose }: Props) {
             <select value={scope} onChange={(e) => setScope(e.target.value)}>
               {MEMORY_SCOPES.map((s) => (
                 <option key={s} value={s}>
-                  {s}
+                  {displayName("memory_scope", s)}
                 </option>
               ))}
             </select>
@@ -122,7 +103,7 @@ export function MemoryCreateDialog({ workId, onCreated, onClose }: Props) {
             <select value={sourceType} onChange={(e) => setSourceType(e.target.value)}>
               {SOURCE_TYPES.map((s) => (
                 <option key={s} value={s}>
-                  {s}
+                  {displayName("memory_source_type", s)}
                 </option>
               ))}
             </select>
