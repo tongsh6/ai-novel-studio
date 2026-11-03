@@ -1,5 +1,7 @@
 // 记忆详情/列表 P0 泄漏回归判据 D1–D8 正反例 + 全类别扫描 + 合成目录端到端。
 import assert from "node:assert/strict";
+import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -32,6 +34,109 @@ function writeJsonl(file, rows) {
   fs.writeFileSync(file, rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
 }
 const png = () => Buffer.from("89504e470d0a1a0a", "hex");
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function pollUntil(read, accept, timeoutMs = 3000, intervalMs = 100) {
+  const deadline = Date.now() + timeoutMs;
+  let value = read();
+  while (!accept(value) && Date.now() < deadline) {
+    await delay(intervalMs);
+    value = read();
+  }
+  return value;
+}
+
+function settledChild(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.off("exit", onExit);
+      resolve(false);
+    }, timeoutMs);
+    const onExit = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    child.once("exit", onExit);
+  });
+}
+
+async function stopOwnedChild(child) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  child.kill("SIGTERM");
+  if (await settledChild(child, 3000)) return;
+  child.kill("SIGKILL");
+  await settledChild(child, 3000);
+}
+
+async function spawnNode(args, stdio) {
+  const child = spawn(process.execPath, args, { stdio });
+  await once(child, "spawn");
+  return child;
+}
+
+function waitForStdout(child, marker, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    let output = "";
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`等待子进程输出 ${marker} 超时；已收到: ${output}`));
+    }, timeoutMs);
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.stdout.off("data", onData);
+      child.off("exit", onExit);
+    };
+    const onData = (chunk) => {
+      output += chunk;
+      if (output.includes(marker)) {
+        cleanup();
+        resolve(output);
+      }
+    };
+    const onExit = (code, signal) => {
+      cleanup();
+      reject(new Error(`listener 提前退出 code=${code} signal=${signal}；已收到: ${output}`));
+    };
+    child.stdout.on("data", onData);
+    child.once("exit", onExit);
+  });
+}
+
+function lsofListen(port) {
+  const args = ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"];
+  try {
+    const stdout = execFileSync("lsof", args, { encoding: "utf8" });
+    return { listeners: stdout.split("\n").filter((line) => line.includes("LISTEN")), error: null };
+  } catch (error) {
+    const stdout = String(error.stdout ?? "");
+    const listeners = stdout.split("\n").filter((line) => line.includes("LISTEN"));
+    if (listeners.length > 0) return { listeners, error: null };
+    const stderr = String(error.stderr ?? "").trim();
+    if (error.status === 1 && stderr === "") return { listeners: [], error: null };
+    return { listeners: [], error: stderr || `lsof 退出码 ${error.status ?? "unknown"}` };
+  }
+}
+
+const TCP_LISTENER_SCRIPT = `
+const net = require("node:net");
+const ports = [4657, 4661];
+let listening = 0;
+for (const port of ports) {
+  const server = net.createServer((socket) => socket.end());
+  server.on("error", (error) => {
+    console.error("listen-error:" + port + ":" + error.code);
+    process.exit(2);
+  });
+  server.listen(port, "127.0.0.1", () => {
+    listening += 1;
+    if (listening === ports.length) console.log("ready");
+  });
+}
+`;
 
 const CLEAN_LIST_TEXT =
   "记忆管理\n新建记忆\n搜索记忆...\n内容 类型 范围 状态 召回 锁定\n" +
@@ -255,6 +360,23 @@ test("D1 全类别扫描：真实文件中的协议码与中文内部术语仍�
   }
 });
 
+test("D1 命中证据 context 从可见文本首字符起精确取 240 字符", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-memory-context-"));
+  const visible = `${"雨港旧灯楼的账页记着一笔未结的旧账。".repeat(20)}工作过程`;
+  try {
+    fs.writeFileSync(path.join(dir, "memory-detail.text.txt"), visible);
+    const scan = scanMemoryDetailTexts(dir);
+    const hit = scan.hits.find((entry) => entry.token === "工作过程");
+    assert.ok(hit, "真实可见文本中的内部术语必须产生命中证据");
+    assert.equal(hit.source, "visible");
+    assert.equal(hit.context.length, 240);
+    assert.equal(hit.context, visible.slice(0, 240));
+    assert.equal(hit.context.startsWith(visible[0]), true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("D8 清理判据：runtime 缺失/进程/端口/llm 未停均失败", () => {
   const base = baseArgs();
   const runtimes = [
@@ -299,6 +421,77 @@ test("runtimeAfterBatch：缺失/非法 ready 与 llm-calls 目录统计", () =>
 
     fs.writeFileSync(path.join(dir, "native-driver-ready.json"), "null");
     assert.ok(Number.isInteger(runtimeAfterBatch(dir).app_processes));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runtimeAfterBatch：ready.app_path 只统计本次目标进程，不统计其他进程", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-memory-apppath-"));
+  const stamp = `${process.pid}${Date.now()}`;
+  const target = `b71target${stamp}`;
+  const other = `b71other${stamp}`;
+  const children = [];
+  try {
+    writeJson(path.join(dir, "native-driver-ready.json"), { app_path: target });
+    children.push(await spawnNode(["-e", "setInterval(() => {}, 1000)", target], "ignore"));
+    children.push(await spawnNode(["-e", "setInterval(() => {}, 1000)", other], "ignore"));
+    for (const child of children) process.kill(child.pid, 0);
+
+    const targetCount = await pollUntil(
+      () => runtimeAfterBatch(dir).app_processes,
+      (count) => count === 1,
+    );
+    assert.equal(targetCount, 1, "目标进程存活时只应统计到 1 个目标进程");
+
+    writeJson(path.join(dir, "native-driver-ready.json"), { app_path: other });
+    const otherCount = await pollUntil(
+      () => runtimeAfterBatch(dir).app_processes,
+      (count) => count === 1,
+    );
+    assert.equal(otherCount, 1, "切换 app_path 后证明另一个自有进程同样可见且按路径选择");
+  } finally {
+    for (const child of children) await stopOwnedChild(child);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runtimeAfterBatch：真实 TCP listener 使 4657/4661 为 true，关闭后为 false", async (t) => {
+  const portChecks = [4657, 4661].map((port) => ({ port, ...lsofListen(port) }));
+  const probeErrors = portChecks.filter((check) => check.error !== null);
+  if (probeErrors.length > 0) {
+    t.skip(`无法确认端口未占用（权限/命令错误），不杀任何进程：${probeErrors.map((check) => `${check.port}:${check.error}`).join("; ")}`);
+    return;
+  }
+  const busy = portChecks.filter((check) => check.listeners.length > 0);
+  if (busy.length > 0) {
+    t.skip(`端口已被外部占用，环境冲突，不杀他人进程：${busy.flatMap((check) => check.listeners).join(" | ")}`);
+    return;
+  }
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-memory-ports-"));
+  try {
+    let child = null;
+    try {
+      child = await spawnNode(["-e", TCP_LISTENER_SCRIPT], ["ignore", "pipe", "pipe"]);
+      await waitForStdout(child, "ready");
+      const listening = await pollUntil(
+        () => runtimeAfterBatch(dir).ports,
+        (ports) => ports.backend_4657 === true && ports.transport_4661 === true,
+        3000,
+      );
+      assert.equal(listening.backend_4657, true, "自有 listener 占用 4657 时必须观察到 true");
+      assert.equal(listening.transport_4661, true, "自有 listener 占用 4661 时必须观察到 true");
+    } finally {
+      await stopOwnedChild(child);
+    }
+
+    const closed = await pollUntil(
+      () => runtimeAfterBatch(dir).ports,
+      (ports) => ports.backend_4657 === false && ports.transport_4661 === false,
+      5000,
+    );
+    assert.deepEqual(closed, { backend_4657: false, transport_4661: false });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
