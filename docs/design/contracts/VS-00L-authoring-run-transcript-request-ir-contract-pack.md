@@ -518,6 +518,109 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 | purpose/model 级能力差异 | **过渡态**：构造侧用默认 route 近似、执行边界按身份比对权威校验；下一步由调用方把 purpose/route_hint 传入 `capability_profile/2` |
 | 实模 CP3b/CP4b-2（真实模型行为/缓存/usage） | **CP3b 协议层机制 PASS**（2026-11-03 cp4b-live-03-cp3b：L1–L10 全 true、真实模型创作链、usage 9/9、strata 卸载核验；L11 Why 未观察如实记 null）；**G1–G5 切片已覆盖**（G1–G4 来自实模批次 03 的 9 条真实请求字节离线分析：追加式前缀全通过、G1 结构/G2 唯一 call_id 绑定/G3 failed validation 回流/G4 tentative artifact 工具；G5 来自 pending-08 确定性批次 followup 新 turn 请求字节：resolved_adoptions 携带 ACCEPTED/DISCARDED 真实处置数据，按数据形态判定不误报规则文本）；**未代签** G6（压缩未触发）、完整 G1–G6 语义、I10 与作者行为覆盖（B70/B72 另列） |
 | 作者行为覆盖（B70/B72 资产接入的实模批次） | **接入已实现**（冻结 cases 选择器 + oracles HO1–HO6 判据 + behavior 驱动，Node 840/840；输入不现场编、unknown 不 PASS、B72 仍 blocked 仅离线产候选）。pilot #1（C-F1-003 holdout 零写）真实模型行为合法（正确进度/零候选/遵守「先别动手」），HO4 判据误报已修；复验批 01b 因 macOS 锁屏环境失败（0 真实 Provider 请求），待环境可用后签发复验与 C-F3-002 批。**未 done** |
-| §16.14 工具确认/拒绝原生页面 | **驱动与判据就绪**（C1–C11，Node 849/849；口径按真实结构修正为同一 AgentRun 续行）；批次因 macOS 锁屏未执行，待解锁后逐批签发。**未闭环** |
+| §16.14 工具确认/拒绝原生页面 | **双路径原生 clean PASS**（2026-11-03：`cp4b-confirmation-01i-confirm` C1–C11 全过、`cp4b-confirmation-02c-reject` C1–C11 全过；含 Why 真打开 delta=0、重复不可触发且 delta=0、恢复可见+restart delta=0、运行态清理实测；此前 01–02b 失败均为驱动/判据缺陷，只读保留不用于 PASS）。作者可见 code 泄漏（displayName）另行修复 |
 | G6 压缩后 / CP4b-2 usage·缓存 | **G6 机制层已覆盖**（request_ir G6 测试 + transcript_compaction 端到端：checkpoint covers/refs/omissions 进入投影、作者原话字节不变）；**真实请求未触发**（压缩前端待设计授权），不代签。**CP4b-2 真实 usage/缓存观察已在实模 03 批次取得**（281,482 input / 6,116 output / 99,591 cached ≈35.4%，ttft null；只作观察不作判据） |
 | CP5 收口与全量静态扫描 | **主体完成**：B71 状态行/恢复指引/NEXT、§17 状态表、ADR-0033、§26、三处索引与事实台账已对齐（2026-11-03）；全量静态扫描 20 passed/1 failed（既有 gitleaks 5 项，touched=0、blocking=0）。最终收口随剩余项（§16.14 页面、行为覆盖、压缩前端、CP4b-2）完成后再补一次 |
+
+## 18. 变更提案（Proposed，待评审）：显式压缩的自动维护触发（2026-11-03）
+
+> 状态：**Proposed，不改变本 pack 的 Frozen 状态**。作者已于 2026-11-03 拍板方案 A
+> （无感自动整理 + 行内可展开细条）并同意提交本提案评审；评审通过前 **§16.4 / §16.16
+> 现行条款继续有效，自动触发不激活**。本节只新增提案，不修改冻结原文。
+
+### 18.1 提案摘要
+
+将现行「显式压缩只能由作者动作触发、无隐式触发器」修订为：显式压缩可有两类显式入口——
+① 作者显式请求；② 应用在**安全点**按可配置的**上下文压力阈值**自动发起**上下文维护**。
+自动维护仍是显式压缩（完整 `covers`/证据/省略/摘要的独立 checkpoint 事件），
+**不是**按消息数/字符数静默丢弃历史；作者原话、当前 scope 与原始消息永久保留并可回查。
+
+### 18.2 原条款
+
+§16.4（`AgentRunService.compact_transcript/2` 段，原文摘录）：
+> `AgentRunService.compact_transcript/2` 是显式压缩入口，只在没有执行中任务的安全点调用
+> `AuthoringSession.compact/2`。durable checkpoint 成功提交后才更新内存并报告成功，失败
+> 保留旧状态。…**无隐式触发器**，不覆盖原始消息，同一 checkpoint 重放幂等。
+
+§16.16 第 1 条（原文）：
+> **触发者是作者**：显式压缩由作者动作经真实入口触发（`WorkspaceChannel` 的
+> `agent_command: compact_transcript`），只在无执行中任务的安全点受理；不按消息数/字符数/
+> 上下文规模自动触发，不引入隐式压缩触发器。
+
+### 18.3 新条款（替换文本，供评审）
+
+> 显式压缩可由两类显式入口发起：① 作者显式请求；② 应用在**安全点**（无执行中任务）按
+> 可配置的上下文压力阈值自动发起**上下文维护**。自动维护必须：
+> a) 仍产生带 `covers.call_ids`、`source_refs`、`versions`、`omissions`、`summary` 的独立
+>    checkpoint 事件；
+> b) 不删除、不改写任何原始消息（§16.2 原文保留条款不变）；
+> c) 成功提交后向作者可见面投影一条 author-safe 整理记录（真实数量与范围说明），不得
+>    静默无形；
+> d) 阈值只决定**触发时机**，不决定丢弃范围，且不得压缩未完成或未闭合交换；应保留最近
+>    K 项已完成交换（K 为运行策略参数，不对作者暴露）；
+> e) 同一批交换幂等（重放不重复插入 checkpoint 或整理记录）；
+> f) 失败保留旧状态、不影响作者继续创作，并可在后续安全点重试；失败不产生作者可见错误；
+> g) 作者原话、当前 scope、未覆盖消息保持原序；
+> h) 作者可见面不得出现技术用量（token/百分比/窗口）、`checkpoint`/`compact` 等内部词。
+
+### 18.4 理由
+
+**产品与作者要求**（2026-11-03 作者明确指示）：作者原话「从真实作者出发，不让作者产生
+认知负担、使用负担」「不做缝合怪」。作者长任务中最怕三件事：a) 上下文爆了导致能力下降/
+失败；b) 创作记录丢失；c) 被要求管理技术细节。方案 A 让作者零操作、只保留一行可展开的
+事实细条（「较早的 N 项创作过程已整理」），同时用「原始记录仍然保留，不会被删除或改写」
+消解恐惧 b。方案 B（自动但主界面零反馈）无法让作者在「模型忘掉早期细节」时归因；
+方案 C（提示+一键）每次提示都制造一次决策负担，与作者指示直接冲突。
+
+**业界证据**（产品参考，非契约依据）：
+- Claude API 官方压缩能力含阈值压缩、后台压缩、保留最近轮次（`platform.claude.com/docs/zh-CN/build-with-claude/compaction` 及其子页）。
+- Claude Code 官方上下文窗口文档与自动压缩行为（`code.claude.com/docs/zh-CN/context-window`）。
+- GitHub Copilot 官方上下文管理（自动管理上下文，用户可查看引用）。
+- 开发者向的百分比/命令（Cursor、Claude Code `/context`）不适合网文作者，未纳入本设计。
+
+**安全边界**：
+- 自动维护不改变 §16.2 的实体承诺：checkpoint 显式、范围/证据/摘要完整、原文不删不改、
+  作者可回查；
+- 「不得静默」由 c) 落实：作者可见面必须出现整理记录（行内细条 + 可展开面板），
+  因此「自动」不等于「隐式/不可见」；
+- 阈值只决定时机，不能成为「按规模丢弃」的借口（d)）；
+- 未完成/未闭合交换不得压缩（d)），与 §16.2「禁止覆盖未完成调用」一致。
+
+### 18.5 影响面
+
+| 维度 | 影响 |
+|---|---|
+| 触发语义 | 从「仅作者命令」扩展为「作者命令 + 安全点自动维护」；安全点 = step 完成后无执行中任务 / 进入 `awaiting_author` 前 / durable 恢复后 |
+| 幂等 | 同一批交换重放不重复插入 checkpoint/整理记录；多次整理在作者可见面合并计数 |
+| 失败 | 静默（无作者可见错误）、保留旧状态、不阻塞创作、下一安全点重试 |
+| 作者可回查 | 整理记录（author-safe 事件投影）+ 行内细条展开 + 「查看完整记录」→ 既有 Why `authoring_history` |
+| 原文 | canonical 原消息永久保留，作者可见消息流不变（§16.2 不变） |
+| 压缩策略 | 从「全部未覆盖完整交换」改为「保留最近 K 项 + 整理更早的已完成交换」（K 可配置、作者不可见） |
+| 工程 | 需新增：保守模型窗口配置（不向作者展示）、真实 `ProviderRun.usage.input_tokens` 压力信号、安全点触发器、`checkpoint_created` author-safe 事件在 `:compaction` 提交边界持久化、前端行内细条与展开面板、Pencil 帧（已 Draft 落地）、ExUnit/前端门禁与 AX 场景 |
+| 验收分层 | 机制层/页面层/模型行为层分别报告（§16.17 不变）；G6 压缩后真实请求证据在实现后补 |
+
+### 18.6 替代方案与不选理由
+
+- **方案 C（上下文健康度提示 + 一键整理）**：保留作者控制权，但每次提示产生一次判断与
+  操作负担，且要求作者理解「上下文很长」这一技术判断；与作者「不让作者产生负担」直接
+  冲突。仅在作者未来明确要求「手动控制」时整体替换方案 A，不作为叠加选项（叠加即缝合）。
+- **方案 B（自动整理但主界面零反馈）**：操作负担同样为零，但作者无法在「模型忘记早期
+  细节」时归因，且外部 AX 无法观察整理是否发生；不满足「可回查 + 可验收」。
+- **菜单/快捷键入口**：主界面零新增但把发现成本留给作者（问题发生才发现没操作），
+  不解决认知负担。
+
+### 18.7 评审与落地状态
+
+- 本提案只新增本节；§16.4/§16.16 原文、Frozen 状态与 §17 状态表均未改动。
+- **评审通过后**需同步：更新 §16.4/§16.16 原文；更新 §11 版本/兼容记录；更新 §17 状态表
+  （G6/压缩前端项）；同步 B71 任务文档、UI 46 §9.9、UI 47 §7.9、后端实现与测试。
+- 证据索引：
+  - 设计与业界对比：`artifacts/b71-resume/compaction-ux-design-v2.md`（方案 A/B/C、业界证据、
+    Pencil/46/47/AX/负担评估与 §4.7 提案原文）。
+  - 文档落地：`docs/design/ui/46-state-and-feedback.md` §9.9、`docs/design/ui/47-ui-copy-guidelines.md` §7.9。
+  - 原型：`docs/design/ui/novel-studio.pen` 的 `46§9.9-transcript-compaction-inline`（`fjkkm`）与
+    `46§9.9-transcript-compaction-expanded`（`AYpEe`），登记于
+    `docs/design/ui/traceability/screen-to-doc-map.md`（Draft；PNG 待有 Pencil 环境补导出）。
+  - 接口对齐（阶段 5 准备）：`artifacts/b71-resume/compaction-stage5-interface-alignment.md`
+    （`checkpoint_created` 事件 → activity 投影 → 前端细条的端到端核对）。
+  - 后端现状与作者命令入口：`artifacts/b71-resume/worker-compaction-consumer-report.md`。

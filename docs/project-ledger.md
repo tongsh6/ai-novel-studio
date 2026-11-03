@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-03 **B71 §16.14 拒绝场景原生 clean PASS（双路径闭环）**：`cp4b-confirmation-02c-reject`（HEAD a54d045f）runner PASS、**C1–C11 全过**——C6 拒绝零副作用（click-before/decision-after canon 采样窗、works_equal、仅受理 receipts 审计排除、scoped delta provider/llm/mutations=0、receipt CANCELLED/author、cancel_waiting、child cancelled 合法）、C9 Why 真打开 delta=0、C10 恢复决定/创作可见+restart delta=0、C11 cleanup 后实测 stopped。与 01i（confirm clean PASS）一起完成 §16.14 非采纳确认/拒绝原生页面验收。同时记录作者可见 code 泄漏清单（模型行 Stub/slice_verify、工具名 prose_writing、AI 名称/会话 0 占位、trace 术语等），待 displayName 统一修复。
+
 > 2026-11-03 **B71 §16.14 确认场景原生 clean PASS**：`cp4b-confirmation-01i-confirm`（HEAD b9274321，判据加固后）runner PASS、**C1–C11 全过**——Why 真实打开且重放零 Provider（llm_calls 5→5 delta=0）、重复点击不可触发且四类 delta 全 0、恢复后决定/创作结果可见且 restart delta 全 0、运行态清理实测 app=0/端口不监听/llm-calls 停止、ack 身份与作者字节逐条校验。此前 01–01h 十次尝试的失败均为驱动缺陷或判据缺陷（01g 假通过经独立复核发现并修复后重跑），全部只读保留不用于 PASS。确认场景原生验收闭环；reject 批 02 正在跑、行为覆盖批待判据调查结论。
 
 > 2026-11-03 **B71 §16.14 判据假通过与独立复核发现**：`cp4b-confirmation-01g-confirm` driver 完整但独立复核判定**假通过**——C9 在 Why 未打开（`why.opened=false`）时 pass、C5 在重复点击未发生（`duplicate.attempted=false`）时 pass、C10 只验按钮消失、C11 在 EPERM 降级下 pass；01g 不用于 PASS。acceptance-writer 只读复核另发现 C6 reject 采样窗口必假失败、C2 ack 身份字段错位、决定帧取帧竞争、C7 缺 blocked 分支、C8 缺负例，以及行为判据 forbid/effect/HO1/HO4/HO6/状态校验等系统缺口（含 01 批 S1 状态未构造仍判 legal）。处置：暂停后续批次，先修判据并用 01f/01g 现场离线复算证明「缺证据 fail、齐全证据 pass」，再重新签发。

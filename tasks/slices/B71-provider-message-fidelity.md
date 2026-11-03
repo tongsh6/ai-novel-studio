@@ -846,3 +846,11 @@
 - **证据**：6 张截图（01-source/02-card/02-after-confirm/03-after-duplicate/03-why/04-restored）、1 条真实 llm-calls、wait ledger 全绿、生产指纹 unchanged、无残留进程。
 - **如实记录**：canon start→final 中 `author_action_receipts` 新增 1（确认受理预期）、`works`/`memory_items` rows 变但 canon 不变（排除列生效）；`chapters` canon 仍有差异（updated_at 已入排除列，疑似其它账面列）——**收口时核查**，不代签结论。
 - **批次历史（如实）**：01 入口目录缺陷 → 01b 启动前激活 → 01c 激活确认形状 → 01d 首次真实进入场景 → 01e 确认链路真实跑通（等待窗起点缺陷）→ 01f 驱动完整 PASS（证据写入/判据数据源缺陷）→ 01g **判据假通过**（独立复核发现，已修）→ 01h C1–C10 全过（C11 证据时序缺陷）→ **01i clean PASS**。01–01h 失败全部只读保留、不用于 PASS。
+
+### §16.14 拒绝场景原生 PASS（2026-11-03）——双路径闭环
+
+- **02c 批次（`cp4b-confirmation-02c-reject`，HEAD a54d045f）**：runner **PASS（clean）**，**C1–C11 全过**（C7 not_applicable/reject）。与 01i（confirm clean PASS）一起，**§16.14 非采纳确认/拒绝两条路径均取得原生页面 clean PASS**。
+- **关键证据**：C2 ack `action_status=cancelled` + trigger 身份；C3 handoff 新 AgentRun（`tool_confirmation_v1`、**child status=cancelled 合法**）；C4 行为唯一消费（awaiting_author→cancelled）；C5 duplicate not_actionable + delta 全 0；**C6 拒绝零副作用**（click-before/decision-after canon 采样窗：`works_equal=true`、仅 `author_action_receipts` 受理审计记录按设计排除、scoped delta provider/llm/mutations=0、receipt CANCELLED/author、decision_trace `cancel_waiting`、closure cancelled）；C8 作者字节逐条；C9 **Why 真打开**（scan 2 按钮→axpress→panel；llm 3→3 delta=0）；C10 恢复后决定/创作可见 + source 卡关闭 + restart delta 全 0；C11 cleanup 后实测 stopped。
+- **证据**：6 张截图、1 条真实 llm-calls、wait ledger 全绿、生产指纹 unchanged、无残留。
+- **批次历史（如实）**：02 驱动完整但判据未校准 reject 真实结构（child cancelled/canon 受理 receipts/取消文案）；02b C6 采样窗生效、C10 因驱动正则遗漏 fail；02c clean PASS。01g 假通过/01h C11 时序/02/02b 全部只读保留、不用于 PASS。
+- **作者可见 code 泄漏（02b/02c 实扫，供后续 displayName 修复）**：`模型已连接 Stub · 当前模型：slice_verify`、取消文案 `「prose_writing」`、确认文案 `已确认「prose_writing」操作…`、`AI AI 名称`、`会话 0`、`当前创作请求的工作过程`、`已终止`、`创作执行`、`确认回合：处理作者已确认或取消的动作`、`等待你回复 · 创作执行`、Why 面板 `已从持久 trace 生成结构化回放。`（trace 术语）、`确认对象：正文草稿生成`（待判断）；正常文案不列入（`需要确认`/`确认前不会调用工具`/`保存为章节正文`等）。
