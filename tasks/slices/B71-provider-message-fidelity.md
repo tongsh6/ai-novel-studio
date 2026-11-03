@@ -838,3 +838,11 @@
   - 确认判据：P0-A（缺证据仍 PASS 簇：C5/C9/C10/C11）、P0-B（C6 reject 采样窗口覆盖 source 生成必假失败 + null 容忍）、P1-1（C2 ack 身份字段在 `response.trigger` 下而判据读顶层恒真）、P1-2（决定帧按 parent 取第一条与 creative 同 parent 有取帧竞争，01e 仅差 60ms）、P1-3（C7 缺 gate-blocked/工具失败分支）、C8 缺冒充/回放负例；报告 `artifacts/b71-resume/lead-independent-review-confirmation.md`。
   - 行为判据：forbidden_behaviors 未消费、effect 从真实工具 schema 不存在的字段推导、allowed_effects 被当合取（合法 ask_author/explore 判 unknown）、HO1 绝对零计数与 states.yml 冲突、HO4 未按批次/对象限定且 2x 容差、fabricated_setting 无判据、HO6 把 source_status 对象当标量、**verifyBehaviorBatch 不校验实际 DB 状态=behavior-case.state（01 批 S1 声明未构造仍判 legal）**；报告 `artifacts/b71-resume/lead-independent-review-behavior.md`。
 - **处置**：暂停 01h/02/behavior 批次；先修判据并用 01f/01g 现场离线复算验证（01g 缺证据项必须变 fail、01f 齐全证据应 pass）；01 批 legal 结论在判据修复后重新评估。修复后由 Lead 重新签发批次。
+
+### §16.14 确认场景原生 PASS（2026-11-03）
+
+- **01i 批次（`cp4b-confirmation-01i-confirm`，HEAD b9274321，判据加固后）**：runner **PASS（clean）**，**C1–C11 全过**（C6 not_applicable/confirm）。这是 §16.14「非采纳工具确认交接」的原生页面验收首次干净通过。
+- **关键证据**：C1 source 持久；C2 ack trigger 身份（reply status/received/action_status + response.trigger 四字段 + receipt_id/turn_results 交叉 + sent source_turn_ref）；C3 handoff 新 AgentRun（`tool_confirmation_v1`）；C4 行为唯一消费（awaiting_author→resolved）；**C5 重复幂等**（确认后按钮消失 `not_actionable:action_missing` + duplicate delta 全 0：provider/agent_runs/receipts/llm_calls）；C6 confirm 模式不适用；C7 确认子执行真实（`prose_writing succeeded` + `prose_fragment` pending + truthfulness）；C8 每条请求恰好 1 条非应用数据作者原话；**C9 Why 真实打开**（visible_probe fail → scan 命中 3 个按钮 → scrollTo → scroll_retry fail → **axpress 成功** → panel_wait 成功；`llm_calls 5→5 delta=0`）；**C10 恢复不可再触发**（决定/创作结果 AX 可见、source 卡关闭、`restart_delta` 全 0）；**C11 清理**（remaining=[] + 运行态实测 app=0/4657/4661 不监听/llm-calls 停止；cleanup 的 EPERM 只记 degraded 不替代独立检查）。
+- **证据**：6 张截图（01-source/02-card/02-after-confirm/03-after-duplicate/03-why/04-restored）、1 条真实 llm-calls、wait ledger 全绿、生产指纹 unchanged、无残留进程。
+- **如实记录**：canon start→final 中 `author_action_receipts` 新增 1（确认受理预期）、`works`/`memory_items` rows 变但 canon 不变（排除列生效）；`chapters` canon 仍有差异（updated_at 已入排除列，疑似其它账面列）——**收口时核查**，不代签结论。
+- **批次历史（如实）**：01 入口目录缺陷 → 01b 启动前激活 → 01c 激活确认形状 → 01d 首次真实进入场景 → 01e 确认链路真实跑通（等待窗起点缺陷）→ 01f 驱动完整 PASS（证据写入/判据数据源缺陷）→ 01g **判据假通过**（独立复核发现，已修）→ 01h C1–C10 全过（C11 证据时序缺陷）→ **01i clean PASS**。01–01h 失败全部只读保留、不用于 PASS。

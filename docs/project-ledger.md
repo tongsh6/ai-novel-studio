@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-03 **B71 §16.14 确认场景原生 clean PASS**：`cp4b-confirmation-01i-confirm`（HEAD b9274321，判据加固后）runner PASS、**C1–C11 全过**——Why 真实打开且重放零 Provider（llm_calls 5→5 delta=0）、重复点击不可触发且四类 delta 全 0、恢复后决定/创作结果可见且 restart delta 全 0、运行态清理实测 app=0/端口不监听/llm-calls 停止、ack 身份与作者字节逐条校验。此前 01–01h 十次尝试的失败均为驱动缺陷或判据缺陷（01g 假通过经独立复核发现并修复后重跑），全部只读保留不用于 PASS。确认场景原生验收闭环；reject 批 02 正在跑、行为覆盖批待判据调查结论。
+
 > 2026-11-03 **B71 §16.14 判据假通过与独立复核发现**：`cp4b-confirmation-01g-confirm` driver 完整但独立复核判定**假通过**——C9 在 Why 未打开（`why.opened=false`）时 pass、C5 在重复点击未发生（`duplicate.attempted=false`）时 pass、C10 只验按钮消失、C11 在 EPERM 降级下 pass；01g 不用于 PASS。acceptance-writer 只读复核另发现 C6 reject 采样窗口必假失败、C2 ack 身份字段错位、决定帧取帧竞争、C7 缺 blocked 分支、C8 缺负例，以及行为判据 forbid/effect/HO1/HO4/HO6/状态校验等系统缺口（含 01 批 S1 状态未构造仍判 legal）。处置：暂停后续批次，先修判据并用 01f/01g 现场离线复算证明「缺证据 fail、齐全证据 pass」，再重新签发。
 
 > 2026-11-03 **B71 §16.14 确认批次真实进展**：`cp4b-confirmation-01d` 真实到达 needs_confirmation（1 次真实 Provider 调用）；`01e` **确认链路真实完整跑通**（确认卡→点击确认→author_action+ACK→决定 TurnResult→executed `prose_writing` succeeded + `prose_fragment` pending + llm-calls=1 + 截图），失败仅为驱动等待窗起点缺陷。此前 01/01b/01c 亦为驱动实现缺陷（入口目录漏传、启动前激活、激活确认形状错配），五个失败如实登记、不归因环境/产品；01d/01e 作为「确认链路可跑通」部分证据（不代签 C1–C11）。修复后的复验批 01f 已签发。
