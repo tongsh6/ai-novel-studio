@@ -97,6 +97,16 @@
   - 按 46 §9.9 A 方案「作者零操作」收口：**撤销 Channel 作者命令入口**（`agent_command: compact_transcript` 移除，回归 `unknown_command`）与对应 web 入口测试；`AgentRunService.compact_transcript/2` 保留为 **application internal 能力**（自动维护共用 `compact_and_commit`；语义测试保留在 `agent_run_runtime_test.exs` 54/0）；
   - 契约 §16.16 二次修订：产品触发唯一 = 安全点自动维护；原「作者命令入口」在 A 方案下未产品化、已从 Channel 撤销（不留半条死链）；
   - 验证：`mix compile --warnings-as-errors` 绿、`agent_run_runtime_test` **54/0**、契约与计划同步。
+## 1.2 追加交付（2026-11-04 晚，作者要求）
+
+- ✅ **C 二阶段（`92f0d96b`）**：任务已结束（runtime dead）的问题提示条提供「重新发起此问题」——切回普通输入模式并**预填原问题文本**到主输入框，由作者确认后发送（不代发、不改写）；前端 481→483 测试。
+- ✅ **正文 token 流开放（`207ba480`）**：
+  - 新增 `NovelAgent.Provider.AuthorProseStream`（增量状态机从写作 Provider JSON 流提取 `body` 正文增量，只放行正文文本）；
+  - `AdapterExecution.text_chunk_events` 产出 `author_content_delta`；writer dependency 设 `content_visibility: :author`；`ProviderActivityProjector` 投影为作者可见 chunk 事件；
+  - 前端 `agentRunProseStream` + `AgentRunDialogueFlow` 流式展示「正文生成中」（未保存标记），TurnResult 仍为唯一事实源；
+  - 46 §9 新增「正文流式增量为 chunk 进入作者主叙事第二类例外」条款（不展示 JSON 键/元数据/tool arguments）。
+- 说明：审核 P2 的「正文 token 流有意不过 wire」已按作者拍板**改变设计决策**——现在正文以「提取后的正文文本」流式可见，但协议字节/JSON 结构仍不进入作者面。
+
 ## 2. 实施顺序与验收
 
 | 批次 | 内容 | 预计 | 验收 |
