@@ -1118,9 +1118,8 @@ defmodule NovelWeb.WorkspaceChannel do
             Map.get(payload, "expected_goal_version")
           )
 
-        "compact_transcript" ->
-          AgentRunService.compact_transcript(run_id)
-
+        # A 方案（作者零操作）下不暴露手动整理命令：compact_transcript 是应用层
+        # internal 能力（自动维护共用实现），见 VS-00L §16.16 二次修订。
         _ ->
           {:error, :unknown_command}
       end

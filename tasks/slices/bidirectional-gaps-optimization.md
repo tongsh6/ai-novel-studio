@@ -83,10 +83,11 @@
   - ✅ E5-2：证据引用口径写入 `docs/engineering/scenario-acceptance.md`（引用历史证据必须核对 `summary.surface`/`driver`/`provider`，`-tauri` 目录名不代表真实页面）；
   - ⏳ E5-1：`consumed_replans` 文档 vs artifact 不符（`quality/acceptance/scenarios/agent-plan-native-tool-calling-protocol.yml` 断言 `>=1`，现存 summary 实测 0）——**待校准验收场景断言**（不擅自放宽，需确认该场景是否已失效或被新 profile 取代）；
   - ⏳ E1（断线补事件序列 gap 检测）、E2（多窗口 event_sink）、E3（clarification 契约-实现缺口）——待后端窗口（当前并行工作流占用）。
-- **批次 B ⚠️ 待产品决策**（核对发现审核报告「后端孤岛」判定不完整）：
-  - `compact_transcript` **不是死代码**：Channel handler + `workspace_channel_compaction_test.exs`（4 用例，真实作者整理回执/canonical 不变/执行中拒绝）+ 应用层能力，均通过；
-  - 真实缺口是「**前端入口未交付**」——契约 §16.16 把「作者命令」列为两类入口之一，但 46 §9.9 A 方案（无感自动整理、作者零操作）未提供手动入口；
-  - **需产品拍板**：是否暴露手动整理入口（若不需要，修订 §16.16 为「作者命令入口未产品化，保留服务能力」）；本计划暂不改代码。
+- **批次 B ✅ 完成（2026-11-04 收口，A 方案对齐）**：
+  - 核对确认 `compact_transcript` **不是死代码**（Channel handler + 4 个 channel 测试 + 应用层能力均通过）；
+  - 按 46 §9.9 A 方案「作者零操作」收口：**撤销 Channel 作者命令入口**（`agent_command: compact_transcript` 移除，回归 `unknown_command`）与对应 web 入口测试；`AgentRunService.compact_transcript/2` 保留为 **application internal 能力**（自动维护共用 `compact_and_commit`；语义测试保留在 `agent_run_runtime_test.exs` 54/0）；
+  - 契约 §16.16 二次修订：产品触发唯一 = 安全点自动维护；原「作者命令入口」在 A 方案下未产品化、已从 Channel 撤销（不留半条死链）；
+  - 验证：`mix compile --warnings-as-errors` 绿、`agent_run_runtime_test` **54/0**、契约与计划同步。
 ## 2. 实施顺序与验收
 
 | 批次 | 内容 | 预计 | 验收 |

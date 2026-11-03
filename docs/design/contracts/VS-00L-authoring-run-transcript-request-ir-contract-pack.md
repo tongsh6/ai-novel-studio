@@ -491,7 +491,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 
 ## 16.16 显式压缩的产品触发（2026-11-03，2026-11-04 §18 修订）
 
-- **两类显式入口**：① 作者动作经真实入口触发（`WorkspaceChannel` 的 `agent_command: compact_transcript`）；② 应用在**安全点**（无执行中任务）按可配置上下文压力阈值自动发起**上下文维护**（2026-11-04 作者批准方案 A 后修订，理由与影响见 §18）。自动维护仍属显式压缩，必须满足：产生带 `covers.call_ids`/`source_refs`/`versions`/`omissions`/`summary` 的独立 checkpoint；不删除不改写原始消息（§16.2 不变）；成功后向作者可见面投影一条 author-safe 整理记录（真实数量与范围，不静默无形）；阈值只决定触发时机、不决定丢弃范围，且不得压缩未完成/未闭合交换、保留最近 K 项已完成交换（运行策略参数、不对作者暴露）；同批交换幂等；失败保留旧状态、不产生作者可见错误、下一安全点可重试；作者原话/当前 scope/未覆盖消息保持原序；作者可见面不出现技术用量与 `checkpoint`/`compact` 内部词。
+- **产品触发入口（2026-11-04 二次修订，A 方案「作者零操作」对齐）**：唯一产品触发 = **安全点自动维护**（无执行中任务时按上下文压力阈值自动发起，理由与影响见 §18）。原「作者命令入口」（`WorkspaceChannel` 的 `agent_command: compact_transcript`）**在 A 方案下未产品化、已从 Channel 撤销**；`AgentRunService.compact_transcript/2` 保留为应用层 **internal 能力**（自动维护共用 `compact_and_commit`、测试与未来手动入口场景可复用），不提供作者可见命令通道。自动维护仍属显式压缩，必须满足：产生带 `covers.call_ids`/`source_refs`/`versions`/`omissions`/`summary` 的独立 checkpoint；不删除不改写原始消息（§16.2 不变）；成功后向作者可见面投影一条 author-safe 整理记录（真实数量与范围，不静默无形）；阈值只决定触发时机、不决定丢弃范围，且不得压缩未完成/未闭合交换、保留最近 K 项已完成交换（运行策略参数、不对作者暴露）；同批交换幂等；失败保留旧状态、不产生作者可见错误、下一安全点可重试；作者原话/当前 scope/未覆盖消息保持原序；作者可见面不出现技术用量与 `checkpoint`/`compact` 内部词。
 - **命令只表达意图**：public 入口收敛为 `compact_transcript(run_id)`；`covers.call_ids`、source_refs、versions、摘要与省略说明全部由 application 的 `TranscriptCompaction.plan/1` 从 canonical 事实确定性派生（当前全部「未覆盖且已闭合」的完整工具交换），不调用模型；调用方不能传入或伪造压缩内容。
 - **持久与回执**：先经既有 durable checkpoint 提交边界持久化，成功后才推进内存并回报；回执只含作者可见的整理项数、摘要、省略说明与来源显示名，不含 call_id/ref 原值/版本/canonical 内容。无剩余交换时返回幂等 `nothing_to_compact`，不是错误。
 
