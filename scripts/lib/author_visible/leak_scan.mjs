@@ -33,8 +33,12 @@ export function loadForbiddenTokens(ssot = ssotPath) {
 }
 
 function compilePatterns(tokens) {
+  // pattern 来自受控 SSOT（docs/design/schemas/author_visible/display_names.json 的
+  // forbidden_tokens.ref_patterns，由开发者维护的静态数据，不是用户/外部输入），
+  // 不存在 ReDoS 攻击面；Semgrep 按「动态构造正则」规则误报（见下一行抑制）。
   return tokens.ref_patterns.map((pattern) => {
     try {
+      // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
       return new RegExp(pattern);
     } catch (error) {
       throw new Error(`invalid ref_patterns regex ${pattern}: ${error.message}`);
