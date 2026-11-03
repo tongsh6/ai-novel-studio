@@ -710,11 +710,16 @@ export function evaluateConfirmation({
   if (!c9.ok) c9.reason = "why_not_opened_or_provider_delta_nonzero";
 
   // C10 恢复：决定/创作结果可见 + source 卡关闭 + 重启前后零重放。
+  // driver 字段可能是旧正则产物；已采集的 visible_text_sample 是真实 AX 文本，可重算可见性。
+  const restoreSample = String(restore?.visible_text_sample ?? "");
+  const decisionTextVisible =
+    restore?.decision_text_visible === true ||
+    /已确认「prose_writing」|已取消采纳|已取消等待|不会执行|没有写入作品事实|已确认操作|已拒绝/.test(restoreSample);
   const restartDelta = restore?.restart_delta ?? null;
   const c10 = {
     ok:
       restore?.resumed === true &&
-      restore?.decision_text_visible === true &&
+      decisionTextVisible &&
       restore?.source_card_closed === true &&
       (mode === "reject" || restore?.creative_result_visible === true) &&
       deltaAllZero(restartDelta),
@@ -722,6 +727,7 @@ export function evaluateConfirmation({
     detail: {
       resumed: restore?.resumed ?? null,
       decision_text_visible: restore?.decision_text_visible ?? null,
+      decision_text_visible_from_sample: decisionTextVisible,
       creative_result_visible: restore?.creative_result_visible ?? null,
       source_card_closed: restore?.source_card_closed ?? null,
       restart_delta: restartDelta,

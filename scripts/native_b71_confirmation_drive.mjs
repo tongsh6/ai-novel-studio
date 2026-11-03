@@ -401,7 +401,8 @@ async function restoreCheck(config) {
     resumed: Boolean(selected),
     confirmation_actionable: actionableButtons.length > 0,
     actionable_buttons: actionableButtons.length,
-    decision_text_visible: /已确认「prose_writing」|已取消采纳|已确认操作|已拒绝/.test(restoredText),
+    decision_text_visible:
+      /已确认「prose_writing」|已取消采纳|已取消等待|不会执行|没有写入作品事实|已确认操作|已拒绝/.test(restoredText),
     creative_result_visible: /待确认|正文草稿|保存为章节正文|草稿仍保留|已取消/.test(restoredText),
     source_card_closed: actionableButtons.length === 0,
     before,

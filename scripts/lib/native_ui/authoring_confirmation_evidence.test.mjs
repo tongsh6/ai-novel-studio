@@ -396,7 +396,14 @@ test("C5 硬门禁：duplicate 未验证（无 attempted/ack 且 delta 非零）
 
 test("C10 硬门禁：恢复后决定/创作结果不可见或重启非零 delta fail", () => {
   const invisible = evaluate("confirm", {
-    driverLog: driverLogFor("confirm", { restore: { ...driverLogFor("confirm").restore, decision_text_visible: false } }),
+    driverLog: driverLogFor("confirm", {
+      restore: {
+        ...driverLogFor("confirm").restore,
+        decision_text_visible: false,
+        // sample 也不含决定/取消文案：旧 driver 正则遗漏时只靠字段不能通过，必须无证据 → fail。
+        visible_text_sample: "普通消息列表，没有决定文案。",
+      },
+    }),
   });
   assert.equal(invisible.checks.C10_restore_not_actionable.ok, false);
   const replay = evaluate("confirm", {
