@@ -935,3 +935,13 @@
   - **产品侧根源修复**：`memory_management_service` 三处作者可见治理动作/引用摘要（create/锁定阻止/lifecycle 迁移）改经 `AuthorVisible.Display.label`（此前拼 `状态 DRAFT；类型 FORESHADOWING；作用域 WORK`）。
 - **真实页面回归（memory-detail journey）**：`cp4b-memory-detail-ax3` **clean PASS**（D1–D8 全 true）——全类别扫描 **hits=0**；详情治理动作文案 = `作者创建记忆草稿：状态 草稿；类型 伏笔；作用域 整部作品。`（无内部 code）；tags 无内部 ref、时间本地化、无重复前缀、导航与清理通过。旧批次 ax（Vite 端口环境失败、零证据）/ax2（D2/D3 产品残留 + D8 harness 时序）保持 FAIL 登记、不用于 PASS。
 - **证据链**：`4d62bebe`（journey 实现）→ `81142993`（verify-before-cleanup 时序修复）→ `34ec9111`（产品治理文案修复）。
+
+### A3b 推进结论：受真实模型行为 + 产品交互语义限制未闭环（2026-11-04）
+
+- **推进过程（3 次非验收 smoke，不产批次证据）**：
+  - smoke1（长任务请求「读两章+对比+下一步」）：run 直接 `completed`，1 个作者回合、4 次真实调用（usage 9006–17122，远超窗口 4096×0.70）、成功完整交换约 2 → `checkpoint_created=0`，**正确不触发**（单回合 + 更早交换 <K=4）。
+  - smoke2（变体「先问我确认选哪个，再动手」）：**成功诱导 `awaiting_author`**（iq3_s 自然停顿，问题卡出现）；真实问题卡 AX 结构 =「选项A/B」+「回复此问题」按钮 + 底部输入框 +「发送」（提示：下方输入会作为新请求发送）；usage 9080 越线；第二回合未发生 → 无 checkpoint。
+  - smoke3（经修复的「回复此问题」路径）：UI 操作全成功（找按钮/输入/发送均 ok），但**回复创建了新 turn/新 run**（DB 两个 run：run1 awaiting_author 1 回合；run2 新 turn、1 回合、继续执行）——**产品交互语义：ask_author 回复起新 run，不向同 run 追加** → 同 run 仍只有 1 个作者回合。
+- **判定**：**C1 真实压力成立**（usage 越线）；**C1b（同 run ≥2 作者回合）在该产品/模型组合下不可构造**（iq3_s 不产生同 run 多回合；ask_author 回复起新 run）；**C1c 不足**（每 run 1 回合、成功交换约 2 <K=4）→ 不触发是**正确产品语义**。
+- **结论**：A3b（压缩自动维护真实页面验收）**受真实模型行为（iq3_s 不产生同 run 多回合）与产品交互语义（ask_author 回复起新 run）双重限制，未闭环**——不伪造、不注入、不调 K/窗口凑触发。安全点自动维护触发链路已由 T1–T12 单测覆盖；真实页面验收留待更强模型/未来交互（同 run steer 运行中入口）再验证。
+- **保留资产**：同 run 多回合驱动与 smoke 入口（`bc89447c`/`4d57f075`/`eabd81af`，含真实「回复此问题」路径）供未来复用；证据 `artifacts/b71-native/a3b-smoke-cp4b-auto-maint-a3b-smoke{,2,3}/`；结论 `artifacts/b71-resume/auto-maintenance-a3-recovery-notes.md` §6。
