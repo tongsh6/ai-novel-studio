@@ -945,3 +945,15 @@
 - **判定**：**C1 真实压力成立**（usage 越线）；**C1b（同 run ≥2 作者回合）在该产品/模型组合下不可构造**（iq3_s 不产生同 run 多回合；ask_author 回复起新 run）；**C1c 不足**（每 run 1 回合、成功交换约 2 <K=4）→ 不触发是**正确产品语义**。
 - **结论**：A3b（压缩自动维护真实页面验收）**受真实模型行为（iq3_s 不产生同 run 多回合）与产品交互语义（ask_author 回复起新 run）双重限制，未闭环**——不伪造、不注入、不调 K/窗口凑触发。安全点自动维护触发链路已由 T1–T12 单测覆盖；真实页面验收留待更强模型/未来交互（同 run steer 运行中入口）再验证。
 - **保留资产**：同 run 多回合驱动与 smoke 入口（`bc89447c`/`4d57f075`/`eabd81af`，含真实「回复此问题」路径）供未来复用；证据 `artifacts/b71-native/a3b-smoke-cp4b-auto-maint-a3b-smoke{,2,3}/`；结论 `artifacts/b71-resume/auto-maintenance-a3-recovery-notes.md` §6。
+
+### 「等待即回答」交互重构（2026-11-04，作者拍板 + 重构授权）
+
+- **问题（真实批次可复现）**：等待回答模型问题时存在两个竞争输入入口——消息流问题卡（正确路径，`author_choice` → 同 run 恢复）与底部主输入框（新讨论 → 新 run）；作者最顺手的底部输入恰好是错误语义（A3b smoke3 复现：误入主输入 → 起新 run、原 run 悬挂 awaiting_author）。业界共识（Claude Code `AskUserQuestion`、MCP elicitation、AG-UI interrupt-resume）是**等待用户输入时只有一处回答入口且默认延续原任务**。
+- **重构（前端，`58274845`）**：
+  - 46 §9.7 改写为「等待即回答」：底部主输入区接管为回答模式；回答消费原 run steer 机制（同 run 继续）；**「开始新讨论」为显式动作**；消息流问题卡只读记录；旧「未绑定主输入开始新讨论」语义废止。
+  - 输入区语义收敛为统一模式模型：`AgentRunInputMode` + `deriveAgentRunInputMode(decision, presentation, {answerModeDismissed, blocked})`（answer_question/steer/new_discussion/blocked），视图只按 mode 渲染；单测覆盖接管/显式新讨论/歧义/steer/blocked。
+  - 组件职责单一化：新增 `AgentRunAnswerPanel`（底部回答模式）与 `AuthorQuestionRecord`（消息流只读记录）；`AuthorQuestionReply` 回归纯作答组件（移除 readOnly 形态补丁，问题文本下沉）。
+  - Pencil：新增 `46§9.7-answer-mode (EU5Qh)` 与 `46§9.7-question-record (xBdER)` 两帧（Draft）。
+- **重构（后端，`d6513362`）**：`AgentRunServer.submit_author_question_reply/4` 显式入口替代 steer map 隐式重载（`%{author_question_reply: request}`）；删除 B31 CP1 遗留 4 元组 map 兼容分支；`steer_submission/4` 限文本（`when is_binary`）——作者输入种类在两端显式表达。
+- **验证**：前端 typecheck/lint 绿、全量 **744/744**、设计追溯 **28 通过 / 0 警告 / 0 失败**；后端全量 **3057 tests / 0 failures**、credo 0 issues、module-size 通过、xref 无环、arch 通过；已推送（`d6513362` + 设计帧提交）。
+- **后续**：native-runner 适配新回答面板 AX 定位 + A3b 复验（同 run 回答 → 多回合 → 自动维护链路）。
