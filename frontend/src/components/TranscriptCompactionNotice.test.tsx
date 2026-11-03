@@ -124,4 +124,19 @@ describe("TranscriptCompactionNotice", () => {
 
     expect(html).toContain("涉及：角色档案、作品设定、第一章正文、第二章正文、伏笔清单");
   });
+
+  it("C8：无可打开的完整记录入口时不渲染入口（不伪造）", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(TranscriptCompactionNotice, {
+        view: view(),
+        expanded: true,
+        copy,
+        onToggle: () => undefined,
+      }),
+    );
+
+    expect(html).toContain("已整理的较早记录");
+    expect(html).toContain("原始记录仍然保留，不会被删除或改写。");
+    expect(html).not.toContain("查看完整记录");
+  });
 });

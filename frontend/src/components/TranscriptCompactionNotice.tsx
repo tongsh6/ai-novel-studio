@@ -25,7 +25,8 @@ export interface TranscriptCompactionNoticeProps {
   expanded: boolean;
   copy: TranscriptCompactionCopy;
   onToggle: () => void;
-  onOpenHistory: () => void;
+  /** 打开既有 Why/trace 面板；无对应 turn 的 run 可不提供（隐藏入口，不伪造）。 */
+  onOpenHistory?: () => void;
 }
 
 /**
@@ -71,10 +72,12 @@ export function TranscriptCompactionNotice({
           {sourcesLine !== "" && (
             <span className={styles.panelSources}>{copy.sources(sourcesLine)}</span>
           )}
-          <button type="button" className={styles.historyLink} onClick={onOpenHistory}>
-            <span>{copy.openHistory}</span>
-            <ChevronRight size={12} className={styles.icon} aria-hidden="true" />
-          </button>
+          {onOpenHistory !== undefined && (
+            <button type="button" className={styles.historyLink} onClick={onOpenHistory}>
+              <span>{copy.openHistory}</span>
+              <ChevronRight size={12} className={styles.icon} aria-hidden="true" />
+            </button>
+          )}
         </div>
       )}
     </div>

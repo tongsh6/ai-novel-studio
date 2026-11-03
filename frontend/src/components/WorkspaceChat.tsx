@@ -2,9 +2,13 @@
 // Design: docs/design/ui/43-structure-panel.md §3–4 (跨分页待采纳操作)
 // Prototype: novel-studio.pen → 43§5-structure-panel-expanded (ATnmR)
 // Design: docs/design/ui/42-card-system.md §2 (card type to VS-05 mapping)
-// Design: docs/design/ui/46-state-and-feedback.md §6 / §9 / §9.8 (候选编辑失败、AgentRun 与动作回执)
-// Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi), 41§3.1-candidate-discussion-collapsed (oFt1j), 46§9-agentic-loop-reasoning-flow (DM8gx), 46§9.7-agent-run-control-dock (dxUhh), 46§9.8-quality-revision-running (EYiyl)
+// Design: docs/design/ui/46-state-and-feedback.md §6 / §9 / §9.8 / §9.9 (候选编辑失败、AgentRun 与动作回执、整理记录细条)
+// Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi), 41§3.1-candidate-discussion-collapsed (oFt1j), 46§9-agentic-loop-reasoning-flow (DM8gx), 46§9.7-agent-run-control-dock (dxUhh), 46§9.8-quality-revision-running (EYiyl), 46§9.9-transcript-compaction-inline (fjkkm), 46§9.9-transcript-compaction-expanded (AYpEe)
 import { AuthorQuestionReply } from "./AuthorQuestionReply";
+import {
+  TranscriptCompactionNotice,
+  type TranscriptCompactionCopy,
+} from "./TranscriptCompactionNotice";
 import { UserMessageSubmissionSchema } from "../generated/foundation/user_message_submission";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -126,6 +130,7 @@ import {
   shouldShowAgentRunDialogueStatus,
   type AgentRunProviderUsageData,
 } from "../lib/agentRunTimeline";
+import { transcriptCompactionView } from "../lib/transcriptCompactionView";
 import {
   ConfirmationCard,
   QualityReviewCard,
@@ -765,6 +770,17 @@ function narrativeTone(eventType: string): string {
   return "neutral";
 }
 
+// 46 §9.9 / 47 §7.9：整理记录文案结构（单一来源 copy.ts；组件只消费，不硬编码）。
+const TRANSCRIPT_COMPACTION_COPY: TranscriptCompactionCopy = {
+  summary: WORKBENCH.transcriptCompactionSummary,
+  expandLabel: WORKBENCH.transcriptCompactionExpandLabel,
+  title: WORKBENCH.transcriptCompactionTitle,
+  reason: WORKBENCH.transcriptCompactionReason,
+  kept: WORKBENCH.transcriptCompactionKept,
+  sources: WORKBENCH.transcriptCompactionSources,
+  openHistory: WORKBENCH.transcriptCompactionOpenHistory,
+};
+
 interface AgentRunDialogueFlowProps {
   run: AgentRunStateData | null;
   events: AgentEventData[];
@@ -772,6 +788,8 @@ interface AgentRunDialogueFlowProps {
   // 46§9.4 进度行：待采纳草稿总字数（由调用方从 adoption_state 计算；无产物为 null）。
   draftCharCount?: number | null;
   assistantMessageText?: string;
+  // 46 §9.9：整理记录细条「查看完整记录」打开既有 Why/trace 面板；无对应 turn 时不传（隐藏入口）。
+  onOpenHistory?: () => void;
 }
 
 export function AgentRunDialogueFlow({
@@ -780,7 +798,11 @@ export function AgentRunDialogueFlow({
   preparing = false,
   draftCharCount = null,
   assistantMessageText,
+  onOpenHistory,
 }: AgentRunDialogueFlowProps) {
+  // 46 §9.9：整理记录只在当前工作回合内展开一次；事件更新不重置展开态（不闪烁）。
+  const [compactionExpanded, setCompactionExpanded] = useState(false);
+  const compactionView = transcriptCompactionView(events);
   const elapsedSeconds = useAgentRunElapsedSeconds(run?.status, events);
   const reasoningFlow = agentRunReasoningFlow(events);
   const visibleNarrativeEvents = omitNarrativesRepeatedInAssistantMessage(
@@ -862,7 +884,8 @@ export function AgentRunDialogueFlow({
     visibleNarrativeEvents.length === 0 &&
     !activityText &&
     !showDialogueStatusMeta &&
-    elapsedSeconds === null
+    elapsedSeconds === null &&
+    compactionView === null
   ) {
     return null;
   }
@@ -942,6 +965,16 @@ export function AgentRunDialogueFlow({
             <span className={styles.agenticLoopProgressLine}>{progressParts.join(" · ")}</span>
           )}
         </div>
+      )}
+
+      {compactionView !== null && (
+        <TranscriptCompactionNotice
+          view={compactionView}
+          expanded={compactionExpanded}
+          copy={TRANSCRIPT_COMPACTION_COPY}
+          onToggle={() => setCompactionExpanded((previous) => !previous)}
+          onOpenHistory={onOpenHistory}
+        />
       )}
     </div>
   );
@@ -4893,6 +4926,14 @@ export function WorkspaceChat() {
                     agentRunActivityEventsFor(messageAgentRunId),
                   )
                 : [];
+              // 46 §9.9：整理细条的「查看完整记录」复用既有 Why/trace 面板；无 turn 时不传。
+              const openMessageTrace = msg.turnResult
+                ? () => {
+                    const result = msg.turnResult;
+                    if (!result) return;
+                    void openTraceDialog(result.turn_id, result.trace_summary);
+                  }
+                : undefined;
               const messageKey = messageRenderKey(msg, i);
 
               return (
@@ -4935,6 +4976,7 @@ export function WorkspaceChat() {
                           events={messageAgentRunEvents}
                           draftCharCount={pendingDraftCharCount(msg.turnResult)}
                           assistantMessageText={msg.text}
+                          onOpenHistory={openMessageTrace}
                         />
                       )}
 
@@ -5299,6 +5341,7 @@ export function WorkspaceChat() {
                           <AgentRunDialogueFlow
                             run={actionTriggeredAgentRun}
                             events={actionTriggeredAgentRunEvents}
+                            onOpenHistory={openMessageTrace}
                           />
                         </div>
                       )}
@@ -5316,6 +5359,7 @@ export function WorkspaceChat() {
                           messages,
                           anchoredAgentRun?.run_id ?? null,
                         )}
+                        onOpenHistory={openMessageTrace}
                       />
                     </div>
                   )}
