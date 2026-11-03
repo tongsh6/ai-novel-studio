@@ -134,6 +134,7 @@ defmodule NovelAgent.Provider.CapabilityProfileTest do
       profile = CapabilityProfile.from_adapter(TextOnlyProvider, %TextOnlyProvider{})
       assert profile[:native_multi_turn] == true
       assert profile[:tool_calls] == false
+
       assert CapabilityProfile.missing(profile) == [
                :tool_calls,
                :tool_results,
@@ -159,6 +160,7 @@ defmodule NovelAgent.Provider.CapabilityProfileTest do
       assert error.type == :invalid_request
       assert error.retryable == false
       assert error.message =~ "传输能力"
+
       assert Enum.sort(error.details.missing_capabilities) ==
                [:streaming, :structured_output, :tool_calls, :tool_results]
 
@@ -246,6 +248,7 @@ defmodule NovelAgent.Provider.CapabilityProfileTest do
         })
 
       assert {:ok, prompt} = RequestIR.to_provider_prompt(ir_with_projection(projection))
+
       assert prompt.finite_mode.not_supported == [
                :tool_calls,
                :tool_results,

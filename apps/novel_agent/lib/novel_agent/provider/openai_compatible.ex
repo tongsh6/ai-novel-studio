@@ -163,9 +163,7 @@ defmodule NovelAgent.Provider.OpenAICompatible do
             OpenAICompatible.normalize_thinking(Keyword.get(config, :thinking, :disabled)),
           reasoning_effort: Keyword.get(config, :reasoning_effort),
           wire_api:
-            OpenAICompatible.normalize_wire_api(
-              Keyword.get(config, :wire_api, @oac_wire_api)
-            )
+            OpenAICompatible.normalize_wire_api(Keyword.get(config, :wire_api, @oac_wire_api))
         }
       end
 

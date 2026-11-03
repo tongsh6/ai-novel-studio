@@ -8,8 +8,9 @@ case System.get_env("NOVEL_CONTEXT_WINDOW_OVERRIDES") do
     :ok
 
   value ->
-    config :novel_application, :context_window_overrides,
-      NovelApplication.ContextPressure.parse_window_overrides(value)
+    config :novel_application,
+           :context_window_overrides,
+           NovelApplication.ContextPressure.parse_window_overrides(value)
 end
 
 # ── B71 自动维护开关（运维配置，所有环境）───────────────────────────────────

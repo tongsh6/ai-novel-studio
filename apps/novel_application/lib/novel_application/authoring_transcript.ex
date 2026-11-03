@@ -160,7 +160,8 @@ defmodule NovelApplication.AuthoringTranscript do
 
   defp put_author_turn_origin(message, %{} = author_turn) do
     Map.put(message, :author_turn, %{
-      "origin" => to_string(Map.get(author_turn, :origin) || Map.get(author_turn, "origin") || ""),
+      "origin" =>
+        to_string(Map.get(author_turn, :origin) || Map.get(author_turn, "origin") || ""),
       "question_ref" =>
         to_string(
           Map.get(author_turn, :question_ref) || Map.get(author_turn, "question_ref") || ""

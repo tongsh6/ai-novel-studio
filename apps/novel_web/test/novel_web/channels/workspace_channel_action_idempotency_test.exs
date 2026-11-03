@@ -24,6 +24,7 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
     on_exit(fn ->
       Application.put_env(:novel_web, :persistence, previous)
       restore_fact_persistence(previous_facts)
+
       # 确认交接会启动真实 child AgentRun；先等 step/后台任务自然退出，避免下一条
       # 用例在 owner 退出或并发写库时撞 SQLite busy。
       NovelApplication.TestAgentRunCleanup.await_quiescent()

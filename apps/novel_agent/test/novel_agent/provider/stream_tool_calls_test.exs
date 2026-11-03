@@ -140,6 +140,7 @@ defmodule NovelAgent.Provider.StreamToolCallsTest do
     # Result.tool_calls 与 canonical IR 必须同源：原参数字节不得被改写。
     {ir, _result} = RequestIR.append_assistant_result(ir_with_author_message(), result)
     assistant = Enum.find(ir.messages, &(&1.role == "assistant"))
+
     assert [%{type: "tool_call", call_id: "call-read-1", name: "read_character"} = call] =
              Enum.filter(assistant.blocks, &(&1.type == "tool_call"))
 
@@ -235,6 +236,7 @@ defmodule NovelAgent.Provider.StreamToolCallsTest do
 
     {ir, _result} = RequestIR.append_assistant_result(ir_with_author_message(), result)
     assistant = Enum.find(ir.messages, &(&1.role == "assistant"))
+
     assert [%{type: "tool_call", call_id: "toolu-read-1"} = call] =
              Enum.filter(assistant.blocks, &(&1.type == "tool_call"))
 

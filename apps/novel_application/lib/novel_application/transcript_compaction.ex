@@ -202,8 +202,7 @@ defmodule NovelApplication.TranscriptCompaction do
       source_refs: source_refs,
       versions: versions,
       omissions: @omissions,
-      summary:
-        "已整理本次任务较早的 #{length(call_ids)} 项已完成操作；这些记录的真实来源与版本仍按原记录保留。"
+      summary: "已整理本次任务较早的 #{length(call_ids)} 项已完成操作；这些记录的真实来源与版本仍按原记录保留。"
     }
 
     Enum.reduce(extra, base, fn {key, value}, acc -> Map.put(acc, key, value) end)

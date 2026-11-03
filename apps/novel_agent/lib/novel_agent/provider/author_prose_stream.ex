@@ -128,6 +128,7 @@ defmodule NovelAgent.Provider.AuthorProseStream do
   defp unescape("n"), do: "\n"
   defp unescape("r"), do: "\r"
   defp unescape("t"), do: "\t"
-  defp unescape("u"), do: ""  # \uXXXX 罕见：正文流宁可少显示，不猜编码
+  # \uXXXX 罕见：正文流宁可少显示，不猜编码
+  defp unescape("u"), do: ""
   defp unescape(other), do: other
 end

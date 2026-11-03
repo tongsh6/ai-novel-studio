@@ -106,7 +106,10 @@ defmodule NovelApplication.AgentRunCompactionEventTest do
       {:error, :paused_for_compaction, %{judgment_transcript: transcript}}
     end
 
-    start = if mode == :durable, do: &AgentRunService.start_durable/2, else: &AgentRunService.start_bounded/2
+    start =
+      if mode == :durable,
+        do: &AgentRunService.start_durable/2,
+        else: &AgentRunService.start_bounded/2
 
     assert {:ok, ^run_id} =
              start.(base_run(run_id), next_step_planner: planner, event_sink: event_sink(self()))

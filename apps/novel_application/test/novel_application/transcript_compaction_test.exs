@@ -67,7 +67,8 @@ defmodule NovelApplication.TranscriptCompactionTest do
       base_transcript()
       |> append_exchange("call-1")
       |> AuthoringTranscript.append_scope_update("后续只开放创作。", %{"scope_revision" => 2})
-      |> append_exchange("call-2", source_refs: [%{ref: "character:2", version: 5}],
+      |> append_exchange("call-2",
+        source_refs: [%{ref: "character:2", version: 5}],
         versions: %{"character:2" => 5}
       )
 
@@ -75,7 +76,12 @@ defmodule NovelApplication.TranscriptCompactionTest do
 
     assert {:ok, plan} = TranscriptCompaction.plan(transcript)
     assert plan.covers == %{call_ids: ["call-1", "call-2"]}
-    assert plan.source_refs == [%{ref: "character:1", version: 2}, %{ref: "character:2", version: 5}]
+
+    assert plan.source_refs == [
+             %{ref: "character:1", version: 2},
+             %{ref: "character:2", version: 5}
+           ]
+
     assert plan.versions == %{"character:1" => 2, "character:2" => 5}
     assert [_ | _] = plan.omissions
 
@@ -99,6 +105,7 @@ defmodule NovelApplication.TranscriptCompactionTest do
 
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(compacted)
     assert {:ok, body} = Projection.project(ir)
+
     # checkpoint 是唯一压缩表达：模型可见覆盖范围，但被覆盖的工具往返不再出现。
     refute Enum.any?(body.messages, &(&1.role == "tool"))
     assert inspect(body) =~ "checkpoint"
@@ -133,7 +140,9 @@ defmodule NovelApplication.TranscriptCompactionTest do
              )
 
     assert {:ok, :nothing_to_compact} = TranscriptCompaction.plan(compacted)
-    assert %{compacted: false, reason: :nothing_to_compact} = TranscriptCompaction.receipt(:nothing_to_compact)
+
+    assert %{compacted: false, reason: :nothing_to_compact} =
+             TranscriptCompaction.receipt(:nothing_to_compact)
   end
 
   test "并行多调用整条选择，不产生 mechanism 拒绝的部分覆盖" do
@@ -234,7 +243,8 @@ defmodule NovelApplication.TranscriptCompactionTest do
     transcript =
       base_transcript()
       |> append_exchange("call-1")
-      |> append_exchange("call-2", source_refs: [%{ref: "character:2", version: 3}],
+      |> append_exchange("call-2",
+        source_refs: [%{ref: "character:2", version: 3}],
         versions: %{"character:2" => 3}
       )
 

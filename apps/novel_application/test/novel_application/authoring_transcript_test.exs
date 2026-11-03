@@ -866,31 +866,30 @@ defmodule NovelApplication.AuthoringTranscriptTest do
     |> Jason.decode!()
   end
 
-test "回答回合写入来源元数据：canonical transcript 可区分回答与普通作者请求" do
-  transcript =
-    base_transcript()
-    |> AuthoringTranscript.append_author_turn("按 A 线推进，但先只写一段验证。", "author_turn:turn-2",
-      author_turn: %{origin: "author_choice", question_ref: "question:run-ir-1:q1"}
-    )
+  test "回答回合写入来源元数据：canonical transcript 可区分回答与普通作者请求" do
+    transcript =
+      base_transcript()
+      |> AuthoringTranscript.append_author_turn("按 A 线推进，但先只写一段验证。", "author_turn:turn-2",
+        author_turn: %{origin: "author_choice", question_ref: "question:run-ir-1:q1"}
+      )
 
-  [message] = transcript.messages |> Enum.filter(&(&1.role == "user")) |> Enum.take(-1)
+    [message] = transcript.messages |> Enum.filter(&(&1.role == "user")) |> Enum.take(-1)
 
-  assert message.author_turn == %{
-           "origin" => "author_choice",
-           "question_ref" => "question:run-ir-1:q1"
-         }
+    assert message.author_turn == %{
+             "origin" => "author_choice",
+             "question_ref" => "question:run-ir-1:q1"
+           }
 
-  # 元数据不改变消息文本（Provider 投影只读 role/blocks，内容字节保真）。
-  assert [%{type: "text", text: "按 A 线推进，但先只写一段验证。"}] = message.blocks
-end
+    # 元数据不改变消息文本（Provider 投影只读 role/blocks，内容字节保真）。
+    assert [%{type: "text", text: "按 A 线推进，但先只写一段验证。"}] = message.blocks
+  end
 
-test "普通作者回合不带来源元数据" do
-  transcript =
-    base_transcript()
-    |> AuthoringTranscript.append_author_turn("继续写下一场。", "author_turn:turn-3")
+  test "普通作者回合不带来源元数据" do
+    transcript =
+      base_transcript()
+      |> AuthoringTranscript.append_author_turn("继续写下一场。", "author_turn:turn-3")
 
-  [message] = transcript.messages |> Enum.filter(&(&1.role == "user")) |> Enum.take(-1)
-  refute Map.has_key?(message, :author_turn)
-end
-
+    [message] = transcript.messages |> Enum.filter(&(&1.role == "user")) |> Enum.take(-1)
+    refute Map.has_key?(message, :author_turn)
+  end
 end

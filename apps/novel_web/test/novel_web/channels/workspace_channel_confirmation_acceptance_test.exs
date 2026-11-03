@@ -113,7 +113,9 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
     # 重传也没有第二次执行：仍是同一个 child run 的唯一一次 Provider 调用。
     assert await_record_status_any(receipt.result["run_id"], ["completed", "cancelled", "failed"])
     assert length(ProviderRunLog.list_runs(receipt.result["run_id"])) == 1
-    assert length(AgentRunLog.list_by_parent_turn(ctx.work.id, ctx.session_id, source.turn_id)) == 1
+
+    assert length(AgentRunLog.list_by_parent_turn(ctx.work.id, ctx.session_id, source.turn_id)) ==
+             1
   end
 
   test "two channels confirming the same action admit one receipt and one run, and execute provider once",
@@ -162,7 +164,9 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
     socket_b = join_socket(ctx.work.id, ctx.session_id)
 
     push_a =
-      push(socket_a, "author_action", %{"action" => action_params(source, "confirm_before_execute")})
+      push(socket_a, "author_action", %{
+        "action" => action_params(source, "confirm_before_execute")
+      })
 
     push_b =
       push(socket_b, "author_action", %{
@@ -320,9 +324,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
     sync_channel(socket)
 
     source =
-      seed_source(ctx.work.id, ctx.session_id, "offline-terminal",
-        source_run_status: "completed"
-      )
+      seed_source(ctx.work.id, ctx.session_id, "offline-terminal", source_run_status: "completed")
 
     source_before = AgentRunLog.get_run(source.run_id)
 
@@ -419,11 +421,17 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
     assert state.run.budget.max_provider_calls >= 14
     assert state.run.consumed_budget.provider_calls >= 1
     assert state.run.authority_scope[:production_write] == false
+
     assert state.run.authority_scope[:allowed_tools] ==
              ~w(prose_writing plot_outline character_design character_evolution world_building text_analysis)
 
     source_after = AgentRunLog.get_run(source.run_id)
-    assert source_after.budget == %{"max_provider_calls" => 1, "max_tool_calls" => 0, "max_steps" => 1}
+
+    assert source_after.budget == %{
+             "max_provider_calls" => 1,
+             "max_tool_calls" => 0,
+             "max_steps" => 1
+           }
 
     assert source_after.consumed_budget == %{
              "provider_calls" => 1,
@@ -434,7 +442,11 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
     # 决定 Why 本身零 Provider；真实调用属于后续创作 step，pcall/prun 成对可查。
     assert [decision_trace] = TraceRepository.list_by_turn(decision_turn_id)
     assert decision_trace.decision_type == "author_confirmed_action"
-    assert decision_trace.replay_policy == %{"use_recorded_frame" => true, "recall_provider" => false}
+
+    assert decision_trace.replay_policy == %{
+             "use_recorded_frame" => true,
+             "recall_provider" => false
+           }
 
     provider_runs = ProviderRunLog.list_runs(child_run_id)
     assert length(provider_runs) == 1

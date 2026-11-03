@@ -239,10 +239,14 @@ defmodule NovelAgent.Provider.AnthropicStream do
     |> append_delta(ctx, text_delta(decoded))
   end
 
-  defp consume_decoded(acc, _ctx, %{
-         "type" => "content_block_start",
-         "content_block" => %{"type" => "tool_use"} = block
-       } = decoded) do
+  defp consume_decoded(
+         acc,
+         _ctx,
+         %{
+           "type" => "content_block_start",
+           "content_block" => %{"type" => "tool_use"} = block
+         } = decoded
+       ) do
     entry = %{
       id: present_string(Map.get(block, "id")),
       name: present_string(Map.get(block, "name")),
@@ -343,9 +347,12 @@ defmodule NovelAgent.Provider.AnthropicStream do
   defp put_tool_call(acc, index, entry),
     do: %{acc | tool_calls: Map.put(acc.tool_calls, index, entry)}
 
-  defp consume_tool_call_delta(acc, %{
-         "delta" => %{"type" => "input_json_delta", "partial_json" => partial}
-       } = decoded)
+  defp consume_tool_call_delta(
+         acc,
+         %{
+           "delta" => %{"type" => "input_json_delta", "partial_json" => partial}
+         } = decoded
+       )
        when is_binary(partial) do
     index = tool_call_index(decoded)
     entry = Map.get(acc.tool_calls, index, %{id: nil, name: nil, partial_json: ""})
