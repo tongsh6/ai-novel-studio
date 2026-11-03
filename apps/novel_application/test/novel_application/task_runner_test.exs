@@ -23,10 +23,7 @@ defmodule NovelApplication.TaskRunnerTest do
     {:ok, task} = TaskRunner.start(@valid_attrs)
     assert task.id != nil
 
-    # Wait for the async tasks to finish
-    Process.sleep(500)
-
-    final_task = LongRunTaskLog.get(task.id)
+    final_task = await_finalized(task.id)
     assert final_task.status == "DONE"
     assert final_task.phase == "COMPLETED"
     assert final_task.checkpoint_data != nil
@@ -39,8 +36,24 @@ defmodule NovelApplication.TaskRunnerTest do
     {:ok, resumed} = TaskRunner.resume(checkpointed.id)
     assert resumed.phase == "RESUMING"
 
-    Process.sleep(500)
-    final_task = LongRunTaskLog.get(task.id)
+    final_task = await_finalized(task.id)
     assert final_task.status == "DONE"
+  end
+
+  # 2026-11-04 测试提速：用轮询替代固定 500ms 等待。
+  # perform_execution 内部有 3×100ms 进度模拟，正常路径约 300ms 完成；
+  # 固定 sleep(500) 每次白等约 200ms，且负载高时会偶发读到未完成状态。
+  defp await_finalized(task_id, attempts \\ 200) do
+    case LongRunTaskLog.get(task_id) do
+      %{status: "DONE"} = task ->
+        task
+
+      _ when attempts > 0 ->
+        Process.sleep(10)
+        await_finalized(task_id, attempts - 1)
+
+      other ->
+        other
+    end
   end
 end
