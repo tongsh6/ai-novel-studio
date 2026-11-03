@@ -8,6 +8,10 @@
 //   继承第一请求并只追加 assistant+tool(native result)，不允许伪 user 纠错。
 // - artifact 字节只与 child 最后合法响应的同 item_id 字段逐字比较。
 import {
+  AUTHOR_VISIBLE_MIGRATION_CATEGORIES,
+  scanAuthorVisibleTexts,
+} from "../author_visible/leak_scan.mjs";
+import {
   broadcastFrames,
   frameBody,
   frameEvent,
@@ -909,16 +913,14 @@ function revisionCandidateVisible(revision) {
   return allTrue(revision.includes("修订稿"), revision.includes("保存修订稿"));
 }
 
+// P0-6：作者可见 token 检查唯一实现来自 `author_visible/leak_scan.mjs`（同一 SSOT）。
+// 迁移期显式启用已迁移类别（协议 code/内部标识/ref 模式）；internal_terms_zh 待 P1，
+// P1 完成后删除 categories 参数恢复默认全开。
 function authorSafeTexts(texts) {
-  const forbidden = [
-    "submit_tentative_artifact",
-    "request_ir",
-    "provider_session",
-    "provider_call_ref",
-    "provider_run_ref",
-    "reasoning_content",
-  ];
-  return forbidden.every((code) => texts.every((value) => !value.includes(code)));
+  return scanAuthorVisibleTexts(
+    list(texts).map((value) => text(value)),
+    { categories: AUTHOR_VISIBLE_MIGRATION_CATEGORIES },
+  ).ok;
 }
 
 export function revisionUiChecks({ qualityVisible, revisionVisible, why, userMessages }) {

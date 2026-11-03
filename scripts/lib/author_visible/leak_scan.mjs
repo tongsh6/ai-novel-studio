@@ -19,6 +19,25 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..", "..", "..");
 const ssotPath = join(repoRoot, "docs", "design", "schemas", "author_visible", "display_names.json");
 
+/**
+ * 作者可见禁止 token 的类别全集。
+ * 迁移期类别（P0-6）：中文内部术语（工作过程/确认回合/创作执行/结构化回放/持久 trace）
+ * 对应产品文案在 P1 才迁移；在此之前 harness 只启用其余三类，P1 文案迁移完成后
+ * 删除 `AUTHOR_VISIBLE_MIGRATION_CATEGORIES` 并改用默认全集。
+ */
+export const AUTHOR_VISIBLE_TOKEN_CATEGORIES = [
+  "protocol_codes",
+  "internal_terms_zh",
+  "internal_identifiers",
+  "ref_patterns",
+];
+
+export const AUTHOR_VISIBLE_MIGRATION_CATEGORIES = [
+  "protocol_codes",
+  "internal_identifiers",
+  "ref_patterns",
+];
+
 /** 读取 SSOT 的禁止 token 规则。 */
 export function loadForbiddenTokens(ssot = ssotPath) {
   const parsed = JSON.parse(readFileSync(ssot, "utf8"));
@@ -56,7 +75,8 @@ function asTexts(texts) {
  */
 export function scanAuthorVisibleTexts(texts, options = {}) {
   const tokens = options.tokens ?? loadForbiddenTokens();
-  const patterns = compilePatterns(tokens);
+  const categories = new Set(options.categories ?? AUTHOR_VISIBLE_TOKEN_CATEGORIES);
+  const patterns = categories.has("ref_patterns") ? compilePatterns(tokens) : [];
   const allow = tokens.allow;
   const hits = [];
 
@@ -65,14 +85,20 @@ export function scanAuthorVisibleTexts(texts, options = {}) {
   for (const { text, source } of asTexts(texts)) {
     if (!text || allowed(text)) continue;
 
-    for (const token of tokens.protocol_codes) {
-      if (text.includes(token)) hits.push({ token, kind: "protocol_code", text, source });
+    if (categories.has("protocol_codes")) {
+      for (const token of tokens.protocol_codes) {
+        if (text.includes(token)) hits.push({ token, kind: "protocol_code", text, source });
+      }
     }
-    for (const token of tokens.internal_terms_zh) {
-      if (text.includes(token)) hits.push({ token, kind: "internal_term_zh", text, source });
+    if (categories.has("internal_terms_zh")) {
+      for (const token of tokens.internal_terms_zh) {
+        if (text.includes(token)) hits.push({ token, kind: "internal_term_zh", text, source });
+      }
     }
-    for (const token of tokens.internal_identifiers) {
-      if (text.includes(token)) hits.push({ token, kind: "internal_identifier", text, source });
+    if (categories.has("internal_identifiers")) {
+      for (const token of tokens.internal_identifiers) {
+        if (text.includes(token)) hits.push({ token, kind: "internal_identifier", text, source });
+      }
     }
     for (const pattern of patterns) {
       const match = pattern.exec(text);

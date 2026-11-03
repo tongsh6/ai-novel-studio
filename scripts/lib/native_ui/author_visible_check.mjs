@@ -9,7 +9,7 @@
 
 import { extractAxTexts, loadForbiddenTokens, scanAuthorVisibleTexts } from "../author_visible/leak_scan.mjs";
 
-export function checkAuthorVisibleTexts({ axText, visibleText, tokens } = {}) {
+export function checkAuthorVisibleTexts({ axText, visibleText, tokens, categories } = {}) {
   const texts = [];
 
   if (typeof visibleText === "string" && visibleText.trim() !== "") {
@@ -19,7 +19,12 @@ export function checkAuthorVisibleTexts({ axText, visibleText, tokens } = {}) {
     texts.push(...extractAxTexts(axText));
   }
 
-  return scanAuthorVisibleTexts(texts, { tokens: tokens ?? loadForbiddenTokens() });
+  // 默认不传 categories = 扫描器全类别启用（安全默认）。迁移期调用方如需显式声明
+  // 已迁移类别，可传 categories；该收窄必须在 P1 完成后删除（不留长期开关）。
+  return scanAuthorVisibleTexts(texts, {
+    tokens: tokens ?? loadForbiddenTokens(),
+    categories,
+  });
 }
 
 export function authorVisibleCheckName() {

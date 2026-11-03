@@ -3,12 +3,27 @@
 // 这里集中四类判定：全章核对请求、续航/角色的原生调用阶段、计划/canon 结果、
 // 作者可见结果与 Why 面板。缺失字段或不合法形状必须让对应检查为 false，
 // 不能以空集合、默认值或备用字段代签。
+import {
+  AUTHOR_VISIBLE_MIGRATION_CATEGORIES,
+  scanAuthorVisibleTexts,
+} from "../author_visible/leak_scan.mjs";
 import { compareAuthoringCanonSnapshots } from "./authoring_canon_evidence.mjs";
 import { providerFreeInterval } from "./authoring_planning_evidence.mjs";
 
 const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 const list = (value) => (Array.isArray(value) ? value : []);
 const text = (value) => (typeof value === "string" ? value : "");
+
+// P0-6：作者可见文案内部 token 检查的唯一实现来自 `author_visible/leak_scan.mjs`
+// （同一数据源 SSOT），不再逐场景维护手写 token 列表。
+// 迁移期显式声明已迁移类别：协议 code / 内部标识 / ref 模式（P0-1/P0-2 已迁移）；
+// `internal_terms_zh` 待 P1 中文术语产品文案迁移后启用——P1 完成后删除 categories
+// 参数，恢复扫描器默认全开（不留长期开关）。
+const authorVisibleCopySafe = (values) =>
+  scanAuthorVisibleTexts(
+    values.map((value) => text(value)),
+    { categories: AUTHOR_VISIBLE_MIGRATION_CATEGORIES },
+  ).ok;
 
 export const LAST_PAGE_ANCHOR = "井底浮现第七枚手印";
 
@@ -480,19 +495,11 @@ export function continuationOutcomeChecks({
   fingerprintUnchanged,
 }) {
   const visibleText = text(visible);
-  const internalCopy = [
-    "continuation_decision",
-    "submit_tentative_artifact",
-    "report_quality_findings",
-    "request_ir",
-    "provider_session",
-    "reasoning_content",
-  ];
   return {
     real_native_window_shows_tentative_candidate:
       visibleText.includes("正文草稿") && visibleText.includes("保存为章节正文"),
     author_visible_copy_has_no_internal_protocol_codes:
-      internalCopy.every((code) => !visibleText.includes(code)),
+      authorVisibleCopySafe([visibleText]),
     recovered_same_run: turnResult?.agent_run?.run_id === runId,
     pending_prose_remains_tentative: pendingArtifacts(turnResult).length > 0 &&
       pendingArtifacts(turnResult).every(
@@ -521,15 +528,7 @@ function whyPanelAuthorSafe(value) {
   const why = text(value);
   return (
     why.includes("回放只读取已保存记录，不会重新调用模型") &&
-    [
-      "judgment_decision",
-      "submit_tentative_artifact",
-      "request_ir",
-      "provider_session",
-      "call_id",
-      "narrative_role",
-      "reasoning_content",
-    ].every((code) => !why.includes(code))
+    authorVisibleCopySafe([why])
   );
 }
 
@@ -545,21 +544,12 @@ export function characterOutcomeChecks({
   request,
 }) {
   const visibleText = text(visible);
-  const internalCopy = [
-    "judgment_decision",
-    "submit_tentative_artifact",
-    "request_ir",
-    "provider_session",
-    "call_id",
-    "narrative_role",
-    "reasoning_content",
-  ];
   return {
     real_native_window_shows_tentative_character:
       visibleText.includes("角色设定草稿") &&
       visibleText.includes("保存所选方案到作品档案"),
     author_visible_copy_has_no_internal_protocol_codes:
-      internalCopy.every((code) => !visibleText.includes(code)),
+      authorVisibleCopySafe([visibleText]),
     recovered_same_durable_run:
       turnResult?.agent_run?.run_id === runId &&
       ackBody?.response?.run_mode === "durable",
@@ -593,23 +583,15 @@ export function planningPendingResults(results, durableRefs) {
 export function planningUiChecks({ visible, why }) {
   const visibleText = text(visible);
   const whyText = text(why);
-  const forbidden = [
-    "agent_plan_draft",
-    "agent_plan_revision",
-    "judgment_decision",
-    "submit_tentative_artifact",
-    "request_ir",
-    "provider_session",
-    "call_id",
-    "reasoning_content",
-  ];
   return {
     real_native_window_shows_both_candidates:
       ["角色设定草稿", "世界设定草稿", "保存所选方案到作品档案"].every((value) =>
         visibleText.includes(value),
       ),
-    author_visible_copy_has_no_internal_protocol_codes:
-      forbidden.every((code) => !visibleText.includes(code) && !whyText.includes(code)),
+    author_visible_copy_has_no_internal_protocol_codes: authorVisibleCopySafe([
+      visibleText,
+      whyText,
+    ]),
     why_panel_is_author_safe: whyPanelAuthorSafe(whyText),
   };
 }
