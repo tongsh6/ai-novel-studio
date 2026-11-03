@@ -78,7 +78,7 @@
   - 问题不可回答时提示条显示原因（`disabledReason` → 「此问题暂不可回复」），不再静默禁用；
   - 前端 **744/744**、typecheck/lint 绿。
   - 剩余（第二阶段，待排）：open 问题在 runtime dead 时的「重新发起该问题」预填路径（当前引导作者用「开始新讨论」）。
-- **批次 E（部分完成）**：
+- **批次 E ✅ 完成（E1/E2/E3/E4/E5，2026-11-04）**：
   - ✅ E4（`83c52668`）：移除 `user_message` 的 `behavior_id` 死接线（前端传、后端不读）；
   - ✅ E5-2：证据引用口径写入 `docs/engineering/scenario-acceptance.md`（引用历史证据必须核对 `summary.surface`/`driver`/`provider`，`-tauri` 目录名不代表真实页面）；
   - ✅ E5-1（`5aca17c5`）：核对确认「`consumed_replans` 文档 vs artifact 不符」定位为 **UA-01 D3 steer 表述过时**——artifact（`agent-natural-language-steer-tauri`，surface=tauri）实测 `consumed_replans=0`，UA-01 三处原文写 1；已按现存 evidence 校准为 0 并附说明（steer 走 `plan_adjusted` 不必然消耗 replan）。其余场景断言与 artifact 一致（`agent-plan-native-tool-calling-protocol` / `agentic-loop-plan-replan-reasoning` 均实测 1 ✓）。
@@ -91,7 +91,7 @@
     - 前端：`workbenchActions` 的 `answer_clarification` target_ref 动作、`WorkspaceChat` 的 label 映射；`display_names` SSOT 删除 `answer_clarification` 并双端重新生成（in sync）。
     - 文档：`05-turn-behavior-and-state-model.md` §8 删除 clarification 行为类型（§8.1–8.5 重排 + 退役注记）；`VS-03` 契约加退役注记（冻结条款保留为历史，不再产生/消费）。
     - 验证：`mix compile --warnings-as-errors` 绿；相关应用层测试 **99/0**、`behavior_state_test` **33/0**、foundation/orchestrator 测试通过；前端 typecheck/全量 **480/480**/build 绿。
-  - ⏳ E2（多窗口 event_sink）——**必须等并行工作流提交后**（`agent_run_server.ex` 正被其修改，当前不可动）。
+  - ✅ **E2 完成（`d9d3bdb2`）**：`AgentRunServer` 增加 `event_sinks`（订阅者 pid → %{ref, sink}）+ `attach_event_sink/3` 按 pid 登记并 monitor；发布改为 `publish_to_sinks/2`（默认 sink + 全部动态订阅者多播），订阅者退出 `:DOWN` 自动清理；多窗口不再互相顶掉。测试：多窗口用例（两个独立订阅者都收到 `run_paused`、state sinks=2）在 `agent_run_runtime_test` **55/0**。
 - **批次 B ✅ 完成（2026-11-04 收口，A 方案对齐）**：
   - 核对确认 `compact_transcript` **不是死代码**（Channel handler + 4 个 channel 测试 + 应用层能力均通过）；
   - 按 46 §9.9 A 方案「作者零操作」收口：**撤销 Channel 作者命令入口**（`agent_command: compact_transcript` 移除，回归 `unknown_command`）与对应 web 入口测试；`AgentRunService.compact_transcript/2` 保留为 **application internal 能力**（自动维护共用 `compact_and_commit`；语义测试保留在 `agent_run_runtime_test.exs` 54/0）；
