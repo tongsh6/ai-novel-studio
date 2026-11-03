@@ -78,6 +78,11 @@
   - 问题不可回答时提示条显示原因（`disabledReason` → 「此问题暂不可回复」），不再静默禁用；
   - 前端 **744/744**、typecheck/lint 绿。
   - 剩余（第二阶段，待排）：open 问题在 runtime dead 时的「重新发起该问题」预填路径（当前引导作者用「开始新讨论」）。
+- **批次 E（部分完成）**：
+  - ✅ E4（`83c52668`）：移除 `user_message` 的 `behavior_id` 死接线（前端传、后端不读）；
+  - ✅ E5-2：证据引用口径写入 `docs/engineering/scenario-acceptance.md`（引用历史证据必须核对 `summary.surface`/`driver`/`provider`，`-tauri` 目录名不代表真实页面）；
+  - ⏳ E5-1：`consumed_replans` 文档 vs artifact 不符（`quality/acceptance/scenarios/agent-plan-native-tool-calling-protocol.yml` 断言 `>=1`，现存 summary 实测 0）——**待校准验收场景断言**（不擅自放宽，需确认该场景是否已失效或被新 profile 取代）；
+  - ⏳ E1（断线补事件序列 gap 检测）、E2（多窗口 event_sink）、E3（clarification 契约-实现缺口）——待后端窗口（当前并行工作流占用）。
 - **批次 B ⚠️ 待产品决策**（核对发现审核报告「后端孤岛」判定不完整）：
   - `compact_transcript` **不是死代码**：Channel handler + `workspace_channel_compaction_test.exs`（4 用例，真实作者整理回执/canonical 不变/执行中拒绝）+ 应用层能力，均通过；
   - 真实缺口是「**前端入口未交付**」——契约 §16.16 把「作者命令」列为两类入口之一，但 46 §9.9 A 方案（无感自动整理、作者零操作）未提供手动入口；

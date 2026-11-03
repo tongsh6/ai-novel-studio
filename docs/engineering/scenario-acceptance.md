@@ -100,6 +100,10 @@
 - 脚本是否通过用户可见语义定位和操作 UI？
 - 产品代码是否没有新增验收专用 env、slice id、DOM hook、Channel/API 事件或 provider 注册？
 - 验收证据是否来自真实网络帧、前端可见反馈、日志、截图或持久化结果？
+- **引用历史证据时必须先核对 `summary.surface` / `driver` / `provider`**：目录名（如 `-tauri`）
+  不代表真实页面来源——历史目录中存在 `surface=browser`、`driver=外部 UI` 的混合情况；
+  「真实页面验收」只能引用 `surface=native-tauri`（或当轮真实 Tauri 驱动）的产物，
+  确定性 provider 产物必须标为确定性证据、不得升格为真实模型证据。
 - 局部测试是否被标为局部证据，而不是替代场景化验收？
 - 如果未闭环，是否明确写出缺入口、缺事件、缺状态投影或缺自动化能力？
 
