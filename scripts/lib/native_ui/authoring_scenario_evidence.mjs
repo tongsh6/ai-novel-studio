@@ -3,10 +3,7 @@
 // 这里集中四类判定：全章核对请求、续航/角色的原生调用阶段、计划/canon 结果、
 // 作者可见结果与 Why 面板。缺失字段或不合法形状必须让对应检查为 false，
 // 不能以空集合、默认值或备用字段代签。
-import {
-  AUTHOR_VISIBLE_MIGRATION_CATEGORIES,
-  scanAuthorVisibleTexts,
-} from "../author_visible/leak_scan.mjs";
+import { scanAuthorVisibleTexts } from "../author_visible/leak_scan.mjs";
 import { compareAuthoringCanonSnapshots } from "./authoring_canon_evidence.mjs";
 import { providerFreeInterval } from "./authoring_planning_evidence.mjs";
 
@@ -14,16 +11,10 @@ const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 const list = (value) => (Array.isArray(value) ? value : []);
 const text = (value) => (typeof value === "string" ? value : "");
 
-// P0-6：作者可见文案内部 token 检查的唯一实现来自 `author_visible/leak_scan.mjs`
-// （同一数据源 SSOT），不再逐场景维护手写 token 列表。
-// 迁移期显式声明已迁移类别：协议 code / 内部标识 / ref 模式（P0-1/P0-2 已迁移）；
-// `internal_terms_zh` 待 P1 中文术语产品文案迁移后启用——P1 完成后删除 categories
-// 参数，恢复扫描器默认全开（不留长期开关）。
+// 作者可见文案内部 token 检查的唯一实现来自 `author_visible/leak_scan.mjs`
+// （同一数据源 SSOT，全类别扫描），不再逐场景维护手写 token 列表。
 const authorVisibleCopySafe = (values) =>
-  scanAuthorVisibleTexts(
-    values.map((value) => text(value)),
-    { categories: AUTHOR_VISIBLE_MIGRATION_CATEGORIES },
-  ).ok;
+  scanAuthorVisibleTexts(values.map((value) => text(value))).ok;
 
 export const LAST_PAGE_ANCHOR = "井底浮现第七枚手印";
 

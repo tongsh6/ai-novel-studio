@@ -574,7 +574,7 @@ test("executedConfirmationTurnResult / rejectConfirmationTurnResult：时间窗�
 });
 
 
-test("AX 断言层：迁移期 3 类内部 code 命中判红，internal_terms_zh 单列不阻塞", () => {
+test("AX 断言层：全类别内部 token 命中判红（含中文内部术语）", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-author-visible-"));
   fs.writeFileSync(path.join(dir, "01-source.ax.txt"), "\t\t0/0/0/0/0/8 AXPopUpButton, 模型已连接, Description: Stub · 当前模型：slice_verify, enabled=true\n");
   const leak = scanAuthorVisibleBatch(dir);
@@ -592,8 +592,9 @@ test("AX 断言层：迁移期 3 类内部 code 命中判红，internal_terms_zh
   const p1 = fs.mkdtempSync(path.join(os.tmpdir(), "b71-author-visible-"));
   fs.writeFileSync(path.join(p1, "02-after-confirm.ax.txt"), "\t\t0/0/0/0/0/1 AXStaticText, Value: 当前创作请求的工作过程\n");
   const p1Scan = scanAuthorVisibleBatch(p1);
-  // 迁移期：中文内部术语不判红（P1 迁移完成后恢复全开），但必须输出清单供 P1。
-  assert.equal(p1Scan.ok, true);
+  // P1 后全类别启用：中文内部术语与其它类别一样判红，同时单独输出清单供报告。
+  assert.equal(p1Scan.ok, false);
+  assert(p1Scan.hits.some((hit) => hit.token === "工作过程"));
   assert(p1Scan.internal_terms_zh_hits.some((hit) => hit.token === "工作过程"));
   fs.rmSync(p1, { recursive: true, force: true });
 

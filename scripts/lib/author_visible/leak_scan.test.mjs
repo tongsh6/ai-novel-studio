@@ -10,7 +10,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  AUTHOR_VISIBLE_MIGRATION_CATEGORIES,
   extractAxTexts,
   loadForbiddenTokens,
   scanAuthorVisibleTexts,
@@ -100,24 +99,4 @@ test("白名单只来自 SSOT allow 字段", () => {
 
   const denied = scanAuthorVisibleTexts(["prose_writing 正在执行"], { tokens });
   assert.equal(denied.ok, false);
-});
-
-test("categories 只在调用方显式声明已迁移类别时收窄；默认全类别安全", () => {
-  const mixed = "当前创作请求的工作过程与 prose_writing";
-  // 默认：全类别启用 → 中文内部术语也命中。
-  assert.equal(scanAuthorVisibleTexts([mixed]).ok, false);
-
-  // 迁移期显式收窄：协议 code（prose_writing）仍命中。
-  assert.equal(
-    scanAuthorVisibleTexts([mixed], { categories: AUTHOR_VISIBLE_MIGRATION_CATEGORIES }).ok,
-    false,
-  );
-
-  // internal_terms_zh 未启用时，仅含中文内部术语的文本不命中（P1 迁移后必须恢复全开）。
-  assert.equal(
-    scanAuthorVisibleTexts(["当前创作请求的工作过程"], {
-      categories: AUTHOR_VISIBLE_MIGRATION_CATEGORIES,
-    }).ok,
-    true,
-  );
 });

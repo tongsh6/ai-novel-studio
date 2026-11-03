@@ -33,7 +33,6 @@ import {
 import { readConfig } from "./authoring_capture_evidence.mjs";
 import { locateScopedButton } from "./authoring_pending_evidence.mjs";
 import { checkAuthorVisibleTexts } from "./author_visible_check.mjs";
-import { AUTHOR_VISIBLE_MIGRATION_CATEGORIES } from "../author_visible/leak_scan.mjs";
 import {
   CONFIRMATION_CHECKPOINTS,
   CONFIRMATION_MODES,
@@ -325,9 +324,9 @@ function portListening(port) {
   }
 }
 
-// 确认/拒绝批次的 AX 断言层：扫描真实 AX dump 与可见文本。
-// - 迁移期显式类别（protocol_codes/internal_identifiers/ref_patterns）命中 → 判红（P0 泄漏）；
-// - internal_terms_zh（中文内部术语）P1 迁移中：单独输出命中清单，不判红不阻塞。
+// 确认/拒绝批次的 AX 断言层：扫描真实 AX dump 与可见文本（全类别，无收窄）。
+// 协议 code / 中文内部术语 / 内部标识 / ref 模式 任一命中 → 判红；中文内部术语
+// 另单独输出清单（报告用），同样计入 ok。
 export const CONFIRMATION_AX_CAPTURES = Object.freeze([
   "01-source",
   "02-card",
@@ -349,29 +348,17 @@ export function scanAuthorVisibleBatch(dir) {
       const raw = fs.readFileSync(file, "utf8");
       const axText = ext === "ax.txt" ? raw : "";
       const visibleText = ext === "text.txt" ? raw : "";
-      const migration = checkAuthorVisibleTexts({
-        axText,
-        visibleText,
-        categories: AUTHOR_VISIBLE_MIGRATION_CATEGORIES,
-      });
-      for (const hit of list(migration.hits)) {
-        hits.push({
+      const scan = checkAuthorVisibleTexts({ axText, visibleText });
+      for (const hit of list(scan.hits)) {
+        const entry = {
           file: path.basename(file),
           token: hit.token,
           kind: hit.kind,
           source: hit.source ?? null,
           context: String(hit.text ?? "").slice(0, 240),
-        });
-      }
-      const full = checkAuthorVisibleTexts({ axText, visibleText });
-      for (const hit of list(full.hits)) {
-        if (hit.kind !== "internal_term_zh") continue;
-        internalTermsZh.push({
-          file: path.basename(file),
-          token: hit.token,
-          source: hit.source ?? null,
-          context: String(hit.text ?? "").slice(0, 240),
-        });
+        };
+        hits.push(entry);
+        if (hit.kind === "internal_term_zh") internalTermsZh.push(entry);
       }
     }
   }
@@ -969,7 +956,7 @@ export function verifyConfirmationBatch(dir) {
     llmRecords,
     dir,
   });
-  // AX 断言层（P0 泄漏验证）：迁移期 3 类命中即失败；internal_terms_zh 仅输出清单（P1 输入）。
+  // AX 断言层（作者可见泄漏验证）：全类别命中即失败（含中文内部术语）。
   const authorVisible = scanAuthorVisibleBatch(dir);
   result.checks.author_visible_no_internal_tokens = {
     ok: authorVisible.ok,

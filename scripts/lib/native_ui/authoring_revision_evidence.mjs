@@ -7,10 +7,7 @@
 // - 修订 child 的两次原生调用按 canonical assistant 顺序定位；第二请求必须严格
 //   继承第一请求并只追加 assistant+tool(native result)，不允许伪 user 纠错。
 // - artifact 字节只与 child 最后合法响应的同 item_id 字段逐字比较。
-import {
-  AUTHOR_VISIBLE_MIGRATION_CATEGORIES,
-  scanAuthorVisibleTexts,
-} from "../author_visible/leak_scan.mjs";
+import { scanAuthorVisibleTexts } from "../author_visible/leak_scan.mjs";
 import {
   broadcastFrames,
   frameBody,
@@ -913,14 +910,9 @@ function revisionCandidateVisible(revision) {
   return allTrue(revision.includes("修订稿"), revision.includes("保存修订稿"));
 }
 
-// P0-6：作者可见 token 检查唯一实现来自 `author_visible/leak_scan.mjs`（同一 SSOT）。
-// 迁移期显式启用已迁移类别（协议 code/内部标识/ref 模式）；internal_terms_zh 待 P1，
-// P1 完成后删除 categories 参数恢复默认全开。
+// 作者可见 token 检查唯一实现来自 `author_visible/leak_scan.mjs`（同一 SSOT，全类别扫描）。
 function authorSafeTexts(texts) {
-  return scanAuthorVisibleTexts(
-    list(texts).map((value) => text(value)),
-    { categories: AUTHOR_VISIBLE_MIGRATION_CATEGORIES },
-  ).ok;
+  return scanAuthorVisibleTexts(list(texts).map((value) => text(value))).ok;
 }
 
 export function revisionUiChecks({ qualityVisible, revisionVisible, why, userMessages }) {
