@@ -63,6 +63,10 @@ const REVISION_CHAPTER_TITLE = "第02章：矿区追击战";
 
 const WHY_CHECKPOINTS = Object.freeze(["before-why", "after-why"]);
 const RUN_CHECKPOINTS = Object.freeze(["start", "before-revision", "final"]);
+// 记忆详情/列表 P0 泄漏回归（与 authoring_memory_detail_evidence 的 checkpoint 名保持同源）。
+const MEMORY_DETAIL_CHECKPOINTS = Object.freeze(["start", "memory-list", "memory-detail", "final"]);
+const MEMORY_DETAIL_MESSAGE = "打开记忆管理并查看记忆详情（作者可见文案回归）。";
+
 // A3 安全点自动维护（与 authoring_auto_maintenance_evidence 的 checkpoint 名保持同源）。
 const AUTO_MAINTENANCE_CHECKPOINTS = Object.freeze([
   "start",
@@ -99,8 +103,15 @@ function readyFor(dir) {
   const behaviorCaseId = process.env.B71_BEHAVIOR_CASE ?? null;
   const confirmationMode = process.env.B71_CONFIRMATION_ACTION ?? null;
   const autoMaintenance = process.env.B71_AUTO_MAINTENANCE === "1";
+  const memoryDetail = process.env.B71_MEMORY_DETAIL === "1";
   let journey;
-  if (autoMaintenance) {
+  if (memoryDetail) {
+    assert.equal(ready.provider, "slice_verify", "memory-detail journey 只接受确定性 slice_verify");
+    if (confirmationMode || behaviorCaseId || autoMaintenance) {
+      throw new Error("B71_MEMORY_DETAIL 与 confirmation/behavior/auto-maintenance 不能同时设置");
+    }
+    journey = "memory-detail";
+  } else if (autoMaintenance) {
     assert.equal(ready.provider, "strata", "auto-maintenance journey 只接受 provider=strata");
     journey = "auto-maintenance";
   } else if (confirmationMode) {
@@ -114,7 +125,7 @@ function readyFor(dir) {
   } else {
     journey = SLICE_JOURNEYS[ready.slice_id];
   }
-  if (journey === "live" || journey === "behavior" || journey === "confirmation" || journey === "auto-maintenance") {
+  if (journey === "live" || journey === "behavior" || journey === "confirmation" || journey === "auto-maintenance" || journey === "memory-detail") {
     assert.equal(ready.slice_id, "b71-first-consumer", `${journey} journey 只用于 b71-first-consumer`);
   }
   return {
@@ -152,6 +163,7 @@ export function prepare(dir) {
   const behavior = ready.journey === "behavior";
   const confirmation = ready.journey === "confirmation";
   const autoMaintenance = ready.journey === "auto-maintenance";
+  const memoryDetail = ready.journey === "memory-detail";
   const target = targetFor(dir, { includeSession: pending || live || confirmation || autoMaintenance });
   const nonce = pending ? randomBytes(8).toString("hex") : null;
   // 作者行为覆盖：输入必须是 B70 冻结 case 的 expression 原文（禁止现场造输入）。
@@ -196,9 +208,11 @@ export function prepare(dir) {
         ? ""
         : behavior
           ? behaviorCase.expression
-          : autoMaintenance
-            ? AUTO_MAINTENANCE_REQUESTS[0]
-            : confirmation
+          : memoryDetail
+            ? MEMORY_DETAIL_MESSAGE
+            : autoMaintenance
+              ? AUTO_MAINTENANCE_REQUESTS[0]
+              : confirmation
               ? CONFIRMATION_REQUEST
               : live
               ? LIVE_MESSAGE
@@ -280,6 +294,7 @@ export function capture(dir, checkpoint) {
   // live/behavior/confirmation 实模需要未采纳零写入的 canon 内容快照。
   const confirmation = journey === "confirmation";
   const autoMaintenance = journey === "auto-maintenance";
+  const memoryDetail = journey === "memory-detail";
   const live = journey === "live" || journey === "behavior";
   const canon = planning || revision || live || confirmation || autoMaintenance;
   if (isWhyCheckpoint(canon, checkpoint)) return writeWhyCheckpoint(dir, checkpoint);
@@ -287,7 +302,9 @@ export function capture(dir, checkpoint) {
     ? CONFIRMATION_CHECKPOINTS
     : autoMaintenance
       ? AUTO_MAINTENANCE_CHECKPOINTS
-      : RUN_CHECKPOINTS;
+      : memoryDetail
+        ? MEMORY_DETAIL_CHECKPOINTS
+        : RUN_CHECKPOINTS;
   assert(allowedCheckpoints.includes(checkpoint), `未知 checkpoint: ${checkpoint}`);
   if (checkpoint === "before-revision") {
     assert(revision, "before-revision 只属于修订批次");

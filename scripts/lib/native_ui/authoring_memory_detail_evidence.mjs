@@ -12,13 +12,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import {
-  assertCommonEvidence,
-  assertProviderAndWire,
-  read,
-  withDb,
-  writeNativeFrames,
-} from "./scenario_evidence.mjs";
+import { assertCommonEvidence, writeNativeFrames } from "./scenario_evidence.mjs";
 import { readConfig } from "./authoring_capture_evidence.mjs";
 import { checkAuthorVisibleTexts } from "./author_visible_check.mjs";
 
@@ -310,12 +304,8 @@ export function verifyMemoryDetailBatch(dir) {
     minimumWaits: 3,
     requiredKinds: ["maintenance"],
   });
-  const evidence = assertProviderAndWire(dir, {
-    minUserMessages: 0,
-    minTurnResults: 0,
-    minProviderStarts: 0,
-    expectProviders: [],
-  });
+  // memory-detail 是纯 UI 导航回归（无 LLM/provider 交互），不做 provider/wire 断言；
+  // 清理判据 D8 已覆盖运行态与 llm-calls 停止。
   const scan = scanMemoryDetailTexts(dir);
   const driverLog = readJsonIfExists(path.join(dir, "native-b71-driver-log.json"));
   const cleanup = readJsonIfExists(path.join(dir, "native-app-cleanup.json"));

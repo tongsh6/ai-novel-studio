@@ -140,6 +140,27 @@ if [[ -n "$AUTO_MAINTENANCE" ]]; then
   LIVE=1
 fi
 
+# 记忆详情/列表 P0 泄漏回归（确定性 slice_verify；需真实记忆数据 seed）。
+MEMORY_DETAIL="${B71_MEMORY_DETAIL:-}"
+if [[ -n "$MEMORY_DETAIL" ]]; then
+  if [[ "$MEMORY_DETAIL" != "1" ]]; then
+    echo "B71_MEMORY_DETAIL 只能是 1，实测: $MEMORY_DETAIL" >&2
+    exit 64
+  fi
+  if [[ "$B71_PROVIDER" != "slice_verify" ]]; then
+    echo "memory-detail batch 只接受 B71_PROVIDER=slice_verify，实测: $B71_PROVIDER" >&2
+    exit 64
+  fi
+  if [[ "$SLICE" != "b71-first-consumer" ]]; then
+    echo "memory-detail batch 只接受 B71_SLICE=b71-first-consumer，实测: $SLICE" >&2
+    exit 64
+  fi
+  if [[ "$CONFIRMATION" == "1" || "$BEHAVIOR" == "1" || "$AUTO_MAINTENANCE" == "1" ]]; then
+    echo "B71_MEMORY_DETAIL 与 confirmation/behavior/auto-maintenance 不能同时设置" >&2
+    exit 64
+  fi
+fi
+
 STATE_DIR="$ROOT/artifacts/b71-native"
 RUNNER_LOG="$STATE_DIR/batch-$TAG.runner.log"
 DRIVER_LOG="$STATE_DIR/batch-$TAG.driver.log"
@@ -147,7 +168,14 @@ STRATA_BEFORE="$STATE_DIR/batch-$TAG.strata-before.json"
 STRATA_AFTER="$STATE_DIR/batch-$TAG.strata-after.json"
 mkdir -p "$STATE_DIR"
 
-if [[ "$AUTO_MAINTENANCE" == "1" ]]; then
+if [[ "$MEMORY_DETAIL" == "1" ]]; then
+  # 记忆详情回归批次目录与预注册一致；仍必须位于 artifacts/ 且不存在。
+  DIR="${B71_MEMORY_DETAIL_ARTIFACT_DIR:-$ROOT/artifacts/slice-verify/b71-memory-detail-ax-$TAG}"
+  if [[ "$DIR" != "$ROOT/artifacts/"* ]]; then
+    echo "B71_MEMORY_DETAIL_ARTIFACT_DIR 必须位于 $ROOT/artifacts/ 下: $DIR" >&2
+    exit 64
+  fi
+elif [[ "$AUTO_MAINTENANCE" == "1" ]]; then
   # A3 自动维护批次目录与预注册一致；仍必须位于 artifacts/ 且不存在。
   DIR="${B71_AUTO_MAINTENANCE_ARTIFACT_DIR:-$ROOT/artifacts/slice-verify/b71-first-consumer-auto-maint-$TAG}"
   if [[ "$DIR" != "$ROOT/artifacts/"* ]]; then
@@ -204,6 +232,14 @@ if [[ "$CONFIRMATION" == "1" ]]; then
   export TAURI_NATIVE_SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
 fi
 
+if [[ "$MEMORY_DETAIL" == "1" ]]; then
+  # 记忆详情回归：seed 用 B70 S1 记忆夹具（真实记忆条目），驱动只导航不输入。
+  export B71_MEMORY_DETAIL=1
+  export TAURI_NATIVE_ARTIFACT_DIR="$DIR"
+  export TAURI_NATIVE_SEED_SCRIPT="scripts/seed_author_behavior_states.exs"
+  export B70_AUTHOR_BEHAVIOR_STATE="S1-partial-multichapter"
+fi
+
 if [[ "$AUTO_MAINTENANCE" == "1" ]]; then
   # A3：显式开启安全点自动维护 + 小窗口压力（产品化运维配置，默认关闭）。
   export B71_AUTO_MAINTENANCE=1
@@ -244,6 +280,8 @@ if [[ "$CONFIRMATION" == "1" ]]; then
   node "$ROOT/scripts/native_b71_confirmation_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
 elif [[ "$AUTO_MAINTENANCE" == "1" ]]; then
   node "$ROOT/scripts/native_b71_auto_maintenance_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
+elif [[ "$MEMORY_DETAIL" == "1" ]]; then
+  node "$ROOT/scripts/native_b71_memory_detail_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
 elif [[ "$BEHAVIOR" == "1" ]]; then
   node "$ROOT/scripts/native_b71_behavior_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
 elif [[ "$LIVE" == "1" ]]; then
