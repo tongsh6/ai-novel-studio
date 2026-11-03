@@ -203,7 +203,9 @@ describe("AgentRun fixed control dock", () => {
     });
 
     expect(html).toContain("已从检查点恢复，实时控制不可用。");
-    expect(html).not.toContain("<span>重新发起任务</span>");
+    // 审核 P1-5（2026-11-04）：durable dead 也必须保留恢复出口（重新发起），
+    // 但不能伪装 live 控制（继续/终止仍不可用）。
+    expect(html).toContain("<span>重新发起任务</span>");
     expect(html).not.toContain("<span>继续</span>");
     expect(html).not.toContain("<span>终止任务</span>");
   });

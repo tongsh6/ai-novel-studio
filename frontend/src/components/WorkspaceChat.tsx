@@ -1179,7 +1179,16 @@ export function AgentRunControlDock({
             <Play size={15} aria-hidden="true" />
             <span>{WORKBENCH.agentRunRestartTask}</span>
           </button>
-        ) : isDeadDurableCheckpoint ? null : awaitingInput ? (
+        ) : isDeadDurableCheckpoint ? (
+          <button
+            type="button"
+            className={styles.agentRunDockPrimaryAction}
+            onClick={onRestartTask}
+          >
+            <Play size={15} aria-hidden="true" />
+            <span>{WORKBENCH.agentRunRestartTask}</span>
+          </button>
+        ) : awaitingInput ? (
           <>
             <span className={styles.agentRunDockAwaitingHint}>
               {budgetShortfallAwaiting
@@ -2424,7 +2433,8 @@ export function WorkspaceChat() {
   // 重新发起任务」出口。durable 走检查点口径，不进入过期坞。
   const agentRunDockMode = agentRunDockRenderMode(latestAgentRun, hasActiveAgentRun);
   const renderActiveAgentRunDock = agentRunDockMode === "active";
-  const renderExpiredBoundedDock = agentRunDockMode === "expired";
+  // 恢复坞：bounded runtime 失活 / 非终态 durable 检查点（来自 agentRunDockRenderMode 单点）。
+  const renderRecoveryDock = agentRunDockMode === "recovery";
   const latestAgentRunHasMessageAnchor =
     latestAgentRun !== null &&
     messages.some((message) => messageAnchorsAgentRun(message, latestAgentRun));
@@ -5717,7 +5727,7 @@ export function WorkspaceChat() {
               {/* B23 CP4：失活 bounded run 即使已被收口为终态（failed）也保留过期坞：
                     「原任务已失效 + 重新发起任务」是唯一出口。它位于普通 composer 之上，
                     不给 composer 套「调整当前任务」语义（死 run 不能 steer）。 */}
-              {!isReadOnlySessionView && renderExpiredBoundedDock && agentRunDock && (
+              {!isReadOnlySessionView && renderRecoveryDock && agentRunDock && (
                 <div className={styles.agentRunWorkspace}>{agentRunDock}</div>
               )}
               {!isReadOnlySessionView &&
@@ -5734,6 +5744,11 @@ export function WorkspaceChat() {
                   <AgentRunAnswerPrompt
                     result={activeModelQuestionResult}
                     disabled={questionReplyDisabled(activeModelQuestionResult)}
+                    disabledReason={
+                      questionReplyDisabled(activeModelQuestionResult)
+                        ? WORKBENCH.authorQuestionUnavailable
+                        : null
+                    }
                     waitingSince={awaitingAuthorSince}
                     onAnswer={(action, answerText) => {
                       void handleQuestionReply(activeModelQuestionResult, action, answerText);

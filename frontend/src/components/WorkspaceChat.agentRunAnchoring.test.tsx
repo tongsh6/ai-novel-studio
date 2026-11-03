@@ -10,7 +10,7 @@ import {
   selectAgentRunActivitySummary,
   shouldHydrateStandaloneAgentRun,
   shouldRenderAnchoredAgentRunStatus,
-  shouldRenderExpiredBoundedAgentRunDock,
+  shouldRenderRecoverableAgentRunDock,
   shouldRenderStandaloneAgentRunStatus,
   shouldRenderUserAgentRunPlaceholder,
   standaloneAgentRunActivityTurn,
@@ -522,15 +522,15 @@ describe("B23 CP4 AgentRun control dock render mode for dead bounded runs", () =
   it("renders the expired dock for a reaped dead bounded run that is already terminal failed", () => {
     const run = { status: "failed", run_mode: "bounded", runtime_live: false };
 
-    expect(shouldRenderExpiredBoundedAgentRunDock(run)).toBe(true);
-    expect(agentRunDockRenderMode(run, false)).toBe("expired");
+    expect(shouldRenderRecoverableAgentRunDock(run)).toBe(true);
+    expect(agentRunDockRenderMode(run, false)).toBe("recovery");
   });
 
   it("keeps live runs on the active dock and never flags them expired", () => {
     for (const status of ["running", "pausing", "paused", "awaiting_author"]) {
       const run = { status, run_mode: "bounded", runtime_live: true };
 
-      expect(shouldRenderExpiredBoundedAgentRunDock(run)).toBe(false);
+      expect(shouldRenderRecoverableAgentRunDock(run)).toBe(false);
       expect(agentRunDockRenderMode(run, true)).toBe("active");
     }
   });
@@ -550,17 +550,21 @@ describe("B23 CP4 AgentRun control dock render mode for dead bounded runs", () =
     ).toBe("none");
   });
 
-  it("keeps dead durable runs on the checkpoint surface instead of the expired dock", () => {
+  it("renders the recovery dock for non-terminal dead durable runs (checkpoint exit)", () => {
     const durableDead = { status: "awaiting_author", run_mode: "durable", runtime_live: false };
 
-    expect(shouldRenderExpiredBoundedAgentRunDock(durableDead)).toBe(false);
+    // 审核 P1-5：durable dead 刷新后必须仍有恢复出口（从检查点重新发起），不能只留事实视图。
+    expect(shouldRenderRecoverableAgentRunDock(durableDead)).toBe(true);
+    expect(agentRunDockRenderMode(durableDead, false)).toBe("recovery");
+    // 有活动 run 时活动态坞优先（恢复坞只在无活动 run 时出现）。
     expect(agentRunDockRenderMode(durableDead, true)).toBe("active");
+    // 终态 durable run 不再产生待解释停等，不渲染恢复坞。
     expect(agentRunDockRenderMode({ ...durableDead, status: "failed" }, false)).toBe("none");
   });
 
   it("does not render the expired dock for unknown-liveness historical snapshots", () => {
     expect(
-      shouldRenderExpiredBoundedAgentRunDock({ status: "awaiting_author", run_mode: "bounded" }),
+      shouldRenderRecoverableAgentRunDock({ status: "awaiting_author", run_mode: "bounded" }),
     ).toBe(false);
     expect(agentRunDockRenderMode(null, false)).toBe("none");
     expect(agentRunDockRenderMode(undefined, false)).toBe("none");

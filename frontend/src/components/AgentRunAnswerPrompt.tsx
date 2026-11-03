@@ -12,6 +12,7 @@ type Action = NonNullable<WireTurnResult["available_actions"]>[number];
 export function AgentRunAnswerPrompt({
   result,
   disabled,
+  disabledReason = null,
   waitingSince = null,
   onAnswer,
   onStartNewDiscussion,
@@ -19,6 +20,8 @@ export function AgentRunAnswerPrompt({
 }: {
   result: WireTurnResult;
   disabled: boolean;
+  /** 不可回答原因（任务已结束/版本已变）；非空时替代默认 hint，避免静默禁用。 */
+  disabledReason?: string | null;
   /** 等待起点（ISO 时间）：显示作者已等待多久（LangGraph HITL 最佳实践）。 */
   waitingSince?: string | null;
   onAnswer: (action: Action, text: string) => void;
@@ -92,9 +95,11 @@ export function AgentRunAnswerPrompt({
         </div>
       )}
       <span className={styles.answerPromptHint}>
-        {hasFreeText
-          ? WORKBENCH.authorQuestionAnswerModeHint
-          : WORKBENCH.authorQuestionAnswerModeOnlyChoices}
+        {disabledReason !== null
+          ? disabledReason
+          : hasFreeText
+            ? WORKBENCH.authorQuestionAnswerModeHint
+            : WORKBENCH.authorQuestionAnswerModeOnlyChoices}
       </span>
     </div>
   );

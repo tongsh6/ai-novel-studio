@@ -1,3 +1,5 @@
+import { isTerminalAgentRun } from "./agentRunInputRouting";
+
 export interface AgentRunAnchorMessage<TurnResultShape = unknown> {
   role: "user" | "assistant";
   text: string;
@@ -390,24 +392,35 @@ export interface AgentRunDockAvailability {
 // 「原任务已失效 / 重新发起任务」是这个 run 唯一的作者出口，过期坞不能因终态消失。
 // durable 走检查点恢复口径（AgentRunControlDock 内 isDeadDurableCheckpoint），
 // 不进入过期坞。live/unknown 一律不进入（live 走活动态、unknown 不给可提交动作）。
-export function shouldRenderExpiredBoundedAgentRunDock(
+/**
+ * 恢复坞渲染判定（B23 CP4 + 2026-11-04 双向审核 P1-5）：
+ * - bounded run：runtime 失活 → 渲染「原任务已失效 + 重新发起」坞；
+ * - durable run：runtime 失活但仍有持久检查点（非终态）→ 也必须渲染，
+ *   否则作者刷新后只看到事实视图、失去「从检查点重新发起」出口（审核 P1-5）；
+ *   终态 durable run 不再产生待解释的停等，无需恢复坞。
+ */
+export function shouldRenderRecoverableAgentRunDock(
   run: AgentRunDockAvailability | null | undefined,
 ): boolean {
   if (!run) return false;
-  if (normalizedString(run.run_mode) === "durable") return false;
-  return agentRunRuntimeAuthority(run) === "dead";
+  if (agentRunRuntimeAuthority(run) !== "dead") return false;
+  if (normalizedString(run.run_mode) === "durable") {
+    return !isTerminalAgentRun(run.status);
+  }
+  return true;
 }
 
-export type AgentRunDockRenderMode = "active" | "expired" | "none";
+export type AgentRunDockRenderMode = "active" | "recovery" | "none";
 
-// 控制坞渲染模式单点：活动 run 走既有活动态坞；终态但 runtime 已失活的 bounded run
-// 仍渲染过期坞（只读说明 + 重新发起）；其余（正常完成的终态、durable 死 run）不渲染。
+// 控制坞渲染模式单点：活动 run 走活动态坞；runtime 已失活的 bounded run（任意终态）与
+// 非终态 durable run（有持久检查点）渲染恢复坞（只读说明 + 重新发起/继续）；
+// 其余（正常完成的终态、终态 durable run）不渲染。
 export function agentRunDockRenderMode(
   run: AgentRunDockAvailability | null | undefined,
   hasActiveAgentRun: boolean,
 ): AgentRunDockRenderMode {
   if (hasActiveAgentRun) return "active";
-  return shouldRenderExpiredBoundedAgentRunDock(run) ? "expired" : "none";
+  return shouldRenderRecoverableAgentRunDock(run) ? "recovery" : "none";
 }
 
 export interface StandaloneAgentRunHydrationState {
