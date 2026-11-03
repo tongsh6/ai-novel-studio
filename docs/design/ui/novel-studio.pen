@@ -4749,7 +4749,7 @@
       "name": "46§9-agentic-loop-reasoning-flow",
       "clip": true,
       "width": 1440,
-      "height": 2230,
+      "height": 2290,
       "fill": "#FCFAF7",
       "layout": "vertical",
       "gap": 24,
@@ -6448,6 +6448,58 @@
                           "fontFamily": "Inter",
                           "fontSize": 13,
                           "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "ffpBC",
+                      "name": "compactionNotice",
+                      "width": "fill_container",
+                      "height": 36,
+                      "fill": "#F7F5F1",
+                      "cornerRadius": 4,
+                      "stroke": "#ECE6DD",
+                      "strokeWidth": 1,
+                      "strokeAlignment": "inner",
+                      "padding": [
+                        0,
+                        16
+                      ],
+                      "alignItems": "center",
+                      "gap": 8,
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "1gHOb",
+                          "name": "archiveIcon",
+                          "width": 14,
+                          "height": 14,
+                          "icon": "archive",
+                          "library": "lucide",
+                          "fill": "#8A8178"
+                        },
+                        {
+                          "type": "text",
+                          "id": "CwNKu",
+                          "content": "较早的 12 项创作过程已整理",
+                          "fill": "#68625A",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal",
+                          "lineHeight": 1.34,
+                          "width": "fill_container",
+                          "textGrowth": "fixed-width"
+                        },
+                        {
+                          "type": "icon",
+                          "id": "SUB05",
+                          "name": "chevron-downIcon",
+                          "width": 14,
+                          "height": 14,
+                          "icon": "chevron-down",
+                          "library": "lucide",
+                          "fill": "#8A8178"
                         }
                       ]
                     },
@@ -13906,6 +13958,726 @@
                       ]
                     }
                   ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "fjkkm",
+      "x": 12340,
+      "y": 0,
+      "name": "46§9.9-transcript-compaction-inline",
+      "width": 1440,
+      "height": 900,
+      "fill": "$surface.primary",
+      "layout": "vertical",
+      "children": [
+        {
+          "type": "frame",
+          "id": "P7Z7L",
+          "name": "topBar",
+          "width": "fill_container",
+          "height": 64,
+          "stroke": "$border.subtle",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "strokeAlignment": "inner",
+          "padding": [
+            0,
+            32
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "ZFkUZ",
+              "content": "长任务上下文整理 · 消息流中的整理细条（收起态）",
+              "fill": "#111111",
+              "fontFamily": "Geist",
+              "fontSize": 18,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "c10i3",
+          "name": "content",
+          "width": "fill_container",
+          "height": "fill_container",
+          "layout": "horizontal",
+          "gap": 64,
+          "padding": [
+            48,
+            80
+          ],
+          "children": [
+            {
+              "type": "frame",
+              "id": "GgTzg",
+              "name": "messageTrack",
+              "width": 880,
+              "layout": "vertical",
+              "gap": 20,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "NN0id",
+                  "name": "assistantMessage",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "HqHVR",
+                      "content": "AI 编辑",
+                      "fill": "#8A8178",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "bold",
+                      "lineHeight": 1.34
+                    },
+                    {
+                      "type": "text",
+                      "id": "SGhlC",
+                      "content": "我核对了第 12–14 场的时间线，并把三处人物动机的衔接补齐了。你可以继续写第 15 场。",
+                      "fill": "#151515",
+                      "fontFamily": "Geist",
+                      "fontSize": 15,
+                      "fontWeight": "normal",
+                      "lineHeight": 1.6,
+                      "width": "fill_container",
+                      "textGrowth": "fixed-width"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "WmuPG",
+                  "name": "compactionNotice",
+                  "width": "fill_container",
+                  "height": 36,
+                  "fill": "#F7F5F1",
+                  "cornerRadius": 4,
+                  "stroke": "#ECE6DD",
+                  "strokeWidth": 1,
+                  "strokeAlignment": "inner",
+                  "padding": [
+                    0,
+                    16
+                  ],
+                  "alignItems": "center",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "luuDV",
+                      "name": "archiveIcon",
+                      "width": 14,
+                      "height": 14,
+                      "icon": "archive",
+                      "library": "lucide",
+                      "fill": "#8A8178"
+                    },
+                    {
+                      "type": "text",
+                      "id": "1vD4n",
+                      "content": "较早的 12 项创作过程已整理",
+                      "fill": "#68625A",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal",
+                      "lineHeight": 1.34,
+                      "width": "fill_container",
+                      "textGrowth": "fixed-width"
+                    },
+                    {
+                      "type": "icon",
+                      "id": "pHhbe",
+                      "name": "chevron-downIcon",
+                      "width": 14,
+                      "height": 14,
+                      "icon": "chevron-down",
+                      "library": "lucide",
+                      "fill": "#8A8178"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "tnHEo",
+                  "name": "authorRow",
+                  "width": "fill_container",
+                  "justifyContent": "flex-end",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "hzxcf",
+                      "name": "authorBubble",
+                      "fill": "#F1ECE4",
+                      "cornerRadius": 8,
+                      "padding": [
+                        10,
+                        14
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "Fi1Ym",
+                          "content": "继续写第 15 场。",
+                          "fill": "#151515",
+                          "fontFamily": "Geist",
+                          "fontSize": 14,
+                          "fontWeight": "normal",
+                          "lineHeight": 1.5
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "LsqcK",
+                  "name": "assistantMessage",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "gvnBW",
+                      "content": "AI 编辑",
+                      "fill": "#8A8178",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "bold",
+                      "lineHeight": 1.34
+                    },
+                    {
+                      "type": "text",
+                      "id": "3oWEb",
+                      "content": "好的，我接着写第 15 场：雨夜、旧码头，两人第一次正面交锋。",
+                      "fill": "#151515",
+                      "fontFamily": "Geist",
+                      "fontSize": 15,
+                      "fontWeight": "normal",
+                      "lineHeight": 1.6,
+                      "width": "fill_container",
+                      "textGrowth": "fixed-width"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "SHgMw",
+              "name": "structureRail",
+              "width": 128,
+              "height": "fill_container",
+              "fill": "#F7F5F1",
+              "cornerRadius": 4,
+              "layout": "vertical",
+              "padding": 16,
+              "gap": 12,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "7PilP",
+                  "content": "作品档案",
+                  "fill": "#8A8178",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "bold",
+                  "lineHeight": 1.34
+                },
+                {
+                  "type": "text",
+                  "id": "v4d0d",
+                  "content": "角色",
+                  "fill": "#68625A",
+                  "fontFamily": "Inter",
+                  "fontSize": 11,
+                  "fontWeight": "normal",
+                  "lineHeight": 1.5
+                },
+                {
+                  "type": "text",
+                  "id": "nl7GB",
+                  "content": "设定",
+                  "fill": "#68625A",
+                  "fontFamily": "Inter",
+                  "fontSize": 11,
+                  "fontWeight": "normal",
+                  "lineHeight": 1.5
+                },
+                {
+                  "type": "text",
+                  "id": "dwqY4",
+                  "content": "章节",
+                  "fill": "#68625A",
+                  "fontFamily": "Inter",
+                  "fontSize": 11,
+                  "fontWeight": "normal",
+                  "lineHeight": 1.5
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "L4oOT",
+          "name": "composer",
+          "width": "fill_container",
+          "height": 64,
+          "stroke": "#EEEEEE",
+          "strokeWidth": {
+            "top": 1
+          },
+          "strokeAlignment": "inner",
+          "padding": [
+            0,
+            80
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "VuK36",
+              "name": "composerBox",
+              "width": "fill_container",
+              "height": 40,
+              "fill": "#FFFFFF",
+              "cornerRadius": 6,
+              "stroke": "#E6DED3",
+              "strokeWidth": 1,
+              "strokeAlignment": "inner",
+              "padding": [
+                0,
+                14
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "CTFLw",
+                  "content": "继续写第 15 场…",
+                  "fill": "#8A8178",
+                  "fontFamily": "Geist",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "AYpEe",
+      "x": 12340,
+      "y": 1000,
+      "name": "46§9.9-transcript-compaction-expanded",
+      "width": 1440,
+      "height": 900,
+      "fill": "$surface.primary",
+      "layout": "vertical",
+      "children": [
+        {
+          "type": "frame",
+          "id": "Z04UF",
+          "name": "topBar",
+          "width": "fill_container",
+          "height": 64,
+          "stroke": "$border.subtle",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "strokeAlignment": "inner",
+          "padding": [
+            0,
+            32
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "hsHkz",
+              "content": "长任务上下文整理 · 展开态（原因 / 原文保留 / 来源 / 完整记录）",
+              "fill": "#111111",
+              "fontFamily": "Geist",
+              "fontSize": 18,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "FEGdZ",
+          "name": "content",
+          "width": "fill_container",
+          "height": "fill_container",
+          "layout": "horizontal",
+          "gap": 64,
+          "padding": [
+            48,
+            80
+          ],
+          "children": [
+            {
+              "type": "frame",
+              "id": "sO5WG",
+              "name": "messageTrack",
+              "width": 880,
+              "layout": "vertical",
+              "gap": 20,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "1RPI2",
+                  "name": "assistantMessage",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "g5hVU",
+                      "content": "AI 编辑",
+                      "fill": "#8A8178",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "bold",
+                      "lineHeight": 1.34
+                    },
+                    {
+                      "type": "text",
+                      "id": "ILt0z",
+                      "content": "我核对了第 12–14 场的时间线，并把三处人物动机的衔接补齐了。你可以继续写第 15 场。",
+                      "fill": "#151515",
+                      "fontFamily": "Geist",
+                      "fontSize": 15,
+                      "fontWeight": "normal",
+                      "lineHeight": 1.6,
+                      "width": "fill_container",
+                      "textGrowth": "fixed-width"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "Rd8ux",
+                  "name": "compactionNotice",
+                  "width": "fill_container",
+                  "height": 36,
+                  "fill": "#F7F5F1",
+                  "cornerRadius": 4,
+                  "stroke": "#ECE6DD",
+                  "strokeWidth": 1,
+                  "strokeAlignment": "inner",
+                  "padding": [
+                    0,
+                    16
+                  ],
+                  "alignItems": "center",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "xIKsN",
+                      "name": "archiveIcon",
+                      "width": 14,
+                      "height": 14,
+                      "icon": "archive",
+                      "library": "lucide",
+                      "fill": "#8A8178"
+                    },
+                    {
+                      "type": "text",
+                      "id": "0J9Wv",
+                      "content": "较早的 12 项创作过程已整理",
+                      "fill": "#68625A",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal",
+                      "lineHeight": 1.34,
+                      "width": "fill_container",
+                      "textGrowth": "fixed-width"
+                    },
+                    {
+                      "type": "icon",
+                      "id": "9FhrH",
+                      "name": "chevron-upIcon",
+                      "width": 14,
+                      "height": 14,
+                      "icon": "chevron-up",
+                      "library": "lucide",
+                      "fill": "#8A8178"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "riawS",
+                  "name": "compactionPanel",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 4,
+                  "stroke": "#E6DED3",
+                  "strokeWidth": 1,
+                  "strokeAlignment": "inner",
+                  "padding": 16,
+                  "layout": "vertical",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "WwIw2",
+                      "content": "已整理的较早记录",
+                      "fill": "#151515",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "bold",
+                      "lineHeight": 1.34
+                    },
+                    {
+                      "type": "text",
+                      "id": "p6krR",
+                      "content": "为了保持这次创作始终清晰连贯，系统整理了较早的 12 项已完成操作。",
+                      "fill": "#68625A",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal",
+                      "lineHeight": 1.5,
+                      "width": "fill_container",
+                      "textGrowth": "fixed-width"
+                    },
+                    {
+                      "type": "text",
+                      "id": "lO0vA",
+                      "content": "原始记录仍然保留，不会被删除或改写。",
+                      "fill": "#68625A",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal",
+                      "lineHeight": 1.5,
+                      "width": "fill_container",
+                      "textGrowth": "fixed-width"
+                    },
+                    {
+                      "type": "text",
+                      "id": "C4cRm",
+                      "content": "涉及：角色档案、作品设定、第一章正文",
+                      "fill": "#8A8178",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal",
+                      "lineHeight": 1.34
+                    },
+                    {
+                      "type": "frame",
+                      "id": "aAmG9",
+                      "name": "historyLink",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "gap": 4,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "C8lWx",
+                          "content": "查看完整记录",
+                          "fill": "#151515",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "500",
+                          "lineHeight": 1.34
+                        },
+                        {
+                          "type": "icon",
+                          "id": "NcYFo",
+                          "name": "chevron-rightIcon",
+                          "width": 12,
+                          "height": 12,
+                          "icon": "chevron-right",
+                          "library": "lucide",
+                          "fill": "#8A8178"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "BeRKz",
+                  "name": "authorRow",
+                  "width": "fill_container",
+                  "justifyContent": "flex-end",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "m3XyZ",
+                      "name": "authorBubble",
+                      "fill": "#F1ECE4",
+                      "cornerRadius": 8,
+                      "padding": [
+                        10,
+                        14
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "3y4Nf",
+                          "content": "继续写第 15 场。",
+                          "fill": "#151515",
+                          "fontFamily": "Geist",
+                          "fontSize": 14,
+                          "fontWeight": "normal",
+                          "lineHeight": 1.5
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "MTIyP",
+                  "name": "assistantMessage",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "BkhJ1",
+                      "content": "AI 编辑",
+                      "fill": "#8A8178",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "bold",
+                      "lineHeight": 1.34
+                    },
+                    {
+                      "type": "text",
+                      "id": "eGT59",
+                      "content": "好的，我接着写第 15 场：雨夜、旧码头，两人第一次正面交锋。",
+                      "fill": "#151515",
+                      "fontFamily": "Geist",
+                      "fontSize": 15,
+                      "fontWeight": "normal",
+                      "lineHeight": 1.6,
+                      "width": "fill_container",
+                      "textGrowth": "fixed-width"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "2KJep",
+              "name": "structureRail",
+              "width": 128,
+              "height": "fill_container",
+              "fill": "#F7F5F1",
+              "cornerRadius": 4,
+              "layout": "vertical",
+              "padding": 16,
+              "gap": 12,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "1CstB",
+                  "content": "作品档案",
+                  "fill": "#8A8178",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "bold",
+                  "lineHeight": 1.34
+                },
+                {
+                  "type": "text",
+                  "id": "14IdU",
+                  "content": "角色",
+                  "fill": "#68625A",
+                  "fontFamily": "Inter",
+                  "fontSize": 11,
+                  "fontWeight": "normal",
+                  "lineHeight": 1.5
+                },
+                {
+                  "type": "text",
+                  "id": "98hbV",
+                  "content": "设定",
+                  "fill": "#68625A",
+                  "fontFamily": "Inter",
+                  "fontSize": 11,
+                  "fontWeight": "normal",
+                  "lineHeight": 1.5
+                },
+                {
+                  "type": "text",
+                  "id": "dIDKX",
+                  "content": "章节",
+                  "fill": "#68625A",
+                  "fontFamily": "Inter",
+                  "fontSize": 11,
+                  "fontWeight": "normal",
+                  "lineHeight": 1.5
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "l4Q0h",
+          "name": "composer",
+          "width": "fill_container",
+          "height": 64,
+          "stroke": "#EEEEEE",
+          "strokeWidth": {
+            "top": 1
+          },
+          "strokeAlignment": "inner",
+          "padding": [
+            0,
+            80
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "Mt27j",
+              "name": "composerBox",
+              "width": "fill_container",
+              "height": 40,
+              "fill": "#FFFFFF",
+              "cornerRadius": 6,
+              "stroke": "#E6DED3",
+              "strokeWidth": 1,
+              "strokeAlignment": "inner",
+              "padding": [
+                0,
+                14
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "wwKve",
+                  "content": "继续写第 15 场…",
+                  "fill": "#8A8178",
+                  "fontFamily": "Geist",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
                 }
               ]
             }

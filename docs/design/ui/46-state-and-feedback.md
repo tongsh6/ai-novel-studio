@@ -179,6 +179,7 @@ Clarification 等待态还必须解释“为什么需要这一步”，并在作
 | 授权、工具执行、产物、最终结果 | `gate_decided` / `tool_started` / `tool_completed` / `artifact_created` / `turn_result_ready` / `run_completed` 等结构事件与 final `TurnResult.truthfulness` | 只更新阶段、状态、计数、边界说明和折叠详情；不得伪造模型叙事，也不得要求每个结构步骤都有旧 `exploration_observed` / `evaluation_made` 作者事件 |
 | 标签、chip、版本、进度、按钮、折叠入口 | app copy / event_type / status enum | 只表达结构，不写“模型发现/模型认为”的叙述句 |
 | 普通 provider run/call ref、chunk、token、phase | provider telemetry | 仅折叠在开发者详情，不进入作者主叙事；`author_reasoning` 的作者可见 planning prose delta 是唯一例外，legacy JSON tail 与 native tool-call arguments 都不得作为作者叙事 |
+| 系统维护记录（如较早创作过程已整理） | app 事件事实（author-safe，§9.9） | 只显示整理项数、范围说明与回查入口；不得写成模型叙事，不得出现技术用量（token/百分比/窗口）或内部标识 |
 
 判定标准：任何一句读起来像在描述模型正在想什么、发现了什么、为什么改计划、为什么完成的中文，必须来自 `author_narrative_delta` 或 `author_narrative`，并通过 N-NARR source binding / streamed-prefix 校验。`AgentEvent.summary`、`ProviderEvent.summary`、前端 copy 常量、legacy JSON tail 和未绑定来源的 native tool-call arguments 都不能作为作者叙述来源。原生工具参数中的 `author_narrative` / `author_reasoning` 只有与实际 `ProviderOutput` 原字段逐字绑定并通过 hash / 字节范围校验后，才能以 `provider_output_tool_narrative` 作为叙事来源；不得把本地拼装参数当成模型输出。
 
@@ -453,3 +454,45 @@ current_activity = {
 本节由四个 `46§9.8-quality-revision-*` Pencil frame 冻结。场景验收必须从真实质量卡
 点击开始，证明仅产生一次 `author_action`、零第二条 `user_message`，回执/run/source
 绑定一致，刷新后仍恢复到同一 assistant 工作回合，终态后原稿与修订稿可分别决策。
+
+### 9.9 长任务上下文整理记录（2026-11-03 作者拍板方案 A）
+
+> 状态：作者已拍板方案 A（无感自动整理 + 行内可展开细条）。Pencil 帧
+> `46§9.9-transcript-compaction-inline`（`fjkkm`）与
+> `46§9.9-transcript-compaction-expanded`（`AYpEe`）已落地为 Draft；
+> `46§9-agentic-loop-reasoning-flow`（`DM8gx`）同步体现细条位置。
+> 自动触发语义的契约变更见 VS-00L §16.4 变更提案（评审中）；评审通过前不激活自动触发，
+> 本节先冻结作者可见面。
+
+长任务（同一 AgentRun 内的多步判断/写作/质量/续行往返）会积累大量已完成的操作记录。
+系统在安全点把较早的已完成操作整理为**显式压缩记录**：后续模型请求只携带整理摘要，
+原始消息不被删除或改写，作者可见消息流不发生变化。
+
+本节只描述作者可见面；显式压缩的契约、范围与证据边界见 VS-00L §16.2/§16.4。
+
+1. **零操作**：作者不需要点击、设置或理解任何技术概念。主界面不出现整理按钮、百分比、
+   进度条或上下文健康度提示；不提供整理开关（运行策略由系统负责）。
+2. **可见形态**：整理完成后，当前 assistant 工作回合内出现一行克制的细条：
+   「较早的 N 项创作过程已整理」，右侧展开指示。细条属于产生它的工作回合，不迁移到
+   后续消息，也不进入固定控制坞。
+3. **展开**：点开细条显示内联面板：整理项数、整理原因说明（保持这次创作清晰连贯）、
+   「原始记录仍然保留，不会被删除或改写」、涉及来源的显示名（仅有显示名时显示），
+   以及「查看完整记录」入口（打开既有 Why/历史）。面板内联展开，不使用浮层遮挡输入区。
+4. **合并与幂等**：同一工作回合内多次整理合并为一条细条（数量累加）；刷新/重连后从持久
+   author-safe 记录重建，不重复、不闪烁、不出现「整理中」占位。
+5. **失败静默**：整理失败不打断创作、不显示错误、不改变消息流；系统在下一个安全点
+   继续尝试。作者可见面只在成功后出现细条。
+6. **作者安全**：细条与面板不得出现 `上下文`、`压缩`、`token`、`窗口`、`checkpoint`、
+   `canonical`、`ref`、`run`、`compact` 或百分比数字；不承诺「已保存/已采纳/已生效」
+   （整理不改变作品事实与授权）。
+7. **作用域**：整理针对当前 run 的 canonical 会话；本文不定义跨 run 的会话级时间轴。
+   跨 run 的历史由既有上下文组装负责，不得用整理细条冒充。
+8. **与既有状态的关系**：整理不是新的 run 状态，不进入 §7 状态来源矩阵；不改变
+   §9.7 控制坞的两稳定槽位；不与 §6 长跑 Checkpoint 卡片混用。
+9. **验收**：外部自动化从真实 Tauri 页面驱动，不增加验收专用 DOM hook/data 属性。
+   至少覆盖：超过安全线后细条自动出现（作者无点击）；展开/收起；原文保留文案；
+   「查看完整记录」可达；多次整理合并；刷新后恢复且不重复；窄屏布局；下一真实请求
+   已精简（外部请求体证据）而 canonical 原消息仍完整（DB 证据）；失败时页面无打扰。
+10. **原型**：本节由 `46§9.9-transcript-compaction-inline` 与
+    `46§9.9-transcript-compaction-expanded` 两个 Pencil frame 冻结；`DM8gx` 同步体现
+    细条在消息流中的位置。PNG 导出待有 Pencil 导出环境时补（见 `exports/png/README.md`）。

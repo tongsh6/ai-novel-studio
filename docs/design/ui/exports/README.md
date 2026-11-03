@@ -23,6 +23,10 @@
 
 备注：`46§8-agent-run-dialogue-flow-v4` 已于 2026-07-01 从 `novel-studio.pen` 删除（改由探索态 `46§9-agentic-loop-reasoning-flow` 替代，见 ADR-0022 Proposed 与 `../../notes/2026-07-01-agentic-loop-reasoning-stream-ui.md`）；`png/kg4wN.png` 仅作历史留档，不再是当前视觉依据。
 
+## 待导出（2026-11-03）
+
+`46§9.9-transcript-compaction-inline`（fjkkm）、`46§9.9-transcript-compaction-expanded`（AYpEe）与改后的 `46§9-agentic-loop-reasoning-flow`（DM8gx）已在 `.pen` 中落地为 Draft；本机无 Pencil 导出链路，PNG 待导出。详见 [png/README.md](png/README.md)。
+
 ## PDF 评审包
 
 PDF 批量导出当前在 Pencil MCP 中超时，暂未作为冻结交付物。评审以 `png/` 下单屏 PNG 为准。
