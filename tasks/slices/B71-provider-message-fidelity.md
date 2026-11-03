@@ -904,3 +904,11 @@
 - **C9 Why 修复验证**：01k 的驱动缺陷（openWhy 误用纯观测 dump 做交互定位 + 重试不足）已修（`b2253fc8` 有界重试 + `77e26518` 改用 `dumpNodesForInteraction` 交互恢复路径）；01k2 现场 attempts 显示 `scan count=3/nodes=101 → scroll_to → panel_retry_scan/axpress → panel_wait 成功`、`llm delta=0`。01k 保持「FAIL（驱动 Why 时序）」登记。
 - **扫描器状态**：全类别唯一入口、无收窄开关、无手写 token 列表双轨（P1-C3 已删，净 −81 行）。
 - **剩余**：A3 压缩自动维护 AX（driver 实现中：真实 strata + 小窗口 + ≥2 次续行制造压力 → 自动整理 → 细条/展开/完整记录/下一请求精简/刷新幂等/失败静默/无技术词）。
+
+### A3 压缩自动维护 AX：未闭环（2026-11-04，如实登记）
+
+- **批次事实**（`cp4b-auto-maint-a3`，HEAD 079cabd6）：driver_rc=0（**6 次真实续行完成、16 次真实 strata 调用**），真实 usage `input_tokens` 9010→35139（窗口 4096 的 2.2–8.6 倍，压力明确越界）；但 **`checkpoint_created`=0、细条未出现、`triggered=false`** → 按降级规则整批登记**未闭环**，证据只读保留、不重跑、不伪造。
+- **根因（已诊断，非开关/环境/产品 bug）**：产品自动维护语义为「**当前 run 的 canonical transcript** + **当前 run 的 usage**」——`ContextPressure.maintenance_due?` 按 `agent_run_id` 读 usage；`plan_maintenance` 的「更早工作回合」= 同 run 内最后一条 user 之前且保留最近 K=4、当前回合不整理、未完成不选。A3 的 6 次续行各自是**独立 run**，每个 run 只有当前回合 → 无可整理交换 → **正确不触发**（46 §9.9 第 7 条已冻结：整理针对当前 run 会话，跨 run 历史由上下文组装负责，不得冒充）。
+- **分类**：A3 场景设计缺口——真实外部驱动需构造「**同 run 内 ≥2 个作者回合 + 更早回合 >4 个完整交换 + 真实 usage 越线**」，可行路径（后续 A3b 候选）：多步长任务 run → `awaiting_author` → 同 run `steer`（真实控制坞入口）追加第二回合 → 继续 step → 安全点触发。依赖真实模型产生多步长任务/等待行为，不确定性高；**不造场景、不调 K/窗口凑触发**。
+- **已覆盖**：自动维护触发链路（安全点/阈值/unknown usage/未完成不压缩/保留 K/幂等/失败静默/事件持久化）由 T1–T12 单测覆盖；真实页面验收待产品路径可稳定构造后再跑（A3b）。
+- **次要缺陷**：runner verify 读 `strata-slot.json` 早于 driver finally 落盘（证据时序竞争），native-runner 修复中（驱动/证据缺陷，非产品）。
