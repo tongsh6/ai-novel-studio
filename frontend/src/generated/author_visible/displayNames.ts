@@ -1,6 +1,5 @@
 // AUTO-GENERATED FROM docs/design/schemas/author_visible/display_names.json — DO NOT EDIT.
 // Run `pnpm codegen:author-visible` to regenerate. Author-visible surfaces must only use these display names.
-/* eslint-disable */
 
 export const SOURCE_HASH = "72787dfe48259dac6260141e08d991337a2f3fe2999b30c256e6a406b3856dff";
 

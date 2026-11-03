@@ -439,7 +439,6 @@ export const WORKBENCH = {
   qualityRevisionReceipt: (count: number) => `你选择了：按 ${count} 项质量问题生成修订稿`,
   qualityRevisionReceiptSource: "来源：质量复核 · 原稿保留",
   agenticLoopPlanLabel: "计划",
-  agenticLoopReasoningLabel: "推理",
   agenticLoopPlanVersion: (version: number) => `v${version}`,
   agenticLoopEventLabels: {
     judgment_decided: "判断",

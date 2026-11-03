@@ -898,10 +898,9 @@ export function AgentRunDialogueFlow({
   return (
     <div className={styles.agentRunFlowInline} aria-label={WORKBENCH.agentRunFlowAriaLabel}>
       {visibleNarrativeEvents.length > 0 && (
-        <section
-          className={styles.agenticLoopReasoning}
-          aria-label={WORKBENCH.agenticLoopReasoningLabel}
-        >
+        // 46 §9.5 文档流化：叙事段落由外层「本轮创作过程」区域承担分组语义，
+        // 不再叠一层 aria-label=「推理」的 landmark region（读屏会出现重复区域声明）。
+        <div className={styles.agenticLoopReasoning}>
           {visibleNarrativeEvents.map((event) => (
             <p
               key={event.key}
@@ -911,7 +910,7 @@ export function AgentRunDialogueFlow({
               {event.narrative}
             </p>
           ))}
-        </section>
+        </div>
       )}
 
       {activityText && (

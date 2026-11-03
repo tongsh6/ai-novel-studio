@@ -108,7 +108,6 @@ const renderList = (values) =>
 
 const ts = `// AUTO-GENERATED FROM docs/design/schemas/author_visible/display_names.json — DO NOT EDIT.
 // Run \`pnpm codegen:author-visible\` to regenerate. Author-visible surfaces must only use these display names.
-/* eslint-disable */
 
 export const SOURCE_HASH = ${JSON.stringify(hash)};
 
