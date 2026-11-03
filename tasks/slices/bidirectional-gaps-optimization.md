@@ -81,8 +81,9 @@
 - **批次 E（部分完成）**：
   - ✅ E4（`83c52668`）：移除 `user_message` 的 `behavior_id` 死接线（前端传、后端不读）；
   - ✅ E5-2：证据引用口径写入 `docs/engineering/scenario-acceptance.md`（引用历史证据必须核对 `summary.surface`/`driver`/`provider`，`-tauri` 目录名不代表真实页面）；
-  - ⏳ E5-1：`consumed_replans` 文档 vs artifact 不符（`quality/acceptance/scenarios/agent-plan-native-tool-calling-protocol.yml` 断言 `>=1`，现存 summary 实测 0）——**待校准验收场景断言**（不擅自放宽，需确认该场景是否已失效或被新 profile 取代）；
-  - ⏳ E1（断线补事件序列 gap 检测）、E2（多窗口 event_sink）、E3（clarification 契约-实现缺口）——待后端窗口（当前并行工作流占用）。
+  - ✅ E5-1（`5aca17c5`）：核对确认「`consumed_replans` 文档 vs artifact 不符」定位为 **UA-01 D3 steer 表述过时**——artifact（`agent-natural-language-steer-tauri`，surface=tauri）实测 `consumed_replans=0`，UA-01 三处原文写 1；已按现存 evidence 校准为 0 并附说明（steer 走 `plan_adjusted` 不必然消耗 replan）。其余场景断言与 artifact 一致（`agent-plan-native-tool-calling-protocol` / `agentic-loop-plan-replan-reasoning` 均实测 1 ✓）。
+  - ⏳ E3（clarification 契约-实现缺口，已分析、待架构确认）：`answer_clarification` / `answer_author_question` 是 **legacy form_r 路径**（`dialogue_planning_service.form_r_decision(%{action: "await_author"})` → `require_clarification` → `open_behavior` 产生 `behavior_type: :clarification` + 动作），当前主链已由 **B26 `author_question`（author_choice）** 取代；channel 对 legacy 动作无专门分支（落 `handle_dialogue_gateway_action` → 模糊拒绝），前端仍有 `answer_clarification` 渲染映射。**退役决策需架构确认**（涉及 await_author judgment 是否保留 behavior、b26 前历史测试），不擅自删改；登记为待确认项。
+  - ⏳ E1（断线补事件序列 gap 检测）、E2（多窗口 event_sink）——**等并行工作流提交后后端窗口**（当前 mix 被其全量测试占用、apps 工作区 38 项未提交改动与之重叠）。
 - **批次 B ✅ 完成（2026-11-04 收口，A 方案对齐）**：
   - 核对确认 `compact_transcript` **不是死代码**（Channel handler + 4 个 channel 测试 + 应用层能力均通过）；
   - 按 46 §9.9 A 方案「作者零操作」收口：**撤销 Channel 作者命令入口**（`agent_command: compact_transcript` 移除，回归 `unknown_command`）与对应 web 入口测试；`AgentRunService.compact_transcript/2` 保留为 **application internal 能力**（自动维护共用 `compact_and_commit`；语义测试保留在 `agent_run_runtime_test.exs` 54/0）；
