@@ -508,7 +508,9 @@ export function WorkspaceSessionList({
             onClick={() => onOpenSession(session)}
           >
             <span className={styles.sessionTitle}>{session.title}</span>
-            <span className={styles.sessionStatus}>{session.status}</span>
+            <span className={styles.sessionStatus}>
+              {displayName("session_status", session.status)}
+            </span>
           </button>
           {session.status !== "ACTIVE" && session.status !== "ARCHIVED" && (
             <button

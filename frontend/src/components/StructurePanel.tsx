@@ -13,6 +13,7 @@ import {
   memoryTypeLabel,
 } from "../lib/archiveDetail";
 import type { ArchiveDetailItem } from "../lib/archiveDetail";
+import { displayName } from "../lib/authorVisible";
 import { STRUCTURE_PANEL } from "../lib/copy";
 import {
   isFindingFactInventoryAction,
@@ -1526,12 +1527,11 @@ export function StructurePanel({
                   >
                     <div className={styles.cardTitle}>
                       {char.name}
-                      {char.narrative_role &&
-                        STRUCTURE_PANEL.narrativeRoleLabels[char.narrative_role] && (
-                          <span className={styles.cardLabelInline}>
-                            {STRUCTURE_PANEL.narrativeRoleLabels[char.narrative_role]}
-                          </span>
-                        )}
+                      {char.narrative_role && (
+                        <span className={styles.cardLabelInline}>
+                          {displayName("narrative_role", char.narrative_role)}
+                        </span>
+                      )}
                       {char.role && <span className={styles.cardLabelInline}>{char.role}</span>}
                     </div>
                     {char.summary && <div className={styles.cardDesc}>{char.summary}</div>}

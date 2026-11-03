@@ -1,6 +1,7 @@
 // Design: docs/design/ui/43-structure-panel.md §4.3
 // Prototype: novel-studio.pen → 43§5-structure-panel-expanded (ATnmR)
 import type { CharacterData, MemoryItemData } from "./socket";
+import { displayName } from "./authorVisible";
 import { STRUCTURE_PANEL } from "./copy";
 
 export type ArchiveDetailItem =
@@ -75,10 +76,7 @@ export function archiveDetailRows(detail: ArchiveDetailItem): ArchiveDetailRow[]
     pushRow(
       rows,
       STRUCTURE_PANEL.detailRows.narrativeRole,
-      detail.item.narrative_role
-        ? (STRUCTURE_PANEL.narrativeRoleLabels[detail.item.narrative_role] ??
-            detail.item.narrative_role)
-        : null,
+      detail.item.narrative_role ? displayName("narrative_role", detail.item.narrative_role) : null,
     );
     pushRow(rows, STRUCTURE_PANEL.detailRows.role, nonEmpty(detail.item.role));
     pushRow(

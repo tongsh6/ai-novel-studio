@@ -1,7 +1,7 @@
 // AUTO-GENERATED FROM docs/design/schemas/author_visible/display_names.json — DO NOT EDIT.
 // Run `pnpm codegen:author-visible` to regenerate. Author-visible surfaces must only use these display names.
 
-export const SOURCE_HASH = "15d71c1ee859e9530bf818443d8caa57f6f80db449ffa5881533a98f8b726489";
+export const SOURCE_HASH = "60d8be45c07d2c88ec68a1e8694ca8ffd3c307304e73b23dfd9fea31436d577e";
 
 export const DISPLAY_NAMES = {
   "action": {
@@ -158,6 +158,13 @@ export const DISPLAY_NAMES = {
   "model": {
     "__default__": "当前模型",
   },
+  "narrative_role": {
+    "PROTAGONIST": "主角",
+    "ANTAGONIST": "反派",
+    "SUPPORTING": "配角",
+    "MINOR": "次要角色",
+    "ENSEMBLE_POV": "群像视角",
+  },
   "provider": {
     "stub": "本地模型（测试环境）",
     "slice_verify": "本地模型（测试环境）",
@@ -189,6 +196,11 @@ export const DISPLAY_NAMES = {
     "cancelled": "已停止",
     "failed": "失败",
     "pending": "待处理",
+  },
+  "session_status": {
+    "ACTIVE": "进行中",
+    "EXITED": "已退出",
+    "ARCHIVED": "已归档",
   },
   "status": {
     "TENTATIVE": "待采纳",
@@ -242,9 +254,11 @@ export const FALLBACKS = {
   "memory_tag": "标签",
   "memory_type": "记忆类型",
   "model": "当前模型",
+  "narrative_role": "角色定位未知",
   "provider": "当前模型服务",
   "reason_code": "已记录",
   "run_status": "处理中",
+  "session_status": "状态未知",
   "status": "处理中",
   "tool": "创作操作",
 } as const;
@@ -286,4 +300,4 @@ export const FORBIDDEN_TOKENS = {
 ],
 } as const;
 
-export type DisplayKind = "action" | "artifact_type" | "capability" | "context_source" | "decision" | "error_code" | "frame_type" | "gate" | "memory_scope" | "memory_source_type" | "memory_status" | "memory_tag" | "memory_type" | "model" | "provider" | "reason_code" | "run_status" | "status" | "tool";
+export type DisplayKind = "action" | "artifact_type" | "capability" | "context_source" | "decision" | "error_code" | "frame_type" | "gate" | "memory_scope" | "memory_source_type" | "memory_status" | "memory_tag" | "memory_type" | "model" | "narrative_role" | "provider" | "reason_code" | "run_status" | "session_status" | "status" | "tool";

@@ -7,7 +7,7 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
   只允许通过 `NovelCommon.AuthorVisible.Display` 查询；作者可见面不得直接使用内部 code。
   """
 
-  @source_hash "15d71c1ee859e9530bf818443d8caa57f6f80db449ffa5881533a98f8b726489"
+  @source_hash "60d8be45c07d2c88ec68a1e8694ca8ffd3c307304e73b23dfd9fea31436d577e"
 
   @domains %{
     "action" => %{
@@ -164,6 +164,13 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
     "model" => %{
       "__default__" => "当前模型"
     },
+    "narrative_role" => %{
+      "ANTAGONIST" => "反派",
+      "ENSEMBLE_POV" => "群像视角",
+      "MINOR" => "次要角色",
+      "PROTAGONIST" => "主角",
+      "SUPPORTING" => "配角"
+    },
     "provider" => %{
       "anthropic" => "Anthropic",
       "deepseek" => "DeepSeek",
@@ -195,6 +202,11 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
       "pausing" => "暂停中",
       "pending" => "待处理",
       "running" => "进行中"
+    },
+    "session_status" => %{
+      "ACTIVE" => "进行中",
+      "ARCHIVED" => "已归档",
+      "EXITED" => "已退出"
     },
     "status" => %{
       "ACCEPTED" => "已采纳",
@@ -248,9 +260,11 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
     "memory_tag" => "标签",
     "memory_type" => "记忆类型",
     "model" => "当前模型",
+    "narrative_role" => "角色定位未知",
     "provider" => "当前模型服务",
     "reason_code" => "已记录",
     "run_status" => "处理中",
+    "session_status" => "状态未知",
     "status" => "处理中",
     "tool" => "创作操作"
   }

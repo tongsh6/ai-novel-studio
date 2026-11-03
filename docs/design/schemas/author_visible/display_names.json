@@ -222,6 +222,18 @@
       "risk:low": "低风险",
       "risk:medium": "中风险",
       "risk:high": "高风险"
+    },
+    "session_status": {
+      "ACTIVE": "进行中",
+      "EXITED": "已退出",
+      "ARCHIVED": "已归档"
+    },
+    "narrative_role": {
+      "PROTAGONIST": "主角",
+      "ANTAGONIST": "反派",
+      "SUPPORTING": "配角",
+      "MINOR": "次要角色",
+      "ENSEMBLE_POV": "群像视角"
     }
   },
   "fallbacks": {
@@ -243,7 +255,9 @@
     "memory_type": "记忆类型",
     "memory_scope": "记忆范围",
     "memory_source_type": "来源未知",
-    "memory_tag": "标签"
+    "memory_tag": "标签",
+    "session_status": "状态未知",
+    "narrative_role": "角色定位未知"
   },
   "enum_sources": {
     "status": [

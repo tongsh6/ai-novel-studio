@@ -1080,13 +1080,6 @@ export const STRUCTURE_PANEL = {
   acceptedCharactersSection: "已确认角色",
   characterCountUnit: "个角色",
   // 叙事角色分类标签（与后端 NarrativeRole 枚举对齐）
-  narrativeRoleLabels: {
-    PROTAGONIST: "主角",
-    ANTAGONIST: "反派",
-    SUPPORTING: "配角",
-    MINOR: "次要角色",
-    ENSEMBLE_POV: "群像视角",
-  } as Record<string, string>,
   // 已有角色但无人标记主角时的诚实提示
   protagonistUnsetHint: "尚未标注主角",
   characterEmptyTitle: "角色档案",
