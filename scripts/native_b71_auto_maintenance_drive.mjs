@@ -306,9 +306,10 @@ async function respondToRunPause(steerText, attempts) {
   // 新交互（46 §9.7 等待即回答）：底部主输入区接管为回答面板
   // （role=group aria-label「回答当前问题」：问题文本 + 选项按钮 +「回复此问题」→ textarea →「发送回复」）。
   // 消息流问题卡只是只读记录（aria-label「创作问题记录」），不可点击。
-  const answerPanel = nodes.find((node) =>
-    /回答当前问题/u.test(`${node?.title ?? ""} ${node?.desc ?? ""}`) &&
-    ["AXGroup", "AXGenericGroup", "AXSheet", "AXList"].includes(String(node?.role ?? "")),
+  const answerPanel = nodes.find(
+    (node) =>
+      /回答当前问题/u.test(`${node?.title ?? ""} ${node?.desc ?? ""} ${node?.value ?? ""}`) &&
+      ["AXGroup", "AXGenericGroup", "AXSheet", "AXList", "AXStaticText"].includes(String(node?.role ?? "")),
   );
   attempts.push({
     step: "find_answer_panel",
@@ -319,16 +320,42 @@ async function respondToRunPause(steerText, attempts) {
   if (answerPanel) {
     // 路径 1（优先）：结构化选项按钮 → author_choice 回答（同 run 继续）。
     const choiceButton = nodes.find(
-      (node) =>
-        node?.role === "AXButton" &&
-        /^(选项[A-Za-z0-9]|选项：)/u.test(String(node.title ?? "").trim()),
+      (node) => node?.role === "AXButton" && /^选项[A-Za-z0-9]?/u.test(String(node.title ?? "").trim()),
     );
     if (choiceButton) {
       harness.safeClick(choiceButton, `${FLOW_LABEL}:answer_choice`);
       attempts.push({ step: "click_answer_choice", ok: true, title: choiceButton?.title ?? null });
       return { ok: true, kind: "choice", label: choiceButton?.title ?? null, text: null, sent: true };
     }
-    // 路径 2：自由文本「回复此问题」→ textarea（aria-label「对此问题的补充」）→「发送回复」。
+    // 路径 2（新 composer 提示条）：主输入框 placeholder「回答当前问题…」+ 发送按钮「回答并继续」。
+    const composerField =
+      nodes.find(
+        (node) =>
+          node?.role === "AXTextField" &&
+          /回答当前问题/u.test(`${node?.title ?? ""} ${node?.desc ?? ""} ${node?.value ?? ""}`),
+      ) ??
+      nodes.find((node) => node?.role === "AXTextField") ??
+      null;
+    const answerSend = findButtonByText(
+      nodes,
+      (value) => value === "回答并继续" || value === "回答并继续…",
+    );
+    if (composerField && answerSend) {
+      harness.safeClick(composerField, `${FLOW_LABEL}:answer_composer`);
+      await sleep(300);
+      typeText(harness.APP, steerText);
+      await sleep(800);
+      const send = findButtonByText(
+        harness.dumpNodesForInteraction(`${FLOW_LABEL}:answer_composer_send`),
+        (value) => value === "回答并继续",
+      );
+      attempts.push({ step: "find_answer_composer", ok: Boolean(composerField), send: Boolean(send) });
+      if (!send) return { ok: false, reason: "answer_send_not_found", composer: true };
+      harness.safeClick(send, `${FLOW_LABEL}:answer_composer_send`);
+      return { ok: true, kind: "composer_free_text", text: steerText, sent: true };
+    }
+
+    // 路径 3（兼容旧版）：自由文本「回复此问题」→ textarea（aria-label「对此问题的补充」）→「发送回复」。
     const replyButton = nodes.find(
       (node) => node?.role === "AXButton" && String(node.title ?? "").includes("回复此问题"),
     );
