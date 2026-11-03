@@ -3,6 +3,7 @@ defmodule NovelApplication.TurnResultBuilder do
   从 DialogueFrame 构建 v3 TurnResult。覆盖 reply_only、exploration、tool、artifact、behavior 全场景。
   """
 
+  alias NovelApplication.AuthorVisible.Presenter
   alias NovelApplication.AvailableActionBuilder
   alias NovelApplication.CandidateAdoptionEffect
   alias NovelCommon.Contracts.ToolResult
@@ -526,7 +527,7 @@ defmodule NovelApplication.TurnResultBuilder do
       |> prompt_contract_text()
       |> blank_to_default("此操作需要作者明确确认。")
 
-    target = confirmation_target_label(behavior.target_ref)
+    target = Presenter.confirmation_target(behavior.target_ref)
 
     [
       question,
@@ -547,13 +548,6 @@ defmodule NovelApplication.TurnResultBuilder do
   end
 
   defp blank_to_default(_value, default), do: default
-
-  defp confirmation_target_label("prose_writing"), do: "正文草稿生成"
-  defp confirmation_target_label("character_design"), do: "角色设定草稿生成"
-  defp confirmation_target_label("plot_outline"), do: "大纲草稿生成"
-  defp confirmation_target_label("world_building"), do: "设定草稿生成"
-  defp confirmation_target_label(target) when is_binary(target) and target != "", do: target
-  defp confirmation_target_label(_target), do: "本轮待确认操作"
 
   defp format_candidates(candidates) do
     Enum.map(candidates, fn c ->

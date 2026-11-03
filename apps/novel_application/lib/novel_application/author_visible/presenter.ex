@@ -52,6 +52,47 @@ defmodule NovelApplication.AuthorVisible.Presenter do
   end
 
   @doc """
+  作者确认动作文案（确认卡 / 对话动作回执）。
+
+  目标显示名经 operation_label/1（SSOT tool/capability 域）；未登记目标走兜底，
+  不回显内部 ref/tool code。
+  """
+  @spec confirmed_action_message(term()) :: String.t()
+  def confirmed_action_message(target_ref) do
+    "已确认「#{operation_label_text(target_ref)}」操作，正在作为新的作者动作运行处理；" <>
+      "确认本身不表示工具或目标已经成功。"
+  end
+
+  @doc "作者取消等待文案（无目标时用中性「这项操作」）。"
+  @spec cancelled_action_message(term()) :: String.t()
+  def cancelled_action_message(nil),
+    do: "已取消等待；这项操作不会执行，也没有写入作品事实。"
+
+  def cancelled_action_message(""),
+    do: "已取消等待；这项操作不会执行，也没有写入作品事实。"
+
+  def cancelled_action_message(target_ref) do
+    "已取消等待；「#{operation_label_text(target_ref)}」不会执行，也没有写入作品事实。"
+  end
+
+  @doc """
+  确认卡「确认对象」显示名。
+
+  已登记 tool/capability 返回作者显示名；未知/缺失 ref 用中性文案，
+  绝不回显内部 ref。
+  """
+  @spec confirmation_target(term()) :: String.t()
+  def confirmation_target(ref) when is_binary(ref) and ref != "" do
+    if Display.known?(:tool, ref) or Display.known?(:capability, ref) do
+      operation_label_text(ref)
+    else
+      "本轮待确认操作"
+    end
+  end
+
+  def confirmation_target(_ref), do: "本轮待确认操作"
+
+  @doc """
   provider health metadata → 追加作者可见 display 字段（additive）。
 
   内部 provider/model 字段保留给日志与诊断；作者面只消费 display 字段。

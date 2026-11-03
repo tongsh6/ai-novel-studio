@@ -53,6 +53,35 @@ defmodule NovelApplication.AuthorVisible.PresenterTest do
     end
   end
 
+  describe "确认/取消作者文案（唯一出口）" do
+    test "已登记目标返回作者可读操作名，未知目标不回显内部 ref/code" do
+      assert Presenter.confirmed_action_message("prose_writing") =~
+               "已确认「正文写作」操作"
+
+      assert Presenter.cancelled_action_message("prose_writing") =~
+               "已取消等待；「正文写作」不会执行"
+
+      unknown = Presenter.confirmed_action_message("artifact:unknown-ref-001")
+      assert unknown =~ "「创作操作」"
+      refute unknown =~ "unknown-ref"
+      refute unknown =~ "artifact:"
+    end
+
+    test "无目标时取消文案使用中性「这项操作」" do
+      for target <- [nil, ""] do
+        assert Presenter.cancelled_action_message(target) =~
+                 "已取消等待；这项操作不会执行，也没有写入作品事实。"
+      end
+    end
+
+    test "确认对象显示名：登记目标用作者名、未知 ref 用中性文案" do
+      assert Presenter.confirmation_target("prose_writing") == "正文写作"
+      assert Presenter.confirmation_target("character_design") == "角色设计"
+      assert Presenter.confirmation_target("target-1") == "本轮待确认操作"
+      assert Presenter.confirmation_target(nil) == "本轮待确认操作"
+    end
+  end
+
   describe "Registry（完整性诊断，只读）" do
     test "判断协议全部工具 code 均已登记作者显示名" do
       codes = Registry.judgment_tool_codes()

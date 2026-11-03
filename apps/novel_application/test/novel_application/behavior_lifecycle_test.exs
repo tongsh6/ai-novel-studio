@@ -217,7 +217,7 @@ defmodule NovelApplication.BehaviorLifecycleTest do
       assert card.behavior_ref == behavior.behavior_id
       assert card.target_ref == "target-1"
       assert card.body =~ "检测到高风险行动，需作者确认：危险操作"
-      assert card.body =~ "确认对象：target-1。"
+      assert card.body =~ "确认对象：本轮待确认操作。"
       assert card.body =~ "确认前不会调用工具或写入作品事实"
       assert card.body =~ "确认后系统会重新检查当前作品状态"
     end

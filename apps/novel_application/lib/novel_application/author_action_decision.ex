@@ -7,6 +7,7 @@ defmodule NovelApplication.AuthorActionDecision do
   该模块不访问持久层、不执行 Provider，也不推断未提交的运行事实。
   """
 
+  alias NovelApplication.AuthorVisible.Presenter
   alias NovelDomain.{BehaviorState, DecisionTrace}
 
   @type kind :: :confirm | :reject
@@ -170,16 +171,12 @@ defmodule NovelApplication.AuthorActionDecision do
   end
 
   defp assistant_message(:confirm, ctx) do
-    "已确认「#{target_label(ctx.action_input.target_ref)}」操作，正在作为新的作者动作运行处理；" <>
-      "确认本身不表示工具或目标已经成功。"
+    Presenter.confirmed_action_message(ctx.action_input.target_ref)
   end
 
   defp assistant_message(:reject, ctx) do
-    "已取消等待；「#{target_label(ctx.action_input.target_ref)}」不会执行，也没有写入作品事实。"
+    Presenter.cancelled_action_message(ctx.action_input.target_ref)
   end
-
-  defp target_label(target_ref) when is_binary(target_ref) and target_ref != "", do: target_ref
-  defp target_label(_target_ref), do: "待处理动作"
 
   defp status(:confirm), do: "conversational"
   defp status(:reject), do: "cancelled"

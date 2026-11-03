@@ -8,6 +8,7 @@ defmodule NovelApplication.DialogueGateway do
   alias NovelAgent.Provider.Execution
   alias NovelApplication.ActionValidator
   alias NovelApplication.AdoptionBoundary
+  alias NovelApplication.AuthorVisible.Presenter
   alias NovelApplication.ProseRevisionService
   alias NovelDomain.AdoptionDecision
   alias NovelDomain.AuthorActionInput
@@ -370,7 +371,6 @@ defmodule NovelApplication.DialogueGateway do
   defp cancel_waiting_turn_result(%AuthorActionInput{} = action_input, source_turn_result) do
     source_turn_id = map_field(source_turn_result, :turn_id)
     turn_id = NovelFoundation.ID.unique("turn")
-    target_summary = cancel_target_summary(action_input)
     behavior_state = cancel_waiting_behavior_state(action_input, source_turn_result, turn_id)
     behavior_trace_refs = terminal_behavior_trace_refs(behavior_state, :close)
 
@@ -379,7 +379,7 @@ defmodule NovelApplication.DialogueGateway do
       turn_id: turn_id,
       parent_turn_id: source_turn_id,
       frame_ref: "frame_#{turn_id}",
-      assistant_message: %{text: "已取消等待；#{target_summary}不会执行，也没有写入作品事实。"},
+      assistant_message: %{text: Presenter.cancelled_action_message(action_input.target_ref)},
       ui_cards: [],
       frame_summary: %{
         frame_type: :confirmation_answer,
@@ -415,13 +415,6 @@ defmodule NovelApplication.DialogueGateway do
       }
     }
   end
-
-  defp cancel_target_summary(%AuthorActionInput{target_ref: target_ref})
-       when is_binary(target_ref) and target_ref != "" do
-    "「#{target_ref}」"
-  end
-
-  defp cancel_target_summary(_action_input), do: "这项操作"
 
   defp cancel_waiting_behavior_state(
          %AuthorActionInput{} = action_input,
