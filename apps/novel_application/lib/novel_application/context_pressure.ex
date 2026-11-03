@@ -73,10 +73,47 @@ defmodule NovelApplication.ContextPressure do
 
   def latest_usage(_run_id), do: :unavailable
 
+  @doc """
+  解析运维窗口覆盖配置（产品化配置，非验收专用）。
+
+  环境变量 `NOVEL_CONTEXT_WINDOW_OVERRIDES` 的格式为 `provider:window` 逗号分隔，
+  如 `"strata:4096,openai:8192"`；空项/非法项忽略（不猜测），nil 或全部非法返回
+  `%{}`。覆盖只影响安全点自动维护的压力阈值判定，不向作者展示。
+  """
+  @spec parse_window_overrides(String.t() | nil) :: %{optional(String.t()) => pos_integer()}
+  def parse_window_overrides(nil), do: %{}
+
+  def parse_window_overrides(text) when is_binary(text) do
+    text
+    |> String.split(",", trim: true)
+    |> Enum.reduce(%{}, fn entry, acc ->
+      case String.split(entry, ":", parts: 2) do
+        [provider, window] ->
+          provider = String.trim(provider)
+
+          with true <- provider != "",
+               {value, ""} <- Integer.parse(String.trim(window)),
+               true <- value > 0 do
+            Map.put(acc, provider, value)
+          else
+            _ -> acc
+          end
+
+        _other ->
+          acc
+      end
+    end)
+  end
+
+  def parse_window_overrides(_other), do: %{}
+
   @doc "保守模型窗口（token）；provider 未知时返回保守默认。"
   @spec window(String.t() | nil) :: pos_integer()
   def window(provider) do
-    overrides = Application.get_env(:novel_application, :context_window_overrides, %{})
+    overrides =
+      :novel_application
+      |> Application.get_env(:context_window_overrides, %{})
+      |> config_map()
 
     Map.get(overrides, provider) ||
       Map.get(@default_windows, provider) ||
@@ -143,14 +180,20 @@ defmodule NovelApplication.ContextPressure do
 
   defp ratios do
     config =
-      case Application.get_env(:novel_application, :context_pressure, %{}) do
-        config when is_list(config) -> Map.new(config)
-        config when is_map(config) -> config
-        _other -> %{}
-      end
+      :novel_application
+      |> Application.get_env(:context_pressure, %{})
+      |> config_map()
 
     {Map.get(config, :maintenance_ratio, @default_maintenance_ratio),
      Map.get(config, :hard_ratio, @default_hard_ratio)}
+  end
+
+  defp config_map(value) do
+    case value do
+      config when is_list(config) -> Map.new(config)
+      config when is_map(config) -> config
+      _other -> %{}
+    end
   end
 
   defp input_tokens(summary) do

@@ -34,6 +34,20 @@ defmodule NovelApplication.ContextPressureTest do
     assert ContextPressure.window("deepseek") == 40_000
   end
 
+  test "parse_window_overrides：产品化 provider:window 覆盖解析，非法项忽略" do
+    assert ContextPressure.parse_window_overrides(nil) == %{}
+    assert ContextPressure.parse_window_overrides("") == %{}
+    assert ContextPressure.parse_window_overrides("strata:4096") == %{"strata" => 4096}
+
+    assert ContextPressure.parse_window_overrides("strata:4096, openai:8192") == %{
+             "strata" => 4096,
+             "openai" => 8192
+           }
+
+    assert ContextPressure.parse_window_overrides("strata:0,openai:-3,bad,tool:abc,:4096") == %{}
+    assert ContextPressure.parse_window_overrides("strata:4096,bad") == %{"strata" => 4096}
+  end
+
   test "没有真实 usage 时压力未知，不按消息数猜测" do
     pressure = ContextPressure.pressure("run_no_usage")
 

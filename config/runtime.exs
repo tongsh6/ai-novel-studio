@@ -1,5 +1,17 @@
 import Config
 
+# ── B71 上下文维护窗口覆盖（运维配置，所有环境）─────────────────────────────
+# NOVEL_CONTEXT_WINDOW_OVERRIDES：provider:window 逗号分隔（如 "strata:4096"），
+# 只影响安全点自动维护的压力阈值判定，不向作者展示；非法项忽略（不猜测）。
+case System.get_env("NOVEL_CONTEXT_WINDOW_OVERRIDES") do
+  nil ->
+    :ok
+
+  value ->
+    config :novel_application, :context_window_overrides,
+      NovelApplication.ContextPressure.parse_window_overrides(value)
+end
+
 # ── 打包桌面 release（Tauri sidecar）运行时配置 ─────────────────────────────
 #
 # 只在「以 Mix release 形式启动」时生效——用 RELEASE_NAME 判定，而不是只看
