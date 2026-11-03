@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-03 **B71 §16.14 判据假通过与独立复核发现**：`cp4b-confirmation-01g-confirm` driver 完整但独立复核判定**假通过**——C9 在 Why 未打开（`why.opened=false`）时 pass、C5 在重复点击未发生（`duplicate.attempted=false`）时 pass、C10 只验按钮消失、C11 在 EPERM 降级下 pass；01g 不用于 PASS。acceptance-writer 只读复核另发现 C6 reject 采样窗口必假失败、C2 ack 身份字段错位、决定帧取帧竞争、C7 缺 blocked 分支、C8 缺负例，以及行为判据 forbid/effect/HO1/HO4/HO6/状态校验等系统缺口（含 01 批 S1 状态未构造仍判 legal）。处置：暂停后续批次，先修判据并用 01f/01g 现场离线复算证明「缺证据 fail、齐全证据 pass」，再重新签发。
+
 > 2026-11-03 **B71 §16.14 确认批次真实进展**：`cp4b-confirmation-01d` 真实到达 needs_confirmation（1 次真实 Provider 调用）；`01e` **确认链路真实完整跑通**（确认卡→点击确认→author_action+ACK→决定 TurnResult→executed `prose_writing` succeeded + `prose_fragment` pending + llm-calls=1 + 截图），失败仅为驱动等待窗起点缺陷。此前 01/01b/01c 亦为驱动实现缺陷（入口目录漏传、启动前激活、激活确认形状错配），五个失败如实登记、不归因环境/产品；01d/01e 作为「确认链路可跑通」部分证据（不代签 C1–C11）。修复后的复验批 01f 已签发。
 
 > 2026-11-03 **B71 当前 HEAD 完整门禁复验（确定性侧收口）**：HEAD 22fe2611——compile warnings-as-errors 0、credo no issues、module-size ratchet 通过、后端全量 **2997/0**（独立库）、I3 3/3、I1 4/4、I2 3 pairs/0 violations/0 case_failures、I-CACHE covered+enforced、N-NARR PASS；统一静态扫描 20 passed/1 failed（既有 gitleaks 5 项、touched=0、blocking=0）。未闭环项仅剩外部环境（ macOS 锁屏阻塞原生批次）与作者授权（压缩前端 UI 设计增补），非代码门禁问题。

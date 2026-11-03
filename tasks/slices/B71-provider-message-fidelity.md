@@ -830,3 +830,11 @@
 - **部分证据登记**：01d（场景可触发 + 1 次真实调用）与 01e（确认执行链完整成立）登记为「§16.14 确认链路可跑通」部分证据，**不代签 C1–C11**；01/01b/01c 无场景证据。
 - **驱动健壮性缺陷汇总**（五个）：入口目录漏传、启动前激活、激活确认形状错配、动作字段口径、等待窗起点。它们不改变产品/判据结论，但解释了本轮原生驱动预算消耗；每个缺陷都伴随纯函数抽取/回归测试（`executedConfirmationTurnResult`/`rejectConfirmationTurnResult`、`pairToolCalls`、`extractJsonArrayAfterKey` 等）以降低复发。
 - **下一步**：`cp4b-confirmation-01f-confirm` 复验（HEAD 6503df4d + 96491675），通过后自动继续 reject 批与行为覆盖 01c/#6。
+
+### §16.14 判据假通过与独立复核发现（2026-11-03 晚）
+
+- **01g 批次（`cp4b-confirmation-01g-confirm`）**：driver 完整、verdict.mechanism=pass，但**独立复核与逐项核实判定为假通过**——`C9` 在 `why.opened=false/why_provider_delta=null` 时仍 pass（Why 零证据）；`C5` 在 `duplicate.attempted=false(reason=not_actionable:action_missing)/duplicate_ack_observed=0` 时仍 pass（重复幂等零证据）；`C10` 只验按钮消失未验决定/结果可见与零重放；`C11` 在 `process_observation.fallback_reason=EPERM` 降级下仍 pass。**01g 不用于 PASS**，登记为「判据未修复前的假通过批次」；01f 的驱动完整 PASS 保持「部分证据」。
+- **独立复核（acceptance-writer，只读）** 发现并供修复：
+  - 确认判据：P0-A（缺证据仍 PASS 簇：C5/C9/C10/C11）、P0-B（C6 reject 采样窗口覆盖 source 生成必假失败 + null 容忍）、P1-1（C2 ack 身份字段在 `response.trigger` 下而判据读顶层恒真）、P1-2（决定帧按 parent 取第一条与 creative 同 parent 有取帧竞争，01e 仅差 60ms）、P1-3（C7 缺 gate-blocked/工具失败分支）、C8 缺冒充/回放负例；报告 `artifacts/b71-resume/lead-independent-review-confirmation.md`。
+  - 行为判据：forbidden_behaviors 未消费、effect 从真实工具 schema 不存在的字段推导、allowed_effects 被当合取（合法 ask_author/explore 判 unknown）、HO1 绝对零计数与 states.yml 冲突、HO4 未按批次/对象限定且 2x 容差、fabricated_setting 无判据、HO6 把 source_status 对象当标量、**verifyBehaviorBatch 不校验实际 DB 状态=behavior-case.state（01 批 S1 声明未构造仍判 legal）**；报告 `artifacts/b71-resume/lead-independent-review-behavior.md`。
+- **处置**：暂停 01h/02/behavior 批次；先修判据并用 01f/01g 现场离线复算验证（01g 缺证据项必须变 fail、01f 齐全证据应 pass）；01 批 legal 结论在判据修复后重新评估。修复后由 Lead 重新签发批次。
