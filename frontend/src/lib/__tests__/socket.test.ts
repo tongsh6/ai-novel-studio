@@ -96,7 +96,6 @@ describe("sendMessage", () => {
       ch,
       "  原文\n第二行  ",
       "work-123",
-      null,
       "session-123",
       true,
       null,
@@ -117,13 +116,13 @@ describe("sendMessage", () => {
       candidate_set_ref: "candidate_set:turn-1",
       candidate_ref: "dir-1",
     };
-    void sendMessage(ch, "继续", "work-123", null, "session-123", false, candidate);
+    void sendMessage(ch, "继续", "work-123", "session-123", false, candidate);
     await vi.waitFor(() => expect(ch.push).toHaveBeenCalledTimes(1));
     const [saved] = await pendingUserMessages("work-123", "session-123");
     expect(saved.candidate_selection).toEqual(candidate);
     void transmitUserMessage(ch, saved);
     expect(ch.push).toHaveBeenLastCalledWith("user_message", saved, LLM_TURN_TIMEOUT_MS);
-    void sendMessage(ch, "继续", "work-123", null, "session-123", false, candidate);
+    void sendMessage(ch, "继续", "work-123", "session-123", false, candidate);
     await vi.waitFor(() => expect(ch.push).toHaveBeenCalledTimes(3));
     expect(
       new Set((await pendingUserMessages("work-123", "session-123")).map((entry) => entry.turn_id))
@@ -190,7 +189,7 @@ describe("sendMessage", () => {
 
   it("本机保存失败或身份冲突不发送；待投递按作品和会话隔离", async () => {
     const ch = mockChannel();
-    void sendMessage(ch, "原文", "work-a", null, "session-a", false, null, "message-a");
+    void sendMessage(ch, "原文", "work-a", "session-a", false, null, "message-a");
     await vi.waitFor(() => expect(ch.push).toHaveBeenCalledTimes(1));
     const [saved] = await pendingUserMessages("work-a", "session-a");
     await expect(saveUserMessage({ ...saved, text: "覆盖" })).rejects.toMatchObject({
@@ -206,7 +205,7 @@ describe("sendMessage", () => {
         return null;
       },
     });
-    await expect(sendMessage(ch, "保留", "work-a", null, "session-a")).rejects.toMatchObject({
+    await expect(sendMessage(ch, "保留", "work-a", "session-a")).rejects.toMatchObject({
       kind: "storage",
     });
     expect(ch.push).toHaveBeenCalledTimes(1);
@@ -225,7 +224,6 @@ describe("sendMessage", () => {
       ch,
       "未被接受的原文",
       "work-a",
-      null,
       "session-a",
       false,
       null,
@@ -251,7 +249,7 @@ describe("sendMessage", () => {
       },
     };
     const ch = { push: vi.fn(() => push) } as unknown as Channel;
-    const result = sendMessage(ch, "原文", "work-a", null, "session-a", false, null, "message-a");
+    const result = sendMessage(ch, "原文", "work-a", "session-a", false, null, "message-a");
     const rejected = expect(result).rejects.toMatchObject({ kind: "transport" });
     await vi.waitFor(() => expect(callbacks.has("timeout")).toBe(true));
     callbacks.get("timeout")!();
