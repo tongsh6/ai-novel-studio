@@ -251,6 +251,7 @@ defmodule NovelApplication.AgentRunPersistence do
       run_mode: atom_string(run.run_mode),
       profile_ref: run.profile_ref,
       trigger: json_safe(run.trigger),
+      author_turn: json_safe(run.author_turn),
       status: atom_string(run.status),
       phase: atom_string(run.phase),
       goal: goal,

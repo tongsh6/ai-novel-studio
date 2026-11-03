@@ -1362,6 +1362,8 @@ defmodule NovelApplication.DialoguePlanningService do
 
     protocol_input = %{
       author_text: author_text,
+      # 作者输入来源标记（回答 vs 普通请求）：透传到 canonical transcript 消息元数据。
+      author_turn: Map.get(run, :author_turn),
       source_input_ref: TurnInteractionService.input_ref(run),
       supplied_context_refs: materials.supplied_context_refs,
       available_context_refs: materials.available_context_refs,

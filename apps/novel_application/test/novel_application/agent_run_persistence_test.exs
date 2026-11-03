@@ -10,6 +10,23 @@ defmodule NovelApplication.AgentRunPersistenceTest do
   alias NovelCommon.Contracts.AgentEvent
   alias NovelDomain.AgentRun
 
+  test "question_answer 投影保留作者回合来源标记（canonical transcript 可区分回答）" do
+    run = %{run() | author_turn: %{origin: "author_choice", question_ref: "question:q1"}}
+
+    {:ok, snapshot} =
+      AgentRunPersistence.snapshot(
+        run,
+        %{events: [], event_sequence: 1, stage_state: %{}},
+        :question_answer,
+        before: %{events: [], event_sequence: 0, stage_state: %{}}
+      )
+
+    assert snapshot.run_record.author_turn == %{
+             "origin" => "author_choice",
+             "question_ref" => "question:q1"
+           }
+  end
+
   test "delivery 保存全部非 stream 事件，并剥离 turn_result payload" do
     run = run()
 

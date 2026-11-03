@@ -124,7 +124,11 @@ defmodule NovelDomain.AgentRun do
       replans: 0
     },
     interrupt_state: %{status: :none, requested_at: nil},
-    pending_artifact_refs: []
+    pending_artifact_refs: [],
+    # 最近一次作者输入的来源标记（46 §9.7 / VS-00L：回答与普通请求在 canonical
+    # transcript 中可区分）。形如 %{origin: "author_choice", question_ref: "question:..."}；
+    # 普通新请求为 nil。仅记录元数据，不参与授权判定。
+    author_turn: nil
   ]
 
   @spec new(map() | keyword()) :: {:ok, t()} | {:error, [String.t()]}
@@ -262,6 +266,7 @@ defmodule NovelDomain.AgentRun do
   defp known_key("session_id"), do: :session_id
   defp known_key("parent_turn_ref"), do: :parent_turn_ref
   defp known_key("origin_frame_ref"), do: :origin_frame_ref
+  defp known_key("author_turn"), do: :author_turn
   defp known_key("profile_ref"), do: :profile_ref
   defp known_key("trigger"), do: :trigger
   defp known_key("plan"), do: :plan

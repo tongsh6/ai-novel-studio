@@ -73,7 +73,8 @@ defmodule NovelApplication.JudgmentProtocol do
           AuthoringTranscript.append_author_turn(
             transcript,
             Map.fetch!(input, :author_text),
-            Map.get(input, :source_input_ref, "author_turn:current")
+            Map.get(input, :source_input_ref, "author_turn:current"),
+            author_turn: Map.get(input, :author_turn)
           )
         else
           transcript

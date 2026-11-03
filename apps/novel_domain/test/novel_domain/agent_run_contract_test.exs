@@ -10,6 +10,40 @@ defmodule NovelDomain.AgentRunContractTest do
   alias NovelDomain.MicroPlan
   alias NovelDomain.OrchestratorDecision
 
+  test "AgentRun 保留作者输入来源标记（回答 vs 普通请求）" do
+    {:ok, run} =
+      AgentRun.new(%{
+        run_id: "run_author_turn",
+        workspace_id: "ws_1",
+        work_id: "work_1",
+        session_id: "sess_1",
+        parent_turn_ref: "turn_1",
+        origin_frame_ref: "frame_1",
+        profile_ref: "character_design_with_context_v1",
+        goal: %{text: "先看角色阵容，再设计反派", version: 1},
+        authority_scope: %{production_write: false, allowed_tools: ["read_character"]},
+        author_turn: %{origin: "author_choice", question_ref: "question:run_1:q1"}
+      })
+
+    assert run.author_turn == %{origin: "author_choice", question_ref: "question:run_1:q1"}
+
+    # 普通 run 默认 nil（元数据不参与授权判定）。
+    {:ok, plain} =
+      AgentRun.new(%{
+        run_id: "run_plain",
+        workspace_id: "ws_1",
+        work_id: "work_1",
+        session_id: "sess_1",
+        parent_turn_ref: "turn_1",
+        origin_frame_ref: "frame_1",
+        profile_ref: "character_design_with_context_v1",
+        goal: %{text: "先看角色阵容，再设计反派", version: 1},
+        authority_scope: %{production_write: false, allowed_tools: ["read_character"]}
+      })
+
+    assert plain.author_turn == nil
+  end
+
   test "AgentRun keeps bounded run separate from LongRunTask and tracks budget" do
     {:ok, run} =
       AgentRun.new(%{

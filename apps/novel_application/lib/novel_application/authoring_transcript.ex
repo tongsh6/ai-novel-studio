@@ -138,7 +138,7 @@ defmodule NovelApplication.AuthoringTranscript do
 
   @doc "追加新的作者 turn；同一 turn 重复构造保持幂等，作者字节不被改写。"
   @spec append_author_turn(t(), String.t(), String.t()) :: t()
-  def append_author_turn(transcript, author_text, turn_ref) do
+  def append_author_turn(transcript, author_text, turn_ref, opts \\ []) do
     latest = transcript.messages |> Enum.filter(&(&1.role == "user")) |> List.last()
 
     if latest && text_of(latest.blocks) == author_text && author_ref(latest) == turn_ref do
@@ -148,9 +148,24 @@ defmodule NovelApplication.AuthoringTranscript do
         RequestIR.message(:user, :author, [RequestIR.text_block(author_text)], %{
           source_refs: [%{ref: turn_ref}]
         })
+        |> put_author_turn_origin(Keyword.get(opts, :author_turn))
 
       %{transcript | messages: transcript.messages ++ [message]}
     end
+  end
+
+  # 回答回合来源：写入消息元数据供回放/审计区分「回答」与普通作者请求；
+  # 不改变消息文本与 Provider 投影（投影只读取 role/blocks）。
+  defp put_author_turn_origin(message, nil), do: message
+
+  defp put_author_turn_origin(message, %{} = author_turn) do
+    Map.put(message, :author_turn, %{
+      "origin" => to_string(Map.get(author_turn, :origin) || Map.get(author_turn, "origin") || ""),
+      "question_ref" =>
+        to_string(
+          Map.get(author_turn, :question_ref) || Map.get(author_turn, "question_ref") || ""
+        )
+    })
   end
 
   @doc "当前生效的 scope；旧 scope 仍保留在消息序列中供审计。"

@@ -522,7 +522,9 @@ defmodule NovelApplication.AgentRunServer do
   defp commit_question_answer(state, request, submission_id) do
     run = %{
       state.run
-      | goal: %{state.run.goal | text: request.text, version: state.run.goal.version + 1}
+      | goal: %{state.run.goal | text: request.text, version: state.run.goal.version + 1},
+        # 回答回合来源标记：canonical transcript 据此区分「回答」与普通作者消息。
+        author_turn: %{origin: "author_choice", question_ref: request.question_ref}
     }
 
     applied = apply_author_steer(%{state | defer_delivery: true}, run)
