@@ -203,9 +203,13 @@ function normalizedRows(value, table) {
 // - works.updated_at：WorkspaceChannel.join 的「最近打开」时钟（WorkService.mark_opened
 //   → WorkRepo.touch），真实 restore/重连必然推进；它不是作品事实，作品内容/状态列仍
 //   全部纳入。
+// - chapters.updated_at：目标章节的「最近工作」时钟（cp4b-confirmation-01g：确认执行
+//   会 touch 目标章 updated_at，status/title/summary/plan_direction 不变）；与 works 同族，
+//   属产品账面行为，不是章节内容写入。rows_sha256 保留全行审计。
 const BOOKKEEPING_COLUMNS = Object.freeze({
   memory_items: Object.freeze(["reference_count", "last_referenced_at"]),
   works: Object.freeze(["updated_at"]),
+  chapters: Object.freeze(["updated_at"]),
 });
 
 function canonRows(rows, table) {

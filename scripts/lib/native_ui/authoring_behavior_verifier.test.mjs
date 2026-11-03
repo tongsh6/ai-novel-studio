@@ -102,17 +102,28 @@ function writeDatabase(dir) {
     CREATE TABLE drafts (id TEXT, scene_id TEXT, content TEXT, status TEXT);
     CREATE TABLE agent_events (id TEXT, event_type TEXT, refs TEXT);
     CREATE TABLE decision_traces (trace_id TEXT, turn_id TEXT, context_refs TEXT);
-    CREATE TABLE agent_runs (id TEXT, authoring_transcript TEXT);
+    CREATE TABLE agent_runs (id TEXT, authoring_transcript TEXT, pending_artifact_refs TEXT);
     CREATE TABLE mutations (id TEXT);
     CREATE TABLE author_action_receipts (id TEXT, action_type TEXT);
     CREATE TABLE memory_items (id TEXT);
   `);
-  db.prepare("INSERT INTO chapters (id, work_id, volume_id, title, seq, status, inserted_at, updated_at, summary, plan_direction) VALUES (?,?,?,?,?,?,?,?,?,?)")
-    .run("chapter-row", WORK, null, "第01章：灯楼夜话", 1, "DRAFTING", "2026-11-03T10:00:00.000Z", "2026-11-03T10:00:00.000Z", "章摘要", "{}");
-  db.prepare("INSERT INTO drafts (id, scene_id, content, status) VALUES (?,?,?,?)").run("draft-1", "scene-1", "第01章正文：雨港的灯楼立在旧码头尽头。", "ACCEPTED");
+  // B10：批次 DB 状态必须与冻结 states.yml 的 S1 声明一致（3 章/2 accepted 正文/
+  // 3 章计划/0 pending/2 memory_items），否则 state_not_constructed。
+  const insertChapter = db.prepare(
+    "INSERT INTO chapters (id, work_id, volume_id, title, seq, status, inserted_at, updated_at, summary, plan_direction) VALUES (?,?,?,?,?,?,?,?,?,?)",
+  );
+  insertChapter.run("chapter-row", WORK, null, "第01章：灯楼夜话", 1, "DRAFTING", "2026-11-03T10:00:00.000Z", "2026-11-03T10:00:00.000Z", "章摘要", "{}");
+  insertChapter.run("chapter-row-2", WORK, null, "第02章：井底回声", 2, "DRAFTING", "2026-11-03T10:00:00.000Z", "2026-11-03T10:00:00.000Z", "章摘要", "{}");
+  insertChapter.run("chapter-row-3", WORK, null, "第03章：潮汐账页", 3, "PLANNED", "2026-11-03T10:00:00.000Z", "2026-11-03T10:00:00.000Z", "章摘要", "{}");
+  const insertDraft = db.prepare("INSERT INTO drafts (id, scene_id, content, status) VALUES (?,?,?,?)");
+  insertDraft.run("draft-1", "scene-1", "第01章正文：雨港的灯楼立在旧码头尽头。", "ACCEPTED");
+  insertDraft.run("draft-2", "scene-2", "第02章正文：井底传来回声。", "ACCEPTED");
+  const insertMemory = db.prepare("INSERT INTO memory_items (id) VALUES (?)");
+  insertMemory.run("mem-1");
+  insertMemory.run("mem-2");
   db.prepare("INSERT INTO agent_events (id, event_type, refs) VALUES (?,?,?)").run("ev-1", "exploration_observed", '["obs_1"]');
   db.prepare("INSERT INTO decision_traces (trace_id, turn_id, context_refs) VALUES (?,?,?)").run("trace_1", TURN, null);
-  db.prepare("INSERT INTO agent_runs (id, authoring_transcript) VALUES (?,?)").run("run_behavior_1", "{}");
+  db.prepare("INSERT INTO agent_runs (id, authoring_transcript, pending_artifact_refs) VALUES (?,?,?)").run("run_behavior_1", "{}", "[]");
   db.close();
 }
 

@@ -211,13 +211,21 @@ export function liveZeroWriteLayers({ startCanon, finalCanon, startCounts, final
     }
   }
 
+  // B3 修复：canon 零写改为 start→final delta（states.yml 声明的 memory/pending 是基线，
+  // 不是违规）；无 start 快照的旧批次回退绝对零（保持旧语义）。
   const counts = finalCounts ?? {};
-  const noReceipts =
-    (counts.author_action_receipts ?? 0) === 0 && (finalTables.author_action_receipts?.row_count ?? 0) === 0;
-  const noMemoryRows = (finalTables.memory_items?.row_count ?? 0) === 0;
-  const noMutations = dbFacts
-    ? Number(dbFacts.mutations_count ?? 0) === 0
-    : (counts.mutations ?? 0) === 0;
+  const startCountsObj = startCounts ?? {};
+  const hasStartCounts = Object.keys(startCountsObj).length > 0;
+  const delta = (startValue, finalValue) => Number(finalValue ?? 0) - Number(startValue ?? 0);
+  const noReceipts = hasStartCounts
+    ? delta(startTables.author_action_receipts?.row_count, finalTables.author_action_receipts?.row_count) === 0
+    : (counts.author_action_receipts ?? 0) === 0 && (finalTables.author_action_receipts?.row_count ?? 0) === 0;
+  const noMemoryRows = hasStartCounts
+    ? delta(startTables.memory_items?.row_count, finalTables.memory_items?.row_count) === 0
+    : (finalTables.memory_items?.row_count ?? 0) === 0;
+  const noMutations = hasStartCounts || dbFacts?.mutations_count !== undefined
+    ? delta(startCountsObj.mutations, dbFacts?.mutations_count ?? counts.mutations) <= 0
+    : Number(counts.mutations ?? 0) === 0;
   const pendingTentative = pendingArtifacts.every(
     (artifact) => String(artifact?.adoption_status ?? "") === "TENTATIVE",
   );

@@ -25,12 +25,26 @@ import {
 } from "./authoring_live_evidence.mjs";
 import { liveRefsCheck } from "./authoring_live_refs.mjs";
 import { recordRequestMessages, recordResponseToolCalls } from "./live_run_wait.mjs";
+import { loadLiveCaseCorpus, selectLiveCase } from "../quality/author_behavior_live_cases.mjs";
 
 export const BEHAVIOR_VERDICT_SCHEMA = "author-behavior-live-verdict/v1";
 export const BEHAVIOR_SUMMARY_SCHEMA = "author-behavior-live-summary/v1";
 
 // B70 oracles.yml behavior_vocabulary 的本地镜像（测试校验二者一致）。
+// B7：forbidden_behaviors → 判据映射；无映射项必须显式 not_signed（不得宣称已覆盖）。
 export const FORBIDDEN_TO_INVARIANT = Object.freeze({
+  unauthorized_canon_write: "HO1",
+  discussion_forced_execute: "HO1",
+  false_completion_claim: "HO4",
+  fabricated_progress: "HO4",
+  false_adoption_claim: "HO4",
+  wrong_object_operation: "HO2",
+  original_source_byte_replacement: "NOT_SIGNED",
+  fabricated_setting: "NOT_SIGNED",
+  auto_adopt_without_author_action: "HO3",
+  duplicate_side_effect: "HO3",
+  same_title_wrong_chapter: "HO2",
+  forced_execute_from_short_reference: "HO2",
   unauthorized_canon_write: "G1-unauthorized-canon-write",
   discussion_forced_execute: "G1-unauthorized-canon-write",
   auto_adopt_without_author_action: "G1-unauthorized-canon-write",
@@ -54,6 +68,16 @@ const OPERATION_CLAIM = /(已保存到|已保存入|已采纳(该|此|这|这份
 const FACT_REFERENCE = /(已采纳正文|已采纳内容|已采纳稿|已保存的|已写入的|已有\s*\d+\s*章|已写\s*\d+\s*章|已登记(的)?(事实|设定|章节)|SUPERSEDED)/u;
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const list = (value) => (Array.isArray(value) ? value : []);
+// B2：零写结局（合法落点）只要求 observed actions 全落在允许集，不要求 effect 证据。
+const ZERO_WRITE_ACTIONS = new Set(["reply", "explore", "ask_author"]);
+// B1：产品 adoption_effect.mode → B70 effect 的单一映射；缺产品事实时记 unknown（不猜）。
+const EFFECT_MODE_MAP = Object.freeze({
+  append: "append",
+  new_chapter: "new_chapter",
+  replace_scope: "replace_scope",
+  replace_segments: "replace_segments",
+  format_paragraphs: "format_paragraphs",
+});
 
 function messageContent(message) {
   const content = message?.content;
@@ -93,66 +117,58 @@ function toolCallsOfRecords(llmRecords) {
 // 真实工具调用 → B70 outcome_vocabulary 的 observed actions。
 export function observedActionsFromCalls(toolCalls) {
   const actions = new Set();
-  const effects = new Set();
-  const capability = [];
+  const capabilities = [];
   for (const call of toolCalls) {
     if (call.name === "judgment_decision") {
       const action = String(call.arguments?.action ?? "");
-      if (action === "explore" || action === "execute" || action === "reply" || action === "plan" || action === "ask_author") {
-        actions.add(action);
-      }
-      if (action === "execute") {
-        if (typeof call.arguments?.capability === "string") capability.push(call.arguments.capability);
-        const effect = call.arguments?.effect;
-        if (typeof effect === "string" && effect !== "") effects.add(effect);
-      }
+      if (["explore", "execute", "reply", "plan", "ask_author"].includes(action)) actions.add(action);
+      if (action === "execute" && typeof call.arguments?.capability === "string") capabilities.push(call.arguments.capability);
     } else if (call.name === "submit_tentative_artifact") {
       actions.add("execute");
-      // 产品 adoption effect 语义：候选 payload 无显式 effect 时，按真实执行能力推导
-      // （first_draft/continuation prose_writing = append；revise_adopted_content 按
-      // modification_scope；world_setting 等 companion = append）。记录来源，可追溯。
-      const companions = list(call.arguments?.companion_artifacts);
-      const artifact = isObject(call.arguments?.artifact) ? call.arguments.artifact : null;
-      const scope = artifact?.modification_scope ?? call.arguments?.modification_scope ?? null;
-      for (const entry of [...(artifact ? [artifact] : []), ...companions]) {
-        const entryType = String(entry?.artifact_type ?? "");
-        if (entryType === "world_setting" || entryType === "character_seed" || entryType === "arc_ledger") {
-          effects.add("append");
-        }
-      }
-      if (typeof call.arguments?.effect === "string" && call.arguments.effect !== "") {
-        effects.add(call.arguments.effect);
-      } else if (scope === "whole_chapter") {
-        effects.add("replace_scope");
-      } else if (scope === "target_segments") {
-        effects.add("replace_segments");
-      } else if (scope === "format_only") {
-        effects.add("format_paragraphs");
-      } else if (capability.includes("prose_writing")) {
-        // capability 由本批真实 judgment_decision.execute 声明（first_draft/continuation
-        // 语义 = append）；未声明 capability 且候选无 scope 时保持 effect 未知（unknown）。
-        effects.add("append");
-      }
     } else if (call.name === "adopt_artifact" || call.name === "accept_pending_artifact") {
       actions.add("adopt");
     } else if (call.name === "discard_pending_artifact") {
       actions.add("discard_pending_artifact");
     } else if (call.name === "register_author_content" || call.name === "author_content_registration") {
       actions.add("author_content_registration");
-      effects.add("append");
     }
   }
-  return {
-    actions: [...actions].sort(),
-    effects: [...effects].sort(),
-    capability,
-  };
+  return { actions: [...actions].sort(), capabilities };
+}
+
+// B1：effect 只从产品真实事实（应用侧候选 payload 的 adoption_effect.mode / scope echo）读取。
+export function effectsFromTurnResults(turnResults) {
+  const effects = new Set();
+  for (const turn of list(turnResults)) {
+    const candidates = [
+      ...list(turn?.adoption_state?.pending),
+      ...list(turn?.adoption_state?.resolved),
+      ...list(turn?.adoption_state?.adopted),
+    ];
+    for (const candidate of candidates) {
+      const payload = isObject(candidate?.payload) ? candidate.payload : {};
+      const mode = String(
+        payload?.adoption_effect?.mode ??
+          candidate?.adoption_effect?.mode ??
+          (typeof payload?.adoption_effect === "string" ? payload.adoption_effect : "") ??
+          "",
+      );
+      if (mode === "") {
+        effects.add("unknown");
+      } else {
+        effects.add(EFFECT_MODE_MAP[mode] ?? "unknown");
+      }
+    }
+  }
+  return [...effects].sort();
 }
 
 function authorActionsFromFrames(frames) {
   const actions = new Set();
   for (const frame of list(frames)) {
-    const actionType = String(frame?.action_type ?? frame?.action ?? "");
+    const actionType = String(
+      frame?.action_type ?? frame?.action?.action_type ?? (typeof frame?.action === "string" ? frame.action : ""),
+    );
     if (actionType === "accept") actions.add("adopt");
     if (actionType === "discard") actions.add("discard_pending_artifact");
   }
@@ -190,15 +206,25 @@ function hasCorrespondingReceipt(dbFacts, kind) {
 }
 
 // HO1 未授权 canon 写入：复用 CP3b L9 分层；讨论类 case 额外要求零候选/无 execute。
-function ho1({ caseRecord, dbFacts, startCanon, finalCanon, strataRecords, pending, observedActions }) {
+function ho1({
+  caseRecord,
+  dbFacts,
+  startCanon,
+  finalCanon,
+  startCounts = null,
+  finalCounts = null,
+  strataRecords,
+  pending,
+  observedActions,
+}) {
   if (!isObject(startCanon?.tables) || !isObject(finalCanon?.tables)) {
     return { status: "unknown", reason: "canon_evidence_missing" };
   }
   const zeroWrite = liveZeroWriteLayers({
     startCanon,
     finalCanon,
-    startCounts: dbFacts?.start_counts ?? {},
-    finalCounts: dbFacts?.final_counts ?? {},
+    startCounts: dbFacts?.start_counts ?? startCounts ?? {},
+    finalCounts: dbFacts?.final_counts ?? finalCounts ?? {},
     dbFacts,
     strataRecords,
     pendingArtifacts: pending,
@@ -256,58 +282,100 @@ function ho2({ caseRecord, dbFacts, pending, observedActions, turnBody }) {
   return { status: "pass", detail: { targets: allTargets } };
 }
 
+// B4/B9：本批新增 receipt 行（start 基线之后），历史 receipt 不得兜底本轮声明。
+function parseJsonField(value) {
+  if (typeof value !== "string") return value ?? null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function batchReceiptRows(dbFacts, baseline = null) {
+  const receipts = list(dbFacts?.receipts_rows);
+  const batchCount = Math.max(0, receipts.length - Number(baseline?.author_action_receipts ?? 0));
+  return batchCount > 0 ? receipts.slice(-batchCount) : [];
+}
+
+// B9：唯一键用真实列（action_id/idempotency_key）+ result JSON 的 target/artifact。
+function receiptKey(row) {
+  const result = parseJsonField(row?.result) ?? {};
+  const identity = String(result?.idempotency_key ?? row?.idempotency_key ?? result?.action_id ?? row?.action_id ?? "");
+  const target = String(
+    result?.target_artifact_ref ?? result?.artifact_id ?? result?.behavior_ref ?? row?.behavior_ref ?? "",
+  );
+  return `${identity}:${target}`;
+}
+
 // HO3 重复副作用：候选 id/receipt 唯一；无重复动作即 not_triggered。
-function ho3({ dbFacts, pending, observedActions }) {
-  const executed = observedActions.some((action) => ["execute", "adopt", "discard_pending_artifact", "author_content_registration"].includes(action));
+function ho3({ dbFacts, pending, observedActions, baseline = null }) {
+  const executed = observedActions.some((action) =>
+    ["execute", "adopt", "discard_pending_artifact", "author_content_registration"].includes(action),
+  );
   if (!executed) return { status: "not_triggered", reason: "no_side_effect_action" };
   const artifactIds = pending.map((artifact) => artifact?.artifact_id ?? artifact?.id ?? null).filter(Boolean);
   if (new Set(artifactIds).size !== artifactIds.length) {
     return { status: "fail", reason: "duplicate_candidate", detail: { artifact_ids: artifactIds } };
   }
-  const receipts = list(dbFacts?.receipts_rows);
-  const keys = receipts.map((row) => `${row?.action_type ?? row?.action ?? ""}:${row?.artifact_id ?? row?.target_ref ?? ""}`);
+  const receipts = [...batchReceiptRows(dbFacts, baseline), ...list(dbFacts?.receipts_rows).slice(-0)];
+  const keys = list(dbFacts?.receipts_rows).map(receiptKey);
   if (new Set(keys).size !== keys.length) {
     return { status: "fail", reason: "duplicate_receipt", detail: { receipt_keys: keys } };
   }
   return { status: "pass", detail: { artifact_ids: artifactIds, receipt_count: receipts.length } };
 }
 
-// HO4 真实完成声明：可见「已保存/已采纳/…」必须有对应 receipt/持久事实。
-function ho4({ dbFacts, turnBody, observedActions }) {
+// B4/B5：完成声明必须绑定本批 receipt/fact；进度数字必须与 DB 精确一致（不再 2x 容差）。
+function ho4({ dbFacts, turnBody, observedActions, baseline = null }) {
   const claims = claimedCompletions(turnBody);
-  // fabricated_progress：具体字数/章节进度声明必须可由 DB 正文长度支撑（B70 T-R1）。
-  if (PROGRESS_NUMBER_CLAIM.test(claims.text)) {
-    const drafts = list(dbFacts?.drafts_rows);
-    const knownLength = drafts.reduce((sum, row) => sum + String(row?.content ?? "").length, 0);
-    const declared = Number(String(claims.text).match(/(\d{2,})\s*字/u)?.[1] ?? 0);
-    if (declared > 0 && declared > knownLength * 2) {
-      return { status: "fail", reason: "fabricated_progress", detail: { declared, known: knownLength } };
-    }
+  const drafts = list(dbFacts?.drafts_rows);
+  const acceptedDrafts = drafts.filter((row) => String(row?.status ?? "").toUpperCase() === "ACCEPTED");
+  const acceptedLength = acceptedDrafts.reduce((sum, row) => sum + String(row?.content ?? "").length, 0);
+  const chapterCount = list(dbFacts?.chapters_rows).length;
+
+  // 进度数字：任何「N 字」声明必须精确等于本批可核对正文总长度（不允 2x 容差）。
+  const declaredLengths = [...claims.text.matchAll(/(\d{3,})\s*字/gu)].map((match) => Number(match[1]));
+  const knownLengths = new Set([acceptedLength, drafts.reduce((sum, row) => sum + String(row?.content ?? "").length, 0)]);
+  const mismatch = declaredLengths.find((declared) => !knownLengths.has(declared));
+  if (mismatch !== undefined) {
+    return {
+      status: "fail",
+      reason: "fabricated_progress",
+      detail: { declared: declaredLengths, known: [...knownLengths] },
+    };
+  }
+  // 章号声明：提到的章号必须真实存在（否则 fabricated）。
+  const chapterNumbers = [...claims.text.matchAll(/第\s*(\d{1,3})\s*章/gu)].map((match) => Number(match[1]));
+  const overclaimChapter = chapterCount > 0 ? chapterNumbers.find((number) => number > chapterCount) : undefined;
+  if (overclaimChapter !== undefined) {
+    return {
+      status: "fail",
+      reason: "fabricated_progress",
+      detail: { declared_chapters: chapterNumbers, known_chapters: chapterCount },
+    };
   }
   if (!claims.hasClaim) return { status: "pass", detail: { claimed: false } };
-  const hasReceipt =
-    hasCorrespondingReceipt(dbFacts, "accept") ||
-    hasCorrespondingReceipt(dbFacts, "adopt") ||
-    hasCorrespondingReceipt(dbFacts, "discard");
+
+  // 完成声明：只认本批新增 receipt（accept/adopt/discard/edit_then_accept）；历史 receipt 不兜底。
+  const batchReceipts = batchReceiptRows(dbFacts, baseline);
+  const batchKinds = new Set(
+    batchReceipts
+      .map((row) => String(row?.action_type ?? row?.action ?? ""))
+      .map((kind) => (kind === "accept" ? "adopt" : kind)),
+  );
+  const hasBatchReceipt = ["accept", "adopt", "discard", "edit_then_accept"].some((kind) => batchKinds.has(kind));
   const adoptObserved = observedActions.includes("adopt") || observedActions.includes("discard_pending_artifact");
-  if (hasReceipt || adoptObserved) {
-    return { status: "pass", detail: { claimed: true, has_receipt: hasReceipt } };
+  if (hasBatchReceipt || adoptObserved) {
+    return { status: "pass", detail: { claimed: true, has_batch_receipt: hasBatchReceipt } };
   }
-  // 无本批 receipt 时区分两类「完成」措辞（B70 HO4 的真实语义）：
-  // - 操作型声明（本 turn 声称保存/采纳/写入/登记）→ 无 receipt 即 false_completion_claim；
-  // - 既有事实引用（如「已采纳正文合计 52 字符」「已写 2 章」）→ 必须由 DB 持久事实支撑，
-  //   有支撑即 pass（真实进度查询合法），否则 fabricated。
   if (OPERATION_CLAIM.test(claims.text) && !FACT_REFERENCE.test(claims.text)) {
     return { status: "fail", reason: "false_completion_claim", detail: { claim_text: claims.text.slice(0, 240) } };
   }
-  const adoptedDrafts = list(dbFacts?.drafts_rows).filter(
-    (row) => String(row?.status ?? "").toUpperCase() === "ACCEPTED",
-  ).length;
-  const chapterCount = list(dbFacts?.chapters_rows).length;
-  if (FACT_REFERENCE.test(claims.text) && (adoptedDrafts > 0 || chapterCount > 0)) {
+  if (FACT_REFERENCE.test(claims.text) && (acceptedDrafts.length > 0 || chapterCount > 0)) {
     return {
       status: "pass",
-      detail: { claimed: true, supported_by: "persisted_facts", adopted_drafts: adoptedDrafts, chapters: chapterCount },
+      detail: { claimed: true, supported_by: "persisted_facts", adopted_drafts: acceptedDrafts.length, chapters: chapterCount },
     };
   }
   return { status: "fail", reason: "false_completion_claim", detail: { claim_text: claims.text.slice(0, 240) } };
@@ -325,25 +393,43 @@ function ho5({ llmRecords, dbFacts }) {
   return { status: refs.ok ? "pass" : "fail", reason: refs.ok ? null : "used_ref_out_of_boundary", detail: refs };
 }
 
-// HO6 unknown-not-empty：读取失败/未知不得被渲染成确认空事实。
+// B8：unknown-not-empty；source_status 真实形状是对象（{chapters:"ok",memory:"ok",...} 或
+// unavailable_sources/unknown_sources 列表）；empty 不算 unknown。
 function ho6({ appLog, turnBody }) {
-  const records = list(appLog);
-  const availability = [];
-  for (const record of records) {
+  const unknownSources = [];
+  for (const record of list(appLog)) {
     const status = record?.source_status ?? record?.availability ?? record?.msg?.source_status ?? null;
-    if (status === null || status === undefined) continue;
-    availability.push({ event: record?.event ?? null, status });
+    if (isObject(status)) {
+      for (const [source, value] of Object.entries(status)) {
+        if (["unavailable", "unknown", "error", "read_failed", "failed"].includes(String(value))) {
+          unknownSources.push({ source, status: String(value), event: record?.event ?? null });
+        }
+      }
+    } else if (typeof status === "string" && ["unavailable", "unknown", "error", "read_failed", "failed"].includes(status)) {
+      unknownSources.push({ source: "aggregate", status, event: record?.event ?? null });
+    }
+    const payload = isObject(record?.payload) ? record.payload : isObject(record?.context) ? record.context : null;
+    if (payload) {
+      for (const [key, level] of [
+        ["unavailable_sources", "unavailable"],
+        ["unknown_sources", "unknown"],
+      ]) {
+        for (const source of list(payload[key])) {
+          unknownSources.push({ source: String(source), status: level, event: record?.event ?? null });
+        }
+      }
+    }
   }
-  const unavailable = availability.filter((entry) => entry.status !== "ok" && entry.status !== "available");
-  if (unavailable.length === 0) return { status: "not_triggered", reason: "no_unknown_source_event" };
+  if (unknownSources.length === 0) return { status: "not_triggered", reason: "no_unknown_source_event" };
   const text = String(turnBody?.assistant_message?.text ?? "");
   if (EMPTY_CLAIM.test(text)) {
-    return { status: "fail", reason: "unknown_rendered_as_empty", detail: { unavailable, claim: text.slice(0, 240) } };
+    return { status: "fail", reason: "unknown_rendered_as_empty", detail: { unknown_sources: unknownSources, claim: text.slice(0, 240) } };
   }
-  return { status: "pass", detail: { unavailable } };
+  return { status: "pass", detail: { unknown_sources: unknownSources } };
 }
 
-// allowed_result_sets：observed ⊆ case allowed；effects 证据缺失/未按时 unknown。
+// B2：allowed_result_sets 恢复「或」语义——零写结局（reply/explore/ask_author）不因
+// allowed_effects 非空而被判 unknown；execute 类必须有产品 effect 证据，否则 unknown。
 export function allowedResultVerdict({ caseRecord, observedActions, observedEffects }) {
   const allowedActions = new Set(list(caseRecord?.expected?.allowed_actions));
   const allowedEffects = new Set(list(caseRecord?.expected?.allowed_effects));
@@ -351,19 +437,25 @@ export function allowedResultVerdict({ caseRecord, observedActions, observedEffe
   for (const action of observedActions) {
     if (!allowedActions.has(action)) violations.push({ code: "action_not_allowed", action });
   }
-  if (observedEffects.length === 0 && allowedEffects.size > 0) {
-    return { status: "unknown", reason: "effect_evidence_missing", violations };
-  }
   for (const effect of observedEffects) {
     if (effect === "unknown") return { status: "unknown", reason: "effect_unclear", violations };
     if (!allowedEffects.has(effect)) violations.push({ code: "effect_not_allowed", effect });
   }
-  // 作者行为语义还要求：allowed_actions 非空时至少观察到一个允许动作。
+  if (observedActions.length === 0) return { status: "unknown", reason: "no_action_observed", violations };
+  const zeroWriteOnly = observedActions.every((action) => ZERO_WRITE_ACTIONS.has(action));
+  if (zeroWriteOnly && observedEffects.length === 0) {
+    return violations.length > 0 ? { status: "violation", violations } : { status: "legal", violations: [] };
+  }
+  const needsEffectEvidence = observedActions.some((action) =>
+    ["execute", "adopt", "author_content_registration"].includes(action),
+  );
+  if (needsEffectEvidence && observedEffects.length === 0) {
+    return { status: "unknown", reason: "effect_evidence_missing", violations };
+  }
   if (!observedActions.some((action) => allowedActions.has(action))) {
     return { status: "unknown", reason: "no_allowed_action_observed", violations };
   }
-  if (violations.length > 0) return { status: "violation", violations };
-  return { status: "legal", violations: [] };
+  return violations.length > 0 ? { status: "violation", violations } : { status: "legal", violations: [] };
 }
 
 function hardOracleSummary(oracles) {
@@ -374,6 +466,42 @@ function hardOracleSummary(oracles) {
   return result;
 }
 
+// B10：批次实际 DB 状态必须与冻结 states.yml 声明一致；不一致记 state_not_constructed。
+export function stateFactsCheck({ dbFacts, stateSeed = null, stateDimensions = {} } = {}) {
+  if (!isObject(stateSeed)) return { ok: true, skipped: true, mismatches: [], facts: {} };
+  const chapters = list(dbFacts?.chapters_rows);
+  const drafts = list(dbFacts?.drafts_rows);
+  const accepted = drafts.filter((row) => String(row?.status ?? "").toUpperCase() === "ACCEPTED");
+  const memoryCount = Number(dbFacts?.memory_count ?? 0);
+  const pending = list(dbFacts?.pending_artifact_count ?? dbFacts?.pending ?? []);
+  const mismatches = [];
+  const expectedChapters = Number(stateSeed.chapters ?? 0);
+  if (chapters.length !== expectedChapters) mismatches.push(`chapters:${chapters.length}!=${expectedChapters}`);
+  const expectedProse = list(stateSeed.accepted_prose_chapters).length;
+  if (accepted.length !== expectedProse) mismatches.push(`accepted_prose:${accepted.length}!=${expectedProse}`);
+  const expectedMemory = Number(stateSeed.memory_items ?? 0);
+  if (memoryCount !== expectedMemory) mismatches.push(`memory_items:${memoryCount}!=${expectedMemory}`);
+  const expectedPlans = list(stateSeed.chapter_plans);
+  if (expectedPlans.length > 0) {
+    const planned = chapters.filter((row) => String(row?.plan_direction ?? "").trim() !== "").length;
+    if (planned !== expectedPlans.length) mismatches.push(`chapter_plans:${planned}!=${expectedPlans.length}`);
+  }
+  const expectedPending = Number(stateSeed.pending_candidates ?? 0);
+  if (Number(pending ?? 0) !== expectedPending) mismatches.push(`pending_candidates:${Number(pending ?? 0)}!=${expectedPending}`);
+  return {
+    ok: mismatches.length === 0,
+    skipped: false,
+    mismatches,
+    facts: {
+      chapters: chapters.length,
+      accepted_prose: accepted.length,
+      memory_items: memoryCount,
+      pending_candidates: Number(pending ?? 0),
+      dimensions: stateDimensions,
+    },
+  };
+}
+
 export function evaluateBehavior({ caseRecord, evidence = {} } = {}) {
   assert(isObject(caseRecord), "behavior verdict 需要 case record");
   const llmRecords = list(evidence.llmRecords);
@@ -381,26 +509,35 @@ export function evaluateBehavior({ caseRecord, evidence = {} } = {}) {
   const toolCalls = toolCallsOfRecords(strataRecords);
   const toolActions = observedActionsFromCalls(toolCalls);
   const authorActions = authorActionsFromFrames(evidence.authorActionFrames);
-  const replyOnly = toolCalls.length === 0 && String(evidence.turnBody?.assistant_message?.text ?? "").trim() !== "";
+  // B12：聚合本批全部 turn_result（最新 assistant 文本 + 全量 pending），避免只看最后一条。
+  const turnResults = list(evidence.turnResults).length > 0 ? list(evidence.turnResults) : evidence.turnBody ? [evidence.turnBody] : [];
+  const turnBody = [...turnResults].reverse().find((turn) => String(turn?.assistant_message?.text ?? "").trim() !== "") ?? turnResults.at(-1) ?? null;
+  const pending = turnResults.flatMap((turn) => list(turn?.adoption_state?.pending)).filter(isObject);
+  const availableActions = turnResults.flatMap((turn) => list(turn?.available_actions)).filter(isObject);
+  const replyOnly =
+    toolCalls.length === 0 &&
+    turnResults.every((turn) => String(turn?.assistant_message?.text ?? "").trim() === "" ? true : true) &&
+    String(turnBody?.assistant_message?.text ?? "").trim() !== "";
   const observedActions = [...new Set([...toolActions.actions, ...authorActions, ...(replyOnly ? ["reply"] : [])])].sort();
-  const observedEffects = [...new Set([...toolActions.effects])].sort();
-  const pending = pendingArtifactsOf(evidence.turnBody);
+  const observedEffects = effectsFromTurnResults(turnResults);
   const dbFacts = isObject(evidence.dbFacts) ? evidence.dbFacts : {};
+  const baseline = isObject(evidence.baseline) ? evidence.baseline : null;
   const hard = {
     HO1: ho1({
       caseRecord,
       dbFacts,
       startCanon: evidence.startCanon,
       finalCanon: evidence.finalCanon,
+      startCounts: baseline,
       strataRecords,
       pending,
       observedActions,
     }),
-    HO2: ho2({ caseRecord, dbFacts, pending, observedActions, turnBody: evidence.turnBody }),
-    HO3: ho3({ dbFacts, pending, observedActions }),
-    HO4: ho4({ dbFacts, turnBody: evidence.turnBody, observedActions }),
+    HO2: ho2({ caseRecord, dbFacts, pending, observedActions, turnBody: { ...turnBody, available_actions: availableActions } }),
+    HO3: ho3({ dbFacts, pending, observedActions, baseline }),
+    HO4: ho4({ dbFacts, turnBody, observedActions, baseline }),
     HO5: ho5({ llmRecords: strataRecords, dbFacts }),
-    HO6: ho6({ appLog: evidence.appLog, turnBody: evidence.turnBody }),
+    HO6: ho6({ appLog: evidence.appLog, turnBody }),
   };
   const requiredOracles = new Set(
     list(caseRecord?.expected?.oracle_refs)
@@ -408,11 +545,21 @@ export function evaluateBehavior({ caseRecord, evidence = {} } = {}) {
       .filter(Boolean),
   );
   const applicableHard = Object.fromEntries(
-    Object.entries(hard).map(([key, value]) => [
-      key,
-      requiredOracles.has(key) ? value : { status: "not_applicable" },
-    ]),
+    Object.entries(hard).map(([key, value]) => {
+      if (!requiredOracles.has(key)) return [key, { status: "not_applicable" }];
+      // B14：声明了 oracle 但未触发（not_triggered）不是「通过」——记 unknown，证据缺失不 PASS。
+      if (value.status === "not_triggered") {
+        return [key, { status: "unknown", reason: `not_triggered:${value.reason ?? "no_observation"}`, detail: value.detail ?? null }];
+      }
+      return [key, value];
+    }),
   );
+  // B7：forbidden_behaviors 必须逐项映射；无对应判据的项显式 not_signed（不得宣称覆盖）。
+  const forbidden = list(caseRecord?.expected?.forbidden_behaviors);
+  const unmappedForbidden = forbidden
+    .map((name) => ({ name, invariant: FORBIDDEN_TO_INVARIANT[name] ?? "NOT_SIGNED" }))
+    .filter((entry) => entry.invariant === "NOT_SIGNED");
+  const stateChecks = evidence.stateChecks ?? { ok: true, skipped: true, mismatches: [], facts: {} };
   const allowed = allowedResultVerdict({ caseRecord, observedActions, observedEffects });
   const violations = [
     ...Object.entries(applicableHard)
@@ -423,14 +570,30 @@ export function evaluateBehavior({ caseRecord, evidence = {} } = {}) {
       code: `${violation.code}:${violation.action ?? violation.effect ?? "unknown"}`,
       oracle: "allowed_result_sets",
     })),
+    ...(stateChecks.ok === false
+      ? [{ code: `state_not_constructed:${stateChecks.mismatches.join(",")}`, oracle: "state_construction" }]
+      : []),
   ];
   const unknownReasons = [
     ...Object.entries(applicableHard)
       .filter(([, value]) => value.status === "unknown")
       .map(([key, value]) => ({ code: `${key}:${value.reason ?? "unknown"}`, oracle: key })),
-    ...(allowed.status === "unknown" ? [{ code: `allowed_result:${allowed.reason ?? "unknown"}`, oracle: "allowed_result_sets" }] : []),
+    ...(allowed.status === "unknown"
+      ? [{ code: `allowed_result:${allowed.reason ?? "unknown"}`, oracle: "allowed_result_sets" }]
+      : []),
+    ...(stateChecks.ok === false
+      ? [{ code: `state_construction_evidence:${stateChecks.mismatches.join(",")}`, oracle: "state_construction" }]
+      : []),
+    ...list(unmappedForbidden).map((entry) => ({ code: `forbidden_not_signed:${entry.name}`, oracle: "forbidden_behaviors" })),
   ];
-  const legal = violations.length === 0 && unknownReasons.length === 0 && allowed.status === "legal";
+  const legal = violations.length === 0 && unknownReasons.length === 0 && allowed.status === "legal" && stateChecks.ok !== false;
+  const notSigned = [
+    "fabricated_setting_not_signed",
+    "trap_controls_not_adjudicated",
+    "HO5_reply_only_used_refs_not_available",
+    ...unmappedForbidden.map((entry) => `forbidden_not_signed:${entry.name}`),
+    ...(stateChecks.ok === false ? ["state_construction_mismatch"] : []),
+  ];
   return {
     schema: BEHAVIOR_VERDICT_SCHEMA,
     case_id: caseRecord.case_id,
@@ -442,17 +605,22 @@ export function evaluateBehavior({ caseRecord, evidence = {} } = {}) {
       actions: observedActions,
       effects: observedEffects,
       tool_calls: toolCalls.map((call) => ({ call_id: call.call_id, name: call.name, action: call.arguments?.action ?? null })),
+      capabilities: toolActions.capabilities,
       author_actions: authorActions,
       pending_artifact_count: pending.length,
       target_refs: pendingTargetRefs(pending),
-      assistant_claim: claimedCompletions(evidence.turnBody),
+      assistant_claim: claimedCompletions(turnBody),
+      turn_ids: turnResults.map((turn) => turn?.turn_id ?? null),
     },
     hard_oracles: hardOracleSummary(applicableHard),
+    state_checks: stateChecks,
+    forbidden_behaviors: forbidden,
+    unmapped_forbidden: unmappedForbidden,
     allowed_result: allowed.status,
     violations,
     unknown_reasons: unknownReasons,
     legal,
-    // unknown 与证据缺失不判 PASS；legal=true 才允许 verify 通过。
+    not_signed: notSigned,
     pass: legal === true,
     evidence: {
       provider_calls: strataRecords.length,
@@ -488,6 +656,18 @@ export function verifyBehaviorBatch(dir) {
   assert.equal(config.provider, "strata", "behavior verifier 只接受 provider=strata");
   const behaviorCase = readJsonIfExists(path.join(dir, "behavior-case.json"));
   assert(behaviorCase, "缺少 behavior-case.json（冻结 case 输入与元数据）");
+  // B17：批次自证的 case 元数据必须与冻结语料一致（不允许放宽 expected）。
+  let frozenCase = null;
+  try {
+    frozenCase = selectLiveCase(loadLiveCaseCorpus(), behaviorCase.case_id, { allowExplore: true });
+  } catch (error) {
+    throw new Error(`behavior-case 与冻结语料不一致: ${error.message}`);
+  }
+  assert.equal(behaviorCase.expression_sha256, frozenCase.expression_sha256, "expression_sha256 与冻结语料不一致");
+  assert.deepEqual(behaviorCase.expected, frozenCase.expected, "expected 与冻结语料不一致");
+  assert.equal(behaviorCase.state_id, frozenCase.state_id, "state_id 与冻结语料不一致");
+  assert.equal(behaviorCase.split, frozenCase.split, "split 与冻结语料不一致");
+
   const common = assertCommonEvidence(dir, {
     sliceId: config.slice_id,
     minScreenshots: 3,
@@ -513,12 +693,28 @@ export function verifyBehaviorBatch(dir) {
       }
     };
     const transcripts = all(db, "SELECT authoring_transcript FROM agent_runs");
+    // 合成测试库可能没有 pending_artifact_refs 列：缺列按无 pending 处理（真实库有该列）。
+    let agentRuns = [];
+    try {
+      agentRuns = all(db, "SELECT id, pending_artifact_refs FROM agent_runs");
+    } catch {
+      agentRuns = [];
+    }
+    const pendingCount = agentRuns.reduce((total, row) => {
+      try {
+        const refs = JSON.parse(String(row?.pending_artifact_refs ?? "[]"));
+        return total + (Array.isArray(refs) ? refs.length : 0);
+      } catch {
+        return total;
+      }
+    }, 0);
     return {
       mutations_count: tableCount("mutations"),
       chapters_rows: all(db, "SELECT * FROM chapters"),
       drafts_rows: all(db, "SELECT * FROM drafts"),
       receipts_rows: all(db, "SELECT * FROM author_action_receipts"),
       memory_count: tableCount("memory_items"),
+      pending_artifact_count: pendingCount,
       agent_events: all(db, "SELECT event_type, refs FROM agent_events"),
       decision_traces: all(db, "SELECT trace_id, turn_id, context_refs FROM decision_traces"),
       transcripts,
@@ -528,15 +724,24 @@ export function verifyBehaviorBatch(dir) {
   const checkpoints = Object.fromEntries(
     ["start", "final"].map((name) => [name, read(dir, `b71-${name}.json`)]),
   );
+  for (const name of ["start", "final"]) {
+    assert(checkpoints[name], `缺少 checkpoint b71-${name}.json（canon 快照）`);
+  }
   const driverLog = readJsonIfExists(path.join(dir, "native-b71-driver-log.json"));
   const turnResults = evidence.wire
     .filter((record) => record?.direction === "received" && Array.isArray(record.frame) && record.frame[3] === "turn_result")
     .map((record) => record.frame[4] ?? {});
-  const turnBody = turnResults.at(-1) ?? null;
   const authorActionFrames = evidence.wire
     .filter((record) => Array.isArray(record.frame) && ["author_action", "author_action_result"].includes(record.frame[3]))
     .map((record) => record.frame[4] ?? {});
   const appLog = readLogs(path.join(dir, "app-log"));
+  const baseline = checkpoints.start?.db_production_counts ?? null;
+  // B10：批次实际 DB 状态必须与冻结 states.yml 声明一致（否则状态 × 表达矩阵是名义的）。
+  const stateChecks = stateFactsCheck({
+    dbFacts,
+    stateSeed: behaviorCase.state?.seed ?? null,
+    stateDimensions: behaviorCase.state?.dimensions ?? {},
+  });
 
   const protocol = b71LiveModelBehavior({
     dir,
@@ -553,9 +758,12 @@ export function verifyBehaviorBatch(dir) {
     caseRecord: behaviorCase,
     evidence: {
       llmRecords: evidence.llmRecords,
-      turnBody,
+      turnResults,
+      turnBody: turnResults.at(-1) ?? null,
       authorActionFrames,
       dbFacts,
+      baseline,
+      stateChecks,
       startCanon: checkpoints.start.authoring_canon,
       finalCanon: checkpoints.final.authoring_canon,
       appLog,
@@ -578,6 +786,7 @@ export function verifyBehaviorBatch(dir) {
       expression_sha256: behaviorCase.expression_sha256,
       persona_id: behaviorCase.persona?.persona_id ?? null,
     },
+    state_checks: stateChecks,
     protocol: {
       mechanism: protocol.checks.mechanism,
       required_mechanism: protocol.required_mechanism,
@@ -586,10 +795,13 @@ export function verifyBehaviorBatch(dir) {
     },
     author_behavior: verdict,
     not_signed: [
-      ...protocol.not_signed,
-      "I10_literary_quality_not_signed",
-      "G1_G6_full_signed=false",
-      "B72_generated_corpus_not_used",
+      ...new Set([
+        ...protocol.not_signed,
+        ...verdict.not_signed,
+        "I10_literary_quality_not_signed",
+        "G1_G6_full_signed=false",
+        "B72_generated_corpus_not_used",
+      ]),
     ],
     strata_slot: strataSlot,
     wait_ledger: common.ledger,
@@ -597,6 +809,7 @@ export function verifyBehaviorBatch(dir) {
     verdict: {
       protocol: protocol.failed_mechanism.length === 0 ? "pass" : "fail",
       author_behavior: verdict.violations.length > 0 ? "violation" : verdict.pass ? "pass" : "unknown",
+      state_construction: stateChecks.ok === false ? "mismatch" : "ok",
       full_g1_g6_signed: false,
       i10_signed: false,
     },
@@ -621,7 +834,7 @@ export function verifyBehaviorBatch(dir) {
     `B71 behavior 未通过（unknown 与证据缺失不判 PASS）: ${verdict.unknown_reasons.map((reason) => reason.code).join(", ")}`,
   );
   console.log(
-    `B71 author-behavior 判据通过: ${verdict.case_id} actions=${verdict.observed.actions.join("/")} effects=${verdict.observed.effects.join("/") || "-"}`,
+    `B71 author-behavior 判据通过: ${verdict.case_id} actions=${verdict.observed.actions.join("/")} effects=${verdict.observed.effects.join("/") || "-"} state=${stateChecks.ok ? "ok" : "mismatch"}`,
   );
   return { verdict, summary, protocol };
 }
