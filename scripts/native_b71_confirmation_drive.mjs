@@ -242,7 +242,7 @@ async function openWhyAndCount() {
   const candidatesOf = () => {
     try {
       return harness
-        .dumpNodes()
+        .dumpNodesForInteraction("b71-confirmation:why_scan")
         .filter(
           (node) =>
             node?.role === "AXButton" &&
@@ -269,7 +269,7 @@ async function openWhyAndCount() {
       const scan = candidatesOf();
       candidates = scan;
       try {
-        scanNodes = harness.dumpNodes();
+        scanNodes = harness.dumpNodesForInteraction("b71-confirmation:why_scan:size");
       } catch (error) {
         attempts.push({ strategy: "scan", attempt, ok: false, reason: error.message });
         await new Promise((resolve) => setTimeout(resolve, 500));
