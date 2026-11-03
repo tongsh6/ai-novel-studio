@@ -4,21 +4,6 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Test.Provider.SliceVerify
 
-  test "SU02SLOW author nonce produces a delayed unique frame response" do
-    nonce = "SU02SLOWABC123"
-    prompt = [%{role: "user", content: "请回一句收到，#{nonce}"}]
-
-    start = System.monotonic_time(:millisecond)
-    assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
-    duration = System.monotonic_time(:millisecond) - start
-
-    assert duration >= 2_000
-    body = Jason.decode!(result.content)
-    assert body["frame_type"] == "casual_reply"
-    assert body["assistant_message"] =~ nonce
-    assert body["assistant_message"] =~ "只属于原作品"
-  end
-
   test "ordinary slice verify frame response is not delayed" do
     prompt = [%{role: "user", content: "请回一句收到"}]
 

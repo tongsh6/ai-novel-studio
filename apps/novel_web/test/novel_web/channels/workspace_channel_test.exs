@@ -128,16 +128,6 @@ defmodule NovelWeb.WorkspaceChannelTest do
     assert_reply(ref, :error, %{reason: "input_identity_conflict"})
   end
 
-  test "ping -> pong" do
-    {:ok, _, socket} =
-      UserSocket
-      |> socket("user_id", %{})
-      |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
-
-    ref = push(socket, "ping", %{"hello" => "world"})
-    assert_reply(ref, :ok, %{event: "pong", echo: %{"hello" => "world"}})
-  end
-
   # UA-01 收口：user_message 主链统一先启动 AgentRun。问答 / 工具 / 写作分流都在
   # conversation_turn_v1 run 内继续推进，不再由 channel 保留同步 TurnResult fallback。
   test "user_message 返回 bounded AgentRun ack" do

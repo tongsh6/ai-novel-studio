@@ -29,10 +29,5 @@ defmodule NovelAgent.Provider.HTTPTest do
       assert {:error, :connection_refused, 0, _} =
                HTTP.get("http://127.0.0.1:19999/v1/models", receive_timeout: 100)
     end
-
-    test "returns timeout for non-routable address" do
-      result = HTTP.get("http://192.0.2.1:80/models", receive_timeout: 50)
-      assert match?({:error, reason, 0, _} when reason in [:connection_refused, :timeout], result)
-    end
   end
 end

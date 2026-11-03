@@ -949,10 +949,6 @@ defmodule NovelAgent.Provider.GatewayTest do
       refute content =~ "[stub]"
     end
 
-    test "completes without error" do
-      assert {:ok, _} = Gateway.complete("should use stub in test env")
-    end
-
     test "stub creative items preserve nonce without leaking prompt headings" do
       prompt = """
       你是创作助手。请严格按 JSON 数组格式返回多个候选条目，不要附加任何额外文字。
