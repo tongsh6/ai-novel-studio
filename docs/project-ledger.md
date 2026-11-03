@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-03 **B71 行为覆盖 pilot #1 原生 clean PASS**：`cp4b-behavior-01c2-cf1003`（HEAD da8097ba）verdict legal=true/pass=true，violations=[]、unknown_reasons=[]——真实 strata 模型（1 次调用/0 工具）正确回答进度事实并与 DB 一致、遵守「先别动手」零写；HO1 零写（start/final delta）、HO4 真实完成声明、state_checks 与 states.yml S1 逐项一致（B11 seed 补齐生效）；not_signed 如实列 fabricated_setting/trap_controls/HO5。判据加固（B1–B18）与 B11 seed 共同使其成为行为覆盖线首条 clean PASS。#6（execute）等 B1 effect echo 档位 A 实现后签发，预计无 effect 证据时 unknown 不 PASS。
+
 > 2026-11-03 **B71 §16.14 拒绝场景原生 clean PASS（双路径闭环）**：`cp4b-confirmation-02c-reject`（HEAD a54d045f）runner PASS、**C1–C11 全过**——C6 拒绝零副作用（click-before/decision-after canon 采样窗、works_equal、仅受理 receipts 审计排除、scoped delta provider/llm/mutations=0、receipt CANCELLED/author、cancel_waiting、child cancelled 合法）、C9 Why 真打开 delta=0、C10 恢复决定/创作可见+restart delta=0、C11 cleanup 后实测 stopped。与 01i（confirm clean PASS）一起完成 §16.14 非采纳确认/拒绝原生页面验收。同时记录作者可见 code 泄漏清单（模型行 Stub/slice_verify、工具名 prose_writing、AI 名称/会话 0 占位、trace 术语等），待 displayName 统一修复。
 
 > 2026-11-03 **B71 §16.14 确认场景原生 clean PASS**：`cp4b-confirmation-01i-confirm`（HEAD b9274321，判据加固后）runner PASS、**C1–C11 全过**——Why 真实打开且重放零 Provider（llm_calls 5→5 delta=0）、重复点击不可触发且四类 delta 全 0、恢复后决定/创作结果可见且 restart delta 全 0、运行态清理实测 app=0/端口不监听/llm-calls 停止、ack 身份与作者字节逐条校验。此前 01–01h 十次尝试的失败均为驱动缺陷或判据缺陷（01g 假通过经独立复核发现并修复后重跑），全部只读保留不用于 PASS。确认场景原生验收闭环；reject 批 02 正在跑、行为覆盖批待判据调查结论。

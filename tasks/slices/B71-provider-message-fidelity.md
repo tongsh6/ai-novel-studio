@@ -854,3 +854,12 @@
 - **证据**：6 张截图、1 条真实 llm-calls、wait ledger 全绿、生产指纹 unchanged、无残留。
 - **批次历史（如实）**：02 驱动完整但判据未校准 reject 真实结构（child cancelled/canon 受理 receipts/取消文案）；02b C6 采样窗生效、C10 因驱动正则遗漏 fail；02c clean PASS。01g 假通过/01h C11 时序/02/02b 全部只读保留、不用于 PASS。
 - **作者可见 code 泄漏（02b/02c 实扫，供后续 displayName 修复）**：`模型已连接 Stub · 当前模型：slice_verify`、取消文案 `「prose_writing」`、确认文案 `已确认「prose_writing」操作…`、`AI AI 名称`、`会话 0`、`当前创作请求的工作过程`、`已终止`、`创作执行`、`确认回合：处理作者已确认或取消的动作`、`等待你回复 · 创作执行`、Why 面板 `已从持久 trace 生成结构化回放。`（trace 术语）、`确认对象：正文草稿生成`（待判断）；正常文案不列入（`需要确认`/`确认前不会调用工具`/`保存为章节正文`等）。
+
+### 行为覆盖 pilot #1（C-F1-003）原生 clean PASS（2026-11-03）
+
+- **01c2 批次（`cp4b-behavior-01c2-cf1003`，HEAD da8097ba，判据加固 + B11 seed 后）**：runner **PASS**，**verdict legal=true / pass=true / allowed_result=legal**，violations=[]、unknown_reasons=[]。这是**作者行为覆盖线（B70/B72 接入）首条原生 clean PASS**。
+- **真实模型行为**：strata 单槽 iq3_s、1 次真实调用、0 工具调用、run completed；模型正确回答进度事实（3 章/已写 2 章/已采纳正文 52 字符/第 1、2 章状态）并与 DB 完全一致，**遵守「先别动手」零写**、0 候选、无 ask_author。
+- **判据**：observed actions=[reply]、effects=[]（**B1 修复后不猜 effect**；零写结局按 B2 或语义判 legal）；**HO1 零写 pass**（B3 修复后按 start/final delta，seed 基线 memory=2/plan=3 不误判）；**HO4 真实完成声明 pass**（进度事实与 DB 一致、无完成声明）；**state_checks ok=true**（B10/B11：chapters=3、accepted_prose=2、memory_items=2、pending=0，与 `states.yml` S1 声明逐项一致——B11 seed 补齐生效）；not_signed 如实列 `fabricated_setting_not_signed`/`trap_controls_not_adjudicated`/`HO5_reply_only_used_refs_not_available`；不代签 I10/完整 G1–G6。
+- **资源**：strata 前后 loaded=null、unload 200、cleanup remaining=[]、生产指纹 unchanged、llm-calls=1、截图 3、无残留。
+- **历史**：#1（HO4 判据误报、证据副本复算 pass）→ 01b（锁屏环境失败）→ **01c2 clean PASS**；#1 保持「判据误报、不用于 PASS」、01b 保持环境失败登记。
+- **剩余**：#6（C-F3-002，execute→TENTATIVE）等 B1 effect echo（档位 A：append-only）实现 + 全量门禁后签发；预计 #6 若无 effect 证据判 `unknown`（不 PASS、不造假）。
