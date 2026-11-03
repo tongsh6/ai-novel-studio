@@ -468,22 +468,82 @@ export class NativeScenarioHarness {
     execFileSync("open", [this.target.app_path]);
   }
 
+  // 启动等待：activate 前有界等待本批 app 完成启动/出现窗口，避免在 launch 未完成时
+  // 抢前台（cp4b-confirmation-01b 的真实 activation_unconfirmed 时序缺口）。
+  // 只读观测，每次观测都落 startup-observations；超时本身不抛错，由 activate 结果裁决。
+  async waitLaunchSettled({ timeoutMs = 10_000, intervalMs = 500 } = {}) {
+    const effectiveTimeout = Number.isFinite(this.launchSettleTimeoutMs) ? this.launchSettleTimeoutMs : timeoutMs;
+    const deadline = Date.now() + effectiveTimeout;
+    const waitMs = Number.isFinite(this.launchSettleIntervalMs) ? this.launchSettleIntervalMs : intervalMs;
+    let index = 0;
+    let facts = null;
+    for (;;) {
+      facts = this.observeStartup(`launch:wait_settled:${index}`);
+      index += 1;
+      const settled =
+        facts?.ok === true &&
+        (facts.is_finished_launching === true || Number(facts.ax_window_count ?? 0) >= 1);
+      if (settled) return facts;
+      if (Date.now() >= deadline) return facts;
+      await sleep(waitMs);
+    }
+  }
+
+  // 首次 activate 仍 unconfirmed 时允许有界重试 1 次；两次 attempt 的 before/after
+  // 启动观测都独立落盘，便于区分「窗口未就绪」与「前台被抢占」。
+  async activateWithRetry({ attempts = 2, retryDelayMs = 500 } = {}) {
+    const retryDelay = Number.isFinite(this.launchRetryDelayMs) ? this.launchRetryDelayMs : retryDelayMs;
+    let last = null;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const suffix = attempt === 0 ? "" : `_retry${attempt}`;
+      const startupBefore = this.observeStartup(`launch:before_activation${suffix}`);
+      // attempt 先落盘：activate 抛错时仍保留激活前观测，不再丢掉整段 launch 事实。
+      this.log.push({
+        op: "launch_activation_attempt",
+        attempt,
+        at: this.nowIso(),
+        startup: startupBefore,
+      });
+      let activation;
+      try {
+        activation = this.input.activate();
+      } catch (error) {
+        this.log.push({
+          op: "launch_activation_error",
+          attempt,
+          at: this.nowIso(),
+          error: error.message,
+        });
+        throw error;
+      }
+      const startupAfter = this.observeStartup(`launch:after_activation${suffix}`);
+      this.log.push({
+        op: "launch_activation",
+        attempt,
+        at: this.nowIso(),
+        ...activation,
+        startup_before: startupBefore,
+        startup_after: startupAfter,
+      });
+      last = activation;
+      if (activation?.confirmed === true) return activation;
+      if (attempt < attempts - 1) {
+        // 重试前再给窗口一次有界启动等待（沿用同一 10s 上限，不扩大批次 timeout）。
+        await this.waitLaunchSettled();
+        await sleep(retryDelay);
+      }
+    }
+    const error = new Error(`activation_unconfirmed:${JSON.stringify(last)}`);
+    error.code = "activation_unconfirmed";
+    throw error;
+  }
+
   async rawLaunchApp() {
     this.openApplication();
     const resolution = await this.waitTargetResolution(90_000);
     this.bindBatchTarget(resolution);
-    const startupBefore = this.observeStartup("launch:before_activation");
-    // attempt 先落盘：activate 抛错时仍保留激活前观测，不再丢掉整段 launch 事实。
-    this.log.push({ op: "launch_activation_attempt", at: this.nowIso(), startup: startupBefore });
-    const activation = this.input.activate();
-    const startupAfter = this.observeStartup("launch:after_activation");
-    this.log.push({
-      op: "launch_activation",
-      at: this.nowIso(),
-      ...activation,
-      startup_before: startupBefore,
-      startup_after: startupAfter,
-    });
+    await this.waitLaunchSettled();
+    await this.activateWithRetry();
   }
 
   async rawWaitWorkbench(label, timeoutMs = 170_000) {

@@ -174,6 +174,9 @@ test("dumpNodes is read-only until an explicit interaction recovery is requested
 // 启动观测测试的 seam：只覆盖 open/target 解析/输入边界，不启动真实窗口、
 // 不投递真实事件；被覆盖方法保持与真实实现相同的签名与职责。
 function stubLaunchSeams(harness, { calls, startups, activate }) {
+  harness.launchSettleIntervalMs = 1;
+  harness.launchSettleTimeoutMs = 5;
+  harness.launchRetryDelayMs = 1;
   let startupIndex = 0;
   harness.io.startup = () => {
     calls.push("startup");
@@ -202,70 +205,105 @@ function stubLaunchSeams(harness, { calls, startups, activate }) {
   };
 }
 
-test("rawLaunchApp records read-only startup facts before and after the first activation", async () => {
-  const launchFacts = {
+test("rawLaunchApp 在 activate 前有界等待启动 settled，并保留每次只读观测", async () => {
+  const notSettled = {
     ok: true,
     is_finished_launching: false,
-    launch_date: null,
     activation_policy: "regular",
     is_hidden: false,
     is_active: false,
     ax_window_count: 0,
     has_ax_window: false,
     has_ax_web_area: false,
-    ax_nodes_visited: 0,
   };
-  const activatedFacts = {
+  const settled = {
     ok: true,
     is_finished_launching: true,
-    launch_date: "2026-11-02T15:03:00Z",
     activation_policy: "regular",
     is_hidden: false,
     is_active: true,
     ax_window_count: 1,
     has_ax_window: true,
     has_ax_web_area: true,
-    ax_nodes_visited: 42,
   };
   const activation = { ok: true, requested: true, returned: true, confirmed: true, waited_ms: 42 };
   const calls = [];
-  const { harness } = makeHarness({ dump: () => [], screenshot: () => ({ ok: true }) });
-  stubLaunchSeams(harness, { calls, startups: [launchFacts, activatedFacts], activate: () => activation });
+  const { dir, harness } = makeHarness({ dump: () => [], screenshot: () => ({ ok: true }) });
+  stubLaunchSeams(harness, { calls, startups: [notSettled, settled], activate: () => activation });
 
   await harness.rawLaunchApp();
 
-  assert.deepEqual(calls, ["open", "startup", "activate", "startup"], "启动→激活前观测→激活→激活后观测");
-  const attemptIndex = harness.log.findIndex((entry) => entry.op === "launch_activation_attempt");
-  const activationIndex = harness.log.findIndex((entry) => entry.op === "launch_activation");
-  assert.notEqual(attemptIndex, -1);
-  assert.ok(attemptIndex < activationIndex, "attempt 必须先于 activate 落盘");
-  const attempt = harness.log[attemptIndex];
-  assert.equal(attempt.startup.reason, "launch:before_activation");
-  assert.equal(attempt.startup.is_finished_launching, false);
-  assert.equal(attempt.startup.ax_window_count, 0);
-  assert.equal(attempt.startup.has_ax_window, false);
-  assert.equal(attempt.startup.has_ax_web_area, false);
-  assert.match(attempt.startup.at, /^\d{4}-\d{2}-\d{2}T/);
-  const recorded = harness.log[activationIndex];
+  // 等待观测在 activate 之前；activate 前最后一次观测已 settled。
+  assert.deepEqual(
+    calls.filter((entry) => entry === "activate"),
+    ["activate"],
+  );
+  const reasons = JSON.parse(fs.readFileSync(path.join(dir, "startup-observations.json"), "utf8")).map(
+    (entry) => entry.reason,
+  );
+  assert.equal(reasons[0], "launch:wait_settled:0");
+  assert.equal(reasons.at(-2), "launch:before_activation");
+  assert.equal(reasons.at(-1), "launch:after_activation");
+  const attempt = harness.log.find((entry) => entry.op === "launch_activation_attempt");
+  assert.equal(attempt.startup.is_finished_launching, true, "activate 前应已 settled");
+  const recorded = harness.log.find((entry) => entry.op === "launch_activation");
   assert.equal(recorded.confirmed, true);
-  assert.equal(recorded.requested, true);
-  assert.equal(recorded.startup_before.is_finished_launching, false);
-  assert.equal(recorded.startup_after.reason, "launch:after_activation");
-  assert.equal(recorded.startup_after.is_finished_launching, true);
   assert.equal(recorded.startup_after.ax_window_count, 1);
-  assert.equal(recorded.startup_after.has_ax_web_area, true);
+});
+
+test("首次 activate unconfirmed 时有界重试 1 次，两次 attempt 观测都落盘", async () => {
+  const settled = { ok: true, is_finished_launching: true, is_active: true, ax_window_count: 1, has_ax_window: true };
+  const calls = [];
+  const activations = [
+    { ok: false, requested: true, returned: true, confirmed: false, waited_ms: 2002 },
+    { ok: true, requested: true, returned: true, confirmed: true, waited_ms: 120 },
+  ];
+  let activationIndex = 0;
+  const { dir, harness } = makeHarness({ dump: () => [], screenshot: () => ({ ok: true }) });
+  stubLaunchSeams(harness, {
+    calls,
+    startups: [settled],
+    activate: () => activations[activationIndex++],
+  });
+
+  await harness.rawLaunchApp();
+
+  const attempts = harness.log.filter((entry) => entry.op === "launch_activation_attempt");
+  const recorded = harness.log.filter((entry) => entry.op === "launch_activation");
+  assert.equal(attempts.length, 2);
+  assert.deepEqual(attempts.map((entry) => entry.attempt), [0, 1]);
+  assert.equal(recorded.length, 2);
+  assert.deepEqual(recorded.map((entry) => entry.confirmed), [false, true]);
+  const reasons = JSON.parse(fs.readFileSync(path.join(dir, "startup-observations.json"), "utf8")).map(
+    (entry) => entry.reason,
+  );
+  for (const reason of [
+    "launch:before_activation",
+    "launch:after_activation",
+    "launch:before_activation_retry1",
+    "launch:after_activation_retry1",
+  ]) {
+    assert(reasons.includes(reason), reason);
+  }
+});
+
+test("两次 activate 都 unconfirmed 时抛 activation_unconfirmed（attempt 保留）", async () => {
+  const settled = { ok: true, is_finished_launching: true, ax_window_count: 1 };
+  const calls = [];
+  const { harness } = makeHarness({ dump: () => [], screenshot: () => ({ ok: true }) });
+  stubLaunchSeams(harness, {
+    calls,
+    startups: [settled],
+    activate: () => ({ ok: false, requested: true, returned: true, confirmed: false, waited_ms: 2002 }),
+  });
+
+  await assert.rejects(() => harness.rawLaunchApp(), /activation_unconfirmed/);
+  assert.equal(harness.log.filter((entry) => entry.op === "launch_activation_attempt").length, 2);
+  assert.equal(harness.log.filter((entry) => entry.op === "launch_activation").length, 2);
 });
 
 test("rawLaunchApp keeps pre-activation startup facts when the first activation fails", async () => {
-  const launchFacts = {
-    ok: true,
-    is_finished_launching: false,
-    is_hidden: false,
-    is_active: false,
-    ax_window_count: 0,
-    has_ax_window: false,
-    has_ax_web_area: false,
-  };
+  const launchFacts = { ok: true, is_finished_launching: false, is_active: false, ax_window_count: 0, has_ax_window: false };
   const calls = [];
   const { harness } = makeHarness({ dump: () => [], screenshot: () => ({ ok: true }) });
   stubLaunchSeams(harness, {
@@ -278,7 +316,6 @@ test("rawLaunchApp keeps pre-activation startup facts when the first activation 
 
   await assert.rejects(() => harness.rawLaunchApp(), /activation_unconfirmed/);
 
-  assert.deepEqual(calls, ["open", "startup", "activate"], "激活失败时不再产生激活后观测");
   const attempt = harness.log.find((entry) => entry.op === "launch_activation_attempt");
   assert.ok(attempt, "失败时激活前观测也必须已落盘");
   assert.equal(attempt.startup.is_finished_launching, false);
@@ -292,13 +329,12 @@ test("rawLaunchApp folds startup observation errors into facts without blocking 
   const failed = new Error("startup_unavailable");
   stubLaunchSeams(harness, {
     calls,
-    startups: [failed, failed],
+    startups: [failed],
     activate: () => ({ ok: true, requested: true, returned: true, confirmed: true, waited_ms: 10 }),
   });
 
   await harness.rawLaunchApp();
 
-  assert.deepEqual(calls, ["open", "startup", "activate", "startup"]);
   const attempt = harness.log.find((entry) => entry.op === "launch_activation_attempt");
   assert.equal(attempt.startup.ok, false);
   assert.match(attempt.startup.error, /startup_unavailable/);
@@ -311,16 +347,7 @@ test("rawLaunchApp folds startup observation errors into facts without blocking 
 // 失败留痕完整性：启动观测与原始 AX 不能只活在被 log_tail 截断的数组里
 // （cp4b-pending-02 真实批次因此丢了首次 activate 前的 startup 事实）。
 test("启动观测独立落盘，不依赖失败时的 log_tail", async () => {
-  const before = {
-    ok: true,
-    is_finished_launching: false,
-    activation_policy: "regular",
-    is_hidden: false,
-    is_active: false,
-    ax_window_count: 0,
-    has_ax_window: false,
-    has_ax_web_area: false,
-  };
+  const before = { ok: true, is_finished_launching: false, is_active: false, ax_window_count: 0, has_ax_window: false };
   const after = { ...before, is_finished_launching: true, ax_window_count: 1, has_ax_window: true, has_ax_web_area: true };
   const calls = [];
   const { dir, harness } = makeHarness({ dump: () => [], screenshot: () => ({ ok: true }) });
@@ -333,15 +360,12 @@ test("启动观测独立落盘，不依赖失败时的 log_tail", async () => {
   await harness.rawLaunchApp();
 
   const observations = JSON.parse(fs.readFileSync(path.join(dir, "startup-observations.json"), "utf8"));
-  assert.equal(observations.length, 2);
-  assert.deepEqual(
-    observations.map((entry) => entry.reason),
-    ["launch:before_activation", "launch:after_activation"],
-  );
-  assert.equal(observations[0].is_finished_launching, false);
-  assert.equal(observations[0].ax_window_count, 0);
-  assert.equal(observations[1].is_finished_launching, true);
-  assert.equal(observations[1].has_ax_web_area, true);
+  const reasons = observations.map((entry) => entry.reason);
+  assert.equal(reasons[0], "launch:wait_settled:0");
+  assert.equal(reasons.at(-2), "launch:before_activation");
+  assert.equal(reasons.at(-1), "launch:after_activation");
+  assert.equal(observations.at(-2).is_finished_launching, true);
+  assert.equal(observations.at(-1).ax_window_count, 1);
 });
 
 test("失败新增完整 driver log 与原始 AX，且不改写原 failure reason", async () => {
@@ -378,12 +402,13 @@ test("失败新增完整 driver log 与原始 AX，且不改写原 failure reaso
   assert.equal(driverLog.log.length, harness.log.length);
   assert.ok(driverLog.log.some((entry) => entry.op === "launch_activation_attempt"));
   assert.ok(driverLog.log.some((entry) => entry.op === "launch_activation"));
-  assert.deepEqual(
-    driverLog.startup_observations.map((entry) => entry.reason),
-    ["launch:before_activation", "launch:after_activation", "failure"],
-  );
+  const startupReasons = driverLog.startup_observations.map((entry) => entry.reason);
+  assert.equal(startupReasons[0], "launch:wait_settled:0");
+  assert(startupReasons.includes("launch:before_activation"));
+  assert(startupReasons.includes("launch:after_activation"));
+  assert.equal(startupReasons.at(-1), "failure");
   const persisted = JSON.parse(fs.readFileSync(path.join(dir, "startup-observations.json"), "utf8"));
-  assert.equal(persisted.length, 3);
+  assert.equal(persisted.length, startupReasons.length);
   const raw = JSON.parse(fs.readFileSync(path.join(dir, "failure-ax-raw.json"), "utf8"));
   assert.deepEqual(raw.nodes, rawNodes);
   assert.ok(dumps > 1, "失败时额外读取原始 AX dump");
