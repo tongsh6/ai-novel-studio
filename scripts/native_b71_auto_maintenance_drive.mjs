@@ -490,7 +490,9 @@ async function runMultiTurnFlow({ report, requests }) {
     process.env.B71_AUTO_MAINT_SMOKE_REQUEST ??
     requests[0] ??
     "先读一下第01章的正文和章计划，再读一下第02章的正文和章计划，然后把两章做对比，最后告诉我下一步该写什么。";
-  const steerRequest = "按你的判断继续：先给出两章的对比结论，再给出下一步写作建议。";
+  const steerRequest =
+    process.env.B71_AUTO_MAINT_SMOKE_STEER ??
+    "按你的判断继续：先给出两章的对比结论，再给出下一步写作建议。";
   const session = { long_request: longRequest, steer_request: steerRequest, attempts: [] };
   harness.log.push({ op: "a3b_multi_turn_start", at: harness.nowIso() });
   const first = await sendRequest(1, longRequest);
