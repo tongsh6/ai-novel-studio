@@ -314,6 +314,7 @@ export const WORKBENCH = {
   authorQuestionUnavailable: "此问题暂不可回复",
   // 46 §9.7（2026-11-04 修订）：等待即回答——主输入区接管为回答入口；新讨论是显式动作。
   authorQuestionAnswerModeLabel: "回答当前问题",
+  authorQuestionDecisionNeeded: "需要你决定",
   authorQuestionAnswerModeHint: "回答后当前任务继续；要发起新任务请点「开始新讨论」。",
   authorQuestionAnswerModeNewDiscussion: "开始新讨论",
   authorQuestionAnswerPlaceholder: "回答当前问题…",

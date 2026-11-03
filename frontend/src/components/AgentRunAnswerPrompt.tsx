@@ -1,5 +1,5 @@
 // Design: docs/design/ui/46-state-and-feedback.md §9.7（2026-11-04 修订：等待即回答）
-// Prototype: novel-studio.pen → 46§9.7-answer-mode (EU5Qh)
+// Prototype: novel-studio.pen → 46§9.7-answer-mode (fQqI7)
 // 回答上下文提示条：问题 + 结构化选项 + 显式「开始新讨论」；输入与提交由主 composer 承担，
 // 避免在底部再造第二个输入面板（单一回答入口，46 §9.7）。
 import { WORKBENCH } from "../lib/copy";
@@ -36,8 +36,7 @@ export function AgentRunAnswerPrompt({
       aria-label={WORKBENCH.authorQuestionAnswerModeLabel}
     >
       <div className={styles.answerPromptHead}>
-        <span className={styles.answerPromptLabel}>{WORKBENCH.authorQuestionAnswerModeLabel}</span>
-        <span className={styles.answerPromptQuestion}>{question.question}</span>
+        <span className={styles.answerPromptLabel}>{WORKBENCH.authorQuestionDecisionNeeded}</span>
         <button
           type="button"
           className={styles.answerPromptNewDiscussion}
@@ -46,6 +45,9 @@ export function AgentRunAnswerPrompt({
           {WORKBENCH.authorQuestionAnswerModeNewDiscussion}
         </button>
       </div>
+      <blockquote className={styles.answerPromptQuote}>
+        <p>{question.question}</p>
+      </blockquote>
       {choices.length > 0 && (
         <div className={styles.answerPromptChoices}>
           {choices.map((action) => (

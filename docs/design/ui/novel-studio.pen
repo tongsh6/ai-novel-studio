@@ -1,5 +1,5 @@
 {
-  "version": "2.14",
+  "version": "2.21",
   "children": [
     {
       "type": "frame",
@@ -379,6 +379,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -933,6 +934,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -1186,6 +1188,7 @@
                     "bottom": 1
                   },
                   "strokeAlignment": "inner",
+                  "strokeLinejoin": "round",
                   "padding": 24,
                   "justifyContent": "space_between",
                   "alignItems": "center",
@@ -1232,6 +1235,7 @@
                     "bottom": 1
                   },
                   "strokeAlignment": "inner",
+                  "strokeLinejoin": "round",
                   "gap": 24,
                   "padding": [
                     16,
@@ -1249,6 +1253,7 @@
                         "bottom": 2
                       },
                       "strokeAlignment": "inner",
+                      "strokeLinejoin": "round",
                       "layout": "vertical",
                       "padding": [
                         0,
@@ -1651,6 +1656,7 @@
                     "top": 1
                   },
                   "strokeAlignment": "inner",
+                  "strokeLinejoin": "round",
                   "gap": 16,
                   "padding": 24,
                   "justifyContent": "space_between",
@@ -1791,6 +1797,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -1879,6 +1886,7 @@
                 "right": 1
               },
               "strokeAlignment": "inner",
+              "strokeLinejoin": "round",
               "layout": "vertical",
               "gap": 24,
               "padding": 32,
@@ -2010,6 +2018,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -2179,6 +2188,7 @@
                             "top": 1
                           },
                           "strokeAlignment": "inner",
+                          "strokeLinejoin": "round",
                           "layout": "vertical",
                           "gap": 8,
                           "padding": [
@@ -2489,6 +2499,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -2968,6 +2979,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -3447,6 +3459,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -3928,6 +3941,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -4097,6 +4111,7 @@
                             "top": 1
                           },
                           "strokeAlignment": "inner",
+                          "strokeLinejoin": "round",
                           "layout": "vertical",
                           "gap": 8,
                           "padding": [
@@ -4409,6 +4424,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -4856,7 +4872,8 @@
                       "strokeWidth": {
                         "left": 2
                       },
-                      "strokeAlignment": "inner"
+                      "strokeAlignment": "inner",
+                      "strokeLinejoin": "round"
                     },
                     {
                       "type": "text",
@@ -5351,6 +5368,7 @@
                         "left": 2
                       },
                       "strokeAlignment": "inner",
+                      "strokeLinejoin": "round",
                       "layout": "vertical",
                       "padding": [
                         10,
@@ -5986,6 +6004,7 @@
                                 "left": 2
                               },
                               "strokeAlignment": "inner",
+                              "strokeLinejoin": "round",
                               "layout": "vertical",
                               "padding": [
                                 10,
@@ -6147,6 +6166,7 @@
                                 "left": 2
                               },
                               "strokeAlignment": "inner",
+                              "strokeLinejoin": "round",
                               "layout": "vertical",
                               "padding": [
                                 10,
@@ -6225,6 +6245,7 @@
                                 "left": 2
                               },
                               "strokeAlignment": "inner",
+                              "strokeLinejoin": "round",
                               "layout": "vertical",
                               "padding": [
                                 10,
@@ -6303,6 +6324,7 @@
                                 "left": 2
                               },
                               "strokeAlignment": "inner",
+                              "strokeLinejoin": "round",
                               "layout": "vertical",
                               "padding": [
                                 10,
@@ -6462,12 +6484,12 @@
                       "stroke": "#ECE6DD",
                       "strokeWidth": 1,
                       "strokeAlignment": "inner",
+                      "gap": 8,
                       "padding": [
                         0,
                         16
                       ],
                       "alignItems": "center",
-                      "gap": 8,
                       "children": [
                         {
                           "type": "icon",
@@ -6482,14 +6504,14 @@
                         {
                           "type": "text",
                           "id": "CwNKu",
-                          "content": "较早的 12 项创作过程已整理",
                           "fill": "#68625A",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "较早的 12 项创作过程已整理",
+                          "lineHeight": 1.34,
                           "fontFamily": "Inter",
                           "fontSize": 13,
-                          "fontWeight": "normal",
-                          "lineHeight": 1.34,
-                          "width": "fill_container",
-                          "textGrowth": "fixed-width"
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "icon",
@@ -6591,406 +6613,6 @@
                       ]
                     }
                   ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "frame",
-          "id": "YtaVC",
-          "name": "completedMoment",
-          "width": "fill_container",
-          "layout": "vertical",
-          "gap": 14,
-          "children": [
-            {
-              "type": "rectangle",
-              "id": "OlV7B",
-              "name": "m2Div",
-              "fill": "#E6DED3",
-              "width": "fill_container",
-              "height": 1
-            },
-            {
-              "type": "text",
-              "id": "KYRmE",
-              "fill": "#9B948A",
-              "content": "另一个时刻 · 完成态 —— 同一条 loop 走完后，作者看到的样子",
-              "lineHeight": 1.3,
-              "fontFamily": "Inter",
-              "fontSize": 13,
-              "fontWeight": "600"
-            },
-            {
-              "type": "frame",
-              "id": "r7O2tz",
-              "name": "completedCard",
-              "width": 920,
-              "layout": "vertical",
-              "gap": 14,
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "K20OBR",
-                  "name": "cStatusRow",
-                  "width": "fill_container",
-                  "gap": 10,
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "ellipse",
-                      "id": "j7R5u",
-                      "name": "cDot",
-                      "fill": "#2F7D32",
-                      "width": 9,
-                      "height": 9
-                    },
-                    {
-                      "type": "frame",
-                      "id": "b31abj",
-                      "name": "cPill",
-                      "fill": "#E8F3E7",
-                      "cornerRadius": 6,
-                      "padding": [
-                        4,
-                        9
-                      ],
-                      "justifyContent": "center",
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "Mp8RE",
-                          "name": "cPillT",
-                          "fill": "#2F7D32",
-                          "content": "已完成",
-                          "lineHeight": 1.3,
-                          "fontFamily": "Inter",
-                          "fontSize": 12,
-                          "fontWeight": "600"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "text",
-                      "id": "zMid4",
-                      "fill": "#9B948A",
-                      "content": "计划全部走完",
-                      "lineHeight": 1.3,
-                      "fontFamily": "Inter",
-                      "fontSize": 13,
-                      "fontWeight": "500"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "YVMee",
-                  "name": "cStatusModel",
-                  "width": "fill_container",
-                  "fill": "#F7F4EF",
-                  "cornerRadius": 3,
-                  "stroke": "#FF9800",
-                  "strokeWidth": {
-                    "left": 2
-                  },
-                  "strokeAlignment": "inner",
-                  "layout": "vertical",
-                  "padding": [
-                    10,
-                    14
-                  ],
-                  "children": [
-                    {
-                      "type": "text",
-                      "id": "XvZfZ",
-                      "name": "cStatusModelT",
-                      "fill": "#151515",
-                      "textGrowth": "fixed-width",
-                      "width": "fill_container",
-                      "content": "写完了。中间我改过一次计划——先补上主角的伤势，再往下写，这样跟前三章能接上。",
-                      "lineHeight": 1.5,
-                      "fontFamily": "Inter",
-                      "fontSize": 15,
-                      "fontWeight": "500"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "asmTB",
-                  "name": "recap",
-                  "width": "fill_container",
-                  "layout": "vertical",
-                  "gap": 9,
-                  "children": [
-                    {
-                      "type": "frame",
-                      "id": "jIB5B",
-                      "name": "recapHead",
-                      "width": "fill_container",
-                      "gap": 10,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "QJlik",
-                          "fill": "#151515",
-                          "content": "计划回顾",
-                          "lineHeight": 1.3,
-                          "fontFamily": "Inter",
-                          "fontSize": 14,
-                          "fontWeight": "700"
-                        },
-                        {
-                          "type": "frame",
-                          "id": "nu4PT",
-                          "name": "recapVer",
-                          "fill": "#FFF3DB",
-                          "cornerRadius": 6,
-                          "padding": [
-                            4,
-                            9
-                          ],
-                          "justifyContent": "center",
-                          "alignItems": "center",
-                          "children": [
-                            {
-                              "type": "text",
-                              "id": "WOJki",
-                              "name": "recapVerT",
-                              "fill": "#B46900",
-                              "content": "v1 → v2 · 1 次重规划",
-                              "lineHeight": 1.3,
-                              "fontFamily": "Inter",
-                              "fontSize": 12,
-                              "fontWeight": "600"
-                            }
-                          ]
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "fRpv3",
-                      "name": "recapChips",
-                      "width": "fill_container",
-                      "gap": 8,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "frame",
-                          "id": "eBeeE",
-                          "name": "rc",
-                          "fill": "#E8F3E7",
-                          "cornerRadius": 6,
-                          "padding": [
-                            5,
-                            10
-                          ],
-                          "justifyContent": "center",
-                          "alignItems": "center",
-                          "children": [
-                            {
-                              "type": "text",
-                              "id": "ggoBz",
-                              "fill": "#2F7D32",
-                              "content": "✓ 探索 ×2",
-                              "lineHeight": 1.3,
-                              "fontFamily": "Inter",
-                              "fontSize": 12,
-                              "fontWeight": "600"
-                            }
-                          ]
-                        },
-                        {
-                          "type": "frame",
-                          "id": "C4da1",
-                          "name": "rc",
-                          "fill": "#E8F3E7",
-                          "cornerRadius": 6,
-                          "padding": [
-                            5,
-                            10
-                          ],
-                          "justifyContent": "center",
-                          "alignItems": "center",
-                          "children": [
-                            {
-                              "type": "text",
-                              "id": "uVlOO",
-                              "fill": "#2F7D32",
-                              "content": "✓ 补伤势线",
-                              "lineHeight": 1.3,
-                              "fontFamily": "Inter",
-                              "fontSize": 12,
-                              "fontWeight": "600"
-                            }
-                          ]
-                        },
-                        {
-                          "type": "frame",
-                          "id": "sh74k",
-                          "name": "rc",
-                          "fill": "#E8F3E7",
-                          "cornerRadius": 6,
-                          "padding": [
-                            5,
-                            10
-                          ],
-                          "justifyContent": "center",
-                          "alignItems": "center",
-                          "children": [
-                            {
-                              "type": "text",
-                              "id": "C3RUe",
-                              "fill": "#2F7D32",
-                              "content": "✓ 续写 3069 字",
-                              "lineHeight": 1.3,
-                              "fontFamily": "Inter",
-                              "fontSize": 12,
-                              "fontWeight": "600"
-                            }
-                          ]
-                        },
-                        {
-                          "type": "frame",
-                          "id": "tmObp",
-                          "name": "rc",
-                          "fill": "#E8F3E7",
-                          "cornerRadius": 6,
-                          "padding": [
-                            5,
-                            10
-                          ],
-                          "justifyContent": "center",
-                          "alignItems": "center",
-                          "children": [
-                            {
-                              "type": "text",
-                              "id": "Oj3fA",
-                              "fill": "#2F7D32",
-                              "content": "✓ 复核 1 项关注",
-                              "lineHeight": 1.3,
-                              "fontFamily": "Inter",
-                              "fontSize": 12,
-                              "fontWeight": "600"
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "Xbct1",
-                  "name": "resultReady",
-                  "width": "fill_container",
-                  "layout": "vertical",
-                  "gap": 8,
-                  "children": [
-                    {
-                      "type": "frame",
-                      "id": "obWT0",
-                      "name": "resultHead",
-                      "width": "fill_container",
-                      "gap": 8,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "Z95T8",
-                          "fill": "#151515",
-                          "content": "待采纳正文草稿",
-                          "lineHeight": 1.3,
-                          "fontFamily": "Inter",
-                          "fontSize": 14,
-                          "fontWeight": "700"
-                        },
-                        {
-                          "type": "frame",
-                          "id": "ylnrM",
-                          "name": "rReady",
-                          "fill": "#F5F2ED",
-                          "cornerRadius": 6,
-                          "padding": [
-                            4,
-                            9
-                          ],
-                          "justifyContent": "center",
-                          "alignItems": "center",
-                          "children": [
-                            {
-                              "type": "text",
-                              "id": "hWWBk",
-                              "name": "rReadyT",
-                              "fill": "#68625A",
-                              "content": "待采纳",
-                              "lineHeight": 1.3,
-                              "fontFamily": "Inter",
-                              "fontSize": 12,
-                              "fontWeight": "600"
-                            }
-                          ]
-                        },
-                        {
-                          "type": "text",
-                          "id": "ppAys",
-                          "fill": "#9B948A",
-                          "content": "保存后写入章节正文",
-                          "lineHeight": 1.3,
-                          "fontFamily": "Inter",
-                          "fontSize": 12,
-                          "fontWeight": "500"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "EfR1w",
-                      "name": "draft",
-                      "width": "fill_container",
-                      "fill": "#F7F4EF",
-                      "cornerRadius": 3,
-                      "stroke": "#FF9800",
-                      "strokeWidth": {
-                        "left": 2
-                      },
-                      "strokeAlignment": "inner",
-                      "layout": "vertical",
-                      "padding": [
-                        10,
-                        14
-                      ],
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "frYCH",
-                          "name": "draftT",
-                          "fill": "#151515",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "她没有回头，只把灯压得更低。门外的脚步声停了一瞬，像有人在黑暗里重新算了一遍距离。她压住肩上的伤，指节抵着墙，先让呼吸慢下来。",
-                          "lineHeight": 1.5,
-                          "fontFamily": "Inter",
-                          "fontSize": 15,
-                          "fontWeight": "500"
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "text",
-                  "id": "ErkUS",
-                  "fill": "#9B948A",
-                  "content": "⌄ 完整推理与模型执行细节（开发者）",
-                  "lineHeight": 1.3,
-                  "fontFamily": "Inter",
-                  "fontSize": 13,
-                  "fontWeight": "600"
                 }
               ]
             }
@@ -7109,6 +6731,7 @@
                         "left": 2
                       },
                       "strokeAlignment": "inner",
+                      "strokeLinejoin": "round",
                       "layout": "vertical",
                       "padding": [
                         9,
@@ -7436,6 +7059,7 @@
                         "left": 2
                       },
                       "strokeAlignment": "inner",
+                      "strokeLinejoin": "round",
                       "layout": "vertical",
                       "padding": [
                         9,
@@ -7620,6 +7244,7 @@
                         "left": 2
                       },
                       "strokeAlignment": "inner",
+                      "strokeLinejoin": "round",
                       "layout": "vertical",
                       "padding": [
                         9,
@@ -7837,6 +7462,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             24
@@ -8036,6 +7662,7 @@
                 "left": 1
               },
               "strokeAlignment": "inner",
+              "strokeLinejoin": "round",
               "layout": "vertical",
               "children": [
                 {
@@ -8101,6 +7728,7 @@
                     "bottom": 1
                   },
                   "strokeAlignment": "inner",
+                  "strokeLinejoin": "round",
                   "gap": 28,
                   "padding": [
                     12,
@@ -8255,6 +7883,7 @@
                     "bottom": 1
                   },
                   "strokeAlignment": "inner",
+                  "strokeLinejoin": "round",
                   "gap": 18,
                   "padding": [
                     0,
@@ -8374,6 +8003,7 @@
                             "bottom": 1
                           },
                           "strokeAlignment": "inner",
+                          "strokeLinejoin": "round",
                           "padding": [
                             8,
                             0
@@ -8442,6 +8072,7 @@
                             "bottom": 1
                           },
                           "strokeAlignment": "inner",
+                          "strokeLinejoin": "round",
                           "padding": [
                             8,
                             0
@@ -8510,6 +8141,7 @@
                             "bottom": 1
                           },
                           "strokeAlignment": "inner",
+                          "strokeLinejoin": "round",
                           "padding": [
                             8,
                             0
@@ -8578,6 +8210,7 @@
                             "bottom": 1
                           },
                           "strokeAlignment": "inner",
+                          "strokeLinejoin": "round",
                           "padding": [
                             8,
                             0
@@ -9003,6 +8636,7 @@
                     "top": 1
                   },
                   "strokeAlignment": "inner",
+                  "strokeLinejoin": "round",
                   "padding": [
                     0,
                     24
@@ -9074,6 +8708,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -9728,6 +9363,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -9934,6 +9570,7 @@
                     "top": 1
                   },
                   "strokeAlignment": "inner",
+                  "strokeLinejoin": "round",
                   "layout": "vertical",
                   "padding": [
                     10,
@@ -10301,6 +9938,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -10936,6 +10574,7 @@
                     "top": 1
                   },
                   "strokeAlignment": "inner",
+                  "strokeLinejoin": "round",
                   "layout": "vertical",
                   "padding": [
                     10,
@@ -11303,6 +10942,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -11652,6 +11292,7 @@
                     "top": 1
                   },
                   "strokeAlignment": "inner",
+                  "strokeLinejoin": "round",
                   "layout": "vertical",
                   "padding": [
                     10,
@@ -12019,6 +11660,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -12270,6 +11912,7 @@
                     "top": 1
                   },
                   "strokeAlignment": "inner",
+                  "strokeLinejoin": "round",
                   "layout": "vertical",
                   "padding": [
                     10,
@@ -12658,6 +12301,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -13198,6 +12842,7 @@
                     "top": 1
                   },
                   "strokeAlignment": "inner",
+                  "strokeLinejoin": "round",
                   "layout": "vertical",
                   "padding": [
                     10,
@@ -13565,6 +13210,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -13987,6 +13633,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -13996,8 +13643,8 @@
             {
               "type": "text",
               "id": "ZFkUZ",
-              "content": "长任务上下文整理 · 消息流中的整理细条（收起态）",
               "fill": "#111111",
+              "content": "长任务上下文整理 · 消息流中的整理细条（收起态）",
               "fontFamily": "Geist",
               "fontSize": 18,
               "fontWeight": "normal"
@@ -14010,7 +13657,6 @@
           "name": "content",
           "width": "fill_container",
           "height": "fill_container",
-          "layout": "horizontal",
           "gap": 64,
           "padding": [
             48,
@@ -14036,24 +13682,24 @@
                     {
                       "type": "text",
                       "id": "HqHVR",
-                      "content": "AI 编辑",
                       "fill": "#8A8178",
+                      "content": "AI 编辑",
+                      "lineHeight": 1.34,
                       "fontFamily": "Inter",
                       "fontSize": 12,
-                      "fontWeight": "bold",
-                      "lineHeight": 1.34
+                      "fontWeight": "bold"
                     },
                     {
                       "type": "text",
                       "id": "SGhlC",
-                      "content": "我核对了第 12–14 场的时间线，并把三处人物动机的衔接补齐了。你可以继续写第 15 场。",
                       "fill": "#151515",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "我核对了第 12–14 场的时间线，并把三处人物动机的衔接补齐了。你可以继续写第 15 场。",
+                      "lineHeight": 1.6,
                       "fontFamily": "Geist",
                       "fontSize": 15,
-                      "fontWeight": "normal",
-                      "lineHeight": 1.6,
-                      "width": "fill_container",
-                      "textGrowth": "fixed-width"
+                      "fontWeight": "normal"
                     }
                   ]
                 },
@@ -14068,12 +13714,12 @@
                   "stroke": "#ECE6DD",
                   "strokeWidth": 1,
                   "strokeAlignment": "inner",
+                  "gap": 8,
                   "padding": [
                     0,
                     16
                   ],
                   "alignItems": "center",
-                  "gap": 8,
                   "children": [
                     {
                       "type": "icon",
@@ -14088,14 +13734,14 @@
                     {
                       "type": "text",
                       "id": "1vD4n",
-                      "content": "较早的 12 项创作过程已整理",
                       "fill": "#68625A",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "较早的 12 项创作过程已整理",
+                      "lineHeight": 1.34,
                       "fontFamily": "Inter",
                       "fontSize": 13,
-                      "fontWeight": "normal",
-                      "lineHeight": 1.34,
-                      "width": "fill_container",
-                      "textGrowth": "fixed-width"
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "icon",
@@ -14114,7 +13760,6 @@
                   "id": "tnHEo",
                   "name": "authorRow",
                   "width": "fill_container",
-                  "justifyContent": "flex-end",
                   "children": [
                     {
                       "type": "frame",
@@ -14130,12 +13775,12 @@
                         {
                           "type": "text",
                           "id": "Fi1Ym",
-                          "content": "继续写第 15 场。",
                           "fill": "#151515",
+                          "content": "继续写第 15 场。",
+                          "lineHeight": 1.5,
                           "fontFamily": "Geist",
                           "fontSize": 14,
-                          "fontWeight": "normal",
-                          "lineHeight": 1.5
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -14152,24 +13797,24 @@
                     {
                       "type": "text",
                       "id": "gvnBW",
-                      "content": "AI 编辑",
                       "fill": "#8A8178",
+                      "content": "AI 编辑",
+                      "lineHeight": 1.34,
                       "fontFamily": "Inter",
                       "fontSize": 12,
-                      "fontWeight": "bold",
-                      "lineHeight": 1.34
+                      "fontWeight": "bold"
                     },
                     {
                       "type": "text",
                       "id": "3oWEb",
-                      "content": "好的，我接着写第 15 场：雨夜、旧码头，两人第一次正面交锋。",
                       "fill": "#151515",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "好的，我接着写第 15 场：雨夜、旧码头，两人第一次正面交锋。",
+                      "lineHeight": 1.6,
                       "fontFamily": "Geist",
                       "fontSize": 15,
-                      "fontWeight": "normal",
-                      "lineHeight": 1.6,
-                      "width": "fill_container",
-                      "textGrowth": "fixed-width"
+                      "fontWeight": "normal"
                     }
                   ]
                 }
@@ -14184,48 +13829,48 @@
               "fill": "#F7F5F1",
               "cornerRadius": 4,
               "layout": "vertical",
-              "padding": 16,
               "gap": 12,
+              "padding": 16,
               "children": [
                 {
                   "type": "text",
                   "id": "7PilP",
-                  "content": "作品档案",
                   "fill": "#8A8178",
+                  "content": "作品档案",
+                  "lineHeight": 1.34,
                   "fontFamily": "Inter",
                   "fontSize": 12,
-                  "fontWeight": "bold",
-                  "lineHeight": 1.34
+                  "fontWeight": "bold"
                 },
                 {
                   "type": "text",
                   "id": "v4d0d",
-                  "content": "角色",
                   "fill": "#68625A",
+                  "content": "角色",
+                  "lineHeight": 1.5,
                   "fontFamily": "Inter",
                   "fontSize": 11,
-                  "fontWeight": "normal",
-                  "lineHeight": 1.5
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
                   "id": "nl7GB",
-                  "content": "设定",
                   "fill": "#68625A",
+                  "content": "设定",
+                  "lineHeight": 1.5,
                   "fontFamily": "Inter",
                   "fontSize": 11,
-                  "fontWeight": "normal",
-                  "lineHeight": 1.5
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
                   "id": "dwqY4",
-                  "content": "章节",
                   "fill": "#68625A",
+                  "content": "章节",
+                  "lineHeight": 1.5,
                   "fontFamily": "Inter",
                   "fontSize": 11,
-                  "fontWeight": "normal",
-                  "lineHeight": 1.5
+                  "fontWeight": "normal"
                 }
               ]
             }
@@ -14242,6 +13887,7 @@
             "top": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             80
@@ -14268,8 +13914,8 @@
                 {
                   "type": "text",
                   "id": "CTFLw",
-                  "content": "继续写第 15 场…",
                   "fill": "#8A8178",
+                  "content": "继续写第 15 场…",
                   "fontFamily": "Geist",
                   "fontSize": 13,
                   "fontWeight": "normal"
@@ -14302,6 +13948,7 @@
             "bottom": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             32
@@ -14311,8 +13958,8 @@
             {
               "type": "text",
               "id": "hsHkz",
-              "content": "长任务上下文整理 · 展开态（原因 / 原文保留 / 来源 / 完整记录）",
               "fill": "#111111",
+              "content": "长任务上下文整理 · 展开态（原因 / 原文保留 / 来源 / 完整记录）",
               "fontFamily": "Geist",
               "fontSize": 18,
               "fontWeight": "normal"
@@ -14325,7 +13972,6 @@
           "name": "content",
           "width": "fill_container",
           "height": "fill_container",
-          "layout": "horizontal",
           "gap": 64,
           "padding": [
             48,
@@ -14351,24 +13997,24 @@
                     {
                       "type": "text",
                       "id": "g5hVU",
-                      "content": "AI 编辑",
                       "fill": "#8A8178",
+                      "content": "AI 编辑",
+                      "lineHeight": 1.34,
                       "fontFamily": "Inter",
                       "fontSize": 12,
-                      "fontWeight": "bold",
-                      "lineHeight": 1.34
+                      "fontWeight": "bold"
                     },
                     {
                       "type": "text",
                       "id": "ILt0z",
-                      "content": "我核对了第 12–14 场的时间线，并把三处人物动机的衔接补齐了。你可以继续写第 15 场。",
                       "fill": "#151515",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "我核对了第 12–14 场的时间线，并把三处人物动机的衔接补齐了。你可以继续写第 15 场。",
+                      "lineHeight": 1.6,
                       "fontFamily": "Geist",
                       "fontSize": 15,
-                      "fontWeight": "normal",
-                      "lineHeight": 1.6,
-                      "width": "fill_container",
-                      "textGrowth": "fixed-width"
+                      "fontWeight": "normal"
                     }
                   ]
                 },
@@ -14383,12 +14029,12 @@
                   "stroke": "#ECE6DD",
                   "strokeWidth": 1,
                   "strokeAlignment": "inner",
+                  "gap": 8,
                   "padding": [
                     0,
                     16
                   ],
                   "alignItems": "center",
-                  "gap": 8,
                   "children": [
                     {
                       "type": "icon",
@@ -14403,14 +14049,14 @@
                     {
                       "type": "text",
                       "id": "0J9Wv",
-                      "content": "较早的 12 项创作过程已整理",
                       "fill": "#68625A",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "较早的 12 项创作过程已整理",
+                      "lineHeight": 1.34,
                       "fontFamily": "Inter",
                       "fontSize": 13,
-                      "fontWeight": "normal",
-                      "lineHeight": 1.34,
-                      "width": "fill_container",
-                      "textGrowth": "fixed-width"
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "icon",
@@ -14434,71 +14080,71 @@
                   "stroke": "#E6DED3",
                   "strokeWidth": 1,
                   "strokeAlignment": "inner",
-                  "padding": 16,
                   "layout": "vertical",
                   "gap": 8,
+                  "padding": 16,
                   "children": [
                     {
                       "type": "text",
                       "id": "WwIw2",
-                      "content": "已整理的较早记录",
                       "fill": "#151515",
+                      "content": "已整理的较早记录",
+                      "lineHeight": 1.34,
                       "fontFamily": "Inter",
                       "fontSize": 13,
-                      "fontWeight": "bold",
-                      "lineHeight": 1.34
+                      "fontWeight": "bold"
                     },
                     {
                       "type": "text",
                       "id": "p6krR",
-                      "content": "为了保持这次创作始终清晰连贯，系统整理了较早的 12 项已完成操作。",
                       "fill": "#68625A",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "为了保持这次创作始终清晰连贯，系统整理了较早的 12 项已完成操作。",
+                      "lineHeight": 1.5,
                       "fontFamily": "Inter",
                       "fontSize": 13,
-                      "fontWeight": "normal",
-                      "lineHeight": 1.5,
-                      "width": "fill_container",
-                      "textGrowth": "fixed-width"
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "text",
                       "id": "lO0vA",
-                      "content": "原始记录仍然保留，不会被删除或改写。",
                       "fill": "#68625A",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "原始记录仍然保留，不会被删除或改写。",
+                      "lineHeight": 1.5,
                       "fontFamily": "Inter",
                       "fontSize": 13,
-                      "fontWeight": "normal",
-                      "lineHeight": 1.5,
-                      "width": "fill_container",
-                      "textGrowth": "fixed-width"
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "text",
                       "id": "C4cRm",
-                      "content": "涉及：角色档案、作品设定、第一章正文",
                       "fill": "#8A8178",
+                      "content": "涉及：角色档案、作品设定、第一章正文",
+                      "lineHeight": 1.34,
                       "fontFamily": "Inter",
                       "fontSize": 12,
-                      "fontWeight": "normal",
-                      "lineHeight": 1.34
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
                       "id": "aAmG9",
                       "name": "historyLink",
                       "width": "fill_container",
-                      "alignItems": "center",
                       "gap": 4,
+                      "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
                           "id": "C8lWx",
-                          "content": "查看完整记录",
                           "fill": "#151515",
+                          "content": "查看完整记录",
+                          "lineHeight": 1.34,
                           "fontFamily": "Inter",
                           "fontSize": 12,
-                          "fontWeight": "500",
-                          "lineHeight": 1.34
+                          "fontWeight": "500"
                         },
                         {
                           "type": "icon",
@@ -14519,7 +14165,6 @@
                   "id": "BeRKz",
                   "name": "authorRow",
                   "width": "fill_container",
-                  "justifyContent": "flex-end",
                   "children": [
                     {
                       "type": "frame",
@@ -14535,12 +14180,12 @@
                         {
                           "type": "text",
                           "id": "3y4Nf",
-                          "content": "继续写第 15 场。",
                           "fill": "#151515",
+                          "content": "继续写第 15 场。",
+                          "lineHeight": 1.5,
                           "fontFamily": "Geist",
                           "fontSize": 14,
-                          "fontWeight": "normal",
-                          "lineHeight": 1.5
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -14557,24 +14202,24 @@
                     {
                       "type": "text",
                       "id": "BkhJ1",
-                      "content": "AI 编辑",
                       "fill": "#8A8178",
+                      "content": "AI 编辑",
+                      "lineHeight": 1.34,
                       "fontFamily": "Inter",
                       "fontSize": 12,
-                      "fontWeight": "bold",
-                      "lineHeight": 1.34
+                      "fontWeight": "bold"
                     },
                     {
                       "type": "text",
                       "id": "eGT59",
-                      "content": "好的，我接着写第 15 场：雨夜、旧码头，两人第一次正面交锋。",
                       "fill": "#151515",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "好的，我接着写第 15 场：雨夜、旧码头，两人第一次正面交锋。",
+                      "lineHeight": 1.6,
                       "fontFamily": "Geist",
                       "fontSize": 15,
-                      "fontWeight": "normal",
-                      "lineHeight": 1.6,
-                      "width": "fill_container",
-                      "textGrowth": "fixed-width"
+                      "fontWeight": "normal"
                     }
                   ]
                 }
@@ -14589,48 +14234,48 @@
               "fill": "#F7F5F1",
               "cornerRadius": 4,
               "layout": "vertical",
-              "padding": 16,
               "gap": 12,
+              "padding": 16,
               "children": [
                 {
                   "type": "text",
                   "id": "1CstB",
-                  "content": "作品档案",
                   "fill": "#8A8178",
+                  "content": "作品档案",
+                  "lineHeight": 1.34,
                   "fontFamily": "Inter",
                   "fontSize": 12,
-                  "fontWeight": "bold",
-                  "lineHeight": 1.34
+                  "fontWeight": "bold"
                 },
                 {
                   "type": "text",
                   "id": "14IdU",
-                  "content": "角色",
                   "fill": "#68625A",
+                  "content": "角色",
+                  "lineHeight": 1.5,
                   "fontFamily": "Inter",
                   "fontSize": 11,
-                  "fontWeight": "normal",
-                  "lineHeight": 1.5
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
                   "id": "98hbV",
-                  "content": "设定",
                   "fill": "#68625A",
+                  "content": "设定",
+                  "lineHeight": 1.5,
                   "fontFamily": "Inter",
                   "fontSize": 11,
-                  "fontWeight": "normal",
-                  "lineHeight": 1.5
+                  "fontWeight": "normal"
                 },
                 {
                   "type": "text",
                   "id": "dIDKX",
-                  "content": "章节",
                   "fill": "#68625A",
+                  "content": "章节",
+                  "lineHeight": 1.5,
                   "fontFamily": "Inter",
                   "fontSize": 11,
-                  "fontWeight": "normal",
-                  "lineHeight": 1.5
+                  "fontWeight": "normal"
                 }
               ]
             }
@@ -14647,6 +14292,7 @@
             "top": 1
           },
           "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
           "padding": [
             0,
             80
@@ -14673,8 +14319,8 @@
                 {
                   "type": "text",
                   "id": "wwKve",
-                  "content": "继续写第 15 场…",
                   "fill": "#8A8178",
+                  "content": "继续写第 15 场…",
                   "fontFamily": "Geist",
                   "fontSize": 13,
                   "fontWeight": "normal"
@@ -14687,7 +14333,7 @@
     },
     {
       "type": "frame",
-      "id": "EU5Qh",
+      "id": "fQqI7",
       "x": 14000,
       "y": 0,
       "name": "46§9.7-answer-mode",
@@ -14698,7 +14344,7 @@
       "children": [
         {
           "type": "frame",
-          "id": "0rijE",
+          "id": "mRIov",
           "name": "topBar",
           "width": "fill_container",
           "height": 64,
@@ -14715,13 +14361,13 @@
           "children": [
             {
               "type": "text",
-              "id": "NmRvK",
-              "content": "46§9.7 等待即回答 · composer 内回答提示条（Draft）",
+              "id": "Y0KXs",
+              "content": "46§9.7 等待即回答 · composer 内回答提示条（参考 46§9 问题卡，Draft）",
               "fill": "#151515",
               "fontFamily": "Geist",
               "fontSize": 18,
               "fontWeight": "normal",
-              "lineHeight": 1.6,
+              "lineHeight": 1.5,
               "width": "fill_container",
               "textGrowth": "fixed-width"
             }
@@ -14729,12 +14375,12 @@
         },
         {
           "type": "frame",
-          "id": "d6Gpt",
+          "id": "pVfXJ",
           "name": "content",
           "width": "fill_container",
           "height": "fill_container",
           "layout": "vertical",
-          "gap": 24,
+          "gap": 20,
           "padding": [
             32,
             80
@@ -14742,66 +14388,52 @@
           "children": [
             {
               "type": "text",
-              "id": "oZb8y",
+              "id": "RiZkc",
               "content": "AI 编辑",
               "fill": "#8A8178",
               "fontFamily": "Geist",
               "fontSize": 12,
-              "fontWeight": "bold",
-              "lineHeight": 1.6,
+              "fontWeight": "600",
+              "lineHeight": 1.35,
               "width": "fill_container",
               "textGrowth": "fixed-width"
             },
             {
               "type": "text",
-              "id": "KTwm2",
-              "content": "问题：这一章按哪个方向写？",
+              "id": "hExSA",
+              "content": "问题记录（只读）：这一章按哪个方向写？",
               "fill": "#151515",
               "fontFamily": "Geist",
               "fontSize": 14,
               "fontWeight": "normal",
-              "lineHeight": 1.6,
+              "lineHeight": 1.5,
               "width": "fill_container",
               "textGrowth": "fixed-width"
             },
             {
               "type": "text",
-              "id": "CpnWc",
+              "id": "M0FuQ",
               "content": "等待你的回答",
               "fill": "#8A8178",
               "fontFamily": "Geist",
               "fontSize": 12,
               "fontWeight": "normal",
-              "lineHeight": 1.6,
-              "width": "fill_container",
-              "textGrowth": "fixed-width"
-            },
-            {
-              "type": "text",
-              "id": "asabi",
-              "content": "（消息流问题记录只读；回答入口在下方 composer）",
-              "fill": "#8A8178",
-              "fontFamily": "Geist",
-              "fontSize": 12,
-              "fontWeight": "normal",
-              "lineHeight": 1.6,
+              "lineHeight": 1.35,
               "width": "fill_container",
               "textGrowth": "fixed-width"
             },
             {
               "type": "frame",
-              "id": "4srMw",
+              "id": "XjIbB",
               "name": "composerArea",
               "width": "fill_container",
               "layout": "vertical",
-              "gap": 8,
+              "gap": 10,
               "padding": [
-                12,
+                14,
                 0
               ],
-              "stroke": {
-                "top": 1
-              },
+              "stroke": "#E6DED3",
               "strokeWidth": {
                 "top": 1
               },
@@ -14809,54 +14441,55 @@
               "children": [
                 {
                   "type": "frame",
-                  "id": "X6W4M",
+                  "id": "Lcnym",
                   "name": "answerPrompt",
                   "width": "fill_container",
                   "layout": "vertical",
-                  "gap": 8,
+                  "gap": 9,
                   "children": [
                     {
                       "type": "frame",
-                      "id": "kCguc",
-                      "name": "promptHead",
+                      "id": "VrkuR",
+                      "name": "headRow",
                       "width": "fill_container",
                       "layout": "horizontal",
-                      "gap": 10,
+                      "gap": 9,
                       "alignItems": "center",
                       "children": [
                         {
-                          "type": "text",
-                          "id": "dlVEN",
-                          "content": "回答当前问题",
-                          "fill": "#6B6259",
-                          "fontFamily": "Geist",
-                          "fontSize": 12,
-                          "fontWeight": "normal",
-                          "lineHeight": 1.6,
-                          "width": "fill_container",
-                          "textGrowth": "fixed-width"
+                          "type": "frame",
+                          "id": "MUNPH",
+                          "name": "labelChip",
+                          "padding": [
+                            2,
+                            8
+                          ],
+                          "cornerRadius": 4,
+                          "fill": "#F7ECE6",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "9kTbJ",
+                              "content": "需要你决定",
+                              "fill": "#B4552A",
+                              "fontFamily": "Geist",
+                              "fontSize": 12,
+                              "fontWeight": "600",
+                              "lineHeight": 1.35,
+                              "width": "fit_content",
+                              "textGrowth": "fixed-width"
+                            }
+                          ]
                         },
                         {
                           "type": "text",
-                          "id": "Hh02s",
-                          "content": "这一章按哪个方向写？",
-                          "fill": "#151515",
-                          "fontFamily": "Geist",
-                          "fontSize": 14,
-                          "fontWeight": "normal",
-                          "lineHeight": 1.6,
-                          "width": "fill_container",
-                          "textGrowth": "fixed-width"
-                        },
-                        {
-                          "type": "text",
-                          "id": "7Dxkp",
+                          "id": "wFAUn",
                           "content": "开始新讨论",
                           "fill": "#8A8178",
                           "fontFamily": "Geist",
                           "fontSize": 12,
                           "fontWeight": "normal",
-                          "lineHeight": 1.6,
+                          "lineHeight": 1.35,
                           "width": "fit_content",
                           "textGrowth": "fixed-width"
                         }
@@ -14864,34 +14497,65 @@
                     },
                     {
                       "type": "frame",
-                      "id": "R6HWp",
-                      "name": "chips",
-                      "layout": "horizontal",
+                      "id": "a7C3x",
+                      "name": "quote",
+                      "width": "fill_container",
+                      "padding": [
+                        9,
+                        12
+                      ],
+                      "cornerRadius": 3,
+                      "fill": "#F7F4EF",
+                      "stroke": "#FF9800",
+                      "strokeWidth": {
+                        "left": 2
+                      },
+                      "strokeAlignment": "inner",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "VSMiD",
+                          "content": "这一章按哪个方向写？A 强化雨港灯楼的悬疑氛围；B 先铺垫人物伏笔。",
+                          "fill": "#151515",
+                          "fontFamily": "Geist",
+                          "fontSize": 14,
+                          "fontWeight": "500",
+                          "lineHeight": 1.5,
+                          "width": "fill_container",
+                          "textGrowth": "fixed-width"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "7NWLp",
+                      "name": "choices",
+                      "width": "fill_container",
+                      "layout": "vertical",
                       "gap": 8,
                       "children": [
                         {
                           "type": "frame",
-                          "id": "PHgOI",
-                          "name": "chip-选项A",
-                          "padding": [
-                            4,
-                            12
-                          ],
-                          "cornerRadius": 999,
-                          "fill": "#F2EFEA",
-                          "stroke": "#D9D2C7",
+                          "id": "vx5tr",
+                          "name": "choice",
+                          "width": "fill_container",
+                          "height": 34,
+                          "cornerRadius": 4,
+                          "stroke": "#E6DED3",
                           "strokeWidth": 1,
                           "strokeAlignment": "inner",
+                          "justifyContent": "center",
+                          "alignItems": "center",
                           "children": [
                             {
                               "type": "text",
-                              "id": "M3DnN",
-                              "content": "选项A",
+                              "id": "p4bAS",
+                              "content": "选项A：强化雨港灯楼的悬疑氛围",
                               "fill": "#151515",
                               "fontFamily": "Geist",
                               "fontSize": 13,
-                              "fontWeight": "normal",
-                              "lineHeight": 1.6,
+                              "fontWeight": "600",
+                              "lineHeight": 1.35,
                               "width": "fit_content",
                               "textGrowth": "fixed-width"
                             }
@@ -14899,27 +14563,26 @@
                         },
                         {
                           "type": "frame",
-                          "id": "w5Gwp",
-                          "name": "chip-选项B",
-                          "padding": [
-                            4,
-                            12
-                          ],
-                          "cornerRadius": 999,
-                          "fill": "#F2EFEA",
-                          "stroke": "#D9D2C7",
+                          "id": "nkToG",
+                          "name": "choice",
+                          "width": "fill_container",
+                          "height": 34,
+                          "cornerRadius": 4,
+                          "stroke": "#E6DED3",
                           "strokeWidth": 1,
                           "strokeAlignment": "inner",
+                          "justifyContent": "center",
+                          "alignItems": "center",
                           "children": [
                             {
                               "type": "text",
-                              "id": "rmqVR",
-                              "content": "选项B",
+                              "id": "BBbsT",
+                              "content": "选项B：先铺垫人物伏笔",
                               "fill": "#151515",
                               "fontFamily": "Geist",
                               "fontSize": 13,
-                              "fontWeight": "normal",
-                              "lineHeight": 1.6,
+                              "fontWeight": "600",
+                              "lineHeight": 1.35,
                               "width": "fit_content",
                               "textGrowth": "fixed-width"
                             }
@@ -14929,13 +14592,13 @@
                     },
                     {
                       "type": "text",
-                      "id": "BzcXR",
+                      "id": "W7XQh",
                       "content": "回答后当前任务继续；要发起新任务请点「开始新讨论」。",
                       "fill": "#8A8178",
                       "fontFamily": "Geist",
                       "fontSize": 12,
                       "fontWeight": "normal",
-                      "lineHeight": 1.6,
+                      "lineHeight": 1.35,
                       "width": "fill_container",
                       "textGrowth": "fixed-width"
                     }
@@ -14943,7 +14606,7 @@
                 },
                 {
                   "type": "frame",
-                  "id": "uEVB6",
+                  "id": "DHlgi",
                   "name": "composerRow",
                   "width": "fill_container",
                   "layout": "horizontal",
@@ -14951,13 +14614,13 @@
                   "children": [
                     {
                       "type": "frame",
-                      "id": "6AX4x",
+                      "id": "2jxxB",
                       "name": "inputBox",
                       "width": "fill_container",
                       "height": 40,
-                      "cornerRadius": 8,
+                      "cornerRadius": 4,
                       "fill": "#FFFFFF",
-                      "stroke": "#D9D2C7",
+                      "stroke": "#E6DED3",
                       "strokeWidth": 1,
                       "strokeAlignment": "inner",
                       "padding": [
@@ -14968,13 +14631,13 @@
                       "children": [
                         {
                           "type": "text",
-                          "id": "BCxAA",
+                          "id": "WOTpb",
                           "content": "回答当前问题…",
                           "fill": "#8A8178",
                           "fontFamily": "Geist",
                           "fontSize": 14,
                           "fontWeight": "normal",
-                          "lineHeight": 1.6,
+                          "lineHeight": 1.5,
                           "width": "fill_container",
                           "textGrowth": "fixed-width"
                         }
@@ -14982,27 +14645,27 @@
                     },
                     {
                       "type": "frame",
-                      "id": "KnArD",
-                      "name": "chip-回答并继续",
+                      "id": "Arb1O",
+                      "name": "sendBtn",
                       "padding": [
-                        4,
-                        12
+                        0,
+                        16
                       ],
-                      "cornerRadius": 999,
+                      "height": 40,
+                      "cornerRadius": 4,
                       "fill": "#151515",
-                      "stroke": "#D9D2C7",
-                      "strokeWidth": 1,
-                      "strokeAlignment": "inner",
+                      "justifyContent": "center",
+                      "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "O9GmI",
+                          "id": "Mn3uG",
                           "content": "回答并继续",
-                          "fill": "#151515",
+                          "fill": "#FFFFFF",
                           "fontFamily": "Geist",
                           "fontSize": 13,
-                          "fontWeight": "normal",
-                          "lineHeight": 1.6,
+                          "fontWeight": "600",
+                          "lineHeight": 1.35,
                           "width": "fit_content",
                           "textGrowth": "fixed-width"
                         }
@@ -15018,7 +14681,7 @@
     },
     {
       "type": "frame",
-      "id": "xBdER",
+      "id": "ZZVgy",
       "x": 16000,
       "y": 0,
       "name": "46§9.7-question-record",
@@ -15029,7 +14692,7 @@
       "children": [
         {
           "type": "frame",
-          "id": "QrIOG",
+          "id": "a99jD",
           "name": "topBar",
           "width": "fill_container",
           "height": 64,
@@ -15046,13 +14709,13 @@
           "children": [
             {
               "type": "text",
-              "id": "uPtME",
+              "id": "E2mNw",
               "content": "46§9.7 等待即回答 · 消息流问题记录（只读，Draft）",
               "fill": "#151515",
               "fontFamily": "Geist",
               "fontSize": 18,
               "fontWeight": "normal",
-              "lineHeight": 1.6,
+              "lineHeight": 1.5,
               "width": "fill_container",
               "textGrowth": "fixed-width"
             }
@@ -15060,12 +14723,12 @@
         },
         {
           "type": "frame",
-          "id": "yLgBe",
+          "id": "PNEbZ",
           "name": "content",
           "width": "fill_container",
           "height": "fill_container",
           "layout": "vertical",
-          "gap": 32,
+          "gap": 20,
           "padding": [
             32,
             80
@@ -15073,73 +14736,73 @@
           "children": [
             {
               "type": "text",
-              "id": "vlxDS",
+              "id": "XqEKb",
               "content": "AI 编辑",
               "fill": "#8A8178",
               "fontFamily": "Geist",
               "fontSize": 12,
-              "fontWeight": "bold",
-              "lineHeight": 1.6,
+              "fontWeight": "600",
+              "lineHeight": 1.35,
               "width": "fill_container",
               "textGrowth": "fixed-width"
             },
             {
               "type": "text",
-              "id": "GjJU7",
+              "id": "sz1iP",
               "content": "问题：这一章按哪个方向写？",
               "fill": "#151515",
               "fontFamily": "Geist",
               "fontSize": 14,
               "fontWeight": "normal",
-              "lineHeight": 1.6,
+              "lineHeight": 1.5,
               "width": "fill_container",
               "textGrowth": "fixed-width"
             },
             {
               "type": "text",
-              "id": "eIoOO",
+              "id": "MDQ74",
               "content": "等待你的回答",
               "fill": "#8A8178",
               "fontFamily": "Geist",
               "fontSize": 12,
               "fontWeight": "normal",
-              "lineHeight": 1.6,
+              "lineHeight": 1.35,
               "width": "fill_container",
               "textGrowth": "fixed-width"
             },
             {
               "type": "text",
-              "id": "jMgT0",
+              "id": "DM5XC",
               "content": "AI 编辑",
               "fill": "#8A8178",
               "fontFamily": "Geist",
               "fontSize": 12,
-              "fontWeight": "bold",
-              "lineHeight": 1.6,
+              "fontWeight": "600",
+              "lineHeight": 1.35,
               "width": "fill_container",
               "textGrowth": "fixed-width"
             },
             {
               "type": "text",
-              "id": "kVwSO",
+              "id": "17jyn",
               "content": "问题：第三章是否采纳「雨夜追捕」作为开篇场？",
               "fill": "#151515",
               "fontFamily": "Geist",
               "fontSize": 14,
               "fontWeight": "normal",
-              "lineHeight": 1.6,
+              "lineHeight": 1.5,
               "width": "fill_container",
               "textGrowth": "fixed-width"
             },
             {
               "type": "text",
-              "id": "ZA7kP",
+              "id": "6tpzg",
               "content": "已收到回复",
               "fill": "#8A8178",
               "fontFamily": "Geist",
               "fontSize": 12,
               "fontWeight": "normal",
-              "lineHeight": 1.6,
+              "lineHeight": 1.35,
               "width": "fill_container",
               "textGrowth": "fixed-width"
             }

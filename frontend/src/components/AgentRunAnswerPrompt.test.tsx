@@ -54,7 +54,7 @@ describe("AgentRunAnswerPrompt（回答上下文提示条）", () => {
         onStartNewDiscussion={() => {}}
       />,
     );
-    expect(html).toContain("回答当前问题");
+    expect(html).toContain("需要你决定");
     expect(html).toContain("这一章按哪个方向写？");
     expect(html).toContain("选项A");
     expect(html).toContain("开始新讨论");
