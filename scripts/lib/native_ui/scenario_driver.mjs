@@ -54,6 +54,21 @@ export function activationConfirmed(payload) {
   return payload?.confirmed === true || payload?.activation?.confirmed === true;
 }
 
+// 证据文本格式化：title/desc 自然拼接，value 单独标注为 `(value=…)`。
+// 不能用裸拼接（title + desc + value 用空格拼）——AX 折叠控件的 `Value: 0` 会与
+// 邻近标题拼成「会话 0」这类伪泄漏串，干扰人工/AI 阅读证据（产品 UI 本身无泄漏）。
+export function evidenceText(node) {
+  const head = [node?.title, node?.desc]
+    .filter((part) => part !== undefined && part !== null && String(part).trim() !== "")
+    .join(" ");
+  const value = node?.value;
+  const hasValue =
+    value !== undefined && value !== null && String(value).trim() !== "";
+  if (!hasValue) return head;
+  const valueText = `(value=${String(value)})`;
+  return head === "" ? valueText : `${head} ${valueText}`;
+}
+
 export class NativeScenarioHarness {
   constructor(dir, io = {}) {
     this.dir = path.resolve(dir);
@@ -242,7 +257,7 @@ export class NativeScenarioHarness {
   }
 
   axText(nodes) {
-    return nodes.map(textOf).filter(Boolean).join("\n");
+    return nodes.map(evidenceText).filter(Boolean).join("\n");
   }
 
   async pollAx(predicate, timeoutMs, label) {

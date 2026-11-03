@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { NativeScenarioHarness, activationConfirmed } from "./scenario_driver.mjs";
+import { NativeScenarioHarness, activationConfirmed, evidenceText } from "./scenario_driver.mjs";
 
 function makeHarness(io) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "native-scenario-"));
@@ -453,4 +453,18 @@ test("失败新增完整 driver log 与原始 AX，且不改写原 failure reaso
   const raw = JSON.parse(fs.readFileSync(path.join(dir, "failure-ax-raw.json"), "utf8"));
   assert.deepEqual(raw.nodes, rawNodes);
   assert.ok(dumps > 1, "失败时额外读取原始 AX dump");
+});
+
+test("evidenceText：value 单独标注，避免 AX 值裸拼成伪泄漏串", () => {
+  // 折叠控件：title「会话」+ Value 0 → 不能成为「会话 0」（可读性伪泄漏）
+  assert.equal(evidenceText({ title: "会话", value: "0" }), "会话 (value=0)");
+  // 只有 value 时也带标注
+  assert.equal(evidenceText({ value: 0 }), "(value=0)");
+  // title + desc 自然拼接，无 value 时不追加
+  assert.equal(evidenceText({ title: "为什么", desc: "查看这轮回应的依据" }), "为什么 查看这轮回应的依据");
+  // 空节点/空白 value 返回空串（调用方 filter 掉）
+  assert.equal(evidenceText({ title: "", desc: "", value: "  " }), "");
+  assert.equal(evidenceText(null), "");
+  // 真实数字 value 保留可读形式
+  assert.equal(evidenceText({ title: "时长", value: 12 }), "时长 (value=12)");
 });
