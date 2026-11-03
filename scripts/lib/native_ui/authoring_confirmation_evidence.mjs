@@ -775,7 +775,7 @@ export function evaluateConfirmation({
   const restoreSample = String(restore?.visible_text_sample ?? "");
   const decisionTextVisible =
     restore?.decision_text_visible === true ||
-    /已确认「prose_writing」|已取消采纳|已取消等待|不会执行|没有写入作品事实|已确认操作|已拒绝/.test(restoreSample);
+    /已确认「[^」]{1,24}」|已取消采纳|已取消等待|不会执行|没有写入作品事实|已确认操作|已拒绝/.test(restoreSample);
   const restartDelta = restore?.restart_delta ?? null;
   const c10 = {
     ok:
