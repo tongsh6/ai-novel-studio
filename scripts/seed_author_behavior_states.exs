@@ -1,4 +1,6 @@
-alias NovelApplication.{WorkService, WorkSessionService}
+alias NovelApplication.{MemoryManagementService, WorkService, WorkSessionService}
+alias NovelDomain.ChapterPlanDirection
+alias NovelFoundation.Enums.{MemorySourceType, MemoryStatus, MemoryType}
 alias NovelPersistence.Repo
 alias NovelPersistence.Schemas.{Chapter, Draft, Scene, Volume}
 
@@ -36,7 +38,24 @@ if is_binary(requested) and requested != "" and not MapSet.member?(state_ids_set
   System.halt(64)
 end
 
-insert_work = fn title, chapters_spec ->
+# B11：states.yml 声明的 chapter_plans 用产品存储结构写入 chapters.plan_direction
+# （与产品同源：NovelDomain.ChapterPlanDirection.to_storage）。
+chapter_plan = fn role, progress, change, emotion ->
+  ChapterPlanDirection.to_storage(%{
+    "chapter_role" => role,
+    "plot_progress" => progress,
+    "character_change" => change,
+    "emotion" => emotion
+  })
+end
+
+create_memories = fn work, entries ->
+  Enum.each(entries, fn attrs ->
+    {:ok, _memory} = MemoryManagementService.create(work.id, attrs)
+  end)
+end
+
+insert_work = fn title, chapters_spec, chapter_plans ->
   {:ok, work} =
     WorkService.create(%{
       "title" => title,
@@ -59,7 +78,8 @@ insert_work = fn title, chapters_spec ->
         title: chapter_title,
         seq: seq,
         status: status,
-        summary: "B70 state fixture chapter #{seq}"
+        summary: "B70 state fixture chapter #{seq}",
+        plan_direction: Map.get(chapter_plans, seq)
       })
 
     if is_binary(prose) do
@@ -83,26 +103,87 @@ end
 build = fn state ->
   case state do
     "S1-partial-multichapter" ->
-      insert_work.("B70 S1 部分多章", [
-        {1, "第01章：灯楼夜话", "DRAFTING", "第01章正文：雨港的灯楼立在旧码头尽头，陈九斤守着旧账。"},
-        {2, "第02章：井底回声", "DRAFTING", "第02章正文：井底回声落下来时，陈九斤没有睁眼。"},
-        {3, "第03章：潮汐账页", "PLANNED", nil}
+      work =
+        insert_work.(
+          "B70 S1 部分多章",
+          [
+            {1, "第01章：灯楼夜话", "DRAFTING", "第01章正文：雨港的灯楼立在旧码头尽头，陈九斤守着旧账。"},
+            {2, "第02章：井底回声", "DRAFTING", "第02章正文：井底回声落下来时，陈九斤没有睁眼。"},
+            {3, "第03章：潮汐账页", "PLANNED", nil}
+          ],
+          %{
+            1 => chapter_plan.("建置章", "灯楼旧账被发现", "陈九斤决定查账", "悬疑"),
+            2 => chapter_plan.("推进章", "井底回声指向上一笔欠款", "陈九斤开始怀疑账房", "紧张"),
+            3 => chapter_plan.("铺垫章", "潮汐账页浮现", "陈九斤找到新线索", "期待")
+          }
+        )
+
+      create_memories.(work, [
+        %{
+          "content" => "陈九斤守着雨港旧灯楼，账页上记着一笔不能公开的旧账。",
+          "summary" => "灯楼旧账",
+          "type" => MemoryType.world_rule(),
+          "scope" => "WORK",
+          "status" => MemoryStatus.confirmed(),
+          "source_type" => MemorySourceType.author_created()
+        },
+        %{
+          "content" => "井底回声在雷雨夜出现，与上一笔欠款有关。",
+          "summary" => "井底回声线索",
+          "type" => MemoryType.foreshadowing(),
+          "scope" => "WORK",
+          "status" => MemoryStatus.confirmed(),
+          "source_type" => MemorySourceType.author_created()
+        }
       ])
+
+      work
 
     "S2-empty-skeleton" ->
-      insert_work.("B70 S2 空骨架", [])
+      insert_work.("B70 S2 空骨架", [], %{})
 
     "S3-pending-candidate-context" ->
-      insert_work.("B70 S3 待采纳候选", [
-        {1, "第01章：灯楼旧账", "DRAFTING", "第01章正文：灯楼旧账翻到第七页，账页上的水痕还没有干。"},
-        {2, "第02章：潮汐账页", "PLANNED", nil}
+      # B11：pending_candidates=1 无法用产品 API 在 seed 中真实构造（pending 候选来自
+      # 工具产物/turn_result 持久化链路）；如实登记差异，不伪造 turn_result。
+      work =
+        insert_work.(
+          "B70 S3 待采纳候选",
+          [
+            {1, "第01章：灯楼旧账", "DRAFTING", "第01章正文：灯楼旧账翻到第七页，账页上的水痕还没有干。"},
+            {2, "第02章：潮汐账页", "PLANNED", nil}
+          ],
+          %{
+            1 => chapter_plan.("建置章", "旧账翻到第七页", "陈九斤意识到水痕是新的", "悬疑"),
+            2 => chapter_plan.("铺垫章", "潮汐账页出现", "陈九斤准备核对旧账", "期待")
+          }
+        )
+
+      create_memories.(work, [
+        %{
+          "content" => "灯楼旧账翻到第七页时，账页上的水痕还没有干。",
+          "summary" => "灯楼旧账水痕",
+          "type" => MemoryType.foreshadowing(),
+          "scope" => "WORK",
+          "status" => MemoryStatus.confirmed(),
+          "source_type" => MemorySourceType.author_created()
+        },
+        %{
+          "content" => "潮汐账页记录了旧账的结算周期。",
+          "summary" => "潮汐账页规则",
+          "type" => MemoryType.world_rule(),
+          "scope" => "WORK",
+          "status" => MemoryStatus.confirmed(),
+          "source_type" => MemorySourceType.author_created()
+        }
       ])
+
+      work
 
     "S4-same-title-chapters" ->
       insert_work.("B73 S4 同名章", [
         {1, "第01章：潮汐回声", "DRAFTING", "甲线正文：潮汐回声穿过空仓库，甲线守门人没有回头。"},
         {2, "第02章：潮汐回声", "DRAFTING", "乙线正文：潮汐回声停在旧船舱，乙线记录者合上账页。"}
-      ])
+      ], %{})
   end
 end
 
