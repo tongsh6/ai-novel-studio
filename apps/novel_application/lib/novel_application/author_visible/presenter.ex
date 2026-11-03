@@ -142,6 +142,12 @@ defmodule NovelApplication.AuthorVisible.Presenter do
   @spec plan_step_summary(term()) :: String.t()
   def plan_step_summary(tool_code), do: "正在执行计划步骤：#{tool_label(tool_code)}。"
 
+  @doc """
+  错误码 → 作者可读提示（SSOT error_code 域；未登记码走兜底，不回显内部 code）。
+  """
+  @spec error_label(term()) :: String.t()
+  def error_label(error_code), do: Text.text(Text.from_display(:error_code, error_code))
+
   @doc "reason code → 作者可读的一行（Why 面板）。"
   @spec why_line(term()) :: String.t()
   def why_line(reason_code), do: Text.text(Text.from_display(:reason_code, reason_code))

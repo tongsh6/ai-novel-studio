@@ -46,7 +46,7 @@ defmodule NovelApplication.AuthorVisible.PresenterTest do
 
   describe "why_line/1 与 frame_label/1" do
     test "reason code / frame_type 走 SSOT，未知值兜底" do
-      assert Presenter.why_line("gates_passed") == "已通过前置检查"
+      assert Presenter.why_line("gates_passed") == "执行门禁已通过。"
       assert Presenter.why_line("unknown_reason") == "已记录"
       assert Presenter.frame_label("creative_exploration") == "探索"
       assert Presenter.frame_label("unknown_frame") == "创作进展"
@@ -79,6 +79,21 @@ defmodule NovelApplication.AuthorVisible.PresenterTest do
       assert Presenter.confirmation_target("character_design") == "角色设计"
       assert Presenter.confirmation_target("target-1") == "本轮待确认操作"
       assert Presenter.confirmation_target(nil) == "本轮待确认操作"
+    end
+  end
+
+  describe "错误码作者可读提示（error_label）" do
+    test "已登记错误码返回作者可读提示，未知码兜底不回显内部 code" do
+      assert Presenter.error_label(:target_missing) == "未找到目标对象"
+      assert Presenter.error_label("execution_in_progress") == "当前有任务在执行"
+      assert Presenter.error_label(:transcript_not_found) == "会话记录未找到"
+      assert Presenter.error_label("checkpoint_persistence_failed") == "整理失败，请稍后重试"
+      assert Presenter.error_label(:timeout) == "模型响应超时"
+      assert Presenter.error_label(:rate_limit) == "模型服务请求过于频繁"
+
+      unknown = Presenter.error_label("new_unregistered_error")
+      assert unknown == "处理遇到问题"
+      refute unknown =~ "new_unregistered_error"
     end
   end
 

@@ -849,7 +849,7 @@ defmodule NovelApplication.TurnExecutionService do
   defp execution_brief_degraded?(_brief_result), do: false
 
   # 任务语义校验失败时仍产生可解释 failed ToolResult（不调 provider、不写 artifact）。
-  defp authoring_task_failed_result(%ToolRequest{} = req, reason) do
+  defp authoring_task_failed_result(%ToolRequest{} = req, _reason) do
     %ToolResult{
       tool_result_id: NovelFoundation.ID.unique("tr"),
       tool_request_ref: req.tool_request_id,
@@ -859,7 +859,7 @@ defmodule NovelApplication.TurnExecutionService do
       errors: [
         %{
           code: "authoring_task_invalid",
-          message: "本轮专业调用任务语义未通过校验，未调用创作能力：#{inspect(reason)}"
+          message: "本轮专业调用任务语义未通过校验，未调用创作能力。"
         }
       ],
       artifact_refs: [],
