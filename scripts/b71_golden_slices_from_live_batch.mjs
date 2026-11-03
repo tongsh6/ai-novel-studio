@@ -65,6 +65,73 @@ export function classifyMessage(message) {
   return { kind: `unknown:${role}`, text: content };
 }
 
+// 提取 key 之后的 JSON 数组：括号深度扫描 + 字符串/转义感知。不能用 /\[[^\]]*\]/
+// 截取——数组元素内可能有嵌套数组（如 available_operations:[]），会在第一个 ] 处截断
+// 导致 JSON.parse 失败（pending-08 followup 实测）。
+export function extractJsonArrayAfterKey(text, key) {
+  const marker = `"${key}"`;
+  const keyIndex = text.indexOf(marker);
+  if (keyIndex < 0) return null;
+  const start = text.indexOf("[", keyIndex + marker.length);
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === "[") {
+      depth += 1;
+    } else if (ch === "]") {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+// 同一请求内的 tool call/result 严格配对（I-ART-4 观察语义）：每个 assistant
+// tool_call 必须恰好一个 tool result，反之亦然；result 必须在 call 之后；id 不得重复。
+export function pairToolCalls(messages) {
+  const calls = [];
+  const results = [];
+  messages.forEach((message, at) => {
+    const role = message?.role;
+    if (role === "assistant") {
+      for (const call of Array.isArray(message.tool_calls) ? message.tool_calls : []) {
+        calls.push({ id: call?.id ?? null, at });
+      }
+    } else if (role === "tool") {
+      results.push({ id: message.tool_call_id ?? null, at });
+    }
+  });
+  const callIds = calls.map((call) => call.id).filter(Boolean);
+  const resultIds = results.map((result) => result.id).filter(Boolean);
+  const duplicates = (ids) => [...new Set(ids.filter((id, index) => ids.indexOf(id) !== index))];
+  const missingResults = callIds.filter((id) => !resultIds.includes(id));
+  const orphanResults = resultIds.filter((id) => !callIds.includes(id));
+  const orderViolations = calls
+    .filter((call) => {
+      const result = results.find((candidate) => candidate.id === call.id);
+      return result ? result.at < call.at : false;
+    })
+    .map((call) => call.id);
+  return {
+    call_count: callIds.length,
+    result_count: resultIds.length,
+    duplicate_calls: duplicates(callIds),
+    duplicate_results: duplicates(resultIds),
+    missing_results: missingResults,
+    orphan_results: orphanResults,
+    order_violations: orderViolations,
+  };
+}
+
 export function sliceRequest(record, index) {
   // live 形状：request.body.messages；确定性 slice_verify 形状：顶层 request_body.messages。
   const body = record?.request?.body ?? record?.request_body ?? {};
@@ -81,7 +148,13 @@ export function sliceRequest(record, index) {
       arguments_sha256: sha256(call?.function?.arguments ?? call?.arguments ?? ""),
     })),
   );
-  const requestText = messages.map((m) => JSON.stringify(m)).join("\n");
+  // 注意：判据匹配必须用「原始 content 文本」，不能用 JSON.stringify(messages)——
+  // stringify 会把内容中的双引号转义成 \"，导致带引号的判据（如 "resolved_adoptions"）
+  // 永不命中（独立复核 F1 确认的判据失效）。
+  const rawTexts = messages.map((message) =>
+    typeof message?.content === "string" ? message.content : JSON.stringify(message?.content ?? ""),
+  );
+  const requestTextRaw = rawTexts.join("\n");
   return {
     index,
     turn_id: record?.turn_id ?? null,
@@ -94,8 +167,9 @@ export function sliceRequest(record, index) {
     tool_result_call_ids: toolResults.map((m) => m.tool_call_id),
     tool_result_contents: toolResults.map((m) => m.text),
     author_messages: authorMessages.map((m) => ({ sha256: sha256(m.text), chars: m.text.length })),
-    prefix_sha256: sha256(requestText),
-    request_text: requestText,
+    prefix_sha256: sha256(messages.map((m) => JSON.stringify(m)).join("\n")),
+    request_text_raw: requestTextRaw,
+    tool_pairing: pairToolCalls(messages),
   };
 }
 
@@ -144,6 +218,23 @@ export function goldenSlices(requests) {
   const uniqueResultIds = new Set(requests.flatMap((req) => req.tool_result_call_ids.filter(Boolean)));
   const boundIds = uniqueCallIds.filter((id) => uniqueResultIds.has(id));
   const observationRequests = requests.filter((req) => req.tool_result_call_ids.length > 0);
+  // 同请求内严格配对（独立复核 F2）：全局集合包含不足以证明观察语义，
+  // 必须同请求一 call 一 result、无重复/缺失/孤儿、result 在 call 之后。
+  const pairingErrors = requests.flatMap((req) => {
+    const pairing = req.tool_pairing ?? {};
+    const errors = [];
+    if ((pairing.duplicate_calls?.length ?? 0) > 0)
+      errors.push({ request: req.index, code: "duplicate_call_id", ids: pairing.duplicate_calls });
+    if ((pairing.duplicate_results?.length ?? 0) > 0)
+      errors.push({ request: req.index, code: "duplicate_result_id", ids: pairing.duplicate_results });
+    if ((pairing.missing_results?.length ?? 0) > 0)
+      errors.push({ request: req.index, code: "missing_tool_result", ids: pairing.missing_results });
+    if ((pairing.orphan_results?.length ?? 0) > 0)
+      errors.push({ request: req.index, code: "orphan_tool_result", ids: pairing.orphan_results });
+    if ((pairing.order_violations?.length ?? 0) > 0)
+      errors.push({ request: req.index, code: "result_before_call", ids: pairing.order_violations });
+    return errors;
+  });
   slices.push({
     id: "G2",
     name: "观察后",
@@ -152,11 +243,13 @@ export function goldenSlices(requests) {
       uniqueCallIds.length > 0 &&
       uniqueResultIds.size > 0 &&
       boundIds.length === uniqueCallIds.length &&
-      observationRequests.length > 0,
+      observationRequests.length > 0 &&
+      pairingErrors.length === 0,
     facts: {
       unique_tool_call_ids: uniqueCallIds.length,
       unique_tool_result_ids: uniqueResultIds.size,
       call_ids_bound: boundIds.length,
+      pairing_errors: pairingErrors,
       replayed_occurrences_total: requests.flatMap((req) => req.tool_calls.map((call) => call.id).filter(Boolean)).length,
       requests_with_tool_results: observationRequests.map((req) => req.index),
     },
@@ -188,11 +281,36 @@ export function goldenSlices(requests) {
   // 新授权边界/新 run 需批次 turn 序列确认（由批次 verifier 承担）。
   // 只认「真实处置数据」而非规则文本：已处置 N 份 / ACCEPTED N 份 / 显式 refs 字段。
   // 规则文本（如「不要声称已采纳」「不得声称已采纳」）不含这些数据形态，不应判覆盖。
-  const DISPOSITION_DATA =
-    /(已处置\s*\d+|ACCEPTED\/(?:EDITED_)?ACCEPTED\s*\d+\s*项|"resolved_adoptions"|"status"\s*:\s*"ACCEPTED"|"status"\s*:\s*"DISCARDED"|"accepted_refs"|"discarded_refs"|"accepted_ref"\s*:|"discarded_ref"\s*:)/;
-  const dispositionRequests = requests.filter((req) =>
-    DISPOSITION_DATA.test(String(req.request_text ?? "")),
-  );
+  // 结构化处置事实（独立复核 F1）：必须用原始 content 文本（不是转义后的
+  // JSON.stringify），并区分「非空真实处置」与「空事实/规则文本」。
+  const dispositionFacts = (text) => {
+    const facts = {
+      resolved_adoptions_non_empty: false,
+      resolved_statuses: [],
+      disposed_count: null,
+    };
+    const arrayText = extractJsonArrayAfterKey(text, "resolved_adoptions");
+    if (arrayText) {
+      try {
+        const rows = JSON.parse(arrayText);
+        if (Array.isArray(rows)) {
+          facts.resolved_statuses = rows
+            .map((row) => row?.status)
+            .filter((status) => typeof status === "string");
+          facts.resolved_adoptions_non_empty = facts.resolved_statuses.length > 0;
+        }
+      } catch {
+        // 非法 JSON 视作空事实（不判覆盖）
+      }
+    }
+    const disposed = /已处置\s*(\d+)/.exec(text);
+    if (disposed) facts.disposed_count = Number(disposed[1]);
+    return facts;
+  };
+  const dispositionRequests = requests.filter((req) => {
+    const facts = dispositionFacts(String(req.request_text_raw ?? ""));
+    return facts.resolved_adoptions_non_empty || (facts.disposed_count ?? 0) > 0;
+  });
   const dispositionTurns = new Set(dispositionRequests.map((req) => req.turn_id).filter(Boolean));
   // 「边界后新 turn」：含处置事实的请求所在 turn 与其它请求的 turn 不同（说明处置事实
   // 由后续新 run 的请求携带，而不是旧 run 的历史回放）。
@@ -209,17 +327,23 @@ export function goldenSlices(requests) {
     id: "G5",
     name: "作者边界后",
     request_index: dispositionRequests[0]?.index ?? null,
-    ok: dispositionRequests.length > 0,
+    // 覆盖条件：存在非空真实处置事实，且该事实出现在「边界后新 turn」的请求里
+    // （新 run 请求携带处置结果，而不是旧 run 历史回放）。
+    ok: dispositionRequests.length > 0 && laterDisposition.length > 0,
     facts: {
       requests_with_disposition_facts: dispositionRequests.map((req) => req.index),
       turns_with_disposition_facts: [...dispositionTurns],
       requests_after_boundary_with_facts: laterDisposition.map((req) => req.index),
-      note: "结构证据：请求字节携带处置事实；新授权边界/新 run 由批次 verifier 的 turn 序列断言承担",
+      disposition_detail: dispositionRequests.map((req) => ({
+        request: req.index,
+        ...dispositionFacts(String(req.request_text_raw ?? "")),
+      })),
+      note: "结构证据：请求字节携带非空处置事实且位于边界后新 turn；新授权边界/新 run 由批次 verifier 的 turn 序列断言承担",
     },
   });
   // G6 压缩后：显式压缩 checkpoint 必须以 covers/call_ids/checkpoint 标记进入后续请求。
   const compressionRequests = requests.filter((req) =>
-    /checkpoint|covers|compact|压缩|整理已完成/.test(String(req.request_text ?? "")),
+    /checkpoint|covers|compact|压缩|整理已完成/.test(String(req.request_text_raw ?? "")),
   );
   slices.push({
     id: "G6",

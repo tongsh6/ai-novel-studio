@@ -8,8 +8,10 @@ import test from "node:test";
 
 import {
   classifyMessage,
+  extractJsonArrayAfterKey,
   goldenSlices,
   prefixIsAppend,
+  pairToolCalls,
   sliceRequest,
 } from "./b71_golden_slices_from_live_batch.mjs";
 
@@ -160,3 +162,74 @@ function slideWithTools(names) {
   ];
   return sliceRequest(request(messages), 0);
 }
+
+test("extractJsonArrayAfterKey：嵌套数组按括号深度完整提取（不截断）", () => {
+  const text = 'base {"resolved_adoptions":[{"status":"DISCARDED","available_operations":[]},{"status":"ACCEPTED","revision_of":"as_1"}],"tail":1}';
+  const extracted = extractJsonArrayAfterKey(text, "resolved_adoptions");
+  assert.ok(extracted, "应提取到数组");
+  const rows = JSON.parse(extracted);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(
+    rows.map((row) => row.status),
+    ["DISCARDED", "ACCEPTED"],
+  );
+  assert.equal(extractJsonArrayAfterKey(text, "missing_key"), null);
+});
+
+test("extractJsonArrayAfterKey：字符串内的括号/转义不影响配对", () => {
+  const text = 'x {"k":[{"note":"包含 ] 和 \\" 引号"},{"note":"ok"}],"y":0}';
+  const rows = JSON.parse(extractJsonArrayAfterKey(text, "k"));
+  assert.equal(rows.length, 2);
+});
+
+test("pairToolCalls：唯一配对、缺失/孤儿/重复/顺序错误全部报出", () => {
+  const clean = pairToolCalls([
+    { role: "assistant", content: "", tool_calls: [{ id: "c1" }, { id: "c2" }] },
+    { role: "tool", content: "{}", tool_call_id: "c1" },
+    { role: "tool", content: "{}", tool_call_id: "c2" },
+  ]);
+  assert.deepEqual(clean, {
+    call_count: 2,
+    result_count: 2,
+    duplicate_calls: [],
+    duplicate_results: [],
+    missing_results: [],
+    orphan_results: [],
+    order_violations: [],
+  });
+  const broken = pairToolCalls([
+    { role: "tool", content: "{}", tool_call_id: "orphan" },
+    { role: "assistant", content: "", tool_calls: [{ id: "c1" }, { id: "c1" }] },
+    { role: "tool", content: "{}", tool_call_id: "c1" },
+    { role: "tool", content: "{}", tool_call_id: "c1" },
+  ]);
+  assert.deepEqual(broken.duplicate_calls, ["c1"]);
+  assert.deepEqual(broken.duplicate_results, ["c1"]);
+  assert.deepEqual(broken.orphan_results, ["orphan"]);
+  assert.deepEqual(broken.missing_results, []);
+});
+
+test("goldenSlices：G5 要求非空处置数据 + 边界后新 turn，空事实不误报", () => {
+  const build = (turnId, messages) => {
+    const slice = sliceRequest({ request_body: { messages }, turn_id: turnId }, 0);
+    return { ...slice, turn_id: turnId, rawMessages: messages };
+  };
+  const emptyFact = build("turn-src", [
+    { role: "system", content: "constitution" },
+    { role: "user", content: "【应用数据 · application_base · 非作者原话】base" },
+    { role: "user", content: "作者原话" },
+    { role: "user", content: '{"resolved_adoptions":[],"pending_adoption_count":0}' },
+  ]);
+  const nonEmptyFact = build("turn-followup", [
+    { role: "system", content: "constitution" },
+    { role: "user", content: "【应用数据 · application_base · 非作者原话】base" },
+    { role: "user", content: "作者原话" },
+    { role: "user", content: '{"resolved_adoptions":[{"status":"ACCEPTED","available_operations":[]}]}' },
+  ]);
+  const emptyOnly = goldenSlices([emptyFact]);
+  assert.equal(emptyOnly.find((s) => s.id === "G5").ok, false);
+  const withReal = goldenSlices([emptyFact, nonEmptyFact]);
+  const g5 = withReal.find((s) => s.id === "G5");
+  assert.equal(g5.ok, true);
+  assert.equal(g5.facts.disposition_detail[0].resolved_adoptions_non_empty, true);
+});
