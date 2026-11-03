@@ -921,6 +921,6 @@
   - `mix compile --warnings-as-errors` 0 警告、`mix credo --strict` 0 issues、module-size（软 ratchet）通过
   - `mix xref ... compile-connected --fail-above 0`：**No cycles**；`arch_check`：通过
   - **I1 4/4、I2 3 pairs/0 violations、I3 3/3**；Semgrep（可写 HOME）EXIT=0
-- **完整静态扫描**：见 `artifacts/b71-resume/final-gate-v2/static-scan-full.log`（gitleaks 6 项均为既有处置；task-done manifest 在干净工作区下可跳过）。
+- **完整静态扫描（最终）**：`artifacts/b71-resume/final-gate-v2/static-scan-full2.log` —— **20 passed / 1 failed**（唯一 raw fail = gitleaks 6 项既有处置：5 false_positive + 1 accepted_risk，touched=0、**blocking=0**）；Semgrep 全量通过（`leak_scan.mjs` 的 `detect-non-literal-regexp` 经受控 SSOT 输入说明 + `nosemgrep` 注记闭环，修复提交 `61f7d4a8`）；task-done manifest 在干净工作区下按规则跳过。
 - **资源矩阵**（全部如实登记，不代签）：§16.14 确认/拒绝双路径 clean PASS（01i/02c + 01k2/02e2）；pending 08 原生 77/77；CP3b 实模协议层机制 10/10 + G1–G5 切片；行为覆盖 pilot #1 clean PASS / #2 真实模型执行失败（如实未通过）；displayName P0+P1 真实页面全类别扫描零命中；压缩 A 方案设计/阶段 4/阶段 5/自动维护实现完成、**A3 真实页面验收未闭环**（场景设计缺口：跨 run 续行不属于维护范围，46 §9.9 第 7 条冻结；A3b 构造路径见 `artifacts/b71-resume/compaction-auto-trigger-ax-prereg-brief.md` §7 与 `artifacts/b71-resume/auto-maintenance-a3-recovery-notes.md`）。
 - **环境限制**：Pencil PNG 待有 Pencil 环境导出（帧已 Draft 落地 pen）；macOS 锁屏曾阻塞批次（环境失败如实登记）。
