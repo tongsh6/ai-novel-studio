@@ -57,6 +57,10 @@ config :novel_agent, NovelAgent.Provider.LMStudio,
 config :novel_application, sync_memory_reference_log: true
 config :novel_application, sync_chapter_summary_maintenance: true
 
+# B71 安全点自动维护默认关闭：避免既有 run 测试产生额外 compact 事件；
+# 自动维护专测用 Application.put_env 局部开启（见 auto_maintenance_test.exs）。
+config :novel_application, :auto_maintenance, enabled: false, keep_recent_items: 4
+
 # 测试环境导出落到项目 tmp（不污染用户 Documents）；dev/prod 走默认导出目录。
 config :novel_application, :export_dir, "tmp/exports"
 

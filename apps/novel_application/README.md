@@ -49,7 +49,9 @@ be found at <https://hexdocs.pm/novel_application>.
 - [agent_run_server.ex](lib/novel_application/agent_run_server.ex)：状态机、received/staged 转换与提交后发布；结果/问题/状态/压缩统一走 `AgentRunPersistence`，不再自带序列化与 durable task 写入细节。
 - [agent_run_persistence.ex](lib/novel_application/agent_run_persistence.ex)：AgentRun snapshot 的唯一投影/写入请求边界；run/step/author-safe event、私有 checkpoint 编码调用与 durable task header/progress/step 投影，定义 delivery/status/compaction/question 四种事件语义；checkpoint_version 的唯一所属点。
 - [agent_run_service.ex](lib/novel_application/agent_run_service.ex)：离线恢复复用同一私有选择/校验，不自动执行 Provider；durable task 初始 header 引用同一 checkpoint_version。`compact_transcript/1` 是作者显式压缩的唯一公共入口：只表达整理意图，不接收调用方压缩内容。
-- [transcript_compaction.ex](lib/novel_application/transcript_compaction.ex)：B71 显式压缩的唯一派生边界（VS-00L §16.2/§16.4；§18 维护派生）：`plan/1` 派生命中全部未覆盖完整交换，`plan_maintenance/2` 保留最近 K 项与当前工作回合（未激活自动触发）；来源 refs/版本、作者安全摘要与省略说明；不调模型、不改写 transcript。
+- [transcript_compaction.ex](lib/novel_application/transcript_compaction.ex)：B71 显式压缩的唯一派生边界（VS-00L §16.2/§16.4；§18 维护派生）：`plan/1` 派生命中全部未覆盖完整交换，`plan_maintenance/2` 保留最近 K 项与当前工作回合（供安全点自动维护消费）；来源 refs/版本、作者安全摘要与省略说明；不调模型、不改写 transcript。
+- [agent_run_server.ex](lib/novel_application/agent_run_server.ex)（§16.16 第 2 类入口）：安全点（step 完成后 / 进入 awaiting_author 前 / durable 恢复后首个调度）读 `ContextPressure` 真实 usage 压力，按 `:auto_maintenance` 配置自动发起上下文维护；失败静默保留旧 state、下一安全点重试；阈值只决定时机、不决定范围（保留最近 K 项、当前工作回合不整理）。
+- [auto_maintenance_test.exs](test/novel_application/auto_maintenance_test.exs)：安全点自动维护：压力触发/未到/未知、当前回合、保留 K、未完成交换、配置关闭、幂等、失败静默+重试、payload 无技术词、取消后迟到结果不维护。
 - [compaction_record.ex](lib/novel_application/compaction_record.ex)：压缩整理记录边界：构造 `checkpoint_created` 作者安全事件、与 checkpoint 同一边界先提交后发布、投影作者回执；事件构造失败只降级不阻塞压缩。
 - [agent_run_compaction_event_test.exs](test/novel_application/agent_run_compaction_event_test.exs)：压缩整理记录的持久化/幂等/失败静默：durable 与 bounded 各一条，payload 无内部标识，SQL 拒写时无事件且内存不推进。
 - [transcript_compaction_test.exs](test/novel_application/transcript_compaction_test.exs)：完整交换选择、未完成/重复结果/已覆盖排除、证据一致、作者可见回执无内部标识、空会话幂等、维护派生保留 K 项与当前工作回合。

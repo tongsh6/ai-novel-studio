@@ -142,7 +142,12 @@ defmodule NovelApplication.ContextPressure do
   def maintenance_due?(_run_id), do: false
 
   defp ratios do
-    config = Application.get_env(:novel_application, :context_pressure, %{})
+    config =
+      case Application.get_env(:novel_application, :context_pressure, %{}) do
+        config when is_list(config) -> Map.new(config)
+        config when is_map(config) -> config
+        _other -> %{}
+      end
 
     {Map.get(config, :maintenance_ratio, @default_maintenance_ratio),
      Map.get(config, :hard_ratio, @default_hard_ratio)}

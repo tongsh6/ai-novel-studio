@@ -39,6 +39,18 @@ config :logger, :default_formatter,
     :provider_run_ref
   ]
 
+# ── B71 上下文维护（VS-00L §16.16 第 2 类入口；2026-11-04 作者批准方案 A）──
+# 安全点按真实上下文压力自动整理较早的已完成创作过程：阈值只决定触发时机，
+# 不决定整理范围；保留最近 K 项为运行策略参数，不向作者暴露。
+# test 环境默认关闭（见 config/test.exs），专测用 Application.put_env 局部开启。
+config :novel_application, :auto_maintenance,
+  enabled: true,
+  keep_recent_items: 4
+
+config :novel_application, :context_pressure,
+  maintenance_ratio: 0.70,
+  hard_ratio: 0.90
+
 # ── Provider 通用配置 ──────────────────────────
 # 各环境可通过 import_config "#{config_env()}.exs" 覆盖。
 #

@@ -17,6 +17,7 @@ defmodule NovelApplication.AgentRunServer do
   alias NovelApplication.AgentRunService
   alias NovelApplication.AuthorActionAdmission
   alias NovelApplication.CompactionRecord
+  alias NovelApplication.ContextPressure
   alias NovelApplication.TranscriptCompaction
   alias NovelApplication.TurnInteractionService
   alias NovelCommon.Contracts.AgentEvent
@@ -796,7 +797,9 @@ defmodule NovelApplication.AgentRunServer do
         {:noreply, pause_now(state)}
 
       state.run.status == :awaiting_author ->
-        {:noreply, state}
+        # VS-00L §16.16 第 2 类入口：进入等待作者前是无执行中任务的安全点，
+        # 按真实上下文压力自动维护（只整理更早工作回合；失败静默）。
+        {:noreply, maybe_auto_maintain(state)}
 
       terminal?(state) ->
         {:noreply, state}
@@ -838,6 +841,10 @@ defmodule NovelApplication.AgentRunServer do
   def handle_info(_message, state), do: {:noreply, state}
 
   defp run_next_step(state) do
+    # VS-00L §16.16 第 2 类入口：下一步调度前无执行中任务（覆盖 step 完成后与
+    # durable 恢复后的首个安全点），按真实上下文压力自动维护；失败静默。
+    state = maybe_auto_maintain(state)
+
     cond do
       blocking_interrupt_requested?(state) ->
         {:noreply, state}
@@ -2215,6 +2222,15 @@ defmodule NovelApplication.AgentRunServer do
   # 压缩只追加 canonical checkpoint 并与一条 author-safe 整理记录同边界提交；
   # 不改变运行状态、不产生 TurnResult。失败保留旧 state 且不广播。
   defp apply_compaction(plan, state) do
+    case compact_and_commit(plan, state) do
+      {:ok, receipt, committed} -> {:reply, {:ok, receipt}, committed}
+      {:error, _reason} = error -> {:reply, error, state}
+    end
+  end
+
+  # 显式命令与安全点自动维护共用的压缩执行：只派生/提交/发布，不改运行状态。
+  # 失败由调用方决定「作者可见回执」或「静默保留旧 state」。
+  defp compact_and_commit(plan, state) do
     transcript = Map.get(state.stage_state, :judgment_transcript)
 
     case AuthoringSession.compact(transcript, plan) do
@@ -2222,12 +2238,78 @@ defmodule NovelApplication.AgentRunServer do
         next = merge_stage_state(state, AuthoringSession.transcript_state(compacted))
 
         case CompactionRecord.commit(next, plan, compacted) do
-          {:ok, receipt, committed} -> {:reply, {:ok, receipt}, committed}
-          {:error, _reason} = error -> {:reply, error, state}
+          {:ok, receipt, committed} -> {:ok, receipt, committed}
+          {:error, _reason} = error -> error
         end
 
       {:error, _reason} = error ->
-        {:reply, error, state}
+        error
+    end
+  end
+
+  # ── 安全点自动维护（VS-00L §16.16 第 2 类入口；§18 a–h）────────────────
+  #
+  # 只在无执行中任务的安全点调用：`run_next_step/1` 开头（step 完成后 / durable
+  # 恢复后的首个调度）与 step 完成后进入 awaiting_author 的分支。
+  # 阈值只决定触发时机，不决定整理范围；失败静默、保留旧 state、下一安全点重试。
+  defp maybe_auto_maintain(state) do
+    with true <- auto_maintenance_enabled?(),
+         false <- terminal?(state),
+         true <- ContextPressure.maintenance_due?(state.run.run_id) do
+      run_auto_maintenance(state)
+    else
+      _ -> state
+    end
+  end
+
+  defp run_auto_maintenance(state) do
+    transcript = Map.get(state.stage_state, :judgment_transcript)
+
+    case TranscriptCompaction.plan_maintenance(transcript,
+           keep_recent_items: auto_maintenance_keep_recent_items()
+         ) do
+      {:ok, plan} when is_map(plan) ->
+        case compact_and_commit(plan, state) do
+          {:ok, _receipt, committed} ->
+            committed
+
+          {:error, reason} ->
+            log_auto_maintenance_error(state, reason)
+            state
+        end
+
+      _nothing_or_error ->
+        state
+    end
+  end
+
+  defp log_auto_maintenance_error(state, reason) do
+    LogEmit.emit(:agent_run, :auto_maintenance, :error, %{
+      run_id: state.run.run_id,
+      reason: inspect(reason)
+    })
+  rescue
+    _error -> :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  defp auto_maintenance_enabled? do
+    Map.get(auto_maintenance_config(), :enabled, true) == true
+  end
+
+  defp auto_maintenance_keep_recent_items do
+    case Map.get(auto_maintenance_config(), :keep_recent_items) do
+      keep when is_integer(keep) and keep >= 0 -> keep
+      _other -> 4
+    end
+  end
+
+  defp auto_maintenance_config do
+    case Application.get_env(:novel_application, :auto_maintenance, %{}) do
+      config when is_list(config) -> Map.new(config)
+      config when is_map(config) -> config
+      _other -> %{}
     end
   end
 
