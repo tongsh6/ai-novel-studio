@@ -1,5 +1,5 @@
 defmodule NovelPersistence.AuthorActionReceiptRepoTest do
-  use NovelPersistence.DataCase, async: true
+  use NovelPersistence.DataCase, async: false
 
   alias NovelFoundation.ID
   alias NovelPersistence.AuthorActionReceiptRepo

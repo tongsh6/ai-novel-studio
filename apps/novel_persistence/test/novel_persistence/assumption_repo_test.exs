@@ -2,7 +2,7 @@ defmodule NovelPersistence.AssumptionRepoTest do
   @moduledoc """
   VS-00G CP5b：工作假定物化守卫（canon 优先/同名不重提）与「暂定设定」读端口。
   """
-  use NovelPersistence.DataCase, async: true
+  use NovelPersistence.DataCase, async: false
 
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.AssumptionRepo

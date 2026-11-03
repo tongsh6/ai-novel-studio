@@ -3,7 +3,7 @@ defmodule NovelPersistence.PlanningMissionRepoTest do
   WR01c：规划使命落 `works.planning_direction["planning_mission"]`——暂定写入不覆盖作者版、
   确认/改写/作废状态机、get_mission 作者版直取入口。
   """
-  use NovelPersistence.DataCase, async: true
+  use NovelPersistence.DataCase, async: false
 
   alias NovelPersistence.PlanningMissionRepo
   alias NovelPersistence.WorkRepo

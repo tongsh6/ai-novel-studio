@@ -1,5 +1,5 @@
 defmodule NovelPersistence.Schemas.MemoryItemTest do
-  use NovelPersistence.DataCase, async: true
+  use NovelPersistence.DataCase, async: false
 
   alias NovelFoundation.Enums.MemoryScope
   alias NovelFoundation.Enums.MemorySourceType

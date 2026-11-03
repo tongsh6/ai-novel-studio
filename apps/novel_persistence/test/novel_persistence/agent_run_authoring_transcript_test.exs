@@ -1,5 +1,5 @@
 defmodule NovelPersistence.AgentRunAuthoringTranscriptTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox

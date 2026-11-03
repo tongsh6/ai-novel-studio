@@ -3,7 +3,7 @@ defmodule NovelPersistence.ChapterSummaryReaderTest do
   VS-00C CP2.2：chapter_summary_reader port 的 title↔chapter_id 解析（toc 索引）。
   端到端验证 chapter_id 存储/查询口径一致（:string 与 toc id 形态匹配）。
   """
-  use NovelPersistence.DataCase, async: true
+  use NovelPersistence.DataCase, async: false
 
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.ID

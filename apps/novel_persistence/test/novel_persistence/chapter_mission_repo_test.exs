@@ -3,7 +3,7 @@ defmodule NovelPersistence.ChapterMissionRepoTest do
   WR01b：本章使命落 `chapters.plan_direction["chapter_mission"]`——暂定写入不覆盖作者版、
   确认/改写/作废状态机、大纲重物化带回使命。
   """
-  use NovelPersistence.DataCase, async: true
+  use NovelPersistence.DataCase, async: false
 
   alias NovelPersistence.AdoptionRepository
   alias NovelPersistence.ChapterMissionRepo

@@ -1,5 +1,5 @@
 defmodule NovelPersistence.AdoptionRepositoryTest do
-  use NovelPersistence.DataCase, async: true
+  use NovelPersistence.DataCase, async: false
 
   import Ecto.Query
 

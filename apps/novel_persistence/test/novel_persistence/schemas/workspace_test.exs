@@ -1,5 +1,5 @@
 defmodule NovelPersistence.Schemas.WorkspaceTest do
-  use NovelPersistence.DataCase, async: true
+  use NovelPersistence.DataCase, async: false
 
   alias NovelPersistence.Schemas.Workspace
 

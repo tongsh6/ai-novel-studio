@@ -1,5 +1,5 @@
 defmodule NovelPersistence.Schemas.SceneTest do
-  use NovelPersistence.DataCase, async: true
+  use NovelPersistence.DataCase, async: false
 
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.Scene

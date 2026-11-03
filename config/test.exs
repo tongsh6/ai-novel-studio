@@ -8,14 +8,31 @@ config :dialyxir,
 # 测试库：SQLite3（阶段 1 桌面单机，业务代码 0 改动即可切 PG）。
 # Sandbox 模式由 Ecto.Adapters.SQL.Sandbox 接管，每个测试事务隔离。
 # 独立 database 名避免污染 dev。
+#
+# 2026-11-04 测试提速：默认库名加入 OS 进程唯一 token。
+# 旧行为所有 mix test 进程共享同一 SQLite 文件，本机多终端/多 agent 会话并发
+# 跑测试时会触发 busy_timeout 5s 重试（实测 persistence 段 1.7s → 192s，
+# 42 个 Database busy 失败）。加 pid 后每个测试进程独占一个库。
+# 例外：显式设置 NOVEL_TEST_DB_DIR 时保持旧固定名——frontend/slice-verify
+# 外部驱动脚本按固定文件名只读 DB，不能改变该场景的文件名。
+test_db_dir = System.get_env("NOVEL_TEST_DB_DIR")
+test_db_partition = System.get_env("MIX_TEST_PARTITION", "")
+
+test_db_suffix =
+  if test_db_dir do
+    test_db_partition
+  else
+    test_db_partition <> "-" <> System.pid()
+  end
+
 config :novel_persistence, NovelPersistence.Repo,
   adapter: Ecto.Adapters.SQLite3,
   # NOVEL_TEST_DB_DIR：长生命周期分区（狗粮 --resume 断点）用，缺省仍走系统
   # 临时目录。2026-07-21 实锤：macOS 重启清 /var/folders，M2 断点库随之蒸发。
   database:
     Path.join(
-      System.get_env("NOVEL_TEST_DB_DIR") || System.tmp_dir!(),
-      "ai_novel_studio_test#{System.get_env("MIX_TEST_PARTITION", "")}.sqlite3"
+      test_db_dir || System.tmp_dir!(),
+      "ai_novel_studio_test#{test_db_suffix}.sqlite3"
     ),
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: 10,

@@ -1,5 +1,5 @@
 defmodule NovelPersistence.TraceRepositoryTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelPersistence.Repo

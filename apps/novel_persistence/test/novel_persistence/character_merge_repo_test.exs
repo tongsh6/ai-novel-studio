@@ -3,7 +3,7 @@ defmodule NovelPersistence.CharacterMergeRepoTest do
   AU12 归并事务：别名吸收、SUPERSEDED 隐藏、弧光账归一与唯一索引保持。
   标本形状来自 m4b（同名双行各挂一条 arc 账）。
   """
-  use NovelPersistence.DataCase, async: true
+  use NovelPersistence.DataCase, async: false
 
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.CharacterMergeRepo

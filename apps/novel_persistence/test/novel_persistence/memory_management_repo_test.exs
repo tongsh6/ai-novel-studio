@@ -1,5 +1,5 @@
 defmodule NovelPersistence.MemoryManagementRepoTest do
-  use NovelPersistence.DataCase, async: true
+  use NovelPersistence.DataCase, async: false
 
   alias NovelFoundation.Enums.MemorySourceType
   alias NovelFoundation.Enums.MemoryStatus

@@ -3,7 +3,7 @@ defmodule NovelPersistence.WorkArchiveRepoCreativeFactsTest do
   CA02：`creative_facts/1` 写作事实链读端口——一次取回确认记忆并按创作消费分组；
   world_rules 不含 STYLE_RULE（风格归 style 组）；只回 CONFIRMED/STABILIZED + recallable。
   """
-  use NovelPersistence.DataCase, async: true
+  use NovelPersistence.DataCase, async: false
 
   alias NovelFoundation.Enums.MemorySourceType
   alias NovelFoundation.Enums.MemoryStatus
@@ -82,7 +82,7 @@ defmodule NovelPersistence.WorkArchiveRepoCreativeFactsWindowTest do
   @moduledoc """
   B64 CP0/CP1：creative_facts 必须按目标章有效窗过滤；无目标保持既有行为。
   """
-  use NovelPersistence.DataCase, async: true
+  use NovelPersistence.DataCase, async: false
 
   alias NovelFoundation.Enums.MemorySourceType
   alias NovelFoundation.Enums.MemoryStatus

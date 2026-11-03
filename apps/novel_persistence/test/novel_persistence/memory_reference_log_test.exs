@@ -1,5 +1,5 @@
 defmodule NovelPersistence.MemoryReferenceLogTest do
-  use NovelPersistence.DataCase, async: true
+  use NovelPersistence.DataCase, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelFoundation.ID
