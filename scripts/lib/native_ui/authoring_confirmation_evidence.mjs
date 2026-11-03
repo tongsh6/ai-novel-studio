@@ -230,6 +230,15 @@ export function readConfirmationDbFacts(dir) {
   });
 }
 
+function parseJsonField(value) {
+  if (typeof value !== "string") return value ?? null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
 function interactionTurnResult(interactions, turnId) {
   for (const row of list(interactions)) {
     if (row?.turn_id !== turnId) continue;
@@ -338,54 +347,79 @@ export function evaluateConfirmation({
   };
   if (!c2.ok) c2.reason = "confirmation_ack_or_result_identity_mismatch";
 
-  // C3 作者动作 run 绑定：真实产品为 source run 的续行，本次 receipt/behavior/author 重新绑定，
-  // 不继承 source 的 active behavior；trigger 来自本次操作。
+  // C3 作者动作 run：真实产品为 handoff 后的**新 AgentRun**（profile_ref=tool_confirmation_v1、
+  // trigger.kind=author_action、trigger.receipt_id/source_run_id 绑定本次 receipt），source run
+  // 的 trigger.handoff 记录 successor；不继承 source 剩余授权（新 run 有独立 authority/profile）。
   const runRow = list(db.agent_runs).find((row) => String(row.id) === sourceRunId) ?? null;
-  let runTrigger = runRow?.trigger ?? {};
-  if (typeof runTrigger === "string") {
-    try {
-      runTrigger = JSON.parse(runTrigger);
-    } catch {
-      runTrigger = {};
-    }
-  }
-  const triggerReceipt = runTrigger?.receipt_id ?? null;
+  const actionReceipt = actionReceipts[0] ?? null;
+  const receiptResult = parseJsonField(actionReceipt?.result) ?? {};
+  const childRunId = String(receiptResult?.run_id ?? "");
+  const childRun = list(db.agent_runs).find((row) => String(row.id) === childRunId) ?? null;
+  const childTrigger = parseJsonField(childRun?.trigger) ?? {};
+  const sourceTrigger = parseJsonField(runRow?.trigger) ?? {};
+  const handoff = sourceTrigger?.handoff ?? {};
+  const receiptId = String(actionReceipt?.id ?? "");
   const c3 = {
     ok:
-      Boolean(runRow) &&
-      Boolean(triggerReceipt) &&
-      receipts.some((receipt) => String(receipt.id) === String(triggerReceipt)) &&
-      String(runTrigger?.behavior_ref ?? "") === behaviorRef &&
-      (runRow?.active_behavior_ref === null || runRow?.active_behavior_ref === undefined),
+      Boolean(childRun) &&
+      childRunId !== sourceRunId &&
+      String(childRun?.profile_ref ?? "") === "tool_confirmation_v1" &&
+      String(childRun?.run_mode ?? "") === "bounded" &&
+      String(childTrigger?.receipt_id ?? "") === receiptId &&
+      String(childTrigger?.kind ?? "") === "author_action" &&
+      String(childTrigger?.source_run_id ?? "") === sourceRunId &&
+      String(childTrigger?.behavior_ref ?? "") === behaviorRef &&
+      String(receiptResult?.source_run_id ?? "") === sourceRunId &&
+      String(handoff?.receipt_id ?? "") === receiptId &&
+      String(handoff?.successor_run_id ?? "") === childRunId,
     reason: null,
     detail: {
       source_run_id: sourceRunId,
-      run_status: runRow?.status ?? null,
-      trigger_receipt_id: triggerReceipt,
-      trigger_behavior_ref: runTrigger?.behavior_ref ?? null,
-      active_behavior_ref: runRow?.active_behavior_ref ?? null,
-      note: "真实产品为同一 AgentRun 续行（非新 run id），重新绑定本次 receipt/behavior/author",
+      child_run_id: childRunId,
+      child_profile_ref: childRun?.profile_ref ?? null,
+      child_run_mode: childRun?.run_mode ?? null,
+      child_trigger_kind: childTrigger?.kind ?? null,
+      child_trigger_source_run: childTrigger?.source_run_id ?? null,
+      source_handoff_receipt_id: handoff?.receipt_id ?? null,
+      source_handoff_successor: handoff?.successor_run_id ?? null,
     },
   };
   if (!c3.ok) c3.reason = "author_action_run_not_bound_to_receipt";
 
-  // C4 行为唯一消费：source behavior awaiting_author + receipt.behavior_ref 唯一 + 执行后关闭
+  // C4 行为唯一消费：source turn 的 active behavior 处于 awaiting_author + receipt.behavior_ref
+  // 唯一 + 受理后 behavior 关闭（history 里同 behavior 进入 resolved/cancelled）。
+  const sourceBehaviorState = sourceInteraction?.turn_result?.behavior_state ?? null;
+  const activeBehavior = sourceBehaviorState?.active ?? null;
+  const activeBehaviorRef = String(activeBehavior?.behavior_id ?? "");
+  const sourceBehaviorOk =
+    activeBehaviorRef === behaviorRef &&
+    String(activeBehavior?.lifecycle_status ?? "awaiting_author") === "awaiting_author";
   const behaviorReceipts = receipts.filter((receipt) => String(receipt.behavior_ref ?? "") === behaviorRef);
-  const closure =
-    facts.decision_turn_result_body?.behavior_state ??
-    facts.executed_turn_result_body?.behavior_state ??
-    null;
+  let closure = null;
+  for (const row of list(db.interactions)) {
+    const content = parseJsonField(row?.content) ?? {};
+    const history = content?.turn_result?.behavior_state?.history;
+    const entry = list(history).find(
+      (candidate) =>
+        String(candidate?.behavior_id ?? "") === behaviorRef &&
+        ["resolved", "cancelled"].includes(String(candidate?.lifecycle_status ?? "")),
+    );
+    if (entry) {
+      closure = entry;
+      break;
+    }
+  }
   const closureStatus = String(closure?.lifecycle_status ?? "");
   const c4 = {
     ok:
-      String(sourceBehavior?.lifecycle_status ?? "") === "awaiting_author" &&
+      Boolean(activeBehaviorRef) &&
+      sourceBehaviorOk &&
       behaviorReceipts.length === 1 &&
-      (mode === "reject"
-        ? closureStatus === "cancelled"
-        : ["resolved", "cancelled"].includes(closureStatus) || String(runRow?.active_behavior_ref ?? "") === ""),
+      (mode === "reject" ? closureStatus === "cancelled" : closureStatus === "resolved"),
     reason: null,
     detail: {
-      source_behavior_status: sourceBehavior?.lifecycle_status ?? null,
+      active_behavior_ref: activeBehaviorRef,
+      active_behavior_status: String(activeBehavior?.lifecycle_status ?? "awaiting_author"),
       behavior_receipts: behaviorReceipts.length,
       closure_status: closureStatus,
     },
@@ -438,7 +472,7 @@ export function evaluateConfirmation({
   // 子执行绑定真实 ProviderRun/llm-calls；gate 阻止/失败如实记录。
   const executedBody = facts.executed_turn_result_body;
   const childProviderRuns = list(db.provider_runs).filter(
-    (row) => String(row.agent_run_id ?? "") === sourceRunId,
+    (row) => String(row.agent_run_id ?? "") === childRunId,
   );
   const childLlmRecords = list(llmRecords).filter((record) => record.provider === "slice_verify");
   const c7 =
@@ -454,6 +488,7 @@ export function evaluateConfirmation({
             executed_turn_id: executedBody?.turn_id ?? null,
             tool_name: executedBody?.tool_result?.tool_name ?? null,
             pending_artifact_type: list(executedBody?.adoption_state?.pending)[0]?.artifact_type ?? null,
+            child_run_id: childRunId,
             child_provider_runs: childProviderRuns.length,
             llm_records: childLlmRecords.length,
             truthfulness: executedBody?.truthfulness ?? null,
@@ -463,11 +498,12 @@ export function evaluateConfirmation({
   if (c7.ok === false) c7.reason = "confirmed_child_execution_missing";
 
   // C8 作者字节：确认动作不冒充作者原话；子请求中的作者消息来自持久 source 作者消息。
-  const sourceAuthorText = String(
-    sourceInteraction?.content?.author_message?.text ??
-      sourceBody?.user_message?.text ??
-      "",
+  const userTurnId = String(sourceTurnId).includes(":agent:") ? String(sourceTurnId).split(":agent:")[0] : "";
+  const userInteraction = list(db.interactions).find(
+    (row) => String(row.role ?? "") === "user" && String(row.turn_id ?? "") === userTurnId,
   );
+  const userContent = parseJsonField(userInteraction?.content) ?? {};
+  const sourceAuthorText = String(userContent?.text ?? "");
   const childAuthorBytes = childLlmRecords.some((record) => {
     const messages = record?.request_body?.messages ?? record?.request?.body?.messages ?? [];
     const authorMessage = list(messages).find((message) => message?.role === "user" && messageContent(message) === sourceAuthorText);
@@ -482,10 +518,18 @@ export function evaluateConfirmation({
 
   // C9 Why/replay：持久 approvals 记录（confirm 必须有 CONFIRMED/author；reject 记录取消）
   // + Why 打开前后 Provider 调用 delta=0。
-  const approvals = approvalsOf(db, sourceTurnId);
-  const confirmedApproval = approvals.find(
-    (entry) => String(entry?.decision ?? "") === "CONFIRMED" && String(entry?.decided_by ?? "") === "author",
-  );
+  const receiptResultApproval = {
+    approval_policy_ref: receiptResult?.approval_policy_ref ?? null,
+    risk_class: receiptResult?.risk_class ?? null,
+    decision: receiptResult?.decision ?? null,
+    decided_by: receiptResult?.decided_by ?? null,
+    target_artifact_ref: receiptResult?.target_artifact_ref ?? null,
+  };
+  const confirmedApproval =
+    String(receiptResult?.decision ?? "") === "CONFIRMED" &&
+    String(receiptResult?.decided_by ?? "") === "author"
+      ? receiptResultApproval
+      : null;
   const why = driverLog?.why ?? null;
   const whyDelta =
     why?.opened === true && why?.before && why?.after
@@ -497,8 +541,10 @@ export function evaluateConfirmation({
       (whyDelta === null || whyDelta === 0),
     reason: null,
     detail: {
-      approvals: approvals.length,
-      confirmed_approval: confirmedApproval ?? null,
+      approval_policy_ref: confirmedApproval?.approval_policy_ref ?? null,
+      risk_class: confirmedApproval?.risk_class ?? null,
+      decision: confirmedApproval?.decision ?? null,
+      decided_by: confirmedApproval?.decided_by ?? null,
       why_opened: why?.opened ?? false,
       why_provider_delta: whyDelta,
     },
@@ -566,7 +612,7 @@ export function evaluateConfirmation({
       canon,
       executed_tool: executedBody?.tool_result?.tool_name ?? null,
       pending_artifact_type: list(executedBody?.adoption_state?.pending)[0]?.artifact_type ?? null,
-      approvals: approvals.length,
+      approvals: confirmedApproval ? 1 : 0,
     },
     model_behavior: {
       executed: executedBody

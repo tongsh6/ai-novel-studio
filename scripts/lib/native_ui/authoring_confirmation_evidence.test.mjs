@@ -14,8 +14,10 @@ import {
 const JOIN_REF = "5";
 const REF = "9";
 const TOPIC = "workspace:test";
-const SOURCE_TURN = "turn_conf";
-const CHILD_RUN = "run_conf";
+const SOURCE_TURN = "message_test:agent:5";
+const USER_TURN = "message_test";
+const SOURCE_RUN = "run-src";
+const CHILD_RUN = "run-child";
 
 const received = (event, body, at = "2026-11-03T10:00:10.000Z") => ({
   at,
@@ -83,7 +85,7 @@ function needsBody(overrides = {}) {
   return {
     turn_id: SOURCE_TURN,
     status: "needs_confirmation",
-    agent_run: { run_id: CHILD_RUN, status: "awaiting_author" },
+    agent_run: { run_id: SOURCE_RUN, status: "awaiting_author" },
     available_actions: confirmActions(),
     behavior_state: { lifecycle_status: "awaiting_author", target_ref: "as_1" },
     truthfulness: { tool_called: false, production_write_performed: false },
@@ -93,7 +95,10 @@ function needsBody(overrides = {}) {
 }
 
 function dbFactsFor(mode, overrides = {}) {
-  const action = confirmActions().find((entry) => entry.action_type === (mode === "confirm" ? "confirm_before_execute" : "reject_or_cancel_confirmation"));
+  const action = confirmActions().find(
+    (entry) => entry.action_type === (mode === "confirm" ? "confirm_before_execute" : "reject_or_cancel_confirmation"),
+  );
+  const closureStatus = mode === "confirm" ? "resolved" : "cancelled";
   return {
     receipts: [
       {
@@ -106,46 +111,100 @@ function dbFactsFor(mode, overrides = {}) {
         idempotency_key: action.idempotency_key,
         behavior_ref: action.behavior_ref,
         status: "accepted",
-        result: {},
+        result: {
+          action_id: action.action_id,
+          action_type: action.action_type,
+          admission_version: 2,
+          approval_policy_ref: "approval_policy.long_run_budget_gate",
+          author_turn_ref: USER_TURN,
+          behavior_ref: action.behavior_ref,
+          decided_by: "author",
+          decision: "CONFIRMED",
+          idempotency_key: action.idempotency_key,
+          profile_ref: "tool_confirmation_v1",
+          receipt_id: "receipt-1",
+          risk_class: "HIGH",
+          run_id: CHILD_RUN,
+          run_mode: "bounded",
+          source_run_id: SOURCE_RUN,
+          source_turn_ref: SOURCE_TURN,
+          status: "accepted",
+          target_artifact_ref: "prose_writing",
+        },
       },
     ],
     agent_runs: [
       {
-        id: CHILD_RUN,
-        status: mode === "confirm" ? "completed" : "cancelled",
+        id: SOURCE_RUN,
+        profile_ref: "prose_drafting_with_quality_v1",
+        run_mode: "bounded",
+        status: "completed",
         active_behavior_ref: null,
-        trigger: { receipt_id: "receipt-1", behavior_ref: "behavior:b1", author_turn_ref: "turn_user" },
+        trigger: { handoff: { receipt_id: "receipt-1", successor_run_id: CHILD_RUN }, handoff_reason: "author_action_handoff" },
+      },
+      {
+        id: CHILD_RUN,
+        profile_ref: "tool_confirmation_v1",
+        run_mode: "bounded",
+        status: "completed",
+        active_behavior_ref: null,
+        trigger: {
+          action_id: action.action_id,
+          action_type: action.action_type,
+          author_turn_ref: USER_TURN,
+          behavior_ref: action.behavior_ref,
+          kind: "author_action",
+          receipt_id: "receipt-1",
+          source_run_id: SOURCE_RUN,
+        },
       },
     ],
     interactions: [
       {
+        role: "user",
+        turn_id: USER_TURN,
+        content: { text: CONFIRMATION_REQUEST, agent_run_id: SOURCE_RUN },
+      },
+      {
+        role: "assistant",
         turn_id: SOURCE_TURN,
         content: {
-          agent_run_id: CHILD_RUN,
-          author_message: { text: CONFIRMATION_REQUEST },
+          agent_run_id: SOURCE_RUN,
           turn_result: {
             status: "needs_confirmation",
-            behavior_state: { lifecycle_status: "awaiting_author" },
-            trace_summary: {
-              approvals: [
-                {
-                  approval_policy_ref: "approval_policy.long_run_budget_gate",
-                  decision: "CONFIRMED",
-                  decided_by: "author",
-                  risk_class: "HIGH",
-                },
-              ],
+            behavior_state: {
+              active: {
+                behavior_id: action.behavior_ref,
+                lifecycle_status: "awaiting_author",
+                required_next_action: "confirm_before_execute",
+                available_actions: confirmActions(),
+              },
+              history: [],
+            },
+            trace_summary: {},
+          },
+        },
+      },
+      {
+        role: "assistant",
+        turn_id: `${SOURCE_TURN}:author_action:receipt-1`,
+        content: {
+          agent_run_id: CHILD_RUN,
+          turn_result: {
+            behavior_state: {
+              active: null,
+              history: [{ behavior_id: action.behavior_ref, lifecycle_status: closureStatus }],
             },
           },
         },
       },
     ],
-    provider_runs: mode === "confirm" ? [{ agent_run_id: CHILD_RUN }] : [],
+    provider_runs: [{ agent_run_id: CHILD_RUN }],
     mutations_count: 0,
     memory_count: 0,
     receipts_count: 1,
-    provider_runs_count: mode === "confirm" ? 1 : 0,
-    agent_runs_count: 1,
+    provider_runs_count: 1,
+    agent_runs_count: 2,
     ...overrides,
   };
 }
@@ -215,7 +274,10 @@ test("confirm 正例：C1–C11 全通过（确认受理/子执行/幂等/Why/�
   assert.equal(result.checks.C1_source_persisted.ok, true);
   assert.equal(result.checks.C2_confirmation_accepted.ok, true);
   assert.equal(result.checks.C3_author_action_run_bound.ok, true);
+  assert.equal(result.checks.C3_author_action_run_bound.detail.child_profile_ref, "tool_confirmation_v1");
+  assert.notEqual(result.checks.C3_author_action_run_bound.detail.child_run_id, result.checks.C3_author_action_run_bound.detail.source_run_id);
   assert.equal(result.checks.C4_behavior_uniquely_consumed.ok, true);
+  assert.equal(result.checks.C4_behavior_uniquely_consumed.detail.closure_status, "resolved");
   assert.equal(result.checks.C5_duplicate_idempotent.ok, true);
   assert.equal(result.checks.C6_reject_zero_side_effect.ok, null);
   assert.equal(result.checks.C7_confirmed_child_execution.ok, true);
@@ -252,7 +314,7 @@ test("反例：拒绝路径产生 Provider 调用或 canon 变化（C6 fail）",
 
 test("反例：缺 CONFIRMED approval（C9 fail）与恢复后仍可触发（C10 fail）", () => {
   const facts = dbFactsFor("confirm");
-  facts.interactions[0].content.turn_result.trace_summary = { approvals: [] };
+  facts.receipts[0].result = { ...facts.receipts[0].result, decision: "PENDING" };
   const noApproval = evaluate("confirm", { dbFacts: facts });
   assert.equal(noApproval.checks.C9_why_replay_zero_provider.ok, false);
   const restore = evaluate("confirm", {

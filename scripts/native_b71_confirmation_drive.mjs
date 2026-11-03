@@ -193,21 +193,77 @@ async function waitRejectTurn(sinceIso, { sourceTurnId, userTurnId }) {
 }
 
 async function openWhyAndCount() {
-  const before = readDbCounts();
-  let why = { opened: false, reason: "why_button_not_observed", before, after: before };
+  // Why 只读面板：真实按钮在长消息流中可能位于视口外（01f：AX 树存在但不可见）。
+  // 先找可见按钮，找不到则从完整 AX 树定位「为什么」按钮并 scrollTo 后再试；失败如实记录。
+  const scroll = { needed: false, ok: null, path: null, reason: null };
+  let nodes = null;
   try {
-    await harness.runStep("maintenance", "why_open", () => harness.rawOpenWhy("b71-confirmation"));
+    const probe = await harness.tryPollAx((_text, candidate) => Boolean(harness.findWhyButton(candidate)), 20_000);
+    nodes = probe?.nodes ?? null;
+  } catch (error) {
+    scroll.reason = `why_button_probe_failed:${error.message}`;
+  }
+  if (!nodes || !harness.findWhyButton(nodes)) {
+    scroll.needed = true;
+    try {
+      const all = harness.dumpNodesForInteraction("b71-confirmation:why_scan");
+      const candidates = all.filter(
+        (node) =>
+          node.role === "AXButton" &&
+          (node.title === "为什么" || String(node.desc ?? "").includes("查看这轮回应的依据")),
+      );
+      const target = candidates.at(-1) ?? null;
+      if (!target || !target.path) {
+        scroll.ok = false;
+        scroll.reason = "why_button_not_in_ax_tree";
+      } else {
+        scroll.path = target.path;
+        harness.ensureInput().scrollTo(target.path);
+        const retry = await harness.tryPollAx(
+          (_text, candidate) => Boolean(harness.findWhyButton(candidate)),
+          20_000,
+        );
+        nodes = retry?.nodes ?? null;
+        scroll.ok = Boolean(nodes && harness.findWhyButton(nodes));
+        if (!scroll.ok) scroll.reason = "why_button_scrolled_but_not_visible";
+      }
+    } catch (error) {
+      scroll.ok = false;
+      scroll.reason = `why_button_scroll_failed:${error.message}`;
+    }
+  }
+  const before = readDbCounts();
+  if (!nodes || !harness.findWhyButton(nodes)) {
+    return { opened: false, reason: scroll.reason ?? "why_button_not_found", scroll, before, after: before };
+  }
+  try {
+    await harness.runStep("maintenance", "why_open", async () => {
+      harness.safeClick(harness.findWhyButton(nodes), "b71-confirmation:why");
+      return harness.pollAx(
+        (text) => text.includes("参考来源") && text.includes("不会重新调用模型"),
+        30_000,
+        "b71-confirmation:why_dialog",
+      );
+    });
     const after = readDbCounts();
-    why = { opened: true, before, after, provider_delta: after.provider_runs - before.provider_runs };
     harness.capture("03-why");
     harness.ensureInput().key("escape", { focusRequired: false });
-    await harness.runStep("maintenance", "why_close", () =>
-      harness.pollAx((text) => !text.includes("不会重新调用模型"), 20_000, "b71-confirmation:why_closed"),
-    );
+    return {
+      opened: true,
+      scroll,
+      before,
+      after,
+      provider_delta: Number(after.provider_runs) - Number(before.provider_runs),
+    };
   } catch (error) {
-    why = { ...why, reason: `why_open_failed:${error.message}` };
+    return {
+      opened: false,
+      reason: `why_open_failed:${error.message}`,
+      scroll,
+      before,
+      after: readDbCounts(),
+    };
   }
-  return why;
 }
 
 async function duplicateCheck(mode, cardLines) {

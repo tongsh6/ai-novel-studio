@@ -338,21 +338,26 @@ export function verify(dir) {
 
 const MODES = Object.freeze({
   prepare: (dir) => prepare(dir),
-  capture: (dir, checkpoint) => {
+  // 支持一次传多个 checkpoint（cp4b-confirmation-01f 缺陷：final 是第二个参数时被丢弃）。
+  capture: (dir, ...checkpoints) => {
     const config = readConfig(dir);
-    return config.journey === "pending" ? capturePending(dir, checkpoint) : capture(dir, checkpoint);
+    assert(checkpoints.length > 0, "capture 需要至少一个 checkpoint");
+    for (const checkpoint of checkpoints) {
+      if (config.journey === "pending") capturePending(dir, checkpoint);
+      else capture(dir, checkpoint);
+    }
   },
   verify: (dir) => verify(dir),
 });
 
 export function modeHandler(mode, artifact) {
   assert(Object.hasOwn(MODES, mode), `unknown mode: ${mode}`);
-  assert(artifact, "usage: node scripts/native_b71_evidence.mjs <prepare|capture|verify> <dir> [checkpoint]");
+  assert(artifact, "usage: node scripts/native_b71_evidence.mjs <prepare|capture|verify> <dir> [checkpoint...]");
   return MODES[mode];
 }
 
-export async function main([mode, artifact, checkpoint]) {
-  return modeHandler(mode, artifact)(path.resolve(artifact), checkpoint);
+export async function main([mode, artifact, ...rest]) {
+  return modeHandler(mode, artifact)(path.resolve(artifact), ...rest);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
