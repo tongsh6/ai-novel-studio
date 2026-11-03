@@ -102,4 +102,38 @@ describe("transcriptCompactionView", () => {
       latestSequence: 10,
     });
   });
+
+  it("V7：后端同形 fixture（含扩展键）稳定映射，不依赖 summary 自由文本", () => {
+    // fixture 与后端 AgentRunCompactionEventTest / ProviderActivityService.agent_event_summary
+    // 输出同形（payload 键名与类型一致）；保留 retained_items/scope 等扩展键不影响视图（向前兼容）。
+    const backendShaped = compactionEvent(9, {
+      payload: {
+        covered_exchanges: 12,
+        sources: ["角色档案"],
+        retained_items: 4,
+        scope: "earlier_work_turns",
+      },
+    });
+
+    expect(transcriptCompactionView([backendShaped])).toEqual({
+      count: 12,
+      records: 1,
+      sources: ["角色档案"],
+      latestSequence: 9,
+    });
+
+    // 改后端自由文本 summary 不影响视图：数量只来自 payload.covered_exchanges。
+    const changedSummary = { ...backendShaped, summary: "任意后端文案" };
+    expect(transcriptCompactionView([changedSummary])).toEqual(
+      transcriptCompactionView([backendShaped]),
+    );
+  });
+
+  it("V8：checkpoint_created 缺 payload 时该条忽略，不抛异常", () => {
+    const missingPayload = { ...compactionEvent(3), payload: undefined };
+    const valid = compactionEvent(4, { payload: { covered_exchanges: 2, sources: [] } });
+
+    expect(transcriptCompactionView([missingPayload])).toBeNull();
+    expect(transcriptCompactionView([missingPayload, valid])?.count).toBe(2);
+  });
 });

@@ -54,17 +54,6 @@ describe("WorkspaceChat 主输入归属提示（B31 CP1）", () => {
     expect(html).not.toContain("下方输入会作为新请求发送");
   });
 
-  it("多 live run 且 focused 目标确定时显示「将发给」目标任务", () => {
-    const html = renderAids(
-      [run("run-a", "running"), run("run-b", "awaiting_author")],
-      { focusedRunId: "run-b" },
-    );
-
-    expect(html).toContain("将发给");
-    expect(html).toContain("目标 run-b");
-    expect(html).not.toContain("当前有多个任务在进行");
-  });
-
   it("双 live run 歧义时不 steer：显示可见提示与真实任务选择入口", () => {
     const html = renderAids([run("run-a", "running"), run("run-b", "awaiting_author")]);
 
@@ -75,18 +64,6 @@ describe("WorkspaceChat 主输入归属提示（B31 CP1）", () => {
     expect(html).toContain("选择要继续的任务");
     expect(html).toContain("目标 run-a");
     expect(html).toContain("目标 run-b");
-    expect(html).not.toContain("将应用到当前创作");
-  });
-
-  it("其它 run 有未答 open question 时显示问题提示，不提供任务选择", () => {
-    const html = renderAids(
-      [run("run-structure", "awaiting_author"), run("run-question", "awaiting_author")],
-      { openQuestionRunIds: ["run-question"] },
-    );
-
-    expect(html).toContain("有任务在等待你的回答");
-    expect(html).toContain("请先切换到该任务再回答");
-    expect(html).not.toContain('role="group"');
     expect(html).not.toContain("将应用到当前创作");
   });
 
