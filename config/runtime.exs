@@ -12,6 +12,20 @@ case System.get_env("NOVEL_CONTEXT_WINDOW_OVERRIDES") do
       NovelApplication.ContextPressure.parse_window_overrides(value)
 end
 
+# ── B71 自动维护开关（运维配置，所有环境）───────────────────────────────────
+# NOVEL_AUTO_MAINTENANCE_ENABLED：true/false/1/0 显式开启或关闭安全点自动维护
+# （关 = 回滚开关）；缺省/非法值保持 config 值（生产默认开、test 默认关）。
+# 纯运行策略配置，不识别验收/场景信息。
+case NovelApplication.AutoMaintenanceConfig.enabled_override(
+       System.get_env("NOVEL_AUTO_MAINTENANCE_ENABLED")
+     ) do
+  :keep ->
+    :ok
+
+  enabled ->
+    config :novel_application, :auto_maintenance, enabled: enabled, keep_recent_items: 4
+end
+
 # ── 打包桌面 release（Tauri sidecar）运行时配置 ─────────────────────────────
 #
 # 只在「以 Mix release 形式启动」时生效——用 RELEASE_NAME 判定，而不是只看
