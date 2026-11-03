@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-03 **B71 §16.14 确认批次真实进展**：`cp4b-confirmation-01d` 真实到达 needs_confirmation（1 次真实 Provider 调用）；`01e` **确认链路真实完整跑通**（确认卡→点击确认→author_action+ACK→决定 TurnResult→executed `prose_writing` succeeded + `prose_fragment` pending + llm-calls=1 + 截图），失败仅为驱动等待窗起点缺陷。此前 01/01b/01c 亦为驱动实现缺陷（入口目录漏传、启动前激活、激活确认形状错配），五个失败如实登记、不归因环境/产品；01d/01e 作为「确认链路可跑通」部分证据（不代签 C1–C11）。修复后的复验批 01f 已签发。
+
 > 2026-11-03 **B71 当前 HEAD 完整门禁复验（确定性侧收口）**：HEAD 22fe2611——compile warnings-as-errors 0、credo no issues、module-size ratchet 通过、后端全量 **2997/0**（独立库）、I3 3/3、I1 4/4、I2 3 pairs/0 violations/0 case_failures、I-CACHE covered+enforced、N-NARR PASS；统一静态扫描 20 passed/1 failed（既有 gitleaks 5 项、touched=0、blocking=0）。未闭环项仅剩外部环境（ macOS 锁屏阻塞原生批次）与作者授权（压缩前端 UI 设计增补），非代码门禁问题。
 
 > 2026-11-03 **B71 CP4b-2 实模 usage/缓存观察 + G6 状态收口**：实模批次 03 的 9 次真实调用统计——input 281,482 / output 6,116 / **cached 99,591（≈35.4%，最高单次 52,392）**、latency 4.1–63.5s、ttft 全 null（未走流式）；原生多轮请求确有 provider 前缀缓存收益，但只作观察、不设阈值/不作 PASS 判据（VS-00L §6.5）。G6 压缩后的机制层已有确定性测试（checkpoint covers/refs 进入投影、作者原话字节不变 + transcript_compaction 端到端），真实请求因压缩前端未实现而**未触发、不代签**。

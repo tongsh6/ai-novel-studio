@@ -818,3 +818,15 @@
 - 场景不变量（迁移后独立库，`mix ecto.migrate` 后）：I3 **3/3**、I1 **4/4**、I2 **3 pairs / 0 violations / 0 case_failures**、I-CACHE **全部 covered+enforced**、N-NARR **PASS**。
 - 统一静态扫描：**20 passed / 1 failed**（唯一 raw fail 为 gitleaks 5 个既有处置项：4 false_positive + 1 accepted_risk；**touched=0、blocking=0**）；Semgrep 0 findings。
 - 结论：确定性侧与已取得的原生/实模证据在当前源码下门禁全绿；未闭环项（§16.14 原生批次、行为覆盖复验、压缩前端、G6 真实请求）均为外部环境（屏幕锁定）或作者授权（UI 设计增补）阻塞，非代码门禁问题。
+
+### §16.14 确认批次真实进展与驱动缺陷汇总（2026-11-03 续）
+
+- **六次尝试的失败全部为驱动实现缺陷**（如实登记，不归因环境/产品）：
+  1. `cp4b-confirmation-01`：`native_b71_batch.sh` confirmation 分支漏 export `TAURI_NATIVE_ARTIFACT_DIR`，runner 建到默认目录、batch 等预注册目录超时（0 真实请求）。
+  2. `cp4b-confirmation-01b`：driver 在 app 完成启动前调 activate（`is_finished_launching=false/ax_window_count=0`），激活未确认（0 真实请求）。
+  3. `cp4b-confirmation-01c`：启动等待修复后 app 已就绪，但 `activateWithRetry` 检查 `activation?.confirmed`，真实 `input.activate()` 返回完整 payload（`confirmed` 在 `activation.activation.confirmed`），形状错配导致永远抛 `activation_unconfirmed`（0 真实请求）。
+  4. `cp4b-confirmation-01d`：**真实进入场景**——`needs_confirmation` 到达、`available_actions=[confirm_before_execute, reject_or_cancel_confirmation]`、1 次真实 Provider 调用、AX 采集；失败于确认动作字段口径（真实确认动作无 `source_turn_ref`，候选动作才有）。
+  5. `cp4b-confirmation-01e`：**确认链路真实完整跑通**——确认卡可见→点击「确认执行」→sent author_action + ACK→决定 TurnResult→executed turn_result（`tool_name=prose_writing`、`tool_status=succeeded`、`adoption_state.pending=[prose_fragment]`、`truthfulness.tool_called=true`）→ 1 次真实调用→02-after-confirm 截图显示「待确认正文片段 + 保存为章节正文」；失败仅为等待窗起点缺陷（`clickAt` 取在 ACK 之后，把已发生的子执行帧排除，极快返回 + 轮询延迟的窗口竞态）。
+- **部分证据登记**：01d（场景可触发 + 1 次真实调用）与 01e（确认执行链完整成立）登记为「§16.14 确认链路可跑通」部分证据，**不代签 C1–C11**；01/01b/01c 无场景证据。
+- **驱动健壮性缺陷汇总**（五个）：入口目录漏传、启动前激活、激活确认形状错配、动作字段口径、等待窗起点。它们不改变产品/判据结论，但解释了本轮原生驱动预算消耗；每个缺陷都伴随纯函数抽取/回归测试（`executedConfirmationTurnResult`/`rejectConfirmationTurnResult`、`pairToolCalls`、`extractJsonArrayAfterKey` 等）以降低复发。
+- **下一步**：`cp4b-confirmation-01f-confirm` 复验（HEAD 6503df4d + 96491675），通过后自动继续 reject 批与行为覆盖 01c/#6。
