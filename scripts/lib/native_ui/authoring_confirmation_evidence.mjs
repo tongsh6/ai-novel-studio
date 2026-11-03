@@ -720,6 +720,10 @@ export function evaluateConfirmation({
     runtime.ports.transport_4661 === false &&
     llmStopped;
   const c11 = {
+    // C11 以**批次完成（cleanup 之后）**的终止证据为准：supervisor 的
+    // native-app-cleanup.json（remaining=[]）+ verify 时实测无 app/端口/llm-calls 增长。
+    // driver 的 termination 快照只是「driver 结束时观测」事实（当时 app 仍运行是预期的），
+    // 不作为「批次后未清理」判据；它仅用于 llm-calls 停止增长的基线。
     ok: remaining.length === 0 && runtimeStopped,
     reason: null,
     detail: {
@@ -727,9 +731,16 @@ export function evaluateConfirmation({
       process_observation: cleanup?.process_observation ?? null,
       cleanup_observation_degraded: fallback !== null,
       runtime_after_batch: runtime,
-      termination_llm_calls: Number.isFinite(terminationLlm) ? terminationLlm : null,
       llm_calls_stopped: llmStopped,
+      llm_calls_baseline_termination: Number.isFinite(terminationLlm) ? terminationLlm : null,
       runtime_stopped: runtimeStopped,
+      driver_termination_snapshot: {
+        // 仅记录 driver 结束时的观测；此时 supervisor cleanup 尚未发生，app 仍运行属预期。
+        at: termination?.at ?? null,
+        app_processes: termination?.app_processes ?? null,
+        ports: termination?.ports ?? null,
+        llm_calls: Number.isFinite(terminationLlm) ? terminationLlm : null,
+      },
     },
   };
   if (!c11.ok) c11.reason = "cleanup_unverified_or_runtime_not_stopped";

@@ -419,6 +419,15 @@ test("C11 硬门禁：运行态停止必须独立实测；EPERM 只记 unverifie
   // cleanup remaining 非空 → fail。
   const lingering = evaluate("confirm", { cleanup: { remaining: [{ pid: 1 }], process_observation: {} } });
   assert.equal(lingering.checks.C11_cleanup.ok, false);
+  // driver termination 快照显示 app 运行中（driver 结束时的预期观测）不影响判定：
+  // C11 以 cleanup 之后实测为准（测试环境静止 + cleanup remaining=[] → pass）。
+  const driverSnapshotRunning = evaluate("confirm", {
+    driverLog: driverLogFor("confirm", {
+      termination: { llm_calls: 1, app_processes: 1, ports: { backend_4657: true, transport_4661: true } },
+    }),
+  });
+  assert.equal(driverSnapshotRunning.checks.C11_cleanup.ok, true);
+  assert.equal(driverSnapshotRunning.checks.C11_cleanup.detail.driver_termination_snapshot.app_processes, 1);
 });
 
 test("反例：拒绝路径出现 Provider 调用/canon 变化/非 CANCELLED receipt fail", () => {
