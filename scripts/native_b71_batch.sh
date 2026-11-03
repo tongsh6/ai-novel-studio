@@ -140,6 +140,13 @@ if [[ -n "$AUTO_MAINTENANCE" ]]; then
   LIVE=1
 fi
 
+# A3b 非验收 smoke（真实能力探查：不产验收证据；仅 A3 驱动观测）。
+A3B_SMOKE="${B71_AUTO_MAINT_SMOKE:-0}"
+if [[ "$A3B_SMOKE" == "1" && "$AUTO_MAINTENANCE" != "1" ]]; then
+  echo "B71_AUTO_MAINT_SMOKE=1 需要同时设置 B71_AUTO_MAINTENANCE=1（A3 驱动 smoke）" >&2
+  exit 64
+fi
+
 # 记忆详情/列表 P0 泄漏回归（确定性 slice_verify；需真实记忆数据 seed）。
 MEMORY_DETAIL="${B71_MEMORY_DETAIL:-}"
 if [[ -n "$MEMORY_DETAIL" ]]; then
@@ -173,6 +180,13 @@ if [[ "$MEMORY_DETAIL" == "1" ]]; then
   DIR="${B71_MEMORY_DETAIL_ARTIFACT_DIR:-$ROOT/artifacts/slice-verify/b71-memory-detail-ax-$TAG}"
   if [[ "$DIR" != "$ROOT/artifacts/"* ]]; then
     echo "B71_MEMORY_DETAIL_ARTIFACT_DIR 必须位于 $ROOT/artifacts/ 下: $DIR" >&2
+    exit 64
+  fi
+elif [[ "$AUTO_MAINTENANCE" == "1" && "$A3B_SMOKE" == "1" ]]; then
+  # A3b smoke：非验收观测目录（artifacts/ 下独立命名，不进入 slice-verify 验收证据）。
+  DIR="${B71_AUTO_MAINT_SMOKE_ARTIFACT_DIR:-$ROOT/artifacts/b71-native/a3b-smoke-$TAG}"
+  if [[ "$DIR" != "$ROOT/artifacts/"* ]]; then
+    echo "B71_AUTO_MAINT_SMOKE_ARTIFACT_DIR 必须位于 $ROOT/artifacts/ 下: $DIR" >&2
     exit 64
   fi
 elif [[ "$AUTO_MAINTENANCE" == "1" ]]; then
@@ -246,6 +260,11 @@ if [[ "$AUTO_MAINTENANCE" == "1" ]]; then
   export NOVEL_AUTO_MAINTENANCE_ENABLED="${NOVEL_AUTO_MAINTENANCE_ENABLED:-1}"
   export NOVEL_CONTEXT_WINDOW_OVERRIDES="${NOVEL_CONTEXT_WINDOW_OVERRIDES:-strata:4096}"
   export TAURI_NATIVE_ARTIFACT_DIR="$DIR"
+  if [[ "$A3B_SMOKE" == "1" ]]; then
+    # A3b smoke：同 run 多回合（真实控制坞 steer）+ 只观测不产验收证据。
+    export B71_AUTO_MAINT_SMOKE=1
+    export B71_AUTO_MAINT_MULTI_TURN=1
+  fi
 fi
 
 if [[ "$BEHAVIOR" == "1" ]]; then
@@ -302,6 +321,18 @@ if [[ "$LIVE" == "1" ]]; then
     echo "[b71-native] FAIL driver_rc=$DRIVER_RC runner_rc=$RUNNER_RC dir=$DIR" >&2
     exit 1
   fi
+fi
+
+if [[ "$A3B_SMOKE" == "1" ]]; then
+  # 非验收 smoke：只要求驱动完成（runner verify 对观测目录无意义，忽略其退出码）。
+  node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); const mt=j.multi_turn??{}; console.log("[a3b-smoke] " + JSON.stringify({driver_ok:true,pause:mt.pause??null,steer_ok:mt.steer?.ok??null,exchange_facts:mt.exchange_facts??null,usage_facts:mt.usage_facts??null,checkpoint_events:j.termination?.checkpoint_events??null,strip:mt.strip??null,run_events:mt.run_events??null}, null, 1));' "$DIR/native-b71-driver-log.json" 2>/dev/null || true
+  if [[ "$DRIVER_RC" -eq 0 ]]; then
+    echo "[b71-native] SMOKE 完成 dir=$DIR"
+    exit 0
+  fi
+  echo "[b71-native] SMOKE FAIL driver_rc=$DRIVER_RC dir=$DIR" >&2
+  echo "runner log: $RUNNER_LOG; driver log: $DRIVER_LOG" >&2
+  exit 1
 fi
 
 if [[ "$DRIVER_RC" -eq 0 && "$RUNNER_RC" -eq 0 ]]; then

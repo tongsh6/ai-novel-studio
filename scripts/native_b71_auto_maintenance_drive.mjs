@@ -17,6 +17,7 @@ import {
   runEvidenceMode,
 } from "./lib/native_ui/scenario_driver.mjs";
 import { all, logs, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
+import { sleep, typeText } from "./lib/native_ui/driver.mjs";
 import { classifyTurnBody, dbTerminal, wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
 import {
   DEFAULT_STRATA_ENDPOINT,
@@ -193,6 +194,182 @@ function waitCheckpointIncrease(baseline, timeoutMs = 90_000) {
   return false;
 }
 
+
+// ── A3b：同一 run 内 ≥2 作者回合（真实控制坞 steer）────────────────────────
+function findButtonByText(nodes, predicate) {
+  return nodes.find((node) => node?.role === "AXButton" && predicate(String(node.title ?? ""))) ?? null;
+}
+
+function readRunStatus(runId) {
+  return withDb(dir, (db) => {
+    const rows = all(db, "SELECT status FROM agent_runs WHERE id = ?", [runId]);
+    return rows[0]?.status ?? null;
+  });
+}
+
+function readRunExchangeFacts(runId) {
+  return withDb(dir, (db) => {
+    const row = all(db, "SELECT authoring_transcript FROM agent_runs WHERE id = ?", [runId])[0] ?? null;
+    let messages = [];
+    try {
+      const parsed = JSON.parse(row?.authoring_transcript ?? "{}");
+      messages = parsed?.transcript?.messages ?? [];
+    } catch {
+      messages = [];
+    }
+    const userTurns = messages.filter((message) => message?.role === "user").length;
+    const assistantToolCalls = messages.filter(
+      (message) => Array.isArray(message?.tool_calls) && message.tool_calls.length > 0,
+    ).length;
+    const toolResults = messages.filter((message) => message?.role === "tool").length;
+    const checkpoints = messages.filter((message) => message?.role === "checkpoint").length;
+    return {
+      messages: messages.length,
+      user_turns: userTurns,
+      assistant_tool_calls: assistantToolCalls,
+      tool_results: toolResults,
+      complete_exchanges: Math.min(assistantToolCalls, toolResults),
+      checkpoint_messages: checkpoints,
+    };
+  });
+}
+
+function readRunUsageFacts(runId) {
+  return withDb(dir, (db) => {
+    const runs = all(db, "SELECT id FROM provider_runs WHERE agent_run_id = ?", [runId]);
+    const usages = [];
+    for (const run of runs) {
+      const outputs = all(db, "SELECT usage FROM provider_outputs WHERE provider_run_id = ?", [run.id]);
+      for (const output of outputs) {
+        try {
+          const usage = JSON.parse(output.usage);
+          const tokens = Number(usage?.input_tokens ?? 0);
+          if (tokens > 0) usages.push(tokens);
+        } catch {
+          // usage 缺失不猜测
+        }
+      }
+    }
+    return {
+      provider_calls: runs.length,
+      max_input_tokens: usages.length > 0 ? Math.max(...usages) : 0,
+      usages,
+    };
+  });
+}
+
+async function waitRunPauseOrTerminal({ runId, timeoutMs = TURN_TIMEOUT_MS }) {
+  const deadline = Date.now() + timeoutMs;
+  let lastStatus = null;
+  while (Date.now() < deadline) {
+    harness.checkSupervisor();
+    const status = readRunStatus(runId);
+    lastStatus = status;
+    if (status === "awaiting_author") return { kind: "paused", status };
+    if (["completed", "failed", "cancelled"].includes(String(status))) return { kind: "terminal", status };
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  return { kind: "timeout", status: lastStatus };
+}
+
+async function respondToRunPause(steerText, attempts) {
+  // 真实控制坞（用户可见入口）：AXTextField「调整当前任务/回复或补充」+ AXButton「发送调整」。
+  const nodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:pause_panel`);
+  const field =
+    nodes.find(
+      (node) =>
+        node?.role === "AXTextField" &&
+        /调整当前任务|回复或补充|补充方向/.test(String(node.title ?? node.desc ?? node.value ?? "")),
+    ) ?? null;
+  attempts.push({ step: "find_pause_field", ok: Boolean(field), role: field?.role ?? null, title: field?.title ?? null });
+  if (!field) return { ok: false, reason: "pause_field_not_found" };
+  harness.safeClick(field, `${FLOW_LABEL}:pause_field`);
+  await sleep(300);
+  typeText(harness.APP, steerText);
+  await sleep(800);
+  const send = findButtonByText(
+    harness.dumpNodesForInteraction(`${FLOW_LABEL}:pause_send`),
+    (value) => value === "发送调整",
+  );
+  attempts.push({ step: "find_send_adjust", ok: Boolean(send), title: send?.title ?? null });
+  if (!send) return { ok: false, reason: "send_button_not_found", field_clicked: true };
+  harness.safeClick(send, `${FLOW_LABEL}:send_adjust`);
+  await harness.pollWire(
+    (wire) =>
+      wire.find(
+        (entry) =>
+          entry?.direction === "sent" &&
+          Array.isArray(entry.frame) &&
+          ["user_message", "agent_command", "author_action"].includes(String(entry.frame[3] ?? "")),
+      ) ?? null,
+    60_000,
+    `${FLOW_LABEL}:steer_sent`,
+  );
+  return { ok: true, field: field?.title ?? null, sent: true, text: steerText };
+}
+
+async function observeStripText(timeoutMs) {
+  try {
+    const panel = await harness.pollAx(
+      (text) => /较早的\s*\d+\s*项创作过程已整理|创作过程已整理/u.test(text),
+      timeoutMs,
+      `${FLOW_LABEL}:strip_observe`,
+    );
+    return { visible: true, text: String(panel ?? "").slice(0, 400) };
+  } catch {
+    return { visible: false };
+  }
+}
+
+// A3b 同 run 多回合流程：长任务请求 → 自然 awaiting_author → 真实控制坞 steer →
+// 同一 run 继续 → 安全点检查自动维护（smoke 只观测，不产验收证据）。
+async function runMultiTurnFlow({ report, requests }) {
+  const longRequest =
+    requests[0] ??
+    "先读一下第01章的正文和章计划，再读一下第02章的正文和章计划，然后把两章做对比，最后告诉我下一步该写什么。";
+  const steerRequest = "按你的判断继续：先给出两章的对比结论，再给出下一步写作建议。";
+  const session = { long_request: longRequest, steer_request: steerRequest, attempts: [] };
+  harness.log.push({ op: "a3b_multi_turn_start", at: harness.nowIso() });
+  const first = await sendRequest(1, longRequest);
+  report.requests.push(first);
+  session.first_run = {
+    turn_id: first.turn_id,
+    run_id: first.run_id,
+    status_after_send: first.run_status,
+    checkpoint_events: first.checkpoint_events_after,
+  };
+  const pause = await waitRunPauseOrTerminal({ runId: first.run_id });
+  session.pause = pause;
+  if (pause.kind === "paused") {
+    harness.capture("a3b-paused");
+    session.steer = await respondToRunPause(steerRequest, session.attempts);
+    const after = await waitRunPauseOrTerminal({ runId: first.run_id });
+    session.after_steer = after;
+  } else {
+    session.note =
+      pause.kind === "terminal"
+        ? "run 未进入 awaiting_author（模型直接终局，无可 steer 的暂停）"
+        : "run 状态等待超时";
+  }
+  session.exchange_facts = readRunExchangeFacts(first.run_id);
+  session.usage_facts = readRunUsageFacts(first.run_id);
+  session.checkpoint_events = checkpointEventCount();
+  session.strip = await observeStripText(10_000);
+  session.run_events = withDb(dir, (db) =>
+    all(db, "SELECT event_type, COUNT(*) AS c FROM agent_events WHERE run_id = ? GROUP BY event_type", [first.run_id]),
+  );
+  session.triggered = session.checkpoint_events > 0;
+  report.multi_turn = session;
+  report.triggered = session.triggered;
+  report.first_trigger_index = session.triggered ? 1 : null;
+  report.maintenance_strip = {
+    found: session.strip?.visible === true,
+    clicked: false,
+    reason: session.triggered ? null : "not_triggered",
+  };
+  harness.capture("a3b-final");
+}
+
 async function run() {
   runEvidenceMode(evidence, "prepare", dir);
   const config = readJson(path.join(dir, "native-b71-config.json"));
@@ -236,6 +413,9 @@ async function run() {
       termination: null,
     };
 
+    if (process.env.B71_AUTO_MAINT_MULTI_TURN === "1") {
+      await runMultiTurnFlow({ report, requests });
+    } else {
     // ≥2 次真实续行（最多 requests 条）；安全点自动整理触发后停止发送。
     for (let index = 1; index <= requests.length; index += 1) {
       const request = await sendRequest(index, requests[index - 1]);
@@ -314,6 +494,8 @@ async function run() {
       report.maintenance_strip = { found: false, clicked: false, reason: "not_triggered" };
     }
 
+    }
+
     report.termination = {
       at: harness.nowIso(),
       llm_calls: llmRecordCount(),
@@ -325,6 +507,26 @@ async function run() {
       triggered: report.triggered,
       run_statuses: report.requests.map((request) => request.run_status),
     };
+    if (process.env.B71_AUTO_MAINT_SMOKE === "1") {
+      write(dir, "a3b-smoke-observations.json", {
+        smoke: true,
+        generated_at: harness.nowIso(),
+        env: envFacts,
+        multi_turn: report.multi_turn ?? null,
+        requests: report.requests,
+        termination: report.termination,
+      });
+      console.log(
+        `A3B smoke 观测: ${JSON.stringify({
+          pause: report.multi_turn?.pause ?? null,
+          steer: report.multi_turn?.steer ?? null,
+          exchange_facts: report.multi_turn?.exchange_facts ?? null,
+          usage_facts: report.multi_turn?.usage_facts ?? null,
+          checkpoint_events: report.termination?.checkpoint_events ?? null,
+          strip: report.multi_turn?.strip ?? null,
+        })}`,
+      );
+    }
 
     harness.capture("final");
     const turnBodies = harness
