@@ -72,6 +72,12 @@
 - **批次 A ✅ 完成**（`30b067ee`）：
   - A1 删除 8 个幽灵 C2S 事件（`socket.ts` 死协议辅助函数；无 handler/无调用点）；
   - A2 `action_result` 归位：新增 `onActionResult` 监听（跨窗口失效 open 问题查询、合并 `turn_results`（按 turn_id 幂等）、合并 `agent_run_state`）；前端 **744/744**。
+- **批次 C（第一阶段）✅**（`e5ffbbd7`）：
+  - `shouldRenderRecoverableAgentRunDock`：bounded runtime 失活（任意终态）与非终态 durable 检查点 run 都渲染恢复坞（mode `recovery`）；终态 durable 不渲染；
+  - durable dead 坞显示「重新发起任务」出口（预填目标走新 user_message），保留「已从检查点恢复，实时控制不可用」的诚实说明，不伪装 live 控制；
+  - 问题不可回答时提示条显示原因（`disabledReason` → 「此问题暂不可回复」），不再静默禁用；
+  - 前端 **744/744**、typecheck/lint 绿。
+  - 剩余（第二阶段，待排）：open 问题在 runtime dead 时的「重新发起该问题」预填路径（当前引导作者用「开始新讨论」）。
 - **批次 B ⚠️ 待产品决策**（核对发现审核报告「后端孤岛」判定不完整）：
   - `compact_transcript` **不是死代码**：Channel handler + `workspace_channel_compaction_test.exs`（4 用例，真实作者整理回执/canonical 不变/执行中拒绝）+ 应用层能力，均通过；
   - 真实缺口是「**前端入口未交付**」——契约 §16.16 把「作者命令」列为两类入口之一，但 46 §9.9 A 方案（无感自动整理、作者零操作）未提供手动入口；
