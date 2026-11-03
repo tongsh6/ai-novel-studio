@@ -319,9 +319,16 @@ async function respondToRunPause(steerText, attempts) {
   });
   if (answerPanel) {
     // 路径 1（优先）：结构化选项按钮 → author_choice 回答（同 run 继续）。
-    const choiceButton = nodes.find(
+    const answerChoice = String(process.env.B71_AUTO_MAINT_ANSWER_CHOICE ?? "").trim().toUpperCase();
+    const choiceButtons = nodes.filter(
       (node) => node?.role === "AXButton" && /^选项[A-Za-z0-9]?/u.test(String(node.title ?? "").trim()),
     );
+    const choiceButton =
+      answerChoice === "FREE_TEXT"
+        ? null
+        : choiceButtons.find((node) => String(node.title ?? "").trim().startsWith(`选项${answerChoice}`)) ??
+          (answerChoice === "" ? choiceButtons[0] : null) ??
+          null;
     if (choiceButton) {
       harness.safeClick(choiceButton, `${FLOW_LABEL}:answer_choice`);
       attempts.push({ step: "click_answer_choice", ok: true, title: choiceButton?.title ?? null });
