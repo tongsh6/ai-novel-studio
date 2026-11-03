@@ -26,7 +26,10 @@ import {
   strataSlotCheck,
   unloadStrata,
 } from "./lib/native_ui/strata_lifecycle.mjs";
-import { AUTO_MAINTENANCE_REQUESTS } from "./lib/native_ui/authoring_auto_maintenance_evidence.mjs";
+import {
+  AUTO_MAINTENANCE_REQUESTS,
+  scanAuthorVisibleFiles,
+} from "./lib/native_ui/authoring_auto_maintenance_evidence.mjs";
 
 const dir = path.resolve(process.argv[2] ?? "");
 if (!dir) {
@@ -272,10 +275,81 @@ async function waitRunPauseOrTerminal({ runId, timeoutMs = TURN_TIMEOUT_MS }) {
   return { kind: "timeout", status: lastStatus };
 }
 
+async function waitRunResume({ runId, timeoutMs = TURN_TIMEOUT_MS }) {
+  // 回答后同一 run 应从 awaiting_author 恢复（running/completed/failed 均视为继续）。
+  const deadline = Date.now() + timeoutMs;
+  let lastStatus = null;
+  while (Date.now() < deadline) {
+    harness.checkSupervisor();
+    const status = readRunStatus(runId);
+    lastStatus = status;
+    if (["running", "completed", "failed", "cancelled"].includes(String(status))) {
+      return { resumed: true, status };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  return { resumed: false, status: lastStatus };
+}
+
 async function respondToRunPause(steerText, attempts) {
-  // 当前真实暂停 UI（ask_author 问题卡）：「回复此问题」按钮 + 底部 AXTextField + 「发送」。
-  // 注意页面提示：底部输入直接发送「会作为新请求」→ 必须走「回复此问题」路径才是同一 run 的作者回复。
   const nodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:pause_panel`);
+
+  // 新交互（46 §9.7 等待即回答）：底部主输入区接管为回答面板
+  // （role=group aria-label「回答当前问题」：问题文本 + 选项按钮 +「回复此问题」→ textarea →「发送回复」）。
+  // 消息流问题卡只是只读记录（aria-label「创作问题记录」），不可点击。
+  const answerPanel = nodes.find((node) =>
+    /回答当前问题/u.test(`${node?.title ?? ""} ${node?.desc ?? ""}`) &&
+    ["AXGroup", "AXGenericGroup", "AXSheet", "AXList"].includes(String(node?.role ?? "")),
+  );
+  attempts.push({
+    step: "find_answer_panel",
+    ok: Boolean(answerPanel),
+    role: answerPanel?.role ?? null,
+    title: answerPanel?.title ?? answerPanel?.desc ?? null,
+  });
+  if (answerPanel) {
+    // 路径 1（优先）：结构化选项按钮 → author_choice 回答（同 run 继续）。
+    const choiceButton = nodes.find(
+      (node) =>
+        node?.role === "AXButton" &&
+        /^(选项[A-Za-z0-9]|选项：)/u.test(String(node.title ?? "").trim()),
+    );
+    if (choiceButton) {
+      harness.safeClick(choiceButton, `${FLOW_LABEL}:answer_choice`);
+      attempts.push({ step: "click_answer_choice", ok: true, title: choiceButton?.title ?? null });
+      return { ok: true, kind: "choice", label: choiceButton?.title ?? null, text: null, sent: true };
+    }
+    // 路径 2：自由文本「回复此问题」→ textarea（aria-label「对此问题的补充」）→「发送回复」。
+    const replyButton = nodes.find(
+      (node) => node?.role === "AXButton" && String(node.title ?? "").includes("回复此问题"),
+    );
+    if (replyButton) {
+      harness.safeClick(replyButton, `${FLOW_LABEL}:answer_reply_open`);
+      await sleep(600);
+      const formNodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:answer_textarea`);
+      const textarea =
+        formNodes.find(
+          (node) => node?.role === "AXTextArea" || /对此问题的补充/u.test(`${node?.title ?? ""} ${node?.desc ?? ""}`),
+        ) ?? null;
+      attempts.push({ step: "find_answer_textarea", ok: Boolean(textarea), role: textarea?.role ?? null });
+      if (!textarea) return { ok: false, reason: "answer_textarea_not_found", panel: true };
+      harness.safeClick(textarea, `${FLOW_LABEL}:answer_textarea`);
+      await sleep(300);
+      typeText(harness.APP, steerText);
+      await sleep(800);
+      const send = findButtonByText(
+        harness.dumpNodesForInteraction(`${FLOW_LABEL}:answer_send`),
+        (value) => value === "发送回复",
+      );
+      attempts.push({ step: "find_answer_send", ok: Boolean(send), title: send?.title ?? null });
+      if (!send) return { ok: false, reason: "answer_send_not_found", panel: true };
+      harness.safeClick(send, `${FLOW_LABEL}:answer_send`);
+      return { ok: true, kind: "free_text", text: steerText, sent: true };
+    }
+    return { ok: false, reason: "answer_panel_without_controls", panel: true };
+  }
+
+  // 兼容：旧问题卡「回复此问题」+ 底部 AXTextField +「发送」路径。
   const replyButton =
     nodes.find((node) => node?.role === "AXButton" && String(node.title ?? "").includes("回复此问题")) ?? null;
   attempts.push({ step: "find_reply_question", ok: Boolean(replyButton), title: replyButton?.title ?? null });
@@ -389,8 +463,14 @@ async function runMultiTurnFlow({ report, requests }) {
   if (pause.kind === "paused") {
     harness.capture("a3b-paused");
     session.steer = await respondToRunPause(steerRequest, session.attempts);
-    const after = await waitRunPauseOrTerminal({ runId: first.run_id });
-    session.after_steer = after;
+    if (session.steer?.ok) {
+      const resume = await waitRunResume({ runId: first.run_id });
+      session.after_steer = { kind: resume.resumed ? "resumed" : "not_resumed", ...resume };
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      harness.capture("a3b-after-answer");
+    } else {
+      session.after_steer = { kind: "steer_failed" };
+    }
   } else {
     session.note =
       pause.kind === "terminal"
@@ -401,6 +481,7 @@ async function runMultiTurnFlow({ report, requests }) {
   session.usage_facts = readRunUsageFacts(first.run_id);
   session.checkpoint_events = checkpointEventCount();
   session.strip = await observeStripText(10_000);
+  session.scan = scanAuthorVisibleFiles(dir);
   session.run_events = withDb(dir, (db) =>
     all(db, "SELECT event_type, COUNT(*) AS c FROM agent_events WHERE run_id = ? GROUP BY event_type", [first.run_id]),
   );
