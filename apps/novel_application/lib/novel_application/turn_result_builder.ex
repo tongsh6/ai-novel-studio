@@ -4,6 +4,7 @@ defmodule NovelApplication.TurnResultBuilder do
   """
 
   alias NovelApplication.AvailableActionBuilder
+  alias NovelApplication.CandidateAdoptionEffect
   alias NovelCommon.Contracts.ToolResult
   alias NovelDomain.BehaviorState
   alias NovelDomain.CandidateDirection
@@ -379,12 +380,9 @@ defmodule NovelApplication.TurnResultBuilder do
   # 单元 payload 只含该候选的 item，使采纳层（artifact_content/summary/narrative_role）
   # 只看到目标候选，且前端可从 payload.items 取候选名标注逐项按钮。
   defp unit_payload(%TentativeArtifactSet{} = as, %{items: items}) do
-    %{
-      items: items,
-      title: artifact_payload_title(as),
-      item_count: length(items)
-    }
+    %{items: items, title: artifact_payload_title(as), item_count: length(items)}
     |> maybe_put_chapter_count(as)
+    |> CandidateAdoptionEffect.merge_payload(as)
   end
 
   defp maybe_put_chapter_count(payload, %{artifact_type: :outline_draft} = as),

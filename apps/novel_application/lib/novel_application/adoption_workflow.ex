@@ -325,12 +325,9 @@ defmodule NovelApplication.AdoptionWorkflow do
     end
   end
 
+  @prose_formatting_types [:prose_formatting_plan, "prose_formatting_plan"]
   defp formatting_plan?(artifact),
-    do:
-      artifact_field(artifact, :artifact_type) in [
-        :prose_formatting_plan,
-        "prose_formatting_plan"
-      ]
+    do: artifact_field(artifact, :artifact_type) in @prose_formatting_types
 
   defp prose_artifact?(artifact) do
     artifact_field(artifact, :artifact_type) in [
@@ -664,11 +661,11 @@ defmodule NovelApplication.AdoptionWorkflow do
       invalid_adoption_effect?(effect_mode) ->
         {:error, :invalid_adoption_effect}
 
-      effect_requires_target?(effect_mode) and is_nil(adoption_chapter_ref(artifact)) ->
+      chapter_effect_needs_target?(effect_mode, artifact) and
+          is_nil(adoption_chapter_ref(artifact)) ->
         {:error, :target_missing}
 
       b28_target_missing?(artifact, scope, effect_mode, modification) ->
-        # 有 B28 修改范围但没有目标身份：默认拒绝，不再标题回退/新建章。
         {:error, :target_missing}
 
       modification == "format_only" ->
@@ -709,6 +706,9 @@ defmodule NovelApplication.AdoptionWorkflow do
     do: mode not in [nil, "replace_scope", "append", "new_chapter", "replace_segments"]
 
   defp effect_requires_target?(mode), do: mode in ["replace_scope", "append", "replace_segments"]
+
+  defp chapter_effect_needs_target?(m, a),
+    do: effect_requires_target?(m) and (m != "append" or prose_artifact?(a))
 
   defp b28_target_missing?(artifact, scope, effect_mode, modification) do
     b28_signal? = not is_nil(effect_mode) or not is_nil(modification)
