@@ -11,8 +11,8 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentObservationAssembler
-  alias NovelApplication.AgentRunFlows.{AuthoringSession, ExplorationStep}
-  alias NovelApplication.AgentRunFlows.TurnBinding
+  alias NovelApplication.AgentRunFlows.{AuthoringSession, ExplorationStep, TurnBinding}
+  alias NovelApplication.AuthorVisible.Presenter
   alias NovelApplication.ChapterMissionService
   alias NovelApplication.ContextAssembler
   alias NovelApplication.DialogueGateway
@@ -1296,7 +1296,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
              run,
              sequence,
              "D4",
-             "Orchestrator 未允许执行 #{tool_name(plan)}：#{decision_result.decision_type}。",
+             Presenter.blocked_summary(tool_name(plan), decision_result.decision_type),
              "gate:#{decision_result.decision_id}",
              %{
                decision_type: decision_result.decision_type,
@@ -1480,7 +1480,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       run,
       sequence,
       "D1",
-      "工具 #{tool_name(plan)} 执行失败，先修订计划再决定后续动作。",
+      Presenter.tool_failure_summary(tool_name(plan)),
       "tool_result:#{Map.get(tool_result, :tool_result_id) || current_step_ref(run, sequence)}",
       %{
         tool_name: tool_name(plan),
@@ -1621,7 +1621,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         run_ref: run.run_id,
         sequence: sequence,
         status: :skipped,
-        goal: "系统裁决未允许执行 #{tool_name(plan)}",
+        goal: Presenter.blocked_step_goal(tool_name(plan)),
         micro_plan_ref: plan.plan_id,
         decision_ref: Map.get(decision_result, :decision_id),
         observation_refs: [],

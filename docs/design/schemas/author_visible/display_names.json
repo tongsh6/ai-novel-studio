@@ -123,6 +123,19 @@
       "planner_boundary": "规划边界检查",
       "authority_budget": "权限与预算检查",
       "confirmation_required": "需要作者确认"
+    },
+    "decision": {
+      "allow_tool": "允许执行工具",
+      "allow_agent_run": "允许开始创作",
+      "require_confirmation": "需要作者确认",
+      "require_clarification": "需要补充说明",
+      "downgrade_to_dialogue": "转为对话处理",
+      "reject": "已拒绝执行",
+      "fail_with_recovery": "失败后可恢复",
+      "reply_only": "仅回复",
+      "exploration": "只读探索",
+      "capability_gap": "能力缺口",
+      "replay_existing": "回放现有结果"
     }
   },
   "fallbacks": {
@@ -137,7 +150,8 @@
     "error_code": "处理遇到问题",
     "frame_type": "创作进展",
     "reason_code": "已记录",
-    "gate": "前置检查"
+    "gate": "前置检查",
+    "decision": "处理中"
   },
   "enum_sources": {
     "status": [

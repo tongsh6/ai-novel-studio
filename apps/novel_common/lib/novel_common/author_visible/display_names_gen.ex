@@ -7,7 +7,7 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
   只允许通过 `NovelCommon.AuthorVisible.Display` 查询；作者可见面不得直接使用内部 code。
   """
 
-  @source_hash "68e2265d7b98a66c8cbedc5f053d3f41763fea0b4f5417feb83c8421ce581709"
+  @source_hash "ce25b2347bc6324be054f6b06b0614087be65109345a9ddcafdbd7f5ffe03746"
 
   @domains %{
     "action" => %{
@@ -34,6 +34,19 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
       "prose_writing" => "正文写作",
       "work_archive_read" => "作品档案查阅",
       "world_building" => "世界观设定"
+    },
+    "decision" => %{
+      "allow_agent_run" => "允许开始创作",
+      "allow_tool" => "允许执行工具",
+      "capability_gap" => "能力缺口",
+      "downgrade_to_dialogue" => "转为对话处理",
+      "exploration" => "只读探索",
+      "fail_with_recovery" => "失败后可恢复",
+      "reject" => "已拒绝执行",
+      "replay_existing" => "回放现有结果",
+      "reply_only" => "仅回复",
+      "require_clarification" => "需要补充说明",
+      "require_confirmation" => "需要作者确认"
     },
     "error_code" => %{
       "auth" => "模型服务需要重新登录",
@@ -138,6 +151,7 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
     "action" => "操作",
     "artifact_type" => "创作内容",
     "capability" => "创作能力",
+    "decision" => "处理中",
     "error_code" => "处理遇到问题",
     "frame_type" => "创作进展",
     "gate" => "前置检查",

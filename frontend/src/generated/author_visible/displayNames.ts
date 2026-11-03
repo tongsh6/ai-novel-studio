@@ -2,7 +2,7 @@
 // Run `pnpm codegen:author-visible` to regenerate. Author-visible surfaces must only use these display names.
 /* eslint-disable */
 
-export const SOURCE_HASH = "68e2265d7b98a66c8cbedc5f053d3f41763fea0b4f5417feb83c8421ce581709";
+export const SOURCE_HASH = "ce25b2347bc6324be054f6b06b0614087be65109345a9ddcafdbd7f5ffe03746";
 
 export const DISPLAY_NAMES = {
   "action": {
@@ -29,6 +29,19 @@ export const DISPLAY_NAMES = {
     "world_building": "世界观设定",
     "work_archive_read": "作品档案查阅",
     "character_roster": "角色阵容",
+  },
+  "decision": {
+    "allow_tool": "允许执行工具",
+    "allow_agent_run": "允许开始创作",
+    "require_confirmation": "需要作者确认",
+    "require_clarification": "需要补充说明",
+    "downgrade_to_dialogue": "转为对话处理",
+    "reject": "已拒绝执行",
+    "fail_with_recovery": "失败后可恢复",
+    "reply_only": "仅回复",
+    "exploration": "只读探索",
+    "capability_gap": "能力缺口",
+    "replay_existing": "回放现有结果",
   },
   "error_code": {
     "target_missing": "未找到目标对象",
@@ -133,6 +146,7 @@ export const FALLBACKS = {
   "action": "操作",
   "artifact_type": "创作内容",
   "capability": "创作能力",
+  "decision": "处理中",
   "error_code": "处理遇到问题",
   "frame_type": "创作进展",
   "gate": "前置检查",
@@ -181,4 +195,4 @@ export const FORBIDDEN_TOKENS = {
 ],
 } as const;
 
-export type DisplayKind = "action" | "artifact_type" | "capability" | "error_code" | "frame_type" | "gate" | "model" | "provider" | "reason_code" | "run_status" | "status" | "tool";
+export type DisplayKind = "action" | "artifact_type" | "capability" | "decision" | "error_code" | "frame_type" | "gate" | "model" | "provider" | "reason_code" | "run_status" | "status" | "tool";

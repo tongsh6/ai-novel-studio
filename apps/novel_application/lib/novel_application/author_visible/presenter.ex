@@ -113,6 +113,35 @@ defmodule NovelApplication.AuthorVisible.Presenter do
     %{options | providers: providers}
   end
 
+  @doc "工具/能力 code → 作者可读名（作者可见阶段 summary 等使用）。"
+  @spec tool_label(term()) :: String.t()
+  def tool_label(code), do: operation_label_text(code)
+
+  @doc "Orchestrator decision_type → 作者可读名。"
+  @spec decision_label(term()) :: String.t()
+  def decision_label(decision_type),
+    do: Text.text(Text.from_display(:decision, decision_type))
+
+  @doc "计划步骤被系统裁决阻止时的作者摘要（工作过程面板）。"
+  @spec blocked_summary(term(), term()) :: String.t()
+  def blocked_summary(tool_code, decision_type) do
+    "系统未允许执行「#{tool_label(tool_code)}」：#{decision_label(decision_type)}。"
+  end
+
+  @doc "工具执行失败后的作者摘要。"
+  @spec tool_failure_summary(term()) :: String.t()
+  def tool_failure_summary(tool_code) do
+    "「#{tool_label(tool_code)}」执行失败，先修订计划再决定后续动作。"
+  end
+
+  @doc "被阻止步骤的作者目标说明。"
+  @spec blocked_step_goal(term()) :: String.t()
+  def blocked_step_goal(tool_code), do: "系统裁决未允许执行「#{tool_label(tool_code)}」"
+
+  @doc "计划步骤开始时的作者摘要。"
+  @spec plan_step_summary(term()) :: String.t()
+  def plan_step_summary(tool_code), do: "正在执行计划步骤：#{tool_label(tool_code)}。"
+
   @doc "reason code → 作者可读的一行（Why 面板）。"
   @spec why_line(term()) :: String.t()
   def why_line(reason_code), do: Text.text(Text.from_display(:reason_code, reason_code))

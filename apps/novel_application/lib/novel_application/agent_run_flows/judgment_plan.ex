@@ -15,9 +15,11 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentObservationAssembler
+
   alias NovelApplication.AgentRunFlows.{AuthoringSession, StepTracePersistence}
   alias NovelApplication.AgentRunFlows.ExplorationStep
   alias NovelApplication.AgentRunFlows.TurnBinding
+  alias NovelApplication.AuthorVisible.Presenter
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.ProviderActivityProjector
@@ -188,10 +190,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
   end
 
   defp replan_available?(run) do
-    consumed = budget_value(run.consumed_budget, :replans, 0)
-    max = budget_value(run.budget, :max_replans, 0)
-
-    consumed < max
+    budget_value(run.consumed_budget, :replans, 0) < budget_value(run.budget, :max_replans, 0)
   end
 
   defp budget_value(map, key, default) when is_map(map) do
@@ -561,7 +560,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
     emit_stage(
       snapshot,
       :tool_started,
-      "正在执行计划步骤：#{tool_name(plan)}。",
+      Presenter.plan_step_summary(tool_name(plan)),
       ["judgment_plan_step_started"],
       [plan.plan_id, Map.get(decision, :decision_id)],
       %{

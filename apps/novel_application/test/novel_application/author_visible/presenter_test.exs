@@ -82,6 +82,18 @@ defmodule NovelApplication.AuthorVisible.PresenterTest do
     end
   end
 
+  describe "阶段 summary 显示名（tool_label/decision_label）" do
+    test "工具与决策 code 转作者可读名，未知值兜底" do
+      assert Presenter.tool_label("prose_writing") == "正文写作"
+      assert Presenter.tool_label("chapter_mission") == "章节目标"
+      assert Presenter.tool_label("unknown_tool_x") == "创作操作"
+
+      assert Presenter.decision_label("require_confirmation") == "需要作者确认"
+      assert Presenter.decision_label("allow_tool") == "允许执行工具"
+      assert Presenter.decision_label("unknown_decision") == "处理中"
+    end
+  end
+
   describe "Registry（完整性诊断，只读）" do
     test "判断协议全部工具 code 均已登记作者显示名" do
       codes = Registry.judgment_tool_codes()
