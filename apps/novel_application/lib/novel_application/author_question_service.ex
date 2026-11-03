@@ -138,9 +138,9 @@ defmodule NovelApplication.AuthorQuestionService do
   defp submit(request) do
     case Registry.lookup(NovelApplication.AgentRunRegistry, request.run_id) do
       [{pid, _}] ->
-        case AgentRunServer.steer_submission(
+        case AgentRunServer.submit_author_question_reply(
                pid,
-               %{author_question_reply: request},
+               request,
                request.submission_id
              ) do
           {:ok, result} ->

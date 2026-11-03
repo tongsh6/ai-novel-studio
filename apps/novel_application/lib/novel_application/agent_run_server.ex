@@ -134,8 +134,21 @@ defmodule NovelApplication.AgentRunServer do
     GenServer.call(server, {:command, {:steer, text, nil, expected_goal_version}}, timeout)
   end
 
-  def steer_submission(server, text, submission_id, expected_goal_version \\ nil),
-    do: GenServer.call(server, {:command, {:steer, text, submission_id, expected_goal_version}})
+  def steer_submission(server, text, submission_id, expected_goal_version \\ nil)
+      when is_binary(text),
+      do: GenServer.call(server, {:command, {:steer, text, submission_id, expected_goal_version}})
+
+  @doc """
+  回答模型问题（46 §9.7 等待即回答）：作者回合经 steer 机制注入同一 run。
+
+  与文本 steer 显式区分——回答携带完整的问题受理请求（question_ref /
+  expected_goal_version / receipt 键）；受理校验与幂等仍由 AuthorQuestionRepo /
+  AuthorQuestion.validate_reply 负责，本入口只负责原子注入与恢复执行。
+  """
+  @spec submit_author_question_reply(GenServer.server(), map(), String.t(), timeout()) ::
+          {:ok, map()} | {:error, atom()}
+  def submit_author_question_reply(server, request, submission_id, timeout \\ 5_000),
+    do: GenServer.call(server, {:author_question_reply, request, submission_id}, timeout)
 
   @spec author_budget_action(GenServer.server(), recovery_mode(), timeout()) ::
           {:ok, map()}
@@ -370,7 +383,7 @@ defmodule NovelApplication.AgentRunServer do
     do: handle_call({:command, {:steer, text, nil}}, from, state)
 
   def handle_call(
-        {:command, {:steer, %{author_question_reply: request}, submission_id}},
+        {:author_question_reply, request, submission_id},
         _from,
         state
       ) do
@@ -395,20 +408,6 @@ defmodule NovelApplication.AgentRunServer do
         end
     end
   end
-
-  # B26 显式问题回复路径使用 map 形式 submission；B31 CP1 的 expected_goal_version 参数
-  # 对其为 nil（问题回复的版本校验在 request payload 内由 AuthorQuestion.validate_reply 负责）。
-  def handle_call(
-        {:command, {:steer, %{author_question_reply: request}, submission_id, _expected}},
-        from,
-        state
-      ),
-      do:
-        handle_call(
-          {:command, {:steer, %{author_question_reply: request}, submission_id}},
-          from,
-          state
-        )
 
   def handle_call({:command, {:steer, text, submission_id}}, from, state) when is_binary(text),
     do: handle_call({:command, {:steer, text, submission_id, nil}}, from, state)
