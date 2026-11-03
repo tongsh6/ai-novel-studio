@@ -302,6 +302,46 @@ function streamedAuthorReasoningEvents(
     .filter((event) => event.narrative.trim() !== "");
 }
 
+export interface AgentRunProseStream {
+  /** 已到达的正文增量拼接结果（作者可见预览，未保存）。 */
+  text: string;
+  /** 是否仍在生成（run 非终态且已有正文增量）。 */
+  active: boolean;
+  key: string | null;
+}
+
+/**
+ * 正文流式预览（B71 / 双向审核：正文 token 流开放）：
+ * 写作类 Provider 的 JSON 流经后端 `AuthorProseStream` 提取出 `author_content_delta`，
+ * 这里按事件顺序累加成作者可见的正文预览；终态 run 不再标记「生成中」。
+ */
+export function agentRunProseStream(
+  events: AgentEventData[],
+  runStatus?: string | null,
+): AgentRunProseStream {
+  const relevant = events.filter(isAuthorContentDeltaEvent).sort((a, b) => a.sequence - b.sequence);
+
+  const parts = relevant
+    .map((event) => rawStringPayloadValue(event.payload, "author_content_delta"))
+    .filter((delta): delta is string => delta !== null);
+
+  const text = parts.join("");
+  const terminal = ["completed", "failed", "cancelled"].includes(String(runStatus ?? ""));
+
+  return {
+    text,
+    active: text.trim() !== "" && runStatus !== undefined && !terminal,
+    key: relevant.at(-1)?.event_id ?? null,
+  };
+}
+
+function isAuthorContentDeltaEvent(event: AgentEventData): boolean {
+  return (
+    event.event_type === "provider_progress" &&
+    rawStringPayloadValue(event.payload, "author_content_delta") !== null
+  );
+}
+
 function isAuthorReasoningDeltaEvent(event: AgentEventData): boolean {
   return (
     event.event_type === "provider_progress" &&

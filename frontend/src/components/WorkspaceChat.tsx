@@ -136,6 +136,7 @@ import {
 } from "../lib/authorActionSubmission";
 import {
   activeToolActivity,
+  agentRunProseStream,
   agentRunReasoningFlow,
   omitNarrativesRepeatedInAssistantMessage,
   shouldShowAgentRunDialogueStatus,
@@ -820,6 +821,7 @@ export function AgentRunDialogueFlow({
   const compactionView = transcriptCompactionView(events);
   const elapsedSeconds = useAgentRunElapsedSeconds(run?.status, events);
   const reasoningFlow = agentRunReasoningFlow(events);
+  const proseStream = agentRunProseStream(events, run?.status ?? null);
   const visibleNarrativeEvents = omitNarrativesRepeatedInAssistantMessage(
     reasoningFlow.narrativeEvents,
     assistantMessageText,
@@ -925,6 +927,20 @@ export function AgentRunDialogueFlow({
             </p>
           ))}
         </div>
+      )}
+
+      {proseStream.text.trim() !== "" && (
+        <section
+          className={styles.agentRunProseStream}
+          aria-label={WORKBENCH.agentRunProseStreamLabel}
+        >
+          <p className={styles.agentRunProseStreamText}>{proseStream.text}</p>
+          {proseStream.active && (
+            <span className={styles.agentRunProseStreamHint}>
+              {WORKBENCH.agentRunProseStreamUnsaved}
+            </span>
+          )}
+        </section>
       )}
 
       {activityText && (

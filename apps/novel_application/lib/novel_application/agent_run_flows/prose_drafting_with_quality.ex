@@ -1649,8 +1649,16 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   defp provider_execution(spec, snapshot, purpose) do
     (Map.get(spec, :provider_execution) || Execution.dependency(purpose: purpose))
     |> Execution.with_purpose(purpose)
+    |> author_content_visibility(purpose)
     |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: purpose)
   end
+
+  # 正文写作（writer）：Provider JSON 流中的 body 文本以作者可见的增量投影
+  # （AuthorProseStream 提取，projector 只放行正文增量）。其它 purpose 保持默认。
+  defp author_content_visibility(execution, :writer),
+    do: Execution.with_content_visibility(execution, :author)
+
+  defp author_content_visibility(execution, _purpose), do: execution
 
   defp quality_provider_execution(spec, snapshot) do
     (Map.get(spec, :quality_provider_execution) ||

@@ -163,20 +163,24 @@ defmodule NovelAgent.Provider.AdapterExecution do
     content
     |> text_chunks(ctx)
     |> Enum.with_index(1)
-    |> Enum.reduce({[], 0, true}, fn {chunk, index}, {events, accumulated, author_open?} ->
+    |> Enum.reduce({[], 0, true, NovelAgent.Provider.AuthorProseStream.new()}, fn {chunk, index},
+                                                                             {events, accumulated,
+                                                                              author_open?, content_stream} ->
       length = String.length(chunk)
       next_accumulated = accumulated + length
       {author_delta, next_author_open?} = author_reasoning_delta(ctx, chunk, author_open?)
+      {next_content_stream, content_delta} = NovelAgent.Provider.AuthorProseStream.feed(content_stream, chunk)
 
       event =
         chunk_event!(ctx, first_sequence + index - 1,
           chunk_index: index,
           content_length: length,
           accumulated_content_length: next_accumulated,
-          author_narrative_delta: author_delta
+          author_narrative_delta: author_delta,
+          author_content_delta: content_delta
         )
 
-      {[event | events], next_accumulated, next_author_open?}
+      {[event | events], next_accumulated, next_author_open?, next_content_stream}
     end)
     |> elem(0)
     |> Enum.reverse()
@@ -199,6 +203,7 @@ defmodule NovelAgent.Provider.AdapterExecution do
         accumulated_content_length: accumulated_content_length
       }
       |> maybe_put_payload(:author_narrative_delta, Keyword.get(attrs, :author_narrative_delta))
+      |> maybe_put_payload(:author_content_delta, Keyword.get(attrs, :author_content_delta))
 
     provider_event!(
       event_id: provider_event_id(),

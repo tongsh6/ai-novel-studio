@@ -178,7 +178,7 @@ Clarification 等待态还必须解释“为什么需要这一步”，并在作
 | 探索发现、评估结论、重规划原因、完成回顾 | 运行中来自 `purpose=author_reasoning` 的 `author_narrative_delta`；完成后来自 `AgentEvent.payload.author_narrative`，且必须绑定 provider output 字节 | 在推理流区域逐条展示，不改写、不补齐；最终 source-bound 事件到达后用结构化事件替换临时流 |
 | 授权、工具执行、产物、最终结果 | `gate_decided` / `tool_started` / `tool_completed` / `artifact_created` / `turn_result_ready` / `run_completed` 等结构事件与 final `TurnResult.truthfulness` | 只更新阶段、状态、计数、边界说明和折叠详情；不得伪造模型叙事，也不得要求每个结构步骤都有旧 `exploration_observed` / `evaluation_made` 作者事件 |
 | 标签、chip、版本、进度、按钮、折叠入口 | app copy / event_type / status enum | 只表达结构，不写“模型发现/模型认为”的叙述句 |
-| 普通 provider run/call ref、chunk、token、phase | provider telemetry | 仅折叠在开发者详情，不进入作者主叙事；`author_reasoning` 的作者可见 planning prose delta 是唯一例外，legacy JSON tail 与 native tool-call arguments 都不得作为作者叙事 |
+| 普通 provider run/call ref、chunk、token、phase | provider telemetry | 仅折叠在开发者详情，不进入作者主叙事；**两类例外**：① `author_reasoning` 的作者可见 planning prose delta；② **写作类 Provider 的正文 body 流式增量**（`author_content_delta`，后端 `AuthorProseStream` 从 JSON 流提取 body 文本、`ProviderActivityProjector` 投影）。正文流只在「正文生成中」区域展示正文文本并标注未保存，不展示 JSON 键名/item 元数据/tool arguments；legacy JSON tail 与 native tool-call arguments 仍不得作为作者叙事 |
 | 系统维护记录（如较早创作过程已整理） | app 事件事实（author-safe，§9.9） | 只显示整理项数、范围说明与回查入口；不得写成模型叙事，不得出现技术用量（token/百分比/窗口）或内部标识 |
 
 判定标准：任何一句读起来像在描述模型正在想什么、发现了什么、为什么改计划、为什么完成的中文，必须来自 `author_narrative_delta` 或 `author_narrative`，并通过 N-NARR source binding / streamed-prefix 校验。`AgentEvent.summary`、`ProviderEvent.summary`、前端 copy 常量、legacy JSON tail 和未绑定来源的 native tool-call arguments 都不能作为作者叙述来源。原生工具参数中的 `author_narrative` / `author_reasoning` 只有与实际 `ProviderOutput` 原字段逐字绑定并通过 hash / 字节范围校验后，才能以 `provider_output_tool_narrative` 作为叙事来源；不得把本地拼装参数当成模型输出。

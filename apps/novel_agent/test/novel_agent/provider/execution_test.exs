@@ -36,6 +36,33 @@ defmodule NovelAgent.Provider.ExecutionTest do
     assert Enum.any?(result.provider_events, &is_binary(&1.payload[:author_narrative_delta]))
   end
 
+  test "text_chunk_events extracts prose body deltas as author_content_delta" do
+    ctx = %{
+      provider_name: "stub",
+      model_name: "stub-model",
+      provider_run_id: "prun_prose_stream",
+      provider_call_ref: "pcall_prose_stream",
+      content_visibility: :author,
+      purpose: :writer
+    }
+
+    json = ~s([{"item_id":"i1","body":"雨夜里，灯楼忽明忽暗。","rationale":"x"}])
+    events = AdapterExecution.text_chunk_events(ctx, json, 1)
+    assert events != []
+
+    deltas =
+      for event <- events,
+          delta = event.payload[:author_content_delta],
+          is_binary(delta),
+          delta != "",
+          do: delta
+
+    assert Enum.join(deltas) == "雨夜里，灯楼忽明忽暗。"
+    # 提取器只放行 body 文本，不泄漏 JSON 键或 item 元数据。
+    refute Enum.join(deltas) =~ "item_id"
+    refute Enum.join(deltas) =~ "rationale"
+  end
+
   test "dependency completion delegates through the unified provider execution gateway" do
     dependency = Execution.dependency(purpose: :writer, provider_call_ref: "pcall_execution_test")
     complete = Execution.result_fn(dependency)

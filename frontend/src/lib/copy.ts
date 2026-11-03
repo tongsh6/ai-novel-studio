@@ -320,6 +320,10 @@ export const WORKBENCH = {
   authorQuestionAbandon: "放弃此问题",
   authorQuestionRestart: "重新发起此问题",
   authorQuestionRestartHint: "任务已结束，此问题无法再回答；可带着原问题重新发起。",
+  // 正文流式预览（B71：正文 token 流开放显示；生成中未保存）
+  agentRunProseStreamLabel: "正文生成中",
+  agentRunProseStreaming: "正在生成正文…",
+  agentRunProseStreamUnsaved: "生成中，尚未保存为候选。",
   authorQuestionWaitingFor: (minutes: number) => `已等待 ${minutes} 分钟`,
   authorQuestionWaitingForHours: (hours: number) => `已等待 ${hours} 小时`,
   authorQuestionAnswerPlaceholder: "回答当前问题…",

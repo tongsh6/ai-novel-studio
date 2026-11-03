@@ -2301,3 +2301,27 @@
   font-size: 12px;
   opacity: 0.6;
 }
+
+/* B71 正文流式预览（正文 token 流开放；生成中未保存） */
+.agentRunProseStream {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0 6px;
+}
+
+.agentRunProseStreamText {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--foreground-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agentRunProseStreamHint {
+  font-size: 11px;
+  color: var(--foreground-secondary);
+  opacity: 0.72;
+}

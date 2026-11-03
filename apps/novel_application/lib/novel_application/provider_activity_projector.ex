@@ -153,6 +153,11 @@ defmodule NovelApplication.ProviderActivityProjector do
        when is_binary(delta) and delta != "",
        do: :author
 
+  # 正文流式增量（写作类 JSON 的 body 文本）：作者可见，但只投影提取后的正文文本。
+  defp visibility(%ProviderEvent{event_type: :chunk}, _purpose, %{author_content_delta: delta})
+       when is_binary(delta) and delta != "",
+       do: :author
+
   defp visibility(_event, _purpose, _payload), do: :developer
 
   defp reason_codes(%ProviderEvent{} = event) do
@@ -181,6 +186,8 @@ defmodule NovelApplication.ProviderActivityProjector do
       chunk_content_length: payload_number(event.payload, :content_length),
       accumulated_content_length: payload_number(event.payload, :accumulated_content_length),
       author_narrative_delta: author_narrative_delta(event, purpose),
+      # 写作类 Provider 的 JSON 流中提取的正文增量（作者可见，见 content_visibility 判定）。
+      author_content_delta: payload_string(event.payload, :author_content_delta),
       usage: projected_usage(event, output)
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)

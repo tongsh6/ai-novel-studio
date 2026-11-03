@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentEventData } from "../lib/socket";
 import {
   activeToolActivity,
+  agentRunProseStream,
   agentRunReasoningFlow,
   omitNarrativesRepeatedInAssistantMessage,
   shouldShowAgentRunDialogueStatus,
@@ -421,5 +422,36 @@ describe("activeToolActivity", () => {
       },
     ];
     expect(activeToolActivity(events)).toBeNull();
+  });
+});
+
+describe("agentRunProseStream（正文 token 流开放）", () => {
+  const event = (sequence: number, delta?: string) => ({
+    event_id: `evt-${sequence}`,
+    run_ref: "run-prose",
+    sequence,
+    event_type: "provider_progress",
+    visibility: "author",
+    summary: "正文增量",
+    payload: delta === undefined ? {} : { author_content_delta: delta },
+  });
+
+  it("按事件顺序累加正文增量", () => {
+    const stream = agentRunProseStream(
+      [event(1, "雨夜里，"), event(2, "灯楼忽明忽暗。")] as never,
+      "running",
+    );
+    expect(stream.text).toBe("雨夜里，灯楼忽明忽暗。");
+    expect(stream.active).toBe(true);
+    expect(stream.key).toBe("evt-2");
+  });
+
+  it("终态 run 不再标记生成中；无正文增量时为空", () => {
+    const stream = agentRunProseStream([event(1, "正文")] as never, "completed");
+    expect(stream.active).toBe(false);
+
+    const empty = agentRunProseStream([event(1)] as never, "running");
+    expect(empty.text).toBe("");
+    expect(empty.active).toBe(false);
   });
 });
