@@ -3474,4 +3474,58 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         result
     end
   end
+
+  test "multi-window subscribers all receive run events (single event_sink no longer overwritten)" do
+    parent = self()
+    run_id = unique_run_id()
+
+    slow_step = fn _run, sequence ->
+      send(parent, {:step_started, sequence})
+      Process.sleep(80)
+
+      {:ok, %{step: step_struct(run_id, sequence, "step_#{sequence}"), observations: []}}
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(base_run(run_id),
+               next_step_planner: sequential_steps([slow_step]),
+               event_sink: event_sink(parent)
+             )
+
+    assert_receive {:step_started, 1}
+    [{pid, _}] = Registry.lookup(NovelApplication.AgentRunRegistry, run_id)
+
+    subscribers =
+      for index <- 1..2 do
+        spawn_link(fn ->
+          receive do
+            {:attach, server} ->
+              NovelApplication.AgentRunServer.attach_event_sink(server, self(), fn event ->
+                send(parent, {:mirror, index, event.event_type})
+              end)
+
+              send(parent, {:attached, index})
+          end
+
+          receive do
+            :stop -> :ok
+          end
+        end)
+      end
+
+    Enum.each(subscribers, &send(&1, {:attach, pid}))
+
+    assert_receive {:attached, 1}, 2000
+    assert_receive {:attached, 2}, 2000
+    assert wait_for(fn -> map_size(:sys.get_state(pid).event_sinks) == 2 end)
+
+    assert :ok = AgentRunService.pause(run_id)
+
+    assert_receive {:agent_event, :run_paused, _}, 2000
+    assert_receive {:mirror, 1, :run_paused}, 2000
+    assert_receive {:mirror, 2, :run_paused}, 2000
+
+    Enum.each(subscribers, &send(&1, :stop))
+  end
+
 end

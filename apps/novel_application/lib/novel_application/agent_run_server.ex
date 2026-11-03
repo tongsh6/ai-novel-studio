@@ -71,6 +71,7 @@ defmodule NovelApplication.AgentRunServer do
             progress_signatures: MapSet.new(),
             final_turn_result: nil,
             event_sink: nil,
+            event_sinks: %{},
             defer_delivery: false,
             interaction_store: nil,
             provider_cancellation_token: nil,
@@ -100,9 +101,20 @@ defmodule NovelApplication.AgentRunServer do
   defp restart_policy(:bounded), do: :temporary
   defp restart_policy(_mode), do: :transient
 
+  @doc """
+  订阅 run 事件（多窗口多播）：按订阅者 pid 去重登记，同 pid 重复订阅覆盖自身。
+
+  一个 run 可被多个窗口同时观察（审核 P2：此前单 `event_sink` 会被后加入窗口顶掉）；
+  订阅进程退出时由 monitor 自动清理。
+  """
+  @spec attach_event_sink(GenServer.server(), pid(), function() | nil) :: :ok
+  def attach_event_sink(server, subscriber_pid, event_sink) when is_pid(subscriber_pid),
+    do: GenServer.cast(server, {:attach_event_sink, subscriber_pid, event_sink})
+
+  # 兼容旧签名：无显式订阅者时以调用进程为订阅者（cast 调用方的 channel/service 进程）。
   @spec attach_event_sink(GenServer.server(), function() | nil) :: :ok
   def attach_event_sink(server, event_sink),
-    do: GenServer.cast(server, {:attach_event_sink, event_sink})
+    do: attach_event_sink(server, self(), event_sink)
 
   @spec command(GenServer.server(), :pause | :cancel) :: :ok
   def command(server, command), do: GenServer.cast(server, {:command, command})
@@ -775,12 +787,22 @@ defmodule NovelApplication.AgentRunServer do
     end
   end
 
-  def handle_cast({:attach_event_sink, event_sink}, state)
+  def handle_cast({:attach_event_sink, subscriber_pid, event_sink}, state)
       when is_function(event_sink, 1) or is_nil(event_sink) do
-    {:noreply, %{state | event_sink: event_sink}}
+    ref = Process.monitor(subscriber_pid)
+    sinks = Map.put(state.event_sinks, subscriber_pid, %{ref: ref, sink: event_sink})
+    {:noreply, %{state | event_sinks: sinks}}
   end
 
   @impl true
+  # 多窗口订阅者退出：清理其 sink，避免向死进程发布。
+  def handle_info({:DOWN, ref, :process, pid, _reason}, state) do
+    case Map.get(state.event_sinks, pid) do
+      %{ref: ^ref} -> {:noreply, %{state | event_sinks: Map.delete(state.event_sinks, pid)}}
+      _ -> {:noreply, state}
+    end
+  end
+
   def handle_info({ref, result}, %{current_task_ref: ref} = state) do
     Process.demonitor(ref, [:flush])
 
@@ -1311,7 +1333,7 @@ defmodule NovelApplication.AgentRunServer do
   defp publish_events_only(before, after_state) do
     after_state.events
     |> Enum.drop(length(before.events))
-    |> Enum.each(&AgentEventPublisher.publish(&1, after_state.event_sink))
+    |> Enum.each(&publish_to_sinks(&1, after_state))
 
     %{after_state | defer_delivery: false}
   end
@@ -2173,22 +2195,31 @@ defmodule NovelApplication.AgentRunServer do
       })
 
     unless state.defer_delivery do
-      AgentEventPublisher.publish(event, state.event_sink)
+      publish_to_sinks(event, state)
       persist_event(event)
     end
 
     %{state | event_sequence: sequence, events: state.events ++ [event]}
   end
 
+  # 事件多播：启动注入的默认 sink + 所有动态订阅者（多窗口）。
+  defp publish_to_sinks(event, state) do
+    AgentEventPublisher.publish(event, state.event_sink)
+
+    state.event_sinks
+    |> Map.values()
+    |> Enum.each(fn %{sink: sink} -> AgentEventPublisher.publish(event, sink) end)
+  end
+
   defp publish_startup_events(state) do
-    Enum.each(state.events, &AgentEventPublisher.publish(&1, state.event_sink))
+    Enum.each(state.events, &publish_to_sinks(&1, state))
     %{state | defer_delivery: false}
   end
 
   defp publish_committed_events(before, after_state) do
     after_state.events
     |> Enum.drop(length(before.events))
-    |> Enum.each(&AgentEventPublisher.publish(&1, after_state.event_sink))
+    |> Enum.each(&publish_to_sinks(&1, after_state))
 
     %{after_state | defer_delivery: false}
   end
