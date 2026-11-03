@@ -15,6 +15,7 @@ defmodule NovelApplication.AgentRunServer do
   alias NovelApplication.AgentRunFlows.AuthoringSession
   alias NovelApplication.AgentRunPersistence
   alias NovelApplication.AgentRunService
+  alias NovelApplication.AgentRunStartup
   alias NovelApplication.AuthorActionAdmission
   alias NovelApplication.CompactionRecord
   alias NovelApplication.ContextPressure
@@ -209,40 +210,21 @@ defmodule NovelApplication.AgentRunServer do
     admission = Keyword.get(opts, :author_action_admission)
 
     case prepare_author_action_admission(run, admission) do
-      {:committed, receipt} ->
-        state = %__MODULE__{
-          run: run,
-          next_step_planner: Keyword.get(opts, :next_step_planner),
-          event_sink: Keyword.get(opts, :event_sink),
-          interaction_store:
-            Keyword.get(opts, :interaction_store) || TurnInteractionService.store(),
-          provider_cancellation_token: provider_cancellation_token,
-          defer_delivery: true,
-          author_action_receipt: receipt
-        }
+      {:committed, receipt, startup} ->
+        state =
+          startup
+          |> startup_state(opts, provider_cancellation_token)
+          |> Map.put(:author_action_receipt, receipt)
+          |> publish_startup_events()
 
         {:ok, state, {:continue, :run_next_step}}
 
       {:ok, run, plan} ->
-        state = %__MODULE__{
-          run: run,
-          next_step_planner: Keyword.get(opts, :next_step_planner),
-          event_sink: Keyword.get(opts, :event_sink),
-          interaction_store:
-            Keyword.get(opts, :interaction_store) || TurnInteractionService.store(),
-          provider_cancellation_token: provider_cancellation_token,
-          defer_delivery: not is_nil(plan)
-        }
-
         state =
-          state
-          |> emit(
-            :run_started,
-            "AgentRun 已启动。",
-            ["agent_run_started", "profile_selected"],
-            [],
-            run_started_payload(run)
-          )
+          run
+          |> AgentRunStartup.new()
+          |> startup_state(opts, provider_cancellation_token)
+          |> Map.put(:defer_delivery, not is_nil(plan))
 
         finish_author_action_admission(state, plan)
 
@@ -252,7 +234,21 @@ defmodule NovelApplication.AgentRunServer do
     end
   end
 
-  defp prepare_author_action_admission(_run, {:committed, receipt}), do: {:committed, receipt}
+  defp startup_state(%{run: run} = startup, opts, provider_cancellation_token) do
+    %__MODULE__{
+      run: run,
+      next_step_planner: Keyword.get(opts, :next_step_planner),
+      event_sink: Keyword.get(opts, :event_sink),
+      interaction_store: Keyword.get(opts, :interaction_store) || TurnInteractionService.store(),
+      provider_cancellation_token: provider_cancellation_token,
+      events: startup.events,
+      event_sequence: startup.event_sequence,
+      stage_state: startup.stage_state
+    }
+  end
+
+  defp prepare_author_action_admission(_run, {:committed, receipt, startup}),
+    do: {:committed, receipt, startup}
 
   defp prepare_author_action_admission(run, nil), do: {:ok, run, nil}
 
@@ -269,14 +265,14 @@ defmodule NovelApplication.AgentRunServer do
   # 普通 run 沿用既有启动时序；作者动作 run 的 receipt/run/run_started 已由
   # AuthorActionAdmission 在同一事务提交，成功后才发布启动事件并继续执行。
   defp finish_author_action_admission(state, nil) do
-    {:ok, persist_run_state(state), {:continue, :run_next_step}}
+    {:ok, persist_run_state(publish_startup_events(state)), {:continue, :run_next_step}}
   end
 
   defp finish_author_action_admission(state, plan) do
     case AuthorActionAdmission.admit(plan, state) do
       {:ok, receipt, run} ->
         state = %{state | run: run, author_action_receipt: receipt}
-        state = publish_committed_events(%{state | events: []}, state)
+        state = publish_startup_events(state)
 
         {:ok, state, {:continue, :run_next_step}}
 
@@ -674,7 +670,11 @@ defmodule NovelApplication.AgentRunServer do
       start_opts =
         NovelApplication.AuthorActionConfirmation.child_runtime_opts(result, action_input, opts)
 
-      AgentRunService.start_committed_author_action(result.child_run, start_opts, result.receipt)
+      AgentRunService.start_committed_author_action(
+        result.child_startup,
+        start_opts,
+        result.receipt
+      )
     else
       {:ok, :no_child_owner_required}
     end
@@ -2180,24 +2180,17 @@ defmodule NovelApplication.AgentRunServer do
     %{state | event_sequence: sequence, events: state.events ++ [event]}
   end
 
+  defp publish_startup_events(state) do
+    Enum.each(state.events, &AgentEventPublisher.publish(&1, state.event_sink))
+    %{state | defer_delivery: false}
+  end
+
   defp publish_committed_events(before, after_state) do
     after_state.events
     |> Enum.drop(length(before.events))
     |> Enum.each(&AgentEventPublisher.publish(&1, after_state.event_sink))
 
     %{after_state | defer_delivery: false}
-  end
-
-  defp run_started_payload(%AgentRun{} = run) do
-    %{
-      profile_ref: run.profile_ref,
-      trigger: run.trigger || %{},
-      allowed_tools: Map.get(run.authority_scope, :allowed_tools, []),
-      profile_selection:
-        Map.get(run.authority_scope, :profile_selection) ||
-          Map.get(run.authority_scope, "profile_selection") ||
-          %{}
-    }
   end
 
   defp persist_run_state(%{defer_delivery: true} = state), do: state

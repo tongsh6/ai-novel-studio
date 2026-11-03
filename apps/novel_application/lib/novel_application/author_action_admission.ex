@@ -17,10 +17,10 @@ defmodule NovelApplication.AuthorActionAdmission do
   alias NovelApplication.ActionIdempotencyLedger
   alias NovelApplication.ActionValidator
   alias NovelApplication.AgentRunPersistence
+  alias NovelApplication.AgentRunStartup
   alias NovelApplication.ApprovalAudit
   alias NovelApplication.AuthorActionDecision
   alias NovelApplication.TurnInteractionService
-  alias NovelCommon.Contracts.AgentEvent
   alias NovelDomain.AgentRun
   alias NovelDomain.AuthorActionInput
   alias NovelDomain.BehaviorState
@@ -183,13 +183,14 @@ defmodule NovelApplication.AuthorActionAdmission do
                  author,
                  store
                ),
-             :ok <- commit_child_initial(child_run),
+             {:ok, child_startup} <- commit_child_initial(child_run),
              {:ok, source_run} <-
                commit_source_handoff(source_state, source_ctx, receipt, child_run) do
           {:ok,
            %{
              receipt: receipt,
              child_run: child_run,
+             child_startup: child_startup,
              source_run: source_run,
              source_run_id: author.source_run_id,
              author_turn_ref: author.turn_ref,
@@ -453,37 +454,11 @@ defmodule NovelApplication.AuthorActionAdmission do
   defp decision_kind(_action_type), do: :reject
 
   defp commit_child_initial(run) do
-    sequence = 1
+    startup = AgentRunStartup.new(run)
 
-    {:ok, event} =
-      AgentEvent.new(%{
-        event_id: "evt_#{run.run_id}_#{sequence}",
-        run_ref: run.run_id,
-        step_ref: run.current_step_ref,
-        sequence: sequence,
-        event_type: :run_started,
-        visibility: :author,
-        summary: "AgentRun 已启动。",
-        reason_codes: ["agent_run_started", "profile_selected"],
-        refs: [],
-        payload: %{
-          profile_ref: run.profile_ref,
-          trigger: run.trigger || %{},
-          allowed_tools: Map.get(run.authority_scope || %{}, :allowed_tools, []),
-          profile_selection:
-            Map.get(run.authority_scope || %{}, :profile_selection) ||
-              Map.get(run.authority_scope || %{}, "profile_selection") || %{}
-        },
-        emitted_at: DateTime.utc_now()
-      })
-
-    state = %{stage_state: %{}, events: [event], event_sequence: sequence}
-
-    with {:ok, snapshot} <- AgentRunPersistence.snapshot(run, state, :delivery) do
-      case AgentRunPersistence.commit(snapshot) do
-        {:ok, _run} -> :ok
-        {:error, reason} -> {:error, reason}
-      end
+    with {:ok, snapshot} <- AgentRunPersistence.snapshot(startup.run, startup, :delivery),
+         {:ok, _run} <- AgentRunPersistence.commit(snapshot) do
+      {:ok, startup}
     end
   end
 

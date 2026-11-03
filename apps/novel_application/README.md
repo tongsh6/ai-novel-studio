@@ -48,6 +48,7 @@ be found at <https://hexdocs.pm/novel_application>.
 - [authoring_replay.ex](lib/novel_application/authoring_replay.ex)：消费统一 run 解析，严格校验 task header/run/work/parent 后读取 v3 或正确 v2 canonical；缺版本/错绑不补造。
 - [agent_run_server.ex](lib/novel_application/agent_run_server.ex)：状态机、received/staged 转换与提交后发布；结果/问题/状态/压缩统一走 `AgentRunPersistence`，不再自带序列化与 durable task 写入细节。
 - [agent_run_persistence.ex](lib/novel_application/agent_run_persistence.ex)：AgentRun snapshot 的唯一投影/写入请求边界；run/step/author-safe event、私有 checkpoint 编码调用与 durable task header/progress/step 投影，定义 delivery/status/compaction/question 四种事件语义；checkpoint_version 的唯一所属点。
+- [agent_run_startup.ex](lib/novel_application/agent_run_startup.ex)：B71 启动事实的单一生产点（VS-00L §16.14）；初始 run、`run_started` 事件、事件游标与空 stage_state 只构造一次，受理事务与执行 owner 共用同一份数据单元，普通启动/作者动作受理/已提交确认子 run 不再各自生成启动事件。
 - [agent_run_service.ex](lib/novel_application/agent_run_service.ex)：离线恢复复用同一私有选择/校验，不自动执行 Provider；durable task 初始 header 引用同一 checkpoint_version。`compact_transcript/1` 是作者显式压缩的唯一公共入口：只表达整理意图，不接收调用方压缩内容。
 - [auto_maintenance_config.ex](lib/novel_application/auto_maintenance_config.ex)：安全点自动维护运维开关解析（`NOVEL_AUTO_MAINTENANCE_ENABLED`，plain 布尔；生产默认开、test 默认关，显式关闭即回滚开关）；只解析布尔、不识别验收/场景信息。
 - [context_pressure.ex](lib/novel_application/context_pressure.ex)：B71 上下文压力只读派生（§16.16 自动维护入口）：真实 `ProviderRun.usage.input_tokens` + 保守模型窗口（provider 默认 + `NOVEL_CONTEXT_WINDOW_OVERRIDES` 运维覆盖，`parse_window_overrides/1`）；维护/硬线阈值只决定触发时机；usage 未知不猜测、不写库、不向作者展示。

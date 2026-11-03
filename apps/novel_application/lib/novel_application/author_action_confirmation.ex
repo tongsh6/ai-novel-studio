@@ -173,7 +173,7 @@ defmodule NovelApplication.AuthorActionConfirmation do
   defp maybe_start_child(result, action_input, opts) do
     if action_input.action_type == "confirm_before_execute" do
       case AgentRunService.start_committed_author_action(
-             result.child_run,
+             result.child_startup,
              child_runtime_opts(result, plan_action(result), opts),
              result.receipt
            ) do

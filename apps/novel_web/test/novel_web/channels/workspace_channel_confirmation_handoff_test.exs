@@ -4,7 +4,16 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
   import Phoenix.ChannelTest
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelApplication.{AuthoringTranscript, WorkService, WorkSessionService}
+  alias NovelAgent.Provider.Execution
+
+  alias NovelApplication.{
+    AuthorActionConfirmation,
+    AuthoringTranscript,
+    WorkService,
+    WorkSessionService
+  }
+
+  alias NovelDomain.AuthorActionInput
 
   alias NovelPersistence.{
     AgentRunLog,
@@ -78,6 +87,135 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
     assert get_in(source_record.trigger, ["handoff", "successor_run_id"]) == child_run_id
   end
 
+  test "confirm child publishes persisted startup and tool_started before first provider response",
+       ctx do
+    source = seed_source(ctx.work.id, ctx.session_id, "startup-order")
+    parent = self()
+    default_execution = Execution.dependency(purpose: :tool)
+
+    provider_execution = %Execution{
+      purpose: :tool,
+      result_fn: fn prompt ->
+        send(parent, {:confirmed_provider_called, self()})
+
+        receive do
+          :release_confirmed_provider ->
+            Execution.result_fn(default_execution).(prompt)
+        after
+          10_000 -> Execution.result_fn(default_execution).(prompt)
+        end
+      end
+    }
+
+    event_sink = fn event -> send(parent, {:confirmed_agent_event, event}) end
+
+    assert {:ok, result} =
+             AuthorActionConfirmation.handle(
+               ctx.work.id,
+               ctx.session_id,
+               author_action_input(source),
+               provider_execution: provider_execution,
+               event_sink: event_sink
+             )
+
+    child_run_id = result.child_run.run_id
+
+    assert child_run_id != source.run_id
+    assert AgentRunLog.list_events(source.run_id) == []
+
+    assert_receive {:confirmed_agent_event, %{event_type: :run_started} = startup_event}, 5_000
+    assert startup_event.run_ref == child_run_id
+    assert_receive {:confirmed_agent_event, %{event_type: :tool_started} = tool_event}, 5_000
+    assert_receive {:confirmed_provider_called, provider_pid}, 5_000
+
+    [persisted_startup] =
+      child_run_id
+      |> AgentRunLog.list_events()
+      |> Enum.filter(&(&1.event_type == "run_started"))
+
+    assert persisted_startup.id == startup_event.event_id
+    assert persisted_startup.sequence == startup_event.sequence
+    assert persisted_startup.sequence == 1
+
+    assert {:ok, %{events: events}} = NovelApplication.AgentRunService.state(child_run_id)
+
+    assert Enum.find(events, &(&1.event_type == :run_started)) == startup_event
+    assert Enum.count(events, &(&1.event_type == :run_started)) == 1
+
+    send(provider_pid, :release_confirmed_provider)
+
+    state = await_terminal(child_run_id)
+    assert state.run.status == :completed
+
+    persisted = AgentRunLog.list_events(child_run_id)
+    assert Enum.count(persisted, &(&1.event_type == "run_started")) == 1
+    assert Enum.count(state.events, &(&1.event_type == :run_started)) == 1
+    refute_receive {:confirmed_agent_event, %{event_type: :run_started}}, 100
+
+    assert Enum.any?(
+             persisted,
+             &(&1.id == tool_event.event_id and &1.sequence == tool_event.sequence and
+                 &1.event_type == "tool_started")
+           )
+
+    persisted_non_stream =
+      persisted
+      |> Enum.reject(&(&1.event_type == "provider_progress"))
+      |> Enum.map(&{&1.id, &1.event_type, &1.sequence})
+
+    memory_non_stream =
+      state.events
+      |> Enum.reject(&(&1.event_type == :provider_progress))
+      |> Enum.map(&{&1.event_id, Atom.to_string(&1.event_type), &1.sequence})
+
+    assert memory_non_stream == persisted_non_stream
+  end
+
+  test "confirm child run_started and tool_started reach the real channel consumer once", ctx do
+    socket = join_socket(ctx.work.id, ctx.session_id)
+    source = seed_source(ctx.work.id, ctx.session_id, "channel-startup")
+
+    ref =
+      push(
+        socket,
+        "author_action",
+        %{"action" => action_params(source, "confirm_before_execute")}
+      )
+
+    assert_reply(ref, :ok, %{received: true})
+
+    assert_receive %Phoenix.Socket.Broadcast{
+                     event: "agent_event",
+                     payload: %{event_type: "run_started"} = startup
+                   },
+                   5_000
+
+    child_run_id = startup.run_id
+    assert startup.sequence == 1
+
+    assert_receive %Phoenix.Socket.Broadcast{
+                     event: "agent_event",
+                     payload: %{event_type: "tool_started", run_id: ^child_run_id} = tool
+                   },
+                   5_000
+
+    assert tool.sequence > startup.sequence
+
+    _ = await_terminal(child_run_id)
+
+    persisted = AgentRunLog.list_events(child_run_id)
+    startup_row = Enum.find(persisted, &(&1.event_type == "run_started"))
+    tool_row = Enum.find(persisted, &(&1.event_type == "tool_started"))
+
+    assert startup_row.id == startup.event_id
+    assert startup_row.sequence == startup.sequence
+    assert tool_row.id == tool.event_id
+    assert tool_row.sequence == tool.sequence
+
+    sequences = Enum.map(persisted, & &1.sequence)
+    assert sequences == Enum.uniq(sequences)
+  end
+
   test "reject creates zero-provider child result and cannot later confirm", ctx do
     socket = join_socket(ctx.work.id, ctx.session_id)
     source = seed_source(ctx.work.id, ctx.session_id, "reject")
@@ -137,6 +275,8 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
 
     assert length(AgentRunLog.list_by_parent_turn(ctx.work.id, ctx.session_id, source.turn_id)) ==
              1
+
+    assert length(ProviderRunLog.list_runs(run_id)) == 1
 
     assert AgentRunLog.get_run(source.run_id)
   end
@@ -299,6 +439,18 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
   defp action_params(source, action_type) do
     action = if action_type == "confirm_before_execute", do: source.confirm, else: source.reject
     Map.put(action, "source_turn_ref", source.turn_id)
+  end
+
+  defp author_action_input(source) do
+    %AuthorActionInput{
+      input_id: source.confirm["action_id"],
+      source_turn_ref: source.turn_id,
+      action_id: source.confirm["action_id"],
+      action_type: "confirm_before_execute",
+      target_ref: source.confirm["target_ref"],
+      behavior_ref: source.behavior_id,
+      idempotency_key: source.confirm["idempotency_key"]
+    }
   end
 
   defp await_terminal(run_id, attempts \\ 100)

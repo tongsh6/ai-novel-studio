@@ -102,21 +102,22 @@ defmodule NovelApplication.AgentRunService do
   启动已在受理事务中提交 receipt/初始 run/作者决定结果的 child owner。
 
   不再次 admit、不重新生成初始事件；提交后的 child 只接管自己的执行状态。
+  启动事实（run/events/event_sequence/stage_state）由受理事务原样交给 owner。
   """
-  @spec start_committed_author_action(AgentRun.t(), keyword(), struct()) ::
+  @spec start_committed_author_action(map(), keyword(), struct()) ::
           {:ok, pid()} | {:error, term()}
-  def start_committed_author_action(%AgentRun{} = run, opts, receipt) do
+  def start_committed_author_action(%{run: %AgentRun{}} = startup, opts, receipt) do
     store = Keyword.get(opts, :interaction_store) || TurnInteractionService.store()
 
     DynamicSupervisor.start_child(
       NovelApplication.AgentRunSupervisor,
       {AgentRunServer,
        [
-         run: run,
+         run: startup.run,
          next_step_planner: Keyword.get(opts, :next_step_planner),
          event_sink: Keyword.get(opts, :event_sink),
          interaction_store: store,
-         author_action_admission: {:committed, receipt}
+         author_action_admission: {:committed, receipt, startup}
        ]}
     )
   end
