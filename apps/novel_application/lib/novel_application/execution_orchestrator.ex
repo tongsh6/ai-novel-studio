@@ -47,17 +47,12 @@ defmodule NovelApplication.ExecutionOrchestrator do
   @default_truthfulness_constraints ["no_action_executed"]
 
   @behavior_next_actions %{
-    clarification: "answer_clarification",
     confirmation: "confirm_before_execute"
   }
   @default_behavior_next_action "continue_dialogue"
 
   # {action_id 前缀, action_type, idempotency_key 前缀}
   @behavior_action_templates %{
-    clarification: [
-      {"act_answer_", "answer_clarification", "clarify_"},
-      {"act_cancel_", "cancel_pending_behavior", "cancel_"}
-    ],
     confirmation: [
       {"act_confirm_", "confirm_before_execute", "confirm_"},
       {"act_reject_", "reject_or_cancel_confirmation", "reject_"}
@@ -239,7 +234,7 @@ defmodule NovelApplication.ExecutionOrchestrator do
 
     behavior =
       if decision_type == :require_confirmation do
-        open_behavior(decision_type, decision_id, frame, plan, reason)
+        open_behavior(decision_id, frame, plan, reason)
       end
 
     {decision, behavior}
@@ -260,13 +255,14 @@ defmodule NovelApplication.ExecutionOrchestrator do
 
   # ── behavior lifecycle ────────────────────────
 
-  defp open_behavior(decision_type, decision_id, frame, plan, reason) do
+  defp open_behavior(decision_id, frame, plan, reason) do
     action = hd(plan.proposed_actions)
     target = action[:target_ref]
     behavior_id = NovelFoundation.ID.unique("bh")
 
-    behavior_type =
-      if decision_type == :require_confirmation, do: :confirmation, else: :clarification
+    # 只有 require_confirmation 会打开 behavior（见 decision_from_gate_result）；
+    # legacy :clarification 行为已退役（B26 author_question 承担澄清停等）。
+    behavior_type = :confirmation
 
     %BehaviorState{
       behavior_id: behavior_id,

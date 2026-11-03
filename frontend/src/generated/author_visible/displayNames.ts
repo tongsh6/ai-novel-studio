@@ -1,7 +1,7 @@
 // AUTO-GENERATED FROM docs/design/schemas/author_visible/display_names.json — DO NOT EDIT.
 // Run `pnpm codegen:author-visible` to regenerate. Author-visible surfaces must only use these display names.
 
-export const SOURCE_HASH = "60d8be45c07d2c88ec68a1e8694ca8ffd3c307304e73b23dfd9fea31436d577e";
+export const SOURCE_HASH = "9e4f8d56cc5db1698c7c6e2273e92c3220f2e0810f7bbbe20e8b61342dfff83e";
 
 export const DISPLAY_NAMES = {
   "action": {
@@ -27,7 +27,6 @@ export const DISPLAY_NAMES = {
     "confirm_before_execute": "确认执行",
     "reject_or_cancel_confirmation": "拒绝",
     "cancel_pending_behavior": "取消",
-    "answer_clarification": "回答",
     "choose_candidate": "设为后续方向",
     "revise_from_findings": "按质量发现修订",
     "agent_run_budget_next_step": "下一步",

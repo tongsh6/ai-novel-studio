@@ -8,7 +8,7 @@ defmodule NovelDomain.BehaviorState do
 
   alias NovelFoundation.Enums.BehaviorStatus
 
-  @type behavior_type :: :clarification | :confirmation | :recovery
+  @type behavior_type :: :confirmation | :recovery
   @lifecycles [:open, :awaiting_author, :resolving, :resolved, :cancelled, :failed, :superseded]
   @lifecycle_by_string Map.new(@lifecycles, &{Atom.to_string(&1), &1})
   @type lifecycle ::
@@ -148,13 +148,13 @@ defmodule NovelDomain.BehaviorState do
   end
 
   @doc """
-  是否是 author-blocking behavior（clarification / confirmation / recovery）。
+  是否是 author-blocking behavior（confirmation / recovery）。
 
   同一 workstream 至多一个 primary author-blocking behavior（VS-03 §4 规则 1）。
   """
   @spec author_blocking?(t()) :: boolean()
   def author_blocking?(%__MODULE__{behavior_type: type})
-      when type in [:clarification, :confirmation, :recovery],
+      when type in [:confirmation, :recovery],
       do: true
 
   def author_blocking?(_), do: false
@@ -418,15 +418,10 @@ defmodule NovelDomain.BehaviorState do
   defp behavior_type_value(map), do: field(map, :behavior_type)
   defp blocking_actor_value(map), do: field(map, :blocking_actor)
 
-  defp behavior_type_from(value) when value in [:clarification, :confirmation, :recovery],
-    do: value
+  defp behavior_type_from(value) when value in [:confirmation, :recovery], do: value
 
   defp behavior_type_from(value) when is_binary(value) do
-    Enum.find(
-      [:clarification, :confirmation, :recovery],
-      :confirmation,
-      &(Atom.to_string(&1) == value)
-    )
+    Enum.find([:confirmation, :recovery], :confirmation, &(Atom.to_string(&1) == value))
   end
 
   defp behavior_type_from(_value), do: :confirmation

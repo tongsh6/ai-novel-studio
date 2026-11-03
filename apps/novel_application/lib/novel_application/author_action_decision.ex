@@ -214,8 +214,7 @@ defmodule NovelApplication.AuthorActionDecision do
     }
   end
 
-  defp behavior_type(value) when value in [:clarification, :confirmation, :recovery], do: value
-  defp behavior_type("clarification"), do: :clarification
+  defp behavior_type(value) when value in [:confirmation, :recovery], do: value
   defp behavior_type("recovery"), do: :recovery
   defp behavior_type(_value), do: :confirmation
 

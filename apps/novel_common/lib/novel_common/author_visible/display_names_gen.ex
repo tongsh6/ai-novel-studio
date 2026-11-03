@@ -7,7 +7,7 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
   只允许通过 `NovelCommon.AuthorVisible.Display` 查询；作者可见面不得直接使用内部 code。
   """
 
-  @source_hash "60d8be45c07d2c88ec68a1e8694ca8ffd3c307304e73b23dfd9fea31436d577e"
+  @source_hash "9e4f8d56cc5db1698c7c6e2273e92c3220f2e0810f7bbbe20e8b61342dfff83e"
 
   @domains %{
     "action" => %{
@@ -15,7 +15,6 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
       "agentRunBudget.selected_steps" => "继续选定的步骤",
       "agent_run_budget_next_step" => "下一步",
       "agent_run_budget_remaining_plan" => "继续剩余计划",
-      "answer_clarification" => "回答",
       "artifact.accept" => "采纳",
       "artifact.discard" => "放弃",
       "artifact.edit" => "修改",

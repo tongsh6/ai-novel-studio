@@ -63,7 +63,7 @@ Turn Behavior 是：
 
 - OrchestratorDecision 的可持续外显状态。
 - 作者下一步动作的 contract。
-- clarification / confirmation / correction / cancellation / recovery 的生命周期。
+- confirmation / selection / correction / cancellation / recovery 的生命周期（clarification 行为已于 2026-11-04 退役，见 §8）。
 - TurnResult phase/status/next_action 的依据。
 - 后续 trace / replay / UI contract 的输入。
 
@@ -115,7 +115,7 @@ v3 需要把这些行为提升为 contract。
 | 1 | `TurnPhase` | 粗粒度阶段：对话、等待、执行、完成等 | 系统 / UI |
 | 2 | `TurnStatus` | 更具体的当前状态：需要确认、工具执行中、已取消等 | 系统 / UI |
 | 3 | `NextAction` | 下一步动作契约：作者、系统或工具应做什么 | UI / Orchestrator |
-| 4 | `BehaviorState` | durable 行为对象：clarification、confirmation、recovery 等 | 系统 / trace / UI |
+| 4 | `BehaviorState` | durable 行为对象：confirmation、recovery 等 | 系统 / trace / UI |
 
 分层原因：
 
@@ -198,7 +198,6 @@ behavior_state.active.type = confirmation
 | next_action | actor | 含义 |
 |---|---|---|
 | `continue_dialogue` | author | 作者可以继续自然输入 |
-| `answer_clarification` | author | 作者需要补充一个具体问题 |
 | `confirm_before_execute` | author | 作者需要确认一个明确动作 |
 | `reject_or_cancel_confirmation` | author | 作者可以拒绝或取消待确认动作 |
 | `choose_candidate` | author | 作者需要从候选中选择 |
@@ -230,7 +229,7 @@ BehaviorState 是 durable 行为对象。
 | 字段 | 必须 | 含义 |
 |---|---|---|
 | `behavior_id` | 是 | 行为唯一标识 |
-| `behavior_type` | 是 | clarification / confirmation / selection / correction / cancellation / recovery 等 |
+| `behavior_type` | 是 | confirmation / selection / correction / cancellation / recovery 等（clarification 已退役） |
 | `lifecycle_status` | 是 | open / resolving / resolved / cancelled / expired / failed / superseded |
 | `blocking_actor` | 是 | author / system / tool / none |
 | `opened_at_turn_ref` | 是 | 打开该行为的 turn |
@@ -260,39 +259,11 @@ BehaviorState 是 durable 行为对象。
 
 ## 8. Behavior 类型
 
-### 8.1 `clarification`
+> 2026-11-04 退役：`clarification` 行为类型删除。澄清停等已由 B26 `author_question`
+> （`available_actions` 的 `author_choice`，见 UA-01 §2.2.2 A）承担；该项目未发布，
+> 不需要为历史记录保留兼容类型。
 
-用于系统需要作者补充关键信息。
-
-打开条件：
-
-- intent、目标对象或关键 slot 不足，且已经阻塞下一步安全推进。
-- correction / cancellation / confirmation answer 无法绑定目标。
-- 作者输入过于模糊，无法安全降级为普通探索。
-
-不应打开的情况：
-
-- 作者只是早期探索。
-- 系统可以给候选方向继续引导。
-- 缺的是非 blocking detail。
-- 只是内部工具可以推断的信息。
-
-常见状态：
-
-```text
-phase = awaiting_author
-status = needs_clarification
-next_action = answer_clarification
-```
-
-关闭条件：
-
-- 作者回答被采纳。
-- 作者取消。
-- 作者改成新的目标，原 clarification 被 superseded。
-- 多轮仍无法解析，转为 recovery 或 conversational fallback。
-
-### 8.2 `confirmation`
+### 8.1 `confirmation`
 
 用于信息足够，但执行前必须得到作者明确同意。
 
@@ -325,7 +296,7 @@ next_action = confirm_before_execute
 
 - 作者确认，Orchestrator 重新 gate 后执行。
 - 作者拒绝。
-- 作者编辑确认范围，进入 correction 或 clarification。
+- 作者编辑确认范围，进入 correction。
 - 作者取消。
 - 过期策略触发 cancellation 或 recovery。
 
@@ -336,7 +307,7 @@ next_action = confirm_before_execute
 3. 确认后仍要重新检查权限、预算、状态快照和幂等键。
 4. confirmation 不能由 UI 自行关闭并写生产状态。
 
-### 8.3 `selection`
+### 8.2 `selection`
 
 用于系统必须等待作者从候选中选择才能推进具体 pending action。
 
@@ -373,7 +344,7 @@ next_action = choose_candidate
 2. 只有 pending action 依赖选择时才打开 selection。
 3. 被选择 candidate 默认仍是 tentative，是否 adoption 由 Orchestrator 决定。
 
-### 8.4 `correction`
+### 8.3 `correction`
 
 用于作者要求修正前文理解、参数、候选、结果或已采纳状态。
 
@@ -407,7 +378,7 @@ next_action = identify_revision_target
 2. correction 必须明确修正对象。
 3. 已采纳内容的修正必须走 adoption / revision / confirmation 边界。
 
-### 8.5 `cancellation`
+### 8.4 `cancellation`
 
 用于作者取消当前等待态、pending action、长跑任务或候选目标。
 
@@ -445,11 +416,11 @@ behavior_state.active.type = cancellation
 
 关键约束：
 
-1. cancellation 必须有明确目标或要求 clarification。
+1. cancellation 必须有明确目标，或要求作者补充（B26 `author_question`）。
 2. cancellation 优先关闭 author-blocking behavior。
 3. 已完成的生产写入不能被“取消”伪装成未发生，只能进入 revision / compensation。
 
-### 8.6 `recovery`
+### 8.5 `recovery`
 
 用于系统失败、工具失败、状态冲突、预算不足或 replay 不一致后恢复。
 

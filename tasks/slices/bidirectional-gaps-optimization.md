@@ -86,7 +86,11 @@
     - 后端 `WorkspaceChannel` 只读 `agent_events_since`（author-visible、`sequence > since`、归属按持久 run 记录校验、dead run 可补拉；形状与实时广播一致）；
     - 前端 `fetchAgentEventsSince` + gap 检测（`sequence > 已知 max + 1` → 补拉 → `mergeAgentRunEvents` 幂等合并；失败静默不阻塞实时流）；
     - 测试：channel 3/0（since 过滤/author 可见/跨作品拒绝）、socket helper 用例；前端 typecheck/lint 绿。
-  - ⏳ E3（clarification 契约-实现缺口）：**分析完成，建议退役方案（不擅自改）**——legacy `answer_clarification`/`answer_author_question` 由 `form_r_decision(%{action: "await_author"}) → require_clarification → open_behavior` 产生，当前主链已由 **B26 author_question(author_choice)** 取代、legacy 动作**无消费方**（channel 落 catch-all → DialogueGateway 模糊错误）。建议（待确认）：① channel 对 legacy 动作显式拒绝并给可操作 reason（`legacy_clarification_action_retired`）；② 前端保留 label 映射（避免 code 泄漏），不新增入口；③ 旧 behavior 产生逻辑与前端渲染清理放到「旧协议退役」专项（涉及 await_author judgment 与历史测试，不可随手删）。
+  - ✅ **E3 完成（彻底退役，无历史兼容——项目未发布）**：
+    - 后端：删除 legacy `clarification` behavior 的**全部生产与消费**——`execution_orchestrator` 的动作模板/next_action 映射/`open_behavior` 的 clarification 分支（唯一调用方只开 confirmation，已固定为 `:confirmation` 并删多余参数）；`author_action_decision` / `dialogue_gateway` 的 `:clarification` 类型映射；`turn_result_builder` 的 `build_status(:clarification)` 分支；域 `BehaviorState` 的 `:clarification` 类型（type/author_blocking?/behavior_type_from 兼容全部删除）。
+    - 前端：`workbenchActions` 的 `answer_clarification` target_ref 动作、`WorkspaceChat` 的 label 映射；`display_names` SSOT 删除 `answer_clarification` 并双端重新生成（in sync）。
+    - 文档：`05-turn-behavior-and-state-model.md` §8 删除 clarification 行为类型（§8.1–8.5 重排 + 退役注记）；`VS-03` 契约加退役注记（冻结条款保留为历史，不再产生/消费）。
+    - 验证：`mix compile --warnings-as-errors` 绿；相关应用层测试 **99/0**、`behavior_state_test` **33/0**、foundation/orchestrator 测试通过；前端 typecheck/全量 **480/480**/build 绿。
   - ⏳ E2（多窗口 event_sink）——**必须等并行工作流提交后**（`agent_run_server.ex` 正被其修改，当前不可动）。
 - **批次 B ✅ 完成（2026-11-04 收口，A 方案对齐）**：
   - 核对确认 `compact_transcript` **不是死代码**（Channel handler + 4 个 channel 测试 + 应用层能力均通过）；

@@ -108,7 +108,6 @@
       "confirm_before_execute": "确认执行",
       "reject_or_cancel_confirmation": "拒绝",
       "cancel_pending_behavior": "取消",
-      "answer_clarification": "回答",
       "choose_candidate": "设为后续方向",
       "revise_from_findings": "按质量发现修订",
       "agent_run_budget_next_step": "下一步",

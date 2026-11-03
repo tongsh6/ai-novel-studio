@@ -146,9 +146,6 @@ defmodule NovelApplication.TurnResultBuilder do
   defp build_status(nil, _decision, %ToolResult{status: :failed}), do: "failed"
   defp build_status(nil, _decision, _tool_result), do: "conversational"
 
-  defp build_status(%BehaviorState{behavior_type: :clarification, lifecycle_status: s}, _, _)
-       when s in [:open, :awaiting_author], do: "needs_clarification"
-
   defp build_status(%BehaviorState{behavior_type: :confirmation, lifecycle_status: s}, _, _)
        when s in [:open, :awaiting_author], do: "needs_confirmation"
 

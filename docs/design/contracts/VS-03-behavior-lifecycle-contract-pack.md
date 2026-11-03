@@ -3,6 +3,8 @@
 > 状态：draft for ADR-0006 to ADR-0009 acceptance（2026-05-07）
 >
 > 角色：为 `tasks/slices/v3/VS-03-clarification-confirmation-behavior-lifecycle.md` 关闭实现前文档 blocker。本文是 VS-03 的 contract pack，不是 implementation plan，不授权代码实现。
+> 
+> **2026-11-04 退役注记**：`clarification` behavior 类型已删除（生产/动作/前端渲染/域类型全部移除）——澄清停等由 B26 `author_question`（`author_choice` 动作）承担，见 UA-01 §2.2.2 A 与 05 §8。本文中 clarification 相关条款保留为历史契约记录，不再产生或消费；当前生效的是 confirmation 行为闭环。
 
 ---
 

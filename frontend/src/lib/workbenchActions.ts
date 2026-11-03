@@ -70,7 +70,6 @@ export function filterVisibleAvailableActions<T extends AvailableActionLike>(
 
 export function actionRequiresTargetRef(actionType: string): boolean {
   return [
-    "answer_clarification",
     "cancel_pending_behavior",
     "confirm_before_execute",
     "reject_or_cancel_confirmation",

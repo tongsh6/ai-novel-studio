@@ -3122,7 +3122,6 @@ export function WorkspaceChat() {
     if (action.action_type === "confirm_before_execute") return WORKBENCH.actionConfirm;
     if (action.action_type === "reject_or_cancel_confirmation") return WORKBENCH.actionReject;
     if (action.action_type === "cancel_pending_behavior") return WORKBENCH.actionCancel;
-    if (action.action_type === "answer_clarification") return WORKBENCH.actionAnswer;
     if (action.action_type === "choose_candidate") return WORKBENCH.candidateAdoptLabel;
     if (
       action.label_key === "fact_inventory.start" ||

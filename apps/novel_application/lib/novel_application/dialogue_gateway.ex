@@ -533,8 +533,7 @@ defmodule NovelApplication.DialogueGateway do
 
   defp cancelled_behavior_type(active_behavior) do
     case map_field(active_behavior, :behavior_type) do
-      :clarification -> :clarification
-      "clarification" -> :clarification
+
       :recovery -> :recovery
       "recovery" -> :recovery
       _ -> :confirmation
