@@ -889,3 +889,10 @@
 - **P1-C3 `8264b9c1`**：**删除迁移期收窄开关**（`AUTHOR_VISIBLE_MIGRATION_CATEGORIES`/`categories` 参数全删，**净 −81 行**）；扫描器恢复唯一全类别入口、`internal_terms_zh` 启用、confirmation AX 断言全类别判红；全类别扫描前端 245 条中文字面量**零命中**。
 - **测试**：harness 109/109、前端 730/730、presenter 12/0、tsc/eslint/prettier/module-size/compile/credo 全绿。
 - **收尾状态**：displayName 机制（SSOT 单一来源 + 双端 codegen + Presenter 唯一出口 + 共享扫描器全类别 + AX 通用断言）完整落地，无手写 token 列表/无收窄开关双轨。剩余：全类别 AX 回归批次（P1-AX confirm/reject）与压缩自动维护 AX（A3）。
+
+### 压缩自动维护启用（§16.16 第 2 类入口）与 A2 门禁（2026-11-04）
+
+- **压缩自动维护启用**（`06a296bb`）：`agent_run_server.ex` 抽 `compact_and_commit/2`（显式/自动共用）+ `maybe_auto_maintain/1`（配置/终局/压力门控）+ `run_auto_maintenance/1`（plan_maintenance → compact_and_commit；**失败静默**保留旧 state + developer 日志）；接线两处（`run_next_step/1` 开头覆盖 step 完成/durable 恢复、`handle_info` awaiting_author 前）；`context_pressure.ex` 兼容 keyword/map 配置；config 产品默认 enabled/keep 4、test 默认关闭；T1–T12 单测 11/0（触发/压力未到/usage 未知/当前回合/保留 K/未完成/配置关闭/幂等/失败静默/无技术词/取消迟到结果）。
+- **窗口覆盖运维配置**（`73480a47`）：`NOVEL_CONTEXT_WINDOW_OVERRIDES="provider:window,..."` → `:context_window_overrides`（运行时产品配置、不向作者展示、只影响压力阈值）；解析/缺省/非法单测；目标测试 17/0。
+- **A2 门禁（B71 自动维护 + P1 全量后）**：backend-umbrella EXIT=0（全量）、compile test/dev 0、credo 修复后 13069 mods/funs **no issues**、module-size（软 ratchet）0、xref 无环、arch 0、**I1/I2/I3 全 0**、semgrep（可写 HOME）0、前端 typecheck/lint/test/audit/design-trace 全 0；仅 gitleaks 6 项既有处置与 semgrep 沙箱 HOME 两项已知环境项。
+- **A3 待办**：`NOVEL_AUTO_MAINTENANCE_ENABLED` env 映射（运维开关，已批准实现）+ native-runner 的 auto-maintenance driver journey → A3 预注册（真实 strata + 小窗口 + ≥2 次续行制造压力；无法形成压力则如实登记未闭环）。
