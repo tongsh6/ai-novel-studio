@@ -187,7 +187,8 @@ defmodule NovelApplication.ProviderActivityServiceTest do
 
     assert {:ok, result} = complete.("hello provider projector")
 
-    assert result.content =~ "[stub]"
+    assert result.content != ""
+    refute result.content =~ "[stub]"
 
     assert {:ok, activity} =
              ProviderActivityService.fetch_turn_activity(work.id, session.id, turn_id)

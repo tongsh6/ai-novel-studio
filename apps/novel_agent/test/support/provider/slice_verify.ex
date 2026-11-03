@@ -1480,7 +1480,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp mission_reasoning(planning?, foreshadow, arc) do
-    "[stub] 我核对了#{if planning?, do: "账面与全书进度", else: "本章计划与作品脉络"}：" <>
+    "我核对了#{if planning?, do: "账面与全书进度", else: "本章计划与作品脉络"}：" <>
       if(foreshadow, do: "有一条到期未回收的伏笔；", else: "没有到期的伏笔压力；") <>
       if(arc, do: "有角色弧光停滞待回归；", else: "弧光无停滞；") <>
       if(planning?,

@@ -49,7 +49,8 @@ defmodule NovelApplication.ProviderActivityProjectorTest do
       )
 
     assert {:ok, result} = Execution.result_fn(execution).("hello ordered provider facts")
-    assert result.content =~ "[stub]"
+    assert result.content != ""
+    refute result.content =~ "[stub]"
 
     publications = collect_publications()
     assert length(publications) >= 2
@@ -109,7 +110,8 @@ defmodule NovelApplication.ProviderActivityProjectorTest do
     log =
       capture_log(fn ->
         assert {:ok, result} = Execution.result_fn(execution).("hello provider conflict")
-        assert result.content =~ "[stub]"
+        assert result.content != ""
+        refute result.content =~ "[stub]"
       end)
 
     refute_received {:published, _}
@@ -196,7 +198,8 @@ defmodule NovelApplication.ProviderActivityProjectorTest do
       )
 
     assert {:ok, result} = Execution.result_fn(execution).("hello disabled persistence")
-    assert result.content =~ "[stub]"
+    assert result.content != ""
+    refute result.content =~ "[stub]"
     assert_receive {:published, %{event_type: :provider_progress}}
     assert ProviderRunLog.list_runs(run_id) == []
   end

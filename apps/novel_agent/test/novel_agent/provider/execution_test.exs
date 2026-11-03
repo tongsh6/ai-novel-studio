@@ -42,7 +42,8 @@ defmodule NovelAgent.Provider.ExecutionTest do
 
     assert {:ok, result} = complete.("hello from execution")
     assert %Result{} = result
-    assert result.content =~ "[stub]"
+    assert result.content != ""
+    refute result.content =~ "[stub]"
     assert result.provider_call_ref == "pcall_execution_test"
     assert result.provider_run_ref =~ "prun_"
     assert result.provider_output.status == :ok
@@ -99,7 +100,8 @@ defmodule NovelAgent.Provider.ExecutionTest do
              )
 
     chunk_event = Enum.find(result.provider_events, &(&1.event_type == :chunk))
-    assert chunk_event.payload[:author_narrative_delta] =~ "[stub]"
+    assert is_binary(chunk_event.payload[:author_narrative_delta])
+    refute chunk_event.payload[:author_narrative_delta] =~ "[stub]"
   end
 
   test "with_route_hint rebuilds gateway execution carrying the routing key (D6)" do
@@ -136,7 +138,8 @@ defmodule NovelAgent.Provider.ExecutionTest do
     assert run.execution_mode == :event_stream
     assert run.provider_call_ref == "pcall_execution_stream_test"
     assert output.provider_call_ref == "pcall_execution_stream_test"
-    assert result.content =~ "[stub]"
+    assert result.content != ""
+    refute result.content =~ "[stub]"
 
     event_types = Enum.map(events, & &1.event_type)
     assert Enum.take(event_types, 3) == [:started, :progress, :progress]

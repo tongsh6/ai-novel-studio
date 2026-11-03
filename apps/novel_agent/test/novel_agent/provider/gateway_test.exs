@@ -829,7 +829,8 @@ defmodule NovelAgent.Provider.GatewayTest do
       assert output.provider_run_ref == provider_run.provider_run_id
       assert output.provider_call_ref == "pcall_gateway_test"
       assert output.content.text == result.content
-      assert result.content =~ "[stub]"
+      assert result.content != ""
+      refute result.content =~ "[stub]"
     end
 
     test "execute materializes provider failures without using fallback event types" do
@@ -899,8 +900,8 @@ defmodule NovelAgent.Provider.GatewayTest do
 
     test "returns echo content from stub" do
       assert {:ok, %{content: content}} = Gateway.complete("hello novel")
-      assert content =~ "[stub]"
       assert content =~ "hello novel"
+      refute content =~ "[stub]"
     end
 
     test "emits provider and model audit logs without prompt or secrets" do
@@ -917,7 +918,8 @@ defmodule NovelAgent.Provider.GatewayTest do
         prompt = "hello novel secret-marker"
 
         assert {:ok, %{content: content}} = Gateway.complete(prompt)
-        assert content =~ "[stub]"
+        assert content != ""
+        refute content =~ "[stub]"
 
         records = eventually_read_provider_records(log_dir)
         start_record = Enum.find(records, &(&1["event"] == "provider_gateway.complete.start"))
@@ -943,7 +945,8 @@ defmodule NovelAgent.Provider.GatewayTest do
 
     test "works with empty prompt" do
       assert {:ok, %{content: content}} = Gateway.complete("")
-      assert content =~ "[stub]"
+      assert content != ""
+      refute content =~ "[stub]"
     end
 
     test "completes without error" do

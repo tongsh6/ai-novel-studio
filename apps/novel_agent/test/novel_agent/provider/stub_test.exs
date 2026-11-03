@@ -18,12 +18,13 @@ defmodule NovelAgent.Provider.StubTest do
     test "returns echo response", %{stub: stub} do
       assert {:ok, result} = Stub.complete(stub, "test-model", "hello world", %InferenceParams{})
       assert result.content =~ "hello world"
-      assert result.content =~ "[stub]"
+      refute result.content =~ "[stub]"
     end
 
     test "works with empty prompt", %{stub: stub} do
       assert {:ok, result} = Stub.complete(stub, "any-model", "", %InferenceParams{})
-      assert result.content =~ "[stub]"
+      assert result.content != ""
+      refute result.content =~ "[stub]"
     end
   end
 

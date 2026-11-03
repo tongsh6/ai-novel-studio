@@ -235,7 +235,7 @@ defmodule NovelAgent.Provider.Stub do
   end
 
   defp mission_reasoning(planning?, foreshadow, arc) do
-    "[stub] 我核对了#{if planning?, do: "账面与全书进度", else: "本章计划与作品脉络"}：" <>
+    "我核对了#{if planning?, do: "账面与全书进度", else: "本章计划与作品脉络"}：" <>
       if(foreshadow, do: "有一条到期未回收的伏笔；", else: "没有到期的伏笔压力；") <>
       if(arc, do: "有角色弧光停滞待回归；", else: "弧光无停滞；") <>
       if(planning?,
@@ -585,7 +585,7 @@ defmodule NovelAgent.Provider.Stub do
       agent_next_step_decision_prompt?(text) -> agent_next_step_decision_content(text)
       plan_prompt?(text) -> plan_json()
       frame_prompt?(text) -> frame_json(text)
-      true -> "[stub] echo: " <> text
+      true -> "echo: " <> text
     end
   end
 
@@ -740,7 +740,7 @@ defmodule NovelAgent.Provider.Stub do
 
   defp agent_plan_draft_response_for_profile("prose_drafting_with_quality_v1", prompt_text) do
     %{
-      reasoning: "[stub] 先读取正文写作上下文，再基于该上下文生成正文草稿并完成质量复核。",
+      reasoning: "先读取正文写作上下文，再基于该上下文生成正文草稿并完成质量复核。",
       steps: [
         plan_step("context_assemble", "explore", "先读取正文写作上下文。", [
           "prose_context_observation_created"
@@ -759,7 +759,7 @@ defmodule NovelAgent.Provider.Stub do
 
   defp agent_plan_draft_response_for_profile("character_design_with_context_v1") do
     %{
-      reasoning: "[stub] 先读取当前角色阵容，再基于阵容设计待采纳角色候选。",
+      reasoning: "先读取当前角色阵容，再基于阵容设计待采纳角色候选。",
       steps: [
         plan_step("character_roster", "explore", "读取当前作品已确认角色阵容。", [
           "character_roster_observation_exists"
@@ -774,7 +774,7 @@ defmodule NovelAgent.Provider.Stub do
 
   defp agent_plan_draft_response_for_profile("plot_outline_with_context_v1") do
     %{
-      reasoning: "[stub] 先读取章节大纲规划上下文，再基于该上下文生成章节大纲草稿。",
+      reasoning: "先读取章节大纲规划上下文，再基于该上下文生成章节大纲草稿。",
       steps: [
         plan_step("context_assemble", "explore", "先读取章节大纲规划上下文。", [
           "outline_context_observation_created"
@@ -789,7 +789,7 @@ defmodule NovelAgent.Provider.Stub do
 
   defp agent_plan_draft_response_for_profile("character_evolution_with_context_v1") do
     %{
-      reasoning: "[stub] 先读取角色演化上下文，再基于该上下文生成角色演化记忆草稿。",
+      reasoning: "先读取角色演化上下文，再基于该上下文生成角色演化记忆草稿。",
       steps: [
         plan_step("context_assemble", "explore", "先读取角色演化上下文。", [
           "character_evolution_context_observation_created"
@@ -804,7 +804,7 @@ defmodule NovelAgent.Provider.Stub do
 
   defp agent_plan_draft_response_for_profile("world_building_with_context_v1") do
     %{
-      reasoning: "[stub] 先读取世界设定上下文，再基于该上下文生成世界设定、伏笔或规则草稿。",
+      reasoning: "先读取世界设定上下文，再基于该上下文生成世界设定、伏笔或规则草稿。",
       steps: [
         plan_step("context_assemble", "explore", "先读取世界设定上下文。", [
           "world_building_context_observation_created"
@@ -819,7 +819,7 @@ defmodule NovelAgent.Provider.Stub do
 
   defp agent_plan_draft_response_for_profile("readonly_batch_context_v1") do
     %{
-      reasoning: "[stub] 先并行读取只读上下文，再汇总给作者，不写入作品也不生成候选。",
+      reasoning: "先并行读取只读上下文，再汇总给作者，不写入作品也不生成候选。",
       steps: [
         plan_step("readonly_batch", "explore", "并行读取作品、角色、规则和统计上下文。", [
           "readonly_batch_observations_exist"
@@ -835,7 +835,7 @@ defmodule NovelAgent.Provider.Stub do
 
   defp agent_plan_draft_response_for_profile("ledger_reconciliation_v1") do
     %{
-      reasoning: "[stub] 机械执行一次全书审读并物化审读报告；规则判定由系统完成，不改设定或正文。",
+      reasoning: "机械执行一次全书审读并物化审读报告；规则判定由系统完成，不改设定或正文。",
       steps: [
         plan_step("ledger_reconcile", "act", "机械执行全书审读并物化审读报告。", [
           "ledger_reconcile_observation_exists"
@@ -851,7 +851,7 @@ defmodule NovelAgent.Provider.Stub do
 
   defp agent_plan_draft_response_for_profile("prose_revision_from_findings_v1") do
     %{
-      reasoning: "[stub] 先读取待修订草稿和质量发现，再完成授权、生成并汇总修订候选。",
+      reasoning: "先读取待修订草稿和质量发现，再完成授权、生成并汇总修订候选。",
       steps: [
         plan_step("revision_prepare", "explore", "读取待修订草稿和质量发现。", [
           "revision_source_loaded"
@@ -873,7 +873,7 @@ defmodule NovelAgent.Provider.Stub do
 
   defp agent_plan_draft_response_for_profile(_profile_ref) do
     %{
-      reasoning: "[stub] 为当前目标起草一条最小执行计划。",
+      reasoning: "为当前目标起草一条最小执行计划。",
       steps: [
         plan_step("allowed_tool", "act", "执行一个允许能力。", ["goal_progress"])
       ],
@@ -1057,13 +1057,13 @@ defmodule NovelAgent.Provider.Stub do
   defp character_design_next_step_decision(prompt_text) do
     cond do
       String.contains?(prompt_text, "/ artifact_created:") ->
-        done_next("[stub] 已生成待采纳角色候选，本轮目标已满足。")
+        done_next("已生成待采纳角色候选，本轮目标已满足。")
 
       String.contains?(prompt_text, "/ character_roster:") ->
-        continue_next("[stub] 基于角色阵容设计新角色。", "character_design", "tentative")
+        continue_next("基于角色阵容设计新角色。", "character_design", "tentative")
 
       true ->
-        continue_next("[stub] 先读取当前角色阵容。", "character_roster")
+        continue_next("先读取当前角色阵容。", "character_roster")
     end
   end
 
@@ -1072,17 +1072,17 @@ defmodule NovelAgent.Provider.Stub do
 
     cond do
       String.contains?(observations, "/ artifact_created:") ->
-        done_next("[stub] 已生成待采纳正文草稿并完成质量复核，本轮目标已满足。")
+        done_next("已生成待采纳正文草稿并完成质量复核，本轮目标已满足。")
 
       String.contains?(observations, "正文写作上下文") ->
         continue_next(
-          "[stub] 基于已读取的正文上下文生成正文草稿并完成质量复核。",
+          "基于已读取的正文上下文生成正文草稿并完成质量复核。",
           "prose_writing",
           "tentative"
         )
 
       true ->
-        continue_next("[stub] 先读取正文写作上下文。", "context_assemble")
+        continue_next("先读取正文写作上下文。", "context_assemble")
     end
   end
 
@@ -1091,13 +1091,13 @@ defmodule NovelAgent.Provider.Stub do
 
     cond do
       String.contains?(observations, "/ artifact_created:") ->
-        done_next("[stub] 已生成待采纳大纲候选，本轮目标已满足。")
+        done_next("已生成待采纳大纲候选，本轮目标已满足。")
 
       String.contains?(observations, "章节大纲规划上下文") ->
-        continue_next("[stub] 基于已读取的章节上下文生成章节大纲草稿。", "plot_outline", "tentative")
+        continue_next("基于已读取的章节上下文生成章节大纲草稿。", "plot_outline", "tentative")
 
       true ->
-        continue_next("[stub] 先读取章节大纲规划上下文。", "context_assemble")
+        continue_next("先读取章节大纲规划上下文。", "context_assemble")
     end
   end
 
@@ -1106,13 +1106,13 @@ defmodule NovelAgent.Provider.Stub do
 
     cond do
       String.contains?(observations, "/ artifact_created:") ->
-        done_next("[stub] 已生成待采纳角色演化候选，本轮目标已满足。")
+        done_next("已生成待采纳角色演化候选，本轮目标已满足。")
 
       String.contains?(observations, "角色演化上下文") ->
-        continue_next("[stub] 基于已读取的角色上下文生成角色演化草稿。", "character_evolution", "tentative")
+        continue_next("基于已读取的角色上下文生成角色演化草稿。", "character_evolution", "tentative")
 
       true ->
-        continue_next("[stub] 先读取角色演化上下文。", "context_assemble")
+        continue_next("先读取角色演化上下文。", "context_assemble")
     end
   end
 
@@ -1121,13 +1121,13 @@ defmodule NovelAgent.Provider.Stub do
 
     cond do
       String.contains?(observations, "/ artifact_created:") ->
-        done_next("[stub] 已生成待采纳世界设定候选，本轮目标已满足。")
+        done_next("已生成待采纳世界设定候选，本轮目标已满足。")
 
       String.contains?(observations, "世界设定上下文") ->
-        continue_next("[stub] 基于已读取的作品设定上下文生成世界设定草稿。", "world_building", "tentative")
+        continue_next("基于已读取的作品设定上下文生成世界设定草稿。", "world_building", "tentative")
 
       true ->
-        continue_next("[stub] 先读取作品设定上下文。", "context_assemble")
+        continue_next("先读取作品设定上下文。", "context_assemble")
     end
   end
 
@@ -1136,19 +1136,19 @@ defmodule NovelAgent.Provider.Stub do
 
     cond do
       String.contains?(observations, "/ artifact_created:") ->
-        done_next("[stub] 修订草稿已汇总，目标已满足。")
+        done_next("修订草稿已汇总，目标已满足。")
 
       String.contains?(observations, "已生成新的修订候选") ->
-        continue_next("[stub] 汇总修订候选给作者。", "revision_finalize")
+        continue_next("汇总修订候选给作者。", "revision_finalize")
 
       String.contains?(observations, "重新经过 Orchestrator") ->
-        continue_next("[stub] 基于修订计划生成正文修订候选。", "prose_writing", "tentative")
+        continue_next("基于修订计划生成正文修订候选。", "prose_writing", "tentative")
 
       String.contains?(observations, "已读取待修订草稿") ->
-        continue_next("[stub] 制定修订计划并重新经过系统裁决。", "revision_plan")
+        continue_next("制定修订计划并重新经过系统裁决。", "revision_plan")
 
       true ->
-        continue_next("[stub] 读取待修订草稿和质量发现。", "revision_prepare")
+        continue_next("读取待修订草稿和质量发现。", "revision_prepare")
     end
   end
 
@@ -1206,14 +1206,14 @@ defmodule NovelAgent.Provider.Stub do
 
   defp plan_json do
     Jason.encode!(%{
-      "plan_goal_summary" => "[stub] 调用 character_design 推进",
+      "plan_goal_summary" => "调用 character_design 推进",
       "risk_hint" => "low",
       "requires_confirmation_hint" => false,
       "proposed_actions" => [
         %{
           "action_id" => "act-stub-1",
           "action_type" => "capability_invocation",
-          "summary" => "[stub] 调用 character_design",
+          "summary" => "调用 character_design",
           "target_ref" => "character_design",
           "write_intent" => "tentative",
           "risk_hint" => "low"
@@ -1221,7 +1221,7 @@ defmodule NovelAgent.Provider.Stub do
       ],
       "state_changes_requested" => [],
       "required_capabilities" => ["character_design"],
-      "fallback_message" => "[stub] 无可调度行动"
+      "fallback_message" => "无可调度行动"
     })
   end
 
@@ -1232,11 +1232,11 @@ defmodule NovelAgent.Provider.Stub do
 
     Jason.encode!(%{
       "frame_type" => "casual_reply",
-      "dialogue_goal_summary" => "[stub] 收到用户输入",
+      "dialogue_goal_summary" => "收到用户输入",
       "needs_tool" => false,
       "no_tool_reason" => "no_tool_needed",
       "execution_readiness" => "not_applicable",
-      "assistant_message" => "[stub] 已收到。原文：" <> user_excerpt,
+      "assistant_message" => "已收到。原文：" <> user_excerpt,
       "candidate_directions" => [],
       "context_used" => context_provided?(prompt_text),
       "uncertainty" => []
