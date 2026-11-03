@@ -84,8 +84,8 @@ describe("WorkspaceChat 主输入归属提示（B31 CP1）", () => {
       { openQuestionRunIds: ["run-question"] },
     );
 
-    expect(html).toContain("有任务正在等待你的问题回复");
-    expect(html).toContain("请在对应问题卡上回复");
+    expect(html).toContain("有任务在等待你的回答");
+    expect(html).toContain("请先切换到该任务再回答");
     expect(html).not.toContain('role="group"');
     expect(html).not.toContain("将应用到当前创作");
   });

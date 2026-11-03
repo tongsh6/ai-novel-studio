@@ -285,3 +285,50 @@ export function buildAgentRunInputPresentation(
     liveRunCount: candidates.length,
   };
 }
+
+/**
+ * 输入区语义模式（46 §9.7，2026-11-04 作者拍板「等待即回答」）。
+ *
+ * 输入区原本多语义（新讨论/调整任务/回答模型问题/预算不足），此前散落在
+ * WorkspaceChat 的条件判断里。这里把语义收敛为单一派生：视图只按 mode 渲染，
+ * 不再各自推断。
+ *
+ * - `answer_question`：当前 active run 有未答模型问题（作者未显式选择新讨论）——
+ *   主输入区接管为回答入口，回答走 `author_choice` 同 run 继续；
+ * - `steer`：唯一可 steer 的 active run 且无未答问题——输入即调整当前任务；
+ * - `new_discussion`：普通新请求（含作者显式「开始新讨论」、其它 run 有问题等）；
+ * - `blocked`：预算不足等不可输入场景，恢复动作由控制坞既有矩阵负责。
+ */
+export type AgentRunInputMode = "answer_question" | "steer" | "new_discussion" | "blocked";
+
+export interface AgentRunInputModeOptions {
+  /** 作者显式「开始新讨论」后为 true：即使有未答模型问题也按新讨论处理。 */
+  answerModeDismissed?: boolean;
+  /** 预算不足等既有阻塞语义（budgetShortfallAwaiting）。 */
+  blocked?: boolean;
+}
+
+export interface AgentRunInputModeState {
+  mode: AgentRunInputMode;
+  /** `answer_question` 时承载该问题的 run_id；否则 null。 */
+  questionRunId: string | null;
+}
+
+export function deriveAgentRunInputMode(
+  decision: AgentRunInputDecision,
+  presentation: AgentRunInputPresentation,
+  options: AgentRunInputModeOptions = {},
+): AgentRunInputModeState {
+  if (options.blocked === true) {
+    return { mode: "blocked", questionRunId: null };
+  }
+  const answerableRunId =
+    decision.reason === "active_has_model_question" ? (decision.run?.run_id ?? null) : null;
+  if (answerableRunId !== null && options.answerModeDismissed !== true) {
+    return { mode: "answer_question", questionRunId: answerableRunId };
+  }
+  if (presentation.canSteer) {
+    return { mode: "steer", questionRunId: null };
+  }
+  return { mode: "new_discussion", questionRunId: null };
+}

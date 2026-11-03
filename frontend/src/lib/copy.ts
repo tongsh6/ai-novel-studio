@@ -312,6 +312,12 @@ export const WORKBENCH = {
   authorQuestionAnswered: "已收到回复",
   authorQuestionClosed: "此问题已结束",
   authorQuestionUnavailable: "此问题暂不可回复",
+  // 46 §9.7（2026-11-04 修订）：等待即回答——主输入区接管为回答入口；新讨论是显式动作。
+  authorQuestionAnswerModeLabel: "回答当前问题",
+  authorQuestionAnswerModeHint: "回答后当前任务继续；要发起新任务请点「开始新讨论」。",
+  authorQuestionAnswerModeNewDiscussion: "开始新讨论",
+  authorQuestionReadOnlyPending: "等待你的回答",
+  authorQuestionRecordLabel: "创作问题记录",
   userDisplayName: "你",
   assistantDisplayNameDefault: "AI 助手",
   assistantDisplayNameAction: "助手名称",
@@ -471,8 +477,10 @@ export const WORKBENCH = {
   // 主输入在不能确定性 steer 时按新请求处理（B31 §6.2 Q02）。
   agentRunWorkspaceInputTarget: (goalText: string) =>
     goalText.trim() !== "" ? `将发给：「${goalText}」` : "将发给当前任务",
+  // 46 §9.7（2026-11-04 修订）：当前任务的模型问题由底部回答区直接接管；
+  // 该提示只用于「其它任务持有未答问题」时，提示作者切换任务后再回答。
   agentRunWorkspaceInputQuestionNotice:
-    "有任务正在等待你的问题回复：请在对应问题卡上回复；下方输入会作为新请求发送。",
+    "有任务在等待你的回答：请先切换到该任务再回答；此处输入会作为新讨论。",
   agentRunWorkspaceInputAmbiguousNotice:
     "当前有多个任务在进行；请选择要继续的任务，下方输入会作为新请求发送。",
   agentRunWorkspaceInputRunSelectorLabel: "选择要继续的任务",

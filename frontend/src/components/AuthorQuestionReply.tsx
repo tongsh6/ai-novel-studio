@@ -88,7 +88,6 @@ export function AuthorQuestionReply({
           }}
         >
           <label className="flex flex-col gap-2">
-            <span>{question.question}</span>
             <textarea
               {...form.register("text")}
               aria-label={WORKBENCH.authorQuestionReplyLabel}

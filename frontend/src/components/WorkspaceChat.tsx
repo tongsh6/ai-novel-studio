@@ -4,13 +4,22 @@
 // Design: docs/design/ui/42-card-system.md §2 (card type to VS-05 mapping)
 // Design: docs/design/ui/46-state-and-feedback.md §6 / §9 / §9.8 / §9.9 (候选编辑失败、AgentRun 与动作回执、整理记录细条)
 // Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi), 41§3.1-candidate-discussion-collapsed (oFt1j), 46§9-agentic-loop-reasoning-flow (DM8gx), 46§9.7-agent-run-control-dock (dxUhh), 46§9.8-quality-revision-running (EYiyl), 46§9.9-transcript-compaction-inline (fjkkm), 46§9.9-transcript-compaction-expanded (AYpEe)
-import { AuthorQuestionReply } from "./AuthorQuestionReply";
+import { AgentRunAnswerPanel } from "./AgentRunAnswerPanel";
+import { AuthorQuestionRecord } from "./AuthorQuestionRecord";
 import {
   TranscriptCompactionNotice,
   type TranscriptCompactionCopy,
 } from "./TranscriptCompactionNotice";
 import { UserMessageSubmissionSchema } from "../generated/foundation/user_message_submission";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useState, useRef } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  useRef,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { readingProjectionQueryKey } from "../lib/readingProjectionQuery";
 import type { Channel } from "phoenix";
@@ -176,6 +185,7 @@ import {
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
 import {
   buildAgentRunInputPresentation,
+  deriveAgentRunInputMode,
   decideAgentRunInputRoute,
   openQuestionRunIdsForRuns,
   type AgentRunInputPresentation,
@@ -1484,6 +1494,8 @@ export function WorkspaceChat() {
   // B31 §6.2 Q01：作者最近交互过的 run（点击结果/停等坞、提交 steer、显式回复问题）。
   // 不使用 visibleAgentRunMap/广播到达序作为语义依据。
   const [focusedAgentRunId, setFocusedAgentRunId] = useState<string | null>(null);
+  // 46 §9.7（2026-11-04 修订）：等待即回答——默认回答当前问题；作者显式点「开始新讨论」才恢复新请求语义。
+  const [newDiscussionMode, setNewDiscussionMode] = useState(false);
   // B31 §6.2 Q01 ③：客户端语义活动时间——只记录真实活动（agent_event/turn_result），
   // 不记录恢复广播到达序。
   const [agentRunLastEventAt, setAgentRunLastEventAt] = useState<Record<string, number>>({});
@@ -2440,6 +2452,33 @@ export function WorkspaceChat() {
     latestAgentRun.status === "awaiting_author" &&
     openAuthorQuestionRunIds.includes(latestAgentRun.run_id),
   );
+  // 46 §9.7（2026-11-04 修订）：当前 run 的未答模型问题 = 底部回答模式的来源。
+  // 消息流中的问题卡只读记录，操作统一在主输入区（等待即回答，避免双入口误用）。
+  const activeModelQuestionResult = useMemo(() => {
+    if (!latestAgentRun || !latestAgentRunHasModelQuestion) return null;
+    const fromMessages = messages
+      .map((message) => message.turnResult)
+      .filter((result): result is WireTurnResult => Boolean(result?.author_question))
+      .find(
+        (result) =>
+          result.author_question?.run_id === latestAgentRun.run_id &&
+          result.author_question?.status === "open",
+      );
+    if (fromMessages) return fromMessages;
+    return (
+      (openQuestions.data ?? []).find(
+        (result) => result.author_question?.run_id === latestAgentRun.run_id,
+      ) ?? null
+    );
+  }, [latestAgentRun, latestAgentRunHasModelQuestion, messages, openQuestions.data]);
+  useEffect(() => {
+    if (!latestAgentRunHasModelQuestion) setNewDiscussionMode(false);
+  }, [latestAgentRunHasModelQuestion]);
+  // 46 §9.7（2026-11-04 修订）：输入区语义由单一派生函数给出，渲染只按 mode 分支。
+  const inputMode = deriveAgentRunInputMode(agentRunInputDecision, agentRunInputPresentation, {
+    answerModeDismissed: newDiscussionMode,
+    blocked: budgetShortfallAwaiting,
+  });
   const usesTaskComposer = agentRunInputPresentation.canSteer;
 
   const hasPendingAgentRunAnchor = Object.keys(pendingAgentRunAnchors).length > 0;
@@ -4865,12 +4904,9 @@ export function WorkspaceChat() {
                       {WORKBENCH.authorQuestionContext}
                       {result.frame_summary?.dialogue_goal}
                     </p>
-                    <p>{result.author_question?.question}</p>
-                    <AuthorQuestionReply
-                      result={result}
-                      disabled={questionReplyDisabled(result)}
-                      onReply={handleQuestionReply}
-                    />
+                    {result.author_question !== null && result.author_question !== undefined && (
+                      <AuthorQuestionRecord question={result.author_question} />
+                    )}
                   </section>
                 ))}
             {messages.map((msg, i) => {
@@ -5245,11 +5281,7 @@ export function WorkspaceChat() {
                       })()}
 
                     {!isReadOnlySessionView && msg.turnResult?.author_question && (
-                      <AuthorQuestionReply
-                        result={msg.turnResult}
-                        disabled={questionReplyDisabled(msg.turnResult)}
-                        onReply={handleQuestionReply}
-                      />
+                      <AuthorQuestionRecord question={msg.turnResult.author_question} />
                     )}
 
                     {!isReadOnlySessionView &&
@@ -5629,94 +5661,107 @@ export function WorkspaceChat() {
 
           {/* 输入区域 (Input Area) */}
           <div className={styles.inputArea}>
-            <div className={styles.composerRail}>
-              {/* B23 CP4：失活 bounded run 即使已被收口为终态（failed）也保留过期坞：
-                  「原任务已失效 + 重新发起任务」是唯一出口。它位于普通 composer 之上，
-                  不给 composer 套「调整当前任务」语义（死 run 不能 steer）。 */}
-              {!isReadOnlySessionView && renderExpiredBoundedDock && agentRunDock && (
-                <div className={styles.agentRunWorkspace}>{agentRunDock}</div>
-              )}
-              {!isReadOnlySessionView &&
-                !usesTaskComposer &&
-                agentRunInputPresentation.noticeKind !== null && (
-                  <AgentRunInputRoutingAids
-                    presentation={agentRunInputPresentation}
-                    onSelectRun={(runId) => setFocusedAgentRunId(runId)}
-                  />
+            {!isReadOnlySessionView &&
+            inputMode.mode === "answer_question" &&
+            activeModelQuestionResult !== null ? (
+              <div className={styles.composerRail}>
+                <AgentRunAnswerPanel
+                  result={activeModelQuestionResult}
+                  disabled={questionReplyDisabled(activeModelQuestionResult)}
+                  onReply={handleQuestionReply}
+                  onStartNewDiscussion={() => setNewDiscussionMode(true)}
+                />
+              </div>
+            ) : (
+              <div className={styles.composerRail}>
+                {/* B23 CP4：失活 bounded run 即使已被收口为终态（failed）也保留过期坞：
+                    「原任务已失效 + 重新发起任务」是唯一出口。它位于普通 composer 之上，
+                    不给 composer 套「调整当前任务」语义（死 run 不能 steer）。 */}
+                {!isReadOnlySessionView && renderExpiredBoundedDock && agentRunDock && (
+                  <div className={styles.agentRunWorkspace}>{agentRunDock}</div>
                 )}
-              <div
-                className={
-                  !isReadOnlySessionView && usesTaskComposer
-                    ? styles.agentRunWorkspace
-                    : styles.standardComposer
-                }
-                role={!isReadOnlySessionView && usesTaskComposer ? "group" : undefined}
-                aria-label={
-                  !isReadOnlySessionView && usesTaskComposer
-                    ? WORKBENCH.agentRunWorkspaceLabel
-                    : undefined
-                }
-              >
-                {!isReadOnlySessionView && renderActiveAgentRunDock && agentRunDock}
-                <div
-                  className={
-                    !isReadOnlySessionView && usesTaskComposer
-                      ? styles.agentRunComposerRow
-                      : styles.standardComposerRow
-                  }
-                >
-                  {!isReadOnlySessionView && usesTaskComposer && (
+                {!isReadOnlySessionView &&
+                  !usesTaskComposer &&
+                  agentRunInputPresentation.noticeKind !== null && (
                     <AgentRunInputRoutingAids
                       presentation={agentRunInputPresentation}
                       onSelectRun={(runId) => setFocusedAgentRunId(runId)}
                     />
                   )}
-                  <input
-                    ref={mainInputRef}
-                    type="text"
-                    className={styles.inputBox}
-                    aria-label={
-                      canRouteMainInputToAgentSteer
-                        ? WORKBENCH.agentRunWorkspaceInputLabel
-                        : undefined
+                <div
+                  className={
+                    !isReadOnlySessionView && usesTaskComposer
+                      ? styles.agentRunWorkspace
+                      : styles.standardComposer
+                  }
+                  role={!isReadOnlySessionView && usesTaskComposer ? "group" : undefined}
+                  aria-label={
+                    !isReadOnlySessionView && usesTaskComposer
+                      ? WORKBENCH.agentRunWorkspaceLabel
+                      : undefined
+                  }
+                >
+                  {!isReadOnlySessionView && renderActiveAgentRunDock && agentRunDock}
+                  <div
+                    className={
+                      !isReadOnlySessionView && usesTaskComposer
+                        ? styles.agentRunComposerRow
+                        : styles.standardComposerRow
                     }
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder={
-                      budgetShortfallAwaiting
-                        ? WORKBENCH.agentRunBudgetShortfallPlaceholder
-                        : canRouteMainInputToAgentSteer
-                          ? awaitingAuthorInputRequired
-                            ? WORKBENCH.agentRunAwaitingInputPlaceholder
-                            : WORKBENCH.agentRunMainInputSteerPlaceholder
-                          : WORKBENCH.inputPlaceholder
-                    }
-                    disabled={!socketConnected || isPanelOpen || isReadOnlySessionView}
-                  />
-                  {!hasActiveAgentRun && (
-                    <button
-                      type="button"
-                      className={styles.btnSecondary}
-                      aria-pressed={authorStepLimit}
-                      onClick={() => setAuthorStepLimit((value) => !value)}
-                    >
-                      {authorStepLimit ? WORKBENCH.authorStepLimitOn : WORKBENCH.authorStepLimit}
-                    </button>
-                  )}
-                  <button
-                    className={styles.sendBtn}
-                    type="button"
-                    onClick={() => {
-                      void handleSend();
-                    }}
-                    disabled={!canSubmitMainInput}
                   >
-                    {canRouteMainInputToAgentSteer ? WORKBENCH.agentRunSteerSend : WORKBENCH.send}
-                  </button>
+                    {!isReadOnlySessionView && usesTaskComposer && (
+                      <AgentRunInputRoutingAids
+                        presentation={agentRunInputPresentation}
+                        onSelectRun={(runId) => setFocusedAgentRunId(runId)}
+                      />
+                    )}
+                    <input
+                      ref={mainInputRef}
+                      type="text"
+                      className={styles.inputBox}
+                      aria-label={
+                        canRouteMainInputToAgentSteer
+                          ? WORKBENCH.agentRunWorkspaceInputLabel
+                          : undefined
+                      }
+                      value={inputText}
+                      onChange={(e) => setInputText(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder={
+                        budgetShortfallAwaiting
+                          ? WORKBENCH.agentRunBudgetShortfallPlaceholder
+                          : canRouteMainInputToAgentSteer
+                            ? awaitingAuthorInputRequired
+                              ? WORKBENCH.agentRunAwaitingInputPlaceholder
+                              : WORKBENCH.agentRunMainInputSteerPlaceholder
+                            : WORKBENCH.inputPlaceholder
+                      }
+                      disabled={!socketConnected || isPanelOpen || isReadOnlySessionView}
+                    />
+                    {!hasActiveAgentRun && (
+                      <button
+                        type="button"
+                        className={styles.btnSecondary}
+                        aria-pressed={authorStepLimit}
+                        onClick={() => setAuthorStepLimit((value) => !value)}
+                      >
+                        {authorStepLimit ? WORKBENCH.authorStepLimitOn : WORKBENCH.authorStepLimit}
+                      </button>
+                    )}
+                    <button
+                      className={styles.sendBtn}
+                      type="button"
+                      onClick={() => {
+                        void handleSend();
+                      }}
+                      disabled={!canSubmitMainInput}
+                    >
+                      {canRouteMainInputToAgentSteer ? WORKBENCH.agentRunSteerSend : WORKBENCH.send}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 

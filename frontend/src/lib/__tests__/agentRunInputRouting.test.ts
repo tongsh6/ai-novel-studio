@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAgentRunInputPresentation,
   decideAgentRunInputRoute,
+  deriveAgentRunInputMode,
   openQuestionRunIdsForRuns,
   selectActiveAgentRun,
 } from "../agentRunInputRouting";
@@ -234,5 +235,81 @@ describe("buildAgentRunInputPresentation (B31 §6.2 Q05)", () => {
     expect(presentation.canSteer).toBe(false);
     expect(presentation.noticeKind).toBe("question");
     expect(presentation.showRunSelector).toBe(false);
+  });
+});
+
+describe("deriveAgentRunInputMode（46 §9.7 等待即回答）", () => {
+  const presentationFor = (
+    decision: ReturnType<typeof decideAgentRunInputRoute>,
+    runs: readonly AgentRunStateData[],
+  ) => buildAgentRunInputPresentation(decision, runs);
+
+  const decide = (
+    runs: readonly AgentRunStateData[],
+    openQuestionRunIds: string[] = [],
+    focusedRunId: string | null = null,
+  ) =>
+    decideAgentRunInputRoute({
+      runs,
+      openQuestionRunIds,
+      focusedRunId: focusedRunId,
+      lastEventAt: {},
+      pendingAnswerBehaviorId: null,
+    });
+
+  it("active run 有未答模型问题：主输入区接管为回答模式", () => {
+    const runs = [run("run-question", "awaiting_author")];
+    const decision = decide(runs, ["run-question"]);
+    const mode = deriveAgentRunInputMode(decision, presentationFor(decision, runs));
+    expect(mode).toEqual({ mode: "answer_question", questionRunId: "run-question" });
+  });
+
+  it("作者显式「开始新讨论」后：有未答问题也按新讨论处理", () => {
+    const runs = [run("run-question", "awaiting_author")];
+    const decision = decide(runs, ["run-question"]);
+    const mode = deriveAgentRunInputMode(decision, presentationFor(decision, runs), {
+      answerModeDismissed: true,
+    });
+    expect(mode).toEqual({ mode: "new_discussion", questionRunId: null });
+  });
+
+  it("唯一 open question 的 run 被选择器视为 active：主输入接管回答", () => {
+    // 选择器优先选「持有唯一未答问题的 run」为 active（B31 §6.2 Q01），
+    // 因此其它 run 的问题也会自然成为回答目标，而不是新讨论。
+    const runs = [run("run-active", "running"), run("run-other", "awaiting_author")];
+    const decision = decide(runs, ["run-other"], "run-active");
+    expect(decision.reason).toBe("active_has_model_question");
+    const mode = deriveAgentRunInputMode(decision, presentationFor(decision, runs));
+    expect(mode).toEqual({ mode: "answer_question", questionRunId: "run-other" });
+  });
+
+  it("多个 run 同时有未答问题（歧义）：不接管主输入", () => {
+    const runs = [run("run-a", "awaiting_author"), run("run-b", "awaiting_author")];
+    const decision = decide(runs, ["run-a", "run-b"]);
+    const mode = deriveAgentRunInputMode(decision, presentationFor(decision, runs));
+    expect(mode.mode).toBe("new_discussion");
+  });
+
+  it("唯一可 steer 的 active run：输入即调整当前任务", () => {
+    const runs = [run("run-running", "running")];
+    const decision = decide(runs);
+    const mode = deriveAgentRunInputMode(decision, presentationFor(decision, runs));
+    expect(mode).toEqual({ mode: "steer", questionRunId: null });
+  });
+
+  it("无 active run：普通新讨论", () => {
+    const runs: AgentRunStateData[] = [];
+    const decision = decide(runs);
+    const mode = deriveAgentRunInputMode(decision, presentationFor(decision, runs));
+    expect(mode).toEqual({ mode: "new_discussion", questionRunId: null });
+  });
+
+  it("预算不足等阻塞语义：blocked 优先于其它模式", () => {
+    const runs = [run("run-question", "awaiting_author")];
+    const decision = decide(runs, ["run-question"]);
+    const mode = deriveAgentRunInputMode(decision, presentationFor(decision, runs), {
+      blocked: true,
+    });
+    expect(mode).toEqual({ mode: "blocked", questionRunId: null });
   });
 });
