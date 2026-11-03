@@ -957,3 +957,14 @@
 - **重构（后端，`d6513362`）**：`AgentRunServer.submit_author_question_reply/4` 显式入口替代 steer map 隐式重载（`%{author_question_reply: request}`）；删除 B31 CP1 遗留 4 元组 map 兼容分支；`steer_submission/4` 限文本（`when is_binary`）——作者输入种类在两端显式表达。
 - **验证**：前端 typecheck/lint 绿、全量 **744/744**、设计追溯 **28 通过 / 0 警告 / 0 失败**；后端全量 **3057 tests / 0 failures**、credo 0 issues、module-size 通过、xref 无环、arch 通过；已推送（`d6513362` + 设计帧提交）。
 - **后续**：native-runner 适配新回答面板 AX 定位 + A3b 复验（同 run 回答 → 多回合 → 自动维护链路）。
+
+### A3b 最终收口：C1b 已可构造 ✓、C1c 受模型执行质量限制不可满足（2026-11-04）
+
+- **「等待即回答」交互重构后**（§下）回答真实走 `author_choice` → 同一 run 恢复，不再起新 run。3 次 smoke 验证：
+  - **smoke6（选项A，HEAD 3be617c3）**：点击选项A → `run_resumed` + `plan_adjusted`；同 run `user_turns=2`、无新 run；provider 1→3（usage 越线）；随后 `run_failed`（iq3_s 执行失败）。
+  - **smoke7（选项B）**：同 run 2 作者回合 ✓；继续后 `run_failed`。
+  - **smoke8（FREE_TEXT「按A线推进，但先只写一段验证」）**：回答成功、**同 run 2 作者回合 ✓、无 `run_failed`**；但 tool_calls=2、**observations=0**、validation_results=2（iq3_s 的 tool_call 两次都被契约校验拒绝）→ 更早回合交换 <K=4 → `checkpoint_created=0`、细条不可见（**不触发=正确产品语义**）；全类别扫描 hits=0。
+- **判定**：**C1（真实压力）成立**；**C1b（同 run ≥2 作者回合）在新交互下已可构造 ✓**；**C1c（更早回合 >4 交换）受 iq3_s 执行质量限制不可满足**（回答后 tool_call 契约失败率高、observations=0，交换无法增长；run 无法正常完成）。**A3b 仍如实未闭环（受真实模型执行质量限制）**——不伪造、不注入、不调 K/窗口；自动维护触发链路由 T1–T12 单测覆盖。
+- **附带成果**：「等待即回答」交互经真实批次验证生效（回答=同 run 恢复、无新 run、`user_turns=2`），A3b 唯一的模型侧缺口不再是交互语义。
+- **证据**：`artifacts/b71-native/a3b-smoke-cp4b-auto-maint-a3b-smoke{6,7,8}/`（driver-log、截图、DB transcript、validation 失败、usage 越线）；恢复指引 `artifacts/b71-resume/auto-maintenance-a3-recovery-notes.md` §6.5。
+- **提交**：`fdbacccc`/`2e5bd4dd`/`e8fd6840`/`204cc939`/`2d2b0d9a`（驱动适配与选项/文本入口）。
