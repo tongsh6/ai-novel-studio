@@ -168,6 +168,38 @@ export function confirmationWireFacts(wire, { sourceTurnId, action }) {
   };
 }
 
+// 点击后确认子执行帧：带真实 tool_result 的 received turn_result（时间窗按点击起点）。
+// 注意：确定性 provider 的子执行帧可能在 ACK 之后极快到达，调用方的起点必须取
+// 「点击动作之前」，不能用 ACK 返回之后的时刻（cp4b-confirmation-01e 的真实缺口）。
+export function executedConfirmationTurnResult(wire, sinceIso) {
+  return (
+    list(wire).find(
+      (record) =>
+        record?.direction === "received" &&
+        Array.isArray(record.frame) &&
+        record.frame[3] === "turn_result" &&
+        String(record.at ?? "") >= String(sinceIso ?? "") &&
+        frameBody(record)?.tool_result !== null &&
+        frameBody(record)?.tool_result !== undefined,
+    ) ?? null
+  );
+}
+
+// 拒绝路径决定帧：parent 绑定 source/user turn，或正文明确取消/拒绝。
+export function rejectConfirmationTurnResult(wire, sinceIso, { sourceTurnId, userTurnId } = {}) {
+  return (
+    list(wire).find((record) => {
+      if (record?.direction !== "received" || !Array.isArray(record.frame)) return false;
+      if (record.frame[3] !== "turn_result") return false;
+      if (String(record.at ?? "") < String(sinceIso ?? "")) return false;
+      const body = frameBody(record) ?? {};
+      const parent = String(body.parent_turn_id ?? "");
+      const text = String(body.assistant_message?.text ?? "");
+      return parent === String(sourceTurnId ?? "") || parent === String(userTurnId ?? "") || /取消|拒绝|未启动/.test(text);
+    }) ?? null
+  );
+}
+
 // ── DB facts（只读）────────────────────────────────────────────────────────────
 export function readConfirmationDbFacts(dir) {
   return withDb(dir, (db) => {

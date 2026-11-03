@@ -22,8 +22,10 @@ import {
   CONFIRMATION_MODES,
   CONFIRMATION_REQUEST,
   confirmationCardLines,
+  executedConfirmationTurnResult,
   locateConfirmationButton,
   needsConfirmationTurnResult,
+  rejectConfirmationTurnResult,
   selectConfirmationAction,
 } from "./lib/native_ui/authoring_confirmation_evidence.mjs";
 
@@ -170,19 +172,10 @@ async function waitActionAck(sent, action) {
 
 async function waitExecutedTurn(sinceIso) {
   // 确认路径：点击后出现带真实 tool_result 的 turn_result（浏览器 au04 同款判据）；
-  // 不按 parent 猜身份——身份由 evidence 判据按 wire/DB 真实字段校验。
+  // 时间窗起点必须是点击之前（子执行帧可能在 ACK 返回前极速到达）。
   return harness.runStep("turn", "confirmed_child_turn", () =>
     harness.pollWire(
-      (wire) =>
-        wire.find(
-          (record) =>
-            record?.direction === "received" &&
-            Array.isArray(record.frame) &&
-            record.frame[3] === "turn_result" &&
-            String(record.at ?? "") >= String(sinceIso ?? "") &&
-            frameBody(record)?.tool_result !== null &&
-            frameBody(record)?.tool_result !== undefined,
-        ) ?? null,
+      (wire) => executedConfirmationTurnResult(wire, sinceIso),
       CONF.executed,
       "b71-confirmation:executed",
     ),
@@ -192,22 +185,7 @@ async function waitExecutedTurn(sinceIso) {
 async function waitRejectTurn(sinceIso, { sourceTurnId, userTurnId }) {
   return harness.runStep("turn", "reject_turn", () =>
     harness.pollWire(
-      (wire) =>
-        wire.find(
-          (record) => {
-            if (record?.direction !== "received" || !Array.isArray(record.frame)) return false;
-            if (record.frame[3] !== "turn_result") return false;
-            if (String(record.at ?? "") < String(sinceIso ?? "")) return false;
-            const body = frameBody(record) ?? {};
-            const parent = String(body.parent_turn_id ?? "");
-            const text = String(body.assistant_message?.text ?? "");
-            return (
-              parent === String(sourceTurnId ?? "") ||
-              parent === String(userTurnId ?? "") ||
-              /取消|拒绝|未启动/.test(text)
-            );
-          },
-        ) ?? null,
+      (wire) => rejectConfirmationTurnResult(wire, sinceIso, { sourceTurnId, userTurnId }),
       CONF.executed,
       "b71-confirmation:reject_turn",
     ),
@@ -313,10 +291,11 @@ async function run() {
   };
   harness.capture("02-card");
 
+  // 时间窗起点取点击前：确定性 provider 的子执行帧可能在 ACK 返回前到达。
+  const clickAt = harness.nowIso();
   const located = await clickConfirmation(mode, cardLines);
   const sent = await waitActionSent(action);
   const ack = await waitActionAck(sent, action);
-  const clickAt = harness.nowIso();
   const decisionTurn = await harness.runStep("turn", "confirmation_decision", () =>
     harness.pollWire(
       (wire) =>
@@ -334,8 +313,8 @@ async function run() {
   ).catch(() => null);
   const executedTurn =
     mode === "confirm"
-      ? await waitExecutedTurn(clickAt).catch(() => null)
-      : await waitRejectTurn(clickAt, { sourceTurnId, userTurnId: request.turnId }).catch(() => null);
+      ? await waitExecutedTurn(clickAt)
+      : await waitRejectTurn(clickAt, { sourceTurnId, userTurnId: request.turnId });
   harness.capture("02-after-confirm");
   runEvidenceMode(evidence, "capture", dir, ["after-confirm"]);
 

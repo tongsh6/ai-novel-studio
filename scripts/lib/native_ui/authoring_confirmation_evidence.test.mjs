@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   CONFIRMATION_REQUEST,
-  evaluateConfirmation,
   confirmationCardLines,
+  evaluateConfirmation,
+  executedConfirmationTurnResult,
   locateConfirmationButton,
+  rejectConfirmationTurnResult,
   selectConfirmationAction,
 } from "./authoring_confirmation_evidence.mjs";
 
@@ -367,4 +369,40 @@ test("locateConfirmationButton：按所属消息块定位，不借用兄弟块�
   assert.equal(missing.ok, false);
   assert.equal(missing.reason, "item_missing");
   assert.equal(locateConfirmationButton(nodes, { label: "确认执行", cardTitle: null, cardBody }).reason, "card_evidence_missing");
+});
+
+
+test("executedConfirmationTurnResult：时间窗起点在点击前才命中子执行帧（01e 缺口回归）", () => {
+  const executed = received(
+    "turn_result",
+    {
+      turn_id: "turn_exec",
+      tool_result: { tool_name: "prose_writing", status: "succeeded" },
+      adoption_state: { pending: [{ artifact_type: "prose_fragment" }] },
+    },
+    "2026-11-03T15:20:35.009Z",
+  );
+  const wire = [received("turn_result", needsBody()), executed];
+  assert.equal(
+    executedConfirmationTurnResult(wire, "2026-11-03T15:20:34.800Z")?.frame?.[4]?.turn_id,
+    "turn_exec",
+    "点击前起点命中（真实 01e 场景）",
+  );
+  assert.equal(
+    executedConfirmationTurnResult(wire, "2026-11-03T15:20:36.000Z"),
+    null,
+    "ACK 之后起点会排除已到达帧——调用方必须取点击前时刻",
+  );
+  assert.equal(executedConfirmationTurnResult([received("turn_result", needsBody())], "2020-01-01T00:00:00.000Z"), null);
+});
+
+test("rejectConfirmationTurnResult：parent 绑定或取消文案命中，无关帧不误判", () => {
+  const cancel = received(
+    "turn_result",
+    { turn_id: "turn_cancel", parent_turn_id: SOURCE_TURN, assistant_message: { text: "已取消采纳；未覆盖正文。" } },
+    "2026-11-03T15:20:40.000Z",
+  );
+  const unrelated = received("turn_result", { turn_id: "turn_other", parent_turn_id: "turn-x" }, "2026-11-03T15:20:41.000Z");
+  assert.equal(rejectConfirmationTurnResult([cancel, unrelated], "2026-11-03T15:20:39.000Z", { sourceTurnId: SOURCE_TURN, userTurnId: "turn-user" })?.frame?.[4]?.turn_id, "turn_cancel");
+  assert.equal(rejectConfirmationTurnResult([unrelated], "2020-01-01T00:00:00.000Z", { sourceTurnId: SOURCE_TURN, userTurnId: "turn-user" }), null);
 });
