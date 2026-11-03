@@ -292,6 +292,15 @@ async function waitRunResume({ runId, timeoutMs = TURN_TIMEOUT_MS }) {
 }
 
 async function respondToRunPause(steerText, attempts) {
+  // 回答面板出现后 app 可能因用户切窗失焦：点击前显式恢复交互面（前台/关闭 tooltip）。
+  try {
+    const recovered = await harness.runStep("maintenance", "recover_answer_surface", () =>
+      harness.recoverInteractionSurface(`${FLOW_LABEL}:answer_panel`),
+    );
+    attempts.push({ step: "recover_answer_surface", ok: Boolean(recovered), recovered });
+  } catch (error) {
+    attempts.push({ step: "recover_answer_surface", ok: false, reason: error.message });
+  }
   const nodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:pause_panel`);
 
   // 新交互（46 §9.7 等待即回答）：底部主输入区接管为回答面板
