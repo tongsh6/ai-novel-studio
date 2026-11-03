@@ -11,6 +11,7 @@ import {
   executedConfirmationTurnResult,
   locateConfirmationButton,
   rejectConfirmationTurnResult,
+  scanAuthorVisibleBatch,
   selectConfirmationAction,
 } from "./authoring_confirmation_evidence.mjs";
 
@@ -570,4 +571,36 @@ test("executedConfirmationTurnResult / rejectConfirmationTurnResult：时间窗�
     "2026-11-03T15:20:40.000Z",
   );
   assert.equal(rejectConfirmationTurnResult([cancel], "2026-11-03T15:20:39.000Z", { sourceTurnId: SOURCE_TURN, userTurnId: USER_TURN })?.frame?.[4]?.turn_id, "turn_cancel");
+});
+
+
+test("AX 断言层：迁移期 3 类内部 code 命中判红，internal_terms_zh 单列不阻塞", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-author-visible-"));
+  fs.writeFileSync(path.join(dir, "01-source.ax.txt"), "\t\t0/0/0/0/0/8 AXPopUpButton, 模型已连接, Description: Stub · 当前模型：slice_verify, enabled=true\n");
+  const leak = scanAuthorVisibleBatch(dir);
+  assert.equal(leak.ok, false);
+  assert(leak.hits.some((hit) => hit.token === "slice_verify" || hit.token === "Stub"));
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  const prose = fs.mkdtempSync(path.join(os.tmpdir(), "b71-author-visible-"));
+  fs.writeFileSync(path.join(prose, "02-after-confirm.ax.txt"), "\t\t0/0/0/0/0/27/0 AXStaticText, Value: 已确认「prose_writing」操作，正在处理。\n");
+  const proseLeak = scanAuthorVisibleBatch(prose);
+  assert.equal(proseLeak.ok, false);
+  assert(proseLeak.hits.some((hit) => hit.token === "prose_writing"));
+  fs.rmSync(prose, { recursive: true, force: true });
+
+  const p1 = fs.mkdtempSync(path.join(os.tmpdir(), "b71-author-visible-"));
+  fs.writeFileSync(path.join(p1, "02-after-confirm.ax.txt"), "\t\t0/0/0/0/0/1 AXStaticText, Value: 当前创作请求的工作过程\n");
+  const p1Scan = scanAuthorVisibleBatch(p1);
+  // 迁移期：中文内部术语不判红（P1 迁移完成后恢复全开），但必须输出清单供 P1。
+  assert.equal(p1Scan.ok, true);
+  assert(p1Scan.internal_terms_zh_hits.some((hit) => hit.token === "工作过程"));
+  fs.rmSync(p1, { recursive: true, force: true });
+
+  const clean = fs.mkdtempSync(path.join(os.tmpdir(), "b71-author-visible-"));
+  fs.writeFileSync(path.join(clean, "01-source.ax.txt"), "\t\t0/0/0/0/0/2 AXStaticText, Value: 需要确认\n");
+  const cleanScan = scanAuthorVisibleBatch(clean);
+  assert.equal(cleanScan.ok, true);
+  assert.deepEqual(cleanScan.hits, []);
+  fs.rmSync(clean, { recursive: true, force: true });
 });

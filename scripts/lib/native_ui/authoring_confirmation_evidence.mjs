@@ -32,6 +32,8 @@ import {
 } from "./scenario_evidence.mjs";
 import { readConfig } from "./authoring_capture_evidence.mjs";
 import { locateScopedButton } from "./authoring_pending_evidence.mjs";
+import { checkAuthorVisibleTexts } from "./author_visible_check.mjs";
+import { AUTHOR_VISIBLE_MIGRATION_CATEGORIES } from "../author_visible/leak_scan.mjs";
 import {
   CONFIRMATION_CHECKPOINTS,
   CONFIRMATION_MODES,
@@ -321,6 +323,65 @@ function portListening(port) {
   } catch {
     return false;
   }
+}
+
+// 确认/拒绝批次的 AX 断言层：扫描真实 AX dump 与可见文本。
+// - 迁移期显式类别（protocol_codes/internal_identifiers/ref_patterns）命中 → 判红（P0 泄漏）；
+// - internal_terms_zh（中文内部术语）P1 迁移中：单独输出命中清单，不判红不阻塞。
+export const CONFIRMATION_AX_CAPTURES = Object.freeze([
+  "01-source",
+  "02-card",
+  "02-after-confirm",
+  "03-after-duplicate",
+  "03-why",
+  "04-restored",
+]);
+
+export function scanAuthorVisibleBatch(dir) {
+  const hits = [];
+  const internalTermsZh = [];
+  const scannedFiles = [];
+  for (const name of CONFIRMATION_AX_CAPTURES) {
+    for (const ext of ["ax.txt", "text.txt"]) {
+      const file = path.join(dir, `${name}.${ext}`);
+      if (!fs.existsSync(file)) continue;
+      scannedFiles.push(path.basename(file));
+      const raw = fs.readFileSync(file, "utf8");
+      const axText = ext === "ax.txt" ? raw : "";
+      const visibleText = ext === "text.txt" ? raw : "";
+      const migration = checkAuthorVisibleTexts({
+        axText,
+        visibleText,
+        categories: AUTHOR_VISIBLE_MIGRATION_CATEGORIES,
+      });
+      for (const hit of list(migration.hits)) {
+        hits.push({
+          file: path.basename(file),
+          token: hit.token,
+          kind: hit.kind,
+          source: hit.source ?? null,
+          context: String(hit.text ?? "").slice(0, 240),
+        });
+      }
+      const full = checkAuthorVisibleTexts({ axText, visibleText });
+      for (const hit of list(full.hits)) {
+        if (hit.kind !== "internal_term_zh") continue;
+        internalTermsZh.push({
+          file: path.basename(file),
+          token: hit.token,
+          source: hit.source ?? null,
+          context: String(hit.text ?? "").slice(0, 240),
+        });
+      }
+    }
+  }
+  return {
+    schema: "b71-author-visible-ax-scan/v1",
+    ok: hits.length === 0,
+    scanned_files: scannedFiles,
+    hits,
+    internal_terms_zh_hits: internalTermsZh,
+  };
 }
 
 export function runtimeAfterBatch(dir) {
@@ -908,6 +969,15 @@ export function verifyConfirmationBatch(dir) {
     llmRecords,
     dir,
   });
+  // AX 断言层（P0 泄漏验证）：迁移期 3 类命中即失败；internal_terms_zh 仅输出清单（P1 输入）。
+  const authorVisible = scanAuthorVisibleBatch(dir);
+  result.checks.author_visible_no_internal_tokens = {
+    ok: authorVisible.ok,
+    reason: authorVisible.ok ? null : "author_visible_internal_token_leak",
+    detail: authorVisible,
+  };
+  result.required.push("author_visible_no_internal_tokens");
+  if (!authorVisible.ok) result.failed.push("author_visible_no_internal_tokens");
   writeNativeFrames(dir);
   const summary = {
     schema: "b71-confirmation-summary/v1",
@@ -924,6 +994,7 @@ export function verifyConfirmationBatch(dir) {
     failed: result.failed,
     measured: result.measured,
     model_behavior: result.model_behavior,
+    author_visible: authorVisible,
     not_signed: result.not_signed,
     wait_ledger: common.ledger,
     screenshots: common.ui.screenshots,
