@@ -118,6 +118,28 @@ if [[ "$B71_PROVIDER" == "strata" ]]; then
   fi
 fi
 
+# §16.16 第 2 类入口（安全点自动维护）：A3 批次（真实 strata + 小窗口压力）。
+AUTO_MAINTENANCE="${B71_AUTO_MAINTENANCE:-}"
+if [[ -n "$AUTO_MAINTENANCE" ]]; then
+  if [[ "$AUTO_MAINTENANCE" != "1" ]]; then
+    echo "B71_AUTO_MAINTENANCE 只能是 1，实测: $AUTO_MAINTENANCE" >&2
+    exit 64
+  fi
+  if [[ "$B71_PROVIDER" != "strata" ]]; then
+    echo "auto-maintenance batch 只接受 B71_PROVIDER=strata，实测: $B71_PROVIDER" >&2
+    exit 64
+  fi
+  if [[ "$SLICE" != "b71-first-consumer" ]]; then
+    echo "auto-maintenance batch 只接受 B71_SLICE=b71-first-consumer，实测: $SLICE" >&2
+    exit 64
+  fi
+  if [[ "$CONFIRMATION" == "1" || "$BEHAVIOR" == "1" ]]; then
+    echo "B71_AUTO_MAINTENANCE 与 confirmation/behavior 不能同时设置" >&2
+    exit 64
+  fi
+  LIVE=1
+fi
+
 STATE_DIR="$ROOT/artifacts/b71-native"
 RUNNER_LOG="$STATE_DIR/batch-$TAG.runner.log"
 DRIVER_LOG="$STATE_DIR/batch-$TAG.driver.log"
@@ -125,7 +147,14 @@ STRATA_BEFORE="$STATE_DIR/batch-$TAG.strata-before.json"
 STRATA_AFTER="$STATE_DIR/batch-$TAG.strata-after.json"
 mkdir -p "$STATE_DIR"
 
-if [[ "$CONFIRMATION" == "1" ]]; then
+if [[ "$AUTO_MAINTENANCE" == "1" ]]; then
+  # A3 自动维护批次目录与预注册一致；仍必须位于 artifacts/ 且不存在。
+  DIR="${B71_AUTO_MAINTENANCE_ARTIFACT_DIR:-$ROOT/artifacts/slice-verify/b71-first-consumer-auto-maint-$TAG}"
+  if [[ "$DIR" != "$ROOT/artifacts/"* ]]; then
+    echo "B71_AUTO_MAINTENANCE_ARTIFACT_DIR 必须位于 $ROOT/artifacts/ 下: $DIR" >&2
+    exit 64
+  fi
+elif [[ "$CONFIRMATION" == "1" ]]; then
   # §16.14 确认/拒绝批次目录与预注册一致；仍必须位于 artifacts/ 且不存在。
   DIR="${B71_CONFIRMATION_ARTIFACT_DIR:-$ROOT/artifacts/slice-verify/b71-authoring-confirmation-tauri-native-$TAG}"
   if [[ "$DIR" != "$ROOT/artifacts/"* ]]; then
@@ -175,6 +204,14 @@ if [[ "$CONFIRMATION" == "1" ]]; then
   export TAURI_NATIVE_SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
 fi
 
+if [[ "$AUTO_MAINTENANCE" == "1" ]]; then
+  # A3：显式开启安全点自动维护 + 小窗口压力（产品化运维配置，默认关闭）。
+  export B71_AUTO_MAINTENANCE=1
+  export NOVEL_AUTO_MAINTENANCE_ENABLED="${NOVEL_AUTO_MAINTENANCE_ENABLED:-1}"
+  export NOVEL_CONTEXT_WINDOW_OVERRIDES="${NOVEL_CONTEXT_WINDOW_OVERRIDES:-strata:4096}"
+  export TAURI_NATIVE_ARTIFACT_DIR="$DIR"
+fi
+
 if [[ "$BEHAVIOR" == "1" ]]; then
   # 作者行为覆盖：seed 用 B70 状态夹具（S1–S4 合成样书），输入取冻结 case 原文。
   export B71_BEHAVIOR_CASE="$BEHAVIOR_CASE"
@@ -205,6 +242,8 @@ fi
 set +e
 if [[ "$CONFIRMATION" == "1" ]]; then
   node "$ROOT/scripts/native_b71_confirmation_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
+elif [[ "$AUTO_MAINTENANCE" == "1" ]]; then
+  node "$ROOT/scripts/native_b71_auto_maintenance_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
 elif [[ "$BEHAVIOR" == "1" ]]; then
   node "$ROOT/scripts/native_b71_behavior_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
 elif [[ "$LIVE" == "1" ]]; then

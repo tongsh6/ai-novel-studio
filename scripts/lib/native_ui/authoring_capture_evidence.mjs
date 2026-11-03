@@ -63,6 +63,25 @@ const REVISION_CHAPTER_TITLE = "第02章：矿区追击战";
 
 const WHY_CHECKPOINTS = Object.freeze(["before-why", "after-why"]);
 const RUN_CHECKPOINTS = Object.freeze(["start", "before-revision", "final"]);
+// A3 安全点自动维护（与 authoring_auto_maintenance_evidence 的 checkpoint 名保持同源）。
+const AUTO_MAINTENANCE_CHECKPOINTS = Object.freeze([
+  "start",
+  "after-maintenance",
+  "after-expanded",
+  "after-next-request",
+  "after-refresh",
+  "after-failure",
+  "after-recovery",
+  "final",
+]);
+const AUTO_MAINTENANCE_REQUESTS = Object.freeze([
+  "先读一下第01章的正文和章计划，我想知道现在的进度。",
+  "再读一下第02章的正文和章计划，确认两章之间是否连贯。",
+  "继续读一下第03章的计划，然后告诉我下一步该写什么。",
+  "再看一下第01章的正文，确认开头是否抓人。",
+  "把刚才读到的线索汇总一下，哪些还能继续用？",
+  "最后再核对一遍第02章的正文，确保没有遗漏。",
+]);
 
 export function readConfig(dir) {
   return read(dir, "native-b71-config.json");
@@ -79,8 +98,12 @@ function readyFor(dir) {
   // behavior journey（B70 作者行为覆盖，输入取冻结 case 原文）。
   const behaviorCaseId = process.env.B71_BEHAVIOR_CASE ?? null;
   const confirmationMode = process.env.B71_CONFIRMATION_ACTION ?? null;
+  const autoMaintenance = process.env.B71_AUTO_MAINTENANCE === "1";
   let journey;
-  if (confirmationMode) {
+  if (autoMaintenance) {
+    assert.equal(ready.provider, "strata", "auto-maintenance journey 只接受 provider=strata");
+    journey = "auto-maintenance";
+  } else if (confirmationMode) {
     assert(
       CONFIRMATION_MODES[confirmationMode],
       `未知 B71_CONFIRMATION_ACTION: ${confirmationMode}（confirm|reject）`,
@@ -91,7 +114,7 @@ function readyFor(dir) {
   } else {
     journey = SLICE_JOURNEYS[ready.slice_id];
   }
-  if (journey === "live" || journey === "behavior" || journey === "confirmation") {
+  if (journey === "live" || journey === "behavior" || journey === "confirmation" || journey === "auto-maintenance") {
     assert.equal(ready.slice_id, "b71-first-consumer", `${journey} journey 只用于 b71-first-consumer`);
   }
   return {
@@ -128,7 +151,8 @@ export function prepare(dir) {
   const live = ready.journey === "live" || ready.journey === "behavior";
   const behavior = ready.journey === "behavior";
   const confirmation = ready.journey === "confirmation";
-  const target = targetFor(dir, { includeSession: pending || live || confirmation });
+  const autoMaintenance = ready.journey === "auto-maintenance";
+  const target = targetFor(dir, { includeSession: pending || live || confirmation || autoMaintenance });
   const nonce = pending ? randomBytes(8).toString("hex") : null;
   // 作者行为覆盖：输入必须是 B70 冻结 case 的 expression 原文（禁止现场造输入）。
   let behaviorCase = null;
@@ -163,15 +187,20 @@ export function prepare(dir) {
     ...(confirmation
       ? { confirmation: { mode: ready.confirmation_mode } }
       : {}),
+    ...(autoMaintenance
+      ? { auto_maintenance: { requests: AUTO_MAINTENANCE_REQUESTS } }
+      : {}),
     message: pending
       ? pendingSourceMessage(nonce)
       : ready.journey === "revision"
         ? ""
         : behavior
           ? behaviorCase.expression
-          : confirmation
-            ? CONFIRMATION_REQUEST
-            : live
+          : autoMaintenance
+            ? AUTO_MAINTENANCE_REQUESTS[0]
+            : confirmation
+              ? CONFIRMATION_REQUEST
+              : live
               ? LIVE_MESSAGE
               : messageFor(ready.journey),
     ...(pending
@@ -250,10 +279,15 @@ export function capture(dir, checkpoint) {
   const revision = journey === "revision";
   // live/behavior/confirmation 实模需要未采纳零写入的 canon 内容快照。
   const confirmation = journey === "confirmation";
+  const autoMaintenance = journey === "auto-maintenance";
   const live = journey === "live" || journey === "behavior";
-  const canon = planning || revision || live || confirmation;
+  const canon = planning || revision || live || confirmation || autoMaintenance;
   if (isWhyCheckpoint(canon, checkpoint)) return writeWhyCheckpoint(dir, checkpoint);
-  const allowedCheckpoints = confirmation ? CONFIRMATION_CHECKPOINTS : RUN_CHECKPOINTS;
+  const allowedCheckpoints = confirmation
+    ? CONFIRMATION_CHECKPOINTS
+    : autoMaintenance
+      ? AUTO_MAINTENANCE_CHECKPOINTS
+      : RUN_CHECKPOINTS;
   assert(allowedCheckpoints.includes(checkpoint), `未知 checkpoint: ${checkpoint}`);
   if (checkpoint === "before-revision") {
     assert(revision, "before-revision 只属于修订批次");
@@ -261,6 +295,6 @@ export function capture(dir, checkpoint) {
   if (revision) assertRevisionCheckpointOrder(dir, checkpoint);
   // live/behavior/confirmation 实模：canon 快照只做表级内容签名（不解析章节设计态明细）。
   return writeRunCheckpoint(dir, checkpoint, canon, {
-    includeChapterFacts: !(live || confirmation),
+    includeChapterFacts: !(live || confirmation || autoMaintenance),
   });
 }

@@ -19,6 +19,7 @@ import {
 import { verifyLiveBatch } from "./lib/native_ui/authoring_live_evidence.mjs";
 import { verifyBehaviorBatch } from "./lib/native_ui/authoring_behavior_evidence.mjs";
 import { verifyConfirmationBatch } from "./lib/native_ui/authoring_confirmation_evidence.mjs";
+import { verifyAutoMaintenanceBatch } from "./lib/native_ui/authoring_auto_maintenance_evidence.mjs";
 import {
   characterRequestChecks,
   characterOutcomeChecks,
@@ -329,6 +330,7 @@ const JOURNEY_VERIFIERS = Object.freeze({
   live: verifyLiveBatch,
   behavior: verifyBehaviorBatch,
   confirmation: verifyConfirmationBatch,
+  "auto-maintenance": verifyAutoMaintenanceBatch,
 });
 
 export function verify(dir) {
