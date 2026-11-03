@@ -4,7 +4,7 @@
 // Design: docs/design/ui/42-card-system.md §2 (card type to VS-05 mapping)
 // Design: docs/design/ui/46-state-and-feedback.md §6 / §9 / §9.8 / §9.9 (候选编辑失败、AgentRun 与动作回执、整理记录细条)
 // Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi), 41§3.1-candidate-discussion-collapsed (oFt1j), 46§9-agentic-loop-reasoning-flow (DM8gx), 46§9.7-agent-run-control-dock (dxUhh), 46§9.8-quality-revision-running (EYiyl), 46§9.9-transcript-compaction-inline (fjkkm), 46§9.9-transcript-compaction-expanded (AYpEe)
-import { AgentRunAnswerPanel } from "./AgentRunAnswerPanel";
+import { AgentRunAnswerPrompt } from "./AgentRunAnswerPrompt";
 import { AuthorQuestionRecord } from "./AuthorQuestionRecord";
 import {
   TranscriptCompactionNotice,
@@ -2479,6 +2479,19 @@ export function WorkspaceChat() {
     answerModeDismissed: newDiscussionMode,
     blocked: budgetShortfallAwaiting,
   });
+  // 回答模式下输入框承担自由文本回答：必须存在该问题的 free_text 授权动作（否则只能点选项）。
+  const answerFreeTextAction = useMemo(() => {
+    if (!activeModelQuestionResult) return null;
+    const questionRef = activeModelQuestionResult.author_question?.question_ref;
+    return (
+      (activeModelQuestionResult.available_actions ?? []).find(
+        (action) =>
+          action.action_type === "author_choice" &&
+          action.response_kind === "free_text" &&
+          action.question_ref === questionRef,
+      ) ?? null
+    );
+  }, [activeModelQuestionResult]);
   // 输入区布局与行为同源：steer 模式 = 任务输入行（含控制坞）；其余走普通/回答分支。
   const usesTaskComposer = inputMode.mode === "steer";
 
@@ -2486,6 +2499,7 @@ export function WorkspaceChat() {
   const hasSteerInput = inputText.trim().length > 0;
   const canSubmitMainInput =
     inputMode.mode !== "blocked" &&
+    (inputMode.mode !== "answer_question" || answerFreeTextAction !== null) &&
     hasSteerInput &&
     socketConnected &&
     !isPanelOpen &&
@@ -2666,6 +2680,17 @@ export function WorkspaceChat() {
   ) {
     const text = messageText;
     if (!text.trim() || !channelRef.current || isReadOnlySessionView) return;
+    // 46 §9.7 等待即回答：回答模式下输入框提交自由文本回答（同 run 继续），不是新讨论。
+    if (inputMode.mode === "answer_question" && activeModelQuestionResult !== null) {
+      if (!answerFreeTextAction) return;
+      const answered = await handleQuestionReply(
+        activeModelQuestionResult,
+        answerFreeTextAction,
+        text.trim(),
+      );
+      if (answered && messageText === inputText) setInputText("");
+      return;
+    }
 
     const behaviorId = pendingAnswerBid;
     // B31 §6.2 Q01/Q02：当前 run 由确定性选择函数给出；只有「唯一 active run +
@@ -5660,107 +5685,114 @@ export function WorkspaceChat() {
 
           {/* 输入区域 (Input Area) */}
           <div className={styles.inputArea}>
-            {!isReadOnlySessionView &&
-            inputMode.mode === "answer_question" &&
-            activeModelQuestionResult !== null ? (
-              <div className={styles.composerRail}>
-                <AgentRunAnswerPanel
-                  result={activeModelQuestionResult}
-                  disabled={questionReplyDisabled(activeModelQuestionResult)}
-                  onReply={handleQuestionReply}
-                  onStartNewDiscussion={() => setNewDiscussionMode(true)}
-                />
-              </div>
-            ) : (
-              <div className={styles.composerRail}>
-                {/* B23 CP4：失活 bounded run 即使已被收口为终态（failed）也保留过期坞：
+            <div className={styles.composerRail}>
+              {/* B23 CP4：失活 bounded run 即使已被收口为终态（failed）也保留过期坞：
                     「原任务已失效 + 重新发起任务」是唯一出口。它位于普通 composer 之上，
                     不给 composer 套「调整当前任务」语义（死 run 不能 steer）。 */}
-                {!isReadOnlySessionView && renderExpiredBoundedDock && agentRunDock && (
-                  <div className={styles.agentRunWorkspace}>{agentRunDock}</div>
+              {!isReadOnlySessionView && renderExpiredBoundedDock && agentRunDock && (
+                <div className={styles.agentRunWorkspace}>{agentRunDock}</div>
+              )}
+              {!isReadOnlySessionView &&
+                !usesTaskComposer &&
+                agentRunInputPresentation.noticeKind !== null && (
+                  <AgentRunInputRoutingAids
+                    presentation={agentRunInputPresentation}
+                    onSelectRun={(runId) => setFocusedAgentRunId(runId)}
+                  />
                 )}
-                {!isReadOnlySessionView &&
-                  !usesTaskComposer &&
-                  agentRunInputPresentation.noticeKind !== null && (
+              {!isReadOnlySessionView &&
+                inputMode.mode === "answer_question" &&
+                activeModelQuestionResult !== null && (
+                  <AgentRunAnswerPrompt
+                    result={activeModelQuestionResult}
+                    disabled={questionReplyDisabled(activeModelQuestionResult)}
+                    onAnswer={(action, answerText) => {
+                      void handleQuestionReply(activeModelQuestionResult, action, answerText);
+                    }}
+                    onStartNewDiscussion={() => setNewDiscussionMode(true)}
+                  />
+                )}
+              <div
+                className={
+                  !isReadOnlySessionView && usesTaskComposer
+                    ? styles.agentRunWorkspace
+                    : styles.standardComposer
+                }
+                role={!isReadOnlySessionView && usesTaskComposer ? "group" : undefined}
+                aria-label={
+                  !isReadOnlySessionView && usesTaskComposer
+                    ? WORKBENCH.agentRunWorkspaceLabel
+                    : undefined
+                }
+              >
+                {!isReadOnlySessionView && renderActiveAgentRunDock && agentRunDock}
+                <div
+                  className={
+                    !isReadOnlySessionView && usesTaskComposer
+                      ? styles.agentRunComposerRow
+                      : styles.standardComposerRow
+                  }
+                >
+                  {!isReadOnlySessionView && usesTaskComposer && (
                     <AgentRunInputRoutingAids
                       presentation={agentRunInputPresentation}
                       onSelectRun={(runId) => setFocusedAgentRunId(runId)}
                     />
                   )}
-                <div
-                  className={
-                    !isReadOnlySessionView && usesTaskComposer
-                      ? styles.agentRunWorkspace
-                      : styles.standardComposer
-                  }
-                  role={!isReadOnlySessionView && usesTaskComposer ? "group" : undefined}
-                  aria-label={
-                    !isReadOnlySessionView && usesTaskComposer
-                      ? WORKBENCH.agentRunWorkspaceLabel
-                      : undefined
-                  }
-                >
-                  {!isReadOnlySessionView && renderActiveAgentRunDock && agentRunDock}
-                  <div
-                    className={
-                      !isReadOnlySessionView && usesTaskComposer
-                        ? styles.agentRunComposerRow
-                        : styles.standardComposerRow
-                    }
-                  >
-                    {!isReadOnlySessionView && usesTaskComposer && (
-                      <AgentRunInputRoutingAids
-                        presentation={agentRunInputPresentation}
-                        onSelectRun={(runId) => setFocusedAgentRunId(runId)}
-                      />
-                    )}
-                    <input
-                      ref={mainInputRef}
-                      type="text"
-                      className={styles.inputBox}
-                      aria-label={
-                        inputMode.mode === "steer"
+                  <input
+                    ref={mainInputRef}
+                    type="text"
+                    className={styles.inputBox}
+                    aria-label={
+                      inputMode.mode === "answer_question"
+                        ? WORKBENCH.authorQuestionAnswerModeLabel
+                        : inputMode.mode === "steer"
                           ? WORKBENCH.agentRunWorkspaceInputLabel
                           : undefined
-                      }
-                      value={inputText}
-                      onChange={(e) => setInputText(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      placeholder={
-                        budgetShortfallAwaiting
-                          ? WORKBENCH.agentRunBudgetShortfallPlaceholder
+                    }
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={
+                      budgetShortfallAwaiting
+                        ? WORKBENCH.agentRunBudgetShortfallPlaceholder
+                        : inputMode.mode === "answer_question"
+                          ? WORKBENCH.authorQuestionAnswerPlaceholder
                           : inputMode.mode === "steer"
                             ? awaitingAuthorInputRequired
                               ? WORKBENCH.agentRunAwaitingInputPlaceholder
                               : WORKBENCH.agentRunMainInputSteerPlaceholder
                             : WORKBENCH.inputPlaceholder
-                      }
-                      disabled={!socketConnected || isPanelOpen || isReadOnlySessionView}
-                    />
-                    {!hasActiveAgentRun && (
-                      <button
-                        type="button"
-                        className={styles.btnSecondary}
-                        aria-pressed={authorStepLimit}
-                        onClick={() => setAuthorStepLimit((value) => !value)}
-                      >
-                        {authorStepLimit ? WORKBENCH.authorStepLimitOn : WORKBENCH.authorStepLimit}
-                      </button>
-                    )}
+                    }
+                    disabled={!socketConnected || isPanelOpen || isReadOnlySessionView}
+                  />
+                  {!hasActiveAgentRun && (
                     <button
-                      className={styles.sendBtn}
                       type="button"
-                      onClick={() => {
-                        void handleSend();
-                      }}
-                      disabled={!canSubmitMainInput}
+                      className={styles.btnSecondary}
+                      aria-pressed={authorStepLimit}
+                      onClick={() => setAuthorStepLimit((value) => !value)}
                     >
-                      {inputMode.mode === "steer" ? WORKBENCH.agentRunSteerSend : WORKBENCH.send}
+                      {authorStepLimit ? WORKBENCH.authorStepLimitOn : WORKBENCH.authorStepLimit}
                     </button>
-                  </div>
+                  )}
+                  <button
+                    className={styles.sendBtn}
+                    type="button"
+                    onClick={() => {
+                      void handleSend();
+                    }}
+                    disabled={!canSubmitMainInput}
+                  >
+                    {inputMode.mode === "answer_question"
+                      ? WORKBENCH.authorQuestionAnswerSend
+                      : inputMode.mode === "steer"
+                        ? WORKBENCH.agentRunSteerSend
+                        : WORKBENCH.send}
+                  </button>
                 </div>
               </div>
-            )}
+            </div>
           </div>
         </div>
 

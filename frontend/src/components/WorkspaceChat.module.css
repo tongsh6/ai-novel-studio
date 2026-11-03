@@ -2175,28 +2175,6 @@
 }
 
 /* 46 §9.7（2026-11-04 修订）：等待即回答——底部回答区接管主输入；消息流问题卡只读记录。 */
-.authorQuestionAnswerPanel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 12px;
-  background: var(--color-surface-raised, rgba(255, 255, 255, 0.04));
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.12));
-}
-
-.authorQuestionAnswerPrompt {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--color-text-primary, inherit);
-}
-
-.authorQuestionAnswerActions {
-  display: flex;
-  justify-content: flex-end;
-}
-
 .authorQuestionReadOnlyStatus {
   font-size: 12px;
   opacity: 0.72;
@@ -2207,4 +2185,78 @@
   font-size: 13px;
   line-height: 1.6;
   opacity: 0.86;
+}
+
+/* 46 §9.7（2026-11-04 修订）：等待即回答——轻量回答提示条（不新造输入面板）。 */
+.answerPrompt {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 0 8px;
+  border-bottom: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+}
+
+.answerPromptHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.answerPromptLabel {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  opacity: 0.72;
+}
+
+.answerPromptQuestion {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.answerPromptNewDiscussion {
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 12px;
+  opacity: 0.66;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.answerPromptNewDiscussion:hover {
+  opacity: 0.9;
+}
+
+.answerPromptChoices {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.answerPromptChoice {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.16));
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.answerPromptChoice:hover:not(:disabled) {
+  border-color: var(--color-border-strong, rgba(255, 255, 255, 0.32));
+}
+
+.answerPromptChoice:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.answerPromptHint {
+  font-size: 12px;
+  opacity: 0.6;
 }
