@@ -38,3 +38,9 @@
 - **B71 CP3b**：CP3a 确定性接线已入候选（不缩小 CP3 范围）；CP3b 需真实 Tauri 原生窗口 + 实模资源窗口与预算，属资源型等待而非决策阻塞；预注册 `artifacts/model-contracts/b71-cp1/scenario-preregistration.json`；见 [B71](slices/B71-provider-message-fidelity.md#cp3b-实模窗口验收2026-10-31)。
 - **B48 CP3**：CP0–CP2 done；CP3 需真实模型/原生 runtime 窗口 + native driver 前置，预注册 `artifacts/b48-cp3/preregistration.json`；见 [B48](slices/B48-character-revision-noop-and-ambiguity.md)。
 - **延期/条件**：多 Agent/24x7 [B50](slices/B50-multi-agent-current-boundary.md#61-延期实施与重新开放)；AU-15 [B42](slices/B42-model-behavior-evidence-tier.md#10-cp4blocked-登记不执行不代签)；I10 盲评 [安排](slices/VS00D-G-GAP-RECONCILIATION.md#i10-人工盲评安排)；stage 修复需授权 [B28](slices/B28-whole-chapter-revision.md)；B38/Experience [B38](slices/B38-world-rule-save-intent.md)/[B68](slices/B68-experience-rule-governance.md)。
+## 双向沟通过隙优化（2026-11-04 审核后）
+
+- 审核真源：[`artifacts/review-bidirectional/SUMMARY.md`](../artifacts/review-bidirectional/SUMMARY.md)（4 名独立审核员 + Lead 交叉复核；L1–L4a 成立、L4b blocked）。
+- 优化计划：[`slices/bidirectional-gaps-optimization.md`](slices/bidirectional-gaps-optimization.md)——批次 A（传输层死协议清理）/ B（compact_transcript 入口）/ C（跨重启 HITL 恢复）/ D（验收基线补门）/ E（P2 健壮性）；每批独立 commit + 全量门禁。
+- 边界：L4b 真实模型语义不代签；Phase 0 无鉴权为设计边界；不新增产品面。
+
