@@ -1,0 +1,185 @@
+{
+  "version": "author-visible-display-names/v1",
+  "description": "作者可见展示名 SSOT。author=True 的展示面只允许出现本文件登记的显示名；内部 code 不得直接进入作者可见文本。新增 tool/status/provider/model/artifact_type/action/error/frame 时在此登记对应显示名（codegen 缺项会失败）。",
+  "domains": {
+    "tool": {
+      "prose_writing": "正文写作",
+      "submit_tentative_artifact": "保存候选草稿",
+      "judgment_decision": "创作判断",
+      "chapter_mission": "章节目标",
+      "report_quality_findings": "质量核对",
+      "explore": "资料查阅",
+      "ask_author": "向作者确认",
+      "agent_plan_draft": "创作计划",
+      "agent_plan_revision": "创作计划修订",
+      "planning_mission": "写作准备",
+      "continuation_decision": "续写判断",
+      "register_author_content": "登记作者原文",
+      "propose_creative_directions": "创作方向建议",
+      "propose_work_profile_revision": "作品档案修订建议",
+      "report_capability_gap": "能力缺口报告",
+      "text_analysis": "文本分析"
+    },
+    "capability": {
+      "prose_writing": "正文写作",
+      "character_design": "角色设计",
+      "character_evolution": "角色演化",
+      "plot_outline": "大纲规划",
+      "world_building": "世界观设定",
+      "work_archive_read": "作品档案查阅",
+      "character_roster": "角色阵容"
+    },
+    "status": {
+      "TENTATIVE": "待采纳",
+      "ACCEPTED": "已采纳",
+      "EDITED_ACCEPTED": "已采纳（修订后）",
+      "DISCARDED": "已放弃",
+      "SUPERSEDED": "已被新版本替代",
+      "INVALIDATED": "已失效",
+      "ARCHIVED": "已归档",
+      "CONFIRMED": "已确认",
+      "AUTHOR_EDITED": "作者已改写",
+      "OPEN": "进行中",
+      "WAITING_USER": "等待你回复",
+      "RESOLVED": "已解决",
+      "CANCELLED": "已取消",
+      "EXPIRED": "已过期",
+      "needs_confirmation": "需要确认"
+    },
+    "run_status": {
+      "created": "已创建",
+      "running": "进行中",
+      "pausing": "暂停中",
+      "cancelling": "正在停止",
+      "paused": "已暂停",
+      "awaiting_author": "等待你回复",
+      "completed": "已完成",
+      "cancelled": "已停止",
+      "failed": "未完成"
+    },
+    "provider": {
+      "stub": "本地模型（测试环境）",
+      "slice_verify": "本地模型（测试环境）",
+      "strata": "本地模型",
+      "lmstudio": "本地模型",
+      "openai": "OpenAI",
+      "openai_subscription": "OpenAI（订阅）",
+      "anthropic": "Anthropic",
+      "deepseek": "DeepSeek",
+      "minimax": "Minimax",
+      "minimax_cn": "Minimax（国内版）",
+      "zhipu": "智谱",
+      "kimi": "Kimi",
+      "gemini": "Gemini"
+    },
+    "model": {
+      "__default__": "当前模型"
+    },
+    "artifact_type": {
+      "prose_fragment": "正文草稿",
+      "prose_formatting_plan": "排版计划",
+      "character_seed": "角色设定",
+      "character_evolution_memory": "角色演化记录",
+      "world_setting": "世界观设定",
+      "outline": "大纲",
+      "chapter_plan": "章节计划"
+    },
+    "action": {
+      "accept": "采纳",
+      "discard": "放弃",
+      "edit": "修改",
+      "confirm": "确认",
+      "reject": "取消"
+    },
+    "error_code": {
+      "target_missing": "未找到目标对象",
+      "execution_in_progress": "当前有任务在执行",
+      "transcript_not_found": "会话记录未找到",
+      "checkpoint_persistence_failed": "整理失败，请稍后重试",
+      "timeout": "模型响应超时",
+      "auth": "模型服务需要重新登录",
+      "rate_limit": "模型服务请求过于频繁",
+      "invalid_request": "模型服务拒绝了这次请求",
+      "invalid_response": "模型返回内容不完整",
+      "connection_refused": "无法连接模型服务",
+      "provider_internal": "模型服务暂时不可用"
+    },
+    "frame_type": {
+      "creative_exploration": "探索",
+      "execution_candidate": "候选",
+      "casual_reply": "回复",
+      "question_answer": "提问",
+      "meta_discussion": "讨论",
+      "capability_gap": "能力缺口",
+      "confirmation_answer": "确认操作"
+    },
+    "reason_code": {
+      "gates_passed": "已通过前置检查",
+      "candidate_adopted_as_tentative": "候选已保存为待采纳",
+      "tool_result_not_adoption": "工具结果不等于采纳"
+    },
+    "gate": {
+      "action_scope": "执行范围检查",
+      "planner_boundary": "规划边界检查",
+      "authority_budget": "权限与预算检查",
+      "confirmation_required": "需要作者确认"
+    }
+  },
+  "fallbacks": {
+    "tool": "创作操作",
+    "capability": "创作能力",
+    "status": "处理中",
+    "run_status": "处理中",
+    "provider": "当前模型服务",
+    "model": "当前模型",
+    "artifact_type": "创作内容",
+    "action": "操作",
+    "error_code": "处理遇到问题",
+    "frame_type": "创作进展",
+    "reason_code": "已记录",
+    "gate": "前置检查"
+  },
+  "enum_sources": {
+    "status": [
+      "foundation/enums/adoption_status.json",
+      "foundation/enums/chapter_mission_status.json",
+      "foundation/enums/behavior_status.json"
+    ]
+  },
+  "forbidden_tokens": {
+    "allow": [],
+    "protocol_codes": [
+      "request_ir",
+      "provider_session",
+      "reasoning_content",
+      "call_id",
+      "narrative_role",
+      "continuation_decision",
+      "submit_tentative_artifact",
+      "report_quality_findings",
+      "agent_plan_draft",
+      "agent_plan_revision",
+      "prose_writing",
+      "character_evolution",
+      "provider_run_ref",
+      "provider_call_ref"
+    ],
+    "internal_terms_zh": [
+      "工作过程",
+      "确认回合",
+      "创作执行",
+      "任务控制",
+      "结构化回放",
+      "持久 trace"
+    ],
+    "internal_identifiers": [
+      "slice_verify",
+      "Stub",
+      "Strata",
+      "[stub]"
+    ],
+    "ref_patterns": [
+      "(?:character|chapter|work|artifact|trace|pcall|prun|pevt|turn|run|draft):[0-9A-Za-z_-]{6,}"
+    ]
+  }
+}

@@ -42,22 +42,29 @@ function nameFromPath(jsonPath) {
   return pascalCase(base);
 }
 
-const files = walk(schemasRoot);
+const files = walk(schemasRoot).filter(
+  (file) => !relative(schemasRoot, file).startsWith("author_visible/"),
+);
 if (files.length === 0) {
   console.error("no schema files found under", schemasRoot);
   process.exit(1);
 }
 
 const schemaByPath = new Map(
-  files.map((file) => [relative(schemasRoot, file).replaceAll("\\", "/"), JSON.parse(readFileSync(file, "utf8"))]),
+  files.map((file) => [
+    relative(schemasRoot, file).replaceAll("\\", "/"),
+    JSON.parse(readFileSync(file, "utf8")),
+  ]),
 );
 
 function resolveRefs(value, currentRel, seen = new Set()) {
   if (Array.isArray(value)) return value.map((item) => resolveRefs(item, currentRel, seen));
   if (!value || typeof value !== "object") return value;
   if (typeof value.$ref === "string" && !value.$ref.startsWith("#")) {
-    const targetRel = relative(schemasRoot, join(schemasRoot, dirname(currentRel), value.$ref))
-      .replaceAll("\\", "/");
+    const targetRel = relative(
+      schemasRoot,
+      join(schemasRoot, dirname(currentRel), value.$ref),
+    ).replaceAll("\\", "/");
     const target = schemaByPath.get(targetRel);
     const nextSeen = new Set(seen).add(`${currentRel}#${value.$ref}`);
     if (target && !seen.has(`${currentRel}#${value.$ref}`) && !nextSeen.has(targetRel)) {
@@ -83,7 +90,18 @@ for (const json of files) {
   writeFileSync(resolvedPath, `${JSON.stringify(resolved, null, 2)}\n`);
   execFileSync(
     "pnpm",
-    ["exec", "json-schema-to-zod", "-i", resolvedPath, "-o", out, "-n", `${name}Schema`, "-t", name],
+    [
+      "exec",
+      "json-schema-to-zod",
+      "-i",
+      resolvedPath,
+      "-o",
+      out,
+      "-n",
+      `${name}Schema`,
+      "-t",
+      name,
+    ],
     { stdio: "inherit" },
   );
   count++;

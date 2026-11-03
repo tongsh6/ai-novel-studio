@@ -12,6 +12,7 @@
 | `b28-chapter-fixture.mjs` | B28 原浏览器与原生验收共用的原始合成正文、旧全文兼容归一及ADR-0029计划/预览字节与实际分段校验；正文仍必须通过真实UI编辑采纳。 |
 | `native_ui/` | [外部系统 UI 驱动](native_ui/README.md)：macOS AX/CGEvent 驱动真实 Tauri 窗口（原生验收 harness），含高层工作台动作与等待账；产品不读取。 |
 | `quality/` | [B41 质量证据地基](quality/README.md)：标准 YAML 解析桥、manifest 语义校验/查询 CLI、反例测试；被 `scripts/quality_manifest_check.sh`、`scripts/quality_accept.sh`、e2e 聚合器消费。 |
+| `author_visible/` | 作者可见文本泄漏扫描唯一实现（`leak_scan.mjs`）：读取 `docs/design/schemas/author_visible/display_names.json` 的 forbidden tokens，按「作者可见产品文案 / 模型正文排除 / AX name-description-value 分面」扫描；被 `native_ui/author_visible_check.mjs` 与 node 单测消费。 |
 
 | `native_app_ownership.mjs` | B37原生重开归属清理：精确匹配本批独立可执行路径，清理前复核PID身份，输出退出证据；进程观测统一走 `native_ui/process_observation.mjs`（优先ps，setuid ps被环境拒绝时用pgrep+lsof等价精确归属），cleanup证据含 `process_observation`；由Tauri runner调用。 |
 | `native_app_ownership.test.mjs` | 重开/同名其他批次/参数伪匹配的归属回归；共享解析器行为由 `native_ui/process_observation.test.mjs` 覆盖。 |

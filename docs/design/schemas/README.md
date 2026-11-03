@@ -20,6 +20,12 @@
 | `foundation/ledger_entry.json` | 五本账统一信封（VS-00F §2 / ADR-0026）；进度视图对象，source_refs 非空（I-L1），status 与采纳 7 态正交 |
 | `foundation/ledger_information_payload.json` | 信息账 payload 细则（VS-00F §2.4，五本账 payload 细则首份；伏笔/章计划信息两类条目，planned_reveal 预期归伏笔自己，留位字段刻意不填） |
 
+## author_visible/
+
+目录索引：[author_visible/README.md](author_visible/README.md)。
+
+作者可见展示名 SSOT（`display_names.json`）：tool/status/provider/model/artifact_type/action/error/frame 等内部 code → 作者可读显示名，含允许出现的禁止 token 规则。消费者：`pnpm codegen:author-visible`（前端 TS 生成物）与 `mix codegen.author_visible`（后端 Elixir 生成物）；两端写同一 `source_hash`，`mix codegen.author_visible --check` 检测漂移。作者可见面（TurnResult 作者字段、通知、确认/取消文案、Why、状态行）只允许经 `NovelCommon.AuthorVisible.Display` / `NovelApplication.AuthorVisible.Presenter` 使用本 SSOT。
+
 ## foundation/enums/
 
 `slot_type` / `source_type` / `adoption_status` / `memory_status` / `memory_class` / `behavior_status` / `requiredness` / `ledger` / `arc_ledger_status` / `information_ledger_status` / `chapter_mission_status` / `volume_blueprint_status` —— 编译期冻结枚举的 SSOT（`ledger` 五账分类、`arc_ledger_status` 弧光账状态机、`information_ledger_status` 信息账状态机（VS00F 刀④），ADR-0026；`chapter_mission_status` 本章使命裁决状态（WR01b，VS-00E §16.8 / ADR-0024 S8）；`volume_blueprint_status` 卷级蓝图三态（B11A CP1，VS-00J §2.1 / ADR-0028）；其余账状态机随对应 CP 增补）。

@@ -12,7 +12,8 @@
     "test": "vitest run",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "codegen:schemas": "node scripts/codegen-schemas.mjs",
+    "codegen:schemas": "node scripts/codegen-schemas.mjs && node scripts/codegen-author-visible.mjs",
+    "codegen:author-visible": "node scripts/codegen-author-visible.mjs",
     "check": "pnpm format:check && pnpm typecheck && pnpm lint && pnpm test"
   },
   "dependencies": {

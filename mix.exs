@@ -57,6 +57,7 @@ defmodule AiNovelStudio.MixProject do
       check: [
         "compile --warnings-as-errors",
         "codegen.enums --check",
+        "codegen.author_visible --check",
         "run scripts/lint_enum_literals.exs",
         "xref graph --format cycles --label compile-connected --fail-above 0",
         "test",
