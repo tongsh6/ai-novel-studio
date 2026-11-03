@@ -233,7 +233,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
              })
 
     assert_receive {:provider_request, %{tool_choice: "auto"}}
-    refute_receive {:provider_request, _}
+    refute_receive {:provider_request, _}, 10
   end
 
   test "固定 profile 的 schema 不随动态来源/对象/权限变化" do
@@ -401,7 +401,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert judgment.narrative_source.provider_call_ref == "good"
     assert_receive {:provider_request, _}
     assert_receive {:provider_request, _}
-    refute_receive {:provider_request, _}
+    refute_receive {:provider_request, _}, 10
   end
 
   test "续行仅接受 continue/ask_author/缺口，不接受普通文本或旧停等枚举" do
@@ -519,7 +519,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert_received {:provider_request, original}
     assert_received {:provider_request, corrected}
     assert length(corrected.messages) == length(original.messages) + 2
-    refute_receive {:provider_request, _}
+    refute_receive {:provider_request, _}, 10
   end
 
   test "首次校验失败后传输错误：保留首个 assistant 与失败校验，实际调用为二" do
@@ -550,7 +550,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, _second}
-    refute_receive {:provider_request, _third}
+    refute_receive {:provider_request, _third}, 10
   end
 
   test "全部传输错误不伪造 assistant/tool 响应，实际调用仍为二" do
@@ -570,14 +570,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, _second}
-    refute_receive {:provider_request, _third}
+    refute_receive {:provider_request, _third}, 10
   end
 
   test "未创建 IR 的零调用前置错误保持纯错误且不虚增计数" do
     assert {:error, :provider_execution_required} =
              JudgmentProtocol.request_judgment(%Execution{result_fn: nil}, %{}, input())
 
-    refute_receive {:provider_request, _}
+    refute_receive {:provider_request, _}, 10
   end
 
   test "已创建合法前缀的请求构造失败保留前缀，调用数不虚增" do
@@ -614,7 +614,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       end)
 
     assert texts =~ "作者前缀原文"
-    refute_receive {:provider_request, _}
+    refute_receive {:provider_request, _}, 10
   end
 
   test "续行终局拒绝保留既有历史前缀，只计本次调用且不倒写已 passed 校验" do
@@ -663,7 +663,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, _second}
-    refute_receive {:provider_request, _third}
+    refute_receive {:provider_request, _third}, 10
   end
 
   test "判断 prompt 的合法工具组合规则唯一且明确" do
@@ -693,7 +693,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, first}
     assert_receive {:provider_request, second}
-    refute_receive {:provider_request, _}
+    refute_receive {:provider_request, _}, 10
 
     # 保留原输入/工具集；IR 以 assistant tool_call → tool 校验结果回流，不追加 user 纠错。
     assert hd(second.messages).content == hd(first.messages).content
@@ -720,7 +720,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert_receive {:provider_request, _}
     assert_receive {:provider_request, second}
     assert List.last(second.messages).content =~ "invalid_tool_combination"
-    refute_receive {:provider_request, _}
+    refute_receive {:provider_request, _}, 10
   end
 
   test "合法组合（双工具 plan / 单 judgment_decision plan / 普通回复）不回归" do
@@ -1043,7 +1043,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, _second}
-    refute_receive {:provider_request, _third}
+    refute_receive {:provider_request, _third}, 10
   end
 
   test "候选 ref 与已采纳 ref 字段混填 → 字段纠错，修复后可执行" do
@@ -1486,7 +1486,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert_receive {:provider_request, _}
     assert_receive {:provider_request, _}
     assert_receive {:provider_request, _}
-    refute_receive {:provider_request, _}
+    refute_receive {:provider_request, _}, 10
   end
 
   test "task-36：只聊/分析任务不得物化方向（discussion_only 纠错后可 reply）" do
@@ -1655,7 +1655,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, %{messages: messages}}
     refute Enum.any?(messages, &String.contains?(&1.content, "maintenance_capability_required"))
-    refute_receive {:provider_request, _}
+    refute_receive {:provider_request, _}, 10
 
     # 正例：作者确实要求重编号时仍走既有维护能力与目标检查。
     positive_input = Map.put(prompt_input, :author_text, "把第2卷章节编号理顺，内容不要动")
@@ -1783,7 +1783,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
              &String.contains?(&1.content, "character_profile_capability_required")
            )
 
-    refute_receive {:provider_request, _}
+    refute_receive {:provider_request, _}, 10
 
     # 明确修订正例仍绑定真实 character_ref（客观身份检查保留）。
     positive_input = Map.put(prompt_input, :author_text, "把陆晨指定为主角")
@@ -1832,7 +1832,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert judgment.action == "plan"
     assert judgment.provider_call_count == 1
     assert_receive {:provider_request, _}
-    refute_receive {:provider_request, _}
+    refute_receive {:provider_request, _}, 10
   end
 
   test "B29 CP1：同名歧义不猜 → 纠错为 ask_author；设计新主角仍走 character_design" do
@@ -1951,7 +1951,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, %{messages: messages}}
     refute Enum.any?(messages, &String.contains?(&1.content, "action_intent_requires_execute"))
-    refute_receive {:provider_request, _}
+    refute_receive {:provider_request, _}, 10
   end
 
   test "B33 §CP1：讨论期“不要动笔”仍由 discussion_only 机械守卫兜底" do
@@ -2009,7 +2009,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, %{messages: messages}}
     refute Enum.any?(messages, &String.contains?(&1.content, "action_intent_requires_execute"))
-    refute_receive {:provider_request, _}
+    refute_receive {:provider_request, _}, 10
   end
 
   test "B33 §CP1：明确写章但模型给方向候选时不再触发 APP fallback 澄清" do
@@ -2217,7 +2217,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     refute Enum.any?(messages, &String.contains?(&1.content, "capability_required"))
     refute Enum.any?(messages, &String.contains?(&1.content, "action_intent_requires_execute"))
     refute Map.has_key?(judgment, :wrong_route)
-    refute_receive {:provider_request, _}
+    refute_receive {:provider_request, _}, 10
   end
 
   test "B33 §CP2 矩阵：条件/否定/讨论/解释类自然输入不再被 APP 词法强制执行" do

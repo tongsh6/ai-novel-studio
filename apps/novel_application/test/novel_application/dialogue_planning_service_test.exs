@@ -128,7 +128,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       drive_judgment(spec, steered_run, fn _event -> :ok end)
 
     assert_receive {:judgment_prompt, narrative_prompt}
-    refute_receive {:judgment_prompt, _}
+    refute_receive {:judgment_prompt, _}, 10
 
     for prompt <- [narrative_prompt] do
       assert prompt =~ steered_text

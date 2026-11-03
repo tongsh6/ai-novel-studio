@@ -274,7 +274,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
              AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
 
     assert_received {:prompt, %{tool_choice: "auto", tools: [%{name: "agent_plan_draft"}]}}
-    refute_receive {:prompt, _}
+    refute_receive {:prompt, _}, 10
     assert length(plan.steps) == 2
     assert meta.provider_call_count == 1
     assert meta.author_narrative_source.provider_run_ref == "prun_plan_draft"

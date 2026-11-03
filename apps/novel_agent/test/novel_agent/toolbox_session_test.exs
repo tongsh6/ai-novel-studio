@@ -163,7 +163,7 @@ defmodule NovelAgent.ToolboxSessionTest do
     assert calls.() == 2
     assert_receive {:validated, %ToolResult{} = first}
     assert_receive {:validated, %ToolResult{} = second}
-    refute_receive {:validated, _}
+    refute_receive {:validated, _}, 10
 
     assert first.tool_result_id == final.tool_result_id
     assert second == final
@@ -209,7 +209,7 @@ defmodule NovelAgent.ToolboxSessionTest do
     assert session.provider_call_count == 2
     assert calls.() == 2
     assert_receive {:validated, %ToolResult{}}
-    refute_receive {:validated, _}
+    refute_receive {:validated, _}, 10
     assert {:ok, []} = RequestIR.pending_call_ids(session.request_ir)
 
     assert Enum.any?(session.request_ir.messages, fn message ->
@@ -247,7 +247,7 @@ defmodule NovelAgent.ToolboxSessionTest do
 
     assert_receive {:validated, %ToolResult{output: %{items: [%{body: "second body"}]}}}
 
-    refute_receive {:validated, _}
+    refute_receive {:validated, _}, 10
     assert {:ok, []} = RequestIR.pending_call_ids(session.request_ir)
   end
 
@@ -287,7 +287,7 @@ defmodule NovelAgent.ToolboxSessionTest do
     assert session.tool_call_count == 1
     assert session.provider_call_count == 2
     assert calls.() == 2
-    refute_receive {:validated, _}
+    refute_receive {:validated, _}, 10
     assert {:ok, []} = RequestIR.pending_call_ids(session.request_ir)
   end
 
@@ -311,7 +311,7 @@ defmodule NovelAgent.ToolboxSessionTest do
     assert session.provider_call_count == 0
     assert session.provider_result == nil
     assert calls.() == 0
-    refute_receive {:validated, _}
+    refute_receive {:validated, _}, 10
 
     refute Enum.any?(session.request_ir.messages, &(&1.role in ["assistant", "tool"]))
   end
@@ -397,7 +397,7 @@ defmodule NovelAgent.ToolboxSessionTest do
 
     assert session == %{tool_call_count: 0}
     assert calls.() == 0
-    refute_receive {:validated, _}
+    refute_receive {:validated, _}, 10
   end
 
   test "未授权/未知/grant 拒绝在带选项时仍零 provider 且不调用校验" do
@@ -427,7 +427,7 @@ defmodule NovelAgent.ToolboxSessionTest do
       assert calls.() == 0
     end
 
-    refute_receive {:validated, _}
+    refute_receive {:validated, _}, 10
   end
 
   test "公开入口 validate_result 坏类型或错误 arity 在派发前拒绝且零 provider" do

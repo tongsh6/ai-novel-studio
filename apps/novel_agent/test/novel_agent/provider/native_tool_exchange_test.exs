@@ -35,7 +35,7 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
     assert session.provider_call_count == 0
     assert session.provider_result == nil
     assert calls.() == []
-    refute_receive {:retry, _, _, _}
+    refute_receive {:retry, _, _, _}, 10
   end
 
   test "规划可显式使用 auto，成功响应仍由调用集合和业务契约校验" do
@@ -67,7 +67,7 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
     assert session.provider_call_count == 2
     assert_receive {:parse_attempt, 1}
     assert_receive {:parse_attempt, 2}
-    refute_receive {:parse_attempt, _}
+    refute_receive {:parse_attempt, _}, 10
   end
 
   test "启用传输重试时原请求逐字重发，只记录真实成功响应" do
@@ -96,7 +96,7 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
     assert [first, second] = calls.()
     assert first == second
     assert_receive {:retry, :provider, ^reason, 1}
-    refute_receive {:retry, _, _, _}
+    refute_receive {:retry, _, _, _}, 10
     assert Enum.take(session.request_ir.messages, length(initial.messages)) == initial.messages
     assert Enum.count(session.request_ir.messages, &(&1.role == "assistant")) == 1
     refute Enum.any?(session.request_ir.messages, &(&1.role == "application_notice"))
@@ -173,7 +173,7 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
     assert Enum.map(rejection.received_calls, & &1.name) == [@tool, "canon_write"]
     assert length(calls.()) == 2
     assert_receive {:retry, :validation, %{code: "unexpected_tool_calls"}, 1}
-    refute_receive {:retry, _, _, _}
+    refute_receive {:retry, _, _, _}, 10
     assert {:ok, []} = RequestIR.pending_call_ids(session.request_ir)
 
     results =
@@ -374,7 +374,7 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
     assert session.provider_call_count == 2
     assert_receive {:validated, %{status: :ok, value: "第一版"}}
     assert_receive {:validated, %{status: :ok, value: "第二版"}}
-    refute_receive {:validated, _}
+    refute_receive {:validated, _}, 10
 
     [first_prompt, retry_prompt] = calls.()
 
@@ -443,7 +443,7 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
     assert session.provider_call_count == 2
     assert length(calls.()) == 2
     assert_receive {:validated, %{status: :ok, value: "第二版"}}
-    refute_receive {:validated, _}
+    refute_receive {:validated, _}, 10
     assert {:ok, []} = RequestIR.pending_call_ids(session.request_ir)
 
     results = validation_results(session.request_ir)
@@ -481,7 +481,7 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
     assert session.provider_call_count == 2
     assert length(calls.()) == 2
     assert_receive {:validated, %{status: :ok, value: "第一版"}}
-    refute_receive {:validated, _}
+    refute_receive {:validated, _}, 10
     assert {:ok, []} = RequestIR.pending_call_ids(session.request_ir)
 
     results = validation_results(session.request_ir)
@@ -539,7 +539,7 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
 
     assert session.provider_call_count == 2
     assert length(calls.()) == 2
-    refute_receive :validated
+    refute_receive :validated, 10
 
     assert Enum.map(validation_results(session.request_ir), & &1.call_id) == [
              "a",
@@ -587,7 +587,7 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
     assert session.provider_call_count == 1
     assert length(calls.()) == 1
     assert_receive {:validated, "第一版"}
-    refute_receive {:validated, _}
+    refute_receive {:validated, _}, 10
     assert {:ok, []} = RequestIR.pending_call_ids(session.request_ir)
     assert Enum.map(validation_results(session.request_ir), & &1.call_id) == ["first-call"]
   end

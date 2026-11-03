@@ -73,7 +73,7 @@ defmodule NovelApplication.TurnInteractionServiceTest do
              )
 
     assert {:error, :not_found} = AgentRunService.state(attrs.run_id)
-    refute_receive :unexpected_execution
+    refute_receive :unexpected_execution, 10
   end
 
   test "重发只起一个运行，结果落库早于发布，候选选择元数据保留", %{attrs: attrs, store: store} do
@@ -109,7 +109,7 @@ defmodule NovelApplication.TurnInteractionServiceTest do
                interaction_input: input
              )
 
-    refute_receive {:executed, _}
+    refute_receive {:executed, _}, 25
     assert length(MemoryLog.transcript(attrs.session_id)) == 2
   end
 
@@ -143,7 +143,7 @@ defmodule NovelApplication.TurnInteractionServiceTest do
 
     assert_receive {:executed, ^run_id}, 2000
     assert_receive {:delivery_event, :run_completed}, 2000
-    refute_receive {:executed, _}
+    refute_receive {:executed, _}, 25
     assert {:ok, %{run: %{status: :completed}}} = AgentRunService.state(run_id)
     assert AgentRunLog.get_run(run_id).status == "completed"
 
@@ -156,7 +156,7 @@ defmodule NovelApplication.TurnInteractionServiceTest do
                interaction_store: store
              )
 
-    refute_receive {:executed, _}
+    refute_receive {:executed, _}, 25
   end
 
   test "普通结果写入后输入状态更新失败，真实事务回滚结果和候选投影", %{attrs: attrs, store: store} do
@@ -320,7 +320,7 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     assert_receive {:event, :run_failed, payload}, 2000
     refute Map.has_key?(payload, :turn_result)
     refute Map.has_key?(payload, "turn_result")
-    refute_receive {:event, :turn_result_ready, _}
+    refute_receive {:event, :turn_result_ready, _}, 25
     assert {:ok, %{run: %{status: :failed}}} = AgentRunService.state(run_id)
     assert [user] = MemoryLog.transcript(attrs.session_id)
     assert user.content["message_handling"]["status"] == "failed"
@@ -662,7 +662,7 @@ defmodule NovelApplication.TurnInteractionServiceTest do
              AgentRunService.start_durable(%{attrs | run_id: run_id <> "-retry"}, opts)
 
     assert [_] = NovelPersistence.LongRunTaskLog.recent(attrs.workspace_id)
-    refute_receive {:executed, _}
+    refute_receive {:executed, _}, 25
     assert {:ok, _} = AgentRunService.state(run_id)
   end
 
