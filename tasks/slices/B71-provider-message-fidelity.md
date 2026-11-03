@@ -912,3 +912,15 @@
 - **分类**：A3 场景设计缺口——真实外部驱动需构造「**同 run 内 ≥2 个作者回合 + 更早回合 >4 个完整交换 + 真实 usage 越线**」，可行路径（后续 A3b 候选）：多步长任务 run → `awaiting_author` → 同 run `steer`（真实控制坞入口）追加第二回合 → 继续 step → 安全点触发。依赖真实模型产生多步长任务/等待行为，不确定性高；**不造场景、不调 K/窗口凑触发**。
 - **已覆盖**：自动维护触发链路（安全点/阈值/unknown usage/未完成不压缩/保留 K/幂等/失败静默/事件持久化）由 T1–T12 单测覆盖；真实页面验收待产品路径可稳定构造后再跑（A3b）。
 - **次要缺陷**：runner verify 读 `strata-slot.json` 早于 driver finally 落盘（证据时序竞争），native-runner 修复中（驱动/证据缺陷，非产品）。
+
+### CP5 最终收口：全量门禁与静态扫描（2026-11-04）
+
+- **最终全量门禁（HEAD ec36b3b4，独立库 `/tmp/b71-final-db`）**：
+  - 后端全量 **3057 tests / 0 failures**（9 app 串行：foundation/common/agent/test/domain/persistence/application/web/e2e）
+  - 前端 **730 passed**（typecheck/lint/test/audit/design-trace 全绿）
+  - `mix compile --warnings-as-errors` 0 警告、`mix credo --strict` 0 issues、module-size（软 ratchet）通过
+  - `mix xref ... compile-connected --fail-above 0`：**No cycles**；`arch_check`：通过
+  - **I1 4/4、I2 3 pairs/0 violations、I3 3/3**；Semgrep（可写 HOME）EXIT=0
+- **完整静态扫描**：见 `artifacts/b71-resume/final-gate-v2/static-scan-full.log`（gitleaks 6 项均为既有处置；task-done manifest 在干净工作区下可跳过）。
+- **资源矩阵**（全部如实登记，不代签）：§16.14 确认/拒绝双路径 clean PASS（01i/02c + 01k2/02e2）；pending 08 原生 77/77；CP3b 实模协议层机制 10/10 + G1–G5 切片；行为覆盖 pilot #1 clean PASS / #2 真实模型执行失败（如实未通过）；displayName P0+P1 真实页面全类别扫描零命中；压缩 A 方案设计/阶段 4/阶段 5/自动维护实现完成、**A3 真实页面验收未闭环**（场景设计缺口：跨 run 续行不属于维护范围，46 §9.9 第 7 条冻结；A3b 构造路径见 `artifacts/b71-resume/compaction-auto-trigger-ax-prereg-brief.md` §7 与 `artifacts/b71-resume/auto-maintenance-a3-recovery-notes.md`）。
+- **环境限制**：Pencil PNG 待有 Pencil 环境导出（帧已 Draft 落地 pen）；macOS 锁屏曾阻塞批次（环境失败如实登记）。
