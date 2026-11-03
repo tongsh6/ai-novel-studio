@@ -103,7 +103,10 @@ const THREAD_ORDER = ["arc", "conflict", "promise", "information", "emotion_curv
 const ATTENTION_STATUSES = new Set(["STALLED", "LEAKED", "BROKEN", "DEVIATED"]);
 
 function ledgerStatusLabel(status: string): string {
-  return (STRUCTURE_PANEL.ledger.statusLabels as Record<string, string>)[status] ?? status;
+  return (
+    (STRUCTURE_PANEL.ledger.statusLabels as Record<string, string>)[status] ??
+    STRUCTURE_PANEL.ledger.statusUnknown
+  );
 }
 
 function threadSummary(key: (typeof THREAD_ORDER)[number], entries: LedgerThreadEntry[]): string {
@@ -503,7 +506,9 @@ export function StructurePanel({
         </div>
         <div className={styles.missionBlock}>
           <div className={styles.assumptionBody}>
-            <span className={styles.assumptionBadge}>{M.statusLabels[status] ?? status}</span>
+            <span className={styles.assumptionBadge}>
+              {M.statusLabels[status] ?? M.statusUnknown}
+            </span>
             <span className={styles.missionLabel}>{M.hint}</span>
           </div>
           {planningMissionEditing ? (
@@ -555,7 +560,10 @@ export function StructurePanel({
                 >
                   {M.saveLabel}
                 </button>
-                <button className={styles.btnGhost} onClick={() => setPlanningMissionEditing(false)}>
+                <button
+                  className={styles.btnGhost}
+                  onClick={() => setPlanningMissionEditing(false)}
+                >
                   {M.cancelLabel}
                 </button>
               </div>
@@ -626,7 +634,9 @@ export function StructurePanel({
     return (
       <div className={styles.missionBlock}>
         <div className={styles.assumptionBody}>
-          <span className={styles.assumptionBadge}>{M.statusLabels[status] ?? status}</span>
+          <span className={styles.assumptionBadge}>
+            {M.statusLabels[status] ?? M.statusUnknown}
+          </span>
           <span className={styles.missionLabel}>{M.label}</span>
         </div>
         {editing ? (
@@ -703,10 +713,7 @@ export function StructurePanel({
                   {M.confirmLabel}
                 </button>
               )}
-              <button
-                className={styles.btnSecondary}
-                onClick={() => startMissionEdit(ch, mission)}
-              >
+              <button className={styles.btnSecondary} onClick={() => startMissionEdit(ch, mission)}>
                 {M.rewriteLabel}
               </button>
               <button
@@ -1283,9 +1290,7 @@ export function StructurePanel({
                           </span>
                           <span className={styles.assumptionName}>
                             {(assumption.narrative_role &&
-                              STRUCTURE_PANEL.assumptions.roleLabels[
-                                assumption.narrative_role
-                              ]) ??
+                              STRUCTURE_PANEL.assumptions.roleLabels[assumption.narrative_role]) ??
                               ""}
                             {assumption.narrative_role ? "：" : ""}
                             {assumption.name}
