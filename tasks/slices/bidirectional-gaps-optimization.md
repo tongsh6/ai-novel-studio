@@ -82,8 +82,12 @@
   - ✅ E4（`83c52668`）：移除 `user_message` 的 `behavior_id` 死接线（前端传、后端不读）；
   - ✅ E5-2：证据引用口径写入 `docs/engineering/scenario-acceptance.md`（引用历史证据必须核对 `summary.surface`/`driver`/`provider`，`-tauri` 目录名不代表真实页面）；
   - ✅ E5-1（`5aca17c5`）：核对确认「`consumed_replans` 文档 vs artifact 不符」定位为 **UA-01 D3 steer 表述过时**——artifact（`agent-natural-language-steer-tauri`，surface=tauri）实测 `consumed_replans=0`，UA-01 三处原文写 1；已按现存 evidence 校准为 0 并附说明（steer 走 `plan_adjusted` 不必然消耗 replan）。其余场景断言与 artifact 一致（`agent-plan-native-tool-calling-protocol` / `agentic-loop-plan-replan-reasoning` 均实测 1 ✓）。
-  - ⏳ E3（clarification 契约-实现缺口，已分析、待架构确认）：`answer_clarification` / `answer_author_question` 是 **legacy form_r 路径**（`dialogue_planning_service.form_r_decision(%{action: "await_author"})` → `require_clarification` → `open_behavior` 产生 `behavior_type: :clarification` + 动作），当前主链已由 **B26 `author_question`（author_choice）** 取代；channel 对 legacy 动作无专门分支（落 `handle_dialogue_gateway_action` → 模糊拒绝），前端仍有 `answer_clarification` 渲染映射。**退役决策需架构确认**（涉及 await_author judgment 是否保留 behavior、b26 前历史测试），不擅自删改；登记为待确认项。
-  - ⏳ E1（断线补事件序列 gap 检测）、E2（多窗口 event_sink）——**等并行工作流提交后后端窗口**（当前 mix 被其全量测试占用、apps 工作区 38 项未提交改动与之重叠）。
+  - ✅ **E1 完成（`8dbe0be3` + `2a8367db`）**：
+    - 后端 `WorkspaceChannel` 只读 `agent_events_since`（author-visible、`sequence > since`、归属按持久 run 记录校验、dead run 可补拉；形状与实时广播一致）；
+    - 前端 `fetchAgentEventsSince` + gap 检测（`sequence > 已知 max + 1` → 补拉 → `mergeAgentRunEvents` 幂等合并；失败静默不阻塞实时流）；
+    - 测试：channel 3/0（since 过滤/author 可见/跨作品拒绝）、socket helper 用例；前端 typecheck/lint 绿。
+  - ⏳ E3（clarification 契约-实现缺口）：**分析完成，建议退役方案（不擅自改）**——legacy `answer_clarification`/`answer_author_question` 由 `form_r_decision(%{action: "await_author"}) → require_clarification → open_behavior` 产生，当前主链已由 **B26 author_question(author_choice)** 取代、legacy 动作**无消费方**（channel 落 catch-all → DialogueGateway 模糊错误）。建议（待确认）：① channel 对 legacy 动作显式拒绝并给可操作 reason（`legacy_clarification_action_retired`）；② 前端保留 label 映射（避免 code 泄漏），不新增入口；③ 旧 behavior 产生逻辑与前端渲染清理放到「旧协议退役」专项（涉及 await_author judgment 与历史测试，不可随手删）。
+  - ⏳ E2（多窗口 event_sink）——**必须等并行工作流提交后**（`agent_run_server.ex` 正被其修改，当前不可动）。
 - **批次 B ✅ 完成（2026-11-04 收口，A 方案对齐）**：
   - 核对确认 `compact_transcript` **不是死代码**（Channel handler + 4 个 channel 测试 + 应用层能力均通过）；
   - 按 46 §9.9 A 方案「作者零操作」收口：**撤销 Channel 作者命令入口**（`agent_command: compact_transcript` 移除，回归 `unknown_command`）与对应 web 入口测试；`AgentRunService.compact_transcript/2` 保留为 **application internal 能力**（自动维护共用 `compact_and_commit`；语义测试保留在 `agent_run_runtime_test.exs` 54/0）；
