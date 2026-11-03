@@ -691,12 +691,14 @@ defmodule NovelApplication.AgentRunService do
   def cancel(run_id), do: command(run_id, :cancel)
 
   @doc """
-  作者显式压缩 canonical 会话（VS-00L §16.2/§16.4）。
+  作者显式压缩 canonical 会话（VS-00L §16.2/§16.4/§16.16）。
 
   只表达整理意图：覆盖范围、来源证据、摘要与省略说明由 `TranscriptCompaction`
   从 canonical 事实派生，调用方不能传入或伪造压缩内容。只在没有执行中任务的
   安全点受理；durable/bounded 同一提交边界先持久化、成功后才推进内存。
   回执只含作者可见的整理项数/摘要/省略/来源显示名。
+
+  属于 §16.16 两类入口之一（作者命令）；另一类是应用安全点自动维护。
   """
   @spec compact_transcript(String.t()) :: {:ok, map()} | {:error, term()}
   def compact_transcript(run_id) when is_binary(run_id) do
