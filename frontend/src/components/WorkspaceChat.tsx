@@ -2479,20 +2479,19 @@ export function WorkspaceChat() {
     answerModeDismissed: newDiscussionMode,
     blocked: budgetShortfallAwaiting,
   });
-  const usesTaskComposer = agentRunInputPresentation.canSteer;
+  // 输入区布局与行为同源：steer 模式 = 任务输入行（含控制坞）；其余走普通/回答分支。
+  const usesTaskComposer = inputMode.mode === "steer";
 
   const hasPendingAgentRunAnchor = Object.keys(pendingAgentRunAnchors).length > 0;
-  const canRouteMainInputToAgentSteer =
-    !budgetShortfallAwaiting && agentRunInputPresentation.canSteer;
   const hasSteerInput = inputText.trim().length > 0;
   const canSubmitMainInput =
-    !budgetShortfallAwaiting &&
+    inputMode.mode !== "blocked" &&
     hasSteerInput &&
     socketConnected &&
     !isPanelOpen &&
     !isReadOnlySessionView &&
-    (!loading || canRouteMainInputToAgentSteer) &&
-    !(canRouteMainInputToAgentSteer && agentCommandInFlight);
+    (!loading || inputMode.mode === "steer") &&
+    !(inputMode.mode === "steer" && agentCommandInFlight);
   const agentCommandNoticeText =
     agentCommandNotice && latestAgentRun && agentCommandNotice.runId === latestAgentRun.run_id
       ? (WORKBENCH.agentRunCommandNotices[agentCommandNotice.reason] ??
@@ -5720,7 +5719,7 @@ export function WorkspaceChat() {
                       type="text"
                       className={styles.inputBox}
                       aria-label={
-                        canRouteMainInputToAgentSteer
+                        inputMode.mode === "steer"
                           ? WORKBENCH.agentRunWorkspaceInputLabel
                           : undefined
                       }
@@ -5730,7 +5729,7 @@ export function WorkspaceChat() {
                       placeholder={
                         budgetShortfallAwaiting
                           ? WORKBENCH.agentRunBudgetShortfallPlaceholder
-                          : canRouteMainInputToAgentSteer
+                          : inputMode.mode === "steer"
                             ? awaitingAuthorInputRequired
                               ? WORKBENCH.agentRunAwaitingInputPlaceholder
                               : WORKBENCH.agentRunMainInputSteerPlaceholder
@@ -5756,7 +5755,7 @@ export function WorkspaceChat() {
                       }}
                       disabled={!canSubmitMainInput}
                     >
-                      {canRouteMainInputToAgentSteer ? WORKBENCH.agentRunSteerSend : WORKBENCH.send}
+                      {inputMode.mode === "steer" ? WORKBENCH.agentRunSteerSend : WORKBENCH.send}
                     </button>
                   </div>
                 </div>
