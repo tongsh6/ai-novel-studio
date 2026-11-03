@@ -74,8 +74,8 @@ describe("AgentRun fixed control dock", () => {
   it("shows one stable pause action while the run is active", () => {
     const html = renderDock("running", { canPause: true });
 
-    expect(html).toContain('aria-label="当前创作任务控制"');
-    expect(html).toContain("进行中 · 创作执行");
+    expect(html).toContain('aria-label="当前创作任务操作"');
+    expect(html).toContain("进行中 · 创作");
     expect(html).toContain("<span>暂停</span>");
     expect(html).toContain("<span>终止任务</span>");
     expect(html).not.toContain("<span>继续</span>");
@@ -85,7 +85,7 @@ describe("AgentRun fixed control dock", () => {
   it("reuses the same primary action slot for resume when paused", () => {
     const html = renderDock("paused", { canResume: true });
 
-    expect(html).toContain("已暂停 · 创作执行");
+    expect(html).toContain("已暂停 · 创作");
     expect(html).toContain("<span>继续</span>");
     expect(html).toContain("<span>终止任务</span>");
     expect(html).not.toContain("<span>暂停</span>");
@@ -103,7 +103,7 @@ describe("AgentRun fixed control dock", () => {
   it("locks both actions while termination is being processed", () => {
     const html = renderDock("cancelling", { canCancel: false });
 
-    expect(html).toContain("正在终止 · 创作执行");
+    expect(html).toContain("正在停止 · 创作");
     expect(html).toContain("<span>处理中…</span>");
     expect(html.match(/disabled=""/g)).toHaveLength(2);
   });
@@ -112,7 +112,7 @@ describe("AgentRun fixed control dock", () => {
   it("replaces bare resume with an input-required hint while awaiting the author", () => {
     const html = renderDock("awaiting_author", { awaitingInput: true, canCancel: true });
 
-    expect(html).toContain("等待你回复 · 创作执行");
+    expect(html).toContain("等待你回复 · 创作");
     expect(html).toContain("等待你的回复：在下方输入框补充方向后发送，任务才会继续。");
     expect(html).toContain("<span>终止任务</span>");
     expect(html).not.toContain("<span>继续</span>");

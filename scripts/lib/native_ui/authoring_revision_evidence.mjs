@@ -935,7 +935,7 @@ export function revisionUiChecks({ qualityVisible, revisionVisible, why, userMes
       authorSafeTexts([quality, revision, whyText]),
     why_panel_is_author_safe:
       whyText.includes("回放只读取已保存记录，不会重新调用模型") &&
-      whyText.includes("已从持久 trace 生成结构化回放") &&
+      whyText.includes("基于本轮已保存的推理记录生成回放") &&
       authorSafeTexts([whyText]),
     no_second_user_message_after_action: list(userMessages).length === 1,
   };

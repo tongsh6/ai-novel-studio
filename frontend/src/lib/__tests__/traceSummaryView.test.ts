@@ -145,7 +145,7 @@ describe("traceSummaryView", () => {
       replay_provider_called: false,
     });
 
-    expect(view?.detailLines).toContain("已从持久 trace 生成结构化回放。");
+    expect(view?.detailLines).toContain("基于本轮已保存的推理记录生成回放。");
     expect(view?.detailLines).toContain("回放只读取已保存记录，不会重新调用模型。");
     expect(JSON.stringify(view)).not.toContain("trace_secret");
   });

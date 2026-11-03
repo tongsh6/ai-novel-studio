@@ -445,7 +445,7 @@ test("revisionUiChecks 逐项校验质量卡、修订候选、Why 与作者安�
   ].join("\n");
   const revision = "原稿\n修订稿\n保存修订稿";
   const why = [
-    "已从持久 trace 生成结构化回放。",
+    "基于本轮已保存的推理记录生成回放。",
     "回放只读取已保存记录，不会重新调用模型。",
   ].join("\n");
   const checks = revisionUiChecks({
@@ -470,7 +470,7 @@ test("revisionUiChecks 逐项校验质量卡、修订候选、Why 与作者安�
     revisionUiChecks({
       qualityVisible: quality,
       revisionVisible: revision,
-      why: "已从持久 trace 生成结构化回放。\n回放只读取已保存记录，不会重新调用模型。",
+      why: "基于本轮已保存的推理记录生成回放。\n回放只读取已保存记录，不会重新调用模型。",
       userMessages: [],
     }).why_panel_is_author_safe,
     true,
