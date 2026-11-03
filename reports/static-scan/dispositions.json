@@ -113,5 +113,12 @@
     "updated_at": "2026-10-31",
     "handling": "VS00G-TRIGGER-C 实现与非原生门禁完成，但原生业务验收未闭环；observe-01 只覆盖菜单根因观察，UA01 旧 summary 不能代签当前 UI。task_done 因此保持失败，不伪造新 summary 或修改判据。",
     "recommendation": "独立预注册 AXShowMenu/CGEvent 对照并打通真实业务场景后重跑 task_done；也可由作者选择 browser 补验（保留边界）或暂缓。"
+  },
+  "gitleaks|generic-api-key|scripts/lib/native_ui/authoring_confirmation_evidence.test.mjs|309|generic-api-key": {
+    "status": "false_positive",
+    "owner": "native-runner",
+    "updated_at": "2026-11-04",
+    "handling": "gitleaks generic-api-key 命中测试 fixture 的假 idempotency 标识（真实批次形状样本 confirm_decision_<随机后缀>），非真实凭证/密钥；工作树已改为明显非凭证占位（act_confirm_decision_placeholder 等，低熵不触发）。gitleaks 仍报告该 fingerprint 是因为历史 commit 0524502b 内含旧 fixture 字节；v3 开发分支不重写历史（与既有 gitleaks 处置同族），故登记 false_positive。",
+    "recommendation": "保持 gitleaks 扫描。若未来历史清理需要清零该项，由仓库维护者按 dev-branch-scope 约束评估 filter-repo 重写；本分支不重写历史。后续测试 fixture 一律用低熵占位（如 *_placeholder），避免再次命中。"
   }
 }
