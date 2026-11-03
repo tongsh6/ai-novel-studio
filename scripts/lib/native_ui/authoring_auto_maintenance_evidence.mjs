@@ -488,6 +488,18 @@ function readJsonIfExists(file) {
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
 }
 
+// runner 在后台运行、以 ui-complete 作为驱动完成信号；driver finally 的证据写入与
+// verify 之间存在毫秒级时序竞争。verify 侧对有界等待，缺失仍如实断言（不伪造）。
+export function waitForEvidenceFile(dir, name, timeoutMs = 20_000) {
+  const file = path.join(dir, name);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(file)) return true;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+  }
+  return fs.existsSync(file);
+}
+
 export function verifyAutoMaintenanceBatch(dir) {
   const config = readConfig(dir);
   assert.equal(config.journey, "auto-maintenance", "auto-maintenance verifier 只接受 journey=auto-maintenance");
@@ -504,8 +516,11 @@ export function verifyAutoMaintenanceBatch(dir) {
     minProviderStarts: 1,
     expectProviders: ["strata"],
   });
+  assert(
+    waitForEvidenceFile(dir, "strata-slot.json"),
+    "缺少 strata-slot.json（批次前后槽位/卸载核验；已等待落盘仍有界超时）",
+  );
   const strataSlot = readJsonIfExists(path.join(dir, "strata-slot.json"));
-  assert(strataSlot, "缺少 strata-slot.json（批次前后槽位/卸载核验）");
   const checkpoints = Object.fromEntries(
     AUTO_MAINTENANCE_CHECKPOINTS.map((name) => [name, readJsonIfExists(path.join(dir, `b71-${name}.json`))]),
   );

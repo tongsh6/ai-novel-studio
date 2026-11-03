@@ -5,10 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { spawn } from "node:child_process";
 import {
   evaluateAutoMaintenance,
   scanAuthorVisibleFiles,
   verifyAutoMaintenanceBatch,
+  waitForEvidenceFile,
 } from "./authoring_auto_maintenance_evidence.mjs";
 
 const WORK = "work-auto-1";
@@ -293,4 +295,20 @@ test("A3 合成目录端到端：verify 通过并写 summary；细条缺失时�
   const failing = buildDir({ strip: false });
   assert.throws(() => verifyAutoMaintenanceBatch(failing), /auto-maintenance 判据失败/u);
   fs.rmSync(failing, { recursive: true, force: true });
+});
+
+
+test("verify 前有界等待 finally 证据：延迟落盘的 strata-slot.json 会被等待到", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-wait-"));
+  const file = path.join(dir, "strata-slot.json");
+  // 子进程 300ms 后落盘（verify 主线程用 Atomics.wait 阻塞，同进程 setTimeout 无法执行）。
+  spawn(process.execPath, ["-e", `setTimeout(() => require("fs").writeFileSync(${JSON.stringify(file)}, "{}"), 300)`], {
+    stdio: "ignore",
+  });
+  assert.equal(waitForEvidenceFile(dir, "strata-slot.json", 5_000), true);
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  const missing = fs.mkdtempSync(path.join(os.tmpdir(), "b71-wait-"));
+  assert.equal(waitForEvidenceFile(missing, "strata-slot.json", 600), false);
+  fs.rmSync(missing, { recursive: true, force: true });
 });

@@ -338,7 +338,6 @@ async function run() {
       strata: { endpoint: strataEndpoint },
     };
     harness.writeDriverLog("native-b71-driver-log.json", driverLog);
-    harness.writeUiComplete(config.slice_id);
     console.log(
       `B71 auto-maintenance 驱动完成: requests=${report.requests.length} triggered=${report.triggered} checkpoint_events=${report.termination.checkpoint_events} failure_silent=${
         report.failure_injection?.author_error_visible === false
@@ -356,6 +355,9 @@ async function run() {
         ...driverLog,
         strata: { ...driverLog.strata, unload: unload.unload, after: unload.state, slot_after: unload.slot },
       });
+      // ui-complete 是 runner 的「驱动完成」信号：必须在 finally 证据（strata-slot/driver-log）
+      // 全部落盘之后写，避免 runner 在 strata-slot.json 落盘前开始 verify（证据时序竞争）。
+      harness.writeUiComplete(config.slice_id);
     }
   }
 }
