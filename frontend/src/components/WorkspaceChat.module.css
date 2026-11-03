@@ -2231,6 +2231,11 @@
   line-height: 1.5;
 }
 
+.answerPromptWaiting {
+  font-size: 12px;
+  opacity: 0.55;
+}
+
 .answerPromptNewDiscussion {
   margin-left: auto;
   padding: 0;

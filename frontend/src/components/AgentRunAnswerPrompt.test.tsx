@@ -52,6 +52,7 @@ describe("AgentRunAnswerPrompt（回答上下文提示条）", () => {
         disabled={false}
         onAnswer={() => {}}
         onStartNewDiscussion={() => {}}
+        onAbandon={() => {}}
       />,
     );
     expect(html).toContain("需要你决定");
@@ -59,6 +60,22 @@ describe("AgentRunAnswerPrompt（回答上下文提示条）", () => {
     expect(html).toContain("选项A");
     expect(html).toContain("开始新讨论");
     expect(html).toContain("回答后当前任务继续");
+    expect(html).toContain("放弃此问题");
+  });
+
+  it("等待时长：显示已等待分钟数", () => {
+    const since = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const html = renderToStaticMarkup(
+      <AgentRunAnswerPrompt
+        result={questionResult()}
+        disabled={false}
+        waitingSince={since}
+        onAnswer={() => {}}
+        onStartNewDiscussion={() => {}}
+        onAbandon={() => {}}
+      />,
+    );
+    expect(html).toContain("已等待 5 分钟");
   });
 
   it("无自由文本授权时提示只能点选项", () => {
@@ -68,6 +85,7 @@ describe("AgentRunAnswerPrompt（回答上下文提示条）", () => {
         disabled={false}
         onAnswer={() => {}}
         onStartNewDiscussion={() => {}}
+        onAbandon={() => {}}
       />,
     );
     expect(html).toContain("请选择上方选项继续");
