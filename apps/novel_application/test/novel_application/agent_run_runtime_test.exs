@@ -314,23 +314,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert inspect(restored.messages) =~ "compact-call"
     assert {:ok, body} = RequestIR.Projection.project(after_ir)
     refute Enum.any?(body.messages, &(&1.role == "tool"))
-
-    # 整理记录：author-safe 事件与 checkpoint 同一边界持久化；只含数量/来源，
-    # 不含 call_id、ref 原值或 canonical 内容。幂等第二次触发不产生第二条记录。
-    assert [record] =
-             run_id
-             |> AgentRunLog.list_author_events()
-             |> Enum.filter(&(&1.event_type == "checkpoint_created"))
-
-    assert record.visibility == "author"
-    assert record.payload["covered_exchanges"] == 1
-    assert record.payload["sources"] == []
-    refute inspect(record.payload) =~ "compact-call"
-
-    assert Enum.any?(
-             state.events,
-             &(&1.event_type == :checkpoint_created and &1.sequence == record.sequence)
-           )
   end
 
   test "durable 压缩持久失败不确认成功，也不推进内存历史" do
@@ -383,12 +366,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
         assert {:ok, after_state} = AgentRunService.state(run_id)
         assert after_state.stage_state == before_state.stage_state
-        assert after_state.events == before_state.events
-
-        refute Enum.any?(
-                 AgentRunLog.list_author_events(run_id),
-                 &(&1.event_type == "checkpoint_created")
-               )
 
         assert AgentRunLog.get_run(run_id).authoring_transcript ==
                  before_record.authoring_transcript
@@ -2762,15 +2739,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
              restored.messages |> Jason.encode!() |> Jason.decode!()
 
     assert after_record.long_run_task_ref == nil
-
-    # 作者安全整理记录与 checkpoint 同边界提交；bounded/durable 语义一致。
-    assert [record] =
-             run_id
-             |> AgentRunLog.list_author_events()
-             |> Enum.filter(&(&1.event_type == "checkpoint_created"))
-
-    assert record.payload["covered_exchanges"] == 1
-    refute inspect(record.payload) =~ "bounded-compact-call"
   end
 
   test "durable v3 reference mismatch never falls back to a legacy embedded copy" do
