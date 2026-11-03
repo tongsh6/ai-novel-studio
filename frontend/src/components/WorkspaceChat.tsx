@@ -3010,9 +3010,11 @@ export function WorkspaceChat() {
     if (action.action_type === "cancel_pending_behavior") return WORKBENCH.actionCancel;
     if (action.action_type === "answer_clarification") return WORKBENCH.actionAnswer;
     if (action.action_type === "choose_candidate") return WORKBENCH.candidateAdoptLabel;
-    if (action.label_key === "fact_inventory.start") return WORKBENCH.factInventoryProposalStart;
-    if (action.label_key === "fact_inventory.dismiss")
-      return WORKBENCH.factInventoryProposalDismiss;
+    if (
+      action.label_key === "fact_inventory.start" ||
+      action.label_key === "fact_inventory.dismiss"
+    )
+      return displayName("action", action.label_key);
     const artifact = artifactForAction(turnResult, action);
     const revisionRole = qualityRevisionArtifactRole(turnResult, artifact);
     let base: string;
@@ -3020,19 +3022,19 @@ export function WorkspaceChat() {
       if (action.action_type === "accept") base = CARD.tentativeArtifact.applyFormattingLabel;
       else if (action.action_type === "discard")
         base = CARD.tentativeArtifact.discardFormattingLabel;
-      else return action.action_type;
+      else return displayName("action", action.action_type);
     } else if (revisionRole === "original") {
       if (action.action_type === "accept") base = CARD.tentativeArtifact.saveOriginalLabel;
       else if (action.action_type === "discard") base = CARD.tentativeArtifact.discardOriginalLabel;
       else if (action.action_type === "edit_then_accept")
         base = CARD.tentativeArtifact.editOriginalLabel;
-      else return action.action_type;
+      else return displayName("action", action.action_type);
     } else if (revisionRole === "revision") {
       if (action.action_type === "accept") base = CARD.tentativeArtifact.saveRevisionLabel;
       else if (action.action_type === "discard") base = CARD.tentativeArtifact.discardRevisionLabel;
       else if (action.action_type === "edit_then_accept")
         base = CARD.tentativeArtifact.editRevisionLabel;
-      else return action.action_type;
+      else return displayName("action", action.action_type);
     } else if (action.action_type === "accept") {
       base = acceptActionLabel(artifact?.artifact_type);
     } else if (action.action_type === "discard") {
@@ -3040,7 +3042,7 @@ export function WorkspaceChat() {
     } else if (action.action_type === "edit_then_accept") {
       base = editThenAcceptActionLabel(artifact?.artifact_type);
     } else {
-      return action.action_type;
+      return displayName("action", action.action_type);
     }
     // 同一轮存在多个角色候选时，把候选名拼到逐项按钮，避免“两个候选共用一个采纳按钮”。
     const name = perCandidateAdoptionName(turnResult, artifact);
@@ -3191,7 +3193,7 @@ export function WorkspaceChat() {
     if (action.action_type === "edit_then_accept") {
       return CARD.tentativeArtifact.candidateSelectedEditLabel(optionLabel);
     }
-    return action.action_type;
+    return displayName("action", action.action_type);
   };
 
   // 当前活跃行为 id：取最近一个携带 behavior_state 的 turn_result 的 active 行为。

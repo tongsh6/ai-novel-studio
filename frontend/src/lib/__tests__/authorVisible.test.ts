@@ -28,6 +28,17 @@ describe("authorVisible", () => {
     expect(typeof branded).toBe("string");
   });
 
+  it("available_actions 的 label_key/action_type 走 SSOT，未登记兜底不回显内部 code", () => {
+    expect(displayName("action", "fact_inventory.start")).toBe("发起设定盘点");
+    expect(displayName("action", "fact_inventory.dismiss")).toBe("关闭盘点提议");
+    expect(displayName("action", "edit_then_accept")).toBe("修改后采纳");
+    expect(displayName("action", "choose_candidate")).toBe("设为后续方向");
+
+    const unknown = displayName("action", "internal_action_type_v9");
+    expect(unknown).toBe("操作");
+    expect(unknown).not.toContain("internal_action_type_v9");
+  });
+
   it("forbidden tokens 与 SSOT hash 可用（前后端同源）", () => {
     const tokens = authorVisibleForbiddenTokens();
     expect(tokens.protocol_codes).toContain("prose_writing");

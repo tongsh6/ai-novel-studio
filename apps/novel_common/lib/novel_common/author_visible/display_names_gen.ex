@@ -7,15 +7,37 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
   只允许通过 `NovelCommon.AuthorVisible.Display` 查询；作者可见面不得直接使用内部 code。
   """
 
-  @source_hash "ee8cbd623187be62b74ab1f44849987a8a97323d107c7747d2624ee5e2bad639"
+  @source_hash "72787dfe48259dac6260141e08d991337a2f3fe2999b30c256e6a406b3856dff"
 
   @domains %{
     "action" => %{
       "accept" => "采纳",
+      "agentRunBudget.selected_steps" => "继续选定的步骤",
+      "agent_run_budget_next_step" => "下一步",
+      "agent_run_budget_remaining_plan" => "继续剩余计划",
+      "answer_clarification" => "回答",
+      "artifact.accept" => "采纳",
+      "artifact.discard" => "放弃",
+      "artifact.edit" => "修改",
+      "artifact.supersede" => "替换为新版本",
+      "author_question.option" => "选择",
+      "author_question.reply" => "回复",
+      "behavior.confirm" => "确认",
+      "behavior.reject" => "取消",
+      "cancel_pending_behavior" => "取消",
+      "candidate.select" => "选择这个方向",
+      "choose_candidate" => "设为后续方向",
       "confirm" => "确认",
+      "confirm_before_execute" => "确认执行",
       "discard" => "放弃",
       "edit" => "修改",
-      "reject" => "取消"
+      "edit_then_accept" => "修改后采纳",
+      "fact_inventory.dismiss" => "关闭盘点提议",
+      "fact_inventory.start" => "发起设定盘点",
+      "quality.revise_from_findings" => "按质量发现修订",
+      "reject" => "取消",
+      "reject_or_cancel_confirmation" => "拒绝",
+      "revise_from_findings" => "按质量发现修订"
     },
     "artifact_type" => %{
       "chapter_plan" => "章节计划",

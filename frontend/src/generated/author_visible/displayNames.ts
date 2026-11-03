@@ -2,7 +2,7 @@
 // Run `pnpm codegen:author-visible` to regenerate. Author-visible surfaces must only use these display names.
 /* eslint-disable */
 
-export const SOURCE_HASH = "ee8cbd623187be62b74ab1f44849987a8a97323d107c7747d2624ee5e2bad639";
+export const SOURCE_HASH = "72787dfe48259dac6260141e08d991337a2f3fe2999b30c256e6a406b3856dff";
 
 export const DISPLAY_NAMES = {
   "action": {
@@ -11,6 +11,28 @@ export const DISPLAY_NAMES = {
     "edit": "修改",
     "confirm": "确认",
     "reject": "取消",
+    "candidate.select": "选择这个方向",
+    "artifact.accept": "采纳",
+    "artifact.discard": "放弃",
+    "artifact.edit": "修改",
+    "artifact.supersede": "替换为新版本",
+    "behavior.confirm": "确认",
+    "behavior.reject": "取消",
+    "quality.revise_from_findings": "按质量发现修订",
+    "author_question.option": "选择",
+    "author_question.reply": "回复",
+    "fact_inventory.start": "发起设定盘点",
+    "fact_inventory.dismiss": "关闭盘点提议",
+    "agentRunBudget.selected_steps": "继续选定的步骤",
+    "edit_then_accept": "修改后采纳",
+    "confirm_before_execute": "确认执行",
+    "reject_or_cancel_confirmation": "拒绝",
+    "cancel_pending_behavior": "取消",
+    "answer_clarification": "回答",
+    "choose_candidate": "设为后续方向",
+    "revise_from_findings": "按质量发现修订",
+    "agent_run_budget_next_step": "下一步",
+    "agent_run_budget_remaining_plan": "继续剩余计划",
   },
   "artifact_type": {
     "prose_fragment": "正文草稿",
