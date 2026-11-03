@@ -871,3 +871,11 @@
 - **分类**：真实模型执行失败（产品 fail-closed），非 harness/驱动缺陷；**不重跑、不调判据、不造假**。B1 effect echo（1e13f8df）本次未获真实证据（无候选产出），不代签。
 - **行为覆盖 pilot 结论（如实）**：`01c2`（C-F1-003 holdout 零写）clean PASS；`#6`（C-F3-002 保存请求）真实模型执行失败、未通过——两条 pilot 结论按真实结果登记，不代签完整 G1–G6/I10；该失败反映真实模型（iq3_s）能力限制与产品 fail-closed 行为，不是产品缺陷或判据缺陷。
 - **资源**：strata 前后 loaded=null、unload 200、cleanup remaining=[]、生产指纹 unchanged、llm-calls=1（3 条 provider 调用）、截图 3、无残留。
+
+### displayName P0 泄漏真实 AX 验证通过（2026-11-04）
+
+- **AX 回归批次 A2（confirm `cp4b-confirm-01j2-ax-leak`）与 B（reject `cp4b-confirm-02d-ax-leak`）均 clean PASS**：C1–C11 + `author_visible_no_internal_tokens` 全 true。
+- **P0 泄漏在真实 AX 文本中清零**：迁移期 3 类扫描（协议 code / 内部标识 / ref 模式）`ok=true、hits=[]`，覆盖 12 个文件（source/card/after-confirm/duplicate/why/restored × ax/text）。真实文案抽查：状态行「模型已连接 本地模型（测试环境） · 当前模型」、确认对象「正文写作」、取消「已取消等待；「正文写作」不会执行，也没有写入作品事实。」——`Stub`/`slice_verify`/`prose_writing`/`[stub]`/`request_ir` 零出现。
+- **internal_terms_zh 命中清单（P1 迁移输入，不判红不阻塞）**：`工作过程`、`任务控制`、`创作执行`、`确认回合`、`结构化回放`、`持久 trace`。
+- **批次历史**：A（`cp4b-confirm-01j-ax-leak`）FAIL 于 C10 旧正则（恢复文案已 displayName 化）——harness 缺陷已修（29638d09）；A2/B 复验 clean PASS；A 保持「不用于 PASS」登记。
+- **机制状态**：displayName 机制（SSOT + 双端 codegen + Presenter 唯一出口 + 共享扫描器 + AX 断言）已在真实页面验证；P1（中文术语/Why 术语/错误码）待迁移，迁移后删除扫描器 `categories` 收窄参数恢复全类别。

@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-04 **B71 displayName P0 泄漏真实 AX 验证通过**：AX 回归 A2（confirm）/B（reject）均 clean PASS——迁移期 3 类扫描（协议 code/内部标识/ref）真实 AX 文本 `hits=[]`、12 文件全覆盖；状态行「本地模型（测试环境）」、确认对象「正文写作」、取消文案 displayName 化，`Stub/slice_verify/prose_writing/[stub]/request_ir` 零出现。internal_terms_zh 命中（工作过程/任务控制/创作执行/确认回合/结构化回放/持久 trace）列为 P1 输入。机制（SSOT/双端 codegen/Presenter/扫描器/AX 断言）已在真实页面验证；P1 迁移后恢复全类别扫描。
+
 > 2026-11-04 **B71 行为覆盖 pilot #2 真实模型执行失败（如实未通过）**：`cp4b-behavior-02-cf3002`（C-F3-002/S1）driver PASS、runner FAIL——真实模型 3 次调用 0 工具 0 候选，输出被产品校验拒绝（fail-closed，作者安全文案），verdict violation（reply 不在 allowed_actions=[execute,explore]）；HO1/HO4/state_checks 均通过（B11 seed 生效）。分类=真实模型执行失败（非 harness 缺陷），不重跑/不调判据/不造假；B1 effect echo 未获真实证据。行为覆盖 pilot 结论：01c2 clean PASS + #6 未通过（真实模型能力限制），两条如实登记。
 
 > 2026-11-03 **B71 行为覆盖 pilot #1 原生 clean PASS**：`cp4b-behavior-01c2-cf1003`（HEAD da8097ba）verdict legal=true/pass=true，violations=[]、unknown_reasons=[]——真实 strata 模型（1 次调用/0 工具）正确回答进度事实并与 DB 一致、遵守「先别动手」零写；HO1 零写（start/final delta）、HO4 真实完成声明、state_checks 与 states.yml S1 逐项一致（B11 seed 补齐生效）；not_signed 如实列 fabricated_setting/trap_controls/HO5。判据加固（B1–B18）与 B11 seed 共同使其成为行为覆盖线首条 clean PASS。#6（execute）等 B1 effect echo 档位 A 实现后签发，预计无 effect 证据时 unknown 不 PASS。
