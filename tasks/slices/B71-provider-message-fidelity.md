@@ -896,3 +896,11 @@
 - **窗口覆盖运维配置**（`73480a47`）：`NOVEL_CONTEXT_WINDOW_OVERRIDES="provider:window,..."` → `:context_window_overrides`（运行时产品配置、不向作者展示、只影响压力阈值）；解析/缺省/非法单测；目标测试 17/0。
 - **A2 门禁（B71 自动维护 + P1 全量后）**：backend-umbrella EXIT=0（全量）、compile test/dev 0、credo 修复后 13069 mods/funs **no issues**、module-size（软 ratchet）0、xref 无环、arch 0、**I1/I2/I3 全 0**、semgrep（可写 HOME）0、前端 typecheck/lint/test/audit/design-trace 全 0；仅 gitleaks 6 项既有处置与 semgrep 沙箱 HOME 两项已知环境项。
 - **A3 待办**：`NOVEL_AUTO_MAINTENANCE_ENABLED` env 映射（运维开关，已批准实现）+ native-runner 的 auto-maintenance driver journey → A3 预注册（真实 strata + 小窗口 + ≥2 次续行制造压力；无法形成压力则如实登记未闭环）。
+
+### displayName P1 全类别 AX 验证通过（2026-11-04）
+
+- **01k2（confirm `cp4b-confirm-01k2-ax-full`）与 02e2（reject `cp4b-confirm-02e2-ax-full`）均 clean PASS**：C1–C11 + `author_visible_no_internal_tokens` 全 true；**AX 全类别扫描 ok=true、hits=[]、internal_terms_zh_hits=[]、12 文件全覆盖**。
+- **P1 目标达成**：迁移期曾单列的 6 个中文内部术语（工作过程/任务控制/创作执行/确认回合/结构化回放/持久 trace）在真实页面**全部清零**；`Stub`/`slice_verify`/`prose_writing`/`[stub]`/`request_ir` 与中文术语均零命中。真实文案抽查：状态行「本地模型（测试环境）」、确认对象「正文写作」、取消「已取消等待；「正文写作」不会执行，也没有写入作品事实。」。
+- **C9 Why 修复验证**：01k 的驱动缺陷（openWhy 误用纯观测 dump 做交互定位 + 重试不足）已修（`b2253fc8` 有界重试 + `77e26518` 改用 `dumpNodesForInteraction` 交互恢复路径）；01k2 现场 attempts 显示 `scan count=3/nodes=101 → scroll_to → panel_retry_scan/axpress → panel_wait 成功`、`llm delta=0`。01k 保持「FAIL（驱动 Why 时序）」登记。
+- **扫描器状态**：全类别唯一入口、无收窄开关、无手写 token 列表双轨（P1-C3 已删，净 −81 行）。
+- **剩余**：A3 压缩自动维护 AX（driver 实现中：真实 strata + 小窗口 + ≥2 次续行制造压力 → 自动整理 → 细条/展开/完整记录/下一请求精简/刷新幂等/失败静默/无技术词）。

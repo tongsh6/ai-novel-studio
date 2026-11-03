@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-04 **B71 displayName P1 全类别 AX 验证通过**：`cp4b-confirm-01k2-ax-full`（confirm）与 `cp4b-confirm-02e2-ax-full`（reject）均 clean PASS——C1–C11 + author_visible 全 true，AX 全类别扫描 `hits=[]`、`internal_terms_zh_hits=[]`（12 文件），六个中文内部术语与 `Stub/slice_verify/prose_writing/[stub]/request_ir` 真实页面零命中；C9 Why 驱动缺陷（纯观测 dump 误用于交互定位）修复后验证通过（重试/恢复路径生效、llm delta=0）。displayName 机制（SSOT/双端 codegen/Presenter/共享全类别扫描器/AX 断言）P0+P1 全量落地并在真实页面取证。
+
 > 2026-11-04 **B71 displayName P0 泄漏真实 AX 验证通过**：AX 回归 A2（confirm）/B（reject）均 clean PASS——迁移期 3 类扫描（协议 code/内部标识/ref）真实 AX 文本 `hits=[]`、12 文件全覆盖；状态行「本地模型（测试环境）」、确认对象「正文写作」、取消文案 displayName 化，`Stub/slice_verify/prose_writing/[stub]/request_ir` 零出现。internal_terms_zh 命中（工作过程/任务控制/创作执行/确认回合/结构化回放/持久 trace）列为 P1 输入。机制（SSOT/双端 codegen/Presenter/扫描器/AX 断言）已在真实页面验证；P1 迁移后恢复全类别扫描。
 
 > 2026-11-04 **B71 行为覆盖 pilot #2 真实模型执行失败（如实未通过）**：`cp4b-behavior-02-cf3002`（C-F3-002/S1）driver PASS、runner FAIL——真实模型 3 次调用 0 工具 0 候选，输出被产品校验拒绝（fail-closed，作者安全文案），verdict violation（reply 不在 allowed_actions=[execute,explore]）；HO1/HO4/state_checks 均通过（B11 seed 生效）。分类=真实模型执行失败（非 harness 缺陷），不重跑/不调判据/不造假；B1 effect echo 未获真实证据。行为覆盖 pilot 结论：01c2 clean PASS + #6 未通过（真实模型能力限制），两条如实登记。
