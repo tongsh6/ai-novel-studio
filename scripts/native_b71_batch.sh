@@ -147,6 +147,27 @@ if [[ "$A3B_SMOKE" == "1" && "$AUTO_MAINTENANCE" != "1" ]]; then
   exit 64
 fi
 
+# 回答模式 gate（等待即回答，确定性 slice_verify + ask_author fixture）。
+ANSWER_MODE="${B71_ANSWER_MODE:-}"
+if [[ -n "$ANSWER_MODE" ]]; then
+  if [[ "$ANSWER_MODE" != "1" ]]; then
+    echo "B71_ANSWER_MODE 只能是 1，实测: $ANSWER_MODE" >&2
+    exit 64
+  fi
+  if [[ "$B71_PROVIDER" != "slice_verify" ]]; then
+    echo "answer-mode batch 只接受 B71_PROVIDER=slice_verify，实测: $B71_PROVIDER" >&2
+    exit 64
+  fi
+  if [[ "$SLICE" != "b71-first-consumer" ]]; then
+    echo "answer-mode batch 只接受 B71_SLICE=b71-first-consumer，实测: $SLICE" >&2
+    exit 64
+  fi
+  if [[ "$CONFIRMATION" == "1" || "$BEHAVIOR" == "1" || "$AUTO_MAINTENANCE" == "1" || "$MEMORY_DETAIL" == "1" ]]; then
+    echo "B71_ANSWER_MODE 与其它 journey 不能同时设置" >&2
+    exit 64
+  fi
+fi
+
 # 记忆详情/列表 P0 泄漏回归（确定性 slice_verify；需真实记忆数据 seed）。
 MEMORY_DETAIL="${B71_MEMORY_DETAIL:-}"
 if [[ -n "$MEMORY_DETAIL" ]]; then
@@ -175,7 +196,14 @@ STRATA_BEFORE="$STATE_DIR/batch-$TAG.strata-before.json"
 STRATA_AFTER="$STATE_DIR/batch-$TAG.strata-after.json"
 mkdir -p "$STATE_DIR"
 
-if [[ "$MEMORY_DETAIL" == "1" ]]; then
+if [[ "$ANSWER_MODE" == "1" ]]; then
+  # 回答模式 gate 批次目录与预注册一致；仍必须位于 artifacts/ 且不存在。
+  DIR="${B71_ANSWER_MODE_ARTIFACT_DIR:-$ROOT/artifacts/slice-verify/b71-answer-mode-ax-$TAG}"
+  if [[ "$DIR" != "$ROOT/artifacts/"* ]]; then
+    echo "B71_ANSWER_MODE_ARTIFACT_DIR 必须位于 $ROOT/artifacts/ 下: $DIR" >&2
+    exit 64
+  fi
+elif [[ "$MEMORY_DETAIL" == "1" ]]; then
   # 记忆详情回归批次目录与预注册一致；仍必须位于 artifacts/ 且不存在。
   DIR="${B71_MEMORY_DETAIL_ARTIFACT_DIR:-$ROOT/artifacts/slice-verify/b71-memory-detail-ax-$TAG}"
   if [[ "$DIR" != "$ROOT/artifacts/"* ]]; then
@@ -246,6 +274,14 @@ if [[ "$CONFIRMATION" == "1" ]]; then
   export TAURI_NATIVE_SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
 fi
 
+if [[ "$ANSWER_MODE" == "1" ]]; then
+  # 回答模式 gate：确定性 ask_author fixture（请求触发问题卡 → 回答「保留悬念」→ 同 run 继续）。
+  export B71_ANSWER_MODE=1
+  export B71_AUTO_MAINT_MULTI_TURN=1
+  export TAURI_NATIVE_ARTIFACT_DIR="$DIR"
+  export TAURI_NATIVE_SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+fi
+
 if [[ "$MEMORY_DETAIL" == "1" ]]; then
   # 记忆详情回归：seed 用 B70 S1 记忆夹具（真实记忆条目），驱动只导航不输入。
   export B71_MEMORY_DETAIL=1
@@ -301,6 +337,8 @@ elif [[ "$AUTO_MAINTENANCE" == "1" ]]; then
   node "$ROOT/scripts/native_b71_auto_maintenance_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
 elif [[ "$MEMORY_DETAIL" == "1" ]]; then
   node "$ROOT/scripts/native_b71_memory_detail_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
+elif [[ "$ANSWER_MODE" == "1" ]]; then
+  node "$ROOT/scripts/native_b71_auto_maintenance_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
 elif [[ "$BEHAVIOR" == "1" ]]; then
   node "$ROOT/scripts/native_b71_behavior_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
 elif [[ "$LIVE" == "1" ]]; then

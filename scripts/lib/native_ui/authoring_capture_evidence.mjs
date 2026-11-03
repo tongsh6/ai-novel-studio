@@ -63,6 +63,11 @@ const REVISION_CHAPTER_TITLE = "第02章：矿区追击战";
 
 const WHY_CHECKPOINTS = Object.freeze(["before-why", "after-why"]);
 const RUN_CHECKPOINTS = Object.freeze(["start", "before-revision", "final"]);
+// 回答模式 gate（等待即回答）：确定性 slice_verify 场景的 checkpoint。
+const ANSWER_MODE_CHECKPOINTS = Object.freeze(["start", "final"]);
+const ANSWER_MODE_REQUEST = "第01章结尾有两个方向，先让我选择。";
+const ANSWER_MODE_MESSAGE = ANSWER_MODE_REQUEST;
+
 // 记忆详情/列表 P0 泄漏回归（与 authoring_memory_detail_evidence 的 checkpoint 名保持同源）。
 const MEMORY_DETAIL_CHECKPOINTS = Object.freeze(["start", "memory-list", "memory-detail", "final"]);
 const MEMORY_DETAIL_MESSAGE = "打开记忆管理并查看记忆详情（作者可见文案回归）。";
@@ -104,8 +109,15 @@ function readyFor(dir) {
   const confirmationMode = process.env.B71_CONFIRMATION_ACTION ?? null;
   const autoMaintenance = process.env.B71_AUTO_MAINTENANCE === "1";
   const memoryDetail = process.env.B71_MEMORY_DETAIL === "1";
+  const answerMode = process.env.B71_ANSWER_MODE === "1";
   let journey;
-  if (memoryDetail) {
+  if (answerMode) {
+    assert.equal(ready.provider, "slice_verify", "answer-mode journey 只接受确定性 slice_verify");
+    if (confirmationMode || behaviorCaseId || autoMaintenance || memoryDetail) {
+      throw new Error("B71_ANSWER_MODE 与 confirmation/behavior/auto-maintenance/memory-detail 不能同时设置");
+    }
+    journey = "answer-mode";
+  } else if (memoryDetail) {
     assert.equal(ready.provider, "slice_verify", "memory-detail journey 只接受确定性 slice_verify");
     if (confirmationMode || behaviorCaseId || autoMaintenance) {
       throw new Error("B71_MEMORY_DETAIL 与 confirmation/behavior/auto-maintenance 不能同时设置");
@@ -125,7 +137,7 @@ function readyFor(dir) {
   } else {
     journey = SLICE_JOURNEYS[ready.slice_id];
   }
-  if (journey === "live" || journey === "behavior" || journey === "confirmation" || journey === "auto-maintenance" || journey === "memory-detail") {
+  if (journey === "live" || journey === "behavior" || journey === "confirmation" || journey === "auto-maintenance" || journey === "memory-detail" || journey === "answer-mode") {
     assert.equal(ready.slice_id, "b71-first-consumer", `${journey} journey 只用于 b71-first-consumer`);
   }
   return {
@@ -164,6 +176,7 @@ export function prepare(dir) {
   const confirmation = ready.journey === "confirmation";
   const autoMaintenance = ready.journey === "auto-maintenance";
   const memoryDetail = ready.journey === "memory-detail";
+  const answerMode = ready.journey === "answer-mode";
   const target = targetFor(dir, { includeSession: pending || live || confirmation || autoMaintenance });
   const nonce = pending ? randomBytes(8).toString("hex") : null;
   // 作者行为覆盖：输入必须是 B70 冻结 case 的 expression 原文（禁止现场造输入）。
@@ -208,9 +221,11 @@ export function prepare(dir) {
         ? ""
         : behavior
           ? behaviorCase.expression
-          : memoryDetail
-            ? MEMORY_DETAIL_MESSAGE
-            : autoMaintenance
+          : answerMode
+            ? ANSWER_MODE_MESSAGE
+            : memoryDetail
+              ? MEMORY_DETAIL_MESSAGE
+              : autoMaintenance
               ? AUTO_MAINTENANCE_REQUESTS[0]
               : confirmation
               ? CONFIRMATION_REQUEST
@@ -295,6 +310,7 @@ export function capture(dir, checkpoint) {
   const confirmation = journey === "confirmation";
   const autoMaintenance = journey === "auto-maintenance";
   const memoryDetail = journey === "memory-detail";
+  const answerMode = journey === "answer-mode";
   const live = journey === "live" || journey === "behavior";
   const canon = planning || revision || live || confirmation || autoMaintenance;
   if (isWhyCheckpoint(canon, checkpoint)) return writeWhyCheckpoint(dir, checkpoint);
@@ -304,7 +320,9 @@ export function capture(dir, checkpoint) {
       ? AUTO_MAINTENANCE_CHECKPOINTS
       : memoryDetail
         ? MEMORY_DETAIL_CHECKPOINTS
-        : RUN_CHECKPOINTS;
+        : answerMode
+          ? ANSWER_MODE_CHECKPOINTS
+          : RUN_CHECKPOINTS;
   assert(allowedCheckpoints.includes(checkpoint), `未知 checkpoint: ${checkpoint}`);
   if (checkpoint === "before-revision") {
     assert(revision, "before-revision 只属于修订批次");

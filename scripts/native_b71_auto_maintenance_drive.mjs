@@ -52,6 +52,10 @@ const envFacts = {
   auto_maintenance_enabled: process.env.NOVEL_AUTO_MAINTENANCE_ENABLED ?? null,
   window_overrides: process.env.NOVEL_CONTEXT_WINDOW_OVERRIDES ?? null,
 };
+const ANSWER_MODE = process.env.B71_ANSWER_MODE === "1";
+const ANSWER_MODE_REQUEST =
+  process.env.B71_ANSWER_MODE_REQUEST ?? "第01章结尾有两个方向，先让我选择。";
+const ANSWER_MODE_CHOICE = process.env.B71_ANSWER_MODE_CHOICE ?? "保留悬念";
 
 const checkpointEventCount = () =>
   withDb(dir, (db) =>
@@ -319,16 +323,27 @@ async function respondToRunPause(steerText, attempts) {
   });
   if (answerPanel) {
     // 路径 1（优先）：结构化选项按钮 → author_choice 回答（同 run 继续）。
-    const answerChoice = String(process.env.B71_AUTO_MAINT_ANSWER_CHOICE ?? "").trim().toUpperCase();
+    const rawChoice = String(process.env.B71_AUTO_MAINT_ANSWER_CHOICE ?? "").trim();
+    const answerChoice = rawChoice.toUpperCase();
     const choiceButtons = nodes.filter(
       (node) => node?.role === "AXButton" && /^选项[A-Za-z0-9]?/u.test(String(node.title ?? "").trim()),
     );
-    const choiceButton =
-      answerChoice === "FREE_TEXT"
-        ? null
-        : choiceButtons.find((node) => String(node.title ?? "").trim().startsWith(`选项${answerChoice}`)) ??
-          (answerChoice === "" ? choiceButtons[0] : null) ??
-          null;
+    const choiceButton = (() => {
+      if (rawChoice === "" && ANSWER_MODE) {
+        // answer-mode：确定性 fixture 的选项 button label 是选项文字本身（如「保留悬念」）。
+        return (
+          nodes.find(
+            (node) => node?.role === "AXButton" && String(node.title ?? "").includes(ANSWER_MODE_CHOICE),
+          ) ?? null
+        );
+      }
+      if (answerChoice === "FREE_TEXT") return null;
+      return (
+        choiceButtons.find((node) => String(node.title ?? "").trim().startsWith(`选项${answerChoice}`)) ??
+        (answerChoice === "" ? choiceButtons[0] : null) ??
+        null
+      );
+    })();
     if (choiceButton) {
       harness.safeClick(choiceButton, `${FLOW_LABEL}:answer_choice`);
       attempts.push({ step: "click_answer_choice", ok: true, title: choiceButton?.title ?? null });
@@ -522,6 +537,21 @@ async function runMultiTurnFlow({ report, requests }) {
         ? "run 未进入 awaiting_author（模型直接终局，无可 steer 的暂停）"
         : "run 状态等待超时";
   }
+  if (ANSWER_MODE) {
+    const pauseNodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:record_scan`);
+    const recordGroup = pauseNodes.find((node) =>
+      /创作问题记录/u.test(`${node?.title ?? ""} ${node?.desc ?? ""}`),
+    );
+    const recordPrefix = recordGroup?.path ? `${recordGroup.path}/` : null;
+    const recordButtons = recordPrefix
+      ? pauseNodes.filter((node) => String(node?.path ?? "").startsWith(recordPrefix) && node?.role === "AXButton").length
+      : null;
+    session.problem_record = {
+      group_found: Boolean(recordGroup),
+      record_path: recordGroup?.path ?? null,
+      child_button_count: recordButtons,
+    };
+  }
   session.exchange_facts = readRunExchangeFacts(first.run_id);
   session.usage_facts = readRunUsageFacts(first.run_id);
   session.checkpoint_events = checkpointEventCount();
@@ -545,11 +575,13 @@ async function runMultiTurnFlow({ report, requests }) {
 async function run() {
   runEvidenceMode(evidence, "prepare", dir);
   const config = readJson(path.join(dir, "native-b71-config.json"));
-  if (config.journey !== "auto-maintenance") {
-    throw new Error(`auto-maintenance driver 只接受 journey=auto-maintenance，实测: ${config.journey}`);
+  const expectedJourney = ANSWER_MODE ? "answer-mode" : "auto-maintenance";
+  if (config.journey !== expectedJourney) {
+    throw new Error(`${expectedJourney} driver 只接受 journey=${expectedJourney}，实测: ${config.journey}`);
   }
-  if (config.provider !== "strata") {
-    throw new Error(`auto-maintenance driver 只接受 provider=strata，实测: ${config.provider}`);
+  const allowedProviders = ANSWER_MODE ? ["slice_verify"] : ["strata"];
+  if (!allowedProviders.includes(config.provider)) {
+    throw new Error(`${expectedJourney} driver 只接受 provider=${allowedProviders.join("|")}，实测: ${config.provider}`);
   }
   const requests = Array.isArray(config.auto_maintenance?.requests) && config.auto_maintenance.requests.length > 0
     ? config.auto_maintenance.requests
@@ -679,6 +711,13 @@ async function run() {
       triggered: report.triggered,
       run_statuses: report.requests.map((request) => request.run_status),
     };
+    if (ANSWER_MODE) {
+      report.answer_mode = {
+        request: ANSWER_MODE_REQUEST,
+        choice: ANSWER_MODE_CHOICE,
+        multi_turn: report.multi_turn ?? null,
+      };
+    }
     if (process.env.B71_AUTO_MAINT_SMOKE === "1") {
       write(dir, "a3b-smoke-observations.json", {
         smoke: true,
@@ -718,6 +757,11 @@ async function run() {
       }`,
     );
   } finally {
+    if (ANSWER_MODE) {
+      // answer-mode 是确定性 slice_verify 批次：无 strata 单槽生命周期，不写 strata-slot。
+      if (driverLog) harness.writeUiComplete(config.slice_id);
+      return;
+    }
     const unload = await unloadStrata({ endpoint: strataEndpoint }).catch((error) => ({
       unload: { ok: false, error: error.message },
       state: { error: error.message },
