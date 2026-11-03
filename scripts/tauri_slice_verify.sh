@@ -1668,9 +1668,10 @@ verify_native_slice() {
     elif [[ "$SLICE_ID" == "q1c-adopted-content-revision" ]]; then
       node "$PROJECT_ROOT/scripts/native_q1c_evidence.mjs" verify "$ARTIFACT_DIR"
     elif is_b71_family_slice "$SLICE_ID"; then
-      # C11（§16.14 确认/拒绝）：批次运行态停止必须在 verify 之前采集——EXIT cleanup
-      # 在 verify 之后执行，届时 app/后端仍在运行。仅 confirmation journey 前置 cleanup。
-      if node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.exit(j.journey==="confirmation"?0:1)' "$ARTIFACT_DIR/native-b71-config.json" 2>/dev/null; then
+      # 批次运行态停止必须在 verify 之前采集——EXIT cleanup 在 verify 之后执行，
+      # 届时 app/后端仍在运行。需要运行态停止判据的 journey 前置 cleanup
+      # （confirmation=C11；memory-detail=D8；两者都检查 app/端口/llm-calls 停止）。
+      if node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.exit(["confirmation","memory-detail"].includes(j.journey)?0:1)' "$ARTIFACT_DIR/native-b71-config.json" 2>/dev/null; then
         cleanup >/dev/null 2>&1 || true
         sleep 1
       fi
