@@ -51,6 +51,9 @@ defmodule NovelApplication.CompactionRecord do
 
   # ── 提交（同一 snapshot 边界）────────────────────────────────────────────
 
+  # 显式压缩承诺可恢复历史：bounded/durable 都用同一 snapshot 事务提交 run、
+  # 私有 checkpoint 与新增 author-safe 事件；这里**不能**使用运行日志的
+  # best-effort 写入语义（提交失败必须不广播、不推进内存）。
   defp persist(%AgentRun{} = run, state, events) do
     with {:ok, snapshot} <- AgentRunPersistence.snapshot(run, state, :compaction, events: events),
          {:ok, _run} <- AgentRunPersistence.commit(snapshot) do

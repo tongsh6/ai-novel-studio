@@ -12,6 +12,7 @@ import test from "node:test";
 
 import {
   DEFAULT_POLICY,
+  allowedDeltaFor,
   buildBaseline,
   detectOutliers,
   percentile,
@@ -67,21 +68,37 @@ test("percentile 只影响报告参考值，不影响观察名单判定", () => 
   assert.deepEqual([...group.outliers], ["a.ex", "b.ex"]);
 });
 
-test("validateBaseline：ratchet 超限失败，并给出源头修法", () => {
-  const scan = [prod("big.ex", 3600)];
+test("validateBaseline：软 ratchet——净增超过允许增量才失败（大文件按 5% 计）", () => {
+  // 3400 行上限 → 允许 max(30, ceil(3400*5%)) = max(30,170) = 170
+  const scan = [prod("big.ex", 3700)];
   const result = validateBaseline(scan, baselineOf({ "big.ex": { lines: 3400, max_lines: 3400 } }));
   assert.equal(result.failures.length, 1);
-  assert.match(result.failures[0], /ratchet：big\.ex 当前 3600 行 > 登记上限 3400 行/);
-  assert.match(result.failures[0], /抽到新模块|拆分/);
+  assert.match(result.failures[0], /ratchet：big\.ex 当前 3700 行 > 登记上限 3400 行 \+ 允许增量 170 行/);
+  assert.match(result.failures[0], /拆分/);
+  assert.match(result.failures[0], /不要为过门禁机械压缩行数/);
 });
 
-test("validateBaseline：行数未增长即通过（只减不增）", () => {
+test("validateBaseline：正常功能增量（≤允许增量）通过，不要求等量对冲", () => {
+  // 3400 → 3500（+100 ≤ 170）：正常增量，不应失败
+  const scan = [prod("big.ex", 3500)];
+  const result = validateBaseline(scan, baselineOf({ "big.ex": { lines: 3400, max_lines: 3400 } }));
+  assert.deepEqual(result.failures, []);
+});
+
+test("allowedDeltaFor：小文件用绝对值兜底（30），大文件按比例", () => {
+  assert.equal(allowedDeltaFor({ max_lines: 100 }), 30);
+  assert.equal(allowedDeltaFor({ max_lines: 700 }), 35);
+  assert.equal(allowedDeltaFor({ max_lines: 6000 }), 300);
+  assert.equal(allowedDeltaFor({ max_lines: 100 }, { allowed_delta_abs: 5, allowed_delta_ratio: 0.01 }), 5);
+});
+
+test("validateBaseline：行数未增长即通过", () => {
   const scan = [prod("big.ex", 3400)];
   const result = validateBaseline(scan, baselineOf({ "big.ex": { lines: 3400, max_lines: 3400 } }));
   assert.deepEqual(result.failures, []);
 });
 
-test("validateBaseline：行数下降也通过（ratchet 只约束增长）", () => {
+test("validateBaseline：行数下降也通过（软 ratchet 只约束大幅增长）", () => {
   const scan = [prod("big.ex", 3000)];
   const result = validateBaseline(scan, baselineOf({ "big.ex": { lines: 3400, max_lines: 3400 } }));
   assert.deepEqual(result.failures, []);

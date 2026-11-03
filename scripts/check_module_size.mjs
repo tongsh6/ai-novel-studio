@@ -5,7 +5,9 @@
  * 设计原则：
  * - 不写死「多少行算大」的美学红线。行数只是代理指标，本质判据是职责/变更理由（review 定性）。
  * - 机器只做两件事：
- *   R1 ratchet：已登记在观察名单的文件，当前行数 > 登记上限 → fail（只减不增，不许新增债务）。
+ *   R1 软 ratchet：已登记文件允许「正常功能增量」（净增 ≤ max(30, 5% 上限)）；超过才 fail，
+ *      要求真正拆分或登记理由。**禁止为过门禁机械压缩行数**（删注释/空行、压行、堆表达式）——
+ *      行数只是观察信号，不是开发约束；为凑数字损害可读性属于反模式。
  *   R2 新债登记：出现超过关注门槛、但未登记也未豁免的文件 → fail（要求拆分，或登记豁免并写理由）。
  * - `outlier_floor` 是「进入观察名单」的关注门槛，**不是行数红线**：它只决定「何时需要登记」，
  *   不决定「多大算不合格」。门禁的 fail 条件只有 ratchet 与未登记，没有「超过 K 行即 fail」。
@@ -35,6 +37,27 @@ export const DEFAULT_POLICY = {
   prod: { outlier_floor: 500 },
   test: { outlier_floor: 800 },
 };
+
+/**
+ * 软 ratchet 的允许增量：净增 ≤ max(allowed_delta_abs, ceil(max_lines × allowed_delta_ratio))
+ * 视为正常功能增量（不要求等量对冲）；超过才要求拆分。
+ * 目的：避免「为过行数门禁而删注释/压缩可读性」的机械行为。
+ */
+export const DEFAULT_DELTA_POLICY = Object.freeze({
+  allowed_delta_abs: 30,
+  allowed_delta_ratio: 0.05,
+});
+
+export function allowedDeltaFor(record, policy = {}) {
+  const abs = Number.isFinite(policy?.allowed_delta_abs)
+    ? policy.allowed_delta_abs
+    : DEFAULT_DELTA_POLICY.allowed_delta_abs;
+  const ratio = Number.isFinite(policy?.allowed_delta_ratio)
+    ? policy.allowed_delta_ratio
+    : DEFAULT_DELTA_POLICY.allowed_delta_ratio;
+  const maxLines = Number.isFinite(record?.max_lines) ? record.max_lines : 0;
+  return Math.max(abs, Math.ceil(maxLines * ratio));
+}
 
 // ── 纯函数区（供 node --test 直接测试）────────────────────────────────────────
 
@@ -111,10 +134,12 @@ export function validateBaseline(scan, baseline) {
       continue;
     }
     const maxLines = record.max_lines;
-    if (entry.lines > maxLines) {
+    const allowedDelta = allowedDeltaFor(record, baseline.policy);
+    if (entry.lines > maxLines + allowedDelta) {
       failures.push(
-        `ratchet：${filePath} 当前 ${entry.lines} 行 > 登记上限 ${maxLines} 行。` +
-          "规则是只减不增：请把新增逻辑抽到新模块（等量对冲），或先拆分该文件。",
+        `ratchet：${filePath} 当前 ${entry.lines} 行 > 登记上限 ${maxLines} 行 + 允许增量 ${allowedDelta} 行。` +
+          "请真正拆分到职责单一的新模块，或在 baseline 登记理由；" +
+          "不要把功能塞进超限文件，也**不要为过门禁机械压缩行数（删注释/空行、压行）**。",
       );
     }
   }
