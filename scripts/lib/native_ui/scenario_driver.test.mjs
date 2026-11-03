@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { NativeScenarioHarness } from "./scenario_driver.mjs";
+import { NativeScenarioHarness, activationConfirmed } from "./scenario_driver.mjs";
 
 function makeHarness(io) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "native-scenario-"));
@@ -285,6 +285,18 @@ test("首次 activate unconfirmed 时有界重试 1 次，两次 attempt 观测�
   ]) {
     assert(reasons.includes(reason), reason);
   }
+});
+
+test("activationConfirmed：顶层 confirmed / 嵌套 activation.confirmed / 两者 false 三种形状", () => {
+  assert.equal(activationConfirmed({ confirmed: true }), true, "顶层 confirmed");
+  assert.equal(
+    activationConfirmed({ ok: true, activation: { confirmed: true, target_active: true } }),
+    true,
+    "真实 payload 嵌套 activation.confirmed",
+  );
+  assert.equal(activationConfirmed({ ok: false, activation: { confirmed: false } }), false, "嵌套 false");
+  assert.equal(activationConfirmed({ ok: true }), false, "缺 confirmed 不算确认");
+  assert.equal(activationConfirmed(null), false, "空 payload 不算确认");
 });
 
 test("真实 input boundary 嵌套形状 {activation:{confirmed:true}} 视为已确认（不误重试）", async () => {

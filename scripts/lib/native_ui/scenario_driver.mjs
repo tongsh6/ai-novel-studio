@@ -48,6 +48,12 @@ export const lastIndexWhere = (nodes, predicate) => {
 export const isVisibleNode = (node) =>
   Array.isArray(node.frame) && node.frame[1] > 0 && node.frame[2] > 0 && node.frame[3] > 0;
 
+// 激活确认形状：真实 input boundary 返回完整 payload（confirmed 在 activation 内），
+// 测试 seam 可直接返回顶层 confirmed。两者都接受，避免把成功激活误判为未确认。
+export function activationConfirmed(payload) {
+  return payload?.confirmed === true || payload?.activation?.confirmed === true;
+}
+
 export class NativeScenarioHarness {
   constructor(dir, io = {}) {
     this.dir = path.resolve(dir);
@@ -526,10 +532,7 @@ export class NativeScenarioHarness {
         startup_after: startupAfter,
       });
       last = activation;
-      // 真实 input boundary 返回嵌套形状 { ok, activation: { confirmed, ... }, ... }；
-      // 测试 seam 可直接返回 { confirmed }。两种形状都按真实确认字段判定。
-      const confirmed = activation?.confirmed === true || activation?.activation?.confirmed === true;
-      if (confirmed) return activation;
+      if (activationConfirmed(activation)) return activation;
       if (attempt < attempts - 1) {
         // 重试前再给窗口一次有界启动等待（沿用同一 10s 上限，不扩大批次 timeout）。
         await this.waitLaunchSettled();
