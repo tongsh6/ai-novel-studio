@@ -287,6 +287,35 @@ test("首次 activate unconfirmed 时有界重试 1 次，两次 attempt 观测�
   }
 });
 
+test("真实 input boundary 嵌套形状 {activation:{confirmed:true}} 视为已确认（不误重试）", async () => {
+  const settled = { ok: true, is_finished_launching: true, ax_window_count: 1, is_active: true };
+  const calls = [];
+  const { harness } = makeHarness({ dump: () => [], screenshot: () => ({ ok: true }) });
+  stubLaunchSeams(harness, {
+    calls,
+    startups: [settled],
+    activate: () => ({
+      ok: true,
+      reason: null,
+      activation: {
+        requested: true,
+        returned: true,
+        confirmed: true,
+        waited_ms: 0,
+        frontmost_before: { bundle_identifier: "com.example.app", pid: 4321 },
+        frontmost_after: { bundle_identifier: "com.example.app", pid: 4321 },
+      },
+      frontmost_after: { bundle_identifier: "com.example.app", pid: 4321 },
+    }),
+  });
+
+  await harness.rawLaunchApp();
+
+  assert.equal(harness.log.filter((entry) => entry.op === "launch_activation_attempt").length, 1);
+  assert.equal(harness.log.filter((entry) => entry.op === "launch_activation").length, 1);
+  assert.equal(harness.log.filter((entry) => entry.op === "launch_activation").at(0).activation.confirmed, true);
+});
+
 test("两次 activate 都 unconfirmed 时抛 activation_unconfirmed（attempt 保留）", async () => {
   const settled = { ok: true, is_finished_launching: true, ax_window_count: 1 };
   const calls = [];

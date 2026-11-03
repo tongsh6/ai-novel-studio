@@ -526,7 +526,10 @@ export class NativeScenarioHarness {
         startup_after: startupAfter,
       });
       last = activation;
-      if (activation?.confirmed === true) return activation;
+      // 真实 input boundary 返回嵌套形状 { ok, activation: { confirmed, ... }, ... }；
+      // 测试 seam 可直接返回 { confirmed }。两种形状都按真实确认字段判定。
+      const confirmed = activation?.confirmed === true || activation?.activation?.confirmed === true;
+      if (confirmed) return activation;
       if (attempt < attempts - 1) {
         // 重试前再给窗口一次有界启动等待（沿用同一 10s 上限，不扩大批次 timeout）。
         await this.waitLaunchSettled();
