@@ -324,7 +324,9 @@ async function observeStripText(timeoutMs) {
 // A3b 同 run 多回合流程：长任务请求 → 自然 awaiting_author → 真实控制坞 steer →
 // 同一 run 继续 → 安全点检查自动维护（smoke 只观测，不产验收证据）。
 async function runMultiTurnFlow({ report, requests }) {
+  // smoke 可用 env 指定一次请求变体（真实请求文本，不注入、不改产品）。
   const longRequest =
+    process.env.B71_AUTO_MAINT_SMOKE_REQUEST ??
     requests[0] ??
     "先读一下第01章的正文和章计划，再读一下第02章的正文和章计划，然后把两章做对比，最后告诉我下一步该写什么。";
   const steerRequest = "按你的判断继续：先给出两章的对比结论，再给出下一步写作建议。";
