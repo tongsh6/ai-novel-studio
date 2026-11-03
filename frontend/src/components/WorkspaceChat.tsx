@@ -1889,12 +1889,8 @@ export function WorkspaceChat() {
         pendingAdoptionQueryKey(snapshot.work.id, snapshot.active_session.id),
         pendingAdoptionTurnResults(snapshot),
       );
-      setResumePendingAdoptions(
-        snapshotPendingAdoptions(snapshot) as unknown as ArtifactEntry[],
-      );
-      setResumeResolvedAdoptions(
-        snapshotResolvedAdoptions(snapshot) as unknown as ArtifactEntry[],
-      );
+      setResumePendingAdoptions(snapshotPendingAdoptions(snapshot) as unknown as ArtifactEntry[]);
+      setResumeResolvedAdoptions(snapshotResolvedAdoptions(snapshot) as unknown as ArtifactEntry[]);
       setMessages(restoredMessages);
       resumeRestoredTranscriptRef.current = restoredMessages.length > 0;
       setTranscriptRestored(restoredMessages.length > 0);
@@ -2072,12 +2068,8 @@ export function WorkspaceChat() {
         return;
       const restored = transcriptToMessages(snapshot.transcript) as ChatMessage[];
       setMessages((prev) => mergeResumedTranscript(prev, restored));
-      setResumePendingAdoptions(
-        snapshotPendingAdoptions(snapshot) as unknown as ArtifactEntry[],
-      );
-      setResumeResolvedAdoptions(
-        snapshotResolvedAdoptions(snapshot) as unknown as ArtifactEntry[],
-      );
+      setResumePendingAdoptions(snapshotPendingAdoptions(snapshot) as unknown as ArtifactEntry[]);
+      setResumeResolvedAdoptions(snapshotResolvedAdoptions(snapshot) as unknown as ArtifactEntry[]);
       queryClient.setQueryData(
         pendingAdoptionQueryKey(workId, sessionId),
         pendingAdoptionTurnResults(snapshot),
@@ -2842,10 +2834,7 @@ export function WorkspaceChat() {
       getCurrentScope: currentAuthorActionScope,
       effects: {
         publishDuplicate: () => {
-          setMessages((prev) => [
-            ...prev,
-            { role: "assistant", text: WORKBENCH.actionDuplicate },
-          ]);
+          setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionDuplicate }]);
         },
         publishFailure: () => {
           setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionFailure }]);
@@ -2866,9 +2855,7 @@ export function WorkspaceChat() {
         settle: () => {
           setLoading(false);
           if (revisionTurnId) {
-            setRevisionSubmittingTurnId((current) =>
-              current === revisionTurnId ? null : current,
-            );
+            setRevisionSubmittingTurnId((current) => (current === revisionTurnId ? null : current));
           }
           options.onSettled?.();
         },
@@ -2990,7 +2977,8 @@ export function WorkspaceChat() {
     if (action.action_type === "answer_clarification") return WORKBENCH.actionAnswer;
     if (action.action_type === "choose_candidate") return WORKBENCH.candidateAdoptLabel;
     if (action.label_key === "fact_inventory.start") return WORKBENCH.factInventoryProposalStart;
-    if (action.label_key === "fact_inventory.dismiss") return WORKBENCH.factInventoryProposalDismiss;
+    if (action.label_key === "fact_inventory.dismiss")
+      return WORKBENCH.factInventoryProposalDismiss;
     const artifact = artifactForAction(turnResult, action);
     const revisionRole = qualityRevisionArtifactRole(turnResult, artifact);
     let base: string;
@@ -3385,12 +3373,8 @@ export function WorkspaceChat() {
         pendingAdoptionQueryKey(snapshot.work.id, snapshot.active_session.id),
         pendingAdoptionTurnResults(snapshot),
       );
-      setResumePendingAdoptions(
-        snapshotPendingAdoptions(snapshot) as unknown as ArtifactEntry[],
-      );
-      setResumeResolvedAdoptions(
-        snapshotResolvedAdoptions(snapshot) as unknown as ArtifactEntry[],
-      );
+      setResumePendingAdoptions(snapshotPendingAdoptions(snapshot) as unknown as ArtifactEntry[]);
+      setResumeResolvedAdoptions(snapshotResolvedAdoptions(snapshot) as unknown as ArtifactEntry[]);
       setMessages(restoredMessages);
       setTranscriptRestored(restoredMessages.length > 0);
       resumeRestoredTranscriptRef.current = restoredMessages.length > 0;
@@ -4027,10 +4011,9 @@ export function WorkspaceChat() {
       : llmConnected
         ? WORKBENCH.modelConnectedLabel
         : WORKBENCH.modelDisconnectedLabel;
-  const modelStatusTitle =
-    llmConnected && llmModel
-      ? WORKBENCH.modelStatusTitle(llmModel)
-      : llmMessage || WORKBENCH.modelDisconnectedTitle;
+  const modelStatusTitle = llmConnected
+    ? WORKBENCH.modelStatusTitle(llmModel)
+    : llmMessage || WORKBENCH.modelDisconnectedTitle;
   const selectedProviderOption = modelProviderState
     ? providerOption(modelProviderState.options, modelProviderState.selectedProvider)
     : null;
@@ -5288,13 +5271,17 @@ export function WorkspaceChat() {
                                   )}
                                 </div>
                                 <div className={styles.candidateActionCardActions}>
-                                  {group.actions.map((action) => renderActionButton(action as (typeof actions)[number]))}
+                                  {group.actions.map((action) =>
+                                    renderActionButton(action as (typeof actions)[number]),
+                                  )}
                                 </div>
                               </section>
                             ))}
                             {ungrouped.length > 0 && (
                               <div className={styles.candidateActionUngrouped}>
-                                {ungrouped.map((action) => renderActionButton(action as (typeof actions)[number], true))}
+                                {ungrouped.map((action) =>
+                                  renderActionButton(action as (typeof actions)[number], true),
+                                )}
                               </div>
                             )}
                           </div>

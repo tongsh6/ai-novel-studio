@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   configureProvider,
+  providerDisplayName,
   getProviderSecretStorageStatus,
   getProviderOptions,
   isValidProviderEndpoint,
@@ -433,5 +434,25 @@ describe("model provider API client", () => {
 
     expect(store.get("ans.modelProviderSettings")).toContain('"api_key_configured":false');
     expect(bodies[1]).toMatchObject({ api_key: null, clear_api_key: true });
+  });
+});
+
+describe("providerDisplayName", () => {
+  it("uses author-visible display_name only, never internal label/model ids", () => {
+    expect(
+      providerDisplayName({
+        display_name: "本地模型（测试环境）",
+      }),
+    ).toBe("本地模型（测试环境）");
+
+    expect(providerDisplayName({})).toBe("当前模型服务");
+
+    // 只有内部 label/model 时不得回退（作者面不展示 Stub / slice_verify）。
+    expect(
+      providerDisplayName({
+        label: "Stub",
+        model: "slice_verify",
+      } as never),
+    ).toBe("当前模型服务");
   });
 });

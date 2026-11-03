@@ -38,7 +38,7 @@ defmodule NovelApplication.AuthorVisible.Presenter do
   provider/model → 作者可读状态字段（additive）。
 
   调用方保留内部 `provider`/`model` 字段给日志与诊断；作者可见面只消费
-  `provider_display_name` / `model_display_name`。
+  `provider_display_name` / `model_display_name`（模型名不可证时为 nil）。
   """
   @spec provider_status(term(), term()) :: %{
           provider_display_name: String.t(),
@@ -51,6 +51,27 @@ defmodule NovelApplication.AuthorVisible.Presenter do
     }
   end
 
+  @doc """
+  provider health metadata → 追加作者可见 display 字段（additive）。
+
+  内部 provider/model 字段保留给日志与诊断；作者面只消费 display 字段。
+  """
+  @spec provider_health_metadata(map()) :: map()
+  def provider_health_metadata(metadata) when is_map(metadata) do
+    Map.merge(metadata, provider_status(Map.get(metadata, :provider), Map.get(metadata, :model)))
+  end
+
+  @doc "provider options → 每个 provider 追加作者可读 display_name。"
+  @spec provider_options(map()) :: map()
+  def provider_options(%{providers: providers} = options) do
+    providers =
+      Enum.map(providers, fn provider ->
+        Map.put(provider, :display_name, Display.label(:provider, Map.get(provider, :id)))
+      end)
+
+    %{options | providers: providers}
+  end
+
   @doc "reason code → 作者可读的一行（Why 面板）。"
   @spec why_line(term()) :: String.t()
   def why_line(reason_code), do: Text.text(Text.from_display(:reason_code, reason_code))
@@ -59,11 +80,9 @@ defmodule NovelApplication.AuthorVisible.Presenter do
   @spec frame_label(term()) :: String.t()
   def frame_label(frame_type), do: Text.text(Text.from_display(:frame_type, frame_type))
 
+  # 未登记/缺失模型名返回 nil：作者面由前端决定显示一次中性的「当前模型」，
+  # 避免「当前模型：当前模型」这类拼接重复。
   defp model_display_name(model) do
-    if Display.known?(:model, model) do
-      Display.label(:model, model)
-    else
-      Display.fallback(:model)
-    end
+    if Display.known?(:model, model), do: Display.label(:model, model), else: nil
   end
 end

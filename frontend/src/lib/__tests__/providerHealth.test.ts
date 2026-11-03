@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getProviderHealth, providerHealthName, providerHealthUrl } from "../providerHealth";
+import {
+  getProviderHealth,
+  providerHealthName,
+  providerHealthUrl,
+  type ProviderHealth,
+} from "../providerHealth";
 
 describe("provider health API client", () => {
   afterEach(() => {
@@ -58,9 +63,18 @@ describe("provider health API client", () => {
     await expect(getProviderHealth()).rejects.toThrow("getProviderHealth failed: HTTP 503");
   });
 
-  it("derives a display name from model first and provider second", () => {
-    expect(providerHealthName({ provider: "lmstudio", model: "local-model" })).toBe("local-model");
-    expect(providerHealthName({ provider: "stub" })).toBe("stub");
+  it("uses author-visible display fields only, never internal provider/model ids", () => {
+    expect(providerHealthName({ model_display_name: "Qwen3.8" })).toBe("Qwen3.8");
+    expect(providerHealthName({ model_display_name: null })).toBe("");
+    // 内部 id 不参与作者面模型名推导。
+    const internalIds: ProviderHealth = {
+      connected: true,
+      provider: "stub",
+      model: "slice_verify",
+      provider_display_name: "本地模型（测试环境）",
+      model_display_name: null,
+    };
+    expect(providerHealthName(internalIds)).toBe("");
     expect(providerHealthName({})).toBe("");
   });
 });

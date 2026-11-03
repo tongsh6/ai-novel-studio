@@ -4,25 +4,35 @@ defmodule NovelWeb.ProviderController do
   @doc "GET /api/provider/health — 检查 LLM 连接状态（通过 Application 层，不直接引用 Agent 层）"
   def health(conn, _params) do
     case NovelApplication.provider_health() do
-      {:ok, %{provider: provider, model: model}} ->
-        json(conn, %{
-          connected: true,
-          provider: provider,
-          model: model,
-          message: "LLM 已连接"
-        })
+      {:ok, metadata} ->
+        json(conn, Map.merge(%{connected: true, message: "LLM 已连接"}, health_body(metadata)))
 
-      {:error, %{provider: provider, model: model, error: error}} ->
+      {:error, metadata} ->
+        error = Map.fetch!(metadata, :error)
         error_message = Map.get(error, :message, "LLM provider unavailable")
 
-        json(conn, %{
-          connected: false,
-          provider: provider,
-          model: model,
-          message: "LLM 未连接：#{error_message}",
-          detail: Map.get(error, :type, "unknown")
-        })
+        json(
+          conn,
+          Map.merge(
+            %{
+              connected: false,
+              message: "LLM 未连接：#{error_message}",
+              detail: Map.get(error, :type, "unknown")
+            },
+            health_body(metadata)
+          )
+        )
     end
+  end
+
+  # 作者可见面只消费 display 字段；内部 provider/model 原值保留给内部消费者。
+  defp health_body(metadata) do
+    %{
+      provider: metadata.provider,
+      model: metadata.model,
+      provider_display_name: Map.get(metadata, :provider_display_name),
+      model_display_name: Map.get(metadata, :model_display_name)
+    }
   end
 
   @doc "GET /api/provider/options — 返回可选 provider，不包含 secret"
@@ -106,6 +116,7 @@ defmodule NovelWeb.ProviderController do
           %{
             id: provider.id,
             label: provider.label,
+            display_name: Map.get(provider, :display_name) || "当前模型服务",
             current: provider.current,
             model: provider.model,
             endpoint: provider.endpoint,

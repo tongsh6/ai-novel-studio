@@ -8,15 +8,14 @@ defmodule NovelApplication do
   """
 
   alias NovelAgent.Provider.Gateway
+  alias NovelApplication.AuthorVisible.Presenter
 
   @doc """
   检查 LLM provider 连接状态。
   """
-  @spec provider_health() ::
-          {:ok, %{provider: atom(), model: String.t() | nil}}
-          | {:error, %{provider: atom(), model: String.t() | nil, error: map()}}
+  @spec provider_health() :: {:ok, map()} | {:error, map()}
   def provider_health do
-    metadata = Gateway.provider_metadata()
+    metadata = Presenter.provider_health_metadata(Gateway.provider_metadata())
 
     case Gateway.health_check() do
       :ok -> {:ok, metadata}
@@ -30,9 +29,7 @@ defmodule NovelApplication do
   返回值不包含 API key 等 secret。
   """
   @spec provider_options() :: %{current_provider: atom(), providers: [map()]}
-  def provider_options do
-    Gateway.provider_options()
-  end
+  def provider_options, do: Gateway.provider_options() |> Presenter.provider_options()
 
   @doc """
   按当前运行时 provider 解析创作执行的上下文组装策略（VS-00C CP1）。

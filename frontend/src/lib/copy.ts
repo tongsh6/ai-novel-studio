@@ -570,7 +570,7 @@ export const WORKBENCH = {
   modelCheckingLabel: "模型检测中",
   modelConnectedLabel: "模型已连接",
   modelDisconnectedLabel: "模型未连接",
-  modelStatusTitle: (model: string) => `当前模型：${model}`,
+  modelStatusTitle: (modelName: string) => (modelName ? `当前模型：${modelName}` : "当前模型"),
   modelDisconnectedTitle: "请检查当前模型供应商配置和连接状态",
   modelProviderAction: "模型设置",
   modelProviderTitle: "模型供应商",

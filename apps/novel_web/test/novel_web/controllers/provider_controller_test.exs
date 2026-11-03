@@ -23,6 +23,9 @@ defmodule NovelWeb.ProviderControllerTest do
         assert body["connected"] == true
         assert body["provider"] == "stub"
         assert body["model"] == nil
+        # 作者可见面：display 字段作者可读，内部 id 不进入作者展示字段。
+        assert body["provider_display_name"] == "本地模型（测试环境）"
+        assert body["model_display_name"] == nil
         assert body["message"] =~ "连接"
       after
         Application.put_env(:novel_agent, :provider, old_provider)
@@ -90,6 +93,8 @@ defmodule NovelWeb.ProviderControllerTest do
         assert body["current_provider"] == "stub"
         assert deepseek["api_key_configured"] == true
         refute Map.has_key?(deepseek, "api_key")
+        assert is_binary(deepseek["display_name"]) and deepseek["display_name"] != ""
+        refute deepseek["display_name"] =~ "deepseek"
       after
         Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek, old_deepseek)
       end

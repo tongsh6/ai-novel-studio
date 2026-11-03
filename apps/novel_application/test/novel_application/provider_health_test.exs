@@ -14,7 +14,13 @@ defmodule NovelApplication.ProviderHealthTest do
       Application.put_env(:novel_agent, :provider, default: :stub)
 
       try do
-        assert {:ok, %{provider: :stub, model: nil}} = NovelApplication.provider_health()
+        assert {:ok, health} = NovelApplication.provider_health()
+
+        assert health.provider == :stub
+        assert health.model == nil
+        # 作者可见面只消费 display 字段；测试替身不暴露内部 id。
+        assert health.provider_display_name == "本地模型（测试环境）"
+        assert health.model_display_name == nil
       after
         Application.put_env(:novel_agent, :provider, old_provider)
       end
@@ -41,6 +47,15 @@ defmodule NovelApplication.ProviderHealthTest do
 
       assert options.current_provider == :stub
       assert Enum.any?(options.providers, &(&1.id == :deepseek))
+
+      # 每个 provider 都带作者可读 display_name，且不回显内部 id。
+      for provider <- options.providers do
+        assert is_binary(provider.display_name) and provider.display_name != ""
+        refute provider.display_name =~ to_string(provider.id)
+      end
+
+      assert Enum.find(options.providers, &(&1.id == :stub)).display_name ==
+               "本地模型（测试环境）"
     end
   end
 

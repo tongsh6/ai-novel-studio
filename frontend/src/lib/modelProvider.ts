@@ -40,6 +40,8 @@ export const PROVIDER_IDS: readonly ProviderId[] = [
 export interface ProviderOption {
   id: ProviderId;
   label: string;
+  /** 作者可读 provider 名；作者可见面用它，不用 label（内部展示名）。 */
+  display_name?: string;
   current: boolean;
   model: string | null;
   endpoint: string | null;
@@ -318,8 +320,10 @@ export function providerOption(
   return options.providers.find((option) => option.id === provider);
 }
 
-export function providerDisplayName(option: Pick<ProviderOption, "label" | "model">): string {
-  return option.model ? `${option.label} · ${option.model}` : option.label;
+/** 作者可见的 provider 名：只消费 display_name，不回退 label/model 内部值。 */
+export function providerDisplayName(option: Pick<ProviderOption, "display_name">): string {
+  const displayName = option.display_name?.trim();
+  return displayName ? displayName : "当前模型服务";
 }
 
 export function providerNeedsApiKey(option: Pick<ProviderOption, "requires_api_key">): boolean {
@@ -417,7 +421,9 @@ function normalizeStoredSettings(raw: StoredProviderSettings): StoredProviderSet
   return { selected_provider: selectedProvider, providers };
 }
 
-function normalizeSecretStorageStatus(raw: ProviderSecretStorageStatus): ProviderSecretStorageStatus {
+function normalizeSecretStorageStatus(
+  raw: ProviderSecretStorageStatus,
+): ProviderSecretStorageStatus {
   const kind =
     raw.kind === "local_file" ||
     raw.kind === "macos_keychain" ||
