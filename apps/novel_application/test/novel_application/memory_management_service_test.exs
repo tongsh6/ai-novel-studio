@@ -84,6 +84,13 @@ defmodule NovelApplication.MemoryManagementServiceTest do
     assert Enum.any?(reasons, &String.contains?(&1, "系统已阻止"))
     assert Enum.any?(reasons, &String.contains?(&1, "作者解锁"))
     assert Enum.any?(reasons, &String.contains?(&1, "作者废弃"))
+
+    # 治理动作文案作者可见：状态/类型/作用域用 displayName，不回显内部枚举。
+    assert Enum.any?(reasons, &String.contains?(&1, "状态 草稿"))
+    assert Enum.any?(reasons, &String.contains?(&1, "状态 已确认"))
+    refute Enum.any?(reasons, &String.contains?(&1, "DRAFT"))
+    refute Enum.any?(reasons, &String.contains?(&1, "CONFIRMED"))
+    refute Enum.any?(reasons, &String.contains?(&1, "作用域 WORK"))
   end
 
   test "invalid governance metadata is rejected by the schema boundary", %{work: work} do

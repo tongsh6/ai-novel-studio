@@ -7,6 +7,7 @@ defmodule NovelApplication.MemoryManagementService do
   and JSON-safe DTO shaping in one place.
   """
 
+  alias NovelCommon.AuthorVisible.Display
   alias NovelFoundation.Enums.MemorySourceType
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelPersistence.MemoryManagementRepo
@@ -205,7 +206,8 @@ defmodule NovelApplication.MemoryManagementService do
       memory_id: item.id,
       work_id: item.work_id,
       reference_scene: "memory_lifecycle",
-      reference_reason: "作者创建记忆草稿：状态 #{item.status}；类型 #{item.type}；作用域 #{item.scope}。"
+      reference_reason:
+        "作者创建记忆草稿：状态 #{memory_status_label(item.status)}；类型 #{memory_type_label(item.type)}；作用域 #{memory_scope_label(item.scope)}。"
     })
   end
 
@@ -226,7 +228,7 @@ defmodule NovelApplication.MemoryManagementService do
         work_id: item.work_id,
         reference_scene: "memory_lifecycle_blocked",
         reference_reason:
-          "作者尝试#{action_label(action)}被锁定记忆，系统已阻止；原因：锁定记忆不能执行终端治理动作，需先解锁。状态保持 #{item.status}，普通召回保持 #{yes_no(item.recallable)}。"
+          "作者尝试#{action_label(action)}被锁定记忆，系统已阻止；原因：锁定记忆不能执行终端治理动作，需先解锁。状态保持 #{memory_status_label(item.status)}，普通召回保持 #{yes_no(item.recallable)}。"
       })
     end
   end
@@ -240,7 +242,7 @@ defmodule NovelApplication.MemoryManagementService do
 
   defp lifecycle_reason(action, before_item, item) do
     base =
-      "#{action_label(action)}：状态 #{before_item.status} -> #{item.status}；锁定 #{yes_no(before_item.locked)} -> #{yes_no(item.locked)}；普通召回 #{yes_no(before_item.recallable)} -> #{yes_no(item.recallable)}。"
+      "#{action_label(action)}：状态 #{memory_status_label(before_item.status)} -> #{memory_status_label(item.status)}；锁定 #{yes_no(before_item.locked)} -> #{yes_no(item.locked)}；普通召回 #{yes_no(before_item.recallable)} -> #{yes_no(item.recallable)}。"
 
     cond do
       action in [:lock] ->
@@ -253,6 +255,12 @@ defmodule NovelApplication.MemoryManagementService do
         base
     end
   end
+
+  # 作者可见面统一走 AuthorVisible SSOT（display_names.json memory_* 域）；
+  # 未登记 code 返回 author-safe 兜底，不回显内部枚举。
+  defp memory_status_label(status), do: Display.label("memory_status", status)
+  defp memory_type_label(type), do: Display.label("memory_type", type)
+  defp memory_scope_label(scope), do: Display.label("memory_scope", scope)
 
   defp action_label(:confirm), do: "作者确认"
   defp action_label(:lock), do: "作者锁定"
