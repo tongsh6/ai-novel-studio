@@ -169,8 +169,9 @@ if [[ "$LIVE" == "1" ]]; then
 fi
 
 if [[ "$CONFIRMATION" == "1" ]]; then
-  # 确认/拒绝：seed 用真实已采纳章节计划来源（au04 高风险请求同款）。
+  # 确认/拒绝：证据目录必须与预注册一致（显式传 runner），seed 用真实已采纳章节计划来源。
   export B71_CONFIRMATION_ACTION="$CONFIRMATION_ACTION"
+  export TAURI_NATIVE_ARTIFACT_DIR="$DIR"
   export TAURI_NATIVE_SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
 fi
 
