@@ -924,3 +924,14 @@
 - **完整静态扫描（最终）**：`artifacts/b71-resume/final-gate-v2/static-scan-full2.log` —— **20 passed / 1 failed**（唯一 raw fail = gitleaks 6 项既有处置：5 false_positive + 1 accepted_risk，touched=0、**blocking=0**）；Semgrep 全量通过（`leak_scan.mjs` 的 `detect-non-literal-regexp` 经受控 SSOT 输入说明 + `nosemgrep` 注记闭环，修复提交 `61f7d4a8`）；task-done manifest 在干净工作区下按规则跳过。
 - **资源矩阵**（全部如实登记，不代签）：§16.14 确认/拒绝双路径 clean PASS（01i/02c + 01k2/02e2）；pending 08 原生 77/77；CP3b 实模协议层机制 10/10 + G1–G5 切片；行为覆盖 pilot #1 clean PASS / #2 真实模型执行失败（如实未通过）；displayName P0+P1 真实页面全类别扫描零命中；压缩 A 方案设计/阶段 4/阶段 5/自动维护实现完成、**A3 真实页面验收未闭环**（场景设计缺口：跨 run 续行不属于维护范围，46 §9.9 第 7 条冻结；A3b 构造路径见 `artifacts/b71-resume/compaction-auto-trigger-ax-prereg-brief.md` §7 与 `artifacts/b71-resume/auto-maintenance-a3-recovery-notes.md`）。
 - **环境限制**：Pencil PNG 待有 Pencil 环境导出（帧已 Draft 落地 pen）；macOS 锁屏曾阻塞批次（环境失败如实登记）。
+
+### 记忆管理面板内部 code 泄漏修复与真实页面回归（2026-11-04，作者截图报告）
+
+- **问题（作者截图）**：记忆详情面板直接显示内部编码——`CONFIRMED`/`WORK_DIRECTION`/`WORK`/`AUTHOR_CONFIRMED`/`candidate:…`/`candidate_set:candidate_set:…`/`decision:…`/ISO 时间。
+- **修复（机制正解，非逐点替换）**：
+  - SSOT `display_names.json` 扩展 `memory` 域（memory_status/type/scope/source_type/tag）、`session_status`、`narrative_role`（共 21 domains）+ author-safe fallback；双端 codegen 重新生成（同 source_hash，`--check` in sync）。
+  - `MemoryDetailDrawer` 全部经 `displayName`（删本地 TYPE_LABELS）、tags 过滤内部 ref 前缀、时间本地格式化（`formatMemoryTime`）；`memoryListView`/`MemoryListPage`/`MemoryCreateDialog` 映射与枚举收敛 SSOT（删 copy 三张表 + 本地枚举数组）。
+  - 结构面板未知状态 fallback 安全化（`statusUnknown`，不再回显 code）；`WorkspaceChat` 会话状态与 `archiveDetail` narrative_role 走 SSOT。
+  - **产品侧根源修复**：`memory_management_service` 三处作者可见治理动作/引用摘要（create/锁定阻止/lifecycle 迁移）改经 `AuthorVisible.Display.label`（此前拼 `状态 DRAFT；类型 FORESHADOWING；作用域 WORK`）。
+- **真实页面回归（memory-detail journey）**：`cp4b-memory-detail-ax3` **clean PASS**（D1–D8 全 true）——全类别扫描 **hits=0**；详情治理动作文案 = `作者创建记忆草稿：状态 草稿；类型 伏笔；作用域 整部作品。`（无内部 code）；tags 无内部 ref、时间本地化、无重复前缀、导航与清理通过。旧批次 ax（Vite 端口环境失败、零证据）/ax2（D2/D3 产品残留 + D8 harness 时序）保持 FAIL 登记、不用于 PASS。
+- **证据链**：`4d62bebe`（journey 实现）→ `81142993`（verify-before-cleanup 时序修复）→ `34ec9111`（产品治理文案修复）。

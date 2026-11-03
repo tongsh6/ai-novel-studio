@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-04 **记忆管理面板内部 code 泄漏修复 + 真实页面 clean PASS（作者截图报告）**：作者报告记忆详情显示 `CONFIRMED/WORK_DIRECTION/WORK/AUTHOR_CONFIRMED/candidate:…/decision:…/ISO 时间`。修复走机制正解：SSOT 扩展 memory_status/type/scope/source_type/tag + session_status + narrative_role（21 domains，双端 codegen in sync）；MemoryDetailDrawer/列表/创建对话框全部 displayName（删本地映射表与手写枚举）、tags 过滤内部 ref、时间本地化；产品侧 `memory_management_service` 治理动作摘要改经 AuthorVisible.Display。真实页面回归 `cp4b-memory-detail-ax3` **clean PASS（D1–D8 全过、全类别扫描 hits=0）**，治理动作文案显示「状态 草稿；类型 伏笔；作用域 整部作品」，无内部 code；ax（环境失败）/ax2（产品残留）保持 FAIL 登记。
+
 > 2026-11-04 **B71 A3 压缩自动维护 AX：未闭环（如实登记）**：`cp4b-auto-maint-a3` driver 完成 6 次真实续行/16 次真实 strata 调用，真实 usage 9010–35139（窗口 4096 的 2.2–8.6 倍）——但 `checkpoint_created`=0、细条未出现、`triggered=false`，按降级规则登记未闭环、不重跑不伪造。根因（已诊断）：自动维护语义为「当前 run 的 transcript + 当前 run 的 usage」（`maintenance_due?` 按 agent_run_id、plan 边界为同 run 内更早回合且保留 K=4），A3 的 6 次续行各是独立 run、每 run 只有当前回合 → 正确不触发（46 §9.9 第 7 条冻结语义：跨 run 历史归上下文组装）。分类=场景设计缺口；真实构造需「同 run 内 ≥2 作者回合 + 更早回合 >4 交换 + awaiting_author 后同 run steer」（A3b 后续候选，依赖真实模型行为）；触发链路已由 T1–T12 单测覆盖。次要：runner verify strata-slot 证据时序缺陷修复中。
 
 > 2026-11-04 **B71 displayName P1 全类别 AX 验证通过**：`cp4b-confirm-01k2-ax-full`（confirm）与 `cp4b-confirm-02e2-ax-full`（reject）均 clean PASS——C1–C11 + author_visible 全 true，AX 全类别扫描 `hits=[]`、`internal_terms_zh_hits=[]`（12 文件），六个中文内部术语与 `Stub/slice_verify/prose_writing/[stub]/request_ir` 真实页面零命中；C9 Why 驱动缺陷（纯观测 dump 误用于交互定位）修复后验证通过（重试/恢复路径生效、llm delta=0）。displayName 机制（SSOT/双端 codegen/Presenter/共享全类别扫描器/AX 断言）P0+P1 全量落地并在真实页面取证。
