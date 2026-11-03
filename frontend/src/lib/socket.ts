@@ -319,6 +319,24 @@ export function onAgentEvent(channel: Channel, callback: (event: AgentEventData)
   channel.on("agent_event", (payload: AgentEventData) => callback(payload));
 }
 
+/**
+ * E1（双向审核 P2）：断线重连后按 run 补拉作者可见事件序列（sequence gap）。
+ * 后端只读返回 `sinceSequence` 之后的事件，形状与实时 `agent_event` 广播一致。
+ */
+export function fetchAgentEventsSince(
+  channel: Channel,
+  runId: string,
+  sinceSequence: number,
+): Promise<AgentEventData[]> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("agent_events_since", { run_id: runId, since_sequence: sinceSequence })
+      .receive("ok", (response: { events?: AgentEventData[] }) => resolve(response.events ?? []))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("agent_events_since timeout")));
+  });
+}
+
 export function onAgentRunState(
   channel: Channel,
   callback: (state: AgentRunStateData) => void,

@@ -10,6 +10,7 @@ defmodule NovelWeb.WorkspaceChannel do
 
   require NovelCommon.LogEmit, as: LogEmit
 
+  alias NovelPersistence.AgentRunLog
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TaskRunner
@@ -594,6 +595,35 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
+  @doc """
+  E1（双向审核 P2）：按 run 补拉作者可见事件序列（断线重连后的 sequence gap）。
+
+  只读：校验 run 归属（workspace/session）后返回 `since_sequence` 之后的 author-visible
+  事件，形状与实时 `agent_event` 广播一致；不重建运行时、不改状态。
+  """
+  def handle_in("agent_events_since", payload, socket) when is_map(payload) do
+    run_id = Map.get(payload, "run_id")
+
+    since =
+      case Map.get(payload, "since_sequence") do
+        value when is_integer(value) and value >= 0 -> value
+        _ -> 0
+      end
+
+    with {:ok, run_id} <- validate_history_run_id(run_id),
+         :ok <- ensure_run_owned_for_history(run_id, socket) do
+      events =
+        run_id
+        |> AgentRunLog.list_author_events()
+        |> Enum.filter(&(&1.sequence > since))
+        |> Enum.map(&persisted_agent_event_payload(&1, socket))
+
+      {:reply, {:ok, %{events: events}}, socket}
+    else
+      {:error, reason} -> {:reply, {:error, %{reason: error_reason(reason)}}, socket}
+    end
+  end
+
   def handle_in("ping", payload, socket) do
     {:reply, {:ok, %{event: "pong", echo: payload}}, socket}
   end
@@ -1153,6 +1183,48 @@ defmodule NovelWeb.WorkspaceChannel do
       error ->
         error
     end
+  end
+
+  defp validate_history_run_id(run_id) when is_binary(run_id) and run_id != "",
+    do: {:ok, run_id}
+
+  defp validate_history_run_id(_run_id), do: {:error, :invalid_run_id}
+
+  # 历史事件补拉允许 dead run（只读）：runtime 不在时按持久 run 记录校验归属。
+  defp ensure_run_owned_for_history(run_id, socket) do
+    case AgentRunLog.get_run(run_id) do
+      %{work_id: work_id, session_id: session_id} ->
+        session_ok = is_nil(socket.assigns[:session_id]) or session_id == socket.assigns[:session_id]
+
+        if work_id == socket.assigns[:work_id] and session_ok do
+          :ok
+        else
+          {:error, :run_scope_mismatch}
+        end
+
+      _ ->
+        {:error, :not_found}
+    end
+  end
+
+  defp persisted_agent_event_payload(record, socket) do
+    %{
+      event_id: record.id,
+      run_ref: record.run_id,
+      run_id: record.run_id,
+      step_ref: record.step_id,
+      sequence: record.sequence,
+      event_type: record.event_type,
+      visibility: record.visibility,
+      summary: record.summary,
+      reason_codes: record.reason_codes,
+      refs: record.refs,
+      payload: author_safe_agent_payload(record.payload),
+      workspace_id: socket.assigns[:workspace_id],
+      work_id: socket.assigns[:work_id],
+      session_id: socket.assigns[:session_id],
+      emitted_at: timestamp_iso(record.inserted_at)
+    }
   end
 
   defp agent_event_payload(%AgentEvent{} = event, socket) do

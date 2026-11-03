@@ -16,6 +16,7 @@ import {
   sendAgentCommand,
   onAgentEvent,
   onActionResult,
+  fetchAgentEventsSince,
   onAgentRunState,
   getToc,
   getChapterContent,
@@ -92,15 +93,7 @@ describe("sendMessage", () => {
 
   it("先持久原文，再把稳定身份与参数发上 wire", async () => {
     const ch = mockChannel();
-    void sendMessage(
-      ch,
-      "  原文\n第二行  ",
-      "work-123",
-      "session-123",
-      true,
-      null,
-      "message-1",
-    );
+    void sendMessage(ch, "  原文\n第二行  ", "work-123", "session-123", true, null, "message-1");
     await vi.waitFor(() => expect(ch.push).toHaveBeenCalled());
     const [saved] = await pendingUserMessages("work-123", "session-123");
     expect(saved.text).toBe("  原文\n第二行  ");
@@ -345,6 +338,28 @@ describe("agent run socket helpers", () => {
     ).mock.calls.find(([event]) => event === "action_result")?.[1];
     handler?.({ received: true, action_status: "accepted" });
     expect(callback).toHaveBeenCalledWith({ received: true, action_status: "accepted" });
+  });
+
+  it("fetches agent events since a sequence for gap recovery", async () => {
+    const ch = mockChannel();
+    const events = [
+      { event_id: "e2", run_ref: "run-1", event_type: "provider_progress", sequence: 2 },
+    ];
+    const push = {
+      receive(event: string, fn: (arg?: unknown) => void) {
+        if (event === "ok") fn({ events });
+        return this;
+      },
+    };
+    (ch.push as unknown as { mockImplementation: (fn: unknown) => void }).mockImplementation(
+      () => push,
+    );
+
+    await expect(fetchAgentEventsSince(ch, "run-1", 1)).resolves.toEqual(events);
+    expect(ch.push).toHaveBeenCalledWith("agent_events_since", {
+      run_id: "run-1",
+      since_sequence: 1,
+    });
   });
 
   it("pushes agent_command with run id and command", () => {

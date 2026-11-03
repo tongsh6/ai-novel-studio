@@ -62,6 +62,7 @@ import {
   getWritingCoordinate,
   sendAgentCommand,
   agentCommandErrorReason,
+  fetchAgentEventsSince,
   onAgentEvent,
   onAgentRunState,
   onActionResult,
@@ -1501,6 +1502,8 @@ export function WorkspaceChat() {
   } | null>(null);
   const [agentCommandInFlight, setAgentCommandInFlight] = useState(false);
   const [agentEvents, setAgentEvents] = useState<AgentEventData[]>([]);
+  // E1：每 run 已见最大事件 sequence（断线重连后检测缺口并补拉）。
+  const agentEventMaxSequenceRef = useRef<Map<string, number>>(new Map());
   // B31 §6.2 Q01：作者最近交互过的 run（点击结果/停等坞、提交 steer、显式回复问题）。
   // 不使用 visibleAgentRunMap/广播到达序作为语义依据。
   const [focusedAgentRunId, setFocusedAgentRunId] = useState<string | null>(null);
@@ -2093,7 +2096,18 @@ export function WorkspaceChat() {
     });
     onAgentEvent(channel, (event) => {
       if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
-      setAgentEvents((prev) => [...prev.filter((item) => item.event_id !== event.event_id), event]);
+      const knownMax = agentEventMaxSequenceRef.current.get(event.run_ref) ?? 0;
+      // E1：检测 sequence 缺口（断线期间丢事件）→ 按 run 补拉；补拉失败静默保留现状。
+      if (event.sequence > knownMax + 1) {
+        void fetchAgentEventsSince(channel, event.run_ref, knownMax)
+          .then((missed) => {
+            if (missed.length === 0) return;
+            setAgentEvents((prev) => mergeAgentRunEvents(prev, missed));
+          })
+          .catch(() => {});
+      }
+      agentEventMaxSequenceRef.current.set(event.run_ref, Math.max(knownMax, event.sequence));
+      setAgentEvents((prev) => mergeAgentRunEvents(prev, [event]));
       // B31 §6.2 Q01 ③：真实 agent_event 是该 run 的语义活动时间（恢复广播不算活动）。
       setAgentRunLastEventAt((prev) => ({ ...prev, [event.run_ref]: Date.now() }));
       if (event.event_type === "run_completed" || event.event_type === "run_failed") {
