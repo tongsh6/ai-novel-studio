@@ -63,6 +63,22 @@ describe("AgentRunAnswerPrompt（回答上下文提示条）", () => {
     expect(html).toContain("放弃此问题");
   });
 
+  it("任务已结束：显示不可回答原因与「重新发起此问题」入口", () => {
+    const html = renderToStaticMarkup(
+      <AgentRunAnswerPrompt
+        result={questionResult()}
+        disabled
+        disabledReason="此问题暂不可回复"
+        onAnswer={() => {}}
+        onStartNewDiscussion={() => {}}
+        onAbandon={() => {}}
+        onRestartQuestion={() => {}}
+      />,
+    );
+    expect(html).toContain("此问题暂不可回复");
+    expect(html).toContain("重新发起此问题");
+  });
+
   it("等待时长：显示已等待分钟数", () => {
     const since = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     const html = renderToStaticMarkup(

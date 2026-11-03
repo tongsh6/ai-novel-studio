@@ -2290,6 +2290,13 @@
   cursor: default;
 }
 
+.answerPromptFooter {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .answerPromptHint {
   font-size: 12px;
   opacity: 0.6;

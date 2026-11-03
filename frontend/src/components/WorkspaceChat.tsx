@@ -5766,6 +5766,16 @@ export function WorkspaceChat() {
                     }}
                     onStartNewDiscussion={() => setNewDiscussionMode(true)}
                     onAbandon={() => setAgentRunTerminateDialogOpen(true)}
+                    onRestartQuestion={
+                      questionReplyDisabled(activeModelQuestionResult)
+                        ? () => {
+                            // C 二阶段：任务已结束（runtime dead）——预填原问题到主输入框，
+                            // 切回普通输入模式后由作者确认发送（新 run），不代发。
+                            setNewDiscussionMode(true);
+                            setInputText(activeModelQuestionResult.author_question?.question ?? "");
+                          }
+                        : null
+                    }
                   />
                 )}
               <div

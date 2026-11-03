@@ -318,6 +318,8 @@ export const WORKBENCH = {
   authorQuestionAnswerModeHint: "回答后当前任务继续；要发起新任务请点「开始新讨论」。",
   authorQuestionAnswerModeNewDiscussion: "开始新讨论",
   authorQuestionAbandon: "放弃此问题",
+  authorQuestionRestart: "重新发起此问题",
+  authorQuestionRestartHint: "任务已结束，此问题无法再回答；可带着原问题重新发起。",
   authorQuestionWaitingFor: (minutes: number) => `已等待 ${minutes} 分钟`,
   authorQuestionWaitingForHours: (hours: number) => `已等待 ${hours} 小时`,
   authorQuestionAnswerPlaceholder: "回答当前问题…",

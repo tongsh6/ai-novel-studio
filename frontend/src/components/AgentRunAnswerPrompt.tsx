@@ -17,6 +17,7 @@ export function AgentRunAnswerPrompt({
   onAnswer,
   onStartNewDiscussion,
   onAbandon,
+  onRestartQuestion = null,
 }: {
   result: WireTurnResult;
   disabled: boolean;
@@ -28,6 +29,8 @@ export function AgentRunAnswerPrompt({
   onStartNewDiscussion: () => void;
   /** 显式放弃当前问题（MCP decline / AG-UI abandoned 语义）：确认后终止当前任务。 */
   onAbandon: () => void;
+  /** 任务已结束无法回答时：带着原问题重新发起（预填主输入框，走新请求）。 */
+  onRestartQuestion?: (() => void) | null;
 }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -94,13 +97,24 @@ export function AgentRunAnswerPrompt({
           ))}
         </div>
       )}
-      <span className={styles.answerPromptHint}>
-        {disabledReason !== null
-          ? disabledReason
-          : hasFreeText
-            ? WORKBENCH.authorQuestionAnswerModeHint
-            : WORKBENCH.authorQuestionAnswerModeOnlyChoices}
-      </span>
+      <div className={styles.answerPromptFooter}>
+        <span className={styles.answerPromptHint}>
+          {disabledReason !== null
+            ? disabledReason
+            : hasFreeText
+              ? WORKBENCH.authorQuestionAnswerModeHint
+              : WORKBENCH.authorQuestionAnswerModeOnlyChoices}
+        </span>
+        {disabledReason !== null && onRestartQuestion !== null && (
+          <button
+            type="button"
+            className={styles.answerPromptNewDiscussion}
+            onClick={onRestartQuestion}
+          >
+            {WORKBENCH.authorQuestionRestart}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
