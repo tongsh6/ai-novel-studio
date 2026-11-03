@@ -63,7 +63,7 @@ describe("traceSummaryView", () => {
         {
           context_ref: "ctx_session",
           source_type: "session_transcript",
-          summary: "user: 当前会话确认当前蓝桥计划 assistant: 已记录当前蓝桥计划",
+          summary: "作者：确认当前蓝桥计划 AI：已记录当前蓝桥计划",
         },
       ],
     });
@@ -72,7 +72,7 @@ describe("traceSummaryView", () => {
       {
         key: "session_transcript",
         label: "当前会话记录",
-        summary: "上一轮围绕「当前会话确认当前蓝桥计划」展开，AI 已给出回应。",
+        summary: "上一轮围绕「确认当前蓝桥计划」展开，AI 已给出回应。",
       },
     ]);
     expect(JSON.stringify(view)).not.toContain("user:");
@@ -131,7 +131,7 @@ describe("traceSummaryView", () => {
     });
 
     const visibleText = JSON.stringify(view);
-    expect(visibleText).toContain("创作工具");
+    expect(visibleText).toContain("本轮使用了工具：创作操作");
     expect(visibleText).toContain("已完成");
     expect(visibleText).not.toContain("internal_story_generation_v9");
   });

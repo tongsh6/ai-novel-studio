@@ -2,7 +2,7 @@
 // Run `pnpm codegen:author-visible` to regenerate. Author-visible surfaces must only use these display names.
 /* eslint-disable */
 
-export const SOURCE_HASH = "ce25b2347bc6324be054f6b06b0614087be65109345a9ddcafdbd7f5ffe03746";
+export const SOURCE_HASH = "ee8cbd623187be62b74ab1f44849987a8a97323d107c7747d2624ee5e2bad639";
 
 export const DISPLAY_NAMES = {
   "action": {
@@ -30,6 +30,14 @@ export const DISPLAY_NAMES = {
     "work_archive_read": "作品档案查阅",
     "character_roster": "角色阵容",
   },
+  "context_source": {
+    "current_work": "当前作品背景",
+    "conversation": "近期对话",
+    "recent_dialogue": "近期对话",
+    "memory": "已确认设定",
+    "work_archive": "作品档案",
+    "session_transcript": "当前会话记录",
+  },
   "decision": {
     "allow_tool": "允许执行工具",
     "allow_agent_run": "允许开始创作",
@@ -37,11 +45,20 @@ export const DISPLAY_NAMES = {
     "require_clarification": "需要补充说明",
     "downgrade_to_dialogue": "转为对话处理",
     "reject": "已拒绝执行",
-    "fail_with_recovery": "失败后可恢复",
-    "reply_only": "仅回复",
-    "exploration": "只读探索",
+    "fail_with_recovery": "已降级恢复",
+    "reply_only": "AI 回应",
+    "exploration": "探索方向",
     "capability_gap": "能力缺口",
     "replay_existing": "回放现有结果",
+    "tool_allowed": "允许工具",
+    "tool_dispatched": "已调用工具",
+    "adopt_tentative": "已采用候选",
+    "confirmation_required": "需要确认",
+    "clarification_required": "需要补充信息",
+    "rejected": "已拒绝执行",
+    "recovery": "已降级恢复",
+    "downgrade": "降级为对话",
+    "unknown": "已记录",
   },
   "error_code": {
     "target_missing": "未找到目标对象",
@@ -66,10 +83,10 @@ export const DISPLAY_NAMES = {
     "confirmation_answer": "确认操作",
   },
   "gate": {
-    "action_scope": "执行范围检查",
-    "planner_boundary": "规划边界检查",
-    "authority_budget": "权限与预算检查",
-    "confirmation_required": "需要作者确认",
+    "action_scope": "当前请求超出本轮可执行范围。",
+    "planner_boundary": "计划没有通过执行边界检查。",
+    "authority_budget": "权限或预算策略要求先暂停。",
+    "confirmation_required": "此操作需要作者明确确认。",
   },
   "model": {
     "__default__": "当前模型",
@@ -90,9 +107,9 @@ export const DISPLAY_NAMES = {
     "gemini": "Gemini",
   },
   "reason_code": {
-    "gates_passed": "已通过前置检查",
-    "candidate_adopted_as_tentative": "候选已保存为待采纳",
-    "tool_result_not_adoption": "工具结果不等于采纳",
+    "gates_passed": "执行门禁已通过。",
+    "candidate_adopted_as_tentative": "候选内容先作为待采纳草稿保存。",
+    "tool_result_not_adoption": "工具结果不是自动采纳的作品事实。",
   },
   "run_status": {
     "created": "已创建",
@@ -103,7 +120,8 @@ export const DISPLAY_NAMES = {
     "awaiting_author": "等待你回复",
     "completed": "已完成",
     "cancelled": "已停止",
-    "failed": "未完成",
+    "failed": "失败",
+    "pending": "待处理",
   },
   "status": {
     "TENTATIVE": "待采纳",
@@ -146,6 +164,7 @@ export const FALLBACKS = {
   "action": "操作",
   "artifact_type": "创作内容",
   "capability": "创作能力",
+  "context_source": "其他安全来源",
   "decision": "处理中",
   "error_code": "处理遇到问题",
   "frame_type": "创作进展",
@@ -195,4 +214,4 @@ export const FORBIDDEN_TOKENS = {
 ],
 } as const;
 
-export type DisplayKind = "action" | "artifact_type" | "capability" | "decision" | "error_code" | "frame_type" | "gate" | "model" | "provider" | "reason_code" | "run_status" | "status" | "tool";
+export type DisplayKind = "action" | "artifact_type" | "capability" | "context_source" | "decision" | "error_code" | "frame_type" | "gate" | "model" | "provider" | "reason_code" | "run_status" | "status" | "tool";

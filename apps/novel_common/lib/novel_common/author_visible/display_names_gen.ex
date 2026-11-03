@@ -7,7 +7,7 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
   只允许通过 `NovelCommon.AuthorVisible.Display` 查询；作者可见面不得直接使用内部 code。
   """
 
-  @source_hash "ce25b2347bc6324be054f6b06b0614087be65109345a9ddcafdbd7f5ffe03746"
+  @source_hash "ee8cbd623187be62b74ab1f44849987a8a97323d107c7747d2624ee5e2bad639"
 
   @domains %{
     "action" => %{
@@ -35,18 +35,35 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
       "work_archive_read" => "作品档案查阅",
       "world_building" => "世界观设定"
     },
+    "context_source" => %{
+      "conversation" => "近期对话",
+      "current_work" => "当前作品背景",
+      "memory" => "已确认设定",
+      "recent_dialogue" => "近期对话",
+      "session_transcript" => "当前会话记录",
+      "work_archive" => "作品档案"
+    },
     "decision" => %{
+      "adopt_tentative" => "已采用候选",
       "allow_agent_run" => "允许开始创作",
       "allow_tool" => "允许执行工具",
       "capability_gap" => "能力缺口",
+      "clarification_required" => "需要补充信息",
+      "confirmation_required" => "需要确认",
+      "downgrade" => "降级为对话",
       "downgrade_to_dialogue" => "转为对话处理",
-      "exploration" => "只读探索",
-      "fail_with_recovery" => "失败后可恢复",
+      "exploration" => "探索方向",
+      "fail_with_recovery" => "已降级恢复",
+      "recovery" => "已降级恢复",
       "reject" => "已拒绝执行",
+      "rejected" => "已拒绝执行",
       "replay_existing" => "回放现有结果",
-      "reply_only" => "仅回复",
+      "reply_only" => "AI 回应",
       "require_clarification" => "需要补充说明",
-      "require_confirmation" => "需要作者确认"
+      "require_confirmation" => "需要作者确认",
+      "tool_allowed" => "允许工具",
+      "tool_dispatched" => "已调用工具",
+      "unknown" => "已记录"
     },
     "error_code" => %{
       "auth" => "模型服务需要重新登录",
@@ -71,10 +88,10 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
       "question_answer" => "提问"
     },
     "gate" => %{
-      "action_scope" => "执行范围检查",
-      "authority_budget" => "权限与预算检查",
-      "confirmation_required" => "需要作者确认",
-      "planner_boundary" => "规划边界检查"
+      "action_scope" => "当前请求超出本轮可执行范围。",
+      "authority_budget" => "权限或预算策略要求先暂停。",
+      "confirmation_required" => "此操作需要作者明确确认。",
+      "planner_boundary" => "计划没有通过执行边界检查。"
     },
     "model" => %{
       "__default__" => "当前模型"
@@ -95,9 +112,9 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
       "zhipu" => "智谱"
     },
     "reason_code" => %{
-      "candidate_adopted_as_tentative" => "候选已保存为待采纳",
-      "gates_passed" => "已通过前置检查",
-      "tool_result_not_adoption" => "工具结果不等于采纳"
+      "candidate_adopted_as_tentative" => "候选内容先作为待采纳草稿保存。",
+      "gates_passed" => "执行门禁已通过。",
+      "tool_result_not_adoption" => "工具结果不是自动采纳的作品事实。"
     },
     "run_status" => %{
       "awaiting_author" => "等待你回复",
@@ -105,9 +122,10 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
       "cancelling" => "正在停止",
       "completed" => "已完成",
       "created" => "已创建",
-      "failed" => "未完成",
+      "failed" => "失败",
       "paused" => "已暂停",
       "pausing" => "暂停中",
+      "pending" => "待处理",
       "running" => "进行中"
     },
     "status" => %{
@@ -151,6 +169,7 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
     "action" => "操作",
     "artifact_type" => "创作内容",
     "capability" => "创作能力",
+    "context_source" => "其他安全来源",
     "decision" => "处理中",
     "error_code" => "处理遇到问题",
     "frame_type" => "创作进展",

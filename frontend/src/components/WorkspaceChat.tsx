@@ -157,6 +157,7 @@ import {
   type ProviderModelOption,
   type ProviderId,
 } from "../lib/modelProvider";
+import { displayName } from "../lib/authorVisible";
 import {
   BUTTON,
   CARD,
@@ -3968,7 +3969,7 @@ export function WorkspaceChat() {
 
   const traceUnavailableSummary = (): TraceSummaryView => ({
     primaryReason: TRACE.replayUnavailable,
-    decisionLabel: TRACE.decisions.unknown,
+    decisionLabel: displayName("decision", "unknown"),
     goal: null,
     contextSources: [],
     missions: [],

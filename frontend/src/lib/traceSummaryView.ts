@@ -1,3 +1,4 @@
+import { displayName } from "./authorVisible";
 import { TRACE } from "./copy";
 
 export interface TraceContextSourceView {
@@ -37,21 +38,6 @@ const authorRoleTextPattern =
 const assistantRoleTextPattern =
   /(?:^|\s)(?:AI|assistant)[:：]\s*(.*?)(?=\s(?:作者|AI|user|assistant)[:：]|$)/gu;
 
-const decisionLabels: Record<string, string> = {
-  reply_only: TRACE.decisions.replyOnly,
-  exploration: TRACE.decisions.exploration,
-  capability_gap: TRACE.decisions.capabilityGap,
-  downgrade: TRACE.decisions.downgrade,
-  confirmation_required: TRACE.decisions.confirmationRequired,
-  clarification_required: TRACE.decisions.clarificationRequired,
-  rejected: TRACE.decisions.rejected,
-  recovery: TRACE.decisions.recovery,
-  fail_with_recovery: TRACE.decisions.recovery,
-  tool_allowed: TRACE.decisions.toolAllowed,
-  tool_dispatched: TRACE.decisions.toolDispatched,
-  adopt_tentative: TRACE.decisions.adoptTentative,
-};
-
 const noToolReasons: Record<string, string> = {
   no_tool_needed: TRACE.reasons.noToolNeeded,
   exploratory_only: TRACE.reasons.exploratoryOnly,
@@ -59,28 +45,6 @@ const noToolReasons: Record<string, string> = {
   tool_was_dispatched: TRACE.reasons.toolWasDispatched,
   micro_plan_evaluated_by_orchestrator: TRACE.reasons.microPlanEvaluated,
   micro_plan_generation_failed: TRACE.reasons.microPlanFailed,
-};
-
-const gateReasons: Record<string, string> = {
-  action_scope: TRACE.gates.actionScope,
-  planner_boundary: TRACE.gates.plannerBoundary,
-  authority_budget: TRACE.gates.authorityBudget,
-  confirmation_required: TRACE.gates.confirmationRequired,
-};
-
-const reasonCodeLabels: Record<string, string> = {
-  gates_passed: TRACE.reasonCodes.gatesPassed,
-  candidate_adopted_as_tentative: TRACE.reasonCodes.candidateAdoptedAsTentative,
-  tool_result_not_adoption: TRACE.reasonCodes.toolResultNotAdoption,
-};
-
-const contextSourceLabels: Record<string, string> = {
-  current_work: TRACE.contextSources.currentWork,
-  conversation: TRACE.contextSources.recentDialogue,
-  recent_dialogue: TRACE.contextSources.recentDialogue,
-  memory: TRACE.contextSources.memory,
-  work_archive: TRACE.contextSources.workArchive,
-  session_transcript: TRACE.contextSources.sessionTranscript,
 };
 
 export function toAuthorTraceSummary(
@@ -165,9 +129,7 @@ function missionView(
   return {
     label,
     statement,
-    statusLabel: status
-      ? (TRACE.missionSection.statusLabels[status] ?? TRACE.missionSection.recordedStatus)
-      : null,
+    statusLabel: status ? displayName("status", status) : null,
     mustAdvance: missionItems(record?.must_advance),
     mustAvoid: missionItems(record?.must_avoid),
   };
@@ -196,8 +158,7 @@ function reasonText(noToolReason: string | null, decisionType: string | null): s
 }
 
 function decisionLabel(decisionType: string | null): string {
-  if (!decisionType) return TRACE.decisions.unknown;
-  return decisionLabels[decisionType] ?? TRACE.decisions.unknown;
+  return displayName("decision", decisionType ?? "unknown");
 }
 
 function contextSourceViews(value: unknown): TraceContextSourceView[] {
@@ -216,7 +177,7 @@ function contextSourceViews(value: unknown): TraceContextSourceView[] {
     seen.add(sourceType);
     views.push({
       key: sourceType,
-      label: contextSourceLabels[sourceType] ?? TRACE.contextSources.other,
+      label: displayName("context_source", sourceType),
       summary,
     });
   }
@@ -310,19 +271,19 @@ function detailLines(summary: TraceSummaryLike): string[] {
   const lines: string[] = [];
 
   const gate = stringValue(summary.first_blocking_gate);
-  if (gate) lines.push(gateReasons[gate] ?? TRACE.gates.generic);
+  if (gate) lines.push(displayName("gate", gate));
 
   const reasonCodes = Array.isArray(summary.reason_codes) ? summary.reason_codes : [];
   for (const code of reasonCodes) {
     const key = stringValue(code);
     if (!key) continue;
-    lines.push(reasonCodeLabels[key] ?? TRACE.reasonCodes.generic);
+    lines.push(displayName("reason_code", key));
   }
 
   const toolName = stringValue(summary.tool_name);
   const toolStatus = stringValue(summary.tool_status);
   if (toolName) {
-    const label = toolNameLabel(toolName);
+    const label = displayName("tool", toolName);
     lines.push(
       toolStatus ? TRACE.toolWithStatus(label, toolStatusLabel(toolStatus)) : TRACE.toolUsed(label),
     );
@@ -437,7 +398,7 @@ function workStateSources(value: unknown): string[] {
     const source = objectValue(item);
     const sourceType = stringValue(source?.source_type);
     if (!sourceType) continue;
-    labels.push(contextSourceLabels[sourceType] ?? TRACE.contextSources.other);
+    labels.push(displayName("context_source", sourceType));
   }
 
   return unique(labels);
@@ -473,16 +434,8 @@ function unique(values: string[]): string[] {
 }
 
 function toolStatusLabel(status: string): string {
-  if (status === "ok" || status === "success" || status === "completed") return "已完成";
-  if (status === "error" || status === "failed") return "失败";
-  if (status === "pending") return "待处理";
-  return "已记录";
-}
-
-function toolNameLabel(name: string): string {
-  if (name === "creative_generator") return "创作生成";
-  if (name === "text_analysis") return "文本分析";
-  return "创作工具";
+  const normalized = status === "ok" || status === "success" ? "completed" : status;
+  return displayName("run_status", normalized);
 }
 
 function stringValue(value: unknown): string | null {
