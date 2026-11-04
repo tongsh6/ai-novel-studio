@@ -163,6 +163,16 @@ export class NativeScenarioHarness {
     }
   }
 
+  // 顶层 journey 收口：失败立即走既有 fail（写原始 reason 与只读取证），
+  // 正常完成原样返回 journey 结果；不新增 runner/超时/重试。
+  async runJourney(journey) {
+    try {
+      return await journey();
+    } catch (error) {
+      await this.fail(error);
+    }
+  }
+
   // 每个分型等待只允许单层 begin/finish（B37 等待账拒绝嵌套）。
   async runStep(kind, label, fn) {
     this.checkSupervisor();

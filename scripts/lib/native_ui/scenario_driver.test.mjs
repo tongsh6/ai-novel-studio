@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { OwnershipError } from "./input_target.mjs";
 import { NativeScenarioHarness, activationConfirmed, evidenceText } from "./scenario_driver.mjs";
 
 function makeHarness(io) {
@@ -58,6 +59,76 @@ async function captureFailure(harness, error) {
     process.exitCode = exitCode;
   }
 }
+
+async function runJourneyQuietly(harness, journey) {
+  const exitCode = process.exitCode;
+  const consoleError = console.error;
+  const errors = [];
+  console.error = (error) => errors.push(error);
+  try {
+    const value = await harness.runJourney(journey);
+    return { value, errors, exitCode: process.exitCode };
+  } finally {
+    console.error = consoleError;
+    process.exitCode = exitCode;
+  }
+}
+
+for (const [label, makeError] of [
+  ["OwnershipError", () => new OwnershipError("target_not_running", { expected: "run" })],
+  ["原始 Error", () => new Error("activation_unconfirmed")],
+]) {
+  test(`runJourney 在启动期 ${label} 时立即复用 fail：原始 reason、零输入`, async () => {
+    const { dir, harness } = makeHarness({
+      dump: () => [],
+      screenshot: () => ({ ok: true }),
+      startup: () => ({ ok: true, is_finished_launching: true, ax_window_count: 1 }),
+    });
+    harness.input = countingInput();
+    const original = makeError();
+
+    const { value, errors, exitCode } = await runJourneyQuietly(harness, () =>
+      harness.runStep("maintenance", "launch_app", () => {
+        throw original;
+      }),
+    );
+
+    assert.equal(value, undefined, "失败时共享入口不伪造返回值");
+    assert.deepEqual(errors, [original], "共享入口把同一个原始 error 交给 fail");
+    assert.equal(exitCode, 1, "失败应保留 fail 的退出码语义");
+    assert.deepEqual(harness.input.calls, [], "failure 收口不得 activate/key/click/type");
+    const failure = readFailure(dir);
+    assert.equal(failure.reason, original.message);
+    assert.equal(failure.phase, "maintenance:launch_app");
+    assert.equal(fs.existsSync(path.join(dir, "failure-observation.json")), true);
+    assert.equal(fs.existsSync(path.join(dir, "failure-driver-log.json")), true);
+    assert.deepEqual(
+      JSON.parse(fs.readFileSync(path.join(dir, "failure-ax-raw.json"), "utf8")).nodes,
+      [],
+    );
+    assert.equal(fs.existsSync(path.join(dir, "native-input-events.jsonl")), false);
+    assert.equal(failure.observation.ax.ok, true, "只读 AX 观测照常落盘");
+    assert.deepEqual(failure.log_tail, harness.log.slice(-14));
+  });
+}
+
+test("runJourney 正常返回 journey 结果且不写 failure", async () => {
+  const { dir, harness } = makeHarness({
+    dump: () => [],
+    screenshot: () => ({ ok: true }),
+    startup: () => ({ ok: true }),
+  });
+  harness.input = countingInput();
+  const expected = { ok: true, journey: "normal" };
+
+  const { value, errors } = await runJourneyQuietly(harness, async () => expected);
+
+  assert.equal(value, expected);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(harness.input.calls, []);
+  assert.equal(fs.existsSync(path.join(dir, "failure.json")), false);
+  assert.equal(fs.existsSync(path.join(dir, "failure-observation.json")), false);
+});
 
 test("failure capture with AX unavailable performs zero input and keeps original error", async () => {
   const { dir, harness } = makeHarness({

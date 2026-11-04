@@ -132,7 +132,4 @@ async function run() {
   }
 }
 
-run().catch((error) => {
-  console.error(error?.stack ?? String(error));
-  process.exitCode = 1;
-});
+await harness.runJourney(run);

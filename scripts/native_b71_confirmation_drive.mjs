@@ -57,13 +57,7 @@ function countLlmCalls() {
 
 function readDbCounts() {
   const counts = withDb(dir, (db) => {
-    const count = (table) => {
-      try {
-        return Number(all(db, `SELECT COUNT(*) AS c FROM ${table}`)[0]?.c ?? 0);
-      } catch {
-        return 0;
-      }
-    };
+    const count = (table) => all(db, `SELECT COUNT(*) AS c FROM ${table}`)[0].c;
     return {
       provider_runs: count("provider_runs"),
       receipts: count("author_action_receipts"),
@@ -616,7 +610,4 @@ function list(value) {
   return Array.isArray(value) ? value : [];
 }
 
-run().catch((error) => {
-  console.error(error?.stack ?? String(error));
-  process.exitCode = 1;
-});
+await harness.runJourney(run);

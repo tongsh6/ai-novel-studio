@@ -2024,7 +2024,10 @@ if curl -s --max-time 1 "$API_URL/health" >/dev/null 2>&1; then
   echo "[tauri-slice-verify] Phoenix port is already occupied: $PHOENIX_PORT" >&2
   exit 1
 fi
-if curl -s --max-time 1 "http://127.0.0.1:${VITE_PORT}" >/dev/null 2>&1; then
+# 只有非原生模式的 pnpm tauri dev 会启动并消费 Vite；NATIVE_SYSTEM_DRIVER=1 走
+# pnpm tauri build 把前端嵌入应用后直接返回，不启动 Vite，因此不检查该端口。
+# Phoenix 端口两种模式都需要，检查保持不变。
+if [[ "$NATIVE_SYSTEM_DRIVER" != "1" ]] && curl -s --max-time 1 "http://127.0.0.1:${VITE_PORT}" >/dev/null 2>&1; then
   echo "[tauri-slice-verify] Vite port is already occupied: $VITE_PORT" >&2
   exit 1
 fi

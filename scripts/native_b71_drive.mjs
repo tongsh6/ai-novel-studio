@@ -553,4 +553,4 @@ async function driveRevision(config) {
   );
 }
 
-run().catch((error) => harness.fail(error));
+await harness.runJourney(run);
