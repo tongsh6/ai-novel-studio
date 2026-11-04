@@ -268,7 +268,7 @@ AuthoringRequestIR v1 = {
 
 - IR v1 冻结后，CP2 实现必须按 major/minor 规则演进；additive 字段需同步 §6/§7/§8。
 - legacy 输入（旧 prompt 组装）只允许经 `legacy_adapter` 进入 v1；adapter 必须在 CP4 前退役，不留长期双轨。
-- 旧 trace/replay/证据不迁移、不删除；新 run 的 trace 引用 IR/投影摘要，旧数据按历史兼容读取。
+- 历史 trace/replay/验收证据保留只读，不删除作者数据。2026-11-04 作者明确项目未发布、不要求旧版本兼容：现役消费者完成迁移后删除旧格式运行时适配与专属测试；旧证据不构成永久兼容要求。
 - 未决：具体 schema 列名、trace 存储结构、provider capability 探测方式由 CP2 落地时冻结，本 pack 只冻结语义与投影规则。
 
 ## 12. 明确不在本 pack 冻结的内容
@@ -369,7 +369,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 
 ### 16.3 旧协议与 replay/Why
 
-- creative/quality 只有一条原生 Request IR 主链。旧 `generate/evaluate` 的独立 JSON prompt、字符串纠错和重复实现应移除或收敛为同一原生入口的兼容外观；JSON 内容仅可作为显式有限模式的 Provider 响应解析，不再构造另一条请求协议。
+- creative/quality 只有一条原生 Request IR 主链。旧独立 JSON prompt、字符串纠错和重复实现删除；仅为历史调用保留的 `generate/evaluate` 兼容外观也在消费者迁移后删除（2026-11-04 作者确认，见 §19）。仍服务现役业务的调用先直接迁入统一入口，不能删功能来伪造退役。JSON 内容仅可作为显式有限模式的 Provider 响应解析，不再构造第二条请求协议。
 - Replay/Why 从持久 DecisionTrace 与 canonical checkpoint 派生 author-safe 解释，不重新调用模型，不返回原始推理、私有 session 或内部工具标识。缺 trace/checkpoint 时必须报告真实不完整状态，不能伪造完整回放。
 - CP4b-1 以其它创作 profile、统一失败恢复、显式压缩/恢复和旧协议退役为闭环，附真实 Tauri 创作页与全量门禁；CP4b-2 继续真实模型行为、缓存/usage 和剩余 replay/Why 证据，不能用确定性替身代签真实模型效果，也不缩小 CP4b 原验收范围。
 
@@ -509,19 +509,19 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 |---|---|
 | IR struct、投影实现、能力门槛代码 | **已实现**（CP2；CP4b 补齐能力事实单一来源/身份比对/finite_mode 覆盖/作者安全拒绝文案） |
 | 首个创作 AgentRun 原生多轮与观察回流 | **确定性原生页面已通过**（CP3c/CP4a/callrefs-07/pending 系列）；**实模 CP3b 协议层机制 PASS + G1–G4 真实切片已覆盖**（见下一行），G5 由确定性批次请求字节覆盖、G6 未触发 |
-| 压缩恢复、规划/修订/质量、replay/Why | 规划/修订/质量/压缩派生/确认交接**已实现并有确定性验收**；压缩前端入口待设计授权；实模仍待 |
+| 压缩恢复、规划/修订/质量、replay/Why | 规划/修订/质量、离线 canonical 恢复与确定性页面已有证据；自动维护及其 UI 已实现；G6 实际压缩后请求未闭环。离线恢复不等于自动重启模型执行 |
 | ADR-0030/0031 Superseded 与索引/任务重锚 | 已完成（CP1 复核后执行） |
 | giant prompt/`normalize_messages`/固定 packet 实际退役 | 生产判断/创作/质量链已不使用 giant prompt 构造；`RequestIR.from_legacy` 迁移适配器已删除（§11 要求）；`normalize_messages/1` 保留为 provider wire 形状规范化，不是双轨 |
 | 三类 provider 的有限模式/拒绝路由反例 | **已实现**（能力矩阵 + finite_mode 覆盖校验 + Responses 无 SSE 时拒绝路由；单测覆盖） |
 | Responses 投影的生产消费者 | **仍开放**：`RequestIR.Projection.ResponsesAPI` 只有 golden 消费者；`wire_api: :responses` 在 adapter 内从 chat 形状转换，IR 投影目标暂由默认 route 决定 |
 | Responses 流式 SSE | **仍开放**：该 wire 声明 `streaming: false`，完整 AgentRun 显式拒绝路由 |
-| purpose/model 级能力差异 | **过渡态**：构造侧用默认 route 近似、执行边界按身份比对权威校验；下一步由调用方把 purpose/route_hint 传入 `capability_profile/2` |
+| purpose/model 级能力差异 | **过渡态待重构**：现有构造侧按默认 route、执行侧比对后重派生。按当前作者源头重构原则，改为 Gateway 一次绑定实际路由、能力和原生投影；不再向所有调用方透传预查询选项维持双轨。实施与验收进度以 B71 原任务为准 |
 | 实模 CP3b/CP4b-2（真实模型行为/缓存/usage） | **CP3b 协议层机制 PASS**（2026-11-03 cp4b-live-03-cp3b：L1–L10 全 true、真实模型创作链、usage 9/9、strata 卸载核验；L11 Why 未观察如实记 null）；**G1–G5 切片已覆盖**（G1–G4 来自实模批次 03 的 9 条真实请求字节离线分析：追加式前缀全通过、G1 结构/G2 唯一 call_id 绑定/G3 failed validation 回流/G4 tentative artifact 工具；G5 来自 pending-08 确定性批次 followup 新 turn 请求字节：resolved_adoptions 携带 ACCEPTED/DISCARDED 真实处置数据，按数据形态判定不误报规则文本）；**未代签** G6（压缩未触发）、完整 G1–G6 语义、I10 与作者行为覆盖（B70/B72 另列） |
 | 作者行为覆盖（B70/B72 资产接入的实模批次） | **接入已实现 + pilot 已执行**：冻结 cases 选择器 + oracles HO1–HO6 + behavior 驱动（判据加固 B1–B18）；B11 seed 补齐 S1/S3 的 memory/chapter_plans（pending 无 API 构造，S3 差异如实登记）。**pilot #1（01c2，C-F1-003 holdout 零写）clean PASS**（真实模型正确进度事实、零写、state_checks 与 states.yml S1 逐项一致）；**pilot #2（#6，C-F3-002 保存请求）真实模型执行失败**（3 调用 0 工具 0 候选，产品 fail-closed，verdict violation——真实模型能力限制，不重跑/不调判据）；B1 effect echo 档位 A 已合入（append 已 echo，真实批次未触发验证）。**未代签完整 G1–G6/I10；未 done** |
 | §16.14 工具确认/拒绝原生页面 | **双路径原生 clean PASS**（2026-11-03：`cp4b-confirmation-01i-confirm` C1–C11 全过、`cp4b-confirmation-02c-reject` C1–C11 全过；含 Why 真打开 delta=0、重复不可触发且 delta=0、恢复可见+restart delta=0、运行态清理实测；此前 01–02b 失败均为驱动/判据缺陷，只读保留不用于 PASS）。作者可见 code 泄漏（displayName）另行修复 |
-| G6 压缩后 / CP4b-2 usage·缓存 | **G6 机制层已覆盖**（request_ir G6 测试 + transcript_compaction 端到端：checkpoint covers/refs/omissions 进入投影、作者原话字节不变）。**产品入口已实现（2026-11-04 作者批准方案 A，§18 Accepted）**：后端 `ContextPressure` 只读压力派生 + `plan_maintenance/2` 保留最近 K 项 + `checkpoint_created` author-safe 事件同边界持久化（**自动触发未激活、无生产消费者**）；前端细条视图/组件 + DialogueFlow 渲染 + 7 copy key + Why 入口已接线并过前端门禁；Pencil 两帧 Draft（PNG 待环境导出）。**真实请求未触发**（自动触发待 AX 场景验收），不代签。CP4b-2 真实 usage/缓存观察：实模 03 批次 281,482 input / 6,116 output / 99,591 cached ≈35.4%（只作观察不作判据） |
+| G6 压缩后 / CP4b-2 usage·缓存 | 投影/恢复机制已测试；安全点自动维护已启用（`06a296bb`），前端整理记录已接线，Pencil 两帧 Draft。**真实压缩后的后续请求未取证**。实模 03 的 usage/缓存仅作观察，不作为压缩或质量通过证明 |
 | 作者可见 displayName 机制（2026-11-04，作者要求「分析后重构机制彻底解决」） | **P0+P1 完成并在真实页面验证**：SSOT `docs/design/schemas/author_visible/display_names.json`（13 domains）+ 双端 codegen（同 source_hash、`--check` 漂移校验、生成期未登记 code 失败）+ `AuthorVisible.Presenter/Registry` 唯一出口 + 前端 branded/literal union + 共享全类别扫描器（无收窄开关、无手写 token 列表双轨）+ AX 通用断言。P1-AX `01k2`/`02e2` clean PASS：真实 AX 全类别扫描 **hits=[]、internal_terms_zh_hits=[]**（12 文件），六中文术语与 `Stub/slice_verify/prose_writing/[stub]/request_ir` 零命中。净删除：5 张前端映射表 + 1 函数 + 4 copy 表 + 6 处手写 token 列表 + 迁移期开关（合计净 −112 行以上）。**未闭环**：低优先 a11y 重复读（`推理 推理`）与 driver 证据文本 `会话 0` 拼接（扫描器已不误报） |
-| 压缩自动维护 AX（§16.16 第 2 类入口，作者批准 A 方案） | **实现完成、真实页面验收未闭环（A3+A3b 两轮如实登记）**：安全点自动维护/ContextPressure/plan_maintenance/checkpoint_created + 运维开关与窗口 override 已实现并由 T1–T12 单测覆盖。A3（跨 run 续行 6 次/16 次真实调用、usage 9010–35139 越线但未触发）根因=产品语义（维护只针对当前 run transcript/usage、保留 K=4、跨 run 续行不属于范围）。A3b 三次非验收 smoke 推进到底：smoke1 长任务 run 直接 completed（1 回合、成功交换 ~2，正确不触发）；smoke2 变体成功诱导 `awaiting_author`（真实问题卡结构）；smoke3 经修复的「回复此问题」路径 UI 全成功，但**回复创建新 turn/新 run**（产品交互语义：ask_author 回复起新 run，不向同 run 追加）→ 同 run 仍 1 作者回合。判定：C1 真实压力成立；C1b/C1c 在该产品/模型组合下无法构造，不触发为正确语义。**A3b 未闭环但已定位：新「等待即回答」交互后 C1b（同 run ≥2 作者回合）已可构造 ✓**（smoke6–8：选项/自由文本回答 → 同一 run 恢复、`user_turns=2`、无新 run）；**C1c（更早回合 >4 交换）受 iq3_s 执行质量限制不可满足**（tool_call 契约失败率高、observations=0、交换不增长；run 无法完成）→ `checkpoint_created=0`、不触发为正确产品语义。同 run 多回合驱动与真实回答路径保留（bc89447c/4d57f075/eabd81af/204cc939/2d2b0d9a）供更强模型复用，不伪造/不注入/不调参 |
+| 压缩自动维护 AX（§16.16） | **未闭环，纠正原失败归因**：smoke6 首次 ask_author 参数失败后已自行纠正，smoke6/7 回答后的 judgment 均 passed，随后失败源为应用 `pending_artifact_invalid/incomplete_scope`；smoke8 两次调用均 passed，第三次响应未采完时 harness 结束。更早回合完整交换按 canonical blocks 重算为 2/1/1，仍不足 K=4；不能由此断言模型无法构造。原始证据与独立复核见 B71 末节「A3b 失败归因纠正」 |
 | CP5 收口与全量静态扫描 | **主体完成**：B71 状态行/恢复指引/NEXT、§17 状态表、ADR-0033、§26、三处索引与事实台账已对齐（2026-11-03）；全量静态扫描 20 passed/1 failed（既有 gitleaks 5 项，touched=0、blocking=0）。最终收口随剩余项（§16.14 页面、行为覆盖、压缩前端、CP4b-2）完成后再补一次 |
 
 ## 18. 变更记录（Accepted，2026-11-04）：显式压缩的自动维护触发（提案 2026-11-03）
@@ -632,3 +632,11 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
   - 接口对齐（阶段 5 准备）：`artifacts/b71-resume/compaction-stage5-interface-alignment.md`
     （`checkpoint_created` 事件 → activity 投影 → 前端细条的端到端核对）。
   - 后端现状与作者命令入口：`artifacts/b71-resume/worker-compaction-consumer-report.md`。
+
+## 19. 未发布阶段的源头重构（2026-11-04，作者确认）
+
+- 不为历史实现保留兼容分支；现役消费者迁移、职责重置与退役删除按可验证单元完成。既有历史证据继续只读保留，不改写为新实现证据。
+- Request IR 是运行事实的 provider-neutral 投影输入；实际路由选择、能力事实与 wire 投影归同一执行边界。构造时猜默认路由、执行时再校验两套事实的做法退役。
+- 运行循环依赖统一模型调用结果与事件，供应商请求形态与私有回放材料归适配边界。此职责划分参考 [OpenAI Agents SDK Model interface](https://openai.github.io/openai-agents-python/ref/models/interface/) 和 [Model/provider boundaries](https://github.com/openai/openai-agents-python/blob/main/.agents/references/model-provider-boundaries.md)，具体 canonical、作者主权与证据绑定仍以本项目契约为准。
+- Responses 原生 items 与流式协议直接投影/解析，不以 Chat 消息为内部上限。外部协议解析一次；内部已建立的状态不加重复兜底。不能丢弃原始参数或 Provider 私有回放材料来换取请求通过。
+- 本节是职责与退役规则，实施状态仍在 B71；不代表 Responses SSE、真实路由、原生页面或实模验收已经完成。

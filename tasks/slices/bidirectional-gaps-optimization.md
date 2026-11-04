@@ -1,5 +1,7 @@
 # 双向沟通过隙优化（基于 2026-11-04 全面审核）
 
+> **2026-11-04 接续复核**：E2 的“多播完成”不再代表完整正确性。真实双 Channel 探针已复现 default/dynamic sink 加每 Channel broadcast 造成同一事件每窗口两份，以及重复 monitor；来源、设计与后续验收统一见 [B71 当前多窗口修复单元](B71-provider-message-fidelity.md#多窗口事件分发的真实重复复现2026-11-04待源头重构)。历史测试结果保留；E2 源头已重构（05340350），完整后端/真实双 transport 已通过，当前原生页面仍待系统提示解除后验证，不以历史批次代签。
+
 > 审核真源：[`artifacts/review-bidirectional/SUMMARY.md`](../../artifacts/review-bidirectional/SUMMARY.md)（4 名独立审核员 + Lead 交叉复核 + 亲跑测试；只读审核）。
 > 本计划目标：把审核报告中的 P1/P2 缺口逐项核对当前代码、排优先级、给出修复方案与验收方式，按可 review 粒度分批实施。
 > 边界：审核结论 L1–L4a 已成立；L4b（真实模型语义质量）仍 `blocked`，本计划不代签、不伪造。

@@ -6,7 +6,9 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B71-CP4b | 确定性+原生核心已收口：§16.14 确认/拒绝双路径 clean PASS（01i/02c/01k2/02e2）、pending 08 原生 77/77、CP3b 实模协议层机制 10/10+G1–G5、行为覆盖 pilot（01c2 PASS/#6 真实模型失败）、显示名机制 P0+P1（真实页面全类别扫描零命中）、压缩 A 方案（§18 Accepted、阶段 4/5、自动维护启用）。剩余：A3 压缩自动维护 AX（driver 实现中）、完整 G1–G6/I10 不代签项、Pencil PNG 环境限制、CP5 最终收口 | [B71](slices/B71-provider-message-fidelity.md) |
+| B71-CP4b | 源头重构与剩余验收：运行时事件交接、真实路由/原生投影、Responses SSE、G6 压缩后请求及 CP5。当前状态、证据分层与 A3b 归因纠正均见原任务；I10 不代签 | [B71](slices/B71-provider-message-fidelity.md) |
+
+当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 
 ## 后续候选
 
@@ -36,12 +38,7 @@
 - **B64 实模**：一次 judgment_protocol_violation 失败待裁决；见 [B64](slices/B64-coordinate-aware-memory-consumption.md)。
 - **B39 重锚**：目标实现由 B71 CP3/CP4 承接；原 setup 第02章候选区 AX 同因失败记录只读保留，不再单独驱动实现；见 [B39](slices/B39-evidence-seeking-authoring.md)。
 - **AU10-FAILED**：缺真实页面确定性失败触发（产品外 fixture/原生目录替身可先构造，真实页面证据仍需窗口）；见 [AU10](slices/AU10-workbench-recovery-taskstate.md#failed-cp0-盘点2026-10-31)。
-- **B71 CP3b**：CP3a 确定性接线已入候选（不缩小 CP3 范围）；CP3b 需真实 Tauri 原生窗口 + 实模资源窗口与预算，属资源型等待而非决策阻塞；预注册 `artifacts/model-contracts/b71-cp1/scenario-preregistration.json`；见 [B71](slices/B71-provider-message-fidelity.md#cp3b-实模窗口验收2026-10-31)。
+- **B71 实模/页面后续窗口**：已取得协议机制证据，剩余请求/页面证明按 [B71 当前执行入口](slices/B71-provider-message-fidelity.md) 逐项推进；不再将产品/场景缺口统一表述为资源等待。
 - **B48 CP3**：CP0–CP2 done；CP3 需真实模型/原生 runtime 窗口 + native driver 前置，预注册 `artifacts/b48-cp3/preregistration.json`；见 [B48](slices/B48-character-revision-noop-and-ambiguity.md)。
 - **延期/条件**：多 Agent/24x7 [B50](slices/B50-multi-agent-current-boundary.md#61-延期实施与重新开放)；AU-15 [B42](slices/B42-model-behavior-evidence-tier.md#10-cp4blocked-登记不执行不代签)；I10 盲评 [安排](slices/VS00D-G-GAP-RECONCILIATION.md#i10-人工盲评安排)；stage 修复需授权 [B28](slices/B28-whole-chapter-revision.md)；B38/Experience [B38](slices/B38-world-rule-save-intent.md)/[B68](slices/B68-experience-rule-governance.md)。
-## 双向沟通过隙优化（2026-11-04 审核后）
-
-- 审核真源：[`artifacts/review-bidirectional/SUMMARY.md`](../artifacts/review-bidirectional/SUMMARY.md)（4 名独立审核员 + Lead 交叉复核；L1–L4a 成立、L4b blocked）。
-- 优化计划：[`slices/bidirectional-gaps-optimization.md`](slices/bidirectional-gaps-optimization.md)——批次 A（传输层死协议清理）/ B（compact_transcript 入口）/ C（跨重启 HITL 恢复）/ D（验收基线补门）/ E（P2 健壮性）；每批独立 commit + 全量门禁。
-- 边界：L4b 真实模型语义不代签；Phase 0 无鉴权为设计边界；不新增产品面。
 

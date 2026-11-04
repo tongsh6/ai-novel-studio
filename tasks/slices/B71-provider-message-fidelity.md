@@ -1,6 +1,8 @@
 # B71：AI Novel Studio 原生多轮创作请求体
 
-- 状态：**doing（2026-11-04 更新）**。已完成：CP2/CP3a/CP3c/CP4a；**CP3b 实模协议层 PASS**（机制 10/10 + G1–G5 请求字节切片）；CP4b 确定性实现与原生验收——能力事实单一来源/SSE 工具调用/Responses 传输/**§16.14 确认+拒绝双路径原生 clean PASS（01i/02c + P1 后 01k2/02e2）**/私有历史/逐调用引用/继承性 compile 环解耦；pending 对话修订原生 08 批次 77/77 PASS；**作者行为覆盖**（B70/B72 接入，B11 seed 补齐）：pilot #1（C-F1-003）clean PASS、pilot #2（C-F3-002）真实模型执行失败（fail-closed，如实未通过）、B1 effect echo 档位 A 已合入；**§16.16 显式压缩 A 方案**（作者批准、§18 Accepted）：后端 ContextPressure/plan_maintenance/checkpoint_created + **安全点自动维护启用**（`06a296bb`，test 默认关、`NOVEL_AUTO_MAINTENANCE_ENABLED` 运维开关、窗口 override）、前端细条/展开/copy/Why 入口、Pencil 两帧 Draft；**displayName 机制重构 P0+P1 完成**（SSOT/双端 codegen/Presenter 唯一出口/共享全类别扫描器/AX 断言）：P1-AX 01k2/02e2 **全类别扫描 hits=[]、六中文术语清零**。未闭环：**A3 压缩自动维护 AX**（driver 实现中：真实 strata+小窗口+≥2 续行制造压力）、行为覆盖完整 G1–G6/I10（不代签）、Pencil PNG 导出（本机无 Pencil）、CP5 最终收口（全量门禁 + 文档 + push）。
+- **当前执行入口（2026-11-04，接续复核）**：以下当前状态和末节「统一接续与源头重构」优先于历史过程记录。原生确认批次暴露的子运行启动交接已由 `8930c432` 修复；新页面事件证据待补。A3b 的原“模型契约失败率高”归因已由原始请求/响应纠正，见末节。
+
+- 状态：**doing**。已取得 CP2/CP3a/CP3c/CP4a 机制与确定性页面证据、CP3b 实模协议机制 10/10、G1–G4 实模请求切片、G5 确定性请求切片、pending-08 77/77、确认/拒绝原生 clean PASS、displayName P0/P1 页面证据；压缩自动维护实现完成。**尚未闭环**：实际路由绑定与三类原生投影的生产贯通、Responses SSE、G6 实际压缩后请求、当前源码的实时启动事件/确认失败分支页面证明、实模流式工具与取消证据、完整语义覆盖及 CP5 当前基线门禁。I10 文学质量由原任务承接，不由 B71 代签。Pencil MCP 当前返回 Transport closed，PNG 未导出；不把环境状态当代码缺陷。
 - 来源：作者先要求对照 Codex、Claude Code、dsh 的真实多轮请求，随后明确“设计一个优秀、符合项目调性的请求体，不为现状妥协”。本文件已据此替换此前偏向现役最小修补的方案。
 - 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)；目标方向与迁移规则已由 [ADR-0033](../../docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) Accepted（2026-10-31）；替换契约 [VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 已 Frozen，首个判断消费者已完成 canonical 原生多轮接线，其余消费者与完整迁移归 CP4。
 - 对账输入：[B26](B26-single-call-judgment-protocol.md)、[B39](B39-evidence-seeking-authoring.md)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md)、[VS-00I](../../docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md)、[UA-01](../../docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md)。它们是迁移事实与可能需要修订的决策，不是降低目标设计的约束。
@@ -86,11 +88,11 @@
 | CP1 | 冻结目标 contract pack、Request IR、消息/工具/观察/校验/候选/checkpoint 语义、provider 投影与能力门槛、六类黄金请求和场景预注册；完成 ADR/现役协议差异及迁移裁决 | **done（2026-10-31，见 §7 交付记录）**：VS-00L Frozen + 逐条迁移映射 + G1–G6 + 场景预注册；已复核通过，旧 ADR-0030/0031 已转 Superseded |
 | CP2 | 实现 canonical transcript/Request IR 与三类 provider 投影；建立真实只读观察和原生校验结果回流，黄金与 adapter 测试通过 | **机制完成、不单独标 done（2026-10-31）：IR v1 + 三类投影 + G1–G6 golden + OpenAI 兼容/Anthropic adapter 桥 + application 层 transcript 观察/校验回流机制已完成；生产接线与真实观察回流作为残差并入 CP3a** |
 | CP3a | 确定性接线（2026-10-31 从 CP3 拆出）：以统一 AgentRun 接通首个创作消费者并完成生产接线（IR 消费替换 call-site legacy prompt、观察/校验按 call_id 回流、预算/权限/trace/持久化/恢复），承接 CP2 残差；以确定性 provider 在真实页面驱动证明接线闭环，不签实模语义 | **done（2026-11-01，见 CP3c 实施记录）**：生产接线、浏览器及原生确定性页面证据完成，不签实模语义 |
-| CP3b | 实模窗口验收（2026-10-31 从 CP3 拆出）：按预注册在真实 Tauri 原生窗口 + 真实模型单槽复跑首个创作 AgentRun 全场景与 G1–G6 真实 run 取证；CP3 只有在 CP3a + CP3b 均完成后才算 done | **blocked（需真实 Tauri + 实模资源窗口与预算；非决策阻塞）** |
+| CP3b | 实模窗口验收：真实 Tauri + 实际模型请求/响应、G1–G6 与作者边界证据；CP3a 不能替代实模 | **doing**：协议机制与 G1–G4 已取证；G5 当前为确定性证据，G6 和完整行为覆盖未闭环；不再用资源等待概括已发生的产品/场景缺口 |
 | CP3c | 方案修订与稳定/恢复 checkpoint（2026-11-01）：先修订 ADR/VS-00L，再实现稳定层与动态 scope 分层更新、可恢复 canonical transcript；新增 G7 动态 scope 后与 G8 恢复后，不把整段 Base 刷新当终态 | **done（2026-11-01）**：canonical 整体重构、G7/G8、数据库离线恢复、原生 14/14 与门禁完成；不代表 CP3b/CP4/CP5 完成 |
 | CP4a | 统一创作/质量 canonical 主链：判断 → 原生创作调用 → 质量复核 → tentative artifact → 续行；迁移 creative/quality provider 与 TurnExecutionService，不形成第二控制环 | **done（2026-11-01）**：原生调用、阶段工具、应用结果闭合、durable checkpoint 与真实 Tauri 14/14 完成；不代表 CP3b/CP4b/CP5 完成 |
 | CP4b | 覆盖其它规划 profile、显式压缩恢复与旧协议退役；完成真实 Tauri 全链、真实模型行为、缓存/usage、replay/Why 和全部门禁 | **doing（2026-11-01，方案见末节）**：CP4b-1 统一机制与确定性页面；CP4b-2 实模行为、缓存/usage 与剩余证据。CP4 仅在 CP4a+CP4b 均完成后才算 done |
-| CP5 | 更新 ADR/contract/设计/索引/事实台账和恢复指引；逐项证明完整范围，不能以 adapter/golden 局部证据标 done | 未开工 |
+| CP5 | 更新 ADR/contract/设计/索引/事实台账和恢复指引；逐项证明完整范围，不能以 adapter/golden 局部证据标 done | **doing**：历史批次已整理；当前实现、事实归因、门禁和完整验收仍在接续 |
 
 ## 6. 验证与恢复指引
 
@@ -936,7 +938,9 @@
 - **真实页面回归（memory-detail journey）**：`cp4b-memory-detail-ax3` **clean PASS**（D1–D8 全 true）——全类别扫描 **hits=0**；详情治理动作文案 = `作者创建记忆草稿：状态 草稿；类型 伏笔；作用域 整部作品。`（无内部 code）；tags 无内部 ref、时间本地化、无重复前缀、导航与清理通过。旧批次 ax（Vite 端口环境失败、零证据）/ax2（D2/D3 产品残留 + D8 harness 时序）保持 FAIL 登记、不用于 PASS。
 - **证据链**：`4d62bebe`（journey 实现）→ `81142993`（verify-before-cleanup 时序修复）→ `34ec9111`（产品治理文案修复）。
 
-### A3b 推进结论：受真实模型行为 + 产品交互语义限制未闭环（2026-11-04）
+### A3b 早期 smoke 记录（2026-11-04，交互已由后续重构替换）
+
+> 本节描述重构前页面入口，不适用于当前“等待即回答”语义；同 run 多回合现在已可构造。
 
 - **推进过程（3 次非验收 smoke，不产批次证据）**：
   - smoke1（长任务请求「读两章+对比+下一步」）：run 直接 `completed`，1 个作者回合、4 次真实调用（usage 9006–17122，远超窗口 4096×0.70）、成功完整交换约 2 → `checkpoint_created=0`，**正确不触发**（单回合 + 更早交换 <K=4）。
@@ -958,7 +962,9 @@
 - **验证**：前端 typecheck/lint 绿、全量 **744/744**、设计追溯 **28 通过 / 0 警告 / 0 失败**；后端全量 **3057 tests / 0 failures**、credo 0 issues、module-size 通过、xref 无环、arch 通过；已推送（`d6513362` + 设计帧提交）。
 - **后续**：native-runner 适配新回答面板 AX 定位 + A3b 复验（同 run 回答 → 多回合 → 自动维护链路）。
 
-### A3b 最终收口：C1b 已可构造 ✓、C1c 受模型执行质量限制不可满足（2026-11-04）
+### A3b 当时判断记录（2026-11-04，失败归因已纠正）
+
+> 本节保留当时过程，不能作为当前归因或收口结论；原始响应证明与本节“参数被拒绝”的判断不符，当前结论见末节「A3b 失败归因纠正」。
 
 - **「等待即回答」交互重构后**（§下）回答真实走 `author_choice` → 同一 run 恢复，不再起新 run。3 次 smoke 验证：
   - **smoke6（选项A，HEAD 3be617c3）**：点击选项A → `run_resumed` + `plan_adjusted`；同 run `user_turns=2`、无新 run；provider 1→3（usage 越线）；随后 `run_failed`（iq3_s 执行失败）。
@@ -968,3 +974,85 @@
 - **附带成果**：「等待即回答」交互经真实批次验证生效（回答=同 run 恢复、无新 run、`user_turns=2`），A3b 唯一的模型侧缺口不再是交互语义。
 - **证据**：`artifacts/b71-native/a3b-smoke-cp4b-auto-maint-a3b-smoke{6,7,8}/`（driver-log、截图、DB transcript、validation 失败、usage 越线）；恢复指引 `artifacts/b71-resume/auto-maintenance-a3-recovery-notes.md` §6.5。
 - **提交**：`fdbacccc`/`2e5bd4dd`/`e8fd6840`/`204cc939`/`2d2b0d9a`（驱动适配与选项/文本入口）。
+
+### 已提交子运行启动事实交接（2026-11-04 接续复核）
+
+- **当前基线**：HEAD `7698f162`，工作区仅 `frontend/src/components/WorkspaceChat.tsx` 有作者未提交改动，保留不动。中断前旧代码与任务计划已被后续提交推进，不能按旧上下文重复实施。bridge已核无遗留活动job；本次重新派发的是当前事实对账与已复现缺口。
+- **真实来源**：`b71-authoring-confirmation-tauri-native-cp4b-confirmation-01k2-confirm-ax-full` 的 child `run_mw0ybrf6_1g`：DB有 `run_started(1)`、`tool_started(2)`、`tool_completed(15)`，真实 WS 仅 `artifact_created(17)`、`run_completed(19)`。当前 `AgentRunServer.init` 的 committed 分支从空 events/序号0/defer_delivery=true 开始，而 Admission 已另外提交初始事件。证据 `artifacts/b71-resume/leader-committed-startup-real-source-20261104.json`。这是生产者交接遗漏，不由前端补拉/补猜或更宽校验解决。
+- **Contract**：VS-00L §16.8/§16.10/§16.14、既有 AgentEvent 与 AgentRun 结果事务。启动事实单一生成、提交后发布，再由同一事实继续执行。
+- **Invariant**：内存与持久事件 ID/序号/内容同源；已提交启动事件恰一次发布；工具/Provider进度不被遗留 defer 压住；结果事务仍先提交后广播；作者动作、候选字节与实际预算不变。
+- **Boundary / Consumer**：application 的 startup fact factory、Admission、AgentRunService/Server/Persistence；consumer为现役Channel事件流与恢复/回放。前端、Provider adapter、领域规则、持久冲突处置及页面判据不改。
+- **Proof**：真实作者动作受理入口，在首个模型响应返回前验证已收到与持久row同源的启动/工具事件；事件序号不重用、非stream内存/DB一致、重复动作不重启；普通run/质量修订/确认交接回归与完整后端/不变量。旧批次只读，不补写旧WS。
+- **Acceptance Driver**：复用当前确认原生场景验证新的实际事件链；验收应另行预注册且在源码静止后执行。产品验收感知逻辑 no。本次不将历史C1–C11 PASS当新事件链证明。
+- **Exploration**：不物化新作品要素、不改变模型作品知识供给；只恢复既有运行事实的持续发布，原Request IR/canonical/used refs保持。
+- **交付**：worker `b2d787ff` 实现，leader 独立真实 Channel/receipt 回归 5/0；`8930c432` 已提交并进入共享远端。该单元完整后端当时 3063/0，报告 `artifacts/b71-resume/worker-committed-startup-handoff-20261104.md`；不替代后续 HEAD 的整体验证。用户已确认其他会话结束，后续统一接续。
+
+### A3b 失败归因纠正（2026-11-04，原始证据优先）
+
+- 6301e69a审计终态；leader又独立读取smoke6/7/8的只读SQLite与canonical validation，复核文件 `artifacts/b71-resume/leader-a3b-failure-classification-20261104.json`。旧批次和旧报告不回写，本节纠正此前“回答后工具契约失败率高、模型无法产生有效交换”的当前结论。
+- **smoke6**：首次ask_author参数非法，随后同调用原参数与失败反馈进入下一真实请求，模型已纠正；回答后的judgment_decision为passed。**smoke7**：两条已捕获调用均passed。两者最终执行步为0，失败发生在应用 `pending_artifact_invalid/incomplete_scope`，不能归为回答后的schema违约。
+- **smoke8**：两条已捕获调用均passed，无run_failed；结束时run仍running、第三次调用未取到完整响应，批次因 `native_evidence_verification_failed` 结束。不能把未完成响应写成“两次被校验拒绝”。
+- **读侧口径**：driver统计顶层message.tool_calls，但canonical的真实位置是blocks；原complete_exchanges=0不作证明。按产品口径离线重算更早回合完整交换为2/1/1，仍不足K=4。因此这些样本未触发维护的事实保留，但“模型能力导致不可构造”尚未被证明。
+- **下一步取源边界**：应用提示要求模型在dialogue_goal表达修改范围，实际授权只从run.goal.text（回答后为选项标签/答案）读取。先梳理原任务、作者回答、当前目标与授权范围的真实来源，不能改为信任模型自述范围，也不能通过调K/窗口凑触发。新answer来源标记提交晚于smoke8，旧批次不代签其持久恢复效果。
+- **完整证据审计**：`artifacts/b71-resume/closure-audit-20261104.md/json` 确认 Responses 原生投影/SSE、G6、真实流式/取消和确认失败分支仍缺证。需纠正审计范围：ADR-0033 §10.2 与 VS-00L §14 的 G8 冻结的是离线恢复事实及不调模型，自动重启执行没有由此获准；不能把“未证明自动执行”扩写为必须新增自动执行。恢复的权限与当前作者动作仍按既有契约处理。
+
+### 统一接续与源头重构（2026-11-04，当前）
+
+- **作者补充原则（Accepted）**：项目尚未发布，不要求历史版本兼容；现役消费者迁移完成后，删除退役分支、适配外观和只保护退役行为的测试。历史证据保留只读，不等于运行时代码必须能读所有旧格式；不删除作者数据。架构与设计冲突先回到元原则、实际来源和官方行业资料裁定，不追加兜底形成双轨。UI 使用现有 Pencil 原型作为参考。
+- **已独立验收的源头修正**：执行 Task 与订阅者都产生 DOWN，原通用订阅者分支抢先吞掉 Task 退出；恢复按 `current_task_ref` 的分派顺序，真实 kill Task 后进入失败，订阅者退出不影响执行。历史事件补拉从 Web 直读 Persistence 改为 Application 的 `AgentRunEventQuery`，Web 只解析 wire/投影作者安全字段。scope/since 由入口解析后内部信任，不重复 normalize；外部 run_id 和持久归属仍在读取边界判定。
+- **该单元七问**：Contract = 既有 AgentEvent、`agent_events_since` 与 VS-00L §16.12–16.14；Invariant = monitor 按实际 owner 分派、历史只读/作用域归属、Web 不越层；Boundary = application/web（不改 domain/agent/persistence 行为）；Consumer = WorkspaceChannel 补拉和现役执行 owner；Proof = 真实 Task/订阅者退出、应用查询、真实 Channel，leader 独立 64+8 tests/0 failures，日志 `artifacts/b71-resume/integration-20261104/target-tests.log`；Acceptance Driver = 既有外部 Tauri 确认场景补当前源码事件证明，产品验收感知逻辑 no；Exploration = 不物化作品知识、不改模型输入。
+- **下一项架构决策**：canonical IR 保持 provider-neutral；Gateway 解析实际 provider/model/purpose/route_hint 的唯一配置快照，在同一边界派生能力、选择原生投影并交给 adapter。撤销 RequestIR 内默认 Gateway 查询，以及执行时再次比对/补救构造侧 route 的双轨。Responses 直接消费自己的原生 items；工具调用原参数、call_id、Provider 私有回放材料不经 Chat 形态绕行。先完成真实消费者清单与契约修订，再分可验证单元实施。
+- **当前验证**：全量后端 3079/0、I1/I2/I3、dev/test 强制零警告编译、xref/arch 通过（`artifacts/b71-resume/integration-full-20261104/`）；随后机械清理两处 Credo alias 建议及两个无消费者测试残留，22 项目标测试与 Channel 单测通过、Credo 无问题。前端 typecheck/lint/483 项测试通过，设计追溯 25/0，Tauri app+dmg 构建通过。记忆证据脚本补真实进程/端口观察后独立 16/16（0 skipped），四类显示名改读 SSOT，原正则拼接删除；mutation 76 killed/8 等价存活/0 uncovered，未加抑制。统一扫描和新 C12 原生页面证据仍待收口；完整 B71 继续 doing。
+
+
+### 原生投影与流式链路的消费审计（2026-11-04）
+
+- 消费清单：`artifacts/b71-resume/projection-consumer-inventory-20261104.md/json`（leader 已抽查 Gateway、NativeToolExchange、四类 adapter 与真实调用方）。三种 projector 中当前只有 ChatCompletions 有生产调用；另外两种不能用 golden 通过冒充生产贯通。`provider_projection_target` 与 `capability_profile` prompt 字段无生产读取者；运行时仅比较构造时写入的 route 身份。
+- **新增源头事实**：OpenAI-compatible/DeepSeek/LMStudio/Anthropic 在 `tool_call_prompt?` 为 true 时强制走非流式。现役判断 `tool_choice=auto`、写作具名工具都落到此分支；已有 SSE tool-call 测试用 `tool_choice=none` 触发流式，只能证明 decoder，不能证明实际工具调用链。当前正文预览提取器位于非流式结果的分块物化处，不能据此声称真实 token 已到页面。后续需让工具选择与交付模式分别表达，按实际 SSE 推进状态。
+- **R1 统一请求边界**：保留完整 canonical IR 到 Gateway；实际 provider/model/purpose/route_hint 只解析一次，能力与投影消费同一 state。IR 构造不查询配置，删除默认 route 元数据及下游身份二次补救。三类 adapter 各消费原生投影；系统身份、工具集合/选择、原始参数与私有回放材料在此边界不丢失。只用于旧投影测试的 prompt helper 随消费者迁移删除；设定盘点、章摘要和工具结果叙述三个仍在运行的文本消费者必须显式迁移，不能因旧形态直接删功能。
+- **R2 同一流式生命周期**：工具调用不再隐式选择非流式。统一 existing HTTP cancellation/deadline/silence 生命周期，协议 decoder 分别累积 Chat/Anthropic/Responses 原始事件；工具参数在结束前只作增量事实，完成后归一；保留 call_id 与 raw_arguments。Responses item_id 与 call_id 分属不同用途，不混用。私有 reasoning 按真实 provider/model 绑定回放，不展示给作者。正文预览只来自实际正文数据，不能展示被截断/错误解码的转义内容冒充正文。
+- **实施七问**：Contract = ADR-0033、VS-00L §6/§16.5/§19 与 ProviderRun/Event/Output；Invariant = canonical 唯一事实、实际 route 单源、原文/工具关联/usage/取消不丢失；Boundary = agent 投影/传输与 application 现役请求构造，domain/persistence 授权不变；Consumer = judgment、writer、evaluator、planner/mission 及三个文本消费者；Proof = 各真实 Gateway→HTTP 形状、按用途选模型、auto/具名工具流式分片/取消、私有回放、G1–G8 与全量/invariants；Acceptance Driver = 当前 Tauri 创作/确认场景外部驱动，捕获实际请求/SSE/页面/持久结果，产品验收感知 no；Exploration = 保留最小 Base、同批探索、下一实际请求观察与 used refs 绑定，不靠新增 packet 补漏。
+- R1/R2 为既有 CP4b 的执行单元，不缩小原范围；尚未开始实现，不标完成。先收口当前交接/查询/证据质量单元及当前基线，再推进。
+
+
+### 多窗口事件分发的真实重复复现（2026-11-04，待源头重构）
+
+- `artifacts/b71-resume/event-delivery-source-probe-20261104/` 的公共服务与两个真实 Channel 探针证明：同 caller 启动 default sink 后重连，持久 `event_id` 只一份但接收两次；重复 attach 的 monitor 数为 0→1→2→3，sink map 始终仅一项。初版双 Channel 只证明 topic 重复广播；leader 指正后，新 `transport_probe.exs` 删除 forwarder 的 topic 订阅，实收 Phoenix.Socket.Message：同一事件 A/B 两个 transport 各 2 份、Broadcast 计数 0（`result-transport.json`）。这是 Channel→NoopSerializer→transport_pid 证据，不是生产网络或 GUI 证据。探针退出后测试事务行数归零，未改产品或旧批次。
+- **根因**：runtime 同时向 default 和 dynamic sinks 发布；每个 Channel 又向整个 workspace broadcast，形成两次扩散。不是前端去重不足，不以丢弃相同 event_id、增加去重缓存或捕获异常遮盖。
+- **源头方案**：应用层持有单一按 work/session 分发的事件订阅边界；Channel 只在 join 时订阅一次，将收到的 run 事件/该事件派生的快照和结果 push 到自身连接。运行 owner 只发布一次，不持有窗口回调或 subscriber monitor。删除 default/dynamic 两套 sink、attach/reconnect 中的窗口注册和相应退役测试；重连只恢复事实，订阅生命周期归 Channel 进程，进程退出自动清理。沿实际 scope 保留 work-wide 与 session 订阅，不靠消息时间或文本猜归属。
+- **七问**：Contract = AgentEvent/运行事实提交、既有多窗口与重连语义；Invariant = 每个订阅连接每事件一份、一个窗口退出不影响运行和其它窗口、scope 不跨作品/会话；Boundary = application 事件发布与 Web 消费，domain/agent/持久化事实不变；Consumer = 当前 WorkspaceChannel；Proof = 将上述两个真实复现转为回归，加跨 scope、订阅者退出、首事件/重连快照与最终结果测试；Acceptance Driver = 真实 Tauri 确认与重连场景，C12 实时同源判据，产品验收感知 no；Exploration = 不涉及作品知识新增或模型供给变化。
+- **实施中**：首阶段 worker `af4b3a9e` 已做出新分发路径，同一双 transport 探针各收 1 份（旧路径各 2 份）；leader 因测试门面不符合退役原则而停止该作业，保留其中间证据。`408d61e8` 已删除 TestAgentRunService 门面并完成真实服务/push 消费迁移，完整后端 3085/0；旧不变量 driver 还在用退役 callback，leader 终止长等待后由 `0f102c21` 完成真实订阅迁移，I3 Layer-A/B、I1、I2、N-NARR 全通过且无 owner timeout。最终证据为 `scoped-events-final-20261104/` 与 `invariant-event-consumers-20261104/`。`517d00a9` 修复 Task DOWN 被吞的独立问题，不据此关闭整项多窗口语义。最终统一扫描与原生回归在新结构上执行，再推进 R1/R2。
+
+
+### 确认验收职责重构（2026-11-04，局部验收完成、原生未闭环）
+
+- C12 实时启动事件判据先由现役确认 evaluator 接入，31 项正反例通过；leader 又移除无依据的 tool_started 数量上限、DB 重复主键/null 行保护。多个合法工具启动按各自 event_id/sequence 验证，不补造事件。
+- 独立质量门发现不能继续拼接：`evaluateConfirmation` 已有 CC457/CRAP6830.6，新 `childLiveStartupEvents` CC25/CRAP25.4。日志 `artifacts/b71-resume/integration-20261104/confirmation-evidence-crapper.log`。该失败如实保留，不能以测试通过或拆几个无语义包装函数代替结构收敛。
+- 首阶段 `b92f1387` 已按作者动作事实、执行与字节因果、外部观察/清理、实时事件四类实际职责拆分；leader 发现缺测被转为0的反例后停止该作业。`7e07b522` 已完成纯 evaluator/外部 I/O 分离及计数语义修正；`775a9e90` 又把来源唯一收敛到持久 Interaction，wire 只作可选摘要一致性核对；主模块只负责读取/组装/报告。沿真实 wire/DB/checkpoint 一次组装事实，各判据不重复兜底；所有模块都有现役 consumer 和 README 索引。不改产品输入/原生驱动，不改 C1–C12 判据，不回写旧批次。阶段证据 `artifacts/b71-resume/confirmation-evidence-refactor-20261104/`，最终报告 `artifacts/b71-resume/confirmation-evidence-final-20261104/`。
+- 本单是既有 §16.14 的外部证据工程，不新增产品能力；Invariant 为来源精确、缺证据不通过、结果不由模型目录或时间关系推断；Consumer 为现役原生确认批次；Proof 为既有/新增行为用例、旧新完整结果对账和质量门；Acceptance Driver 仍为真实 Tauri 确认/拒绝入口；产品验收感知 no；Exploration 不适用（只读证据，不提供模型作品知识）。
+- 应用/Web 事件订阅与 Node 判据均已完成实现及独立局部验收，按 `05340350` / `44062abe` 分开提交；驱动失败收口与依赖修正另为 `01461fce`。源码未因原生启动失败被放宽，当前 UI 证据继续 pending；未完成项不签 done。
+
+- **R1/R2 输出侧复核补充**：原始审计 `artifacts/b71-resume/native-output-fidelity-audit-20261104.md/json`，leader裁定 `leader-native-output-audit-review-20261104.json`。需连同 Result/IR 的有序块、停止原因、私有状态与真实工具流式一起设计，正文预览目前仅 Stub/test 伪分块可达。审计中“Anthropic input仍为字符串”被前置 parse_arguments 调用链证伪，不修不存在的问题；无非法UTF-8 producer证据不加防御；usage已有独立ProviderRun事实，不为了IR形式完整制造第二真源；Execution.result_fn有真实消费者，不当作历史兼容一刀切删除。
+
+- **验收重构的独立反例与修复**：leader 用完整 evaluator 复现 `duplicate.delta={}` / 缺 `llm_calls` 的 delta、`restore.restart_delta={}` 被判 C5/C10=true。源头是通用 field 把缺字段变 null 后再 Number(null)=0；已保存 `artifacts/b71-resume/confirmation-evidence-refactor-20261104/leader-incomplete-observations.json`。已去除缺测→0强制转换，完整 evaluator 独立复验中缺字段/null/空对象均为 C5/C10=false，只有四个实测数字0才通过（`confirmation-evidence-final-20261104/leader-incomplete-observations-after.json`）。有效七场景和两份历史真实批次计算结果保持；57项目标回归通过，C1相关7个mutation全部被杀，原isDefined伪等价已随多来源选择代码退役。未覆盖的批次I/O mutation仍如实列出，不以局部绿代签新原生批次。
+
+
+### 2026-11-04 当前整合验证与原生启动受阻
+
+- **独立验证**：leader 新库运行 app 68 + Web 19 = 87 项全部通过（`artifacts/b71-resume/leader-scoped-final-20261104/tests.log`）；完整后端 3085/0；I1 4/4、I2 3 pairs disjoint、I3 A/B 各3/3、N-NARR通过。四个driver仅迁移事件订阅/收集，102个非接线函数、规则hash、case/阈值/timeout保持不变，不属于修改规则绕过门禁。
+- **脚本**：全脚本串行 1077/1077、0 skipped。首次3项失败由 revision 正例仍写退役 Why 文案引起，已直接消费前端 `TRACE` copy 真源，未改扫描器或泄漏负例。运行时测试兼容门面已删除，只有真实订阅者观察辅助。
+- **代码清理**：14 个 Elixir 文件仅格式化，去位置 AST 全部相同；全仓格式检查通过。已提交 checkpoint `517d00a9`、`5a967e58`、`95346e15`、`3beeafd7`、`07ae81bf`、`07285ded`；事件总线、确认证据与驱动修复已分别提交为 `05340350`、`44062abe`、`01461fce`；所有提交都明确保留当前 UI 未闭环状态。
+- **原生 01**：`cp4b-scoped-confirm-01` 在创建应用前被 Vite 5769 占用拦截，0输入/0Provider。实际原生路径嵌入前端，从不启动 Vite；已从启动依赖源头将此检查限定到需要 Vite 的 dev 路径，未添加忽略开关或退出码豁免。旧目录保留。
+- **原生 02**：`cp4b-scoped-confirm-02` 已构建并启动真实隔离 app，但激活失败：`activation_unconfirmed`，前台为 `com.apple.UserNotificationCenter`；ax_trusted/post_access 均为 true。用户消息、ProviderRun、AgentRun 均为0；cleanup remaining=[]、4657/4661/5779已释放，生产源码指纹未变。原始 driver 输入事件先报激活失败，监督器125秒后记 `driver_idle_timeout`，两种事实均保留，来源复核 `leader-scoped-final-20261104/native-02-independent-review.json`。
+- **外部阻塞**：电脑控制工具明确禁止访问 UserNotificationCenter，未读到提示内容、不猜测类型、不绕过；已请作者手动查看并处理，等待状态回复。原生 C1–C12 与当前最终源码页面验收仍未闭环，不复用历史 PASS。
+- **驱动源头修复**：六个 B71 journey 统一通过 `NativeScenarioHarness.runJourney`，失败立即复用现有被动 fail 取证并保留原始 reason，避免只打印异常后等待监督器 idle timeout。确认计数读取也删除 SQL 错误→0 的伪造兜底；不改变输入归属门槛、超时或重试。17项目标/76项相关测试通过，leader独立复验通过；`native-failure-boundary-20261104/` 保存红绿与范围。
+- 以上为真实过程与局部证据，完整B71继续doing；后续仍是当前原生闭环、R1/R2原生请求/输出/流式完整性、G6实模压缩后请求与CP5。
+
+
+### 2026-11-04 统一扫描闭环与当前恢复入口
+
+- 命令：`bash scripts/ai_static_scan.sh --top 10`（本次以 `MIX_ENV=test` 和独立 `NOVEL_TEST_DB_DIR` 运行；dev `mix compile --warnings-as-errors` 另行通过）。原报告副本：`artifacts/b71-resume/leader-scoped-final-20261104/static-scan/results/`。
+- 结果：21 项，19 passed / 2 failed；7 个 Top findings（不足10项），blocking=1。已修掉本轮早期 Credo alias、NEXT 非标准第四节和记忆详情动态正则/重复映射问题；Semgrep、编译、xref、arch、全部五类不变量、前端检查等通过。
+- 剩余6条 gitleaks：5条既有 false_positive（确认测试历史fixture、B65握手nonce、B63文档、E10 spec ID、Pencil fileToken）+1条既有 accepted_risk（ProjectGod历史线）；不重写历史、不关闭扫描器、不新增抑制。唯一 pending/blocking 是真实 UI evidence 未 verified，原因见原生02系统提示阻挡；未把本地绿或历史PASS冒充当前页面证明。
+- 原生输入前置恢复：先等作者处理系统提示；当前 `UserNotificationCenter` 内容不可由电脑控制工具访问，禁止换渠道绕过。收到状态后再检查本批真实启动资源，另开预注册新目录；旧01/02、原始错误、零调用与清理证据不回写。新驱动已即时保留原始失败，不再靠延长等待或重试遮盖。
+- 当前业务源码与验收重构可 review；B71保持doing。后续 R1/R2 的三条非IR现役操作 owner/source 清单由只读作业 `87dd58b8-0792-4c84-9f55-effb98cdc512` 汇总至 `artifacts/b71-resume/r1-operation-ownership-audit-20261104.md/json`，用于判断真实AgentRun与后台派生操作边界，不伪造run_id或作者原话。
