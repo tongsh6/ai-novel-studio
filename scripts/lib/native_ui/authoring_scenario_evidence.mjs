@@ -6,6 +6,10 @@
 import { scanAuthorVisibleTexts } from "../author_visible/leak_scan.mjs";
 import { compareAuthoringCanonSnapshots } from "./authoring_canon_evidence.mjs";
 import { providerFreeInterval } from "./authoring_planning_evidence.mjs";
+import {
+  requestFactsFromBody,
+  requestFactsFromRecord,
+} from "./authoring_request_facts.mjs";
 
 const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -20,17 +24,28 @@ export const LAST_PAGE_ANCHOR = "井底浮现第七枚手印";
 
 // ── 全章核对请求 ──────────────────────────────────────────────────────────────
 
+// 记录 → 实际 source format 的请求事实。fixture IR 与真实原生 wire 都按各自格式
+// 读取；未知/退役/坏 body 保留为不可判定项，不静默过滤成空集合。
+export function requestFacts(records, turnId) {
+  return requestFactsOf(records)
+    .filter((facts) => String(facts.record?.turn_id ?? "") === turnId);
+}
+
+export function requestFactsOf(records) {
+  return list(records).map((record) => requestFactsFromRecord(record));
+}
+
+// 原始 body 只作为事实的只读快照交给既有纯判据；调用方需要可读性时用 requestFactsOf。
 export function requestBodies(records, turnId) {
-  return records
-    .filter((record) => String(record.turn_id ?? "") === turnId)
-    .map((record) => record.request?.body ?? record.request_body)
-    .filter((body) => body && Array.isArray(body.messages));
+  return requestFacts(records, turnId)
+    .filter((facts) => facts.ok)
+    .map((facts) => facts.rawBody);
 }
 
 export function requestBodiesOf(records) {
-  return records
-    .map((record) => record.request?.body ?? record.request_body)
-    .filter((body) => body && Array.isArray(body.messages));
+  return requestFactsOf(records)
+    .filter((facts) => facts.ok)
+    .map((facts) => facts.rawBody);
 }
 
 function parseJson(value) {
@@ -75,40 +90,26 @@ export function observationQuery(payload) {
   return query;
 }
 
-function exchangeCall(call, index) {
-  if (!isObject(call) || !nonBlankId(call.id)) return null;
-  return { id: call.id, index };
-}
-
-function exchangeResponse(message, index) {
-  const payload = toolResult(message);
-  if (!payload) return null;
-  return {
-    index,
-    message,
-    type: payload.type,
-    payload,
-    toolCallId: message.tool_call_id,
-    callId: payload.call_id,
-  };
-}
-
 // 一条消息只归类一次：assistant 贡献有序调用，tool 贡献响应，其它角色不参与绑定。
-// tool_calls 存在但不是数组时显式标记畸形，不能经 list() 降级为空集合。
-function exchangeMessage(message, index) {
-  if (message?.role === "assistant") {
-    if (message.tool_calls === undefined) {
-      return { calls: [], responses: [], malformed: false };
-    }
-    if (!Array.isArray(message.tool_calls)) {
-      return { calls: [], responses: [], malformed: true };
-    }
-    const calls = message.tool_calls.map((call) => exchangeCall(call, index));
-    return { calls: calls.filter(Boolean), responses: [], malformed: calls.some((call) => call === null) };
-  }
-  if (message?.role !== "tool") return { calls: [], responses: [], malformed: false };
-  const response = exchangeResponse(message, index);
-  return { calls: [], responses: response ? [response] : [], malformed: response === null };
+// 畸形 tool_calls/结果在 facts 中显式计数，不能经 list() 降级为空集合。
+function exchangeMessage(message) {
+  const calls = list(message.toolCalls).map((call, index) => {
+    if (!isObject(call) || !nonBlankId(call.callId)) return null;
+    return { id: call.callId, index };
+  });
+  const responses = list(message.toolResults).map((result) => ({
+    index: message.index,
+    message: result.raw,
+    type: result.type,
+    payload: result.payload,
+    toolCallId: result.toolCallId,
+    callId: result.callId,
+  }));
+  return {
+    calls: calls.filter(Boolean),
+    responses,
+    malformed: calls.some((call) => call === null),
+  };
 }
 
 // 顺序消费：响应只对照此前消息中已出现的调用，未来调用不能回填因果。
@@ -125,10 +126,10 @@ function responsesBoundInOrder(parsed) {
   });
 }
 
-// 单一纯 exchange 索引：每个请求体独立解析，按消息顺序记录 assistant 调用与 tool 响应。
-// 响应保持原样进入索引；未知、畸形或重复响应使该请求不可判定，而不是被 filter 丢弃。
-function requestExchange(body) {
-  const parsed = list(body?.messages).map((message, index) => exchangeMessage(message, index));
+// 单一纯 exchange 索引：每个请求按 source format 读取一次，按原消息顺序记录调用与结果。
+// 未知、畸形或重复响应使该请求不可判定，而不是被 filter 丢弃。
+function requestExchange(facts) {
+  const parsed = list(facts.messageFacts).map((message) => exchangeMessage(message));
   const calls = parsed.flatMap((entry) => entry.calls);
   const responses = parsed.flatMap((entry) => entry.responses);
   const unique = (values) => new Set(values).size === values.length;
@@ -136,6 +137,9 @@ function requestExchange(body) {
     calls,
     responses,
     valid:
+      facts.ok &&
+      facts.malformedCalls === 0 &&
+      facts.malformedToolMessages === 0 &&
       !parsed.some((entry) => entry.malformed) &&
       unique(calls.map((call) => call.id)) &&
       unique(responses.map((response) => response.callId)) &&
@@ -143,18 +147,15 @@ function requestExchange(body) {
   };
 }
 
-function requestExchanges(bodies) {
-  return list(bodies).map((body) => {
-    const exchange = requestExchange(body);
-    return { body, ...exchange };
-  });
+function requestExchanges(factsList) {
+  return list(factsList).map((facts) => ({ facts, ...requestExchange(facts) }));
 }
 
 function observationsOf(exchanges) {
-  return exchanges.flatMap(({ body, responses }) =>
+  return exchanges.flatMap(({ facts, responses }) =>
     responses
       .filter(({ type }) => type === "observation")
-      .map(({ message, payload }) => ({ body, message, payload })),
+      .map(({ message, payload }) => ({ facts, message, payload })),
   );
 }
 
@@ -200,17 +201,18 @@ function chapterRefObserved(continuation, query) {
 }
 
 function scopeClosesExploration(finalScope) {
-  const content = text(finalScope?.content);
+  const content = text(finalScope?.text);
   return content.includes("只读探索当前允许：false") && content.includes("只读探索预算已用尽");
 }
 
 function applicationBaseIsClean(bases) {
-  return bases.length > 0 && bases.every((message) => !text(message.content).includes(LAST_PAGE_ANCHOR));
+  return bases.length > 0 && bases.every((message) => !text(message.text).includes(LAST_PAGE_ANCHOR));
 }
 
-function nativeRequestMeasurement(bodies, observations, previous, continuation, query) {
+function nativeRequestMeasurement(factsList, observations, previous, continuation, query) {
   return {
-    request_count: bodies.length,
+    request_count: factsList.length,
+    unreadable_request_count: factsList.filter((facts) => !facts.ok).length,
     observation_count: observations.length,
     continuation_call_id: continuation ? continuation.call_id : null,
     continuation_chapter_ref: query ? query.chapter_ref ?? null : null,
@@ -218,42 +220,45 @@ function nativeRequestMeasurement(bodies, observations, previous, continuation, 
   };
 }
 
-function strictRequestPrefix(bodies) {
-  return bodies.slice(1).every((body, index) => {
-    const previous = bodies[index];
-    if (!body || !previous) return false;
+function normalizeRequestFacts(input) {
+  return list(input).map((entry) =>
+    entry && entry.format !== undefined && entry.rawBody !== undefined
+      ? entry
+      : requestFactsFromBody(entry));
+}
+
+function strictRequestPrefix(factsList) {
+  return factsList.slice(1).every((facts, index) => {
+    const previous = factsList[index];
+    if (!facts?.ok || !previous?.ok) return false;
     const previousMessages = list(previous.messages);
     return (
-      same(list(body.messages).slice(0, previousMessages.length), previousMessages) &&
-      same(body.tools, previous.tools)
+      same(list(facts.messages).slice(0, previousMessages.length), previousMessages) &&
+      same(facts.tools, previous.tools)
     );
   });
 }
 
-export function nativeRequestChecks(bodies) {
-  const exchanges = requestExchanges(bodies);
+export function nativeRequestChecks(input) {
+  const factsList = normalizeRequestFacts(input);
+  const exchanges = requestExchanges(factsList);
   const observations = observationsOf(exchanges);
   const { previous, continuation, query } = continuationFacts(observations);
-  const lastBody = bodies.at(-1);
-  const finalScope = list(lastBody?.messages).filter((message) =>
-    text(message?.content).startsWith("【应用数据 · scope_update"),
-  ).at(-1);
-  const bases = bodies.flatMap((body) => list(body?.messages)).filter((message) =>
-    text(message?.content).startsWith("【应用数据 · application_base"),
-  );
+  const finalScope = list(factsList.at(-1)?.scopeMessages).at(-1) ?? null;
+  const bases = factsList.flatMap((facts) => list(facts.applicationBases));
 
   return {
     checks: {
-      at_least_three_native_model_calls: bodies.length >= 3,
+      at_least_three_native_model_calls: factsList.length >= 3 && factsList.every((facts) => facts.ok),
       every_observation_links_original_tool_call: observationsLinkedAndEnough(exchanges, observations),
       continuation_observation_has_next_offset: Boolean(previous && continuation),
       continuation_query_is_verbatim: continuationQueryIsVerbatim(previous, continuation, query),
       observation_has_real_chapter_ref: chapterRefObserved(continuation, query),
-      request_messages_keep_strict_prefix: strictRequestPrefix(bodies),
+      request_messages_keep_strict_prefix: strictRequestPrefix(factsList),
       latest_scope_closes_exploration: scopeClosesExploration(finalScope),
       application_base_does_not_duplicate_observation: applicationBaseIsClean(bases),
     },
-    measured: nativeRequestMeasurement(bodies, observations, previous, continuation, query),
+    measured: nativeRequestMeasurement(factsList, observations, previous, continuation, query),
   };
 }
 
@@ -267,22 +272,46 @@ export function bodyToolNames(body) {
     .filter(Boolean);
 }
 
-function stageBody(bodies, name) {
-  return bodies.filter((body) => bodyToolNames(body).includes(name)).at(-1);
+function stageBody(factsList, name) {
+  return factsList.filter((facts) => bodyToolNames(facts).includes(name)).at(-1);
+}
+
+function canonicalToolCalls(message) {
+  return list(message?.blocks)
+    .filter((block) => block?.type === "tool_call")
+    .map((block) => ({ id: block.call_id ?? null, name: block.name ?? null }));
+}
+
+function wireToolCalls(message) {
+  if (message?.tool_calls !== undefined && !Array.isArray(message.tool_calls)) {
+    return [{ id: null, name: null }];
+  }
+  return list(message?.tool_calls).map((call) => {
+    // 空调用是坏证据：保留为不可匹配的占位，让阶段顺序失败而不是静默丢弃。
+    if (!call) return { id: null, name: null };
+    return {
+      id: call.id ?? null,
+      name: call.function ? call.function.name ?? call.name : call.name,
+    };
+  });
+}
+
+function messageToolCalls(message) {
+  return Array.isArray(message?.blocks)
+    ? canonicalToolCalls(message)
+    : wireToolCalls(message);
 }
 
 export function nativeCalls(messages) {
-  return list(messages).flatMap((message) => {
-    if (!message) return [];
-    return list(message.tool_calls)
-      .filter((call) => call !== null && call !== undefined)
-      .map((call) => (call.function ? call.function.name ?? call.name : call.name))
-      .filter(Boolean);
-  });
+  return list(messages).flatMap((message) => messageToolCalls(message).map((call) => call.name))
+    .filter(Boolean);
 }
 
 export function resultBlocks(messages, type) {
   return list(messages).flatMap((message) => {
+    if (Array.isArray(message?.blocks)) {
+      return message.blocks.filter((block) => block?.type === type);
+    }
     if (message?.role !== "tool" || typeof message.content !== "string") return [];
     const payload = parseJson(message.content);
     return payload?.type === type ? [payload] : [];
@@ -313,17 +342,7 @@ function persistedStageCalls(messages) {
 }
 
 function observedStageCalls(qualityMessages) {
-  return list(qualityMessages).flatMap((message) => {
-    if (!message) return [];
-    return list(message.tool_calls).map((call) => {
-      // 空调用是坏证据：保留为不可匹配的占位，让阶段顺序失败而不是静默丢弃。
-      if (!call) return { id: null, name: null };
-      return {
-        id: call.id,
-        name: call.function ? call.function.name ?? call.name : call.name,
-      };
-    });
-  });
+  return list(qualityMessages).flatMap((message) => messageToolCalls(message));
 }
 
 function lastCallName(calls) {
@@ -349,7 +368,7 @@ export function nativeStageHistoryPreserved(messages, qualityMessages) {
 }
 
 const strictPrefix = (previous, next) => {
-  if (!previous || !next) return false;
+  if (!previous?.ok || !next?.ok) return false;
   return same(
     list(next.messages).slice(0, list(previous.messages).length),
     list(previous.messages),
@@ -360,9 +379,19 @@ function continuationPrefixes(continuation, writer, quality) {
   return strictPrefix(continuation, writer) && strictPrefix(writer, quality);
 }
 
+function requestCallNames(facts) {
+  return list(facts?.toolCalls).map((call) => call.name).filter(Boolean);
+}
+
+function requestResults(facts, type) {
+  return list(facts?.toolResults)
+    .filter((result) => result.type === type)
+    .map((result) => result.payload);
+}
+
 function plannerCallsReachWriter(writer) {
   if (!writer) return false;
-  const calls = nativeCalls(writer.messages);
+  const calls = requestCallNames(writer);
   return ["agent_plan_draft", "chapter_mission"].every((name) => calls.includes(name));
 }
 
@@ -374,7 +403,7 @@ function passedValidationBoundary(result) {
 
 function plannerValidationsReachWriter(writer) {
   if (!writer) return false;
-  const results = resultBlocks(writer.messages, "validation_result");
+  const results = requestResults(writer, "validation_result");
   return ["agent_plan_validated", "chapter_mission_validated"].every((reason) =>
     results.some((result) => result.reason_code === reason && passedValidationBoundary(result)),
   );
@@ -391,7 +420,7 @@ function qualityOffersOnlyQuality(quality) {
 }
 
 function writerCallReachesQuality(quality) {
-  return Boolean(quality) && nativeCalls(quality.messages).includes("submit_tentative_artifact");
+  return Boolean(quality) && requestCallNames(quality).includes("submit_tentative_artifact");
 }
 
 function durableStageOrderMatches(durable, quality) {
@@ -406,11 +435,11 @@ function durableClosurePassed(validations) {
 }
 
 export function continuationRequestChecks(records, durable) {
-  const bodies = requestBodiesOf(records);
-  const continuation = stageBody(bodies, "continuation_decision");
-  const writer = stageBody(bodies, "submit_tentative_artifact");
-  const quality = stageBody(bodies, "report_quality_findings");
-  const writerValidations = resultBlocks(quality?.messages, "validation_result").filter(
+  const factsList = requestFactsOf(records);
+  const continuation = stageBody(factsList, "continuation_decision");
+  const writer = stageBody(factsList, "submit_tentative_artifact");
+  const quality = stageBody(factsList, "report_quality_findings");
+  const writerValidations = requestResults(quality, "validation_result").filter(
     (result) =>
       result.reason_code === "tentative_artifact_validated" && result.status === "passed",
   );
@@ -433,7 +462,8 @@ export function continuationRequestChecks(records, durable) {
       durable_checkpoint_closes_writer_and_quality: durableClosurePassed(validations),
     },
     measured: {
-      request_count: bodies.length,
+      request_count: factsList.length,
+      unreadable_request_count: factsList.filter((facts) => !facts.ok).length,
       writer_tool_history: calls,
       durable_validation_reasons: validations.map((result) => result.reason_code),
     },
@@ -441,9 +471,9 @@ export function continuationRequestChecks(records, durable) {
 }
 
 export function characterRequestChecks(records, durable) {
-  const bodies = requestBodiesOf(records);
-  const judgment = stageBody(bodies, "judgment_decision");
-  const writer = stageBody(bodies, "submit_tentative_artifact");
+  const factsList = requestFactsOf(records);
+  const judgment = stageBody(factsList, "judgment_decision");
+  const writer = stageBody(factsList, "submit_tentative_artifact");
   const calls = canonicalCalls(durable?.messages).filter((name) =>
     ["judgment_decision", "submit_tentative_artifact"].includes(name),
   );
@@ -463,7 +493,8 @@ export function characterRequestChecks(records, durable) {
         ),
     },
     measured: {
-      request_count: bodies.length,
+      request_count: factsList.length,
+      unreadable_request_count: factsList.filter((facts) => !facts.ok).length,
       native_tool_history: calls,
       durable_validation_reasons: validations.map((result) => result.reason_code),
     },

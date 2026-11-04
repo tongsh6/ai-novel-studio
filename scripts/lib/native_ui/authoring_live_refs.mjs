@@ -5,7 +5,10 @@
 // `decision_traces.context_refs` 读取；observation 从 `agent_events.refs`（真实工具观察）
 // 读取；base（supplied）从真实请求的应用数据消息读取。wire 启发式只作观测辅助。
 // 无法提取 used 时记 null（unknown，不假过）。
-import { recordRequestMessages } from "./live_run_wait.mjs";
+import {
+  AUTHORING_REQUEST_IR,
+  requestFactsFromRecord,
+} from "./authoring_request_facts.mjs";
 
 export const LIVE_REFS_SCHEMA = "b71-live-refs/v1";
 
@@ -36,19 +39,44 @@ function messageContent(message) {
 
 // supplied(refs)：真实请求中应用数据（application_base/scope_update/application_notice）
 // 与 tool 观察的边界；tool 消息归 observation（真实工具结果回流），其余应用数据归 base。
+function addRefs(target, value) {
+  for (const ref of extractRefTokens(value)) target.add(ref);
+}
+
+function collectIrMessageRefs(message, base, observation) {
+  if (message.role === "tool") {
+    for (const result of message.toolResults) {
+      addRefs(observation, JSON.stringify(result.payload));
+    }
+    return;
+  }
+  if (!["application_base", "scope_update", "application_notice"].includes(message.role)) return;
+  addRefs(base, message.text);
+}
+
+function collectNativeMessageRefs(message, base, observation) {
+  if (message.role === "tool") {
+    addRefs(observation, messageContent(message.raw));
+    return;
+  }
+  if (message.role !== "user") return;
+  const content = messageContent(message.raw);
+  if (content.startsWith(APPLICATION_PREFIX)) addRefs(base, content);
+}
+
+function collectRecordRefs(facts, base, observation) {
+  for (const message of facts.messageFacts) {
+    if (facts.format === AUTHORING_REQUEST_IR) collectIrMessageRefs(message, base, observation);
+    else collectNativeMessageRefs(message, base, observation);
+  }
+}
+
 export function collectWireRefs(llmRecords) {
   const base = new Set();
   const observation = new Set();
   for (const record of Array.isArray(llmRecords) ? llmRecords : []) {
-    for (const message of recordRequestMessages(record) ?? []) {
-      const content = messageContent(message);
-      if (message?.role === "tool") {
-        for (const ref of extractRefTokens(content)) observation.add(ref);
-        continue;
-      }
-      if (message?.role !== "user" || !content.startsWith(APPLICATION_PREFIX)) continue;
-      for (const ref of extractRefTokens(content)) base.add(ref);
-    }
+    const facts = requestFactsFromRecord(record);
+    if (facts.ok) collectRecordRefs(facts, base, observation);
   }
   return { base_refs: [...base].sort(), observation_refs: [...observation].sort() };
 }

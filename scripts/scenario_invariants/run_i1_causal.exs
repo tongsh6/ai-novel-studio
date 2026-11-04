@@ -7,8 +7,9 @@
 #   MIX_ENV=test mix run scripts/scenario_invariants/run_i1_causal.exs
 #
 # 设计：
-# - driver 注入 traced provider execution dependency，包裹 `NovelAgent.Provider.Gateway.complete/1`。
-#   每次调用记录 (provider_call_id, prompt, raw_response) 到 Agent。返回 map 附
+# - driver 注入 traced provider execution dependency，包裹 `NovelAgent.Provider.Execution.complete/1`
+#   （canonical Request IR 入参）。每次调用记录 (provider_call_id, prompt, raw_response) 到
+#   Agent。返回 map 附
 #   :provider_call_id —— Toolbox.handle_provider_content 从中取出，写入每个
 #   item 的 :provider_call_ref。
 # - 跑 N 个 case，对每个 artifact item 做 forall-exists 精确字节判定：
@@ -25,7 +26,6 @@ defmodule I1CausalDriver do
   @moduledoc false
 
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.Result, as: ProviderResult
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
@@ -64,7 +64,9 @@ defmodule I1CausalDriver do
     summary = summarize(results)
     IO.puts("\n" <> summary.line)
 
-    if summary.failed > 0 or summary.errored > 0 do
+    # indeterminate（本轮没有产出 artifact item）不是豁免：迁移断裂时它会让 CI 绿着
+    # 假过。只有真实产出项且逐项字节判定通过才算 pass。
+    if summary.failed > 0 or summary.errored > 0 or summary.indeterminate > 0 do
       System.halt(1)
     end
   end
@@ -176,21 +178,24 @@ defmodule I1CausalDriver do
 
   # ── traced result_fn ──
   #
-  # wrap Gateway.complete/1，每次调用：
+  # wrap Execution.complete/1（canonical Request IR），每次调用：
   # 1. 生成 provider_call_id
   # 2. 调真实 Gateway（test env 是 NovelAgent.Provider.Stub）
   # 3. 记录 (call_id, prompt, raw_response) 到 Agent
-  # 4. 返回 map 附 :provider_call_id 让 Toolbox.handle_provider_content 提取写入 items
+  # 4. 以同一次结果里的真实 provider_call_ref 为 trace 键，写回产品链
 
   # 判断纪元协议是双段 native tool call：包裹必须整形保留 Gateway 结果的全部字段
   # （尤其 tool_calls / provider_output），只附加 provider_call_id 供
   # Toolbox.handle_provider_content 写入 items 的 provider_call_ref。
   defp build_traced_result_fn(trace_agent) do
     fn prompt ->
-      call_id = "pc_" <> Integer.to_string(System.unique_integer([:positive, :monotonic]))
-
-      case Gateway.complete(prompt) do
+      case Execution.complete(prompt) do
         {:ok, %ProviderResult{content: content, tool_calls: tool_calls} = result} ->
+          # 真实执行引用是单一事实源：Gateway/adapter 在同一次结果里给出
+          # provider_call_ref，产品 item 的 provider_call_ref 也取自这里。
+          # 不能自造另一个 id，否则 trace 与产品事实对不上（I1 假失败/假通过）。
+          call_id = result.provider_call_ref || result.provider_run_ref
+
           raw_response =
             if tool_calls in [nil, []], do: content, else: %{tool_calls: tool_calls}
 
@@ -199,13 +204,6 @@ defmodule I1CausalDriver do
           end)
 
           {:ok, result |> Map.from_struct() |> Map.put(:provider_call_id, call_id)}
-
-        {:ok, content} when is_binary(content) ->
-          Agent.update(trace_agent, fn calls ->
-            [%{provider_call_id: call_id, prompt: prompt, raw_response: content} | calls]
-          end)
-
-          {:ok, %{content: content, provider_call_id: call_id}}
 
         {:error, _} = err ->
           err

@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { CONFIRMATION_REQUEST } from "./authoring_confirmation_constants.mjs";
+import { irBodyFromWire } from "./fixtures/authoring_request_ir.mjs";
 import {
   confirmationCardLines,
   evaluateConfirmation,
@@ -1171,7 +1172,11 @@ test("AX 断言层：text.txt 可见文本同样扫描真实内部 token", () =>
 
 
 test("C8 红：application-data 冒充作者/字节改写/按钮文案/重复作者消息", () => {
-  const records = (messages) => [{ provider: "slice_verify", request_body: { messages } }];
+  const records = (messages) => [{
+    provider: "slice_verify",
+    request_format: "authoring-request-ir/v1",
+    request_body: irBodyFromWire({ messages }),
+  }];
   const appOnly = evaluate("confirm", {
     llmRecords: records([{ role: "user", content: "【应用数据 · application_base】材料" }]),
   });

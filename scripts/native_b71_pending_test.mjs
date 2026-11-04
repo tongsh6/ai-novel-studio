@@ -22,6 +22,7 @@ import {
 } from "./lib/native_ui/authoring_pending_evidence.mjs";
 import { capturePending, verifyPendingBatch } from "./lib/native_ui/authoring_pending_run_evidence.mjs";
 
+import { irBodyFromWire } from "./lib/native_ui/fixtures/authoring_request_ir.mjs";
 const SLICE_ID = "b71-authoring-pending";
 const WORK = "11111111-1111-4111-8111-111111111111";
 const WORKSPACE = WORK;
@@ -215,15 +216,15 @@ function llmRecord({ pcall, prun, runId, parentTurn, promptText, response }) {
     work_id: WORK,
     session_id: SESSION,
     turn_id: parentTurn,
-    request_format: "provider_prompt/v1",
+    request_format: "authoring-request-ir/v1",
     response_format: "fixture_provider_result/v1",
-    request_body: {
+    request_body: irBodyFromWire({
       messages: [
         { role: "system", content: "system" },
         { role: "user", content: promptText },
       ],
       tools: [{ name: "judgment_decision" }],
-    },
+    }),
     response,
     ts: nowIso(),
     agent_run_id: runId,
@@ -911,11 +912,13 @@ export async function buildBatch() {
   const callFile = path.join(dir, "llm-calls", "calls.jsonl");
   const records = fs.readFileSync(callFile, "utf8").split("\n").filter(Boolean).map(JSON.parse);
   const last = records.at(-1);
-  last.request_body.messages = [
-    { role: "system", content: "system" },
-    { role: "user", content: FOLLOWUP_TEXT },
-    { role: "user", content: scopeText(followupFacts()) },
-  ];
+  last.request_body = irBodyFromWire({
+    messages: [
+      { role: "system", content: "system" },
+      { role: "user", content: FOLLOWUP_TEXT },
+      { role: "user", content: scopeText(followupFacts()) },
+    ],
+  });
   writeJsonl(callFile, records);
   const db2 = openDb(dir);
   dbExec(db2, "INSERT INTO decision_traces (trace_id, turn_id, session_id) VALUES (?, ?, ?)", [`trace-${FOLLOWUP_TURN}`, FOLLOWUP_TURN, SESSION]);
@@ -1071,7 +1074,9 @@ test("followup 请求缺少真实处置状态不能通过", () => {
   const file = path.join(dir, "llm-calls", "calls.jsonl");
   const rows = fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map(JSON.parse);
   const last = rows.at(-1);
-  last.request_body.messages = last.request_body.messages.filter((message) => !String(message.content).includes("## 消息处置与已有产物"));
+  last.request_body.messages = last.request_body.messages.filter(
+    (message) => !(message.blocks ?? []).some((block) => String(block.text).includes("## 消息处置与已有产物")),
+  );
   writeJsonl(file, rows);
   assert.throws(() => verifyPendingBatch(dir), /scope facts/);
 });
@@ -1080,7 +1085,13 @@ test("followup 回放旧 assistant 历史不能通过", () => {
   const dir = cloneBatch(shared);
   const file = path.join(dir, "llm-calls", "calls.jsonl");
   const rows = fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map(JSON.parse);
-  rows.at(-1).request_body.messages.push({ role: "assistant", content: "旧工具调用历史" });
+  rows.at(-1).request_body.messages.push({
+    role: "assistant",
+    provenance: "model",
+    blocks: [{ type: "text", text: "旧工具调用历史" }],
+    source_refs: [],
+    versions: {},
+  });
   writeJsonl(file, rows);
   assert.throws(() => verifyPendingBatch(dir), /followup_request_is_new_boundary/);
 });

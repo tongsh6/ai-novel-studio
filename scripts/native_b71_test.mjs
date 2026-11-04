@@ -25,6 +25,7 @@ import { main } from "./native_b71_evidence.mjs";
 // Why 面板文案直接消费前端 SSOT，避免正例 fixture 与产品 copy 漂移（Node 24 原生剥离类型）。
 import { TRACE as COPY_TRACE } from "../frontend/src/lib/copy.ts";
 
+import { irBodyFromWire } from "./lib/native_ui/fixtures/authoring_request_ir.mjs";
 const WORK = "11111111-1111-4111-8111-111111111111";
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
 const SESSION = "33333333-3333-4333-8333-333333333333";
@@ -401,28 +402,29 @@ function buildBatch(overrides = {}) {
     {
       provider: "slice_verify", ts: iso(1), provider_call_ref: "pcall-source", provider_run_ref: "prun-source",
       work_id: WORK, session_id: SESSION, turn_id: USER_TURN,
-      request_format: "provider_prompt/v1", response_format: "fixture_provider_result/v1",
-      request_body: { messages: [{ role: "user", content: "source" }] },
+      request_format: "authoring-request-ir/v1", response_format: "fixture_provider_result/v1",
+      request_body: irBodyFromWire({ messages: [{ role: "user", content: "source" }] }),
       response: { status: "ok", body: { content: "", tool_calls: [{ id: "call-source", name: "submit_tentative_artifact", arguments: { items: [sourceItem] } }] } },
     },
     {
       provider: "slice_verify", ts: iso(2), provider_call_ref: "pcall-1", provider_run_ref: "prun-1",
       work_id: WORK, session_id: SESSION, turn_id: SOURCE_TURN,
-      request_format: "provider_prompt/v1", response_format: "fixture_provider_result/v1",
-      request_body: { messages: firstRequest },
+      request_format: "authoring-request-ir/v1", response_format: "fixture_provider_result/v1",
+      request_body: irBodyFromWire({ messages: firstRequest }),
       response: { status: "ok", body: { content: "", tool_calls: [{ id: "call-1", name: "submit_tentative_artifact", arguments: {} }] } },
     },
     {
       provider: "slice_verify", ts: iso(3), provider_call_ref: "pcall-2", provider_run_ref: "prun-2",
       work_id: WORK, session_id: SESSION, turn_id: SOURCE_TURN,
-      request_format: "provider_prompt/v1", response_format: "fixture_provider_result/v1",
-      request_body: {
+      request_format: "authoring-request-ir/v1", response_format: "fixture_provider_result/v1",
+      request_body: irBodyFromWire({
         messages: [
           ...firstRequest,
           { role: "assistant", content: "", tool_calls: [{ id: "call-1", type: "function", function: { name: "submit_tentative_artifact", arguments: "{}" } }] },
           failedTool,
         ],
-      },
+        tool_choice: { type: "function", function: { name: "submit_tentative_artifact" } },
+      }),
       response: { status: "ok", body: { content: "", tool_calls: [{ id: "call-2", name: "submit_tentative_artifact", arguments: { items: [revisionItem] } }] } },
     },
   ];

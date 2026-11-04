@@ -8,9 +8,10 @@
 #   MIX_ENV=test mix run scripts/scenario_invariants/run_i3_nonce.exs
 #
 # 设计：
-# - driver 通过 provider execution dependency 注入 `&NovelAgent.Provider.Gateway.complete/1`。
-#   MIX_ENV=test 时默认 provider 是 NovelAgent.Provider.Stub（合法 fixture），
-#   它根据 prompt 自动返回最小合法 JSON 并把 user 文本（含 nonce）字节透传。
+# - driver 通过 provider execution dependency 注入 `&NovelAgent.Provider.Execution.complete/1`
+#   （canonical Request IR 入参）。MIX_ENV=test 时默认 provider 是
+#   NovelAgent.Provider.Stub（合法 fixture），它根据 IR 自动返回最小合法 JSON 并把
+#   user 文本（含 nonce）字节透传。
 # - 通过判断纪元真实主链注入 N 个独立输入（DialoguePlanningService.plan_agent_run
 #   → AgentRunService.start_bounded 判断循环）
 # - 每个输入嵌入一次性随机 nonce
@@ -28,7 +29,6 @@ defmodule I3NonceDriver do
   @moduledoc false
 
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.Gateway
   alias NovelAgent.Toolbox
   alias NovelApplication.AgentRunService
   alias NovelApplication.AuthoringTaskBuilder
@@ -64,7 +64,9 @@ defmodule I3NonceDriver do
     summary = summarize(results)
     IO.puts("\n" <> summary.line)
 
-    if summary.failed > 0 or summary.errored > 0 do
+    # Layer-B indeterminate（该层没有任何可观察文本）不是豁免：迁移断裂时它会让
+    # driver 以 0 退出却什么都没证明。只有真实观察到 nonce 才算 pass。
+    if summary.failed > 0 or summary.errored > 0 or summary.indeterminate > 0 do
       System.halt(1)
     end
   end
@@ -394,9 +396,10 @@ defmodule I3NonceDriver do
 
   # ── result_fn 注入 ──
   #
-  # SI-002 起：driver 不再自行 mock LLM 响应，而是直接走 `Gateway.complete/1`。
+  # SI-002 起：driver 不再自行 mock LLM 响应，而是直接走 `Execution.complete/1`
+  # （canonical Request IR，生产 result_fn 同一边界）。
   # 在 MIX_ENV=test 下默认 provider 是 `NovelAgent.Provider.Stub`，它已被升级为合法
-  # fixture provider（识别 frame/plan/creative items prompt，分别返回最小合法
+  # fixture provider（识别 frame/plan/creative items canonical IR，分别返回最小合法
   # JSON，并把 user 输入字节透传到 creative items 的 body）。
   #
   # 这样 driver 只负责"像用户一样输入 + 检查输出"，stub 的 fixture 角色集中在
@@ -404,7 +407,7 @@ defmodule I3NonceDriver do
   #
   # 注：参数 nonce 保留是为了未来扩展（SI-003/004 可能需要在 closure 里持有 nonce）。
 
-  defp build_stub_result_fn(_nonce), do: &Gateway.complete/1
+  defp build_stub_result_fn(_nonce), do: &Execution.complete/1
 
   # ── nonce ──
 

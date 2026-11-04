@@ -24,7 +24,7 @@ function record(messages, overrides = {}) {
     turn_id: TURN,
     provider_call_ref: overrides.provider_call_ref ?? "pcall_1",
     provider: "strata",
-    request_body: overrides.request_body ?? { messages, tools: [], tool_choice: "auto" },
+    request: { body: overrides.request_body ?? { messages, tools: [], tool_choice: "auto" } },
     response:
       overrides.response ?? {
         status: 200,

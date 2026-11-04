@@ -4,9 +4,9 @@
 // ProviderRun.provider_call_ref === pcall。turn/time/tool name/hash 都不参与绑定；
 // canonical 定位使用 assistant 顶层 provider_call_ref/provider_run_ref，而不是仅 call_id。
 import assert from "node:assert/strict";
+import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
 import { all, withDb } from "./scenario_evidence.mjs";
 
-export const FIXTURE_REQUEST_FORMAT = "provider_prompt/v1";
 export const FIXTURE_RESPONSE_FORMAT = "fixture_provider_result/v1";
 
 const SCOPE_FIELDS = Object.freeze([
@@ -93,15 +93,15 @@ function verifyOwnership(row, scope, add) {
   return true;
 }
 
-function formatFieldsFailure(record) {
-  return record.request_format === FIXTURE_REQUEST_FORMAT &&
-    record.response_format === FIXTURE_RESPONSE_FORMAT
-    ? null
-    : "unsupported";
+// 请求只按实际 source format 读取：fixture canonical IR 或真实原生 wire。
+// 退役/未知格式、坏 body 都显式 unsupported，不回退旧 Chat 读取。
+function requestFailure(record) {
+  const facts = requestFactsFromRecord(record);
+  return facts.ok ? null : "unsupported";
 }
 
-function requestBodyFailure(record) {
-  return isRecord(record.request_body) && Array.isArray(record.request_body.messages)
+function formatFieldsFailure(record) {
+  return record.response_format === FIXTURE_RESPONSE_FORMAT
     ? null
     : "unsupported";
 }
@@ -133,7 +133,7 @@ function responseFailure(record) {
 function validateResponseFormat(record) {
   return (
     formatFieldsFailure(record) ??
-    requestBodyFailure(record) ??
+    requestFailure(record) ??
     responseFailure(record)
   );
 }

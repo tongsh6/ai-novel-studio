@@ -20,8 +20,11 @@ import {
 } from "./scenario_evidence.mjs";
 import { readConfig } from "./authoring_capture_evidence.mjs";
 import {
+  NATIVE_CHAT_WIRE,
+  requestFactsFromRecord,
+} from "./authoring_request_facts.mjs";
+import {
   notSignedSlices,
-  recordRequestMessages,
   recordResponseToolCalls,
   recordUsageFacts,
   summarizeModelBehavior,
@@ -50,13 +53,19 @@ function messageContent(message) {
   return "";
 }
 
+// 实模只消费真实原生 wire；fixture IR 是另一条现役来源，不能被当作 Chat wire。
+function nativeRequest(record) {
+  const facts = requestFactsFromRecord(record);
+  return facts.ok && facts.format === NATIVE_CHAT_WIRE ? facts : null;
+}
+
 function messagesOf(record) {
-  const messages = recordRequestMessages(record);
+  const facts = nativeRequest(record);
   assert(
-    Array.isArray(messages),
-    `llm-calls 记录缺 request messages（request_body 或 request.body）：${record?.provider_call_ref ?? "unknown"}`,
+    facts !== null,
+    `llm-calls 记录缺可读原生 request messages：${record?.provider_call_ref ?? "unknown"}`,
   );
-  return messages;
+  return facts.messages;
 }
 
 function isApplicationMessage(message) {
@@ -112,10 +121,10 @@ function extractRefs(value) {
 }
 
 function orderedRecords(records, turnId) {
-  // 双形状：确定性记录用 request_body，真实 strata 记录用 request.body；
-  // 只要记录携带可读 request messages 就属于同一 turn 的真实请求序列。
+  // 实模只认真实 strata 记录的 request.body 原生 wire；fixture canonical IR
+  // 由 authoring_request_facts 的 explicit source format 分支消费，不能混作 Chat。
   return records
-    .filter((record) => record?.turn_id === turnId && recordRequestMessages(record) !== null)
+    .filter((record) => record?.turn_id === turnId && nativeRequest(record) !== null)
     .sort((left, right) => String(left.ts ?? "").localeCompare(String(right.ts ?? "")));
 }
 
@@ -129,7 +138,7 @@ function runKeyOf(turnId) {
 function runSequences(records) {
   const byRun = new Map();
   for (const record of records) {
-    if (recordRequestMessages(record) === null) continue;
+    if (nativeRequest(record) === null) continue;
     const key = runKeyOf(record.turn_id);
     const list = byRun.get(key) ?? [];
     list.push(record);

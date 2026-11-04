@@ -893,3 +893,39 @@ test("canon 内容口径：仅账面列变化不算表变化，内容列变化�
   );
   assert.equal(canonTableSignature(base, "missing"), null);
 });
+
+test("canonical IR scope_update 直接按 role/provenance/blocks 读取，未知格式不代签", () => {
+  const facts = {
+    pending_adoptions: [],
+    resolved_adoptions: [],
+    pending_adoption_count: 0,
+    resolved_adoption_count: 0,
+    omitted_adoptions: 0,
+  };
+  const text = ["## 消息处置与已有产物", JSON.stringify(facts), "## 当前范围", "无"].join("\n");
+  const ir = {
+    ir_version: "authoring-request-ir/v1",
+    messages: [
+      {
+        role: "user",
+        provenance: "author",
+        blocks: [{ type: "text", text: "作者原话" }],
+        source_refs: [],
+        versions: {},
+      },
+      {
+        role: "scope_update",
+        provenance: "application",
+        blocks: [{ type: "text", text }],
+        source_refs: [],
+        versions: { scope_revision: 1 },
+      },
+    ],
+    tools: [],
+    projection: { tool_choice: null },
+    refs: {},
+  };
+  assert.deepEqual(scopeFactsFromRequest(ir), facts);
+  assert.equal(scopeFactsFromRequest({ ...ir, ir_version: undefined }), null);
+  assert.equal(scopeFactsFromRequest({ request_format: "provider_prompt/v1" }), null);
+});

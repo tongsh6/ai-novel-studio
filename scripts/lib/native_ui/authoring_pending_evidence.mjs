@@ -11,6 +11,7 @@
 // - 新请求必须消费真实 ACCEPTED/DISCARDED refs/状态，回复必须等于同次 Provider 原字节；
 // - canon 分段只允许真实作者动作带来的精确 memory/receipt 增量，其余事实逐表不变。
 import { compareAuthoringCanonSnapshots } from "./authoring_canon_evidence.mjs";
+import { requestFactsFromBody } from "./authoring_request_facts.mjs";
 import {
   actionResultBindsArtifact,
   actionResultIdentityFor,
@@ -653,16 +654,7 @@ function sectionText(content) {
   return match === null ? null : match[1];
 }
 
-const APPLIED_SCOPE_PREFIX = "【应用数据 · scope_update";
 
-function isAppliedScopeMessage(message) {
-  const content = get(message, "content");
-  return (
-    get(message, "role") === "user" &&
-    typeof content === "string" &&
-    content.trimStart().startsWith(APPLIED_SCOPE_PREFIX)
-  );
-}
 
 function parseFacts(value) {
   try {
@@ -692,9 +684,11 @@ function factsInSection(section) {
 // 状态只属于最新一条真实应用的 scope_update 消息；作者原话、历史 scope、其它
 // 位置引用的同名 JSON 都不授权。最新 scope 缺 section/非法 JSON 就是缺证据。
 export function scopeFactsFromRequest(requestBody) {
-  const scopes = list(get(requestBody, "messages")).filter(isAppliedScopeMessage);
-  if (scopes.length === 0) return null;
-  const section = sectionText(get(scopes.at(-1), "content"));
+  // 请求只按 source format 读一次：IR 直接用 scope_update 的 blocks/versions，
+  // 原生 wire 保留原应用数据 marker 边界；未知/坏 body 返回 null 令调用方缺证据。
+  const facts = requestFactsFromBody(requestBody);
+  if (!facts.ok || facts.scopeMessages.length === 0) return null;
+  const section = sectionText(facts.scopeMessages.at(-1).text);
   return section === null ? null : factsInSection(section);
 }
 

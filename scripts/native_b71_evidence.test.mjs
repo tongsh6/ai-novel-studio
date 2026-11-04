@@ -11,6 +11,7 @@ import {
   buildAuthoringCanonSnapshot,
 } from "./lib/native_ui/authoring_canon_evidence.mjs";
 import { planningProtocolEvidence, providerFreeInterval } from "./lib/native_ui/authoring_planning_evidence.mjs";
+import { irBodyFromWire } from "./lib/native_ui/fixtures/authoring_request_ir.mjs";
 
 const history = [
   ["judge", "judgment_decision"],
@@ -532,14 +533,19 @@ const canonicalAssistant = (n, blocks) => ({
 });
 const callExchange = (n, requestBody, calls, turnId = `${CALL_PARENT}:agent:unrelated-${n}`) => ({
   provider: "slice_verify",
-  request_format: "provider_prompt/v1",
+  request_format: "authoring-request-ir/v1",
   response_format: "fixture_provider_result/v1",
   provider_call_ref: `pcall-${n}`,
   provider_run_ref: `prun-${n}`,
   work_id: CALL_WORK,
   session_id: CALL_SESSION,
   turn_id: turnId,
-  request_body: requestBody,
+  request_body: irBodyFromWire({
+    messages: requestBody.messages,
+    tools: requestBody.tools,
+    tool_choice: requestBody.tool_choice,
+    run: callScope,
+  }),
   response: { status: "ok", body: { content: "", tool_calls: calls } },
 });
 

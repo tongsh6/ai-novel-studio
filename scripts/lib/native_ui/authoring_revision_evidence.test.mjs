@@ -21,6 +21,7 @@ import {
   sourceMissionEvents,
 } from "./authoring_revision_evidence.mjs";
 
+import { irBodyFromWire } from "./fixtures/authoring_request_ir.mjs";
 const TOPIC = "workspace:owned";
 const FOREIGN = "workspace:foreign";
 const AT = "2026-11-02T03:40:01.000Z";
@@ -1011,7 +1012,7 @@ test("retryExchangeChecks 在 firstRequest 缺失而 secondRequest 存在时关�
     transcript: { messages: [call("pcall-1", "call-1"), call("pcall-2", "call-2")] },
     records: [
       { provider_call_ref: "pcall-1" },
-      { provider_call_ref: "pcall-2", request_body: { messages: [] } },
+      { provider_call_ref: "pcall-2", request: { body: { messages: [] } } },
     ],
   });
   assert.equal(result.checks.second_request_is_strict_first_prefix, false);
@@ -1026,7 +1027,7 @@ test("requestCarries 把空白 findingInstruction 视为无要求，非空缺失
   };
   const record = {
     provider_call_ref: "pcall-1",
-    request_body: { messages: [{ role: "user", content: "原文\n质量修订要求" }] },
+    request: { body: { messages: [{ role: "user", content: "原文\n质量修订要求" }] } },
     response: { body: { tool_calls: [{ name: "submit_tentative_artifact", arguments: {} }] } },
   };
   const accepted = retryExchangeChecks({
@@ -1335,13 +1336,13 @@ test("第二请求必须逐字携带第一轮 assistant tool_calls 与关联 val
       records: [
         {
           provider_call_ref: "pcall-1",
-          request_body: { messages: firstRequest },
+          request: { body: { messages: firstRequest } },
           response: { body: { tool_calls: [responseCall] } },
         },
         {
           provider_call_ref: "pcall-2",
-          request_body: {
-            messages: [...firstRequest, appendedMessage, failedMessage],
+          request: {
+            body: { messages: [...firstRequest, appendedMessage, failedMessage] },
           },
           response: {
             body: {
@@ -1483,4 +1484,77 @@ test("sourceMissionEvents 只取同 topic/run、接收方向且不早于 source 
   }
   const nullBody = frame("received", AFTER, [null, null, TOPIC, "agent_event", null]);
   assert.deepEqual(sourceMissionEvents([nullBody], { topic: TOPIC, since: AT, runId: "run-source" }), []);
+});
+
+
+test("canonical IR 重试请求按 blocks 证明第一轮 tool_call/validation 原样追加", () => {
+  const originalBody = "他猛地侧身。";
+  const legal = { items: [{ item_id: "item-1", title: "标题", body: "改后。", rationale: "理由" }] };
+  const firstBody = irBodyFromWire({
+    messages: [{ role: "user", content: `原文：${originalBody}\n质量修订要求` }],
+  });
+  const appendedAssistant = {
+    role: "assistant",
+    provenance: "model",
+    blocks: [{ type: "tool_call", call_id: "call-1", name: "submit_tentative_artifact", arguments: {} }],
+    source_refs: [],
+    versions: {},
+  };
+  const appendedValidation = {
+    role: "tool",
+    provenance: "tool_result",
+    blocks: [
+      {
+        type: "validation_result",
+        call_id: "call-1",
+        status: "failed",
+        reason_code: "invalid_items",
+      },
+    ],
+    source_refs: [],
+    versions: {},
+  };
+  const secondBody = {
+    ...firstBody,
+    messages: [...firstBody.messages, appendedAssistant, appendedValidation],
+  };
+  const call = (id, pcall, prun, args) => ({
+    role: "assistant",
+    provider_call_ref: pcall,
+    provider_run_ref: prun,
+    blocks: [{ type: "tool_call", call_id: id, name: "submit_tentative_artifact", arguments: args }],
+  });
+  const validation = (id, status, reason) => ({
+    role: "tool",
+    blocks: [{ type: "validation_result", call_id: id, status, reason_code: reason }],
+  });
+  const result = retryExchangeChecks({
+    originalBody,
+    transcript: {
+      messages: [
+        call("call-1", "pcall-1", "prun-1", {}),
+        validation("call-1", "failed", "invalid_items"),
+        call("call-2", "pcall-2", "prun-2", legal),
+        validation("call-2", "passed", "tentative_artifact_validated"),
+      ],
+    },
+    records: [
+      {
+        provider_call_ref: "pcall-1",
+        request_format: "authoring-request-ir/v1",
+        request_body: firstBody,
+        response: { body: { tool_calls: [{ id: "call-1", name: "submit_tentative_artifact", arguments: {} }] } },
+      },
+      {
+        provider_call_ref: "pcall-2",
+        request_format: "authoring-request-ir/v1",
+        request_body: secondBody,
+        response: { body: { tool_calls: [{ id: "call-2", name: "submit_tentative_artifact", arguments: legal }] } },
+      },
+    ],
+  });
+  assert.equal(result.checks.second_request_is_strict_first_prefix, true);
+  assert.equal(result.checks.second_request_appends_only_native_result, true);
+  assert.equal(result.checks.revision_request_carries_source_bytes_and_findings, true);
+  assert.equal(result.checks.second_response_is_legal_local_revision, true);
 });

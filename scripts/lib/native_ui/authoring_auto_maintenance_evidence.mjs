@@ -44,6 +44,7 @@ export const AUTO_MAINTENANCE_REQUESTS = Object.freeze([
 ]);
 export const AUTO_MAINTENANCE_STOP_EVENT = "checkpoint_created";
 
+import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
 const list = (value) => (Array.isArray(value) ? value : []);
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
@@ -152,13 +153,13 @@ function llmRecordTs(record) {
 }
 
 function messagesOfLlmRecord(record) {
-  const body = record?.request?.body ?? record?.request_body ?? null;
-  return list(body?.messages);
+  const facts = requestFactsFromRecord(record);
+  return facts.ok ? facts.messages : null;
 }
 
 function requestMessagesText(record) {
   const messages = messagesOfLlmRecord(record);
-  return messages.map((message) => JSON.stringify(message)).join("\n");
+  return list(messages).map((message) => JSON.stringify(message)).join("\n");
 }
 
 function inputTokensOf(record) {
@@ -333,12 +334,16 @@ export function evaluateAutoMaintenance({
   const afterRecord = sortedRecords.find((record) => String(llmRecordTs(record)) > firstEventTime) ?? null;
   const afterText = afterRecord ? requestMessagesText(afterRecord) : "";
   const leakedCallIds = coveredCallIds.filter((callId) => afterText.includes(callId));
-  const beforeMessages = beforeRecord ? messagesOfLlmRecord(beforeRecord).length : null;
-  const afterMessages = afterRecord ? messagesOfLlmRecord(afterRecord).length : null;
+  const beforeFacts = beforeRecord ? messagesOfLlmRecord(beforeRecord) : null;
+  const afterFacts = afterRecord ? messagesOfLlmRecord(afterRecord) : null;
+  const beforeMessages = beforeFacts ? beforeFacts.length : null;
+  const afterMessages = afterFacts ? afterFacts.length : null;
   const c5 =
     coveredCallIds.length > 0 && afterRecord
       ? {
-          ok: leakedCallIds.length === 0 && (beforeMessages === null || afterMessages === null || afterMessages <= beforeMessages),
+          ok: afterFacts !== null &&
+            leakedCallIds.length === 0 &&
+            (beforeMessages === null || afterMessages === null || afterMessages <= beforeMessages),
           reason: leakedCallIds.length === 0 ? null : "covered_call_ids_still_in_next_request",
           detail: {
             covered_call_ids: coveredCallIds.slice(0, 20),

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CONFIRMATION_REQUEST } from "../authoring_confirmation_constants.mjs";
+import { irBodyFromWire } from "./authoring_request_ir.mjs";
 
 export const JOIN_REF = "5";
 export const REF = "9";
@@ -416,13 +417,14 @@ export function confirmationInput(mode, overrides = {}) {
     llmRecords: overrides.llmRecords ?? [
       {
         provider: "slice_verify",
-        request_body: {
+        request_format: "authoring-request-ir/v1",
+        request_body: irBodyFromWire({
           messages: [
             { role: "system", content: "system" },
             { role: "user", content: "【应用数据 · application_base · 非作者原话】材料" },
             { role: "user", content: CONFIRMATION_REQUEST },
           ],
-        },
+        }),
       },
     ],
     runtime: overrides.runtime ?? runtimeObservation(overrides.llmCalls ?? 1),

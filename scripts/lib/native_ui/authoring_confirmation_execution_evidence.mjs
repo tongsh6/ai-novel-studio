@@ -1,6 +1,7 @@
 // B71 §16.14 C6–C8：拒绝零副作用、确认子执行分支、作者字节因果。
 // 只消费 authoring_confirmation_facts 已归一的事实。
-import { field, isObject, list, numberValue } from "./authoring_confirmation_facts.mjs";
+import { field, isObject, numberValue } from "./authoring_confirmation_facts.mjs";
+import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
 
 function scopedDelta(sampling, key) {
   const before = field(sampling, "click_before");
@@ -81,25 +82,18 @@ export function confirmedChildExecutionCheck(facts) {
 
 const BUTTON_TEXT_PATTERN = /确认执行|拒绝|保存为章节正文|已确认「prose_writing」/u;
 
-function messageText(message) {
-  const content = field(message, "content");
-  return typeof content === "string" ? content : "";
-}
-
 function authorMessagesFor(record, sourceAuthorText) {
-  const requestBody = field(record, "request_body");
-  const request = field(record, "request");
-  const messages = list(field(requestBody, "messages") ?? field(field(request, "body"), "messages"));
-  const userMessages = list(messages)
-    .filter((message) => field(message, "role") === "user")
-    .map(messageText);
-  const appData = userMessages.filter((content) => content.includes("【应用数据"));
-  const author = userMessages.filter((content) => !content.includes("【应用数据"));
+  const facts = requestFactsFromRecord(record);
+  if (!facts.ok) {
+    return { author_messages: 0, exact: 0, button_leak: false, app_data: 0, unreadable: true };
+  }
+  const author = facts.authorMessages.map((message) => message.text);
   return {
     author_messages: author.length,
     exact: author.filter((content) => content === sourceAuthorText).length,
     button_leak: author.some((content) => BUTTON_TEXT_PATTERN.test(content)),
-    app_data: appData.length,
+    app_data: facts.applicationMessages.length,
+    unreadable: false,
   };
 }
 
@@ -109,7 +103,13 @@ export function authorBytesCheck(facts) {
   const perRecord = facts.childLlmRecords.map((record) => authorMessagesFor(record, facts.sourceAuthorText));
   const recordsOk =
     facts.childLlmRecords.length >= 1 &&
-    perRecord.every((entry) => entry.exact === 1 && !entry.button_leak && entry.author_messages === 1);
+    perRecord.every(
+      (entry) =>
+        !entry.unreadable &&
+        entry.exact === 1 &&
+        !entry.button_leak &&
+        entry.author_messages === 1,
+    );
   const ok = facts.sourceAuthorText !== "" && recordsOk;
   return {
     ok,
@@ -121,6 +121,7 @@ export function authorBytesCheck(facts) {
       author_messages_per_record: perRecord.map((entry) => entry.author_messages),
       application_data_per_record: perRecord.map((entry) => entry.app_data),
       button_text_leaked_as_author: perRecord.some((entry) => entry.button_leak),
+      unreadable_requests: perRecord.filter((entry) => entry.unreadable).length,
     },
   };
 }

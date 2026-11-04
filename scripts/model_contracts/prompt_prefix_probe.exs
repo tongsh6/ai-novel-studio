@@ -355,11 +355,11 @@ defmodule ModelContracts.PromptPrefixProbe do
   defp run_control(provider, input, collector) do
     IO.puts("[prefix-single] #{provider}: identical_control（同请求控制样本）")
     before = Agent.get(collector, &length(&1.requests))
-    prompt = JudgmentProtocol.prompt(input)
+    ir = JudgmentProtocol.request_for_production(input)
 
     results =
       for _ <- 1..2 do
-        Gateway.execute(prompt, nil, InferenceParams.new(temperature: 0.4),
+        Gateway.execute(ir, nil, InferenceParams.new(temperature: 0.4),
           provider: provider,
           purpose: :planner
         )

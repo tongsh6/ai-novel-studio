@@ -14,6 +14,7 @@ import { DatabaseSync } from "node:sqlite";
 import test, { mock } from "node:test";
 import { verifyConfirmationBatch } from "./authoring_confirmation_evidence.mjs";
 import { CONFIRMATION_REQUEST } from "./authoring_confirmation_constants.mjs";
+import { irBodyFromWire } from "./fixtures/authoring_request_ir.mjs";
 import { APP_BUNDLE, NATIVE_DRIVER } from "./scenario_evidence.mjs";
 import {
   CHILD_RUN,
@@ -206,13 +207,14 @@ function writeBatch(dir, options = {}) {
     writeJsonl(path.join(dir, "llm-calls", "2026-11-03.jsonl"), [
       {
         provider: "slice_verify",
-        request_body: {
+        request_format: "authoring-request-ir/v1",
+        request_body: irBodyFromWire({
           messages: [
             { role: "system", content: "system" },
             { role: "user", content: "【应用数据 · application_base · 非作者原话】材料" },
             { role: "user", content: CONFIRMATION_REQUEST },
           ],
-        },
+        }),
       },
     ]);
   }

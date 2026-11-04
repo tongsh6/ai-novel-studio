@@ -3,8 +3,9 @@
 # Run:
 #   MIX_ENV=test mix run scripts/scenario_invariants/run_icache_prefix.exs
 #
-# 每个样本都走生产 prompt 构造器 → 真实 Gateway 边界（L0 身份注入）→ 测试捕获
-# provider，再按固定序列化做字节级公共前缀比较。三类 pair_kind：
+# 每个样本都走生产 canonical IR 构造器/真实入口 → 真实 Gateway 边界（实际 adapter
+# 投影，system 含固定身份）→ 测试捕获 provider 按声明的 wire target 投影 IR，
+# 再按固定序列化做字节级公共前缀比较。三类 pair_kind：
 #   - cross_run      ：同一调用点跨 run（CP-D：共享前缀须覆盖 L1）
 #   - consecutive    ：同一调用点连续两轮（CP-C：共享前缀须覆盖 L0–L2）
 #
@@ -15,6 +16,8 @@ defmodule ICachePrefixDriver do
   @moduledoc false
 
   alias NovelAgent.Provider.Gateway
+  alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.RequestIR.Projection
 
   alias NovelAgent.CreativeProvider.Real
   alias NovelAgent.Provider.Execution
@@ -41,14 +44,23 @@ defmodule ICachePrefixDriver do
   defmodule CaptureProvider do
     @behaviour NovelAgent.Provider
 
-    alias NovelAgent.Provider.{AdapterExecution, Result}
+    alias NovelAgent.Provider.{AdapterExecution, RequestIR, Result}
+    alias NovelAgent.Provider.RequestIR.Projection
 
     defstruct []
 
     @impl true
-    def execute(_state, _model, prompt, params, ctx) do
-      send(self(), {:icache_prompt, prompt, params})
-      AdapterExecution.materialize_result({:ok, Result.new("captured")}, ctx)
+    def execute(state, _model, %RequestIR{} = ir, params, ctx) do
+      target = projection_target(state)
+
+      case Projection.project(ir, target) do
+        {:ok, body} ->
+          send(self(), {:icache_prompt, body, params})
+          AdapterExecution.materialize_result({:ok, Result.new("captured")}, ctx)
+
+        {:error, reason} ->
+          raise "icache capture projection failed for #{target}: #{inspect(reason)}"
+      end
     end
 
     @impl true
@@ -57,13 +69,22 @@ defmodule ICachePrefixDriver do
     @impl true
     def health_check(_state), do: :ok
 
-    # 能力事实委托单一真实来源（Stub）：capture 替身只捕获 Gateway 边界 prompt，
-    # 不自己复制能力清单（provider-capability 重构后缺声明会被能力门槛拒绝）。
+    # capture 替身按测试场景模拟传输能力与 wire 目标，仅用于通过测试注入下的 IR gate；
+    # 这些能力位不代表真实 provider 的传输能力。
     @impl true
-    def capabilities(state), do: NovelAgent.Provider.Stub.capabilities(state)
+    def capabilities(_state) do
+      %{
+        native_multi_turn: true,
+        tool_calls: true,
+        tool_results: true,
+        streaming: true,
+        structured_output: true,
+        usage: true
+      }
+    end
 
     @impl true
-    def projection_target(state), do: NovelAgent.Provider.Stub.projection_target(state)
+    def projection_target(_state), do: "chat_completions"
 
     @impl true
     def name, do: "icache_capture"
@@ -101,8 +122,8 @@ defmodule ICachePrefixDriver do
       shared_prefix_row(
         "continuation",
         "consecutive",
-        JudgmentProtocol.prompt(a, :continuation),
-        JudgmentProtocol.prompt(b, :continuation),
+        JudgmentProtocol.request_for_production(a, :continuation),
+        JudgmentProtocol.request_for_production(b, :continuation),
         "## 当前目标",
         [shared],
         true
@@ -140,29 +161,15 @@ defmodule ICachePrefixDriver do
     mission_run_a = agent_run("run_icache_mission_a", "把这一章写得更紧凑", 1)
     mission_run_b = agent_run("run_icache_mission_b", "保持文风继续推进", 1)
 
-    draft_a = AgenticPlanDraftPlanner.draft_prompt(run_a, snapshot_a, @chapter_titles)
-    draft_b = AgenticPlanDraftPlanner.draft_prompt(run_b, snapshot_b, @chapter_titles)
-
-    revised_a =
-      AgenticPlanDraftPlanner.revision_prompt(
-        revision_a,
-        revision_snapshot(revision_reason_a),
-        @chapter_titles,
-        revision_reason_a
-      )
-
-    revised_b =
-      AgenticPlanDraftPlanner.revision_prompt(
-        revision_b,
-        revision_snapshot(revision_reason_b),
-        @chapter_titles,
-        revision_reason_b
-      )
+    draft_a = draft_ir(run_a, snapshot_a)
+    draft_b = draft_ir(run_b, snapshot_b)
+    revised_a = revision_ir(revision_a, revision_snapshot(revision_reason_a), revision_reason_a)
+    revised_b = revision_ir(revision_b, revision_snapshot(revision_reason_b), revision_reason_b)
 
     # CP-D 比较完整 L1；章节材料位于带版本的动态 scope，逐请求检查真实携带。
     # 不把不同目标/计划版本放进静态层，也不为共享前缀删除章节材料。
-    Enum.each([draft_a, draft_b, revised_a, revised_b], fn prompt ->
-      text = NovelAgent.Provider.prompt_text(prompt)
+    Enum.each([draft_a, draft_b, revised_a, revised_b], fn ir ->
+      text = ir_text(ir)
 
       Enum.each(@chapter_titles, fn chapter ->
         unless String.contains?(text, chapter),
@@ -192,8 +199,8 @@ defmodule ICachePrefixDriver do
       shared_prefix_row(
         "chapter_mission",
         "cross_run",
-        ChapterMissionService.mission_prompt(mission_a, "把这一章写得更紧凑", :prose, run: mission_run_a),
-        ChapterMissionService.mission_prompt(mission_b, "保持文风继续推进", :prose, run: mission_run_b),
+        mission_ir(mission_a, mission_run_a, "把这一章写得更紧凑"),
+        mission_ir(mission_b, mission_run_b, "保持文风继续推进"),
         "把这一章写得更紧凑",
         ["- must_avoid：0 到 3 条，后续章计划信息的保密与全书进度守则优先，basis_ref 同上。"],
         true
@@ -220,12 +227,16 @@ defmodule ICachePrefixDriver do
       options: []
     }
 
+    # 两个输入各自走真实生产入口；连续轮语义来自调用序列，不在此伪造前一轮 transcript。
+    ir_a = judgment_ir(input_a)
+    ir_b = judgment_ir(input_b)
+
     [
       shared_prefix_row(
         "judgment_consecutive",
         "consecutive",
-        JudgmentProtocol.prompt(input_a),
-        JudgmentProtocol.prompt(input_b),
+        ir_a,
+        ir_b,
         "## 会话摘要",
         [
           "所有动作均须经系统门禁放行。",
@@ -237,9 +248,127 @@ defmodule ICachePrefixDriver do
     ]
   end
 
+  # ── canonical IR 取数（真实入口的 result_fn 只做捕获，响应为最小合法结构）──
+
+  defp judgment_ir(input), do: JudgmentProtocol.request_for_production(input)
+
+  defp draft_ir(run, snapshot) do
+    capture_entry_ir(
+      run.run_id,
+      fn execution ->
+        AgenticPlanDraftPlanner.draft_plan_with_meta(
+          run,
+          execution,
+          snapshot,
+          chapter_titles_reader: fn _workspace_id -> @chapter_titles end
+        )
+      end,
+      "agent_plan_draft",
+      plan_arguments()
+    )
+  end
+
+  defp revision_ir(run, snapshot, revision_reason) do
+    capture_entry_ir(
+      run.run_id,
+      fn execution ->
+        AgenticPlanDraftPlanner.revise_plan_with_meta(
+          run,
+          execution,
+          snapshot,
+          revision_reason: revision_reason,
+          chapter_titles_reader: fn _workspace_id -> @chapter_titles end
+        )
+      end,
+      "agent_plan_revision",
+      plan_arguments()
+    )
+  end
+
+  defp mission_ir(inputs, run, author_text) do
+    basis_ref = inputs |> ChapterMissionInputs.refs() |> Enum.sort() |> List.first()
+
+    arguments = %{
+      "author_reasoning" => "受控最小使命：只使用材料中已列出的依据。",
+      "statement" => "按材料推进本章。",
+      "must_advance" => [%{"text" => "推进当前已列出的伏笔。", "basis_ref" => basis_ref}],
+      "must_avoid" => [],
+      "confidence" => 0.5
+    }
+
+    capture_entry_ir(
+      run.run_id,
+      fn execution ->
+        ChapterMissionService.derive(inputs, execution,
+          run: run,
+          author_text: author_text,
+          kind: :prose
+        )
+      end,
+      "chapter_mission",
+      arguments
+    )
+  end
+
+  defp capture_entry_ir(label, entry, tool_name, arguments) do
+    parent = self()
+    ref = make_ref()
+
+    execution = %Execution{
+      result_fn: fn %RequestIR{} = ir ->
+        send(parent, {ref, ir})
+
+        {:ok,
+         %{
+           content: "",
+           tool_calls: [
+             %{id: "#{label}-capture", name: tool_name, arguments: arguments}
+           ]
+         }}
+      end
+    }
+
+    _result = entry.(execution)
+
+    receive do
+      {^ref, ir} -> ir
+    after
+      5_000 -> raise "I-CACHE #{label} canonical IR not captured"
+    end
+  end
+
+  defp plan_arguments do
+    %{
+      "author_reasoning" => "受控最小计划：先读取正文写作上下文。",
+      "plan" => %{
+        "steps" => [
+          %{
+            "step_id" => "s1",
+            "kind" => "explore",
+            "description" => "读取正文写作上下文",
+            "success_criteria" => ["上下文观察"],
+            "depends_on" => [],
+            "target_tool_ref" => "context_assemble",
+            "write_intent" => "none",
+            "risk_hint" => "low"
+          }
+        ]
+      },
+      "reason_codes" => ["agent_plan_drafted"],
+      "confidence" => 0.9
+    }
+  end
+
+  defp ir_text(%RequestIR{} = ir) do
+    ir.messages
+    |> Enum.map(&Projection.text_of(Map.get(&1, :blocks, [])))
+    |> Enum.join("\n")
+  end
+
   # ── CP3：writer / evaluator 专业调用连续轮前缀 ────────────────
-  # 生产渲染路径：CreativeRequest.task → Real/Evaluator 渲染 → Gateway L0 注入边界捕获，
-  # 静态段（角色句+shared/operation/output 规则）必须在连续轮字节恒定，L3 动态段随后变化。
+  # 生产渲染路径：CreativeRequest.task → Real/Evaluator 的 result_fn 取得 canonical IR，
+  # capture provider 按声明的 wire target 投影；静态段（角色句+shared/operation/output
+  # 规则）必须在连续轮字节恒定，L3 动态段随后变化。
   defp professional_rows do
     writer_input_a = writer_task("接着第01章往下写一段正文", "chapter:one", "第01章：底层灵气账单")
     writer_a = writer_prompt(writer_input_a)
@@ -310,17 +439,8 @@ defmodule ICachePrefixDriver do
     parent = self()
 
     execution = %Execution{
-      result_fn: fn prompt ->
-        {:ok, _} = Gateway.execute(prompt, "capture-model", purpose: :writer)
-
-        captured =
-          receive do
-            {:icache_prompt, captured, _params} -> captured
-          after
-            5_000 -> raise "writer capture provider did not receive prompt"
-          end
-
-        send(parent, {:icache_professional_prompt, normalize_captured_prompt(captured)})
+      result_fn: fn %RequestIR{} = ir ->
+        send(parent, {:icache_professional_prompt, ir})
 
         {:ok,
          %{
@@ -390,17 +510,8 @@ defmodule ICachePrefixDriver do
     parent = self()
 
     execution = %Execution{
-      result_fn: fn prompt ->
-        {:ok, _} = Gateway.execute(prompt, "capture-model", purpose: :evaluator)
-
-        captured =
-          receive do
-            {:icache_prompt, captured, _params} -> captured
-          after
-            5_000 -> raise "evaluator capture provider did not receive prompt"
-          end
-
-        send(parent, {:icache_professional_prompt, normalize_captured_prompt(captured)})
+      result_fn: fn %RequestIR{} = ir ->
+        send(parent, {:icache_professional_prompt, ir})
 
         {:ok,
          %{
@@ -428,27 +539,20 @@ defmodule ICachePrefixDriver do
     end
   end
 
-  # Gateway 对 binary prompt 会以 message list 形式交给 provider；统一成 prompt map 供
-  # capture/2 复用（identity 已注入，二次 inject 会识别并保持）。
-  defp normalize_captured_prompt(messages) when is_list(messages),
-    do: %{messages: messages, tools: []}
-
-  defp normalize_captured_prompt(prompt), do: prompt
-
   defp shared_prefix_row(
          call_site,
          pair_kind,
-         prompt_a,
-         prompt_b,
+         ir_a,
+         ir_b,
          boundary_marker,
          required_tails,
          enforce?
        ) do
-    {first, tools_a} = capture(prompt_a, call_site <> "-a")
-    {second, tools_b} = capture(prompt_b, call_site <> "-b")
-    if tools_a != tools_b, do: raise("I-CACHE profile schema drift at #{call_site}")
+    assert_native_tool_choice!(call_site, ir_a, ir_b)
 
-    assert_native_tool_choice!(call_site, prompt_a, prompt_b)
+    {first, tools_a} = capture(ir_a, call_site <> "-a")
+    {second, tools_b} = capture(ir_b, call_site <> "-b")
+    if tools_a != tools_b, do: raise("I-CACHE profile schema drift at #{call_site}")
 
     shared = shared_prefix_bytes(first, second)
     total = min(byte_size(first), byte_size(second))
@@ -475,17 +579,15 @@ defmodule ICachePrefixDriver do
     }
   end
 
-  defp assert_native_tool_choice!(call_site, prompt_a, prompt_b) do
-    case {Map.get(prompt_a, :tool_choice), Map.get(prompt_b, :tool_choice)} do
-      {nil, nil} ->
-        :ok
+  defp assert_native_tool_choice!(call_site, ir_a, ir_b) do
+    expected = native_tool_choice(call_site)
+    actual = {NovelAgent.Provider.tool_choice(ir_a), NovelAgent.Provider.tool_choice(ir_b)}
 
-      {choice, choice} ->
-        expected = native_tool_choice(call_site)
-        if choice != expected, do: raise("I-CACHE native stage tool drift at #{call_site}")
-
-      _ ->
-        raise("I-CACHE native stage tool mismatch at #{call_site}")
+    unless actual == {expected, expected} do
+      raise(
+        "I-CACHE native stage tool drift at #{call_site}: " <>
+          "expected=#{inspect(expected)} actual=#{inspect(actual)}"
+      )
     end
   end
 
@@ -611,12 +713,12 @@ defmodule ICachePrefixDriver do
 
   # ── 捕获与序列化 ───────────────────────────────────────
 
-  defp capture(prompt, label) do
-    assert_ok(Gateway.execute(prompt, "capture-model", purpose: :planner), label)
+  defp capture(%RequestIR{} = ir, label) do
+    assert_ok(Gateway.execute(ir, "capture-model", purpose: :planner), label)
 
     receive do
-      {:icache_prompt, captured, _params} ->
-        {serialize(captured), canonical(Map.get(captured, :tools, []))}
+      {:icache_prompt, body, _params} ->
+        {serialize(body), canonical(Map.get(body, :tools, []))}
     after
       5_000 -> raise "capture provider did not receive #{label}"
     end

@@ -3,7 +3,7 @@
 # 同一份脚本分别运行在两个隔离环境：
 #   - 旧协议臂：/tmp/b26-old-cp0（git worktree --detach 60f7c553）内的生产
 #     JudgmentProtocol.request_judgment/3（call1 叙事 + call2 forced tool 两段式）
-#   - 新协议臂：当前工作区未提交实现的生产 JudgmentProtocol.request_judgment/3
+#   - 新协议臂：当前工作区生产 JudgmentProtocol.request_for_production/2
 #     （单调用 tool_choice: auto）
 #
 # 只做协议事实采集：真实 LM Studio HTTP 请求/响应、工具集合、tool_choice、
@@ -25,7 +25,8 @@
 #   B26_CP0_FILTER            只跑逗号分隔的 case id（冒烟用；正式批次不设）
 # 退出码：0 正常完成（不设通过阈值）；65 全部案例为连接/可用性阻塞。
 
-alias NovelAgent.Provider.{Execution, Result}
+alias NovelAgent.Provider.{Execution, RequestIR, Result}
+alias NovelAgent.Provider.RequestIR.Projection
 alias NovelApplication.JudgmentProtocol
 
 defmodule ModelContracts.B26Cp0ArmProbe do
@@ -131,7 +132,7 @@ defmodule ModelContracts.B26Cp0ArmProbe do
     Code.ensure_loaded(judgment_protocol_module())
 
     cond do
-      function_exported?(judgment_protocol_module(), :prompt, 2) -> "new"
+      function_exported?(judgment_protocol_module(), :request_for_production, 2) -> "new"
       function_exported?(judgment_protocol_module(), :narrative_prompt, 1) -> "old"
       true -> "unknown"
     end
@@ -140,7 +141,7 @@ defmodule ModelContracts.B26Cp0ArmProbe do
   defp judgment_protocol_module, do: NovelApplication.JudgmentProtocol
 
   defp arm_label("old"), do: "two-stage call1 narrative + call2 forced judgment_decision (HEAD 60f7c553)"
-  defp arm_label("new"), do: "single call tool_choice=auto, content+tool_calls same response (working tree)"
+  defp arm_label("new"), do: "single call tool_choice=auto, content+tool_calls same response (canonical IR)"
   defp arm_label(_), do: "unknown"
 
   # ── capture via provider log_fn ──────────────
@@ -423,27 +424,29 @@ defmodule ModelContracts.B26Cp0ArmProbe do
   # ── protocol-level (pure) prompt metadata ────
 
   defp protocol_metadata("new", input) do
-    prompt = JudgmentProtocol.prompt(input, :judgment)
-    tools = Enum.map(prompt.tools, &tool_spec_name/1)
-    user = prompt_user_content(prompt)
+    ir = JudgmentProtocol.request_for_production(input)
+    tools = Enum.map(ir.tools, &tool_spec_name/1)
+    user = prompt_user_content(ir)
 
     %{
-      "builder" => "JudgmentProtocol.prompt/2 (production)",
+      "builder" => "JudgmentProtocol.request_for_production/2 (production canonical IR)",
       "profile" => "judgment",
-      "tool_choice" => prompt.tool_choice,
+      "tool_choice" => NovelAgent.Provider.tool_choice(ir),
       "tools" => tools,
       "tool_count" => length(tools),
       "rules_version" => safe_call(fn -> NovelApplication.AuthoringTaskPolicy.version() end),
       "tool_contract_version" => safe_call(fn -> NovelApplication.JudgmentToolContract.version() end),
       "prompt_sha256" => sha256(user),
       "prompt_chars" => String.length(user),
-      "prompt_messages" => message_facts(prompt.messages)
+      "prompt_messages" => message_facts(ir.messages)
     }
   end
 
   defp protocol_metadata("old", input) do
-    narrative_prompt = JudgmentProtocol.narrative_prompt(input)
-    decision_prompt = JudgmentProtocol.decision_prompt(input, @old_placeholder_narrative)
+    narrative_prompt = apply(judgment_protocol_module(), :narrative_prompt, [input])
+
+    decision_prompt =
+      apply(judgment_protocol_module(), :decision_prompt, [input, @old_placeholder_narrative])
     np = prompt_user_content(narrative_prompt)
     dp = prompt_user_content(decision_prompt)
     dp_prefix = dp |> String.split("## 你已输出的判断说明", parts: 2) |> List.first()
@@ -475,6 +478,12 @@ defmodule ModelContracts.B26Cp0ArmProbe do
 
   defp protocol_metadata(arm, _input), do: %{"builder" => "unknown_arm:#{arm}"}
 
+  defp prompt_user_content(%RequestIR{messages: messages}) do
+    messages
+    |> Enum.map(&message_content/1)
+    |> Enum.join("\n---\n")
+  end
+
   defp prompt_user_content(%{messages: messages}) do
     messages
     |> Enum.map(fn m -> Map.get(m, :content) || Map.get(m, "content") || "" end)
@@ -485,7 +494,7 @@ defmodule ModelContracts.B26Cp0ArmProbe do
 
   defp message_facts(messages) when is_list(messages) do
     Enum.map(messages, fn message ->
-      content = Map.get(message, :content) || Map.get(message, "content") || ""
+      content = message_content(message)
 
       %{
         "role" => Map.get(message, :role) || Map.get(message, "role"),
@@ -496,6 +505,9 @@ defmodule ModelContracts.B26Cp0ArmProbe do
   end
 
   defp message_facts(_), do: []
+
+  defp message_content(%{blocks: blocks}) when is_list(blocks), do: Projection.text_of(blocks)
+  defp message_content(message), do: Map.get(message, :content) || Map.get(message, "content") || ""
 
   # ── protocol checks (facts, not pass thresholds) ──
 

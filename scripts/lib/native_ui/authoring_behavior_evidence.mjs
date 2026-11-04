@@ -24,7 +24,7 @@ import {
   DEFAULT_LIVE_MODEL,
 } from "./authoring_live_evidence.mjs";
 import { liveRefsCheck } from "./authoring_live_refs.mjs";
-import { recordRequestMessages, recordResponseToolCalls } from "./live_run_wait.mjs";
+import { recordResponseToolCalls } from "./live_run_wait.mjs";
 import { loadLiveCaseCorpus, selectLiveCase } from "../quality/author_behavior_live_cases.mjs";
 
 export const BEHAVIOR_VERDICT_SCHEMA = "author-behavior-live-verdict/v1";

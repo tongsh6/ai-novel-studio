@@ -20,7 +20,7 @@ function request(messages) {
     provider: "strata",
     turn_id: "turn_1",
     provider_call_ref: "pcall_1",
-    request_body: { messages },
+    request: { body: { messages } },
   };
 }
 
@@ -126,4 +126,64 @@ test("L7 unknown：used 不可提取时 ok=null（不假过），不因 wire 有
   assert.equal(result.ok, null);
   assert.equal(result.reason, "used_context_refs_unavailable");
   assert.equal(result.violations.length, 0);
+});
+
+test("canonical IR refs 按 application provenance/blocks 与 tool 结果读取，不依赖 wire marker", () => {
+  const llmRecords = [
+    {
+      provider: "slice_verify",
+      turn_id: "turn_1",
+      provider_call_ref: "pcall_1",
+      request_format: "authoring-request-ir/v1",
+      request_body: {
+        ir_version: "authoring-request-ir/v1",
+        messages: [
+          {
+            role: "system",
+            provenance: "application",
+            blocks: [{ type: "text", text: "chapter:system-should-not-count" }],
+            source_refs: [],
+            versions: {},
+          },
+          {
+            role: "user",
+            provenance: "author",
+            blocks: [{ type: "text", text: AUTHOR }],
+            source_refs: [],
+            versions: {},
+          },
+          {
+            role: "application_base",
+            provenance: "application",
+            blocks: [{ type: "text", text: "材料 chapter:12c0114d-94f7-4bed-bf96-e74080d71569" }],
+            source_refs: [],
+            versions: {},
+          },
+          {
+            role: "tool",
+            provenance: "tool_result",
+            blocks: [
+              {
+                type: "observation",
+                call_id: "call-1",
+                status: "ok",
+                source_refs: ["chapter:16aa22b8-8822-47a2-88be-5834b0115196"],
+                content: { ref: "observation:obs_ir" },
+              },
+            ],
+            source_refs: [],
+            versions: {},
+          },
+        ],
+        tools: [],
+        projection: { tool_choice: null },
+        refs: {},
+      },
+    },
+  ];
+  const { base_refs, observation_refs } = collectWireRefs(llmRecords);
+  assert(base_refs.includes("chapter:12c0114d-94f7-4bed-bf96-e74080d71569"));
+  assert(!base_refs.some((ref) => ref.includes("system-should-not-count")));
+  assert(observation_refs.includes("chapter:16aa22b8-8822-47a2-88be-5834b0115196"));
+  assert(observation_refs.includes("observation:obs_ir"));
 });

@@ -24,6 +24,8 @@ defmodule NNarrDriver do
   @moduledoc false
 
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.RequestIR.Projection
   alias NovelAgent.Provider.Result
   alias NovelApplication.{AgentNarrativeSource, AgentRunService, DialoguePlanningService}
   alias NovelCommon.Contracts.{ProviderEvent, ProviderOutput, ProviderRun}
@@ -442,48 +444,49 @@ defmodule NNarrDriver do
 
   defp agent_plan_draft_prompt?(_prompt), do: false
 
-  defp agent_next_step_prompt?(prompt) when is_binary(prompt),
-    do: String.contains?(prompt, "AgentRun 下一步规划器")
+  defp agent_next_step_prompt?(prompt) when is_binary(prompt) or is_map(prompt),
+    do: prompt |> prompt_text() |> String.contains?("AgentRun 下一步规划器")
 
   defp agent_next_step_prompt?(_prompt), do: false
 
   defp plan_draft_packet(prompt) do
-    prompt_text = prompt_text(prompt)
-
-    packet =
-      if String.contains?(prompt_text, "profile_ref: conversation_turn_v1") do
-        %{
-          reasoning: "模型先读取当前作品上下文，再形成对话认知帧，完成系统裁决后生成本轮回应。",
-          steps: [
-            plan_step("context_assemble", "explore", "组装当前作品上下文。", [
-              "context_observation_created"
-            ]),
-            plan_step("dialogue_frame", "explore", "形成对话认知帧。", [
-              "dialogue_frame_created"
-            ]),
-            plan_step("strategy_gate", "explore", "制定执行策略并完成系统裁决。", [
-              "strategy_decision_created"
-            ]),
-            plan_step("response_finalize", "explore", "生成本轮回应并写入可回放留痕。", [
-              "turn_result_emitted"
-            ])
-          ],
-          reason_codes: ["agent_plan_drafted", "conversation_plan_drafted"]
-        }
-      else
-        %{
-          reasoning: "模型为当前目标起草一条最小执行计划。",
-          steps: [
-            plan_step("context_assemble", "explore", "读取当前上下文。", [
-              "context_observation_created"
-            ])
-          ],
-          reason_codes: ["agent_plan_drafted"]
-        }
-      end
-
-    packet
+    if conversation_plan_profile?(prompt) do
+      %{
+        reasoning: "模型先读取当前作品上下文，再形成对话认知帧，完成系统裁决后生成本轮回应。",
+        steps: [
+          plan_step("context_assemble", "explore", "组装当前作品上下文。", [
+            "context_observation_created"
+          ]),
+          plan_step("dialogue_frame", "explore", "形成对话认知帧。", [
+            "dialogue_frame_created"
+          ]),
+          plan_step("strategy_gate", "explore", "制定执行策略并完成系统裁决。", [
+            "strategy_decision_created"
+          ]),
+          plan_step("response_finalize", "explore", "生成本轮回应并写入可回放留痕。", [
+            "turn_result_emitted"
+          ])
+        ],
+        reason_codes: ["agent_plan_drafted", "conversation_plan_drafted"]
+      }
+    else
+      %{
+        reasoning: "模型为当前目标起草一条最小执行计划。",
+        steps: [
+          plan_step("context_assemble", "explore", "读取当前上下文。", [
+            "context_observation_created"
+          ])
+        ],
+        reason_codes: ["agent_plan_drafted"]
+      }
+    end
   end
+
+  defp conversation_plan_profile?(%RequestIR{run: run}),
+    do: Map.get(run, :profile_ref) == "conversation_turn_v1"
+
+  defp conversation_plan_profile?(prompt),
+    do: prompt |> prompt_text() |> String.contains?("profile_ref: conversation_turn_v1")
 
   defp plan_step(target_tool_ref, kind, description, success_criteria) do
     %{
@@ -524,6 +527,7 @@ defmodule NNarrDriver do
   defp messages_text(messages) do
     messages
     |> Enum.map(fn
+      %{blocks: blocks} when is_list(blocks) -> Projection.text_of(blocks)
       %{content: content} when is_binary(content) -> content
       %{"content" => content} when is_binary(content) -> content
       _message -> ""
@@ -626,8 +630,12 @@ defmodule NNarrDriver do
   defp observation_present?(prompt, values) when is_list(values),
     do: Enum.any?(values, &observation_present?(prompt, &1))
 
-  defp observation_present?(prompt, value) when is_binary(prompt) and is_binary(value),
-    do: String.contains?(existing_observation_section(prompt), value)
+  defp observation_present?(prompt, value) when is_binary(value) do
+    prompt
+    |> prompt_text()
+    |> existing_observation_section()
+    |> String.contains?(value)
+  end
 
   defp existing_observation_section(prompt) do
     prompt

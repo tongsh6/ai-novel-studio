@@ -28,6 +28,7 @@ import {
   observationQuery,
 } from "./authoring_scenario_evidence.mjs";
 import { CANON_TABLES, buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
+import { irBodyFromWire } from "./fixtures/authoring_request_ir.mjs";
 
 const ANCHOR = "井底浮现第七枚手印";
 
@@ -99,6 +100,7 @@ test("全章核对的请求、观察续读与 scope 事实全部成立时才通�
   });
   assert.deepEqual(measured, {
     request_count: 3,
+    unreadable_request_count: 0,
     observation_count: 6,
     continuation_call_id: "call-2",
     continuation_chapter_ref: "chapter-1",
@@ -186,7 +188,7 @@ test("坏观察信封不被当成 observation，非法续读 query 失败而不�
   assert.equal(observation({ role: "tool", content: JSON.stringify({ type: "other" }) }), null);
   const sources = [
     { turn_id: "turn-1", request: { body: { messages: [] } } },
-    { turn_id: "turn-2", request_body: { messages: [{ role: "user" }] } },
+    { turn_id: "turn-2", request: { body: { messages: [{ role: "user" }] } } },
     { turn_id: "turn-1", request: { body: { messages: "bad" } } },
     { turn_id: "turn-1", request_body: "bad" },
     { turn_id: "turn-1" },
@@ -999,6 +1001,13 @@ test("工具名、调用与结果块拒绝空元素，并保留显式空名称�
   assert.deepEqual(nativeCalls([{ tool_calls: [{ id: "x", name: "plain" }] }]), ["plain"]);
   assert.deepEqual(resultBlocks([null, { role: "assistant", content: JSON.stringify({ type: "validation_result" }) }], "validation_result"), []);
   assert.deepEqual(resultBlocks([{ role: "tool", content: "null" }], "validation_result"), []);
+  assert.deepEqual(
+    resultBlocks([{ role: "tool", blocks: [{ type: "validation_result" }, { type: "observation" }] }], "validation_result"),
+    [{ type: "validation_result" }],
+  );
+  assert.deepEqual(resultBlocks([{ role: "assistant", blocks: "bad" }], "validation_result"), []);
+  assert.deepEqual(nativeCalls([{ role: "assistant", tool_calls: {} }]), []);
+  assert.deepEqual(nativeCalls([{ role: "assistant", blocks: [{ type: "tool_call", call_id: "c", name: "canonical" }] }]), ["canonical"]);
   assert.deepEqual(canonicalCalls([null, { blocks: [null, { type: "tool_call", name: "x" }] }]), ["x"]);
   assert.deepEqual(canonicalValidations([null, { blocks: [null, { type: "validation_result" }] }]), [{ type: "validation_result" }]);
 });
@@ -1274,4 +1283,70 @@ test("空章节 ref 的 measured 保留显式空字符串，空调用号不再�
 test("失败摘要对 null joined 返回空串而不是抛错", () => {
   assert.equal(nativeCallFailureSummary(null), "");
   assert.equal(nativeCallFailureSummary({ failures: [{ reason: "missing", phase: "binding" }, { reason: "missing", phase: "binding" }] }), "missing:binding");
+});
+
+
+// ── 现役 fixture canonical IR：与原生 wire 等价，但按 role/provenance/blocks 读取 ──
+
+test("canonical IR 请求与原生 wire 对同一事实给出相同判据", () => {
+  const native = nativeBodies();
+  const ir = native.map((body) => irBodyFromWire({ messages: body.messages, tools: body.tools }));
+  const wireResult = nativeRequestChecks(native);
+  const irResult = nativeRequestChecks(ir);
+  assert.deepEqual(irResult.checks, wireResult.checks);
+  assert.deepEqual(irResult.measured, wireResult.measured);
+});
+
+test("canonical IR 的 scope/provenance 不靠应用数据 marker 推断", () => {
+  const ir = nativeBodies().map((body) => irBodyFromWire({ messages: body.messages, tools: body.tools }));
+  ir.at(-1).messages = ir.at(-1).messages.map((message) =>
+    message.role === "scope_update"
+      ? {
+          ...message,
+          blocks: message.blocks.map((block) => ({
+            ...block,
+            text: block.text.replace("【应用数据 · scope_update】", ""),
+          })),
+        }
+      : message,
+  );
+  assert.equal(nativeRequestChecks(ir).checks.latest_scope_closes_exploration, true);
+});
+
+test("canonical IR 续航/角色阶段按 blocks 读取工具调用与结果", () => {
+  const { records, durable } = continuationFixture();
+  const irRecords = records.map((record) => ({
+    ...record,
+    request_format: "authoring-request-ir/v1",
+    request_body: irBodyFromWire({
+      messages: record.request.body.messages,
+      tools: record.request.body.tools,
+    }),
+  }));
+  const wire = continuationRequestChecks(records, durable);
+  const ir = continuationRequestChecks(irRecords, durable);
+  assert.deepEqual(ir.checks, wire.checks);
+  assert.equal(ir.measured.request_count, 3);
+  assert.equal(ir.measured.unreadable_request_count, 0);
+});
+
+test("退役 provider_prompt 记录明确不可判定，不按旧 Chat 形状回退通过", () => {
+  const records = [
+    {
+      provider_call_ref: "pcall-1",
+      request_format: "provider_prompt/v1",
+      request_body: {
+        messages: [
+          { role: "user", content: "【应用数据 · application_base】材料" },
+          { role: "user", content: "作者" },
+          { role: "assistant", tool_calls: [{ id: "call-1", function: { name: "judgment_decision" } }] },
+        ],
+        tools: [{ type: "function", function: { name: "judgment_decision" } }],
+      },
+    },
+  ];
+  const { checks, measured } = characterRequestChecks(records, { messages: [] });
+  assert.equal(Object.values(checks).every(Boolean), false);
+  assert.equal(measured.request_count, 1);
+  assert.equal(measured.unreadable_request_count, 1);
 });

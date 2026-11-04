@@ -1070,7 +1070,7 @@ defmodule B27CaseFreeze do
       "judgment_tool_contract_version" => NovelApplication.JudgmentToolContract.version(),
       "plan_tool_contract" => "NovelApplication.AgentPlanToolContract.schema/0",
       "tool_choice" => "auto",
-      "prompt_builder" => "NovelApplication.JudgmentProtocol.prompt/2 (:judgment)"
+      "prompt_builder" => "NovelApplication.JudgmentProtocol.request_for_production/2 (canonical IR)"
     }
   end
 

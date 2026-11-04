@@ -20,6 +20,7 @@ import {
   verificationExtra,
 } from "./authoring_run_evidence.mjs";
 import { requestBodies, requestBodiesOf } from "./authoring_scenario_evidence.mjs";
+import { irBodyFromWire } from "./fixtures/authoring_request_ir.mjs";
 
 const frame = (event, body, direction = "received", at = "2026-11-01T08:00:00.000Z") => ({
   direction,
@@ -334,14 +335,14 @@ function createFirstConsumerBatch() {
   const wire = [join, joinReply, sent, ack, result, unrelatedResult];
   const exchange = (n, turnId = `${F_PARENT}:agent:${n}`) => ({
     provider: "slice_verify",
-    request_format: "provider_prompt/v1",
+    request_format: "authoring-request-ir/v1",
     response_format: "fixture_provider_result/v1",
     provider_call_ref: `pcall-${n}`,
     provider_run_ref: `prun-${n}`,
     work_id: F_WORK,
     session_id: F_SESSION,
     turn_id: turnId,
-    request_body: { messages: [{ role: "user", content: F_MESSAGE }] },
+    request_body: irBodyFromWire({ messages: [{ role: "user", content: F_MESSAGE }] }),
     response: {
       status: "ok",
       body: { content: "", tool_calls: [{ id: `call-${n}`, name: "search", arguments: {} }] },

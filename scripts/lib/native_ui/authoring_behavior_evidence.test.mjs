@@ -18,13 +18,15 @@ function toolRecord(toolCalls) {
     turn_id: "turn_1",
     provider_call_ref: "pcall_1",
     provider: "strata",
-    request_body: {
-      messages: [
-        { role: "system", content: "system" },
-        { role: "user", content: "【应用数据 · application_base · 非作者原话】规则" },
-        { role: "user", content: AUTHOR },
-        { role: "user", content: "【应用数据 · scope_update · 以最新版本为准】材料" },
-      ],
+    request: {
+      body: {
+        messages: [
+          { role: "system", content: "system" },
+          { role: "user", content: "【应用数据 · application_base · 非作者原话】规则" },
+          { role: "user", content: AUTHOR },
+          { role: "user", content: "【应用数据 · scope_update · 以最新版本为准】材料" },
+        ],
+      },
     },
     response: {
       status: 200,

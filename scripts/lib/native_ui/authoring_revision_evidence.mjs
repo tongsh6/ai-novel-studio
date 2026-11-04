@@ -17,6 +17,10 @@ import {
   requestReplies,
 } from "./scenario_evidence.mjs";
 
+import {
+  AUTHORING_REQUEST_IR,
+  requestFactsFromRecord,
+} from "./authoring_request_facts.mjs";
 const isObject = (value) =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const nonBlank = (value) => typeof value === "string" && value.trim() !== "";
@@ -290,19 +294,14 @@ function argumentObject(call) {
   }
 }
 
-function requestMessages(record) {
-  const messages = record?.request_body?.messages;
-  return Array.isArray(messages) ? messages : null;
+function requestFacts(record) {
+  const facts = requestFactsFromRecord(record);
+  return facts.ok ? facts : null;
 }
 
-function failedValidationContent(message) {
-  if (!isObject(message) || message.role !== "tool") return null;
-  try {
-    const payload = JSON.parse(String(message.content));
-    return isObject(payload) ? payload : null;
-  } catch {
-    return null;
-  }
+function appendedValidation(appendedFact) {
+  if (!isObject(appendedFact) || appendedFact.role !== "tool") return null;
+  return appendedFact.toolResults.length === 1 ? appendedFact.toolResults[0] : null;
 }
 
 function exchangeShape(calls, validationBlocks, bound) {
@@ -364,33 +363,42 @@ function nativeCallId(firstResponseCall, first) {
   return nonBlank(firstResponseCall?.id) ? firstResponseCall.id : first.call_id;
 }
 
-function nativeCallMatches(call, first, firstResponseCall) {
-  const functionCall = get(call, "function");
+function appendedCallMatches(call, first, firstResponseCall, format) {
+  if (!isObject(call)) return false;
+  const expectedId = nativeCallId(firstResponseCall, first);
+  const idMatches = format === AUTHORING_REQUEST_IR
+    ? (call.hasProviderCallId
+        ? call.nativeId === (firstResponseCall?.id ?? null)
+        : call.callId === expectedId)
+    : call.callId === expectedId;
   return allTrue(
-    get(call, "id") === nativeCallId(firstResponseCall, first),
-    get(call, "type") === "function",
-    isObject(functionCall),
-    get(functionCall, "name") === first.name,
-    get(functionCall, "name") === firstResponseCall?.name,
-    argumentsMatch(get(functionCall, "arguments"), first.arguments),
-    argumentsMatch(get(functionCall, "arguments"), firstResponseCall?.arguments),
+    idMatches,
+    call.name === first.name,
+    call.name === firstResponseCall?.name,
+    argumentsMatch(call.arguments, first.arguments),
+    argumentsMatch(call.arguments, firstResponseCall?.arguments),
   );
 }
 
-function appendedAssistantMatches(assistant, first, firstResponseCall) {
-  const toolCalls = list(get(assistant, "tool_calls"));
+function appendedAssistantMatches(assistant, first, firstResponseCall, format) {
   return allTrue(
     get(assistant, "role") === "assistant",
-    typeof get(assistant, "content") === "string",
-    toolCalls.length === 1,
-    nativeCallMatches(toolCalls[0], first, firstResponseCall),
+    list(get(assistant, "toolCalls")).length === 1,
+    appendedCallMatches(list(get(assistant, "toolCalls"))[0], first, firstResponseCall, format),
   );
 }
 
-function appendedValidationMatches(toolMessage, failedPayload, first, expectedId) {
+function appendedValidationMatches(toolFact, failedPayload, first, expectedId, format) {
+  const result = appendedValidation(toolFact);
   return allTrue(
-    get(toolMessage, "role") === "tool",
-    get(toolMessage, "tool_call_id") === expectedId,
+    get(toolFact, "role") === "tool",
+    isObject(result),
+    format === AUTHORING_REQUEST_IR || result?.toolCallId === expectedId,
+    result?.callId === first.call_id,
+    get(result?.payload, "type") === "validation_result",
+    get(result?.payload, "call_id") === first.call_id,
+    get(result?.payload, "status") === "failed",
+    get(result?.payload, "reason_code") === "invalid_items",
     get(failedPayload, "type") === "validation_result",
     get(failedPayload, "call_id") === first.call_id,
     get(failedPayload, "status") === "failed",
@@ -398,21 +406,24 @@ function appendedValidationMatches(toolMessage, failedPayload, first, expectedId
   );
 }
 
-// 第二请求的 assistant tool_calls 必须逐项复述第一轮原生响应：
-// id/name/参数结构/数量一致，且关联 tool validation 仍指向同一原生 call。
-function appendedNativeResult(appended, first, failedPayload, firstResponseCall) {
+// 第二请求追加的 assistant/tool 事实必须逐项复述第一轮原生响应：
+// id/name/参数结构/数量一致，且关联 validation 仍指向同一调用。
+function appendedNativeResult(appendedFacts, first, firstResponseCall, format) {
   if (!isObject(first)) return false;
   const expectedId = nativeCallId(firstResponseCall, first);
+  const assistant = appendedFacts[0];
+  const tool = appendedFacts[1];
+  const failedPayload = appendedValidation(tool)?.payload;
   return allTrue(
-    appended.length === 2,
-    appendedAssistantMatches(appended[0], first, firstResponseCall),
-    appendedValidationMatches(appended[1], failedPayload, first, expectedId),
-    !appended.some((message) => get(message, "role") === "user"),
+    appendedFacts.length === 2,
+    appendedAssistantMatches(assistant, first, firstResponseCall, format),
+    appendedValidationMatches(tool, failedPayload, first, expectedId, format),
+    !appendedFacts.some((message) => get(message, "role") === "user"),
   );
 }
 
-function requestCarries(firstRequest, originalBody, findingInstruction) {
-  const contents = list(firstRequest).map((message) => text(message?.content)).join("\n");
+function requestCarries(facts, originalBody, findingInstruction) {
+  const contents = facts?.allText ?? "";
   return allTrue(
     nonBlank(originalBody),
     contents.includes(originalBody),
@@ -472,10 +483,14 @@ export function retryExchangeChecks({ transcript, records, originalBody, finding
   const secondResponseCall = firstCallOf(secondRecord);
   const firstArguments = argumentObject(firstResponseCall);
   const secondArguments = argumentObject(secondResponseCall);
-  const firstRequest = requestMessages(firstRecord);
-  const secondRequest = requestMessages(secondRecord);
+  const firstFacts = requestFacts(firstRecord);
+  const secondFacts = requestFacts(secondRecord);
+  const firstRequest = firstFacts ? firstFacts.messages : null;
+  const secondRequest = secondFacts ? secondFacts.messages : null;
   const appended = appendedMessages(firstRequest, secondRequest);
-  const failedPayload = failedValidationContent(appended[1]);
+  const appendedFacts = firstFacts && secondFacts
+    ? secondFacts.messageFacts.slice(firstRequest.length)
+    : [];
   const firstValidation = validationAt(validationBlocks, 0);
   const secondValidation = validationAt(validationBlocks, 1);
 
@@ -488,7 +503,7 @@ export function retryExchangeChecks({ transcript, records, originalBody, finding
         firstRejected(first, firstArguments, firstValidation),
       second_request_is_strict_first_prefix: strictPrefix(firstRequest, secondRequest),
       second_request_appends_only_native_result:
-        appendedNativeResult(appended, first, failedPayload, firstResponseCall),
+        appendedNativeResult(appendedFacts, first, firstResponseCall, secondFacts?.format),
       second_response_is_legal_local_revision: allTrue(
         isObject(second),
         isObject(secondArguments),
@@ -502,7 +517,7 @@ export function retryExchangeChecks({ transcript, records, originalBody, finding
         get(secondValidation, "call_id") === get(second, "call_id"),
       ),
       revision_request_carries_source_bytes_and_findings:
-        requestCarries(firstRequest, originalBody, findingInstruction),
+        requestCarries(firstFacts, originalBody, findingInstruction),
     },
     measured: {
       revision_call_count: calls.length,

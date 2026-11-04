@@ -46,14 +46,30 @@ function exchange(n, { status = "ok", content = "", calls = [], refs = {}, ...ov
   const providerRunRef = refs.providerRunRef ?? `prun-${n}`;
   return {
     provider: "slice_verify",
-    request_format: "provider_prompt/v1",
+    request_format: "authoring-request-ir/v1",
     response_format: "fixture_provider_result/v1",
     provider_call_ref: providerCallRef,
     provider_run_ref: providerRunRef,
     work_id: WORK,
     session_id: SESSION,
     turn_id: `${PARENT}:agent:${n}`,
-    request_body: { messages: [{ role: "user", content: `request-${n}` }] },
+    request_body: {
+      ir_version: "authoring-request-ir/v1",
+      run: scope(),
+      system: { identity_ref: "identity:writer" },
+      messages: [
+        {
+          role: "user",
+          provenance: "author",
+          blocks: [{ type: "text", text: `request-${n}` }],
+          source_refs: [],
+          versions: {},
+        },
+      ],
+      tools: [],
+      projection: { tool_choice: null },
+      refs: {},
+    },
     response:
       status === "ok"
         ? { status: "ok", body: { content, tool_calls: calls } }
@@ -1073,11 +1089,48 @@ test("pcall+同响应内 ordinal 绑定：交换 canonical 顺序必须失败", 
   assert.ok(swapped.failures.some((failure) => failure.phase === "success"));
 });
 
-test("callrefs-03 真实失败形状：旧 canonical 不通过，补显式 nil 才证明新语义", () => {
-  const legacy = joinNativeCallEvidence({
+const irRequestFor = (record) => ({
+  ...record,
+  request_format: "authoring-request-ir/v1",
+  request_body: {
+    ir_version: "authoring-request-ir/v1",
+    run: callrefs03.scope,
+    system: { identity_ref: "identity:writer" },
+    messages: [
+      {
+        role: "user",
+        provenance: "author",
+        blocks: [{ type: "text", text: "核对全章" }],
+        source_refs: [],
+        versions: {},
+      },
+    ],
+    tools: [],
+    projection: { tool_choice: null },
+    refs: {},
+  },
+});
+
+test("callrefs-03 历史 provider_prompt 记录明确 unsupported，native id 语义用现役 IR 记录复验", () => {
+  const historical = joinNativeCallEvidence({
     scope: callrefs03.scope,
     providerRuns: callrefs03.providerRuns,
     records: callrefs03.records,
+    transcript: callrefs03.legacyTranscript,
+    consumedProviderCalls: callrefs03.consumedProviderCalls,
+  });
+  assert.equal(historical.checks.native_call_success_matches_canonical, false);
+  assert.ok(
+    historical.failures.some(
+      (failure) => failure.reason === "unsupported" && failure.phase === "binding",
+    ),
+  );
+
+  const records = callrefs03.records.map(irRequestFor);
+  const legacy = joinNativeCallEvidence({
+    scope: callrefs03.scope,
+    providerRuns: callrefs03.providerRuns,
+    records,
     transcript: callrefs03.legacyTranscript,
     consumedProviderCalls: callrefs03.consumedProviderCalls,
   });
@@ -1097,10 +1150,64 @@ test("callrefs-03 真实失败形状：旧 canonical 不通过，补显式 nil �
   const repaired = joinNativeCallEvidence({
     scope: callrefs03.scope,
     providerRuns: callrefs03.providerRuns,
-    records: callrefs03.records,
+    records,
     transcript: repairedTranscript,
     consumedProviderCalls: callrefs03.consumedProviderCalls,
   });
   allPass(repaired);
   assert.equal(repaired.measured.native_id_not_provided, 1);
+});
+
+test("fixture canonical IR 记录按真实 source format 读取并通过配对", () => {
+  const irBody = (messages) => ({
+    ir_version: "authoring-request-ir/v1",
+    run: { run_id: RUN, workspace_id: WORKSPACE, work_id: WORK, session_id: SESSION, parent_turn_ref: PARENT },
+    system: { identity_ref: "identity:writer" },
+    messages,
+    tools: [{ name: "judgment_decision", description: "", input_schema: {} }],
+    projection: { tool_choice: "auto" },
+    refs: {},
+  });
+  const record = exchange(1, {
+    request_format: "authoring-request-ir/v1",
+    request_body: irBody([
+      {
+        role: "user",
+        provenance: "author",
+        blocks: [{ type: "text", text: "核对全章" }],
+        source_refs: [],
+        versions: {},
+      },
+    ]),
+    content: "已核对全章。",
+    calls: [call("native-judgment", "judgment_decision", { action: "read" })],
+  });
+  const joined = joinNativeCallEvidence({
+    scope: scope(),
+    providerRuns: [pair(1)],
+    records: [record],
+    transcript: {
+      run: scope(),
+      messages: [
+        {
+          role: "assistant",
+          provenance: "model",
+          provider_call_ref: "pcall-1",
+          provider_run_ref: "prun-1",
+          blocks: [
+            { type: "text", text: "已核对全章。" },
+            {
+              type: "tool_call",
+              call_id: "native-judgment",
+              name: "judgment_decision",
+              arguments: { action: "read" },
+            },
+          ],
+        },
+      ],
+    },
+    consumedProviderCalls: 1,
+  });
+  allPass(joined);
+  assert.equal(joined.records.length, 1);
 });

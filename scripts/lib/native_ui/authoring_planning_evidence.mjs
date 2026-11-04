@@ -1,5 +1,6 @@
 // B71：从实际请求与持久 canonical 事实核验计划消费链；本模块无 I/O。
 import { isDeepStrictEqual } from "node:util";
+import { requestFactsFromBody } from "./authoring_request_facts.mjs";
 const STAGES = Object.freeze([
   "agent_plan_draft", "agent_plan_revision",
   "submit_tentative_artifact", "submit_tentative_artifact",
@@ -23,10 +24,6 @@ function requireRecord(value, path) {
 function requireString(value, path) {
   if (typeof value !== "string") invalid(path, "a string");
   return value;
-}
-
-function optionalArray(value, path) {
-  return value == null ? [] : requireArray(value, path);
 }
 
 function optionalRecord(value, path) {
@@ -56,42 +53,35 @@ function parseChoice(value, path) {
   return { kind: "named", value: requireString(fn.name, `${path}.function.name`) };
 }
 
-function parseWireResult(message, path) {
-  if (message.role !== "tool") return null;
-  const id = requireString(message.tool_call_id, `${path}.tool_call_id`);
-  const content = requireString(message.content, `${path}.content`);
-  let payload;
-  try { payload = JSON.parse(content); } catch { invalid(`${path}.content`, "native result JSON"); }
-  requireRecord(payload, `${path}.content`);
-  requireString(payload.type, `${path}.content.type`);
-  requireString(payload.status, `${path}.content.status`);
-  if (payload.call_id !== id) invalid(`${path}.content.call_id`, "the original tool_call_id");
-  return { ...payload, detail: optionalRecord(payload.detail, `${path}.content.detail`) };
-}
-
-function parseWireMessage(value, path) {
-  const message = requireRecord(value, path);
-  requireString(message.role, `${path}.role`);
-  const calls = optionalArray(message.tool_calls, `${path}.tool_calls`).map((call, index) => {
-    const callPath = `${path}.tool_calls[${index}]`;
-    const name = parseToolName(call, callPath);
-    return { id: requireString(call.id, `${callPath}.id`), name };
-  });
-  if (calls.length > 0 && message.role !== "assistant") invalid(path, "an assistant tool-call message");
-  return { source: message, calls, result: parseWireResult(message, path) };
-}
-
 function parseBody(value, index) {
   const path = `bodies[${index}]`;
-  const body = requireRecord(value, path);
-  const messages = requireArray(body.messages, `${path}.messages`)
-    .map((message, ordinal) => parseWireMessage(message, `${path}.messages[${ordinal}]`));
+  requireRecord(value, path);
+  requireArray(value.tools, `${path}.tools`);
+  const facts = requestFactsFromBody(value);
+  if (!facts.ok) invalid(path, "a readable canonical IR or native wire request");
+  if (facts.malformedCalls > 0 || facts.malformedToolMessages > 0) {
+    invalid(path, "a complete tool exchange");
+  }
+  const calls = facts.toolCalls.map((call, ordinal) => ({
+    id: requireString(call.callId, `${path}.toolCalls[${ordinal}].id`),
+    name: requireString(call.name, `${path}.toolCalls[${ordinal}].name`),
+  }));
+  const results = facts.toolResults.map((result, ordinal) => {
+    const resultPath = `${path}.toolResults[${ordinal}]`;
+    const payload = requireRecord(result.payload, `${resultPath}.payload`);
+    requireString(payload.type, `${resultPath}.type`);
+    requireString(payload.status, `${resultPath}.status`);
+    if (payload.call_id !== result.toolCallId) {
+      invalid(`${resultPath}.call_id`, "the original tool_call_id");
+    }
+    return { ...payload, detail: optionalRecord(payload.detail, `${resultPath}.detail`) };
+  });
   return {
-    messages: messages.map((message) => message.source),
-    calls: messages.flatMap((message) => message.calls),
-    results: messages.flatMap((message) => message.result ? [message.result] : []),
-    names: requireArray(body.tools, `${path}.tools`).map((tool, ordinal) => parseToolName(tool, `${path}.tools[${ordinal}]`)),
-    choice: parseChoice(body.tool_choice, `${path}.tool_choice`),
+    messages: facts.messages,
+    calls,
+    results,
+    names: facts.tools.map((tool, ordinal) => parseToolName(tool, `${path}.tools[${ordinal}]`)),
+    choice: parseChoice(facts.toolChoice, `${path}.tool_choice`),
   };
 }
 

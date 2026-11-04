@@ -200,12 +200,37 @@ function records({ arguments: args, record = {}, scope } = {}) {
     work_id: WORK,
     session_id: SESSION,
     turn_id: PARENT,
+    request_format: "authoring-request-ir/v1",
     request_body: {
+      ir_version: "authoring-request-ir/v1",
+      run: { run_id: "run-source-1", work_id: WORK, session_id: SESSION, parent_turn_ref: PARENT },
+      system: { identity_ref: "identity:writer" },
       messages: [
-        { role: "system", content: "system prompt" },
-        { role: "user", content: "写前推理材料" },
-        { role: "user", content: scopeProjection(scope ?? scopeMessage()) },
+        {
+          role: "system",
+          provenance: "application",
+          blocks: [{ type: "text", text: "system prompt" }],
+          source_refs: [],
+          versions: {},
+        },
+        {
+          role: "user",
+          provenance: "author",
+          blocks: [{ type: "text", text: "写前推理材料" }],
+          source_refs: [],
+          versions: {},
+        },
+        {
+          role: "scope_update",
+          provenance: "application",
+          blocks: [{ type: "text", text: scopeText(scope ?? scopeMessage()) }],
+          source_refs: scopeSourceRefs(scope ?? scopeMessage()),
+          versions: (scope ?? scopeMessage()).versions,
+        },
       ],
+      tools: [],
+      projection: { tool_choice: null },
+      refs: {},
     },
     response: {
       status: "ok",
@@ -220,6 +245,17 @@ function records({ arguments: args, record = {}, scope } = {}) {
     },
     ...record,
   }];
+}
+
+function scopeText(scope) {
+  return (Array.isArray(scope?.blocks) ? scope.blocks : [])
+    .map((block) => block?.text)
+    .filter((text) => typeof text === "string" && text.trim() !== "")
+    .join("\n");
+}
+
+function scopeSourceRefs(scope) {
+  return Array.isArray(scope?.source_refs) ? scope.source_refs : [];
 }
 
 function missionEvent(overrides = {}) {
@@ -279,6 +315,24 @@ function input(overrides = {}) {
   };
 }
 
+function wireRecordWithScope(emptyMarker = false) {
+  const scope = scopeMessage();
+  const content = emptyMarker ? scopeText(scope) : scopeProjection(scope);
+  const record = structuredClone(records()[0]);
+  delete record.request_format;
+  delete record.request_body;
+  record.request = {
+    body: {
+      messages: [
+        { role: "system", content: "system prompt" },
+        { role: "user", content: "写前推理材料" },
+        { role: "user", content },
+      ],
+    },
+  };
+  return record;
+}
+
 function checksOf(overrides) {
   return chapterMissionSourceChecks(input(overrides)).checks;
 }
@@ -320,27 +374,25 @@ test("canonical 仍保留材料但实际请求删掉 scope 投影时必须失败
 
 test("请求投影的版本/原文/唯一性不符时失败", () => {
   const versionMismatch = records();
-  versionMismatch[0].request_body.messages[2].content =
-    versionMismatch[0].request_body.messages[2].content
-      .replace('"scope_revision":3', '"scope_revision":4');
+  versionMismatch[0].request_body.messages[2].versions.scope_revision = 4;
   assert.equal(checksOf({ records: versionMismatch }).mission_call_is_fully_joined, false);
 
   const textMismatch = records();
-  textMismatch[0].request_body.messages[2].content =
-    textMismatch[0].request_body.messages[2].content
+  textMismatch[0].request_body.messages[2].blocks[0].text =
+    textMismatch[0].request_body.messages[2].blocks[0].text
       .replace(LABEL_ADVANCE, "请求里被改过的标签");
   assert.equal(checksOf({ records: textMismatch }).mission_call_is_fully_joined, false);
 
   const duplicate = records();
-  duplicate[0].request_body.messages.push({
-    role: "user",
-    content: duplicate[0].request_body.messages[2].content,
-  });
+  duplicate[0].request_body.messages.push(
+    structuredClone(duplicate[0].request_body.messages[2]),
+  );
   assert.equal(checksOf({ records: duplicate }).mission_call_is_fully_joined, false);
 
+  // canonical IR 的作者身份来自 role/provenance，不再依赖应用数据 marker。
   const noMarker = records();
-  noMarker[0].request_body.messages[2].content = scopeMessage().blocks[0].text;
-  assert.equal(checksOf({ records: noMarker }).mission_call_is_fully_joined, false);
+  noMarker[0].request_body.messages[2].blocks[0].text = scopeMessage().blocks[0].text;
+  assert.equal(checksOf({ records: noMarker }).mission_call_is_fully_joined, true);
 });
 
 test("同一 basis_ref 的冲突标签是歧义来源，不能后者覆盖前者", () => {
@@ -984,7 +1036,7 @@ test("实际请求材料比 canon 多出未声明的 ref 时必须关闭", () =>
     `- [ledger:information:plan_info_4] ${LABEL_AVOID}`,
   ].join("\n");
   const recs = records({ scope });
-  recs[0].request_body.messages[2].content += "\n- [plan:2:extra] 请求中额外材料";
+  recs[0].request_body.messages[2].blocks[0].text += "\n- [plan:2:extra] 请求中额外材料";
   assert.equal(
     checksOf({
       transcript: transcriptWithScope(scope),
@@ -1068,4 +1120,10 @@ test("joinedRefs 只有 pcall 没有 prun 时关闭而不是崩溃", () => {
   const value = input();
   value.joinedRefs = { provider_call_refs: [PCALL] };
   assert.equal(chapterMissionSourceChecks(value).checks.mission_call_is_fully_joined, false);
+});
+
+
+test("真实 wire scope 仍按原应用数据 marker 与版本行读取，缺 marker 不放行", () => {
+  assert.ok(Object.values(checksOf({ records: [wireRecordWithScope()] })).every(Boolean));
+  assert.equal(checksOf({ records: [wireRecordWithScope(true)] }).mission_call_is_fully_joined, false);
 });

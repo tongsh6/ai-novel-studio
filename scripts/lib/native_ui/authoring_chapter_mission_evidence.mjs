@@ -5,6 +5,10 @@
 import { isDeepStrictEqual } from "node:util";
 import { parseUtcTimestamp } from "./authoring_canon_evidence.mjs";
 import { assistantCalls } from "./authoring_revision_evidence.mjs";
+import {
+  NATIVE_CHAT_WIRE,
+  requestFactsFromRecord,
+} from "./authoring_request_facts.mjs";
 
 const TOOL_NAME = "chapter_mission";
 const TENTATIVE = "TENTATIVE";
@@ -165,23 +169,36 @@ function versionLineMatches(content, versions) {
   return Boolean(parsed && isDeepStrictEqual(parsed, versions));
 }
 
-function isProjectedScope(message, versions, texts) {
+function irProjectedScope(message, versions, texts) {
   return isRecord(message) &&
-    message.role === "user" &&
-    typeof message.content === "string" &&
-    versionLineMatches(message.content, versions) &&
-    texts.every((text) => message.content.includes(text));
+    message.role === "scope_update" &&
+    message.provenance === "application" &&
+    isDeepStrictEqual(message.versions, versions) &&
+    texts.every((text) => message.text.includes(text));
 }
 
-// 在本次 pcall 自己的 request_body.messages 中定位调用前当前 scope 的唯一投影：
-// 固定标记 + 版本对象 + canonical 原文逐块出现。不能按时间/latest/全 run 搜旧 scope。
+function wireProjectedScope(message, versions, texts) {
+  return isRecord(message) &&
+    message.role === "user" &&
+    typeof message.text === "string" &&
+    versionLineMatches(message.text, versions) &&
+    texts.every((text) => message.text.includes(text));
+}
+
+// 在本次 pcall 自己的实际请求中定位调用前当前 scope 的唯一投影：
+// canonical IR 直接按 role/provenance/blocks + versions/source_refs 读取；真实 wire
+// 仍按原应用数据标记与版本行读取。不能按时间/latest/全 run 搜旧 scope。
 function projectedScope(record, scope) {
   // operationRequest 只在 canonical 材料非空后调用，scope 必为对象且有材料文本。
   const texts = list(scope.blocks).map((block) => block?.text).filter(nonBlank);
   if (!isRecord(scope.versions)) return null;
-  const matches = list(record?.request_body?.messages)
-    .filter((message) => isProjectedScope(message, scope.versions, texts));
-  return matches.length === 1 ? matches[0].content : null;
+  const facts = requestFactsFromRecord(record);
+  if (!facts.ok) return null;
+  const matches = facts.scopeMessages.filter((message) =>
+    facts.format === NATIVE_CHAT_WIRE
+      ? wireProjectedScope(message, scope.versions, texts)
+      : irProjectedScope(message, scope.versions, texts));
+  return matches.length === 1 ? matches[0].text : null;
 }
 
 function operationRequest(scope, record) {
