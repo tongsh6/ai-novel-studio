@@ -1,12 +1,12 @@
 # NEXT
 
-> 本轮仅整理文档与排期；状态与决策以原任务为准，规则见 [tasks/README](README.md)。每次完成或受阻后运行 `node scripts/next_task_check.mjs --open` 复核并补位；本轮扩展依据见 [全量对账 §17](2026-10-27-design-to-execution-reconciliation.md#17-2026-10-30-元原则整改任务与排期梳理) 与 [2026-10-31 队列审计报告](../../artifacts/queue-audit/2026-10-31-audit.md)。
+> 本轮仅整理文档与排期；状态与决策以原任务为准，规则见 [tasks/README](README.md)。每次完成或受阻后运行 `node scripts/next_task_check.mjs --open` 复核并补位；本轮扩展依据见 [全量对账 §17](2026-10-27-design-to-execution-reconciliation.md#17-2026-10-30-元原则整改任务与排期梳理)。
 
 ## 当前任务
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B71-CP4b | 源头重构与剩余验收：运行时事件交接、真实路由/原生投影、Responses SSE、G6 压缩后请求及 CP5。当前状态、证据分层与 A3b 归因纠正均见原任务；I10 不代签 | [B71](slices/B71-provider-message-fidelity.md) |
+| B71-CP4b | R1 请求边界/原生投影/三消费者迁移已实现并通过确定性门禁（后端全量 3085/0、credo no issues、I1/I2/I3/N-NARR/I-CACHE 通过、前端 486 tests；提交 b32da8cd/abf4c63b/c652277b）；剩余 R2 流式生命周期与 Responses SSE、G6 压缩后请求、R1 后真实页面/实模证据及 CP5。I10 不代签 | [B71](slices/B71-provider-message-fidelity.md) |
 
 当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 

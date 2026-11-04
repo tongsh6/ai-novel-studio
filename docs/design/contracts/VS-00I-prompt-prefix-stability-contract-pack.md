@@ -168,6 +168,8 @@ provider 的 prompt cache 是字节级最长公共前缀复用。
 
 独立计划/使命迁移后，CP-D 继续保护跨 run 的完整 L1：目标/计划版本进入 scope metadata，其第一个动态字节可能早于正文中的「本轮目标」标题，故 draft/revision 的动态边界是 scope_update 消息起点；起草/修订固定规则和工具 schema 仍须全处于共享区。原有章节目录检查保留为双边携带断言，并扩大为每条 fixture 章节均须出现在每个请求，避免删材料换共享率。使命若明确提供作者原话，则与 writer 一样以独立作者消息起点为界。不同版本的 scope 不冒充静态 L1；同 run 已有消息仍由 G7 严格前缀检查保护。
 
+2026-11-04 R1 复核：判断样本必须直接捕获当前 `JudgmentProtocol.request_for_production/2`，不再测退役的 `prompt/2`。原独立输入、会话摘要边界、required tails 和 enforce 保持；首次快照源头按 [VS-00L §19.2](VS-00L-authoring-run-transcript-request-ir-contract-pack.md#192-初始快照与追加历史的职责r1-真实前缀反例) 构造，已有 transcript 不排序、不重写。不能用共享第一轮 transcript 替换原第二样本来取得通过。
+
 ## 5. 厂商适配矩阵
 
 分层模型（§2）与调用对规则（§3）产出的 prompt 字节对所有 provider 相同；本表只列**adapter 层**为命中缓存需要做的事、能读到的命中字段、以及运行侧前提。"待核实"项在 CP-AB 以真实响应核实后回填，不预设。

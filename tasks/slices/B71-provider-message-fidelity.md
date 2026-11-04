@@ -1,8 +1,8 @@
 # B71：AI Novel Studio 原生多轮创作请求体
 
-- **当前执行入口（2026-11-04，接续复核）**：以下当前状态和末节「统一接续与源头重构」优先于历史过程记录。原生确认批次暴露的子运行启动交接已由 `8930c432` 修复；新页面事件证据待补。A3b 的原“模型契约失败率高”归因已由原始请求/响应纠正，见末节。
+- **当前执行入口（2026-11-04，接续复核）**：以下当前状态和末节「统一接续与源头重构」优先于历史过程记录。原生确认批次暴露的子运行启动交接已由 `8930c432` 修复；新页面事件证据待补。A3b 的原“模型契约失败率高”归因已由原始请求/响应纠正，见末节。当前最前沿执行单元是末节「R1 实际路由与原生输入迁移」（实现已落地、待独立验证），按 VS-00L §19.1/§19.2 推进。
 
-- 状态：**doing**。已取得 CP2/CP3a/CP3c/CP4a 机制与确定性页面证据、CP3b 实模协议机制 10/10、G1–G4 实模请求切片、G5 确定性请求切片、pending-08 77/77、确认/拒绝原生 clean PASS、displayName P0/P1 页面证据；压缩自动维护实现完成。**尚未闭环**：实际路由绑定与三类原生投影的生产贯通、Responses SSE、G6 实际压缩后请求、当前源码的实时启动事件/确认失败分支页面证明、实模流式工具与取消证据、完整语义覆盖及 CP5 当前基线门禁。I10 文学质量由原任务承接，不由 B71 代签。Pencil MCP 当前返回 Transport closed，PNG 未导出；不把环境状态当代码缺陷。
+- 状态：**doing**。已取得 CP2/CP3a/CP3c/CP4a 机制与确定性页面证据、CP3b 实模协议机制 10/10、G1–G4 实模请求切片、G5 确定性请求切片、pending-08 77/77、确认/拒绝原生 clean PASS、displayName P0/P1 页面证据；压缩自动维护实现完成。**R1 请求边界迁移已实现并取得确定性门禁证据**（canonical IR 到 Gateway、实际路由单次解析与能力门、三类 adapter 原生投影消费、三个文本消费者迁移、测试替身移出生产注册表、初始快照按 VS-00L §19.2 构造；后端全量 3085/0 等门禁见末节），但 R1 后真实页面/实模证据仍归 CP3b/CP4b-2/CP5，故「实际路由绑定与三类原生投影的生产贯通」保持未闭环；R2 未开始。**尚未闭环**：实际路由绑定与三类原生投影的生产贯通、Responses SSE、G6 实际压缩后请求、当前源码的实时启动事件/确认失败分支页面证明、实模流式工具与取消证据、完整语义覆盖及 CP5 当前基线门禁。I10 文学质量由原任务承接，不由 B71 代签。Pencil MCP 当前返回 Transport closed，PNG 未导出；不把环境状态当代码缺陷。
 - 来源：作者先要求对照 Codex、Claude Code、dsh 的真实多轮请求，随后明确“设计一个优秀、符合项目调性的请求体，不为现状妥协”。本文件已据此替换此前偏向现役最小修补的方案。
 - 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)；目标方向与迁移规则已由 [ADR-0033](../../docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) Accepted（2026-10-31）；替换契约 [VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 已 Frozen，首个判断消费者已完成 canonical 原生多轮接线，其余消费者与完整迁移归 CP4。
 - 对账输入：[B26](B26-single-call-judgment-protocol.md)、[B39](B39-evidence-seeking-authoring.md)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md)、[VS-00I](../../docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md)、[UA-01](../../docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md)。它们是迁移事实与可能需要修订的决策，不是降低目标设计的约束。
@@ -91,7 +91,7 @@
 | CP3b | 实模窗口验收：真实 Tauri + 实际模型请求/响应、G1–G6 与作者边界证据；CP3a 不能替代实模 | **doing**：协议机制与 G1–G4 已取证；G5 当前为确定性证据，G6 和完整行为覆盖未闭环；不再用资源等待概括已发生的产品/场景缺口 |
 | CP3c | 方案修订与稳定/恢复 checkpoint（2026-11-01）：先修订 ADR/VS-00L，再实现稳定层与动态 scope 分层更新、可恢复 canonical transcript；新增 G7 动态 scope 后与 G8 恢复后，不把整段 Base 刷新当终态 | **done（2026-11-01）**：canonical 整体重构、G7/G8、数据库离线恢复、原生 14/14 与门禁完成；不代表 CP3b/CP4/CP5 完成 |
 | CP4a | 统一创作/质量 canonical 主链：判断 → 原生创作调用 → 质量复核 → tentative artifact → 续行；迁移 creative/quality provider 与 TurnExecutionService，不形成第二控制环 | **done（2026-11-01）**：原生调用、阶段工具、应用结果闭合、durable checkpoint 与真实 Tauri 14/14 完成；不代表 CP3b/CP4b/CP5 完成 |
-| CP4b | 覆盖其它规划 profile、显式压缩恢复与旧协议退役；完成真实 Tauri 全链、真实模型行为、缓存/usage、replay/Why 和全部门禁 | **doing（2026-11-01，方案见末节）**：CP4b-1 统一机制与确定性页面；CP4b-2 实模行为、缓存/usage 与剩余证据。CP4 仅在 CP4a+CP4b 均完成后才算 done |
+| CP4b | 覆盖其它规划 profile、显式压缩恢复与旧协议退役；完成真实 Tauri 全链、真实模型行为、缓存/usage、replay/Why 和全部门禁 | **doing（2026-11-01，方案见末节）**：CP4b-1 统一机制与确定性页面；CP4b-2 实模行为、缓存/usage 与剩余证据。**R1 请求边界/原生输入迁移已按 VS-00L §19.1 实现并通过确定性门禁（详见末节 R1 收口记录）**：删除 `to_provider_prompt/2`、构造/执行双身份比对、Chat 中间层与生产 Stub 注册，初始快照按 §19.2 构造；R2 统一流式生命周期与 Responses SSE 未开始。CP4 仅在 CP4a+CP4b 均完成后才算 done |
 | CP5 | 更新 ADR/contract/设计/索引/事实台账和恢复指引；逐项证明完整范围，不能以 adapter/golden 局部证据标 done | **doing**：历史批次已整理；当前实现、事实归因、门禁和完整验收仍在接续 |
 
 ## 6. 验证与恢复指引
@@ -1012,8 +1012,28 @@
 - **R1 统一请求边界**：保留完整 canonical IR 到 Gateway；实际 provider/model/purpose/route_hint 只解析一次，能力与投影消费同一 state。IR 构造不查询配置，删除默认 route 元数据及下游身份二次补救。三类 adapter 各消费原生投影；系统身份、工具集合/选择、原始参数与私有回放材料在此边界不丢失。只用于旧投影测试的 prompt helper 随消费者迁移删除；设定盘点、章摘要和工具结果叙述三个仍在运行的文本消费者必须显式迁移，不能因旧形态直接删功能。
 - **R2 同一流式生命周期**：工具调用不再隐式选择非流式。统一 existing HTTP cancellation/deadline/silence 生命周期，协议 decoder 分别累积 Chat/Anthropic/Responses 原始事件；工具参数在结束前只作增量事实，完成后归一；保留 call_id 与 raw_arguments。Responses item_id 与 call_id 分属不同用途，不混用。私有 reasoning 按真实 provider/model 绑定回放，不展示给作者。正文预览只来自实际正文数据，不能展示被截断/错误解码的转义内容冒充正文。
 - **实施七问**：Contract = ADR-0033、VS-00L §6/§16.5/§19 与 ProviderRun/Event/Output；Invariant = canonical 唯一事实、实际 route 单源、原文/工具关联/usage/取消不丢失；Boundary = agent 投影/传输与 application 现役请求构造，domain/persistence 授权不变；Consumer = judgment、writer、evaluator、planner/mission 及三个文本消费者；Proof = 各真实 Gateway→HTTP 形状、按用途选模型、auto/具名工具流式分片/取消、私有回放、G1–G8 与全量/invariants；Acceptance Driver = 当前 Tauri 创作/确认场景外部驱动，捕获实际请求/SSE/页面/持久结果，产品验收感知 no；Exploration = 保留最小 Base、同批探索、下一实际请求观察与 used refs 绑定，不靠新增 packet 补漏。
-- R1/R2 为既有 CP4b 的执行单元，不缩小原范围；尚未开始实现，不标完成。先收口当前交接/查询/证据质量单元及当前基线，再推进。
+- R1/R2 为既有 CP4b 的执行单元，不缩小原范围。交接/查询/证据质量单元已收口；R1 请求边界迁移按 VS-00L §19.1 开始，R2 尚未实现，均不标完成。
 
+### R1 实际路由与原生输入迁移（2026-11-04，实现已落地、待独立验证）
+
+- 基线 `107f3b99` 已推送，工作区在开工时干净；最终 Node 1090/1090、开工 `mix compile` exit 0。此前后端/不变量/静态扫描与原生缺口按后文保留，不把旧结果当成新实现验证。
+- 设计按 VS-00L §19.1：`prepare_request` 返回 canonical IR，Gateway 按本次实际 route 判断能力，adapter 直接投影原生协议。删除默认 route 查询、双身份比对、Chat 中间层和测试专用 prompt 文本读取逻辑；后者随 Stub 移到 test/support，通过测试配置显式注册。真实直接文本调用仍需后续迁移，不能捏造 AgentRun。
+- 分工：core `b8bd3a4e/c41e0224` 已局部交付；application/test-support 首阶段 `b137e722` 因重复工具逻辑和虚构 canonical 形状被取消，`d0ef67da` 交付了源码迁移、未执行测试。脚本 `2dff27f2/4b2effc8` 已完成接线与规则对账，并撤回了未经批准的共享历史样本。`8a577eb1` 初始快照源修复、`d6c4a968` 清理测试消费者并恢复必要的 Stub 模拟能力声明、`79f1957d` 迁移 Node 原生证据读侧。**上述改动均已并回当前工作区（未提交）；worker 局部报告不构成实现验证，leader 最终复核与 R1 后全量门禁尚未执行。**
+- 补充消费者事实：`scripts/scenario_invariants/run_icache_prefix.exs` 使用 draft/revision/mission prompt helper 与 `Provider.prompt_text`。旧审计“仅测试-facing”不代表无人消费；helper 退役后此 driver 必须沿真实生产调用捕获 IR/实际投影，保持原案例、门槛与判据。不得删门禁、放宽判据或用测试包装层恢复旧桥。
+- 证据读侧也属于本次真实消费者：`authoring_call_evidence` 当前要求 fixture 的 `provider_prompt/v1`，多个原生判据从 `messages.content/tool_calls` 读取；fixture 收到 IR 后须如实记录真实版本/来源，读侧按该格式解析。不能将重建的 Chat body 冒充 fixture 实际收到的请求，也不能靠旧 fixture 测试继续通过代签新格式。leader 源码审查留在 `artifacts/b71-resume/r1-leader-review-20261104/in-progress.json`，尚非完成证据。
+- 其余冻结/探针脚本也需随 R1 核对：`scripts/b27_case_freeze.exs` 仍按 legacy prompt 形状读取捕获结果；本次仅把 `prompt_builder` 元数据改为 `request_for_production/2`，历史快照 JSON 按证据只读保留。R1 后其 `--check`/重冻路径尚未验证，属验收资产迁移缺口（B71 后续处理），不能以旧快照 PASS 代签 R1。
+- 当前 Pencil MCP `get_app_state` 返回 Transport closed，未读写 `.pen` 文件。原生系统提示仍等待作者处理，不绕过电脑控制工具对系统应用的限制。R1 不新增 UI 感知验收逻辑；Stub 相关前端退役分支与后续 R1/R2、G6/CP5 仍需逐项收口。
+- **已独立复现的新证据**：真实路由/原生 body 新回归 10/10；纯投影 probe 另发现合法 system 角色在 Anthropic 被降为 user，`c41e0224` 已修并交付 305+7 项局部绿，leader 后续复核。真实 I-CACHE 独立输入失败：shared=16332、boundary=18379，日志 `artifacts/b71-resume/r1-leader-review-20261104/icache-actual-production.log`。旧 `prompt/2` 是不同顺序的 giant prompt helper，不是当前生产入口；不以共享历史替换样本。**初始快照已按 VS-00L §19.2 实现**：`JudgmentProtocol.transcript_for_production/2` 一次生成实际 scope，经 `AuthoringTranscript.new(initial_scope:)` 按 `application_base → initial scope_update → user` 构造；新增 `apps/novel_application/test/novel_application/judgment_initial_snapshot_test.exs` 与 `apps/novel_agent/test/novel_agent/provider/native_boundary_r1_test.exs`（均在工作区、未提交、未运行）。真实 I-CACHE 独立输入的重测证据尚未记录，不得用旧红例或共享历史样本代签通过。
+- **初始快照单元七问**：Contract = VS-00L §19.2、VS-00I §4.2 与既有 I-ART-2/10/13/14；Invariant = 首次快照按稳定 Base/实际 scope/作者原话建立，已有历史只追加且字节不变；Boundary = application 的 JudgmentProtocol / AuthoringTranscript，不改 domain/persistence/adapter 投影顺序；Consumer = 首个真实判断请求及其后续恢复；Proof = 原 I-CACHE 独立输入红例、Gateway 捕获/三类投影、原作者与来源、重复构造幂等、续行严格前缀和 JSON 恢复一致；Acceptance Driver = 既有真实 Tauri 创作/确认链，产品验收感知 no；Exploration = 仅重置首次组装职责，不增加或复制材料/packet，观察与 used refs 原绑定保持。
+
+
+- **2026-11-04/05 R1 收口（实现 + 确定性门禁；已提交，不代签页面/实模）**：统一请求边界本轮完成并独立验证——
+  - `RequestIR.prepare_request/2` 只选本次工具与 `tool_choice`；Gateway 按实际 route 单次解析并派生能力；Chat/Anthropic/Responses 三类 adapter 直接消费原生投影（Responses function_call 只认 `call_id`，`item.id` 不再冒充工具身份）。
+  - 三个直接文本消费者（章摘要 `ChapterSummaryGenerator`、设定盘点 `FactInventoryService`、工具结果叙述 `Planner.narrate_tool_result/3`）经 `RequestIR.text_operation/1` 迁移（真实操作 profile + `application_base`，不伪造 run/session 或作者消息）。
+  - 删除：`to_provider_prompt/2`、`Provider.normalize_messages/2`、`SystemIdentity.inject/1`、`put_openai_tools/2`、adapter/Gateway legacy prompt 分支、`finite_mode legacy_prompt/legacy_json_content` 万能覆盖、IR `provider_session`、IR `system.identity_ref` 假标签；`Real`/`ProseQualityEvaluator` 不可达的纯文本 JSON fallback 一并删除。
+  - 身份真源：IR `system.identity_ref == SystemIdentity.identity_ref()`；transcript/checkpoint 只持久化 run 级规则（instructions/run_role），旧检查点恢复不再因身份版本变化失败。
+  - 门禁（独立测试库）：后端全量 **3085 tests / 0 failures**（9 app；e2e 1/0）、`compile --warnings-as-errors` dev/test 0、`credo --strict` no issues、`xref` 无环、`arch_check` 通过、`module-size` 通过、**I1 4/4、I2 3 pairs / 0 violations、I3 3/3、N-NARR PASS、I-CACHE 4/4 行 covered+enforced**；前端 typecheck/lint/**486 tests**/audit/design-trace 全绿；统一静态扫描 **19 passed / 2 failed**（唯一两项为如实登记项：gitleaks 6 项既有处置；UI 改动需新 Tauri 页面证据而原生批次受 macOS 系统提示阻塞 → task-done manifest pending，不伪造）。
+  - 未获证（不得代签）：真实模型语义/缓存/usage、R1 后真实 Tauri 页面证据、Responses SSE（R2）、G6、CP5。
 
 ### 多窗口事件分发的真实重复复现（2026-11-04，待源头重构）
 

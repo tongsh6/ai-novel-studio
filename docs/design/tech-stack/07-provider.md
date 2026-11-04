@@ -400,7 +400,9 @@ end
 
 ---
 
-## 11. Stub Provider（contract test 用）
+## 11. 测试替身 Provider（仅测试/脚本环境注入）
+
+> 2026-11-04 边界：测试替身不是生产供应商，也不进入生产 registry。实现位于 `apps/novel_agent/test/support/provider/stub.ex`，遵守同一 Provider 接口，由测试配置显式注入；规则见 Provider 抽象 §2.4/§14 与 VS-00L §19。
 
 ```elixir
 defmodule AINovelStudio.Foundation.Provider.Stub do
@@ -419,13 +421,11 @@ defmodule AINovelStudio.Foundation.Provider.Stub do
 end
 ```
 
-测试中：
+测试中（生产 registry 不含 stub，只经测试配置显式注入）：
 
 ```elixir
-setup do
-  Application.put_env(:ai_novel_studio, :default_provider, :stub)
-  :ok
-end
+config :novel_agent, :provider, default: :stub
+config :novel_agent, :extra_providers, %{stub: NovelAgent.Provider.Stub}
 
 test "executor calls provider stub" do
   result = Executor.run(intent, params)

@@ -176,11 +176,10 @@ scripts/scenario_invariants/
 ├── run_i2_variation.exs     # I2 差异化输入检查
 ├── run_i3_nonce.exs         # I3 种子贯通检查
 ├── run_n_narr.exs           # N-NARR 作者过程叙事来源绑定检查
-├── run_icache_prefix.exs    # I-CACHE-1 prompt 前缀共享检查（§8）
-└── run_all.sh               # 集成入口
+└── run_icache_prefix.exs    # I-CACHE-1 prompt 前缀共享检查（§8）
 ```
 
-每个脚本独立可运行，输出统一报告：
+每个脚本独立可运行，由 `scripts/ai_static_scan.sh` 逐条执行并统一收集退出码（无独立 run_all.sh 入口）；输出统一报告：
 
 ```
 artifacts/scenario-invariants/
@@ -213,7 +212,7 @@ artifacts/scenario-invariants/
 
 ### 5.3 强制力
 
-- `bash scripts/scenario_invariants/run_all.sh` 接入 `scripts/ai_static_scan.sh`
+- 五个 driver 由 `scripts/ai_static_scan.sh` 逐条执行（命令与顺序见该脚本）；任一非 0 退出即阻断
 - pre-commit hook 跑 I3（最快，秒级）
 - CI 跑 I1+I2+I3 全量
 - I-CACHE-1（§8）由 `run_icache_prefix.exs` 在 CI 与静态扫描中强制，失败即阻断

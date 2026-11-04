@@ -19,7 +19,7 @@
 5. usage 如何统一计量
 6. provider error 如何标准化
 7. retryability 应由谁决定
-8. stub provider 在体系里是 mock 还是正式实现
+8. 测试替身如何遵守正式 Provider 接口并保持在产品边界之外
 
 本文不负责：
 
@@ -65,9 +65,9 @@ Domain、capability、orchestrator 不应直接调用供应商 SDK。
 - error
 - cancellation
 
-### 2.4 stub provider 是正式实现
+### 2.4 测试替身遵守正式接口，不进入生产注册表
 
-为了 greenfield 开发、契约测试和离线验证，stub provider 必须被视为正式 provider implementation，而不是只在测试里临时 mock。
+确定性 Stub、fixture provider 与脚本 provider 必须遵守同一 Provider 接口，但只位于 `test/support`、脚本或外部 harness，通过测试配置显式注入。它们不是作者可选择的真实模型能力，不得注册进生产 app/runtime 或充当缺省模型。此规则按 `AGENTS.md` 场景化验收红线与 VS-00L §19 的源头重构原则取代早期“正式 Stub 实现”的部署含义；B71 负责迁移，历史离线验证证据不改写为真实模型证据。
 
 ---
 
@@ -79,7 +79,7 @@ Domain、capability、orchestrator 不应直接调用供应商 SDK。
 
 - 云端大模型 API
 - 本地推理服务
-- 规则型 stub provider
+- 测试环境显式注入的规则型替身（不属于生产供应商集合）
 - 未来的 specialized model service
 
 Provider abstraction 的职责是：
@@ -497,7 +497,7 @@ capability 可以表达“我需要什么能力等级”，但不应直接把模
 
 ## 14. Stub Provider Contract
 
-stub provider 是正式 provider implementation。
+Stub 是实现正式接口的确定性测试替身；部署边界见 §2.4。
 
 ### 14.1 stub 的用途
 
@@ -517,10 +517,9 @@ stub 不能绕过：
 - usage envelope
 - error envelope
 
-### 14.3 stub 不是 mock
+### 14.3 测试实现与生产实现的边界
 
-mock 可以只为某个测试服务。  
-stub provider 则是体系内的正式实现类型。
+测试可以复用符合接口的 Stub，也可以为一个案例注入更窄的 mock。两者都不能进入生产注册表、被展示成真实模型能力，或用其通过结果代签真实模型语义。产品代码不识别测试场景；注入归测试/脚本环境。
 
 ---
 
@@ -719,7 +718,7 @@ Domain 不得改写：
 5. usage 必须统一计量并可追溯
 6. provider error 必须标准化
 7. provider 只提供 retry hint，最终 retry 决策不在 provider 层
-8. stub provider 是正式实现，不是临时 mock
+8. 测试替身遵守同一接口，只由测试/脚本环境注入，不进入生产注册表
 
 ---
 
@@ -859,6 +858,8 @@ Profile：`local` = `:lmstudio` / `:strata`（同一套本机推理后端）；`
 ## 26. AI Novel Studio 原生多轮创作请求体（2026-10-30 目标设计；2026-10-31 作者选 A，方向 Accepted）
 
 > 来源：作者要求以“优秀且符合项目调性，不为现状妥协”为目标，重新对照 Codex、Claude Code、dsh 的真实多轮请求。本节是目标架构，不是现有 giant prompt 的最小修补，也不以现役 provider 的最低能力反向限定设计。执行任务为 `tasks/slices/B71-provider-message-fidelity.md`；目标方向与迁移规则已由 [ADR-0033](../adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) 接受，替换契约 [VS-00L](../contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 已冻结并完成 CP2–CP4b 确定性实现；**2026-11-03 状态**：能力事实已收敛到单一派生边界（adapter 可证声明 → `CapabilityProfile` → IR/执行边界身份比对），全 true 假声明已删除，SSE 工具调用无损累积与 Responses 真实传输已落地；实模 CP3b、压缩前端入口设计授权与 CP5 收口仍未闭环（见 VS-00L §17）。现役 B26/B39/VS-00I 是迁移与 ADR 对账输入，不是降低目标的理由。
+>
+> **2026-11-04 R1 状态**：实际 route 单源——canonical IR 不再保存 target/capability_profile/provider_route；Gateway 按本次 provider/model/purpose/route_hint 解析唯一配置快照并派生能力，adapter 直接投影原生协议；`to_provider_prompt/2` 与构造/执行双身份比对已删除，测试替身移出生产注册表（§2.4/§14）。**实现位于未提交工作区、待独立验证**；R2/Responses SSE、G6、真实页面与 CP5 仍未闭环。
 
 ### 26.1 对照结论：吸收协议能力，不复制代码 Agent 形态
 

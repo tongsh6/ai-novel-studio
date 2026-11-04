@@ -1,6 +1,8 @@
 # SU-01 切换模型供应商
 
-> 系统用户视角：我可以选择用哪个大模型来驱动 AI 创作助手，切换 DeepSeek / Anthropic / 本地 LM Studio / 本地 Strata（Strata App 统一推理后台）/ 测试 Stub 等供应商，配置各自的 API Key、模型和端点，并确认连接是否正常。
+> 系统用户视角：我可以选择用哪个真实大模型来驱动 AI 创作助手，切换 DeepSeek / Anthropic / 本地 LM Studio / 本地 Strata（Strata App 统一推理后台）等供应商，配置各自的 API Key、模型和端点，并确认连接是否正常。
+>
+> 2026-11-04 当前边界纠正：按 `AGENTS.md` 场景化验收红线、[Provider 抽象 §2.4](../../foundation/08-provider-abstraction.md#24-测试替身遵守正式接口不进入生产注册表) 与 [VS-00L §19](../../contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md#19-未发布阶段的源头重构2026-11-04作者确认)，Stub 移到测试支持并由测试配置显式注入，不再属于生产模型列表或默认供应商。下文 Stub 页面批次是历史离线验证记录，不能代签当前真实模型切换；现役实现与前端残留退役进度由 B71 维护。
 >
 > 场景化验收口径：本文按完整功能蓝图验收“模型供应商管理”，不把已有健康检查误判为完整供应商切换。
 >
@@ -85,7 +87,7 @@
 | `apps/novel_web/lib/novel_web/controllers/provider_controller.ex` | `GET /api/provider/health` 返回 `connected/provider/model/message/detail`；新增 provider options/models/config/test API | 后端 API 已能支撑设置 UI，但完整页面验收未闭环 |
 | `apps/novel_application/lib/novel_application.ex` | `provider_health/options/models/configure/test` 均经 Application 层代理 | `novel_web` 不直接依赖 `novel_agent` |
 | `apps/novel_agent/lib/novel_agent/provider/runtime_config.ex` | 保存当前进程的 provider 选择与运行时配置 | 持久化归桌面 shell，不落项目仓库 |
-| `apps/novel_agent/lib/novel_agent/provider/gateway.ex` | 注册 `stub/lmstudio/anthropic/deepseek`，支持 registry、实时模型列表、health、运行时切换和连接测试；`clear_api_key` 不复用旧 runtime key | 后端最小切换闭环已实现并有单元/控制器测试 |
+| `apps/novel_agent/lib/novel_agent/provider/gateway.ex` | 注册 11 个真实供应商（lmstudio/strata/anthropic/deepseek/openai/openai_subscription/minimax/minimax_cn/zhipu/kimi/gemini），支持 registry、实时模型列表、health、运行时切换和连接测试；`clear_api_key` 不复用旧 runtime key；测试替身只经 `config/test.exs` 的 `:extra_providers` 注入，不进入生产注册表 | 后端最小切换闭环已实现并有单元/控制器测试 |
 | `apps/novel_agent/lib/novel_agent/provider/strata.ex` | Strata App 统一推理后台 provider adapter：固定 OpenAI 兼容入口 `http://127.0.0.1:47831/v1`、`/chat/completions`、`/models`、真实 health 探活、可选 Bearer Key；模型由 App 管理，未配置模型时请求不带 `model`；思考走顶层 `reasoning_effort`（默认 `"none"`，不发 thinking 对象） | 后端 registry 单源；前端模型设置 Dialog 自动出现「Strata」，模型列表来自统一后台实时 `/v1/models` |
 | `frontend/src/lib/modelProvider.ts` | 集中封装 provider options/models/config/test、Tauri 偏好、本地密钥文件同步、浏览器 fallback | 前端只调用后端 API，不直接调用 provider |
 | `frontend/src-tauri/src/lib.rs` | 非 secret provider 偏好写 profile-scoped app config，API Key 写同目录的 profile-scoped `provider-secrets.json`（unix 0600）；保存 payload 支持前端 camelCase | dev/stage/slice verification 的 provider 选择与密钥互相隔离；所有桌面平台一致用本地受限文件，不再依赖 macOS Keychain |
@@ -120,12 +122,12 @@
 
 | 字段 | 内容 |
 |---|---|
-| 用户视角 | 我能看到当前使用的是 LM Studio、Anthropic、DeepSeek 或 Stub，以及具体模型 |
+| 用户视角 | 我能看到当前使用的是 LM Studio、Anthropic、DeepSeek 等真实供应商，以及具体模型 |
 | 触发 | health check 成功 |
 | 期望结果 | UI 显示 provider + model，例如 `LM Studio · openai/gpt-oss-120b` |
 | 当前证据 | 后端返回 `provider` + `model`；`WorkspaceChat` 徽标消费 `providerHealthName`；`su01-provider-health-model` 原生 Tauri 验证覆盖真实工作台徽标 |
 | 当前状态 | 已验收 |
-| 当前缺口 | DeepSeek/LM Studio 等非 Stub 切换矩阵仍待后续 |
+| 当前缺口 | DeepSeek/LM Studio 等真实供应商切换矩阵仍待后续（Stub 已移出生产，不再作为可切换项） |
 | 缺口类型 | 补真实页面矩阵 |
 | 优先级 | P1 |
 
@@ -147,7 +149,7 @@
 
 | 字段 | 内容 |
 |---|---|
-| 用户视角 | 我可以在设置中从 LM Studio 切换到 Anthropic、DeepSeek 或 Stub |
+| 用户视角 | 我可以在设置中从 LM Studio 切换到 Anthropic、DeepSeek 等真实供应商 |
 | 期望结果 | provider 列表来自后端 registry；切换后 health 和下一轮对话使用新 provider |
 | 当前证据 | `GET /api/provider/options` 返回后端 registry；`WorkspaceChat` 模型设置弹窗消费该 API |
 | 当前状态 | 已验收 |
@@ -233,13 +235,13 @@
 | 场景 ID / 名称 | 设计期望 | Contract / Invariant | 相关实现入口 | 局部测试证据 | 真实页面外部自动化验收证据 | 当前状态 | 设计偏差 | 缺口类型 | 优先级 | 建议 checkpoint / slice |
 |---|---|---|---|---|---|---|---|---|---|---|
 | SC-SU01-A1 启动后看到 LLM 连接状态 | 启动后知道 LLM 是否可用 | SU-I1；`GET /api/provider/health` | `ProviderController.health/2`；`NovelApplication.provider_health/0`；`Gateway.health_check/0`；`WorkspaceChat` 顶栏 | ProviderController connected/disconnected 测试；frontend health helper | `su01-provider-health-model`；`su01-lmstudio-disconnected-health` | 已验收 | 无 | 完整异常矩阵待补 | P1 | 后续并入 provider 失败矩阵 |
-| SC-SU01-A2 看到 provider 和模型名 | UI 显示 provider + model | SU-I1；provider metadata contract | `Gateway.provider_metadata/0`；`providerHealthName`；`WorkspaceChat` | ProviderController provider/model metadata 测试 | `su01-provider-health-model`；`su01-model-provider-switching` | 已验收 | 无 | 非 Stub provider 切换矩阵待补 | P1 | `SU01-provider-failure-matrix` |
+| SC-SU01-A2 看到 provider 和模型名 | UI 显示 provider + model | SU-I1；provider metadata contract | `Gateway.provider_metadata/0`；`providerHealthName`；`WorkspaceChat` | ProviderController provider/model metadata 测试 | `su01-provider-health-model`；`su01-model-provider-switching` | 已验收 | 无 | 真实供应商切换矩阵待补（Stub 已移出生产） | P1 | `SU01-provider-failure-matrix` |
 | SC-SU01-A3 LM Studio 未启动提示明确 | 未启动时有作者可理解提示 | SU-I1；LM Studio health detail | `LMStudio.health_check/1`；`ProviderController.health/2`；`WorkspaceChat` title/badge | health disconnected 测试 | `su01-lmstudio-disconnected-health` | 已验收 | 无 | 启停/timeout/错误返回矩阵待补 | P1 | `SU01-provider-failure-matrix` |
 | SC-SU01-B1 选择不同 provider | provider 列表来自后端，保存后切换 runtime | SU-I2；provider registry contract | `Gateway.provider_options/0`；`configure_provider/1`；`WorkspaceChat` 模型设置 Dialog | Gateway/Web/frontend client 测试 | `su01-model-provider-switching` | 已验收 | 无 | DeepSeek/Anthropic/LM Studio 保存矩阵待补 | P1 | `SU01-provider-failure-matrix` |
 | SC-SU01-B2 配置 API Key | Key 默认隐藏，可测试连接，保存后不进项目仓库 | SU-I3；Tauri desktop local secret storage | `modelProvider.ts`；`frontend/src-tauri/src/lib.rs` local file secret command；ProviderController options filtering | frontend secret fallback 测试；Rust payload/profile/local-file 测试；Phoenix filter 参数；native verifier secret redaction 测试 | `su01-api-key-secret-redaction`；`su01-local-secret-file-roundtrip` | 已验收 | 当前 local-file 路径已闭环；live vendor 错误矩阵归入 B3 | 后续回归矩阵 | P1 | `SU01-provider-failure-matrix` |
 | SC-SU01-B3 配置 endpoint 并从实时模型列表选择 model | endpoint 独立配置；模型列表来自 provider 实时 API；非法 URL 阻断 | SU-I2/SU-I3；`POST /api/provider/models` | `Gateway.provider_models/1`；DeepSeek/Anthropic/LM Studio adapters；`WorkspaceChat` model select | Gateway/Web/frontend client 测试 | `su01-provider-endpoint-validation`；`su01-provider-model-list-success` | 部分实现 | 云端 provider 由外部 HTTP boundary harness，不证明 live vendor 账号；失败矩阵不足 | live vendor / 云端本地失败矩阵 | P1 | `SU01-provider-failure-matrix` |
 | SC-SU01-B4 手动测试连接 | 成功/失败都有即时反馈，失败保留配置 | SU-I2；`POST /api/provider/test` | `Gateway.test_provider/1`；`ProviderController.test/2`；`WorkspaceChat` test button | Gateway/Web/frontend client 测试 | `su01-model-provider-switching` 覆盖成功；`su01-provider-endpoint-validation` 覆盖非法输入阻断；`su01-provider-test-failure-ui` 覆盖失败反馈、草稿保留、无 turn/runtime 副作用和恢复成功 | 已验收 | live vendor 错误矩阵归入 B3 后续，不影响 B4 合同 | 后续回归矩阵 | P1 | `SU01-provider-failure-matrix` |
-| SC-SU01-C1 切换后下一轮用新 provider | 新 turn 经新 provider complete | SU-I2；provider runtime routing；provider/model audit log | `RuntimeConfig`；`Gateway.complete/3`；business JSONL | Gateway runtime routing 测试 | `su01-model-provider-switching` 的 `provider_gateway.complete.done provider=stub` | 已验收 | 无 | 非 Stub provider 矩阵待补 | P1 | `SU01-provider-failure-matrix` |
+| SC-SU01-C1 切换后下一轮用新 provider | 新 turn 经新 provider complete | SU-I2；provider runtime routing；provider/model audit log | `RuntimeConfig`；`Gateway.complete/3`；business JSONL | Gateway runtime routing 测试 | `su01-model-provider-switching` 的 `provider_gateway.complete.done provider=stub`（历史离线验证；Stub 已移出生产） | 已验收 | 无 | 真实供应商矩阵待补 | P1 | `SU01-provider-failure-matrix` |
 | SC-SU01-C2 切换 provider 不丢对话 | 当前作品、历史消息和 Channel 不丢 | SU-I4 | `WorkspaceChat` Dialog 状态；Channel 连接；message state | frontend contract 间接覆盖 | `su01-model-provider-switching` 断言切换后消息仍可见 | 已验收 | 无 | 长会话/历史恢复矩阵待补 | P2 | 后续回归矩阵 |
 | SC-SU01-C3 配置安全存储 | API Key 和 provider 偏好落安全位置，不进仓库/日志/UI | SU-I3；desktop profile isolation | Tauri preferences；profile-scoped `provider-secrets.json`；secret storage capability command；backend runtime in-memory | Rust profile/local-file/0600 测试；Rust secret storage capability 测试；frontend no-localStorage secret 测试；frontend `local_file` capability helper 测试；native verifier local-file roundtrip 测试 | `su01-api-key-secret-redaction`；`su01-local-secret-file-roundtrip` | 已验收 | 当前产品决策已从 OS Keychain/unsupported 分支改为所有桌面平台同一 local-file 机制；Windows/Linux 页面矩阵降为后续平台回归，不再是 SU-01 C3 blocker | 后续平台回归矩阵 / 安全策略强化 | P2 | 后续平台回归 |
 

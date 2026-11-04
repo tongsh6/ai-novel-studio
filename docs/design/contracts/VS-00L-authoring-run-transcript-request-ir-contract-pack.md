@@ -1,6 +1,6 @@
 # VS-00L Authoring Run Transcript / Request IR Contract Pack（统一 AgentRun 原生多轮）
 
-> 状态：**Frozen（2026-10-31，B71 CP1；ADR-0033 Accepted 目标方向的替换契约）**。本 pack 只冻结目标契约与迁移映射，不授权产品代码/schema/provider 实现。CP1 已由作者复核通过（2026-10-31）：ADR-0030/0031 已转 Superseded，原则由 ADR-0033 §3 承接，实现迁移进行中（B71 CP2–CP4）。
+> 状态：**Frozen（2026-10-31，B71 CP1；ADR-0033 Accepted 目标方向的替换契约）**。本 pack 只冻结目标契约与迁移映射，不授权产品代码/schema/provider 实现。CP1 已由作者复核通过（2026-10-31）：ADR-0030/0031 已转 Superseded，原则由 ADR-0033 §3 承接，实现迁移进行中（B71 CP2–CP4）。**2026-11-04 R1 请求边界重构已实现（工作区未提交、待独立验证，见 §19.1/§19.2 与 §17 表末行）；Frozen 契约内容未变，实施状态以 B71 原任务为准。**
 > 上游：[ADR-0033](../adr/ADR-0033-authoring-run-transcript-request-ir-v3.md)、[Provider 抽象 §26](../foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)、[00 §2.2–§2.4](../00-vision-and-engineering-roadmap.md)。
 > 承接与对账：`VS-00K`、`UA-01`、`VS-00I`、`VS-00H`、`VS-02`、`VS-02A`、`VS-04`、`VS-06`、ADR-0030/0031。
 > 执行与验收：[B71 CP1–CP5](../../../tasks/slices/B71-provider-message-fidelity.md)。
@@ -53,7 +53,6 @@ goal {text, source_ref, version},
 generation/turn_ref,
 budget {max_provider_calls, max_tool_calls, remaining},
 authority_scope {production_write, allowed_tools, mode},
-model_profile / capability_profile,
 trace_ref, created_at
 ```
 
@@ -111,8 +110,7 @@ AuthoringRequestIR v1 = {
   messages: [TranscriptMessage...],   // §3.2 的投影输入
   tools: [ToolSchema...],             // run 角色最小完整目录
   projection: {
-    target: :chat_completions | :anthropic_messages | :responses_api,
-    capability_profile: CapabilityProfile,
+    tool_choice: nil | "auto" | "none" | "required" | ToolName,
     cache_hints: [...],               // 仅优化，不改变顺序/语义
     reasoning_options: {...},
     usage_streaming: boolean,
@@ -267,7 +265,7 @@ AuthoringRequestIR v1 = {
 ## 11. 版本与兼容策略
 
 - IR v1 冻结后，CP2 实现必须按 major/minor 规则演进；additive 字段需同步 §6/§7/§8。
-- legacy 输入（旧 prompt 组装）只允许经 `legacy_adapter` 进入 v1；adapter 必须在 CP4 前退役，不留长期双轨。
+- legacy 输入（旧 prompt 组装）只允许经 `legacy_adapter` 进入 v1；adapter 必须在 CP4 前退役，不留长期双轨。**2026-11-04 R1：`RequestIR.from_legacy` 已删除，legacy 入口已退役（工作区未提交、待独立验证）。**
 - 历史 trace/replay/验收证据保留只读，不删除作者数据。2026-11-04 作者明确项目未发布、不要求旧版本兼容：现役消费者完成迁移后删除旧格式运行时适配与专属测试；旧证据不构成永久兼容要求。
 - 未决：具体 schema 列名、trace 存储结构、provider capability 探测方式由 CP2 落地时冻结，本 pack 只冻结语义与投影规则。
 
@@ -295,8 +293,10 @@ AuthoringRequestIR v1 = {
 每次 Provider 请求由三部分构成：
 
 ```text
-初始稳定 Base
-  产品宪法、run 角色、输出协议、工具 schema、作者原话
+初始请求快照（首次构造后不可重写）
+  稳定 Base：产品宪法、run 角色、输出协议、工具 schema
+  初始 scope：当前应用范围/来源/版本
+  作者原话：独立 user 消息、原始字节与来源
 追加式 transcript
   scope_update（版本化权限/预算/作品 revision/观察与恢复状态，含 source_refs/change_reason）
   user（新的作者 turn，原字节）/ assistant / tool / application_notice / checkpoint / author_exit
@@ -383,7 +383,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 ### 16.5 CP4b 边界补全（2026-11-01）
 
 - `Provider.NativeToolExchange` 统一 writer/evaluator 的单工具交换。响应包含多个或未授权工具时整体验证失败，每个原生 call 都保留并获得失败结果；不会挑第一个物化。重试最多一次，末次拒绝也闭合，应用只为仍待处理的成功调用追加业务校验结果。
-- `RequestIR` 校验工具调用和结果时序，canonical 可保存待处理响应，请求发出前必须全部闭合。能力门同时作用于生产 `to_provider_prompt/2`；JSON 有限模式必须由请求事先声明，不允许因响应缺少 tool call 而自动降级。具体路由模型的真实能力声明与验证仍为 CP4b 后续证据，不由 IR 内声明代签。
+- `RequestIR` 校验工具调用和结果时序，canonical 可保存待处理响应，请求发出前必须全部闭合。生产请求经 `RequestIR.prepare_request/2` 选择本次工具与 `tool_choice`；能力门只在 Gateway 按本次实际 route 派生并执行，IR 不携带构造侧 `capability_profile`，也不接受伪造能力声明绕过。JSON 有限模式必须由请求事先声明，不允许因响应缺少 tool call 而自动降级。具体路由模型的真实能力声明与验证仍为 CP4b 后续证据，不由 IR 内声明代签。
 - `AuthoringReplay` 以真实父轮次或已持久步骤查找同作品/会话的 durable checkpoint，并核对 checkpoint 的运行归属；缺失、损坏或错绑使 ReplayReport 与 Why 一致为 `partial`。来源只有引用无显示名时不展示内部 ref，历史摘要不输出私有推理或内部协议标识。
 - 失败 flow 沿同一 `AuthoringSession` 返回会话与真实执行计数；工具计数来自实际派发边界，前置任务校验失败为零。失败不能抹去 planner 已消耗预算，也不能用错误文案估算调用次数。
 - 判断成功同样需要原生结果：非求证操作返回“协议有效、未授权执行”的 validation；只读求证由真实 observation 闭合。计划若内联读取，判断调用留到应用分流产生聚合观察，其余计划校验调用先闭合。非法多调用逐一返回失败，不能只关闭第一项。
@@ -396,7 +396,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 - 计划/使命的领域校验成功后，应用追加 passed validation（非执行授权、非采纳），成功与失败 meta 均携带更新的 canonical transcript 与实际 provider_call_count。预检未发请求为零，传输失败同样记真实调用。
 - AgentRun 在执行后续 step **之前**将规划结果的会话放入同一快照；step 结果只在缺少更新会话时继承此前会话，禁止旧 planner meta 覆盖新 writer/mission 历史。终局、预算停止与失败亦须保存已发生的计划事实。
 - 公开 prompt 构造辅助入口与实际生产调用必须使用同一 IR producer，不保留用于测试的 legacy prompt。原有计划目标、完成前缀、N-NARR、使命来源绑定与作者版优先规则不因迁移改变。
-- 尚未迁移的独立创作/评审外观若缺 AgentRun，只可显式标为 `standalone_operation`（不提供 durable run 恢复），使用请求自身的操作会话标识，不把 source_turn_ref 伪装成 work_id。已有真实 run/IR 的生产路径不得走该模式；修订/确认消费者迁移时必须消除此未绑定入口，不能据此签 CP4/CP5 完成。
+- 尚未迁移的独立创作/评审外观若缺 AgentRun，只可显式标为 `standalone_operation`（不提供 durable run 恢复），使用请求自身的操作会话标识，不把 source_turn_ref 伪装成 work_id。已有真实 run/IR 的生产路径不得走该模式；修订/确认消费者迁移时必须消除此未绑定入口，不能据此签 CP4/CP5 完成。**2026-11-04 R1 更新（工作区未提交、待独立验证）**：章摘要 `ChapterSummaryGenerator`、设定盘点 `FactInventoryService`、工具结果叙述（`Planner.narrate_tool_result/3`）三个直接文本消费者已迁移到 canonical IR：经 `RequestIR.text_operation/1` 以真实操作 profile 与来源 refs 构造请求，材料作为 `application_base`，**不伪造 run/session 或作者消息**；adapter/Gateway 的 legacy prompt 分支已删除。三者仍非 AgentRun（无 durable run 恢复），`standalone_operation` 语义不变。
 
 ### 16.7 修订结果校验、同一交换预算与作者动作边界
 
@@ -483,7 +483,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 ## 16.15 传输能力事实的落地细化（2026-11-03，CP4b 实施约束）
 
 - **单一派生边界**：`NovelAgent.Provider.CapabilityProfile` 是能力事实唯一派生点；事实来源是 adapter 的 `capabilities/1` 与 `projection_target/1`（按实际 route/state 派生），provider descriptor 只提供配置/UI 属性；adapter 未声明一律视为不可证，禁止默认置 true。必备清单唯一来自 `RequestIR.required_capabilities/0`，不得复制。
-- **身份比对优先**：IR 投影时写入构造 route 身份（provider/model/projection_target）；执行边界先比对身份——一致则信任已携带的能力事实、不再派生、不重复判缺失；仅当 purpose/route_hint 使执行 route 与构造 route 不同（真实变化点）时才按实际 route 重新派生并校验。无法比对身份的请求不进入该门槛。
+- **实际路由单源（2026-11-04 源头重构）**：canonical IR 不查询 Gateway、不保存猜测的 target/capability_profile/provider_route。Gateway 根据本次 provider/model/purpose/route_hint 解析唯一配置快照，并据该 adapter/state 派生能力。adapter 消费同一 state 和完整 IR，直接投影自身原生协议；不经 Chat 形态转译，不再比较构造路由和执行路由。设置页能力查询只是诊断，不作为随后一次执行的授权事实。
 - **有限模式必须覆盖缺失项**：`finite_mode` 只有其受限集合覆盖每一个 missing 能力时才放行；`standalone_operation` 等不声明覆盖集合的模式不能绕过门槛（§6.4「显式有限模式」的落地语义）。
 - **流式工具调用无损**：SSE 响应中的原生 tool_calls 必须按 provider 协议累积（OpenAI `tool_calls[].index`；Anthropic `content_block_start(tool_use)` + `input_json_delta.partial_json`），保留 arguments 原始字节（`raw_arguments`）并复用非流式解析；带工具调用的流不得被误判为空响应。
 - **Responses 传输**：wire 目标由 adapter 声明；`wire_api: :responses` 走真实 `POST /responses` 与 items/function_call/function_call_output/usage 解析。Responses SSE 未实现时该 wire 必须如实声明 `streaming: false`，完整 AgentRun（必备能力含 streaming）被显式拒绝路由，不得静默降级。
@@ -503,19 +503,19 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 
 ## 17. 实施状态更新（2026-11-03）
 
-§10 表格的当前状态（CP4b 确定性收口后；实模与页面级证据仍按分层单列）：
+§10 表格的当前状态（CP4b 确定性收口后；实模与页面级证据仍按分层单列）。**2026-11-04 R1 更新见表格末行。**
 
 | 未实现/未验后果 | 当前状态 |
 |---|---|
-| IR struct、投影实现、能力门槛代码 | **已实现**（CP2；CP4b 补齐能力事实单一来源/身份比对/finite_mode 覆盖/作者安全拒绝文案） |
+| IR struct、投影实现、能力门槛代码 | **已实现**（CP2；CP4b 补齐能力事实单一来源/身份比对/finite_mode 覆盖/作者安全拒绝文案）。**2026-11-04 R1 更新：执行侧双身份比对已删除，改为 Gateway 按本次实际 route 单次解析与派生（工作区未提交、待独立验证）** |
 | 首个创作 AgentRun 原生多轮与观察回流 | **确定性原生页面已通过**（CP3c/CP4a/callrefs-07/pending 系列）；**实模 CP3b 协议层机制 PASS + G1–G4 真实切片已覆盖**（见下一行），G5 由确定性批次请求字节覆盖、G6 未触发 |
 | 压缩恢复、规划/修订/质量、replay/Why | 规划/修订/质量、离线 canonical 恢复与确定性页面已有证据；自动维护及其 UI 已实现；G6 实际压缩后请求未闭环。离线恢复不等于自动重启模型执行 |
 | ADR-0030/0031 Superseded 与索引/任务重锚 | 已完成（CP1 复核后执行） |
 | giant prompt/`normalize_messages`/固定 packet 实际退役 | 生产判断/创作/质量链已不使用 giant prompt 构造；`RequestIR.from_legacy` 迁移适配器已删除（§11 要求）；`normalize_messages/1` 保留为 provider wire 形状规范化，不是双轨 |
 | 三类 provider 的有限模式/拒绝路由反例 | **已实现**（能力矩阵 + finite_mode 覆盖校验 + Responses 无 SSE 时拒绝路由；单测覆盖） |
-| Responses 投影的生产消费者 | **仍开放**：`RequestIR.Projection.ResponsesAPI` 只有 golden 消费者；`wire_api: :responses` 在 adapter 内从 chat 形状转换，IR 投影目标暂由默认 route 决定 |
+| Responses 投影的生产消费者 | **已实现（2026-11-04 R1，工作区未提交、待独立验证）**：Responses adapter 直接消费 `RequestIR.Projection.ResponsesAPI` 投影，不再从 chat 形状转换，IR 投影目标不再由默认 route 决定。SSE 仍开放（见下一行） |
 | Responses 流式 SSE | **仍开放**：该 wire 声明 `streaming: false`，完整 AgentRun 显式拒绝路由 |
-| purpose/model 级能力差异 | **过渡态待重构**：现有构造侧按默认 route、执行侧比对后重派生。按当前作者源头重构原则，改为 Gateway 一次绑定实际路由、能力和原生投影；不再向所有调用方透传预查询选项维持双轨。实施与验收进度以 B71 原任务为准 |
+| purpose/model 级能力差异 | **已实现（2026-11-04 R1，工作区未提交、待独立验证）**：canonical IR 不携带构造侧 target/capability_profile/provider_route；Gateway 按本次 provider/model/purpose/route_hint 解析唯一配置快照并派生能力；三类 adapter 直接投影原生协议。已删除 `to_provider_prompt/2`、构造/执行双身份比对与 Chat 中间层。剩余验证：真实 route/原生 body 回归、I-CACHE 独立输入、R1 后全量门禁 |
 | 实模 CP3b/CP4b-2（真实模型行为/缓存/usage） | **CP3b 协议层机制 PASS**（2026-11-03 cp4b-live-03-cp3b：L1–L10 全 true、真实模型创作链、usage 9/9、strata 卸载核验；L11 Why 未观察如实记 null）；**G1–G5 切片已覆盖**（G1–G4 来自实模批次 03 的 9 条真实请求字节离线分析：追加式前缀全通过、G1 结构/G2 唯一 call_id 绑定/G3 failed validation 回流/G4 tentative artifact 工具；G5 来自 pending-08 确定性批次 followup 新 turn 请求字节：resolved_adoptions 携带 ACCEPTED/DISCARDED 真实处置数据，按数据形态判定不误报规则文本）；**未代签** G6（压缩未触发）、完整 G1–G6 语义、I10 与作者行为覆盖（B70/B72 另列） |
 | 作者行为覆盖（B70/B72 资产接入的实模批次） | **接入已实现 + pilot 已执行**：冻结 cases 选择器 + oracles HO1–HO6 + behavior 驱动（判据加固 B1–B18）；B11 seed 补齐 S1/S3 的 memory/chapter_plans（pending 无 API 构造，S3 差异如实登记）。**pilot #1（01c2，C-F1-003 holdout 零写）clean PASS**（真实模型正确进度事实、零写、state_checks 与 states.yml S1 逐项一致）；**pilot #2（#6，C-F3-002 保存请求）真实模型执行失败**（3 调用 0 工具 0 候选，产品 fail-closed，verdict violation——真实模型能力限制，不重跑/不调判据）；B1 effect echo 档位 A 已合入（append 已 echo，真实批次未触发验证）。**未代签完整 G1–G6/I10；未 done** |
 | §16.14 工具确认/拒绝原生页面 | **双路径原生 clean PASS**（2026-11-03：`cp4b-confirmation-01i-confirm` C1–C11 全过、`cp4b-confirmation-02c-reject` C1–C11 全过；含 Why 真打开 delta=0、重复不可触发且 delta=0、恢复可见+restart delta=0、运行态清理实测；此前 01–02b 失败均为驱动/判据缺陷，只读保留不用于 PASS）。作者可见 code 泄漏（displayName）另行修复 |
@@ -523,6 +523,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 | 作者可见 displayName 机制（2026-11-04，作者要求「分析后重构机制彻底解决」） | **P0+P1 完成并在真实页面验证**：SSOT `docs/design/schemas/author_visible/display_names.json`（13 domains）+ 双端 codegen（同 source_hash、`--check` 漂移校验、生成期未登记 code 失败）+ `AuthorVisible.Presenter/Registry` 唯一出口 + 前端 branded/literal union + 共享全类别扫描器（无收窄开关、无手写 token 列表双轨）+ AX 通用断言。P1-AX `01k2`/`02e2` clean PASS：真实 AX 全类别扫描 **hits=[]、internal_terms_zh_hits=[]**（12 文件），六中文术语与 `Stub/slice_verify/prose_writing/[stub]/request_ir` 零命中。净删除：5 张前端映射表 + 1 函数 + 4 copy 表 + 6 处手写 token 列表 + 迁移期开关（合计净 −112 行以上）。**未闭环**：低优先 a11y 重复读（`推理 推理`）与 driver 证据文本 `会话 0` 拼接（扫描器已不误报） |
 | 压缩自动维护 AX（§16.16） | **未闭环，纠正原失败归因**：smoke6 首次 ask_author 参数失败后已自行纠正，smoke6/7 回答后的 judgment 均 passed，随后失败源为应用 `pending_artifact_invalid/incomplete_scope`；smoke8 两次调用均 passed，第三次响应未采完时 harness 结束。更早回合完整交换按 canonical blocks 重算为 2/1/1，仍不足 K=4；不能由此断言模型无法构造。原始证据与独立复核见 B71 末节「A3b 失败归因纠正」 |
 | CP5 收口与全量静态扫描 | **主体完成**：B71 状态行/恢复指引/NEXT、§17 状态表、ADR-0033、§26、三处索引与事实台账已对齐（2026-11-03）；全量静态扫描 20 passed/1 failed（既有 gitleaks 5 项，touched=0、blocking=0）。最终收口随剩余项（§16.14 页面、行为覆盖、压缩前端、CP4b-2）完成后再补一次 |
+| **R1 请求边界与原生输入迁移（2026-11-04）** | **已实现（R1，工作区未提交、待独立验证）**：`RequestIR.prepare_request/2` 选本次工具与 tool_choice；Gateway 按实际 route 单次解析并派生能力；Chat/Anthropic/Responses 三类 adapter 直接消费原生投影；测试替身移出生产注册表；初始快照按 §19.2 构造。**剩余未闭环**：R1 独立验证与 R1 后全量门禁/I1–I3、真实 route/原生 body 回归、I-CACHE 独立输入、Responses SSE（R2）、G6/真实页面/实模、CP5。三个直接文本消费者已完成 IR 迁移（见 §16.6/§19.1）。**2026-11-04/05 确定性门禁已通过**：后端全量 3085/0、credo no issues、xref 无环、arch 通过、I1 4/4、I2 3 pairs/0 violations、I3 3/3、N-NARR、I-CACHE 4/4、前端 486 tests；未代签真实模型/真实页面/Responses SSE/G6/CP5 |
 
 ## 18. 变更记录（Accepted，2026-11-04）：显式压缩的自动维护触发（提案 2026-11-03）
 
@@ -639,4 +640,19 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 - Request IR 是运行事实的 provider-neutral 投影输入；实际路由选择、能力事实与 wire 投影归同一执行边界。构造时猜默认路由、执行时再校验两套事实的做法退役。
 - 运行循环依赖统一模型调用结果与事件，供应商请求形态与私有回放材料归适配边界。此职责划分参考 [OpenAI Agents SDK Model interface](https://openai.github.io/openai-agents-python/ref/models/interface/) 和 [Model/provider boundaries](https://github.com/openai/openai-agents-python/blob/main/.agents/references/model-provider-boundaries.md)，具体 canonical、作者主权与证据绑定仍以本项目契约为准。
 - Responses 原生 items 与流式协议直接投影/解析，不以 Chat 消息为内部上限。外部协议解析一次；内部已建立的状态不加重复兜底。不能丢弃原始参数或 Provider 私有回放材料来换取请求通过。
-- 本节是职责与退役规则，实施状态仍在 B71；不代表 Responses SSE、真实路由、原生页面或实模验收已经完成。
+- 本节是职责与退役规则。**2026-11-04 R1 已按 §19.1 实现（工作区未提交、待独立验证）**：`prepare_request/2`、Gateway 实际路由单能力门、三投影原生消费、测试替身移出生产注册表；`to_provider_prompt/2`、`RequestIR.from_legacy`、构造/执行双身份比对已删除。Responses SSE（R2）、真实原生页面与实模验收仍未完成，不得据 R1 实现标 CP4b/CP5 done。
+
+### 19.1 R1 请求边界与迁移顺序
+
+- `RequestIR.prepare_request/2` 只选择本次工具与 tool_choice，并确认当前交换已闭合；返回仍是完整 IR。运行历史中的完整工具目录不被本次选择覆盖。调用方不负责选择供应商或查询能力。
+- Gateway 对实际路由执行能力门；IR 的 finite_mode 是明确限制声明，不能携带伪造 capability_profile 绕过真实能力。能力不足的错误沿既有 ProviderRun/Event/Output 返回，禁止新增构造侧/执行侧双重身份校验。
+- 各 adapter 直接消费 IR 的原生 projector；产品身份与角色规则由投影形成稳定 system 前缀，不把普通 wire message 插进 canonical messages。DeepSeek 既有私有状态仍仅按真实 provider/model 回放；原始工具参数保持原字节。Responses SSE 和其私有输出块由 R2 承接，不在 R1 中假报具备。
+- R1 首步迁移判断、使命、计划、writer、evaluator 与测试替身，删除旧 `to_provider_prompt` Chat 中间层及只服务该中间层的公开 helper（2026-11-04 已完成，工作区未提交、待独立验证）。现有章摘要、设定盘点等直接文本调用仍按真实消费者分别迁移；不得为了让它们符合 AgentRun envelope 而伪造 run/session 或作者消息。此分步只降低实施风险，不缩小 CP4b/CP5。
+- **三个文本消费者已迁移（2026-11-04 R1，工作区未提交、待独立验证）**：设定盘点 `FactInventoryService`、章摘要 `ChapterSummaryGenerator`、工具结果叙述 `Planner.narrate_tool_result/3` 经 `RequestIR.text_operation/1` 构造 canonical IR（真实操作 profile + 材料作为 `application_base` + 来源 refs），不伪造 run/session 或作者消息；四个 adapter 与 Gateway 的 legacy prompt 子句、`Provider.normalize_messages/2`、`SystemIdentity.inject/1`、`put_openai_tools/2` 已删除。三者仍非 AgentRun，`standalone_operation` 语义不变。
+
+### 19.2 初始快照与追加历史的职责（R1 真实前缀反例）
+
+- 真实判断入口的首次构造曾先记录作者消息，再追加包含作品半稳定上下文的初始 scope；旧 I-CACHE 读取退役的 giant prompt helper，未覆盖这一顺序。两个独立输入的真实请求测得共享前缀 16332 字节、边界 18379 字节，不满足既有门禁；不得给第二个样本拼接第一轮历史规避失败。
+- 新判断 run 在构造初始快照时一次建立 `application_base → initial scope_update → user`；`AuthoringTranscript.new` 的 `initial_scope` 消费当前实际 scope 文本、版本与来源，作者仍是独立 user/provenance=author，原文字节与 author_turn 来源不变。只调整首次构造的责任，不在 projector 中排序，不移动或重写已记录消息；旧 transcript 与恢复后的继续执行仍按原追加规则处理。
+- scope 文本由判断入口生成一次，初始构造和后续更新消费同一事实。不能拆出重复固定 packet、复制作者文字、改 scope 授权或改变模型请求材料集合来改善前缀。初始快照一经建立即受 I-ART-10/13 保护；缓存不能改写它。
+- 此设计结合 [OpenAI 前缀缓存指南](https://developers.openai.com/api/docs/guides/prompt-caching) 的稳定内容前置和历史追加原则；共享字节通过不等于真实缓存命中。当前只冻结来源与构造职责；实现已落地（工作区未提交、待独立验证），实际模型语义与页面验收仍归 B71。
