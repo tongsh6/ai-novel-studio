@@ -107,15 +107,19 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
       end
     }
 
-    event_sink = fn event -> send(parent, {:confirmed_agent_event, event}) end
+    NovelApplication.TestAgentEventRelay.subscribe(
+      ctx.work.id,
+      ctx.session_id,
+      nil,
+      fn event -> send(parent, {:confirmed_agent_event, event}) end
+    )
 
     assert {:ok, result} =
              AuthorActionConfirmation.handle(
                ctx.work.id,
                ctx.session_id,
                author_action_input(source),
-               provider_execution: provider_execution,
-               event_sink: event_sink
+               provider_execution: provider_execution
              )
 
     child_run_id = result.child_run.run_id
@@ -184,7 +188,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
 
     assert_reply(ref, :ok, %{received: true})
 
-    assert_receive %Phoenix.Socket.Broadcast{
+    assert_receive %Phoenix.Socket.Message{
                      event: "agent_event",
                      payload: %{event_type: "run_started"} = startup
                    },
@@ -193,7 +197,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
     child_run_id = startup.run_id
     assert startup.sequence == 1
 
-    assert_receive %Phoenix.Socket.Broadcast{
+    assert_receive %Phoenix.Socket.Message{
                      event: "agent_event",
                      payload: %{event_type: "tool_started", run_id: ^child_run_id} = tool
                    },

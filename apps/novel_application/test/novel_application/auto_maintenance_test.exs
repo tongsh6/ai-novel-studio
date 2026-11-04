@@ -12,7 +12,8 @@ defmodule NovelApplication.AutoMaintenanceTest do
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.RequestIR
-  alias NovelApplication.{AgentRunService, AuthoringTranscript}
+  alias NovelApplication.AgentRunService
+  alias NovelApplication.AuthoringTranscript
   alias NovelDomain.AgentNextStepDecision
   alias NovelPersistence.{AgentRunLog, Repo}
   alias NovelPersistence.Schemas.{ProviderOutputRecord, ProviderRunRecord}
@@ -249,9 +250,9 @@ defmodule NovelApplication.AutoMaintenanceTest do
       end
     end
 
-    AgentRunService.start_bounded(base_run(run_id),
-      next_step_planner: planner,
-      event_sink: event_sink(self())
+    AgentRunService.start_bounded(
+      NovelApplication.TestAgentEventRelay.observe(base_run(run_id), event_forward(self())),
+      next_step_planner: planner
     )
   end
 
@@ -464,7 +465,7 @@ defmodule NovelApplication.AutoMaintenanceTest do
     }
   end
 
-  defp event_sink(parent) do
+  defp event_forward(parent) do
     fn event -> send(parent, {:agent_event, event.event_type, event.summary}) end
   end
 

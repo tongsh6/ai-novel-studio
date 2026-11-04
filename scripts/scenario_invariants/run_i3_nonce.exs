@@ -122,12 +122,15 @@ defmodule I3NonceDriver do
 
   defp run_main_chain(input, provider_execution) do
     with {:ok, spec} <- DialoguePlanningService.plan_agent_run(input, nil, provider_execution),
-         me = self(),
+         :ok <-
+           AgentRunService.subscribe_events(
+             spec.run_attrs.work_id,
+             spec.run_attrs.session_id
+           ),
          {:ok, _run_id} <-
            AgentRunService.start_bounded(
              spec.run_attrs,
-             next_step_planner: spec.next_step_planner,
-             event_sink: fn event -> send(me, {:agent_event, event}) end
+             next_step_planner: spec.next_step_planner
            ) do
       await_turn_result(nil)
     end

@@ -105,11 +105,11 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
              )
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: fn event ->
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  send(parent, {:b31_plan_event, event.event_type, event})
-               end
+               end),
+               next_step_planner: spec.next_step_planner
              )
 
     on_exit(fn -> AgentRunService.cancel(run_id) end)
@@ -172,9 +172,11 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                )
 
       assert {:ok, run_id} =
-               AgentRunService.start_bounded(spec.run_attrs,
-                 next_step_planner: spec.next_step_planner,
-                 event_sink: fn event -> send(parent, {:plan_event, event.event_type, event}) end
+               AgentRunService.start_bounded(
+                 NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
+                   send(parent, {:plan_event, event.event_type, event})
+                 end),
+                 next_step_planner: spec.next_step_planner
                )
 
       on_exit(fn -> AgentRunService.cancel(run_id) end)
@@ -296,9 +298,11 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
     assert spec.run_attrs.profile_ref == "judgment_plan_v1"
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
+                 send(parent, {:agent_event, event.event_type, event})
+               end),
+               next_step_planner: spec.next_step_planner
              )
 
     assert_receive :plan_draft_called, 500
@@ -411,9 +415,11 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
       )
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
+                 send(parent, {:agent_event, event.event_type, event})
+               end),
+               next_step_planner: spec.next_step_planner
              )
 
     # 计划带检索步（模型自产，exploration_query 随步）
@@ -544,9 +550,11 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
       )
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
+                 send(parent, {:agent_event, event.event_type, event})
+               end),
+               next_step_planner: spec.next_step_planner
              )
 
     assert_receive {:agent_event, :plan_drafted, _}, 500
@@ -648,9 +656,11 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
       )
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
+                 send(parent, {:agent_event, event.event_type, event})
+               end),
+               next_step_planner: spec.next_step_planner
              )
 
     assert_receive {:agent_event, :plan_drafted, _}, 500

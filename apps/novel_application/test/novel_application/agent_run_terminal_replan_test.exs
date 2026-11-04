@@ -4,7 +4,8 @@ defmodule NovelApplication.AgentRunTerminalReplanTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.{Execution, RequestIR}
   alias NovelApplication.AgentRunFlows.{JudgmentPlan, ReadonlyBatchContext}
-  alias NovelApplication.{AgentRunService, AuthoringTranscript, TestAgenticLoopFixtures}
+  alias NovelApplication.AgentRunService
+  alias NovelApplication.{AuthoringTranscript, TestAgenticLoopFixtures}
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelDomain.AgentPlan
   alias NovelPersistence.Repo
@@ -40,9 +41,11 @@ defmodule NovelApplication.AgentRunTerminalReplanTest do
       end
 
       assert {:ok, ^run_id} =
-               AgentRunService.start_bounded(attrs,
-                 next_step_planner: planner,
-                 event_sink: fn event -> send(parent, {:run_event, event.event_type, event}) end
+               AgentRunService.start_bounded(
+                 NovelApplication.TestAgentEventRelay.observe(attrs, fn event ->
+                   send(parent, {:run_event, event.event_type, event})
+                 end),
+                 next_step_planner: planner
                )
 
       on_exit(fn -> AgentRunService.cancel(run_id) end)

@@ -84,12 +84,11 @@ defmodule NovelApplication.AgentRunResultCommitTest do
        execute_decision(run, sequence), %{provider_call_count: 0}}
     end
 
-    sink = event_sink(parent, fn _event -> db_snapshot(scope, attrs, trace) end)
+    sink = event_forward(parent, fn _event -> db_snapshot(scope, attrs, trace) end)
 
     run_id =
-      start_bounded!(attrs,
-        next_step_planner: planner,
-        event_sink: sink
+      start_bounded!(NovelApplication.TestAgentEventRelay.observe(attrs, sink),
+        next_step_planner: planner
       )
 
     assert_receive {:planner_called, 1}, 2_000
@@ -118,12 +117,11 @@ defmodule NovelApplication.AgentRunResultCommitTest do
        execute_decision(run, sequence), %{provider_call_count: 0}}
     end
 
-    sink = event_sink(parent, fn _event -> db_snapshot(scope, attrs, trace) end)
+    sink = event_forward(parent, fn _event -> db_snapshot(scope, attrs, trace) end)
 
     run_id =
-      start_bounded!(attrs,
-        next_step_planner: planner,
-        event_sink: sink
+      start_bounded!(NovelApplication.TestAgentEventRelay.observe(attrs, sink),
+        next_step_planner: planner
       )
 
     assert_receive {:planner_called, 1}, 2_000
@@ -153,7 +151,7 @@ defmodule NovelApplication.AgentRunResultCommitTest do
     end
 
     sink =
-      event_sink(parent, fn _event ->
+      event_forward(parent, fn _event ->
         snapshot = db_snapshot(scope, attrs, trace)
         run = snapshot.run
         task = run && run.long_run_task_ref && LongRunTaskLog.get(run.long_run_task_ref)
@@ -161,9 +159,8 @@ defmodule NovelApplication.AgentRunResultCommitTest do
       end)
 
     run_id =
-      start_durable!(attrs,
-        next_step_planner: planner,
-        event_sink: sink
+      start_durable!(NovelApplication.TestAgentEventRelay.observe(attrs, sink),
+        next_step_planner: planner
       )
 
     assert_receive {:planner_called, 1}, 2_000
@@ -215,12 +212,11 @@ defmodule NovelApplication.AgentRunResultCommitTest do
        execute_decision(run, sequence), %{provider_call_count: 0}}
     end
 
-    sink = event_sink(parent, fn _event -> db_snapshot(scope, attrs, trace) end)
+    sink = event_forward(parent, fn _event -> db_snapshot(scope, attrs, trace) end)
 
     run_id =
-      start_bounded!(attrs,
+      start_bounded!(NovelApplication.TestAgentEventRelay.observe(attrs, sink),
         next_step_planner: planner,
-        event_sink: sink,
         interaction_store: failing_store
       )
 
@@ -264,12 +260,11 @@ defmodule NovelApplication.AgentRunResultCommitTest do
        }}
     end
 
-    sink = event_sink(parent, fn _event -> db_snapshot(scope, attrs) end)
+    sink = event_forward(parent, fn _event -> db_snapshot(scope, attrs) end)
 
     run_id =
-      start_bounded!(attrs,
-        next_step_planner: planner,
-        event_sink: sink
+      start_bounded!(NovelApplication.TestAgentEventRelay.observe(attrs, sink),
+        next_step_planner: planner
       )
 
     assert_receive {:planner_called, 1}, 2_000
@@ -355,12 +350,11 @@ defmodule NovelApplication.AgentRunResultCommitTest do
        execute_decision(run, sequence), %{provider_call_count: 0, suppress_plan_event: true}}
     end
 
-    sink = event_sink(parent, fn _event -> db_snapshot(scope, attrs) end)
+    sink = event_forward(parent, fn _event -> db_snapshot(scope, attrs) end)
 
     run_id =
-      start_bounded!(attrs,
+      start_bounded!(NovelApplication.TestAgentEventRelay.observe(attrs, sink),
         next_step_planner: planner,
-        event_sink: sink,
         interaction_store: failing_delivery_store
       )
 
@@ -408,12 +402,11 @@ defmodule NovelApplication.AgentRunResultCommitTest do
        %{provider_call_count: 0, suppress_plan_event: true}}
     end
 
-    sink = event_sink(parent, fn _event -> db_snapshot(scope, attrs) end)
+    sink = event_forward(parent, fn _event -> db_snapshot(scope, attrs) end)
 
     run_id =
-      start_bounded!(attrs,
-        next_step_planner: planner,
-        event_sink: sink
+      start_bounded!(NovelApplication.TestAgentEventRelay.observe(attrs, sink),
+        next_step_planner: planner
       )
 
     assert_receive {:step_waiting, step_pid}, 2_000
@@ -468,10 +461,13 @@ defmodule NovelApplication.AgentRunResultCommitTest do
     end
 
     run_id =
-      start_bounded!(attrs,
+      start_bounded!(
+        NovelApplication.TestAgentEventRelay.observe(
+          attrs,
+          event_forward(parent, fn _ -> db_snapshot(scope, attrs, trace) end)
+        ),
         next_step_planner: planner,
-        interaction_store: store,
-        event_sink: event_sink(parent, fn _ -> db_snapshot(scope, attrs, trace) end)
+        interaction_store: store
       )
 
     {_event, first} = await_snapshot!(:artifact_created)
@@ -533,9 +529,12 @@ defmodule NovelApplication.AgentRunResultCommitTest do
        execute_decision(run, sequence), %{provider_call_count: 0, suppress_plan_event: true}}
     end
 
-    sink = event_sink(parent, fn _event -> db_snapshot(scope, attrs) end)
+    sink = event_forward(parent, fn _event -> db_snapshot(scope, attrs) end)
 
-    run_id = start_bounded!(attrs, next_step_planner: planner, event_sink: sink)
+    run_id =
+      start_bounded!(NovelApplication.TestAgentEventRelay.observe(attrs, sink),
+        next_step_planner: planner
+      )
 
     assert_receive {:planner_called, 1}, 2_000
     {first_event, _snapshot} = await_snapshot!(:artifact_created)
@@ -584,13 +583,12 @@ defmodule NovelApplication.AgentRunResultCommitTest do
        execute_decision(run, sequence), %{provider_call_count: 0}}
     end
 
-    sink = event_sink(parent, fn _event -> db_snapshot(scope, attrs, trace) end)
+    sink = event_forward(parent, fn _event -> db_snapshot(scope, attrs, trace) end)
 
     try do
       run_id =
-        start_bounded!(attrs,
-          next_step_planner: planner,
-          event_sink: sink
+        start_bounded!(NovelApplication.TestAgentEventRelay.observe(attrs, sink),
+          next_step_planner: planner
         )
 
       assert_receive {:planner_called, ^kind, 1}, 2_000
@@ -794,7 +792,7 @@ defmodule NovelApplication.AgentRunResultCommitTest do
 
   # ── event sink / DB observation ────────────────────────────────────────────
 
-  defp event_sink(parent, snapshot_fun) when is_function(snapshot_fun, 1) do
+  defp event_forward(parent, snapshot_fun) when is_function(snapshot_fun, 1) do
     fn event ->
       if event.event_type in @observed_events do
         send(parent, {:agent_event_snapshot, event, snapshot_fun.(event)})

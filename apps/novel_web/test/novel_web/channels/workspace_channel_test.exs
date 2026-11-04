@@ -63,7 +63,7 @@ defmodule NovelWeb.WorkspaceChannelTest do
       assert_reply(ref, :error, %{reason: ^reason})
     end
 
-    refute_broadcast("agent_run_state", _, 50)
+    refute_push("agent_run_state", _, 50)
   end
 
   test "已接收候选继续的重传不重新校验消失的候选，也不激活历史会话" do
@@ -147,7 +147,7 @@ defmodule NovelWeb.WorkspaceChannelTest do
 
     assert is_binary(run_id)
 
-    assert_broadcast("turn_result", %{turn_id: ^turn_id, phase: "dialogue"}, @agent_run_timeout)
+    assert_push("turn_result", %{turn_id: ^turn_id, phase: "dialogue"}, @agent_run_timeout)
     assert_agent_run_stopped(run_id)
   end
 
@@ -166,15 +166,15 @@ defmodule NovelWeb.WorkspaceChannelTest do
       @agent_run_timeout
     )
 
-    assert_broadcast(
+    assert_push(
       "agent_event",
       %{run_id: ^run_id, event_type: "run_started"},
       @agent_run_timeout
     )
 
-    assert_broadcast("agent_run_state", %{run_id: ^run_id, status: _status}, @agent_run_timeout)
+    assert_push("agent_run_state", %{run_id: ^run_id, status: _status}, @agent_run_timeout)
 
-    assert_broadcast(
+    assert_push(
       "turn_result",
       %{
         phase: "dialogue",
@@ -205,7 +205,7 @@ defmodule NovelWeb.WorkspaceChannelTest do
     assert is_binary(run_id)
     assert profile_ref == "judgment_loop_v1"
 
-    assert_broadcast(
+    assert_push(
       "agent_run_state",
       %{run_id: ^run_id, profile_ref: "character_design_with_context_v1", status: "completed"},
       @agent_run_timeout
@@ -232,7 +232,7 @@ defmodule NovelWeb.WorkspaceChannelTest do
     assert is_binary(run_id)
     assert profile_ref == "judgment_loop_v1"
 
-    assert_broadcast(
+    assert_push(
       "agent_run_state",
       %{run_id: ^run_id, profile_ref: "prose_drafting_with_quality_v1", status: "completed"},
       @agent_run_timeout

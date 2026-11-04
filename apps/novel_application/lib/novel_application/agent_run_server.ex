@@ -70,8 +70,6 @@ defmodule NovelApplication.AgentRunServer do
             stage_state: %{},
             progress_signatures: MapSet.new(),
             final_turn_result: nil,
-            event_sink: nil,
-            event_sinks: %{},
             defer_delivery: false,
             interaction_store: nil,
             provider_cancellation_token: nil,
@@ -100,21 +98,6 @@ defmodule NovelApplication.AgentRunServer do
   # durable 的恢复策略保持既有边界，不由本次 bounded 收口代签。
   defp restart_policy(:bounded), do: :temporary
   defp restart_policy(_mode), do: :transient
-
-  @doc """
-  订阅 run 事件（多窗口多播）：按订阅者 pid 去重登记，同 pid 重复订阅覆盖自身。
-
-  一个 run 可被多个窗口同时观察（审核 P2：此前单 `event_sink` 会被后加入窗口顶掉）；
-  订阅进程退出时由 monitor 自动清理。
-  """
-  @spec attach_event_sink(GenServer.server(), pid(), function() | nil) :: :ok
-  def attach_event_sink(server, subscriber_pid, event_sink) when is_pid(subscriber_pid),
-    do: GenServer.cast(server, {:attach_event_sink, subscriber_pid, event_sink})
-
-  # 兼容旧签名：无显式订阅者时以调用进程为订阅者（cast 调用方的 channel/service 进程）。
-  @spec attach_event_sink(GenServer.server(), function() | nil) :: :ok
-  def attach_event_sink(server, event_sink),
-    do: attach_event_sink(server, self(), event_sink)
 
   @spec command(GenServer.server(), :pause | :cancel) :: :ok
   def command(server, command), do: GenServer.cast(server, {:command, command})
@@ -250,7 +233,6 @@ defmodule NovelApplication.AgentRunServer do
     %__MODULE__{
       run: run,
       next_step_planner: Keyword.get(opts, :next_step_planner),
-      event_sink: Keyword.get(opts, :event_sink),
       interaction_store: Keyword.get(opts, :interaction_store) || TurnInteractionService.store(),
       provider_cancellation_token: provider_cancellation_token,
       events: startup.events,
@@ -787,16 +769,8 @@ defmodule NovelApplication.AgentRunServer do
     end
   end
 
-  def handle_cast({:attach_event_sink, subscriber_pid, event_sink}, state)
-      when is_function(event_sink, 1) or is_nil(event_sink) do
-    ref = Process.monitor(subscriber_pid)
-    sinks = Map.put(state.event_sinks, subscriber_pid, %{ref: ref, sink: event_sink})
-    {:noreply, %{state | event_sinks: sinks}}
-  end
-
   @impl true
-  # 真实执行 Task 的 DOWN：以 current_task_ref 精确归属，必须先于订阅者 DOWN 分派，
-  # 否则当前任务被通用分支吞掉，run 会停在 executing。
+  # 真实执行 Task 的 DOWN：以 current_task_ref 精确归属。
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{current_task_ref: ref} = state) do
     state =
       state
@@ -805,14 +779,6 @@ defmodule NovelApplication.AgentRunServer do
       |> settle_run_failed({:step_task_down, reason}, ["step_task_down"])
 
     {:noreply, state}
-  end
-
-  # 多窗口订阅者退出：清理其 sink，避免向死进程发布。
-  def handle_info({:DOWN, ref, :process, pid, _reason}, state) do
-    case Map.get(state.event_sinks, pid) do
-      %{ref: ^ref} -> {:noreply, %{state | event_sinks: Map.delete(state.event_sinks, pid)}}
-      _ -> {:noreply, state}
-    end
   end
 
   def handle_info({ref, result}, %{current_task_ref: ref} = state) do
@@ -1335,7 +1301,7 @@ defmodule NovelApplication.AgentRunServer do
   defp publish_events_only(before, after_state) do
     after_state.events
     |> Enum.drop(length(before.events))
-    |> Enum.each(&publish_to_sinks(&1, after_state))
+    |> Enum.each(&publish_event(&1, after_state))
 
     %{after_state | defer_delivery: false}
   end
@@ -2197,31 +2163,27 @@ defmodule NovelApplication.AgentRunServer do
       })
 
     unless state.defer_delivery do
-      publish_to_sinks(event, state)
+      publish_event(event, state)
       persist_event(event)
     end
 
     %{state | event_sequence: sequence, events: state.events ++ [event]}
   end
 
-  # 事件多播：启动注入的默认 sink + 所有动态订阅者（多窗口）。
-  defp publish_to_sinks(event, state) do
-    AgentEventPublisher.publish(event, state.event_sink)
-
-    state.event_sinks
-    |> Map.values()
-    |> Enum.each(fn %{sink: sink} -> AgentEventPublisher.publish(event, sink) end)
+  # 唯一发布边界：按真实 run 的 work/session 分发，不再由 run 持有 sink。
+  defp publish_event(event, state) do
+    AgentEventPublisher.publish(event, state.run)
   end
 
   defp publish_startup_events(state) do
-    Enum.each(state.events, &publish_to_sinks(&1, state))
+    Enum.each(state.events, &publish_event(&1, state))
     %{state | defer_delivery: false}
   end
 
   defp publish_committed_events(before, after_state) do
     after_state.events
     |> Enum.drop(length(before.events))
-    |> Enum.each(&publish_to_sinks(&1, after_state))
+    |> Enum.each(&publish_event(&1, after_state))
 
     %{after_state | defer_delivery: false}
   end

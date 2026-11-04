@@ -61,9 +61,11 @@ defmodule NovelApplication.LedgerReconciliationRunTest do
     assert is_function(spec.next_step_planner, 3)
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
+                 send(parent, {:agent_event, event.event_type, event})
+               end),
+               next_step_planner: spec.next_step_planner
              )
 
     assert_receive {:agent_event, :run_started, _}, 500
@@ -109,9 +111,11 @@ defmodule NovelApplication.LedgerReconciliationRunTest do
       )
 
     assert {:ok, _run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
+                 send(parent, {:agent_event, event.event_type, event})
+               end),
+               next_step_planner: spec.next_step_planner
              )
 
     assert_receive {:agent_event, :turn_result_ready, turn_event}, 1_000

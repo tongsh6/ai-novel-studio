@@ -9,6 +9,7 @@ defmodule NovelApplication.Application do
   def start(_type, _args) do
     children = [
       {Registry, keys: :unique, name: NovelApplication.AgentRunRegistry},
+      {Registry, keys: :duplicate, name: NovelApplication.AgentEventRegistry},
       {DynamicSupervisor, strategy: :one_for_one, name: NovelApplication.AgentRunSupervisor},
       {Task.Supervisor, name: NovelApplication.AgentStepTaskSupervisor},
       {Task.Supervisor, name: NovelApplication.BackgroundTaskSupervisor}

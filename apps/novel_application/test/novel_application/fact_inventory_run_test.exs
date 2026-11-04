@@ -83,9 +83,11 @@ defmodule NovelApplication.FactInventoryRunTest do
       )
 
     assert {:ok, _run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
+                 send(parent, {:agent_event, event.event_type, event})
+               end),
+               next_step_planner: spec.next_step_planner
              )
 
     assert_receive {:agent_event, :artifact_created, artifact_event}, 2_000
@@ -160,9 +162,11 @@ defmodule NovelApplication.FactInventoryRunTest do
     refute spec.run_attrs.authority_scope.production_write
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
+                 send(parent, {:agent_event, event.event_type, event})
+               end),
+               next_step_planner: spec.next_step_planner
              )
 
     assert_receive {:agent_event, :run_started, _}, 500

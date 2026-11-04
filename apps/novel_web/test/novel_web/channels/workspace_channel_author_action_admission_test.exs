@@ -131,7 +131,7 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
 
     # 成功受理必须真的发布 run_started；否则后面的“拒写零 run_started”断言
     # 会因为没有观察通道而假绿。
-    assert_broadcast(
+    assert_push(
       "agent_event",
       %{event_type: "run_started", run_id: ^run_id},
       5_000
@@ -194,8 +194,8 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
 
       # 不只是 action_result：真实 topic 上不能出现启动事件/状态快照。
       refute_broadcast("action_result", _, 200)
-      refute_broadcast("agent_event", %{event_type: "run_started"}, 200)
-      refute_broadcast("agent_run_state", _, 200)
+      refute_push("agent_event", %{event_type: "run_started"}, 200)
+      refute_push("agent_run_state", _, 200)
     after
       Repo.query!("DROP TRIGGER reject_author_action_receipt_insert")
     end
@@ -224,8 +224,8 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
       refute_receive :provider_executed, 500
 
       refute_broadcast("action_result", _, 200)
-      refute_broadcast("agent_event", %{event_type: "run_started"}, 200)
-      refute_broadcast("agent_run_state", _, 200)
+      refute_push("agent_event", %{event_type: "run_started"}, 200)
+      refute_push("agent_run_state", _, 200)
     after
       Repo.query!("DROP TRIGGER reject_admission_run_insert")
     end

@@ -242,7 +242,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
 
       refute_broadcast("action_result", _, 200)
       refute_broadcast("turn_result", _, 200)
-      refute_broadcast("agent_event", %{event_type: "run_started"}, 200)
+      refute_push("agent_event", %{event_type: "run_started"}, 200)
     after
       Repo.query!("DROP TRIGGER reject_confirmation_receipt_insert")
     end
@@ -594,7 +594,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
     assert payload_turn_id(List.last(restored_list)) == creative["turn_id"]
   end
 
-  test "child async result is broadcast exactly once through the normal agent path", ctx do
+  test "child async result is delivered exactly once through the normal agent path", ctx do
     source = seed_source(ctx.work.id, ctx.session_id, "async-broadcast")
     socket = join_socket(ctx.work.id, ctx.session_id)
 
@@ -612,12 +612,15 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
 
     creative = await_creative_result(child_run_id, ctx.work.id, ctx.session_id)
 
+    # 作者决定结果走确认事务的业务广播；创作结果走 AgentRun 事件派生的 per-socket
+    # push。ChannelTest 会把同一次业务广播同时投到测试进程的 Broadcast 与 transport
+    # Message 邮箱，因此按来源分别计数，避免把测试 transport 的回声当成第二次投递。
     broadcasts = collect_turn_result_broadcasts(500)
-    broadcast_ids = Enum.map(broadcasts, &payload_turn_id/1)
+    assert Enum.count(broadcasts, &(payload_turn_id(&1) == decision_turn_id)) == 1
+    refute Enum.any?(broadcasts, &(payload_turn_id(&1) == creative["turn_id"]))
 
-    assert Enum.count(broadcast_ids, &(&1 == decision_turn_id)) == 1
-    assert Enum.count(broadcast_ids, &(&1 == creative["turn_id"])) == 1
-    assert Enum.uniq(broadcast_ids) |> length() == length(broadcast_ids)
+    pushes = collect_turn_result_pushes(500)
+    assert Enum.count(pushes, &(payload_turn_id(&1) == creative["turn_id"])) == 1
   end
 
   # ── helpers ────────────────────────────────────────────────────────────────
@@ -925,6 +928,19 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
     receive do
       %Phoenix.Socket.Broadcast{event: "turn_result", payload: payload} ->
         collect_turn_result_broadcasts([payload | acc], timeout)
+    after
+      timeout -> Enum.reverse(acc)
+    end
+  end
+
+  defp collect_turn_result_pushes(timeout) do
+    collect_turn_result_pushes([], timeout)
+  end
+
+  defp collect_turn_result_pushes(acc, timeout) do
+    receive do
+      %Phoenix.Socket.Message{event: "turn_result", payload: payload} ->
+        collect_turn_result_pushes([payload | acc], timeout)
     after
       timeout -> Enum.reverse(acc)
     end

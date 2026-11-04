@@ -128,9 +128,11 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     assert planned.run_attrs.profile_ref == PlotOutlineWithContext.profile_ref()
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(planned.run_attrs,
-               next_step_planner: planned.next_step_planner,
-               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
+                 send(parent, {:agent_event, event.event_type, event})
+               end),
+               next_step_planner: planned.next_step_planner
              )
 
     assert_receive {:agent_event, :run_started, _}
@@ -316,9 +318,11 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
       )
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(planned.run_attrs,
-               next_step_planner: planned.next_step_planner,
-               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
+                 send(parent, {:agent_event, event.event_type, event})
+               end),
+               next_step_planner: planned.next_step_planner
              )
 
     assert_receive {:agent_event, :run_completed, _}, 2_000
@@ -505,9 +509,11 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
       )
 
     assert {:ok, _run_id} =
-             AgentRunService.start_bounded(planned.run_attrs,
-               next_step_planner: planned.next_step_planner,
-               event_sink: fn _event -> :ok end
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn _event ->
+                 :ok
+               end),
+               next_step_planner: planned.next_step_planner
              )
 
     assert_receive {:scope_writer_prompt, writer_prompt}, 2_000

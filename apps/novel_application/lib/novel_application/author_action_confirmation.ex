@@ -27,7 +27,7 @@ defmodule NovelApplication.AuthorActionConfirmation do
   受理当前 WorkspaceChannel 的非采纳确认/拒绝。
 
   `opts` 支持真实运行依赖注入（`provider_execution`/`context_fetcher`/
-  `event_sink`/`interaction_store`），但 source 一律来自持久事实。
+  `interaction_store`），但 source 一律来自持久事实。
   """
   @spec handle(String.t(), String.t(), AuthorActionInput.t(), keyword()) ::
           {:ok, result()}

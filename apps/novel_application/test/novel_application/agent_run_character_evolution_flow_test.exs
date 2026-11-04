@@ -87,9 +87,11 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
     assert planned.run_attrs.profile_ref == CharacterEvolutionWithContext.profile_ref()
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(planned.run_attrs,
-               next_step_planner: planned.next_step_planner,
-               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
+                 send(parent, {:agent_event, event.event_type, event})
+               end),
+               next_step_planner: planned.next_step_planner
              )
 
     assert_receive {:agent_event, :run_started, _}

@@ -54,7 +54,7 @@ defmodule NovelWeb.WorkspaceChannelPlanNextVolumeTest do
     assert is_binary(run_id)
 
     # reply 后 AgentRun 已经在既有提交路径上跑起来（run_started 是既有事件流的证明）。
-    assert_broadcast(
+    assert_push(
       "agent_event",
       %{run_id: ^run_id, event_type: "run_started"},
       @agent_run_timeout
@@ -78,7 +78,7 @@ defmodule NovelWeb.WorkspaceChannelPlanNextVolumeTest do
     ref = push(socket, "plan_next_volume", %{"work_id" => work.id})
 
     assert_reply(ref, :error, %{reason: "no_volume_to_extend"})
-    refute_broadcast("agent_run_state", _, 50)
+    refute_push("agent_run_state", _, 50)
   end
 
   test "未知作品 / 非法 work_id → 明确 :invalid_work" do
@@ -92,7 +92,7 @@ defmodule NovelWeb.WorkspaceChannelPlanNextVolumeTest do
       assert_reply(ref, :error, %{reason: "invalid_work"})
     end
 
-    refute_broadcast("agent_run_state", _, 50)
+    refute_push("agent_run_state", _, 50)
   end
 
   test "payload 非 map → invalid_payload（不崩）" do

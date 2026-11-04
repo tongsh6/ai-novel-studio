@@ -77,7 +77,7 @@ defmodule NovelApplication.CompactionRecord do
 
   defp publish(state, {:ok, event}) do
     committed = %{state | event_sequence: event.sequence, events: state.events ++ [event]}
-    AgentEventPublisher.publish(event, committed.event_sink)
+    AgentEventPublisher.publish(event, committed.run)
     committed
   end
 

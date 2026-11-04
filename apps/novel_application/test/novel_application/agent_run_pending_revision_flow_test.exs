@@ -13,7 +13,6 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
   alias NovelAgent.Test.Provider.SliceVerify
 
   alias NovelApplication.{
-    AgentRunService,
     ArtifactAssembler,
     AuthoringTranscript,
     DialoguePlanningService,
@@ -21,6 +20,8 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
     TurnResultBuilder,
     WorkService
   }
+
+  alias NovelApplication.AgentRunService
 
   alias NovelDomain.DialogueFrame
   alias NovelPersistence.{AgentRunLog, MemoryLog, ProviderRunLog, Repo, WorkSessionRepo}
@@ -120,9 +121,11 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
     assert {:ok, spec} = DialoguePlanningService.plan_agent_run(input, context_fetcher, execution)
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
+                 send(parent, {:agent_event, event.event_type, event})
+               end),
+               next_step_planner: spec.next_step_planner
              )
 
     on_exit(fn -> AgentRunService.cancel(run_id) end)
@@ -268,9 +271,11 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
     assert {:ok, spec} = DialoguePlanningService.plan_agent_run(input, context_fetcher, execution)
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
+                 send(parent, {:agent_event, event.event_type, event})
+               end),
+               next_step_planner: spec.next_step_planner
              )
 
     on_exit(fn -> AgentRunService.cancel(run_id) end)
@@ -373,11 +378,11 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
                DialoguePlanningService.plan_agent_run(input, context_fetcher, execution)
 
       assert {:ok, run_id} =
-               AgentRunService.start_bounded(spec.run_attrs,
-                 next_step_planner: spec.next_step_planner,
-                 event_sink: fn event ->
+               AgentRunService.start_bounded(
+                 NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                    send(parent, {:agent_event, event.event_type, event})
-                 end
+                 end),
+                 next_step_planner: spec.next_step_planner
                )
 
       on_exit(fn -> AgentRunService.cancel(run_id) end)

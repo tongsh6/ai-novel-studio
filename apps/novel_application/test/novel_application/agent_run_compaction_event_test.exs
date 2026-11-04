@@ -12,7 +12,8 @@ defmodule NovelApplication.AgentRunCompactionEventTest do
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.RequestIR
-  alias NovelApplication.{AgentRunService, AuthoringTranscript}
+  alias NovelApplication.AgentRunService
+  alias NovelApplication.AuthoringTranscript
   alias NovelPersistence.{AgentRunLog, Repo}
 
   setup do
@@ -112,7 +113,13 @@ defmodule NovelApplication.AgentRunCompactionEventTest do
         else: &AgentRunService.start_bounded/2
 
     assert {:ok, ^run_id} =
-             start.(base_run(run_id), next_step_planner: planner, event_sink: event_sink(self()))
+             start.(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(self())
+               ),
+               next_step_planner: planner
+             )
 
     assert_receive {:agent_event, :run_failed, _}, 2_000
   end
@@ -150,7 +157,7 @@ defmodule NovelApplication.AgentRunCompactionEventTest do
     }
   end
 
-  defp event_sink(parent) do
+  defp event_forward(parent) do
     fn event -> send(parent, {:agent_event, event.event_type, event.summary}) end
   end
 

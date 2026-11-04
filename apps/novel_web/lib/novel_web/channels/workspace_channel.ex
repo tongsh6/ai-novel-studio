@@ -76,6 +76,8 @@ defmodule NovelWeb.WorkspaceChannel do
       session_id: session_id
     })
 
+    subscribe_agent_events(work_id, session_id)
+
     send(self(), :recover_durable_agent_runs)
 
     questions =
@@ -430,7 +432,6 @@ defmodule NovelWeb.WorkspaceChannel do
         {:reply, {:error, %{reason: reason_text(reason)}}, socket}
 
       {:duplicate, entry} ->
-        _ = attach_duplicate_action_run(entry)
         result = Map.put(entry.result, :duplicate, true)
         facts = author_action_run_facts(entry, socket)
         payload = Map.merge(result, facts)
@@ -599,7 +600,7 @@ defmodule NovelWeb.WorkspaceChannel do
   E1（双向审核 P2）：按 run 补拉作者可见事件序列（断线重连后的 sequence gap）。
 
   只读：校验 run 归属（workspace/session）后返回 `since_sequence` 之后的 author-visible
-  事件，形状与实时 `agent_event` 广播一致；不重建运行时、不改状态。
+  事件，形状与实时 `agent_event` 向当前连接推送一致；不重建运行时、不改状态。
   """
   def handle_in("agent_events_since", payload, socket) when is_map(payload) do
     since =
@@ -954,10 +955,10 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   def handle_info({:agent_event, %AgentEvent{} = event}, socket) do
-    socket = maybe_broadcast_agent_turn_result(socket, event)
+    socket = maybe_push_agent_turn_result(socket, event)
 
     if AgentEvent.author_visible?(event) do
-      broadcast!(socket, "agent_event", agent_event_payload(event, socket))
+      push(socket, "agent_event", agent_event_payload(event, socket))
     end
 
     if agent_event_needs_state_snapshot?(event) do
@@ -969,10 +970,10 @@ defmodule NovelWeb.WorkspaceChannel do
 
   def handle_info({:agent_run_state_snapshot, _run_ref, {:ok, state}}, socket) do
     if agent_run_state_belongs_to_socket?(state, socket) do
-      # 快照来自成功的 live GenServer call——runtime 此刻在场。稳态广播显式携带
+      # 快照来自成功的 live GenServer call——runtime 此刻在场。稳态向当前连接推送显式携带
       # liveness，前端命令权限以此为真源而非历史 TurnResult（DS03）。
       state = Map.put(state, :runtime_live?, true)
-      broadcast!(socket, "agent_run_state", agent_run_state_payload(state, socket))
+      push(socket, "agent_run_state", agent_run_state_payload(state, socket))
     end
 
     {:noreply, socket}
@@ -1024,36 +1025,33 @@ defmodule NovelWeb.WorkspaceChannel do
 
   defp agent_run_state_belongs_to_socket?(_state, _socket), do: false
 
+  defp subscribe_agent_events(work_id, session_id) when is_binary(work_id) do
+    AgentRunService.subscribe_events(work_id, session_id)
+  end
+
+  defp subscribe_agent_events(_work_id, _session_id), do: :ok
+
   defp recover_durable_agent_runs(socket) do
     work_id = socket.assigns[:work_id]
     session_id = socket.assigns[:session_id]
 
     if is_binary(work_id) and is_binary(session_id) do
-      channel_pid = self()
-      event_sink = fn event -> send(channel_pid, {:agent_event, event}) end
+      {:ok, reconnected} = AgentRunService.reconnect_bounded(work_id, session_id)
 
-      {:ok, reconnected} =
-        AgentRunService.reconnect_bounded(
-          work_id,
-          session_id,
-          event_sink: event_sink
-        )
-
-      Enum.each(reconnected, &broadcast_reconnected_bounded_agent_run(socket, &1))
+      Enum.each(reconnected, &push_reconnected_bounded_agent_run(socket, &1))
 
       {:ok, recovered} =
         AgentRunService.recover_durable(
           work_id,
           session_id,
-          work_revision: current_work_revision(work_id),
-          event_sink: event_sink
+          work_revision: current_work_revision(work_id)
         )
 
-      Enum.each(recovered, &broadcast_recovered_agent_run(socket, &1))
+      Enum.each(recovered, &push_recovered_agent_run(socket, &1))
 
       case AgentRunService.list_dead_bounded(work_id, session_id) do
         {:ok, dead_bounded} ->
-          Enum.each(dead_bounded, &broadcast_dead_bounded_agent_run(socket, &1))
+          Enum.each(dead_bounded, &push_dead_bounded_agent_run(socket, &1))
 
         {:error, reason} ->
           LogEmit.emit(:channel, :agent_run_expired, :error, %{
@@ -1065,8 +1063,8 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
-  defp broadcast_reconnected_bounded_agent_run(socket, %{run: run} = state) do
-    broadcast!(socket, "agent_run_state", agent_run_state_payload(state, socket))
+  defp push_reconnected_bounded_agent_run(socket, %{run: run} = state) do
+    push(socket, "agent_run_state", agent_run_state_payload(state, socket))
 
     LogEmit.emit(:channel, :agent_run_reconnect, :done, %{
       work_id: socket.assigns[:work_id],
@@ -1077,12 +1075,12 @@ defmodule NovelWeb.WorkspaceChannel do
     })
   end
 
-  defp broadcast_reconnected_bounded_agent_run(_socket, _state), do: :ok
+  defp push_reconnected_bounded_agent_run(_socket, _state), do: :ok
 
-  # DS03：bounded runtime 已死但持久层仍非终态——广播 runtime_live: false 的只读
+  # DS03：bounded runtime 已死但持久层仍非终态——向当前连接推送 runtime_live: false 的只读
   # 快照，前端据此把历史任务降为「已失效」，不得再提供实时命令入口。
-  defp broadcast_dead_bounded_agent_run(socket, %{run: run} = state) do
-    broadcast!(socket, "agent_run_state", agent_run_state_payload(state, socket))
+  defp push_dead_bounded_agent_run(socket, %{run: run} = state) do
+    push(socket, "agent_run_state", agent_run_state_payload(state, socket))
 
     LogEmit.emit(:channel, :agent_run_expired, :done, %{
       work_id: socket.assigns[:work_id],
@@ -1094,14 +1092,14 @@ defmodule NovelWeb.WorkspaceChannel do
     })
   end
 
-  defp broadcast_dead_bounded_agent_run(_socket, _state), do: :ok
+  defp push_dead_bounded_agent_run(_socket, _state), do: :ok
 
-  defp broadcast_recovered_agent_run(socket, %{recovery_event: %AgentEvent{} = event} = state) do
+  defp push_recovered_agent_run(socket, %{recovery_event: %AgentEvent{} = event} = state) do
     if AgentEvent.author_visible?(event) do
-      broadcast!(socket, "agent_event", agent_event_payload(event, socket, state.run.session_id))
+      push(socket, "agent_event", agent_event_payload(event, socket, state.run.session_id))
     end
 
-    broadcast!(socket, "agent_run_state", agent_run_state_payload(state, socket))
+    push(socket, "agent_run_state", agent_run_state_payload(state, socket))
 
     LogEmit.emit(:channel, :agent_run_recover, :done, %{
       work_id: socket.assigns[:work_id],
@@ -1112,7 +1110,7 @@ defmodule NovelWeb.WorkspaceChannel do
     })
   end
 
-  defp broadcast_recovered_agent_run(_socket, _state), do: :ok
+  defp push_recovered_agent_run(_socket, _state), do: :ok
 
   defp current_work_revision(work_id) do
     if valid_uuid?(work_id) do
@@ -1338,11 +1336,11 @@ defmodule NovelWeb.WorkspaceChannel do
     }
   end
 
-  defp maybe_broadcast_agent_turn_result(socket, %AgentEvent{} = event) do
+  defp maybe_push_agent_turn_result(socket, %AgentEvent{} = event) do
     case Map.get(event.payload, :turn_result) || Map.get(event.payload, "turn_result") do
       turn_result when is_map(turn_result) ->
         turn_result = scope_turn_result(socket, turn_result)
-        broadcast!(socket, "turn_result", turn_result)
+        push(socket, "turn_result", turn_result)
         remember_turn_result(socket, turn_result)
 
       _ ->
@@ -2217,17 +2215,11 @@ defmodule NovelWeb.WorkspaceChannel do
   # 非采纳工具确认/拒绝：统一作者动作受理。source 一律从持久 Interaction 读取，
   # receipt/child run/作者决定结果/行为关闭同事务提交；旧同步执行已退役。
   defp handle_confirmation_author_action(socket, action_input) do
-    channel_pid = self()
-
-    opts = [
-      event_sink: fn event -> send(channel_pid, {:agent_event, event}) end
-    ]
-
     case NovelApplication.AuthorActionConfirmation.handle(
            socket.assigns[:work_id],
            socket.assigns[:session_id],
            action_input,
-           opts
+           []
          ) do
       {:ok, %{receipt: receipt}} ->
         finish_confirmation_author_action(socket, action_input, receipt, false)
@@ -2388,11 +2380,7 @@ defmodule NovelWeb.WorkspaceChannel do
       source_turn_result: source_turn_result
     }
 
-    channel_pid = self()
-
-    runtime_opts =
-      agent_run_runtime_opts(spec) ++
-        [event_sink: fn event -> send(channel_pid, {:agent_event, event}) end]
+    runtime_opts = agent_run_runtime_opts(spec)
 
     case AgentRunService.start_author_action(spec.run_attrs, runtime_opts, admission) do
       {:ok, %{receipt: receipt, duplicate?: duplicate?}} ->
@@ -2611,22 +2599,6 @@ defmodule NovelWeb.WorkspaceChannel do
       )
 
     assign(socket, :action_idempotency_ledger, ledger)
-  end
-
-  # 新回执重复到达时附上原 run 的事件订阅；终局/缺失 run 不重建、不重跑。
-  defp attach_duplicate_action_run(entry) do
-    run_id = Map.get(entry.result, :run_id) || Map.get(entry.result, "run_id")
-
-    if is_binary(run_id) do
-      channel_pid = self()
-
-      _ =
-        AgentRunService.attach_event_sink(run_id, fn event ->
-          send(channel_pid, {:agent_event, event})
-        end)
-    end
-
-    :ok
   end
 
   defp lookup_author_action_receipt(socket, action_input) do
@@ -2936,12 +2908,6 @@ defmodule NovelWeb.WorkspaceChannel do
   defp start_or_reuse_user_run(input, nil), do: plan_agent_run(input)
 
   defp start_or_reuse_user_run(input, run_id) do
-    channel_pid = self()
-
-    AgentRunService.attach_event_sink(run_id, fn event ->
-      send(channel_pid, {:agent_event, event})
-    end)
-
     {:agent_run_started, run_id, %{parent_turn_ref: input.turn_id, session_id: input.session_id}}
   end
 
@@ -2965,7 +2931,6 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   defp start_agent_run(attrs, spec) when is_map(spec) do
-    channel_pid = self()
     run_mode = normalize_run_mode(Map.get(attrs, :run_mode) || Map.get(attrs, "run_mode"))
     runtime_opts = agent_run_runtime_opts(spec)
 
@@ -2974,13 +2939,7 @@ defmodule NovelWeb.WorkspaceChannel do
         do: &AgentRunService.start_durable/2,
         else: &AgentRunService.start_bounded/2
 
-    case start_fun.(
-           Map.put(attrs, :run_mode, run_mode),
-           runtime_opts ++
-             [
-               event_sink: fn event -> send(channel_pid, {:agent_event, event}) end
-             ]
-         ) do
+    case start_fun.(Map.put(attrs, :run_mode, run_mode), runtime_opts) do
       {:ok, run_id} ->
         attrs =
           attrs

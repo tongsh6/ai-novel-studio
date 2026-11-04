@@ -7,6 +7,10 @@ Code.require_file(
   Path.expand("../../novel_application/test/support/agent_run_cleanup_helper.exs", __DIR__)
 )
 
+Code.require_file(
+  Path.expand("../../novel_application/test/support/agent_event_relay_helper.exs", __DIR__)
+)
+
 Application.put_env(:novel_application, :agent_run_fact_persistence_enabled, false)
 
 {:ok, _} = Application.ensure_all_started(:novel_web)

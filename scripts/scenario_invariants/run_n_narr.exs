@@ -77,42 +77,38 @@ defmodule NNarrDriver do
         provider_execution
       )
 
-    {:ok, events_agent} = Agent.start_link(fn -> [] end)
-    parent = self()
-
     try do
-      {:ok, run_id} =
-        AgentRunService.start_bounded(spec.run_attrs,
-          next_step_planner: spec.next_step_planner,
-          event_sink: fn event ->
-            Agent.update(events_agent, &[event | &1])
-            send(parent, {:agent_event, event})
-          end
+      :ok =
+        AgentRunService.subscribe_events(
+          spec.run_attrs.work_id,
+          spec.run_attrs.session_id
         )
 
-      case wait_until_terminal() do
-        :ok ->
-          :ok
+      {:ok, run_id} =
+        AgentRunService.start_bounded(spec.run_attrs,
+          next_step_planner: spec.next_step_planner
+        )
 
-        {:error, reason} ->
-          events = Agent.get(events_agent, &Enum.reverse/1)
+      events =
+        case wait_until_terminal([]) do
+          {:ok, events} ->
+            events
 
-          %{
-            run_id: run_id,
-            outcome: :error,
-            detail: "AgentRun did not complete: #{inspect(reason)}",
-            events: summarize_events(events),
-            provider_output_count: map_size(Agent.get(outputs, & &1))
-          }
-          |> then(&throw({:n_narr_terminal_error, &1}))
-      end
+          {:error, reason, events} ->
+            %{
+              run_id: run_id,
+              outcome: :error,
+              detail: "AgentRun did not complete: #{inspect(reason)}",
+              events: summarize_events(events),
+              provider_output_count: map_size(Agent.get(outputs, & &1))
+            }
+            |> then(&throw({:n_narr_terminal_error, &1}))
+        end
 
-      events = Agent.get(events_agent, &Enum.reverse/1)
       provider_outputs = Agent.get(outputs, & &1)
 
       evaluate(run_id, events, provider_outputs)
     after
-      Agent.stop(events_agent)
       Agent.stop(outputs)
     end
   end
@@ -397,14 +393,21 @@ defmodule NNarrDriver do
       is_binary(get_in(event.payload || %{}, [:provider_run_ref]))
   end
 
-  defp wait_until_terminal do
+  defp wait_until_terminal(events) do
     receive do
-      {:agent_event, %{event_type: :run_completed}} -> :ok
-      {:agent_event, %{event_type: :run_failed} = event} -> {:error, summarize_event(event)}
-      {:agent_event, %{event_type: :run_cancelled} = event} -> {:error, summarize_event(event)}
-      {:agent_event, _event} -> wait_until_terminal()
+      {:agent_event, %{event_type: :run_completed} = event} ->
+        {:ok, Enum.reverse([event | events])}
+
+      {:agent_event, %{event_type: :run_failed} = event} ->
+        {:error, summarize_event(event), Enum.reverse([event | events])}
+
+      {:agent_event, %{event_type: :run_cancelled} = event} ->
+        {:error, summarize_event(event), Enum.reverse([event | events])}
+
+      {:agent_event, event} ->
+        wait_until_terminal([event | events])
     after
-      3_000 -> {:error, :timeout}
+      3_000 -> {:error, :timeout, Enum.reverse(events)}
     end
   end
 

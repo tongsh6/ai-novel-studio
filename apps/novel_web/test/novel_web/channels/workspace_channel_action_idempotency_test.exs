@@ -54,9 +54,12 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
     refute decision_turn_id == source.turn_id
 
     socket = Phoenix.Socket.assign(socket, :action_idempotency_ledger, %{})
+    subscriptions_before = subscription_count(work.id, session_id)
 
     assert {:reply, {:ok, %{received: true, duplicate: true} = duplicate_ack}, _socket} =
              WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
+
+    assert subscription_count(work.id, session_id) == subscriptions_before
 
     expected_key = source.confirm["idempotency_key"]
 
@@ -468,4 +471,10 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
 
   defp restore_fact_persistence(previous),
     do: Application.put_env(:novel_application, :agent_run_fact_persistence_enabled, previous)
+
+  defp subscription_count(work_id, session_id) do
+    NovelApplication.AgentEventRegistry
+    |> Registry.lookup({work_id, session_id})
+    |> length()
+  end
 end

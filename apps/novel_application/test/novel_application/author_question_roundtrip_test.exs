@@ -3,11 +3,12 @@ defmodule NovelApplication.AuthorQuestionRoundtripTest do
   alias Ecto.Adapters.SQL.Sandbox
 
   alias NovelApplication.{
-    AgentRunService,
     AuthorQuestion,
     AuthorQuestionService,
     WorkSessionService
   }
+
+  alias NovelApplication.AgentRunService
 
   alias NovelDomain.{AgentNextStepDecision, AuthorActionInput}
 
@@ -77,15 +78,17 @@ defmodule NovelApplication.AuthorQuestionRoundtripTest do
       operation, data -> InteractionLifecycle.call(operation, data)
     end
 
+    forward =
+      opts[:forward] ||
+        fn event ->
+          send(parent, {:question_event, event.event_type, event})
+        end
+
     assert {:ok, ^id} =
-             starter.(attrs,
+             starter.(
+               NovelApplication.TestAgentEventRelay.observe(attrs, forward),
                next_step_planner: planner,
-               interaction_store: opts[:store] || store,
-               event_sink:
-                 opts[:event_sink] ||
-                   fn event ->
-                     send(parent, {:question_event, event.event_type, event})
-                   end
+               interaction_store: opts[:store] || store
              )
 
     on_exit(fn ->
@@ -451,18 +454,23 @@ defmodule NovelApplication.AuthorQuestionRoundtripTest do
              AuthorQuestionService.reply(scope.work, scope.session, request)
   end
 
-  test "提交后事件发布失败仍可恢复同一问题，回复不会重新生成问题", scope do
+  test "订阅者退出后运行仍完成，持久结果可恢复，回复不会重新生成问题", scope do
     parent = self()
 
-    sink = fn event ->
+    forward = fn event ->
       send(parent, {:question_event, event.event_type, event})
-
-      if event.event_type in [:awaiting_author, :plan_adjusted],
-        do: raise("injected publication loss")
+      send(parent, {:question_relay, self()})
     end
 
-    {id, source} = start_question(scope, [], event_sink: sink)
+    {id, source} = start_question(scope, [], forward: forward)
     assert {:ok, %{run: %{status: :awaiting_author}}} = AgentRunService.state(id)
+    assert_receive {:question_relay, relay}
+
+    # 真实订阅进程断开：不在测试回调里伪造发布失败，也不让生产为观察者保活。
+    Process.unlink(relay)
+    monitor = Process.monitor(relay)
+    Process.exit(relay, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^relay, _reason}
 
     assert [%{author_question: %{status: "open"}}] =
              AuthorQuestionService.open_results(scope.work, scope.session)
@@ -473,11 +481,11 @@ defmodule NovelApplication.AuthorQuestionRoundtripTest do
              AuthorQuestionService.reply(scope.work, scope.session, request)
 
     assert_receive {:continued, %{version: 2}, _}
-    assert_receive {:question_event, :run_completed, _}
 
     assert {:ok, %{duplicate: true, agent_run_state: %{status: "completed"}}} =
              AuthorQuestionService.reply(scope.work, scope.session, request)
 
+    assert {:ok, %{run: %{status: :completed}}} = AgentRunService.state(id)
     assert length(AuthorQuestionRepo.results(scope.work, scope.session)) == 1
     assert Enum.count(AgentRunLog.list_events(id), &(&1.event_type == "plan_adjusted")) == 1
   end

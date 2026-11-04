@@ -5,7 +5,9 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.{Execution, RequestIR}
   alias NovelApplication.AgentRunFlows.ReadonlyBatchContext
-  alias NovelApplication.{AgentRunService, AuthoringTranscript, DialoguePlanningService}
+  alias NovelApplication.AgentRunService
+  alias NovelApplication.AuthoringTranscript
+  alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TestAgenticLoopFixtures
   alias NovelCommon.Contracts.{ProviderEvent, ProviderOutput, ProviderRun}
   alias NovelDomain.AgentNextStepDecision
@@ -43,7 +45,14 @@ defmodule NovelApplication.AgentRunRuntimeTest do
        }}
     end
 
-    opts = [next_step_planner: sequential_steps([step]), event_sink: event_sink(parent)]
+    opts = [next_step_planner: sequential_steps([step])]
+
+    NovelApplication.TestAgentEventRelay.subscribe(
+      attrs.work_id,
+      attrs.session_id,
+      nil,
+      event_forward(parent)
+    )
 
     tasks =
       for _ <- 1..4,
@@ -69,7 +78,13 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert_receive {:agent_event, :run_completed, _}, 2000
 
     assert {:ok, ^id} =
-             AgentRunService.start_bounded(Map.put(attrs, :run_id, unique_run_id()), opts)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 Map.put(attrs, :run_id, unique_run_id()),
+                 event_forward(parent)
+               ),
+               opts
+             )
 
     assert {:ok, receipt} = AgentRunService.message_receipt(id, attrs.work_id, attrs.session_id)
     assert receipt.state.run.status == :completed
@@ -110,9 +125,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_durable(base_run(run_id),
-               next_step_planner: planner,
-               event_sink: event_sink(self())
+             AgentRunService.start_durable(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(self())
+               ),
+               next_step_planner: planner
              )
 
     assert_receive {:agent_event, :run_failed, _}, 2000
@@ -144,9 +162,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: planner,
-               event_sink: event_sink(self())
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(self())
+               ),
+               next_step_planner: planner
              )
 
     assert_receive {:agent_event, :run_failed, _}, 2000
@@ -185,9 +206,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_durable(base_run(run_id),
-               next_step_planner: planner,
-               event_sink: event_sink(parent)
+             AgentRunService.start_durable(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(parent)
+               ),
+               next_step_planner: planner
              )
 
     assert_receive {:execution_transcript, ^planned}, 2000
@@ -227,9 +251,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       end
 
       assert {:ok, ^run_id} =
-               AgentRunService.start_durable(base_run(run_id),
-                 next_step_planner: planner,
-                 event_sink: event_sink(self())
+               AgentRunService.start_durable(
+                 NovelApplication.TestAgentEventRelay.observe(
+                   base_run(run_id),
+                   event_forward(self())
+                 ),
+                 next_step_planner: planner
                )
 
       terminal = if mode == :complete, do: :run_completed, else: :run_failed
@@ -273,9 +300,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_durable(base_run(run_id),
-               next_step_planner: planner,
-               event_sink: event_sink(self())
+             AgentRunService.start_durable(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(self())
+               ),
+               next_step_planner: planner
              )
 
     assert_receive {:agent_event, :run_failed, _}, 2000
@@ -339,9 +369,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       end
 
       assert {:ok, ^run_id} =
-               AgentRunService.start_durable(base_run(run_id),
-                 next_step_planner: planner,
-                 event_sink: event_sink(self())
+               AgentRunService.start_durable(
+                 NovelApplication.TestAgentEventRelay.observe(
+                   base_run(run_id),
+                   event_forward(self())
+                 ),
+                 next_step_planner: planner
                )
 
       assert_receive {:agent_event, :run_failed, _}, 2000
@@ -400,8 +433,14 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         {:error, :delivery_test_failure}
       end
 
-      opts = [next_step_planner: sequential_steps([step]), event_sink: event_sink(parent)]
-      assert {:ok, id} = AgentRunService.start_bounded(attrs, opts)
+      opts = [next_step_planner: sequential_steps([step])]
+
+      assert {:ok, id} =
+               AgentRunService.start_bounded(
+                 NovelApplication.TestAgentEventRelay.observe(attrs, event_forward(parent)),
+                 opts
+               )
+
       assert_receive {:delivery_started, _}
 
       if outcome == :failed do
@@ -413,7 +452,13 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       end
 
       assert {:ok, ^id} =
-               AgentRunService.start_bounded(Map.put(attrs, :run_id, unique_run_id()), opts)
+               AgentRunService.start_bounded(
+                 NovelApplication.TestAgentEventRelay.observe(
+                   Map.put(attrs, :run_id, unique_run_id()),
+                   event_forward(parent)
+                 ),
+                 opts
+               )
 
       assert {:ok, receipt} = AgentRunService.message_receipt(id, attrs.work_id, attrs.session_id)
 
@@ -570,9 +615,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: sequential_steps([step]),
-               event_sink: event_sink(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(parent)
+               ),
+               next_step_planner: sequential_steps([step])
              )
 
     assert_receive {:step_started, 1}
@@ -624,10 +672,15 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert_receive {:bounded_reconnect_step_started, 1, step_pid}, 1_000
     on_exit(fn -> send(step_pid, :release_reconnected_step) end)
 
+    NovelApplication.TestAgentEventRelay.subscribe(
+      work_id,
+      session_id,
+      nil,
+      event_forward(parent)
+    )
+
     assert {:ok, [reconnected]} =
-             AgentRunService.reconnect_bounded(work_id, session_id,
-               event_sink: event_sink(parent)
-             )
+             AgentRunService.reconnect_bounded(work_id, session_id)
 
     assert reconnected.run.run_id == run_id
     assert reconnected.run.status == :running
@@ -685,9 +738,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: planner,
-               event_sink: event_sink(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(parent)
+               ),
+               next_step_planner: planner
              )
 
     # 步 2 阻塞窗口内作者采纳候选（真实竞态形态：run 仍在执行中）。
@@ -725,9 +781,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: planner,
-               event_sink: event_sink_full(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward_full(parent)
+               ),
+               next_step_planner: planner
              )
 
     assert_receive {:agent_event_full, :plan_revised, event}, 500
@@ -763,9 +822,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: sequential_steps([step]),
-               event_sink: event_sink(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(parent)
+               ),
+               next_step_planner: sequential_steps([step])
              )
 
     assert_receive {:step_started, 1}
@@ -823,9 +885,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       )
 
     assert {:ok, _run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: event_sink_full(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 spec.run_attrs,
+                 event_forward_full(parent)
+               ),
+               next_step_planner: spec.next_step_planner
              )
 
     events = collect_full_events_until(:run_failed, 1_000)
@@ -910,9 +975,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       )
 
     assert {:ok, _run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: event_sink_full(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 spec.run_attrs,
+                 event_forward_full(parent)
+               ),
+               next_step_planner: spec.next_step_planner
              )
 
     events = collect_full_events_until(:run_failed, 1_000)
@@ -965,9 +1033,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       )
 
     assert {:ok, _run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: event_sink_full(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 spec.run_attrs,
+                 event_forward_full(parent)
+               ),
+               next_step_planner: spec.next_step_planner
              )
 
     events = collect_full_events_until(:run_failed, 1_000)
@@ -995,9 +1066,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(attrs,
-               next_step_planner: sequential_steps([step]),
-               event_sink: event_sink_with_payload(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 attrs,
+                 event_forward_with_payload(parent)
+               ),
+               next_step_planner: sequential_steps([step])
              )
 
     assert_receive {:agent_event, :run_failed, _, %{turn_result: result}}, 2000
@@ -1027,9 +1101,11 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(
-               base_run(run_id),
-               next_step_planner: sequential_steps([slow_step, fast_step]),
-               event_sink: event_sink(parent)
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(parent)
+               ),
+               next_step_planner: sequential_steps([slow_step, fast_step])
              )
 
     assert_receive {:step_started, 1}
@@ -1062,9 +1138,11 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(
-               base_run(run_id),
-               next_step_planner: sequential_steps([slow_step, fast_step]),
-               event_sink: event_sink(parent)
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(parent)
+               ),
+               next_step_planner: sequential_steps([slow_step, fast_step])
              )
 
     assert_receive {:step_started, 1}
@@ -1107,9 +1185,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: planner,
-               event_sink: event_sink(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(parent)
+               ),
+               next_step_planner: planner
              )
 
     assert_receive {:agent_event, :awaiting_author, "请补充具体扩写方向。"}, 500
@@ -1136,9 +1217,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: sequential_steps([slow_step]),
-               event_sink: event_sink_full(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward_full(parent)
+               ),
+               next_step_planner: sequential_steps([slow_step])
              )
 
     assert_receive {:step_started, 1}
@@ -1180,9 +1264,9 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       })
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(attrs,
-               next_step_planner: sequential_steps([step, step]),
-               event_sink: event_sink(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(attrs, event_forward(parent)),
+               next_step_planner: sequential_steps([step, step])
              )
 
     assert_receive {:step_started, 1}
@@ -1230,9 +1314,9 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       })
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(attrs,
-               next_step_planner: planner,
-               event_sink: event_sink_full(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(attrs, event_forward_full(parent)),
+               next_step_planner: planner
              )
 
     assert_receive {:step_started, 1}
@@ -1286,9 +1370,9 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       })
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_durable(attrs,
-               next_step_planner: sequential_steps([step, step]),
-               event_sink: event_sink(parent)
+             AgentRunService.start_durable(
+               NovelApplication.TestAgentEventRelay.observe(attrs, event_forward(parent)),
+               next_step_planner: sequential_steps([step, step])
              )
 
     assert_receive {:step_started, 1}
@@ -1373,9 +1457,9 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       })
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_durable(attrs,
-               next_step_planner: sequential_steps([step, step]),
-               event_sink: event_sink(parent)
+             AgentRunService.start_durable(
+               NovelApplication.TestAgentEventRelay.observe(attrs, event_forward(parent)),
+               next_step_planner: sequential_steps([step, step])
              )
 
     assert_receive {:g8_step, 1}
@@ -1529,9 +1613,9 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       })
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_durable(attrs,
-               next_step_planner: sequential_steps([step, step]),
-               event_sink: event_sink(parent)
+             AgentRunService.start_durable(
+               NovelApplication.TestAgentEventRelay.observe(attrs, event_forward(parent)),
+               next_step_planner: sequential_steps([step, step])
              )
 
     assert_receive {:step_started, 1}
@@ -1581,9 +1665,9 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       })
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_durable(attrs,
-               next_step_planner: sequential_steps([step, step]),
-               event_sink: event_sink(parent)
+             AgentRunService.start_durable(
+               NovelApplication.TestAgentEventRelay.observe(attrs, event_forward(parent)),
+               next_step_planner: sequential_steps([step, step])
              )
 
     assert_receive {:step_started, 1}
@@ -2014,9 +2098,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: sequential_steps([step, step]),
-               event_sink: event_sink(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(parent)
+               ),
+               next_step_planner: sequential_steps([step, step])
              )
 
     assert_receive {:step_started, 1}
@@ -2047,9 +2134,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: sequential_steps([step, step]),
-               event_sink: event_sink_full(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward_full(parent)
+               ),
+               next_step_planner: sequential_steps([step, step])
              )
 
     assert_receive {:agent_event_full, :awaiting_author, event}, 800
@@ -2084,9 +2174,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: sequential_steps([step, step]),
-               event_sink: event_sink(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(parent)
+               ),
+               next_step_planner: sequential_steps([step, step])
              )
 
     assert_receive {:agent_event, :awaiting_author, "AgentRun 未取得新进展，已停止等待作者回复。"}, 800
@@ -2118,9 +2211,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: planner,
-               event_sink: event_sink(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(parent)
+               ),
+               next_step_planner: planner
              )
 
     assert_receive {:agent_event, :awaiting_author, "请补充具体扩写方向。"}, 500
@@ -2168,9 +2264,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: planner,
-               event_sink: event_sink_full(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward_full(parent)
+               ),
+               next_step_planner: planner
              )
 
     assert_receive {:agent_event_full, :awaiting_author, awaiting_event}, 500
@@ -2231,9 +2330,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: planner,
-               event_sink: event_sink_full(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward_full(parent)
+               ),
+               next_step_planner: planner
              )
 
     assert_receive {:agent_event_full, :awaiting_author, _}, 500
@@ -2267,9 +2369,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: sequential_steps([slow_step]),
-               event_sink: event_sink(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(parent)
+               ),
+               next_step_planner: sequential_steps([slow_step])
              )
 
     assert_receive {:step_started, 1}
@@ -2316,9 +2421,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: planner,
-               event_sink: event_sink_full(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward_full(parent)
+               ),
+               next_step_planner: planner
              )
 
     assert_receive {:step_started, 1}
@@ -2364,9 +2472,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       )
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: event_sink_with_payload(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 spec.run_attrs,
+                 event_forward_with_payload(parent)
+               ),
+               next_step_planner: spec.next_step_planner
              )
 
     assert_receive {:agent_event, :exploration_observed, "当前作品暂未读取到已确认角色。", _payload},
@@ -2420,9 +2531,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: event_sink_full(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 spec.run_attrs,
+                 event_forward_full(parent)
+               ),
+               next_step_planner: spec.next_step_planner
              )
 
     assert_receive {:agent_event_full, :run_started, _}, 500
@@ -2487,9 +2601,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert spec.run_attrs.budget.max_steps == 1
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: event_sink(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 spec.run_attrs,
+                 event_forward(parent)
+               ),
+               next_step_planner: spec.next_step_planner
              )
 
     assert_receive {:agent_event, :awaiting_author, summary}, 500
@@ -2521,9 +2638,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       )
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: event_sink_full(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 spec.run_attrs,
+                 event_forward_full(parent)
+               ),
+               next_step_planner: spec.next_step_planner
              )
 
     assert_receive {:agent_event_full, :awaiting_author, awaiting}, 1_000
@@ -2605,9 +2725,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       )
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: event_sink(parent)
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 spec.run_attrs,
+                 event_forward(parent)
+               ),
+               next_step_planner: spec.next_step_planner
              )
 
     assert_receive :provider_called, 500
@@ -2642,9 +2765,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: planner,
-               event_sink: event_sink(self())
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(self())
+               ),
+               next_step_planner: planner
              )
 
     assert_receive {:agent_event, :run_completed, _}, 2000
@@ -2691,9 +2817,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: planner,
-               event_sink: event_sink(self())
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(
+                 base_run(run_id),
+                 event_forward(self())
+               ),
+               next_step_planner: planner
              )
 
     assert_receive {:agent_event, :run_failed, _}, 2000
@@ -2931,15 +3060,15 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     observation
   end
 
-  defp event_sink(parent) do
+  defp event_forward(parent) do
     fn event -> send(parent, {:agent_event, event.event_type, event.summary}) end
   end
 
-  defp event_sink_with_payload(parent) do
+  defp event_forward_with_payload(parent) do
     fn event -> send(parent, {:agent_event, event.event_type, event.summary, event.payload}) end
   end
 
-  defp event_sink_full(parent) do
+  defp event_forward_full(parent) do
     fn event -> send(parent, {:agent_event_full, event.event_type, event}) end
   end
 
@@ -3462,7 +3591,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
   defp do_wait_for(fun, deadline) do
     case fun.() do
-      nil ->
+      result when result in [nil, false] ->
         if System.monotonic_time(:millisecond) >= deadline do
           flunk("condition was not met before timeout")
         else
@@ -3473,151 +3602,5 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       result ->
         result
     end
-  end
-
-  test "multi-window subscribers all receive run events (single event_sink no longer overwritten)" do
-    parent = self()
-    run_id = unique_run_id()
-
-    slow_step = fn _run, sequence ->
-      send(parent, {:step_started, sequence})
-      Process.sleep(80)
-
-      {:ok, %{step: step_struct(run_id, sequence, "step_#{sequence}"), observations: []}}
-    end
-
-    assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: sequential_steps([slow_step]),
-               event_sink: event_sink(parent)
-             )
-
-    assert_receive {:step_started, 1}
-    [{pid, _}] = Registry.lookup(NovelApplication.AgentRunRegistry, run_id)
-
-    subscribers =
-      for index <- 1..2 do
-        spawn_link(fn ->
-          receive do
-            {:attach, server} ->
-              NovelApplication.AgentRunServer.attach_event_sink(server, self(), fn event ->
-                send(parent, {:mirror, index, event.event_type})
-              end)
-
-              send(parent, {:attached, index})
-          end
-
-          receive do
-            :stop -> :ok
-          end
-        end)
-      end
-
-    Enum.each(subscribers, &send(&1, {:attach, pid}))
-
-    assert_receive {:attached, 1}, 2000
-    assert_receive {:attached, 2}, 2000
-    assert wait_for(fn -> map_size(:sys.get_state(pid).event_sinks) == 2 end)
-
-    assert :ok = AgentRunService.pause(run_id)
-
-    assert_receive {:agent_event, :run_paused, _}, 2000
-    assert_receive {:mirror, 1, :run_paused}, 2000
-    assert_receive {:mirror, 2, :run_paused}, 2000
-
-    Enum.each(subscribers, &send(&1, :stop))
-  end
-
-  test "a killed step task fails the run instead of being swallowed as a subscriber DOWN" do
-    parent = self()
-    run_id = unique_run_id()
-
-    blocking_step = fn _run, sequence ->
-      send(parent, {:step_task_started, sequence, self()})
-
-      receive do
-        :never_release -> :ok
-      end
-    end
-
-    assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: sequential_steps([blocking_step]),
-               event_sink: event_sink_full(parent)
-             )
-
-    assert_receive {:step_task_started, 1, task_pid}, 1_000
-    assert {:ok, %{current_task?: true}} = AgentRunService.state(run_id)
-
-    on_exit(fn -> if Process.alive?(task_pid), do: Process.exit(task_pid, :kill) end)
-
-    Process.exit(task_pid, :kill)
-
-    assert_receive {:agent_event_full, :run_failed, failed}, 1_000
-    assert "step_task_down" in failed.reason_codes
-
-    assert {:ok, state} = AgentRunService.state(run_id)
-    assert state.run.status == :failed
-    refute state.current_task?
-    refute_receive {:step_task_started, 2, _pid}, 20
-  end
-
-  test "a subscriber exit clears only its sink and leaves the running step task alive" do
-    parent = self()
-    run_id = unique_run_id()
-
-    blocking_step = fn _run, sequence ->
-      send(parent, {:step_task_started, sequence, self()})
-
-      receive do
-        :release_step ->
-          {:ok, %{step: step_struct(run_id, sequence, "step_#{sequence}"), observations: []}}
-      end
-    end
-
-    assert {:ok, ^run_id} =
-             AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: sequential_steps([blocking_step]),
-               event_sink: event_sink(parent)
-             )
-
-    assert_receive {:step_task_started, 1, task_pid}, 1_000
-    [{server, _}] = Registry.lookup(NovelApplication.AgentRunRegistry, run_id)
-
-    subscriber =
-      spawn_link(fn ->
-        receive do
-          {:attach, server} ->
-            NovelApplication.AgentRunServer.attach_event_sink(server, self(), fn _event -> :ok end)
-
-            send(parent, {:subscriber_attached, self()})
-        end
-
-        receive do
-          :stop -> :ok
-        end
-      end)
-
-    send(subscriber, {:attach, server})
-    assert_receive {:subscriber_attached, ^subscriber}, 1_000
-    assert wait_for(fn -> map_size(:sys.get_state(server).event_sinks) == 1 end)
-
-    on_exit(fn -> if Process.alive?(task_pid), do: send(task_pid, :release_step) end)
-
-    monitor_ref = Process.monitor(subscriber)
-    send(subscriber, :stop)
-    assert_receive {:DOWN, ^monitor_ref, :process, ^subscriber, :normal}, 1_000
-    assert wait_for(fn -> map_size(:sys.get_state(server).event_sinks) == 0 end)
-
-    assert Process.alive?(task_pid)
-
-    assert {:ok, %{run: %{status: :running}, current_task?: true}} =
-             AgentRunService.state(run_id)
-
-    send(task_pid, :release_step)
-    assert_receive {:agent_event, :run_completed, _summary}, 1_000
-
-    assert {:ok, %{run: %{status: :completed}, current_task?: false}} =
-             AgentRunService.state(run_id)
   end
 end

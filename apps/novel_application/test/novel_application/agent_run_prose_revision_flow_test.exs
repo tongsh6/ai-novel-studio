@@ -144,10 +144,12 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
     end
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(planned.run_attrs,
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
+                 send(parent, {:agent_event, event.event_type, event})
+               end),
                next_step_planner: planner,
-               interaction_store: planned.interaction_store,
-               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+               interaction_store: planned.interaction_store
              )
 
     assert_receive {:agent_event, :run_started, _}
@@ -324,10 +326,12 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
     end
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(planned.run_attrs,
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
+                 send(parent, {:agent_event, event.event_type, event})
+               end),
                next_step_planner: planner,
-               interaction_store: planned.interaction_store,
-               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+               interaction_store: planned.interaction_store
              )
 
     assert_receive {:revision_writer_attempt, 1}, 1_000
@@ -823,7 +827,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
       [source_pending] = source.adoption_state.pending
       original_body = prose_body(source_pending)
 
-      event_sink = fn event ->
+      event_forward = fn event ->
         send(parent, {:agent_event, event.event_type, event})
 
         if event.event_type == :run_completed do
@@ -845,7 +849,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
           work_id: work.id,
           session_id: session.id,
           interaction_store: &InteractionLifecycle.call/2,
-          event_sink: event_sink
+          forward: event_forward
         )
 
       assert_receive {:revision_commit_observation, observed}, 1_000
@@ -938,7 +942,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
             work_id: work.id,
             session_id: session.id,
             interaction_store: &InteractionLifecycle.call/2,
-            event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end,
+            forward: fn event -> send(parent, {:agent_event, event.event_type, event}) end,
             planner_hook: fn _run, sequence, _snapshot ->
               if sequence == 1, do: install_decision_trace_trigger!(trigger_name)
             end
@@ -1152,16 +1156,16 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
       planned.next_step_planner.(run, sequence, snapshot)
     end
 
-    event_sink =
-      Keyword.get(opts, :event_sink, fn event ->
+    event_forward =
+      Keyword.get(opts, :forward, fn event ->
         send(parent, {:agent_event, event.event_type, event})
       end)
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(planned.run_attrs,
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, event_forward),
                next_step_planner: planner,
-               interaction_store: planned.interaction_store,
-               event_sink: event_sink
+               interaction_store: planned.interaction_store
              )
 
     run_id

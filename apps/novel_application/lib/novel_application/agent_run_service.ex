@@ -5,6 +5,7 @@ defmodule NovelApplication.AgentRunService do
 
   require NovelCommon.LogEmit, as: LogEmit
 
+  alias NovelApplication.AgentEventPublisher
   alias NovelApplication.AgentRunPersistence
   alias NovelApplication.AgentRunServer
   alias NovelApplication.AuthoringCheckpoint
@@ -45,7 +46,7 @@ defmodule NovelApplication.AgentRunService do
 
   @doc """
   作者动作新 run 的唯一启动入口：receipt + run + run_started 由 Server init
-  原子受理；duplicate 映射回原 run 并附加订阅，不把重复当启动失败更新原 run。
+  原子受理；duplicate 映射回原 run，不把重复当启动失败更新原 run。
   """
   @spec start_author_action(map(), keyword(), map()) ::
           {:ok, %{run_id: String.t(), receipt: map(), duplicate?: boolean()}}
@@ -67,7 +68,6 @@ defmodule NovelApplication.AgentRunService do
 
   defp start_admitted_run(run, planner, opts, admission) do
     store = Keyword.get(opts, :interaction_store) || TurnInteractionService.store()
-    event_sink = Keyword.get(opts, :event_sink)
 
     case DynamicSupervisor.start_child(
            NovelApplication.AgentRunSupervisor,
@@ -75,7 +75,6 @@ defmodule NovelApplication.AgentRunService do
             [
               run: run,
               next_step_planner: planner,
-              event_sink: event_sink,
               interaction_store: store,
               author_action_admission: admission
             ]}
@@ -85,7 +84,7 @@ defmodule NovelApplication.AgentRunService do
         {:ok, %{run_id: run.run_id, receipt: receipt, duplicate?: false}}
 
       {:error, {:author_action_duplicate, receipt}} ->
-        reuse_admitted_run(receipt, event_sink)
+        reuse_admitted_run(receipt)
 
       {:error, {:author_action_conflict, _receipt}} ->
         {:error, :idempotency_payload_conflict}
@@ -115,17 +114,15 @@ defmodule NovelApplication.AgentRunService do
        [
          run: startup.run,
          next_step_planner: Keyword.get(opts, :next_step_planner),
-         event_sink: Keyword.get(opts, :event_sink),
          interaction_store: store,
          author_action_admission: {:committed, receipt, startup}
        ]}
     )
   end
 
-  defp reuse_admitted_run(receipt, event_sink) do
+  defp reuse_admitted_run(receipt) do
     case receipt_run_id(receipt) do
       run_id when is_binary(run_id) and run_id != "" ->
-        attach_admitted_event_sink(run_id, event_sink)
         {:ok, %{run_id: run_id, receipt: receipt, duplicate?: true}}
 
       _missing ->
@@ -140,14 +137,6 @@ defmodule NovelApplication.AgentRunService do
       _ -> nil
     end
   end
-
-  defp attach_admitted_event_sink(run_id, event_sink)
-       when is_binary(run_id) and is_function(event_sink, 1) do
-    _ = attach_event_sink(run_id, event_sink)
-    :ok
-  end
-
-  defp attach_admitted_event_sink(_run_id, _event_sink), do: :ok
 
   defp start_requested_run(attrs, opts) do
     # 同一输入的接收与启动不可被另一 Channel 的重传穿插。
@@ -172,22 +161,16 @@ defmodule NovelApplication.AgentRunService do
              Keyword.get(opts, :interaction_input, %{})
            ) do
       if receipt.duplicate? do
-        reuse_received_run(receipt, opts)
+        reuse_received_run(receipt)
       else
-        start_received_run(run, attrs, planner, store, opts)
+        start_received_run(run, attrs, planner, store)
       end
     end
   end
 
-  defp reuse_received_run(receipt, opts) do
-    if is_function(Keyword.get(opts, :event_sink), 1) do
-      attach_event_sink(receipt.run_id, Keyword.fetch!(opts, :event_sink))
-    end
+  defp reuse_received_run(receipt), do: {:ok, receipt.run_id}
 
-    {:ok, receipt.run_id}
-  end
-
-  defp start_received_run(run, attrs, planner, store, opts) do
+  defp start_received_run(run, attrs, planner, store) do
     with {:ok, run} <- attach_durable_task(run, attrs),
          {:ok, _pid} <-
            DynamicSupervisor.start_child(
@@ -196,7 +179,6 @@ defmodule NovelApplication.AgentRunService do
               [
                 run: run,
                 next_step_planner: planner,
-                event_sink: Keyword.get(opts, :event_sink),
                 interaction_store: store
               ]}
            ) do
@@ -240,24 +222,22 @@ defmodule NovelApplication.AgentRunService do
   end
 
   @doc """
-  Rebinds still-live bounded runs to a newly joined Channel without restarting
+  Returns still-live bounded runs for a newly joined Channel without restarting
   their planner/provider work.
 
   The live supervisor is the liveness authority, so a refresh cannot race an
   asynchronous persistence write. A stale non-terminal database record is
   never reconstructed because bounded runs have no checkpoint replay contract.
   """
-  @spec reconnect_bounded(String.t(), String.t(), keyword()) :: {:ok, [map()]}
-  def reconnect_bounded(work_id, session_id, opts \\ [])
+  @spec reconnect_bounded(String.t(), String.t()) :: {:ok, [map()]}
+  def reconnect_bounded(work_id, session_id)
       when is_binary(work_id) and is_binary(session_id) do
-    event_sink = Keyword.get(opts, :event_sink)
-
     states =
       NovelApplication.AgentRunSupervisor
       |> DynamicSupervisor.which_children()
       |> Enum.flat_map(fn
         {_id, pid, :worker, _modules} ->
-          reconnect_live_bounded(pid, work_id, session_id, event_sink)
+          reconnect_live_bounded(pid, work_id, session_id)
 
         _child ->
           []
@@ -271,7 +251,7 @@ defmodule NovelApplication.AgentRunService do
     _kind, _reason -> {:ok, []}
   end
 
-  defp reconnect_live_bounded(pid, work_id, session_id, event_sink) when is_pid(pid) do
+  defp reconnect_live_bounded(pid, work_id, session_id) when is_pid(pid) do
     case AgentRunServer.state(pid) do
       %{
         run: %{
@@ -282,8 +262,6 @@ defmodule NovelApplication.AgentRunService do
         }
       } = state
       when status not in [:completed, :cancelled, :failed] ->
-        AgentRunServer.attach_event_sink(pid, event_sink)
-
         [
           state
           |> Map.put(:recovered?, true)
@@ -478,16 +456,15 @@ defmodule NovelApplication.AgentRunService do
     |> Kernel.+(1)
   end
 
-  @spec attach_event_sink(String.t(), function() | nil) :: :ok | {:error, :not_found}
-  def attach_event_sink(run_id, event_sink) when is_binary(run_id) do
-    case lookup(run_id) do
-      {:ok, pid} ->
-        AgentRunServer.attach_event_sink(pid, event_sink)
-        :ok
+  @doc """
+  订阅 work/session 的 AgentRun 事件；由 Channel join 调用一次。
 
-      error ->
-        error
-    end
+  `Registry` 随订阅进程退出自动清理，不在每个 run 上重复 attach。
+  """
+  @spec subscribe_events(String.t(), String.t() | nil) :: :ok
+  def subscribe_events(work_id, session_id)
+      when is_binary(work_id) and (is_binary(session_id) or is_nil(session_id)) do
+    AgentEventPublisher.subscribe(work_id, session_id)
   end
 
   @doc "已接受消息优先按原身份核对，不重新要求候选或会话仍可发起新操作。"
@@ -884,7 +861,7 @@ defmodule NovelApplication.AgentRunService do
   end
 
   defp recover_live_or_checkpoint(record, run, task, opts) do
-    case live_state(run.run_id, opts) do
+    case live_state(run.run_id) do
       {:ok, state} ->
         recover_live_state(record, state, task, opts)
 
@@ -1166,14 +1143,8 @@ defmodule NovelApplication.AgentRunService do
     event
   end
 
-  defp live_state(run_id, opts) do
+  defp live_state(run_id) do
     with {:ok, pid} <- lookup(run_id) do
-      event_sink = Map.get(opts, :event_sink)
-
-      if is_function(event_sink, 1) do
-        AgentRunServer.attach_event_sink(pid, event_sink)
-      end
-
       {:ok, AgentRunServer.state(pid)}
     end
   end

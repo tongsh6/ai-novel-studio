@@ -315,7 +315,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
         "session_id" => session_id
       })
 
-    assert_broadcast(
+    assert_push(
       "agent_event",
       %{
         run_id: ^run_id,
@@ -330,7 +330,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     assert "stale_resume" in reason_codes
     assert long_run_task_ref == task.id
 
-    assert_broadcast(
+    assert_push(
       "agent_run_state",
       %{
         run_id: ^run_id,
@@ -469,7 +469,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
 
     send(socket.channel_pid, {:agent_event, legacy_event})
 
-    assert_broadcast(
+    assert_push(
       "agent_event",
       %{event_id: ^legacy_event_id, payload: legacy_payload},
       1_000
@@ -481,7 +481,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     assert legacy_payload["long_run_task_ref"] == task.id
     assert legacy_payload["runtime_live"] == false
 
-    assert_broadcast(
+    assert_push(
       "agent_event",
       %{run_id: ^run_id, event_type: "run_resumed", payload: recovery_payload},
       1_000
@@ -493,7 +493,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     assert recovery_payload.long_run_task_ref == task.id
     assert recovery_payload.runtime_live == false
 
-    assert_broadcast(
+    assert_push(
       "agent_run_state",
       %{run_id: ^run_id, long_run_task: task_payload},
       1_000
@@ -569,7 +569,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
         "session_id" => session_id
       })
 
-    assert_broadcast(
+    assert_push(
       "agent_run_state",
       %{
         run_id: ^run_id,
@@ -595,7 +595,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
         "session_id" => session_id
       })
 
-    refute_receive %Phoenix.Socket.Broadcast{
+    refute_receive %Phoenix.Socket.Message{
                      event: "agent_run_state",
                      payload: %{run_id: ^run_id}
                    },
@@ -865,7 +865,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
         "session_id" => session_id
       })
 
-    assert_broadcast(
+    assert_push(
       "agent_event",
       %{
         run_id: ^run_id,
@@ -957,7 +957,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
         "session_id" => changed_session_id
       })
 
-    assert_broadcast(
+    assert_push(
       "agent_event",
       %{
         run_id: ^run_id,
@@ -971,7 +971,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     assert "durable_recovered" in reason_codes
     assert "runtime_not_live" in reason_codes
 
-    assert_broadcast(
+    assert_push(
       "agent_run_state",
       %{
         run_id: ^run_id,

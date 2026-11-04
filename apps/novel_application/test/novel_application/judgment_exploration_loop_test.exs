@@ -3,7 +3,8 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
-  alias NovelApplication.{AgentRunService, DialoguePlanningService, WorkService}
+  alias NovelApplication.AgentRunService
+  alias NovelApplication.{DialoguePlanningService, WorkService}
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelDomain.AgentRun
   alias NovelFoundation.Enums.AdoptionStatus
@@ -471,12 +472,12 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
              )
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: fn event ->
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  Agent.update(events, &[event | &1])
                  send(test_pid, {:missing_target_event, event.event_type})
-               end
+               end),
+               next_step_planner: spec.next_step_planner
              )
 
     on_exit(fn -> AgentRunService.cancel(run_id) end)

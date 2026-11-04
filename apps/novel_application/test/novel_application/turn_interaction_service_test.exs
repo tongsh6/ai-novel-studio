@@ -5,13 +5,14 @@ defmodule NovelApplication.TurnInteractionServiceTest do
 
   alias NovelApplication.{
     AgentRunServer,
-    AgentRunService,
     ArtifactAssembler,
     AuthorQuestion,
     TraceReplayService,
     TurnInteractionService,
     TurnResultBuilder
   }
+
+  alias NovelApplication.AgentRunService
 
   alias NovelDomain.{AgentNextStepDecision, AgentStep, DecisionTrace, DialogueContext}
 
@@ -80,7 +81,7 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     parent = self()
     input = %{text: "  查看作品档案  ", candidate_selection: %{candidate_ref: "direction-1"}}
 
-    event_sink = fn event ->
+    event_forward = fn event ->
       if event.event_type == :turn_result_ready do
         send(parent, {:published, MemoryLog.transcript(attrs.session_id)})
       end
@@ -89,9 +90,9 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     planner = planner(parent, :success)
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(attrs,
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(attrs, event_forward),
                next_step_planner: planner,
-               event_sink: event_sink,
                interaction_store: store,
                interaction_input: input
              )
@@ -113,24 +114,36 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     assert length(MemoryLog.transcript(attrs.session_id)) == 2
   end
 
-  test "结果已提交后通知抛错，不重启运行或重复执行，重发仍读取同一结果", %{attrs: attrs, store: store} do
+  test "订阅进程断开后运行仍完成，结果已提交不重启或重复执行，重发仍读取同一结果", %{
+    attrs: attrs,
+    store: store
+  } do
     parent = self()
-    {:ok, fail_once} = Agent.start_link(fn -> true end)
+    base_planner = planner(parent, :success)
 
-    sink = fn event ->
-      if event.event_type == :turn_result_ready and Agent.get_and_update(fail_once, &{&1, false}) do
-        raise "injected committed result publication failure"
+    blocking_planner = fn run, sequence, snapshot ->
+      {:execute, step, decision} = base_planner.(run, sequence, snapshot)
+
+      blocking_step = fn run, sequence, snapshot ->
+        send(parent, {:step_started, run.run_id, self()})
+
+        receive do
+          :release_step -> step.(run, sequence, snapshot)
+        after
+          5_000 -> flunk("step was not released")
+        end
       end
 
-      send(parent, {:delivery_event, event.event_type})
+      {:execute, blocking_step, decision}
     end
 
-    planner = planner(parent, :success)
-
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(attrs,
-               next_step_planner: planner,
-               event_sink: sink,
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(attrs, fn event ->
+                 send(parent, {:delivery_event, event.event_type})
+                 send(parent, {:relay_pid, self()})
+               end),
+               next_step_planner: blocking_planner,
                interaction_store: store
              )
 
@@ -141,9 +154,27 @@ defmodule NovelApplication.TurnInteractionServiceTest do
       end
     end)
 
-    assert_receive {:executed, ^run_id}, 2000
-    assert_receive {:delivery_event, :run_completed}, 2000
-    refute_receive {:executed, _}, 25
+    assert_receive {:step_started, ^run_id, step_pid}, 2_000
+    assert_receive {:relay_pid, relay}
+
+    # 真实订阅进程断开：测试不注入“回调抛错”，也不让生产为观察者保活。
+    Process.unlink(relay)
+    monitor = Process.monitor(relay)
+    Process.exit(relay, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^relay, _reason}
+
+    # 断开后新订阅仍能观察到同一 run 完成，证明执行本身不依赖观察者。
+    NovelApplication.TestAgentEventRelay.subscribe(
+      attrs.work_id,
+      attrs.session_id,
+      run_id,
+      fn event -> send(parent, {:delivery_event, event.event_type}) end
+    )
+
+    send(step_pid, :release_step)
+    assert_receive {:executed, ^run_id}, 2_000
+    assert_receive {:delivery_event, :run_completed}, 2_000
+
     assert {:ok, %{run: %{status: :completed}}} = AgentRunService.state(run_id)
     assert AgentRunLog.get_run(run_id).status == "completed"
 
@@ -152,11 +183,12 @@ defmodule NovelApplication.TurnInteractionServiceTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(%{attrs | run_id: run_id <> "-replay"},
-               next_step_planner: planner,
+               next_step_planner: blocking_planner,
                interaction_store: store
              )
 
     refute_receive {:executed, _}, 25
+    refute_receive {:step_started, _, _}, 25
   end
 
   test "普通结果写入后输入状态更新失败，真实事务回滚结果和候选投影", %{attrs: attrs, store: store} do
@@ -310,10 +342,12 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     end
 
     assert {:ok, run_id} =
-             AgentRunService.start_bounded(attrs,
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(attrs, fn event ->
+                 send(parent, {:event, event.event_type, event.payload})
+               end),
                next_step_planner: planner(parent, :success),
-               interaction_store: failing_store,
-               event_sink: fn event -> send(parent, {:event, event.event_type, event.payload}) end
+               interaction_store: failing_store
              )
 
     # 失败 TurnResult 无法持久时，安全失败通知不得携带未提交结果。
@@ -330,10 +364,12 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     parent = self()
 
     assert {:ok, _} =
-             AgentRunService.start_bounded(attrs,
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(attrs, fn event ->
+                 send(parent, {:event, event.event_type})
+               end),
                next_step_planner: planner(parent, :failure),
-               interaction_store: store,
-               event_sink: fn event -> send(parent, {:event, event.event_type}) end
+               interaction_store: store
              )
 
     assert_receive {:event, :run_failed}, 2000
@@ -450,10 +486,12 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     end
 
     assert {:ok, id} =
-             AgentRunService.start_bounded(attrs,
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(attrs, fn event ->
+                 send(parent, {:prior_event, event})
+               end),
                next_step_planner: plan,
-               interaction_store: store,
-               event_sink: fn event -> send(parent, {:prior_event, event}) end
+               interaction_store: store
              )
 
     assert_receive {:prior_event, %{event_type: :run_failed, payload: %{turn_result: failure}}},
@@ -477,10 +515,12 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     end
 
     assert {:ok, id} =
-             AgentRunService.start_bounded(attrs,
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(attrs, fn event ->
+                 send(parent, {:gap_event, event})
+               end),
                next_step_planner: planner,
-               interaction_store: store,
-               event_sink: fn event -> send(parent, {:gap_event, event}) end
+               interaction_store: store
              )
 
     assert_receive {:gap_event, %{event_type: :run_completed}}, 2000

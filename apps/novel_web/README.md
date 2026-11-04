@@ -26,10 +26,12 @@ be found at <https://hexdocs.pm/novel_web>.
 - [workspace_channel_author_action_admission_test.exs](test/novel_web/channels/workspace_channel_author_action_admission_test.exs)：真实 DB fixture 与真实 Channel 进程下的并发受理、冲突、拒写回滚（含 topic 零 `run_started`）、终局/失败/运行丢失/迟到回执、ACK 事实投影与 source 权限边界。
 - [workspace_channel_v3_test.exs](test/novel_web/channels/workspace_channel_v3_test.exs)：lobby 内存来源明确未受理，不再用假 socket source 冒充持久授权。
 
-## B71 显式压缩作者入口（VS-00L §16.2/§16.4）
+## B71 运行事件与自动整理记录
 
-- [workspace_channel.ex](lib/novel_web/channels/workspace_channel.ex)：`agent_command` 新增 `compact_transcript` 命令（作者显式整理意图）；只携带 `run_id`，覆盖范围/证据/摘要由 application 从 canonical 事实派生。复用既有归属校验、错误 payload 与运行控制 ack 形状；成功回执 additive `compaction`（整理项数/摘要/省略/来源显示名），不新增 Channel 事件或协议。
-- [workspace_channel_command_ack.ex](lib/novel_web/channels/workspace_channel_command_ack.ex)：`agent_command` 回执形状的唯一所属点（运行控制与压缩共用）；独立模块承接超限 channel 文件的新增回执投影（模块规模规则）。
-- [workspace_channel_compaction_test.exs](test/novel_web/channels/workspace_channel_compaction_test.exs)：真实 Channel 下的作者显式整理回执、canonical 前缀不变/checkpoint 先提交、幂等「无可整理项」、执行中拒绝、跨作品/会话归属拒绝与无会话错误。
-
-
+- [workspace_channel.ex](lib/novel_web/channels/workspace_channel.ex)：join 时按当前 work/session 订阅应用层事件；每个 Channel 只向自身连接推送运行事件、结果和状态。重连/恢复投影不会再次广播到其它窗口，也不注册第二套 run 回调。
+- [workspace_channel_scoped_events_test.exs](test/novel_web/channels/workspace_channel_scoped_events_test.exs)：通过两个真实 Channel 的不同 transport 验证每个连接每事件一份，后加入连接不向其它窗口重放历史。
+- [workspace_channel_action_idempotency_test.exs](test/novel_web/channels/workspace_channel_action_idempotency_test.exs)：重复作者动作复用已提交回执，不增加作用域订阅或重复执行。
+- [workspace_channel_confirmation_handoff_test.exs](test/novel_web/channels/workspace_channel_confirmation_handoff_test.exs)：验证确认 child 的启动/工具事件实时到达并与持久记录同源，首个模型响应前已有可见进度。
+- [workspace_channel_agent_events_test.exs](test/novel_web/channels/workspace_channel_agent_events_test.exs)：历史补拉只经 Application 查询入口，保持作用域、游标、作者安全投影与实时 wire 形状。
+- 自动整理消费既有 `checkpoint_created` 事件。作者命令 `compact_transcript` 与其专属 Channel 测试已退役；应用内部压缩和安全点自动维护按 VS-00L §16.16/§18 执行，当前不提供手动整理 Channel 入口。
+- [workspace_channel_command_ack.ex](lib/novel_web/channels/workspace_channel_command_ack.ex)：运行控制命令回执形状的所属点。
