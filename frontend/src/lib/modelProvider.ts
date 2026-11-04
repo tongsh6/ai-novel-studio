@@ -53,7 +53,8 @@ export interface ProviderOption {
 }
 
 export interface ProviderOptionsResponse {
-  current_provider: ProviderId;
+  /** 后端当前选中的 provider；返回无法识别的 id 时保持 null（未配置态），不伪装成某个 provider。 */
+  current_provider: ProviderId | null;
   providers: ProviderOption[];
 }
 
@@ -65,7 +66,8 @@ export interface ProviderModelOption {
 
 export interface ProviderModelsResponse {
   ok: boolean;
-  provider: ProviderId;
+  /** 后端实际响应的 provider；未知 id 时保持 null，不伪装成某个 provider。 */
+  provider: ProviderId | null;
   models: ProviderModelOption[];
   message?: string;
   detail?: string;
@@ -125,7 +127,8 @@ export interface ModelProviderRuntimeState {
   options: ProviderOptionsResponse;
   stored: StoredProviderSettings;
   secretStorage: ProviderSecretStorageStatus;
-  selectedProvider: ProviderId;
+  /** null = 后端没有可识别的当前 provider（显式未配置态），不预设任何生产 provider。 */
+  selectedProvider: ProviderId | null;
 }
 
 const SETTINGS_STORAGE_KEY = "ans.modelProviderSettings";
@@ -272,9 +275,10 @@ export async function loadAndSyncModelProviderState(): Promise<ModelProviderRunt
   ]);
 
   const selectedProvider = stored.selected_provider ?? options.current_provider;
-  const preference = stored.providers[selectedProvider] ?? {};
 
-  if (stored.selected_provider) {
+  if (stored.selected_provider && selectedProvider) {
+    const preference = stored.providers[selectedProvider] ?? {};
+
     await configureProvider({
       provider: selectedProvider,
       model: preference.model ?? providerOption(options, selectedProvider)?.model ?? null,
@@ -315,8 +319,9 @@ export async function saveAndApplyModelProviderConfig(
 
 export function providerOption(
   options: ProviderOptionsResponse,
-  provider: ProviderId,
+  provider: ProviderId | "" | null | undefined,
 ): ProviderOption | undefined {
+  if (!provider) return undefined;
   return options.providers.find((option) => option.id === provider);
 }
 
@@ -357,7 +362,8 @@ function toBackendPayload(input: ProviderConfigInput): Record<string, unknown> {
 
 function normalizeProviderOptions(raw: ProviderOptionsResponse): ProviderOptionsResponse {
   return {
-    current_provider: normalizeProviderId(raw.current_provider) ?? "stub",
+    // 未知/缺失的当前 provider 保持 null：由 UI 呈现未配置态，不伪装成某个生产 provider。
+    current_provider: normalizeProviderId(raw.current_provider),
     providers: (raw.providers ?? [])
       .flatMap((option) => {
         const id = normalizeProviderId(option.id);
@@ -380,7 +386,8 @@ function normalizeProviderOptions(raw: ProviderOptionsResponse): ProviderOptions
 function normalizeProviderModels(raw: ProviderModelsResponse): ProviderModelsResponse {
   return {
     ok: Boolean(raw.ok),
-    provider: normalizeProviderId(raw.provider) ?? "stub",
+    // 未知 provider 保持 null，不把缺失输入伪装成某个生产 provider。
+    provider: normalizeProviderId(raw.provider),
     models: (raw.models ?? [])
       .flatMap((model) => {
         const id = normalizeOptionalText(model.id);

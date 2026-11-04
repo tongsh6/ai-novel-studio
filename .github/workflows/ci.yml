@@ -79,17 +79,31 @@ jobs:
       - name: Architecture check
         run: mix run scripts/arch_check.exs
 
+      # 运行时不变量的 driver 需要已迁移的独立测试库；与 mix test 的库分开，避免互相污染。
+      - name: Prepare test database (scenario invariants)
+        run: MIX_ENV=test mix ecto.create && MIX_ENV=test mix ecto.migrate
+        env:
+          NOVEL_TEST_DB_DIR: ${{ github.workspace }}/tmp/ci-invariant-db
+
       - name: Scenario invariants — I3 nonce propagation
         run: MIX_ENV=test mix run scripts/scenario_invariants/run_i3_nonce.exs
+        env:
+          NOVEL_TEST_DB_DIR: ${{ github.workspace }}/tmp/ci-invariant-db
 
       - name: Scenario invariants — I1 causal binding
         run: MIX_ENV=test mix run scripts/scenario_invariants/run_i1_causal.exs
+        env:
+          NOVEL_TEST_DB_DIR: ${{ github.workspace }}/tmp/ci-invariant-db
 
       - name: Scenario invariants — I2 input variation
         run: MIX_ENV=test mix run scripts/scenario_invariants/run_i2_variation.exs
+        env:
+          NOVEL_TEST_DB_DIR: ${{ github.workspace }}/tmp/ci-invariant-db
 
       - name: Scenario invariants — I-CACHE-1 prompt prefix sharing
         run: MIX_ENV=test mix run scripts/scenario_invariants/run_icache_prefix.exs
+        env:
+          NOVEL_TEST_DB_DIR: ${{ github.workspace }}/tmp/ci-invariant-db
 
       - name: Restore PLT cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
@@ -106,8 +120,16 @@ jobs:
         run: mix dialyzer
 
       # 2026-11-04 测试提速：PR 跑快集（排除 @tag :slow），全量由 nightly 承接。
+      # 测试库必须先迁移：默认库名带进程 token，不预迁移时全量测试会因缺表失败。
+      - name: Prepare test database (mix test)
+        run: MIX_ENV=test mix ecto.create && MIX_ENV=test mix ecto.migrate
+        env:
+          NOVEL_TEST_DB_DIR: ${{ github.workspace }}/tmp/ci-test-db
+
       - name: Test (PR fast set)
         run: mix test --exclude slow
+        env:
+          NOVEL_TEST_DB_DIR: ${{ github.workspace }}/tmp/ci-test-db
 
   frontend:
     name: Frontend (pnpm lint + test)

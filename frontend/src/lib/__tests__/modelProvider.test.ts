@@ -8,6 +8,7 @@ import {
   getProviderOptions,
   isValidProviderEndpoint,
   listProviderModels,
+  loadAndSyncModelProviderState,
   saveAndApplyModelProviderConfig,
   testProviderConnection,
   normalizePurposeModels,
@@ -166,6 +167,80 @@ describe("model provider API client", () => {
         { id: "deepseek", model: "deepseek-v4-flash", api_key_configured: true },
       ],
     });
+  });
+
+  it("keeps an unknown current provider as explicit unconfigured state, not stub", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            current_provider: "removed_vendor",
+            providers: [
+              {
+                id: "deepseek",
+                label: "DeepSeek",
+                current: false,
+                model: null,
+                endpoint: null,
+                requires_api_key: true,
+                supports_api_key: true,
+                supports_endpoint: true,
+                supports_thinking: true,
+                api_key_configured: false,
+              },
+            ],
+          }),
+      }),
+    );
+
+    const options = await getProviderOptions();
+    expect(options.current_provider).toBeNull();
+    expect(options.providers.map((option) => option.id)).toEqual(["deepseek"]);
+  });
+
+  it("keeps an unknown provider in the models response as null, not stub", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ ok: false, provider: "removed_vendor", models: [] }),
+      }),
+    );
+
+    await expect(listProviderModels({ provider: "deepseek" })).resolves.toMatchObject({
+      provider: null,
+    });
+  });
+
+  it("loads runtime state without selecting a provider instead of defaulting to stub", async () => {
+    installLocalStorage();
+    const bodies: Record<string, unknown>[] = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PUT") {
+          bodies.push(parseJsonBody(init));
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ ok: true, provider: "deepseek" }),
+          });
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ current_provider: "removed_vendor", providers: [] }),
+        });
+      }),
+    );
+
+    const state = await loadAndSyncModelProviderState();
+
+    expect(state.selectedProvider).toBeNull();
+    // 没有已保存的选择时不得向后端伪造一次 provider 配置。
+    expect(bodies).toEqual([]);
   });
 
   it("preserves the OpenAI-compatible vendor matrix from the backend registry", async () => {

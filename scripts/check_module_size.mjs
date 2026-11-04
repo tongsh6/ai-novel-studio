@@ -193,9 +193,9 @@ export function buildBaseline(
       if (exemptions[filePath]) continue;
       const entry = current.get(filePath);
       const previousMax = previousFiles[filePath]?.max_lines ?? previousFiles[filePath]?.lines;
-      if (previousMax === undefined && !initial) {
+      if (previousMax === undefined && !initial && !registerNew) {
         unregistered.push({ filePath, lines: entry.lines, scope: group.scope, kind: group.kind });
-        if (!registerNew) continue;
+        continue;
       }
       const maxLines = previousMax === undefined ? entry.lines : Math.min(previousMax, entry.lines);
       files[filePath] = {
@@ -256,6 +256,13 @@ function isFrontendTest(filePath) {
   );
 }
 
+// test/support 下的模块是生产级规模的测试辅助代码（fixture provider、夹具构造器），
+// 与测试本体一样必须受 ratchet 观察。只收 .ex：.exs 已由测试本体扫描覆盖；test
+// 目录下其它位置的 .ex 不是 Elixir 测试约定，不收（避免扩大既有扫描口径）。
+function isTestSupportModule(testSupportDir, filePath) {
+  return filePath.startsWith(`${testSupportDir}${path.sep}`) && filePath.endsWith(".ex");
+}
+
 export function collectScanEntries(root = rootDir) {
   const entries = [];
   const appsDir = path.join(root, "apps");
@@ -274,7 +281,11 @@ export function collectScanEntries(root = rootDir) {
       });
     }
     const testDir = path.join(appsDir, app, "test");
-    for (const file of walkFiles(testDir, (filePath) => filePath.endsWith(".exs"))) {
+    const testSupportDir = path.join(testDir, "support");
+    for (const file of walkFiles(
+      testDir,
+      (filePath) => filePath.endsWith(".exs") || isTestSupportModule(testSupportDir, filePath),
+    )) {
       entries.push({
         path: path.relative(root, file),
         lines: countLines(file),

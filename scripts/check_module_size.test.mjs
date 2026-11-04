@@ -3,17 +3,21 @@
  * check_module_size.mjs 的正式测试（node --test scripts/check_module_size.test.mjs）。
  *
  * 覆盖窗口：百分位（仅报告参考）、观察名单判定、baseline 校验（ratchet/未登记/豁免/删除）、
- * baseline 生成（只降不升/新债拒绝/豁免优先）。
+ * baseline 生成（只降不升/新债拒绝/豁免优先）、扫描范围（lib/.ex、test/.exs、test/support/.ex）。
  * 不测「谁该被拆」——那是 review 的定性判断；机器只保证趋势不被恶化。
  */
 
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
   DEFAULT_POLICY,
   allowedDeltaFor,
   buildBaseline,
+  collectScanEntries,
   detectOutliers,
   percentile,
   validateBaseline,
@@ -170,6 +174,14 @@ test("buildBaseline 更新：出现未登记新观察文件时拒绝写入（未
   );
 });
 
+test("buildBaseline 更新：registerNew 显式登记新观察文件（CLI --write-baseline --register-new 可落盘）", () => {
+  const scan = [prod("old.ex", 900), prod("new.ex", 5000)];
+  const previous = baselineOf({ "old.ex": { lines: 900, max_lines: 900 } });
+  const { baseline, unregistered } = buildBaseline(scan, previous, { registerNew: true });
+  assert.deepEqual(unregistered, []);
+  assert.equal(baseline.files["new.ex"].max_lines, 5000);
+});
+
 test("buildBaseline：exemption 文件不进入 files（豁免优先于登记）", () => {
   const scan = [prod("a.ex", 100), prod("big.ex", 2000), prod("copy.ts", 5000)];
   const previous = baselineOf({}, { "copy.ts": { reason: "聚合型文件" } });
@@ -186,3 +198,71 @@ test("默认策略：生产关注门槛 500 / 测试 800，且不是 fail 红线
   const { failures } = validateBaseline(scan, baselineOf());
   assert.deepEqual(failures, []);
 });
+
+function withFixtureRoot(run) {
+  const root = mkdtempSync(path.join(os.tmpdir(), "module-size-"));
+  try {
+    return run(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function writeFixture(root, relative, lines) {
+  const full = path.join(root, relative);
+  mkdirSync(path.dirname(full), { recursive: true });
+  writeFileSync(full, `${"x".repeat(10)}\n`.repeat(lines), "utf8");
+}
+
+test("collectScanEntries：test/support 下的 .ex 纳入 test 扫描，其它 test .ex 不收", () =>
+  withFixtureRoot((root) => {
+    writeFixture(root, "apps/novel_agent/lib/novel_agent/provider/gateway.ex", 3);
+    writeFixture(root, "apps/novel_agent/test/novel_agent/provider/gateway_test.exs", 3);
+    writeFixture(root, "apps/novel_agent/test/support/provider/stub.ex", 3);
+    writeFixture(root, "apps/novel_agent/test/support/provider/notes.md", 3);
+    writeFixture(root, "apps/novel_agent/test/loose_helper.ex", 3);
+    writeFixture(root, "frontend/src/lib/modelProvider.ts", 3);
+    writeFixture(root, "frontend/src/lib/__tests__/modelProvider.test.ts", 3);
+
+    const entries = collectScanEntries(root).map(({ path: filePath, kind, scope }) => ({
+      path: filePath,
+      kind,
+      scope,
+    }));
+
+    assert.deepEqual(entries, [
+      {
+        path: "apps/novel_agent/lib/novel_agent/provider/gateway.ex",
+        kind: "prod",
+        scope: "novel_agent",
+      },
+      {
+        path: "apps/novel_agent/test/novel_agent/provider/gateway_test.exs",
+        kind: "test",
+        scope: "novel_agent",
+      },
+      {
+        path: "apps/novel_agent/test/support/provider/stub.ex",
+        kind: "test",
+        scope: "novel_agent",
+      },
+      {
+        path: "frontend/src/lib/__tests__/modelProvider.test.ts",
+        kind: "test",
+        scope: "frontend",
+      },
+      { path: "frontend/src/lib/modelProvider.ts", kind: "prod", scope: "frontend" },
+    ]);
+  }));
+
+test("collectScanEntries：test/support 大文件进入 ratchet 未登记判定（B71 P1-4 覆盖）", () =>
+  withFixtureRoot((root) => {
+    writeFixture(root, "apps/novel_agent/test/support/provider/slice_verify.ex", 900);
+    const scan = collectScanEntries(root);
+    const { failures } = validateBaseline(scan, baselineOf());
+    assert.equal(failures.length, 1);
+    assert.match(
+      failures[0],
+      /未登记：apps\/novel_agent\/test\/support\/provider\/slice_verify\.ex/,
+    );
+  }));

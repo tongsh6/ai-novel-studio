@@ -23,7 +23,7 @@ setup:
 
 user_flow:
   - open: real workbench model settings
-  - select: Stub provider from backend provider registry
+  - select: 测试环境显式注入的 Slice Verify 确定性替身 provider（作者可见名「本地模型（测试环境）」）from backend provider registry
   - test: click visible test connection button
   - save: provider selection
   - send: next user message from the real workbench composer
@@ -48,7 +48,8 @@ assertions:
     - next turn emits provider_gateway.complete.done for the switched provider
 
 known_limits:
-  - This scenario proves the runtime switching path with the Stub provider. DeepSeek, Anthropic, LM Studio model-list and failure matrices are covered by separate SU-01 scenarios or follow-up matrix work.
+  - This scenario proves the runtime switching path with the deterministic Slice Verify test provider (injected only via scripts/slice_verify_server.exs / config; Stub retired from the production registry on 2026-11-04). DeepSeek, Anthropic, LM Studio model-list and failure matrices are covered by separate SU-01 scenarios or follow-up matrix work.
+  - 真实供应商切换矩阵需要真实 API 凭证与网络窗口，不由本场景代签。
 
 anti_hooks:
   product_acceptance_logic_added: false

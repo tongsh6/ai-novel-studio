@@ -320,7 +320,8 @@ function normalizeReasoningEffort(value: string | null | undefined): ReasoningEf
 }
 
 interface ModelProviderDraft {
-  provider: ProviderId;
+  /** "" = 尚未选择；打开对话框后由后端 runtime state 填充，不预设任何 provider。 */
+  provider: ProviderId | "";
   model: string;
   endpoint: string;
   apiKey: string;
@@ -1344,10 +1345,13 @@ function isConnectivityFailure(detail: string): boolean {
 
 function modelProviderDraftFromState(state: ModelProviderRuntimeState): ModelProviderDraft {
   const option = providerOption(state.options, state.selectedProvider);
-  const stored = state.stored.providers[state.selectedProvider] ?? {};
+  const stored = state.selectedProvider
+    ? (state.stored.providers[state.selectedProvider] ?? {})
+    : {};
 
   return {
-    provider: state.selectedProvider,
+    // 后端没有可识别 provider 时保持未选择态，不把缺失输入伪装成某个 provider。
+    provider: state.selectedProvider ?? "",
     model: stored.model ?? option?.model ?? "",
     endpoint: stored.endpoint ?? option?.endpoint ?? "",
     apiKey: "",
@@ -1445,7 +1449,8 @@ export function WorkspaceChat() {
   );
   const [modelProviderDialogOpen, setModelProviderDialogOpen] = useState(false);
   const [modelProviderDraft, setModelProviderDraft] = useState<ModelProviderDraft>({
-    provider: "stub",
+    // 不预设 provider：打开对话框时从后端 runtime state 填充。
+    provider: "",
     model: "",
     endpoint: "",
     apiKey: "",
@@ -3952,7 +3957,7 @@ export function WorkspaceChat() {
     const trimmed = draft.apiKey.trim();
     if (draft.clearApiKey) return null;
     if (trimmed) return trimmed;
-    if (draft.apiKeyConfigured) {
+    if (draft.apiKeyConfigured && draft.provider) {
       return await getStoredProviderApiKey(draft.provider);
     }
     return null;
@@ -3967,11 +3972,17 @@ export function WorkspaceChat() {
     setModelProviderModels([]);
     setModelProviderModelsMessage(null);
 
-    if (!state || draft.provider === "stub") {
+    // provider 未选择（""）或 runtime state 未就绪时不发请求。
+    if (!state || draft.provider === "") {
       setModelProviderModelsLoading(false);
-      if (draft.provider === "stub") {
-        setModelProviderModelsMessage(WORKBENCH.modelProviderModelsUnsupported);
-      }
+      return;
+    }
+
+    // stub 是测试环境验收替身（MIX_ENV=test 由 config 显式注入）：它没有真实模型列表，
+    // 允许空 model 保存。这是测试替身语义，不是生产 provider 的通用降级路径。
+    if (draft.provider === "stub") {
+      setModelProviderModelsLoading(false);
+      setModelProviderModelsMessage(WORKBENCH.modelProviderModelsUnsupported);
       return;
     }
 
@@ -4024,6 +4035,8 @@ export function WorkspaceChat() {
 
   const handleModelProviderTest = async () => {
     if (modelProviderTesting) return;
+    // 未选择 provider 时不向后端发无主请求；打开对话框后会由 runtime state 填充。
+    if (modelProviderDraft.provider === "") return;
     if (modelProviderDraftHasInvalidEndpoint(modelProviderDraft, modelProviderState)) {
       setModelProviderMessage(WORKBENCH.modelProviderEndpointInvalid);
       return;
@@ -4062,6 +4075,8 @@ export function WorkspaceChat() {
 
   const handleModelProviderSave = async () => {
     if (modelProviderSaving) return;
+    // 未选择 provider 时没有可保存的运行时配置；打开对话框后会由 runtime state 填充。
+    if (modelProviderDraft.provider === "") return;
     if (modelProviderDraftHasInvalidEndpoint(modelProviderDraft, modelProviderState)) {
       setModelProviderMessage(WORKBENCH.modelProviderEndpointInvalid);
       return;
@@ -4188,12 +4203,15 @@ export function WorkspaceChat() {
   const modelProviderStatusTitle = selectedProviderOption
     ? `${providerDisplayName(selectedProviderOption)} · ${modelStatusTitle}`
     : modelStatusTitle;
+  // stub 是测试环境验收替身（MIX_ENV=test 由 config 显式注入，没有真实模型列表）：
+  // 只对 stub 允许空 model 保存；这是测试替身语义，不是生产 provider 的降级路径。
   const modelProviderRequiresModel = modelProviderDraft.provider !== "stub";
   const modelProviderEndpointInvalid = modelProviderDraftHasInvalidEndpoint(
     modelProviderDraft,
     modelProviderState,
   );
   const modelProviderSaveDisabled =
+    modelProviderDraft.provider === "" ||
     !modelProviderState ||
     modelProviderSaving ||
     modelProviderTesting ||

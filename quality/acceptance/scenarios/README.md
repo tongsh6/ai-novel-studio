@@ -7,7 +7,7 @@
 
 | 文件 | 场景 |
 |---|---|
-| `b71-authoring-pending.yml` | B71 CP4b 对话候选修订→作者采纳/放弃→恢复→新请求（**active/nightly 设计已接 driver，未取得真实批次 PASS 前不闭环**）：三 run 独立、两稿并存、Why 持久 replay/0 调用、采纳/放弃 0 Provider 与精确 receipt/唯一 CONFIRMED 事实、重启同 work/session 恢复、新请求真实 ACCEPTED/DISCARDED refs 与 judgment-only 权限；确定性 provider 不代签实模 |
+| `b71-authoring-pending.yml` | B71 CP4b 对话候选修订→作者采纳/放弃→恢复→新请求（**active/nightly；确定性 provider 原生批次 pending-08 已 77/77 PASS（2026-11-03），不代签实模**）：三 run 独立、两稿并存、Why 持久 replay/0 调用、采纳/放弃 0 Provider 与精确 receipt/唯一 CONFIRMED 事实、重启同 work/session 恢复、新请求真实 ACCEPTED/DISCARDED refs 与 judgment-only 权限；确定性 provider 不代签实模 |
 | `b71-authoring-planning.yml` | B71 CP4b 独立计划→重规划→角色与世界设定双候选的原生 durable 验收；校验请求前缀、原生结果、版本/预算、Why与零canon写入；确定性接线不代签实模 |
 | `b71-authoring-profiles.yml` | B71 CP4b 角色设计与前序判断共享 canonical transcript（真实 Tauri durable run；原生调用/应用校验/严格前缀/作者安全文案；确定性 provider 不代签实模） |
 | `vs00g-trigger-c.yml` | VS00G 触发 C（**active/nightly**：真实 R5 提议；未关闭与关闭后跨扫描去重；原生恢复；活跃 finding 重绑；第二作品显式盘点；零新卡片/状态表/验收 hook） |
