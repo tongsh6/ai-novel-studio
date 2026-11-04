@@ -22,6 +22,8 @@ import {
   outsideEvidencePreserved,
 } from "./lib/native_ui/authoring_revision_evidence.mjs";
 import { main } from "./native_b71_evidence.mjs";
+// Why 面板文案直接消费前端 SSOT，避免正例 fixture 与产品 copy 漂移（Node 24 原生剥离类型）。
+import { TRACE as COPY_TRACE } from "../frontend/src/lib/copy.ts";
 
 const WORK = "11111111-1111-4111-8111-111111111111";
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
@@ -355,8 +357,8 @@ function buildBatch(overrides = {}) {
   ].join("\n"));
   fs.writeFileSync(path.join(dir, "03-revision.text.txt"), "原稿\n保存原稿\n修订稿\n保存修订稿\n放弃修订稿");
   fs.writeFileSync(path.join(dir, "04-why.text.txt"), [
-    "已从持久 trace 生成结构化回放。",
-    "回放只读取已保存记录，不会重新调用模型。",
+    COPY_TRACE.replayComplete,
+    COPY_TRACE.replayNoProvider,
     "参考来源",
   ].join("\n"));
   fs.writeFileSync(path.join(dir, "seed.log"), `[seed] work_id=${WORK} session_id=${SESSION}\n`);
