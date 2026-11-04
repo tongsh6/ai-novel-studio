@@ -127,6 +127,7 @@
 - `authoring_live_evidence.test.mjs`：L1–L12 正反例；覆盖 giant user、user/user 伪纠错、非追加前缀、作者字节改写、canon/表写入/非 TENTATIVE 候选、缺 usage、Why 前后调用变化、tool_call 回放不放大与 replay_only 不伪造触发、not_signed 分层。
 - `authoring_behavior_evidence.test.mjs`：B70 oracle 映射正反例（合法/违规/unknown/缺证据不 PASS、同名章/讨论类/completion/progress、trap_controls 一致性与关键负例）。
 - `authoring_confirmation_evidence.test.mjs`：C1–C12 确认/拒绝正反例（受理/子执行/幂等/零副作用/approval/恢复/清理/不可触发/child 实时事件），以及纯 evaluator 不读 dir、显式 runtime 缺失/字符串计数不假过、`observeConfirmationRuntime` 的 ready/executable/lsof 无匹配与执行错误边界、duplicate/restart delta 空对象/缺 key/null/字符串/非零反例、confirmationCardLines、真实只读 SQLite facts reader、AX 两类 capture 与确认卡消息块定位正反例。
+- `authoring_confirmation_batch_evidence.test.mjs`：从公开 `verifyConfirmationBatch` 进入的合成完整批次 I/O/报告编排测试（不启动真实 App、不访问 SystemNotificationCenter）：临时目录真实文件 + 临时 SQLite + fixtures 的 wire/DB/canon/AX 可见 copy；正例实际生成 summary/native-b71-checks/native-ws-frames 并断言 C1–C12、required、verdict 与源/child/receipt 同源 id；缺 child 实时 WS（DB 完整）必须 fail 且报告只写 fail 结论；缺 llm-calls/user_message/provider start/checkpoint/DB 表/截图与错 journey 失败关闭；`ps`/`lsof` 边界用 node:test mock 明确模拟无目标进程/无监听，其它只读命令仍交回真实 exec。
 - `../quality/author_behavior_live_cases.test.mjs`：冻结 corpus 选择器正反例（原文输入/批准 pilot 组/persona 记录/拒绝现场造输入）。
 - `authoring_live_verifier.test.mjs`：合成 provider=strata 批次目录端到端通过并写 summary；strata 未核验卸载、journey/provider 不匹配、截图不足、缺 strata-slot 时失败关闭。
 - `live_run_wait.test.mjs` / `strata_lifecycle.test.mjs`：run 终局只认 owning turn/run 绑定与 DB 兜底、模型行为分类；strata 单槽加载/卸载判据与 error 语义。

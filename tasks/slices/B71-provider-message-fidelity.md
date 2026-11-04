@@ -1034,7 +1034,7 @@
 
 - **R1/R2 输出侧复核补充**：原始审计 `artifacts/b71-resume/native-output-fidelity-audit-20261104.md/json`，leader裁定 `leader-native-output-audit-review-20261104.json`。需连同 Result/IR 的有序块、停止原因、私有状态与真实工具流式一起设计，正文预览目前仅 Stub/test 伪分块可达。审计中“Anthropic input仍为字符串”被前置 parse_arguments 调用链证伪，不修不存在的问题；无非法UTF-8 producer证据不加防御；usage已有独立ProviderRun事实，不为了IR形式完整制造第二真源；Execution.result_fn有真实消费者，不当作历史兼容一刀切删除。
 
-- **验收重构的独立反例与修复**：leader 用完整 evaluator 复现 `duplicate.delta={}` / 缺 `llm_calls` 的 delta、`restore.restart_delta={}` 被判 C5/C10=true。源头是通用 field 把缺字段变 null 后再 Number(null)=0；已保存 `artifacts/b71-resume/confirmation-evidence-refactor-20261104/leader-incomplete-observations.json`。已去除缺测→0强制转换，完整 evaluator 独立复验中缺字段/null/空对象均为 C5/C10=false，只有四个实测数字0才通过（`confirmation-evidence-final-20261104/leader-incomplete-observations-after.json`）。有效七场景和两份历史真实批次计算结果保持；57项目标回归通过，C1相关7个mutation全部被杀，原isDefined伪等价已随多来源选择代码退役。未覆盖的批次I/O mutation仍如实列出，不以局部绿代签新原生批次。
+- **验收重构的独立反例与修复**：leader 用完整 evaluator 复现 `duplicate.delta={}` / 缺 `llm_calls` 的 delta、`restore.restart_delta={}` 被判 C5/C10=true。源头是通用 field 把缺字段变 null 后再 Number(null)=0；已保存 `artifacts/b71-resume/confirmation-evidence-refactor-20261104/leader-incomplete-observations.json`。已去除缺测→0强制转换，完整 evaluator 独立复验中缺字段/null/空对象均为 C5/C10=false，只有四个实测数字0才通过（`confirmation-evidence-final-20261104/leader-incomplete-observations-after.json`）。有效七场景和两份历史真实批次计算结果保持；57项目标回归通过，C1相关7个mutation全部被杀，原isDefined伪等价已随多来源选择代码退役。后续10项合成完整批次测试经公开verify入口真实读写临时SQLite与报告，9个原未覆盖I/O mutation全部覆盖（8 killed、1合法输入下等价）；不以合成批次代签真实页面。
 
 
 ### 2026-11-04 当前整合验证与原生启动受阻
@@ -1056,3 +1056,5 @@
 - 剩余6条 gitleaks：5条既有 false_positive（确认测试历史fixture、B65握手nonce、B63文档、E10 spec ID、Pencil fileToken）+1条既有 accepted_risk（ProjectGod历史线）；不重写历史、不关闭扫描器、不新增抑制。唯一 pending/blocking 是真实 UI evidence 未 verified，原因见原生02系统提示阻挡；未把本地绿或历史PASS冒充当前页面证明。
 - 原生输入前置恢复：先等作者处理系统提示；当前 `UserNotificationCenter` 内容不可由电脑控制工具访问，禁止换渠道绕过。收到状态后再检查本批真实启动资源，另开预注册新目录；旧01/02、原始错误、零调用与清理证据不回写。新驱动已即时保留原始失败，不再靠延长等待或重试遮盖。
 - 当前业务源码与验收重构可 review；B71保持doing。后续 R1/R2 的三条非IR现役操作 owner/source 清单由只读作业 `87dd58b8-0792-4c84-9f55-effb98cdc512` 汇总至 `artifacts/b71-resume/r1-operation-ownership-audit-20261104.md/json`，用于判断真实AgentRun与后台派生操作边界，不伪造run_id或作者原话。
+
+- **批次 I/O 最后补证**：`confirmation-batch-io-tests-20261104/` 的10项新测试由leader独立复验通过；57项纯判据与相关脚本合计153项通过。正例实际生成并回读summary/checks/ws frames；缺实时child启动、缺日志/截图/快照/DB表等反例不能写PASS。OS进程/端口边界明确mock，未启动GUI；当前系统提示阻挡仍未解决。源码全脚本1080/1080（补测前完整集合）及新增10项分别已验证，当前UI仍pending。
