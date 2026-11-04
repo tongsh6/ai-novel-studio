@@ -276,14 +276,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
   test "显式压缩写入 durable checkpoint 并保持恢复请求语义" do
     run_id = unique_run_id()
-    caps = Map.new(RequestIR.required_capabilities(), &{&1, true})
 
     transcript =
       AuthoringTranscript.new(
         transcript_identity(run_id),
         base_text: "仅生成待作者审阅的候选",
-        author_text: "先看角色阵容，再设计反派",
-        projection: %{target: "chat_completions", capability_profile: caps}
+        author_text: "先看角色阵容，再设计反派"
       )
       |> AuthoringTranscript.append_assistant("", [
         RequestIR.tool_call_block("read_character", %{}, "compact-call")
@@ -340,9 +338,11 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert {:ok, before_ir} = AuthoringTranscript.to_request_ir(in_memory)
     assert {:ok, after_ir} = AuthoringTranscript.to_request_ir(restored)
 
-    assert RequestIR.Projection.project(before_ir) == RequestIR.Projection.project(after_ir)
+    assert RequestIR.Projection.project(before_ir, "chat_completions") ==
+             RequestIR.Projection.project(after_ir, "chat_completions")
+
     assert inspect(restored.messages) =~ "compact-call"
-    assert {:ok, body} = RequestIR.Projection.project(after_ir)
+    assert {:ok, body} = RequestIR.Projection.project(after_ir, "chat_completions")
     refute Enum.any?(body.messages, &(&1.role == "tool"))
   end
 
@@ -1407,15 +1407,13 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   test "G8 durable checkpoint restores canonical transcript without provider replay" do
     parent = self()
     run_id = unique_run_id()
-    caps = Map.new(RequestIR.required_capabilities(), &{&1, true})
 
     transcript =
       AuthoringTranscript.new(
         transcript_identity(run_id),
         base_text: "稳定创作协议",
         author_text: "读取事实后停止探索",
-        tools: [],
-        projection: %{target: "chat_completions", capability_profile: caps}
+        tools: []
       )
       |> AuthoringTranscript.append_scope_update("探索开放", %{
         "scope_revision" => 1
@@ -1434,7 +1432,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       })
 
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
-    assert {:ok, original_body} = RequestIR.Projection.project(ir)
+    assert {:ok, original_body} = RequestIR.Projection.project(ir, "chat_completions")
 
     step = fn _run, sequence ->
       send(parent, {:g8_step, sequence})
@@ -1493,7 +1491,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert {:ok, restored_ir} =
              AuthoringTranscript.to_request_ir(recovered.authoring_transcript)
 
-    assert RequestIR.Projection.project(restored_ir) == {:ok, original_body}
+    assert RequestIR.Projection.project(restored_ir, "chat_completions") ==
+             {:ok, original_body}
 
     assert AuthoringTranscript.current_scope(recovered.authoring_transcript).text ==
              "探索预算关闭"
@@ -1508,7 +1507,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     marker = "B71_PRIVATE_CHECKPOINT_#{System.unique_integer([:positive, :monotonic])}"
     work_id = "work_private_checkpoint_#{run_id}"
     session_id = "session_private_checkpoint_#{run_id}"
-    caps = Map.new(RequestIR.required_capabilities(), &{&1, true})
 
     transcript =
       AuthoringTranscript.new(
@@ -1521,8 +1519,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         },
         base_text: "稳定创作协议",
         author_text: "读取事实后继续",
-        tools: [],
-        projection: %{target: "chat_completions", capability_profile: caps}
+        tools: []
       )
       |> AuthoringTranscript.append_provider_result(%{
         content: "作者可见正文",

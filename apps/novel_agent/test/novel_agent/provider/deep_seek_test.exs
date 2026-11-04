@@ -1,6 +1,22 @@
 defmodule NovelAgent.Provider.DeepSeekTest do
   use ExUnit.Case, async: false
 
+  alias NovelAgent.TestRequestIR
+
+  # adapter 只接受 canonical IR；测试用作者原话构造最小请求，文字保持原字节。
+  defp ir(%NovelAgent.Provider.RequestIR{} = ir), do: ir
+  defp ir(text) when is_binary(text), do: TestRequestIR.ir([TestRequestIR.author(text)])
+
+  defp ir(messages) when is_list(messages),
+    do: TestRequestIR.ir(Enum.map(messages, &canonical_message/1))
+
+  defp canonical_message(%{role: "system", content: content}), do: TestRequestIR.system(content)
+
+  defp canonical_message(%{role: "assistant", content: content}),
+    do: TestRequestIR.assistant(content)
+
+  defp canonical_message(%{role: "user", content: content}), do: TestRequestIR.author(content)
+
   alias NovelAgent.Provider.DeepSeek
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.OpenAI
@@ -50,7 +66,7 @@ defmodule NovelAgent.Provider.DeepSeekTest do
       thinking: :enabled
     }
 
-    assert {:ok, result} = DeepSeek.complete(state, nil, "读取角色", %InferenceParams{})
+    assert {:ok, result} = DeepSeek.complete(state, nil, ir("读取角色"), %InferenceParams{})
     assert_receive {:private_wire, _initial}
 
     private_state = %{
@@ -64,21 +80,18 @@ defmodule NovelAgent.Provider.DeepSeekTest do
     ir =
       RequestIR.new(%{
         run: %{run_id: "private-replay"},
-        system: %{identity_ref: "fixture"},
-        projection: %{
-          target: "chat_completions",
-          capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-        },
+        system: RequestIR.system_envelope(),
+        projection: %{},
         tools: [%{name: "read_character", input_schema: %{type: "object"}}],
         messages: [RequestIR.message(:user, :author, [RequestIR.text_block("读取角色")])]
       })
 
     {ir, _} = RequestIR.append_assistant_result(ir, result)
     ir = RequestIR.append_validation_result(ir, "private-call", "passed", "read_complete")
-    assert {:ok, prompt} = RequestIR.to_provider_prompt(ir)
+    assert {:ok, prepared} = RequestIR.prepare_request(ir)
 
     assert {:ok, execution} =
-             DeepSeek.execute(state, nil, prompt, %InferenceParams{}, provider_ctx())
+             DeepSeek.execute(state, nil, ir(prepared), %InferenceParams{}, provider_ctx())
 
     assert_receive {:private_wire, replay}
     assistant = Enum.find(replay.messages, &(&1.role == "assistant"))
@@ -97,13 +110,18 @@ defmodule NovelAgent.Provider.DeepSeekTest do
       log_fn: nil
     }
 
-    assert {:ok, _} = OpenAI.complete(other, nil, prompt, %InferenceParams{})
+    assert {:ok, _} = OpenAI.complete(other, nil, prepared, %InferenceParams{})
     assert_receive {:private_wire, other_wire}
     refute inspect(other_wire) =~ private_text
     refute inspect(other_wire) =~ "provider_state"
 
     assert {:ok, _} =
-             DeepSeek.complete(%{state | model: "another-model"}, nil, prompt, %InferenceParams{})
+             DeepSeek.complete(
+               %{state | model: "another-model"},
+               nil,
+               prepared,
+               %InferenceParams{}
+             )
 
     assert_receive {:private_wire, changed_model_wire}
     refute inspect(changed_model_wire) =~ private_text
@@ -154,7 +172,7 @@ defmodule NovelAgent.Provider.DeepSeekTest do
         thinking: :disabled
       }
 
-      assert {:ok, result} = DeepSeek.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:ok, result} = DeepSeek.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert result.content == "完成"
       assert result.usage.input_tokens == 11
       assert result.usage.output_tokens == 7
@@ -163,7 +181,8 @@ defmodule NovelAgent.Provider.DeepSeekTest do
       assert_receive {:request, url, body, opts}
       assert url == "https://api.deepseek.com/chat/completions"
       assert body.model == "deepseek-v4-flash"
-      assert body.messages == [%{role: "user", content: "prompt"}]
+      assert [%{role: "system"} | rest] = body.messages
+      assert rest == [%{role: "user", content: "prompt"}]
       assert body.stream == false
       assert body.thinking == %{type: "disabled"}
       assert {"authorization", "Bearer secret"} in Keyword.fetch!(opts, :headers)
@@ -193,7 +212,7 @@ defmodule NovelAgent.Provider.DeepSeekTest do
         reasoning_effort: "high"
       }
 
-      assert {:ok, _result} = DeepSeek.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:ok, _result} = DeepSeek.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert_receive {:request_body, body}
       assert body.thinking == %{type: "enabled"}
       assert body.reasoning_effort == "high"
@@ -235,15 +254,14 @@ defmodule NovelAgent.Provider.DeepSeekTest do
         reasoning_effort: "high"
       }
 
-      prompt = %{
-        messages: [%{role: "user", content: "起草计划"}],
-        tools: [
-          %{name: "agent_plan_draft", description: "draft", input_schema: %{type: "object"}}
-        ],
-        tool_choice: "agent_plan_draft"
-      }
+      prompt =
+        TestRequestIR.ir(
+          [TestRequestIR.author("起草计划")],
+          tools: [TestRequestIR.tool("agent_plan_draft", %{type: "object"})],
+          projection: %{tool_choice: "agent_plan_draft"}
+        )
 
-      assert {:ok, _result} = DeepSeek.complete(state, nil, prompt, %InferenceParams{})
+      assert {:ok, _result} = DeepSeek.complete(state, nil, ir(prompt), %InferenceParams{})
       assert_receive {:request_body, body}
 
       # thinking 模式不支持强制具名 tool_choice（HTTP 400），该请求必须整形为 disabled
@@ -267,7 +285,7 @@ defmodule NovelAgent.Provider.DeepSeekTest do
         log_fn: nil
       }
 
-      assert {:error, error} = DeepSeek.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:error, error} = DeepSeek.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert error.type == :auth
       refute_received :unexpected_http
     end
@@ -285,14 +303,16 @@ defmodule NovelAgent.Provider.DeepSeekTest do
         thinking: :disabled
       }
 
-      assert {:error, auth_error} = DeepSeek.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:error, auth_error} =
+               DeepSeek.complete(state, nil, ir("prompt"), %InferenceParams{})
+
       assert auth_error.type == :auth
 
       rate_limit_mock = fn _url, _body, _opts -> {:error, :http_error, 429, "Too Many"} end
       state = %{state | http_fn: rate_limit_mock}
 
       assert {:error, rate_limit_error} =
-               DeepSeek.complete(state, nil, "prompt", %InferenceParams{})
+               DeepSeek.complete(state, nil, ir("prompt"), %InferenceParams{})
 
       assert rate_limit_error.type == :rate_limit
       assert rate_limit_error.retryable == true
@@ -316,7 +336,7 @@ defmodule NovelAgent.Provider.DeepSeekTest do
         reasoning_effort: "0.7"
       }
 
-      assert {:error, error} = DeepSeek.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:error, error} = DeepSeek.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert error.type == :invalid_request
       assert error.retryable == false
     end
@@ -355,7 +375,7 @@ defmodule NovelAgent.Provider.DeepSeekTest do
       }
 
       assert {:ok, %{events: events, result: result}} =
-               DeepSeek.execute(state, nil, "prompt", %InferenceParams{}, provider_ctx())
+               DeepSeek.execute(state, nil, ir("prompt"), %InferenceParams{}, provider_ctx())
 
       assert result.content == "深思"
       assert result.usage.input_tokens == 8

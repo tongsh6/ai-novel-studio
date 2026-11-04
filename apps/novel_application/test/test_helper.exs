@@ -98,11 +98,28 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
 
   def prompt_text(prompt) when is_binary(prompt), do: prompt
 
-  def prompt_text(prompt) do
-    prompt
-    |> NovelAgent.Provider.normalize_messages()
-    |> Enum.map_join("\n", fn message -> "#{message.role}: #{message.content}" end)
+  def prompt_text(%NovelAgent.Provider.RequestIR{} = ir),
+    do: NovelAgent.TestProviderPrompt.text(ir)
+
+  def prompt_text(prompt) when is_list(prompt) or is_map(prompt),
+    do: NovelAgent.TestProviderPrompt.text(prompt)
+
+  def message_text(%{blocks: blocks}) when is_list(blocks) do
+    Enum.map_join(blocks, "", fn
+      %{type: "text", text: text} when is_binary(text) -> text
+      _block -> ""
+    end)
   end
+
+  def message_text(%{content: content}), do: text_of(content)
+  def message_text(%{"content" => content}), do: text_of(content)
+  def message_text(_message), do: ""
+
+  defp text_of(text) when is_binary(text), do: text
+  defp text_of(text) when is_list(text), do: Enum.map_join(text, "", &text_of/1)
+  defp text_of(text) when is_map(text), do: Jason.encode!(text)
+  defp text_of(nil), do: ""
+  defp text_of(text), do: to_string(text)
 
   def native_artifact_result(items, opts \\ []) when is_list(items) do
     %{

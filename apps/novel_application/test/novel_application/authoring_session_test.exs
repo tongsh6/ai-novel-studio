@@ -38,11 +38,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
     AuthoringTranscript.new(@run,
       base_text: "角色规则：只在授权边界内提出候选。",
       author_text: @author_text,
-      tools: [@tool],
-      projection: %{
-        target: "chat_completions",
-        capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-      }
+      tools: [@tool]
     )
   end
 
@@ -82,11 +78,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
       AuthoringTranscript.new(run,
         base_text: "角色规则：按作者要求修订候选。",
         author_text: @author_text,
-        tools: [@tool],
-        projection: %{
-          target: "chat_completions",
-          capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-        }
+        tools: [@tool]
       )
 
     snapshot = %{
@@ -742,8 +734,8 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
       assert restored.messages == ir.messages
 
       assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored)
-      assert {:ok, restored_body} = Projection.project(restored_ir)
-      assert {:ok, body} = Projection.project(ir)
+      assert {:ok, restored_body} = Projection.project(restored_ir, "chat_completions")
+      assert {:ok, body} = Projection.project(ir, "chat_completions")
       assert restored_body == body
     end
   end

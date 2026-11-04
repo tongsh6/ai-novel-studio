@@ -28,11 +28,8 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     previous =
       RequestIR.new(%{
         run: %{run_id: "real-run", work_id: "real-work"},
-        system: %{identity_ref: "identity:authoring/v1"},
-        projection: %{
-          target: "chat_completions",
-          capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-        },
+        system: RequestIR.system_envelope(),
+        projection: %{},
         messages: [
           RequestIR.message(:application_base, :application, [RequestIR.text_block("首阶段只承担计划起草。")]),
           RequestIR.message(:user, :author, [RequestIR.text_block(request.task.author_words)])
@@ -92,12 +89,11 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     assert {:ok, initial_ir} = ProseQualityEvaluator.request_ir(request())
     assert [%{name: "report_quality_findings"}] = initial_ir.tools
 
-    assert {:ok, initial_prompt} =
-             RequestIR.to_provider_prompt(initial_ir, tool_choice: "required")
-
     result_fn = fn prompt ->
-      assert Enum.take(prompt.messages, length(initial_prompt.messages)) ==
-               initial_prompt.messages
+      assert %RequestIR{} = prompt
+      assert prompt.messages == initial_ir.messages
+      assert [%{name: "report_quality_findings"}] = prompt.tools
+      assert NovelAgent.Provider.tool_choice(prompt) == "report_quality_findings"
 
       {:ok,
        %{
@@ -138,9 +134,21 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     assert {%QualityEvaluationResult{status: :error}, session} =
              ProseQualityEvaluator.evaluate_with_session(request(), execution)
 
-    assert {:ok, prompt} = RequestIR.to_provider_prompt(session.request_ir)
-    calls = for message <- prompt.messages, call <- Map.get(message, :tool_calls, []), do: call.id
-    results = for %{role: "tool", tool_call_id: id} <- prompt.messages, do: id
+    ir = session.request_ir
+    assert :ok = RequestIR.validate(ir)
+
+    calls =
+      for message <- ir.messages,
+          block <- message.blocks,
+          block.type == "tool_call",
+          do: block.call_id
+
+    results =
+      for message <- ir.messages,
+          block <- message.blocks,
+          block.type in ["observation", "validation_result"],
+          do: block.call_id
+
     assert length(calls) == 4
     assert calls == results
   end
@@ -238,21 +246,6 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
              status: :ok,
              provider_call_ref: "pcall-evaluator-dependency"
            } = ProseQualityEvaluator.evaluate(request(), provider_execution)
-  end
-
-  test "显式有限模式只解析纯文本 JSON 响应" do
-    complete = fn _prompt -> {:ok, %{content: Jason.encode!([valid_finding()])}} end
-
-    {:ok, ir} = ProseQualityEvaluator.request_ir(request())
-    ir = %{ir | projection: Map.put(ir.projection, :finite_mode, %{name: "legacy_json_content"})}
-
-    assert {%QualityEvaluationResult{status: :ok, findings: [_]}, session} =
-             ProseQualityEvaluator.evaluate_with_session(
-               %{request() | request_ir: ir},
-               %Execution{result_fn: complete}
-             )
-
-    assert session.request_ir.projection.finite_mode.name == "legacy_json_content"
   end
 
   test "缺失证据字段时以原生工具结果纠错" do

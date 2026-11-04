@@ -108,8 +108,8 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
     assert_receive {:agent_event, :tool_started, tool_started}, 500
     assert tool_started.summary =~ "世界设定能力"
     assert_receive {:provider_prompt, provider_prompt}, 500
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "当前 AgentStep"
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "伏笔"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "当前 AgentStep"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "伏笔"
     assert_receive {:agent_event, :tool_completed, tool_completed}, 500
     assert tool_completed.summary =~ "世界设定草稿已生成"
     assert_receive {:agent_event, :exploration_observed, tool_observation}, 500
@@ -226,8 +226,11 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
 
     artifact_event = receive_agent_event(:artifact_created)
     assert_receive {:provider_prompt, provider_prompt}, 500
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "artifact_type：style_rule_seed"
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "写作规则"
+
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~
+             "artifact_type：style_rule_seed"
+
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "写作规则"
     receive_agent_event(:run_completed)
 
     assert {:ok, state} = AgentRunService.state(run_id)

@@ -19,8 +19,9 @@ defmodule NovelApplication.AutoMaintenanceTest do
   alias NovelPersistence.Schemas.{ProviderOutputRecord, ProviderRunRecord}
 
   @provider "stub"
-  # 默认 stub 窗口 16k；12k tokens ≈ 75%，越过维护线（0.70）。
-  @due_tokens 12_000
+  # 测试替身不是供应商事实，不在窗口表内；未知 provider 用保守窗口 32k 兜底。
+  # 24k tokens = 75%，越过维护线（0.70）。
+  @due_tokens 24_000
   @low_tokens 5_000
 
   setup do

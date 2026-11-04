@@ -37,12 +37,12 @@ defmodule NovelDomain.AssemblyPolicy do
     large: %{excerpt_budget_chars: 200_000, summary_window: 15, facts_group_limit: 20}
   }
 
-  # provider → 档位。地板档：本地小窗口与确定性替身；大窗口档：云端大模型。
+  # provider → 档位。地板档：本地小窗口；大窗口档：云端大模型。
+  # 测试替身（MIX_ENV=test 的 stub/slice_verify）不是供应商事实，不进入领域规则：
+  # 未知 provider 走地板档默认值，与本地小窗口行为一致。
   @provider_tier %{
     lmstudio: :floor,
     strata: :floor,
-    stub: :floor,
-    slice_verify: :floor,
     deepseek: :large,
     anthropic: :large
   }

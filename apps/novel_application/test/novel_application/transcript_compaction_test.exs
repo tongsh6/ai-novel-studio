@@ -15,8 +15,6 @@ defmodule NovelApplication.TranscriptCompactionTest do
   @author_text "先读取沈砚的当前叙事身份，再给出把主角改为顾青的 tentative 候选。"
   @internal_marker ~r/\b(?:RequestIR|request_ir|provider_session|reasoning_content|call_id|tool_call)\b|\b(?:call_|run_|turn_|ctx_|trace_|pc_)[a-z0-9_-]+|\b(?:chapter|work|character):[a-z0-9_-]+/i
 
-  defp full_caps, do: Map.new(RequestIR.required_capabilities(), &{&1, true})
-
   defp run do
     %{
       run_id: "run-compaction-1",
@@ -32,8 +30,7 @@ defmodule NovelApplication.TranscriptCompactionTest do
     AuthoringTranscript.new(run(),
       base_text: "run goal: 读取角色事实后给出 tentative 候选",
       author_text: @author_text,
-      tools: [%{name: "read_character", description: "读取角色", input_schema: %{type: "object"}}],
-      projection: %{target: "chat_completions", capability_profile: full_caps()}
+      tools: [%{name: "read_character", description: "读取角色", input_schema: %{type: "object"}}]
     )
   end
 
@@ -104,7 +101,7 @@ defmodule NovelApplication.TranscriptCompactionTest do
     assert :ok = Compaction.validate(compacted.messages)
 
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(compacted)
-    assert {:ok, body} = Projection.project(ir)
+    assert {:ok, body} = Projection.project(ir, "chat_completions")
 
     # checkpoint 是唯一压缩表达：模型可见覆盖范围，但被覆盖的工具往返不再出现。
     refute Enum.any?(body.messages, &(&1.role == "tool"))

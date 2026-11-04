@@ -10,7 +10,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   B26：单次 auto 调用同时返回作者可见说明与计划；坏结构有界纠正一次。
   """
 
-  alias NovelAgent.Provider.{Execution, NativeToolExchange, RequestIR}
+  alias NovelAgent.Provider.{Execution, NativeToolExchange}
   alias NovelApplication.{AgentNarrativeSource, AuthoringOperation}
   alias NovelApplication.ProviderActivityProjector
   alias NovelDomain.{AgentObservation, AgentPlan, AgentRun}
@@ -733,33 +733,6 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
          "## 最近观察\n#{observation_lines(snapshot)}"
        ])
     |> Enum.join("\n\n")
-  end
-
-  @doc "与生产同源的原生计划起草投影。"
-  def draft_prompt(%AgentRun{} = run, snapshot, chapter_titles) do
-    operation_prompt(
-      run,
-      snapshot,
-      operation_spec(run, snapshot, chapter_titles, :draft, nil, [])
-    )
-  end
-
-  @doc "与生产同源的原生计划修订投影。"
-  def revision_prompt(%AgentRun{} = run, snapshot, chapter_titles, revision_reason) do
-    operation_prompt(
-      run,
-      snapshot,
-      operation_spec(run, snapshot, chapter_titles, :revision, revision_reason, [])
-    )
-  end
-
-  defp operation_prompt(run, snapshot, spec) do
-    {:ok, ir} = AuthoringOperation.prepare(run, snapshot, spec)
-
-    {:ok, prompt} =
-      RequestIR.to_provider_prompt(ir, tool_names: [spec.tool.name], tool_choice: "auto")
-
-    prompt
   end
 
   defp operation_spec(run, snapshot, chapters, kind, revision_reason, opts) do

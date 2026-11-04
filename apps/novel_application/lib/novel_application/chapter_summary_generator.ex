@@ -14,6 +14,7 @@ defmodule NovelApplication.ChapterSummaryGenerator do
   """
 
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.RequestIR
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.LogContext
@@ -38,23 +39,34 @@ defmodule NovelApplication.ChapterSummaryGenerator do
 
       true ->
         task = Map.fetch!(input, :task)
-        prompt = build_prompt(task, prose)
+        request = summary_request(task, prose)
 
         LogContext.with_step("chapter_summary", fn ->
-          prompt
+          request
           |> complete(provider_execution)
           |> handle_completion()
         end)
     end
   end
 
-  # 生产走统一 provider execution（purpose :narration）；测试可注入 execution 捕获
-  # 真实构造的 prompt（不改变生产路径）。
-  defp complete(prompt, nil), do: Execution.complete(prompt, purpose: :narration)
+  # 独立文本操作没有 AgentRun：以真实操作 profile 与任务来源构造 canonical IR，
+  # 材料作为 application_base 进入统一投影，不伪造 run/session 或作者消息。
+  defp summary_request(%AuthoringTask{} = task, prose) do
+    RequestIR.text_operation(%{
+      profile_ref: "chapter_summary",
+      text: build_prompt(task, prose),
+      source_refs: task.source_refs,
+      system: [run_role: "chapter_summary"]
+    })
+  end
 
-  defp complete(prompt, provider_execution) do
+  # 生产走统一 provider execution（purpose :narration）；测试可注入 execution 捕获
+  # 真实构造的 canonical 请求（不改变生产路径）。
+  defp complete(request, nil), do: Execution.complete(request, purpose: :narration)
+
+  defp complete(request, provider_execution) do
     case Execution.result_fn(provider_execution) do
-      result_fn when is_function(result_fn, 1) -> result_fn.(prompt)
+      result_fn when is_function(result_fn, 1) -> result_fn.(request)
       _ -> {:error, :provider_execution_missing}
     end
   end

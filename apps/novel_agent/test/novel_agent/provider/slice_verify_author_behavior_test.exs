@@ -3,6 +3,7 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
 
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Test.Provider.SliceVerify
+  alias NovelAgent.TestRequestIR
 
   setup do
     previous = System.get_env("AUTHOR_BEHAVIOR_CORPUS_JSON")
@@ -40,7 +41,12 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
       })
     )
 
-    prompt = [%{role: "user", content: "创作判断器\n## 作者输入\n#{expression}"}]
+    prompt =
+      TestRequestIR.ir([
+        TestRequestIR.base("创作判断器"),
+        TestRequestIR.author(expression)
+      ])
+
     assert System.get_env("AUTHOR_BEHAVIOR_CORPUS_JSON") == corpus
     assert %{"fixtures" => [%{"action" => "execute"}]} = corpus |> File.read!() |> Jason.decode!()
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
@@ -102,10 +108,11 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
       })
     )
 
-    prompt = [
-      %{role: "system", content: "创作判断器\n## 历史消息\n#{prose_expression}"},
-      %{role: "user", content: "## 作者输入\n#{world_expression}"}
-    ]
+    prompt =
+      TestRequestIR.ir([
+        TestRequestIR.base("创作判断器\n## 历史消息\n#{prose_expression}"),
+        TestRequestIR.author(world_expression)
+      ])
 
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
     assert [%{name: "judgment_decision"} = call] = result.tool_calls
@@ -132,14 +139,13 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
       })
     )
 
-    prompt = [
-      %{
-        role: "system",
-        content:
+    prompt =
+      TestRequestIR.ir([
+        TestRequestIR.base(
           "创作判断器\n## 待采纳候选\n- ref=as_original | type=world_setting | status=TENTATIVE | title=沈砚旧书铺设定 | operations=revise_pending_artifact | body_preview=沈砚经营旧书铺。"
-      },
-      %{role: "user", content: "## 作者输入\n#{expression}"}
-    ]
+        ),
+        TestRequestIR.author(expression)
+      ])
 
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
     assert [%{name: "judgment_decision"} = call] = result.tool_calls
@@ -168,7 +174,12 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
       })
     )
 
-    prompt = [%{role: "user", content: "创作判断器\n## 作者输入\n#{expression}"}]
+    prompt =
+      TestRequestIR.ir([
+        TestRequestIR.base("创作判断器"),
+        TestRequestIR.author(expression)
+      ])
+
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
     assert result.content == "当前已写 99 章。"
     assert result.tool_calls == []

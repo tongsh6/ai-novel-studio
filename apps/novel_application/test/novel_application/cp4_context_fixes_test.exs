@@ -583,10 +583,10 @@ defmodule NovelApplication.CP4ContextFixesTest do
   defp prompt_to_text(prompt) when is_binary(prompt), do: prompt
 
   defp prompt_to_text(%{messages: _messages} = prompt),
-    do: NovelAgent.Provider.prompt_text(prompt)
+    do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 
   defp prompt_to_text(%{"messages" => _messages} = prompt),
-    do: NovelAgent.Provider.prompt_text(prompt)
+    do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 
   defp prompt_to_text(other), do: inspect(other)
 

@@ -70,8 +70,8 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     assert_receive {:agent_event, :exploration_observed, roster_event}
     assert roster_event.summary =~ "林烬"
     assert_receive {:provider_prompt, provider_prompt}, 500
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "已完成观察"
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "林烬"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "已完成观察"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "林烬"
     assert_receive {:agent_event, :artifact_created, artifact_event}, 500
     assert_receive {:agent_event, :run_completed, _}, 500
 
@@ -255,9 +255,9 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     assert {:ok, _} = AgentRunService.steer(run_id, "改成政治操盘者，不做武力型反派")
     assert_receive {:agent_event, :plan_adjusted, _}
     assert_receive {:provider_prompt, provider_prompt}, 500
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "改成政治操盘者"
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "已完成观察"
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "林烬"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "改成政治操盘者"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "已完成观察"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "林烬"
   end
 
   defp characters do

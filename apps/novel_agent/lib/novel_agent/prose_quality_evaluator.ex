@@ -191,37 +191,20 @@ defmodule NovelAgent.ProseQualityEvaluator do
   defp exchange_error(code, reason),
     do: QualityEvaluationResult.error(%{code: code, message: inspect(reason)})
 
-  defp parse_native_result(result) do
-    call =
-      result
-      |> Map.get(:tool_calls, Map.get(result, "tool_calls", []))
-      |> List.wrap()
-      |> Enum.find(fn call -> map_get(call, :name) == "report_quality_findings" end)
+  # 单工具交换由 NativeToolExchange 的允许响应门保证（恰好一个具名 tool call）；
+  # 这里不再保留「无 tool call → 解析纯文本 JSON」的退役 fallback。
+  defp parse_native_result(%{tool_calls: [call]} = result) do
+    arguments = map_get(call, :arguments) || %{}
 
-    if call do
-      arguments = map_get(call, :arguments) || %{}
+    case parse_findings(Jason.encode!(%{findings: map_get(arguments, :findings)})) do
+      {:ok, findings} ->
+        QualityEvaluationResult.ok(findings, provider_call_ref(result))
 
-      case parse_findings(Jason.encode!(%{findings: map_get(arguments, :findings)})) do
-        {:ok, findings} ->
-          QualityEvaluationResult.ok(findings, provider_call_ref(result))
-
-        :error ->
-          QualityEvaluationResult.error(%{
-            code: "evaluator_invalid_json",
-            message: "invalid findings"
-          })
-      end
-    else
-      case parse_findings(map_get(result, :content) || "") do
-        {:ok, findings} ->
-          QualityEvaluationResult.ok(findings, provider_call_ref(result))
-
-        :error ->
-          QualityEvaluationResult.error(%{
-            code: "native_tool_call_required",
-            message: "expected report_quality_findings tool call"
-          })
-      end
+      :error ->
+        QualityEvaluationResult.error(%{
+          code: "evaluator_invalid_json",
+          message: "invalid findings"
+        })
     end
   end
 

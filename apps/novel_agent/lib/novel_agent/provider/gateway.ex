@@ -26,6 +26,7 @@ defmodule NovelAgent.Provider.Gateway do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.CapabilityProfile
   alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.RuntimeConfig
   alias NovelAgent.Provider.SystemIdentity
@@ -37,7 +38,6 @@ defmodule NovelAgent.Provider.Gateway do
   alias NovelFoundation.UpstreamError
 
   @provider_modules %{
-    stub: Provider.Stub,
     lmstudio: Provider.LMStudio,
     strata: Provider.Strata,
     anthropic: Provider.Anthropic,
@@ -52,15 +52,6 @@ defmodule NovelAgent.Provider.Gateway do
   }
 
   @provider_descriptors %{
-    stub: %{
-      label: "Stub",
-      requires_api_key: false,
-      supports_api_key: false,
-      supports_endpoint: false,
-      supports_thinking: false,
-      supports_streaming: true,
-      supports_cancellation: true
-    },
     lmstudio: %{
       label: "LM Studio",
       requires_api_key: false,
@@ -207,8 +198,8 @@ defmodule NovelAgent.Provider.Gateway do
   # 曾经真实跑到 36000+ token 未停）。
   @spec execute(Provider.prompt(), String.t() | nil, InferenceParams.t(), keyword()) ::
           execution_result()
-  def execute(prompt, model \\ nil, params \\ InferenceParams.new(), opts \\ []) do
-    {prompt, system_identity_ref} = SystemIdentity.inject(prompt)
+  def execute(%RequestIR{} = ir, model \\ nil, params \\ InferenceParams.new(), opts \\ []) do
+    system_identity_ref = SystemIdentity.identity_ref()
 
     provider_name = Keyword.get(opts, :provider, default_provider())
 
@@ -233,7 +224,7 @@ defmodule NovelAgent.Provider.Gateway do
         })
 
         execution =
-          execute_provider(route, prompt, params, %{
+          execute_provider(route, ir, params, %{
             provider_name: provider_name,
             model_name: model_name,
             provider_call_ref: provider_call_ref,
@@ -260,7 +251,7 @@ defmodule NovelAgent.Provider.Gateway do
   返回 `{:ok, %Result{content: content, usage: usage}}`。
   LLM 不可用时返回 `{:error, error}`——不切换到替代执行路径，让上层告知用户。
   """
-  @spec complete(String.t(), String.t() | nil, InferenceParams.t()) :: result()
+  @spec complete(Provider.prompt(), String.t() | nil, InferenceParams.t()) :: result()
   def complete(prompt, model \\ nil, params \\ InferenceParams.new()) do
     case execute(prompt, model, params) do
       {:ok, %{result: %Result{} = result}} ->
@@ -412,7 +403,7 @@ defmodule NovelAgent.Provider.Gateway do
   与轻量的 `health_check/0`（顶栏被动轮询用，仅查本地配置）不同，这里是用户
   主动点击"测试连接"触发的真实网络请求：验证端点可达 + API key 有效 + 网络通。
   走 `list_models`（GET /models），不消耗生成 token。无 `list_models` 的 provider
-  （如 stub）回退到本地 `health_check`。
+  回退到本地 `health_check`。
   """
   @spec test_provider(provider_config()) ::
           {:ok, %{provider: atom(), model: String.t() | nil}} | {:error, map()}
@@ -535,11 +526,11 @@ defmodule NovelAgent.Provider.Gateway do
   defp route_model_name({:ok, route}), do: route.model_name
   defp route_model_name({:error, _error}), do: "unconfigured"
 
-  defp execute_provider({:ok, route}, prompt, params, ctx) do
-    case CapabilityProfile.enforce_route(route, ctx, prompt) do
+  defp execute_provider({:ok, route}, %RequestIR{} = ir, params, ctx) do
+    case ir_capability_gate(route, ir) do
       :ok ->
         ctx = Map.put(ctx, :timeout_policy, route.timeout_policy)
-        execute_adapter(route.module, route.state, route.model_name, prompt, params, ctx)
+        execute_adapter(route.module, route.state, route.model_name, ir, params, ctx)
 
       {:error, error} ->
         AdapterExecution.materialize_result({:error, error}, ctx)
@@ -550,6 +541,23 @@ defmodule NovelAgent.Provider.Gateway do
     error
     |> UpstreamError.to_error_tuple()
     |> AdapterExecution.materialize_result(ctx)
+  end
+
+  # 能力只按本次实际 route 的 module/state 派生一次；请求自带的 capability_profile
+  # 不参与判定。finite_mode 只对实际缺失项生效，不能伪装完整 AgentRun。
+  defp ir_capability_gate(route, %RequestIR{} = ir) do
+    missing =
+      route.module
+      |> CapabilityProfile.from_adapter(route.state)
+      |> CapabilityProfile.missing()
+
+    finite_mode = Map.get(ir.projection, :finite_mode)
+
+    if missing == [] or CapabilityProfile.finite_mode_covers?(finite_mode, missing) do
+      :ok
+    else
+      {:error, CapabilityProfile.rejection(route.module, missing)}
+    end
   end
 
   defp execute_adapter(module, state, model, prompt, params, ctx) do
@@ -668,7 +676,7 @@ defmodule NovelAgent.Provider.Gateway do
 
       _ ->
         Application.get_env(:novel_agent, :provider, [])
-        |> Keyword.get(:default, :stub)
+        |> Keyword.get(:default, :lmstudio)
     end
   end
 

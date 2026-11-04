@@ -82,8 +82,9 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
   end
 
   defp prompt_content(protocol_input) do
-    %{messages: [%{content: content}]} = JudgmentProtocol.prompt(protocol_input)
-    content
+    protocol_input
+    |> JudgmentProtocol.request_for_production()
+    |> NovelApplication.TestAgenticLoopFixtures.prompt_text()
   end
 
   test "P0 去重：判断 prompt 中「消息处置与已有产物」恰好 1 次（默认 profile）" do
@@ -154,9 +155,9 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
 
     production_chars =
       write_protocol
-      |> JudgmentProtocol.prompt_for_production()
+      |> JudgmentProtocol.request_for_production()
       |> Map.fetch!(:messages)
-      |> Enum.map_join("", & &1.content)
+      |> Enum.map_join("", &NovelApplication.TestAgenticLoopFixtures.message_text/1)
       |> String.length()
 
     IO.puts("B33 CP1 prompt chars: default=#{default_chars} write_cropped=#{write_chars}")

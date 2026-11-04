@@ -411,7 +411,10 @@ defmodule NovelApplication.ToolProvenanceTest do
         })
 
       tool_prompt =
-        prompts |> Agent.get(&Enum.reverse/1) |> List.first() |> NovelAgent.Provider.prompt_text()
+        prompts
+        |> Agent.get(&Enum.reverse/1)
+        |> List.first()
+        |> NovelApplication.TestAgenticLoopFixtures.prompt_text()
 
       assert tool_prompt =~ "本章已采纳正文"
       assert tool_prompt =~ @prior
@@ -478,7 +481,10 @@ defmodule NovelApplication.ToolProvenanceTest do
         provider_execution: %Execution{result_fn: result_fn}
       })
 
-      prompts |> Agent.get(&Enum.reverse/1) |> List.first() |> NovelAgent.Provider.prompt_text()
+      prompts
+      |> Agent.get(&Enum.reverse/1)
+      |> List.first()
+      |> NovelApplication.TestAgenticLoopFixtures.prompt_text()
     end
 
     defp first_tool_prompt(intent, chapter, author_text, reader) do
@@ -508,7 +514,10 @@ defmodule NovelApplication.ToolProvenanceTest do
         chapter_prose_reader: reader
       })
 
-      prompts |> Agent.get(&Enum.reverse/1) |> List.first() |> NovelAgent.Provider.prompt_text()
+      prompts
+      |> Agent.get(&Enum.reverse/1)
+      |> List.first()
+      |> NovelApplication.TestAgenticLoopFixtures.prompt_text()
     end
 
     defp continuity_frame do

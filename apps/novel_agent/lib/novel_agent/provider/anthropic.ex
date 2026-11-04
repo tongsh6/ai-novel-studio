@@ -21,7 +21,8 @@ defmodule NovelAgent.Provider.Anthropic do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.AnthropicStream
   alias NovelAgent.Provider.HTTP
-  alias NovelAgent.Provider.RequestIR.Projection.AnthropicMessages
+  alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.RequestIR.Projection
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Usage
   alias NovelFoundation.UpstreamError
@@ -55,30 +56,17 @@ defmodule NovelAgent.Provider.Anthropic do
     )
   end
 
-  defp do_complete(%__MODULE__{} = state, prompt, params, http_opts)
-       when is_binary(prompt) or is_list(prompt) or is_map(prompt) do
-    case prepare_native_prompt(prompt) do
-      {:ok, prepared} -> complete_validated(state, prepared, params, http_opts)
+  defp do_complete(%__MODULE__{} = state, %RequestIR{} = ir, params, http_opts) do
+    case request_body(state, ir, params, false) do
+      {:ok, body} -> complete_body(state, body, http_opts)
       {:error, _reason} -> projection_error()
     end
   end
 
-  defp complete_validated(state, prompt, params, http_opts) do
+  defp complete_body(state, body, http_opts) do
     start_time = System.monotonic_time(:millisecond)
-    {system_prompt, messages} = anthropic_messages(prompt)
-    body = %{model: state.model, max_tokens: 4096, messages: messages}
-
-    body =
-      if system_prompt, do: Map.put(body, :system, anthropic_system(system_prompt)), else: body
-
-    body =
-      body
-      |> HTTP.apply_params(params)
-      |> put_tools(prompt)
-
     url = Path.join(@api_base, "messages")
     headers = [{"x-api-key", state.api_key}, {"anthropic-version", @api_version}]
-
     post = state.http_fn || (&HTTP.post/3)
 
     result =
@@ -98,13 +86,9 @@ defmodule NovelAgent.Provider.Anthropic do
   end
 
   @impl true
-  def execute(%__MODULE__{api_key: key} = state, _model, prompt, params, ctx)
-      when is_binary(key) and key != "" and
-             (is_binary(prompt) or is_list(prompt) or is_map(prompt)) do
-    case prepare_native_prompt(prompt) do
-      {:ok, prepared} -> execute_validated(state, key, prepared, params, ctx)
-      {:error, _reason} -> AdapterExecution.materialize_result(projection_error(), ctx)
-    end
+  def execute(%__MODULE__{api_key: key} = state, _model, %RequestIR{} = ir, params, ctx)
+      when is_binary(key) and key != "" do
+    execute_validated(state, key, ir, params, ctx)
   end
 
   def execute(%__MODULE__{}, _model, _prompt, _params, ctx) do
@@ -120,22 +104,21 @@ defmodule NovelAgent.Provider.Anthropic do
     if NovelAgent.Provider.tool_call_prompt?(prompt) do
       execute_tool_call(state, prompt, params, ctx)
     else
-      {system_prompt, messages} = anthropic_messages(prompt)
-      body = %{model: state.model, max_tokens: 4096, messages: messages, stream: true}
+      case request_body(state, prompt, params, true) do
+        {:ok, body} ->
+          url = Path.join(@api_base, "messages")
 
-      body =
-        if system_prompt, do: Map.put(body, :system, anthropic_system(system_prompt)), else: body
+          request_opts = [
+            headers: [{"x-api-key", key}, {"anthropic-version", @api_version}],
+            receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
+            connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
+          ]
 
-      body = body |> HTTP.apply_params(params) |> put_tools(prompt)
-      url = Path.join(@api_base, "messages")
+          AnthropicStream.execute(state, url, body, request_opts, ctx)
 
-      request_opts = [
-        headers: [{"x-api-key", key}, {"anthropic-version", @api_version}],
-        receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
-        connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
-      ]
-
-      AnthropicStream.execute(state, url, body, request_opts, ctx)
+        {:error, _reason} ->
+          AdapterExecution.materialize_result(projection_error(), ctx)
+      end
     end
   end
 
@@ -145,199 +128,44 @@ defmodule NovelAgent.Provider.Anthropic do
     |> UpstreamError.to_error_tuple()
   end
 
-  defp prepare_native_prompt(%{ir_version: _} = prompt) do
-    with {:ok, messages} <-
-           prompt
-           |> NovelAgent.Provider.normalize_messages()
-           |> map_validated(&prepare_native_message/1) do
-      {:ok, %{prompt | messages: messages}}
-    end
-  end
+  defp request_body(state, %RequestIR{} = ir, params, stream?) do
+    with {:ok, projected} <- Projection.project(ir, "anthropic_messages") do
+      # AnthropicMessages 恒返回非空顶层 system（身份前缀 + canonical system），
+      # 不再做「可能缺失」的兜底判断。
+      body = %{
+        model: state.model,
+        max_tokens: 4096,
+        messages: projected.messages,
+        system: cacheable_system(projected.system)
+      }
 
-  defp prepare_native_prompt(prompt), do: {:ok, prompt}
-
-  defp prepare_native_message(%{role: "assistant", tool_calls: calls} = message) do
-    with {:ok, calls} <- map_validated(calls, &prepare_native_call/1),
-         do: {:ok, %{message | tool_calls: calls}}
-  end
-
-  defp prepare_native_message(message), do: {:ok, message}
-
-  defp prepare_native_call(call) do
-    arguments = get_in(call, [:function, :arguments]) || get_in(call, ["function", "arguments"])
-    id = anthropic_tool_call_id(call)
-
-    with {:ok, input} <- AnthropicMessages.parse_arguments(arguments, id) do
-      {:ok,
-       %{
-         id: id,
-         type: "function",
-         function: %{name: anthropic_tool_call_name(call), arguments: input}
-       }}
-    end
-  end
-
-  defp map_validated(items, fun) do
-    items
-    |> Enum.reduce_while({:ok, []}, fn item, {:ok, acc} ->
-      case fun.(item) do
-        {:ok, value} -> {:cont, {:ok, [value | acc]}}
-        error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      error -> error
-    end
-  end
-
-  # Anthropic 原生支持 {type: none}：禁用调用时仍保留工具定义。
-  # https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
-  # 映射仅在本通道内；不能把 OpenAI 的字符串 none 直接发送到 Messages API。
-  defp put_tools(body, prompt) do
-    case NovelAgent.Provider.tool_specs(prompt) do
-      [] ->
+      body =
         body
+        |> Map.merge(Map.take(projected, [:tools, :tool_choice]))
+        |> maybe_stream(stream?)
+        |> HTTP.apply_params(params)
 
-      tools ->
-        body = Map.put(body, :tools, tools)
-
-        case NovelAgent.Provider.tool_choice(prompt) do
-          nil -> body
-          "none" -> Map.put(body, :tool_choice, %{type: "none"})
-          "auto" -> Map.put(body, :tool_choice, %{type: "auto"})
-          "required" -> Map.put(body, :tool_choice, %{type: "any"})
-          name -> Map.put(body, :tool_choice, %{type: "tool", name: name})
-        end
+      {:ok, body}
     end
   end
+
+  defp maybe_stream(body, true), do: Map.put(body, :stream, true)
+  defp maybe_stream(body, false), do: Map.delete(body, :stream)
 
   # CP3：Anthropic 需要显式 cache_control 才启用 prompt cache；最小可缓存长度
   # 以 token 计（通常 ≥1024），这里保守用 4096 字符近似，避免给过短 system
   # 块打标；达不到阈值时保持字符串，不伪造缓存标记。
   @cacheable_system_min_chars 4096
 
-  defp anthropic_system(system_prompt) when is_binary(system_prompt) do
-    if String.length(system_prompt) >= @cacheable_system_min_chars do
-      [%{type: "text", text: system_prompt, cache_control: %{type: "ephemeral"}}]
+  defp cacheable_system([%{type: "text", text: text} = block]) when is_binary(text) do
+    if String.length(text) >= @cacheable_system_min_chars do
+      [Map.put(block, :cache_control, %{type: "ephemeral"})]
     else
-      system_prompt
+      [block]
     end
   end
 
-  # B71 CP2（VS-00L §6.2）：IR v1 桥（`%{ir_version: ...}` structured prompt）投影为
-  # Anthropic Messages content blocks——assistant tool_calls → tool_use，
-  # observation/validation → tool_result（tool_use_id 关联），相邻同 role 合并满足
-  # Messages API 的交替约束；legacy prompt 仍走下方原路径。
-  defp anthropic_messages(%{ir_version: _} = prompt) do
-    messages = NovelAgent.Provider.normalize_messages(prompt)
-
-    {system_messages, chat_messages} =
-      Enum.split_with(messages, fn message -> message.role == "system" end)
-
-    system_prompt =
-      case Enum.map(system_messages, & &1.content) do
-        [] -> nil
-        parts -> Enum.join(parts, "\n\n")
-      end
-
-    blocks =
-      chat_messages
-      |> Enum.map(&ir_to_anthropic_message/1)
-      |> Enum.reject(&is_nil/1)
-      |> merge_adjacent_roles()
-
-    {system_prompt, blocks}
-  end
-
-  defp anthropic_messages(prompt) do
-    messages = NovelAgent.Provider.normalize_messages(prompt)
-
-    {system_messages, chat_messages} =
-      Enum.split_with(messages, fn message -> message.role == "system" end)
-
-    system_prompt =
-      case Enum.map(system_messages, & &1.content) do
-        [] -> nil
-        parts -> Enum.join(parts, "\n\n")
-      end
-
-    fallback_messages =
-      case chat_messages do
-        [] -> [%{role: "user", content: system_prompt || ""}]
-        messages -> messages
-      end
-
-    {system_prompt, fallback_messages}
-  end
-
-  defp ir_to_anthropic_message(%{role: "assistant"} = message) do
-    text_blocks =
-      case message.content do
-        content when is_binary(content) and content != "" -> [%{type: "text", text: content}]
-        _ -> []
-      end
-
-    tool_blocks =
-      message
-      |> Map.get(:tool_calls, [])
-      |> Enum.map(fn call ->
-        %{
-          type: "tool_use",
-          id: anthropic_tool_call_id(call),
-          name: anthropic_tool_call_name(call),
-          input: anthropic_tool_arguments(call)
-        }
-      end)
-
-    case text_blocks ++ tool_blocks do
-      [] -> nil
-      blocks -> %{role: "assistant", content: blocks}
-    end
-  end
-
-  defp ir_to_anthropic_message(%{role: "tool"} = message) do
-    case Map.get(message, :tool_call_id) do
-      nil ->
-        %{role: "user", content: [%{type: "text", text: to_string(message.content)}]}
-
-      call_id ->
-        %{
-          role: "user",
-          content: [
-            %{type: "tool_result", tool_use_id: call_id, content: to_string(message.content)}
-          ]
-        }
-    end
-  end
-
-  defp ir_to_anthropic_message(%{role: role} = message) do
-    %{role: role, content: [%{type: "text", text: to_string(message.content)}]}
-  end
-
-  defp anthropic_tool_call_id(call), do: Map.get(call, :id) || Map.get(call, "id")
-
-  defp anthropic_tool_call_name(call) do
-    get_in(call, [:function, :name]) || get_in(call, ["function", "name"]) || Map.get(call, :name)
-  end
-
-  defp anthropic_tool_arguments(call) do
-    get_in(call, [:function, :arguments])
-  end
-
-  # Anthropic Messages API 要求 user/assistant 交替；相邻同 role 合并 content blocks，
-  # 不改变任何 block 的顺序或字节。
-  defp merge_adjacent_roles(messages) do
-    Enum.reduce(messages, [], fn %{role: role, content: content}, acc ->
-      case List.last(acc) do
-        %{role: ^role, content: previous} ->
-          List.replace_at(acc, -1, %{role: role, content: previous ++ content})
-
-        _ ->
-          acc ++ [%{role: role, content: content}]
-      end
-    end)
-  end
+  defp cacheable_system(system), do: system
 
   defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
   defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}

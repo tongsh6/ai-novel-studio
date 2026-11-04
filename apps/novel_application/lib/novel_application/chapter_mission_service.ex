@@ -12,7 +12,7 @@ defmodule NovelApplication.ChapterMissionService do
     flow 按用户拍板「降级继续写」处理，本模块不做任何权威层写入（I-M2）。
   """
 
-  alias NovelAgent.Provider.{Execution, NativeToolExchange, RequestIR}
+  alias NovelAgent.Provider.{Execution, NativeToolExchange}
   alias NovelApplication.AgentNarrativeSource
   alias NovelApplication.AgentRunFlows.AuthoringSession
   alias NovelApplication.AuthoringOperation
@@ -65,20 +65,6 @@ defmodule NovelApplication.ChapterMissionService do
       _ ->
         {:error, :provider_execution_missing,
          AuthoringOperation.metadata(%{request_ir: ir, provider_call_count: 0})}
-    end
-  end
-
-  @doc false
-  @spec mission_prompt(ChapterMissionInputs.t(), String.t() | nil, :prose | :planning, keyword()) ::
-          map() | {:error, term()}
-  def mission_prompt(%ChapterMissionInputs{} = inputs, author_text, kind \\ :prose, opts \\ []) do
-    with {:ok, ir} <- request_ir(inputs, kind, Keyword.put(opts, :author_text, author_text)),
-         {:ok, prompt} <-
-           RequestIR.to_provider_prompt(ir,
-             tool_names: [tool_name(kind)],
-             tool_choice: tool_name(kind)
-           ) do
-      prompt
     end
   end
 

@@ -103,7 +103,12 @@ defmodule NovelApplication.CP1AssemblyPolicyTest do
         chapter_prose_reader: reader
       })
 
-    prompt = agent |> Agent.get(& &1) |> List.first() |> NovelAgent.Provider.prompt_text()
+    prompt =
+      agent
+      |> Agent.get(& &1)
+      |> List.first()
+      |> NovelApplication.TestAgenticLoopFixtures.prompt_text()
+
     {turn_result, prompt}
   end
 
@@ -178,7 +183,12 @@ defmodule NovelApplication.CP1AssemblyPolicyTest do
       chapter_prose_reader: reader
     })
 
-    prompt = agent |> Agent.get(& &1) |> List.first() |> NovelAgent.Provider.prompt_text()
+    prompt =
+      agent
+      |> Agent.get(& &1)
+      |> List.first()
+      |> NovelApplication.TestAgenticLoopFixtures.prompt_text()
+
     assert prompt =~ "本章更早的正文已省略"
   end
 end

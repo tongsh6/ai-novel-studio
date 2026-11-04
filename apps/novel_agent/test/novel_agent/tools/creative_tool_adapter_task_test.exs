@@ -3,6 +3,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTaskTest do
 
   alias NovelAgent.CreativeProvider.Real
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Tools.CreativeToolAdapter
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
@@ -82,10 +83,24 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTaskTest do
       CreativeToolAdapter.execute(tool_request(input), :prose_fragment, execution(agent), Real)
 
     assert result.status == :succeeded
-    prompt = agent |> Agent.get(& &1) |> NovelAgent.Provider.prompt_text()
-    assert prompt =~ "## 创作协作共同规则"
-    assert prompt =~ "本轮为首稿创作"
-    assert prompt =~ "作者原话（逐字保留、可追溯）：把第一章开篇写出来 NONCE42"
+    ir = Agent.get(agent, & &1)
+    assert %RequestIR{} = ir
+    assert [%{name: "submit_tentative_artifact"}] = ir.tools
+    assert Enum.any?(ir.messages, &(&1.source_refs != []))
+
+    text =
+      Enum.map_join(ir.messages, "\n", fn message ->
+        Enum.map_join(message.blocks, "", &Map.get(&1, :text, ""))
+      end)
+
+    assert text =~ "## 创作协作共同规则"
+    assert text =~ "本轮为首稿创作"
+    assert text =~ "作者原话（逐字保留、可追溯）：把第一章开篇写出来 NONCE42"
+
+    assert Enum.any?(ir.messages, fn message ->
+             message.role == "user" and
+               Enum.any?(message.blocks, &(Map.get(&1, :text) == "把第一章开篇写出来 NONCE42"))
+           end)
   end
 
   test "invalid authoring task fails the tool call instead of silently falling back" do

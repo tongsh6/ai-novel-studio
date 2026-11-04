@@ -78,14 +78,14 @@ defmodule NovelAgent.Provider.NativeToolExchange do
   end
 
   defp exchange(state, operation, retry_notice) do
-    case RequestIR.to_provider_prompt(state.ir,
+    case RequestIR.prepare_request(state.ir,
            tool_names: [operation.tool],
            tool_choice: operation.tool_choice
          ) do
-      {:ok, prompt} ->
+      {:ok, ir} ->
         notify_retry(operation.on_retry, retry_notice)
         next = %{state | count: state.count + 1, result: nil}
-        consume(operation.provider.(prompt), next, operation)
+        consume(operation.provider.(ir), next, operation)
 
       {:error, reason} ->
         finish(operation.error.("invalid_request_ir", reason), state)
@@ -196,9 +196,6 @@ defmodule NovelAgent.Provider.NativeToolExchange do
   end
 
   defp allowed_response?([call], _ir, tool), do: field(call, :name) == tool
-
-  defp allowed_response?([], ir, _tool),
-    do: field(field(ir.projection, :finite_mode), :name) == "legacy_json_content"
 
   defp allowed_response?(_calls, _ir, _tool), do: false
 

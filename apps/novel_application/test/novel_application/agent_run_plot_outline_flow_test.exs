@@ -173,13 +173,19 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     assert_receive {:agent_event, :tool_started, tool_started}, 500
     assert tool_started.summary =~ "章节大纲规划能力"
     assert_receive {:provider_prompt, provider_prompt}, 500
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "当前 AgentStep"
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "章节大纲"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "当前 AgentStep"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "章节大纲"
     # WR02：使命结论进规划 prompt（紧跟账面摘要段），越界条目不得出现。
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "## 本轮规划使命（写前推理，按账面与进度）"
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "本轮规划使命：接下来的章节必须给超期伏笔安排回收。"
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "· 必须推进：给旧账伏笔安排回收章"
-    refute NovelAgent.Provider.prompt_text(provider_prompt) =~ "越界依据"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~
+             "## 本轮规划使命（写前推理，按账面与进度）"
+
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~
+             "本轮规划使命：接下来的章节必须给超期伏笔安排回收。"
+
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~
+             "· 必须推进：给旧账伏笔安排回收章"
+
+    refute NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "越界依据"
     assert_receive {:agent_event, :tool_completed, tool_completed}, 500
     assert tool_completed.summary =~ "章节大纲草稿已生成"
     assert_receive {:agent_event, :exploration_observed, tool_observation}, 500
@@ -330,8 +336,12 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     refute_received {:planning_mission_persisted, _}
 
     assert_received {:provider_prompt, provider_prompt}
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "本轮规划使命（作者已定）：先收束当前支线，再开新章。"
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "· 必须推进：收束当前支线"
+
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~
+             "本轮规划使命（作者已定）：先收束当前支线，再开新章。"
+
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~
+             "· 必须推进：收束当前支线"
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed

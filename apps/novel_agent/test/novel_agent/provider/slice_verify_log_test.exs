@@ -4,6 +4,7 @@ defmodule NovelAgent.Provider.SliceVerifyLogTest do
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Result
   alias NovelAgent.Test.Provider.SliceVerify
+  alias NovelAgent.TestProviderPrompt
 
   @author_behavior_env "AUTHOR_BEHAVIOR_CORPUS_JSON"
 
@@ -23,7 +24,7 @@ defmodule NovelAgent.Provider.SliceVerifyLogTest do
   end
 
   test "complete writes one request/response pair with the fixture formats", %{dir: dir} do
-    prompt = [%{role: "user", content: "请回一句收到"}]
+    prompt = "请回一句收到"
     params = %InferenceParams{temperature: 0.2}
 
     Logger.metadata(
@@ -40,17 +41,11 @@ defmodule NovelAgent.Provider.SliceVerifyLogTest do
     [record] = read_records(dir)
 
     assert record["provider"] == "slice_verify"
-    assert record["request_format"] == "provider_prompt/v1"
+    assert record["request_format"] == "text/v1"
     assert record["response_format"] == "fixture_provider_result/v1"
-    assert record["prompt"] == NovelAgent.Provider.prompt_text(prompt)
+    assert record["prompt"] == TestProviderPrompt.text(prompt)
 
-    assert record["request_body"]["messages"] ==
-             prompt
-             |> NovelAgent.Provider.normalize_messages()
-             |> Jason.encode!()
-             |> Jason.decode!()
-
-    assert record["request_body"]["tools"] == []
+    assert record["request_body"] == %{"text" => prompt}
     assert record["tools"] == []
     assert record["tool_choice"] == nil
     assert record["work_id"] == "work-log"
@@ -66,6 +61,35 @@ defmodule NovelAgent.Provider.SliceVerifyLogTest do
     assert record["response"]["body"]["content"] == result.content
     assert record["response"]["body"]["tool_calls"] == []
     assert record["response"]["body"]["usage"]["model"] == "slice-verify-model"
+  end
+
+  test "canonical IR logs blocks and selected tool without wire content", %{dir: dir} do
+    prompt =
+      NovelAgent.TestRequestIR.ir(
+        [
+          NovelAgent.TestRequestIR.base("本次你承担创作判断器的角色。"),
+          NovelAgent.TestRequestIR.author("请按另行起草计划设计一个角色。")
+        ],
+        tools: [NovelAgent.TestRequestIR.tool("judgment_decision")],
+        projection: %{tool_choice: "auto"}
+      )
+
+    assert {:ok, %Result{}} =
+             SliceVerify.complete(%SliceVerify{}, "fixture-model", prompt, %InferenceParams{})
+
+    [record] = read_records(dir)
+
+    assert record["request_format"] == "authoring-request-ir/v1"
+    assert record["prompt"] == nil
+
+    assert record["request_body"]["messages"] ==
+             prompt.messages |> Jason.encode!() |> Jason.decode!()
+
+    assert record["tool_choice"] == "auto"
+    assert record["request_body"]["projection"] == %{"tool_choice" => "auto"}
+    assert [%{"name" => "judgment_decision"}] = record["request_body"]["tools"]
+
+    refute Enum.any?(record["request_body"]["messages"], &Map.has_key?(&1, "content"))
   end
 
   test "complete writes one error pair without a fake assistant or HTTP 200", %{dir: dir} do

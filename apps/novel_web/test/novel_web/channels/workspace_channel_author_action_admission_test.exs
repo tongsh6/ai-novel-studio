@@ -2,6 +2,7 @@ defmodule NovelWeb.AuthorActionAdmissionTestProvider do
   @moduledoc false
   @behaviour NovelAgent.Provider
 
+  alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.Stub
 
   defstruct []
@@ -12,13 +13,14 @@ defmodule NovelWeb.AuthorActionAdmissionTestProvider do
   @impl true
   def health_check(_state), do: :ok
 
-  # 这两个 fixture 委托 Stub 的确定性输出；能力事实同样委托，避免把测试替身
-  # 伪装成「未声明能力」而被 Gateway 能力门槛拒绝（VS-00L §6.4）。
+  # 测试 provider 自己声明能力事实，委托 Stub 的确定性输出；不要求生产 registry
+  # 为 fake 注册兜底，也不把测试替身伪装成「未声明能力」而被 Gateway 门槛拒绝。
   @impl true
-  def capabilities(state), do: Stub.capabilities(state)
+  def capabilities(_state),
+    do: Map.new(RequestIR.required_capabilities(), &{&1, true})
 
   @impl true
-  def projection_target(state), do: Stub.projection_target(state)
+  def projection_target(_state), do: "chat_completions"
 
   @impl true
   def complete(state, model, prompt, params),
@@ -89,7 +91,7 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
     Application.put_env(
       :novel_agent,
       :extra_providers,
-      Keyword.put(previous_extra, :admission_test, AuthorActionAdmissionTestProvider)
+      Map.put(Map.new(previous_extra || []), :admission_test, AuthorActionAdmissionTestProvider)
     )
 
     Application.put_env(:novel_agent, :author_action_admission_test_pid, self())

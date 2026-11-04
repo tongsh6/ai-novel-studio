@@ -251,49 +251,62 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert_receive {:agent_event, :tool_started, tool_started}, 500
     assert tool_started.summary =~ "正文写作能力"
     assert_receive {:writer_prompt, writer_prompt}, 500
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "用户创作简述："
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "场级执行简述"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "用户创作简述："
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "场级执行简述"
 
     # B27 CP3b：writer 由共享任务语义渲染（L1 静态段 + L3 动态事实），不再只靠模板
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "## 创作协作共同规则"
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "本轮任务语义："
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "## 材料与覆盖"
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "作者原话（逐字保留、可追溯）"
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "companion_artifacts"
-    # WR01：使命随简报进 writer prompt，带依据文本；越界条目不得出现。
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "本章使命：本章必须让主角从被动观察转向主动寻找出口。"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "## 创作协作共同规则"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "本轮任务语义："
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "## 材料与覆盖"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "作者原话（逐字保留、可追溯）"
 
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~
+             "companion_artifacts"
+
+    # WR01：使命随简报进 writer prompt，带依据文本；越界条目不得出现。
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~
+             "本章使命：本章必须让主角从被动观察转向主动寻找出口。"
+
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~
              "· 必须推进：让主角进入异常房间并找到压力来源（依据：情节推进：主角进入异常房间并发现压力来源）"
 
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "· 不得：不直接点破旧公司实验"
-    refute NovelAgent.Provider.prompt_text(writer_prompt) =~ "不存在的伏笔"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~
+             "· 不得：不直接点破旧公司实验"
+
+    refute NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "不存在的伏笔"
     assert_receive {:evaluator_prompt, evaluator_prompt}, 500
 
     calls_before_quality =
       for message <- evaluator_prompt.messages,
-          call <- Map.get(message, :tool_calls, []),
-          do: call.function.name
+          block <- Map.get(message, :blocks, []),
+          block.type == "tool_call",
+          do: block.name
 
     assert "agent_plan_draft" in calls_before_quality
     assert "chapter_mission" in calls_before_quality
     assert "submit_tentative_artifact" in calls_before_quality
 
-    assert NovelAgent.Provider.prompt_text(evaluator_prompt) =~ "质量评审"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(evaluator_prompt) =~ "质量评审"
     # B71 CP4a：质量 scope 追加在同一 canonical transcript 中，不重复创作输入。
-    assert NovelAgent.Provider.prompt_text(evaluator_prompt) =~ "## 创作协作共同规则"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(evaluator_prompt) =~ "## 创作协作共同规则"
 
     assert Enum.any?(
              NovelAgent.Provider.tool_specs(evaluator_prompt),
              &(&1.name == "report_quality_findings")
            )
 
-    assert %{content: quality_scope} =
-             evaluator_prompt.messages
-             |> Enum.filter(
-               &(&1.role == "user" and String.contains?(&1.content, "本次你承担小说正文质量评审助手的角色"))
-             )
-             |> List.last()
+    quality_message =
+      evaluator_prompt.messages
+      |> Enum.filter(
+        &String.contains?(
+          NovelApplication.TestAgenticLoopFixtures.message_text(&1),
+          "本次你承担小说正文质量评审助手的角色"
+        )
+      )
+      |> List.last()
+
+    assert quality_message
+    quality_scope = NovelApplication.TestAgenticLoopFixtures.message_text(quality_message)
 
     assert quality_scope =~ "评审范围：单对象/片段"
     refute quality_scope =~ "用户创作简述："
@@ -455,9 +468,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       )
 
     assert_receive {:writer_prompt, writer_prompt}, 2_000
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "本章使命（作者已定）：这一章只写主角找到出口，不解释房间来历。"
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "· 必须推进：找到出口"
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "· 不得：不解释房间来历"
+
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~
+             "本章使命（作者已定）：这一章只写主角找到出口，不解释房间来历。"
+
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "· 必须推进：找到出口"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "· 不得：不解释房间来历"
 
     events = collect_agent_events_until(:run_completed, 3_000)
     refute Enum.any?(events, fn {event_type, _event} -> event_type == :mission_derived end)
@@ -585,7 +601,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              )
 
     assert_receive {:writer_prompt, writer_prompt}, 2_000
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ prior_prose
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ prior_prose
 
     assert_receive {:agent_event, :artifact_created, artifact_event}, 2_000
     assert_receive {:agent_event, :run_completed, _}, 2_000
@@ -730,7 +746,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     assert_receive {:writer_prompt, writer_prompt}, 2_000
 
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ prior_prose,
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ prior_prose,
            "intent 缺失但章有正文时前文必须进 writer prompt"
 
     assert_receive {:agent_event, :artifact_created, artifact_event}, 2_000
@@ -1210,7 +1226,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     recovery_events = collect_agent_events_until(:run_completed, 5_000)
     assert find_event!(recovery_events, :run_completed)
     assert_receive {:scoped_writer_prompt, scoped_prompt}, 1_000
-    assert NovelAgent.Provider.prompt_text(scoped_prompt) =~ "先只写当前章的第一个场景"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(scoped_prompt) =~ "先只写当前章的第一个场景"
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed
@@ -1770,17 +1786,20 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert ready_event.payload.observation_count >= 1
 
     assert_receive {:writer_prompt, writer_prompt}, 1_000
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "已完成观察"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "已完成观察"
 
     # 观察内容（含真实 refs 的 summary）进入后续 writer 真实请求，而不只是内部状态。
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ explore_event.payload.summary
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~
+             explore_event.payload.summary
 
     # CP1b：观察以 observation ref 进入使命输入，模型可引用且 bind 保留；
     # writer AuthoringTask 材料/来源登记同一 observation ref。
     assert_receive {:mission_prompt, mission_prompt}, 1_000
     assert mission_prompt =~ "本 run 已取得的观察"
     assert mission_prompt =~ "observation:obs_"
-    assert NovelAgent.Provider.prompt_text(writer_prompt) =~ "observation：observation:obs_"
+
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~
+             "observation：observation:obs_"
 
     assert_receive {:mission_persisted, "work-agent-prose-flow", 1, persisted_mission}, 1_000
     persisted_advance = persisted_mission["must_advance"] || persisted_mission[:must_advance]

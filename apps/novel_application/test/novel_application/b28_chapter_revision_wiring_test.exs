@@ -123,7 +123,10 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
   defp provider(body, test_pid, changes \\ nil) do
     %Execution{
       result_fn: fn prompt ->
-        send(test_pid, {:chapter_writer_prompt, NovelAgent.Provider.prompt_text(prompt)})
+        send(
+          test_pid,
+          {:chapter_writer_prompt, NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)}
+        )
 
         items =
           [

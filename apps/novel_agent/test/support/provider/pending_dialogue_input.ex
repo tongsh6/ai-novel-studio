@@ -6,8 +6,9 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
 
     * 当前原生 scope：`NovelApplication.DialoguePlanningService.pending_candidate_line/1`
       渲染的 `## 待采纳候选` 目录；
-    * 显式旧格式：当前 scope（无 scope 时为本轮请求）的
-      `## 消息处置与已有产物` 段内 JSON 的 `pending_adoptions[].body_preview`。
+    * 显式旧格式状态段：当前 scope 的 `## 消息处置与已有产物` 段内 JSON 的
+      `pending_adoptions[].body_preview`。这是非写判断的现役上下文段
+      （`TurnInteractionService.context_section/1`）；没有该段时不再接受裸 facts JSON。
 
   这里只读模型实际收到的 prompt，不读 DB 或应用 ctx，也不补造 prompt 里没有的字段。
   关键边界：
@@ -16,8 +17,7 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
       当前 scope 缺目录/空目录时绝不回退到旧 scope；
     * 当前作者原话与当前 scope 分开读取，不用 scope 里的旧用户片段代替作者消息；
     * native scope 内旧格式 JSON 只认明确的 `## 消息处置与已有产物` 段；
-      资料原文等其它材料里的 JSON 不构成授权状态；只有明确无 scope 的当前请求
-      才兼容作者段之前的裸 facts JSON；
+      资料原文等其它材料里的 JSON 不构成授权状态；
     * 原生目录优先；旧格式只与同一当前 scope、同一 ref 的目录项合并
       `revision_of`，不跨 scope 补，也不把缺失当原稿。
 
@@ -34,9 +34,7 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
   @author_section ~r/##\s*作者输入\s*\n(.*?)(?:\n##|\z)/su
   @directory_heading "## 待采纳候选"
   @facts_heading "## 消息处置与已有产物"
-  @scope_marker "【应用数据 · scope_update"
   @application_marker "【应用数据"
-  @author_placeholder "（本轮作者原话见独立 user 消息）"
   @empty_session_state ~r/会话候选处置[：:]\s*pending\s*0/u
   @directory_line ~r/^- ref=(?<ref>[^|]+?)\s*\|\s*type=(?<type>[^|]*?)\s*\|\s*status=(?<status>[^|]*?)\s*\|\s*title=(?<title>.*?)\s*\|\s*operations=(?<operations>[^|]*?)\s*\|\s*body_preview=(?<body_preview>.*)$/su
 
@@ -80,11 +78,13 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
           message_state_facts: map()
         }
 
-  @spec normalize(NovelAgent.Provider.prompt()) :: normalized()
+  @type prompt :: String.t() | map() | [map()]
+
+  @spec normalize(prompt()) :: normalized()
   def normalize(prompt) do
     view = current_view(prompt)
     directory = directory_candidates(view.state_text)
-    facts = message_state_facts_from_text(view.state_text, view.native_scope?)
+    facts = message_state_facts_from_text(view.state_text)
     legacy = legacy_candidates(facts.map)
     candidates = merge_candidates(directory.candidates, legacy)
 
@@ -98,7 +98,7 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
     }
   end
 
-  @spec material_state(NovelAgent.Provider.prompt()) :: material_state()
+  @spec material_state(prompt()) :: material_state()
   def material_state(prompt) do
     normalized = normalize(prompt)
     facts = normalized.message_state_facts
@@ -126,7 +126,7 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
   返回只含当前操作材料的文本视图：当前 scope（或本轮无 scope 请求）+ 当前作者原话。
   供真实 consumer 消费，避免把整段历史扁平化后再搜索授权状态。
   """
-  @spec material_text(NovelAgent.Provider.prompt(), String.t()) :: String.t()
+  @spec material_text(prompt(), String.t()) :: String.t()
   def material_text(prompt, fallback \\ nil)
 
   def material_text(prompt, _fallback) when is_binary(prompt), do: prompt
@@ -149,19 +149,19 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
 
   def material_text(_prompt, fallback), do: fallback || ""
 
-  @spec author_text(NovelAgent.Provider.prompt()) :: String.t()
+  @spec author_text(prompt()) :: String.t()
   def author_text(prompt), do: normalize(prompt).author_text
 
-  @spec candidates(NovelAgent.Provider.prompt()) :: [candidate()]
+  @spec candidates(prompt()) :: [candidate()]
   def candidates(prompt), do: normalize(prompt).candidates
 
-  @spec message_state_facts(NovelAgent.Provider.prompt()) :: map()
+  @spec message_state_facts(prompt()) :: map()
   def message_state_facts(prompt), do: normalize(prompt).message_state_facts
 
-  @spec request_scope(NovelAgent.Provider.prompt()) :: :native | :legacy | :none
+  @spec request_scope(prompt()) :: :native | :legacy | :none
   def request_scope(prompt), do: normalize(prompt).request_scope
 
-  @spec candidate_state(NovelAgent.Provider.prompt()) :: candidate_state()
+  @spec candidate_state(prompt()) :: candidate_state()
   def candidate_state(prompt), do: normalize(prompt).candidate_state
 
   # ── 当前操作材料：结构优先，文本只在无结构时作为本轮请求读取 ────────────────
@@ -170,75 +170,30 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
     %{
       state_text: text_before_author(prompt),
       author_text: author_text_from_text(prompt),
-      # 与 map 分支同一来源判定：material_text 重新解析时仍能识别原生应用材料，
-      # 不会因为丢掉了结构就退回扫描裸 JSON。
+      # 只按文本里仍然存在的应用材料标记判定；扁平视图丢掉 scope 结构时保持
+      # 非 native，且不再扫描裸 JSON，不靠猜测补回状态。
       native_scope?: String.contains?(prompt, @application_marker)
     }
   end
 
   defp current_view(prompt) when is_map(prompt) or is_list(prompt) do
-    messages = NovelAgent.Provider.normalize_messages(prompt)
-    operation_text = operation_text(prompt)
+    operation_text = NovelAgent.TestProviderPrompt.operation_text(prompt)
     state_text = text_before_author(operation_text)
 
     author =
-      author_from_messages(messages) ||
-        explicit_author_section(operation_text) ||
-        String.trim(state_text)
+      case String.trim(NovelAgent.TestProviderPrompt.author_text(prompt)) do
+        "" -> explicit_author_section(operation_text) || ""
+        text -> text
+      end
 
     %{
       state_text: state_text,
       author_text: author,
       native_scope?:
-        not is_nil(NovelAgent.Provider.latest_scope_text(prompt)) or
+        not is_nil(NovelAgent.TestProviderPrompt.latest_scope(prompt)) or
           String.contains?(operation_text, @application_marker)
     }
   end
-
-  defp operation_text(prompt) do
-    case NovelAgent.Provider.latest_scope_text(prompt) do
-      nil -> NovelAgent.Provider.prompt_text(prompt)
-      _scope -> NovelAgent.Provider.operation_prompt_text(prompt)
-    end
-  end
-
-  # 当前作者消息是当前 operation 最后一个非应用 user 消息（scope 之前）。
-  # 旧轮作者消息位于更早位置，不能拿来当本轮原话。
-  defp author_from_messages(messages) do
-    scope_index = last_scope_index(messages)
-
-    messages
-    |> Enum.with_index()
-    |> Enum.filter(fn {_message, index} -> is_nil(scope_index) or index < scope_index end)
-    |> Enum.reverse()
-    |> Enum.find_value(fn {message, _index} -> author_message_text(message) end)
-  end
-
-  defp last_scope_index(messages) do
-    messages
-    |> Enum.with_index()
-    |> Enum.reverse()
-    |> Enum.find_value(fn {message, index} -> if scope_message?(message), do: index end)
-  end
-
-  defp scope_message?(%{role: "user", content: content}) when is_binary(content),
-    do: String.starts_with?(content, @scope_marker)
-
-  defp scope_message?(_message), do: false
-
-  defp author_message_text(%{role: "user", content: content}) when is_binary(content) do
-    if String.starts_with?(content, @application_marker) or
-         String.contains?(content, @author_placeholder) do
-      nil
-    else
-      case String.trim(content) do
-        "" -> nil
-        trimmed -> explicit_author_section(trimmed) || trimmed
-      end
-    end
-  end
-
-  defp author_message_text(_message), do: nil
 
   # 作者段在 prompt 末尾；状态只读它之前的当前 scope 材料。
   # 用字符串切分而不是正则字节索引：中文多字节偏移与 grapheme 索引不同。
@@ -319,20 +274,14 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
     }
   end
 
-  # ── 显式旧格式：明确 section，或明确无 scope 的当前请求 ─────────────────────
+  # ── 显式旧格式状态段 ─────────────────────────────────────────────────────────
 
-  # 唯一来源决策：明确状态段始终优先；只有明确无 scope 的当前请求才允许裸 facts JSON。
-  # native scope 没有明确状态段时保持 missing，不把资料原文等材料里的 JSON 当授权。
-  defp message_state_facts_from_text(state_text, native_scope?) do
+  # 唯一来源决策：只认当前 scope 内明确的 `## 消息处置与已有产物` 段。
+  # 无该段时保持 missing，不扫描裸 facts JSON，也不把资料原文里的 JSON 当授权。
+  defp message_state_facts_from_text(state_text) do
     case prompt_section(state_text, @facts_heading) do
       nil ->
-        if native_scope? do
-          %{map: %{}, state: :missing}
-        else
-          # 无 scope 的明确旧格式：状态 JSON 可以裸行出现在当前请求、作者段之前；
-          # 作者段（text_before_author 已切掉）和历史 scope 都不参与。
-          legacy_facts_from_state_region(state_text)
-        end
+        %{map: %{}, state: :missing}
 
       section ->
         case facts_from_section(section) do
@@ -340,13 +289,6 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
           :empty -> %{map: %{}, state: :empty}
           :bad -> %{map: %{}, state: :bad}
         end
-    end
-  end
-
-  defp legacy_facts_from_state_region(state_text) do
-    case Enum.find_value(String.split(state_text, "\n"), &facts_line/1) do
-      nil -> %{map: %{}, state: :missing}
-      facts -> %{map: facts, state: :ok}
     end
   end
 

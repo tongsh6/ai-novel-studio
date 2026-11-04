@@ -20,12 +20,24 @@ defmodule NovelAgent.Provider.RequestIR.Projection.ChatCompletions do
             |> project_message()
             |> preserve_provider_state(message, Keyword.get(opts, :include_provider_state, false))
           end),
-      tools: Enum.map(ir.tools, &tool_schema/1),
       stream: Projection.usage_streaming?(ir)
     }
+    |> put_tools(Enum.map(ir.tools, &tool_schema/1))
+    |> put_tool_choice(NovelAgent.Provider.tool_choice(ir))
   end
 
-  # 内部 prompt bridge 可携带 opaque 状态；默认 HTTP 投影不输出私有材料。
+  defp put_tools(body, []), do: body
+  defp put_tools(body, tools), do: Map.put(body, :tools, tools)
+
+  defp put_tool_choice(body, nil), do: body
+  defp put_tool_choice(body, "none"), do: Map.put(body, :tool_choice, "none")
+  defp put_tool_choice(body, "auto"), do: Map.put(body, :tool_choice, "auto")
+  defp put_tool_choice(body, "required"), do: Map.put(body, :tool_choice, "required")
+
+  defp put_tool_choice(body, name) when is_binary(name),
+    do: Map.put(body, :tool_choice, %{type: "function", function: %{name: name}})
+
+  # 只有来源 adapter 显式请求时才携带 opaque 私有状态；默认 HTTP 投影不输出。
   defp preserve_provider_state([projected], %{role: "assistant", provider_state: state}, true)
        when is_map(state) and map_size(state) > 0,
        do: [Map.put(projected, :provider_state, state)]

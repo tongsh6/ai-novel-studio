@@ -5,6 +5,21 @@ defmodule NovelAgent.Provider.LMStudioTest do
   alias NovelAgent.Provider.LMStudio
   alias NovelAgent.Provider.TimeoutPolicy
   alias NovelAgent.Provider.Usage
+  alias NovelAgent.TestRequestIR
+
+  # adapter 只接受 canonical IR；测试用作者原话构造最小请求，文字保持原字节。
+  defp ir(text) when is_binary(text), do: TestRequestIR.ir([TestRequestIR.author(text)])
+  defp ir(%NovelAgent.Provider.RequestIR{} = ir), do: ir
+
+  defp ir(messages) when is_list(messages),
+    do: TestRequestIR.ir(Enum.map(messages, &canonical_message/1))
+
+  defp canonical_message(%{role: "system", content: content}), do: TestRequestIR.system(content)
+
+  defp canonical_message(%{role: "assistant", content: content}),
+    do: TestRequestIR.assistant(content)
+
+  defp canonical_message(%{role: "user", content: content}), do: TestRequestIR.author(content)
 
   describe "name/0" do
     test "returns lmstudio identifier" do
@@ -82,9 +97,10 @@ defmodule NovelAgent.Provider.LMStudioTest do
         %{role: "user", content: "第二轮"}
       ]
 
-      assert {:ok, _result} = LMStudio.complete(state, nil, messages, %InferenceParams{})
+      assert {:ok, _result} = LMStudio.complete(state, nil, ir(messages), %InferenceParams{})
       assert_receive {:request_body, body}
-      assert body.messages == messages
+      assert [%{role: "system"} | projected] = body.messages
+      assert projected == messages
     end
 
     test "reasoning_effort passes through to the request body (M6 qwen3.8 thinking control)" do
@@ -103,7 +119,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
           reasoning_effort: "low"
         )
 
-      assert {:ok, _} = LMStudio.complete(state, nil, "hi", %InferenceParams{})
+      assert {:ok, _} = LMStudio.complete(state, nil, ir("hi"), %InferenceParams{})
       assert_receive {:request_body, body}
       assert body.reasoning_effort == "low"
     end
@@ -125,7 +141,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
           reasoning_effort: "medium"
         )
 
-      assert {:ok, _} = LMStudio.complete(state, nil, "hi", %InferenceParams{})
+      assert {:ok, _} = LMStudio.complete(state, nil, ir("hi"), %InferenceParams{})
       assert_receive {:request_body, body}
       assert body.reasoning_effort == "none"
     end
@@ -145,7 +161,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
           log_fn: fn _, _, _, _, _ -> :ok end
         )
 
-      assert {:ok, _} = LMStudio.complete(state, nil, "hi", %InferenceParams{})
+      assert {:ok, _} = LMStudio.complete(state, nil, ir("hi"), %InferenceParams{})
       assert_receive {:request_body, body}
       refute Map.has_key?(body, :reasoning_effort)
     end
@@ -183,15 +199,16 @@ defmodule NovelAgent.Provider.LMStudioTest do
         log_fn: nil
       }
 
-      prompt = %{
-        messages: [%{role: "user", content: "起草计划"}],
-        tools: [
-          %{name: "agent_plan_draft", description: "draft", input_schema: %{type: "object"}}
-        ],
-        tool_choice: "agent_plan_draft"
-      }
+      prompt =
+        TestRequestIR.ir(
+          [TestRequestIR.author("起草计划")],
+          tools: [
+            TestRequestIR.tool("agent_plan_draft", %{type: "object"})
+          ],
+          projection: %{tool_choice: "agent_plan_draft"}
+        )
 
-      assert {:ok, _result} = LMStudio.complete(state, nil, prompt, %InferenceParams{})
+      assert {:ok, _result} = LMStudio.complete(state, nil, ir(prompt), %InferenceParams{})
       assert_receive {:request_body, body}
 
       # LM Studio 只接受字符串 none/auto/required；具名对象形式会 HTTP 400
@@ -210,7 +227,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
         log_fn: nil
       }
 
-      assert {:error, error_map} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:error, error_map} = LMStudio.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert error_map.type == :connection_refused
     end
 
@@ -225,7 +242,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
         log_fn: nil
       }
 
-      assert {:error, error_map} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:error, error_map} = LMStudio.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert error_map.type == :timeout
     end
 
@@ -240,7 +257,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
         log_fn: nil
       }
 
-      assert {:error, error_map} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:error, error_map} = LMStudio.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert error_map.type == :provider_internal
     end
 
@@ -262,7 +279,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
         log_fn: nil
       }
 
-      assert {:error, error_map} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:error, error_map} = LMStudio.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert error_map.type == :invalid_response
       assert error_map.message =~ "退化"
     end
@@ -282,7 +299,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
         log_fn: nil
       }
 
-      assert {:ok, result} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:ok, result} = LMStudio.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert result.content == prose
     end
 
@@ -316,7 +333,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
         log_fn: nil
       }
 
-      assert {:ok, result} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:ok, result} = LMStudio.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert result.tool_calls != []
     end
   end
@@ -340,7 +357,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
         log_fn: nil
       }
 
-      assert {:ok, result} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:ok, result} = LMStudio.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert %Usage{} = result.usage
       assert result.usage.input_tokens == 42
       assert result.usage.output_tokens == 9
@@ -371,7 +388,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
         log_fn: log_fn
       }
 
-      assert {:ok, _result} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:ok, _result} = LMStudio.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert_receive {:logged_result, {:ok, _ok, attrs}}
 
       # %Usage{} 必须能被 JSON 序列化（@derive Jason.Encoder），否则日志会被静默丢弃。
@@ -409,7 +426,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
       }
 
       assert {:ok, %{events: events, result: result}} =
-               LMStudio.execute(state, nil, "prompt", %InferenceParams{}, provider_ctx())
+               LMStudio.execute(state, nil, ir("prompt"), %InferenceParams{}, provider_ctx())
 
       assert result.content == "本地"
       assert result.usage.input_tokens == 3
@@ -417,7 +434,8 @@ defmodule NovelAgent.Provider.LMStudioTest do
 
       assert_receive {:stream_request, "http://localhost/v1/chat/completions", body, opts}
       assert body.stream == true
-      assert body.messages == [%{role: "user", content: "prompt"}]
+      assert [%{role: "system"} | rest] = body.messages
+      assert rest == [%{role: "user", content: "prompt"}]
       assert Keyword.fetch!(opts, :receive_timeout) == 100
 
       chunk_events = Enum.filter(events, &(&1.event_type == :chunk))
@@ -455,7 +473,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
                LMStudio.execute(
                  state,
                  nil,
-                 "prompt",
+                 ir("prompt"),
                  %InferenceParams{},
                  provider_ctx(timeout_policy: policy)
                )
@@ -486,7 +504,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
                LMStudio.execute(
                  state,
                  nil,
-                 "prompt",
+                 ir("prompt"),
                  %InferenceParams{},
                  provider_ctx(timeout_policy: policy)
                )
@@ -518,7 +536,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
                LMStudio.execute(
                  state,
                  nil,
-                 "prompt",
+                 ir("prompt"),
                  %InferenceParams{},
                  provider_ctx(timeout_policy: policy)
                )
@@ -550,7 +568,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
                LMStudio.execute(
                  state,
                  nil,
-                 "prompt",
+                 ir("prompt"),
                  %InferenceParams{},
                  provider_ctx(timeout_policy: policy)
                )
@@ -593,13 +611,12 @@ defmodule NovelAgent.Provider.LMStudioTest do
         log_fn: nil
       }
 
-      prompt = %{
-        messages: [%{role: "user", content: "判断"}],
-        tools: [
-          %{name: "judgment_decision", description: "decision", input_schema: %{type: "object"}}
-        ],
-        tool_choice: "judgment_decision"
-      }
+      prompt =
+        TestRequestIR.ir(
+          [TestRequestIR.author("判断")],
+          tools: [TestRequestIR.tool("judgment_decision", %{type: "object"})],
+          projection: %{tool_choice: "judgment_decision"}
+        )
 
       policy = liveness_policy(response_ms: 600_000, non_stream_ms: 1_234_000)
 
@@ -607,7 +624,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
                LMStudio.execute(
                  state,
                  nil,
-                 prompt,
+                 ir(prompt),
                  %InferenceParams{},
                  provider_ctx(timeout_policy: policy)
                )

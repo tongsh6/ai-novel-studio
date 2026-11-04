@@ -27,6 +27,8 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.OpenAICompatibleStream
+  alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.RequestIR.Projection
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Usage
   alias NovelFoundation.UpstreamError
@@ -436,129 +438,18 @@ defmodule NovelAgent.Provider.OpenAICompatible do
     |> Kernel.<>("/responses")
   end
 
-  # Chat 形状的内部 prompt → Responses API body（VS-00L §6.3）。
-  # 消息一一投影为 input items：system/user 保留 role；assistant tool_calls →
-  # function_call（原始参数字节不变）；tool 结果 → function_call_output（call_id 关联）。
-  defp responses_request_body(state, prompt, params) do
-    %{input: responses_input(prompt), stream: false}
+  # canonical IR → Responses API body：system 进 instructions、消息/工具调用按原生
+  # input items 投影（VS-00L §6.3/§19.1）。Responses SSE 由 R2 承接，当前显式非流式。
+  defp responses_request_body(state, %RequestIR{} = ir, params) do
+    {:ok, projected} = Projection.project(ir, "responses_api")
+
+    projected
+    |> Map.put(:stream, false)
     |> maybe_put_model(state.model)
     |> responses_max_output_tokens(state.max_tokens, Map.get(params, :max_tokens))
     |> maybe_put_response_param(Map.get(params, :temperature), :temperature)
     |> maybe_put_response_param(Map.get(params, :top_p), :top_p)
-    |> responses_tools(prompt)
   end
-
-  defp responses_input(prompt) do
-    prompt
-    |> NovelAgent.Provider.normalize_messages()
-    |> Enum.flat_map(&responses_input_item/1)
-  end
-
-  defp responses_input_item(%{role: "assistant"} = message) do
-    text = if is_binary(message.content), do: message.content, else: ""
-
-    text_items =
-      if text == "", do: [], else: [responses_message_item("assistant", text)]
-
-    text_items ++ Enum.flat_map(Map.get(message, :tool_calls, []), &responses_function_call/1)
-  end
-
-  defp responses_input_item(%{role: "tool"} = message) do
-    case Map.get(message, :tool_call_id) do
-      call_id when is_binary(call_id) and call_id != "" ->
-        [
-          %{
-            type: "function_call_output",
-            call_id: call_id,
-            output: responses_output_text(message.content)
-          }
-        ]
-
-      _other ->
-        []
-    end
-  end
-
-  defp responses_input_item(%{role: role, content: content}) when role in ["system", "user"] do
-    case content do
-      text when is_binary(text) and text != "" -> [responses_message_item(role, text)]
-      _other -> []
-    end
-  end
-
-  defp responses_input_item(_message), do: []
-
-  defp responses_message_item(role, text), do: %{type: "message", role: role, content: text}
-
-  defp responses_output_text(content) when is_binary(content), do: content
-  defp responses_output_text(content) when is_map(content), do: Jason.encode!(content)
-  defp responses_output_text(_content), do: ""
-
-  defp responses_function_call(%{id: id, function: %{name: name} = function})
-       when is_binary(name) do
-    arguments = Map.get(function, :arguments)
-
-    [
-      %{
-        type: "function_call",
-        call_id: id,
-        name: name,
-        arguments: responses_arguments_text(arguments)
-      }
-    ]
-  end
-
-  defp responses_function_call(%{id: id, name: name, arguments: arguments})
-       when is_binary(name) do
-    [
-      %{
-        type: "function_call",
-        call_id: id,
-        name: name,
-        arguments: responses_arguments_text(arguments)
-      }
-    ]
-  end
-
-  defp responses_function_call(_call), do: []
-
-  defp responses_arguments_text(arguments) when is_binary(arguments), do: arguments
-  defp responses_arguments_text(arguments) when is_map(arguments), do: Jason.encode!(arguments)
-  defp responses_arguments_text(_arguments), do: "{}"
-
-  defp responses_tools(body, prompt) do
-    specs = NovelAgent.Provider.tool_specs(prompt)
-
-    body
-    |> maybe_put_response_tools(specs)
-    |> maybe_put_response_tool_choice(NovelAgent.Provider.tool_choice(prompt))
-  end
-
-  defp maybe_put_response_tools(body, []), do: body
-
-  defp maybe_put_response_tools(body, specs) do
-    tools =
-      Enum.map(specs, fn spec ->
-        %{
-          type: "function",
-          name: spec.name,
-          description: spec.description,
-          parameters: spec.input_schema
-        }
-      end)
-
-    Map.put(body, :tools, tools)
-  end
-
-  defp maybe_put_response_tool_choice(body, nil), do: body
-  defp maybe_put_response_tool_choice(body, "none"), do: Map.put(body, :tool_choice, "none")
-  defp maybe_put_response_tool_choice(body, "auto"), do: Map.put(body, :tool_choice, "auto")
-
-  defp maybe_put_response_tool_choice(body, "required"),
-    do: Map.put(body, :tool_choice, "required")
-
-  defp maybe_put_response_tool_choice(body, name) when is_binary(name),
-    do: Map.put(body, :tool_choice, %{type: "function", name: name})
 
   defp maybe_put_response_param(body, nil, _key), do: body
   defp maybe_put_response_param(body, value, key), do: Map.put(body, key, value)
@@ -605,20 +496,28 @@ defmodule NovelAgent.Provider.OpenAICompatible do
 
   defp responses_text_parts(_item), do: []
 
+  # Responses 的 function_call item：工具调用身份只认 `call_id`。item `id`（如
+  # `fc_...`）是 Provider 私有输出标识，与 `call_id` 分属不同用途；混用会让下一轮
+  # `function_call_output.call_id` 绑错（VS-00L §19.1）。缺 call_id 的 item 不能
+  # 冒充合法工具调用。
   defp responses_function_call_item(
          %{"type" => "function_call", "name" => name, "arguments" => arguments} = item
        )
        when is_binary(name) do
-    id = Map.get(item, "call_id") || Map.get(item, "id")
+    case Map.get(item, "call_id") do
+      call_id when is_binary(call_id) and call_id != "" ->
+        [
+          %{
+            "id" => call_id,
+            "name" => name,
+            "arguments" => responses_decode_arguments(arguments),
+            "raw_arguments" => arguments
+          }
+        ]
 
-    [
-      %{
-        "id" => id,
-        "name" => name,
-        "arguments" => responses_decode_arguments(arguments),
-        "raw_arguments" => arguments
-      }
-    ]
+      _missing_call_id ->
+        []
+    end
   end
 
   defp responses_function_call_item(_item), do: []
@@ -647,21 +546,15 @@ defmodule NovelAgent.Provider.OpenAICompatible do
     )
   end
 
-  defp request_body(state, prompt, params, stream?) do
-    %{
-      messages: NovelAgent.Provider.normalize_messages(prompt),
-      stream: stream?,
-      # 缺陷九跟进：provider 自己的安全上限先垫底，params.max_tokens 非 nil
-      # 时 apply_params 覆盖——见 InferenceParams moduledoc。
-      max_tokens: state.max_tokens
-    }
-    # 2026-10-22：Strata 统一推理后台由 App 管理当前模型。未配置/未选择模型时
-    # 不发送 model 字段，让本地统一后台路由到它当前已加载的模型；既有托管
-    # vendor 的 model 恒非空，行为不变。
+  defp request_body(state, %RequestIR{} = ir, params, stream?) do
+    {:ok, projected} = Projection.project(ir, "chat_completions")
+
+    projected
+    |> Map.put(:stream, stream?)
+    |> Map.put(:max_tokens, state.max_tokens)
     |> maybe_put_model(state.model)
     |> HTTP.apply_params(params)
-    |> maybe_json_mode(state.json_mode, prompt)
-    |> NovelAgent.Provider.put_openai_tools(prompt)
+    |> maybe_json_mode(state.json_mode, ir)
   end
 
   defp maybe_put_model(body, model) when is_binary(model) and model != "",

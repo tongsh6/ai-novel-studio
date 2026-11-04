@@ -38,7 +38,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
         else: System.delete_env("SLICE_VERIFY_PLAN_EXHAUST")
     end)
 
-    prompt = """
+    prompt_text = """
     本次你承担创作判断器的角色。
     ## 会话摘要
     另一个任务仍在等待：先核对正文再调整大纲，UA01PLANEXHAUST-older-run。
@@ -46,13 +46,20 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
     确认第一卷；当前还没有章节，请先为第一卷生成12章的待采纳章节计划，供后续结构维护使用，暂不采纳。
     """
 
+    # 生产请求入口已统一为 canonical IR；替身按 IR 投影文本识别请求形态。
+    prompt = NovelAgent.TestRequestIR.ir([NovelAgent.TestRequestIR.base(prompt_text)])
+
     assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
     assert [%{"name" => "judgment_decision", "arguments" => args}] = result.tool_calls
     assert args["action"] == "execute"
     assert args["capability"] == "plot_outline"
 
-    assert {:ok, own} =
-             SliceVerify.complete(nil, nil, prompt <> "UA01PLANEXHAUST-current-run", %{})
+    own_prompt =
+      NovelAgent.TestRequestIR.ir([
+        NovelAgent.TestRequestIR.base(prompt_text <> "UA01PLANEXHAUST-current-run")
+      ])
+
+    assert {:ok, own} = SliceVerify.complete(nil, nil, own_prompt, %{})
 
     assert [%{"arguments" => own_args}] = own.tool_calls
     assert own_args["action"] == "plan"

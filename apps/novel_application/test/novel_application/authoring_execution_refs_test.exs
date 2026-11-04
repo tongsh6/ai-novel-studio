@@ -10,8 +10,6 @@ defmodule NovelApplication.AuthoringExecutionRefsTest do
   @targets ["chat_completions", "anthropic_messages", "responses_api"]
   @expected_refs [{"pcall-json-1", "prun-json-1"}, {"pcall-json-2", "prun-json-2"}]
 
-  defp full_caps, do: Map.new(RequestIR.required_capabilities(), &{&1, true})
-
   defp run_identity do
     %{
       run_id: "run-execution-refs",
@@ -27,8 +25,7 @@ defmodule NovelApplication.AuthoringExecutionRefsTest do
       base_text: "run goal: 读取角色后回复",
       author_text: @author_text,
       author_turn_ref: "author_turn:execution-refs",
-      tools: [%{name: "read_character", input_schema: %{type: "object"}}],
-      projection: %{target: "chat_completions", capability_profile: full_caps()}
+      tools: [%{name: "read_character", input_schema: %{type: "object"}}]
     )
   end
 
@@ -59,14 +56,12 @@ defmodule NovelApplication.AuthoringExecutionRefsTest do
 
   defp assert_projections_equal(before_transcript, after_transcript) do
     for target <- @targets do
-      assert {:ok, before_ir} =
-               AuthoringTranscript.to_request_ir(before_transcript, target: target)
+      assert {:ok, before_ir} = AuthoringTranscript.to_request_ir(before_transcript)
 
-      assert {:ok, after_ir} =
-               AuthoringTranscript.to_request_ir(after_transcript, target: target)
+      assert {:ok, after_ir} = AuthoringTranscript.to_request_ir(after_transcript)
 
-      assert {:ok, before_body} = Projection.project(before_ir)
-      assert {:ok, after_body} = Projection.project(after_ir)
+      assert {:ok, before_body} = Projection.project(before_ir, target)
+      assert {:ok, after_body} = Projection.project(after_ir, target)
       assert before_body == after_body, "投影 #{target} 在恢复后变化"
       assert Jason.encode!(before_body) == Jason.encode!(after_body)
     end
@@ -154,11 +149,7 @@ defmodule NovelApplication.AuthoringExecutionRefsBoundaryTest do
       base_text: "run goal: 旧历史恢复",
       author_text: @author_text,
       author_turn_ref: "author_turn:execution-refs-boundary",
-      tools: [%{name: "read_character", input_schema: %{type: "object"}}],
-      projection: %{
-        target: "chat_completions",
-        capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-      }
+      tools: [%{name: "read_character", input_schema: %{type: "object"}}]
     )
   end
 

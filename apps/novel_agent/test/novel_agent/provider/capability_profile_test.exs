@@ -4,8 +4,10 @@ defmodule NovelAgent.Provider.CapabilityProfileTest do
   alias NovelAgent.Provider.Anthropic
   alias NovelAgent.Provider.CapabilityProfile
   alias NovelAgent.Provider.Gateway
+  alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.RequestIR.Operation
+  alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.RuntimeConfig
 
   @run %{run_id: "run-capability", work_id: "work-capability"}
@@ -24,7 +26,6 @@ defmodule NovelAgent.Provider.CapabilityProfileTest do
     @impl true
     def execute(_state, _model, _prompt, _params, ctx) do
       send(self(), :text_only_adapter_called)
-
       AdapterExecution.materialize_result({:ok, Result.new("text")}, ctx)
     end
 
@@ -40,15 +41,59 @@ defmodule NovelAgent.Provider.CapabilityProfileTest do
     # 只有真正可证的传输能力：单轮文本 + usage。
     @impl true
     def capabilities(_state), do: %{native_multi_turn: true, usage: true}
+
+    @impl true
+    def projection_target(_state), do: "chat_completions"
+  end
+
+  defmodule CompleteProvider do
+    @behaviour NovelAgent.Provider
+
+    alias NovelAgent.Provider.AdapterExecution
+    alias NovelAgent.Provider.RequestIR
+    alias NovelAgent.Provider.Result
+
+    defstruct []
+
+    @impl true
+    def execute(_state, _model, %RequestIR{}, _params, ctx) do
+      send(self(), :complete_adapter_called)
+      AdapterExecution.materialize_result({:ok, Result.new("text")}, ctx)
+    end
+
+    @impl true
+    def complete(_state, _model, _prompt, _params), do: {:ok, Result.new("text")}
+
+    @impl true
+    def health_check(_state), do: :ok
+
+    @impl true
+    def name, do: "complete"
+
+    @impl true
+    def capabilities(_state) do
+      Map.new(RequestIR.required_capabilities(), &{&1, true})
+    end
+
+    @impl true
+    def projection_target(_state), do: "chat_completions"
   end
 
   setup do
     old_extra = Application.get_env(:novel_agent, :extra_providers)
+    old_provider = Application.get_env(:novel_agent, :provider)
     RuntimeConfig.reset()
 
-    Application.put_env(:novel_agent, :extra_providers, %{
-      text_only: TextOnlyProvider
-    })
+    Application.put_env(
+      :novel_agent,
+      :extra_providers,
+      Map.merge(Map.new(old_extra || []), %{
+        text_only: TextOnlyProvider,
+        complete: CompleteProvider
+      })
+    )
+
+    Application.put_env(:novel_agent, :provider, default: :complete)
 
     on_exit(fn ->
       RuntimeConfig.reset()
@@ -57,6 +102,12 @@ defmodule NovelAgent.Provider.CapabilityProfileTest do
         Application.put_env(:novel_agent, :extra_providers, old_extra)
       else
         Application.delete_env(:novel_agent, :extra_providers)
+      end
+
+      if old_provider do
+        Application.put_env(:novel_agent, :provider, old_provider)
+      else
+        Application.delete_env(:novel_agent, :provider)
       end
     end)
 
@@ -75,6 +126,18 @@ defmodule NovelAgent.Provider.CapabilityProfileTest do
       }
     }
   end
+
+  defp prepared_ir(opts \\ []) do
+    assert {:ok, ir} = Operation.prepare(nil, @run, specification())
+    ir = maybe_put_finite_mode(ir, Keyword.get(opts, :finite_mode))
+    assert {:ok, prepared} = RequestIR.prepare_request(ir)
+    prepared
+  end
+
+  defp maybe_put_finite_mode(ir, nil), do: ir
+
+  defp maybe_put_finite_mode(ir, mode),
+    do: %{ir | projection: Map.put(ir.projection, :finite_mode, mode)}
 
   describe "能力事实来源" do
     test "Gateway 按实际 route 暴露完整必备能力，而不是只报 streaming/cancellation" do
@@ -97,14 +160,15 @@ defmodule NovelAgent.Provider.CapabilityProfileTest do
       assert caps[:structured_output] == false
     end
 
-    test "所有已注册 provider 都声明可证能力，没有漏声明导致设置页/门槛误判" do
+    test "真实生产 registry 为 11 个 provider，stub 已从生产注册退役" do
       previous = Application.get_env(:novel_agent, :extra_providers)
       Application.delete_env(:novel_agent, :extra_providers)
       RuntimeConfig.reset()
 
       try do
         providers = Gateway.registered_providers()
-        assert length(providers) == 12
+        assert length(providers) == 11
+        refute :stub in providers
 
         for provider <- providers do
           facts = Gateway.capability_profile_for(provider)
@@ -144,18 +208,13 @@ defmodule NovelAgent.Provider.CapabilityProfileTest do
     end
   end
 
-  describe "执行边界按实际 route 做最终能力门槛" do
-    test "投影边界通过的 IR 请求，执行到缺能力 route 时被拒绝且不调用 adapter" do
-      assert {:ok, ir} = Operation.prepare(nil, @run, specification())
-      assert {:ok, prompt} = RequestIR.to_provider_prompt(ir)
-      assert %{} = Map.fetch!(prompt, :capability_profile)
-
-      # 投影时默认 route（stub）能力齐全；执行时实际 route 切到缺能力 provider：
-      # 执行边界必须以同一个 route 解析函数派生的能力为准拒绝，而不是信任投影声明。
+  describe "执行边界按实际 route 做能力门槛" do
+    test "请求构造不查默认 route；执行到缺能力 route 时拒绝且不调用 adapter" do
       RuntimeConfig.put_current_provider(:text_only)
+      prepared = prepared_ir()
 
       assert {:error, %{error: error}} =
-               Gateway.execute(prompt, nil, %NovelAgent.Provider.InferenceParams{}, [])
+               Gateway.execute(prepared, nil, %InferenceParams{}, [])
 
       assert error.type == :invalid_request
       assert error.retryable == false
@@ -167,128 +226,96 @@ defmodule NovelAgent.Provider.CapabilityProfileTest do
       refute_received :text_only_adapter_called
     end
 
-    test "同一 route 身份时执行边界信任投影携带的能力事实，不重复派生判缺失" do
-      RuntimeConfig.put_current_provider(:text_only)
+    test "同一 route 能力齐全时执行边界放行" do
+      prepared = prepared_ir()
 
-      # 人为构造「已经按当前 route 派生并校验过」的 IR 请求形状（真实链路由
-      # to_provider_prompt/2 生成）：身份一致时执行边界只信任、不二次派生。
-      facts = Gateway.capability_profile()
+      assert {:ok, %{result: %Result{content: "text"}}} =
+               Gateway.execute(prepared, nil, %InferenceParams{}, provider: :complete)
 
-      prompt = %{
-        messages: [%{role: "user", content: "fixture"}],
-        tools: [],
-        tool_choice: nil,
-        ir_version: "authoring-request-ir/v1",
-        capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true}),
-        provider_route: %{
-          provider: facts.provider,
-          model: facts.model,
-          projection_target: facts.projection_target
-        }
-      }
-
-      assert {:ok, %{result: %NovelAgent.Provider.Result{content: "text"}}} =
-               Gateway.execute(prompt, nil, %NovelAgent.Provider.InferenceParams{}, [])
-
-      assert_received :text_only_adapter_called
+      assert_received :complete_adapter_called
     end
 
-    test "同一条 route 能力齐全时执行边界放行" do
-      assert {:ok, ir} = Operation.prepare(nil, @run, specification())
-      assert {:ok, prompt} = RequestIR.to_provider_prompt(ir)
+    test "请求自带的 projection 任意字段都不参与实际 route 的能力门" do
+      RuntimeConfig.put_current_provider(:text_only)
 
-      assert {:ok, %{result: %NovelAgent.Provider.Result{}}} =
-               Gateway.execute(prompt, nil, %NovelAgent.Provider.InferenceParams{}, [])
+      prepared = prepared_ir()
+
+      forged = %{
+        prepared
+        | projection:
+            Map.merge(prepared.projection, %{
+              capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true}),
+              target: "chat_completions",
+              fake_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
+            })
+      }
+
+      assert {:error, %{error: %{details: %{missing_capabilities: missing}}}} =
+               Gateway.execute(forged, nil, %InferenceParams{}, [])
+
+      assert :tool_calls in missing
+      refute_received :text_only_adapter_called
     end
   end
 
-  describe "finite_mode 必须覆盖缺失能力" do
-    defp projection_with(finite_mode) do
-      %{
-        target: "chat_completions",
-        capability_profile: %{native_multi_turn: true, usage: true},
-        finite_mode: finite_mode
-      }
-    end
-
-    defp ir_with_projection(projection) do
-      RequestIR.new(%{
-        run: %{run_id: "run-finite-mode", work_id: "work-finite-mode"},
-        system: %{identity_ref: "identity:fixture"},
-        messages: [RequestIR.message(:user, :author, [RequestIR.text_block("fixture")])],
-        projection: projection
-      })
-    end
-
+  describe "finite_mode 必须覆盖实际缺失能力" do
     test "未覆盖缺失项的 finite_mode 不能绕过拒绝路由" do
+      RuntimeConfig.put_current_provider(:text_only)
+
       for finite_mode <- [
             %{name: "no_streaming"},
             %{name: "standalone_operation"},
             %{name: "no_tools", not_supported: [:tool_calls]}
           ] do
-        ir = ir_with_projection(projection_with(finite_mode))
+        prepared = prepared_ir(finite_mode: finite_mode)
 
-        assert {:error, {:unsupported_capability, missing}} =
-                 RequestIR.to_provider_prompt(ir)
+        assert {:error, %{error: error}} =
+                 Gateway.execute(prepared, nil, %InferenceParams{}, [])
 
-        assert :tool_results in missing
-        assert :structured_output in missing
+        assert :tool_results in error.details.missing_capabilities
+        assert :structured_output in error.details.missing_capabilities
+        refute_received :text_only_adapter_called
       end
     end
 
-    test "覆盖全部缺失项的有限模式（按 name 或 not_supported 显式声明）可通过" do
-      ir = ir_with_projection(projection_with(%{name: "legacy_prompt"}))
-      assert {:ok, prompt} = RequestIR.to_provider_prompt(ir)
-      assert prompt.finite_mode == %{name: "legacy_prompt"}
+    test "覆盖全部缺失项的有限模式按真实 route 放行" do
+      RuntimeConfig.put_current_provider(:text_only)
 
-      projection =
-        projection_with(%{
-          name: "no_streaming",
-          not_supported: [:tool_calls, :tool_results, :streaming, :structured_output]
-        })
+      finite_mode = %{
+        name: "no_tools",
+        not_supported: [:streaming, :structured_output]
+      }
 
-      assert {:ok, prompt} = RequestIR.to_provider_prompt(ir_with_projection(projection))
+      prepared = prepared_ir(finite_mode: finite_mode)
 
-      assert prompt.finite_mode.not_supported == [
-               :tool_calls,
-               :tool_results,
-               :streaming,
-               :structured_output
-             ]
+      assert {:ok, %{result: %Result{content: "text"}}} =
+               Gateway.execute(prepared, nil, %InferenceParams{}, [])
+
+      assert_received :text_only_adapter_called
     end
   end
 
-  describe "生产者不再写死必备能力" do
-    test "Operation 构造的 projection 不携带全 true 能力声明" do
+  describe "生产者不再写死能力事实" do
+    test "Operation 构造的 projection 不携带 target 或能力声明" do
       assert {:ok, ir} = Operation.prepare(nil, @run, specification())
-      profile = Map.get(ir.projection, :capability_profile) || %{}
-      refute profile[:tool_calls]
-      refute profile[:streaming]
+      assert ir.projection == %{}
+      refute Map.has_key?(ir.projection, :capability_profile)
+      refute Map.has_key?(ir.projection, :target)
     end
 
-    test "缺必备能力的真实 route 在投影时被拒绝路由并给出缺失清单" do
+    test "缺能力的真实 route 仍可完成请求构造，拒绝只发生在执行边界" do
       RuntimeConfig.put_current_provider(:text_only)
 
-      assert {:ok, ir} = Operation.prepare(nil, @run, specification())
+      prepared = prepared_ir()
 
-      assert {:error, {:unsupported_capability, missing}} = RequestIR.to_provider_prompt(ir)
+      assert %RequestIR{} = prepared
+      assert Enum.map(prepared.tools, & &1.name) == ["agent_plan_draft"]
+
+      assert {:error, %{error: %{details: %{missing_capabilities: missing}}}} =
+               Gateway.execute(prepared, nil, %InferenceParams{}, [])
+
       assert :tool_calls in missing
-      assert :tool_results in missing
-      assert :streaming in missing
-      assert :structured_output in missing
-      refute :native_multi_turn in missing
-      refute :usage in missing
-    end
-
-    test "能力齐全的真实 route 仍可投影，并携带能力事实供传输边界消费" do
-      assert {:ok, ir} = Operation.prepare(nil, @run, specification())
-      assert {:ok, prompt} = RequestIR.to_provider_prompt(ir)
-
-      assert %{} = profile = Map.fetch!(prompt, :capability_profile)
-
-      for capability <- RequestIR.required_capabilities() do
-        assert profile[capability] == true
-      end
+      refute_received :text_only_adapter_called
     end
   end
 end

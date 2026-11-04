@@ -12,18 +12,14 @@ defmodule NovelAgent.Provider.GatewayTest do
     @behaviour NovelAgent.Provider
 
     alias NovelAgent.Provider.AdapterExecution
+    alias NovelAgent.Provider.RequestIR
     alias NovelAgent.Provider.Result
 
     defstruct []
 
     @impl true
     def execute(_state, _model, prompt, _params, ctx) do
-      content =
-        prompt
-        |> NovelAgent.Provider.normalize_messages()
-        |> Enum.reject(&(&1.role == "system"))
-        |> List.last()
-        |> Map.get(:content)
+      content = NovelAgent.TestProviderPrompt.author_text(prompt)
 
       AdapterExecution.materialize_result({:ok, Result.new("adapter execute: #{content}")}, ctx)
     end
@@ -32,6 +28,12 @@ defmodule NovelAgent.Provider.GatewayTest do
     def complete(_state, _model, _prompt, _params) do
       raise "Gateway must enter provider execution through execute/5 when the adapter exports it"
     end
+
+    @impl true
+    def capabilities(_state), do: Map.new(RequestIR.required_capabilities(), &{&1, true})
+
+    @impl true
+    def projection_target(_state), do: "chat_completions"
 
     @impl true
     def health_check(_state), do: :ok
@@ -44,6 +46,7 @@ defmodule NovelAgent.Provider.GatewayTest do
     @behaviour NovelAgent.Provider
 
     alias NovelAgent.Provider.AdapterExecution
+    alias NovelAgent.Provider.RequestIR
     alias NovelAgent.Provider.Result
 
     defstruct []
@@ -58,20 +61,55 @@ defmodule NovelAgent.Provider.GatewayTest do
     def complete(_state, _model, _prompt, _params), do: raise("use execute/5")
 
     @impl true
+    def capabilities(_state), do: Map.new(RequestIR.required_capabilities(), &{&1, true})
+
+    @impl true
+    def projection_target(_state), do: "chat_completions"
+
+    @impl true
     def health_check(_state), do: :ok
 
     @impl true
     def name, do: "capturing"
   end
 
+  alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.RequestIR.Projection
+  alias NovelAgent.TestProviderPrompt
+  alias NovelAgent.TestRequestIR
+
+  # 生产 Gateway 只接受 canonical RequestIR；旧测试的文本/messages 参数在这里
+  # 转成等价 canonical 消息（文字内容保持原字节），不改任何产品行为。
+  defp op_ir(text) when is_binary(text), do: TestRequestIR.ir([TestRequestIR.author(text)])
+
+  defp op_ir(messages) when is_list(messages) do
+    TestRequestIR.ir(Enum.map(messages, &canonical_message/1))
+  end
+
+  defp canonical_message(%{role: "system", content: content}), do: TestRequestIR.system(content)
+
+  defp canonical_message(%{role: "assistant", content: content}),
+    do: TestRequestIR.assistant(content)
+
+  defp canonical_message(%{role: "user", content: content}), do: TestRequestIR.author(content)
+
   setup do
     old_extra = Application.get_env(:novel_agent, :extra_providers)
+
+    # 全局 provider 选择/额外 provider 注册是跨 app 共享状态：本文件每个用例都
+    # 在这里有兜底恢复，测试内部临时切换也必须回到进入时的真实值（app 段之间
+    # 共用一个 BEAM，泄漏会把假 provider 带到 web/application 段）。
+    old_provider = Application.get_env(:novel_agent, :provider)
     RuntimeConfig.reset()
 
-    Application.put_env(:novel_agent, :extra_providers, %{
-      slice_verify: NovelAgent.Test.Provider.SliceVerify,
-      capturing: CapturingProvider
-    })
+    Application.put_env(
+      :novel_agent,
+      :extra_providers,
+      Map.merge(Map.new(old_extra || []), %{
+        slice_verify: NovelAgent.Test.Provider.SliceVerify,
+        capturing: CapturingProvider
+      })
+    )
 
     on_exit(fn ->
       RuntimeConfig.reset()
@@ -81,13 +119,18 @@ defmodule NovelAgent.Provider.GatewayTest do
       else
         Application.delete_env(:novel_agent, :extra_providers)
       end
+
+      if old_provider do
+        Application.put_env(:novel_agent, :provider, old_provider)
+      else
+        Application.delete_env(:novel_agent, :provider)
+      end
     end)
   end
 
   describe "registered_providers/0" do
-    test "returns known providers" do
+    test "returns production and explicitly test-registered providers" do
       providers = Gateway.registered_providers()
-      assert :stub in providers
       assert :slice_verify in providers
       assert :lmstudio in providers
       assert :strata in providers
@@ -104,18 +147,27 @@ defmodule NovelAgent.Provider.GatewayTest do
     end
   end
 
-  describe "system identity injection (VS-00H)" do
-    test "注入且仅注入一条 system 身份消息，并把引用写进 ProviderRun" do
+  describe "system identity (VS-00H)" do
+    test "投影只产出一条 system 身份前缀，并把引用写进 ProviderRun" do
       old = Application.get_env(:novel_agent, :provider)
       Application.put_env(:novel_agent, :provider, default: :capturing)
 
       try do
-        assert {:ok, %{provider_run: run}} = Gateway.execute("hello")
+        assert {:ok, %{provider_run: run}} = Gateway.execute(op_ir("hello"))
 
-        assert_receive {:captured_prompt, [system, %{role: "user", content: "hello"}]}
-        assert system.role == "system"
-        assert system.content == SystemIdentity.content()
-        assert SystemIdentity.identity_message?(system)
+        assert_receive {:captured_prompt, %RequestIR{} = captured}
+        assert captured.system.identity_ref == SystemIdentity.identity_ref()
+        assert TestProviderPrompt.author_text(captured) == "hello"
+
+        # 身份文本只由唯一真源在投影时生成一次；请求历史里不存在第二条身份消息。
+        assert {:ok, body} = Projection.project(captured, "chat_completions")
+        [identity | rest] = body.messages
+        assert identity.role == "system"
+        assert String.starts_with?(identity.content, SystemIdentity.content())
+
+        refute Enum.any?(rest, fn message ->
+                 message.role == "system" and String.contains?(message.content, "AI Novel Studio")
+               end)
 
         assert run.metadata[:system_identity_ref] == SystemIdentity.identity_ref()
       after
@@ -128,34 +180,22 @@ defmodule NovelAgent.Provider.GatewayTest do
       Application.put_env(:novel_agent, :provider, default: :capturing)
 
       try do
-        assert {:ok, _} = Gateway.execute("第一次判断调用")
-        assert {:ok, _} = Gateway.execute("第二次判断调用")
+        assert {:ok, _} = Gateway.execute(op_ir("第一次判断调用"))
+        assert {:ok, _} = Gateway.execute(op_ir("第二次判断调用"))
 
-        assert_receive {:captured_prompt, first}
-        assert_receive {:captured_prompt, second}
+        assert_receive {:captured_prompt, %RequestIR{} = first}
+        assert_receive {:captured_prompt, %RequestIR{} = second}
 
-        [first_system | _] = first
-        [second_system | _] = second
+        assert first.system.identity_ref == second.system.identity_ref
 
-        assert first_system.content == SystemIdentity.content()
-        assert second_system.content == SystemIdentity.content()
-        assert first_system.metadata == second_system.metadata
-      after
-        Application.put_env(:novel_agent, :provider, old)
-      end
-    end
+        assert {:ok, first_body} = Projection.project(first, "chat_completions")
+        assert {:ok, second_body} = Projection.project(second, "chat_completions")
 
-    test "已有身份标记的 prompt 不重复注入" do
-      old = Application.get_env(:novel_agent, :provider)
-      Application.put_env(:novel_agent, :provider, default: :capturing)
+        [first_system | _] = first_body.messages
+        [second_system | _] = second_body.messages
 
-      [system | _] = elem(SystemIdentity.inject("hello"), 0)
-      prompt = [system, %{role: "user", content: "hello"}]
-
-      try do
-        assert {:ok, _} = Gateway.execute(prompt)
-        assert_receive {:captured_prompt, ^prompt}
-        assert Enum.count(prompt, &SystemIdentity.identity_message?/1) == 1
+        assert first_system.content == second_system.content
+        assert String.starts_with?(first_system.content, SystemIdentity.content())
       after
         Application.put_env(:novel_agent, :provider, old)
       end
@@ -331,7 +371,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       capture_strata_wire(model: "global-model", purpose_models: %{writer: "writer-model"})
 
       assert {:ok, %{provider_run: run}} =
-               Gateway.execute(routing_tool_prompt(), nil, InferenceParams.new(),
+               Gateway.execute(routing_tool_ir(), nil, InferenceParams.new(),
                  provider: :strata,
                  purpose: :writer
                )
@@ -345,7 +385,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       capture_strata_wire(model: "global-model", purpose_models: %{writer: "writer-model"})
 
       assert {:ok, %{provider_run: run}} =
-               Gateway.execute(routing_tool_prompt(), "explicit-model", InferenceParams.new(),
+               Gateway.execute(routing_tool_ir(), "explicit-model", InferenceParams.new(),
                  provider: :strata,
                  purpose: :writer
                )
@@ -362,7 +402,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       )
 
       assert {:ok, %{provider_run: run}} =
-               Gateway.execute(routing_tool_prompt(), nil, InferenceParams.new(),
+               Gateway.execute(routing_tool_ir(), nil, InferenceParams.new(),
                  provider: :strata,
                  purpose: :writer,
                  route_hint: :fact_inventory
@@ -377,7 +417,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       capture_strata_wire(model: nil)
 
       assert {:ok, _execution} =
-               Gateway.execute(routing_tool_prompt(), nil, InferenceParams.new(),
+               Gateway.execute(routing_tool_ir(), nil, InferenceParams.new(),
                  provider: :strata,
                  purpose: :writer
                )
@@ -390,13 +430,13 @@ defmodule NovelAgent.Provider.GatewayTest do
       RuntimeConfig.put_provider_config(:stub, purpose_models: %{writer: "m-d6-writer"})
 
       assert {:ok, %{provider_run: %{model: "m-d6-writer"}}} =
-               Gateway.execute("d6 route", nil, InferenceParams.new(),
+               Gateway.execute(op_ir("d6 route"), nil, InferenceParams.new(),
                  provider: :stub,
                  purpose: :writer
                )
 
       assert {:ok, %{provider_run: %{model: model}}} =
-               Gateway.execute("d6 route", nil, InferenceParams.new(),
+               Gateway.execute(op_ir("d6 route"), nil, InferenceParams.new(),
                  provider: :stub,
                  purpose: :conversation
                )
@@ -410,7 +450,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       )
 
       assert {:ok, %{provider_run: %{model: "m-d6-inventory"}}} =
-               Gateway.execute("d6 route", nil, InferenceParams.new(),
+               Gateway.execute(op_ir("d6 route"), nil, InferenceParams.new(),
                  provider: :stub,
                  purpose: :tool,
                  route_hint: :fact_inventory
@@ -421,7 +461,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       RuntimeConfig.put_provider_config(:stub, purpose_models: %{writer: "m-d6-writer"})
 
       assert {:ok, %{provider_run: %{model: "m-explicit"}}} =
-               Gateway.execute("d6 route", "m-explicit", InferenceParams.new(),
+               Gateway.execute(op_ir("d6 route"), "m-explicit", InferenceParams.new(),
                  provider: :stub,
                  purpose: :writer
                )
@@ -429,7 +469,7 @@ defmodule NovelAgent.Provider.GatewayTest do
 
     test "empty table and unrouted purposes follow the global default untouched" do
       assert {:ok, %{provider_run: %{model: unrouted}}} =
-               Gateway.execute("d6 route", nil, InferenceParams.new(),
+               Gateway.execute(op_ir("d6 route"), nil, InferenceParams.new(),
                  provider: :stub,
                  purpose: :writer
                )
@@ -437,7 +477,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       RuntimeConfig.put_provider_config(:stub, purpose_models: %{evaluator: "m-d6-eval"})
 
       assert {:ok, %{provider_run: %{model: ^unrouted}}} =
-               Gateway.execute("d6 route", nil, InferenceParams.new(),
+               Gateway.execute(op_ir("d6 route"), nil, InferenceParams.new(),
                  provider: :stub,
                  purpose: :writer
                )
@@ -495,7 +535,7 @@ defmodule NovelAgent.Provider.GatewayTest do
                  })
 
         assert Gateway.provider_metadata() == %{provider: :deepseek, model: "deepseek-v4-pro"}
-        assert {:ok, %{content: "runtime deepseek"}} = Gateway.complete("hello")
+        assert {:ok, %{content: "runtime deepseek"}} = Gateway.complete(op_ir("hello"))
         assert_receive {:body, body}
         assert body.model == "deepseek-v4-pro"
         assert body.stream == true
@@ -793,7 +833,7 @@ defmodule NovelAgent.Provider.GatewayTest do
                 output: output,
                 result: result
               }} =
-               Gateway.execute("hello novel", nil, %InferenceParams{},
+               Gateway.execute(op_ir("hello novel"), nil, %InferenceParams{},
                  purpose: :writer,
                  provider_call_ref: "pcall_gateway_test",
                  owner_refs: %{"run_ref" => "run_gateway_test", "step_ref" => "step_gateway_test"}
@@ -841,7 +881,7 @@ defmodule NovelAgent.Provider.GatewayTest do
                 output: output,
                 error: error
               }} =
-               Gateway.execute("hello novel", nil, %InferenceParams{},
+               Gateway.execute(op_ir("hello novel"), nil, %InferenceParams{},
                  provider: :missing_provider,
                  provider_call_ref: "pcall_gateway_error"
                )
@@ -873,7 +913,7 @@ defmodule NovelAgent.Provider.GatewayTest do
                 output: output,
                 result: result
               }} =
-               Gateway.execute("adapter boundary", nil, %InferenceParams{},
+               Gateway.execute(op_ir("adapter boundary"), nil, %InferenceParams{},
                  provider: :execute_only,
                  purpose: :tool,
                  provider_call_ref: "pcall_execute_only"
@@ -899,7 +939,7 @@ defmodule NovelAgent.Provider.GatewayTest do
     end
 
     test "returns echo content from stub" do
-      assert {:ok, %{content: content}} = Gateway.complete("hello novel")
+      assert {:ok, %{content: content}} = Gateway.complete(op_ir("hello novel"))
       assert content =~ "hello novel"
       refute content =~ "[stub]"
     end
@@ -917,7 +957,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       try do
         prompt = "hello novel secret-marker"
 
-        assert {:ok, %{content: content}} = Gateway.complete(prompt)
+        assert {:ok, %{content: content}} = Gateway.complete(op_ir(prompt))
         assert content != ""
         refute content =~ "[stub]"
 
@@ -944,7 +984,7 @@ defmodule NovelAgent.Provider.GatewayTest do
     end
 
     test "works with empty prompt" do
-      assert {:ok, %{content: content}} = Gateway.complete("")
+      assert {:ok, %{content: content}} = Gateway.complete(op_ir(""))
       assert content != ""
       refute content =~ "[stub]"
     end
@@ -965,7 +1005,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       只返回 JSON 数组。
       """
 
-      assert {:ok, %{content: content}} = Gateway.complete(prompt)
+      assert {:ok, %{content: content}} = Gateway.complete(op_ir(prompt))
       assert {:ok, [item]} = Jason.decode(content)
       assert item["body"] =~ "8cde8315"
       assert item["body"] =~ "灵气账单"
@@ -989,7 +1029,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       只返回 JSON 数组。
       """
 
-      assert {:ok, %{content: content}} = Gateway.complete(prompt)
+      assert {:ok, %{content: content}} = Gateway.complete(op_ir(prompt))
       assert {:ok, [item]} = Jason.decode(content)
       assert item["title"] =~ "沈砚"
       assert item["body"] =~ "定位："
@@ -1028,17 +1068,18 @@ defmodule NovelAgent.Provider.GatewayTest do
       )
 
       try do
-        assert {:ok, %{content: "deepseek ok"}} = Gateway.complete("hello")
+        assert {:ok, %{content: "deepseek ok"}} = Gateway.complete(op_ir("hello"))
         assert_receive {:deepseek_body, body}
         assert body.model == "deepseek-v4-flash"
         assert body.stream == true
 
+        # 身份前缀由唯一真源生成，作者原话保持独立 user 消息、字节不变。
         assert [
                  %{role: "system", content: system_content},
                  %{role: "user", content: "hello"}
                ] = body.messages
 
-        assert system_content == SystemIdentity.content()
+        assert String.starts_with?(system_content, SystemIdentity.content())
       after
         Application.put_env(:novel_agent, :provider, old_provider)
         Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek, old_deepseek)
@@ -1052,7 +1093,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       Application.put_env(:novel_agent, :provider, default: :slice_verify)
 
       try do
-        assert {:ok, %{content: content}} = Gateway.complete("分析用户消息并返回 JSON")
+        assert {:ok, %{content: content}} = Gateway.complete(op_ir("分析用户消息并返回 JSON"))
         assert {:ok, parsed} = Jason.decode(content)
         assert parsed["frame_type"] == "casual_reply"
         assert is_binary(parsed["assistant_message"])
@@ -1078,7 +1119,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       """
 
       try do
-        assert {:ok, %{content: content}} = Gateway.complete(prompt)
+        assert {:ok, %{content: content}} = Gateway.complete(op_ir(prompt))
         assert {:ok, parsed} = Jason.decode(content)
         assert parsed["frame_type"] == "casual_reply"
         assert parsed["candidate_directions"] == []
@@ -1104,7 +1145,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       """
 
       try do
-        assert {:ok, %{content: content}} = Gateway.complete(prompt)
+        assert {:ok, %{content: content}} = Gateway.complete(op_ir(prompt))
         assert {:ok, parsed} = Jason.decode(content)
         assert parsed["frame_type"] == "creative_exploration"
         assert length(parsed["candidate_directions"]) == 2
@@ -1125,7 +1166,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       ]
 
       try do
-        assert {:ok, %{content: content}} = Gateway.complete(messages)
+        assert {:ok, %{content: content}} = Gateway.complete(op_ir(messages))
         assert {:ok, parsed} = Jason.decode(content)
         assert parsed["frame_type"] == "casual_reply"
         assert parsed["candidate_directions"] == []
@@ -1148,7 +1189,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       """
 
       try do
-        assert {:ok, %{content: content}} = Gateway.complete(prompt)
+        assert {:ok, %{content: content}} = Gateway.complete(op_ir(prompt))
         assert content =~ "已生成角色设定草案"
         refute content =~ "\"frame_type\""
         refute content =~ "\"candidate_directions\""
@@ -1178,7 +1219,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       """
 
       try do
-        assert {:ok, %{content: content}} = Gateway.complete(prompt)
+        assert {:ok, %{content: content}} = Gateway.complete(op_ir(prompt))
         assert {:ok, %{"items" => [item], "self_report" => self_report}} = Jason.decode(content)
         assert item["title"] =~ "底层灵气账单"
         assert item["body"] =~ "灵气账单"
@@ -1226,7 +1267,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       )
 
       assert {:ok, %{provider_run: run, output: output}} =
-               Gateway.execute(tool_prompt(), nil, %InferenceParams{},
+               Gateway.execute(tool_ir(), nil, %InferenceParams{},
                  provider: :strata,
                  provider_call_ref: "pcall-log-success",
                  provider_run_id: "prun-log-success"
@@ -1261,7 +1302,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       )
 
       assert {:error, %{provider_run: run, output: output, error: error}} =
-               Gateway.execute(tool_prompt(), nil, %InferenceParams{},
+               Gateway.execute(tool_ir(), nil, %InferenceParams{},
                  provider: :strata,
                  provider_call_ref: "pcall-log-error",
                  provider_run_id: "prun-log-error"
@@ -1285,12 +1326,11 @@ defmodule NovelAgent.Provider.GatewayTest do
       refute Keyword.has_key?(Logger.metadata(), :provider_run_ref)
     end
 
-    defp tool_prompt do
-      %{
-        messages: [%{role: "user", content: "读取当前作品。"}],
-        tools: [%{name: "read_work", description: "读取作品", input_schema: %{type: "object"}}],
-        tool_choice: "read_work"
-      }
+    defp tool_ir do
+      TestRequestIR.ir([TestRequestIR.author("读取当前作品。")],
+        tools: [TestRequestIR.tool("read_work")],
+        projection: %{tool_choice: "read_work"}
+      )
     end
 
     defp read_llm_records(dir) do
@@ -1313,7 +1353,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       old = Application.get_env(:novel_agent, :provider)
       Application.put_env(:novel_agent, :provider, default: :nonexistent)
 
-      result = Gateway.complete("test")
+      result = Gateway.complete(op_ir("test"))
       assert {:error, error} = result
       assert is_map(error)
       assert error.type == :provider_internal
@@ -1380,12 +1420,11 @@ defmodule NovelAgent.Provider.GatewayTest do
     RuntimeConfig.put_provider_config(:strata, Keyword.put(config, :http_fn, http))
   end
 
-  defp routing_tool_prompt do
-    %{
-      messages: [%{role: "user", content: "读取当前作品。"}],
-      tools: [%{name: "read_work", description: "读取作品", input_schema: %{type: "object"}}],
-      tool_choice: "auto"
-    }
+  defp routing_tool_ir do
+    TestRequestIR.ir([TestRequestIR.author("读取当前作品。")],
+      tools: [TestRequestIR.tool("read_work")],
+      projection: %{tool_choice: "auto"}
+    )
   end
 
   defp sse_delta(content, model, usage \\ nil) do

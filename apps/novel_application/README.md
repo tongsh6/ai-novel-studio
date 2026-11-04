@@ -20,6 +20,10 @@ and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
 be found at <https://hexdocs.pm/novel_application>.
 
 
+## 测试索引
+
+- [test/README.md](test/README.md)：novel_application 测试入口与共享夹具索引（含 R1 初始快照测试、`RequestIR` 断言约定）。
+
 ## 消息闭环索引（ADR-0027）
 
 - [lib/novel_application/turn_interaction_service.ex](lib/novel_application/turn_interaction_service.ex)：ADR-0027 消息接收、运行结果记录与历史来源校验入口。
@@ -75,7 +79,7 @@ be found at <https://hexdocs.pm/novel_application>.
 
 ## B71 判断失败私有历史（VS-00L §16.7–16.8）
 
-- [judgment_protocol.ex](lib/novel_application/judgment_protocol.ex)：成功/终局拒绝/传输错误统一返回真实私有会话 `{:error, reason, state}`；终局拒绝先用既有 `correction_transcript/2` 闭合末次原生调用，调用数只记本次实际 delta；纯前置/0 调用错误仍保持裸 error。
+- [judgment_protocol.ex](lib/novel_application/judgment_protocol.ex)：成功/终局拒绝/传输错误统一返回真实私有会话 `{:error, reason, state}`；终局拒绝先用既有 `correction_transcript/2` 闭合末次原生调用，调用数只记本次实际 delta；纯前置/0 调用错误仍保持裸 error。R1 起生产请求入口为 `request_for_production/2`（canonical IR + `RequestIR.prepare_request/2`），首次构造一次生成实际 scope（VS-00L §19.2），能力门归 Gateway 实际 route。
 - [dialogue_planning_service.ex](lib/novel_application/dialogue_planning_service.ex)、[prose_drafting_with_quality.ex](lib/novel_application/agent_run_flows/prose_drafting_with_quality.ex)：判断/续行的生产消费者在协议失败、后置业务校验/派发/续行后处理失败时继承最新私有会话；inner 已带更新会话时不被较旧判断会话覆盖。
 - [authoring_session.ex](lib/novel_application/agent_run_flows/authoring_session.ex)：`failure_state/1` 与 `inherit_failure/2` 复用既有 `transcript_state`/tuple3 carrier，不新增序列化副本；inner 的 flat/nested 私有会话先归并为唯一 flat canonical，显式 nil 不覆盖有效别名，两个非 nil 别名不一致时以固定安全 reason 拒绝，私有事实不进 reason/公开 TurnResult。
 - [judgment_protocol_test.exs](test/novel_application/judgment_protocol_test.exs)：两次非法 pending ref 的终局拒绝保留 2 次实际调用、2 assistant+2 failed validation、原始参数/id 与 pcall/prun，且无第三次调用；混合校验/传输错误、全传输错误、0 调用前置错误与续行历史前缀回归。

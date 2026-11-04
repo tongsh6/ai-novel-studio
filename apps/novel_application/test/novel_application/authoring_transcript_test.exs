@@ -1,7 +1,6 @@
 defmodule NovelApplication.AuthoringTranscriptTest do
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider
   alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.RequestIR.{Compaction, Projection}
   alias NovelApplication.AuthoringTranscript
@@ -16,16 +15,13 @@ defmodule NovelApplication.AuthoringTranscriptTest do
     [%{name: "read_character", description: "读取角色", input_schema: %{type: "object"}}]
   end
 
-  defp full_caps, do: Map.new(RequestIR.required_capabilities(), &{&1, true})
-
   defp base_transcript do
     AuthoringTranscript.new(run(),
       base_text: "run goal: 读取角色事实后给出 tentative 候选",
       author_text: @author_text,
       author_turn_ref: "author_turn:turn-1",
       base_refs: [%{ref: "work:work-1", version: 3}],
-      tools: tools(),
-      projection: %{target: "chat_completions", capability_profile: full_caps()}
+      tools: tools()
     )
   end
 
@@ -54,7 +50,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
     assert :ok = RequestIR.validate(ir)
 
-    assert {:ok, body} = Projection.project(ir)
+    assert {:ok, body} = Projection.project(ir, "chat_completions")
     assistant = Enum.find(body.messages, &(&1.role == "assistant"))
     assert [%{id: "call-1", function: %{name: "read_character"}}] = assistant.tool_calls
 
@@ -87,7 +83,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
       })
 
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
-    assert {:ok, body} = Projection.project(ir)
+    assert {:ok, body} = Projection.project(ir, "chat_completions")
 
     tool = Enum.find(body.messages, &(&1.role == "tool"))
     assert tool.content =~ "failed"
@@ -107,7 +103,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
       |> AuthoringTranscript.append_observation("call-1", observation())
 
     assert {:ok, first_ir} = AuthoringTranscript.to_request_ir(first)
-    assert {:ok, first_body} = Projection.project(first_ir)
+    assert {:ok, first_body} = Projection.project(first_ir, "chat_completions")
 
     second =
       AuthoringTranscript.append_scope_update(first, "读取预算关闭；作品 revision=4", %{
@@ -116,7 +112,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
       })
 
     assert {:ok, second_ir} = AuthoringTranscript.to_request_ir(second)
-    assert {:ok, second_body} = Projection.project(second_ir)
+    assert {:ok, second_body} = Projection.project(second_ir, "chat_completions")
 
     assert Enum.take(second_body.messages, length(first_body.messages)) == first_body.messages
     assert List.last(second_body.messages).content =~ "读取预算关闭"
@@ -131,7 +127,10 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     assert {:ok, restored_transcript} = restored
     assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored_transcript)
-    assert Projection.project(restored_ir) == Projection.project(second_ir)
+
+    assert Projection.project(restored_ir, "chat_completions") ==
+             Projection.project(second_ir, "chat_completions")
+
     assert AuthoringTranscript.current_scope(restored_transcript).versions["scope_revision"] == 2
   end
 
@@ -162,7 +161,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
       |> AuthoringTranscript.append_validation("call-raw", "passed", "input_validated")
 
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
-    assert {:ok, body} = Projection.project(ir)
+    assert {:ok, body} = Projection.project(ir, "chat_completions")
     assistant = Enum.find(body.messages, &(&1.role == "assistant"))
     refute Map.has_key?(assistant, :reasoning_content)
     refute Map.has_key?(assistant, :provider_state)
@@ -170,8 +169,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
     assert hd(assistant.tool_calls).function.arguments ==
              "{ \"character_ref\" : \"character:1\" }"
 
-    assert {:ok, bridge} = RequestIR.to_provider_prompt(ir)
-    assert Enum.find(bridge.messages, &(&1.role == "assistant")).provider_state == private_state
+    assert Enum.find(ir.messages, &(&1.role == "assistant")).provider_state == private_state
 
     assert {:ok, restored} =
              transcript
@@ -182,17 +180,15 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     assert Enum.find(restored.messages, &(&1.role == "assistant")).provider_state == private_state
     assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored)
-    assert Projection.project(restored_ir) == {:ok, body}
-    assert {:ok, restored_bridge} = RequestIR.to_provider_prompt(restored_ir)
-    assert Provider.normalize_messages(restored_bridge) == Provider.normalize_messages(bridge)
-    assert wire_tools(restored_bridge) == wire_tools(bridge)
+    assert Projection.project(restored_ir, "chat_completions") == {:ok, body}
+    assert restored_ir.messages == ir.messages
 
-    assert Enum.find(restored_bridge.messages, &(&1.role == "assistant")).provider_state ==
+    assert Enum.find(restored_ir.messages, &(&1.role == "assistant")).provider_state ==
              private_state
 
     for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
-      assert {:ok, projected_ir} = AuthoringTranscript.to_request_ir(restored, target: target)
-      assert {:ok, projected} = Projection.project(projected_ir)
+      assert {:ok, projected_ir} = AuthoringTranscript.to_request_ir(restored)
+      assert {:ok, projected} = Projection.project(projected_ir, target)
       refute Jason.encode!(projected) =~ "provider-private-reasoning-handle"
       refute Jason.encode!(projected) =~ "opaque-value"
     end
@@ -227,7 +223,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
     assert Enum.at(blocks, 2).provider_call_id == "native-dup"
 
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
-    assert {:ok, body} = Projection.project(ir)
+    assert {:ok, body} = Projection.project(ir, "chat_completions")
 
     assert {:ok, restored} =
              transcript
@@ -244,11 +240,11 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     assert restored_blocks == blocks
     assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored)
-    assert Projection.project(restored_ir) == {:ok, body}
+    assert Projection.project(restored_ir, "chat_completions") == {:ok, body}
 
     for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
-      assert {:ok, projected_ir} = AuthoringTranscript.to_request_ir(restored, target: target)
-      assert {:ok, projected} = Projection.project(projected_ir)
+      assert {:ok, projected_ir} = AuthoringTranscript.to_request_ir(restored)
+      assert {:ok, projected} = Projection.project(projected_ir, target)
       refute Jason.encode!(projected) =~ "provider_call_id"
     end
   end
@@ -329,7 +325,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
   test "application_base 带 provenance 标记，不冒充作者消息（I-ART-3）" do
     {:ok, ir} = AuthoringTranscript.to_request_ir(base_transcript())
-    {:ok, body} = Projection.project(ir)
+    {:ok, body} = Projection.project(ir, "chat_completions")
 
     application_message =
       Enum.find(body.messages, &(is_binary(&1.content) and &1.content =~ "application_base"))
@@ -349,7 +345,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
       })
 
     {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
-    {:ok, body} = Projection.project(ir)
+    {:ok, body} = Projection.project(ir, "chat_completions")
     tool = Enum.find(body.messages, &(&1.role == "tool"))
     assert tool.content =~ "unavailable"
     assert tool.content =~ "chapters"
@@ -370,7 +366,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
       })
 
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
-    {:ok, body} = Projection.project(ir)
+    {:ok, body} = Projection.project(ir, "chat_completions")
 
     checkpoint_message =
       Enum.find(body.messages, &(is_binary(&1.content) and &1.content =~ "checkpoint"))
@@ -399,8 +395,8 @@ defmodule NovelApplication.AuthoringTranscriptTest do
     assert {:error, :checkpoint_already_applied} = compact(compacted, ["call-1"], "不同摘要")
 
     for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
-      assert {:ok, ir} = AuthoringTranscript.to_request_ir(compacted, target: target)
-      assert {:ok, body} = Projection.project(ir)
+      assert {:ok, ir} = AuthoringTranscript.to_request_ir(compacted)
+      assert {:ok, body} = Projection.project(ir, target)
       refute provider_call_ids(body) |> Enum.member?("call-1")
       assert inspect(body) =~ "已读取角色"
       assert inspect(body) =~ @author_text
@@ -419,8 +415,11 @@ defmodule NovelApplication.AuthoringTranscriptTest do
     assert inspect(restored.messages) =~ "ENSEMBLE_POV"
     assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored)
 
-    assert Projection.project(restored_ir) ==
-             Projection.project(elem(AuthoringTranscript.to_request_ir(compacted), 1))
+    assert Projection.project(restored_ir, "chat_completions") ==
+             Projection.project(
+               elem(AuthoringTranscript.to_request_ir(compacted), 1),
+               "chat_completions"
+             )
   end
 
   test "压缩必须精确选择实际已闭合交换，不接受任意范围说明" do
@@ -455,14 +454,14 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     assert {:ok, first} = compact(transcript, ["call-2"])
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(first)
-    assert {:ok, body} = Projection.project(ir)
+    assert {:ok, body} = Projection.project(ir, "chat_completions")
     assert provider_call_ids(body) == ["call-1", "call-1"]
 
     assert {:ok, second} = compact(first, ["call-1"])
     assert Enum.take(second.messages, length(transcript.messages)) == transcript.messages
     assert Enum.count(second.messages, &(&1.role == "checkpoint")) == 2
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(second)
-    assert {:ok, body} = Projection.project(ir)
+    assert {:ok, body} = Projection.project(ir, "chat_completions")
     assert provider_call_ids(body) == []
     assert {:error, :checkpoint_already_applied} = compact(second, ["call-1", "call-2"])
   end
@@ -541,7 +540,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     assert [%{arguments: ^arguments}] = call
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(restored)
-    assert {:ok, request} = Projection.project(ir)
+    assert {:ok, request} = Projection.project(ir, "chat_completions")
     refute Jason.encode!(request) =~ "雨落在门槛上"
     assert inspect(request) =~ "尚未采纳"
   end
@@ -554,7 +553,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
       |> AuthoringTranscript.append_checkpoint(%{turn_range: "turn-1"}, [], %{}, [], "旧版摘要")
 
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
-    assert {:ok, request} = Projection.project(ir)
+    assert {:ok, request} = Projection.project(ir, "chat_completions")
     assert provider_call_ids(request) == ["call-1", "call-1"]
   end
 
@@ -576,7 +575,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
              Enum.any?(message.blocks, &(Map.get(&1, :call_id) == "pending-call"))
            end)
 
-    assert {:error, {:pending_tool_calls, ["pending-call"]}} = RequestIR.to_provider_prompt(ir)
+    assert {:error, {:pending_tool_calls, ["pending-call"]}} = RequestIR.prepare_request(ir)
   end
 
   test "损坏的持久 transcript 在恢复边界返回错误而不是抛异常" do
@@ -642,9 +641,11 @@ defmodule NovelApplication.AuthoringTranscriptTest do
       assert observation.versions == %{"archive:fixture" => 7}
 
       for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
-        assert {:ok, fresh_ir} = AuthoringTranscript.to_request_ir(before, target: target)
-        assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored, target: target)
-        assert Projection.project(fresh_ir) == Projection.project(restored_ir)
+        assert {:ok, fresh_ir} = AuthoringTranscript.to_request_ir(before)
+        assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored)
+
+        assert Projection.project(fresh_ir, target) ==
+                 Projection.project(restored_ir, target)
       end
     end
   end
@@ -684,8 +685,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
       AuthoringTranscript.new(run(),
         base_text: "稳定 Base",
         author_text: "  作者原话\n\n  第二段  ",
-        tools: tools(),
-        projection: %{target: "chat_completions", capability_profile: full_caps()}
+        tools: tools()
       )
       |> AuthoringTranscript.append_assistant("", [
         RequestIR.tool_call_block(
@@ -728,10 +728,10 @@ defmodule NovelApplication.AuthoringTranscriptTest do
              |> AuthoringTranscript.restore()
 
     for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
-      assert {:ok, fresh_ir} = AuthoringTranscript.to_request_ir(transcript, target: target)
-      assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored, target: target)
-      assert {:ok, fresh_body} = Projection.project(fresh_ir)
-      assert {:ok, restored_body} = Projection.project(restored_ir)
+      assert {:ok, fresh_ir} = AuthoringTranscript.to_request_ir(transcript)
+      assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored)
+      assert {:ok, fresh_body} = Projection.project(fresh_ir, target)
+      assert {:ok, restored_body} = Projection.project(restored_ir, target)
       assert restored_body == fresh_body
       assert Jason.encode!(restored_body) == Jason.encode!(fresh_body)
     end
@@ -789,11 +789,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
     AuthoringTranscript.new(%{run_id: "recovery-local-fixture"},
       base_text: "保留真实历史。",
       author_text: "  作者原话\n",
-      tools: [%{name: "archive_read", input_schema: %{type: "object"}}],
-      projection: %{
-        target: "chat_completions",
-        capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-      }
+      tools: [%{name: "archive_read", input_schema: %{type: "object"}}]
     )
     |> AuthoringTranscript.append_assistant("", [
       RequestIR.tool_call_block("archive_read", %{"query" => "fixture"}, "fixture-read")
@@ -857,13 +853,6 @@ defmodule NovelApplication.AuthoringTranscriptTest do
           do: id
 
     block_ids ++ message_ids
-  end
-
-  defp wire_tools(prompt) do
-    %{}
-    |> Provider.put_openai_tools(prompt)
-    |> Jason.encode!()
-    |> Jason.decode!()
   end
 
   test "回答回合写入来源元数据：canonical transcript 可区分回答与普通作者请求" do

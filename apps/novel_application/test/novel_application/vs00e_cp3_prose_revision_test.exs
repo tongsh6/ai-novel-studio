@@ -233,7 +233,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
     assert Map.get(revised, :body) == @revised_body
 
     assert_receive {:revision_prompt, prompt}
-    assert NovelAgent.Provider.prompt_text(prompt) =~ @bad_prose
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt) =~ @bad_prose
     assert user_texts(transcript) == ["把这一段改得更有压迫感。"]
 
     [original] = source.adoption_state.pending
@@ -291,7 +291,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
     assert Enum.take(transcript.messages, length(prior.messages)) == prior.messages
 
     assert_receive {:revision_prompt, first_prompt}
-    assert NovelAgent.Provider.prompt_text(first_prompt) =~ @bad_prose
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(first_prompt) =~ @bad_prose
 
     calls = tool_call_blocks(transcript)
     assert length(calls) == 1
@@ -471,7 +471,9 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
       DialogueGateway.handle_action(input, source, revise_complete(agent))
 
     {revision_turn,
-     agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1)}
+     agent
+     |> Agent.get(& &1)
+     |> Enum.map_join("\n\n", &NovelApplication.TestAgenticLoopFixtures.prompt_text/1)}
   end
 
   defp revise_action(turn_result) do
@@ -713,11 +715,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
       AuthoringTranscript.new(run,
         base_text: "角色规则：只提出待作者审阅的候选，不执行采纳。",
         author_text: "把这一段改得更有压迫感。",
-        tools: [],
-        projection: %{
-          target: "chat_completions",
-          capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-        }
+        tools: []
       )
 
     %{stage_state: %{judgment_transcript: transcript}}

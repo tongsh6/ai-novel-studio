@@ -2,7 +2,8 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.{Execution, RequestIR}
+  alias NovelAgent.Provider.RequestIR.Projection
   alias NovelApplication.AgentRunService
   alias NovelApplication.{DialoguePlanningService, WorkService}
   alias NovelCommon.Contracts.ProviderOutput
@@ -100,14 +101,15 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
              first_prompt_map.messages
 
     tool_message = Enum.find(observed_prompt.messages, &(&1.role == "tool"))
-    assert is_binary(tool_message.tool_call_id)
-    assert tool_message.content =~ "灵气账单"
+    observation_block = Enum.find(tool_message.blocks, &(&1.type == "observation"))
+    assert is_binary(observation_block.call_id)
+    assert Jason.encode!(observation_block.content) =~ "灵气账单"
 
-    application_base =
-      Enum.find(observed_prompt.messages, &String.starts_with?(&1.content, "【应用数据"))
+    application_base = Enum.find(observed_prompt.messages, &(&1.role == "application_base"))
+    assert application_base
 
-    refute application_base.content =~ "### 观察 "
-    refute application_base.content =~ "陈九斤蹲在矿区"
+    refute NovelApplication.TestAgenticLoopFixtures.message_text(application_base) =~ "### 观察 "
+    refute NovelApplication.TestAgenticLoopFixtures.message_text(application_base) =~ "陈九斤蹲在矿区"
 
     # reply 收束：回复引用检索事实
     assert reply_result.provider_call_count == 1
@@ -332,9 +334,9 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
     assert second_prompt_map
     tool_message = Enum.find(second_prompt_map.messages, &(&1.role == "tool"))
-    observation = Jason.decode!(tool_message.content)
-    assert observation["next_offset"] == 6000
-    assert chapter_ref in observation["source_refs"]
+    observation = Enum.find(tool_message.blocks, &(&1.type == "observation"))
+    assert observation.next_offset == 6000
+    assert chapter_ref in observation.source_refs
 
     # 第 3 轮：reply 引用末页独有事实（字节透传观察），单一 turn 收束
     snapshot3 = %{empty | stage_state: Map.merge(snapshot2.stage_state, explore2.stage_state)}
@@ -353,20 +355,31 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert Enum.take(third_prompt_map.messages, length(second_prompt_map.messages)) ==
              second_prompt_map.messages
 
+    # G7：scope 只追加、旧版本仅作历史证据；「最新 scope」必须取最后一条，
+    # 不能取首条（首条是探索开放时的历史版本，目录仍在文本里）。
     latest_scope =
       third_prompt_map.messages
-      |> Enum.filter(&String.starts_with?(&1.content, "【应用数据 · scope_update"))
+      |> Enum.filter(&(&1.role == "scope_update"))
       |> List.last()
 
-    refute latest_scope.content =~ "## 探索目录"
-    assert latest_scope.content =~ "只读探索当前允许：false"
-    assert latest_scope.content =~ ~s("scope_revision":3)
+    assert latest_scope
+
+    # 版本是 canonical scope 的结构化事实；文本断言读 provider 实际可读的投影文本
+    # （含版本头 + scope 正文），而不是只看消息文本块。
+    assert latest_scope.versions["scope_revision"] == 3
+
+    latest_scope_text =
+      Projection.scope_update_text(latest_scope)
+
+    refute latest_scope_text =~ "## 探索目录"
+    assert latest_scope_text =~ "只读探索当前允许：false"
+    assert latest_scope_text =~ ~s("scope_revision":3)
 
     # B27 CP4 retest5 M18：预算关闭时如实投影「已执行来源/预算已用尽/不是能力缺失」
-    assert latest_scope.content =~ "## 探索预算状态（机械事实）"
-    assert latest_scope.content =~ "只读探索预算已用尽"
-    assert latest_scope.content =~ "不是系统没有探索能力"
-    assert latest_scope.content =~ "已执行来源：chapter_read"
+    assert latest_scope_text =~ "## 探索预算状态（机械事实）"
+    assert latest_scope_text =~ "只读探索预算已用尽"
+    assert latest_scope_text =~ "不是系统没有探索能力"
+    assert latest_scope_text =~ "已执行来源：chapter_read"
     # I-READ-9：模型可见章节索引同时给出 chapter_ref 与 seq/title。
     assert third_prompt =~ "[chapter_ref=#{chapter_ref}]"
     assert third_prompt =~ "第 1 章「#{@full_read_title}」"
@@ -641,10 +654,10 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     end)
   end
 
-  defp native_observation_prompt?(%{messages: messages}) do
+  defp native_observation_prompt?(%RequestIR{messages: messages}) do
     Enum.any?(messages, fn message ->
       message.role == "tool" and
-        match?({:ok, %{"type" => "observation"}}, Jason.decode(message.content))
+        Enum.any?(message.blocks, &(&1.type == "observation"))
     end)
   end
 
@@ -654,11 +667,11 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     Enum.find_value(messages, "", &native_observation_summary/1)
   end
 
-  defp native_observation_summary(%{role: "tool", content: content}) do
-    case Jason.decode(content) do
-      {:ok, %{"type" => "observation", "content" => %{"summary" => summary}}} -> summary
-      _ -> nil
-    end
+  defp native_observation_summary(%{role: "tool", blocks: blocks}) when is_list(blocks) do
+    Enum.find_value(blocks, fn
+      %{type: "observation", content: %{"summary" => summary}} -> summary
+      _block -> nil
+    end)
   end
 
   defp native_observation_summary(_message), do: nil
@@ -711,8 +724,8 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     }
   end
 
-  defp prompt_to_text(%{messages: _messages} = prompt),
-    do: NovelAgent.Provider.prompt_text(prompt)
+  defp prompt_to_text(%RequestIR{messages: _messages} = prompt),
+    do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 
   defp prompt_to_text(prompt) when is_binary(prompt), do: prompt
 

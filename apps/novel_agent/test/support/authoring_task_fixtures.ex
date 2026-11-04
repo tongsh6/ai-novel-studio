@@ -6,6 +6,7 @@ defmodule NovelAgent.TestSupport.AuthoringTaskFixtures do
   """
 
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.RequestIR
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
 
@@ -22,10 +23,31 @@ defmodule NovelAgent.TestSupport.AuthoringTaskFixtures do
 
   def prompt_text(prompt) when is_binary(prompt), do: prompt
 
-  def prompt_text(%{messages: messages, tools: tools}) do
+  # 离线替身看到的材料与真实模型在 wire 上收到的同形：文本块按原字节读，
+  # 工具调用、观察与校验结果按结构化 block 的 JSON 读（tool result 的真实形状），
+  # 不从拼接文本猜测。
+  def prompt_text(%RequestIR{messages: messages, tools: tools}) do
     Enum.map_join(messages, "\n", fn message ->
-      message.content <> "\n关联：" <> to_string(Map.get(message, :tool_call_id, ""))
+      Enum.map_join(message.blocks, "\n", &render_block/1) <>
+        "\n关联：" <> linked_call_ids(message.blocks)
     end) <> "\n工具结构：" <> Jason.encode!(tools)
+  end
+
+  defp render_block(%{type: "text", text: text}) when is_binary(text), do: text
+
+  defp render_block(block) do
+    case Jason.encode(block) do
+      {:ok, json} -> json
+      _ -> inspect(block)
+    end
+  end
+
+  defp linked_call_ids(blocks) do
+    blocks
+    |> Enum.map(&Map.get(&1, :call_id))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.join(",")
   end
 
   defp native_response({:ok, result}, tool_name) when is_map(result) do

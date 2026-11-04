@@ -1,17 +1,14 @@
 defmodule NovelAgent.Provider.Stub do
   @moduledoc """
-  Stub provider — 离线/骨架验证用的合法 fixture provider。
+  仅测试支持：确定性离线 fixture provider（`NovelAgent.Provider.Stub`）。
 
-  根据 08-provider-abstraction.md §2.4，stub 是正式 provider 实现，用于：
-  - greenfield 开发期间离线验证
-  - 契约测试（contract test）
-  - Provider Gateway 骨架调试
-
-  ## 响应策略
-
-  stub 不调用任何外部 LLM。它根据 prompt 中显式声明的"输出格式契约"识别
-  请求类型（frame / plan / creative items），返回对应的最小合法 JSON。
-  识别失败时回退为 echo 响应。
+  本模块位于 test/support，不参与生产 runtime；这里的 `capabilities/1` 与
+  `projection_target/1` 只模拟测试链路需要的六项 AgentRun 传输形态，让测试
+  环境默认 `:stub` 能通过 Gateway 按真实 route 派生的能力门。它们不是真实
+  传输能力、真实供应商声明或实模/传输证据；Gateway 不识别 stub、不跳过能力门。
+  它根据 canonical Request IR 的 `role/provenance/blocks` 识别请求类型
+  （frame / plan / creative items），返回对应的最小合法 JSON；识别失败时回退为
+  echo 响应。
 
   creative items prompt 的响应同时满足：
   - **I3 种子贯通**：保留 user 输入文本中的随机标识符，让它们自然出现在 artifact
@@ -28,6 +25,8 @@ defmodule NovelAgent.Provider.Stub do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.StubChapterSummary
+  alias NovelAgent.Test.WireToolFacts
+  alias NovelAgent.TestProviderPrompt
 
   defstruct []
 
@@ -74,9 +73,8 @@ defmodule NovelAgent.Provider.Stub do
   @impl true
   def name, do: "stub"
 
-  # Stub 是确定性测试替身：它模拟完整 AgentRun 的响应形态（含原生工具调用与
-  # 多轮消息），不是真实传输 provider；生产 provider 的能力事实由各自 adapter
-  # 真实声明。此声明只服务测试链路，不用于签真实模型/传输证据。
+  # 只模拟测试链路所需的六项传输形态，让测试环境默认 :stub 通过 Gateway 的
+  # 实际 route 能力门；不代表真实传输/供应商能力，也不用于签实模证据。
   @impl true
   def capabilities(_state) do
     %{
@@ -101,8 +99,8 @@ defmodule NovelAgent.Provider.Stub do
     text = prompt_text(prompt)
 
     native_stage_result(
-      NovelAgent.Provider.active_tool_name(prompt),
-      NovelAgent.Provider.operation_prompt_text(prompt)
+      WireToolFacts.active_tool_name(prompt),
+      TestProviderPrompt.operation_text(prompt)
     ) || judgment_family_result(prompt, text) ||
       infer_non_judgment_result(prompt, text)
   end
@@ -160,13 +158,13 @@ defmodule NovelAgent.Provider.Stub do
       creative_output_prompt?(text) ->
         creative_output_result(text)
 
-      NovelAgent.Provider.tool_call_prompt?(prompt) and agent_plan_prompt?(text) ->
-        tool = NovelAgent.Provider.tool_specs(prompt) |> hd() |> Map.fetch!(:name)
+      WireToolFacts.tool_call?(prompt) and agent_plan_prompt?(text) ->
+        tool = WireToolFacts.specs(prompt) |> hd() |> Map.fetch!(:name)
         native_agent_plan_result(tool, text)
 
       # WR01 写前推理步：forced tool call 产本章使命（依据只取 prompt 材料里列名的 ref）。
-      NovelAgent.Provider.tool_call_prompt?(prompt) and chapter_mission_prompt?(text) ->
-        chapter_mission_result(NovelAgent.Provider.tool_choice(prompt) || "chapter_mission", text)
+      WireToolFacts.tool_call?(prompt) and chapter_mission_prompt?(text) ->
+        chapter_mission_result(WireToolFacts.choice(prompt) || "chapter_mission", text)
 
       # B27 CP3c/CP3d：章摘要确定性四栏（stub 与 SliceVerify 共用单一 fixture 真源）。
       StubChapterSummary.prompt?(text) ->
@@ -1278,13 +1276,11 @@ defmodule NovelAgent.Provider.Stub do
 
   defp creative_anchor_parts(prompt) when is_map(prompt) or is_list(prompt) do
     prompt
-    |> NovelAgent.Provider.normalize_messages()
-    |> Enum.find_value(fn message ->
-      case Map.get(message, :content) do
-        "【应用数据 · scope_update" <> _ = content -> creative_parts_from_text(content)
-        _ -> nil
-      end
-    end)
+    |> TestProviderPrompt.latest_scope()
+    |> case do
+      text when is_binary(text) -> creative_parts_from_text(text)
+      _ -> nil
+    end
   end
 
   defp creative_anchor_parts(prompt_text) do
@@ -1425,5 +1421,5 @@ defmodule NovelAgent.Provider.Stub do
 
   # ── prompt 归一化 ──
 
-  defp prompt_text(prompt), do: NovelAgent.Provider.prompt_text(prompt)
+  defp prompt_text(prompt), do: TestProviderPrompt.text(prompt)
 end

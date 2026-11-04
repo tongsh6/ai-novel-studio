@@ -5,20 +5,22 @@ defmodule NovelAgent.Provider.StreamToolCallsTest do
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.OpenAI
   alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.TestRequestIR
 
-  @prompt %{
-    messages: [%{role: "user", content: "读取角色事实"}],
-    tools: [
-      %{
-        name: "read_character",
-        description: "读取角色",
-        input_schema: %{type: "object", properties: %{query: %{type: "string"}}}
-      }
-    ],
-    # tools 存在但模型未被强制调用：真实 adapter 走流式路径，SSE 中仍可能返回
-    # 原生 tool_calls（VS-00L §6 投影无损；I-ART-8 不得静默丢字段）。
-    tool_choice: "none"
-  }
+  # tools 存在但模型未被强制调用：真实 adapter 走流式路径，SSE 中仍可能返回
+  # 原生 tool_calls（VS-00L §6 投影无损；I-ART-8 不得静默丢字段）。
+  defp prompt_ir do
+    TestRequestIR.ir(
+      [TestRequestIR.author("读取角色事实")],
+      tools: [
+        TestRequestIR.tool("read_character", %{
+          type: "object",
+          properties: %{query: %{type: "string"}}
+        })
+      ],
+      projection: %{tool_choice: "none"}
+    )
+  end
 
   defp provider_ctx(provider) do
     %{
@@ -40,12 +42,9 @@ defmodule NovelAgent.Provider.StreamToolCallsTest do
   defp ir_with_author_message do
     RequestIR.new(%{
       run: %{run_id: "run-stream-tool", work_id: "work-stream-tool"},
-      system: %{identity_ref: "identity:fixture"},
+      system: RequestIR.system_envelope(),
       messages: [RequestIR.message(:user, :author, [RequestIR.text_block("读取角色事实")])],
-      projection: %{
-        target: "chat_completions",
-        capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-      }
+      projection: %{}
     })
   end
 
@@ -121,7 +120,7 @@ defmodule NovelAgent.Provider.StreamToolCallsTest do
     }
 
     assert {:ok, %{result: result}} =
-             OpenAI.execute(state, nil, @prompt, %InferenceParams{}, provider_ctx(:openai))
+             OpenAI.execute(state, nil, prompt_ir(), %InferenceParams{}, provider_ctx(:openai))
 
     assert result.content == ""
 
@@ -218,7 +217,13 @@ defmodule NovelAgent.Provider.StreamToolCallsTest do
     }
 
     assert {:ok, %{result: result}} =
-             Anthropic.execute(state, nil, @prompt, %InferenceParams{}, provider_ctx(:anthropic))
+             Anthropic.execute(
+               state,
+               nil,
+               prompt_ir(),
+               %InferenceParams{},
+               provider_ctx(:anthropic)
+             )
 
     assert result.content == ""
 

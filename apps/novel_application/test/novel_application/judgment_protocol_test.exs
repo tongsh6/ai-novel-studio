@@ -122,7 +122,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     transcript = JudgmentProtocol.complete_validation(judgment.transcript)
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
     assert {:ok, []} = RequestIR.pending_call_ids(ir)
-    assert {:ok, _prompt} = RequestIR.to_provider_prompt(ir)
+    assert {:ok, _prompt} = RequestIR.prepare_request(ir)
 
     validations =
       for message <- ir.messages,
@@ -232,15 +232,23 @@ defmodule NovelApplication.JudgmentProtocolTest do
                "run-call-1" => result.provider_output
              })
 
-    assert_receive {:provider_request, %{tool_choice: "auto"}}
+    assert_receive {:provider_request, %{projection: %{tool_choice: "auto"}}}
     refute_receive {:provider_request, _}, 10
   end
 
   test "固定 profile 的 schema 不随动态来源/对象/权限变化" do
-    first = JudgmentProtocol.prompt(input(capabilities: ["prose_writing"], explore: true))
-    second = JudgmentProtocol.prompt(input(capabilities: [], author_content_sources: ["other"]))
+    first =
+      JudgmentProtocol.request_for_production(
+        input(capabilities: ["prose_writing"], explore: true)
+      )
+
+    second =
+      JudgmentProtocol.request_for_production(
+        input(capabilities: [], author_content_sources: ["other"])
+      )
+
     assert first.tools == second.tools
-    assert first.tool_choice == "auto"
+    assert NovelAgent.Provider.tool_choice(first) == "auto"
     refute first.messages == second.messages
   end
 
@@ -428,7 +436,16 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "页面替身方向字段不因 atom/string 转换丢失，显式只聊不生成方向" do
-    direction_prompt = "创作判断器\n## 作者输入\n给我两个小说创作方向。\n## 决策与输出契约\n"
+    # 生产请求入口已统一为 canonical IR；替身直接消费带真实 tools 的 IR。
+    direction_prompt =
+      NovelAgent.TestRequestIR.ir(
+        [
+          NovelAgent.TestRequestIR.base("创作判断器\n## 决策与输出契约\n"),
+          NovelAgent.TestRequestIR.author("给我两个小说创作方向。")
+        ],
+        tools: JudgmentToolContract.tools(:judgment),
+        projection: %{tool_choice: "auto"}
+      )
 
     {:ok, directions} =
       SliceVerify.complete(nil, nil, direction_prompt, %{})
@@ -443,7 +460,16 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert :ok = JudgmentToolContract.validate(directions.tool_calls, :judgment)
 
-    plain_prompt = "创作判断器\n## 作者输入\n只聊节奏，不生成草稿。\n## 决策与输出契约\n"
+    plain_prompt =
+      NovelAgent.TestRequestIR.ir(
+        [
+          NovelAgent.TestRequestIR.base("创作判断器\n## 决策与输出契约\n"),
+          NovelAgent.TestRequestIR.author("只聊节奏，不生成草稿。")
+        ],
+        tools: JudgmentToolContract.tools(:judgment),
+        projection: %{tool_choice: "auto"}
+      )
+
     {:ok, plain} = SliceVerify.complete(nil, nil, plain_prompt, %{})
     assert plain.tool_calls == []
     assert is_binary(plain.content) and plain.content != ""
@@ -463,7 +489,19 @@ defmodule NovelApplication.JudgmentProtocolTest do
         resolved_adoptions: [unrelated]
       }
 
-      prompt = "创作判断器\n#{Jason.encode!(facts)}\n## 作者输入\n把上一条资料原文保存为作品设定。\n## 决策与输出契约\n"
+      # 旧格式状态段是当前 scope 内的显式事实段；构造与真实判断请求同形的 IR：
+      # application scope 携带处置事实，作者原话保持独立 author 消息。
+      prompt =
+        NovelAgent.TestRequestIR.ir(
+          [
+            NovelAgent.TestRequestIR.base("创作判断器"),
+            NovelAgent.TestRequestIR.scope("## 消息处置与已有产物\n" <> Jason.encode!(facts)),
+            NovelAgent.TestRequestIR.author("把上一条资料原文保存为作品设定。")
+          ],
+          tools: JudgmentToolContract.tools(:judgment),
+          projection: %{tool_choice: "auto"}
+        )
+
       {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
       assert result.content =~ expected
       refute result.content =~ "已经采纳入档"
@@ -476,17 +514,17 @@ defmodule NovelApplication.JudgmentProtocolTest do
           {"  先按原目标重试一次。  ", "continuation_decision", "保持原范围再执行一次"},
           {"写下一章正文，然后同步到发布平台", "report_capability_gap", "没有同步到发布平台的能力"}
         ] do
-      prompt = %{
-        messages: [
-          %{
-            role: "user",
-            content:
+      # 生产请求入口已统一为 canonical IR；续行请求保留真实续行工具目录与 tool_choice。
+      prompt =
+        NovelAgent.TestRequestIR.ir(
+          [
+            NovelAgent.TestRequestIR.base(
               "## 当前目标\n#{goal}\n## 偏离事实\n工具 prose_writing 执行失败\n## 决策与输出契约\ncontinuation_decision"
-          }
-        ],
-        tools: JudgmentToolContract.tools(:continuation),
-        tool_choice: "auto"
-      }
+            )
+          ],
+          tools: JudgmentToolContract.tools(:continuation),
+          projection: %{tool_choice: "auto"}
+        )
 
       {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
       assert [%{name: ^tool}] = result.tool_calls
@@ -581,39 +619,43 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "已创建合法前缀的请求构造失败保留前缀，调用数不虚增" do
-    prefix =
-      AuthoringTranscript.new(
-        %{run_id: "run-prefix", work_id: "work-prefix"},
-        base_text: "前缀 Base",
-        author_text: "作者前缀原文",
-        tools: JudgmentToolContract.tools(:judgment),
-        projection: %{target: "chat_completions", capability_profile: %{}}
-      )
+    # 现役请求构造门：canonical IR 里不能有未闭合的 pending tool_call
+    # （`RequestIR.prepare_request/2` → `validate_request_ready/1`）。旧能力门
+    # `{:unsupported_capability, missing}` 已随能力目录退役。这里先用真实判断入口
+    # 生成合法前缀（含真实 scope），再在末尾追加无观察的 tool_call：scope 未变，
+    # 请求不会再追加消息，唯一失败点就是「请求未 ready」，从而验证同一不变量：
+    # 前缀保留、无新增协议块、零真实调用。
+    assert {:ok, base} = JudgmentProtocol.transcript_for_production(input())
 
-    assert {:error, {:unsupported_capability, missing}, state} =
+    prefix =
+      AuthoringTranscript.append_provider_result(base, %{
+        content: "",
+        tool_calls: [
+          %{
+            id: "call-prefix-1",
+            name: "chapter_read",
+            arguments: %{"query" => "前缀取证"}
+          }
+        ],
+        provider_call_ref: "pcall-prefix-1",
+        provider_run_ref: "prun-prefix-1"
+      })
+
+    assert {:error, {:pending_tool_calls, ["call-prefix-1"]}, state} =
              JudgmentProtocol.request_judgment(
                execution([response("不应调用", [])]),
                %{},
                input() |> Map.put(:transcript, prefix)
              )
 
-    assert missing != []
     assert state.provider_call_count == 0
     transcript = state.judgment_transcript
-    assert assistant_messages(transcript) == []
-    assert tool_call_blocks(transcript) == []
+
+    # 既有前缀逐条保留，未因构造失败新增 assistant/tool_call/校验块。
+    assert Enum.take(transcript.messages, length(prefix.messages)) == prefix.messages
+    assert length(assistant_messages(transcript)) == length(assistant_messages(prefix))
+    assert length(tool_call_blocks(transcript)) == length(tool_call_blocks(prefix))
     assert validation_blocks(transcript) == []
-
-    texts =
-      transcript.messages
-      |> Enum.filter(&(Map.get(&1, :role) == "user"))
-      |> Enum.map_join("", fn message ->
-        message.blocks
-        |> Enum.filter(&(Map.get(&1, :type) == "text"))
-        |> Enum.map_join("", &Map.get(&1, :text, ""))
-      end)
-
-    assert texts =~ "作者前缀原文"
     refute_receive {:provider_request, _}, 10
   end
 
@@ -667,8 +709,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "判断 prompt 的合法工具组合规则唯一且明确" do
-    prompt = JudgmentProtocol.prompt(input())
-    content = prompt.messages |> List.first() |> Map.fetch!(:content)
+    prompt = JudgmentProtocol.request_for_production(input())
+    content = first_text(prompt)
     guidance = JudgmentToolContract.legal_combination_guidance()
 
     # 规则只出现一次（单一真源，不允许别处再手写一份）
@@ -696,14 +738,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
     refute_receive {:provider_request, _}, 10
 
     # 保留原输入/工具集；IR 以 assistant tool_call → tool 校验结果回流，不追加 user 纠错。
-    assert hd(second.messages).content == hd(first.messages).content
+    assert message_text(hd(second.messages)) == message_text(hd(first.messages))
     assert second.tools == first.tools
     assert length(second.messages) == length(first.messages) + 2
     assert Enum.at(second.messages, -2).role == "assistant"
     assert List.last(second.messages).role == "tool"
-    assert List.last(second.messages).tool_call_id == "tool-agent_plan_draft"
+    assert has_block?(List.last(second.messages), "validation_result", "tool-agent_plan_draft")
 
-    correction = List.last(second.messages).content
+    correction = validation_text(List.last(second.messages))
     assert correction =~ "invalid_tool_combination"
     assert correction =~ "agent_plan_draft 只能与 judgment_decision(action=plan)"
     assert correction =~ JudgmentToolContract.legal_combination_guidance()
@@ -719,7 +761,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _}
     assert_receive {:provider_request, second}
-    assert List.last(second.messages).content =~ "invalid_tool_combination"
+    assert validation_text(List.last(second.messages)) =~ "invalid_tool_combination"
     refute_receive {:provider_request, _}, 10
   end
 
@@ -770,7 +812,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     # invalid_tool_arguments 走参数 schema 专用纠错（不含合法组合指引）；仍允许一次纠正后继续。
     assert_receive {:provider_request, _}
     assert_receive {:provider_request, corrected}
-    correction = List.last(corrected.messages).content
+    correction = validation_text(List.last(corrected.messages))
     assert correction =~ "工具参数未通过 schema 校验"
     refute correction =~ JudgmentToolContract.legal_combination_guidance()
   end
@@ -802,7 +844,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, corrected}
-    correction = List.last(corrected.messages).content
+    correction = validation_text(List.last(corrected.messages))
     assert correction =~ "anaphoric_current_source_requires_explicit_text"
     assert correction =~ "current 只适用于本条消息本身就是被登记原文"
     assert correction =~ "judgment_decision.explore"
@@ -845,7 +887,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, corrected}
-    correction = List.last(corrected.messages).content
+    correction = validation_text(List.last(corrected.messages))
     assert correction =~ "judgment_narrative_required"
     assert correction =~ "必须给出非空 content"
     assert correction =~ "仅标点占位"
@@ -873,8 +915,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "M14/M07 判断 prompt 包含能力缺口与已有候选优先规则（capture）" do
-    prompt = JudgmentProtocol.prompt(input())
-    content = prompt.messages |> List.first() |> Map.fetch!(:content)
+    prompt = JudgmentProtocol.request_for_production(input())
+    content = first_text(prompt)
 
     # M14：能力缺口必须 report_capability_gap，ask_author 不能代替
     assert content =~ "能力缺口优先"
@@ -933,8 +975,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "证据纪律规则在判断 prompt 中唯一且明确" do
-    prompt = JudgmentProtocol.prompt(input())
-    content = prompt.messages |> List.first() |> Map.fetch!(:content)
+    prompt = JudgmentProtocol.request_for_production(input())
+    content = first_text(prompt)
 
     assert String.split(content, "## 对象与版本证据纪律（先取证/消歧，再操作）") |> length() == 2
     assert content =~ "只能引用本轮上下文或观察中真实列出的 ref"
@@ -986,7 +1028,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, corrected}
-    correction = List.last(corrected.messages).content
+    correction = validation_text(List.last(corrected.messages))
     assert correction =~ "target_not_available"
     assert correction =~ "只能引用当前上下文/观察中真实列出的"
     assert correction =~ "session_adoptions"
@@ -1077,7 +1119,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, corrected}
-    correction = List.last(corrected.messages).content
+    correction = validation_text(List.last(corrected.messages))
     assert correction =~ "target_ref_field_conflict"
     assert correction =~ "不得同时填两个"
   end
@@ -1093,7 +1135,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "可见收束/收下资料零菜单规则在判断 prompt 中明确" do
-    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+    content = first_text(JudgmentProtocol.request_for_production(input()))
 
     assert content =~ "最终答复收束"
     assert content =~ "不得只写内部推理、计划或过渡语"
@@ -1120,7 +1162,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "ask_author 正式通道与能力缺口/排版裁量规则在 prompt 中明确" do
-    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+    content = first_text(JudgmentProtocol.request_for_production(input()))
 
     assert content =~ "必须用 ask_author 工具提出具体问题"
     assert content =~ "不能用普通 reply 里的问句或说明代替 ask_author"
@@ -1130,7 +1172,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "task-28 证据/冒充/系统信息/收束规则在判断 prompt 中明确" do
-    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+    content = first_text(JudgmentProtocol.request_for_production(input()))
 
     # M14：禁止用新建同名/演化候选冒充已有主档案修改
     assert content =~ "修改已有对象的主档案/权威字段"
@@ -1189,7 +1231,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert judgment.action == "explore"
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, corrected}
-    correction = List.last(corrected.messages).content
+    correction = validation_text(List.last(corrected.messages))
     assert correction =~ "explore_before_ask_required"
     assert correction =~ "session_adoptions"
     assert correction =~ "不得默认先问作者"
@@ -1225,7 +1267,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "M16：action 专属字段互斥在 prompt 中明确，explore 带 capability 被具体纠错后可修复" do
-    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+    content = first_text(JudgmentProtocol.request_for_production(input()))
 
     assert content =~ "judgment_decision 各 action 的专属字段互斥"
     assert content =~ "explore 只带 explore_request"
@@ -1261,7 +1303,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, corrected}
-    correction = List.last(corrected.messages).content
+    correction = validation_text(List.last(corrected.messages))
     assert correction =~ "incompatible_operation_fields"
     assert correction =~ "explore 只填 explore_request"
     assert correction =~ "不得携带 capability"
@@ -1300,13 +1342,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, corrected}
-    correction = List.last(corrected.messages).content
+    correction = validation_text(List.last(corrected.messages))
     assert correction =~ "execute 只填 capability 与一个目标 ref"
     assert correction =~ "explore_request 只用于 explore"
   end
 
   test "task-28 补充：直接回答/唯一候选直接执行/参数 schema 指引在 prompt 中明确" do
-    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+    content = first_text(JudgmentProtocol.request_for_production(input()))
 
     assert content =~ "统计/章节索引已经足够回答的问题"
     assert content =~ "直接 reply，不要为形式先 explore"
@@ -1341,14 +1383,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, corrected}
-    correction = List.last(corrected.messages).content
+    correction = validation_text(List.last(corrected.messages))
     assert correction =~ "工具参数未通过 schema 校验"
     assert correction =~ "report_capability_gap 只填 dialogue_goal、missing_effect、author_reasoning"
     assert correction =~ "不要添加 action/capability/body"
   end
 
   test "task-34 prompt：M02 质量边界/M03 占位收束/M06 未答不推进/M16 多意图/M18 探索优先" do
-    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+    content = first_text(JudgmentProtocol.request_for_production(input()))
 
     assert content =~ "统计/索引类问题只回答进度与可核对事实"
     assert content =~ "不得凭统计给质量/完成度结论"
@@ -1376,7 +1418,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, corrected}
-    correction = List.last(corrected.messages).content
+    correction = validation_text(List.last(corrected.messages))
     assert correction =~ "judgment_narrative_required"
     assert correction =~ "仅标点占位"
 
@@ -1441,7 +1483,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, corrected}
-    assert List.last(corrected.messages).content =~ "judgment_narrative_required"
+    assert validation_text(List.last(corrected.messages)) =~ "judgment_narrative_required"
 
     assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}, _state} =
              JudgmentProtocol.request_judgment(execution([markup, markup]), %{}, input())
@@ -1513,7 +1555,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, corrected}
-    assert List.last(corrected.messages).content =~ "discussion_only_violation"
+    assert validation_text(List.last(corrected.messages)) =~ "discussion_only_violation"
   end
 
   test "task-36：要求生成方向时 discussion_only 不误伤（仍可 propose）" do
@@ -1536,7 +1578,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "task-36 prompt：M02 索引直答/M10 只聊零物化/M03 探索预算/M17 禁止伪工具文本" do
-    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+    content = first_text(JudgmentProtocol.request_for_production(input()))
 
     assert content =~ "只问进度/章数/字数/是否已写/章状态"
     assert content =~ "直接按索引/统计 reply，不要 chapter_read"
@@ -1547,7 +1589,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "task-36 收口：分析型已有充分事实时直接 reply；质量判断才允许 explore" do
-    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+    content = first_text(JudgmentProtocol.request_for_production(input()))
 
     assert content =~ "分析/讨论类任务且系统已有充分事实"
     assert content =~ "直接 reply，"
@@ -1592,7 +1634,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "B28 CP1：判断 prompt 明确整章修订绑定与缺 ref 澄清（不退化为 prose_writing）" do
-    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+    content = first_text(JudgmentProtocol.request_for_production(input()))
 
     assert content =~ "整章正文修订绑定"
     assert content =~ "chapter-scoped 修订"
@@ -1618,8 +1660,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
       }
     ]
 
-    prompt = JudgmentProtocol.prompt(input(chapter_revision_targets: targets))
-    content = prompt.messages |> List.first() |> Map.fetch!(:content)
+    prompt = JudgmentProtocol.request_for_production(input(chapter_revision_targets: targets))
+    content = first_text(prompt)
 
     assert content =~ "## 可选章级修订目标"
     assert content =~ "chapter:c1"
@@ -1654,7 +1696,12 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert judgment.narrative_source.source_type == "provider_output"
 
     assert_receive {:provider_request, %{messages: messages}}
-    refute Enum.any?(messages, &String.contains?(&1.content, "maintenance_capability_required"))
+
+    refute Enum.any?(
+             messages,
+             &String.contains?(message_text(&1), "maintenance_capability_required")
+           )
+
     refute_receive {:provider_request, _}, 10
 
     # 正例：作者确实要求重编号时仍走既有维护能力与目标检查。
@@ -1674,10 +1721,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "B30 CP1：判断 prompt 含维护能力目录与边界（不生成大纲/不新建章/不改正文）" do
     content =
-      JudgmentProtocol.prompt(input(capabilities: ["maintain_chapter_structure"]))
-      |> Map.fetch!(:messages)
-      |> List.first()
-      |> Map.fetch!(:content)
+      JudgmentProtocol.request_for_production(input(capabilities: ["maintain_chapter_structure"]))
+      |> first_text()
 
     assert content =~ "maintain_chapter_structure"
     assert content =~ "只维护既有章结构"
@@ -1714,15 +1759,12 @@ defmodule NovelApplication.JudgmentProtocolTest do
     ]
 
     content =
-      JudgmentProtocol.prompt(
-        input(
-          capabilities: ["revise_character_profile", "character_design"],
-          character_targets: targets
-        )
+      input(
+        capabilities: ["revise_character_profile", "character_design"],
+        character_targets: targets
       )
-      |> Map.fetch!(:messages)
-      |> List.first()
-      |> Map.fetch!(:content)
+      |> JudgmentProtocol.request_for_production()
+      |> first_text()
 
     assert content =~ "## 角色索引"
     assert content =~ "character:11111111-1111-1111-1111-111111111111"
@@ -1780,7 +1822,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     refute Enum.any?(
              messages,
-             &String.contains?(&1.content, "character_profile_capability_required")
+             &String.contains?(message_text(&1), "character_profile_capability_required")
            )
 
     refute_receive {:provider_request, _}, 10
@@ -1950,7 +1992,12 @@ defmodule NovelApplication.JudgmentProtocolTest do
     refute Map.has_key?(judgment, :wrong_route_correction_attempted)
 
     assert_receive {:provider_request, %{messages: messages}}
-    refute Enum.any?(messages, &String.contains?(&1.content, "action_intent_requires_execute"))
+
+    refute Enum.any?(
+             messages,
+             &String.contains?(message_text(&1), "action_intent_requires_execute")
+           )
+
     refute_receive {:provider_request, _}, 10
   end
 
@@ -1983,7 +2030,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, corrected}
-    assert List.last(corrected.messages).content =~ "discussion_only_violation"
+    assert validation_text(List.last(corrected.messages)) =~ "discussion_only_violation"
   end
 
   test "B33 §CP1 反例1：条件性错别字修订的“无需修改” reply 不被动作意图纠错" do
@@ -2008,7 +2055,12 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert judgment.narrative_source.source_type == "provider_output"
 
     assert_receive {:provider_request, %{messages: messages}}
-    refute Enum.any?(messages, &String.contains?(&1.content, "action_intent_requires_execute"))
+
+    refute Enum.any?(
+             messages,
+             &String.contains?(message_text(&1), "action_intent_requires_execute")
+           )
+
     refute_receive {:provider_request, _}, 10
   end
 
@@ -2140,9 +2192,10 @@ defmodule NovelApplication.JudgmentProtocolTest do
     correction =
       corrected.messages
       |> List.last()
-      |> Map.fetch!(:content)
-      |> Jason.decode!()
-      |> get_in(["detail", "message"])
+      |> Map.fetch!(:blocks)
+      |> Enum.find(&(&1.type == "validation_result"))
+      |> Map.fetch!(:detail)
+      |> Map.fetch!("message")
 
     assert correction =~ "未允许字段："
     assert correction =~ "target_chapter_ref"
@@ -2190,7 +2243,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, corrected}
-    correction = List.last(corrected.messages).content
+    correction = validation_text(List.last(corrected.messages))
     assert correction =~ "未允许字段："
     assert correction =~ "target_chapter_ref"
     assert correction =~ "modification_scope"
@@ -2214,8 +2267,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert judgment.provider_call_count == 1
 
     assert_receive {:provider_request, %{messages: messages}}
-    refute Enum.any?(messages, &String.contains?(&1.content, "capability_required"))
-    refute Enum.any?(messages, &String.contains?(&1.content, "action_intent_requires_execute"))
+    refute Enum.any?(messages, &String.contains?(message_text(&1), "capability_required"))
+
+    refute Enum.any?(
+             messages,
+             &String.contains?(message_text(&1), "action_intent_requires_execute")
+           )
+
     refute Map.has_key?(judgment, :wrong_route)
     refute_receive {:provider_request, _}, 10
   end
@@ -2365,50 +2423,48 @@ defmodule NovelApplication.JudgmentProtocolTest do
     refute judgment.narrative_source.source_type =~ "application"
   end
 
-  # B71 CP3a S1a：判断请求的 IR v1 旁路构造（不改变 prompt/2 生产路径）。
-  describe "B71 CP3a S1a：judgment Request IR 旁路" do
-    test "prompt_ir 产出 IR v1：工具目录等价、application_base 与作者原话分离" do
+  # B71：判断请求直接消费 canonical IR；不再保留旧 prompt/prompt_ir 旁路。
+  describe "B71：judgment Request IR" do
+    test "判断请求产出 canonical IR：工具目录稳定、application_base 与作者原话分离" do
       input = input(capabilities: ["prose_writing"], explore: true)
-      legacy = JudgmentProtocol.prompt(input)
+      {ir, transcript} = production_request(input)
 
-      assert {:ok, %{prompt: prompt, ir: ir}} = JudgmentProtocol.prompt_ir(input)
-
-      assert ir.ir_version == "authoring-request-ir/v1"
+      assert %RequestIR{} = ir
+      assert ir.ir_version == RequestIR.ir_version()
       assert :ok = RequestIR.validate(ir)
 
-      # 工具目录与 legacy prompt 等价（name 顺序一致）
-      legacy_tools = Enum.map(legacy.tools, & &1.name)
-      prompt_tools = Enum.map(prompt.tools, & &1.name)
-      assert prompt_tools == legacy_tools
-      assert prompt.tool_choice == "auto"
+      # 工具目录来自固定 profile contract（name 顺序一致）。
+      assert Enum.map(ir.tools, & &1.name) ==
+               Enum.map(JudgmentToolContract.tools(:judgment), & &1.name)
 
-      # 投影：system + application_base（带 provenance）+ 独立作者消息（字节不变）
-      assert [%{role: "system"} | rest] = prompt.messages
-      assert Enum.any?(prompt.messages, &(&1.role == "user" and &1.content == input.author_text))
+      assert NovelAgent.Provider.tool_choice(ir) == "auto"
+      assert [%{role: "application_base"} | rest] = ir.messages
 
-      application_base =
-        Enum.find(prompt.messages, fn message ->
-          message.role == "user" and String.contains?(message.content, "application_base")
-        end)
+      author = Enum.find(ir.messages, &(&1.role == "user" and &1.provenance == "author"))
+      assert author
+      assert message_text(author) == input.author_text
 
+      application_base = Enum.find(ir.messages, &(&1.role == "application_base"))
       assert application_base
-      assert String.contains?(application_base.content, "## 决策与输出契约")
-      refute String.contains?(application_base.content, input.context_block)
-      refute String.contains?(application_base.content, "只读探索当前允许：")
+      assert application_base.provenance == "application"
+      assert message_text(application_base) =~ "## 决策与输出契约"
+      refute message_text(application_base) =~ input.context_block
+      refute message_text(application_base) =~ "只读探索当前允许："
 
-      scope_update = Enum.find(prompt.messages, &String.contains?(&1.content, "scope_update"))
+      scope_update = Enum.find(ir.messages, &(&1.role == "scope_update"))
       assert scope_update
-      assert String.contains?(scope_update.content, input.context_block)
-      assert String.contains?(scope_update.content, "只读探索当前允许：true")
-      refute String.contains?(scope_update.content, "## 作者输入\n" <> input.author_text)
-      assert length(rest) >= 3
+      assert scope_update.provenance == "application"
+      assert message_text(scope_update) =~ input.context_block
+      assert message_text(scope_update) =~ "只读探索当前允许：true"
+      refute message_text(scope_update) =~ "## 作者输入\n" <> input.author_text
+      assert length(rest) >= 2
+
+      assert AuthoringTranscript.current_scope(transcript).text =~ input.context_block
     end
 
     test "作者新输入只追加新的 turn 与 scope，不重写既有请求" do
       first_input = input(explore: true)
-
-      assert {:ok, %{prompt: first, transcript: transcript}} =
-               JudgmentProtocol.prompt_ir(first_input)
+      {first, transcript} = production_request(first_input)
 
       next_input =
         first_input
@@ -2418,12 +2474,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
         |> Map.put(:transcript, transcript)
         |> Map.put(:options, [])
 
-      assert {:ok, %{prompt: second, transcript: next}} = JudgmentProtocol.prompt_ir(next_input)
+      {second, next} = production_request(next_input)
       assert Enum.take(second.messages, length(first.messages)) == first.messages
 
       assert Enum.any?(
                second.messages,
-               &(&1.role == "user" and &1.content == next_input.author_text)
+               &(&1.role == "user" and &1.provenance == "author" and
+                   message_text(&1) == next_input.author_text)
              )
 
       scope = NovelApplication.AuthoringTranscript.current_scope(next)
@@ -2432,15 +2489,21 @@ defmodule NovelApplication.JudgmentProtocolTest do
       assert [%{ref: "author-turn-2"} | _] = scope.source_refs
     end
 
-    test "prompt_ir 对 continuation profile 同样可用" do
+    test "continuation profile 同样直接产出 canonical IR" do
       input =
         input(capabilities: ["ask_author"])
         |> Map.put(:goal_text, "继续当前任务")
         |> Map.put(:deviation_summary, "偏离事实摘要")
 
-      assert {:ok, %{prompt: prompt}} = JudgmentProtocol.prompt_ir(input, :continuation)
-      assert Enum.any?(prompt.messages, &(&1.role == "user" and &1.content == input.author_text))
-      assert prompt.tools != []
+      {ir, _transcript} = production_request(input, :continuation)
+
+      assert Enum.any?(
+               ir.messages,
+               &(&1.role == "user" and &1.provenance == "author" and
+                   message_text(&1) == input.author_text)
+             )
+
+      assert ir.tools != []
     end
 
     test "continuation 没有作者消息时保留 application goal，不伪造 user" do
@@ -2450,14 +2513,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
         |> Map.put(:goal_text, "继续当前任务")
         |> Map.put(:deviation_summary, "偏离事实摘要")
 
-      assert {:ok, %{prompt: prompt}} = JudgmentProtocol.prompt_ir(input, :continuation)
-      refute Enum.any?(prompt.messages, &(&1.role == "user" and &1.content == input.goal_text))
-      assert Enum.any?(prompt.messages, &String.contains?(&1.content, input.goal_text))
+      {ir, _transcript} = production_request(input, :continuation)
+      refute Enum.any?(ir.messages, &(&1.role == "user" and message_text(&1) == input.goal_text))
+      assert Enum.any?(ir.messages, &String.contains?(message_text(&1), input.goal_text))
     end
 
     test "CP4a：续行继承创作历史并追加有版本的 scope，恢复后保持幂等" do
-      assert {:ok, %{prompt: creative, transcript: transcript}} =
-               JudgmentProtocol.prompt_ir(input(capabilities: ["prose_writing"]))
+      {creative, transcript} = production_request(input(capabilities: ["prose_writing"]))
 
       continuation_input = %{
         transcript: transcript,
@@ -2476,8 +2538,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
         ]
       }
 
-      assert {:ok, %{prompt: continued, transcript: continued_transcript}} =
-               JudgmentProtocol.prompt_ir(continuation_input, :continuation)
+      {continued, continued_transcript} =
+        production_request(continuation_input, :continuation)
 
       assert Enum.take(continued.messages, length(creative.messages)) == creative.messages
       scope = AuthoringTranscript.current_scope(continued_transcript)
@@ -2511,11 +2573,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
                |> AuthoringTranscript.checkpoint()
                |> AuthoringTranscript.restore()
 
-      assert {:ok, %{prompt: replayed}} =
-               JudgmentProtocol.prompt_ir(
-                 %{continuation_input | transcript: restored},
-                 :continuation
-               )
+      {replayed, _replayed_transcript} =
+        production_request(%{continuation_input | transcript: restored}, :continuation)
 
       assert replayed.messages == continued.messages
 
@@ -2541,13 +2600,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
     end
   end
 
-  describe "B71 CP3a S1b：IR 生产探针" do
+  describe "B71：IR 生产探针" do
     test "IR 判断请求保留任务上下文，确定性 provider 仍进入计划协议" do
       input =
         input()
         |> Map.put(:author_text, "请按另行起草计划设计一个角色，再设计相关世界设定。")
 
-      prompt = JudgmentProtocol.prompt_for_production(input)
+      prompt = JudgmentProtocol.request_for_production(input)
 
       assert prompt.ir_version == RequestIR.ir_version()
       assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
@@ -2580,7 +2639,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
           []
         )
 
-      prompt = JudgmentProtocol.prompt_for_production(protocol_input)
+      prompt = JudgmentProtocol.request_for_production(protocol_input)
 
       assert prompt.ir_version == RequestIR.ir_version()
       assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
@@ -2600,7 +2659,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       prompt =
         input()
         |> Map.put(:author_text, author_text)
-        |> JudgmentProtocol.prompt_for_production()
+        |> JudgmentProtocol.request_for_production()
 
       assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
       assert [call] = result.tool_calls
@@ -2610,5 +2669,34 @@ defmodule NovelApplication.JudgmentProtocolTest do
       assert action == "execute"
       assert actual_capability == capability
     end
+  end
+
+  defp production_request(input, profile \\ :judgment) do
+    assert {:ok, transcript} = JudgmentProtocol.transcript_for_production(input, profile)
+    assert %RequestIR{} = request = JudgmentProtocol.request_for_production(input, profile)
+    {request, transcript}
+  end
+
+  defp message_text(%{blocks: _blocks} = message),
+    do: NovelApplication.TestAgenticLoopFixtures.message_text(message)
+
+  # 判断规则现在分层在 canonical system instructions、application_base 与 scope_update 文本块：
+  # 文本断言必须读与 provider 同源的完整投影视图，而不是只看第一条消息。
+  defp first_text(ir), do: NovelAgent.TestProviderPrompt.text(ir)
+
+  defp has_block?(message, type, call_id) do
+    Enum.any?(message.blocks, &(&1.type == type and &1.call_id == call_id))
+  end
+
+  # 协议纠错事实既可能是 tool 原生 validation_result，也可能是无 pending call 时的
+  # application_notice 文本消息；两种形态都从实际请求消息读取，不合成内容。
+  defp validation_text(message) do
+    validation =
+      for block <- Map.get(message, :blocks, []),
+          Map.get(block, :type) == "validation_result",
+          into: "",
+          do: Jason.encode!(block)
+
+    message_text(message) <> validation
   end
 end

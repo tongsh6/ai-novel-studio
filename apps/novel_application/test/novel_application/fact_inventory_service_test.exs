@@ -155,11 +155,14 @@ defmodule NovelApplication.FactInventoryServiceTest do
     result_fn = fn prompt ->
       n = Agent.get_and_update(counter, &{&1, &1 + 1})
 
+      # 生产请求入口已改为 canonical RequestIR；断言读与 provider 同源的投影文本视图。
+      prompt_text = NovelAgent.TestProviderPrompt.text(prompt)
+
       if n == 0 do
-        assert prompt =~ "设定盘点助手"
+        assert prompt_text =~ "设定盘点助手"
         {:ok, %{content: ~s([{"artifact_type":"character_seed","item_id":"bad","title": 沈砚}])}}
       else
-        assert prompt =~ "上一次的输出不是合法 JSON"
+        assert prompt_text =~ "上一次的输出不是合法 JSON"
         {:ok, %{content: valid_proposal_json()}}
       end
     end
@@ -282,7 +285,8 @@ defmodule NovelApplication.FactInventoryServiceTest do
       Inventory.inventory(
         materials(),
         provider(fn p ->
-          Agent.update(agent, fn _ -> p end)
+          # 生产请求入口已改为 canonical RequestIR；断言读与 provider 同源的投影文本视图。
+          Agent.update(agent, fn _ -> NovelAgent.TestProviderPrompt.text(p) end)
           {:ok, %{content: valid_proposal_json()}}
         end),
         known_characters: [" 沈洛 ", %{name: "沈洛"}, %{"name" => "云栖"}, "", nil]

@@ -6,6 +6,11 @@ defmodule NovelAgent.Provider.ExecutionTest do
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.RuntimeConfig
 
+  alias NovelAgent.TestRequestIR
+
+  # 生产执行入口只接受 canonical IR；测试用作者原话构造最小请求。
+  defp ir(text) when is_binary(text), do: TestRequestIR.ir([TestRequestIR.author(text)])
+
   setup do
     RuntimeConfig.reset()
 
@@ -32,7 +37,7 @@ defmodule NovelAgent.Provider.ExecutionTest do
 
     assert dependency.purpose == :planner
     assert dependency.gateway_opts[:content_visibility] == :author
-    assert {:ok, result} = Execution.result_fn(dependency).("只是测试公开内容，不含私有推理")
+    assert {:ok, result} = Execution.result_fn(dependency).(ir("只是测试公开内容，不含私有推理"))
     assert Enum.any?(result.provider_events, &is_binary(&1.payload[:author_narrative_delta]))
   end
 
@@ -67,7 +72,7 @@ defmodule NovelAgent.Provider.ExecutionTest do
     dependency = Execution.dependency(purpose: :writer, provider_call_ref: "pcall_execution_test")
     complete = Execution.result_fn(dependency)
 
-    assert {:ok, result} = complete.("hello from execution")
+    assert {:ok, result} = complete.(ir("hello from execution"))
     assert %Result{} = result
     assert result.content != ""
     refute result.content =~ "[stub]"
@@ -100,7 +105,7 @@ defmodule NovelAgent.Provider.ExecutionTest do
 
     assert %Execution{purpose: :tool} = dependency
     assert is_function(complete, 1)
-    assert {:ok, result} = complete.("hello from execution dependency")
+    assert {:ok, result} = complete.(ir("hello from execution dependency"))
     assert result.provider_call_ref == "pcall_dependency_test"
     assert result.provider_run_ref =~ "prun_"
     assert result.provider_output.status == :ok
@@ -123,7 +128,9 @@ defmodule NovelAgent.Provider.ExecutionTest do
 
     assert {:ok, result} =
              complete.(
-               "AgentRun 下一步规划器\nprofile_ref: conversation_turn_v1\n## 已有观察\n- none\n## 决策规则\n"
+               ir(
+                 "AgentRun 下一步规划器\nprofile_ref: conversation_turn_v1\n## 已有观察\n- none\n## 决策规则\n"
+               )
              )
 
     chunk_event = Enum.find(result.provider_events, &(&1.event_type == :chunk))
@@ -146,7 +153,7 @@ defmodule NovelAgent.Provider.ExecutionTest do
     assert updated.purpose == :tool
 
     complete = Execution.result_fn(updated)
-    assert {:ok, _result} = complete.("route hint smoke prompt")
+    assert {:ok, _result} = complete.(ir("route hint smoke prompt"))
   end
 
   test "raw completion functions are not provider execution dependencies" do
@@ -157,7 +164,7 @@ defmodule NovelAgent.Provider.ExecutionTest do
 
   test "execute exposes the unified provider execution result" do
     assert {:ok, %{provider_run: run, output: output, result: result, events: events}} =
-             Execution.execute("hello execution stream",
+             Execution.execute(ir("hello execution stream"),
                purpose: :evaluator,
                provider_call_ref: "pcall_execution_stream_test"
              )
@@ -203,7 +210,7 @@ defmodule NovelAgent.Provider.ExecutionTest do
     assert :ok = Execution.cancel(token, :author_cancelled)
 
     assert {:error, %{provider_run: run, output: output, error: error, events: events}} =
-             Execution.execute("hello cancelled execution",
+             Execution.execute(ir("hello cancelled execution"),
                purpose: :writer,
                provider_call_ref: "pcall_execution_cancel_test",
                provider_run_id: "prun_execution_cancel_test",
@@ -226,7 +233,7 @@ defmodule NovelAgent.Provider.ExecutionTest do
 
   test "complete returns provider errors from gateway execution" do
     assert {:error, error} =
-             Execution.complete("hello", provider: :missing_provider, purpose: :conversation)
+             Execution.complete(ir("hello"), provider: :missing_provider, purpose: :conversation)
 
     assert error.type == :provider_internal
   end

@@ -3,7 +3,21 @@ defmodule NovelAgent.Provider.AnthropicTest do
 
   alias NovelAgent.Provider.Anthropic
   alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.SystemIdentity
   alias NovelAgent.Provider.TimeoutPolicy
+
+  alias NovelAgent.TestRequestIR
+
+  # adapter 只接受 canonical IR；测试用作者原话构造最小请求，文字保持原字节。
+  defp ir(%NovelAgent.Provider.RequestIR{} = ir), do: ir
+  defp ir(text) when is_binary(text), do: TestRequestIR.ir([TestRequestIR.author(text)])
+
+  defp ir(messages) when is_list(messages),
+    do: TestRequestIR.ir(Enum.map(messages, &canonical_message/1))
+
+  defp canonical_message(%{role: "system", content: content}), do: TestRequestIR.system(content)
+  defp canonical_message(%{role: "user", content: content}), do: TestRequestIR.author(content)
 
   describe "name/0" do
     test "returns anthropic identifier" do
@@ -24,7 +38,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
       mock = fn _url, _body, _opts -> {:error, :http_error, 401, "Unauthorized"} end
       state = %Anthropic{api_key: nil, model: "c", timeout: 100, http_fn: mock, log_fn: nil}
 
-      assert {:error, error} = Anthropic.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:error, error} = Anthropic.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert error.type == :auth
     end
 
@@ -32,7 +46,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
       mock = fn _url, _body, _opts -> {:error, :connection_refused, 0, "拒绝"} end
       state = %Anthropic{api_key: "k", model: "c", timeout: 100, http_fn: mock, log_fn: nil}
 
-      assert {:error, error} = Anthropic.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:error, error} = Anthropic.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert error.type == :connection_refused
     end
 
@@ -40,7 +54,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
       mock = fn _url, _body, _opts -> {:error, :timeout, 0, "超时"} end
       state = %Anthropic{api_key: "k", model: "c", timeout: 100, http_fn: mock, log_fn: nil}
 
-      assert {:error, error} = Anthropic.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:error, error} = Anthropic.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert error.type == :timeout
     end
 
@@ -55,21 +69,15 @@ defmodule NovelAgent.Provider.AnthropicTest do
       state = %Anthropic{api_key: "k", model: "c", timeout: 100, http_fn: mock, log_fn: nil}
       long_system = String.duplicate("规则", 2100)
 
-      prompt = [
-        %{role: "system", content: long_system},
-        %{role: "user", content: "hi"}
-      ]
+      prompt = ir([%{role: "system", content: long_system}, %{role: "user", content: "hi"}])
 
-      assert {:error, _error} = Anthropic.complete(state, nil, prompt, %InferenceParams{})
+      assert {:error, _error} = Anthropic.complete(state, nil, ir(prompt), %InferenceParams{})
       assert_receive {:anthropic_body, body}
 
-      assert [
-               %{
-                 type: "text",
-                 text: ^long_system,
-                 cache_control: %{type: "ephemeral"}
-               }
-             ] = body.system
+      assert [%{type: "text", text: system_text, cache_control: %{type: "ephemeral"}}] =
+               body.system
+
+      assert String.ends_with?(system_text, long_system)
     end
   end
 
@@ -117,14 +125,15 @@ defmodule NovelAgent.Provider.AnthropicTest do
         log_fn: nil
       }
 
-      prompt = %{
-        messages: [%{role: "user", content: "判断"}],
-        tools: [%{name: "judgment_decision", description: "判断", input_schema: %{type: "object"}}],
-        tool_choice: "none"
-      }
+      prompt =
+        TestRequestIR.ir(
+          [TestRequestIR.author("判断")],
+          tools: [TestRequestIR.tool("judgment_decision", %{type: "object"})],
+          projection: %{tool_choice: "none"}
+        )
 
       assert {:ok, %{provider_run: run}} =
-               Anthropic.execute(state, nil, prompt, %InferenceParams{}, provider_ctx())
+               Anthropic.execute(state, nil, ir(prompt), %InferenceParams{}, provider_ctx())
 
       refute Map.has_key?(run.metadata, :tool_constancy)
 
@@ -132,7 +141,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
                Anthropic.execute(
                  state,
                  nil,
-                 %{prompt | tool_choice: "judgment_decision"},
+                 %{prompt | projection: %{tool_choice: "judgment_decision"}},
                  %InferenceParams{},
                  provider_ctx()
                )
@@ -199,13 +208,10 @@ defmodule NovelAgent.Provider.AnthropicTest do
         log_fn: nil
       }
 
-      prompt = [
-        %{role: "system", content: "系统规则"},
-        %{role: "user", content: "写一句问候"}
-      ]
+      prompt = ir([%{role: "system", content: "系统规则"}, %{role: "user", content: "写一句问候"}])
 
       assert {:ok, %{events: events, result: result, output: output}} =
-               Anthropic.execute(state, nil, prompt, %InferenceParams{}, provider_ctx())
+               Anthropic.execute(state, nil, ir(prompt), %InferenceParams{}, provider_ctx())
 
       assert result.content == "你好"
       assert result.usage.input_tokens == 7
@@ -218,8 +224,14 @@ defmodule NovelAgent.Provider.AnthropicTest do
       assert_receive {:stream_request, url, body, opts}
       assert url == "https://api.anthropic.com/v1/messages"
       assert body.stream == true
-      assert body.system == "系统规则"
-      assert body.messages == [%{role: "user", content: "写一句问候"}]
+      assert [%{type: "text", text: system_text}] = body.system
+      assert String.starts_with?(system_text, SystemIdentity.content())
+      assert String.ends_with?(system_text, "系统规则")
+
+      assert body.messages == [
+               %{role: "user", content: [%{type: "text", text: "写一句问候"}]}
+             ]
+
       assert {"x-api-key", "sk-ant-secret"} in Keyword.fetch!(opts, :headers)
       assert {"anthropic-version", "2023-06-01"} in Keyword.fetch!(opts, :headers)
 
@@ -246,7 +258,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
       }
 
       assert {:error, %{error: %{type: :auth}, events: events}} =
-               Anthropic.execute(state, nil, "prompt", %InferenceParams{}, provider_ctx())
+               Anthropic.execute(state, nil, ir("prompt"), %InferenceParams{}, provider_ctx())
 
       assert Enum.map(events, & &1.event_type) == [:started, :error]
       refute_received :unexpected_eventsource
@@ -273,7 +285,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
       }
 
       assert {:error, %{error: %{type: :rate_limit, message: message}, events: events}} =
-               Anthropic.execute(state, nil, "prompt", %InferenceParams{}, provider_ctx())
+               Anthropic.execute(state, nil, ir("prompt"), %InferenceParams{}, provider_ctx())
 
       assert message =~ "Anthropic API: busy"
       assert Enum.any?(events, &(&1.event_type == :error))
@@ -300,13 +312,12 @@ defmodule NovelAgent.Provider.AnthropicTest do
         log_fn: nil
       }
 
-      prompt = %{
-        messages: [%{role: "user", content: "判断"}],
-        tools: [
-          %{name: "judgment_decision", description: "decision", input_schema: %{type: "object"}}
-        ],
-        tool_choice: "judgment_decision"
-      }
+      prompt =
+        TestRequestIR.ir(
+          [TestRequestIR.author("判断")],
+          tools: [TestRequestIR.tool("judgment_decision", %{type: "object"})],
+          projection: %{tool_choice: "judgment_decision"}
+        )
 
       policy = %TimeoutPolicy{
         provider: :anthropic,
@@ -321,7 +332,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
                Anthropic.execute(
                  state,
                  nil,
-                 prompt,
+                 ir(prompt),
                  %InferenceParams{},
                  provider_ctx(timeout_policy: policy)
                )
@@ -359,7 +370,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
     "event: #{event}\ndata: #{Jason.encode!(payload)}\n\n"
   end
 
-  describe "IR v1 桥（B71 CP2，VS-00L §6.2）" do
+  describe "IR 原生 Messages 投影（B71 R1，VS-00L §19.1）" do
     test "真实 adapter 在发送前拒绝其它协议的不可表示工具参数" do
       parent = self()
 
@@ -378,32 +389,23 @@ defmodule NovelAgent.Provider.AnthropicTest do
         end
       }
 
-      prompt = ir_provider_prompt()
+      ir =
+        ir_provider_ir(%{
+          call:
+            RequestIR.tool_call_block("read_character", %{}, "call-1")
+            |> Map.put(:raw_arguments, "{\"query\":}")
+        })
 
-      prompt = %{
-        prompt
-        | messages:
-            Enum.map(prompt.messages, fn
-              %{role: "assistant", tool_calls: calls} = message ->
-                %{
-                  message
-                  | tool_calls:
-                      Enum.map(calls, &put_in(&1, [:function, :arguments], "{\"query\":}"))
-                }
-
-              message ->
-                message
-            end)
-      }
+      assert {:ok, prepared} = RequestIR.prepare_request(ir)
 
       assert {:error, %{type: :invalid_request}} =
-               Anthropic.complete(state, nil, prompt, %InferenceParams{})
+               Anthropic.complete(state, nil, prepared, %InferenceParams{})
 
       assert {:error, %{error: %{type: :invalid_request}}} =
                Anthropic.execute(
                  state,
                  nil,
-                 Map.put(prompt, :tool_choice, "none"),
+                 prepared,
                  %InferenceParams{},
                  provider_ctx()
                )
@@ -412,7 +414,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
       refute_received :invalid_history_streamed
     end
 
-    test "IR → Anthropic Messages：tool_use/tool_result content blocks + 轮次交替" do
+    test "IR → Anthropic Messages：原生对象参数/tool_result/相邻 role 与稳定 system" do
       test_pid = self()
 
       mock = fn _url, body, _opts ->
@@ -421,98 +423,99 @@ defmodule NovelAgent.Provider.AnthropicTest do
       end
 
       state = %Anthropic{api_key: "k", model: "c", timeout: 100, http_fn: mock, log_fn: nil}
-      prompt = ir_provider_prompt()
+      prepared = ir_provider_prompt()
 
-      assert {:error, _error} = Anthropic.complete(state, nil, prompt, %InferenceParams{})
+      assert {:error, _error} = Anthropic.complete(state, nil, prepared, %InferenceParams{})
       assert_received {:anthropic_body, body}
 
       assert [%{name: "read_character", input_schema: %{"type" => "object"}}] = body.tools
+      assert body.tool_choice == %{type: "auto"}
 
-      assert Enum.any?(body.messages, fn message ->
-               message.role == "assistant" and
-                 Enum.any?(message.content, &(&1.type == "tool_use" and &1.id == "call-1"))
-             end)
+      [%{type: "text", text: system_text}] = body.system
+      assert String.contains?(system_text, SystemIdentity.content())
+      assert String.contains?(system_text, "你是创作 run")
+      assert :binary.matches(system_text, SystemIdentity.content()) |> length() == 1
 
-      assert Enum.any?(body.messages, fn message ->
-               Enum.any?(
-                 message.content,
-                 &(&1.type == "tool_result" and &1.tool_use_id == "call-1")
-               )
-             end)
+      assistant = Enum.find(body.messages, &(&1.role == "assistant"))
+      tool_use = Enum.find(assistant.content, &(&1.type == "tool_use"))
+      assert tool_use.id == "call-1"
+      assert tool_use.name == "read_character"
+      assert tool_use.input == %{"character_ref" => "character:1"}
+
+      tool_result =
+        body.messages
+        |> Enum.flat_map(& &1.content)
+        |> Enum.find(&(&1.type == "tool_result"))
+
+      assert tool_result.tool_use_id == "call-1"
+      assert Jason.decode!(tool_result.content)["call_id"] == "call-1"
+
+      first_user = hd(body.messages)
+      assert first_user.role == "user"
+
+      assert Enum.map(first_user.content, & &1.text) == [
+               "【应用数据 · application_base · 非作者原话】\nrun goal: 读取角色事实并生成 tentative 候选",
+               "把沈砚的年龄改成三十岁"
+             ]
 
       roles = Enum.map(body.messages, & &1.role)
 
       refute Enum.chunk_every(roles, 2, 1, :discard)
              |> Enum.any?(fn [left, right] -> left == right end)
-
-      assert body[:system] != nil
-    end
-
-    test "legacy prompt 仍走原字符串/块路径（无 ir_version 时不进入桥）" do
-      test_pid = self()
-
-      mock = fn _url, body, _opts ->
-        send(test_pid, {:anthropic_body, body})
-        {:error, :http_error, 401, "Unauthorized"}
-      end
-
-      state = %Anthropic{api_key: "k", model: "c", timeout: 100, http_fn: mock, log_fn: nil}
-      prompt = [%{role: "user", content: "hi"}]
-
-      assert {:error, _error} = Anthropic.complete(state, nil, prompt, %InferenceParams{})
-      assert_received {:anthropic_body, body}
-      assert [%{role: "user", content: "hi"}] == body.messages
     end
 
     defp ir_provider_prompt do
-      alias NovelAgent.Provider.RequestIR
+      ir = ir_provider_ir(%{})
+      assert {:ok, prepared} = RequestIR.prepare_request(ir, tool_choice: "auto")
+      prepared
+    end
 
-      ir =
-        RequestIR.new(%{
-          run: %{run_id: "run-anthropic", work_id: "work-1"},
-          system: %{
-            identity_ref: "identity:authoring/v1",
+    defp ir_provider_ir(opts) do
+      call =
+        Map.get(
+          opts,
+          :call,
+          RequestIR.tool_call_block(
+            "read_character",
+            %{"character_ref" => "character:1"},
+            "call-1"
+          )
+        )
+
+      RequestIR.new(%{
+        run: %{run_id: "run-anthropic", work_id: "work-1"},
+        system:
+          RequestIR.system_envelope(
             instructions: "你是创作 run，只在作者授权边界内行动。",
             run_role: "creation_run"
-          },
-          messages: [
-            RequestIR.message(:application_base, :application, [
-              RequestIR.text_block("run goal: 读取角色事实并生成 tentative 候选")
-            ]),
-            RequestIR.message(:user, :author, [RequestIR.text_block("把沈砚的年龄改成三十岁")]),
-            RequestIR.message(:assistant, :model, [
-              RequestIR.text_block("先读取角色事实。"),
-              RequestIR.tool_call_block(
-                "read_character",
-                %{"character_ref" => "character:1"},
-                "call-1"
-              )
-            ]),
-            RequestIR.message(:tool, :tool_result, [
-              RequestIR.observation_block("call-1", %{
-                status: "ok",
-                source_refs: [%{ref: "character:1", version: 2}],
-                content: %{"narrative_role" => "ENSEMBLE_POV"}
-              })
-            ])
-          ],
-          tools: [
-            %{name: "read_character", description: "读取角色", input_schema: %{type: "object"}}
-          ],
-          projection: %{
-            target: "anthropic_messages",
-            capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true}),
-            usage_streaming: false
-          },
-          refs: %{
-            base_refs: [],
-            observation_refs: [%{ref: "character:1", version: 2}],
-            used_refs: []
-          }
-        })
-
-      assert {:ok, prompt} = RequestIR.to_provider_prompt(ir)
-      prompt
+          ),
+        messages: [
+          RequestIR.message(:application_base, :application, [
+            RequestIR.text_block("run goal: 读取角色事实并生成 tentative 候选")
+          ]),
+          RequestIR.message(:user, :author, [RequestIR.text_block("把沈砚的年龄改成三十岁")]),
+          RequestIR.message(:assistant, :model, [
+            RequestIR.text_block("先读取角色事实。"),
+            call
+          ]),
+          RequestIR.message(:tool, :tool_result, [
+            RequestIR.observation_block("call-1", %{
+              status: "ok",
+              source_refs: [%{ref: "character:1", version: 2}],
+              content: %{"narrative_role" => "ENSEMBLE_POV"}
+            })
+          ])
+        ],
+        tools: [
+          %{name: "read_character", description: "读取角色", input_schema: %{type: "object"}}
+        ],
+        projection: %{usage_streaming: false, tool_choice: "auto"},
+        refs: %{
+          base_refs: [],
+          observation_refs: [%{ref: "character:1", version: 2}],
+          used_refs: []
+        }
+      })
     end
   end
 end

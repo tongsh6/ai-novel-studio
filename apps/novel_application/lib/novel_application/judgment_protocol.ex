@@ -67,7 +67,11 @@ defmodule NovelApplication.JudgmentProtocol do
   @spec transcript_for_production(map(), atom()) ::
           {:ok, AuthoringTranscript.t()} | {:error, term()}
   def transcript_for_production(input, profile \\ :judgment) do
-    with {:ok, transcript} <- new_transcript(input, profile) do
+    # 判断入口只生成一次实际 scope；首次构造与既有 transcript 追加消费同一事实。
+    scope = profile_scope_text(input, profile)
+    scope_refs = scope_refs(input)
+
+    with {:ok, transcript} <- new_transcript(input, profile, scope, scope_refs) do
       transcript =
         if profile == :judgment do
           AuthoringTranscript.append_author_turn(
@@ -80,23 +84,22 @@ defmodule NovelApplication.JudgmentProtocol do
           transcript
         end
 
-      {:ok, refresh_transcript(input, transcript, profile)}
+      {:ok, refresh_transcript(input, transcript, profile, scope, scope_refs)}
     end
   end
 
-  @doc "生产投影入口；无 IR 时不回退 giant prompt，契约错误必须显式处理。"
-  @spec prompt_for_production(map(), atom()) :: map()
-  def prompt_for_production(input, profile \\ :judgment) do
+  @doc "生产请求入口；返回已选择本次工具与 tool_choice 的 canonical IR。"
+  @spec request_for_production(map(), atom()) :: RequestIR.t()
+  def request_for_production(input, profile \\ :judgment) do
     with {:ok, transcript} <- transcript_for_production(input, profile),
-         {:ok, prompt} <- provider_prompt(transcript, profile) do
-      prompt
+         {:ok, request} <- prepare_request(transcript, profile) do
+      request
     else
       {:error, reason} -> raise ArgumentError, "invalid authoring transcript: #{inspect(reason)}"
     end
   end
 
-  defp refresh_transcript(input, transcript, profile) do
-    scope = profile_scope_text(input, profile)
+  defp refresh_transcript(input, transcript, profile, scope, scope_refs) do
     transcript = ensure_profile_tools(transcript, profile)
 
     case AuthoringTranscript.current_scope(transcript) do
@@ -108,7 +111,7 @@ defmodule NovelApplication.JudgmentProtocol do
           transcript,
           scope,
           scope_versions(input, previous),
-          scope_refs(input)
+          scope_refs
         )
     end
   end
@@ -128,8 +131,9 @@ defmodule NovelApplication.JudgmentProtocol do
     revision = if previous, do: previous.versions["scope_revision"] + 1, else: 1
 
     reason =
-      Map.get(input, :scope_change_reason) ||
-        if(previous, do: "run_scope_changed", else: "initial_scope")
+      if previous,
+        do: Map.get(input, :scope_change_reason) || "run_scope_changed",
+        else: "initial_scope"
 
     run = get_in(input, [:options, :plan_run]) || %{}
     goal = Map.get(run, :goal) || %{}
@@ -220,9 +224,9 @@ defmodule NovelApplication.JudgmentProtocol do
     Map.get(@observation_statuses, to_string(field(observation, :outcome)), "ok")
   end
 
-  defp provider_prompt(transcript, profile) do
+  defp prepare_request(transcript, profile) do
     with {:ok, ir} <- AuthoringTranscript.to_request_ir(transcript) do
-      RequestIR.to_provider_prompt(ir, profile_tool_options(profile))
+      RequestIR.prepare_request(ir, profile_tool_options(profile))
     end
   end
 
@@ -234,17 +238,17 @@ defmodule NovelApplication.JudgmentProtocol do
   end
 
   defp invoke(fun, transcript, input, profile, attempt, previous_tools \\ []) do
-    case provider_prompt(transcript, profile) do
-      {:ok, prompt} ->
-        invoke_prompt(fun, prompt, transcript, input, profile, attempt, previous_tools)
+    case prepare_request(transcript, profile) do
+      {:ok, request} ->
+        invoke_prompt(fun, request, transcript, input, profile, attempt, previous_tools)
 
       {:error, reason} ->
         prompt_failure(reason, transcript, attempt)
     end
   end
 
-  defp invoke_prompt(fun, prompt, transcript, input, profile, attempt, previous_tools) do
-    case fun.(prompt) do
+  defp invoke_prompt(fun, request, transcript, input, profile, attempt, previous_tools) do
+    case fun.(request) do
       {:ok, provider_result} ->
         provider_result = ensure_provider_call_ids(transcript, provider_result)
         transcript = AuthoringTranscript.append_provider_result(transcript, provider_result)
@@ -627,26 +631,7 @@ defmodule NovelApplication.JudgmentProtocol do
   defp validation_reason_code(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp validation_reason_code(_), do: "invalid_response"
 
-  @doc "历史输入的迁移构造器；生产请求统一从 canonical transcript 投影。"
-  def prompt(input, profile \\ :judgment) do
-    %{
-      messages: [%{role: "user", content: content(input, profile)}],
-      tools: JudgmentToolContract.tools(profile),
-      tool_choice: "auto"
-    }
-  end
-
-  @doc "从同一 canonical transcript 生成 Request IR 与生产投影。"
-  @spec prompt_ir(map(), atom()) :: {:ok, map()} | {:error, term()}
-  def prompt_ir(input, profile \\ :judgment) do
-    with {:ok, transcript} <- transcript_for_production(input, profile),
-         {:ok, ir} <- AuthoringTranscript.to_request_ir(transcript),
-         {:ok, prompt} <- RequestIR.to_provider_prompt(ir, profile_tool_options(profile)) do
-      {:ok, %{prompt: prompt, ir: ir, transcript: transcript}}
-    end
-  end
-
-  defp new_transcript(input, profile) do
+  defp new_transcript(input, profile, scope, scope_refs) do
     case Map.get(input, :transcript) do
       nil ->
         base_refs = Enum.map(Map.get(input, :supplied_context_refs, []), &%{ref: &1})
@@ -664,14 +649,20 @@ defmodule NovelApplication.JudgmentProtocol do
            author_text: author_text(input, profile),
            allow_authorless: profile != :judgment,
            author_turn_ref: Map.get(input, :source_input_ref, "author_turn:current"),
+           author_turn: Map.get(input, :author_turn),
+           initial_scope: %{
+             text: scope,
+             versions: scope_versions(input, nil),
+             source_refs: scope_refs
+           },
            base_refs: base_refs,
            tools: JudgmentToolContract.tools(profile),
-           # 能力事实由传输边界按实际 route 派生；应用层不得写死必备能力声明
-           # （VS-00L §6.4：缺能力必须显式 finite_mode 或拒绝路由）。
-           projection: %{target: "chat_completions"}
+           # 投影不携带供应商/能力/目标；Gateway 按实际 route 派生能力事实。
+           projection: %{}
          )}
 
       transcript ->
+        # 既有 transcript 只走追加规则；initial_scope 仅在首次构造时使用。
         {:ok, transcript}
     end
   end
@@ -682,15 +673,6 @@ defmodule NovelApplication.JudgmentProtocol do
   # 稳定协议与运行事实分层；动态事实只能通过 scope_update 追加。
   defp ir_base_text(_input, :judgment), do: judgment_base_text() <> judgment_output_text()
   defp ir_base_text(_input, :continuation), do: continuation_base_text()
-
-  defp content(input, :judgment) do
-    judgment_base_text() <>
-      judgment_scope_text(input) <>
-      "\n## 作者输入\n#{Map.fetch!(input, :author_text)}\n\n" <>
-      judgment_output_text()
-  end
-
-  defp content(input, :continuation), do: judgment_continuation_content(input)
 
   defp judgment_base_text do
     """
@@ -826,9 +808,6 @@ defmodule NovelApplication.JudgmentProtocol do
     提供资料但只要求收下时不调工具、不生成方向/候选；保存指令不能代替被引用原文。
     """
   end
-
-  defp judgment_continuation_content(input),
-    do: continuation_base_text() <> "\n" <> continuation_scope_text(input)
 
   defp continuation_base_text do
     """

@@ -1465,8 +1465,8 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp judgment_prompt_diagnostics(protocol_input, write_judgment?) do
-    prompt = JudgmentProtocol.prompt_for_production(protocol_input)
-    content = prompt.messages |> Enum.map_join("", &(&1.content || ""))
+    request = JudgmentProtocol.request_for_production(protocol_input)
+    content = canonical_request_text(request.messages)
 
     %{
       prompt_chars: String.length(content),
@@ -1474,6 +1474,18 @@ defmodule NovelApplication.DialoguePlanningService do
       selected_sections: selected_context_sections(write_judgment?),
       cropped: write_judgment?
     }
+  end
+
+  # 诊断只量 canonical block 文本；IR 没有 wire content，不能从 messages.content 读空。
+  defp canonical_request_text(messages) do
+    Enum.map_join(messages, "", fn message ->
+      message
+      |> Map.get(:blocks, [])
+      |> Enum.map_join("", fn
+        %{type: "text", text: text} when is_binary(text) -> text
+        _block -> ""
+      end)
+    end)
   end
 
   defp selected_context_sections(true),

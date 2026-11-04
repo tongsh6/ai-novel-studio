@@ -1,8 +1,8 @@
 defmodule NovelApplication.ChapterMissionServiceTest do
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider
   alias NovelAgent.Provider.{Execution, RequestIR}
+  alias NovelAgent.Provider.RequestIR.Projection
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.ChapterMissionService
   alias NovelDomain.ChapterMission
@@ -76,13 +76,17 @@ defmodule NovelApplication.ChapterMissionServiceTest do
              )
 
     assert_receive {:prompt, prompt}
-    assert prompt.tool_choice == "chapter_mission"
+    assert NovelAgent.Provider.tool_choice(prompt) == "chapter_mission"
     assert [%{name: "chapter_mission"}] = prompt.tools
-    content = Provider.prompt_text(prompt)
+    content = text(prompt)
     assert content =~ ChapterMissionService.prompt_anchor()
     assert content =~ "[ledger:information:foreshadow_a]"
     assert content =~ "[plan:3:chapter_role]"
-    assert Enum.any?(prompt.messages, &(&1.role == "user" and &1.content == "续写第三章"))
+
+    assert Enum.any?(
+             prompt.messages,
+             &(&1.role == "user" and &1.provenance == "author" and text(&1) == "续写第三章")
+           )
 
     assert mission.statement == "本章必须回收旧账牌伏笔。"
 
@@ -132,7 +136,7 @@ defmodule NovelApplication.ChapterMissionServiceTest do
 
       if attempt == 2 do
         [_first | rest] = prompt.messages
-        assert Enum.any?(rest, &(&1.content =~ "上一次输出无法使用"))
+        assert Enum.any?(rest, &(text(&1) =~ "上一次输出无法使用"))
       end
 
       {:ok, %{content: "我直接写正文了。", provider_call_id: "pc-bad-#{attempt}", tool_calls: []}}
@@ -187,23 +191,42 @@ defmodule NovelApplication.ChapterMissionServiceTest do
              ChapterMissionService.derive(inputs(), failing, run: fixture_run())
   end
 
-  test "公开使命 prompt 同样使用 IR，规则与材料不冒充作者输入" do
+  test "使命请求同样使用 IR，规则与材料不冒充作者输入" do
     author_text = "  把这一章写得更紧凑\n"
+    parent = self()
 
-    prompt =
-      ChapterMissionService.mission_prompt(inputs(), author_text, :prose, run: fixture_run())
+    provider =
+      execution(fn prompt ->
+        send(parent, {:mission_prompt, prompt})
+        {:ok, tool_call_result("按紧凑要求回收旧账牌。", valid_arguments())}
+      end)
 
-    assert Map.has_key?(prompt, :ir_version)
-    assert [%{content: ^author_text}] = Enum.filter(prompt.messages, &(&1.content == author_text))
-    rules = Enum.find(prompt.messages, &String.contains?(&1.content, "要求："))
-    material = Enum.find(prompt.messages, &String.contains?(&1.content, "材料（每条以 [ref] 开头"))
+    assert {:ok, _mission, _meta} =
+             ChapterMissionService.derive(inputs(), provider,
+               run: fixture_run(),
+               author_text: author_text
+             )
+
+    assert_receive {:mission_prompt, prompt}
+    assert %RequestIR{} = prompt
+    assert prompt.ir_version == RequestIR.ir_version()
+
+    assert [%{role: "user", provenance: "author"} = author_message] =
+             Enum.filter(prompt.messages, &(&1.role == "user" and &1.provenance == "author"))
+
+    assert text(author_message) == author_text
+
+    rules = Enum.find(prompt.messages, &(text(&1) =~ "要求："))
+    material = Enum.find(prompt.messages, &(text(&1) =~ "材料（每条以 [ref] 开头"))
     assert rules
     assert material
-    assert rules.content =~ "author_reasoning"
-    assert rules.content =~ "调用 chapter_mission 工具"
-    assert material.content =~ "[plan:3:chapter_role]"
-    refute rules.content == author_text
-    refute material.content == author_text
+    assert rules.provenance == "application"
+    assert material.provenance == "application"
+    assert text(rules) =~ "author_reasoning"
+    assert text(rules) =~ "调用 chapter_mission 工具"
+    assert text(material) =~ "[plan:3:chapter_role]"
+    refute text(rules) == author_text
+    refute text(material) == author_text
   end
 
   test "没有真实 run 或历史时不伪造运行事实，也不调用 Provider" do
@@ -212,8 +235,8 @@ defmodule NovelApplication.ChapterMissionServiceTest do
     assert {:error, :missing_run_envelope, %{provider_call_count: 0}} =
              ChapterMissionService.derive(inputs(), provider)
 
-    assert {:error, :missing_run_envelope} =
-             ChapterMissionService.mission_prompt(inputs(), "续写第三章")
+    assert {:error, :missing_run_envelope, %{provider_call_count: 0}} =
+             ChapterMissionService.derive(inputs(), provider, author_text: "续写第三章")
   end
 
   @tag :mission_canonical
@@ -222,7 +245,6 @@ defmodule NovelApplication.ChapterMissionServiceTest do
     {run, transcript} = mission_conversation()
     run = %{run | goal: %{text: "只补第三章结尾，保留已写正文", version: 2}}
     {:ok, before_ir} = AuthoringTranscript.to_request_ir(transcript)
-    {:ok, before_prompt} = RequestIR.to_provider_prompt(before_ir)
 
     provider =
       execution(fn prompt ->
@@ -238,16 +260,29 @@ defmodule NovelApplication.ChapterMissionServiceTest do
              )
 
     assert_receive {:canonical_mission_prompt, prompt}
-    assert Enum.take(prompt.messages, length(before_prompt.messages)) == before_prompt.messages
-    assert Enum.count(prompt.messages, &(&1.role == "user" and &1.content == "  续写第三章\n")) == 1
-    refute Enum.any?(prompt.messages, &(&1.role == "user" and &1.content == "不要把应用目标重复成作者发言"))
+    assert Enum.take(prompt.messages, length(before_ir.messages)) == before_ir.messages
+
+    assert Enum.count(
+             prompt.messages,
+             &(&1.role == "user" and &1.provenance == "author" and text(&1) == "  续写第三章\n")
+           ) == 1
+
+    refute Enum.any?(
+             prompt.messages,
+             &(&1.role == "user" and text(&1) == "不要把应用目标重复成作者发言")
+           )
+
     assert Enum.map(prompt.tools, & &1.name) == ["chapter_mission"]
+    latest_scope = Enum.find(Enum.reverse(prompt.messages), &(&1.role == "scope_update"))
+    assert latest_scope
+    assert text(latest_scope) =~ "当前应用目标：只补第三章结尾，保留已写正文"
 
-    latest_scope =
-      Enum.find(Enum.reverse(prompt.messages), &String.contains?(&1.content, "scope_update"))
+    # 目标版本是 canonical scope 的结构化事实；投影文本（provider 实际可读）同源携带。
+    assert latest_scope.versions["goal_version"] == 2
 
-    assert latest_scope.content =~ "当前应用目标：只补第三章结尾，保留已写正文"
-    assert latest_scope.content =~ ~s("goal_version":2)
+    assert Projection.scope_update_text(latest_scope) =~
+             ~s("goal_version":2)
+
     assert mission.statement == "本章回收旧账牌。"
     assert meta.provider_call_count == 1
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(meta.judgment_transcript)
@@ -261,7 +296,24 @@ defmodule NovelApplication.ChapterMissionServiceTest do
              |> AuthoringTranscript.restore()
 
     assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored)
-    assert provider_wire(restored_ir) == provider_wire(ir)
+
+    # checkpoint 是 JSON 边界：工具 map 的 key 表示在往返后变为字符串；恢复后的
+    # 请求语义必须逐项一致——运行事实/消息/来源引用严格相等，工具 description/schema
+    # 按 JSON 语义相等，且三种 wire 投影逐字节一致。
+    assert %{restored_ir | tools: []} == %{ir | tools: []}
+    assert normalized_tools(restored_ir.tools) == normalized_tools(ir.tools)
+
+    for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
+      assert Projection.project(restored_ir, target) ==
+               Projection.project(ir, target)
+    end
+  end
+
+  # 工具语义的规范化视图：JSON 边界两侧都按 string-key 对象比较。
+  defp normalized_tools(tools) do
+    tools
+    |> Enum.map(&Projection.json_value/1)
+    |> Enum.sort_by(&(Map.get(&1, "name") || Map.get(&1, :name)))
   end
 
   @tag :mission_canonical
@@ -299,15 +351,18 @@ defmodule NovelApplication.ChapterMissionServiceTest do
 
     feedback =
       Enum.find(second.messages, fn message ->
-        message.role == "tool" and String.contains?(message.content, "mission_unbound")
+        Enum.any?(message.blocks, fn block ->
+          block.type == "validation_result" and block.reason_code == "mission_unbound"
+        end)
       end)
 
     assert feedback
-    assert %{"status" => "failed", "call_id" => rejected_id} = Jason.decode!(feedback.content)
-    assert feedback.tool_call_id == rejected_id
+
+    assert %{type: "validation_result", status: "failed", call_id: rejected_id} =
+             Enum.find(feedback.blocks, &(&1.type == "validation_result"))
 
     assert Enum.any?(second.messages, fn message ->
-             Enum.any?(Map.get(message, :tool_calls, []), &(&1.id == rejected_id))
+             Enum.any?(message.blocks, &(&1.type == "tool_call" and &1.call_id == rejected_id))
            end)
 
     assert meta.provider_call_count == 2
@@ -341,26 +396,22 @@ defmodule NovelApplication.ChapterMissionServiceTest do
              transcript.messages
   end
 
-  defp provider_wire(ir) do
-    {:ok, prompt} = RequestIR.to_provider_prompt(ir)
+  defp text(%RequestIR{} = ir), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(ir)
 
-    %{messages: Provider.normalize_messages(prompt)}
-    |> Provider.put_openai_tools(prompt)
-    |> Jason.encode!()
-    |> Jason.decode!()
-  end
+  defp text(%{blocks: _} = message),
+    do: NovelApplication.TestAgenticLoopFixtures.message_text(message)
+
+  defp text(text) when is_binary(text), do: text
 
   defp fixture_run, do: %{run_id: "run-mission", work_id: "work-mission", goal: %{text: "续写第三章"}}
 
   defp mission_conversation do
     run = %{run_id: "run-mission", work_id: "work-mission", goal: %{text: "续写第三章"}}
-    caps = Map.new(RequestIR.required_capabilities(), &{&1, true})
 
     transcript =
       AuthoringTranscript.new(run,
         base_text: "作者保留采纳权",
-        author_text: "  续写第三章\n",
-        projection: %{target: "chat_completions", capability_profile: caps}
+        author_text: "  续写第三章\n"
       )
       |> AuthoringTranscript.append_assistant("先核对已读材料。", [
         RequestIR.tool_call_block("archive_read", %{}, "prior-read")

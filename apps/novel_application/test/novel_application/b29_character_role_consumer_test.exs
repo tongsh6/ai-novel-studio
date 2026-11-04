@@ -31,16 +31,15 @@ defmodule NovelApplication.B29CharacterRoleConsumerTest do
   end
 
   test "判断 prompt：角色索引携带当前 narrative_role，并声明主档案优先于旧记忆" do
+    # 角色索引在 canonical scope 文本块、主档案优先规则在 application_base：
+    # 断言读与 provider 同源的完整投影文本视图。
     content =
-      JudgmentProtocol.prompt(
-        input(
-          capabilities: ["revise_character_profile"],
-          character_targets: [target("PROTAGONIST")]
-        )
+      input(
+        capabilities: ["revise_character_profile"],
+        character_targets: [target("PROTAGONIST")]
       )
-      |> Map.fetch!(:messages)
-      |> List.first()
-      |> Map.fetch!(:content)
+      |> JudgmentProtocol.request_for_production()
+      |> NovelApplication.TestAgenticLoopFixtures.prompt_text()
 
     assert content =~ "narrative_role=PROTAGONIST"
     assert content =~ "Character 主档案 narrative_role 为当前事实"

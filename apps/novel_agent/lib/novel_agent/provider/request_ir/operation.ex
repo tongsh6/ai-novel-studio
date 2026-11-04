@@ -60,7 +60,7 @@ defmodule NovelAgent.Provider.RequestIR.Operation do
     ir =
       RequestIR.new(%{
         run: run,
-        system: %{identity_ref: "identity:authoring/v1"},
+        system: RequestIR.system_envelope(),
         messages: [base | author_messages(Map.get(spec, :author_text), run)],
         tools: [],
         projection: Map.merge(default_projection(), Map.get(spec, :projection, %{})),
@@ -142,9 +142,8 @@ defmodule NovelAgent.Provider.RequestIR.Operation do
     %{ir | refs: Map.update(ir.refs, :base_refs, refs, &Enum.uniq(&1 ++ refs))}
   end
 
-  # 只声明 wire 目标；能力事实由传输边界按实际 route 派生（VS-00L §6.4）。
-  # 这里不得写死必备能力，否则缺能力的 provider 会被伪装成完整 AgentRun provider。
+  # canonical projection 只承载调用政策；wire 目标与能力事实由实际 adapter/route 决定。
   defp default_projection do
-    %{target: "chat_completions"}
+    %{}
   end
 end

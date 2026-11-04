@@ -89,9 +89,8 @@ defmodule NovelAgent.Provider.RequestIR.OperationTest do
 
   test "投影模式可显式提供并在续阶段保留，没有作者时不伪造 user" do
     projection = %{
-      target: "chat_completions",
-      capability_profile: %{},
-      finite_mode: %{name: "legacy_json_content"}
+      tool_choice: "auto",
+      finite_mode: %{name: "no_streaming"}
     }
 
     first = Map.put(specification(), :projection, projection)

@@ -171,7 +171,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
     assert_receive {:agent_event, :tool_started, tool_started}, 500
     assert tool_started.summary =~ "正文写作能力"
     assert_receive {:revision_prompt, revision_prompt}, 500
-    revision_prompt = NovelAgent.Provider.prompt_text(revision_prompt)
+    revision_prompt = NovelApplication.TestAgenticLoopFixtures.prompt_text(revision_prompt)
     assert revision_prompt =~ "[质量修订要求]"
     assert revision_prompt =~ @bad_prose
     assert_receive {:agent_event, :tool_completed, tool_completed}, 500
@@ -396,7 +396,10 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
 
     assert {:ok, restored} = AuthoringTranscript.restore(checkpoint)
     assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored)
-    assert Projection.project(restored_ir) == Projection.project(ir)
+
+    assert Projection.project(restored_ir, "chat_completions") ==
+             Projection.project(ir, "chat_completions")
+
     refute inspect(checkpoint) =~ source.agent_run.run_id
 
     finalize_snapshot =
@@ -1058,8 +1061,8 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
       assert Enum.all?(revision_records, &real_execution_refs?/1)
       [first_record, second_record] = revision_records
       assert first_record["provider_call_ref"] != second_record["provider_call_ref"]
-      assert second_record["prompt"] =~ "invalid_items"
-      assert second_record["prompt"] =~ "native-submit_tentative_artifact"
+      assert request_text(second_record) =~ "invalid_items"
+      assert request_text(second_record) =~ "native-submit_tentative_artifact"
 
       assert revision.trace_summary.revision_provider_call_ref ==
                second_record["provider_call_ref"]
@@ -1203,7 +1206,16 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
   defp revision_writer_records(dir) do
     dir
     |> llm_records()
-    |> Enum.filter(&String.contains?(&1["prompt"], "[质量修订要求]"))
+    |> Enum.filter(&String.contains?(request_text(&1), "[质量修订要求]"))
+  end
+
+  # canonical IR 请求记录的 `prompt` 字段为 nil：正文材料在 `request_body` 的
+  # canonical messages/blocks 中。只读实际落盘的请求字节，不重建旧 prompt。
+  defp request_text(record) do
+    case Map.get(record, "prompt") do
+      text when is_binary(text) -> text
+      _ -> record |> Map.get("request_body", %{}) |> Map.get("messages", []) |> Jason.encode!()
+    end
   end
 
   defp llm_records(dir) do

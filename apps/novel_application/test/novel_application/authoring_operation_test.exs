@@ -37,11 +37,7 @@ defmodule NovelApplication.AuthoringOperationTest do
     previous =
       AuthoringTranscript.new(@run,
         base_text: "作者主权",
-        author_text: "  原始输入\n",
-        projection: %{
-          target: "chat_completions",
-          capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-        }
+        author_text: "  原始输入\n"
       )
 
     snapshot = %{stage_state: %{judgment_transcript: previous}}
@@ -54,14 +50,14 @@ defmodule NovelApplication.AuthoringOperationTest do
     assert List.last(ir.messages).role == "scope_update"
     assert List.last(ir.messages).versions["change_reason"] == "planning"
     assert List.last(ir.messages).source_refs == [%{ref: "chapter:one"}]
-    assert {:ok, _prompt} = RequestIR.to_provider_prompt(ir, tool_names: ["plan"])
+    assert {:ok, _prepared} = RequestIR.prepare_request(ir, tool_names: ["plan"])
   end
 
   test "没有明确作者原话时只传应用目标，不伪造 user" do
     assert {:ok, ir} = AuthoringOperation.prepare(@run, %{}, spec())
     refute Enum.any?(ir.messages, &(&1.role == "user"))
     assert ir.run.goal["text"] == "应用目标"
-    assert {:ok, _prompt} = RequestIR.to_provider_prompt(ir, tool_names: ["plan"])
+    assert {:ok, _prepared} = RequestIR.prepare_request(ir, tool_names: ["plan"])
   end
 
   test "阶段 scope 携带当前权限与已消耗预算，不能复活旧许可" do
@@ -105,7 +101,9 @@ defmodule NovelApplication.AuthoringOperationTest do
              |> AuthoringTranscript.restore()
 
     assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored)
-    assert RequestIR.Projection.project(restored_ir) == RequestIR.Projection.project(completed)
+
+    assert RequestIR.Projection.project(restored_ir, "chat_completions") ==
+             RequestIR.Projection.project(completed, "chat_completions")
 
     zero =
       AuthoringOperation.metadata(%{

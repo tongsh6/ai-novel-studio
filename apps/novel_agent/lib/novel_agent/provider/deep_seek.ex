@@ -14,6 +14,8 @@ defmodule NovelAgent.Provider.DeepSeek do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.OpenAICompatibleStream
+  alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.RequestIR.Projection
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Usage
   alias NovelFoundation.UpstreamError
@@ -133,18 +135,17 @@ defmodule NovelAgent.Provider.DeepSeek do
     |> Kernel.<>("/chat/completions")
   end
 
-  defp request_body(state, prompt, params, stream?) do
-    %{
-      model: state.model,
-      messages: replay_messages(prompt, state.model),
-      stream: stream?,
-      # 缺陷九跟进（2026-07-20）：provider 自己的安全上限先垫底，params.max_tokens
-      # 非 nil 时 apply_params 覆盖——见 InferenceParams moduledoc。
-      max_tokens: state.max_tokens
-    }
+  defp request_body(state, %RequestIR{} = ir, params, stream?) do
+    {:ok, projected} =
+      Projection.project(ir, "chat_completions", include_provider_state: true)
+
+    projected
+    |> Map.put(:model, state.model)
+    |> Map.put(:stream, stream?)
+    |> Map.put(:max_tokens, state.max_tokens)
+    |> Map.put(:messages, replay_projected(projected.messages, state.model))
     |> HTTP.apply_params(params)
-    |> maybe_json_mode(state.json_mode, prompt)
-    |> NovelAgent.Provider.put_openai_tools(prompt)
+    |> maybe_json_mode(state.json_mode, ir)
   end
 
   defp maybe_json_mode(body, true, prompt) do
@@ -158,11 +159,7 @@ defmodule NovelAgent.Provider.DeepSeek do
   defp maybe_json_mode(body, _enabled, _prompt), do: body
 
   # 私有回放材料只回到产生它的 provider/model；共享层不解释供应商字段。
-  defp replay_messages(prompt, model) do
-    prompt
-    |> NovelAgent.Provider.normalize_messages(include_provider_state: true)
-    |> Enum.map(&replay_message(&1, model))
-  end
+  defp replay_projected(messages, model), do: Enum.map(messages, &replay_message(&1, model))
 
   defp replay_message(%{role: "assistant"} = message, model) do
     {private, message} = Map.pop(message, :provider_state)

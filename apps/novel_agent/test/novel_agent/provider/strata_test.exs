@@ -1,6 +1,22 @@
 defmodule NovelAgent.Provider.StrataTest do
   use ExUnit.Case, async: true
 
+  alias NovelAgent.TestRequestIR
+
+  # adapter 只接受 canonical IR；测试用作者原话构造最小请求，文字保持原字节。
+  defp ir(%NovelAgent.Provider.RequestIR{} = ir), do: ir
+  defp ir(text) when is_binary(text), do: TestRequestIR.ir([TestRequestIR.author(text)])
+
+  defp ir(messages) when is_list(messages),
+    do: TestRequestIR.ir(Enum.map(messages, &canonical_message/1))
+
+  defp canonical_message(%{role: "system", content: content}), do: TestRequestIR.system(content)
+
+  defp canonical_message(%{role: "assistant", content: content}),
+    do: TestRequestIR.assistant(content)
+
+  defp canonical_message(%{role: "user", content: content}), do: TestRequestIR.author(content)
+
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Strata
 
@@ -74,13 +90,14 @@ defmodule NovelAgent.Provider.StrataTest do
 
       state = base_state(http_fn: mock)
 
-      assert {:ok, result} = Strata.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:ok, result} = Strata.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert result.content == "ok"
 
       assert_receive {:request, url, body, opts}
       assert url == @endpoint <> "/chat/completions"
       assert body.model == @model
-      assert body.messages == [%{role: "user", content: "prompt"}]
+      assert [%{role: "system"} | rest] = body.messages
+      assert rest == [%{role: "user", content: "prompt"}]
       assert body.stream == false
       # keyless：不发 Authorization 头，也不发 thinking 对象。
       assert Keyword.fetch!(opts, :headers) == []
@@ -97,7 +114,7 @@ defmodule NovelAgent.Provider.StrataTest do
 
       state = base_state(api_key: "sk-strata-secret", http_fn: mock)
 
-      assert {:ok, _result} = Strata.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:ok, _result} = Strata.complete(state, nil, ir("prompt"), %InferenceParams{})
 
       assert_receive {:request, _url, _body, opts}
       assert {"authorization", "Bearer sk-strata-secret"} in Keyword.fetch!(opts, :headers)
@@ -113,7 +130,7 @@ defmodule NovelAgent.Provider.StrataTest do
 
       state = base_state(model: nil, http_fn: mock)
 
-      assert {:ok, _result} = Strata.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:ok, _result} = Strata.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert_receive {:request_body, body}
       refute Map.has_key?(body, :model)
     end
@@ -130,7 +147,7 @@ defmodule NovelAgent.Provider.StrataTest do
 
       state = base_state(thinking: :disabled, http_fn: mock)
 
-      assert {:ok, _result} = Strata.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:ok, _result} = Strata.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert_receive {:request_body, body}
       assert body.reasoning_effort == "none"
       refute Map.has_key?(body, :thinking)
@@ -146,7 +163,7 @@ defmodule NovelAgent.Provider.StrataTest do
 
       state = base_state(thinking: :enabled, reasoning_effort: "high", http_fn: mock)
 
-      assert {:ok, _result} = Strata.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:ok, _result} = Strata.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert_receive {:request_body, body}
       assert body.reasoning_effort == "high"
       refute Map.has_key?(body, :thinking)
@@ -162,7 +179,7 @@ defmodule NovelAgent.Provider.StrataTest do
 
       state = base_state(thinking: :enabled, reasoning_effort: nil, http_fn: mock)
 
-      assert {:ok, _result} = Strata.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:ok, _result} = Strata.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert_receive {:request_body, body}
       refute Map.has_key?(body, :reasoning_effort)
       refute Map.has_key?(body, :thinking)
@@ -280,16 +297,17 @@ defmodule NovelAgent.Provider.StrataTest do
         {:ok, 200, ""}
       end
 
-      prompt = %{
-        messages: [%{role: "user", content: "判断"}],
-        tools: [%{name: "decision", input_schema: %{type: "object"}}],
-        tool_choice: "none"
-      }
+      prompt =
+        TestRequestIR.ir(
+          [TestRequestIR.author("判断")],
+          tools: [TestRequestIR.tool("decision", %{type: "object"})],
+          projection: %{tool_choice: "none"}
+        )
 
       state = base_state(eventsource_fn: eventsource)
 
       assert {:ok, %{provider_run: run, result: result}} =
-               Strata.execute(state, nil, prompt, %InferenceParams{}, provider_ctx())
+               Strata.execute(state, nil, ir(prompt), %InferenceParams{}, provider_ctx())
 
       assert run.metadata.tool_constancy == :degraded
       assert result.usage.cached_tokens == 0
@@ -316,7 +334,7 @@ defmodule NovelAgent.Provider.StrataTest do
       state = base_state(thinking: :disabled, eventsource_fn: eventsource)
 
       assert {:ok, %{events: events, result: result, output: output}} =
-               Strata.execute(state, nil, "prompt", %InferenceParams{}, provider_ctx())
+               Strata.execute(state, nil, ir("prompt"), %InferenceParams{}, provider_ctx())
 
       assert result.content == "本地"
       assert result.usage.input_tokens == 3
@@ -366,24 +384,21 @@ defmodule NovelAgent.Provider.StrataTest do
 
       state = base_state(thinking: :disabled, http_fn: mock)
 
-      prompt = %{
-        messages: [%{role: "user", content: "请给出判断"}],
-        tools: [
-          %{
-            name: "judgment_decision",
-            description: "给出叙事判断",
-            input_schema: %{
+      prompt =
+        TestRequestIR.ir(
+          [TestRequestIR.author("请给出判断")],
+          tools: [
+            TestRequestIR.tool("judgment_decision", %{
               type: "object",
               properties: %{decision: %{type: "string"}},
               required: ["decision"]
-            }
-          }
-        ],
-        tool_choice: "judgment_decision"
-      }
+            })
+          ],
+          projection: %{tool_choice: "judgment_decision"}
+        )
 
       assert {:ok, %{result: result}} =
-               Strata.execute(state, nil, prompt, %InferenceParams{}, provider_ctx())
+               Strata.execute(state, nil, ir(prompt), %InferenceParams{}, provider_ctx())
 
       assert [%{"name" => "judgment_decision", "arguments" => %{"decision" => "approve"}}] =
                result.tool_calls

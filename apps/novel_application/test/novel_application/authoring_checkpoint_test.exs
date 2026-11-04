@@ -175,11 +175,7 @@ defmodule NovelApplication.AuthoringCheckpointTest do
       run_identity()
       |> AuthoringTranscript.new(
         base_text: "只记录已有事实",
-        author_text: "  检查日期\n",
-        projection: %{
-          target: "chat_completions",
-          capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-        }
+        author_text: "  检查日期\n"
       )
       |> AuthoringTranscript.append_assistant(
         "",
@@ -211,10 +207,8 @@ defmodule NovelApplication.AuthoringCheckpointTest do
     assert {:ok, after_ir} = AuthoringTranscript.to_request_ir(restored)
 
     for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
-      before_ir = put_in(before_ir.projection.target, target)
-      after_ir = put_in(after_ir.projection.target, target)
-      assert {:ok, before_body} = Projection.project(before_ir)
-      assert {:ok, after_body} = Projection.project(after_ir)
+      assert {:ok, before_body} = Projection.project(before_ir, target)
+      assert {:ok, after_body} = Projection.project(after_ir, target)
       assert before_body == after_body, "projection #{target} changed after persistence"
     end
   end

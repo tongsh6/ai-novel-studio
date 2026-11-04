@@ -10,6 +10,7 @@ defmodule NovelAgent.Provider.RequestIR.Projection do
   """
 
   alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.SystemIdentity
 
   @targets %{
     "chat_completions" => NovelAgent.Provider.RequestIR.Projection.ChatCompletions,
@@ -17,43 +18,48 @@ defmodule NovelAgent.Provider.RequestIR.Projection do
     "responses_api" => NovelAgent.Provider.RequestIR.Projection.ResponsesAPI
   }
 
-  @spec project(RequestIR.t()) ::
-          {:ok, map()} | {:finite_mode, map(), map()} | {:error, term()}
-  def project(%RequestIR{} = ir) do
-    with :ok <- RequestIR.validate(ir),
-         {:ok, mode} <- RequestIR.capability_mode(ir) do
-      target = get_in(ir.projection, [:target])
-      module = Map.get(@targets, target)
+  @doc """
+  按实际 adapter 的 wire 目标显式投影；target 由 adapter state 决定，不做默认 route 查询。
+  """
+  @spec project(RequestIR.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def project(ir, target, opts \\ [])
 
-      projection_result(module.project(ir), mode)
+  def project(%RequestIR{} = ir, target, opts) do
+    module = Map.fetch!(@targets, target)
+
+    case module.project(ir, opts) do
+      {:error, _reason} = error -> error
+      body when is_map(body) -> {:ok, body}
     end
   end
-
-  def project(other), do: {:error, {:invalid_ir, other}}
-
-  defp projection_result({:error, _} = error, _mode), do: error
-  defp projection_result(body, nil), do: {:ok, body}
-  defp projection_result(body, mode), do: {:finite_mode, body, mode}
 
   # ── 投影公共语义（三个 provider 共用，不改变字节/顺序）────────────────────────
 
-  @doc "稳定 system 文本：identity + 宪法/输出协议（可用 instructions 覆盖）。"
+  @doc """
+  稳定 system 前缀：现有产品身份 + 本次运行角色规则。
+
+  身份原文来自唯一来源 `SystemIdentity`；角色规则优先使用 canonical instructions，
+  否则按 run_role 生成最小规则。IR 的 canonical messages 不插入 wire system 消息。
+  """
   def system_text(system) when is_map(system) do
-    case Map.get(system, :instructions) do
-      text when is_binary(text) and text != "" ->
-        text
+    role_rules =
+      case Map.get(system, :instructions) do
+        text when is_binary(text) and text != "" ->
+          text
 
-      _ ->
-        identity = Map.get(system, :identity_ref, "identity:default")
-        role = Map.get(system, :run_role, "authoring_run")
+        _ ->
+          role = Map.get(system, :run_role, "authoring_run")
 
-        "identity_ref: #{identity}\nrun_role: #{role}\n" <>
-          "你只能在作者授权边界内读取、计划、创作 tentative 候选、提问或报告缺口；" <>
-          "不存在采纳/写入 canon 的工具。"
-    end
+          "run_role: #{role}\n" <>
+            "你只能在作者授权边界内读取、计划、创作 tentative 候选、提问或报告缺口；" <>
+            "不存在采纳/写入 canon 的工具。"
+      end
+
+    SystemIdentity.content() <> "\n\n" <> role_rules
   end
 
-  def system_text(_system), do: ""
+  def system_text(_system), do: SystemIdentity.content()
 
   @doc "拼接消息中的文本块（作者消息保持原字节；不插入分隔符）。"
   def text_of(blocks) when is_list(blocks) do

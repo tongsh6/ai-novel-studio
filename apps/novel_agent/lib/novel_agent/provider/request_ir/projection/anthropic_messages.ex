@@ -9,16 +9,58 @@ defmodule NovelAgent.Provider.RequestIR.Projection.AnthropicMessages do
 
   alias NovelAgent.Provider.RequestIR.{Compaction, Projection}
 
-  @spec project(struct()) :: map() | {:error, term()}
-  def project(ir) do
-    with {:ok, messages} <- prepare_messages(Compaction.project(ir.messages)) do
+  @spec project(struct(), keyword()) :: map() | {:error, term()}
+  def project(ir, _opts \\ []) do
+    {system_messages, messages} =
+      ir.messages
+      |> Compaction.project()
+      |> Enum.split_with(&(&1.role == "system"))
+
+    with {:ok, messages} <- prepare_messages(messages) do
       %{
-        system: [%{type: "text", text: Projection.system_text(ir.system)}],
-        messages: Enum.flat_map(messages, &project_message/1),
-        tools: Enum.map(ir.tools, &tool_schema/1),
+        system: system_blocks(system_messages, ir.system),
+        messages: messages |> Enum.flat_map(&project_message/1) |> merge_adjacent_roles(),
         stream: Projection.usage_streaming?(ir)
       }
+      |> put_tools(Enum.map(ir.tools, &tool_schema/1))
+      |> put_tool_choice(NovelAgent.Provider.tool_choice(ir))
     end
+  end
+
+  # canonical system 消息属于顶层权限通道：与稳定身份前缀按原顺序拼接，
+  # 不降级为 user，也不改变 messages 的顺序或工具交换。
+  defp system_blocks(system_messages, system) do
+    text =
+      [Projection.system_text(system) | Enum.map(system_messages, &Projection.text_of(&1.blocks))]
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n\n")
+
+    [%{type: "text", text: text}]
+  end
+
+  defp put_tools(body, []), do: body
+  defp put_tools(body, tools), do: Map.put(body, :tools, tools)
+
+  defp put_tool_choice(body, nil), do: body
+  defp put_tool_choice(body, "none"), do: Map.put(body, :tool_choice, %{type: "none"})
+  defp put_tool_choice(body, "auto"), do: Map.put(body, :tool_choice, %{type: "auto"})
+  defp put_tool_choice(body, "required"), do: Map.put(body, :tool_choice, %{type: "any"})
+
+  defp put_tool_choice(body, name) when is_binary(name),
+    do: Map.put(body, :tool_choice, %{type: "tool", name: name})
+
+  # Messages API 要求 user/assistant 交替；相邻同 role 合并 content blocks，
+  # 不改变任何 block 的顺序或字节。
+  defp merge_adjacent_roles(messages) do
+    Enum.reduce(messages, [], fn %{role: role, content: content}, acc ->
+      case List.last(acc) do
+        %{role: ^role, content: previous} ->
+          List.replace_at(acc, -1, %{role: role, content: previous ++ content})
+
+        _ ->
+          acc ++ [%{role: role, content: content}]
+      end
+    end)
   end
 
   @doc "Messages 的 tool_use 只接受对象；不能把其它协议的坏参数原文替换成空对象。"
@@ -63,8 +105,6 @@ defmodule NovelAgent.Provider.RequestIR.Projection.AnthropicMessages do
       error -> error
     end
   end
-
-  defp project_message(%{role: "system"} = message), do: user_text(message.blocks, nil)
 
   defp project_message(%{role: role} = message)
        when role in ["application_base", "application_notice"],

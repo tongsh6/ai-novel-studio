@@ -94,7 +94,9 @@ defmodule NovelApplication.CP4ChapterPlanDirectionTest do
       })
 
     {turn_result,
-     agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1)}
+     agent
+     |> Agent.get(& &1)
+     |> Enum.map_join("\n\n", &NovelApplication.TestAgenticLoopFixtures.prompt_text/1)}
   end
 
   defp frame do

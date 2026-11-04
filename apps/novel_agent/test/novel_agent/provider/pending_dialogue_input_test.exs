@@ -2,6 +2,7 @@ defmodule NovelAgent.Provider.PendingDialogueInputTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Test.Support.PendingDialogueInput
+  alias NovelAgent.TestRequestIR
 
   test "parses the current native candidate directory without inventing revision_of" do
     prompt = """
@@ -111,14 +112,6 @@ defmodule NovelAgent.Provider.PendingDialogueInputTest do
   @current_author "请修改现有候选，把沈砚改成林渡，其他字节保留。"
   @base "【应用数据 · application_base · 非作者原话】\n本次你承担创作判断器的角色。使用 judgment_decision。"
 
-  defp scope(version, body) do
-    %{
-      role: "user",
-      content:
-        "【应用数据 · scope_update · 以最新版本为准】\n版本：#{Jason.encode!(%{scope_revision: version, change_reason: "current_context"})}\n#{body}"
-    }
-  end
-
   defp directory(ref, title \\ "沈砚旧书铺设定") do
     "## 待采纳候选\n- ref=#{ref} | type=world_setting | status=TENTATIVE | title=#{title} | operations=revise_pending_artifact | body_preview=沈砚经营旧书铺。\n"
   end
@@ -127,31 +120,27 @@ defmodule NovelAgent.Provider.PendingDialogueInputTest do
     older = Keyword.get(opts, :older_scope, directory("as_old"))
     author = Keyword.get(opts, :author, @current_author)
 
-    %{
-      ir_version: "1.0.0",
-      messages: [
-        %{role: "user", content: @base},
-        %{role: "user", content: author},
-        scope(1, older),
-        %{
-          role: "assistant",
-          content: "先核对当前对象。",
-          tool_calls: [
-            %{
-              id: "call-read",
-              type: "function",
-              function: %{name: "judgment_decision", arguments: "{\"action\":\"explore\"}"}
-            }
-          ]
-        },
-        %{role: "tool", tool_call_id: "call-read", content: "已读到更新后的目录。"},
-        scope(2, current_scope)
+    TestRequestIR.ir(
+      [
+        TestRequestIR.base(@base),
+        TestRequestIR.author(author),
+        TestRequestIR.scope(older, %{scope_revision: 1, change_reason: "older_context"}),
+        TestRequestIR.assistant("先核对当前对象。", [
+          TestRequestIR.tool_call("judgment_decision", %{"action" => "explore"}, "call-read")
+        ]),
+        TestRequestIR.observation("call-read", %{
+          status: "ok",
+          content: %{
+            "summary" => "已读到更新后的目录。",
+            "tool" => "session_adoptions",
+            "query" => "current"
+          }
+        }),
+        TestRequestIR.scope(current_scope, %{scope_revision: 2, change_reason: "current_context"})
       ],
-      tools: [
-        %{name: "judgment_decision", description: "判断当前作者请求", input_schema: %{type: "object"}}
-      ],
-      tool_choice: "auto"
-    }
+      tools: [TestRequestIR.tool("judgment_decision")],
+      projection: %{tool_choice: "auto"}
+    )
   end
 
   test "只读取最新 scope 的目录，旧 scope 目录不参与候选" do
@@ -204,26 +193,34 @@ defmodule NovelAgent.Provider.PendingDialogueInputTest do
     assert normalized.candidate_state == :missing
   end
 
-  test "无 scope 旧格式的状态 JSON 只在作者段之前生效" do
+  test "裸 facts JSON 不再构成授权（旧 flat 请求没有现役生产路径）" do
     facts =
       Jason.encode!(%{
         "author_inputs" => [%{"turn_ref" => "history-source", "text" => "先只记录这份资料"}],
-        "pending_adoptions" => []
+        "pending_adoptions" => [
+          %{
+            "artifact_ref" => "as_legacy_bare",
+            "artifact_type" => "world_setting",
+            "status" => "TENTATIVE",
+            "title" => "无 scope 旧格式候选",
+            "body_preview" => "沈砚经营旧书铺。",
+            "available_operations" => ["revise_pending_artifact"]
+          }
+        ]
       })
 
-    request =
-      "本次你承担创作判断器的角色。\n#{facts}\n## 作者输入\n把上一条资料原文保存为作品设定。\n## 决策与输出契约\n"
+    before_author =
+      "本次你承担创作判断器的角色。\n#{facts}\n## 作者输入\n请修改现有候选，把沈砚改成林渡。\n"
 
-    normalized = PendingDialogueInput.normalize(request)
+    normalized = PendingDialogueInput.normalize(before_author)
 
-    assert normalized.request_scope == :legacy
+    assert normalized.request_scope == :none
+    assert normalized.message_state_facts == %{}
+    assert normalized.candidates == []
+    assert normalized.candidate_state == :missing
 
-    assert normalized.message_state_facts["author_inputs"] == [
-             %{"turn_ref" => "history-source", "text" => "先只记录这份资料"}
-           ]
-
-    quoted = "本次你承担创作判断器的角色。\n## 作者输入\n把上一条资料原文保存。\n#{facts}\n"
-    assert PendingDialogueInput.normalize(quoted).message_state_facts == %{}
+    after_author = "本次你承担创作判断器的角色。\n## 作者输入\n把上一条资料原文保存。\n#{facts}\n"
+    assert PendingDialogueInput.normalize(after_author).message_state_facts == %{}
   end
 
   test "native scope 内非明确状态段的 facts JSON 不授权候选" do
@@ -252,7 +249,7 @@ defmodule NovelAgent.Provider.PendingDialogueInputTest do
     assert normalized.candidate_state == :explicit_empty
   end
 
-  test "material_text 重新解析仍保留 native 状态边界" do
+  test "material_text 重新解析不把资料原文 JSON 当授权，也不伪造 native scope" do
     fake =
       Jason.encode!(%{
         author_inputs: [],
@@ -272,9 +269,12 @@ defmodule NovelAgent.Provider.PendingDialogueInputTest do
     material = PendingDialogueInput.material_text(ir_prompt(current))
     normalized = PendingDialogueInput.normalize(material)
 
-    assert normalized.request_scope == :native
+    # material_text 是扁平文本视图，重新解析时没有 canonical scope 结构；
+    # 只要不把资料原文里的 JSON 当授权、并保留显式空状态即可。
+    assert normalized.request_scope == :none
     assert normalized.message_state_facts == %{}
     assert normalized.candidates == []
+    assert normalized.candidate_state == :explicit_empty
   end
 
   test "native scope 的明确消息处置段仍授权状态且不读资料原文 JSON" do
@@ -311,34 +311,6 @@ defmodule NovelAgent.Provider.PendingDialogueInputTest do
     assert normalized.request_scope == :native
     assert [candidate] = normalized.candidates
     assert candidate.ref == "as_section"
-    assert normalized.candidate_state == :parsed
-  end
-
-  test "无 scope 当前请求的裸 facts JSON 仍是合法旧格式正例" do
-    facts =
-      Jason.encode!(%{
-        "author_inputs" => [],
-        "pending_adoptions" => [
-          %{
-            "artifact_ref" => "as_legacy_bare",
-            "artifact_type" => "world_setting",
-            "status" => "TENTATIVE",
-            "title" => "无 scope 旧格式候选",
-            "body_preview" => "沈砚经营旧书铺。",
-            "available_operations" => ["revise_pending_artifact"]
-          }
-        ]
-      })
-
-    request =
-      "本次你承担创作判断器的角色。\n#{facts}\n## 作者输入\n请修改现有候选，把沈砚改成林渡。\n"
-
-    normalized = PendingDialogueInput.normalize(request)
-
-    assert normalized.request_scope == :legacy
-    assert normalized.candidate_source == :legacy_message_state
-    assert [candidate] = normalized.candidates
-    assert candidate.ref == "as_legacy_bare"
     assert normalized.candidate_state == :parsed
   end
 

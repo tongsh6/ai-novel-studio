@@ -1,8 +1,8 @@
 defmodule NovelAgent.Provider.GatewayExecutionRefsFixtureProvider do
   @behaviour NovelAgent.Provider
 
-  alias NovelAgent.Provider
   alias NovelAgent.Provider.{AdapterExecution, Result}
+  alias NovelAgent.TestProviderPrompt
   alias NovelCommon.LLMLog
 
   defstruct []
@@ -14,7 +14,7 @@ defmodule NovelAgent.Provider.GatewayExecutionRefsFixtureProvider do
 
   @impl true
   def execute(_state, model, prompt, _params, ctx) do
-    text = Provider.prompt_text(prompt)
+    text = TestProviderPrompt.text(prompt)
 
     cond do
       String.contains?(text, "UA01FIXTUREFAIL") ->
@@ -106,10 +106,12 @@ defmodule NovelAgent.Provider.GatewayExecutionRefsFixtureProvider do
   end
 
   defp log(model, prompt, result) do
+    messages = if is_map(prompt), do: Map.get(prompt, :messages, []), else: []
+
     LLMLog.record(
       "gateway_execution_refs_fixture",
       "fixture://adapter",
-      %{model: model, messages: Provider.normalize_messages(prompt)},
+      %{model: model, messages: messages},
       result,
       System.monotonic_time(:millisecond)
     )
@@ -286,13 +288,10 @@ defmodule NovelAgent.Provider.GatewayExecutionRefsTest do
         session_id: "session-gateway-execution-refs",
         parent_turn_ref: "turn-gateway-execution-refs"
       },
-      system: %{identity_ref: "identity:gateway-execution-refs"},
+      system: RequestIR.system_envelope(),
       messages: [RequestIR.message(:user, :author, [RequestIR.text_block(author_text)])],
       tools: [%{name: @tool, input_schema: %{type: "object"}}],
-      projection: %{
-        target: "chat_completions",
-        capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-      }
+      projection: %{}
     })
   end
 

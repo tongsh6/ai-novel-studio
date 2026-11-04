@@ -2,9 +2,8 @@ defmodule NovelAgent.Provider.StubChapterSummary do
   @moduledoc """
   B27 CP3d：stub provider 与 SliceVerify 共用的「章摘要确定性四栏」测试 fixture。
 
-  单一真源说明：stub 位于 `novel_agent/lib`（test-only provider，lib 编译期必须自洽），
-  SliceVerify 位于 `novel_agent/test/support`；lib 不能反向引用 test/support，因此共享
-  fixture 放在 lib 的 test-only provider 命名空间，由两者共同调用。
+  单一真源说明：stub 与 SliceVerify 都位于 `novel_agent/test/support`；
+  共享 fixture 同目录，由两者共同调用。
 
   本模块只做确定性渲染（根据生产 prompt 的「连续性维护助手 + 已采纳正文：」契约），
   不含业务规则、不改变产品 prompt，也不参与生产 runtime（stub/slice_verify 均只在测试

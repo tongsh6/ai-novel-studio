@@ -10,15 +10,27 @@ defmodule NovelAgent.Provider.RequestIR.Projection.ResponsesAPI do
 
   alias NovelAgent.Provider.RequestIR.{Compaction, Projection}
 
-  @spec project(struct()) :: map()
-  def project(ir) do
+  @spec project(struct(), keyword()) :: map()
+  def project(ir, _opts \\ []) do
     %{
       instructions: Projection.system_text(ir.system),
       input: Enum.flat_map(Compaction.project(ir.messages), &project_message/1),
-      tools: Enum.map(ir.tools, &tool_schema/1),
       stream: Projection.usage_streaming?(ir)
     }
+    |> put_tools(Enum.map(ir.tools, &tool_schema/1))
+    |> put_tool_choice(NovelAgent.Provider.tool_choice(ir))
   end
+
+  defp put_tools(body, []), do: body
+  defp put_tools(body, tools), do: Map.put(body, :tools, tools)
+
+  defp put_tool_choice(body, nil), do: body
+  defp put_tool_choice(body, "none"), do: Map.put(body, :tool_choice, "none")
+  defp put_tool_choice(body, "auto"), do: Map.put(body, :tool_choice, "auto")
+  defp put_tool_choice(body, "required"), do: Map.put(body, :tool_choice, "required")
+
+  defp put_tool_choice(body, name) when is_binary(name),
+    do: Map.put(body, :tool_choice, %{type: "function", name: name})
 
   defp project_message(%{role: "system"} = message),
     do: message_item("system", message.blocks, nil)

@@ -413,7 +413,9 @@ defmodule NovelApplication.B11ACp4VolumeBlueprintContextTest do
         provider_execution: %Execution{result_fn: complete}
       })
 
-    agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1)
+    agent
+    |> Agent.get(& &1)
+    |> Enum.map_join("\n\n", &NovelApplication.TestAgenticLoopFixtures.prompt_text/1)
   end
 
   # 卷蓝图近收束结构：第二卷 5 章 4 章已有正文（4/5 = 80%）。

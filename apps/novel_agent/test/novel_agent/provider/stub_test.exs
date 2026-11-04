@@ -1,8 +1,12 @@
 defmodule NovelAgent.Provider.StubTest do
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Stub
+  alias NovelAgent.TestRequestIR
 
   setup do
     {:ok, stub: %Stub{}}
@@ -16,29 +20,31 @@ defmodule NovelAgent.Provider.StubTest do
 
   describe "complete/4" do
     test "returns echo response", %{stub: stub} do
-      assert {:ok, result} = Stub.complete(stub, "test-model", "hello world", %InferenceParams{})
+      prompt = TestRequestIR.ir([TestRequestIR.author("hello world")])
+
+      assert {:ok, result} = Stub.complete(stub, "test-model", prompt, %InferenceParams{})
       assert result.content =~ "hello world"
       refute result.content =~ "[stub]"
     end
 
     test "works with empty prompt", %{stub: stub} do
-      assert {:ok, result} = Stub.complete(stub, "any-model", "", %InferenceParams{})
+      prompt = TestRequestIR.ir([TestRequestIR.base("")])
+
+      assert {:ok, result} = Stub.complete(stub, "any-model", prompt, %InferenceParams{})
       assert result.content != ""
       refute result.content =~ "[stub]"
     end
   end
 
   test "原生创作 scope 允许空上下文并保留作者标识", %{stub: stub} do
-    prompt = %{
-      messages: [
-        %{role: "user", content: "【应用数据 · application_base】\n## 创作协作共同规则"},
-        %{
-          role: "user",
-          content: "【应用数据 · scope_update】\n版本：{}\n用户创作简述：标识符 EMPTYCTX9 必须保留\n上下文：\n重要：保留标识"
-        }
-      ],
-      tools: [%{name: "submit_tentative_artifact", input_schema: %{type: "object"}}]
-    }
+    prompt =
+      TestRequestIR.ir(
+        [
+          TestRequestIR.base("## 创作协作共同规则"),
+          TestRequestIR.scope("版本：{}\n用户创作简述：标识符 EMPTYCTX9 必须保留\n上下文：\n重要：保留标识")
+        ],
+        tools: [TestRequestIR.tool("submit_tentative_artifact")]
+      )
 
     assert {:ok, result} = Stub.complete(stub, nil, prompt, %InferenceParams{})
     assert [%{arguments: %{items: [item]}}] = result.tool_calls
@@ -92,22 +98,38 @@ defmodule NovelAgent.Provider.StubTest do
     history =
       "本次你承担创作判断器的角色。你的两种续行方式使用 continuation_decision。旧阶段曾使用规划前推理器。\n- profile_ref: fact_inventory_v1\n[ledger:information:foreshadow_old] 旧材料"
 
-    %{
-      ir_version: "authoring-request-ir/v1",
-      messages: [
-        %{role: "user", content: "【应用数据 · scope_update】\n" <> history},
-        %{role: "assistant", content: "上一阶段已完成。"},
-        %{role: "user", content: "【应用数据 · scope_update】\n" <> scope}
+    TestRequestIR.ir(
+      [
+        TestRequestIR.scope(history),
+        TestRequestIR.assistant("上一阶段已完成。"),
+        TestRequestIR.scope(scope)
       ],
-      tools: [%{name: tool, input_schema: %{type: "object"}}],
-      tool_choice: "auto"
-    }
+      tools: [TestRequestIR.tool(tool)],
+      projection: %{tool_choice: "auto"}
+    )
   end
 
   describe "behaviour conformance" do
-    test "exports required callbacks" do
-      assert function_exported?(Stub, :complete, 4)
-      assert function_exported?(Stub, :name, 0)
+    test "declares the six test-simulation capabilities and chat projection target" do
+      capabilities = Stub.capabilities(%Stub{})
+
+      expected = Map.new(RequestIR.required_capabilities(), &{&1, true})
+
+      assert capabilities == expected
+      assert Stub.projection_target(%Stub{}) == "chat_completions"
+    end
+
+    test "passes the real Gateway capability gate for fixture IR" do
+      prompt =
+        TestRequestIR.ir([
+          TestRequestIR.base("## 创作协作共同规则"),
+          TestRequestIR.author("请回一句收到")
+        ])
+
+      assert {:ok, %{result: %Result{content: content}}} =
+               Gateway.execute(prompt, nil, %InferenceParams{}, provider: :stub)
+
+      assert is_binary(content)
     end
   end
 end

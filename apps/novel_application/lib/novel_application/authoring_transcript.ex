@@ -39,9 +39,12 @@ defmodule NovelApplication.AuthoringTranscript do
   - `:author_text` 本轮作者原话（字节不变）；应用续行 goal 可为 nil
   - `:allow_authorless` 无作者 turn 的续行允许省略 user，默认 false
   - `:author_turn_ref` 作者消息来源
+  - `:author_turn` 作者回合元数据（origin/question_ref）
+  - `:initial_scope` 首次快照的实际 scope（`text`/`versions`/`source_refs`）；
+    存在时按 application_base → scope_update → user 一次构造，无该选项维持原语义
   - `:base_refs` 应用主动提供的 refs
   - `:tools` run 角色工具目录（`RequestIR` 期望的 tool_spec 形状）
-  - `:projection` 投影配置（默认 chat_completions）
+  - `:projection` 投影配置（默认空；目标由实际 adapter 显式选择）
   """
   @spec new(map(), keyword()) :: t()
   def new(run, opts) when is_map(run) do
@@ -53,20 +56,26 @@ defmodule NovelApplication.AuthoringTranscript do
         RequestIR.message(:application_base, :application, [RequestIR.text_block(base_text)], %{
           source_refs: base_refs
         })
-      ] ++ author_messages(opts)
+      ] ++
+        initial_scope_messages(Keyword.get(opts, :initial_scope)) ++ author_messages(opts)
 
     %{
       run: RequestIR.run_envelope(run),
-      system: Keyword.get(opts, :system, %{identity_ref: "identity:authoring/v1"}),
+      system: Keyword.get(opts, :system, %{}),
       messages: messages,
       tools: Keyword.get(opts, :tools, []),
       base_refs: base_refs,
       observation_refs: [],
       used_refs: [],
-      projection: Keyword.get(opts, :projection, %{target: "chat_completions"}),
+      projection: Keyword.get(opts, :projection, %{}),
       call_ids: []
     }
   end
+
+  defp initial_scope_messages(nil), do: []
+
+  defp initial_scope_messages(%{text: text, versions: versions, source_refs: source_refs}),
+    do: [scope_message(text, versions, source_refs)]
 
   defp author_messages(opts) do
     case {Keyword.get(opts, :author_text), Keyword.get(opts, :allow_authorless, false)} do
@@ -81,6 +90,7 @@ defmodule NovelApplication.AuthoringTranscript do
           RequestIR.message(:user, :author, [RequestIR.text_block(text)], %{
             source_refs: [%{ref: Keyword.get(opts, :author_turn_ref, "author_turn:current")}]
           })
+          |> put_author_turn_origin(Keyword.get(opts, :author_turn))
         ]
     end
   end
@@ -113,7 +123,7 @@ defmodule NovelApplication.AuthoringTranscript do
   @json_payload_keys ~w(arguments versions items run tools provider_state detail content coverage)a
   @canonical_keys ~w(
     run system messages tools base_refs observation_refs used_refs projection call_ids
-    identity_ref instructions run_role target capability_profile finite_mode usage_streaming
+    identity_ref instructions run_role finite_mode tool_choice
     native_multi_turn tool_calls tool_results streaming structured_output usage
     role provenance blocks source_refs versions ref version type text call_id name arguments
     schema_version status source_refs coverage omissions next_offset content reason_code detail
@@ -127,13 +137,15 @@ defmodule NovelApplication.AuthoringTranscript do
   @spec append_scope_update(t(), String.t(), map(), [map()]) :: t()
   def append_scope_update(transcript, scope_text, versions \\ %{}, source_refs \\ [])
       when is_binary(scope_text) and is_list(source_refs) do
-    message =
-      RequestIR.message(:scope_update, :application, [RequestIR.text_block(scope_text)], %{
-        versions: versions,
-        source_refs: source_refs
-      })
-
+    message = scope_message(scope_text, versions, source_refs)
     %{transcript | messages: transcript.messages ++ [message]}
+  end
+
+  defp scope_message(scope_text, versions, source_refs) do
+    RequestIR.message(:scope_update, :application, [RequestIR.text_block(scope_text)], %{
+      versions: versions,
+      source_refs: source_refs
+    })
   end
 
   @doc "追加新的作者 turn；同一 turn 重复构造保持幂等，作者字节不被改写。"
@@ -215,6 +227,7 @@ defmodule NovelApplication.AuthoringTranscript do
           :projection,
           :call_ids
         ])
+        |> Map.update(:system, %{}, &system_run_rules/1)
     }
   end
 
@@ -339,7 +352,7 @@ defmodule NovelApplication.AuthoringTranscript do
       {:ok,
        %{
          run: ir.run,
-         system: ir.system,
+         system: system_run_rules(ir.system),
          messages: ir.messages,
          tools: ir.tools,
          base_refs: Map.get(ir.refs, :base_refs, []),
@@ -415,7 +428,7 @@ defmodule NovelApplication.AuthoringTranscript do
     ir =
       RequestIR.new(%{
         run: transcript.run,
-        system: transcript.system,
+        system: system_envelope(transcript.system),
         messages: transcript.messages,
         tools: transcript.tools,
         projection: Map.merge(transcript.projection, Map.new(opts)),
@@ -431,6 +444,23 @@ defmodule NovelApplication.AuthoringTranscript do
       error -> error
     end
   end
+
+  # 产品身份（SystemIdentity 真源）是运行时常量，不随 transcript/checkpoint 持久化；
+  # 持久化与恢复只保留 run 级角色规则（instructions/run_role）。
+  defp system_run_rules(system) when is_map(system) do
+    Map.take(system, [:instructions, :run_role])
+  end
+
+  defp system_run_rules(_system), do: %{}
+
+  defp system_envelope(system) when is_map(system) do
+    RequestIR.system_envelope(
+      instructions: Map.get(system, :instructions) || Map.get(system, "instructions"),
+      run_role: Map.get(system, :run_role) || Map.get(system, "run_role")
+    )
+  end
+
+  defp system_envelope(_system), do: RequestIR.system_envelope()
 
   defp refs_of(observation) do
     case Map.get(observation, :source_refs, []) do

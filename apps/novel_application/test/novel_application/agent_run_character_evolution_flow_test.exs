@@ -113,9 +113,9 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
     assert_receive {:agent_event, :tool_started, tool_started}, 500
     assert tool_started.summary =~ "角色演化能力"
     assert_receive {:provider_prompt, provider_prompt}, 500
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "当前 AgentStep"
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "角色演化"
-    assert NovelAgent.Provider.prompt_text(provider_prompt) =~ "林烬"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "当前 AgentStep"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "角色演化"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "林烬"
     assert_receive {:agent_event, :tool_completed, tool_completed}, 500
     assert tool_completed.summary =~ "角色演化记忆草稿已生成"
     assert_receive {:agent_event, :exploration_observed, tool_observation}, 500

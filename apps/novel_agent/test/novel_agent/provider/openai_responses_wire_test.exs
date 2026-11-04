@@ -7,6 +7,11 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
   alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.Result
 
+  alias NovelAgent.TestRequestIR
+
+  # adapter 只接受 canonical IR；测试用作者原话构造最小请求，文字保持原字节。
+  defp ir(text) when is_binary(text), do: TestRequestIR.ir([TestRequestIR.author(text)])
+
   # VS-00L §6.3：Responses API 必须有真实生产传输，而不是「投影存在但不可达」。
   # `OpenAICompatible.endpoint_url/1` 过去固定 `/chat/completions`，HTTP body 也
   # 只投影 Chat Completions；本测试锁定 route 级 wire 选择与响应事实。
@@ -59,7 +64,7 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
       state = responses_state(mock)
 
       assert {:ok, result} =
-               OpenAI.complete(state, nil, "写一句问候", %InferenceParams{})
+               OpenAI.complete(state, nil, ir("写一句问候"), %InferenceParams{})
 
       assert result.content == "你好，世界"
       assert result.usage.input_tokens == 5
@@ -70,7 +75,8 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
       assert body.stream == false
       # Responses 使用 input items，而不是 chat messages。
       refute Map.has_key?(body, :messages)
-      assert [%{type: "message", role: "user", content: "写一句问候"}] = body.input
+      assert [%{type: "message", role: "user", content: content}] = body.input
+      assert content == [%{type: "input_text", text: "写一句问候"}]
     end
 
     test "execute/5 的普通文本请求走 responses 非流式传输，不伪装 chat 流" do
@@ -84,7 +90,7 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
       state = responses_state(mock)
 
       assert {:ok, %{result: result, output: output}} =
-               OpenAI.execute(state, nil, "写一句问候", %InferenceParams{}, provider_ctx())
+               OpenAI.execute(state, nil, ir("写一句问候"), %InferenceParams{}, provider_ctx())
 
       assert result.content == "你好，世界"
       assert output.content.text == "你好，世界"
@@ -119,17 +125,17 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
 
       state = responses_state(mock)
 
-      prompt = %{
-        messages: [%{role: "user", content: "读取角色事实"}],
-        tools: [
-          %{
-            name: "read_character",
-            description: "读取角色",
-            input_schema: %{type: "object", properties: %{query: %{type: "string"}}}
-          }
-        ],
-        tool_choice: "read_character"
-      }
+      prompt =
+        TestRequestIR.ir(
+          [TestRequestIR.author("读取角色事实")],
+          tools: [
+            TestRequestIR.tool("read_character", %{
+              type: "object",
+              properties: %{query: %{type: "string"}}
+            })
+          ],
+          projection: %{tool_choice: "read_character"}
+        )
 
       assert {:ok, %{result: result}} =
                OpenAI.execute(state, nil, prompt, %InferenceParams{}, provider_ctx())
@@ -182,7 +188,7 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
       ir =
         RequestIR.new(%{
           run: %{run_id: "run-responses", work_id: "work-responses"},
-          system: %{identity_ref: "identity:fixture"},
+          system: RequestIR.system_envelope(),
           messages: [RequestIR.message(:user, :author, [RequestIR.text_block("读取角色事实")])],
           tools: [
             %{
@@ -191,10 +197,7 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
               input_schema: %{type: "object"}
             }
           ],
-          projection: %{
-            target: "chat_completions",
-            capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-          }
+          projection: %{}
         })
 
       result =
@@ -211,13 +214,15 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
 
       {ir, _result} = RequestIR.append_assistant_result(ir, result)
       ir = RequestIR.append_validation_result(ir, "call-read-1", "passed", "fixture")
-      assert {:ok, prompt} = RequestIR.to_provider_prompt(ir, tool_names: ["read_character"])
+
+      assert {:ok, prepared} =
+               RequestIR.prepare_request(ir, tool_names: ["read_character"])
 
       assert {:ok, %{result: result}} =
                OpenAI.execute(
                  responses_state(mock),
                  nil,
-                 prompt,
+                 prepared,
                  %InferenceParams{},
                  provider_ctx()
                )

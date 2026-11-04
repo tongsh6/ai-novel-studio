@@ -126,7 +126,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
              )
 
     assert_received {:revision_prompt, prompt}
-    prompt = NovelAgent.Provider.prompt_text(prompt)
+    prompt = NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
     assert prompt =~ "沈砚经营旧书铺。"
     assert prompt =~ "把沈砚改成林渡"
     assert prompt =~ run.goal.text
@@ -285,7 +285,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
              PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider)
 
     assert_received {:adopted_revision_prompt, prompt}
-    prompt = NovelAgent.Provider.prompt_text(prompt)
+    prompt = NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
     assert prompt =~ "岑舟今年二十五岁"
     assert prompt =~ "把年龄改成三十岁"
     assert prompt =~ "待采纳的修订候选"
@@ -495,7 +495,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
       assert_receive {:revision_prompt, ^artifact_type, prompt}, 500
 
       # 任务语义随请求出站：共享规则 + 修订操作 + 基线/保留 + 作者原话
-      prompt = NovelAgent.Provider.prompt_text(prompt)
+      prompt = NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
       assert prompt =~ "## 创作协作共同规则"
       assert prompt =~ "本轮为修订"
       assert prompt =~ "## 必须保留"
@@ -645,7 +645,11 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
 
     provider = %Execution{
       result_fn: fn prompt ->
-        send(parent, {:layout_prompt, NovelAgent.Provider.prompt_text(prompt)})
+        send(
+          parent,
+          {:layout_prompt, NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)}
+        )
+
         [body | rest] = Process.get(:layout_bodies)
         Process.put(:layout_bodies, rest)
 
@@ -707,7 +711,11 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
 
     provider = %Execution{
       result_fn: fn prompt ->
-        send(parent, {:scope_prompt, NovelAgent.Provider.prompt_text(prompt)})
+        send(
+          parent,
+          {:scope_prompt, NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)}
+        )
+
         [body | rest] = Process.get(:scope_bodies)
         Process.put(:scope_bodies, rest)
 
@@ -793,7 +801,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
 
     assert_received {:numeric_prompt, _first}
     assert_received {:numeric_prompt, second}
-    assert NovelAgent.Provider.prompt_text(second) =~ "六成"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(second) =~ "六成"
     assert numeric_state.tool_call_count == 1 and numeric_state.provider_call_count == 2
   end
 
@@ -986,7 +994,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     # 返回的 canonical 历史必须经真实 IR/投影回到 wire；最后一次真实请求是它的严格前缀，
     # 之后只能追加本次真实 response 与 validation。修订 scope/instructions 也必须在
     # canonical 中，不能只靠旧 base 与调用顺序“看起来正确”。
-    canonical_wire =
+    canonical_messages =
       assert_revision_canonical_boundary(
         result.stage_state.judgment_transcript,
         second,
@@ -994,7 +1002,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
         base
       )
 
-    assert Enum.map(Enum.drop(canonical_wire, length(second.messages)), & &1.role) == [
+    assert Enum.map(Enum.drop(canonical_messages, length(second.messages)), & &1.role) == [
              "assistant",
              "tool"
            ]
@@ -1002,15 +1010,16 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     # first 只是请求，不含首次 writer 响应；真实 call_id 必须从第二次请求新增的
     # assistant 消息（即首次响应）中取，并核对其紧随的原生 tool 失败结果。
     assert [first_assistant] = Enum.filter(new_wire, &(&1.role == "assistant"))
-    assert [first_call] = Map.get(first_assistant, :tool_calls)
-    assert get_in(first_call, [:function, :name]) == "submit_tentative_artifact"
-    first_call_id = first_call.id
+    assert [first_call] = Enum.filter(first_assistant.blocks, &(&1.type == "tool_call"))
+    assert first_call.name == "submit_tentative_artifact"
+    first_call_id = first_call.call_id
     assert is_binary(first_call_id) and first_call_id != ""
 
     assert [first_tool] = Enum.filter(new_wire, &(&1.role == "tool"))
-    assert first_tool.tool_call_id == first_call_id
-    assert first_tool.content =~ "revision_scope_violation"
-    assert first_tool.content =~ "不得新增或删除段落"
+    first_validation = Enum.find(first_tool.blocks, &(&1.type == "validation_result"))
+    assert first_validation.call_id == first_call_id
+    assert first_validation.reason_code == "revision_scope_violation"
+    assert Jason.encode!(first_validation.detail) =~ "不得新增或删除段落"
 
     assert result.tool_call_count == 1
     assert result.provider_call_count == 2
@@ -1127,10 +1136,10 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
 
     # 失败修订同样必须让最后一次真实请求成为 canonical 投影的严格前缀；
     # 末尾真实 failed validation 不能被 scope 过滤吞掉。
-    canonical_wire =
+    canonical_messages =
       assert_revision_canonical_boundary(failed_transcript, only, goal, base)
 
-    assert Enum.map(Enum.drop(canonical_wire, length(only.messages)), & &1.role) == [
+    assert Enum.map(Enum.drop(canonical_messages, length(only.messages)), & &1.role) == [
              "assistant",
              "tool"
            ]
@@ -1233,10 +1242,10 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert_wire_author_identity(second, goal)
     assert Enum.take(second.messages, length(first.messages)) == first.messages
 
-    canonical_wire =
+    canonical_messages =
       assert_revision_canonical_boundary(step_state.judgment_transcript, second, goal, base)
 
-    assert Enum.map(Enum.drop(canonical_wire, length(second.messages)), & &1.role) == [
+    assert Enum.map(Enum.drop(canonical_messages, length(second.messages)), & &1.role) == [
              "assistant",
              "tool"
            ]
@@ -1245,10 +1254,11 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     retry_wire = Enum.drop(second.messages, length(first.messages))
     refute Enum.any?(retry_wire, &(&1.role == "user"))
     assert [retry_assistant] = Enum.filter(retry_wire, &(&1.role == "assistant"))
-    assert [retry_call] = Map.get(retry_assistant, :tool_calls)
+    assert [retry_call] = Enum.filter(retry_assistant.blocks, &(&1.type == "tool_call"))
     assert [retry_tool] = Enum.filter(retry_wire, &(&1.role == "tool"))
-    assert retry_tool.tool_call_id == retry_call.id
-    assert retry_tool.content =~ "empty_items"
+    retry_validation = Enum.find(retry_tool.blocks, &(&1.type == "validation_result"))
+    assert retry_validation.call_id == retry_call.call_id
+    assert retry_validation.reason_code =~ "empty_items"
 
     failed_transcript = step_state.judgment_transcript
 
@@ -1581,11 +1591,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
         base_text: "判断阶段只核对候选事实；不写 canon。",
         author_text: run.goal.text,
         author_turn_ref: run.parent_turn_ref,
-        tools: NovelApplication.JudgmentToolContract.tools(:judgment),
-        projection: %{
-          target: "chat_completions",
-          capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-        }
+        tools: NovelApplication.JudgmentToolContract.tools(:judgment)
       )
       |> AuthoringTranscript.append_assistant("", [
         RequestIR.tool_call_block(
@@ -1669,10 +1675,11 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
   )
 
   defp assert_revision_canonical_boundary(transcript, last_prompt, goal, base_body) do
-    canonical_wire = canonical_wire_messages(transcript)
+    assert {:ok, canonical_ir} = AuthoringTranscript.to_request_ir(transcript)
+    canonical_messages = canonical_ir.messages
 
-    assert length(canonical_wire) > length(last_prompt.messages)
-    assert Enum.take(canonical_wire, length(last_prompt.messages)) == last_prompt.messages
+    assert length(canonical_messages) > length(last_prompt.messages)
+    assert Enum.take(canonical_messages, length(last_prompt.messages)) == last_prompt.messages
 
     scope =
       Enum.find(transcript.messages, fn message ->
@@ -1690,16 +1697,18 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert scope_text =~ goal
     assert scope_text =~ "原候选全文（仅供修订，不是已确认作品事实）：\n" <> base_body
 
-    assert_canonical_arguments_bytes(transcript, canonical_wire)
+    assert_canonical_arguments_bytes(transcript)
 
-    canonical_wire
+    canonical_messages
   end
 
-  defp assert_canonical_arguments_bytes(transcript, canonical_wire) do
+  defp assert_canonical_arguments_bytes(transcript) do
     canonical_calls = submit_tool_calls(transcript.messages)
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
+    assert {:ok, body} = Projection.project(ir, "chat_completions")
 
     wire_calls =
-      for message <- canonical_wire,
+      for message <- body.messages,
           call <- Map.get(message, :tool_calls, []),
           get_in(call, [:function, :name]) == "submit_tentative_artifact",
           do: call
@@ -1714,22 +1723,6 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
 
       assert get_in(wire_call, [:function, :arguments]) == expected
     end)
-  end
-
-  defp canonical_wire_messages(transcript) do
-    assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
-
-    prompt =
-      case RequestIR.to_provider_prompt(ir,
-             tool_names: ["submit_tentative_artifact"],
-             tool_choice: "submit_tentative_artifact"
-           ) do
-        {:ok, prompt} -> prompt
-        {:finite_mode, prompt, _mode} -> prompt
-        {:error, reason} -> flunk("canonical transcript 无法投影为 Provider 请求: #{inspect(reason)}")
-      end
-
-    prompt.messages
   end
 
   defp refute_private_turn_result_keys(value, path \\ []) do
@@ -1756,26 +1749,20 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     end
   end
 
-  @application_provenance_marker "【应用数据 · "
-
   defp assert_wire_author_identity(prompt, goal) do
-    user_texts =
+    authors =
       prompt.messages
-      |> Enum.filter(&(&1.role == "user"))
-      |> Enum.map(& &1.content)
+      |> Enum.filter(&(&1.role == "user" and &1.provenance == "author"))
+      |> Enum.map(&canonical_message_text/1)
 
-    author_texts = Enum.filter(user_texts, &(&1 == goal))
-    projected_application_texts = Enum.reject(user_texts, &(&1 == goal))
+    application_messages =
+      Enum.filter(prompt.messages, &(&1.role in ["application_base", "scope_update"]))
 
-    # wire 上只有一条独立作者原话；application_base/scope_update 等投影应用消息
-    # 必须带显式 provenance 标记，不能冒充第二条作者 user。
-    assert author_texts == [goal]
-    assert projected_application_texts != []
-
-    assert Enum.all?(
-             projected_application_texts,
-             &String.starts_with?(&1, @application_provenance_marker)
-           )
+    # canonical 上只有一条独立作者原话；应用消息使用自己的 role/provenance，
+    # 不能冒充第二条作者 user。
+    assert authors == [goal]
+    assert application_messages != []
+    assert Enum.all?(application_messages, &(&1.provenance == "application"))
   end
 
   defp assert_canonical_author_invariance(before_transcript, after_transcript, goal) do
@@ -1825,6 +1812,8 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert {:ok, restored} = AuthoringTranscript.restore(checkpoint)
     assert {:ok, original_ir} = AuthoringTranscript.to_request_ir(transcript)
     assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored)
-    assert Projection.project(restored_ir) == Projection.project(original_ir)
+
+    assert Projection.project(restored_ir, "chat_completions") ==
+             Projection.project(original_ir, "chat_completions")
   end
 end

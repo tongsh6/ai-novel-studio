@@ -98,7 +98,10 @@ defmodule NovelApplication.WorkSkeletonInjectionTest do
     }
 
     {_turn_result, _trace, _transcript} = TurnExecutionService.execute(input)
-    agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1)
+
+    agent
+    |> Agent.get(& &1)
+    |> Enum.map_join("\n\n", &NovelApplication.TestAgenticLoopFixtures.prompt_text/1)
   end
 
   test "plot_outline + 骨架已立 + 进度尚远 → 注入骨架段与禁终局守则" do

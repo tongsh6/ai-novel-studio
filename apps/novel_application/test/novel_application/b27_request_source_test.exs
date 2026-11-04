@@ -59,8 +59,9 @@ defmodule NovelApplication.B27RequestSourceTest do
   end
 
   defp prompt_text(protocol_input) do
-    %{messages: [%{content: content}]} = JudgmentProtocol.prompt(protocol_input)
-    content
+    protocol_input
+    |> JudgmentProtocol.request_for_production()
+    |> NovelApplication.TestAgenticLoopFixtures.prompt_text()
   end
 
   test "普通 profile：supplied=实际渲染的 work/conversation/behavior；memory 为 available-not-supplied" do

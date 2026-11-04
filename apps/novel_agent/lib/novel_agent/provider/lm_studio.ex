@@ -10,6 +10,8 @@ defmodule NovelAgent.Provider.LMStudio do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.OpenAICompatibleStream
+  alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.RequestIR.Projection
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Usage
   alias NovelFoundation.UpstreamError
@@ -182,21 +184,16 @@ defmodule NovelAgent.Provider.LMStudio do
   defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
   defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}
 
-  defp request_body(state, prompt, params, stream?) do
-    HTTP.apply_params(
-      %{
-        model: state.model,
-        messages: NovelAgent.Provider.normalize_messages(prompt),
-        stream: stream?,
-        # 缺陷九跟进：provider 自己的安全上限先垫底，params.max_tokens 非 nil
-        # 时 apply_params 会覆盖（调用方显式偏好优先于 provider 默认兜底）。
-        max_tokens: state.max_tokens
-      },
-      params
-    )
+  defp request_body(state, %RequestIR{} = ir, params, stream?) do
+    {:ok, projected} = Projection.project(ir, "chat_completions")
+
+    projected
+    |> Map.put(:model, state.model)
+    |> Map.put(:stream, stream?)
+    |> Map.put(:max_tokens, state.max_tokens)
+    |> HTTP.apply_params(params)
     |> maybe_reasoning_effort(state.reasoning_effort)
-    |> maybe_json_mode(state.json_mode, prompt)
-    |> NovelAgent.Provider.put_openai_tools(prompt)
+    |> maybe_json_mode(state.json_mode, ir)
     |> downgrade_named_tool_choice()
   end
 

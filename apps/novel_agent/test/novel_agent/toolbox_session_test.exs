@@ -178,8 +178,11 @@ defmodule NovelAgent.ToolboxSessionTest do
     assert {:ok, ["call-2"]} = RequestIR.pending_call_ids(session.request_ir)
 
     assert Enum.any?(retry_prompt.messages, fn message ->
-             message.role == "tool" and message.tool_call_id == "call-1" and
-               Jason.decode!(message.content)["reason_code"] == "revision_scope_mismatch"
+             message.role == "tool" and
+               Enum.any?(message.blocks, fn block ->
+                 block.type == "validation_result" and block.call_id == "call-1" and
+                   block.reason_code == "revision_scope_mismatch"
+               end)
            end)
 
     refute contains_function?(session)

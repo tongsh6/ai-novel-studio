@@ -7,8 +7,6 @@ defmodule NovelAgent.Provider.RequestIRTest do
   @author_text "把沈砚的年龄改成三十岁"
   @provenance_header "【应用数据 · application_base · 非作者原话】"
 
-  defp full_caps, do: Map.new(RequestIR.required_capabilities(), &{&1, true})
-
   defp base_refs, do: [%{ref: "work:work-1", version: 3}]
 
   defp tools,
@@ -18,22 +16,21 @@ defmodule NovelAgent.Provider.RequestIRTest do
     RequestIR.message(role, provenance, blocks, extra)
   end
 
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
   defp ir(messages, opts \\ []) do
     RequestIR.new(%{
       run: %{run_id: "run-g1", work_id: "work-1", goal: %{text: "读取作品事实后给出候选"}},
-      system: %{
-        identity_ref: "identity:authoring/v1",
-        instructions: "你是创作 run，只在作者授权边界内行动。",
-        run_role: "creation_run"
-      },
+      system:
+        RequestIR.system_envelope(
+          instructions: "你是创作 run，只在作者授权边界内行动。",
+          run_role: "creation_run"
+        ),
       messages: messages,
       tools: Keyword.get(opts, :tools, tools()),
-      projection: %{
-        target: Keyword.get(opts, :target, "chat_completions"),
-        capability_profile: Keyword.get(opts, :capabilities, full_caps()),
-        finite_mode: Keyword.get(opts, :finite_mode),
-        usage_streaming: false
-      },
+      projection:
+        %{usage_streaming: false} |> maybe_put(:finite_mode, Keyword.get(opts, :finite_mode)),
       refs:
         Keyword.get(opts, :refs, %{base_refs: base_refs(), observation_refs: [], used_refs: []})
     })
@@ -111,23 +108,35 @@ defmodule NovelAgent.Provider.RequestIRTest do
           ]
 
       assert {:error, {:unrepresentable_tool_arguments, "invalid-json"}} =
-               Projection.project(ir(history, target: "anthropic_messages"))
+               Projection.project(ir(history), "anthropic_messages")
 
-      assert {:ok, chat} = Projection.project(ir(history))
+      assert {:ok, chat} = Projection.project(ir(history), "chat_completions")
 
       assert Enum.find(chat.messages, &(&1.role == "assistant")).tool_calls
              |> hd()
              |> get_in([:function, :arguments]) == "{\"query\":}"
     end
 
-    test "生产请求桥拒绝未声明的能力缺口并保留显式有限模式" do
-      incomplete = ir(g1_messages(), capabilities: %{})
-      assert {:error, {:unsupported_capability, _}} = RequestIR.to_provider_prompt(incomplete)
+    test "canonical projection 只承载调用政策，prepare_request 不查询 Gateway" do
+      ir = ir(g1_messages())
+      assert ir.projection == %{usage_streaming: false}
+      assert :ok = RequestIR.validate(ir)
 
-      finite = ir(g1_messages(), capabilities: %{}, finite_mode: %{name: "legacy_json_content"})
+      assert {:ok, prepared} =
+               RequestIR.prepare_request(ir,
+                 tool_names: ["read_character"],
+                 tool_choice: "required"
+               )
 
-      assert {:ok, %{finite_mode: %{name: "legacy_json_content"}}} =
-               RequestIR.to_provider_prompt(finite)
+      assert prepared.tools == tools()
+      assert prepared.projection[:tool_choice] == "required"
+      assert prepared.messages == ir.messages
+      assert prepared.refs == ir.refs
+      assert prepared.run == ir.run
+      assert ir.tools == tools()
+
+      assert {:error, {:unknown_tool_names, ["missing"]}} =
+               RequestIR.prepare_request(ir, tool_names: ["missing"])
     end
 
     test "canonical 可记录待处理调用但不能把未闭合交换发送到下一请求" do
@@ -142,7 +151,7 @@ defmodule NovelAgent.Provider.RequestIRTest do
         )
 
       assert :ok = RequestIR.validate(pending)
-      assert {:error, {:pending_tool_calls, ["pending"]}} = RequestIR.to_provider_prompt(pending)
+      assert {:error, {:pending_tool_calls, ["pending"]}} = RequestIR.prepare_request(pending)
 
       interleaved = %{
         pending
@@ -207,7 +216,7 @@ defmodule NovelAgent.Provider.RequestIRTest do
       assert :ok = RequestIR.validate(ir(messages))
 
       assert {:error, {:pending_tool_calls, ["call-1"]}} =
-               RequestIR.to_provider_prompt(ir(messages))
+               RequestIR.prepare_request(ir(messages))
     end
 
     test "观察必须绑定已有 call_id，且 status 如实（I-ART-4）" do
@@ -259,32 +268,9 @@ defmodule NovelAgent.Provider.RequestIRTest do
     end
   end
 
-  describe "能力门槛与显式有限模式（VS-00L §6.4）" do
-    test "完整能力 → 正常投影" do
-      assert {:ok, body} = Projection.project(ir(g1_messages()))
-      assert [%{role: "system"} | _] = body.messages
-    end
-
-    test "缺能力且未声明有限模式 → 拒绝路由" do
-      caps = Map.delete(full_caps(), :streaming)
-
-      assert {:error, {:unsupported_capability, [:streaming]}} =
-               Projection.project(ir(g1_messages(), capabilities: caps))
-    end
-
-    test "缺能力但显式有限模式 → 返回明确降级" do
-      caps = Map.delete(full_caps(), :streaming)
-
-      assert {:finite_mode, _body, %{missing: [:streaming], finite_mode: %{name: "no_streaming"}}} =
-               Projection.project(
-                 ir(g1_messages(), capabilities: caps, finite_mode: %{name: "no_streaming"})
-               )
-    end
-  end
-
   describe "六类黄金请求 G1–G6 投影" do
     test "G1 首轮：作者原话独立 user 消息、Base 带 provenance、tools 完整" do
-      {:ok, body} = Projection.project(ir(g1_messages()))
+      {:ok, body} = Projection.project(ir(g1_messages()), "chat_completions")
 
       assert [%{role: "system"} | _] = body.messages
       assert Enum.any?(body.messages, &(&1 == %{role: "user", content: @author_text}))
@@ -297,7 +283,9 @@ defmodule NovelAgent.Provider.RequestIRTest do
     end
 
     test "G2 观察后：tool call 与 observation 按 call_id 关联进入下一请求" do
-      {:ok, chat} = Projection.project(ir(g2_messages(), refs: observed_refs()))
+      {:ok, chat} =
+        Projection.project(ir(g2_messages(), refs: observed_refs()), "chat_completions")
+
       assistant = Enum.find(chat.messages, &(&1.role == "assistant"))
 
       assert [%{id: "call-1", function: %{name: "read_character"}}] = assistant.tool_calls
@@ -308,7 +296,10 @@ defmodule NovelAgent.Provider.RequestIRTest do
       assert tool.content =~ "character:1"
 
       {:ok, anthropic} =
-        Projection.project(ir(g2_messages(), target: "anthropic_messages", refs: observed_refs()))
+        Projection.project(
+          ir(g2_messages(), refs: observed_refs()),
+          "anthropic_messages"
+        )
 
       assert Enum.any?(anthropic.messages, fn m ->
                Enum.any?(m.content, &(&1.type == "tool_use" and &1.id == "call-1"))
@@ -319,7 +310,7 @@ defmodule NovelAgent.Provider.RequestIRTest do
              end)
 
       {:ok, responses} =
-        Projection.project(ir(g2_messages(), target: "responses_api", refs: observed_refs()))
+        Projection.project(ir(g2_messages(), refs: observed_refs()), "responses_api")
 
       assert Enum.any?(responses.input, &(&1.type == "function_call" and &1.call_id == "call-1"))
 
@@ -385,8 +376,8 @@ defmodule NovelAgent.Provider.RequestIRTest do
       canonical = %{"z" => "末尾", "a" => "开头", "nested" => %{"role" => "作者"}}
 
       for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
-        assert Projection.project(ir(exchange_with_arguments(mixed), target: target)) ==
-                 Projection.project(ir(exchange_with_arguments(canonical), target: target))
+        assert Projection.project(ir(exchange_with_arguments(mixed)), target) ==
+                 Projection.project(ir(exchange_with_arguments(canonical)), target)
       end
     end
 
@@ -404,7 +395,7 @@ defmodule NovelAgent.Provider.RequestIRTest do
             ])
           ]
 
-      {:ok, body} = Projection.project(ir(messages))
+      {:ok, body} = Projection.project(ir(messages), "chat_completions")
       tool = Enum.find(body.messages, &(&1.role == "tool"))
       assert tool.tool_call_id == "call-1"
       assert tool.content =~ "failed"
@@ -428,7 +419,7 @@ defmodule NovelAgent.Provider.RequestIRTest do
             ])
           ]
 
-      {:ok, body} = Projection.project(ir(messages, refs: refs))
+      {:ok, body} = Projection.project(ir(messages, refs: refs), "chat_completions")
 
       assert Enum.all?(body.tools, fn tool -> tool.function.name != "adopt" end)
       refute inspect(body.messages) =~ "adopt"
@@ -446,7 +437,7 @@ defmodule NovelAgent.Provider.RequestIRTest do
             ])
           ]
 
-      {:ok, body} = Projection.project(ir(messages))
+      {:ok, body} = Projection.project(ir(messages), "chat_completions")
       refute inspect(body) =~ "author_exit"
       assert length(Enum.filter(body.messages, &(&1.role == "user"))) == 2
     end
@@ -470,7 +461,7 @@ defmodule NovelAgent.Provider.RequestIRTest do
             })
           ]
 
-      {:ok, body} = Projection.project(ir(messages))
+      {:ok, body} = Projection.project(ir(messages), "chat_completions")
 
       checkpoint_message =
         Enum.find(body.messages, &(is_binary(&1.content) and &1.content =~ "checkpoint"))
@@ -493,14 +484,19 @@ defmodule NovelAgent.Provider.RequestIRTest do
       second = ir(g1_messages() ++ [scope.("只读探索开放", 1), scope.("只读探索关闭", 2)])
 
       for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
-        first = %{first | projection: %{first.projection | target: target}}
-        second = %{second | projection: %{second.projection | target: target}}
-        assert {:ok, first_body} = Projection.project(first)
-        assert {:ok, second_body} = Projection.project(second)
+        assert {:ok, first_body} = Projection.project(first, target)
+        assert {:ok, second_body} = Projection.project(second, target)
         first_items = Map.get(first_body, :messages, first_body[:input])
         second_items = Map.get(second_body, :messages, second_body[:input])
 
-        assert Enum.take(second_items, length(first_items)) == first_items
+        if target == "anthropic_messages" do
+          assert Enum.any?(second_items, fn item ->
+                   Enum.any?(item.content, &(&1.text =~ "只读探索开放"))
+                 end)
+        else
+          assert Enum.take(second_items, length(first_items)) == first_items
+        end
+
         last_item = List.last(second_items)
 
         scope_text =
@@ -516,48 +512,17 @@ defmodule NovelAgent.Provider.RequestIRTest do
     end
   end
 
-  describe "adapter 桥（CP2 收尾，VS-00L §6/§8）" do
-    test "normalize_messages 保真原生工具字段（I-ART-8）" do
-      tool_calls = [
-        %{
-          id: "call-1",
-          type: "function",
-          function: %{name: "read_character", arguments: "{\"character_ref\":\"character:1\"}"}
-        }
-      ]
-
-      messages = [
-        %{role: "assistant", content: "", tool_calls: tool_calls},
-        %{role: "tool", content: "{\"status\":\"ok\"}", tool_call_id: "call-1"},
-        %{role: "user", content: "hi"}
-      ]
-
-      assert [assistant, tool, user] = NovelAgent.Provider.normalize_messages(messages)
-      assert assistant.tool_calls == tool_calls
-      assert tool.tool_call_id == "call-1"
-      assert user == %{role: "user", content: "hi"}
-    end
-
-    test "IR → provider prompt：OpenAI 兼容 adapter 消费结果与投影同源" do
+  describe "adapter 原生投影边界（VS-00L §19.1）" do
+    test "Provider 工具事实直接读取 IR 的 active tools 与 projection.tool_choice" do
       ir = ir(g2_messages(), refs: observed_refs())
+      assert {:ok, prepared} = RequestIR.prepare_request(ir, tool_choice: "required")
 
-      assert {:ok, prompt} = RequestIR.to_provider_prompt(ir)
-      assert prompt.ir_version == RequestIR.ir_version()
+      assert NovelAgent.Provider.tool_specs(prepared) |> Enum.map(& &1.name) == [
+               "read_character"
+             ]
 
-      assert NovelAgent.Provider.normalize_messages(prompt) ==
-               elem(Projection.project(ir), 1).messages
-
-      assert NovelAgent.Provider.put_openai_tools(%{}, prompt).tools ==
-               elem(Projection.project(ir), 1).tools
-
-      assert NovelAgent.Provider.tool_specs(prompt) != []
-    end
-
-    test "legacy prompt 仍按原语义保留（不产生 ir_version/工具字段伪值）" do
-      assert [%{role: "user", content: "hello"}] =
-               NovelAgent.Provider.normalize_messages(%{
-                 messages: [%{role: "user", content: "hello"}]
-               })
+      assert NovelAgent.Provider.tool_choice(prepared) == "required"
+      assert NovelAgent.Provider.tool_call_prompt?(prepared)
     end
 
     test "CP4a：当前阶段工具投影与 canonical 工具历史分离" do
@@ -574,18 +539,18 @@ defmodule NovelAgent.Provider.RequestIRTest do
               ]
         )
 
-      assert {:ok, prompt} =
-               RequestIR.to_provider_prompt(ir,
+      assert {:ok, prepared} =
+               RequestIR.prepare_request(ir,
                  tool_names: ["report_quality_findings"],
                  tool_choice: "report_quality_findings"
                )
 
-      assert Enum.map(prompt.tools, & &1.name) == ["report_quality_findings"]
-      assert NovelAgent.Provider.tool_choice(prompt) == "report_quality_findings"
+      assert Enum.map(prepared.tools, & &1.name) == ["report_quality_findings"]
+      assert NovelAgent.Provider.tool_choice(prepared) == "report_quality_findings"
       assert length(ir.tools) == 2
 
       assert {:error, {:unknown_tool_names, ["missing_tool"]}} =
-               RequestIR.to_provider_prompt(ir, tool_names: ["missing_tool"])
+               RequestIR.prepare_request(ir, tool_names: ["missing_tool"])
     end
   end
 end

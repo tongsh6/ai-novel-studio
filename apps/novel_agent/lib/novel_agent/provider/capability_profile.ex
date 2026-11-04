@@ -102,9 +102,6 @@ defmodule NovelAgent.Provider.CapabilityProfile do
     Enum.uniq(explicit ++ named_limitations(fetch_mode_field(mode, :name)))
   end
 
-  defp named_limitations(name) when name in ["legacy_prompt", "legacy_json_content"],
-    do: required()
-
   defp named_limitations("no_tools"), do: [:tool_calls, :tool_results]
   defp named_limitations("single_turn"), do: [:native_multi_turn]
   defp named_limitations("no_streaming"), do: [:streaming]
@@ -171,31 +168,6 @@ defmodule NovelAgent.Provider.CapabilityProfile do
     end
   end
 
-  @doc """
-  执行边界的能力门槛（VS-00L §6.4）。
-
-  身份比对优先：请求投影携带构造时的 route 身份（provider/model），与实际执行
-  route 一致时直接信任该能力事实（源头只产生一次，下游不重复派生）；只有
-  purpose/route_hint 让执行 route 与构造 route 不同（真实变化点）时才按实际 route
-  重新派生并校验。无法比对身份的请求不进入该门槛。
-  """
-  @spec enforce_route(map() | nil, map(), map()) :: :ok | {:error, map()}
-  def enforce_route(route, ctx, prompt) when is_map(route) and is_map(prompt) do
-    case Map.get(prompt, :provider_route) do
-      %{provider: provider, model: model} ->
-        if route_identity(route, ctx) == %{provider: provider, model: model} do
-          :ok
-        else
-          verify_route(route, prompt)
-        end
-
-      _no_route_identity ->
-        :ok
-    end
-  end
-
-  def enforce_route(_route, _ctx, _prompt), do: :ok
-
   @doc "能力拒绝的作者安全错误：作者文案只含中文能力名，内部 atom 仅在 details 诊断。"
   @spec rejection(module(), [atom()]) :: map()
   def rejection(module, missing) do
@@ -214,26 +186,6 @@ defmodule NovelAgent.Provider.CapabilityProfile do
       retryable: error.retryable,
       details: error.details
     }
-  end
-
-  defp verify_route(route, prompt) do
-    profile = from_adapter(route.module, Map.get(route, :state))
-
-    case missing(profile) do
-      [] ->
-        :ok
-
-      missing ->
-        if finite_mode_covers?(Map.get(prompt, :finite_mode), missing) do
-          :ok
-        else
-          {:error, rejection(route.module, missing)}
-        end
-    end
-  end
-
-  defp route_identity(route, ctx) do
-    %{provider: Map.get(ctx, :provider_name), model: normalize_model(Map.get(route, :model_name))}
   end
 
   defp provider_label(module) do

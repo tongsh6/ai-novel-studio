@@ -14,8 +14,8 @@ defmodule NovelApplication.ContextPressure do
   alias NovelPersistence.ProviderRunLog
 
   # 保守窗口（token）：真实模型窗口通常更大，这里取低于实际能力的值，让维护更早发生。
+  # 测试替身（stub/slice_verify）不是供应商事实，不进入该表：未知 provider 用保守窗口兜底。
   @default_windows %{
-    "stub" => 16_000,
     "lmstudio" => 32_000,
     "strata" => 32_000,
     "openai" => 128_000,
@@ -47,7 +47,7 @@ defmodule NovelApplication.ContextPressure do
   @doc """
   最近一次真实 Provider 请求的输入规模（只读）。
 
-  usage 缺失（本地 stub、未落库或全部为 0）时返回 `:unavailable`，调用方必须按
+  usage 缺失（测试替身、未落库或全部为 0）时返回 `:unavailable`，调用方必须按
   「未知」处理，不得猜测或按消息数估算。
   """
   @spec latest_usage(String.t()) :: {:ok, signal()} | :unavailable

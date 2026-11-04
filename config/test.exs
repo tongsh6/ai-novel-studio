@@ -49,8 +49,10 @@ config :novel_web, NovelWeb.Endpoint,
 
 config :logger, level: :warning
 
-# Provider Gateway — 测试环境默认 stub，单测可手动注入 adapter
+# Provider Gateway — 测试环境默认 stub，单测可手动注入 adapter。
+# Stub 只存在于 novel_agent/test/support，生产 registry 不再内置；测试环境显式注册。
 config :novel_agent, :provider, default: :stub
+config :novel_agent, :extra_providers, %{stub: NovelAgent.Provider.Stub}
 
 # LM Studio 测试超时默认设短（纯单测走 stub，探活不应阻塞）。
 # 缺陷九跟进（2026-07-20）：这个值现在还兼作挂钟止血阀的判定基准

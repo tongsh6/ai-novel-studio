@@ -29,11 +29,8 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     previous =
       RequestIR.new(%{
         run: %{run_id: "real-run", work_id: "real-work"},
-        system: %{identity_ref: "identity:authoring/v1"},
-        projection: %{
-          target: "chat_completions",
-          capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-        },
+        system: RequestIR.system_envelope(),
+        projection: %{},
         messages: [
           RequestIR.message(:application_base, :application, [RequestIR.text_block("首阶段只承担计划起草。")]),
           RequestIR.message(:user, :author, [RequestIR.text_block(@request.task.author_words)])
@@ -63,15 +60,6 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert Map.get(bound.projection, :finite_mode) == nil
   end
 
-  # 字符串值内裸换行 → 非法 JSON（gpt-oss-120b 长上下文下的真实坏法，M2 长跑
-  # 实测 10/12 次正文起草解析失败均属此类）。2026-07-20 起 parse_content 在
-  # Jason.decode 前先过 NovelAgent.Provider.repair_unescaped_control_chars/1，
-  # 这类 fixture 现在**首次调用即修复成功，不再需要重试**——见下方
-  # "repairs unescaped newline" 测试。retry 机制仍保留给这类修复覆盖不到的
-  # 非法 JSON（如结构性错误、非受控字符导致的坏法），用 @unrepairable_bad_json
-  # 覆盖。
-  @bad_json ~s([{"item_id": "i1", "title": "开篇", "body": "第一行\n第二行", "rationale": null}])
-
   # 结构性非法 JSON（多余逗号），不是裸控制字符问题，repair_unescaped_control_chars
   # 修不了——仍应触发既有的重试/诚实失败路径。
   @unrepairable_bad_json ~s([{"item_id": "i1", "title": "开篇", "body": "b",}])
@@ -85,12 +73,12 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert [%{name: "submit_tentative_artifact"}] = initial_ir.tools
     assert Enum.any?(initial_ir.messages, &(&1.role == "scope_update"))
 
-    assert {:ok, initial_prompt} =
-             RequestIR.to_provider_prompt(initial_ir, tool_choice: "required")
-
     result_fn = fn prompt ->
-      assert Enum.take(prompt.messages, length(initial_prompt.messages)) ==
-               initial_prompt.messages
+      assert %RequestIR{} = prompt
+      assert prompt.messages == initial_ir.messages
+      assert Enum.any?(prompt.messages, &(&1.source_refs != []))
+      assert [%{name: "submit_tentative_artifact"}] = prompt.tools
+      assert NovelAgent.Provider.tool_choice(prompt) == "submit_tentative_artifact"
 
       {:ok,
        %{
@@ -151,8 +139,15 @@ defmodule NovelAgent.CreativeProvider.RealTest do
 
     assert_receive {:native_prompt, 1, retry_prompt}
     feedback = Enum.filter(retry_prompt.messages, &(&1.role == "tool"))
-    assert Enum.map(feedback, & &1.tool_call_id) == ["a", "b"]
-    assert Enum.all?(feedback, &(Jason.decode!(&1.content)["status"] == "failed"))
+
+    validation_blocks =
+      for message <- feedback,
+          block <- message.blocks,
+          block.type == "validation_result",
+          do: block
+
+    assert Enum.map(validation_blocks, & &1.call_id) == ["a", "b"]
+    assert Enum.all?(validation_blocks, &(&1.status == "failed"))
     assert :ok = RequestIR.validate(session.request_ir)
   end
 
@@ -162,26 +157,6 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert {%{status: :error}, session} = Real.generate_with_session(bound, execution)
     refute Map.has_key?(session.request_ir.projection, :finite_mode)
     assert :ok = RequestIR.validate(session.request_ir)
-  end
-
-  test "显式有限模式修复 JSON 字符串中的裸换行并保留模式声明" do
-    {:ok, agent} = Agent.start_link(fn -> 0 end)
-
-    result_fn = fn _prompt ->
-      Agent.update(agent, &(&1 + 1))
-      {:ok, %{content: @bad_json}}
-    end
-
-    {:ok, ir} = Real.request_ir(@request)
-    ir = %{ir | projection: Map.put(ir.projection, :finite_mode, %{name: "legacy_json_content"})}
-
-    {result, session} =
-      Real.generate_with_session(%{@request | request_ir: ir}, %Execution{result_fn: result_fn})
-
-    assert result.status == :ok
-    assert [%{body: "第一行\n第二行"}] = result.items
-    assert Agent.get(agent, & &1) == 1
-    assert session.request_ir.projection.finite_mode.name == "legacy_json_content"
   end
 
   test "无效原生工具参数经校验结果回流后重试一次" do

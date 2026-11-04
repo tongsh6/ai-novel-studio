@@ -14,6 +14,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   alias NovelAgent.Provider.StubChapterSummary
   alias NovelAgent.Provider.Usage
   alias NovelAgent.Test.Support.PendingDialogueInput
+  alias NovelAgent.Test.WireToolFacts
+  alias NovelAgent.TestProviderPrompt
 
   @slow_work_switch_delay_ms 2_500
   @slow_work_switch_marker "SU02SLOW"
@@ -596,76 +598,35 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   # 只在最新 scope_update 之后找同 operation 的调用与 validation；更早阶段的失败不计数。
-  defp failed_quality_revision_validation?(prompt) when is_map(prompt) or is_list(prompt) do
-    history =
-      prompt
-      |> NovelAgent.Provider.normalize_messages()
-      |> current_operation_history()
+  # 只有 canonical IR 有 block/validation 事实；普通 wire 文本请求没有此结构，不探测形状。
+  defp failed_quality_revision_validation?(%NovelAgent.Provider.RequestIR{} = prompt) do
+    history = TestProviderPrompt.current_operation_messages(prompt)
 
-    call_ids = quality_revision_call_ids(history)
+    call_ids =
+      for message <- history,
+          block <- message.blocks,
+          block.type == "tool_call",
+          block.name == "submit_tentative_artifact",
+          is_binary(block.call_id),
+          do: block.call_id
 
     Enum.any?(history, fn message ->
-      message.role == "tool" and
-        Map.get(message, :tool_call_id) in call_ids and
-        invalid_items_failure?(Map.get(message, :content))
+      Enum.any?(message.blocks, fn
+        %{
+          type: "validation_result",
+          call_id: call_id,
+          status: "failed",
+          reason_code: "invalid_items"
+        } ->
+          call_id in call_ids
+
+        _block ->
+          false
+      end)
     end)
   end
 
   defp failed_quality_revision_validation?(_prompt), do: false
-
-  defp current_operation_history(messages) do
-    index =
-      messages
-      |> Enum.with_index()
-      |> Enum.reverse()
-      |> Enum.find_value(fn {message, index} ->
-        if scope_update_message?(message), do: index
-      end)
-
-    if is_integer(index), do: Enum.drop(messages, index + 1), else: []
-  end
-
-  defp scope_update_message?(%{role: "user", content: content}) when is_binary(content),
-    do: String.starts_with?(content, "【应用数据 · scope_update")
-
-  defp scope_update_message?(_message), do: false
-
-  defp quality_revision_call_ids(history) do
-    for message <- history,
-        message.role == "assistant",
-        call <- List.wrap(Map.get(message, :tool_calls)),
-        native_call_name(call) == "submit_tentative_artifact",
-        id = native_call_id(call),
-        is_binary(id),
-        do: id
-  end
-
-  defp native_call_name(%{"function" => %{"name" => name}}), do: name
-  defp native_call_name(%{function: %{name: name}}), do: name
-  defp native_call_name(%{"name" => name}), do: name
-  defp native_call_name(%{name: name}), do: name
-  defp native_call_name(_call), do: nil
-
-  defp native_call_id(%{"id" => id}) when is_binary(id), do: id
-  defp native_call_id(%{id: id}) when is_binary(id), do: id
-  defp native_call_id(_call), do: nil
-
-  defp invalid_items_failure?(content) when is_binary(content) do
-    case Jason.decode(content) do
-      {:ok,
-       %{
-         "type" => "validation_result",
-         "status" => "failed",
-         "reason_code" => "invalid_items"
-       }} ->
-        true
-
-      _ ->
-        false
-    end
-  end
-
-  defp invalid_items_failure?(_content), do: false
 
   defp response_result(prompt, prompt_text) do
     case current_specialized_tool(prompt) do
@@ -675,7 +636,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       tool ->
         specialized_response_result(
           tool,
-          NovelAgent.Provider.operation_prompt_text(prompt),
+          TestProviderPrompt.operation_text(prompt),
           prompt
         )
     end
@@ -683,7 +644,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # 判断工具目录也可包含计划提案；只有本次单工具目录或显式具名选择才切换专业阶段。
   defp current_specialized_tool(prompt) do
-    case NovelAgent.Provider.active_tool_name(prompt) do
+    case WireToolFacts.active_tool_name(prompt) do
       name when name in @specialized_tools -> name
       _ -> nil
     end
@@ -720,7 +681,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp specialized_response_result(tool, text, _prompt), do: mission_result(tool, text)
 
   defp current_scope(prompt, text) when is_map(prompt) or is_list(prompt),
-    do: NovelAgent.Provider.latest_scope_text(prompt) || text
+    do: TestProviderPrompt.latest_scope(prompt) || text
 
   defp current_scope(_prompt, text), do: text
 
@@ -1221,10 +1182,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp writer_timeout_scope(prompt, prompt_text) do
     cond do
       current_writer_tool?(prompt) ->
-        scope = NovelAgent.Provider.latest_scope_text(prompt)
+        scope = TestProviderPrompt.latest_scope(prompt)
         if current_prose_scope?(scope), do: scope
 
-      legacy_without_tools?(prompt) and prose_fragment_prompt?(prompt_text) ->
+      is_binary(prompt) and prose_fragment_prompt?(prompt_text) ->
         prompt_text
 
       true ->
@@ -1233,14 +1194,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp current_writer_tool?(prompt) do
-    NovelAgent.Provider.active_tool_name(prompt) == "submit_tentative_artifact"
-  end
-
-  defp legacy_without_tools?(prompt) do
-    canonical? =
-      is_map(prompt) and (Map.has_key?(prompt, :ir_version) or Map.has_key?(prompt, "ir_version"))
-
-    not canonical? and NovelAgent.Provider.tool_specs(prompt) == []
+    WireToolFacts.active_tool_name(prompt) == "submit_tentative_artifact"
   end
 
   defp current_prose_scope?(scope) when is_binary(scope) do
@@ -1358,8 +1312,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # WR01 写前推理步：forced tool call 产本章使命；依据只取 prompt 材料里列名的 ref，
   # 并刻意多给一条越界依据（模型常见失误形态），由 app 侧绑定过滤机械丢弃。
   defp non_judgment_response_result(prompt, prompt_text) do
-    if chapter_mission_prompt?(prompt_text) and NovelAgent.Provider.tool_call_prompt?(prompt) do
-      mission_result(NovelAgent.Provider.tool_choice(prompt) || "chapter_mission", prompt_text)
+    if chapter_mission_prompt?(prompt_text) and WireToolFacts.tool_call?(prompt) do
+      mission_result(WireToolFacts.choice(prompt) || "chapter_mission", prompt_text)
     else
       plan_or_default_response_result(prompt, prompt_text)
     end
@@ -1367,7 +1321,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp native_creative_tool?(prompt, name) do
     prompt
-    |> NovelAgent.Provider.tool_specs()
+    |> WireToolFacts.specs()
     |> Enum.any?(&(&1.name == name))
   end
 
@@ -1399,21 +1353,21 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       native_creative_tool?(prompt, "submit_tentative_artifact") ->
         specialized_response_result(
           "submit_tentative_artifact",
-          NovelAgent.Provider.operation_prompt_text(prompt),
+          TestProviderPrompt.operation_text(prompt),
           prompt
         )
 
       native_creative_tool?(prompt, "report_quality_findings") ->
         specialized_response_result(
           "report_quality_findings",
-          NovelAgent.Provider.operation_prompt_text(prompt),
+          TestProviderPrompt.operation_text(prompt),
           prompt
         )
 
-      agent_plan_revision_prompt?(prompt_text) and NovelAgent.Provider.tool_call_prompt?(prompt) ->
+      agent_plan_revision_prompt?(prompt_text) and WireToolFacts.tool_call?(prompt) ->
         agent_plan_revision_result(prompt_text)
 
-      agent_plan_draft_prompt?(prompt_text) and NovelAgent.Provider.tool_call_prompt?(prompt) ->
+      agent_plan_draft_prompt?(prompt_text) and WireToolFacts.tool_call?(prompt) ->
         agent_plan_draft_result(prompt_text)
 
       true ->
@@ -2944,26 +2898,22 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     _kind, _reason -> :ok
   end
 
-  # 旧顶层字段保持原样供既有 consumer 读取；response 与执行引用是同次追加证据。
-  # 本地 fixture 明确标注格式，不伪装成 HTTP 响应；provider_state 不落日志。
+  # 记录边界只写实际收到的请求：canonical IR 记录真实版本/消息/工具/projection，
+  # 非 IR 请求如实标记为 text/v1；落盘前仅裁剪既定 private 字段，不改原请求。
+  # 本地 fixture 不伪装成 HTTP 响应，也不把重建的文本视图写成实际请求。
   defp exchange_record(prompt_text, prompt, model, params, ctx, result) do
-    tools = if(is_map(prompt), do: Map.get(prompt, :tools, []), else: [])
-    tool_choice = if(is_map(prompt), do: Map.get(prompt, :tool_choice), else: nil)
+    request = request_record(prompt, prompt_text)
     refs = execution_refs(ctx)
 
     %{
       ts: DateTime.utc_now() |> DateTime.to_iso8601(),
       provider: "slice_verify",
-      prompt: prompt_text,
-      request_format: "provider_prompt/v1",
+      prompt: request.prompt,
+      request_format: request.format,
       response_format: "fixture_provider_result/v1",
-      request_body: %{
-        messages: NovelAgent.Provider.normalize_messages(prompt),
-        tools: tools,
-        tool_choice: tool_choice
-      },
-      tools: tools,
-      tool_choice: tool_choice,
+      request_body: request.body,
+      tools: request.tools,
+      tool_choice: request.tool_choice,
       model: model,
       inference_params: plain(params),
       work_id: Logger.metadata()[:work_id],
@@ -2974,6 +2924,68 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     }
     |> Map.merge(response_record(result))
   end
+
+  defp request_record(%NovelAgent.Provider.RequestIR{} = ir, _prompt_text) do
+    %{
+      format: ir.ir_version,
+      prompt: nil,
+      body: %{
+        ir_version: ir.ir_version,
+        run: ir.run,
+        system: ir.system,
+        messages: prune_private(ir.messages),
+        tools: ir.tools,
+        projection: ir.projection,
+        refs: ir.refs
+      },
+      tools: ir.tools,
+      tool_choice: NovelAgent.Provider.tool_choice(ir)
+    }
+  end
+
+  defp request_record(prompt, _prompt_text) when is_binary(prompt) do
+    %{format: "text/v1", prompt: prompt, body: %{text: prompt}, tools: [], tool_choice: nil}
+  end
+
+  defp request_record(prompt, _prompt_text) when is_list(prompt) or is_map(prompt) do
+    messages = request_messages(prompt)
+    tools = WireToolFacts.specs(prompt)
+    tool_choice = WireToolFacts.choice(prompt)
+
+    %{
+      format: "text/v1",
+      prompt: nil,
+      body: %{messages: prune_private(messages), tools: tools, tool_choice: tool_choice},
+      tools: tools,
+      tool_choice: tool_choice
+    }
+  end
+
+  defp request_record(_prompt, _prompt_text) do
+    %{format: "text/v1", prompt: nil, body: %{}, tools: [], tool_choice: nil}
+  end
+
+  defp request_messages(%{messages: messages}) when is_list(messages), do: messages
+  defp request_messages(messages) when is_list(messages), do: messages
+  defp request_messages(_prompt), do: []
+
+  # 只裁既定 private 字段；其余消息/工具/参数保持实际请求原样。
+  defp prune_private(messages) when is_list(messages) do
+    Enum.map(messages, fn
+      message when is_map(message) ->
+        Map.drop(message, [
+          :provider_state,
+          :provider_session,
+          "provider_state",
+          "provider_session"
+        ])
+
+      other ->
+        other
+    end)
+  end
+
+  defp prune_private(other), do: other
 
   defp execution_refs(ctx) when is_map(ctx) do
     %{
@@ -6151,25 +6163,31 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp author_input_text(prompt) do
-    prompt
-    |> current_user_message()
-    |> case do
-      nil -> author_input_text_from_prompt(prompt_text(prompt))
+    case TestProviderPrompt.author_text(prompt) do
+      "" -> author_input_text_from_prompt(legacy_author_text(prompt))
       text -> author_input_text_from_prompt(text)
     end
   end
 
-  defp current_user_message(prompt) when is_list(prompt) do
-    prompt
-    |> NovelAgent.Provider.normalize_messages()
+  # 非 IR 的 wire messages 形态没有 canonical provenance，但最后一条 user 消息就是
+  # 真实调用方给出的作者原话；只读其原字节，不从整段拼接文本重新推断。
+  defp legacy_author_text(%{messages: messages}) when is_list(messages),
+    do: last_user_content(messages) || prompt_text(%{messages: messages})
+
+  defp legacy_author_text(prompt) when is_list(prompt) do
+    last_user_content(prompt) || prompt_text(prompt)
+  end
+
+  defp legacy_author_text(prompt), do: prompt_text(prompt)
+
+  defp last_user_content(messages) do
+    messages
     |> Enum.reverse()
     |> Enum.find_value(fn
-      %{role: "user", content: content} -> content
+      %{role: "user", content: content} when is_binary(content) -> content
       _message -> nil
     end)
   end
-
-  defp current_user_message(_prompt), do: nil
 
   # 依次尝试各代 prompt 的作者输入段体裁；最后一个为判断①（ADR-0025）。
   @author_input_patterns [
@@ -6664,5 +6682,5 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     |> Enum.uniq()
   end
 
-  defp prompt_text(prompt), do: NovelAgent.Provider.prompt_text(prompt)
+  defp prompt_text(prompt), do: TestProviderPrompt.text(prompt)
 end

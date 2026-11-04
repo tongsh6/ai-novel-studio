@@ -202,13 +202,23 @@ defmodule NovelAgent.CreativeProvider.RealTaskPromptTest do
     assert Real.generate(request, %Execution{result_fn: result_fn}).status == :ok
     [original, correction] = Agent.get(agent, & &1)
     assert original.ir_version == RequestIR.ir_version()
-    assert correction.tool_choice == "submit_tentative_artifact"
+    assert correction.projection.tool_choice == "submit_tentative_artifact"
     assert Enum.take(correction.messages, length(original.messages)) == original.messages
 
+    # 纠错反馈在 canonical IR 的 validation_result block 里（原 call_id 关联），
+    # 不再拼进任何一条 prompt 文本。
     assert Enum.any?(correction.messages, fn message ->
-             message.role == "tool" and message.content =~ "provider_response_invalid"
+             message.role == "tool" and
+               Enum.any?(message.blocks, fn block ->
+                 block.type == "validation_result" and
+                   block.reason_code == "provider_response_invalid"
+               end)
            end)
 
-    refute Enum.any?(correction.messages, &(&1.content =~ "不是合法 JSON"))
+    refute Enum.any?(correction.messages, fn message ->
+             Enum.any?(message.blocks, fn block ->
+               is_binary(Map.get(block, :text)) and Map.get(block, :text) =~ "不是合法 JSON"
+             end)
+           end)
   end
 end

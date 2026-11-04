@@ -2,46 +2,71 @@ defmodule NovelAgent.ProviderTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider
+  alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.RequestIR.Projection
+  alias NovelAgent.TestProviderPrompt
+  alias NovelAgent.TestRequestIR
+
+  defp operation_ir(messages) do
+    RequestIR.new(%{
+      run: %{run_id: "provider-test"},
+      system: RequestIR.system_envelope(),
+      messages: messages
+    })
+  end
 
   test "当前工具由目录和选择共同决定，不把多工具目录中的一个名字当成本阶段" do
     tools = [%{name: "first", input_schema: %{}}, %{name: "second", input_schema: %{}}]
-    assert Provider.active_tool_name(%{tools: tools, tool_choice: "auto"}) == nil
-    assert Provider.active_tool_name(%{tools: tools, tool_choice: "second"}) == "second"
-    assert Provider.active_tool_name(%{tools: tools, tool_choice: "absent"}) == nil
-    assert Provider.active_tool_name(%{tools: [hd(tools)], tool_choice: "auto"}) == "first"
-    assert Provider.active_tool_name(%{tools: [hd(tools)], tool_choice: "none"}) == nil
+
+    ir = fn specs, tool_choice ->
+      TestRequestIR.ir([TestRequestIR.author("观察")],
+        tools: specs,
+        projection: %{tool_choice: tool_choice}
+      )
+    end
+
+    assert Provider.active_tool_name(ir.(tools, "auto")) == nil
+    assert Provider.active_tool_name(ir.(tools, "second")) == "second"
+    assert Provider.active_tool_name(ir.(tools, "absent")) == nil
+    assert Provider.active_tool_name(ir.([hd(tools)], "auto")) == "first"
+    assert Provider.active_tool_name(ir.([hd(tools)], "none")) == nil
   end
 
   test "专业操作视图保留首 Base 与原话；首阶段纠错不能误当角色切换" do
     messages = [
-      %{role: "user", content: "【应用数据 · application_base】\n首阶段完整规则"},
-      %{role: "user", content: "作者原话 保留空白。"},
-      %{role: "user", content: "【应用数据 · scope_update】\n当前材料"}
+      RequestIR.message(:application_base, :application, [RequestIR.text_block("首阶段完整规则")]),
+      RequestIR.message(:user, :author, [RequestIR.text_block("作者原话 保留空白。")]),
+      RequestIR.message(:scope_update, :application, [RequestIR.text_block("当前材料")])
     ]
 
-    prompt = %{messages: messages}
-    first = Provider.operation_prompt_text(prompt)
+    ir = operation_ir(messages)
+    first = TestProviderPrompt.operation_text(ir)
     assert first =~ "首阶段完整规则"
     assert first =~ "作者原话 保留空白。"
     assert first =~ "当前材料"
-    retry = %{prompt | messages: messages ++ [%{role: "assistant", content: "本阶段格式错误响应"}]}
-    assert Provider.operation_prompt_text(retry) == first
+
+    retry = %{
+      ir
+      | messages:
+          messages ++
+            [RequestIR.message(:assistant, :model, [RequestIR.text_block("本阶段格式错误响应")])]
+    }
+
+    assert TestProviderPrompt.operation_text(retry) == first
   end
 
   test "真正续阶段只消费当前 scope，无 scope legacy 保持全文" do
-    current = "【应用数据 · scope_update】\n新角色完整规则与当前材料"
+    current = "新角色完整规则与当前材料"
 
-    prompt = %{
-      messages: [
-        %{role: "user", content: "【应用数据 · application_base】\n旧角色规则"},
-        %{role: "user", content: "【应用数据 · scope_update】\n旧材料"},
-        %{role: "assistant", content: "旧角色响应"},
-        %{role: "user", content: current}
-      ]
-    }
+    messages = [
+      RequestIR.message(:application_base, :application, [RequestIR.text_block("旧角色规则")]),
+      RequestIR.message(:scope_update, :application, [RequestIR.text_block("旧材料")]),
+      RequestIR.message(:assistant, :model, [RequestIR.text_block("旧角色响应")]),
+      RequestIR.message(:scope_update, :application, [RequestIR.text_block(current)])
+    ]
 
-    assert Provider.operation_prompt_text(prompt) == current
-    assert Provider.operation_prompt_text("单次 legacy 内容") == "单次 legacy 内容"
+    assert TestProviderPrompt.operation_text(operation_ir(messages)) == current
+    assert TestProviderPrompt.operation_text("单次 legacy 内容") == "单次 legacy 内容"
   end
 
   # 缺陷十（2026-07-20）：现场实测 gpt-oss-120b 在 purpose: :writer 真实调用中
@@ -49,17 +74,23 @@ defmodule NovelAgent.ProviderTest do
   # max_tokens 上限能挡住的失控生成（预算再大也只是刷更多同一字符），是内容
   # 有效性问题，判定与"内容为空"同一优先级、跨 adapter 共享同一实现。
   describe "tool_choice: none" do
-    test "is not tool-call mode and keeps tools only for capable adapters" do
-      prompt = %{
-        messages: [%{role: "user", content: "观察"}],
-        tools: [%{name: "continuation_decision", input_schema: %{type: "object"}}],
-        tool_choice: "none"
-      }
+    test "is not tool-call mode and keeps tools in the canonical projection" do
+      ir =
+        TestRequestIR.ir(
+          [TestRequestIR.author("观察")],
+          tools: [%{name: "continuation_decision", input_schema: %{type: "object"}}],
+          projection: %{tool_choice: "none"}
+        )
 
-      refute Provider.tool_call_prompt?(prompt)
-      assert Provider.put_openai_tools(%{}, prompt).tool_choice == "none"
+      refute Provider.tool_call_prompt?(ir)
 
-      named = %{prompt | tool_choice: "continuation_decision"}
+      # 旧 put_openai_tools/2 已退役：工具与选择只由 canonical IR 投影承载，
+      # 请求自带的 capability_profile/target 不再参与任何判定。
+      assert {:ok, body} = Projection.project(ir, "chat_completions")
+      assert body.tool_choice == "none"
+      assert [%{function: %{name: "continuation_decision"}}] = body.tools
+
+      named = %{ir | projection: %{tool_choice: "continuation_decision"}}
       assert Provider.tool_call_prompt?(named)
     end
   end

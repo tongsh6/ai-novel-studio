@@ -16,6 +16,7 @@ defmodule NovelApplication.FactInventoryService do
   """
 
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.RequestIR
   alias NovelApplication.AuxTaskBuilder
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
@@ -229,7 +230,7 @@ defmodule NovelApplication.FactInventoryService do
 
   # 携带失败片段重试一次，再失败才报错（real.ex 坏 JSON 同模式）。
   defp do_extract(prompt, result_fn, retry?, attempt) do
-    case result_fn.(prompt) do
+    case invoke(prompt, result_fn) do
       {:ok, %{content: content} = result} ->
         case parse_proposal(content, provider_call_ref(result)) do
           {:ok, proposal} ->
@@ -257,6 +258,18 @@ defmodule NovelApplication.FactInventoryService do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # 独立文本操作没有 AgentRun：以真实操作 profile 构造 canonical IR，材料作为
+  # application_base 进入统一投影；不伪造 run/session 或作者消息。
+  defp invoke(text, result_fn) do
+    result_fn.(
+      RequestIR.text_operation(%{
+        profile_ref: "fact_inventory",
+        text: text,
+        system: [run_role: "fact_inventory"]
+      })
+    )
   end
 
   @doc """

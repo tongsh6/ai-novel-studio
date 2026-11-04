@@ -14,14 +14,12 @@ defmodule NovelAgent.Provider.RequestIR do
   @ir_version "authoring-request-ir/v1"
 
   alias NovelAgent.Provider.CapabilityProfile
-  alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.RequestIR.Compaction
   alias NovelAgent.Provider.RequestIR.Projection
-  alias NovelAgent.Provider.RequestIR.Projection.ChatCompletions
+  alias NovelAgent.Provider.SystemIdentity
 
   @roles ~w(system application_base scope_update application_notice user assistant tool checkpoint author_exit)
   @provenances ~w(product application author model tool_result)
-  @projection_targets ~w(chat_completions anthropic_messages responses_api)
   @block_types ~w(text tool_call observation validation_result tentative_artifact author_exit checkpoint)
   @forbidden_tool_names ~w(adopt canon_write accept_candidate confirm_candidate self_approve)
   @run_fields ~w(run_id work_id workspace_id session_id parent_turn_ref profile_ref goal)a
@@ -43,8 +41,7 @@ defmodule NovelAgent.Provider.RequestIR do
             messages: [],
             tools: [],
             projection: %{},
-            refs: %{},
-            provider_session: nil
+            refs: %{}
 
   @type t :: %__MODULE__{
           ir_version: String.t(),
@@ -53,8 +50,7 @@ defmodule NovelAgent.Provider.RequestIR do
           messages: [map()],
           tools: [map()],
           projection: map(),
-          refs: map(),
-          provider_session: nil | map()
+          refs: map()
         }
 
   def ir_version, do: @ir_version
@@ -66,9 +62,61 @@ defmodule NovelAgent.Provider.RequestIR do
     struct(
       __MODULE__,
       attrs
-      |> Map.take([:run, :system, :messages, :tools, :projection, :refs, :provider_session])
+      |> Map.take([:run, :system, :messages, :tools, :projection, :refs])
       |> Map.update(:run, %{}, &run_envelope/1)
     )
+  end
+
+  @doc """
+  canonical system envelope。
+
+  产品身份只由 `SystemIdentity` 单一真源派生；调用方只能提供本次 run 的角色规则
+  （`instructions` 或 `run_role`），不能自造身份引用或版本。投影时身份正文与角色
+  规则形成稳定 system 前缀（VS-00L §6.1、§19.1）。
+  """
+  @spec system_envelope(keyword()) :: map()
+  def system_envelope(opts \\ []) do
+    %{identity_ref: SystemIdentity.identity_ref()}
+    |> put_optional(:run_role, Keyword.get(opts, :run_role))
+    |> put_optional(:instructions, Keyword.get(opts, :instructions))
+  end
+
+  defp put_optional(map, _key, nil), do: map
+  defp put_optional(map, key, value), do: Map.put(map, key, value)
+
+  @doc """
+  非 AgentRun 的独立文本操作请求（章摘要、设定盘点、工具结果叙述等）。
+
+  这些操作没有 AgentRun 的 run 事实：只携带真实操作 profile 与来源 refs，不伪造
+  run_id/session_id，也不伪造作者消息。材料由应用作为 `application_base` 提供，
+  作者原话仍以独立 `author` provenance 构造。请求仍走同一 canonical IR 投影边界
+  （VS-00L §19.1），不再经 giant prompt 形态转译。
+  """
+  @spec text_operation(map()) :: t()
+  def text_operation(attrs) when is_map(attrs) do
+    text = Map.fetch!(attrs, :text)
+    profile_ref = Map.fetch!(attrs, :profile_ref)
+    refs = Map.get(attrs, :source_refs, [])
+
+    request =
+      new(%{
+        run: Map.get(attrs, :run) || %{profile_ref: profile_ref},
+        system: system_envelope(Map.get(attrs, :system, [])),
+        messages: [
+          message(:application_base, :application, [text_block(text)], %{source_refs: refs})
+        ],
+        tools: [],
+        projection: %{},
+        refs: %{base_refs: refs, observation_refs: [], used_refs: []}
+      })
+
+    case validate(request) do
+      :ok ->
+        request
+
+      {:error, reason} ->
+        raise ArgumentError, "invalid text operation request: #{inspect(reason)}"
+    end
   end
 
   @doc "从运行快照提取 canonical 身份与目标；不携带运行时 struct、策略或执行函数。"
@@ -210,11 +258,8 @@ defmodule NovelAgent.Provider.RequestIR do
       not is_map(ir.run) or ir.run == %{} ->
         {:error, :missing_run_envelope}
 
-      not is_map(ir.projection) or ir.projection == %{} ->
+      not is_map(ir.projection) ->
         {:error, :missing_projection}
-
-      ir.projection[:target] not in @projection_targets ->
-        {:error, {:unsupported_projection_target, ir.projection[:target]}}
 
       true ->
         with :ok <- validate_system(ir),
@@ -229,10 +274,13 @@ defmodule NovelAgent.Provider.RequestIR do
 
   def validate(_other), do: {:error, :invalid_ir}
 
+  # 产品身份只认 `SystemIdentity` 真值：构造侧写死的引用标签与执行侧记录的真实
+  # 身份（version/content_hash）必须同源，否则请求从源头就是不可信的。
   defp validate_system(ir) do
-    case Map.get(ir.system, :identity_ref) do
-      ref when is_binary(ref) and ref != "" -> :ok
-      _ -> {:error, :missing_system_identity_ref}
+    if Map.get(ir.system, :identity_ref) == SystemIdentity.identity_ref() do
+      :ok
+    else
+      {:error, :missing_system_identity_ref}
     end
   end
 
@@ -789,96 +837,38 @@ defmodule NovelAgent.Provider.RequestIR do
   defp drop_field(map, key), do: map |> Map.delete(key) |> Map.delete(to_string(key))
 
   @doc """
-  B71 CP2（VS-00L §6）：IR v1 → provider-neutral structured prompt。
+  选择一个真实请求的 active tools 与 `projection.tool_choice`（VS-00L §19.1）。
 
-  现有 adapter 可直接消费：messages 为 OpenAI wire 形状（system/application_base/
-  user/assistant.tool_calls/tool），tools 保持 `Provider.tool_spec` 形状交给各
-  adapter 渲染；`ir_version` 标记来源（legacy prompt 无此字段）。
-
-  能力事实（VS-00L §6.4）：IR 未显式声明 `capability_profile` 时，按当前实际选定
-  route 派生（与 `Gateway.execute/4` 同一路由解析），并把能力事实与 wire 目标写入
-  prompt 元数据；显式声明（测试/已解析/legacy finite_mode）不被覆盖。缺失必备能力
-  且无显式 `finite_mode` 时返回 `{:error, {:unsupported_capability, missing}}`，
-  由调用方拒绝路由，不允许静默降级。
+  只做请求构造边界：校验 canonical 数据与当前交换闭合，不查询 Gateway、不猜测
+  provider/model/能力。返回完整 IR；消息、refs、run 与原有 projection 事实保持不变，
+  运行历史中的完整工具目录不被覆盖。
   """
-  @spec to_provider_prompt(t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def to_provider_prompt(%__MODULE__{} = ir, opts \\ []) do
-    with {:ok, ir} <- resolve_projection_facts(ir),
-         :ok <- validate(ir),
+  @spec prepare_request(t(), keyword()) :: {:ok, t()} | {:error, term()}
+  def prepare_request(ir, opts \\ [])
+
+  def prepare_request(%__MODULE__{} = ir, opts) do
+    with :ok <- validate(ir),
          :ok <- validate_request_ready(ir.messages),
-         {:ok, mode} <- capability_mode(ir),
          {:ok, tools} <- active_tools(ir, Keyword.get(opts, :tool_names)) do
-      body = ChatCompletions.project(ir, include_provider_state: true)
-
-      prompt = %{
-        messages: body.messages,
-        tools: tools,
-        tool_choice: Keyword.get(opts, :tool_choice, Map.get(ir.projection, :tool_choice)),
-        ir_version: ir.ir_version,
-        capability_profile: Map.get(ir.projection, :capability_profile, %{}),
-        provider_projection_target:
-          Map.get(ir.projection, :provider_projection_target, "chat_completions"),
-        provider_route: Map.get(ir.projection, :provider_route)
-      }
-
-      {:ok, if(mode, do: Map.put(prompt, :finite_mode, mode.finite_mode), else: prompt)}
-    end
-  end
-
-  # 能力事实只解析一次：未显式声明时按实际 route 派生；已声明时原样保留
-  # （显式空 map 表示「声明为缺失」，用于验证拒绝路由，不得被默认值覆盖）。
-  defp resolve_projection_facts(%__MODULE__{} = ir) do
-    if Map.has_key?(ir.projection, :capability_profile) do
-      {:ok, ir}
-    else
-      case Gateway.capability_profile() do
-        %{profile: profile} = facts ->
-          route_identity = %{
-            provider: facts.provider,
-            model: facts.model,
-            projection_target: facts.projection_target
-          }
-
-          {:ok,
-           %{
-             ir
-             | projection:
-                 ir.projection
-                 |> Map.put(:capability_profile, profile)
-                 |> Map.put_new(:provider_projection_target, facts.projection_target)
-                 |> Map.put_new(:provider_route, route_identity)
-           }}
-
-        _other ->
-          {:error, :missing_projection}
-      end
-    end
-  end
-
-  @doc """
-  统一能力门；显式有限模式即使能力齐全也不能被掩盖。
-
-  有限模式不是万能绕过：它声明的受限项必须覆盖每一个缺失的必备能力，否则仍按
-  拒绝路由处理（VS-00L §6.4：有限模式必须显式声明受限能力）。
-  """
-  def capability_mode(%__MODULE__{} = ir) do
-    missing = missing_capabilities(Map.get(ir.projection, :capability_profile, %{}))
-
-    case Map.get(ir.projection, :finite_mode) do
-      mode when is_map(mode) and map_size(mode) > 0 ->
-        if CapabilityProfile.finite_mode_covers?(mode, missing) do
-          {:ok, %{finite_mode: mode, missing: missing}}
-        else
-          {:error, {:unsupported_capability, missing}}
+      tool_choice =
+        case Keyword.fetch(opts, :tool_choice) do
+          {:ok, choice} -> choice
+          :error -> Map.get(ir.projection, :tool_choice)
         end
 
-      _ when missing == [] ->
-        {:ok, nil}
-
-      _ ->
-        {:error, {:unsupported_capability, missing}}
+      {:ok,
+       %{
+         ir
+         | tools: tools,
+           projection: put_projection_tool_choice(ir.projection, tool_choice)
+       }}
     end
   end
+
+  defp put_projection_tool_choice(projection, nil), do: Map.delete(projection, :tool_choice)
+
+  defp put_projection_tool_choice(projection, choice),
+    do: Map.put(projection, :tool_choice, choice)
 
   defp active_tools(ir, nil), do: {:ok, ir.tools}
 
@@ -907,14 +897,4 @@ defmodule NovelAgent.Provider.RequestIR do
   end
 
   def rejection_message(_reason), do: "本次请求无法构造为可用的模型请求，已拒绝。"
-
-  @doc "能力门槛：返回 capability_profile 缺失的必备能力。"
-  @spec missing_capabilities(map()) :: [atom()]
-  def missing_capabilities(capability_profile) when is_map(capability_profile) do
-    Enum.reject(@required_capabilities, fn capability ->
-      Map.get(capability_profile, capability) == true
-    end)
-  end
-
-  def missing_capabilities(_capability_profile), do: @required_capabilities
 end

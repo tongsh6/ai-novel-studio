@@ -19,8 +19,6 @@ defmodule NovelAgent.Provider.SystemIdentity do
   “身份消息是什么”与“这条消息是不是身份消息”。
   """
 
-  alias NovelAgent.Provider
-
   @version "sys-identity-v1"
 
   @content """
@@ -48,65 +46,4 @@ defmodule NovelAgent.Provider.SystemIdentity do
   @doc "ProviderRun / trace 可引用的身份事实；不包含原文。"
   @spec identity_ref() :: %{version: String.t(), content_hash: String.t()}
   def identity_ref, do: %{version: @version, content_hash: @content_hash}
-
-  @doc """
-  身份消息本体。
-
-  `metadata.system_identity` 是 Gateway 幂等识别标记；adapter 归一化时可以丢弃
-  metadata，但同一 prompt 再次经过 Gateway 时仍可据此判断“已注入”。
-  """
-  @spec message() :: map()
-  def message do
-    %{
-      role: "system",
-      content: @content,
-      metadata: %{system_identity: identity_ref()}
-    }
-  end
-
-  @doc """
-  在 prompt 首位注入身份消息，返回 `{prompt, identity_ref | nil}`。
-
-  - binary → `[system, user]`
-  - list → 首条前插入；已有身份消息则原样返回
-  - `%{messages: ...}` / `%{"messages" => ...}` → 保留 tools / tool_choice 等字段
-  - 其它形态 → 原样返回，`identity_ref` 为 nil（由 adapter 诚实报错，不伪造）
-  """
-  @spec inject(Provider.prompt()) :: {Provider.prompt(), map() | nil}
-  def inject(prompt) when is_binary(prompt) do
-    {[message(), %{role: "user", content: prompt}], identity_ref()}
-  end
-
-  def inject(messages) when is_list(messages) do
-    if Enum.any?(messages, &identity_message?/1) do
-      {messages, identity_ref()}
-    else
-      {[message() | messages], identity_ref()}
-    end
-  end
-
-  def inject(%{messages: messages} = prompt) when is_list(messages) do
-    if Enum.any?(messages, &identity_message?/1) do
-      {prompt, identity_ref()}
-    else
-      {%{prompt | messages: [message() | messages]}, identity_ref()}
-    end
-  end
-
-  def inject(%{"messages" => messages} = prompt) when is_list(messages) do
-    if Enum.any?(messages, &identity_message?/1) do
-      {prompt, identity_ref()}
-    else
-      {Map.put(prompt, "messages", [message() | messages]), identity_ref()}
-    end
-  end
-
-  def inject(prompt), do: {prompt, nil}
-
-  @doc "判断一条消息是否为本模块产出的身份消息（metadata 标记，不靠内容前缀）。"
-  @spec identity_message?(term()) :: boolean()
-  def identity_message?(%{metadata: %{system_identity: %{version: _}}}), do: true
-  def identity_message?(%{"metadata" => %{"system_identity" => %{"version" => _}}}), do: true
-  def identity_message?(%{metadata: %{"system_identity" => %{"version" => _}}}), do: true
-  def identity_message?(_), do: false
 end

@@ -94,7 +94,10 @@ defmodule NovelApplication.CreativeFactsContextTest do
     input = if memory_reader, do: Map.put(input, :memory_reader, memory_reader), else: input
 
     {_turn_result, _trace, _transcript} = TurnExecutionService.execute(input)
-    agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1)
+
+    agent
+    |> Agent.get(& &1)
+    |> Enum.map_join("\n\n", &NovelApplication.TestAgenticLoopFixtures.prompt_text/1)
   end
 
   defp run_with_target(chapter_id, memory_reader) do
@@ -144,7 +147,9 @@ defmodule NovelApplication.CreativeFactsContextTest do
 
     {turn_result, _trace, _transcript} = TurnExecutionService.execute(input)
 
-    {agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1),
+    {agent
+     |> Agent.get(& &1)
+     |> Enum.map_join("\n\n", &NovelApplication.TestAgenticLoopFixtures.prompt_text/1),
      turn_result.trace_summary}
   end
 
@@ -304,7 +309,9 @@ defmodule NovelApplication.CreativeFactsContextTest do
     }
 
     {_turn_result, _trace, _transcript} = TurnExecutionService.execute(input)
-    evaluator_prompt = seen |> Agent.get(& &1) |> NovelAgent.Provider.prompt_text()
+
+    evaluator_prompt =
+      seen |> Agent.get(& &1) |> NovelApplication.TestAgenticLoopFixtures.prompt_text()
 
     assert evaluator_prompt =~ "作品事实基线"
     assert evaluator_prompt =~ "灵气交易需契约"

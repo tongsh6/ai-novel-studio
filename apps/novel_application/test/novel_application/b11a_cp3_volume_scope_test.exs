@@ -105,17 +105,16 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
 
   describe "测试替身 scope 行为（真实产品文本驱动）" do
     test "判断单调用 auto：真实作者文本「请规划下一卷…」→ execute plot_outline" do
-      prompt = %{
-        messages: [
-          %{role: "system", content: "你是创作判断器，只输出判断 JSON。"},
-          %{
-            role: "user",
-            content: "## 作者输入\n请规划下一卷（第3卷）的卷蓝图与该卷开篇章节大纲。"
-          }
-        ],
-        tools: [%{name: "judgment_decision", description: "", input_schema: %{}}],
-        tool_choice: "auto"
-      }
+      # 生产请求入口已统一为 canonical IR；替身直接消费 IR（含真实 tools/projection）。
+      prompt =
+        NovelAgent.TestRequestIR.ir(
+          [
+            NovelAgent.TestRequestIR.base("你是创作判断器，只输出判断 JSON。"),
+            NovelAgent.TestRequestIR.author("## 作者输入\n请规划下一卷（第3卷）的卷蓝图与该卷开篇章节大纲。")
+          ],
+          tools: [NovelAgent.TestRequestIR.tool("judgment_decision")],
+          projection: %{tool_choice: "auto"}
+        )
 
       assert {:ok, result} =
                SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
@@ -126,7 +125,7 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
     end
 
     test "scoped outline 产出：1 条卷蓝图 + 3 章；production parser 可解析（章号续排/所属卷）" do
-      prompt = """
+      text = """
       你是一个创作助手，只输出 JSON 数组。
       artifact_type：outline_draft
       用户创作简述：请规划下一卷（第3卷）的卷蓝图与该卷开篇章节大纲。
@@ -136,6 +135,9 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
       - 下一章号从 5 开始（全书章号全局续排，不得重排已有章）
       重要：只输出 JSON 数组，不要解释。
       """
+
+      # 生产请求入口已统一为 canonical IR；替身按 IR 投影文本识别请求形态。
+      prompt = NovelAgent.TestRequestIR.ir([NovelAgent.TestRequestIR.base(text)])
 
       assert {:ok, result} =
                SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
@@ -160,7 +162,7 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
     end
 
     test "无 scope 文本 → 既有全量产出（12 章、无卷蓝图行），且确定性（两次调用逐字节一致）" do
-      prompt = """
+      text = """
       你是一个创作助手，只输出 JSON 数组。
       artifact_type：outline_draft
       用户创作简述：规划接下来十二章章节大纲。
@@ -168,6 +170,9 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
       - 第01章：起点
       重要：只输出 JSON 数组，不要解释。
       """
+
+      # 生产请求入口已统一为 canonical IR；替身按 IR 投影文本识别请求形态。
+      prompt = NovelAgent.TestRequestIR.ir([NovelAgent.TestRequestIR.base(text)])
 
       assert {:ok, first} =
                SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
@@ -220,7 +225,10 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
       |> Map.merge(overrides)
 
     {_turn_result, _trace, _transcript} = TurnExecutionService.execute(input)
-    agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1)
+
+    agent
+    |> Agent.get(& &1)
+    |> Enum.map_join("\n\n", &NovelApplication.TestAgenticLoopFixtures.prompt_text/1)
   end
 
   defp index(text, needle), do: :binary.match(text, needle) |> elem(0)

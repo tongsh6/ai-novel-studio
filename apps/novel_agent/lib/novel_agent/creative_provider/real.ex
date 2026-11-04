@@ -218,32 +218,15 @@ defmodule NovelAgent.CreativeProvider.Real do
     |> enforce_parsed_companion_scope(request)
   end
 
-  defp decode_native_result(result) do
-    call =
-      result
-      |> map_get(:tool_calls)
-      |> List.wrap()
-      |> Enum.find(fn call -> map_get(call, :name) == "submit_tentative_artifact" end)
+  # 单工具交换由 NativeToolExchange 的允许响应门保证（恰好一个具名 tool call）；
+  # 这里不再保留「无 tool call → 解析纯文本 JSON」的退役 fallback。
+  defp decode_native_result(%{tool_calls: [call]} = result) do
+    case map_get(call, :arguments) do
+      arguments when is_map(arguments) ->
+        arguments |> Jason.encode!() |> parse_content(provider_call_ref(result))
 
-    if call do
-      case map_get(call, :arguments) do
-        arguments when is_map(arguments) ->
-          arguments |> Jason.encode!() |> parse_content(provider_call_ref(result))
-
-        _ ->
-          provider_error("provider_response_invalid", "native tool arguments must be an object")
-      end
-    else
-      case map_get(result, :content) do
-        text when is_binary(text) and text != "" ->
-          parse_content(text, provider_call_ref(result))
-
-        _ ->
-          provider_error(
-            "native_tool_call_required",
-            "expected submit_tentative_artifact tool call"
-          )
-      end
+      _ ->
+        provider_error("provider_response_invalid", "native tool arguments must be an object")
     end
   end
 

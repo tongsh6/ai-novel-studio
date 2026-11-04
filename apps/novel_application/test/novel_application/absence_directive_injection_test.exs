@@ -106,7 +106,10 @@ defmodule NovelApplication.AbsenceDirectiveInjectionTest do
       end
 
     {_turn_result, _trace, _transcript} = TurnExecutionService.execute(input)
-    agent |> Agent.get(& &1) |> Enum.map_join("\n\n", &NovelAgent.Provider.prompt_text/1)
+
+    agent
+    |> Agent.get(& &1)
+    |> Enum.map_join("\n\n", &NovelApplication.TestAgenticLoopFixtures.prompt_text/1)
   end
 
   defp roster(list), do: fn _work -> list end

@@ -48,7 +48,10 @@ defmodule NovelApplication.ProviderActivityProjectorTest do
         purpose: :conversation
       )
 
-    assert {:ok, result} = Execution.result_fn(execution).("hello ordered provider facts")
+    # Gateway.execute/4 只接受 canonical RequestIR（生产请求已统一），测试按真实形状构造。
+    assert {:ok, result} =
+             Execution.result_fn(execution).(stub_prompt("hello ordered provider facts"))
+
     assert result.content != ""
     refute result.content =~ "[stub]"
 
@@ -109,7 +112,9 @@ defmodule NovelApplication.ProviderActivityProjectorTest do
 
     log =
       capture_log(fn ->
-        assert {:ok, result} = Execution.result_fn(execution).("hello provider conflict")
+        assert {:ok, result} =
+                 Execution.result_fn(execution).(stub_prompt("hello provider conflict"))
+
         assert result.content != ""
         refute result.content =~ "[stub]"
       end)
@@ -197,11 +202,18 @@ defmodule NovelApplication.ProviderActivityProjectorTest do
         purpose: :conversation
       )
 
-    assert {:ok, result} = Execution.result_fn(execution).("hello disabled persistence")
+    assert {:ok, result} =
+             Execution.result_fn(execution).(stub_prompt("hello disabled persistence"))
+
     assert result.content != ""
     refute result.content =~ "[stub]"
     assert_receive {:published, %{event_type: :provider_progress}}
     assert ProviderRunLog.list_runs(run_id) == []
+  end
+
+  # Gateway.execute/4 只接受 canonical RequestIR；stub 按 IR 的 canonical 文本识别请求。
+  defp stub_prompt(text) do
+    NovelAgent.TestRequestIR.ir([NovelAgent.TestRequestIR.base(text)])
   end
 
   defp collect_publications(acc \\ []) do

@@ -15,7 +15,7 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
 
     assert session.provider_call_count == 1
     assert [prompt] = calls.()
-    assert prompt.tool_choice == @tool
+    assert NovelAgent.Provider.tool_choice(prompt) == @tool
     assert {:ok, ["first"]} = RequestIR.pending_call_ids(session.request_ir)
     assert session.provider_result.tool_calls |> hd() |> Map.get(:id) == "first"
   end
@@ -45,7 +45,8 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
              exchange(request_ir(), provider, tool_choice: "auto")
 
     assert session.provider_call_count == 1
-    assert [%{tool_choice: "auto"}] = calls.()
+    assert [prompt] = calls.()
+    assert NovelAgent.Provider.tool_choice(prompt) == "auto"
   end
 
   test "二参数解析器获得真实调用序号，同时保持一次校验重试的上限" do
@@ -225,21 +226,10 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
     assert length(notices) == 2
     assert Enum.all?(notices, &(&1.blocks == [RequestIR.text_block("请使用计划工具。")]))
     [_original, retry] = calls.()
-    assert Enum.any?(retry.messages, &(&1.role == "assistant" and &1.content == first))
-  end
 
-  test "显式有限模式可解析纯文本且记录准确的一次调用" do
-    text = "  {\"plan\":\"有限模式\"}\n"
-    {provider, _calls} = scripted_provider([{:ok, text}])
-    ir = request_ir()
-    ir = %{ir | projection: Map.put(ir.projection, :finite_mode, %{name: "legacy_json_content"})}
-    parser = fn %{content: ^text, tool_calls: []} -> %{status: :ok, value: "有限模式"} end
-
-    assert {%{status: :ok, value: "有限模式"}, session} =
-             NativeToolExchange.run(ir, provider, @tool, parser, &error_result/2)
-
-    assert session.provider_call_count == 1
-    assert List.last(session.request_ir.messages).blocks == [RequestIR.text_block(text)]
+    assert Enum.any?(retry.messages, fn message ->
+             message.role == "assistant" and message_text(message) == first
+           end)
   end
 
   test "validate_result 非 nil 坏类型或错误 arity 在调用前拒绝且历史不新增 assistant" do
@@ -326,12 +316,12 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
     [_first_prompt, retry_prompt] = calls.()
 
     assert Enum.any?(retry_prompt.messages, fn message ->
-             if message.role == "tool" and message.tool_call_id == "first-call" do
-               decoded = Jason.decode!(message.content)
-
-               decoded["detail"]["target"] == "chapter:1" and
-                 decoded["detail"]["message"] == guidance and
-                 String.contains?(message.content, guidance)
+             if message.role == "tool" do
+               Enum.any?(message.blocks, fn block ->
+                 block.type == "validation_result" and block.call_id == "first-call" and
+                   block.detail["target"] == "chapter:1" and
+                   block.detail["message"] == guidance
+               end)
              else
                false
              end
@@ -399,14 +389,15 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
     assert {:ok, ["second-call"]} = RequestIR.pending_call_ids(session.request_ir)
 
     assert Enum.any?(retry_prompt.messages, fn message ->
-             if message.role == "tool" and message.tool_call_id == "first-call" do
-               decoded = Jason.decode!(message.content)
-
-               decoded["reason_code"] == "revision_scope_mismatch" and
-                 decoded["detail"] == %{
-                   "target" => "chapter:1",
-                   "message" => "修订范围不匹配：只允许修改目标段。"
-                 }
+             if message.role == "tool" do
+               Enum.any?(message.blocks, fn block ->
+                 block.type == "validation_result" and block.call_id == "first-call" and
+                   block.reason_code == "revision_scope_mismatch" and
+                   block.detail == %{
+                     "target" => "chapter:1",
+                     "message" => "修订范围不匹配：只允许修改目标段。"
+                   }
+               end)
              else
                false
              end
@@ -646,6 +637,12 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
         do: block
   end
 
+  defp message_text(%{blocks: blocks}) do
+    blocks
+    |> Enum.filter(&(&1.type == "text"))
+    |> Enum.map_join("", & &1.text)
+  end
+
   defp tool_results(ir, call_id) do
     for %{role: "tool", blocks: blocks} <- ir.messages,
         %{type: "validation_result", call_id: ^call_id} = block <- blocks,
@@ -670,11 +667,8 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
   defp request_ir do
     RequestIR.new(%{
       run: %{run_id: "native-exchange"},
-      system: %{identity_ref: "fixture"},
-      projection: %{
-        target: "chat_completions",
-        capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-      },
+      system: RequestIR.system_envelope(),
+      projection: %{},
       tools: [%{name: @tool, input_schema: %{type: "object"}}],
       messages: [RequestIR.message(:user, :author, [RequestIR.text_block(@author)])]
     })

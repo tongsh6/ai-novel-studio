@@ -1,6 +1,22 @@
 defmodule NovelAgent.Provider.OpenAICompatibleTest do
   use ExUnit.Case, async: false
 
+  alias NovelAgent.TestRequestIR
+
+  # adapter 只接受 canonical IR；测试用作者原话构造最小请求，文字保持原字节。
+  defp ir(%NovelAgent.Provider.RequestIR{} = ir), do: ir
+  defp ir(text) when is_binary(text), do: TestRequestIR.ir([TestRequestIR.author(text)])
+
+  defp ir(messages) when is_list(messages),
+    do: TestRequestIR.ir(Enum.map(messages, &canonical_message/1))
+
+  defp canonical_message(%{role: "system", content: content}), do: TestRequestIR.system(content)
+
+  defp canonical_message(%{role: "assistant", content: content}),
+    do: TestRequestIR.assistant(content)
+
+  defp canonical_message(%{role: "user", content: content}), do: TestRequestIR.author(content)
+
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Gemini
   alias NovelAgent.Provider.InferenceParams
@@ -10,6 +26,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
   alias NovelAgent.Provider.OpenAI
   alias NovelAgent.Provider.OpenAISubscription
   alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.RequestIR.Projection
   alias NovelAgent.Provider.Zhipu
 
   describe "vendor identity and defaults" do
@@ -77,24 +94,22 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
           http_fn: fn _, _, _ -> {:ok, 200, response} end
         }
 
-        assert {:ok, result} = OpenAI.complete(state, nil, "prompt", %InferenceParams{})
+        assert {:ok, result} = OpenAI.complete(state, nil, ir("prompt"), %InferenceParams{})
         assert [%{"raw_arguments" => ^raw}] = result.tool_calls
 
         ir =
           RequestIR.new(%{
             run: %{run_id: "raw-fidelity"},
-            system: %{identity_ref: "fixture"},
-            projection: %{
-              target: "chat_completions",
-              capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-            },
+            system: RequestIR.system_envelope(),
+            projection: %{},
             messages: [RequestIR.message(:user, :author, [RequestIR.text_block("读取角色")])]
           })
 
         {ir, _result} = RequestIR.append_assistant_result(ir, result)
         ir = RequestIR.append_validation_result(ir, "raw-call", "failed", "fixture_validation")
-        assert {:ok, prompt} = RequestIR.to_provider_prompt(ir)
-        assistant = Enum.find(prompt.messages, &(&1.role == "assistant"))
+        assert {:ok, prepared} = RequestIR.prepare_request(ir)
+        assert {:ok, body} = Projection.project(prepared, "chat_completions")
+        assistant = Enum.find(body.messages, &(&1.role == "assistant"))
         assert [%{function: %{arguments: ^raw}}] = assistant.tool_calls
       end
     end
@@ -122,14 +137,15 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
         log_fn: nil
       }
 
-      assert {:ok, result} = OpenAI.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:ok, result} = OpenAI.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert result.content == "完成"
       assert result.usage.input_tokens == 5
 
       assert_receive {:request, url, body, opts}
       assert url == "https://api.openai.com/v1/chat/completions"
       assert body.model == "gpt-4o-mini"
-      assert body.messages == [%{role: "user", content: "prompt"}]
+      assert [%{role: "system"} | rest] = body.messages
+      assert rest == [%{role: "user", content: "prompt"}]
       assert body.stream == false
       # 非 thinking 供应商不发送 thinking 字段（OpenAI/Minimax/智谱/Kimi/Gemini）。
       refute Map.has_key?(body, :thinking)
@@ -151,7 +167,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
         log_fn: nil
       }
 
-      assert {:error, error} = Minimax.complete(state, nil, "prompt", %InferenceParams{})
+      assert {:error, error} = Minimax.complete(state, nil, ir("prompt"), %InferenceParams{})
       assert error.type == :auth
       refute_received :unexpected_http
     end
@@ -167,7 +183,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
       }
 
       assert {:error, %{type: :auth, message: message}} =
-               Zhipu.complete(state, nil, "prompt", %InferenceParams{})
+               Zhipu.complete(state, nil, ir("prompt"), %InferenceParams{})
 
       assert message =~ "智谱"
 
@@ -177,7 +193,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
       }
 
       assert {:error, %{type: :rate_limit, retryable: true}} =
-               Zhipu.complete(state, nil, "prompt", %InferenceParams{})
+               Zhipu.complete(state, nil, ir("prompt"), %InferenceParams{})
     end
   end
 
@@ -200,14 +216,15 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
         log_fn: nil
       }
 
-      prompt = %{
-        messages: [%{role: "user", content: "判断"}],
-        tools: [%{name: "decision", input_schema: %{type: "object"}}],
-        tool_choice: "none"
-      }
+      prompt =
+        TestRequestIR.ir(
+          [TestRequestIR.author("判断")],
+          tools: [TestRequestIR.tool("decision", %{type: "object"})],
+          projection: %{tool_choice: "none"}
+        )
 
       assert {:ok, %{provider_run: run}} =
-               OpenAI.execute(state, nil, prompt, %InferenceParams{}, provider_ctx(:openai))
+               OpenAI.execute(state, nil, ir(prompt), %InferenceParams{}, provider_ctx(:openai))
 
       refute Map.has_key?(run.metadata, :tool_constancy)
       assert_receive {:none_request, body}
@@ -249,7 +266,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
       }
 
       assert {:ok, %{events: events, result: result, output: output}} =
-               OpenAI.execute(state, nil, "prompt", %InferenceParams{}, provider_ctx(:openai))
+               OpenAI.execute(state, nil, ir("prompt"), %InferenceParams{}, provider_ctx(:openai))
 
       assert result.content == "你好"
       assert result.usage.input_tokens == 5
@@ -261,7 +278,8 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
       assert_receive {:stream_request, url, body, opts}
       assert url == "https://api.openai.com/v1/chat/completions"
       assert body.stream == true
-      assert body.messages == [%{role: "user", content: "prompt"}]
+      assert [%{role: "system"} | rest] = body.messages
+      assert rest == [%{role: "user", content: "prompt"}]
       assert {"authorization", "Bearer sk-secret"} in Keyword.fetch!(opts, :headers)
 
       chunk_events = Enum.filter(events, &(&1.event_type == :chunk))
@@ -288,7 +306,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
       }
 
       assert {:error, %{error: %{type: :auth}, events: events}} =
-               OpenAI.execute(state, nil, "prompt", %InferenceParams{}, provider_ctx(:openai))
+               OpenAI.execute(state, nil, ir("prompt"), %InferenceParams{}, provider_ctx(:openai))
 
       assert Enum.map(events, & &1.event_type) == [:started, :error]
       refute_received :unexpected_eventsource
@@ -321,7 +339,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
         |> Map.put(:cancellation_token, token)
 
       assert {:error, %{events: events, output: output, provider_run: run, error: error}} =
-               OpenAI.execute(state, nil, "prompt", %InferenceParams{}, ctx)
+               OpenAI.execute(state, nil, ir("prompt"), %InferenceParams{}, ctx)
 
       assert_receive :first_chunk_consumed
       assert run.status == :cancelled

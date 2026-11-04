@@ -117,11 +117,7 @@ defmodule NovelApplication.AgentRunTerminalReplanTest do
     AuthoringTranscript.new(attrs,
       base_text: "计划是建议，实际操作仍需应用逐步授权。",
       author_text: attrs.goal.text,
-      author_turn_ref: attrs.parent_turn_ref,
-      projection: %{
-        target: "chat_completions",
-        capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-      }
+      author_turn_ref: attrs.parent_turn_ref
     )
   end
 

@@ -10,13 +10,8 @@ defmodule NovelAgent.Provider do
 
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.Result
-  alias NovelAgent.Provider.SystemIdentity
-
-  @application_base_marker "【应用数据"
-  @initial_base_marker "【应用数据 · application_base"
-  @scope_update_marker "【应用数据 · scope_update"
-  @author_section_placeholder "（本轮作者原话见独立 user 消息）"
 
   @type message :: %{required(:role) => String.t(), required(:content) => String.t()}
   @type tool_spec :: %{
@@ -29,12 +24,7 @@ defmodule NovelAgent.Provider do
           required(:arguments) => map(),
           optional(:id) => String.t()
         }
-  @type structured_prompt :: %{
-          required(:messages) => [message()],
-          optional(:tools) => [tool_spec()],
-          optional(:tool_choice) => String.t()
-        }
-  @type prompt :: String.t() | [message()] | structured_prompt()
+  @type prompt :: RequestIR.t()
   @type model :: String.t()
   @type model_option :: %{
           required(:id) => String.t(),
@@ -78,7 +68,6 @@ defmodule NovelAgent.Provider do
   LM Studio: GET /v1/models
   Strata: GET /v1/models（本地，无 Key 也做真实网络探测）
   Anthropic: 仅检查 API key 是否配置
-  Stub: 始终 :ok
   """
   @callback health_check(state :: term()) :: :ok | {:error, term()}
 
@@ -112,202 +101,8 @@ defmodule NovelAgent.Provider do
 
   @optional_callbacks list_models: 1, execute: 5, capabilities: 1, projection_target: 1
 
-  @doc """
-  Normalize legacy string prompts and chat prompts into OpenAI-compatible
-  message maps.
-  """
-  @spec normalize_messages(prompt(), keyword()) :: [message()]
-  def normalize_messages(prompt, opts \\ [])
-
-  def normalize_messages(prompt, _opts) when is_binary(prompt),
-    do: [%{role: "user", content: prompt}]
-
-  def normalize_messages(%{messages: messages}, opts), do: normalize_messages(messages, opts)
-  def normalize_messages(%{"messages" => messages}, opts), do: normalize_messages(messages, opts)
-
-  def normalize_messages(messages, opts) when is_list(messages) do
-    Enum.map(messages, fn message ->
-      role = Map.get(message, :role) || Map.get(message, "role")
-      content = Map.get(message, :content) || Map.get(message, "content")
-
-      %{role: to_string(role || "user"), content: normalize_content(content)}
-      |> maybe_put_tool_field(:tool_calls, message)
-      |> maybe_put_tool_field(:tool_call_id, message)
-      |> maybe_put_tool_field(:name, message)
-      |> maybe_preserve_provider_state(message, Keyword.get(opts, :include_provider_state, false))
-    end)
-  end
-
-  # 默认只返回通用 wire 字段；只有来源 adapter 主动请求私有状态并按来源投影。
-  defp maybe_preserve_provider_state(normalized, message, true),
-    do: maybe_put_tool_field(normalized, :provider_state, message)
-
-  defp maybe_preserve_provider_state(normalized, _message, false), do: normalized
-
-  # B71 CP2（VS-00L I-ART-8）：消息规范化不得丢弃原生工具字段。
-  defp normalize_content(content) when is_binary(content), do: content
-  defp normalize_content(nil), do: ""
-  # 多模态/结构化 content 原样透传，不静默降级为字符串。
-  defp normalize_content(content), do: content
-
-  @doc """
-  将 legacy 或 Request IR prompt 投影为离线 provider 可匹配的文本。
-
-  IR 的 application_base 保留在原位，最后一条真实作者消息独立映射为「作者输入」段，
-  避免 base 中的作者输入占位覆盖真实原话。
-  """
-  @spec prompt_text(prompt()) :: String.t()
-  def prompt_text(prompt) when is_binary(prompt), do: prompt
-
-  def prompt_text(prompt) when is_map(prompt) or is_list(prompt) do
-    messages =
-      prompt
-      |> normalize_messages()
-      |> Enum.reject(&(&1.role == "system" and &1.content == SystemIdentity.content()))
-
-    if Enum.any?(messages, &String.starts_with?(to_string(&1.content), @application_base_marker)) do
-      prompt_text_from_messages(messages)
-    else
-      Enum.map_join(messages, "\n", fn message -> "#{message.role}: #{message.content}" end)
-    end
-  end
-
-  @doc """
-  读取当前专业操作的材料视图，不改写原始请求或 canonical 历史。
-
-  首操作保留 Base、当前 scope 和作者原话；当前 scope 之前已有模型响应时，
-  后续操作的完整规则与材料以最新 scope 为准。同一操作自身的纠错不会丢弃首 Base。
-  没有 scope 的单次请求保留原文本语义。
-  """
-  @spec operation_prompt_text(prompt()) :: String.t()
-  def operation_prompt_text(prompt) do
-    messages = normalize_messages(prompt)
-
-    case scope_context(messages) do
-      nil ->
-        prompt_text(prompt)
-
-      {scope, previous} ->
-        if Enum.any?(previous, &(&1.role == "assistant")) do
-          scope
-        else
-          initial_operation_text(messages, scope)
-        end
-    end
-  end
-
-  @doc "当前显式 scope 的原始文本；无 scope 返回 nil。"
-  @spec latest_scope_text(prompt()) :: String.t() | nil
-  def latest_scope_text(prompt) do
-    case prompt |> normalize_messages() |> scope_context() do
-      nil -> nil
-      {scope, _previous} -> scope
-    end
-  end
-
-  defp scope_context(messages) do
-    case messages |> Enum.reverse() |> Enum.drop_while(&(not scope_message?(&1))) do
-      [] -> nil
-      [scope | previous] -> {scope.content, previous}
-    end
-  end
-
-  defp scope_message?(%{role: "user", content: text}) when is_binary(text),
-    do: String.starts_with?(text, @scope_update_marker)
-
-  defp scope_message?(_message), do: false
-
-  defp initial_operation_text(messages, scope) do
-    initial = Enum.filter(messages, &initial_operation_message?/1)
-    prompt_text(initial ++ [%{role: "user", content: scope}])
-  end
-
-  defp initial_operation_message?(%{role: "user", content: text}) when is_binary(text) do
-    String.starts_with?(text, @initial_base_marker) or
-      not String.starts_with?(text, @application_base_marker)
-  end
-
-  defp initial_operation_message?(_message), do: false
-
-  defp prompt_text_from_messages(messages) do
-    {messages, author, _observation_count} =
-      messages
-      |> Enum.reverse()
-      |> Enum.reduce({[], nil, 0}, fn message, {kept, author, observation_count} ->
-        content = to_string(message.content)
-
-        cond do
-          observation = native_observation(message) ->
-            {[native_observation_text(observation, observation_count + 1) | kept], author,
-             observation_count + 1}
-
-          author_message?(message, content, author) ->
-            {kept, content, observation_count}
-
-          true ->
-            {["#{message.role}: #{message.content}" | kept], author, observation_count}
-        end
-      end)
-
-    joined =
-      messages
-      |> Enum.join("\n")
-      |> String.replace(
-        "## 作者输入\n（本轮作者原话见独立 user 消息）",
-        "## 作者输入（内容见独立消息）"
-      )
-
-    case author do
-      nil -> joined
-      author -> joined <> "\n## 作者输入\n" <> author
-    end
-  end
-
-  defp author_message?(message, content, author) do
-    is_nil(author) and message.role == "user" and
-      not String.starts_with?(content, @application_base_marker) and
-      not String.contains?(content, @author_section_placeholder)
-  end
-
-  defp native_observation_text(observation, index) do
-    "## 探索观察（原生 tool 结果）\n### 观察 #{index}（#{observation["tool"]}「#{observation["query"]}」）\n#{observation["summary"]}" <>
-      to_string(observation["coverage_note"] || "") <>
-      to_string(observation["continuation_hint"] || "")
-  end
-
-  defp native_observation(%{role: "tool", content: content}) do
-    with {:ok, %{"type" => "observation"} = payload} <- Jason.decode(content),
-         %{"summary" => summary, "tool" => tool, "query" => query} <- payload["content"] do
-      coverage = Map.get(payload, "coverage", %{})
-
-      %{
-        "summary" => summary,
-        "tool" => tool,
-        "query" => query,
-        "coverage_note" => payload["coverage_note"] || coverage["coverage_note"],
-        "continuation_hint" => payload["continuation_hint"] || coverage["continuation_hint"]
-      }
-    else
-      _ -> nil
-    end
-  end
-
-  defp native_observation(_message), do: nil
-
-  defp maybe_put_tool_field(normalized, key, message) do
-    value = Map.get(message, key) || Map.get(message, to_string(key))
-
-    if value in [nil, "", []] do
-      normalized
-    else
-      Map.put(normalized, key, value)
-    end
-  end
-
   @spec supported_prompt?(term()) :: boolean()
-  def supported_prompt?(prompt) when is_binary(prompt) or is_list(prompt), do: true
-  def supported_prompt?(%{messages: messages}) when is_list(messages), do: true
-  def supported_prompt?(%{"messages" => messages}) when is_list(messages), do: true
+  def supported_prompt?(%RequestIR{}), do: true
   def supported_prompt?(_prompt), do: false
 
   @spec tool_call_prompt?(prompt()) :: boolean()
@@ -315,21 +110,10 @@ defmodule NovelAgent.Provider do
     do: tool_specs(prompt) != [] and tool_choice(prompt) != "none"
 
   @spec tool_specs(prompt()) :: [tool_spec()]
-  def tool_specs(prompt) do
-    prompt
-    |> map_get(:tools)
-    |> normalize_tool_specs()
-  end
+  def tool_specs(%RequestIR{} = ir), do: normalize_tool_specs(ir.tools)
 
   @spec tool_choice(prompt()) :: String.t() | nil
-  def tool_choice(prompt) do
-    case map_get(prompt, :tool_choice) do
-      value when is_binary(value) and value != "" -> value
-      %{name: value} when is_binary(value) and value != "" -> value
-      %{"name" => value} when is_binary(value) and value != "" -> value
-      _ -> nil
-    end
-  end
+  def tool_choice(%RequestIR{} = ir), do: Map.get(ir.projection, :tool_choice)
 
   @doc "返回本请求明确选中的工具；多工具 auto、禁用或未声明的选择返回 nil。"
   @spec active_tool_name(prompt()) :: String.t() | nil
@@ -345,15 +129,6 @@ defmodule NovelAgent.Provider do
 
   defp single_tool_name([name]), do: name
   defp single_tool_name(_names), do: nil
-
-  @spec put_openai_tools(map(), prompt()) :: map()
-  def put_openai_tools(body, prompt) when is_map(body) do
-    tools = Enum.map(tool_specs(prompt), &openai_tool_spec/1)
-
-    body
-    |> maybe_put(:tools, tools)
-    |> maybe_put(:tool_choice, openai_tool_choice(tool_choice(prompt)))
-  end
 
   @spec extract_openai_tool_calls(map()) :: [tool_call()]
   def extract_openai_tool_calls(%{"tool_calls" => calls}) when is_list(calls) do
@@ -442,23 +217,6 @@ defmodule NovelAgent.Provider do
   defp json_keys(value) when is_list(value), do: Enum.map(value, &json_keys/1)
   defp json_keys(value), do: value
 
-  defp openai_tool_spec(%{name: name, description: description, input_schema: schema}) do
-    %{
-      type: "function",
-      function: %{
-        name: name,
-        description: description,
-        parameters: schema
-      }
-    }
-  end
-
-  defp openai_tool_choice(nil), do: nil
-  defp openai_tool_choice(value) when value in ["none", "auto", "required"], do: value
-
-  defp openai_tool_choice(name),
-    do: %{type: "function", function: %{name: name}}
-
   defp openai_tool_call(%{"id" => id, "function" => %{"name" => name, "arguments" => args}})
        when is_binary(name) do
     [openai_call_arguments(name, args) |> Map.put("id", id)]
@@ -490,10 +248,6 @@ defmodule NovelAgent.Provider do
   end
 
   defp map_get(_map, _key), do: nil
-
-  defp maybe_put(map, _key, []), do: map
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   # M2 长跑实测（2026-07-20）：正文起草 10/12 次 JSON 解析失败的具体成因——模型把
   # 多段正文塞进 JSON 字符串值时，偶发漏转义段落换行（裸 0x0A 字节），JSON 语法

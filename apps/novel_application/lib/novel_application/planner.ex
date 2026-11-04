@@ -12,6 +12,7 @@ defmodule NovelApplication.Planner do
   """
 
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.RequestIR
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.LogContext
@@ -29,9 +30,9 @@ defmodule NovelApplication.Planner do
   @spec narrate_tool_result(map(), AuthoringTask.t() | nil, provider_execution()) :: String.t()
   def narrate_tool_result(tool_result, %AuthoringTask{} = task, provider_execution) do
     result_fn = result_fn(provider_execution)
-    prompt = tool_narration_prompt(tool_result, task)
+    request = narration_request(tool_result, task)
 
-    case LogContext.with_step("narrate_tool_result", fn -> result_fn.(prompt) end) do
+    case LogContext.with_step("narrate_tool_result", fn -> result_fn.(request) end) do
       {:ok, %{content: content}} when is_binary(content) ->
         case String.trim(content) do
           "" -> deterministic_narration(tool_result)
@@ -45,6 +46,17 @@ defmodule NovelApplication.Planner do
 
   def narrate_tool_result(tool_result, nil, _provider_execution),
     do: deterministic_narration(tool_result)
+
+  # 独立文本操作没有 AgentRun：以真实操作 profile 与任务来源构造 canonical IR，
+  # 材料作为 application_base 进入统一投影，不伪造 run/session 或作者消息。
+  defp narration_request(tool_result, %AuthoringTask{} = task) do
+    RequestIR.text_operation(%{
+      profile_ref: "result_narration",
+      text: tool_narration_prompt(tool_result, task),
+      source_refs: task.source_refs,
+      system: [run_role: "result_narration"]
+    })
+  end
 
   # 只有真实作者目标/工具后果在场时才组装提示词；这里不再用 inspect(output) 把
   # 内部结构带进 prompt，也不复述共享规则（规则文本唯一真源是 AuthoringSemantics）。

@@ -8,8 +8,6 @@ defmodule NovelAgent.Provider.RequestIRExecutionRefsTest do
   @author_text "作者要求：标题里保留 provider_call_ref 原样，不改字节。"
   @targets ["chat_completions", "anthropic_messages", "responses_api"]
 
-  defp full_caps, do: Map.new(RequestIR.required_capabilities(), &{&1, true})
-
   defp ir do
     RequestIR.new(%{
       run: %{
@@ -18,12 +16,12 @@ defmodule NovelAgent.Provider.RequestIRExecutionRefsTest do
         session_id: "session-execution-refs",
         parent_turn_ref: "turn-execution-refs"
       },
-      system: %{identity_ref: "identity:execution-refs"},
+      system: RequestIR.system_envelope(),
       messages: [
         RequestIR.message(:user, :author, [RequestIR.text_block(@author_text)])
       ],
       tools: [%{name: @tool, input_schema: %{type: "object"}}],
-      projection: %{target: "chat_completions", capability_profile: full_caps()}
+      projection: %{}
     })
   end
 
@@ -154,11 +152,8 @@ defmodule NovelAgent.Provider.RequestIRExecutionRefsTest do
     without_refs = drop_execution_refs(with_refs)
 
     for target <- @targets do
-      with_ir = put_in(with_refs.projection.target, target)
-      without_ir = put_in(without_refs.projection.target, target)
-
-      assert {:ok, body} = Projection.project(with_ir)
-      assert {:ok, expected} = Projection.project(without_ir)
+      assert {:ok, body} = Projection.project(with_refs, target)
+      assert {:ok, expected} = Projection.project(without_refs, target)
       assert body == expected
 
       encoded = Jason.encode!(body)
@@ -208,13 +203,10 @@ defmodule NovelAgent.Provider.RequestIRExecutionRefsValidationTest do
         session_id: "session-execution-refs-validation",
         parent_turn_ref: "turn-execution-refs-validation"
       },
-      system: %{identity_ref: "identity:execution-refs-validation"},
+      system: RequestIR.system_envelope(),
       messages: [RequestIR.message(:user, :author, [RequestIR.text_block("作者原话")])],
       tools: [%{name: @tool, input_schema: %{type: "object"}}],
-      projection: %{
-        target: "chat_completions",
-        capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-      }
+      projection: %{}
     })
   end
 
@@ -374,8 +366,7 @@ defmodule NovelAgent.Provider.RequestIRExecutionRefsValidationTest do
     assert :ok = RequestIR.validate(ir)
 
     for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
-      assert {:ok, body} =
-               Projection.project(%{ir | projection: %{ir.projection | target: target}})
+      assert {:ok, body} = Projection.project(ir, target)
 
       refute Jason.encode!(body) =~ "pcall-raw"
       refute Jason.encode!(body) =~ "prun-raw"
@@ -403,13 +394,10 @@ defmodule NovelAgent.Provider.RequestIRNativeIdProvenanceTest do
         session_id: "session-native-id-provenance",
         parent_turn_ref: "turn-native-id-provenance"
       },
-      system: %{identity_ref: "identity:native-id-provenance"},
+      system: RequestIR.system_envelope(),
       messages: [RequestIR.message(:user, :author, [RequestIR.text_block(@author_text)])],
       tools: [%{name: @tool, input_schema: %{type: "object"}}],
-      projection: %{
-        target: "chat_completions",
-        capability_profile: Map.new(RequestIR.required_capabilities(), &{&1, true})
-      }
+      projection: %{}
     })
   end
 
@@ -573,12 +561,9 @@ defmodule NovelAgent.Provider.RequestIRNativeIdProvenanceTest do
     }
 
     for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
-      with_ir = put_in(ir.projection.target, target)
-      without_ir = put_in(without_provenance.projection.target, target)
+      assert Projection.project(ir, target) == Projection.project(without_provenance, target)
 
-      assert Projection.project(with_ir) == Projection.project(without_ir)
-
-      assert {:ok, body} = Projection.project(with_ir)
+      assert {:ok, body} = Projection.project(ir, target)
       refute Jason.encode!(body) =~ "provider_call_id"
     end
   end

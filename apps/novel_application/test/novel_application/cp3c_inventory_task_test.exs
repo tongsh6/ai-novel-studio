@@ -106,7 +106,8 @@ defmodule NovelApplication.CP3cInventoryTaskTest do
     prompts =
       for _ <- 1..2 do
         receive do
-          {:prompt, prompt} -> prompt
+          # 生产入口已改为 canonical RequestIR；文本断言读与 provider 同源的投影文本视图。
+          {:prompt, prompt} -> NovelAgent.TestProviderPrompt.text(prompt)
         after
           0 -> flunk("expected two prompts")
         end
@@ -114,7 +115,12 @@ defmodule NovelApplication.CP3cInventoryTaskTest do
 
     [first, corrected] = prompts
     assert corrected =~ "保持原任务、材料范围"
-    assert corrected =~ first
+
+    # 纠错请求 = 原任务 Base 文本 + 纠错说明前缀；断言原任务/材料范围逐字重放。
+    [original_task] =
+      first |> String.split("application_base】\n", parts: 2) |> Enum.drop(1)
+
+    assert corrected =~ original_task
     assert corrected =~ "not json"
   end
 end
