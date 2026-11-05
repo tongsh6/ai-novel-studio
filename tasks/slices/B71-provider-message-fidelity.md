@@ -1078,3 +1078,11 @@
 - 当前业务源码与验收重构可 review；B71保持doing。后续 R1/R2 的三条非IR现役操作 owner/source 清单由只读作业 `87dd58b8-0792-4c84-9f55-effb98cdc512` 汇总至 `artifacts/b71-resume/r1-operation-ownership-audit-20261104.md/json`，用于判断真实AgentRun与后台派生操作边界，不伪造run_id或作者原话。
 
 - **批次 I/O 最后补证**：`confirmation-batch-io-tests-20261104/` 的10项新测试由leader独立复验通过；57项纯判据与相关脚本合计153项通过。正例实际生成并回读summary/checks/ws frames；缺实时child启动、缺日志/截图/快照/DB表等反例不能写PASS。OS进程/端口边界明确mock，未启动GUI；当前系统提示阻挡仍未解决。源码全脚本1080/1080（补测前完整集合）及新增10项分别已验证，当前UI仍pending。
+
+### Anthropic 相邻 role 客户端合并退役（2026-11-06 作者裁决 A）
+
+- **裁决**：作者 2026-11-06 明确选择 **A**——删除客户端 `merge_adjacent_roles/1`，恢复三投影统一严格前缀；不采用「保留合并 + 契约登记例外」。
+- **依据**：官方 Create a Message 文档明确 "Consecutive `user` or `assistant` turns in your request will be combined into a single turn"；客户端合并不是 API 硬约束。原合并由 B71 CP2（`3ff43467`）基于对「模型训练于交替 turn」的过度解读所加，属迁移期保守预处理而非 provider 验证结论。
+- **实现**：`AnthropicMessages.project/2` 改为 1:1 投影并删除 `merge_adjacent_roles/1`；`request_ir_test` 的 G7 对三投影统一使用严格前缀断言，并新增「连续 user 保留独立条目 + 作者独立消息字节不变 + 追加 scope 为新条目」专项测试；`anthropic_test` 与 `native_boundary_r1_test` 的合并形态断言改为 1:1 形态；VS-00L §6.2 登记「客户端不合并相邻 role」。
+- **验证**：`mix compile --warnings-as-errors`、全量后端测试、credo/xref/arch/module-size、`mix format`；不变量 I3/I1/I2/N-NARR/I-CACHE 复跑。真实 Anthropic 请求的服务端合并/缓存行为仍为**待实模验证**（当前无凭证窗口，不代签）。
+- **未闭环**：I-CACHE driver 的固定序列化仍只度量 Chat Completions 投影；Anthropic/Responses 的严格前缀由 G7 投影测试覆盖，I-CACHE 多投影扩展随 R2/实模验收处理。

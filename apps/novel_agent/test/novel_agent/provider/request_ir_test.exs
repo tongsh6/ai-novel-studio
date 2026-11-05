@@ -489,13 +489,9 @@ defmodule NovelAgent.Provider.RequestIRTest do
         first_items = Map.get(first_body, :messages, first_body[:input])
         second_items = Map.get(second_body, :messages, second_body[:input])
 
-        if target == "anthropic_messages" do
-          assert Enum.any?(second_items, fn item ->
-                   Enum.any?(item.content, &(&1.text =~ "只读探索开放"))
-                 end)
-        else
-          assert Enum.take(second_items, length(first_items)) == first_items
-        end
+        # 三投影统一严格前缀：Anthropic 同样 1:1 投影，客户端不合并相邻 role
+        # （连续同 role 由 provider 服务端合并，不改变请求 body 的前缀性质）。
+        assert Enum.take(second_items, length(first_items)) == first_items
 
         last_item = List.last(second_items)
 
@@ -509,6 +505,52 @@ defmodule NovelAgent.Provider.RequestIRTest do
         assert scope_text =~ "只读探索关闭"
         assert scope_text =~ ~s("scope_revision":2)
       end
+    end
+
+    test "Anthropic 投影 1:1 保留连续 user：作者独立消息、追加 scope 为新条目、严格前缀" do
+      base =
+        message(:application_base, :application, [RequestIR.text_block("run goal: 基础材料")], %{
+          source_refs: []
+        })
+
+      scope_1 =
+        message(:scope_update, :application, [RequestIR.text_block("只读探索开放")], %{
+          versions: %{"scope_revision" => 1}
+        })
+
+      scope_2 =
+        message(:scope_update, :application, [RequestIR.text_block("只读探索关闭")], %{
+          versions: %{"scope_revision" => 2}
+        })
+
+      author =
+        message(:user, :author, [RequestIR.text_block(@author_text)], %{
+          source_refs: [%{ref: "author_turn:turn-1"}]
+        })
+
+      {:ok, first} = Projection.project(ir([base, scope_1, author]), "anthropic_messages")
+
+      {:ok, second} =
+        Projection.project(ir([base, scope_1, author, scope_2]), "anthropic_messages")
+
+      # 1) 连续 user 不合并：application_base / scope / 作者各自一条独立消息
+      assert Enum.map(first.messages, & &1.role) == ["user", "user", "user"]
+      assert length(second.messages) == 4
+
+      # 2) 作者原话在自己的 user 消息内，字节不变（I-ART-2）
+      author_message = Enum.at(first.messages, 2)
+      assert author_message.role == "user"
+      assert [%{type: "text", text: text}] = author_message.content
+      assert text == @author_text
+
+      # 3) G7 严格前缀：新增 scope 是追加的独立消息，前次 body 是后次 body 的前缀
+      assert Enum.take(second.messages, length(first.messages)) == first.messages
+
+      # 4) 新增 scope 仍是独立 user 消息
+      last_message = List.last(second.messages)
+      assert last_message.role == "user"
+      assert [%{type: "text", text: scope_text}] = last_message.content
+      assert scope_text =~ "只读探索关闭"
     end
   end
 

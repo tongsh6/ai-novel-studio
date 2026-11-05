@@ -252,7 +252,7 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
       assert body.tool_choice == "required"
     end
 
-    test "Anthropic Messages：原生 system/tool_use/tool_result 与相邻 role 合并" do
+    test "Anthropic Messages：原生 system/tool_use/tool_result，相邻 user 不合并（1:1 投影）" do
       test_pid = self()
 
       Application.put_env(:novel_agent, Anthropic,
@@ -283,8 +283,10 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
       assert String.contains?(system_text, "角色规则")
       assert identity_occurrences(system_text) == 1
 
+      # 1:1 投影：application_base 与作者消息是两条独立 user 条目；连续同 role 的合并
+      # 由 Anthropic 服务端按其官方语义执行，客户端不重排、不合并（I-ART-2 / G7）。
       roles = Enum.map(body.messages, & &1.role)
-      refute Enum.chunk_every(roles, 2, 1, :discard) |> Enum.any?(fn [a, b] -> a == b end)
+      assert Enum.chunk_every(roles, 2, 1, :discard) |> Enum.any?(fn [a, b] -> a == b end)
 
       assistant = Enum.find(body.messages, &(&1.role == "assistant"))
       tool_use = Enum.find(assistant.content, &(&1.type == "tool_use"))
@@ -351,7 +353,7 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
       refute Enum.any?(user_blocks, &String.contains?(Map.get(&1, :text, ""), "系统约束原字节"))
       assert Enum.any?(user_blocks, &(Map.get(&1, :text) == @author_text))
 
-      assert Enum.map(body.messages, & &1.role) == ["user", "assistant", "user"]
+      assert Enum.map(body.messages, & &1.role) == ["user", "user", "assistant", "user"]
 
       assistant = Enum.find(body.messages, &(&1.role == "assistant"))
 

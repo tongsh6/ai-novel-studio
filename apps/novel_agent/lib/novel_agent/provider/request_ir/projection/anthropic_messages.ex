@@ -19,7 +19,10 @@ defmodule NovelAgent.Provider.RequestIR.Projection.AnthropicMessages do
     with {:ok, messages} <- prepare_messages(messages) do
       %{
         system: system_blocks(system_messages, ir.system),
-        messages: messages |> Enum.flat_map(&project_message/1) |> merge_adjacent_roles(),
+        # 1:1 投影：不做相邻 role 合并。连续 user 是 Anthropic 官方允许的请求形态，
+        # 由服务端按其文档语义合并为单个 turn；客户端合并会压平 I-ART-2 的作者独立
+        # 消息与 §14.3 G7 的严格前缀（2026-11-06 作者裁决 A）。
+        messages: Enum.flat_map(messages, &project_message/1),
         stream: Projection.usage_streaming?(ir)
       }
       |> put_tools(Enum.map(ir.tools, &tool_schema/1))
@@ -48,20 +51,6 @@ defmodule NovelAgent.Provider.RequestIR.Projection.AnthropicMessages do
 
   defp put_tool_choice(body, name) when is_binary(name),
     do: Map.put(body, :tool_choice, %{type: "tool", name: name})
-
-  # Messages API 要求 user/assistant 交替；相邻同 role 合并 content blocks，
-  # 不改变任何 block 的顺序或字节。
-  defp merge_adjacent_roles(messages) do
-    Enum.reduce(messages, [], fn %{role: role, content: content}, acc ->
-      case List.last(acc) do
-        %{role: ^role, content: previous} ->
-          List.replace_at(acc, -1, %{role: role, content: previous ++ content})
-
-        _ ->
-          acc ++ [%{role: role, content: content}]
-      end
-    end)
-  end
 
   @doc "Messages 的 tool_use 只接受对象；不能把其它协议的坏参数原文替换成空对象。"
   def parse_arguments(arguments, _call_id) when is_map(arguments),

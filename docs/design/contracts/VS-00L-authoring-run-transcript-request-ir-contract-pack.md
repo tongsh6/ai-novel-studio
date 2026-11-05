@@ -167,6 +167,8 @@ AuthoringRequestIR v1 = {
 | 缓存断点 | 稳定 system/tools/Base 前缀；易变观察/作者输入置后 |
 | thinking/signature | 仅 provider 私有回放数据，不展示、不作事实源 |
 
+**相邻 role 处理（2026-11-06 作者裁决 A）**：客户端投影**不做相邻 user/assistant 合并**，IR 消息按 1:1 进入 `messages`。连续同 role 是 Anthropic 官方允许的请求形态，由服务端按其文档语义合并为单个 turn（"Consecutive `user` or `assistant` turns in your request will be combined into a single turn."）；客户端自行合并会压平 I-ART-2 的作者独立 user 消息与 §14.3 G7 的严格前缀，因此不为该 provider 保留未登记例外。真实 Anthropic 服务端合并与缓存行为待实模验证。
+
 ### 6.3 Responses API
 
 | IR 元素 | 投影 |

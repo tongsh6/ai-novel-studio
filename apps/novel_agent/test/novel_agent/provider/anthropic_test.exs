@@ -414,7 +414,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
       refute_received :invalid_history_streamed
     end
 
-    test "IR → Anthropic Messages：原生对象参数/tool_result/相邻 role 与稳定 system" do
+    test "IR → Anthropic Messages：原生对象参数/tool_result/相邻 user 不合并与稳定 system" do
       test_pid = self()
 
       mock = fn _url, body, _opts ->
@@ -450,18 +450,17 @@ defmodule NovelAgent.Provider.AnthropicTest do
       assert tool_result.tool_use_id == "call-1"
       assert Jason.decode!(tool_result.content)["call_id"] == "call-1"
 
-      first_user = hd(body.messages)
-      assert first_user.role == "user"
+      # Anthropic 投影 1:1：application_base 与作者消息各自保留独立 user 条目；
+      # 客户端不合并相邻 role，连续同 role 由 provider 官方语义在服务端合并。
+      [base_user, author_user | _] = body.messages
+      assert base_user.role == "user"
 
-      assert Enum.map(first_user.content, & &1.text) == [
-               "【应用数据 · application_base · 非作者原话】\nrun goal: 读取角色事实并生成 tentative 候选",
-               "把沈砚的年龄改成三十岁"
+      assert Enum.map(base_user.content, & &1.text) == [
+               "【应用数据 · application_base · 非作者原话】\nrun goal: 读取角色事实并生成 tentative 候选"
              ]
 
-      roles = Enum.map(body.messages, & &1.role)
-
-      refute Enum.chunk_every(roles, 2, 1, :discard)
-             |> Enum.any?(fn [left, right] -> left == right end)
+      assert author_user.role == "user"
+      assert Enum.map(author_user.content, & &1.text) == ["把沈砚的年龄改成三十岁"]
     end
 
     defp ir_provider_prompt do
