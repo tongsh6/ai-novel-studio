@@ -569,3 +569,10 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 | M18r1 未探索直接缺口 | capability_gap 轮次的探索次数/观察记录如实（0 次即如记录），不伪造观察 | 是否应先探索 | 可探索但缺来源 run → trace 探索计数如实；语义实模 |
 
 结论：确定性侧**没有机械可修的产品缺口**（守卫、prompt 约束与材料同源已由 §9 落地）；本 CP0 只沉淀负例矩阵与分界，避免用确定性测试冒充语义关闭，也不重启全量 retest、不删分母、不改阈值。语义关闭需实模预注册窗口与第二方复核（当前未授权），I10 不代签。
+
+### 案例冻结器退役（2026-11-06 作者裁决）
+
+- **裁决**：作者 2026-11-06 决定保持项目 clean——R1 后不可运行且不再需要的 `scripts/b27_case_freeze.exs` 删除。
+- **背景**：该脚本在 B71 R1 收口后停机（`SystemIdentity.inject/1` 已删除、真实请求形态改为 canonical IR，脚本内部仍按 legacy wire prompt 捕获），`--check`/重冻路径不可复跑；它不是自动门禁（不在 `ai_static_scan`/CI）。
+- **保留**：`quality/acceptance/fixtures/b27-semantic-cases/` 的 cases.yml / arms.yml / snapshots 作为 B27 历史证据只读保留；B70/B72 只消费案例契约思想，不依赖冻结器。
+- **后续**：若需要规则臂对照，按 R1 后 canonical IR 形态作为独立任务重建，不在历史脚本上修补。
