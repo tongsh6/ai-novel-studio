@@ -520,7 +520,15 @@ defmodule NNarrDriver do
 
   defp prompt_text(prompt) when is_binary(prompt), do: prompt
 
-  defp prompt_text(%{messages: messages}) when is_list(messages), do: messages_text(messages)
+  # 2026-11-06 裁决 A：判断器/计划起草器/下一步规划器的角色规则进入 canonical system
+  # 前缀；请求文本视图必须包含 system 前缀，否则 driver 会误判为普通对话请求。
+  defp prompt_text(%{messages: messages} = prompt) when is_list(messages) do
+    case Map.get(prompt, :system) do
+      %{} = system -> Projection.system_text(system) <> "\n" <> messages_text(messages)
+      _ -> messages_text(messages)
+    end
+  end
+
   defp prompt_text(%{"messages" => messages}) when is_list(messages), do: messages_text(messages)
   defp prompt_text(_prompt), do: ""
 

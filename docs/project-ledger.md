@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-06 **B71 裁决 A：system 规则/版本落地**：`IR.system` 从「只有产品身份」补齐为「身份 + 版本 + run 角色规则/输出协议」；判断/使命/计划/创作/评审与三个文本消费者把规则移入 `system.instructions`，`application_base` 只声明应用数据职责（`RequestIR.application_base_text/0`）；`constitution_version`/`output_protocol_version` 由真源写入并进入投影前缀；`output_schema_ref` 暂无统一真源不写入。验证：agent 522/0、application 1349/0、全量门禁与不变量复跑。真实模型行为未做对照实验，不代签。
+
 > 2026-11-06 **B71 裁决 D：有限模式写入持久执行事实**：VS-00L §6.4 要求有限模式进入 trace/验收报告，此前只在 IR 私有内容。实现：Gateway 把 `ir.projection.finite_mode` 传入执行 ctx，`AdapterExecution.run_metadata/1` 写 `metadata.finite_mode`（完整模式不写键），`ProviderRunLog` 提取 `provider_runs.finite_mode_name` 可空列（迁移 `20261106000001`，历史行不回填），`safe_value/1` 保留 boolean；验收读侧 `authoring_call_evidence` 报告 `finite_modes.restricted`/`complete_count`（不改变 PASS 判据）。`DecisionTrace` 不扩展；`ProviderEvent` 事件层暂缓（started 事件 author 可见性/序列约束）。「完整模式 = PASS 必要条件」待后续裁决，旧证据不回溯。
 
 > 2026-11-06 **B71 裁决 A：删除 Anthropic 相邻 role 客户端合并**：官方 Create a Message 文档明确「连续 user/assistant turn 会被服务端合并为单个 turn」，客户端合并不是 API 约束；删除 `AnthropicMessages.merge_adjacent_roles/1` 后三投影 1:1 投影，I-ART-2 作者独立 user 消息与 §14.3 G7 严格前缀在 Anthropic wire 上成立；G7 测试删除 provider 特判并新增「连续 user 独立条目/作者独立/追加 scope 新条目」专项断言，`anthropic_test`/`native_boundary_r1_test` 的合并形态断言同步改为 1:1；VS-00L §6.2 登记该语义。真实 Anthropic 服务端合并与缓存行为待实模验证，不代签；I-CACHE 多投影扩展随 R2 处理。

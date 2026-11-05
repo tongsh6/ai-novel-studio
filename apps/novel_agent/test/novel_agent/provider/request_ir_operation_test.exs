@@ -19,7 +19,10 @@ defmodule NovelAgent.Provider.RequestIR.OperationTest do
              scope
            ] = ir.messages
 
-    assert base.text == "完整计划规则"
+    # 2026-11-06 裁决 A：完整角色规则进入 canonical system 前缀；application_base 只声明
+    # 应用数据职责与来源边界。
+    assert base.text == RequestIR.application_base_text()
+    assert ir.system.instructions == "完整计划规则"
     assert author.text == @author
     assert scope.role == "scope_update"
     assert scope.blocks == [RequestIR.text_block("本轮范围")]

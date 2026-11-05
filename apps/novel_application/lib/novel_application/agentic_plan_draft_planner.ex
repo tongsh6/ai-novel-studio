@@ -750,6 +750,11 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       tool: plan_tool(tool_name),
       source_refs: planner_source_refs(run, chapters, snapshot),
       versions: %{"goal_version" => run.goal.version, "plan_version" => run.plan_version || 1},
+      # VS-00L §3.2（裁决 A）：版本引用进入 canonical system 前缀。
+      system_versions: %{
+        constitution_version: NovelApplication.AuthoringTaskPolicy.version(),
+        output_protocol_version: NovelApplication.JudgmentToolContract.version()
+      },
       author_text: Keyword.get(opts, :author_text)
     }
   end

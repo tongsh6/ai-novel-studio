@@ -7,6 +7,7 @@ defmodule NovelAgent.TestSupport.AuthoringTaskFixtures do
 
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.RequestIR.Projection
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
 
@@ -26,11 +27,17 @@ defmodule NovelAgent.TestSupport.AuthoringTaskFixtures do
   # 离线替身看到的材料与真实模型在 wire 上收到的同形：文本块按原字节读，
   # 工具调用、观察与校验结果按结构化 block 的 JSON 读（tool result 的真实形状），
   # 不从拼接文本猜测。
-  def prompt_text(%RequestIR{messages: messages, tools: tools}) do
-    Enum.map_join(messages, "\n", fn message ->
-      Enum.map_join(message.blocks, "\n", &render_block/1) <>
-        "\n关联：" <> linked_call_ids(message.blocks)
-    end) <> "\n工具结构：" <> Jason.encode!(tools)
+  def prompt_text(%RequestIR{messages: messages, tools: tools} = ir) do
+    # 离线替身看到的材料与真实模型在 wire 上收到的同形：稳定 system 前缀（身份/版本/
+    # 角色规则）+ canonical 消息材料 + 工具结构（2026-11-06 裁决 A：规则进入 system）。
+    messages_text =
+      Enum.map_join(messages, "\n", fn message ->
+        Enum.map_join(message.blocks, "\n", &render_block/1) <>
+          "\n关联：" <> linked_call_ids(message.blocks)
+      end)
+
+    [Projection.system_text(ir.system), messages_text, "工具结构：" <> Jason.encode!(tools)]
+    |> Enum.join("\n")
   end
 
   defp render_block(%{type: "text", text: text}) when is_binary(text), do: text

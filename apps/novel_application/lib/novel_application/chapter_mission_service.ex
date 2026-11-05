@@ -84,6 +84,11 @@ defmodule NovelApplication.ChapterMissionService do
       tool: mission_tool(kind),
       source_refs: inputs |> ChapterMissionInputs.refs() |> Enum.sort() |> Enum.map(&%{ref: &1}),
       versions: versions,
+      # VS-00L §3.2（裁决 A）：版本引用进入 canonical system 前缀。
+      system_versions: %{
+        constitution_version: NovelApplication.AuthoringTaskPolicy.version(),
+        output_protocol_version: NovelCommon.AuthoringSemantics.version()
+      },
       author_text: Keyword.get(opts, :author_text)
     })
   end

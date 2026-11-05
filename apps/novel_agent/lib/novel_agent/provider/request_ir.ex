@@ -16,7 +16,7 @@ defmodule NovelAgent.Provider.RequestIR do
   alias NovelAgent.Provider.CapabilityProfile
   alias NovelAgent.Provider.RequestIR.Compaction
   alias NovelAgent.Provider.RequestIR.Projection
-  alias NovelAgent.Provider.SystemIdentity
+  alias NovelAgent.Provider.RequestIR.SystemEnvelope
 
   @roles ~w(system application_base scope_update application_notice user assistant tool checkpoint author_exit)
   @provenances ~w(product application author model tool_result)
@@ -68,21 +68,25 @@ defmodule NovelAgent.Provider.RequestIR do
   end
 
   @doc """
-  canonical system envelope。
+  canonical system envelope（VS-00L §3.2/§4）。
 
-  产品身份只由 `SystemIdentity` 单一真源派生；调用方只能提供本次 run 的角色规则
-  （`instructions` 或 `run_role`），不能自造身份引用或版本。投影时身份正文与角色
-  规则形成稳定 system 前缀（VS-00L §6.1、§19.1）。
+  产品身份只由 `SystemIdentity` 单一真源派生；调用方提供本次 run 的角色规则
+  （`instructions` 或 `run_role`）与规则/协议版本引用（`constitution_version` /
+  `output_protocol_version` / `output_schema_ref`，值来自各自唯一真源），不能自造
+  身份引用。投影时身份正文、版本引用与角色规则形成稳定 system 前缀（§19.1）。
   """
   @spec system_envelope(keyword()) :: map()
-  def system_envelope(opts \\ []) do
-    %{identity_ref: SystemIdentity.identity_ref()}
-    |> put_optional(:run_role, Keyword.get(opts, :run_role))
-    |> put_optional(:instructions, Keyword.get(opts, :instructions))
-  end
+  defdelegate system_envelope(opts \\ []), to: SystemEnvelope, as: :envelope
 
-  defp put_optional(map, _key, nil), do: map
-  defp put_optional(map, key, value), do: Map.put(map, key, value)
+  @doc """
+  canonical application_base 声明（VS-00L §3.2）。
+
+  只声明应用数据职责与来源边界，不承载角色规则/输出协议——后者进入 system 前缀
+  （2026-11-06 作者裁决 A）。目标/坐标/权限/预算/Base refs 由消息结构化字段与
+  scope_update 给出。
+  """
+  @spec application_base_text() :: String.t()
+  defdelegate application_base_text(), to: SystemEnvelope
 
   @doc """
   非 AgentRun 的独立文本操作请求（章摘要、设定盘点、工具结果叙述等）。
@@ -262,7 +266,7 @@ defmodule NovelAgent.Provider.RequestIR do
         {:error, :missing_projection}
 
       true ->
-        with :ok <- validate_system(ir),
+        with :ok <- SystemEnvelope.validate(ir.system),
              :ok <- validate_messages(ir.messages),
              :ok <- validate_tools(ir.tools),
              :ok <- validate_call_bindings(ir.messages),
@@ -273,16 +277,6 @@ defmodule NovelAgent.Provider.RequestIR do
   end
 
   def validate(_other), do: {:error, :invalid_ir}
-
-  # 产品身份只认 `SystemIdentity` 真值：构造侧写死的引用标签与执行侧记录的真实
-  # 身份（version/content_hash）必须同源，否则请求从源头就是不可信的。
-  defp validate_system(ir) do
-    if Map.get(ir.system, :identity_ref) == SystemIdentity.identity_ref() do
-      :ok
-    else
-      {:error, :missing_system_identity_ref}
-    end
-  end
 
   defp validate_messages([]), do: {:error, :missing_messages}
 

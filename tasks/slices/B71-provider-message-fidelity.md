@@ -1094,3 +1094,10 @@
 - **实现**：Gateway 把 `ir.projection.finite_mode` 传入执行 ctx；`AdapterExecution.run_metadata/1` 在非 nil 时写入 `finite_mode`（完整模式不写键）；`ProviderRunLog` 提取 `finite_mode_name` 列（迁移 `20261106000001`，可空 + 索引）并落 `metadata.finite_mode`；`safe_value/1` 保留 boolean（修复 `false → "false"` 失真）；`authoring_call_evidence` 返回 `finite_modes.restricted`/`complete_count` 报告（**不改变既有 PASS 判据**）。
 - **验证**：新增 persistence 2 例（落列 + metadata + boolean 保真 / 无有限模式不写列）、agent 1 例（Gateway IR → run.metadata，完整模式不写键）、Node 读侧 2 例；`mix compile --warnings-as-errors`、全量后端、credo/xref/arch/module-size/format、I1/I2/I3/N-NARR/I-CACHE 复跑。
 - **边界**：`ProviderEvent` 事件层暂不加入该字段（`started` 事件 `visibility=:author`，加字段或插事件会改变作者可见事件面与序列）；「完整模式 = PASS 必要条件」未启用，待后续批次单独裁决、旧证据不回溯。
+
+### system 规则/版本落地（2026-11-06 作者裁决 A）
+
+- **裁决**：作者 2026-11-06 选择 **A**——角色规则/输出协议进入 canonical `IR.system.instructions`，`application_base` 只留应用数据声明；`constitution_version`/`output_protocol_version` 结构化落地。`output_schema_ref` 暂无统一真源，保留字段不写入。
+- **实现**：`RequestIR.system_envelope/1` 扩展 `instructions`/`constitution_version`/`output_protocol_version`；投影 `system_text/1` 渲染「身份 + 版本行 + 规则」；`RequestIR.application_base_text/0` 提供统一应用声明；判断（`JudgmentProtocol`）、使命/计划（`AuthoringOperation` spec `system_versions`）、创作/评审（`Operation` 路径）与三个文本消费者（章摘要/设定盘点/工具结果叙述）均把规则移入 system；`AuthoringTranscript` 持久化 run 级规则与版本字段（不持久化身份）。
+- **验证**：agent 522/0、application 1349/0；编译/credo/xref/arch/module-size/format、I1/I2/I3/N-NARR/I-CACHE 复跑。
+- **边界**：真实模型行为（规则位置对遵循度/缓存收益的影响）未做对照实验，不代签；`output_schema_ref` 待有统一 schema 真源时再落地。

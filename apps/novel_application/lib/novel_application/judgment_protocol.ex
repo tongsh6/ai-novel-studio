@@ -645,7 +645,13 @@ defmodule NovelApplication.JudgmentProtocol do
 
         {:ok,
          AuthoringTranscript.new(envelope,
-           base_text: ir_base_text(input, profile),
+           base_text: RequestIR.application_base_text(),
+           system:
+             RequestIR.system_envelope(
+               instructions: ir_base_text(input, profile),
+               constitution_version: AuthoringTaskPolicy.version(),
+               output_protocol_version: JudgmentToolContract.version()
+             ),
            author_text: author_text(input, profile),
            allow_authorless: profile != :judgment,
            author_turn_ref: Map.get(input, :source_input_ref, "author_turn:current"),
@@ -677,7 +683,6 @@ defmodule NovelApplication.JudgmentProtocol do
   defp judgment_base_text do
     """
     本次你承担创作判断器的角色，与作者讨论并判断创作下一步。
-    共同任务规则版本：#{AuthoringTaskPolicy.version()}；工具协议版本：#{JudgmentToolContract.version()}。
     #{AuthoringTaskPolicy.rules()}
     """
   end
@@ -811,7 +816,6 @@ defmodule NovelApplication.JudgmentProtocol do
 
   defp continuation_base_text do
     """
-    共同任务规则版本：#{AuthoringTaskPolicy.version()}；工具协议版本：#{JudgmentToolContract.version()}。
     #{AuthoringTaskPolicy.rules()}
     """
   end

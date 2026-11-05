@@ -14,6 +14,7 @@ defmodule NovelAgent.TestProviderPrompt do
   """
 
   alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.RequestIR.Projection
   alias NovelAgent.Provider.SystemIdentity
 
   @author_section ~r/##\s*作者输入\s*\n(.*?)(?:\n##|\z)/su
@@ -23,7 +24,15 @@ defmodule NovelAgent.TestProviderPrompt do
   @doc "完整请求文本视图；canonical 作者消息保留在末尾的作者输入段。"
   @spec text(prompt()) :: String.t()
   def text(prompt) when is_binary(prompt), do: prompt
-  def text(%RequestIR{messages: messages}), do: canonical_text(messages)
+
+  # 完整请求文本视图包含稳定 system 前缀（身份/版本/run 角色规则）与 canonical 消息；
+  # 规则进入 system 后（VS-00L §3.2，2026-11-06 裁决 A），断言仍需读到同一请求的实际文本。
+  def text(%RequestIR{} = ir) do
+    [Projection.system_text(ir.system), canonical_text(ir.messages)]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n\n")
+  end
+
   def text(prompt) when is_list(prompt) or is_map(prompt), do: wire_text(prompt)
   def text(_prompt), do: ""
 

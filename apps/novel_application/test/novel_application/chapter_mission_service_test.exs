@@ -216,16 +216,15 @@ defmodule NovelApplication.ChapterMissionServiceTest do
 
     assert text(author_message) == author_text
 
-    rules = Enum.find(prompt.messages, &(text(&1) =~ "要求："))
+    # 2026-11-06 裁决 A：角色规则/输出协议在 canonical system 前缀；材料仍在消息中。
+    system_text = Projection.system_text(prompt.system)
     material = Enum.find(prompt.messages, &(text(&1) =~ "材料（每条以 [ref] 开头"))
-    assert rules
+    assert system_text =~ "author_reasoning"
+    assert system_text =~ "调用 chapter_mission 工具"
     assert material
-    assert rules.provenance == "application"
     assert material.provenance == "application"
-    assert text(rules) =~ "author_reasoning"
-    assert text(rules) =~ "调用 chapter_mission 工具"
     assert text(material) =~ "[plan:3:chapter_role]"
-    refute text(rules) == author_text
+    refute system_text == author_text
     refute text(material) == author_text
   end
 

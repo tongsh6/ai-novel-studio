@@ -10,6 +10,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @behaviour NovelAgent.Provider
 
   alias NovelAgent.Provider.AdapterExecution
+  alias NovelAgent.Provider.RequestIR.Projection
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.StubChapterSummary
   alias NovelAgent.Provider.Usage
@@ -661,14 +662,21 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp specialized_response_result("submit_tentative_artifact", text, prompt) do
     # 首操作保留 Base（其中可能有排版/修订纪律），但质量修订的材料必须取当前 scope；
     # 首操作历史里可能还带着源 writer 的 scope，不能用更早的锚点取原正文。
-    if quality_revision_retry_invalid?(text, prompt) do
+    #
+    # 2026-11-06 裁决 A：修订纪律/输出契约位于 canonical system 前缀，识别条件必须读
+    # 完整请求文本（text 只是当前操作材料）；内容生成仍以当前操作材料为准。
+    # 识别只看 system 规则 + 当前操作材料：完整历史 messages 里可能带着更早阶段的
+    # 计划/scope，不能被误认成本阶段请求。
+    recognized = recognition_text(prompt, text)
+
+    if quality_revision_retry_invalid?(recognized, prompt) do
       invalid_quality_revision_result(text)
     else
       content =
-        if local_quality_revision_prompt?(text) do
+        if local_quality_revision_prompt?(recognized) do
           quality_revision_items(current_scope(prompt, text))
         else
-          creative_items_response(text)
+          creative_items_response(recognized, text)
         end
 
       native_tool_result(text, "submit_tentative_artifact", content)
@@ -679,6 +687,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     do: native_tool_result(text, "report_quality_findings", quality_evaluator_response(text))
 
   defp specialized_response_result(tool, text, _prompt), do: mission_result(tool, text)
+
+  # 2026-11-06 裁决 A：角色规则/输出协议进入 canonical system 前缀；识别条件 =
+  # system 前缀 + 当前操作材料（不含历史 messages 的旧阶段材料）。
+  defp recognition_text(%NovelAgent.Provider.RequestIR{} = ir, text) do
+    Projection.system_text(ir.system) <> "\n\n" <> text
+  end
+
+  defp recognition_text(_prompt, text), do: text
 
   defp current_scope(prompt, text) when is_map(prompt) or is_list(prompt),
     do: TestProviderPrompt.latest_scope(prompt) || text
@@ -2574,30 +2590,33 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     }
   ]
 
-  defp creative_items_response(prompt) do
-    {brief, context} = creative_prompt_parts(prompt)
+  # 2026-11-06 裁决 A：识别谓词（修订标题/输出契约等）读完整请求文本（system 规则 +
+  # 材料），brief/context 与生成仍以当前操作材料为准，避免历史材料污染本阶段。
+  defp creative_items_response(recognition, materials \\ nil) do
+    materials = materials || recognition
+    {brief, context} = creative_prompt_parts(materials)
 
-    if String.contains?(prompt, "artifact_type：prose_formatting_plan"),
-      do: formatting_plan_items(prompt, context),
-      else: creative_content_items(prompt, brief, context)
+    if String.contains?(recognition, "artifact_type：prose_formatting_plan"),
+      do: formatting_plan_items(materials, context),
+      else: creative_content_items(recognition, materials, brief, context)
   end
 
-  defp creative_content_items(prompt, brief, context) do
-    if local_quality_revision_prompt?(prompt) do
+  defp creative_content_items(recognition, materials, brief, context) do
+    if local_quality_revision_prompt?(recognition) do
       # B71 质量卡修订：只改 finding 命中的句段，范围外逐字节保留；不输出普通首稿。
-      quality_revision_items(prompt)
+      quality_revision_items(materials)
     else
-      creative_content_items_cond(prompt, brief, context)
+      creative_content_items_cond(recognition, materials, brief, context)
     end
   end
 
-  defp creative_content_items_cond(prompt, brief, context) do
+  defp creative_content_items_cond(recognition, materials, brief, context) do
     cond do
       # B28 CP1.5：章级修订任务（chapter-scoped）确定性产出覆盖顺序完整稿。
       # format_only：返回整章基线原文（允许的空白归一后等价）；content_revision：
       # 只落实作者原话里明确写出的“X 改成/改为/→ Y”，其余逐字保留。
-      chapter_revision_prompt?(prompt) ->
-        chapter_revision_items(prompt, brief, context)
+      chapter_revision_prompt?(recognition) ->
+        chapter_revision_items(recognition, brief, context)
 
       String.starts_with?(brief, "修订下面已有候选") ->
         original = context |> String.split("：\n", parts: 2) |> List.last()
@@ -2605,7 +2624,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
         [
           %{
-            item_id: "revision_#{:erlang.phash2(prompt)}",
+            item_id: "revision_#{:erlang.phash2(materials)}",
             title: "旧书铺修订稿",
             body: body,
             rationale: "按作者要求修改名字，原稿保留。"
@@ -2619,7 +2638,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
         [
           %{
-            item_id: "adopted_revision_#{:erlang.phash2(prompt)}",
+            item_id: "adopted_revision_#{:erlang.phash2(materials)}",
             title: "岑舟与青云宗 · 年龄修订稿",
             body: String.replace(original, "二十五岁", "三十岁"),
             rationale: "按作者要求把岑舟年龄从二十五岁改为三十岁，其他内容保持不变。"
@@ -2628,16 +2647,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
       # 章节计划（plot_outline -> outline_draft）确定性产出多章，让 plan-minimum 等 slice
       # 在离线 provider 下也能演练「生成结构化章节计划」。
-      outline_plan_prompt?(prompt) ->
+      outline_plan_prompt?(recognition) ->
         outline_chapter_items(brief, context)
 
       # AU-09：作者明确要多个角色候选（“两个/几个/候选/不同方向”）时确定性产出 2 条独立候选，
       # 让逐候选采纳 slice 在离线 provider 下也能演练；普通“设计一个角色”仍单条。
-      multi_character_candidate_prompt?(prompt, brief) ->
-        character_candidate_items(prompt, brief, context)
+      multi_character_candidate_prompt?(recognition, brief) ->
+        character_candidate_items(recognition, brief, context)
 
       # AU-09：角色演化记忆草稿（采纳后写角色记忆，非主档案）。
-      character_evolution_seed_prompt?(prompt) ->
+      character_evolution_seed_prompt?(recognition) ->
         [character_evolution_item(brief, context)]
 
       true ->
@@ -2647,13 +2666,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         item =
           %{
             item_id: "slice_item_#{fingerprint}_1",
-            title: creative_title(prompt, brief, fingerprint),
-            body: creative_body(prompt, brief, context),
-            rationale: creative_rationale(prompt, brief)
+            title: creative_title(recognition, brief, fingerprint),
+            body: creative_body(recognition, brief, context),
+            rationale: creative_rationale(recognition, brief)
           }
-          |> maybe_put_narrative_role(prompt, brief)
+          |> maybe_put_narrative_role(recognition, brief)
 
-        if prose_fragment_prompt?(prompt) do
+        if prose_fragment_prompt?(recognition) do
           %{
             items: [item],
             companion_artifacts: prose_companion_artifacts(brief, fingerprint),

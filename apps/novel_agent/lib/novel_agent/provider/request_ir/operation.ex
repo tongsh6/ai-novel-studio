@@ -18,7 +18,9 @@ defmodule NovelAgent.Provider.RequestIR.Operation do
           optional(:source_refs) => [map()],
           optional(:versions) => map(),
           optional(:author_text) => String.t() | nil,
-          optional(:projection) => map()
+          optional(:projection) => map(),
+          optional(:system_versions) => map(),
+          optional(:system_role) => String.t() | nil
         }
 
   @spec prepare(RequestIR.t() | nil, map() | nil, specification()) ::
@@ -35,32 +37,56 @@ defmodule NovelAgent.Provider.RequestIR.Operation do
   def prepare(_previous, _run, _spec), do: {:error, :invalid_authoring_operation}
 
   defp validate_spec(spec) do
-    text_valid? = Enum.all?([spec.role, spec.instructions, spec.scope], &(String.trim(&1) != ""))
-    author = Map.get(spec, :author_text)
-
-    if text_valid? and is_list(Map.get(spec, :source_refs, [])) and
-         is_map(Map.get(spec, :versions, %{})) and is_map(Map.get(spec, :projection, %{})) and
-         (is_nil(author) or is_binary(author)),
-       do: :ok,
-       else: {:error, :invalid_authoring_operation}
+    if valid_spec_texts?(spec) and valid_spec_optionals?(spec) do
+      :ok
+    else
+      {:error, :invalid_authoring_operation}
+    end
   end
+
+  defp valid_spec_texts?(spec) do
+    Enum.all?([spec.role, spec.instructions, spec.scope], &(String.trim(&1) != ""))
+  end
+
+  defp valid_spec_optionals?(spec) do
+    author = Map.get(spec, :author_text)
+    system_role = Map.get(spec, :system_role)
+
+    is_list(Map.get(spec, :source_refs, [])) and
+      Enum.all?([:versions, :projection, :system_versions], &is_map(Map.get(spec, &1, %{}))) and
+      optional_text?(author) and optional_text?(system_role)
+  end
+
+  defp optional_text?(value), do: is_nil(value) or is_binary(value)
 
   defp initial_ir(nil, run, spec) do
     run = RequestIR.run_envelope(run)
     refs = Map.get(spec, :source_refs, [])
+    versions = Map.get(spec, :system_versions, %{})
+
+    # VS-00L §3.2/§19.1（2026-11-06 裁决 A）：角色规则与输出协议进入稳定 system 前缀；
+    # application_base 只声明应用数据职责与来源边界。
+    system =
+      RequestIR.system_envelope(
+        instructions: spec.instructions,
+        run_role: Map.get(spec, :system_role) || spec.role,
+        constitution_version: system_version(versions, :constitution_version),
+        output_protocol_version: system_version(versions, :output_protocol_version),
+        output_schema_ref: system_version(versions, :output_schema_ref)
+      )
 
     base =
       RequestIR.message(
         :application_base,
         :application,
-        [RequestIR.text_block(spec.instructions)],
+        [RequestIR.text_block(RequestIR.application_base_text())],
         %{source_refs: refs}
       )
 
     ir =
       RequestIR.new(%{
         run: run,
-        system: RequestIR.system_envelope(),
+        system: system,
         messages: [base | author_messages(Map.get(spec, :author_text), run)],
         tools: [],
         projection: Map.merge(default_projection(), Map.get(spec, :projection, %{})),
@@ -140,6 +166,13 @@ defmodule NovelAgent.Provider.RequestIR.Operation do
       |> RequestIR.append_scope_update(scope, versions, refs)
 
     %{ir | refs: Map.update(ir.refs, :base_refs, refs, &Enum.uniq(&1 ++ refs))}
+  end
+
+  defp system_version(versions, key) when is_map(versions) do
+    case Map.get(versions, key) || Map.get(versions, to_string(key)) do
+      value when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
   end
 
   # canonical projection 只承载调用政策；wire 目标与能力事实由实际 adapter/route 决定。

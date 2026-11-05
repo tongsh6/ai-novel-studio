@@ -88,10 +88,8 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTaskTest do
     assert [%{name: "submit_tentative_artifact"}] = ir.tools
     assert Enum.any?(ir.messages, &(&1.source_refs != []))
 
-    text =
-      Enum.map_join(ir.messages, "\n", fn message ->
-        Enum.map_join(message.blocks, "", &Map.get(&1, :text, ""))
-      end)
+    # 2026-11-06 裁决 A：角色规则/输出协议在 canonical system 前缀，完整请求文本需含 system。
+    text = NovelAgent.TestProviderPrompt.text(ir)
 
     assert text =~ "## 创作协作共同规则"
     assert text =~ "本轮为首稿创作"

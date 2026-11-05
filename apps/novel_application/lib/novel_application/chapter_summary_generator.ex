@@ -52,11 +52,18 @@ defmodule NovelApplication.ChapterSummaryGenerator do
   # 独立文本操作没有 AgentRun：以真实操作 profile 与任务来源构造 canonical IR，
   # 材料作为 application_base 进入统一投影，不伪造 run/session 或作者消息。
   defp summary_request(%AuthoringTask{} = task, prose) do
+    {instructions, material} = build_prompt_parts(task, prose)
+
     RequestIR.text_operation(%{
       profile_ref: "chapter_summary",
-      text: build_prompt(task, prose),
+      text: material,
       source_refs: task.source_refs,
-      system: [run_role: "chapter_summary"]
+      system: [
+        run_role: "chapter_summary",
+        instructions: instructions,
+        constitution_version: NovelApplication.AuthoringTaskPolicy.version(),
+        output_protocol_version: AuthoringSemantics.version()
+      ]
     })
   end
 
@@ -78,7 +85,9 @@ defmodule NovelApplication.ChapterSummaryGenerator do
 
   defp handle_completion({:error, reason}), do: {:error, reason}
 
-  defp build_prompt(%AuthoringTask{} = task, prose) do
+  # 2026-11-06 裁决 A：角色规则/输出协议进入 canonical system 前缀；材料单独进
+  # application_base。两者拼起来仍是同一条文本任务（规则真源不变）。
+  defp build_prompt_parts(%AuthoringTask{} = task, prose) do
     labels = ChapterSummary.section_labels()
 
     sections_spec =
@@ -86,21 +95,28 @@ defmodule NovelApplication.ChapterSummaryGenerator do
         "【#{labels[key]}】<这一栏的内容>"
       end)
 
-    """
-    本次你承担连续性维护助手的角色。
+    instructions =
+      """
+      本次你承担连续性维护助手的角色。
 
-    #{AuthoringSemantics.render(task)}
+      #{AuthoringSemantics.render(task)}
 
-    ## 角色输出格式
-    严格按以下四栏输出，每栏一行，保留方括号标签；摘要不是全文，不要输出正文原句、
-    不要加额外说明。目标 200~400 字。
-    #{sections_spec}
+      ## 角色输出格式
+      严格按以下四栏输出，每栏一行，保留方括号标签；摘要不是全文，不要输出正文原句、
+      不要加额外说明。目标 200~400 字。
+      #{sections_spec}
+      """
+      |> String.trim()
 
-    ## 本次材料正文
-    已采纳正文：
-    #{prose}
-    """
-    |> String.trim()
+    material =
+      """
+      ## 本次材料正文
+      已采纳正文：
+      #{prose}
+      """
+      |> String.trim()
+
+    {instructions, material}
   end
 
   # 按四栏标签解析模型输出；部分栏缺失时保留已解析栏（render 时补「（无）」）。

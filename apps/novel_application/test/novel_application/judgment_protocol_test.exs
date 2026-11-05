@@ -3,6 +3,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.RequestIR
+  alias NovelAgent.Provider.RequestIR.Projection
   alias NovelAgent.Provider.Stub
   alias NovelAgent.Test.Provider.SliceVerify
 
@@ -2447,7 +2448,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
       application_base = Enum.find(ir.messages, &(&1.role == "application_base"))
       assert application_base
       assert application_base.provenance == "application"
-      assert message_text(application_base) =~ "## 决策与输出契约"
+
+      # 2026-11-06 裁决 A：角色规则/输出协议进入 canonical system 前缀，application_base
+      # 只声明应用数据职责与来源边界。
+      system_text = Projection.system_text(ir.system)
+      assert system_text =~ "## 决策与输出契约"
+      assert system_text =~ "本次你承担创作判断器的角色"
+      assert message_text(application_base) =~ "应用数据"
+      refute message_text(application_base) =~ "## 决策与输出契约"
       refute message_text(application_base) =~ input.context_block
       refute message_text(application_base) =~ "只读探索当前允许："
 

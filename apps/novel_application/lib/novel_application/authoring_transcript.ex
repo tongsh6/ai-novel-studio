@@ -124,6 +124,7 @@ defmodule NovelApplication.AuthoringTranscript do
   @canonical_keys ~w(
     run system messages tools base_refs observation_refs used_refs projection call_ids
     identity_ref instructions run_role finite_mode tool_choice
+    constitution_version output_protocol_version output_schema_ref
     native_multi_turn tool_calls tool_results streaming structured_output usage
     role provenance blocks source_refs versions ref version type text call_id name arguments
     schema_version status source_refs coverage omissions next_offset content reason_code detail
@@ -446,21 +447,34 @@ defmodule NovelApplication.AuthoringTranscript do
   end
 
   # 产品身份（SystemIdentity 真源）是运行时常量，不随 transcript/checkpoint 持久化；
-  # 持久化与恢复只保留 run 级角色规则（instructions/run_role）。
+  # 持久化与恢复只保留 run 级角色规则与版本引用（VS-00L §3.2/§4）。
+  @system_run_fields [
+    :instructions,
+    :run_role,
+    :constitution_version,
+    :output_protocol_version,
+    :output_schema_ref
+  ]
+
   defp system_run_rules(system) when is_map(system) do
-    Map.take(system, [:instructions, :run_role])
+    Map.take(system, @system_run_fields)
   end
 
   defp system_run_rules(_system), do: %{}
 
   defp system_envelope(system) when is_map(system) do
     RequestIR.system_envelope(
-      instructions: Map.get(system, :instructions) || Map.get(system, "instructions"),
-      run_role: Map.get(system, :run_role) || Map.get(system, "run_role")
+      instructions: system_field(system, :instructions),
+      run_role: system_field(system, :run_role),
+      constitution_version: system_field(system, :constitution_version),
+      output_protocol_version: system_field(system, :output_protocol_version),
+      output_schema_ref: system_field(system, :output_schema_ref)
     )
   end
 
   defp system_envelope(_system), do: RequestIR.system_envelope()
+
+  defp system_field(system, key), do: Map.get(system, key) || Map.get(system, to_string(key))
 
   defp refs_of(observation) do
     case Map.get(observation, :source_refs, []) do

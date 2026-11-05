@@ -43,23 +43,44 @@ defmodule NovelAgent.Provider.RequestIR.Projection do
   否则按 run_role 生成最小规则。IR 的 canonical messages 不插入 wire system 消息。
   """
   def system_text(system) when is_map(system) do
-    role_rules =
-      case Map.get(system, :instructions) do
-        text when is_binary(text) and text != "" ->
-          text
-
-        _ ->
-          role = Map.get(system, :run_role, "authoring_run")
-
-          "run_role: #{role}\n" <>
-            "你只能在作者授权边界内读取、计划、创作 tentative 候选、提问或报告缺口；" <>
-            "不存在采纳/写入 canon 的工具。"
-      end
-
-    SystemIdentity.content() <> "\n\n" <> role_rules
+    [SystemIdentity.content(), version_lines(system), role_rules(system)]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join("\n\n")
   end
 
   def system_text(_system), do: SystemIdentity.content()
+
+  # VS-00L §3.2/§4：宪法/输出协议版本引用进入稳定 system 前缀，值来自各自唯一真源。
+  defp version_lines(system) do
+    [
+      version_line("constitution_version", system),
+      version_line("output_protocol_version", system),
+      version_line("output_schema_ref", system)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  defp version_line(key, system) do
+    case Map.get(system, String.to_existing_atom(key)) do
+      value when is_binary(value) and value != "" -> "#{key}: #{value}"
+      _ -> nil
+    end
+  end
+
+  defp role_rules(system) do
+    case Map.get(system, :instructions) do
+      text when is_binary(text) and text != "" ->
+        text
+
+      _ ->
+        role = Map.get(system, :run_role, "authoring_run")
+
+        "run_role: #{role}\n" <>
+          "你只能在作者授权边界内读取、计划、创作 tentative 候选、提问或报告缺口；" <>
+          "不存在采纳/写入 canon 的工具。"
+    end
+  end
 
   @doc "拼接消息中的文本块（作者消息保持原字节；不插入分隔符）。"
   def text_of(blocks) when is_list(blocks) do
