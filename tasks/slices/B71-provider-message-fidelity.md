@@ -1101,3 +1101,14 @@
 - **实现**：`RequestIR.system_envelope/1` 扩展 `instructions`/`constitution_version`/`output_protocol_version`；投影 `system_text/1` 渲染「身份 + 版本行 + 规则」；`RequestIR.application_base_text/0` 提供统一应用声明；判断（`JudgmentProtocol`）、使命/计划（`AuthoringOperation` spec `system_versions`）、创作/评审（`Operation` 路径）与三个文本消费者（章摘要/设定盘点/工具结果叙述）均把规则移入 system；`AuthoringTranscript` 持久化 run 级规则与版本字段（不持久化身份）。
 - **验证**：agent 522/0、application 1349/0；编译/credo/xref/arch/module-size/format、I1/I2/I3/N-NARR/I-CACHE 复跑。
 - **边界**：真实模型行为（规则位置对遵循度/缓存收益的影响）未做对照实验，不代签；`output_schema_ref` 待有统一 schema 真源时再落地。
+
+### 依赖图下沉与测试 helper 迁移（裁决 4 C，待执行阶段计划）
+
+- **目标**：把 `RequestIR`/Provider 纯契约下沉到 `novel_common`，使 `novel_test` 可承载跨 app 通用测试 helper（`TestRequestIR`/`TestProviderPrompt`），消除 `novel_agent/test/support` 被 application 测试跨 app 引用。
+- **现状（2026-11-06 分析）**：`NovelAgent.Provider.RequestIR` 77 文件引用、`Projection` 31、`SystemIdentity` 13、`CapabilityProfile` 5、`Compaction` 3；`novel_test` 当前依赖 `novel_agent`（`ProviderHelpers` 无消费者，可删）；`TestRequestIR`/`TestProviderPrompt` 跨 app 引用约 145 处（agent 自身测试 100 处 + application 45 处）。
+- **阶段（每阶段独立 commit + 全量门禁）**：
+  1. 下沉 `RequestIR` 族（`RequestIR`、`SystemEnvelope`、`Projection` + 三 projector、`Compaction`、`SystemIdentity`、`CapabilityProfile`）到 `novel_common`；全仓引用改名；全量测试。
+  2. `novel_test` 去掉 `novel_agent` 依赖（删除无消费者的 `ProviderHelpers`）；`novel_agent`/`novel_application`/`novel_web` 测试依赖 `novel_test`；迁移 `TestRequestIR`/`TestProviderPrompt` 到 `novel_test` 并更新引用；`SliceVerify`/`Stub` 等 agent 行为替身保留（依赖 agent 内部实现，不迁）。
+  3. `scripts/arch_check.exs`/AGENTS 架构表更新、README/索引登记、最终门禁。
+- **验收**：application/web 测试不再直接引用 `novel_agent/test/support`（SliceVerify 等行为替身除外）；全量测试与全部门禁绿；`novel_test` 仍不依赖生产代码之外的 app（生产依赖保持 `novel_agent` 不反向依赖 `novel_test`）。
+- **状态**：方案与依赖分析已完成；属跨 app 架构级重构（模块移动 + ~150 处引用改名 + 多轮全量门禁），建议在独立会话/阶段执行，避免长会话半成品。
