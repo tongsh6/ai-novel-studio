@@ -24,6 +24,7 @@ defmodule NovelPersistence.Schemas.ProviderRunRecord do
     field(:model, :string)
     field(:owner_refs, :map)
     field(:metadata, :map)
+    field(:finite_mode_name, :string)
     field(:started_at, :utc_datetime_usec)
     field(:completed_at, :utc_datetime_usec)
 
@@ -44,6 +45,7 @@ defmodule NovelPersistence.Schemas.ProviderRunRecord do
     :model,
     :owner_refs,
     :metadata,
+    :finite_mode_name,
     :started_at,
     :completed_at
   ]

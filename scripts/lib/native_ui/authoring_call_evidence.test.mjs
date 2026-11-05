@@ -138,6 +138,12 @@ test("显式 pcall+prun 唯一配对时逐调用与 canonical 原文一致", () 
   assert.ok(!JSON.stringify(value.refs).includes("核对全章"));
 });
 
+test("无 finite_mode_name 的运行按完整模式计数，报告不改变既有判据", () => {
+  const value = result();
+  allPass(value);
+  assert.deepEqual(value.finite_modes, { restricted: [], complete_count: 1 });
+});
+
 test("同 parent 的另一 run 记录不得计入本 run；混入其 ProviderRun 行则 ownership 失败", () => {
   const foreign = exchange(9, {
     refs: { providerCallRef: "pcall-foreign", providerRunRef: "prun-foreign" },
@@ -698,21 +704,36 @@ test("只读 SQLite 先按 agent_run_id 读取，再由纯函数核对全部 own
     try {
       db.exec(
         "CREATE TABLE provider_runs (id TEXT PRIMARY KEY, provider_call_ref TEXT, agent_run_id TEXT, " +
-          "workspace_id TEXT, work_id TEXT, session_id TEXT, parent_turn_ref TEXT, status TEXT)",
+          "workspace_id TEXT, work_id TEXT, session_id TEXT, parent_turn_ref TEXT, status TEXT, " +
+          "finite_mode_name TEXT)",
       );
       db.prepare(
-        "INSERT INTO provider_runs (id, provider_call_ref, agent_run_id, workspace_id, work_id, session_id, parent_turn_ref, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      ).run("prun-1", "pcall-1", RUN, WORKSPACE, WORK, SESSION, PARENT, "completed");
+        "INSERT INTO provider_runs (id, provider_call_ref, agent_run_id, workspace_id, work_id, session_id, parent_turn_ref, status, finite_mode_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run("prun-1", "pcall-1", RUN, WORKSPACE, WORK, SESSION, PARENT, "completed", "standalone_operation");
       db.prepare(
-        "INSERT INTO provider_runs (id, provider_call_ref, agent_run_id, workspace_id, work_id, session_id, parent_turn_ref, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      ).run("prun-foreign", "pcall-foreign", "run-foreign", WORKSPACE, WORK, SESSION, PARENT, "completed");
+        "INSERT INTO provider_runs (id, provider_call_ref, agent_run_id, workspace_id, work_id, session_id, parent_turn_ref, status, finite_mode_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run("prun-foreign", "pcall-foreign", "run-foreign", WORKSPACE, WORK, SESSION, PARENT, "completed", null);
     } finally {
       db.close();
     }
 
     const rows = readProviderRuns(dir, scope());
     assert.deepEqual(rows.map((row) => row.id), ["prun-1"]);
-    allPass(joinNativeCallEvidence({ ...base(), providerRuns: rows }));
+    assert.equal(rows[0].finite_mode_name, "standalone_operation");
+    const joined = joinNativeCallEvidence({ ...base(), providerRuns: rows });
+    allPass(joined);
+
+    // VS-00L §6.4：验收读侧可报告受限模式；完整模式按缺省计数，不进入 PASS 判据。
+    assert.deepEqual(joined.finite_modes, {
+      restricted: [
+        {
+          provider_run_ref: "prun-1",
+          provider_call_ref: "pcall-1",
+          finite_mode_name: "standalone_operation",
+        },
+      ],
+      complete_count: 0,
+    });
 
     const db2 = new DatabaseSync(file);
     try {

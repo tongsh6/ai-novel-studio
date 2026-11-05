@@ -187,6 +187,13 @@ AuthoringRequestIR v1 = {
 
 有限模式必须写入 IR `projection.finite_mode`、trace 与验收报告；不得用有限模式冒充 CP3–CP4 的完整场景。
 
+**落点（2026-11-06 作者裁决 D）**：有限模式事实落在**持久执行事实**，而不是仅存在于 IR 私有内容：
+
+- `ProviderRun.metadata.finite_mode`：原样保存 IR 声明（`name`、`not_supported`、`durable_recovery`）；缺省 = 完整模式；
+- `provider_runs.finite_mode_name`：可查询/可索引的受限模式名（可空列，迁移 `20261106000001`；历史行不回填）；
+- 验收读侧（`authoring_call_evidence`）从持久行读取并报告 `finite_modes.restricted` / `complete_count`；**是否把「完整模式」设为 PASS 必要条件另行裁决**，旧证据不回溯；
+- `DecisionTrace` 记录裁决语义，不承载传输模式；有限模式经 ProviderRun 事实可达。`ProviderEvent` 事件层暂不加入该技术字段（`started` 事件当前 `visibility=:author`，改可见性或插事件会改变作者可见事件面与序列），留待 R2 统一流式/事件语义时以 developer 事件补充。
+
 ### 6.5 缓存、推理句柄与服务端历史
 
 - 稳定 system、工具 schema、Base 前缀可缓存；易变观察、作者输入、校验结果置后。
@@ -525,6 +532,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 | 作者可见 displayName 机制（2026-11-04，作者要求「分析后重构机制彻底解决」） | **P0+P1 完成并在真实页面验证**：SSOT `docs/design/schemas/author_visible/display_names.json`（13 domains）+ 双端 codegen（同 source_hash、`--check` 漂移校验、生成期未登记 code 失败）+ `AuthorVisible.Presenter/Registry` 唯一出口 + 前端 branded/literal union + 共享全类别扫描器（无收窄开关、无手写 token 列表双轨）+ AX 通用断言。P1-AX `01k2`/`02e2` clean PASS：真实 AX 全类别扫描 **hits=[]、internal_terms_zh_hits=[]**（12 文件），六中文术语与 `Stub/slice_verify/prose_writing/[stub]/request_ir` 零命中。净删除：5 张前端映射表 + 1 函数 + 4 copy 表 + 6 处手写 token 列表 + 迁移期开关（合计净 −112 行以上）。**未闭环**：低优先 a11y 重复读（`推理 推理`）与 driver 证据文本 `会话 0` 拼接（扫描器已不误报） |
 | 压缩自动维护 AX（§16.16） | **未闭环，纠正原失败归因**：smoke6 首次 ask_author 参数失败后已自行纠正，smoke6/7 回答后的 judgment 均 passed，随后失败源为应用 `pending_artifact_invalid/incomplete_scope`；smoke8 两次调用均 passed，第三次响应未采完时 harness 结束。更早回合完整交换按 canonical blocks 重算为 2/1/1，仍不足 K=4；不能由此断言模型无法构造。原始证据与独立复核见 B71 末节「A3b 失败归因纠正」 |
 | CP5 收口与全量静态扫描 | **主体完成**：B71 状态行/恢复指引/NEXT、§17 状态表、ADR-0033、§26、三处索引与事实台账已对齐（2026-11-03）；全量静态扫描 20 passed/1 failed（既有 gitleaks 5 项，touched=0、blocking=0）。最终收口随剩余项（§16.14 页面、行为覆盖、压缩前端、CP4b-2）完成后再补一次 |
+| **有限模式持久事实（2026-11-06 作者裁决 D）** | **已实现（待提交/门禁）**：`ProviderRun.metadata.finite_mode` + `provider_runs.finite_mode_name` 可空列（迁移 `20261106000001`）+ 验收读侧 `finite_modes` 报告；`DecisionTrace` 不扩展、事件层暂缓（理由见 §6.4 落点）。PASS 必要条件未启用，旧证据不回溯 |
 | **R1 请求边界与原生输入迁移（2026-11-04）** | **已实现（R1，已提交并通过确定性门禁）**：`RequestIR.prepare_request/2` 选本次工具与 tool_choice；Gateway 按实际 route 单次解析并派生能力；Chat/Anthropic/Responses 三类 adapter 直接消费原生投影；测试替身移出生产注册表；初始快照按 §19.2 构造。**剩余未闭环**：R1 独立验证与 R1 后全量门禁/I1–I3、真实 route/原生 body 回归、I-CACHE 独立输入、Responses SSE（R2）、G6/真实页面/实模、CP5。三个直接文本消费者已完成 IR 迁移（见 §16.6/§19.1）。**2026-11-04/05 确定性门禁已通过**：后端全量 3085/0、credo no issues、xref 无环、arch 通过、I1 4/4、I2 3 pairs/0 violations、I3 3/3、N-NARR、I-CACHE 4/4、前端 486 tests；未代签真实模型/真实页面/Responses SSE/G6/CP5 |
 
 ## 18. 变更记录（Accepted，2026-11-04）：显式压缩的自动维护触发（提案 2026-11-03）

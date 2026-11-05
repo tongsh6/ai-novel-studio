@@ -171,6 +171,30 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
       assert_receive {:adapter_ir, ^prepared, "inventory-model"}
       refute_receive {:route_state_resolved, _model}
     end
+
+    test "有限模式声明进入 ProviderRun metadata；完整模式不写键（VS-00L §6.4）" do
+      assert {:ok, ir} = operation_ir()
+      assert {:ok, prepared} = RequestIR.prepare_request(ir)
+
+      mode = %{name: "standalone_operation", durable_recovery: false}
+      finite = %{prepared | projection: Map.put(prepared.projection, :finite_mode, mode)}
+
+      assert {:ok, %{provider_run: run}} =
+               Gateway.execute(finite, nil, InferenceParams.new(),
+                 provider: :model_caps,
+                 purpose: :writer
+               )
+
+      assert run.metadata.finite_mode == mode
+
+      assert {:ok, %{provider_run: full_run}} =
+               Gateway.execute(prepared, nil, InferenceParams.new(),
+                 provider: :model_caps,
+                 purpose: :writer
+               )
+
+      refute Map.has_key?(full_run.metadata, :finite_mode)
+    end
   end
 
   describe "Gateway 到 HTTP 的原生 body 保真" do

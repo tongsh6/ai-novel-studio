@@ -234,7 +234,8 @@ defmodule NovelAgent.Provider.Gateway do
             owner_refs: owner_refs,
             event_sink: event_sink,
             cancellation_token: cancellation_token,
-            system_identity_ref: system_identity_ref
+            system_identity_ref: system_identity_ref,
+            finite_mode: Map.get(ir.projection, :finite_mode)
           })
 
         emit_provider_execution_result(provider_name, model_name, execution, started)

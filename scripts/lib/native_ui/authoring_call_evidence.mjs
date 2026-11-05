@@ -657,8 +657,21 @@ export function joinNativeCallEvidence(input) {
     });
   }
 
+  // VS-00L §6.4（2026-11-06 作者裁决 D）：有限模式进入持久事实后，验收读侧必须能
+  // 报告本次运行是否受限；这里只做可读报告，不改变既有 PASS 判据（PASS 必要条件
+  // 的启用留给后续批次单独裁决，旧证据不回溯）。
+  const finiteModes = runs.map((row) => ({
+    provider_run_ref: row.id,
+    provider_call_ref: row.provider_call_ref,
+    finite_mode_name: nonBlank(row.finite_mode_name) ? row.finite_mode_name : null,
+  }));
+
   return {
     records: scopedRecords,
+    finite_modes: {
+      restricted: finiteModes.filter((item) => item.finite_mode_name !== null),
+      complete_count: finiteModes.filter((item) => item.finite_mode_name === null).length,
+    },
     refs: {
       provider_run_refs: runs.map((row) => row.id),
       provider_call_refs: runs.map((row) => row.provider_call_ref),

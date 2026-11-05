@@ -332,6 +332,7 @@ defmodule NovelPersistence.ProviderRunLog do
       model: run.model,
       owner_refs: safe_map(run.owner_refs),
       metadata: safe_map(run.metadata),
+      finite_mode_name: finite_mode_name(run.metadata),
       started_at: parse_datetime(run.started_at),
       completed_at: parse_datetime(run.completed_at)
     }
@@ -396,6 +397,18 @@ defmodule NovelPersistence.ProviderRunLog do
   end
 
   defp identity_ref(_metadata), do: nil
+
+  # VS-00L §6.4：有限模式必须进入持久执行事实。完整声明仍在 metadata.finite_mode；
+  # 这里提取可索引的 name 列，供查询与验收读侧消费（缺省 = 完整模式）。
+  defp finite_mode_name(metadata) when is_map(metadata) do
+    case Map.get(metadata, :finite_mode) || Map.get(metadata, "finite_mode") do
+      %{} = mode -> Map.get(mode, :name) || Map.get(mode, "name")
+      name when is_binary(name) -> name
+      _other -> nil
+    end
+  end
+
+  defp finite_mode_name(_metadata), do: nil
 
   defp event_summary(%ProviderEventRecord{} = event) do
     %{
@@ -516,6 +529,7 @@ defmodule NovelPersistence.ProviderRunLog do
 
   defp safe_map(_), do: %{}
 
+  defp safe_value(value) when is_boolean(value), do: value
   defp safe_value(value) when is_map(value), do: safe_map(value)
   defp safe_value(values) when is_list(values), do: Enum.map(values, &safe_value/1)
   defp safe_value(value) when is_atom(value), do: Atom.to_string(value)

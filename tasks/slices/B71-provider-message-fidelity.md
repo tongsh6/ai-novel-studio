@@ -1086,3 +1086,11 @@
 - **实现**：`AnthropicMessages.project/2` 改为 1:1 投影并删除 `merge_adjacent_roles/1`；`request_ir_test` 的 G7 对三投影统一使用严格前缀断言，并新增「连续 user 保留独立条目 + 作者独立消息字节不变 + 追加 scope 为新条目」专项测试；`anthropic_test` 与 `native_boundary_r1_test` 的合并形态断言改为 1:1 形态；VS-00L §6.2 登记「客户端不合并相邻 role」。
 - **验证**：`mix compile --warnings-as-errors`、全量后端测试、credo/xref/arch/module-size、`mix format`；不变量 I3/I1/I2/N-NARR/I-CACHE 复跑。真实 Anthropic 请求的服务端合并/缓存行为仍为**待实模验证**（当前无凭证窗口，不代签）。
 - **未闭环**：I-CACHE driver 的固定序列化仍只度量 Chat Completions 投影；Anthropic/Responses 的严格前缀由 G7 投影测试覆盖，I-CACHE 多投影扩展随 R2/实模验收处理。
+
+### 有限模式持久事实（2026-11-06 作者裁决 D）
+
+- **裁决**：作者 2026-11-06 选择 **D**——有限模式写入 `ProviderRun.metadata.finite_mode`，并新增 `provider_runs.finite_mode_name` 可查询独立列；验收读侧报告受限模式。**不**扩展 `DecisionTrace`。
+- **依据**：VS-00L §6.4「有限模式必须写入 IR `projection.finite_mode`、trace 与验收报告；不得用有限模式冒充 CP3–CP4 的完整场景」。此前 `finite_mode` 只存在于 IR 私有内容与内存判门，`ProviderRun.metadata` 只写 `system_identity_ref`/`tool_constancy`，验收读侧不读该事实。
+- **实现**：Gateway 把 `ir.projection.finite_mode` 传入执行 ctx；`AdapterExecution.run_metadata/1` 在非 nil 时写入 `finite_mode`（完整模式不写键）；`ProviderRunLog` 提取 `finite_mode_name` 列（迁移 `20261106000001`，可空 + 索引）并落 `metadata.finite_mode`；`safe_value/1` 保留 boolean（修复 `false → "false"` 失真）；`authoring_call_evidence` 返回 `finite_modes.restricted`/`complete_count` 报告（**不改变既有 PASS 判据**）。
+- **验证**：新增 persistence 2 例（落列 + metadata + boolean 保真 / 无有限模式不写列）、agent 1 例（Gateway IR → run.metadata，完整模式不写键）、Node 读侧 2 例；`mix compile --warnings-as-errors`、全量后端、credo/xref/arch/module-size/format、I1/I2/I3/N-NARR/I-CACHE 复跑。
+- **边界**：`ProviderEvent` 事件层暂不加入该字段（`started` 事件 `visibility=:author`，加字段或插事件会改变作者可见事件面与序列）；「完整模式 = PASS 必要条件」未启用，待后续批次单独裁决、旧证据不回溯。

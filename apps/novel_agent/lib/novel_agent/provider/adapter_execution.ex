@@ -31,6 +31,7 @@ defmodule NovelAgent.Provider.AdapterExecution do
           optional(:cancellation_token) => CancellationToken.t() | nil,
           optional(:event_sink) => (execution_result() -> term()) | nil,
           optional(:system_identity_ref) => map() | nil,
+          optional(:finite_mode) => map() | nil,
           optional(:timeout_policy) => TimeoutPolicy.t() | nil
         }
 
@@ -381,13 +382,24 @@ defmodule NovelAgent.Provider.AdapterExecution do
   end
 
   defp run_metadata(ctx) do
-    metadata = identity_metadata(ctx)
+    metadata =
+      ctx
+      |> identity_metadata()
+      |> put_finite_mode(Map.get(ctx, :finite_mode))
 
     case Map.get(ctx, :tool_constancy) do
       :degraded -> Map.put(metadata, :tool_constancy, :degraded)
       _ -> metadata
     end
   end
+
+  # VS-00L §6.4（2026-11-06 作者裁决 D）：有限模式是显式声明，必须进入持久执行事实
+  # （ProviderRun.metadata，并由 ProviderRunLog 提取 finite_mode_name 列）。
+  # 完整模式（缺省）不写键，读侧以缺省判定完整。
+  defp put_finite_mode(metadata, mode) when is_map(mode),
+    do: Map.put(metadata, :finite_mode, mode)
+
+  defp put_finite_mode(metadata, _mode), do: metadata
 
   defp success_events!(ctx, %Result{} = result, initial_count) do
     usage = Usage.to_map(result.usage)
