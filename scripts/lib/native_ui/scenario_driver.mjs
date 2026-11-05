@@ -39,6 +39,14 @@ export const frameOf = (record) =>
   Array.isArray(record?.frame) && record.frame.length >= 5 ? record.frame : null;
 export const frameEvent = (record) => frameOf(record)?.[3] ?? null;
 export const frameBody = (record) => frameOf(record)?.[4] ?? null;
+// 产品 turn_result 的 turn_id 可能是发送 turn 的后续 steer 步（`<turn>:steer:N`）；
+// 驱动按「同一 turn 的后续步」匹配，不能要求与发送 turn 逐字相等。
+export const turnIdMatches = (actual, expected) =>
+  typeof actual === "string" &&
+  typeof expected === "string" &&
+  expected !== "" &&
+  (actual === expected || actual.startsWith(`${expected}:`));
+
 export const lastIndexWhere = (nodes, predicate) => {
   for (let index = nodes.length - 1; index >= 0; index -= 1) {
     if (predicate(nodes[index])) return index;
@@ -424,7 +432,7 @@ export class NativeScenarioHarness {
           entry.frame[1] === messageRecord.frame[1] &&
           frameEvent(entry) === "phx_reply" &&
           frameBody(entry)?.status === "ok" &&
-          frameBody(entry)?.response?.turn_id === turnId,
+          turnIdMatches(frameBody(entry)?.response?.turn_id, turnId),
       ) ?? null
     );
   }

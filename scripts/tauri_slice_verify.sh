@@ -535,8 +535,12 @@ APP_LOG_DIR="$ARTIFACT_DIR/app-log"
 LLM_LOG_DIR="$ARTIFACT_DIR/llm-calls"
 TAURI_SLICE_HOME="$ARTIFACT_DIR/tauri-home"
 if [[ "$NATIVE_SYSTEM_DRIVER" != "1" ]]; then rm -rf "$ARTIFACT_DIR"; fi
-mkdir -p "$APP_LOG_DIR" "$LLM_LOG_DIR" "$TAURI_SLICE_HOME"
-if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then mkdir -p "$NOVEL_TEST_DB_DIR"; fi
+# 普通页面批次同样使用固定测试库：默认库名带 mix 进程 token，若不固定，
+# reset_test_db/seed/后端会各自落到不同库，seed 因缺表失败（2026-11-06 修复）。
+if [[ "$NATIVE_SYSTEM_DRIVER" != "1" ]]; then
+  export NOVEL_TEST_DB_DIR="$ARTIFACT_DIR/database"
+fi
+mkdir -p "$APP_LOG_DIR" "$LLM_LOG_DIR" "$TAURI_SLICE_HOME" "$NOVEL_TEST_DB_DIR"
 
 run_capability_command() {
   local label="$1"

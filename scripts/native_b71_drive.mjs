@@ -8,6 +8,7 @@ import {
   frameBody,
   frameEvent,
   runEvidenceMode,
+  turnIdMatches,
 } from "./lib/native_ui/scenario_driver.mjs";
 import { broadcastFrames, frameOf } from "./lib/native_ui/scenario_evidence.mjs";
 import {
@@ -60,7 +61,7 @@ async function run() {
           (entry) =>
             entry.direction === "received" &&
             frameEvent(entry) === "turn_result" &&
-            String(frameBody(entry)?.turn_id ?? "") === turnId,
+            turnIdMatches(String(frameBody(entry)?.turn_id ?? ""), turnId),
         ) ?? null,
       90_000,
       "b71:turn_result",

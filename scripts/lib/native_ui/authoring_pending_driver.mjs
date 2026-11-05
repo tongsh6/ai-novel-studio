@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { frameBody, frameEvent, frameOf } from "./scenario_driver.mjs";
 import { broadcastFrames } from "./scenario_evidence.mjs";
+import { turnIdMatches } from "./scenario_driver.mjs";
 import {
   actionAck,
   actionFrame,
@@ -53,7 +54,7 @@ function sameMessageScope(body, identity) {
 function sameTurnIdentity(body, identity) {
   return (
     sameMessageScope(body, identity) &&
-    body?.turn_id === identity.turnId &&
+    turnIdMatches(body?.turn_id, identity.turnId) &&
     body?.agent_run?.run_id === identity.runId &&
     body?.agent_run?.parent_turn_ref === identity.turnId
   );
