@@ -24,11 +24,11 @@ defmodule NovelAgent.Provider.Gateway do
 
   alias NovelAgent.Provider
   alias NovelAgent.Provider.AdapterExecution
-  alias NovelAgent.Provider.CapabilityProfile
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.RuntimeConfig
   alias NovelAgent.Provider.TimeoutPolicy
+  alias NovelCommon.CapabilityProfile
   alias NovelCommon.Contracts.ProviderEvent
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelCommon.Contracts.ProviderRun

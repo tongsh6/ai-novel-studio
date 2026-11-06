@@ -4,10 +4,10 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
 
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.InferenceParams
-  alias NovelAgent.Provider.Projection
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.JudgmentProtocol
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Projection
 
   @author_a "接着第02章往下写一段正文"
   @author_b "把第02章写得更紧凑些"
@@ -28,9 +28,9 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     @behaviour NovelAgent.Provider
 
     alias NovelAgent.Provider.AdapterExecution
-    alias NovelAgent.Provider.Projection
     alias NovelAgent.Provider.Result
     alias NovelCommon.RequestIR
+    alias NovelCommon.RequestIR.Projection
 
     defstruct []
 

@@ -1,4 +1,4 @@
-defmodule NovelAgent.Provider.Projection.ResponsesAPI do
+defmodule NovelCommon.RequestIR.Projection.ResponsesAPI do
   @moduledoc """
   B71 CP2：Request IR → Responses API body 投影（VS-00L §6.3）。
 
@@ -8,9 +8,9 @@ defmodule NovelAgent.Provider.Projection.ResponsesAPI do
   - `previous_response_id` 只作优化，不进入本地 IR 事实源
   """
 
-  alias NovelAgent.Provider.Projection
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Compaction
+  alias NovelCommon.RequestIR.Projection
 
   @spec project(struct(), keyword()) :: map()
   def project(ir, _opts \\ []) do

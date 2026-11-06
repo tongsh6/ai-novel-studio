@@ -9,7 +9,6 @@ defmodule NovelAgent.Provider do
   """
 
   alias NovelAgent.Provider.AdapterExecution
-  alias NovelAgent.Provider.CapabilityProfile
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Result
   alias NovelCommon.RequestIR
@@ -96,21 +95,6 @@ defmodule NovelAgent.Provider do
   @callback projection_target(state :: term()) :: String.t()
 
   @optional_callbacks list_models: 1, execute: 5, capabilities: 1, projection_target: 1
-
-  @doc """
-  把请求构造失败 reason 转为作者安全的可读文案。
-
-  只输出中文能力名，不回显内部 capability atom、prompt 内容或私有状态；
-  调用方（判断/创作/评审）用它生成作者可见失败原因。
-  """
-  @spec rejection_message(term()) :: String.t()
-  def rejection_message({:unsupported_capability, missing}) when is_list(missing) do
-    "当前模型缺少完整创作运行所需的传输能力（" <>
-      CapabilityProfile.labels(missing) <>
-      "），已拒绝本次请求；没有降级为静默丢弃字段的运行。"
-  end
-
-  def rejection_message(_reason), do: "本次请求无法构造为可用的模型请求，已拒绝。"
 
   @spec extract_openai_tool_calls(map()) :: [tool_call()]
   def extract_openai_tool_calls(%{"tool_calls" => calls}) when is_list(calls) do

@@ -1,10 +1,10 @@
-defmodule NovelAgent.Provider.CapabilityProfile do
+defmodule NovelCommon.CapabilityProfile do
   @moduledoc """
   Provider 传输能力事实（VS-00L §6.4 / §10；ADR-0033 §2.6）。
 
   本模块是「一次请求实际具备哪些传输能力」的唯一派生边界：
 
-  - 事实来源是 adapter 自身声明的可证能力（`c:NovelAgent.Provider.capabilities/1`），
+  - 事实来源是 adapter 自身声明的可证能力（Provider behaviour 的 `capabilities/1`），
     按实际选定 route（provider + state/model）派生；provider descriptor 只描述
     配置/UI 属性，不能代替传输能力。
   - 未声明或声明为假的能力一律视为不可证，不默认置 true（禁止假声明）。

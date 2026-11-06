@@ -1,6 +1,6 @@
 defmodule NovelApplication.AgentRunRuntimeTest do
   use ExUnit.Case, async: false
-  alias NovelAgent.Provider.Projection
+  alias NovelCommon.RequestIR.Projection
 
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox

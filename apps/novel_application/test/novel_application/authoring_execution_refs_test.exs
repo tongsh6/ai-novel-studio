@@ -1,11 +1,11 @@
 defmodule NovelApplication.AuthoringExecutionRefsTest do
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.Projection
   alias NovelAgent.Provider.Result
   alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringTranscript
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Projection
   alias NovelPersistence.Schemas.AgentRunRecord
 
   @author_text "作者原话：保留 provider_call_ref 字样。"

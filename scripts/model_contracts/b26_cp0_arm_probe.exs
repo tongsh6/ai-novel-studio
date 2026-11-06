@@ -27,7 +27,7 @@
 
 alias NovelAgent.Provider.{Execution, Result}
 alias NovelCommon.RequestIR
-alias NovelAgent.Provider.Projection
+alias NovelCommon.RequestIR.Projection
 alias NovelApplication.JudgmentProtocol
 
 defmodule ModelContracts.B26Cp0ArmProbe do

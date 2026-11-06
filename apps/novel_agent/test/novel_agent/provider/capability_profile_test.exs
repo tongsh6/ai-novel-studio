@@ -1,12 +1,12 @@
-defmodule NovelAgent.Provider.CapabilityProfileTest do
+defmodule NovelCommon.CapabilityProfileTest do
   use ExUnit.Case, async: false
 
   alias NovelAgent.Provider.Anthropic
-  alias NovelAgent.Provider.CapabilityProfile
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.RuntimeConfig
+  alias NovelCommon.CapabilityProfile
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Operation
 

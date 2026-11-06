@@ -13,6 +13,7 @@ defmodule NovelCommon.RequestIR do
 
   @ir_version "authoring-request-ir/v1"
 
+  alias NovelCommon.CapabilityProfile
   alias NovelCommon.RequestIR.Compaction
   alias NovelCommon.RequestIR.SystemEnvelope
 
@@ -893,4 +894,19 @@ defmodule NovelCommon.RequestIR do
       {:error, {:unknown_tool_names, unknown}}
     end
   end
+
+  @doc """
+  把请求构造失败 reason 转为作者安全的可读文案。
+
+  只输出中文能力名，不回显内部 capability atom、prompt 内容或私有状态；
+  调用方（判断/创作/评审）用它生成作者可见失败原因。
+  """
+  @spec rejection_message(term()) :: String.t()
+  def rejection_message({:unsupported_capability, missing}) when is_list(missing) do
+    "当前模型缺少完整创作运行所需的传输能力（" <>
+      CapabilityProfile.labels(missing) <>
+      "），已拒绝本次请求；没有降级为静默丢弃字段的运行。"
+  end
+
+  def rejection_message(_reason), do: "本次请求无法构造为可用的模型请求，已拒绝。"
 end

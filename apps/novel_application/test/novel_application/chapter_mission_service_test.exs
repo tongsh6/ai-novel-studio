@@ -2,10 +2,10 @@ defmodule NovelApplication.ChapterMissionServiceTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.Projection
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.ChapterMissionService
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Projection
   alias NovelDomain.ChapterMission
   alias NovelDomain.ChapterMissionInputs
 

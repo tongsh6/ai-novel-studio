@@ -6,10 +6,10 @@ defmodule NovelAgent.TestSupport.AuthoringTaskFixtures do
   """
 
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.Projection
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Projection
 
   def provider_execution(result_fn, tool_name) do
     %Execution{

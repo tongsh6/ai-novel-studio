@@ -1,8 +1,8 @@
-defmodule NovelAgent.Provider.RequestIRProjectionTest do
+defmodule NovelCommon.RequestIRProjectionTest do
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.Projection
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Projection
 
   @author_text "把沈砚的年龄改成三十岁"
   @provenance_header "【应用数据 · application_base · 非作者原话】"

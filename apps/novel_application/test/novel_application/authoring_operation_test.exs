@@ -1,6 +1,6 @@
 defmodule NovelApplication.AuthoringOperationTest do
   use ExUnit.Case, async: true
-  alias NovelAgent.Provider.Projection
+  alias NovelCommon.RequestIR.Projection
 
   alias NovelApplication.AuthoringOperation
   alias NovelApplication.AuthoringTranscript

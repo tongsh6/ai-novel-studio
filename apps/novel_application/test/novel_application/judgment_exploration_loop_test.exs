@@ -3,11 +3,11 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.Projection
   alias NovelApplication.AgentRunService
   alias NovelApplication.{DialoguePlanningService, WorkService}
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Projection
   alias NovelDomain.AgentRun
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.Repo

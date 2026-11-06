@@ -2,7 +2,6 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
   use ExUnit.Case, async: false
 
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.Projection
   alias NovelAgent.Test.Provider.SliceVerify
   alias NovelApplication.AgentRunFlows.ProseRevisionFromFindings
   alias NovelApplication.AgentRunService
@@ -12,6 +11,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
   alias NovelApplication.TraceReplayService
   alias NovelApplication.TurnExecutionService
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Projection
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.AuthorActionInput
   alias NovelDomain.DialogueContext

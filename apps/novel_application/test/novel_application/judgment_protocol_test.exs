@@ -2,10 +2,10 @@ defmodule NovelApplication.JudgmentProtocolTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.Projection
   alias NovelAgent.Provider.Stub
   alias NovelAgent.Test.Provider.SliceVerify
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Projection
 
   alias NovelApplication.{
     AgentNarrativeSource,

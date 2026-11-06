@@ -1,4 +1,4 @@
-defmodule NovelAgent.Provider.Projection.AnthropicMessages do
+defmodule NovelCommon.RequestIR.Projection.AnthropicMessages do
   @moduledoc """
   B71 CP2：Request IR → Anthropic Messages body 投影（VS-00L §6.2）。
 
@@ -7,9 +7,9 @@ defmodule NovelAgent.Provider.Projection.AnthropicMessages do
   - observation/validation → `tool_result` content blocks（tool_use_id 关联）
   """
 
-  alias NovelAgent.Provider.Projection
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Compaction
+  alias NovelCommon.RequestIR.Projection
 
   @spec project(struct(), keyword()) :: map() | {:error, term()}
   def project(ir, _opts \\ []) do

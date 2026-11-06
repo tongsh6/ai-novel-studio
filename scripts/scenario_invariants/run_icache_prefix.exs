@@ -17,7 +17,7 @@ defmodule ICachePrefixDriver do
 
   alias NovelAgent.Provider.Gateway
   alias NovelCommon.RequestIR
-  alias NovelAgent.Provider.Projection
+  alias NovelCommon.RequestIR.Projection
 
   alias NovelAgent.CreativeProvider.Real
   alias NovelAgent.Provider.Execution
@@ -46,7 +46,7 @@ defmodule ICachePrefixDriver do
 
     alias NovelAgent.Provider.{AdapterExecution, Result}
     alias NovelCommon.RequestIR
-    alias NovelAgent.Provider.Projection
+    alias NovelCommon.RequestIR.Projection
 
     defstruct []
 

@@ -1,4 +1,4 @@
-defmodule NovelAgent.Provider.Projection do
+defmodule NovelCommon.RequestIR.Projection do
   @moduledoc """
   B71 CP2：Request IR v1 → Provider HTTP body 的投影入口（VS-00L §6）。
 
@@ -13,9 +13,9 @@ defmodule NovelAgent.Provider.Projection do
   alias NovelCommon.RequestIR.SystemEnvelope
 
   @targets %{
-    "chat_completions" => NovelAgent.Provider.Projection.ChatCompletions,
-    "anthropic_messages" => NovelAgent.Provider.Projection.AnthropicMessages,
-    "responses_api" => NovelAgent.Provider.Projection.ResponsesAPI
+    "chat_completions" => NovelCommon.RequestIR.Projection.ChatCompletions,
+    "anthropic_messages" => NovelCommon.RequestIR.Projection.AnthropicMessages,
+    "responses_api" => NovelCommon.RequestIR.Projection.ResponsesAPI
   }
 
   @doc """

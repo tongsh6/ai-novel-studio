@@ -3,7 +3,6 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
 
   alias NovelAgent.AuthorizedToolExecutor
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.Projection
   alias NovelApplication.AgentRunFlows.AuthoringSession
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.TurnExecutionService
@@ -11,6 +10,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Projection
   alias NovelDomain.AgentRun
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame

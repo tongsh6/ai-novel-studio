@@ -93,7 +93,7 @@ defmodule NovelAgent.ProseQualityEvaluator do
       {:error, reason} ->
         {QualityEvaluationResult.error(%{
            code: "invalid_request_ir",
-           message: NovelAgent.Provider.rejection_message(reason)
+           message: RequestIR.rejection_message(reason)
          }), %{}}
 
       _ ->
@@ -184,7 +184,7 @@ defmodule NovelAgent.ProseQualityEvaluator do
     do:
       QualityEvaluationResult.error(%{
         code: "invalid_request_ir",
-        message: NovelAgent.Provider.rejection_message(reason)
+        message: RequestIR.rejection_message(reason)
       })
 
   defp exchange_error(code, reason),

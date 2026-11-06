@@ -73,8 +73,8 @@ defmodule NovelAgent.Provider.GatewayTest do
     def name, do: "capturing"
   end
 
-  alias NovelAgent.Provider.Projection
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Projection
   alias NovelTest.TestProviderPrompt
   alias NovelTest.TestRequestIR
 
