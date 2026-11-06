@@ -46,10 +46,53 @@ defmodule ArchCheck do
     ~r/NovelAgent\.(?:Turn|Router|Executor|Registry|Memory|Provider)\./,
   ]
 
+  @common_forbidden [
+    # novel_common 是跨 app 纯契约/纯规则层（B27 CP3 边界）：只依赖 novel_foundation，
+    # 不得引用其他生产 app 或测试辅助 app 的模块。文档/注释也不写具体模块名，
+    # 用「Provider 执行边界」这类文字描述。
+    ~r/Novel(?:Agent|Application|Domain|Persistence|Web|Test|E2E)\.[A-Z]/,
+  ]
+
+  @test_helper_forbidden [
+    # novel_test 只承载跨 app 测试 helper（NovelTest.TestRequestIR/TestProviderPrompt）：
+    # 不得依赖任何生产运行时 app，避免 helper 反向拉入运行时。
+    ~r/Novel(?:Agent|Application|Domain|Persistence|Web|E2E)\.[A-Z]/,
+  ]
+
+  # 生产 lib 不得引用测试 helper app（AGENTS.md「novel_test 不被生产代码依赖」）。
+  @prod_lib_forbidden [
+    ~r/NovelTest\.[A-Z]/,
+  ]
+
+  # 跨 app 测试引用 novel_agent test/support 行为替身的白名单：替身依赖 agent 运行时
+  # 实现，不能迁 novel_test（会形成 compile 环），只允许已登记的精确模块，禁止扩散。
+  # 依据 AGENTS.md 场景化验收红线：替身只位于 test/support，且只能测试/脚本环境显式注入。
+  @cross_app_test_support %{
+    "novel_application" => [
+      "NovelAgent.Test.Provider.SliceVerify",
+      "NovelAgent.Provider.Stub"
+    ],
+    "novel_web" => ["NovelAgent.Provider.Stub"],
+    "novel_e2e" => []
+  }
+
+  @test_support_markers [
+    "NovelAgent.Test.Provider.SliceVerify",
+    "NovelAgent.Provider.StubChapterSummary",
+    "NovelAgent.Provider.Stub",
+    "NovelAgent.Provider.PendingDialogueInput",
+    "NovelAgent.Test.Support.",
+    "NovelAgent.Test.WireToolFacts",
+    "NovelAgent.TestProviderPrompt",
+    "NovelAgent.TestRequestIR"
+  ]
+
   @app_rules %{
     "novel_foundation" => @foundation_forbidden,
     "novel_domain" => @domain_forbidden,
     "novel_agent" => @agent_forbidden,
+    "novel_common" => @common_forbidden,
+    "novel_test" => @test_helper_forbidden,
     "novel_web" => @web_forbidden,
   }
 
@@ -123,7 +166,58 @@ defmodule ArchCheck do
         []
       end
 
-    errors = errors ++ cycle_errors ++ e2e_errors
+    # ── 生产 lib 不得引用测试 helper app ──
+    prod_test_helper_errors =
+      Path.wildcard("apps/*")
+      |> Enum.reject(&(&1 == "apps/novel_test"))
+      |> Enum.flat_map(fn app_dir ->
+        app = Path.basename(app_dir)
+
+        Enum.flat_map(Path.wildcard("#{app_dir}/lib/**/*.ex"), fn file ->
+          content = File.read!(file)
+
+          Enum.flat_map(@prod_lib_forbidden, fn rule ->
+            if Regex.match?(rule, content) do
+              ["[#{app}] #{file}: 生产代码禁止引用测试 helper #{inspect(rule)}"]
+            else
+              []
+            end
+          end)
+        end)
+      end)
+
+    # ── 跨 app 测试引用 novel_agent test/support 行为替身：只允许白名单 ──
+    cross_app_test_errors =
+      Enum.flat_map(@cross_app_test_support, fn {app, allowed} ->
+        app_dir = "apps/#{app}/test"
+
+        if File.dir?(app_dir) do
+          allowed_patterns =
+            allowed
+            |> Enum.map(fn marker -> Regex.compile!("\\b" <> Regex.escape(marker) <> "\\b") end)
+
+          Enum.flat_map(Path.wildcard("#{app_dir}/**/*.exs"), fn file ->
+            content = File.read!(file)
+
+            Enum.flat_map(@test_support_markers, fn marker ->
+              pattern = Regex.compile!("\\b" <> Regex.escape(marker) <> "\\b")
+
+              if Regex.match?(pattern, content) and
+                   not Enum.any?(allowed_patterns, &Regex.match?(&1, content)) do
+                [
+                  "[#{app}] #{file}: 跨 app 引用未登记的 agent test/support 模块 #{marker}"
+                ]
+              else
+                []
+              end
+            end)
+          end)
+        else
+          []
+        end
+      end)
+
+    errors = errors ++ cycle_errors ++ e2e_errors ++ prod_test_helper_errors ++ cross_app_test_errors
 
     if errors == [] do
       IO.puts("✅ 架构检查通过")

@@ -90,6 +90,8 @@ AuthorInput
 | `novel_application` | DialogueContext 组装、Prompt 构建、执行裁决、采纳边界编排、TurnResult 组装、trace 协调 | 引用 `NovelWeb`，把领域规则写成 I/O 副作用 |
 | `novel_persistence` | Repo、DB schema、migration、repository、read model、trace store | 引用 `NovelWeb` / `NovelApplication` / `NovelAgent` |
 | `novel_web` | Router、Controller、Channel、JSON 序列化、ActionInput 入口适配 | 直接调用 Repo、直接写 Ecto.Query、直接调用 `NovelAgent` 内部模块 |
+| `novel_common` | 跨 app 纯契约/规则：DTO 与校验、canonical Request IR 契约族、产品身份事实、规则文本、作者可见文本形状、可观测性协议 | 运行状态与进程、I/O、Ecto/Phoenix/HTTP、引用其他生产 app 或测试 helper |
+| `novel_test` | 跨 app 测试 helper（请求材料只读解析、canonical IR 夹具），仅 `:test` 环境 | 被生产 lib 引用、依赖生产运行时 app、注册运行时 provider |
 | `frontend` | Workbench 展示、TurnResultViewModel 消费、AuthorActionInput 提交 | 发明 action、修改 BehaviorState、调用 toolbox、把草稿当正式事实 |
 
 ### 4.2 允许穿过的边界
@@ -99,16 +101,19 @@ v3 slice 可以切过多个 app，但只能按以下方向推进：
 ```text
 frontend / novel_web
 → novel_application
-→ novel_agent
+→ {novel_agent, novel_domain, novel_persistence, novel_common}
 → novel_foundation
 
-novel_application
-→ novel_domain
-→ novel_foundation
+novel_agent
+→ {novel_common, novel_foundation}
 
-novel_application
-→ novel_persistence
-→ {novel_domain, novel_foundation}
+novel_persistence
+→ {novel_domain, novel_common, novel_foundation}
+
+# 测试支撑（仅 :test 环境）
+novel_agent / novel_application / novel_web / novel_e2e
+→ novel_test
+→ novel_common
 ```
 
 说明：
@@ -118,8 +123,31 @@ novel_application
 - `novel_agent` 可以执行 provider / toolbox，但不能理解小说领域对象的权威语义。
 - `novel_domain` 只表达规则，不做调用。
 - `novel_persistence` 保存事实和读模型，不反向调用 application。
+- `novel_common` 是跨 app 纯契约/规则层：只依赖 `novel_foundation`；`RequestIR` 契约族
+  （数据/校验/构造）在此，wire 投影（`NovelAgent.Provider.Projection`）与能力事实
+  （`NovelAgent.Provider.CapabilityProfile`）留在 `novel_agent` 执行边界（VS-00L §19）。
+- `novel_test` 只承载不依赖运行时实现的 helper；依赖 agent 运行时实现的测试替身
+  （`Stub`/`SliceVerify`）留在 `novel_agent/test/support`，跨 app 引用面由 arch_check
+  白名单显式登记。
 
-### 4.3 禁止的捷径
+### 4.3 测试支撑跨 app 引用白名单
+
+跨 app 测试只能引用 `novel_test`（`NovelTest.TestRequestIR` / `NovelTest.TestProviderPrompt`）。
+依赖 agent 运行时实现（`NovelAgent.Provider` behaviour、`AdapterExecution`、`Result`）的确定性
+provider 替身（`Stub`、`SliceVerify`）不能迁入 `novel_test`——那会形成
+`novel_agent →(test) novel_test → novel_agent` 编译环——因此只允许下列白名单引用：
+
+| 消费 app | 允许的 agent test/support 模块 |
+|---|---|
+| `novel_application` | `NovelAgent.Test.Provider.SliceVerify`、`NovelAgent.Provider.Stub` |
+| `novel_web` | `NovelAgent.Provider.Stub` |
+| `novel_e2e` | 无 |
+
+`scripts/arch_check.exs` 强制该白名单：新增任何跨 app 引用必须先在本表与脚本同时登记；
+生产 lib 引用 `NovelTest.*` 一律失败。替身仍只位于 `test/support`，并通过 `config/test.exs`
+的 `:extra_providers` 或测试环境显式注入，不允许注册进生产 runtime（AGENTS.md 场景化验收红线）。
+
+### 4.4 禁止的捷径
 
 | 捷径 | 为什么禁止 |
 |---|---|

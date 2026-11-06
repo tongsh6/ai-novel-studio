@@ -40,15 +40,25 @@
 ### Umbrella 依赖方向（编译期强制，违反即编译失败）
 
 ```
-novel_web → novel_application → {novel_agent, novel_domain}
-novel_agent → novel_foundation
+novel_web → novel_application
+novel_application → {novel_agent, novel_domain, novel_persistence, novel_common, novel_foundation}
+novel_agent → {novel_common, novel_foundation}
+novel_persistence → {novel_domain, novel_common, novel_foundation}
 novel_domain → novel_foundation
+novel_common → novel_foundation
+
+# 测试支撑（仅 :test 环境，不进生产 release）
+novel_agent / novel_application / novel_web / novel_e2e ──(only: :test)──> novel_test → novel_common
 ```
 
 - novel_foundation 不能依赖任何其他 umbrella app
-- novel_domain 不能依赖 novel_agent / novel_persistence / novel_web
-- novel_agent 不能依赖 novel_domain / novel_application
-- novel_web 不能依赖 novel_persistence / novel_agent
+- novel_common 只能依赖 novel_foundation；不得引用其他生产 app 或测试 helper（跨 app 纯契约/规则层）
+- novel_domain 不能依赖 novel_agent / novel_persistence / novel_web / novel_common
+- novel_agent 不能依赖 novel_domain / novel_application；Provider wire 投影与能力事实留在本 app（`NovelAgent.Provider.Projection`/`CapabilityProfile`，VS-00L §19）
+- novel_persistence 不能依赖 novel_agent / novel_application / novel_web
+- novel_web 不能依赖 novel_persistence / novel_agent 内部实现；可直接消费 novel_common 纯契约（`mix.exs` 显式声明）
+- novel_test 只能依赖 novel_common（纯契约），仅 test 环境；生产 lib 不得引用 `NovelTest.*`
+- 跨 app 测试引用 novel_agent test/support 行为替身（`Stub`/`SliceVerify`）只能命中 `scripts/arch_check.exs` 白名单，禁止扩散
 
 ### 各 app 职责边界
 
@@ -56,12 +66,12 @@ novel_domain → novel_foundation
 |-----|------|------|
 | novel_foundation | 纯函数工具、Result/Error 类型、ID 生成 | GenServer、Supervisor、Registry、Ecto、业务概念 |
 | novel_domain | 纯 struct + 纯函数、领域规则、领域事件 | GenServer、Repo、Ecto、Phoenix、任何 I/O |
-| novel_agent | Agent 运行时、Provider Gateway、监督树、Registry | 引用 NovelDomain / NovelApplication |
+| novel_agent | Agent 运行时、Provider Gateway、监督树、Registry、wire 投影与能力事实（`Provider.Projection`/`CapabilityProfile`） | 引用 NovelDomain / NovelApplication |
 | novel_application | 用例编排、上下文组装、Prompt 构建、领域注册 | 引用 NovelWeb |
 | novel_persistence | Ecto Repo、DB Schema、Migration、Repository | 引用 NovelWeb / NovelApplication / NovelAgent |
-| novel_web | HTTP Router、Controller、Channel、JSON 序列化 | 直接调用 Repo、直接写 Ecto.Query、直接引用 novel_persistence |
-| novel_common | 纯函数通用工具，不持有业务状态 | 引用 novel_foundation 以外的模块 |
-| novel_test | 跨 app 测试共享 helper | 生产代码依赖它 |
+| novel_web | HTTP Router、Controller、Channel、JSON 序列化 | 直接调用 Repo、直接写 Ecto.Query、直接引用 novel_persistence / NovelAgent 内部 |
+| novel_common | 跨 app 纯契约/纯规则/纯函数：DTO、校验、canonical Request IR 契约（`NovelCommon.RequestIR`）、身份事实、规则文本、作者可见文本形状、可观测性协议 | GenServer/Supervisor/Registry/Ecto/Phoenix/HTTP/文件 I/O、运行状态、引用其他生产 app |
+| novel_test | 跨 app 测试 helper（请求材料读取、canonical IR 夹具），只依赖 novel_common，仅 test 环境 | 被生产 lib 引用、依赖生产运行时 app、注册运行时 provider |
 | novel_e2e | 端到端集成测试，只依赖 novel_web | 直接引用 NovelPersistence / NovelAgent / NovelApplication 内部模块 |
 
 ### E2E 边界规则（novel_e2e）
