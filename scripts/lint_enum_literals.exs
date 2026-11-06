@@ -45,7 +45,10 @@ defmodule LintEnumLiterals do
     "apps/novel_domain/lib/novel_domain/adoption_status.ex",
     "apps/novel_domain/lib/novel_domain/prose_execution_brief.ex",
     "apps/novel_persistence/lib/novel_persistence/adoption_repository.ex",
-    "apps/novel_web/lib/novel_web/channels/workspace_channel.ex"
+    "apps/novel_web/lib/novel_web/channels/workspace_channel.ex",
+    # codegen 产物（作者可见展示名数据，来源 docs/design/schemas/author_visible/display_names.json），
+    # 与 foundation enums 生成物同类；其字符串是展示名数据而非枚举契约使用点。
+    "apps/novel_common/lib/novel_common/author_visible/display_names_gen.ex"
   ]
 
   # 精确到 (文件, 值) 的豁免：这些字面量命中的不是被守护枚举，而是同名 token。
@@ -58,6 +61,14 @@ defmodule LintEnumLiterals do
     {"apps/novel_application/lib/novel_application/dialogue_planning_service.ex", "turn"},
     # 章计划场次子槽 key（"转折"/"turn"），非 source_type 枚举值。
     {"apps/novel_domain/lib/novel_domain/chapter_plan_direction.ex", "turn"},
+    # 运行 turn id 前缀 ID.unique("turn")，非 source_type 枚举值。
+    {"apps/novel_application/lib/novel_application/agent_run_flows/tool_confirmation_run.ex", "turn"},
+    # 作者审批审计决定的标签（CONFIRMED/CANCELLED 是 approval decision 值域，不是
+    # behavior_status/mutation_status 字段写入）；对应字段 decision 由 ApprovalAudit 生成。
+    {"apps/novel_application/lib/novel_application/approval_audit.ex", "CONFIRMED"},
+    {"apps/novel_application/lib/novel_application/approval_audit.ex", "CANCELLED"},
+    # direction_scope 的 "WORK" 是方向作用域标签，不是 memory_scope 枚举字段。
+    {"apps/novel_application/lib/novel_application/dialogue_gateway.ex", "WORK"},
     {"apps/novel_persistence/lib/novel_persistence/chapter_plan_parser.ex", "turn"},
     # trace/event ref 的命名空间前缀（同函数还有 revision_base/tool_result 前缀），非 source_type 枚举值。
     {"apps/novel_application/lib/novel_application/agent_run_flows/prose_revision_from_findings.ex",

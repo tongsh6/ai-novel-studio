@@ -11,12 +11,14 @@ defmodule NovelApplication.AutoMaintenanceTest do
 
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelCommon.RequestIR
   alias NovelApplication.AgentRunService
   alias NovelApplication.AuthoringTranscript
+  alias NovelCommon.RequestIR
   alias NovelDomain.AgentNextStepDecision
-  alias NovelPersistence.{AgentRunLog, Repo}
-  alias NovelPersistence.Schemas.{ProviderOutputRecord, ProviderRunRecord}
+  alias NovelPersistence.AgentRunLog
+  alias NovelPersistence.Repo
+  alias NovelPersistence.Schemas.ProviderOutputRecord
+  alias NovelPersistence.Schemas.ProviderRunRecord
 
   @provider "stub"
   # 测试替身不是供应商事实，不在窗口表内；未知 provider 用保守窗口 32k 兜底。

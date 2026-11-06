@@ -8,9 +8,9 @@ defmodule NovelAgent.Provider.Projection.ChatCompletions do
   - 作者原话独立 user 消息、字节不变；assistant 保留原始参数与私有推理引用
   """
 
+  alias NovelAgent.Provider.Projection
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Compaction
-  alias NovelAgent.Provider.Projection
 
   @spec project(struct(), keyword()) :: map()
   def project(ir, opts \\ []) do

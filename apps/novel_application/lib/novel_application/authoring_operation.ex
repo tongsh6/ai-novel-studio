@@ -6,11 +6,11 @@ defmodule NovelApplication.AuthoringOperation do
   已有会话只追加阶段 scope；应用目标不会被当成新的作者消息。
   """
 
-  alias NovelCommon.RequestIR
-  alias NovelCommon.RequestIR.Operation
   alias NovelApplication.AgentRunFlows.AuthoringSession
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.ExecutionOrchestrator
+  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Operation
 
   @max_exchange_provider_calls 2
 

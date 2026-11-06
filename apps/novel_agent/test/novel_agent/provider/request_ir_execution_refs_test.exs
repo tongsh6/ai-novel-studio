@@ -1,9 +1,10 @@
 defmodule NovelAgent.Provider.RequestIRExecutionRefsTest do
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.{NativeToolExchange, Result}
-  alias NovelCommon.RequestIR
+  alias NovelAgent.Provider.NativeToolExchange
   alias NovelAgent.Provider.Projection
+  alias NovelAgent.Provider.Result
+  alias NovelCommon.RequestIR
 
   @tool "read_character"
   @author_text "作者要求：标题里保留 provider_call_ref 原样，不改字节。"
@@ -191,9 +192,9 @@ end
 defmodule NovelAgent.Provider.RequestIRExecutionRefsValidationTest do
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.Projection
   alias NovelAgent.Provider.Result
   alias NovelCommon.RequestIR
-  alias NovelAgent.Provider.Projection
 
   @tool "read_character"
 
@@ -382,9 +383,9 @@ end
 defmodule NovelAgent.Provider.RequestIRNativeIdProvenanceTest do
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.Projection
   alias NovelAgent.Provider.Result
   alias NovelCommon.RequestIR
-  alias NovelAgent.Provider.Projection
 
   @tool "read_character"
   @author_text "作者原话：核对角色后再给候选。"

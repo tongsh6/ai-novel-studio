@@ -3,11 +3,11 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
 
   alias NovelAgent.ProseQualityEvaluator
   alias NovelAgent.Provider.Execution
-  alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Result, as: ProviderResult
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.QualityEvaluationRequest
   alias NovelCommon.Contracts.QualityEvaluationResult
+  alias NovelCommon.RequestIR
 
   alias NovelAgent.TestSupport.AuthoringTaskFixtures
 
@@ -93,7 +93,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
       assert %RequestIR{} = prompt
       assert prompt.messages == initial_ir.messages
       assert [%{name: "report_quality_findings"}] = prompt.tools
-      assert NovelCommon.RequestIR.Tools.tool_choice(prompt) == "report_quality_findings"
+      assert RequestIR.Tools.tool_choice(prompt) == "report_quality_findings"
 
       {:ok,
        %{

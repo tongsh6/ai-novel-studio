@@ -11,8 +11,8 @@ defmodule NovelAgent.Provider do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.CapabilityProfile
   alias NovelAgent.Provider.InferenceParams
-  alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Result
+  alias NovelCommon.RequestIR
 
   @type message :: %{required(:role) => String.t(), required(:content) => String.t()}
   @type tool_call :: %{

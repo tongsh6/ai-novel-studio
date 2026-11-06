@@ -15,7 +15,7 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
 
     assert session.provider_call_count == 1
     assert [prompt] = calls.()
-    assert NovelCommon.RequestIR.Tools.tool_choice(prompt) == @tool
+    assert RequestIR.Tools.tool_choice(prompt) == @tool
     assert {:ok, ["first"]} = RequestIR.pending_call_ids(session.request_ir)
     assert session.provider_result.tool_calls |> hd() |> Map.get(:id) == "first"
   end
@@ -46,7 +46,7 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
 
     assert session.provider_call_count == 1
     assert [prompt] = calls.()
-    assert NovelCommon.RequestIR.Tools.tool_choice(prompt) == "auto"
+    assert RequestIR.Tools.tool_choice(prompt) == "auto"
   end
 
   test "二参数解析器获得真实调用序号，同时保持一次校验重试的上限" do

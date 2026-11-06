@@ -3,11 +3,11 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTaskTest do
 
   alias NovelAgent.CreativeProvider.Real
   alias NovelAgent.Provider.Execution
-  alias NovelCommon.RequestIR
   alias NovelAgent.Tools.CreativeToolAdapter
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.ToolRequest
+  alias NovelCommon.RequestIR
 
   @good_json Jason.encode!([
                %{item_id: "i1", title: "开篇", body: "夜色压在账单上。", rationale: nil}

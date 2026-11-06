@@ -21,10 +21,10 @@ defmodule NovelAgent.Provider.Anthropic do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.AnthropicStream
   alias NovelAgent.Provider.HTTP
-  alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Projection
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Usage
+  alias NovelCommon.RequestIR
   alias NovelFoundation.UpstreamError
 
   defstruct [:api_key, :model, :timeout, :http_fn, :eventsource_fn, :get_fn, :log_fn]

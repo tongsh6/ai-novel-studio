@@ -1,5 +1,6 @@
 defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
   use ExUnit.Case, async: false
+  alias NovelCommon.RequestIR
 
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentRunFlows.PlotOutlineWithContext
@@ -358,14 +359,14 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
   defp planning_mission_prompt?(prompt),
     do:
       Enum.any?(
-        NovelCommon.RequestIR.Tools.tool_specs(prompt),
+        RequestIR.Tools.tool_specs(prompt),
         &(&1.name == "planning_mission")
       )
 
   defp plan_draft_prompt?(prompt),
     do:
       Enum.any?(
-        NovelCommon.RequestIR.Tools.tool_specs(prompt),
+        RequestIR.Tools.tool_specs(prompt),
         &(&1.name == "agent_plan_draft")
       )
 

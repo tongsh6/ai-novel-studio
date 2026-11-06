@@ -16,11 +16,11 @@ defmodule NovelApplication.FactInventoryService do
   """
 
   alias NovelAgent.Provider.Execution
-  alias NovelCommon.RequestIR
   alias NovelApplication.AuxTaskBuilder
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.ToolOutputContract
+  alias NovelCommon.RequestIR
   alias NovelDomain.TentativeArtifactSet
   alias NovelFoundation.Enums.NarrativeRole
 

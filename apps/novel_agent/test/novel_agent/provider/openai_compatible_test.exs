@@ -25,9 +25,9 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
   alias NovelAgent.Provider.MinimaxCN
   alias NovelAgent.Provider.OpenAI
   alias NovelAgent.Provider.OpenAISubscription
-  alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Projection
   alias NovelAgent.Provider.Zhipu
+  alias NovelCommon.RequestIR
 
   describe "vendor identity and defaults" do
     test "each vendor reports its own name and OpenAI-compatible defaults" do

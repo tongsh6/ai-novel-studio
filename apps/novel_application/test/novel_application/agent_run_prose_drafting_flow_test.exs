@@ -2,12 +2,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   use ExUnit.Case, async: false
 
   alias NovelAgent.Provider.Execution
-  alias NovelCommon.RequestIR
   alias NovelApplication.AgentRunFlows.ProseDraftingWithQuality
   alias NovelApplication.AgentRunService
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TestAgenticLoopFixtures
+  alias NovelCommon.RequestIR
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.DialogueContext
 
@@ -292,7 +292,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert NovelApplication.TestAgenticLoopFixtures.prompt_text(evaluator_prompt) =~ "## 创作协作共同规则"
 
     assert Enum.any?(
-             NovelCommon.RequestIR.Tools.tool_specs(evaluator_prompt),
+             RequestIR.Tools.tool_specs(evaluator_prompt),
              &(&1.name == "report_quality_findings")
            )
 
@@ -860,10 +860,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              )
 
     assert_receive {:planner_prompt, 1, initial_prompt}, 500
-    assert NovelCommon.RequestIR.Tools.tool_choice(initial_prompt) == "auto"
+    assert RequestIR.Tools.tool_choice(initial_prompt) == "auto"
     assert_receive {:planner_prompt, 2, retry_prompt}, 500
     assert prompt_text(retry_prompt) =~ "上一次的 AgentRun 计划 tool call 无法被系统解析"
-    assert NovelCommon.RequestIR.Tools.tool_choice(retry_prompt) == "auto"
+    assert RequestIR.Tools.tool_choice(retry_prompt) == "auto"
     refute_receive {:planner_prompt, 3, _}
     assert_receive {:writer_prompt, _writer_prompt}, 1_000
     assert_receive {:agent_event, :run_completed, _}, 2_000
@@ -1602,7 +1602,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   defp mission_prompt?(prompt),
     do:
       Enum.any?(
-        NovelCommon.RequestIR.Tools.tool_specs(prompt),
+        RequestIR.Tools.tool_specs(prompt),
         &(&1.name == "chapter_mission")
       )
 
@@ -1621,14 +1621,14 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   defp plan_draft_prompt?(prompt),
     do:
       Enum.any?(
-        NovelCommon.RequestIR.Tools.tool_specs(prompt),
+        RequestIR.Tools.tool_specs(prompt),
         &(&1.name == "agent_plan_draft")
       )
 
   defp continuation_decision_prompt?(prompt),
     do:
       Enum.any?(
-        NovelCommon.RequestIR.Tools.tool_specs(prompt),
+        RequestIR.Tools.tool_specs(prompt),
         &(&1.name == "continuation_decision")
       )
 

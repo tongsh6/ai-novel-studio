@@ -2,8 +2,8 @@ defmodule NovelWeb.AuthorActionAdmissionTestProvider do
   @moduledoc false
   @behaviour NovelAgent.Provider
 
-  alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Stub
+  alias NovelCommon.RequestIR
 
   defstruct []
 
@@ -62,9 +62,14 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.WorkService
   alias NovelApplication.WorkSessionService
-  alias NovelDomain.{AgentNextStepDecision, AuthorActionInput}
-  alias NovelPersistence.{AgentRunLog, MemoryLog, Repo}
-  alias NovelPersistence.Schemas.{AgentEventRecord, AgentRunRecord, AuthorActionReceipt}
+  alias NovelDomain.AgentNextStepDecision
+  alias NovelDomain.AuthorActionInput
+  alias NovelPersistence.AgentRunLog
+  alias NovelPersistence.MemoryLog
+  alias NovelPersistence.Repo
+  alias NovelPersistence.Schemas.AgentEventRecord
+  alias NovelPersistence.Schemas.AgentRunRecord
+  alias NovelPersistence.Schemas.AuthorActionReceipt
   alias NovelWeb.AuthorActionAdmissionTestProvider
   alias NovelWeb.UserSocket
   alias NovelWeb.WorkspaceChannel

@@ -27,10 +27,10 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.OpenAICompatibleStream
-  alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Projection
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Usage
+  alias NovelCommon.RequestIR
   alias NovelFoundation.UpstreamError
 
   @type meta :: %{

@@ -1,9 +1,10 @@
 defmodule NovelAgent.Provider.GatewayExecutionRefsFixtureProvider do
   @behaviour NovelAgent.Provider
 
-  alias NovelAgent.Provider.{AdapterExecution, Result}
-  alias NovelTest.TestProviderPrompt
+  alias NovelAgent.Provider.AdapterExecution
+  alias NovelAgent.Provider.Result
   alias NovelCommon.LLMLog
+  alias NovelTest.TestProviderPrompt
 
   defstruct []
 
@@ -121,9 +122,11 @@ end
 defmodule NovelAgent.Provider.GatewayExecutionRefsTest do
   use ExUnit.Case, async: false
 
-  alias NovelAgent.Provider.{Execution, NativeToolExchange}
+  alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.NativeToolExchange
+  alias NovelCommon.LLMLog
+  alias NovelCommon.LogFileDate
   alias NovelCommon.RequestIR
-  alias NovelCommon.{LLMLog, LogFileDate}
 
   @tool "judgment_decision"
   @provider_opts [provider: :execution_refs_fixture, model: "fixture-model"]

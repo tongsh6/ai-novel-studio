@@ -6,9 +6,9 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
   作者裁决仍由既有 AgentRun/Orchestrator 负责。
   """
 
-  alias NovelCommon.RequestIR
   alias NovelApplication.AuthoringTranscript
   alias NovelCommon.Contracts.ToolRequest
+  alias NovelCommon.RequestIR
 
   @invalid_request_ir "authoring session request IR is invalid"
   @inconsistent_failure_carrier :inconsistent_judgment_transcript_carrier

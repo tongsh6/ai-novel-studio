@@ -3,9 +3,9 @@ defmodule NovelAgent.Provider.StubTest do
 
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.InferenceParams
-  alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Stub
+  alias NovelCommon.RequestIR
   alias NovelTest.TestRequestIR
 
   setup do

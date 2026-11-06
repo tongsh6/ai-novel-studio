@@ -9,6 +9,7 @@ defmodule NovelApplication.ApprovalAudit do
   """
 
   alias NovelDomain.AuthorActionInput
+  alias NovelFoundation.Enums.AdoptionStatus
 
   @canon_actions ~w(accept adopt discard edit_then_accept modify_draft)
   @confirmation_actions ~w(confirm_before_execute confirm cancel reject_or_cancel_confirmation)
@@ -116,12 +117,23 @@ defmodule NovelApplication.ApprovalAudit do
 
   defp decision_for(action_type, result) when action_type in @canon_actions do
     case status(result) do
-      "accepted" when action_type in ["edit_then_accept", "modify_draft"] -> "EDITED_ACCEPTED"
-      "accepted" -> "ACCEPTED"
-      "discarded" -> "DISCARDED"
-      "rejected" -> "REJECTED"
-      "cancelled" -> "CANCELLED"
-      _ -> nil
+      "accepted" when action_type in ["edit_then_accept", "modify_draft"] ->
+        AdoptionStatus.edited_accepted()
+
+      "accepted" ->
+        AdoptionStatus.accepted()
+
+      "discarded" ->
+        AdoptionStatus.discarded()
+
+      "rejected" ->
+        "REJECTED"
+
+      "cancelled" ->
+        "CANCELLED"
+
+      _ ->
+        nil
     end
   end
 

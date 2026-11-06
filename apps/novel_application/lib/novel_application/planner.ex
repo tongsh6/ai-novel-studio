@@ -12,10 +12,10 @@ defmodule NovelApplication.Planner do
   """
 
   alias NovelAgent.Provider.Execution
-  alias NovelCommon.RequestIR
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.LogContext
+  alias NovelCommon.RequestIR
   alias NovelDomain.CandidateDirection
 
   @type provider_execution :: Execution.dependency()

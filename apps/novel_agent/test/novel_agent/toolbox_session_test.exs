@@ -3,12 +3,12 @@ defmodule NovelAgent.ToolboxSessionTest do
 
   alias NovelAgent.AuthorizedToolExecutor
   alias NovelAgent.Provider.Execution
-  alias NovelCommon.RequestIR
   alias NovelAgent.TestSupport.AuthoringTaskFixtures
   alias NovelAgent.Toolbox
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
+  alias NovelCommon.RequestIR
 
   test "execute_with_session/2 returns tuple for unknown tool without calling provider" do
     counter = :counters.new(1, [])

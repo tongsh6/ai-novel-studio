@@ -3,11 +3,18 @@ defmodule NovelApplication.ProviderActivityServiceTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
+  alias NovelApplication.ProviderActivityProjector
+  alias NovelApplication.ProviderActivityService
+  alias NovelApplication.WorkService
+  alias NovelCommon.Contracts.ProviderEvent
+  alias NovelCommon.Contracts.ProviderOutput
+  alias NovelCommon.Contracts.ProviderRun
   alias NovelCommon.SystemIdentity
-  alias NovelApplication.{ProviderActivityProjector, ProviderActivityService, WorkService}
-  alias NovelCommon.Contracts.{ProviderEvent, ProviderOutput, ProviderRun}
   alias NovelDomain.AgentRun
-  alias NovelPersistence.{AgentRunLog, ProviderRunLog, Repo, WorkSessionRepo}
+  alias NovelPersistence.AgentRunLog
+  alias NovelPersistence.ProviderRunLog
+  alias NovelPersistence.Repo
+  alias NovelPersistence.WorkSessionRepo
 
   setup do
     :ok = Sandbox.checkout(Repo)

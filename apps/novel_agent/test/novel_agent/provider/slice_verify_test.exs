@@ -1781,10 +1781,10 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
   use ExUnit.Case, async: false
 
   alias NovelAgent.Provider.InferenceParams
-  alias NovelCommon.RequestIR
-  alias NovelCommon.SystemIdentity
   alias NovelAgent.Test.Provider.SliceVerify
   alias NovelAgent.Test.Support.PendingDialogueInput
+  alias NovelCommon.RequestIR
+  alias NovelCommon.SystemIdentity
 
   @source_text "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识c0e885d9a7c04aaa。"
   @revision_text "请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。"

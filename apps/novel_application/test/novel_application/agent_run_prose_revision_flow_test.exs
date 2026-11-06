@@ -2,7 +2,6 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
   use ExUnit.Case, async: false
 
   alias NovelAgent.Provider.Execution
-  alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Projection
   alias NovelAgent.Test.Provider.SliceVerify
   alias NovelApplication.AgentRunFlows.ProseRevisionFromFindings
@@ -12,6 +11,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
   alias NovelApplication.TestAgenticLoopFixtures
   alias NovelApplication.TraceReplayService
   alias NovelApplication.TurnExecutionService
+  alias NovelCommon.RequestIR
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.AuthorActionInput
   alias NovelDomain.DialogueContext
@@ -446,7 +446,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
   defp agent_plan_draft_prompt?(prompt),
     do:
       Enum.any?(
-        NovelCommon.RequestIR.Tools.tool_specs(prompt),
+        RequestIR.Tools.tool_specs(prompt),
         &(&1.name == "agent_plan_draft")
       )
 

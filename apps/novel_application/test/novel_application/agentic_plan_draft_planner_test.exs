@@ -2,8 +2,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
-  alias NovelCommon.RequestIR
   alias NovelAgent.Test.Provider.SliceVerify
+  alias NovelCommon.RequestIR
 
   alias NovelApplication.{
     AgenticPlanDraftPlanner,

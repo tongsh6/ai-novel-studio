@@ -7,6 +7,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
   外部页面级验收由场景 `judgment-plan-multi-step` 驱动。
   """
   use ExUnit.Case, async: false
+  alias NovelCommon.RequestIR
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
@@ -730,14 +731,14 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
   defp plan_draft_prompt?(prompt),
     do:
       Enum.any?(
-        NovelCommon.RequestIR.Tools.tool_specs(prompt),
+        RequestIR.Tools.tool_specs(prompt),
         &(&1.name == "agent_plan_draft")
       )
 
   defp revision_prompt?(prompt),
     do:
       Enum.any?(
-        NovelCommon.RequestIR.Tools.tool_specs(prompt),
+        RequestIR.Tools.tool_specs(prompt),
         &(&1.name == "agent_plan_revision")
       )
 

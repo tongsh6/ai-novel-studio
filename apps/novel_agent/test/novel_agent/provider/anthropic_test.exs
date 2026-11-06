@@ -3,9 +3,9 @@ defmodule NovelAgent.Provider.AnthropicTest do
 
   alias NovelAgent.Provider.Anthropic
   alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Provider.TimeoutPolicy
   alias NovelCommon.RequestIR
   alias NovelCommon.SystemIdentity
-  alias NovelAgent.Provider.TimeoutPolicy
 
   alias NovelTest.TestRequestIR
 

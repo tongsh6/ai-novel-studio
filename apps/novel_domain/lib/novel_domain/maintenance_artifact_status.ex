@@ -20,9 +20,12 @@ defmodule NovelDomain.MaintenanceArtifactStatus do
   """
 
   alias NovelDomain.AdoptionStatus
+  alias NovelFoundation.Enums.AdoptionStatus, as: AdoptionStatusEnum
 
   # 维护类替换规则（只含维护类新增边，不是完整 7 态矩阵）。
-  @replacement_transitions %{"TENTATIVE" => ["SUPERSEDED"]}
+  @tentative AdoptionStatusEnum.tentative()
+  @superseded AdoptionStatusEnum.superseded()
+  @replacement_transitions %{@tentative => [@superseded]}
 
   @doc "维护类替换规则（from => 允许的 to 列表）；供审计/测试。"
   @spec replacement_transitions() :: %{optional(String.t()) => [String.t()]}

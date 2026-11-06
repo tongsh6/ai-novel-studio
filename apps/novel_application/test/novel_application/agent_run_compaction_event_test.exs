@@ -11,10 +11,11 @@ defmodule NovelApplication.AgentRunCompactionEventTest do
 
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelCommon.RequestIR
   alias NovelApplication.AgentRunService
   alias NovelApplication.AuthoringTranscript
-  alias NovelPersistence.{AgentRunLog, Repo}
+  alias NovelCommon.RequestIR
+  alias NovelPersistence.AgentRunLog
+  alias NovelPersistence.Repo
 
   setup do
     :ok = Sandbox.checkout(Repo)

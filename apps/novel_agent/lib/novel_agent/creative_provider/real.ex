@@ -11,13 +11,13 @@ defmodule NovelAgent.CreativeProvider.Real do
 
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.NativeToolExchange
-  alias NovelCommon.RequestIR
-  alias NovelCommon.RequestIR.Operation
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.CreativeProviderResult
   alias NovelCommon.Contracts.CreativeRequest
   alias NovelCommon.Contracts.ToolOutputContract
+  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Operation
 
   # 正文写作质量约束（show-don't-tell / 对白个性化 / 反 AI 套话 / 节奏）。
   # 面向真实作者的写作质量要求，集中在此便于维护（如日后扩充套话黑名单）。

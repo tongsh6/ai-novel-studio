@@ -2,10 +2,10 @@ defmodule NovelApplication.ChapterMissionServiceTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
-  alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Projection
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.ChapterMissionService
+  alias NovelCommon.RequestIR
   alias NovelDomain.ChapterMission
   alias NovelDomain.ChapterMissionInputs
 
@@ -77,7 +77,7 @@ defmodule NovelApplication.ChapterMissionServiceTest do
              )
 
     assert_receive {:prompt, prompt}
-    assert NovelCommon.RequestIR.Tools.tool_choice(prompt) == "chapter_mission"
+    assert RequestIR.Tools.tool_choice(prompt) == "chapter_mission"
     assert [%{name: "chapter_mission"}] = prompt.tools
     content = text(prompt)
     assert content =~ ChapterMissionService.prompt_anchor()

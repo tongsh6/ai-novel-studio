@@ -1,9 +1,10 @@
 defmodule NovelApplication.AuthoringCheckpointTest do
   use ExUnit.Case, async: true
 
-  alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Projection
-  alias NovelApplication.{AuthoringCheckpoint, AuthoringTranscript}
+  alias NovelApplication.AuthoringCheckpoint
+  alias NovelApplication.AuthoringTranscript
+  alias NovelCommon.RequestIR
   alias NovelPersistence.Schemas.AgentRunRecord
 
   defp run_identity(overrides \\ %{}) do

@@ -26,15 +26,15 @@ defmodule NovelAgent.Provider.Gateway do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.CapabilityProfile
   alias NovelAgent.Provider.InferenceParams
-  alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.RuntimeConfig
-  alias NovelCommon.SystemIdentity
   alias NovelAgent.Provider.TimeoutPolicy
   alias NovelCommon.Contracts.ProviderEvent
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelCommon.Contracts.ProviderRun
   alias NovelCommon.LogContext
+  alias NovelCommon.RequestIR
+  alias NovelCommon.SystemIdentity
   alias NovelFoundation.UpstreamError
 
   @provider_modules %{

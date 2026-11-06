@@ -21,3 +21,18 @@
 - `mix deps.unlock paper_trail` 后全量编译/测试/架构检查通过；
 - `grep PaperTrail` 生产 `lib` 与 config 无引用；
 - B51 CP0 证据保留：生产零调用、dev/stage versions=0。
+
+## enforced_by
+
+- `apps/novel_persistence/lib/novel_persistence.ex`
+- `apps/novel_persistence/priv/repo/migrations/20260427000002_add_versions.exs`
+- `apps/novel_persistence/mix.exs`
+- `apps/novel_application/lib/novel_application/adoption_workflow.ex`
+- `apps/novel_application/lib/novel_application/replay_service.ex`
+- `apps/novel_domain/lib/novel_domain/decision_trace.ex`
+- `tasks/slices/B51-tech-stack-current-rebase.md`
+- pending: versions 表与历史 migration 按 §3 保留，物理删除需后续单独数据授权（本文件不授权）；生产库与配置当前零 paper_trail 引用
+
+## enforcement_gaps
+
+- 物理删除 `versions` 表尚未执行（§3 要求另行数据授权，不由本 ADR 授权）。

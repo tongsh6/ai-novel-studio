@@ -10,12 +10,12 @@ defmodule NovelAgent.ProseQualityEvaluator do
 
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.NativeToolExchange
-  alias NovelCommon.RequestIR
-  alias NovelCommon.RequestIR.Operation
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.QualityEvaluationRequest
   alias NovelCommon.Contracts.QualityEvaluationResult
+  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Operation
 
   @spec evaluate(QualityEvaluationRequest.t(), Execution.dependency()) ::
           QualityEvaluationResult.t()

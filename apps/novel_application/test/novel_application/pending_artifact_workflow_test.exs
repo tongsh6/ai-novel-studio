@@ -2,8 +2,8 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
   use ExUnit.Case, async: false
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
-  alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Projection
+  alias NovelCommon.RequestIR
 
   alias NovelApplication.{
     AdoptionWorkflow,
@@ -18,10 +18,16 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
   }
 
   alias NovelCommon.Contracts.ProviderOutput
-  alias NovelDomain.{AgentRun, DialogueContext, DialogueFrame}
+  alias NovelDomain.AgentRun
+  alias NovelDomain.DialogueContext
+  alias NovelDomain.DialogueFrame
   alias NovelFoundation.Enums.AdoptionStatus
-  alias NovelPersistence.{MemoryLog, Repo, WorkSessionRepo}
-  alias NovelPersistence.Schemas.{Chapter, Character, Volume}
+  alias NovelPersistence.MemoryLog
+  alias NovelPersistence.Repo
+  alias NovelPersistence.Schemas.Chapter
+  alias NovelPersistence.Schemas.Character
+  alias NovelPersistence.Schemas.Volume
+  alias NovelPersistence.WorkSessionRepo
 
   import Ecto.Query
 

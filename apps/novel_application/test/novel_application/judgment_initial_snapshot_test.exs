@@ -2,10 +2,12 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
   # 真实 Gateway 捕获需要注入测试 provider，不能与其它 async 用例并行改全局配置。
   use ExUnit.Case, async: false
 
-  alias NovelAgent.Provider.{Gateway, InferenceParams}
-  alias NovelCommon.RequestIR
+  alias NovelAgent.Provider.Gateway
+  alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Projection
-  alias NovelApplication.{AuthoringTranscript, JudgmentProtocol}
+  alias NovelApplication.AuthoringTranscript
+  alias NovelApplication.JudgmentProtocol
+  alias NovelCommon.RequestIR
 
   @author_a "接着第02章往下写一段正文"
   @author_b "把第02章写得更紧凑些"
@@ -25,9 +27,10 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
   defmodule CaptureProvider do
     @behaviour NovelAgent.Provider
 
-    alias NovelAgent.Provider.{AdapterExecution, Result}
-    alias NovelCommon.RequestIR
+    alias NovelAgent.Provider.AdapterExecution
     alias NovelAgent.Provider.Projection
+    alias NovelAgent.Provider.Result
+    alias NovelCommon.RequestIR
 
     defstruct []
 

@@ -10,13 +10,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @behaviour NovelAgent.Provider
 
   alias NovelAgent.Provider.AdapterExecution
-  alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Projection
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.StubChapterSummary
   alias NovelAgent.Provider.Usage
   alias NovelAgent.Test.Support.PendingDialogueInput
   alias NovelAgent.Test.WireToolFacts
+  alias NovelCommon.RequestIR
   alias NovelTest.TestProviderPrompt
 
   @slow_work_switch_delay_ms 2_500

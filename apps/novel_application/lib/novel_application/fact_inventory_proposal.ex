@@ -5,6 +5,8 @@ defmodule NovelApplication.FactInventoryProposal do
 
   require NovelCommon.LogEmit, as: LogEmit
 
+  alias NovelFoundation.Enums.AdoptionStatus
+
   @rule "protagonist_undermaterialized"
   @start_label "fact_inventory.start"
   @dismiss_label "fact_inventory.dismiss"
@@ -66,7 +68,7 @@ defmodule NovelApplication.FactInventoryProposal do
   end
 
   defp attach_pending_report(turn_result, report, shown?) do
-    with true <- field(report, :adoption_status) == "TENTATIVE",
+    with true <- field(report, :adoption_status) == AdoptionStatus.tentative(),
          {finding, index} <- pending_inventory_finding(report),
          target_ref <- target_ref(field(report, :id), index),
          false <- proposal_present?(turn_result, target_ref) do

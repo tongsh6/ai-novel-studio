@@ -4,8 +4,8 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
   alias NovelAgent.Provider.CapabilityProfile
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.OpenAI
-  alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Result
+  alias NovelCommon.RequestIR
 
   alias NovelTest.TestRequestIR
 

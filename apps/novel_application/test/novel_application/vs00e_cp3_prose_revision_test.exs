@@ -9,12 +9,12 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
-  alias NovelCommon.RequestIR
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.DialogueGateway
   alias NovelApplication.ProseRevisionService
   alias NovelApplication.TestAgenticLoopFixtures
   alias NovelApplication.TurnExecutionService
+  alias NovelCommon.RequestIR
   alias NovelDomain.AgentRun
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.AuthorActionInput

@@ -5,10 +5,10 @@ defmodule NovelAgent.Provider.CapabilityProfileTest do
   alias NovelAgent.Provider.CapabilityProfile
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.InferenceParams
-  alias NovelCommon.RequestIR
-  alias NovelCommon.RequestIR.Operation
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.RuntimeConfig
+  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Operation
 
   @run %{run_id: "run-capability", work_id: "work-capability"}
 
@@ -50,8 +50,8 @@ defmodule NovelAgent.Provider.CapabilityProfileTest do
     @behaviour NovelAgent.Provider
 
     alias NovelAgent.Provider.AdapterExecution
-    alias NovelCommon.RequestIR
     alias NovelAgent.Provider.Result
+    alias NovelCommon.RequestIR
 
     defstruct []
 
