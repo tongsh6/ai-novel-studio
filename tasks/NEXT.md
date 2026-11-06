@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B71-CP4b | R1 请求边界/原生投影/三消费者迁移已实现并通过确定性门禁（后端全量 3085/0、credo no issues、I1/I2/I3/N-NARR/I-CACHE 通过、前端 486 tests；提交 b32da8cd/abf4c63b/c652277b）；剩余 R2 流式生命周期与 Responses SSE、G6 压缩后请求、R1 后真实页面/实模证据及 CP5。I10 不代签 | [B71](slices/B71-provider-message-fidelity.md) |
+| B71-CP4b | R1 请求边界/原生投影/三消费者迁移与 2026-11-06 作者裁决已实现：A（system 规则/版本，`6dbb9dd4`）、D（finite_mode 持久事实，`b7aecafb`）、Anthropic 相邻 role 合并退役（`19dcfad9`）、B27 冻结器退役（`a8645e85`）；后端全量 3089/0、credo no issues、I1/I2/I3/N-NARR/I-CACHE 通过（提交 b32da8cd/abf4c63b/c652277b/19dcfad9/b7aecafb/e5e1491c/6dbb9dd4/a8645e85/63361db1）。**待办**：裁决 4 C 依赖图下沉三阶段（计划见 B71 文档，建议独立会话）；原生批次 A 后复验（授权已确认就绪，harness 修复 `e5e1491c`）。剩余 R2 流式生命周期与 Responses SSE、G6 压缩后请求、R1 后真实页面/实模证据及 CP5。I10 不代签 | [B71](slices/B71-provider-message-fidelity.md) |
 
 当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 

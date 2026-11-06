@@ -1112,3 +1112,10 @@
   3. `scripts/arch_check.exs`/AGENTS 架构表更新、README/索引登记、最终门禁。
 - **验收**：application/web 测试不再直接引用 `novel_agent/test/support`（SliceVerify 等行为替身除外）；全量测试与全部门禁绿；`novel_test` 仍不依赖生产代码之外的 app（生产依赖保持 `novel_agent` 不反向依赖 `novel_test`）。
 - **状态**：方案与依赖分析已完成；属跨 app 架构级重构（模块移动 + ~150 处引用改名 + 多轮全量门禁），建议在独立会话/阶段执行，避免长会话半成品。
+
+### 原生批次验收状态（2026-11-06）
+
+- **授权（已确认就绪，不需要作者再处理系统对话框）**：辅助功能 `AXIsProcessTrusted()=true`、CGEvent `CGPreflightPostEventAccess()=true`、屏幕录制 `CGPreflightScreenCaptureAccess()=true`；真实批次里窗口 AX 读取、CGEvent 输入投递（`cgevent_to_pid`）、截图、后端链路均成功。此前"app 一直等待输入"不是授权问题，而是 harness 等待账/外部驱动流程问题。
+- **已修复**（提交 `e5e1491c`）：`turn_result.turn_id` 可能是发送 turn 的后续 steer 步（`<turn>:steer:N`）——外部驱动新增 `turnIdMatches` 统一匹配；`tauri_slice_verify.sh` 普通页面批次固定 `NOVEL_TEST_DB_DIR`（避免 reset/seed/后端各自落到不同库）。
+- **未闭环**：`b71-first-consumer` 原生批次当前 run 进入 `awaiting_author`（停等）而无 driver 预期的 conversational `turn_result`，疑与裁决 A（system 规则迁移）改变请求构造相关。需在 A 收口后按需复验一次；不盲跑占用作者屏幕，真实页面证据与 CP4b/CP5 不代签。
+- **复验方式**：`TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1 TAURI_NATIVE_ARTIFACT_TAG=<新标签> bash scripts/tauri_slice_verify.sh b71-first-consumer` → 等 `<artifact-dir>/native-driver-ready.json` → `node scripts/native_b71_drive.mjs <artifact-dir>`；失败证据在 artifact 目录 `failure.json`/`native-transport.jsonl`/`native-input-events.jsonl`。
