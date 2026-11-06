@@ -724,27 +724,29 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp judgment_result(prompt, prompt_text) do
     # 统一当前材料视图：只带当前 scope（或本轮无 scope 请求）与当前作者原话，
     # 不再把扁平历史传给后续意图/目标逻辑，避免旧 scope 或作者引用 JSON 被当授权。
+    #
     material = PendingDialogueInput.material_text(prompt, prompt_text)
     input = PendingDialogueInput.author_text(material)
+    ir = request_ir(prompt)
 
     if plan_protocol_mode(input) != nil do
       plan_protocol_judgment(input)
     else
-      judgment_result_cond(material, input)
+      judgment_result_cond(material, input, ir)
     end
   end
 
-  defp judgment_result_cond(prompt_text, input) do
+  defp judgment_result_cond(prompt_text, input, ir) do
     # B71：先识别“登记作者原文/处理现有候选”这类明确操作，再识别内容里的
     # 角色/设定等名词；否则“存档为作品设定：主角……”会被 character_design 抢走。
     if registration_or_candidate_handling_request?(prompt_text) do
-      regular_judgment_result(prompt_text)
+      regular_judgment_result(prompt_text, ir)
     else
-      judgment_result_cond_without_registration(prompt_text, input)
+      judgment_result_cond_without_registration(prompt_text, input, ir)
     end
   end
 
-  defp judgment_result_cond_without_registration(prompt_text, input) do
+  defp judgment_result_cond_without_registration(prompt_text, input, ir) do
     cond do
       # B30 CP4：结构维护意图直接产出 execute/ask_author（不经过 generic 叙事覆盖，
       # 澄清问题保留具体卷号/当前卷数）；B28/Q1c 不命中该意图。
@@ -813,7 +815,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         judgment_character_design_result(prompt_text)
 
       true ->
-        b34_or_regular_judgment_result(prompt_text, input)
+        b34_or_regular_judgment_result(prompt_text, input, ir)
     end
   end
 
@@ -856,7 +858,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # B34 CP1/CP2 分支拆出，避免 judgment_result_cond 复杂度过高；仍保持
   # 既有 B28/B29/B30/AU09 分支优先级在前、generic regular 在最后。
-  defp b34_or_regular_judgment_result(prompt_text, input) do
+  defp b34_or_regular_judgment_result(prompt_text, input, ir) do
     cond do
       # B34 CP1/CP2：真实 stage 语料高频/高风险意图的确定性 fixture（保持既有分支优先级；
       # 这些分支只消费 prompt 内可见事实，不引入产品协议字段）。
@@ -892,7 +894,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         judgment_author_question_choice_prose_result(prompt_text)
 
       true ->
-        regular_judgment_result(prompt_text)
+        regular_judgment_result(prompt_text, ir)
     end
   end
 
@@ -1078,9 +1080,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       (String.length(trim) <= 2 and Regex.match?(~r/^[\p{L}\p{N}]+$/u, trim))
   end
 
-  defp regular_judgment_result(prompt_text) do
-    result = judgment_decision_result(prompt_text)
-    narrative = judgment_narrative_result(prompt_text).content
+  defp regular_judgment_result(prompt_text, ir) do
+    result = judgment_decision_result(prompt_text, ir)
+    narrative = judgment_narrative_result(prompt_text, ir).content
 
     case result.tool_calls do
       [call] -> single_judgment_output(call["arguments"], narrative, result)
@@ -3691,7 +3693,34 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp judgment_author_input(prompt), do: PendingDialogueInput.author_text(prompt)
 
-  defp judgment_narrative_result(prompt) do
+  # B71 R1 适配：canonical IR 把观察放在结构化 observation block；旧判断替身
+  # （全章分页读取）按渲染文本识别观察段。这里为 IR 提供同一观察事实的只读视图，
+  # 仅用于 test-support 替身识别，不伪造/改写真实请求或记录。
+  defp request_ir(%NovelCommon.RequestIR{} = ir), do: ir
+  defp request_ir(_prompt), do: nil
+
+  defp ir_observation_summaries(%NovelCommon.RequestIR{messages: messages}) do
+    messages
+    |> Enum.filter(&(&1.role == "tool"))
+    |> Enum.flat_map(&observation_summaries_of_tool_message/1)
+  end
+
+  defp observation_summaries_of_tool_message(message) do
+    message.blocks
+    |> Enum.filter(&(Map.get(&1, :type) == "observation"))
+    |> Enum.flat_map(&observation_summary_text/1)
+  end
+
+  defp observation_summary_text(block) do
+    content = Map.get(block, :content) || %{}
+
+    case Map.get(content, "summary") || Map.get(content, :summary) do
+      summary when is_binary(summary) -> [summary]
+      _ -> []
+    end
+  end
+
+  defp judgment_narrative_result(prompt, ir) do
     narrative =
       cond do
         # B23-FOLLOWUP：真 no-progress 诱导——两轮都选同一个只读探索（观察字节相同）。
@@ -3700,7 +3729,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
         # B24 CP3：全章分页读取——首页后按 footer 继续，末页后给引用观察字节的回复。
         full_read_request?(prompt) ->
-          full_read_narrative(prompt)
+          full_read_narrative(prompt, ir)
 
         String.contains?(prompt, "## 探索观察") ->
           exploration_reply_narrative(prompt)
@@ -3780,7 +3809,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end)
   end
 
-  defp full_read_last_observation(prompt) do
+  defp full_read_last_observation(prompt, %NovelCommon.RequestIR{} = ir) do
+    case ir_observation_summaries(ir) do
+      [] -> full_read_last_observation(prompt, nil)
+      summaries -> List.last(summaries)
+    end
+  end
+
+  defp full_read_last_observation(prompt, _ir) do
     case full_read_observation_summaries(prompt) do
       [] -> nil
       summaries -> List.last(summaries)
@@ -3805,8 +3841,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp full_read_narrative(prompt) do
-    case full_read_last_observation(prompt) do
+  defp full_read_narrative(prompt, ir) do
+    case full_read_last_observation(prompt, ir) do
       nil ->
         "要核对全章是否有重复，需要先把整章读完。我先按章节唯一编号读取「#{@full_read_chapter_title}」的完整正文。"
 
@@ -3820,8 +3856,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp full_read_decision_result(prompt) do
-    case full_read_last_observation(prompt) do
+  defp full_read_decision_result(prompt, ir) do
+    case full_read_last_observation(prompt, ir) do
       nil ->
         # 首轮：从章节索引复制唯一 chapter_ref，纯 ref 寻址（不用标题）。
         case full_read_chapter_ref(prompt) do
@@ -3967,7 +4003,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 判断结构不可用诱导（ADR-0025 判断纪元语义）：garbage = 单次判断响应返回原始垃圾
   # payload（无合法 tool call）；bad-frame = 结构完整但 action 非法（模型仍说帧
   # 语言）。两者都应触发协议携带片段重试一次 → 仍坏 → S7 安全失败终局。
-  defp judgment_decision_result(prompt) do
+  defp judgment_decision_result(prompt, ir) do
     cond do
       String.contains?(prompt, @garbage_json_marker) ->
         garbage = "not valid json {{{ AU01GARBAGE raw provider payload"
@@ -3977,7 +4013,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         judgment_invalid_action_result(prompt)
 
       true ->
-        judgment_decision_result_for(prompt)
+        judgment_decision_result_for(prompt, ir)
     end
   end
 
@@ -3999,7 +4035,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     )
   end
 
-  defp judgment_decision_result_for(prompt) do
+  defp judgment_decision_result_for(prompt, ir) do
     request = explore_request_for(prompt)
 
     cond do
@@ -4013,7 +4049,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
       # B24 CP3：全章分页读取的决策（首轮 ref 寻址 → footer JSON 续读 → reply）。
       full_read_request?(prompt) ->
-        full_read_decision_result(prompt)
+        full_read_decision_result(prompt, ir)
 
       # AU12 A：作者从概览发起立项修订 → 显式 field-value 提案（不造 world_setting）。
       work_profile_revision_request?(prompt) ->
