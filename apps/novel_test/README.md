@@ -46,5 +46,5 @@ novel_web            (only: :test) → novel_test
 - [VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md)：
   Request IR v1 契约。
 - [B71 Provider 消息保真](../../tasks/slices/B71-provider-message-fidelity.md)：裁决 4 C
-  依赖图下沉与测试 helper 迁移（本 app 承载纯契约 helper；wire 投影与能力事实留在
-  `novel_agent` 执行边界）。
+  依赖图下沉与测试 helper 迁移（本 app 承载纯契约 helper，只依赖 `novel_common`；
+  依赖 agent 运行时实现的测试替身仍留在 `novel_agent/test/support`）。

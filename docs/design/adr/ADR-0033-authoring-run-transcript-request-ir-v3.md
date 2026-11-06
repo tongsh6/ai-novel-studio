@@ -1,6 +1,6 @@
 # ADR-0033：Authoring Run Transcript 与 Request IR——统一 AgentRun 的原生多轮创作会话
 
-- 状态：**Accepted（2026-10-31，作者在 B71 CP1 选择 A：按目标协议正式修订/supersede 现役协议）。实施进展（2026-11-03）：CP2 IR/投影/能力门槛、CP3a/CP3c 首个判断消费者与原生成、CP4a 创作/质量迁移、CP4b 规划/使命/修订/质量/确认交接/私有历史/逐调用引用/能力事实单一来源/显式压缩派生已完成确定性实现与验收；CP3b 实模与压缩前端设计授权、CP5 最终收口仍未闭环，真实模型行为不代签。**2026-11-06 B71 裁决 4 C：Request IR 契约族（数据/校验/构造）下沉 `novel_common`，wire 投影与能力事实保留 `novel_agent` 执行边界（§6 实施位置修订，原则不变；已提交并通过确定性门禁）。**
+- 状态：**Accepted（2026-10-31，作者在 B71 CP1 选择 A：按目标协议正式修订/supersede 现役协议）。实施进展（2026-11-03）：CP2 IR/投影/能力门槛、CP3a/CP3c 首个判断消费者与原生成、CP4a 创作/质量迁移、CP4b 规划/使命/修订/质量/确认交接/私有历史/逐调用引用/能力事实单一来源/显式压缩派生已完成确定性实现与验收；CP3b 实模与压缩前端设计授权、CP5 最终收口仍未闭环，真实模型行为不代签。**2026-11-06/2026-11-07 B71 裁决 4 C：Request IR 契约族（含三类 Provider wire 投影与传输能力事实派生）统一下沉 `novel_common`；执行边界负责实际路由选择、传输执行与运行时监督（§6 实施位置修订，原则不变；已提交并通过确定性门禁）。**
 - 实施进展（2026-11-04 R1）：能力事实改为 Gateway 按本次实际路由单次解析并派生——删除构造侧 `target`/`capability_profile`、执行侧双身份比对、`to_provider_prompt/2` 与生产 Stub 注册；三类 adapter 直接消费原生投影；初始快照按 VS-00L §19.2 构造。**实现位于未提交工作区，待独立验证**。CP3b 实模、压缩前端设计授权、G6/Responses SSE 与 CP5 仍开放。
 - 实施状态真源：`tasks/slices/B71-provider-message-fidelity.md`；契约状态更新见 [VS-00L §17](../contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md#17-实施状态更新2026-11-03)。
 - 日期：2026-10-31
@@ -99,9 +99,9 @@ CP1 必须冻结：
 - 六类黄金请求：首轮、观察后、校验失败后、候选后、作者边界后、压缩后。
 - 真实 Tauri 场景与证据预注册。
 
-`novel_common` 承载跨 app 的 Request IR 纯契约族（数据结构、边界校验、阶段构造、工具目录视图、压缩视图与产品身份事实）；`novel_agent` 负责 Provider wire 投影、能力事实与实际路由执行；`novel_application` 负责 AgentRun/transcript 与编排，`novel_domain` 只做纯契约与校验；持久 trace/replay 复用现有边界。`novel_web`/frontend 只消费真实 run 事件与作者动作，不新增旁路或直接 Repo 访问。
+`novel_common` 承载跨 app 的 Request IR 契约族（数据结构、边界校验、阶段构造、工具目录视图、压缩视图、三类 Provider wire 投影、传输能力事实派生与产品身份事实）；`novel_agent` 负责实际路由选择、provider 传输执行、adapter 运行与运行时监督；`novel_application` 负责 AgentRun/transcript 与编排，`novel_domain` 只做纯契约与校验；持久 trace/replay 复用现有边界。`novel_web`/frontend 只消费真实 run 事件与作者动作，不新增旁路或直接 Repo 访问。
 
-> 2026-11-06 实施位置修订（B71 裁决 4 C，原则不变）：原文「`novel_agent` 负责 Request IR/provider 投影」是迁移期实施位置；B71 落地后证明 Request IR 需被 application 构造、agent 消费、多 app 测试构造，属跨 app 纯契约，按 [VS-00L §4/§19](../contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 的「IR 是运行事实的 provider-neutral 投影输入；实际路由选择、能力事实与 wire 投影归同一执行边界」拆分为 common 契约族 + agent 执行边界。wire 投影字节与持久化事实不变。
+> 2026-11-06/2026-11-07 实施位置修订（B71 裁决 4 C，原则不变）：原文「`novel_agent` 负责 Request IR/provider 投影」是迁移期实施位置；B71 落地后证明 Request IR 需被 application 构造、agent 消费、多 app 测试构造，属跨 app 纯契约，按 [VS-00L §4/§19](../contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 拆分 common 契约族 + agent 执行边界。**2026-11-07 作者裁决 A1：按裁决 4 C 原计划恢复统一归属**——三类 Provider wire 投影（`NovelCommon.RequestIR.Projection` + `ChatCompletions`/`AnthropicMessages`/`ResponsesAPI`）与传输能力事实派生（`NovelCommon.CapabilityProfile`）一并归 `novel_common`（纯函数、无 I/O、无运行时状态）；`novel_agent` 保留实际路由选择、传输发送、adapter 运行与运行时监督。wire 投影字节与持久化事实不变。
 
 ## 7. 迁移与旧 ADR 退役条件
 

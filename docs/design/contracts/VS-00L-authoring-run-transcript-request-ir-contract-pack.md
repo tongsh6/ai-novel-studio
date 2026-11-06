@@ -493,7 +493,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 
 ## 16.15 传输能力事实的落地细化（2026-11-03，CP4b 实施约束）
 
-- **单一派生边界**：`NovelAgent.Provider.CapabilityProfile` 是能力事实唯一派生点；事实来源是 adapter 的 `capabilities/1` 与 `projection_target/1`（按实际 route/state 派生），provider descriptor 只提供配置/UI 属性；adapter 未声明一律视为不可证，禁止默认置 true。必备清单唯一来自 `RequestIR.required_capabilities/0`，不得复制。
+- **单一派生边界**：`NovelCommon.CapabilityProfile` 是能力事实唯一派生点（2026-11-07 作者裁决 A1 后由 `novel_agent` 下沉 `novel_common`；此前位置见 §17）；事实来源是 adapter 的 `capabilities/1` 与 `projection_target/1`（按实际 route/state 派生），provider descriptor 只提供配置/UI 属性；adapter 未声明一律视为不可证，禁止默认置 true。必备清单唯一来自 `RequestIR.required_capabilities/0`，不得复制。
 - **实际路由单源（2026-11-04 源头重构）**：canonical IR 不查询 Gateway、不保存猜测的 target/capability_profile/provider_route。Gateway 根据本次 provider/model/purpose/route_hint 解析唯一配置快照，并据该 adapter/state 派生能力。adapter 消费同一 state 和完整 IR，直接投影自身原生协议；不经 Chat 形态转译，不再比较构造路由和执行路由。设置页能力查询只是诊断，不作为随后一次执行的授权事实。
 - **有限模式必须覆盖缺失项**：`finite_mode` 只有其受限集合覆盖每一个 missing 能力时才放行；`standalone_operation` 等不声明覆盖集合的模式不能绕过门槛（§6.4「显式有限模式」的落地语义）。
 - **流式工具调用无损**：SSE 响应中的原生 tool_calls 必须按 provider 协议累积（OpenAI `tool_calls[].index`；Anthropic `content_block_start(tool_use)` + `input_json_delta.partial_json`），保留 arguments 原始字节（`raw_arguments`）并复用非流式解析；带工具调用的流不得被误判为空响应。
@@ -537,7 +537,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 | **有限模式持久事实（2026-11-06 作者裁决 D）** | **已实现（待提交/门禁）**：`ProviderRun.metadata.finite_mode` + `provider_runs.finite_mode_name` 可空列（迁移 `20261106000001`）+ 验收读侧 `finite_modes` 报告；`DecisionTrace` 不扩展、事件层暂缓（理由见 §6.4 落点）。PASS 必要条件未启用，旧证据不回溯 |
 | **system 规则/版本落地（2026-11-06 裁决 A）** | **已实现（已提交并通过确定性门禁）**：`RequestIR.system_envelope/1` 支持 `instructions`/`constitution_version`/`output_protocol_version`；投影 `system_text/1` 渲染身份 + 版本行 + 规则；判断/使命/计划/创作/评审与三个文本消费者把角色规则/输出协议移入 system，`application_base` 只留应用数据声明；`AuthoringTranscript` 持久化 run 级规则与版本字段。真实模型行为（规则位置对遵循度的影响）未做对照实验，不代签 |
 | **R1 请求边界与原生输入迁移（2026-11-04）** | **已实现（R1，已提交并通过确定性门禁）**：`RequestIR.prepare_request/2` 选本次工具与 tool_choice；Gateway 按实际 route 单次解析并派生能力；Chat/Anthropic/Responses 三类 adapter 直接消费原生投影；测试替身移出生产注册表；初始快照按 §19.2 构造。**剩余未闭环**：R1 独立验证与 R1 后全量门禁/I1–I3、真实 route/原生 body 回归、I-CACHE 独立输入、Responses SSE（R2）、G6/真实页面/实模、CP5。三个直接文本消费者已完成 IR 迁移（见 §16.6/§19.1）。**2026-11-04/05 确定性门禁已通过**：后端全量 3085/0、credo no issues、xref 无环、arch 通过、I1 4/4、I2 3 pairs/0 violations、I3 3/3、N-NARR、I-CACHE 4/4、前端 486 tests；未代签真实模型/真实页面/Responses SSE/G6/CP5 |
-| **依赖图下沉与测试 helper 迁移（2026-11-06 裁决 4 C）** | **已实现（已提交并通过确定性门禁）**：`RequestIR`/`Tools`/`SystemEnvelope`/`Compaction`/`Operation`/`SystemIdentity` 下沉 `novel_common`（`NovelCommon.*`）；`Projection` 与三 projector 保留 `novel_agent` 执行边界并改名 `NovelAgent.Provider.Projection`（原 `RequestIR.Projection` 命名空间消失）；`CapabilityProfile` 留在 `novel_agent`（能力事实按实际 route 派生属执行边界，VS-00L §16.15/§19）；`novel_test` 去 `novel_agent` 依赖并承载 `NovelTest.TestRequestIR`/`TestProviderPrompt`；`arch_check` 新增 common/test 边界与跨 app test-support 白名单。wire 与持久化字节未改变；实模、页面与 CP5 不代签 |
+| **依赖图下沉与测试 helper 迁移（2026-11-06 裁决 4 C；2026-11-07 作者 A1 定稿）** | **已实现（已提交并通过确定性门禁）**：`RequestIR`/`Tools`/`SystemEnvelope`/`Compaction`/`Operation`/`SystemIdentity`/`Projection`（+`ChatCompletions`/`AnthropicMessages`/`ResponsesAPI`）/`CapabilityProfile` 全部下沉 `novel_common`（`NovelCommon.*`；A1 按原计划恢复统一归属，执行边界只保留实际路由选择、传输发送与运行时监督）；`RequestIR.rejection_message/1` 回迁 canonical IR；`novel_test` 去 `novel_agent` 依赖并承载 `NovelTest.TestRequestIR`/`TestProviderPrompt`；`arch_check` 新增 common/test 边界与跨 app test-support 白名单。wire 与持久化字节未改变；实模、页面与 CP5 不代签 |
 
 ## 18. 变更记录（Accepted，2026-11-04）：显式压缩的自动维护触发（提案 2026-11-03）
 
@@ -656,7 +656,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 - Responses 原生 items 与流式协议直接投影/解析，不以 Chat 消息为内部上限。外部协议解析一次；内部已建立的状态不加重复兜底。不能丢弃原始参数或 Provider 私有回放材料来换取请求通过。
 - 本节是职责与退役规则。**2026-11-04 R1 已按 §19.1 实现（已提交并通过确定性门禁，2026-11-04/05）**：`prepare_request/2`、Gateway 实际路由单能力门、三投影原生消费、测试替身移出生产注册表；`to_provider_prompt/2`、`RequestIR.from_legacy`、构造/执行双身份比对已删除。Responses SSE（R2）、真实原生页面与实模验收仍未完成，不得据 R1 实现标 CP4b/CP5 done。
 
-- **2026-11-06 裁决 4 C 实施记录**：canonical Request IR 契约族（数据结构/校验/构造/工具视图/压缩/身份事实）迁 `novel_common`，属跨 app 纯契约；`Projection` 与三 projector（wire body 生成）与 `CapabilityProfile`（按 adapter 声明的能力事实）留在 `novel_agent` 执行边界，符合本节「实际路由选择、能力事实与 wire 投影归同一执行边界」。生产请求字节、ProviderRun 持久字段、作者可见面均无变化；`RequestIR.rejection_message/1` 归位 `NovelAgent.Provider`（实际消费者在 agent）。
+- **2026-11-06/2026-11-07 裁决 4 C 实施记录（A1 定稿）**：canonical Request IR 契约族（数据结构/校验/构造/工具视图/压缩/身份事实/三类 wire 投影/能力事实派生）迁 `novel_common`，属跨 app 纯契约；`novel_agent` 执行边界消费这些契约，负责实际路由选择、传输发送与运行时监督。本节「实际路由选择、能力事实与 wire 投影归同一执行边界」中的实现归属按 2026-11-07 作者裁决 A1 调整为：能力事实与 wire 投影的**纯函数实现**归 `novel_common`，执行边界保留其**使用与传输**。生产请求字节、ProviderRun 持久字段、作者可见面均无变化；`rejection_message/1` 归位 canonical IR（`NovelCommon.RequestIR`）。
 
 ### 19.1 R1 请求边界与迁移顺序
 

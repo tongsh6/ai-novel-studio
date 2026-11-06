@@ -1111,12 +1111,11 @@
   2. `novel_test` 去掉 `novel_agent` 依赖（删除无消费者的 `ProviderHelpers`）；`novel_agent`/`novel_application`/`novel_web` 测试依赖 `novel_test`；迁移 `TestRequestIR`/`TestProviderPrompt` 到 `novel_test` 并更新引用；`SliceVerify`/`Stub` 等 agent 行为替身保留（依赖 agent 内部实现，不迁）。
   3. `scripts/arch_check.exs`/AGENTS 架构表更新、README/索引登记、最终门禁。
 - **验收**：application/web 测试不再直接引用 `novel_agent/test/support`（SliceVerify 等行为替身除外）；全量测试与全部门禁绿；`novel_test` 仍不依赖生产代码之外的 app（生产依赖保持 `novel_agent` 不反向依赖 `novel_test`）。
-- **状态（2026-11-06）**：**done**。按计划三阶段执行，并按架构审核修正两处边界：
-  1. `Projection` 与三 projector **不下沉**——IR→wire body 属 Provider 执行边界（ADR-0033 §6「novel_agent 负责 … provider 投影」、VS-00L §19「实际路由选择、能力事实与 wire 投影归同一执行边界」）；只把 provider-neutral 的 `system_text/1`（→ `SystemEnvelope.system_text/1`）与 `json_value/1`（→ `RequestIR.json_value/1`）上移为 common 单一实现。`CapabilityProfile` 同样留 `novel_agent`（能力事实按 adapter 实际 route 派生，application/web 零消费）。
-  2. 计划漏列的 `RequestIR.Operation`（纯阶段构造器，application 已消费）随契约族一并下沉。
-  3. `Projection` 模块从原 `NovelAgent.Provider.RequestIR.Projection` 改名为 `NovelAgent.Provider.Projection`，消除「RequestIR 主体已迁走、子命名空间仍挂在 agent」的幽灵命名。
-- **提交（可 review 粒度）**：`29464e60` 工具查询/拒绝文案归位与 `json_value` 单一实现；`e6c97020` RequestIR 契约族下沉 + 投影改名 + 测试迁移 + module-size 基线；`3e64e3b1` novel_test 去 agent 依赖、TestRequestIR/TestProviderPrompt 迁移、删除无消费者 `ProviderHelpers`；`8628411d` arch_check 四类边界规则 + 跨 app test-support 白名单 + AGENTS/guardrails/README 索引 + web 显式依赖。
-- **验收**：application/web 测试不再引用 agent test/support 的请求契约 helper（仅白名单内 `Stub`/`SliceVerify`）；`novel_test` 只依赖 `novel_common`；`RequestIR.Projection` 旧命名空间全仓 0 引用；wire 与持久化字段未变；全量门禁与不变量见最终报告。真实模型、真实页面、R2/SSE、G6 与 CP5 不代签。
+- **状态（2026-11-06 首轮实施；2026-11-07 按作者 A1 裁决定稿）**：**done**。
+  1. **首轮（按架构审核先修正两处边界）**：`Projection`/`CapabilityProfile` 先留 `novel_agent`、`Operation` 补下沉、投影改名 `NovelAgent.Provider.Projection`；提交 `29464e60`/`e6c97020`/`3e64e3b1`/`8628411d`，并清理既有严格门禁红（`b125989c`）、登记文档（`7af7c904`）。
+  2. **A1 定稿（2026-11-07 作者裁决：按裁决 4 C 原计划恢复统一归属）**：`Projection`（+`ChatCompletions`/`AnthropicMessages`/`ResponsesAPI`）与 `CapabilityProfile` 一并下沉 `novel_common`（`NovelCommon.RequestIR.Projection*`、`NovelCommon.CapabilityProfile`）；`RequestIR.rejection_message/1` 回迁 canonical IR；投影断言测试迁 `novel_common/test`；执行边界只保留实际路由选择、传输发送与运行时监督。ADR-0033 §6、VS-00L §17/§19/§16.15、AGENTS/guardrails/README 已同步修订。提交 `776e3641`。
+- **提交（可 review 粒度）**：`29464e60` 工具查询/拒绝文案归位与 `json_value` 单一实现；`e6c97020` RequestIR 契约族下沉 + 测试迁移 + module-size 基线；`3e64e3b1` novel_test 去 agent 依赖与 helper 迁移；`8628411d` arch_check 四类边界规则 + 白名单 + 索引；`b125989c` 既有严格门禁修复；`7af7c904` 文档登记；`776e3641` A1 补充下沉（投影与能力事实入 common）。
+- **验收**：application/web 测试不再引用 agent test/support 的请求契约 helper（仅白名单内 `Stub`/`SliceVerify`）；`novel_test` 只依赖 `novel_common`；`NovelAgent.Provider.Projection`/`NovelAgent.Provider.CapabilityProfile`/旧 `RequestIR.Projection` 命名空间全仓 0 引用；wire 与持久化字段未变；全量门禁与不变量见最终报告。真实模型、真实页面、R2/SSE、G6 与 CP5 不代签。
 
 ### 原生批次验收状态（2026-11-06）
 

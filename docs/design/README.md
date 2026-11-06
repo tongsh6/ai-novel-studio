@@ -1,5 +1,7 @@
 # 当前设计文档入口
 
+> 2026-11-07：B71 裁决 4 C 按作者 A1 裁决恢复原计划统一归属——三类 Provider wire 投影（`NovelCommon.RequestIR.Projection` + `ChatCompletions`/`AnthropicMessages`/`ResponsesAPI`）与传输能力事实派生（`NovelCommon.CapabilityProfile`）一并下沉 `novel_common`；执行边界保留实际路由选择、传输发送与运行时监督。2026-11-06 的「投影留 agent」按作者裁决回退，[ADR-0033 §6](adr/ADR-0033-authoring-run-transcript-request-ir-v3.md#6-contract-与边界影响) 与 [VS-00L §17/§19](contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md#17-实施状态更新2026-11-03) 已同步修订；wire 与持久化字节未变，实模/页面/CP5 不代签。
+
 > 2026-11-06：B71 裁决 4 C 依赖图下沉完成——canonical Request IR 契约族（`RequestIR`/`Tools`/`SystemEnvelope`/`Compaction`/`Operation`/`SystemIdentity`）下沉 [novel_common](../../apps/novel_common/README.md)，Provider wire 投影（`NovelAgent.Provider.Projection`）与能力事实（`CapabilityProfile`）保留 `novel_agent` 执行边界；`novel_test` 去 `novel_agent` 依赖并承载跨 app 请求契约 helper；`arch_check` 新增 common/test 边界与跨 app test-support 白名单。wire 与持久化字节未改变，实模/页面/CP5 不代签。详见 [VS-00L §17](contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md#17-实施状态更新2026-11-03) 表末行与 [ADR-0033 §6](adr/ADR-0033-authoring-run-transcript-request-ir-v3.md#6-contract-与边界影响)。
 
 > 2026-11-04：B71 R1 源头重构——实际路由单源（Gateway 一次解析并派生能力）、三类 adapter 原生投影消费、测试替身移出生产注册表、初始快照按 [VS-00L §19.2](contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md#192-初始快照与追加历史的职责r1-真实前缀反例) 构造；已删除 `to_provider_prompt/2`、`RequestIR.from_legacy` 与构造/执行双身份比对。**实现位于未提交工作区，待独立验证**；R2/Responses SSE 与 CP5 未完成，不标 done。详见 [VS-00L §17](contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md#17-实施状态更新2026-11-03) 表末行。

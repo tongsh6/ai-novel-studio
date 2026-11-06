@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B71-CP4b | R1 请求边界/原生投影/三消费者迁移与 2026-11-06 作者裁决已实现：A（system 规则/版本，`6dbb9dd4`）、D（finite_mode 持久事实，`b7aecafb`）、Anthropic 相邻 role 合并退役（`19dcfad9`）、B27 冻结器退役（`a8645e85`）；后端全量 3089/0、credo no issues、I1/I2/I3/N-NARR/I-CACHE 通过（提交 b32da8cd/abf4c63b/c652277b/19dcfad9/b7aecafb/e5e1491c/6dbb9dd4/a8645e85/63361db1）。**已完成**：裁决 4 C 依赖图下沉三阶段（`29464e60`/`e6c97020`/`3e64e3b1`/`8628411d`，按架构审核修正 Projection/CapabilityProfile 边界并补下沉 Operation）。**待办**：原生批次 A 后复验（授权已确认就绪，harness 修复 `e5e1491c`）。剩余 R2 流式生命周期与 Responses SSE、G6 压缩后请求、R1 后真实页面/实模证据及 CP5。I10 不代签 | [B71](slices/B71-provider-message-fidelity.md) |
+| B71-CP4b | R1 请求边界/原生投影/三消费者迁移与 2026-11-06 作者裁决已实现：A（system 规则/版本，`6dbb9dd4`）、D（finite_mode 持久事实，`b7aecafb`）、Anthropic 相邻 role 合并退役（`19dcfad9`）、B27 冻结器退役（`a8645e85`）；后端全量 3089/0、credo no issues、I1/I2/I3/N-NARR/I-CACHE 通过（提交 b32da8cd/abf4c63b/c652277b/19dcfad9/b7aecafb/e5e1491c/6dbb9dd4/a8645e85/63361db1）。**已完成**：裁决 4 C 依赖图下沉三阶段——首轮 `29464e60`/`e6c97020`/`3e64e3b1`/`8628411d`（含既有严格门禁修复 `b125989c` 与文档 `7af7c904`），2026-11-07 按作者 A1 裁决恢复原计划统一归属 `776e3641`（Projection/三投影/能力事实一并下沉 `novel_common`）。**待办**：原生批次 A 后复验（授权已确认就绪，harness 修复 `e5e1491c`）。剩余 R2 流式生命周期与 Responses SSE、G6 压缩后请求、R1 后真实页面/实模证据及 CP5。I10 不代签 | [B71](slices/B71-provider-message-fidelity.md) |
 
 当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 

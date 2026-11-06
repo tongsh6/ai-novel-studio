@@ -11,8 +11,8 @@
 
 - 纯 struct、纯函数、数据边界校验、JSON 值边界；
 - 契约规则文本/版本（如 `AuthoringSemantics`）、作者可见展示名与文本形状；
-- provider-neutral 的 Request IR 契约族（`NovelCommon.RequestIR`）与产品身份事实
-  （`NovelCommon.SystemIdentity`）；
+- provider-neutral 的 Request IR 契约族（`NovelCommon.RequestIR`，含三类 Provider
+  wire 投影与传输能力事实派生）与产品身份事实（`NovelCommon.SystemIdentity`）；
 - 日志/可观测性协议（`LogContext`、`LogEmit`、`LLMLog`）等无状态基础设施契约。
 
 禁止：
@@ -22,7 +22,7 @@
 - alias 其它生产 app 的模块（`NovelAgent.*`、`NovelApplication.*`、`NovelDomain.*`、
   `NovelPersistence.*`、`NovelWeb.*`、`NovelTest.*`、`NovelE2E.*`）；本 app 只依赖
   `novel_foundation` 与 Jason 等三方库。`scripts/arch_check.exs` 对此有机器门禁；
-- 测试替身、执行函数、provider 能力事实派发（这些属于 `novel_agent` 执行边界）。
+- 测试替身、执行函数、实际 provider 路由选择与传输发送（这些属于 `novel_agent` 执行边界）。
 
 新增契约/规则前先回答：真实消费者是谁、消费哪个设计文档/契约、被哪个门禁或回归保护。
 只为未来预留的抽象不进入本层（AGENTS.md YAGNI/KISS）。
@@ -47,6 +47,14 @@ novel_agent / novel_application / novel_persistence / novel_web → novel_common
 - [request_ir/tools.ex](lib/novel_common/request_ir/tools.ex)：工具目录视图与本次选择查询
   （`tool_specs/1`、`tool_choice/1`、`tool_call_prompt?/1`、`active_tool_name/1`）；投影与
   执行边界共用同一视图。
+- [request_ir/projection.ex](lib/novel_common/request_ir/projection.ex)：Request IR → Provider
+  HTTP body 的投影入口（`NovelCommon.RequestIR.Projection.project/3`，按 adapter 声明的
+  wire 目标分发）+ 投影公共语义（文本块/系统前缀/压缩文本/JSON 边界等）。VS-00L §6。
+- [request_ir/projection/](lib/novel_common/request_ir/projection)：三类 wire 投影
+  ——`chat_completions`、`anthropic_messages`、`responses_api`（纯函数；不发起传输）。
+- [capability_profile.ex](lib/novel_common/capability_profile.ex)：Provider 传输能力事实的
+  唯一派生边界（adapter 可证声明 → 按实际 route 派生能力、缺失判定、finite_mode 覆盖
+  校验与作者安全拒绝文案）。VS-00L §6.4/§16.15。
 - [request_ir/system_envelope.ex](lib/novel_common/request_ir/system_envelope.ex)：canonical
   system 事实边界（身份 + run 角色规则/输出协议 + 版本引用）与稳定 system 前缀
   `system_text/1`。VS-00L §3.2/§19.1。

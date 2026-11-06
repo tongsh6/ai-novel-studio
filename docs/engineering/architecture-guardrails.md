@@ -86,11 +86,11 @@ AuthorInput
 |---|---|---|
 | `novel_foundation` | Result / Error、ID、时间、通用校验、小型纯函数工具 | GenServer、Supervisor、Registry、Ecto、Phoenix、Provider、小说业务概念 |
 | `novel_domain` | 纯 struct、纯函数领域规则、领域事件、小说质量规则的纯判断 | I/O、Repo、Ecto、Phoenix、GenServer、Provider、Application 编排 |
-| `novel_agent` | Provider Gateway、agent runtime、toolbox runtime、工具执行、模型调用适配 | 引用 `NovelDomain` / `NovelApplication`，直接写作品事实 |
+| `novel_agent` | Provider Gateway、agent runtime、toolbox runtime、工具执行、模型调用适配、实际路由选择与传输执行 | 引用 `NovelDomain` / `NovelApplication`，直接写作品事实，重复实现 common 已固化的纯契约/投影/能力派生 |
 | `novel_application` | DialogueContext 组装、Prompt 构建、执行裁决、采纳边界编排、TurnResult 组装、trace 协调 | 引用 `NovelWeb`，把领域规则写成 I/O 副作用 |
 | `novel_persistence` | Repo、DB schema、migration、repository、read model、trace store | 引用 `NovelWeb` / `NovelApplication` / `NovelAgent` |
 | `novel_web` | Router、Controller、Channel、JSON 序列化、ActionInput 入口适配 | 直接调用 Repo、直接写 Ecto.Query、直接调用 `NovelAgent` 内部模块 |
-| `novel_common` | 跨 app 纯契约/规则：DTO 与校验、canonical Request IR 契约族、产品身份事实、规则文本、作者可见文本形状、可观测性协议 | 运行状态与进程、I/O、Ecto/Phoenix/HTTP、引用其他生产 app 或测试 helper |
+| `novel_common` | 跨 app 纯契约/规则：DTO 与校验、canonical Request IR 契约族（含三类 Provider wire 投影与能力事实派生）、产品身份事实、规则文本、作者可见文本形状、可观测性协议 | 运行状态与进程、I/O、Ecto/Phoenix/HTTP、引用其他生产 app 或测试 helper |
 | `novel_test` | 跨 app 测试 helper（请求材料只读解析、canonical IR 夹具），仅 `:test` 环境 | 被生产 lib 引用、依赖生产运行时 app、注册运行时 provider |
 | `frontend` | Workbench 展示、TurnResultViewModel 消费、AuthorActionInput 提交 | 发明 action、修改 BehaviorState、调用 toolbox、把草稿当正式事实 |
 
@@ -124,8 +124,9 @@ novel_agent / novel_application / novel_web / novel_e2e
 - `novel_domain` 只表达规则，不做调用。
 - `novel_persistence` 保存事实和读模型，不反向调用 application。
 - `novel_common` 是跨 app 纯契约/规则层：只依赖 `novel_foundation`；`RequestIR` 契约族
-  （数据/校验/构造）在此，wire 投影（`NovelAgent.Provider.Projection`）与能力事实
-  （`NovelAgent.Provider.CapabilityProfile`）留在 `novel_agent` 执行边界（VS-00L §19）。
+  （数据/校验/构造/工具视图/压缩/身份事实）与三类 wire 投影（`NovelCommon.RequestIR.Projection`
+  + 子模块）、能力事实派生（`NovelCommon.CapabilityProfile`）都在此（2026-11-07 裁决 4 C/A1）；
+  `novel_agent` 执行边界负责实际路由选择、传输发送与运行时监督（VS-00L §19）。
 - `novel_test` 只承载不依赖运行时实现的 helper；依赖 agent 运行时实现的测试替身
   （`Stub`/`SliceVerify`）留在 `novel_agent/test/support`，跨 app 引用面由 arch_check
   白名单显式登记。
