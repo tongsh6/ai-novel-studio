@@ -1117,6 +1117,21 @@
 - **提交（可 review 粒度）**：`29464e60` 工具查询/拒绝文案归位与 `json_value` 单一实现；`e6c97020` RequestIR 契约族下沉 + 测试迁移 + module-size 基线；`3e64e3b1` novel_test 去 agent 依赖与 helper 迁移；`8628411d` arch_check 四类边界规则 + 白名单 + 索引；`b125989c` 既有严格门禁修复；`7af7c904` 文档登记；`776e3641` A1 补充下沉（投影与能力事实入 common）。
 - **验收**：application/web 测试不再引用 agent test/support 的请求契约 helper（仅白名单内 `Stub`/`SliceVerify`）；`novel_test` 只依赖 `novel_common`；`NovelAgent.Provider.Projection`/`NovelAgent.Provider.CapabilityProfile`/旧 `RequestIR.Projection` 命名空间全仓 0 引用；wire 与持久化字段未变；全量门禁与不变量见最终报告。真实模型、真实页面、R2/SSE、G6 与 CP5 不代签。
 
+### R2 CP0 盘点（2026-11-07，下一步主线）
+
+- **Contract**：VS-00L §6.3（Responses 投影矩阵）、§16.15（SSE 工具调用无损/Responses 传输）、§17 状态表「Responses SSE 仍开放」；R2 语义冻结于本文档 §「R2 同一流式生命周期」（工具调用不再隐式选择非流式；三 wire decoder 分别累积原始事件；工具参数结束前只作增量事实、完成后归一；保留 call_id/raw_arguments；Respondes item_id 与 call_id 分属不同用途；私有 reasoning 按 provider/model 绑定回放、不展示作者；正文预览只来自真实正文数据）。
+- **现状盘点（只读）**：`openai_compatible.ex` 的 Responses wire 只有真实非流式传输——`responses_request_body/3` 显式 `stream: false`（:443-449）、`execute_responses/6` 走非流式超时（:330-345）、`capabilities/2` 中 `streaming: wire_api == :chat_completions`（:195）；`openai_compatible_stream.ex` 已有 Chat SSE 解析与 tool_calls delta 累积（:318 起），可作为 Responses 事件累积的参考实现；`openai_responses_wire_test.exs:249` 现有「Responses wire 的 streaming 能力如实为 false」反例，R2 需改为正例并保留非流式/缺能力拒绝反例；`config/` 无生产 `wire_api` 配置（默认 chat_completions），翻正 streaming 只影响显式配置 responses 的 route；I-CACHE driver 目前只度量 `projection_target(state)`（默认 chat），需扩展三投影。
+- **分解（建议）**：
+  1. **R2-1 契约/判据冻结**：Responses SSE 事件→ProviderEvent/text delta/tool delta/usage/finish 映射；`streaming: true` 的翻正条件与门禁判据；「item_id ≠ call_id」的绑定规则与反例。
+  2. **R2-2 Responses SSE 实现**：`stream: true` 请求；解析 `response.output_text.delta`、`response.function_call_arguments.delta/.done`、`response.output_item.added/.done`、`response.completed`、error 事件；工具参数增量保留原字节、完成时归一；usage 取 completed 事件；与 Chat/Anthropic 共用同一 AdapterExecution 事件流。
+  3. **R2-3 流式生命周期统一**：三 wire 共用 HTTP cancellation/deadline/silence 语义；终止事件、错误分类、取消路径不伪造成功。
+  4. **R2-4 能力与路由**：Responses route 声明的 streaming 翻正并通过完整 AgentRun 能力门；旧「Responses SSE 未实现时拒绝路由」反例迁移为「adapter 未声明时拒绝」；finite_mode 语义不变。
+  5. **R2-5 I-CACHE 多投影**：driver 覆盖 Chat/Anthropic/Responses 三投影的严格前缀（含工具参数原字节），保留既有 Chat 判据不放松。
+  6. **R2-6 证据分层**：确定性单测/集成测试 + 全量门禁；真实模型/真实页面另证，不代签 CP4b-2/CP5。
+- **Boundary**：改动限于 `novel_agent`（openai_compatible stream 分支、AdapterExecution/Gateway 事件）与 `scripts/scenario_invariants`（I-CACHE 扩展）；common 的 IR/投影契约不变（Responses 投影已存在，stream 字段由 adapter 决定）；不新增产品验收感知逻辑（Acceptance Driver 仍为既有真实 Tauri 场景）。
+- **风险**：Responses SSE 真实事件名/顺序需以官方文档为准（实现前用 web 查证并记录来源）；离线实现需 fake SSE 帧契约测试，避免「假流式」（final-only 伪装）；翻正能力声明前必须保证 decoder 对截断/错误帧 fail-closed。
+- **待作者裁决**：① R2 done 判据为「确定性机制 + 门禁通过」还是必须等实模窗口；② I-CACHE 是否扩展为三投影强制门禁；③ R2 后 responses wire 是否允许生产默认启用（当前无默认，建议保持显式配置）；④ 真实流式正文预览 UI 是否纳入 R2（建议独立后续项，不缩小 R2 但也不在本批伪造页面证据）。
+
 ### 原生批次验收状态（2026-11-06）
 
 - **授权（已确认就绪，不需要作者再处理系统对话框）**：辅助功能 `AXIsProcessTrusted()=true`、CGEvent `CGPreflightPostEventAccess()=true`、屏幕录制 `CGPreflightScreenCaptureAccess()=true`；真实批次里窗口 AX 读取、CGEvent 输入投递（`cgevent_to_pid`）、截图、后端链路均成功。此前"app 一直等待输入"不是授权问题，而是 harness 等待账/外部驱动流程问题。

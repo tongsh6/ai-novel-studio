@@ -17,6 +17,13 @@
 | B79 | 存量书稿导入 + 导入后分析建档（导入 txt/md/粘贴→自动切分落库；分析六类直接写档案、批次可撤销；大纲/卷落现有 schema、无卷划分不产卷信息；覆盖=软替换）。可先独立推进 CP0 契约冻结与 CP1 确定性导入链，不依赖 B71 收口；CP3/CP4 分析长跑需真实模型窗口 | [B79](slices/B79-work-import-and-analysis.md) |
 | B78 | 存量大模块拆分（P1：WorkspaceChat / dialogue_planning_service / agent_run_server / turn_execution_service / adoption_repository）；治理机制与 ratchet 门禁已落地，本任务只做结构化拆分，须在 B71 收口后按「一次一个文件、独立 refactor commit」排期 | [B78](slices/B78-module-size-debt.md) |
 
+## 可并行与依赖排序（2026-11-07 依赖分析）
+
+- **可与 R2 并行（不依赖 B71 收口/外部窗口）**：B79 CP0 契约冻结 + CP1 确定性导入链；AU10 的「产品外 fixture / 原生目录替身构造」部分（真实页面证据仍需窗口）；B72 离线生成器若作者批准 mutation 预算方案。
+- **依赖 B71 收口**：B78 存量拆分（一次一个文件、独立 refactor commit）、B39 重锚、CP5 后的证据刷新与最终全量扫描。
+- **依赖外部资源/裁决（先 A/B/C 再排期）**：SU04（Apple 证书/CI 矩阵）、B65（release 环境）、B57（数据授权）、B48/B64/B27（真实模型窗口）、AU08/Q1C/AU10（原生窗口 + 预算）、B01/B43/B67/UA01 T3′/T5/VS00F-TRACE/B28（先裁决/先冻结；B67 依赖 VS00F-TRACE）。
+- 排序原则：先做「不占外部窗口、能改变完成度」的（R2 主线 + B79 并行），再处理需要作者资源窗口的批次；不把排期结论当授权或完成声明。
+
 ## 阻塞
 
 - **B72 离线生成器质量门**：离线生成器/manifest/persona 已实现且契约测试 12/12，但 mutation 两轮后 51.5%、111 survivors；真实模型校准未授权。待 A（推荐：专门 mutation 测试预算/负责人）/B（保留 known-gap）/C（进一步拆分实现）；见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#可独立推进-离线生成器契约2026-10-31)。
