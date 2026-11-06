@@ -249,7 +249,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       )
 
     assert first.tools == second.tools
-    assert NovelAgent.Provider.tool_choice(first) == "auto"
+    assert NovelAgent.Provider.RequestIR.Tools.tool_choice(first) == "auto"
     refute first.messages == second.messages
   end
 
@@ -2438,7 +2438,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       assert Enum.map(ir.tools, & &1.name) ==
                Enum.map(JudgmentToolContract.tools(:judgment), & &1.name)
 
-      assert NovelAgent.Provider.tool_choice(ir) == "auto"
+      assert NovelAgent.Provider.RequestIR.Tools.tool_choice(ir) == "auto"
       assert [%{role: "application_base"} | rest] = ir.messages
 
       author = Enum.find(ir.messages, &(&1.role == "user" and &1.provenance == "author"))

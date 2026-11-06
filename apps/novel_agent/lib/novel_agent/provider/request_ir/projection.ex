@@ -136,26 +136,8 @@ defmodule NovelAgent.Provider.RequestIR.Projection do
   @doc "observation/validation 的 content 投影：类型、status、refs 与版本均可辨识。"
   def structured_content(block), do: Jason.encode!(json_value(block))
 
-  @doc """
-  统一 JSON 值边界：对象键规范为字符串，数组逐项保留，标量/结构体原样传递。
-
-  opaque observation content/coverage、工具参数与版本数据只在 producer 与
-  序列化边界经过这里；恢复不再把领域键误认为 canonical 结构键。
-  """
-  @spec json_value(term()) :: term()
-  def json_value(%_{} = struct), do: struct
-
-  def json_value(value) when is_map(value),
-    do: Map.new(value, fn {key, item} -> {json_key(key), json_value(item)} end)
-
-  def json_value(value) when is_list(value), do: Enum.map(value, &json_value/1)
-  def json_value(value), do: value
-
-  defp json_key(key) when is_atom(key), do: Atom.to_string(key)
-  defp json_key(key) when is_binary(key), do: key
-  defp json_key(key) when is_integer(key), do: Integer.to_string(key)
-  defp json_key(key) when is_float(key), do: :erlang.float_to_binary(key, [:compact])
-  defp json_key(key), do: key
+  @doc "IR 的 JSON 值边界；单一实现在 `RequestIR.json_value/1`，投影不复制。"
+  defdelegate json_value(value), to: RequestIR
 
   def usage_streaming?(ir), do: Map.get(ir.projection, :usage_streaming, false) == true
 

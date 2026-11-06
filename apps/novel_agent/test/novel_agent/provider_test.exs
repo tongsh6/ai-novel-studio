@@ -3,9 +3,7 @@ defmodule NovelAgent.ProviderTest do
 
   alias NovelAgent.Provider
   alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Projection
   alias NovelAgent.TestProviderPrompt
-  alias NovelAgent.TestRequestIR
 
   defp operation_ir(messages) do
     RequestIR.new(%{
@@ -13,23 +11,6 @@ defmodule NovelAgent.ProviderTest do
       system: RequestIR.system_envelope(),
       messages: messages
     })
-  end
-
-  test "当前工具由目录和选择共同决定，不把多工具目录中的一个名字当成本阶段" do
-    tools = [%{name: "first", input_schema: %{}}, %{name: "second", input_schema: %{}}]
-
-    ir = fn specs, tool_choice ->
-      TestRequestIR.ir([TestRequestIR.author("观察")],
-        tools: specs,
-        projection: %{tool_choice: tool_choice}
-      )
-    end
-
-    assert Provider.active_tool_name(ir.(tools, "auto")) == nil
-    assert Provider.active_tool_name(ir.(tools, "second")) == "second"
-    assert Provider.active_tool_name(ir.(tools, "absent")) == nil
-    assert Provider.active_tool_name(ir.([hd(tools)], "auto")) == "first"
-    assert Provider.active_tool_name(ir.([hd(tools)], "none")) == nil
   end
 
   test "专业操作视图保留首 Base 与原话；首阶段纠错不能误当角色切换" do
@@ -67,32 +48,6 @@ defmodule NovelAgent.ProviderTest do
 
     assert TestProviderPrompt.operation_text(operation_ir(messages)) == current
     assert TestProviderPrompt.operation_text("单次 legacy 内容") == "单次 legacy 内容"
-  end
-
-  # 缺陷十（2026-07-20）：现场实测 gpt-oss-120b 在 purpose: :writer 真实调用中
-  # 采样退化——HTTP 200 正常返回，content 却是单字符刷满 1999 次。这不是任何
-  # max_tokens 上限能挡住的失控生成（预算再大也只是刷更多同一字符），是内容
-  # 有效性问题，判定与"内容为空"同一优先级、跨 adapter 共享同一实现。
-  describe "tool_choice: none" do
-    test "is not tool-call mode and keeps tools in the canonical projection" do
-      ir =
-        TestRequestIR.ir(
-          [TestRequestIR.author("观察")],
-          tools: [%{name: "continuation_decision", input_schema: %{type: "object"}}],
-          projection: %{tool_choice: "none"}
-        )
-
-      refute Provider.tool_call_prompt?(ir)
-
-      # 旧 put_openai_tools/2 已退役：工具与选择只由 canonical IR 投影承载，
-      # 请求自带的 capability_profile/target 不再参与任何判定。
-      assert {:ok, body} = Projection.project(ir, "chat_completions")
-      assert body.tool_choice == "none"
-      assert [%{function: %{name: "continuation_decision"}}] = body.tools
-
-      named = %{ir | projection: %{tool_choice: "continuation_decision"}}
-      assert Provider.tool_call_prompt?(named)
-    end
   end
 
   describe "degenerate_content?/1" do

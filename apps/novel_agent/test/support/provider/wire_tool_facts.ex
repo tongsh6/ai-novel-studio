@@ -2,7 +2,7 @@ defmodule NovelAgent.Test.WireToolFacts do
   @moduledoc """
   仅测试支持：离线替身从真实请求读取工具事实的唯一入口。
 
-  - `%RequestIR{}`：委托 `NovelAgent.Provider` 现役 API（生产唯一请求形态）。
+  - `%RequestIR{}`：委托 canonical `RequestIR` 查询 API（生产唯一请求形态）。
   - legacy 文本形态（binary / messages list / 旧 map）：保留旧测试替身的读取规则，
     只读取调用方显式给出的 `tools` / `tool_choice`，不从文本推断。
 
@@ -11,18 +11,17 @@ defmodule NovelAgent.Test.WireToolFacts do
   到"从文本猜工具"的旧行为。
   """
 
-  alias NovelAgent.Provider
   alias NovelAgent.Provider.RequestIR
 
   @spec specs(term()) :: [map()]
-  def specs(%RequestIR{} = ir), do: Provider.tool_specs(ir)
+  def specs(%RequestIR{} = ir), do: RequestIR.Tools.tool_specs(ir)
 
   def specs(prompt) when is_map(prompt), do: legacy_specs(field(prompt, :tools))
 
   def specs(_prompt), do: []
 
   @spec choice(term()) :: String.t() | nil
-  def choice(%RequestIR{} = ir), do: Provider.tool_choice(ir)
+  def choice(%RequestIR{} = ir), do: RequestIR.Tools.tool_choice(ir)
 
   def choice(prompt) when is_map(prompt) do
     case field(prompt, :tool_choice) do

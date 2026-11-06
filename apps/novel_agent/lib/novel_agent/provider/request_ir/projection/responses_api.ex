@@ -8,6 +8,7 @@ defmodule NovelAgent.Provider.RequestIR.Projection.ResponsesAPI do
   - `previous_response_id` 只作优化，不进入本地 IR 事实源
   """
 
+  alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.RequestIR.{Compaction, Projection}
 
   @spec project(struct(), keyword()) :: map()
@@ -18,7 +19,7 @@ defmodule NovelAgent.Provider.RequestIR.Projection.ResponsesAPI do
       stream: Projection.usage_streaming?(ir)
     }
     |> put_tools(Enum.map(ir.tools, &tool_schema/1))
-    |> put_tool_choice(NovelAgent.Provider.tool_choice(ir))
+    |> put_tool_choice(RequestIR.Tools.tool_choice(ir))
   end
 
   defp put_tools(body, []), do: body

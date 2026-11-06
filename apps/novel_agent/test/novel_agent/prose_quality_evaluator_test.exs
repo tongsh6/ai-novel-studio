@@ -93,7 +93,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
       assert %RequestIR{} = prompt
       assert prompt.messages == initial_ir.messages
       assert [%{name: "report_quality_findings"}] = prompt.tools
-      assert NovelAgent.Provider.tool_choice(prompt) == "report_quality_findings"
+      assert NovelAgent.Provider.RequestIR.Tools.tool_choice(prompt) == "report_quality_findings"
 
       {:ok,
        %{

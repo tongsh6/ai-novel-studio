@@ -291,7 +291,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
            }}
 
         Enum.any?(
-          NovelAgent.Provider.tool_specs(prompt),
+          NovelAgent.Provider.RequestIR.Tools.tool_specs(prompt),
           &(&1.name == "submit_tentative_artifact")
         ) ->
           complete_character_design_prompt(parent, prompts, prompt)

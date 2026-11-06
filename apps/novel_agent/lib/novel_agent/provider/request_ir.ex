@@ -13,9 +13,7 @@ defmodule NovelAgent.Provider.RequestIR do
 
   @ir_version "authoring-request-ir/v1"
 
-  alias NovelAgent.Provider.CapabilityProfile
   alias NovelAgent.Provider.RequestIR.Compaction
-  alias NovelAgent.Provider.RequestIR.Projection
   alias NovelAgent.Provider.RequestIR.SystemEnvelope
 
   @roles ~w(system application_base scope_update application_notice user assistant tool checkpoint author_exit)
@@ -157,13 +155,34 @@ defmodule NovelAgent.Provider.RequestIR do
     end
   end
 
+  @doc """
+  IR 的 JSON 值边界：对象键规范为字符串，数组逐项保留，标量/结构体原样传递。
+
+  构造器、投影与消费方只在数据进入 IR 时经过这里；不在这里做业务校验或
+  字段裁剪。
+  """
+  @spec json_value(term()) :: term()
+  def json_value(%_{} = struct), do: struct
+
+  def json_value(value) when is_map(value),
+    do: Map.new(value, fn {key, item} -> {json_key(key), json_value(item)} end)
+
+  def json_value(value) when is_list(value), do: Enum.map(value, &json_value/1)
+  def json_value(value), do: value
+
+  defp json_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp json_key(key) when is_binary(key), do: key
+  defp json_key(key) when is_integer(key), do: Integer.to_string(key)
+  defp json_key(key) when is_float(key), do: :erlang.float_to_binary(key, [:compact])
+  defp json_key(key), do: key
+
   @doc "构造一条 transcript 消息。"
   @spec message(atom() | String.t(), atom() | String.t(), [map()], map()) :: map()
   def message(role, provenance, blocks, extra \\ %{}) do
     extra =
       Enum.reduce([:versions, :provider_state], extra, fn key, acc ->
         case Map.fetch(acc, key) do
-          {:ok, value} -> Map.put(acc, key, Projection.json_value(value))
+          {:ok, value} -> Map.put(acc, key, json_value(value))
           :error -> acc
         end
       end)
@@ -189,7 +208,7 @@ defmodule NovelAgent.Provider.RequestIR do
       type: "tool_call",
       call_id: call_id,
       name: to_string(name),
-      arguments: Projection.json_value(arguments),
+      arguments: json_value(arguments),
       schema_version: schema_version
     }
   end
@@ -804,8 +823,6 @@ defmodule NovelAgent.Provider.RequestIR do
   defp provider_tool_call_block(name, _arguments, call_id),
     do: tool_call_block(name, %{}, call_id)
 
-  defp json_value(value), do: Projection.json_value(value)
-
   defp valid_source_id?(id), do: String.valid?(id) and String.trim(id) != ""
 
   defp fetch_field(map, key) when is_map(map) do
@@ -876,19 +893,4 @@ defmodule NovelAgent.Provider.RequestIR do
       {:error, {:unknown_tool_names, unknown}}
     end
   end
-
-  @doc """
-  把请求构造失败 reason 转为作者安全的可读文案。
-
-  只输出中文能力名，不回显内部 capability atom、prompt 内容或私有状态；
-  调用方（判断/创作/评审）用它生成作者可见失败原因。
-  """
-  @spec rejection_message(term()) :: String.t()
-  def rejection_message({:unsupported_capability, missing}) when is_list(missing) do
-    "当前模型缺少完整创作运行所需的传输能力（" <>
-      CapabilityProfile.labels(missing) <>
-      "），已拒绝本次请求；没有降级为静默丢弃字段的运行。"
-  end
-
-  def rejection_message(_reason), do: "本次请求无法构造为可用的模型请求，已拒绝。"
 end

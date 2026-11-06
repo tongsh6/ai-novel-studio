@@ -8,6 +8,7 @@ defmodule NovelAgent.Provider.RequestIR.Projection.ChatCompletions do
   - 作者原话独立 user 消息、字节不变；assistant 保留原始参数与私有推理引用
   """
 
+  alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.RequestIR.{Compaction, Projection}
 
   @spec project(struct(), keyword()) :: map()
@@ -23,7 +24,7 @@ defmodule NovelAgent.Provider.RequestIR.Projection.ChatCompletions do
       stream: Projection.usage_streaming?(ir)
     }
     |> put_tools(Enum.map(ir.tools, &tool_schema/1))
-    |> put_tool_choice(NovelAgent.Provider.tool_choice(ir))
+    |> put_tool_choice(RequestIR.Tools.tool_choice(ir))
   end
 
   defp put_tools(body, []), do: body

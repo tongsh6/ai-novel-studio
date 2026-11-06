@@ -101,7 +101,7 @@ defmodule NovelAgent.Provider.Anthropic do
   end
 
   defp execute_validated(state, key, prompt, params, ctx) do
-    if NovelAgent.Provider.tool_call_prompt?(prompt) do
+    if RequestIR.Tools.tool_call_prompt?(prompt) do
       execute_tool_call(state, prompt, params, ctx)
     else
       case request_body(state, prompt, params, true) do

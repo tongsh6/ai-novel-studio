@@ -581,7 +581,7 @@ defmodule ICachePrefixDriver do
 
   defp assert_native_tool_choice!(call_site, ir_a, ir_b) do
     expected = native_tool_choice(call_site)
-    actual = {NovelAgent.Provider.tool_choice(ir_a), NovelAgent.Provider.tool_choice(ir_b)}
+    actual = {NovelAgent.Provider.RequestIR.Tools.tool_choice(ir_a), NovelAgent.Provider.RequestIR.Tools.tool_choice(ir_b)}
 
     unless actual == {expected, expected} do
       raise(

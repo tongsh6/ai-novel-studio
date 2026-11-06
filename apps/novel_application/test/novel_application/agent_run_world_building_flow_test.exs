@@ -256,7 +256,11 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
   end
 
   defp plan_draft_prompt?(prompt),
-    do: Enum.any?(NovelAgent.Provider.tool_specs(prompt), &(&1.name == "agent_plan_draft"))
+    do:
+      Enum.any?(
+        NovelAgent.Provider.RequestIR.Tools.tool_specs(prompt),
+        &(&1.name == "agent_plan_draft")
+      )
 
   defp world_building_plan_draft do
     TestAgenticLoopFixtures.plan_tool_call_result(

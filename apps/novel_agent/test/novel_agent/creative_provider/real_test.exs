@@ -78,7 +78,9 @@ defmodule NovelAgent.CreativeProvider.RealTest do
       assert prompt.messages == initial_ir.messages
       assert Enum.any?(prompt.messages, &(&1.source_refs != []))
       assert [%{name: "submit_tentative_artifact"}] = prompt.tools
-      assert NovelAgent.Provider.tool_choice(prompt) == "submit_tentative_artifact"
+
+      assert NovelAgent.Provider.RequestIR.Tools.tool_choice(prompt) ==
+               "submit_tentative_artifact"
 
       {:ok,
        %{

@@ -7,6 +7,7 @@ defmodule NovelAgent.Provider.RequestIR.Projection.AnthropicMessages do
   - observation/validation → `tool_result` content blocks（tool_use_id 关联）
   """
 
+  alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.RequestIR.{Compaction, Projection}
 
   @spec project(struct(), keyword()) :: map() | {:error, term()}
@@ -26,7 +27,7 @@ defmodule NovelAgent.Provider.RequestIR.Projection.AnthropicMessages do
         stream: Projection.usage_streaming?(ir)
       }
       |> put_tools(Enum.map(ir.tools, &tool_schema/1))
-      |> put_tool_choice(NovelAgent.Provider.tool_choice(ir))
+      |> put_tool_choice(RequestIR.Tools.tool_choice(ir))
     end
   end
 

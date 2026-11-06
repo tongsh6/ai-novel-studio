@@ -291,7 +291,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert NovelApplication.TestAgenticLoopFixtures.prompt_text(evaluator_prompt) =~ "## 创作协作共同规则"
 
     assert Enum.any?(
-             NovelAgent.Provider.tool_specs(evaluator_prompt),
+             NovelAgent.Provider.RequestIR.Tools.tool_specs(evaluator_prompt),
              &(&1.name == "report_quality_findings")
            )
 
@@ -859,10 +859,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              )
 
     assert_receive {:planner_prompt, 1, initial_prompt}, 500
-    assert NovelAgent.Provider.tool_choice(initial_prompt) == "auto"
+    assert NovelAgent.Provider.RequestIR.Tools.tool_choice(initial_prompt) == "auto"
     assert_receive {:planner_prompt, 2, retry_prompt}, 500
     assert prompt_text(retry_prompt) =~ "上一次的 AgentRun 计划 tool call 无法被系统解析"
-    assert NovelAgent.Provider.tool_choice(retry_prompt) == "auto"
+    assert NovelAgent.Provider.RequestIR.Tools.tool_choice(retry_prompt) == "auto"
     refute_receive {:planner_prompt, 3, _}
     assert_receive {:writer_prompt, _writer_prompt}, 1_000
     assert_receive {:agent_event, :run_completed, _}, 2_000
@@ -1599,7 +1599,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   # WR01：写前推理步的确定性结果——一条依据在材料内（context() 的第 01 章计划字段）、
   # 一条越界依据（必须被 ChapterMission.bind 机械丢弃，不进 writer prompt）。
   defp mission_prompt?(prompt),
-    do: Enum.any?(NovelAgent.Provider.tool_specs(prompt), &(&1.name == "chapter_mission"))
+    do:
+      Enum.any?(
+        NovelAgent.Provider.RequestIR.Tools.tool_specs(prompt),
+        &(&1.name == "chapter_mission")
+      )
 
   defp mission_result do
     TestAgenticLoopFixtures.mission_tool_call_result(
@@ -1614,10 +1618,18 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   end
 
   defp plan_draft_prompt?(prompt),
-    do: Enum.any?(NovelAgent.Provider.tool_specs(prompt), &(&1.name == "agent_plan_draft"))
+    do:
+      Enum.any?(
+        NovelAgent.Provider.RequestIR.Tools.tool_specs(prompt),
+        &(&1.name == "agent_plan_draft")
+      )
 
   defp continuation_decision_prompt?(prompt),
-    do: Enum.any?(NovelAgent.Provider.tool_specs(prompt), &(&1.name == "continuation_decision"))
+    do:
+      Enum.any?(
+        NovelAgent.Provider.RequestIR.Tools.tool_specs(prompt),
+        &(&1.name == "continuation_decision")
+      )
 
   defp continuation_decision(action, guidance) do
     text = if action == "continue", do: "按观察继续修正：#{guidance}", else: "我先停下来，需要作者确认后继续。"

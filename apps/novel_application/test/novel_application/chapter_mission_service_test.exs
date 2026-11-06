@@ -76,7 +76,7 @@ defmodule NovelApplication.ChapterMissionServiceTest do
              )
 
     assert_receive {:prompt, prompt}
-    assert NovelAgent.Provider.tool_choice(prompt) == "chapter_mission"
+    assert NovelAgent.Provider.RequestIR.Tools.tool_choice(prompt) == "chapter_mission"
     assert [%{name: "chapter_mission"}] = prompt.tools
     content = text(prompt)
     assert content =~ ChapterMissionService.prompt_anchor()

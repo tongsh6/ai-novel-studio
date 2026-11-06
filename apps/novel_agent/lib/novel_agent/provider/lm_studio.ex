@@ -80,7 +80,7 @@ defmodule NovelAgent.Provider.LMStudio do
   @impl true
   def execute(%__MODULE__{endpoint: endpoint} = state, _model, prompt, params, ctx)
       when (is_binary(prompt) or is_list(prompt) or is_map(prompt)) and not is_nil(endpoint) do
-    if NovelAgent.Provider.tool_call_prompt?(prompt) do
+    if RequestIR.Tools.tool_call_prompt?(prompt) do
       execute_tool_call(state, endpoint, prompt, params, ctx)
     else
       body = request_body(state, prompt, params, true)
@@ -238,7 +238,7 @@ defmodule NovelAgent.Provider.LMStudio do
   end
 
   defp maybe_json_mode(body, true, prompt) do
-    if NovelAgent.Provider.tool_call_prompt?(prompt) do
+    if RequestIR.Tools.tool_call_prompt?(prompt) do
       body
     else
       Map.put(body, :response_format, %{type: "json_object"})

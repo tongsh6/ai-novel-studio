@@ -10,6 +10,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @behaviour NovelAgent.Provider
 
   alias NovelAgent.Provider.AdapterExecution
+  alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.RequestIR.Projection
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.StubChapterSummary
@@ -2958,7 +2959,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         refs: ir.refs
       },
       tools: ir.tools,
-      tool_choice: NovelAgent.Provider.tool_choice(ir)
+      tool_choice: RequestIR.Tools.tool_choice(ir)
     }
   end
 

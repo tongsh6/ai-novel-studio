@@ -728,10 +728,18 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
   end
 
   defp plan_draft_prompt?(prompt),
-    do: Enum.any?(NovelAgent.Provider.tool_specs(prompt), &(&1.name == "agent_plan_draft"))
+    do:
+      Enum.any?(
+        NovelAgent.Provider.RequestIR.Tools.tool_specs(prompt),
+        &(&1.name == "agent_plan_draft")
+      )
 
   defp revision_prompt?(prompt),
-    do: Enum.any?(NovelAgent.Provider.tool_specs(prompt), &(&1.name == "agent_plan_revision"))
+    do:
+      Enum.any?(
+        NovelAgent.Provider.RequestIR.Tools.tool_specs(prompt),
+        &(&1.name == "agent_plan_revision")
+      )
 
   defp prompt_text(prompt), do: TestAgenticLoopFixtures.prompt_text(prompt)
 end

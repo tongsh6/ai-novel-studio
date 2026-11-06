@@ -306,7 +306,7 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   end
 
   defp execute_chat(meta, state, headers, prompt, params, ctx) do
-    if NovelAgent.Provider.tool_call_prompt?(prompt) do
+    if RequestIR.Tools.tool_call_prompt?(prompt) do
       execute_tool_call(meta, state, headers, prompt, params, ctx)
     else
       body =
@@ -569,7 +569,7 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   end
 
   defp maybe_json_mode(body, true, prompt) do
-    if NovelAgent.Provider.tool_call_prompt?(prompt) do
+    if RequestIR.Tools.tool_call_prompt?(prompt) do
       body
     else
       Map.put(body, :response_format, %{type: "json_object"})

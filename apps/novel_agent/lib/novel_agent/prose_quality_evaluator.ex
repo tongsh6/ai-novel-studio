@@ -11,7 +11,6 @@ defmodule NovelAgent.ProseQualityEvaluator do
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.NativeToolExchange
   alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.RequestIR.Operation
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
@@ -94,7 +93,7 @@ defmodule NovelAgent.ProseQualityEvaluator do
       {:error, reason} ->
         {QualityEvaluationResult.error(%{
            code: "invalid_request_ir",
-           message: RequestIR.rejection_message(reason)
+           message: NovelAgent.Provider.rejection_message(reason)
          }), %{}}
 
       _ ->
@@ -185,7 +184,7 @@ defmodule NovelAgent.ProseQualityEvaluator do
     do:
       QualityEvaluationResult.error(%{
         code: "invalid_request_ir",
-        message: RequestIR.rejection_message(reason)
+        message: NovelAgent.Provider.rejection_message(reason)
       })
 
   defp exchange_error(code, reason),

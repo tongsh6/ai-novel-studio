@@ -431,7 +431,7 @@ defmodule ModelContracts.B26Cp0ArmProbe do
     %{
       "builder" => "JudgmentProtocol.request_for_production/2 (production canonical IR)",
       "profile" => "judgment",
-      "tool_choice" => NovelAgent.Provider.tool_choice(ir),
+      "tool_choice" => NovelAgent.Provider.RequestIR.Tools.tool_choice(ir),
       "tools" => tools,
       "tool_count" => length(tools),
       "rules_version" => safe_call(fn -> NovelApplication.AuthoringTaskPolicy.version() end),

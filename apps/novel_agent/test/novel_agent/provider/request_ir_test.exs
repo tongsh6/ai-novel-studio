@@ -554,17 +554,39 @@ defmodule NovelAgent.Provider.RequestIRTest do
     end
   end
 
+  describe "工具选择与投影边界" do
+    test "tool_choice: none 不是工具调用模式，但工具目录仍原样进入 canonical 投影" do
+      ir =
+        %{
+          ir([message(:user, :author, [RequestIR.text_block("观察")])],
+            tools: [%{name: "continuation_decision", input_schema: %{type: "object"}}]
+          )
+          | projection: %{tool_choice: "none"}
+        }
+
+      refute RequestIR.Tools.tool_call_prompt?(ir)
+
+      # 工具与选择只由 canonical IR 投影承载；请求不携带第二套工具注入状态。
+      assert {:ok, body} = Projection.project(ir, "chat_completions")
+      assert body.tool_choice == "none"
+      assert [%{function: %{name: "continuation_decision"}}] = body.tools
+
+      named = %{ir | projection: %{tool_choice: "continuation_decision"}}
+      assert RequestIR.Tools.tool_call_prompt?(named)
+    end
+  end
+
   describe "adapter 原生投影边界（VS-00L §19.1）" do
     test "Provider 工具事实直接读取 IR 的 active tools 与 projection.tool_choice" do
       ir = ir(g2_messages(), refs: observed_refs())
       assert {:ok, prepared} = RequestIR.prepare_request(ir, tool_choice: "required")
 
-      assert NovelAgent.Provider.tool_specs(prepared) |> Enum.map(& &1.name) == [
+      assert RequestIR.Tools.tool_specs(prepared) |> Enum.map(& &1.name) == [
                "read_character"
              ]
 
-      assert NovelAgent.Provider.tool_choice(prepared) == "required"
-      assert NovelAgent.Provider.tool_call_prompt?(prepared)
+      assert RequestIR.Tools.tool_choice(prepared) == "required"
+      assert RequestIR.Tools.tool_call_prompt?(prepared)
     end
 
     test "CP4a：当前阶段工具投影与 canonical 工具历史分离" do
@@ -588,7 +610,7 @@ defmodule NovelAgent.Provider.RequestIRTest do
                )
 
       assert Enum.map(prepared.tools, & &1.name) == ["report_quality_findings"]
-      assert NovelAgent.Provider.tool_choice(prepared) == "report_quality_findings"
+      assert RequestIR.Tools.tool_choice(prepared) == "report_quality_findings"
       assert length(ir.tools) == 2
 
       assert {:error, {:unknown_tool_names, ["missing_tool"]}} =

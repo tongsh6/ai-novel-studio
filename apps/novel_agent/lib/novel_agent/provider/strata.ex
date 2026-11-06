@@ -40,6 +40,8 @@ defmodule NovelAgent.Provider.Strata do
   不做 LM Studio 式的 `"required"` 降级（统一后台接受具名对象）。
   """
 
+  alias NovelAgent.Provider.RequestIR
+
   use NovelAgent.Provider.OpenAICompatible,
     vendor: "strata",
     label: "Strata",
@@ -56,8 +58,8 @@ defmodule NovelAgent.Provider.Strata do
     # 当前 Strata 服务在 none 时先移除 tools 再渲染模板（0.1.47 Metal 实测）。
     # 保持禁用工具的请求语义，仅如实标注工具前缀降级，不伪造缓存或改成 auto。
     ctx =
-      if NovelAgent.Provider.tool_choice(prompt) == "none" and
-           NovelAgent.Provider.tool_specs(prompt) != [] do
+      if RequestIR.Tools.tool_choice(prompt) == "none" and
+           RequestIR.Tools.tool_specs(prompt) != [] do
         Map.put(ctx, :tool_constancy, :degraded)
       else
         ctx

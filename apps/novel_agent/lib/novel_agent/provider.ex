@@ -9,16 +9,12 @@ defmodule NovelAgent.Provider do
   """
 
   alias NovelAgent.Provider.AdapterExecution
+  alias NovelAgent.Provider.CapabilityProfile
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.RequestIR
   alias NovelAgent.Provider.Result
 
   @type message :: %{required(:role) => String.t(), required(:content) => String.t()}
-  @type tool_spec :: %{
-          required(:name) => String.t(),
-          required(:input_schema) => map(),
-          optional(:description) => String.t()
-        }
   @type tool_call :: %{
           required(:name) => String.t(),
           required(:arguments) => map(),
@@ -101,34 +97,20 @@ defmodule NovelAgent.Provider do
 
   @optional_callbacks list_models: 1, execute: 5, capabilities: 1, projection_target: 1
 
-  @spec supported_prompt?(term()) :: boolean()
-  def supported_prompt?(%RequestIR{}), do: true
-  def supported_prompt?(_prompt), do: false
+  @doc """
+  把请求构造失败 reason 转为作者安全的可读文案。
 
-  @spec tool_call_prompt?(prompt()) :: boolean()
-  def tool_call_prompt?(prompt),
-    do: tool_specs(prompt) != [] and tool_choice(prompt) != "none"
-
-  @spec tool_specs(prompt()) :: [tool_spec()]
-  def tool_specs(%RequestIR{} = ir), do: normalize_tool_specs(ir.tools)
-
-  @spec tool_choice(prompt()) :: String.t() | nil
-  def tool_choice(%RequestIR{} = ir), do: Map.get(ir.projection, :tool_choice)
-
-  @doc "返回本请求明确选中的工具；多工具 auto、禁用或未声明的选择返回 nil。"
-  @spec active_tool_name(prompt()) :: String.t() | nil
-  def active_tool_name(prompt) do
-    names = Enum.map(tool_specs(prompt), & &1.name)
-
-    case tool_choice(prompt) do
-      choice when choice in [nil, "auto", "required"] -> single_tool_name(names)
-      "none" -> nil
-      name -> if name in names, do: name
-    end
+  只输出中文能力名，不回显内部 capability atom、prompt 内容或私有状态；
+  调用方（判断/创作/评审）用它生成作者可见失败原因。
+  """
+  @spec rejection_message(term()) :: String.t()
+  def rejection_message({:unsupported_capability, missing}) when is_list(missing) do
+    "当前模型缺少完整创作运行所需的传输能力（" <>
+      CapabilityProfile.labels(missing) <>
+      "），已拒绝本次请求；没有降级为静默丢弃字段的运行。"
   end
 
-  defp single_tool_name([name]), do: name
-  defp single_tool_name(_names), do: nil
+  def rejection_message(_reason), do: "本次请求无法构造为可用的模型请求，已拒绝。"
 
   @spec extract_openai_tool_calls(map()) :: [tool_call()]
   def extract_openai_tool_calls(%{"tool_calls" => calls}) when is_list(calls) do
@@ -190,33 +172,6 @@ defmodule NovelAgent.Provider do
 
   def degenerate_content?(_content), do: false
 
-  defp normalize_tool_specs(specs) when is_list(specs) do
-    Enum.flat_map(specs, fn spec ->
-      name = map_get(spec, :name)
-      schema = map_get(spec, :input_schema) || map_get(spec, :parameters)
-
-      if is_binary(name) and name != "" and is_map(schema) do
-        [
-          %{
-            name: name,
-            description: to_string(map_get(spec, :description) || ""),
-            input_schema: json_keys(schema)
-          }
-        ]
-      else
-        []
-      end
-    end)
-  end
-
-  defp normalize_tool_specs(_specs), do: []
-
-  defp json_keys(value) when is_map(value),
-    do: Map.new(value, fn {key, item} -> {to_string(key), json_keys(item)} end)
-
-  defp json_keys(value) when is_list(value), do: Enum.map(value, &json_keys/1)
-  defp json_keys(value), do: value
-
   defp openai_tool_call(%{"id" => id, "function" => %{"name" => name, "arguments" => args}})
        when is_binary(name) do
     [openai_call_arguments(name, args) |> Map.put("id", id)]
@@ -242,12 +197,6 @@ defmodule NovelAgent.Provider do
   defp anthropic_tool_call(_block), do: []
 
   defp decode_arguments(args), do: decode_tool_arguments(args)
-
-  defp map_get(map, key) when is_map(map) and is_atom(key) do
-    Map.get(map, key) || Map.get(map, Atom.to_string(key))
-  end
-
-  defp map_get(_map, _key), do: nil
 
   # M2 长跑实测（2026-07-20）：正文起草 10/12 次 JSON 解析失败的具体成因——模型把
   # 多段正文塞进 JSON 字符串值时，偶发漏转义段落换行（裸 0x0A 字节），JSON 语法
