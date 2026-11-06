@@ -16,6 +16,7 @@
 |---|---|---|
 | B79 | 存量书稿导入 + 导入后分析建档（导入 txt/md/粘贴→自动切分落库；分析六类直接写档案、批次可撤销；大纲/卷落现有 schema、无卷划分不产卷信息；覆盖=软替换）。可先独立推进 CP0 契约冻结与 CP1 确定性导入链，不依赖 B71 收口；CP3/CP4 分析长跑需真实模型窗口 | [B79](slices/B79-work-import-and-analysis.md) |
 | B78 | 存量大模块拆分（P1：WorkspaceChat / dialogue_planning_service / agent_run_server / turn_execution_service / adoption_repository）；治理机制与 ratchet 门禁已落地，本任务只做结构化拆分，须在 B71 收口后按「一次一个文件、独立 refactor commit」排期 | [B78](slices/B78-module-size-debt.md) |
+| B71-裁决 4 C | **依赖图下沉与测试 helper 迁移（2026-11-06 作者裁决 C，阶段计划已登记）**：阶段 1 把 `RequestIR` 族（`RequestIR`/`SystemEnvelope`/`Projection`+三 projectors/`Compaction`/`SystemIdentity`/`CapabilityProfile`）下沉 `novel_common` 并全仓引用改名；阶段 2 `novel_test` 去掉 `novel_agent` 依赖、迁移 `TestRequestIR`/`TestProviderPrompt`（~145 处引用）、`SliceVerify` 等行为替身保留；阶段 3 更新 `arch_check`/AGENTS 架构表/README 与最终门禁。**每阶段独立 commit，建议独立会话执行**；详见 [B71](slices/B71-provider-message-fidelity.md) | [B71](slices/B71-provider-message-fidelity.md) |
 
 ## 阻塞
 
@@ -28,6 +29,7 @@
 - **B27 CP4 语义**：确定性负例矩阵已冻结（`artifacts/model-contracts/b27-cp4-hardening/negative-matrix.json`，确定性侧无机械可修缺口）；模型语义 known-gap 关闭需实模预注册窗口 + 第二方复核；见 [B27](slices/B27-systematic-prompt-and-intent-integration.md)。
 - **B72 CP1 模型窗口**：离线生成器已入候选，真实模型资源窗口与生成预算未授权；见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#阻塞记录2026-10-31-cp1)。
 - **VS00F-TRACE CP1**：A（推荐持久 StateTrace，需 schema 授权）/B（明确 no-trace 边界）/C（延期）；见 [VS00F](slices/VS-00F-five-ledgers-three-state.md#cp0-盘点2026-10-31)。
+- **B71 原生批次复验**：授权已确认就绪（辅助功能/CGEvent/屏幕录制三项 true，真实批次窗口/输入/截图成功；作者无需再处理系统对话框）；harness 已修 `turn_result` steer 步匹配与切片测试库目录（`e5e1491c`）。当前 `b71-first-consumer` run 进入 `awaiting_author`（停等）无驱动预期的 conversational `turn_result`，疑与裁决 A（system 规则迁移）改动相关，待 A 收口后按需复验（复验命令见 [B71](slices/B71-provider-message-fidelity.md) 原生批次验收状态小节）；真实页面证据/CP4b/CP5 不代签。
 - **B57 CP1 B/C/D**：需 B39/UA01 受控观察/外部资料 fixture 与数据授权；A/E/F 已 PASS；见 [B57](slices/B57-sec-injection-boundary.md#阻塞记录2026-10-31)。
 - **UA01-PROMPT-T5**：T5 需 schema/迁移 A/B/C 裁决；D2 driver 超时；T3 已入候选；见 [UA01](slices/UA01-agentic-loop-prompt-hardening.md#阻塞记录2026-10-31)。
 - **P1-AUDIT-BC 页面**：两次 stale projection banner 断言失败，依赖 AU08 投影新鲜度缺口或断言重锚；见 [P1](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外)。
