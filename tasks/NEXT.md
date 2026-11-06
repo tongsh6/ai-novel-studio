@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B71-CP4b | R1 请求边界/原生投影/三消费者迁移与 2026-11-06 作者裁决已实现：A（system 规则/版本，`6dbb9dd4`）、D（finite_mode 持久事实，`b7aecafb`）、Anthropic 相邻 role 合并退役（`19dcfad9`）、B27 冻结器退役（`a8645e85`）；后端全量 3089/0、credo no issues、I1/I2/I3/N-NARR/I-CACHE 通过（提交 b32da8cd/abf4c63b/c652277b/19dcfad9/b7aecafb/e5e1491c/6dbb9dd4/a8645e85/63361db1）。**已完成**：裁决 4 C 依赖图下沉三阶段——首轮 `29464e60`/`e6c97020`/`3e64e3b1`/`8628411d`（含既有严格门禁修复 `b125989c` 与文档 `7af7c904`），2026-11-07 按作者 A1 裁决恢复原计划统一归属 `776e3641`（Projection/三投影/能力事实一并下沉 `novel_common`）。**待办**：原生批次 A 后复验（授权已确认就绪，harness 修复 `e5e1491c`）。剩余 R2 流式生命周期与 Responses SSE、G6 压缩后请求、R1 后真实页面/实模证据及 CP5。I10 不代签 | [B71](slices/B71-provider-message-fidelity.md) |
+| B71-CP4b | R1 请求边界/原生投影/三消费者迁移与 2026-11-06 作者裁决已实现：A（system 规则/版本，`6dbb9dd4`）、D（finite_mode 持久事实，`b7aecafb`）、Anthropic 相邻 role 合并退役（`19dcfad9`）、B27 冻结器退役（`a8645e85`）；后端全量 3089/0、credo no issues、I1/I2/I3/N-NARR/I-CACHE 通过（提交 b32da8cd/abf4c63b/c652277b/19dcfad9/b7aecafb/e5e1491c/6dbb9dd4/a8645e85/63361db1）。**已完成**：裁决 4 C 依赖图下沉三阶段——首轮 `29464e60`/`e6c97020`/`3e64e3b1`/`8628411d`（含既有严格门禁修复 `b125989c` 与文档 `7af7c904`），2026-11-07 按作者 A1 裁决恢复原计划统一归属 `776e3641`（Projection/三投影/能力事实一并下沉 `novel_common`）。原生批次 A 后复验**已于 2026-11-07 通过**（`b71-a1-03` 19/19，clean HEAD `26824567`；SliceVerify canonical IR 观察识别适配同提交）。**待办**：R2 流式生命周期与 Responses SSE（下一步主线）。剩余 G6 压缩后请求、R1 后实模证据及 CP5。I10 不代签 | [B71](slices/B71-provider-message-fidelity.md) |
 
 当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 
@@ -28,7 +28,7 @@
 - **B27 CP4 语义**：确定性负例矩阵已冻结（`artifacts/model-contracts/b27-cp4-hardening/negative-matrix.json`，确定性侧无机械可修缺口）；模型语义 known-gap 关闭需实模预注册窗口 + 第二方复核；见 [B27](slices/B27-systematic-prompt-and-intent-integration.md)。
 - **B72 CP1 模型窗口**：离线生成器已入候选，真实模型资源窗口与生成预算未授权；见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#阻塞记录2026-10-31-cp1)。
 - **VS00F-TRACE CP1**：A（推荐持久 StateTrace，需 schema 授权）/B（明确 no-trace 边界）/C（延期）；见 [VS00F](slices/VS-00F-five-ledgers-three-state.md#cp0-盘点2026-10-31)。
-- **B71 原生批次复验**：授权已确认就绪（辅助功能/CGEvent/屏幕录制三项 true，真实批次窗口/输入/截图成功；作者无需再处理系统对话框）；harness 已修 `turn_result` steer 步匹配与切片测试库目录（`e5e1491c`）。当前 `b71-first-consumer` run 进入 `awaiting_author`（停等）无驱动预期的 conversational `turn_result`，疑与裁决 A（system 规则迁移）改动相关，待 A 收口后按需复验（复验命令见 [B71](slices/B71-provider-message-fidelity.md) 原生批次验收状态小节）；真实页面证据/CP4b/CP5 不代签。
+- ~~B71 原生批次复验~~ **已于 2026-11-07 关闭**：`b71-first-consumer` 在 A1 收口后经 SliceVerify canonical IR 观察识别修复（`26824567`）取得 clean HEAD 真实页面 **19/19**（`artifacts/slice-verify/b71-first-consumer-tauri-native-b71-a1-03/`）；根因是 test-support 旧文本识别与 R1 canonical IR 不同步，产品当时进入 `no_progress_stopped` 的行为正确。实模/CP4b-2/CP5 仍不代签；证据与失败批次见 [B71](slices/B71-provider-message-fidelity.md) 原生批次验收状态小节。
 - **B57 CP1 B/C/D**：需 B39/UA01 受控观察/外部资料 fixture 与数据授权；A/E/F 已 PASS；见 [B57](slices/B57-sec-injection-boundary.md#阻塞记录2026-10-31)。
 - **UA01-PROMPT-T5**：T5 需 schema/迁移 A/B/C 裁决；D2 driver 超时；T3 已入候选；见 [UA01](slices/UA01-agentic-loop-prompt-hardening.md#阻塞记录2026-10-31)。
 - **P1-AUDIT-BC 页面**：两次 stale projection banner 断言失败，依赖 AU08 投影新鲜度缺口或断言重锚；见 [P1](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外)。
