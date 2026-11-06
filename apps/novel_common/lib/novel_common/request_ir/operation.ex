@@ -1,4 +1,4 @@
-defmodule NovelAgent.Provider.RequestIR.Operation do
+defmodule NovelCommon.RequestIR.Operation do
   @moduledoc """
   B71 专业阶段的纯请求构造边界。
 
@@ -6,7 +6,7 @@ defmodule NovelAgent.Provider.RequestIR.Operation do
   不改写既有历史，不把应用目标冒充新作者消息。权限、预算、执行和业务结果仍由应用负责。
   """
 
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
 
   @identity_fields ~w(run_id work_id workspace_id session_id)a
 

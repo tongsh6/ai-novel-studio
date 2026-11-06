@@ -25,8 +25,9 @@
 #   B26_CP0_FILTER            只跑逗号分隔的 case id（冒烟用；正式批次不设）
 # 退出码：0 正常完成（不设通过阈值）；65 全部案例为连接/可用性阻塞。
 
-alias NovelAgent.Provider.{Execution, RequestIR, Result}
-alias NovelAgent.Provider.RequestIR.Projection
+alias NovelAgent.Provider.{Execution, Result}
+alias NovelCommon.RequestIR
+alias NovelAgent.Provider.Projection
 alias NovelApplication.JudgmentProtocol
 
 defmodule ModelContracts.B26Cp0ArmProbe do
@@ -431,7 +432,7 @@ defmodule ModelContracts.B26Cp0ArmProbe do
     %{
       "builder" => "JudgmentProtocol.request_for_production/2 (production canonical IR)",
       "profile" => "judgment",
-      "tool_choice" => NovelAgent.Provider.RequestIR.Tools.tool_choice(ir),
+      "tool_choice" => NovelCommon.RequestIR.Tools.tool_choice(ir),
       "tools" => tools,
       "tool_count" => length(tools),
       "rules_version" => safe_call(fn -> NovelApplication.AuthoringTaskPolicy.version() end),

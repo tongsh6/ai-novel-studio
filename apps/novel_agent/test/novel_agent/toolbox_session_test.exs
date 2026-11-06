@@ -3,7 +3,7 @@ defmodule NovelAgent.ToolboxSessionTest do
 
   alias NovelAgent.AuthorizedToolExecutor
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
   alias NovelAgent.TestSupport.AuthoringTaskFixtures
   alias NovelAgent.Toolbox
   alias NovelCommon.Contracts.AuthoringTask

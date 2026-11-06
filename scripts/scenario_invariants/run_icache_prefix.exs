@@ -16,8 +16,8 @@ defmodule ICachePrefixDriver do
   @moduledoc false
 
   alias NovelAgent.Provider.Gateway
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Projection
+  alias NovelCommon.RequestIR
+  alias NovelAgent.Provider.Projection
 
   alias NovelAgent.CreativeProvider.Real
   alias NovelAgent.Provider.Execution
@@ -44,8 +44,9 @@ defmodule ICachePrefixDriver do
   defmodule CaptureProvider do
     @behaviour NovelAgent.Provider
 
-    alias NovelAgent.Provider.{AdapterExecution, RequestIR, Result}
-    alias NovelAgent.Provider.RequestIR.Projection
+    alias NovelAgent.Provider.{AdapterExecution, Result}
+    alias NovelCommon.RequestIR
+    alias NovelAgent.Provider.Projection
 
     defstruct []
 
@@ -581,7 +582,7 @@ defmodule ICachePrefixDriver do
 
   defp assert_native_tool_choice!(call_site, ir_a, ir_b) do
     expected = native_tool_choice(call_site)
-    actual = {NovelAgent.Provider.RequestIR.Tools.tool_choice(ir_a), NovelAgent.Provider.RequestIR.Tools.tool_choice(ir_b)}
+    actual = {NovelCommon.RequestIR.Tools.tool_choice(ir_a), NovelCommon.RequestIR.Tools.tool_choice(ir_b)}
 
     unless actual == {expected, expected} do
       raise(

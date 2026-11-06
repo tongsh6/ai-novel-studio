@@ -53,13 +53,6 @@
       "kind": "prod",
       "class": "watched"
     },
-    "apps/novel_agent/lib/novel_agent/provider/request_ir.ex": {
-      "lines": 865,
-      "max_lines": 865,
-      "scope": "novel_agent",
-      "kind": "prod",
-      "class": "watched"
-    },
     "apps/novel_agent/test/novel_agent/provider/gateway_test.exs": {
       "lines": 1407,
       "max_lines": 1405,
@@ -420,6 +413,13 @@
     "apps/novel_common/lib/novel_common/contracts/tool_output_contract.ex": {
       "lines": 508,
       "max_lines": 508,
+      "scope": "novel_common",
+      "kind": "prod",
+      "class": "watched"
+    },
+    "apps/novel_common/lib/novel_common/request_ir.ex": {
+      "lines": 896,
+      "max_lines": 896,
       "scope": "novel_common",
       "kind": "prod",
       "class": "watched"

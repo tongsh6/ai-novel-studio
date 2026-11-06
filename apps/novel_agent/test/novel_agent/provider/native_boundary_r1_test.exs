@@ -7,11 +7,11 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.OpenAI
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Operation
+  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Operation
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.RuntimeConfig
-  alias NovelAgent.Provider.SystemIdentity
+  alias NovelCommon.SystemIdentity
 
   @author_text "作者原话：沈砚\n\t\"引号\" \\ 反斜杠"
   @raw_arguments ~s({
@@ -23,7 +23,7 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
     @behaviour NovelAgent.Provider
 
     alias NovelAgent.Provider.AdapterExecution
-    alias NovelAgent.Provider.RequestIR
+    alias NovelCommon.RequestIR
     alias NovelAgent.Provider.Result
 
     defstruct [:model, :http_fn, :log_fn]

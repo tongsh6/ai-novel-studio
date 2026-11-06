@@ -1,8 +1,8 @@
-defmodule NovelAgent.Provider.RequestIR.ToolsTest do
+defmodule NovelCommon.RequestIR.ToolsTest do
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Tools
+  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Tools
 
   defp ir(tools, tool_choice) do
     RequestIR.new(%{

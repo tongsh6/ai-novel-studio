@@ -2,8 +2,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Projection
+  alias NovelCommon.RequestIR
+  alias NovelAgent.Provider.Projection
   alias NovelAgent.Provider.Stub
   alias NovelAgent.Test.Provider.SliceVerify
 
@@ -249,7 +249,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       )
 
     assert first.tools == second.tools
-    assert NovelAgent.Provider.RequestIR.Tools.tool_choice(first) == "auto"
+    assert NovelCommon.RequestIR.Tools.tool_choice(first) == "auto"
     refute first.messages == second.messages
   end
 
@@ -2438,7 +2438,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       assert Enum.map(ir.tools, & &1.name) ==
                Enum.map(JudgmentToolContract.tools(:judgment), & &1.name)
 
-      assert NovelAgent.Provider.RequestIR.Tools.tool_choice(ir) == "auto"
+      assert NovelCommon.RequestIR.Tools.tool_choice(ir) == "auto"
       assert [%{role: "application_base"} | rest] = ir.messages
 
       author = Enum.find(ir.messages, &(&1.role == "user" and &1.provenance == "author"))

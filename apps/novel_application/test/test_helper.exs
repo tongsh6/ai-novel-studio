@@ -98,7 +98,7 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
 
   def prompt_text(prompt) when is_binary(prompt), do: prompt
 
-  def prompt_text(%NovelAgent.Provider.RequestIR{} = ir),
+  def prompt_text(%NovelCommon.RequestIR{} = ir),
     do: NovelAgent.TestProviderPrompt.text(ir)
 
   def prompt_text(prompt) when is_list(prompt) or is_map(prompt),

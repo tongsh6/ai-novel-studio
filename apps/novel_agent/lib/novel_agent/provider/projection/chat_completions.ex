@@ -1,4 +1,4 @@
-defmodule NovelAgent.Provider.RequestIR.Projection.ChatCompletions do
+defmodule NovelAgent.Provider.Projection.ChatCompletions do
   @moduledoc """
   B71 CP2：Request IR → OpenAI-compatible Chat Completions body 投影（VS-00L §6.1）。
 
@@ -8,8 +8,9 @@ defmodule NovelAgent.Provider.RequestIR.Projection.ChatCompletions do
   - 作者原话独立 user 消息、字节不变；assistant 保留原始参数与私有推理引用
   """
 
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.{Compaction, Projection}
+  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Compaction
+  alias NovelAgent.Provider.Projection
 
   @spec project(struct(), keyword()) :: map()
   def project(ir, opts \\ []) do

@@ -3,7 +3,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
 
   alias NovelAgent.CreativeProvider.Real
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Result, as: ProviderResult
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.CreativeRequest
@@ -79,7 +79,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
       assert Enum.any?(prompt.messages, &(&1.source_refs != []))
       assert [%{name: "submit_tentative_artifact"}] = prompt.tools
 
-      assert NovelAgent.Provider.RequestIR.Tools.tool_choice(prompt) ==
+      assert NovelCommon.RequestIR.Tools.tool_choice(prompt) ==
                "submit_tentative_artifact"
 
       {:ok,

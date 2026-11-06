@@ -121,7 +121,8 @@ end
 defmodule NovelAgent.Provider.GatewayExecutionRefsTest do
   use ExUnit.Case, async: false
 
-  alias NovelAgent.Provider.{Execution, NativeToolExchange, RequestIR}
+  alias NovelAgent.Provider.{Execution, NativeToolExchange}
+  alias NovelCommon.RequestIR
   alias NovelCommon.{LLMLog, LogFileDate}
 
   @tool "judgment_decision"

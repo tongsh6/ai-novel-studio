@@ -1,8 +1,8 @@
-defmodule NovelAgent.Provider.SystemIdentity do
+defmodule NovelCommon.SystemIdentity do
   @moduledoc """
   VS-00H 系统身份消息的唯一代码真源。
 
-  每一次经 `NovelAgent.Provider.Gateway.execute/4` 的推理请求，模型首先看到的
+  每一次经 Provider Gateway 执行的推理请求，模型首先看到的
   一条固定 `system` 消息由本模块产出。文本只包含随任务不变的产品事实：
 
   - 产品是什么、服务谁；

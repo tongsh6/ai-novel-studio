@@ -10,8 +10,8 @@ defmodule NovelAgent.ProseQualityEvaluator do
 
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.NativeToolExchange
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Operation
+  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Operation
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.QualityEvaluationRequest

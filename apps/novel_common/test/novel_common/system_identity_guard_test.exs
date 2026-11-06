@@ -1,7 +1,7 @@
-defmodule NovelAgent.Provider.SystemIdentityGuardTest do
+defmodule NovelCommon.SystemIdentityGuardTest do
   use ExUnit.Case, async: true
 
-  @root Path.expand("../../../../..", __DIR__)
+  @root Path.expand("../../../..", __DIR__)
 
   @forbidden ~r/你是[^\n]*(小说创作系统|长篇小说写作台|小说创作 AI)/u
 

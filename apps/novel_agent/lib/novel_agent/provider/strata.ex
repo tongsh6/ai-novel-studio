@@ -40,7 +40,7 @@ defmodule NovelAgent.Provider.Strata do
   不做 LM Studio 式的 `"required"` 降级（统一后台接受具名对象）。
   """
 
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
 
   use NovelAgent.Provider.OpenAICompatible,
     vendor: "strata",

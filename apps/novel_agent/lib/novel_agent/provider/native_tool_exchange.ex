@@ -6,7 +6,7 @@ defmodule NovelAgent.Provider.NativeToolExchange do
   同一预算。业务成功的调用保持待处理，由 application 的真实结果闭合。
   """
 
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
 
   @max_provider_calls 2
   @invalid_validation_callback_result "invalid_validation_callback_result"

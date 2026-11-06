@@ -2,8 +2,8 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
   use ExUnit.Case, async: false
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Projection
+  alias NovelCommon.RequestIR
+  alias NovelAgent.Provider.Projection
 
   alias NovelApplication.{
     AdoptionWorkflow,

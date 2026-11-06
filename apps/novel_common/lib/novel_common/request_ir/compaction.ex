@@ -1,4 +1,4 @@
-defmodule NovelAgent.Provider.RequestIR.Compaction do
+defmodule NovelCommon.RequestIR.Compaction do
   @moduledoc """
   B71：从追加式 canonical 历史派生显式压缩视图（VS-00L §16.2）。
 

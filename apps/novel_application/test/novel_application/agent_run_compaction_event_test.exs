@@ -11,7 +11,7 @@ defmodule NovelApplication.AgentRunCompactionEventTest do
 
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
   alias NovelApplication.AgentRunService
   alias NovelApplication.AuthoringTranscript
   alias NovelPersistence.{AgentRunLog, Repo}

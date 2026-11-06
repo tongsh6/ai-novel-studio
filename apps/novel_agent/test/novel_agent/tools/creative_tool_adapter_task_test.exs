@@ -3,7 +3,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTaskTest do
 
   alias NovelAgent.CreativeProvider.Real
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
   alias NovelAgent.Tools.CreativeToolAdapter
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask

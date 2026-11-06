@@ -5,14 +5,14 @@ defmodule NovelAgent.Provider.GatewayTest do
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.RuntimeConfig
   alias NovelAgent.Provider.Strata
-  alias NovelAgent.Provider.SystemIdentity
+  alias NovelCommon.SystemIdentity
   alias NovelCommon.Contracts.ProviderEvent
 
   defmodule ExecuteOnlyProvider do
     @behaviour NovelAgent.Provider
 
     alias NovelAgent.Provider.AdapterExecution
-    alias NovelAgent.Provider.RequestIR
+    alias NovelCommon.RequestIR
     alias NovelAgent.Provider.Result
 
     defstruct []
@@ -46,7 +46,7 @@ defmodule NovelAgent.Provider.GatewayTest do
     @behaviour NovelAgent.Provider
 
     alias NovelAgent.Provider.AdapterExecution
-    alias NovelAgent.Provider.RequestIR
+    alias NovelCommon.RequestIR
     alias NovelAgent.Provider.Result
 
     defstruct []
@@ -73,8 +73,8 @@ defmodule NovelAgent.Provider.GatewayTest do
     def name, do: "capturing"
   end
 
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Projection
+  alias NovelCommon.RequestIR
+  alias NovelAgent.Provider.Projection
   alias NovelAgent.TestProviderPrompt
   alias NovelAgent.TestRequestIR
 

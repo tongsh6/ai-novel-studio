@@ -9,7 +9,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
 
   # adapter 只接受 canonical IR；测试用作者原话构造最小请求，文字保持原字节。
   defp ir(text) when is_binary(text), do: TestRequestIR.ir([TestRequestIR.author(text)])
-  defp ir(%NovelAgent.Provider.RequestIR{} = ir), do: ir
+  defp ir(%NovelCommon.RequestIR{} = ir), do: ir
 
   defp ir(messages) when is_list(messages),
     do: TestRequestIR.ir(Enum.map(messages, &canonical_message/1))

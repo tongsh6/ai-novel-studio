@@ -24,8 +24,8 @@ defmodule NNarrDriver do
   @moduledoc false
 
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Projection
+  alias NovelCommon.RequestIR
+  alias NovelAgent.Provider.Projection
   alias NovelAgent.Provider.Result
   alias NovelApplication.{AgentNarrativeSource, AgentRunService, DialoguePlanningService}
   alias NovelCommon.Contracts.{ProviderEvent, ProviderOutput, ProviderRun}

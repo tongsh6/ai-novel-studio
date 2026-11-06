@@ -2,8 +2,9 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelAgent.Provider.{Execution, RequestIR}
-  alias NovelAgent.Provider.RequestIR.Projection
+  alias NovelAgent.Provider.Execution
+  alias NovelCommon.RequestIR
+  alias NovelAgent.Provider.Projection
   alias NovelApplication.AgentRunService
   alias NovelApplication.{DialoguePlanningService, WorkService}
   alias NovelCommon.Contracts.ProviderOutput

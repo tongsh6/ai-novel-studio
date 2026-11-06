@@ -3,7 +3,7 @@ defmodule NovelApplication.AuthoringTranscript do
   B71 CP2：Authoring Run Transcript 的 application 层组装器（VS-00L §3–§5）。
 
   职责边界（ADR-0033 §6）：application 负责 AgentRun/transcript 与编排；IR/投影在
-  `NovelAgent.Provider.RequestIR`；本模块只把 run 事实（Base、作者原话、模型 tool_call、
+  `NovelCommon.RequestIR`；本模块只把 run 事实（Base、作者原话、模型 tool_call、
   真实观察、校验结果、作者出口）有序组装为 transcript，并产出 Request IR。
 
   不变量（可机械检查部分由 `RequestIR.validate/1` 承担）：
@@ -16,8 +16,8 @@ defmodule NovelApplication.AuthoringTranscript do
   本模块不发起 provider 调用、不执行工具、不写库；执行与真实页面证据归 CP3 首个消费者。
   """
 
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Compaction
+  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Compaction
 
   @type t :: %{
           run: map(),

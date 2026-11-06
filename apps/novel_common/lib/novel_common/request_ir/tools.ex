@@ -1,4 +1,4 @@
-defmodule NovelAgent.Provider.RequestIR.Tools do
+defmodule NovelCommon.RequestIR.Tools do
   @moduledoc """
   canonical Request IR 的工具目录视图与本次选择查询（VS-00L §19.1）。
 
@@ -7,7 +7,7 @@ defmodule NovelAgent.Provider.RequestIR.Tools do
   执行边界消费同一视图，避免各自复制工具判定。
   """
 
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
 
   @type tool_spec :: %{
           required(:name) => String.t(),

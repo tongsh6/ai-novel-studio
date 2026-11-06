@@ -3,8 +3,8 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
 
   alias NovelAgent.AuthorizedToolExecutor
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Projection
+  alias NovelCommon.RequestIR
+  alias NovelAgent.Provider.Projection
   alias NovelApplication.AgentRunFlows.AuthoringSession
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.TurnExecutionService

@@ -2,7 +2,7 @@ defmodule NovelAgent.ProviderTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
   alias NovelAgent.TestProviderPrompt
 
   defp operation_ir(messages) do

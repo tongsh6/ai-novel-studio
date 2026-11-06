@@ -8,8 +8,9 @@ defmodule NovelApplication.TranscriptCompactionTest do
 
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.{Compaction, Projection}
+  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Compaction
+  alias NovelAgent.Provider.Projection
   alias NovelApplication.{AuthoringReplay, AuthoringTranscript, TranscriptCompaction}
 
   @author_text "先读取沈砚的当前叙事身份，再给出把主角改为顾青的 tentative 候选。"

@@ -2053,10 +2053,10 @@ defmodule B27SemanticEval do
               metadata: %{
                 system_identity: %{
                   version:
-                    get(identity_meta, "version") || NovelAgent.Provider.SystemIdentity.version(),
+                    get(identity_meta, "version") || NovelCommon.SystemIdentity.version(),
                   content_hash:
                     get(identity_meta, "content_hash") ||
-                      NovelAgent.Provider.SystemIdentity.content_hash()
+                      NovelCommon.SystemIdentity.content_hash()
                 }
               }
             }

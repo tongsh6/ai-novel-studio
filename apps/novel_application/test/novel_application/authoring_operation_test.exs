@@ -1,7 +1,7 @@
 defmodule NovelApplication.AuthoringOperationTest do
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
   alias NovelApplication.{AuthoringOperation, AuthoringTranscript}
   alias NovelDomain.AgentRun
 
@@ -102,8 +102,8 @@ defmodule NovelApplication.AuthoringOperationTest do
 
     assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored)
 
-    assert RequestIR.Projection.project(restored_ir, "chat_completions") ==
-             RequestIR.Projection.project(completed, "chat_completions")
+    assert NovelAgent.Provider.Projection.project(restored_ir, "chat_completions") ==
+             NovelAgent.Provider.Projection.project(completed, "chat_completions")
 
     zero =
       AuthoringOperation.metadata(%{

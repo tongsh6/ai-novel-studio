@@ -1,7 +1,7 @@
 defmodule NovelApplication.JudgmentProtocol do
   @moduledoc "B26/B27/B71：canonical transcript 原生多轮判断；先校验整个响应，再交业务边界派发。"
   alias NovelAgent.Provider.{Execution, InferenceParams}
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
   alias NovelApplication.AgentRunFlows.AuthoringSession
 
   alias NovelApplication.{

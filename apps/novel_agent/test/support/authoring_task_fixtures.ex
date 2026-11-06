@@ -6,8 +6,8 @@ defmodule NovelAgent.TestSupport.AuthoringTaskFixtures do
   """
 
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Projection
+  alias NovelCommon.RequestIR
+  alias NovelAgent.Provider.Projection
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
 

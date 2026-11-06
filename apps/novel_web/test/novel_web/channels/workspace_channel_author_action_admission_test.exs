@@ -2,7 +2,7 @@ defmodule NovelWeb.AuthorActionAdmissionTestProvider do
   @moduledoc false
   @behaviour NovelAgent.Provider
 
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Stub
 
   defstruct []

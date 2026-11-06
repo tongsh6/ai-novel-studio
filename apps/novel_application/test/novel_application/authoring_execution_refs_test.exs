@@ -1,8 +1,9 @@
 defmodule NovelApplication.AuthoringExecutionRefsTest do
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.{RequestIR, Result}
-  alias NovelAgent.Provider.RequestIR.Projection
+  alias NovelAgent.Provider.Result
+  alias NovelCommon.RequestIR
+  alias NovelAgent.Provider.Projection
   alias NovelApplication.{AuthoringCheckpoint, AuthoringTranscript}
   alias NovelPersistence.Schemas.AgentRunRecord
 
@@ -129,7 +130,8 @@ end
 defmodule NovelApplication.AuthoringExecutionRefsBoundaryTest do
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.{RequestIR, Result}
+  alias NovelAgent.Provider.Result
+  alias NovelCommon.RequestIR
   alias NovelApplication.AuthoringTranscript
 
   @author_text "作者原话：旧历史不得回填 provider_call_ref。"

@@ -1,7 +1,8 @@
 defmodule NovelApplication.AuthoringCheckpointTest do
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.{RequestIR, RequestIR.Projection}
+  alias NovelCommon.RequestIR
+  alias NovelAgent.Provider.Projection
   alias NovelApplication.{AuthoringCheckpoint, AuthoringTranscript}
   alias NovelPersistence.Schemas.AgentRunRecord
 

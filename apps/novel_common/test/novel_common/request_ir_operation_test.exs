@@ -1,8 +1,8 @@
-defmodule NovelAgent.Provider.RequestIR.OperationTest do
+defmodule NovelCommon.RequestIR.OperationTest do
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Operation
+  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Operation
 
   @author "  请先给计划，保留我的原话。\n"
   @run %{run_id: "run-operation", work_id: "work-operation", goal: %{text: "先计划后创作", version: 1}}

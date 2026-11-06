@@ -1,7 +1,8 @@
 defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
   use ExUnit.Case, async: false
 
-  alias NovelAgent.Provider.{Execution, RequestIR}
+  alias NovelAgent.Provider.Execution
+  alias NovelCommon.RequestIR
   alias NovelApplication.AgentRunService
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.DialoguePlanningService
@@ -291,7 +292,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
            }}
 
         Enum.any?(
-          NovelAgent.Provider.RequestIR.Tools.tool_specs(prompt),
+          NovelCommon.RequestIR.Tools.tool_specs(prompt),
           &(&1.name == "submit_tentative_artifact")
         ) ->
           complete_character_design_prompt(parent, prompts, prompt)

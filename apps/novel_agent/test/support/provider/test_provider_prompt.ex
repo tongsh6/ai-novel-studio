@@ -10,12 +10,12 @@ defmodule NovelAgent.TestProviderPrompt do
     `role/content` 文本，不解释旧 `application_base` / `scope_update` 标记，
     不把原生工具历史字符串解析成结构化观察，也不合成 provenance/blocks。
 
-  工具事实由 `NovelAgent.Provider` 的现役 API 读取，本模块不复制工具投影。
+  工具事实由 `NovelCommon.RequestIR.Tools` 读取，本模块不复制工具投影。
   """
 
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Projection
-  alias NovelAgent.Provider.SystemIdentity
+  alias NovelCommon.RequestIR
+  alias NovelAgent.Provider.Projection
+  alias NovelCommon.SystemIdentity
 
   @author_section ~r/##\s*作者输入\s*\n(.*?)(?:\n##|\z)/su
 

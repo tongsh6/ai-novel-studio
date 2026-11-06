@@ -13,7 +13,7 @@ defmodule NovelAgent.Provider.CapabilityProfile do
     不得静默丢字段后仍宣称完整 AgentRun。
   """
 
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
   alias NovelFoundation.UpstreamError
 
   @type t :: %{required(atom()) => boolean()}

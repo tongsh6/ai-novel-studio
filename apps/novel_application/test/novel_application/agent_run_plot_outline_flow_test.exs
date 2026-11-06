@@ -358,14 +358,14 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
   defp planning_mission_prompt?(prompt),
     do:
       Enum.any?(
-        NovelAgent.Provider.RequestIR.Tools.tool_specs(prompt),
+        NovelCommon.RequestIR.Tools.tool_specs(prompt),
         &(&1.name == "planning_mission")
       )
 
   defp plan_draft_prompt?(prompt),
     do:
       Enum.any?(
-        NovelAgent.Provider.RequestIR.Tools.tool_specs(prompt),
+        NovelCommon.RequestIR.Tools.tool_specs(prompt),
         &(&1.name == "agent_plan_draft")
       )
 

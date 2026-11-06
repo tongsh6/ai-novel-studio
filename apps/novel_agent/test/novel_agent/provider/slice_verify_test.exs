@@ -1781,8 +1781,8 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
   use ExUnit.Case, async: false
 
   alias NovelAgent.Provider.InferenceParams
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.SystemIdentity
+  alias NovelCommon.RequestIR
+  alias NovelCommon.SystemIdentity
   alias NovelAgent.Test.Provider.SliceVerify
   alias NovelAgent.Test.Support.PendingDialogueInput
 

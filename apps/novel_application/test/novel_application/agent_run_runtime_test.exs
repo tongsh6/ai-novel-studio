@@ -3,7 +3,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelAgent.Provider.{Execution, RequestIR}
+  alias NovelAgent.Provider.Execution
+  alias NovelCommon.RequestIR
   alias NovelApplication.AgentRunFlows.ReadonlyBatchContext
   alias NovelApplication.AgentRunService
   alias NovelApplication.AuthoringTranscript
@@ -338,11 +339,11 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert {:ok, before_ir} = AuthoringTranscript.to_request_ir(in_memory)
     assert {:ok, after_ir} = AuthoringTranscript.to_request_ir(restored)
 
-    assert RequestIR.Projection.project(before_ir, "chat_completions") ==
-             RequestIR.Projection.project(after_ir, "chat_completions")
+    assert NovelAgent.Provider.Projection.project(before_ir, "chat_completions") ==
+             NovelAgent.Provider.Projection.project(after_ir, "chat_completions")
 
     assert inspect(restored.messages) =~ "compact-call"
-    assert {:ok, body} = RequestIR.Projection.project(after_ir, "chat_completions")
+    assert {:ok, body} = NovelAgent.Provider.Projection.project(after_ir, "chat_completions")
     refute Enum.any?(body.messages, &(&1.role == "tool"))
   end
 
@@ -1432,7 +1433,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       })
 
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
-    assert {:ok, original_body} = RequestIR.Projection.project(ir, "chat_completions")
+    assert {:ok, original_body} = NovelAgent.Provider.Projection.project(ir, "chat_completions")
 
     step = fn _run, sequence ->
       send(parent, {:g8_step, sequence})
@@ -1491,7 +1492,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert {:ok, restored_ir} =
              AuthoringTranscript.to_request_ir(recovered.authoring_transcript)
 
-    assert RequestIR.Projection.project(restored_ir, "chat_completions") ==
+    assert NovelAgent.Provider.Projection.project(restored_ir, "chat_completions") ==
              {:ok, original_body}
 
     assert AuthoringTranscript.current_scope(recovered.authoring_transcript).text ==
@@ -3226,7 +3227,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   defp agent_plan_draft_prompt?(prompt),
     do:
       Enum.any?(
-        NovelAgent.Provider.RequestIR.Tools.tool_specs(prompt),
+        NovelCommon.RequestIR.Tools.tool_specs(prompt),
         &(&1.name == "agent_plan_draft")
       )
 

@@ -1,4 +1,4 @@
-defmodule NovelAgent.Provider.RequestIR.Projection do
+defmodule NovelAgent.Provider.Projection do
   @moduledoc """
   B71 CP2：Request IR v1 → Provider HTTP body 的投影入口（VS-00L §6）。
 
@@ -9,13 +9,13 @@ defmodule NovelAgent.Provider.RequestIR.Projection do
     其 refs 由 application_base 的 base_refs 承载（VS-00L §3.5/G4）。
   """
 
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.SystemIdentity
+  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.SystemEnvelope
 
   @targets %{
-    "chat_completions" => NovelAgent.Provider.RequestIR.Projection.ChatCompletions,
-    "anthropic_messages" => NovelAgent.Provider.RequestIR.Projection.AnthropicMessages,
-    "responses_api" => NovelAgent.Provider.RequestIR.Projection.ResponsesAPI
+    "chat_completions" => NovelAgent.Provider.Projection.ChatCompletions,
+    "anthropic_messages" => NovelAgent.Provider.Projection.AnthropicMessages,
+    "responses_api" => NovelAgent.Provider.Projection.ResponsesAPI
   }
 
   @doc """
@@ -37,50 +37,11 @@ defmodule NovelAgent.Provider.RequestIR.Projection do
   # ── 投影公共语义（三个 provider 共用，不改变字节/顺序）────────────────────────
 
   @doc """
-  稳定 system 前缀：现有产品身份 + 本次运行角色规则。
+  稳定 system 前缀；唯一实现在 `NovelCommon.RequestIR.SystemEnvelope.system_text/1`。
 
-  身份原文来自唯一来源 `SystemIdentity`；角色规则优先使用 canonical instructions，
-  否则按 run_role 生成最小规则。IR 的 canonical messages 不插入 wire system 消息。
+  wire 投影只消费 canonical system 事实，不在投影层重写身份、规则或版本。
   """
-  def system_text(system) when is_map(system) do
-    [SystemIdentity.content(), version_lines(system), role_rules(system)]
-    |> Enum.reject(&(&1 in [nil, ""]))
-    |> Enum.join("\n\n")
-  end
-
-  def system_text(_system), do: SystemIdentity.content()
-
-  # VS-00L §3.2/§4：宪法/输出协议版本引用进入稳定 system 前缀，值来自各自唯一真源。
-  defp version_lines(system) do
-    [
-      version_line("constitution_version", system),
-      version_line("output_protocol_version", system),
-      version_line("output_schema_ref", system)
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join("\n")
-  end
-
-  defp version_line(key, system) do
-    case Map.get(system, String.to_existing_atom(key)) do
-      value when is_binary(value) and value != "" -> "#{key}: #{value}"
-      _ -> nil
-    end
-  end
-
-  defp role_rules(system) do
-    case Map.get(system, :instructions) do
-      text when is_binary(text) and text != "" ->
-        text
-
-      _ ->
-        role = Map.get(system, :run_role, "authoring_run")
-
-        "run_role: #{role}\n" <>
-          "你只能在作者授权边界内读取、计划、创作 tentative 候选、提问或报告缺口；" <>
-          "不存在采纳/写入 canon 的工具。"
-    end
-  end
+  defdelegate system_text(system), to: SystemEnvelope
 
   @doc "拼接消息中的文本块（作者消息保持原字节；不插入分隔符）。"
   def text_of(blocks) when is_list(blocks) do

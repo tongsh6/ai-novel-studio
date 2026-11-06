@@ -10,8 +10,8 @@ defmodule NovelAgent.Provider.LMStudio do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.OpenAICompatibleStream
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Projection
+  alias NovelCommon.RequestIR
+  alias NovelAgent.Provider.Projection
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Usage
   alias NovelFoundation.UpstreamError

@@ -21,8 +21,8 @@ defmodule NovelAgent.Provider.Anthropic do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.AnthropicStream
   alias NovelAgent.Provider.HTTP
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Projection
+  alias NovelCommon.RequestIR
+  alias NovelAgent.Provider.Projection
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Usage
   alias NovelFoundation.UpstreamError

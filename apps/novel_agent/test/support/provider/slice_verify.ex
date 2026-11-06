@@ -10,8 +10,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @behaviour NovelAgent.Provider
 
   alias NovelAgent.Provider.AdapterExecution
-  alias NovelAgent.Provider.RequestIR
-  alias NovelAgent.Provider.RequestIR.Projection
+  alias NovelCommon.RequestIR
+  alias NovelAgent.Provider.Projection
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.StubChapterSummary
   alias NovelAgent.Provider.Usage
@@ -601,7 +601,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # 只在最新 scope_update 之后找同 operation 的调用与 validation；更早阶段的失败不计数。
   # 只有 canonical IR 有 block/validation 事实；普通 wire 文本请求没有此结构，不探测形状。
-  defp failed_quality_revision_validation?(%NovelAgent.Provider.RequestIR{} = prompt) do
+  defp failed_quality_revision_validation?(%NovelCommon.RequestIR{} = prompt) do
     history = TestProviderPrompt.current_operation_messages(prompt)
 
     call_ids =
@@ -691,7 +691,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # 2026-11-06 裁决 A：角色规则/输出协议进入 canonical system 前缀；识别条件 =
   # system 前缀 + 当前操作材料（不含历史 messages 的旧阶段材料）。
-  defp recognition_text(%NovelAgent.Provider.RequestIR{} = ir, text) do
+  defp recognition_text(%NovelCommon.RequestIR{} = ir, text) do
     Projection.system_text(ir.system) <> "\n\n" <> text
   end
 
@@ -2945,7 +2945,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     |> Map.merge(response_record(result))
   end
 
-  defp request_record(%NovelAgent.Provider.RequestIR{} = ir, _prompt_text) do
+  defp request_record(%NovelCommon.RequestIR{} = ir, _prompt_text) do
     %{
       format: ir.ir_version,
       prompt: nil,

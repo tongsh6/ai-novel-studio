@@ -1,10 +1,10 @@
-defmodule NovelAgent.Provider.RequestIR do
+defmodule NovelCommon.RequestIR do
   @moduledoc """
   B71 CP2：Authoring Run Transcript / Request IR v1（VS-00L §3–§4）。
 
   契约：
   - AgentRun 是唯一运行事实源；本结构是每次 Provider 请求的内部中间表示。
-  - HTTP body 只是投影（`NovelAgent.Provider.RequestIR.Projection`），不得作为事实源。
+  - HTTP body 只是 Provider 执行边界的投影；投影不是事实源。
   - 消息/工具/观察/校验/候选/作者出口/checkpoint 语义与不变量见 VS-00L §3–§5。
 
   `messages` 使用 map 列表（role/provenance/blocks/source_refs/versions），
@@ -13,8 +13,8 @@ defmodule NovelAgent.Provider.RequestIR do
 
   @ir_version "authoring-request-ir/v1"
 
-  alias NovelAgent.Provider.RequestIR.Compaction
-  alias NovelAgent.Provider.RequestIR.SystemEnvelope
+  alias NovelCommon.RequestIR.Compaction
+  alias NovelCommon.RequestIR.SystemEnvelope
 
   @roles ~w(system application_base scope_update application_notice user assistant tool checkpoint author_exit)
   @provenances ~w(product application author model tool_result)

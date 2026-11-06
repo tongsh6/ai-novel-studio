@@ -2,7 +2,8 @@ defmodule NovelApplication.AgentRunTerminalReplanTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelAgent.Provider.{Execution, RequestIR}
+  alias NovelAgent.Provider.Execution
+  alias NovelCommon.RequestIR
   alias NovelApplication.AgentRunFlows.{JudgmentPlan, ReadonlyBatchContext}
   alias NovelApplication.AgentRunService
   alias NovelApplication.{AuthoringTranscript, TestAgenticLoopFixtures}

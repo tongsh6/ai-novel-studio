@@ -1,7 +1,7 @@
-defmodule NovelAgent.Provider.SystemIdentityTest do
+defmodule NovelCommon.SystemIdentityTest do
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.SystemIdentity
+  alias NovelCommon.SystemIdentity
 
   test "身份文本是唯一产品前提，不含输出格式/语言/角色名" do
     content = SystemIdentity.content()

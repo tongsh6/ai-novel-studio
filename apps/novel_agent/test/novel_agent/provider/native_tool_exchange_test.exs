@@ -2,7 +2,7 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.NativeToolExchange
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
 
   @tool "agent_plan_draft"
   @author "先核对已有材料，再给我计划。"
@@ -15,7 +15,7 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
 
     assert session.provider_call_count == 1
     assert [prompt] = calls.()
-    assert NovelAgent.Provider.RequestIR.Tools.tool_choice(prompt) == @tool
+    assert NovelCommon.RequestIR.Tools.tool_choice(prompt) == @tool
     assert {:ok, ["first"]} = RequestIR.pending_call_ids(session.request_ir)
     assert session.provider_result.tool_calls |> hd() |> Map.get(:id) == "first"
   end
@@ -46,7 +46,7 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
 
     assert session.provider_call_count == 1
     assert [prompt] = calls.()
-    assert NovelAgent.Provider.RequestIR.Tools.tool_choice(prompt) == "auto"
+    assert NovelCommon.RequestIR.Tools.tool_choice(prompt) == "auto"
   end
 
   test "二参数解析器获得真实调用序号，同时保持一次校验重试的上限" do

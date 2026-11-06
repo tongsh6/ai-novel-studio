@@ -2,7 +2,8 @@ defmodule NovelApplication.ProviderActivityServiceTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelAgent.Provider.{Execution, SystemIdentity}
+  alias NovelAgent.Provider.Execution
+  alias NovelCommon.SystemIdentity
   alias NovelApplication.{ProviderActivityProjector, ProviderActivityService, WorkService}
   alias NovelCommon.Contracts.{ProviderEvent, ProviderOutput, ProviderRun}
   alias NovelDomain.AgentRun

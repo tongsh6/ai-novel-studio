@@ -11,7 +11,7 @@ defmodule NovelAgent.Test.WireToolFacts do
   到"从文本猜工具"的旧行为。
   """
 
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
 
   @spec specs(term()) :: [map()]
   def specs(%RequestIR{} = ir), do: RequestIR.Tools.tool_specs(ir)

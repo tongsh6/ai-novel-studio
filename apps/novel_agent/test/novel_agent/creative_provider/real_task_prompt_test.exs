@@ -2,7 +2,8 @@ defmodule NovelAgent.CreativeProvider.RealTaskPromptTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.CreativeProvider.Real
-  alias NovelAgent.Provider.{Execution, RequestIR}
+  alias NovelAgent.Provider.Execution
+  alias NovelCommon.RequestIR
   alias NovelAgent.TestSupport.AuthoringTaskFixtures
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask

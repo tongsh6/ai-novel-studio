@@ -5,7 +5,7 @@ defmodule NovelAgent.TestRequestIR do
   测试需要直接断言 `role/provenance/blocks` 的可读构造器；生产代码不得依赖。
   """
 
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
 
   @type message :: map()
 

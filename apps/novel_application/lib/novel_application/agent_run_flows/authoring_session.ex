@@ -6,7 +6,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
   作者裁决仍由既有 AgentRun/Orchestrator 负责。
   """
 
-  alias NovelAgent.Provider.RequestIR
+  alias NovelCommon.RequestIR
   alias NovelApplication.AuthoringTranscript
   alias NovelCommon.Contracts.ToolRequest
 
@@ -19,7 +19,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
 
   def transcript(_snapshot), do: nil
 
-  @spec request_ir(map()) :: NovelAgent.Provider.RequestIR.t() | nil
+  @spec request_ir(map()) :: NovelCommon.RequestIR.t() | nil
   def request_ir(snapshot) do
     case transcript(snapshot) do
       nil ->
