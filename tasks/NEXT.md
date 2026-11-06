@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B71-CP4b | R1 请求边界/原生投影/三消费者迁移与 2026-11-06 作者裁决已实现：A（system 规则/版本，`6dbb9dd4`）、D（finite_mode 持久事实，`b7aecafb`）、Anthropic 相邻 role 合并退役（`19dcfad9`）、B27 冻结器退役（`a8645e85`）；后端全量 3089/0、credo no issues、I1/I2/I3/N-NARR/I-CACHE 通过（提交 b32da8cd/abf4c63b/c652277b/19dcfad9/b7aecafb/e5e1491c/6dbb9dd4/a8645e85/63361db1）。**待办**：裁决 4 C 依赖图下沉三阶段（计划见 B71 文档，建议独立会话）；原生批次 A 后复验（授权已确认就绪，harness 修复 `e5e1491c`）。剩余 R2 流式生命周期与 Responses SSE、G6 压缩后请求、R1 后真实页面/实模证据及 CP5。I10 不代签 | [B71](slices/B71-provider-message-fidelity.md) |
+| B71-CP4b | R1 请求边界/原生投影/三消费者迁移与 2026-11-06 作者裁决已实现：A（system 规则/版本，`6dbb9dd4`）、D（finite_mode 持久事实，`b7aecafb`）、Anthropic 相邻 role 合并退役（`19dcfad9`）、B27 冻结器退役（`a8645e85`）；后端全量 3089/0、credo no issues、I1/I2/I3/N-NARR/I-CACHE 通过（提交 b32da8cd/abf4c63b/c652277b/19dcfad9/b7aecafb/e5e1491c/6dbb9dd4/a8645e85/63361db1）。**已完成**：裁决 4 C 依赖图下沉三阶段（`29464e60`/`e6c97020`/`3e64e3b1`/`8628411d`，按架构审核修正 Projection/CapabilityProfile 边界并补下沉 Operation）。**待办**：原生批次 A 后复验（授权已确认就绪，harness 修复 `e5e1491c`）。剩余 R2 流式生命周期与 Responses SSE、G6 压缩后请求、R1 后真实页面/实模证据及 CP5。I10 不代签 | [B71](slices/B71-provider-message-fidelity.md) |
 
 当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 
@@ -16,7 +16,6 @@
 |---|---|---|
 | B79 | 存量书稿导入 + 导入后分析建档（导入 txt/md/粘贴→自动切分落库；分析六类直接写档案、批次可撤销；大纲/卷落现有 schema、无卷划分不产卷信息；覆盖=软替换）。可先独立推进 CP0 契约冻结与 CP1 确定性导入链，不依赖 B71 收口；CP3/CP4 分析长跑需真实模型窗口 | [B79](slices/B79-work-import-and-analysis.md) |
 | B78 | 存量大模块拆分（P1：WorkspaceChat / dialogue_planning_service / agent_run_server / turn_execution_service / adoption_repository）；治理机制与 ratchet 门禁已落地，本任务只做结构化拆分，须在 B71 收口后按「一次一个文件、独立 refactor commit」排期 | [B78](slices/B78-module-size-debt.md) |
-| B71-裁决 4 C | **依赖图下沉与测试 helper 迁移（2026-11-06 作者裁决 C，阶段计划已登记）**：阶段 1 把 `RequestIR` 族（`RequestIR`/`SystemEnvelope`/`Projection`+三 projectors/`Compaction`/`SystemIdentity`/`CapabilityProfile`）下沉 `novel_common` 并全仓引用改名；阶段 2 `novel_test` 去掉 `novel_agent` 依赖、迁移 `TestRequestIR`/`TestProviderPrompt`（~145 处引用）、`SliceVerify` 等行为替身保留；阶段 3 更新 `arch_check`/AGENTS 架构表/README 与最终门禁。**每阶段独立 commit，建议独立会话执行**；详见 [B71](slices/B71-provider-message-fidelity.md) | [B71](slices/B71-provider-message-fidelity.md) |
 
 ## 阻塞
 

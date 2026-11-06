@@ -2,7 +2,7 @@
 
 - **当前执行入口（2026-11-04，接续复核）**：以下当前状态和末节「统一接续与源头重构」优先于历史过程记录。原生确认批次暴露的子运行启动交接已由 `8930c432` 修复；新页面事件证据待补。A3b 的原“模型契约失败率高”归因已由原始请求/响应纠正，见末节。当前最前沿执行单元是末节「R1 实际路由与原生输入迁移」（实现已落地、待独立验证），按 VS-00L §19.1/§19.2 推进。
 
-- 状态：**doing**。已取得 CP2/CP3a/CP3c/CP4a 机制与确定性页面证据、CP3b 实模协议机制 10/10、G1–G4 实模请求切片、G5 确定性请求切片、pending-08 77/77、确认/拒绝原生 clean PASS、displayName P0/P1 页面证据；压缩自动维护实现完成。**R1 请求边界迁移已实现并取得确定性门禁证据**（canonical IR 到 Gateway、实际路由单次解析与能力门、三类 adapter 原生投影消费、三个文本消费者迁移、测试替身移出生产注册表、初始快照按 VS-00L §19.2 构造；后端全量 3085/0 等门禁见末节），但 R1 后真实页面/实模证据仍归 CP3b/CP4b-2/CP5，故「实际路由绑定与三类原生投影的生产贯通」保持未闭环；R2 未开始。**尚未闭环**：实际路由绑定与三类原生投影的生产贯通、Responses SSE、G6 实际压缩后请求、当前源码的实时启动事件/确认失败分支页面证明、实模流式工具与取消证据、完整语义覆盖及 CP5 当前基线门禁。I10 文学质量由原任务承接，不由 B71 代签。Pencil MCP 当前返回 Transport closed，PNG 未导出；不把环境状态当代码缺陷。
+- 状态：**doing**。已取得 CP2/CP3a/CP3c/CP4a 机制与确定性页面证据、CP3b 实模协议机制 10/10、G1–G4 实模请求切片、G5 确定性请求切片、pending-08 77/77、确认/拒绝原生 clean PASS、displayName P0/P1 页面证据；压缩自动维护实现完成。**R1 请求边界迁移已实现并取得确定性门禁证据**；**2026-11-06 裁决 4 C 依赖图下沉与测试 helper 迁移已完成**（canonical IR 到 Gateway、实际路由单次解析与能力门、三类 adapter 原生投影消费、三个文本消费者迁移、测试替身移出生产注册表、初始快照按 VS-00L §19.2 构造；后端全量 3085/0 等门禁见末节），但 R1 后真实页面/实模证据仍归 CP3b/CP4b-2/CP5，故「实际路由绑定与三类原生投影的生产贯通」保持未闭环；R2 未开始。**尚未闭环**：实际路由绑定与三类原生投影的生产贯通、Responses SSE、G6 实际压缩后请求、当前源码的实时启动事件/确认失败分支页面证明、实模流式工具与取消证据、完整语义覆盖及 CP5 当前基线门禁。I10 文学质量由原任务承接，不由 B71 代签。Pencil MCP 当前返回 Transport closed，PNG 未导出；不把环境状态当代码缺陷。
 - 来源：作者先要求对照 Codex、Claude Code、dsh 的真实多轮请求，随后明确“设计一个优秀、符合项目调性的请求体，不为现状妥协”。本文件已据此替换此前偏向现役最小修补的方案。
 - 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)；目标方向与迁移规则已由 [ADR-0033](../../docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) Accepted（2026-10-31）；替换契约 [VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 已 Frozen，首个判断消费者已完成 canonical 原生多轮接线，其余消费者与完整迁移归 CP4。
 - 对账输入：[B26](B26-single-call-judgment-protocol.md)、[B39](B39-evidence-seeking-authoring.md)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md)、[VS-00I](../../docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md)、[UA-01](../../docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md)。它们是迁移事实与可能需要修订的决策，不是降低目标设计的约束。
@@ -1102,7 +1102,7 @@
 - **验证**：agent 522/0、application 1349/0；编译/credo/xref/arch/module-size/format、I1/I2/I3/N-NARR/I-CACHE 复跑。
 - **边界**：真实模型行为（规则位置对遵循度/缓存收益的影响）未做对照实验，不代签；`output_schema_ref` 待有统一 schema 真源时再落地。
 
-### 依赖图下沉与测试 helper 迁移（裁决 4 C，待执行阶段计划）
+### 依赖图下沉与测试 helper 迁移（裁决 4 C，2026-11-06 已实施）
 
 - **目标**：把 `RequestIR`/Provider 纯契约下沉到 `novel_common`，使 `novel_test` 可承载跨 app 通用测试 helper（`TestRequestIR`/`TestProviderPrompt`），消除 `novel_agent/test/support` 被 application 测试跨 app 引用。
 - **现状（2026-11-06 分析）**：`NovelAgent.Provider.RequestIR` 77 文件引用、`Projection` 31、`SystemIdentity` 13、`CapabilityProfile` 5、`Compaction` 3；`novel_test` 当前依赖 `novel_agent`（`ProviderHelpers` 无消费者，可删）；`TestRequestIR`/`TestProviderPrompt` 跨 app 引用约 145 处（agent 自身测试 100 处 + application 45 处）。
@@ -1111,7 +1111,12 @@
   2. `novel_test` 去掉 `novel_agent` 依赖（删除无消费者的 `ProviderHelpers`）；`novel_agent`/`novel_application`/`novel_web` 测试依赖 `novel_test`；迁移 `TestRequestIR`/`TestProviderPrompt` 到 `novel_test` 并更新引用；`SliceVerify`/`Stub` 等 agent 行为替身保留（依赖 agent 内部实现，不迁）。
   3. `scripts/arch_check.exs`/AGENTS 架构表更新、README/索引登记、最终门禁。
 - **验收**：application/web 测试不再直接引用 `novel_agent/test/support`（SliceVerify 等行为替身除外）；全量测试与全部门禁绿；`novel_test` 仍不依赖生产代码之外的 app（生产依赖保持 `novel_agent` 不反向依赖 `novel_test`）。
-- **状态**：方案与依赖分析已完成；属跨 app 架构级重构（模块移动 + ~150 处引用改名 + 多轮全量门禁），建议在独立会话/阶段执行，避免长会话半成品。
+- **状态（2026-11-06）**：**done**。按计划三阶段执行，并按架构审核修正两处边界：
+  1. `Projection` 与三 projector **不下沉**——IR→wire body 属 Provider 执行边界（ADR-0033 §6「novel_agent 负责 … provider 投影」、VS-00L §19「实际路由选择、能力事实与 wire 投影归同一执行边界」）；只把 provider-neutral 的 `system_text/1`（→ `SystemEnvelope.system_text/1`）与 `json_value/1`（→ `RequestIR.json_value/1`）上移为 common 单一实现。`CapabilityProfile` 同样留 `novel_agent`（能力事实按 adapter 实际 route 派生，application/web 零消费）。
+  2. 计划漏列的 `RequestIR.Operation`（纯阶段构造器，application 已消费）随契约族一并下沉。
+  3. `Projection` 模块从原 `NovelAgent.Provider.RequestIR.Projection` 改名为 `NovelAgent.Provider.Projection`，消除「RequestIR 主体已迁走、子命名空间仍挂在 agent」的幽灵命名。
+- **提交（可 review 粒度）**：`29464e60` 工具查询/拒绝文案归位与 `json_value` 单一实现；`e6c97020` RequestIR 契约族下沉 + 投影改名 + 测试迁移 + module-size 基线；`3e64e3b1` novel_test 去 agent 依赖、TestRequestIR/TestProviderPrompt 迁移、删除无消费者 `ProviderHelpers`；`8628411d` arch_check 四类边界规则 + 跨 app test-support 白名单 + AGENTS/guardrails/README 索引 + web 显式依赖。
+- **验收**：application/web 测试不再引用 agent test/support 的请求契约 helper（仅白名单内 `Stub`/`SliceVerify`）；`novel_test` 只依赖 `novel_common`；`RequestIR.Projection` 旧命名空间全仓 0 引用；wire 与持久化字段未变；全量门禁与不变量见最终报告。真实模型、真实页面、R2/SSE、G6 与 CP5 不代签。
 
 ### 原生批次验收状态（2026-11-06）
 

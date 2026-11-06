@@ -60,7 +60,7 @@ SystemIdentityMessage
 
 ### 2.2 内容真源与构成规则
 
-身份文本有且只有一个代码真源（候选模块名 `NovelAgent.Provider.SystemIdentity`；模块结构按 `08` §23 不在本文冻结）。文本**只允许**包含随任务不变的产品事实：
+身份文本有且只有一个代码真源（当前代码真源 `NovelCommon.SystemIdentity`——2026-11-06 B71 裁决 4 C 下沉后；原候选模块名 `NovelAgent.Provider.SystemIdentity`；模块结构按 `08` §23 不在本文冻结）。文本**只允许**包含随任务不变的产品事实：
 
 | 必含 | 依据 |
 |---|---|

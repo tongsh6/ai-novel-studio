@@ -402,7 +402,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 
 ### 16.6 独立计划与使命的同一会话边界
 
-- [`RequestIR.Operation`](../../../apps/novel_agent/lib/novel_agent/provider/request_ir/operation.ex) 是计划、使命、创作与评审共用的纯阶段构造器，将稳定角色/规则/输出契约与动态目标/材料分开。[`AuthoringOperation`](../../../apps/novel_application/lib/novel_application/authoring_operation.ex) 负责从真实 run/snapshot 派生 IR、补当前权限/预算及领域校验结果。已有会话保留全部消息，新阶段必须追加该角色完整规则（不能依赖首阶段恰好是同一角色），并追加 scope 与工具目录；没有会话时仅明确提供的作者原话可独立成为 user，应用目标不冒充作者消息。
+- [`RequestIR.Operation`](../../../apps/novel_common/lib/novel_common/request_ir/operation.ex) 是计划、使命、创作与评审共用的纯阶段构造器，将稳定角色/规则/输出契约与动态目标/材料分开。[`AuthoringOperation`](../../../apps/novel_application/lib/novel_application/authoring_operation.ex) 负责从真实 run/snapshot 派生 IR、补当前权限/预算及领域校验结果。已有会话保留全部消息，新阶段必须追加该角色完整规则（不能依赖首阶段恰好是同一角色），并追加 scope 与工具目录；没有会话时仅明确提供的作者原话可独立成为 user，应用目标不冒充作者消息。
 - 独立 draft/revise 与 chapter/planning mission 复用 `NativeToolExchange`；每次响应、原始参数、原生校验及实际调用数同源。计划的传输重试与结构纠正共享一次额度，使命保留既有“传输失败直接返回、结构错误最多纠正一次”语义；不得用重新拼接 user 文本的第二协议重试。
 - 计划/使命的领域校验成功后，应用追加 passed validation（非执行授权、非采纳），成功与失败 meta 均携带更新的 canonical transcript 与实际 provider_call_count。预检未发请求为零，传输失败同样记真实调用。
 - AgentRun 在执行后续 step **之前**将规划结果的会话放入同一快照；step 结果只在缺少更新会话时继承此前会话，禁止旧 planner meta 覆盖新 writer/mission 历史。终局、预算停止与失败亦须保存已发生的计划事实。
@@ -537,6 +537,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 | **有限模式持久事实（2026-11-06 作者裁决 D）** | **已实现（待提交/门禁）**：`ProviderRun.metadata.finite_mode` + `provider_runs.finite_mode_name` 可空列（迁移 `20261106000001`）+ 验收读侧 `finite_modes` 报告；`DecisionTrace` 不扩展、事件层暂缓（理由见 §6.4 落点）。PASS 必要条件未启用，旧证据不回溯 |
 | **system 规则/版本落地（2026-11-06 裁决 A）** | **已实现（已提交并通过确定性门禁）**：`RequestIR.system_envelope/1` 支持 `instructions`/`constitution_version`/`output_protocol_version`；投影 `system_text/1` 渲染身份 + 版本行 + 规则；判断/使命/计划/创作/评审与三个文本消费者把角色规则/输出协议移入 system，`application_base` 只留应用数据声明；`AuthoringTranscript` 持久化 run 级规则与版本字段。真实模型行为（规则位置对遵循度的影响）未做对照实验，不代签 |
 | **R1 请求边界与原生输入迁移（2026-11-04）** | **已实现（R1，已提交并通过确定性门禁）**：`RequestIR.prepare_request/2` 选本次工具与 tool_choice；Gateway 按实际 route 单次解析并派生能力；Chat/Anthropic/Responses 三类 adapter 直接消费原生投影；测试替身移出生产注册表；初始快照按 §19.2 构造。**剩余未闭环**：R1 独立验证与 R1 后全量门禁/I1–I3、真实 route/原生 body 回归、I-CACHE 独立输入、Responses SSE（R2）、G6/真实页面/实模、CP5。三个直接文本消费者已完成 IR 迁移（见 §16.6/§19.1）。**2026-11-04/05 确定性门禁已通过**：后端全量 3085/0、credo no issues、xref 无环、arch 通过、I1 4/4、I2 3 pairs/0 violations、I3 3/3、N-NARR、I-CACHE 4/4、前端 486 tests；未代签真实模型/真实页面/Responses SSE/G6/CP5 |
+| **依赖图下沉与测试 helper 迁移（2026-11-06 裁决 4 C）** | **已实现（已提交并通过确定性门禁）**：`RequestIR`/`Tools`/`SystemEnvelope`/`Compaction`/`Operation`/`SystemIdentity` 下沉 `novel_common`（`NovelCommon.*`）；`Projection` 与三 projector 保留 `novel_agent` 执行边界并改名 `NovelAgent.Provider.Projection`（原 `RequestIR.Projection` 命名空间消失）；`CapabilityProfile` 留在 `novel_agent`（能力事实按实际 route 派生属执行边界，VS-00L §16.15/§19）；`novel_test` 去 `novel_agent` 依赖并承载 `NovelTest.TestRequestIR`/`TestProviderPrompt`；`arch_check` 新增 common/test 边界与跨 app test-support 白名单。wire 与持久化字节未改变；实模、页面与 CP5 不代签 |
 
 ## 18. 变更记录（Accepted，2026-11-04）：显式压缩的自动维护触发（提案 2026-11-03）
 
@@ -654,6 +655,8 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 - 运行循环依赖统一模型调用结果与事件，供应商请求形态与私有回放材料归适配边界。此职责划分参考 [OpenAI Agents SDK Model interface](https://openai.github.io/openai-agents-python/ref/models/interface/) 和 [Model/provider boundaries](https://github.com/openai/openai-agents-python/blob/main/.agents/references/model-provider-boundaries.md)，具体 canonical、作者主权与证据绑定仍以本项目契约为准。
 - Responses 原生 items 与流式协议直接投影/解析，不以 Chat 消息为内部上限。外部协议解析一次；内部已建立的状态不加重复兜底。不能丢弃原始参数或 Provider 私有回放材料来换取请求通过。
 - 本节是职责与退役规则。**2026-11-04 R1 已按 §19.1 实现（已提交并通过确定性门禁，2026-11-04/05）**：`prepare_request/2`、Gateway 实际路由单能力门、三投影原生消费、测试替身移出生产注册表；`to_provider_prompt/2`、`RequestIR.from_legacy`、构造/执行双身份比对已删除。Responses SSE（R2）、真实原生页面与实模验收仍未完成，不得据 R1 实现标 CP4b/CP5 done。
+
+- **2026-11-06 裁决 4 C 实施记录**：canonical Request IR 契约族（数据结构/校验/构造/工具视图/压缩/身份事实）迁 `novel_common`，属跨 app 纯契约；`Projection` 与三 projector（wire body 生成）与 `CapabilityProfile`（按 adapter 声明的能力事实）留在 `novel_agent` 执行边界，符合本节「实际路由选择、能力事实与 wire 投影归同一执行边界」。生产请求字节、ProviderRun 持久字段、作者可见面均无变化；`RequestIR.rejection_message/1` 归位 `NovelAgent.Provider`（实际消费者在 agent）。
 
 ### 19.1 R1 请求边界与迁移顺序
 

@@ -22,7 +22,7 @@
 
 | 调用面 / 实际来源 | 当前写法与证据 | 整合处置 |
 |---|---|---|
-| [SystemIdentity](../../apps/novel_agent/lib/novel_agent/provider/system_identity.ex) / [Gateway](../../apps/novel_agent/lib/novel_agent/provider/gateway.ex) | 固定产品身份、作者裁决和事实纪律已由 Gateway 注入；有版本/hash/幂等 | 保留唯一 L0；不能再描述成“缺 system prompt”，不把所有任务规则塞进身份层 |
+| [SystemIdentity](../../apps/novel_common/lib/novel_common/system_identity.ex) / [Gateway](../../apps/novel_agent/lib/novel_agent/provider/gateway.ex) | 固定产品身份、作者裁决和事实纪律已由 Gateway 注入；有版本/hash/幂等 | 保留唯一 L0；不能再描述成“缺 system prompt”，不把所有任务规则塞进身份层 |
 | [JudgmentProtocol](../../apps/novel_application/lib/novel_application/judgment_protocol.ex) 判断① | 手写能力说明、形态规则、进度直接回复、先复述意图再说明形态；call1 叙事后 call2 再判字段 | 随 B26 删除双协议；整合为作者目标、证据充分性、动作效果与必要提问的统一策略；删除机械报形态要求 |
 | 同模块判断②续行 | 另写“继续执行/等作者”规则和两次调用 | 与初始判断共享权限、缺口、结果状态词义；保留续行特有的偏离/预算输入，不另维护一套作者主权解释 |
 | [DialoguePlanningService](../../apps/novel_application/lib/novel_application/dialogue_planning_service.ex) | 已有章节索引、探索目录/观察、interaction state、可修订对象；多个 section 拼成文本 | 保留事实来源与预算；补完整性、目标范围、前轮结果和版本的统一语义，不重复建设 B24 读取 |
