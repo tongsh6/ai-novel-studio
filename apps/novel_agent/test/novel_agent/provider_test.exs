@@ -3,7 +3,7 @@ defmodule NovelAgent.ProviderTest do
 
   alias NovelAgent.Provider
   alias NovelCommon.RequestIR
-  alias NovelAgent.TestProviderPrompt
+  alias NovelTest.TestProviderPrompt
 
   defp operation_ir(messages) do
     RequestIR.new(%{

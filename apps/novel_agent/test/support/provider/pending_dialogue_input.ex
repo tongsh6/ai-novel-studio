@@ -177,11 +177,11 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
   end
 
   defp current_view(prompt) when is_map(prompt) or is_list(prompt) do
-    operation_text = NovelAgent.TestProviderPrompt.operation_text(prompt)
+    operation_text = NovelTest.TestProviderPrompt.operation_text(prompt)
     state_text = text_before_author(operation_text)
 
     author =
-      case String.trim(NovelAgent.TestProviderPrompt.author_text(prompt)) do
+      case String.trim(NovelTest.TestProviderPrompt.author_text(prompt)) do
         "" -> explicit_author_section(operation_text) || ""
         text -> text
       end
@@ -190,7 +190,7 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
       state_text: state_text,
       author_text: author,
       native_scope?:
-        not is_nil(NovelAgent.TestProviderPrompt.latest_scope(prompt)) or
+        not is_nil(NovelTest.TestProviderPrompt.latest_scope(prompt)) or
           String.contains?(operation_text, @application_marker)
     }
   end

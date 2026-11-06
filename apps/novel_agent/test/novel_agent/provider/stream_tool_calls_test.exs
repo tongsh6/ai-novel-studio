@@ -5,7 +5,7 @@ defmodule NovelAgent.Provider.StreamToolCallsTest do
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.OpenAI
   alias NovelCommon.RequestIR
-  alias NovelAgent.TestRequestIR
+  alias NovelTest.TestRequestIR
 
   # tools 存在但模型未被强制调用：真实 adapter 走流式路径，SSE 中仍可能返回
   # 原生 tool_calls（VS-00L §6 投影无损；I-ART-8 不得静默丢字段）。

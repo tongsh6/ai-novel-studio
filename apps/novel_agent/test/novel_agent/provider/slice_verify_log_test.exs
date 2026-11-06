@@ -4,7 +4,7 @@ defmodule NovelAgent.Provider.SliceVerifyLogTest do
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Result
   alias NovelAgent.Test.Provider.SliceVerify
-  alias NovelAgent.TestProviderPrompt
+  alias NovelTest.TestProviderPrompt
 
   @author_behavior_env "AUTHOR_BEHAVIOR_CORPUS_JSON"
 
@@ -65,12 +65,12 @@ defmodule NovelAgent.Provider.SliceVerifyLogTest do
 
   test "canonical IR logs blocks and selected tool without wire content", %{dir: dir} do
     prompt =
-      NovelAgent.TestRequestIR.ir(
+      NovelTest.TestRequestIR.ir(
         [
-          NovelAgent.TestRequestIR.base("本次你承担创作判断器的角色。"),
-          NovelAgent.TestRequestIR.author("请按另行起草计划设计一个角色。")
+          NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
+          NovelTest.TestRequestIR.author("请按另行起草计划设计一个角色。")
         ],
-        tools: [NovelAgent.TestRequestIR.tool("judgment_decision")],
+        tools: [NovelTest.TestRequestIR.tool("judgment_decision")],
         projection: %{tool_choice: "auto"}
       )
 

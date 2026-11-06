@@ -63,15 +63,15 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
 
   test "SC-AU14-B1 fact_inventory profile 只起草一个允许的盘点步骤" do
     prompt =
-      NovelAgent.TestRequestIR.ir(
+      NovelTest.TestRequestIR.ir(
         [
-          NovelAgent.TestRequestIR.base("""
+          NovelTest.TestRequestIR.base("""
           你是小说创作系统的 AgentRun 计划起草器。
           - profile_ref: fact_inventory_v1
           - plan_step_targets: fact_inventory
           """)
         ],
-        tools: [NovelAgent.TestRequestIR.tool("agent_plan_draft")],
+        tools: [NovelTest.TestRequestIR.tool("agent_plan_draft")],
         projection: %{tool_choice: "agent_plan_draft"}
       )
 
@@ -315,9 +315,9 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
 
   test "计划起草把作者点名章按 prompt 作品章节列表精确匹配为全名 target_chapter" do
     prompt =
-      NovelAgent.TestRequestIR.ir(
+      NovelTest.TestRequestIR.ir(
         [
-          NovelAgent.TestRequestIR.base("""
+          NovelTest.TestRequestIR.base("""
           你是小说创作系统的 AgentRun 计划起草器。你只起草本次运行的可见 AgentPlan，不批准执行。
 
           ## 当前 AgentRun
@@ -336,7 +336,7 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
           - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
           """)
         ],
-        tools: [NovelAgent.TestRequestIR.tool("agent_plan_draft")],
+        tools: [NovelTest.TestRequestIR.tool("agent_plan_draft")],
         projection: %{tool_choice: "agent_plan_draft"}
       )
 
@@ -356,9 +356,9 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
 
   test "计划起草点名列表外的章时 target_chapter 保持 null（缺失策略 block 信号）" do
     prompt =
-      NovelAgent.TestRequestIR.ir(
+      NovelTest.TestRequestIR.ir(
         [
-          NovelAgent.TestRequestIR.base("""
+          NovelTest.TestRequestIR.base("""
           你是小说创作系统的 AgentRun 计划起草器。你只起草本次运行的可见 AgentPlan，不批准执行。
 
           ## 当前 AgentRun
@@ -375,7 +375,7 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
           - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
           """)
         ],
-        tools: [NovelAgent.TestRequestIR.tool("agent_plan_draft")],
+        tools: [NovelTest.TestRequestIR.tool("agent_plan_draft")],
         projection: %{tool_choice: "agent_plan_draft"}
       )
 
@@ -394,14 +394,14 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
 
   test "CP4a 当前创作工具优先于历史续行协议文本" do
     prompt =
-      NovelAgent.TestRequestIR.ir(
+      NovelTest.TestRequestIR.ir(
         [
-          NovelAgent.TestRequestIR.author("上一轮使用 continuation_decision；历史目录曾提到整章正文修订。"),
-          NovelAgent.TestRequestIR.scope(
+          NovelTest.TestRequestIR.author("上一轮使用 continuation_decision；历史目录曾提到整章正文修订。"),
+          NovelTest.TestRequestIR.scope(
             "用户创作简述：写第01章：底层灵气账单正文草稿\n上下文：本章已有计划。\n重要：保留作者输入。\nartifact_type：prose_fragment"
           )
         ],
-        tools: [NovelAgent.TestRequestIR.tool("submit_tentative_artifact")],
+        tools: [NovelTest.TestRequestIR.tool("submit_tentative_artifact")],
         projection: %{tool_choice: "submit_tentative_artifact"}
       )
 
@@ -528,9 +528,9 @@ defmodule NovelAgent.Provider.SliceVerifyOperationScopeTest do
           {"planning_mission", "你是规划前推理器。\n" <> @mission_scope}
         ] do
       prompt =
-        NovelAgent.TestRequestIR.ir(
-          [NovelAgent.TestRequestIR.base(text)],
-          tools: [NovelAgent.TestRequestIR.tool(tool)],
+        NovelTest.TestRequestIR.ir(
+          [NovelTest.TestRequestIR.base(text)],
+          tools: [NovelTest.TestRequestIR.tool(tool)],
           projection: %{tool_choice: tool}
         )
 
@@ -553,7 +553,7 @@ defmodule NovelAgent.Provider.SliceVerifyOperationScopeTest do
     prompt = native_prompt("submit_tentative_artifact", scope)
 
     prompt =
-      NovelAgent.TestRequestIR.append_message_text(
+      NovelTest.TestRequestIR.append_message_text(
         prompt,
         0,
         "\nartifact_type：outline_draft\n用户创作简述：旧章计划 OLDPLAN82Q\n上下文：旧目录\n重要：旧要求。"
@@ -575,7 +575,7 @@ defmodule NovelAgent.Provider.SliceVerifyOperationScopeTest do
     prompt = native_prompt("report_quality_findings", scope)
 
     prompt =
-      NovelAgent.TestRequestIR.append_message_text(
+      NovelTest.TestRequestIR.append_message_text(
         prompt,
         0,
         "\nVS00EEVALFAIL 旧阶段的评审故障。"
@@ -588,13 +588,13 @@ defmodule NovelAgent.Provider.SliceVerifyOperationScopeTest do
   end
 
   defp native_prompt(tool, scope) do
-    NovelAgent.TestRequestIR.ir(
+    NovelTest.TestRequestIR.ir(
       [
-        NovelAgent.TestRequestIR.scope(@history),
-        NovelAgent.TestRequestIR.assistant("上一阶段的工作已完成，接着处理新任务。"),
-        NovelAgent.TestRequestIR.scope(scope)
+        NovelTest.TestRequestIR.scope(@history),
+        NovelTest.TestRequestIR.assistant("上一阶段的工作已完成，接着处理新任务。"),
+        NovelTest.TestRequestIR.scope(scope)
       ],
-      tools: [NovelAgent.TestRequestIR.tool(tool)],
+      tools: [NovelTest.TestRequestIR.tool(tool)],
       projection: %{tool_choice: "auto"}
     )
   end
@@ -669,11 +669,11 @@ defmodule NovelAgent.Provider.SliceVerifyWriterFaultScopeTest do
   end
 
   defp native_prompt(tool, scope, history \\ []) do
-    messages = Enum.map(history ++ [scope], &NovelAgent.TestRequestIR.scope/1)
+    messages = Enum.map(history ++ [scope], &NovelTest.TestRequestIR.scope/1)
 
-    NovelAgent.TestRequestIR.ir(
+    NovelTest.TestRequestIR.ir(
       messages,
-      tools: [NovelAgent.TestRequestIR.tool(tool)],
+      tools: [NovelTest.TestRequestIR.tool(tool)],
       projection: %{tool_choice: tool}
     )
   end
@@ -875,19 +875,19 @@ defmodule NovelAgent.Provider.SliceVerifyChapterWriterFixtureTest do
     [base, dynamic] = String.split(legacy, "capability：", parts: 2)
 
     prompt =
-      NovelAgent.TestRequestIR.ir(
+      NovelTest.TestRequestIR.ir(
         [
-          NovelAgent.TestRequestIR.base("【应用数据 · application_base · 非作者原话】\n" <> base),
-          NovelAgent.TestRequestIR.author(author),
-          NovelAgent.TestRequestIR.scope("capability：" <> dynamic)
+          NovelTest.TestRequestIR.base("【应用数据 · application_base · 非作者原话】\n" <> base),
+          NovelTest.TestRequestIR.author(author),
+          NovelTest.TestRequestIR.scope("capability：" <> dynamic)
         ],
-        tools: [NovelAgent.TestRequestIR.tool("submit_tentative_artifact")],
+        tools: [NovelTest.TestRequestIR.tool("submit_tentative_artifact")],
         projection: %{tool_choice: "submit_tentative_artifact"}
       )
 
     corrections = [
-      NovelAgent.TestRequestIR.assistant("前一次响应格式错误。"),
-      NovelAgent.TestRequestIR.notice("【应用数据 · application_notice · 非作者原话】\n请按原任务正确输出。")
+      NovelTest.TestRequestIR.assistant("前一次响应格式错误。"),
+      NovelTest.TestRequestIR.notice("【应用数据 · application_notice · 非作者原话】\n请按原任务正确输出。")
     ]
 
     for suffix <- [[], corrections] do
@@ -1689,15 +1689,15 @@ defmodule NovelAgent.Provider.SliceVerifyQualityRevisionFixtureTest do
 
   defp retry_history do
     failed =
-      NovelAgent.TestRequestIR.validation(
+      NovelTest.TestRequestIR.validation(
         "native-submit_tentative_artifact",
         "failed",
         "invalid_items"
       )
 
     call =
-      NovelAgent.TestRequestIR.assistant("", [
-        NovelAgent.TestRequestIR.tool_call(
+      NovelTest.TestRequestIR.assistant("", [
+        NovelTest.TestRequestIR.tool_call(
           "submit_tentative_artifact",
           %{},
           "native-submit_tentative_artifact"
@@ -1720,7 +1720,7 @@ defmodule NovelAgent.Provider.SliceVerifyQualityRevisionFixtureTest do
     }
   end
 
-  defp scope_message(scope), do: NovelAgent.TestRequestIR.scope(scope)
+  defp scope_message(scope), do: NovelTest.TestRequestIR.scope(scope)
 
   defp source_writer_prompt do
     source_writer_scope() |> prompt()
@@ -1760,14 +1760,14 @@ defmodule NovelAgent.Provider.SliceVerifyQualityRevisionFixtureTest do
   end
 
   defp prompt(scope, history \\ []) do
-    NovelAgent.TestRequestIR.ir(
+    NovelTest.TestRequestIR.ir(
       [
-        NovelAgent.TestRequestIR.system("identity_ref: identity:authoring/v1"),
-        NovelAgent.TestRequestIR.base("【应用数据 · application_base · 非作者原话】\n输出契约。"),
-        NovelAgent.TestRequestIR.scope(scope)
+        NovelTest.TestRequestIR.system("identity_ref: identity:authoring/v1"),
+        NovelTest.TestRequestIR.base("【应用数据 · application_base · 非作者原话】\n输出契约。"),
+        NovelTest.TestRequestIR.scope(scope)
       ] ++ history,
       tools: [
-        NovelAgent.TestRequestIR.tool("submit_tentative_artifact", %{
+        NovelTest.TestRequestIR.tool("submit_tentative_artifact", %{
           type: "object",
           properties: %{items: %{type: "array"}}
         })
@@ -1836,15 +1836,15 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
     older =
       if older_scope do
         [
-          NovelAgent.TestRequestIR.scope(older_scope, %{scope_revision: 1}),
-          NovelAgent.TestRequestIR.assistant("先核对旧目录。", [
-            NovelAgent.TestRequestIR.tool_call(
+          NovelTest.TestRequestIR.scope(older_scope, %{scope_revision: 1}),
+          NovelTest.TestRequestIR.assistant("先核对旧目录。", [
+            NovelTest.TestRequestIR.tool_call(
               "judgment_decision",
               %{"action" => "explore"},
               "call-read"
             )
           ]),
-          NovelAgent.TestRequestIR.observation("call-read", %{
+          NovelTest.TestRequestIR.observation("call-read", %{
             status: "ok",
             content: %{
               "summary" => "已读到旧目录。",
@@ -1859,16 +1859,16 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
 
     version = if older_scope, do: 2, else: 1
 
-    NovelAgent.TestRequestIR.ir(
+    NovelTest.TestRequestIR.ir(
       [
-        NovelAgent.TestRequestIR.base(
+        NovelTest.TestRequestIR.base(
           "【应用数据 · application_base · 非作者原话】\n本次你承担创作判断器的角色。使用 judgment_decision。"
         ),
-        NovelAgent.TestRequestIR.author(author_text)
+        NovelTest.TestRequestIR.author(author_text)
       ] ++
         older ++
-        [NovelAgent.TestRequestIR.scope(current_scope, %{scope_revision: version})],
-      tools: [NovelAgent.TestRequestIR.tool("judgment_decision")],
+        [NovelTest.TestRequestIR.scope(current_scope, %{scope_revision: version})],
+      tools: [NovelTest.TestRequestIR.tool("judgment_decision")],
       projection: %{tool_choice: "auto"}
     )
   end
@@ -2307,17 +2307,17 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
     private_session = %{handle: "private-session"}
 
     ir =
-      NovelAgent.TestRequestIR.ir(
+      NovelTest.TestRequestIR.ir(
         [
-          NovelAgent.TestRequestIR.base("记录边界 Base"),
-          NovelAgent.TestRequestIR.author("记录边界作者原话")
+          NovelTest.TestRequestIR.base("记录边界 Base"),
+          NovelTest.TestRequestIR.author("记录边界作者原话")
         ],
-        tools: [NovelAgent.TestRequestIR.tool("judgment_decision")],
+        tools: [NovelTest.TestRequestIR.tool("judgment_decision")],
         projection: %{tool_choice: "auto"}
       )
 
     assistant =
-      NovelAgent.TestRequestIR.assistant("")
+      NovelTest.TestRequestIR.assistant("")
       |> Map.put(:provider_state, private_state)
       |> Map.put(:provider_session, private_session)
 
@@ -2368,18 +2368,18 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
       ])
 
     ir =
-      NovelAgent.TestRequestIR.ir([
-        NovelAgent.TestRequestIR.base("Base"),
+      NovelTest.TestRequestIR.ir([
+        NovelTest.TestRequestIR.base("Base"),
         author,
-        NovelAgent.TestRequestIR.scope("当前 scope"),
-        NovelAgent.TestRequestIR.assistant("已响应"),
-        NovelAgent.TestRequestIR.notice("通知")
+        NovelTest.TestRequestIR.scope("当前 scope"),
+        NovelTest.TestRequestIR.assistant("已响应"),
+        NovelTest.TestRequestIR.notice("通知")
       ])
 
-    assert NovelAgent.TestProviderPrompt.author_text(ir) == "  第一段\n第二段"
-    assert NovelAgent.TestProviderPrompt.latest_scope(ir) == "当前 scope"
+    assert NovelTest.TestProviderPrompt.author_text(ir) == "  第一段\n第二段"
+    assert NovelTest.TestProviderPrompt.latest_scope(ir) == "当前 scope"
 
-    history = NovelAgent.TestProviderPrompt.current_operation_messages(ir)
+    history = NovelTest.TestProviderPrompt.current_operation_messages(ir)
     assert Enum.map(history, & &1.role) == ["assistant", "application_notice"]
     assert Enum.all?(history, &is_list(&1.blocks))
 
@@ -2388,14 +2388,14 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
       %{role: "user", content: "作者原话"}
     ]
 
-    assert NovelAgent.TestProviderPrompt.text(wire) == "system: 系统约束\nuser: 作者原话"
+    assert NovelTest.TestProviderPrompt.text(wire) == "system: 系统约束\nuser: 作者原话"
 
-    assert NovelAgent.TestProviderPrompt.operation_text(wire) ==
-             NovelAgent.TestProviderPrompt.text(wire)
+    assert NovelTest.TestProviderPrompt.operation_text(wire) ==
+             NovelTest.TestProviderPrompt.text(wire)
 
-    assert NovelAgent.TestProviderPrompt.author_text(wire) == ""
-    assert NovelAgent.TestProviderPrompt.latest_scope(wire) == nil
-    assert NovelAgent.TestProviderPrompt.current_operation_messages(wire) == []
+    assert NovelTest.TestProviderPrompt.author_text(wire) == ""
+    assert NovelTest.TestProviderPrompt.latest_scope(wire) == nil
+    assert NovelTest.TestProviderPrompt.current_operation_messages(wire) == []
     refute Enum.any?(wire, &Map.has_key?(&1, :blocks))
     refute Enum.any?(wire, &Map.has_key?(&1, :provenance))
 
@@ -2406,7 +2406,7 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
       %{role: "user", content: "普通请求"}
     ]
 
-    assert NovelAgent.TestProviderPrompt.text(injected) == "user: 普通请求"
+    assert NovelTest.TestProviderPrompt.text(injected) == "user: 普通请求"
   end
 
   defp read_capture_records(dir) do

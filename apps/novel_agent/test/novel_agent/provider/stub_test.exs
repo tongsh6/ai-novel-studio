@@ -6,7 +6,7 @@ defmodule NovelAgent.Provider.StubTest do
   alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Stub
-  alias NovelAgent.TestRequestIR
+  alias NovelTest.TestRequestIR
 
   setup do
     {:ok, stub: %Stub{}}

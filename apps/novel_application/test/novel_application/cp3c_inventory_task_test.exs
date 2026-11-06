@@ -107,7 +107,7 @@ defmodule NovelApplication.CP3cInventoryTaskTest do
       for _ <- 1..2 do
         receive do
           # 生产入口已改为 canonical RequestIR；文本断言读与 provider 同源的投影文本视图。
-          {:prompt, prompt} -> NovelAgent.TestProviderPrompt.text(prompt)
+          {:prompt, prompt} -> NovelTest.TestProviderPrompt.text(prompt)
         after
           0 -> flunk("expected two prompts")
         end

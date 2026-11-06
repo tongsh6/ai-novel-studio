@@ -57,7 +57,7 @@ defmodule NovelApplication.PlannerNarrationTaskTest do
     prompt =
       receive do
         # 生产入口已改为 canonical RequestIR；文本断言读与 provider 同源的投影文本视图。
-        {:narration_prompt, prompt} -> NovelAgent.TestProviderPrompt.text(prompt)
+        {:narration_prompt, prompt} -> NovelTest.TestProviderPrompt.text(prompt)
       after
         0 -> flunk("provider 未被调用")
       end
@@ -91,7 +91,7 @@ defmodule NovelApplication.PlannerNarrationTaskTest do
     prompt =
       receive do
         # 生产入口已改为 canonical RequestIR；文本断言读与 provider 同源的投影文本视图。
-        {:narration_prompt, prompt} -> NovelAgent.TestProviderPrompt.text(prompt)
+        {:narration_prompt, prompt} -> NovelTest.TestProviderPrompt.text(prompt)
       after
         0 -> flunk("provider 未被调用")
       end

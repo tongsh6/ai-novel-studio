@@ -213,7 +213,7 @@ defmodule NovelApplication.ProviderActivityProjectorTest do
 
   # Gateway.execute/4 只接受 canonical RequestIR；stub 按 IR 的 canonical 文本识别请求。
   defp stub_prompt(text) do
-    NovelAgent.TestRequestIR.ir([NovelAgent.TestRequestIR.base(text)])
+    NovelTest.TestRequestIR.ir([NovelTest.TestRequestIR.base(text)])
   end
 
   defp collect_publications(acc \\ []) do

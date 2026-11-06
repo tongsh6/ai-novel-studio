@@ -1,8 +1,9 @@
-defmodule NovelAgent.TestRequestIR do
+defmodule NovelTest.TestRequestIR do
   @moduledoc """
   仅测试支持：构造 canonical Request IR 测试夹具，不经过 Chat 投影。
 
   测试需要直接断言 `role/provenance/blocks` 的可读构造器；生产代码不得依赖。
+  依赖只有 canonical 契约（`NovelCommon.RequestIR`），不依赖任何生产 app 运行时。
   """
 
   alias NovelCommon.RequestIR

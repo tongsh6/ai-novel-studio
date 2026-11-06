@@ -2,7 +2,7 @@ defmodule NovelAgent.Provider.PendingDialogueInputTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Test.Support.PendingDialogueInput
-  alias NovelAgent.TestRequestIR
+  alias NovelTest.TestRequestIR
 
   test "parses the current native candidate directory without inventing revision_of" do
     prompt = """

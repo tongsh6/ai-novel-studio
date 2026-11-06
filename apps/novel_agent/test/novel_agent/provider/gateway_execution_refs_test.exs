@@ -2,7 +2,7 @@ defmodule NovelAgent.Provider.GatewayExecutionRefsFixtureProvider do
   @behaviour NovelAgent.Provider
 
   alias NovelAgent.Provider.{AdapterExecution, Result}
-  alias NovelAgent.TestProviderPrompt
+  alias NovelTest.TestProviderPrompt
   alias NovelCommon.LLMLog
 
   defstruct []

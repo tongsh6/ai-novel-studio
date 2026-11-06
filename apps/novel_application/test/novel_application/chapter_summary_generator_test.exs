@@ -56,7 +56,7 @@ defmodule NovelApplication.ChapterSummaryGeneratorTest do
     prompt =
       receive do
         # 生产入口已改为 canonical RequestIR；文本断言读与 provider 同源的投影文本视图。
-        {:summary_prompt, prompt} -> NovelAgent.TestProviderPrompt.text(prompt)
+        {:summary_prompt, prompt} -> NovelTest.TestProviderPrompt.text(prompt)
       after
         0 -> flunk("provider 未被调用或未捕获 prompt")
       end

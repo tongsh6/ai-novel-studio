@@ -156,7 +156,7 @@ defmodule NovelApplication.FactInventoryServiceTest do
       n = Agent.get_and_update(counter, &{&1, &1 + 1})
 
       # 生产请求入口已改为 canonical RequestIR；断言读与 provider 同源的投影文本视图。
-      prompt_text = NovelAgent.TestProviderPrompt.text(prompt)
+      prompt_text = NovelTest.TestProviderPrompt.text(prompt)
 
       if n == 0 do
         assert prompt_text =~ "设定盘点助手"
@@ -286,7 +286,7 @@ defmodule NovelApplication.FactInventoryServiceTest do
         materials(),
         provider(fn p ->
           # 生产请求入口已改为 canonical RequestIR；断言读与 provider 同源的投影文本视图。
-          Agent.update(agent, fn _ -> NovelAgent.TestProviderPrompt.text(p) end)
+          Agent.update(agent, fn _ -> NovelTest.TestProviderPrompt.text(p) end)
           {:ok, %{content: valid_proposal_json()}}
         end),
         known_characters: [" 沈洛 ", %{name: "沈洛"}, %{"name" => "云栖"}, "", nil]

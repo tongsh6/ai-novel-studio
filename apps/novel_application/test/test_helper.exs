@@ -99,10 +99,10 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
   def prompt_text(prompt) when is_binary(prompt), do: prompt
 
   def prompt_text(%NovelCommon.RequestIR{} = ir),
-    do: NovelAgent.TestProviderPrompt.text(ir)
+    do: NovelTest.TestProviderPrompt.text(ir)
 
   def prompt_text(prompt) when is_list(prompt) or is_map(prompt),
-    do: NovelAgent.TestProviderPrompt.text(prompt)
+    do: NovelTest.TestProviderPrompt.text(prompt)
 
   def message_text(%{blocks: blocks}) when is_list(blocks) do
     Enum.map_join(blocks, "", fn

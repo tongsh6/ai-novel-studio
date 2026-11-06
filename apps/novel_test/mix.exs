@@ -22,7 +22,7 @@ defmodule NovelTest.MixProject do
 
   defp deps do
     [
-      {:novel_agent, in_umbrella: true},
+      {:novel_common, in_umbrella: true},
       {:excoveralls, "~> 0.18", only: :test, runtime: false}
     ]
   end

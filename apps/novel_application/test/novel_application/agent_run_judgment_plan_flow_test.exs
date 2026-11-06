@@ -47,7 +47,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
     """
 
     # 生产请求入口已统一为 canonical IR；替身按 IR 投影文本识别请求形态。
-    prompt = NovelAgent.TestRequestIR.ir([NovelAgent.TestRequestIR.base(prompt_text)])
+    prompt = NovelTest.TestRequestIR.ir([NovelTest.TestRequestIR.base(prompt_text)])
 
     assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
     assert [%{"name" => "judgment_decision", "arguments" => args}] = result.tool_calls
@@ -55,8 +55,8 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
     assert args["capability"] == "plot_outline"
 
     own_prompt =
-      NovelAgent.TestRequestIR.ir([
-        NovelAgent.TestRequestIR.base(prompt_text <> "UA01PLANEXHAUST-current-run")
+      NovelTest.TestRequestIR.ir([
+        NovelTest.TestRequestIR.base(prompt_text <> "UA01PLANEXHAUST-current-run")
       ])
 
     assert {:ok, own} = SliceVerify.complete(nil, nil, own_prompt, %{})

@@ -17,7 +17,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   alias NovelAgent.Provider.Usage
   alias NovelAgent.Test.Support.PendingDialogueInput
   alias NovelAgent.Test.WireToolFacts
-  alias NovelAgent.TestProviderPrompt
+  alias NovelTest.TestProviderPrompt
 
   @slow_work_switch_delay_ms 2_500
   @slow_work_switch_marker "SU02SLOW"

@@ -26,7 +26,7 @@ defmodule NovelAgent.Provider.Stub do
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.StubChapterSummary
   alias NovelAgent.Test.WireToolFacts
-  alias NovelAgent.TestProviderPrompt
+  alias NovelTest.TestProviderPrompt
 
   defstruct []
 

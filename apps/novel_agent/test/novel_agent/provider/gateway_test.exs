@@ -19,7 +19,7 @@ defmodule NovelAgent.Provider.GatewayTest do
 
     @impl true
     def execute(_state, _model, prompt, _params, ctx) do
-      content = NovelAgent.TestProviderPrompt.author_text(prompt)
+      content = NovelTest.TestProviderPrompt.author_text(prompt)
 
       AdapterExecution.materialize_result({:ok, Result.new("adapter execute: #{content}")}, ctx)
     end
@@ -75,8 +75,8 @@ defmodule NovelAgent.Provider.GatewayTest do
 
   alias NovelCommon.RequestIR
   alias NovelAgent.Provider.Projection
-  alias NovelAgent.TestProviderPrompt
-  alias NovelAgent.TestRequestIR
+  alias NovelTest.TestProviderPrompt
+  alias NovelTest.TestRequestIR
 
   # 生产 Gateway 只接受 canonical RequestIR；旧测试的文本/messages 参数在这里
   # 转成等价 canonical 消息（文字内容保持原字节），不改任何产品行为。

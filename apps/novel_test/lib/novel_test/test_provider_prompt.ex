@@ -1,4 +1,4 @@
-defmodule NovelAgent.TestProviderPrompt do
+defmodule NovelTest.TestProviderPrompt do
   @moduledoc """
   仅测试支持：从 canonical Request IR 或真实非 IR 请求文本读取离线替身需要的材料。
 
@@ -14,7 +14,7 @@ defmodule NovelAgent.TestProviderPrompt do
   """
 
   alias NovelCommon.RequestIR
-  alias NovelAgent.Provider.Projection
+  alias NovelCommon.RequestIR.SystemEnvelope
   alias NovelCommon.SystemIdentity
 
   @author_section ~r/##\s*作者输入\s*\n(.*?)(?:\n##|\z)/su
@@ -28,7 +28,7 @@ defmodule NovelAgent.TestProviderPrompt do
   # 完整请求文本视图包含稳定 system 前缀（身份/版本/run 角色规则）与 canonical 消息；
   # 规则进入 system 后（VS-00L §3.2，2026-11-06 裁决 A），断言仍需读到同一请求的实际文本。
   def text(%RequestIR{} = ir) do
-    [Projection.system_text(ir.system), canonical_text(ir.messages)]
+    [SystemEnvelope.system_text(ir.system), canonical_text(ir.messages)]
     |> Enum.reject(&(&1 == ""))
     |> Enum.join("\n\n")
   end

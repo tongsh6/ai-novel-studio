@@ -439,10 +439,10 @@ defmodule NovelApplication.JudgmentProtocolTest do
   test "页面替身方向字段不因 atom/string 转换丢失，显式只聊不生成方向" do
     # 生产请求入口已统一为 canonical IR；替身直接消费带真实 tools 的 IR。
     direction_prompt =
-      NovelAgent.TestRequestIR.ir(
+      NovelTest.TestRequestIR.ir(
         [
-          NovelAgent.TestRequestIR.base("创作判断器\n## 决策与输出契约\n"),
-          NovelAgent.TestRequestIR.author("给我两个小说创作方向。")
+          NovelTest.TestRequestIR.base("创作判断器\n## 决策与输出契约\n"),
+          NovelTest.TestRequestIR.author("给我两个小说创作方向。")
         ],
         tools: JudgmentToolContract.tools(:judgment),
         projection: %{tool_choice: "auto"}
@@ -462,10 +462,10 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert :ok = JudgmentToolContract.validate(directions.tool_calls, :judgment)
 
     plain_prompt =
-      NovelAgent.TestRequestIR.ir(
+      NovelTest.TestRequestIR.ir(
         [
-          NovelAgent.TestRequestIR.base("创作判断器\n## 决策与输出契约\n"),
-          NovelAgent.TestRequestIR.author("只聊节奏，不生成草稿。")
+          NovelTest.TestRequestIR.base("创作判断器\n## 决策与输出契约\n"),
+          NovelTest.TestRequestIR.author("只聊节奏，不生成草稿。")
         ],
         tools: JudgmentToolContract.tools(:judgment),
         projection: %{tool_choice: "auto"}
@@ -493,11 +493,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
       # 旧格式状态段是当前 scope 内的显式事实段；构造与真实判断请求同形的 IR：
       # application scope 携带处置事实，作者原话保持独立 author 消息。
       prompt =
-        NovelAgent.TestRequestIR.ir(
+        NovelTest.TestRequestIR.ir(
           [
-            NovelAgent.TestRequestIR.base("创作判断器"),
-            NovelAgent.TestRequestIR.scope("## 消息处置与已有产物\n" <> Jason.encode!(facts)),
-            NovelAgent.TestRequestIR.author("把上一条资料原文保存为作品设定。")
+            NovelTest.TestRequestIR.base("创作判断器"),
+            NovelTest.TestRequestIR.scope("## 消息处置与已有产物\n" <> Jason.encode!(facts)),
+            NovelTest.TestRequestIR.author("把上一条资料原文保存为作品设定。")
           ],
           tools: JudgmentToolContract.tools(:judgment),
           projection: %{tool_choice: "auto"}
@@ -517,9 +517,9 @@ defmodule NovelApplication.JudgmentProtocolTest do
         ] do
       # 生产请求入口已统一为 canonical IR；续行请求保留真实续行工具目录与 tool_choice。
       prompt =
-        NovelAgent.TestRequestIR.ir(
+        NovelTest.TestRequestIR.ir(
           [
-            NovelAgent.TestRequestIR.base(
+            NovelTest.TestRequestIR.base(
               "## 当前目标\n#{goal}\n## 偏离事实\n工具 prose_writing 执行失败\n## 决策与输出契约\ncontinuation_decision"
             )
           ],
@@ -2690,7 +2690,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   # 判断规则现在分层在 canonical system instructions、application_base 与 scope_update 文本块：
   # 文本断言必须读与 provider 同源的完整投影视图，而不是只看第一条消息。
-  defp first_text(ir), do: NovelAgent.TestProviderPrompt.text(ir)
+  defp first_text(ir), do: NovelTest.TestProviderPrompt.text(ir)
 
   defp has_block?(message, type, call_id) do
     Enum.any?(message.blocks, &(&1.type == type and &1.call_id == call_id))

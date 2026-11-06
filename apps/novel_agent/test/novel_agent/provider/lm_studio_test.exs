@@ -5,7 +5,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
   alias NovelAgent.Provider.LMStudio
   alias NovelAgent.Provider.TimeoutPolicy
   alias NovelAgent.Provider.Usage
-  alias NovelAgent.TestRequestIR
+  alias NovelTest.TestRequestIR
 
   # adapter 只接受 canonical IR；测试用作者原话构造最小请求，文字保持原字节。
   defp ir(text) when is_binary(text), do: TestRequestIR.ir([TestRequestIR.author(text)])

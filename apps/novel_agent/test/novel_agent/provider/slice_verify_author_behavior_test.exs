@@ -3,7 +3,7 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
 
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Test.Provider.SliceVerify
-  alias NovelAgent.TestRequestIR
+  alias NovelTest.TestRequestIR
 
   setup do
     previous = System.get_env("AUTHOR_BEHAVIOR_CORPUS_JSON")

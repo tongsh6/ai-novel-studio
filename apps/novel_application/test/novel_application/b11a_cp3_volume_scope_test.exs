@@ -107,12 +107,12 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
     test "判断单调用 auto：真实作者文本「请规划下一卷…」→ execute plot_outline" do
       # 生产请求入口已统一为 canonical IR；替身直接消费 IR（含真实 tools/projection）。
       prompt =
-        NovelAgent.TestRequestIR.ir(
+        NovelTest.TestRequestIR.ir(
           [
-            NovelAgent.TestRequestIR.base("你是创作判断器，只输出判断 JSON。"),
-            NovelAgent.TestRequestIR.author("## 作者输入\n请规划下一卷（第3卷）的卷蓝图与该卷开篇章节大纲。")
+            NovelTest.TestRequestIR.base("你是创作判断器，只输出判断 JSON。"),
+            NovelTest.TestRequestIR.author("## 作者输入\n请规划下一卷（第3卷）的卷蓝图与该卷开篇章节大纲。")
           ],
-          tools: [NovelAgent.TestRequestIR.tool("judgment_decision")],
+          tools: [NovelTest.TestRequestIR.tool("judgment_decision")],
           projection: %{tool_choice: "auto"}
         )
 
@@ -137,7 +137,7 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
       """
 
       # 生产请求入口已统一为 canonical IR；替身按 IR 投影文本识别请求形态。
-      prompt = NovelAgent.TestRequestIR.ir([NovelAgent.TestRequestIR.base(text)])
+      prompt = NovelTest.TestRequestIR.ir([NovelTest.TestRequestIR.base(text)])
 
       assert {:ok, result} =
                SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
@@ -172,7 +172,7 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
       """
 
       # 生产请求入口已统一为 canonical IR；替身按 IR 投影文本识别请求形态。
-      prompt = NovelAgent.TestRequestIR.ir([NovelAgent.TestRequestIR.base(text)])
+      prompt = NovelTest.TestRequestIR.ir([NovelTest.TestRequestIR.base(text)])
 
       assert {:ok, first} =
                SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})

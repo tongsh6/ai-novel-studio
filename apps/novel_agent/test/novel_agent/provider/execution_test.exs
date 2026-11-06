@@ -6,7 +6,7 @@ defmodule NovelAgent.Provider.ExecutionTest do
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.RuntimeConfig
 
-  alias NovelAgent.TestRequestIR
+  alias NovelTest.TestRequestIR
 
   # 生产执行入口只接受 canonical IR；测试用作者原话构造最小请求。
   defp ir(text) when is_binary(text), do: TestRequestIR.ir([TestRequestIR.author(text)])

@@ -188,7 +188,7 @@ defmodule NovelApplication.ProviderActivityServiceTest do
 
     # Gateway.execute/4 只接受 canonical RequestIR（生产请求已统一），测试按真实形状构造。
     prompt =
-      NovelAgent.TestRequestIR.ir([NovelAgent.TestRequestIR.base("hello provider projector")])
+      NovelTest.TestRequestIR.ir([NovelTest.TestRequestIR.base("hello provider projector")])
 
     assert {:ok, result} = complete.(prompt)
 
