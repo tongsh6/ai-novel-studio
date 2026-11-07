@@ -1,11 +1,13 @@
 // B71 CP3b 实模批次的 Strata 单槽生命周期证据（外部 harness，不进入产品）。
 //
-// 预注册要求：strata 单槽只加载 iq3_s；批次前后核验 /v1/models 只含 iq3_s；
+// 预注册要求：strata 单槽只加载预注册模型（历史批次 iq3_s；2026-11-07 q2_0 重冻结）；
 // 批次结束/失败/中断后必须 unload 并核验 loaded=null。本模块只做只读状态解析与
 // unload 请求编排；fetch 可注入，测试不发真实网络。
 export const STRATA_SLOT_SCHEMA = "b71-strata-slot/v1";
 export const DEFAULT_STRATA_ENDPOINT = "http://127.0.0.1:47831";
-export const DEFAULT_STRATA_MODEL = "iq3_s";
+// 2026-11-07 作者裁决 A：CP3b/CP4b-2 实模窗口按当前 Strata 可用模型重新冻结；
+// 单槽判据模型名可经 B71_STRATA_MODEL 指定，默认保持历史预注册 iq3_s。
+export const DEFAULT_STRATA_MODEL = process.env.B71_STRATA_MODEL || "iq3_s";
 
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
@@ -50,7 +52,7 @@ export function parseStrataState({ models = null, api = null } = {}) {
   };
 }
 
-// 单槽判据：/v1/models 的可用模型集合只能是空或恰为 [iq3_s]；是否加载只看
+// 单槽判据：/v1/models 的可用模型集合只能是空或恰为 [预注册模型]；是否加载只看
 // /api/models 的 loaded 字段（真实 strata 的 current 是内部 model id，不能替代 loaded）。
 export function strataSlotCheck(state, { model = DEFAULT_STRATA_MODEL } = {}) {
   if (!state || typeof state !== "object") {

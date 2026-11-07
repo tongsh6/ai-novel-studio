@@ -242,7 +242,7 @@ async function run() {
     driverLog = {
       slice_id: config.slice_id,
       provider: "strata",
-      model: config.target?.model ?? "iq3_s",
+      model: config.target?.model ?? process.env.B71_STRATA_MODEL ?? "iq3_s",
       turn: {
         turn_id: turnId,
         run_id: runId || terminal.body?.agent_run?.run_id || null,
@@ -256,7 +256,9 @@ async function run() {
       strata: { endpoint: strataEndpoint, after_launch: launchSlot },
     };
     harness.writeDriverLog("native-b71-driver-log.json", driverLog);
-    harness.writeUiComplete(config.slice_id);
+    // ui-complete 是 runner 的「驱动完成」信号：必须在 finally 证据（strata-slot /
+    // driver-log 卸载核验）全部落盘之后写，避免 runner 在 strata-slot.json 落盘前
+    // 开始 verify（2026-11-07 q2-0-02 实测的时序竞争）。
     console.log(
       `B71 CP3b 实模驱动完成: turn=${turnId} run=${driverLog.turn.run_id ?? "none"} terminal=${terminal.kind}/${terminal.source} provider_calls=${behavior.provider_calls} tool_calls=${behavior.tool_call_count} why=${why.opened ? "opened" : "not_observed"}`,
     );
@@ -279,6 +281,7 @@ async function run() {
         },
       });
     }
+    harness.writeUiComplete(config.slice_id);
   }
 }
 

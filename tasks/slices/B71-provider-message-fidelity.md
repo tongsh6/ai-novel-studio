@@ -1191,3 +1191,14 @@
   5. **门禁脚本缺陷修复**：`arch_check.exs`/`adr_trace.exs` 成功分支 `System.halt(0)` 会截断 `mix check` 后续命令（adr_trace/I-CACHE 此前实际未在 mix check 执行），已修复（`833cf490`）。
 - **未闭环（不代签）**：真实模型窗口（`q2_0` 重新预注册尚未冻结）、CP4b-2 实模行为/缓存/usage、G6 实际压缩后请求、真实页面流式正文预览与实时启动/确认失败分支页面证据、I10 文学质量。CP5 保持 doing，不标 done。
 - **复验**：确定性部分用 `mix check` + 静态扫描 + 五个不变量 driver 复跑即可复现；实模按本文档「B71 收口剩余执行条件」在获准窗口后执行。
+
+### q2_0 实模批次（2026-11-07，作者裁决 A 执行记录）
+
+- **预注册**：`artifacts/model-contracts/b71-cp1/scenario-preregistration-q2-0-20261107.json`（执行前冻结；场景/判据/预算沿用 20261031 版本；模型改为 Strata 当前可用 `q2_0`，作者 2026-11-07 选择 A 授权重冻结）。
+- **批次结果（全部只读保留，不重跑换分）**：
+  1. `q2-0-01` **PASS（required mechanism）**：`artifacts/slice-verify/b71-first-consumer-live-q2-0-01/`。真实 provider=strata 3 次调用（`stream:true`、tools=7、request_message_counts 4/7/9），required_mechanism **7/7**（ir_projection_structure / no_giant_user_document / no_user_pseudo_correction / append_only_prefix / author_bytes_exact / unadopted_zero_write / usage_collected），canon 零写，`run_status=awaiting_author`/ask_author。**未触发**：tool_call_count=0 → G2/G3/G4/G5/G6；Why 按钮 `why_button_scrolled_but_not_visible`（驱动观测缺陷）。证据缺陷：summary/checks 的 model 字段因 harness 默认值显示 `iq3_s`，实际服务端模型为 `q2_0`（请求 body 无 model 字段、`/v1/models` 仅 q2_0）；已在后续修复 harness 并记录。
+  2. `q2-0-02` **FAIL（harness 证据时序竞争）**：driver 正常完成，runner 在 `strata-slot.json` 落盘前开始 verify（live driver 先写 ui-complete、finally 才写 slot）。实际证据完整（`strata-slot.json` model=q2_0、loaded_before/after=false、unloaded=true）。修复：`writeUiComplete` 移到 finally 证据全部落盘之后（与 auto-maintenance driver 既有顺序一致）。
+  3. `q2-0-03` **FAIL（真实模型行为失败，非 harness）**：run terminal failed（wire），2 次 provider 调用；runner 断言 `usage_collected` 失败。如实登记，不重跑换分。
+- **harness 修复（2026-11-07）**：`strata_lifecycle.mjs`/`authoring_live_evidence.mjs` 的预注册模型名改为可经 `B71_STRATA_MODEL` 指定（默认保持历史 `iq3_s`）；`native_b71_live_drive.mjs` 的 driverLog.model 读取 `B71_STRATA_MODEL` 并修复 ui-complete 时序竞争；`native_b71_batch.sh` 注释同步。harness 单测通过（22 pass）。
+- **判定**：q2_0 下 CP3b 机制必选项可复现 PASS，但**完整实模场景（工具调用/观察回流/G2–G6/压缩后请求）未触发**；CP4b-2/G6 结论不成立。R2 Responses/Anthropic 实模仍需官方凭证。**不代签** CP4b-2/G6/CP5/I10。
+- **后续入口**：① 更强模型窗口或官方凭证后按同一预注册重跑（先冻结后执行、失败只读保留）；② G6 需 auto-maintenance 场景（`B71_AUTO_MAINTENANCE=1`，需同 run 多回合且压缩实际触发）；③ 真实页面流式正文预览证据随流式 provider 批次取证。

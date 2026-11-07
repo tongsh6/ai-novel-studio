@@ -33,7 +33,8 @@ import { liveRefsCheck } from "./authoring_live_refs.mjs";
 
 export const LIVE_CHECKS_SCHEMA = "b71-live-checks/v1";
 export const LIVE_CHECKPOINTS = Object.freeze(["start", "final"]);
-export const DEFAULT_LIVE_MODEL = "iq3_s";
+// 2026-11-07 作者裁决 A：实模批次按当前 Strata 可用模型重冻结；默认保持历史 iq3_s。
+export const DEFAULT_LIVE_MODEL = process.env.B71_STRATA_MODEL || "iq3_s";
 
 const APPLICATION_PREFIX = "【应用数据 · ";
 const APPLICATION_BASE_PREFIX = "【应用数据 · application_base";

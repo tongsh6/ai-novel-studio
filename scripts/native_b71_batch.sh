@@ -257,7 +257,8 @@ export TAURI_NATIVE_SYSTEM_DRIVER=1
 export TAURI_NATIVE_TRANSPORT_PROXY=1
 export TAURI_NATIVE_ARTIFACT_TAG="$TAG"
 if [[ "$LIVE" == "1" ]]; then
-  # 实模批次：真实 provider=strata（单槽 iq3_s），证据目录用预注册 live 前缀。
+  # 实模批次：真实 provider=strata（单槽预注册模型，经 B71_STRATA_MODEL 指定；
+  # 历史批次 iq3_s，2026-11-07 作者裁决 A 后为 q2_0），证据目录用预注册 live 前缀。
   export SLICE_VERIFY_PROVIDER=strata
   export TAURI_NATIVE_ARTIFACT_DIR="$DIR"
   node "$ROOT/scripts/native_b71_strata_state.mjs" >"$STRATA_BEFORE" 2>/dev/null || true
