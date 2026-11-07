@@ -21,6 +21,7 @@ defmodule NovelAgent.Provider.SSEStream do
   """
 
   alias NovelAgent.Provider.AdapterExecution
+  alias NovelAgent.Provider.AuthorProseStream
   alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.SSEStream.Result
 
@@ -97,7 +98,8 @@ defmodule NovelAgent.Provider.SSEStream do
           parse_error?: false,
           deadline_exceeded?: false,
           decoder: decoder,
-          decoder_state: decoder.init(state)
+          decoder_state: decoder.init(state),
+          content_stream: AuthorProseStream.new()
         }
       end)
 
@@ -299,12 +301,16 @@ defmodule NovelAgent.Provider.SSEStream do
     {author_delta, author_open?} =
       AdapterExecution.author_reasoning_delta(ctx, content, acc.author_narrative_open?)
 
+    {next_content_stream, content_delta} =
+      maybe_author_content_delta(ctx, acc.content_stream, content)
+
     event =
       AdapterExecution.chunk_event!(ctx, acc.next_sequence,
         chunk_index: chunk_index,
         content_length: content_length,
         accumulated_content_length: accumulated,
-        author_narrative_delta: author_delta
+        author_narrative_delta: author_delta,
+        author_content_delta: content_delta
       )
 
     AdapterExecution.emit_events(ctx, [event], :running)
@@ -316,7 +322,18 @@ defmodule NovelAgent.Provider.SSEStream do
         chunk_index: chunk_index,
         accumulated_content_length: accumulated,
         author_narrative_open?: author_open?,
+        content_stream: next_content_stream,
         ttft_ms: acc.ttft_ms || System.monotonic_time(:millisecond) - acc.started
     }
   end
+
+  # 写作类 Provider 的正文在 JSON 流的 body 字段里：把 decoder 的正文增量喂给
+  # AuthorProseStream，只把提取后的正文文本作为作者可见 content delta。与
+  # AdapterExecution.text_chunk_events/3（final-only 路径）同一提取事实，
+  # 避免流式/非流式两条预览语义分叉。非 author 用途不提取、不携带该字段。
+  defp maybe_author_content_delta(%{content_visibility: :author}, content_stream, content) do
+    AuthorProseStream.feed(content_stream, content)
+  end
+
+  defp maybe_author_content_delta(_ctx, content_stream, _content), do: {content_stream, ""}
 end

@@ -1157,7 +1157,8 @@
   3. **一致性**：预览内容与最终 `Result.content`/TurnResult 正文的差异须可解释（流内增量 vs done 事实），不得拼接/转义改写字节（I1/I3 同源约束）。
   4. **页面证据**：外部自动化驱动真实页面（Tauri 窗口）+ 显式注入的流式 test-support provider 或真实模型窗口；证据含页面截图、事件序列、最终 Result 一致性。
 - **依赖**：R2-6 页面层窗口；若用 test-support 流式替身，必须经测试/脚本显式注入（遵守场景化验收红线），不得注册进生产 runtime。
-- **状态**：**未开工**（作者已批准纳入 R2，本记录只冻结范围与验收；未实现前不代签页面证据）。
+- **状态（2026-11-07 更新）**：**机制层已补齐**。盘点发现前端渲染（`WorkspaceChat.agentRunProseStream` + `agentRunTimeline.ts` 聚合 `author_content_delta`）、后端投影（`ProviderActivityProjector` 对带正文增量的 chunk 事件给 `visibility: :author`）、非流式提取（`AdapterExecution.text_chunk_events/3` + `AuthorProseStream`）**均已存在**；真正的 R2 缺口是统一流式路径：`SSEStream` 的 chunk 事件此前只带 `author_narrative_delta`、不产出 `author_content_delta`，导致真实 SSE 生成过程中前端预览为空。修复：`SSEStream` 仅在 `content_visibility: :author` 时把三 wire decoder 的正文增量喂给 `AuthorProseStream`，产出与 final-only 路径一致的 `author_content_delta`；非 author 用途不携带该字段。新增 `stream_prose_preview_test.exs` 4 例（Chat/Anthropic/Responses 的 body 提取 + 非 author 不泄漏）。
+- **未闭环（不代签）**：真实页面证据（真实流式 provider 驱动 Tauri 页面并在生成中看到预览）与实模批次一起取证（当前 `slice_verify` 走 final-only，不触发 SSEStream 预览）；本次只登记机制层实现与确定性测试。
 
 ### B71 收口剩余（实模/G6/CP5）当前执行条件（2026-11-07）
 
