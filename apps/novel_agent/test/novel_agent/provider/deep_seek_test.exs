@@ -56,12 +56,38 @@ defmodule NovelAgent.Provider.DeepSeekTest do
       {:ok, 200, response}
     end
 
+    # R2：execute/5 走 SSE 流式传输；私有 reasoning 作为流内私有增量由 adapter
+    # 绑定 provider_state。complete/4 仍保留 final-only 非流式路径（http mock）。
+    eventsource = fn _url, body, _opts, on_data ->
+      send(parent, {:private_wire, body})
+
+      on_data.(
+        "data: " <>
+          Jason.encode!(%{
+            "choices" => [%{"delta" => %{"reasoning_content" => private_text}}],
+            "model" => "fixture-model"
+          }) <> "\n\n"
+      )
+
+      on_data.(
+        "data: " <>
+          Jason.encode!(%{
+            "choices" => [%{"delta" => %{"content" => "先读角色。"}}],
+            "model" => "fixture-model"
+          }) <> "\n\n"
+      )
+
+      on_data.("data: [DONE]\n\n")
+      {:ok, 200, ""}
+    end
+
     state = %DeepSeek{
       api_key: "test",
       endpoint: "https://example.invalid/v1",
       model: "fixture-model",
       timeout: 100,
       http_fn: http,
+      eventsource_fn: eventsource,
       log_fn: nil,
       thinking: :enabled
     }

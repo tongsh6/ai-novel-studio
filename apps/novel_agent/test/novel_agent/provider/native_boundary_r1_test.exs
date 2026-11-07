@@ -206,15 +206,7 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
         endpoint: "https://api.openai.com/v1",
         model: "gpt-native-model",
         log_fn: nil,
-        http_fn: fn _url, body, _opts ->
-          send(test_pid, {:chat_body, body})
-
-          {:ok, 200,
-           %{
-             "choices" => [%{"message" => %{"content" => "已读取"}}],
-             "model" => "gpt-native-model"
-           }}
-        end
+        eventsource_fn: chat_stream_mock(test_pid)
       )
 
       ir = native_ir(%{tool_choice: "required"})
@@ -240,7 +232,7 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
       assert_receive {:chat_body, body}
 
       assert body.model == "gpt-native-model"
-      assert body.stream == false
+      assert body.stream == true
       refute Map.has_key?(body, :ir_version)
       refute Map.has_key?(body, :capability_profile)
       refute Map.has_key?(body, :provider_route)
@@ -283,10 +275,7 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
         api_key: "anthropic-key",
         model: "claude-native-model",
         log_fn: nil,
-        http_fn: fn _url, body, _opts ->
-          send(test_pid, {:anthropic_body, body})
-          {:ok, 200, %{"content" => [%{"type" => "text", "text" => "已完成"}]}}
-        end
+        eventsource_fn: anthropic_stream_mock(test_pid)
       )
 
       ir = native_ir(%{tool_choice: "auto"})
@@ -337,10 +326,7 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
         api_key: "anthropic-key",
         model: "claude-native-model",
         log_fn: nil,
-        http_fn: fn _url, body, _opts ->
-          send(test_pid, {:anthropic_body, body})
-          {:ok, 200, %{"content" => [%{"type" => "text", "text" => "已完成"}]}}
-        end
+        eventsource_fn: anthropic_stream_mock(test_pid)
       )
 
       system_text = "系统约束原字节：不得采纳、不得写 canon。"
@@ -392,7 +378,7 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
       assert tool_result.tool_use_id == "call-1"
     end
 
-    test "Responses API：原生 instructions/input/tools，finite_mode no_streaming 显式放行" do
+    test "Responses API：原生 instructions/input/tools 经 SSE 流式传输，能力完整正常放行" do
       test_pid = self()
 
       Application.put_env(:novel_agent, OpenAI,
@@ -401,25 +387,10 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
         model: "gpt-responses-model",
         wire_api: :responses,
         log_fn: nil,
-        http_fn: fn _url, body, _opts ->
-          send(test_pid, {:responses_body, body})
-
-          {:ok, 200,
-           %{
-             "id" => "resp_native",
-             "output" => [
-               %{"type" => "message", "content" => [%{"type" => "output_text", "text" => "完成"}]}
-             ],
-             "usage" => %{"input_tokens" => 2, "output_tokens" => 1}
-           }}
-        end
+        eventsource_fn: responses_stream_mock(test_pid)
       )
 
-      ir =
-        native_ir(%{
-          tool_choice: "required",
-          finite_mode: %{name: "no_streaming"}
-        })
+      ir = native_ir(%{tool_choice: "required"})
 
       assert {:ok, prepared} =
                RequestIR.prepare_request(ir,
@@ -437,7 +408,7 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
       assert_receive {:responses_body, body}
 
       assert body.model == "gpt-responses-model"
-      assert body.stream == false
+      assert body.stream == true
       assert String.contains?(body.instructions, SystemIdentity.content())
       assert identity_occurrences(body.instructions) == 1
 
@@ -462,30 +433,17 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
       assert body.tool_choice == "required"
     end
 
-    test "Responses 实际 route 缺 streaming 且无 finite_mode 时 HTTP 零调用" do
-      Application.put_env(:novel_agent, OpenAI,
-        api_key: "sk-native",
-        endpoint: "https://api.openai.com/v1",
-        model: "gpt-responses-model",
-        wire_api: :responses,
-        log_fn: nil,
-        http_fn: fn _url, _body, _opts ->
-          send(self(), :responses_http_called)
-          {:ok, 200, %{}}
-        end
-      )
-
+    test "未声明 streaming 的 route 仍在能力门被拒绝且零 adapter 调用（R2 不放松能力门）" do
       assert {:ok, ir} = operation_ir()
       assert {:ok, prepared} = RequestIR.prepare_request(ir)
 
       assert {:error, %{error: error}} =
-               Gateway.execute(prepared, nil, InferenceParams.new(),
-                 provider: :openai,
-                 purpose: :writer
-               )
+               Gateway.execute(prepared, nil, InferenceParams.new(), provider: :model_caps)
 
+      # default route 只声明 native_multi_turn/usage：完整 AgentRun 必备能力缺失，
+      # R2 的 streaming 实现不改变「adapter 未声明即不可证」的 fail-closed 语义。
       assert :streaming in error.details.missing_capabilities
-      refute_receive :responses_http_called
+      refute_received {:adapter_ir, _ir, _model}
     end
 
     test "Anthropic 遇到不可表示的原生工具参数时在 HTTP 之前失败" do
@@ -606,6 +564,96 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
       assert_receive {:deepseek_body, body}
       refute Enum.any?(body.messages, &Map.has_key?(&1, :reasoning_content))
       refute Enum.any?(body.messages, &Map.has_key?(&1, :provider_state))
+    end
+  end
+
+  # B71 R2：三 wire 的工具调用/普通请求都走 SSE 流式传输；body 保真测试必须
+  # 用 eventsource mock 捕获真实 HTTP body，并返回最小合法 SSE 帧。
+  defp sse_event(event, payload),
+    do: "event: " <> event <> "\ndata: " <> Jason.encode!(payload) <> "\n\n"
+
+  defp sse_data(payload), do: "data: " <> Jason.encode!(payload) <> "\n\n"
+
+  defp chat_stream_mock(test_pid) do
+    fn _url, body, _opts, on_data ->
+      send(test_pid, {:chat_body, body})
+
+      on_data.(
+        sse_data(%{
+          "model" => "gpt-native-model",
+          "choices" => [%{"delta" => %{"content" => "已读取"}}]
+        })
+      )
+
+      on_data.("data: [DONE]\n\n")
+      {:ok, 200, ""}
+    end
+  end
+
+  defp anthropic_stream_mock(test_pid) do
+    fn _url, body, _opts, on_data ->
+      send(test_pid, {:anthropic_body, body})
+
+      on_data.(
+        sse_event("message_start", %{
+          "type" => "message_start",
+          "message" => %{
+            "model" => "claude-native-model",
+            "usage" => %{"input_tokens" => 1}
+          }
+        })
+      )
+
+      on_data.(
+        sse_event("content_block_delta", %{
+          "type" => "content_block_delta",
+          "index" => 0,
+          "delta" => %{"type" => "text_delta", "text" => "已完成"}
+        })
+      )
+
+      on_data.(
+        sse_event("message_delta", %{
+          "type" => "message_delta",
+          "usage" => %{"output_tokens" => 3}
+        })
+      )
+
+      {:ok, 200, ""}
+    end
+  end
+
+  defp responses_stream_mock(test_pid) do
+    fn _url, body, _opts, on_data ->
+      send(test_pid, {:responses_body, body})
+
+      on_data.(
+        sse_data(%{
+          "type" => "response.created",
+          "response" => %{"model" => "gpt-responses-model"}
+        })
+      )
+
+      on_data.(
+        sse_data(%{
+          "type" => "response.output_text.delta",
+          "item_id" => "msg_1",
+          "output_index" => 0,
+          "delta" => "完成"
+        })
+      )
+
+      on_data.(
+        sse_data(%{
+          "type" => "response.completed",
+          "response" => %{
+            "model" => "gpt-responses-model",
+            "usage" => %{"input_tokens" => 2, "output_tokens" => 1}
+          }
+        })
+      )
+
+      {:ok, 200, ""}
     end
   end
 

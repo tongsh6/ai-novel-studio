@@ -27,6 +27,8 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.OpenAICompatibleStream
+  alias NovelAgent.Provider.ResponsesStream
+  alias NovelAgent.Provider.ResponsesWire
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Usage
   alias NovelCommon.RequestIR
@@ -185,14 +187,14 @@ defmodule NovelAgent.Provider.OpenAICompatible do
 
   @doc false
   @spec capabilities(meta(), struct()) :: %{required(atom()) => boolean()}
-  def capabilities(_meta, state) do
+  def capabilities(_meta, _state) do
     %{
       native_multi_turn: true,
       tool_calls: true,
       tool_results: true,
-      # Responses wire 目前只有真实非流式传输：流式解析能力如实为 false，
-      # 需要完整 AgentRun 的调用必须显式 finite_mode 或拒绝路由（VS-00L §6.4）。
-      streaming: normalize_wire_api(Map.get(state, :wire_api)) == :chat_completions,
+      # B71 R2：Chat/Responses 两类 wire 都提供真实 SSE 流式解析与工具参数无损累积；
+      # 能力声明按 adapter 实际实现，未实现的 adapter 仍按 §6.4 显式拒绝路由。
+      streaming: true,
       structured_output: true,
       usage: true
     }
@@ -256,10 +258,10 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   end
 
   # Responses API 真实传输：`/responses` + input items + 原生 function_call 输出。
-  # 该 wire 当前是非流式（capabilities/2 如实声明 streaming=false）。
+  # 流式路径（execute/5）走 ResponsesStream；complete/4 仍是 final-only 非流式。
   defp complete_responses(meta, state, prompt, params, headers) do
     start_time = System.monotonic_time(:millisecond)
-    body = responses_request_body(state, prompt, params)
+    body = responses_request_body(state, prompt, params, false)
     url = responses_url(state.endpoint)
     post = state.http_fn || (&HTTP.post/3)
 
@@ -305,57 +307,39 @@ defmodule NovelAgent.Provider.OpenAICompatible do
     |> AdapterExecution.materialize_result(ctx)
   end
 
+  # B71 R2：工具调用不再隐式选择非流式——Chat Completions 的 tool_calls 同样走
+  # SSE 流式传输，由 adapter-owned decoder 无损累积参数后在结束时归一。
   defp execute_chat(meta, state, headers, prompt, params, ctx) do
-    if RequestIR.Tools.tool_call_prompt?(prompt) do
-      execute_tool_call(meta, state, headers, prompt, params, ctx)
-    else
-      body =
-        state
-        |> request_body(prompt, params, true)
-        |> maybe_thinking(meta, state)
+    body =
+      state
+      |> request_body(prompt, params, true)
+      |> maybe_thinking(meta, state)
 
-      url = endpoint_url(state.endpoint)
+    url = endpoint_url(state.endpoint)
 
-      # B22：流式请求只设"最长静默窗口"（有数据就续命），总时长兜底默认关闭。
-      request_opts = [
-        headers: headers,
-        receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
-        connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
-      ]
+    # B22：流式请求只设"最长静默窗口"（有数据就续命），总时长兜底默认关闭。
+    request_opts = [
+      headers: headers,
+      receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
+      connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
+    ]
 
-      OpenAICompatibleStream.execute(meta, state, url, body, request_opts, ctx)
-    end
+    OpenAICompatibleStream.execute(meta, state, url, body, request_opts, ctx)
   end
 
+  # B71 R2：Responses wire 走真实 SSE 流式传输（stream: true）。取消/静默/总时长
+  # 与 Chat/Anthropic 共用 SSEStream 生命周期；输出事实与非流式共用 ResponsesWire。
   defp execute_responses(meta, state, headers, prompt, params, ctx) do
-    start_time = System.monotonic_time(:millisecond)
-    body = responses_request_body(state, prompt, params)
+    body = responses_request_body(state, prompt, params, true)
     url = responses_url(state.endpoint)
-    post = state.http_fn || (&HTTP.post/3)
-    initial_events = AdapterExecution.initial_events(ctx)
-    AdapterExecution.emit_events(ctx, initial_events, :running)
 
-    result =
-      case post.(url, body,
-             headers: headers,
-             receive_timeout: AdapterExecution.non_stream_timeout(ctx, state.timeout),
-             connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
-           ) do
-        {:ok, status, resp_body} when status in 200..299 ->
-          handle_responses_success(meta, state, resp_body, start_time)
+    request_opts = [
+      headers: headers,
+      receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
+      connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
+    ]
 
-        {:error, :http_error, status, message} ->
-          handle_http_error(meta, status, message, start_time)
-
-        {:error, reason, _status, message} ->
-          handle_connection_error(meta, reason, message, start_time)
-      end
-
-    if log = state.log_fn, do: log.(meta.vendor, url, body, result, start_time)
-
-    result
-    |> strip_attrs()
-    |> AdapterExecution.materialize_result(ctx, initial_events: initial_events, emit: :terminal)
+    ResponsesStream.execute(meta, state, url, body, request_opts, ctx)
   end
 
   @doc false
@@ -440,11 +424,11 @@ defmodule NovelAgent.Provider.OpenAICompatible do
 
   # canonical IR → Responses API body：system 进 instructions、消息/工具调用按原生
   # input items 投影（VS-00L §6.3/§19.1）。Responses SSE 由 R2 承接，当前显式非流式。
-  defp responses_request_body(state, %RequestIR{} = ir, params) do
+  defp responses_request_body(state, %RequestIR{} = ir, params, stream?) do
     {:ok, projected} = Projection.project(ir, "responses_api")
 
     projected
-    |> Map.put(:stream, false)
+    |> Map.put(:stream, stream?)
     |> maybe_put_model(state.model)
     |> responses_max_output_tokens(state.max_tokens, Map.get(params, :max_tokens))
     |> maybe_put_response_param(Map.get(params, :temperature), :temperature)
@@ -463,9 +447,10 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   defp responses_max_output_tokens(body, _default, _max), do: body
 
   defp handle_responses_success(meta, state, resp_body, start_time) do
-    {content, tool_calls} = responses_output(resp_body)
+    items = resp_body |> Map.get("output") |> List.wrap()
+    {content, tool_calls} = ResponsesWire.output(items)
     latency = System.monotonic_time(:millisecond) - start_time
-    usage = responses_usage(resp_body, state.model, latency)
+    usage = ResponsesWire.usage(resp_body, state.model, latency)
     attrs = %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}
 
     if (is_binary(content) and content != "") or tool_calls != [] do
@@ -474,76 +459,6 @@ defmodule NovelAgent.Provider.OpenAICompatible do
       err = UpstreamError.new(:invalid_response, "#{meta.label} 响应内容为空", meta.vendor)
       {:error, UpstreamError.to_error_tuple(err), attrs}
     end
-  end
-
-  defp responses_output(resp_body) do
-    items = resp_body |> Map.get("output") |> List.wrap()
-    content = items |> Enum.flat_map(&responses_text_parts/1) |> Enum.join()
-    calls = Enum.flat_map(items, &responses_function_call_item/1)
-    {content, calls}
-  end
-
-  defp responses_text_parts(%{"type" => "message", "content" => blocks}) when is_list(blocks) do
-    Enum.flat_map(blocks, fn
-      %{"type" => type, "text" => text}
-      when type in ["output_text", "text"] and is_binary(text) ->
-        [text]
-
-      _block ->
-        []
-    end)
-  end
-
-  defp responses_text_parts(_item), do: []
-
-  # Responses 的 function_call item：工具调用身份只认 `call_id`。item `id`（如
-  # `fc_...`）是 Provider 私有输出标识，与 `call_id` 分属不同用途；混用会让下一轮
-  # `function_call_output.call_id` 绑错（VS-00L §19.1）。缺 call_id 的 item 不能
-  # 冒充合法工具调用。
-  defp responses_function_call_item(
-         %{"type" => "function_call", "name" => name, "arguments" => arguments} = item
-       )
-       when is_binary(name) do
-    case Map.get(item, "call_id") do
-      call_id when is_binary(call_id) and call_id != "" ->
-        [
-          %{
-            "id" => call_id,
-            "name" => name,
-            "arguments" => responses_decode_arguments(arguments),
-            "raw_arguments" => arguments
-          }
-        ]
-
-      _missing_call_id ->
-        []
-    end
-  end
-
-  defp responses_function_call_item(_item), do: []
-
-  defp responses_decode_arguments(arguments) when is_map(arguments), do: arguments
-
-  defp responses_decode_arguments(arguments) when is_binary(arguments) do
-    case Jason.decode(arguments) do
-      {:ok, value} when is_map(value) -> value
-      _other -> %{}
-    end
-  end
-
-  defp responses_decode_arguments(_arguments), do: %{}
-
-  defp responses_usage(resp_body, fallback_model, latency) do
-    usage = Map.get(resp_body, "usage") || %{}
-    cached = get_in(usage, ["input_tokens_details", "cached_tokens"]) || usage["cached_tokens"]
-
-    Usage.new(
-      usage["input_tokens"] || 0,
-      usage["output_tokens"] || 0,
-      Map.get(resp_body, "model") || fallback_model,
-      latency,
-      cached
-    )
   end
 
   defp request_body(state, %RequestIR{} = ir, params, stream?) do
@@ -633,42 +548,6 @@ defmodule NovelAgent.Provider.OpenAICompatible do
 
   defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
   defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}
-
-  defp execute_tool_call(meta, state, headers, prompt, params, ctx) do
-    start_time = System.monotonic_time(:millisecond)
-
-    body =
-      state
-      |> request_body(prompt, params, false)
-      |> maybe_thinking(meta, state)
-
-    url = endpoint_url(state.endpoint)
-    post = state.http_fn || (&HTTP.post/3)
-    initial_events = AdapterExecution.initial_events(ctx)
-    AdapterExecution.emit_events(ctx, initial_events, :running)
-
-    result =
-      case post.(url, body,
-             headers: headers,
-             receive_timeout: AdapterExecution.non_stream_timeout(ctx, state.timeout),
-             connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
-           ) do
-        {:ok, status, resp_body} when status in 200..299 ->
-          handle_success(meta, state, resp_body, start_time)
-
-        {:error, :http_error, status, message} ->
-          handle_http_error(meta, status, message, start_time)
-
-        {:error, reason, _status, message} ->
-          handle_connection_error(meta, reason, message, start_time)
-      end
-
-    if log = state.log_fn, do: log.(meta.vendor, url, body, result, start_time)
-
-    result
-    |> strip_attrs()
-    |> AdapterExecution.materialize_result(ctx, initial_events: initial_events, emit: :terminal)
-  end
 
   defp handle_success(meta, state, resp_body, start_time) do
     message = get_in(resp_body, ["choices", Access.at(0), "message"]) || %{}

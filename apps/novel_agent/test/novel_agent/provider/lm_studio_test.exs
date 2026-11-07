@@ -578,36 +578,29 @@ defmodule NovelAgent.Provider.LMStudioTest do
       assert error.details.deadline_ms == 10
     end
 
-    test "B22: non-stream tool calls use the non-stream wait window" do
+    test "B22: tool calls also use the streaming wait window (R2: no implicit non-stream)" do
       test_pid = self()
 
-      mock = fn _url, _body, opts ->
-        send(test_pid, {:http_opts, opts})
+      eventsource = fn _url, _body, opts, on_data ->
+        send(test_pid, {:stream_opts, opts})
 
-        {:ok, 200,
-         %{
-           "choices" => [
-             %{
-               "message" => %{
-                 "content" => "判断完成",
-                 "tool_calls" => [
-                   %{
-                     "id" => "t1",
-                     "function" => %{"name" => "judgment_decision", "arguments" => "{}"}
-                   }
-                 ]
-               }
-             }
-           ],
-           "usage" => %{}
-         }}
+        on_data.(
+          sse_delta_tool_call(%{
+            "index" => 0,
+            "id" => "t1",
+            "function" => %{"name" => "judgment_decision", "arguments" => "{}"}
+          })
+        )
+
+        on_data.("data: [DONE]\n\n")
+        {:ok, 200, ""}
       end
 
       state = %LMStudio{
         endpoint: "http://localhost/v1",
         model: "local-model",
         timeout: 100,
-        http_fn: mock,
+        eventsource_fn: eventsource,
         log_fn: nil
       }
 
@@ -620,7 +613,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
 
       policy = liveness_policy(response_ms: 600_000, non_stream_ms: 1_234_000)
 
-      assert {:ok, _result} =
+      assert {:ok, %{result: result}} =
                LMStudio.execute(
                  state,
                  nil,
@@ -629,8 +622,9 @@ defmodule NovelAgent.Provider.LMStudioTest do
                  provider_ctx(timeout_policy: policy)
                )
 
-      assert_receive {:http_opts, opts}
-      assert Keyword.fetch!(opts, :receive_timeout) == 1_234_000
+      assert [%{"name" => "judgment_decision"}] = result.tool_calls
+      assert_receive {:stream_opts, opts}
+      assert Keyword.fetch!(opts, :receive_timeout) == 600_000
       assert Keyword.fetch!(opts, :connect_timeout) == 15_000
     end
   end
@@ -683,6 +677,11 @@ defmodule NovelAgent.Provider.LMStudioTest do
       },
       overrides
     )
+  end
+
+  defp sse_delta_tool_call(tool_call) do
+    payload = %{"choices" => [%{"delta" => %{"tool_calls" => [tool_call]}}]}
+    "data: #{Jason.encode!(payload)}\n\n"
   end
 
   defp sse_delta(content, model, usage \\ nil) do

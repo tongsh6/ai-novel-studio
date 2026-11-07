@@ -96,29 +96,35 @@ defmodule NovelAgent.Provider.DeepSeek do
   end
 
   @impl true
+  # B71 R2：工具调用不再隐式选择非流式——tool_calls 同样走 SSE 流式传输，
+  # 由 adapter-owned decoder 无损累积参数后在结束时归一。
   def execute(%__MODULE__{api_key: key} = state, _model, prompt, params, ctx)
       when (is_binary(prompt) or is_list(prompt) or is_map(prompt)) and is_binary(key) and
              key != "" do
-    if RequestIR.Tools.tool_call_prompt?(prompt) do
-      execute_tool_call(state, key, prompt, params, ctx)
-    else
-      body =
-        state
-        |> request_body(prompt, params, true)
-        |> maybe_thinking(state.thinking, state.reasoning_effort)
+    body =
+      state
+      |> request_body(prompt, params, true)
+      |> maybe_thinking(state.thinking, state.reasoning_effort)
 
-      url = endpoint_url(state.endpoint)
-      headers = [{"authorization", "Bearer #{key}"}]
+    url = endpoint_url(state.endpoint)
+    headers = [{"authorization", "Bearer #{key}"}]
 
-      # B22：流式只设"最长静默窗口"；总时长兜底默认关闭（见 TimeoutPolicy）。
-      request_opts = [
-        headers: headers,
-        receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
-        connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
-      ]
+    # B22：流式只设"最长静默窗口"；总时长兜底默认关闭（见 TimeoutPolicy）。
+    request_opts = [
+      headers: headers,
+      receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
+      connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
+    ]
 
-      OpenAICompatibleStream.execute(stream_meta(), state, url, body, request_opts, ctx)
-    end
+    OpenAICompatibleStream.execute(
+      stream_meta(),
+      state,
+      url,
+      body,
+      request_opts,
+      ctx,
+      provider_state_fun: &deepseek_provider_state/2
+    )
   end
 
   def execute(%__MODULE__{}, _model, _prompt, _params, ctx) do
@@ -202,45 +208,6 @@ defmodule NovelAgent.Provider.DeepSeek do
 
   defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
   defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}
-
-  defp execute_tool_call(state, key, prompt, params, ctx) do
-    start_time = System.monotonic_time(:millisecond)
-
-    body =
-      state
-      |> request_body(prompt, params, false)
-      |> maybe_thinking(state.thinking, state.reasoning_effort)
-
-    url = endpoint_url(state.endpoint)
-    headers = [{"authorization", "Bearer #{key}"}]
-    post = state.http_fn || (&HTTP.post/3)
-    initial_events = AdapterExecution.initial_events(ctx)
-    AdapterExecution.emit_events(ctx, initial_events, :running)
-
-    result =
-      case post.(url, body,
-             headers: headers,
-             receive_timeout: AdapterExecution.non_stream_timeout(ctx, state.timeout),
-             connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
-           ) do
-        {:ok, status, resp_body} when status in 200..299 ->
-          handle_success(state, resp_body, start_time)
-
-        {:error, :http_error, status, message} ->
-          handle_http_error(status, message, start_time)
-
-        {:error, reason, _status, message} ->
-          handle_connection_error(reason, message, start_time)
-      end
-
-    if log = state.log_fn, do: log.(name(), url, body, result, start_time)
-
-    result
-    |> strip_attrs()
-    |> AdapterExecution.materialize_result(ctx, initial_events: initial_events, emit: :terminal)
-  end
-
-  # ── response handlers ────────────────────────
 
   defp handle_success(state, resp_body, start_time) do
     message = get_in(resp_body, ["choices", Access.at(0), "message"]) || %{}
@@ -400,6 +367,22 @@ defmodule NovelAgent.Provider.DeepSeek do
   defp normalize_thinking(_value), do: :disabled
 
   defp stream_meta, do: %{vendor: name(), label: "DeepSeek"}
+
+  # 私有推理只按真实 provider/model 绑定回放：流式 reasoning_content 作为
+  # DeepSeek 私有状态，不进入正文、作者可见事件或其它 provider 的请求。
+  defp deepseek_provider_state(finalized, state) do
+    case Map.get(finalized, :private_reasoning) do
+      text when is_binary(text) and text != "" ->
+        %{
+          "provider" => "deepseek",
+          "model" => state.model,
+          "payload" => %{"reasoning_content" => text}
+        }
+
+      _other ->
+        %{}
+    end
+  end
 
   defp models_url(endpoint) do
     endpoint

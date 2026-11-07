@@ -100,25 +100,23 @@ defmodule NovelAgent.Provider.Anthropic do
     AdapterExecution.materialize_result({:error, error}, ctx)
   end
 
+  # B71 R2：工具调用不再隐式选择非流式——tool_use 同样走 Messages SSE 流式传输，
+  # 由 adapter-owned decoder 在 content_block_start/delta 中无损累积参数。
   defp execute_validated(state, key, prompt, params, ctx) do
-    if RequestIR.Tools.tool_call_prompt?(prompt) do
-      execute_tool_call(state, prompt, params, ctx)
-    else
-      case request_body(state, prompt, params, true) do
-        {:ok, body} ->
-          url = Path.join(@api_base, "messages")
+    case request_body(state, prompt, params, true) do
+      {:ok, body} ->
+        url = Path.join(@api_base, "messages")
 
-          request_opts = [
-            headers: [{"x-api-key", key}, {"anthropic-version", @api_version}],
-            receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
-            connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
-          ]
+        request_opts = [
+          headers: [{"x-api-key", key}, {"anthropic-version", @api_version}],
+          receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
+          connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
+        ]
 
-          AnthropicStream.execute(state, url, body, request_opts, ctx)
+        AnthropicStream.execute(state, url, body, request_opts, ctx)
 
-        {:error, _reason} ->
-          AdapterExecution.materialize_result(projection_error(), ctx)
-      end
+      {:error, _reason} ->
+        AdapterExecution.materialize_result(projection_error(), ctx)
     end
   end
 
@@ -169,21 +167,6 @@ defmodule NovelAgent.Provider.Anthropic do
 
   defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
   defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}
-
-  defp execute_tool_call(state, prompt, params, ctx) do
-    initial_events = AdapterExecution.initial_events(ctx)
-    AdapterExecution.emit_events(ctx, initial_events, :running)
-
-    # 非流式工具调用没有中间进展可观测，等待窗口用 non_stream_ms（B22）。
-    state
-    |> do_complete(
-      prompt,
-      params,
-      receive_timeout: AdapterExecution.non_stream_timeout(ctx, state.timeout),
-      connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
-    )
-    |> AdapterExecution.materialize_result(ctx, initial_events: initial_events, emit: :terminal)
-  end
 
   # ── response handlers ────────────────────────
 

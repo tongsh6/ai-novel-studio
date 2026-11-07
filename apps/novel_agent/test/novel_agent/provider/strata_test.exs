@@ -353,36 +353,42 @@ defmodule NovelAgent.Provider.StrataTest do
   end
 
   describe "execute/5 (tool call)" do
-    test "tool_call prompt stays non-streaming and keeps the named tool_choice object" do
+    test "tool_call prompt also streams and keeps the named tool_choice object" do
       test_pid = self()
 
-      mock = fn url, body, opts ->
+      # R2：工具调用也走 SSE；Strata 接受 OpenAI 具名 tool_choice 对象，绝不降级。
+      eventsource = fn url, body, opts, on_data ->
         send(test_pid, {:request, url, body, opts})
 
-        {:ok, 200,
-         %{
-           "choices" => [
-             %{
-               "message" => %{
-                 "content" => nil,
-                 "tool_calls" => [
-                   %{
-                     "id" => "call_1",
-                     "type" => "function",
-                     "function" => %{
-                       "name" => "judgment_decision",
-                       "arguments" => ~s({"decision":"approve"})
-                     }
-                   }
-                 ]
-               }
-             }
-           ],
-           "usage" => %{}
-         }}
+        on_data.(
+          "data: " <>
+            Jason.encode!(%{
+              "choices" => [
+                %{
+                  "delta" => %{
+                    "tool_calls" => [
+                      %{
+                        "index" => 0,
+                        "id" => "call_1",
+                        "type" => "function",
+                        "function" => %{
+                          "name" => "judgment_decision",
+                          "arguments" => ~s({"decision":"approve"})
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "model" => @model
+            }) <> "\n\n"
+        )
+
+        on_data.("data: [DONE]\n\n")
+        {:ok, 200, ""}
       end
 
-      state = base_state(thinking: :disabled, http_fn: mock)
+      state = base_state(thinking: :disabled, eventsource_fn: eventsource)
 
       prompt =
         TestRequestIR.ir(
@@ -405,7 +411,7 @@ defmodule NovelAgent.Provider.StrataTest do
 
       assert_receive {:request, url, body, opts}
       assert url == @endpoint <> "/chat/completions"
-      assert body.stream == false
+      assert body.stream == true
       assert body.reasoning_effort == "none"
       assert Keyword.fetch!(opts, :headers) == []
 

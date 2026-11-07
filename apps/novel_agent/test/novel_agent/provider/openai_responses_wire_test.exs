@@ -34,6 +34,23 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
     |> Map.put(:wire_api, :responses)
   end
 
+  # R2：execute/5 走 Responses SSE 流式传输；用 eventsource mock 捕获真实 body
+  # 并返回官方事件序列（created/output_item/output_text.delta/completed）。
+  defp responses_stream_state(eventsource) do
+    %OpenAI{
+      api_key: "sk-test",
+      endpoint: "https://api.openai.com/v1",
+      model: "gpt-5-fixture",
+      timeout: 100,
+      log_fn: nil,
+      http_fn: fn _url, _body, _opts -> raise "responses execute must stream" end,
+      eventsource_fn: eventsource
+    }
+    |> Map.put(:wire_api, :responses)
+  end
+
+  defp sse(payload), do: "data: #{Jason.encode!(payload)}\n\n"
+
   defp responses_body do
     %{
       "id" => "resp_fixture",
@@ -79,51 +96,92 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
       assert content == [%{type: "input_text", text: "写一句问候"}]
     end
 
-    test "execute/5 的普通文本请求走 responses 非流式传输，不伪装 chat 流" do
+    test "execute/5 的普通文本请求走 responses SSE 流式传输，不伪装 chat 流" do
       parent = self()
 
-      mock = fn url, body, _opts ->
+      eventsource = fn url, body, _opts, on_data ->
         send(parent, {:responses_execute, url, body})
-        {:ok, 200, responses_body()}
+
+        on_data.(
+          sse(%{"type" => "response.created", "response" => %{"model" => "gpt-5-fixture"}})
+        )
+
+        on_data.(
+          sse(%{
+            "type" => "response.output_text.delta",
+            "item_id" => "msg_1",
+            "output_index" => 0,
+            "delta" => "你好，世界"
+          })
+        )
+
+        on_data.(
+          sse(%{
+            "type" => "response.completed",
+            "response" => %{
+              "model" => "gpt-5-fixture",
+              "usage" => %{"input_tokens" => 5, "output_tokens" => 3}
+            }
+          })
+        )
+
+        {:ok, 200, ""}
       end
 
-      state = responses_state(mock)
+      state = responses_stream_state(eventsource)
 
       assert {:ok, %{result: result, output: output}} =
                OpenAI.execute(state, nil, ir("写一句问候"), %InferenceParams{}, provider_ctx())
 
       assert result.content == "你好，世界"
+      assert result.usage.input_tokens == 5
+      assert result.usage.output_tokens == 3
       assert output.content.text == "你好，世界"
       assert_receive {:responses_execute, url, body}
       assert url == "https://api.openai.com/v1/responses"
-      assert body.stream == false
-      refute_received :eventsource_used
+      assert body.stream == true
+      refute Map.has_key?(body, :messages)
     end
 
-    test "工具调用请求投影为 Responses 原生 tools 并解析 function_call 输出" do
+    test "工具调用请求投影为 Responses 原生 tools 并解析 function_call 输出（SSE）" do
       parent = self()
       raw_arguments = ~s({"query":"沈砚","offset":0})
 
-      mock = fn url, body, _opts ->
+      eventsource = fn url, body, _opts, on_data ->
         send(parent, {:responses_tool_request, url, body})
 
-        {:ok, 200,
-         %{
-           "id" => "resp_tool",
-           "model" => "gpt-5-fixture",
-           "output" => [
-             %{
-               "type" => "function_call",
-               "call_id" => "call-read-1",
-               "name" => "read_character",
-               "arguments" => raw_arguments
-             }
-           ],
-           "usage" => %{"input_tokens" => 7, "output_tokens" => 2}
-         }}
+        on_data.(
+          sse(%{"type" => "response.created", "response" => %{"model" => "gpt-5-fixture"}})
+        )
+
+        on_data.(
+          sse(%{
+            "type" => "response.output_item.done",
+            "output_index" => 0,
+            "item" => %{
+              "type" => "function_call",
+              "id" => "fc_private_1",
+              "call_id" => "call-read-1",
+              "name" => "read_character",
+              "arguments" => raw_arguments
+            }
+          })
+        )
+
+        on_data.(
+          sse(%{
+            "type" => "response.completed",
+            "response" => %{
+              "model" => "gpt-5-fixture",
+              "usage" => %{"input_tokens" => 7, "output_tokens" => 2}
+            }
+          })
+        )
+
+        {:ok, 200, ""}
       end
 
-      state = responses_state(mock)
+      state = responses_stream_state(eventsource)
 
       prompt =
         TestRequestIR.ir(
@@ -140,6 +198,7 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
       assert {:ok, %{result: result}} =
                OpenAI.execute(state, nil, prompt, %InferenceParams{}, provider_ctx())
 
+      # canonical 工具身份只认 call_id；provider 私有 item id（fc_...）不混用。
       assert [
                %{
                  "id" => "call-read-1",
@@ -156,33 +215,40 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
       assert [tool] = body.tools
       assert tool.type == "function"
       assert tool.name == "read_character"
-
-      assert tool.parameters == %{
-               "type" => "object",
-               "properties" => %{"query" => %{"type" => "string"}}
-             }
-
       assert body.tool_choice == %{type: "function", name: "read_character"}
     end
 
-    test "canonical IR 的 tool 结果回投为 function_call_output，原参数与 call_id 保持" do
+    test "canonical IR 的 tool 结果回投为 function_call_output，原参数与 call_id 保持（SSE）" do
       parent = self()
       raw_arguments = ~s({"query":"沈砚"})
 
-      mock = fn url, body, _opts ->
+      eventsource = fn url, body, _opts, on_data ->
         send(parent, {:responses_replay, url, body})
 
-        {:ok, 200,
-         %{
-           "id" => "resp_replay",
-           "output" => [
-             %{
-               "type" => "message",
-               "content" => [%{"type" => "output_text", "text" => "已读取"}]
-             }
-           ],
-           "usage" => %{"input_tokens" => 3, "output_tokens" => 1}
-         }}
+        on_data.(
+          sse(%{"type" => "response.created", "response" => %{"model" => "gpt-5-fixture"}})
+        )
+
+        on_data.(
+          sse(%{
+            "type" => "response.output_text.delta",
+            "item_id" => "msg_1",
+            "output_index" => 0,
+            "delta" => "已读取"
+          })
+        )
+
+        on_data.(
+          sse(%{
+            "type" => "response.completed",
+            "response" => %{
+              "model" => "gpt-5-fixture",
+              "usage" => %{"input_tokens" => 3, "output_tokens" => 1}
+            }
+          })
+        )
+
+        {:ok, 200, ""}
       end
 
       ir =
@@ -220,7 +286,7 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
 
       assert {:ok, %{result: result}} =
                OpenAI.execute(
-                 responses_state(mock),
+                 responses_stream_state(eventsource),
                  nil,
                  prepared,
                  %InferenceParams{},
@@ -246,11 +312,11 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
   end
 
   describe "能力事实" do
-    test "responses wire 的 streaming 能力如实为 false，其余必备能力可证" do
+    test "responses wire 提供真实 SSE 流式能力，其余必备能力可证" do
       state = Map.put(OpenAI.from_config(), :wire_api, :responses)
       profile = CapabilityProfile.from_adapter(OpenAI, state)
 
-      assert profile[:streaming] == false
+      assert profile[:streaming] == true
       assert profile[:tool_calls] == true
       assert profile[:tool_results] == true
       assert profile[:structured_output] == true

@@ -78,22 +78,19 @@ defmodule NovelAgent.Provider.LMStudio do
   end
 
   @impl true
+  # B71 R2：工具调用不再隐式选择非流式——tool_calls 同样走 SSE 流式传输。
   def execute(%__MODULE__{endpoint: endpoint} = state, _model, prompt, params, ctx)
       when (is_binary(prompt) or is_list(prompt) or is_map(prompt)) and not is_nil(endpoint) do
-    if RequestIR.Tools.tool_call_prompt?(prompt) do
-      execute_tool_call(state, endpoint, prompt, params, ctx)
-    else
-      body = request_body(state, prompt, params, true)
-      url = Path.join(endpoint, "chat/completions")
+    body = request_body(state, prompt, params, true)
+    url = Path.join(endpoint, "chat/completions")
 
-      # B22：流式只设"最长静默窗口"；总时长兜底默认关闭（见 TimeoutPolicy）。
-      request_opts = [
-        receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
-        connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
-      ]
+    # B22：流式只设"最长静默窗口"；总时长兜底默认关闭（见 TimeoutPolicy）。
+    request_opts = [
+      receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
+      connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
+    ]
 
-      OpenAICompatibleStream.execute(stream_meta(), state, url, body, request_opts, ctx)
-    end
+    OpenAICompatibleStream.execute(stream_meta(), state, url, body, request_opts, ctx)
   end
 
   def execute(%__MODULE__{}, _model, _prompt, _params, ctx) do
@@ -209,33 +206,6 @@ defmodule NovelAgent.Provider.LMStudio do
     do: Map.put(body, :tool_choice, "required")
 
   defp downgrade_named_tool_choice(body), do: body
-
-  defp execute_tool_call(state, endpoint, prompt, params, ctx) do
-    start_time = System.monotonic_time(:millisecond)
-    body = request_body(state, prompt, params, false)
-    url = Path.join(endpoint, "chat/completions")
-    post = state.http_fn || (&HTTP.post/3)
-    initial_events = AdapterExecution.initial_events(ctx)
-    AdapterExecution.emit_events(ctx, initial_events, :running)
-
-    result =
-      case post.(url, body,
-             receive_timeout: AdapterExecution.non_stream_timeout(ctx, state.timeout),
-             connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
-           ) do
-        {:ok, status, resp_body} when status in 200..299 ->
-          handle_success(state, resp_body, start_time)
-
-        {:error, reason, _status, message} ->
-          handle_error(reason, message, start_time)
-      end
-
-    if log = state.log_fn, do: log.(name(), url, body, result, start_time)
-
-    result
-    |> strip_attrs()
-    |> AdapterExecution.materialize_result(ctx, initial_events: initial_events, emit: :terminal)
-  end
 
   defp maybe_json_mode(body, true, prompt) do
     if RequestIR.Tools.tool_call_prompt?(prompt) do

@@ -1251,17 +1251,21 @@ defmodule NovelAgent.Provider.GatewayTest do
     end
 
     test "success log carries the same refs as ProviderRun and Result", %{dir: dir} do
-      http = fn _url, _body, _opts ->
-        {:ok, 200,
-         %{
-           "choices" => [%{"message" => %{"content" => "HTTP 替身成功正文"}}],
-           "model" => "stand-in-model",
-           "usage" => %{"prompt_tokens" => 3, "completion_tokens" => 4}
-         }}
+      # R2：工具调用走 SSE 流式传输，日志记录来自真实流式请求/响应。
+      eventsource = fn _url, _body, _opts, on_data ->
+        on_data.(
+          sse_delta("HTTP 替身成功正文", "stand-in-model", %{
+            "prompt_tokens" => 3,
+            "completion_tokens" => 4
+          })
+        )
+
+        on_data.("data: [DONE]\n\n")
+        {:ok, 200, ""}
       end
 
       RuntimeConfig.put_provider_config(:strata,
-        http_fn: http,
+        eventsource_fn: eventsource,
         model: "stand-in-model",
         endpoint: "http://stand-in.test/v1"
       )
@@ -1293,10 +1297,12 @@ defmodule NovelAgent.Provider.GatewayTest do
     end
 
     test "error log carries the same refs as the failed ProviderRun", %{dir: dir} do
-      http = fn _url, _body, _opts -> {:error, :http_error, 503, "stand-in upstream failed"} end
+      eventsource = fn _url, _body, _opts, _on_data ->
+        {:error, :http_error, 503, "stand-in upstream failed"}
+      end
 
       RuntimeConfig.put_provider_config(:strata,
-        http_fn: http,
+        eventsource_fn: eventsource,
         model: "stand-in-model",
         endpoint: "http://stand-in.test/v1"
       )
@@ -1404,20 +1410,20 @@ defmodule NovelAgent.Provider.GatewayTest do
   defp restore_common_env(key, nil), do: Application.delete_env(:novel_common, key)
   defp restore_common_env(key, value), do: Application.put_env(:novel_common, key, value)
 
+  # B71 R2：工具调用也走 SSE 流式传输；路由测试在 eventsource mock 中捕获真实
+  # body（body.model 由 route 派发决定），并返回最小合法 Chat SSE 帧。
   defp capture_strata_wire(config) do
     recipient = self()
 
-    http = fn _url, body, _opts ->
+    eventsource = fn _url, body, _opts, on_data ->
       send(recipient, {:routing_wire_body, body})
-
-      {:ok, 200,
-       %{
-         "choices" => [%{"message" => %{"content" => "路由探针已完成。"}}],
-         "model" => Map.get(body, :model, "server-selected-model")
-       }}
+      model = Map.get(body, :model, "server-selected-model")
+      on_data.(sse_delta("路由探针已完成。", model))
+      on_data.("data: [DONE]\n\n")
+      {:ok, 200, ""}
     end
 
-    RuntimeConfig.put_provider_config(:strata, Keyword.put(config, :http_fn, http))
+    RuntimeConfig.put_provider_config(:strata, Keyword.put(config, :eventsource_fn, eventsource))
   end
 
   defp routing_tool_ir do

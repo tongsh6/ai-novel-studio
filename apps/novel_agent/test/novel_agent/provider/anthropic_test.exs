@@ -86,34 +86,49 @@ defmodule NovelAgent.Provider.AnthropicTest do
     test "同一工具集在 none 与具名强制调用下分别映射原生 none / 具名 tool_choice" do
       test_pid = self()
 
+      # R2：工具调用也走流式——同一 eventsource mock 按原生 tool_choice 形状区分
+      # none 文本帧与具名 tool_use 帧；HTTP 非流式 mock 不再是生产路径。
       eventsource = fn _url, body, _opts, on_data ->
-        send(test_pid, {:tool_choice_none_body, body})
+        case Map.get(body, :tool_choice) do
+          %{type: "tool", name: "judgment_decision"} ->
+            send(test_pid, {:tool_choice_named_body, body})
 
-        on_data.(
-          anthropic_sse("content_block_delta", %{
-            "type" => "content_block_delta",
-            "index" => 0,
-            "delta" => %{"type" => "text_delta", "text" => "判断说明"}
-          })
-        )
+            on_data.(
+              anthropic_sse("content_block_start", %{
+                "type" => "content_block_start",
+                "index" => 0,
+                "content_block" => %{
+                  "type" => "tool_use",
+                  "id" => "tool-1",
+                  "name" => "judgment_decision"
+                }
+              })
+            )
+
+            on_data.(
+              anthropic_sse("content_block_delta", %{
+                "type" => "content_block_delta",
+                "index" => 0,
+                "delta" => %{
+                  "type" => "input_json_delta",
+                  "partial_json" => ~s({"action":"reply"})
+                }
+              })
+            )
+
+          _other ->
+            send(test_pid, {:tool_choice_none_body, body})
+
+            on_data.(
+              anthropic_sse("content_block_delta", %{
+                "type" => "content_block_delta",
+                "index" => 0,
+                "delta" => %{"type" => "text_delta", "text" => "判断说明"}
+              })
+            )
+        end
 
         {:ok, 200, ""}
-      end
-
-      http = fn _url, body, _opts ->
-        send(test_pid, {:tool_choice_named_body, body})
-
-        {:ok, 200,
-         %{
-           "content" => [
-             %{
-               "type" => "tool_use",
-               "id" => "tool-1",
-               "name" => "judgment_decision",
-               "input" => %{"action" => "reply"}
-             }
-           ]
-         }}
       end
 
       state = %Anthropic{
@@ -121,7 +136,6 @@ defmodule NovelAgent.Provider.AnthropicTest do
         model: "claude-sonnet-4-6",
         timeout: 100,
         eventsource_fn: eventsource,
-        http_fn: http,
         log_fn: nil
       }
 
@@ -291,24 +305,54 @@ defmodule NovelAgent.Provider.AnthropicTest do
       assert Enum.any?(events, &(&1.event_type == :error))
     end
 
-    test "B22: non-stream tool calls use the non-stream wait window" do
+    test "B22: tool calls also use the streaming wait window (R2: no implicit non-stream)" do
       test_pid = self()
 
-      mock = fn _url, _body, opts ->
-        send(test_pid, {:http_opts, opts})
+      eventsource = fn _url, _body, opts, on_data ->
+        send(test_pid, {:stream_opts, opts})
 
-        {:ok, 200,
-         %{
-           "content" => [%{"type" => "text", "text" => "判断完成"}],
-           "usage" => %{"input_tokens" => 5, "output_tokens" => 2}
-         }}
+        on_data.(
+          anthropic_sse("message_start", %{
+            "type" => "message_start",
+            "message" => %{"model" => "claude-sonnet-4-6", "usage" => %{"input_tokens" => 1}}
+          })
+        )
+
+        on_data.(
+          anthropic_sse("content_block_start", %{
+            "type" => "content_block_start",
+            "index" => 0,
+            "content_block" => %{
+              "type" => "tool_use",
+              "id" => "tool-1",
+              "name" => "judgment_decision"
+            }
+          })
+        )
+
+        on_data.(
+          anthropic_sse("content_block_delta", %{
+            "type" => "content_block_delta",
+            "index" => 0,
+            "delta" => %{"type" => "input_json_delta", "partial_json" => "{}"}
+          })
+        )
+
+        on_data.(
+          anthropic_sse("message_delta", %{
+            "type" => "message_delta",
+            "usage" => %{"output_tokens" => 1}
+          })
+        )
+
+        {:ok, 200, ""}
       end
 
       state = %Anthropic{
         api_key: "sk-ant-secret",
         model: "claude-sonnet-4-6",
         timeout: 100,
-        http_fn: mock,
+        eventsource_fn: eventsource,
         log_fn: nil
       }
 
@@ -328,7 +372,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
         deadline_ms: nil
       }
 
-      assert {:ok, _result} =
+      assert {:ok, %{result: result}} =
                Anthropic.execute(
                  state,
                  nil,
@@ -337,8 +381,9 @@ defmodule NovelAgent.Provider.AnthropicTest do
                  provider_ctx(timeout_policy: policy)
                )
 
-      assert_receive {:http_opts, opts}
-      assert Keyword.fetch!(opts, :receive_timeout) == 1_234_000
+      assert [%{"name" => "judgment_decision"}] = result.tool_calls
+      assert_receive {:stream_opts, opts}
+      assert Keyword.fetch!(opts, :receive_timeout) == 300_000
       assert Keyword.fetch!(opts, :connect_timeout) == 15_000
     end
   end
