@@ -85,7 +85,8 @@ defmodule ICachePrefixDriver do
     end
 
     @impl true
-    def projection_target(_state), do: "chat_completions"
+    def projection_target(_state),
+      do: Application.get_env(:novel_agent, :icache_capture_target, "chat_completions")
 
     @impl true
     def name, do: "icache_capture"
@@ -96,7 +97,13 @@ defmodule ICachePrefixDriver do
     restore = install_capture_provider()
 
     try do
-      rows = single_call_rows() ++ cp_d_rows() ++ cp_c_rows() ++ professional_rows()
+      rows =
+        single_call_rows() ++
+          cp_d_rows() ++
+          cp_c_rows() ++
+          wire_projection_rows() ++
+          professional_rows()
+
       assert_enforced_rows!(rows)
 
       markdown = render_markdown(rows)
@@ -209,7 +216,7 @@ defmodule ICachePrefixDriver do
     ]
   end
 
-  defp cp_c_rows do
+  defp judgment_consecutive_irs do
     author_a = "接着第02章往下写一段正文"
     author_b = "把第02章写得更紧凑些"
 
@@ -229,8 +236,11 @@ defmodule ICachePrefixDriver do
     }
 
     # 两个输入各自走真实生产入口；连续轮语义来自调用序列，不在此伪造前一轮 transcript。
-    ir_a = judgment_ir(input_a)
-    ir_b = judgment_ir(input_b)
+    {judgment_ir(input_a), judgment_ir(input_b)}
+  end
+
+  defp cp_c_rows do
+    {ir_a, ir_b} = judgment_consecutive_irs()
 
     [
       shared_prefix_row(
@@ -247,6 +257,98 @@ defmodule ICachePrefixDriver do
         true
       )
     ]
+  end
+
+  # B71 R2：三 wire 投影的上游缓存共享前缀（同一组真实判断 IR 分别经
+  # Chat/Anthropic/Responses 投影；capture 仍经 Gateway 边界与真实 provider 路由）。
+  # 字节表示使用确定性 canonical JSON（map 键排序），仅用于新增三投影度量；
+  # 既有 Chat §6.1 判据（single/cp_d/cp_c）保持原序列化与阈值不变。
+  defp wire_projection_rows do
+    {ir_a, ir_b} = judgment_consecutive_irs()
+
+    Enum.map(["chat_completions", "anthropic_messages", "responses_api"], fn target ->
+      call_site = "judgment_consecutive_#{target}"
+      assert_native_tool_choice!(call_site, ir_a, ir_b)
+
+      {first, tools_a} = capture_wire(target, ir_a, call_site <> "-a")
+      {second, tools_b} = capture_wire(target, ir_b, call_site <> "-b")
+      if tools_a != tools_b, do: raise("I-CACHE profile schema drift at #{call_site}")
+
+      shared = shared_prefix_bytes(first, second)
+      total = min(byte_size(first), byte_size(second))
+      boundary = marker_offset!(first, "## 会话摘要", call_site)
+
+      required_tail_ends =
+        Enum.map(
+          [
+            "所有动作均须经系统门禁放行。",
+            "（回答写作进度时以「已写」计数为准；标注（计划中）的章尚无正文。各章正文细节不在本段内；作者点名章见下段。）"
+          ],
+          fn tail -> marker_offset!(first, tail, call_site) + byte_size(tail) end
+        )
+
+      covers = shared >= boundary and Enum.all?(required_tail_ends, &(shared >= &1))
+
+      %{
+        call_site: call_site,
+        pair_kind: "consecutive",
+        shared_prefix_bytes: shared,
+        total_bytes: total,
+        ratio: ratio(shared, total),
+        boundary_marker: "## 会话摘要",
+        boundary_bytes: boundary,
+        covers_required_prefix: covers,
+        enforce: true,
+        tools_equal: true
+      }
+    end)
+  end
+
+  defp capture_wire(target, %RequestIR{} = ir, label) do
+    previous = Application.get_env(:novel_agent, :icache_capture_target)
+    Application.put_env(:novel_agent, :icache_capture_target, target)
+
+    try do
+      assert_ok(Gateway.execute(ir, "capture-model", purpose: :planner), label)
+    after
+      if previous,
+        do: Application.put_env(:novel_agent, :icache_capture_target, previous),
+        else: Application.delete_env(:novel_agent, :icache_capture_target)
+    end
+
+    receive do
+      {:icache_prompt, body, _params} ->
+        {wire_bytes(target, body), canonical(Map.get(body, :tools, Map.get(body, "tools", [])))}
+    after
+      5_000 -> raise "capture provider did not receive #{label}"
+    end
+  end
+
+  # 按该 wire 的真实投影顺序生成确定性字节流：稳定 system 前缀必须在流首，才能
+  # 度量上游缓存共享前缀；不能按 JSON 键排序（键序会把 messages 排到 system 前）。
+  defp wire_bytes("chat_completions", body), do: serialize(body)
+
+  defp wire_bytes("anthropic_messages", body) do
+    system_text =
+      body
+      |> Map.get(:system, [])
+      |> List.wrap()
+      |> Enum.map_join("", fn block -> Map.get(block, :text, "") end)
+
+    messages =
+      body
+      |> Map.get(:messages, [])
+      |> Enum.map_join("", fn message ->
+        "#{message.role}\n#{canonical(message.content)}"
+      end)
+
+    system_text <> "\n" <> messages
+  end
+
+  defp wire_bytes("responses_api", body) do
+    instructions = Map.get(body, :instructions) || ""
+    input = body |> Map.get(:input, []) |> Enum.map_join("", &canonical/1)
+    instructions <> "\n" <> input
   end
 
   # ── canonical IR 取数（真实入口的 result_fn 只做捕获，响应为最小合法结构）──
@@ -582,7 +684,10 @@ defmodule ICachePrefixDriver do
 
   defp assert_native_tool_choice!(call_site, ir_a, ir_b) do
     expected = native_tool_choice(call_site)
-    actual = {NovelCommon.RequestIR.Tools.tool_choice(ir_a), NovelCommon.RequestIR.Tools.tool_choice(ir_b)}
+
+    actual =
+      {NovelCommon.RequestIR.Tools.tool_choice(ir_a),
+       NovelCommon.RequestIR.Tools.tool_choice(ir_b)}
 
     unless actual == {expected, expected} do
       raise(
@@ -805,10 +910,12 @@ defmodule ICachePrefixDriver do
 
     Application.put_env(:novel_agent, :extra_providers, extra)
     Application.put_env(:novel_agent, :provider, default: :icache_capture)
+    Application.delete_env(:novel_agent, :icache_capture_target)
     NovelAgent.Provider.RuntimeConfig.reset()
 
     fn ->
       NovelAgent.Provider.RuntimeConfig.reset()
+      Application.delete_env(:novel_agent, :icache_capture_target)
 
       if old_extra,
         do: Application.put_env(:novel_agent, :extra_providers, old_extra),

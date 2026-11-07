@@ -264,12 +264,21 @@ consecutive   : 同一调用点连续两轮的共享前缀 ≥ L2 末（L0–L2 
 （marker 偏移）和必含静态段尾部逐字节比较。**无阈值、无调参空间**：边界与必含段
 取自被测 prompt 自身；覆盖失败即 0，覆盖成功即 1。
 
+**2026-11-07 R2 多投影扩展**：新增 `judgment_consecutive_<wire>` 三行，把同一组真实
+判断 IR 分别经 Chat Completions / Anthropic Messages / Responses API 投影度量共享
+前缀（仍经 Gateway 边界与真实 provider 路由）。新增行按各 wire 的**真实投影顺序**
+序列化（稳定 system 前缀在流首，Anthropic 用顶层 system，Responses 用
+`instructions`），不按 JSON 键排序（键序会把 messages 排到 system 前、失真）；既有
+Chat 调用点的 §6.1 序列化与阈值不变，不放松。三行 `enforce=true`，由 CI 既有 step
+自动强制。
+
 ### 8.2 覆盖范围（按迁移 checkpoint 增量扩大）
 
 | 调用点 | pair_kind | 迁移 checkpoint | enforce |
 |---|---|---|---|
 | 续行判断 call1/call2 | call_pair | CP-AB | I-CACHE-2（工具字节相等）+ 记录共享前缀 |
 | 判断 call1 连续两轮 | consecutive | CP-C | I-CACHE-1 |
+| 判断连续两轮 × Chat/Anthropic/Responses 投影 | consecutive | B71 R2（2026-11-07） | I-CACHE-1（三 wire） |
 | 起草/修订（reasoning + structure） | cross_run | CP-D | I-CACHE-1 |
 | 章节使命 | cross_run | CP-D | I-CACHE-1 |
 
