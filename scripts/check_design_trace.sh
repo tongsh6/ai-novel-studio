@@ -78,7 +78,9 @@ fi
 
 # ---- 1. 扫描组件文件 ----
 
-# 已知的不需要追溯的文件（入口、工具；demo 组件已退役）
+# 已知的不需要追溯的文件（入口、工具；demo 组件已退役）。
+# 注意：空数组在部分 bash（3.2）`set -u` 下遍历会报 unbound variable，
+# 这里用「数组非空才遍历」的安全形式；当前无豁免文件。
 SKIP_FILES=()
 
 TRACEABLE=0
@@ -89,12 +91,14 @@ TRACE_DETAILS=()
 while IFS= read -r -d '' file; do
   filename=$(basename "$file")
   skip=false
-  for skipfile in "${SKIP_FILES[@]}"; do
-    if [[ "$filename" == "$skipfile" ]]; then
-      skip=true
-      break
-    fi
-  done
+  if (( ${#SKIP_FILES[@]} > 0 )); then
+    for skipfile in "${SKIP_FILES[@]}"; do
+      if [[ "$filename" == "$skipfile" ]]; then
+        skip=true
+        break
+      fi
+    done
+  fi
   if [[ "$skip" == true ]]; then
     continue
   fi
