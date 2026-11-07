@@ -6,11 +6,6 @@ import type { UICardData as UICard } from "../../components/UICards";
 import { CandidateSetCard, DefaultCard } from "../../components/UICards";
 import { CARD } from "../copy";
 import {
-  adoptionDecisionCopy,
-  adoptionDecisionFollowUpAction,
-  OPEN_READING_MODE_ACTION_ID,
-} from "../adoptionDecision";
-import {
   normalizeChapterContentTitle,
   normalizeReadingToc,
   readingWorkTitle,
@@ -180,25 +175,6 @@ describe("card type contracts", () => {
     expect(html).toContain("保存后会写入章节正文");
     expect(html).not.toContain("待确认的创作材料");
     expect(html).not.toContain("创作素材");
-  });
-
-  it("discarded adoption state uses author-facing copy", () => {
-    expect(adoptionDecisionCopy("DISCARDED")).toEqual({
-      title: "已废弃",
-      description: "这条候选稿已从待处理列表移除，未写入作品事实。",
-    });
-  });
-
-  it("only accepted adoption decisions expose a reading follow-up", () => {
-    expect(adoptionDecisionFollowUpAction("ACCEPTED", "prose_fragment")).toEqual({
-      action_id: OPEN_READING_MODE_ACTION_ID,
-      label: "查看已采纳内容",
-    });
-    expect(adoptionDecisionFollowUpAction("EDITED_ACCEPTED", "scene_draft")?.action_id).toBe(
-      OPEN_READING_MODE_ACTION_ID,
-    );
-    expect(adoptionDecisionFollowUpAction("ACCEPTED", "character_seed")).toBeNull();
-    expect(adoptionDecisionFollowUpAction("DISCARDED", "prose_fragment")).toBeNull();
   });
 
   it("pending adoption count should be unique by artifact id after resume", () => {

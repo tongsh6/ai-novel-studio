@@ -264,18 +264,6 @@ export const CARD = {
     title: "已采纳",
     description: "改动已应用到作品",
   },
-  adoptionDecision: {
-    acceptedTitle: "已保存",
-    acceptedDescription: "这条草稿已写入对应的作品位置，后续创作会以保存结果为准。",
-    discardedTitle: "已废弃",
-    discardedDescription: "这条候选稿已从待处理列表移除，未写入作品事实。",
-    editedAcceptedTitle: "已修改后保存",
-    editedAcceptedDescription: "系统已按修改内容保存，原草稿保留为来源记录。",
-    unknownTitle: "已处理",
-    unknownDescription: "这条候选稿已有处理结果，不再需要重复操作。",
-    artifactFallbackTitle: "创作设定",
-    openReadingModeLabel: "查看已采纳内容",
-  },
   longRunProgress: {
     title: "长跑进度",
     description: "AI 正在执行长时间任务",

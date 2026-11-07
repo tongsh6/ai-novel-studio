@@ -78,10 +78,8 @@ fi
 
 # ---- 1. 扫描组件文件 ----
 
-# 已知的不需要追溯的文件（入口、工具、demo）
-SKIP_FILES=(
-  "ChannelDemo.tsx"
-)
+# 已知的不需要追溯的文件（入口、工具；demo 组件已退役）
+SKIP_FILES=()
 
 TRACEABLE=0
 MISSING_TRACE=()

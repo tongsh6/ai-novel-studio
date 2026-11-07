@@ -106,8 +106,8 @@ React Query 负责服务端状态；Zustand 管 UI state；Socket 单 Channel（
 
 | 编号 | 级别 | 缺口 | 证据 | 处置 |
 |---|---|---|---|---|
-| P1-A | P1 死代码 | `frontend/src/components/ChannelDemo.tsx`(+css) 无任何引用 | 全仓 import/JSX 扫描 0 引用 | 待删（确认无文档/脚本引用后） |
-| P1-B | P1 死代码 | `frontend/src/lib/adoptionDecision.ts` 仅测试引用，生产未使用 | 生产 import 扫描 0；仅 `lib/__tests__/cards.test.ts` | 评估删除（需确认 `copy.ts` CARD.adoptionDecision 归属） |
+| P1-A | P1 死代码 | `frontend/src/components/ChannelDemo.tsx`(+css) 无任何引用 | 全仓 import/JSX 扫描 0 引用 | **已修（2026-11-08）**：已删除；`check_design_trace.sh`/`frontend_audit.sh` 的 demo 豁免同步移除 |
+| P1-B | P1 死代码 | `frontend/src/lib/adoptionDecision.ts` 仅测试引用，生产未使用 | 生产 import 扫描 0；仅 `lib/__tests__/cards.test.ts` | **已修（2026-11-08）**：已删除模块、`CARD.adoptionDecision` 文案段与 2 个死测试；前端 53 files/484 tests 全绿 |
 | P1-C | P1 旧协议 | Channel `adopt`/`discard`/`modify_draft` handler 无前端消费者（前端走 `author_action` accept/discard/edit_then_accept） | 前端 push 消息扫描 0；后端 handler + 测试仍在 | 比对语义覆盖后退役（删 handler/更新测试） |
 | P2-A | P2 未实现 | 存量书稿导入/分析建档（B79） | 无生产代码；任务文档独立 | 独立大功能，作者指示暂不启动 |
 | P2-B | P2 未取证 | G6 压缩后真实请求未闭环 | B71 记录；需同 run 多回合实模窗口 | 等实模窗口 |

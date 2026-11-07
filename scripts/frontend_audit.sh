@@ -189,8 +189,8 @@ echo "--- 5. Browser-Only API Scan ---"
 # 只在声明桌面优先的代码中检查浏览器 API 使用
 FOUND_API=false
 while IFS= read -r -d '' file; do
-  # 跳过生成代码和 demo
-  if echo "$file" | grep -qE "(generated|ChannelDemo)"; then
+  # 跳过生成代码
+  if echo "$file" | grep -qE "(generated)"; then
     continue
   fi
   if grep -nE "(window\.location\.|document\.title\s*=|window\.open\(|window\.close\(|localStorage\.|sessionStorage\.)" "$file" 2>/dev/null | grep -vE "(^\s*//|/\*|\*/|\* @|test|spec|\.test\.|__tests__)" > /tmp/tauri_check.$$ 2>/dev/null; then
