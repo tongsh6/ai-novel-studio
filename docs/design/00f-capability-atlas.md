@@ -108,7 +108,7 @@ React Query 负责服务端状态；Zustand 管 UI state；Socket 单 Channel（
 |---|---|---|---|---|
 | P1-A | P1 死代码 | `frontend/src/components/ChannelDemo.tsx`(+css) 无任何引用 | 全仓 import/JSX 扫描 0 引用 | **已修（2026-11-08）**：已删除；`check_design_trace.sh`/`frontend_audit.sh` 的 demo 豁免同步移除 |
 | P1-B | P1 死代码 | `frontend/src/lib/adoptionDecision.ts` 仅测试引用，生产未使用 | 生产 import 扫描 0；仅 `lib/__tests__/cards.test.ts` | **已修（2026-11-08）**：已删除模块、`CARD.adoptionDecision` 文案段与 2 个死测试；前端 53 files/484 tests 全绿 |
-| P1-C | P1 旧协议 | Channel `adopt`/`discard`/`modify_draft` handler 无前端消费者（前端走 `author_action` accept/discard/edit_then_accept） | 前端 push 消息扫描 0；后端 handler + 测试仍在 | 比对语义覆盖后退役（删 handler/更新测试） |
+| P1-C | P1 旧协议 | Channel `adopt`/`discard`/`modify_draft` handler 无前端消费者（前端走 `author_action` accept/discard/edit_then_accept） | 前端 push 消息扫描 0；`AU-05` 已确认当前有效入口是 author_action；后端 handler + 13 处 v3 测试仍保留 | **评估完成（2026-11-08），待实施退役**：三个 handler 各 ~50 行、三个 result helper 仅旧 handler 使用；底层 `AdoptionWorkflow.handle_*` 被 `author_action` 与 `pending_artifact_workflow` 复用（不删）；退役时把 v3 测试中 pending 校验/跨 work 拒绝/edit_then_accept 安全断言迁移到 author_action 路径 |
 | P2-A | P2 未实现 | 存量书稿导入/分析建档（B79） | 无生产代码；任务文档独立 | 独立大功能，作者指示暂不启动 |
 | P2-B | P2 未取证 | G6 压缩后真实请求未闭环 | B71 记录；需同 run 多回合实模窗口 | 等实模窗口 |
 | P2-C | P2 未取证 | 真实模型行为/Responses·Anthropic 实模 | q2_0 批次仅机制必选项；官方凭证缺失 | 等窗口/凭证，不代签 |
