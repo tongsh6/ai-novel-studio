@@ -5,6 +5,9 @@
 - 设计真源：`docs/design/adr/ADR-0008-behavior-state-v3.md`、`docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md`（draft）
 - 类型：承重竖切面（行为生命周期 / 执行权威）
 
+> 2026-11-08 实现位置更新（B80 CP2）：Channel 旧协议入口 `adopt`/`discard`/`modify_draft` 已退役；采纳与确认统一经 `author_action`（accept/discard/edit_then_accept/confirm/reject），`previous_behavior` 由 `handle_in("author_action")` 路径提供给 application。本文档 §1 七问中「Channel adopt 入口」是 2026-10-23 当时记录，历史正文不改写。
+
+
 ---
 
 ## 1. 开工七问

@@ -81,7 +81,7 @@ React Query 负责服务端状态；Zustand 管 UI state；Socket 单 Channel（
 | 6 | 档案、结构与阅读 | Channel `get_toc`/`get_chapter_content`、阅读模式 | `reading_projection*`、works/chapter 服务 | `ReadingMode`、`StructurePanel`、`readingProjection*` | p1/b28/b30/au08 场景、阅读批次 | M2 |
 | 7 | 小说要素 | Channel `get_characters`/`get_assumptions`/`get_foreshadowing`/`get_rules`/`get_ledger_threads`/`get_work_profile` | 领域服务 + `world_*`/`character_*`/`ledger_threads` | 工作台侧栏/档案面板、`ledgerThreadsWire` | au09/au13/au14 场景族 | M2 |
 | 8 | 记忆体系 | HTTP memories + 记忆页 | `memories_controller`、memory 服务、分层召回 | `MemoryListPage`/`MemoryDetailDrawer`/`MemoryCreateDialog` | au09（15 场景）+ web controller tests | M2（面板泄漏修复已有页面 PASS 记录） |
-| 9 | 上下文与压缩 | 安全点自动维护、压缩记录 | `transcript_compaction`、`auto_maintenance_*`、checkpoint | `TranscriptCompactionNotice` | au03/au11 场景、T1–T12 单测、不变量 | M1（G6 实模未闭环） |
+| 9 | 上下文与压缩 | 安全点自动维护、压缩记录 | `transcript_compaction`、`auto_maintenance_*`、`compaction_record`、checkpoint | `TranscriptCompactionNotice`（WorkspaceChat 接线，含组件测试） | `auto_maintenance_test` T1–T12、`transcript_compaction_test`（12 例，含压缩后 `to_request_ir`+`Projection.project` 端到端断言：checkpoint 唯一压缩表达、被覆盖往返不再出现、作者安全面）、`agent_run_compaction_event_test`（3）、`auto_maintenance_config_test`（2） | M1（机制层充分；G6 压缩后真实请求/页面证据未闭环） |
 | 10 | 会话管理 | HTTP sessions + 前端 | `work_sessions_controller`、service | `sessions.ts`、工作台会话列 | au03 场景族 | M2 |
 | 11 | Provider 与设置 | HTTP provider + 设置界面 | `Provider.Gateway`、adapter 族、registry、runtime config、secret 安全 | Provider 设置（WorkspaceChat 设置弹层）、`providerHealth` | su01（10 场景）+ agent 传输测试 | M2（实模/官方凭证未证） |
 | 12 | 可观测性与回放 | HTTP replay/activity、Channel 事件/Why | `trace_replay_controller`、`provider_activity_controller`、`authoring_replay`、`agent_run_event_query` | `agentRunTimeline`、Why 回放 | au07/e2e-01 场景、N-NARR 不变量 | M2 |
@@ -99,6 +99,8 @@ React Query 负责服务端状态；Zustand 管 UI state；Socket 单 Channel（
 3. **流式与预览（R2）**：三 wire SSE 统一生命周期、Responses SSE、工具参数增量→作者正文预览；确定性页面证据 `b71-authoring-transcript-tauri-native-stream-preview-06`（7/7 checks）。
 4. **确定性页面证据 ≠ 实模**：`slice_verify`/`streaming_slice_verify` 批次只证接线与不变量；实模与文学质量（I10）另证。
 5. **导入/分析（B79）未实现**：独立大功能，未在上一轮范围内启动（作者 2026-11-08 指示先梳理现有功能）。
+6. **CP4 抽查（2026-11-08）**：上下文压缩域机制层充分（压缩后请求组装有 `to_request_ir`+投影端到端断言），M1 仅因 G6 实模/页面证据缺；设置域入口/测试/场景齐全（`modelProvider`/`providerHealth` 测试 + su01 场景族），M2 依据成立。
+
 
 ---
 
