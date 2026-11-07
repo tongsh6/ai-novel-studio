@@ -10,6 +10,9 @@
 
 | 场景 | 类型 | blocked 原因 | 触发 re-anchor |
 |---|---|---|---|
+| `author-behavior-real-llm-subset` | `credential_blocked` + 预注册窗口 | registry `status: blocked`：需要作者授权资源窗口 + B42 预注册/单槽卸载/model_behavior 证据链；未预注册不运行真实模型，stub 不代签语义 | 作者授权窗口 + B42 预注册后复跑；保持 release-real-llm gate 未启用 |
+| `b27-request-source-native` | `credential_blocked` + 复跑窗口 | registry `status: blocked`：真实模型 scoped evidence 已 PASS（cp3c），复跑依赖 Strata 单槽资源窗口/预注册；语义仅覆盖本批 M1/M2，不进入 nightly | 单槽窗口 + 预注册后按 B27 文档复跑 |
+| `au15-evidence-seeking-native` | `credential_blocked` + 人工复核 | registry `status: blocked`：scoped 机制/模型行为证据已执行（au15cp1a）；正式 A1/A2 须 D6-A setup（真实模型创作 + 外部页面采纳前置章节）与作者/指定评审语义裁决，复跑依赖单槽窗口/预注册 | D6-A setup + 单槽窗口 + 人工复核 |
 
 登记批次：`tasks/slices/VS00D-G-GAP-RECONCILIATION.md`（2026-10-24）、B27 CP3c/CP3d-B 退役批次（2026-10-24）与 B40 复核批次（2026-10-27）；下一批开工前重扫差距台账时复核本表。
 
