@@ -17,7 +17,7 @@
 | CP1 | 死代码清理：`ChannelDemo`（无引用 demo 组件）、`adoptionDecision`（仅测试引用）删除；审计/追溯脚本豁免同步 | **done**（2026-11-08，`d1475385`；前端 484 tests 全绿） |
 | CP2 | 旧协议退役：Channel `adopt`/`discard`/`modify_draft`（前端已改走 `author_action`，AU-05 已确认入口变更）；删除 handler 与 result helper，把 pending 校验/跨 work 拒绝/edit_then_accept 安全断言迁移到 author_action 测试 | **done（2026-11-08）**：见 §3 实施记录；web 193/0、application 1349/0、credo/format/xref/arch/module-size 全绿 |
 | CP3 | 文档/台账一致性：`quality/acceptance/known-gaps.md`、`docs/design/00c`、`tasks` 中的过时描述与当前实现逐条核对并修正 | **进行中（2026-11-08 首批）**：known-gaps 当前 blocked 表补齐 registry 3 个 blocked 场景；00f 与 README 一致性修正；`check_design_trace.sh` 空数组 bash 3.2 兼容修复（静态扫描曾 FAIL）。00c/tasks 过时描述与历史批次表仍待逐条核对 |
-| CP4 | 逐域核对补缺：按 00f §3 的 M1/M2 域抽查（上下文压缩、设置页、恢复、可观测性等），输出下一批修复或候选；不接受「机制层代签页面/实模」 | **进行中（2026-11-08 首批）**：上下文压缩域机制层充分（压缩后请求组装端到端断言已存在）、设置域入口/测试/场景齐全；发现 1 处历史任务文档实现位置过时（BEHAVIOR-LIFECYCLE 的 Channel adopt 入口）已加更新注记；恢复/可观测性域待抽查 |
+| CP4 | 逐域核对补缺：按 00f §3 的 M1/M2 域抽查（上下文压缩、设置页、恢复、可观测性等），输出下一批修复或候选；不接受「机制层代签页面/实模」 | **进行中（2026-11-08 首批）**：上下文压缩域机制层充分（压缩后请求组装端到端断言已存在）、设置域入口/测试/场景齐全；发现 1 处历史任务文档实现位置过时（BEHAVIOR-LIFECYCLE 的 Channel adopt 入口）已加更新注记；恢复域已抽：`AgentRunStartup` 启动事实唯一构造点此前无直接单测 → 补 `agent_run_startup_test`（3 例，application 1352/0）；可观测性域 controller/service/前端视图测试与 au07 场景齐全。全部 CP4 首批域抽查完成 |
 
 ## 3. CP2 旧协议退役（2026-11-08，已实施）
 

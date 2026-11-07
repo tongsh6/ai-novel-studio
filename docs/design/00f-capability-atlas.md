@@ -87,7 +87,7 @@ React Query 负责服务端状态；Zustand 管 UI state；Socket 单 Channel（
 | 12 | 可观测性与回放 | HTTP replay/activity、Channel 事件/Why | `trace_replay_controller`、`provider_activity_controller`、`authoring_replay`、`agent_run_event_query` | `agentRunTimeline`、Why 回放 | au07/e2e-01 场景、N-NARR 不变量 | M2 |
 | 13 | 作品导出 | Channel `export_work`、`task_state` | 导出任务（channel 内流程 + 服务） | `export.ts` | e2e/p1-export 场景 | M2 |
 | 14 | 桌面外壳与打包 | Tauri 窗口/菜单/sidecar | `desktopSidecar.ts` + Rust shell | 原生入口 | SU 场景族、原生页面批次 | M2（release 签名/多平台外部阻塞） |
-| 15 | 恢复与鲁棒性 | 断线/重启/超时/取消 | durable checkpoint、resume、startup 恢复、取消 token | 控制坞/恢复 UI | au08/au10/b71 恢复场景、b71-a1-03 | M2（部分实模未证） |
+| 15 | 恢复与鲁棒性 | 断线/重启/超时/取消 | durable checkpoint、resume、`agent_run_startup`（启动事实唯一构造点）、取消 token | 控制坞/恢复 UI | au08/au10/b71 恢复场景、b71-a1-03、新增 `agent_run_startup_test`（3 例：唯一构造点/子 run 起始序列/authority_scope 缺省） | M2（部分实模未证） |
 | 16 | 质量与验收体系（工程） | 脚本/CI | quality/acceptance、scenario_invariants、static scan、arch/xref/module-size | 无（工程侧） | 233 场景 registry、五类不变量、CI | M3（工程层） |
 
 ---
@@ -99,7 +99,7 @@ React Query 负责服务端状态；Zustand 管 UI state；Socket 单 Channel（
 3. **流式与预览（R2）**：三 wire SSE 统一生命周期、Responses SSE、工具参数增量→作者正文预览；确定性页面证据 `b71-authoring-transcript-tauri-native-stream-preview-06`（7/7 checks）。
 4. **确定性页面证据 ≠ 实模**：`slice_verify`/`streaming_slice_verify` 批次只证接线与不变量；实模与文学质量（I10）另证。
 5. **导入/分析（B79）未实现**：独立大功能，未在上一轮范围内启动（作者 2026-11-08 指示先梳理现有功能）。
-6. **CP4 抽查（2026-11-08）**：上下文压缩域机制层充分（压缩后请求组装有 `to_request_ir`+投影端到端断言），M1 仅因 G6 实模/页面证据缺；设置域入口/测试/场景齐全（`modelProvider`/`providerHealth` 测试 + su01 场景族），M2 依据成立。
+6. **CP4 抽查（2026-11-08）**：上下文压缩域机制层充分（压缩后请求组装有 `to_request_ir`+投影端到端断言），M1 仅因 G6 实模/页面证据缺；设置域入口/测试/场景齐全（`modelProvider`/`providerHealth` 测试 + su01 场景族），M2 依据成立；恢复域发现 `AgentRunStartup`（普通启动/作者动作/确认子 run 共用的启动事实唯一构造点）只有流程级间接覆盖 → 已补 3 例直接单测（application 1352/0）；可观测性域 controller/service/前端视图测试与 au07 场景齐全。
 
 
 ---
