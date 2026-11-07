@@ -1192,6 +1192,7 @@
   4. **文档/索引/台账对齐**：B71 状态行、当前执行入口、CP 表与恢复指引（本次）；VS-00L §16.15/§17/§19.3（R2 记录）；ADR-0033 §6/A1 修订（2026-11-07 已对齐）；project-ledger 2026-11-07 多条事实；NEXT 当前任务与阻塞；`apps/novel_agent/README.md` R2 模块与测试索引；`scripts/scenario_invariants/README.md` 三投影说明。
   5. **门禁脚本缺陷修复**：`arch_check.exs`/`adr_trace.exs` 成功分支 `System.halt(0)` 会截断 `mix check` 后续命令（adr_trace/I-CACHE 此前实际未在 mix check 执行），已修复（`833cf490`）。
 - **未闭环（不代签）**：真实模型窗口（`q2_0` 重新预注册尚未冻结）、CP4b-2 实模行为/缓存/usage、G6 实际压缩后请求、真实页面流式正文预览与实时启动/确认失败分支页面证据、I10 文学质量。CP5 保持 doing，不标 done。
+- **2026-11-07 追加（R2 预览页面证据）**：确定性真实页面证据新增 `artifacts/slice-verify/b71-authoring-transcript-tauri-native-stream-preview-06`（provider=`streaming_slice_verify` 仅页面批次脚本显式注入；真实 Tauri 窗口生成中 AX 采样「正文生成中」+ 真实正文片段、`submit_tentative_artifact`/`item_id` 零泄漏；writer run 30 条 author_content_delta chunk；verifier 7/7；最终 turn_result 完成）。CP5 确定性证据清单据此更新；真实模型流式行为、Responses/Anthropic 实模与 I10 仍为未闭环，不代签。
 - **复验**：确定性部分用 `mix check` + 静态扫描 + 五个不变量 driver 复跑即可复现；实模按本文档「B71 收口剩余执行条件」在获准窗口后执行。
 
 ### q2_0 实模批次（2026-11-07，作者裁决 A 执行记录）
