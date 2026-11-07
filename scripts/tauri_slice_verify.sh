@@ -449,7 +449,7 @@ if [[ "$SLICE_ID" != "b47-canon-freshness" && "$SLICE_ID" != "su01-provider-heal
 fi
 fi
 fi
-if [[ "$SLICE_VERIFY_PROVIDER" != "slice_verify" && "$SLICE_VERIFY_PROVIDER" != "lmstudio" && "$SLICE_VERIFY_PROVIDER" != "deepseek" && "$SLICE_VERIFY_PROVIDER" != "strata" ]]; then
+if [[ "$SLICE_VERIFY_PROVIDER" != "slice_verify" && "$SLICE_VERIFY_PROVIDER" != "streaming_slice_verify" && "$SLICE_VERIFY_PROVIDER" != "lmstudio" && "$SLICE_VERIFY_PROVIDER" != "deepseek" && "$SLICE_VERIFY_PROVIDER" != "strata" ]]; then
   echo "Unsupported slice verify provider: $SLICE_VERIFY_PROVIDER" >&2
   exit 64
 fi
@@ -2571,7 +2571,7 @@ MIX_ENV=test \
   SLICE_VERIFY_SKIP_DEFAULT_WORK_SEED="$([[ "$SLICE_ID" == "su02-empty-start-unnamed-work" ]] && echo 1 || echo 0)" \
   SLICE_VERIFY_DEEPSEEK_HTTP_FIXTURE="$([[ "$SLICE_ID" == "su01-api-key-secret-redaction" || "$SLICE_ID" == "su01-local-secret-file-roundtrip" ]] && echo 1 || echo 0)" \
   SLICE_VERIFY_PROVIDER_MODELS_FIXTURE="$([[ "$SLICE_ID" == "su01-provider-model-list-success" || "$SLICE_ID" == "su01-provider-test-failure-ui" ]] && echo 1 || echo 0)" \
-  SLICE_VERIFY_WRITER_TIMEOUT="$([[ "$SLICE_ID" == "b17-writer-timeout-steer" || "$SLICE_ID" == "b71-authoring-transcript" ]] && echo 1 || echo 0)" \
+  SLICE_VERIFY_WRITER_TIMEOUT="$([[ "$SLICE_ID" == "b17-writer-timeout-steer" || "$SLICE_ID" == "b71-authoring-transcript" ]] && [[ "$SLICE_VERIFY_PROVIDER" != "streaming_slice_verify" ]] && echo 1 || echo 0)" \
   SLICE_VERIFY_PLAN_EXHAUST="$([[ "$SLICE_ID" == "agent-plan-exhausted-awaiting-reason" || "$SLICE_ID" == "b31-author-reply-run-binding" || "$SLICE_ID" == "q3d-message-delivery-recovery" ]] && echo 1 || echo 0)" \
   NOVEL_LMSTUDIO_TIMEOUT_MS="$LMSTUDIO_TIMEOUT_MS" \
   AI_NOVEL_DESKTOP_PROFILE="slice-verify" \

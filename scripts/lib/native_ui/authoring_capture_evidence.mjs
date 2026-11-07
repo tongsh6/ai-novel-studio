@@ -100,8 +100,8 @@ function readyFor(dir) {
   const ready = read(dir, "native-driver-ready.json");
   assert(SLICE_JOURNEYS[ready.slice_id], `未知原生 slice: ${ready.slice_id}`);
   assert(
-    ["slice_verify", "strata"].includes(ready.provider),
-    `原生批次 provider 必须是 slice_verify 或 strata，实测: ${ready.provider}`,
+    ["slice_verify", "streaming_slice_verify", "strata"].includes(ready.provider),
+    `原生批次 provider 必须是 slice_verify/streaming_slice_verify/strata，实测: ${ready.provider}`,
   );
   // provider=strata 即实模：默认 live（CP3b 协议层）；带 B71_BEHAVIOR_CASE 时切换
   // behavior journey（B70 作者行为覆盖，输入取冻结 case 原文）。

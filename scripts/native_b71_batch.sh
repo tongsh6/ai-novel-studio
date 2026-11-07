@@ -64,8 +64,8 @@ if [[ -z "$TAG" || ! "$TAG" =~ ^[a-z0-9-]+$ || ${#TAG} -gt 32 ]]; then
 fi
 
 B71_PROVIDER="${B71_PROVIDER:-slice_verify}"
-if [[ "$B71_PROVIDER" != "slice_verify" && "$B71_PROVIDER" != "strata" ]]; then
-  echo "unsupported B71_PROVIDER: $B71_PROVIDER (slice_verify|strata)" >&2
+if [[ "$B71_PROVIDER" != "slice_verify" && "$B71_PROVIDER" != "streaming_slice_verify" && "$B71_PROVIDER" != "strata" ]]; then
+  echo "unsupported B71_PROVIDER: $B71_PROVIDER (slice_verify|streaming_slice_verify|strata)" >&2
   exit 64
 fi
 # B71 §16.14 工具确认/拒绝原生场景（确定性 slice_verify provider，真实高风险来源）。
@@ -107,6 +107,13 @@ if [[ -n "$BEHAVIOR_CASE" ]]; then
     echo "behavior batch 只接受 B71_SLICE=b71-first-consumer，实测: $SLICE" >&2
     exit 64
   fi
+fi
+
+if [[ "$B71_PROVIDER" == "streaming_slice_verify" ]]; then
+  # B71 R2 预览页面证据：确定性替身经真实 SSE 发送写作正文；分片延迟让页面
+  # 在生成过程中可观测到预览（默认 30ms/6 graphemes 一片）。
+  export SLICE_VERIFY_PROVIDER=streaming_slice_verify
+  export SLICE_VERIFY_STREAM_DELAY_MS="${SLICE_VERIFY_STREAM_DELAY_MS:-80}"
 fi
 
 LIVE=0

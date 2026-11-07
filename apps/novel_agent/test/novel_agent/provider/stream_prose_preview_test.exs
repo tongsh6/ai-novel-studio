@@ -235,3 +235,335 @@ defmodule NovelAgent.Provider.StreamProsePreviewTest do
     refute Enum.any?(chunk_events, &Map.has_key?(&1.payload, :author_content_delta))
   end
 end
+
+defmodule NovelAgent.Provider.StreamProsePreviewToolCallTest do
+  @moduledoc """
+  B71 R2 预览：写作类 provider 的真实输出是工具调用（`submit_tentative_artifact`），
+  正文在 arguments JSON 的 body 字段。工具参数增量在结束前只作内部增量事实；
+  只有 `content_visibility: :author` 时 SSEStream 才把它喂 AuthorProseStream，并把
+  提取出的正文作为作者可见 chunk（不携带协议字节/工具参数）。
+  """
+
+  use ExUnit.Case, async: true
+
+  alias NovelAgent.Provider.Anthropic
+  alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Provider.OpenAI
+  alias NovelTest.TestRequestIR
+
+  @arguments ~s({"title":"雨夜的信","body":"雨幕里那封信没有落款，他却认得那道旧折痕。","rationale":"按作者要求推进开场。"})
+  @body "雨幕里那封信没有落款，他却认得那道旧折痕。"
+
+  defp ir(text), do: TestRequestIR.ir([TestRequestIR.author(text)])
+
+  defp provider_ctx(provider, opts) do
+    Map.merge(
+      %{
+        provider_name: provider,
+        model_name: "fixture-model",
+        provider_call_ref: "pcall_tool_preview",
+        provider_run_id: "prun_tool_preview",
+        purpose: :writer,
+        owner_refs: %{}
+      },
+      Map.new(opts)
+    )
+  end
+
+  defp sse(payload), do: "data: #{Jason.encode!(payload)}\n\n"
+
+  defp anthropic_sse(event, payload),
+    do: "event: #{event}\ndata: #{Jason.encode!(payload)}\n\n"
+
+  defp chunks(text, count) do
+    size = max(1, div(String.length(text), count))
+
+    text
+    |> String.graphemes()
+    |> Enum.chunk_every(size)
+    |> Enum.map(&Enum.join/1)
+  end
+
+  defp author_content_deltas(events) do
+    events
+    |> Enum.filter(&(&1.event_type == :chunk))
+    |> Enum.map(& &1.payload[:author_content_delta])
+    |> Enum.reject(&is_nil/1)
+  end
+
+  test "Chat SSE 工具参数分片：body 提取为 author_content_delta，工具调用归一保留原始参数" do
+    fragments = chunks(@arguments, 6)
+
+    eventsource = fn _url, _body, _opts, on_data ->
+      fragments
+      |> Enum.with_index()
+      |> Enum.each(fn {fragment, index} ->
+        function =
+          if index == 0,
+            do: %{"name" => "submit_tentative_artifact", "arguments" => fragment},
+            else: %{"arguments" => fragment}
+
+        tool_call =
+          if index == 0 do
+            %{
+              "index" => 0,
+              "id" => "native-submit_tentative_artifact",
+              "type" => "function",
+              "function" => function
+            }
+          else
+            %{"index" => 0, "function" => function}
+          end
+
+        on_data.(
+          sse(%{
+            "model" => "fixture-model",
+            "choices" => [%{"delta" => %{"tool_calls" => [tool_call]}}]
+          })
+        )
+      end)
+
+      on_data.(
+        sse(%{
+          "model" => "fixture-model",
+          "choices" => [],
+          "usage" => %{"prompt_tokens" => 3, "completion_tokens" => 2}
+        })
+      )
+
+      on_data.("data: [DONE]\n\n")
+      {:ok, 200, ""}
+    end
+
+    state = %OpenAI{
+      api_key: "sk-test",
+      endpoint: "https://api.openai.com/v1",
+      model: "fixture-model",
+      timeout: 100,
+      eventsource_fn: eventsource,
+      log_fn: nil
+    }
+
+    assert {:ok, %{result: result, events: events}} =
+             OpenAI.execute(
+               state,
+               nil,
+               ir("写开场"),
+               %InferenceParams{},
+               provider_ctx(:openai, content_visibility: :author)
+             )
+
+    assert Enum.join(author_content_deltas(events)) == @body
+
+    refute Enum.any?(
+             author_content_deltas(events),
+             &String.contains?(&1, "submit_tentative_artifact")
+           )
+
+    refute Enum.any?(author_content_deltas(events), &String.contains?(&1, "rationale"))
+
+    assert [
+             %{
+               "id" => "native-submit_tentative_artifact",
+               "name" => "submit_tentative_artifact",
+               "raw_arguments" => @arguments,
+               "arguments" => %{"title" => "雨夜的信", "body" => @body}
+             }
+           ] = result.tool_calls
+  end
+
+  test "Anthropic SSE tool_use input_json 分片：body 提取为 author_content_delta" do
+    fragments = chunks(@arguments, 6)
+
+    eventsource = fn _url, _body, _opts, on_data ->
+      on_data.(
+        anthropic_sse("message_start", %{
+          "type" => "message_start",
+          "message" => %{"model" => "fixture-model", "usage" => %{"input_tokens" => 1}}
+        })
+      )
+
+      on_data.(
+        anthropic_sse("content_block_start", %{
+          "type" => "content_block_start",
+          "index" => 0,
+          "content_block" => %{
+            "type" => "tool_use",
+            "id" => "toolu_1",
+            "name" => "submit_tentative_artifact"
+          }
+        })
+      )
+
+      Enum.each(fragments, fn fragment ->
+        on_data.(
+          anthropic_sse("content_block_delta", %{
+            "type" => "content_block_delta",
+            "index" => 0,
+            "delta" => %{"type" => "input_json_delta", "partial_json" => fragment}
+          })
+        )
+      end)
+
+      on_data.(
+        anthropic_sse("message_delta", %{
+          "type" => "message_delta",
+          "usage" => %{"output_tokens" => 2}
+        })
+      )
+
+      {:ok, 200, ""}
+    end
+
+    state = %Anthropic{
+      api_key: "sk-ant-test",
+      model: "fixture-model",
+      timeout: 100,
+      eventsource_fn: eventsource,
+      log_fn: nil
+    }
+
+    assert {:ok, %{result: result, events: events}} =
+             Anthropic.execute(
+               state,
+               nil,
+               ir("写开场"),
+               %InferenceParams{},
+               provider_ctx(:anthropic, content_visibility: :author)
+             )
+
+    assert Enum.join(author_content_deltas(events)) == @body
+
+    assert [
+             %{
+               "id" => "toolu_1",
+               "name" => "submit_tentative_artifact",
+               "raw_arguments" => @arguments
+             }
+           ] = result.tool_calls
+  end
+
+  test "Responses SSE function_call_arguments.delta 分片：body 提取为 author_content_delta" do
+    fragments = chunks(@arguments, 6)
+
+    eventsource = fn _url, _body, _opts, on_data ->
+      on_data.(sse(%{"type" => "response.created", "response" => %{"model" => "fixture-model"}}))
+
+      on_data.(
+        sse(%{
+          "type" => "response.output_item.added",
+          "output_index" => 0,
+          "item" => %{
+            "type" => "function_call",
+            "id" => "fc_1",
+            "call_id" => "call_read_1",
+            "name" => "submit_tentative_artifact"
+          }
+        })
+      )
+
+      Enum.each(fragments, fn fragment ->
+        on_data.(
+          sse(%{
+            "type" => "response.function_call_arguments.delta",
+            "item_id" => "fc_1",
+            "output_index" => 0,
+            "delta" => fragment
+          })
+        )
+      end)
+
+      on_data.(
+        sse(%{
+          "type" => "response.completed",
+          "response" => %{
+            "model" => "fixture-model",
+            "usage" => %{"input_tokens" => 1, "output_tokens" => 1}
+          }
+        })
+      )
+
+      {:ok, 200, ""}
+    end
+
+    state =
+      %OpenAI{
+        api_key: "sk-test",
+        endpoint: "https://api.openai.com/v1",
+        model: "fixture-model",
+        timeout: 100,
+        eventsource_fn: eventsource,
+        log_fn: nil
+      }
+      |> Map.put(:wire_api, :responses)
+
+    assert {:ok, %{result: result, events: events}} =
+             OpenAI.execute(
+               state,
+               nil,
+               ir("写开场"),
+               %InferenceParams{},
+               provider_ctx(:openai, content_visibility: :author)
+             )
+
+    assert Enum.join(author_content_deltas(events)) == @body
+
+    assert [
+             %{
+               "id" => "call_read_1",
+               "name" => "submit_tentative_artifact",
+               "raw_arguments" => @arguments
+             }
+           ] = result.tool_calls
+  end
+
+  test "非 author 用途：工具参数不产生 author_content_delta 或派生 chunk" do
+    eventsource = fn _url, _body, _opts, on_data ->
+      on_data.(
+        sse(%{
+          "model" => "fixture-model",
+          "choices" => [
+            %{
+              "delta" => %{
+                "tool_calls" => [
+                  %{
+                    "index" => 0,
+                    "id" => "native-submit_tentative_artifact",
+                    "type" => "function",
+                    "function" => %{
+                      "name" => "submit_tentative_artifact",
+                      "arguments" => @arguments
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        })
+      )
+
+      on_data.("data: [DONE]\n\n")
+      {:ok, 200, ""}
+    end
+
+    state = %OpenAI{
+      api_key: "sk-test",
+      endpoint: "https://api.openai.com/v1",
+      model: "fixture-model",
+      timeout: 100,
+      eventsource_fn: eventsource,
+      log_fn: nil
+    }
+
+    assert {:ok, %{events: events}} =
+             OpenAI.execute(
+               state,
+               nil,
+               ir("普通请求"),
+               %InferenceParams{},
+               provider_ctx(:openai, purpose: :conversation)
+             )
+
+    refute Enum.any?(events, &Map.has_key?(&1.payload, :author_content_delta))
+  end
+end

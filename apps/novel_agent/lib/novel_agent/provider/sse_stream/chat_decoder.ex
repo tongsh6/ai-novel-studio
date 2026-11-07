@@ -18,17 +18,22 @@ defmodule NovelAgent.Provider.SSEStream.ChatDecoder do
 
   @impl true
   def decode(state, decoded) do
-    state =
+    {state, tool_arguments_delta} =
       state
       |> merge_usage(Map.get(decoded, "usage"))
       |> merge_model(Map.get(decoded, "model"))
-      |> merge_tool_calls(decoded)
       |> merge_private_reasoning(decoded)
+      |> merge_tool_calls(decoded)
 
     text = delta_content(decoded)
     state = append_content(state, text)
 
-    {state, %{text: text, activity?: text != "" or tool_call_delta?(decoded)}}
+    {state,
+     %{
+       text: text,
+       activity?: text != "" or tool_call_delta?(decoded),
+       tool_arguments_delta: tool_arguments_delta
+     }}
   end
 
   @impl true
@@ -111,31 +116,38 @@ defmodule NovelAgent.Provider.SSEStream.ChatDecoder do
   end
 
   defp merge_tool_calls(state, %{"choices" => choices}) when is_list(choices) do
-    Enum.reduce(choices, state, fn choice, current ->
-      choice
-      |> Map.get("delta", %{})
-      |> Map.get("tool_calls", [])
-      |> Enum.reduce(current, &merge_tool_call_delta/2)
-    end)
+    {state, fragments} =
+      Enum.reduce(choices, {state, []}, fn choice, {current, fragments} ->
+        choice
+        |> Map.get("delta", %{})
+        |> Map.get("tool_calls", [])
+        |> Enum.reduce({current, fragments}, fn delta, {current, fragments} ->
+          {next_state, fragment} = merge_tool_call_delta(delta, current)
+          {next_state, [fragment | fragments]}
+        end)
+      end)
+
+    {state, fragments |> Enum.reverse() |> Enum.reject(&(&1 == "")) |> Enum.join("")}
   end
 
-  defp merge_tool_calls(state, _decoded), do: state
+  defp merge_tool_calls(state, _decoded), do: {state, ""}
 
   defp merge_tool_call_delta(delta, %{tool_calls: entries} = state) when is_map(delta) do
     index = normalize_tool_call_index(Map.get(delta, "index"))
     entry = Map.get(entries, index, %{id: nil, name: nil, arguments: ""})
     function = Map.get(delta, "function") || %{}
+    fragment = arguments_fragment(Map.get(function, "arguments"))
 
     entry = %{
       id: present_string(entry.id) || present_string(Map.get(delta, "id")),
       name: present_string(entry.name) || present_string(Map.get(function, "name")),
-      arguments: entry.arguments <> arguments_fragment(Map.get(function, "arguments"))
+      arguments: entry.arguments <> fragment
     }
 
-    %{state | tool_calls: Map.put(entries, index, entry)}
+    {%{state | tool_calls: Map.put(entries, index, entry)}, fragment}
   end
 
-  defp merge_tool_call_delta(_delta, state), do: state
+  defp merge_tool_call_delta(_delta, state), do: {state, ""}
 
   defp normalize_tool_call_index(index) when is_integer(index) and index >= 0, do: index
   defp normalize_tool_call_index(_index), do: 0

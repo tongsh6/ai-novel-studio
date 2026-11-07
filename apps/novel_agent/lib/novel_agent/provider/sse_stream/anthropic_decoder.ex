@@ -21,8 +21,14 @@ defmodule NovelAgent.Provider.SSEStream.AnthropicDecoder do
 
   @impl true
   def decode(state, decoded) do
-    state = apply_event(state, decoded)
-    {state, %{text: text_delta(decoded), activity?: activity?(decoded)}}
+    {state, tool_arguments_delta} = apply_event(state, decoded)
+
+    {state,
+     %{
+       text: text_delta(decoded),
+       activity?: activity?(decoded),
+       tool_arguments_delta: tool_arguments_delta
+     }}
   end
 
   @impl true
@@ -47,9 +53,9 @@ defmodule NovelAgent.Provider.SSEStream.AnthropicDecoder do
 
   defp apply_event(state, %{"type" => "message_start", "message" => message})
        when is_map(message) do
-    state
-    |> merge_usage(Map.get(message, "usage"))
-    |> merge_model(Map.get(message, "model"))
+    {state
+     |> merge_usage(Map.get(message, "usage"))
+     |> merge_model(Map.get(message, "model")), ""}
   end
 
   defp apply_event(state, %{"type" => "content_block_start", "content_block" => block} = decoded) do
@@ -60,30 +66,54 @@ defmodule NovelAgent.Provider.SSEStream.AnthropicDecoder do
         partial_json: ""
       }
 
-      put_tool_call(state, tool_call_index(decoded), entry)
+      {put_tool_call(state, tool_call_index(decoded), entry), ""}
     else
-      state
+      {state, ""}
     end
   end
 
   defp apply_event(state, %{"type" => "content_block_delta"} = decoded) do
-    state
-    |> consume_tool_call_delta(decoded)
-    |> append_content(text_delta(decoded))
+    {state, partial} =
+      case decoded do
+        %{"delta" => %{"type" => "input_json_delta", "partial_json" => partial}}
+        when is_binary(partial) ->
+          index = tool_call_index(decoded)
+          entry = Map.get(state.tool_calls, index, %{id: nil, name: nil, partial_json: ""})
+
+          {next_state, partial} =
+            {%{
+               state
+               | tool_calls:
+                   Map.put(state.tool_calls, index, %{
+                     entry
+                     | partial_json: entry.partial_json <> partial
+                   })
+             }, partial}
+
+          {next_state, partial}
+
+        _other ->
+          {state, ""}
+      end
+
+    {state |> append_content(text_delta(decoded)), partial}
   end
 
   defp apply_event(state, %{"type" => "message_delta"} = decoded) do
-    merge_usage(state, Map.get(decoded, "usage"))
+    {merge_usage(state, Map.get(decoded, "usage")), ""}
   end
 
   defp apply_event(state, %{"type" => "error", "error" => error}) when is_map(error) do
-    %{
-      state
-      | error: %{type: provider_error_type(Map.get(error, "type")), message: error_message(error)}
-    }
+    {%{
+       state
+       | error: %{
+           type: provider_error_type(Map.get(error, "type")),
+           message: error_message(error)
+         }
+     }, ""}
   end
 
-  defp apply_event(state, _decoded), do: state
+  defp apply_event(state, _decoded), do: {state, ""}
 
   defp text_delta(%{"delta" => %{"text" => text}}) when is_binary(text), do: text
   defp text_delta(_decoded), do: ""
@@ -119,19 +149,6 @@ defmodule NovelAgent.Provider.SSEStream.AnthropicDecoder do
 
   defp put_tool_call(%{tool_calls: entries} = state, index, entry),
     do: %{state | tool_calls: Map.put(entries, index, entry)}
-
-  defp consume_tool_call_delta(
-         %{tool_calls: entries} = state,
-         %{"delta" => %{"type" => "input_json_delta", "partial_json" => partial}} = decoded
-       )
-       when is_binary(partial) do
-    index = tool_call_index(decoded)
-    entry = Map.get(entries, index, %{id: nil, name: nil, partial_json: ""})
-
-    put_tool_call(state, index, %{entry | partial_json: entry.partial_json <> partial})
-  end
-
-  defp consume_tool_call_delta(state, _decoded), do: state
 
   defp completed_tool_calls(entries) do
     entries

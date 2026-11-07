@@ -278,6 +278,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
+  # B71 R2 预览页面证据：仅 test-support harness 使用的确定性结果入口。
+  # 返回与 execute/5 相同的结果事实，但不发事件、不做生命周期物化——事件发送与
+  # 传输由调用方按真实链路负责（StreamingSliceVerify 经 OpenAI-compatible SSE）。
+  @doc false
+  def fixture_result(state, model, prompt, params, ctx) do
+    run_fixture(state, model, prompt, params, ctx)
+  end
+
   @impl true
   def health_check(_state), do: :ok
 

@@ -254,6 +254,7 @@ defmodule NovelAgent.Provider.SSEStream do
       acc
       |> Map.put(:decoder_state, decoder_state)
       |> mark_ttft(update)
+      |> append_tool_argument_delta(ctx, Map.get(update, :tool_arguments_delta, ""))
 
     append_delta(acc, ctx, Map.get(update, :text, ""))
   end
@@ -290,6 +291,49 @@ defmodule NovelAgent.Provider.SSEStream do
   end
 
   defp mark_ttft(acc, _update), do: acc
+
+  # 写作类 provider 的正文在工具参数 JSON（如 submit_tentative_artifact 的
+  # arguments.body）里：工具参数增量只作内部增量事实，喂 AuthorProseStream 后
+  # 只把提取出的正文文本作为作者可见 chunk（content_length/accumulated 均为
+  # 正文口径，不携带协议字节、工具参数或私有 reasoning）。非 author 用途不提取、
+  # 不投影（工具参数保持不可见）。
+  defp append_tool_argument_delta(acc, _ctx, ""), do: acc
+
+  defp append_tool_argument_delta(acc, ctx, delta) when is_binary(delta) do
+    if Map.get(ctx, :content_visibility) == :author do
+      {next_stream, content_delta} = AuthorProseStream.feed(acc.content_stream, delta)
+
+      if content_delta == "" do
+        %{acc | content_stream: next_stream}
+      else
+        content_length = String.length(content_delta)
+        accumulated = acc.accumulated_content_length + content_length
+        chunk_index = acc.chunk_index + 1
+
+        event =
+          AdapterExecution.chunk_event!(ctx, acc.next_sequence,
+            chunk_index: chunk_index,
+            content_length: content_length,
+            accumulated_content_length: accumulated,
+            author_content_delta: content_delta
+          )
+
+        AdapterExecution.emit_events(ctx, [event], :running)
+
+        %{
+          acc
+          | events: [event | acc.events],
+            next_sequence: acc.next_sequence + 1,
+            chunk_index: chunk_index,
+            accumulated_content_length: accumulated,
+            content_stream: next_stream,
+            ttft_ms: acc.ttft_ms || System.monotonic_time(:millisecond) - acc.started
+        }
+      end
+    else
+      acc
+    end
+  end
 
   defp append_delta(acc, _ctx, ""), do: acc
 

@@ -5,6 +5,7 @@
 // - authoring_run_evidence：批次证据读取、纯判据输入归一与结果落盘
 // - authoring_scenario_evidence：无 I/O 的场景判据
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -339,7 +340,67 @@ const JOURNEY_VERIFIERS = Object.freeze({
 
 export function verify(dir) {
   const config = readConfig(dir);
+  // B71 R2 后续 checkpoint：流式预览页面证据（确定性 test-support provider 经
+  // 真实 SSE 发送写作正文）。它不套用 continuation 的 writer-timeout/steer 判据，
+  // 只验证「生成中正文预览来自真实正文增量」这一独立事实。
+  if (config.provider === "streaming_slice_verify") return verifyStreamPreview(dir);
   return JOURNEY_VERIFIERS[config.journey](dir);
+}
+
+function readTextFile(dir, name) {
+  const file = path.join(dir, name);
+  assert(fs.existsSync(file), `缺少证据文件: ${name}`);
+  return fs.readFileSync(file, "utf8");
+}
+
+function verifyStreamPreview(dir) {
+  const config = readConfig(dir);
+  const ready = JSON.parse(readTextFile(dir, "native-driver-ready.json"));
+  assert.equal(ready.provider, "streaming_slice_verify", "预览批次 provider 必须显式注入 streaming_slice_verify");
+
+  const driverLog = JSON.parse(readTextFile(dir, "native-b71-driver-log.json"));
+  assert.equal(driverLog.preview_captured, true, "缺少生成中预览采样完成标记");
+  assert.equal(driverLog.provider, "streaming_slice_verify", "driver log provider 不一致");
+
+  // 生成中预览：来自真实窗口 AX 文本的「正文生成中」容器 + 未保存提示 + 真实正文片段。
+  const previewText = readTextFile(dir, "02-prose-preview.text.txt");
+  const previewAx = readTextFile(dir, "02-prose-preview.ax.txt");
+  assert(previewText.includes("正文生成中"), "生成中预览容器缺失");
+  assert(previewText.includes("生成中，尚未保存为候选。"), "生成中未保存提示缺失");
+  assert(/灵气账单|夜色压在|雨幕|灰烬/.test(previewText), "预览没有显示真实正文片段");
+  assert(!previewText.includes("submit_tentative_artifact"), "预览泄漏工具/协议标识");
+  assert(!previewText.includes("item_id"), "预览泄漏 JSON 协议字段");
+  assert(previewAx.length > 0, "预览 AX 快照为空");
+
+  // 完成态：真实 turn_result 与最终页面存在（预览不等于最终结果）。
+  assert(fs.existsSync(path.join(dir, "03-final.jpg")), "缺少最终页面截图");
+  assert(fs.existsSync(path.join(dir, "b71-final.json")), "缺少最终 turn 结果证据");
+
+  const summary = {
+    slice_id: config.slice_id,
+    surface: "tauri-native",
+    driver: "ax-native-system-ui",
+    provider: "streaming_slice_verify",
+    model: null,
+    verified_at: new Date().toISOString(),
+    checks: {
+      provider_injected: true,
+      preview_captured_during_generation: true,
+      preview_label_visible: true,
+      preview_not_saved_hint_visible: true,
+      preview_shows_real_prose: true,
+      preview_hides_protocol_bytes: true,
+      final_turn_result_present: true,
+    },
+    not_signed: [
+      "real_model_streaming_behavior_not_signed",
+      "responses_anthropic_real_stream_not_signed",
+      "I10_literary_quality_not_signed",
+    ],
+  };
+
+  fs.writeFileSync(path.join(dir, "summary.json"), JSON.stringify(summary, null, 2));
+  console.log(JSON.stringify(summary.checks));
 }
 
 const MODES = Object.freeze({

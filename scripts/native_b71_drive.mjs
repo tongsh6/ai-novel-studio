@@ -42,6 +42,11 @@ async function run() {
   runEvidenceMode(evidence, "capture", dir, ["start"]);
 
   await harness.runStep("maintenance", "input_ready", () => harness.rawWaitInputReady("b71"));
+  // B71 R2 后续 checkpoint：确定性流式替身（显式注入）经真实 OpenAI-compatible
+  // SSE 发送写作正文；独立 journey 在 run 生成过程中从真实窗口 AX 采样
+  // 「正文生成中」预览，再等待真实 turn_result（不读产品内部状态）。
+  if (harness.provider === "streaming_slice_verify") return await driveStreamPreview(config);
+
   const journey = { continuation: driveContinuation, "character-design": driveCharacterDesign, planning: drivePlanning, revision: driveRevision, pending: drivePendingJourney }[config.journey];
   if (journey) return await journey(config);
 
@@ -54,6 +59,7 @@ async function run() {
   await harness.runStep("ack", "user_message_ack", () =>
     harness.pollWire((wire) => harness.ackFor(wire, sent), 25_000, "b71:ack"),
   );
+
   const result = await harness.runStep("turn", "full_chapter_reply", () =>
     harness.pollWire(
       (wire) =>
@@ -221,6 +227,58 @@ async function drivePendingJourney(config) {
   return drivePending(harness, config, {
     capture: (checkpoint) => runEvidenceMode(evidence, "capture", dir, [checkpoint]),
   });
+}
+
+async function driveStreamPreview(config) {
+  const sent = await harness.runStep("input", "prose_draft", () =>
+    harness.rawTypeAndSend(config.message, "b71"),
+  );
+  const turnId = String(frameBody(sent)?.turn_id ?? "");
+  if (!turnId) throw new Error("user_message_without_turn_id");
+
+  await harness.runStep("ack", "bounded_run_ack", () =>
+    harness.pollWire((wire) => harness.ackFor(wire, sent), 25_000, "b71:ack"),
+  );
+
+  // 生成中采样：预览容器文案只出现在真实流式正文渲染路径；正文片段断言确保
+  // 渲染的是作品正文而非 JSON/协议字节/工具参数。
+  await harness.runStep("turn", "prose_stream_visible", () =>
+    harness.pollAx(
+      (text) =>
+        text.includes("正文生成中") &&
+        text.includes("生成中，尚未保存为候选。") &&
+        /夜色压在|灵气账单|雨幕|开场/.test(text),
+      100_000,
+      "b71:prose_preview",
+    ),
+  );
+  harness.capture("02-prose-preview");
+
+  const result = await harness.runStep("turn", "turn_result", () =>
+    harness.pollWire(
+      (wire) =>
+        wire.find(
+          (entry) =>
+            entry.direction === "received" &&
+            frameEvent(entry) === "turn_result" &&
+            turnIdMatches(String(frameBody(entry)?.turn_id ?? ""), turnId),
+        ) ?? null,
+      120_000,
+      "b71:turn_result",
+    ),
+  );
+
+  harness.capture("03-final");
+  runEvidenceMode(evidence, "capture", dir, ["final"]);
+  harness.writeDriverLog("native-b71-driver-log.json", {
+    slice_id: config.slice_id,
+    provider: harness.provider,
+    turn_id: turnId,
+    assistant_text: String(frameBody(result)?.assistant_message?.text ?? ""),
+    preview_captured: true,
+  });
+  harness.writeUiComplete(config.slice_id);
+  console.log(`B71 streaming preview 驱动完成: turn=${turnId} screenshots=${harness.screenshots.length}`);
 }
 
 async function driveContinuation(config) {

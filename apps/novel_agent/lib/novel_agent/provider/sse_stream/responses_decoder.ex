@@ -37,8 +37,14 @@ defmodule NovelAgent.Provider.SSEStream.ResponsesDecoder do
 
   @impl true
   def decode(state, decoded) do
-    state = apply_event(state, decoded)
-    {state, %{text: text_delta(decoded), activity?: activity?(decoded)}}
+    {state, tool_arguments_delta} = apply_event(state, decoded)
+
+    {state,
+     %{
+       text: text_delta(decoded),
+       activity?: activity?(decoded),
+       tool_arguments_delta: tool_arguments_delta
+     }}
   end
 
   @impl true
@@ -84,31 +90,31 @@ defmodule NovelAgent.Provider.SSEStream.ResponsesDecoder do
 
   defp apply_event(state, %{"type" => "response.created", "response" => response})
        when is_map(response) do
-    merge_model(state, Map.get(response, "model"))
+    {merge_model(state, Map.get(response, "model")), ""}
   end
 
   defp apply_event(state, %{"type" => "response.output_item.added"} = decoded) do
-    put_item(state, output_index(decoded), Map.get(decoded, "item"))
+    {put_item(state, output_index(decoded), Map.get(decoded, "item")), ""}
   end
 
   defp apply_event(state, %{"type" => "response.output_item.done"} = decoded) do
-    put_item(state, output_index(decoded), Map.get(decoded, "item"))
+    {put_item(state, output_index(decoded), Map.get(decoded, "item")), ""}
   end
 
   defp apply_event(state, %{"type" => "response.output_text.delta"} = decoded) do
     case Map.get(decoded, "delta") do
       text when is_binary(text) and text != "" ->
-        %{state | text: [text | state.text]}
+        {%{state | text: [text | state.text]}, ""}
 
       _other ->
-        state
+        {state, ""}
     end
   end
 
   defp apply_event(state, %{"type" => "response.output_text.done"} = decoded) do
     case Map.get(decoded, "text") do
-      text when is_binary(text) -> %{state | text_done: text}
-      _other -> state
+      text when is_binary(text) -> {%{state | text_done: text}, ""}
+      _other -> {state, ""}
     end
   end
 
@@ -118,10 +124,10 @@ defmodule NovelAgent.Provider.SSEStream.ResponsesDecoder do
     case Map.get(decoded, "delta") do
       fragment when is_binary(fragment) ->
         arguments = Map.update(state.arguments, key, fragment, &(&1 <> fragment))
-        %{state | arguments: arguments}
+        {%{state | arguments: arguments}, fragment}
 
       _other ->
-        state
+        {state, ""}
     end
   end
 
@@ -130,43 +136,44 @@ defmodule NovelAgent.Provider.SSEStream.ResponsesDecoder do
 
     case Map.get(decoded, "arguments") do
       arguments when is_binary(arguments) ->
-        %{state | arguments: Map.put(state.arguments, key, arguments)}
+        {%{state | arguments: Map.put(state.arguments, key, arguments)}, ""}
 
       _other ->
-        state
+        {state, ""}
     end
   end
 
   defp apply_event(state, %{"type" => "response.completed", "response" => response})
        when is_map(response) do
-    state
-    |> merge_model(Map.get(response, "model"))
-    |> merge_usage(Map.get(response, "usage"))
-    |> merge_completed_output(Map.get(response, "output"))
-    |> Map.put(:terminal?, true)
+    {state
+     |> merge_model(Map.get(response, "model"))
+     |> merge_usage(Map.get(response, "usage"))
+     |> merge_completed_output(Map.get(response, "output"))
+     |> Map.put(:terminal?, true), ""}
   end
 
   # response.incomplete 是「已生成但被截断」的合法终止事实（如 max_output_tokens）；
   # 保留已收到内容，不当作协议失败；是否可用由上层内容/质量判据决定。
   defp apply_event(state, %{"type" => "response.incomplete", "response" => response})
        when is_map(response) do
-    state
-    |> merge_model(Map.get(response, "model"))
-    |> merge_usage(Map.get(response, "usage"))
-    |> merge_completed_output(Map.get(response, "output"))
-    |> Map.put(:terminal?, true)
+    {state
+     |> merge_model(Map.get(response, "model"))
+     |> merge_usage(Map.get(response, "usage"))
+     |> merge_completed_output(Map.get(response, "output"))
+     |> Map.put(:terminal?, true), ""}
   end
 
   defp apply_event(state, %{"type" => "response.failed", "response" => response})
        when is_map(response) do
-    %{state | error: normalize_error(Map.get(response, "error") || response), terminal?: true}
+    {%{state | error: normalize_error(Map.get(response, "error") || response), terminal?: true},
+     ""}
   end
 
   defp apply_event(state, %{"type" => "error"} = decoded) do
-    %{state | error: normalize_error(decoded)}
+    {%{state | error: normalize_error(decoded)}, ""}
   end
 
-  defp apply_event(state, _decoded), do: state
+  defp apply_event(state, _decoded), do: {state, ""}
 
   defp put_item(state, index, item) when is_map(item) do
     %{state | items: Map.put(state.items, index, item)}

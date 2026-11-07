@@ -16,7 +16,10 @@ provider =
   |> String.to_atom()
 
 Application.put_env(:novel_agent, :extra_providers,
-  slice_verify: NovelAgent.Test.Provider.SliceVerify
+  slice_verify: NovelAgent.Test.Provider.SliceVerify,
+  # B71 R2 预览页面证据：确定性替身经真实 OpenAI-compatible SSE 发送写作正文，
+  # 仅由本测试服务器脚本显式注册，不进生产 registry。
+  streaming_slice_verify: NovelAgent.Test.Provider.StreamingSliceVerify
 )
 
 Application.put_env(:novel_agent, :provider, default: provider)
