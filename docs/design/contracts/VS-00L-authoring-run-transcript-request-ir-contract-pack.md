@@ -497,7 +497,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 - **实际路由单源（2026-11-04 源头重构）**：canonical IR 不查询 Gateway、不保存猜测的 target/capability_profile/provider_route。Gateway 根据本次 provider/model/purpose/route_hint 解析唯一配置快照，并据该 adapter/state 派生能力。adapter 消费同一 state 和完整 IR，直接投影自身原生协议；不经 Chat 形态转译，不再比较构造路由和执行路由。设置页能力查询只是诊断，不作为随后一次执行的授权事实。
 - **有限模式必须覆盖缺失项**：`finite_mode` 只有其受限集合覆盖每一个 missing 能力时才放行；`standalone_operation` 等不声明覆盖集合的模式不能绕过门槛（§6.4「显式有限模式」的落地语义）。
 - **流式工具调用无损**：SSE 响应中的原生 tool_calls 必须按 provider 协议累积（OpenAI `tool_calls[].index`；Anthropic `content_block_start(tool_use)` + `input_json_delta.partial_json`），保留 arguments 原始字节（`raw_arguments`）并复用非流式解析；带工具调用的流不得被误判为空响应。
-- **Responses 传输**：wire 目标由 adapter 声明；`wire_api: :responses` 走真实 `POST /responses` 与 items/function_call/function_call_output/usage 解析。Responses SSE 未实现时该 wire 必须如实声明 `streaming: false`，完整 AgentRun（必备能力含 streaming）被显式拒绝路由，不得静默降级。
+- **Responses 传输**：wire 目标由 adapter 声明；`wire_api: :responses` 走真实 `POST /responses` 与 items/function_call/function_call_output/usage 解析。**2026-11-07 R2 更新**：Responses SSE 已实现（`stream: true`；事件累积 `response.output_text.delta` / `response.function_call_arguments.delta|done` / `response.output_item.added|done` / `response.completed|incomplete` / `response.failed|error`），该 wire 的能力声明翻正为 `streaming: true`；终止必须见到 `response.completed` 或 `response.incomplete`，截断流 fail-closed（不得把半截增量冒充完整响应）。能力门槛语义不变：adapter 未声明 streaming 时仍显式拒绝路由，不得静默降级。
 - **作者安全**：能力拒绝文案只输出中文能力名；内部 capability atom 仅出现在 reason details/诊断，不进入作者文案。
 
 ## 16.16 显式压缩的产品触发（2026-11-03，2026-11-04 §18 修订）
@@ -523,9 +523,9 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 | 压缩恢复、规划/修订/质量、replay/Why | 规划/修订/质量、离线 canonical 恢复与确定性页面已有证据；自动维护及其 UI 已实现；G6 实际压缩后请求未闭环。离线恢复不等于自动重启模型执行 |
 | ADR-0030/0031 Superseded 与索引/任务重锚 | 已完成（CP1 复核后执行） |
 | giant prompt/`normalize_messages`/固定 packet 实际退役 | 生产判断/创作/质量链已不使用 giant prompt 构造；`RequestIR.from_legacy` 迁移适配器已删除（§11 要求）；`normalize_messages/1` 保留为 provider wire 形状规范化，不是双轨 |
-| 三类 provider 的有限模式/拒绝路由反例 | **已实现**（能力矩阵 + finite_mode 覆盖校验 + Responses 无 SSE 时拒绝路由；单测覆盖） |
+| 三类 provider 的有限模式/拒绝路由反例 | **已实现**（能力矩阵 + finite_mode 覆盖校验；2026-11-07 R2 后 Responses SSE 已具备，但「adapter 未声明 streaming 时拒绝路由」反例继续保留；单测覆盖） |
 | Responses 投影的生产消费者 | **已实现（2026-11-04 R1，已提交并通过确定性门禁）**：Responses adapter 直接消费 `RequestIR.Projection.ResponsesAPI` 投影，不再从 chat 形状转换，IR 投影目标不再由默认 route 决定。SSE 仍开放（见下一行） |
-| Responses 流式 SSE | **仍开放**：该 wire 声明 `streaming: false`，完整 AgentRun 显式拒绝路由 |
+| Responses 流式 SSE | **已实现（2026-11-07 R2，确定性机制层）**：`stream: true` + Responses decoder（文本增量、工具参数增量→call_id/raw_arguments 归一、usage completed、failed/error 失败、截断 fail-closed）；能力声明翻正 `streaming: true`；旧「Responses SSE 未实现时拒绝」反例迁移为「adapter 未声明 streaming 时拒绝」。**未代签**：真实模型 Responses 流事件顺序/usage 与真实页面流式预览 |
 | purpose/model 级能力差异 | **已实现（2026-11-04 R1，已提交并通过确定性门禁）**：canonical IR 不携带构造侧 target/capability_profile/provider_route；Gateway 按本次 provider/model/purpose/route_hint 解析唯一配置快照并派生能力；三类 adapter 直接投影原生协议。已删除 `to_provider_prompt/2`、构造/执行双身份比对与 Chat 中间层。剩余验证：真实 route/原生 body 回归、I-CACHE 独立输入、R1 后全量门禁 |
 | 实模 CP3b/CP4b-2（真实模型行为/缓存/usage） | **CP3b 协议层机制 PASS**（2026-11-03 cp4b-live-03-cp3b：L1–L10 全 true、真实模型创作链、usage 9/9、strata 卸载核验；L11 Why 未观察如实记 null）；**G1–G5 切片已覆盖**（G1–G4 来自实模批次 03 的 9 条真实请求字节离线分析：追加式前缀全通过、G1 结构/G2 唯一 call_id 绑定/G3 failed validation 回流/G4 tentative artifact 工具；G5 来自 pending-08 确定性批次 followup 新 turn 请求字节：resolved_adoptions 携带 ACCEPTED/DISCARDED 真实处置数据，按数据形态判定不误报规则文本）；**未代签** G6（压缩未触发）、完整 G1–G6 语义、I10 与作者行为覆盖（B70/B72 另列） |
 | 作者行为覆盖（B70/B72 资产接入的实模批次） | **接入已实现 + pilot 已执行**：冻结 cases 选择器 + oracles HO1–HO6 + behavior 驱动（判据加固 B1–B18）；B11 seed 补齐 S1/S3 的 memory/chapter_plans（pending 无 API 构造，S3 差异如实登记）。**pilot #1（01c2，C-F1-003 holdout 零写）clean PASS**（真实模型正确进度事实、零写、state_checks 与 states.yml S1 逐项一致）；**pilot #2（#6，C-F3-002 保存请求）真实模型执行失败**（3 调用 0 工具 0 候选，产品 fail-closed，verdict violation——真实模型能力限制，不重跑/不调判据）；B1 effect echo 档位 A 已合入（append 已 echo，真实批次未触发验证）。**未代签完整 G1–G6/I10；未 done** |
@@ -665,6 +665,15 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 - 各 adapter 直接消费 IR 的原生 projector；产品身份与角色规则由投影形成稳定 system 前缀，不把普通 wire message 插进 canonical messages。**2026-11-06 裁决 A 已落地**：run 角色规则/输出协议进入 `IR.system.instructions`（判断/使命/计划/创作/评审与三文本消费者），`application_base` 只声明应用材料职责；因此 system 前缀 = 身份 + 版本 + 规则。DeepSeek 既有私有状态仍仅按真实 provider/model 回放；原始工具参数保持原字节。Responses SSE 和其私有输出块由 R2 承接，不在 R1 中假报具备。
 - R1 首步迁移判断、使命、计划、writer、evaluator 与测试替身，删除旧 `to_provider_prompt` Chat 中间层及只服务该中间层的公开 helper（2026-11-04 已完成，已提交并通过确定性门禁）。现有章摘要、设定盘点等直接文本调用仍按真实消费者分别迁移；不得为了让它们符合 AgentRun envelope 而伪造 run/session 或作者消息。此分步只降低实施风险，不缩小 CP4b/CP5。
 - **三个文本消费者已迁移（2026-11-04 R1，已提交并通过确定性门禁）**：设定盘点 `FactInventoryService`、章摘要 `ChapterSummaryGenerator`、工具结果叙述 `Planner.narrate_tool_result/3` 经 `RequestIR.text_operation/1` 构造 canonical IR（真实操作 profile + 材料作为 `application_base` + 来源 refs），不伪造 run/session 或作者消息；四个 adapter 与 Gateway 的 legacy prompt 子句、`Provider.normalize_messages/2`、`SystemIdentity.inject/1`、`put_openai_tools/2` 已删除。三者仍非 AgentRun，`standalone_operation` 语义不变。
+
+### 19.3 R2 同一流式生命周期（2026-11-07，确定性机制层）
+
+- **单一生命周期骨架**：`NovelAgent.Provider.SSEStream` 统一三 wire 的取消（token 取消即 halt 并物化 cancelled，不伪造成功）、最长 wire 静默窗口（有数据即续命）、显式配置的总时长兜底、SSE 帧分割/JSON 失败标记、ProviderEvent chunk 与作者叙事增量、终止物化与错误分类。Chat/Anthropic/Responses 只提供 decoder，不再各自复制传输生命周期。
+- **工具调用不再隐式非流式**：三 wire 的 tool_calls / tool_use 均走 SSE，参数在结束前只作增量事实，结束时由同一 wire 解析归一为 canonical `Result.tool_calls`（保留 `call_id` 与 `raw_arguments` 原字节）；不存在「带工具调用就退化为 final-only」的旁路。
+- **Responses 事实边界**：非流式 `output` 与流式 done items 共用 `ResponsesWire` 解析；工具身份只认 `call_id`，`item.id` 是 provider 私有输出标识不得混用；`response.completed`/`response.incomplete` 是正常终止事实，`response.failed`/`error` 是显式失败，两者都不允许被静默改写为成功。
+- **私有推理**：供应商私有 reasoning 增量只在流内累积为私有事实，由 adapter 绑定 provider_state 并经真实 provider/model 门回放；正文与作者可见事件不携带。
+- **I-CACHE 多投影**：`run_icache_prefix.exs` 在既有 Chat 判据不变的前提下新增 Anthropic/Responses 投影的连续轮共享前缀度量（按各 wire 的真实投影顺序序列化，稳定 system 前缀在流首），三行均 enforce；CI 既有 step 自动强制。
+- **未闭环**：真实模型 Responses 流事件顺序/usage/失败重试、真实页面流式正文预览、G6 与 CP5 另证，不据本记录代签。
 
 ### 19.2 初始快照与追加历史的职责（R1 真实前缀反例）
 

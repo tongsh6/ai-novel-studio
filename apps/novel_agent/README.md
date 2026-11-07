@@ -20,6 +20,18 @@ and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
 be found at <https://hexdocs.pm/novel_agent>.
 
 
+## B71 R2 统一流式生命周期（VS-00L §19.3，2026-11-07）
+
+- [sse_stream.ex](lib/novel_agent/provider/sse_stream.ex)：三 wire 共用的 SSE 传输生命周期（取消/静默窗口/总时长/帧分割/文本增量事件/终止分流）。
+- [sse_stream/chat_decoder.ex](lib/novel_agent/provider/sse_stream/chat_decoder.ex)：Chat Completions delta——正文、tool_calls 分片、供应商私有 reasoning 增量。
+- [sse_stream/anthropic_decoder.ex](lib/novel_agent/provider/sse_stream/anthropic_decoder.ex)：Anthropic Messages——text_delta、tool_use input_json 分片、usage、provider error。
+- [sse_stream/responses_decoder.ex](lib/novel_agent/provider/sse_stream/responses_decoder.ex)：Responses SSE——output_text delta、function_call_arguments delta/done、output_item、completed/incomplete/failed。
+- [sse_stream/result.ex](lib/novel_agent/provider/sse_stream/result.ex)：流终止物化与错误分类/超时诊断/日志（不伪造成功）。
+- [responses_wire.ex](lib/novel_agent/provider/responses_wire.ex)：Responses output 单一解析（非流式与流式共用；`call_id` 为唯一工具身份，item id 不混用）。
+- [responses_stream.ex](lib/novel_agent/provider/responses_stream.ex)：Responses SSE 入口。
+- [responses_stream_test.exs](test/novel_agent/provider/responses_stream_test.exs)：B71 R2——failed/截断 fail-closed/incomplete/工具增量归一/取消/chunk 事件。
+- [openai_responses_wire_test.exs](test/novel_agent/provider/openai_responses_wire_test.exs)：Responses route 级真实传输（`complete/4` 非流式 + `execute/5` SSE；能力声明 streaming=true）。
+
 ## B71 逐调用执行引用（VS-00L §16.9）
 
 - [gateway_execution_refs_test.exs](test/novel_agent/provider/gateway_execution_refs_test.exs)：真实 Gateway → NativeToolExchange → canonical → LLMLog 配对；自动 `pcall/prun`、协议失败→重试两次引用逐项一致、传输失败无 assistant/假原生 id。

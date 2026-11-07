@@ -1132,6 +1132,22 @@
 - **风险**：Responses SSE 真实事件名/顺序需以官方文档为准（实现前用 web 查证并记录来源）；离线实现需 fake SSE 帧契约测试，避免「假流式」（final-only 伪装）；翻正能力声明前必须保证 decoder 对截断/错误帧 fail-closed。
 - **待作者裁决**：① R2 done 判据为「确定性机制 + 门禁通过」还是必须等实模窗口；② I-CACHE 是否扩展为三投影强制门禁；③ R2 后 responses wire 是否允许生产默认启用（当前无默认，建议保持显式配置）；④ 真实流式正文预览 UI 是否纳入 R2（建议独立后续项，不缩小 R2 但也不在本批伪造页面证据）。
 
+### R2 实施记录（2026-11-07，确定性机制层完成）
+
+- **范围**：§R2 CP0 六步全部落地——统一流式生命周期 + Responses SSE + 工具调用不再隐式非流式 + 能力翻正 + I-CACHE 三投影 + 证据分层。**不代签**实模、真实页面流式正文预览、G6、CP5。
+- **实现落点（`novel_agent` 执行边界）**：
+  - `NovelAgent.Provider.SSEStream`：三 wire 共用的流式骨架——取消（token 取消即 halt + `materialize_cancelled`）、最长 wire 静默窗口、显式配置的总时长兜底、SSE 帧分割/data 提取/JSON 失败标记、ProviderEvent chunk 与作者叙事增量、终止物化分流；`SSEStream.Result` 承载成功/失败判定与错误分类/超时诊断/日志。
+  - `SSEStream.ChatDecoder` / `AnthropicDecoder` / `ResponsesDecoder`：各 wire 原始事件累积。Chat/Anthropic 由既有实现迁移（行为不变，含工具 index/partial_json 累积与 usage）；Responses 新增（output_text delta、function_call_arguments delta/done、output_item added/done、completed/incomplete/failed/error）。
+  - `NovelAgent.Provider.ResponsesWire`：Responses output 单一解析（非流式与流式共用）——正文只取 `message.content[].output_text`；工具身份只认 `call_id`（`item.id` 是 provider 私有输出标识，不混用）；`raw_arguments` 保原字节；usage 取 `input_tokens/output_tokens` 与 cached 明细。
+  - `ResponsesStream`（Responses SSE 入口）；`OpenAICompatibleStream`/`AnthropicStream` 收敛为 decoder 绑定薄封装（不再各自复制生命周期）。
+  - `openai_compatible.ex`：`execute/5` 的 Responses wire 改 `stream: true`（`responses_request_body/4` 参数化；`complete/4` 保留 final-only 非流式）；`capabilities/2` 对 Chat/Responses 均声明 `streaming: true`。
+  - 工具调用统一流式：删除 `OpenAICompatible`/`DeepSeek`/`LMStudio`/`Anthropic` 的 `execute_tool_call` 非流式分支；工具参数在流内只作增量事实，结束时归一为 canonical `Result.tool_calls`（call_id/raw_arguments）。
+  - 私有推理：Chat decoder 累积供应商私有 `reasoning_content` 增量，DeepSeek adapter 经 `provider_state_fun` 绑定成 provider_state（仅同 provider/model 回放）；正文与作者可见事件不携带。
+- **关键判据**：Responses 流必须以 `response.completed`/`response.incomplete` 正常终止，缺失即 `:parse` fail-closed（截断流不得把半截增量冒充完整响应）；`response.failed`/`error` 不产生成功结果；三 wire 的取消/静默/总时长/错误分类语义统一；`item_id` 与 `call_id` 不混用。
+- **证据（确定性层）**：`novel_agent` 498/0（新增 `responses_stream_test.exs` 6 例覆盖 failed/截断/incomplete/工具增量/取消/chunk；更新 `native_boundary_r1_test`/`strata_test`/`anthropic_test`/`lm_studio_test`/`deep_seek_test`/`gateway_test`/`openai_responses_wire_test` 为 SSE 语义）；`mix compile --warnings-as-errors`、credo `--strict` no issues、format、xref 无环、arch_check、module-size 通过；I3 4/4、I1 4/4、I2 3 pairs/0 violations、N-NARR PASS、I-CACHE 全 enforce=true（新增三投影行：chat 18420/29704、anthropic 18482/23517、responses 18532/23649，均覆盖 L0–L2 边界；CI `run_icache_prefix.exs` step 已自动强制）；全量后端/前端回归见最终报告。
+- **边界**：改动限于 `novel_agent`（传输/流式解析/能力声明）与 `scripts/scenario_invariants`（I-CACHE 扩展）；canonical IR、三投影字节、ProviderRun 持久字段与作者可见面均无变化；未新增产品验收感知逻辑。
+- **未闭环/待裁决**：① R2 done 判据——本轮按「确定性机制 + 全量门禁 + 不变量」收口，实模窗口（真实 Responses 流事件顺序/usage/失败重试）另证；② I-CACHE 三投影已随既有 CI step enforce，是否升级为 `mix check` 本地强制待作者裁决；③ 生产默认 wire 保持显式配置（本轮未把 responses 设为默认）；④ 真实流式正文预览 UI 仍在 R2 之外（建议独立后续项，本轮不伪造页面证据）。
+
 ### 原生批次验收状态（2026-11-06）
 
 - **授权（已确认就绪，不需要作者再处理系统对话框）**：辅助功能 `AXIsProcessTrusted()=true`、CGEvent `CGPreflightPostEventAccess()=true`、屏幕录制 `CGPreflightScreenCaptureAccess()=true`；真实批次里窗口 AX 读取、CGEvent 输入投递（`cgevent_to_pid`）、截图、后端链路均成功。此前"app 一直等待输入"不是授权问题，而是 harness 等待账/外部驱动流程问题。
