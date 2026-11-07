@@ -300,6 +300,7 @@ Chat 调用点的 §6.1 序列化与阈值不变，不放松。三行 `enforce=t
 ### 8.4 强制力与例外
 
 - CI：`.github/workflows/ci.yml` 的 scenario invariants 步骤中与 I1/I2/I3 同批运行
+- 本地 `mix check`：2026-11-07 作者裁决后加入（含三 wire 投影度量），提交前即可发现前缀回归
 - 静态扫描：`scripts/ai_static_scan.sh` 的 `scenario-invariants-i-cache` 检查
-- pre-commit 不跑（秒级成本可接受，但避免阻塞每次本地提交；以 CI 为准）
+- pre-commit 不跑（秒级成本可接受，但避免阻塞每次本地提交；以 CI 与 mix check 为准）
 - 豁免：同 §5.3，仅 `docs/engineering/scenario-invariants-exceptions.md` 显式登记

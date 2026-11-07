@@ -62,7 +62,11 @@ defmodule AiNovelStudio.MixProject do
         "xref graph --format cycles --label compile-connected --fail-above 0",
         "test",
         "run scripts/arch_check.exs",
-        "run scripts/adr_trace.exs"
+        "run scripts/adr_trace.exs",
+        # 2026-11-07 作者裁决：I-CACHE-1（含三 wire 投影）加入本地 mix check，
+        # 提交前即可发现稳定前缀回归；CI 仍按 scenario invariants step 强制。
+        # `mix check` 经 preferred_envs 在 test env 执行，故此处直接 run。
+        "run scripts/scenario_invariants/run_icache_prefix.exs"
       ]
     ]
   end

@@ -221,7 +221,9 @@ defmodule ArchCheck do
 
     if errors == [] do
       IO.puts("✅ 架构检查通过")
-      System.halt(0)
+      # 2026-11-07：成功时不再 System.halt(0)，否则在 `mix check` alias 中会
+      # 截断后续门禁命令（adr_trace / I-CACHE 曾因此未执行）。失败仍 halt(1)。
+      :ok
     else
       IO.puts("❌ 架构违规:\n")
       Enum.each(errors, &IO.puts("  - #{&1}"))

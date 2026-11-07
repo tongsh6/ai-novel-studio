@@ -72,7 +72,9 @@ defmodule AdrTrace do
           IO.puts("ℹ️  Skipped non-Accepted ADR(s): #{names}")
         end
 
-        System.halt(0)
+        # 2026-11-07：成功时不再 System.halt(0)，否则 `mix check` alias 中其后的
+        # 门禁命令（I-CACHE）不会执行；失败分支仍 halt(1)。
+        :ok
     end
   end
 

@@ -1148,6 +1148,27 @@
 - **边界**：改动限于 `novel_agent`（传输/流式解析/能力声明）与 `scripts/scenario_invariants`（I-CACHE 扩展）；canonical IR、三投影字节、ProviderRun 持久字段与作者可见面均无变化；未新增产品验收感知逻辑。
 - **未闭环/待裁决**：① R2 done 判据——本轮按「确定性机制 + 全量门禁 + 不变量」收口，实模窗口（真实 Responses 流事件顺序/usage/失败重试）另证；② I-CACHE 三投影已随既有 CI step enforce，是否升级为 `mix check` 本地强制待作者裁决；③ 生产默认 wire 保持显式配置（本轮未把 responses 设为默认）；④ 真实流式正文预览 UI 仍在 R2 之外（建议独立后续项，本轮不伪造页面证据）。
 
+### R2 后续 checkpoint：真实流式正文预览 UI（2026-11-07 作者裁决 B：纳入 R2）
+
+- **背景**：R2 机制层已让三 wire 产出真实正文增量事件（`ProviderEvent` chunk，来源为 decoder 的 text delta），但前端流式正文预览尚未实现。作者 2026-11-07 裁决把该 UI 纳入 R2 后续 checkpoint，即 R2 的「正文预览只来自真实正文数据」要求在页面层闭环。
+- **范围（本 checkpoint 冻结，开工前须逐项核对）**：
+  1. **消费通路**：确认前端已有/需要真实事件通路（Channel 推送 ProviderEvent 或等价现有投影）；禁止新建平行旁路或让产品感知验收。
+  2. **展示边界**：预览字节只来自真实正文增量（Chat/Anthropic/Responses 的 text delta chunk）；工具参数增量、私有 reasoning、provider 原始事件不进入作者可见预览；取消/错误/截断（Responses 缺 completed）时预览不得冒充成功正文。
+  3. **一致性**：预览内容与最终 `Result.content`/TurnResult 正文的差异须可解释（流内增量 vs done 事实），不得拼接/转义改写字节（I1/I3 同源约束）。
+  4. **页面证据**：外部自动化驱动真实页面（Tauri 窗口）+ 显式注入的流式 test-support provider 或真实模型窗口；证据含页面截图、事件序列、最终 Result 一致性。
+- **依赖**：R2-6 页面层窗口；若用 test-support 流式替身，必须经测试/脚本显式注入（遵守场景化验收红线），不得注册进生产 runtime。
+- **状态**：**未开工**（作者已批准纳入 R2，本记录只冻结范围与验收；未实现前不代签页面证据）。
+
+### B71 收口剩余（实模/G6/CP5）当前执行条件（2026-11-07）
+
+- **作者选择**：2026-11-07 作者选择 C——下一主线聚焦 B71 收口剩余（实模/G6/CP5）。
+- **只读探测（2026-11-07）**：Strata App 在线（`127.0.0.1:47831`），当前 `/v1/models` 只提供 `q2_0`（Qwen3.8-Flash-Next Q2_0）；CP3b/CP4b-2 预注册场景冻结的是单槽 `iq3_s`（`artifacts/model-contracts/b71-cp1/scenario-preregistration.json`）。环境未配置 OpenAI/Anthropic 官方凭证（无 `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`），因此 R2 的 Responses/Anthropic 实模验证不可执行。
+- **需要作者裁决**：
+  - **A（推荐）**：以当前可用 `q2_0` 重新冻结 B71 实模预注册（批次预算沿用：≤2 批次、场景 900s、input 120s/turn 360s），随后跑 CP4b-2/G6 实模批次；R2 Responses/Anthropic 实模等官方凭证窗口。
+  - **B**：等原单槽 `iq3_s` 窗口，预注册不变。
+  - **C**：先做 CP5 无窗口收口与 R2 预览 UI 设计，实模窗口另排期。
+- **纪律**：未获批准/窗口前不启动实模批次、不伪造 PASS、不以机制层证据代签模型行为层；预注册不先跑后补。
+
 ### 原生批次验收状态（2026-11-06）
 
 - **授权（已确认就绪，不需要作者再处理系统对话框）**：辅助功能 `AXIsProcessTrusted()=true`、CGEvent `CGPreflightPostEventAccess()=true`、屏幕录制 `CGPreflightScreenCaptureAccess()=true`；真实批次里窗口 AX 读取、CGEvent 输入投递（`cgevent_to_pid`）、截图、后端链路均成功。此前"app 一直等待输入"不是授权问题，而是 harness 等待账/外部驱动流程问题。
