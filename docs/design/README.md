@@ -1,5 +1,7 @@
 # 当前设计文档入口
 
+> 2026-11-08：系统现有功能梳理启动——新增 [00f 实现态能力图谱](00f-capability-atlas.md)（真实入口 → 功能域 → 实现/消费 → 证据/缺口，living 文档）；首轮盘点登记死代码/旧协议退役/未取证/文档一致性缺口（P1–P3）。历史状态行中「R1 实现位于未提交工作区」等描述是当时记录，当前 R1/R2/流式预览证据均已提交（见 `docs/project-ledger.md`）。B79 导入/分析为独立大功能，本轮不启动。
+
 > 2026-11-07：B71 裁决 4 C 按作者 A1 裁决恢复原计划统一归属——三类 Provider wire 投影（`NovelCommon.RequestIR.Projection` + `ChatCompletions`/`AnthropicMessages`/`ResponsesAPI`）与传输能力事实派生（`NovelCommon.CapabilityProfile`）一并下沉 `novel_common`；执行边界保留实际路由选择、传输发送与运行时监督。2026-11-06 的「投影留 agent」按作者裁决回退，[ADR-0033 §6](adr/ADR-0033-authoring-run-transcript-request-ir-v3.md#6-contract-与边界影响) 与 [VS-00L §17/§19](contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md#17-实施状态更新2026-11-03) 已同步修订；wire 与持久化字节未变，实模/页面/CP5 不代签。
 
 > 2026-11-06：B71 裁决 4 C 依赖图下沉完成——canonical Request IR 契约族（`RequestIR`/`Tools`/`SystemEnvelope`/`Compaction`/`Operation`/`SystemIdentity`）下沉 [novel_common](../../apps/novel_common/README.md)，Provider wire 投影（`NovelAgent.Provider.Projection`）与能力事实（`CapabilityProfile`）保留 `novel_agent` 执行边界；`novel_test` 去 `novel_agent` 依赖并承载跨 app 请求契约 helper；`arch_check` 新增 common/test 边界与跨 app test-support 白名单。wire 与持久化字节未改变，实模/页面/CP5 不代签。详见 [VS-00L §17](contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md#17-实施状态更新2026-11-03) 表末行与 [ADR-0033 §6](adr/ADR-0033-authoring-run-transcript-request-ir-v3.md#6-contract-与边界影响)。
@@ -103,6 +105,7 @@
 5. `contracts/`：查具体 contract pack。
 6. `acceptance/README.md` 与 `acceptance/SCENARIO-BLUEPRINT.md`：查场景化验收口径。
 7. `ui/README.md` 与 `ui/traceability/screen-to-doc-map.md`：查 UI 实现追溯。
+8. `00f-capability-atlas.md`：查「实现态功能域 → 真实入口 → 证据 → 缺口」（写/完善功能前先定位所属域）。
 
 ## 合并来源
 
