@@ -30,7 +30,8 @@ be found at <https://hexdocs.pm/novel_agent>.
 - [responses_wire.ex](lib/novel_agent/provider/responses_wire.ex)：Responses output 单一解析（非流式与流式共用；`call_id` 为唯一工具身份，item id 不混用）。
 - [responses_stream.ex](lib/novel_agent/provider/responses_stream.ex)：Responses SSE 入口。
 - [responses_stream_test.exs](test/novel_agent/provider/responses_stream_test.exs)：B71 R2——failed/截断 fail-closed/incomplete/工具增量归一/取消/chunk 事件。
-- [stream_prose_preview_test.exs](test/novel_agent/provider/stream_prose_preview_test.exs)：B71 R2 后续 checkpoint——三 wire 流式正文经 AuthorProseStream 提取 `author_content_delta`（前端预览唯一数据源），非 author 用途不携带。
+- [stream_prose_preview_test.exs](test/novel_agent/provider/stream_prose_preview_test.exs)：B71 R2 后续 checkpoint——三 wire 流式正文/写作工具参数增量经 AuthorProseStream 提取 `author_content_delta`（前端预览唯一数据源），工具调用归一保留 raw_arguments，非 author 用途不携带。
+- [streaming_slice_verify.ex](test/support/provider/streaming_slice_verify.ex)：页面批次用的确定性流式替身（显式注入，不注册生产）——把 fixture 结果经真实 OpenAI-compatible SSE 发送，供真实窗口的生成中正文预览证据。
 - [openai_responses_wire_test.exs](test/novel_agent/provider/openai_responses_wire_test.exs)：Responses route 级真实传输（`complete/4` 非流式 + `execute/5` SSE；能力声明 streaming=true）。
 
 ## B71 逐调用执行引用（VS-00L §16.9）
