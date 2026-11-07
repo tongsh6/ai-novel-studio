@@ -1,8 +1,8 @@
 # B71：AI Novel Studio 原生多轮创作请求体
 
-- **当前执行入口（2026-11-04，接续复核）**：以下当前状态和末节「统一接续与源头重构」优先于历史过程记录。原生确认批次暴露的子运行启动交接已由 `8930c432` 修复；新页面事件证据待补。A3b 的原“模型契约失败率高”归因已由原始请求/响应纠正，见末节。当前最前沿执行单元是末节「R1 实际路由与原生输入迁移」（实现已落地、待独立验证），按 VS-00L §19.1/§19.2 推进。
+- **当前执行入口（2026-11-07，R2 收口后）**：R2 统一流式生命周期 + Responses SSE 已完成并提交（`119b7c35`）；三 wire 投影 I-CACHE 已入 CI 与本地 `mix check`（`c89d5f54`/`833cf490`）；R2 后续 checkpoint「真实流式正文预览」机制层已补齐（`55fde7db`，前端渲染与后端投影原本已存在，缺口是 SSEStream 未产出 author_content_delta）。**下一步主线（作者 2026-11-07 选择 C→A）**：先完成 CP5 无窗口收口（本文档末节），再以当前可用 Strata 模型 `q2_0` 重新冻结实模预注册并跑 CP4b-2/G6 批次（Responses/Anthropic 实模等官方凭证窗口）；页面/实模证据不代签。历史接续说明：原生确认批次暴露的子运行启动交接已由 `8930c432` 修复；新页面事件证据待补。A3b 的原“模型契约失败率高”归因已由原始请求/响应纠正，见末节。当前最前沿执行单元是末节「R1 实际路由与原生输入迁移」（实现已落地、待独立验证），按 VS-00L §19.1/§19.2 推进。
 
-- 状态：**doing**。已取得 CP2/CP3a/CP3c/CP4a 机制与确定性页面证据、CP3b 实模协议机制 10/10、G1–G4 实模请求切片、G5 确定性请求切片、pending-08 77/77、确认/拒绝原生 clean PASS、displayName P0/P1 页面证据；压缩自动维护实现完成。**R1 请求边界迁移已实现并取得确定性门禁证据**；**2026-11-06 裁决 4 C 依赖图下沉与测试 helper 迁移已完成**（canonical IR 到 Gateway、实际路由单次解析与能力门、三类 adapter 原生投影消费、三个文本消费者迁移、测试替身移出生产注册表、初始快照按 VS-00L §19.2 构造；后端全量 3085/0 等门禁见末节），但 R1 后真实页面/实模证据仍归 CP3b/CP4b-2/CP5，故「实际路由绑定与三类原生投影的生产贯通」保持未闭环；R2 未开始。**尚未闭环**：实际路由绑定与三类原生投影的生产贯通、Responses SSE、G6 实际压缩后请求、当前源码的实时启动事件/确认失败分支页面证明、实模流式工具与取消证据、完整语义覆盖及 CP5 当前基线门禁。I10 文学质量由原任务承接，不由 B71 代签。Pencil MCP 当前返回 Transport closed，PNG 未导出；不把环境状态当代码缺陷。
+- 状态：**doing**。已取得 CP2/CP3a/CP3c/CP4a 机制与确定性页面证据、CP3b 实模协议机制 10/10、G1–G4 实模请求切片、G5 确定性请求切片、pending-08 77/77、确认/拒绝原生 clean PASS、displayName P0/P1 页面证据；压缩自动维护实现完成。**R1 请求边界迁移已实现并取得确定性门禁证据**；**2026-11-06 裁决 4 C 依赖图下沉与测试 helper 迁移已完成**（canonical IR 到 Gateway、实际路由单次解析与能力门、三类 adapter 原生投影消费、三个文本消费者迁移、测试替身移出生产注册表、初始快照按 VS-00L §19.2 构造；后端全量 3085/0 等门禁见末节），但 R1 后真实页面/实模证据仍归 CP3b/CP4b-2/CP5，故「实际路由绑定与三类原生投影的生产贯通」保持未闭环；**R2 统一流式生命周期与 Responses SSE 已于 2026-11-07 完成确定性机制层并提交**（`119b7c35`/`c89d5f54`/`09d1c8bc`/`833cf490`/`55fde7db`）；真实模型 Responses 流、真实页面流式正文预览与实模流式工具/取消证据未取证。**尚未闭环**：实际路由绑定与三类原生投影的生产贯通、G6 实际压缩后请求、当前源码的实时启动事件/确认失败分支页面证明、实模流式工具与取消证据、真实页面流式正文预览、完整语义覆盖及 CP5 最终收口。I10 文学质量由原任务承接，不由 B71 代签。Pencil MCP 当前返回 Transport closed，PNG 未导出；不把环境状态当代码缺陷。
 - 来源：作者先要求对照 Codex、Claude Code、dsh 的真实多轮请求，随后明确“设计一个优秀、符合项目调性的请求体，不为现状妥协”。本文件已据此替换此前偏向现役最小修补的方案。
 - 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)；目标方向与迁移规则已由 [ADR-0033](../../docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) Accepted（2026-10-31）；替换契约 [VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 已 Frozen，首个判断消费者已完成 canonical 原生多轮接线，其余消费者与完整迁移归 CP4。
 - 对账输入：[B26](B26-single-call-judgment-protocol.md)、[B39](B39-evidence-seeking-authoring.md)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md)、[VS-00I](../../docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md)、[UA-01](../../docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md)。它们是迁移事实与可能需要修订的决策，不是降低目标设计的约束。
@@ -88,11 +88,11 @@
 | CP1 | 冻结目标 contract pack、Request IR、消息/工具/观察/校验/候选/checkpoint 语义、provider 投影与能力门槛、六类黄金请求和场景预注册；完成 ADR/现役协议差异及迁移裁决 | **done（2026-10-31，见 §7 交付记录）**：VS-00L Frozen + 逐条迁移映射 + G1–G6 + 场景预注册；已复核通过，旧 ADR-0030/0031 已转 Superseded |
 | CP2 | 实现 canonical transcript/Request IR 与三类 provider 投影；建立真实只读观察和原生校验结果回流，黄金与 adapter 测试通过 | **机制完成、不单独标 done（2026-10-31）：IR v1 + 三类投影 + G1–G6 golden + OpenAI 兼容/Anthropic adapter 桥 + application 层 transcript 观察/校验回流机制已完成；生产接线与真实观察回流作为残差并入 CP3a** |
 | CP3a | 确定性接线（2026-10-31 从 CP3 拆出）：以统一 AgentRun 接通首个创作消费者并完成生产接线（IR 消费替换 call-site legacy prompt、观察/校验按 call_id 回流、预算/权限/trace/持久化/恢复），承接 CP2 残差；以确定性 provider 在真实页面驱动证明接线闭环，不签实模语义 | **done（2026-11-01，见 CP3c 实施记录）**：生产接线、浏览器及原生确定性页面证据完成，不签实模语义 |
-| CP3b | 实模窗口验收：真实 Tauri + 实际模型请求/响应、G1–G6 与作者边界证据；CP3a 不能替代实模 | **doing**：协议机制与 G1–G4 已取证；G5 当前为确定性证据，G6 和完整行为覆盖未闭环；不再用资源等待概括已发生的产品/场景缺口 |
+| CP3b | 实模窗口验收：真实 Tauri + 实际模型请求/响应、G1–G6 与作者边界证据；CP3a 不能替代实模 | **doing**：协议机制与 G1–G4 已取证；G5 当前为确定性证据，G6 和完整行为覆盖未闭环；R2 流式机制与 Responses SSE 已于 2026-11-07 完成，实模流式证据待批次；不再用资源等待概括已发生的产品/场景缺口 |
 | CP3c | 方案修订与稳定/恢复 checkpoint（2026-11-01）：先修订 ADR/VS-00L，再实现稳定层与动态 scope 分层更新、可恢复 canonical transcript；新增 G7 动态 scope 后与 G8 恢复后，不把整段 Base 刷新当终态 | **done（2026-11-01）**：canonical 整体重构、G7/G8、数据库离线恢复、原生 14/14 与门禁完成；不代表 CP3b/CP4/CP5 完成 |
 | CP4a | 统一创作/质量 canonical 主链：判断 → 原生创作调用 → 质量复核 → tentative artifact → 续行；迁移 creative/quality provider 与 TurnExecutionService，不形成第二控制环 | **done（2026-11-01）**：原生调用、阶段工具、应用结果闭合、durable checkpoint 与真实 Tauri 14/14 完成；不代表 CP3b/CP4b/CP5 完成 |
-| CP4b | 覆盖其它规划 profile、显式压缩恢复与旧协议退役；完成真实 Tauri 全链、真实模型行为、缓存/usage、replay/Why 和全部门禁 | **doing（2026-11-01，方案见末节）**：CP4b-1 统一机制与确定性页面；CP4b-2 实模行为、缓存/usage 与剩余证据。**R1 请求边界/原生输入迁移已按 VS-00L §19.1 实现并通过确定性门禁（详见末节 R1 收口记录）**：删除 `to_provider_prompt/2`、构造/执行双身份比对、Chat 中间层与生产 Stub 注册，初始快照按 §19.2 构造；R2 统一流式生命周期与 Responses SSE 未开始。CP4 仅在 CP4a+CP4b 均完成后才算 done |
-| CP5 | 更新 ADR/contract/设计/索引/事实台账和恢复指引；逐项证明完整范围，不能以 adapter/golden 局部证据标 done | **doing**：历史批次已整理；当前实现、事实归因、门禁和完整验收仍在接续 |
+| CP4b | 覆盖其它规划 profile、显式压缩恢复与旧协议退役；完成真实 Tauri 全链、真实模型行为、缓存/usage、replay/Why 和全部门禁 | **doing（2026-11-01，方案见末节）**：CP4b-1 统一机制与确定性页面；CP4b-2 实模行为、缓存/usage 与剩余证据。**R1 请求边界/原生输入迁移已按 VS-00L §19.1 实现并通过确定性门禁（详见末节 R1 收口记录）**：删除 `to_provider_prompt/2`、构造/执行双身份比对、Chat 中间层与生产 Stub 注册，初始快照按 §19.2 构造；**R2 统一流式生命周期与 Responses SSE 已于 2026-11-07 完成确定性机制层并提交**（`119b7c35` 等），CP4b-2 实模行为/缓存/usage 与真实页面证据仍待批次。CP4 仅在 CP4a+CP4b 均完成后才算 done |
+| CP5 | 更新 ADR/contract/设计/索引/事实台账和恢复指引；逐项证明完整范围，不能以 adapter/golden 局部证据标 done | **doing**：历史批次已整理；2026-11-07 R2 收口后完成一次无窗口收口复核（全量门禁、静态扫描、文档/索引/状态表/ledger 对齐，见末节）；真实模型/页面证据仍待批次，不标 done |
 
 ## 6. 验证与恢复指引
 
@@ -102,7 +102,8 @@
 - 缓存比较按同调用点真实请求和 cached_tokens/TTFT，不把历史命中数当固定阈值，也不为缓存牺牲目标消息语义。
 - 外部脱敏样本位于 `artifacts/client-http-bodies/`；项目对照证据位于 `log/llm-calls/stage/2026-10-29.jsonl` 第 8–9 行。它们只证明协议差距，不是目标实现。
 - 恢复时先读 Provider §26、本任务及 CP1 产生的目标 contract pack，再核对 ADR-0030/0031、UA-01 和 VS-00I 的处置；不得从上一版保守分析推断单调用或 giant prompt 仍是目标。
-- **2026-11-03 恢复入口（当前）**：已提交并 push 的关键提交——`c3a1ce64` 能力事实源/流式/Responses；`cd52359f` 压缩+确认交接+旧同步支路退役；`7ab80d4f` web 消费者；`dde97619`/`954cf79f` 原生读侧与批次记录；`78739d01` CP5 契约/索引/台账；`74fe6b63` pending-08 最终源码 PASS；`e79032cd` CP3b 实模协议层 PASS；`f0f07956`/`75b4ec2e` B70 行为覆盖接入与 HO4 修复；`94efb842` 行为覆盖 pilot 记录。剩余工作的直接入口：① §16.14 确认页面——设计稿 `artifacts/b71-resume/confirmation-native-scenario-plan.md`，实现后等屏幕解锁由 Lead 逐批签发；② 作者行为覆盖——预注册 `behavior-pilot-preregistration-01*.json`（01 判据误报作废、01b 锁屏环境失败），屏幕可用后签发 01c + `C-F3-002`；③ 压缩前端——需作者批准 UI 设计增补（UI 46 §9.7 冻结槽位/Pencil 无帧/UI 47 无文案），未授权前不实现；④ CP4b-2 实模行为/缓存/usage——在 CP3b 协议层证据基础上按预注册单列；⑤ CP5 最终收口——随剩余项完成更新 §17/ADR/台账并复跑全量扫描。
+- **2026-11-07 恢复入口（R2 后，最新）**：R2 提交链 `119b7c35`（统一流式生命周期 + Responses SSE）、`c89d5f54`（I-CACHE 三投影）、`09d1c8bc`（文档/索引）、`833cf490`（I-CACHE 入 mix check + 门禁脚本截断修复）、`55fde7db`（流式正文预览机制补齐）。本地完整门禁用 `mix check`（现含 I-CACHE）；静态扫描用 `bash scripts/ai_static_scan.sh --top 10`。下一步：按本文档末节「B71 收口剩余执行条件」以 `q2_0` 重新冻结预注册跑 CP4b-2/G6；未获窗口不启动实模批次。
+- **2026-11-03 恢复入口**：已提交并 push 的关键提交——`c3a1ce64` 能力事实源/流式/Responses；`cd52359f` 压缩+确认交接+旧同步支路退役；`7ab80d4f` web 消费者；`dde97619`/`954cf79f` 原生读侧与批次记录；`78739d01` CP5 契约/索引/台账；`74fe6b63` pending-08 最终源码 PASS；`e79032cd` CP3b 实模协议层 PASS；`f0f07956`/`75b4ec2e` B70 行为覆盖接入与 HO4 修复；`94efb842` 行为覆盖 pilot 记录。剩余工作的直接入口：① §16.14 确认页面——设计稿 `artifacts/b71-resume/confirmation-native-scenario-plan.md`，实现后等屏幕解锁由 Lead 逐批签发；② 作者行为覆盖——预注册 `behavior-pilot-preregistration-01*.json`（01 判据误报作废、01b 锁屏环境失败），屏幕可用后签发 01c + `C-F3-002`；③ 压缩前端——需作者批准 UI 设计增补（UI 46 §9.7 冻结槽位/Pencil 无帧/UI 47 无文案），未授权前不实现；④ CP4b-2 实模行为/缓存/usage——在 CP3b 协议层证据基础上按预注册单列；⑤ CP5 最终收口——随剩余项完成更新 §17/ADR/台账并复跑全量扫描。
 
 ### CP1 裁决与迁移记录（2026-10-31，作者选 A）
 
@@ -1178,3 +1179,15 @@
 - **根因与修复（分批如实保留）**：`b71-a1-01`（A1 下沉后首跑）仍 `wait_wire_timeout:b71:turn_result`，经 wire 帧定位——判断替身 SliceVerify 仍按旧渲染文本「## 探索观察/### 观察 N」识别观察，canonical IR 下第二次判断重复同一 `chapter_read`，产品正确进入 `no_progress_stopped`/`awaiting_author`。修复仅 test-support：判定链携带 `%NovelCommon.RequestIR{}`、`full_read_last_observation` 从结构化 observation block 读取 summary（legacy 文本路径保留兼容），并补 3 条 IR 全章识别回归测试；提交 `26824567`。`b71-a1-01`（失败，只读保留）、`b71-a1-02`（适配后试跑 19/19，工作区非 clean HEAD，不作最终证据）、`b71-a1-03`（clean HEAD 最终证据）。
 - **未闭环（不代签）**：真实模型（实模 CP3b/CP4b-2 语义与缓存）、R2 流式生命周命/Responses SSE、G6 压缩后真实请求、CP5 最终收口仍开放；本批为确定性 provider 页面证据。
 - **复验方式**：`TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1 TAURI_NATIVE_ARTIFACT_TAG=<新标签> bash scripts/tauri_slice_verify.sh b71-first-consumer` → 等 `<artifact-dir>/native-driver-ready.json` → `node scripts/native_b71_drive.mjs <artifact-dir>`；失败证据在 artifact 目录 `failure.json`/`native-transport.jsonl`/`native-input-events.jsonl`。
+
+### CP5 无窗口收口复核（2026-11-07，R2 后）
+
+- **范围**：在不依赖真实模型/真实页面的部分完成 CP5 要求的「ADR/contract/设计/索引/事实台账/恢复指引对齐 + 逐项证明」；真实模型与页面证据明确列为未闭环，不标 CP5 done。
+- **本轮已完成（确定性侧）**：
+  1. **全量门禁**：`mix check` EXIT=0——compile -Werror、codegen enums/author_visible、lint_enum_literals、xref 无环、全量各 app 测试 0 failures（agent 502、domain 446、persistence 399、application 1349、web 196、e2e 1 等）、arch_check、adr_trace 30/30、I-CACHE（含三 wire 投影）全部 enforce 通过；module-size 与 `mix format --check-formatted` 通过。
+  2. **静态扫描**：`bash scripts/ai_static_scan.sh --top 10` = 19 passed / 2 failed（既有 task-done manifest pending + gitleaks 6 项既有处置），7 findings 全部既有 disposition，**touched files 命中 0**；无新增 P0/P1。
+  3. **不变量**：I3 4/4、I1 4/4、I2 3 pairs/0 violations、N-NARR PASS、I-CACHE 全 PASS（chat 18420/29704、anthropic 18482/23517、responses 18532/23649，coverage enforced=true）。
+  4. **文档/索引/台账对齐**：B71 状态行、当前执行入口、CP 表与恢复指引（本次）；VS-00L §16.15/§17/§19.3（R2 记录）；ADR-0033 §6/A1 修订（2026-11-07 已对齐）；project-ledger 2026-11-07 多条事实；NEXT 当前任务与阻塞；`apps/novel_agent/README.md` R2 模块与测试索引；`scripts/scenario_invariants/README.md` 三投影说明。
+  5. **门禁脚本缺陷修复**：`arch_check.exs`/`adr_trace.exs` 成功分支 `System.halt(0)` 会截断 `mix check` 后续命令（adr_trace/I-CACHE 此前实际未在 mix check 执行），已修复（`833cf490`）。
+- **未闭环（不代签）**：真实模型窗口（`q2_0` 重新预注册尚未冻结）、CP4b-2 实模行为/缓存/usage、G6 实际压缩后请求、真实页面流式正文预览与实时启动/确认失败分支页面证据、I10 文学质量。CP5 保持 doing，不标 done。
+- **复验**：确定性部分用 `mix check` + 静态扫描 + 五个不变量 driver 复跑即可复现；实模按本文档「B71 收口剩余执行条件」在获准窗口后执行。

@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-07 **CP5 无窗口收口复核（R2 后）**：确定性侧完成——`mix check` EXIT=0（compile -Werror、codegen、lint、xref 无环、全量各 app 0 failures、arch、adr_trace 30/30、I-CACHE 三投影 enforce）、静态扫描 19 passed/2 failed（7 findings 全既有处置、touched=0）、I1–I3/N-NARR/I-CACHE 全 PASS；B71 状态行/执行入口/CP 表/恢复指引、VS-00L §17/§19.3、ADR-0033、ledger/NEXT/README 索引对齐；门禁脚本 `mix check` 截断缺陷已修（`833cf490`）。**未闭环不代签**：真实模型窗口（`q2_0` 重新预注册未冻结）、CP4b-2 实模行为/缓存/usage、G6 压缩后请求、真实页面流式正文预览与启动/确认分支页面证据、I10。CP5 保持 doing。
+
 > 2026-11-07 **R2 后续 checkpoint：真实流式正文预览机制补齐（确定性层）**：盘点确认前端渲染（`agentRunProseStream`）、后端投影（`ProviderActivityProjector` author 可见 chunk）、非流式正文提取（`AuthorProseStream`）已存在；缺口是统一流式路径 `SSEStream` 未产出 `author_content_delta`。修复：仅 `content_visibility: :author` 时把三 wire decoder 正文增量喂 `AuthorProseStream`，非 author 不携带；新增 `stream_prose_preview_test.exs` 4 例（Chat/Anthropic/Responses body 提取 + 非 author 不泄漏）。真实页面流式预览证据待实模批次，不代签。验证：agent 502/0、credo no issues、format、module-size、compile -Werror。
 
 > 2026-11-07 **作者裁决（R2 收口与下一主线）**：①R2 按分层登记——机制层 done（确定性证据见 B71 R2 实施记录），真实模型/真实页面层另证、不代签；②「真实流式正文预览 UI」按作者裁决 B 纳入 R2 后续 checkpoint（已冻结范围与验收，未开工）；③I-CACHE-1（含三 wire 投影）加入本地 `mix check`（`mix.exs` alias 末尾 `cmd MIX_ENV=test mix run scripts/scenario_invariants/run_icache_prefix.exs`；CI 既有 step 仍强制），提交前即可发现前缀回归；④下一主线 = B71 收口剩余（实模/G6/CP5）。实模前置只读探测：Strata App 在线（127.0.0.1:47831）但当前仅提供 `q2_0`，与 CP3b/CP4b-2 预注册的 `iq3_s` 不一致；环境无 OpenAI/Anthropic 官方凭证（R2 Responses/Anthropic 实模不可执行）。待作者裁决：A（推荐）以 `q2_0` 重新预注册跑 CP4b-2/G6、Responses/Anthropic 实模等官方凭证；B 等 iq3_s 窗口；C 先 CP5 无窗口收口与 R2 预览 UI 设计。未获批前不启动实模批次、不伪造 PASS。
