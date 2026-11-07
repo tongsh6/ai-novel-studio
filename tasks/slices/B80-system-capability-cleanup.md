@@ -15,16 +15,21 @@
 |---|---|---|
 | CP0 | 能力图谱首版：真实入口盘点（前端三视图/Channel 消息/HTTP API/桌面与验收入口）、16 功能域矩阵（状态词表 M0–M3/D）、首轮缺口清单（P1–P3） | **done**（2026-11-08，`b61389c5`，[00f](../../docs/design/00f-capability-atlas.md)） |
 | CP1 | 死代码清理：`ChannelDemo`（无引用 demo 组件）、`adoptionDecision`（仅测试引用）删除；审计/追溯脚本豁免同步 | **done**（2026-11-08，`d1475385`；前端 484 tests 全绿） |
-| CP2 | 旧协议退役：Channel `adopt`/`discard`/`modify_draft`（前端已改走 `author_action`，AU-05 已确认入口变更）；删除 handler 与 result helper，把 pending 校验/跨 work 拒绝/edit_then_accept 安全断言迁移到 author_action 测试 | **评估完成，待实施**（见 §3） |
+| CP2 | 旧协议退役：Channel `adopt`/`discard`/`modify_draft`（前端已改走 `author_action`，AU-05 已确认入口变更）；删除 handler 与 result helper，把 pending 校验/跨 work 拒绝/edit_then_accept 安全断言迁移到 author_action 测试 | **done（2026-11-08）**：见 §3 实施记录；web 193/0、application 1349/0、credo/format/xref/arch/module-size 全绿 |
 | CP3 | 文档/台账一致性：`quality/acceptance/known-gaps.md`、`docs/design/00c`、`tasks` 中的过时描述与当前实现逐条核对并修正 | 待做 |
 | CP4 | 逐域核对补缺：按 00f §3 的 M1/M2 域抽查（上下文压缩、设置页、恢复、可观测性等），输出下一批修复或候选；不接受「机制层代签页面/实模」 | 待做 |
 
-## 3. CP2 旧协议退役评估（2026-11-08）
+## 3. CP2 旧协议退役（2026-11-08，已实施）
 
 - **事实**：前端 push 消息扫描 0 处 `adopt`/`discard`/`modify_draft`；前端采纳走 `author_action`（`accept`/`discard`/`edit_then_accept`）；`AU-05` 设计文档已记录「旧文档『WorkspaceChannel 缺 handler』过期，当前有效入口是 author_action」。
 - **后端结构**：三个 handler 各约 50 行；私有 `handle_adopt_result`/`handle_discard_result`/`handle_modify_draft_result` 仅被旧 handler 使用；`source_turn_for_artifact_action`/`previous_active_behavior` 仍有其它使用（保留）；底层 `AdoptionWorkflow.handle_*` 被 `author_action` 与 `pending_artifact_workflow` 复用（不删）。
 - **测试**：`workspace_channel_v3_test.exs` 13 处旧协议消息调用；退役时迁移 pending 校验、跨 work 拒绝、`edit_then_accept`（SC-AU05-B3）等安全断言到 author_action 路径，不降低覆盖。
 - **风险**：旧日志事件名（`:adopt`/`:discard`/`:modify_draft` 的 LogEmit）将不再产生；确认无日志/验收依赖后再删。
+- **实施结果（2026-11-08）**：
+  - `workspace_channel.ex`：删除 3 个旧 handler 与 3 个仅其使用的 result helper（净 -约 300 行）；底层 `AdoptionWorkflow.handle_*`、`source_turn_for_artifact_action`、`previous_active_behavior` 保留（仍被 author_action/其它路径使用）。
+  - **行为迁移（非删除）**：旧 adopt 入口独有的「章节重编号采纳成功后重算机械账面」调用迁移到 `finish_adoption_author_action` 成功分支——退役后该行为仍由唯一采纳入口触发（等价，不丢功能）。
+  - 测试：`workspace_channel_v3_test.exs` 的 adoption describe 从 12 用例收敛为 10——保留 5 个既有 author_action 用例，迁移 invented target / 跨 work / restored pending / discard 4 个安全断言到 author_action，删除 2 个重复覆盖（adopt accepted、modify_draft）与 1 个 resolved 后再操作断言（旧协议专用入口语义；author_action 侧由 ActionValidator+幂等 admission 测试+application 层 adoption_boundary/workflow 测试承担，未降低安全面）。
+  - 验证：`mix test apps/novel_web/test` 193/0、`apps/novel_application/test` 1349/0；credo --strict no issues、format、xref 无环、arch_check、module-size 通过。
 
 ## 4. 验收与证据
 

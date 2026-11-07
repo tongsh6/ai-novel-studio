@@ -454,148 +454,6 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
-  def handle_in("adopt", %{"artifact_id" => artifact_id} = params, socket) do
-    ws_id = socket.assigns[:workspace_id] || "lobby"
-    work_id = socket.assigns[:work_id] || ws_id
-
-    {source_turn_ref, source_turn_result} =
-      source_turn_for_artifact_action(socket, Map.get(params, "source_turn_ref"), artifact_id)
-
-    LogContext.put_turn(ws_id, work_id, source_turn_ref, socket.assigns[:session_id])
-
-    t0 = System.monotonic_time(:millisecond)
-
-    LogEmit.emit(:channel, :adopt, :start, %{
-      workspace_id: ws_id,
-      work_id: work_id,
-      artifact_id: artifact_id
-    })
-
-    adopt_params =
-      params
-      |> Map.put("work_id", work_id)
-      |> Map.put("session_id", socket.assigns[:session_id])
-      # ADR-0008 8-2：把本 socket 已知的最近 active author-blocking behavior 交给
-      # application，新 confirmation 打开时显式 supersede 旧 behavior（不依赖 UI 状态）。
-      |> Map.put("previous_behavior", previous_active_behavior(socket))
-
-    case source_turn_result do
-      {:error, reason} ->
-        duration = System.monotonic_time(:millisecond) - t0
-
-        LogEmit.emit(:channel, :adopt, :error, %{
-          duration_ms: duration,
-          artifact_id: artifact_id,
-          reason_code: :adoption_rejected,
-          outcome_detail: reason
-        })
-
-        {:reply, {:error, %{reason: reason}}, socket}
-
-      source_turn_result ->
-        handle_adopt_result(
-          NovelApplication.AdoptionWorkflow.handle_adopt(source_turn_result, adopt_params),
-          socket,
-          artifact_id,
-          t0
-        )
-    end
-  end
-
-  def handle_in("discard", %{"artifact_id" => artifact_id} = params, socket) do
-    ws_id = socket.assigns[:workspace_id] || "lobby"
-    work_id = socket.assigns[:work_id] || ws_id
-
-    {source_turn_ref, source_turn_result} =
-      source_turn_for_artifact_action(socket, Map.get(params, "source_turn_ref"), artifact_id)
-
-    LogContext.put_turn(ws_id, work_id, source_turn_ref, socket.assigns[:session_id])
-
-    t0 = System.monotonic_time(:millisecond)
-
-    LogEmit.emit(:channel, :discard, :start, %{
-      workspace_id: ws_id,
-      work_id: work_id,
-      artifact_id: artifact_id
-    })
-
-    case source_turn_result do
-      {:error, reason} ->
-        duration = System.monotonic_time(:millisecond) - t0
-
-        LogEmit.emit(:channel, :discard, :error, %{
-          duration_ms: duration,
-          artifact_id: artifact_id,
-          reason_code: :discard_rejected,
-          outcome_detail: reason
-        })
-
-        {:reply, {:error, %{reason: reason}}, socket}
-
-      source_turn_result ->
-        discard_params =
-          params
-          |> Map.put("work_id", work_id)
-          |> Map.put("session_id", socket.assigns[:session_id])
-
-        handle_discard_result(
-          NovelApplication.AdoptionWorkflow.handle_discard(source_turn_result, discard_params),
-          socket,
-          artifact_id,
-          t0
-        )
-    end
-  end
-
-  def handle_in("modify_draft", params, socket) do
-    artifact_id = Map.get(params, "artifact_id") || Map.get(params, "draft_id")
-    ws_id = socket.assigns[:workspace_id] || "lobby"
-    work_id = socket.assigns[:work_id] || ws_id
-
-    {source_turn_ref, source_turn_result} =
-      source_turn_for_artifact_action(socket, Map.get(params, "source_turn_ref"), artifact_id)
-
-    LogContext.put_turn(ws_id, work_id, source_turn_ref, socket.assigns[:session_id])
-
-    t0 = System.monotonic_time(:millisecond)
-
-    LogEmit.emit(:channel, :modify_draft, :start, %{
-      workspace_id: ws_id,
-      work_id: work_id,
-      artifact_id: artifact_id
-    })
-
-    modify_params =
-      params
-      |> Map.put("work_id", work_id)
-      |> Map.put("session_id", socket.assigns[:session_id])
-
-    case source_turn_result do
-      {:error, reason} ->
-        duration = System.monotonic_time(:millisecond) - t0
-
-        LogEmit.emit(:channel, :modify_draft, :error, %{
-          duration_ms: duration,
-          artifact_id: artifact_id,
-          reason_code: :modify_draft_rejected,
-          outcome_detail: reason
-        })
-
-        {:reply, {:error, %{reason: reason}}, socket}
-
-      source_turn_result ->
-        handle_modify_draft_result(
-          NovelApplication.AdoptionWorkflow.handle_modify_draft(
-            source_turn_result,
-            modify_params
-          ),
-          socket,
-          artifact_id,
-          t0
-        )
-    end
-  end
-
   @doc """
   E1（双向审核 P2）：按 run 补拉作者可见事件序列（断线重连后的 sequence gap）。
 
@@ -2514,6 +2372,10 @@ defmodule NovelWeb.WorkspaceChannel do
     socket = remember_turn_result(socket, turn_result)
     record_action_turn_result(socket, turn_result)
     record_action_decision_trace(socket, turn_result)
+
+    # 旧协议退役（B80 CP2）：章节重编号采纳后的机械账面重算原先只在旧 adopt
+    # 入口触发；行为按入口收敛迁移到唯一采纳入口 author_action，保持等价。
+    maybe_recompute_ledgers_after_renumber(action_result, socket)
     log_author_action_done(socket, action_input, action_result)
     {:reply, {:ok, %{received: true, action_status: action_result.status}}, socket}
   end
@@ -2634,44 +2496,6 @@ defmodule NovelWeb.WorkspaceChannel do
     socket.assigns[:work_id] || Map.get(payload, "work_id") || "lobby"
   end
 
-  defp handle_adopt_result(result, socket, artifact_id, t0) do
-    case result do
-      {:ok, action_result, turn_result} ->
-        broadcast!(socket, "action_result", action_result)
-        broadcast!(socket, "turn_result", turn_result)
-        record_action_turn_result(socket, turn_result)
-        record_action_decision_trace(socket, turn_result)
-        socket = remember_turn_result(socket, turn_result)
-        maybe_recompute_ledgers_after_renumber(action_result, socket)
-        duration = System.monotonic_time(:millisecond) - t0
-
-        LogEmit.emit(:channel, :adopt, :done, %{
-          duration_ms: duration,
-          artifact_id: artifact_id,
-          artifact_type: action_result[:artifact_type],
-          action_status: action_result.status,
-          persisted: get_in(action_result, [:persistence, :persisted]) == true,
-          mutation_id: get_in(action_result, [:persistence, :mutation_id]),
-          reading_projection_materialized:
-            not is_nil(get_in(action_result, [:persistence, :reading_projection]))
-        })
-
-        {:reply, {:ok, %{received: true, action_status: action_result.status}}, socket}
-
-      {:error, reason} ->
-        duration = System.monotonic_time(:millisecond) - t0
-
-        LogEmit.emit(:channel, :adopt, :error, %{
-          duration_ms: duration,
-          artifact_id: artifact_id,
-          reason_code: :adoption_rejected,
-          outcome_detail: reason
-        })
-
-        {:reply, {:error, %{reason: reason}}, socket}
-    end
-  end
-
   # B67 CP2：章节结构采纳成功后重算机械账面；失败只记日志，不回滚作者已成功的采纳。
   defp maybe_recompute_ledgers_after_renumber(action_result, socket) do
     if get_in(action_result, [:adoption_effect, :mode]) == "renumber_chapters" do
@@ -2697,70 +2521,6 @@ defmodule NovelWeb.WorkspaceChannel do
             })
         end
       end
-    end
-  end
-
-  defp handle_discard_result(result, socket, artifact_id, t0) do
-    case result do
-      {:ok, action_result, turn_result} ->
-        broadcast!(socket, "action_result", action_result)
-        broadcast!(socket, "turn_result", turn_result)
-        record_action_turn_result(socket, turn_result)
-        record_action_decision_trace(socket, turn_result)
-        socket = remember_turn_result(socket, turn_result)
-        duration = System.monotonic_time(:millisecond) - t0
-
-        LogEmit.emit(:channel, :discard, :done, %{
-          duration_ms: duration,
-          artifact_id: artifact_id,
-          action_status: action_result.status
-        })
-
-        {:reply, {:ok, %{received: true, action_status: action_result.status}}, socket}
-
-      {:error, reason} ->
-        duration = System.monotonic_time(:millisecond) - t0
-
-        LogEmit.emit(:channel, :discard, :error, %{
-          duration_ms: duration,
-          artifact_id: artifact_id,
-          reason_code: :discard_rejected,
-          outcome_detail: reason
-        })
-
-        {:reply, {:error, %{reason: reason}}, socket}
-    end
-  end
-
-  defp handle_modify_draft_result(result, socket, artifact_id, t0) do
-    case result do
-      {:ok, action_result, turn_result} ->
-        broadcast!(socket, "action_result", action_result)
-        broadcast!(socket, "turn_result", turn_result)
-        record_action_turn_result(socket, turn_result)
-        record_action_decision_trace(socket, turn_result)
-        socket = remember_turn_result(socket, turn_result)
-        duration = System.monotonic_time(:millisecond) - t0
-
-        LogEmit.emit(:channel, :modify_draft, :done, %{
-          duration_ms: duration,
-          artifact_id: artifact_id,
-          action_status: action_result.status
-        })
-
-        {:reply, {:ok, %{received: true, action_status: action_result.status}}, socket}
-
-      {:error, reason} ->
-        duration = System.monotonic_time(:millisecond) - t0
-
-        LogEmit.emit(:channel, :modify_draft, :error, %{
-          duration_ms: duration,
-          artifact_id: artifact_id,
-          reason_code: :modify_draft_rejected,
-          outcome_detail: reason
-        })
-
-        {:reply, {:error, %{reason: reason}}, socket}
     end
   end
 
