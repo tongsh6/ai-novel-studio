@@ -25,6 +25,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$PROJECT_ROOT/scripts/lib/process_tree.sh"
+source "$PROJECT_ROOT/scripts/lib/test_env.sh"
 
 # 狗粮独立测试分区库（M0 实锤：与伞级 mix test 共享 ai_novel_studio_test.sqlite3
 # 互踩——狗粮 seed 残留污染绝对计数断言、并行跑互相重置）。分区后互不可见。
@@ -204,9 +205,7 @@ unload_lms_models() {
 
 reset_test_db() {
   cd "$PROJECT_ROOT"
-  MIX_ENV=test mix ecto.drop --quiet >/dev/null 2>&1 || true
-  MIX_ENV=test mix ecto.create --quiet >/dev/null 2>&1 || true
-  MIX_ENV=test mix ecto.migrate --quiet >/dev/null
+  novel_test_db_prepare --reset --quiet --root "$PROJECT_ROOT"
 }
 
 cleanup() {

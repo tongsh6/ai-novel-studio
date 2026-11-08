@@ -81,7 +81,7 @@ jobs:
 
       # 运行时不变量的 driver 需要已迁移的独立测试库；与 mix test 的库分开，避免互相污染。
       - name: Prepare test database (scenario invariants)
-        run: MIX_ENV=test mix ecto.create && MIX_ENV=test mix ecto.migrate
+        run: source scripts/lib/test_env.sh && novel_test_db_prepare --quiet
         env:
           NOVEL_TEST_DB_DIR: ${{ github.workspace }}/tmp/ci-invariant-db
 
@@ -122,7 +122,7 @@ jobs:
       # 2026-11-04 测试提速：PR 跑快集（排除 @tag :slow），全量由 nightly 承接。
       # 测试库必须先迁移：默认库名带进程 token，不预迁移时全量测试会因缺表失败。
       - name: Prepare test database (mix test)
-        run: MIX_ENV=test mix ecto.create && MIX_ENV=test mix ecto.migrate
+        run: source scripts/lib/test_env.sh && novel_test_db_prepare --quiet
         env:
           NOVEL_TEST_DB_DIR: ${{ github.workspace }}/tmp/ci-test-db
 

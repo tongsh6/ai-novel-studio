@@ -5,6 +5,8 @@
 | 文件 | 角色 |
 |---|---|
 | `process_tree.sh` | 进程树终止与清理 helper，被 stage/dev/Tauri 验收脚本复用。进程组查询优先 `ps`，setuid `ps` 被执行环境拒绝/缺失时退化为 `python3 os.getpgid`（非 setuid）；两者都不可用时跳过组信号、只按 `pgrep -P` 收集的子孙回收，安全护栏绝不自杀。 |
+| `test_env.sh` | **测试/验收入口统一运行时前置**（只 source）：`novel_test_db_dir` / `novel_test_db_prepare`（测试库目录解析、可选重置、create+migrate，migrate 失败 fail-closed）、`novel_wait_for_http`、`novel_ports_precheck`。被 `ai_static_scan.sh`、`slice_verify.sh`、`tauri_slice_verify.sh`、`dogfood_run.sh` 与 CI 复用，消除各入口自带的建库/等待/端口前置漂移。 |
+| `test_env.test.mjs` | `test_env.sh` 的行为与接线回归（临时目录 + fake mix + 本地回环 HTTP）：目录解析、create/migrate 调用序列、`--reset` 的 drop 次序、migrate 失败 fail-closed、HTTP 等待成功/超时、端口占用、入口与 CI 不再各自实现建库三连。 |
 | `tauri_dev_config.sh` | 生成 Tauri dev runtime overlay config，避免启动脚本改写 `frontend/src-tauri/tauri.conf.json`。 |
 | `tauri_toolchain.sh` | Tauri dev/native build 共享的只读工具链定位：优先保留现有 PATH，缺失时仅把 `CARGO_HOME/bin` 或原始用户 home 的 `.cargo/bin` 前置到本次子进程 PATH；不安装/切换、不读隔离 HOME。被 `scripts/tauri_slice_verify.sh`、`scripts/frontend_audit.sh` 复用。 |
 | `tauri_toolchain.test.mjs` | `tauri_toolchain.sh` 的受控最小 PATH/fake toolchain 回归：fallback、含空格 CARGO_HOME、不替换现有工具、隔离 HOME 不采用、缺失失败与两入口接线；不读写用户凭证。 |

@@ -55,22 +55,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-# 运行时不变量的 mix 检查需要已迁移的测试库。未显式提供 NOVEL_TEST_DB_DIR 时创建
-# 一次性库并迁移，保证默认入口 `bash scripts/ai_static_scan.sh` 可直接复跑；
+# 测试库前置与其它验收入口共用同一实现（scripts/lib/test_env.sh）：
+# 未显式提供 NOVEL_TEST_DB_DIR 时创建一次性库并迁移，保证默认入口可直接复跑；
 # 已提供（CI/本地专用库）时沿用调用方环境，不覆盖。
-if [ -z "${NOVEL_TEST_DB_DIR:-}" ]; then
-  NOVEL_TEST_DB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ai-novel-scan-db.XXXXXX")"
-  export NOVEL_TEST_DB_DIR
-  if (
-    cd "$ROOT_DIR" &&
-      MIX_ENV=test mix ecto.create >/dev/null 2>&1 &&
-      MIX_ENV=test mix ecto.migrate >/dev/null 2>&1
-  ); then
-    echo "[ai-static-scan] 测试库已准备：$NOVEL_TEST_DB_DIR" >&2
-  else
-    echo "[ai-static-scan] warning: 测试库准备失败，mix 类检查可能因缺表失败" >&2
-  fi
+source "$ROOT_DIR/scripts/lib/test_env.sh"
+
+if ! novel_test_db_prepare --quiet --root "$ROOT_DIR"; then
+  echo "[ai-static-scan] 测试库前置失败；mix 类检查无法在缺表库上给出可信结果" >&2
+  exit 1
 fi
 SCAN_DIR="$ROOT_DIR/artifacts/static-scan"
 RAW_DIR="$SCAN_DIR/raw"

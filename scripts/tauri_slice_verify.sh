@@ -37,6 +37,7 @@ ORIGINAL_HOME="${HOME:-}"
 source "$PROJECT_ROOT/scripts/lib/process_tree.sh"
 source "$PROJECT_ROOT/scripts/lib/tauri_dev_config.sh"
 source "$PROJECT_ROOT/scripts/lib/tauri_toolchain.sh"
+source "$PROJECT_ROOT/scripts/lib/test_env.sh"
 
 # B71 family/route 的单一来源在 scripts/native_b71_batch.sh；这里只调用，
 # 不在 runner 内再复制一份 slice 名单/seed/env 映射。
@@ -705,9 +706,7 @@ TAURI_CONFIG_OVERRIDE=""
 
 reset_test_db() {
   cd "$PROJECT_ROOT"
-  MIX_ENV=test mix ecto.drop --quiet >/dev/null 2>&1 || true
-  MIX_ENV=test mix ecto.create --quiet >/dev/null 2>&1 || true
-  MIX_ENV=test mix ecto.migrate --quiet >/dev/null
+  novel_test_db_prepare --reset --quiet --root "$PROJECT_ROOT"
 }
 
 setup_isolated_macos_keychain() {

@@ -13,6 +13,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$PROJECT_ROOT/scripts/lib/process_tree.sh"
+source "$PROJECT_ROOT/scripts/lib/test_env.sh"
 SLICE_ID="${1:-}"
 PHOENIX_PORT="${PHOENIX_PORT:-4657}"
 VITE_PORT="${VITE_DEV_PORT:-5768}"
@@ -57,6 +58,10 @@ fi
 ARTIFACT_DIR="$PROJECT_ROOT/artifacts/slice-verify/$SLICE_ID"
 rm -rf "$ARTIFACT_DIR"
 mkdir -p "$ARTIFACT_DIR"
+
+# 测试库前置统一由 scripts/lib/test_env.sh 承担；本入口固定库目录到本次
+# artifact 下，避免 mix 的 pid token 让「建库/seed/后端」落到不同 SQLite 文件。
+export NOVEL_TEST_DB_DIR="${NOVEL_TEST_DB_DIR:-$ARTIFACT_DIR/database}"
 
 PHX_PID=""
 VITE_PID=""
@@ -118,8 +123,10 @@ if [[ "$SLICE_ID" == "author-behavior-read-failure" ]]; then
   export AUTHOR_BEHAVIOR_READ_FAILURE=1
 fi
 
-MIX_ENV=test mix ecto.create --quiet >/dev/null 2>&1 || true
-MIX_ENV=test mix ecto.migrate --quiet >/dev/null
+if ! novel_test_db_prepare --quiet --root "$PROJECT_ROOT"; then
+  echo "[slice-verify] 测试库前置失败：$NOVEL_TEST_DB_DIR" >&2
+  exit 1
+fi
 
 if [[ "$SLICE_ID" == "author-behavior-corpus" || "$SLICE_ID" == "author-behavior-explore" || "$SLICE_ID" == "author-behavior-negative" || "$SLICE_ID" == "author-behavior-actions" || "$SLICE_ID" == "author-behavior-read-failure" ]]; then
   MIX_ENV=test mix run scripts/seed_author_behavior_states.exs >"$ARTIFACT_DIR/seed.log" 2>&1
