@@ -217,6 +217,7 @@ function evaluate(overrides = {}) {
     llmRecords: overrides.llmRecords ?? llmRecords(),
     appLog: overrides.appLog ?? [{ event: "agent_run.auto_maintenance.error" }],
     dir,
+    multiTurn: overrides.multiTurn ?? null,
   });
 }
 
@@ -311,4 +312,66 @@ test("verify 前有界等待 finally 证据：延迟落盘的 strata-slot.json �
   const missing = fs.mkdtempSync(path.join(os.tmpdir(), "b71-wait-"));
   assert.equal(waitForEvidenceFile(missing, "strata-slot.json", 600), false);
   fs.rmSync(missing, { recursive: true, force: true });
+});
+
+test("G6 multi-turn 正例：同 run pause/steer/resume 成立 → C11 pass，C7/C8 不判", () => {
+  const result = evaluate({
+    multiTurn: {
+      pause: { kind: "paused", status: "awaiting_author" },
+      steers: [{ index: 1, ok: true, kind: "composer_free_text" }],
+      resumes: [{ index: 1, resumed: true, status: "running" }],
+      rounds: [{ index: 1, pause_kind: "paused", exchange_facts: { complete_exchanges: 0 } }],
+      stop_reason: "triggered",
+      max_steers: 6,
+      checkpoint_events: 1,
+    },
+  });
+  assert.equal(result.checks.C11_multi_turn_same_run.ok, true);
+  assert.equal(result.checks.C7_refresh_idempotent.ok, null);
+  assert.equal(result.checks.C8_failure_silent.ok, null);
+  assert(!result.required.includes("C7_refresh_idempotent"));
+  assert(!result.required.includes("C8_failure_silent"));
+  assert(result.required.includes("C11_multi_turn_same_run"));
+  assert(!result.failed.includes("C11_multi_turn_same_run"));
+  assert.deepEqual(result.failed, []);
+  assert(result.not_signed.includes("C7_refresh_not_in_scope_multi_turn"));
+  assert(result.not_signed.includes("C8_failure_injection_not_in_scope_multi_turn"));
+});
+
+test("G6 multi-turn 反例：缺 steer 或未 resume → C11 fail（不放宽）", () => {
+  const noSteer = evaluate({
+    multiTurn: {
+      pause: { kind: "paused", status: "awaiting_author" },
+      steers: [],
+      resumes: [],
+      rounds: [],
+      stop_reason: "steer_budget_exhausted",
+      max_steers: 6,
+      checkpoint_events: 0,
+    },
+  });
+  assert.equal(noSteer.checks.C11_multi_turn_same_run.ok, false);
+  assert(noSteer.failed.includes("C11_multi_turn_same_run"));
+
+  const noResume = evaluate({
+    multiTurn: {
+      pause: { kind: "paused", status: "awaiting_author" },
+      steers: [{ index: 1, ok: true }],
+      resumes: [{ index: 1, resumed: false, status: "awaiting_author" }],
+      rounds: [],
+      stop_reason: "resume_failed",
+      max_steers: 6,
+      checkpoint_events: 0,
+    },
+  });
+  assert.equal(noResume.checks.C11_multi_turn_same_run.ok, false);
+  assert(noResume.failed.includes("C11_multi_turn_same_run"));
+});
+
+test("跨 run A3 场景：C11 不判（ok=null，不进 required），C7/C8 仍判", () => {
+  const result = evaluate();
+  assert.equal(result.checks.C11_multi_turn_same_run.ok, null);
+  assert(!result.required.includes("C11_multi_turn_same_run"));
+  assert.equal(result.checks.C7_refresh_idempotent.ok, true);
+  assert.equal(result.checks.C8_failure_silent.ok, true);
 });

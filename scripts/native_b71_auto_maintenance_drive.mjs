@@ -215,6 +215,8 @@ function readRunStatus(runId) {
 }
 
 function readRunExchangeFacts(runId) {
+  // 按 canonical transcript 的 blocks 口径统计（tool_call/observation 在 blocks 内，
+  // 顶层 message.tool_calls 是旧口径、恒为空——2026-11-08 修正读侧 bug）。
   return withDb(dir, (db) => {
     const row = all(db, "SELECT authoring_transcript FROM agent_runs WHERE id = ?", [runId])[0] ?? null;
     let messages = [];
@@ -225,18 +227,26 @@ function readRunExchangeFacts(runId) {
       messages = [];
     }
     const userTurns = messages.filter((message) => message?.role === "user").length;
-    const assistantToolCalls = messages.filter(
-      (message) => Array.isArray(message?.tool_calls) && message.tool_calls.length > 0,
-    ).length;
-    const toolResults = messages.filter((message) => message?.role === "tool").length;
-    const checkpoints = messages.filter((message) => message?.role === "checkpoint").length;
+    const callIds = [];
+    const resultIds = [];
+    let checkpointMessages = 0;
+    for (const message of messages) {
+      const blocks = Array.isArray(message?.blocks) ? message.blocks : [];
+      for (const block of blocks) {
+        if (block?.type === "tool_call") callIds.push(block.call_id);
+        else if (block?.type === "observation" || block?.type === "validation_result") {
+          resultIds.push(block.call_id);
+        } else if (block?.type === "checkpoint") checkpointMessages += 1;
+      }
+    }
+    const matched = new Set(callIds.filter((callId) => resultIds.includes(callId)));
     return {
       messages: messages.length,
       user_turns: userTurns,
-      assistant_tool_calls: assistantToolCalls,
-      tool_results: toolResults,
-      complete_exchanges: Math.min(assistantToolCalls, toolResults),
-      checkpoint_messages: checkpoints,
+      assistant_tool_calls: callIds.length,
+      tool_results: resultIds.length,
+      complete_exchanges: matched.size,
+      checkpoint_messages: checkpointMessages,
     };
   });
 }
@@ -500,16 +510,32 @@ async function observeStripText(timeoutMs) {
 // A3b 同 run 多回合流程：长任务请求 → 自然 awaiting_author → 真实控制坞 steer →
 // 同一 run 继续 → 安全点检查自动维护（smoke 只观测，不产验收证据）。
 async function runMultiTurnFlow({ report, requests }) {
-  // smoke 可用 env 指定一次请求变体（真实请求文本，不注入、不改产品）。
+  // G6-multi-turn 正式场景（2026-11-08 作者授权）：同 run 连续 steer，直到
+  // 安全点自动维护触发（checkpoint_created）或 steer 预算耗尽/run 终局。
+  // 触发后补作者可见细条/展开面板与「压缩后真实请求」证据；不触发则如实记录，
+  // 不伪造、不调 K/窗口。smoke 模式（B71_AUTO_MAINT_SMOKE=1）复用同一驱动但
+  // runner 不产验收判据。
+  // 正式 multi-turn 场景允许预注册指定长请求与 steer 文本（真实用户输入，不注入产品）。
   const longRequest =
+    process.env.B71_AUTO_MAINT_REQUEST ??
     process.env.B71_AUTO_MAINT_SMOKE_REQUEST ??
     requests[0] ??
     "先读一下第01章的正文和章计划，再读一下第02章的正文和章计划，然后把两章做对比，最后告诉我下一步该写什么。";
-  const steerRequest =
+  const steerBase =
+    process.env.B71_AUTO_MAINT_STEER ??
     process.env.B71_AUTO_MAINT_SMOKE_STEER ??
     "按你的判断继续：先给出两章的对比结论，再给出下一步写作建议。";
-  const session = { long_request: longRequest, steer_request: steerRequest, attempts: [] };
-  harness.log.push({ op: "a3b_multi_turn_start", at: harness.nowIso() });
+  const maxSteers = Math.max(1, Number(process.env.B71_AUTO_MAINT_MAX_STEERS ?? "6"));
+  const session = {
+    long_request: longRequest,
+    steers: [],
+    rounds: [],
+    attempts: [],
+    max_steers: maxSteers,
+    stop_reason: null,
+  };
+  harness.log.push({ op: "a3_multi_turn_start", at: harness.nowIso() });
+
   const first = await sendRequest(1, longRequest);
   report.requests.push(first);
   session.first_run = {
@@ -518,58 +544,99 @@ async function runMultiTurnFlow({ report, requests }) {
     status_after_send: first.run_status,
     checkpoint_events: first.checkpoint_events_after,
   };
-  const pause = await waitRunPauseOrTerminal({ runId: first.run_id });
+  session.run_id = first.run_id;
+
+  let pause = await waitRunPauseOrTerminal({ runId: first.run_id });
   session.pause = pause;
-  if (pause.kind === "paused") {
-    harness.capture("a3b-paused");
-    session.steer = await respondToRunPause(steerRequest, session.attempts);
-    if (session.steer?.ok) {
-      const resume = await waitRunResume({ runId: first.run_id });
-      session.after_steer = { kind: resume.resumed ? "resumed" : "not_resumed", ...resume };
-      await new Promise((resolve) => setTimeout(resolve, 2_000));
-      harness.capture("a3b-after-answer");
-    } else {
-      session.after_steer = { kind: "steer_failed" };
+  let triggered = checkpointEventCount() > 0;
+
+  while (!triggered && session.steers.length < maxSteers && pause.kind === "paused") {
+    const index = session.steers.length + 1;
+    const steerText = index === 1 ? steerBase : `${steerBase}（第${index}轮继续）`;
+    harness.capture(`a3-paused-${index}`);
+    const steer = await respondToRunPause(steerText, session.attempts);
+    session.steers.push({ index, text: steerText, ...steer });
+    if (!steer.ok) {
+      session.stop_reason = "steer_failed";
+      break;
     }
-  } else {
-    session.note =
-      pause.kind === "terminal"
-        ? "run 未进入 awaiting_author（模型直接终局，无可 steer 的暂停）"
-        : "run 状态等待超时";
+    const resume = await waitRunResume({ runId: first.run_id });
+    session.resumes = [...(session.resumes ?? []), { index, ...resume }];
+    if (!resume.resumed) {
+      session.stop_reason = "resume_failed";
+      break;
+    }
+    pause = await waitRunPauseOrTerminal({ runId: first.run_id });
+    triggered = checkpointEventCount() > 0;
+    session.rounds.push({
+      index,
+      pause_kind: pause.kind,
+      pause_status: pause.status ?? null,
+      exchange_facts: readRunExchangeFacts(first.run_id),
+      usage_facts: readRunUsageFacts(first.run_id),
+      checkpoint_events: checkpointEventCount(),
+      triggered,
+    });
   }
-  if (ANSWER_MODE) {
-    const pauseNodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:record_scan`);
-    const recordGroup = pauseNodes.find((node) =>
-      /创作问题记录/u.test(`${node?.title ?? ""} ${node?.desc ?? ""}`),
-    );
-    const recordPrefix = recordGroup?.path ? `${recordGroup.path}/` : null;
-    const recordButtons = recordPrefix
-      ? pauseNodes.filter((node) => String(node?.path ?? "").startsWith(recordPrefix) && node?.role === "AXButton").length
-      : null;
-    session.problem_record = {
-      group_found: Boolean(recordGroup),
-      record_path: recordGroup?.path ?? null,
-      child_button_count: recordButtons,
-    };
+
+  if (!triggered && !session.stop_reason) {
+    session.stop_reason =
+      pause.kind === "paused" ? "steer_budget_exhausted" : `run_${pause.kind}`;
   }
+  session.triggered = triggered;
+  session.checkpoint_events = checkpointEventCount();
   session.exchange_facts = readRunExchangeFacts(first.run_id);
   session.usage_facts = readRunUsageFacts(first.run_id);
-  session.checkpoint_events = checkpointEventCount();
-  session.strip = await observeStripText(10_000);
-  session.scan = scanAuthorVisibleFiles(dir);
   session.run_events = withDb(dir, (db) =>
-    all(db, "SELECT event_type, COUNT(*) AS c FROM agent_events WHERE run_id = ? GROUP BY event_type", [first.run_id]),
+    all(db, "SELECT event_type, COUNT(*) AS c FROM agent_events WHERE run_id = ? GROUP BY event_type", [
+      first.run_id,
+    ]),
   );
-  session.triggered = session.checkpoint_events > 0;
+  session.strip = await observeStripText(triggered ? 15_000 : 10_000);
+  session.scan = scanAuthorVisibleFiles(dir);
   report.multi_turn = session;
-  report.triggered = session.triggered;
-  report.first_trigger_index = session.triggered ? 1 : null;
-  report.maintenance_strip = {
-    found: session.strip?.visible === true,
-    clicked: false,
-    reason: session.triggered ? null : "not_triggered",
-  };
-  harness.capture("a3b-final");
+  report.triggered = triggered;
+  report.first_trigger_index = triggered ? 1 : null;
+
+  if (triggered) {
+    harness.capture("after-maintenance");
+    runEvidenceMode(evidence, "capture", dir, ["after-maintenance"]);
+    report.maintenance_strip = await clickStripAndExpand();
+    harness.capture("after-expanded");
+    runEvidenceMode(evidence, "capture", dir, ["after-expanded"]);
+
+    // 压缩后真实请求：同 run 再 steer 一轮（若 run 已终局则如实记录缺口）。
+    const nextSteer = await sendSteerAfterPause({
+      index: session.steers.length + 1,
+      queue: requests,
+      runId: first.run_id,
+    });
+    session.next_request = nextSteer;
+    report.next_request = nextSteer;
+    harness.capture("after-next-request");
+    runEvidenceMode(evidence, "capture", dir, ["after-next-request"]);
+  } else {
+    harness.capture("after-maintenance");
+    runEvidenceMode(evidence, "capture", dir, ["after-maintenance"]);
+    report.maintenance_strip = {
+      found: session.strip?.visible === true,
+      clicked: false,
+      reason: "not_triggered",
+    };
+  }
+  harness.capture("a3-final");
+}
+
+// 压缩触发后再补一轮同 run steer，产生「压缩后 provider 请求」证据（C5 按事件时间窗判定）。
+async function sendSteerAfterPause({ index, queue, runId }) {
+  const pause = await waitRunPauseOrTerminal({ runId });
+  if (pause.kind !== "paused") return { skipped: true, reason: `run_${pause.kind}`, index };
+  const text = `${queue?.[0] ?? "按你的判断继续：给出下一步写作建议。"}（压缩后第${index}轮）`;
+  const steer = await respondToRunPause(text, []);
+  if (!steer.ok) return { skipped: true, reason: "steer_failed", index, steer };
+  const resume = await waitRunResume({ runId });
+  const after = await waitRunPauseOrTerminal({ runId });
+  return { skipped: false, index, text, steer, resume, pause_after: after.kind, checkpoint_events: checkpointEventCount() };
 }
 
 async function run() {

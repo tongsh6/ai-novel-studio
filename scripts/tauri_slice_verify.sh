@@ -1673,8 +1673,10 @@ verify_native_slice() {
     elif is_b71_family_slice "$SLICE_ID"; then
       # 批次运行态停止必须在 verify 之前采集——EXIT cleanup 在 verify 之后执行，
       # 届时 app/后端仍在运行。需要运行态停止判据的 journey 前置 cleanup
-      # （confirmation=C11；memory-detail=D8；两者都检查 app/端口/llm-calls 停止）。
-      if node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.exit(["confirmation","memory-detail"].includes(j.journey)?0:1)' "$ARTIFACT_DIR/native-b71-config.json" 2>/dev/null; then
+      # （confirmation=C11；memory-detail=D8；auto-maintenance=C10；均检查
+      # app/端口/llm-calls 停止；2026-11-08 补 auto-maintenance，此前该 journey
+      # 的 C10 因 verify 时 app 仍运行而必然 fail）。
+      if node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.exit(["confirmation","memory-detail","auto-maintenance"].includes(j.journey)?0:1)' "$ARTIFACT_DIR/native-b71-config.json" 2>/dev/null; then
         cleanup >/dev/null 2>&1 || true
         sleep 1
       fi

@@ -311,6 +311,22 @@ if [[ "$AUTO_MAINTENANCE" == "1" ]]; then
   fi
 fi
 
+# G6 multi-turn 正式场景（作者 2026-11-08 授权）：同 run 连续 steer 直到自动维护
+# 触发或 steer 预算耗尽；产正式验收证据并由 runner verify（与 A3 跨 run 场景并列）。
+A3_MULTI_TURN="${B71_AUTO_MAINT_MULTI_TURN:-0}"
+if [[ "$A3_MULTI_TURN" == "1" ]]; then
+  if [[ "$AUTO_MAINTENANCE" != "1" ]]; then
+    echo "B71_AUTO_MAINT_MULTI_TURN=1 需要同时设置 B71_AUTO_MAINTENANCE=1" >&2
+    exit 64
+  fi
+  if [[ "$A3B_SMOKE" == "1" ]]; then
+    echo "B71_AUTO_MAINT_MULTI_TURN=1 不能与 B71_AUTO_MAINT_SMOKE=1 同时设置（正式/观测互斥）" >&2
+    exit 64
+  fi
+  export B71_AUTO_MAINT_MULTI_TURN=1
+  export B71_AUTO_MAINT_MAX_STEERS="${B71_AUTO_MAINT_MAX_STEERS:-6}"
+fi
+
 if [[ "$BEHAVIOR" == "1" ]]; then
   # 作者行为覆盖：seed 用 B70 状态夹具（S1–S4 合成样书），输入取冻结 case 原文。
   export B71_BEHAVIOR_CASE="$BEHAVIOR_CASE"

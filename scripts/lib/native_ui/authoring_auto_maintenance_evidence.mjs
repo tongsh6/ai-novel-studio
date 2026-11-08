@@ -245,6 +245,7 @@ export function evaluateAutoMaintenance({
   llmRecords = [],
   appLog = [],
   dir = null,
+  multiTurn = null,
 }) {
   const db = dbFacts ?? {};
   const env = driverLog?.env ?? {};
@@ -368,18 +369,22 @@ export function evaluateAutoMaintenance({
   const refreshAx = readCaptureText(dir, "after-refresh");
   const refresh = driverLog?.refresh ?? null;
   const c7 = {
-    ok:
-      stripText.test(refreshAx) &&
-      isObject(refresh) &&
-      Number(refresh.before_checkpoint_events) === Number(refresh.after_checkpoint_events),
-    reason: null,
+    // C7（刷新幂等）/C8（失败静默）属跨 run A3 场景的补充判据；G6-multi-turn
+    // 场景范围只要求「压缩触发 + 压缩后请求覆盖事实」，这两个判据在该场景不判
+    // （ok=null → 不进 required），并在 not_signed 明示，不从整体判据中删除。
+    ok: multiTurn
+      ? null
+      : stripText.test(refreshAx) &&
+        isObject(refresh) &&
+        Number(refresh.before_checkpoint_events) === Number(refresh.after_checkpoint_events),
+    reason: multiTurn ? "not_in_scope_multi_turn" : null,
     detail: {
       strip_visible_after_refresh: stripText.test(refreshAx),
       before_checkpoint_events: refresh?.before_checkpoint_events ?? null,
       after_checkpoint_events: refresh?.after_checkpoint_events ?? null,
     },
   };
-  if (!c7.ok) c7.reason = "refresh_not_idempotent";
+  if (c7.ok === false) c7.reason = "refresh_not_idempotent";
 
   // C8：失败静默（持久 trigger 注入；无错误弹窗；developer 日志；移除后恢复）。
   const injection = driverLog?.failure_injection ?? null;
@@ -387,8 +392,9 @@ export function evaluateAutoMaintenance({
   const appLogText = list(appLog).map((entry) => JSON.stringify(entry)).join("\n");
   const errorEventCount = list(appLog).filter((entry) => String(entry?.event ?? "").includes("auto_maintenance")).length;
   const c8 = {
-    ok:
-      isObject(injection) &&
+    ok: multiTurn
+      ? null
+      : isObject(injection) &&
       injection.trigger_created === true &&
       injection.author_error_visible === false &&
       Number(injection.checkpoint_events_after_failure ?? -1) === Number(injection.checkpoint_events_before_failure ?? -2) &&
@@ -406,7 +412,7 @@ export function evaluateAutoMaintenance({
       app_log_has_auto_maintenance: appLogText.includes("auto_maintenance"),
     },
   };
-  if (!c8.ok) c8.reason = "failure_silence_not_observed";
+  if (c8.ok === false) c8.reason = "failure_silence_not_observed";
 
   // C9：全类别无技术词（扫描目录全部 ax/text 证据）。
   const c9 = {
@@ -439,6 +445,31 @@ export function evaluateAutoMaintenance({
   };
   if (!c10.ok) c10.reason = "cleanup_unverified_or_runtime_not_stopped";
 
+  const multiTurnSteers = list(multiTurn?.steers);
+  const multiTurnResumes = list(multiTurn?.resumes);
+  const multiTurnPause = multiTurn?.pause ?? null;
+  const c11 = multiTurn
+    ? {
+        ok:
+          multiTurnPause?.kind === "paused" &&
+          multiTurnSteers.length >= 1 &&
+          multiTurnSteers.every((steer) => steer?.ok === true) &&
+          multiTurnResumes.length >= multiTurnSteers.length &&
+          multiTurnResumes.every((resume) => resume?.resumed === true),
+        reason: null,
+        detail: {
+          pause: multiTurnPause,
+          steers: multiTurnSteers.length,
+          resumes: multiTurnResumes.length,
+          rounds: list(multiTurn?.rounds).length,
+          stop_reason: multiTurn?.stop_reason ?? null,
+          max_steers: multiTurn?.max_steers ?? null,
+          checkpoint_events: multiTurn?.checkpoint_events ?? null,
+        },
+      }
+    : { ok: null, reason: "not_multi_turn_scenario", detail: {} };
+  if (c11.ok === false) c11.reason = "multi_turn_same_run_not_established";
+
   const checks = {
     C1_real_pressure: c1,
     C2_auto_maintenance_committed: c2,
@@ -450,6 +481,7 @@ export function evaluateAutoMaintenance({
     C8_failure_silent: c8,
     C9_author_visible_no_internal_tokens: c9,
     C10_cleanup: c10,
+    C11_multi_turn_same_run: c11,
   };
   const required = Object.entries(checks).filter(([, value]) => value.ok !== null).map(([key]) => key);
   const failed = Object.entries(checks).filter(([, value]) => value.ok === false).map(([key]) => key);
@@ -478,6 +510,9 @@ export function evaluateAutoMaintenance({
       "I10_literary_quality_not_signed",
       "G1_G6_full_signed=false",
       "threshold_tuning_not_signed",
+      ...(multiTurn
+        ? ["C7_refresh_not_in_scope_multi_turn", "C8_failure_injection_not_in_scope_multi_turn"]
+        : []),
     ],
   };
 }
@@ -509,6 +544,8 @@ export function verifyAutoMaintenanceBatch(dir) {
   const config = readConfig(dir);
   assert.equal(config.journey, "auto-maintenance", "auto-maintenance verifier 只接受 journey=auto-maintenance");
   assert.equal(config.provider, "strata", "auto-maintenance verifier 只接受 provider=strata");
+  const driverLogForMode = readJsonIfExists(path.join(dir, "native-b71-driver-log.json"));
+  const multiTurn = driverLogForMode?.multi_turn ?? null;
   const common = assertCommonEvidence(dir, {
     sliceId: config.slice_id,
     minScreenshots: 3,
@@ -516,8 +553,11 @@ export function verifyAutoMaintenanceBatch(dir) {
     requiredKinds: ["input", "ack", "turn", "maintenance"],
   });
   const evidence = assertProviderAndWire(dir, {
-    minUserMessages: 2,
-    minTurnResults: 2,
+    // G6-multi-turn 同 run steer 不产生额外的 user_message 帧；同 run 多回合由
+    // C11 基于 driver 的 pause/steer/resume 事实判定，wire 只要求首轮输入与最终
+    // turn_result（至少各 1 次真实帧），不把判据放宽到无事件。
+    minUserMessages: multiTurn ? 1 : 2,
+    minTurnResults: multiTurn ? 1 : 2,
     minProviderStarts: 1,
     expectProviders: ["strata"],
   });
@@ -547,6 +587,7 @@ export function verifyAutoMaintenanceBatch(dir) {
     llmRecords,
     appLog,
     dir,
+    multiTurn,
   });
   writeNativeFrames(dir);
   const summary = {
@@ -554,6 +595,8 @@ export function verifyAutoMaintenanceBatch(dir) {
     slice_id: config.slice_id,
     provider: config.provider,
     journey: "auto-maintenance",
+    scenario: multiTurn ? "g6-multi-turn" : "auto-maintenance-a3",
+    multi_turn: multiTurn,
     verified_at: new Date().toISOString(),
     env: driverLog?.env ?? null,
     requests: driverLog?.requests ?? [],
