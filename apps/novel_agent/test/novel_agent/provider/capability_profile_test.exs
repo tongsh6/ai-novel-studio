@@ -2,6 +2,20 @@ defmodule NovelCommon.CapabilityProfileTest do
   use ExUnit.Case, async: false
 
   alias NovelAgent.Provider.Anthropic
+
+  alias NovelAgent.Provider.{
+    DeepSeek,
+    Gemini,
+    Kimi,
+    LMStudio,
+    Minimax,
+    MinimaxCN,
+    OpenAI,
+    OpenAISubscription,
+    Strata,
+    Zhipu
+  }
+
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Result
@@ -28,9 +42,6 @@ defmodule NovelCommon.CapabilityProfileTest do
       send(self(), :text_only_adapter_called)
       AdapterExecution.materialize_result({:ok, Result.new("text")}, ctx)
     end
-
-    @impl true
-    def complete(_state, _model, _prompt, _params), do: {:ok, Result.new("text")}
 
     @impl true
     def health_check(_state), do: :ok
@@ -61,7 +72,6 @@ defmodule NovelCommon.CapabilityProfileTest do
       AdapterExecution.materialize_result({:ok, Result.new("text")}, ctx)
     end
 
-    @impl true
     def complete(_state, _model, _prompt, _params), do: {:ok, Result.new("text")}
 
     @impl true
@@ -140,27 +150,7 @@ defmodule NovelCommon.CapabilityProfileTest do
     do: %{ir | projection: Map.put(ir.projection, :finite_mode, mode)}
 
   describe "能力事实来源" do
-    test "Gateway 按实际 route 暴露完整必备能力，而不是只报 streaming/cancellation" do
-      caps = Gateway.provider_capabilities()
-
-      for capability <- RequestIR.required_capabilities() do
-        assert Map.fetch!(caps, capability) == true,
-               "Gateway.provider_capabilities/0 必须暴露 #{capability}"
-      end
-
-      RuntimeConfig.put_current_provider(:text_only)
-      caps = Gateway.provider_capabilities()
-
-      assert caps.provider == :text_only
-      assert caps[:native_multi_turn] == true
-      assert caps[:usage] == true
-      assert caps[:tool_calls] == false
-      assert caps[:tool_results] == false
-      assert caps[:streaming] == false
-      assert caps[:structured_output] == false
-    end
-
-    test "真实生产 registry 为 11 个 provider，stub 已从生产注册退役" do
+    test "真实生产 registry 为 11 个 provider，全部 adapter 声明完整必备能力" do
       previous = Application.get_env(:novel_agent, :extra_providers)
       Application.delete_env(:novel_agent, :extra_providers)
       RuntimeConfig.reset()
@@ -170,14 +160,33 @@ defmodule NovelCommon.CapabilityProfileTest do
         assert length(providers) == 11
         refute :stub in providers
 
-        for provider <- providers do
-          facts = Gateway.capability_profile_for(provider)
+        # 能力事实来源是 adapter 自身（VS-00L §6.4）；按生产注册表逐一核对，
+        # 不依赖任何 Gateway 聚合查询或 descriptor 第二事实源。
+        adapter_modules = [
+          Anthropic,
+          DeepSeek,
+          Gemini,
+          Kimi,
+          LMStudio,
+          Minimax,
+          MinimaxCN,
+          OpenAI,
+          OpenAISubscription,
+          Strata,
+          Zhipu
+        ]
 
-          assert facts.missing == [],
-                 "#{provider} 未声明必备能力: #{inspect(facts.missing)}"
+        assert length(adapter_modules) == length(providers)
 
-          assert facts.profile[:streaming] == true,
-                 "#{provider} 默认 chat wire 的流式能力应可证"
+        for module <- adapter_modules do
+          profile = CapabilityProfile.from_adapter(module, struct(module))
+          missing = CapabilityProfile.missing(profile)
+
+          assert missing == [],
+                 "#{inspect(module)} 未声明必备能力: #{inspect(missing)}"
+
+          assert profile[:streaming] == true,
+                 "#{inspect(module)} 默认 chat wire 的流式能力应可证"
         end
       after
         RuntimeConfig.reset()

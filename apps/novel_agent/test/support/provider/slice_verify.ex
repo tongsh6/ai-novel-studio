@@ -69,13 +69,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defstruct []
 
-  @impl true
+  # test-support 确定性 fixture 入口（不是 Provider behaviour callback）。
+  # execute/5 与它共用 run_fixture，不存在第二套执行语义；application 测试当前
+  # 直接调它取确定性 Result，迁移调用点后随行为测试收敛删除。
+  @doc false
   def complete(state, model, prompt, params) do
     run_fixture(state, model, prompt, params, nil)
   end
 
-  # 单次 fixture 执行与记录的唯一路径：完整/执行两个回调都从这里进出，
-  # 一次回调只写一条同次请求/响应配对。直接 complete 没有执行 ctx，引用保持未绑定。
+  # 单次 fixture 执行与记录的唯一路径：fixture 入口与 execute/5 都从这里进出，
+  # 一次调用只写一条同次请求/响应配对。直接 fixture 没有执行 ctx，引用保持未绑定。
   defp run_fixture(state, model, prompt, params, ctx) do
     prompt_text = prompt_text(prompt)
 
@@ -291,6 +294,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   @impl true
   def name, do: "slice_verify"
+
+  @doc false
+  # 测试替身模拟真实 provider 的模型目录：设置页需要选中模型后才能保存，
+  # 生产前端不感知测试替身（无 stub/slice_verify 特判）。仅 test-support。
+  @impl true
+  def list_models(_state) do
+    {:ok, [%{id: "slice-verify", label: "本地模型"}]}
+  end
 
   # 确定性 slice 验证替身：模拟完整 AgentRun 传输形态（原生多轮/工具/流式/usage），
   # 不是真实 provider 传输，不得据此签真实模型或传输证据。

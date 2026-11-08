@@ -33,45 +33,49 @@ defmodule NovelAgent.Provider.AnthropicTest do
     end
   end
 
-  describe "complete/4" do
-    test "returns auth error on 401" do
-      mock = fn _url, _body, _opts -> {:error, :http_error, 401, "Unauthorized"} end
-      state = %Anthropic{api_key: nil, model: "c", timeout: 100, http_fn: mock, log_fn: nil}
-
-      assert {:error, error} = Anthropic.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert error.type == :auth
-    end
-
-    test "returns connection_refused" do
-      mock = fn _url, _body, _opts -> {:error, :connection_refused, 0, "拒绝"} end
-      state = %Anthropic{api_key: "k", model: "c", timeout: 100, http_fn: mock, log_fn: nil}
-
-      assert {:error, error} = Anthropic.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert error.type == :connection_refused
-    end
-
-    test "returns timeout" do
-      mock = fn _url, _body, _opts -> {:error, :timeout, 0, "超时"} end
-      state = %Anthropic{api_key: "k", model: "c", timeout: 100, http_fn: mock, log_fn: nil}
-
-      assert {:error, error} = Anthropic.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert error.type == :timeout
-    end
-
+  # complete/4 退役后，仍生产有效的请求投影断言在 execute/5 的流式请求体上验证
+  # （system cache_control 断点属于 Anthropic Messages 投影本身）。
+  describe "execute/5 request body" do
     test "marks a long system prompt with Anthropic cache_control" do
-      test_pid = self()
+      parent = self()
 
-      mock = fn _url, body, _opts ->
-        send(test_pid, {:anthropic_body, body})
-        {:error, :http_error, 401, "Unauthorized"}
+      eventsource = fn _url, body, _opts, on_data ->
+        send(parent, {:anthropic_body, body})
+
+        on_data.(
+          anthropic_sse("message_start", %{
+            "type" => "message_start",
+            "message" => %{"usage" => %{"input_tokens" => 1}, "model" => "c"}
+          })
+        )
+
+        on_data.(
+          anthropic_sse("content_block_delta", %{
+            "type" => "content_block_delta",
+            "index" => 0,
+            "delta" => %{"type" => "text_delta", "text" => "ok"}
+          })
+        )
+
+        on_data.("data: [DONE]\n\n")
+        {:ok, 200, ""}
       end
 
-      state = %Anthropic{api_key: "k", model: "c", timeout: 100, http_fn: mock, log_fn: nil}
+      state = %Anthropic{
+        api_key: "k",
+        model: "c",
+        timeout: 100,
+        eventsource_fn: eventsource,
+        log_fn: nil
+      }
+
       long_system = String.duplicate("规则", 2100)
 
       prompt = ir([%{role: "system", content: long_system}, %{role: "user", content: "hi"}])
 
-      assert {:error, _error} = Anthropic.complete(state, nil, ir(prompt), %InferenceParams{})
+      assert {:ok, _} =
+               Anthropic.execute(state, nil, ir(prompt), %InferenceParams{}, provider_ctx())
+
       assert_receive {:anthropic_body, body}
 
       assert [%{type: "text", text: system_text, cache_control: %{type: "ephemeral"}}] =
@@ -390,7 +394,6 @@ defmodule NovelAgent.Provider.AnthropicTest do
 
   describe "behaviour conformance" do
     test "exports required callbacks" do
-      assert function_exported?(Anthropic, :complete, 4)
       assert function_exported?(Anthropic, :execute, 5)
       assert function_exported?(Anthropic, :name, 0)
       assert function_exported?(Anthropic, :from_config, 0)
@@ -443,9 +446,6 @@ defmodule NovelAgent.Provider.AnthropicTest do
 
       assert {:ok, prepared} = RequestIR.prepare_request(ir)
 
-      assert {:error, %{type: :invalid_request}} =
-               Anthropic.complete(state, nil, prepared, %InferenceParams{})
-
       assert {:error, %{error: %{type: :invalid_request}}} =
                Anthropic.execute(
                  state,
@@ -462,15 +462,34 @@ defmodule NovelAgent.Provider.AnthropicTest do
     test "IR → Anthropic Messages：原生对象参数/tool_result/相邻 user 不合并与稳定 system" do
       test_pid = self()
 
-      mock = fn _url, body, _opts ->
+      eventsource = fn _url, body, _opts, on_data ->
         send(test_pid, {:anthropic_body, body})
-        {:error, :http_error, 401, "Unauthorized"}
+
+        on_data.(
+          anthropic_sse("content_block_delta", %{
+            "type" => "content_block_delta",
+            "index" => 0,
+            "delta" => %{"type" => "text_delta", "text" => "ok"}
+          })
+        )
+
+        on_data.("data: [DONE]\n\n")
+        {:ok, 200, ""}
       end
 
-      state = %Anthropic{api_key: "k", model: "c", timeout: 100, http_fn: mock, log_fn: nil}
+      state = %Anthropic{
+        api_key: "k",
+        model: "c",
+        timeout: 100,
+        eventsource_fn: eventsource,
+        log_fn: nil
+      }
+
       prepared = ir_provider_prompt()
 
-      assert {:error, _error} = Anthropic.complete(state, nil, prepared, %InferenceParams{})
+      assert {:ok, _} =
+               Anthropic.execute(state, nil, prepared, %InferenceParams{}, provider_ctx())
+
       assert_received {:anthropic_body, body}
 
       assert [%{name: "read_character", input_schema: %{"type" => "object"}}] = body.tools

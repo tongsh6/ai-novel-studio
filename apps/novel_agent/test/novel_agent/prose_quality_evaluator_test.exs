@@ -46,17 +46,18 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     assert evaluator.run == previous.run
   end
 
-  test "独立质量外观标记有限会话且不伪造作品身份，真实 run 不降级" do
+  test "独立质量外观不伪造作品身份也不写传输有限模式，真实 run 不降级" do
     request = request()
     assert {:ok, standalone} = ProseQualityEvaluator.request_ir(request)
     assert standalone.run == %{run_id: request.request_id}
-    assert standalone.projection.finite_mode.name == "standalone_operation"
-    assert standalone.projection.finite_mode.durable_recovery == false
+
+    # standalone 是运行归属差异，不是传输能力受限：不得进入 IR.projection.finite_mode
+    assert standalone.projection == %{}
 
     run = %{run_id: "actual-quality-run", work_id: "actual-work"}
     assert {:ok, bound} = ProseQualityEvaluator.request_ir(Map.put(request, :run, run))
     assert bound.run == run
-    assert Map.get(bound.projection, :finite_mode) == nil
+    assert bound.projection == %{}
   end
 
   defp provider_execution(result_fn),

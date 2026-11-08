@@ -32,7 +32,9 @@ defmodule NovelAgent.Provider.Stub do
 
   @type t :: %__MODULE__{}
 
-  @impl true
+  # test-support 确定性 fixture 入口（不是 Provider behaviour callback）。
+  # execute/5 与它共用 infer_result；仅测试直接消费 Result 时使用。
+  @doc false
   def complete(_state, _model, prompt, _params) do
     {:ok, infer_result(prompt)}
   end

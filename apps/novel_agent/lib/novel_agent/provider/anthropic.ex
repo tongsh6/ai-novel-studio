@@ -16,13 +16,9 @@ defmodule NovelAgent.Provider.Anthropic do
 
   @behaviour NovelAgent.Provider
 
-  require Logger
-
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.AnthropicStream
   alias NovelAgent.Provider.HTTP
-  alias NovelAgent.Provider.Result
-  alias NovelAgent.Provider.Usage
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
   alias NovelFoundation.UpstreamError
@@ -47,43 +43,6 @@ defmodule NovelAgent.Provider.Anthropic do
 
   @api_base "https://api.anthropic.com/v1"
   @api_version "2023-06-01"
-
-  @impl true
-  def complete(%__MODULE__{} = state, _model, prompt, params) do
-    do_complete(state, prompt, params,
-      receive_timeout: state.timeout,
-      connect_timeout: AdapterExecution.connect_timeout(nil, 15_000)
-    )
-  end
-
-  defp do_complete(%__MODULE__{} = state, %RequestIR{} = ir, params, http_opts) do
-    case request_body(state, ir, params, false) do
-      {:ok, body} -> complete_body(state, body, http_opts)
-      {:error, _reason} -> projection_error()
-    end
-  end
-
-  defp complete_body(state, body, http_opts) do
-    start_time = System.monotonic_time(:millisecond)
-    url = Path.join(@api_base, "messages")
-    headers = [{"x-api-key", state.api_key}, {"anthropic-version", @api_version}]
-    post = state.http_fn || (&HTTP.post/3)
-
-    result =
-      case post.(url, body, Keyword.merge([headers: headers], http_opts)) do
-        {:ok, status, resp_body} when status in 200..299 ->
-          handle_success(state, resp_body, start_time)
-
-        {:error, :http_error, status, message} ->
-          handle_http_error(status, message, start_time)
-
-        {:error, reason, _status, message} ->
-          handle_connection_error(reason, message, start_time)
-      end
-
-    if log = state.log_fn, do: log.(name(), url, body, result, start_time)
-    strip_attrs(result)
-  end
 
   @impl true
   def execute(%__MODULE__{api_key: key} = state, _model, %RequestIR{} = ir, params, ctx)
@@ -164,73 +123,6 @@ defmodule NovelAgent.Provider.Anthropic do
   end
 
   defp cacheable_system(system), do: system
-
-  defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
-  defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}
-
-  # ── response handlers ────────────────────────
-
-  defp handle_success(state, resp_body, start_time) do
-    content = anthropic_text_content(resp_body)
-    tool_calls = NovelAgent.Provider.extract_anthropic_tool_calls(resp_body)
-    latency = System.monotonic_time(:millisecond) - start_time
-
-    usage = Usage.from_anthropic_response(resp_body, state.model, latency)
-
-    Logger.debug(
-      "[Anthropic] 调用成功，输入 #{usage.input_tokens} tokens，输出 #{usage.output_tokens} tokens"
-    )
-
-    {:ok, Result.new(content, usage, tool_calls: tool_calls),
-     %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}}
-  end
-
-  defp anthropic_text_content(%{"content" => blocks}) when is_list(blocks) do
-    Enum.map_join(blocks, "", fn
-      %{"type" => "text", "text" => text} when is_binary(text) -> text
-      _block -> ""
-    end)
-  end
-
-  defp anthropic_text_content(_resp_body), do: ""
-
-  defp handle_http_error(status, message, start_time) do
-    duration = System.monotonic_time(:millisecond) - start_time
-
-    type = http_error_type(status)
-    err = UpstreamError.new(type, "Anthropic API: #{message}", name())
-    Logger.warning("[Anthropic] #{err.message}")
-
-    {:error, UpstreamError.to_error_tuple(err),
-     %{status: status, usage: %{}, duration: duration, resp_body: message}}
-  end
-
-  defp handle_connection_error(:connection_refused, _msg, start_time) do
-    duration = System.monotonic_time(:millisecond) - start_time
-    err = UpstreamError.new(:connection_refused, "无法连接 Anthropic API", name())
-    Logger.warning("[Anthropic] #{err.message}")
-
-    {:error, UpstreamError.to_error_tuple(err),
-     %{status: 0, usage: %{}, duration: duration, resp_body: "connection_refused"}}
-  end
-
-  defp handle_connection_error(:timeout, _msg, start_time) do
-    duration = System.monotonic_time(:millisecond) - start_time
-    err = UpstreamError.new(:timeout, "Anthropic API 请求超时", name())
-    Logger.warning("[Anthropic] #{err.message}")
-
-    {:error, UpstreamError.to_error_tuple(err),
-     %{status: 0, usage: %{}, duration: duration, resp_body: "timeout"}}
-  end
-
-  defp handle_connection_error(_reason, message, start_time) do
-    duration = System.monotonic_time(:millisecond) - start_time
-    err = UpstreamError.new(:provider_internal, message, name())
-    Logger.warning("[Anthropic] #{err.message}")
-
-    {:error, UpstreamError.to_error_tuple(err),
-     %{status: 0, usage: %{}, duration: duration, resp_body: message}}
-  end
 
   @impl true
   def name, do: "anthropic"

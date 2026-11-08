@@ -11,7 +11,6 @@ defmodule NovelAgent.Provider.AdapterExecution do
   alias NovelAgent.Provider
   alias NovelAgent.Provider.AuthorProseStream
   alias NovelAgent.Provider.CancellationToken
-  alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.TimeoutPolicy
   alias NovelAgent.Provider.Usage
@@ -76,15 +75,6 @@ defmodule NovelAgent.Provider.AdapterExecution do
     end
   end
 
-  @doc "非流式请求等待完整响应的上限（无中间进展可观测）。"
-  @spec non_stream_timeout(context() | map() | nil, pos_integer() | nil) :: pos_integer()
-  def non_stream_timeout(ctx, fallback) do
-    case timeout_policy(ctx) do
-      %TimeoutPolicy{non_stream_ms: ms} when is_integer(ms) and ms > 0 -> ms
-      _ -> effective_fallback(fallback, 300_000)
-    end
-  end
-
   @doc "可选总时长兜底；nil = 不启用（默认）。"
   @spec deadline_timeout(context() | map() | nil) :: pos_integer() | nil
   def deadline_timeout(ctx) do
@@ -111,38 +101,6 @@ defmodule NovelAgent.Provider.AdapterExecution do
     do: fallback
 
   defp effective_fallback(_fallback, default), do: default
-
-  # ctx 允许普通 map：Gateway 等调用方在正常路径注入完整 context()，动态配置
-  # （Keyword opts / provider 模块回调）会让 Dialyzer 只能推出 map()；实现本身只用
-  # Map.get 读可选字段，因此契约按实际接受域写成 context() | map()。
-  @spec execute(
-          module(),
-          term(),
-          String.t() | nil,
-          Provider.prompt(),
-          InferenceParams.t(),
-          context() | map()
-        ) :: execution_result()
-  def execute(module, state, model, prompt, params, ctx) do
-    if cancelled?(ctx) do
-      materialize_cancelled(ctx)
-    else
-      execute_uncancelled(module, state, model, prompt, params, ctx)
-    end
-  end
-
-  defp execute_uncancelled(module, state, model, prompt, params, ctx) do
-    initial_events = initial_events(ctx)
-    emit_events(ctx, initial_events, :running)
-
-    result = module.complete(state, model, prompt, params)
-
-    if cancelled?(ctx) do
-      materialize_cancelled(ctx, initial_events: initial_events, emit: :terminal)
-    else
-      materialize_result(result, ctx, initial_events: initial_events, emit: :terminal)
-    end
-  end
 
   @doc "Initial provider execution facts shared by all adapters."
   @spec initial_events(map()) :: [ProviderEvent.t()]

@@ -104,8 +104,12 @@ defmodule NovelAgent.ProseQualityEvaluator do
     end
   end
 
+  # 独立外观（无 AgentRun / 无 durable 恢复）只是运行归属不同，不是传输能力受限：
+  # 不能写入 IR.projection.finite_mode（VS-00L §6.4 只允许声明传输能力受限），否则
+  # Gateway 会把正常完整传输的质量评审调用记成受限模式并误导验收读侧。standalone
+  # 语义由本分支的 run 归属（仅 request_id、无 work/session）表达，不持久化传输事实。
   defp operation_context(%{request_ir: nil, run: nil, request_id: id}) do
-    {%{run_id: id}, %{finite_mode: %{name: "standalone_operation", durable_recovery: false}}}
+    {%{run_id: id}, %{}}
   end
 
   defp operation_context(request), do: {request.run, %{}}

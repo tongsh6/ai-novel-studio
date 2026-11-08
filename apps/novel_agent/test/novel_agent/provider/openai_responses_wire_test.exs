@@ -12,28 +12,6 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
   # adapter 只接受 canonical IR；测试用作者原话构造最小请求，文字保持原字节。
   defp ir(text) when is_binary(text), do: TestRequestIR.ir([TestRequestIR.author(text)])
 
-  # VS-00L §6.3：Responses API 必须有真实生产传输，而不是「投影存在但不可达」。
-  # `OpenAICompatible.endpoint_url/1` 过去固定 `/chat/completions`，HTTP body 也
-  # 只投影 Chat Completions；本测试锁定 route 级 wire 选择与响应事实。
-  defp responses_state(mock, opts \\ []) do
-    Map.merge(
-      %OpenAI{
-        api_key: "sk-test",
-        endpoint: "https://api.openai.com/v1",
-        model: "gpt-5-fixture",
-        timeout: 100,
-        log_fn: nil,
-        http_fn: mock,
-        eventsource_fn: fn _url, _body, _opts, _on_data ->
-          send(self(), :eventsource_used)
-          {:ok, 200, ""}
-        end
-      },
-      Map.new(opts)
-    )
-    |> Map.put(:wire_api, :responses)
-  end
-
   # R2：execute/5 走 Responses SSE 流式传输；用 eventsource mock 捕获真实 body
   # 并返回官方事件序列（created/output_item/output_text.delta/completed）。
   defp responses_stream_state(eventsource) do
@@ -51,51 +29,7 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
 
   defp sse(payload), do: "data: #{Jason.encode!(payload)}\n\n"
 
-  defp responses_body do
-    %{
-      "id" => "resp_fixture",
-      "model" => "gpt-5-fixture",
-      "output" => [
-        %{
-          "type" => "message",
-          "role" => "assistant",
-          "content" => [
-            %{"type" => "output_text", "text" => "你好"},
-            %{"type" => "output_text", "text" => "，世界"}
-          ]
-        }
-      ],
-      "usage" => %{"input_tokens" => 5, "output_tokens" => 3}
-    }
-  end
-
   describe "adapter 级真实传输" do
-    test "complete/4 走 /responses 并解析 Responses output（不是 chat choices）" do
-      parent = self()
-
-      mock = fn url, body, opts ->
-        send(parent, {:responses_request, url, body, opts})
-        {:ok, 200, responses_body()}
-      end
-
-      state = responses_state(mock)
-
-      assert {:ok, result} =
-               OpenAI.complete(state, nil, ir("写一句问候"), %InferenceParams{})
-
-      assert result.content == "你好，世界"
-      assert result.usage.input_tokens == 5
-      assert result.usage.output_tokens == 3
-
-      assert_receive {:responses_request, url, body, _opts}
-      assert url == "https://api.openai.com/v1/responses"
-      assert body.stream == false
-      # Responses 使用 input items，而不是 chat messages。
-      refute Map.has_key?(body, :messages)
-      assert [%{type: "message", role: "user", content: content}] = body.input
-      assert content == [%{type: "input_text", text: "写一句问候"}]
-    end
-
     test "execute/5 的普通文本请求走 responses SSE 流式传输，不伪装 chat 流" do
       parent = self()
 

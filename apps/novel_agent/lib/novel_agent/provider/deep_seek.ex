@@ -14,8 +14,6 @@ defmodule NovelAgent.Provider.DeepSeek do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.OpenAICompatibleStream
-  alias NovelAgent.Provider.Result
-  alias NovelAgent.Provider.Usage
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
   alias NovelFoundation.UpstreamError
@@ -59,41 +57,6 @@ defmodule NovelAgent.Provider.DeepSeek do
 
   @default_endpoint "https://api.deepseek.com"
   @default_model "deepseek-v4-flash"
-
-  @impl true
-  def complete(%__MODULE__{api_key: key} = state, _model, prompt, params)
-      when is_binary(key) and key != "" do
-    start_time = System.monotonic_time(:millisecond)
-
-    body =
-      state
-      |> request_body(prompt, params, false)
-      |> maybe_thinking(state.thinking, state.reasoning_effort)
-
-    url = endpoint_url(state.endpoint)
-    headers = [{"authorization", "Bearer #{key}"}]
-    post = state.http_fn || (&HTTP.post/3)
-
-    result =
-      case post.(url, body, headers: headers, receive_timeout: state.timeout) do
-        {:ok, status, resp_body} when status in 200..299 ->
-          handle_success(state, resp_body, start_time)
-
-        {:error, :http_error, status, message} ->
-          handle_http_error(status, message, start_time)
-
-        {:error, reason, _status, message} ->
-          handle_connection_error(reason, message, start_time)
-      end
-
-    if log = state.log_fn, do: log.(name(), url, body, result, start_time)
-    strip_attrs(result)
-  end
-
-  def complete(%__MODULE__{}, _model, _prompt, _params) do
-    err = UpstreamError.new(:auth, "DeepSeek API key 未配置", name())
-    UpstreamError.to_error_tuple(err)
-  end
 
   @impl true
   # B71 R2：工具调用不再隐式选择非流式——tool_calls 同样走 SSE 流式传输，
@@ -206,86 +169,6 @@ defmodule NovelAgent.Provider.DeepSeek do
   defp maybe_thinking(body, :enabled, _effort), do: Map.put(body, :thinking, %{type: "enabled"})
   defp maybe_thinking(body, _thinking, _effort), do: Map.put(body, :thinking, %{type: "disabled"})
 
-  defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
-  defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}
-
-  defp handle_success(state, resp_body, start_time) do
-    message = get_in(resp_body, ["choices", Access.at(0), "message"]) || %{}
-    content = Map.get(message, "content") || ""
-    tool_calls = NovelAgent.Provider.extract_openai_tool_calls(message)
-    latency = System.monotonic_time(:millisecond) - start_time
-    usage = Usage.from_openai_response(resp_body, state.model, latency)
-
-    if (is_binary(content) and content != "") or tool_calls != [] do
-      Logger.debug(
-        "[DeepSeek] 调用成功，输入 #{usage.input_tokens} tokens，输出 #{usage.output_tokens} tokens"
-      )
-
-      {:ok,
-       Result.new(content, usage,
-         tool_calls: tool_calls,
-         provider_state: private_response_state(message, state.model)
-       ), %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}}
-    else
-      err = UpstreamError.new(:invalid_response, "DeepSeek API 响应内容为空", name())
-      Logger.warning("[DeepSeek] #{err.message}")
-
-      {:error, UpstreamError.to_error_tuple(err),
-       %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}}
-    end
-  end
-
-  defp private_response_state(%{"reasoning_content" => reasoning}, model)
-       when is_binary(reasoning) do
-    %{"provider" => name(), "model" => model, "payload" => %{"reasoning_content" => reasoning}}
-  end
-
-  defp private_response_state(_message, _model), do: %{}
-
-  defp handle_http_error(status, message, start_time) do
-    duration = System.monotonic_time(:millisecond) - start_time
-    type = http_error_type(status)
-    err = UpstreamError.new(type, "DeepSeek API: #{message}", name())
-    Logger.warning("[DeepSeek] #{err.message}")
-
-    {:error, UpstreamError.to_error_tuple(err),
-     %{status: status, usage: %{}, duration: duration, resp_body: message}}
-  end
-
-  defp http_error_type(status) when status in [401, 402, 403], do: :auth
-  defp http_error_type(429), do: :rate_limit
-  # 400/422 = DeepSeek 拒绝了我们发出的请求（如非法的 reasoning_effort 参数），
-  # 是客户端请求问题，不是上游空响应；映射为 :invalid_request 让上层给出准确文案。
-  defp http_error_type(status) when status in [400, 422], do: :invalid_request
-  defp http_error_type(_status), do: :provider_internal
-
-  defp handle_connection_error(:connection_refused, _msg, start_time) do
-    duration = System.monotonic_time(:millisecond) - start_time
-    err = UpstreamError.new(:connection_refused, "无法连接 DeepSeek API", name())
-    Logger.warning("[DeepSeek] #{err.message}")
-
-    {:error, UpstreamError.to_error_tuple(err),
-     %{status: 0, usage: %{}, duration: duration, resp_body: "connection_refused"}}
-  end
-
-  defp handle_connection_error(:timeout, _msg, start_time) do
-    duration = System.monotonic_time(:millisecond) - start_time
-    err = UpstreamError.new(:timeout, "DeepSeek API 请求超时", name())
-    Logger.warning("[DeepSeek] #{err.message}")
-
-    {:error, UpstreamError.to_error_tuple(err),
-     %{status: 0, usage: %{}, duration: duration, resp_body: "timeout"}}
-  end
-
-  defp handle_connection_error(_reason, message, start_time) do
-    duration = System.monotonic_time(:millisecond) - start_time
-    err = UpstreamError.new(:provider_internal, message, name())
-    Logger.warning("[DeepSeek] #{err.message}")
-
-    {:error, UpstreamError.to_error_tuple(err),
-     %{status: 0, usage: %{}, duration: duration, resp_body: message}}
-  end
-
   @impl true
   def name, do: "deepseek"
 
@@ -341,6 +224,13 @@ defmodule NovelAgent.Provider.DeepSeek do
 
   def list_models(%__MODULE__{}),
     do: {:error, %{message: "DeepSeek API key 未配置", type: :unauthorized}}
+
+  # list_models 的错误族映射（execute/5 唯一执行入口后，非流式 complete 分支不再
+  # 共享该 helper，仍需要它把 GET /models 的 HTTP 状态映射成作者可读错误类型）。
+  defp http_error_type(status) when status in [401, 402, 403], do: :auth
+  defp http_error_type(429), do: :rate_limit
+  defp http_error_type(status) when status in [400, 422], do: :invalid_request
+  defp http_error_type(_status), do: :provider_internal
 
   @doc "从应用配置构建 state struct。支持环境变量 DEEPSEEK_API_KEY。"
   @spec from_config() :: t()

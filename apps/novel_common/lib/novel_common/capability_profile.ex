@@ -50,10 +50,6 @@ defmodule NovelCommon.CapabilityProfile do
 
   def missing(_profile), do: required()
 
-  @doc "能力事实是否完整（无缺失）。"
-  @spec complete?(t()) :: boolean()
-  def complete?(profile), do: missing(profile) == []
-
   @doc """
   作者安全的必备能力展示名（中文，不含内部 atom）。
 

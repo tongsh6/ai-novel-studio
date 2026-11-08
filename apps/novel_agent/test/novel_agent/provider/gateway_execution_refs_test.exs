@@ -9,11 +9,6 @@ defmodule NovelAgent.Provider.GatewayExecutionRefsFixtureProvider do
   defstruct []
 
   @impl true
-  def complete(_state, _model, _prompt, _params) do
-    raise "Gateway 必须经 execute/5 进入执行边界"
-  end
-
-  @impl true
   def execute(_state, model, prompt, _params, ctx) do
     text = TestProviderPrompt.text(prompt)
 

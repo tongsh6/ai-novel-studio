@@ -4,7 +4,6 @@ defmodule NovelAgent.Provider.LMStudioTest do
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.LMStudio
   alias NovelAgent.Provider.TimeoutPolicy
-  alias NovelAgent.Provider.Usage
   alias NovelTest.TestRequestIR
 
   # adapter 只接受 canonical IR；测试用作者原话构造最小请求，文字保持原字节。
@@ -29,7 +28,6 @@ defmodule NovelAgent.Provider.LMStudioTest do
 
   describe "behaviour conformance" do
     test "exports required callbacks" do
-      assert function_exported?(LMStudio, :complete, 4)
       assert function_exported?(LMStudio, :execute, 5)
       assert function_exported?(LMStudio, :name, 0)
     end
@@ -68,332 +66,70 @@ defmodule NovelAgent.Provider.LMStudioTest do
     end
   end
 
-  describe "complete/4 error handling" do
-    test "sends chat messages without flattening history into one user prompt" do
-      test_pid = self()
-
-      mock = fn _url, body, _opts ->
-        send(test_pid, {:request_body, body})
-
-        {:ok, 200,
-         %{
-           "choices" => [%{"message" => %{"content" => "{\"ok\":true}"}}],
-           "usage" => %{}
-         }}
-      end
-
-      state = %LMStudio{
-        endpoint: "http://localhost/v1",
-        model: "t",
-        timeout: 100,
-        http_fn: mock,
-        log_fn: nil
-      }
-
-      messages = [
-        %{role: "system", content: "规则"},
-        %{role: "user", content: "第一轮"},
-        %{role: "assistant", content: "回应第一轮"},
-        %{role: "user", content: "第二轮"}
+  # complete/4 退役后，这些请求整形断言（reasoning_effort / named tool_choice 降级）
+  # 在唯一执行入口 execute/5 的流式请求体上继续成立：request_body 是共享边界。
+  describe "execute/5 request body" do
+    test "reasoning_effort / thinking 配置进入流式请求体" do
+      cases = [
+        {[reasoning_effort: "low"], {:effort, "low"}},
+        {[thinking: "enabled", reasoning_effort: "high"], {:effort, "high"}},
+        {[thinking: "disabled", reasoning_effort: "medium"], {:effort, "none"}},
+        {[], :absent}
       ]
 
-      assert {:ok, _result} = LMStudio.complete(state, nil, ir(messages), %InferenceParams{})
-      assert_receive {:request_body, body}
-      assert [%{role: "system"} | projected] = body.messages
-      assert projected == messages
-    end
+      for {config, expected} <- cases do
+        state =
+          LMStudio.from_config([endpoint: "http://localhost:9999/v1", log_fn: nil] ++ config)
 
-    test "reasoning_effort passes through to the request body (M6 qwen3.8 thinking control)" do
-      test_pid = self()
+        body = capture_stream_body(state)
 
-      mock = fn _url, body, _opts ->
-        send(test_pid, {:request_body, body})
-        {:ok, 200, %{"choices" => [%{"message" => %{"content" => "ok"}}], "usage" => %{}}}
+        case expected do
+          {:effort, effort} -> assert body.reasoning_effort == effort
+          :absent -> refute Map.has_key?(body, :reasoning_effort)
+        end
+
+        refute Map.has_key?(body, :thinking)
       end
-
-      state =
-        LMStudio.from_config(
-          endpoint: "http://localhost:9999/v1",
-          http_fn: mock,
-          log_fn: fn _, _, _, _, _ -> :ok end,
-          reasoning_effort: "low"
-        )
-
-      assert {:ok, _} = LMStudio.complete(state, nil, ir("hi"), %InferenceParams{})
-      assert_receive {:request_body, body}
-      assert body.reasoning_effort == "low"
-    end
-
-    test "thinking disabled maps to reasoning_effort none and wins over an explicit effort" do
-      test_pid = self()
-
-      mock = fn _url, body, _opts ->
-        send(test_pid, {:request_body, body})
-        {:ok, 200, %{"choices" => [%{"message" => %{"content" => "ok"}}], "usage" => %{}}}
-      end
-
-      state =
-        LMStudio.from_config(
-          endpoint: "http://localhost:9999/v1",
-          http_fn: mock,
-          log_fn: fn _, _, _, _, _ -> :ok end,
-          thinking: "disabled",
-          reasoning_effort: "medium"
-        )
-
-      assert {:ok, _} = LMStudio.complete(state, nil, ir("hi"), %InferenceParams{})
-      assert_receive {:request_body, body}
-      assert body.reasoning_effort == "none"
-    end
-
-    test "without thinking config the request body carries no reasoning_effort key" do
-      test_pid = self()
-
-      mock = fn _url, body, _opts ->
-        send(test_pid, {:request_body, body})
-        {:ok, 200, %{"choices" => [%{"message" => %{"content" => "ok"}}], "usage" => %{}}}
-      end
-
-      state =
-        LMStudio.from_config(
-          endpoint: "http://localhost:9999/v1",
-          http_fn: mock,
-          log_fn: fn _, _, _, _, _ -> :ok end
-        )
-
-      assert {:ok, _} = LMStudio.complete(state, nil, ir("hi"), %InferenceParams{})
-      assert_receive {:request_body, body}
-      refute Map.has_key?(body, :reasoning_effort)
     end
 
     test "named tool_choice downgrades to required string (LM Studio capability constraint)" do
-      test_pid = self()
-
-      mock = fn _url, body, _opts ->
-        send(test_pid, {:request_body, body})
-
-        {:ok, 200,
-         %{
-           "choices" => [
-             %{
-               "message" => %{
-                 "content" => "计划推理",
-                 "tool_calls" => [
-                   %{
-                     "id" => "t1",
-                     "function" => %{"name" => "agent_plan_draft", "arguments" => "{}"}
-                   }
-                 ]
-               }
-             }
-           ],
-           "usage" => %{}
-         }}
-      end
-
-      state = %LMStudio{
-        endpoint: "http://localhost/v1",
-        model: "t",
-        timeout: 100,
-        http_fn: mock,
-        log_fn: nil
-      }
-
       prompt =
         TestRequestIR.ir(
           [TestRequestIR.author("起草计划")],
-          tools: [
-            TestRequestIR.tool("agent_plan_draft", %{type: "object"})
-          ],
+          tools: [TestRequestIR.tool("agent_plan_draft", %{type: "object"})],
           projection: %{tool_choice: "agent_plan_draft"}
         )
 
-      assert {:ok, _result} = LMStudio.complete(state, nil, ir(prompt), %InferenceParams{})
-      assert_receive {:request_body, body}
+      body =
+        %LMStudio{
+          endpoint: "http://localhost:9999/v1",
+          model: "t",
+          timeout: 100,
+          log_fn: nil
+        }
+        |> capture_stream_body(prompt)
 
-      # LM Studio 只接受字符串 none/auto/required；具名对象形式会 HTTP 400
       assert body.tool_choice == "required"
       assert [%{function: %{name: "agent_plan_draft"}} | _] = body.tools
     end
-
-    test "returns connection_refused" do
-      mock = fn _url, _body, _opts -> {:error, :connection_refused, 0, "拒绝"} end
-
-      state = %LMStudio{
-        endpoint: "http://localhost/v1",
-        model: "t",
-        timeout: 100,
-        http_fn: mock,
-        log_fn: nil
-      }
-
-      assert {:error, error_map} = LMStudio.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert error_map.type == :connection_refused
-    end
-
-    test "returns timeout" do
-      mock = fn _url, _body, _opts -> {:error, :timeout, 0, "超时"} end
-
-      state = %LMStudio{
-        endpoint: "http://localhost/v1",
-        model: "t",
-        timeout: 100,
-        http_fn: mock,
-        log_fn: nil
-      }
-
-      assert {:error, error_map} = LMStudio.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert error_map.type == :timeout
-    end
-
-    test "returns provider_internal for unknown errors" do
-      mock = fn _url, _body, _opts -> {:error, :unknown, 0, "异常"} end
-
-      state = %LMStudio{
-        endpoint: "http://localhost/v1",
-        model: "t",
-        timeout: 100,
-        http_fn: mock,
-        log_fn: nil
-      }
-
-      assert {:error, error_map} = LMStudio.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert error_map.type == :provider_internal
-    end
-
-    # 缺陷十（2026-07-20）：现场实测抓到 gpt-oss-120b 采样退化——HTTP 200 正常
-    # 返回，content 却是单字符刷满（"@" 重复 1999 次），不是任何 token 上限能挡住
-    # 的失控生成，是内容有效性问题。见 NovelAgent.Provider.degenerate_content?/1。
-    test "returns invalid_response for degenerate repeated-character content" do
-      degenerate = String.duplicate("@", 1999)
-
-      mock = fn _url, _body, _opts ->
-        {:ok, 200, %{"choices" => [%{"message" => %{"content" => degenerate}}], "usage" => %{}}}
-      end
-
-      state = %LMStudio{
-        endpoint: "http://localhost/v1",
-        model: "t",
-        timeout: 100,
-        http_fn: mock,
-        log_fn: nil
-      }
-
-      assert {:error, error_map} = LMStudio.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert error_map.type == :invalid_response
-      assert error_map.message =~ "退化"
-    end
-
-    test "does not flag ordinary prose content as degenerate" do
-      prose = String.duplicate("这段正文有正常的中文叙述内容与足够的字符多样性。", 5)
-
-      mock = fn _url, _body, _opts ->
-        {:ok, 200, %{"choices" => [%{"message" => %{"content" => prose}}], "usage" => %{}}}
-      end
-
-      state = %LMStudio{
-        endpoint: "http://localhost/v1",
-        model: "t",
-        timeout: 100,
-        http_fn: mock,
-        log_fn: nil
-      }
-
-      assert {:ok, result} = LMStudio.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert result.content == prose
-    end
-
-    test "does not flag tool_calls-only response (empty content) as degenerate" do
-      mock = fn _url, _body, _opts ->
-        {:ok, 200,
-         %{
-           "choices" => [
-             %{
-               "message" => %{
-                 "content" => nil,
-                 "tool_calls" => [
-                   %{
-                     "id" => "call_1",
-                     "type" => "function",
-                     "function" => %{"name" => "judgment_decision", "arguments" => "{}"}
-                   }
-                 ]
-               }
-             }
-           ],
-           "usage" => %{}
-         }}
-      end
-
-      state = %LMStudio{
-        endpoint: "http://localhost/v1",
-        model: "t",
-        timeout: 100,
-        http_fn: mock,
-        log_fn: nil
-      }
-
-      assert {:ok, result} = LMStudio.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert result.tool_calls != []
-    end
   end
 
-  describe "complete/4 usage accounting" do
-    test "success carries a %Usage{} with token counts (not dropped)" do
-      mock = fn _url, _body, _opts ->
-        {:ok, 200,
-         %{
-           "choices" => [%{"message" => %{"content" => "正文"}}],
-           "model" => "local-model",
-           "usage" => %{"prompt_tokens" => 42, "completion_tokens" => 9}
-         }}
-      end
+  defp capture_stream_body(state, prompt \\ nil) do
+    parent = self()
 
-      state = %LMStudio{
-        endpoint: "http://localhost/v1",
-        model: "t",
-        timeout: 100,
-        http_fn: mock,
-        log_fn: nil
-      }
-
-      assert {:ok, result} = LMStudio.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert %Usage{} = result.usage
-      assert result.usage.input_tokens == 42
-      assert result.usage.output_tokens == 9
-      assert result.usage.model == "local-model"
+    eventsource = fn _url, body, _opts, on_data ->
+      send(parent, {:captured_body, body})
+      on_data.(sse_delta("ok", "local-model"))
+      on_data.("data: [DONE]\n\n")
+      {:ok, 200, ""}
     end
 
-    test "usage handed to log_fn is JSON-encodable (no silent drop)" do
-      test_pid = self()
+    state = %{state | eventsource_fn: eventsource}
+    prompt = prompt || ir("hi")
 
-      mock = fn _url, _body, _opts ->
-        {:ok, 200,
-         %{
-           "choices" => [%{"message" => %{"content" => "正文"}}],
-           "usage" => %{"prompt_tokens" => 3, "completion_tokens" => 1}
-         }}
-      end
-
-      log_fn = fn _provider, _url, _body, result, _start ->
-        send(test_pid, {:logged_result, result})
-        :ok
-      end
-
-      state = %LMStudio{
-        endpoint: "http://localhost/v1",
-        model: "t",
-        timeout: 100,
-        http_fn: mock,
-        log_fn: log_fn
-      }
-
-      assert {:ok, _result} = LMStudio.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert_receive {:logged_result, {:ok, _ok, attrs}}
-
-      # %Usage{} 必须能被 JSON 序列化（@derive Jason.Encoder），否则日志会被静默丢弃。
-      assert {:ok, _json} = Jason.encode(attrs.usage)
-    end
+    assert {:ok, _} = LMStudio.execute(state, nil, prompt, %InferenceParams{}, provider_ctx())
+    assert_receive {:captured_body, body}
+    body
   end
 
   describe "execute/5" do

@@ -47,17 +47,17 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert writer.run == previous.run
   end
 
-  test "独立外观明确标记有限会话且不把来源轮次冒充作品，真实 run 保持完整模式" do
+  test "独立外观不冒充作品也不写传输有限模式，真实 run 保持完整模式" do
     assert {:ok, standalone} = Real.request_ir(@request)
     assert standalone.run == %{run_id: @request.request_id}
-    assert standalone.projection.finite_mode.name == "standalone_operation"
-    assert standalone.projection.finite_mode.durable_recovery == false
-    refute standalone.projection.finite_mode.name == "legacy_json_content"
+
+    # standalone 是运行归属差异，不是传输能力受限：不得进入 IR.projection.finite_mode
+    assert standalone.projection == %{}
 
     run = %{run_id: "actual-run", work_id: "actual-work", session_id: "actual-session"}
     assert {:ok, bound} = Real.request_ir(%{@request | run: run})
     assert bound.run == run
-    assert Map.get(bound.projection, :finite_mode) == nil
+    assert bound.projection == %{}
   end
 
   # 结构性非法 JSON（多余逗号），不是裸控制字符问题，repair_unescaped_control_chars

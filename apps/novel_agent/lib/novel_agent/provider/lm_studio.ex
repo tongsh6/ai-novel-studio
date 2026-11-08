@@ -5,13 +5,9 @@ defmodule NovelAgent.Provider.LMStudio do
 
   @behaviour NovelAgent.Provider
 
-  require Logger
-
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.OpenAICompatibleStream
-  alias NovelAgent.Provider.Result
-  alias NovelAgent.Provider.Usage
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
   alias NovelFoundation.UpstreamError
@@ -49,35 +45,6 @@ defmodule NovelAgent.Provider.LMStudio do
         }
 
   @impl true
-  def complete(%__MODULE__{endpoint: endpoint} = state, _model, prompt, params)
-      when (is_binary(prompt) or is_list(prompt) or is_map(prompt)) and not is_nil(endpoint) do
-    start_time = System.monotonic_time(:millisecond)
-
-    body = request_body(state, prompt, params, false)
-
-    url = Path.join(endpoint, "chat/completions")
-    post = state.http_fn || (&HTTP.post/3)
-
-    result =
-      case post.(url, body, receive_timeout: state.timeout) do
-        {:ok, status, resp_body} when status in 200..299 ->
-          handle_success(state, resp_body, start_time)
-
-        {:error, reason, _status, message} ->
-          handle_error(reason, message, start_time)
-      end
-
-    log_and_return(result, state, url, body, start_time, prompt)
-  end
-
-  def complete(%__MODULE__{} = _state, _model, _prompt, _params) do
-    err = UpstreamError.new(:provider_internal, "LM Studio endpoint not configured", name())
-
-    {:error,
-     %{type: err.type, message: err.message, provider: err.provider, retryable: err.retryable}}
-  end
-
-  @impl true
   # B71 R2：工具调用不再隐式选择非流式——tool_calls 同样走 SSE 流式传输。
   def execute(%__MODULE__{endpoint: endpoint} = state, _model, prompt, params, ctx)
       when (is_binary(prompt) or is_list(prompt) or is_map(prompt)) and not is_nil(endpoint) do
@@ -102,84 +69,6 @@ defmodule NovelAgent.Provider.LMStudio do
   end
 
   # ── response handlers ────────────────────────
-
-  defp handle_success(state, resp_body, start_time) do
-    message = get_in(resp_body, ["choices", Access.at(0), "message"]) || %{}
-    content = Map.get(message, "content") || ""
-    tool_calls = NovelAgent.Provider.extract_openai_tool_calls(message)
-    duration = System.monotonic_time(:millisecond) - start_time
-    usage = Usage.from_openai_response(resp_body, state.model, duration)
-    attrs = %{status: 200, usage: usage, duration: duration, resp_body: Jason.encode!(resp_body)}
-
-    content
-    |> classify_content(tool_calls)
-    |> build_success_result(content, tool_calls, usage, attrs)
-  end
-
-  # 缺陷十（2026-07-20）：采样退化时 HTTP 层仍是正常 200，只能靠内容判定拦下
-  # （见 NovelAgent.Provider.degenerate_content?/1 与流式路径同名判定）。
-  defp classify_content(_content, tool_calls) when tool_calls != [], do: :ok
-
-  defp classify_content(content, _tool_calls) when content in ["", nil], do: :empty
-
-  defp classify_content(content, _tool_calls) do
-    if NovelAgent.Provider.degenerate_content?(content), do: :degenerate, else: :ok
-  end
-
-  defp build_success_result(:ok, content, tool_calls, usage, attrs) do
-    Logger.debug("[LMStudio] 调用成功，返回 #{byte_size(content)} 字节#{tool_calls_suffix(tool_calls)}")
-    {:ok, Result.new(content, usage, tool_calls: tool_calls), attrs}
-  end
-
-  defp build_success_result(:degenerate, _content, _tool_calls, _usage, attrs),
-    do: error_result_tuple("响应内容退化（低信息熵重复）", attrs)
-
-  defp build_success_result(:empty, _content, _tool_calls, _usage, attrs),
-    do: error_result_tuple("响应内容为空", attrs)
-
-  defp tool_calls_suffix([]), do: ""
-  defp tool_calls_suffix(_tool_calls), do: " + tool_calls"
-
-  defp error_result_tuple(message, attrs) do
-    err = UpstreamError.new(:invalid_response, message, name())
-    Logger.warning("[LMStudio] #{err.message}")
-    {:error, UpstreamError.to_error_tuple(err), attrs}
-  end
-
-  defp handle_error(:connection_refused, _msg, start_time) do
-    duration = System.monotonic_time(:millisecond) - start_time
-    err = UpstreamError.new(:connection_refused, "LM Studio 未启动", name())
-    Logger.warning("[LMStudio] #{err.message}")
-
-    {:error, UpstreamError.to_error_tuple(err),
-     %{status: 0, usage: %{}, duration: duration, resp_body: "connection_refused"}}
-  end
-
-  defp handle_error(:timeout, _msg, start_time) do
-    duration = System.monotonic_time(:millisecond) - start_time
-    err = UpstreamError.new(:timeout, "LM Studio 请求超时", name())
-    Logger.warning("[LMStudio] #{err.message}")
-
-    {:error, UpstreamError.to_error_tuple(err),
-     %{status: 0, usage: %{}, duration: duration, resp_body: "timeout"}}
-  end
-
-  defp handle_error(_reason, message, start_time) do
-    duration = System.monotonic_time(:millisecond) - start_time
-    err = UpstreamError.new(:provider_internal, message, name())
-    Logger.warning("[LMStudio] #{err.message}")
-
-    {:error, UpstreamError.to_error_tuple(err),
-     %{status: 0, usage: %{}, duration: duration, resp_body: message}}
-  end
-
-  defp log_and_return(result, state, url, body, start_time, _prompt) do
-    if log = state.log_fn, do: log.(name(), url, body, result, start_time)
-    strip_attrs(result)
-  end
-
-  defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
-  defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}
 
   defp request_body(state, %RequestIR{} = ir, params, stream?) do
     {:ok, projected} = Projection.project(ir, "chat_completions")

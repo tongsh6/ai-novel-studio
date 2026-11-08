@@ -37,9 +37,6 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
     def execute(_state, _model, _prompt, _params, _ctx), do: raise("IR only fixture provider")
 
     @impl true
-    def complete(%__MODULE__{}, _model, _prompt, _params), do: raise("use execute/5")
-
-    @impl true
     def health_check(_state), do: :ok
 
     @impl true
@@ -523,16 +520,21 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
         json_mode: false,
         thinking: :disabled,
         log_fn: nil,
-        http_fn: fn _url, body, _opts ->
-          send(test_pid, {:deepseek_body, body})
-          {:ok, 200, %{"choices" => [%{"message" => %{"content" => "ok"}}]}}
-        end
+        eventsource_fn: chat_stream_mock(test_pid)
       }
 
       assert {:ok, prepared} = RequestIR.prepare_request(deepseek_ir())
-      assert {:ok, _result} = DeepSeek.complete(state, nil, prepared, InferenceParams.new())
 
-      assert_receive {:deepseek_body, body}
+      assert {:ok, _result} =
+               DeepSeek.execute(
+                 state,
+                 nil,
+                 prepared,
+                 InferenceParams.new(),
+                 provider_ctx(:deepseek, "deepseek-native-model")
+               )
+
+      assert_receive {:chat_body, body}
       [first | _rest] = Enum.filter(body.messages, &(&1.role == "assistant"))
       assert first.reasoning_content == "仅来源模型可见"
 
@@ -552,16 +554,21 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
         json_mode: false,
         thinking: :disabled,
         log_fn: nil,
-        http_fn: fn _url, body, _opts ->
-          send(test_pid, {:deepseek_body, body})
-          {:ok, 200, %{"choices" => [%{"message" => %{"content" => "ok"}}]}}
-        end
+        eventsource_fn: chat_stream_mock(test_pid)
       }
 
       assert {:ok, prepared} = RequestIR.prepare_request(deepseek_ir())
-      assert {:ok, _result} = DeepSeek.complete(state, nil, prepared, InferenceParams.new())
 
-      assert_receive {:deepseek_body, body}
+      assert {:ok, _result} =
+               DeepSeek.execute(
+                 state,
+                 nil,
+                 prepared,
+                 InferenceParams.new(),
+                 provider_ctx(:deepseek, "other-model")
+               )
+
+      assert_receive {:chat_body, body}
       refute Enum.any?(body.messages, &Map.has_key?(&1, :reasoning_content))
       refute Enum.any?(body.messages, &Map.has_key?(&1, :provider_state))
     end
@@ -573,6 +580,17 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
     do: "event: " <> event <> "\ndata: " <> Jason.encode!(payload) <> "\n\n"
 
   defp sse_data(payload), do: "data: " <> Jason.encode!(payload) <> "\n\n"
+
+  defp provider_ctx(provider_name, model_name) do
+    %{
+      provider_name: provider_name,
+      model_name: model_name,
+      provider_call_ref: "pcall_native_boundary_test",
+      provider_run_id: "prun_native_boundary_test",
+      purpose: :conversation,
+      owner_refs: %{}
+    }
+  end
 
   defp chat_stream_mock(test_pid) do
     fn _url, body, _opts, on_data ->

@@ -24,11 +24,6 @@ defmodule NovelAgent.Test.Provider.StreamingSliceVerify do
   defstruct []
 
   @impl true
-  def complete(_state, _model, _prompt, _params) do
-    raise "streaming_slice_verify uses execute/5"
-  end
-
-  @impl true
   def execute(state, model, prompt, params, ctx) do
     if author_purpose?(ctx) do
       case SliceVerify.fixture_result(state, model, prompt, params, ctx) do

@@ -247,4 +247,71 @@ defmodule NovelAgent.Provider.StreamToolCallsTest do
 
     assert call.raw_arguments == raw_arguments
   end
+
+  # VS-00L §6.4 usage recovery：Chat Completions 流式只有显式声明
+  # stream_options.include_usage 才会在 [DONE] 前收到 usage chunk。官方 usage chunk
+  # 形态是 choices: []（不携带内容），decoder 必须如实归一到 Result.usage。
+  test "OpenAI 兼容 Chat 流式请求声明 stream_options.include_usage 并归一标准 usage chunk" do
+    parent = self()
+
+    eventsource = fn _url, body, _opts, on_data ->
+      send(parent, {:request_body, body})
+
+      on_data.(sse(%{"choices" => [%{"delta" => %{"content" => "正文"}}]}))
+
+      on_data.(
+        sse(%{
+          "choices" => [],
+          "usage" => %{"prompt_tokens" => 7, "completion_tokens" => 3}
+        })
+      )
+
+      on_data.("data: [DONE]\n\n")
+      {:ok, 200, ""}
+    end
+
+    state = %OpenAI{
+      api_key: "sk-test",
+      endpoint: "https://example.invalid/v1",
+      model: "fixture-model",
+      timeout: 100,
+      eventsource_fn: eventsource,
+      log_fn: nil
+    }
+
+    assert {:ok, %{result: result}} =
+             OpenAI.execute(state, nil, prompt_ir(), %InferenceParams{}, provider_ctx(:openai))
+
+    assert_received {:request_body, body}
+    assert body.stream == true
+    assert body.stream_options == %{include_usage: true}
+
+    assert result.content == "正文"
+    assert result.usage.input_tokens == 7
+    assert result.usage.output_tokens == 3
+  end
+
+  test "缺 usage 帧时流式 usage 保持 0，不伪造非零 token" do
+    eventsource = fn _url, _body, _opts, on_data ->
+      on_data.(sse(%{"choices" => [%{"delta" => %{"content" => "正文"}}]}))
+      on_data.("data: [DONE]\n\n")
+      {:ok, 200, ""}
+    end
+
+    state = %OpenAI{
+      api_key: "sk-test",
+      endpoint: "https://example.invalid/v1",
+      model: "fixture-model",
+      timeout: 100,
+      eventsource_fn: eventsource,
+      log_fn: nil
+    }
+
+    assert {:ok, %{result: result}} =
+             OpenAI.execute(state, nil, prompt_ir(), %InferenceParams{}, provider_ctx(:openai))
+
+    assert result.content == "正文"
+    assert result.usage.input_tokens == 0
+    assert result.usage.output_tokens == 0
+  end
 end

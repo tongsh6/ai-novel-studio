@@ -25,11 +25,6 @@ defmodule NovelAgent.Provider.GatewayTest do
     end
 
     @impl true
-    def complete(_state, _model, _prompt, _params) do
-      raise "Gateway must enter provider execution through execute/5 when the adapter exports it"
-    end
-
-    @impl true
     def capabilities(_state), do: Map.new(RequestIR.required_capabilities(), &{&1, true})
 
     @impl true
@@ -56,9 +51,6 @@ defmodule NovelAgent.Provider.GatewayTest do
       send(self(), {:captured_prompt, prompt})
       AdapterExecution.materialize_result({:ok, Result.new("captured")}, ctx)
     end
-
-    @impl true
-    def complete(_state, _model, _prompt, _params), do: raise("use execute/5")
 
     @impl true
     def capabilities(_state), do: Map.new(RequestIR.required_capabilities(), &{&1, true})

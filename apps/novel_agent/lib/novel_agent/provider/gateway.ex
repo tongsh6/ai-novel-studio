@@ -196,7 +196,7 @@ defmodule NovelAgent.Provider.Gateway do
   # 之一——Execution.execute/2、Gateway.complete/3 同类，三处必须同步，否则任一处漏改
   # 就有调用路径绕过止血阀（实测：正文起草 purpose: :writer 走的正是 execution.ex 那处，
   # 曾经真实跑到 36000+ token 未停）。
-  @spec execute(Provider.prompt(), String.t() | nil, InferenceParams.t(), keyword()) ::
+  @spec execute(Provider.request_ir(), String.t() | nil, InferenceParams.t(), keyword()) ::
           execution_result()
   def execute(%RequestIR{} = ir, model \\ nil, params \\ InferenceParams.new(), opts \\ []) do
     system_identity_ref = SystemIdentity.identity_ref()
@@ -246,13 +246,14 @@ defmodule NovelAgent.Provider.Gateway do
   end
 
   @doc """
-  调用当前默认 provider 执行 complete。
+  便捷入口：用当前默认 provider 执行一次 canonical IR，只返回 final `%Result{}`。
 
-  可传入 InferenceParams 覆盖默认推理参数（temperature / max_tokens 等）。
-  返回 `{:ok, %Result{content: content, usage: usage}}`。
+  这是 `execute/4` 的便利投影——仍走同一 provider execution stream、同一实际 route
+  能力门与同一 `CallRef/RunRef` 绑定，不是第二条执行路径。需要 ProviderRun / 事件
+  事实的调用方应直接消费 `execute/4`。`prompt` 必须是 canonical `%RequestIR{}`。
   LLM 不可用时返回 `{:error, error}`——不切换到替代执行路径，让上层告知用户。
   """
-  @spec complete(Provider.prompt(), String.t() | nil, InferenceParams.t()) :: result()
+  @spec complete(Provider.request_ir(), String.t() | nil, InferenceParams.t()) :: result()
   def complete(prompt, model \\ nil, params \\ InferenceParams.new()) do
     case execute(prompt, model, params) do
       {:ok, %{result: %Result{} = result}} ->
@@ -312,59 +313,6 @@ defmodule NovelAgent.Provider.Gateway do
   @doc "返回当前已注册的 provider 列表。"
   @spec registered_providers() :: [atom()]
   def registered_providers, do: provider_modules() |> Map.keys()
-
-  @doc """
-  按当前默认 provider 的实际选定 route 派生可证能力事实（VS-00L §6.4）。
-
-  与 `execute/4` 使用同一 `execution_route/3` 解析（同一 provider/model 配置快照），
-  但不发送任何请求。返回值包含 `provider/model/profile/missing/projection_target`：
-  `profile` 是 adapter 声明的必备能力事实，`projection_target` 是本次 route 的真实
-  wire 投影目标；缺能力必须由调用方显式 `finite_mode` 或拒绝路由。
-  """
-  @spec capability_profile(String.t() | nil, keyword()) :: map()
-  def capability_profile(model \\ nil, opts \\ []) do
-    provider_name = Keyword.get(opts, :provider) || default_provider()
-    route_capability_facts(provider_name, execution_route(provider_name, model, opts))
-  end
-
-  @doc "按显式 provider 派生能力事实（设置页/诊断/测试），不改变运行时选择。"
-  @spec capability_profile_for(atom() | String.t(), String.t() | nil, keyword()) :: map()
-  def capability_profile_for(provider, model \\ nil, opts \\ []) do
-    case normalize_provider_id(provider) do
-      {:ok, provider_name} ->
-        route_capability_facts(provider_name, execution_route(provider_name, model, opts))
-
-      :error ->
-        route_capability_facts(provider, {:error, :unknown_provider})
-    end
-  end
-
-  @doc """
-  返回当前 provider 对 AgentRun runtime 可声明的执行能力事实。
-
-  兼容既有 `supports_streaming/supports_cancellation/cancel_strategy` 键，并展开
-  `CapabilityProfile.required/0` 的全部必备能力；所有值都来自实际 route 的 adapter
-  声明，不再只凭 provider descriptor 猜测。
-  """
-  @spec provider_capabilities() :: map()
-  def provider_capabilities do
-    %{provider: provider, model: model, profile: profile, missing: missing} =
-      capability_profile()
-
-    descriptor = provider_descriptor(provider)
-    supports_cancellation = Map.get(descriptor, :supports_cancellation, false)
-
-    profile
-    |> Map.merge(%{
-      provider: provider,
-      model: model,
-      missing_required: missing,
-      supports_streaming: Map.get(profile, :streaming, false),
-      supports_cancellation: supports_cancellation,
-      cancel_strategy:
-        if(supports_cancellation, do: :provider_execution_cancel, else: :not_available)
-    })
-  end
 
   @doc "返回 provider 设置页所需的只读选项；不会返回 secret。"
   @spec provider_options() :: %{current_provider: atom(), providers: [map()]}
@@ -446,28 +394,6 @@ defmodule NovelAgent.Provider.Gateway do
   end
 
   # ---- private ----
-
-  # 能力事实按实际 route 派生；派生、投影目标与门槛的唯一实现在 CapabilityProfile。
-  defp route_capability_facts(provider, {:ok, route}),
-    do: CapabilityProfile.facts(provider, route)
-
-  defp route_capability_facts(provider, {:error, _error}),
-    do: CapabilityProfile.facts(provider, nil)
-
-  defp normalize_provider_id(provider) when is_atom(provider) do
-    if Map.has_key?(provider_modules(), provider), do: {:ok, provider}, else: :error
-  end
-
-  defp normalize_provider_id(provider) when is_binary(provider) do
-    with {:ok, provider} <- safe_existing_atom(provider),
-         true <- Map.has_key?(provider_modules(), provider) do
-      {:ok, provider}
-    else
-      _ -> :error
-    end
-  end
-
-  defp normalize_provider_id(_provider), do: :error
 
   defp provider_models(provider, module, attrs) do
     if Code.ensure_loaded?(module) and function_exported?(module, :list_models, 1) do
@@ -561,13 +487,8 @@ defmodule NovelAgent.Provider.Gateway do
     end
   end
 
-  defp execute_adapter(module, state, model, prompt, params, ctx) do
-    if Code.ensure_loaded?(module) and function_exported?(module, :execute, 5) do
-      module.execute(state, model, prompt, params, ctx)
-    else
-      AdapterExecution.execute(module, state, model, prompt, params, ctx)
-    end
-  end
+  defp execute_adapter(module, state, model, prompt, params, ctx),
+    do: module.execute(state, model, prompt, params, ctx)
 
   defp provider_run_id, do: NovelFoundation.ID.unique("prun")
   defp provider_call_ref, do: NovelFoundation.ID.unique("pcall")
@@ -660,14 +581,6 @@ defmodule NovelAgent.Provider.Gateway do
       |> Map.new()
 
     Map.merge(@provider_modules, extra)
-  end
-
-  defp provider_descriptor(provider) do
-    %{
-      supports_streaming: false,
-      supports_cancellation: false
-    }
-    |> Map.merge(Map.get(@provider_descriptors, provider, %{}))
   end
 
   defp default_provider do

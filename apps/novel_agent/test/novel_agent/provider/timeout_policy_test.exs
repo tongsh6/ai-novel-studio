@@ -13,7 +13,6 @@ defmodule NovelAgent.Provider.TimeoutPolicyTest do
         policy = resolve(provider)
 
         assert policy.profile == :local
-        assert TimeoutPolicy.local?(provider)
         assert policy.connect_ms == 15_000
         assert policy.response_ms == 900_000
         assert policy.non_stream_ms == 1_800_000
@@ -27,7 +26,6 @@ defmodule NovelAgent.Provider.TimeoutPolicyTest do
       policy = resolve(:deepseek, timeout: 300_000)
 
       assert policy.profile == :hosted
-      refute TimeoutPolicy.local?(:deepseek)
       assert policy.response_ms == 300_000
       assert policy.non_stream_ms == 300_000
       assert policy.deadline_ms == nil
@@ -126,7 +124,7 @@ defmodule NovelAgent.Provider.TimeoutPolicyTest do
 
   describe "normalization" do
     test "accepts string provider names" do
-      assert TimeoutPolicy.local?("strata")
+      assert TimeoutPolicy.resolve("strata").profile == :local
       assert TimeoutPolicy.resolve("lmstudio").profile == :local
     end
 

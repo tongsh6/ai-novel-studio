@@ -28,9 +28,6 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.OpenAICompatibleStream
   alias NovelAgent.Provider.ResponsesStream
-  alias NovelAgent.Provider.ResponsesWire
-  alias NovelAgent.Provider.Result
-  alias NovelAgent.Provider.Usage
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
   alias NovelFoundation.UpstreamError
@@ -115,10 +112,6 @@ defmodule NovelAgent.Provider.OpenAICompatible do
 
       @impl true
       def name, do: @oac_vendor
-
-      @impl true
-      def complete(state, model, prompt, params),
-        do: OpenAICompatible.complete(oac_meta(), state, model, prompt, params)
 
       @impl true
       def execute(state, model, prompt, params, ctx),
@@ -215,73 +208,6 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   def normalize_wire_api(_value), do: :chat_completions
 
   @doc false
-  @spec complete(meta(), struct(), String.t() | nil, term(), term()) ::
-          {:ok, Result.t()} | {:error, map()}
-  def complete(meta, %{api_key: key} = state, _model, prompt, params) do
-    case auth_headers(meta, key) do
-      {:ok, headers} ->
-        case normalize_wire_api(Map.get(state, :wire_api)) do
-          :responses -> complete_responses(meta, state, prompt, params, headers)
-          :chat_completions -> complete_chat(meta, state, prompt, params, headers)
-        end
-
-      {:error, :auth_required} ->
-        missing_key_error(meta)
-    end
-  end
-
-  defp complete_chat(meta, state, prompt, params, headers) do
-    start_time = System.monotonic_time(:millisecond)
-
-    body =
-      state
-      |> request_body(prompt, params, false)
-      |> maybe_thinking(meta, state)
-
-    url = endpoint_url(state.endpoint)
-    post = state.http_fn || (&HTTP.post/3)
-
-    result =
-      case post.(url, body, headers: headers, receive_timeout: state.timeout) do
-        {:ok, status, resp_body} when status in 200..299 ->
-          handle_success(meta, state, resp_body, start_time)
-
-        {:error, :http_error, status, message} ->
-          handle_http_error(meta, status, message, start_time)
-
-        {:error, reason, _status, message} ->
-          handle_connection_error(meta, reason, message, start_time)
-      end
-
-    if log = state.log_fn, do: log.(meta.vendor, url, body, result, start_time)
-    strip_attrs(result)
-  end
-
-  # Responses API 真实传输：`/responses` + input items + 原生 function_call 输出。
-  # 流式路径（execute/5）走 ResponsesStream；complete/4 仍是 final-only 非流式。
-  defp complete_responses(meta, state, prompt, params, headers) do
-    start_time = System.monotonic_time(:millisecond)
-    body = responses_request_body(state, prompt, params, false)
-    url = responses_url(state.endpoint)
-    post = state.http_fn || (&HTTP.post/3)
-
-    result =
-      case post.(url, body, headers: headers, receive_timeout: state.timeout) do
-        {:ok, status, resp_body} when status in 200..299 ->
-          handle_responses_success(meta, state, resp_body, start_time)
-
-        {:error, :http_error, status, message} ->
-          handle_http_error(meta, status, message, start_time)
-
-        {:error, reason, _status, message} ->
-          handle_connection_error(meta, reason, message, start_time)
-      end
-
-    if log = state.log_fn, do: log.(meta.vendor, url, body, result, start_time)
-    strip_attrs(result)
-  end
-
-  @doc false
   @spec execute(meta(), struct(), String.t() | nil, term(), term(), AdapterExecution.context()) ::
           AdapterExecution.execution_result()
   def execute(meta, %{api_key: key} = state, _model, prompt, params, ctx)
@@ -314,6 +240,7 @@ defmodule NovelAgent.Provider.OpenAICompatible do
       state
       |> request_body(prompt, params, true)
       |> maybe_thinking(meta, state)
+      |> put_stream_usage_options()
 
     url = endpoint_url(state.endpoint)
 
@@ -327,8 +254,21 @@ defmodule NovelAgent.Provider.OpenAICompatible do
     OpenAICompatibleStream.execute(meta, state, url, body, request_opts, ctx)
   end
 
+  # VS-00L §6.4 usage recovery：OpenAI Chat Completions 流式默认不返回 usage，
+  # 必须显式 stream_options.include_usage，才会在 [DONE] 前追加带 usage 的 chunk
+  # （OpenAI 官方 create chat completion 文档：stream_options.include_usage "If set,
+  # an additional chunk will be streamed before the data: [DONE] message"，
+  # https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create）。
+  # DeepSeek 官方文档同样声明 stream_options 必须与 stream:true 同用（
+  # https://api-docs.deepseek.com/api/create-chat-completion），LM Studio 按 OpenAI
+  # 兼容协议接受该字段。项目没有任何 provider 级「不支持 stream_options」的可证事实
+  # （capabilities/2 只声明必备能力，descriptor 只描述配置），因此对所有 Chat wire
+  # 流式请求统一声明；非流式 complete 路径不发送。
+  defp put_stream_usage_options(body),
+    do: Map.put(body, :stream_options, %{include_usage: true})
+
   # B71 R2：Responses wire 走真实 SSE 流式传输（stream: true）。取消/静默/总时长
-  # 与 Chat/Anthropic 共用 SSEStream 生命周期；输出事实与非流式共用 ResponsesWire。
+  # 与 Chat/Anthropic 共用 SSEStream 生命周期；输出事实由 ResponsesStream/ResponsesWire 归一。
   defp execute_responses(meta, state, headers, prompt, params, ctx) do
     body = responses_request_body(state, prompt, params, true)
     url = responses_url(state.endpoint)
@@ -446,21 +386,6 @@ defmodule NovelAgent.Provider.OpenAICompatible do
 
   defp responses_max_output_tokens(body, _default, _max), do: body
 
-  defp handle_responses_success(meta, state, resp_body, start_time) do
-    items = resp_body |> Map.get("output") |> List.wrap()
-    {content, tool_calls} = ResponsesWire.output(items)
-    latency = System.monotonic_time(:millisecond) - start_time
-    usage = ResponsesWire.usage(resp_body, state.model, latency)
-    attrs = %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}
-
-    if (is_binary(content) and content != "") or tool_calls != [] do
-      {:ok, Result.new(content, usage, tool_calls: tool_calls), attrs}
-    else
-      err = UpstreamError.new(:invalid_response, "#{meta.label} 响应内容为空", meta.vendor)
-      {:error, UpstreamError.to_error_tuple(err), attrs}
-    end
-  end
-
   defp request_body(state, %RequestIR{} = ir, params, stream?) do
     {:ok, projected} = Projection.project(ir, "chat_completions")
 
@@ -544,59 +469,6 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   defp missing_key_error(meta) do
     err = UpstreamError.new(:auth, "#{meta.label} API key 未配置", meta.vendor)
     UpstreamError.to_error_tuple(err)
-  end
-
-  defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
-  defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}
-
-  defp handle_success(meta, state, resp_body, start_time) do
-    message = get_in(resp_body, ["choices", Access.at(0), "message"]) || %{}
-    content = Map.get(message, "content") || ""
-    tool_calls = NovelAgent.Provider.extract_openai_tool_calls(message)
-    latency = System.monotonic_time(:millisecond) - start_time
-    usage = Usage.from_openai_response(resp_body, state.model, latency)
-
-    if (is_binary(content) and content != "") or tool_calls != [] do
-      {:ok, Result.new(content, usage, tool_calls: tool_calls),
-       %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}}
-    else
-      err = UpstreamError.new(:invalid_response, "#{meta.label} 响应内容为空", meta.vendor)
-
-      {:error, UpstreamError.to_error_tuple(err),
-       %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}}
-    end
-  end
-
-  defp handle_http_error(meta, status, message, start_time) do
-    duration = System.monotonic_time(:millisecond) - start_time
-    err = UpstreamError.new(http_error_type(status), "#{meta.label}: #{message}", meta.vendor)
-
-    {:error, UpstreamError.to_error_tuple(err),
-     %{status: status, usage: %{}, duration: duration, resp_body: message}}
-  end
-
-  defp handle_connection_error(meta, :connection_refused, _msg, start_time) do
-    duration = System.monotonic_time(:millisecond) - start_time
-    err = UpstreamError.new(:connection_refused, "无法连接 #{meta.label}", meta.vendor)
-
-    {:error, UpstreamError.to_error_tuple(err),
-     %{status: 0, usage: %{}, duration: duration, resp_body: "connection_refused"}}
-  end
-
-  defp handle_connection_error(meta, :timeout, _msg, start_time) do
-    duration = System.monotonic_time(:millisecond) - start_time
-    err = UpstreamError.new(:timeout, "#{meta.label} 请求超时", meta.vendor)
-
-    {:error, UpstreamError.to_error_tuple(err),
-     %{status: 0, usage: %{}, duration: duration, resp_body: "timeout"}}
-  end
-
-  defp handle_connection_error(meta, _reason, message, start_time) do
-    duration = System.monotonic_time(:millisecond) - start_time
-    err = UpstreamError.new(:provider_internal, message, meta.vendor)
-
-    {:error, UpstreamError.to_error_tuple(err),
-     %{status: 0, usage: %{}, duration: duration, resp_body: message}}
   end
 
   defp http_error_type(status) when status in [401, 402, 403], do: :auth

@@ -95,16 +95,6 @@ defmodule NovelAgent.Provider.TimeoutPolicy do
     }
   end
 
-  @doc "该 provider 是否走本地推理 profile。"
-  @spec local?(atom() | String.t()) :: boolean()
-  def local?(provider), do: profile(provider) == :local
-
-  @doc "provider 的 profile（:local / :hosted）。"
-  @spec profile(atom() | String.t()) :: profile()
-  def profile(provider) do
-    if normalize_provider(provider) in @local_providers, do: :local, else: :hosted
-  end
-
   @doc "健康检查 / 模型列表等轻量探测的响应上限（固定短窗，避免长 timeout 拖住 UI）。"
   @spec probe_timeout() :: pos_integer()
   def probe_timeout, do: @probe_ms
@@ -117,6 +107,10 @@ defmodule NovelAgent.Provider.TimeoutPolicy do
   def probe_timeout(_fallback), do: @probe_ms
 
   # ── resolution ──────────────────────────────
+
+  defp profile(provider) do
+    if normalize_provider(provider) in @local_providers, do: :local, else: :hosted
+  end
 
   defp resolve_response(provider, :local, config, env) do
     [

@@ -2,10 +2,10 @@ defmodule NovelAgent.Provider do
   @moduledoc """
   Provider behaviour — LLM 能力提供者的统一抽象。
 
-  Adapter 统一接入 provider execution stream。底层供应商即使只提供 final
-  response，也必须在 adapter execution boundary 物化为同一套 ProviderRun /
-  ProviderEvent / ProviderOutput 事实。兼容 `complete/3` 只能消费 stream 的
-  final Result；应用层不应直接把 adapter callback 当作第二套执行体系。
+  唯一执行入口是 `execute/5`：adapter 必须直接消费 canonical `RequestIR` 并把本次
+  调用物化为同一套 ProviderRun / ProviderEvent / ProviderOutput 事实（VS-00L §19）。
+  不存在第二条 `complete/4` 终态回调或 final-only 兼容投影；应用层只能经 Gateway
+  的同一 execution stream 消费结果。
   """
 
   alias NovelAgent.Provider.AdapterExecution
@@ -19,7 +19,7 @@ defmodule NovelAgent.Provider do
           required(:arguments) => map(),
           optional(:id) => String.t()
         }
-  @type prompt :: RequestIR.t()
+  @type request_ir :: RequestIR.t()
   @type model :: String.t()
   @type model_option :: %{
           required(:id) => String.t(),
@@ -30,29 +30,16 @@ defmodule NovelAgent.Provider do
   @type result :: {:ok, Result.t()} | {:error, reason :: term()}
 
   @doc """
-  一次性请求并返回完整结果。
+  通过 provider execution stream 执行一次 provider 调用（唯一执行入口）。
 
-  params 为跨 provider 通用的推理参数，各 adapter 负责映射为自身 API 字段。
-  该回调是 final-only adapter 的底层实现细节，不是应用层 provider 执行入口。
-  """
-  @callback complete(
-              state :: term(),
-              model :: model(),
-              prompt :: prompt(),
-              params :: InferenceParams.t()
-            ) :: result()
-
-  @doc """
-  通过 provider execution stream 执行一次 provider 调用。
-
-  支持底层分段事件的 adapter 可以实现该回调；final-only adapter 不实现时，
-  Gateway 会通过 `NovelAgent.Provider.AdapterExecution.execute/6` 将 `complete/4`
-  的终态结果投影进同一 execution stream。
+  adapter 直接消费 canonical `RequestIR`，在自己的 wire 上执行并把终态物化为
+  同一套 ProviderRun / ProviderEvent / ProviderOutput 事实；SSE 生命周期由
+  `NovelAgent.Provider.SSEStream` 统一承载（VS-00L §19.3）。
   """
   @callback execute(
               state :: term(),
               model :: model() | nil,
-              prompt :: prompt(),
+              request_ir :: request_ir(),
               params :: InferenceParams.t(),
               ctx :: AdapterExecution.context()
             ) :: AdapterExecution.execution_result()
@@ -94,7 +81,7 @@ defmodule NovelAgent.Provider do
   """
   @callback projection_target(state :: term()) :: String.t()
 
-  @optional_callbacks list_models: 1, execute: 5, capabilities: 1, projection_target: 1
+  @optional_callbacks list_models: 1, capabilities: 1, projection_target: 1
 
   @spec extract_openai_tool_calls(map()) :: [tool_call()]
   def extract_openai_tool_calls(%{"tool_calls" => calls}) when is_list(calls) do

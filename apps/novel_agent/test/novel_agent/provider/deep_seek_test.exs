@@ -77,6 +77,26 @@ defmodule NovelAgent.Provider.DeepSeekTest do
           }) <> "\n\n"
       )
 
+      on_data.(
+        "data: " <>
+          Jason.encode!(%{
+            "choices" => [
+              %{
+                "delta" => %{
+                  "tool_calls" => [
+                    %{
+                      "index" => 0,
+                      "id" => "private-call",
+                      "function" => %{"name" => "read_character", "arguments" => "{}"}
+                    }
+                  ]
+                }
+              }
+            ],
+            "model" => "fixture-model"
+          }) <> "\n\n"
+      )
+
       on_data.("data: [DONE]\n\n")
       {:ok, 200, ""}
     end
@@ -92,7 +112,9 @@ defmodule NovelAgent.Provider.DeepSeekTest do
       thinking: :enabled
     }
 
-    assert {:ok, result} = DeepSeek.complete(state, nil, ir("读取角色"), %InferenceParams{})
+    assert {:ok, %{result: result}} =
+             DeepSeek.execute(state, nil, ir("读取角色"), %InferenceParams{}, provider_ctx())
+
     assert_receive {:private_wire, _initial}
 
     private_state = %{
@@ -133,20 +155,22 @@ defmodule NovelAgent.Provider.DeepSeekTest do
       model: "fixture-model",
       timeout: 100,
       http_fn: http,
+      eventsource_fn: eventsource,
       log_fn: nil
     }
 
-    assert {:ok, _} = OpenAI.complete(other, nil, prepared, %InferenceParams{})
+    assert {:ok, _} = OpenAI.execute(other, nil, prepared, %InferenceParams{}, provider_ctx())
     assert_receive {:private_wire, other_wire}
     refute inspect(other_wire) =~ private_text
     refute inspect(other_wire) =~ "provider_state"
 
     assert {:ok, _} =
-             DeepSeek.complete(
+             DeepSeek.execute(
                %{state | model: "another-model"},
                nil,
                prepared,
-               %InferenceParams{}
+               %InferenceParams{},
+               provider_ctx()
              )
 
     assert_receive {:private_wire, changed_model_wire}
@@ -170,201 +194,6 @@ defmodule NovelAgent.Provider.DeepSeekTest do
       assert DeepSeek.health_check(%DeepSeek{api_key: "key"}) == :ok
 
       assert {:error, %{type: :unauthorized}} = DeepSeek.health_check(%DeepSeek{api_key: nil})
-    end
-  end
-
-  describe "complete/4" do
-    test "sends OpenAI-compatible chat completion request" do
-      test_pid = self()
-
-      mock = fn url, body, opts ->
-        send(test_pid, {:request, url, body, opts})
-
-        {:ok, 200,
-         %{
-           "choices" => [%{"message" => %{"content" => "完成"}}],
-           "model" => "deepseek-v4-flash",
-           "usage" => %{"prompt_tokens" => 11, "completion_tokens" => 7}
-         }}
-      end
-
-      state = %DeepSeek{
-        api_key: "secret",
-        endpoint: "https://api.deepseek.com",
-        model: "deepseek-v4-flash",
-        timeout: 100,
-        http_fn: mock,
-        log_fn: nil,
-        thinking: :disabled
-      }
-
-      assert {:ok, result} = DeepSeek.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert result.content == "完成"
-      assert result.usage.input_tokens == 11
-      assert result.usage.output_tokens == 7
-      assert result.usage.model == "deepseek-v4-flash"
-
-      assert_receive {:request, url, body, opts}
-      assert url == "https://api.deepseek.com/chat/completions"
-      assert body.model == "deepseek-v4-flash"
-      assert [%{role: "system"} | rest] = body.messages
-      assert rest == [%{role: "user", content: "prompt"}]
-      assert body.stream == false
-      assert body.thinking == %{type: "disabled"}
-      assert {"authorization", "Bearer secret"} in Keyword.fetch!(opts, :headers)
-    end
-
-    test "can enable thinking mode explicitly" do
-      test_pid = self()
-
-      mock = fn _url, body, _opts ->
-        send(test_pid, {:request_body, body})
-
-        {:ok, 200,
-         %{
-           "choices" => [%{"message" => %{"content" => "完成"}}],
-           "usage" => %{}
-         }}
-      end
-
-      state = %DeepSeek{
-        api_key: "secret",
-        endpoint: "https://api.deepseek.com",
-        model: "deepseek-v4-pro",
-        timeout: 100,
-        http_fn: mock,
-        log_fn: nil,
-        thinking: :enabled,
-        reasoning_effort: "high"
-      }
-
-      assert {:ok, _result} = DeepSeek.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert_receive {:request_body, body}
-      assert body.thinking == %{type: "enabled"}
-      assert body.reasoning_effort == "high"
-    end
-
-    test "forced tool_choice request downgrades thinking to disabled (DeepSeek capability constraint)" do
-      test_pid = self()
-
-      mock = fn _url, body, _opts ->
-        send(test_pid, {:request_body, body})
-
-        {:ok, 200,
-         %{
-           "choices" => [
-             %{
-               "message" => %{
-                 "content" => "计划推理",
-                 "tool_calls" => [
-                   %{
-                     "id" => "t1",
-                     "function" => %{"name" => "agent_plan_draft", "arguments" => "{}"}
-                   }
-                 ]
-               }
-             }
-           ],
-           "usage" => %{}
-         }}
-      end
-
-      state = %DeepSeek{
-        api_key: "secret",
-        endpoint: "https://api.deepseek.com",
-        model: "deepseek-v4-pro",
-        timeout: 100,
-        http_fn: mock,
-        log_fn: nil,
-        thinking: :enabled,
-        reasoning_effort: "high"
-      }
-
-      prompt =
-        TestRequestIR.ir(
-          [TestRequestIR.author("起草计划")],
-          tools: [TestRequestIR.tool("agent_plan_draft", %{type: "object"})],
-          projection: %{tool_choice: "agent_plan_draft"}
-        )
-
-      assert {:ok, _result} = DeepSeek.complete(state, nil, ir(prompt), %InferenceParams{})
-      assert_receive {:request_body, body}
-
-      # thinking 模式不支持强制具名 tool_choice（HTTP 400），该请求必须整形为 disabled
-      assert body.thinking == %{type: "disabled"}
-      refute Map.has_key?(body, :reasoning_effort)
-      assert body.tool_choice == %{type: "function", function: %{name: "agent_plan_draft"}}
-    end
-
-    test "returns auth error before HTTP when API key is missing" do
-      mock = fn _url, _body, _opts ->
-        send(self(), :unexpected_http)
-        {:ok, 200, %{}}
-      end
-
-      state = %DeepSeek{
-        api_key: nil,
-        endpoint: "https://api.deepseek.com",
-        model: "deepseek-v4-flash",
-        timeout: 100,
-        http_fn: mock,
-        log_fn: nil
-      }
-
-      assert {:error, error} = DeepSeek.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert error.type == :auth
-      refute_received :unexpected_http
-    end
-
-    test "maps auth and rate limit HTTP errors" do
-      auth_mock = fn _url, _body, _opts -> {:error, :http_error, 401, "Unauthorized"} end
-
-      state = %DeepSeek{
-        api_key: "secret",
-        endpoint: "https://api.deepseek.com",
-        model: "deepseek-v4-flash",
-        timeout: 100,
-        http_fn: auth_mock,
-        log_fn: nil,
-        thinking: :disabled
-      }
-
-      assert {:error, auth_error} =
-               DeepSeek.complete(state, nil, ir("prompt"), %InferenceParams{})
-
-      assert auth_error.type == :auth
-
-      rate_limit_mock = fn _url, _body, _opts -> {:error, :http_error, 429, "Too Many"} end
-      state = %{state | http_fn: rate_limit_mock}
-
-      assert {:error, rate_limit_error} =
-               DeepSeek.complete(state, nil, ir("prompt"), %InferenceParams{})
-
-      assert rate_limit_error.type == :rate_limit
-      assert rate_limit_error.retryable == true
-    end
-
-    test "maps HTTP 400 invalid request to :invalid_request (not empty response)" do
-      # DeepSeek 因非法参数（如 reasoning_effort=0.7）返回 400，必须区分于上游空响应
-      bad_request_mock = fn _url, _body, _opts ->
-        {:error, :http_error, 400,
-         "invalid_request_error: reasoning_effort: unknown variant `0.7`"}
-      end
-
-      state = %DeepSeek{
-        api_key: "secret",
-        endpoint: "https://api.deepseek.com",
-        model: "deepseek-v4-pro",
-        timeout: 100,
-        http_fn: bad_request_mock,
-        log_fn: nil,
-        thinking: :enabled,
-        reasoning_effort: "0.7"
-      }
-
-      assert {:error, error} = DeepSeek.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert error.type == :invalid_request
-      assert error.retryable == false
     end
   end
 
@@ -422,7 +251,6 @@ defmodule NovelAgent.Provider.DeepSeekTest do
 
   describe "behaviour conformance" do
     test "exports required callbacks" do
-      assert function_exported?(DeepSeek, :complete, 4)
       assert function_exported?(DeepSeek, :execute, 5)
       assert function_exported?(DeepSeek, :name, 0)
       assert function_exported?(DeepSeek, :from_config, 0)

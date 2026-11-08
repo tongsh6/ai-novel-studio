@@ -26,7 +26,6 @@ defmodule NovelAgent.Provider.StrataTest do
   describe "identity and defaults" do
     test "reports strata vendor identity and exposes the provider contract" do
       assert Strata.name() == "strata"
-      assert function_exported?(Strata, :complete, 4)
       assert function_exported?(Strata, :execute, 5)
       assert function_exported?(Strata, :health_check, 1)
       assert function_exported?(Strata, :list_models, 1)
@@ -79,111 +78,66 @@ defmodule NovelAgent.Provider.StrataTest do
     end
   end
 
-  describe "complete/4 auth" do
-    test "keyless (api_key_required: false) sends HTTP without an authorization header" do
-      test_pid = self()
+  # complete/4 退役后，这些请求整形断言（auth 头 / model 省略 / thinking 控制）
+  # 在唯一执行入口 execute/5 的流式请求体上继续成立：request_body 是共享边界。
+  describe "execute/5 request body" do
+    test "keyless / 可选 Key / model 省略进入流式请求体" do
+      {url, body, opts} = capture_stream_body(base_state([]))
 
-      mock = fn url, body, opts ->
-        send(test_pid, {:request, url, body, opts})
-        {:ok, 200, success_body("ok")}
-      end
-
-      state = base_state(http_fn: mock)
-
-      assert {:ok, result} = Strata.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert result.content == "ok"
-
-      assert_receive {:request, url, body, opts}
       assert url == @endpoint <> "/chat/completions"
       assert body.model == @model
+      assert body.stream == true
       assert [%{role: "system"} | rest] = body.messages
       assert rest == [%{role: "user", content: "prompt"}]
-      assert body.stream == false
       # keyless：不发 Authorization 头，也不发 thinking 对象。
       assert Keyword.fetch!(opts, :headers) == []
       refute Map.has_key?(body, :thinking)
+
+      {_url, _body, keyed_opts} =
+        capture_stream_body(base_state(api_key: "sk-strata-secret"))
+
+      assert {"authorization", "Bearer sk-strata-secret"} in Keyword.fetch!(keyed_opts, :headers)
+
+      {_url, unconfigured_body, _opts} = capture_stream_body(base_state(model: nil))
+      refute Map.has_key?(unconfigured_body, :model)
     end
 
-    test "with an optional API key configured sends Bearer auth" do
-      test_pid = self()
+    test "thinking 控制进入流式请求体（reasoning_effort，绝不发 thinking 对象）" do
+      cases = [
+        {[thinking: :disabled], {:effort, "none"}},
+        {[thinking: :enabled, reasoning_effort: "high"], {:effort, "high"}},
+        {[thinking: :enabled, reasoning_effort: nil], :absent}
+      ]
 
-      mock = fn url, body, opts ->
-        send(test_pid, {:request, url, body, opts})
-        {:ok, 200, success_body("ok")}
+      for {config, expected} <- cases do
+        {_url, body, _opts} = capture_stream_body(base_state(config))
+
+        case expected do
+          {:effort, effort} -> assert body.reasoning_effort == effort
+          :absent -> refute Map.has_key?(body, :reasoning_effort)
+        end
+
+        refute Map.has_key?(body, :thinking)
       end
-
-      state = base_state(api_key: "sk-strata-secret", http_fn: mock)
-
-      assert {:ok, _result} = Strata.complete(state, nil, ir("prompt"), %InferenceParams{})
-
-      assert_receive {:request, _url, _body, opts}
-      assert {"authorization", "Bearer sk-strata-secret"} in Keyword.fetch!(opts, :headers)
-    end
-
-    test "unconfigured model is omitted so Strata App routes to its loaded model" do
-      test_pid = self()
-
-      mock = fn _url, body, _opts ->
-        send(test_pid, {:request_body, body})
-        {:ok, 200, success_body("ok")}
-      end
-
-      state = base_state(model: nil, http_fn: mock)
-
-      assert {:ok, _result} = Strata.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert_receive {:request_body, body}
-      refute Map.has_key?(body, :model)
     end
   end
 
-  describe "thinking control via top-level reasoning_effort" do
-    test "thinking disabled sends reasoning_effort none and never a thinking object" do
-      test_pid = self()
+  defp capture_stream_body(state, prompt \\ nil) do
+    parent = self()
 
-      mock = fn _url, body, _opts ->
-        send(test_pid, {:request_body, body})
-        {:ok, 200, success_body("ok")}
-      end
-
-      state = base_state(thinking: :disabled, http_fn: mock)
-
-      assert {:ok, _result} = Strata.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert_receive {:request_body, body}
-      assert body.reasoning_effort == "none"
-      refute Map.has_key?(body, :thinking)
+    eventsource = fn url, body, opts, on_data ->
+      send(parent, {:captured_request, url, body, opts})
+      on_data.(sse_delta("ok", @model))
+      on_data.("data: [DONE]\n\n")
+      {:ok, 200, ""}
     end
 
-    test "thinking enabled with explicit effort passes the effort through" do
-      test_pid = self()
+    state = %{state | eventsource_fn: eventsource}
+    prompt = prompt || ir("prompt")
 
-      mock = fn _url, body, _opts ->
-        send(test_pid, {:request_body, body})
-        {:ok, 200, success_body("ok")}
-      end
-
-      state = base_state(thinking: :enabled, reasoning_effort: "high", http_fn: mock)
-
-      assert {:ok, _result} = Strata.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert_receive {:request_body, body}
-      assert body.reasoning_effort == "high"
-      refute Map.has_key?(body, :thinking)
-    end
-
-    test "thinking enabled without an explicit effort sends no reasoning_effort" do
-      test_pid = self()
-
-      mock = fn _url, body, _opts ->
-        send(test_pid, {:request_body, body})
-        {:ok, 200, success_body("ok")}
-      end
-
-      state = base_state(thinking: :enabled, reasoning_effort: nil, http_fn: mock)
-
-      assert {:ok, _result} = Strata.complete(state, nil, ir("prompt"), %InferenceParams{})
-      assert_receive {:request_body, body}
-      refute Map.has_key?(body, :reasoning_effort)
-      refute Map.has_key?(body, :thinking)
-    end
+    assert {:ok, _} = Strata.execute(state, nil, prompt, %InferenceParams{}, provider_ctx())
+    assert_receive {:captured_request, url, body, opts}
+    {url, body, opts}
   end
 
   describe "health_check/1 (keyless real network probe)" do
@@ -431,14 +385,6 @@ defmodule NovelAgent.Provider.StrataTest do
         overrides
       )
     )
-  end
-
-  defp success_body(content) do
-    %{
-      "choices" => [%{"message" => %{"content" => content}}],
-      "model" => @model,
-      "usage" => %{"prompt_tokens" => 3, "completion_tokens" => 1}
-    }
   end
 
   defp provider_ctx do

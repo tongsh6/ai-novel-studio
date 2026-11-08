@@ -33,8 +33,8 @@ defmodule NovelAgent.Provider.Execution do
   # 由 synthesize_execution_result/2 在统一 provider execution 收口时归一化。此处按
   # 真实注入边界声明，避免消费方把兼容分支误判为死代码/不可达 guard。
   @type raw_result :: {:ok, term()} | {:error, term()}
-  @type result_fun :: (Provider.prompt() -> raw_result())
-  @type execute_fun :: (Provider.prompt() -> execution_result())
+  @type result_fun :: (Provider.request_ir() -> raw_result())
+  @type execute_fun :: (Provider.request_ir() -> execution_result())
 
   @type t :: %__MODULE__{
           result_fn: result_fun(),
@@ -53,7 +53,7 @@ defmodule NovelAgent.Provider.Execution do
   # 全仓只有 judgment_protocol.ex 显式调过 with_params。默认值必须是 InferenceParams.new()
   # （带 max_tokens 止血阀），不能是裸 %InferenceParams{}（defstruct 字段全 nil=无界），
   # 否则止血阀形同虚设——实测过：写作调用能跑到 36000+ token 不停。
-  @spec execute(Provider.prompt(), keyword()) :: execution_result()
+  @spec execute(Provider.request_ir(), keyword()) :: execution_result()
   def execute(prompt, opts \\ []) do
     model = Keyword.get(opts, :model)
     params = Keyword.get(opts, :params, InferenceParams.new())
@@ -62,7 +62,7 @@ defmodule NovelAgent.Provider.Execution do
     Gateway.execute(prompt, model, params, gateway_opts)
   end
 
-  @spec complete(Provider.prompt(), keyword()) :: result()
+  @spec complete(Provider.request_ir(), keyword()) :: result()
   def complete(prompt, opts \\ []) do
     case execute(prompt, opts) do
       {:ok, %{result: %Result{} = result} = execution} ->
