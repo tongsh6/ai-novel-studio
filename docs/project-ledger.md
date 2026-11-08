@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-08 **ADR-0035/VS-00L/ADR-0033 实现目标 → 任务映射登记**：B81 §7.4 逐条登记三份文档的实现目标与未闭环项承接——ADR-0035 决策/迁移/enforcement_gaps → B81 CP1–CP6（arch_check 边界规则写入 CP1/CP4 写域）；VS-00L：压缩自动维护 AX→CP3+CP5、G6→CP5、真实 Responses/Anthropic 实模→B82、R1 真实输入/I-CACHE→B82+CP4、CP5→B71、**作者可见显式压缩入口→待作者设计授权（无实现任务，显式登记）**、displayName 低优先与 DecisionTrace 事件层暂缓项→显式登记未排期、有限模式持久事实→已实现；ADR-0033：作用域落地→CP1–CP6、CP3b 协议层已 PASS/CP4b-2 实模→B82、G6→CP5、CP5→B71、压缩前端授权→待裁决、G7/G8→已实现。ADR-0035 enforced_by 增补 B81；ADR-0033 §11 与 VS-00L §17/§16.17 补承接任务引用；NEXT 补映射引用。未改产品代码、未代签。
+
 > 2026-11-08 **B81 上下游/前置/后置任务登记全**：B81 §7.3 登记上游（ADR-0035、诊断报告、VS-00L/ADR-0033、B71、B80、旧 schema 资料）、前置（ADR 批准/设计评审/B71 R1-R2 契约层/门禁基线/B78 同文件顺序协调/作者确认开工）、后置（B71 CP5 收口、B82、B79 条件依赖、B84、由 CP 覆盖的 D8/审计/退役/细条项）；B71 文档追加「2026-11-08 任务承接变更」：G6→B81 CP5、G2/G3/G5/实模→B82、vendor→B83、债务→B84 + ADR-0034 已闭环，CP5 依赖两者证据；B71 不再自承 G6。NEXT B81 行补上下游引用。未改产品代码、未实现、未代签。
 
 > 2026-11-08 **任务登记全（B81 CP1–CP6 + B82/B83/B84 + 索引补齐）**：B81 文档登记 CP1–CP6（状态/范围/验收/依赖/写域）与相关任务承接关系（B71 G6 移交 CP5；B82 承接 G2/G3/G5 与 Responses/Anthropic 实模；B83 vendor 矩阵 blocked 凭证；B84 web 慢测试并行；与 B78 同文件冲突协调；B80/B79/bidirectional 关系）；新增 B82/B83/B84 任务文档；slices README 补登记 B80/B82/B83/B84/bidirectional；NEXT 更新 B81 候选与新增 B82/B84 候选、B83 阻塞项、依赖排序。未改产品代码、未实现、未代签。

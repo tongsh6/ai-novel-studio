@@ -18,7 +18,7 @@
 | B78 | 存量大模块拆分（P1：WorkspaceChat / dialogue_planning_service / agent_run_server / turn_execution_service / adoption_repository）；治理机制与 ratchet 门禁已落地，本任务只做结构化拆分，须在 B71 收口后按「一次一个文件、独立 refactor commit」排期 | [B78](slices/B78-module-size-debt.md) |
 | B82 | B71 G2/G3/G5 黄金切片证据补证 + Responses/Anthropic 实模（G6 移交 B81 CP5，不在本任务）；每个切片独立冻结预注册、独立批次、如实登记；待真实模型窗口与官方凭证。 | [B82](slices/B82-b71-golden-slice-evidence.md) |
 | B84 | `novel_web` 慢测试收敛（193 tests/532s）+ 00f P2-E 剩余架构/测试债务；不缩小测试覆盖；与 B81 并行（测试前置层）。 | [B84](slices/B84-web-slow-tests-and-arch-debt.md) |
-| B81 | 会话级 canonical 创作历史（ADR-0035 落地，CP1–CP6 已登记）：CP1 可开工（会话级 canonical 存储/追加/恢复/迁移，行为不变）→ CP2 请求派生 → CP3 压缩作用域/触发 → CP4 投影与审计 → CP5 真实页面多轮验收+G6（承接 B71 G6）→ CP6 旧语义退役；**待作者确认开工 CP1**。与 B78 同文件冲突需协调顺序；与 B84 并行无冲突；上下游/前置/后置见 B81 §7.3。 | [B81](slices/B81-session-canonical-authoring-history.md) |
+| B81 | 会话级 canonical 创作历史（ADR-0035 落地，CP1–CP6 已登记）：CP1 可开工（会话级 canonical 存储/追加/恢复/迁移，行为不变）→ CP2 请求派生 → CP3 压缩作用域/触发 → CP4 投影与审计 → CP5 真实页面多轮验收+G6（承接 B71 G6）→ CP6 旧语义退役；**待作者确认开工 CP1**。与 B78 同文件冲突需协调顺序；与 B84 并行无冲突；上下游/前置/后置见 B81 §7.3；ADR-0035/VS-00L/ADR-0033 实现目标映射见 B81 §7.4。 | [B81](slices/B81-session-canonical-authoring-history.md) |
 
 依赖排序（2026-11-08 更新）：B71 审核轮确定性侧与 iq3_s 实模批次已完成；B81 CP1 可开工（ADR-0035 已批准；CP2–CP6 按依赖链）。B79 CP0/CP1、B78 首个文件拆分、B71 后续候选的预注册准备、B84 慢测试收敛可并行推进；B81 与 B78 同文件冲突须协调顺序。B82 待真实模型窗口/官方凭证；B83 blocked（凭证）。B71 CP5 最终收口仍待 G 切片/Responses·Anthropic 实模证据；**G6 取证已移交 B81 CP5**（不再在 B71 构造异常场景）。排期结论不等于授权或完成声明。
 

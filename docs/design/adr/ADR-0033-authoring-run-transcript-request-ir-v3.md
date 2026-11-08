@@ -194,4 +194,5 @@ CP1 必须冻结：
 - 作者于 2026-11-08 批准 [ADR-0035](ADR-0035-session-scoped-canonical-authoring-context-v3.md)：canonical authoring transcript 的作用域为**会话**（同 session 跨 turn 连续运行历史），AgentRun 是该历史中的执行段；本 ADR §2 决策 1/7 的**原则不变**（唯一运行事实源、显式压缩、作者主权、作者字节与 artifact 因果），落地边界按 ADR-0035 细化。
 - 长会话压缩（本 ADR §2 决策 7）的压缩作用域 = 会话历史中更早的已完成交换（checkpoint 覆盖 turn 范围）；实现中「只整理更早作者回合」是对契约的额外收紧，按 ADR-0035 纠正。
 - 实施待 ADR-0035 承重 slice；未实现前不代签。
+- **承接任务登记（2026-11-08）**：作用域落地（会话级 canonical 存储/请求派生/压缩作用域/审计/退役）→ [B81](../tasks/slices/B81-session-canonical-authoring-history.md) CP1–CP6；CP3b/CP4b-2 真实模型行为、Responses/Anthropic 实模与 G2/G3/G5 补证 → [B82](../tasks/slices/B82-b71-golden-slice-evidence.md)；G6 压缩后真实请求 → B81 CP5；CP5 最终收口 → [B71](../tasks/slices/B71-provider-message-fidelity.md)；压缩的**作者可见显式入口设计授权**仍为待裁决项（无实现任务，见 B81 §7.4）。
 

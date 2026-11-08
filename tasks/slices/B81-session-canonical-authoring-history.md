@@ -99,10 +99,10 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 
 | CP | 状态 | 范围/交付 | 验收 | 依赖 | 预计写域 |
 |---|---|---|---|---|---|
-| CP1 | todo（可开工） | 会话级 canonical 历史：存储/身份/追加/前缀校验/恢复幂等/旧 run 级列迁移 | 确定性机制测试 + 全量门禁 + 既有批次回归（行为不变） | ADR-0035 已批准 | `apps/novel_application`（AuthoringSession/AgentRunServer/JudgmentProtocol）、`apps/novel_persistence`（schema/repo/migration） |
+| CP1 | todo（可开工） | 会话级 canonical 历史：存储/身份/追加/前缀校验/恢复幂等/旧 run 级列迁移 | 确定性机制测试 + 全量门禁 + 既有批次回归（行为不变） | ADR-0035 已批准 | `apps/novel_application`（AuthoringSession/AgentRunServer/JudgmentProtocol）、`apps/novel_persistence`（schema/repo/migration）、`scripts/arch_check.exs`（会话/run 边界规则） |
 | CP2 | todo | 每轮请求由会话派生（完整历史；窗口压力时 checkpoint 投影替代更早历史） | 真实页面多轮会话：跨轮上下文/指代/义务 + 请求证据 | CP1 | `apps/novel_application`（JudgmentProtocol/AgentRunServer） |
 | CP3 | todo | 压缩作用域=会话历史、触发/细条/回查调整 | G6 压缩后真实请求（真实多轮自然触发）+ 失败静默/幂等 | CP2 | `apps/novel_application`（TranscriptCompaction/AgentRunServer）、`frontend/src`（仅在细条/回查需适配时） |
-| CP4 | todo | 三类投影/恢复幂等 + 审计/回查以会话为对象 | 投影/幂等/回查机制证据 | CP2、CP3 | `apps/novel_agent`（投影校验）、`apps/novel_application`（Replay） |
+| CP4 | todo | 三类投影/恢复幂等 + 审计/回查以会话为对象 | 投影/幂等/回查机制证据 | CP2、CP3 | `apps/novel_agent`（投影校验）、`apps/novel_application`（Replay）、`scripts/arch_check.exs`（边界规则细化） |
 | CP5 | todo | 真实页面多轮会话综合验收 + G6 取证（承接 B71 G6） | 页面/机制/实模分层报告（实模不代签） | CP2–CP4 | `scripts/`（验收 harness）、`artifacts/`（证据，只读保留） |
 | CP6 | todo | 旧 `:session_transcript`/旧装配链/旧 run 级语义退役清理 | 删除后全量门禁 + 无消费者核对 | CP5 | `apps/novel_application`（ContextAssembler/DialoguePlanningService 旧路径）、`apps/novel_persistence`（旧列删除）、测试清理 |
 
@@ -124,6 +124,58 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - CP1 可立即开工（设计已评审、ADR-0035 Accepted）；CP2 依赖 CP1；CP3/CP4 依赖 CP2；CP5/CP6 依赖前序。
 - 与 B78 的同文件冲突（`agent_run_server.ex` 等）：不要并行改同一文件；建议先 B81 CP1（事实源层，改动集中）再 B78 拆分，或由作者裁定顺序。
 - 与 B84 并行无冲突（测试前置层）；与 B82/B83 无写域冲突（验收/矩阵脚本与 artifacts）。
+
+### 7.4 契约/ADR 实现目标 → 任务映射（登记全）
+
+> 目的：确认 ADR-0035、VS-00L、ADR-0033 的**实现目标**没有遗漏任务承接。已实现项标注证据；待产品裁决/低优先项显式登记为"未排期/待裁决"，不冒充已完成（不是遗漏）。
+
+#### A. ADR-0035（Accepted，2026-11-08）
+
+| 实现目标 | 承接任务 | 状态/说明 |
+|---|---|---|
+| 决策 1–2：session 为上下文主体、run 为执行段 | B81 CP1（事实源）+ CP2（请求派生） | todo |
+| 决策 3：每轮请求由会话派生（窗口压力 checkpoint 投影） | B81 CP2 | todo |
+| 决策 4–5：压缩作用域会话历史 + 压缩为上下文管理机制 | B81 CP3 | todo |
+| 决策 6：事实材料经工具按需读取（不改） | 既有工具/探索链（B71 历史实现） | 已实现，无新任务；CP2 保持不改语义 |
+| 决策 7：保留 ADR-0033 契约族 | B81 CP1–CP4 的边界约束 | 已登记为约束（不改契约族） |
+| 决策 8：审计/回查以会话为对象 | B81 CP4 | todo |
+| 决策 9：旧语义处置（未发布不兼容） | B81 CP6（旧列/旧材料退役） | todo |
+| 决策 10：不隐式压缩 | B81 CP3 验收约束 + VS-00L 既有契约 | 约束 |
+| 迁移 6 阶段 | B81 CP1–CP6 | 已登记（§7） |
+| Contract 影响：VS-00L 落地说明修订 | 已由本轮文档修订完成 | done（2026-11-08） |
+| Umbrella 边界影响（application/persistence 等） | B81 CP1–CP6 写域 | 已登记（§7 表） |
+| UI/Trace/Replay 影响 | B81 CP3/CP4 | todo |
+| 垂直切面证明（机制/页面/实模分层） | B81 CP5；G6 移交 CP5 | todo |
+| enforcement_gaps：arch_check 边界规则 | B81 CP1（基础）/CP4（细化） | 写域已登记 |
+| 旧 `:session_transcript` 退役范围核对 | B81 CP6 | todo |
+
+#### B. VS-00L（Frozen；ADR-0035 落地说明修订后）
+
+| 未实现/未验目标（§17/§16.x） | 承接任务 | 状态/说明 |
+|---|---|---|
+| 压缩自动维护 AX（§16.16，A3 未闭环） | B81 CP3（作用域/触发）+ CP5（真实多轮页面取证） | todo；A3b 历史失败归因已纠正为作用域/历史缺失，不在 B81 重试旧构造 |
+| G6 压缩后真实请求 | B81 CP5 | todo；不再构造单 run/异常路径 |
+| 会话级 canonical 上下文（ADR-0035） | B81 CP1–CP6 | todo（§17 行已更新引用 B81） |
+| 真实 Responses/Anthropic 实模（含相邻 role 服务端合并、cache 行为） | B82 | todo（需官方凭证） |
+| R1 剩余：真实 route/原生 body 回归 | B82（真实输入补证） | 部分机制证据已在 B71（10/10 复现），真实供应商证据归 B82 |
+| I-CACHE 独立输入/多投影（真实生产输入） | B82（真实输入）+ B81 CP4（投影一致性） | 机制/CI 已有；真实输入证据待 B82 |
+| CP5 最终收口 | B71 CP5（依赖 B81 CP5 + B82） | doing；B71 保留状态真源 |
+| 显式压缩的**作者可见前端入口**（§16.17 设计缺口） | **无实现任务；待作者产品设计授权**（UI 46/47/Pencil） | 显式登记为未授权/待裁决；ADR-0035 不改变此边界（当前唯一触发=安全点自动维护） |
+| 作者可见 displayName 未闭环低优先（a11y 重复读、driver 证据文本） | 无独立任务；低优先待排期 | 显式登记；不阻塞 B81 |
+| DecisionTrace 有限模式事件层（暂缓） | 无独立任务；随未来事件语义任务 | 显式登记（暂缓） |
+| 有限模式持久事实（2026-11-06 裁决 D） | 已实现（B71 历史，已提交） | 无新任务 |
+
+#### C. ADR-0033（Accepted；§11 作用域落地边界）
+
+| 实现目标/未闭环项 | 承接任务 | 状态/说明 |
+|---|---|---|
+| 决策 1–7 原则（唯一事实源/原生多轮/最小 Base/作者主权/投影/显式压缩/回放） | 已实现（B71 历史）；作用域按 ADR-0035 落地 | 已实现；作用域细化由 B81 CP1–CP6 |
+| §11 作用域落地边界 | B81 CP1–CP6 | todo |
+| CP3b 实模协议层 | 历史 e79032cd PASS；完整 CP4b-2 实模行为/缓存/usage → B82 | 已实现（协议层）；实模行为待 B82 |
+| G6 压缩后真实请求 | B81 CP5 | todo（原状态行未闭环项） |
+| CP5 最终收口 | B71 CP5 | doing |
+| 压缩前端设计授权（状态行未闭环项） | **无实现任务；待作者设计授权** | 与 VS-00L §16.17 同一项；显式登记 |
+| G7/G8（动态 scope/恢复后） | 已实现（B71 CP3c done 2026-11-01） | 无新任务 |
 
 ### 7.3 上下游、前置与后置任务（登记全）
 

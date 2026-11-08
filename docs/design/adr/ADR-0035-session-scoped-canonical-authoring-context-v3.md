@@ -119,14 +119,16 @@
 - `docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md`
 - `tasks/slices/B71-provider-message-fidelity.md`
 - `docs/design/notes/2026-11-08-session-level-product-deviation.md`
+- `tasks/slices/B81-session-canonical-authoring-history.md`
 
 ## enforcement_gaps
 
-- 实现层承接待承重 slice（会话级 canonical 存储/恢复、请求派生、压缩作用域、arch_check 边界、测试与验收）；落地后补实现路径与门禁引用。
+- 实现层承接待承重 slice（会话级 canonical 存储/恢复、请求派生、压缩作用域、arch_check 边界、测试与验收）：由 [B81](../tasks/slices/B81-session-canonical-authoring-history.md) CP1–CP6 承接（决策/条款 → CP 的逐条映射见 B81 §7.4）；落地后补实现路径与门禁引用。
 - 现有实现（run 级 transcript、run 级压缩）与本 ADR 冲突，属已知偏差；未实现前不代签、不把本文当已交付。
-- 旧 `:session_transcript` 材料类型与旧装配链的退役范围需在 slice 设计中逐项核对，避免遗漏消费者。
+- 旧 `:session_transcript` 材料类型与旧装配链的退役范围需在 B81 CP6 中逐项核对消费者；压缩的**作者可见显式入口**仍待作者产品设计授权（B81 §7.4 已显式登记为未授权项，ADR-0035 不改变该边界）。
 
 ## 变更记录
 
 - 2026-11-08：草案创建（Proposed）。输入为产品级偏差诊断 `docs/design/notes/2026-11-08-session-level-product-deviation.md` 与作者对同构性/工作面的纠正。
 - 2026-11-08：**作者批准 → Accepted**。同步修订 VS-00L 落地说明（§16.1/§16.16/§17/§18，Frozen 判据不变）与 ADR-0033（§11 作用域落地边界）；后续按承重 slice 分阶段实现，未实现前不代签。
+- 2026-11-08：登记实现承接任务 B81（CP1–CP6）与契约/ADR 实现目标映射（B81 §7.4）；enforced_by 增补 B81。
