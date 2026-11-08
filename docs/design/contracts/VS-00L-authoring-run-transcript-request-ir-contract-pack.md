@@ -1,6 +1,7 @@
 # VS-00L Authoring Run Transcript / Request IR Contract Pack（统一 AgentRun 原生多轮）
 
 > 状态：**Frozen（2026-10-31，B71 CP1；ADR-0033 Accepted 目标方向的替换契约）**。本 pack 只冻结目标契约与迁移映射，不授权产品代码/schema/provider 实现。CP1 已由作者复核通过（2026-10-31）：ADR-0030/0031 已转 Superseded，原则由 ADR-0033 §3 承接，实现迁移进行中（B71 CP2–CP4）。**2026-11-04 R1 请求边界重构已实现（已提交并通过确定性门禁，2026-11-04/05，见 §19.1/§19.2 与 §17 表末行）；Frozen 契约内容未变，实施状态以 B71 原任务为准。**
+> **2026-11-08 ADR-0035 批准（作者）**：本 pack 保持 Frozen 判据不变；按 ADR-0035 补充 §16.1/§16.16/§17/§18 的落地说明——canonical authoring transcript 作用域=会话（跨 turn），AgentRun 为执行段；压缩作用域=会话历史。实施待承重 slice，未实现前不代签。
 > 上游：[ADR-0033](../adr/ADR-0033-authoring-run-transcript-request-ir-v3.md)、[Provider 抽象 §26](../foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)、[00 §2.2–§2.4](../00-vision-and-engineering-roadmap.md)。
 > 承接与对账：`VS-00K`、`UA-01`、`VS-00I`、`VS-00H`、`VS-02`、`VS-02A`、`VS-04`、`VS-06`、ADR-0030/0031。
 > 执行与验收：[B71 CP1–CP5](../../../tasks/slices/B71-provider-message-fidelity.md)。
@@ -367,6 +368,8 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 
 ### 16.1 单一 canonical 会话边界
 
+- **2026-11-08 ADR-0035 落地说明（判据不变）**：canonical authoring transcript 的作用域是**会话**（session）：同 session 跨 turn 连续运行历史是唯一上下文主体；AgentRun 是该历史中的执行段，不拥有独立于会话的上下文事实；新 run 不重置上下文，每轮请求由会话派生（窗口压力时以 checkpoint 投影替代更早历史）。
+
 - `AgentRunFlows.AuthoringSession` 是 application 层唯一的会话读写边界：从 `stage_state.judgment_transcript` 派生 Request IR，合并成功结果，并在失败时保留可恢复状态。它不是第二控制环，不决定 gate、预算、计划、候选或采纳。
 - `character_design`、`character_evolution`、`plot_outline`、`world_building`、`judgment_plan` 与正文 flow 必须携带同一个 run 和前序 Request IR；不得只接收三元组返回值后丢弃 transcript，也不得复制五套私有 prompt/session 实现。
 - `AgentRunServer` 的错误结果允许携带应用状态，先合并 canonical transcript 和真实预算，再保持原有失败/停等语义。不能把失败改成成功，也不能因错误丢失后续恢复所需的模型响应和校验结果。
@@ -503,6 +506,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 ## 16.16 显式压缩的产品触发（2026-11-03，2026-11-04 §18 修订）
 
 - **产品触发入口（2026-11-04 二次修订，A 方案「作者零操作」对齐）**：唯一产品触发 = **安全点自动维护**（无执行中任务时按上下文压力阈值自动发起，理由与影响见 §18）。原「作者命令入口」（`WorkspaceChannel` 的 `agent_command: compact_transcript`）**在 A 方案下未产品化、已从 Channel 撤销**；`AgentRunService.compact_transcript/2` 保留为应用层 **internal 能力**（自动维护共用 `compact_and_commit`、测试与未来手动入口场景可复用），不提供作者可见命令通道。自动维护仍属显式压缩，必须满足：产生带 `covers.call_ids`/`source_refs`/`versions`/`omissions`/`summary` 的独立 checkpoint；不删除不改写原始消息（§16.2 不变）；成功后向作者可见面投影一条 author-safe 整理记录（真实数量与范围，不静默无形）；阈值只决定触发时机、不决定丢弃范围，且不得压缩未完成/未闭合交换、保留最近 K 项已完成交换（运行策略参数、不对作者暴露）；同批交换幂等；失败保留旧状态、不产生作者可见错误、下一安全点可重试；作者原话/当前 scope/未覆盖消息保持原序；作者可见面不出现技术用量与 `checkpoint`/`compact` 内部词。
+- **2026-11-08 ADR-0035 落地修订**：自动维护的压缩作用域 = **会话历史**（跨 turn 的已完成交换，checkpoint 覆盖 turn 范围，covers/refs/versions/omissions 与保留最近 K 不变）；实现中「只整理更早作者回合」是额外收紧、不属于本契约要求，按 ADR-0035 纠正。
 - **命令只表达意图**：public 入口收敛为 `compact_transcript(run_id)`；`covers.call_ids`、source_refs、versions、摘要与省略说明全部由 application 的 `TranscriptCompaction.plan/1` 从 canonical 事实确定性派生（当前全部「未覆盖且已闭合」的完整工具交换），不调用模型；调用方不能传入或伪造压缩内容。
 - **持久与回执**：先经既有 durable checkpoint 提交边界持久化，成功后才推进内存并回报；回执只含作者可见的整理项数、摘要、省略说明与来源显示名，不含 call_id/ref 原值/版本/canonical 内容。无剩余交换时返回幂等 `nothing_to_compact`，不是错误。
 
@@ -539,6 +543,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 | **R1 请求边界与原生输入迁移（2026-11-04）** | **已实现（R1，已提交并通过确定性门禁）**：`RequestIR.prepare_request/2` 选本次工具与 tool_choice；Gateway 按实际 route 单次解析并派生能力；Chat/Anthropic/Responses 三类 adapter 直接消费原生投影；测试替身移出生产注册表；初始快照按 §19.2 构造。**剩余未闭环**：R1 独立验证与 R1 后全量门禁/I1–I3、真实 route/原生 body 回归、I-CACHE 独立输入、Responses SSE（R2）、G6/真实页面/实模、CP5。三个直接文本消费者已完成 IR 迁移（见 §16.6/§19.1）。**2026-11-04/05 确定性门禁已通过**：后端全量 3085/0、credo no issues、xref 无环、arch 通过、I1 4/4、I2 3 pairs/0 violations、I3 3/3、N-NARR、I-CACHE 4/4、前端 486 tests；未代签真实模型/真实页面/Responses SSE/G6/CP5 |
 | **2026-11-08 审核轮：clean 度、门禁真实性与契约执行边界修复** | **已实现（本轮提交）**：① 门禁真实性——`SSEStream.Result` 逐字重复 `materialize/1`（95 行）使干净编译 `--warnings-as-errors` 失败；增量编译跳过该文件造成 2026-11-07「mix check EXIT=0」假绿，已如实更正并把 `mix check` 首步改为强制全量编译；② 契约——`standalone_operation` 运行恢复受限不再写入传输有限模式持久事实（`IR.projection.finite_mode`/`ProviderRun.metadata.finite_mode`）；Chat 流式请求声明 `stream_options.include_usage`（OpenAI 官方语义，usage 才能回收）；Provider behaviour 收敛为唯一 `execute/5` 执行入口（删除 `complete/4` callback 与不可达 final-only 兜底）；删除无消费者 Gateway 诊断 API/`AdapterExecution.non_stream_timeout/2`/`TimeoutPolicy.local?/profile`/`CapabilityProfile.complete?/1`/测试专用 `AuthoringTranscript.append_checkpoint/6`；③ 架构——私有历史 checkpoint v2/unversioned/legacy 只读链退役（未发布原则；未知版本诚实拒绝）；error3 增量与 flow state 形状按 runtime 契约收紧（flow state canonical=`stage_state.judgment_transcript`；error3 第三元素=stage_state 增量顶层键），删除跨形状兼容读取与不一致兜底；前端生产代码与作者可见名不再认知测试替身（统一 fallback「当前模型服务」，代码生成双端同步）；`AuthorProseStream` 正确解码 `\uXXXX`；`ResponsesDecoder` 参数累积键与 item 身份同源；④ 测试资产——R2 预览 verifier 改真实 turn_result/流式增量判据并补负例、system 规则/版本测试、重编号采纳账面重算回归；⑤ 按作者要求测试/验收入口统一运行时前置（`scripts/lib/test_env.sh`）。**未代签**：真实模型行为、实模 usage 回收、真实页面证据与 I10 |
 | **依赖图下沉与测试 helper 迁移（2026-11-06 裁决 4 C；2026-11-07 作者 A1 定稿）** | **已实现（已提交并通过确定性门禁）**：`RequestIR`/`Tools`/`SystemEnvelope`/`Compaction`/`Operation`/`SystemIdentity`/`Projection`（+`ChatCompletions`/`AnthropicMessages`/`ResponsesAPI`）/`CapabilityProfile` 全部下沉 `novel_common`（`NovelCommon.*`；A1 按原计划恢复统一归属，执行边界只保留实际路由选择、传输发送与运行时监督）；`RequestIR.rejection_message/1` 回迁 canonical IR；`novel_test` 去 `novel_agent` 依赖并承载 `NovelTest.TestRequestIR`/`TestProviderPrompt`；`arch_check` 新增 common/test 边界与跨 app test-support 白名单。wire 与持久化字节未改变；实模、页面与 CP5 不代签 |
+| **会话级 canonical 上下文（ADR-0035，2026-11-08 作者批准）** | **已批准，实施待承重 slice**：canonical 作用域=会话（跨 turn）、run 为执行段、压缩作用域=会话历史；当前实现仍是 run 级（已知偏差），未实现前不代签 |
 
 ## 18. 变更记录（Accepted，2026-11-04）：显式压缩的自动维护触发（提案 2026-11-03）
 
@@ -682,3 +687,10 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 - 新判断 run 在构造初始快照时一次建立 `application_base → initial scope_update → user`；`AuthoringTranscript.new` 的 `initial_scope` 消费当前实际 scope 文本、版本与来源，作者仍是独立 user/provenance=author，原文字节与 author_turn 来源不变。只调整首次构造的责任，不在 projector 中排序，不移动或重写已记录消息；旧 transcript 与恢复后的继续执行仍按原追加规则处理。
 - scope 文本由判断入口生成一次，初始构造和后续更新消费同一事实。不能拆出重复固定 packet、复制作者文字、改 scope 授权或改变模型请求材料集合来改善前缀。初始快照一经建立即受 I-ART-10/13 保护；缓存不能改写它。
 - 此设计结合 [OpenAI 前缀缓存指南](https://developers.openai.com/api/docs/guides/prompt-caching) 的稳定内容前置和历史追加原则；共享字节通过不等于真实缓存命中。当前只冻结来源与构造职责；实现已落地（已提交并通过确定性门禁，2026-11-04/05），实际模型语义与页面验收仍归 B71。
+
+### 18.8 2026-11-08 ADR-0035 作用域修订（Accepted）
+
+- 作者于 2026-11-08 批准 [ADR-0035](../adr/ADR-0035-session-scoped-canonical-authoring-context-v3.md)：canonical 上下文作用域=会话（跨 turn 连续运行历史），run 为执行段；压缩作用域=会话历史中更早的已完成交换（覆盖 turn 范围）。
+- 本契约 §16.1/§16.16 已加落地说明（Frozen 判据不变）；§18 自动维护的「更早作者回合」限制按 ADR-0035 纠正为会话历史作用域。
+- 实施待承重 slice；未实现前不代签。
+

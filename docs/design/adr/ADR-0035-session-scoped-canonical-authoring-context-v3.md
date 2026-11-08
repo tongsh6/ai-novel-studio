@@ -1,6 +1,6 @@
 # ADR-0035：会话级 canonical 创作上下文——对话是工作面，run 是执行单元
 
-- 状态：**Proposed（2026-11-08，草案待作者批准；本 ADR 未批准前不实现）**
+- 状态：**Accepted（2026-11-08，作者批准；实施待承重 slice 分阶段落地）**
 - 日期：2026-11-08
 - 来源文档：
   - `../00-vision-and-engineering-roadmap.md` §2.1（Agent 系统的核心：会话结构）、§2.4（最小供给/按需求证/证据闭环）
@@ -115,14 +115,18 @@
 
 ## enforced_by
 
-- pending: 待作者批准后落地（本 ADR 未批准前不实现）
-  - 计划：`apps/novel_application/lib/novel_application/`（会话派生上下文、压缩作用域）、`apps/novel_persistence/lib/`（会话级 canonical 存储/恢复）、`scripts/arch_check.exs`（会话/run 边界规则）、`tasks/slices/`（承重 slice）、`docs/design/contracts/VS-00L-*.md`（落地说明修订）
+- `docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md`（§16.1/§16.16/§17/§18 落地说明已按本 ADR 修订，判据不变）
+- `docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md`（§11 作用域落地边界补充）
+- `tasks/slices/B71-provider-message-fidelity.md`（G6 与验收真源）
+- `docs/design/notes/2026-11-08-session-level-product-deviation.md`（诊断输入）
 
 ## enforcement_gaps
 
-- 本 ADR 为 Proposed，尚无实现与门禁承接；现有实现（run 级 transcript、run 级压缩）与本文冲突，属已知偏差，待批准后由承重 slice 消除。
+- 实现层承接待承重 slice（会话级 canonical 存储/恢复、请求派生、压缩作用域、arch_check 边界、测试与验收）；落地后补实现路径与门禁引用。
+- 现有实现（run 级 transcript、run 级压缩）与本 ADR 冲突，属已知偏差；未实现前不代签、不把本文当已交付。
 - 旧 `:session_transcript` 材料类型与旧装配链的退役范围需在 slice 设计中逐项核对，避免遗漏消费者。
 
 ## 变更记录
 
 - 2026-11-08：草案创建（Proposed）。输入为产品级偏差诊断 `docs/design/notes/2026-11-08-session-level-product-deviation.md` 与作者对同构性/工作面的纠正。
+- 2026-11-08：**作者批准 → Accepted**。同步修订 VS-00L 落地说明（§16.1/§16.16/§17/§18，Frozen 判据不变）与 ADR-0033（§11 作用域落地边界）；后续按承重 slice 分阶段实现，未实现前不代签。
