@@ -1205,3 +1205,23 @@
 - **harness 修复（2026-11-07）**：`strata_lifecycle.mjs`/`authoring_live_evidence.mjs` 的预注册模型名改为可经 `B71_STRATA_MODEL` 指定（默认保持历史 `iq3_s`）；`native_b71_live_drive.mjs` 的 driverLog.model 读取 `B71_STRATA_MODEL` 并修复 ui-complete 时序竞争；`native_b71_batch.sh` 注释同步。harness 单测通过（22 pass）。
 - **判定**：q2_0 下 CP3b 机制必选项可复现 PASS，但**完整实模场景（工具调用/观察回流/G2–G6/压缩后请求）未触发**；CP4b-2/G6 结论不成立。R2 Responses/Anthropic 实模仍需官方凭证。**不代签** CP4b-2/G6/CP5/I10。
 - **后续入口**：① 更强模型窗口或官方凭证后按同一预注册重跑（先冻结后执行、失败只读保留）；② G6 需 auto-maintenance 场景（`B71_AUTO_MAINTENANCE=1`，需同 run 多回合且压缩实际触发）；③ 真实页面流式正文预览证据随流式 provider 批次取证。
+
+
+### 2026-11-08 审核轮：clean 度收口、门禁真实性与实模回归（进行中）
+
+- **触发**：作者要求以 B71 完成度为标准，结合项目愿景与元原则，从整体性/系统性/架构合理完整性审核实现；项目未发布、不需要兼容历史、保持 clean 度、彻底重构；允许按可 review 粒度逐批提交；本地模型可运行。
+- **三项只读审计**（报告在 `artifacts/b71-audit-20261108/`，基线 HEAD `2c989d2c`，工作区干净）：
+  - `contract-report.md`：P0=0 / P1=3 / P2=8；核心是 standalone 运行受限被误写为传输有限模式持久事实、Chat 流式未声明 `stream_options.include_usage` 导致 OpenAI 官方 route usage 静默为 0、契约真源（ADR-0033/adr README/08 §26）仍写「未提交工作区/待独立验证」。
+  - `arch-report.md`：P0=0 / P1=4 / P2=11；核心是 `SSEStream.Result` 逐字重复 `materialize/1`（95 行死代码）与由此暴露的门禁假绿、error3 增量与 flow state 两种形状的兼容读取、私有历史 checkpoint v2/legacy 只读链、前端生产 stub 语义与测试替身作者名、若干无消费者 API 与文档漂移。
+  - `test-report.md`：P0=0 / P1=4 / P2=9；核心是 R2 预览 verifier 判据名不副实（只验文件存在、checks 硬编码）、system 规则/版本落地零测试、B80 迁移的「重编号采纳后账面重算」唯一触发路径 0 测试且 rescue 吞异常、显示名断言锁死已退役测试替身。
+- **P0（本轮实测确认，证据链更正）**：干净编译下 `mix compile --warnings-as-errors` 因上述重复 clause **EXIT=1**；而常规增量编译用 manifest 跳过该文件，门禁假绿。2026-11-07 CP5 记录「mix check EXIT=0」不能作为当前零警告证据。处置：
+  1. 删除重复定义（`result.ex` 334→287 行）；
+  2. `mix.exs` 的 `mix check` 首步改为 `compile --warnings-as-errors --force`，零警告门禁必须覆盖全部文件；
+  3. 本记录如实更正：R2 提交（`119b7c35`）后的干净编译结论未在 2026-11-07 被验证，CP5 复核需以本轮门禁结果为准。
+- **契约修复**：`standalone_operation` 不再进入 `IR.projection.finite_mode`/`ProviderRun.metadata.finite_mode`（运行恢复受限与传输能力受限分离）；Chat 流式请求声明 `stream_options.include_usage`；Provider behaviour 收敛为唯一 `execute/5` 执行入口（删除 `complete/4` callback 与不可达兜底）；删除无生产消费者的 Gateway 诊断 API、`AdapterExecution.non_stream_timeout/2`、`TimeoutPolicy.local?/profile`、`CapabilityProfile.complete?/1`、测试专属 `AuthoringTranscript.append_checkpoint/6`。
+- **架构干净化**：error3 第三元素与 flow state 的关系按 runtime 契约收敛（flow state canonical = `stage_state.judgment_transcript`；error3 第三元素 = stage_state 增量、顶层 `judgment_transcript` 唯一位置），删除跨形状兼容读取与不一致拒绝兜底；私有历史 checkpoint **v2/unversioned/legacy 只读链退役**（未发布原则；历史证据目录只读保留，不删作者数据；未知版本诚实拒绝）；前端生产代码与作者可见名不再认知 `stub`/`slice_verify` 测试替身（统一 fallback「当前模型服务」，测试环境替身通过 `list_models` 模拟真实 provider）；`AuthorProseStream` 正确解码 `\uXXXX`（含分片与代理对，不再泄漏 hex）；`ResponsesDecoder` 参数累积键与 item 身份同源；B80 残留 CSS 死代码清理。
+- **测试资产修复**：R2 预览 verifier 改为读取真实 turn_result/流式增量判据并补负例；新增 system envelope 规则/版本顺序与负例测试；补重编号采纳账面重算回归并让 rescue 可观测；`su01-model-provider-switching` 场景文案随作者可见名 fallback 更新；相关退役分支测试删除/改写为「未知格式拒绝」负例。
+- **测试验证体系统一前置（作者要求）**：新增 `scripts/lib/test_env.sh`（`novel_test_db_dir`/`novel_test_db_prepare`：目录解析、可选 reset、create+migrate、migrate 失败 fail-closed；`novel_wait_for_http`；`novel_ports_precheck`），`scripts/ai_static_scan.sh`、`scripts/slice_verify.sh`、`scripts/tauri_slice_verify.sh`、`scripts/dogfood_run.sh` 与 CI 全部复用同一前置；`scripts/lib/test_env.test.mjs` 覆盖行为与接线负例。删除各入口自带的建库三连与 db 目录语义漂移。
+- **验证**（最终数字见末行，待补）：`mix check`（编译强制全量 + 全量测试 + xref/arch/adr/I-CACHE）、五个不变量 driver（I1/I2/I3/N-NARR/I-CACHE）、静态扫描、前端 typecheck/lint/test/audit/design-trace。
+- **实模**：预注册 `artifacts/model-contracts/b71-cp1/scenario-preregistration-iq3-s-20261108.json`（执行前冻结；2026-11-08 08:14Z Strata `/v1/models` 恢复提供 iq3_s）。批次结果只读登记于该预注册/证据目录，不重跑换分；未触发切片不代签。
+- **状态**：CP5 保持 doing；真实模型行为、页面层实时事件/确认失败分支、I10 文学质量仍不代签。

@@ -859,7 +859,7 @@ Profile：`local` = `:lmstudio` / `:strata`（同一套本机推理后端）；`
 
 > 来源：作者要求以“优秀且符合项目调性，不为现状妥协”为目标，重新对照 Codex、Claude Code、dsh 的真实多轮请求。本节是目标架构，不是现有 giant prompt 的最小修补，也不以现役 provider 的最低能力反向限定设计。执行任务为 `tasks/slices/B71-provider-message-fidelity.md`；目标方向与迁移规则已由 [ADR-0033](../adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) 接受，替换契约 [VS-00L](../contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 已冻结并完成 CP2–CP4b 确定性实现；**2026-11-03 状态**：能力事实已收敛到单一派生边界（adapter 可证声明 → `CapabilityProfile` → IR/执行边界身份比对），全 true 假声明已删除，SSE 工具调用无损累积与 Responses 真实传输已落地；实模 CP3b、压缩前端入口设计授权与 CP5 收口仍未闭环（见 VS-00L §17）。现役 B26/B39/VS-00I 是迁移与 ADR 对账输入，不是降低目标的理由。
 >
-> **2026-11-04 R1 状态**：实际 route 单源——canonical IR 不再保存 target/capability_profile/provider_route；Gateway 按本次 provider/model/purpose/route_hint 解析唯一配置快照并派生能力，adapter 直接投影原生协议；`to_provider_prompt/2` 与构造/执行双身份比对已删除，测试替身移出生产注册表（§2.4/§14）。**实现位于未提交工作区、待独立验证**；R2/Responses SSE、G6、真实页面与 CP5 仍未闭环。
+> **2026-11-04 R1 状态**：实际 route 单源——canonical IR 不再保存 target/capability_profile/provider_route；Gateway 按本次 provider/model/purpose/route_hint 解析唯一配置快照并派生能力，adapter 直接投影原生协议；`to_provider_prompt/2` 与构造/执行双身份比对已删除，测试替身移出生产注册表（§2.4/§14）。R1 已提交（2026-11-05）并通过确定性门禁；R2 统一流式与 Responses SSE 已完成确定性机制层（2026-11-07）；未闭环为 CP3b 实模、G6 压缩后真实请求、真实页面与 CP5（2026-11-08 状态更正）。
 
 ### 26.1 对照结论：吸收协议能力，不复制代码 Agent 形态
 

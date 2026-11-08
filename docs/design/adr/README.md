@@ -24,7 +24,7 @@
 >
 > **2026-11-03 ADR-0033 实施进展**：CP2–CP4b 的确定性实现与验收已完成——IR/三类投影、能力事实单一来源（adapter 可证声明 → `CapabilityProfile` → 执行边界身份比对）、SSE 工具调用无损累积、Responses 真实传输、规划/使命/修订/质量/确认交接/私有历史/逐调用引用、显式压缩派生均已落地并有门禁/测试证据（见 [VS-00L §17](../contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md#17-实施状态更新2026-11-03) 与 `tasks/slices/B71-provider-message-fidelity.md`）。**仍未闭环**：CP3b 实模、压缩前端入口设计授权、CP5 最终收口；真实模型行为不代签。
 >
-> **2026-11-04 R1 更新**：能力事实改为 Gateway 按本次实际路由单次解析并派生——已删除构造侧 `target`/`capability_profile`、执行侧二次身份比对、`to_provider_prompt/2` 与生产 Stub 注册；三类 adapter 直接消费原生投影，初始快照按 VS-00L §19.2 构造。**实现位于未提交工作区，待独立验证**；R2/Responses SSE、G6、真实页面与 CP5 仍开放。
+> **2026-11-04 R1 更新**：能力事实改为 Gateway 按本次实际路由单次解析并派生——已删除构造侧 `target`/`capability_profile`、执行侧二次身份比对、`to_provider_prompt/2` 与生产 Stub 注册；三类 adapter 直接消费原生投影，初始快照按 VS-00L §19.2 构造。R1 已提交（2026-11-05）并通过确定性门禁；R2 统一流式与 Responses SSE 已完成确定性机制层（2026-11-07）；未闭环为 CP3b 实模、G6 压缩后真实请求、真实页面证据与 CP5（2026-11-08 状态更正）。
 
 ## 1. 定位
 

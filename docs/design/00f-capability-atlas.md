@@ -100,6 +100,7 @@ React Query 负责服务端状态；Zustand 管 UI state；Socket 单 Channel（
 4. **确定性页面证据 ≠ 实模**：`slice_verify`/`streaming_slice_verify` 批次只证接线与不变量；实模与文学质量（I10）另证。
 5. **导入/分析（B79）未实现**：独立大功能，未在上一轮范围内启动（作者 2026-11-08 指示先梳理现有功能）。
 6. **CP4 抽查（2026-11-08）**：上下文压缩域机制层充分（压缩后请求组装有 `to_request_ir`+投影端到端断言），M1 仅因 G6 实模/页面证据缺；设置域入口/测试/场景齐全（`modelProvider`/`providerHealth` 测试 + su01 场景族），M2 依据成立；恢复域发现 `AgentRunStartup`（普通启动/作者动作/确认子 run 共用的启动事实唯一构造点）只有流程级间接覆盖 → 已补 3 例直接单测（application 1352/0）；可观测性域 controller/service/前端视图测试与 au07 场景齐全。
+7. **B71 审核轮（2026-11-08）**：三项只读审计（契约/架构/测试资产）合计 P0=0/P1=11/P2=28；实测确认并修复 1 项 P0（`SSEStream.Result` 重复 `materialize/1` 使干净编译 `--warnings-as-errors` 失败，增量编译曾造成门禁假绿），`mix check` 首步已改为强制全量编译；11 项 P1 全部修复（契约执行边界、私有历史 v2/legacy 退役、error3/flow state 形状收紧、前端测试替身退役、R2 verifier 真实判据、system 规则测试、重编号重算回归等）；按作者要求新增 `scripts/lib/test_env.sh` 统一测试/验收入口前置。证据与未修存量见 `artifacts/b71-audit-20261108/final-report.md` 与 B71 任务文档；不代签实模/文学质量。
 
 
 ---
@@ -114,6 +115,8 @@ React Query 负责服务端状态；Zustand 管 UI state；Socket 单 Channel（
 | P2-A | P2 未实现 | 存量书稿导入/分析建档（B79） | 无生产代码；任务文档独立 | 独立大功能，作者指示暂不启动 |
 | P2-B | P2 未取证 | G6 压缩后真实请求未闭环 | B71 记录；需同 run 多回合实模窗口 | 等实模窗口 |
 | P2-C | P2 未取证 | 真实模型行为/Responses·Anthropic 实模 | q2_0 批次仅机制必选项；官方凭证缺失 | 等窗口/凭证，不代签 |
+| P2-D | P2 已修（2026-11-08 审核轮） | B71 契约/架构/测试资产 P0/P1 与高价值 P2：SSEStream.Result 重复定义与门禁假绿、standalone 有限模式误记、Chat 流式 usage、Provider 双执行入口、私有历史 v2/legacy 只读链、error3/flow state 形状、前端/作者可见名测试替身、AuthorProseStream unicode 转义、ResponsesDecoder 参数累积键、R2 verifier 真实判据、system 规则测试、重编号重算回归 | `artifacts/b71-audit-20261108/`（三份只读审计 + final-report）、B71 任务文档 2026-11-08 节；不代签实模 |
+| P2-E | P2 存量未修 | `novel_common` 的 `LogEmit`/`LLMLog` 文件 I/O 与 `Task.start`（AGENTS 禁止项但 arch_check 未覆盖）；`novel_web` 193 tests/532s 慢测试 | B71 审核轮 arch P2-10 / 观察记录 | 独立任务（架构债务/测试提速），不在 B71 内扩大 |
 | P3-A | P3 文档 | `docs/design/README.md` 顶部 2026-11-04 历史状态行仍写「R1 实现位于未提交工作区」 | 与当前已提交实现不符（历史记录可保留） | **已修（2026-11-08）**：README 已补 2026-11-08 最新状态行（R1/R2/预览证据已提交），历史行不改写 |
 | P3-B | P3 文档 | `quality/acceptance/known-gaps.md` 与当前实现/任务状态的一致性未逐条复核 | 233 场景 + 台账 | **首批已修（2026-11-08）**：known-gaps「当前 blocked 场景」表补齐 registry 中 3 个 `status: blocked`（此前表为空、registry 有条目）；历史批次表与 00c/tasks 过时描述仍待逐条核对 |
 

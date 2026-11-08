@@ -1,7 +1,7 @@
 # ADR-0033：Authoring Run Transcript 与 Request IR——统一 AgentRun 的原生多轮创作会话
 
 - 状态：**Accepted（2026-10-31，作者在 B71 CP1 选择 A：按目标协议正式修订/supersede 现役协议）。实施进展（2026-11-03）：CP2 IR/投影/能力门槛、CP3a/CP3c 首个判断消费者与原生成、CP4a 创作/质量迁移、CP4b 规划/使命/修订/质量/确认交接/私有历史/逐调用引用/能力事实单一来源/显式压缩派生已完成确定性实现与验收；CP3b 实模与压缩前端设计授权、CP5 最终收口仍未闭环，真实模型行为不代签。**2026-11-06/2026-11-07 B71 裁决 4 C：Request IR 契约族（含三类 Provider wire 投影与传输能力事实派生）统一下沉 `novel_common`；执行边界负责实际路由选择、传输执行与运行时监督（§6 实施位置修订，原则不变；已提交并通过确定性门禁）。**
-- 实施进展（2026-11-04 R1）：能力事实改为 Gateway 按本次实际路由单次解析并派生——删除构造侧 `target`/`capability_profile`、执行侧双身份比对、`to_provider_prompt/2` 与生产 Stub 注册；三类 adapter 直接消费原生投影；初始快照按 VS-00L §19.2 构造。**实现位于未提交工作区，待独立验证**。CP3b 实模、压缩前端设计授权、G6/Responses SSE 与 CP5 仍开放。
+- 实施进展（2026-11-04 R1）：能力事实改为 Gateway 按本次实际路由单次解析并派生——删除构造侧 `target`/`capability_profile`、执行侧双身份比对、`to_provider_prompt/2` 与生产 Stub 注册；三类 adapter 直接消费原生投影；初始快照按 VS-00L §19.2 构造。R1 已于 2026-11-05 提交（`b32da8cd` 等）并通过确定性门禁；R2 统一流式生命周期与 Responses SSE 已于 2026-11-07 完成确定性机制层（`119b7c35`）。**仍未闭环**：CP3b 实模行为、G6 压缩后真实请求、CP5 最终收口；真实模型/页面证据不代签（2026-11-08 状态更正）。
 - 实施状态真源：`tasks/slices/B71-provider-message-fidelity.md`；契约状态更新见 [VS-00L §17](../contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md#17-实施状态更新2026-11-03)。
 - 日期：2026-10-31
 - 来源文档：
