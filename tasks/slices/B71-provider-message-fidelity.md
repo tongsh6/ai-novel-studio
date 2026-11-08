@@ -1234,6 +1234,21 @@
   - **G6 实模批次（2026-11-08 09:45Z）**：按作者 2026-11-08 同意的新预算冻结预注册 `scenario-preregistration-g6-iq3s-20261108.json` 后启动，**预检即失败：Strata App 不可达（0 次调用、未进入产品链）**——属外部环境变化（此前 iq3_s 可用），非产品/判据失败；不重跑换分，预注册保留待窗口恢复后按原判据执行。G6 仍未取证，不代签。
   - **G6 实模批次 02（2026-11-08 10:10Z，Strata 恢复后）**：按同一冻结预注册执行，**FAIL（1 次真实调用、0 压缩）**——模型在首次判断后进入 ask_author（询问要看哪一章，界面「等待你回复 · 创作」），driver 第二次发送前 `wait_ax_timeout:input_ready`（底部输入区被「等待即回答」接管为回答模式，driver 的 rawWaitInputReady 未识别），runner 记 external_driver_failed。**归因=场景/harness 输入模式（跨 run 续行无法进入同 run 多回合，维护范围仅同 run），非产品缺陷**；压缩未触发，按预算纪律不重跑换分。G6 仍未取证，不代签。证据 `artifacts/slice-verify/b71-first-consumer-auto-maint-cp4b2-g6-iq3s-02/`。
   - **G6 场景观测 smoke（2026-11-08 10:30Z，A3b multi-turn，非验收）**：为定位批次 02 的同 run 多回合可行性，跑 `B71_AUTO_MAINT_SMOKE=1`（driver 走 `runMultiTurnFlow`，不产验收证据）。**同 run 多回合真实成立**：模型 ask_author → driver 自由文本 steer → `run_resumed`/running；usage 8996→12929 已越小窗口（4096×0.70）。但同 run 内更早回合 **complete_exchanges=0**（<K=4）、`checkpoint_events=0` → 自动维护**正确未触发**。**G6 仍不可构造**：受真实模型单轮内交换不足限制（与 A3b 既有结论一致），非产品缺陷；不调 K/窗口凑触发、不把 smoke 当验收证据。证据 `artifacts/b71-native/a3b-smoke-cp4b2-g6-smoke-iq3s-01/`。
+
+### G6 multi-turn 正式场景改造与两批真实执行（2026-11-08，作者授权②）
+
+**harness 改造（非产品代码）**：按作者「改造 harness 支持同 run 多轮连续 steer 的正式场景」授权，落地：
+- driver `runMultiTurnFlow`：1 次 steer 观测 → **同 run 连续 steer 循环**（直到自动维护触发 / `B71_AUTO_MAINT_MAX_STEERS=6` 上限 / run 终局），每轮记录 pause/steer/resume 与 canonical blocks 口径交换事实（修正旧口径读 `message.tool_calls` 恒空的读数 bug）；触发后补 `after-maintenance/after-expanded/after-next-request` 作者可见证据与「压缩后真实请求」。
+- verifier：新增 `C11_multi_turn_same_run`（同 run pause/steer/resume 真实成立）；`C7`（刷新幂等）/`C8`（失败静默）明确**不属于 G6-multi-turn 场景范围**（ok=null 不进 required、`not_signed` 明示），不放宽也不伪装通过；common/wire 断言对该场景适配（同 run steer 不产生额外 user_message 帧，wire 只要求首轮输入与最终 turn_result ≥1，同 run 多回合由 C11 判定）。新增 3 个正反例测试（node --test 9/9）。
+- batch：新增正式入口 `B71_AUTO_MAINT_MULTI_TURN=1`（与 smoke 互斥、正常 runner verify）；runner 修复 **auto-maintenance journey 的 verify 前 cleanup**（此前 verify 在 EXIT cleanup 前执行，C10 必然 fail——b1 暴露，b2 验证修复通过）。
+
+**冻结预注册并执行 2 批（如实不代签）**：
+| 批次 | 输入设计 | 结果 | 关键事实 |
+|---|---|---|---|
+| `cp4b2-g6-mt-01` | b1 默认（两章对比） | FAIL（压缩未触发） | C1/C11 pass；steer 1 轮后 run completed；canonical 交换 **4**（< 触发所需 >4）；usage 32497 越线 11×；C10 因 verify 时序 fail（已修，原判定保留） |
+| `cp4b2-g6-mt-02` | 更强逐章核对 | FAIL（多回合未成立） | 首轮直接 run completed（未 ask_author）→ 无 steer 机会；交换 2；usage 16864；C10 pass（修复验证） |
+
+**结论**：自动化 harness 已可正式构造「同 run 连续 steer」，两批真实执行均未触发压缩——b1 差 1 个完整交换、b2 模型直接终局。**G6 受 iq3_s 当前单 run 交换能力/暂停时机限制，保持 known-gap**；不调 K/窗口/判据、不重跑换分、未触发不代签。下一步需更强模型窗口或产品侧的独立压缩触发场景设计（非 B71 协议问题）。
 - **状态**：CP5 保持 doing；真实模型行为、页面层实时事件/确认失败分支、I10 文学质量仍不代签。
 
 
