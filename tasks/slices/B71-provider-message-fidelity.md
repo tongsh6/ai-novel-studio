@@ -1271,8 +1271,10 @@
 
 **尝试过的构造（已实验、代码已回退，不留在仓库）**：`SliceVerify` 增加 env 门控分支，在判断阶段循环返回 `judgment_decision explore`（每步 1 个只读交换），累计 5 个交换后返回 `ask_author` 暂停，驱动观察作答（含确定性标记）→ 同 run 恢复，期望安全点自动维护触发。**实验结果失败**：产品判断协议在首轮探索观察产生后不再开放 explore（`exploration_not_available`/`invalid_tool_arguments`），自造 explore 参数被 `judgment_protocol_violation: :invalid_tool_arguments` 拒绝 → `run_failed`。说明「判断阶段循环 explore」不是可用构造路径；所有 WIP 代码已回退，工作区 clean。
 
-**结论与下一步设计选项（需作者裁决方向）**：
-1. **plan 多步执行中途暂停**：用确定性 plan 流程产生多步执行交换（历史 planning/revision 批次单回合 5 交换已证明可行），在判断阶段累计交换 ≥5 后返回 `ask_author`。前置核查：plan 执行循环是否逐 step 回到判断阶段、以及该阶段返回 `ask_author` 是否合法（首轮 ask_author 已验证合法；执行步后是否允许待查）。
+**「plan 多步执行中途暂停」核查结果（2026-11-08，选项 a 已执行）**：改回 fixture 判断阶段返回 `ask_author` 后重跑确定性批次（`slice=b71-authoring-planning` + planning 输入 + marker + 确定性 auto-maintenance 驱动）：DB 显示单 run **5 个完整交换**（judgment_decision → plan_draft → plan_revision → submit×2）、**judgment_decided 仅 1 次**、单 user 消息、**checkpoints=0**。即：**产品流程只在 run 开头调用一次判断阶段（judgment），其后由计划起草/修订与机械执行推进，执行中途不存在判断步骤**——无法在"5 个交换之后"通过判断阶段插入 `ask_author`；而 confirmation 交接的确认动作不写 user 消息（不构成更早回合）。**结论：确定性多回合在现有产品语义下不可构造**（除非产品新增"执行中途向作者提问"能力）。所有 WIP 已回退、工作区 clean。
+
+**结论与下一步设计选项（需作者裁决方向）**：**结论与下一步设计选项（需作者裁决方向）**：
+1. ~~**plan 多步执行中途暂停**~~（**已核查否决**，见上）：产品判断阶段仅在 run 开头调用一次，执行中途无判断步骤；无法插入执行后 `ask_author`。
 2. **产品侧语义确认**：若产品在「执行中途向作者提问」只有 confirmation 交接（其确认不写 user 消息 → 无法构成更早回合），则确定性多回合在现有产品语义下**不可构造**，需回到方案 B（业务事件触发点）或方案 C（作者可见入口，需修订 §16.16/§18 + UI 授权）。
 3. **回实模**：保持 G6 known-gap，等更强模型窗口后按观察驱动 multi-turn 场景重跑（harness 已就绪）。
 
