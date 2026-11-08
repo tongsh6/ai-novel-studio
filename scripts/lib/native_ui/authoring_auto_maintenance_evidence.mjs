@@ -101,6 +101,7 @@ export function readAutoMaintenanceDbFacts(dir) {
     return {
       agent_events: rows("agent_events"),
       agent_runs: rows("agent_runs"),
+      authoring_session_messages: rows("authoring_session_messages"),
       provider_runs: rows("provider_runs"),
       interactions: rows("interactions"),
       mutations: rows("mutations"),
@@ -108,15 +109,11 @@ export function readAutoMaintenanceDbFacts(dir) {
   });
 }
 
-function transcriptMessages(agentRuns) {
+function transcriptMessages(sessionMessageRows) {
   const messages = [];
-  for (const run of list(agentRuns)) {
-    const parsed = parseJson(run?.authoring_transcript);
-    const transcript = isObject(parsed?.transcript) ? parsed.transcript : parsed;
-    const runMessages = list(transcript?.messages);
-    for (const message of runMessages) {
-      if (isObject(message)) messages.push({ ...message, run_id: run?.id ?? null });
-    }
+  for (const row of list(sessionMessageRows)) {
+    const message = parseJson(row?.message);
+    if (isObject(message)) messages.push({ ...message, run_id: row?.run_id ?? null });
   }
   return messages;
 }
@@ -249,7 +246,7 @@ export function evaluateAutoMaintenance({
 }) {
   const db = dbFacts ?? {};
   const env = driverLog?.env ?? {};
-  const transcript = transcriptMessages(db.agent_runs);
+  const transcript = transcriptMessages(db.authoring_session_messages);
   const checkpointsMsgs = transcript.filter((message) => String(message?.role ?? "") === "checkpoint");
   const events = checkpointEvents(db.agent_events);
   const eventTimes = eventAts(events);

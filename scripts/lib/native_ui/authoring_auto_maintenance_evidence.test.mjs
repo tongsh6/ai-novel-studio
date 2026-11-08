@@ -59,7 +59,13 @@ function dbFactsFor() {
         inserted_at: EVENT_AT,
       },
     ],
-    agent_runs: [{ id: RUN, status: "completed", authoring_transcript: JSON.stringify(transcriptRecord()) }],
+    agent_runs: [{ id: RUN, status: "completed" }],
+    authoring_session_messages: transcriptRecord().transcript.messages.map((message, index) => ({
+      run_id: RUN,
+      sequence: index + 1,
+      run_sequence: index + 1,
+      message: JSON.stringify(message),
+    })),
     provider_runs: [
       { id: "prun-1", provider_id: "strata", agent_run_id: RUN, purpose: "planner", inserted_at: "2026-11-04T09:59:10.000Z" },
     ],
@@ -193,13 +199,24 @@ function buildDir({ strip = true, expanded = true } = {}) {
   const db = new DatabaseSync(path.join(dir, "database", "ai_novel_studio_test.sqlite3"));
   db.exec(`
     CREATE TABLE agent_events (id TEXT, run_id TEXT, event_type TEXT, visibility TEXT, sequence INTEGER, payload TEXT, inserted_at TEXT);
-    CREATE TABLE agent_runs (id TEXT, status TEXT, authoring_transcript TEXT);
+    CREATE TABLE agent_runs (id TEXT, status TEXT);
+    CREATE TABLE authoring_session_messages (id TEXT, run_id TEXT, sequence INTEGER, run_sequence INTEGER, message TEXT, format_version TEXT);
     CREATE TABLE provider_runs (id TEXT, provider_id TEXT, agent_run_id TEXT, purpose TEXT, inserted_at TEXT);
     CREATE TABLE interactions (id TEXT, turn_id TEXT, content TEXT);
     CREATE TABLE mutations (id TEXT);
   `);
   db.prepare("INSERT INTO agent_events VALUES (?,?,?,?,?,?,?)").run("evt-1", RUN, "checkpoint_created", "author", 2, JSON.stringify({ covered_exchanges: 1, scope: "earlier_work_turns", sources: ["资料查阅"] }), EVENT_AT);
-  db.prepare("INSERT INTO agent_runs VALUES (?,?,?)").run(RUN, "completed", JSON.stringify(transcriptRecord()));
+  db.prepare("INSERT INTO agent_runs VALUES (?,?)").run(RUN, "completed");
+  transcriptRecord().transcript.messages.forEach((message, index) => {
+    db.prepare("INSERT INTO authoring_session_messages VALUES (?,?,?,?,?,?)").run(
+      `msg-${index + 1}`,
+      RUN,
+      index + 1,
+      index + 1,
+      JSON.stringify(message),
+      "authoring-session-message/v1",
+    );
+  });
   db.prepare("INSERT INTO provider_runs VALUES (?,?,?,?,?)").run("prun-1", "strata", RUN, "planner", "2026-11-04T09:59:10.000Z");
   db.close();
   return dir;
@@ -259,7 +276,7 @@ test("A3 反例：精简泄漏/ canonical 缺失/刷新不幂等/失败可见/�
   const canonical = evaluate({
     dbFacts: {
       ...dbFactsFor(),
-      agent_runs: [{ id: RUN, status: "completed", authoring_transcript: JSON.stringify({ transcript: { messages: [{ role: "user", content: "hi" }] } }) }],
+      authoring_session_messages: [],
     },
   });
   assert.equal(canonical.checks.C6_canonical_complete.ok, false);

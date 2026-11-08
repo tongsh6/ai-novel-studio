@@ -217,14 +217,27 @@ function readRunStatus(runId) {
 function readRunExchangeFacts(runId) {
   // 按 canonical transcript 的 blocks 口径统计（tool_call/observation 在 blocks 内，
   // 顶层 message.tool_calls 是旧口径、恒为空——2026-11-08 修正读侧 bug）。
+  // ADR-0035 / B81 CP1：canonical 消息在会话存储的 run 执行段内，不再读 run 私有列。
   return withDb(dir, (db) => {
-    const row = all(db, "SELECT authoring_transcript FROM agent_runs WHERE id = ?", [runId])[0] ?? null;
-    let messages = [];
-    try {
-      const parsed = JSON.parse(row?.authoring_transcript ?? "{}");
-      messages = parsed?.transcript?.messages ?? [];
-    } catch {
-      messages = [];
+    const segment = all(db, "SELECT message_count FROM authoring_run_segments WHERE run_id = ?", [runId])[0] ?? null;
+    const rows = all(
+      db,
+      "SELECT message FROM authoring_session_messages WHERE run_id = ? ORDER BY run_sequence",
+      [runId],
+    );
+    const messages = rows
+      .map((row) => {
+        try {
+          return JSON.parse(row?.message ?? "null");
+        } catch {
+          return null;
+        }
+      })
+      .filter((message) => message && typeof message === "object");
+    if (segment && Number(segment.message_count) !== messages.length) {
+      throw new Error(
+        `[native-b71] run 执行段消息数量不一致: segment=${segment.message_count} rows=${messages.length}`,
+      );
     }
     const userTurns = messages.filter((message) => message?.role === "user").length;
     const callIds = [];

@@ -172,6 +172,34 @@ function runIdentity(runId, parentTurn) {
   };
 }
 
+const SEGMENT_VERSION = "authoring-run-segment/v1";
+const MESSAGE_FORMAT_VERSION = "authoring-session-message/v1";
+
+// B81 CP1：canonical 历史 = run 执行段头 + 会话消息行（run 私有列已退役）。
+function insertCanonicalSegment(db, runId, transcript) {
+  const header = {
+    version: SEGMENT_VERSION,
+    run: transcript.run,
+    system: transcript.system,
+    tools: transcript.tools,
+    projection: transcript.projection,
+    base_refs: transcript.base_refs,
+    observation_refs: transcript.observation_refs,
+    used_refs: transcript.used_refs,
+    call_ids: transcript.call_ids,
+  };
+  db.prepare("INSERT INTO authoring_run_segments (run_id, header, message_count) VALUES (?, ?, ?)").run(
+    runId,
+    JSON.stringify(header),
+    transcript.messages.length,
+  );
+  transcript.messages.forEach((message, index) => {
+    db.prepare(
+      "INSERT INTO authoring_session_messages (run_id, sequence, run_sequence, message, format_version) VALUES (?, ?, ?, ?, ?)",
+    ).run(runId, index + 1, index + 1, JSON.stringify(message), MESSAGE_FORMAT_VERSION);
+  });
+}
+
 function agentRunRow(runId, parentTurn, runTranscript, providerCalls, authority) {
   return {
     id: runId,
@@ -182,10 +210,6 @@ function agentRunRow(runId, parentTurn, runTranscript, providerCalls, authority)
     run_mode: "bounded",
     profile_ref: "judgment_loop_v1",
     status: "completed",
-    authoring_transcript: JSON.stringify({
-      version: "authoring-transcript/v1",
-      transcript: runTranscript,
-    }),
     consumed_budget: JSON.stringify({ provider_calls: providerCalls, tool_calls: 1, steps: 2 }),
     budget: JSON.stringify({ max_provider_calls: 33 }),
     authority_scope: JSON.stringify(authority),
@@ -307,8 +331,14 @@ function createSchema(db) {
   )`);
   dbExec(db, `CREATE TABLE agent_runs (
     id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, parent_turn_ref TEXT,
-    run_mode TEXT, profile_ref TEXT, status TEXT, authoring_transcript TEXT,
+    run_mode TEXT, profile_ref TEXT, status TEXT,
     consumed_budget TEXT, budget TEXT, authority_scope TEXT, pending_artifact_refs TEXT
+  )`);
+  dbExec(db, `CREATE TABLE authoring_run_segments (
+    run_id TEXT PRIMARY KEY, header TEXT, message_count INTEGER
+  )`);
+  dbExec(db, `CREATE TABLE authoring_session_messages (
+    run_id TEXT, sequence INTEGER, run_sequence INTEGER, message TEXT, format_version TEXT
   )`);
   dbExec(db, `CREATE TABLE provider_runs (
     id TEXT PRIMARY KEY, agent_run_id TEXT, workspace_id TEXT, work_id TEXT, session_id TEXT,
@@ -334,7 +364,8 @@ function openDb(dir) {
 
 function insertRunFacts(dir, { run, transcript, providerRuns, records, authority }) {
   const db = openDb(dir);
-  dbExec(db, "INSERT INTO agent_runs (id, workspace_id, work_id, session_id, parent_turn_ref, run_mode, profile_ref, status, authoring_transcript, consumed_budget, budget, authority_scope, pending_artifact_refs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", Object.values(run));
+  dbExec(db, "INSERT INTO agent_runs (id, workspace_id, work_id, session_id, parent_turn_ref, run_mode, profile_ref, status, consumed_budget, budget, authority_scope, pending_artifact_refs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", Object.values(run));
+  insertCanonicalSegment(db, run.id, transcript);
   for (const row of providerRuns) {
     dbExec(db, "INSERT INTO provider_runs (id, agent_run_id, workspace_id, work_id, session_id, parent_turn_ref, provider_call_ref, provider_id, purpose, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", Object.values(row));
   }
@@ -1027,19 +1058,26 @@ test("revision artifact 字节改变不能冒充同次 writer 响应", () => {
 test("writer 应用校验 failed 不能签候选字节合法", () => {
   const dir = cloneBatch(shared);
   const db = openDb(dir);
-  const row = db.prepare("SELECT authoring_transcript FROM agent_runs WHERE id = ?").get(REVISION_RUN);
-  const envelope = JSON.parse(row.authoring_transcript);
-  for (const message of envelope.transcript.messages) {
+  const rows = db
+    .prepare("SELECT sequence, message FROM authoring_session_messages WHERE run_id = ? ORDER BY run_sequence")
+    .all(REVISION_RUN);
+  for (const row of rows) {
+    const message = JSON.parse(row.message);
+    let changed = false;
     for (const block of message.blocks ?? []) {
       if (block.type === "validation_result" && block.call_id === "call-writer") {
         block.status = "failed";
+        changed = true;
       }
     }
+    if (changed) {
+      db.prepare("UPDATE authoring_session_messages SET message = ? WHERE run_id = ? AND run_sequence = ?").run(
+        JSON.stringify(message),
+        REVISION_RUN,
+        row.sequence,
+      );
+    }
   }
-  dbExec(db, "UPDATE agent_runs SET authoring_transcript = ? WHERE id = ?", [
-    JSON.stringify(envelope),
-    REVISION_RUN,
-  ]);
   db.close();
   assert.throws(() => verifyPendingBatch(dir), /revision_writer_validation_passed/);
   fs.rmSync(dir, { recursive: true, force: true });

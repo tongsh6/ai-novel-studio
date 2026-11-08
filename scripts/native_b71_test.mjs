@@ -117,6 +117,33 @@ function wireFrame(direction, at, frame) {
 
 const BASE_AT = Date.now() - 30 * 60 * 1000;
 
+const SEGMENT_VERSION = "authoring-run-segment/v1";
+
+// B81 CP1：canonical 历史 = run 执行段头 + 会话消息行（不再有 run 私有列）。
+function insertCanonicalSegment(db, runId, transcript) {
+  const header = {
+    version: SEGMENT_VERSION,
+    run: transcript.run,
+    system: transcript.system,
+    tools: transcript.tools,
+    projection: transcript.projection,
+    base_refs: transcript.base_refs,
+    observation_refs: transcript.observation_refs,
+    used_refs: transcript.used_refs,
+    call_ids: transcript.call_ids,
+  };
+  db.prepare("INSERT INTO authoring_run_segments (run_id, header, message_count) VALUES (?, ?, ?)").run(
+    runId,
+    JSON.stringify(header),
+    transcript.messages.length,
+  );
+  transcript.messages.forEach((message, index) => {
+    db.prepare(
+      "INSERT INTO authoring_session_messages (run_id, sequence, run_sequence, message, format_version) VALUES (?, ?, ?, ?, ?)",
+    ).run(runId, index + 1, index + 1, JSON.stringify(message), "authoring-session-message/v1");
+  });
+}
+
 function createDatabase(dir, childTranscript, sourceTranscript, revisionItem, overrides = {}) {
   const dbFile = path.join(dir, "database", "ai_novel_studio_test.sqlite3");
   fs.mkdirSync(path.dirname(dbFile), { recursive: true });
@@ -130,7 +157,13 @@ function createDatabase(dir, childTranscript, sourceTranscript, revisionItem, ov
       consumed_budget TEXT, current_step_ref TEXT, completed_step_refs TEXT,
       pending_artifact_refs TEXT, active_behavior_ref TEXT, interrupt_state TEXT,
       long_run_task_ref TEXT, failure_ref TEXT, completed_at TEXT, inserted_at TEXT,
-      updated_at TEXT, trigger TEXT, authoring_transcript TEXT
+      updated_at TEXT, trigger TEXT
+    );
+    CREATE TABLE authoring_run_segments (
+      run_id TEXT PRIMARY KEY, header TEXT, message_count INTEGER
+    );
+    CREATE TABLE authoring_session_messages (
+      run_id TEXT, sequence INTEGER, run_sequence INTEGER, message TEXT, format_version TEXT
     );
     CREATE TABLE provider_runs (
       id TEXT PRIMARY KEY, provider_call_ref TEXT, agent_run_id TEXT,
@@ -221,8 +254,8 @@ function createDatabase(dir, childTranscript, sourceTranscript, revisionItem, ov
     status: "completed",
     authority_scope: JSON.stringify({ allowed_tools: ["prose_writing", "chapter_read"] }),
     consumed_budget: JSON.stringify({ provider_calls: 1 }),
-    authoring_transcript: JSON.stringify({ version: "authoring-transcript/v1", transcript: sourceTranscript }),
   }));
+  insertCanonicalSegment(db, SOURCE_RUN, sourceTranscript);
   insert("agent_runs", run({
     id: CHILD_RUN,
     parent_turn_ref: SOURCE_TURN,
@@ -231,8 +264,8 @@ function createDatabase(dir, childTranscript, sourceTranscript, revisionItem, ov
     status: "completed",
     authority_scope: JSON.stringify({ allowed_tools: ["prose_writing"] }),
     consumed_budget: JSON.stringify({ provider_calls: 2, tool_calls: 1, steps: 4 }),
-    authoring_transcript: JSON.stringify({ version: "authoring-transcript/v1", transcript: childTranscript }),
   }));
+  insertCanonicalSegment(db, CHILD_RUN, childTranscript);
   insert("provider_runs", {
     id: "prun-source", provider_call_ref: "pcall-source", agent_run_id: SOURCE_RUN,
     workspace_id: WORKSPACE, work_id: WORK, session_id: SESSION, parent_turn_ref: USER_TURN,
@@ -668,10 +701,14 @@ test("没有重试/未闭合 validation 必须失败", async () => {
   const batch = buildBatch();
   try {
     const db = new DatabaseSync(path.join(batch.dir, "database", "ai_novel_studio_test.sqlite3"));
-    const row = db.prepare("SELECT authoring_transcript FROM agent_runs WHERE id = ?").get(CHILD_RUN);
-    const value = JSON.parse(row.authoring_transcript);
-    value.transcript.messages[3].blocks[0].status = "passed";
-    db.prepare("UPDATE agent_runs SET authoring_transcript = ? WHERE id = ?").run(JSON.stringify(value), CHILD_RUN);
+    const row = db.prepare("SELECT message FROM authoring_session_messages WHERE run_id = ? AND run_sequence = ?").get(CHILD_RUN, 4);
+    const message = JSON.parse(row.message);
+    message.blocks[0].status = "passed";
+    db.prepare("UPDATE authoring_session_messages SET message = ? WHERE run_id = ? AND run_sequence = ?").run(
+      JSON.stringify(message),
+      CHILD_RUN,
+      4,
+    );
     db.close();
     await assert.rejects(() => main(["verify", batch.dir]), /原生断言失败/);
   } finally {

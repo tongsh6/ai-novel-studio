@@ -1,9 +1,11 @@
-// B71 私有 canonical 历史的原生证据读取：只读、精确绑定、失败不回退。
+// B71 canonical 创作历史的原生证据读取：只读、精确绑定、失败不回退。
 //
-// 当前验收消费者只接受 v3：durable checkpoint 仅保存
-// `authoring_transcript_ref={run_id,version}`，canonical 原文在
-// `agent_runs.authoring_transcript`。本模块不读取旧 v2 内嵌副本，也不按
-// parent/scope 的“最新”行猜取运行身份。
+// ADR-0035 / B81 CP1 后 canonical 作用域=会话：本 run 的执行段由
+// `authoring_run_segments`（段头：run/system/tools/refs/call_ids 九键）+
+// `authoring_session_messages`（该 run 的消息，按 run_sequence）组成；
+// durable checkpoint 只保存 `authoring_segment_ref={run_id,version}`
+// （`authoring-run-segment/v1`）。本模块不读取旧 run 级私有列/旧内嵌副本，
+// 也不按 parent/scope 的“最新”行猜取运行身份。
 import assert from "node:assert/strict";
 import {
   all,
@@ -14,7 +16,8 @@ import {
   withDb,
 } from "./scenario_evidence.mjs";
 
-export const AUTHORING_TRANSCRIPT_VERSION = "authoring-transcript/v1";
+export const AUTHORING_SEGMENT_VERSION = "authoring-run-segment/v1";
+export const AUTHORING_MESSAGE_VERSION = "authoring-session-message/v1";
 
 const WORKSPACE_PREFIX = "workspace:";
 const IDENTITY_FIELDS = Object.freeze([
@@ -167,11 +170,11 @@ function decodeOptional(value) {
 }
 
 function validateRef(ref, record) {
-  const label = "authoring_transcript_ref 缺失或错绑";
+  const label = "authoring_segment_ref 缺失或错绑";
   if (!isRecord(ref)) fail(label);
   assert.deepEqual(Object.keys(ref).map(String).sort(), ["run_id", "version"], `authoring_history: ${label}`);
   assert.equal(ref.run_id, record.id, `authoring_history: ${label}`);
-  assert.equal(ref.version, AUTHORING_TRANSCRIPT_VERSION, `authoring_history: ${label}`);
+  assert.equal(ref.version, AUTHORING_SEGMENT_VERSION, `authoring_history: ${label}`);
 }
 
 function validRefValue(ref) {
@@ -207,22 +210,53 @@ function validateTranscriptIdentity(record, run) {
   }
 }
 
-// bounded 与 durable 共用的唯一私有 decoder：版本、canonical 形状与完整身份
+// bounded 与 durable 共用的唯一会话段 decoder：段头版本/消息版本/形状/完整身份
 // 只在这里校验一次，模式分支不复制第二套 reader。
-function readPrivateTranscript(record) {
-  const privateHistory = assertRecord(
-    decodeJson(record.authoring_transcript, "私有 transcript"),
-    "私有 transcript",
+function readRunSegment(db, record) {
+  const segmentRows = all(db, "SELECT * FROM authoring_run_segments WHERE run_id = ?", [record.id]);
+  assert.equal(segmentRows.length, 1, "authoring_history: run 执行段缺失或多行");
+  const segment = segmentRows[0];
+  const header = assertRecord(decodeJson(segment.header, "run 执行段 header"), "run 执行段 header");
+  assert.equal(header.version, AUTHORING_SEGMENT_VERSION, "authoring_history: run 执行段版本错误");
+
+  const messageRows = all(
+    db,
+    "SELECT message, format_version, run_sequence FROM authoring_session_messages " +
+      "WHERE run_id = ? ORDER BY run_sequence",
+    [record.id],
   );
   assert.equal(
-    privateHistory.version,
-    AUTHORING_TRANSCRIPT_VERSION,
-    "authoring_history: 私有 transcript 版本错误",
+    messageRows.length,
+    segment.message_count,
+    "authoring_history: 消息行数量与 run 执行段 message_count 不一致",
   );
-  const transcript = assertRecord(privateHistory.transcript, "私有 canonical transcript");
+  for (const row of messageRows) {
+    assert.equal(
+      row.format_version,
+      AUTHORING_MESSAGE_VERSION,
+      "authoring_history: 消息行格式版本错误",
+    );
+  }
+  const messages = messageRows.map((row) => assertRecord(decodeJson(row.message, "canonical 消息"), "canonical 消息"));
+  return { segment, header, messages };
+}
+
+function readPrivateTranscript(db, record) {
+  const { segment, header, messages } = readRunSegment(db, record);
+  const transcript = {
+    run: header.run,
+    system: header.system,
+    messages,
+    tools: header.tools,
+    base_refs: header.base_refs,
+    observation_refs: header.observation_refs,
+    used_refs: header.used_refs,
+    projection: header.projection,
+    call_ids: header.call_ids,
+  };
   validateTranscriptShape(transcript);
   validateTranscriptIdentity(record, transcript.run);
-  return transcript;
+  return { transcript, segment };
 }
 
 function validateDurableCheckpoint(record, checkpoint) {
@@ -230,7 +264,7 @@ function validateDurableCheckpoint(record, checkpoint) {
   const agentRun = assertRecord(checkpoint.agent_run, "checkpoint_data.agent_run");
   assert.equal(agentRun.checkpoint_version, 3, "authoring_history: checkpoint 不是 v3");
   assert.equal(agentRun.run_id, record.id, "authoring_history: checkpoint run_id 与 agent_runs 不一致");
-  validateRef(agentRun.authoring_transcript_ref, record);
+  validateRef(agentRun.authoring_segment_ref, record);
 }
 
 // durable 必须精确引用同一 task，并核对 task 的 work/parent 与 run 一致。
@@ -280,10 +314,11 @@ export function readAuthoringHistory(dir, scope, { requireMode = null } = {}) {
       );
     }
 
-    const transcript = readPrivateTranscript(record);
+    const { transcript, segment } = readPrivateTranscript(db, record);
     const base = {
       record,
       transcript,
+      segment,
       budget: decodeOptional(record.consumed_budget),
       pending: decodeOptional(record.pending_artifact_refs),
     };
