@@ -9,10 +9,10 @@ defmodule NovelApplication.LedgerReconciliationService do
   后续 profile 共用的纯编排。
   """
 
-  require NovelCommon.LogEmit
+  require NovelTelemetry.LogEmit
 
-  alias NovelCommon.LogEmit
   alias NovelDomain.LedgerReconciliation
+  alias NovelTelemetry.LogEmit
 
   @typedoc """
   端口：账面全量 / 按章序摘要 / 角色阵容（锚点排除人名用）。

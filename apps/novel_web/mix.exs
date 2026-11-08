@@ -31,6 +31,7 @@ defmodule NovelWeb.MixProject do
     [
       {:novel_application, in_umbrella: true},
       {:novel_common, in_umbrella: true},
+      {:novel_telemetry, in_umbrella: true},
       {:novel_domain, in_umbrella: true},
       {:novel_foundation, in_umbrella: true},
       {:phoenix, "1.8.9"},

@@ -21,7 +21,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.TurnExecutionService
   alias NovelApplication.TurnResultBuilder
-  alias NovelCommon.LogContext
   alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentStep
@@ -30,8 +29,9 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
+  alias NovelTelemetry.LogContext
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   @profile_ref "prose_drafting_with_quality_v1"
   @context_step_target "context_assemble"

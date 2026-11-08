@@ -1,5 +1,5 @@
 defmodule NovelApplication.AgentRunFlows.FactInventory do
-  require NovelCommon.LogEmit
+  require NovelTelemetry.LogEmit
 
   @moduledoc """
   设定盘点 AgentRun profile（VS-00G CP4b-2 / 契约 §3.3 `fact_inventory_v1`）。
@@ -521,7 +521,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
         half = div(length(materials) + 1, 2)
         {left, right} = Enum.split(materials, half)
 
-        NovelCommon.LogEmit.emit(:fact_inventory, :batch_fallback, :start, %{
+        NovelTelemetry.LogEmit.emit(:fact_inventory, :batch_fallback, :start, %{
           material_count: length(materials),
           batch_sizes: [length(left), length(right)],
           reason: inspect(reason) |> String.slice(0, 120)

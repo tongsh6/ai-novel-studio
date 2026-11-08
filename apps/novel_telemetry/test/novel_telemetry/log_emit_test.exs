@@ -1,31 +1,31 @@
-defmodule NovelCommon.LogEmitTest do
+defmodule NovelTelemetry.LogEmitTest do
   use ExUnit.Case, async: false
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
-  alias NovelCommon.LogContext
+  alias NovelTelemetry.LogContext
 
   setup do
-    old_enabled = Application.get_env(:novel_common, :log_jsonl_enabled)
-    old_dir = Application.get_env(:novel_common, :log_jsonl_dir)
+    old_enabled = Application.get_env(:novel_telemetry, :log_jsonl_enabled)
+    old_dir = Application.get_env(:novel_telemetry, :log_jsonl_dir)
 
     dir =
       Path.join(System.tmp_dir!(), "novel-log-emit-test-#{System.unique_integer([:positive])}")
 
-    Application.put_env(:novel_common, :log_jsonl_enabled, true)
-    Application.put_env(:novel_common, :log_jsonl_dir, dir)
+    Application.put_env(:novel_telemetry, :log_jsonl_enabled, true)
+    Application.put_env(:novel_telemetry, :log_jsonl_dir, dir)
     Logger.reset_metadata([])
 
     on_exit(fn ->
       Logger.reset_metadata([])
 
       if is_nil(old_enabled),
-        do: Application.delete_env(:novel_common, :log_jsonl_enabled),
-        else: Application.put_env(:novel_common, :log_jsonl_enabled, old_enabled)
+        do: Application.delete_env(:novel_telemetry, :log_jsonl_enabled),
+        else: Application.put_env(:novel_telemetry, :log_jsonl_enabled, old_enabled)
 
       if is_nil(old_dir),
-        do: Application.delete_env(:novel_common, :log_jsonl_dir),
-        else: Application.put_env(:novel_common, :log_jsonl_dir, old_dir)
+        do: Application.delete_env(:novel_telemetry, :log_jsonl_dir),
+        else: Application.put_env(:novel_telemetry, :log_jsonl_dir, old_dir)
 
       File.rm_rf!(dir)
     end)
@@ -60,7 +60,7 @@ defmodule NovelCommon.LogEmitTest do
   end
 
   defp wait_for_records(dir, expected) do
-    path = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+    path = Path.join(dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
 
     Enum.reduce_while(1..100, [], fn _attempt, _acc ->
       records =

@@ -17,7 +17,7 @@ defmodule NovelApplication.AgentRunFlows.TurnBindingTest do
 
   setup do
     previous = Logger.metadata()
-    on_exit(fn -> NovelCommon.LogContext.restore(previous) end)
+    on_exit(fn -> NovelTelemetry.LogContext.restore(previous) end)
     Logger.reset_metadata([])
     :ok
   end

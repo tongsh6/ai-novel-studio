@@ -3,7 +3,7 @@ defmodule NovelApplication.AgentRunService do
   Public application entrypoint for bounded AgentRun runtime.
   """
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelApplication.AgentEventPublisher
   alias NovelApplication.AgentRunPersistence

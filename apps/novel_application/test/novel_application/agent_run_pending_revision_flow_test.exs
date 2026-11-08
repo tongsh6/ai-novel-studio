@@ -315,7 +315,7 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
   describe "真实 Gateway 判断负例" do
     setup do
       old_extra = Application.get_env(:novel_agent, :extra_providers)
-      old_log_dir = Application.get_env(:novel_common, :llm_log_dir)
+      old_log_dir = Application.get_env(:novel_telemetry, :llm_log_dir)
       old_invalid_ref = System.get_env("SLICE_VERIFY_PENDING_INVALID_REF")
 
       dir =
@@ -330,12 +330,12 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
         Map.put(old_extra || %{}, :slice_verify, SliceVerify)
       )
 
-      Application.put_env(:novel_common, :llm_log_dir, dir)
+      Application.put_env(:novel_telemetry, :llm_log_dir, dir)
       System.put_env("SLICE_VERIFY_PENDING_INVALID_REF", "1")
 
       on_exit(fn ->
         restore_app_env(:novel_agent, :extra_providers, old_extra)
-        restore_app_env(:novel_common, :llm_log_dir, old_log_dir)
+        restore_app_env(:novel_telemetry, :llm_log_dir, old_log_dir)
         restore_env("SLICE_VERIFY_PENDING_INVALID_REF", old_invalid_ref)
         File.rm_rf(dir)
       end)
@@ -468,7 +468,7 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
   end
 
   defp llm_records(dir) do
-    path = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+    path = Path.join(dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
 
     if File.exists?(path) do
       path

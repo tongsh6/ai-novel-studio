@@ -10,7 +10,7 @@ defmodule NovelPersistence.WorkspaceContext do
 
   alias NovelDomain.BehaviorState
   alias NovelDomain.VolumeBlueprint
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelFoundation.Enums.StructureStatus
   alias NovelPersistence.ChapterSummaryRepo

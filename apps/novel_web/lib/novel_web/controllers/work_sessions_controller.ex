@@ -5,7 +5,7 @@ defmodule NovelWeb.WorkSessionsController do
 
   use Phoenix.Controller, formats: [:json]
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelApplication.WorkSessionService
 

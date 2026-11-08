@@ -5,12 +5,12 @@ defmodule NovelApplication.TaskRunner do
   依托 Persistence.LongRunTaskLog 实现 SQLite 状态保存与恢复。
   """
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
-  alias NovelCommon.LogContext
   alias NovelFoundation.Enums.Status
   alias NovelFoundation.Enums.TaskPhase
   alias NovelPersistence.LongRunTaskLog
+  alias NovelTelemetry.LogContext
 
   @type state_callback :: (map() -> any())
 

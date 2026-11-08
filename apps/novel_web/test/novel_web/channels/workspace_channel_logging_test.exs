@@ -12,14 +12,14 @@ defmodule NovelWeb.WorkspaceChannelLoggingTest do
 
   setup do
     owner = Sandbox.start_owner!(Repo, shared: true)
-    old_enabled = Application.get_env(:novel_common, :log_jsonl_enabled)
-    old_dir = Application.get_env(:novel_common, :log_jsonl_dir)
+    old_enabled = Application.get_env(:novel_telemetry, :log_jsonl_enabled)
+    old_dir = Application.get_env(:novel_telemetry, :log_jsonl_dir)
 
     log_dir =
       Path.join(System.tmp_dir!(), "novel-channel-log-#{System.unique_integer([:positive])}")
 
-    Application.put_env(:novel_common, :log_jsonl_enabled, true)
-    Application.put_env(:novel_common, :log_jsonl_dir, log_dir)
+    Application.put_env(:novel_telemetry, :log_jsonl_enabled, true)
+    Application.put_env(:novel_telemetry, :log_jsonl_dir, log_dir)
 
     on_exit(fn ->
       restore_env(:log_jsonl_enabled, old_enabled)
@@ -77,7 +77,7 @@ defmodule NovelWeb.WorkspaceChannelLoggingTest do
   end
 
   defp read_records_if_present(log_dir) do
-    path = Path.join(log_dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+    path = Path.join(log_dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
 
     if File.exists?(path) do
       path

@@ -16,7 +16,6 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.TurnExecutionService
-  alias NovelCommon.LogContext
   alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentStep
@@ -25,8 +24,9 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
+  alias NovelTelemetry.LogContext
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   @profile_ref "plot_outline_with_context_v1"
   @context_step_target "context_assemble"

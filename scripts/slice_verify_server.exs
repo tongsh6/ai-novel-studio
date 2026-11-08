@@ -52,7 +52,7 @@ Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio,
       System.get_env("NOVEL_LLM_TIMEOUT_MS", "300000")
     )
     |> String.to_integer(),
-  log_fn: &NovelCommon.LLMLog.record/5
+  log_fn: &NovelTelemetry.LLMLog.record/5
 )
 
 if System.get_env("SLICE_VERIFY_DEEPSEEK_HTTP_FIXTURE") == "1" or
@@ -106,12 +106,12 @@ if System.get_env("SLICE_VERIFY_PROVIDER_MODELS_FIXTURE") == "1" do
 end
 
 if app_log_dir = System.get_env("SLICE_VERIFY_APP_LOG_DIR") do
-  Application.put_env(:novel_common, :log_jsonl_enabled, true)
-  Application.put_env(:novel_common, :log_jsonl_dir, app_log_dir)
+  Application.put_env(:novel_telemetry, :log_jsonl_enabled, true)
+  Application.put_env(:novel_telemetry, :log_jsonl_dir, app_log_dir)
 end
 
 if llm_log_dir = System.get_env("SLICE_VERIFY_LLM_LOG_DIR") do
-  Application.put_env(:novel_common, :llm_log_dir, llm_log_dir)
+  Application.put_env(:novel_telemetry, :llm_log_dir, llm_log_dir)
 end
 
 {:ok, _started} = Application.ensure_all_started(:novel_web)

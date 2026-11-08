@@ -40,10 +40,10 @@ defmodule NovelWeb.WorkspaceChannelRenumberRecomputeTest do
 
     # LogEmit 的 done/error 事件经 Logger.info 输出；测试环境全局 level=warning，
     # 这里只对 LogEmit 模块放开 info，避免影响其它并行测试的日志级。
-    Logger.put_module_level(NovelCommon.LogEmit, :info)
+    Logger.put_module_level(NovelTelemetry.LogEmit, :info)
 
     on_exit(fn ->
-      Logger.delete_module_level(NovelCommon.LogEmit)
+      Logger.delete_module_level(NovelTelemetry.LogEmit)
 
       if previous_persistence do
         Application.put_env(:novel_web, :persistence, previous_persistence)

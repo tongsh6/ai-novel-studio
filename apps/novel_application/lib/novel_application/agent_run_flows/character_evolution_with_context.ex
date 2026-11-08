@@ -15,13 +15,13 @@ defmodule NovelApplication.AgentRunFlows.CharacterEvolutionWithContext do
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.TurnExecutionService
-  alias NovelCommon.LogContext
   alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentStep
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
+  alias NovelTelemetry.LogContext
 
   @profile_ref "character_evolution_with_context_v1"
   @context_step_target "context_assemble"

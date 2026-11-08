@@ -22,7 +22,7 @@ defmodule NovelApplication.ProseRevisionService do
   `ArtifactAssembler`，不直接写作品事实、不调用 Repo。
   """
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelAgent.AuthorizedToolExecutor
   alias NovelAgent.Provider.Execution

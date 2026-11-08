@@ -6,7 +6,7 @@ defmodule NovelApplication.AgentRunServer do
 
   use GenServer
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentEventPublisher
@@ -887,7 +887,7 @@ defmodule NovelApplication.AgentRunServer do
         # next_step_planner 内的独立计划起草/修订 provider 调用发生在该 step 的
         # TurnBinding.bind 之前。先按本 run 的源 turn 绑定，保证 provider 调用与
         # run 事件可被同一 turn 归因；后续 step 执行仍由 TurnBinding.bind 覆盖。
-        NovelCommon.LogContext.put_turn(
+        NovelTelemetry.LogContext.put_turn(
           run_for_step.workspace_id,
           run_for_step.work_id,
           run_for_step.parent_turn_ref,

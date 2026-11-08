@@ -1,5 +1,5 @@
 defmodule NovelApplication.FactInventoryService do
-  require NovelCommon.LogEmit
+  require NovelTelemetry.LogEmit
 
   @moduledoc """
   设定盘点提炼引擎（VS-00G CP4b / §3.3）：读作品现状材料（正文/摘要）→ 模型提炼
@@ -249,7 +249,7 @@ defmodule NovelApplication.FactInventoryService do
       {:error, reason} when retry? ->
         # D4 同款瞬态族单次重试（超时/空响应原样重发）；退化 retryable:false 已排除
         # ——同 prompt 盲重预期同败，交给 flow 层降批。
-        NovelCommon.LogEmit.emit(:fact_inventory, :retry, :start, %{
+        NovelTelemetry.LogEmit.emit(:fact_inventory, :retry, :start, %{
           reason: inspect(reason) |> String.slice(0, 160)
         })
 

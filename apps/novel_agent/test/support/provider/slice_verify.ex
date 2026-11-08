@@ -2919,10 +2919,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp record_exchange(prompt_text, prompt, model, params, ctx, result) do
-    case Application.get_env(:novel_common, :llm_log_dir) do
+    case Application.get_env(:novel_telemetry, :llm_log_dir) do
       dir when is_binary(dir) and dir != "" ->
         File.mkdir_p!(dir)
-        file = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+        file = Path.join(dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
 
         line =
           exchange_record(prompt_text, prompt, model, params, ctx, result)

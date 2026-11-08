@@ -16,7 +16,7 @@ defmodule NovelApplication.JudgmentProtocol do
     TurnInteractionService
   }
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   @max_attempts 2
   @observation_statuses %{

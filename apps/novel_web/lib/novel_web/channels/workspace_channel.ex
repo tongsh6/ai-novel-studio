@@ -8,7 +8,7 @@ defmodule NovelWeb.WorkspaceChannel do
 
   use Phoenix.Channel
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelApplication.AgentRunEventQuery
   alias NovelApplication.AgentRunService
@@ -16,8 +16,8 @@ defmodule NovelWeb.WorkspaceChannel do
   alias NovelApplication.TaskRunner
   alias NovelApplication.WorkSessionService
   alias NovelCommon.Contracts.AgentEvent
-  alias NovelCommon.LogContext
   alias NovelDomain.{AuthorActionInput, BehaviorState}
+  alias NovelTelemetry.LogContext
   alias NovelWeb.WorkspaceChannelCommandAck
 
   @current_turn_author_action_types [

@@ -4,10 +4,10 @@ import Config
 dev_log_dir =
   System.get_env("LLM_LOG_DIR", Path.expand("../log/llm-calls/dev", __DIR__) |> Path.absname())
 
-config :novel_common, :llm_log_dir, dev_log_dir
+config :novel_telemetry, :llm_log_dir, dev_log_dir
 
 # 业务日志 JSONL — 开发环境写入 log/app/dev/
-config :novel_common,
+config :novel_telemetry,
   log_jsonl_enabled: true,
   log_jsonl_dir:
     System.get_env(

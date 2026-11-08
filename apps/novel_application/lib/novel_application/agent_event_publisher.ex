@@ -9,7 +9,7 @@ defmodule NovelApplication.AgentEventPublisher do
 
   alias NovelCommon.Contracts.AgentEvent
   alias NovelDomain.AgentRun
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   @registry NovelApplication.AgentEventRegistry
 

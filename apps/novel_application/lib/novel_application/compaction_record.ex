@@ -11,7 +11,7 @@ defmodule NovelApplication.CompactionRecord do
   已成功的压缩；提交失败不广播、不推进内存。
   """
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelApplication.{
     AgentEventPublisher,

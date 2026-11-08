@@ -16,9 +16,9 @@ defmodule NovelApplication.ChapterSummaryGenerator do
   alias NovelAgent.Provider.Execution
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
-  alias NovelCommon.LogContext
   alias NovelCommon.RequestIR
   alias NovelDomain.ChapterSummary
+  alias NovelTelemetry.LogContext
 
   @doc "从 maintenance 输入生成四栏摘要 map；失败返回 `{:error, reason}`。"
   @spec generate(map()) :: {:ok, map()} | {:error, term()}

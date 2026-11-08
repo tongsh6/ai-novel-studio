@@ -34,7 +34,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   }
 
   alias NovelFoundation.Enums.AdoptionStatus, as: Status
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   @pending_capabilities ~w(revise_pending_artifact discard_pending_artifact)
   @adopted_capabilities ~w(revise_adopted_content)
@@ -187,7 +187,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   """
   def run(judgment, input, run, context, provider, snapshot) when is_map(snapshot) do
     turn = field(input, :turn_id) || run.parent_turn_ref
-    NovelCommon.LogContext.put_turn(run.workspace_id, run.work_id, turn, run.session_id)
+    NovelTelemetry.LogContext.put_turn(run.workspace_id, run.work_id, turn, run.session_id)
 
     cond do
       field(judgment, :capability) == "maintain_chapter_structure" ->

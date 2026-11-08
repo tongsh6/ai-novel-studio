@@ -1,4 +1,4 @@
-defmodule NovelCommon.LogContext do
+defmodule NovelTelemetry.LogContext do
   require Logger
 
   @moduledoc """

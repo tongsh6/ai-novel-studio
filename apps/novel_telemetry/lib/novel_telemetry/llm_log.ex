@@ -1,4 +1,4 @@
-defmodule NovelCommon.LLMLog do
+defmodule NovelTelemetry.LLMLog do
   @moduledoc """
   LLM HTTP 调用日志 — JSONL 按天记录，行首带时间戳。
 
@@ -6,14 +6,19 @@ defmodule NovelCommon.LLMLog do
   """
 
   require Logger
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   # 从源文件向上查找 mix.exs 定位项目根。有停止条件，不会无限循环
+  # umbrella 根：同级存在 mix.exs 与 apps/ 的目录（不能停在 apps/<app>/mix.exs，
+  # 否则默认日志目录会落到 app 子目录；2026-11-08 迁入独立 telemetry app 时修正）。
   @project_root_dir __DIR__
                     |> Stream.iterate(&Path.dirname/1)
                     |> Stream.take_while(&(&1 != "/"))
-                    |> Enum.find(&File.exists?(Path.join(&1, "mix.exs"))) ||
-                      raise("Cannot find project root (mix.exs) from #{__DIR__}")
+                    |> Enum.find(fn dir ->
+                      File.exists?(Path.join(dir, "mix.exs")) and
+                        File.dir?(Path.join(dir, "apps"))
+                    end) ||
+                      raise("Cannot find umbrella project root (mix.exs + apps/) from #{__DIR__}")
 
   @doc """
   记录一次 LLM 调用。各 adapter 在 complete/4 返回前调用。
@@ -61,8 +66,8 @@ defmodule NovelCommon.LLMLog do
   end
 
   defp do_append(entry) do
-    dir = Application.get_env(:novel_common, :llm_log_dir) || default_log_dir()
-    date = NovelCommon.LogFileDate.today_iso8601()
+    dir = Application.get_env(:novel_telemetry, :llm_log_dir) || default_log_dir()
+    date = NovelTelemetry.LogFileDate.today_iso8601()
     path = Path.join(dir, "#{date}.jsonl")
 
     ts = DateTime.utc_now() |> DateTime.to_iso8601()

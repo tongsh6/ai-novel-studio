@@ -18,7 +18,7 @@ defmodule NovelApplication.AdoptionWorkflow do
   alias NovelFoundation.Enums.MutationStatus
   alias NovelFoundation.Enums.NarrativeRole
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   @spec handle_adopt(
           map() | nil,

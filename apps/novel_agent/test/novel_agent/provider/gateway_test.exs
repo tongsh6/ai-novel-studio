@@ -937,14 +937,14 @@ defmodule NovelAgent.Provider.GatewayTest do
     end
 
     test "emits provider and model audit logs without prompt or secrets" do
-      old_enabled = Application.get_env(:novel_common, :log_jsonl_enabled)
-      old_dir = Application.get_env(:novel_common, :log_jsonl_dir)
+      old_enabled = Application.get_env(:novel_telemetry, :log_jsonl_enabled)
+      old_dir = Application.get_env(:novel_telemetry, :log_jsonl_dir)
 
       log_dir =
         Path.join(System.tmp_dir!(), "novel-provider-log-#{System.unique_integer([:positive])}")
 
-      Application.put_env(:novel_common, :log_jsonl_enabled, true)
-      Application.put_env(:novel_common, :log_jsonl_dir, log_dir)
+      Application.put_env(:novel_telemetry, :log_jsonl_enabled, true)
+      Application.put_env(:novel_telemetry, :log_jsonl_dir, log_dir)
 
       try do
         prompt = "hello novel secret-marker"
@@ -1228,9 +1228,9 @@ defmodule NovelAgent.Provider.GatewayTest do
 
   describe "execution log scope" do
     setup do
-      old_dir = Application.get_env(:novel_common, :llm_log_dir)
+      old_dir = Application.get_env(:novel_telemetry, :llm_log_dir)
       dir = Path.join(System.tmp_dir!(), "novel-llm-scope-#{System.unique_integer([:positive])}")
-      Application.put_env(:novel_common, :llm_log_dir, dir)
+      Application.put_env(:novel_telemetry, :llm_log_dir, dir)
       Logger.reset_metadata([])
 
       on_exit(fn ->
@@ -1332,7 +1332,7 @@ defmodule NovelAgent.Provider.GatewayTest do
     end
 
     defp read_llm_records(dir) do
-      path = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+      path = Path.join(dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
 
       path
       |> File.read!()
@@ -1387,7 +1387,7 @@ defmodule NovelAgent.Provider.GatewayTest do
   end
 
   defp read_records_if_present(log_dir) do
-    path = Path.join(log_dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+    path = Path.join(log_dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
 
     if File.exists?(path) do
       path

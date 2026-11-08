@@ -3,7 +3,7 @@ defmodule NovelAgent.Provider.GatewayExecutionRefsFixtureProvider do
 
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.Result
-  alias NovelCommon.LLMLog
+  alias NovelTelemetry.LLMLog
   alias NovelTest.TestProviderPrompt
 
   defstruct []
@@ -119,29 +119,29 @@ defmodule NovelAgent.Provider.GatewayExecutionRefsTest do
 
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.NativeToolExchange
-  alias NovelCommon.LLMLog
-  alias NovelCommon.LogFileDate
   alias NovelCommon.RequestIR
+  alias NovelTelemetry.LLMLog
+  alias NovelTelemetry.LogFileDate
 
   @tool "judgment_decision"
   @provider_opts [provider: :execution_refs_fixture, model: "fixture-model"]
 
   setup do
     old_extra = Application.get_env(:novel_agent, :extra_providers)
-    old_dir = Application.get_env(:novel_common, :llm_log_dir)
+    old_dir = Application.get_env(:novel_telemetry, :llm_log_dir)
     dir = Path.join(System.tmp_dir!(), "gateway-execution-refs-#{unique_integer()}")
 
     Application.put_env(:novel_agent, :extra_providers, %{
       execution_refs_fixture: NovelAgent.Provider.GatewayExecutionRefsFixtureProvider
     })
 
-    Application.put_env(:novel_common, :llm_log_dir, dir)
+    Application.put_env(:novel_telemetry, :llm_log_dir, dir)
     Logger.reset_metadata([])
 
     on_exit(fn ->
       Logger.reset_metadata([])
       restore_app_env(:novel_agent, :extra_providers, old_extra)
-      restore_app_env(:novel_common, :llm_log_dir, old_dir)
+      restore_app_env(:novel_telemetry, :llm_log_dir, old_dir)
       File.rm_rf!(dir)
     end)
 

@@ -712,7 +712,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
   describe "real Gateway + SliceVerify quality finding revision" do
     setup do
       old_extra = Application.get_env(:novel_agent, :extra_providers)
-      old_log_dir = Application.get_env(:novel_common, :llm_log_dir)
+      old_log_dir = Application.get_env(:novel_telemetry, :llm_log_dir)
       old_retry = System.get_env(@quality_revision_retry_env)
       dir = Path.join(System.tmp_dir!(), "slice-verify-quality-revision-#{unique_integer()}")
 
@@ -722,12 +722,12 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
         Map.put(old_extra || %{}, :slice_verify, SliceVerify)
       )
 
-      Application.put_env(:novel_common, :llm_log_dir, dir)
+      Application.put_env(:novel_telemetry, :llm_log_dir, dir)
       System.delete_env(@quality_revision_retry_env)
 
       on_exit(fn ->
         restore_app_env(:novel_agent, :extra_providers, old_extra)
-        restore_app_env(:novel_common, :llm_log_dir, old_log_dir)
+        restore_app_env(:novel_telemetry, :llm_log_dir, old_log_dir)
         restore_system_env(@quality_revision_retry_env, old_retry)
         File.rm_rf!(dir)
       end)
@@ -1223,7 +1223,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
   end
 
   defp llm_records(dir) do
-    path = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+    path = Path.join(dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
 
     path
     |> File.read!()

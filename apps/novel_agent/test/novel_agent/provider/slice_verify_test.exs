@@ -2291,12 +2291,12 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
   end
 
   test "记录边界只写实际 IR，并裁剪 message private 字段" do
-    old = Application.get_env(:novel_common, :llm_log_dir)
+    old = Application.get_env(:novel_telemetry, :llm_log_dir)
 
     dir =
       Path.join(System.tmp_dir!(), "slice-verify-capture-#{System.unique_integer([:positive])}")
 
-    Application.put_env(:novel_common, :llm_log_dir, dir)
+    Application.put_env(:novel_telemetry, :llm_log_dir, dir)
 
     on_exit(fn ->
       restore_env(:llm_log_dir, old)
@@ -2410,7 +2410,7 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
   end
 
   defp read_capture_records(dir) do
-    file = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+    file = Path.join(dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
 
     file
     |> File.read!()

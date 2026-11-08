@@ -1,12 +1,17 @@
-defmodule NovelCommon.LogEmit do
+defmodule NovelTelemetry.LogEmit do
   require Logger
 
   # Find project root once, at compile time.
+  # umbrella 根：同级存在 mix.exs 与 apps/ 的目录（不能停在 apps/<app>/mix.exs，
+  # 否则默认日志目录会落到 app 子目录；2026-11-08 迁入独立 telemetry app 时修正）。
   @project_root_dir __DIR__
                     |> Stream.iterate(&Path.dirname/1)
                     |> Stream.take_while(&(&1 != "/"))
-                    |> Enum.find(&File.exists?(Path.join(&1, "mix.exs"))) ||
-                      raise("Cannot find project root (mix.exs) from #{__DIR__}")
+                    |> Enum.find(fn dir ->
+                      File.exists?(Path.join(dir, "mix.exs")) and
+                        File.dir?(Path.join(dir, "apps"))
+                    end) ||
+                      raise("Cannot find umbrella project root (mix.exs + apps/) from #{__DIR__}")
 
   @moduledoc """
   Structured business-log emission. ADR-0018 §3 (§5).
@@ -43,19 +48,19 @@ defmodule NovelCommon.LogEmit do
 
   defmacro emit(module, step, :start, fields) do
     quote do
-      NovelCommon.LogEmit.__emit__(unquote(module), unquote(step), :start, unquote(fields))
+      NovelTelemetry.LogEmit.__emit__(unquote(module), unquote(step), :start, unquote(fields))
     end
   end
 
   defmacro emit(module, step, :done, fields) do
     quote do
-      NovelCommon.LogEmit.__emit__(unquote(module), unquote(step), :done, unquote(fields))
+      NovelTelemetry.LogEmit.__emit__(unquote(module), unquote(step), :done, unquote(fields))
     end
   end
 
   defmacro emit(module, step, :error, fields) do
     quote do
-      NovelCommon.LogEmit.__emit__(unquote(module), unquote(step), :error, unquote(fields))
+      NovelTelemetry.LogEmit.__emit__(unquote(module), unquote(step), :error, unquote(fields))
     end
   end
 
@@ -206,14 +211,14 @@ defmodule NovelCommon.LogEmit do
 
   # Async fire-and-forget — never blocks the caller.  Test env no-ops.
   defp maybe_write_jsonl(entry) do
-    if Application.get_env(:novel_common, :log_jsonl_enabled, false) do
-      dir = Application.get_env(:novel_common, :log_jsonl_dir) || default_app_log_dir()
+    if Application.get_env(:novel_telemetry, :log_jsonl_enabled, false) do
+      dir = Application.get_env(:novel_telemetry, :log_jsonl_dir) || default_app_log_dir()
       Task.start(fn -> write_jsonl(dir, entry) end)
     end
   end
 
   defp write_jsonl(dir, entry) do
-    date = NovelCommon.LogFileDate.today_iso8601()
+    date = NovelTelemetry.LogFileDate.today_iso8601()
     path = Path.join(dir, "#{date}.jsonl")
 
     record =

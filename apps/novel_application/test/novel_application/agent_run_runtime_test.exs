@@ -940,23 +940,23 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
   test "run_failed and provider error JSONL share source turn correlation" do
     parent = self()
-    old_enabled = Application.get_env(:novel_common, :log_jsonl_enabled)
-    old_dir = Application.get_env(:novel_common, :log_jsonl_dir)
+    old_enabled = Application.get_env(:novel_telemetry, :log_jsonl_enabled)
+    old_dir = Application.get_env(:novel_telemetry, :log_jsonl_dir)
 
     dir =
       Path.join(System.tmp_dir!(), "agent-run-failed-log-#{System.unique_integer([:positive])}")
 
-    Application.put_env(:novel_common, :log_jsonl_enabled, true)
-    Application.put_env(:novel_common, :log_jsonl_dir, dir)
+    Application.put_env(:novel_telemetry, :log_jsonl_enabled, true)
+    Application.put_env(:novel_telemetry, :log_jsonl_dir, dir)
 
     on_exit(fn ->
       if is_nil(old_enabled),
-        do: Application.delete_env(:novel_common, :log_jsonl_enabled),
-        else: Application.put_env(:novel_common, :log_jsonl_enabled, old_enabled)
+        do: Application.delete_env(:novel_telemetry, :log_jsonl_enabled),
+        else: Application.put_env(:novel_telemetry, :log_jsonl_enabled, old_enabled)
 
       if is_nil(old_dir),
-        do: Application.delete_env(:novel_common, :log_jsonl_dir),
-        else: Application.put_env(:novel_common, :log_jsonl_dir, old_dir)
+        do: Application.delete_env(:novel_telemetry, :log_jsonl_dir),
+        else: Application.put_env(:novel_telemetry, :log_jsonl_dir, old_dir)
 
       File.rm_rf!(dir)
     end)
@@ -991,7 +991,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     events = collect_full_events_until(:run_failed, 1_000)
     failed = List.last(events)
-    path = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+    path = Path.join(dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
 
     records =
       wait_for(fn ->

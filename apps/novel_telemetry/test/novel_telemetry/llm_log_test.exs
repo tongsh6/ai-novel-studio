@@ -1,23 +1,23 @@
-defmodule NovelCommon.LLMLogTest do
+defmodule NovelTelemetry.LLMLogTest do
   use ExUnit.Case, async: false
 
-  alias NovelCommon.LLMLog
-  alias NovelCommon.LogContext
+  alias NovelTelemetry.LLMLog
+  alias NovelTelemetry.LogContext
 
   setup do
-    old_dir = Application.get_env(:novel_common, :llm_log_dir)
+    old_dir = Application.get_env(:novel_telemetry, :llm_log_dir)
     dir = Path.join(System.tmp_dir!(), "novel-llm-log-test-#{System.unique_integer([:positive])}")
 
-    Application.put_env(:novel_common, :llm_log_dir, dir)
+    Application.put_env(:novel_telemetry, :llm_log_dir, dir)
     Logger.reset_metadata([])
 
     on_exit(fn ->
       Logger.reset_metadata([])
 
       if old_dir do
-        Application.put_env(:novel_common, :llm_log_dir, old_dir)
+        Application.put_env(:novel_telemetry, :llm_log_dir, old_dir)
       else
-        Application.delete_env(:novel_common, :llm_log_dir)
+        Application.delete_env(:novel_telemetry, :llm_log_dir)
       end
 
       File.rm_rf!(dir)
@@ -41,7 +41,7 @@ defmodule NovelCommon.LLMLogTest do
         response: %{status: 200, body: "ok", model: "test-provider", usage: %{}, duration_ms: 12}
       })
 
-    path = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+    path = Path.join(dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
     [_prefix, json] = path |> File.read!() |> String.trim() |> String.split("] ", parts: 2)
     record = Jason.decode!(json)
 
@@ -77,7 +77,7 @@ defmodule NovelCommon.LLMLogTest do
         }
       })
 
-    path = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+    path = Path.join(dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
     assert File.exists?(path)
 
     [_prefix, json] = path |> File.read!() |> String.trim() |> String.split("] ", parts: 2)
@@ -99,7 +99,7 @@ defmodule NovelCommon.LLMLogTest do
         System.monotonic_time(:millisecond)
       )
 
-    path = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+    path = Path.join(dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
     [_prefix, json] = path |> File.read!() |> String.trim() |> String.split("] ", parts: 2)
     record = Jason.decode!(json)
 
@@ -183,7 +183,7 @@ defmodule NovelCommon.LLMLogTest do
   end
 
   defp read_records(dir) do
-    path = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+    path = Path.join(dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
 
     path
     |> File.read!()

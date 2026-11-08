@@ -34,6 +34,7 @@ defmodule AiNovelStudio.MixProject do
         applications: [
           novel_foundation: :permanent,
           novel_common: :permanent,
+          novel_telemetry: :permanent,
           novel_domain: :permanent,
           novel_persistence: :permanent,
           novel_agent: :permanent,

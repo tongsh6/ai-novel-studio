@@ -8,7 +8,7 @@ defmodule NovelApplication.DialoguePlanningService do
   author-safe agent_event / agent_run_state 投影给 UI。
   """
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentFinalizer
@@ -1039,7 +1039,7 @@ defmodule NovelApplication.DialoguePlanningService do
 
       # 业务日志 turn/session 关联（与旧 conversation context 步同款）：缺失会让
       # context.assemble.done 等 JSONL 失去 per-turn 关联，外部验收无法归组。
-      NovelCommon.LogContext.put_turn(
+      NovelTelemetry.LogContext.put_turn(
         ws_id,
         map_get(input, :work_id) || run.work_id || ws_id,
         turn_id,
@@ -1098,7 +1098,7 @@ defmodule NovelApplication.DialoguePlanningService do
     put_judgment_log_context(input, run)
 
     # llm 调用日志步名（live 取证用；旧 planner 为 form_frame，判断循环为 judgment）。
-    NovelCommon.LogContext.put_step("judgment")
+    NovelTelemetry.LogContext.put_step("judgment")
 
     context = judgment_context(state)
     explorations = judgment_explorations(state)
@@ -1127,7 +1127,7 @@ defmodule NovelApplication.DialoguePlanningService do
   # LogContext 是进程本地的；判断步与 context 步在不同 step task 进程，
   # 必须各自设置 turn 关联（否则 judgment.decided.done 等业务日志失联）。
   defp put_judgment_log_context(input, run) do
-    NovelCommon.LogContext.put_turn(
+    NovelTelemetry.LogContext.put_turn(
       map_get(input, :workspace_id) || run.workspace_id,
       map_get(input, :work_id) || run.work_id || run.workspace_id,
       map_get(input, :turn_id) || run.parent_turn_ref,

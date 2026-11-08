@@ -11,12 +11,12 @@ defmodule NovelApplication.LedgerMaintenance do
   `ledger.update.error` 业务日志（ADR-0018 module=ledger），绝不阻断采纳主链。
   """
 
-  require NovelCommon.LogEmit
+  require NovelTelemetry.LogEmit
 
-  alias NovelCommon.LogEmit
   alias NovelDomain.ChapterPlanDirection
   alias NovelDomain.ChapterSummary
   alias NovelDomain.LedgerEntry
+  alias NovelTelemetry.LogEmit
 
   @default_stall_threshold 8
   @presence_note_max_chars 120

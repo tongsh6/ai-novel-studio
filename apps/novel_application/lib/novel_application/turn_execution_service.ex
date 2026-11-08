@@ -7,7 +7,7 @@ defmodule NovelApplication.TurnExecutionService do
   trace, and builds the final TurnResult.
   """
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelAgent.AuthorizedToolExecutor
   alias NovelAgent.ProseQualityEvaluator

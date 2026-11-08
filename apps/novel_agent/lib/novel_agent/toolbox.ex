@@ -9,14 +9,14 @@ defmodule NovelAgent.Toolbox do
   available actions, and adoption semantics remain application responsibilities.
   """
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelAgent.Provider.Execution
   alias NovelAgent.ToolAdapterRegistry
   alias NovelCommon.CapabilityRegistry
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
-  alias NovelCommon.LogContext
+  alias NovelTelemetry.LogContext
 
   @spec execute(ToolRequest.t()) :: ToolResult.t()
   def execute(%ToolRequest{} = req), do: req |> execute_with_session(nil) |> elem(0)

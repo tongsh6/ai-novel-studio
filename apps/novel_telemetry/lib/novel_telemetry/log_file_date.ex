@@ -1,4 +1,4 @@
-defmodule NovelCommon.LogFileDate do
+defmodule NovelTelemetry.LogFileDate do
   @moduledoc """
   Local calendar date used for daily log file names.
 

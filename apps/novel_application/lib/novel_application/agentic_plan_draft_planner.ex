@@ -1,5 +1,5 @@
 defmodule NovelApplication.AgenticPlanDraftPlanner do
-  require NovelCommon.LogEmit
+  require NovelTelemetry.LogEmit
 
   @moduledoc """
   Provider-backed AgentPlan drafter for ADR-0023 plan-driven AgentRun loops.
@@ -282,7 +282,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
        do: {:error, reason, AuthoringOperation.metadata(session)}
 
   defp finish_plan(%{status: :error, reason: reason}, session, _meta_fun) do
-    NovelCommon.LogEmit.emit(:plan_draft, :output_validation, :done, %{
+    NovelTelemetry.LogEmit.emit(:plan_draft, :output_validation, :done, %{
       outcome: "rejected",
       reason: inspect(reason)
     })
@@ -295,7 +295,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   defp public_reason(reason), do: reason
 
   defp on_plan_retry(kind, reason, _attempt) do
-    NovelCommon.LogEmit.emit(:plan_draft, :retry, :start, %{
+    NovelTelemetry.LogEmit.emit(:plan_draft, :retry, :start, %{
       stage: :structure,
       family: if(kind == :provider, do: :provider_error, else: :correction),
       reason: inspect(reason) |> String.slice(0, 200)
@@ -547,7 +547,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
           "prose_writing 步必须显式携带 authoring_intent 键（continuation / rewrite / null），本次有 #{length(missing)} 步缺该键"}}
 
       missing != [] ->
-        NovelCommon.LogEmit.emit(:plan_draft, :authoring_intent_degrade, :done, %{
+        NovelTelemetry.LogEmit.emit(:plan_draft, :authoring_intent_degrade, :done, %{
           missing_steps: length(missing),
           reason: "模型重试后仍未携带 authoring_intent 键，按安全侧（append）继续"
         })

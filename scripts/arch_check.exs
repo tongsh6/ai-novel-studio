@@ -51,6 +51,16 @@ defmodule ArchCheck do
     # 不得引用其他生产 app 或测试辅助 app 的模块。文档/注释也不写具体模块名，
     # 用「Provider 执行边界」这类文字描述。
     ~r/Novel(?:Agent|Application|Domain|Persistence|Web|Test|E2E)\.[A-Z]/,
+    # ADR-0034（2026-11-08 作者裁决 C）：日志运行时迁往 novel_telemetry 后，
+    # 纯契约层不得再出现文件 I/O / 异步写出 / 进程副作用。
+    ~r/\b(?:File\.(?:read|read!|write|write!|mkdir_p|mkdir_p!|exists\?|rm|rm_rf|open)|:file\.|Task\.(?:start|async)|GenServer\.|Supervisor\.start_link)/,
+  ]
+
+  @telemetry_forbidden [
+    # novel_telemetry 是可观测性运行时 app（ADR-0034）：只做日志 I/O 与关联协议，
+    # 不得引用任何业务 app、持久层或 Web 框架，也不引入长驻进程状态。
+    ~r/Novel(?:Agent|Application|Domain|Persistence|Web|Test|E2E)\.[A-Z]/,
+    ~r/\bEcto\.|Repo\.|Phoenix\.|GenServer\.(?:start_link|call|cast|start)\(|Supervisor\.start_link\(|Registry\./,
   ]
 
   @test_helper_forbidden [
@@ -92,6 +102,7 @@ defmodule ArchCheck do
     "novel_domain" => @domain_forbidden,
     "novel_agent" => @agent_forbidden,
     "novel_common" => @common_forbidden,
+    "novel_telemetry" => @telemetry_forbidden,
     "novel_test" => @test_helper_forbidden,
     "novel_web" => @web_forbidden,
   }
@@ -102,7 +113,9 @@ defmodule ArchCheck do
     errors =
       Enum.reduce(@app_rules, errors, fn {app, rules}, acc ->
         pattern = "apps/#{app}/lib/**/*.ex"
-        files = Path.wildcard(pattern)
+
+        # `lib/mix/tasks/*` 是构建期任务（如 codegen 生成器），不在运行时边界内。
+        files = Path.wildcard(pattern) |> Enum.reject(&String.contains?(&1, "/mix/tasks/"))
 
         file_errors =
           Enum.flat_map(files, fn file ->

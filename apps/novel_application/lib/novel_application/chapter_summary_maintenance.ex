@@ -13,11 +13,11 @@ defmodule NovelApplication.ChapterSummaryMaintenance do
   领域状态机 `NovelDomain.ChapterSummary` 是转换 SSOT，本用例只编排。
   """
 
-  require NovelCommon.LogEmit
+  require NovelTelemetry.LogEmit
 
   alias NovelApplication.AuxTaskBuilder
-  alias NovelCommon.LogEmit
   alias NovelDomain.ChapterSummary
+  alias NovelTelemetry.LogEmit
 
   @typedoc "maintenance 输入：本次采纳的章锚点与正文。"
   @type input :: %{

@@ -23,7 +23,7 @@ defmodule NovelApplication.AgentRunFlows.TurnBinding do
   只做前者）。`frame/3` 是所有工具执行步的必经点，因此绑定挂在那里最省且最全。
   """
 
-  alias NovelCommon.LogContext
+  alias NovelTelemetry.LogContext
 
   @typedoc "AgentRun step 序号，或 ledger_reconcile 这类具名维护步。"
   @type sequence :: non_neg_integer() | String.t() | atom()

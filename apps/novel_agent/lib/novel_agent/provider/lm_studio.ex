@@ -176,7 +176,7 @@ defmodule NovelAgent.Provider.LMStudio do
       http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
       eventsource_fn: Keyword.get(config, :eventsource_fn, &HTTP.post_event_stream/4),
       get_fn: Keyword.get(config, :get_fn, &HTTP.get/2),
-      log_fn: Keyword.get(config, :log_fn, &NovelCommon.LLMLog.record/5),
+      log_fn: Keyword.get(config, :log_fn, &NovelTelemetry.LLMLog.record/5),
       json_mode: Keyword.get(config, :json_mode, false),
       reasoning_effort: reasoning_effort_from(config)
     }

@@ -40,19 +40,21 @@
 ### Umbrella 依赖方向（编译期强制，违反即编译失败）
 
 ```
-novel_web → novel_application
-novel_application → {novel_agent, novel_domain, novel_persistence, novel_common, novel_foundation}
-novel_agent → {novel_common, novel_foundation}
-novel_persistence → {novel_domain, novel_common, novel_foundation}
+novel_web → {novel_application, novel_telemetry}
+novel_application → {novel_agent, novel_domain, novel_persistence, novel_common, novel_foundation, novel_telemetry}
+novel_agent → {novel_common, novel_foundation, novel_telemetry}
+novel_persistence → {novel_domain, novel_common, novel_foundation, novel_telemetry}
 novel_domain → novel_foundation
 novel_common → novel_foundation
+novel_telemetry → novel_foundation
 
 # 测试支撑（仅 :test 环境，不进生产 release）
 novel_agent / novel_application / novel_web / novel_e2e ──(only: :test)──> novel_test → novel_common
 ```
 
 - novel_foundation 不能依赖任何其他 umbrella app
-- novel_common 只能依赖 novel_foundation；不得引用其他生产 app 或测试 helper（跨 app 纯契约/规则层）
+- novel_common 只能依赖 novel_foundation；不得引用其他生产 app 或测试 helper（跨 app 纯契约/规则层）；不得包含文件 I/O、异步写出或运行状态（日志运行时在 novel_telemetry，ADR-0034）
+- novel_telemetry 只能依赖 novel_foundation；不得引用任何业务 app（agent/application/domain/persistence/web）或 Ecto/Repo/Phoenix/GenServer；只承载可观测性运行时副作用
 - novel_domain 不能依赖 novel_agent / novel_persistence / novel_web / novel_common
 - novel_agent 不能依赖 novel_domain / novel_application；它消费 `novel_common` 的 Provider 纯契约族（含三类 wire 投影与能力事实派生），负责实际路由选择、传输执行与运行时监督（VS-00L §19，2026-11-07 裁决 4 C/A1）
 - novel_persistence 不能依赖 novel_agent / novel_application / novel_web
@@ -70,7 +72,8 @@ novel_agent / novel_application / novel_web / novel_e2e ──(only: :test)─�
 | novel_application | 用例编排、上下文组装、Prompt 构建、领域注册 | 引用 NovelWeb |
 | novel_persistence | Ecto Repo、DB Schema、Migration、Repository | 引用 NovelWeb / NovelApplication / NovelAgent |
 | novel_web | HTTP Router、Controller、Channel、JSON 序列化 | 直接调用 Repo、直接写 Ecto.Query、直接引用 novel_persistence / NovelAgent 内部 |
-| novel_common | 跨 app 纯契约/纯规则/纯函数：DTO、校验、canonical Request IR 契约族（`NovelCommon.RequestIR`，含三类 Provider wire 投影与能力事实派生）、身份事实、规则文本、作者可见文本形状、可观测性协议 | GenServer/Supervisor/Registry/Ecto/Phoenix/HTTP/文件 I/O、运行状态、引用其他生产 app |
+| novel_common | 跨 app 纯契约/纯规则/纯函数：DTO、校验、canonical Request IR 契约族（`NovelCommon.RequestIR`，含三类 Provider wire 投影与能力事实派生）、身份事实、规则文本、作者可见文本形状 | GenServer/Supervisor/Registry/Ecto/Phoenix/HTTP/文件 I/O、运行状态、引用其他生产 app（日志运行时在 novel_telemetry） |
+| novel_telemetry | 可观测性运行时：业务日志 JSONL 写出/脱敏、LLM 调用日志、Logger metadata 关联、日志文件日滚动（ADR-0034） | 引用任何业务 app、Ecto/Repo/Phoenix、GenServer/Supervisor/Registry、业务概念 |
 | novel_test | 跨 app 测试 helper（请求材料读取、canonical IR 夹具），只依赖 novel_common，仅 test 环境 | 被生产 lib 引用、依赖生产运行时 app、注册运行时 provider |
 | novel_e2e | 端到端集成测试，只依赖 novel_web | 直接引用 NovelPersistence / NovelAgent / NovelApplication 内部模块 |
 

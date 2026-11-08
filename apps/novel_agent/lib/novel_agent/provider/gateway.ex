@@ -20,7 +20,7 @@ defmodule NovelAgent.Provider.Gateway do
   """
 
   require Logger
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelAgent.Provider
   alias NovelAgent.Provider.AdapterExecution
@@ -32,10 +32,10 @@ defmodule NovelAgent.Provider.Gateway do
   alias NovelCommon.Contracts.ProviderEvent
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelCommon.Contracts.ProviderRun
-  alias NovelCommon.LogContext
   alias NovelCommon.RequestIR
   alias NovelCommon.SystemIdentity
   alias NovelFoundation.UpstreamError
+  alias NovelTelemetry.LogContext
 
   @provider_modules %{
     lmstudio: Provider.LMStudio,

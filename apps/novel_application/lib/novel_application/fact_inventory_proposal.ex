@@ -3,7 +3,7 @@ defmodule NovelApplication.FactInventoryProposal do
   从既有 R5 审读 finding 投影对话流盘点提议；只追加作者动作，不启动运行或写作品事实。
   """
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelFoundation.Enums.AdoptionStatus
 

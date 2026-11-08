@@ -3,17 +3,17 @@ defmodule NovelApplication.ExecutionOrchestrator do
   v3 Execution Orchestrator — 执行权唯一门禁。Planner 不能批准自己的 MicroPlan。
   """
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.GateOrder
   alias NovelApplication.PlannerBoundary
-  alias NovelCommon.LogContext
   alias NovelDomain.BehaviorState
   alias NovelDomain.ConfirmationBinding
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
   alias NovelDomain.OrchestratorDecision
+  alias NovelTelemetry.LogContext
 
   @author_action_ttl_seconds 900
 

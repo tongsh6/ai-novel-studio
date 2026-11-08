@@ -9,9 +9,9 @@ defmodule NovelAgent.Provider.SliceVerifyLogTest do
   @author_behavior_env "AUTHOR_BEHAVIOR_CORPUS_JSON"
 
   setup do
-    old_dir = Application.get_env(:novel_common, :llm_log_dir)
+    old_dir = Application.get_env(:novel_telemetry, :llm_log_dir)
     dir = Path.join(System.tmp_dir!(), "slice-verify-log-#{System.unique_integer([:positive])}")
-    Application.put_env(:novel_common, :llm_log_dir, dir)
+    Application.put_env(:novel_telemetry, :llm_log_dir, dir)
     Logger.reset_metadata([])
 
     on_exit(fn ->
@@ -210,7 +210,7 @@ defmodule NovelAgent.Provider.SliceVerifyLogTest do
     broken_dir = Path.join(dir, "not-a-directory")
     File.mkdir_p!(dir)
     File.write!(broken_dir, "blocked")
-    Application.put_env(:novel_common, :llm_log_dir, broken_dir)
+    Application.put_env(:novel_telemetry, :llm_log_dir, broken_dir)
 
     prompt = [%{role: "user", content: "请回一句收到"}]
 
@@ -222,7 +222,7 @@ defmodule NovelAgent.Provider.SliceVerifyLogTest do
   end
 
   defp read_records(dir) do
-    path = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+    path = Path.join(dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
 
     path
     |> File.read!()

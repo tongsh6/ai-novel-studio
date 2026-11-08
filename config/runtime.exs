@@ -79,9 +79,9 @@ if config_env() == :prod and System.get_env("RELEASE_NAME") do
   config :novel_persistence, :auto_migrate, true
 
   # LLM 调用日志 + 业务日志 JSONL → 用户数据目录。
-  config :novel_common, :llm_log_dir, Path.join([log_dir, "llm-calls"])
+  config :novel_telemetry, :llm_log_dir, Path.join([log_dir, "llm-calls"])
 
-  config :novel_common,
+  config :novel_telemetry,
     log_jsonl_enabled: true,
     log_jsonl_dir: Path.join([log_dir, "app"])
 

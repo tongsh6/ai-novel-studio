@@ -6,7 +6,7 @@ defmodule NovelApplication.ContextAssembler do
   Planner 只接收已组装好的 DialogueContext，不直接访问 Repo。
   """
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelDomain.ChapterPlanDirection
   alias NovelDomain.ContextSourceRef

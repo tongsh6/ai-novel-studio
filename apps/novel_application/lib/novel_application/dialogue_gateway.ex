@@ -3,7 +3,7 @@ defmodule NovelApplication.DialogueGateway do
   v3 对话入口。完整主链：AuthorInput → Frame → Plan → Decision → Action/Tool/Behavior → TurnResult。
   """
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelAgent.Provider.Execution
   alias NovelApplication.ActionValidator

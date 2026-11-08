@@ -1,7 +1,7 @@
-defmodule NovelCommon.LogContextTest do
+defmodule NovelTelemetry.LogContextTest do
   use ExUnit.Case, async: true
 
-  alias NovelCommon.LogContext
+  alias NovelTelemetry.LogContext
 
   setup do
     # Reset metadata between tests to avoid cross-contamination

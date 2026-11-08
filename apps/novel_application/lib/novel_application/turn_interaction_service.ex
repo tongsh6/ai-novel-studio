@@ -4,7 +4,7 @@ defmodule NovelApplication.TurnInteractionService do
   处置状态只描述消息处理；作品入档以采纳事实为准。
   """
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelApplication.DialogueGateway
   alias NovelFoundation.Enums.AdoptionStatus, as: Status

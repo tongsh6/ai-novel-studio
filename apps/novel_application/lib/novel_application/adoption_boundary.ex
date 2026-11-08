@@ -5,7 +5,7 @@ defmodule NovelApplication.AdoptionBoundary do
   VS-04 不写 production state，但证明选择→评估→采纳决策的完整链路。
   """
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelCommon.Contracts.ToolResult
   alias NovelDomain.AdoptionDecision

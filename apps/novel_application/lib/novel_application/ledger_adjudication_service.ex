@@ -17,11 +17,11 @@ defmodule NovelApplication.LedgerAdjudicationService do
   （作者授权路径）发生，机械维护不可达（域层 @adjudication_targets 双保险）。
   """
 
-  require NovelCommon.LogEmit
+  require NovelTelemetry.LogEmit
 
-  alias NovelCommon.LogEmit
   alias NovelDomain.LedgerEntry
   alias NovelFoundation.Enums.AdoptionStatus
+  alias NovelTelemetry.LogEmit
 
   @dispositions ~w(revise_design revise_prose accept_drift dismiss)
   @tentative_adoption_status AdoptionStatus.tentative()

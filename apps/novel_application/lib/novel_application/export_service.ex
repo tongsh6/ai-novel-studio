@@ -16,7 +16,7 @@ defmodule NovelApplication.ExportService do
   读取章节、渲染文档、写入文件等阶段收到增量进度，用于前端进度弹窗展示。
   """
 
-  require NovelCommon.LogEmit, as: LogEmit
+  require NovelTelemetry.LogEmit, as: LogEmit
 
   alias NovelApplication.ProseQualityValidators
   alias NovelApplication.ReadingProjectionService

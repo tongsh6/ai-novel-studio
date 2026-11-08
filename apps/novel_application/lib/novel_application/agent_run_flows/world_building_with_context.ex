@@ -15,13 +15,13 @@ defmodule NovelApplication.AgentRunFlows.WorldBuildingWithContext do
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.TurnExecutionService
-  alias NovelCommon.LogContext
   alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentStep
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
+  alias NovelTelemetry.LogContext
 
   @profile_ref "world_building_with_context_v1"
   @context_step_target "context_assemble"

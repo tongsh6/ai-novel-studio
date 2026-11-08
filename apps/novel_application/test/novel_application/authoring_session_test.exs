@@ -44,10 +44,6 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
     )
   end
 
-  defp newer_transcript(older) do
-    %{older | messages: older.messages ++ [%{role: "assistant", blocks: []}]}
-  end
-
   defp base_ir do
     {:ok, ir} = AuthoringTranscript.to_request_ir(transcript())
     ir

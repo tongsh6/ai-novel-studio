@@ -1,5 +1,5 @@
 defmodule NovelApplication do
-  require NovelCommon.LogEmit
+  require NovelTelemetry.LogEmit
 
   @moduledoc """
   Application 层根模块。v3 VS-00 阶段提供 DialogueGateway 作为对话入口。
@@ -307,7 +307,7 @@ defmodule NovelApplication do
         task.()
       rescue
         error ->
-          NovelCommon.LogEmit.emit(:background_task, :run, :error, %{
+          NovelTelemetry.LogEmit.emit(:background_task, :run, :error, %{
             reason: inspect(error)
           })
 
@@ -325,7 +325,7 @@ defmodule NovelApplication do
             :ok
 
           {:error, reason} ->
-            NovelCommon.LogEmit.emit(:background_task, :start, :error, %{
+            NovelTelemetry.LogEmit.emit(:background_task, :start, :error, %{
               reason: inspect(reason)
             })
 
@@ -391,7 +391,7 @@ defmodule NovelApplication do
     |> NovelPersistence.ChapterSummaryRepo.chapters_missing_summary()
     |> Enum.take(2)
     |> Enum.each(fn %{chapter_id: chapter_id, prose_text: prose_text} ->
-      NovelCommon.LogEmit.emit(:chapter_summary_repair, :run, :start, %{
+      NovelTelemetry.LogEmit.emit(:chapter_summary_repair, :run, :start, %{
         work_id: work_id,
         chapter_id: chapter_id
       })
@@ -411,13 +411,13 @@ defmodule NovelApplication do
 
       case result do
         {:ok, _summary} ->
-          NovelCommon.LogEmit.emit(:chapter_summary_repair, :run, :done, %{
+          NovelTelemetry.LogEmit.emit(:chapter_summary_repair, :run, :done, %{
             work_id: work_id,
             chapter_id: chapter_id
           })
 
         _degraded ->
-          NovelCommon.LogEmit.emit(:chapter_summary_repair, :run, :error, %{
+          NovelTelemetry.LogEmit.emit(:chapter_summary_repair, :run, :error, %{
             work_id: work_id,
             chapter_id: chapter_id
           })
