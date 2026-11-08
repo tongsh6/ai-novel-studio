@@ -51,21 +51,38 @@ defmodule NovelApplication.AuthoringCheckpoint do
   def encode_segment_for_write(_record, nil), do: {:ok, nil}
 
   def encode_segment_for_write(record, transcript) when is_map(record) and is_map(transcript) do
-    segment = %{
-      "header" => segment_header(transcript),
-      "messages" => AuthoringTranscript.checkpoint(transcript).transcript.messages
-    }
+    data = AuthoringTranscript.checkpoint(transcript).transcript
 
-    with {:ok, decoded} <- json_roundtrip(segment),
-         stored = %{header: decoded["header"], messages: decoded["messages"]},
-         :ok <- validate_segment(record, stored) do
-      {:ok, stored}
+    with :ok <- validate_transcript_data_keys(data) do
+      segment = %{"header" => segment_header(data), "messages" => data.messages}
+
+      with {:ok, decoded} <- json_roundtrip(segment),
+           stored = %{header: decoded["header"], messages: decoded["messages"]},
+           :ok <- validate_segment(record, stored) do
+        {:ok, stored}
+      end
     end
   end
+
+  # transcript 结构的 data 键必须与段头键契约完全一致：AuthoringTranscript 结构新增
+  # 键而 AuthoringSessionLog 契约未扩展时，写入会静默丢数据——这里 fail-closed。
+  defp validate_transcript_data_keys(data) when is_map(data) do
+    actual = data |> Map.keys() |> Enum.reject(&(&1 == :messages)) |> Enum.sort()
+
+    if actual == Enum.sort(header_data_keys()) do
+      :ok
+    else
+      {:error, :authoring_segment_key_contract_mismatch}
+    end
+  end
+
+  defp validate_transcript_data_keys(_data), do: {:error, :invalid_authoring_segment}
 
   @doc "写入前语义校验：结构/完整 IR 可恢复性 + 不可变 run 身份。"
   @spec validate_segment(map(), map()) :: :ok | {:error, term()}
   def validate_segment(record, %{header: header, messages: messages}) do
+    record = normalize(record)
+
     with {:ok, transcript} <- restore_from_parts(header, messages) do
       validate_identity(record, transcript.run)
     end
@@ -83,6 +100,7 @@ defmodule NovelApplication.AuthoringCheckpoint do
   @spec restore(map(), map() | nil) :: restore_result()
   def restore(record, checkpoint_data) when is_map(record) do
     data = normalize(checkpoint_data || %{})
+    record = normalize(record)
 
     case load_transcript(record) do
       {:ok, nil} -> select_without_segment(record, data)
@@ -94,13 +112,13 @@ defmodule NovelApplication.AuthoringCheckpoint do
   # 私有列/会话段存在时是唯一 canonical：checkpoint_data 只用来核对引用关系。
   defp select_with_segment(record, data, transcript) do
     version = durable_checkpoint_version(data)
+    ref = segment_ref(data)
 
     cond do
-      map_size(data) == 0 -> {:ok, transcript, :session_segment}
-      is_nil(version) -> {:ok, transcript, :session_segment}
+      map_size(data) == 0 or is_nil(version) -> {:ok, transcript, :session_segment}
       version != @durable_checkpoint_version -> {:error, :checkpoint_version_mismatch}
-      is_nil(segment_ref(data)) -> {:error, :authoring_segment_ref_missing}
-      not valid_ref?(segment_ref(data), record) -> {:error, :authoring_segment_ref_mismatch}
+      is_nil(ref) -> {:error, :authoring_segment_ref_missing}
+      not valid_ref?(ref, record) -> {:error, :authoring_segment_ref_mismatch}
       true -> {:ok, transcript, :session_segment}
     end
   end
@@ -149,17 +167,11 @@ defmodule NovelApplication.AuthoringCheckpoint do
   end
 
   defp restore_from_parts(header, messages) when is_map(header) and is_list(messages) do
-    data = %{
-      "run" => Map.get(header, "run", %{}),
-      "system" => Map.get(header, "system", %{}),
-      "messages" => messages,
-      "tools" => Map.get(header, "tools", []),
-      "base_refs" => Map.get(header, "base_refs", []),
-      "observation_refs" => Map.get(header, "observation_refs", []),
-      "used_refs" => Map.get(header, "used_refs", []),
-      "call_ids" => Map.get(header, "call_ids", []),
-      "projection" => Map.get(header, "projection", %{})
-    }
+    # 键集合由持久层契约单一来源提供；缺键由 AuthoringTranscript 结构校验 fail-closed。
+    data =
+      header
+      |> Map.take(Enum.map(header_data_keys(), &Atom.to_string/1))
+      |> Map.put("messages", messages)
 
     AuthoringTranscript.restore(%{
       "version" => AuthoringTranscript.checkpoint_version(),
@@ -169,21 +181,15 @@ defmodule NovelApplication.AuthoringCheckpoint do
 
   defp restore_from_parts(_header, _messages), do: {:error, :invalid_authoring_segment}
 
-  defp segment_header(transcript) do
-    checkpoint = AuthoringTranscript.checkpoint(transcript).transcript
-
-    %{
-      "version" => format_version(),
-      "run" => checkpoint.run,
-      "system" => checkpoint.system,
-      "tools" => checkpoint.tools,
-      "projection" => checkpoint.projection,
-      "base_refs" => checkpoint.base_refs,
-      "observation_refs" => checkpoint.observation_refs,
-      "used_refs" => checkpoint.used_refs,
-      "call_ids" => checkpoint.call_ids
-    }
+  # 键集合由持久层契约单一来源提供；新增 data 键只改 AuthoringSessionLog。
+  defp segment_header(data) do
+    data
+    |> Map.take(header_data_keys())
+    |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
+    |> Map.put("version", format_version())
   end
+
+  defp header_data_keys, do: NovelPersistence.AuthoringSessionLog.header_data_keys()
 
   defp durable_checkpoint_version(data) do
     data |> nested_run_data() |> value("checkpoint_version")
@@ -210,8 +216,9 @@ defmodule NovelApplication.AuthoringCheckpoint do
 
   defp valid_ref?(_ref, _record), do: false
 
+  # `record` 由调用方 normalize 一次（restore/validate_segment 入口）；`run` 来自
+  # transcript（atom 键），此处统一转成字符串键后比较。
   defp validate_identity(record, run) do
-    record = normalize(record)
     run = normalize(run)
     missing = Enum.filter(@identity_fields, &blank?(value(run, &1)))
     mismatched = Enum.filter(@identity_fields, &(value(run, &1) != identity_value(record, &1)))
@@ -223,10 +230,7 @@ defmodule NovelApplication.AuthoringCheckpoint do
     end
   end
 
-  defp record_id(record) do
-    record = normalize(record)
-    value(record, "id") || value(record, "run_id")
-  end
+  defp record_id(record), do: value(record, "id") || value(record, "run_id")
 
   defp identity_value(record, "run_id"), do: value(record, "id") || value(record, "run_id")
   defp identity_value(record, field), do: value(record, field)

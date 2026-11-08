@@ -47,8 +47,17 @@ defmodule NovelPersistence.AuthoringSessionLog do
     {"parent_turn_ref", :parent_turn_ref}
   ]
 
-  @header_maps ~w(run system projection)
-  @header_lists ~w(tools base_refs observation_refs used_refs call_ids)
+  # 段头 data 键 = header 携带的 transcript data 键（不含 messages；messages 是独立
+  # 列）。这是存储格式契约的单一来源：application 写入/读取边界消费
+  # `header_data_keys/0`，不再各自重复键列表（DRY / OCP：新增键只改这里）。
+  @header_maps ~w(run system projection)a
+  @header_lists ~w(tools base_refs observation_refs used_refs call_ids)a
+  @header_data_keys @header_maps ++ @header_lists
+
+  if Enum.sort(@header_data_keys) !=
+       Enum.sort(~w(run system tools projection base_refs observation_refs used_refs call_ids)a) do
+    raise "authoring segment header key sets diverged"
+  end
 
   @type segment_state :: %{
           run_id: String.t(),
@@ -62,11 +71,17 @@ defmodule NovelPersistence.AuthoringSessionLog do
 
   @type segment_input :: %{header: map(), messages: [map()]}
 
-  @spec message_format_version() :: String.t()
-  def message_format_version, do: @message_format_version
-
   @spec segment_format_version() :: String.t()
   def segment_format_version, do: @segment_format_version
+
+  @doc """
+  段头携带的 transcript data 键（atom 形式；段头 JSON 键是其 `Atom.to_string/1`）。
+
+  application 的写入/读取边界消费本函数构造与解析段头，避免跨层重复定义键集合；
+  新增 data 键时只改本模块的键契约。
+  """
+  @spec header_data_keys() :: [atom()]
+  def header_data_keys, do: @header_data_keys
 
   @doc """
   在调用方事务内追加一次 run 提交的 canonical 事实。
@@ -89,8 +104,8 @@ defmodule NovelPersistence.AuthoringSessionLog do
          {:ok, stored} <- stored_run_messages(run_id),
          :ok <- validate_existing_segment(run_id, run_record),
          :ok <- validate_prefix(stored, messages),
-         {:ok, state} <- append_messages(run_record, stored, messages),
-         :ok <- upsert_segment(run_record, header, state) do
+         {:ok, state} <- append_messages(run_id, run_record, stored, messages),
+         :ok <- upsert_segment(run_id, run_record, header, state) do
       {:ok, state}
     end
   end
@@ -114,7 +129,12 @@ defmodule NovelPersistence.AuthoringSessionLog do
     end
   end
 
-  @doc "按会话读取 canonical 消息流（跨 run，按会话 sequence 升序）。"
+  @doc """
+  按会话读取 canonical 消息流（跨 run，按会话 sequence 升序）。
+
+  消费者：CP1 机制测试（顺序/交错/幂等断言）与 CP2「每轮请求由会话派生」的读端口；
+  CP1 生产主链不消费（行为不变），本端口不构成第二套事实源。
+  """
   @spec fetch_session_messages(String.t()) :: [map()]
   def fetch_session_messages(session_id) when is_binary(session_id) do
     AuthoringSessionMessage
@@ -172,7 +192,7 @@ defmodule NovelPersistence.AuthoringSessionLog do
     end
   end
 
-  defp append_messages(run_record, stored_rows, messages) do
+  defp append_messages(run_id, run_record, stored_rows, messages) do
     stored_count = length(stored_rows)
     new_messages = Enum.drop(messages, stored_count)
 
@@ -181,7 +201,7 @@ defmodule NovelPersistence.AuthoringSessionLog do
 
       {:ok,
        %{
-         run_id: run_id!(run_record),
+         run_id: run_id,
          workspace_id: field(run_record, :workspace_id),
          work_id: field(run_record, :work_id),
          session_id: field(run_record, :session_id),
@@ -190,22 +210,22 @@ defmodule NovelPersistence.AuthoringSessionLog do
          last_sequence: last_sequence
        }}
     else
-      append_new_messages(run_record, stored_rows, stored_count, new_messages)
+      append_new_messages(run_id, run_record, stored_rows, stored_count, new_messages)
     end
   end
 
   defp stored_bounds([]), do: {nil, nil}
   defp stored_bounds([{_message, first} | _] = rows), do: {first, rows |> List.last() |> elem(1)}
 
-  defp append_new_messages(run_record, stored_rows, stored_count, new_messages) do
+  defp append_new_messages(run_id, run_record, stored_rows, stored_count, new_messages) do
     next_sequence = next_session_sequence(field(run_record, :session_id))
 
-    with :ok <- insert_new_messages(run_record, new_messages, stored_count, next_sequence) do
+    with :ok <- insert_new_messages(run_id, run_record, new_messages, stored_count, next_sequence) do
       {first_stored, _last_stored} = stored_bounds(stored_rows)
 
       {:ok,
        %{
-         run_id: run_id!(run_record),
+         run_id: run_id,
          workspace_id: field(run_record, :workspace_id),
          work_id: field(run_record, :work_id),
          session_id: field(run_record, :session_id),
@@ -216,12 +236,12 @@ defmodule NovelPersistence.AuthoringSessionLog do
     end
   end
 
-  defp insert_new_messages(run_record, new_messages, stored_count, next_sequence) do
+  defp insert_new_messages(run_id, run_record, new_messages, stored_count, next_sequence) do
     base = %{
       workspace_id: field(run_record, :workspace_id),
       work_id: field(run_record, :work_id),
       session_id: field(run_record, :session_id),
-      run_id: run_id!(run_record),
+      run_id: run_id,
       format_version: @message_format_version
     }
 
@@ -257,9 +277,9 @@ defmodule NovelPersistence.AuthoringSessionLog do
     end
   end
 
-  defp upsert_segment(run_record, header, state) do
+  defp upsert_segment(run_id, run_record, header, state) do
     attrs = %{
-      run_id: run_id!(run_record),
+      run_id: run_id,
       workspace_id: field(run_record, :workspace_id),
       work_id: field(run_record, :work_id),
       session_id: field(run_record, :session_id),
@@ -318,8 +338,8 @@ defmodule NovelPersistence.AuthoringSessionLog do
 
   defp validate_header_shape(header) when is_map(header) do
     valid? =
-      Enum.all?(@header_maps, &is_map(Map.get(header, &1))) and
-        Enum.all?(@header_lists, &is_list(Map.get(header, &1)))
+      Enum.all?(@header_maps, &is_map(Map.get(header, Atom.to_string(&1)))) and
+        Enum.all?(@header_lists, &is_list(Map.get(header, Atom.to_string(&1))))
 
     if valid?, do: :ok, else: {:error, :authoring_segment_shape_invalid}
   end
