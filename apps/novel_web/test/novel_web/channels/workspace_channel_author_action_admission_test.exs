@@ -23,10 +23,6 @@ defmodule NovelWeb.AuthorActionAdmissionTestProvider do
   def projection_target(_state), do: "chat_completions"
 
   @impl true
-  def complete(state, model, prompt, params),
-    do: execute(state, model, prompt, params, %{})
-
-  @impl true
   def execute(_state, _model, prompt, params, ctx) do
     if pid = Application.get_env(:novel_agent, :author_action_admission_test_pid) do
       send(pid, :provider_executed)

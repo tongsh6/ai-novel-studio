@@ -65,9 +65,6 @@ defmodule ICachePrefixDriver do
     end
 
     @impl true
-    def complete(_state, _model, _prompt, _params), do: raise("use execute/5")
-
-    @impl true
     def health_check(_state), do: :ok
 
     # capture 替身按测试场景模拟传输能力与 wire 目标，仅用于通过测试注入下的 IR gate；

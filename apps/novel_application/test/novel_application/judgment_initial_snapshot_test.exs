@@ -42,9 +42,6 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     end
 
     @impl true
-    def complete(_state, _model, _prompt, _params), do: raise("use execute/5")
-
-    @impl true
     def health_check(_state), do: :ok
 
     @impl true
