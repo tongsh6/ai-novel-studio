@@ -50,6 +50,7 @@ import {
   readCheckpoint,
   verificationExtra,
 } from "./lib/native_ui/authoring_run_evidence.mjs";
+import { frameBody, frameEvent, isFrame, transport } from "./lib/native_ui/scenario_evidence.mjs";
 
 export {
   capture,
@@ -353,6 +354,17 @@ function readTextFile(dir, name) {
   return fs.readFileSync(file, "utf8");
 }
 
+// 产品 turn_result 的 turn_id 可能是发送 turn 的后续步（`<turn>:agent:N` /
+// `<turn>:steer:N`）；与驱动侧同一匹配语义，不要求与发送 turn 逐字相等。
+function turnIdMatches(actual, expected) {
+  return (
+    typeof actual === "string" &&
+    typeof expected === "string" &&
+    expected !== "" &&
+    (actual === expected || actual.startsWith(`${expected}:`))
+  );
+}
+
 function verifyStreamPreview(dir) {
   const config = readConfig(dir);
   const ready = JSON.parse(readTextFile(dir, "native-driver-ready.json"));
@@ -367,14 +379,87 @@ function verifyStreamPreview(dir) {
   const previewAx = readTextFile(dir, "02-prose-preview.ax.txt");
   assert(previewText.includes("正文生成中"), "生成中预览容器缺失");
   assert(previewText.includes("生成中，尚未保存为候选。"), "生成中未保存提示缺失");
-  assert(/灵气账单|夜色压在|雨幕|灰烬/.test(previewText), "预览没有显示真实正文片段");
   assert(!previewText.includes("submit_tentative_artifact"), "预览泄漏工具/协议标识");
   assert(!previewText.includes("item_id"), "预览泄漏 JSON 协议字段");
   assert(previewAx.length > 0, "预览 AX 快照为空");
-
-  // 完成态：真实 turn_result 与最终页面存在（预览不等于最终结果）。
   assert(fs.existsSync(path.join(dir, "03-final.jpg")), "缺少最终页面截图");
-  assert(fs.existsSync(path.join(dir, "b71-final.json")), "缺少最终 turn 结果证据");
+
+  // 2026-11-08 复审 P1-1：最终完成态必须来自真实 turn_result 事实。旧实现只看
+  // b71-final.json 存在，而该文件是 checkpoint 计数快照（无 turn_result），
+  // 会用「文件存在」冒充「最终 turn 完成」。这里直接消费 driver 等待到的真实
+  // WS turn_result 帧，并交叉核对 driver log 与 assistant 文本。
+  const sendTurnId = String(driverLog.turn_id ?? "");
+  assert(sendTurnId !== "", "driver log 缺发送 turn_id：无法证明最终 turn_result");
+
+  const wire = transport(dir);
+  const turnResults = wire.filter(
+    (entry) =>
+      entry.direction === "received" &&
+      isFrame(entry) &&
+      frameEvent(entry) === "turn_result" &&
+      turnIdMatches(String(frameBody(entry)?.turn_id ?? ""), sendTurnId),
+  );
+
+  assert.equal(
+    turnResults.length,
+    1,
+    `最终 turn_result 帧必须唯一且绑定发送 turn，实测: ${turnResults.length}`,
+  );
+
+  const turnResult = frameBody(turnResults[0]);
+  assert.equal(typeof turnResult?.turn_id, "string", "turn_result 缺 turn_id");
+  const assistantText = String(turnResult?.assistant_message?.text ?? "");
+  assert(assistantText.trim() !== "", "turn_result 缺 assistant_message.text（完成态无真实回复）");
+
+  if (String(driverLog.assistant_text ?? "") !== "") {
+    assert.equal(
+      driverLog.assistant_text,
+      assistantText,
+      "driver log assistant_text 与真实 turn_result 不一致",
+    );
+  }
+
+  // 预览正文必须与同一批次真实流式增量同源：从 transport 的 writer
+  // author_content_delta 派生片段，不再使用与 seed 章节标题重叠的固定词表。
+  const deltas = wire
+    .map((entry) => frameBody(entry)?.payload)
+    .filter(
+      (payload) =>
+        payload?.output_type === "text" && typeof payload?.author_content_delta === "string",
+    )
+    .map((payload) => payload.author_content_delta)
+    .filter((delta) => delta !== "");
+
+  assert(deltas.length > 0, "缺少真实 writer author_content_delta 流式增量");
+
+  const streamedProse = deltas.join("");
+  const proseSnippet = streamedProse.slice(0, 20);
+  assert(proseSnippet.length >= 12, "流式正文增量过短，无法证明页面预览来自真实正文");
+  assert(previewText.includes(proseSnippet), `预览未显示真实流式正文增量片段: ${proseSnippet}`);
+
+  // checks 由实际事实计算（不再硬编码 true）；任一缺失即 fail。
+  const checks = {
+    provider_injected: ready.provider === "streaming_slice_verify",
+    preview_captured_during_generation: driverLog.preview_captured === true,
+    preview_label_visible: previewText.includes("正文生成中"),
+    preview_not_saved_hint_visible: previewText.includes("生成中，尚未保存为候选。"),
+    preview_shows_real_prose: previewText.includes(proseSnippet),
+    preview_hides_protocol_bytes:
+      !previewText.includes("submit_tentative_artifact") && !previewText.includes("item_id"),
+    final_turn_result_present:
+      turnResults.length === 1 && String(turnResult?.turn_id ?? "") !== "" &&
+        assistantText.trim() !== "",
+  };
+
+  assert.equal(
+    Object.keys(checks).length,
+    7,
+    "预览 checks 集合不完整：必须覆盖 7 项真实判据",
+  );
+  assert(
+    Object.values(checks).every((value) => value === true),
+    `预览证据 checks 未全部成立: ${JSON.stringify(checks)}`,
+  );
 
   const summary = {
     slice_id: config.slice_id,
@@ -383,15 +468,10 @@ function verifyStreamPreview(dir) {
     provider: "streaming_slice_verify",
     model: null,
     verified_at: new Date().toISOString(),
-    checks: {
-      provider_injected: true,
-      preview_captured_during_generation: true,
-      preview_label_visible: true,
-      preview_not_saved_hint_visible: true,
-      preview_shows_real_prose: true,
-      preview_hides_protocol_bytes: true,
-      final_turn_result_present: true,
-    },
+    // 判据来源（可审计）：真实 WS turn_result 帧 + 同一批次流式正文增量。
+    turn_id: String(turnResult.turn_id),
+    streamed_prose_bytes: Buffer.byteLength(streamedProse, "utf8"),
+    checks,
     not_signed: [
       "real_model_streaming_behavior_not_signed",
       "responses_anthropic_real_stream_not_signed",
