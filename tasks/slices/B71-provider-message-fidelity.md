@@ -1231,6 +1231,7 @@
   - **未触发（如实登记，不代签）**：G2/G3/G5/G6（`tool_call_result_binding`/`observation_reaches_next_request` 判据为 null，verifier 不把 replay-only 历史回放当作本轮新观察）；I10 文学质量不代签；Responses/Anthropic 实模仍待官方凭证。
   - **G1–G6 离线切片（复用 `scripts/b71_golden_slices_from_live_batch.mjs`，不重跑批次）**：本批 7 条真实请求字节分析——**G1 ✅**（system=1、application_base 在 author 前、author index=3、author 字节 sha256、7 个工具）、**G2 ✅**（6 个唯一 tool_call IDs 与 6 个 tool_result IDs 全量 call_id 绑定、pairing_errors=[]、replay 出现 21 次、6 个后续请求均携带 tool_results）、**G4 ✅**（候选工具 `submit_tentative_artifact`；全部工具调用名 judgment_decision/agent_plan_draft/chapter_mission/submit_tentative_artifact）；**G3/G5/G6 未触发**（无 failed validation / 无处置事实 / 无压缩标记），如实不代签。报告 `.../golden-slices/live-golden-slices.md`。
   - **`stream_options.include_usage` vendor 接受度矩阵（作者 2026-11-08 同意候选，本轮取得首批证据）**：`strata/iq3_s` 由本批真实产品请求取证（usage/cached_tokens/ttft 全部回收）；`lmstudio/qwen3.8-flash-next@iq4_nl` 由外部直连探针取证（接受该字段并返回 usage chunk：prompt 56 / completion 8 / reasoning 8，`[DONE]` 正常终止；q4_0 首测为 LM Studio 引擎 SIGSEGV 环境问题，非字段拒绝）；DeepSeek/OpenAI/Anthropic 无凭证未取证（官方文档依据，待凭证窗口）。结论：现有「对全部 OpenAI-compatible Chat wire 统一发送」在两个本地 vendor 上成立，暂不需要 vendor 级开关；证据见 `artifacts/model-contracts/b71-cp1/vendor-stream-options-matrix-20261108.json`。
+  - **G6 实模批次（2026-11-08 09:45Z）**：按作者 2026-11-08 同意的新预算冻结预注册 `scenario-preregistration-g6-iq3s-20261108.json` 后启动，**预检即失败：Strata App 不可达（0 次调用、未进入产品链）**——属外部环境变化（此前 iq3_s 可用），非产品/判据失败；不重跑换分，预注册保留待窗口恢复后按原判据执行。G6 仍未取证，不代签。
 - **状态**：CP5 保持 doing；真实模型行为、页面层实时事件/确认失败分支、I10 文学质量仍不代签。
 
 
