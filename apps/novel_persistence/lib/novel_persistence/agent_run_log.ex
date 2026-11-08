@@ -8,7 +8,7 @@ defmodule NovelPersistence.AgentRunLog do
 
   import Ecto.Query, only: [from: 2]
 
-  alias NovelPersistence.{LongRunTaskLog, Repo}
+  alias NovelPersistence.{AuthoringSessionLog, LongRunTaskLog, Repo}
 
   alias NovelPersistence.Schemas.{
     AgentEventRecord,
@@ -16,8 +16,6 @@ defmodule NovelPersistence.AgentRunLog do
     AgentRunStepRecord,
     LongRunTask
   }
-
-  @authoring_format_version "authoring-transcript/v1"
 
   @spec upsert_run(map()) :: {:ok, AgentRunRecord.t()} | {:error, Ecto.Changeset.t()}
   def upsert_run(%{id: id} = attrs) when is_binary(id) do
@@ -62,17 +60,24 @@ defmodule NovelPersistence.AgentRunLog do
   callback 返回 `{:ok, value}` 时提交，返回 `{:error, reason}` 时由本函数回滚。
   应用层在这个边界内编排 InteractionLifecycle 与 `commit_snapshot/2`，不直接使用
   Repo，也不把模型/工具执行或作者等待放进事务。
+
+  事务以 `mode: :immediate` 开启（SQLite 单写者）：同一会话的并发 run 在事务开始
+  即取得写锁并串行化，避免 deferred 事务在写锁升级时因快照过期失败。嵌套调用由
+  最外层事务模式决定（Ecto 嵌套事务是 savepoint）。
   """
   @spec transaction((-> {:ok, term()} | {:error, term()})) ::
           {:ok, term()} | {:error, term()}
   def transaction(fun) when is_function(fun, 0) do
-    Repo.transaction(fn ->
-      case fun.() do
-        {:ok, value} -> value
-        {:error, reason} -> Repo.rollback(reason)
-        other -> Repo.rollback({:invalid_transaction_result, other})
-      end
-    end)
+    Repo.transaction(
+      fn ->
+        case fun.() do
+          {:ok, value} -> value
+          {:error, reason} -> Repo.rollback(reason)
+          other -> Repo.rollback({:invalid_transaction_result, other})
+        end
+      end,
+      mode: :immediate
+    )
   rescue
     error -> {:error, error}
   catch
@@ -80,26 +85,39 @@ defmodule NovelPersistence.AgentRunLog do
   end
 
   @doc """
-  B71 私有历史：同一事务提交 run、可选 step/事件与 durable checkpoint。
+  同一事务提交 run、会话 canonical 执行段、可选 step/事件与 durable checkpoint。
 
-  任一写入失败（含 run/step/event 身份错绑、task 缺失、task 绑定不符、v3 引用错绑、
-  SQL 拒绝、事件 changeset 错误）都回滚整个事务，调用方不得在失败后推进内存
-  canonical 或广播作者结果。
+  `authoring_segment`（段头 + 消息，由 application 写入边界完成 JSON 归一化与
+  IR 校验）在同一事务内追加到会话存储；失败（含会话前缀/身份/版本拒绝、run/step/
+  event 身份错绑、task 缺失、task 绑定不符、段引用错绑、SQL 拒绝、事件 changeset
+  错误）都回滚整个事务，调用方不得在失败后推进内存 canonical 或广播作者结果。
+
+  事务以 `mode: :immediate` 开启（SQLite 单写者）：同一会话的并发 run 追加因此
+  串行化，`(session_id, sequence)` / `(run_id, run_sequence)` 唯一索引保证顺序
+  无空洞、无重复。嵌套在调用方事务内时由调用方事务模式决定。
   """
   @spec commit_snapshot(map(), keyword()) :: {:ok, AgentRunRecord.t()} | {:error, term()}
   def commit_snapshot(run_record, opts) when is_map(run_record) and is_list(opts) do
     steps = Keyword.get(opts, :steps, [])
     events = Keyword.get(opts, :events, [])
     checkpoint = Keyword.get(opts, :checkpoint)
+    authoring_segment = Keyword.get(opts, :authoring_segment)
 
-    Repo.transaction(fn ->
-      run = upsert_run(run_record) |> unwrap!()
-      validate_associations!(run, steps, events, checkpoint)
-      Enum.each(steps, fn attrs -> insert_step(attrs) |> unwrap!() end)
-      Enum.each(events, fn attrs -> insert_event_record(attrs) |> unwrap!() end)
-      commit_checkpoint!(checkpoint, run)
-      run
-    end)
+    Repo.transaction(
+      fn ->
+        run = upsert_run(run_record) |> unwrap!()
+
+        segment_state =
+          AuthoringSessionLog.append_run(run_record, authoring_segment) |> unwrap_segment!()
+
+        validate_associations!(run, steps, events, checkpoint)
+        Enum.each(steps, fn attrs -> insert_step(attrs) |> unwrap!() end)
+        Enum.each(events, fn attrs -> insert_event_record(attrs) |> unwrap!() end)
+        commit_checkpoint!(checkpoint, run, segment_state)
+        run
+      end,
+      mode: :immediate
+    )
   rescue
     error -> {:error, error}
   catch
@@ -351,9 +369,9 @@ defmodule NovelPersistence.AgentRunLog do
 
   defp validate_checkpoint_binding!(_run, _checkpoint), do: Repo.rollback(:invalid_checkpoint)
 
-  defp commit_checkpoint!(nil, _run), do: :ok
+  defp commit_checkpoint!(nil, _run, _segment_state), do: :ok
 
-  defp commit_checkpoint!(%{task_ref: ref, attrs: attrs}, run)
+  defp commit_checkpoint!(%{task_ref: ref, attrs: attrs}, run, segment_state)
        when is_binary(ref) and is_map(attrs) do
     case LongRunTaskLog.get(ref) do
       nil ->
@@ -363,9 +381,9 @@ defmodule NovelPersistence.AgentRunLog do
         validate_task_ref_matches_run!(ref, run)
         validate_task_binding!(task, run)
 
-        attrs = preserve_transcript_ref(attrs, task)
+        attrs = preserve_segment_ref(attrs, task)
         validate_checkpoint_header!(attrs, task, run)
-        validate_transcript_ref!(attrs, run)
+        validate_segment_ref!(attrs, run, segment_state)
 
         task
         |> LongRunTaskLog.update(attrs)
@@ -373,7 +391,7 @@ defmodule NovelPersistence.AgentRunLog do
     end
   end
 
-  defp commit_checkpoint!(_invalid, _run), do: Repo.rollback(:invalid_checkpoint)
+  defp commit_checkpoint!(_invalid, _run, _segment_state), do: Repo.rollback(:invalid_checkpoint)
 
   defp validate_task_ref_matches_run!(task_ref, run) do
     if is_binary(run.long_run_task_ref) and run.long_run_task_ref == task_ref do
@@ -403,15 +421,15 @@ defmodule NovelPersistence.AgentRunLog do
     end
   end
 
-  # 无新 transcript 的状态更新省略私有字段；旧 v3 引用不能被整份 checkpoint_data 覆盖清空。
-  defp preserve_transcript_ref(attrs, %LongRunTask{} = task) do
+  # 无新会话段的状态更新省略段引用；旧 v3 引用不能被整份 checkpoint_data 覆盖清空。
+  defp preserve_segment_ref(attrs, %LongRunTask{} = task) do
     data = attr(attrs, :checkpoint_data)
-    old_ref = nested_get(task.checkpoint_data, [:agent_run, :authoring_transcript_ref])
-    current_ref = nested_get(data, [:agent_run, :authoring_transcript_ref])
+    old_ref = nested_get(task.checkpoint_data, [:agent_run, :authoring_segment_ref])
+    current_ref = nested_get(data, [:agent_run, :authoring_segment_ref])
 
     if is_map(data) and not is_nil(old_ref) and is_nil(current_ref) do
       data
-      |> nested_put(["agent_run", "authoring_transcript_ref"], old_ref)
+      |> nested_put(["agent_run", "authoring_segment_ref"], old_ref)
       |> then(&put_attr(attrs, :checkpoint_data, &1))
     else
       attrs
@@ -453,20 +471,23 @@ defmodule NovelPersistence.AgentRunLog do
     end
   end
 
-  defp validate_transcript_ref!(attrs, run) do
+  # durable checkpoint 的段引用：指向本 run、版本正确，且会话段在同一事务内已存在
+  # （新段或既有段都算；状态更新不得让引用悬空）。
+  defp validate_segment_ref!(attrs, run, segment_state) do
     agent_run = nested_get(attr(attrs, :checkpoint_data), [:agent_run])
     version = nested_get(agent_run, [:checkpoint_version])
-    ref = nested_get(agent_run, [:authoring_transcript_ref])
+    ref = nested_get(agent_run, [:authoring_segment_ref])
+    segment_present? = not is_nil(segment_state) or AuthoringSessionLog.segment_present?(run.id)
 
     cond do
-      not is_nil(ref) and is_nil(run.authoring_transcript) ->
-        Repo.rollback(:authoring_transcript_missing)
+      not is_nil(ref) and not segment_present? ->
+        Repo.rollback(:authoring_segment_missing)
 
       not is_nil(ref) ->
         validate_ref!(ref, run)
 
-      version == 3 and not is_nil(run.authoring_transcript) ->
-        Repo.rollback(:authoring_transcript_ref_missing)
+      version == 3 and segment_present? ->
+        Repo.rollback(:authoring_segment_ref_missing)
 
       true ->
         :ok
@@ -479,14 +500,14 @@ defmodule NovelPersistence.AgentRunLog do
     version = attr(ref, :version)
 
     if keys == ["run_id", "version"] and run_id == run.id and
-         version == @authoring_format_version do
+         version == AuthoringSessionLog.segment_format_version() do
       :ok
     else
-      Repo.rollback(:authoring_transcript_ref_mismatch)
+      Repo.rollback(:authoring_segment_ref_mismatch)
     end
   end
 
-  defp validate_ref!(_ref, _run), do: Repo.rollback(:authoring_transcript_ref_mismatch)
+  defp validate_ref!(_ref, _run), do: Repo.rollback(:authoring_segment_ref_mismatch)
 
   defp attr(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))
@@ -520,6 +541,9 @@ defmodule NovelPersistence.AgentRunLog do
 
   defp unwrap!({:ok, value}), do: value
   defp unwrap!({:error, reason}), do: Repo.rollback(reason)
+
+  defp unwrap_segment!({:ok, segment_state}), do: segment_state
+  defp unwrap_segment!({:error, reason}), do: Repo.rollback(reason)
 
   defp normalize_ids(ids) do
     ids

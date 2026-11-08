@@ -14,7 +14,6 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
 
   alias NovelApplication.{
     ArtifactAssembler,
-    AuthoringTranscript,
     DialoguePlanningService,
     TestAgenticLoopFixtures,
     TurnResultBuilder,
@@ -401,8 +400,7 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
       # 真实 DB 私有列不是 null；canonical 与 ProviderRun/同次日志引用同一批调用。
       run = AgentRunLog.get_run(run_id)
       assert run.status == "failed"
-      assert is_map(run.authoring_transcript)
-      assert {:ok, transcript} = AuthoringTranscript.restore(run.authoring_transcript)
+      transcript = TestAgenticLoopFixtures.persisted_transcript(run)
       assert transcript.run.run_id == run_id
 
       assistants =

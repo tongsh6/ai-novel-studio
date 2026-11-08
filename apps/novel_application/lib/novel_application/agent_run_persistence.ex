@@ -12,8 +12,10 @@ defmodule NovelApplication.AgentRunPersistence do
     `checkpoint_created` 整理记录）；事件由调用方显式传入，不使用 best-effort 语义。
   - 作者问题答复：只提交本次新增事件。
 
-  本模块不执行 Provider、不持有流程状态、不复制 canonical；私有历史仍只经
-  `AuthoringCheckpoint` 编解码。
+  本模块不执行 Provider、不持有流程状态、不复制 canonical。canonical 作用域是
+  **会话**（ADR-0035 / B81 CP1）：每次提交把本 run 执行段的 transcript 编码为
+  `authoring_segment`（段头 + 消息），由 `AgentRunLog.commit_snapshot/2` 在同一
+  事务内追加到会话存储；`agent_runs` 行本身不再持有 canonical 历史。
   """
 
   alias NovelApplication.AuthoringCheckpoint
@@ -51,24 +53,32 @@ defmodule NovelApplication.AgentRunPersistence do
   """
   @spec snapshot(AgentRun.t(), map(), mode(), keyword()) :: {:ok, snapshot()} | {:error, term()}
   def snapshot(%AgentRun{} = run, state, mode, opts \\ []) when is_map(state) do
-    with {:ok, checkpoint} <- private_checkpoint(run, state) do
+    with {:ok, segment} <- authoring_segment(run, state) do
       {:ok,
        %{
-         run_record: run_attrs(run, checkpoint),
+         run_record: run_attrs(run),
          steps: Keyword.get(opts, :steps, []),
          events: snapshot_events(mode, run, state, opts),
-         checkpoint: task_checkpoint(run, state, checkpoint, mode)
+         checkpoint: task_checkpoint(run, state, segment, mode),
+         authoring_segment: segment
        }}
     end
   end
 
   @doc "把 snapshot 交给 AgentRunLog 的唯一事务写入入口。"
   @spec commit(snapshot()) :: {:ok, struct()} | {:error, term()}
-  def commit(%{run_record: run_record, steps: steps, events: events, checkpoint: checkpoint}) do
+  def commit(%{
+        run_record: run_record,
+        steps: steps,
+        events: events,
+        checkpoint: checkpoint,
+        authoring_segment: authoring_segment
+      }) do
     AgentRunLog.commit_snapshot(run_record,
       steps: steps,
       events: events,
-      checkpoint: checkpoint
+      checkpoint: checkpoint,
+      authoring_segment: authoring_segment
     )
   end
 
@@ -108,13 +118,13 @@ defmodule NovelApplication.AgentRunPersistence do
 
   # ── checkpoint 请求语义 ─────────────────────────────────────────────────
 
-  defp task_checkpoint(run, state, checkpoint, mode)
+  defp task_checkpoint(run, state, segment, mode)
        when mode in [:question_delivery, :question_answer] do
-    question_checkpoint(run, state, checkpoint)
+    question_checkpoint(run, state, segment)
   end
 
-  defp task_checkpoint(run, state, checkpoint, _mode),
-    do: snapshot_checkpoint(run, state, checkpoint)
+  defp task_checkpoint(run, state, segment, _mode),
+    do: snapshot_checkpoint(run, state, segment)
 
   defp question_checkpoint(
          %AgentRun{run_mode: :durable, long_run_task_ref: ref} = run,
@@ -136,27 +146,29 @@ defmodule NovelApplication.AgentRunPersistence do
     task_checkpoint_attrs(task_ref, run, state, checkpoint)
   end
 
-  defp snapshot_checkpoint(_run, _state, _checkpoint), do: nil
+  defp snapshot_checkpoint(_run, _state, _segment), do: nil
 
-  defp task_checkpoint_attrs(task_ref, run, state, checkpoint) do
-    %{task_ref: task_ref, attrs: long_run_task_update_attrs(run, state, checkpoint)}
+  defp task_checkpoint_attrs(task_ref, run, state, segment) do
+    %{task_ref: task_ref, attrs: long_run_task_update_attrs(run, state, segment)}
   end
 
-  # ── 私有历史 ─────────────────────────────────────────────────────────────
+  # ── canonical 会话段 ─────────────────────────────────────────────────────
 
-  defp private_checkpoint(run, state) do
+  # 把本 run 内存 canonical 编码为会话执行段（header + messages）；nil 表示本次
+  # 提交没有 canonical 历史，不写任何会话行。
+  defp authoring_segment(run, state) do
     case Map.get(Map.get(state, :stage_state) || %{}, :judgment_transcript) do
       nil ->
         {:ok, nil}
 
       transcript ->
-        AuthoringCheckpoint.encode_for_write(run, transcript)
+        AuthoringCheckpoint.encode_segment_for_write(run, transcript)
     end
   end
 
   # ── durable task 投影 ───────────────────────────────────────────────────
 
-  defp long_run_task_update_attrs(%AgentRun{} = run, state, checkpoint) do
+  defp long_run_task_update_attrs(%AgentRun{} = run, state, segment) do
     {status, phase} = long_run_status_phase(run.status)
 
     %{
@@ -166,7 +178,7 @@ defmodule NovelApplication.AgentRunPersistence do
       completed_unit_refs: run.completed_step_refs,
       pending_artifact_refs: run.pending_artifact_refs,
       consumed_budget: json_safe(run.consumed_budget),
-      checkpoint_data: long_run_checkpoint_data(run, state, checkpoint),
+      checkpoint_data: long_run_checkpoint_data(run, state, segment),
       completed_at: long_run_completed_at(run.status)
     }
   end
@@ -185,7 +197,7 @@ defmodule NovelApplication.AgentRunPersistence do
 
   defp long_run_completed_at(_status), do: nil
 
-  defp long_run_checkpoint_data(%AgentRun{} = run, state, checkpoint) do
+  defp long_run_checkpoint_data(%AgentRun{} = run, state, segment) do
     agent_run =
       Map.merge(
         %{
@@ -204,7 +216,7 @@ defmodule NovelApplication.AgentRunPersistence do
         },
         durable_fact_checkpoint_data(run.authority_scope)
       )
-      |> maybe_put_transcript_ref(run, checkpoint)
+      |> maybe_put_segment_ref(run, segment)
 
     %{
       "agent_run" => agent_run,
@@ -213,11 +225,11 @@ defmodule NovelApplication.AgentRunPersistence do
     }
   end
 
-  # durable checkpoint 只引用同一事务内保存的 run 私有历史，不再内嵌 canonical。
-  defp maybe_put_transcript_ref(agent_run, _run, nil), do: agent_run
+  # durable checkpoint 只引用同一事务内保存的会话执行段，不再内嵌 canonical。
+  defp maybe_put_segment_ref(agent_run, _run, nil), do: agent_run
 
-  defp maybe_put_transcript_ref(agent_run, run, _checkpoint) do
-    Map.put(agent_run, "authoring_transcript_ref", AuthoringCheckpoint.ref(run.run_id))
+  defp maybe_put_segment_ref(agent_run, run, _segment) do
+    Map.put(agent_run, "authoring_segment_ref", AuthoringCheckpoint.ref(run.run_id))
   end
 
   defp long_run_progress(%AgentRun{status: :completed}), do: 100
@@ -238,7 +250,7 @@ defmodule NovelApplication.AgentRunPersistence do
 
   # ── run/step/event 投影 ────────────────────────────────────────────────
 
-  defp run_attrs(%AgentRun{} = run, authoring_transcript) do
+  defp run_attrs(%AgentRun{} = run) do
     goal = json_safe(run.goal || %{})
 
     run_attrs = %{
@@ -273,11 +285,7 @@ defmodule NovelApplication.AgentRunPersistence do
       completed_at: terminal_completed_at(run.status)
     }
 
-    if is_nil(authoring_transcript) do
-      run_attrs
-    else
-      Map.put(run_attrs, :authoring_transcript, authoring_transcript)
-    end
+    run_attrs
   end
 
   @doc "投影单个执行步骤及其观察摘要。"

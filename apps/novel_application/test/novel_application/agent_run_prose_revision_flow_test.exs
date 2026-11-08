@@ -899,7 +899,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
       assert observed.run.id == run_id
       assert observed.run.status == "completed"
       assert observed.run.completed_step_refs != []
-      assert observed.run.authoring_transcript["transcript"]["run"]["run_id"] == run_id
+      assert TestAgenticLoopFixtures.persisted_transcript(observed.run).run.run_id == run_id
 
       assert Enum.any?(observed.transcript, fn entry ->
                entry.role == "assistant" and entry.turn_id == revision.turn_id and
@@ -982,10 +982,9 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
         assert run.consumed_budget["provider_calls"] == 2
         assert run.consumed_budget["tool_calls"] == 1
 
-        canonical = run.authoring_transcript
-        assert canonical
-        assert length(canonical["transcript"]["call_ids"]) == 2
-        assert {:ok, restored} = AuthoringTranscript.restore(canonical)
+        restored = TestAgenticLoopFixtures.persisted_transcript(run)
+        assert restored
+        assert length(restored.call_ids) == 2
         assert length(tool_call_blocks(restored)) == 2
 
         assert [stored_failed, stored_passed] = validation_blocks(restored)

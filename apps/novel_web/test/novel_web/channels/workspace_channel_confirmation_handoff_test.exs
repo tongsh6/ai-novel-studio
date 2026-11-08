@@ -8,7 +8,6 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
 
   alias NovelApplication.{
     AuthorActionConfirmation,
-    AuthoringTranscript,
     WorkService,
     WorkSessionService
   }
@@ -473,8 +472,8 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
   defp await_terminal(_run_id, 0), do: flunk("child run did not reach terminal state")
 
   defp source_author_bytes(run_id) do
-    checkpoint = AgentRunLog.get_run(run_id).authoring_transcript
-    {:ok, transcript} = AuthoringTranscript.restore(checkpoint)
+    run = AgentRunLog.get_run(run_id)
+    {:ok, transcript, :session_segment} = NovelApplication.AuthoringCheckpoint.restore(run, nil)
 
     transcript.messages
     |> Enum.filter(&(&1.role == "user" and &1.provenance == "author"))

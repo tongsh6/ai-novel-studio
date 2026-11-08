@@ -79,6 +79,8 @@ defmodule NovelApplication.TraceReplayService do
 
   defp put_authoring_history(summary, _history), do: summary
 
+  # `"authoring_transcript"` 是 TraceReport 对外错误面的既有契约字样（语义=会话
+  # canonical 创作历史缺失）；不随存储作用域迁移改名，由 AuthoringReplay 保持。
   defp apply_history_integrity(report, {:error, :authoring_transcript}) do
     %{
       report

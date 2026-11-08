@@ -30,30 +30,34 @@ defmodule NovelPersistence.AuthorQuestionRepo do
   end
 
   def publish(attrs) do
-    Repo.transaction(fn ->
-      result = attrs.turn_result
-      turn = result["turn_id"]
+    Repo.transaction(
+      fn ->
+        result = attrs.turn_result
+        turn = result["turn_id"]
 
-      case source(attrs.workspace_id, attrs.session_id, turn) do
-        nil ->
-          close_previous(attrs, result["author_question"]["question_ref"])
-          unwrap(InteractionLifecycle.call(:result, attrs))
+        case source(attrs.workspace_id, attrs.session_id, turn) do
+          nil ->
+            close_previous(attrs, result["author_question"]["question_ref"])
+            unwrap(InteractionLifecycle.call(:result, attrs))
 
-          unwrap(
-            AgentRunLog.commit_snapshot(attrs.run_record,
-              steps: Map.get(attrs, :steps, []),
-              events: attrs.events,
-              checkpoint: attrs[:checkpoint]
+            unwrap(
+              AgentRunLog.commit_snapshot(attrs.run_record,
+                steps: Map.get(attrs, :steps, []),
+                events: attrs.events,
+                checkpoint: attrs[:checkpoint],
+                authoring_segment: Map.get(attrs, :authoring_segment)
+              )
             )
-          )
 
-          persist_trace(attrs[:decision_trace])
-          %{turn_result: result, duplicate: false}
+            persist_trace(attrs[:decision_trace])
+            %{turn_result: result, duplicate: false}
 
-        existing ->
-          %{turn_result: existing.content["turn_result"], duplicate: true}
-      end
-    end)
+          existing ->
+            %{turn_result: existing.content["turn_result"], duplicate: true}
+        end
+      end,
+      mode: :immediate
+    )
   end
 
   def receipt(key, digest) do
@@ -69,15 +73,18 @@ defmodule NovelPersistence.AuthorQuestionRepo do
   end
 
   def answer(attrs) do
-    Repo.transaction(fn ->
-      require_active_session(attrs)
+    Repo.transaction(
+      fn ->
+        require_active_session(attrs)
 
-      case receipt(attrs.receipt_key, attrs.payload_digest) do
-        {:ok, result} -> Map.put(result, "duplicate", true)
-        {:error, reason} -> Repo.rollback(reason)
-        :new -> commit_answer(attrs)
-      end
-    end)
+        case receipt(attrs.receipt_key, attrs.payload_digest) do
+          {:ok, result} -> Map.put(result, "duplicate", true)
+          {:error, reason} -> Repo.rollback(reason)
+          :new -> commit_answer(attrs)
+        end
+      end,
+      mode: :immediate
+    )
     |> case do
       {:error, :input_identity_conflict} -> {:error, :submission_conflict}
       result -> result
@@ -108,7 +115,8 @@ defmodule NovelPersistence.AuthorQuestionRepo do
     unwrap(
       AgentRunLog.commit_snapshot(attrs.run_record,
         events: attrs.events,
-        checkpoint: attrs[:checkpoint]
+        checkpoint: attrs[:checkpoint],
+        authoring_segment: Map.get(attrs, :authoring_segment)
       )
     )
 

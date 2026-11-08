@@ -16,9 +16,24 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
 
-  alias NovelApplication.{AgentRunHistory, AuthoringReplay, AuthoringTranscript}
+  alias NovelApplication.{
+    AgentRunHistory,
+    AuthoringCheckpoint,
+    AuthoringReplay,
+    AuthoringTranscript
+  }
+
   alias NovelCommon.RequestIR
-  alias NovelPersistence.{AgentRunLog, LongRunTaskLog, MemoryLog, Repo, WorkRepo, WorkSessionRepo}
+
+  alias NovelPersistence.{
+    AgentRunLog,
+    AuthoringSessionLog,
+    LongRunTaskLog,
+    MemoryLog,
+    Repo,
+    WorkRepo,
+    WorkSessionRepo
+  }
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -274,13 +289,20 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
       long_run_task_ref: task.id
     }
 
-    attrs =
-      if version == 3,
-        do: Map.put(attrs, :authoring_transcript, checkpoint),
-        else: attrs
-
     {:ok, run} = AgentRunLog.upsert_run(attrs)
+
+    if version == 3 do
+      seed_session_segment!(run, checkpoint)
+    end
+
     %{run: run, task: task, checkpoint: checkpoint}
+  end
+
+  # v3 正例夹具：canonical 经应用写入边界编码，在同一事务边界追加为会话执行段。
+  defp seed_session_segment!(run, checkpoint) do
+    {:ok, transcript} = AuthoringTranscript.restore(checkpoint)
+    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(run, transcript)
+    {:ok, _state} = AuthoringSessionLog.append_run(run, segment)
   end
 
   defp task_checkpoint_data(:missing, header_run_id, checkpoint) do
@@ -306,9 +328,9 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
       "agent_run" => %{
         "run_id" => header_run_id,
         "checkpoint_version" => 3,
-        "authoring_transcript_ref" => %{
+        "authoring_segment_ref" => %{
           "run_id" => header_run_id,
-          "version" => "authoring-transcript/v1"
+          "version" => AuthoringSessionLog.segment_format_version()
         }
       }
     }

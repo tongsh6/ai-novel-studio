@@ -1,171 +1,320 @@
 defmodule NovelApplication.AuthoringCheckpointTest do
-  use ExUnit.Case, async: true
+  @moduledoc """
+  B81 CP1：会话级 canonical 历史读写边界（`AuthoringCheckpoint` +
+  `AuthoringSessionLog`）的真实持久回归。
 
-  alias NovelApplication.AuthoringCheckpoint
-  alias NovelApplication.AuthoringTranscript
+  canonical 作用域是会话：消息在 `authoring_session_messages` 追加，run 只持有
+  执行段头（`authoring_run_segments`）；`AuthoringCheckpoint.restore/2` 按 run 重建
+  执行段 transcript，`checkpoint_data` 只核对段引用，不复制、不回退旧内嵌副本。
+  """
+
+  use ExUnit.Case, async: false
+
+  alias Ecto.Adapters.SQL
+  alias Ecto.Adapters.SQL.Sandbox
+
+  alias NovelApplication.{AuthoringCheckpoint, AuthoringTranscript}
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
+  alias NovelPersistence.{AgentRunLog, AuthoringSessionLog, Repo, WorkRepo, WorkSessionRepo}
   alias NovelPersistence.Schemas.AgentRunRecord
 
-  defp run_identity(overrides \\ %{}) do
+  setup do
+    :ok = Sandbox.checkout(Repo)
+    {:ok, work} = WorkRepo.create(%{title: "checkpoint 会话历史"})
+    {:ok, session} = WorkSessionRepo.create(%{work_id: work.id})
+    %{work: work, session: session}
+  end
+
+  defp unique(prefix), do: "#{prefix}_#{System.unique_integer([:positive, :monotonic])}"
+
+  defp run_identity(work, session, overrides \\ %{}) do
     Map.merge(
       %{
-        run_id: "run-checkpoint",
-        workspace_id: "work-checkpoint",
-        work_id: "work-checkpoint",
-        session_id: "session-checkpoint",
-        parent_turn_ref: "turn-checkpoint"
+        run_id: unique("run-checkpoint"),
+        workspace_id: work.id,
+        work_id: work.id,
+        session_id: session.id,
+        parent_turn_ref: unique("turn-checkpoint"),
+        profile_ref: "conversation_turn_v1"
       },
       overrides
     )
   end
 
-  defp checkpoint do
-    run_identity()
-    |> AuthoringTranscript.new(base_text: "作者决定作品事实", author_text: "检查角色")
+  defp record(identity) do
+    %AgentRunRecord{
+      id: identity.run_id,
+      workspace_id: identity.workspace_id,
+      work_id: identity.work_id,
+      session_id: identity.session_id,
+      parent_turn_ref: identity.parent_turn_ref,
+      origin_frame_ref: "frame-checkpoint",
+      run_mode: "bounded",
+      profile_ref: identity.profile_ref,
+      status: "completed",
+      phase: "stopped"
+    }
+  end
+
+  defp run_attrs(record) do
+    %{
+      id: record.id,
+      workspace_id: record.workspace_id,
+      work_id: record.work_id,
+      session_id: record.session_id,
+      parent_turn_ref: record.parent_turn_ref
+    }
+  end
+
+  defp transcript(identity) do
+    AuthoringTranscript.new(identity, base_text: "作者决定作品事实", author_text: "检查角色")
+  end
+
+  # 生产等价 seed：application 写入边界编码 → 会话存储追加。
+  defp seed_segment!(record, transcript) do
+    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(record, transcript)
+    seed_encoded_segment!(record, segment)
+  end
+
+  defp seed_encoded_segment!(record, segment) do
+    {:ok, state} = AuthoringSessionLog.append_run(run_attrs(record), segment)
+    state
+  end
+
+  defp checkpoint(identity) do
+    identity
+    |> transcript()
     |> AuthoringTranscript.checkpoint()
   end
 
-  defp record(overrides \\ %{}) do
-    identity = run_identity()
+  defp json_normalize(value), do: value |> Jason.encode!() |> Jason.decode!()
 
-    struct(
-      %AgentRunRecord{
-        id: identity.run_id,
-        workspace_id: identity.workspace_id,
-        work_id: identity.work_id,
-        session_id: identity.session_id,
-        parent_turn_ref: identity.parent_turn_ref,
-        origin_frame_ref: "frame-checkpoint",
-        run_mode: "bounded",
-        profile_ref: "probe_v1",
-        status: "completed",
-        phase: "stopped",
-        authoring_transcript: checkpoint()
+  defp durable_data(record, extra \\ %{}) do
+    Map.merge(
+      %{
+        "agent_run" => %{
+          "checkpoint_version" => 3,
+          "authoring_segment_ref" => AuthoringCheckpoint.ref(record.id)
+        }
       },
-      overrides
+      extra
     )
   end
 
-  test "bounded restore 直接读取私有列，不依赖 long-run checkpoint" do
-    assert {:ok, transcript, :private_run} = AuthoringCheckpoint.restore(record(), nil)
-    assert [%{role: "application_base"}, %{role: "user"}] = transcript.messages
+  test "有会话段时按 run 读取 canonical，durable 段引用只核对不复制", %{
+    work: work,
+    session: session
+  } do
+    identity = run_identity(work, session)
+    record = record(identity)
+    seed_segment!(record, transcript(identity))
+
+    assert {:ok, restored, :session_segment} =
+             AuthoringCheckpoint.restore(record, durable_data(record))
+
+    assert [%{role: "application_base"}, %{role: "user"}] = restored.messages
+
+    assert {:ok, %{header: header, messages: messages}} =
+             AuthoringSessionLog.fetch_run_segment(record.id)
+
+    assert header["version"] == AuthoringCheckpoint.format_version()
+    assert length(messages) == 2
   end
 
-  test "无私有列且无 checkpoint 数据时返回 none，不启动执行" do
-    assert {:ok, nil, :none} =
-             AuthoringCheckpoint.restore(record(%{authoring_transcript: nil}), nil)
+  test "bounded run 没有 long-run checkpoint 时直接读会话段，不启动执行", %{
+    work: work,
+    session: session
+  } do
+    identity = run_identity(work, session)
+    record = record(identity)
+    seed_segment!(record, transcript(identity))
 
-    assert {:ok, nil, :none} =
-             AuthoringCheckpoint.restore(record(%{authoring_transcript: nil}), %{})
+    assert {:ok, restored, :session_segment} = AuthoringCheckpoint.restore(record, nil)
+    assert [%{role: "application_base"}, %{role: "user"}] = restored.messages
   end
 
-  test "有 checkpoint 数据但缺版本时报告未知格式 partial，不猜成 v2" do
-    record = record(%{authoring_transcript: nil})
+  test "无会话段且无 checkpoint 数据时返回 none，不伪造历史", %{
+    work: work,
+    session: session
+  } do
+    record = record(run_identity(work, session))
+
+    assert {:ok, nil, :none} = AuthoringCheckpoint.restore(record, nil)
+    assert {:ok, nil, :none} = AuthoringCheckpoint.restore(record, %{})
+  end
+
+  test "有 checkpoint 数据但缺版本时报告未知格式 partial，不猜成旧格式", %{
+    work: work,
+    session: session
+  } do
+    identity = run_identity(work, session)
+    record = record(identity)
 
     assert {:partial, :checkpoint_version_missing} =
              AuthoringCheckpoint.restore(record, %{
                "agent_run" => %{"run_id" => record.id},
-               "authoring_transcript" => checkpoint()
+               "authoring_transcript" => checkpoint(identity)
              })
   end
 
-  test "私有列非 nil 时是唯一 canonical，checkpoint_data 内嵌副本不参与选择" do
-    record = record()
+  test "有会话段时 checkpoint_data 内旧内嵌副本被忽略，选择段内容", %{
+    work: work,
+    session: session
+  } do
+    identity = run_identity(work, session)
+    record = record(identity)
+    seed_segment!(record, transcript(identity))
 
-    embedded = %{
-      "agent_run" => %{
-        "checkpoint_version" => 3,
-        "authoring_transcript_ref" => AuthoringCheckpoint.ref(record.id)
-      },
-      "authoring_transcript" => %{"version" => "embedded-but-not-read"}
-    }
+    embedded = %{"version" => "embedded-but-not-read", "transcript" => %{}}
 
-    assert {:ok, private, :private_run} = AuthoringCheckpoint.restore(record, embedded)
-    assert [%{role: "application_base"}, %{role: "user"}] = private.messages
+    assert {:ok, restored, :session_segment} =
+             AuthoringCheckpoint.restore(
+               record,
+               durable_data(record, %{"authoring_transcript" => embedded})
+             )
+
+    assert [%{role: "application_base"}, %{role: "user"}] = restored.messages
   end
 
-  test "私有列损坏时返回 error，不读 checkpoint_data 内嵌副本" do
-    record = record(%{run_mode: "durable", authoring_transcript: %{"version" => "broken"}})
+  test "会话段消息缺失时如实报告 inconsistent，不回退 checkpoint_data 内嵌副本", %{
+    work: work,
+    session: session
+  } do
+    identity = run_identity(work, session)
+    record = record(identity)
+    seed_segment!(record, transcript(identity))
 
-    embedded = %{
-      "agent_run" => %{
-        "checkpoint_version" => 3,
-        "authoring_transcript_ref" => AuthoringCheckpoint.ref(record.id)
-      },
-      "authoring_transcript" => checkpoint()
-    }
+    embedded = %{"authoring_transcript" => AuthoringTranscript.checkpoint(transcript(identity))}
 
-    assert {:error, _reason} = AuthoringCheckpoint.restore(record, embedded)
+    SQL.query!(
+      Repo,
+      "DELETE FROM authoring_session_messages WHERE run_id = ? AND run_sequence = 2",
+      [record.id]
+    )
+
+    assert {:error, :authoring_segment_inconsistent} =
+             AuthoringCheckpoint.restore(record, durable_data(record, embedded))
   end
 
-  test "私有列存在时 v3 引用缺失/错绑仍按契约拒绝" do
-    record = record()
+  test "会话段消息损坏时 fail-closed，不退回旧内嵌副本", %{work: work, session: session} do
+    identity = run_identity(work, session)
+    record = record(identity)
+    seed_segment!(record, transcript(identity))
 
-    assert {:error, :authoring_transcript_ref_missing} =
-             AuthoringCheckpoint.restore(record, %{
-               "agent_run" => %{"checkpoint_version" => 3}
-             })
+    embedded = %{"authoring_transcript" => AuthoringTranscript.checkpoint(transcript(identity))}
 
-    assert {:error, :authoring_transcript_ref_mismatch} =
+    SQL.query!(
+      Repo,
+      "UPDATE authoring_session_messages SET message = ? WHERE run_id = ? AND run_sequence = 1",
+      [Jason.encode!(%{"nope" => true}), record.id]
+    )
+
+    assert {:error, _reason} = AuthoringCheckpoint.restore(record, durable_data(record, embedded))
+  end
+
+  test "未知段头版本在写入边界被拒绝，不产生可读段", %{work: work, session: session} do
+    identity = run_identity(work, session)
+    record = record(identity)
+    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(record, transcript(identity))
+
+    bad_segment = %{
+      segment
+      | header: Map.put(segment.header, "version", "authoring-run-segment/v9")
+    }
+
+    other_identity = run_identity(work, session)
+    other_record = record(other_identity)
+
+    assert {:error, :authoring_segment_version_unsupported} =
+             AuthoringSessionLog.append_run(run_attrs(other_record), bad_segment)
+  end
+
+  test "有会话段时 durable 段引用缺失/错绑/版本不符仍按新原子拒绝", %{
+    work: work,
+    session: session
+  } do
+    identity = run_identity(work, session)
+    record = record(identity)
+    seed_segment!(record, transcript(identity))
+
+    assert {:error, :authoring_segment_ref_missing} =
+             AuthoringCheckpoint.restore(record, %{"agent_run" => %{"checkpoint_version" => 3}})
+
+    assert {:error, :authoring_segment_ref_mismatch} =
              AuthoringCheckpoint.restore(record, %{
                "agent_run" => %{
                  "checkpoint_version" => 3,
-                 "authoring_transcript_ref" => %{
+                 "authoring_segment_ref" => %{
                    "run_id" => "other-run",
                    "version" => AuthoringCheckpoint.format_version()
                  }
                }
              })
-  end
 
-  test "v3 引用指向同一 run 时选择私有列" do
-    record = record()
-
-    assert {:ok, _transcript, :private_run} =
+    assert {:error, :authoring_segment_ref_mismatch} =
              AuthoringCheckpoint.restore(record, %{
                "agent_run" => %{
                  "checkpoint_version" => 3,
-                 "authoring_transcript_ref" => AuthoringCheckpoint.ref(record.id)
+                 "authoring_segment_ref" => %{
+                   "run_id" => record.id,
+                   "version" => "authoring-run-segment/v9"
+                 }
                }
              })
+
+    assert {:error, :checkpoint_version_mismatch} =
+             AuthoringCheckpoint.restore(record, %{"agent_run" => %{"checkpoint_version" => 2}})
   end
 
-  test "写入边界用共享 codec/IR 拒绝损坏语义，并输出可回读的 string-key checkpoint" do
-    record = record(%{authoring_transcript: nil})
-    {:ok, transcript} = AuthoringTranscript.restore(checkpoint())
+  test "写入边界用共享 codec/IR 拒绝损坏语义，并输出可回读的段形状", %{
+    work: work,
+    session: session
+  } do
+    identity = run_identity(work, session)
+    record = record(identity)
+    transcript = transcript(identity)
 
-    broken =
-      transcript
-      |> Map.put(:messages, [%{role: "user"}])
-      |> AuthoringTranscript.checkpoint()
+    broken = %{transcript | messages: [%{role: "user"}]}
 
-    assert {:error, _reason} = AuthoringCheckpoint.validate_for_write(record, broken)
-    assert {:error, _reason} = AuthoringCheckpoint.validate_for_write(record, %{})
+    assert {:error, _reason} = AuthoringCheckpoint.encode_segment_for_write(record, broken)
 
-    assert {:ok, encoded} = AuthoringCheckpoint.encode_for_write(record, transcript)
-    assert encoded["version"] == AuthoringCheckpoint.format_version()
-    assert {:ok, restored} = AuthoringTranscript.restore(encoded)
+    assert {:error, :invalid_authoring_segment} =
+             AuthoringCheckpoint.validate_segment(record, %{})
+
+    assert {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(record, transcript)
+    assert segment.header["version"] == AuthoringCheckpoint.format_version()
+
+    # 编码后的消息与内存 checkpoint 的消息在 JSON 值上逐项一致（map 键序不参与比较）。
+    assert json_normalize(segment.messages) ==
+             json_normalize(AuthoringTranscript.checkpoint(transcript).transcript.messages)
+
+    {:ok, state} = AuthoringSessionLog.append_run(run_attrs(record), segment)
+    assert state.message_count == length(segment.messages)
+
+    assert {:ok, restored, :session_segment} = AuthoringCheckpoint.restore(record, nil)
     assert restored.messages == transcript.messages
   end
 
-  test "写入边界拒绝与 row 身份不符的 canonical" do
-    record = record(%{authoring_transcript: nil})
-    wrong = run_identity(%{session_id: "other-session"})
+  test "写入边界拒绝与 row 身份不符的 canonical", %{work: work, session: session} do
+    identity = run_identity(work, session)
+    record = record(identity)
 
-    transcript =
-      AuthoringTranscript.new(wrong, base_text: "base", author_text: "author")
+    wrong = run_identity(work, session, %{session_id: "other-session"})
 
-    assert {:error, :authoring_transcript_identity_mismatch} =
-             AuthoringCheckpoint.encode_for_write(record, transcript)
+    assert {:error, :authoring_segment_identity_mismatch} =
+             AuthoringCheckpoint.encode_segment_for_write(record, transcript(wrong))
   end
 
-  test "写入边界按真实 JSON 表示编码，Date/Time/NaiveDateTime 三投影逐字恢复" do
-    record = record(%{authoring_transcript: nil})
+  test "写入边界按真实 JSON 表示编码，Date/Time/NaiveDateTime 三投影端到端逐字一致", %{
+    work: work,
+    session: session
+  } do
+    identity = run_identity(work, session)
+    record = record(identity)
 
     transcript =
-      run_identity()
-      |> AuthoringTranscript.new(
+      AuthoringTranscript.new(identity,
         base_text: "只记录已有事实",
         author_text: "  检查日期\n"
       )
@@ -184,17 +333,19 @@ defmodule NovelApplication.AuthoringCheckpointTest do
         }
       })
 
-    assert {:ok, encoded} = AuthoringCheckpoint.encode_for_write(record, transcript)
+    assert {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(record, transcript)
 
     assert [%{"blocks" => [%{"content" => content}]}] =
-             Enum.filter(encoded["transcript"]["messages"], &(&1["role"] == "tool"))
+             Enum.filter(segment.messages, &(&1["role"] == "tool"))
 
     assert content["date"] == "2026-11-02"
     assert content["time"] == "12:30:00"
     assert content["at"] == "2026-11-02T12:30:00"
     assert content["original"] == "  字节\n"
 
-    assert {:ok, restored} = AuthoringTranscript.restore(encoded)
+    seed_encoded_segment!(record, segment)
+
+    assert {:ok, restored, :session_segment} = AuthoringCheckpoint.restore(record, nil)
     assert {:ok, before_ir} = AuthoringTranscript.to_request_ir(transcript)
     assert {:ok, after_ir} = AuthoringTranscript.to_request_ir(restored)
 
@@ -202,16 +353,17 @@ defmodule NovelApplication.AuthoringCheckpointTest do
       assert {:ok, before_body} = Projection.project(before_ir, target)
       assert {:ok, after_body} = Projection.project(after_ir, target)
       assert before_body == after_body, "projection #{target} changed after persistence"
+      assert Jason.encode!(before_body) == Jason.encode!(after_body)
     end
   end
 
-  test "写入边界拒绝不可 JSON 表示的私有值且错误不泄漏内容" do
-    record = record(%{authoring_transcript: nil})
+  test "写入边界拒绝不可 JSON 表示的私有值且错误不泄漏内容", %{work: work, session: session} do
+    identity = run_identity(work, session)
+    record = record(identity)
     marker = "private-payload-marker"
 
     transcript =
-      run_identity()
-      |> AuthoringTranscript.new(base_text: "base", author_text: "author")
+      AuthoringTranscript.new(identity, base_text: "base", author_text: "author")
       |> AuthoringTranscript.append_assistant(
         "",
         [RequestIR.tool_call_block("archive_read", %{}, "bad-value")]
@@ -221,8 +373,72 @@ defmodule NovelApplication.AuthoringCheckpointTest do
         content: %{callback: fn -> marker end}
       })
 
-    assert {:error, reason} = AuthoringCheckpoint.encode_for_write(record, transcript)
-    assert reason == :authoring_transcript_not_json_encodable
+    assert {:error, reason} = AuthoringCheckpoint.encode_segment_for_write(record, transcript)
+    assert reason == :authoring_segment_not_json_encodable
     refute inspect(reason) =~ marker
+  end
+
+  test "读取端对未知段头版本 fail-closed，不返回历史", %{work: work, session: session} do
+    identity = run_identity(work, session)
+    record = record(identity)
+    seed_segment!(record, transcript(identity))
+
+    {:ok, %{header: header}} = AuthoringSessionLog.fetch_run_segment(record.id)
+    tamper_header!(record.id, Map.put(header, "version", "authoring-run-segment/v9"))
+
+    assert {:error, :authoring_segment_version_unsupported} =
+             AuthoringCheckpoint.restore(record, nil)
+  end
+
+  test "读取端对缺必需键的段头 fail-closed，不返回历史", %{work: work, session: session} do
+    identity = run_identity(work, session)
+    record = record(identity)
+    seed_segment!(record, transcript(identity))
+
+    {:ok, %{header: header}} = AuthoringSessionLog.fetch_run_segment(record.id)
+    tamper_header!(record.id, Map.delete(header, "used_refs"))
+
+    assert {:error, :authoring_segment_shape_invalid} = AuthoringCheckpoint.restore(record, nil)
+  end
+
+  test "run 行身份被改写后读取端 fail-closed，不回退旧身份段", %{
+    work: work,
+    session: session
+  } do
+    identity = run_identity(work, session)
+    record = record(identity)
+
+    {:ok, _run} =
+      AgentRunLog.upsert_run(
+        Map.merge(run_attrs(record), %{
+          origin_frame_ref: "frame-checkpoint",
+          run_mode: "bounded",
+          profile_ref: identity.profile_ref,
+          status: "completed",
+          phase: "stopped"
+        })
+      )
+
+    seed_segment!(record, transcript(identity))
+
+    # 直接改写 run 行身份（模拟历史错绑/篡改），会话段头仍记录原身份。
+    SQL.query!(Repo, "UPDATE agent_runs SET session_id = ? WHERE id = ?", [
+      "other-session",
+      record.id
+    ])
+
+    updated_run = AgentRunLog.get_run(record.id)
+    assert updated_run.session_id == "other-session"
+
+    assert {:error, :authoring_segment_identity_mismatch} =
+             AuthoringCheckpoint.restore(updated_run, nil)
+  end
+
+  # 读取端负例的故障注入：直接改写段头 JSON（等价于 SQL json_set 修改 header）。
+  defp tamper_header!(run_id, header) do
+    SQL.query!(Repo, "UPDATE authoring_run_segments SET header = ? WHERE run_id = ?", [
+      Jason.encode!(header),
+      run_id
+    ])
   end
 end

@@ -13,6 +13,7 @@ defmodule NovelApplication.AutoMaintenanceTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.AgentRunService
   alias NovelApplication.AuthoringTranscript
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelCommon.RequestIR
   alias NovelDomain.AgentNextStepDecision
   alias NovelPersistence.AgentRunLog
@@ -60,7 +61,7 @@ defmodule NovelApplication.AutoMaintenanceTest do
     refute Enum.any?(Map.values(record.payload), &(is_binary(&1) and &1 =~ "%"))
 
     run = AgentRunLog.get_run(run_id)
-    assert {:ok, restored} = AuthoringTranscript.restore(run.authoring_transcript)
+    restored = TestAgenticLoopFixtures.persisted_transcript(run)
     assert Enum.any?(restored.messages, &(&1.role == "checkpoint"))
     # 原文保留：被整理 exchange 的 observation 仍在 canonical 记录中。
     assert inspect(restored.messages) =~ "call-1"
@@ -131,7 +132,7 @@ defmodule NovelApplication.AutoMaintenanceTest do
     assert record.payload["covered_exchanges"] == 1
 
     run = AgentRunLog.get_run(run_id)
-    assert {:ok, restored} = AuthoringTranscript.restore(run.authoring_transcript)
+    restored = TestAgenticLoopFixtures.persisted_transcript(run)
 
     assert Enum.any?(restored.messages, fn message ->
              Enum.any?(message.blocks, &(Map.get(&1, :call_id) == "call-pending"))
@@ -164,7 +165,7 @@ defmodule NovelApplication.AutoMaintenanceTest do
     assert [record] = checkpoint_events(run_id)
     assert record.payload["covered_exchanges"] == 1
     run = AgentRunLog.get_run(run_id)
-    assert {:ok, restored} = AuthoringTranscript.restore(run.authoring_transcript)
+    restored = TestAgenticLoopFixtures.persisted_transcript(run)
     assert Enum.count(restored.messages, &(&1.role == "checkpoint")) == 1
   end
 
@@ -176,7 +177,7 @@ defmodule NovelApplication.AutoMaintenanceTest do
     insert_provider_usage(run_id, @due_tokens)
 
     # 只让整理记录事件写入失败（维护提交含 agent_events INSERT）；普通 step delivery
-    # 不写事件/不写 authoring_transcript，保持成功，从而隔离出维护失败路径。
+    # 不写事件/不写会话 canonical，保持成功，从而隔离出维护失败路径。
     SQL.query!(Repo, """
     CREATE TEMP TRIGGER reject_b71_auto_maintenance BEFORE INSERT ON agent_events
     WHEN NEW.event_type = 'checkpoint_created'
@@ -291,7 +292,7 @@ defmodule NovelApplication.AutoMaintenanceTest do
 
   defp assert_no_checkpoint(run_id) do
     run = AgentRunLog.get_run(run_id)
-    assert {:ok, restored} = AuthoringTranscript.restore(run.authoring_transcript)
+    restored = TestAgenticLoopFixtures.persisted_transcript(run)
     refute Enum.any?(restored.messages, &(&1.role == "checkpoint"))
   end
 

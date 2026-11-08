@@ -120,6 +120,17 @@ defmodule NovelApplication.AuthoringTranscript do
   end
 
   @checkpoint_version "authoring-transcript/v1"
+
+  @doc """
+  transcript 结构 codec 版本（checkpoint/restore 的 `version` 字段）。
+
+  这是 application 内存结构的 JSON codec 版本，不是会话 canonical 的持久化格式
+  版本；后者由 `NovelApplication.AuthoringCheckpoint.format_version/0`（持久层
+  `AuthoringSessionLog`）唯一持有。
+  """
+  @spec checkpoint_version() :: String.t()
+  def checkpoint_version, do: @checkpoint_version
+
   @json_payload_keys ~w(arguments versions items run tools provider_state detail content coverage)a
   @canonical_keys ~w(
     run system messages tools base_refs observation_refs used_refs projection call_ids

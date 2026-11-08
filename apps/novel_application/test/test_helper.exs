@@ -42,6 +42,46 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
     transcript
   end
 
+  @doc "从会话 canonical 存储重建本 run 执行段（B81 CP1）。"
+  def persisted_transcript(run_or_id) do
+    run =
+      if is_binary(run_or_id),
+        do: NovelPersistence.AgentRunLog.get_run(run_or_id),
+        else: run_or_id
+
+    {:ok, transcript, :session_segment} = NovelApplication.AuthoringCheckpoint.restore(run, nil)
+    transcript
+  end
+
+  @doc "按 run 读取会话执行段（段头 + 消息）。"
+  def persisted_segment(run_id) do
+    {:ok, segment} = NovelPersistence.AuthoringSessionLog.fetch_run_segment(run_id)
+    segment
+  end
+
+  @doc "把内存 canonical 播种为会话执行段（绕过 run 提交，用于恢复/回查夹具）。"
+  def append_segment!(transcript) do
+    run = transcript.run
+
+    record = %{
+      id: run.run_id,
+      workspace_id: run.workspace_id,
+      work_id: run.work_id,
+      session_id: run.session_id,
+      parent_turn_ref: run.parent_turn_ref
+    }
+
+    {:ok, segment} =
+      NovelApplication.AuthoringCheckpoint.encode_segment_for_write(record, transcript)
+
+    {:ok, _state} =
+      NovelPersistence.Repo.transaction(fn ->
+        NovelPersistence.AuthoringSessionLog.append_run(record, segment)
+      end)
+
+    :ok
+  end
+
   def reasoning_tail(packet) when is_map(packet) do
     tail = %{
       "evaluation_of_last" => Map.get(packet, :evaluation_of_last, evaluation_holds()),

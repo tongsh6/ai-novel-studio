@@ -30,6 +30,7 @@ defmodule NovelApplication.AgentRunResultCommitTest do
   alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.AuthorQuestion
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelApplication.TurnResultBuilder
 
   alias NovelDomain.{AgentNextStepDecision, AgentStep, DecisionTrace}
@@ -178,10 +179,10 @@ defmodule NovelApplication.AgentRunResultCommitTest do
     assert task
     assert task.id == task_ref
     assert task.checkpoint_data["agent_run"]["checkpoint_version"] == 3
-    ref = task.checkpoint_data["agent_run"]["authoring_transcript_ref"]
+    ref = task.checkpoint_data["agent_run"]["authoring_segment_ref"]
     assert ref
     assert ref["run_id"] == attrs.run_id
-    assert ref["version"] == "authoring-transcript/v1"
+    assert ref["version"] == NovelApplication.AuthoringCheckpoint.format_version()
     refute Map.has_key?(task.checkpoint_data, "authoring_transcript")
   end
 
@@ -286,17 +287,17 @@ defmodule NovelApplication.AgentRunResultCommitTest do
     assert run.consumed_budget["tool_calls"] == 1
     assert run.consumed_budget["provider_calls"] == 2
 
-    canonical = run.authoring_transcript
+    canonical = TestAgenticLoopFixtures.persisted_transcript(run)
     assert canonical
     assert inspect(canonical) =~ @private_marker
 
-    run_identity = canonical["transcript"]["run"]
+    run_identity = canonical.run
     assert run_identity
-    assert run_identity["run_id"] == attrs.run_id
-    assert run_identity["work_id"] == attrs.work_id
-    assert run_identity["workspace_id"] == attrs.workspace_id
-    assert run_identity["session_id"] == attrs.session_id
-    assert run_identity["parent_turn_ref"] == attrs.parent_turn_ref
+    assert run_identity.run_id == attrs.run_id
+    assert run_identity.work_id == attrs.work_id
+    assert run_identity.workspace_id == attrs.workspace_id
+    assert run_identity.session_id == attrs.session_id
+    assert run_identity.parent_turn_ref == attrs.parent_turn_ref
 
     assert Enum.any?(snapshot.events, &(&1.event_type == "run_failed"))
     refute Enum.any?(snapshot.events, &(&1.event_type == "provider_progress"))
@@ -608,7 +609,9 @@ defmodule NovelApplication.AgentRunResultCommitTest do
 
       run = AgentRunLog.get_run(run_id)
       assert run
-      assert run.authoring_transcript == nil
+      assert {:ok, nil} = NovelPersistence.AuthoringSessionLog.fetch_run_segment(run_id)
+
+      assert NovelPersistence.AuthoringSessionLog.fetch_session_messages(attrs.session_id) == []
 
       refute Enum.any?(
                run_events(run_id),
@@ -666,24 +669,27 @@ defmodule NovelApplication.AgentRunResultCommitTest do
     transcript
   end
 
-  # 只验证 fixture 本身可写可回读；不把 encoded 结果回灌给运行，不预归一历史。
+  # fixture 自检：写入边界编码 + 共享 IR 校验后，段头身份与消息必须与内存 canonical 同源。
+  # 只证明 fixture 可写可回读，不把 encoded 结果回灌给运行，不预归一历史。
   defp assert_canonical_fixture!(attrs, transcript) do
     record = %{
-      run_id: attrs.run_id,
+      id: attrs.run_id,
       workspace_id: attrs.workspace_id,
       work_id: attrs.work_id,
       session_id: attrs.session_id,
       parent_turn_ref: attrs.parent_turn_ref
     }
 
-    assert {:ok, encoded} = AuthoringCheckpoint.encode_for_write(record, transcript)
+    assert {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(record, transcript)
+    assert :ok = AuthoringCheckpoint.validate_segment(record, segment)
 
-    assert {:ok, restored, :private_run} =
-             AuthoringCheckpoint.restore(Map.put(record, :authoring_transcript, encoded), nil)
-
-    assert restored.run == transcript.run
-    assert restored.messages == transcript.messages
+    # 直接回读等值：段头 run 身份与 JSON 形状消息必须与内存 canonical 一致。
+    assert segment.header["version"] == AuthoringCheckpoint.format_version()
+    assert segment.header["run"] == json_encode_decode(transcript.run)
+    assert json_encode_decode(segment.messages) == json_encode_decode(transcript.messages)
   end
+
+  defp json_encode_decode(value), do: value |> Jason.encode!() |> Jason.decode!()
 
   defp result_assistant_text(%{turn_result: result}) do
     message = Map.get(result, :assistant_message) || Map.get(result, "assistant_message") || %{}
@@ -840,15 +846,15 @@ defmodule NovelApplication.AgentRunResultCommitTest do
     assert run.consumed_budget["provider_calls"] == 2
     assert run.completed_step_refs == [step.step_id]
 
-    canonical = run.authoring_transcript
+    canonical = TestAgenticLoopFixtures.persisted_transcript(run)
     assert canonical
-    run_identity = canonical["transcript"]["run"]
+    run_identity = canonical.run
     assert run_identity
-    assert run_identity["run_id"] == attrs.run_id
-    assert run_identity["work_id"] == attrs.work_id
-    assert run_identity["workspace_id"] == attrs.workspace_id
-    assert run_identity["session_id"] == attrs.session_id
-    assert run_identity["parent_turn_ref"] == attrs.parent_turn_ref
+    assert run_identity.run_id == attrs.run_id
+    assert run_identity.work_id == attrs.work_id
+    assert run_identity.workspace_id == attrs.workspace_id
+    assert run_identity.session_id == attrs.session_id
+    assert run_identity.parent_turn_ref == attrs.parent_turn_ref
     assert inspect(canonical) =~ @private_marker
 
     assert [stored_step] = snapshot.steps
@@ -904,7 +910,7 @@ defmodule NovelApplication.AgentRunResultCommitTest do
 
   defp install_trigger!(:private_history, name) do
     Repo.query!("""
-    CREATE TEMP TRIGGER #{name} BEFORE UPDATE OF authoring_transcript ON agent_runs
+    CREATE TEMP TRIGGER #{name} BEFORE INSERT ON authoring_session_messages
     BEGIN SELECT RAISE(ABORT, 'injected private history rejection'); END
     """)
 

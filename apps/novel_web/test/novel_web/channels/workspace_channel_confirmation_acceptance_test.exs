@@ -15,7 +15,6 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
 
   alias NovelApplication.{
     AgentRunService,
-    AuthoringTranscript,
     WorkService,
     WorkSessionService
   }
@@ -909,8 +908,8 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
   end
 
   defp child_transcript_messages(run_id) do
-    checkpoint = AgentRunLog.get_run(run_id).authoring_transcript
-    {:ok, transcript} = AuthoringTranscript.restore(checkpoint)
+    run = AgentRunLog.get_run(run_id)
+    {:ok, transcript, :session_segment} = NovelApplication.AuthoringCheckpoint.restore(run, nil)
     transcript.messages
   end
 

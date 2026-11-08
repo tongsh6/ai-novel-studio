@@ -69,8 +69,9 @@ defmodule NovelApplication.AgentRunCompactionEventTest do
     assert {:ok, before_state} = AgentRunService.state(run_id)
 
     SQL.query!(Repo, """
-    CREATE TEMP TRIGGER reject_b71_compaction_record BEFORE UPDATE OF authoring_transcript
-    ON agent_runs BEGIN SELECT RAISE(ABORT, 'private history unavailable'); END
+    CREATE TEMP TRIGGER reject_b71_compaction_record BEFORE INSERT ON authoring_session_messages
+    WHEN NEW.role = 'checkpoint'
+    BEGIN SELECT RAISE(ABORT, 'private history unavailable'); END
     """)
 
     try do

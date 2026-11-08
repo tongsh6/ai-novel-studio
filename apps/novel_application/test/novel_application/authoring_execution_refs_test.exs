@@ -1,12 +1,20 @@
 defmodule NovelApplication.AuthoringExecutionRefsTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
+
+  alias Ecto.Adapters.SQL.Sandbox
 
   alias NovelAgent.Provider.Result
   alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringTranscript
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
+  alias NovelPersistence.{AuthoringSessionLog, Repo}
   alias NovelPersistence.Schemas.AgentRunRecord
+
+  setup do
+    :ok = Sandbox.checkout(Repo)
+    :ok
+  end
 
   @author_text "作者原话：保留 provider_call_ref 字样。"
   @targets ["chat_completions", "anthropic_messages", "responses_api"]
@@ -92,8 +100,17 @@ defmodule NovelApplication.AuthoringExecutionRefsTest do
       run_mode: "bounded",
       profile_ref: "probe_v1",
       status: "completed",
-      phase: "stopped",
-      authoring_transcript: nil
+      phase: "stopped"
+    }
+  end
+
+  defp run_attrs(record) do
+    %{
+      id: record.id,
+      workspace_id: record.workspace_id,
+      work_id: record.work_id,
+      session_id: record.session_id,
+      parent_turn_ref: record.parent_turn_ref
     }
   end
 
@@ -116,11 +133,12 @@ defmodule NovelApplication.AuthoringExecutionRefsTest do
     original = transcript_with_assistant_refs()
     record = record()
 
-    assert {:ok, encoded} = AuthoringCheckpoint.encode_for_write(record, original)
-    assert encoded["version"] == AuthoringCheckpoint.format_version()
+    assert {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(record, original)
+    assert segment.header["version"] == AuthoringCheckpoint.format_version()
 
-    assert {:ok, restored, :private_run} =
-             AuthoringCheckpoint.restore(%{record | authoring_transcript: encoded}, nil)
+    {:ok, _state} = AuthoringSessionLog.append_run(run_attrs(record), segment)
+
+    assert {:ok, restored, :session_segment} = AuthoringCheckpoint.restore(record, nil)
 
     assert assistant_refs(restored) == @expected_refs
     assert_run_identity(restored.run)

@@ -5,8 +5,9 @@ defmodule NovelApplication.AuthoringReplay do
   只读取已保存的摘要、省略说明与来源显示名；不解释 Provider 私有状态，
   不把工具调用号、对象引用或内部版本号暴露给作者。
 
-  运行身份统一由 `NovelApplication.AgentRunHistory` 解析；本模块只负责按
-  `agent_runs.authoring_transcript` / durable checkpoint 读取 canonical 历史。
+  运行身份统一由 `NovelApplication.AgentRunHistory` 解析；本模块只负责按会话级
+  canonical 执行段（`AuthoringCheckpoint.restore/2`，底层为
+  `AuthoringSessionLog` 的 run 段）与 durable checkpoint 读取 canonical 历史。
   """
 
   alias NovelApplication.{
@@ -26,6 +27,10 @@ defmodule NovelApplication.AuthoringReplay do
 
   bounded run 没有私有历史且已记录 Provider 调用数为 0 时返回
   `:not_applicable`；其余缺历史的情况返回错误，由 TraceReplay 报告 partial。
+
+  对外错误面 `{:error, :authoring_transcript}` 是既有 API 契约字样（TraceReport 的
+  `missing_trace_refs` 使用 `"authoring_transcript"`），语义=会话 canonical 创作
+  历史缺失；CP1 只改存储作用域，不改该契约面，避免无关消费者迁移。
   """
   @spec fetch(String.t(), String.t(), String.t()) ::
           {:ok, [map()]} | :not_applicable | {:error, :authoring_transcript}

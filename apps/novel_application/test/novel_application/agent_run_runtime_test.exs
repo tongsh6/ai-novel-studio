@@ -146,13 +146,11 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert state.stage_state.judgment_transcript == transcript
 
     task = LongRunTaskLog.get(state.run.long_run_task_ref)
-    checkpoint = AuthoringTranscript.checkpoint(transcript)
 
-    assert get_in(AgentRunLog.get_run(run_id).authoring_transcript, ["transcript", "messages"]) ==
-             checkpoint.transcript.messages |> Jason.encode!() |> Jason.decode!()
+    assert TestAgenticLoopFixtures.persisted_transcript(run_id).messages == transcript.messages
 
     assert task.checkpoint_data["agent_run"]["checkpoint_version"] == 3
-    assert task.checkpoint_data["agent_run"]["authoring_transcript_ref"]["run_id"] == run_id
+    assert task.checkpoint_data["agent_run"]["authoring_segment_ref"]["run_id"] == run_id
     refute Map.has_key?(task.checkpoint_data, "authoring_transcript")
   end
 
@@ -226,9 +224,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert state.stage_state.judgment_transcript == latest
     assert state.run.consumed_budget.provider_calls == 2
 
-    checkpoint = AgentRunLog.get_run(run_id).authoring_transcript
-
-    assert {:ok, restored} = AuthoringTranscript.restore(checkpoint)
+    restored = TestAgenticLoopFixtures.persisted_transcript(run_id)
     assert restored.messages == latest.messages
   end
 
@@ -271,8 +267,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       assert state.stage_state[:judgment_transcript] == transcript
       assert state.run.consumed_budget.provider_calls == 2
 
-      assert %{"transcript" => %{"messages" => _}} =
-               AgentRunLog.get_run(run_id).authoring_transcript
+      assert TestAgenticLoopFixtures.persisted_transcript(run_id).messages != []
 
       task = LongRunTaskLog.get(state.run.long_run_task_ref)
       assert task.checkpoint_data["agent_run"]["checkpoint_version"] == 3
@@ -326,10 +321,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, state} = AgentRunService.state(run_id)
     task = LongRunTaskLog.get(state.run.long_run_task_ref)
-    checkpoint = AgentRunLog.get_run(run_id).authoring_transcript
-
-    assert {:ok, restored} = AuthoringTranscript.restore(checkpoint)
-    assert task.checkpoint_data["agent_run"]["authoring_transcript_ref"]["run_id"] == run_id
+    restored = TestAgenticLoopFixtures.persisted_transcript(run_id)
+    assert task.checkpoint_data["agent_run"]["authoring_segment_ref"]["run_id"] == run_id
     refute Map.has_key?(task.checkpoint_data, "authoring_transcript")
 
     assert Enum.map(restored.messages, & &1.role) == [
@@ -386,7 +379,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       assert_receive {:agent_event, :run_failed, _}, 2000
       assert {:ok, before_state} = AgentRunService.state(run_id)
       task = LongRunTaskLog.get(before_state.run.long_run_task_ref)
-      before_record = AgentRunLog.get_run(run_id)
 
       case failure do
         :missing_task ->
@@ -394,10 +386,13 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
         :rejected_checkpoint ->
           SQL.query!(Repo, """
-          CREATE TEMP TRIGGER reject_b71_checkpoint BEFORE UPDATE OF authoring_transcript
-          ON agent_runs BEGIN SELECT RAISE(ABORT, 'private history unavailable'); END
+          CREATE TEMP TRIGGER reject_b71_checkpoint BEFORE INSERT ON authoring_session_messages
+          WHEN NEW.role = 'checkpoint'
+          BEGIN SELECT RAISE(ABORT, 'private history unavailable'); END
           """)
       end
+
+      before_segment = TestAgenticLoopFixtures.persisted_segment(run_id)
 
       try do
         assert {:error, :checkpoint_persistence_failed} =
@@ -406,8 +401,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         assert {:ok, after_state} = AgentRunService.state(run_id)
         assert after_state.stage_state == before_state.stage_state
 
-        assert AgentRunLog.get_run(run_id).authoring_transcript ==
-                 before_record.authoring_transcript
+        assert TestAgenticLoopFixtures.persisted_segment(run_id) == before_segment
 
         if failure == :rejected_checkpoint do
           assert LongRunTaskLog.get(task.id).checkpoint_data == task.checkpoint_data
@@ -1474,15 +1468,15 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     persisted_task =
       wait_for(fn ->
         with %{status: "PAUSED"} = task <- LongRunTaskLog.get(task_ref),
-             %{authoring_transcript: %{} = checkpoint} <- AgentRunLog.get_run(run_id),
-             true <- checkpoint["transcript"]["messages"] != [] do
+             {:ok, %{messages: [_ | _]}} <-
+               NovelPersistence.AuthoringSessionLog.fetch_run_segment(run_id) do
           task
         else
           _ -> nil
         end
       end)
 
-    assert persisted_task.checkpoint_data["agent_run"]["authoring_transcript_ref"]["run_id"] ==
+    assert persisted_task.checkpoint_data["agent_run"]["authoring_segment_ref"]["run_id"] ==
              run_id
 
     refute Map.has_key?(persisted_task.checkpoint_data, "authoring_transcript")
@@ -1549,7 +1543,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
             "run_id" => run_id,
             "goal_version" => 1,
             "checkpoint_version" => 3,
-            "authoring_transcript_ref" => %{
+            "authoring_segment_ref" => %{
               "run_id" => run_id,
               "version" => NovelApplication.AuthoringCheckpoint.format_version()
             },
@@ -1567,7 +1561,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       session_id: session_id,
       parent_turn_ref: "turn_private_checkpoint_#{run_id}",
       completed_step_refs: ["step_private_checkpoint_1"],
-      authoring_transcript: private_shape(transcript)
+      canonical_transcript: transcript
     })
 
     assert {:ok, [recovered]} = AgentRunService.recover_durable(work_id, session_id)
@@ -1575,7 +1569,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert recovered.authoring_transcript
     assert recovered.long_run_task.checkpoint_data["private_reasoning"] == marker
 
-    assert recovered.long_run_task.checkpoint_data["agent_run"]["authoring_transcript_ref"][
+    assert recovered.long_run_task.checkpoint_data["agent_run"]["authoring_segment_ref"][
              "run_id"
            ] ==
              run_id
@@ -1583,7 +1577,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     persisted = LongRunTaskLog.get(task.id)
     assert persisted.checkpoint_data["private_reasoning"] == marker
     refute Map.has_key?(persisted.checkpoint_data, "authoring_transcript")
-    assert inspect(AgentRunLog.get_run(run_id).authoring_transcript) =~ marker
+    assert inspect(TestAgenticLoopFixtures.persisted_transcript(run_id)) =~ marker
 
     event = recovered.recovery_event
     assert event.event_type == :run_resumed
@@ -2759,7 +2753,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert run.consumed_budget.provider_calls == 1
   end
 
-  test "bounded terminal run keeps real canonical history in agent_runs private column only" do
+  test "bounded terminal run keeps real canonical history in the session store only" do
     run_id = unique_run_id()
 
     transcript =
@@ -2787,24 +2781,25 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert_receive {:agent_event, :run_completed, _}, 2000
 
-    record =
+    {record, segment} =
       wait_for(fn ->
-        case AgentRunLog.get_run(run_id) do
-          %{authoring_transcript: %{}} = record -> record
-          _ -> nil
+        run = AgentRunLog.get_run(run_id)
+
+        case NovelPersistence.AuthoringSessionLog.fetch_run_segment(run_id) do
+          {:ok, %{messages: [_ | _]} = segment} -> {run, segment}
+          _other -> nil
         end
       end)
 
     assert record.run_mode == "bounded"
     assert record.long_run_task_ref == nil
-    assert record.authoring_transcript["transcript"]["messages"] != []
-    assert inspect(record.authoring_transcript) =~ "private-bounded-marker"
+    assert inspect(segment) =~ "private-bounded-marker"
 
     [{pid, _}] = Registry.lookup(NovelApplication.AgentRunRegistry, run_id)
     DynamicSupervisor.terminate_child(NovelApplication.AgentRunSupervisor, pid)
 
-    # bounded 失活后不重建运行，但已提交的私有历史仍可回查。
-    assert AgentRunLog.get_run(run_id).authoring_transcript == record.authoring_transcript
+    # bounded 失活后不重建运行，但已提交的会话 canonical 历史仍可回查。
+    assert {:ok, ^segment} = NovelPersistence.AuthoringSessionLog.fetch_run_segment(run_id)
   end
 
   test "bounded explicit compaction commits private history before confirming and rolls back on SQL reject" do
@@ -2840,17 +2835,18 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert_receive {:agent_event, :run_failed, _}, 2000
     assert {:ok, before_state} = AgentRunService.state(run_id)
 
-    before_record =
+    before_segment =
       wait_for(fn ->
-        case AgentRunLog.get_run(run_id) do
-          %{authoring_transcript: %{}} = record -> record
-          _ -> nil
+        case NovelPersistence.AuthoringSessionLog.fetch_run_segment(run_id) do
+          {:ok, %{messages: [_ | _]} = segment} -> segment
+          _other -> nil
         end
       end)
 
     SQL.query!(Repo, """
-    CREATE TEMP TRIGGER reject_bounded_private_history BEFORE UPDATE OF authoring_transcript
-    ON agent_runs BEGIN SELECT RAISE(ABORT, 'bounded private history unavailable'); END
+    CREATE TEMP TRIGGER reject_bounded_private_history BEFORE INSERT ON authoring_session_messages
+    WHEN NEW.role = 'checkpoint'
+    BEGIN SELECT RAISE(ABORT, 'bounded private history unavailable'); END
     """)
 
     try do
@@ -2860,8 +2856,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       assert {:ok, after_failure_state} = AgentRunService.state(run_id)
       assert after_failure_state.stage_state == before_state.stage_state
 
-      assert AgentRunLog.get_run(run_id).authoring_transcript ==
-               before_record.authoring_transcript
+      assert TestAgenticLoopFixtures.persisted_segment(run_id) == before_segment
     after
       SQL.query!(Repo, "DROP TRIGGER reject_bounded_private_history")
     end
@@ -2870,24 +2865,44 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert %{compacted: true, covered_exchanges: 1} = receipt
     assert receipt.summary =~ "1 项已完成操作"
 
-    after_record = AgentRunLog.get_run(run_id)
-    assert after_record.authoring_transcript != before_record.authoring_transcript
+    after_segment = TestAgenticLoopFixtures.persisted_segment(run_id)
+    assert length(after_segment.messages) > length(before_segment.messages)
 
-    assert {:ok, restored} = AuthoringTranscript.restore(after_record.authoring_transcript)
+    restored = TestAgenticLoopFixtures.persisted_transcript(run_id)
     assert Enum.any?(restored.messages, &(&1.role == "checkpoint"))
-
-    assert after_record.authoring_transcript["transcript"]["messages"] ==
-             restored.messages |> Jason.encode!() |> Jason.decode!()
-
-    assert after_record.long_run_task_ref == nil
+    assert AgentRunLog.get_run(run_id).long_run_task_ref == nil
   end
 
-  test "durable v3 reference mismatch never falls back to a legacy embedded copy" do
+  test "durable segment ref run_id mismatch never falls back to a legacy embedded copy" do
     run_id = unique_run_id()
-    work_id = "work_v3_ref_#{run_id}"
-    session_id = "session_v3_ref_#{run_id}"
-    parent_turn_ref = "turn_v3_ref_#{run_id}"
 
+    assert_segment_ref_rejected!(
+      run_id,
+      "work_ref_run_mismatch_#{run_id}",
+      "session_ref_run_mismatch_#{run_id}",
+      "turn_ref_run_mismatch_#{run_id}",
+      %{
+        "run_id" => "other-run",
+        "version" => NovelApplication.AuthoringCheckpoint.format_version()
+      }
+    )
+  end
+
+  test "durable legacy ref version is rejected without falling back to embedded copy" do
+    run_id = unique_run_id()
+
+    # 版本分支独立取证：即使 run_id 指向本 run，旧格式版本号也必须 fail-closed。
+    assert_segment_ref_rejected!(
+      run_id,
+      "work_ref_version_#{run_id}",
+      "session_ref_version_#{run_id}",
+      "turn_ref_version_#{run_id}",
+      %{"run_id" => run_id, "version" => "authoring-transcript/v1"}
+    )
+  end
+
+  # 两条段引用负例共用的持久状态：真实 run 行 + 旧内嵌副本诱饵，段引用由调用方注入。
+  defp assert_segment_ref_rejected!(run_id, work_id, session_id, parent_turn_ref, segment_ref) do
     decoy =
       AuthoringTranscript.checkpoint(
         AuthoringTranscript.new(
@@ -2918,10 +2933,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
             "run_id" => run_id,
             "goal_version" => 1,
             "checkpoint_version" => 3,
-            "authoring_transcript_ref" => %{
-              "run_id" => "other-run",
-              "version" => "authoring-transcript/v1"
-            }
+            "authoring_segment_ref" => segment_ref
           },
           "authoring_transcript" => decoy
         }
@@ -2937,7 +2949,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert {:ok, [recovered]} = AgentRunService.recover_durable(work_id, session_id)
     refute recovered.authoring_transcript
     assert recovered.authoring_history.status == :invalid
-    assert recovered.authoring_transcript_error == :authoring_transcript_ref_mismatch
+    assert recovered.authoring_transcript_error == :authoring_segment_ref_mismatch
     refute inspect(recovered) =~ "旧副本诱饵"
   end
 
@@ -3552,19 +3564,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   defp first_allowed_tool(%{authority_scope: %{allowed_tools: [tool | _rest]}}), do: tool
   defp first_allowed_tool(_run), do: "test_step"
 
-  defp private_shape(transcript) do
-    transcript
-    |> AuthoringTranscript.checkpoint()
-    |> Jason.encode!()
-    |> Jason.decode!()
-  end
-
   defp insert_durable_run_record(run_id, long_run_task_ref, attrs) do
     work_id = Map.fetch!(attrs, :work_id)
     session_id = Map.fetch!(attrs, :session_id)
     parent_turn_ref = Map.fetch!(attrs, :parent_turn_ref)
     completed_step_refs = Map.get(attrs, :completed_step_refs, [])
-    private_history = Map.get(attrs, :authoring_transcript)
+    canonical_transcript = Map.get(attrs, :canonical_transcript)
 
     run_attrs =
       %{
@@ -3602,13 +3607,11 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         interrupt_state: %{"status" => "none"},
         long_run_task_ref: long_run_task_ref
       }
-      |> then(fn attrs ->
-        if private_history,
-          do: Map.put(attrs, :authoring_transcript, private_history),
-          else: attrs
-      end)
 
     assert {:ok, _record} = AgentRunLog.upsert_run(run_attrs)
+
+    if canonical_transcript, do: TestAgenticLoopFixtures.append_segment!(canonical_transcript)
+    :ok
   end
 
   defp unique_run_id do

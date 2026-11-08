@@ -2,9 +2,9 @@ defmodule NovelApplication.TraceReplayServiceTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelApplication.TraceReplayService
+  alias NovelApplication.{AuthoringCheckpoint, AuthoringTranscript, TraceReplayService}
   alias NovelApplication.WorkService
-  alias NovelPersistence.Repo
+  alias NovelPersistence.{AgentRunLog, AuthoringSessionLog, LongRunTaskLog, Repo}
   alias NovelPersistence.TraceRepository
   alias NovelPersistence.WorkSessionRepo
 
@@ -300,7 +300,7 @@ defmodule NovelApplication.TraceReplayServiceTest do
       )
 
     {:ok, task} =
-      NovelPersistence.LongRunTaskLog.create(%{
+      LongRunTaskLog.create(%{
         workspace_id: work.id,
         task_type: "agent_run",
         parent_turn_ref: turn_id,
@@ -310,16 +310,16 @@ defmodule NovelApplication.TraceReplayServiceTest do
           "agent_run" => %{
             "run_id" => run_id,
             "checkpoint_version" => 3,
-            "authoring_transcript_ref" => %{
+            "authoring_segment_ref" => %{
               "run_id" => run_id,
-              "version" => NovelApplication.AuthoringCheckpoint.format_version()
+              "version" => AuthoringSessionLog.segment_format_version()
             }
           }
         }
       })
 
-    {:ok, _} =
-      NovelPersistence.AgentRunLog.upsert_run(%{
+    {:ok, run} =
+      AgentRunLog.upsert_run(%{
         id: run_id,
         workspace_id: work.id,
         work_id: work.id,
@@ -330,9 +330,11 @@ defmodule NovelApplication.TraceReplayServiceTest do
         profile_ref: "character_design_with_context_v1",
         status: "awaiting_author",
         phase: "stopped",
-        long_run_task_ref: task.id,
-        authoring_transcript: private_shape(transcript)
+        long_run_task_ref: task.id
       })
+
+    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(run, transcript)
+    {:ok, _state} = AuthoringSessionLog.append_run(run, segment)
 
     {:ok, _} =
       TraceRepository.insert(%{
@@ -347,17 +349,17 @@ defmodule NovelApplication.TraceReplayServiceTest do
       })
 
     assert [%{long_run_task_ref: task_ref}] =
-             NovelPersistence.AgentRunLog.list_by_parent_turn(work.id, session.id, turn_id)
+             AgentRunLog.list_by_parent_turn(work.id, session.id, turn_id)
 
-    assert %{"agent_run" => %{"authoring_transcript_ref" => ref}} =
-             NovelPersistence.LongRunTaskLog.get(task_ref).checkpoint_data
+    task_data = LongRunTaskLog.get(task_ref).checkpoint_data
 
+    assert %{"agent_run" => %{"authoring_segment_ref" => ref}} = task_data
     assert ref["run_id"] == run_id
+    assert ref["version"] == AuthoringSessionLog.segment_format_version()
 
-    record = NovelPersistence.AgentRunLog.get_run(run_id)
+    record = AgentRunLog.get_run(run_id)
 
-    assert {:ok, _transcript} =
-             NovelApplication.AuthoringTranscript.restore(record.authoring_transcript)
+    assert {:ok, _transcript, :session_segment} = AuthoringCheckpoint.restore(record, task_data)
 
     assert {:ok, report} = TraceReplayService.fetch_turn_report(work.id, session.id, turn_id)
 
@@ -560,13 +562,6 @@ defmodule NovelApplication.TraceReplayServiceTest do
     NovelApplication.AuthoringTranscript.checkpoint(compacted)
   end
 
-  defp private_shape(transcript) do
-    transcript
-    |> NovelApplication.AuthoringTranscript.checkpoint()
-    |> Jason.encode!()
-    |> Jason.decode!()
-  end
-
   defp persist_authoring_history(context, checkpoint, opts \\ []) do
     id = System.unique_integer([:positive, :monotonic])
     run_id = Keyword.get(opts, :run_id, "run-history-#{id}")
@@ -578,15 +573,15 @@ defmodule NovelApplication.TraceReplayServiceTest do
       "agent_run" => %{
         "run_id" => run_id,
         "checkpoint_version" => 3,
-        "authoring_transcript_ref" => %{
+        "authoring_segment_ref" => %{
           "run_id" => ref_run_id,
-          "version" => NovelApplication.AuthoringCheckpoint.format_version()
+          "version" => AuthoringSessionLog.segment_format_version()
         }
       }
     }
 
     {:ok, task} =
-      NovelPersistence.LongRunTaskLog.create(%{
+      LongRunTaskLog.create(%{
         workspace_id: context.work.id,
         task_type: "agent_run",
         parent_turn_ref: turn_id,
@@ -595,8 +590,8 @@ defmodule NovelApplication.TraceReplayServiceTest do
         checkpoint_data: data
       })
 
-    {:ok, _} =
-      NovelPersistence.AgentRunLog.upsert_run(%{
+    {:ok, run} =
+      AgentRunLog.upsert_run(%{
         id: run_id,
         workspace_id: context.work.id,
         work_id: context.work.id,
@@ -607,9 +602,14 @@ defmodule NovelApplication.TraceReplayServiceTest do
         profile_ref: "character_design_with_context_v1",
         status: "awaiting_author",
         phase: "stopped",
-        long_run_task_ref: task.id,
-        authoring_transcript: checkpoint |> Jason.encode!() |> Jason.decode!()
+        long_run_task_ref: task.id
       })
+
+    if checkpoint do
+      {:ok, transcript} = AuthoringTranscript.restore(checkpoint)
+      {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(run, transcript)
+      {:ok, _state} = AuthoringSessionLog.append_run(run, segment)
+    end
 
     {:ok, _} =
       TraceRepository.insert(%{

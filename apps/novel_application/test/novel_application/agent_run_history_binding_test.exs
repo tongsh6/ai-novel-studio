@@ -8,10 +8,11 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
   - `NovelApplication.ProviderActivityService.fetch_turn_activity/3`
   - `NovelApplication.WorkSessionService.show/2` 与 `resume/1`
 
-  AgentRun 记录使用既有持久 schema 可直接写入的 attrs；`authoring_transcript`
-  是 §16.8 冻结的私有列。schema 与 v3 引用已落地，但回查消费者尚未消费私有列/v3
-  引用，涉及私有历史、冲突与错绑的用例因此保持红；跨 session/work 隔离、旧数据唯一
-  parent/step 回查是回归保护。
+  AgentRun 记录使用既有持久 schema 可直接写入的 attrs；canonical 历史归会话级
+  `authoring_session_messages` / `authoring_run_segments`（`AuthoringSessionLog`），
+  run 行不再持有私有 transcript 列。回查消费者已消费会话执行段与 v3 段引用；
+  涉及历史缺失、冲突与错绑的用例保持 fail-closed 断言；跨 session/work 隔离、
+  旧数据唯一 parent/step 回查是回归保护。
 
   边界：本文件只证明身份绑定与 fail-closed，不是 fresh/restore 或投影等价证据。
   `db_json_roundtrip/1` 只模拟数据库 JSON 边界，不用来归一请求 IR，也不断言恢复后
@@ -24,6 +25,7 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
   alias Ecto.Adapters.SQL.Sandbox
 
   alias NovelApplication.{
+    AuthoringCheckpoint,
     AuthoringTranscript,
     ProviderActivityService,
     TraceReplayService,
@@ -35,6 +37,7 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
 
   alias NovelPersistence.{
     AgentRunLog,
+    AuthoringSessionLog,
     LongRunTaskLog,
     MemoryLog,
     ProviderRunLog,
@@ -522,19 +525,23 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
         checkpoint_version: 3
       )
 
-    # 私有 v3 fixture 只带引用，不内嵌 canonical；旧 child 是真正 v2 内嵌副本。
+    # v3 fixture 只带段引用，不内嵌 canonical；canonical 在会话执行段。
     assert %{
              "agent_run" => %{
                "checkpoint_version" => 3,
-               "authoring_transcript_ref" => %{
+               "authoring_segment_ref" => %{
                  "run_id" => ^source_run,
-                 "version" => "authoring-transcript/v1"
+                 "version" => "authoring-run-segment/v1"
                }
              }
            } = private_run.task.checkpoint_data
 
     refute Map.has_key?(private_run.task.checkpoint_data, "authoring_transcript")
-    assert private_run.run.authoring_transcript == source_checkpoint
+
+    assert {:ok, segment_transcript, :session_segment} =
+             AuthoringCheckpoint.restore(private_run.run, private_run.task.checkpoint_data)
+
+    assert inspect(segment_transcript) =~ source_summary
 
     seed_run!(work, session, child_run, source_turn, child_summary, checkpoint_version: 3)
 
@@ -582,25 +589,23 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
     assert %{
              "agent_run" => %{
                "checkpoint_version" => 3,
-               "authoring_transcript_ref" => %{"run_id" => ^run_id}
+               "authoring_segment_ref" => %{"run_id" => ^run_id}
              }
            } = private_run.task.checkpoint_data
 
     refute Map.has_key?(private_run.task.checkpoint_data, "authoring_transcript")
 
-    # 明确故障注入：私有 canonical 的 parent_turn_ref 与记录不一致；另放一个
+    # 明确故障注入：会话段头的 parent_turn_ref 与 run 记录不一致；另放一个
     # summary 不同的另一 run（成为 parent 回退的“最新”候选），证明不会串用。
-    mismatched =
-      put_in(
-        checkpoint,
-        ["transcript", "run", "parent_turn_ref"],
-        unique("turn_private_corrupt_other")
-      )
+    {:ok, %{header: header}} = AuthoringSessionLog.fetch_run_segment(run_id)
+
+    mismatched_header =
+      put_in(header, ["run", "parent_turn_ref"], unique("turn_private_corrupt_other"))
 
     SQL.query!(
       Repo,
-      "UPDATE agent_runs SET authoring_transcript = ? WHERE id = ?",
-      [Jason.encode!(mismatched), run_id]
+      "UPDATE authoring_run_segments SET header = ? WHERE run_id = ?",
+      [Jason.encode!(mismatched_header), run_id]
     )
 
     old_copy =
@@ -759,12 +764,14 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
       long_run_task_ref: task.id
     }
 
-    attrs =
-      if checkpoint_version == 3,
-        do: Map.put(attrs, :authoring_transcript, checkpoint),
-        else: attrs
-
     {:ok, run} = AgentRunLog.upsert_run(attrs)
+
+    if checkpoint_version == 3 do
+      {:ok, transcript} = AuthoringTranscript.restore(checkpoint)
+      {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(run, transcript)
+      {:ok, _state} = AuthoringSessionLog.append_run(run, segment)
+    end
+
     %{run: run, checkpoint: checkpoint, task: task}
   end
 
@@ -784,12 +791,12 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
         3 ->
           %{
             "agent_run" =>
-              Map.put(agent_run, "authoring_transcript_ref", %{
+              Map.put(agent_run, "authoring_segment_ref", %{
                 "run_id" => run_id,
-                "version" => "authoring-transcript/v1"
+                "version" => AuthoringSessionLog.segment_format_version()
               }),
             "progress" => 100,
-            "step" => "AgentRun 已提交私有历史"
+            "step" => "AgentRun 已提交会话执行段"
           }
 
         2 ->
