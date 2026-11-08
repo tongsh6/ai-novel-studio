@@ -7,7 +7,7 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
   只允许通过 `NovelCommon.AuthorVisible.Display` 查询；作者可见面不得直接使用内部 code。
   """
 
-  @source_hash "9e4f8d56cc5db1698c7c6e2273e92c3220f2e0810f7bbbe20e8b61342dfff83e"
+  @source_hash "1eba7eec49e1942ca0543b60948edbe0c8aad4e362a7831e3671aac645ae752e"
 
   @domains %{
     "action" => %{
@@ -180,9 +180,7 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
       "minimax_cn" => "Minimax（国内版）",
       "openai" => "OpenAI",
       "openai_subscription" => "OpenAI（订阅）",
-      "slice_verify" => "本地模型（测试环境）",
       "strata" => "本地模型",
-      "stub" => "本地模型（测试环境）",
       "zhipu" => "智谱"
     },
     "reason_code" => %{

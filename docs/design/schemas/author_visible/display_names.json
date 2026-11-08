@@ -59,8 +59,6 @@
       "pending": "待处理"
     },
     "provider": {
-      "stub": "本地模型（测试环境）",
-      "slice_verify": "本地模型（测试环境）",
       "strata": "本地模型",
       "lmstudio": "本地模型",
       "openai": "OpenAI",

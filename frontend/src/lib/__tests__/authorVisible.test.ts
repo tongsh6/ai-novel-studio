@@ -11,7 +11,10 @@ import {
 describe("authorVisible", () => {
   it("已登记 code 返回作者显示名，未登记 code 走兜底且不回显内部 code", () => {
     expect(displayName("tool", "prose_writing")).toBe("正文写作");
-    expect(displayName("provider", "stub")).toBe("本地模型（测试环境）");
+    // 2026-11-08 作者裁决：生产显示名 SSOT 不登记测试替身；未登记 code 走
+    // 作者安全 fallback（不含内部 code），不再给测试环境专名。
+    expect(displayName("provider", "stub")).toBe("当前模型服务");
+    expect(displayName("provider", "slice_verify")).toBe("当前模型服务");
     expect(displayName("status", "ACCEPTED")).toBe("已采纳");
 
     const unknown = displayName("tool", "definitely_unknown_tool");

@@ -1,7 +1,7 @@
 // AUTO-GENERATED FROM docs/design/schemas/author_visible/display_names.json — DO NOT EDIT.
 // Run `pnpm codegen:author-visible` to regenerate. Author-visible surfaces must only use these display names.
 
-export const SOURCE_HASH = "9e4f8d56cc5db1698c7c6e2273e92c3220f2e0810f7bbbe20e8b61342dfff83e";
+export const SOURCE_HASH = "1eba7eec49e1942ca0543b60948edbe0c8aad4e362a7831e3671aac645ae752e";
 
 export const DISPLAY_NAMES = {
   "action": {
@@ -165,8 +165,6 @@ export const DISPLAY_NAMES = {
     "ENSEMBLE_POV": "群像视角",
   },
   "provider": {
-    "stub": "本地模型（测试环境）",
-    "slice_verify": "本地模型（测试环境）",
     "strata": "本地模型",
     "lmstudio": "本地模型",
     "openai": "OpenAI",

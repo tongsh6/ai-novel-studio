@@ -625,7 +625,6 @@ export const WORKBENCH = {
   modelProviderPurposeFactInventory: "设定盘点",
   modelProviderModelsLoading: "模型加载中",
   modelProviderNoModels: "暂无可选模型",
-  modelProviderModelsUnsupported: "该供应商无需选择模型。",
   modelProviderLoadFailure: "模型设置加载失败。",
   modelProviderLoadFailureDetail: (detail: string) => `模型设置加载失败：${detail}`,
   modelProviderSaveFailure: "模型设置保存失败。",

@@ -18,8 +18,10 @@ defmodule NovelApplication.ProviderHealthTest do
 
         assert health.provider == :stub
         assert health.model == nil
-        # 作者可见面只消费 display 字段；测试替身不暴露内部 id。
-        assert health.provider_display_name == "本地模型（测试环境）"
+
+        # 作者可见面只消费 display 字段；测试替身不登记显示名、不暴露内部 id，
+        # 未登记 code 走作者安全 fallback（2026-11-08 作者裁决）。
+        assert health.provider_display_name == "当前模型服务"
         assert health.model_display_name == nil
       after
         Application.put_env(:novel_agent, :provider, old_provider)
@@ -54,8 +56,9 @@ defmodule NovelApplication.ProviderHealthTest do
         refute provider.display_name =~ to_string(provider.id)
       end
 
+      # 测试替身不登记作者可见显示名；回退到 fallback 且不回显内部 id。
       assert Enum.find(options.providers, &(&1.id == :stub)).display_name ==
-               "本地模型（测试环境）"
+               "当前模型服务"
     end
   end
 

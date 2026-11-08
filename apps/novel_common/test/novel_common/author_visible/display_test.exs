@@ -8,7 +8,10 @@ defmodule NovelCommon.AuthorVisible.DisplayTest do
     test "已登记 code 返回作者显示名（tool/provider/status/model）" do
       assert Display.label(:tool, "prose_writing") == "正文写作"
       assert Display.label("tool", "submit_tentative_artifact") == "保存候选草稿"
-      assert Display.label(:provider, :stub) == "本地模型（测试环境）"
+      # 2026-11-08 作者裁决：生产显示名 SSOT 不登记测试替身；未登记 code 走
+      # 作者安全 fallback（不含内部 code），不再给测试环境专名。
+      assert Display.label(:provider, :stub) == "当前模型服务"
+      assert Display.label(:provider, :slice_verify) == "当前模型服务"
       assert Display.label(:provider, "strata") == "本地模型"
       assert Display.label(:status, "ACCEPTED") == "已采纳"
       assert Display.label(:status, "EDITED_ACCEPTED") == "已采纳（修订后）"

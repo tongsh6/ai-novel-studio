@@ -3978,14 +3978,6 @@ export function WorkspaceChat() {
       return;
     }
 
-    // stub 是测试环境验收替身（MIX_ENV=test 由 config 显式注入）：它没有真实模型列表，
-    // 允许空 model 保存。这是测试替身语义，不是生产 provider 的通用降级路径。
-    if (draft.provider === "stub") {
-      setModelProviderModelsLoading(false);
-      setModelProviderModelsMessage(WORKBENCH.modelProviderModelsUnsupported);
-      return;
-    }
-
     if (modelProviderDraftHasInvalidEndpoint(draft, state)) {
       setModelProviderModelsLoading(false);
       setModelProviderModelsMessage(WORKBENCH.modelProviderEndpointInvalid);
@@ -4203,9 +4195,6 @@ export function WorkspaceChat() {
   const modelProviderStatusTitle = selectedProviderOption
     ? `${providerDisplayName(selectedProviderOption)} · ${modelStatusTitle}`
     : modelStatusTitle;
-  // stub 是测试环境验收替身（MIX_ENV=test 由 config 显式注入，没有真实模型列表）：
-  // 只对 stub 允许空 model 保存；这是测试替身语义，不是生产 provider 的降级路径。
-  const modelProviderRequiresModel = modelProviderDraft.provider !== "stub";
   const modelProviderEndpointInvalid = modelProviderDraftHasInvalidEndpoint(
     modelProviderDraft,
     modelProviderState,
@@ -4217,8 +4206,8 @@ export function WorkspaceChat() {
     modelProviderTesting ||
     modelProviderModelsLoading ||
     modelProviderEndpointInvalid ||
-    (modelProviderRequiresModel &&
-      (modelProviderDraft.model.trim() === "" || modelProviderModels.length === 0));
+    modelProviderDraft.model.trim() === "" ||
+    modelProviderModels.length === 0;
 
   // B23 CP4：控制坞元素单点——活动 run 与失活 bounded run 复用同一元素。失活 bounded
   // run（含已收口为 failed 的终态）只渲染过期分支：过期说明 + 唯一「重新发起任务」，

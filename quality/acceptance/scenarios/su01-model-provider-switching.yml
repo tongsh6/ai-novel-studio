@@ -23,7 +23,7 @@ setup:
 
 user_flow:
   - open: real workbench model settings
-  - select: 测试环境显式注入的 Slice Verify 确定性替身 provider（作者可见名「本地模型（测试环境）」）from backend provider registry
+  - select: 测试环境显式注入的 Slice Verify 确定性替身 provider（作者可见名按统一 fallback「当前模型服务」，测试替身不再有专属作者名）from backend provider registry
   - test: click visible test connection button
   - save: provider selection
   - send: next user message from the real workbench composer

@@ -69,9 +69,9 @@ describe("provider health API client", () => {
     // 内部 id 不参与作者面模型名推导。
     const internalIds: ProviderHealth = {
       connected: true,
-      provider: "stub",
-      model: "slice_verify",
-      provider_display_name: "本地模型（测试环境）",
+      provider: "lmstudio",
+      model: "qwen/qwen3.8-27b",
+      provider_display_name: "本地模型",
       model_display_name: null,
     };
     expect(providerHealthName(internalIds)).toBe("");

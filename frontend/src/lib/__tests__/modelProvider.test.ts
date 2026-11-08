@@ -33,14 +33,14 @@ function installLocalStorage() {
   return store;
 }
 
-function providerOptionsBody(currentProvider = "stub") {
+function providerOptionsBody(currentProvider = "lmstudio") {
   return {
     current_provider: currentProvider,
     providers: [
       {
-        id: "stub",
-        label: "Stub",
-        current: currentProvider === "stub",
+        id: "lmstudio",
+        label: "LM Studio",
+        current: currentProvider === "lmstudio",
         model: null,
         endpoint: null,
         requires_api_key: false,
@@ -163,13 +163,13 @@ describe("model provider API client", () => {
     await expect(getProviderOptions()).resolves.toMatchObject({
       current_provider: "deepseek",
       providers: [
-        { id: "stub", api_key_configured: false },
+        { id: "lmstudio", api_key_configured: false },
         { id: "deepseek", model: "deepseek-v4-flash", api_key_configured: true },
       ],
     });
   });
 
-  it("keeps an unknown current provider as explicit unconfigured state, not stub", async () => {
+  it("keeps an unknown current provider as explicit unconfigured state, not a retired test provider", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -200,7 +200,7 @@ describe("model provider API client", () => {
     expect(options.providers.map((option) => option.id)).toEqual(["deepseek"]);
   });
 
-  it("keeps an unknown provider in the models response as null, not stub", async () => {
+  it("keeps an unknown provider in the models response as null, not a retired test provider", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -214,7 +214,7 @@ describe("model provider API client", () => {
     });
   });
 
-  it("loads runtime state without selecting a provider instead of defaulting to stub", async () => {
+  it("loads runtime state without selecting a provider instead of defaulting to a provider", async () => {
     installLocalStorage();
     const bodies: Record<string, unknown>[] = [];
 
@@ -516,9 +516,9 @@ describe("providerDisplayName", () => {
   it("uses author-visible display_name only, never internal label/model ids", () => {
     expect(
       providerDisplayName({
-        display_name: "本地模型（测试环境）",
+        display_name: "本地模型",
       }),
-    ).toBe("本地模型（测试环境）");
+    ).toBe("本地模型");
 
     expect(providerDisplayName({})).toBe("当前模型服务");
 

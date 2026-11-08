@@ -9,7 +9,7 @@ export interface ProviderHealth {
   provider?: string;
   /** 内部 model id：只供诊断/兼容消费，作者可见面不得直接展示。 */
   model?: string;
-  /** 作者可读 provider 名（本地模型（测试环境）/OpenAI 等）。 */
+  /** 作者可读 provider 名（如「本地模型」「OpenAI」；未知 provider 走统一 fallback「当前模型服务」）。 */
   provider_display_name?: string | null;
   /** 作者可读模型名；模型名不可证时为 null（作者面显示一次中性的「当前模型」）。 */
   model_display_name?: string | null;

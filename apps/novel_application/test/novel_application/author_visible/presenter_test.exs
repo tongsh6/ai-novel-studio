@@ -3,6 +3,7 @@ defmodule NovelApplication.AuthorVisible.PresenterTest do
 
   alias NovelApplication.AuthorVisible.Presenter
   alias NovelApplication.AuthorVisible.Registry
+  alias NovelCommon.AuthorVisible.Display
   alias NovelCommon.AuthorVisible.Text
 
   describe "operation_label/1（确认/取消/动作文案共用）" do
@@ -28,13 +29,17 @@ defmodule NovelApplication.AuthorVisible.PresenterTest do
   end
 
   describe "provider_status/2（状态行 additive 显示字段）" do
-    test "测试替身显示作者可读文案，内部 id 只留在调用方字段" do
+    test "测试替身未登记作者显示名，走安全兜底且内部 id 只留在调用方字段" do
       status = Presenter.provider_status(:stub, "slice_verify")
 
-      assert status.provider_display_name == "本地模型（测试环境）"
+      # 2026-11-08 作者裁决：生产显示名 SSOT 不登记测试替身，未登记 code 走
+      # 作者安全 fallback（不含内部 code），不再给测试环境专名。
+      assert status.provider_display_name == "当前模型服务"
+      assert status.provider_display_name == Display.fallback(:provider)
       # 模型名不可证时不伪造作者名（前端只显示一次「当前模型」）。
       assert status.model_display_name == nil
       refute status.provider_display_name =~ "stub"
+      refute status.provider_display_name =~ "slice_verify"
     end
 
     test "真实 provider 返回作者名；未知 provider 走兜底" do
