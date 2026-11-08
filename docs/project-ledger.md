@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 2026-11-08 **ADR-0035 已批准（Accepted）**：作者批准会话级 canonical 创作上下文决策；已同步修订 VS-00L 落地说明（顶部状态、§16.1、§16.16、§17 状态表、§18.8；Frozen 判据不变）、ADR-0033 §11 作用域落地边界、adr README 索引与台账。实施待承重 slice 分阶段落地；当前实现仍为 run 级（已知偏差），未实现前不代签。
+> 2026-11-08 **B81 立项与阶段 1 设计草案**：ADR-0035 落地的执行任务 [B81-session-canonical-authoring-history](`tasks/slices/B81-session-canonical-authoring-history.md`) ——阶段 1（会话级 canonical 存储/追加/恢复/迁移，不改变模型可见行为）设计完成、状态 todo 待作者确认开工；阶段 2–6（请求派生/压缩作用域/G6/审计/退役）列依赖与验收，未实现前不代签。NEXT 候选与 slices 索引已登记。：作者批准会话级 canonical 创作上下文决策；已同步修订 VS-00L 落地说明（顶部状态、§16.1、§16.16、§17 状态表、§18.8；Frozen 判据不变）、ADR-0033 §11 作用域落地边界、adr README 索引与台账。实施待承重 slice 分阶段落地；当前实现仍为 run 级（已知偏差），未实现前不代签。
 
 > 2026-11-08 **ADR-0035 草案（会话级 canonical 创作上下文）= Proposed，待作者批准**：按作者「对话是工作面、run 是执行单元」纠正，将方案 A 落成 ADR 草案（`docs/design/adr/ADR-0035-session-scoped-canonical-authoring-context-v3.md`）：session 承载跨 turn 连续运行历史与决策/观察/承诺；run 为执行段；每轮请求由会话派生（正常完整历史，窗口压力时 checkpoint 投影替代更早历史并保留最近 K/作者原话/当前 scope 原序）；压缩作用会话历史（covers/refs/versions/omissions + turn 范围、未完成/未闭合不压缩、canonical 不删改、幂等/失败静默）；事实材料经工具按需读取；保留 ADR-0033 契约族与作者安全。非目标含「每轮最小上下文/隐式压缩」。**未批准前不实现、不迁移、不删代码**；批准后修订 VS-00L 落地说明与 ADR-0033 变更记录，再按承重 slice 分阶段落地。
 
