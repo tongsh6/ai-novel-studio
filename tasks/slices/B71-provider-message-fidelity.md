@@ -1259,6 +1259,24 @@
 **批次 `cp4b2-g6-obs-01`（观察驱动，单批冻结预注册）**：FAIL（模型未暂停）——同一默认输入在 b1 中曾 ask_author，本批**首轮直接 run completed**，0 轮 steer/0 观察问题，C11 按新判据正确 fail（`multi_turn_not_observation_driven`）；压缩未触发，C1/C10 pass。**真实模型同一预注册输入跨执行行为不一致（采样非确定性）**。
 
 **G6 收口判定**：三次真实执行（b1 差 1 交换、b2 直接终局、obs-01 直接终局）均未触发；观察驱动 harness 已就绪且判据能正确拒绝「固定文本/fallback 刷轮」。G6 保持 **known-gap**（iq3_s 暂停时机与单 run 交换能力不稳定），不重跑换分、不调判据、不代签；下一步需更强模型窗口或产品侧独立压缩触发场景设计。
+
+### 确定性压缩场景（方案 A）实施进展与阻塞（2026-11-08）
+
+**已执行探针（确定性页面真实批次 + 产品化运维配置）**：
+- `probe-01`（`b71-authoring-planning` + `NOVEL_AUTO_MAINTENANCE_ENABLED=1` + `NOVEL_CONTEXT_WINDOW_OVERRIDES=slice_verify:1000`）：批次 PASS；单 run **5 个完整交换**、usage 861/936（> 2867 阈值口径的等价小窗口）、**checkpoints=0**。
+- `probe-03`（`b71-authoring-revision` 同配置）：批次 PASS；单 run **5 个完整交换**、**checkpoints=0**。
+- `probe-02`（`b71-authoring-transcript`）：驱动失败 `activation_unconfirmed`（本地窗口激活环境问题，未进入产品链，不登记为产品结论）。
+
+**根因（代码级）**：`TranscriptCompaction.plan_maintenance/2` 以「最后一条 `role=="user"` 消息位置」为当前回合起点，**只整理更早作者回合**的完整交换；确定性 journey 每个 run 都只有 1 条 user 消息（历史确定性批次同样如此），5 个交换全部属于当前回合 → `{:ok, :nothing_to_compact}` → 自动维护**正确地**不触发。不是压力/fixture 数量问题。
+
+**尝试过的构造（已实验、代码已回退，不留在仓库）**：`SliceVerify` 增加 env 门控分支，在判断阶段循环返回 `judgment_decision explore`（每步 1 个只读交换），累计 5 个交换后返回 `ask_author` 暂停，驱动观察作答（含确定性标记）→ 同 run 恢复，期望安全点自动维护触发。**实验结果失败**：产品判断协议在首轮探索观察产生后不再开放 explore（`exploration_not_available`/`invalid_tool_arguments`），自造 explore 参数被 `judgment_protocol_violation: :invalid_tool_arguments` 拒绝 → `run_failed`。说明「判断阶段循环 explore」不是可用构造路径；所有 WIP 代码已回退，工作区 clean。
+
+**结论与下一步设计选项（需作者裁决方向）**：
+1. **plan 多步执行中途暂停**：用确定性 plan 流程产生多步执行交换（历史 planning/revision 批次单回合 5 交换已证明可行），在判断阶段累计交换 ≥5 后返回 `ask_author`。前置核查：plan 执行循环是否逐 step 回到判断阶段、以及该阶段返回 `ask_author` 是否合法（首轮 ask_author 已验证合法；执行步后是否允许待查）。
+2. **产品侧语义确认**：若产品在「执行中途向作者提问」只有 confirmation 交接（其确认不写 user 消息 → 无法构成更早回合），则确定性多回合在现有产品语义下**不可构造**，需回到方案 B（业务事件触发点）或方案 C（作者可见入口，需修订 §16.16/§18 + UI 授权）。
+3. **回实模**：保持 G6 known-gap，等更强模型窗口后按观察驱动 multi-turn 场景重跑（harness 已就绪）。
+
+**证据保留**：探针与实验批次目录在 `artifacts/slice-verify/*cp4b2-g6-det-*/`、`artifacts/b71-native/a3b-smoke-cp4b2-g6-det-smoke-*/`（gitignored，只读保留）；`probe-01/03` 的 5 交换/压力/0 checkpoint 事实是本节的依据。**未代签 G6、未改判据、未留下未验证代码。**
 - **状态**：CP5 保持 doing；真实模型行为、页面层实时事件/确认失败分支、I10 文学质量仍不代签。
 
 
