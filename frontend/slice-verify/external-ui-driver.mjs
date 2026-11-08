@@ -13260,12 +13260,16 @@ function parseChapterReadObservationText(summary) {
 
 async function chapterFullReadAuthorFeedback(page) {
   return page.evaluate(() => {
-    const sections = Array.from(document.querySelectorAll('section[aria-label="推理"]'));
+    // 46 §9.5 文档流化后，作者可见叙事段落由外层「本轮创作过程」区域承担分组
+    // 语义，不再有独立的 aria-label=「推理」landmark（WorkspaceChat.tsx:919）。
+    // 按当前 UI 契约读取作者可见区域；区域缺失时返回空让断言诚实失败，
+    // 不退回 document.body（避免把 developer/协议面误判为作者可见）。
+    const flows = Array.from(document.querySelectorAll('[aria-label="本轮创作过程"]'));
 
     return {
-      timeline_text: sections.map((section) => section.innerText).join("\n"),
-      exploration_paragraphs: sections.flatMap((section) =>
-        Array.from(section.querySelectorAll('p[data-tone="explore"]')).map(
+      timeline_text: flows.map((flow) => flow.innerText).join("\n"),
+      exploration_paragraphs: flows.flatMap((flow) =>
+        Array.from(flow.querySelectorAll('p[data-tone="explore"]')).map(
           (node) => node.innerText,
         ),
       ),
