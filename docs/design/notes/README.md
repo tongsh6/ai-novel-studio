@@ -8,6 +8,7 @@
 
 ## 文档
 
+- [2026-11-08-session-level-product-deviation.md](2026-11-08-session-level-product-deviation.md) — **产品级偏差诊断（2026-11-08）**：B71 G6 长期不可取证不是压缩小功能问题，而是**会话结构在运行时缺失**——每个 turn 是独立 run、新 run 不继承会话历史（六 run 批次证据），session 退化为展示流；跨轮上下文/观察/义务（D8 类）无 canonical 承载，压缩无对象。含设计意图对照、偏差清单（P0/P1）、根因、影响面与三个修复方向选项（会话级 canonical 事实源 / 过渡 / 重新定义产品），待作者裁决。**不授权实现**。
 - [2026-10-26-story-timeline-management.md](2026-10-26-story-timeline-management.md) — 作者提出的后续时间线管理需求：核心为创作模型持续掌握跨章时间推进及当前故事时点，实际进入写作上下文、避免连续性错误；关联故事时间与叙述顺序、人物状态及三态对账，任务承接见 [B54](../../../tasks/slices/B54-continuity-time-and-state.md)，仍按通用求证与真实需求条件推进。
 - `2026-10-08-agentic-business-scenario-audit.md` — 作者资料、存档、待采纳、长会话与重传的 Agentic/App 审计；BIZ-01–05 已修并验收，BIZ-06 引导风险的后续收口见 Q1B 原任务，不按历史索引重开。
 
