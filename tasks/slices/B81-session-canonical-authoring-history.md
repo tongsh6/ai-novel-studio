@@ -378,6 +378,8 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 | D7 | 作者可见面 | 无 UI 变化：历史消息流已由 interactions/前端展示；请求内历史不进入作者可见面，不新增验收钩子 | 反例：为「让作者看到模型记得」新增 UI 状态 → 超出 CP2 范围 |
 | D8 | 多 profile（judgment/continuation） | 会话历史跨 profile 共用；当前 run 的 system/tools 由当前 profile 派生并覆盖（不沿用历史 run 的 system），保持「新阶段追加该角色完整规则」 | 反例：直接复用历史 transcript 的 system → continuation 使用 judgment 的指令 |
 
+| D9 | 读取端口规模边界 | `fetch_session_messages/1` 目前全量返回（CP1 机制测试 + CP2 端口）；CP2 请求派生需要「压缩投影后的会话历史」，不是全量原文，因此 CP2 按需增加 `after_sequence`/`limit` 读取选项或先应用 checkpoint 投影再读取；回查/回放（CP4）另用分页窗口。CP1 不加分页（YAGNI，当前无生产消费者） | 反例：在 CP1 提前为分页造接口 → 无消费者、参数语义未定；或 CP2 直接全量读取不经投影 → 长会话窗口必溢出 |
+
 #### 8.4.4 不变量与机械判据
 
 1. **跨轮字节**：第 N 轮请求必须包含第 N-1 轮作者原话的逐字字节（含空白/全角），且顺序为
@@ -417,7 +419,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 
 - **现状事实**：`TranscriptCompaction.plan/1`（transcript_compaction.ex:48）与 `plan_maintenance/2`（:70）以 run 内 `stage_state.judgment_transcript` 为输入，`@default_keep_recent_items 4`（:23），并以「最后一条 user 消息」为当前回合起点（`current_turn_start/1`）；`ContextPressure`（context_pressure.ex:27-28 阈值 0.70/0.90；:156-165 用当前请求 input_tokens/model_window 估算）；`AgentRunServer.maybe_auto_maintain`（agent_run_server.ex:2244）在安全点调用 `plan_maintenance`，经 `CompactionRecord` 提交。
 - **CP3 改动面**：压缩选择范围改为**会话历史**（跨 turn，`AuthoringSessionLog.fetch_session_messages` 组装的已完成交换），`covers.call_ids` 整组精确选择；checkpoint 的 `covers/source_refs/versions/omissions/summary` + **覆盖 turn 范围**；触发压力改为会话级（历史 usage 累计/消息规模），阈值沿用 0.70/0.90（待裁决）；保留最近 K 项已完成交换、作者原话、当前 scope、未覆盖消息原序；checkpoint 作为一次会话追加（run_id 归因），同批幂等、失败静默、下一安全点重试、未完成/未闭合交换不压缩。
-- **风险/裁决**：checkpoint 跨 run 覆盖后的单 run 回查展示（依赖 CP4）；`turn_range` 字段落地形式；压缩改变 provider 投影后的 I-CACHE 场景确认（B71 已有 checkpoint 幂等/投影基础）。
+- **风险/裁决**：checkpoint 跨 run 覆盖后的单 run 回查展示（依赖 CP4）；`turn_range` 字段落地形式；压缩改变 provider 投影后的 I-CACHE 场景确认（B71 已有 checkpoint 幂等/投影基础）；**规模边界**（2026-11-09 只读实测：CP1 native 批次单会话 10 条消息；长会话按每轮 +5–15 条估算，压缩投影是控制 Provider 上下文规模的唯一机制，SQLite 存储增长属未发布阶段可接受，CP6 前评估归档策略）。
 - **验收**：G6（真实多轮自然触发压缩 → 压缩后真实请求携带正确 covers/保留项，VS-00L §17/§18，归 CP5 取证）+ 机制层（跨 run 压缩、投影折叠、幂等、失败静默）+ 页面层（作者可见细条/展开，按 §16.16/§18 既有设计）。
 
 #### 8.5.2 CP4：投影等价性与会话级审计/回查
@@ -462,6 +464,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 
 - 2026-11-08：立项 + 阶段 1 设计草案（作者批准 ADR-0035 后产出；未授权实现）。
 - 2026-11-08：补充 §1.1 断链定位（schema 时间线 + 三项漏承接）与 §8.0 彻底重构/复用清单（作者确认：系统设计有、实现偏差；彻底重构但复用设计资料和实现）。
+- 2026-11-09：**读取端口规模边界登记**：§8.4.3 新增 D9（CP2 按需增加 `after_sequence`/`limit` 或先投影再读取；CP1 不加分页，回查分页归 CP4）；§8.5.1 补长会话规模实测与压缩投影边界。
 - 2026-11-09：**页面批次复跑环境失败登记**：first-consumer 复跑与第二 journey 批次同因（窗口激活 `activation_unconfirmed`/`external_driver_failed`）失败，19/19 正式证据保持自 cp1-regression-02；如实登记不重跑换分。
 - 2026-11-09：**CP3/CP4/CP6 开工设计要点 + CP1 完成度结论**：新增 §8.5（压缩作用域/触发、投影等价与会话回查、旧材料退役的现状事实/改动面/风险/验收判据，只设计不实现）；§8.1.6 补 CP1 完成度结论（5 项交付的实现/测试/证据矩阵与边界声明）。
 - 2026-11-09：**证据面收口与全仓残留审计**：`authoring_run_evidence.test.mjs` 夹具适配到会话级 canonical（18/18）；`scripts/lib/native_ui/*.test.mjs` 共 31 文件 619 tests 全绿；全仓 grep 确认 scripts/ 无旧列读取残留（target/ 为构建产物、tasks/docs 为历史记录）；第二 native 页面批次（b71-authoring-transcript）因窗口激活环境失败登记不代签；B81 §8.1.6/§9 更新。
