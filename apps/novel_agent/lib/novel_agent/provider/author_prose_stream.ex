@@ -13,11 +13,12 @@ defmodule NovelAgent.Provider.AuthorProseStream do
   @type t :: %{
           phase: :searching | :in_body | :done | :abandoned,
           carry: binary(),
-          escape: boolean()
+          escape: boolean(),
+          unicode: binary() | nil
         }
 
   @spec new() :: t()
-  def new, do: %{phase: :searching, carry: "", escape: false}
+  def new, do: %{phase: :searching, carry: "", escape: false, unicode: nil}
 
   @doc """
   输入一个流式 chunk，返回 `{state, delta}`；`delta` 为本次新可展示的正文文本（可能为空）。
@@ -95,25 +96,67 @@ defmodule NovelAgent.Provider.AuthorProseStream do
   end
 
   # 在正文字符串内扫描：处理转义与结束引号；输出已解转义的可见文本。
+  #
+  # `\uXXXX` 必须按 JSON 语义解码后只输出真实字符：此前实现只吞掉 `u`，
+  # 把 4 个 hex 当正文展示（作者会看到 `4e2d` 乱码）。代理对（surrogate pair）
+  # 属于无法单独成字的 code unit，宁可少显示也不显示乱码；非法 hex 放弃该转义。
   defp scan_body(%{phase: :in_body} = state, chunk, acc) do
     case next_char(chunk) do
-      :eof ->
-        {%{state | carry: ""}, acc}
+      :eof -> {%{state | carry: ""}, acc}
+      {char, rest} -> scan_body_char(state, char, rest, acc)
+    end
+  end
 
-      {char, rest} ->
-        cond do
-          state.escape ->
-            scan_body(%{state | escape: false}, rest, acc <> unescape(char))
+  defp scan_body_char(%{unicode: unicode} = state, char, rest, acc) when is_binary(unicode),
+    do: scan_unicode_escape(state, char, rest, acc)
 
-          char == "\\" ->
-            scan_body(%{state | escape: true}, rest, acc)
+  defp scan_body_char(%{escape: true} = state, "u", rest, acc),
+    do: scan_body(%{state | escape: false, unicode: ""}, rest, acc)
 
-          char == "\"" ->
-            {%{state | phase: :done, carry: ""}, acc}
+  defp scan_body_char(%{escape: true} = state, char, rest, acc),
+    do: scan_body(%{state | escape: false}, rest, acc <> unescape(char))
 
-          true ->
-            scan_body(state, rest, acc <> char)
-        end
+  defp scan_body_char(state, "\\", rest, acc),
+    do: scan_body(%{state | escape: true}, rest, acc)
+
+  defp scan_body_char(state, "\"", _rest, acc),
+    do: {%{state | phase: :done, carry: ""}, acc}
+
+  defp scan_body_char(state, char, rest, acc),
+    do: scan_body(state, rest, acc <> char)
+
+  defp scan_unicode_escape(state, char, rest, acc) do
+    hex = state.unicode <> char
+
+    cond do
+      not hex_digit?(char) ->
+        # 非法转义：丢弃已收集的 hex 前缀，当前字符按普通正文继续。
+        scan_body(%{state | unicode: nil}, rest, acc <> char)
+
+      byte_size(hex) == 4 ->
+        scan_body(%{state | unicode: nil}, rest, acc <> unicode_char(hex))
+
+      true ->
+        scan_body(%{state | unicode: hex}, rest, acc)
+    end
+  end
+
+  defp hex_digit?(<<c>>) when c in ?0..?9, do: true
+  defp hex_digit?(<<c>>) when c in ?a..?f, do: true
+  defp hex_digit?(<<c>>) when c in ?A..?F, do: true
+  defp hex_digit?(_char), do: false
+
+  defp unicode_char(hex) do
+    case Integer.parse(hex, 16) do
+      {codepoint, ""} when codepoint in 0xD800..0xDFFF ->
+        # 代理区 code unit：单独无法成字，等成对或丢弃，不显示乱码。
+        ""
+
+      {codepoint, ""} when codepoint >= 0 and codepoint <= 0x10FFFF ->
+        <<codepoint::utf8>>
+
+      _other ->
+        ""
     end
   end
 
@@ -128,7 +171,5 @@ defmodule NovelAgent.Provider.AuthorProseStream do
   defp unescape("n"), do: "\n"
   defp unescape("r"), do: "\r"
   defp unescape("t"), do: "\t"
-  # \uXXXX 罕见：正文流宁可少显示，不猜编码
-  defp unescape("u"), do: ""
   defp unescape(other), do: other
 end

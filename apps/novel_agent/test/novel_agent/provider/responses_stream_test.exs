@@ -12,8 +12,6 @@ defmodule NovelAgent.Provider.ResponsesStreamTest do
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.OpenAI
-  alias NovelCommon.RequestIR
-
   alias NovelTest.TestRequestIR
 
   defp ir(text) when is_binary(text), do: TestRequestIR.ir([TestRequestIR.author(text)])
@@ -340,5 +338,97 @@ defmodule NovelAgent.Provider.ResponsesStreamTest do
     chunk_events = Enum.filter(events, &(&1.event_type == :chunk))
     assert Enum.map(chunk_events, & &1.payload[:content_length]) == [3, 3]
     assert result.usage.output_tokens == 2
+  end
+
+  test "done item 缺 id 时用 output_index 同源键补齐增量参数，不用 call_id 错配" do
+    raw = ~s({"query":"林渡"})
+    {first, second} = String.split_at(raw, 6)
+
+    eventsource = fn _url, _body, _opts, on_data ->
+      on_data.(sse(%{"type" => "response.created", "response" => %{"model" => "gpt-5-fixture"}}))
+
+      on_data.(
+        sse(%{
+          "type" => "response.output_item.added",
+          "output_index" => 0,
+          "item" => %{
+            "type" => "function_call",
+            "call_id" => "call-read-2",
+            "name" => "read_character"
+          }
+        })
+      )
+
+      # 增量事件没有 item_id：累积键落在 output_index:0。
+      on_data.(
+        sse(%{
+          "type" => "response.function_call_arguments.delta",
+          "output_index" => 0,
+          "delta" => first
+        })
+      )
+
+      on_data.(
+        sse(%{
+          "type" => "response.function_call_arguments.delta",
+          "output_index" => 0,
+          "delta" => second
+        })
+      )
+
+      on_data.(
+        sse(%{
+          "type" => "response.output_item.done",
+          "output_index" => 0,
+          "item" => %{
+            "type" => "function_call",
+            "call_id" => "call-read-2",
+            "name" => "read_character"
+          }
+        })
+      )
+
+      on_data.(
+        sse(%{
+          "type" => "response.completed",
+          "response" => %{
+            "model" => "gpt-5-fixture",
+            "usage" => %{"input_tokens" => 3, "output_tokens" => 2}
+          }
+        })
+      )
+
+      {:ok, 200, ""}
+    end
+
+    prompt =
+      TestRequestIR.ir(
+        [TestRequestIR.author("读取角色事实")],
+        tools: [
+          TestRequestIR.tool("read_character", %{
+            type: "object",
+            properties: %{query: %{type: "string"}}
+          })
+        ],
+        projection: %{tool_choice: "read_character"}
+      )
+
+    assert {:ok, %{result: result}} =
+             OpenAI.execute(
+               responses_state(eventsource),
+               nil,
+               prompt,
+               %InferenceParams{},
+               provider_ctx()
+             )
+
+    assert [
+             %{
+               "id" => "call-read-2",
+               "name" => "read_character",
+               "arguments" => %{"query" => "林渡"},
+               "raw_arguments" => ^raw
+             }
+           ] = result.tool_calls
   end
 end

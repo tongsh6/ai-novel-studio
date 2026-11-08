@@ -51,10 +51,11 @@ defmodule NovelAgent.Provider.SSEStream.ResponsesDecoder do
   def finalize(state) do
     error = state.error || terminal_error(state)
 
-    output_items =
+    indexed_items =
       state.items
       |> Enum.sort_by(fn {index, _item} -> index end)
-      |> Enum.map(fn {_index, item} -> item end)
+
+    output_items = Enum.map(indexed_items, fn {_index, item} -> item end)
 
     content =
       case state.text do
@@ -64,7 +65,7 @@ defmodule NovelAgent.Provider.SSEStream.ResponsesDecoder do
 
     %{
       content: content,
-      tool_calls: tool_calls(output_items, state.arguments),
+      tool_calls: tool_calls(indexed_items, state.arguments),
       usage: state.usage,
       model: state.model,
       error: error
@@ -230,30 +231,37 @@ defmodule NovelAgent.Provider.SSEStream.ResponsesDecoder do
     content
   end
 
-  defp tool_calls(output_items, arguments) do
-    output_items
-    |> Enum.map(&merge_arguments(&1, arguments))
+  defp tool_calls(indexed_items, arguments) do
+    indexed_items
+    |> Enum.map(fn {index, item} -> merge_arguments(item, arguments, index) end)
     |> Enum.flat_map(&ResponsesWire.function_call_item/1)
   end
 
   # function_call item 的 arguments 若在 done item 中缺失，用
   # function_call_arguments.delta/.done 的累积字节补齐；不改变其它字段。
-  defp merge_arguments(%{"type" => "function_call"} = item, arguments) do
-    key = Map.get(item, "id") || Map.get(item, "call_id")
+  #
+  # 累积键与 item 身份必须同源：delta/.done 事件按 `item_key/1`（item_id 或
+  # `output_index:N`）累积；done item 里只有 `id`（= item_id）与 `call_id`
+  # （工具身份，不用于参数累积）。此前用 call_id 兜底查以 item_id 为键的 map
+  # 永远查不到，属于错配兜底；这里只按 item id / output_index 同一语义查找。
+  defp merge_arguments(%{"type" => "function_call"} = item, arguments, index) do
+    keys =
+      [Map.get(item, "id"), "output_index:#{index}"]
+      |> Enum.reject(&(is_nil(&1) or &1 == ""))
 
     case Map.get(item, "arguments") do
-      arguments when is_binary(arguments) and arguments != "" ->
+      raw when is_binary(raw) and raw != "" ->
         item
 
       _other ->
-        case Map.get(arguments, key) do
+        case Enum.find_value(keys, &Map.get(arguments, &1)) do
           raw when is_binary(raw) -> Map.put(item, "arguments", raw)
           _missing -> item
         end
     end
   end
 
-  defp merge_arguments(item, _arguments), do: item
+  defp merge_arguments(item, _arguments, _index), do: item
 
   defp merge_usage(state, usage) when is_map(usage), do: %{state | usage: usage}
   defp merge_usage(state, _usage), do: state

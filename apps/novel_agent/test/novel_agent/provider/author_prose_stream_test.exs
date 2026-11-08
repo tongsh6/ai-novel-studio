@@ -49,4 +49,20 @@ defmodule NovelAgent.Provider.AuthorProseStreamTest do
     json = ~s([{"title":"body 不是键","rationale":"x"}])
     assert {%{phase: :searching}, _} = collect([json])
   end
+
+  test "decodes JSON \\uXXXX escapes to real characters (never hex residue)" do
+    json = ~s([{"body":"\\u4e2d\\u6587预览"}])
+    assert {_, "中文预览"} = collect([json])
+  end
+
+  test "decodes \\uXXXX split across chunk boundaries" do
+    json = ~s([{"body":"\\u4e2d\\u6587"}])
+    chunks = String.graphemes(json)
+    assert {_, "中文"} = collect(chunks)
+  end
+
+  test "surrogate-pair code units never leak hex residue" do
+    json = ~s([{"body":"A\\ud83d\\ude00B"}])
+    assert {_, "AB"} = collect([json])
+  end
 end
