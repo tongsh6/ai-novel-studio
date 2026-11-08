@@ -1230,3 +1230,14 @@
   - **单槽核验**：loaded_before/after=false、unloaded=true；3 张真实页面截图 + AX 文本 + wait-ledger。
   - **未触发（如实登记，不代签）**：G2/G3/G5/G6（`tool_call_result_binding`/`observation_reaches_next_request` 判据为 null，verifier 不把 replay-only 历史回放当作本轮新观察）；I10 文学质量不代签；Responses/Anthropic 实模仍待官方凭证。
 - **状态**：CP5 保持 doing；真实模型行为、页面层实时事件/确认失败分支、I10 文学质量仍不代签。
+
+
+### 后续候选与执行条件（作者 2026-11-08 同意登记）
+
+以下三项不在本轮执行范围内，需独立预注册或独立任务文档；未获授权/窗口前不启动、不代签：
+
+| 候选 | 目标与判据 | 执行前置 | 当前可复用的确定性基础 |
+|---|---|---|---|
+| **G2–G6 切片补证** | 在真实 run 上逐类取证：G2 观察进入下一请求、G3 校验失败原生回流、G5 作者边界后新授权、G6 显式压缩后请求（covers/refs/versions/omissions/字节可回查） | 新冻结预注册（单场景、预算、判据先冻结后执行）+ 真实模型窗口；G6 需 auto-maintenance 同 run 多回合场景（A3b 已知受模型行为限制，不调 K/窗口凑触发） | 本轮 `b71-first-consumer-live-cp4b2-iq3s-01` 已证明真实多轮/工具历史回放/tentative/usage；`request_message_counts` 4/7/10/13/16/19/22 与 replay_only_tool_calls=21 可作追加式前缀基线 |
+| **`stream_options.include_usage` vendor 矩阵** | 逐一取证 OpenAI-compatible Chat wire 各 vendor（LM Studio/Strata/DeepSeek 等）对 `stream_options` 的接受度与 usage 回收；不接受的 vendor 改为 vendor 级开关，结论回写 VS-00L §6 与 adapter 能力事实 | 真实窗口逐 vendor 批次；不伪造兼容结论（当前统一发送依据是 OpenAI/DeepSeek 官方文档，仅机制层） | 本轮 iq3_s 批次已取得真实 `input/output tokens + cached_tokens + ttft`；单测已覆盖「请求含 include_usage」与「缺 usage 帧保持 0 不伪造」 |
+| **架构/测试债务** | ① `novel_common` 的 `LogEmit`/`LLMLog` 文件 I/O 与 `Task.start` 迁出纯契约层，并给 `arch_check` 增加 common I/O 禁止规则（当前 AGENTS 声明但门禁未覆盖）；② `novel_web` 193 tests/532s 慢测试定位与收敛 | 独立任务文档（登记于 `docs/design/00f-capability-atlas.md` P2-E）；涉及日志证据链与全仓测试基础设施，按一次一个单元拆分 | B71 审核轮 arch P2-10 已给出行号与门禁缺口证据；web 慢测试已在 audit 记录中量化 |
