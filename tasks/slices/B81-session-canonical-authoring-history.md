@@ -126,7 +126,9 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 ### 7.2 排期与写域协调
 
 - CP1 已完成；CP2 依赖 CP1；CP3/CP4 依赖 CP2；CP5/CP6 依赖前序。
-- 与 B78 的同文件冲突：CP1 未改 `agent_run_server.ex`（只改持久化/恢复边界），冲突面显著小于原估；后续 CP2 会再次触碰该文件，仍需协调顺序。
+- 与 B78 的同文件冲突：CP1 未改 `agent_run_server.ex`（只改持久化/恢复边界），冲突面显著小于原估；**CP2 会再次触碰该文件，需协调顺序**。
+- **B78 冲突面盘点（2026-11-09 只读）**：CP2 拟定改动与 B78 拆分目标重叠文件——`agent_run_server.ex`（3499 行，B78 P1：状态机/命令处理/结果提交/恢复/预算拆分；CP2 需改会话历史加载、`maybe_auto_maintain`/压缩作用域、stage_state 语义）、`judgment_protocol.ex`（1435 行，B78 P3；CP2 需改 `new_transcript` 接受会话历史）、`dialogue_planning_service.ex`（3200 行，B78 P1；CP2 需改 `judgment_protocol_input` 传入会话历史）、`turn_execution_service.ex`（3059 行，B78 P1；CP2 恢复/请求路径可能改）。**顺序建议（待裁决）**：先 CP2 再 B78——B78 的验收前提是「行为不变 + 全量测试为基线」，而 CP2 变更行为；先拆分会让 CP2 在新结构上再改一次并增加两次回归；先 CP2 则 B78 可把 CP2 新代码按职责一次搬移。反方向若必须先 B78：至少完成 `agent_run_server.ex` 首个拆分后 CP2 才开工，且 CP2 改动落在拆分后的新模块。
+- **CP2 修改预算**：`agent_run_server.ex` 受 module-size ratchet 限制（baseline max 3471 + 允许增量 174 = 3645，当前 3499，余量约 146 行）；CP2 的会话历史加载/组装应放进新 application 模块（如会话历史视图/组装器）而非继续堆入该文件，既满足 ratchet 也符合 SRP。
 - 与 B84 并行无冲突（测试前置层）；与 B82/B83 无写域冲突（验收/矩阵脚本与 artifacts）。
 
 ### 7.3 上下游、前置与后置任务（登记全）
@@ -309,6 +311,8 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - **browser driver 既有漂移（与 CP1 无关，已修）**：`frontend/slice-verify/external-ui-driver.mjs` 的 `chapterFullReadAuthorFeedback` 仍按 `section[aria-label="推理"]` 读取作者可见叙事，而该 landmark 已在 46 §9.5 移除以避免读屏重复区域（`WorkspaceChat.tsx:919`）→ 页面实际渲染正确但 driver 断言失败。已改用当前 UI 契约 `[aria-label="本轮创作过程"]` + `p[data-tone="explore"]`（区域缺失时空结果让断言诚实失败，不退回 body 以免误判 developer 面）。browser 批次复验本轮受 macOS `ERR_NETWORK_IO_SUSPENDED` 环境错误影响，正式页面证据以 native PASS 为准。
 - 模块规模：新增测试文件均低于 test outlier_floor（800）；`agent_run_runtime_test.exs` 因 CP1 断言迁移增长超过 ratchet 允许增量，把会话 canonical 读取/播种 helper 提取到 `test_helper.exs` 的 `TestAgenticLoopFixtures`（同时消除 5 个测试文件的重复 helper），行数回落到上限内，未做机械压缩。
 
+**CP1 真实数据质量审计（2026-11-09，只读）**：对 native 页面批次（cp1-regression-02）DB 逐项核对——会话消息 `sequence` 连续 1..10、`run_sequence` 与之一致、段头 `message_count=10/first=1/last=10`；段头 9 键齐全且 `run` 五元组与 `agent_runs` 行一致；`base_refs` 与 application_base 消息 `source_refs` 相等、`observation_refs` 与 tool observation `source_refs` 相等、`call_ids` 与 assistant tool_call 顺序相等；作者原话逐字保留且 `provenance=author`。未发现数据一致性问题。（真实跨 run 会话数据仍待 CP2/CP5 取证——当前真实批次均为单 turn run，跨 run 追加由机制测试覆盖。）
+
 **CP1 完成度结论（2026-11-09，可复核）**：CP1 交付 5 项全部有实现位置、测试与证据——① 会话级存储（两表 + 单一迁移）；② 唯一写入事务与并发串行化；③ application 会话段读写边界；④ 恢复/回查/durable 段引用迁移；⑤ 旧 run 私有列按未发布原则退役（全仓 grep 清零，含 scripts/ 验收工具链）。验证矩阵：全量 `mix check` **3110 tests / 0 failures**、credo/format/xref/arch/adr 32/32/module-size、I1/I2/I3/N-NARR/I-CACHE 全 PASS、静态扫描 20/1（仅既有 gitleaks 处置，touched 0）、native 真实页面批次 **19/19 PASS**、脚本证据资产 **619 tests 全绿**。**CP1 的边界**：不改变请求派生（CP2）、不改变压缩作用域（CP3）、不退役旧 `:session_transcript` 材料（CP6）；这些未实现前不代签。
 
 ### 8.2 行为不变判据（CP1 冻结）
@@ -464,6 +468,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 
 - 2026-11-08：立项 + 阶段 1 设计草案（作者批准 ADR-0035 后产出；未授权实现）。
 - 2026-11-08：补充 §1.1 断链定位（schema 时间线 + 三项漏承接）与 §8.0 彻底重构/复用清单（作者确认：系统设计有、实现偏差；彻底重构但复用设计资料和实现）。
+- 2026-11-09：**真实数据质量审计 + B78 冲突面盘点**：对 native 批次 DB 验证会话消息/段头/refs/call_ids 一致性（无异常，见 §8.1.6）；§7.2 补 B78 拆分目标与 CP2 改动面重叠清单、顺序建议（先 CP2 再 B78）与 CP2 修改预算（新模块承载会话历史组装，避免 agent_run_server ratchet 超限）。
 - 2026-11-09：**读取端口规模边界登记**：§8.4.3 新增 D9（CP2 按需增加 `after_sequence`/`limit` 或先投影再读取；CP1 不加分页，回查分页归 CP4）；§8.5.1 补长会话规模实测与压缩投影边界。
 - 2026-11-09：**页面批次复跑环境失败登记**：first-consumer 复跑与第二 journey 批次同因（窗口激活 `activation_unconfirmed`/`external_driver_failed`）失败，19/19 正式证据保持自 cp1-regression-02；如实登记不重跑换分。
 - 2026-11-09：**CP3/CP4/CP6 开工设计要点 + CP1 完成度结论**：新增 §8.5（压缩作用域/触发、投影等价与会话回查、旧材料退役的现状事实/改动面/风险/验收判据，只设计不实现）；§8.1.6 补 CP1 完成度结论（5 项交付的实现/测试/证据矩阵与边界声明）。
