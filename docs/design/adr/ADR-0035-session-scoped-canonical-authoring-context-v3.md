@@ -115,10 +115,10 @@
 
 ## enforced_by
 
-- `docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md`（§16.1/§16.16/§17/§18 落地说明已按本 ADR 修订，判据不变）
-- `docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md`（§11 作用域落地边界补充）
-- `tasks/slices/B71-provider-message-fidelity.md`（G6 与验收真源）
-- `docs/design/notes/2026-11-08-session-level-product-deviation.md`（诊断输入）
+- `docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md`
+- `docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md`
+- `tasks/slices/B71-provider-message-fidelity.md`
+- `docs/design/notes/2026-11-08-session-level-product-deviation.md`
 
 ## enforcement_gaps
 
