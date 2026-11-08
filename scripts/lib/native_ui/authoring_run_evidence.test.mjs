@@ -266,6 +266,37 @@ function boundedTranscript(runId = F_RUN, calls = ["pcall-1", "prun-1", "call-1"
   };
 }
 
+const SEGMENT_VERSION = "authoring-run-segment/v1";
+const MESSAGE_FORMAT_VERSION = "authoring-session-message/v1";
+
+// B81 CP1：canonical 历史 = run 执行段头 + 会话消息行（run 私有列已退役）。
+function insertCanonicalSegment(db, runId, transcriptRecord) {
+  // 测试夹具可能给内存 transcript 或旧 envelope（{transcript: {...}}），统一解包。
+  const transcript = transcriptRecord?.transcript ?? transcriptRecord;
+  const messages = Array.isArray(transcript.messages) ? transcript.messages : [];
+  const header = {
+    version: SEGMENT_VERSION,
+    run: transcript.run,
+    system: transcript.system,
+    tools: transcript.tools,
+    projection: transcript.projection,
+    base_refs: transcript.base_refs,
+    observation_refs: transcript.observation_refs,
+    used_refs: transcript.used_refs,
+    call_ids: transcript.call_ids,
+  };
+  db.prepare("INSERT INTO authoring_run_segments (run_id, header, message_count) VALUES (?, ?, ?)").run(
+    runId,
+    JSON.stringify(header),
+    transcript.messages.length,
+  );
+  messages.forEach((message, index) => {
+    db.prepare(
+      "INSERT INTO authoring_session_messages (run_id, sequence, run_sequence, message, format_version) VALUES (?, ?, ?, ?, ?)",
+    ).run(runId, index + 1, index + 1, JSON.stringify(message), MESSAGE_FORMAT_VERSION);
+  });
+}
+
 function createFirstConsumerBatch() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-first-run-"));
   fs.mkdirSync(path.join(dir, "database"), { recursive: true });
@@ -278,7 +309,13 @@ function createFirstConsumerBatch() {
     db.exec(
       "CREATE TABLE agent_runs (id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, " +
         "parent_turn_ref TEXT, long_run_task_ref TEXT, run_mode TEXT, status TEXT, plan_version INTEGER, " +
-        "consumed_budget TEXT, pending_artifact_refs TEXT, authoring_transcript TEXT)",
+        "consumed_budget TEXT, pending_artifact_refs TEXT)",
+    );
+    db.exec(
+      "CREATE TABLE authoring_run_segments (run_id TEXT PRIMARY KEY, header TEXT, message_count INTEGER)",
+    );
+    db.exec(
+      "CREATE TABLE authoring_session_messages (run_id TEXT, sequence INTEGER, run_sequence INTEGER, message TEXT, format_version TEXT)",
     );
     db.exec(
       "CREATE TABLE provider_runs (id TEXT PRIMARY KEY, provider_call_ref TEXT, agent_run_id TEXT, " +
@@ -286,8 +323,8 @@ function createFirstConsumerBatch() {
     );
     const insertRun = db.prepare(
       "INSERT INTO agent_runs (id, workspace_id, work_id, session_id, parent_turn_ref, long_run_task_ref, " +
-        "run_mode, status, plan_version, consumed_budget, pending_artifact_refs, authoring_transcript) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "run_mode, status, plan_version, consumed_budget, pending_artifact_refs) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
     const insertProvider = db.prepare(
       "INSERT INTO provider_runs (id, provider_call_ref, agent_run_id, workspace_id, work_id, session_id, parent_turn_ref, status) " +
@@ -296,12 +333,16 @@ function createFirstConsumerBatch() {
     insertRun.run(
       F_RUN, F_WORKSPACE, F_WORK, F_SESSION, F_PARENT, null, "bounded", "completed", 1,
       JSON.stringify({ provider_calls: 2 }), JSON.stringify([]),
-      JSON.stringify(boundedTranscript()),
     );
+    insertCanonicalSegment(db, F_RUN, boundedTranscript());
     insertRun.run(
       F_DECOY, F_WORKSPACE, F_WORK, F_SESSION, F_PARENT, null, "bounded", "completed", 1,
       JSON.stringify({ provider_calls: 1 }), JSON.stringify([]),
-      JSON.stringify(boundedTranscript(F_DECOY, ["pcall-9", "prun-9", "call-9", "pcall-9", "prun-9", "call-9"])),
+    );
+    insertCanonicalSegment(
+      db,
+      F_DECOY,
+      boundedTranscript(F_DECOY, ["pcall-9", "prun-9", "call-9", "pcall-9", "prun-9", "call-9"]),
     );
     for (const [n, run] of [[1, F_RUN], [2, F_RUN], [9, F_DECOY]]) {
       insertProvider.run(`prun-${n}`, `pcall-${n}`, run, F_WORKSPACE, F_WORK, F_SESSION, F_PARENT, "completed");
