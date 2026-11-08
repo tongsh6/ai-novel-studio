@@ -231,7 +231,23 @@ function detectUiRequired(files) {
   return files.some(isUiRelevantFile);
 }
 
+// 测试文件不产生 UI 证据需求：只有生产 UI 代码变更才要求 Tauri 页面证据。
+// 否则 `apps/novel_web/test/**` 里含 workspace/ui/copy 等关键词的纯测试改动会被
+// 误判为 UI 变更，迫使无关 slice 伪造页面证据或阻塞收口（2026-11-08 B81 CP1 发现）。
+function isTestFile(file) {
+  const normalized = `/${file}`;
+  return (
+    file.endsWith("_test.exs") ||
+    normalized.includes("/test/") ||
+    /\.test\.(?:mjs|js|ts|tsx)$/.test(file)
+  );
+}
+
 function isUiRelevantFile(file) {
+  if (isTestFile(file)) {
+    return false;
+  }
+
   return (
     file.startsWith("frontend/src/") ||
     file.startsWith("frontend/slice-verify/") ||
