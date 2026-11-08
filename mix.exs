@@ -55,7 +55,11 @@ defmodule AiNovelStudio.MixProject do
   defp aliases do
     [
       check: [
-        "compile --warnings-as-errors",
+        # 增量编译会用 manifest 跳过未变文件，从而漏掉既有文件里的编译警告
+        # （2026-11-08 实测：`sse_stream/result.ex` 的重复 clause 在增量编译下
+        # 不告警、干净编译下 `--warnings-as-errors` 直接失败）。零警告门禁必须
+        # 覆盖全部文件，故这里强制全量编译；测试与其它门禁仍在后续步骤。
+        "compile --warnings-as-errors --force",
         "codegen.enums --check",
         "codegen.author_visible --check",
         "run scripts/lint_enum_literals.exs",

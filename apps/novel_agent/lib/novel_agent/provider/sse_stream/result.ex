@@ -62,54 +62,6 @@ defmodule NovelAgent.Provider.SSEStream.Result do
     end
   end
 
-  @doc false
-  @spec materialize(map()) :: AdapterExecution.execution_result()
-  def materialize(%{
-        opts: opts,
-        decoder: decoder,
-        initial_events: initial_events,
-        acc: acc,
-        request_result: request_result,
-        started: started,
-        duration: duration,
-        response_ms: response_ms,
-        deadline_ms: deadline_ms,
-        cancelled?: cancelled?
-      }) do
-    %{ctx: ctx, url: url, body: body, log_vendor: log_vendor} = opts
-    state = opts.state
-    all_events = initial_events ++ Enum.reverse(acc.events)
-    timeouts = %{response_ms: response_ms, deadline_ms: deadline_ms}
-
-    cond do
-      cancelled? ->
-        AdapterExecution.materialize_cancelled(ctx,
-          initial_events: all_events,
-          emit: :terminal
-        )
-
-      Map.get(acc, :deadline_exceeded?, false) ->
-        provider_result = timeout_error(opts, acc, :deadline, duration, timeouts)
-
-        log_stream_result(state, log_vendor, url, body, provider_result, started)
-
-        AdapterExecution.materialize_result(provider_result.result, ctx,
-          initial_events: all_events,
-          emit: :terminal
-        )
-
-      true ->
-        provider_result = provider_result(opts, decoder, acc, request_result, duration, timeouts)
-
-        log_stream_result(state, log_vendor, url, body, provider_result, started)
-
-        AdapterExecution.materialize_result(provider_result.result, ctx,
-          initial_events: all_events,
-          emit: :terminal
-        )
-    end
-  end
-
   # ── 结果归一与错误分类 ─────────────────────────────────────────────────────
 
   defp provider_result(opts, decoder, acc, {:ok, status, _body}, duration, _timeouts)
