@@ -308,6 +308,28 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 
 见 §6「行为不变判据（CP1）」；判定面 = 请求 IR/三 wire 投影/TurnResult/Interaction/事件 + 全量测试；DB schema 变化为唯一允许差异。
 
+### 8.3 软件工程原则审计（2026-11-08，SOLID / DRY / KISS / YAGNI / SoC）
+
+> 目的：把「实现符合软件设计基本原则」作为可复核结论，而非口号。审计对象=CP1 新增/改造的
+> application 与 persistence 边界；每行给出对照与验证方式。
+
+| 原则 | CP1 对照 | 结论/证据 |
+|---|---|---|
+| SRP 单一职责 | `AuthoringSessionLog`=会话 canonical 存储边界（写入/读取/校验同属一个变化原因：存储契约）；`AuthoringCheckpoint`=application 读写边界（编码/恢复/段引用）；`AgentRunPersistence`=提交投影；`AgentRunLog`=唯一事务编排。职责边界与写域见 §8.1.3/§8.1.4 | 满足；模块均 <500 行（存储 440 / 边界 270） |
+| OCP 开闭 | 段头 data 键契约单一来源：`AuthoringSessionLog.header_data_keys/0`；application 构造/解析段头只消费该契约，新增 data 键只改持久层契约；`AuthoringTranscript` 结构与段头契约不一致时 `:authoring_segment_key_contract_mismatch` fail-closed（不静默丢键） | 满足；键漂移有机械防护 |
+| LSP 里氏替换 | `restore/2` 统一返回 `{:ok, transcript \| nil, :session_segment \| :none} \| {:partial, reason} \| {:error, reason}`，有段/无段形状一致；`append_run/2` 的 nil 与 segment 分支同语义（nil=无历史，不写行） | 满足；旧调用方（AgentRunService/AuthoringReplay）不改契约即可工作 |
+| ISP 接口隔离 | 公开 API 均单一目的且各有消费者：`append_run/2`（AgentRunLog）、`fetch_run_segment/1`（AuthoringCheckpoint）、`segment_present?/1`（AgentRunLog）、`segment_format_version/0`、`header_data_keys/0`（AuthoringCheckpoint）；`AuthoringCheckpoint` 的 encode/validate/restore/ref 各有消费者。**删除无消费者 `message_format_version/0`** | 满足；无「为未来预留」的空接口 |
+| DIP 依赖倒置 | 方向由 umbrella 编译期强制（application → persistence）；存储细节（Repo/Ecto/JSON 形状/事务模式）封装在 persistence，application 只消费契约函数；未引入 behaviour（项目一致风格，避免 YAGNI 反向过度抽象） | 满足；`mix compile` 与 arch_check 强制方向 |
+| LoD 迪米特法则 | application 不直接触碰 Repo/schema；run 读取只经 `fetch_run_segment/1`；身份校验只比较五元组，不深入存储行内部；record 在 restore/en/validate 入口 normalize 一次后传递，避免重复递归转换 | 满足；本轮收敛了重复 normalize |
+| CRP 合成复用 | 无继承；用组合：`AgentRunLog` 组合 `AuthoringSessionLog`，`AgentRunPersistence` 组合 `AuthoringCheckpoint`，`AgentRunServer` 组合内存 `AuthoringSession` | 满足 |
+| DRY | 身份/前缀/版本校验语义收敛为**唯一实现**（旧 application/persistence 两套并行校验随列退役）；段头键单一来源；测试 helper 提取到 `test_helper.exs` 共享 fixtures（消除 5 文件重复）；`run_id`/`ref` 重复取值收敛 | 满足；残留重复仅为「跨层防御性校验」（application 语义 vs persistence 存储壳），属有意纵深 |
+| KISS | 不引入新锁框架/FK/额外抽象层；段头只存执行段配置与 refs、不复制消息；同义分支合并；存储追加算法为 5 步顺序校验 | 满足 |
+| YAGNI | 删除无消费者 API；不预建 CP2 请求派生抽象；`fetch_session_messages/1` 的消费者是 CP1 机制测试且为 CP2 声明的读端口（B81 §2 范围内），moduledoc 已注明，不是「未来模块」 | 满足（有意保留项已登记理由） |
+| SoC 关注点分离 | application（编排/语义校验）/persistence（存储/事务）/web（投影）分层不变；CP1 未触碰 UI/agent 投影/作者安全面 | 满足；`novel_web` 对持久层零直接依赖（arch_check 验证） |
+| 抽象与封装 | 段头 JSON 形状与错误原子文档化；application 经契约函数访问存储；错误 fail-closed 且不泄漏内容（不可 JSON 表示值不泄漏 marker） | 满足；负例覆盖 |
+
+> 审计中确认的**既有例外**（非 CP1 引入，不扩大范围）：`TurnExecutionService.canonical_transcript/1` 的「无 IR 时回退旧 `session.authoring_transcript`」路径保留（有测试锁定其安全语义：损坏 IR 不得冒充历史；生产无新写入者，CP2 重新评估）；`ActionIdempotencyService` 对 TurnResult 私有键的防御性 drop 保留。
+
 ## 9. 剩余后果与阻塞
 
 - 阶段 1 完成不解除跨轮连续性/压缩/G6 的验收缺口；这些由阶段 2/3 承接，未实现前**不代签**。
@@ -332,5 +354,6 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 
 - 2026-11-08：立项 + 阶段 1 设计草案（作者批准 ADR-0035 后产出；未授权实现）。
 - 2026-11-08：补充 §1.1 断链定位（schema 时间线 + 三项漏承接）与 §8.0 彻底重构/复用清单（作者确认：系统设计有、实现偏差；彻底重构但复用设计资料和实现）。
+- 2026-11-08：**SOLID/周边法则审计与改进**：新增 §8.4 原则审计表；按审计实施——段头 data 键契约单一来源（`AuthoringSessionLog.header_data_keys/0`，application 消费、漂移 fail-closed）、删除无消费者 `message_format_version/0`、`record_id`/`normalize` 收敛为入口一次、同义分支合并、`run_id` 重复取值收敛、`fetch_session_messages/1` 消费者注释。既有例外（TurnExecutionService 旧回退路径、ActionIdempotencyService 防御键）登记不扩大范围。
 - 2026-11-08：**CP1 收口**：全量 `mix check` EXIT=0（3110/0）、credo/format/module-size 通过、静态扫描 20 passed/1 failed（仅既有 gitleaks 处置）、I1/I2/I3/N-NARR/I-CACHE 全 PASS；三轮独立审计（两份只读审计 + 两位 teammate 交叉复审）结论；门禁脚本 `task_done_check.mjs` 测试文件误判修复；测试 helper 去重与模块规模回落。
 - 2026-11-08：**CP1 复核与实现落地**。只读审计（文档/契约一致性与代码路径盘点）登记的 P0 缺口（存储落点未裁决、逻辑模型缺 run/system/tools/refs 落点、校验重复实现、并发机制、行为不变判据）在 §8.1 全部关闭；文档修正：VS-00L 行号 99/221→100/222、ADR-0035 Proposed 残留与坏链、§16.6/§16.12 落地说明补齐、§7.4 承接补全。CP1 实现：会话级 canonical 存储（消息流 + run 段头）、单一写入事务、恢复/回查/durable 段引用迁移、run 级私有列按未发布原则退役；测试全量改造并新增机制测试。
