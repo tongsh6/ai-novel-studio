@@ -305,7 +305,56 @@ async function waitRunResume({ runId, timeoutMs = TURN_TIMEOUT_MS }) {
   return { resumed: false, status: lastStatus };
 }
 
-async function respondToRunPause(steerText, attempts) {
+// 从真实回答面板读问题文本与选项（观察驱动多轮的唯一输入来源）。
+function readAnswerObservation(nodes, panel) {
+  const prefix = panel?.path ? `${panel.path}/` : null;
+  const scoped = prefix ? nodes.filter((node) => String(node?.path ?? "").startsWith(prefix)) : [];
+  const fixedUi = /^(回答当前问题|回答并继续|回答并继续…|选项[A-Za-z0-9]?)$/u;
+  const staticTexts = scoped
+    .filter((node) => node?.role === "AXStaticText")
+    .map((node) => String(node?.title ?? node?.value ?? node?.desc ?? "").trim())
+    .filter((text) => text && !fixedUi.test(text));
+  const questionText =
+    staticTexts.join(" ").trim() ||
+    String(panel?.title ?? panel?.desc ?? "").replace(/^回答当前问题[:：]?/u, "").trim();
+  const optionTitles = nodes
+    .filter((node) => node?.role === "AXButton" && /^选项[A-Za-z0-9]?/u.test(String(node.title ?? "").trim()))
+    .map((node) => String(node.title ?? "").trim());
+  return { question_text: questionText, option_titles: optionTitles, scoped_nodes: scoped.length };
+}
+
+// 按预注册策略从观察内容生成真实作答（问题有选项→选项；自由问题→对象词提取模板）。
+const ANSWER_OBJECT_PATTERNS = [/第\s*\d+\s*章/u, /章计划/u, /正文/u, /大纲/u, /设定/u, /档案/u, /记忆/u];
+
+function planObservedAnswer(observation, strategy) {
+  const optionTitles = Array.isArray(observation?.option_titles) ? observation.option_titles : [];
+  if (optionTitles.length > 0) {
+    const preferred =
+      optionTitles.find((title) => /继续|核对|查看|推进|是/u.test(title)) ?? optionTitles[0];
+    return { source: "option", choice: preferred, text: null };
+  }
+  const question = String(observation?.question_text ?? "");
+  const object = ANSWER_OBJECT_PATTERNS.map((pattern) => (question.match(pattern) ?? [])[0]).find(Boolean) ?? null;
+  if (object) {
+    return {
+      source: "extracted_text",
+      choice: null,
+      text: `继续核对${object}与章计划的一致性：先给出依据再继续；不要提前结束。`,
+    };
+  }
+  return {
+    source: "fallback",
+    choice: null,
+    text:
+      strategy === "continue_verification"
+        ? "继续按你的判断推进：先给出依据，再继续；不要提前结束。"
+        : "按你的判断继续。",
+  };
+}
+
+async function respondToRunPause(steerText, attempts, options = {}) {
+  const observed = options.observed === true;
+  const strategy = options.strategy ?? process.env.B71_AUTO_MAINT_ANSWER_STRATEGY ?? "continue_verification";
   // 回答面板出现后 app 可能因用户切窗失焦：点击前显式恢复交互面（前台/关闭 tooltip）。
   try {
     const recovered = await harness.runStep("maintenance", "recover_answer_surface", () =>
@@ -332,6 +381,20 @@ async function respondToRunPause(steerText, attempts) {
     title: answerPanel?.title ?? answerPanel?.desc ?? null,
   });
   if (answerPanel) {
+    // 观察驱动（2026-11-08 审核）：先从回答面板读真实问题文本与选项，再据此作答；
+    // 不做「固定文本刷轮次」——问题文本/选项进入证据，回答来源 option/extracted_text
+    // 由 verifier 的 C11 判据核验（至少一轮必须来自观察）。
+    const observation = observed ? readAnswerObservation(nodes, answerPanel) : null;
+    const planned = observed ? planObservedAnswer(observation, strategy) : null;
+    const answerText = planned?.text ?? steerText;
+    attempts.push({
+      step: "answer_observation",
+      observed,
+      question_text: observation?.question_text ?? null,
+      option_titles: observation?.option_titles ?? [],
+      answer_source: planned?.source ?? null,
+      answer_text: answerText,
+    });
     // 路径 1（优先）：结构化选项按钮 → author_choice 回答（同 run 继续）。
     const rawChoice = String(process.env.B71_AUTO_MAINT_ANSWER_CHOICE ?? "").trim();
     const answerChoice = rawChoice.toUpperCase();
@@ -339,6 +402,9 @@ async function respondToRunPause(steerText, attempts) {
       (node) => node?.role === "AXButton" && /^选项[A-Za-z0-9]?/u.test(String(node.title ?? "").trim()),
     );
     const choiceButton = (() => {
+      if (observed && planned?.choice) {
+        return nodes.find((node) => node?.role === "AXButton" && String(node.title ?? "").trim() === planned.choice) ?? null;
+      }
       if (rawChoice === "" && ANSWER_MODE) {
         // answer-mode：确定性 fixture 的选项 button label 是选项文字本身（如「保留悬念」）。
         return (
@@ -357,7 +423,16 @@ async function respondToRunPause(steerText, attempts) {
     if (choiceButton) {
       harness.safeClick(choiceButton, `${FLOW_LABEL}:answer_choice`);
       attempts.push({ step: "click_answer_choice", ok: true, title: choiceButton?.title ?? null });
-      return { ok: true, kind: "choice", label: choiceButton?.title ?? null, text: null, sent: true };
+      return {
+        ok: true,
+        kind: "choice",
+        label: choiceButton?.title ?? null,
+        text: null,
+        sent: true,
+        observation: observation
+          ? { ...observation, answer_source: "option", answer_text: String(choiceButton?.title ?? "") }
+          : null,
+      };
     }
     // 路径 2（新 composer 提示条）：主输入框 placeholder「回答当前问题…」+ 发送按钮「回答并继续」。
     const composerField =
@@ -375,7 +450,7 @@ async function respondToRunPause(steerText, attempts) {
     if (composerField && answerSend) {
       harness.safeClick(composerField, `${FLOW_LABEL}:answer_composer`);
       await sleep(300);
-      typeText(harness.APP, steerText);
+      typeText(harness.APP, answerText);
       await sleep(800);
       const send = findButtonByText(
         harness.dumpNodesForInteraction(`${FLOW_LABEL}:answer_composer_send`),
@@ -384,7 +459,15 @@ async function respondToRunPause(steerText, attempts) {
       attempts.push({ step: "find_answer_composer", ok: Boolean(composerField), send: Boolean(send) });
       if (!send) return { ok: false, reason: "answer_send_not_found", composer: true };
       harness.safeClick(send, `${FLOW_LABEL}:answer_composer_send`);
-      return { ok: true, kind: "composer_free_text", text: steerText, sent: true };
+      return {
+        ok: true,
+        kind: "composer_free_text",
+        text: answerText,
+        sent: true,
+        observation: observation
+          ? { ...observation, answer_source: planned?.source ?? "fallback", answer_text: answerText }
+          : null,
+      };
     }
 
     // 路径 3（兼容旧版）：自由文本「回复此问题」→ textarea（aria-label「对此问题的补充」）→「发送回复」。
@@ -403,7 +486,7 @@ async function respondToRunPause(steerText, attempts) {
       if (!textarea) return { ok: false, reason: "answer_textarea_not_found", panel: true };
       harness.safeClick(textarea, `${FLOW_LABEL}:answer_textarea`);
       await sleep(300);
-      typeText(harness.APP, steerText);
+      typeText(harness.APP, answerText);
       await sleep(800);
       const send = findButtonByText(
         harness.dumpNodesForInteraction(`${FLOW_LABEL}:answer_send`),
@@ -554,7 +637,11 @@ async function runMultiTurnFlow({ report, requests }) {
     const index = session.steers.length + 1;
     const steerText = index === 1 ? steerBase : `${steerBase}（第${index}轮继续）`;
     harness.capture(`a3-paused-${index}`);
-    const steer = await respondToRunPause(steerText, session.attempts);
+    // 观察驱动：先读面板真实问题/选项再作答（问题与回答绑定进入证据，C11 核验）。
+    const steer = await respondToRunPause(steerText, session.attempts, {
+      observed: true,
+      strategy: process.env.B71_AUTO_MAINT_ANSWER_STRATEGY ?? "continue_verification",
+    });
     session.steers.push({ index, text: steerText, ...steer });
     if (!steer.ok) {
       session.stop_reason = "steer_failed";
@@ -631,8 +718,11 @@ async function runMultiTurnFlow({ report, requests }) {
 async function sendSteerAfterPause({ index, queue, runId }) {
   const pause = await waitRunPauseOrTerminal({ runId });
   if (pause.kind !== "paused") return { skipped: true, reason: `run_${pause.kind}`, index };
-  const text = `${queue?.[0] ?? "按你的判断继续：给出下一步写作建议。"}（压缩后第${index}轮）`;
-  const steer = await respondToRunPause(text, []);
+  const text = queue?.[0] ?? "按你的判断继续：给出下一步写作建议。";
+  const steer = await respondToRunPause(text, [], {
+    observed: true,
+    strategy: process.env.B71_AUTO_MAINT_ANSWER_STRATEGY ?? "continue_verification",
+  });
   if (!steer.ok) return { skipped: true, reason: "steer_failed", index, steer };
   const resume = await waitRunResume({ runId });
   const after = await waitRunPauseOrTerminal({ runId });

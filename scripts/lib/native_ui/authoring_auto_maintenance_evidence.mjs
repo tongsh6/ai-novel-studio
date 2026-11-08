@@ -448,6 +448,17 @@ export function evaluateAutoMaintenance({
   const multiTurnSteers = list(multiTurn?.steers);
   const multiTurnResumes = list(multiTurn?.resumes);
   const multiTurnPause = multiTurn?.pause ?? null;
+  // 观察驱动多轮（2026-11-08 审核）：每轮回答必须来自真实问题文本的观察，
+  // 且至少一轮回答来源是选项/对象词提取（fallback 单独凑轮不算观察驱动）。
+  const observationRounds = multiTurnSteers.filter((steer) => {
+    const observation = steer?.observation ?? null;
+    const question = String(observation?.question_text ?? "").trim();
+    const source = String(observation?.answer_source ?? "");
+    return question !== "" && ["option", "extracted_text"].includes(source);
+  });
+  const questionBoundRounds = multiTurnSteers.filter(
+    (steer) => String(steer?.observation?.question_text ?? "").trim() !== "",
+  );
   const c11 = multiTurn
     ? {
         ok:
@@ -455,7 +466,9 @@ export function evaluateAutoMaintenance({
           multiTurnSteers.length >= 1 &&
           multiTurnSteers.every((steer) => steer?.ok === true) &&
           multiTurnResumes.length >= multiTurnSteers.length &&
-          multiTurnResumes.every((resume) => resume?.resumed === true),
+          multiTurnResumes.every((resume) => resume?.resumed === true) &&
+          questionBoundRounds.length === multiTurnSteers.length &&
+          observationRounds.length >= 1,
         reason: null,
         detail: {
           pause: multiTurnPause,
@@ -465,10 +478,19 @@ export function evaluateAutoMaintenance({
           stop_reason: multiTurn?.stop_reason ?? null,
           max_steers: multiTurn?.max_steers ?? null,
           checkpoint_events: multiTurn?.checkpoint_events ?? null,
+          observation_driven_rounds: observationRounds.length,
+          question_bound_rounds: questionBoundRounds.length,
+          answer_sources: multiTurnSteers.map((steer) => steer?.observation?.answer_source ?? null),
+          questions: multiTurnSteers.map((steer) => steer?.observation?.question_text ?? null),
         },
       }
     : { ok: null, reason: "not_multi_turn_scenario", detail: {} };
-  if (c11.ok === false) c11.reason = "multi_turn_same_run_not_established";
+  if (c11.ok === false) {
+    c11.reason =
+      questionBoundRounds.length !== multiTurnSteers.length || observationRounds.length < 1
+        ? "multi_turn_not_observation_driven"
+        : "multi_turn_same_run_not_established";
+  }
 
   const checks = {
     C1_real_pressure: c1,

@@ -318,7 +318,18 @@ test("G6 multi-turn 正例：同 run pause/steer/resume 成立 → C11 pass，C7
   const result = evaluate({
     multiTurn: {
       pause: { kind: "paused", status: "awaiting_author" },
-      steers: [{ index: 1, ok: true, kind: "composer_free_text" }],
+      steers: [
+        {
+          index: 1,
+          ok: true,
+          kind: "composer_free_text",
+          observation: {
+            question_text: "请确认要看哪一章的正文与章计划？",
+            answer_source: "extracted_text",
+            answer_text: "继续核对正文与章计划的一致性：先给出依据再继续；不要提前结束。",
+          },
+        },
+      ],
       resumes: [{ index: 1, resumed: true, status: "running" }],
       rounds: [{ index: 1, pause_kind: "paused", exchange_facts: { complete_exchanges: 0 } }],
       stop_reason: "triggered",
@@ -356,7 +367,17 @@ test("G6 multi-turn 反例：缺 steer 或未 resume → C11 fail（不放宽）
   const noResume = evaluate({
     multiTurn: {
       pause: { kind: "paused", status: "awaiting_author" },
-      steers: [{ index: 1, ok: true }],
+      steers: [
+        {
+          index: 1,
+          ok: true,
+          observation: {
+            question_text: "请确认要看哪一章的正文与章计划？",
+            answer_source: "option",
+            answer_text: "选项A",
+          },
+        },
+      ],
       resumes: [{ index: 1, resumed: false, status: "awaiting_author" }],
       rounds: [],
       stop_reason: "resume_failed",
@@ -374,4 +395,47 @@ test("跨 run A3 场景：C11 不判（ok=null，不进 required），C7/C8 仍�
   assert(!result.required.includes("C11_multi_turn_same_run"));
   assert.equal(result.checks.C7_refresh_idempotent.ok, true);
   assert.equal(result.checks.C8_failure_silent.ok, true);
+});
+
+test("G6 multi-turn 反例：回答全为 fallback（未基于真实问题观察）→ C11 fail", () => {
+  const result = evaluate({
+    multiTurn: {
+      pause: { kind: "paused", status: "awaiting_author" },
+      steers: [
+        {
+          index: 1,
+          ok: true,
+          observation: {
+            question_text: "请确认要看哪一章的正文与章计划？",
+            answer_source: "fallback",
+            answer_text: "按你的判断继续。",
+          },
+        },
+      ],
+      resumes: [{ index: 1, resumed: true, status: "running" }],
+      rounds: [],
+      stop_reason: "triggered",
+      max_steers: 6,
+      checkpoint_events: 1,
+    },
+  });
+  assert.equal(result.checks.C11_multi_turn_same_run.ok, false);
+  assert.equal(result.checks.C11_multi_turn_same_run.reason, "multi_turn_not_observation_driven");
+  assert(result.failed.includes("C11_multi_turn_same_run"));
+});
+
+test("G6 multi-turn 反例：缺少问题文本绑定 → C11 fail", () => {
+  const result = evaluate({
+    multiTurn: {
+      pause: { kind: "paused", status: "awaiting_author" },
+      steers: [{ index: 1, ok: true, observation: { question_text: "", answer_source: "extracted_text" } }],
+      resumes: [{ index: 1, resumed: true, status: "running" }],
+      rounds: [],
+      stop_reason: "triggered",
+      max_steers: 6,
+      checkpoint_events: 1,
+    },
+  });
+  assert.equal(result.checks.C11_multi_turn_same_run.ok, false);
+  assert.equal(result.checks.C11_multi_turn_same_run.reason, "multi_turn_not_observation_driven");
 });
