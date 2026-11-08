@@ -18,6 +18,26 @@ B71 的 G6（压缩后真实请求）长期不可取证，根因不是压缩小�
 
 判断：**阶段 1 的价值不是加功能，而是把 canonical 运行事实的作用域从 run 提升到 session**，为阶段 2（每轮请求由会话派生）、阶段 3（压缩作用域会话历史）提供唯一事实基础。阶段 1 **不改变模型可见行为**（请求仍由 run 内结构派生），因此可独立实现与验证、风险最小。
 
+### 1.1 断链定位（2026-11-08 核查，系统设计有、实现偏差）
+
+**早期 session 相关 schema 确实定义过，但从来不是「会话级 canonical 结构」，而是三张表各管一段：**
+
+| 时间 | 表 | 内容 | 角色 |
+|---|---|---|---|
+| 2026-04-28 | `interactions` | workspace_id / turn_id / role / content / memory_class / retention_tier / source_type | 对话消息流（v2 的"对话历史"） |
+| 2026-05-09 | `decision_traces` | turn_id / frame_ref / decision_type / turn_result_ref / context_refs / event_order | turn 级决策轨迹（旧 DialogueFrame/MicroPlan/TurnResult/Trace 的持久化形态） |
+| 2026-05-15 | `work_sessions` | id / work_id / title / summary / status / source_session_ref / source_turn_ref / last_opened_at | 会话容器；同时给 interactions、decision_traces 加 `session_id` |
+
+v3 早期设计（[01 §3.3](../../docs/design/01-user-llm-workbench-interaction-model.md)）的"会话结构"是**每 turn 的合同组合**（AIMessageEnvelope / DialogueFrame / ContextPacket / MicroPlan / ToolInput / ToolResult / TurnResult / Trace），落在 interactions + decision_traces；模型上下文由"会话摘要 + 作品状态 + 角色规则 + 作者输入"压进一个大型 user 文档（ADR-0033 背景原话）。
+
+**B71/ADR-0033 把旧协议收敛为「单一 AgentRun 是唯一运行事实源 + run 内 Authoring Run Transcript/Request IR」并退役旧大 user 文档（含会话摘要），但迁移映射缺了三项承接：**
+
+1. **契约层漏项**：ADR-0033 §7 要求 CP1 逐项列出旧 contract 的"保留/重命名/转换/退役"；"会话历史进入模型上下文"这一项没有作为保留/转换出现——实际按退役处理且无替代。VS-00L 只定义 run 内 transcript、Base、按需求证与"长会话 checkpoint 压缩"原则（第 99/221 行），**没有定义会话级 canonical 历史的数据结构、schema 与读边界**。
+2. **schema 层缺位**：`work_sessions` 只是容器元数据（无消息/上下文结构）；`interactions` 是展示/回放流（非 canonical Request IR）；`decision_traces` 是 turn 轨迹；**不存在"会话 canonical transcript"的表、列或读端口**。canonical 结构只有 run 级落点 `agent_runs.authoring_transcript`。
+3. **实现层表现**：`JudgmentProtocol.new_transcript/4` 新 run 从 base + 当前输入 + 当前 scope 重建、不继承会话历史；`AgentRunHistory` 只是按 work/session/turn 解析 run 的读取边界，不喂上下文；压缩 `plan_maintenance` 作用 run transcript，才需要"更早作者回合"这种额外收紧（会话历史无对象）；VS-00L §16.1「单一 canonical 会话边界」名实不符（实现是 run 边界）。
+
+**结论**：断链点 = **"会话级 canonical 历史"这一层在 B71 迁移时没有被创建/承接**（设计有、实现偏差）。本任务的阶段 1 正是补这一层，并在重构中复用既有设计资料与实现（见 §8.0）。
+
 ## 2. 范围与非目标
 
 **阶段 1 范围（本任务当前部分）**：
@@ -84,6 +104,39 @@ B71 的 G6（压缩后真实请求）长期不可取证，根因不是压缩小�
 | 5 | 真实页面多轮会话综合验收 + G6 取证 | 页面/机制/实模分层报告（实模不代签） | 阶段 2–4 |
 | 6 | 旧 `:session_transcript`/旧装配链/旧 run 级语义退役清理 | 删除后全量门禁 + 无消费者核对 | 阶段 5 |
 
+### 8.0 彻底重构 + 复用设计资料与实现（原则）
+
+本任务按 ADR-0035 做**作用域级重构**（run → session），不是抛弃重写：能复用的设计语义与实现边界全部复用，只替换"事实源层级与存储/派生边界"。
+
+**复用设计资料**：
+
+- `01-user-llm-workbench-interaction-model.md` §3.3 会话结构合同组合（语义参照：每 turn 结构 = 作者意图/写作坐标/材料与省略/观察证据/权限/输出类型）；
+- VS-00L §16.1/§16.2/§99/§221（canonical 不删改、作者原话与 artifact 字节、显式 checkpoint、长会话压缩）；
+- ADR-0033 Request IR 契约族与三类投影（不变）；
+- 旧 `interactions`/`decision_traces` 的历史语义（跨轮原文关联、turn 决策轨迹、回放定位）作为"会话历史内容"的语义来源，不重建第二套语义；
+- UI 46/47 细条/文案与作者安全要求（阶段 3 复用）。
+
+**复用实现（不重写）**：
+
+- `AuthoringTranscript`：消息/工具调用/观察/校验/候选/checkpoint 的结构与合并逻辑；
+- `AuthoringSession`：唯一读写边界（改为会话作用域）；
+- `TranscriptCompaction` 的 `covers/source_refs/versions/omissions/summary` 派生与幂等；
+- `AgentRunPersistence` 的 durable checkpoint 提交/恢复语义；
+- Request IR 三类投影与能力事实派生（不变）；
+- `AgentRunHistory`/`WorkSessionRepo`/`Interactions`/`DecisionTrace` 的读取与定位边界（会话历史语义来源）；
+- 既有确定性测试/验收基线（阶段 1 行为不变，全部回归复用）。
+
+**替换/新增**：
+
+- 新增会话级 canonical transcript 的存储、身份、追加/恢复读端口（承接旧历史语义，canonical 形态）；
+- 改造 `new_transcript`/`AgentRunServer` 合并路径为"会话追加"（run 仍为执行段）；
+- 压缩作用域改为会话历史（阶段 3）；
+- 旧 run 级私有 transcript 列在迁移后退役（不做历史兼容）。
+
+**退役（阶段 6）**：旧 `:session_transcript` 材料类型与旧装配链（`ContextAssembler`/`DialoguePlanningService` 旧路径）、未被复用的旧摘要路径；退役前逐项核对消费者。
+
+**旧表处置基线**：`work_sessions` 保留为会话身份容器（可扩展 canonical 版本/引用）；`interactions` 保留为展示/回放；`decision_traces` 保留为 turn 轨迹/审计；新增会话 canonical 存储（或迁移 `agent_runs.authoring_transcript` 为会话级）；未发布不迁移历史数据。
+
 ## 8. 阶段 1 详细设计（草案，待评审）
 
 1. **数据与身份**：
@@ -112,3 +165,6 @@ B71 的 G6（压缩后真实请求）长期不可取证，根因不是压缩小�
 ## 11. 变更记录
 
 - 2026-11-08：立项 + 阶段 1 设计草案（作者批准 ADR-0035 后产出；未授权实现）。
+
+
+- 2026-11-08：补充 §1.1 断链定位（schema 时间线 + 三项漏承接）与 §8.0 彻底重构/复用清单（作者 2026-11-08 确认：系统设计有、实现偏差；彻底重构但复用设计资料和实现）。
