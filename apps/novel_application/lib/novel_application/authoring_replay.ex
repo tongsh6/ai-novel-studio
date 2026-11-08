@@ -73,8 +73,8 @@ defmodule NovelApplication.AuthoringReplay do
     end
   end
 
-  # task 的 header/run/work/parent 必须与真实 run 完整一致。历史 v2 真实 producer
-  # 一直写 checkpoint_version 与 header run_id；缺失事实是未知，不能用 run 反推或补造。
+  # task 的 header/run/work/parent 必须与真实 run 完整一致。当前唯一写格式是 v3；
+  # 缺失或旧版本事实是未知，不能用 run 反推或补造（未发布阶段不兼容历史格式）。
   defp validate_task_identity(task, run) do
     agent_run = value(task.checkpoint_data, :agent_run)
     header_run_id = value(agent_run, :run_id)
@@ -87,7 +87,7 @@ defmodule NovelApplication.AuthoringReplay do
       not is_binary(task.parent_turn_ref) or task.parent_turn_ref != run.parent_turn_ref ->
         {:error, :checkpoint_task_parent_mismatch}
 
-      version not in [2, 3] ->
+      version != 3 ->
         {:error, :checkpoint_version_mismatch}
 
       not is_binary(header_run_id) or header_run_id != run.id ->

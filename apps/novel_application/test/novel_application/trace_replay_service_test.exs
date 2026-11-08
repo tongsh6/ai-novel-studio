@@ -267,7 +267,7 @@ defmodule NovelApplication.TraceReplayServiceTest do
     turn_id = "turn-checkpoint-#{System.unique_integer([:positive, :monotonic])}"
     run_id = "run-checkpoint-#{System.unique_integer([:positive, :monotonic])}"
 
-    transcript =
+    {:ok, transcript} =
       NovelApplication.AuthoringTranscript.new(
         %{
           run_id: run_id,
@@ -279,8 +279,20 @@ defmodule NovelApplication.TraceReplayServiceTest do
         base_text: "作者决定作品事实",
         author_text: "设计灵源矿区"
       )
-      |> NovelApplication.AuthoringTranscript.append_checkpoint(
-        %{turn_range: "turn-1"},
+      |> NovelApplication.AuthoringTranscript.append_assistant("", [
+        NovelCommon.RequestIR.tool_call_block(
+          "chapter_read",
+          %{"chapter" => "第3章"},
+          "call-checkpoint"
+        )
+      ])
+      |> NovelApplication.AuthoringTranscript.append_observation("call-checkpoint", %{
+        status: "ok",
+        source_refs: [%{ref: "chapter:internal-03", display_name: "第03章：旧誓", version: 2}],
+        versions: %{"chapter:internal-03" => 2}
+      })
+      |> NovelApplication.AuthoringTranscript.compact(
+        %{call_ids: ["call-checkpoint"]},
         [%{ref: "chapter:internal-03", display_name: "第03章：旧誓", version: 2}],
         %{"chapter:internal-03" => 2},
         ["较早的工具调用细节已省略，原始记录仍可回查。"],
@@ -295,8 +307,14 @@ defmodule NovelApplication.TraceReplayServiceTest do
         status: "READY",
         phase: "PLANNED",
         checkpoint_data: %{
-          "agent_run" => %{"run_id" => run_id, "checkpoint_version" => 2},
-          "authoring_transcript" => NovelApplication.AuthoringTranscript.checkpoint(transcript)
+          "agent_run" => %{
+            "run_id" => run_id,
+            "checkpoint_version" => 3,
+            "authoring_transcript_ref" => %{
+              "run_id" => run_id,
+              "version" => NovelApplication.AuthoringCheckpoint.format_version()
+            }
+          }
         }
       })
 
@@ -312,7 +330,8 @@ defmodule NovelApplication.TraceReplayServiceTest do
         profile_ref: "character_design_with_context_v1",
         status: "awaiting_author",
         phase: "stopped",
-        long_run_task_ref: task.id
+        long_run_task_ref: task.id,
+        authoring_transcript: private_shape(transcript)
       })
 
     {:ok, _} =
@@ -330,10 +349,16 @@ defmodule NovelApplication.TraceReplayServiceTest do
     assert [%{long_run_task_ref: task_ref}] =
              NovelPersistence.AgentRunLog.list_by_parent_turn(work.id, session.id, turn_id)
 
-    assert %{"authoring_transcript" => checkpoint} =
+    assert %{"agent_run" => %{"authoring_transcript_ref" => ref}} =
              NovelPersistence.LongRunTaskLog.get(task_ref).checkpoint_data
 
-    assert {:ok, _transcript} = NovelApplication.AuthoringTranscript.restore(checkpoint)
+    assert ref["run_id"] == run_id
+
+    record = NovelPersistence.AgentRunLog.get_run(run_id)
+
+    assert {:ok, _transcript} =
+             NovelApplication.AuthoringTranscript.restore(record.authoring_transcript)
+
     assert {:ok, report} = TraceReplayService.fetch_turn_report(work.id, session.id, turn_id)
 
     assert [
@@ -356,19 +381,17 @@ defmodule NovelApplication.TraceReplayServiceTest do
              TraceReplayService.fetch_turn_report(work.id, other_session.id, "turn-x")
   end
 
-  test "durable 历史缺失或损坏必须报告 partial，不能假装完整回放", context do
-    for checkpoint <- [nil, %{"version" => "unsupported", "transcript" => %{}}] do
-      %{turn_id: turn_id} = persist_authoring_history(context, checkpoint)
+  test "durable 历史缺失必须报告 partial，不能假装完整回放", context do
+    %{turn_id: turn_id} = persist_authoring_history(context, nil)
 
-      assert {:ok, report} =
-               TraceReplayService.fetch_turn_report(context.work.id, context.session.id, turn_id)
+    assert {:ok, report} =
+             TraceReplayService.fetch_turn_report(context.work.id, context.session.id, turn_id)
 
-      assert report.replay_report.result_status == "partial"
-      assert report.trace_summary.replay_result_status == "partial"
-      assert "authoring_transcript" in report.replay_report.missing_trace_refs
-      assert report.trace_summary.replay_missing_trace_refs_count == 1
-      assert report.replay_report.provider_called == false
-    end
+    assert report.replay_report.result_status == "partial"
+    assert report.trace_summary.replay_result_status == "partial"
+    assert "authoring_transcript" in report.replay_report.missing_trace_refs
+    assert report.trace_summary.replay_missing_trace_refs_count == 1
+    assert report.replay_report.provider_called == false
   end
 
   test "bounded 无私有历史只在已记录零 Provider 消耗时返回 not_applicable", context do
@@ -427,11 +450,14 @@ defmodule NovelApplication.TraceReplayServiceTest do
     turn_id = "turn-history-other-#{System.unique_integer([:positive, :monotonic])}"
     run_id = "run-history-other-#{System.unique_integer([:positive, :monotonic])}"
 
-    checkpoint =
-      history_checkpoint("other-run", context.work.id, context.session.id, turn_id)
+    checkpoint = history_checkpoint(run_id, context.work.id, context.session.id, turn_id)
 
     %{turn_id: ^turn_id} =
-      persist_authoring_history(context, checkpoint, run_id: run_id, turn_id: turn_id)
+      persist_authoring_history(context, checkpoint,
+        run_id: run_id,
+        turn_id: turn_id,
+        ref_run_id: "other-run"
+      )
 
     assert {:ok, report} =
              TraceReplayService.fetch_turn_report(context.work.id, context.session.id, turn_id)
@@ -443,7 +469,7 @@ defmodule NovelApplication.TraceReplayServiceTest do
   test "历史说明与来源名称不把内部调用和私有推理字段展示给作者" do
     transcript =
       NovelApplication.AuthoringTranscript.new(%{}, base_text: "作者主权", author_text: "检查旧誓")
-      |> NovelApplication.AuthoringTranscript.append_checkpoint(
+      |> append_legacy_checkpoint(
         %{turn_range: "早期轮次"},
         [
           "chapter:reference-only",
@@ -500,41 +526,64 @@ defmodule NovelApplication.TraceReplayServiceTest do
   end
 
   defp history_checkpoint(run_id, work_id, session_id, parent_turn_ref) do
-    NovelApplication.AuthoringTranscript.new(
-      %{
-        run_id: run_id,
-        work_id: work_id,
-        workspace_id: work_id,
-        session_id: session_id,
-        parent_turn_ref: parent_turn_ref
-      },
-      base_text: "作者决定作品事实",
-      author_text: "设计角色"
-    )
-    |> NovelApplication.AuthoringTranscript.append_checkpoint(
-      %{turn_range: "较早轮次"},
-      [],
-      %{},
-      ["省略细节"],
-      "已核对旧誓，候选尚未采纳。"
-    )
-    |> NovelApplication.AuthoringTranscript.checkpoint()
+    {:ok, compacted} =
+      NovelApplication.AuthoringTranscript.new(
+        %{
+          run_id: run_id,
+          work_id: work_id,
+          workspace_id: work_id,
+          session_id: session_id,
+          parent_turn_ref: parent_turn_ref
+        },
+        base_text: "作者决定作品事实",
+        author_text: "设计角色"
+      )
+      |> NovelApplication.AuthoringTranscript.append_assistant("", [
+        NovelCommon.RequestIR.tool_call_block(
+          "chapter_read",
+          %{"chapter" => "第1章"},
+          "call-history"
+        )
+      ])
+      |> NovelApplication.AuthoringTranscript.append_observation("call-history", %{
+        status: "ok",
+        source_refs: []
+      })
+      |> NovelApplication.AuthoringTranscript.compact(
+        %{call_ids: ["call-history"]},
+        [],
+        %{},
+        ["省略细节"],
+        "已核对旧誓，候选尚未采纳。"
+      )
+
+    NovelApplication.AuthoringTranscript.checkpoint(compacted)
   end
 
-  defp maybe_put_legacy_checkpoint(data, nil), do: data
-
-  defp maybe_put_legacy_checkpoint(data, checkpoint),
-    do: Map.put(data, "authoring_transcript", checkpoint)
+  defp private_shape(transcript) do
+    transcript
+    |> NovelApplication.AuthoringTranscript.checkpoint()
+    |> Jason.encode!()
+    |> Jason.decode!()
+  end
 
   defp persist_authoring_history(context, checkpoint, opts \\ []) do
     id = System.unique_integer([:positive, :monotonic])
     run_id = Keyword.get(opts, :run_id, "run-history-#{id}")
     turn_id = Keyword.get(opts, :turn_id, "turn-history-#{id}")
     trace_id = "trace-history-#{id}"
+    ref_run_id = Keyword.get(opts, :ref_run_id, run_id)
 
-    data =
-      %{"agent_run" => %{"run_id" => run_id, "checkpoint_version" => 2}}
-      |> maybe_put_legacy_checkpoint(checkpoint)
+    data = %{
+      "agent_run" => %{
+        "run_id" => run_id,
+        "checkpoint_version" => 3,
+        "authoring_transcript_ref" => %{
+          "run_id" => ref_run_id,
+          "version" => NovelApplication.AuthoringCheckpoint.format_version()
+        }
+      }
+    }
 
     {:ok, task} =
       NovelPersistence.LongRunTaskLog.create(%{
@@ -558,7 +607,8 @@ defmodule NovelApplication.TraceReplayServiceTest do
         profile_ref: "character_design_with_context_v1",
         status: "awaiting_author",
         phase: "stopped",
-        long_run_task_ref: task.id
+        long_run_task_ref: task.id,
+        authoring_transcript: checkpoint |> Jason.encode!() |> Jason.decode!()
       })
 
     {:ok, _} =
@@ -593,5 +643,15 @@ defmodule NovelApplication.TraceReplayServiceTest do
 
     assert {:error, :trace_not_found} =
              TraceReplayService.fetch_turn_report(work.id, session.id, turn_id)
+  end
+
+  # append_checkpoint/6 已按「无历史兼容」退役：生产唯一压缩入口是 compact/6。
+  # 历史 turn_range checkpoint 事实由测试直接构造 canonical 消息，不再经产品 API。
+  defp append_legacy_checkpoint(transcript, covers, source_refs, versions, omissions, summary) do
+    block =
+      NovelCommon.RequestIR.checkpoint_block(covers, source_refs, versions, omissions, summary)
+
+    message = NovelCommon.RequestIR.message(:checkpoint, :application, [block])
+    %{transcript | messages: transcript.messages ++ [message]}
   end
 end

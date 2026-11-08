@@ -355,7 +355,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
   test "checkpoint 与 author_exit：显式压缩、无伪作者消息" do
     transcript =
       base_transcript()
-      |> AuthoringTranscript.append_checkpoint(
+      |> append_legacy_checkpoint(
         %{turn_range: "turn-1..turn-20"},
         [%{ref: "turn:1..20", version: 1}],
         %{"turn:1..20" => 1},
@@ -551,7 +551,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
       base_transcript()
       |> AuthoringTranscript.append_assistant("读取角色。", [tool_call()])
       |> AuthoringTranscript.append_observation("call-1", observation())
-      |> AuthoringTranscript.append_checkpoint(%{turn_range: "turn-1"}, [], %{}, [], "旧版摘要")
+      |> append_legacy_checkpoint(%{turn_range: "turn-1"}, [], %{}, [], "旧版摘要")
 
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
     assert {:ok, request} = Projection.project(ir, "chat_completions")
@@ -881,5 +881,15 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     [message] = transcript.messages |> Enum.filter(&(&1.role == "user")) |> Enum.take(-1)
     refute Map.has_key?(message, :author_turn)
+  end
+
+  # append_checkpoint/6 已按「无历史兼容」退役：生产唯一压缩入口是 compact/6。
+  # 历史 turn_range checkpoint 事实由测试直接构造 canonical 消息，不再经产品 API。
+  defp append_legacy_checkpoint(transcript, covers, source_refs, versions, omissions, summary) do
+    block =
+      NovelCommon.RequestIR.checkpoint_block(covers, source_refs, versions, omissions, summary)
+
+    message = NovelCommon.RequestIR.message(:checkpoint, :application, [block])
+    %{transcript | messages: transcript.messages ++ [message]}
   end
 end

@@ -4,6 +4,16 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
 
   只负责 transcript 与 Request IR 的转换和状态合并；计划、预算、权限、工具执行与
   作者裁决仍由既有 AgentRun/Orchestrator 负责。
+
+  两条不同层的传输契约（不要合并成同一形状）：
+
+  - flow state（`{:ok, step_result}` / `{:error, reason, state}` 里的快照/结果）：
+    canonical 会话唯一位置是 `stage_state.judgment_transcript`（`transcript/1`、
+    `put_transcript/2`、`snapshot/2` 都在这一层）。
+  - error3 的第三元素（`{:error, reason, stage_state_delta}`）：它是 **stage_state
+    增量**，runtime 直接把它 merge 进 `stage_state`；canonical 会话在该增量顶层
+    `judgment_transcript`（`failure_state/1`、`failure_result/3`、`inherit_failure/2`
+    在这一层）。error3 不携带 flow state 形状，不得把会话包进 `:stage_state` 键。
   """
 
   alias NovelApplication.AuthoringTranscript
@@ -11,7 +21,6 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
   alias NovelCommon.RequestIR
 
   @invalid_request_ir "authoring session request IR is invalid"
-  @inconsistent_failure_carrier :inconsistent_judgment_transcript_carrier
 
   @spec transcript(map()) :: AuthoringTranscript.t() | nil
   def transcript(%{stage_state: state}) when is_map(state),
@@ -140,7 +149,12 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
     %{request | input: input}
   end
 
-  @doc "失败也保留会话与已发生的执行计数；Provider 消耗由真实调用事件累计。"
+  @doc """
+  失败也保留会话与已发生的执行计数；Provider 消耗由真实调用事件累计。
+
+  error3 的第三元素是 stage_state 增量（runtime 直接 merge 进 `stage_state`），
+  私有会话在该增量顶层 `judgment_transcript`——这是错误结果里的唯一位置。
+  """
   @spec failure_result(term(), map(), AuthoringTranscript.t() | nil) :: {:error, term(), map()}
   def failure_result(reason, turn_result, transcript) do
     tool_calls = get_in(turn_result, [:trace_summary, :execution_counts, :tool_calls]) || 0
@@ -168,9 +182,9 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
   @doc """
   把较旧判断会话并入错误结果；inner 已带更新会话时保持 inner，不反向覆盖。
 
-  inner 的 flat/nested 两种既有私有载体先归并为一个 flat canonical；显式 nil 不
-  覆盖另一有效别名，两个非 nil 别名不一致时以固定安全 reason 拒绝。其他
-  `stage_state` 业务字段与顶层真实计数原样保留；私有会话不写 reason、不复制整个快照。
+  error3 的私有会话唯一位置是 state 顶层 `judgment_transcript`（该 state 是 stage_state
+  增量，runtime 归集时合并进 `stage_state`）。其他 `stage_state` 业务字段与顶层真实
+  计数原样保留；私有会话不写 reason、不复制整个快照。
   """
   @spec inherit_failure({:error, term()} | {:error, term(), map()}, map()) ::
           {:error, term(), map()}
@@ -180,69 +194,24 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
   def inherit_failure({:error, reason, state}, judgment) when is_map(state) do
     metadata = failure_state(judgment)
 
-    case inner_transcript(state) do
-      {:ok, inner} ->
-        state =
-          state
-          |> put_canonical_transcript(inner || Map.get(metadata, :judgment_transcript))
-          |> inherit_provider_calls(Map.get(metadata, :provider_call_count, 0))
+    state =
+      state
+      |> inherit_transcript(
+        Map.get(state, :judgment_transcript) || Map.get(metadata, :judgment_transcript)
+      )
+      |> inherit_provider_calls(Map.get(metadata, :provider_call_count, 0))
 
-        {:error, reason, state}
-
-      :inconsistent ->
-        {:error, @inconsistent_failure_carrier, drop_transcript_aliases(state)}
-    end
+    {:error, reason, state}
   end
 
   def inherit_failure(result, _judgment), do: result
 
-  # 私有会话只允许一个 canonical 位置：error3 顶层 flat 字段。inner 的 nested
-  # `stage_state.judgment_transcript` 是 runtime 已支持的既有形状；显式 nil 不覆盖
-  # 另一有效别名，两个非 nil 别名不一致时拒绝，不按时间猜测或静默选旧值。
-  defp inner_transcript(state) do
-    flat = Map.get(state, :judgment_transcript)
-    nested = nested_transcript(Map.get(state, :stage_state))
+  # inner 已带本步会话时保持 inner（较旧 judgment 不反向覆盖），否则继承本次判断会话。
+  # 显式 nil 视为「本步未携带会话」，不能挡住继承；error3 的增量顶层是唯一位置。
+  defp inherit_transcript(state, nil), do: Map.delete(state, :judgment_transcript)
 
-    cond do
-      is_nil(flat) -> {:ok, nested}
-      is_nil(nested) -> {:ok, flat}
-      flat == nested -> {:ok, flat}
-      true -> :inconsistent
-    end
-  end
-
-  defp nested_transcript(stage_state) when is_map(stage_state),
-    do: Map.get(stage_state, :judgment_transcript)
-
-  defp nested_transcript(_stage_state), do: nil
-
-  defp put_canonical_transcript(state, nil), do: drop_transcript_aliases(state)
-
-  defp put_canonical_transcript(state, transcript) do
-    state
-    |> Map.put(:judgment_transcript, transcript)
-    |> drop_nested_transcript()
-  end
-
-  defp drop_transcript_aliases(state) do
-    state
-    |> Map.delete(:judgment_transcript)
-    |> drop_nested_transcript()
-  end
-
-  defp drop_nested_transcript(state) do
-    case Map.get(state, :stage_state) do
-      stage_state when is_map(stage_state) ->
-        if Map.has_key?(stage_state, :judgment_transcript) do
-          Map.put(state, :stage_state, Map.delete(stage_state, :judgment_transcript))
-        else
-          state
-        end
-
-      _stage_state ->
-        state
-    end
-  end
+  defp inherit_transcript(state, transcript),
+    do: Map.put(state, :judgment_transcript, transcript)
 
   defp inherit_provider_calls(state, provider_calls) do
     case Map.get(state, :provider_call_count) do
@@ -281,14 +250,31 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
   def inherit_result({:error, reason}, meta), do: inherit_result({:error, reason, %{}}, meta)
 
   def inherit_result({:error, reason, state}, meta),
-    do: {:error, reason, inherit_state(state, meta)}
+    do: {:error, reason, inherit_failure_state(state, meta)}
 
   def inherit_result(result, meta) when is_map(result) do
-    Map.update(result, :stage_state, inherit_state(%{}, meta), &inherit_state(&1 || %{}, meta))
+    delta = stage_state_delta(meta)
+    Map.update(result, :stage_state, delta, &inherit_existing_transcript(&1 || %{}, delta))
   end
 
-  defp inherit_state(state, %{judgment_transcript: transcript}) when not is_nil(transcript),
-    do: Map.put_new(state, :judgment_transcript, transcript)
+  # 普通 step 结果：规划历史作为 stage_state 增量继承，已有步骤历史始终优先。
+  defp stage_state_delta(%{judgment_transcript: transcript}) when not is_nil(transcript),
+    do: %{judgment_transcript: transcript}
 
-  defp inherit_state(state, _meta), do: state
+  defp stage_state_delta(_meta), do: %{}
+
+  # error3 载体：会话作为增量顶层继承（runtime 归集进 stage_state），inner 已有优先。
+  defp inherit_failure_state(state, meta) do
+    case Map.get(meta, :judgment_transcript) do
+      nil -> state
+      transcript -> Map.put_new(state, :judgment_transcript, transcript)
+    end
+  end
+
+  defp inherit_existing_transcript(stage_state, delta) do
+    case Map.get(delta, :judgment_transcript) do
+      nil -> stage_state
+      transcript -> Map.put_new(stage_state, :judgment_transcript, transcript)
+    end
+  end
 end

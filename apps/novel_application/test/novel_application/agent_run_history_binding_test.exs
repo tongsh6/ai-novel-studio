@@ -163,7 +163,7 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
 
     for {scope_work, scope_session, run_id, summary} <- scopes do
       # 隔离用例用可被当前读路径消费的 v2 旧副本，避免把“私有列未读”混进隔离结论。
-      seed_run!(scope_work, scope_session, run_id, shared_turn, summary, checkpoint_version: 2)
+      seed_run!(scope_work, scope_session, run_id, shared_turn, summary, checkpoint_version: 3)
 
       record_assistant!(scope_work, scope_session, shared_turn,
         agent_run_id: run_id,
@@ -344,9 +344,9 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
     summary = unique("旧数据唯一历史")
 
     legacy =
-      seed_run!(work, session, run_id, parent_turn, summary, checkpoint_version: 2)
+      seed_run!(work, session, run_id, parent_turn, summary, checkpoint_version: 3)
 
-    assert %{"agent_run" => %{"checkpoint_version" => 2, "run_id" => ^run_id}} =
+    assert %{"agent_run" => %{"checkpoint_version" => 3, "run_id" => ^run_id}} =
              legacy.task.checkpoint_data
 
     record_assistant!(work, session, parent_turn, [])
@@ -389,8 +389,8 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
     first_summary = unique("旧数据历史一")
     second_summary = unique("旧数据历史二")
 
-    seed_run!(work, session, first_run, parent_turn, first_summary, checkpoint_version: 2)
-    seed_run!(work, session, second_run, parent_turn, second_summary, checkpoint_version: 2)
+    seed_run!(work, session, first_run, parent_turn, first_summary, checkpoint_version: 3)
+    seed_run!(work, session, second_run, parent_turn, second_summary, checkpoint_version: 3)
     record_assistant!(work, session, parent_turn, [])
     insert_trace!(work, session, parent_turn)
 
@@ -421,8 +421,8 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
     first_summary = unique("step 匹配历史")
     second_summary = unique("step 不匹配历史")
 
-    seed_run!(work, session, first_run, parent_turn, first_summary, checkpoint_version: 2)
-    seed_run!(work, session, second_run, parent_turn, second_summary, checkpoint_version: 2)
+    seed_run!(work, session, first_run, parent_turn, first_summary, checkpoint_version: 3)
+    seed_run!(work, session, second_run, parent_turn, second_summary, checkpoint_version: 3)
     insert_step!(first_run, 1)
     insert_trace!(work, session, step_turn)
 
@@ -536,7 +536,7 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
     refute Map.has_key?(private_run.task.checkpoint_data, "authoring_transcript")
     assert private_run.run.authoring_transcript == source_checkpoint
 
-    seed_run!(work, session, child_run, source_turn, child_summary, checkpoint_version: 2)
+    seed_run!(work, session, child_run, source_turn, child_summary, checkpoint_version: 3)
 
     assert [%{id: ^source_run}, %{id: ^child_run}] =
              AgentRunLog.list_by_parent_turn(work.id, session.id, source_turn)
@@ -588,8 +588,8 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
 
     refute Map.has_key?(private_run.task.checkpoint_data, "authoring_transcript")
 
-    # 明确故障注入：私有 canonical 的 parent_turn_ref 与记录不一致；另放一份
-    # summary 不同的真正 v2 旧副本，并让它成为 parent 回退的“最新”候选。
+    # 明确故障注入：私有 canonical 的 parent_turn_ref 与记录不一致；另放一个
+    # summary 不同的另一 run（成为 parent 回退的“最新”候选），证明不会串用。
     mismatched =
       put_in(
         checkpoint,
@@ -604,9 +604,9 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
     )
 
     old_copy =
-      seed_run!(work, session, old_run, source_turn, legacy_summary, checkpoint_version: 2)
+      seed_run!(work, session, old_run, source_turn, legacy_summary, checkpoint_version: 3)
 
-    assert %{"agent_run" => %{"checkpoint_version" => 2, "run_id" => ^old_run}} =
+    assert %{"agent_run" => %{"checkpoint_version" => 3, "run_id" => ^old_run}} =
              old_copy.task.checkpoint_data
 
     # 旧副本必须真的带不同 summary，后面的排除断言才不是空断言。
@@ -665,7 +665,7 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
         [],
         %{reasoning_content: "推理原文 " <> marker}
       )
-      |> AuthoringTranscript.append_checkpoint(
+      |> append_legacy_checkpoint(
         %{turn_range: "本轮"},
         [],
         %{},
@@ -827,7 +827,7 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
       base_text: "应用 Base",
       author_text: "作者原话"
     )
-    |> AuthoringTranscript.append_checkpoint(
+    |> append_legacy_checkpoint(
       %{turn_range: "本轮"},
       [],
       %{},
@@ -1037,5 +1037,15 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
     for module <- @provider_entry_modules do
       :erlang.trace_pattern({module, :_, :_}, false, [:local])
     end
+  end
+
+  # append_checkpoint/6 已按「无历史兼容」退役：生产唯一压缩入口是 compact/6。
+  # 历史 turn_range checkpoint 事实由测试直接构造 canonical 消息，不再经产品 API。
+  defp append_legacy_checkpoint(transcript, covers, source_refs, versions, omissions, summary) do
+    block =
+      NovelCommon.RequestIR.checkpoint_block(covers, source_refs, versions, omissions, summary)
+
+    message = NovelCommon.RequestIR.message(:checkpoint, :application, [block])
+    %{transcript | messages: transcript.messages ++ [message]}
   end
 end

@@ -938,24 +938,6 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
   defp feedback_from_message(_message), do: nil
 
-  defp feedback_text(%{messages: messages}) do
-    messages
-    |> Enum.reverse()
-    |> Enum.find_value("", fn
-      %{role: "tool", content: content} ->
-        case Jason.decode(content) do
-          {:ok, block} -> get_in(block, ["detail", "correction"])
-          _ -> nil
-        end
-
-      %{role: "user", content: content} ->
-        if String.contains?(content, "application_notice"), do: content
-
-      _ ->
-        nil
-    end)
-  end
-
   defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 
   defp captured_draft_prompt(chapters) do

@@ -573,62 +573,6 @@ defmodule NovelPersistence.AgentRunAuthoringTranscriptTest do
     assert LongRunTaskLog.get(task.id).checkpoint_data == task.checkpoint_data
   end
 
-  test "旧 v2 canonical 在 snapshot 中只读，状态更新保留 header，新写入不覆盖" do
-    run_id = unique("run-v2-readonly")
-    legacy = checkpoint(run_id, ["legacy"])
-
-    task =
-      create_task(run_id, %{
-        checkpoint_data: %{
-          "agent_run" => %{"run_id" => run_id, "checkpoint_version" => 2},
-          "authoring_transcript" => legacy
-        }
-      })
-
-    assert {:ok, _run} =
-             AgentRunLog.commit_snapshot(
-               run_attrs(run_id, nil, %{
-                 run_mode: "durable",
-                 long_run_task_ref: task.id,
-                 status: "paused",
-                 phase: "stopped"
-               }),
-               checkpoint: %{
-                 task_ref: task.id,
-                 attrs: %{status: "PAUSED", phase: "CHECKPOINT"}
-               }
-             )
-
-    preserved = LongRunTaskLog.get(task.id)
-    assert preserved.checkpoint_data["agent_run"]["checkpoint_version"] == 2
-    assert preserved.checkpoint_data["authoring_transcript"] == legacy
-
-    assert {:error, :legacy_checkpoint_read_only} =
-             AgentRunLog.commit_snapshot(
-               run_attrs(run_id, checkpoint(run_id, ["m1"]), %{
-                 run_mode: "durable",
-                 long_run_task_ref: task.id
-               }),
-               checkpoint: %{
-                 task_ref: task.id,
-                 attrs: %{
-                   status: "PAUSED",
-                   phase: "CHECKPOINT",
-                   checkpoint_data: %{
-                     "agent_run" => %{
-                       "run_id" => run_id,
-                       "checkpoint_version" => 3,
-                       "authoring_transcript_ref" => transcript_ref(run_id)
-                     }
-                   }
-                 }
-               }
-             )
-
-    assert AgentRunLog.get_run(run_id).authoring_transcript == nil
-    assert LongRunTaskLog.get(task.id).checkpoint_data["authoring_transcript"] == legacy
-  end
-
   test "只更新 task 状态且不提供 checkpoint_data 时保留既有 v3 header" do
     run_id = unique("run-status-only")
     task = create_task(run_id)

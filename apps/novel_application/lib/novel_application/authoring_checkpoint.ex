@@ -4,14 +4,14 @@ defmodule NovelApplication.AuthoringCheckpoint do
 
   只消费 `AuthoringTranscript` 的现有 checkpoint codec 与 Request IR 校验，不另建
   第二套消息/IR 组装。写边界由 persistence changeset 保证 append-only；本模块负责
-  application 写入前的语义校验和读边界：按新 v3 引用或旧 v2 内嵌副本选择私有历史，
-  并核对完整不可变身份。
+  application 写入前的语义校验和读边界，并核对完整不可变身份。
 
-  - 私有列非空时永远是唯一 canonical 选择；旧 v2 副本只在没有私有列时只读兼容。
+  - 私有列非空时是唯一 canonical 选择；bounded run 没有 long-run checkpoint 时同样
+    只读私有列，不依赖旧内嵌格式。
   - v3：只接受 `authoring_transcript_ref`（run_id + 格式版本），读取同一 run 的
-    `agent_runs.authoring_transcript`；引用错绑/私有数据损坏时返回 error，绝不回退
-    旧 v2 副本。
-  - v2：只读兼容内嵌 checkpoint；身份字段缺失时返回 `{:partial, reason}`，不能补造。
+    `agent_runs.authoring_transcript`；引用错绑/私有数据损坏时返回 error。
+  - 项目未发布，不兼容历史数据格式：旧 v2 内嵌 checkpoint 不再有运行时读取路径；
+    历史证据目录仍只读保留，作者数据不删除（2026-11-08 作者原则）。
   """
 
   alias NovelApplication.AuthoringTranscript
@@ -21,7 +21,7 @@ defmodule NovelApplication.AuthoringCheckpoint do
   @identity_fields ["run_id", "workspace_id", "work_id", "session_id", "parent_turn_ref"]
 
   @type select_result ::
-          {:ok, map() | nil, :private_run | :legacy_checkpoint | :none}
+          {:ok, map() | nil, :private_run | :none}
           | {:partial, term()}
           | {:error, term()}
 
@@ -46,7 +46,6 @@ defmodule NovelApplication.AuthoringCheckpoint do
     cond do
       not is_nil(private) -> select_private(record, private, agent_run, version)
       version == 3 -> select_v3(record, agent_run)
-      version == 2 -> select_v2(record, data)
       is_nil(version) -> select_unversioned(data)
       true -> {:error, :checkpoint_version_mismatch}
     end
@@ -59,7 +58,7 @@ defmodule NovelApplication.AuthoringCheckpoint do
   `agent_runs.authoring_transcript`，不依赖 long-run task，也不启动执行。
   """
   @spec restore(map(), map() | nil) ::
-          {:ok, AuthoringTranscript.t() | nil, :private_run | :legacy_checkpoint | :none}
+          {:ok, AuthoringTranscript.t() | nil, :private_run | :none}
           | {:partial, term()}
           | {:error, term()}
   def restore(record, checkpoint_data) when is_map(record) do
@@ -95,7 +94,7 @@ defmodule NovelApplication.AuthoringCheckpoint do
     record = normalize(record)
 
     case AuthoringTranscript.restore(checkpoint) do
-      {:ok, transcript} -> validate_identity(record, transcript.run, :private_run)
+      {:ok, transcript} -> validate_identity(record, transcript.run)
       {:error, _reason} = error -> error
     end
   end
@@ -105,7 +104,6 @@ defmodule NovelApplication.AuthoringCheckpoint do
   defp select_private(record, private, agent_run, 3),
     do: select_private_v3(record, private, agent_run)
 
-  defp select_private(_record, private, _agent_run, 2), do: {:ok, private, :private_run}
   defp select_private(_record, private, _agent_run, nil), do: {:ok, private, :private_run}
 
   defp select_private(_record, _private, _agent_run, _other),
@@ -133,13 +131,6 @@ defmodule NovelApplication.AuthoringCheckpoint do
     end
   end
 
-  defp select_v2(_record, data) do
-    case value(data, @private_key) do
-      nil -> {:ok, nil, :none}
-      checkpoint -> {:ok, checkpoint, :legacy_checkpoint}
-    end
-  end
-
   # 没有任何 checkpoint 数据才算“没有历史”；一旦有数据却缺版本，就是未知格式，
   # 必须如实报告 partial，不能按 v2 猜测或静默当作无历史。
   defp select_unversioned(data) when map_size(data) == 0, do: {:ok, nil, :none}
@@ -157,43 +148,22 @@ defmodule NovelApplication.AuthoringCheckpoint do
 
   defp restore_checkpoint(_record, nil, _source), do: {:ok, nil}
 
-  # 旧 v2 副本只读兼容：缺失身份、损坏或错绑都如实降级为 partial，不补造来源。
-  defp restore_checkpoint(record, checkpoint, :legacy_checkpoint) do
-    case do_restore_checkpoint(record, checkpoint, :legacy_checkpoint) do
-      {:ok, transcript} -> {:ok, transcript}
-      {:error, reason} -> {:partial, reason}
-      {:partial, reason} -> {:partial, reason}
-    end
-  end
-
-  defp restore_checkpoint(record, checkpoint, source) do
-    do_restore_checkpoint(record, checkpoint, source)
-  end
-
-  defp do_restore_checkpoint(record, checkpoint, source) do
+  defp restore_checkpoint(record, checkpoint, _source) do
     with {:ok, transcript} <- AuthoringTranscript.restore(checkpoint),
-         :ok <- validate_identity(record, transcript.run, source) do
+         :ok <- validate_identity(record, transcript.run) do
       {:ok, transcript}
     end
   end
 
-  defp validate_identity(record, run, source) do
+  defp validate_identity(record, run) do
     run = normalize(run)
     missing = Enum.filter(@identity_fields, &blank?(value(run, &1)))
     mismatched = Enum.filter(@identity_fields, &(value(run, &1) != identity_value(record, &1)))
 
     cond do
-      missing != [] and source == :legacy_checkpoint ->
-        {:partial, :legacy_checkpoint_identity_missing}
-
-      missing != [] ->
-        {:error, :authoring_transcript_identity_missing}
-
-      mismatched != [] ->
-        {:error, :authoring_transcript_identity_mismatch}
-
-      true ->
-        :ok
+      missing != [] -> {:error, :authoring_transcript_identity_missing}
+      mismatched != [] -> {:error, :authoring_transcript_identity_mismatch}
+      true -> :ok
     end
   end
 

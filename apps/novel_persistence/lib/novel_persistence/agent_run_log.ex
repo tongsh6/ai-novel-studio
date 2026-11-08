@@ -418,31 +418,27 @@ defmodule NovelPersistence.AgentRunLog do
     end
   end
 
-  # 新写入 header 只接受 v3；既有 v2 canonical 只读，snapshot 不得静默覆盖它。
-  # 未提供 checkpoint_data 的状态更新沿用旧 header，不制造空版本。
-  defp validate_checkpoint_header!(attrs, %LongRunTask{} = task, run) do
+  # 新写入 header 只接受 v3（项目未发布，不兼容旧 v2 内嵌格式）。
+  # 未提供 checkpoint_data 的状态更新沿用既有 header，不制造空版本。
+  defp validate_checkpoint_header!(attrs, %LongRunTask{} = _task, run) do
     case attr(attrs, :checkpoint_data) do
       nil ->
         :ok
 
       data when is_map(data) ->
-        validate_new_checkpoint_header!(data, task, run)
+        validate_new_checkpoint_header!(data, run)
 
       _other ->
         Repo.rollback(:invalid_checkpoint)
     end
   end
 
-  defp validate_new_checkpoint_header!(data, task, run) do
-    legacy_version = nested_get(task.checkpoint_data, [:agent_run, :checkpoint_version])
+  defp validate_new_checkpoint_header!(data, run) do
     agent_run = nested_get(data, [:agent_run])
     version = nested_get(agent_run, [:checkpoint_version])
     header_run_id = nested_get(agent_run, [:run_id])
 
     cond do
-      legacy_version == 2 ->
-        Repo.rollback(:legacy_checkpoint_read_only)
-
       not is_map(agent_run) ->
         Repo.rollback(:checkpoint_header_missing)
 

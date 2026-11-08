@@ -1548,14 +1548,17 @@ defmodule NovelApplication.AgentRunRuntimeTest do
           "agent_run" => %{
             "run_id" => run_id,
             "goal_version" => 1,
-            "checkpoint_version" => 2,
+            "checkpoint_version" => 3,
+            "authoring_transcript_ref" => %{
+              "run_id" => run_id,
+              "version" => NovelApplication.AuthoringCheckpoint.format_version()
+            },
             "completed_step_refs" => ["step_private_checkpoint_1"]
           },
           "progress" => 50,
           "step" => "私有检查点",
           "private_prompt" => "PROMPT_#{marker}",
-          "private_reasoning" => marker,
-          "authoring_transcript" => AuthoringTranscript.checkpoint(transcript)
+          "private_reasoning" => marker
         }
       })
 
@@ -1563,18 +1566,24 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       work_id: work_id,
       session_id: session_id,
       parent_turn_ref: "turn_private_checkpoint_#{run_id}",
-      completed_step_refs: ["step_private_checkpoint_1"]
+      completed_step_refs: ["step_private_checkpoint_1"],
+      authoring_transcript: private_shape(transcript)
     })
 
     assert {:ok, [recovered]} = AgentRunService.recover_durable(work_id, session_id)
     assert recovered.runtime_live? == false
     assert recovered.authoring_transcript
     assert recovered.long_run_task.checkpoint_data["private_reasoning"] == marker
-    assert is_map(recovered.long_run_task.checkpoint_data["authoring_transcript"])
+
+    assert recovered.long_run_task.checkpoint_data["agent_run"]["authoring_transcript_ref"][
+             "run_id"
+           ] ==
+             run_id
 
     persisted = LongRunTaskLog.get(task.id)
     assert persisted.checkpoint_data["private_reasoning"] == marker
-    assert inspect(persisted.checkpoint_data["authoring_transcript"]) =~ marker
+    refute Map.has_key?(persisted.checkpoint_data, "authoring_transcript")
+    assert inspect(AgentRunLog.get_run(run_id).authoring_transcript) =~ marker
 
     event = recovered.recovery_event
     assert event.event_type == :run_resumed
@@ -1714,7 +1723,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
             "run_id" => run_id,
             "goal_version" => 1,
             "completed_step_refs" => ["step_stale_1"],
-            "checkpoint_version" => 2
+            "checkpoint_version" => 3
           },
           "progress" => 50,
           "step" => "AgentRun 检查点"
@@ -1882,7 +1891,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
             "goal_version" => 1,
             "work_revision" => 1,
             "completed_step_refs" => ["step_work_revision_changed_1"],
-            "checkpoint_version" => 2
+            "checkpoint_version" => 3
           },
           "progress" => 50,
           "step" => "AgentRun 检查点"
@@ -1931,7 +1940,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
             "target_revision_ref" => "draft:target:revision",
             "target_revision" => 4,
             "completed_step_refs" => ["step_target_revision_changed_1"],
-            "checkpoint_version" => 2
+            "checkpoint_version" => 3
           },
           "progress" => 50,
           "step" => "AgentRun 检查点"
@@ -1980,7 +1989,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
             "target_revision_ref" => "draft:target:missing",
             "target_revision" => 1,
             "completed_step_refs" => ["step_target_missing_1"],
-            "checkpoint_version" => 2
+            "checkpoint_version" => 3
           },
           "progress" => 50,
           "step" => "AgentRun 检查点"
@@ -2028,7 +2037,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
             "run_id" => run_id,
             "goal_version" => 1,
             "completed_step_refs" => ["step_session_changed_1"],
-            "checkpoint_version" => 2
+            "checkpoint_version" => 3
           },
           "progress" => 50,
           "step" => "AgentRun 检查点"
@@ -2932,7 +2941,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     refute inspect(recovered) =~ "旧副本诱饵"
   end
 
-  test "durable v2 legacy checkpoint without full identity is reported partial, not backfilled" do
+  test "durable legacy v2 checkpoint is rejected as unknown format, not backfilled" do
     run_id = unique_run_id()
     work_id = "work_v2_partial_#{run_id}"
     session_id = "session_v2_partial_#{run_id}"
@@ -2975,8 +2984,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, [recovered]} = AgentRunService.recover_durable(work_id, session_id)
     refute recovered.authoring_transcript
-    assert recovered.authoring_history.status == :partial
-    assert recovered.authoring_transcript_error == :legacy_checkpoint_identity_missing
+    assert recovered.authoring_history.status == :invalid
+    assert recovered.authoring_transcript_error == :checkpoint_version_mismatch
   end
 
   defp transcript_identity(run_id) do
@@ -3543,48 +3552,63 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   defp first_allowed_tool(%{authority_scope: %{allowed_tools: [tool | _rest]}}), do: tool
   defp first_allowed_tool(_run), do: "test_step"
 
+  defp private_shape(transcript) do
+    transcript
+    |> AuthoringTranscript.checkpoint()
+    |> Jason.encode!()
+    |> Jason.decode!()
+  end
+
   defp insert_durable_run_record(run_id, long_run_task_ref, attrs) do
     work_id = Map.fetch!(attrs, :work_id)
     session_id = Map.fetch!(attrs, :session_id)
     parent_turn_ref = Map.fetch!(attrs, :parent_turn_ref)
     completed_step_refs = Map.get(attrs, :completed_step_refs, [])
+    private_history = Map.get(attrs, :authoring_transcript)
 
-    assert {:ok, _record} =
-             AgentRunLog.upsert_run(%{
-               id: run_id,
-               workspace_id: Map.get(attrs, :workspace_id, work_id),
-               work_id: work_id,
-               session_id: session_id,
-               parent_turn_ref: parent_turn_ref,
-               origin_frame_ref: Map.get(attrs, :origin_frame_ref, "frame_#{parent_turn_ref}"),
-               run_mode: "durable",
-               profile_ref: Map.get(attrs, :profile_ref, "character_design_with_context_v1"),
-               status: Map.get(attrs, :status, "running"),
-               phase: Map.get(attrs, :phase, "executing"),
-               goal: %{"text" => Map.get(attrs, :goal_text, "恢复长任务"), "version" => 1},
-               goal_version: 1,
-               plan: %{},
-               run_policy: %{"allowed_tool_refs" => ["character_roster"]},
-               authority_scope: %{
-                 "production_write" => false,
-                 "allowed_tools" => ["character_roster"]
-               },
-               budget: %{
-                 "max_steps" => 2,
-                 "max_tool_calls" => 2,
-                 "max_provider_calls" => 1,
-                 "max_replans" => 1
-               },
-               consumed_budget: %{
-                 "steps" => length(completed_step_refs),
-                 "tool_calls" => length(completed_step_refs),
-                 "provider_calls" => 0,
-                 "replans" => 0
-               },
-               completed_step_refs: completed_step_refs,
-               interrupt_state: %{"status" => "none"},
-               long_run_task_ref: long_run_task_ref
-             })
+    run_attrs =
+      %{
+        id: run_id,
+        workspace_id: Map.get(attrs, :workspace_id, work_id),
+        work_id: work_id,
+        session_id: session_id,
+        parent_turn_ref: parent_turn_ref,
+        origin_frame_ref: Map.get(attrs, :origin_frame_ref, "frame_#{parent_turn_ref}"),
+        run_mode: "durable",
+        profile_ref: Map.get(attrs, :profile_ref, "character_design_with_context_v1"),
+        status: Map.get(attrs, :status, "running"),
+        phase: Map.get(attrs, :phase, "executing"),
+        goal: %{"text" => Map.get(attrs, :goal_text, "恢复长任务"), "version" => 1},
+        goal_version: 1,
+        plan: %{},
+        run_policy: %{"allowed_tool_refs" => ["character_roster"]},
+        authority_scope: %{
+          "production_write" => false,
+          "allowed_tools" => ["character_roster"]
+        },
+        budget: %{
+          "max_steps" => 2,
+          "max_tool_calls" => 2,
+          "max_provider_calls" => 1,
+          "max_replans" => 1
+        },
+        consumed_budget: %{
+          "steps" => length(completed_step_refs),
+          "tool_calls" => length(completed_step_refs),
+          "provider_calls" => 0,
+          "replans" => 0
+        },
+        completed_step_refs: completed_step_refs,
+        interrupt_state: %{"status" => "none"},
+        long_run_task_ref: long_run_task_ref
+      }
+      |> then(fn attrs ->
+        if private_history,
+          do: Map.put(attrs, :authoring_transcript, private_history),
+          else: attrs
+      end)
+
+    assert {:ok, _record} = AgentRunLog.upsert_run(run_attrs)
   end
 
   defp unique_run_id do

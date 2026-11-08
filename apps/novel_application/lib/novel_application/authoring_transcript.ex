@@ -409,14 +409,6 @@ defmodule NovelApplication.AuthoringTranscript do
     end
   end
 
-  @doc "追加显式压缩 checkpoint（长会话唯一压缩表达，I-ART-7）。"
-  @spec append_checkpoint(t(), map(), [map()], map(), [String.t()], String.t()) :: t()
-  def append_checkpoint(transcript, covers, source_refs, versions, omissions, summary) do
-    block = RequestIR.checkpoint_block(covers, source_refs, versions, omissions, summary)
-    message = RequestIR.message(:checkpoint, :application, [block])
-    %{transcript | messages: transcript.messages ++ [message]}
-  end
-
   @doc "声明模型对来源的使用（机械校验 ⊆ Base ∪ 观察）。"
   @spec declare_used_refs(t(), [String.t()]) :: t()
   def declare_used_refs(transcript, refs) when is_list(refs) do

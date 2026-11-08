@@ -70,19 +70,33 @@ defmodule NovelApplication.AuthoringCheckpointTest do
              })
   end
 
-  test "私有列非 nil 时优先于旧 v2 副本" do
+  test "私有列非 nil 时是唯一 canonical，checkpoint_data 内嵌副本不参与选择" do
     record = record()
-    legacy = legacy_metadata(record.id, record.authoring_transcript, 2)
 
-    assert {:ok, private, :private_run} = AuthoringCheckpoint.restore(record, legacy)
+    embedded = %{
+      "agent_run" => %{
+        "checkpoint_version" => 3,
+        "authoring_transcript_ref" => AuthoringCheckpoint.ref(record.id)
+      },
+      "authoring_transcript" => %{"version" => "embedded-but-not-read"}
+    }
+
+    assert {:ok, private, :private_run} = AuthoringCheckpoint.restore(record, embedded)
     assert [%{role: "application_base"}, %{role: "user"}] = private.messages
   end
 
-  test "私有列损坏时绝不回退合法旧 v2 副本" do
+  test "私有列损坏时返回 error，不读 checkpoint_data 内嵌副本" do
     record = record(%{run_mode: "durable", authoring_transcript: %{"version" => "broken"}})
-    legacy = legacy_metadata(record.id, checkpoint(), 2)
 
-    assert {:error, _reason} = AuthoringCheckpoint.restore(record, legacy)
+    embedded = %{
+      "agent_run" => %{
+        "checkpoint_version" => 3,
+        "authoring_transcript_ref" => AuthoringCheckpoint.ref(record.id)
+      },
+      "authoring_transcript" => checkpoint()
+    }
+
+    assert {:error, _reason} = AuthoringCheckpoint.restore(record, embedded)
   end
 
   test "私有列存在时 v3 引用缺失/错绑仍按契约拒绝" do
@@ -115,30 +129,6 @@ defmodule NovelApplication.AuthoringCheckpointTest do
                  "authoring_transcript_ref" => AuthoringCheckpoint.ref(record.id)
                }
              })
-  end
-
-  test "没有私有列时旧 v2 只读兼容，缺身份报告 partial" do
-    record = record(%{authoring_transcript: nil})
-    legacy = legacy_metadata(record.id, checkpoint(), 2)
-
-    assert {:ok, transcript, :legacy_checkpoint} =
-             AuthoringCheckpoint.restore(record, legacy)
-
-    assert [%{role: "application_base"} | _] = transcript.messages
-
-    partial =
-      AuthoringTranscript.new(
-        %{run_id: record.id, workspace_id: record.workspace_id},
-        base_text: "缺身份旧副本",
-        author_text: "不应补造"
-      )
-      |> AuthoringTranscript.checkpoint()
-
-    assert {:partial, :legacy_checkpoint_identity_missing} =
-             AuthoringCheckpoint.restore(
-               record,
-               legacy_metadata(record.id, partial, 2)
-             )
   end
 
   test "写入边界用共享 codec/IR 拒绝损坏语义，并输出可回读的 string-key checkpoint" do
@@ -234,12 +224,5 @@ defmodule NovelApplication.AuthoringCheckpointTest do
     assert {:error, reason} = AuthoringCheckpoint.encode_for_write(record, transcript)
     assert reason == :authoring_transcript_not_json_encodable
     refute inspect(reason) =~ marker
-  end
-
-  defp legacy_metadata(run_id, checkpoint, version) do
-    %{
-      "agent_run" => %{"checkpoint_version" => version, "run_id" => run_id},
-      "authoring_transcript" => checkpoint
-    }
   end
 end

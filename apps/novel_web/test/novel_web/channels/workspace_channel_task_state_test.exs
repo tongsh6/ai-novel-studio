@@ -262,7 +262,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
             "run_id" => run_id,
             "goal_version" => 1,
             "completed_step_refs" => ["step-durable-channel-1"],
-            "checkpoint_version" => 2
+            "checkpoint_version" => 3
           },
           "progress" => 50,
           "step" => "AgentRun 检查点"
@@ -370,7 +370,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
             "run_id" => run_id,
             "goal_version" => 1,
             "completed_step_refs" => ["step-private-checkpoint-1"],
-            "checkpoint_version" => 2
+            "checkpoint_version" => 3
           },
           "progress" => 42,
           "step" => "私有检查点步骤",
@@ -805,7 +805,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
             "goal_version" => 1,
             "work_revision" => work.revision,
             "completed_step_refs" => ["step-durable-work-revision-1"],
-            "checkpoint_version" => 2
+            "checkpoint_version" => 3
           },
           "progress" => 50,
           "step" => "AgentRun 检查点"
@@ -904,7 +904,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
             "run_id" => run_id,
             "goal_version" => 1,
             "completed_step_refs" => ["step-durable-session-change-1"],
-            "checkpoint_version" => 2
+            "checkpoint_version" => 3
           },
           "progress" => 50,
           "step" => "AgentRun 检查点"

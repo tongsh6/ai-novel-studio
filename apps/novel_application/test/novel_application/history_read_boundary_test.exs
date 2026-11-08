@@ -2,9 +2,13 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
   @moduledoc """
   B71 §16.8 历史读取边界回归（真实持久负例）。
 
-  覆盖：缺版本不得补造 v2；v2/v3 task 的 header/run/work/parent 必须完整归属；
-  legacy direct/step 与显式绑定同一 scope 校验；显式但畸形绑定不得回退唯一 parent；
-  批量入口必须校验传入 assistant row 的 work/session 来源。
+  覆盖：缺版本/旧 v2 事实不得补造，运行时一律拒绝；v3 task 的
+  header/run/work/parent 必须完整归属；legacy direct/step 与显式绑定同一 scope 校验；
+  显式但畸形绑定不得回退唯一 parent；批量入口必须校验传入 assistant row 的
+  work/session 来源。
+
+  项目未发布，不兼容历史数据格式：v2 内嵌 checkpoint 已无运行时读取路径，
+  本文件只保留「旧格式被拒绝」负例与 v3 正例，不再构造 v2 只读兼容证据。
   """
 
   use ExUnit.Case, async: false
@@ -13,6 +17,7 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
   alias Ecto.Adapters.SQL.Sandbox
 
   alias NovelApplication.{AgentRunHistory, AuthoringReplay, AuthoringTranscript}
+  alias NovelCommon.RequestIR
   alias NovelPersistence.{AgentRunLog, LongRunTaskLog, MemoryLog, Repo, WorkRepo, WorkSessionRepo}
 
   setup do
@@ -58,32 +63,18 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
              AuthoringReplay.fetch(work.id, session.id, turn)
   end
 
-  test "v2 task 缺 parent 或 header run_id 也必须拒绝；完整 v2 仍只读兼容", %{
+  test "v2 内嵌 checkpoint 已无运行时读取路径，完整 v2 同样拒绝", %{
     work: work,
     session: session
   } do
-    for opts <- [[task_parent: nil], [header_run_id: nil]] do
-      turn = unique("turn_v2_missing_identity")
-      run_id = unique("run_v2_missing_identity")
-
-      seed_run!(work, session, run_id, turn, Keyword.put(opts, :checkpoint_version, 2))
-
-      record_assistant!(work, session, turn, %{
-        text: "回复",
-        turn_result: %{turn_id: turn}
-      })
-
-      assert {:error, :authoring_transcript} =
-               AuthoringReplay.fetch(work.id, session.id, turn)
-    end
-
+    # 负例输入：显式构造旧 v2 内嵌格式（含完整 header/checkpoint），证明它被拒绝，
+    # 而不是被任何兼容路径读取。
     turn = unique("turn_v2_complete")
     run_id = unique("run_v2_complete")
-    summary = unique("完整 v2 历史")
 
     seed_run!(work, session, run_id, turn,
       checkpoint_version: 2,
-      checkpoint: checkpoint(work, session, run_id, turn, summary)
+      checkpoint: checkpoint(work, session, run_id, turn, unique("完整 v2 历史"))
     )
 
     record_assistant!(work, session, turn, %{
@@ -91,7 +82,7 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
       turn_result: %{turn_id: turn}
     })
 
-    assert {:ok, [%{summary: ^summary}]} =
+    assert {:error, :authoring_transcript} =
              AuthoringReplay.fetch(work.id, session.id, turn)
   end
 
@@ -104,8 +95,8 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
     direct_run = unique("run_legacy_direct_scope")
     step_run = unique("run_legacy_step_scope")
 
-    seed_run!(work, session, direct_run, direct_turn, checkpoint_version: 2)
-    seed_run!(work, session, step_run, step_turn, checkpoint_version: 2)
+    seed_valid_v3!(work, session, direct_run, direct_turn)
+    seed_valid_v3!(work, session, step_run, step_turn)
     insert_step!(step_run, 1)
 
     # Channel topic 命名空间独立于 work；合法不同命名空间不能被当成错绑。
@@ -136,7 +127,7 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
     for malformed <- [false, "", 123] do
       turn = unique("turn_malformed_row_run")
       run_id = unique("run_malformed_row")
-      seed_valid_v2!(work, session, run_id, turn)
+      seed_valid_v3!(work, session, run_id, turn)
 
       record_assistant!(work, session, turn, %{
         text: "回复",
@@ -149,7 +140,7 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
 
       turn = unique("turn_malformed_result_run")
       run_id = unique("run_malformed_result")
-      seed_valid_v2!(work, session, run_id, turn)
+      seed_valid_v3!(work, session, run_id, turn)
 
       record_assistant!(work, session, turn, %{
         text: "回复",
@@ -169,7 +160,7 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
     for malformed <- [false, "", 123] do
       turn = unique("turn_malformed_parent")
       run_id = unique("run_malformed_parent")
-      seed_valid_v2!(work, session, run_id, turn)
+      seed_valid_v3!(work, session, run_id, turn)
 
       record_assistant!(work, session, turn, %{
         text: "回复",
@@ -193,7 +184,7 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
     turn = unique("turn_batch_foreign_row")
     run_id = unique("run_batch_local")
 
-    seed_valid_v2!(work, session, run_id, turn)
+    seed_valid_v3!(work, session, run_id, turn)
 
     {:ok, other_work} = WorkRepo.create(%{title: "另一个作品"})
     {:ok, other_session} = WorkSessionRepo.create(%{work_id: other_work.id})
@@ -238,9 +229,11 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
              ])
   end
 
-  defp seed_valid_v2!(work, session, run_id, turn) do
+  # v3 正例夹具：canonical transcript 经唯一生产压缩入口 compact/6 生成，
+  # durable checkpoint 只引用同一 run 的私有历史（VS-00L §16.8）。
+  defp seed_valid_v3!(work, session, run_id, turn) do
     seed_run!(work, session, run_id, turn,
-      checkpoint_version: 2,
+      checkpoint_version: 3,
       checkpoint: checkpoint(work, session, run_id, turn, unique("可回查历史"))
     )
   end
@@ -297,6 +290,7 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
     }
   end
 
+  # 负例输入：旧 v2 内嵌格式。只为证明该事实被拒绝，不提供任何读取兼容。
   defp task_checkpoint_data(2, header_run_id, checkpoint) do
     %{
       "agent_run" => %{
@@ -321,7 +315,7 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
   end
 
   defp checkpoint(work, session, run_id, parent_turn, summary) do
-    AuthoringTranscript.new(
+    {:ok, compacted} =
       %{
         run_id: run_id,
         work_id: work.id,
@@ -329,20 +323,34 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
         session_id: session.id,
         parent_turn_ref: parent_turn,
         profile_ref: "conversation_turn_v1"
-      },
-      base_text: "应用 Base",
-      author_text: "作者原话"
-    )
-    |> AuthoringTranscript.append_checkpoint(
-      %{turn_range: "本轮"},
-      [],
-      %{},
-      ["旧细节已省略"],
-      summary
-    )
+      }
+      |> AuthoringTranscript.new(base_text: "应用 Base", author_text: "作者原话")
+      |> AuthoringTranscript.append_assistant("先读取角色。", [tool_call()])
+      |> AuthoringTranscript.append_observation("call-1", observation())
+      |> AuthoringTranscript.compact(
+        %{call_ids: ["call-1"]},
+        [],
+        %{},
+        ["旧细节已省略"],
+        summary
+      )
+
+    compacted
     |> AuthoringTranscript.checkpoint()
     |> Jason.encode!()
     |> Jason.decode!()
+  end
+
+  defp tool_call do
+    RequestIR.tool_call_block(
+      "read_character",
+      %{"character_ref" => "character:1"},
+      "call-1"
+    )
+  end
+
+  defp observation do
+    %{status: "ok", content: %{summary: "角色"}, source_refs: [], versions: %{}}
   end
 
   defp record_assistant!(work, session, turn_id, content) do
