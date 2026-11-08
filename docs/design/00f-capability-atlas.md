@@ -116,7 +116,7 @@ React Query 负责服务端状态；Zustand 管 UI state；Socket 单 Channel（
 | P2-B | P2 未取证 | G6 压缩后真实请求未闭环 | B71 记录；需同 run 多回合实模窗口 | 等实模窗口 |
 | P2-C | P2 未取证 | 真实模型行为/Responses·Anthropic 实模 | q2_0 批次仅机制必选项；官方凭证缺失 | 等窗口/凭证，不代签 |
 | P2-D | P2 已修（2026-11-08 审核轮） | B71 契约/架构/测试资产 P0/P1 与高价值 P2：SSEStream.Result 重复定义与门禁假绿、standalone 有限模式误记、Chat 流式 usage、Provider 双执行入口、私有历史 v2/legacy 只读链、error3/flow state 形状、前端/作者可见名测试替身、AuthorProseStream unicode 转义、ResponsesDecoder 参数累积键、R2 verifier 真实判据、system 规则测试、重编号重算回归 | `artifacts/b71-audit-20261108/`（三份只读审计 + final-report）、B71 任务文档 2026-11-08 节；不代签实模 |
-| P2-E | P2 存量未修 | `novel_common` 的 `LogEmit`/`LLMLog` 文件 I/O 与 `Task.start`（AGENTS 禁止项但 arch_check 未覆盖）；`novel_web` 193 tests/532s 慢测试 | B71 审核轮 arch P2-10 / 观察记录 | 独立任务（架构债务/测试提速），不在 B71 内扩大 |
+| P2-E | P2 部分已修 | **`novel_common` 日志 I/O 已迁出**：新增 `novel_telemetry` app 承载 LogEmit/LLMLog/LogContext/LogFileDate（作者 2026-11-08 裁决 C，[ADR-0034](adr/ADR-0034-observability-runtime-app-v3.md)），common 回归纯契约，`arch_check` 增补 telemetry 边界与 common I/O 禁止规则；**`novel_web` 193 tests/532s 慢测试仍待收敛** | B71 审核轮 arch P2-10 / ADR-0034 | common 部分已闭环；web 慢测试独立测试提速任务 |
 | P3-A | P3 文档 | `docs/design/README.md` 顶部 2026-11-04 历史状态行仍写「R1 实现位于未提交工作区」 | 与当前已提交实现不符（历史记录可保留） | **已修（2026-11-08）**：README 已补 2026-11-08 最新状态行（R1/R2/预览证据已提交），历史行不改写 |
 | P3-B | P3 文档 | `quality/acceptance/known-gaps.md` 与当前实现/任务状态的一致性未逐条复核 | 233 场景 + 台账 | **首批已修（2026-11-08）**：known-gaps「当前 blocked 场景」表补齐 registry 中 3 个 `status: blocked`（此前表为空、registry 有条目）；历史批次表与 00c/tasks 过时描述仍待逐条核对 |
 

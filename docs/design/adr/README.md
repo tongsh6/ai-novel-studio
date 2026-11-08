@@ -317,6 +317,7 @@ ADR-0005-execution-gate-order-v3.md
 | ADR-0031 | `ADR-0031-core-chain-semantics-narrowing-v3.md` | **Superseded（2026-10-31，替代者 ADR-0033；原则承接、实现迁移由 B71 承接：2026-11-04 R1 已实现并通过确定性门禁）** | 主链语义收敛：逐步执行、所有回合统一裁决、裁决与运行进度分工、真实动作与历史兼容、分层输出校验及真实入口来源；统一裁决/作者主权原则由 ADR-0033 §3 承接，单调用共享入口形态已由 B71 迁移 | `00c`、ADR-0001/0002/0004/0007/0012/0022/0023/0025、B49 裁决记录 | 原 B01 执行小节、B43、B45 承接保留；B01/B43/B45 实现缺口保留；历史证据不删除 |
 | ADR-0032 | `ADR-0032-paper-trail-retirement-v3.md` | **Accepted（2026-10-31，作者选择 D）** | PaperTrail 逻辑退役：source_revision_ref+StateTrace 为唯一修订权威；移除依赖/配置/第三方测试；保留 versions 表与 migration，物理删除另授权 | B51 只读证据、`docs/project-ledger.md`、tech-stack 06/13 | B51；不触碰历史数据 |
 | ADR-0033 | `ADR-0033-authoring-run-transcript-request-ir-v3.md` | **Accepted（2026-10-31，作者选择 A；目标与迁移规则已接受，替代 ADR-0030/0031）；CP2–CP4b 确定性实施已完成（2026-11-03）；2026-11-06 裁决 4 C 实施位置修订：Request IR 契约族归 `novel_common`、wire 投影/能力事实留 `novel_agent`** | 统一 AgentRun 为事实源，Authoring Run Transcript/Request IR 无损投影原生多轮、求证观察、校验失败与 tentative 候选；模型无 adopt/canon_write | Provider §26、ADR-0030/0031、UA-01、VS-00I/K、VS-00L | B71 CP1–CP5；CP3b 实模、压缩前端设计授权与 CP5 收口未闭环 |
+| ADR-0034 | `ADR-0034-observability-runtime-app-v3.md` | **Accepted（2026-11-08，作者选择 C）** | 可观测性运行时独立 app（`novel_telemetry`）：日志文件 I/O/异步写出/Logger metadata 关联/LLM 调用 JSONL 从 `novel_common` 迁出；common 回归纯契约层；配置键 `:novel_telemetry`；依赖 telemetry→foundation、产品 app→telemetry；`arch_check` 补 telemetry 边界与 common I/O 禁止 | B71 审核轮架构 P2-10、`docs/project-ledger.md` 2026-11-08 | B71 2026-11-08 审核轮；日志路径/格式/时序保持不变 |
 
 ---
 

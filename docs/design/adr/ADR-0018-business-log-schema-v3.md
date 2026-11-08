@@ -6,7 +6,7 @@
   - `../06-memory-context-and-trace.md`（trace 与 audit 分层）
   - `../00d-runtime-architecture.md`（运行时控制面 / 横切层）
   - `../../engineering/quality-gates.md`（工程门禁层）
-  - 已有实现：`apps/novel_common/lib/novel_common/llm_log.ex`、`apps/novel_persistence/lib/novel_persistence/trace_repository.ex`
+  - 已有实现：`apps/novel_telemetry/lib/novel_telemetry/llm_log.ex`、`apps/novel_persistence/lib/novel_persistence/trace_repository.ex`
 - 影响范围：Logger / Observability / Audit / Slice
 - 相关不变量：`00c` §7 #1、#5、#9、#13（不变量本身不依赖日志，但日志是它们出问题时的回溯通道）
 - 首个证明 slice：VS-10 Observability Spine
@@ -18,7 +18,7 @@
 ## 背景
 
 v3 已有两条结构化事实链：
-- `NovelCommon.LLMLog` — Provider HTTP 调用 JSONL（VS-018 引入），按天滚动到 `log/llm-calls/YYYY-MM-DD.jsonl`。
+- `NovelTelemetry.LLMLog` — Provider HTTP 调用 JSONL（VS-018 引入），按天滚动到 `log/llm-calls/YYYY-MM-DD.jsonl`。
 - `DecisionTrace` + `TraceRepository` — 业务决策事实链，写入 SQLite3 `decision_traces` 表，可被 `ReplayService` 重建为 `ReplayReport`。
 
 但 **业务步骤层**（Planner.form_frame、ContextAssembler、Orchestrator、Toolbox.execute、AdoptionBoundary、BehaviorState、ReplayService 自身、TaskRunner、Channel handler）当前只有 ~20 处零散 `Logger.warning`，无结构化字段、无关联键、无统一命名空间。
@@ -60,9 +60,9 @@ LLMLog 与 DecisionTrace 不能替代业务日志：
 
 ### 2. metadata 透传协议
 
-- `NovelCommon.LogContext.put_turn(workspace_id, work_id, turn_id)` 在 `DialogueGateway.handle_input` 入口调用；
+- `NovelTelemetry.LogContext.put_turn(workspace_id, work_id, turn_id)` 在 `DialogueGateway.handle_input` 入口调用；
 - 后续每个模块进入前自然继承父进程 metadata；
-- 跨 `Task.async_nolink` / `Task.async` 边界时 **必须显式** 把 metadata 透传到子进程（`NovelCommon.LogContext.snapshot/0` + `LogContext.restore/1`）。
+- 跨 `Task.async_nolink` / `Task.async` 边界时 **必须显式** 把 metadata 透传到子进程（`NovelTelemetry.LogContext.snapshot/0` + `LogContext.restore/1`）。
 
 进程崩溃时 metadata 自动丢失，无需手动清理。
 
@@ -150,7 +150,7 @@ LLMLog 与 DecisionTrace 不能替代业务日志：
 
 采纳上述协议，由 VS-10 Observability Spine 作为首个证明 slice 落地：
 
-1. `NovelCommon.LogContext`：入口 metadata 注入 + 跨进程 snapshot/restore。
+1. `NovelTelemetry.LogContext`：入口 metadata 注入 + 跨进程 snapshot/restore。
 2. 每个业务模块按 §3 命名加 start/done/error。
 3. JSONL 文件 backend 按 §4 启用，与 LLMLog 并列。
 4. LLMLog 改为读 `Logger.metadata[:turn_id]`，保持向后兼容。
@@ -162,13 +162,18 @@ LLMLog 与 DecisionTrace 不能替代业务日志：
 - 远程聚合 / 采样 / PII 上云时另发 ADR。
 - 指标聚合（如 P95 latency）若需要，另发 ADR-0019 metrics。
 
+## 2026-11-08 迁移说明
+
+ADR-0034（可观测性运行时独立 app）把日志运行时从 `novel_common` 迁到
+`novel_telemetry`；本 ADR 的语义不变，模块名与实现路径随之更新（历史记录保留）。
+
 ## enforced_by
 
-- apps/novel_common/lib/novel_common/log_emit.ex
-- apps/novel_common/lib/novel_common/log_context.ex
-- apps/novel_common/lib/novel_common/llm_log.ex
-- apps/novel_common/test/novel_common/log_emit_test.exs
-- apps/novel_common/test/novel_common/log_context_test.exs
+- apps/novel_telemetry/lib/novel_telemetry/log_emit.ex
+- apps/novel_telemetry/lib/novel_telemetry/log_context.ex
+- apps/novel_telemetry/lib/novel_telemetry/llm_log.ex
+- apps/novel_telemetry/test/novel_telemetry/log_emit_test.exs
+- apps/novel_telemetry/test/novel_telemetry/log_context_test.exs
 - apps/novel_web/lib/novel_web/channels/workspace_channel.ex
 - apps/novel_web/test/novel_web/channels/workspace_channel_logging_test.exs
 - scripts/check_log_noise.sh

@@ -453,3 +453,14 @@ VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-read
 - `ADR-0005` 已经提出运行时 gate 顺序。
 - `tasks/slices/v3/DAG.md` 已经把运行时 contract 排成实现前 DAG。
 - VS-00 / VS-00A / VS-00B / VS-01 / VS-02 / VS-02A / VS-03 / VS-04 / VS-05 / VS-06 的文档 blocker 已关闭；下一步需要用户明确批准后，才可创建 implementation plan 或进入代码实现。
+
+---
+
+## 2026-11-08 补充：可观测性运行时独立层（ADR-0034）
+
+日志文件 I/O、异步写出、Logger metadata 关联与 LLM 调用 JSONL 不再位于 `novel_common`
+纯契约层，而由独立 runtime app `novel_telemetry` 承载：`NovelTelemetry.LogEmit` /
+`LLMLog` / `LogContext` / `LogFileDate`。依赖方向为 `novel_telemetry → novel_foundation`，
+产品 app（agent/application/persistence/web）→ `novel_telemetry`；common 回归纯契约/纯函数。
+日志路径（`log/app/<env>/YYYY-MM-DD.jsonl`、`log/llm-calls/YYYY-MM-DD.jsonl`）、行格式
+（`[ts] {json}`）、脱敏规则与本地日滚动语义保持不变。详见 [ADR-0034](adr/ADR-0034-observability-runtime-app-v3.md)。
