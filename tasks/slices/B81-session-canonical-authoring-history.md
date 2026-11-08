@@ -303,6 +303,8 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - 实现中由并行只读审计发现并修复的缺陷：迁移主键类型（messages.id）、段表复合主键、段行身份映射、`call_ids` 缺失导致段读写全失败、读取端段头 version/shape 未校验（写入/读取不对称）；均已回归（含读取端 fail-closed 负例 3 例）。
 - 门禁脚本缺陷修复：`scripts/task_done_check.mjs` 的 UI 证据判定把测试文件（路径含 workspace/ui/copy 等关键词）误判为 UI 变更，迫使无关后端 slice 需要 Tauri 页面证据或阻塞收口——修复为「测试文件不产生 UI 证据需求」（排除 `_test.exs`、`/test/`、`.test.*`），并生成 task-done manifest 验证通过；该修复单独提交（`fix(gate)`）。
 - **页面回归证据（2026-11-09 补验，CP1 收口缺口修复）**：`bash scripts/native_b71_batch.sh cp1-regression-02` **PASS 19/19**（真实 Tauri 原生窗口 + AX 外部驱动，`git_head=9242751e`；证据 `artifacts/slice-verify/b71-first-consumer-tauri-native-cp1-regression-02/summary.json`，含 `request_messages_keep_strict_prefix`、`every_observation_links_original_tool_call`、`native_call_*` 等全判据）。**首轮 native 批次 FAIL 的真实原因**：B71 证据工具链仍在读 CP1 已退役的 run 级私有列（`authoring_history: 私有 transcript 缺失`）——**CP1 删列的消费者清单遗漏了 `scripts/lib/native_ui/*` 验收证据读取器**（上轮只核对了 `apps/` 与 `docs/` 生产者/消费者）。已修复：证据读取改为会话级执行段（`authoring_run_segments` 段头 + `authoring_session_messages` 消息行 + `authoring_segment_ref`），自动维护证据与 driver 同步；脚本测试夹具全部适配并复跑绿（history 26/26、auto-maintenance 11/11、native_b71 35/35、pending 32/32）。
+- **第二页面批次（2026-11-09，环境失败不代签）**：`B71_SLICE=b71-authoring-transcript bash scripts/native_b71_batch.sh cp1-regression-03` 失败于 native 窗口激活（`OwnershipError: activation_unconfirmed`、`could not create image from window`、`driver_idle_timeout`）——**driver 未开始业务驱动**，属 macOS 窗口/屏幕环境限制而非产品回归；该 journey 页面证据未取得，如实登记不代签。first-consumer native 19/19 仍为 CP1 正式页面证据。
+- **旧语义残留审计（2026-11-09 全仓）**：`scripts/` 生产代码与脚本测试夹具已无 `agent_runs.authoring_transcript` 读取（`authoring_run_evidence.test.mjs` 夹具同步适配后，`scripts/lib/native_ui/*.test.mjs` **31 文件 619 tests 全绿**）；`target/` 下命中为 gitignore 的构建产物旧副本，`tasks/`/`docs/` 中的旧列描述为历史记录，均非运行时代码。此审计补上 §9 登记的「全仓核对」漏项。
 - **browser driver 既有漂移（与 CP1 无关，已修）**：`frontend/slice-verify/external-ui-driver.mjs` 的 `chapterFullReadAuthorFeedback` 仍按 `section[aria-label="推理"]` 读取作者可见叙事，而该 landmark 已在 46 §9.5 移除以避免读屏重复区域（`WorkspaceChat.tsx:919`）→ 页面实际渲染正确但 driver 断言失败。已改用当前 UI 契约 `[aria-label="本轮创作过程"]` + `p[data-tone="explore"]`（区域缺失时空结果让断言诚实失败，不退回 body 以免误判 developer 面）。browser 批次复验本轮受 macOS `ERR_NETWORK_IO_SUSPENDED` 环境错误影响，正式页面证据以 native PASS 为准。
 - 模块规模：新增测试文件均低于 test outlier_floor（800）；`agent_run_runtime_test.exs` 因 CP1 断言迁移增长超过 ratchet 允许增量，把会话 canonical 读取/播种 helper 提取到 `test_helper.exs` 的 `TestAgenticLoopFixtures`（同时消除 5 个测试文件的重复 helper），行数回落到上限内，未做机械压缩。
 
@@ -409,7 +411,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - 阶段 1 完成不解除跨轮连续性/压缩/G6 的验收缺口；这些由阶段 2/3 承接，未实现前**不代签**。
 - **CP2 需要裁决**：若"每轮请求由会话派生"需要 `novel_common` 新增纯契约（会话派生上下文），是否允许突破 §4「CP1 不改 novel_common」边界（ADR-0035 允许新增纯契约）。属 CP2 开工前裁决。
 - **旧列消费者清单补遗（2026-11-09）**：CP1 删列时遗漏了 `scripts/` 下的验收证据工具链——`scripts/lib/native_ui/authoring_history_evidence.mjs`（B71 私有历史读取）、`scripts/lib/native_ui/authoring_auto_maintenance_evidence.mjs`、`scripts/native_b71_auto_maintenance_drive.mjs`，以及 `scripts/native_b71_test.mjs`/`scripts/native_b71_pending_test.mjs` 的 DB 夹具；已适配并全绿。**教训**：旧列消费者核对必须覆盖 `apps/`、`scripts/`、`frontend/slice-verify/`、`tests/`、`quality/` 全仓，而非只看生产代码。
-- 页面回归证据已补（native 19/19 PASS，§8.1.6）；browser driver 路径修复后待环境允许时复验（非 CP1 行为阻塞）。
+- 页面回归证据已补（native 19/19 PASS，§8.1.6）；browser driver 路径修复后待环境允许时复验（非 CP1 行为阻塞）；第二个 journey 批次（b71-authoring-transcript）因窗口激活环境失败未取证，不代签。
 - 旧 `:session_transcript` 材料在阶段 6 退役；CP1 不动。旧列消费者核对清单（CP6 前必须逐项走查）：`AuthoringCheckpoint`、`AgentRunPersistence`、`AgentRunService`、`AuthoringReplay`、`TraceReplayService`、`TurnExecutionService`（内存字段回退）、`ActionIdempotencyService`（TurnResult 私有键）、`ContextAssembler`/`DialoguePlanningService`（旧材料类型）、测试夹具/脚本。
 - 真实页面多轮会话验收依赖阶段 2；实模证据另证（不代签）。
 - **G6/CP5 遗留承诺**：B71 CP5 依赖 G6 取证，而 G6 需真实多轮自然触发压缩（受模型窗口影响）。建议 CP5 启动前拆为 CP5a（机制层 + 确定性页面多轮）与 CP5b（实模自然触发；窗口不可用时按 known-gap 如实登记），并明确 B71 收口不因 CP5b 永久悬挂；该拆分属 CP5 开工裁决，不在 CP1 代签。
@@ -430,6 +432,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 
 - 2026-11-08：立项 + 阶段 1 设计草案（作者批准 ADR-0035 后产出；未授权实现）。
 - 2026-11-08：补充 §1.1 断链定位（schema 时间线 + 三项漏承接）与 §8.0 彻底重构/复用清单（作者确认：系统设计有、实现偏差；彻底重构但复用设计资料和实现）。
+- 2026-11-09：**证据面收口与全仓残留审计**：`authoring_run_evidence.test.mjs` 夹具适配到会话级 canonical（18/18）；`scripts/lib/native_ui/*.test.mjs` 共 31 文件 619 tests 全绿；全仓 grep 确认 scripts/ 无旧列读取残留（target/ 为构建产物、tasks/docs 为历史记录）；第二 native 页面批次（b71-authoring-transcript）因窗口激活环境失败登记不代签；B81 §8.1.6/§9 更新。
 - 2026-11-09：**CP1 页面回归证据补验与验收资产适配**：native 批次 19/19 PASS（真实 Tauri 页面）；修复 B71 证据工具链对旧 run 私有列的残留读取（改为会话级执行段）并适配 4 个脚本测试夹具（全绿）；修复 browser driver 与 46 §9.5 UI 契约的既有漂移（`aria-label="推理"` → 「本轮创作过程」区域）；§9 登记旧列消费者清单遗漏与全仓核对教训、页面证据收口状态。
 - 2026-11-08：**CP2 开工设计草案（§8.4，未实现待裁决）**：基于 CP1 事实基础与当前代码事实定清请求派生算法（会话历史 + 当前 scope/作者输入）、run 段与会话历史边界、会话级 refs、恢复语义、窗口压力/压缩触发、novel_common 边界（推荐不新增）、多 profile 覆盖与 8 项不变量/6 项机械判据、预期写域与 5 个待裁决问题；只设计不实现、不代签。
 - 2026-11-08：**SOLID/周边法则审计与改进**：新增 §8.4 原则审计表；按审计实施——段头 data 键契约单一来源（`AuthoringSessionLog.header_data_keys/0`，application 消费、漂移 fail-closed）、删除无消费者 `message_format_version/0`、`record_id`/`normalize` 收敛为入口一次、同义分支合并、`run_id` 重复取值收敛、`fetch_session_messages/1` 消费者注释。既有例外（TurnExecutionService 旧回退路径、ActionIdempotencyService 防御键）登记不扩大范围。
