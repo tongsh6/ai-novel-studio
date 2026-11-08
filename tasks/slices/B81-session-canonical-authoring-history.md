@@ -93,16 +93,59 @@ v3 早期设计（[01 §3.3](../../docs/design/01-user-llm-workbench-interaction
 
 **Exploration**：不适用——本阶段是事实存储与恢复边界，不涉及模型作品知识获取/探索面同步；说明理由即可。
 
-## 7. 阶段划分（ADR-0035 落地）
+## 7. 阶段划分（ADR-0035 落地，CP1–CP6 登记）
 
-| 阶段 | 范围 | 验收 | 依赖 |
-|---|---|---|---|
-| **1（本任务当前部分）** | 会话级 canonical 历史（存储/追加/恢复/迁移） | 机制测试 + 全量门禁 + 既有批次回归 | ADR-0035 已批准 |
-| 2 | 每轮请求由会话派生（完整历史；窗口压力时 checkpoint 投影）；跨轮连续性 | 真实页面多轮会话（跨轮上下文/指代/义务）+ 请求证据 | 阶段 1 |
-| 3 | 压缩作用域=会话历史、触发/细条/回查 | G6 压缩后真实请求（真实页面多轮自然触发）+ 失败静默/幂等 | 阶段 2 |
-| 4 | 三类投影/恢复幂等 + 审计/回查以会话为对象 | 投影/幂等/回查证据；机制层 | 阶段 2/3 |
-| 5 | 真实页面多轮会话综合验收 + G6 取证 | 页面/机制/实模分层报告（实模不代签） | 阶段 2–4 |
-| 6 | 旧 `:session_transcript`/旧装配链/旧 run 级语义退役清理 | 删除后全量门禁 + 无消费者核对 | 阶段 5 |
+CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（不拆独立任务文档，避免碎片与双状态源）。
+
+| CP | 状态 | 范围/交付 | 验收 | 依赖 | 预计写域 |
+|---|---|---|---|---|---|
+| CP1 | todo（可开工） | 会话级 canonical 历史：存储/身份/追加/前缀校验/恢复幂等/旧 run 级列迁移 | 确定性机制测试 + 全量门禁 + 既有批次回归（行为不变） | ADR-0035 已批准 | `apps/novel_application`（AuthoringSession/AgentRunServer/JudgmentProtocol）、`apps/novel_persistence`（schema/repo/migration） |
+| CP2 | todo | 每轮请求由会话派生（完整历史；窗口压力时 checkpoint 投影替代更早历史） | 真实页面多轮会话：跨轮上下文/指代/义务 + 请求证据 | CP1 | `apps/novel_application`（JudgmentProtocol/AgentRunServer） |
+| CP3 | todo | 压缩作用域=会话历史、触发/细条/回查调整 | G6 压缩后真实请求（真实多轮自然触发）+ 失败静默/幂等 | CP2 | `apps/novel_application`（TranscriptCompaction/AgentRunServer）、`frontend/src`（仅在细条/回查需适配时） |
+| CP4 | todo | 三类投影/恢复幂等 + 审计/回查以会话为对象 | 投影/幂等/回查机制证据 | CP2、CP3 | `apps/novel_agent`（投影校验）、`apps/novel_application`（Replay） |
+| CP5 | todo | 真实页面多轮会话综合验收 + G6 取证（承接 B71 G6） | 页面/机制/实模分层报告（实模不代签） | CP2–CP4 | `scripts/`（验收 harness）、`artifacts/`（证据，只读保留） |
+| CP6 | todo | 旧 `:session_transcript`/旧装配链/旧 run 级语义退役清理 | 删除后全量门禁 + 无消费者核对 | CP5 | `apps/novel_application`（ContextAssembler/DialoguePlanningService 旧路径）、`apps/novel_persistence`（旧列删除）、测试清理 |
+
+### 7.1 相关任务与承接关系（登记全）
+
+| 任务 | 关系 | 当前状态/依赖 |
+|---|---|---|
+| [B71](B71-provider-message-fidelity.md) | 上游契约与历史证据；**G6 取证移交 B81 CP5**（ADR-0035 落地后真实多轮会话取证，不再构造异常路径）；B71 CP5 收口依赖 G 切片/实模凭证 | CP5 仍 doing |
+| [B82](B82-b71-golden-slice-evidence.md) | G2/G3/G5 与 Responses/Anthropic 实模补证；与 B81 互补不重复（G6 不在 B82） | todo，待窗口/凭证 |
+| [B83](B83-vendor-stream-options-matrix.md) | `stream_options.include_usage` 矩阵；与 CP2/CP4 的 usage/能力事实相关但不阻塞 | blocked（凭证） |
+| [B84](B84-web-slow-tests-and-arch-debt.md) | web 慢测试/测试债务；与 B81 并行，写域在测试前置层 | todo |
+| [B78](B78-module-size-debt.md) | 大模块拆分（`agent_run_server.ex` 等）；与 B81 CP1/CP2 同文件冲突，需协调顺序 | 待 B71 收口 |
+| [B80](B80-system-capability-cleanup.md) | 能力图谱/清理（done）；B81 实现后按 00f §6 维护规则同步 | done |
+| [B79](B79-work-import-and-analysis.md) | 并行独立功能；与 B81 无同文件冲突（关注 AgentRun 初始化边界） | 待启动 |
+| [bidirectional-gaps-optimization](bidirectional-gaps-optimization.md) | 双向沟通历史计划；E2 已重构，剩余以原计划状态源为准 | 见原计划 |
+
+### 7.2 排期与写域协调
+
+- CP1 可立即开工（设计已评审、ADR-0035 Accepted）；CP2 依赖 CP1；CP3/CP4 依赖 CP2；CP5/CP6 依赖前序。
+- 与 B78 的同文件冲突（`agent_run_server.ex` 等）：不要并行改同一文件；建议先 B81 CP1（事实源层，改动集中）再 B78 拆分，或由作者裁定顺序。
+- 与 B84 并行无冲突（测试前置层）；与 B82/B83 无写域冲突（验收/矩阵脚本与 artifacts）。
+
+### 7.3 上下游、前置与后置任务（登记全）
+
+| 关系 | 任务/资料 | 依赖性质与当前状态 |
+|---|---|---|
+| **上游（依据/输入）** | ADR-0035（Accepted，2026-11-08） | 决策依据；已完成，是开工前提 |
+| 上游 | 产品级偏差诊断 `docs/design/notes/2026-11-08-session-level-product-deviation.md` | 问题依据（P0-1/P0-2/P1-1）；只读输入 |
+| 上游 | VS-00L §16.1/§16.2/§16.16/§17/§18.8、ADR-0033（§11） | 契约依据（Frozen 判据不变）；已完成 |
+| 上游 | [B71](B71-provider-message-fidelity.md) | 历史证据与 Request IR 契约族；G6 已移交 B81 CP5；B71 保留历史证据 |
+| 上游 | [B80](B80-system-capability-cleanup.md) | 能力图谱/清理（done），提供实现态现状与 00f living 文档 |
+| 上游 | 旧 schema/数据（`interactions`/`decision_traces`/`work_sessions`） | 设计资料与历史语义来源（不重建第二套语义，见 §8.0） |
+| **前置（开工/阶段条件）** | ADR-0035 已批准；B81 设计评审（本文） | 已满足/评审中 |
+| 前置 | B71 R1/R2 与 ADR-0033 契约族确定性层 | 已完成（历史证据） |
+| 前置 | 门禁基线绿（全量测试、credo/format/xref/arch、I1/I2/I3/N-NARR/I-CACHE、静态扫描） | 当前 20/1 基线（唯一既有 gitleaks 处置），开工前复核 |
+| 前置 | 与 [B78](B78-module-size-debt.md) 的同文件顺序协调 | 非阻塞但必须决定：`agent_run_server.ex` 等不可并行改；建议先 CP1（事实源层）再 B78，或作者裁定 |
+| 前置 | 作者确认开工 CP1 | 未满足（本任务状态 todo） |
+| **后置（依赖 B81 产出）** | [B71](B71-provider-message-fidelity.md) CP5 最终收口 | 强依赖：CP5 需 B81 CP5（G6 取证）+ B82（G2/G3/G5/实模）证据 |
+| 后置 | [B82](B82-b71-golden-slice-evidence.md) | 并行任务（无先后依赖）；B71 收口合并依赖两者证据 |
+| 后置 | [B79](B79-work-import-and-analysis.md) | 条件依赖：如导入后需要跨轮会话续写/上下文，则依赖 CP2；当前无强依赖（导入链可独立推进） |
+| 后置 | [B84](B84-web-slow-tests-and-arch-debt.md) | 无依赖；与 B81 并行（测试前置层，写域不冲突） |
+| 后置（由 CP 覆盖，不单列任务） | 跨轮义务/D8 验证、会话级审计回查、旧 UI/装配链退役、细条/回查适配 | CP2/CP4/CP6/CP3 的验收项；不另立平行任务 |
+| 无依赖 | [B83](B83-vendor-stream-options-matrix.md) | blocked（凭证）；与 B81 无写域交集 |
 
 ### 8.0 彻底重构 + 复用设计资料与实现（原则）
 

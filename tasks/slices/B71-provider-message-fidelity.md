@@ -1288,6 +1288,22 @@
 
 | 候选 | 目标与判据 | 执行前置 | 当前可复用的确定性基础 |
 |---|---|---|---|
-| **G2–G6 切片补证** | 在真实 run 上逐类取证：G2 观察进入下一请求、G3 校验失败原生回流、G5 作者边界后新授权、G6 显式压缩后请求（covers/refs/versions/omissions/字节可回查） | 新冻结预注册（单场景、预算、判据先冻结后执行）+ 真实模型窗口；G6 需 auto-maintenance 同 run 多回合场景（A3b 已知受模型行为限制，不调 K/窗口凑触发） | 本轮 `b71-first-consumer-live-cp4b2-iq3s-01` 已证明真实多轮/工具历史回放/tentative/usage；`request_message_counts` 4/7/10/13/16/19/22 与 replay_only_tool_calls=21 可作追加式前缀基线 |
-| **`stream_options.include_usage` vendor 矩阵** | 逐一取证 OpenAI-compatible Chat wire 各 vendor（LM Studio/Strata/DeepSeek 等）对 `stream_options` 的接受度与 usage 回收；不接受的 vendor 改为 vendor 级开关，结论回写 VS-00L §6 与 adapter 能力事实 | 真实窗口逐 vendor 批次；不伪造兼容结论（当前统一发送依据是 OpenAI/DeepSeek 官方文档，仅机制层） | 本轮 iq3_s 批次已取得真实 `input/output tokens + cached_tokens + ttft`；单测已覆盖「请求含 include_usage」与「缺 usage 帧保持 0 不伪造」 |
-| **架构/测试债务** | ① `novel_common` 的 `LogEmit`/`LLMLog` 文件 I/O 与 `Task.start` 迁出纯契约层，并给 `arch_check` 增加 common I/O 禁止规则（当前 AGENTS 声明但门禁未覆盖）；② `novel_web` 193 tests/532s 慢测试定位与收敛 | 独立任务文档（登记于 `docs/design/00f-capability-atlas.md` P2-E）；涉及日志证据链与全仓测试基础设施，按一次一个单元拆分 | B71 审核轮 arch P2-10 已给出行号与门禁缺口证据；web 慢测试已在 audit 记录中量化 |
+| **G2–G6 切片补证** | 在真实 run 上逐类取证：G2 观察进入下一请求、G3 校验失败原生回流、G5 作者边界后新授权、G6 显式压缩后请求（covers/refs/versions/omissions/字节可回查） | 新冻结预注册（单场景、预算、判据先冻结后执行）+ 真实模型窗口；G6 需 auto-maintenance 同 run 多回合场景（A3b 已知受模型行为限制，不调 K/窗口凑触发） | 本轮 `b71-first-consumer-live-cp4b2-iq3s-01` 已证明真实多轮/工具历史回放/tentative/usage；`request_message_counts` 4/7/10/13/16/19/22 与 replay_only_tool_calls=21 可作追加式前缀基线（**2026-11-08 承接：G6→B81 CP5；G2/G3/G5→B82**） |
+| **`stream_options.include_usage` vendor 矩阵** | 逐一取证 OpenAI-compatible Chat wire 各 vendor（LM Studio/Strata/DeepSeek 等）对 `stream_options` 的接受度与 usage 回收；不接受的 vendor 改为 vendor 级开关，结论回写 VS-00L §6 与 adapter 能力事实 | 真实窗口逐 vendor 批次；不伪造兼容结论（当前统一发送依据是 OpenAI/DeepSeek 官方文档，仅机制层） | 本轮 iq3_s 批次已取得真实 `input/output tokens + cached_tokens + ttft`；单测已覆盖「请求含 include_usage」与「缺 usage 帧保持 0 不伪造」（**2026-11-08 承接：B83**） |
+| **架构/测试债务** | ① `novel_common` 的 `LogEmit`/`LLMLog` 文件 I/O 与 `Task.start` 迁出纯契约层，并给 `arch_check` 增加 common I/O 禁止规则（当前 AGENTS 声明但门禁未覆盖）；② `novel_web` 193 tests/532s 慢测试定位与收敛 | 独立任务文档（登记于 `docs/design/00f-capability-atlas.md` P2-E）；涉及日志证据链与全仓测试基础设施，按一次一个单元拆分 | B71 审核轮 arch P2-10 已给出行号与门禁缺口证据；web 慢测试已在 audit 记录中量化（**2026-11-08 承接：common 日志 I/O 已由 ADR-0034 闭环；剩余 web 慢测试→B84**） |
+
+### 2026-11-08 任务承接变更（登记全，B71 不再自承 G6）
+
+ADR-0035（会话级 canonical 创作上下文）获作者批准后，B71 剩余候选的承接关系变更如下，避免重复承接与"构造场景"：
+
+| B71 原候选 | 承接任务 | 说明 |
+|---|---|---|
+| G6 压缩后真实请求 | **B81 CP5** | ADR-0035 落地后由真实多轮会话自然触发压缩并取证；B71 不再构造单 run 多回合/异常路径场景；历史探针与失败批次证据只读保留 |
+| G2/G3/G5 黄金切片补证、Responses/Anthropic 实模 | **B82** | 每片独立冻结预注册、独立批次、如实登记；G6 不在 B82 |
+| vendor `stream_options.include_usage` 矩阵 | **B83** | Strata/LM Studio 首批结论已登记；OpenAI/Anthropic 凭证缺失 → blocked |
+| 架构/测试债务 | **B84** + ADR-0034 已闭环 | `novel_common` 日志 I/O 已由 ADR-0034（`novel_telemetry`）迁出；剩余 `novel_web` 慢测试与 00f P2-E 由 B84 承接 |
+| B71 CP5 最终收口 | 依赖 **B81 CP5**（G6）+ **B82**（G2/G3/G5/实模） | CP5 保持 doing；B71 的契约/历史证据/I10 不代签边界不变 |
+
+- B71 状态保持 doing；G6 明确移交 B81 CP5，B71 原任务保留历史证据与契约，不再作为 G6 的排期/执行入口。
+- 相关任务状态源：B81 §7.3（上下游/前置/后置关系登记）与各承接任务文档。
+

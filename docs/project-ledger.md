@@ -1,5 +1,9 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-08 **B81 上下游/前置/后置任务登记全**：B81 §7.3 登记上游（ADR-0035、诊断报告、VS-00L/ADR-0033、B71、B80、旧 schema 资料）、前置（ADR 批准/设计评审/B71 R1-R2 契约层/门禁基线/B78 同文件顺序协调/作者确认开工）、后置（B71 CP5 收口、B82、B79 条件依赖、B84、由 CP 覆盖的 D8/审计/退役/细条项）；B71 文档追加「2026-11-08 任务承接变更」：G6→B81 CP5、G2/G3/G5/实模→B82、vendor→B83、债务→B84 + ADR-0034 已闭环，CP5 依赖两者证据；B71 不再自承 G6。NEXT B81 行补上下游引用。未改产品代码、未实现、未代签。
+
+> 2026-11-08 **任务登记全（B81 CP1–CP6 + B82/B83/B84 + 索引补齐）**：B81 文档登记 CP1–CP6（状态/范围/验收/依赖/写域）与相关任务承接关系（B71 G6 移交 CP5；B82 承接 G2/G3/G5 与 Responses/Anthropic 实模；B83 vendor 矩阵 blocked 凭证；B84 web 慢测试并行；与 B78 同文件冲突协调；B80/B79/bidirectional 关系）；新增 B82/B83/B84 任务文档；slices README 补登记 B80/B82/B83/B84/bidirectional；NEXT 更新 B81 候选与新增 B82/B84 候选、B83 阻塞项、依赖排序。未改产品代码、未实现、未代签。
+
 > 2026-11-08 **B81 立项与阶段 1 设计草案**：ADR-0035 落地的执行任务 [B81-session-canonical-authoring-history](`tasks/slices/B81-session-canonical-authoring-history.md`) ——阶段 1（会话级 canonical 存储/追加/恢复/迁移，不改变模型可见行为）设计完成、状态 todo 待作者确认开工；阶段 2–6（请求派生/压缩作用域/G6/审计/退役）列依赖与验收，未实现前不代签。NEXT 候选与 slices 索引已登记。：作者批准会话级 canonical 创作上下文决策；已同步修订 VS-00L 落地说明（顶部状态、§16.1、§16.16、§17 状态表、§18.8；Frozen 判据不变）、ADR-0033 §11 作用域落地边界、adr README 索引与台账。实施待承重 slice 分阶段落地；当前实现仍为 run 级（已知偏差），未实现前不代签。
 
 > 2026-11-08 **ADR-0035 草案（会话级 canonical 创作上下文）= Proposed，待作者批准**：按作者「对话是工作面、run 是执行单元」纠正，将方案 A 落成 ADR 草案（`docs/design/adr/ADR-0035-session-scoped-canonical-authoring-context-v3.md`）：session 承载跨 turn 连续运行历史与决策/观察/承诺；run 为执行段；每轮请求由会话派生（正常完整历史，窗口压力时 checkpoint 投影替代更早历史并保留最近 K/作者原话/当前 scope 原序）；压缩作用会话历史（covers/refs/versions/omissions + turn 范围、未完成/未闭合不压缩、canonical 不删改、幂等/失败静默）；事实材料经工具按需读取；保留 ADR-0033 契约族与作者安全。非目标含「每轮最小上下文/隐式压缩」。**未批准前不实现、不迁移、不删代码**；批准后修订 VS-00L 落地说明与 ADR-0033 变更记录，再按承重 slice 分阶段落地。
