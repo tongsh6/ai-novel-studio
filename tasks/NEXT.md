@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B81 | 会话级 canonical 创作历史（ADR-0035 落地，CP1–CP6 已登记）：**当前开工 CP1**（会话级 canonical 存储/追加/恢复/迁移，行为不变），按 [B81](slices/B81-session-canonical-authoring-history.md) §8 推进；后续 CP2 请求派生 → CP3 压缩作用域/触发 → CP4 投影与审计 → CP5 真实页面多轮验收+G6（承接 B71 G6）→ CP6 旧语义退役；上下游/前置/后置见 §7.3、实现目标映射见 §7.4；与 B78 同文件冲突需协调顺序。 | [B81](slices/B81-session-canonical-authoring-history.md) |
+| B81 | 会话级 canonical 创作历史（ADR-0035 落地，CP1–CP6 已登记）：**CP1 已完成**（2026-11-08 会话级存储/追加/恢复/迁移，行为不变；见 [B81](slices/B81-session-canonical-authoring-history.md) §8.1）。**下一步=CP2 开工前裁决**：①「每轮请求由会话派生」是否需要 `novel_common` 新增纯契约（突破 §4 CP1 边界）；② 与 B78 的同文件顺序（CP2 将再触碰 `agent_run_server.ex`/`judgment_protocol.ex`）。后续 CP3 压缩作用域/触发 → CP4 投影与审计 → CP5 真实页面多轮验收+G6（承接 B71 G6，建议拆 CP5a/CP5b）→ CP6 旧语义退役；上下游/前置/后置见 §7.3、实现目标映射见 §7.4。 | [B81](slices/B81-session-canonical-authoring-history.md) |
 
 当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 

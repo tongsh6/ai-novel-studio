@@ -20,8 +20,8 @@
 - 愿景 §2.4（元原则）：「观察必须形成**证据闭环**……并进入后续模型请求」；「按需求证复用统一 AgentRun 的观察、预算、取消、**恢复**与留痕」。
 - 愿景 §1/§2：「LLM 应该是**作者可感知的创作伙伴**」；「可审计、可规划、可持续迭代」。
 - VS-00L §16.1 标题：「**单一 canonical 会话边界**」；§16.6：「**已有会话保留全部消息**，新阶段必须追加该角色完整规则」。
-- VS-00L 第 99 行：「**长会话只通过 `checkpoint` 消息压缩**：必须记录覆盖的 **turn 范围**、来源 refs、版本、省略范围与不可见性说明」。
-- VS-00L 第 221 行 G6：「**长会话** + checkpoint(covers/refs/versions/omissions)——checkpoint 是唯一压缩表达；作者原文/artifact 字节可回查」。
+- VS-00L 第 100 行：「**长会话只通过 `checkpoint` 消息压缩**：必须记录覆盖的 **turn 范围**、来源 refs、版本、省略范围与不可见性说明」。
+- VS-00L 第 222 行 G6：「**长会话** + checkpoint(covers/refs/versions/omissions)——checkpoint 是唯一压缩表达；作者原文/artifact 字节可回查」。
 
 ## 2.5 同构性判断（2026-11-08 作者纠正）
 
@@ -81,7 +81,7 @@
 |---|---|---|---|---|
 | P0-1 | 跨轮上下文断裂：模型看不到上一轮诉求/观察/判断/承诺 | §3.2 六 run 证据；§3.1 new_transcript | 愿景 §2.1（会话结构/诉求跨 turn 存续）、§2.4.3（观察进入后续请求）、D8 判例 | P0 |
 | P0-2 | 会话级 canonical 事实源缺失：唯一事实源实为 run 级 | §3.1/§3.3；无会话级 transcript | VS-00L §16.1 名实不符；可审计/回放/压缩失去会话对象 | P0 |
-| P1-1 | 压缩/G6 不可达（症状） | §3.4 全部批次 0 checkpoint | §99/§221「长会话压缩」 | P1 |
+| P1-1 | 压缩/G6 不可达（症状） | §3.4 全部批次 0 checkpoint | §100/§222「长会话压缩」 | P1 |
 | P1-2 | 跨轮义务/语义对账靠状态字段与展示流补偿（D8 类复发风险） | behavior/goal 字段跨轮传递；展示流非事实源 | 愿景 §2.1；D8 | P1 |
 | P1-3 | 旧 `session_transcript` 材料类型残留但主链不消费（语义双轨/漂移） | §3.3 | 项目「不缝合怪」「彻底重构」原则 | P1 |
 | P1-4 | 验收被反向使用：为让 G6 有证据长期构造异常路径/构造场景，掩盖产品缺陷 | A3/A3b 多轮失败与归因反复修正 | 场景化验收的初衷（发现缺陷） | P1 |
@@ -117,7 +117,7 @@
 ## 8. 需要作者裁决的问题
 
 1. 会话（session）与 run 的职责/事实边界如何定义？canonical 事实源的层级是会话还是 run？
-2. 压缩（checkpoint）作用域是会话历史（跨 turn，§99 语义）还是当前 run 上下文？
+2. 压缩（checkpoint）作用域是会话历史（跨 turn，§100 语义）还是当前 run 上下文？
 3. 跨 turn 义务/诉求（D8 类）应由会话 canonical 承载，还是继续由状态字段 + 展示流承载？
 4. 旧 `session_transcript` 材料类型的处置（删除/迁移/明确保留边界）？
 5. 验收第一性标准：以"真实作者多轮会话的连续性 + 证据闭环"为准，还是继续以单 run 执行正确性为准？
@@ -129,5 +129,5 @@
 - 实模 G6 批次：`artifacts/slice-verify/b71-first-consumer-live-cp4b2-iq3s-01/`（本地批次目录含 summary/DB）
 - 确定性探针：`artifacts/slice-verify/b71-authoring-planning-tauri-native-cp4b2-g6-det-probe-01/`、`.../b71-authoring-revision-tauri-native-cp4b2-g6-det-probe-03/`
 - 代码：`judgment_protocol.ex:635`（new_transcript）、`transcript_compaction.ex`（plan_maintenance/current_turn_start）、`agent_run_server.ex`（maybe_auto_maintain）、`context_assembler.ex`/`dialogue_planning_service.ex`（session_transcript 旧材料）
-- 契约：`docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md` §16.1/§16.6/§16.12/第 99/221 行
+- 契约：`docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md` §16.1/§16.6/§16.12/第 100/222 行
 - 愿景：`docs/design/00-vision-and-engineering-roadmap.md` §2.1/§2.4

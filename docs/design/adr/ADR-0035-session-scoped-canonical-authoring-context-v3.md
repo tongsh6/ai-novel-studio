@@ -5,7 +5,7 @@
 - 来源文档：
   - `../00-vision-and-engineering-roadmap.md` §2.1（Agent 系统的核心：会话结构）、§2.4（最小供给/按需求证/证据闭环）
   - `../notes/2026-11-08-session-level-product-deviation.md`（产品级偏差诊断，本 ADR 的输入；notes 不授权实现）
-  - `../contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md` §16.1/§16.6/§16.12/§18/第 99/221 行
+  - `../contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md` §16.1/§16.6/§16.12/§18/第 100/222 行
   - ADR-0033（Authoring Run Transcript / Request IR；本 ADR 细化其实现边界，不取代其契约族）
   - `tasks/slices/B71-provider-message-fidelity.md`（G6 与实模证据真源）
 - 影响范围：AgentRun / AuthoringSession / JudgmentProtocol / Request IR / TranscriptCompaction / 持久化与恢复 / 三类 Provider 投影 / Trace / Replay / 验收分层
@@ -16,7 +16,7 @@
 
 - 每个 turn 是一个独立 `AgentRun`，新 run 由 `new_transcript/4` 从 `application_base` + 当前作者输入 + 当前 scope 重建，**不继承会话历史**；canonical transcript 持久化在 run 级私有列；
 - 同 session 多 run 的真实批次（A3，6 runs）中，每个 run 的 transcript 只含本 run 的作者消息，跨轮指代（"刚才读到的线索"）没有会话事实可用；
-- 压缩机制按"长会话/更早作者回合"设计（VS-00L 第 99/221 行），但输入是 run 级 transcript 且只整理"更早作者回合" → 实模/确定性批次全部 0 checkpoint；G6 没有对象；
+- 压缩机制按"长会话/更早作者回合"设计（VS-00L 第 100/222 行），但输入是 run 级 transcript 且只整理"更早作者回合" → 实模/确定性批次全部 0 checkpoint；G6 没有对象；
 - 会话历史只以旧装配链 `:session_transcript` 材料类型与 Interaction 展示流存在，B71 主链不消费。
 
 同时确认与外部工具（Codex/Claude Code）的**同构性**：
@@ -48,7 +48,7 @@
 - 不改变采纳门/确认交接/作者主权边界。
 - 不引入隐式压缩或"每轮最小上下文"（后者会使压缩失去对象，与第 3/5 条矛盾）。
 - 不改变作者可见面安全要求、失败静默、幂等恢复。
-- 不把诊断报告或本 ADR 的 Proposed 状态当作实现授权。
+- 不把诊断报告当作实现授权；本 ADR 已 Accepted，实施授权按承重 slice 任务文档（B81）。
 
 ## 考虑过的方案
 
@@ -58,7 +58,7 @@
 
 ## 最终决策
 
-采纳方案 A（Proposed，待作者批准）。
+采纳方案 A（2026-11-08 作者批准 → Accepted）。
 
 ## 决策理由
 
@@ -69,7 +69,7 @@
 
 ## Contract 影响
 
-- VS-00L §16.1「单一 canonical 会话边界」、§16.6「已有会话保留全部消息」、§16.12（transcript 持久化身份/恢复）需按本 ADR 的 session/run 职责修订落地说明；第 99 行「长会话 checkpoint 压缩」与第 221 行 G6（长会话 + checkpoint）语义保持不变，补齐"覆盖 turn 范围"的落地。
+- VS-00L §16.1「单一 canonical 会话边界」、§16.6「已有会话保留全部消息」、§16.12（transcript 持久化身份/恢复）需按本 ADR 的 session/run 职责修订落地说明；第 100 行「长会话 checkpoint 压缩」与第 222 行 G6（长会话 + checkpoint）语义保持不变，补齐"覆盖 turn 范围"的落地。
 - §18 自动维护：触发仍为安全点 + 上下文压力，但作用域为会话历史（跨 turn），不再受"更早作者回合"限制（后者是实现自加约束，契约未要求）。
 - ADR-0033 决策 1/7（AgentRun 为事实源、显式压缩）**原则不变**，批准后同步补充"canonical 历史作用域 = 会话；run 为执行段"的落地边界说明，并在其变更记录登记。
 - 作者可见面无技术词、失败静默、幂等、canonical 不删改等既有条款不变。
@@ -110,8 +110,8 @@
 
 ## 后续工作
 
-- 本 ADR 为 **Proposed**：需作者批准后，方可修订 VS-00L 落地说明、更新 ADR-0033 变更记录、创建承重 slice 并进入实现。
-- 批准前不实现、不迁移、不删除现有代码；诊断报告与本文不构成实现授权。
+- 本 ADR 已 **Accepted**；实施按承重 slice 分阶段落地（B81 CP1–CP6）。
+- 未实现前不代签、不把本文当已交付；诊断报告与本文不构成实现授权。
 
 ## enforced_by
 
@@ -123,7 +123,8 @@
 
 ## enforcement_gaps
 
-- 实现层承接待承重 slice（会话级 canonical 存储/恢复、请求派生、压缩作用域、arch_check 边界、测试与验收）：由 [B81](../tasks/slices/B81-session-canonical-authoring-history.md) CP1–CP6 承接（决策/条款 → CP 的逐条映射见 B81 §7.4）；落地后补实现路径与门禁引用。
+- 实现层承接待承重 slice（会话级 canonical 存储/恢复、请求派生、压缩作用域、arch_check 边界、测试与验收）：由 [B81](../../../tasks/slices/B81-session-canonical-authoring-history.md) CP1–CP6 承接（决策/条款 → CP 的逐条映射见 B81 §7.4）；落地后补实现路径与门禁引用。
+  - **2026-11-08 CP1 已落地**（决策 1/2/9 的事实源与旧列退役部分）：`NovelPersistence.AuthoringSessionLog`（唯一会话 canonical 存储边界；`authoring_session_messages` + `authoring_run_segments`）、`NovelApplication.AuthoringCheckpoint`（会话段读写、身份/版本/可回读校验）、`AgentRunLog.commit_snapshot/2`（单事务追加 canonical 段，`mode: :immediate`）、`AgentRunPersistence.snapshot/4`（`authoring_segment` 投影）、`AgentRunService` 恢复路径与 `AuthoringReplay` 回查迁移；run 级 `agent_runs.authoring_transcript` 列按未发布原则退役。CP1 行为不变（请求仍由 run 内结构派生），CP2 起才改变请求派生；验证见 B81 §8.1.6/§11。
 - 现有实现（run 级 transcript、run 级压缩）与本 ADR 冲突，属已知偏差；未实现前不代签、不把本文当已交付。
 - 旧 `:session_transcript` 材料类型与旧装配链的退役范围需在 B81 CP6 中逐项核对消费者；压缩的**作者可见显式入口**仍待作者产品设计授权（B81 §7.4 已显式登记为未授权项，ADR-0035 不改变该边界）。
 
@@ -132,3 +133,4 @@
 - 2026-11-08：草案创建（Proposed）。输入为产品级偏差诊断 `docs/design/notes/2026-11-08-session-level-product-deviation.md` 与作者对同构性/工作面的纠正。
 - 2026-11-08：**作者批准 → Accepted**。同步修订 VS-00L 落地说明（§16.1/§16.16/§17/§18，Frozen 判据不变）与 ADR-0033（§11 作用域落地边界）；后续按承重 slice 分阶段实现，未实现前不代签。
 - 2026-11-08：登记实现承接任务 B81（CP1–CP6）与契约/ADR 实现目标映射（B81 §7.4）；enforced_by 增补 B81。
+- 2026-11-08：状态表述一致性修正（Proposed 残留 → Accepted 口径；不改决策内容）；修正 VS-00L 行号引用（第 100/222 行）与 B81 相对链接；按 §Contract 影响补 VS-00L §16.6/§16.12 落地说明（Frozen 判据不变）。
