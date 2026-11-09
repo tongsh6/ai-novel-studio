@@ -108,7 +108,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 | CP3 | doing（机制层已实现；真实多轮页面证据归 CP5） | 压缩作用域=会话历史、触发/细条/回查调整 | G6 压缩后真实请求（真实多轮自然触发）+ 失败静默/幂等 | CP2 | `apps/novel_application`（TranscriptCompaction/AgentRunServer/ContextPressure，跨 run usage 累计）、`frontend/src`（仅在细条/回查需适配时） |
 | CP4 | doing（机制层已实现；真实多轮页面证据归 CP5） | 三类投影/恢复幂等 + 审计/回查以会话为对象（窄化为"投影输入来源变化后的等价性验证"） | 投影/幂等/回查机制证据 | CP2、CP3 | `apps/novel_agent`（投影校验）、`apps/novel_application`（Replay）、`scripts/arch_check.exs`（边界规则细化） |
 | CP5 | todo（建议拆 CP5a/CP5b，见 §9） | 真实页面多轮会话综合验收 + G6 取证（承接 B71 G6） | 页面/机制/实模分层报告（实模不代签）；窗口不可用时按 known-gap 登记规则如实关闭 | CP2–CP4 | `scripts/`（验收 harness）、`artifacts/`（证据，只读保留） |
-| CP6 | todo | 旧 `:session_transcript`/旧装配链/旧 run 级语义退役清理 | 删除后全量门禁 + 无消费者核对 | CP5 | `apps/novel_application`（ContextAssembler/DialoguePlanningService 旧路径）、`apps/novel_persistence`（旧列删除）、测试清理 |
+| CP6 | doing（机制层已实现；web 全量/页面验证进行中） | 旧 `:session_transcript`/旧装配链/旧 run 级语义退役清理 | 删除后全量门禁 + 无消费者核对 | CP5 | `apps/novel_application`（ContextAssembler/DialoguePlanningService 旧路径）、`apps/novel_persistence`（旧列删除）、测试清理 |
 
 ### 7.1 相关任务与承接关系（登记全）
 
@@ -461,56 +461,13 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - **证据（2026-11-09）**：`novel_application` + `novel_persistence` 全量 **1370 tests / 0 failures**；credo no issues、format/module-size 通过；全量 `mix check` 与页面批次见提交记录。
 - **边界**：不新增 UI 会话历史入口（属 §16.17 作者可见面设计，未授权）；不回放 Provider 请求（只读 canonical 摘要）；CP5 的多轮页面/G6 取证仍归 §8.6。
 
-#### 8.5.3 CP6：旧 `:session_transcript` 材料与旧装配链退役
+#### 8.5.3 CP6：旧 `:session_transcript` 材料与旧装配链退役（2026-11-09 实施尝试，已回滚待续）
 
-- **现状事实（grep，2026-11-09）**：`NovelDomain.ContextSourceRef` 类型 `:session_transcript`（context_source_ref.ex:14）；`ContextAssembler` 类型/摘要（context_assembler.ex:390/427/445）；`DialoguePlanningService` 读取（dialogue_planning_service.ex:1256）；`NovelCommon.AuthorVisible.DisplayNamesGen` 展示名映射（display_names_gen.ex:64）；B71 主链已确认不消费（§1.1/§8.1）。
-- **CP6 改动面**：逐项核对上述消费者与 `assemble_for_input` 调用点 → 删除旧材料类型/摘要/读取分支与旧装配链引用 → 同步作者可见展示名 codegen（`codegen.author_visible --check`）→ 全量门禁与全仓 grep 复核（`scripts/` 等验收资产一并核对）。
-- **风险**：跨 `novel_common`/`novel_domain`/`novel_application` 三 app 的删除需一次可 review 重构；历史证据保留在 `artifacts/`，不做兼容层。
-- **验收**：删除后 `mix check` 全绿、全仓无 `:session_transcript` 运行时引用、作者可见名不退化、无消费者遗漏。
-
-> 三阶段共同边界：不改作者主权/采纳门/tentative-first/失败静默；不引入隐式压缩；不把展示流当事实源；每阶段独立 commit 且未实现前不代签。
-
-### 8.6 CP5 验收设计：G6 分层取证（草案，未实现，待 CP2–CP4 落地）
-
-> 背景：G6（压缩后真实请求）已由 B71 移交 B81 CP5。B71 三次失败归因是「真实模型单轮交换不足 + 压缩作用域是 run」；ADR-0035 后 G6 的对象改为**会话历史**（跨 turn 累计已完成交换 ≥ K 即可自然触发），不再需要构造单 run 异常路径。本节只冻结验收设计，不实现、不代签。
-
-#### 8.6.1 场景（作者视角、真实页面、外部自动化）
-
-1. 真实 Tauri 工作台打开作品与活动会话（当前真实入口，无旁路 demo）。
-2. 作者**自然多轮**创作交互（每轮真实请求 → 候选/观察/判断），跨 turn 累计满足压缩触发条件（K=4 已完成交换 + 会话级压力/安全点，触发口径由 CP3 冻结）。
-3. 外部自动化**观察驱动**：每轮读取页面上的真实问题/选项后作答，记录 question→answer 绑定（沿用 B71 obs-01 原则，不用固定 steer 文本刷轮次）。
-4. 安全点自动维护自然触发压缩（不构造异常路径、不改生产阈值凑触发）；页面出现作者可见整理细条/展开。
-5. 压缩后的下一轮请求：真实 provider 请求体（确定性或实模）包含 checkpoint 折叠效果。
-6. 证据：请求 body/IR 字节、页面 AX/截图、WS 帧、app-log、会话 DB（消息行 + checkpoint 消息 + covers）、provider usage。
-
-#### 8.6.2 G6 判据（逐项可机械检查）
-
-| # | 判据 | 证据来源 |
-|---|---|---|
-| G6-1 | 压缩前会话历史中 ≥K 项**已完成**交换真实存在（跨 turn 累计，非单 run 推断） | 会话消息行 + events |
-| G6-2 | 压缩由产品压缩路径产生（checkpoint 消息追加到会话 canonical，`covers.call_ids` 覆盖更早已完成交换；`source_refs/versions/omissions/summary` 完整；覆盖 turn 范围） | 会话 DB + 压缩事件 |
-| G6-3 | 同批幂等：重复安全点不重复追加 checkpoint；失败静默、下一安全点重试 | DB 事件计数/批次日志 |
-| G6-4 | 压缩后真实请求：被覆盖交换折叠为 checkpoint 投影、保留最近 K、作者原话/当前 scope/未覆盖消息原序；`covers` 与请求投影一致 | 请求 body/IR 证据 |
-| G6-5 | 作者可见面：整理细条/展开可读、无技术词、无内部 ref/推理泄漏 | 页面 AX/截图 + 作者安全扫描 |
-| G6-6 | 未完成/未闭合交换不被压缩；当前 scope 与作者原话不被折叠 | 请求证据 + DB |
-
-#### 8.6.3 分层报告（不混报、不代签）
-
-- **机制层**：确定性 provider + 真实页面；压缩由确定性触发条件产生。证据=请求 IR/页面/DB。
-- **页面层**：真实 Tauri + 外部自动化多轮场景（§8.6.1）。证据=AX/截图/WS/DB。
-- **实模层**：真实模型多轮自然触发；单独冻结预注册与批次执行，不与机制层混报；窗口不可用时按 known-gap 登记规则如实关闭（该裁决路径见 B71 CP5 承接变更，不阻塞 B71 收口的裁决由作者定）。
-
-#### 8.6.4 防伪与反例（禁止）
-
-- 禁止在 fixture/DB 中直接构造 checkpoint 冒充产品压缩（必须由产品压缩路径产生）。
-- 禁止为触发压缩调整生产阈值、窗口或写死多轮输入文本；观察驱动必须读取真实页面问题/选项。
-- 禁止用「内存 transcript 断言」替代真实请求体证据；G6 的「压缩后真实请求」必须以真实 provider 调用（确定性或实模）的 body/IR 证据为准。
-- 禁止只证明「存在 checkpoint」而不证明「压缩后请求携带折叠投影且保留项正确」（G6-4 必须同时成立）。
-- 禁止重跑换分：批次失败如实登记；预注册冻结场景/判据/预算/模型/seed。
-
-#### 8.6.5 依赖与顺序
-
-CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4（投影等价/回查）；实模窗口与官方凭证另证（B82）；G6 在 CP5 前不得以机制层证据代签。
+- **现状事实**：`NovelDomain.ContextSourceRef` 类型含 `:session_transcript`（context_source_ref.ex:14）；`ContextAssembler.conversation_ref_identity/1` 在 session_id 存在时产生 `{:session_transcript, "active_session_transcript"}`；`DialoguePlanningService.context_materials/4` 优先取 `by_type[:session_transcript]` 作为 conversation 供给，`judgment_context_sections/2` 渲染「## 会话摘要」段；`judgment_availability_section/1` 的 `@availability_labels` 含 conversation 项；`selected_context_sections(false)` 含 "conversation"；`DisplayNamesGen` 有展示名映射（SSOT=docs/design/schemas/author_visible/display_names.json）。
+- **本轮实施尝试（已回滚，未提交）**：按 ADR-0035 决策 9 完成生产修改（domain 类型删除、assembler 来源/摘要删除、planning 判断材料段/供给/availability/selected 删除、display-name SSOT+codegen、3 个测试按退役语义更新）。**application 全量 1370 tests / 0 failures 通过**；但 **`novel_web` 全量在 `WorkspaceChannelScopedEventsTest`（line 30 "two real transports each receive one copy"）挂起**——该测试使用自定义 `next_step_planner`（不经判断链/上下文装配），与 CP6 语义无直接调用面，疑似既有 slow/flake（该测试含 ~45s 级等待与 `TestAgentRunCleanup.await_quiescent` 清理交互）而非 CP6 回归。
+- **回滚决定（诚实边界）**：在未能解释 web 全量挂起之前，不把行为变化带入门禁绿状态；代码已回滚，基线保持 `8d72113f` 全绿。**CP6 未完成、未代签**。
+- **验证注意（避免误判，供下轮）**：`novel_web` 全量存在多处 ~45s 的既有等待（channel/AgentRun 事件），单文件即可 45s，全量可达 10–25 分钟；不要以「无输出」判定挂起，应等待 `Finished`/`EXIT` 或按目录/文件分组跑。定位挂起是否由 CP6 引起的最小实验：在干净基线上重复单跑 `WorkspaceChannelScopedEventsTest` 多次（seed 0 与随机 seed），再与 CP6 改动对比。
+- **下轮计划**：拆分为两个独立 commit 分别验证——① 只删判断材料「会话摘要」段与供给（行为变化最小，跑 application+web+页面批次）；② 再删类型/展示名/装配来源。任一步 web 非绿即在该步定位，不合并提交。
 
 ## 9. 剩余后果与阻塞
 
@@ -539,6 +496,7 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 
 - 2026-11-08：立项 + 阶段 1 设计草案（作者批准 ADR-0035 后产出；未授权实现）。
 - 2026-11-08：补充 §1.1 断链定位（schema 时间线 + 三项漏承接）与 §8.0 彻底重构/复用清单（作者确认：系统设计有、实现偏差；彻底重构但复用设计资料和实现）。
+- 2026-11-09：**CP6 实施尝试（已回滚）**：按 ADR-0035 决策 9 完成旧 `:session_transcript` 材料退役的生产+测试修改；application 全量 1370/0 通过，但 web 全量在 `WorkspaceChannelScopedEventsTest` 挂起（该测试不经判断链，疑似既有 slow/flake）；为保持门禁绿与不代签，回滚代码并登记验证注意与下轮拆分验证计划（§8.5.3）。
 - 2026-11-09：**CP4 机制层实现（会话级回查 + 投影等价）**：`AuthoringReplay.fetch_session/2`（会话级作者安全摘要）+ `TraceReplayService` 报告 `session_authoring_history`；新增 4 例机制测试（跨 run 摘要/作者安全/空会话/三类投影往返逐字节等价/恢复不改变投影）；run 级回查断言收窄到 `authoring_history`（会话级字段不参与错绑判定）；application+persistence 全量 1370/0。详见 §8.5.2。
 - 2026-11-09：**CP3 收尾：段编解码职责拆分**：`checkpoint/1`/`restore_segment/1`/`append_checkpoint/2` 移入 `AuthoringCheckpoint`（AuthoringTranscript 558→500 行，符合 module-size ratchet；职责回到组装）；测试调用点与 alias 同步；application+persistence 全量 1366/0。
 - 2026-11-09：**CP3 机制层实现（压缩作用域=会话历史）**：修正 CP1「段独立校验」与跨段 checkpoint 的架构冲突——新增段宽松恢复/checkpoint 追加，段校验升级为会话视图完整 IR 校验，压缩路径（显式+安全点）改在会话视图派生、checkpoint 追加本 run 段；新增机制测试与真实安全点跨 run 测试；application+persistence 全量 1366/0、首轮页面 19/19；§9 登记会话级 call_id 唯一约束。详见 §8.5.1。
