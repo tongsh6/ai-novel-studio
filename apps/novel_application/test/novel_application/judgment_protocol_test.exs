@@ -2707,4 +2707,47 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     message_text(message) <> validation
   end
+
+  describe "会话历史请求派生（B81 CP2）" do
+    test "当前 base 唯一且最前、历史原序、当前作者最后、refs 会话累计" do
+      history = %{
+        messages: [
+          %{role: "user", provenance: "author", blocks: [%{type: "text", text: "上一轮作者原话"}]},
+          %{role: "assistant", provenance: "model", blocks: [%{type: "text", text: "上一轮助手回复"}]}
+        ],
+        refs: %{
+          base_refs: [%{"ref" => "chapter:one"}],
+          observation_refs: [%{"ref" => "chapter:two"}],
+          used_refs: []
+        }
+      }
+
+      input = input() |> Map.put(:session_history, history)
+      request = JudgmentProtocol.request_for_production(input)
+      roles = Enum.map(request.messages, & &1.role)
+
+      assert Enum.count(roles, &(&1 == "application_base")) == 1
+      assert hd(request.messages).role == "application_base"
+      assert request.messages |> Enum.at(1) |> message_text() == "上一轮作者原话"
+      assert request.messages |> Enum.at(2) |> message_text() == "上一轮助手回复"
+      assert List.last(request.messages).role == "user"
+      assert Enum.any?(request.refs.base_refs, &(&1.ref == "chapter:one"))
+      assert Enum.any?(request.refs.observation_refs, &(&1.ref == "chapter:two"))
+    end
+
+    test "transcript_for_production 仍是本 run 段视图（持久化边界不含历史）" do
+      history = %{
+        messages: [
+          %{role: "user", provenance: "author", blocks: [%{type: "text", text: "历史作者原话"}]}
+        ],
+        refs: %{base_refs: [], observation_refs: [], used_refs: []}
+      }
+
+      input = input() |> Map.put(:session_history, history)
+      {:ok, segment} = JudgmentProtocol.transcript_for_production(input)
+
+      refute Enum.any?(segment.messages, &(message_text(&1) == "历史作者原话"))
+      assert hd(segment.messages).role == "application_base"
+    end
+  end
 end

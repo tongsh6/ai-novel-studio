@@ -7,6 +7,7 @@ defmodule NovelApplication.JudgmentProtocol do
 
   alias NovelApplication.{
     AgentNarrativeSource,
+    AuthoringSessionHistory,
     AuthoringTaskPolicy,
     AuthoringTranscript,
     CharacterProfile,
@@ -56,13 +57,36 @@ defmodule NovelApplication.JudgmentProtocol do
       |> Execution.result_fn()
 
     if is_function(result_fn, 1) do
-      with {:ok, transcript} <- transcript_for_production(input, profile) do
-        invoke(result_fn, transcript, input, profile, 1)
+      with {:ok, segment} <- transcript_for_production(input, profile) do
+        {request_transcript, history_count} = compose_session_history(segment, input)
+
+        result_fn
+        |> invoke(request_transcript, input, profile, 1)
+        |> strip_session_history(history_count)
       end
     else
       {:error, :provider_execution_required}
     end
   end
+
+  # 请求派生视图前置会话历史（CP2）；返回给 flow/持久化的 transcript 必须是段视图。
+  defp compose_session_history(transcript, input),
+    do: AuthoringSessionHistory.compose(transcript, Map.get(input, :session_history))
+
+  defp strip_session_history({:ok, judgment}, history_count) when is_map(judgment) do
+    {:ok, Map.update!(judgment, :transcript, &AuthoringSessionHistory.strip(&1, history_count))}
+  end
+
+  defp strip_session_history(
+         {:error, reason, %{judgment_transcript: transcript} = state},
+         history_count
+       )
+       when is_map(transcript) do
+    {:error, reason,
+     Map.put(state, :judgment_transcript, AuthoringSessionHistory.strip(transcript, history_count))}
+  end
+
+  defp strip_session_history(result, _history_count), do: result
 
   @doc "当前 run 的唯一请求事实源；每次 Provider body 都是它的瞬时投影。"
   @spec transcript_for_production(map(), atom()) ::
@@ -92,8 +116,9 @@ defmodule NovelApplication.JudgmentProtocol do
   @doc "生产请求入口；返回已选择本次工具与 tool_choice 的 canonical IR。"
   @spec request_for_production(map(), atom()) :: RequestIR.t()
   def request_for_production(input, profile \\ :judgment) do
-    with {:ok, transcript} <- transcript_for_production(input, profile),
-         {:ok, request} <- prepare_request(transcript, profile) do
+    with {:ok, segment} <- transcript_for_production(input, profile),
+         {request_transcript, _history_count} <- compose_session_history(segment, input),
+         {:ok, request} <- prepare_request(request_transcript, profile) do
       request
     else
       {:error, reason} -> raise ArgumentError, "invalid authoring transcript: #{inspect(reason)}"
