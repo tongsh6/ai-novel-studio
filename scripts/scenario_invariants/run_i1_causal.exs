@@ -587,4 +587,7 @@ defmodule I1CausalDriver do
   defp fix_path_hint(_), do: ""
 end
 
+Code.require_file("schema_guard.exs", __DIR__)
+ScenarioInvariants.SchemaGuard.ensure_schema!()
+
 I1CausalDriver.run()

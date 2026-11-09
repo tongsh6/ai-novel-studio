@@ -562,4 +562,7 @@ defmodule I3NonceDriver do
   end
 end
 
+Code.require_file("schema_guard.exs", __DIR__)
+ScenarioInvariants.SchemaGuard.ensure_schema!()
+
 I3NonceDriver.run()
