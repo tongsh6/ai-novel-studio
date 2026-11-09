@@ -37,29 +37,29 @@ defmodule NovelApplication.AuthoringSessionHistory do
   @spec fetch(map()) :: {:ok, t() | nil} | {:error, term()}
   def fetch(run) when is_map(run) do
     session_id = field(run, :session_id)
-    run_id = field(run, :run_id)
 
-    if nonblank?(session_id) do
-      with {:ok, refs} <- AuthoringSessionLog.fetch_session_refs(session_id) do
-        messages =
-          session_id
-          |> AuthoringSessionLog.fetch_session_messages()
-          |> Enum.reject(&(field(&1, :run_id) == run_id))
-          |> Enum.reject(&(field(&1, :role) == "application_base"))
-          |> Enum.map(&field(&1, :message))
-          |> AuthoringTranscript.normalize_messages()
+    # 无会话身份 = 无会话历史可派生（首轮/非会话入口），不是损坏。
+    if nonblank?(session_id), do: fetch_session(run, session_id), else: {:ok, nil}
+  end
 
-        if messages == [] do
-          {:ok, nil}
-        else
-          {:ok, %{messages: messages, refs: refs}}
-        end
-      end
-    else
-      # 无会话身份 = 无会话历史可派生（首轮/非会话入口），不是损坏。
-      {:ok, nil}
+  defp fetch_session(run, session_id) do
+    with {:ok, refs} <- AuthoringSessionLog.fetch_session_refs(session_id) do
+      session_id
+      |> history_messages(field(run, :run_id))
+      |> history_view(refs)
     end
   end
+
+  defp history_messages(session_id, run_id) do
+    session_id
+    |> AuthoringSessionLog.fetch_session_messages()
+    |> Enum.reject(&(field(&1, :run_id) == run_id or field(&1, :role) == "application_base"))
+    |> Enum.map(&field(&1, :message))
+    |> AuthoringTranscript.normalize_messages()
+  end
+
+  defp history_view([], _refs), do: {:ok, nil}
+  defp history_view(messages, refs), do: {:ok, %{messages: messages, refs: refs}}
 
   @doc """
   把会话历史前置到当前 run 的段 transcript，返回 `{请求派生视图, 历史消息数}`。

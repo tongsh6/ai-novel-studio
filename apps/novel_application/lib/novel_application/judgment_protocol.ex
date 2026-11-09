@@ -83,7 +83,11 @@ defmodule NovelApplication.JudgmentProtocol do
        )
        when is_map(transcript) do
     {:error, reason,
-     Map.put(state, :judgment_transcript, AuthoringSessionHistory.strip(transcript, history_count))}
+     Map.put(
+       state,
+       :judgment_transcript,
+       AuthoringSessionHistory.strip(transcript, history_count)
+     )}
   end
 
   defp strip_session_history(result, _history_count), do: result

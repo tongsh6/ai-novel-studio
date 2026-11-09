@@ -107,7 +107,7 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
 
     # 段视图（持久化边界）不含历史消息：run2 只保存自己的应用事实。
     assert {:ok, segment} = JudgmentProtocol.transcript_for_production(input)
-    refute Enum.any?(segment.messages, &message_text(&1) == @first_author_text)
+    refute Enum.any?(segment.messages, &(message_text(&1) == @first_author_text))
     assert hd(segment.messages).role == "application_base"
 
     # 请求 IR：base 唯一且最前 → 第一轮历史原序 → 当前作者最后。
@@ -138,12 +138,52 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
   end
 
   defp message_text(%{blocks: blocks}) do
-    blocks
-    |> Enum.map(fn block ->
-      Map.get(block, :text) || get_in(block, [:content, "text"]) || get_in(block, [:content, :text]) || ""
+    Enum.map_join(blocks, "", fn block ->
+      Map.get(block, :text) || get_in(block, [:content, "text"]) ||
+        get_in(block, [:content, :text]) || ""
     end)
-    |> Enum.join("")
   end
 
   defp message_text(message), do: inspect(message)
+
+  describe "协议层合并视图（纯输入，无 DB）" do
+    test "base 唯一且最前、历史原序、当前作者最后、refs 会话累计" do
+      history = %{
+        messages: [
+          %{role: "user", provenance: "author", blocks: [%{type: "text", text: "上一轮作者原话"}]},
+          %{role: "assistant", provenance: "model", blocks: [%{type: "text", text: "上一轮助手回复"}]}
+        ],
+        refs: %{
+          base_refs: [%{"ref" => "chapter:one"}],
+          observation_refs: [%{"ref" => "chapter:two"}],
+          used_refs: []
+        }
+      }
+
+      request = JudgmentProtocol.request_for_production(protocol_input(history))
+      roles = Enum.map(request.messages, & &1.role)
+
+      assert Enum.count(roles, &(&1 == "application_base")) == 1
+      assert hd(request.messages).role == "application_base"
+      assert request.messages |> Enum.at(1) |> message_text() == "上一轮作者原话"
+      assert request.messages |> Enum.at(2) |> message_text() == "上一轮助手回复"
+      assert List.last(request.messages).role == "user"
+      assert Enum.any?(request.refs.base_refs, &(&1.ref == "chapter:one"))
+      assert Enum.any?(request.refs.observation_refs, &(&1.ref == "chapter:two"))
+    end
+
+    test "transcript_for_production 仍是本 run 段视图（持久化边界不含历史）" do
+      history = %{
+        messages: [
+          %{role: "user", provenance: "author", blocks: [%{type: "text", text: "历史作者原话"}]}
+        ],
+        refs: %{base_refs: [], observation_refs: [], used_refs: []}
+      }
+
+      {:ok, segment} = JudgmentProtocol.transcript_for_production(protocol_input(history))
+
+      refute Enum.any?(segment.messages, &(message_text(&1) == "历史作者原话"))
+      assert hd(segment.messages).role == "application_base"
+    end
+  end
 end

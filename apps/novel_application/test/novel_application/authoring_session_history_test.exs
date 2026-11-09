@@ -9,12 +9,13 @@ defmodule NovelApplication.AuthoringSessionHistoryTest do
 
   use ExUnit.Case, async: false
 
+  alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
 
   alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringSessionHistory
   alias NovelApplication.AuthoringTranscript
-  alias NovelPersistence.{Repo}
+  alias NovelPersistence.Repo
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -58,7 +59,10 @@ defmodule NovelApplication.AuthoringSessionHistoryTest do
     record = run_record(run_id)
 
     {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(record, transcript)
-    {:ok, _state} = Repo.transaction(fn -> NovelPersistence.AuthoringSessionLog.append_run(record, segment) end)
+
+    {:ok, _state} =
+      Repo.transaction(fn -> NovelPersistence.AuthoringSessionLog.append_run(record, segment) end)
+
     transcript
   end
 
@@ -70,7 +74,10 @@ defmodule NovelApplication.AuthoringSessionHistoryTest do
     seed_run!("run-history-first")
 
     assert {:ok, nil} =
-             AuthoringSessionHistory.fetch(%{run_id: "run-history-first", session_id: "sess-history"})
+             AuthoringSessionHistory.fetch(%{
+               run_id: "run-history-first",
+               session_id: "sess-history"
+             })
   end
 
   test "跨 run 历史只包含其他 run 的消息，排除历史 application_base" do
@@ -158,7 +165,7 @@ defmodule NovelApplication.AuthoringSessionHistoryTest do
 
     seed_run!("run-broken")
 
-    Ecto.Adapters.SQL.query!(
+    SQL.query!(
       Repo,
       "UPDATE authoring_run_segments SET header = ? WHERE run_id = ?",
       [Jason.encode!(%{"version" => "authoring-run-segment/v9"}), "run-broken"]
