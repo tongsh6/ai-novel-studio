@@ -51,7 +51,15 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
         omissions: omissions,
         summary: summary
       }) do
-    AuthoringTranscript.compact(transcript, covers, refs, versions, omissions, summary)
+    # B81 CP3：压缩计划在会话视图上派生，checkpoint 追加到本 run 段；跨段 covers
+    # 不在段内可见，完整覆盖/证据校验由 AuthoringCheckpoint 的会话级校验兜底。
+    AuthoringTranscript.append_checkpoint(transcript, %{
+      covers: covers,
+      source_refs: refs,
+      versions: versions,
+      omissions: omissions,
+      summary: summary
+    })
   end
 
   def compact(_transcript, _attrs), do: {:error, :invalid_compaction_request}

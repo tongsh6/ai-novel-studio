@@ -17,6 +17,7 @@ defmodule NovelApplication.AgentRunServer do
   alias NovelApplication.AgentRunService
   alias NovelApplication.AgentRunStartup
   alias NovelApplication.AuthorActionAdmission
+  alias NovelApplication.AuthoringSessionHistory
   alias NovelApplication.CompactionRecord
   alias NovelApplication.ContextPressure
   alias NovelApplication.TranscriptCompaction
@@ -305,15 +306,19 @@ defmodule NovelApplication.AgentRunServer do
       do: {:reply, {:error, :execution_in_progress}, state}
 
   def handle_call({:command, :compact_transcript}, _from, state) do
-    case TranscriptCompaction.plan(Map.get(state.stage_state, :judgment_transcript)) do
-      {:ok, :nothing_to_compact} ->
-        {:reply, {:ok, TranscriptCompaction.receipt(:nothing_to_compact)}, state}
+    with {:ok, view} <- session_view(state) do
+      case TranscriptCompaction.plan(view) do
+        {:ok, :nothing_to_compact} ->
+          {:reply, {:ok, TranscriptCompaction.receipt(:nothing_to_compact)}, state}
 
-      {:ok, plan} ->
-        apply_compaction(plan, state)
+        {:ok, plan} ->
+          apply_compaction(plan, state)
 
-      {:error, _reason} = error ->
-        {:reply, error, state}
+        {:error, _reason} = error ->
+          {:reply, error, state}
+      end
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
@@ -2252,23 +2257,40 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp run_auto_maintenance(state) do
+    # B81 CP3：压缩作用域=会话历史。计划在「历史 + 本 run 段」的会话视图上派生；
+    # checkpoint 追加到本 run 段（跨段 covers 由会话级校验兜底），投影折叠由既有
+    # RequestIR.Compaction 按 call_id 完成。历史读取失败 fail-closed（保留旧 state、
+    # 下一安全点重试），不静默退化为 run 内压缩。
+    with {:ok, view} <- session_view(state),
+         {:ok, plan} when is_map(plan) <-
+           TranscriptCompaction.plan_maintenance(view,
+             keep_recent_items: auto_maintenance_keep_recent_items()
+           ) do
+      case compact_and_commit(plan, state) do
+        {:ok, _receipt, committed} ->
+          committed
+
+        {:error, reason} ->
+          log_auto_maintenance_error(state, reason)
+          state
+      end
+    else
+      _nothing_or_error -> state
+    end
+  end
+
+  # 会话视图 = 会话历史（除本 run 已提交消息）前置到本 run 执行段；段 transcript
+  # 本身保持只含本 run 消息（持久化边界）。
+  defp session_view(state) do
     transcript = Map.get(state.stage_state, :judgment_transcript)
 
-    case TranscriptCompaction.plan_maintenance(transcript,
-           keep_recent_items: auto_maintenance_keep_recent_items()
-         ) do
-      {:ok, plan} when is_map(plan) ->
-        case compact_and_commit(plan, state) do
-          {:ok, _receipt, committed} ->
-            committed
-
-          {:error, reason} ->
-            log_auto_maintenance_error(state, reason)
-            state
-        end
-
-      _nothing_or_error ->
-        state
+    if is_nil(transcript) do
+      {:ok, nil}
+    else
+      with {:ok, history} <- AuthoringSessionHistory.fetch(state.run) do
+        {view, _history_count} = AuthoringSessionHistory.compose(transcript, history)
+        {:ok, view}
+      end
     end
   end
 

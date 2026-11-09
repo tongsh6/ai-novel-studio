@@ -18,7 +18,9 @@ defmodule NovelApplication.AuthoringCheckpoint do
   VS-00L §16.8），只是落点从 run 列改为会话存储。
   """
 
+  alias NovelApplication.AuthoringSessionHistory
   alias NovelApplication.AuthoringTranscript
+  alias NovelCommon.RequestIR
   alias NovelPersistence.AuthoringSessionLog
 
   @identity_fields ["run_id", "workspace_id", "work_id", "session_id", "parent_turn_ref"]
@@ -83,7 +85,8 @@ defmodule NovelApplication.AuthoringCheckpoint do
   def validate_segment(record, %{header: header, messages: messages}) do
     record = normalize(record)
 
-    with {:ok, transcript} <- restore_from_parts(header, messages) do
+    with {:ok, transcript} <- restore_from_parts(header, messages),
+         :ok <- validate_in_session(record, transcript) do
       validate_identity(record, transcript.run)
     end
   end
@@ -157,6 +160,7 @@ defmodule NovelApplication.AuthoringCheckpoint do
 
       {:ok, %{header: header, messages: messages}} ->
         with {:ok, transcript} <- restore_from_parts(header, messages),
+             :ok <- validate_in_session(record, transcript),
              :ok <- validate_identity(record, transcript.run) do
           {:ok, transcript}
         end
@@ -173,13 +177,29 @@ defmodule NovelApplication.AuthoringCheckpoint do
       |> Map.take(Enum.map(header_data_keys(), &Atom.to_string/1))
       |> Map.put("messages", messages)
 
-    AuthoringTranscript.restore(%{
+    AuthoringTranscript.restore_segment(%{
       "version" => AuthoringTranscript.checkpoint_version(),
       "transcript" => data
     })
   end
 
   defp restore_from_parts(_header, _messages), do: {:error, :invalid_authoring_segment}
+
+  # 段 transcript 允许含跨段 checkpoint（covers 指向会话历史中的更早交换），因此
+  # 完整 IR 校验必须放在「会话视图」上：历史（排除本 run 已提交消息）+ 本 run 段。
+  # 首轮/无历史时视图就是段本身，与 CP1 校验强度一致。
+  defp validate_in_session(_record, %{run: run} = transcript) do
+    # 用 canonical run envelope 的 run_id/session_id 读取历史：restore 的 record 是
+    # 归一化后的存储行（id/字段名可能与 envelope 不同），不能作为排除当前 run 的依据。
+    with {:ok, history} <- AuthoringSessionHistory.fetch(run) do
+      {view, _history_count} = AuthoringSessionHistory.compose(transcript, history)
+
+      with {:ok, ir} <- AuthoringTranscript.to_request_ir(view),
+           :ok <- RequestIR.validate(ir) do
+        :ok
+      end
+    end
+  end
 
   # 键集合由持久层契约单一来源提供；新增 data 键只改 AuthoringSessionLog。
   defp segment_header(data) do
