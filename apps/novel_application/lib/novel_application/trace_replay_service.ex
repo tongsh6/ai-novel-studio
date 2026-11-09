@@ -39,6 +39,7 @@ defmodule NovelApplication.TraceReplayService do
          [record | _] <- trace_for_turn(work_id, session_id, turn_id) do
       trace = trace_from_record(record)
       history = AuthoringReplay.fetch(work_id, session_id, turn_id)
+      session_history = AuthoringReplay.fetch_session(work_id, session.id)
       report = trace |> ReplayService.build_report() |> apply_history_integrity(history)
 
       {:ok,
@@ -58,7 +59,8 @@ defmodule NovelApplication.TraceReplayService do
              |> Enum.map(&NovelApplication.ApprovalAudit.project_receipt/1)
              |> Enum.reject(&is_nil/1)
            )
-           |> put_authoring_history(history),
+           |> put_authoring_history(history)
+           |> put_session_authoring_history(session_history),
          replay_report: replay_report_map(report)
        }}
     else
@@ -78,6 +80,14 @@ defmodule NovelApplication.TraceReplayService do
     do: Map.put(summary, :authoring_history, history)
 
   defp put_authoring_history(summary, _history), do: summary
+
+  # 会话级回查是可选的补充证据：失败时给出作者安全的状态标记，不把 turn 级
+  # 回放降级、不泄漏内部原因（B81 CP4）。
+  defp put_session_authoring_history(summary, {:ok, session_history}),
+    do: Map.put(summary, :session_authoring_history, session_history)
+
+  defp put_session_authoring_history(summary, {:error, _reason}),
+    do: Map.put(summary, :session_authoring_history, %{status: :unavailable})
 
   # `"authoring_transcript"` 是 TraceReport 对外错误面的既有契约字样（语义=会话
   # canonical 创作历史缺失）；不随存储作用域迁移改名，由 AuthoringReplay 保持。

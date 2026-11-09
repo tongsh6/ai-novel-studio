@@ -17,7 +17,7 @@ defmodule NovelApplication.AuthoringReplay do
     TraceRedactor
   }
 
-  alias NovelPersistence.{LongRunTaskLog, ProviderRunLog}
+  alias NovelPersistence.{AuthoringSessionLog, LongRunTaskLog, ProviderRunLog, WorkSessionRepo}
 
   @internal_marker ~r/\b(?:RequestIR|request_ir|provider_session|reasoning_content|call_id|tool_call)\b|\b(?:call_|run_|turn_|ctx_|trace_|pc_)[a-z0-9_-]+|\b(?:chapter|work|character):[a-z0-9_-]+/i
   @hidden_detail "运行内部信息已隐藏。"
@@ -122,6 +122,50 @@ defmodule NovelApplication.AuthoringReplay do
       end
 
     consumed_zero? and ProviderRunLog.list_runs(run.id) == []
+  end
+
+  @doc """
+  按真实 work/session 读取**会话级** canonical 历史的作者安全摘要（跨 run）。
+
+  返回作者可见的 checkpoint 摘要/省略说明/来源显示名与回合/run 计数，不暴露
+  run/turn/call/ref 内部标识。会话不存在返回 `:session_not_found`；读取失败
+  fail-closed 为 `:authoring_transcript`（不静默返回空历史）。
+  """
+  @spec fetch_session(String.t(), String.t()) ::
+          {:ok, map()} | {:error, :session_not_found | :authoring_transcript}
+  def fetch_session(work_id, session_id)
+      when is_binary(work_id) and is_binary(session_id) do
+    if WorkSessionRepo.get_by_work(work_id, session_id) do
+      do_fetch_session(session_id)
+    else
+      {:error, :session_not_found}
+    end
+  end
+
+  defp do_fetch_session(session_id) do
+    messages = AuthoringSessionLog.fetch_session_messages(session_id)
+
+    transcript = %{
+      messages:
+        messages
+        |> Enum.map(&Map.get(&1, :message))
+        |> AuthoringTranscript.normalize_messages()
+    }
+
+    {:ok,
+     %{
+       status: :ok,
+       turn_count: Enum.count(messages, &(Map.get(&1, :role) == "user")),
+       run_count:
+         messages
+         |> Enum.map(&Map.get(&1, :run_id))
+         |> Enum.reject(&is_nil/1)
+         |> Enum.uniq()
+         |> length(),
+       checkpoints: checkpoint_summaries(transcript)
+     }}
+  rescue
+    _error -> {:error, :authoring_transcript}
   end
 
   @spec checkpoint_summaries(AuthoringTranscript.t()) :: [map()]

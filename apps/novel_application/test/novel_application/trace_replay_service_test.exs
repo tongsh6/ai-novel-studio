@@ -2,7 +2,6 @@ defmodule NovelApplication.TraceReplayServiceTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.{AuthoringCheckpoint, AuthoringTranscript, TraceReplayService}
   alias NovelApplication.WorkService
   alias NovelPersistence.{AgentRunLog, AuthoringSessionLog, LongRunTaskLog, Repo}
@@ -52,6 +51,10 @@ defmodule NovelApplication.TraceReplayServiceTest do
     assert report.trace_summary.replay_provider_called == false
     assert report.replay_report.provider_called == false
     assert report.replay_report.result_status == "complete"
+
+    # B81 CP4：会话级 canonical 回查作为报告的补充证据（空会话是合法空历史）。
+    assert report.trace_summary.session_authoring_history.status == :ok
+    assert report.trace_summary.session_authoring_history.checkpoints == []
   end
 
   test "reads Form R non-reply decision types without provider call (clarification/gap)",
