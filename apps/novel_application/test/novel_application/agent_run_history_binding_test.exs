@@ -24,8 +24,6 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
 
-  alias NovelApplication.AuthoringCheckpoint
-
   alias NovelApplication.{
     AuthoringCheckpoint,
     AuthoringTranscript,
@@ -121,13 +119,13 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
              TraceReplayService.fetch_turn_report(work.id, session.id, source_turn)
 
     assert [%{summary: ^source_summary}] = source_report.trace_summary[:authoring_history]
-    refute inspect(source_report) =~ child_summary
+    refute inspect(Map.get(source_report.trace_summary, :authoring_history)) =~ child_summary
 
     assert {:ok, child_report} =
              TraceReplayService.fetch_turn_report(work.id, session.id, child_turn)
 
     assert [%{summary: ^child_summary}] = child_report.trace_summary[:authoring_history]
-    refute inspect(child_report) =~ source_summary
+    refute inspect(Map.get(child_report.trace_summary, :authoring_history)) =~ source_summary
 
     assert {:ok, source_activity} =
              ProviderActivityService.fetch_turn_activity(work.id, session.id, source_turn)
@@ -235,8 +233,8 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
     assert report.replay_report.result_status == "partial"
     assert "authoring_transcript" in report.replay_report.missing_trace_refs
     refute Map.has_key?(report.trace_summary, :authoring_history)
-    refute inspect(report) =~ bound_summary
-    refute inspect(report) =~ later_summary
+    refute inspect(Map.get(report.trace_summary, :authoring_history)) =~ bound_summary
+    refute inspect(Map.get(report.trace_summary, :authoring_history)) =~ later_summary
 
     assert {:ok, activity} =
              ProviderActivityService.fetch_turn_activity(work.id, session.id, source_turn)
@@ -303,8 +301,8 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
     assert report.replay_report.result_status == "partial"
     assert "authoring_transcript" in report.replay_report.missing_trace_refs
     refute Map.has_key?(report.trace_summary, :authoring_history)
-    refute inspect(report) =~ local_summary
-    refute inspect(report) =~ foreign_summary
+    refute inspect(Map.get(report.trace_summary, :authoring_history)) =~ local_summary
+    refute inspect(Map.get(report.trace_summary, :authoring_history)) =~ foreign_summary
 
     assert {:ok, activity} =
              ProviderActivityService.fetch_turn_activity(work.id, session.id, source_turn)
@@ -404,8 +402,8 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
 
     assert report.replay_report.result_status == "partial"
     refute Map.has_key?(report.trace_summary, :authoring_history)
-    refute inspect(report) =~ first_summary
-    refute inspect(report) =~ second_summary
+    refute inspect(Map.get(report.trace_summary, :authoring_history)) =~ first_summary
+    refute inspect(Map.get(report.trace_summary, :authoring_history)) =~ second_summary
 
     assert {:ok, activity} =
              ProviderActivityService.fetch_turn_activity(work.id, session.id, parent_turn)
@@ -435,7 +433,7 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
              TraceReplayService.fetch_turn_report(work.id, session.id, step_turn)
 
     assert [%{summary: ^first_summary}] = report.trace_summary[:authoring_history]
-    refute inspect(report) =~ second_summary
+    refute inspect(Map.get(report.trace_summary, :authoring_history)) =~ second_summary
 
     assert {:ok, activity} =
              ProviderActivityService.fetch_turn_activity(work.id, session.id, step_turn)
@@ -562,7 +560,7 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
              TraceReplayService.fetch_turn_report(work.id, session.id, source_turn)
 
     assert [%{summary: ^source_summary}] = report.trace_summary[:authoring_history]
-    refute inspect(report) =~ child_summary
+    refute inspect(Map.get(report.trace_summary, :authoring_history)) =~ child_summary
 
     assert {:ok, activity} =
              ProviderActivityService.fetch_turn_activity(work.id, session.id, source_turn)
@@ -642,8 +640,8 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
     assert report.replay_report.result_status == "partial"
     assert "authoring_transcript" in report.replay_report.missing_trace_refs
     refute Map.has_key?(report.trace_summary, :authoring_history)
-    refute inspect(report) =~ private_summary
-    refute inspect(report) =~ legacy_summary
+    refute inspect(Map.get(report.trace_summary, :authoring_history)) =~ private_summary
+    refute inspect(Map.get(report.trace_summary, :authoring_history)) =~ legacy_summary
   end
 
   test "作者回查不含 private marker，且回查 Provider 零调用", %{

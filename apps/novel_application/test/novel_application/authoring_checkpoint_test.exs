@@ -13,7 +13,6 @@ defmodule NovelApplication.AuthoringCheckpointTest do
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
 
-  alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.{AuthoringCheckpoint, AuthoringTranscript}
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection

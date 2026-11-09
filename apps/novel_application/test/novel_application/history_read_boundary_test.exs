@@ -16,8 +16,6 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
 
-  alias NovelApplication.AuthoringCheckpoint
-
   alias NovelApplication.{
     AgentRunHistory,
     AuthoringCheckpoint,
