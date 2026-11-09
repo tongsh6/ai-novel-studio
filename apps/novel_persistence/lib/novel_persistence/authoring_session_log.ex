@@ -152,6 +152,44 @@ defmodule NovelPersistence.AuthoringSessionLog do
     end)
   end
 
+  @doc """
+  按会话聚合各 run 执行段的 refs（base/observation/used），供 CP2 请求派生使用。
+
+  段头按其在会话中的位置排序后并集返回；段头未知版本/损坏形状 fail-closed（不静默
+  丢掉来源，避免 I-ART-9 校验失去依据）。返回 refs 为存储 JSON 形状（由 application
+  归一化后再合并）。
+  """
+  @spec fetch_session_refs(String.t()) ::
+          {:ok, %{base_refs: list(), observation_refs: list(), used_refs: list()}}
+          | {:error, term()}
+  def fetch_session_refs(session_id) when is_binary(session_id) do
+    segments =
+      AuthoringRunSegment
+      |> where([s], s.session_id == ^session_id)
+      |> order_by([s], asc: s.first_sequence)
+      |> Repo.all()
+
+    Enum.reduce_while(
+      segments,
+      {:ok, %{base_refs: [], observation_refs: [], used_refs: []}},
+      fn %AuthoringRunSegment{} = segment, {:ok, acc} ->
+        with :ok <- validate_header_version(segment.header),
+             :ok <- validate_header_shape(segment.header) do
+          acc = %{
+            base_refs: acc.base_refs ++ Map.get(segment.header, "base_refs", []),
+            observation_refs:
+              acc.observation_refs ++ Map.get(segment.header, "observation_refs", []),
+            used_refs: acc.used_refs ++ Map.get(segment.header, "used_refs", [])
+          }
+
+          {:cont, {:ok, acc}}
+        else
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end
+    )
+  end
+
   @doc "run 是否已有执行段（durable checkpoint 段引用校验用）。"
   @spec segment_present?(String.t()) :: boolean()
   def segment_present?(run_id) when is_binary(run_id), do: Repo.exists?(segment_query(run_id))

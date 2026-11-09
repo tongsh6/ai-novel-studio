@@ -281,6 +281,19 @@ defmodule NovelApplication.AuthoringTranscript do
     if valid?, do: :ok, else: {:error, :invalid_transcript_checkpoint}
   end
 
+  @doc """
+  把 JSON 形状的 canonical 消息归一化为内存 canonical 形状（白名单键 string→atom）。
+
+  会话历史（持久层读出的 string-key JSON）在进入请求派生视图前必须经过本函数，
+  与 `restore/1` 使用同一套键归一化与 payload 保护；调用方仍负责完整 IR 校验。
+  """
+  @spec normalize_messages([map()]) :: [map()]
+  def normalize_messages(messages) when is_list(messages) do
+    Enum.map(messages, &normalize_checkpoint/1)
+  end
+
+  def normalize_messages(_messages), do: []
+
   # string ref 与结构化 ref 都是已支持输入；空值/伪 ref 不得进入 canonical 范围。
   defp valid_ref?(ref) when is_binary(ref), do: String.trim(ref) != ""
 
