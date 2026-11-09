@@ -105,7 +105,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 |---|---|---|---|---|---|
 | CP1 | done（2026-11-08 实现+测试+全量门禁；2026-11-09 真实页面证据 19/19 + 真实数据质量审计） | 会话级 canonical 历史：存储/身份/追加/前缀校验/恢复幂等/旧 run 级列退役 | 确定性机制测试 + 全量门禁 + 既有批次回归（行为不变） | ADR-0035 已批准 | `apps/novel_application`（AuthoringCheckpoint/AgentRunPersistence/AgentRunService/AuthoringReplay）、`apps/novel_persistence`（AuthoringSessionLog/schema/migration/AgentRunLog） |
 | CP2 | doing（机制层已实现，页面多轮证据归 CP5） | 每轮请求由会话派生（完整历史；窗口压力时 checkpoint 投影替代更早历史） | 真实页面多轮会话：跨轮上下文/指代/义务 + 请求证据；机制层判据：第 N 轮请求含第 N-1 轮作者原话字节与前序 observation refs | CP1 | `apps/novel_application`（JudgmentProtocol/AgentRunServer）；可能新增 `novel_common` 纯契约（需裁决） |
-| CP3 | todo | 压缩作用域=会话历史、触发/细条/回查调整 | G6 压缩后真实请求（真实多轮自然触发）+ 失败静默/幂等 | CP2 | `apps/novel_application`（TranscriptCompaction/AgentRunServer/ContextPressure，跨 run usage 累计）、`frontend/src`（仅在细条/回查需适配时） |
+| CP3 | doing（机制层已实现；真实多轮页面证据归 CP5） | 压缩作用域=会话历史、触发/细条/回查调整 | G6 压缩后真实请求（真实多轮自然触发）+ 失败静默/幂等 | CP2 | `apps/novel_application`（TranscriptCompaction/AgentRunServer/ContextPressure，跨 run usage 累计）、`frontend/src`（仅在细条/回查需适配时） |
 | CP4 | todo | 三类投影/恢复幂等 + 审计/回查以会话为对象（窄化为"投影输入来源变化后的等价性验证"） | 投影/幂等/回查机制证据 | CP2、CP3 | `apps/novel_agent`（投影校验）、`apps/novel_application`（Replay）、`scripts/arch_check.exs`（边界规则细化） |
 | CP5 | todo（建议拆 CP5a/CP5b，见 §9） | 真实页面多轮会话综合验收 + G6 取证（承接 B71 G6） | 页面/机制/实模分层报告（实模不代签）；窗口不可用时按 known-gap 登记规则如实关闭 | CP2–CP4 | `scripts/`（验收 harness）、`artifacts/`（证据，只读保留） |
 | CP6 | todo | 旧 `:session_transcript`/旧装配链/旧 run 级语义退役清理 | 删除后全量门禁 + 无消费者核对 | CP5 | `apps/novel_application`（ContextAssembler/DialoguePlanningService 旧路径）、`apps/novel_persistence`（旧列删除）、测试清理 |
@@ -431,16 +431,23 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - **证据（2026-11-09）**：`mix check` 全量 **3123 tests / 0 failures**、credo/format/xref/arch/adr/module-size 全过；I1 `cases=4 pass=4`、I2 `pairs=3 disjoint=3 violations=0`、I3 `Layer-B 3/3 pass`；首轮页面回归 `b71-first-consumer` native **19/19 PASS**（`git_head=0279a217`，CP2 逻辑提交后；证明首轮行为不变）；静态扫描 **20 passed / 1 failed**（仅既有 gitleaks 处置，touched 0）。**页面多轮（跨 turn 上下文/指代/义务）证据归 CP5**（§8.6），CP2 不代签页面层。
 - **已知边界**：历史消息前缀稳定（base 唯一最前 + 历史原序 + 尾部追加）→ I-CACHE 追加式前缀语义保持；历史中未闭合调用理论上不应存在（已完成交换），若出现由 IR 校验 fail-closed；I1/I2 driver 的临时库 schema 守卫属门禁层修复（非产品逻辑）。
 
-### 8.5 CP3/CP4/CP6 开工设计要点（草案，未实现，待 CP2 落地后逐项裁决）
+### 8.5 CP3/CP4/CP6 开工设计与实施记录（CP3 机制层已实现；CP4/CP6 待实施）
 
 > 延续 §8.4 的「先设计、后实现、不代签」节奏；本节点出各阶段现状事实（行号为当前树）、改动面、风险与验收判据，供开工时直接展开，不在实现中临时发明范围。
 
-#### 8.5.1 CP3：压缩作用域与触发迁移到会话历史
+#### 8.5.1 CP3：压缩作用域与触发迁移到会话历史（2026-11-09 机制层已实现）
 
-- **现状事实**：`TranscriptCompaction.plan/1`（transcript_compaction.ex:48）与 `plan_maintenance/2`（:70）以 run 内 `stage_state.judgment_transcript` 为输入，`@default_keep_recent_items 4`（:23），并以「最后一条 user 消息」为当前回合起点（`current_turn_start/1`）；`ContextPressure`（context_pressure.ex:27-28 阈值 0.70/0.90；:156-165 用当前请求 input_tokens/model_window 估算）；`AgentRunServer.maybe_auto_maintain`（agent_run_server.ex:2244）在安全点调用 `plan_maintenance`，经 `CompactionRecord` 提交。
-- **CP3 改动面**：压缩选择范围改为**会话历史**（跨 turn，`AuthoringSessionLog.fetch_session_messages` 组装的已完成交换），`covers.call_ids` 整组精确选择；checkpoint 的 `covers/source_refs/versions/omissions/summary` + **覆盖 turn 范围**；触发压力改为会话级（历史 usage 累计/消息规模），阈值沿用 0.70/0.90（待裁决）；保留最近 K 项已完成交换、作者原话、当前 scope、未覆盖消息原序；checkpoint 作为一次会话追加（run_id 归因），同批幂等、失败静默、下一安全点重试、未完成/未闭合交换不压缩。
-- **风险/裁决**：checkpoint 跨 run 覆盖后的单 run 回查展示（依赖 CP4）；`turn_range` 字段落地形式；压缩改变 provider 投影后的 I-CACHE 场景确认（B71 已有 checkpoint 幂等/投影基础）；**规模边界**（2026-11-09 只读实测：CP1 native 批次单会话 10 条消息；长会话按每轮 +5–15 条估算，压缩投影是控制 Provider 上下文规模的唯一机制，SQLite 存储增长属未发布阶段可接受，CP6 前评估归档策略）。
-- **验收**：G6（真实多轮自然触发压缩 → 压缩后真实请求携带正确 covers/保留项，VS-00L §17/§18，归 CP5 取证）+ 机制层（跨 run 压缩、投影折叠、幂等、失败静默）+ 页面层（作者可见细条/展开，按 §16.16/§18 既有设计）。
+- **现状事实（实现前）**：`TranscriptCompaction.plan/1`（transcript_compaction.ex:48）与 `plan_maintenance/2`（:70）以 run 内 `stage_state.judgment_transcript` 为输入，`@default_keep_recent_items 4`（:23），并以「最后一条 user 消息」为当前回合起点；`ContextPressure`（:27-28 阈值 0.70/0.90）用当前请求 input_tokens/model_window 估算；`AgentRunServer.maybe_auto_maintain` 在安全点调用，经 `CompactionRecord` 提交。
+- **实现中发现并修正的架构缺口（关键）**：CP1 的「run 执行段 transcript 必须独立构成合法 IR」与「跨 run checkpoint（covers 指向更早 run 的已完成交换）」**冲突**——实验验证：在段上追加跨段 checkpoint 被 `Compaction.validate` 拒绝（`checkpoint_unknown_call`）。真实语义：canonical 作用域是会话，checkpoint 的选择器是会话级 call_id；段 transcript 只是会话消息流的一段，不能独立承载跨段引用。因此 CP3 不是「换压缩输入」，而是把**段校验升级为会话视图校验**。
+- **落地方案**：
+  1. `AuthoringTranscript.restore_segment/1`：段宽松恢复（JSON 归一化 + 文本形状 + run envelope 规范化，不做完整 IR 校验）；
+  2. `AuthoringTranscript.append_checkpoint/2`：按 plan 追加 checkpoint（不要求 covers 段内可见；同 checkpoint 幂等；plan 形状仍先校验）；
+  3. `AuthoringCheckpoint` 的段校验/恢复改为**会话视图校验**：段 + 会话历史（排除本 run 已提交消息）compose 后做完整 `RequestIR.validate`（含 Compaction 证据/覆盖校验）；段身份/版本/形状仍 fail-closed；
+  4. `AgentRunServer`：显式压缩与安全点自动维护都先在「历史 + 本 run 段」会话视图上派生计划（跨 turn 选择更早已完成交换），checkpoint 追加到本 run 段；历史读取失败 fail-closed（保留旧 state、下一安全点重试，不静默退化为 run 内压缩）；
+  5. 触发阈值沿用 0.70/0.90（裁决⑤）：会话历史已进入请求，当前请求 usage 比例天然反映会话规模，未新增独立累计器（KISS/YAGNI）。
+- **会话级 call_id 唯一约束（新显式约束）**：会话视图 IR 要求 call_id 唯一（Provider 投影中同一 tool_call id 只能出现一次）。真实 provider 生成 id 通常唯一；若未来遇到 provider 侧重复 id，应在 `ensure_provider_call_ids` 按会话级已用集合处理（当前未实现，登记为 §9 已知边界）。测试夹具跨 run 复用固定 call_id 的场景按新约束修正（fail-closed 是正确行为）。
+- **证据（2026-11-09）**：`b81_cp3_session_compaction_test.exs` 2 例（跨 run 维护计划/段追加幂等/会话视图完整校验/Provider 投影折叠被覆盖历史/原始消息保留/跨段 checkpoint 段恢复/无更早交换返回 nothing）；`auto_maintenance_test` 新增 T2b（真实安全点压缩 covers 更早 run 的交换，checkpoint 消息写入 canonical 记录）；`agent_run_runtime_test` 55/55（含 durable 压缩失败原子性）；`novel_application` + `novel_persistence` 全量 **1366 tests / 0 failures**；首轮页面回归 `b71-first-consumer` native **19/19 PASS**（工作区含 CP3 改动）；全量 `mix check` 与静态扫描见提交记录/§8.1.6 口径。
+- **边界**：G6 真实多轮页面取证归 CP5（§8.6）；实模窗口/凭证归 B82；CP4 的「会话级审计回查」不受本阶段改变（checkpoint 消息已入 canonical，回查依据不变）。
 
 #### 8.5.2 CP4：投影等价性与会话级审计/回查
 
@@ -505,6 +512,7 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 - 阶段 1 完成不解除跨轮连续性/压缩/G6 的验收缺口；这些由阶段 2/3 承接，未实现前**不代签**。
 - **CP2 需要裁决**：若"每轮请求由会话派生"需要 `novel_common` 新增纯契约（会话派生上下文），是否允许突破 §4「CP1 不改 novel_common」边界（ADR-0035 允许新增纯契约）。属 CP2 开工前裁决。
 - **旧列消费者清单补遗（2026-11-09）**：CP1 删列时遗漏了 `scripts/` 下的验收证据工具链——`scripts/lib/native_ui/authoring_history_evidence.mjs`（B71 私有历史读取）、`scripts/lib/native_ui/authoring_auto_maintenance_evidence.mjs`、`scripts/native_b71_auto_maintenance_drive.mjs`，以及 `scripts/native_b71_test.mjs`/`scripts/native_b71_pending_test.mjs` 的 DB 夹具；已适配并全绿。**教训**：旧列消费者核对必须覆盖 `apps/`、`scripts/`、`frontend/slice-verify/`、`tests/`、`quality/` 全仓，而非只看生产代码。
+- **会话级 call_id 唯一约束（CP3 引入的显式约束）**：会话视图 IR 要求 call_id 唯一；真实 provider 侧重复 id 的会话级规范化（`ensure_provider_call_ids` 按已用集合）未实现，登记为后续边界；当前真实 provider 未观察到重复。
 - 页面回归证据已补（native 19/19 PASS，§8.1.6）；browser driver 路径修复后待环境允许时复验（非 CP1 行为阻塞）；第二个 journey 批次（b71-authoring-transcript）与 native 复跑（连续 3 次同因）均因窗口激活环境失败未取证，已停止重试、不重跑换分、不代签。
 - 旧 `:session_transcript` 材料在阶段 6 退役；CP1 不动。旧列消费者核对清单（CP6 前必须逐项走查）：`AuthoringCheckpoint`、`AgentRunPersistence`、`AgentRunService`、`AuthoringReplay`、`TraceReplayService`、`TurnExecutionService`（内存字段回退）、`ActionIdempotencyService`（TurnResult 私有键）、`ContextAssembler`/`DialoguePlanningService`（旧材料类型）、测试夹具/脚本。
 - 真实页面多轮会话验收依赖阶段 2；实模证据另证（不代签）。
@@ -526,6 +534,7 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 
 - 2026-11-08：立项 + 阶段 1 设计草案（作者批准 ADR-0035 后产出；未授权实现）。
 - 2026-11-08：补充 §1.1 断链定位（schema 时间线 + 三项漏承接）与 §8.0 彻底重构/复用清单（作者确认：系统设计有、实现偏差；彻底重构但复用设计资料和实现）。
+- 2026-11-09：**CP3 机制层实现（压缩作用域=会话历史）**：修正 CP1「段独立校验」与跨段 checkpoint 的架构冲突——新增段宽松恢复/checkpoint 追加，段校验升级为会话视图完整 IR 校验，压缩路径（显式+安全点）改在会话视图派生、checkpoint 追加本 run 段；新增机制测试与真实安全点跨 run 测试；application+persistence 全量 1366/0、首轮页面 19/19；§9 登记会话级 call_id 唯一约束。详见 §8.5.1。
 - 2026-11-09：**CP2 机制层实现**：新增会话 refs 读端口/`AuthoringSessionHistory` 组装模块/判断请求派生接入（请求视图含历史、返回与持久化剥离段视图）；`authoring_session_history_test` 7 例、协议测试 +2、`b81_cp2_session_derivation_test` 2 例机制验收；I1/I2/I3 通过、首轮页面 19/19 PASS；页面多轮证据归 CP5。详见 §8.4.7。
 - 2026-11-09：**CP2 开工裁决（作者「按推荐」）**：五项裁决冻结记录于 §8.4.6——不新增 novel_common 纯契约（application 内组装）、先 CP2 再 B78、当前 run 的 system/tools 覆盖历史、恢复语义冻结（本 run 段=stage_state，会话历史=请求派生，合并去重）、压缩阈值沿用 0.70/0.90；CP2 进入实现。
 - 2026-11-09：**状态一致性修正与环境探测收口**：修正状态行/§7/§10.1 中 CP1「待门禁/提交」的过时表述为「已完成（实现/测试/门禁/页面证据/数据审计）」；环境探测第三/四次批次同因失败后登记「停止重试、待窗口恢复」，不重跑换分。
