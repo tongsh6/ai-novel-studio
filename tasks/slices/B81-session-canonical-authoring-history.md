@@ -428,7 +428,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - **生产注入点**：`DialoguePlanningService.execute_judgment_step/6` 在判断步读取会话历史并注入 `protocol_input[:session_history]`；读取失败 fail-closed（不静默退化成无历史请求）。`judgment_protocol_input` 仅透传，不读 DB（协议层保持纯）。continuation 等其他 profile 未合并会话历史（CP2 第一版窄化到判断入口；flow 执行链继续使用本 run transcript）。
 - **门禁适配**：`MIX_ENV=test mix run` 的场景不变量 driver 使用每进程临时 SQLite（不自动迁移），CP2 起判断主链会读会话表 → 新增 `scripts/scenario_invariants/schema_guard.exs` 并在 I1/I2/I3 driver 前置 `Ecto.Migrator.run(all: true)`（幂等；失败不静默）。
 - **测试**：`authoring_session_history_test.exs` 7 例（无历史/跨 run 过滤/refs 累计/compose 顺序/strip 恒等/损坏 fail-closed/无身份 nil）；`judgment_protocol_test.exs` +2 例（base 唯一最前/历史原序/refs 累计；`transcript_for_production` 段视图不含历史）；`b81_cp2_session_derivation_test.exs` 2 例机制验收（真实持久化会话 → 第二轮请求含第一轮作者原话与观察内容、历史 observation refs 进入 IR refs、无历史时与 CP1 一致）。
-- **证据（2026-11-09）**：`mix check` 全量通过（见 §8.1.6 同类口径）；I1 `cases=4 pass=4`、I2 `pairs=3 disjoint=3 violations=0`、I3 `Layer-B 3/3 pass`；首轮页面回归 `b71-first-consumer` native **19/19 PASS**（CP2 工作区代码，证明首轮行为不变）。**页面多轮（跨 turn 上下文/指代/义务）证据归 CP5**（§8.6），CP2 不代签页面层。
+- **证据（2026-11-09）**：`mix check` 全量 **3123 tests / 0 failures**、credo/format/xref/arch/adr/module-size 全过；I1 `cases=4 pass=4`、I2 `pairs=3 disjoint=3 violations=0`、I3 `Layer-B 3/3 pass`；首轮页面回归 `b71-first-consumer` native **19/19 PASS**（`git_head=0279a217`，CP2 逻辑提交后；证明首轮行为不变）；静态扫描 **20 passed / 1 failed**（仅既有 gitleaks 处置，touched 0）。**页面多轮（跨 turn 上下文/指代/义务）证据归 CP5**（§8.6），CP2 不代签页面层。
 - **已知边界**：历史消息前缀稳定（base 唯一最前 + 历史原序 + 尾部追加）→ I-CACHE 追加式前缀语义保持；历史中未闭合调用理论上不应存在（已完成交换），若出现由 IR 校验 fail-closed；I1/I2 driver 的临时库 schema 守卫属门禁层修复（非产品逻辑）。
 
 ### 8.5 CP3/CP4/CP6 开工设计要点（草案，未实现，待 CP2 落地后逐项裁决）
