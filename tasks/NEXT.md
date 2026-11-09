@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B81 | 会话级 canonical 创作历史（ADR-0035 落地，CP1–CP6 已登记）：**CP1 已完成**（2026-11-08 会话级存储/追加/恢复/迁移，行为不变；页面回归 native 19/19 PASS；验收证据工具链已适配、全仓旧列残留清零；见 [B81](slices/B81-session-canonical-authoring-history.md) §8.1/§8.1.6）。**CP2 机制层已实现（2026-11-09 作者「按推荐」裁决后）**：会话历史 → 请求派生视图（application 层组装、无 novel_common 契约）、判断请求接入、持久化边界剥离；机制测试与 I1/I2/I3 通过、首轮页面 19/19 PASS；页面多轮证据归 CP5（§8.6），CP2 不代签页面层。**CP3 机制层已实现（2026-11-09）**：压缩作用域=会话历史（段校验升级为会话视图校验、跨 run checkpoint 追加本 run 段、显式+安全点压缩路径改会话视图）；机制测试与真实安全点跨 run 测试、首轮页面 19/19；G6 真实多轮页面取证归 CP5，CP3 不代签页面层。后续 CP3 压缩作用域/触发 → CP4 投影与审计 → CP5 真实页面多轮验收+G6（承接 B71 G6，建议拆 CP5a/CP5b）→ CP6 旧语义退役；上下游/前置/后置见 §7.3、实现目标映射见 §7.4。 | [B81](slices/B81-session-canonical-authoring-history.md) |
+| B81 | 会话级 canonical 创作历史（ADR-0035 落地，CP1–CP6 已登记）：**CP1 已完成**（2026-11-08 会话级存储/追加/恢复/迁移，行为不变；页面回归 native 19/19 PASS；验收证据工具链已适配、全仓旧列残留清零；见 [B81](slices/B81-session-canonical-authoring-history.md) §8.1/§8.1.6）。**CP2 机制层已实现（2026-11-09 作者「按推荐」裁决后）**：会话历史 → 请求派生视图（application 层组装、无 novel_common 契约）、判断请求接入、持久化边界剥离；机制测试与 I1/I2/I3 通过、首轮页面 19/19 PASS；页面多轮证据归 CP5（§8.6），CP2 不代签页面层。**CP3 机制层已实现（2026-11-09）**：压缩作用域=会话历史（段校验升级为会话视图校验、跨 run checkpoint 追加本 run 段、显式+安全点压缩路径改会话视图）；机制测试与真实安全点跨 run 测试、首轮页面 19/19；G6 真实多轮页面取证归 CP5，CP3 不代签页面层。**CP4 机制层已实现（2026-11-09）**：会话级 canonical 回查（`AuthoringReplay.fetch_session/2`）+ 回放报告 `session_authoring_history`；三类投影在段编解码往返/恢复前后逐字节等价；run 级回查断言收窄到 `authoring_history`。CP5（真实多轮页面 + G6）与 CP6（旧材料退役）未开工。后续 CP3 压缩作用域/触发 → CP4 投影与审计 → CP5 真实页面多轮验收+G6（承接 B71 G6，建议拆 CP5a/CP5b）→ CP6 旧语义退役；上下游/前置/后置见 §7.3、实现目标映射见 §7.4。 | [B81](slices/B81-session-canonical-authoring-history.md) |
 
 当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 

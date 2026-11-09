@@ -106,7 +106,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 | CP1 | done（2026-11-08 实现+测试+全量门禁；2026-11-09 真实页面证据 19/19 + 真实数据质量审计） | 会话级 canonical 历史：存储/身份/追加/前缀校验/恢复幂等/旧 run 级列退役 | 确定性机制测试 + 全量门禁 + 既有批次回归（行为不变） | ADR-0035 已批准 | `apps/novel_application`（AuthoringCheckpoint/AgentRunPersistence/AgentRunService/AuthoringReplay）、`apps/novel_persistence`（AuthoringSessionLog/schema/migration/AgentRunLog） |
 | CP2 | doing（机制层已实现，页面多轮证据归 CP5） | 每轮请求由会话派生（完整历史；窗口压力时 checkpoint 投影替代更早历史） | 真实页面多轮会话：跨轮上下文/指代/义务 + 请求证据；机制层判据：第 N 轮请求含第 N-1 轮作者原话字节与前序 observation refs | CP1 | `apps/novel_application`（JudgmentProtocol/AgentRunServer）；可能新增 `novel_common` 纯契约（需裁决） |
 | CP3 | doing（机制层已实现；真实多轮页面证据归 CP5） | 压缩作用域=会话历史、触发/细条/回查调整 | G6 压缩后真实请求（真实多轮自然触发）+ 失败静默/幂等 | CP2 | `apps/novel_application`（TranscriptCompaction/AgentRunServer/ContextPressure，跨 run usage 累计）、`frontend/src`（仅在细条/回查需适配时） |
-| CP4 | todo | 三类投影/恢复幂等 + 审计/回查以会话为对象（窄化为"投影输入来源变化后的等价性验证"） | 投影/幂等/回查机制证据 | CP2、CP3 | `apps/novel_agent`（投影校验）、`apps/novel_application`（Replay）、`scripts/arch_check.exs`（边界规则细化） |
+| CP4 | doing（机制层已实现；真实多轮页面证据归 CP5） | 三类投影/恢复幂等 + 审计/回查以会话为对象（窄化为"投影输入来源变化后的等价性验证"） | 投影/幂等/回查机制证据 | CP2、CP3 | `apps/novel_agent`（投影校验）、`apps/novel_application`（Replay）、`scripts/arch_check.exs`（边界规则细化） |
 | CP5 | todo（建议拆 CP5a/CP5b，见 §9） | 真实页面多轮会话综合验收 + G6 取证（承接 B71 G6） | 页面/机制/实模分层报告（实模不代签）；窗口不可用时按 known-gap 登记规则如实关闭 | CP2–CP4 | `scripts/`（验收 harness）、`artifacts/`（证据，只读保留） |
 | CP6 | todo | 旧 `:session_transcript`/旧装配链/旧 run 级语义退役清理 | 删除后全量门禁 + 无消费者核对 | CP5 | `apps/novel_application`（ContextAssembler/DialoguePlanningService 旧路径）、`apps/novel_persistence`（旧列删除）、测试清理 |
 
@@ -450,12 +450,16 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - **证据（2026-11-09）**：`b81_cp3_session_compaction_test.exs` 2 例（跨 run 维护计划/段追加幂等/会话视图完整校验/Provider 投影折叠被覆盖历史/原始消息保留/跨段 checkpoint 段恢复/无更早交换返回 nothing）；`auto_maintenance_test` 新增 T2b（真实安全点压缩 covers 更早 run 的交换，checkpoint 消息写入 canonical 记录）；`agent_run_runtime_test` 55/55（含 durable 压缩失败原子性）；`novel_application` + `novel_persistence` 全量 **1366 tests / 0 failures**；首轮页面回归 `b71-first-consumer` native **19/19 PASS**（工作区含 CP3 改动）；全量 `mix check` 与静态扫描见提交记录/§8.1.6 口径。
 - **边界**：G6 真实多轮页面取证归 CP5（§8.6）；实模窗口/凭证归 B82；CP4 的「会话级审计回查」不受本阶段改变（checkpoint 消息已入 canonical，回查依据不变）。
 
-#### 8.5.2 CP4：投影等价性与会话级审计/回查
+#### 8.5.2 CP4：投影等价性与会话级审计/回查（2026-11-09 机制层已实现）
 
-- **现状事实**：三类投影（`RequestIR.Projection`）与能力事实派生不依赖存储作用域；CP1 已保证恢复幂等（段引用/前缀校验）；`AuthoringReplay` 按 run 段读取并将摘要投影为作者安全历史，`TraceReplayService` 以 `missing_trace_refs`/partial 表达不完整（错误面字符串保留）。
-- **CP4 改动面**（窄化为「投影输入来源变化后的等价性验证 + 会话级读取端口」）：① 新增 application 层会话级回查读取（按 session 读消息流 + checkpoint 摘要，run 定位仍用 `AgentRunHistory`）；② 恢复后三类投影逐字节等价（S1）在「会话历史输入」场景复验；③ Replay/Why 的 partial/fail-closed 语义不退化；④ 作者安全面（无技术词/内部 ref/推理）保持既有扫描约束。
-- **风险/裁决**：会话级回查是否需要在 UI 暴露（属 §16.17 与 UI 46/47 的作者可见面设计，当前未授权；CP4 只做机制与读取端）；checkpoint 摘要的 `turn_range` 展示格式。
-- **验收**：会话历史回查正确（跨 turn 摘要/来源、run 引用）、恢复幂等/投影等价机制测试、partial 负例、作者安全扫描 PASS。
+- **现状事实（实现前）**：三类投影（`RequestIR.Projection`）与能力事实派生不依赖存储作用域；CP1 已保证恢复幂等（段引用/前缀校验）；`AuthoringReplay.fetch/3` 按 run 身份回查当前 turn 的 canonical 段与 checkpoint 摘要；`TraceReplayService.fetch_turn_report/3` 将 run 级历史放入 `trace_summary.authoring_history`，partial/`missing_trace_refs` 语义由 `TraceReplayService` 统一。
+- **落地方案**（不新增 novel_common 契约、不新增 UI）：
+  1. `AuthoringReplay.fetch_session/2`：按真实 work/session 读取**会话级** canonical 历史作者安全摘要——复用既有 `checkpoint_summaries/1`、`safe_text/1`、`source_names/1`（不暴露 run/turn/call/ref 内部标识），返回 `status/turn_count/run_count/checkpoints`；会话不存在返回 `:session_not_found`；读取失败 fail-closed `:authoring_transcript`（不静默空历史）。
+  2. `TraceReplayService.fetch_turn_report/3`：`trace_summary.session_authoring_history` 增加会话级证据（成功=摘要；失败=`%{status: :unavailable}` 安全标记），**turn 级** `authoring_history` 与 partial 语义不变（真实消费者=回放报告 API）。
+  3. 既有 `AgentRunHistoryBindingTest` 的「错绑 run 不得冒充当前 turn 历史」断言收窄到 run 级字段（`Map.get(trace_summary, :authoring_history)`）：会话级字段本就是跨 run 证据，不得按「错绑泄漏」判定；run 级 fail-closed 强度保持。
+- **投影等价验收（S1）**：新增 `b81_cp4_session_replay_test.exs` 4 例——① 跨 run checkpoint 摘要与作者安全扫描；② 会话不存在/空会话 fail-closed；③ 含跨段 checkpoint 的会话视图在「段编解码往返」前后，三类 Provider 投影（chat_completions/responses_api/anthropic_messages）逐字节一致；④ 恢复段 + 会话历史重建的请求视图与写入前视图在三类投影上逐字节一致（恢复不改变投影）。
+- **证据（2026-11-09）**：`novel_application` + `novel_persistence` 全量 **1370 tests / 0 failures**；credo no issues、format/module-size 通过；全量 `mix check` 与页面批次见提交记录。
+- **边界**：不新增 UI 会话历史入口（属 §16.17 作者可见面设计，未授权）；不回放 Provider 请求（只读 canonical 摘要）；CP5 的多轮页面/G6 取证仍归 §8.6。
 
 #### 8.5.3 CP6：旧 `:session_transcript` 材料与旧装配链退役
 
@@ -535,6 +539,7 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 
 - 2026-11-08：立项 + 阶段 1 设计草案（作者批准 ADR-0035 后产出；未授权实现）。
 - 2026-11-08：补充 §1.1 断链定位（schema 时间线 + 三项漏承接）与 §8.0 彻底重构/复用清单（作者确认：系统设计有、实现偏差；彻底重构但复用设计资料和实现）。
+- 2026-11-09：**CP4 机制层实现（会话级回查 + 投影等价）**：`AuthoringReplay.fetch_session/2`（会话级作者安全摘要）+ `TraceReplayService` 报告 `session_authoring_history`；新增 4 例机制测试（跨 run 摘要/作者安全/空会话/三类投影往返逐字节等价/恢复不改变投影）；run 级回查断言收窄到 `authoring_history`（会话级字段不参与错绑判定）；application+persistence 全量 1370/0。详见 §8.5.2。
 - 2026-11-09：**CP3 收尾：段编解码职责拆分**：`checkpoint/1`/`restore_segment/1`/`append_checkpoint/2` 移入 `AuthoringCheckpoint`（AuthoringTranscript 558→500 行，符合 module-size ratchet；职责回到组装）；测试调用点与 alias 同步；application+persistence 全量 1366/0。
 - 2026-11-09：**CP3 机制层实现（压缩作用域=会话历史）**：修正 CP1「段独立校验」与跨段 checkpoint 的架构冲突——新增段宽松恢复/checkpoint 追加，段校验升级为会话视图完整 IR 校验，压缩路径（显式+安全点）改在会话视图派生、checkpoint 追加本 run 段；新增机制测试与真实安全点跨 run 测试；application+persistence 全量 1366/0、首轮页面 19/19；§9 登记会话级 call_id 唯一约束。详见 §8.5.1。
 - 2026-11-09：**CP2 机制层实现**：新增会话 refs 读端口/`AuthoringSessionHistory` 组装模块/判断请求派生接入（请求视图含历史、返回与持久化剥离段视图）；`authoring_session_history_test` 7 例、协议测试 +2、`b81_cp2_session_derivation_test` 2 例机制验收；I1/I2/I3 通过、首轮页面 19/19 PASS；页面多轮证据归 CP5。详见 §8.4.7。
