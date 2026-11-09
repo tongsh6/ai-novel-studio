@@ -186,6 +186,13 @@
       "kind": "prod",
       "class": "watched"
     },
+    "apps/novel_application/lib/novel_application/authoring_transcript.ex": {
+      "lines": 501,
+      "max_lines": 501,
+      "scope": "novel_application",
+      "kind": "prod",
+      "class": "watched"
+    },
     "apps/novel_application/lib/novel_application/context_assembler.ex": {
       "lines": 560,
       "max_lines": 560,

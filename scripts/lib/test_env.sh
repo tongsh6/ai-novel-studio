@@ -138,7 +138,7 @@ novel_test_db_prepare() {
     return 0
   fi
 
-  test_env_log "测试库迁移失败: $db_dir（root=$root）"
+  test_env_log "测试库迁移失败: ${db_dir}（root=${root}）"
   return 1
 }
 
