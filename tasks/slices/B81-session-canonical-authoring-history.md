@@ -446,6 +446,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
   4. `AgentRunServer`：显式压缩与安全点自动维护都先在「历史 + 本 run 段」会话视图上派生计划（跨 turn 选择更早已完成交换），checkpoint 追加到本 run 段；历史读取失败 fail-closed（保留旧 state、下一安全点重试，不静默退化为 run 内压缩）；
   5. 触发阈值沿用 0.70/0.90（裁决⑤）：会话历史已进入请求，当前请求 usage 比例天然反映会话规模，未新增独立累计器（KISS/YAGNI）。
 - **会话级 call_id 唯一约束（新显式约束）**：会话视图 IR 要求 call_id 唯一（Provider 投影中同一 tool_call id 只能出现一次）。真实 provider 生成 id 通常唯一；若未来遇到 provider 侧重复 id，应在 `ensure_provider_call_ids` 按会话级已用集合处理（当前未实现，登记为 §9 已知边界）。测试夹具跨 run 复用固定 call_id 的场景按新约束修正（fail-closed 是正确行为）。
+- **模块规模收尾（职责拆分）**：CP3 使 `AuthoringTranscript` 达 558 行（超 module-size 登记上限 501）→ 按职责把**段编解码**（`checkpoint/1`、`restore_segment/1`、`append_checkpoint/2`）移入已存在的 application 存储边界 `AuthoringCheckpoint`，transcript 只保留组装操作（500 行）；`AuthoringSession.compact/2` 改调 `AuthoringCheckpoint.append_checkpoint/2`（依赖方向无环）。未放宽 ratchet、未删注释压行。
 - **证据（2026-11-09）**：`b81_cp3_session_compaction_test.exs` 2 例（跨 run 维护计划/段追加幂等/会话视图完整校验/Provider 投影折叠被覆盖历史/原始消息保留/跨段 checkpoint 段恢复/无更早交换返回 nothing）；`auto_maintenance_test` 新增 T2b（真实安全点压缩 covers 更早 run 的交换，checkpoint 消息写入 canonical 记录）；`agent_run_runtime_test` 55/55（含 durable 压缩失败原子性）；`novel_application` + `novel_persistence` 全量 **1366 tests / 0 failures**；首轮页面回归 `b71-first-consumer` native **19/19 PASS**（工作区含 CP3 改动）；全量 `mix check` 与静态扫描见提交记录/§8.1.6 口径。
 - **边界**：G6 真实多轮页面取证归 CP5（§8.6）；实模窗口/凭证归 B82；CP4 的「会话级审计回查」不受本阶段改变（checkpoint 消息已入 canonical，回查依据不变）。
 
@@ -534,6 +535,7 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 
 - 2026-11-08：立项 + 阶段 1 设计草案（作者批准 ADR-0035 后产出；未授权实现）。
 - 2026-11-08：补充 §1.1 断链定位（schema 时间线 + 三项漏承接）与 §8.0 彻底重构/复用清单（作者确认：系统设计有、实现偏差；彻底重构但复用设计资料和实现）。
+- 2026-11-09：**CP3 收尾：段编解码职责拆分**：`checkpoint/1`/`restore_segment/1`/`append_checkpoint/2` 移入 `AuthoringCheckpoint`（AuthoringTranscript 558→500 行，符合 module-size ratchet；职责回到组装）；测试调用点与 alias 同步；application+persistence 全量 1366/0。
 - 2026-11-09：**CP3 机制层实现（压缩作用域=会话历史）**：修正 CP1「段独立校验」与跨段 checkpoint 的架构冲突——新增段宽松恢复/checkpoint 追加，段校验升级为会话视图完整 IR 校验，压缩路径（显式+安全点）改在会话视图派生、checkpoint 追加本 run 段；新增机制测试与真实安全点跨 run 测试；application+persistence 全量 1366/0、首轮页面 19/19；§9 登记会话级 call_id 唯一约束。详见 §8.5.1。
 - 2026-11-09：**CP2 机制层实现**：新增会话 refs 读端口/`AuthoringSessionHistory` 组装模块/判断请求派生接入（请求视图含历史、返回与持久化剥离段视图）；`authoring_session_history_test` 7 例、协议测试 +2、`b81_cp2_session_derivation_test` 2 例机制验收；I1/I2/I3 通过、首轮页面 19/19 PASS；页面多轮证据归 CP5。详见 §8.4.7。
 - 2026-11-09：**CP2 开工裁决（作者「按推荐」）**：五项裁决冻结记录于 §8.4.6——不新增 novel_common 纯契约（application 内组装）、先 CP2 再 B78、当前 run 的 system/tools 覆盖历史、恢复语义冻结（本 run 段=stage_state，会话历史=请求派生，合并去重）、压缩阈值沿用 0.70/0.90；CP2 进入实现。
