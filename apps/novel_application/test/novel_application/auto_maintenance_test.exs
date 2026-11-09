@@ -68,6 +68,35 @@ defmodule NovelApplication.AutoMaintenanceTest do
     assert {:ok, _state} = AgentRunService.state(run_id)
   end
 
+  test "T2b：跨 run 会话历史在安全点被维护（checkpoint covers 更早 run 的交换）" do
+    # 更早 run 的 canonical 历史直接播种到会话存储（不启动执行）。
+    prior_id = unique_run_id()
+    prior = multi_turn_transcript(prior_id, earlier: 5, current: 0, second_turn: false)
+    assert :ok = TestAgenticLoopFixtures.append_segment!(prior)
+
+    run_id = unique_run_id()
+
+    transcript =
+      AuthoringTranscript.new(transcript_identity(run_id),
+        base_text: "作者保留最终裁决",
+        author_text: "第二轮"
+      )
+      |> AuthoringTranscript.append_author_turn("继续。", "author_turn:turn-2b")
+
+    insert_provider_usage(run_id, @due_tokens)
+    assert {:ok, ^run_id} = start_run(run_id, [step_with_transcript(transcript)])
+    wait_until(fn -> terminal_run?(run_id) end, 5_000)
+
+    assert [record] = checkpoint_events(run_id)
+    # 会话视图：prior 5 个已完成交换在更早回合，keep=4 → 只整理最早 1 个。
+    assert record.payload["covered_exchanges"] == 1
+
+    persisted = TestAgenticLoopFixtures.persisted_transcript(run_id)
+    checkpoint = Enum.find(persisted.messages, &(&1.role == "checkpoint"))
+    assert checkpoint
+    assert checkpoint.blocks |> hd() |> Map.get(:covers) |> Map.get(:call_ids) == ["call-1"]
+  end
+
   test "T3：压力未到维护线时不触发" do
     run_id = unique_run_id()
     transcript = multi_turn_transcript(run_id, earlier: 5, current: 1)

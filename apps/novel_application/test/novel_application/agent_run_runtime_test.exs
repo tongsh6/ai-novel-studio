@@ -349,15 +349,19 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     for failure <- [:missing_task, :rejected_checkpoint] do
       run_id = unique_run_id()
 
+      # 会话级 call_id 唯一（CP3）：同一测试内多轮 run 复用固定 call_id 会让会话视图
+      # 出现重复交换，压缩/投影判定不再成立。
+      failure_call_id = "compact-failure-call-" <> run_id
+
       transcript =
         AuthoringTranscript.new(transcript_identity(run_id),
           base_text: "作者保留最终裁决",
           author_text: "核对角色"
         )
         |> AuthoringTranscript.append_assistant("", [
-          RequestIR.tool_call_block("read_character", %{}, "compact-failure-call")
+          RequestIR.tool_call_block("read_character", %{}, failure_call_id)
         ])
-        |> AuthoringTranscript.append_observation("compact-failure-call", %{
+        |> AuthoringTranscript.append_observation(failure_call_id, %{
           status: "ok",
           source_refs: [],
           content: %{summary: "已读取角色"}

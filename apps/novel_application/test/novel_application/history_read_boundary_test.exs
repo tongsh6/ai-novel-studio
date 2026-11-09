@@ -337,6 +337,9 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
   end
 
   defp checkpoint(work, session, run_id, parent_turn, summary) do
+    # 会话级 call_id 唯一（CP3）：同一 session 的多 run 夹具不得复用固定 tool call id。
+    call_id = "call-" <> run_id
+
     {:ok, compacted} =
       %{
         run_id: run_id,
@@ -347,10 +350,10 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
         profile_ref: "conversation_turn_v1"
       }
       |> AuthoringTranscript.new(base_text: "应用 Base", author_text: "作者原话")
-      |> AuthoringTranscript.append_assistant("先读取角色。", [tool_call()])
-      |> AuthoringTranscript.append_observation("call-1", observation())
+      |> AuthoringTranscript.append_assistant("先读取角色。", [tool_call(call_id)])
+      |> AuthoringTranscript.append_observation(call_id, observation())
       |> AuthoringTranscript.compact(
-        %{call_ids: ["call-1"]},
+        %{call_ids: [call_id]},
         [],
         %{},
         ["旧细节已省略"],
@@ -363,11 +366,11 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
     |> Jason.decode!()
   end
 
-  defp tool_call do
+  defp tool_call(call_id) do
     RequestIR.tool_call_block(
       "read_character",
       %{"character_ref" => "character:1"},
-      "call-1"
+      call_id
     )
   end
 
