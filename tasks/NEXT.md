@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B81 | 会话级 canonical 创作历史（ADR-0035 落地，CP1–CP6 已登记）：**CP1 已完成**（2026-11-08 会话级存储/追加/恢复/迁移，行为不变；页面回归 native 19/19 PASS；验收证据工具链已适配、全仓旧列残留清零；见 [B81](slices/B81-session-canonical-authoring-history.md) §8.1/§8.1.6）。**下一步=CP2 开工前裁决**：①「每轮请求由会话派生」是否需要 `novel_common` 新增纯契约（突破 §4 CP1 边界）；② 与 B78 的同文件顺序（CP2 将再触碰 `agent_run_server.ex`/`judgment_protocol.ex`）。后续 CP3 压缩作用域/触发 → CP4 投影与审计 → CP5 真实页面多轮验收+G6（承接 B71 G6，建议拆 CP5a/CP5b）→ CP6 旧语义退役；上下游/前置/后置见 §7.3、实现目标映射见 §7.4。 | [B81](slices/B81-session-canonical-authoring-history.md) |
+| B81 | 会话级 canonical 创作历史（ADR-0035 落地，CP1–CP6 已登记）：**CP1 已完成**（2026-11-08 会话级存储/追加/恢复/迁移，行为不变；页面回归 native 19/19 PASS；验收证据工具链已适配、全仓旧列残留清零；见 [B81](slices/B81-session-canonical-authoring-history.md) §8.1/§8.1.6）。**CP2 机制层已实现（2026-11-09 作者「按推荐」裁决后）**：会话历史 → 请求派生视图（application 层组装、无 novel_common 契约）、判断请求接入、持久化边界剥离；机制测试与 I1/I2/I3 通过、首轮页面 19/19 PASS；页面多轮证据归 CP5（§8.6），CP2 不代签页面层。后续 CP3 压缩作用域/触发 → CP4 投影与审计 → CP5 真实页面多轮验收+G6（承接 B71 G6，建议拆 CP5a/CP5b）→ CP6 旧语义退役；上下游/前置/后置见 §7.3、实现目标映射见 §7.4。 | [B81](slices/B81-session-canonical-authoring-history.md) |
 
 当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 

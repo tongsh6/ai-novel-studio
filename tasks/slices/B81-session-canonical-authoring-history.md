@@ -1,6 +1,6 @@
 # B81：会话级 canonical 创作历史（ADR-0035 落地）
 
-- 状态：**doing（2026-11-08 立项；ADR-0035 已批准；CP1 已完成——实现/测试/全量门禁/真实页面证据 19-19/真实数据质量审计；CP2–CP6 未开工，CP2 开工待 5 项裁决）**
+- 状态：**doing（2026-11-08 立项；ADR-0035 已批准；CP1 已完成——实现/测试/全量门禁/真实页面证据 19-19/真实数据质量审计；**CP2 已获裁决（2026-11-09 作者「按推荐」）进入实现**；CP3–CP6 未开工）**
 - 来源：
   - 作者 2026-11-08 批准 [ADR-0035：会话级 canonical 创作上下文](../../docs/design/adr/ADR-0035-session-scoped-canonical-authoring-context-v3.md)（Accepted）。
   - 产品级偏差诊断：[2026-11-08-session-level-product-deviation](../../docs/design/notes/2026-11-08-session-level-product-deviation.md)（P0-1 跨轮上下文断裂、P0-2 会话级 canonical 事实源缺失、P1-1 压缩/G6 不可达）。
@@ -104,7 +104,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 | CP | 状态 | 范围/交付 | 验收 | 依赖 | 预计写域 |
 |---|---|---|---|---|---|
 | CP1 | done（2026-11-08 实现+测试+全量门禁；2026-11-09 真实页面证据 19/19 + 真实数据质量审计） | 会话级 canonical 历史：存储/身份/追加/前缀校验/恢复幂等/旧 run 级列退役 | 确定性机制测试 + 全量门禁 + 既有批次回归（行为不变） | ADR-0035 已批准 | `apps/novel_application`（AuthoringCheckpoint/AgentRunPersistence/AgentRunService/AuthoringReplay）、`apps/novel_persistence`（AuthoringSessionLog/schema/migration/AgentRunLog） |
-| CP2 | todo | 每轮请求由会话派生（完整历史；窗口压力时 checkpoint 投影替代更早历史） | 真实页面多轮会话：跨轮上下文/指代/义务 + 请求证据；机制层判据：第 N 轮请求含第 N-1 轮作者原话字节与前序 observation refs | CP1 | `apps/novel_application`（JudgmentProtocol/AgentRunServer）；可能新增 `novel_common` 纯契约（需裁决） |
+| CP2 | doing（机制层已实现，页面多轮证据归 CP5） | 每轮请求由会话派生（完整历史；窗口压力时 checkpoint 投影替代更早历史） | 真实页面多轮会话：跨轮上下文/指代/义务 + 请求证据；机制层判据：第 N 轮请求含第 N-1 轮作者原话字节与前序 observation refs | CP1 | `apps/novel_application`（JudgmentProtocol/AgentRunServer）；可能新增 `novel_common` 纯契约（需裁决） |
 | CP3 | todo | 压缩作用域=会话历史、触发/细条/回查调整 | G6 压缩后真实请求（真实多轮自然触发）+ 失败静默/幂等 | CP2 | `apps/novel_application`（TranscriptCompaction/AgentRunServer/ContextPressure，跨 run usage 累计）、`frontend/src`（仅在细条/回查需适配时） |
 | CP4 | todo | 三类投影/恢复幂等 + 审计/回查以会话为对象（窄化为"投影输入来源变化后的等价性验证"） | 投影/幂等/回查机制证据 | CP2、CP3 | `apps/novel_agent`（投影校验）、`apps/novel_application`（Replay）、`scripts/arch_check.exs`（边界规则细化） |
 | CP5 | todo（建议拆 CP5a/CP5b，见 §9） | 真实页面多轮会话综合验收 + G6 取证（承接 B71 G6） | 页面/机制/实模分层报告（实模不代签）；窗口不可用时按 known-gap 登记规则如实关闭 | CP2–CP4 | `scripts/`（验收 harness）、`artifacts/`（证据，只读保留） |
@@ -405,15 +405,31 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - 测试：机制层（跨轮请求字节、refs、投影、恢复、失败语义）+ 既有 I1/I2/I3/N-NARR/I-CACHE 回归。
 - 页面层：真实 Tauri 多轮会话（外部自动化像用户一样多轮操作；不构造异常路径）。
 
-#### 8.4.6 待裁决问题（开工前）
+#### 8.4.6 裁决记录（2026-11-09 作者「按推荐」批准，CP2 开工依据）
 
-1. **D6 novel_common 边界**：确认「CP2 不新增 novel_common 纯契约」是否被接受（推荐接受）。
-2. **与 B78 顺序**：CP2 将再触碰 `agent_run_server.ex`/`judgment_protocol.ex`；建议先 CP2 再 B78 拆分（避免拆分后二次改动），需作者裁决。
-3. **D8 多 profile 覆盖**：当前 run 的 system/tools 覆盖历史 run 的 system/tools 是否可接受（推荐接受，符合「新阶段追加角色完整规则」）。
-4. **恢复历史策略**：D4 的「本 run 段用于 stage_state + 会话历史用于请求派生」是否作为 CP2 冻结语义。
-5. **压缩阈值**：会话级 ContextPressure 阈值是否沿用 0.70/0.90（推荐沿用，CP3 再调触发与细条）。
+1. **D6 novel_common 边界**：**不新增 novel_common 纯契约**；会话历史读取/组装只在 application 层（`novel_application`，经 persistence 读端口），Request IR/Compaction 契约族不变。
+2. **与 B78 顺序**：**先 CP2 再 B78**。CP2 触碰的 4 个文件（agent_run_server/judgment_protocol/dialogue_planning_service/turn_execution_service）在 CP2 完成后按职责一次搬移；CP2 期间不改这些文件的拆分边界。
+3. **D8 多 profile 覆盖**：**当前 run 的 system/tools 覆盖历史 run 的**（新阶段追加该角色完整规则；消息历史跨 profile 共用）。
+4. **恢复历史策略**：**冻结**——恢复时 `stage_state` 只保存本 run 执行段；请求派生读「会话历史（排除本 run 已提交消息）+ 本 run stage_state 消息」合并视图，不伪造、不重复。
+5. **压缩阈值**：**沿用 0.70/0.90**；CP3 再调整触发口径与作者可见细条。
+
+> 以上结论即 CP2 实现契约；实现中不得临时改变。
 
 > 本设计不缩小 CP2 验收范围：机制/页面/实模分层、G6 归 CP5、实模不代签的边界保持 §6 不变。
+
+#### 8.4.7 CP2 实施记录（2026-11-09，机制层完成，页面多轮证据归 CP5）
+
+> 依据 §8.4.6 裁决实施；未新增 `novel_common` 契约（裁决①），未触碰 B78 拆分边界（裁决②），
+> 当前 run 的 system/tools 覆盖历史（裁决③），stage_state 只落本 run 段（裁决④），未改压缩阈值（裁决⑤）。
+
+- **读端口**：`NovelPersistence.AuthoringSessionLog.fetch_session_refs/1`——按会话聚合各 run 段头 refs（base/observation/used，按段在会话中的顺序），段头未知版本/损坏 fail-closed。`fetch_session_messages/1` 沿用 CP1。
+- **组装模块（新，application 层唯一）**：`NovelApplication.AuthoringSessionHistory`——`fetch/1`（排除本 run 已提交消息与历史 `application_base`，消息经 `AuthoringTranscript.normalize_messages/1` 归一化）、`compose/2`（请求派生视图：当前 base 最前 → 历史原序 → 当前段消息；refs 会话累计去重）、`strip/2`（持久化边界剥离历史前缀，恢复段视图）。无会话身份视为无历史（首轮，与 CP1 一致）；有会话但段头损坏不静默。
+- **协议接入**：`JudgmentProtocol.request/4` 与 `request_for_production/1` 在构造 provider 请求前 `compose` 会话历史；返回给 flow/持久化的 transcript（含 error3 的 `judgment_transcript`）一律 `strip` 回段视图——请求派生视图不进入会话 canonical（避免历史消息被当作本 run 消息重复追加）。`AuthoringTranscript.normalize_messages/1` 复用既有 `restore` 键归一化（DRY，JSON payload 保护一致）。
+- **生产注入点**：`DialoguePlanningService.execute_judgment_step/6` 在判断步读取会话历史并注入 `protocol_input[:session_history]`；读取失败 fail-closed（不静默退化成无历史请求）。`judgment_protocol_input` 仅透传，不读 DB（协议层保持纯）。continuation 等其他 profile 未合并会话历史（CP2 第一版窄化到判断入口；flow 执行链继续使用本 run transcript）。
+- **门禁适配**：`MIX_ENV=test mix run` 的场景不变量 driver 使用每进程临时 SQLite（不自动迁移），CP2 起判断主链会读会话表 → 新增 `scripts/scenario_invariants/schema_guard.exs` 并在 I1/I2/I3 driver 前置 `Ecto.Migrator.run(all: true)`（幂等；失败不静默）。
+- **测试**：`authoring_session_history_test.exs` 7 例（无历史/跨 run 过滤/refs 累计/compose 顺序/strip 恒等/损坏 fail-closed/无身份 nil）；`judgment_protocol_test.exs` +2 例（base 唯一最前/历史原序/refs 累计；`transcript_for_production` 段视图不含历史）；`b81_cp2_session_derivation_test.exs` 2 例机制验收（真实持久化会话 → 第二轮请求含第一轮作者原话与观察内容、历史 observation refs 进入 IR refs、无历史时与 CP1 一致）。
+- **证据（2026-11-09）**：`mix check` 全量通过（见 §8.1.6 同类口径）；I1 `cases=4 pass=4`、I2 `pairs=3 disjoint=3 violations=0`、I3 `Layer-B 3/3 pass`；首轮页面回归 `b71-first-consumer` native **19/19 PASS**（CP2 工作区代码，证明首轮行为不变）。**页面多轮（跨 turn 上下文/指代/义务）证据归 CP5**（§8.6），CP2 不代签页面层。
+- **已知边界**：历史消息前缀稳定（base 唯一最前 + 历史原序 + 尾部追加）→ I-CACHE 追加式前缀语义保持；历史中未闭合调用理论上不应存在（已完成交换），若出现由 IR 校验 fail-closed；I1/I2 driver 的临时库 schema 守卫属门禁层修复（非产品逻辑）。
 
 ### 8.5 CP3/CP4/CP6 开工设计要点（草案，未实现，待 CP2 落地后逐项裁决）
 
@@ -510,6 +526,8 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 
 - 2026-11-08：立项 + 阶段 1 设计草案（作者批准 ADR-0035 后产出；未授权实现）。
 - 2026-11-08：补充 §1.1 断链定位（schema 时间线 + 三项漏承接）与 §8.0 彻底重构/复用清单（作者确认：系统设计有、实现偏差；彻底重构但复用设计资料和实现）。
+- 2026-11-09：**CP2 机制层实现**：新增会话 refs 读端口/`AuthoringSessionHistory` 组装模块/判断请求派生接入（请求视图含历史、返回与持久化剥离段视图）；`authoring_session_history_test` 7 例、协议测试 +2、`b81_cp2_session_derivation_test` 2 例机制验收；I1/I2/I3 通过、首轮页面 19/19 PASS；页面多轮证据归 CP5。详见 §8.4.7。
+- 2026-11-09：**CP2 开工裁决（作者「按推荐」）**：五项裁决冻结记录于 §8.4.6——不新增 novel_common 纯契约（application 内组装）、先 CP2 再 B78、当前 run 的 system/tools 覆盖历史、恢复语义冻结（本 run 段=stage_state，会话历史=请求派生，合并去重）、压缩阈值沿用 0.70/0.90；CP2 进入实现。
 - 2026-11-09：**状态一致性修正与环境探测收口**：修正状态行/§7/§10.1 中 CP1「待门禁/提交」的过时表述为「已完成（实现/测试/门禁/页面证据/数据审计）」；环境探测第三/四次批次同因失败后登记「停止重试、待窗口恢复」，不重跑换分。
 - 2026-11-09：**CP5 验收设计（G6 分层取证）**：新增 §8.6——真实多轮会话场景（观察驱动）、6 项 G6 机械判据、机制/页面/实模分层报告、5 条防伪反例（禁止 fixture 造 checkpoint/调阈值/写死输入/内存断言替代请求体/只证有 checkpoint）、依赖与顺序；只设计不实现、不代签。
 - 2026-11-09：**真实数据质量审计 + B78 冲突面盘点**：对 native 批次 DB 验证会话消息/段头/refs/call_ids 一致性（无异常，见 §8.1.6）；§7.2 补 B78 拆分目标与 CP2 改动面重叠清单、顺序建议（先 CP2 再 B78）与 CP2 修改预算（新模块承载会话历史组装，避免 agent_run_server ratchet 超限）。
