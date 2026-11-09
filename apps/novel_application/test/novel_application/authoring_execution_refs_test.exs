@@ -119,7 +119,7 @@ defmodule NovelApplication.AuthoringExecutionRefsTest do
 
     assert {:ok, restored} =
              original
-             |> AuthoringTranscript.checkpoint()
+             |> AuthoringCheckpoint.checkpoint()
              |> Jason.encode!()
              |> Jason.decode!()
              |> AuthoringTranscript.restore()
@@ -147,6 +147,7 @@ defmodule NovelApplication.AuthoringExecutionRefsTest do
 end
 
 defmodule NovelApplication.AuthoringExecutionRefsBoundaryTest do
+  alias NovelApplication.AuthoringCheckpoint
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Result
@@ -176,7 +177,7 @@ defmodule NovelApplication.AuthoringExecutionRefsBoundaryTest do
 
   defp roundtrip(transcript) do
     transcript
-    |> AuthoringTranscript.checkpoint()
+    |> AuthoringCheckpoint.checkpoint()
     |> Jason.encode!()
     |> Jason.decode!()
     |> AuthoringTranscript.restore()
@@ -243,7 +244,7 @@ defmodule NovelApplication.AuthoringExecutionRefsBoundaryTest do
 
       assert {:error, {:invalid_execution_ref, :provider_call_ref}} =
                invalid_transcript
-               |> AuthoringTranscript.checkpoint()
+               |> AuthoringCheckpoint.checkpoint()
                |> Jason.encode!()
                |> Jason.decode!()
                |> AuthoringTranscript.restore()

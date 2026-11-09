@@ -24,6 +24,8 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
 
+  alias NovelApplication.AuthoringCheckpoint
+
   alias NovelApplication.{
     AuthoringCheckpoint,
     AuthoringTranscript,
@@ -677,7 +679,7 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
         ["旧细节已省略"],
         "作者安全历史摘要"
       )
-      |> AuthoringTranscript.checkpoint()
+      |> AuthoringCheckpoint.checkpoint()
       |> db_json_roundtrip()
 
     seed_run!(work, session, run_id, source_turn, "作者安全历史摘要",
@@ -841,7 +843,7 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
       ["旧细节已省略"],
       summary
     )
-    |> AuthoringTranscript.checkpoint()
+    |> AuthoringCheckpoint.checkpoint()
     |> db_json_roundtrip()
   end
 

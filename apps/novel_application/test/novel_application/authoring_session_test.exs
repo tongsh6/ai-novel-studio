@@ -4,6 +4,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
   alias NovelAgent.AuthorizedToolExecutor
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentRunFlows.AuthoringSession
+  alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.TurnExecutionService
   alias NovelCommon.Contracts.AuthoringTask
@@ -615,7 +616,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
 
       checkpoint =
         transcript
-        |> AuthoringTranscript.checkpoint()
+        |> AuthoringCheckpoint.checkpoint()
         |> Jason.encode!()
         |> Jason.decode!()
 

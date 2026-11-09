@@ -5,6 +5,8 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
 
+  alias NovelApplication.AuthoringCheckpoint
+
   alias NovelApplication.{
     AdoptionWorkflow,
     ArtifactAssembler,
@@ -1811,7 +1813,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
   defp assert_checkpoint_roundtrip(transcript) do
     checkpoint =
       transcript
-      |> AuthoringTranscript.checkpoint()
+      |> AuthoringCheckpoint.checkpoint()
       |> Jason.encode!()
       |> Jason.decode!()
 

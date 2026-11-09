@@ -1,6 +1,7 @@
 defmodule NovelApplication.AuthoringTranscriptTest do
   use ExUnit.Case, async: true
 
+  alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringTranscript
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Compaction
@@ -121,7 +122,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     restored =
       second
-      |> AuthoringTranscript.checkpoint()
+      |> AuthoringCheckpoint.checkpoint()
       |> Jason.encode!()
       |> Jason.decode!()
       |> AuthoringTranscript.restore()
@@ -174,7 +175,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     assert {:ok, restored} =
              transcript
-             |> AuthoringTranscript.checkpoint()
+             |> AuthoringCheckpoint.checkpoint()
              |> Jason.encode!()
              |> Jason.decode!()
              |> AuthoringTranscript.restore()
@@ -228,7 +229,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     assert {:ok, restored} =
              transcript
-             |> AuthoringTranscript.checkpoint()
+             |> AuthoringCheckpoint.checkpoint()
              |> Jason.encode!()
              |> Jason.decode!()
              |> AuthoringTranscript.restore()
@@ -280,7 +281,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
     assert second.call_id == "internal-id"
     assert second.provider_call_id == "provider-original-id"
 
-    encoded = transcript |> AuthoringTranscript.checkpoint() |> Jason.encode!()
+    encoded = transcript |> AuthoringCheckpoint.checkpoint() |> Jason.encode!()
     assert length(Regex.scan(~r/"provider_call_id":/, encoded)) == 2
 
     assert {:ok, restored} =
@@ -309,7 +310,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     assert {:ok, restored} =
              transcript
-             |> AuthoringTranscript.checkpoint()
+             |> AuthoringCheckpoint.checkpoint()
              |> Jason.encode!()
              |> Jason.decode!()
              |> AuthoringTranscript.restore()
@@ -407,7 +408,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     assert {:ok, restored} =
              compacted
-             |> AuthoringTranscript.checkpoint()
+             |> AuthoringCheckpoint.checkpoint()
              |> Jason.encode!()
              |> Jason.decode!()
              |> AuthoringTranscript.restore()
@@ -528,7 +529,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     assert {:ok, restored} =
              compacted
-             |> AuthoringTranscript.checkpoint()
+             |> AuthoringCheckpoint.checkpoint()
              |> Jason.encode!()
              |> Jason.decode!()
              |> AuthoringTranscript.restore()
@@ -600,7 +601,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
       assert {:error, _} =
                transcript
                |> Map.put(key, value)
-               |> AuthoringTranscript.checkpoint()
+               |> AuthoringCheckpoint.checkpoint()
                |> AuthoringTranscript.restore()
     end
   end
@@ -613,7 +614,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
       |> Map.put(:call_ids, ["stale-call"])
 
     assert {:ok, restored} =
-             transcript |> AuthoringTranscript.checkpoint() |> AuthoringTranscript.restore()
+             transcript |> AuthoringCheckpoint.checkpoint() |> AuthoringTranscript.restore()
 
     assert restored.call_ids == ["call-1"]
     assert restored.messages == transcript.messages
@@ -625,7 +626,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
       encoded =
         before
-        |> AuthoringTranscript.checkpoint()
+        |> AuthoringCheckpoint.checkpoint()
         |> Jason.encode!()
         |> Jason.decode!()
 
@@ -659,7 +660,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     assert {:error, {:used_refs_out_of_scope, ["archive:missing"]}} =
              transcript
-             |> AuthoringTranscript.checkpoint()
+             |> AuthoringCheckpoint.checkpoint()
              |> Jason.encode!()
              |> Jason.decode!()
              |> AuthoringTranscript.restore()
@@ -671,7 +672,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
       assert {:error, :invalid_transcript_checkpoint} =
                transcript
-               |> AuthoringTranscript.checkpoint()
+               |> AuthoringCheckpoint.checkpoint()
                |> Jason.encode!()
                |> Jason.decode!()
                |> AuthoringTranscript.restore()
@@ -723,7 +724,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     assert {:ok, restored} =
              transcript
-             |> AuthoringTranscript.checkpoint()
+             |> AuthoringCheckpoint.checkpoint()
              |> Jason.encode!()
              |> Jason.decode!()
              |> AuthoringTranscript.restore()
@@ -771,7 +772,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     first =
       transcript
-      |> AuthoringTranscript.checkpoint()
+      |> AuthoringCheckpoint.checkpoint()
       |> Jason.encode!()
       |> Jason.decode!()
 
@@ -779,7 +780,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     second =
       restored
-      |> AuthoringTranscript.checkpoint()
+      |> AuthoringCheckpoint.checkpoint()
       |> Jason.encode!()
       |> Jason.decode!()
 

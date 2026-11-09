@@ -7,6 +7,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
 
+  alias NovelApplication.AuthoringCheckpoint
+
   alias NovelApplication.{
     AgentNarrativeSource,
     AuthoringTranscript,
@@ -2578,7 +2580,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
       assert {:ok, restored} =
                continued_transcript
-               |> AuthoringTranscript.checkpoint()
+               |> AuthoringCheckpoint.checkpoint()
                |> AuthoringTranscript.restore()
 
       {replayed, _replayed_transcript} =

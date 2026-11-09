@@ -4,6 +4,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentRunFlows.ProseDraftingWithQuality
   alias NovelApplication.AgentRunService
+  alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TestAgenticLoopFixtures
@@ -1280,7 +1281,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     assert {:ok, restored} =
              transcript
-             |> AuthoringTranscript.checkpoint()
+             |> AuthoringCheckpoint.checkpoint()
              |> Jason.encode!()
              |> Jason.decode!()
              |> AuthoringTranscript.restore()

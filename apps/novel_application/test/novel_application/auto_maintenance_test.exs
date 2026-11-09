@@ -88,6 +88,7 @@ defmodule NovelApplication.AutoMaintenanceTest do
     wait_until(fn -> terminal_run?(run_id) end, 5_000)
 
     assert [record] = checkpoint_events(run_id)
+
     # 会话视图：prior 5 个已完成交换在更早回合，keep=4 → 只整理最早 1 个。
     assert record.payload["covered_exchanges"] == 1
 

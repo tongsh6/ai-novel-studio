@@ -105,12 +105,20 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
     assert Enum.all?(covered, &String.starts_with?(&1, "cp3-call-1-"))
 
     # 2) checkpoint 追加到本 run 段；段内不要求 covers 可见。
-    assert {:ok, compacted_segment} = AuthoringTranscript.append_checkpoint(segment, plan)
-    assert {:ok, ^compacted_segment} = AuthoringTranscript.append_checkpoint(compacted_segment, plan)
+    assert {:ok, compacted_segment} = AuthoringCheckpoint.append_checkpoint(segment, plan)
+
+    assert {:ok, ^compacted_segment} =
+             AuthoringCheckpoint.append_checkpoint(compacted_segment, plan)
+
     assert Enum.any?(compacted_segment.messages, &(&1.role == "checkpoint"))
 
     # 3) 写入边界在会话视图上完成完整校验（含 Compaction 证据校验）后通过。
-    assert {:ok, stored} = AuthoringCheckpoint.encode_segment_for_write(run_record("run-cp3-2"), compacted_segment)
+    assert {:ok, stored} =
+             AuthoringCheckpoint.encode_segment_for_write(
+               run_record("run-cp3-2"),
+               compacted_segment
+             )
+
     assert is_map(stored)
 
     # 4) 压缩后的会话视图投影折叠被覆盖的历史交换；原始消息保留在 canonical 视图。
@@ -123,7 +131,10 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
 
     # 5) 段恢复：含跨段 checkpoint 的段可在会话视图校验下恢复。
     seed_run!(compacted_segment)
-    assert {:ok, restored, :session_segment} = AuthoringCheckpoint.restore(run_record("run-cp3-2"), nil)
+
+    assert {:ok, restored, :session_segment} =
+             AuthoringCheckpoint.restore(run_record("run-cp3-2"), nil)
+
     assert Enum.any?(restored.messages, &(&1.role == "checkpoint"))
     assert inspect(restored.messages) =~ hd(covered)
   end

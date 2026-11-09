@@ -222,27 +222,6 @@ defmodule NovelApplication.AuthoringTranscript do
     end
   end
 
-  @doc "生成只含 canonical run 事实的 JSON 检查点，不保存 Provider 请求或私有会话。"
-  @spec checkpoint(t()) :: map()
-  def checkpoint(transcript) do
-    %{
-      version: @checkpoint_version,
-      transcript:
-        Map.take(transcript, [
-          :run,
-          :system,
-          :messages,
-          :tools,
-          :base_refs,
-          :observation_refs,
-          :used_refs,
-          :projection,
-          :call_ids
-        ])
-        |> Map.update(:system, %{}, &system_run_rules/1)
-    }
-  end
-
   @doc "从 JSON 检查点恢复 canonical transcript；只校验和重建，不调用 Provider。"
   @spec restore(map()) :: {:ok, t()} | {:error, term()}
   def restore(%{"version" => @checkpoint_version, "transcript" => data}) when is_map(data),
@@ -254,24 +233,13 @@ defmodule NovelApplication.AuthoringTranscript do
   def restore(_), do: {:error, :unsupported_transcript_checkpoint}
 
   @doc """
-  以「执行段」语义恢复：归一化 + 文本形状校验，不做完整 IR 校验。
+  段数据归一化：JSON 形状 → canonical atom-key transcript，只做文本形状校验。
 
-  跨段压缩的 checkpoint 可能覆盖本段之前会话历史中的交换（covers 在本段内不可见），
-  因此段本身不保证独立构成合法 IR；调用方必须随后在**会话视图**上完成
-  `RequestIR.validate`（`AuthoringCheckpoint` 的会话级校验负责）。仅用于存储读取
-  边界，不用于任意内存 transcript 的信任路径。
+  段本身允许含跨段 checkpoint（covers 指向会话历史中的更早交换），因此不做完整
+  IR 校验；`AuthoringCheckpoint` 在会话视图上完成完整校验。仅供存储读取边界使用。
   """
-  @spec restore_segment(map()) :: {:ok, t()} | {:error, term()}
-  def restore_segment(%{"version" => @checkpoint_version, "transcript" => data})
-      when is_map(data),
-      do: restore_segment_data(data)
-
-  def restore_segment(%{version: @checkpoint_version, transcript: data}) when is_map(data),
-    do: restore_segment_data(data)
-
-  def restore_segment(_), do: {:error, :unsupported_transcript_checkpoint}
-
-  defp restore_segment_data(data) do
+  @spec normalize_segment(map()) :: {:ok, t()} | {:error, term()}
+  def normalize_segment(data) when is_map(data) do
     transcript = normalize_checkpoint(data)
 
     with :ok <- validate_checkpoint_shape(transcript) do
@@ -280,6 +248,8 @@ defmodule NovelApplication.AuthoringTranscript do
       {:ok, %{transcript | run: RequestIR.run_envelope(transcript.run)}}
     end
   end
+
+  def normalize_segment(_data), do: {:error, :invalid_authoring_segment}
 
   defp restore_transcript(data) do
     transcript = normalize_checkpoint(data)
@@ -461,35 +431,6 @@ defmodule NovelApplication.AuthoringTranscript do
     end
   end
 
-  @doc """
-  按压缩 plan 追加 checkpoint 消息；不要求 covers 在本 transcript 内可见。
-
-  跨段压缩（会话历史中的更早交换）在会话视图上派生 plan、在本 run 段追加 checkpoint；
-  完整覆盖校验由 `AuthoringCheckpoint` 在会话视图上完成（包含 Compaction 证据校验）。
-  同一 checkpoint 幂等；plan 形状仍由 `Compaction.require_call_ids/1` 先校验。
-  """
-  @spec append_checkpoint(t(), map()) :: {:ok, t()} | {:error, term()}
-  def append_checkpoint(transcript, %{
-        covers: covers,
-        source_refs: refs,
-        versions: versions,
-        omissions: omissions,
-        summary: summary
-      }) do
-    with :ok <- Compaction.require_call_ids(covers) do
-      block = RequestIR.checkpoint_block(covers, refs, versions, omissions, summary)
-      checkpoint = RequestIR.message(:checkpoint, :application, [block])
-
-      if checkpoint in transcript.messages do
-        {:ok, transcript}
-      else
-        {:ok, %{transcript | messages: transcript.messages ++ [checkpoint]}}
-      end
-    end
-  end
-
-  def append_checkpoint(_transcript, _plan), do: {:error, :invalid_compaction_request}
-
   @doc "声明模型对来源的使用（机械校验 ⊆ Base ∪ 观察）。"
   @spec declare_used_refs(t(), [String.t()]) :: t()
   def declare_used_refs(transcript, refs) when is_list(refs) do
@@ -529,11 +470,12 @@ defmodule NovelApplication.AuthoringTranscript do
     :output_schema_ref
   ]
 
-  defp system_run_rules(system) when is_map(system) do
+  @doc "只保留 run 级 system 规则（checkpoint 编码用；不含动态 system 文本）。"
+  def system_run_rules(system) when is_map(system) do
     Map.take(system, @system_run_fields)
   end
 
-  defp system_run_rules(_system), do: %{}
+  def system_run_rules(_system), do: %{}
 
   defp system_envelope(system) when is_map(system) do
     RequestIR.system_envelope(

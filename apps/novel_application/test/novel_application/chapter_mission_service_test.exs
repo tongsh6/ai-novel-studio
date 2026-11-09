@@ -2,6 +2,7 @@ defmodule NovelApplication.ChapterMissionServiceTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
+  alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.ChapterMissionService
   alias NovelCommon.RequestIR
@@ -290,7 +291,7 @@ defmodule NovelApplication.ChapterMissionServiceTest do
 
     assert {:ok, restored} =
              meta.judgment_transcript
-             |> AuthoringTranscript.checkpoint()
+             |> AuthoringCheckpoint.checkpoint()
              |> Jason.encode!()
              |> Jason.decode!()
              |> AuthoringTranscript.restore()

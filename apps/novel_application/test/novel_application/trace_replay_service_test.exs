@@ -2,6 +2,7 @@ defmodule NovelApplication.TraceReplayServiceTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.{AuthoringCheckpoint, AuthoringTranscript, TraceReplayService}
   alias NovelApplication.WorkService
   alias NovelPersistence.{AgentRunLog, AuthoringSessionLog, LongRunTaskLog, Repo}
@@ -559,7 +560,7 @@ defmodule NovelApplication.TraceReplayServiceTest do
         "已核对旧誓，候选尚未采纳。"
       )
 
-    NovelApplication.AuthoringTranscript.checkpoint(compacted)
+    NovelApplication.AuthoringCheckpoint.checkpoint(compacted)
   end
 
   defp persist_authoring_history(context, checkpoint, opts \\ []) do

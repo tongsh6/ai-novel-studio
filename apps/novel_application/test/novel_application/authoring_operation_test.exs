@@ -2,6 +2,7 @@ defmodule NovelApplication.AuthoringOperationTest do
   use ExUnit.Case, async: true
   alias NovelCommon.RequestIR.Projection
 
+  alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringOperation
   alias NovelApplication.AuthoringTranscript
   alias NovelCommon.RequestIR
@@ -97,7 +98,7 @@ defmodule NovelApplication.AuthoringOperationTest do
 
     assert {:ok, restored} =
              meta.judgment_transcript
-             |> AuthoringTranscript.checkpoint()
+             |> AuthoringCheckpoint.checkpoint()
              |> Jason.encode!()
              |> Jason.decode!()
              |> AuthoringTranscript.restore()

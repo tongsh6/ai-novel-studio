@@ -16,6 +16,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
     在这一层）。error3 不携带 flow state 形状，不得把会话包进 `:stage_state` 键。
   """
 
+  alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringTranscript
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.RequestIR
@@ -53,7 +54,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
       }) do
     # B81 CP3：压缩计划在会话视图上派生，checkpoint 追加到本 run 段；跨段 covers
     # 不在段内可见，完整覆盖/证据校验由 AuthoringCheckpoint 的会话级校验兜底。
-    AuthoringTranscript.append_checkpoint(transcript, %{
+    AuthoringCheckpoint.append_checkpoint(transcript, %{
       covers: covers,
       source_refs: refs,
       versions: versions,

@@ -21,6 +21,7 @@ defmodule NovelApplication.AuthoringCheckpoint do
   alias NovelApplication.AuthoringSessionHistory
   alias NovelApplication.AuthoringTranscript
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Compaction
   alias NovelPersistence.AuthoringSessionLog
 
   @identity_fields ["run_id", "workspace_id", "work_id", "session_id", "parent_turn_ref"]
@@ -42,6 +43,84 @@ defmodule NovelApplication.AuthoringCheckpoint do
   end
 
   @doc """
+  生成只含 canonical run 事实的 JSON 检查点（编码边界；不保存 Provider 请求/私有会话）。
+
+  从 `AuthoringTranscript.checkpoint/1` 移入本模块：检查点编码属存储边界职责，
+  transcript 模块只保留组装操作（B81 CP3 收尾拆分，SRP）。
+  """
+  @spec checkpoint(AuthoringTranscript.t()) :: map()
+  def checkpoint(transcript) do
+    %{
+      version: AuthoringTranscript.checkpoint_version(),
+      transcript:
+        Map.take(transcript, [
+          :run,
+          :system,
+          :messages,
+          :tools,
+          :base_refs,
+          :observation_refs,
+          :used_refs,
+          :projection,
+          :call_ids
+        ])
+        |> Map.update(:system, %{}, &AuthoringTranscript.system_run_rules/1)
+    }
+  end
+
+  @doc """
+  以「执行段」语义恢复：归一化 + 文本形状 + run envelope 规范化，不做完整 IR 校验。
+
+  跨段压缩的 checkpoint 可能覆盖本段之前会话历史中的交换（covers 在本段内不可见），
+  因此段本身不保证独立构成合法 IR；调用方必须随后在会话视图上完成完整校验
+  （本模块 `validate_segment/2`/`restore/2` 负责）。仅用于存储读取边界。
+  """
+  @spec restore_segment(map()) :: {:ok, AuthoringTranscript.t()} | {:error, term()}
+  def restore_segment(%{"version" => version, "transcript" => data}) when is_map(data),
+    do: restore_segment_data(version, data)
+
+  def restore_segment(%{version: version, transcript: data}) when is_map(data),
+    do: restore_segment_data(version, data)
+
+  def restore_segment(_), do: {:error, :unsupported_transcript_checkpoint}
+
+  defp restore_segment_data(version, data) do
+    if version == AuthoringTranscript.checkpoint_version() do
+      AuthoringTranscript.normalize_segment(data)
+    else
+      {:error, :unsupported_transcript_checkpoint}
+    end
+  end
+
+  @doc """
+  按压缩 plan 追加 checkpoint 消息；不要求 covers 在本段内可见（跨段压缩由会话视图校验）。
+
+  同一 checkpoint 幂等；plan 形状先经 `Compaction.require_call_ids/1` 校验。
+  """
+  @spec append_checkpoint(AuthoringTranscript.t(), map()) ::
+          {:ok, AuthoringTranscript.t()} | {:error, term()}
+  def append_checkpoint(transcript, %{
+        covers: covers,
+        source_refs: refs,
+        versions: versions,
+        omissions: omissions,
+        summary: summary
+      }) do
+    with :ok <- Compaction.require_call_ids(covers) do
+      block = RequestIR.checkpoint_block(covers, refs, versions, omissions, summary)
+      checkpoint = RequestIR.message(:checkpoint, :application, [block])
+
+      if checkpoint in transcript.messages do
+        {:ok, transcript}
+      else
+        {:ok, %{transcript | messages: transcript.messages ++ [checkpoint]}}
+      end
+    end
+  end
+
+  def append_checkpoint(_transcript, _plan), do: {:error, :invalid_compaction_request}
+
+  @doc """
   application 写入边界：把内存 canonical 编码为会话执行段（header + messages）。
 
   与旧 `encode_for_write` 同等强度：先按真实 JSON 落库形状归一化，再用同一
@@ -53,7 +132,7 @@ defmodule NovelApplication.AuthoringCheckpoint do
   def encode_segment_for_write(_record, nil), do: {:ok, nil}
 
   def encode_segment_for_write(record, transcript) when is_map(record) and is_map(transcript) do
-    data = AuthoringTranscript.checkpoint(transcript).transcript
+    data = checkpoint(transcript).transcript
 
     with :ok <- validate_transcript_data_keys(data) do
       segment = %{"header" => segment_header(data), "messages" => data.messages}
@@ -177,7 +256,7 @@ defmodule NovelApplication.AuthoringCheckpoint do
       |> Map.take(Enum.map(header_data_keys(), &Atom.to_string/1))
       |> Map.put("messages", messages)
 
-    AuthoringTranscript.restore_segment(%{
+    restore_segment(%{
       "version" => AuthoringTranscript.checkpoint_version(),
       "transcript" => data
     })
@@ -194,9 +273,8 @@ defmodule NovelApplication.AuthoringCheckpoint do
     with {:ok, history} <- AuthoringSessionHistory.fetch(run) do
       {view, _history_count} = AuthoringSessionHistory.compose(transcript, history)
 
-      with {:ok, ir} <- AuthoringTranscript.to_request_ir(view),
-           :ok <- RequestIR.validate(ir) do
-        :ok
+      with {:ok, ir} <- AuthoringTranscript.to_request_ir(view) do
+        RequestIR.validate(ir)
       end
     end
   end

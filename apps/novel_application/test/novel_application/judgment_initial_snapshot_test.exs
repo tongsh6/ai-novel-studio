@@ -4,6 +4,7 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
 
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.InferenceParams
+  alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.JudgmentProtocol
   alias NovelCommon.RequestIR
@@ -230,7 +231,7 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
 
   defp restore(transcript) do
     transcript
-    |> AuthoringTranscript.checkpoint()
+    |> AuthoringCheckpoint.checkpoint()
     |> Jason.encode!()
     |> Jason.decode!()
     |> AuthoringTranscript.restore()

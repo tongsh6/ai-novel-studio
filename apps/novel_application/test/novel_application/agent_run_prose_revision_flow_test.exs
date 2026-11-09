@@ -5,6 +5,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
   alias NovelAgent.Test.Provider.SliceVerify
   alias NovelApplication.AgentRunFlows.ProseRevisionFromFindings
   alias NovelApplication.AgentRunService
+  alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TestAgenticLoopFixtures
@@ -390,7 +391,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
     # 最终 canonical state 必须可经 JSON 恢复，且恢复后的 Provider 投影与 fresh 严格同源。
     checkpoint =
       transcript
-      |> AuthoringTranscript.checkpoint()
+      |> AuthoringCheckpoint.checkpoint()
       |> Jason.encode!()
       |> Jason.decode!()
 

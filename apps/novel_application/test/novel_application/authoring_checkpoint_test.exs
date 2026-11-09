@@ -13,6 +13,7 @@ defmodule NovelApplication.AuthoringCheckpointTest do
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
 
+  alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.{AuthoringCheckpoint, AuthoringTranscript}
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
@@ -85,7 +86,7 @@ defmodule NovelApplication.AuthoringCheckpointTest do
   defp checkpoint(identity) do
     identity
     |> transcript()
-    |> AuthoringTranscript.checkpoint()
+    |> AuthoringCheckpoint.checkpoint()
   end
 
   defp json_normalize(value), do: value |> Jason.encode!() |> Jason.decode!()
@@ -185,7 +186,7 @@ defmodule NovelApplication.AuthoringCheckpointTest do
     record = record(identity)
     seed_segment!(record, transcript(identity))
 
-    embedded = %{"authoring_transcript" => AuthoringTranscript.checkpoint(transcript(identity))}
+    embedded = %{"authoring_transcript" => AuthoringCheckpoint.checkpoint(transcript(identity))}
 
     SQL.query!(
       Repo,
@@ -202,7 +203,7 @@ defmodule NovelApplication.AuthoringCheckpointTest do
     record = record(identity)
     seed_segment!(record, transcript(identity))
 
-    embedded = %{"authoring_transcript" => AuthoringTranscript.checkpoint(transcript(identity))}
+    embedded = %{"authoring_transcript" => AuthoringCheckpoint.checkpoint(transcript(identity))}
 
     SQL.query!(
       Repo,
@@ -287,7 +288,7 @@ defmodule NovelApplication.AuthoringCheckpointTest do
 
     # 编码后的消息与内存 checkpoint 的消息在 JSON 值上逐项一致（map 键序不参与比较）。
     assert json_normalize(segment.messages) ==
-             json_normalize(AuthoringTranscript.checkpoint(transcript).transcript.messages)
+             json_normalize(AuthoringCheckpoint.checkpoint(transcript).transcript.messages)
 
     {:ok, state} = AuthoringSessionLog.append_run(run_attrs(record), segment)
     assert state.message_count == length(segment.messages)

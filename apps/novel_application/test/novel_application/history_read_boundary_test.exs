@@ -16,6 +16,8 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
 
+  alias NovelApplication.AuthoringCheckpoint
+
   alias NovelApplication.{
     AgentRunHistory,
     AuthoringCheckpoint,
@@ -361,7 +363,7 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
       )
 
     compacted
-    |> AuthoringTranscript.checkpoint()
+    |> AuthoringCheckpoint.checkpoint()
     |> Jason.encode!()
     |> Jason.decode!()
   end

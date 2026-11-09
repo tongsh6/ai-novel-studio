@@ -7,6 +7,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentRunFlows.ReadonlyBatchContext
   alias NovelApplication.AgentRunService
+  alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TestAgenticLoopFixtures
@@ -2908,7 +2909,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   # 两条段引用负例共用的持久状态：真实 run 行 + 旧内嵌副本诱饵，段引用由调用方注入。
   defp assert_segment_ref_rejected!(run_id, work_id, session_id, parent_turn_ref, segment_ref) do
     decoy =
-      AuthoringTranscript.checkpoint(
+      AuthoringCheckpoint.checkpoint(
         AuthoringTranscript.new(
           %{
             run_id: run_id,
@@ -2964,7 +2965,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     parent_turn_ref = "turn_v2_partial_#{run_id}"
 
     legacy =
-      AuthoringTranscript.checkpoint(
+      AuthoringCheckpoint.checkpoint(
         AuthoringTranscript.new(%{run_id: run_id, work_id: work_id},
           base_text: "旧格式只有部分身份",
           author_text: "不应补造来源"

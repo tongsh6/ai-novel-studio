@@ -306,19 +306,21 @@ defmodule NovelApplication.AgentRunServer do
       do: {:reply, {:error, :execution_in_progress}, state}
 
   def handle_call({:command, :compact_transcript}, _from, state) do
-    with {:ok, view} <- session_view(state) do
-      case TranscriptCompaction.plan(view) do
-        {:ok, :nothing_to_compact} ->
-          {:reply, {:ok, TranscriptCompaction.receipt(:nothing_to_compact)}, state}
+    case session_view(state) do
+      {:ok, view} ->
+        case TranscriptCompaction.plan(view) do
+          {:ok, :nothing_to_compact} ->
+            {:reply, {:ok, TranscriptCompaction.receipt(:nothing_to_compact)}, state}
 
-        {:ok, plan} ->
-          apply_compaction(plan, state)
+          {:ok, plan} ->
+            apply_compaction(plan, state)
 
-        {:error, _reason} = error ->
-          {:reply, error, state}
-      end
-    else
-      {:error, reason} -> {:reply, {:error, reason}, state}
+          {:error, _reason} = error ->
+            {:reply, error, state}
+        end
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
     end
   end
 
