@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-10 **B81 CP5 第五次尝试（cp5-answer-07）与页面证据复盘**：真实页面截图确认回答面板契约（问题「结尾要保留悬念，还是当章收束？」+ 整行选项按钮「保留悬念/当章收束」+ 灰色「回答并继续」+「终止任务」按钮）；同时发现 `after-maintenance` 截图捕获到的是前台 Harness 窗口而非应用窗口（`could not create image from window`）——**当前会话前台窗口竞争**导致 driver 失焦交互失败、误触「终止任务」弹出「终止当前创作任务？」确认弹窗。已提交防误触修复 `3070471b`（ANSWER_MODE 精确点「保留悬念」、弹窗守卫只点「返回」绝不点「确认终止」、回答交互包 runStep 维持 typed wait ledger）。失败属环境干扰非产品回归；下轮无前台竞争时重跑或改定向事件驱动。**G6 不代签。**
+
 > 2026-11-10 **B81 CP5 确定性 ANSWER_MODE 第四次尝试（白名单/长请求修复，driver 卡在 answer/心跳）**：`d8139ef0` 修复 ① ANSWER_MODE capture 白名单扩展为 auto-maintenance 同源（此前 `未知 checkpoint: after-maintenance` 中止）；② ANSWER_MODE `longRequest` 优先取确定性预注册请求（此前退回 A3 默认长请求无多回合）。修复后 driver 能驱动到第一轮暂停（`a3-paused-1` 生成），但随后卡在 answer/心跳环节：runner `driver_idle_timeout`、driver log 为空。下一步：修 `respondToRunPause` 的确定性 fixture 回答发送与长等待心跳，再叠加自动维护 env 验证压缩触发与 G6 请求。**G6 不代签。**
 
 > 2026-11-10 **B81 CP5 确定性 ANSWER_MODE 多轮第三次尝试（进入真实链路，verify 契约未对齐）**：修复两处既有 batch 脚本 bug（`ffb07550`：`MEMORY_DETAIL` unbound with `set -u`；ANSWER_MODE 与 MULTI_TURN 门禁互斥冲突）后，`B71_ANSWER_MODE=1` 批次已能进入真实 runner/driver；但 verify 失败于 evidence capture 契约——`未知 checkpoint: after-maintenance`（ANSWER_MODE 驱动 a3 类 capture 不在白名单），runner 同时报 `driver_idle_timeout`（驱动长任务无心跳）。下一步：对齐 capture 集合/verify journey + 驱动心跳，再叠加自动维护 env 验证确定性多轮下的压缩触发与 G6 请求。**G6 不代签。**
