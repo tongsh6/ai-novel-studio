@@ -119,7 +119,13 @@ function transcriptMessages(sessionMessageRows) {
 }
 
 function checkpointCallIds(message) {
+  // CP3 后 checkpoint 消息的 canonical 结构是 {blocks: [{covers: {call_ids}}]}；
+  // 旧结构（call_ids/covers/payload）保留兜底。缺少 blocks 候选会让 C6 假阴性
+  // （真实批次 cp5-real-05：DB 有 covers 4 个 call，判据却读到 0）。
+  const blocks = Array.isArray(message?.blocks) ? message.blocks : [];
+  const blockCallIds = blocks.flatMap((block) => (Array.isArray(block?.covers?.call_ids) ? block.covers.call_ids : []));
   const candidates = [
+    blockCallIds,
     message?.call_ids,
     message?.covers?.call_ids,
     message?.compacted_call_ids,
