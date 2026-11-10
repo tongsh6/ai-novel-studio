@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-10 **B81 CP5 页面层多轮第二次尝试（cp5-g6-02，仍 FAIL 未闭环）**：修复 A3 driver 的 `readAnswerObservation`（AX path 前缀不可用时按问题特征文本/非固定 UI 按钮提取问题与选项；`cf1f6a0d`）后重跑真实 strata 多轮——本轮首轮直接完成（steers=0/stop_reason=run_terminal），真实模型首轮行为随机（询问 vs 完成）导致多轮触发不稳定。结论：真实 strata 路径不作唯一取证路径；下一轮改确定性 `B71_ANSWER_MODE=1`（slice_verify ask_author fixture 确定性询问→回答→同 run 继续）+ 自动维护 + 小窗口验证同 run 多回合→压缩触发→G6 请求，真实 strata 保留为实模分层证据。**G6 不代签。**
+
 > 2026-11-10 **B81 CP5 页面层多轮尝试（真实 strata，FAIL 未闭环）+ §8.6 恢复**：`B71_AUTO_MAINTENANCE=1 B71_AUTO_MAINT_MULTI_TURN=1 B71_PROVIDER=strata bash scripts/native_b71_batch.sh cp5-g6-01` —— 真实 strata 模型 + 小窗口压力 + 自动维护开启；第一轮真实请求后 run 进入 `awaiting_author`（模型对两章同名歧义提问），driver `recover_answer_surface` 后未能产生第二轮真实请求（driver 摘要 requests=1/triggered=false/checkpoint_events=0）；runner verify 判据 C2/C3/C4/C6/C11 未通过。原因方向：A3 driver 的「等待即回答」面板识别/发送与当前控制坞 UI 契约未匹配（验收资产问题，历史 A3 同样未闭环），非 CP1–CP4/CP6 产品回归。G6 不代签；下一步修 driver 面板注入或调整预注册请求后重跑。另：CP6 改写 §8.5.3 时误删的 §8.6（CP5 验收设计/G6 分层取证）已恢复并补 8.6.4b 尝试记录。证据目录 `artifacts/slice-verify/b71-first-consumer-auto-maint-cp5-g6-01/`。
 
 > 2026-11-10 **B81 CP6 收尾（全量门禁暴露的两个遗漏消费方）**：① I-CACHE 场景脚本以「## 会话摘要」作判断请求共享前缀 boundary marker → 改「## 章节列表（共」（`2687ee9b`），I-CACHE 10 行 covered/enforced 全绿；② 前端 `traceSummaryView` 对 `session_transcript` 的对话摘要特判与测试断言按退役语义更新（`4859cee8`），前端 display names 生成物随 SSOT 重新生成（`8b3672bf`）；`pnpm test` 53 files/484 tests 全绿。全量 `mix check` EXIT=0（application 1370/0、web 196/0、e2e 1/0、arch、adr 32/32、I-CACHE 全绿）。

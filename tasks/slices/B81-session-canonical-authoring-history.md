@@ -517,7 +517,8 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - **结果：FAIL（runner verify 未通过；driver 正常结束）**。driver 摘要 `requests=1 triggered=false checkpoint_events=0 failure_silent=false`；verify 失败判据 `C2_auto_maintenance_committed, C3_strip_visible, C4_expanded_factors, C6_canonical_complete, C11_multi_turn_same_run`。
 - **观察到的真实事实**：第一轮真实请求后 run 进入 `awaiting_author`（真实 strata 模型对「两章同名」歧义提问：「作品里有两章标题都叫「灰烬中的手印」，我按哪一章读正文和章计划？」）；driver 的 `recover_answer_surface` 已执行，但**没有产生第二轮真实请求**（`requests=1`）→ steer 预算内未形成「更早工作回合」→ 自动维护未触发。
 - **原因方向（非产品回归）**：`scripts/native_b71_auto_maintenance_drive.mjs` 的「等待即回答」面板识别/发送逻辑在当前控制坞 UI 契约（46 §9.7 底部输入区接管为 role=group aria-label「回答当前问题」）下未成功推进；该 driver 属验收资产，历史 A3 批次同样未闭环（B71 §16.16）。
-- **下一步**：修 driver 回答面板识别/发送（AX 节点契约核对），或调整预注册长请求减少首轮歧义提问（例如指定唯一章名）；修复后重跑该批次取 G6 判据。**G6 仍不代签。**
+- **第二次尝试（2026-11-10，cp5-g6-02，观察提取修复后）**：driver 改进 `readAnswerObservation`（AX `path` 前缀不可用时退回问题文本/非固定按钮启发式，不再依赖旧版「选项A」格式）后重跑；本轮真实 strata **首轮直接完成**（`steers=0`、`stop_reason=run_terminal`），没有 await 回合可 steer——真实模型首轮行为随机（询问作者 vs 直接完成），多轮触发不稳定。
+- **结论与下一轮方向**：① 真实 strata 多轮页面路径受模型随机性影响，不能作为唯一取证路径；② 更可控的是确定性多轮：`B71_ANSWER_MODE=1`（slice_verify + ask_author fixture，确定性询问→回答→同 run 继续）+ 自动维护（`NOVEL_CONTEXT_WINDOW_OVERRIDES=slice_verify:<小窗口>`）验证「同 run 多作者回合→压缩触发→G6 请求」；③ 真实 strata 路径保留为实模分层证据，与确定性路径分开报告。**G6 仍不代签。**
 
 #### 8.6.5 依赖与顺序
 
@@ -552,7 +553,7 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 - 2026-11-08：补充 §1.1 断链定位（schema 时间线 + 三项漏承接）与 §8.0 彻底重构/复用清单（作者确认：系统设计有、实现偏差；彻底重构但复用设计资料和实现）。
 - 2026-11-10：**CP6 机制层实现（旧 `:session_transcript` 材料退役）**：判断材料「会话摘要」段与 conversation 供给删除（4356ec53）；domain 类型/assembler 来源/展示名 SSOT+codegen 删除（bc4d73ad）；测试按退役语义更新。验证：application 1370/0、web 196/0、首轮页面 19/19；**基线 web 与 CP6 版 web 均 196/0**，排除历史环境干扰。详见 §8.5.3。
 - 2026-11-09：**CP6 实施尝试（已回滚）**：按 ADR-0035 决策 9 完成旧 `:session_transcript` 材料退役的生产+测试修改；application 全量 1370/0 通过，但 web 全量在 `WorkspaceChannelScopedEventsTest` 挂起（该测试不经判断链，疑似既有 slow/flake）；为保持门禁绿与不代签，回滚代码并登记验证注意与下轮拆分验证计划（§8.5.3）。
-- 2026-11-10：**CP5 页面层多轮尝试（FAIL，未闭环）**：真实 strata 多轮批次 `cp5-g6-01` 第一轮 awaiting_author 后 driver 未能产生第二轮真实请求（requests=1/triggered=false），G6 判据 C2/C3/C4/C6/C11 未达成；原因方向为 A3 driver 回答面板注入与当前控制坞 UI 契约未匹配（验收资产问题，非产品回归）。同时恢复此前被误删的 §8.6（CP5 验收设计：G6 分层取证）。证据与下一步见 §8.6.4b。
+- 2026-11-10：**CP5 页面层多轮尝试（两次 FAIL，未闭环）**：`cp5-g6-01` 第一轮 awaiting_author 后 driver 未能产生第二轮真实请求（requests=1/triggered=false，观察提取为空）；修复观察提取（`cf1f6a0d`）后 `cp5-g6-02` 首轮直接完成（steers=0，真实模型首轮行为随机）——真实 strata 多轮路径不稳定，下一轮改用确定性 `ANSWER_MODE` 多轮 + 自动维护验证同 run 多回合→压缩触发→G6 请求。同时恢复此前被误删的 §8.6（CP5 验收设计：G6 分层取证）。证据与下一步见 §8.6.4b。**G6 不代签。**
 - 2026-11-09：**CP4 机制层实现（会话级回查 + 投影等价）**：`AuthoringReplay.fetch_session/2`（会话级作者安全摘要）+ `TraceReplayService` 报告 `session_authoring_history`；新增 4 例机制测试（跨 run 摘要/作者安全/空会话/三类投影往返逐字节等价/恢复不改变投影）；run 级回查断言收窄到 `authoring_history`（会话级字段不参与错绑判定）；application+persistence 全量 1370/0。详见 §8.5.2。
 - 2026-11-09：**CP3 收尾：段编解码职责拆分**：`checkpoint/1`/`restore_segment/1`/`append_checkpoint/2` 移入 `AuthoringCheckpoint`（AuthoringTranscript 558→500 行，符合 module-size ratchet；职责回到组装）；测试调用点与 alias 同步；application+persistence 全量 1366/0。
 - 2026-11-09：**CP3 机制层实现（压缩作用域=会话历史）**：修正 CP1「段独立校验」与跨段 checkpoint 的架构冲突——新增段宽松恢复/checkpoint 追加，段校验升级为会话视图完整 IR 校验，压缩路径（显式+安全点）改在会话视图派生、checkpoint 追加本 run 段；新增机制测试与真实安全点跨 run 测试；application+persistence 全量 1366/0、首轮页面 19/19；§9 登记会话级 call_id 唯一约束。详见 §8.5.1。
