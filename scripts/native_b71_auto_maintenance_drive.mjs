@@ -320,19 +320,27 @@ async function waitRunResume({ runId, timeoutMs = TURN_TIMEOUT_MS }) {
 
 // 从真实回答面板读问题文本与选项（观察驱动多轮的唯一输入来源）。
 function readAnswerObservation(nodes, panel) {
+  // 面板节点可能没有可用 path 前缀（AX dump 的 path 表示不稳定），此时退回全局启发式：
+  // 只接受「问题特征文本」与「非固定 UI 的按钮」，避免把全局导航按钮当选项。
   const prefix = panel?.path ? `${panel.path}/` : null;
   const scoped = prefix ? nodes.filter((node) => String(node?.path ?? "").startsWith(prefix)) : [];
-  const fixedUi = /^(回答当前问题|回答并继续|回答并继续…|选项[A-Za-z0-9]?)$/u;
-  const staticTexts = scoped
+  const scope = scoped.length > 0 ? scoped : nodes;
+  const fixedUi =
+    /^(回答当前问题|回答并继续|回答并继续…|选项[A-Za-z0-9]?|终止任务|打开档案|阅读|记忆|作品|助手|开始新讨论|发送|发送回复|回复此问题|会话|模型已连接|同步已连接)$/u;
+  const staticTexts = scope
     .filter((node) => node?.role === "AXStaticText")
     .map((node) => String(node?.title ?? node?.value ?? node?.desc ?? "").trim())
     .filter((text) => text && !fixedUi.test(text));
+  // 问题文本特征：含问号/说明括号/章/计划/正文等对象词，且不是提示条短句。
   const questionText =
-    staticTexts.join(" ").trim() ||
-    String(panel?.title ?? panel?.desc ?? "").replace(/^回答当前问题[:：]?/u, "").trim();
-  const optionTitles = nodes
-    .filter((node) => node?.role === "AXButton" && /^选项[A-Za-z0-9]?/u.test(String(node.title ?? "").trim()))
-    .map((node) => String(node.title ?? "").trim());
+    staticTexts.find((text) => /[？?]|（|\(|章|计划|正文/.test(text) && text.length >= 8) ??
+    staticTexts.join(" ").trim() ??
+    "";
+  const optionTitles = scope
+    .filter((node) => node?.role === "AXButton")
+    .map((node) => String(node.title ?? "").trim())
+    .filter((title) => title && !fixedUi.test(title))
+    .filter((title) => !/^(阅读|记忆|作品|助手|模型|同步)/u.test(title));
   return { question_text: questionText, option_titles: optionTitles, scoped_nodes: scoped.length };
 }
 
