@@ -107,7 +107,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 | CP2 | doing（机制层已实现，页面多轮证据归 CP5） | 每轮请求由会话派生（完整历史；窗口压力时 checkpoint 投影替代更早历史） | 真实页面多轮会话：跨轮上下文/指代/义务 + 请求证据；机制层判据：第 N 轮请求含第 N-1 轮作者原话字节与前序 observation refs | CP1 | `apps/novel_application`（JudgmentProtocol/AgentRunServer）；可能新增 `novel_common` 纯契约（需裁决） |
 | CP3 | doing（机制层已实现；真实多轮页面证据归 CP5） | 压缩作用域=会话历史、触发/细条/回查调整 | G6 压缩后真实请求（真实多轮自然触发）+ 失败静默/幂等 | CP2 | `apps/novel_application`（TranscriptCompaction/AgentRunServer/ContextPressure，跨 run usage 累计）、`frontend/src`（仅在细条/回查需适配时） |
 | CP4 | doing（机制层已实现；真实多轮页面证据归 CP5） | 三类投影/恢复幂等 + 审计/回查以会话为对象（窄化为"投影输入来源变化后的等价性验证"） | 投影/幂等/回查机制证据 | CP2、CP3 | `apps/novel_agent`（投影校验）、`apps/novel_application`（Replay）、`scripts/arch_check.exs`（边界规则细化） |
-| CP5 | doing（机制层证据已有；页面层多轮尝试未闭环，见 §8.6.4b） | 真实页面多轮会话综合验收 + G6 取证（承接 B71 G6） | 页面/机制/实模分层报告（实模不代签）；窗口不可用时按 known-gap 登记规则如实关闭 | CP2–CP4 | `scripts/`（验收 harness）、`artifacts/`（证据，只读保留） |
+| CP5 | done_with_known_gap（机制层 G6 六项全绿；页面层确定性 D1–D5+细条/展开 PASS；实模触发+提交 done（构造压力）；实模页面视觉证据受真实模型失败态未捕获；C9 归 B86） | 真实页面多轮会话综合验收 + G6 取证（承接 B71 G6） | 页面/机制/实模分层报告（实模不代签）；窗口不可用时按 known-gap 登记规则如实关闭 | CP2–CP4 | `scripts/`（验收 harness）、`artifacts/`（证据，只读保留） |
 | CP6 | doing（机制层已实现；web 全量/页面验证进行中） | 旧 `:session_transcript`/旧装配链/旧 run 级语义退役清理 | 删除后全量门禁 + 无消费者核对 | CP5 | `apps/novel_application`（ContextAssembler/DialoguePlanningService 旧路径）、`apps/novel_persistence`（旧列删除）、测试清理 |
 
 ### 7.1 相关任务与承接关系（登记全）
@@ -560,14 +560,20 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
   - **C11 判据语义冲突（待适配）**：C11 要求「同 run 多轮观察驱动」，而 G6 实模场景是跨 turn（多 run）触发压缩；本批 steers=1 + 跨 turn 补发 → C11 必然失败。需要在 A3 判据里区分「同 run 多轮（A3 原始）/跨 turn 多轮（G6 场景）」，或给 G6 场景单独的判据集（不得为通过而放宽不变量）。
   - **C3 页面细条**：截图前台竞争（捕获 Harness 窗口），页面证据需稳定窗口环境下重取。
 
+- **实模批次判据收敛（2026-11-11，cp5-real-06/07）**：真实 strata 批次（多轮补发）判据失败收敛为 **C3/C4（页面细条/展开）+ C9（真实模型技术词）**，其余 **C2/C5/C6/C7/C8/C10/C11 全部通过**：
+  - C11 跨 turn 适配（`424cc4cb`）：A3 原「同 run 多轮观察驱动」判据与 G6 跨 turn 场景冲突，按场景区分（跨 turn：steers 全观察驱动 + 绑定真实问题/选项 + 至少 1 个补发 turn 推进到终态；同 run 保持原判据，不放宽不变量）；观察证据口径修正为「问题文本 或 真实选项标题」（真实 strata 问题文本节点有时读不到，但选项标题可读且 answer_source=option 已记录）。
+  - 页面证据采集前移（`6415098b`）：触发发生在补发 turn 的 run 执行中，`sendRequest` 阻塞到终态后 capture 时页面已进入失败/完成态、细条不再渲染——改为触发后立即 capture 细条+展开。复跑（cp5-real-07）仍缺细条：根因是**真实模型该 turn run failed 后页面进入失败态、整理细条未渲染（产品行为）**，不是 driver 时序。页面细条/展开四要素证据由确定性批次 `cp5-g6-det-04` 已取得（G6-5 pass），实模页面视觉证据按 known-gap 如实登记（不代签）。
+  - C9（真实模型输出含 `chapter:<uuid>`）归 B86 机制修复（材料/返回结构化），不在 CP5 收口范围。
+- **CP7 定论（2026-11-11）**：压缩对象/保留计数/covers 已是会话级（`session_view` + `plan_maintenance` 跨段）；新请求进入后首个 run 安全点即检查「会话历史中当前 turn 之前的更早交换」并压缩（cp5-real-05 实证：第 3 个 turn 的安全点压缩首轮交换）——**触发时机是安全点设计选择，不是压缩单位错误**；若作者仍要「请求前独立检查」再改（需 ADR 补充决策）。当前实现可关闭 CP7 待裁决项（除非作者另行要求）。
+
 #### 8.6.5 依赖与顺序
 
 CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4（投影等价/回查）；实模窗口与官方凭证另证（B82）；G6 在 CP5 前不得以机制层证据代签。
 
 ## 9. 剩余后果与阻塞
 
-- **CP7 候选（待作者裁决）**：压缩触发时机从 run 安全点改为会话级（下一次作者请求前按会话历史规模检查）；不动压缩对象/K 配置，只改触发时机与压力信号来源（方案见 §8.6.4b 待裁决条）。
-- **实模页面层判据**：C3/C6/C9/C11 未全过（截图前台竞争 / 真实模型输出含技术词 / 跨 run 与同 run 判据冲突）；全判据闭环需要更稳定的窗口环境或判据适配（不伪造证据、不降低不变量）。
+- **CP7 已定论（2026-11-11）**：压缩对象/保留计数/covers 已是会话级；触发时机为 run 安全点（设计选择，非压缩单位错误）；如作者仍要请求前独立检查再立 ADR 补充，当前无需改代码。
+- **实模页面层判据（known-gap）**：C6/C11 已修（判据口径）、C3/C4 页面证据受真实模型 run failed 后页面失败态影响未捕获（确定性批次已各自 PASS）、C9 归 B86；不伪造证据、不降低不变量。
 - **G6 探针**尚未接入 runner 验收 gate（当前为独立探针 + 手工核查），是否纳入 CI 待定。
 - **C9 作者可见面内部 ref 泄漏（新缺陷，机制修复归 B86）**：真实模型输出复述 `chapter:<uuid>` 到作者消息/工具观察（cp5-real-05，20 hits）。作者指出的根因是**材料与返回的结构化不足**（章编号/名称/内容与内部 ref 混在自然语言材料里；返回 tool schema 未约束作者可见字段），机制修复（材料结构化 + schema 约束 + AuthorVisible.Text 投影）已立项 [B86](B86-structured-model-materials-internal-ref-isolation.md)；本项目内已先扩展 `NovelCommon.AuthorVisible.Text`（new/1 构造投影 + redact/contains 函数，含单测）。
 - **C11 判据适配**：A3 「同 run 多轮」判据与 G6「跨 turn」场景冲突，需区分场景判据（不放宽不变量）。
