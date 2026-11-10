@@ -6,8 +6,11 @@
 // 失败静默（隔离 test DB 持久 trigger）→ 全类别 AX 扫描 → 清理。
 //
 // 不伪造窗口、不注入 usage、不手工压缩；无法形成真实压力时如实记录未闭环。
+// direct A3 与正式 live multi-turn（已触发且下一页面请求确定完成）共用
+// 重启/失败/恢复尾段；ANSWER_MODE / smoke 不跑，不新增模式开关。
 import path from "node:path";
 import fs from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { readJson } from "./lib/native_ui/driver.mjs";
 import {
   NativeScenarioHarness,
@@ -16,7 +19,8 @@ import {
   frameBody,
   runEvidenceMode,
 } from "./lib/native_ui/scenario_driver.mjs";
-import { all, logs, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
+import { all, dbPath, frameEvent, logs, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
+import { actionAck } from "./lib/native_ui/authoring_pending_evidence.mjs";
 import { sleep, typeText } from "./lib/native_ui/driver.mjs";
 import { classifyTurnBody, dbTerminal, wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
 import {
@@ -61,6 +65,14 @@ const checkpointEventCount = () =>
   withDb(dir, (db) =>
     Number(
       all(db, "SELECT COUNT(*) AS c FROM agent_events WHERE event_type = 'checkpoint_created'")[0]?.c ?? 0,
+    ),
+  );
+
+// canonical checkpoint 消息计数：直接按 role 列 COUNT，不读全表再解析 JSON。
+const checkpointMessageCount = () =>
+  withDb(dir, (db) =>
+    Number(
+      all(db, "SELECT COUNT(*) AS c FROM authoring_session_messages WHERE role = 'checkpoint'")[0]?.c ?? 0,
     ),
   );
 
@@ -126,7 +138,170 @@ function findStripButton(nodes) {
   return matches.at(-1) ?? null;
 }
 
-async function sendRequest(index, text) {
+const SETTLE_ANSWER_BUDGET = 6;
+const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
+// waitRunPauseOrTerminal 把 completed/failed/cancelled 统一返回 kind="terminal" + status；
+// wireTerminal/dbTerminal 则直接返回 completed/failed。这里适配一次，settle 只把
+// completed 视为真实续行成功，failed/cancelled 都是终止而非成功。
+function settlementOf(value) {
+  if (!value) return { kind: null, status: null, completed: false, terminal: false };
+  if (value.kind === "terminal") {
+    const status = String(value.status ?? "");
+    return { kind: status || "terminal", status, completed: status === "completed", terminal: true };
+  }
+  const kind = String(value.kind ?? "");
+  return {
+    kind,
+    status: value.status ?? null,
+    completed: kind === "completed",
+    terminal: TERMINAL_STATUSES.has(kind),
+  };
+}
+
+// 当前 run 在 wire 上最新一条 status=open 的 turn_result.author_question。
+function openAuthorQuestionFor(wire, runId) {
+  let latest = null;
+  for (const record of wire) {
+    if (record?.direction !== "received" || frameEvent(record) !== "turn_result") continue;
+    const question = record?.frame?.[4]?.author_question;
+    if (!question || String(question.run_id ?? "") !== String(runId ?? "")) continue;
+    if (String(question.status ?? "") !== "open") continue;
+    latest = question;
+  }
+  return latest;
+}
+
+// answer 专有比对：复用 actionAck 的 join/topic/request ref + 唯一回包，
+// 再要求 question_ref/run_id/action_id/source_turn_ref/goal_version 精确匹配。
+function authorChoiceAckFor(wire, { runId, wireStart, expected }) {
+  if (!runId || !expected?.question_ref) return null;
+  const matches = [];
+  for (const record of wire.slice(wireStart)) {
+    if (record?.direction !== "sent" || frameEvent(record) !== "author_action") continue;
+    const action = record?.frame?.[4]?.action;
+    if (action?.action_type !== "author_choice") continue;
+    if (String(action?.target_ref ?? "") !== String(runId)) continue;
+    if (String(action?.payload?.question_ref ?? "") !== String(expected.question_ref)) continue;
+    if (Number(action?.payload?.expected_goal_version) !== Number(expected.goal_version)) continue;
+    let ack;
+    try {
+      ack = actionAck(wire, record, { actionStatus: "accepted" });
+    } catch {
+      continue;
+    }
+    const response = ack.response ?? {};
+    if (String(response.action_type ?? "") !== "author_choice") continue;
+    if (String(response.run_id ?? "") !== String(runId)) continue;
+    if (String(response.action_id ?? "") !== String(action.action_id ?? "")) continue;
+    if (String(response.source_turn_ref ?? "") !== String(action.source_turn_ref ?? "")) continue;
+    if (String(response.question_ref ?? "") !== String(expected.question_ref)) continue;
+    if (Number(response.goal_version) !== Number(expected.goal_version) + 1) continue;
+    matches.push({ action, reply: ack.reply, response });
+  }
+  return matches.length === 1 ? matches[0] : null;
+}
+
+// 同 run 有界问答：每轮只回答 wire 上真实 open 的当前问题；点击前不按 AX 文本猜，
+// 点击后以本次 wire 的 author_choice ACK 绑定。下一次 awaiting 必须看到该 run 的
+// 新 question_ref/goal_version 才允许再点；checkpoint 早停仅供 warm-up 及时截图。
+async function settleAuthorRun({ runId, text, checkpointBaseline, checkpointEarlyStop }) {
+  const attempts = [];
+  let last = null;
+  let reason = null;
+  let answers = 0;
+  let previousQuestionRef = null;
+  let previousGoalVersion = null;
+  while (true) {
+    last = await waitRunPauseOrTerminal({ runId });
+    const outcome = settlementOf(last);
+    if (outcome.terminal) {
+      reason = outcome.completed ? null : outcome.kind;
+      break;
+    }
+    if (outcome.kind !== "paused") {
+      reason = `run_${outcome.kind}`;
+      break;
+    }
+    if (checkpointEarlyStop && checkpointEventCount() > checkpointBaseline) {
+      reason = "checkpoint_during_settle";
+      break;
+    }
+    if (answers >= SETTLE_ANSWER_BUDGET) {
+      reason = "answer_budget_exhausted";
+      break;
+    }
+    let expected;
+    try {
+      expected = await harness.runStep("maintenance", "settle_open_question", () =>
+        harness.pollWire(
+          (wire) => {
+            const question = openAuthorQuestionFor(wire, runId);
+            if (!question) return null;
+            if (previousQuestionRef && String(question.question_ref ?? "") === previousQuestionRef) return null;
+            if (previousGoalVersion !== null && Number(question.goal_version) < previousGoalVersion) return null;
+            return question;
+          },
+          previousQuestionRef ? 60_000 : 30_000,
+          `${FLOW_LABEL}:settle:open_question`,
+        ),
+      );
+    } catch {
+      expected = null;
+    }
+    if (!expected) {
+      reason = previousQuestionRef ? "new_question_not_observed" : "open_question_not_observed";
+      break;
+    }
+    const wireStart = harness.transport().length;
+    const steer = await respondToRunPause(text, attempts, {
+      observed: true,
+      strategy: process.env.B71_AUTO_MAINT_ANSWER_STRATEGY ?? "continue_verification",
+    });
+    attempts.push({
+      step: "settle_answer",
+      ok: steer.ok === true,
+      kind: steer.kind ?? null,
+      reason: steer.reason ?? null,
+    });
+    if (!steer.ok) {
+      reason = steer.reason ?? "answer_failed";
+      break;
+    }
+    // 不按 steer.kind 提前拒绝；以动作后的实际 wire 判 author_choice。
+    let bound = null;
+    try {
+      bound = await harness.runStep("ack", "settle_author_choice_ack", () =>
+        harness.pollWire(
+          (wire) => authorChoiceAckFor(wire, { runId, wireStart, expected }),
+          20_000,
+          `${FLOW_LABEL}:settle:author_choice_ack`,
+        ),
+      );
+    } catch {
+      bound = null;
+    }
+    if (!bound) {
+      reason = "author_choice_ack_missing";
+      break;
+    }
+    answers += 1;
+    attempts.push({
+      step: "settle_author_choice_ack",
+      accepted: true,
+      run_id: bound.response.run_id ?? null,
+      action_id: bound.response.action_id ?? null,
+      question_ref: bound.response.question_ref ?? null,
+      goal_version: Number(bound.response.goal_version),
+      run_state: bound.response.agent_run_state?.status ?? null,
+    });
+    previousQuestionRef = String(expected.question_ref);
+    previousGoalVersion = Number(bound.response.goal_version);
+  }
+  return { last, reason, attempts };
+}
+
+async function sendRequest(index, text, { settlePaused = false, checkpointEarlyStop = false } = {}) {
   await harness.runStep("maintenance", "input_ready", () =>
     harness.rawWaitInputReady(FLOW_LABEL, INPUT_TIMEOUT_MS),
   );
@@ -140,19 +315,33 @@ async function sendRequest(index, text) {
     harness.pollWire((wire) => harness.ackFor(wire, sent), 25_000, `${FLOW_LABEL}:ack:${index}`),
   );
   const runId = String(frameBody(ack)?.response?.run_id ?? "");
-  const terminal = await waitRunTerminal({ turnId, runId });
-  if (!terminal) throw new Error(`auto_maint: request_${index} terminal_missing`);
-  const turnBody = terminal.body ?? null;
+  const checkpointBaseline = checkpointEventCount();
+  let terminal = null;
+  let settle = null;
+  if (settlePaused && !runId) {
+    settle = { last: { kind: "run_unknown", status: null }, reason: "run_unknown", attempts: [] };
+  } else if (settlePaused) {
+    settle = await settleAuthorRun({ runId, text, checkpointBaseline, checkpointEarlyStop });
+  } else {
+    terminal = await waitRunTerminal({ turnId, runId });
+    if (!terminal) throw new Error(`auto_maint: request_${index} terminal_missing`);
+  }
+  const outcome = settlementOf(settle?.last ?? terminal);
+  const turnBody = terminal?.body ?? null;
   const classified = turnBody ? classifyTurnBody(turnBody) : null;
   const events = checkpointEventCount();
   return {
     index,
     text,
     turn_id: turnId,
-    run_id: runId || terminal.body?.agent_run?.run_id || null,
-    terminal_kind: terminal.kind,
-    terminal_status: terminal.status ?? null,
-    run_status: classified?.run_status ?? terminal.status ?? null,
+    run_id: runId || terminal?.body?.agent_run?.run_id || null,
+    terminal_kind: outcome.kind,
+    terminal_status: outcome.status,
+    run_status: classified?.run_status ?? outcome.status,
+    settled: outcome.completed,
+    pause_kind: settlePaused ? outcome.kind : null,
+    settle_reason: outcome.completed ? null : settle?.reason ?? outcome.kind ?? "unsettled",
+    settle_attempts: settle?.attempts ?? [],
     checkpoint_events_after: events,
     provider_calls: llmRecordCount(),
   };
@@ -189,12 +378,30 @@ function authorErrorVisible() {
     const texts = nodes.map((node) => `${node?.title ?? ""} ${node?.desc ?? ""} ${node?.value ?? ""}`).join("\n");
     return alerts.length > 0 && /失败|错误|异常/u.test(texts);
   } catch {
-    return false;
+    // AX 读不到不等于「无错误提示」：记 null，由 verifier 按缺证失败，而不是伪造 false。
+    return null;
+  }
+}
+
+// 隔离 test DB 的写连接只用于持久 trigger 注入/移除；所有读取仍走 withDb（只读）。
+// 写前用 realpath 确认 db 文件仍在本批 database 子目录内，防止误写共享数据库。
+function withWritableTestDb(fn) {
+  const expectedDir = fs.realpathSync(path.join(dir, "database"));
+  const realFile = fs.realpathSync(dbPath(dir));
+  if (path.dirname(realFile) !== expectedDir) {
+    throw new Error(`auto_maint: refusing to write db outside batch database dir: ${realFile}`);
+  }
+  const db = new DatabaseSync(realFile);
+  try {
+    db.exec("PRAGMA busy_timeout = 5000");
+    return fn(db);
+  } finally {
+    db.close();
   }
 }
 
 function injectFailureTrigger() {
-  withDb(dir, (db) => {
+  withWritableTestDb((db) => {
     db.exec("DROP TRIGGER IF EXISTS reject_b71_auto_maintenance");
     db.exec(
       "CREATE TRIGGER reject_b71_auto_maintenance BEFORE INSERT ON agent_events " +
@@ -205,21 +412,21 @@ function injectFailureTrigger() {
 }
 
 function dropFailureTrigger() {
-  withDb(dir, (db) => {
+  withWritableTestDb((db) => {
     db.exec("DROP TRIGGER IF EXISTS reject_b71_auto_maintenance");
   });
 }
 
-function waitCheckpointIncrease(baseline, timeoutMs = 90_000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    harness.checkSupervisor();
-    if (checkpointEventCount() > baseline) return true;
-    const sleep = new Promise((resolve) => setTimeout(resolve, 1_000));
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_000);
-    void sleep;
-  }
-  return false;
+// 请求索引按本批已发送回合的最大 index 递增，保证 failure/recovery 探针的
+// req-0N capture 唯一（direct A3 六回合耗尽 requests 时也不复用同一 capture）。
+function nextRequestIndex(rounds) {
+  return rounds.reduce((max, round) => Math.max(max, Number(round?.index ?? 0)), 0) + 1;
+}
+
+function nextRequestSettled(next) {
+  if (!next || next.skipped !== false) return false;
+  if (next.fresh_turn) return Boolean(next.request?.run_id);
+  return next.resume?.resumed === true && ["paused", "terminal"].includes(String(next.pause_after ?? ""));
 }
 
 
@@ -738,9 +945,117 @@ async function observeStripText(timeoutMs) {
   }
 }
 
+// direct A3 与正式 live multi-turn 共用的重启/失败/恢复尾段。只在调用方确认
+// 「已触发且下一页面请求达到确定完成」后运行；ANSWER_MODE / smoke 不跑。
+// 前一 request 未明确结算时只记缺证，不重启、不发新回合。
+async function runRecoveryProbes({ report, requests, workTitle, currentRunId, startIndex }) {
+  if (ANSWER_MODE || process.env.B71_AUTO_MAINT_SMOKE === "1") return;
+  const textFor = (index) => requests[index - 1] ?? "继续：按你的判断继续推进。";
+
+  // 前一 request 结算：真实 awaiting_author 用既有面板回答一次后复核实际状态；
+  // 只有 terminal 才重启，timeout/再次 paused 记缺证。
+  const preRestart = await sendNextRequestAfterTrigger({
+    index: startIndex,
+    queue: [textFor(startIndex)],
+    trigger: { run_id: currentRunId },
+    allowFreshTurn: false,
+  });
+  // 只有同身份真实 completed 才允许重启；failed/cancelled/paused/timeout 都记缺证。
+  const preRestartOutcome = settlementOf(
+    preRestart.skipped === true && preRestart.reason === "run_terminal"
+      ? { kind: "terminal", status: preRestart.pause_status ?? null }
+      : preRestart.skipped === true
+        ? { kind: preRestart.reason ?? "skipped" }
+        : {
+            kind: preRestart.pause_after === "terminal" ? "terminal" : preRestart.pause_after,
+            status: preRestart.pause_after_status ?? null,
+          },
+  );
+  const settledBeforeRestart = preRestartOutcome.completed;
+  if (!settledBeforeRestart) {
+    report.failure_injection = {
+      skipped: true,
+      reason: "previous_request_unsettled",
+      pre_restart: preRestart,
+    };
+    report.recovery = { skipped: true, reason: "previous_request_unsettled" };
+    return;
+  }
+
+  // 1) 真实重启恢复幂等。
+  const refreshBeforeEvents = checkpointEventCount();
+  const refreshBeforeMessages = checkpointMessageCount();
+  await harness.runStep("restore", "close_app_and_relaunch", () => harness.rawCloseAppAndRelaunch());
+  await harness.runStep("maintenance", "workbench_ready_restored", () =>
+    harness.rawWaitWorkbenchSettled(`${FLOW_LABEL}:restored`, READY_TIMEOUT_MS),
+  );
+  await harness.runStep("maintenance", "work_selected_restored", () =>
+    harness.rawTrySelectWork(workTitle, `${FLOW_LABEL}:restored`),
+  );
+  report.refresh = {
+    before_checkpoint_events: refreshBeforeEvents,
+    after_checkpoint_events: checkpointEventCount(),
+    before_checkpoint_messages: refreshBeforeMessages,
+    after_checkpoint_messages: checkpointMessageCount(),
+  };
+  harness.capture("after-refresh");
+  runEvidenceMode(evidence, "capture", dir, ["after-refresh"]);
+
+  // 2) 故障：一个新作者 turn；注入与移除都在 try/finally 内。
+  const failureBeforeEvents = checkpointEventCount();
+  const failureBeforeMessages = checkpointMessageCount();
+  let failure;
+  try {
+    injectFailureTrigger();
+    failure = await sendRequest(startIndex, textFor(startIndex), { settlePaused: true });
+  } finally {
+    dropFailureTrigger();
+  }
+  const failureAfterEvents = checkpointEventCount();
+  const failureAfterMessages = checkpointMessageCount();
+  const failureVisible = authorErrorVisible();
+  harness.capture("after-failure");
+  runEvidenceMode(evidence, "capture", dir, ["after-failure"]);
+
+  // 3) 恢复：故障 run 已结算才发第二个新作者 turn；否则记缺证，不盲发。
+  const recovery = failure.settled
+    ? await sendRequest(startIndex + 1, textFor(startIndex + 1), { settlePaused: true })
+    : {
+        index: startIndex + 1,
+        text: textFor(startIndex + 1),
+        run_id: null,
+        settled: false,
+        pause_kind: failure.pause_kind ?? "failure_unsettled",
+      };
+  harness.capture("after-recovery");
+  runEvidenceMode(evidence, "capture", dir, ["after-recovery"]);
+
+  report.failure_injection = {
+    trigger_created: true,
+    author_error_visible: failureVisible,
+    checkpoint_events_before_failure: failureBeforeEvents,
+    checkpoint_events_after_failure: failureAfterEvents,
+    checkpoint_messages_before_failure: failureBeforeMessages,
+    checkpoint_messages_after_failure: failureAfterMessages,
+    failure_request: {
+      index: failure.index,
+      run_id: failure.run_id ?? null,
+      settled: failure.settled === true,
+      run_status: failure.run_status ?? null,
+    },
+    recovery_request: {
+      index: recovery.index,
+      run_id: recovery.run_id ?? null,
+      settled: recovery.settled === true,
+      run_status: recovery.run_status ?? null,
+    },
+  };
+  report.recovery = { settled: recovery.settled === true };
+}
+
 // A3b 同 run 多回合流程：长任务请求 → 自然 awaiting_author → 真实控制坞 steer →
 // 同一 run 继续 → 安全点检查自动维护（smoke 只观测，不产验收证据）。
-async function runMultiTurnFlow({ report, requests }) {
+async function runMultiTurnFlow({ report, requests, workTitle }) {
   // G6-multi-turn 正式场景（2026-11-08 作者授权）：同 run 连续 steer，直到
   // 安全点自动维护触发（checkpoint_created）或 steer 预算耗尽/run 终局。
   // 触发后补作者可见细条/展开面板与「压缩后真实请求」证据；不触发则如实记录，
@@ -856,7 +1171,10 @@ async function runMultiTurnFlow({ report, requests }) {
         ["继续：按你刚才的判断，把下一个场景的开头写出来。", "继续：把上一段的结尾收束到一个具体的动作上。", "继续：写出下一章开头的一段，并说明它承接了什么。"][round] ??
         "继续：按你刚才的判断继续推进。";
       try {
-        const extra = await sendRequest(2 + round, requestText);
+        const extra = await sendRequest(2 + round, requestText, {
+          settlePaused: process.env.B71_AUTO_MAINT_SMOKE !== "1",
+          checkpointEarlyStop: process.env.B71_AUTO_MAINT_SMOKE !== "1",
+        });
         session.extra_rounds.push({ round: round + 1, ...extra });
         triggered = checkpointEventCount() > 0;
         session.checkpoint_events_after_extra = checkpointEventCount();
@@ -865,8 +1183,15 @@ async function runMultiTurnFlow({ report, requests }) {
           report.strip_expanded = await captureTriggeredMaintenanceEvidence();
           session.triggered_evidence_collected = true;
         }
+        // 未真实终局（预算/ACK/resume/等待不确定）时记准确缺证并停止补发；
+        // smoke 不产判据，保持既有观测行为。
+        if (!extra.settled && !triggered && process.env.B71_AUTO_MAINT_SMOKE !== "1") {
+          session.stop_reason = `extra_${extra.settle_reason ?? "unsettled"}`;
+          break;
+        }
       } catch (error) {
         session.extra_rounds.push({ round: round + 1, ok: false, error: error.message });
+        session.stop_reason = "extra_send_failed";
         break;
       }
     }
@@ -918,8 +1243,9 @@ async function runMultiTurnFlow({ report, requests }) {
     // 明确 terminal 且是实模 G6 → 在同一页面会话提交一个作者新 turn（复用 sendRequest）。
     // 无匹配/等待超时只记录缺证，不盲发。ANSWER_MODE 单 run 路线保持既有行为。
     const liveG6 = !ANSWER_MODE && process.env.B71_AUTO_MAINT_SMOKE !== "1";
+    const nextIndex = nextRequestIndex([first, ...(session.extra_rounds ?? [])]);
     const nextSteer = await sendNextRequestAfterTrigger({
-      index: 2 + (session.extra_rounds?.length ?? 0),
+      index: nextIndex,
       queue: requests,
       trigger: triggerSource,
       allowFreshTurn: liveG6,
@@ -928,6 +1254,20 @@ async function runMultiTurnFlow({ report, requests }) {
     report.next_request = nextSteer;
     harness.capture("after-next-request");
     runEvidenceMode(evidence, "capture", dir, ["after-next-request"]);
+    // 正式 live multi-turn 且下一页面请求达到确定完成：与 direct A3 共用
+    // 重启/失败/恢复尾段；状态不确定或仍在等待时 nextRequestSettled=false，
+    // 只记缺证，不盲发。
+    if (liveG6 && nextRequestSettled(nextSteer)) {
+      await runRecoveryProbes({
+        report,
+        requests,
+        workTitle,
+        currentRunId:
+          (nextSteer.fresh_turn ? nextSteer.request?.run_id : nextSteer.trigger_run_id) ??
+          triggerSource.run_id,
+        startIndex: nextIndex + 1,
+      });
+    }
   } else {
     harness.capture("after-maintenance");
     runEvidenceMode(evidence, "capture", dir, ["after-maintenance"]);
@@ -996,7 +1336,15 @@ async function sendNextRequestAfterTrigger({ index, queue, trigger, allowFreshTu
     if (!steer.ok) return { ...state, skipped: true, reason: "steer_failed", steer };
     const resume = await waitRunResume({ runId: trigger.run_id });
     const after = await waitRunPauseOrTerminal({ runId: trigger.run_id });
-    return { ...state, skipped: false, steer, resume, pause_after: after.kind, checkpoint_events: checkpointEventCount() };
+    return {
+      ...state,
+      skipped: false,
+      steer,
+      resume,
+      pause_after: after.kind,
+      pause_after_status: after.status ?? null,
+      checkpoint_events: checkpointEventCount(),
+    };
   }
   // 只有 DB 明确 terminal 才是真实已终局；timeout/其它状态如实缺证。
   if (pause.kind !== "terminal") return { ...state, skipped: true, reason: `run_${pause.kind}` };
@@ -1056,15 +1404,28 @@ async function run() {
     };
 
     if (process.env.B71_AUTO_MAINT_MULTI_TURN === "1") {
-      await runMultiTurnFlow({ report, requests });
+      await runMultiTurnFlow({ report, requests, workTitle: config.target.work_title });
     } else {
     // ≥2 次真实续行（最多 requests 条）；安全点自动整理触发后停止发送。
+    // live A3 的 warm-up 在暂停时用同 run 真实问题 bounded 结算；未终局不再盲发。
+    const liveWarmup = !ANSWER_MODE && process.env.B71_AUTO_MAINT_SMOKE !== "1";
     for (let index = 1; index <= requests.length; index += 1) {
-      const request = await sendRequest(index, requests[index - 1]);
+      const request = await sendRequest(index, requests[index - 1], {
+        settlePaused: liveWarmup,
+        checkpointEarlyStop: liveWarmup,
+      });
       report.requests.push(request);
       if (request.checkpoint_events_after > 0) {
         report.triggered = true;
         report.first_trigger_index = index;
+        break;
+      }
+      if (liveWarmup && !request.settled) {
+        report.unsettled = {
+          index,
+          reason: request.settle_reason,
+          attempts: request.settle_attempts,
+        };
         break;
       }
       if (index >= 2) {
@@ -1081,54 +1442,24 @@ async function run() {
       runEvidenceMode(evidence, "capture", dir, ["after-expanded"]);
 
       // 下一请求：整理之后的第一个真实请求 → 精简判据在 evidence 侧按 llm-calls 时间窗判定。
-      const nextIndex = Math.min((report.first_trigger_index ?? 1) + 1, requests.length);
-      const nextRequest = await sendRequest(nextIndex, requests[nextIndex - 1]);
+      // index 按已发送回合递增，requests 用尽时用通用文本，保证 capture 唯一。
+      const nextIndex = nextRequestIndex(report.requests);
+      const nextRequest = await sendRequest(
+        nextIndex,
+        requests[nextIndex - 1] ?? "继续：按你的判断继续推进。",
+      );
       report.next_request = nextRequest;
       harness.capture("after-next-request");
       runEvidenceMode(evidence, "capture", dir, ["after-next-request"]);
 
-      // 刷新（重启恢复）幂等。
-      const refreshBefore = checkpointEventCount();
-      await harness.runStep("restore", "close_app_and_relaunch", () => harness.rawCloseAppAndRelaunch());
-      await harness.runStep("maintenance", "workbench_ready_restored", () =>
-        harness.rawWaitWorkbenchSettled(`${FLOW_LABEL}:restored`, READY_TIMEOUT_MS),
-      );
-      await harness.runStep("maintenance", "work_selected_restored", () =>
-        harness.rawTrySelectWork(config.target.work_title, `${FLOW_LABEL}:restored`),
-      );
-      const refreshAfter = checkpointEventCount();
-      report.refresh = { before_checkpoint_events: refreshBefore, after_checkpoint_events: refreshAfter };
-      harness.capture("after-refresh");
-      runEvidenceMode(evidence, "capture", dir, ["after-refresh"]);
-
-      // 失败静默：持久 trigger → 下一请求的安全点维护失败（静默）→ 页面无错误、DB 无新 checkpoint。
-      const failureBefore = checkpointEventCount();
-      injectFailureTrigger();
-      const failureIndex = Math.min((report.first_trigger_index ?? 1) + 2, requests.length);
-      const failureRequest = await sendRequest(failureIndex, requests[failureIndex - 1]);
-      const failureVisible = authorErrorVisible();
-      const failureAfter = checkpointEventCount();
-      harness.capture("after-failure");
-      runEvidenceMode(evidence, "capture", dir, ["after-failure"]);
-      dropFailureTrigger();
-
-      // 恢复：移除 trigger 后下一安全点应出现 checkpoint_created（重试成功）。
-      const recoveryBaseline = failureAfter;
-      const recoveryIndex = Math.min((report.first_trigger_index ?? 1) + 3, requests.length);
-      const recoveryRequest = await sendRequest(recoveryIndex, requests[recoveryIndex - 1]);
-      const recovered = waitCheckpointIncrease(recoveryBaseline);
-      report.failure_injection = {
-        trigger_created: true,
-        author_error_visible: failureVisible,
-        checkpoint_events_before_failure: failureBefore,
-        checkpoint_events_after_failure: failureAfter,
-        recovered_after_drop: recovered,
-        failure_request: failureRequest,
-        recovery_request: recoveryRequest,
-      };
-      report.recovery = { recovered, checkpoint_events: checkpointEventCount() };
-      harness.capture("after-recovery");
-      runEvidenceMode(evidence, "capture", dir, ["after-recovery"]);
+      // 重启幂等 + 失败静默 + 恢复，与正式 live multi-turn 共用同一 helper。
+      await runRecoveryProbes({
+        report,
+        requests,
+        workTitle: config.target.work_title,
+        currentRunId: nextRequest.run_id,
+        startIndex: nextIndex + 1,
+      });
     } else {
       // 未触发真实压力/自动维护：如实记录未闭环，不伪造细条/窗口。
       harness.capture("after-maintenance");

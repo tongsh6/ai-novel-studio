@@ -50,7 +50,7 @@ const isObject = (value) => value !== null && typeof value === "object" && !Arra
 const nonBlank = (value) => typeof value === "string" && value.trim() !== "";
 const CHECKPOINT_COVER_PREFIX = "【应用数据 · checkpoint · 覆盖 ";
 // 正式 auto-maintenance 中 C5 缺证（ok=null）不是「不适用」，而是验收未通过；
-// C7/C8/C11 仍按适用场景保持 null=不判。
+// C7/C8 在 direct A3 与正式 live multi-turn 两个场景都必须判；仅 C11 按场景保持 null=不判。
 const EVIDENCE_REQUIRED_CHECKS = new Set(["C5_next_request_compact"]);
 
 function parseJson(value) {
@@ -298,6 +298,9 @@ export function evaluateAutoMaintenance({
   const transcript = transcriptMessages(db.authoring_session_messages);
   const checkpointsMsgs = transcript.filter((message) => String(message?.role ?? "") === "checkpoint");
   const events = checkpointEvents(db.agent_events);
+  // 尾段恢复 run 的 checkpoint 是 C8 证据，之后不再有「下一请求」；C5 只核查
+  // 触发/下一请求链上的 checkpoint，不把恢复 checkpoint 误判为缺证。
+  const recoveryProbeRunId = driverLog?.failure_injection?.recovery_request?.run_id ?? null;
   const eventTimes = eventAts(events);
   const triggerRatio = AUTO_MAINTENANCE_TRIGGER_RATIO;
   const threshold = Math.floor(AUTO_MAINTENANCE_WINDOW * triggerRatio);
@@ -378,7 +381,12 @@ export function evaluateAutoMaintenance({
   // 同时唯一配对日志。缺证 unknown，后续第 2 请求不能补位。
   const coveredCallIds = [...new Set(checkpointsMsgs.flatMap((checkpoint) => checkpointCallIds(checkpoint)))];
   const providerRunsById = new Map(list(db.provider_runs).map((run) => [String(run.id), run]));
-  const c5Checks = list(events).map((event) => {
+  const c5Checks = list(events)
+    .filter(
+      (event) =>
+        !(recoveryProbeRunId && String(event.run_id ?? "") === String(recoveryProbeRunId)),
+    )
+    .map((event) => {
     const eventRows = list(events).filter((row) => row.run_id === event.run_id);
     const checkpointRows = checkpointsMsgs.filter((row) => row.run_id === event.run_id);
     if (eventRows.length !== 1 || checkpointRows.length !== 1) return { ok: null, reason: "checkpoint_binding_unknown" };
@@ -457,49 +465,116 @@ export function evaluateAutoMaintenance({
     detail: { covered_call_ids: c6Covered, checkpoints_without_covers: checkpointsWithoutCovers, failures: c6Failures },
   };
 
-  // C7：刷新幂等（刷新后细条仍在、checkpoint 事件数不变）。
+  // C7：刷新幂等（刷新后细条仍在、checkpoint 事件与 canonical 消息计数均不变）。
+  // direct A3 与正式 live multi-turn 都必须产出该证据；缺证即失败，不按场景豁免。
+  // C7/C8 共用：计数必须是非负整数，null/字符串/NaN 都不能当 0 或强转通过。
+  const sameNonNegativeCount = (left, right) =>
+    Number.isInteger(left) && left >= 0 &&
+    Number.isInteger(right) && right >= 0 && left === right;
   const refreshAx = readCaptureText(dir, "after-refresh");
   const refresh = driverLog?.refresh ?? null;
   const c7 = {
-    // C7（刷新幂等）/C8（失败静默）属跨 run A3 场景的补充判据；G6-multi-turn
-    // 场景范围只要求「压缩触发 + 压缩后请求覆盖事实」，这两个判据在该场景不判
-    // （ok=null → 不进 required），并在 not_signed 明示，不从整体判据中删除。
-    ok: multiTurn
-      ? null
-      : stripText.test(refreshAx) &&
-        isObject(refresh) &&
-        Number(refresh.before_checkpoint_events) === Number(refresh.after_checkpoint_events),
-    reason: multiTurn ? "not_in_scope_multi_turn" : null,
+    ok:
+      stripText.test(refreshAx) &&
+      isObject(refresh) &&
+      sameNonNegativeCount(refresh.before_checkpoint_events, refresh.after_checkpoint_events) &&
+      sameNonNegativeCount(refresh.before_checkpoint_messages, refresh.after_checkpoint_messages),
+    reason: null,
     detail: {
       strip_visible_after_refresh: stripText.test(refreshAx),
       before_checkpoint_events: refresh?.before_checkpoint_events ?? null,
       after_checkpoint_events: refresh?.after_checkpoint_events ?? null,
+      before_checkpoint_messages: refresh?.before_checkpoint_messages ?? null,
+      after_checkpoint_messages: refresh?.after_checkpoint_messages ?? null,
     },
   };
   if (c7.ok === false) c7.reason = "refresh_not_idempotent";
 
-  // C8：失败静默（持久 trigger 注入；无错误弹窗；developer 日志；移除后恢复）。
+  // C8：失败静默。必须同时满足：持久 trigger 已注入、真实 AX 无错误提示（读取失败记
+  // null 即失败）、注入前后 checkpoint 事件与 canonical 消息两类计数严格不变、与
+  // failure_request.run_id 相同的真实 agent_run.auto_maintenance.error 且 reason 为
+  // :checkpoint_persistence_failed、故障/恢复均为已结算的新作者 turn，且恢复 run
+  // 在最终 dbFacts 中确实同时有 checkpoint 事件与 canonical checkpoint 行。
+  // 他 run 的日志、仅改报告或仅全局计数增长都不放行。
   const injection = driverLog?.failure_injection ?? null;
   const failureAx = readCaptureText(dir, "after-failure");
   const appLogText = list(appLog).map((entry) => JSON.stringify(entry)).join("\n");
-  const errorEventCount = list(appLog).filter((entry) => String(entry?.event ?? "").includes("auto_maintenance")).length;
+  const failureRunId = injection?.failure_request?.run_id ?? null;
+  const recoveryRunId = injection?.recovery_request?.run_id ?? null;
+  const failureLog = failureRunId
+    ? list(appLog).find(
+        (entry) =>
+          String(entry?.event ?? "") === "agent_run.auto_maintenance.error" &&
+          String(entry?.run_id ?? "") === String(failureRunId),
+      ) ?? null
+    : null;
+  const failureLogReason = failureLog ? String(failureLog.reason ?? "").trim() : null;
+  const runStatusOf = (runId) =>
+    runId
+      ? list(db.agent_runs).find((row) => String(row?.id ?? "") === String(runId))?.status ?? null
+      : null;
+  const failureRunStatus = runStatusOf(failureRunId);
+  const recoveryRunStatus = runStatusOf(recoveryRunId);
+  const recoveryCheckpointEvents = recoveryRunId
+    ? list(db.agent_events).filter(
+        (event) =>
+          String(event?.event_type ?? "") === "checkpoint_created" &&
+          String(event?.run_id ?? "") === String(recoveryRunId),
+      )
+    : [];
+  const recoveryCheckpointMessages = recoveryRunId
+    ? transcript.filter(
+        (message) =>
+          String(message?.role ?? "") === "checkpoint" &&
+          String(message?.run_id ?? "") === String(recoveryRunId),
+      )
+    : [];
   const c8 = {
-    ok: multiTurn
-      ? null
-      : isObject(injection) &&
+    ok:
+      isObject(injection) &&
       injection.trigger_created === true &&
       injection.author_error_visible === false &&
-      Number(injection.checkpoint_events_after_failure ?? -1) === Number(injection.checkpoint_events_before_failure ?? -2) &&
-      injection.recovered_after_drop === true &&
-      errorEventCount >= 0,
+      sameNonNegativeCount(
+        injection.checkpoint_events_before_failure,
+        injection.checkpoint_events_after_failure,
+      ) &&
+      sameNonNegativeCount(
+        injection.checkpoint_messages_before_failure,
+        injection.checkpoint_messages_after_failure,
+      ) &&
+      injection.failure_request?.settled === true &&
+      injection.recovery_request?.settled === true &&
+      Boolean(failureRunId) &&
+      Boolean(recoveryRunId) &&
+      String(failureRunId) !== String(recoveryRunId) &&
+      failureRunStatus === "completed" &&
+      recoveryRunStatus === "completed" &&
+      failureLogReason === ":checkpoint_persistence_failed" &&
+      recoveryCheckpointEvents.length > 0 &&
+      recoveryCheckpointMessages.length > 0,
     reason: null,
     detail: {
       trigger_created: injection?.trigger_created ?? null,
       author_error_visible: injection?.author_error_visible ?? null,
+      failure_request_run_id: failureRunId,
+      recovery_request_run_id: recoveryRunId,
       checkpoint_events_before_failure: injection?.checkpoint_events_before_failure ?? null,
       checkpoint_events_after_failure: injection?.checkpoint_events_after_failure ?? null,
-      recovered_after_drop: injection?.recovered_after_drop ?? null,
-      auto_maintenance_app_log_events: errorEventCount,
+      checkpoint_messages_before_failure: injection?.checkpoint_messages_before_failure ?? null,
+      checkpoint_messages_after_failure: injection?.checkpoint_messages_after_failure ?? null,
+      failure_request_settled: injection?.failure_request?.settled ?? null,
+      recovery_request_settled: injection?.recovery_request?.settled ?? null,
+      failure_request_reported_status: injection?.failure_request?.run_status ?? null,
+      recovery_request_reported_status: injection?.recovery_request?.run_status ?? null,
+      failure_run_status: failureRunStatus,
+      recovery_run_status: recoveryRunStatus,
+      recovery_checkpoint_event_count: recoveryCheckpointEvents.length,
+      recovery_checkpoint_message_count: recoveryCheckpointMessages.length,
+      failure_log_run_id: failureLog ? (failureLog.run_id ?? null) : null,
+      failure_log_reason: failureLogReason,
+      auto_maintenance_app_log_events: list(appLog).filter((entry) =>
+        String(entry?.event ?? "").includes("auto_maintenance"),
+      ).length,
       failure_capture_error_text: /失败|错误|异常/u.test(failureAx),
       app_log_has_auto_maintenance: appLogText.includes("auto_maintenance"),
     },
@@ -650,9 +725,6 @@ export function evaluateAutoMaintenance({
       "I10_literary_quality_not_signed",
       "G1_G6_full_signed=false",
       "threshold_tuning_not_signed",
-      ...(multiTurn
-        ? ["C7_refresh_not_in_scope_multi_turn", "C8_failure_injection_not_in_scope_multi_turn"]
-        : []),
     ],
   };
 }

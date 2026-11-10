@@ -17,6 +17,9 @@ const WORK = "work-auto-1";
 const SESSION = "session-auto-1";
 const OTHER_SESSION = "session-auto-2";
 const RUN = "run-auto-1";
+const FAIL_RUN = "run-auto-fail";
+const RECOVERY_RUN = "run-auto-recovery";
+const FAILURE_REASON = ":checkpoint_persistence_failed";
 const CALL_ID = "call_auto_1";
 const EVENT_AT = "2026-11-04T10:00:00.000Z";
 const BEFORE_STARTED_AT = "2026-11-04T09:59:20.000Z";
@@ -144,6 +147,13 @@ function providerEventsFor({ afterEmittedAt = AFTER_STARTED_AT } = {}) {
 }
 
 function dbFactsFor({ afterSession = SESSION, afterEmittedAt = AFTER_STARTED_AT } = {}) {
+  const baseMessages = transcriptRecord().transcript.messages.map((message, index) => ({
+    run_id: RUN,
+    session_id: SESSION,
+    sequence: index + 1,
+    run_sequence: index + 1,
+    message: JSON.stringify(message),
+  }));
   return {
     agent_events: [
       {
@@ -155,15 +165,31 @@ function dbFactsFor({ afterSession = SESSION, afterEmittedAt = AFTER_STARTED_AT 
         payload: JSON.stringify({ covered_exchanges: 1, retained_items: 0, scope: "earlier_work_turns", sources: ["资料查阅"] }),
         inserted_at: EVENT_AT,
       },
+      {
+        id: "evt-recovery",
+        run_id: RECOVERY_RUN,
+        event_type: "checkpoint_created",
+        visibility: "author",
+        sequence: 1,
+        payload: JSON.stringify({ covered_exchanges: 1, retained_items: 0, scope: "earlier_work_turns", sources: ["资料查阅"] }),
+        inserted_at: "2026-11-04T10:05:00.000Z",
+      },
     ],
-    agent_runs: [{ id: RUN, status: "completed", session_id: SESSION }],
-    authoring_session_messages: transcriptRecord().transcript.messages.map((message, index) => ({
-      run_id: RUN,
-      session_id: SESSION,
-      sequence: index + 1,
-      run_sequence: index + 1,
-      message: JSON.stringify(message),
-    })),
+    agent_runs: [
+      { id: RUN, status: "completed", session_id: SESSION },
+      { id: FAIL_RUN, status: "completed", session_id: SESSION },
+      { id: RECOVERY_RUN, status: "completed", session_id: SESSION },
+    ],
+    authoring_session_messages: [
+      ...baseMessages,
+      {
+        run_id: RECOVERY_RUN,
+        session_id: SESSION,
+        sequence: 7,
+        run_sequence: 1,
+        message: JSON.stringify(checkpointMessage({ summary: `恢复后的整理记录（覆盖 ${CALL_ID}）` })),
+      },
+    ],
     provider_runs: providerRunsFor({ afterSession }),
     provider_events: providerEventsFor({ afterEmittedAt }),
     interactions: [],
@@ -222,13 +248,21 @@ function driverLogFor() {
     triggered: true,
     first_trigger_index: 2,
     maintenance_strip: { found: true, clicked: true },
-    refresh: { before_checkpoint_events: 1, after_checkpoint_events: 1 },
+    refresh: {
+      before_checkpoint_events: 1,
+      after_checkpoint_events: 1,
+      before_checkpoint_messages: 1,
+      after_checkpoint_messages: 1,
+    },
     failure_injection: {
       trigger_created: true,
       author_error_visible: false,
       checkpoint_events_before_failure: 1,
       checkpoint_events_after_failure: 1,
-      recovered_after_drop: true,
+      checkpoint_messages_before_failure: 1,
+      checkpoint_messages_after_failure: 1,
+      failure_request: { index: 3, run_id: FAIL_RUN, settled: true, run_status: "completed" },
+      recovery_request: { index: 4, run_id: RECOVERY_RUN, settled: true, run_status: "completed" },
     },
     termination: { llm_calls: 2 },
   };
@@ -291,7 +325,7 @@ function buildDir({ strip = true, expanded = true } = {}) {
   ]);
   writeJsonl(path.join(dir, "app-log", "2026-11-04.jsonl"), [
     { at: "2026-11-04T09:59:10.000Z", event: "provider_gateway.complete.start", provider: "strata" },
-    { at: "2026-11-04T10:00:02.000Z", event: "agent_run.auto_maintenance.error", run_id: RUN, reason: "maintenance unavailable" },
+    { at: "2026-11-04T10:00:02.000Z", event: "agent_run.auto_maintenance.error", run_id: FAIL_RUN, reason: FAILURE_REASON },
   ]);
   writeJsonl(path.join(dir, "llm-calls", "2026-11-04.jsonl"), llmRecords());
   writeJson(path.join(dir, "native-b71-driver-log.json"), driverLogFor());
@@ -322,25 +356,47 @@ function buildDir({ strip = true, expanded = true } = {}) {
   db.exec(`
     CREATE TABLE agent_events (id TEXT, run_id TEXT, event_type TEXT, visibility TEXT, sequence INTEGER, payload TEXT, inserted_at TEXT);
     CREATE TABLE agent_runs (id TEXT, status TEXT, session_id TEXT);
-    CREATE TABLE authoring_session_messages (id TEXT, run_id TEXT, session_id TEXT, sequence INTEGER, run_sequence INTEGER, message TEXT, format_version TEXT);
+    CREATE TABLE authoring_session_messages (id TEXT, run_id TEXT, session_id TEXT, sequence INTEGER, run_sequence INTEGER, role TEXT, message TEXT, format_version TEXT);
     CREATE TABLE provider_runs (id TEXT, provider_call_ref TEXT, provider_id TEXT, agent_run_id TEXT, session_id TEXT, purpose TEXT, started_at TEXT, inserted_at TEXT);
     CREATE TABLE provider_events (id TEXT, provider_run_id TEXT, provider_call_ref TEXT, event_type TEXT, emitted_at TEXT);
     CREATE TABLE interactions (id TEXT, turn_id TEXT, content TEXT);
     CREATE TABLE mutations (id TEXT);
   `);
   db.prepare("INSERT INTO agent_events VALUES (?,?,?,?,?,?,?)").run("evt-1", RUN, "checkpoint_created", "author", 2, JSON.stringify({ covered_exchanges: 1, scope: "earlier_work_turns", sources: ["资料查阅"] }), EVENT_AT);
+  db.prepare("INSERT INTO agent_events VALUES (?,?,?,?,?,?,?)").run(
+    "evt-recovery",
+    RECOVERY_RUN,
+    "checkpoint_created",
+    "author",
+    1,
+    JSON.stringify({ covered_exchanges: 1, scope: "earlier_work_turns", sources: ["资料查阅"] }),
+    "2026-11-04T10:05:00.000Z",
+  );
   db.prepare("INSERT INTO agent_runs VALUES (?,?,?)").run(RUN, "completed", SESSION);
+  db.prepare("INSERT INTO agent_runs VALUES (?,?,?)").run(FAIL_RUN, "completed", SESSION);
+  db.prepare("INSERT INTO agent_runs VALUES (?,?,?)").run(RECOVERY_RUN, "completed", SESSION);
   transcriptRecord().transcript.messages.forEach((message, index) => {
-    db.prepare("INSERT INTO authoring_session_messages VALUES (?,?,?,?,?,?,?)").run(
+    db.prepare("INSERT INTO authoring_session_messages VALUES (?,?,?,?,?,?,?,?)").run(
       `msg-${index + 1}`,
       RUN,
       SESSION,
       index + 1,
       index + 1,
+      message.role,
       JSON.stringify(message),
       "authoring-session-message/v1",
     );
   });
+  db.prepare("INSERT INTO authoring_session_messages VALUES (?,?,?,?,?,?,?,?)").run(
+    "msg-recovery",
+    RECOVERY_RUN,
+    SESSION,
+    7,
+    1,
+    "checkpoint",
+    JSON.stringify(checkpointMessage({ summary: "恢复后的整理记录" })),
+    "authoring-session-message/v1",
+  );
   for (const run of providerRunsFor()) {
     db.prepare("INSERT INTO provider_runs VALUES (?,?,?,?,?,?,?,?)").run(
       run.id,
@@ -376,7 +432,9 @@ function evaluate(overrides = {}) {
     cleanup: overrides.cleanup ?? { remaining: [], process_observation: { method: "pgrep+lsof" } },
     strataSlot: overrides.strataSlot ?? { unloaded: true },
     llmRecords: overrides.llmRecords ?? llmRecords(),
-    appLog: overrides.appLog ?? [{ event: "agent_run.auto_maintenance.error" }],
+    appLog: overrides.appLog ?? [
+      { event: "agent_run.auto_maintenance.error", run_id: FAIL_RUN, reason: FAILURE_REASON },
+    ],
     dir,
     multiTurn: overrides.multiTurn ?? null,
   });
@@ -641,7 +699,7 @@ test("verify 前有界等待 finally 证据：延迟落盘的 strata-slot.json �
   fs.rmSync(missing, { recursive: true, force: true });
 });
 
-test("G6 multi-turn 正例：同 run pause/steer/resume 成立 → C11 pass，C7/C8 不判", () => {
+test("G6 multi-turn 正例：同 run pause/steer/resume 成立 → C11 pass，C7/C8 一并判", () => {
   const result = evaluate({
     multiTurn: {
       pause: { kind: "paused", status: "awaiting_author" },
@@ -665,15 +723,42 @@ test("G6 multi-turn 正例：同 run pause/steer/resume 成立 → C11 pass，C7
     },
   });
   assert.equal(result.checks.C11_multi_turn_same_run.ok, true);
-  assert.equal(result.checks.C7_refresh_idempotent.ok, null);
-  assert.equal(result.checks.C8_failure_silent.ok, null);
-  assert(!result.required.includes("C7_refresh_idempotent"));
-  assert(!result.required.includes("C8_failure_silent"));
+  assert.equal(result.checks.C7_refresh_idempotent.ok, true);
+  assert.equal(result.checks.C8_failure_silent.ok, true);
+  assert(result.required.includes("C7_refresh_idempotent"));
+  assert(result.required.includes("C8_failure_silent"));
   assert(result.required.includes("C11_multi_turn_same_run"));
   assert(!result.failed.includes("C11_multi_turn_same_run"));
+  assert(!result.failed.includes("C7_refresh_idempotent"));
+  assert(!result.failed.includes("C8_failure_silent"));
   assert.deepEqual(result.failed, []);
-  assert(result.not_signed.includes("C7_refresh_not_in_scope_multi_turn"));
-  assert(result.not_signed.includes("C8_failure_injection_not_in_scope_multi_turn"));
+  assert(!result.not_signed.some((item) => item.includes("not_in_scope_multi_turn")));
+});
+
+test("G6 multi-turn：C7/C8 不再豁免，缺刷新/失败证据即失败", () => {
+  const result = evaluate({
+    driverLog: { ...driverLogFor(), refresh: null, failure_injection: null },
+    multiTurn: {
+      pause: { kind: "paused", status: "awaiting_author" },
+      steers: [
+        {
+          index: 1,
+          ok: true,
+          observation: { question_text: "请确认要看哪一章？", answer_source: "option", answer_text: "选项A" },
+        },
+      ],
+      resumes: [{ index: 1, resumed: true, status: "running" }],
+      rounds: [{ index: 1, pause_kind: "paused" }],
+      stop_reason: "triggered",
+      max_steers: 6,
+      checkpoint_events: 1,
+    },
+  });
+  assert.equal(result.checks.C7_refresh_idempotent.ok, false);
+  assert.equal(result.checks.C8_failure_silent.ok, false);
+  assert(result.failed.includes("C7_refresh_idempotent"));
+  assert(result.failed.includes("C8_failure_silent"));
+  assert(!result.not_signed.some((item) => item.includes("not_in_scope_multi_turn")));
 });
 
 test("G6 multi-turn 反例：缺 steer 或未 resume → C11 fail（不放宽）", () => {
@@ -793,6 +878,96 @@ test("G6 跨 turn 反例：无推进 turn 或回答未观察 → C11 fail（不�
   });
   assert.equal(noObservation.checks.C11_multi_turn_same_run.ok, false);
   assert(noObservation.failed.includes("C11_multi_turn_same_run"));
+});
+
+test("C7 反例：刷新计数为 null/字符串/负数时不得通过", () => {
+  const base = driverLogFor();
+  for (const [label, patch] of [
+    ["null 计数", { after_checkpoint_messages: null }],
+    ["字符串计数", { before_checkpoint_events: "1" }],
+    ["负数计数", { after_checkpoint_events: -1 }],
+  ]) {
+    const result = evaluate({
+      driverLog: { ...base, refresh: { ...base.refresh, ...patch } },
+    });
+    assert.equal(result.checks.C7_refresh_idempotent.ok, false, label);
+  }
+});
+
+test("C8 反例：恢复他 run / 仅改报告无 DB 行 / 日志、计数、结算不符均 fail", () => {
+  const base = driverLogFor();
+  const withInjection = (patch) => ({
+    driverLog: { ...base, failure_injection: { ...base.failure_injection, ...patch } },
+  });
+  const appLog = (runId, reason = FAILURE_REASON) => [
+    { event: "agent_run.auto_maintenance.error", run_id: runId, reason },
+  ];
+
+  const otherRun = evaluate({ ...withInjection({}), appLog: appLog("run-other") });
+  assert.equal(otherRun.checks.C8_failure_silent.ok, false);
+  assert.equal(otherRun.checks.C8_failure_silent.detail.failure_log_run_id, null);
+
+  const wrongReason = evaluate({ ...withInjection({}), appLog: appLog(FAIL_RUN, "maintenance unavailable") });
+  assert.equal(wrongReason.checks.C8_failure_silent.ok, false);
+  assert.equal(wrongReason.checks.C8_failure_silent.detail.failure_log_reason, "maintenance unavailable");
+
+  // 恢复他 run：最终 dbFacts 没有该 run 的 checkpoint 事件/canonical 行。
+  const recoveryOtherRun = evaluate(
+    withInjection({ recovery_request: { index: 4, run_id: "run-other", settled: true } }),
+  );
+  assert.equal(recoveryOtherRun.checks.C8_failure_silent.ok, false);
+  assert.equal(recoveryOtherRun.checks.C8_failure_silent.detail.recovery_checkpoint_event_count, 0);
+  assert.equal(recoveryOtherRun.checks.C8_failure_silent.detail.recovery_checkpoint_message_count, 0);
+
+  // 仅改报告无 DB 行：报告仍指向 RECOVERY_RUN，但最终 DB 删掉该 run 的 checkpoint。
+  const noDbRow = dbFactsFor();
+  noDbRow.agent_events = noDbRow.agent_events.filter((event) => event.run_id !== RECOVERY_RUN);
+  noDbRow.authoring_session_messages = noDbRow.authoring_session_messages.filter(
+    (row) => row.run_id !== RECOVERY_RUN,
+  );
+  const reportOnly = evaluate({ ...withInjection({}), dbFacts: noDbRow });
+  assert.equal(reportOnly.checks.C8_failure_silent.ok, false);
+  assert.equal(reportOnly.checks.C8_failure_silent.detail.recovery_checkpoint_event_count, 0);
+  assert.equal(reportOnly.checks.C8_failure_silent.detail.recovery_checkpoint_message_count, 0);
+
+  const axUnread = evaluate(withInjection({ author_error_visible: null }));
+  assert.equal(axUnread.checks.C8_failure_silent.ok, false);
+  assert.equal(axUnread.checks.C8_failure_silent.detail.author_error_visible, null);
+
+  // null 不得当 0 相等。
+  const nullCount = evaluate(withInjection({ checkpoint_events_after_failure: null }));
+  assert.equal(nullCount.checks.C8_failure_silent.ok, false);
+
+  const messageGrew = evaluate(withInjection({ checkpoint_messages_after_failure: 2 }));
+  assert.equal(messageGrew.checks.C8_failure_silent.ok, false);
+
+  const failureUnsettled = evaluate(
+    withInjection({ failure_request: { index: 3, run_id: FAIL_RUN, settled: false } }),
+  );
+  assert.equal(failureUnsettled.checks.C8_failure_silent.ok, false);
+
+  // settled 只证明已结算；作者正常继续必须由同身份真实终局 completed 证明。
+  const failedFailureRun = dbFactsFor();
+  failedFailureRun.agent_runs = failedFailureRun.agent_runs.map((row) =>
+    row.id === FAIL_RUN ? { ...row, status: "failed" } : row,
+  );
+  const failedRun = evaluate({ ...withInjection({}), dbFacts: failedFailureRun });
+  assert.equal(failedRun.checks.C8_failure_silent.ok, false);
+  assert.equal(failedRun.checks.C8_failure_silent.detail.failure_run_status, "failed");
+
+  const cancelledRecoveryRun = dbFactsFor();
+  cancelledRecoveryRun.agent_runs = cancelledRecoveryRun.agent_runs.map((row) =>
+    row.id === RECOVERY_RUN ? { ...row, status: "cancelled" } : row,
+  );
+  const cancelledRun = evaluate({ ...withInjection({}), dbFacts: cancelledRecoveryRun });
+  assert.equal(cancelledRun.checks.C8_failure_silent.ok, false);
+  assert.equal(cancelledRun.checks.C8_failure_silent.detail.recovery_run_status, "cancelled");
+
+  const missingRun = dbFactsFor();
+  missingRun.agent_runs = missingRun.agent_runs.filter((row) => row.id !== RECOVERY_RUN);
+  const noRunStatus = evaluate({ ...withInjection({}), dbFacts: missingRun });
+  assert.equal(noRunStatus.checks.C8_failure_silent.ok, false);
+  assert.equal(noRunStatus.checks.C8_failure_silent.detail.recovery_run_status, null);
 });
 
 test("跨 run A3 场景：C11 不判（ok=null，不进 required），C7/C8 仍判", () => {
