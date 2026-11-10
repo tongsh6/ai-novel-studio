@@ -622,10 +622,10 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 
 | 范围 | 已成立的事实 | 仍需闭合 |
 |---|---|---|
-| CP1 | 会话消息由已有 `AuthoringSessionLog` 与 run 段头持久化；run 快照、段、消息和 durable 引用走同一提交边界。当前改动按会话 `sequence` 组装已提交历史，接续本 run 未提交尾部；SQLite 回归验证旧 run 遇到新 run checkpoint 后仍可恢复。 | 交错恢复尚缺真实页面启动 A/B、由 A 续行出站的端到端证据。唯一序号索引只证明存储顺序，并发重复覆盖须在事务内解决。 |
+| CP1 | 会话消息由已有 `AuthoringSessionLog` 与 run 段头持久化；run 快照、段、消息和 durable 引用走同一提交边界。按会话 `sequence` 组装历史，接续本 run 未提交尾部。旧快照的完整会话语义在写锁内校验，重复覆盖的第二次提交被拒绝并整笔回滚。 | 核查会话读取的一致快照与损坏段拒绝，见 CP2/CP4。 |
 | CP2/CP3 | 步骤共用会话请求视图，按已有消息 run 归属剥离外部历史。`covers.turn_range` 在规划时按各 run 的作者回合派生，首末按会话顺序，当前 run 的作者回合继续受到保护。来源和版本与 IR 校验共用提取规则。 | 检查无初始创作段的专业入口、会话消息与 refs 的同读边界；确认保留的观察及来源/版本进入交错恢复后的实际出站请求。仅含范围的旧 checkpoint 形状尚待退役。 |
 | CP4 | 现有 `AuthoringReplay` 提供会话级回查；既有测试验证三类投影的段往返等价。 | 审计 `fetch_session/2` 是否与请求读取同样拒绝损坏或不一致的段。重放等价仅证明投影机制，不证明出站请求消费。 |
-| CP5 | `b81-answer-recheck-01` 的真实页面 D1–D5 通过。`b81-c7-c8-03` 在当前会话归属实现上从真实页面回答两题，继续到压缩、重启、静默失败与恢复，批次 C1–C11 全过。 | 仍需交错 A/B 恢复后的真实请求证据和并发重复覆盖修复。C9 此批未观察到泄漏，历史实际泄漏仍归 B86。 |
+| CP5 | `b81-answer-recheck-01` 的真实页面 D1–D5 通过。`b81-c7-c8-03` 的压缩、重启和失败恢复场景 C1–C11 全过。交错专项 05 与 07 取得真实页面 A 待答、B 整理、A 回答后的同一 run 出站报文。 | 05 与 07 的观察带来源、无版本。05 的 C9 内部标识泄漏归 B86，07 C9 未命中。 |
 | CP6 | 生产代码已退役旧列和旧材料类型；B71 live/behavior 验收从真实作者请求 ACK 定位 canonical 段，读取实际模型工具参数和同作用域引用。对 `b81-answer-recheck-01` 的原始 WS 和 SQLite 做了只读交叉核验，读出本 run 的 21 条消息。 | AU09 的外部 driver/verifier、夹具和质量清单仍断言旧 `session_transcript` 来源。旧种子只写展示用 interactions。迁移时需分别证明当前/历史 canonical 会话在实际请求中的隔离，以及已确认记忆和作品背景的分层。 |
 
 **实模页面发现**。`b81-c5-c6-resume-01` 的 `a3-paused-2.jpg` 与对应 AX 树记录了同一 run 的第二次提问。消息流已经显示第二题，底部回答区仍显示第一题，选项禁用且提示「此问题暂不可回复」。原始 `native-transport.jsonl` 证实两条 `turn_result` 分别携带 `goal_version=1` 与 `goal_version=2` 的 open 问题和各自的 `author_choice`。当前问题应沿用输入路由的 run 与 goal 版本绑定。批次以 `resume_failed` 结束，实际 checkpoint 为 0，C5 缺证、C6 失败。两次 Provider 调用均已落盘 `started.emitted_at`，结束后模型槽为空。验收需从页面回答第二题，核对 ACK 与同一 run 恢复，再检查压缩后的实际请求。
@@ -646,7 +646,11 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 
 **交错恢复红灯**。真实 SQLite 测试先提交旧 run A 的闭合交换，再由新 run B 提交覆盖 A 调用的 checkpoint。随后恢复 A 返回 `checkpoint_unknown_call`。持久层保留了 A 交换先于 B checkpoint 的顺序，错误发生在请求视图组装。已提交部分应沿用会话序号，局部未提交消息接在其后，恢复结果仍只返回 A 执行段。未闭合工具交换能否由生产并发流程落盘仍需独立证明。
 
-**并发提交红灯**。在独立 SQLite 库中，B 与 C 基于同一份会话历史准备压缩快照，再依序提交。两次提交都成功，序号 15、18 的 checkpoint 覆盖同一个 call。单独提交 B 后 A 可恢复，C 提交后 A/B/C 均返回 `checkpoint_already_applied`。`AgentRunLog.commit_snapshot/2` 的写锁覆盖消息追加，会话语义仍在锁外校验。下一步将该校验收进既有事务边界，保留提交后发布整理事件和回执。证据在 `artifacts/b81-review/stale-compaction-commit-red.log`。
+**并发提交红绿**。红灯中，B 与 C 基于同一份旧历史准备快照，两次写入均成功。C 的 checkpoint 重复覆盖 B 已覆盖的 call，使 A/B/C 恢复均失败。修复后，快照只负责 JSON 编码，现有 SQLite 写事务先取得锁，再用同一段校验核对实际提交的 run 和 canonical 段。绿灯断言 C 返回 `checkpoint_already_applied`，没有 run、段、消息或事件残留，A/B 仍可恢复，最新历史重规划得到 `nothing_to_compact`。问题发布、回答同走该事务，重复提交保持原回执短路。证据在 `artifacts/b81-review/stale-compaction-commit-red.log` 和 `artifacts/b81-review/atomic-targeted-final.log`。
+
+**交错恢复页面红绿**。02 中 A 仍待答，B 完成后输入框进入回答语义，问题和选项却消失。问题条取列表末位，输入路由按 B31 选 A。修复后问题条、输入模式和控制坞沿用同一个 run 选择，终止确认绑定打开时的目标。「开始新讨论」只针对当前题，发出后恢复该题的正常语义。04 已捕捉到选项恢复，但共享 AX 等待器引用未定义的 `label` 仍误报缺控件，已用回归修复。05 在真实页面完成 A 四次回答、B 新讨论与 checkpoint、A 第五题回答并继续。B 的序号 27 checkpoint 覆盖 A 一个闭合交换。按原问题帧和 ACK 绑定恢复后 A 首个 Strata 请求 `prun_mwb2z31q_fo/pcall_mwb2z31q_fn`，验证精确覆盖、未重放、6 对保留交换、7 条作者原话及当前 scope 字节一致。证据在 `artifacts/b81-review/live-interleaved-resume-05-wire-canonical.log`。专项不包含重启或故障注入。A 完成时另有序号 36 的 checkpoint，结束前没有它之后的请求，因此原 A3 总检查仍未通过。
+
+**交错专项复验与版本缺口**。07 在最终页面行为和事务实现上重复上述流程。A 第五题 ACK 为 accepted，目标版本 6，恢复请求 `prun_mwb3aeon_b6/pcall_mwb3aeon_b5` 保留 8 对交换、7 条作者原话、2 条带来源的观察和当前 scope。两条观察来自同名章歧义，版本为空。进一步追源发现 `ExplorationService.paged_chapter_observation` 输出章节引用和分页覆盖，未提供 `JudgmentProtocol.observation_payload` 可消费的 `versions`。下一步需在读取到已采纳正文的源头带出实际版本，再验证版本随观察进入后续请求。06 的 B 真实提出消歧问题，批次当时停在待答，驱动随后改为校验页面选项确属目标 run 后继续回答。专项 verifier 复用同一请求解析器，独立匹配实际 WS ACK、SQLite 事件和原生报文；错 run ACK 与缺失观察的两份反例均被拒绝。
 
 **全量验证**。会话排序初版后端 3135 项通过，加入交错归属的三条回归后，`mix test --warnings-as-errors` 跑完 10 个 app，共 3138 个测试、0 失败。测试按默认配置排除 `integration` 和 `real_llm`。原生工作台首轮确定性验收 19/19，相关 Node 测试 140/140。全量与 Node 日志分别为 `artifacts/b81-review/full-mix-owner.log`、`artifacts/b81-review/node-owner-final.log`。
 
