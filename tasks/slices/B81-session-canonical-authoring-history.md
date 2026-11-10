@@ -461,13 +461,16 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - **证据（2026-11-09）**：`novel_application` + `novel_persistence` 全量 **1370 tests / 0 failures**；credo no issues、format/module-size 通过；全量 `mix check` 与页面批次见提交记录。
 - **边界**：不新增 UI 会话历史入口（属 §16.17 作者可见面设计，未授权）；不回放 Provider 请求（只读 canonical 摘要）；CP5 的多轮页面/G6 取证仍归 §8.6。
 
-#### 8.5.3 CP6：旧 `:session_transcript` 材料与旧装配链退役（2026-11-09 实施尝试，已回滚待续）
+#### 8.5.3 CP6：旧 `:session_transcript` 材料与旧装配链退役（2026-11-10 已实现）
 
-- **现状事实**：`NovelDomain.ContextSourceRef` 类型含 `:session_transcript`（context_source_ref.ex:14）；`ContextAssembler.conversation_ref_identity/1` 在 session_id 存在时产生 `{:session_transcript, "active_session_transcript"}`；`DialoguePlanningService.context_materials/4` 优先取 `by_type[:session_transcript]` 作为 conversation 供给，`judgment_context_sections/2` 渲染「## 会话摘要」段；`judgment_availability_section/1` 的 `@availability_labels` 含 conversation 项；`selected_context_sections(false)` 含 "conversation"；`DisplayNamesGen` 有展示名映射（SSOT=docs/design/schemas/author_visible/display_names.json）。
-- **本轮实施尝试（已回滚，未提交）**：按 ADR-0035 决策 9 完成生产修改（domain 类型删除、assembler 来源/摘要删除、planning 判断材料段/供给/availability/selected 删除、display-name SSOT+codegen、3 个测试按退役语义更新）。**application 全量 1370 tests / 0 failures 通过**；但 **`novel_web` 全量在 `WorkspaceChannelScopedEventsTest`（line 30 "two real transports each receive one copy"）挂起**——该测试使用自定义 `next_step_planner`（不经判断链/上下文装配），与 CP6 语义无直接调用面，疑似既有 slow/flake（该测试含 ~45s 级等待与 `TestAgentRunCleanup.await_quiescent` 清理交互）而非 CP6 回归。
-- **回滚决定（诚实边界）**：在未能解释 web 全量挂起之前，不把行为变化带入门禁绿状态；代码已回滚，基线保持 `8d72113f` 全绿。**CP6 未完成、未代签**。
-- **验证注意（避免误判，供下轮）**：`novel_web` 全量存在多处 ~45s 的既有等待（channel/AgentRun 事件），单文件即可 45s，全量可达 10–25 分钟；不要以「无输出」判定挂起，应等待 `Finished`/`EXIT` 或按目录/文件分组跑。定位挂起是否由 CP6 引起的最小实验：在干净基线上重复单跑 `WorkspaceChannelScopedEventsTest` 多次（seed 0 与随机 seed），再与 CP6 改动对比。
-- **下轮计划**：拆分为两个独立 commit 分别验证——① 只删判断材料「会话摘要」段与供给（行为变化最小，跑 application+web+页面批次）；② 再删类型/展示名/装配来源。任一步 web 非绿即在该步定位，不合并提交。
+- **现状事实（实现前）**：`NovelDomain.ContextSourceRef` 类型含 `:session_transcript`；`ContextAssembler.conversation_ref_identity/1` 在 session_id 存在时产生 `{:session_transcript, "active_session_transcript"}`；`DialoguePlanningService.context_materials/4` 优先取 `by_type[:session_transcript]` 作为 conversation 供给，`judgment_context_sections/2` 渲染「## 会话摘要」段；availability/selected sections 含 conversation 项；`DisplayNamesGen` 有展示名映射（SSOT=docs/design/schemas/author_visible/display_names.json）。
+- **落地实现**（ADR-0035 决策 9 授权；CP2 已让会话 canonical 历史以完整消息进入判断请求派生，旧摘要材料冗余，删除后单一来源）：
+  1. `judgment_context_sections/2` 删除「## 会话摘要」段与 `judgment_conversation_section/1`；`context_materials/4` 不再供给 conversation ref（其事实仍作为 available ref 保留）；availability/selected sections 移除 conversation 项（commit `4356ec53`）；
+  2. `ContextSourceRef` 删除 `:session_transcript` 类型；`ContextAssembler` 删除该来源与摘要分支（`conversation_ref_identity` 统一 `:conversation`）；展示名 SSOT 删除映射并 `mix codegen.author_visible` 重新生成；`ContextGroundingTest` 改为退役语义（commit `bc4d73ad`）。
+- **行为影响**：判断材料 prompt 不再含「会话摘要」文本（会话历史改由 CP2 消息承载，请求更小且单一来源）；作者可见 `context_refs` 不再出现 `session_transcript` 来源；历史验收资产（AU09/B40 verifier）保留只读历史证据，不再作为当前产品行为断言。
+- **验证（2026-11-10）**：`novel_application` 全量 **1370 tests / 0 failures**；`novel_web` 全量 **196 tests / 0 failures**（543.7s）；首轮页面回归 `b71-first-consumer` native **19/19 PASS**（工作区含 CP6 改动）。全量 `mix check` 与静态扫描结果见提交记录。
+- **验证方法注意（重要，避免误判）**：`novel_web` 全量存在多处 ~45s 既有等待（全量约 9 分钟）；在长时间会话/残留进程/临时库堆积时曾出现「无输出」假挂起——应等待 `Finished`/`EXIT`，或清理进程与临时库后重试；本次在干净环境确认基线 web 196/0，再验证 CP6 版 196/0，排除环境干扰。页面批次首次出现 `OwnershipError: no_element`（窗口元素未就绪的偶发），同代码重跑 19/19 PASS。
+- **边界**：`trace_summary.context_refs` 其余来源（current_work/memory/behavior/continuity…）不变；回放/Why 面板 source type 展示依赖 codegen 名表（已同步）；作者可见面安全约束由既有 TraceRedactor/回放保持。
 
 ## 9. 剩余后果与阻塞
 
@@ -496,6 +499,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 
 - 2026-11-08：立项 + 阶段 1 设计草案（作者批准 ADR-0035 后产出；未授权实现）。
 - 2026-11-08：补充 §1.1 断链定位（schema 时间线 + 三项漏承接）与 §8.0 彻底重构/复用清单（作者确认：系统设计有、实现偏差；彻底重构但复用设计资料和实现）。
+- 2026-11-10：**CP6 机制层实现（旧 `:session_transcript` 材料退役）**：判断材料「会话摘要」段与 conversation 供给删除（4356ec53）；domain 类型/assembler 来源/展示名 SSOT+codegen 删除（bc4d73ad）；测试按退役语义更新。验证：application 1370/0、web 196/0、首轮页面 19/19；**基线 web 与 CP6 版 web 均 196/0**，排除历史环境干扰。详见 §8.5.3。
 - 2026-11-09：**CP6 实施尝试（已回滚）**：按 ADR-0035 决策 9 完成旧 `:session_transcript` 材料退役的生产+测试修改；application 全量 1370/0 通过，但 web 全量在 `WorkspaceChannelScopedEventsTest` 挂起（该测试不经判断链，疑似既有 slow/flake）；为保持门禁绿与不代签，回滚代码并登记验证注意与下轮拆分验证计划（§8.5.3）。
 - 2026-11-09：**CP4 机制层实现（会话级回查 + 投影等价）**：`AuthoringReplay.fetch_session/2`（会话级作者安全摘要）+ `TraceReplayService` 报告 `session_authoring_history`；新增 4 例机制测试（跨 run 摘要/作者安全/空会话/三类投影往返逐字节等价/恢复不改变投影）；run 级回查断言收窄到 `authoring_history`（会话级字段不参与错绑判定）；application+persistence 全量 1370/0。详见 §8.5.2。
 - 2026-11-09：**CP3 收尾：段编解码职责拆分**：`checkpoint/1`/`restore_segment/1`/`append_checkpoint/2` 移入 `AuthoringCheckpoint`（AuthoringTranscript 558→500 行，符合 module-size ratchet；职责回到组装）；测试调用点与 alias 同步；application+persistence 全量 1366/0。
