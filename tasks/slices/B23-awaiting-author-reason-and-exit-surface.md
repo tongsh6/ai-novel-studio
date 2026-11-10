@@ -3,6 +3,8 @@
 **状态**：**done（2026-10-23 凌晨收口；CP1–CP5 全落，新真实 Tauri 场景 + 五回归 PASS）**。
 **来源**：2026-10-22 作者在 stage 观察到「交互总是停下，页面显示『任务正在等待你的确认。』，却没有任何可确认的动作」；本文件 §0 为只读侦察结论。
 **关联既有 slice**：`DS03-awaiting-author-runtime-validity-and-recovery-surface.md`（awaiting_author 命令权限矩阵、writer timeout 恢复出口——B23 在其之上补「理由不丢 + 非写作停等出口」，不改其 live/dead/unknown 矩阵）；`B22-provider-liveness-and-budget-policy.md`（作者可见等待连续性，46 §9.5 第 4 条）；`UA01-agentic-loop-prompt-hardening.md`（判断循环 prompt 资产，B23 不改 prompt）。
+**后续视觉修订登记（2026-11-10）**：作者在真实等待回答页反馈「UI/UX 好丑」。诊断：问题文本重复呈现、全宽灰按钮与长提示条造成层级失衡、危险按钮常驻、机器状态词泄漏到界面。已完成的 v1 止血：问题摘要一行、紧凑选项 pill、长提示短化（`3c378f75`）。根治契约见 `docs/design/ui/46-state-and-feedback.md` §9.7.3「回答提示条信息架构与视觉层级」与 47 §3.4.1 文案规范；剩余实现（消息流去重、危险操作收纳、色彩收敛）为后续批次，不改本 slice 已完成的 ask/回答功能语义。**本登记与 B23 原「理由不丢 + 停等出口」目标互补，不重复新建 slice**。
+
 **设计真源**：`docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md`（AgentRun 状态机 / awaiting_author 语义）、`docs/design/adr/ADR-0024-decision-surface-registry-v3.md`（S7「run 停了必须有下文」）、`docs/design/adr/ADR-0025-*`（判断循环 plan ≠ execute）、`docs/design/ui/46-state-and-feedback.md` §9、`docs/design/ui/47-ui-copy-guidelines.md`。
 
 ## 0. 现状核查（2026-10-22 只读侦察，stage 库 `priv/ai_novel_studio_stage.db` + `log/app/stage/2026-10-22.jsonl`）
