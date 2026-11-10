@@ -1,5 +1,12 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-10 **作者体验反馈：等待回答态 UI/UX 丑（待改进，登记）**。作者在真实页面（真实 strata 模型询问后等待回答）截图反馈「这个 UI/UX 好丑」。复核截图后的具体问题（按体验影响排序）：
+> 1. **信息重复**：问题文本同时出现在消息流问题卡与底部「回答当前问题」面板；「等待你的回答」/「等待你回复 · 创作 · 第 2/2 步」多处重复。
+> 2. **视觉层级失衡**：底部面板用两条全宽浅灰选项按钮 + 橙色竖线 + 浅黄提示条 + 长灰提示句（「有任务在等待你的回答：请先切换到该任务再回答；此处输入会作为新讨论。」），主操作「保留悬念/当章收束」与次级「开始新讨论/放弃此问题/终止任务」混在一起，缺乏主次与留白。
+> 3. **状态反馈粗糙**：run 不可恢复时显示「此问题暂不可回复」+「重新发起此问题」嵌在等待面板里，异常态没有清晰主操作与说明。
+> 4. **文案冗长**：多处长句提示（如「回答后当前任务继续；要发起新任务请点「开始新讨论」。」）与上下文重复，增加阅读负担。
+> 改进方向（候选，需按 UI 设计契约 42/46/47 落地）：① 问题只显示一次（底部面板收敛为「问题摘要 + 选项 + 自定义回答输入」）；② 选项按钮改紧凑次级样式，主操作突出「自定义回答」；③ 删除/压缩重复长提示，状态用最短文案；④ 异常态（不可回复）给明确主操作（重新发起/放弃）与原因；⑤ 面板与消息流的分层与留白对齐 visual token。**未授权实施前不改 UI**；已登记为体验改进候选（B84/next）。
+
 > 2026-11-10 **B81 CP5/G6 六项判据全绿（确定性压力，机制+页面+请求体）**：新增独立探针 `scripts/g6_compaction_probe.mjs` 与 driver 扩展（点击细条展开 + 第三轮压缩后请求，`4870bd94`）。`cp5-g6-det-04` 批次（slice_verify + 窗口覆盖 1024 + 自动维护开启）探针 **verdict=pass**：G6-1 complete_exchanges=6；G6-2 checkpoint_created×2 + 会话 checkpoint 消息×2（covers/omissions/summary 完整）；G6-3 无重复整理；G6-4 压缩后请求折叠（llm-calls 8 条，最后请求无 covered call_id 泄漏）；G6-5 页面细条 + 展开四要素齐全（截图人工核对）；G6-6 原话保留、被覆盖 call 仍在 canonical。**边界**：确定性压力机制层证据，实模自然压力未验证（l4b 未签）。CP5 页面层/机制层证据基本齐；实模层仍如实标注缺口。
 
 > 2026-11-10 **B81 CP5/G6：自动维护压缩确定性触发成功（页面+DB+driver 三证）**：answer-mode 驱动补发第二轮请求（`c3ccd4db`）后，在 `NOVEL_AUTO_MAINTENANCE_ENABLED=1` + `NOVEL_CONTEXT_WINDOW_OVERRIDES=slice_verify:1024` 下：driver `checkpoint_events_after_second=1`/`triggered_after_second=true`；DB `checkpoint_created`×1、会话 canonical 出现 checkpoint 消息（sequence 27，挂第二 run 段，`covers.call_ids=["call_ask_author","call_judgment_decision"]`，omissions 完整，跨段压缩）；**页面截图 `after-second-round.jpg` 真实显示「较早的 2 项创作过程已整理」细条**（作者可见）。这是 G6 的页面层与机制层确定性证据。**待解**：该批次 verify FAIL 于 answer-mode D1（同 run 第二作者回合要求 run_count=1），G6 跨 turn 与 D1 判据语义冲突——G6 需独立验收路径（§8.6.2 六项判据：checkpoint covers、压缩后真实请求投影、细条/展开、原话保留、未完成不压缩），下一步实现。

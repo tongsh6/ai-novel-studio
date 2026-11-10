@@ -291,12 +291,17 @@ function readRunUsageFacts(runId) {
 async function waitRunPauseOrTerminal({ runId, timeoutMs = TURN_TIMEOUT_MS }) {
   const deadline = Date.now() + timeoutMs;
   let lastStatus = null;
+  let lastTickAt = Date.now();
   while (Date.now() < deadline) {
     harness.checkSupervisor();
     const status = readRunStatus(runId);
     lastStatus = status;
     if (status === "awaiting_author") return { kind: "paused", status };
     if (["completed", "failed", "cancelled"].includes(String(status))) return { kind: "terminal", status };
+    if (Date.now() - lastTickAt >= 30_000) {
+      await harness.runStep("maintenance", "wait_heartbeat", async () => {});
+      lastTickAt = Date.now();
+    }
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
   return { kind: "timeout", status: lastStatus };
@@ -304,14 +309,21 @@ async function waitRunPauseOrTerminal({ runId, timeoutMs = TURN_TIMEOUT_MS }) {
 
 async function waitRunResume({ runId, timeoutMs = TURN_TIMEOUT_MS }) {
   // 回答后同一 run 应从 awaiting_author 恢复（running/completed/failed 均视为继续）。
+  // 真实模型恢复可能 >120s：等待期间每 ~30s 写一条短活动记录，刷新 supervisor 的
+  // idle 预算（仅读 DB 不发命令会被判 driver_idle 并终止，cp5-real-03/05）。
   const deadline = Date.now() + timeoutMs;
   let lastStatus = null;
+  let lastTickAt = Date.now();
   while (Date.now() < deadline) {
     harness.checkSupervisor();
     const status = readRunStatus(runId);
     lastStatus = status;
     if (["running", "completed", "failed", "cancelled"].includes(String(status))) {
       return { resumed: true, status };
+    }
+    if (Date.now() - lastTickAt >= 30_000) {
+      await harness.runStep("maintenance", "wait_heartbeat", async () => {});
+      lastTickAt = Date.now();
     }
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
@@ -754,6 +766,18 @@ async function runMultiTurnFlow({ report, requests }) {
     });
   }
 
+  // G6 实模路径（strata A3）：首轮回答后若仍未触发，补发一轮新请求（新 turn），
+  // 让会话历史积累 ≥K 个已完成交换——安全点才有可压缩的「更早工作回合」。
+  // 仅在显式开关下执行（B71_AUTO_MAINT_EXTRA_ROUND=1），不改变既有 A3 批次行为。
+  if (!triggered && !ANSWER_MODE && process.env.B71_AUTO_MAINT_EXTRA_ROUND === "1") {
+    try {
+      const extra = await sendRequest(2, process.env.B71_AUTO_MAINT_EXTRA_REQUEST ?? "继续：按你刚才的判断，把下一个场景的开头写出来。");
+      session.extra_round = extra;
+      triggered = checkpointEventCount() > 0;
+    } catch (error) {
+      session.extra_round = { ok: false, error: error.message };
+    }
+  }
   if (!triggered && !session.stop_reason) {
     session.stop_reason =
       pause.kind === "paused" ? "steer_budget_exhausted" : `run_${pause.kind}`;
