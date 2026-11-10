@@ -245,7 +245,7 @@ defmodule ICachePrefixDriver do
         "consecutive",
         ir_a,
         ir_b,
-        "## 会话摘要",
+        "## 章节列表（共",
         [
           "所有动作均须经系统门禁放行。",
           "（回答写作进度时以「已写」计数为准；标注（计划中）的章尚无正文。各章正文细节不在本段内；作者点名章见下段。）"
@@ -273,7 +273,7 @@ defmodule ICachePrefixDriver do
 
       shared = shared_prefix_bytes(first, second)
       total = min(byte_size(first), byte_size(second))
-      boundary = marker_offset!(first, "## 会话摘要", call_site)
+      boundary = marker_offset!(first, "## 章节列表（共", call_site)
 
       required_tail_ends =
         Enum.map(
@@ -292,7 +292,7 @@ defmodule ICachePrefixDriver do
         shared_prefix_bytes: shared,
         total_bytes: total,
         ratio: ratio(shared, total),
-        boundary_marker: "## 会话摘要",
+        boundary_marker: "## 章节列表（共",
         boundary_bytes: boundary,
         covers_required_prefix: covers,
         enforce: true,
