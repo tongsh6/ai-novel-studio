@@ -364,7 +364,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 
 - **目标**：同 session 的第 N 轮请求 = **会话 canonical 历史（跨 turn，含已完成交换）** + 当前 scope +
   当前作者输入 + 按工具目录按需取得的观察；正常完整历史进入请求，窗口压力时以显式 checkpoint 投影替代
-  **更早的已完成交换**（保留最近 K 项；作者原话、当前 scope、未覆盖消息保持原序）。跨轮指代/承诺/
+  **更早的已完成交换**（保留最近 K 个已完成 call，按 call 计数；作者原话、当前 scope、未覆盖消息保持原序）。跨轮指代/承诺/
   observation refs 因此有会话事实可依。
 - **非目标**：不改 Request IR 契约族/三类投影/能力事实；不改作者主权/采纳门/失败静默；不隐式压缩；
   不引入「每轮最小上下文」；不把展示流（interactions）当事实源。
@@ -480,7 +480,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 #### 8.6.1 场景（作者视角、真实页面、外部自动化）
 
 1. 真实 Tauri 工作台打开作品与活动会话（当前真实入口，无旁路 demo）。
-2. 作者**自然多轮**创作交互（每轮真实请求 → 候选/观察/判断），跨 turn 累计满足压缩触发条件（K=4 已完成交换 + 会话级压力/安全点，触发口径由 CP3 冻结）。
+2. 作者**自然多轮**创作交互（每轮真实请求 → 候选/观察/判断），跨 turn 累计满足压缩触发条件（`keep_recent_items=4` 按**已完成 provider call 计数**：更早的 exchange 组整组压缩、最近 4 个 call 整组保留；会话级压力/安全点，触发口径由 CP3 冻结）。
 3. 外部自动化**观察驱动**：每轮读取页面上的真实问题/选项后作答，记录 question→answer 绑定（沿用 B71 obs-01 原则，不用固定 steer 文本刷轮次）。
 4. 安全点自动维护自然触发压缩（不构造异常路径、不改生产阈值凑触发）；页面出现作者可见整理细条/展开。
 5. 压缩后的下一轮请求：真实 provider 请求体（确定性或实模）包含 checkpoint 折叠效果。
@@ -544,12 +544,12 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 
 - **实模自然压力尝试（2026-11-10，cp5-real-01..04）**：strata 真实模型 + A3 多轮驱动（`B71_AUTO_MAINTENANCE=1` + `NOVEL_CONTEXT_WINDOW_OVERRIDES=strata:4096`）：
   - `cp5-real-01`：模型首轮直接完成（无询问，steers=0），页面真实截图见候选卡片；
-  - `cp5-real-02`：引导请求「请先向我提一个问题让我做选择」→ 模型**自然询问**（`status_after_send=awaiting_author`）、driver 回答发送成功（steers=1）、run 继续完成（complete_exchanges=3、max_input_tokens=22133）——**实模「询问→回答→同 run 继续」链自然成立**；但 `complete_exchanges=3 < keep_recent_items=4`，安全点无可压缩的「更早工作回合」→ 压缩未触发。
+  - `cp5-real-02`：引导请求「请先向我提一个问题让我做选择」→ 模型**自然询问**（`status_after_send=awaiting_author`）、driver 回答发送成功（steers=1）、run 继续完成（complete_exchanges=3、max_input_tokens=22133）——**实模「询问→回答→同 run 继续」链自然成立**；但 `complete_exchanges=3`（3 个已完成 call）< `keep_recent_items=4`，安全点无可压缩的「更早工作回合」→ 压缩未触发。
   - `cp5-real-03`：等待真实模型恢复 >120s 被 supervisor 判 `driver_idle_timeout`（driver 只读 DB、无 begin/finish 命令）→ 即真实长任务下的等待账缺陷；已修（`bf62f751`：等待期间每 ~30s 发短活动记录）。
-  - `cp5-real-04`（心跳修复后）：driver 正常完成（3m24s，steers=1 + `extra_round` 第二轮成功、`complete_exchanges=3`）但**压缩仍未触发**（checkpoint_events=0；首轮 3 个完成交换 < K=4，第二轮安全点无可压项）。A3 判据 C2/C3/C4/C6/C11 未过。
+  - `cp5-real-04`（心跳修复后）：driver 正常完成（3m24s，steers=1 + `extra_round` 第二轮成功、`complete_exchanges=3`）但**压缩仍未触发**（checkpoint_events=0；首轮 3 个已完成 call < K=4，第二轮安全点无可压项）。A3 判据 C2/C3/C4/C6/C11 未过。
   - **结论**：实模自然压力路径已能走通「模型询问→作者回答→同 run 继续→第二轮新 turn」全链，但触发压缩还需更多完成交换（≥K+1）。下一步：给 A3 驱动支持多轮补发（`B71_AUTO_MAINT_EXTRA_ROUNDS=N`），或让首轮任务更重（多步骤）以积累 ≥5 完成交换；不得改生产 K/窗口配置。
 
-- **实模自然压力触发成功（2026-11-10，cp5-real-05，真实 strata）**：给 A3 驱动实现多轮补发（`B71_AUTO_MAINT_EXTRA_ROUNDS=N`，`21563976`）后，真实 strata 批次在**第 2 轮补发期间的安全点**触发自动维护：driver `triggered=true`/`checkpoint_events=1`；DB `checkpoint_created`×1；会话 canonical 出现 checkpoint 消息（sequence 37），`covers.call_ids` 为**真实 strata 模型的 4 个 call**（跨 run 会话历史）——**B71 三次失败的「真实模型自然触发压缩」目标达成**。触发条件验证：窗口覆盖 `strata:4096`（阈值 2867 tokens，真实请求已远超）；首轮 3 个完成交换 < K=4 不能压，第 2 轮补发后累计 6 ≥ K+1 → 安全点压缩。第 2 轮补发 run 以 failed 终局（真实模型任务失败），压缩已在失败前安全点提交。A3 判据 C3（细条截图前台竞争）/C6（canonical 完整性）/C9（真实模型输出含技术词）/C11（跨 run 与同 run 判据冲突）未全过——**实模证据「触发+提交」成立，「页面细条+全判据」未闭环，不代签**。
+- **实模自然压力触发成功（2026-11-10，cp5-real-05，真实 strata）**：给 A3 驱动实现多轮补发（`B71_AUTO_MAINT_EXTRA_ROUNDS=N`，`21563976`）后，真实 strata 批次在**第 2 轮补发期间的安全点**触发自动维护：driver `triggered=true`/`checkpoint_events=1`；DB `checkpoint_created`×1；会话 canonical 出现 checkpoint 消息（sequence 37），`covers.call_ids` 为**真实 strata 模型的 4 个 call**（跨 run 会话历史）——**B71 三次失败的「真实模型自然触发压缩」目标达成**。触发条件验证（精确链路）：窗口覆盖 `strata:4096` → 阈值 2,867 tokens，而首轮 4 次真实 provider 请求 usage 已达 9,022→22,066 tokens（**压力第一轮就远超阈值，压力不是限制因素**）；`keep_recent_items=4` 按**已完成 call 计数**——首轮 turn 只有 3 个已完成 call（<4）不能压；补发第 1 轮后累计 6 个 call >4，第 2 轮补发 turn 进入安全点（run 早期检查）时「当前 turn 之前」已有 6 个 call → 立即压缩更早的交换（covers 4 个 call），该 turn 后续 run 以 failed 终局但压缩已提交。**所以「只跑了 3 个 turn 就触发」的原因是：窗口覆盖把压力阈值压到 2,867 tokens（真实请求首轮就超线）+ 每轮 run 产生 3 个已完成 call（2 轮即超过 K=4），而不是跑了很久。** 默认 32k 窗口下阈值 22,400 tokens：首轮 22,066 已差 300 tokens 触线、第 2 轮必超，重任务同样 2–3 轮内触发；轻量对话（每轮 token 小、call 少）则需更多轮。第 2 轮补发 run 以 failed 终局（真实模型任务失败），压缩已在失败前安全点提交。A3 判据 C3（细条截图前台竞争）/C6（canonical 完整性）/C9（真实模型输出含技术词）/C11（跨 run 与同 run 判据冲突）未全过——**实模证据「触发+提交」成立，「页面细条+全判据」未闭环，不代签**。
 - **待裁决（CP7 候选）：压缩触发时机是否改为会话级**。现状：压缩对象/保留范围/covers 均为会话级（`session_view` + `plan_maintenance` 的 `current_turn_start` 之前交换 + 会话连续 K 计数），但**触发时机仍在 run 安全点**（`maybe_auto_maintain`：awaiting_author / run_next_step 前），压力信号取「该 run 最近一次 provider 请求」usage。作者已指出「压缩应按照会话单位」的直觉：若改为**会话级触发**（下一次作者请求进入前检查会话历史规模），可避免「run 终态后更早交换无人整理」的空档；代价是需要会话级压力信号（现有 usage 是请求级数据，需新派生：会话消息 token 计数或最近请求 usage 估算），且改触发时机属 ADR-0035 补充决策。**方案与影响已登记，等待作者裁决；未裁决前不改触发时机。**
 
 #### 8.6.5 依赖与顺序
