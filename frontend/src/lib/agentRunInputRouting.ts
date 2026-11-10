@@ -91,6 +91,19 @@ function uniqueRunIds(runIds: readonly (string | null | undefined)[]): string[] 
   return [...new Set(runIds.filter((runId): runId is string => Boolean(runId)))];
 }
 
+// 共享的当前绑定判断：status=open、问题属于该 run、run 仍可继续且 goal version 匹配。
+function isCurrentOpenAuthorQuestion(
+  question: OpenAuthorQuestionBinding | null | undefined,
+  run: AgentRunStateData | null | undefined,
+): boolean {
+  if (!run || !isSteerableAgentRun(run)) return false;
+  if (question?.status !== "open" || !question.run_id) return false;
+  if (String(question.run_id) !== run.run_id) return false;
+  const runVersion = run.goal?.version ?? null;
+  const questionVersion = question.goal_version ?? null;
+  return questionVersion === null || runVersion === null || questionVersion === runVersion;
+}
+
 /**
  * B31 §6.2 Q01：B26 显式问题只在 status=open 且 goal version 与 run 当前版本匹配时
  * 才算「未答问题」。版本缺失（旧持久记录/尚未投影）按匹配处理，避免漏掉真实 open 问题。
@@ -101,22 +114,44 @@ export function openQuestionRunIdsForRuns(
 ): string[] {
   // 只有仍可继续的 run 上的 open question 才会参与输入归属；terminal/失活 run 的
   // 历史问题不能被当成「等待回复」。
-  const runVersions = new Map(
-    steerableAgentRuns(runs).map((run) => [run.run_id, run.goal?.version ?? null]),
-  );
+  const runById = new Map(steerableAgentRuns(runs).map((run) => [run.run_id, run]));
   return uniqueRunIds(
     questions
-      .filter((question) => question.status === "open")
-      .filter((question) => Boolean(question.run_id))
-      .filter((question) => {
-        const runId = String(question.run_id);
-        if (!runVersions.has(runId)) return false;
-        const runVersion = runVersions.get(runId) ?? null;
-        const questionVersion = question.goal_version ?? null;
-        if (questionVersion === null || runVersion === null) return true;
-        return questionVersion === runVersion;
-      })
+      .filter((question) =>
+        isCurrentOpenAuthorQuestion(
+          question,
+          question.run_id ? runById.get(String(question.run_id)) : null,
+        ),
+      )
       .map((question) => String(question.run_id)),
+  );
+}
+
+/**
+ * B81 CP5：从 turn_result 来源（消息历史与 open-question snapshot，按调用方给定
+ * 顺序）中找出该具体 run 的未答问题，与 openQuestionRunIdsForRuns 共享同一
+ * run/status/goal_version 绑定判断。run 版本已知时精确版本优先，缺失版本的记录
+ * 只作兼容回退，不能遮蔽精确匹配的当前题。
+ */
+export function findCurrentOpenAuthorQuestion<
+  T extends { author_question?: OpenAuthorQuestionBinding | null },
+>(
+  run: AgentRunStateData | null | undefined,
+  sources: readonly (readonly (T | null | undefined)[])[],
+): T | null {
+  if (!run || !isSteerableAgentRun(run)) return null;
+
+  const candidates = sources
+    .flat()
+    .filter((result): result is T => Boolean(result))
+    .filter((result) => isCurrentOpenAuthorQuestion(result.author_question, run));
+
+  const runVersion = run.goal?.version ?? null;
+  if (runVersion === null) return candidates[0] ?? null;
+  return (
+    candidates.find((result) => result.author_question?.goal_version === runVersion) ??
+    candidates.find((result) => (result.author_question?.goal_version ?? null) === null) ??
+    null
   );
 }
 

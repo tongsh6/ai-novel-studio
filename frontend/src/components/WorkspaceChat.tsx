@@ -190,6 +190,7 @@ import {
   buildAgentRunInputPresentation,
   deriveAgentRunInputMode,
   decideAgentRunInputRoute,
+  findCurrentOpenAuthorQuestion,
   openQuestionRunIdsForRuns,
   type AgentRunInputPresentation,
 } from "../lib/agentRunInputRouting";
@@ -2520,20 +2521,12 @@ export function WorkspaceChat() {
   // 消息流中的问题卡只读记录，操作统一在主输入区（等待即回答，避免双入口误用）。
   const activeModelQuestionResult = useMemo(() => {
     if (!latestAgentRun || !latestAgentRunHasModelQuestion) return null;
-    const fromMessages = messages
-      .map((message) => message.turnResult)
-      .filter((result): result is WireTurnResult => Boolean(result?.author_question))
-      .find(
-        (result) =>
-          result.author_question?.run_id === latestAgentRun.run_id &&
-          result.author_question?.status === "open",
-      );
-    if (fromMessages) return fromMessages;
-    return (
-      (openQuestions.data ?? []).find(
-        (result) => result.author_question?.run_id === latestAgentRun.run_id,
-      ) ?? null
-    );
+    // B81 CP5：消息历史与 snapshot 统一按当前 run/status/goal_version 选题；
+    // 旧版本问题不能遮蔽同 run 的当前版本问题。
+    return findCurrentOpenAuthorQuestion(latestAgentRun, [
+      messages.map((message) => message.turnResult),
+      openQuestions.data ?? [],
+    ]);
   }, [latestAgentRun, latestAgentRunHasModelQuestion, messages, openQuestions.data]);
   useEffect(() => {
     if (!latestAgentRunHasModelQuestion) setNewDiscussionMode(false);

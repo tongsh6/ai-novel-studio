@@ -4,6 +4,7 @@ import {
   buildAgentRunInputPresentation,
   decideAgentRunInputRoute,
   deriveAgentRunInputMode,
+  findCurrentOpenAuthorQuestion,
   openQuestionRunIdsForRuns,
   selectActiveAgentRun,
 } from "../agentRunInputRouting";
@@ -21,6 +22,18 @@ function run(
     phase: "executing",
     goal: { text: `目标 ${runId}`, version: 1 },
     ...overrides,
+  };
+}
+
+function questionResult(
+  runId: string,
+  status: string,
+  goalVersion: number | null,
+  turnId: string,
+) {
+  return {
+    turn_id: turnId,
+    author_question: { run_id: runId, status, goal_version: goalVersion },
   };
 }
 
@@ -134,6 +147,56 @@ describe("openQuestionRunIdsForRuns", () => {
     );
 
     expect(openIds).toEqual(["run-a"]);
+  });
+});
+
+describe("findCurrentOpenAuthorQuestion", () => {
+  const currentRun = run("run-same", "awaiting_author", {
+    goal: { text: "目标 run-same", version: 2 },
+  });
+
+  it("同一 run 的 v1 旧题与 v2 当前题并存时选当前版本", () => {
+    const old = questionResult("run-same", "open", 1, "turn-v1");
+    const current = questionResult("run-same", "open", 2, "turn-v2");
+
+    const found = findCurrentOpenAuthorQuestion(currentRun, [[old], [current]]);
+
+    expect(found?.turn_id).toBe("turn-v2");
+  });
+
+  it("旧消息缺版本时不能遮蔽 snapshot 中精确匹配的当前题", () => {
+    const legacy = questionResult("run-same", "open", null, "turn-legacy");
+    const current = questionResult("run-same", "open", 2, "turn-v2");
+
+    const found = findCurrentOpenAuthorQuestion(currentRun, [[legacy], [current]]);
+
+    expect(found?.turn_id).toBe("turn-v2");
+  });
+
+  it("只有旧版本题时返回 null", () => {
+    const old = questionResult("run-same", "open", 1, "turn-v1");
+
+    expect(findCurrentOpenAuthorQuestion(currentRun, [[old], []])).toBeNull();
+  });
+
+  it("不同 run 的题不参与当前 run 选题", () => {
+    const other = questionResult("run-other", "open", 2, "turn-other");
+
+    expect(findCurrentOpenAuthorQuestion(currentRun, [[other]])).toBeNull();
+  });
+
+  it("闭合题不被选中", () => {
+    const answered = questionResult("run-same", "answered", 2, "turn-answered");
+
+    expect(findCurrentOpenAuthorQuestion(currentRun, [[answered]])).toBeNull();
+  });
+
+  it("题版本缺失时仍按现有兼容规则匹配", () => {
+    const legacy = questionResult("run-same", "open", null, "turn-legacy");
+
+    expect(
+      findCurrentOpenAuthorQuestion(currentRun, [[legacy]])?.turn_id,
+    ).toBe("turn-legacy");
   });
 });
 
