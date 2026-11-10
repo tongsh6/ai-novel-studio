@@ -326,7 +326,7 @@ function readAnswerObservation(nodes, panel) {
   const scoped = prefix ? nodes.filter((node) => String(node?.path ?? "").startsWith(prefix)) : [];
   const scope = scoped.length > 0 ? scoped : nodes;
   const fixedUi =
-    /^(回答当前问题|回答并继续|回答并继续…|选项[A-Za-z0-9]?|终止任务|打开档案|阅读|记忆|作品|助手|开始新讨论|发送|发送回复|回复此问题|会话|模型已连接|同步已连接)$/u;
+    /^(回答当前问题|回答并继续|回答并继续…|选项[A-Za-z0-9]?|终止任务|打开档案|阅读|记忆|作品|助手|开始新讨论|放弃此问题|返回|确认终止|为什么|发送|发送回复|回复此问题|会话|模型已连接|同步已连接)$/u;
   const staticTexts = scope
     .filter((node) => node?.role === "AXStaticText")
     .map((node) => String(node?.title ?? node?.value ?? node?.desc ?? "").trim())
@@ -373,6 +373,28 @@ function planObservedAnswer(observation, strategy) {
   };
 }
 
+// 页面可能出现「终止当前创作任务？」确认弹窗（例如交互误触「终止任务/放弃此问题」）。
+// driver 只允许点「返回」取消，绝不允许点「确认终止」（会终止真实 run/丢失当前工作）。
+async function dismissTerminationDialogIfPresent(label) {
+  try {
+    const nodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:dialog_check:${label}`);
+    const text = nodes
+      .map((node) => `${node?.title ?? ""} ${node?.desc ?? ""} ${node?.value ?? ""}`)
+      .join(" ");
+    if (!/终止当前创作任务/u.test(text)) return { present: false };
+    const back = nodes.find(
+      (node) => node?.role === "AXButton" && String(node?.title ?? "").trim() === "返回",
+    );
+    if (!back) return { present: true, dismissed: false, reason: "back_button_not_found" };
+    await harness.runStep("maintenance", `${FLOW_LABEL}:dismiss_termination_dialog`, () =>
+      harness.safeClick(back, `${FLOW_LABEL}:dismiss_termination_dialog`),
+    );
+    return { present: true, dismissed: true };
+  } catch (error) {
+    return { present: false, error: error.message };
+  }
+}
+
 async function respondToRunPause(steerText, attempts, options = {}) {
   const observed = options.observed === true;
   const strategy = options.strategy ?? process.env.B71_AUTO_MAINT_ANSWER_STRATEGY ?? "continue_verification";
@@ -385,7 +407,13 @@ async function respondToRunPause(steerText, attempts, options = {}) {
   } catch (error) {
     attempts.push({ step: "recover_answer_surface", ok: false, reason: error.message });
   }
-  const nodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:pause_panel`);
+  // 长等待/交互必须包进 runStep（typed wait ledger）：否则 runner 在 driver 无
+  // begin/finish 记录期间判定 idle 并终止（cp5-answer-05 的 driver_idle_timeout）。
+  const dialog = await dismissTerminationDialogIfPresent("before_answer");
+  attempts.push({ step: "dismiss_termination_dialog", ...dialog });
+  const nodes = await harness.runStep("maintenance", `${FLOW_LABEL}:dump_answer_panel`, () =>
+    harness.dumpNodesForInteraction(`${FLOW_LABEL}:pause_panel`),
+  );
 
   // 新交互（46 §9.7 等待即回答）：底部主输入区接管为回答面板
   // （role=group aria-label「回答当前问题」：问题文本 + 选项按钮 +「回复此问题」→ textarea →「发送回复」）。
@@ -423,16 +451,16 @@ async function respondToRunPause(steerText, attempts, options = {}) {
       (node) => node?.role === "AXButton" && /^选项[A-Za-z0-9]?/u.test(String(node.title ?? "").trim()),
     );
     const choiceButton = (() => {
+      // answer-mode：必须精确命中预注册 choice（如「保留悬念」），不得被观察到的
+      // 其他按钮（开始新讨论/放弃此问题/终止任务…）带偏。
+      if (ANSWER_MODE && rawChoice === "") {
+        const exact = nodes.find(
+          (node) => node?.role === "AXButton" && String(node.title ?? "").includes(ANSWER_MODE_CHOICE),
+        );
+        if (exact) return exact;
+      }
       if (observed && planned?.choice) {
         return nodes.find((node) => node?.role === "AXButton" && String(node.title ?? "").trim() === planned.choice) ?? null;
-      }
-      if (rawChoice === "" && ANSWER_MODE) {
-        // answer-mode：确定性 fixture 的选项 button label 是选项文字本身（如「保留悬念」）。
-        return (
-          nodes.find(
-            (node) => node?.role === "AXButton" && String(node.title ?? "").includes(ANSWER_MODE_CHOICE),
-          ) ?? null
-        );
       }
       if (answerChoice === "FREE_TEXT") return null;
       return (
@@ -442,7 +470,9 @@ async function respondToRunPause(steerText, attempts, options = {}) {
       );
     })();
     if (choiceButton) {
-      harness.safeClick(choiceButton, `${FLOW_LABEL}:answer_choice`);
+      await harness.runStep("maintenance", `${FLOW_LABEL}:answer_choice`, () =>
+        harness.safeClick(choiceButton, `${FLOW_LABEL}:answer_choice`),
+      );
       attempts.push({ step: "click_answer_choice", ok: true, title: choiceButton?.title ?? null });
       return {
         ok: true,
@@ -469,17 +499,25 @@ async function respondToRunPause(steerText, attempts, options = {}) {
       (value) => value === "回答并继续" || value === "回答并继续…",
     );
     if (composerField && answerSend) {
-      harness.safeClick(composerField, `${FLOW_LABEL}:answer_composer`);
-      await sleep(300);
-      typeText(harness.APP, answerText);
-      await sleep(800);
-      const send = findButtonByText(
-        harness.dumpNodesForInteraction(`${FLOW_LABEL}:answer_composer_send`),
-        (value) => value === "回答并继续",
+      const composerSend = await harness.runStep(
+        "maintenance",
+        `${FLOW_LABEL}:answer_composer`,
+        async () => {
+          harness.safeClick(composerField, `${FLOW_LABEL}:answer_composer`);
+          await sleep(300);
+          typeText(harness.APP, answerText);
+          await sleep(800);
+          return findButtonByText(
+            harness.dumpNodesForInteraction(`${FLOW_LABEL}:answer_composer_send`),
+            (value) => value === "回答并继续",
+          );
+        },
       );
-      attempts.push({ step: "find_answer_composer", ok: Boolean(composerField), send: Boolean(send) });
-      if (!send) return { ok: false, reason: "answer_send_not_found", composer: true };
-      harness.safeClick(send, `${FLOW_LABEL}:answer_composer_send`);
+      attempts.push({ step: "find_answer_composer", ok: Boolean(composerField), send: Boolean(composerSend) });
+      if (!composerSend) return { ok: false, reason: "answer_send_not_found", composer: true };
+      await harness.runStep("maintenance", `${FLOW_LABEL}:answer_composer_send`, () =>
+        harness.safeClick(composerSend, `${FLOW_LABEL}:answer_composer_send`),
+      );
       return {
         ok: true,
         kind: "composer_free_text",
