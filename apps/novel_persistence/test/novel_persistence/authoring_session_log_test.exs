@@ -300,13 +300,14 @@ defmodule NovelPersistence.AuthoringSessionLogTest do
     session = unique("sess-empty")
 
     assert AuthoringSessionLog.fetch_run_segment(run_id) == {:ok, nil}
-    assert AuthoringSessionLog.fetch_session_messages(session) == []
+    assert {:ok, %{rows: []}} = AuthoringSessionLog.fetch_session(session)
     assert AuthoringSessionLog.segment_present?(run_id) == false
   end
 
   test "N9：段头 message_count 与消息行不一致时读取报不一致错误" do
     run_id = unique("run-inconsistent")
-    append!(run_attrs(run_id), segment(run_id, ["m1", "m2"]))
+    run = run_attrs(run_id)
+    append!(run, segment(run_id, ["m1", "m2"]))
 
     Repo.query!(
       "UPDATE authoring_run_segments SET message_count = message_count + 1 WHERE run_id = ?",
@@ -314,6 +315,9 @@ defmodule NovelPersistence.AuthoringSessionLogTest do
     )
 
     assert AuthoringSessionLog.fetch_run_segment(run_id) ==
+             {:error, :authoring_segment_inconsistent}
+
+    assert AuthoringSessionLog.fetch_session(run.session_id) ==
              {:error, :authoring_segment_inconsistent}
   end
 
@@ -370,7 +374,10 @@ defmodule NovelPersistence.AuthoringSessionLogTest do
     segment
   end
 
-  defp session_messages(session_id), do: AuthoringSessionLog.fetch_session_messages(session_id)
+  defp session_messages(session_id) do
+    assert {:ok, %{rows: rows}} = AuthoringSessionLog.fetch_session(session_id)
+    rows
+  end
 
   defp segment_row(run_id), do: Repo.get(Segment, run_id)
 

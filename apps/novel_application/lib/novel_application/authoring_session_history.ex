@@ -59,20 +59,15 @@ defmodule NovelApplication.AuthoringSessionHistory do
   end
 
   defp fetch_session(session_id, run_id) do
-    with {:ok, refs} <- AuthoringSessionLog.fetch_session_refs(session_id) do
-      rows =
-        session_id
-        |> AuthoringSessionLog.fetch_session_messages()
-        |> Enum.reject(&(field(&1, :role) == "application_base"))
+    with {:ok, %{rows: rows, refs: refs}} <- AuthoringSessionLog.fetch_session(session_id) do
+      rows = Enum.reject(rows, &(&1.role == "application_base"))
 
       # 只有本 run 自己的已提交行时，局部段已有完整顺序，不归并自身历史 refs。
-      if Enum.any?(rows, &(field(&1, :run_id) != run_id)),
-        do: history_view(rows, refs),
+      if Enum.any?(rows, &(&1.run_id != run_id)),
+        do: {:ok, %{rows: rows, refs: refs}},
         else: {:ok, nil}
     end
   end
-
-  defp history_view(rows, refs), do: {:ok, %{rows: rows, refs: refs}}
 
   @doc """
   把会话已提交行与当前段拼成请求派生视图，直接返回 view。

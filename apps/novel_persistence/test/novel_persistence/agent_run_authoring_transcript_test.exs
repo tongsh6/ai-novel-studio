@@ -631,7 +631,10 @@ defmodule NovelPersistence.AgentRunAuthoringTranscriptTest do
     segment
   end
 
-  defp session_messages(session_id), do: AuthoringSessionLog.fetch_session_messages(session_id)
+  defp session_messages(session_id) do
+    assert {:ok, %{rows: rows}} = AuthoringSessionLog.fetch_session(session_id)
+    rows
+  end
 
   defp run_attrs(run_id, overrides \\ %{}) do
     Map.merge(

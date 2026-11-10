@@ -611,7 +611,8 @@ defmodule NovelApplication.AgentRunResultCommitTest do
       assert run
       assert {:ok, nil} = NovelPersistence.AuthoringSessionLog.fetch_run_segment(run_id)
 
-      assert NovelPersistence.AuthoringSessionLog.fetch_session_messages(attrs.session_id) == []
+      assert {:ok, %{rows: []}} =
+               NovelPersistence.AuthoringSessionLog.fetch_session(attrs.session_id)
 
       refute Enum.any?(
                run_events(run_id),

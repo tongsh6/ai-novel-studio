@@ -143,8 +143,15 @@ defmodule NovelApplication.AuthoringReplay do
   end
 
   defp do_fetch_session(session_id) do
-    messages = AuthoringSessionLog.fetch_session_messages(session_id)
+    case AuthoringSessionLog.fetch_session(session_id) do
+      {:ok, %{rows: messages}} -> session_summary(messages)
+      {:error, _reason} -> {:error, :authoring_transcript}
+    end
+  rescue
+    _error -> {:error, :authoring_transcript}
+  end
 
+  defp session_summary(messages) do
     transcript = %{
       messages:
         messages
@@ -164,8 +171,6 @@ defmodule NovelApplication.AuthoringReplay do
          |> length(),
        checkpoints: checkpoint_summaries(transcript)
      }}
-  rescue
-    _error -> {:error, :authoring_transcript}
   end
 
   @spec checkpoint_summaries(AuthoringTranscript.t()) :: [map()]

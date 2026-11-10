@@ -393,10 +393,8 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
       refute AgentRunLog.get_run("run-cp3-race-c")
       assert {:ok, nil} = AuthoringSessionLog.fetch_run_segment("run-cp3-race-c")
 
-      refute Enum.any?(
-               AuthoringSessionLog.fetch_session_messages(@race_session),
-               &(&1.run_id == "run-cp3-race-c")
-             )
+      assert {:ok, %{rows: rows}} = AuthoringSessionLog.fetch_session(@race_session)
+      refute Enum.any?(rows, &(&1.run_id == "run-cp3-race-c"))
 
       assert AgentRunLog.list_events("run-cp3-race-c") == []
       assert length(race_checkpoints()) == 1
@@ -444,10 +442,8 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
     end
 
     defp race_checkpoints do
-      Enum.filter(
-        AuthoringSessionLog.fetch_session_messages(@race_session),
-        &(&1.role == "checkpoint")
-      )
+      assert {:ok, %{rows: rows}} = AuthoringSessionLog.fetch_session(@race_session)
+      Enum.filter(rows, &(&1.role == "checkpoint"))
     end
 
     defp race_closed_exchanges(run_id, author_text, count) do

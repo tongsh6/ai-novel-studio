@@ -13,6 +13,7 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
 
   use ExUnit.Case, async: false
 
+  alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringReplay
@@ -167,6 +168,25 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
     refute encoded =~ "run-cp4"
     refute encoded =~ "chapter:"
     refute encoded =~ "authoring-"
+  end
+
+  test "请求读端和会话回查共同拒绝未知版本段", %{work: work, session: session} do
+    transcript = seed_checkpointed!(work, session, "run-cp4-corrupt", "已整理")
+    assert {:ok, %{header: header}} = AuthoringSessionLog.fetch_run_segment(transcript.run.run_id)
+
+    SQL.query!(
+      Repo,
+      "UPDATE authoring_run_segments SET header = ? WHERE run_id = ?",
+      [
+        Jason.encode!(Map.put(header, "version", "authoring-run-segment/v999")),
+        transcript.run.run_id
+      ]
+    )
+
+    assert {:error, :authoring_segment_version_unsupported} =
+             AuthoringSessionHistory.fetch(transcript.run)
+
+    assert {:error, :authoring_transcript} = AuthoringReplay.fetch_session(work.id, session.id)
   end
 
   test "会话不存在 fail-closed；空会话是合法空历史", %{work: work, session: session} do
@@ -382,7 +402,7 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
     assert plan.covers.turn_range == "turn-#{a_run}"
 
     # 归属标记只存在于临时请求视图，不进入持久行（DB JSON 落库为 string keys）。
-    persisted = AuthoringSessionLog.fetch_session_messages(session.id)
+    assert {:ok, %{rows: persisted}} = AuthoringSessionLog.fetch_session(session.id)
     assert persisted != []
     refute Enum.any?(persisted, &Map.has_key?(&1.message, "session_history_run_id"))
 
