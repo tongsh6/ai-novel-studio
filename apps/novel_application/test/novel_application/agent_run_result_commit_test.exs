@@ -680,7 +680,7 @@ defmodule NovelApplication.AgentRunResultCommitTest do
       parent_turn_ref: attrs.parent_turn_ref
     }
 
-    assert {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(record, transcript)
+    assert {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(transcript)
     assert :ok = AuthoringCheckpoint.validate_segment(record, segment)
 
     # 直接回读等值：段头 run 身份与 JSON 形状消息必须与内存 canonical 一致。

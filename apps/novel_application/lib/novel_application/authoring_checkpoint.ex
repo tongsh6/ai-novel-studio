@@ -7,7 +7,8 @@ defmodule NovelApplication.AuthoringCheckpoint do
   本模块是 application 层访问该历史的唯一入口：
 
   - 写入：把内存 `AuthoringTranscript` 编码为 run 执行段（header + messages），
-    完成 JSON 真实形状归一化、完整 IR 可恢复性与不可变身份校验后交给持久层；
+    完成 JSON 真实形状归一化后交给持久层；不可变身份和完整会话 IR 由
+    `validate_segment/2` 在写事务中一起校验；
   - 读取：按 run 从会话存储重建执行段 transcript，并核对 durable checkpoint 的
     段引用；未知版本/错绑/损坏一律 fail-closed，不猜测、不补造、不回退内嵌副本。
     有会话段时，task checkpoint 缺版本不阻断（段是唯一 canonical 真源，task 数据
@@ -120,28 +121,18 @@ defmodule NovelApplication.AuthoringCheckpoint do
 
   def append_checkpoint(_transcript, _plan), do: {:error, :invalid_compaction_request}
 
-  @doc """
-  application 写入边界：把内存 canonical 编码为会话执行段（header + messages）。
-
-  与旧 `encode_for_write` 同等强度：先按真实 JSON 落库形状归一化，再用同一
-  `AuthoringTranscript.restore/1`（含 Request IR 全量校验）和不可变身份校验证明
-  可回读；不可 JSON 表示的值返回 error 且不泄漏内容。
-  """
-  @spec encode_segment_for_write(map(), AuthoringTranscript.t() | nil) ::
+  @doc "把内存 canonical 编码成真实落库的 JSON 段。会话校验在提交事务中执行。"
+  @spec encode_segment_for_write(AuthoringTranscript.t() | nil) ::
           {:ok, %{header: map(), messages: [map()]} | nil} | {:error, term()}
-  def encode_segment_for_write(_record, nil), do: {:ok, nil}
+  def encode_segment_for_write(nil), do: {:ok, nil}
 
-  def encode_segment_for_write(record, transcript) when is_map(record) and is_map(transcript) do
+  def encode_segment_for_write(transcript) when is_map(transcript) do
     data = checkpoint(transcript).transcript
 
-    with :ok <- validate_transcript_data_keys(data) do
-      segment = %{"header" => segment_header(data), "messages" => data.messages}
-
-      with {:ok, decoded} <- json_roundtrip(segment),
-           stored = %{header: decoded["header"], messages: decoded["messages"]},
-           :ok <- validate_segment(record, stored) do
-        {:ok, stored}
-      end
+    with :ok <- validate_transcript_data_keys(data),
+         {:ok, decoded} <-
+           json_roundtrip(%{"header" => segment_header(data), "messages" => data.messages}) do
+      {:ok, %{header: decoded["header"], messages: decoded["messages"]}}
     end
   end
 
@@ -159,13 +150,17 @@ defmodule NovelApplication.AuthoringCheckpoint do
 
   defp validate_transcript_data_keys(_data), do: {:error, :invalid_authoring_segment}
 
-  @doc "写入前语义校验：结构/完整 IR 可恢复性 + 不可变 run 身份。"
+  @doc """
+  写入事务内的语义校验：结构与完整 IR 可恢复性 + 不可变 run 身份 + 会话视图语义。
+
+  必须在持有写锁（`AgentRunLog.commit_snapshot/2` 的 immediate 事务）后、任何该
+  snapshot 变更前调用，传入实际将写入的 run_record 与 segment；构造 snapshot 时
+  的历史可能已被其他写者推进，不能作为最终判定依据。
+  """
   @spec validate_segment(map(), map()) :: :ok | {:error, term()}
   def validate_segment(record, %{header: header, messages: messages}) do
-    record = normalize(record)
-
     with {:ok, transcript} <- restore_from_parts(header, messages),
-         :ok <- validate_identity(record, transcript.run) do
+         :ok <- validate_identity(normalize(record), transcript.run) do
       validate_in_session(transcript)
     end
   end

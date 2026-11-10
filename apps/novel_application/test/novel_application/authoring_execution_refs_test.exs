@@ -133,7 +133,7 @@ defmodule NovelApplication.AuthoringExecutionRefsTest do
     original = transcript_with_assistant_refs()
     record = record()
 
-    assert {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(record, original)
+    assert {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(original)
     assert segment.header["version"] == AuthoringCheckpoint.format_version()
 
     {:ok, _state} = AuthoringSessionLog.append_run(run_attrs(record), segment)

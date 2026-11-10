@@ -87,10 +87,16 @@ defmodule NovelPersistence.AgentRunLog do
   @doc """
   同一事务提交 run、会话 canonical 执行段、可选 step/事件与 durable checkpoint。
 
-  `authoring_segment`（段头 + 消息，由 application 写入边界完成 JSON 归一化与
-  IR 校验）在同一事务内追加到会话存储；失败（含会话前缀/身份/版本拒绝、run/step/
-  event 身份错绑、task 缺失、task 绑定不符、段引用错绑、SQL 拒绝、事件 changeset
-  错误）都回滚整个事务，调用方不得在失败后推进内存 canonical 或广播作者结果。
+  `authoring_segment`（段头 + 消息，由 application 写入边界完成 JSON 归一化）
+  在同一事务内追加到会话存储。可选的 `authoring_validator/2`
+  由 application 提供（非持久二元函数），在 immediate 事务取得写锁后、任何该
+  snapshot 变更前，针对实际将写入的 run_record + segment 执行完整会话语义校验；
+  并发写者在准备 snapshot 时看到的历史可能已过期，不能作为最终放行依据。
+  未提供验证函数时保持纯存储职责（低层调用方自行保证语义）。
+
+  失败（含会话前缀/身份/版本拒绝、会话语义拒绝、run/step/event 身份错绑、
+  task 缺失、task 绑定不符、段引用错绑、SQL 拒绝、事件 changeset 错误）都回滚
+  整个事务，调用方不得在失败后推进内存 canonical 或广播作者结果。
 
   事务以 `mode: :immediate` 开启（SQLite 单写者）：同一会话的并发 run 追加因此
   串行化，`(session_id, sequence)` / `(run_id, run_sequence)` 唯一索引保证顺序
@@ -102,9 +108,11 @@ defmodule NovelPersistence.AgentRunLog do
     events = Keyword.get(opts, :events, [])
     checkpoint = Keyword.get(opts, :checkpoint)
     authoring_segment = Keyword.get(opts, :authoring_segment)
+    authoring_validator = Keyword.get(opts, :authoring_validator)
 
     Repo.transaction(
       fn ->
+        AuthoringSessionLog.validate_write!(run_record, authoring_segment, authoring_validator)
         run = upsert_run(run_record) |> unwrap!()
 
         segment_state =

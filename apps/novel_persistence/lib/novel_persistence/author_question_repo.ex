@@ -45,7 +45,8 @@ defmodule NovelPersistence.AuthorQuestionRepo do
                 steps: Map.get(attrs, :steps, []),
                 events: attrs.events,
                 checkpoint: attrs[:checkpoint],
-                authoring_segment: Map.get(attrs, :authoring_segment)
+                authoring_segment: Map.get(attrs, :authoring_segment),
+                authoring_validator: Map.get(attrs, :authoring_validator)
               )
             )
 
@@ -116,7 +117,8 @@ defmodule NovelPersistence.AuthorQuestionRepo do
       AgentRunLog.commit_snapshot(attrs.run_record,
         events: attrs.events,
         checkpoint: attrs[:checkpoint],
-        authoring_segment: Map.get(attrs, :authoring_segment)
+        authoring_segment: Map.get(attrs, :authoring_segment),
+        authoring_validator: Map.get(attrs, :authoring_validator)
       )
     )
 

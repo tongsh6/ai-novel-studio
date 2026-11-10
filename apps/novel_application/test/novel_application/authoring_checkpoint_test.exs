@@ -16,7 +16,17 @@ defmodule NovelApplication.AuthoringCheckpointTest do
   alias NovelApplication.{AuthoringCheckpoint, AuthoringTranscript}
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
-  alias NovelPersistence.{AgentRunLog, AuthoringSessionLog, Repo, WorkRepo, WorkSessionRepo}
+
+  alias NovelPersistence.{
+    AgentRunLog,
+    AuthoringSessionLog,
+    AuthorQuestionRepo,
+    InteractionLifecycle,
+    Repo,
+    WorkRepo,
+    WorkSessionRepo
+  }
+
   alias NovelPersistence.Schemas.AgentRunRecord
 
   setup do
@@ -63,7 +73,12 @@ defmodule NovelApplication.AuthoringCheckpointTest do
       workspace_id: record.workspace_id,
       work_id: record.work_id,
       session_id: record.session_id,
-      parent_turn_ref: record.parent_turn_ref
+      parent_turn_ref: record.parent_turn_ref,
+      origin_frame_ref: record.origin_frame_ref,
+      run_mode: record.run_mode,
+      profile_ref: record.profile_ref,
+      status: record.status,
+      phase: record.phase
     }
   end
 
@@ -73,7 +88,7 @@ defmodule NovelApplication.AuthoringCheckpointTest do
 
   # 生产等价 seed：application 写入边界编码 → 会话存储追加。
   defp seed_segment!(record, transcript) do
-    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(record, transcript)
+    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(transcript)
     seed_encoded_segment!(record, segment)
   end
 
@@ -215,8 +230,7 @@ defmodule NovelApplication.AuthoringCheckpointTest do
 
   test "未知段头版本在写入边界被拒绝，不产生可读段", %{work: work, session: session} do
     identity = run_identity(work, session)
-    record = record(identity)
-    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(record, transcript(identity))
+    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(transcript(identity))
 
     bad_segment = %{
       segment
@@ -277,12 +291,13 @@ defmodule NovelApplication.AuthoringCheckpointTest do
 
     broken = %{transcript | messages: [%{role: "user"}]}
 
-    assert {:error, _reason} = AuthoringCheckpoint.encode_segment_for_write(record, broken)
+    assert {:ok, broken_segment} = AuthoringCheckpoint.encode_segment_for_write(broken)
+    assert {:error, _reason} = AuthoringCheckpoint.validate_segment(record, broken_segment)
 
     assert {:error, :invalid_authoring_segment} =
              AuthoringCheckpoint.validate_segment(record, %{})
 
-    assert {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(record, transcript)
+    assert {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(transcript)
     assert segment.header["version"] == AuthoringCheckpoint.format_version()
 
     # 编码后的消息与内存 checkpoint 的消息在 JSON 值上逐项一致（map 键序不参与比较）。
@@ -302,8 +317,10 @@ defmodule NovelApplication.AuthoringCheckpointTest do
 
     wrong = run_identity(work, session, %{session_id: "other-session"})
 
+    assert {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(transcript(wrong))
+
     assert {:error, :authoring_segment_identity_mismatch} =
-             AuthoringCheckpoint.encode_segment_for_write(record, transcript(wrong))
+             AuthoringCheckpoint.validate_segment(record, segment)
   end
 
   test "写入边界按真实 JSON 表示编码，Date/Time/NaiveDateTime 三投影端到端逐字一致", %{
@@ -333,7 +350,7 @@ defmodule NovelApplication.AuthoringCheckpointTest do
         }
       })
 
-    assert {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(record, transcript)
+    assert {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(transcript)
 
     assert [%{"blocks" => [%{"content" => content}]}] =
              Enum.filter(segment.messages, &(&1["role"] == "tool"))
@@ -359,7 +376,6 @@ defmodule NovelApplication.AuthoringCheckpointTest do
 
   test "写入边界拒绝不可 JSON 表示的私有值且错误不泄漏内容", %{work: work, session: session} do
     identity = run_identity(work, session)
-    record = record(identity)
     marker = "private-payload-marker"
 
     transcript =
@@ -373,7 +389,7 @@ defmodule NovelApplication.AuthoringCheckpointTest do
         content: %{callback: fn -> marker end}
       })
 
-    assert {:error, reason} = AuthoringCheckpoint.encode_segment_for_write(record, transcript)
+    assert {:error, reason} = AuthoringCheckpoint.encode_segment_for_write(transcript)
     assert reason == :authoring_segment_not_json_encodable
     refute inspect(reason) =~ marker
   end
@@ -432,6 +448,146 @@ defmodule NovelApplication.AuthoringCheckpointTest do
 
     assert {:error, :authoring_segment_identity_mismatch} =
              AuthoringCheckpoint.restore(updated_run, nil)
+  end
+
+  # B81 CP3：publish/answer 两条真实入口必须把 snapshot 携带的同一验证函数交给
+  # `AgentRunLog.commit_snapshot/2`，并在验证失败时回滚各自事务内的 Interaction 变更；
+  # B26 的重复提交短路仍先于验证返回原回执。
+  describe "B81 CP3 问题入口复用写入事务校验" do
+    test "publish 在结果事务内执行验证；重复提交先返回原回执", %{
+      work: work,
+      session: session
+    } do
+      parent = self()
+      identity = run_identity(work, session)
+      record = record(identity)
+      turn_ref = identity.parent_turn_ref
+
+      attrs = %{
+        workspace_id: work.id,
+        session_id: session.id,
+        run_id: identity.run_id,
+        status: :running,
+        goal_version: 1,
+        turn_result: %{
+          "turn_id" => turn_ref,
+          "assistant_message" => %{"text" => "需要作者回答"},
+          "author_question" => %{
+            "question_ref" => "question:publish-forward",
+            "run_id" => identity.run_id,
+            "status" => "open",
+            "goal_version" => 1
+          }
+        },
+        run_record: run_attrs(record),
+        events: [],
+        authoring_segment: %{header: %{}, messages: []},
+        authoring_validator: fn _record, _segment ->
+          send(parent, :publish_validator_called)
+          {:error, :checkpoint_already_applied}
+        end
+      }
+
+      assert {:error, :checkpoint_already_applied} = AuthorQuestionRepo.publish(attrs)
+
+      assert_received :publish_validator_called
+      assert AuthorQuestionRepo.source(work.id, session.id, turn_ref) == nil
+      assert AgentRunLog.get_run(record.id) == nil
+
+      # 首次成功落库沿用生产 snapshot 的同一验证函数（无 canonical 段时跳过）。
+      # 重复提交必须命中 B26 短路，先返回原回执，不进入写入事务、也不调用新验证。
+      seeded = %{
+        attrs
+        | authoring_segment: nil,
+          authoring_validator: &AuthoringCheckpoint.validate_segment/2
+      }
+
+      assert {:ok, %{duplicate: false, turn_result: seeded_result}} =
+               AuthorQuestionRepo.publish(seeded)
+
+      assert seeded_result["turn_id"] == turn_ref
+
+      assert {:ok, %{duplicate: true, turn_result: duplicate_result}} =
+               AuthorQuestionRepo.publish(attrs)
+
+      assert duplicate_result["turn_id"] == turn_ref
+      refute_received :publish_validator_called
+    end
+
+    test "answer 在答复事务内执行同一验证，失败时问题仍 open 且无回执", %{
+      work: work,
+      session: session
+    } do
+      parent = self()
+      run_id = unique("run-answer")
+      source_turn = unique("turn-answer-source")
+      question_ref = "question:answer-forward"
+      submission_id = unique("submission")
+
+      seed = %{
+        workspace_id: work.id,
+        session_id: session.id,
+        run_id: run_id,
+        turn_result: %{
+          "turn_id" => source_turn,
+          "assistant_message" => %{"text" => "需要作者回答"},
+          "author_question" => %{
+            "question_ref" => question_ref,
+            "run_id" => run_id,
+            "status" => "open",
+            "goal_version" => 1
+          }
+        }
+      }
+
+      assert {:ok, _} = InteractionLifecycle.call(:result, seed)
+
+      attrs = %{
+        workspace_id: work.id,
+        session_id: session.id,
+        run_id: run_id,
+        source_turn_ref: source_turn,
+        question_ref: question_ref,
+        expected_goal_version: 1,
+        receipt_key: %{idempotency_key: unique("receipt")},
+        payload_digest: "digest",
+        submission_id: submission_id,
+        result: %{"status" => "accepted"},
+        input: %{
+          workspace_id: work.id,
+          session_id: session.id,
+          run_id: run_id,
+          status: :answered,
+          goal_version: 2,
+          turn_id: "#{source_turn}:steer:2",
+          submission_id: submission_id,
+          text: "作者回答",
+          message_kind: "steer",
+          author_question_ref: question_ref
+        },
+        run_record: %{
+          id: run_id,
+          workspace_id: work.id,
+          work_id: work.id,
+          session_id: session.id,
+          parent_turn_ref: source_turn
+        },
+        events: [],
+        authoring_segment: %{header: %{}, messages: []},
+        authoring_validator: fn _record, _segment ->
+          send(parent, :answer_validator_called)
+          {:error, :checkpoint_already_applied}
+        end
+      }
+
+      assert {:error, :checkpoint_already_applied} = AuthorQuestionRepo.answer(attrs)
+
+      assert_received :answer_validator_called
+
+      row = AuthorQuestionRepo.source(work.id, session.id, source_turn)
+      assert get_in(row.content, ["turn_result", "author_question", "status"]) == "open"
+      assert AuthorQuestionRepo.receipt(attrs.receipt_key, attrs.payload_digest) == :new
+    end
   end
 
   # 读取端负例的故障注入：直接改写段头 JSON（等价于 SQL json_set 修改 header）。

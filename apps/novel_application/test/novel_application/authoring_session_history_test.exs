@@ -58,7 +58,7 @@ defmodule NovelApplication.AuthoringSessionHistoryTest do
   defp seed_transcript!(transcript, run_id) do
     record = run_record(run_id)
 
-    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(record, transcript)
+    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(transcript)
 
     {:ok, _state} =
       Repo.transaction(fn -> NovelPersistence.AuthoringSessionLog.append_run(record, segment) end)

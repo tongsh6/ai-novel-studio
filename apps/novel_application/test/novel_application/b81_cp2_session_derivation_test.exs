@@ -76,7 +76,7 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
     transcript = first_round_transcript()
     record = run_record("run-cp2-1")
 
-    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(record, transcript)
+    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(transcript)
 
     {:ok, _} =
       Repo.transaction(fn -> AuthoringSessionLog.append_run(record, segment) end)

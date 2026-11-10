@@ -2264,7 +2264,9 @@ defmodule NovelApplication.AgentRunServer do
 
   defp run_auto_maintenance(state) do
     # B81 CP3：压缩作用域=会话历史。计划在「历史 + 本 run 段」的会话视图上派生；
-    # checkpoint 追加到本 run 段（跨段 covers 由会话级校验兜底），投影折叠由既有
+    # 计划准备期间其他 run 可能已提交，因此写入事务在写锁内按最新历史重新校验，
+    # 覆盖冲突时整笔提交回滚（调用方按最新状态重试或 nothing），不在 snapshot
+    # 构造时提前放行。checkpoint 追加到本 run 段，投影折叠由既有
     # RequestIR.Compaction 按 call_id 完成。历史读取失败 fail-closed（保留旧 state、
     # 下一安全点重试），不静默退化为 run 内压缩。
     with {:ok, view} <- session_view(state),

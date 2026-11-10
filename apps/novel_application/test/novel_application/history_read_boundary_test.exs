@@ -301,7 +301,7 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
   # v3 正例夹具：canonical 经应用写入边界编码，在同一事务边界追加为会话执行段。
   defp seed_session_segment!(run, checkpoint) do
     {:ok, transcript} = AuthoringTranscript.restore(checkpoint)
-    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(run, transcript)
+    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(transcript)
     {:ok, _state} = AuthoringSessionLog.append_run(run, segment)
   end
 

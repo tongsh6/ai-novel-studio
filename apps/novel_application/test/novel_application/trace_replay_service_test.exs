@@ -337,7 +337,7 @@ defmodule NovelApplication.TraceReplayServiceTest do
         long_run_task_ref: task.id
       })
 
-    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(run, transcript)
+    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(transcript)
     {:ok, _state} = AuthoringSessionLog.append_run(run, segment)
 
     {:ok, _} =
@@ -611,7 +611,7 @@ defmodule NovelApplication.TraceReplayServiceTest do
 
     if checkpoint do
       {:ok, transcript} = AuthoringTranscript.restore(checkpoint)
-      {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(run, transcript)
+      {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(transcript)
       {:ok, _state} = AuthoringSessionLog.append_run(run, segment)
     end
 

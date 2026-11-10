@@ -37,7 +37,9 @@ defmodule NovelApplication.AgentRunPersistence do
           run_record: map(),
           steps: [map()],
           events: [map()],
-          checkpoint: map() | nil
+          checkpoint: map() | nil,
+          authoring_segment: map() | nil,
+          authoring_validator: (map(), map() -> :ok | {:error, term()})
         }
 
   @doc "run/task checkpoint 版本决策的唯一所属点。"
@@ -50,17 +52,22 @@ defmodule NovelApplication.AgentRunPersistence do
   `state` 是 `AgentRunServer` 的实际状态 struct，但本模块只按 map 读取
   `:stage_state`、`:events` 与 `:event_sequence`，不依赖该 struct 的定义，
   避免投影层反向依赖状态机。
+
+  canonical 段在这里只做 shape 编码；完整会话语义随 snapshot 携带
+  `authoring_validator/2`，由持久层在现有 immediate 事务内、任何写入前执行，
+  避免基于过期会话历史放行重复覆盖提交。
   """
   @spec snapshot(AgentRun.t(), map(), mode(), keyword()) :: {:ok, snapshot()} | {:error, term()}
   def snapshot(%AgentRun{} = run, state, mode, opts \\ []) when is_map(state) do
-    with {:ok, segment} <- authoring_segment(run, state) do
+    with {:ok, segment} <- authoring_segment(state) do
       {:ok,
        %{
          run_record: run_attrs(run),
          steps: Keyword.get(opts, :steps, []),
          events: snapshot_events(mode, run, state, opts),
          checkpoint: task_checkpoint(run, state, segment, mode),
-         authoring_segment: segment
+         authoring_segment: segment,
+         authoring_validator: &AuthoringCheckpoint.validate_segment/2
        }}
     end
   end
@@ -72,13 +79,15 @@ defmodule NovelApplication.AgentRunPersistence do
         steps: steps,
         events: events,
         checkpoint: checkpoint,
-        authoring_segment: authoring_segment
+        authoring_segment: authoring_segment,
+        authoring_validator: authoring_validator
       }) do
     AgentRunLog.commit_snapshot(run_record,
       steps: steps,
       events: events,
       checkpoint: checkpoint,
-      authoring_segment: authoring_segment
+      authoring_segment: authoring_segment,
+      authoring_validator: authoring_validator
     )
   end
 
@@ -156,14 +165,9 @@ defmodule NovelApplication.AgentRunPersistence do
 
   # 把本 run 内存 canonical 编码为会话执行段（header + messages）；nil 表示本次
   # 提交没有 canonical 历史，不写任何会话行。
-  defp authoring_segment(run, state) do
-    case Map.get(Map.get(state, :stage_state) || %{}, :judgment_transcript) do
-      nil ->
-        {:ok, nil}
-
-      transcript ->
-        AuthoringCheckpoint.encode_segment_for_write(run, transcript)
-    end
+  defp authoring_segment(state) do
+    transcript = Map.get(Map.get(state, :stage_state) || %{}, :judgment_transcript)
+    AuthoringCheckpoint.encode_segment_for_write(transcript)
   end
 
   # ── durable task 投影 ───────────────────────────────────────────────────

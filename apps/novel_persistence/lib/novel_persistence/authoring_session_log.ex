@@ -112,6 +112,18 @@ defmodule NovelPersistence.AuthoringSessionLog do
 
   def append_run(_run_record, _segment), do: {:error, :authoring_segment_shape_invalid}
 
+  @doc "在调用方的写事务内，以当前会话校验实际待追加的执行段。"
+  def validate_write!(_run_record, nil, _validator), do: :ok
+  def validate_write!(_run_record, _segment, nil), do: :ok
+
+  def validate_write!(run_record, segment, validator) when is_function(validator, 2) do
+    case validator.(run_record, segment) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+      _other -> Repo.rollback(:invalid_authoring_segment_validation)
+    end
+  end
+
   @doc "按 run 读取执行段（段头 + 该 run 的消息，按 run_sequence 升序）。"
   @spec fetch_run_segment(String.t()) :: {:ok, segment_input() | nil} | {:error, term()}
   def fetch_run_segment(run_id) when is_binary(run_id) do

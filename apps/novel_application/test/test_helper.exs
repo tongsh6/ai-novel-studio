@@ -72,7 +72,7 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
     }
 
     {:ok, segment} =
-      NovelApplication.AuthoringCheckpoint.encode_segment_for_write(record, transcript)
+      NovelApplication.AuthoringCheckpoint.encode_segment_for_write(transcript)
 
     {:ok, _state} =
       NovelPersistence.Repo.transaction(fn ->

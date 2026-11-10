@@ -16,15 +16,17 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
+  alias NovelApplication.AgentRunPersistence
   alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringSessionHistory
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.JudgmentProtocol
   alias NovelApplication.TranscriptCompaction
-  alias NovelCommon.Contracts.ProviderOutput
+  alias NovelCommon.Contracts.{AgentEvent, ProviderOutput}
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
-  alias NovelPersistence.{AuthoringSessionLog, Repo}
+  alias NovelDomain.AgentRun
+  alias NovelPersistence.{AgentRunLog, AuthoringSessionLog, Repo}
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -76,7 +78,7 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
   defp seed_run!(transcript) do
     record = run_record(transcript.run.run_id)
 
-    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(record, transcript)
+    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(transcript)
     {:ok, _} = Repo.transaction(fn -> AuthoringSessionLog.append_run(record, segment) end)
     :ok
   end
@@ -114,14 +116,13 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
 
     assert Enum.any?(compacted_segment.messages, &(&1.role == "checkpoint"))
 
-    # 3) 写入边界在会话视图上完成完整校验（含 Compaction 证据校验）后通过。
+    # 3) 编码边界只产出真实落库形状；完整会话视图校验在写入事务内对同一
+    #    run_record + segment 执行（含 Compaction 证据校验）后通过。
     assert {:ok, stored} =
-             AuthoringCheckpoint.encode_segment_for_write(
-               run_record("run-cp3-2"),
-               compacted_segment
-             )
+             AuthoringCheckpoint.encode_segment_for_write(compacted_segment)
 
     assert is_map(stored)
+    assert :ok = AuthoringCheckpoint.validate_segment(run_record("run-cp3-2"), stored)
 
     # 4) 压缩后的会话视图投影折叠被覆盖的历史交换；原始消息保留在 canonical 视图。
     compacted_view = AuthoringSessionHistory.compose(compacted_segment, history)
@@ -351,6 +352,158 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
 
     defp message_has_text?(%{blocks: blocks}, text),
       do: Enum.any?(blocks, &(Map.get(&1, :text) == text))
+  end
+
+  # B81 CP3 并发回归：两个写者基于同一份旧会话历史各自准备压缩提交。第二个写者
+  # 必须在写入事务内按最新历史被拒绝，且整个事务回滚；否则两个 checkpoint 覆盖同一
+  # call，之后的真实恢复全部报 `:checkpoint_already_applied`。
+  describe "B81 CP3 并发压缩提交" do
+    @race_workspace "ws-cp3-race"
+    @race_work "work-cp3-race"
+    @race_session "sess-cp3-race"
+
+    test "同一旧快照准备的两个压缩提交，第二个被拒绝且全事务回滚，B 可恢复" do
+      run_a = race_run("run-cp3-race-a", :completed)
+      transcript_a = race_closed_exchanges("run-cp3-race-a", "A 的作者原话", 5)
+
+      assert {:ok, snapshot_a} =
+               AgentRunPersistence.snapshot(run_a, race_state(transcript_a), :delivery)
+
+      assert {:ok, _run_a} = AgentRunPersistence.commit(snapshot_a)
+
+      prepared_b = prepare_race_compaction("run-cp3-race-b", "B 的作者原话")
+
+      prepared_c =
+        prepare_race_compaction("run-cp3-race-c", "C 的作者原话", [race_event("run-cp3-race-c")])
+
+      # 两个计划都基于同一份旧历史（仅 A），覆盖同一批 call。
+      assert prepared_b.plan.covers.call_ids == prepared_c.plan.covers.call_ids
+      assert prepared_b.plan.covers.call_ids != []
+
+      assert {:ok, _run_b} = AgentRunPersistence.commit(prepared_b.snapshot)
+
+      # 控制组：B 提交后 A 的会话视图仍可恢复；失败只应出现在第二个写者。
+      assert {:ok, _restored_a, :session_segment} =
+               AuthoringCheckpoint.restore(AgentRunLog.get_run("run-cp3-race-a"), nil)
+
+      assert {:error, :checkpoint_already_applied} =
+               AgentRunPersistence.commit(prepared_c.snapshot)
+
+      # 全事务回滚：C 的 run/段/消息/事件都不存在，会话只有 B 的一条 checkpoint。
+      refute AgentRunLog.get_run("run-cp3-race-c")
+      assert {:ok, nil} = AuthoringSessionLog.fetch_run_segment("run-cp3-race-c")
+
+      refute Enum.any?(
+               AuthoringSessionLog.fetch_session_messages(@race_session),
+               &(&1.run_id == "run-cp3-race-c")
+             )
+
+      assert AgentRunLog.list_events("run-cp3-race-c") == []
+      assert length(race_checkpoints()) == 1
+
+      # B 与 A 均可恢复；重新规划按最新状态不再选择已覆盖交换。
+      assert {:ok, restored_b, :session_segment} =
+               AuthoringCheckpoint.restore(AgentRunLog.get_run("run-cp3-race-b"), nil)
+
+      assert Enum.any?(restored_b.messages, &(&1.role == "checkpoint"))
+
+      assert {:ok, _restored_a_after, :session_segment} =
+               AuthoringCheckpoint.restore(AgentRunLog.get_run("run-cp3-race-a"), nil)
+
+      assert {:ok, history} =
+               AuthoringSessionHistory.fetch(%{
+                 run_id: "run-cp3-race-d",
+                 session_id: @race_session
+               })
+
+      view =
+        AuthoringSessionHistory.compose(
+          race_transcript("run-cp3-race-d", "D 的作者原话"),
+          history
+        )
+
+      assert {:ok, :nothing_to_compact} =
+               TranscriptCompaction.plan_maintenance(view, keep_recent_items: 4)
+    end
+
+    defp prepare_race_compaction(run_id, author_text, events \\ []) do
+      run = race_run(run_id, :running)
+      transcript = race_transcript(run_id, author_text)
+
+      assert {:ok, history} = AuthoringSessionHistory.fetch(run)
+      view = AuthoringSessionHistory.compose(transcript, history)
+      assert {:ok, plan} = TranscriptCompaction.plan_maintenance(view, keep_recent_items: 4)
+      assert {:ok, compacted} = AuthoringCheckpoint.append_checkpoint(transcript, plan)
+
+      assert {:ok, snapshot} =
+               AgentRunPersistence.snapshot(run, race_state(compacted), :compaction,
+                 events: events
+               )
+
+      %{snapshot: snapshot, plan: plan}
+    end
+
+    defp race_checkpoints do
+      Enum.filter(
+        AuthoringSessionLog.fetch_session_messages(@race_session),
+        &(&1.role == "checkpoint")
+      )
+    end
+
+    defp race_closed_exchanges(run_id, author_text, count) do
+      Enum.reduce(1..count, race_transcript(run_id, author_text), fn n, transcript ->
+        append_exchange(transcript, "cp3-race-call-#{n}", "chapter:#{n}")
+      end)
+    end
+
+    defp race_transcript(run_id, author_text) do
+      AuthoringTranscript.new(race_identity(run_id),
+        base_text: "B81 CP3 并发压缩 Base",
+        author_text: author_text
+      )
+    end
+
+    defp race_identity(run_id) do
+      identity(run_id, %{
+        workspace_id: @race_workspace,
+        work_id: @race_work,
+        session_id: @race_session
+      })
+    end
+
+    defp race_state(transcript) do
+      %{events: [], event_sequence: 0, stage_state: %{judgment_transcript: transcript}}
+    end
+
+    defp race_event(run_id) do
+      %AgentEvent{
+        event_id: "evt-#{run_id}",
+        run_ref: run_id,
+        sequence: 1,
+        event_type: :checkpoint_created,
+        visibility: :author,
+        summary: "整理完成",
+        reason_codes: [],
+        refs: [],
+        payload: %{}
+      }
+    end
+
+    defp race_run(run_id, status) do
+      %AgentRun{
+        run_id: run_id,
+        workspace_id: @race_workspace,
+        work_id: @race_work,
+        session_id: @race_session,
+        parent_turn_ref: "turn-#{run_id}",
+        origin_frame_ref: "frame-#{run_id}",
+        profile_ref: "conversation_turn_v1",
+        goal: %{text: "B81 CP3 并发压缩", version: 1},
+        status: status,
+        phase: if(status == :completed, do: :finalizing, else: :executing),
+        authority_scope: %{production_write: false, allowed_tools: []}
+      }
+    end
   end
 
   defp collect_provider_message_ids(body) do
