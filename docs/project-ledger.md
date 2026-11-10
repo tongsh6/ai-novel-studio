@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-11 **窗口策略澄清（作者指出 strata 实际上下文 512k）**：产品 `ContextPressure` 对 strata 固定保守窗口 **32,000**（VS-00L §16.2「保守模型窗口配置（不向作者展示）」），不读 provider 真实窗口（Strata `/v1/models` 也不返回）；`cp5-real-05` 里 `NOVEL_CONTEXT_WINDOW_OVERRIDES=strata:4096` 是验收构造（触发线 2,867 tokens），**不代表 512k 真实窗口下的自然压力**——若按 512k（触发线≈358k），3 turn 累计 46k tokens 远不会触发。待作者裁决默认窗口策略：保守 32k / 按真实 512k（部署配置或默认表）/ provider capabilities 上报。决策前不改默认表；B81 §8.6.4b 已登记。
+
 > 2026-11-11 **压缩单位/触发口径澄清（作者问）**：触发指标=**tokens**（最近一次真实 provider 请求 input_tokens / 模型窗口 ≥ `maintenance_ratio=0.70`）；压缩范围=**已完成 provider call 计数**（`keep_recent_items=4` 按 call 计，更早 exchange 组整组压缩、最近 4 个 call 整组保留）；压缩对象=会话历史（跨 run）。`cp5-real-05` 只跑 3 个 turn 就触发的原因：窗口覆盖 `strata:4096` 使阈值=2,867 tokens，真实请求首轮 usage 已达 9k–22k（压力第一轮即超线）；首轮 3 个已完成 call < K=4 不能压，第 2 轮补发后累计 6 call > K，第 3 个 turn 进入安全点即触发。默认 32k 窗口同样 2–3 轮内触发（重任务）；轻对话更久。B81 §8.6 判据与 §8.6.4b 措辞已按「call 计数」精确化。
 
 > 2026-11-10 **B81 CP5 实模自然压力触发成功（B71 三次失败目标达成）**：`cp5-real-05`（真实 strata 模型 + 窗口覆盖 4096 + 自动维护开启 + `B71_AUTO_MAINT_EXTRA_ROUNDS=2` 多轮补发，`21563976`）：driver `triggered=true`/`checkpoint_events=1`；DB `checkpoint_created`×1 + 会话 canonical checkpoint 消息（sequence 37，`covers.call_ids` 为真实 strata 的 4 个 call，跨 run 会话历史）；第 2 轮补发 run failed 但压缩已在安全点提交。A3 判据 C3/C6/C9/C11 未全过（截图前台竞争/真实模型输出含技术词/跨 run 与同 run 判据冲突），实模「触发+提交」成立、「页面细条+全判据」未闭环，不代签。另：作者提出「压缩应按会话单位」——当前压缩对象/K 计数已是会话级，但触发时机仍在 run 安全点；已登记 CP7 候选待裁决（会话级触发方案与影响见 B81 §8.6.4b/§9）。
