@@ -13,6 +13,10 @@ struct Preferences {
     assistant_display_names: HashMap<String, String>,
     #[serde(default)]
     model_provider: ModelProviderPreferences,
+    /// 用户可配置的模型上下文窗口（provider → window tokens）；由 sidecar 启动时注入
+    /// NOVEL_CONTEXT_WINDOW_OVERRIDES，供安全点自动维护的压力阈值判定使用（不写死在代码里）。
+    #[serde(default)]
+    context_windows: HashMap<String, u32>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -127,6 +131,28 @@ fn profiled_config_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 fn preferences_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(profiled_config_dir(app)?.join("preferences.json"))
+}
+
+/// 把用户配置的 provider → window 渲染为 sidecar env 格式（provider:window 逗号分隔）。
+/// 过滤空 provider 与 0 窗口；按 provider 排序保证确定性；空映射返回 None（不注入）。
+fn render_context_window_overrides(windows: &HashMap<String, u32>) -> Option<String> {
+    let mut entries: Vec<(&String, &u32)> = windows
+        .iter()
+        .filter(|(provider, window)| !provider.trim().is_empty() && **window > 0)
+        .collect();
+    entries.sort_by(|left, right| left.0.cmp(right.0));
+
+    if entries.is_empty() {
+        return None;
+    }
+
+    Some(
+        entries
+            .iter()
+            .map(|(provider, window)| format!("{}:{}", provider.trim(), window))
+            .collect::<Vec<_>>()
+            .join(","),
+    )
 }
 
 fn read_preferences(app: &tauri::AppHandle) -> Result<Preferences, String> {
@@ -769,6 +795,13 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> Result<Child, String> {
         Err(_) => "/usr/bin:/bin:/usr/sbin:/sbin".to_string(),
     };
 
+    // 用户系统配置的模型上下文窗口：从 preferences.json 读取（profile 隔离），
+    // 渲染成 provider:window,... 注入 sidecar。坏偏好/缺省时保持代码默认表。
+    let context_windows = read_preferences(app)
+        .map(|preferences| preferences.context_windows)
+        .unwrap_or_default();
+    let window_overrides = render_context_window_overrides(&context_windows);
+
     // 本机单实例 sidecar，不需要 Erlang 分布式 / epmd。
     // cwd 设为可写数据目录：GUI（LaunchServices）启动时 cwd 是只读的 "/"，
     // 任何 cwd 相对路径写入都会 erofs 崩溃。
@@ -782,6 +815,10 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> Result<Child, String> {
         .env("RELEASE_DISTRIBUTION", "none")
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
+
+    if let Some(value) = window_overrides.as_deref() {
+        command.env("NOVEL_CONTEXT_WINDOW_OVERRIDES", value);
+    }
 
     // Unix：独立进程组，退出时杀整组，避免 release 引导脚本派生的子进程成为孤儿。
     #[cfg(unix)]
@@ -887,6 +924,23 @@ mod tests {
         assert!(super::sidecar_install_complete(&dir));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn context_window_overrides_render_deterministically() {
+        let mut windows = std::collections::HashMap::new();
+        windows.insert("strata".to_string(), 524_288u32);
+        windows.insert("openai".to_string(), 128_000u32);
+        windows.insert("".to_string(), 1u32);
+        windows.insert("zero".to_string(), 0u32);
+        assert_eq!(
+            super::render_context_window_overrides(&windows).as_deref(),
+            Some("openai:128000,strata:524288")
+        );
+        assert_eq!(
+            super::render_context_window_overrides(&std::collections::HashMap::new()),
+            None
+        );
     }
 
     #[test]

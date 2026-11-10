@@ -313,8 +313,12 @@ const path = await invoke("export_novel", { workId, format: "docx" });
 | Windows | `%APPDATA%/com.ai-novel-studio.app/` |
 | Linux | `~/.local/share/com.ai-novel-studio.app/` |
 
-桌面偏好（如当前模型供应商、最近打开作品、助手显示名）按 `AI_NOVEL_DESKTOP_PROFILE`
-隔离到 `<data dir>/profiles/<profile>/preferences.json`。脚本默认 profile：
+桌面偏好（如当前模型供应商、最近打开作品、助手显示名、模型上下文窗口）按 `AI_NOVEL_DESKTOP_PROFILE`
+隔离到 `<data dir>/profiles/<profile>/preferences.json`。用户可在该文件里配置
+`context_windows`（provider → window tokens，例如 `{"strata": 524288}`）：Tauri 启动
+sidecar 时读取并注入 `NOVEL_CONTEXT_WINDOW_OVERRIDES`，作为安全点自动维护的压力阈值
+窗口；未配置的 provider 仍用代码默认表（保守窗口）。该字段属用户系统配置，不写死在
+代码里；设置页 UI 为后续批次（当前可手工编辑 preferences.json）。脚本默认 profile：
 `dev.sh` → `dev`，`stage.sh` → `stage`，`tauri_slice_verify.sh` → `slice-verify`。
 生产 release 未指定 profile 时使用 `<data dir>/preferences.json`。
 

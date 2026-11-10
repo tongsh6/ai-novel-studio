@@ -1,8 +1,11 @@
 import Config
 
-# ── B71 上下文维护窗口覆盖（运维配置，所有环境）─────────────────────────────
-# NOVEL_CONTEXT_WINDOW_OVERRIDES：provider:window 逗号分隔（如 "strata:4096"），
-# 只影响安全点自动维护的压力阈值判定，不向作者展示；非法项忽略（不猜测）。
+# ── B71 上下文维护窗口配置（所有环境）──────────────────────────────────────
+# 触发阈值所用的「模型上下文窗口」不写死在用户侧不可改的位置：桌面端由用户系统配置
+# （`preferences.json` 的 `context_windows`，按 provider → window）经 Tauri 启动 sidecar
+# 时注入 `NOVEL_CONTEXT_WINDOW_OVERRIDES`；dev/CLI 也可直接设置该 env。
+# 优先级：用户配置（桌面端注入 env）> 代码默认表（未知 provider 用保守窗口）。
+# 非法项忽略（不猜测），不向作者展示内部压力/压缩概念。
 case System.get_env("NOVEL_CONTEXT_WINDOW_OVERRIDES") do
   nil ->
     :ok
