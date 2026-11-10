@@ -14,7 +14,10 @@ const AUTHOR =
 const TURN = "message_live_1";
 const RUN = "run_live_1";
 const WORK = "work-live-1";
+const WORKSPACE = "test";
 const SESSION = "session-live-1";
+const SEGMENT_VERSION = "authoring-run-segment/v1";
+const MESSAGE_VERSION = "authoring-session-message/v1";
 
 const readyAt = new Date(Date.now() - 3600_000).toISOString();
 const finishedAt = new Date(Date.now() - 1800_000).toISOString();
@@ -101,15 +104,49 @@ function checkpoint(name, { canonHash = "canon-content", counts = {}, design = "
   };
 }
 
-function writeLiveDatabase(dir) {
+// canonical 执行段：agent_runs 只保留身份/模式列，消息与 refs 在段头/消息行。
+function insertCanonicalRun(db, { runId = RUN, sessionId = SESSION, workId = WORK, usedRefs = ["observation:obs_1"] } = {}) {
+  const run = { run_id: runId, workspace_id: WORKSPACE, work_id: workId, session_id: sessionId, parent_turn_ref: TURN, profile_ref: "judgment_loop_v1" };
+  const message =
+    usedRefs.length > 0
+      ? { role: "assistant", provenance: "model", blocks: [{ type: "tool_call", call_id: "call-self-report", name: "submit_tentative_artifact", arguments: { self_report: { used_context_refs: usedRefs } } }] }
+      : { role: "assistant", provenance: "model", blocks: [{ type: "text", text: "我先核对第01章现有内容。" }] };
+  const header = {
+    version: SEGMENT_VERSION,
+    run,
+    system: { identity_ref: "identity:authoring/v1" },
+    tools: [],
+    projection: { target: "chat_completions" },
+    base_refs: [],
+    observation_refs: ["obs_1"],
+    used_refs: [],
+    call_ids: [],
+  };
+  db.prepare(
+    "INSERT INTO agent_runs (id, workspace_id, work_id, session_id, parent_turn_ref, long_run_task_ref, run_mode, status, plan_version, consumed_budget, pending_artifact_refs) " +
+      "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+  ).run(runId, WORKSPACE, workId, sessionId, TURN, null, "bounded", "completed", 1, null, "[]");
+  db.prepare(
+    "INSERT INTO authoring_run_segments (run_id, workspace_id, work_id, session_id, parent_turn_ref, header, message_count, first_sequence, last_sequence, format_version) " +
+      "VALUES (?,?,?,?,?,?,?,?,?,?)",
+  ).run(runId, WORKSPACE, workId, sessionId, TURN, JSON.stringify(header), 1, 1, 1, SEGMENT_VERSION);
+  db.prepare(
+    "INSERT INTO authoring_session_messages (id, workspace_id, work_id, session_id, run_id, sequence, run_sequence, role, message, format_version) " +
+      "VALUES (?,?,?,?,?,?,?,?,?,?)",
+  ).run(`msg-${runId}-1`, WORKSPACE, workId, sessionId, runId, 1, 1, "assistant", JSON.stringify(message), MESSAGE_VERSION);
+}
+
+function writeLiveDatabase(dir, { usedRefs = ["observation:obs_1"] } = {}) {
   const dbDir = path.join(dir, "database");
   fs.mkdirSync(dbDir, { recursive: true });
   const db = new DatabaseSync(path.join(dbDir, "ai_novel_studio_test.sqlite3"));
   db.exec(`
     CREATE TABLE chapters (id TEXT PRIMARY KEY, work_id TEXT, volume_id TEXT, title TEXT, seq INTEGER, status TEXT, inserted_at TEXT, updated_at TEXT, summary TEXT, plan_direction TEXT);
-    CREATE TABLE agent_events (id TEXT, event_type TEXT, refs TEXT);
-    CREATE TABLE decision_traces (trace_id TEXT, turn_id TEXT, context_refs TEXT);
-    CREATE TABLE agent_runs (id TEXT, authoring_transcript TEXT);
+    CREATE TABLE agent_events (id TEXT, run_id TEXT, event_type TEXT, refs TEXT);
+    CREATE TABLE decision_traces (trace_id TEXT, workspace_id TEXT, session_id TEXT, turn_id TEXT, context_refs TEXT);
+    CREATE TABLE agent_runs (id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, parent_turn_ref TEXT, long_run_task_ref TEXT, run_mode TEXT, status TEXT, plan_version INTEGER, consumed_budget TEXT, pending_artifact_refs TEXT);
+    CREATE TABLE authoring_run_segments (run_id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, parent_turn_ref TEXT, header TEXT, message_count INTEGER, first_sequence INTEGER, last_sequence INTEGER, format_version TEXT);
+    CREATE TABLE authoring_session_messages (id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, run_id TEXT, sequence INTEGER, run_sequence INTEGER, role TEXT, message TEXT, format_version TEXT);
     CREATE TABLE mutations (id TEXT);
   `);
   const mission = {
@@ -126,15 +163,13 @@ function writeLiveDatabase(dir) {
   };
   db.prepare("INSERT INTO chapters (id, work_id, volume_id, title, seq, status, inserted_at, updated_at, summary, plan_direction) VALUES (?,?,?,?,?,?,?,?,?,?)")
     .run("chapter-row", WORK, null, "第一章", 1, "PLANNED", "2026-11-03T10:00:00.000Z", "2026-11-03T10:00:00.000Z", null, JSON.stringify(mission));
-  db.prepare("INSERT INTO agent_events (id, event_type, refs) VALUES (?,?,?)").run("ev-1", "exploration_observed", '["obs_1"]');
-  db.prepare("INSERT INTO decision_traces (trace_id, turn_id, context_refs) VALUES (?,?,?)").run("trace_1", TURN, null);
-  db.prepare("INSERT INTO agent_runs (id, authoring_transcript) VALUES (?,?)").run("run_live_1", JSON.stringify({
-    self_report: { used_context_refs: ["observation:obs_1"] },
-  }));
+  db.prepare("INSERT INTO agent_events (id, run_id, event_type, refs) VALUES (?,?,?,?)").run("ev-1", RUN, "exploration_observed", '["obs_1"]');
+  db.prepare("INSERT INTO decision_traces (trace_id, workspace_id, session_id, turn_id, context_refs) VALUES (?,?,?,?,?)").run("trace_1", WORKSPACE, SESSION, TURN, null);
+  insertCanonicalRun(db, { usedRefs });
   db.close();
 }
 
-function buildDir({ withStrataUnloaded = true, screenshots = 3 } = {}) {
+function buildDir({ withStrataUnloaded = true, screenshots = 3, usedRefs = ["observation:obs_1"] } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-live-verify-"));
   fs.mkdirSync(path.join(dir, "app-log"), { recursive: true });
   fs.mkdirSync(path.join(dir, "llm-calls"), { recursive: true });
@@ -183,14 +218,29 @@ function buildDir({ withStrataUnloaded = true, screenshots = 3 } = {}) {
 
   writeJsonl(path.join(dir, "native-transport.jsonl"), [
     {
+      at: "2026-11-03T10:00:00.300Z",
+      direction: "sent",
+      frame: ["3", "3", "workspace:test", "phx_join", { work_id: WORK, session_id: SESSION }],
+    },
+    {
+      at: "2026-11-03T10:00:00.400Z",
+      direction: "received",
+      frame: ["3", "3", "workspace:test", "phx_reply", { status: "ok", response: { joined: true, work_id: WORK, session_id: SESSION } }],
+    },
+    {
       at: "2026-11-03T10:00:00.500Z",
       direction: "sent",
-      frame: [null, null, "workspace:test", "user_message", { text: AUTHOR, turn_id: TURN }],
+      frame: ["3", "4", "workspace:test", "user_message", { text: AUTHOR, turn_id: TURN, work_id: WORK, session_id: SESSION }],
+    },
+    {
+      at: "2026-11-03T10:00:00.600Z",
+      direction: "received",
+      frame: ["3", "4", "workspace:test", "phx_reply", { status: "ok", response: { turn_id: TURN, run_id: RUN } }],
     },
     {
       at: "2026-11-03T10:00:02.000Z",
       direction: "received",
-      frame: [null, null, "workspace:test", "turn_result", turnBody],
+      frame: [null, null, "workspace:test", "turn_result", { ...turnBody, turn_id: `${TURN}:agent:2` }],
     },
     {
       at: "2026-11-03T10:00:00.400Z",
@@ -210,7 +260,7 @@ function buildDir({ withStrataUnloaded = true, screenshots = 3 } = {}) {
   });
   writeJson(path.join(dir, "b71-start.json"), checkpoint("start"));
   // 真实持久结构（L7/L9 的数据源）：DB 由 live 场景 seed 建出，verify 只读。
-  writeLiveDatabase(dir);
+  writeLiveDatabase(dir, { usedRefs });
   writeJson(path.join(dir, "b71-final.json"), checkpoint("final", { design: "design-final" }));
   writeJson(path.join(dir, "native-b71-driver-log.json"), {
     slice_id: "b71-first-consumer",
@@ -274,5 +324,39 @@ test("live verifier：journey/provider 不匹配时拒绝", () => {
   const config = JSON.parse(fs.readFileSync(configFile, "utf8"));
   writeJson(configFile, { ...config, journey: "pending" });
   assert.throws(() => verifyLiveBatch(dir), /live verifier 只接受 journey=live/u);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("live verifier：run 与本批 session 错绑时失败关闭，不扫描其它作品/会话", () => {
+  const dir = buildDir();
+  const db = new DatabaseSync(path.join(dir, "database", "ai_novel_studio_test.sqlite3"));
+  try {
+    db.prepare("UPDATE agent_runs SET session_id = ? WHERE id = ?").run("session-other", RUN);
+  } finally {
+    db.close();
+  }
+  assert.throws(() => verifyLiveBatch(dir), /恰好一行/u);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("live verifier：DB 中其它作品的 used_refs 不进入本批判定（只读本批段）", () => {
+  const dir = buildDir({ usedRefs: [] });
+  const db = new DatabaseSync(path.join(dir, "database", "ai_novel_studio_test.sqlite3"));
+  try {
+    insertCanonicalRun(db, {
+      runId: "run_other_work",
+      workId: "work-other",
+      sessionId: "session-other",
+      usedRefs: ["observation:obs_out_of_boundary"],
+    });
+    db.prepare("INSERT INTO decision_traces (trace_id, workspace_id, session_id, turn_id, context_refs) VALUES (?,?,?,?,?)")
+      .run("trace_other", WORKSPACE, "session-other", TURN, '["chapter:foreign"]');
+  } finally {
+    db.close();
+  }
+  const { summary } = verifyLiveBatch(dir);
+  // 本批段没有 used 声明 → unknown；若扫了别的作品行会误判为越界失败。
+  assert.equal(summary.refs.ok, null);
+  assert.equal(summary.refs.reason, "used_context_refs_unavailable");
   fs.rmSync(dir, { recursive: true, force: true });
 });

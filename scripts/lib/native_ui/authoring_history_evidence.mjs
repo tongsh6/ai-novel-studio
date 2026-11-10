@@ -13,6 +13,8 @@ import {
   frameEvent,
   frameOf,
   isFrame,
+  sentUserMessages,
+  turnFacts,
   withDb,
 } from "./scenario_evidence.mjs";
 
@@ -335,4 +337,30 @@ export function readAuthoringHistory(dir, scope, { requireMode = null } = {}) {
         return fail(`未知 run_mode: ${String(record.run_mode)}`);
     }
   });
+}
+
+// 作者输入的 ACK 提供 run_id，终局 turn_result 可以属于该 run 的后续子回合。
+export function readBatchAuthoringHistory(dir, { wire, messageText, workId } = {}) {
+  assert(Array.isArray(wire), "authoring_batch: wire 必须是帧数组");
+  assertNonBlankString(messageText, "authoring_batch.messageText");
+  assertNonBlankString(workId, "authoring_batch.workId");
+  const messages = sentUserMessages(wire, messageText);
+  assert.equal(messages.length, 1, "authoring_batch: 本批作者输入必须唯一");
+
+  const { turnId: parentTurnId, ack } = turnFacts(wire, messages[0]);
+  const scope = authoringScope(wire, messages[0], { workId, parentTurnId });
+  const runId = assertNonBlankString(frameBody(ack)?.response?.run_id, "authoring_batch ACK.run_id");
+  return readAuthoringHistory(dir, { ...scope, run_id: runId });
+}
+
+export function readRunRefFacts(db, run) {
+  return {
+    agent_events: all(db, "SELECT event_type, refs FROM agent_events WHERE run_id = ?", [run.id]),
+    decision_traces: all(
+      db,
+      "SELECT trace_id, turn_id, context_refs FROM decision_traces WHERE workspace_id = ? AND session_id = ? " +
+        "AND (turn_id = ? OR instr(turn_id, ? || ':') = 1)",
+      [run.workspace_id, run.session_id, run.parent_turn_ref, run.parent_turn_ref],
+    ),
+  };
 }

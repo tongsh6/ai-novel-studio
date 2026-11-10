@@ -24,6 +24,7 @@ import {
   DEFAULT_LIVE_MODEL,
 } from "./authoring_live_evidence.mjs";
 import { liveRefsCheck } from "./authoring_live_refs.mjs";
+import { readBatchAuthoringHistory, readRunRefFacts } from "./authoring_history_evidence.mjs";
 import { recordResponseToolCalls } from "./live_run_wait.mjs";
 import { loadLiveCaseCorpus, selectLiveCase } from "../quality/author_behavior_live_cases.mjs";
 
@@ -387,7 +388,7 @@ function ho5({ llmRecords, dbFacts }) {
     llmRecords,
     agentEvents: list(dbFacts?.agent_events),
     decisionTraces: list(dbFacts?.decision_traces),
-    transcriptText: String(dbFacts?.transcript_text ?? ""),
+    transcript: dbFacts?.segment_transcript ?? null,
   });
   if (refs.ok === null) return { status: "unknown", reason: refs.reason, detail: refs };
   return { status: refs.ok ? "pass" : "fail", reason: refs.ok ? null : "used_ref_out_of_boundary", detail: refs };
@@ -684,6 +685,13 @@ export function verifyBehaviorBatch(dir) {
   assert(strataSlot, "缺少 strata-slot.json（批次前后槽位/卸载核验）");
   assert.equal(strataSlot.unloaded, true, "strata 批次结束必须核验 loaded=null");
 
+  // 与 live 共用同一只读入口：本批作者输入/join/ACK 绑定唯一 run，
+  // 再从 canonical 段消息/自报读取 used_refs，不扫 agent_runs 全表。
+  const history = readBatchAuthoringHistory(dir, {
+    wire: evidence.wire,
+    messageText: config.message,
+    workId: config.target?.work_id,
+  });
   const dbFacts = withDb(dir, (db) => {
     const tableCount = (table) => {
       try {
@@ -692,14 +700,7 @@ export function verifyBehaviorBatch(dir) {
         return 0;
       }
     };
-    const transcripts = all(db, "SELECT authoring_transcript FROM agent_runs");
-    // 合成测试库可能没有 pending_artifact_refs 列：缺列按无 pending 处理（真实库有该列）。
-    let agentRuns = [];
-    try {
-      agentRuns = all(db, "SELECT id, pending_artifact_refs FROM agent_runs");
-    } catch {
-      agentRuns = [];
-    }
+    const agentRuns = all(db, "SELECT id, pending_artifact_refs FROM agent_runs");
     const pendingCount = agentRuns.reduce((total, row) => {
       try {
         const refs = JSON.parse(String(row?.pending_artifact_refs ?? "[]"));
@@ -715,10 +716,8 @@ export function verifyBehaviorBatch(dir) {
       receipts_rows: all(db, "SELECT * FROM author_action_receipts"),
       memory_count: tableCount("memory_items"),
       pending_artifact_count: pendingCount,
-      agent_events: all(db, "SELECT event_type, refs FROM agent_events"),
-      decision_traces: all(db, "SELECT trace_id, turn_id, context_refs FROM decision_traces"),
-      transcripts,
-      transcript_text: transcripts.map((row) => String(row?.authoring_transcript ?? "")).join("\n"),
+      ...readRunRefFacts(db, history.record),
+      segment_transcript: history.transcript,
     };
   });
   const checkpoints = Object.fromEntries(

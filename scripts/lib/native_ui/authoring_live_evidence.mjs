@@ -30,6 +30,7 @@ import {
   summarizeModelBehavior,
 } from "./live_run_wait.mjs";
 import { liveRefsCheck } from "./authoring_live_refs.mjs";
+import { readBatchAuthoringHistory, readRunRefFacts } from "./authoring_history_evidence.mjs";
 
 export const LIVE_CHECKS_SCHEMA = "b71-live-checks/v1";
 export const LIVE_CHECKPOINTS = Object.freeze(["start", "final"]);
@@ -454,15 +455,15 @@ export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheck
       : nonTerminalBindings.length > 0 &&
         nonTerminalBindings.every((entry) => entry.bound_in_later_request && entry.observation_length > 0);
 
-  // L7 used_context_refs ⊆ base_refs ∪ observation_refs：Lead 03 裁定从产品持久结构读取
-  // （transcript self_report.used_context_refs / decision_traces.context_refs +
+  // L7 used_refs ⊆ base_refs ∪ observation_refs：Lead 03 裁定从产品持久结构读取
+  // （canonical 段消息自报/段头 used_refs + decision_traces.context_refs +
   // agent_events.refs + 请求应用数据消息）；wire 启发式只作观测辅助，不参与判定；
   // 无法提取 used 时 ok=null（unknown，不假过）。
   const refsCheck = liveRefsCheck({
     llmRecords: strataRecords,
     agentEvents: Array.isArray(dbFacts?.agent_events) ? dbFacts.agent_events : [],
     decisionTraces: Array.isArray(dbFacts?.decision_traces) ? dbFacts.decision_traces : [],
-    transcriptText: String(dbFacts?.transcript_text ?? ""),
+    transcript: dbFacts?.segment_transcript ?? null,
   });
   const l7 = refsCheck.ok;
 
@@ -600,6 +601,13 @@ export function verifyLiveBatch(dir) {
   assert.equal(strataSlot.unloaded, true, "strata 批次结束必须核验 loaded=null");
 
   // L7/L9 的真实数据源：产品持久结构（DB），不在 wire 投影层猜。
+  // 本批段消费同一只读入口：作者输入帧 + join + ACK 绑定唯一 run，
+  // 再由 canonical 段头/消息表精确读取；不扫 agent_runs 全表。
+  const history = readBatchAuthoringHistory(dir, {
+    wire: evidence.wire,
+    messageText: config.message,
+    workId: config.target?.work_id,
+  });
   const dbFacts = withDb(dir, (db) => {
     const tableCount = (table) => {
       try {
@@ -608,14 +616,11 @@ export function verifyLiveBatch(dir) {
         return 0;
       }
     };
-    const transcripts = all(db, "SELECT authoring_transcript FROM agent_runs");
     return {
       mutations_count: tableCount("mutations"),
       chapters_rows: all(db, "SELECT * FROM chapters"),
-      agent_events: all(db, "SELECT event_type, refs FROM agent_events"),
-      decision_traces: all(db, "SELECT trace_id, turn_id, context_refs FROM decision_traces"),
-      transcripts,
-      transcript_text: transcripts.map((row) => String(row?.authoring_transcript ?? "")).join("\n"),
+      ...readRunRefFacts(db, history.record),
+      segment_transcript: history.transcript,
     };
   });
   const checks = b71LiveModelBehavior({

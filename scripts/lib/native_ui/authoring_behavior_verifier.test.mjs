@@ -13,8 +13,12 @@ const bundle = loadLiveCaseCorpus();
 const CASE = selectLiveCase(bundle, "C-F1-003");
 const AUTHOR = CASE.expression;
 const TURN = "message_behavior_1";
+const RUN = "run_behavior_1";
 const WORK = "work-behavior-1";
+const WORKSPACE = "test";
 const SESSION = "session-behavior-1";
+const SEGMENT_VERSION = "authoring-run-segment/v1";
+const MESSAGE_VERSION = "authoring-session-message/v1";
 const readyAt = new Date(Date.now() - 3600_000).toISOString();
 
 function writeJson(file, value) {
@@ -59,7 +63,7 @@ function turnBody(assistantText = "眼下写到第03章的计划，前两章有�
   return {
     turn_id: TURN,
     status: "conversational",
-    agent_run: { run_id: "run_behavior_1", status: "completed" },
+    agent_run: { run_id: RUN, status: "completed" },
     assistant_message: { text: assistantText },
     adoption_state: { pending: [] },
     available_actions: [],
@@ -93,6 +97,38 @@ function checkpoint(name) {
   };
 }
 
+// canonical 执行段：agent_runs 只保留身份/模式列，消息与 refs 在段头/消息行。
+function insertCanonicalRun(db, { runId = RUN, sessionId = SESSION, workId = WORK, usedRefs = [] } = {}) {
+  const run = { run_id: runId, workspace_id: WORKSPACE, work_id: workId, session_id: sessionId, parent_turn_ref: TURN, profile_ref: "judgment_loop_v1" };
+  const message =
+    usedRefs.length > 0
+      ? { role: "assistant", provenance: "model", blocks: [{ type: "tool_call", call_id: "call-self-report", name: "submit_tentative_artifact", arguments: { self_report: { used_context_refs: usedRefs } } }] }
+      : { role: "assistant", provenance: "model", blocks: [{ type: "text", text: "眼下写到第03章的计划，前两章有正文。" }] };
+  const header = {
+    version: SEGMENT_VERSION,
+    run,
+    system: { identity_ref: "identity:authoring/v1" },
+    tools: [],
+    projection: { target: "chat_completions" },
+    base_refs: [],
+    observation_refs: ["obs_1"],
+    used_refs: [],
+    call_ids: [],
+  };
+  db.prepare(
+    "INSERT INTO agent_runs (id, workspace_id, work_id, session_id, parent_turn_ref, long_run_task_ref, run_mode, status, plan_version, consumed_budget, pending_artifact_refs) " +
+      "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+  ).run(runId, WORKSPACE, workId, sessionId, TURN, null, "bounded", "completed", 1, null, "[]");
+  db.prepare(
+    "INSERT INTO authoring_run_segments (run_id, workspace_id, work_id, session_id, parent_turn_ref, header, message_count, first_sequence, last_sequence, format_version) " +
+      "VALUES (?,?,?,?,?,?,?,?,?,?)",
+  ).run(runId, WORKSPACE, workId, sessionId, TURN, JSON.stringify(header), 1, 1, 1, SEGMENT_VERSION);
+  db.prepare(
+    "INSERT INTO authoring_session_messages (id, workspace_id, work_id, session_id, run_id, sequence, run_sequence, role, message, format_version) " +
+      "VALUES (?,?,?,?,?,?,?,?,?,?)",
+  ).run(`msg-${runId}-1`, WORKSPACE, workId, sessionId, runId, 1, 1, "assistant", JSON.stringify(message), MESSAGE_VERSION);
+}
+
 function writeDatabase(dir) {
   const dbDir = path.join(dir, "database");
   fs.mkdirSync(dbDir, { recursive: true });
@@ -100,9 +136,11 @@ function writeDatabase(dir) {
   db.exec(`
     CREATE TABLE chapters (id TEXT PRIMARY KEY, work_id TEXT, volume_id TEXT, title TEXT, seq INTEGER, status TEXT, inserted_at TEXT, updated_at TEXT, summary TEXT, plan_direction TEXT);
     CREATE TABLE drafts (id TEXT, scene_id TEXT, content TEXT, status TEXT);
-    CREATE TABLE agent_events (id TEXT, event_type TEXT, refs TEXT);
-    CREATE TABLE decision_traces (trace_id TEXT, turn_id TEXT, context_refs TEXT);
-    CREATE TABLE agent_runs (id TEXT, authoring_transcript TEXT, pending_artifact_refs TEXT);
+    CREATE TABLE agent_events (id TEXT, run_id TEXT, event_type TEXT, refs TEXT);
+    CREATE TABLE decision_traces (trace_id TEXT, workspace_id TEXT, session_id TEXT, turn_id TEXT, context_refs TEXT);
+    CREATE TABLE agent_runs (id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, parent_turn_ref TEXT, long_run_task_ref TEXT, run_mode TEXT, status TEXT, plan_version INTEGER, consumed_budget TEXT, pending_artifact_refs TEXT);
+    CREATE TABLE authoring_run_segments (run_id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, parent_turn_ref TEXT, header TEXT, message_count INTEGER, first_sequence INTEGER, last_sequence INTEGER, format_version TEXT);
+    CREATE TABLE authoring_session_messages (id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, run_id TEXT, sequence INTEGER, run_sequence INTEGER, role TEXT, message TEXT, format_version TEXT);
     CREATE TABLE mutations (id TEXT);
     CREATE TABLE author_action_receipts (id TEXT, action_type TEXT);
     CREATE TABLE memory_items (id TEXT);
@@ -121,9 +159,9 @@ function writeDatabase(dir) {
   const insertMemory = db.prepare("INSERT INTO memory_items (id) VALUES (?)");
   insertMemory.run("mem-1");
   insertMemory.run("mem-2");
-  db.prepare("INSERT INTO agent_events (id, event_type, refs) VALUES (?,?,?)").run("ev-1", "exploration_observed", '["obs_1"]');
-  db.prepare("INSERT INTO decision_traces (trace_id, turn_id, context_refs) VALUES (?,?,?)").run("trace_1", TURN, null);
-  db.prepare("INSERT INTO agent_runs (id, authoring_transcript, pending_artifact_refs) VALUES (?,?,?)").run("run_behavior_1", "{}", "[]");
+  db.prepare("INSERT INTO agent_events (id, run_id, event_type, refs) VALUES (?,?,?,?)").run("ev-1", RUN, "exploration_observed", '["obs_1"]');
+  db.prepare("INSERT INTO decision_traces (trace_id, workspace_id, session_id, turn_id, context_refs) VALUES (?,?,?,?,?)").run("trace_1", WORKSPACE, SESSION, TURN, null);
+  insertCanonicalRun(db);
   db.close();
 }
 
@@ -171,7 +209,10 @@ function buildDir({ assistantText } = {}) {
   ]);
   writeJsonl(path.join(dir, "llm-calls", "2026-11-03.jsonl"), [llmRecord()]);
   writeJsonl(path.join(dir, "native-transport.jsonl"), [
-    { at: "2026-11-03T10:00:00.500Z", direction: "sent", frame: [null, null, "workspace:test", "user_message", { text: AUTHOR }] },
+    { at: "2026-11-03T10:00:00.300Z", direction: "sent", frame: ["3", "3", "workspace:test", "phx_join", { work_id: WORK, session_id: SESSION }] },
+    { at: "2026-11-03T10:00:00.400Z", direction: "received", frame: ["3", "3", "workspace:test", "phx_reply", { status: "ok", response: { joined: true, work_id: WORK, session_id: SESSION } }] },
+    { at: "2026-11-03T10:00:00.500Z", direction: "sent", frame: ["3", "4", "workspace:test", "user_message", { text: AUTHOR, turn_id: TURN, work_id: WORK, session_id: SESSION }] },
+    { at: "2026-11-03T10:00:00.600Z", direction: "received", frame: ["3", "4", "workspace:test", "phx_reply", { status: "ok", response: { turn_id: TURN, run_id: RUN } }] },
     { at: "2026-11-03T10:00:02.000Z", direction: "received", frame: [null, null, "workspace:test", "turn_result", turnBody(assistantText)] },
     { at: "2026-11-03T10:00:00.400Z", direction: "http", method: "GET", path: "/api/works/w/sessions/resume", status: 200 },
   ]);
@@ -237,4 +278,16 @@ test("behavior verifier：缺少 behavior-case / strata 未卸载时失败关闭
   writeJson(slotFile, { ...slot, unloaded: false });
   assert.throws(() => verifyBehaviorBatch(unloaded), /strata 批次结束必须核验 loaded=null/u);
   fs.rmSync(unloaded, { recursive: true, force: true });
+});
+
+test("behavior verifier：run 与本批 session 错绑时失败关闭", () => {
+  const dir = buildDir();
+  const db = new DatabaseSync(path.join(dir, "database", "ai_novel_studio_test.sqlite3"));
+  try {
+    db.prepare("UPDATE agent_runs SET session_id = ? WHERE id = ?").run("session-other", RUN);
+  } finally {
+    db.close();
+  }
+  assert.throws(() => verifyBehaviorBatch(dir), /恰好一行/u);
+  fs.rmSync(dir, { recursive: true, force: true });
 });

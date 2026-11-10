@@ -1,5 +1,5 @@
-// L7 真实 refs 证据纯判据测试：used 来自产品持久结构（transcript self_report /
-// decision_traces.context_refs），base/observation 来自真实请求与 agent_events。
+// L7 真实 refs 证据纯判据测试：used 来自产品持久结构（canonical 段消息自报/段头
+// used_refs / decision_traces.context_refs），base/observation 来自真实请求与 agent_events。
 // wire 启发式只作观测辅助；used 不可提取时 unknown（null），不假过。
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -7,7 +7,7 @@ import {
   collectWireRefs,
   parseAgentEventRefs,
   parseDecisionTraceRefs,
-  parseTranscriptUsedRefs,
+  parseSegmentUsedRefs,
   refVariants,
   liveRefsCheck,
   extractRefTokens,
@@ -58,14 +58,18 @@ test("agent_events 只认 exploration_observed refs；坏 JSON/其它事件忽�
   assert.deepEqual(refs, ["obs_1", "obs_2"]);
 });
 
-test("transcript self_report.used_context_refs 与 decision_traces.context_refs 合并为 used", () => {
-  const transcript = [
-    '{"self_report":{"used_context_refs":["observation:obs_1","execution_brief:chapter:ch-1"]}}',
-    '{"self_report":{"used_context_refs":["observation:obs_2"]}}',
-  ].join("\n");
-  const parsed = parseTranscriptUsedRefs(transcript);
-  assert.deepEqual(parsed.used_refs, ["execution_brief:chapter:ch-1", "observation:obs_1", "observation:obs_2"]);
+test("canonical 段消息自报与段头 used_refs 合并，再并入 decision_traces.context_refs", () => {
+  const parsed = parseSegmentUsedRefs({
+    messages: [
+      { role: "assistant", provenance: "model", blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: ["observation:obs_1", "execution_brief:chapter:ch-1"] } } }] },
+      { role: "assistant", provenance: "model", blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: ["observation:obs_2"] } } }] },
+      { role: "tool", blocks: [{ type: "observation", content: { self_report: { used_context_refs: ["chapter:foreign"] } } }] },
+    ],
+    used_refs: [{ ref: "chapter:ch-header" }],
+  });
+  assert.deepEqual(parsed.used_refs, ["chapter:ch-header", "execution_brief:chapter:ch-1", "observation:obs_1", "observation:obs_2"]);
   assert.equal(parsed.self_report_count, 2);
+  assert.equal(parseSegmentUsedRefs(null).self_report_count, 0);
   const traces = parseDecisionTraceRefs([
     { trace_id: "trace_1", context_refs: '["chapter:ch-9"]' },
     { trace_id: "trace_2", context_refs: null },
@@ -97,11 +101,14 @@ test("L7 合法：used 全部来自 base ∪ observation → ok=true 并记录�
     llmRecords,
     agentEvents: [{ event_type: "exploration_observed", refs: '["obs_3"]' }],
     decisionTraces: [{ trace_id: "trace_1", context_refs: '["chapter:ch-1"]' }],
-    transcriptText: '{"self_report":{"used_context_refs":["observation:obs_1","observation:obs_3","execution_brief:chapter:ch-1"]}}',
+    transcript: {
+      messages: [{ role: "assistant", provenance: "model", blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: ["observation:obs_1", "observation:obs_3", "execution_brief:chapter:ch-1"] } } }] }],
+      used_refs: [],
+    },
   });
   assert.equal(result.ok, true);
   assert.deepEqual(result.violations, []);
-  assert(result.sources.used.includes("authoring_transcript.self_report.used_context_refs"));
+  assert(result.sources.used.includes("authoring_session_messages.message.blocks.arguments.self_report.used_context_refs"));
   assert.equal(result.sources.wire_heuristic, "observation_only_not_used_for_verdict");
 });
 
@@ -110,7 +117,10 @@ test("L7 越界：used 引用未提供的观察/材料 → ok=false 并列出 vi
   const result = liveRefsCheck({
     llmRecords,
     agentEvents: [{ event_type: "exploration_observed", refs: '["obs_1"]' }],
-    transcriptText: '{"self_report":{"used_context_refs":["observation:obs_out_of_boundary","execution_brief:chapter:ch-9"]}}',
+    transcript: {
+      messages: [{ role: "assistant", provenance: "model", blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: ["observation:obs_out_of_boundary", "execution_brief:chapter:ch-9"] } } }] }],
+      used_refs: [],
+    },
   });
   assert.equal(result.ok, false);
   assert.equal(result.violations.length, 2);
@@ -121,7 +131,7 @@ test("L7 unknown：used 不可提取时 ok=null（不假过），不因 wire 有
   const result = liveRefsCheck({
     llmRecords: [request([applicationBase("材料：chapter:ch-1"), author()])],
     agentEvents: [],
-    transcriptText: "",
+    transcript: null,
   });
   assert.equal(result.ok, null);
   assert.equal(result.reason, "used_context_refs_unavailable");

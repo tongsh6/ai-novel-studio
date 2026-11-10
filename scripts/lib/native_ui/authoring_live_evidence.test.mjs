@@ -95,7 +95,7 @@ function evaluate({ llmRecords, start = checkpoint("start"), final = checkpoint(
   });
 }
 
-function designDbFacts({ mission = {}, transcriptUsed = [], agentEventRefs = ["obs_1"], traces = [{ trace_id: "trace_1", turn_id: TURN, context_refs: null }], mutations = 0 } = {}) {
+function designDbFacts({ mission = {}, usedRefs = [], agentEventRefs = ["obs_1"], traces = [{ trace_id: "trace_1", turn_id: TURN, context_refs: null }], mutations = 0 } = {}) {
   return {
     mutations_count: mutations,
     chapters_rows: [
@@ -118,8 +118,13 @@ function designDbFacts({ mission = {}, transcriptUsed = [], agentEventRefs = ["o
     ],
     agent_events: [{ event_type: "exploration_observed", refs: JSON.stringify(agentEventRefs) }],
     decision_traces: traces.map((trace) => ({ trace_id: trace.trace_id, turn_id: trace.turn_id, context_refs: trace.context_refs })),
-    transcripts: [{ authoring_transcript: JSON.stringify({ self_report: { used_context_refs: transcriptUsed } }) }],
-    transcript_text: JSON.stringify({ self_report: { used_context_refs: transcriptUsed } }),
+    segment_transcript: {
+      messages:
+        usedRefs.length > 0
+          ? [{ role: "assistant", provenance: "model", blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: usedRefs } } }] }]
+          : [],
+      used_refs: [],
+    },
   };
 }
 
@@ -255,13 +260,13 @@ test("L7：used 从持久结构读取——越界失败、合法通过、不可�
   const records = [record(messages)];
   const outOfBoundary = evaluate({
     llmRecords: records,
-    dbFacts: designDbFacts({ transcriptUsed: ["observation:obs_out_of_boundary"] }),
+    dbFacts: designDbFacts({ usedRefs: ["observation:obs_out_of_boundary"] }),
   });
   assert.equal(outOfBoundary.checks.mechanism.used_context_refs_within_boundary, false);
   assert(outOfBoundary.measured.refs.violations.length > 0);
   const legal = evaluate({
     llmRecords: records,
-    dbFacts: designDbFacts({ transcriptUsed: ["observation:obs_1", "execution_brief:chapter:ch-1"] }),
+    dbFacts: designDbFacts({ usedRefs: ["observation:obs_1", "execution_brief:chapter:ch-1"] }),
   });
   assert.equal(legal.checks.mechanism.used_context_refs_within_boundary, true);
   const unknown = evaluate({ llmRecords: records });
@@ -380,7 +385,7 @@ test("L9 分层：有 pcall/decision_trace/basis_ref 支撑的 TENTATIVE 设计�
   const messages = [system(), appBase("材料：chapter:ch-1"), author(), scope()];
   const checks = evaluate({
     llmRecords: [record(messages)],
-    dbFacts: designDbFacts({ transcriptUsed: ["observation:obs_1"] }),
+    dbFacts: designDbFacts({ usedRefs: ["observation:obs_1"] }),
     final: checkpoint("final", { design: "design-2" }),
   });
   assert.equal(checks.checks.mechanism.unadopted_zero_write, true);
@@ -397,20 +402,20 @@ test("L9 分层反例：派生无真实 pcall / 来源非 model / 已采纳字�
   const messages = [system(), appBase("材料：chapter:ch-1"), author(), scope()];
   const bogusPcall = evaluate({
     llmRecords: [record(messages)],
-    dbFacts: designDbFacts({ transcriptUsed: ["observation:obs_1"], mission: { provider_call_ref: "pcall_not_in_llm" } }),
+    dbFacts: designDbFacts({ usedRefs: ["observation:obs_1"], mission: { provider_call_ref: "pcall_not_in_llm" } }),
     final: checkpoint("final", { design: "design-2" }),
   });
   assert.equal(bogusPcall.checks.mechanism.unadopted_zero_write, false);
   assert(bogusPcall.measured.canon.invalid_design_derivations.length > 0);
   const authorSource = evaluate({
     llmRecords: [record(messages)],
-    dbFacts: designDbFacts({ transcriptUsed: ["observation:obs_1"], mission: { source: "author" } }),
+    dbFacts: designDbFacts({ usedRefs: ["observation:obs_1"], mission: { source: "author" } }),
     final: checkpoint("final", { design: "design-2" }),
   });
   assert.equal(authorSource.checks.mechanism.unadopted_zero_write, false);
   const approvedChanged = evaluate({
     llmRecords: [record(messages)],
-    dbFacts: designDbFacts({ transcriptUsed: ["observation:obs_1"] }),
+    dbFacts: designDbFacts({ usedRefs: ["observation:obs_1"] }),
     final: checkpoint("final", {
       chapters: { "chapter-row": { approved_sha256: "approved-changed", design_state_sha256: "design-2" } },
     }),

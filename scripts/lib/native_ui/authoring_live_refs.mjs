@@ -1,9 +1,10 @@
 // B71 CP3b 实模 L7 证据：used_context_refs ⊆ base_refs ∪ observation_refs。
 //
 // Lead 裁定（03 批前）：wire 是投影，refs 的真实来源在产品持久结构——
-// used 从 `authoring_transcript` 的模型自报 `self_report.used_context_refs` 与
-// `decision_traces.context_refs` 读取；observation 从 `agent_events.refs`（真实工具观察）
-// 读取；base（supplied）从真实请求的应用数据消息读取。wire 启发式只作观测辅助。
+// used 从本批 canonical 段的消息内模型自报 `self_report.used_context_refs`、段头
+// `used_refs` 与 `decision_traces.context_refs` 读取；observation 从
+// `agent_events.refs`（真实工具观察）读取；base（supplied）从真实请求的应用数据消息
+// 读取。wire 启发式只作观测辅助。
 // 无法提取 used 时记 null（unknown，不假过）。
 import {
   AUTHORING_REQUEST_IR,
@@ -14,7 +15,6 @@ export const LIVE_REFS_SCHEMA = "b71-live-refs/v1";
 
 const REF_TOKEN = /(?:chapter|plan|artifact|scene|volume|character|memory|observation):[A-Za-z0-9_-]+(?::[A-Za-z0-9_-]+)*/gu;
 const ARTIFACT_TOKEN = /\bas_[A-Za-z0-9_]+/gu;
-const USED_CONTEXT_REFS = /"used_context_refs"\s*:\s*\[([^\]]*)\]/gu;
 const APPLICATION_PREFIX = "【应用数据 · ";
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
@@ -98,19 +98,27 @@ export function parseAgentEventRefs(rows) {
   return [...observation].sort();
 }
 
-// transcript 的模型自报 used_context_refs（非权威、非 APP 推算；B27 §9 / HO5）。
-export function parseTranscriptUsedRefs(transcriptText) {
+// canonical 段消息内的模型自报 used_context_refs（非权威、非 APP 推算；B27 §9 / HO5）。
+// 段头 used_refs 是产品已校验快照，与消息内原始自报合并；两者都缺 → unknown。
+export function parseSegmentUsedRefs(transcript) {
+  const messages = Array.isArray(transcript?.messages) ? transcript.messages : [];
   const used = new Set();
   let selfReportCount = 0;
-  for (const match of String(transcriptText ?? "").matchAll(USED_CONTEXT_REFS)) {
-    try {
-      const parsed = JSON.parse(`[${match[1]}]`);
-      if (!Array.isArray(parsed)) continue;
+
+  for (const message of messages) {
+    if (message.role !== "assistant" || message.provenance !== "model") continue;
+    for (const block of message.blocks ?? []) {
+      if (block.type !== "tool_call") continue;
+      const refs = block.arguments?.self_report?.used_context_refs;
+      if (!Array.isArray(refs)) continue;
       selfReportCount += 1;
-      for (const ref of parsed) if (typeof ref === "string" && ref !== "") used.add(ref);
-    } catch {
-      // 坏片段不当作证据；保留 selfReportCount 不变。
+      for (const ref of refs) if (typeof ref === "string" && ref !== "") used.add(ref);
     }
+  }
+
+  for (const ref of Array.isArray(transcript?.used_refs) ? transcript.used_refs : []) {
+    const value = typeof ref === "string" ? ref : ref?.ref;
+    if (typeof value === "string" && value !== "") used.add(value);
   }
   return { used_refs: [...used].sort(), self_report_count: selfReportCount };
 }
@@ -147,19 +155,23 @@ export function refVariants(ref) {
   return [...variants];
 }
 
-export function liveRefsCheck({ llmRecords = [], agentEvents = [], decisionTraces = [], transcriptText = "" } = {}) {
+export function liveRefsCheck({ llmRecords = [], agentEvents = [], decisionTraces = [], transcript = null } = {}) {
   const wire = collectWireRefs(llmRecords);
   const eventObservation = parseAgentEventRefs(agentEvents);
-  const transcript = parseTranscriptUsedRefs(transcriptText);
+  const segment = parseSegmentUsedRefs(transcript);
   const traces = parseDecisionTraceRefs(decisionTraces);
-  const used = new Set([...transcript.used_refs, ...traces.context_refs]);
+  const used = new Set([...segment.used_refs, ...traces.context_refs]);
   const base = new Set([...wire.base_refs]);
   const observation = new Set([...wire.observation_refs, ...eventObservation]);
   const sources = {
-    used: ["authoring_transcript.self_report.used_context_refs", "decision_traces.context_refs"],
+    used: [
+      "authoring_session_messages.message.blocks.arguments.self_report.used_context_refs",
+      "authoring_run_segments.header.used_refs",
+      "decision_traces.context_refs",
+    ],
     base: ["wire.application_data_messages"],
     observation: ["wire.tool_messages", "agent_events.exploration_observed.refs"],
-    self_report_count: transcript.self_report_count,
+    self_report_count: segment.self_report_count,
     wire_heuristic: "observation_only_not_used_for_verdict",
   };
   if (used.size === 0) {

@@ -102,18 +102,23 @@ function dbFacts(overrides = {}) {
     memory_count: 0,
     agent_events: [{ event_type: "exploration_observed", refs: '["obs_1"]' }],
     decision_traces: [{ trace_id: "trace_1", turn_id: "turn_1", context_refs: null }],
-    transcripts: [],
-    transcript_text: "",
+    segment_transcript: null,
     start_counts: { author_action_receipts: 0 },
     final_counts: { author_action_receipts: 0 },
     ...overrides,
   };
 }
 
-function evaluate({ caseId, toolCalls = [], turn = turnBody(), canonical = { start: canon(), final: canon() }, db = dbFacts(), appLog = [], transcriptUsed = null } = {}) {
+function evaluate({ caseId, toolCalls = [], turn = turnBody(), canonical = { start: canon(), final: canon() }, db = dbFacts(), appLog = [], usedRefs = null } = {}) {
   const llmRecords = toolCalls.length > 0 ? [toolRecord(toolCalls)] : [];
-  const facts = transcriptUsed
-    ? { ...db, transcript_text: JSON.stringify({ self_report: { used_context_refs: transcriptUsed } }) }
+  const facts = usedRefs
+    ? {
+        ...db,
+        segment_transcript: {
+          messages: [{ role: "assistant", provenance: "model", blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: usedRefs } } }] }],
+          used_refs: [],
+        },
+      }
     : db;
   return evaluateBehavior({
     caseRecord: caseRecordOf(caseId),
@@ -269,7 +274,7 @@ test("HO5 越界：used 引用未提供的观察（C-F1-001）→ violation", ()
   const verdict = evaluate({
     caseId: "C-F1-001",
     turn: turnBody({ assistantText: "第02章目前有正文。" }),
-    transcriptUsed: ["observation:obs_out_of_boundary"],
+    usedRefs: ["observation:obs_out_of_boundary"],
   });
   assert.equal(verdict.hard_oracles.HO5.status, "fail");
   assert(verdict.violations.some((violation) => violation.code.startsWith("HO5:")));
