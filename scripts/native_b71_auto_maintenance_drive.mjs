@@ -64,6 +64,16 @@ const checkpointEventCount = () =>
     ),
   );
 
+// 触发回合以 checkpoint_created 事件所属 run 为唯一身份（事件携带真实 run_id）。
+// 调用方只把它与本批已发送回合匹配；无匹配时记录缺证，不回退最近候选或父 turn。
+const latestCheckpointRunId = () =>
+  withDb(dir, (db) =>
+    all(
+      db,
+      "SELECT run_id FROM agent_events WHERE event_type = 'checkpoint_created' ORDER BY inserted_at DESC, rowid DESC LIMIT 1",
+    )[0]?.run_id ?? null,
+  );
+
 const llmRecordCount = () => logs(path.join(dir, "llm-calls")).length;
 
 function readRunRow({ turnId, runId }) {
@@ -214,8 +224,15 @@ function waitCheckpointIncrease(baseline, timeoutMs = 90_000) {
 
 
 // ── A3b：同一 run 内 ≥2 作者回合（真实控制坞 steer）────────────────────────
-function findButtonByText(nodes, predicate) {
-  return nodes.find((node) => node?.role === "AXButton" && predicate(String(node.title ?? ""))) ?? null;
+function findButtonByText(nodes, predicate, { requireEnabled = true } = {}) {
+  return (
+    nodes.find(
+      (node) =>
+        node?.role === "AXButton" &&
+        (!requireEnabled || node?.enabled !== false) &&
+        predicate(String(node.title ?? "")),
+    ) ?? null
+  );
 }
 
 function readRunStatus(runId) {
@@ -349,7 +366,7 @@ function readAnswerObservation(nodes, panel) {
   const scoped = prefix ? nodes.filter((node) => String(node?.path ?? "").startsWith(prefix)) : [];
   const scope = scoped.length > 0 ? scoped : nodes;
   const fixedUi =
-    /^(回答当前问题|回答并继续|回答并继续…|选项[A-Za-z0-9]?|终止任务|打开档案|阅读|记忆|作品|助手|开始新讨论|放弃此问题|返回|确认终止|为什么|发送|发送回复|回复此问题|会话|模型已连接|同步已连接)$/u;
+    /^(回答当前问题|回答并继续|回答并继续…|选项[A-Za-z0-9]?|终止任务|打开档案|阅读|记忆|作品|助手|开始新讨论|放弃此问题|重新发起此问题|返回|确认终止|为什么|发送|发送回复|回复此问题|会话|模型已连接|同步已连接)$/u;
   const staticTexts = scope
     .filter((node) => node?.role === "AXStaticText")
     .map((node) => String(node?.title ?? node?.value ?? node?.desc ?? "").trim())
@@ -360,11 +377,15 @@ function readAnswerObservation(nodes, panel) {
     staticTexts.join(" ").trim() ??
     "";
   const optionTitles = scope
-    .filter((node) => node?.role === "AXButton")
+    .filter((node) => node?.role === "AXButton" && node?.enabled !== false)
     .map((node) => String(node.title ?? "").trim())
     .filter((title) => title && !fixedUi.test(title))
     .filter((title) => !/^(阅读|记忆|作品|助手|模型|同步)/u.test(title));
-  return { question_text: questionText, option_titles: optionTitles, scoped_nodes: scoped.length };
+  // 不可回复是回答面板自身的只读状态：所有选项会 disabled，只留「重新发起此问题」。
+  const unavailable = scope.some((node) =>
+    /此问题暂不可回复/u.test(`${node?.title ?? ""} ${node?.desc ?? ""} ${node?.value ?? ""}`),
+  );
+  return { question_text: questionText, option_titles: optionTitles, unavailable, scoped_nodes: scoped.length };
 }
 
 // 按预注册策略从观察内容生成真实作答（问题有选项→选项；自由问题→对象词提取模板）。
@@ -467,23 +488,46 @@ async function respondToRunPause(steerText, attempts, options = {}) {
       answer_source: planned?.source ?? null,
       answer_text: answerText,
     });
+    // 面板自述不可回复：所有选项 disabled、只剩「重新发起此问题」。只记录观察和
+    // 缺证原因后立即返回，不点重发/放弃/终止，也不进入发送等待。
+    if (observation?.unavailable) {
+      attempts.push({
+        step: "answer_unavailable",
+        ok: false,
+        reason: "question_not_answerable",
+        question_text: observation.question_text,
+        option_titles: observation.option_titles,
+      });
+      return { ok: false, reason: "question_not_answerable", observation, panel: true };
+    }
     // 路径 1（优先）：结构化选项按钮 → author_choice 回答（同 run 继续）。
     const rawChoice = String(process.env.B71_AUTO_MAINT_ANSWER_CHOICE ?? "").trim();
     const answerChoice = rawChoice.toUpperCase();
     const choiceButtons = nodes.filter(
-      (node) => node?.role === "AXButton" && /^选项[A-Za-z0-9]?/u.test(String(node.title ?? "").trim()),
+      (node) =>
+        node?.role === "AXButton" &&
+        node?.enabled !== false &&
+        /^选项[A-Za-z0-9]?/u.test(String(node.title ?? "").trim()),
     );
     const choiceButton = (() => {
       // answer-mode：必须精确命中预注册 choice（如「保留悬念」），不得被观察到的
       // 其他按钮（开始新讨论/放弃此问题/终止任务…）带偏。
       if (ANSWER_MODE && rawChoice === "") {
         const exact = nodes.find(
-          (node) => node?.role === "AXButton" && String(node.title ?? "").includes(ANSWER_MODE_CHOICE),
+          (node) =>
+            node?.role === "AXButton" &&
+            node?.enabled !== false &&
+            String(node.title ?? "").includes(ANSWER_MODE_CHOICE),
         );
         if (exact) return exact;
       }
       if (observed && planned?.choice) {
-        return nodes.find((node) => node?.role === "AXButton" && String(node.title ?? "").trim() === planned.choice) ?? null;
+        return nodes.find(
+          (node) =>
+            node?.role === "AXButton" &&
+            node?.enabled !== false &&
+            String(node.title ?? "").trim() === planned.choice,
+        ) ?? null;
       }
       if (answerChoice === "FREE_TEXT") return null;
       return (
@@ -520,6 +564,9 @@ async function respondToRunPause(steerText, attempts, options = {}) {
     const answerSend = findButtonByText(
       nodes,
       (value) => value === "回答并继续" || value === "回答并继续…",
+      // 空 composer 时「回答并继续」本就 disabled；此处只确认控件存在，输入后的
+      // 实际点击仍要求 enabled。
+      { requireEnabled: false },
     );
     if (composerField && answerSend) {
       const composerSend = await harness.runStep(
@@ -800,7 +847,8 @@ async function runMultiTurnFlow({ report, requests }) {
         (process.env.B71_AUTO_MAINT_EXTRA_ROUND === "1" ? 1 : 0),
     ),
   );
-  if (!triggered && !ANSWER_MODE && extraRoundBudget > 0) {
+  // 回答发送/恢复结果不确定（stop_reason 已记录）时不再补发新 turn；明确终局仍走。
+  if (!triggered && !session.stop_reason && !ANSWER_MODE && extraRoundBudget > 0) {
     session.extra_rounds = [];
     for (let round = 0; round < extraRoundBudget && !triggered; round += 1) {
       const requestText =
@@ -827,6 +875,24 @@ async function runMultiTurnFlow({ report, requests }) {
     session.stop_reason =
       pause.kind === "paused" ? "steer_budget_exhausted" : `run_${pause.kind}`;
   }
+  // 触发身份只看 checkpoint_created 所属 run：仅与本批 first 或发送成功的 extra
+  // round 匹配。无匹配（含事件缺 run_id）只记录缺证，不向任何 run/会话发消息。
+  const checkpointRunId = triggered ? latestCheckpointRunId() : null;
+  const triggerMatch = triggered
+    ? [first, ...(session.extra_rounds ?? [])]
+        .filter((round) => round.ok !== false)
+        .find((round) => checkpointRunId && round.run_id === checkpointRunId) ?? null
+    : null;
+  const triggerSource = triggered
+    ? {
+        checkpoint_run_id: checkpointRunId,
+        matched: Boolean(triggerMatch),
+        source: triggerMatch === first ? "first" : triggerMatch ? "extra_round" : null,
+        index: triggerMatch?.index ?? null,
+        run_id: triggerMatch?.run_id ?? null,
+      }
+    : null;
+  session.trigger_source = triggerSource;
   session.triggered = triggered;
   session.checkpoint_events = checkpointEventCount();
   session.exchange_facts = readRunExchangeFacts(first.run_id);
@@ -840,7 +906,7 @@ async function runMultiTurnFlow({ report, requests }) {
   session.scan = scanAuthorVisibleFiles(dir);
   report.multi_turn = session;
   report.triggered = triggered;
-  report.first_trigger_index = triggered ? 1 : null;
+  report.first_trigger_index = triggered ? (triggerSource.index ?? null) : null;
 
   if (triggered) {
     if (report.strip_expanded === undefined) {
@@ -848,11 +914,15 @@ async function runMultiTurnFlow({ report, requests }) {
     }
     report.maintenance_strip = report.strip_expanded;
 
-    // 压缩后真实请求：同 run 再 steer 一轮（若 run 已终局则如实记录缺口）。
-    const nextSteer = await sendSteerAfterPause({
-      index: session.steers.length + 1,
+    // 压缩后真实请求：触发 run 明确 awaiting_author → 用该 run 的真实界面回答；
+    // 明确 terminal 且是实模 G6 → 在同一页面会话提交一个作者新 turn（复用 sendRequest）。
+    // 无匹配/等待超时只记录缺证，不盲发。ANSWER_MODE 单 run 路线保持既有行为。
+    const liveG6 = !ANSWER_MODE && process.env.B71_AUTO_MAINT_SMOKE !== "1";
+    const nextSteer = await sendNextRequestAfterTrigger({
+      index: 2 + (session.extra_rounds?.length ?? 0),
       queue: requests,
-      runId: first.run_id,
+      trigger: triggerSource,
+      allowFreshTurn: liveG6,
     });
     session.next_request = nextSteer;
     report.next_request = nextSteer;
@@ -903,19 +973,41 @@ async function runMultiTurnFlow({ report, requests }) {
   harness.capture("a3-final");
 }
 
-// 压缩触发后再补一轮同 run steer，产生「压缩后 provider 请求」证据（C5 按事件时间窗判定）。
-async function sendSteerAfterPause({ index, queue, runId }) {
-  const pause = await waitRunPauseOrTerminal({ runId });
-  if (pause.kind !== "paused") return { skipped: true, reason: `run_${pause.kind}`, index };
+// 压缩触发后补一轮作者请求，产生「压缩后 provider 请求」证据（C5 按事件时间窗判定）。
+// 触发 run 明确 awaiting_author → 沿用该 run 的真实界面回答（同 run steer）；明确
+// terminal 且是实模 G6 → 复用 sendRequest 在同一页面会话提交一个作者新 turn。
+// 触发 run 未绑定、等待超时或发送结果不确定 → skipped 缺证，不补发。
+async function sendNextRequestAfterTrigger({ index, queue, trigger, allowFreshTurn }) {
   const text = queue?.[0] ?? "按你的判断继续：给出下一步写作建议。";
-  const steer = await respondToRunPause(text, [], {
-    observed: true,
-    strategy: process.env.B71_AUTO_MAINT_ANSWER_STRATEGY ?? "continue_verification",
-  });
-  if (!steer.ok) return { skipped: true, reason: "steer_failed", index, steer };
-  const resume = await waitRunResume({ runId });
-  const after = await waitRunPauseOrTerminal({ runId });
-  return { skipped: false, index, text, steer, resume, pause_after: after.kind, checkpoint_events: checkpointEventCount() };
+  const base = {
+    index,
+    checkpoint_run_id: trigger?.checkpoint_run_id ?? null,
+    trigger_run_id: trigger?.run_id ?? null,
+    text,
+  };
+  if (!trigger?.run_id) return { ...base, skipped: true, reason: "trigger_run_unknown" };
+  const pause = await waitRunPauseOrTerminal({ runId: trigger.run_id });
+  const state = { ...base, pause_kind: pause.kind, pause_status: pause.status ?? null };
+  if (pause.kind === "paused") {
+    const steer = await respondToRunPause(text, [], {
+      observed: true,
+      strategy: process.env.B71_AUTO_MAINT_ANSWER_STRATEGY ?? "continue_verification",
+    });
+    if (!steer.ok) return { ...state, skipped: true, reason: "steer_failed", steer };
+    const resume = await waitRunResume({ runId: trigger.run_id });
+    const after = await waitRunPauseOrTerminal({ runId: trigger.run_id });
+    return { ...state, skipped: false, steer, resume, pause_after: after.kind, checkpoint_events: checkpointEventCount() };
+  }
+  // 只有 DB 明确 terminal 才是真实已终局；timeout/其它状态如实缺证。
+  if (pause.kind !== "terminal") return { ...state, skipped: true, reason: `run_${pause.kind}` };
+  if (!allowFreshTurn) return { ...state, skipped: true, reason: "run_terminal" };
+  try {
+    const request = await sendRequest(index, text);
+    return { ...state, skipped: false, reason: null, fresh_turn: true, request, checkpoint_events: checkpointEventCount() };
+  } catch (error) {
+    // 已尝试发送但结果不确定：只保留诊断，不重试、不盲发第二个 turn。
+    return { ...state, skipped: true, reason: "fresh_turn_failed", error: error.message };
+  }
 }
 
 async function run() {
