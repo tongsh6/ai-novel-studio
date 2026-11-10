@@ -345,9 +345,12 @@ export function evaluateAutoMaintenance({
   };
   if (!c2.ok) c2.reason = "auto_maintenance_not_observed";
 
-  // C3：行内细条可见（作者可见文案「较早的 N 项创作过程已整理」）。
+  // C3：行内细条可见（旧作者文案「较早的 N 项创作过程已整理」，或现行 AX 细条按钮）。
   const maintenanceAx = readCaptureText(dir, "after-maintenance");
-  const stripText = /较早的\s*\d+\s*项创作过程已整理|创作过程已整理/u;
+  // 现行 UI 的细条 accessible name 是「查看已整理的较早创作过程」；只认 AXButton 角色、
+  // 精确名称且 enabled=true——同名静态文本/纯文本/disabled 控件都不是可见条。
+  const stripText =
+    /较早的\s*\d+\s*项创作过程已整理|创作过程已整理|^[\t ]*(?:[^\s,]+[\t ]+)?AXButton,[ \t]+查看已整理的较早创作过程,[ \t]+enabled=true(?:,|$)/mu;
   const c3 = {
     ok: stripText.test(maintenanceAx),
     reason: null,

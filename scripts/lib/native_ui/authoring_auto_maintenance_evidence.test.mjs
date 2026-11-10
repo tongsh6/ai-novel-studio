@@ -31,6 +31,10 @@ function writeJsonl(file, rows) {
 }
 const png = () => Buffer.from("89504e470d0a1a0a", "hex");
 
+// 真实 b81-c5-c6-resume-02 after-maintenance.ax.txt:218 的现行 AX 细条形状。
+const MAINTENANCE_STRIP_AX =
+  "\t\t0/0/0/0/0/50/3 AXButton, 查看已整理的较早创作过程, enabled=true, focused=false, Actions: AXPress, AXShowMenu, AXScrollToVisible";
+
 // checkpoint canonical 形状（CP3 后）：covers.call_ids 在 blocks 内，不再读取旧字段。
 function checkpointMessage({ callIds = [CALL_ID], summary = `已整理的较早记录（覆盖 ${CALL_ID}）` } = {}) {
   return {
@@ -405,6 +409,35 @@ test("A3 反例：压力不足/无事件/细条缺失/四要素缺失 分别 fai
   assert.equal(noStrip.checks.C3_strip_visible.ok, false);
   const noExpanded = evaluate({ build: { expanded: false } });
   assert.equal(noExpanded.checks.C4_expanded_factors.ok, false);
+});
+
+test("C3/C7 正例：现行 AXButton accessible name（enabled=true）识别为可见细条", () => {
+  const dir = buildDir();
+  fs.writeFileSync(path.join(dir, "after-maintenance.ax.txt"), `${MAINTENANCE_STRIP_AX}\n`);
+  fs.writeFileSync(path.join(dir, "after-refresh.ax.txt"), `${MAINTENANCE_STRIP_AX}\n`);
+  const result = evaluate({ dir });
+  assert.equal(result.checks.C3_strip_visible.ok, true);
+  assert.match(String(result.checks.C3_strip_visible.detail.matched ?? ""), /AXButton, 查看已整理的较早创作过程, enabled=true/u);
+  assert.equal(result.checks.C7_refresh_idempotent.ok, true);
+  assert.equal(result.checks.C7_refresh_idempotent.detail.strip_visible_after_refresh, true);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("C3/C7 反例：同名非 AXButton / 纯文本 / disabled AXButton 都不算可见细条", () => {
+  const cases = [
+    ["同文本静态元素", "\t\t0/0/0/0/0/50/3 AXStaticText, 查看已整理的较早创作过程, enabled=true"],
+    ["同文本纯可见文本", "查看已整理的较早创作过程"],
+    ["同名 disabled AXButton", "\t\t0/0/0/0/0/50/3 AXButton, 查看已整理的较早创作过程, enabled=false, Actions: AXPress"],
+  ];
+  for (const [name, line] of cases) {
+    const dir = buildDir();
+    fs.writeFileSync(path.join(dir, "after-maintenance.ax.txt"), `${line}\n`);
+    fs.writeFileSync(path.join(dir, "after-refresh.ax.txt"), `${line}\n`);
+    const result = evaluate({ dir });
+    assert.equal(result.checks.C3_strip_visible.ok, false, name);
+    assert.equal(result.checks.C7_refresh_idempotent.ok, false, name);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("A3 反例：精简泄漏/ canonical 缺失/刷新不幂等/失败可见/清理失败 分别 fail", () => {
