@@ -406,6 +406,85 @@ test("G6 multi-turn 反例：缺 steer 或未 resume → C11 fail（不放宽）
   assert(noResume.failed.includes("C11_multi_turn_same_run"));
 });
 
+test("G6 跨 turn 正例：首 run 结束后补发 turn 推进 + 选项观察 → C11 pass（cross_turn）", () => {
+  const result = evaluate({
+    multiTurn: {
+      pause: { kind: "paused", status: "awaiting_author" },
+      steers: [
+        {
+          index: 1,
+          ok: true,
+          kind: "choice",
+          label: "保留悬念",
+          observation: {
+            question_text: "",
+            option_titles: ["保留悬念", "当章收束"],
+            answer_source: "option",
+            answer_text: "保留悬念",
+          },
+        },
+      ],
+      resumes: [{ index: 1, resumed: true, status: "completed" }],
+      rounds: [{ index: 1, pause_kind: "terminal", exchange_facts: { complete_exchanges: 3 } }],
+      extra_rounds: [
+        { round: 1, index: 2, run_status: "completed", checkpoint_events_after: 0 },
+        { round: 2, index: 3, run_status: "failed", checkpoint_events_after: 1 },
+      ],
+      stop_reason: "run_terminal",
+      max_steers: 6,
+      checkpoint_events: 1,
+    },
+  });
+  assert.equal(result.checks.C11_multi_turn_same_run.ok, true);
+  assert.equal(result.checks.C11_multi_turn_same_run.detail.scenario, "cross_turn");
+  assert(!result.failed.includes("C11_multi_turn_same_run"));
+});
+
+test("G6 跨 turn 反例：无推进 turn 或回答未观察 → C11 fail（不放宽）", () => {
+  const noAdvanced = evaluate({
+    multiTurn: {
+      pause: { kind: "paused", status: "awaiting_author" },
+      steers: [
+        {
+          index: 1,
+          ok: true,
+          observation: {
+            question_text: "",
+            option_titles: ["保留悬念", "当章收束"],
+            answer_source: "option",
+            answer_text: "保留悬念",
+          },
+        },
+      ],
+      resumes: [{ index: 1, resumed: true, status: "completed" }],
+      extra_rounds: [{ round: 1, index: 2, run_status: "running" }],
+      stop_reason: "run_terminal",
+      checkpoint_events: 0,
+    },
+  });
+  assert.equal(noAdvanced.checks.C11_multi_turn_same_run.ok, false);
+  assert(noAdvanced.failed.includes("C11_multi_turn_same_run"));
+
+  const noObservation = evaluate({
+    multiTurn: {
+      pause: { kind: "paused", status: "awaiting_author" },
+      steers: [
+        {
+          index: 1,
+          ok: true,
+          observation: { question_text: "", option_titles: [], answer_source: "fallback", answer_text: "按你的判断继续。" },
+        },
+      ],
+      resumes: [{ index: 1, resumed: true, status: "completed" }],
+      extra_rounds: [{ round: 1, index: 2, run_status: "completed" }],
+      stop_reason: "run_terminal",
+      checkpoint_events: 1,
+    },
+  });
+  assert.equal(noObservation.checks.C11_multi_turn_same_run.ok, false);
+  assert(noObservation.failed.includes("C11_multi_turn_same_run"));
+});
+
 test("跨 run A3 场景：C11 不判（ok=null，不进 required），C7/C8 仍判", () => {
   const result = evaluate();
   assert.equal(result.checks.C11_multi_turn_same_run.ok, null);

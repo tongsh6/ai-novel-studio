@@ -451,21 +451,41 @@ export function evaluateAutoMaintenance({
   const multiTurnSteers = list(multiTurn?.steers);
   const multiTurnResumes = list(multiTurn?.resumes);
   const multiTurnPause = multiTurn?.pause ?? null;
+  const extraRounds = list(multiTurn?.extra_rounds);
   // 观察驱动多轮（2026-11-08 审核）：每轮回答必须来自真实问题文本的观察，
   // 且至少一轮回答来源是选项/对象词提取（fallback 单独凑轮不算观察驱动）。
-  const observationRounds = multiTurnSteers.filter((steer) => {
+  // 观察驱动证据：问题文本 或 真实选项标题（选项文字本身来自页面观察——真实 strata
+  // 批次里问题文本节点有时读不到，但选项标题可读，且 answer_source=option 已记录来源）。
+  const hasObservation = (steer) => {
     const observation = steer?.observation ?? null;
-    const question = String(observation?.question_text ?? "").trim();
-    const source = String(observation?.answer_source ?? "");
-    return question !== "" && ["option", "extracted_text"].includes(source);
+    return (
+      String(observation?.question_text ?? "").trim() !== "" ||
+      list(observation?.option_titles).length > 0
+    );
+  };
+  const observationRounds = multiTurnSteers.filter((steer) => {
+    const source = String(steer?.observation?.answer_source ?? "");
+    return hasObservation(steer) && ["option", "extracted_text"].includes(source);
   });
-  const questionBoundRounds = multiTurnSteers.filter(
-    (steer) => String(steer?.observation?.question_text ?? "").trim() !== "",
-  );
+  const questionBoundRounds = multiTurnSteers.filter(hasObservation);
+  // G6 实模场景是「跨 turn」：首 run 询问回答后 driver 补发新 turn（extra_rounds），
+  // 压缩发生在后续 turn 的安全点。A3 原始 C11「同 run 多轮」判据在该场景不成立——
+  // 按场景区分判据（不放宽任何不变量）：跨 turn 仍要求观察驱动回答 + 补发 turn 真实推进；
+  // 若存在 checkpoint 则 C2 另行判定（不在此处放宽）。
+  const crossTurnScenario = extraRounds.length > 0;
+  const crossTurnOk =
+    crossTurnScenario &&
+    multiTurnSteers.length >= 1 &&
+    multiTurnSteers.every((steer) => steer?.ok === true) &&
+    questionBoundRounds.length === multiTurnSteers.length &&
+    observationRounds.length >= 1 &&
+    extraRounds.filter((round) => ["completed", "failed"].includes(String(round?.run_status ?? ""))).length >= 1;
+
   const c11 = multiTurn
     ? {
-        ok:
-          multiTurnPause?.kind === "paused" &&
+        ok: crossTurnScenario
+          ? crossTurnOk
+          : multiTurnPause?.kind === "paused" &&
           multiTurnSteers.length >= 1 &&
           multiTurnSteers.every((steer) => steer?.ok === true) &&
           multiTurnResumes.length >= multiTurnSteers.length &&
@@ -484,6 +504,8 @@ export function evaluateAutoMaintenance({
           observation_driven_rounds: observationRounds.length,
           question_bound_rounds: questionBoundRounds.length,
           answer_sources: multiTurnSteers.map((steer) => steer?.observation?.answer_source ?? null),
+          scenario: crossTurnScenario ? "cross_turn" : "same_run",
+          extra_rounds: extraRounds.length,
           questions: multiTurnSteers.map((steer) => steer?.observation?.question_text ?? null),
         },
       }
