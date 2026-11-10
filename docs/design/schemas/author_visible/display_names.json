@@ -171,8 +171,7 @@
       "conversation": "近期对话",
       "recent_dialogue": "近期对话",
       "memory": "已确认设定",
-      "work_archive": "作品档案",
-      "session_transcript": "当前会话记录"
+      "work_archive": "作品档案"
     },
     "memory_status": {
       "DRAFT": "草稿",

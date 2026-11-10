@@ -7,7 +7,7 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
   只允许通过 `NovelCommon.AuthorVisible.Display` 查询；作者可见面不得直接使用内部 code。
   """
 
-  @source_hash "1eba7eec49e1942ca0543b60948edbe0c8aad4e362a7831e3671aac645ae752e"
+  @source_hash "145f0449c282dc318d621f93512f57f383f79c27adc77ff26ae827371d686d91"
 
   @domains %{
     "action" => %{
@@ -61,7 +61,6 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
       "current_work" => "当前作品背景",
       "memory" => "已确认设定",
       "recent_dialogue" => "近期对话",
-      "session_transcript" => "当前会话记录",
       "work_archive" => "作品档案"
     },
     "decision" => %{

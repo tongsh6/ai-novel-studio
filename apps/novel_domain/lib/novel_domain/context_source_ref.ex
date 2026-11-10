@@ -11,7 +11,6 @@ defmodule NovelDomain.ContextSourceRef do
   @type source_type ::
           :current_work
           | :conversation
-          | :session_transcript
           | :memory
           | :behavior
           | :policy

@@ -49,7 +49,9 @@ defmodule NovelApplication.ContextGroundingTest do
       refute ref.summary =~ "assistant:"
     end
 
-    test "marks session-scoped transcript refs separately from workspace conversation fallback" do
+    test "旧 session-scoped transcript 来源已退役（CP6）：统一为 conversation 来源" do
+      # ADR-0035 决策 9：旧 `:session_transcript` 材料类型退役——会话 canonical 历史
+      # 由 CP2 作为消息进入请求派生；ContextAssembler 不再单独标记会话转录来源。
       fetcher = fn _ws_id, _author_text, _session_id ->
         {:ok, nil, "user: 当前会话确认当前蓝桥计划 assistant: 已记录当前蓝桥计划", nil, nil}
       end
@@ -59,10 +61,11 @@ defmodule NovelApplication.ContextGroundingTest do
           session_id: "session-active"
         )
 
-      ref = Enum.find(ctx.context_refs, &(&1.source_type == :session_transcript))
+      refute Enum.any?(ctx.context_refs, &(&1.source_type == :session_transcript))
+
+      ref = Enum.find(ctx.context_refs, &(&1.source_type == :conversation))
 
       assert ref.summary == "上一轮围绕「当前会话确认当前蓝桥计划」展开，AI 已给出回应。"
-      refute Enum.any?(ctx.context_refs, &(&1.source_type == :conversation))
       refute ref.summary =~ "user:"
       refute ref.summary =~ "assistant:"
     end

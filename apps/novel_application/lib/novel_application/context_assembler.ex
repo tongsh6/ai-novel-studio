@@ -386,9 +386,8 @@ defmodule NovelApplication.ContextAssembler do
     |> maybe_add_ref(behavior_summary, :behavior, "behavior_summary")
   end
 
-  defp conversation_ref_identity(session_id) when is_binary(session_id) and session_id != "",
-    do: {:session_transcript, "active_session_transcript"}
-
+  # B81 CP6：旧 `:session_transcript` 材料类型退役（ADR-0035 决策 9）——会话 canonical
+  # 历史已由 CP2 作为消息进入请求派生，不再以「会话记录材料」摘要进入判断上下文。
   defp conversation_ref_identity(_session_id), do: {:conversation, "conversation_summary"}
 
   defp maybe_add_ref(refs, nil, _type, _id), do: refs
@@ -424,10 +423,6 @@ defmodule NovelApplication.ContextAssembler do
     summarize_conversation(value) || normalize_summary(value)
   end
 
-  defp summarize_context(value, :session_transcript) when is_binary(value) do
-    summarize_conversation(value) || normalize_summary(value)
-  end
-
   defp summarize_context(value, :memory) when is_binary(value) do
     value
     |> String.split("\n")
@@ -442,7 +437,6 @@ defmodule NovelApplication.ContextAssembler do
   defp summarize_context(_value, :current_work), do: nil
   defp summarize_context(_value, :memory), do: "已确认设定"
   defp summarize_context(_value, :conversation), do: "近期对话"
-  defp summarize_context(_value, :session_transcript), do: "当前会话记录"
   defp summarize_context(_value, :behavior), do: "当前待处理动作"
 
   defp current_work_context_parts(value) do
