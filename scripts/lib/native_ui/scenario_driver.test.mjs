@@ -44,6 +44,22 @@ function countingInput() {
   };
 }
 
+test("tryPollAx 以命名观测读取真实控件匹配结果", async (t) => {
+  const { dir, harness } = makeHarness({});
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const nodes = [{ role: "AXButton", title: "开始新讨论" }];
+  const labels = [];
+  harness.dumpNodesForInteraction = (label) => {
+    labels.push(label);
+    return nodes;
+  };
+
+  const found = await harness.tryPollAx((text) => text === "开始新讨论", 50, "return_to_question");
+
+  assert.deepEqual(found, { nodes, text: "开始新讨论" });
+  assert.deepEqual(labels, ["try_poll_ax:return_to_question"]);
+});
+
 function readFailure(dir) {
   return JSON.parse(fs.readFileSync(path.join(dir, "failure.json"), "utf8"));
 }

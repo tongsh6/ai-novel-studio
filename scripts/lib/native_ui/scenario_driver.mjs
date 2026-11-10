@@ -300,7 +300,7 @@ export class NativeScenarioHarness {
     throw new Error(`wait_ax_timeout:${label}:${lastText.slice(-400)}`);
   }
 
-  async tryPollAx(predicate, timeoutMs) {
+  async tryPollAx(predicate, timeoutMs, label = "observation") {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       this.checkSupervisor();

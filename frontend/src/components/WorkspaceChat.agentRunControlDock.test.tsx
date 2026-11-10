@@ -4,6 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import type { AgentRunInputMode } from "../lib/agentRunInputRouting";
 import type { AgentEventData, AgentRunStateData } from "../lib/socket";
 import { AgentRunControlDock, AgentRunDialogueFlow } from "./WorkspaceChat";
 
@@ -43,6 +44,7 @@ function renderDock(
     hasSteerInput?: boolean;
     runtimeAuthority?: "live" | "dead" | "unknown";
     awaitingInput?: boolean;
+    modelQuestionInputMode?: AgentRunInputMode;
     commandInFlight?: boolean;
     noticeText?: string | null;
     runOverrides?: Partial<AgentRunStateData>;
@@ -59,6 +61,7 @@ function renderDock(
       canCancel: options.canCancel ?? true,
       runtimeAuthority: options.runtimeAuthority ?? "live",
       awaitingInput: options.awaitingInput ?? false,
+      modelQuestionInputMode: options.modelQuestionInputMode,
       commandInFlight: options.commandInFlight ?? false,
       noticeText: options.noticeText ?? null,
       hasSteerInput: options.hasSteerInput ?? false,
@@ -117,6 +120,16 @@ describe("AgentRun fixed control dock", () => {
     expect(html).toContain("<span>终止任务</span>");
     expect(html).not.toContain("<span>继续</span>");
     expect(html).not.toContain("<span>暂停</span>");
+  });
+
+  it("shows the new discussion hint only after leaving the question composer", () => {
+    const render = (modelQuestionInputMode: AgentRunInputMode) =>
+      renderDock("awaiting_author", { awaitingInput: true, modelQuestionInputMode });
+
+    const answering = render("answer_question");
+    expect(answering).not.toContain("输入会作为新讨论。");
+    expect(answering).not.toContain("在下方输入框补充方向后发送");
+    expect(render("new_discussion")).toContain("输入会作为新讨论。");
   });
 
   it("offers a scoped retry when the awaiting reason is a writer timeout", () => {

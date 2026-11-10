@@ -192,6 +192,7 @@ import {
   decideAgentRunInputRoute,
   findCurrentOpenAuthorQuestion,
   openQuestionRunIdsForRuns,
+  type AgentRunInputMode,
   type AgentRunInputPresentation,
 } from "../lib/agentRunInputRouting";
 import { messageRenderKey } from "../lib/messageRenderKey";
@@ -610,6 +611,15 @@ function startupConnectingMessage(): ChatMessage {
 const STARTUP_MAX_ATTEMPTS = 30;
 const STARTUP_RETRY_MS = 1000;
 const TERMINAL_AGENT_RUN_STATUSES = new Set(["completed", "cancelled", "failed"]);
+
+function canCancelRun(run: AgentRunStateData | null): boolean {
+  return (
+    run !== null &&
+    agentRunRuntimeAuthority(run) === "live" &&
+    run.status !== "cancelling" &&
+    !TERMINAL_AGENT_RUN_STATUSES.has(run.status)
+  );
+}
 const MOTION_AGENT_RUN_STATUSES = new Set(["created", "running", "pausing", "cancelling"]);
 // 46 §9.5（第 4 条）执行中标识必须全程连续：慢模型下用真实墙钟时长证明"仍在执行"。
 // 5 秒内不显示，避免短任务闪烁；只报已发生的时间，不做合成进度/百分比。
@@ -1050,7 +1060,7 @@ interface AgentRunControlDockProps {
   commandInFlight: boolean;
   noticeText?: string | null;
   hasSteerInput?: boolean;
-  modelQuestionAwaiting?: boolean;
+  modelQuestionInputMode?: AgentRunInputMode;
   onCommand: (command: AgentCommand) => void;
   onRequestCancel: () => void;
   onRestartTask: () => void;
@@ -1070,7 +1080,7 @@ export function AgentRunControlDock({
   commandInFlight,
   noticeText = null,
   hasSteerInput = false,
-  modelQuestionAwaiting = false,
+  modelQuestionInputMode,
   onCommand,
   onRequestCancel,
   onRestartTask,
@@ -1209,15 +1219,17 @@ export function AgentRunControlDock({
           </button>
         ) : awaitingInput ? (
           <>
-            <span className={styles.agentRunDockAwaitingHint}>
-              {budgetShortfallAwaiting
-                ? WORKBENCH.agentRunBudgetShortfallHint
-                : writerTimeoutAwaiting
-                  ? WORKBENCH.agentRunWriterTimeoutHint
-                  : modelQuestionAwaiting
-                    ? WORKBENCH.authorQuestionUseSourceHint
-                    : WORKBENCH.agentRunAwaitingInputHint}
-            </span>
+            {modelQuestionInputMode !== "answer_question" && (
+              <span className={styles.agentRunDockAwaitingHint}>
+                {budgetShortfallAwaiting
+                  ? WORKBENCH.agentRunBudgetShortfallHint
+                  : writerTimeoutAwaiting
+                    ? WORKBENCH.agentRunWriterTimeoutHint
+                    : modelQuestionInputMode === "new_discussion"
+                      ? WORKBENCH.authorQuestionUseSourceHint
+                      : WORKBENCH.agentRunAwaitingInputHint}
+              </span>
+            )}
             {writerTimeoutAwaiting && onWriterTimeoutRetry && (
               <button
                 type="button"
@@ -1508,7 +1520,7 @@ export function WorkspaceChat() {
     action: AvailableAction;
   } | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
-  const [agentRunTerminateDialogOpen, setAgentRunTerminateDialogOpen] = useState(false);
+  const [terminationTargetId, setTerminationTargetId] = useState<string | null>(null);
   const [selectedFindingIdsMap, setSelectedFindingIdsMap] = useState<Record<string, string[]>>({});
   const [revisionSubmittingTurnId, setRevisionSubmittingTurnId] = useState<string | null>(null);
   const [selectedCandidateItemIds, setSelectedCandidateItemIds] = useState<Record<string, string>>(
@@ -1530,7 +1542,7 @@ export function WorkspaceChat() {
   // 不使用 visibleAgentRunMap/广播到达序作为语义依据。
   const [focusedAgentRunId, setFocusedAgentRunId] = useState<string | null>(null);
   // 46 §9.7（2026-11-04 修订）：等待即回答——默认回答当前问题；作者显式点「开始新讨论」才恢复新请求语义。
-  const [newDiscussionMode, setNewDiscussionMode] = useState(false);
+  const [dismissedQuestionRef, setDismissedQuestionRef] = useState<string | null>(null);
   // B31 §6.2 Q01 ③：客户端语义活动时间——只记录真实活动（agent_event/turn_result），
   // 不记录恢复广播到达序。
   const [agentRunLastEventAt, setAgentRunLastEventAt] = useState<Record<string, number>>({});
@@ -2371,7 +2383,38 @@ export function WorkspaceChat() {
     );
   }
   const visibleAgentRuns = Array.from(visibleAgentRunMap.values());
-  const latestAgentRun = visibleAgentRuns.at(-1) ?? null;
+  const openQuestions = useQuery({
+    queryKey: authorQuestionQueryKey(context.workId, activeSessionId),
+    queryFn: async () =>
+      openAuthorQuestionTurnResults(await getSessionSnapshot(context.workId!, activeSessionId!)),
+    enabled: Boolean(context.workId && activeSessionId && !isReadOnlySessionView),
+  });
+
+  const openAuthorQuestionBindings = [
+    ...(openQuestions.data ?? []),
+    ...messages.flatMap((message) => (message.turnResult ? [message.turnResult] : [])),
+  ]
+    .map((result) => result.author_question)
+    .filter((question): question is NonNullable<typeof question> => Boolean(question));
+  // B31 §6.2 Q01：未答问题只按 B26 身份（status=open + goal version 匹配）过滤；
+  // 不再用「visibleAgentRunMap 插入序末位」当作当前 run 语义依据。
+  const openAuthorQuestionRunIds = openQuestionRunIdsForRuns(
+    visibleAgentRuns,
+    openAuthorQuestionBindings,
+  );
+  const agentRunInputDecision = decideAgentRunInputRoute({
+    runs: visibleAgentRuns,
+    openQuestionRunIds: openAuthorQuestionRunIds,
+    focusedRunId: focusedAgentRunId,
+    lastEventAt: agentRunLastEventAt,
+    pendingAnswerBehaviorId: pendingAnswerBid,
+  });
+  // 问题提示条、composer 和任务控制消费同一个路由决定；列表末尾可能是已完成的 B。
+  const answeringRun =
+    agentRunInputDecision.reason === "active_has_model_question"
+      ? agentRunInputDecision.run
+      : null;
+  const latestAgentRun = answeringRun ?? visibleAgentRuns.at(-1) ?? null;
   const latestMessage = messages.at(-1);
   const continuedCandidatesBySourceTurn = new Map<string, string>();
   for (const message of messages) {
@@ -2457,11 +2500,10 @@ export function WorkspaceChat() {
     latestAgentRun?.status === "awaiting_author" && !latestAgentRunIsDead;
   const budgetShortfallAwaiting =
     awaitingAuthorInputRequired && awaitingAuthorBudgetShortfall(latestAgentRunEvents);
-  const canCancelAgentRun =
-    latestAgentRun !== null &&
-    latestAgentRunIsLive &&
-    latestAgentRun.status !== "cancelling" &&
-    !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status);
+  const canCancelAgentRun = canCancelRun(latestAgentRun);
+  const terminationTarget = terminationTargetId
+    ? (visibleAgentRunMap.get(terminationTargetId) ?? null)
+    : null;
   const hasActiveAgentRun =
     latestAgentRun !== null && !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status);
   // B23 CP4：CP4 收口后首 join 广播 failed + runtime_live=false。failed 属终态，
@@ -2482,64 +2524,28 @@ export function WorkspaceChat() {
       hasMessageAnchor: latestAgentRunHasMessageAnchor,
     },
   );
-  const openQuestions = useQuery({
-    queryKey: authorQuestionQueryKey(context.workId, activeSessionId),
-    queryFn: async () =>
-      openAuthorQuestionTurnResults(await getSessionSnapshot(context.workId!, activeSessionId!)),
-    enabled: Boolean(context.workId && activeSessionId && !isReadOnlySessionView),
-  });
-
-  const openAuthorQuestionBindings = [
-    ...(openQuestions.data ?? []),
-    ...messages.flatMap((message) => (message.turnResult ? [message.turnResult] : [])),
-  ]
-    .map((result) => result.author_question)
-    .filter((question): question is NonNullable<typeof question> => Boolean(question));
-  // B31 §6.2 Q01：未答问题只按 B26 身份（status=open + goal version 匹配）过滤；
-  // 不再用「visibleAgentRunMap 插入序末位」当作当前 run 语义依据。
-  const openAuthorQuestionRunIds = openQuestionRunIdsForRuns(
-    visibleAgentRuns,
-    openAuthorQuestionBindings,
-  );
-  const agentRunInputDecision = decideAgentRunInputRoute({
-    runs: visibleAgentRuns,
-    openQuestionRunIds: openAuthorQuestionRunIds,
-    focusedRunId: focusedAgentRunId,
-    lastEventAt: agentRunLastEventAt,
-    pendingAnswerBehaviorId: pendingAnswerBid,
-  });
   const agentRunInputPresentation = buildAgentRunInputPresentation(
     agentRunInputDecision,
     visibleAgentRuns,
   );
-  const latestAgentRunHasModelQuestion = Boolean(
-    latestAgentRun &&
-    latestAgentRun.status === "awaiting_author" &&
-    openAuthorQuestionRunIds.includes(latestAgentRun.run_id),
-  );
   // 46 §9.7（2026-11-04 修订）：当前 run 的未答模型问题 = 底部回答模式的来源。
   // 消息流中的问题卡只读记录，操作统一在主输入区（等待即回答，避免双入口误用）。
   const activeModelQuestionResult = useMemo(() => {
-    if (!latestAgentRun || !latestAgentRunHasModelQuestion) return null;
-    // B81 CP5：消息历史与 snapshot 统一按当前 run/status/goal_version 选题；
-    // 旧版本问题不能遮蔽同 run 的当前版本问题。
-    return findCurrentOpenAuthorQuestion(latestAgentRun, [
+    return findCurrentOpenAuthorQuestion(answeringRun, [
       messages.map((message) => message.turnResult),
       openQuestions.data ?? [],
     ]);
-  }, [latestAgentRun, latestAgentRunHasModelQuestion, messages, openQuestions.data]);
-  useEffect(() => {
-    if (!latestAgentRunHasModelQuestion) setNewDiscussionMode(false);
-  }, [latestAgentRunHasModelQuestion]);
+  }, [answeringRun, messages, openQuestions.data]);
+  const answeringQuestionRef = activeModelQuestionResult?.author_question?.question_ref ?? null;
   // 46 §9.7（2026-11-04 修订）：输入区语义由单一派生函数给出，渲染只按 mode 分支。
   const inputMode = deriveAgentRunInputMode(agentRunInputDecision, agentRunInputPresentation, {
-    answerModeDismissed: newDiscussionMode,
+    answerModeDismissed: dismissedQuestionRef !== null && dismissedQuestionRef === answeringQuestionRef,
     blocked: budgetShortfallAwaiting,
   });
   // 等待起点：最后一个 awaiting_author 事件时间（提示条据此显示「已等待 X」）。
   // 事件数组本身是浅层派生，直接计算（避免 useMemo 依赖不稳定触发 exhaustive-deps 警告）。
   const awaitingAuthorSince = (() => {
-    if (!latestAgentRunHasModelQuestion) return null;
+    if (answeringRun === null) return null;
     const event = [...latestAgentRunEvents]
       .reverse()
       .find((entry) => entry.event_type === "awaiting_author" && entry.emitted_at);
@@ -2703,17 +2709,16 @@ export function WorkspaceChat() {
     }
   }
 
-  async function handleAgentCommand(command: AgentCommand, text?: string) {
-    if (!channelRef.current || !latestAgentRun) return;
+  async function handleAgentCommand(command: AgentCommand, text?: string, run = latestAgentRun) {
+    if (!channelRef.current || !run) return;
     if (agentCommandInFlight) return;
 
     if (command === "steer" && text) {
       // 停等坞/显式控制动作：显式绑定坞所属 run，不受主输入歧义规则影响
       // （B31 §6.2 Q02「停等坞发送调整显式绑定该 run 不变」）。
-      await submitAgentSteer(latestAgentRun, text);
+      await submitAgentSteer(run, text);
       return;
     }
-    const run = latestAgentRun;
     setAgentCommandInFlight(true);
     try {
       await sendAgentCommand(channelRef.current, run.run_id, command, text);
@@ -2801,6 +2806,7 @@ export function WorkspaceChat() {
         authorStepLimit ? { max_steps: 1 } : null,
       );
       if (authorStepLimit) setAuthorStepLimit(false);
+      setDismissedQuestionRef((current) => current === dismissedQuestionRef ? null : current);
       rememberAgentRunAck(response, text, clientMessageId);
     } catch (error) {
       if (activeConnectionRef.current.workId !== context.workId) return;
@@ -4218,11 +4224,11 @@ export function WorkspaceChat() {
         commandInFlight={agentCommandInFlight}
         noticeText={agentCommandNoticeText}
         hasSteerInput={hasSteerInput}
-        modelQuestionAwaiting={latestAgentRunHasModelQuestion}
+        modelQuestionInputMode={answeringRun !== null ? inputMode.mode : undefined}
         onCommand={(command) => {
           void handleAgentCommand(command);
         }}
-        onRequestCancel={() => setAgentRunTerminateDialogOpen(true)}
+        onRequestCancel={() => setTerminationTargetId(latestAgentRun.run_id)}
         onRestartTask={() => handleRestartDeadAgentRunTask(latestAgentRun)}
         onWriterTimeoutRetry={() => {
           if (!latestAgentRunIsLive) return;
@@ -5714,8 +5720,10 @@ export function WorkspaceChat() {
           </Dialog.Root>
 
           <Dialog.Root
-            open={agentRunTerminateDialogOpen}
-            onOpenChange={setAgentRunTerminateDialogOpen}
+            open={terminationTargetId !== null}
+            onOpenChange={(open) => {
+              if (!open) setTerminationTargetId(null);
+            }}
           >
             <Dialog.Portal>
               <Dialog.Overlay className={styles.dialogOverlay} />
@@ -5735,10 +5743,10 @@ export function WorkspaceChat() {
                   <button
                     type="button"
                     className={styles.btnDanger}
-                    disabled={!canCancelAgentRun}
+                    disabled={!canCancelRun(terminationTarget)}
                     onClick={() => {
-                      setAgentRunTerminateDialogOpen(false);
-                      void handleAgentCommand("cancel");
+                      setTerminationTargetId(null);
+                      void handleAgentCommand("cancel", undefined, terminationTarget);
                     }}
                   >
                     {WORKBENCH.agentRunTerminateConfirm}
@@ -5780,14 +5788,14 @@ export function WorkspaceChat() {
                     onAnswer={(action, answerText) => {
                       void handleQuestionReply(activeModelQuestionResult, action, answerText);
                     }}
-                    onStartNewDiscussion={() => setNewDiscussionMode(true)}
-                    onAbandon={() => setAgentRunTerminateDialogOpen(true)}
+                    onStartNewDiscussion={() => setDismissedQuestionRef(answeringQuestionRef)}
+                    onAbandon={() => setTerminationTargetId(answeringRun?.run_id ?? null)}
                     onRestartQuestion={
                       questionReplyDisabled(activeModelQuestionResult)
                         ? () => {
                             // C 二阶段：任务已结束（runtime dead）——预填原问题到主输入框，
                             // 切回普通输入模式后由作者确认发送（新 run），不代发。
-                            setNewDiscussionMode(true);
+                            setDismissedQuestionRef(answeringQuestionRef);
                             setInputText(activeModelQuestionResult.author_question?.question ?? "");
                           }
                         : null

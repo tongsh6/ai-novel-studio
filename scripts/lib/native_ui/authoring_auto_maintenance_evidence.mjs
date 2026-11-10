@@ -14,12 +14,16 @@ import {
   all,
   assertCommonEvidence,
   assertProviderAndWire,
+  frameBody,
+  frameEvent,
   read,
+  transport,
   withDb,
   writeNativeFrames,
 } from "./scenario_evidence.mjs";
 import { readConfig } from "./authoring_capture_evidence.mjs";
 import { checkAuthorVisibleTexts } from "./author_visible_check.mjs";
+import { actionAck } from "./authoring_pending_evidence.mjs";
 
 export const AUTO_MAINTENANCE_SCHEMA = "b71-auto-maintenance-checks/v1";
 export const AUTO_MAINTENANCE_CHECKPOINTS = Object.freeze([
@@ -162,7 +166,7 @@ const timeValue = (value) => {
 };
 
 // checkpoint 在 native wire 中是 user 文本；取显式 projection cover 集合。
-function wireCheckpointCovers(facts) {
+function wireCheckpoints(facts) {
   const covers = [];
   for (const message of list(facts?.applicationMessages)) {
     const text = typeof message?.text === "string" ? message.text : "";
@@ -174,7 +178,9 @@ function wireCheckpointCovers(facts) {
       const jsonEnd = text.indexOf("】", jsonStart);
       if (jsonEnd < 0) break;
       const value = parseJson(text.slice(jsonStart, jsonEnd));
-      if (isObject(value)) covers.push(list(value.call_ids).filter(nonBlank).map(String));
+      if (isObject(value)) {
+        covers.push({ ...value, call_ids: list(value.call_ids).filter(nonBlank).map(String) });
+      }
       cursor = jsonEnd + 1;
     }
   }
@@ -278,6 +284,106 @@ function readLogs(logDir) {
         })
         .filter(Boolean),
     );
+}
+
+// 独立验证交错续行。原 C1–C11 仍用于普通批次，末尾 A 的整理也不冒充有后续请求。
+export function verifyInterleavedResume(dir) {
+  const trace = readJsonIfExists(path.join(dir, "native-b71-driver-log.json"))?.interleaved_resume;
+  return verifyInterleavedResumeFacts(trace, readAutoMaintenanceDbFacts(dir), transport(dir), readLogs(path.join(dir, "llm-calls")));
+}
+
+function verifyInterleavedResumeFacts(trace, db, wire, llmRecords) {
+  const { agent_runs, agent_events, authoring_session_messages, provider_runs, provider_events } = db;
+  const a = agent_runs.find((run) => run.id === trace?.waiting_run_id);
+  const b = agent_runs.find((run) => run.id === trace?.later_run_id);
+  assert(a?.session_id && b && a.id !== b.id && a.session_id === b.session_id, "A/B 必须是同会话的不同 run");
+  assert.equal(a.status, "completed");
+  assert.equal(b.status, "completed");
+  assert.equal(a.goal_version, trace.waiting_goal_version + 1);
+
+  const actions = wire.filter((record) => {
+    const action = frameBody(record)?.action;
+    return record.direction === "sent" && frameEvent(record) === "author_action" &&
+      action?.action_type === "author_choice" && action.target_ref === a.id &&
+      action.payload?.question_ref === trace.waiting_question_ref &&
+      action.payload?.expected_goal_version === trace.waiting_goal_version;
+  });
+  assert.equal(actions.length, 1, "必须有唯一的 A 原问题回答帧");
+  const { response } = actionAck(wire, actions[0], { actionStatus: "accepted" });
+  assert.equal(response.action_id, frameBody(actions[0]).action.action_id);
+  assert.equal(response.run_id, a.id);
+  assert.equal(response.question_ref, trace.waiting_question_ref);
+  assert.equal(response.goal_version, a.goal_version);
+  const sentAt = timeValue(actions[0].at);
+  assert(wire.some((record) => record.direction === "received" && frameEvent(record) === "turn_result" &&
+    frameBody(record)?.agent_run?.run_id === b.id && frameBody(record).agent_run.status === "completed" &&
+    timeValue(record.at) < sentAt), "必须先观察到 B 完成，再回答 A");
+
+  const rows = transcriptMessages(authoring_session_messages)
+    .filter((row) => row.session_id === a.session_id)
+    .sort((left, right) => left.sequence - right.sequence);
+  const checkpoints = rows.filter((row) => row.run_id === b.id && row.role === "checkpoint");
+  const events = checkpointEvents(agent_events).filter((event) => event.run_id === b.id);
+  assert.equal(checkpoints.length, 1, "B 必须持有可唯一绑定的 checkpoint");
+  assert.equal(events.length, 1, "B 必须持有可唯一绑定的整理事件");
+  assert(timeValue(events[0].inserted_at) < sentAt, "B 的整理必须发生在 A 回答前");
+  const checkpoint = checkpoints[0];
+  const covered = checkpointCallIds(checkpoint);
+  const aExchanges = checkpointExchange(checkpoint, rows.filter((row) => row.run_id === a.id));
+  assert(covered.some((id) => aExchanges.calls.get(id)?.length === 1 &&
+    aExchanges.results.get(id)?.length === 1 &&
+    aExchanges.calls.get(id)[0] < aExchanges.results.get(id)[0]), "B 必须覆盖 A 已落库的闭合交换");
+
+  const providers = new Map(provider_runs.filter((run) => run.agent_run_id === a.id &&
+    run.session_id === a.session_id && run.provider_id === "strata").map((run) => [run.id, run]));
+  const starts = provider_events.filter((event) => event.event_type === "started" &&
+    providers.has(event.provider_run_id) && timeValue(event.emitted_at) >= sentAt)
+    .sort((left, right) => timeValue(left.emitted_at) - timeValue(right.emitted_at));
+  assert(starts.length > 0, "缺少 A 恢复后的 Provider 请求");
+  assert.notEqual(timeValue(starts[0].emitted_at), timeValue(starts[1]?.emitted_at), "首个请求不能多义");
+  const run = providers.get(starts[0].provider_run_id);
+  const records = llmRecords
+    .filter((record) => record.provider_run_ref === run.id && record.provider_call_ref === run.provider_call_ref);
+  assert.equal(records.length, 1, "A 恢复请求须按 Provider run/call 唯一绑定");
+  const facts = requestFactsFromRecord(records[0]);
+  assert(facts.ok && facts.format === NATIVE_CHAT_WIRE && facts.malformedCalls === 0 && facts.malformedToolMessages === 0);
+  const canonicalCover = checkpoint.blocks.find((block) => block.type === "checkpoint")?.covers;
+  assert(wireCheckpoints(facts).some((entry) => entry.turn_range === canonicalCover?.turn_range &&
+    sameIdSet(entry.call_ids, covered)), "A 的请求缺 B 的精确折叠范围");
+
+  const answer = rows.find((row) => row.run_id === a.id && row.role === "user" &&
+    row.sequence > checkpoint.sequence && row.author_turn?.question_ref === trace.waiting_question_ref);
+  assert(answer, "缺少 A 的 canonical 回答");
+  const history = rows.filter((row) => row.sequence <= answer.sequence);
+  const folded = new Set(history.filter((row) => row.role === "checkpoint").flatMap(checkpointCallIds));
+  const toolBlocks = (role, types) => history.filter((row) => row.role === role)
+    .flatMap((row) => list(row.blocks)).filter((block) => types.includes(block.type));
+  const retainedCalls = toolBlocks("assistant", ["tool_call"]).map((block) => block.call_id)
+    .filter((id) => !folded.has(id));
+  const retainedResults = toolBlocks("tool", ["observation", "validation_result"])
+    .filter((block) => !folded.has(block.call_id));
+  assert.deepEqual(facts.toolCalls.map((call) => call.callId), retainedCalls);
+  assert.deepEqual(facts.toolResults.map((result) => result.payload), retainedResults);
+  assert(facts.toolResults.some((result) => list(result.payload.source_refs).length > 0), "缺少带来源的保留观察");
+  const textOf = (row) => list(row.blocks).filter((block) => block.type === "text").map((block) => block.text).join("");
+  const authorTexts = history.filter((row) => row.role === "user").map(textOf).filter(Boolean);
+  assert.deepEqual(facts.authorMessages.map((message) => message.text), authorTexts);
+  const scope = rows.find((row) => row.sequence > answer.sequence && row.run_id === a.id &&
+    row.role === "scope_update" && row.versions?.goal === response.goal_version);
+  const [scopeHeader, versionLine, ...scopeLines] = (facts.scopeMessages.at(-1)?.text ?? "").split("\n");
+  assert(scope && scopeHeader, "A 恢复后必须生成当前 scope");
+  assert.deepEqual(parseJson(versionLine?.replace(/^版本：/u, "")), scope.versions);
+  assert.equal(scopeLines.join("\n"), textOf(scope));
+  return {
+    ok: true, session_id: a.session_id, waiting_run_id: a.id, later_run_id: b.id,
+    checkpoint_sequence: checkpoint.sequence, covered_call_ids: covered,
+    provider_run_id: run.id, provider_call_ref: run.provider_call_ref,
+    retained_exchanges: retainedCalls.length, exact_author_messages: authorTexts.length,
+    observations_with_refs: retainedResults.filter((block) => list(block.source_refs).length > 0).length,
+    observations_with_versions: retainedResults.filter((block) =>
+      block.type === "observation" && Object.keys(block.versions ?? {}).length > 0).length,
+    goal_version: response.goal_version,
+  };
 }
 
 // ── 判据 C1–C10 ─────────────────────────────────────────────────────────────
@@ -405,7 +511,8 @@ export function evaluateAutoMaintenance({
       : [];
     const facts = records.length === 1 ? requestFactsFromRecord(records[0]) : null;
     const covered = checkpointCallIds(checkpoint);
-    const wireCovers = facts?.ok && facts.format === NATIVE_CHAT_WIRE ? wireCheckpointCovers(facts) : [];
+    const wireCovers = facts?.ok && facts.format === NATIVE_CHAT_WIRE
+      ? wireCheckpoints(facts).map((entry) => entry.call_ids) : [];
     const replayed = covered.filter((id) =>
       list(facts?.toolCalls).some((call) => String(call.callId) === id) ||
       list(facts?.toolResults).some((result) => [result.callId, result.toolCallId].some((ref) => String(ref) === id)));
@@ -801,6 +908,15 @@ export function verifyAutoMaintenanceBatch(dir) {
     dir,
     multiTurn,
   });
+  if (driverLog?.interleaved_resume) {
+    try {
+      result.interleaved_resume = verifyInterleavedResumeFacts(
+        driverLog.interleaved_resume, dbFacts, evidence.wire, llmRecords,
+      );
+    } catch (error) {
+      result.interleaved_resume = { ok: false, reason: error.message };
+    }
+  }
   writeNativeFrames(dir);
   const summary = {
     schema: "b71-auto-maintenance-summary/v1",
@@ -809,6 +925,7 @@ export function verifyAutoMaintenanceBatch(dir) {
     journey: "auto-maintenance",
     scenario: multiTurn ? "g6-multi-turn" : "auto-maintenance-a3",
     multi_turn: multiTurn,
+    ...(result.interleaved_resume ? { interleaved_resume: result.interleaved_resume } : {}),
     verified_at: new Date().toISOString(),
     env: driverLog?.env ?? null,
     requests: driverLog?.requests ?? [],

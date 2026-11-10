@@ -60,6 +60,7 @@ const ANSWER_MODE = process.env.B71_ANSWER_MODE === "1";
 const ANSWER_MODE_REQUEST =
   process.env.B71_ANSWER_MODE_REQUEST ?? "第01章结尾有两个方向，先让我选择。";
 const ANSWER_MODE_CHOICE = process.env.B71_ANSWER_MODE_CHOICE ?? "保留悬念";
+const INTERLEAVED_RESUME = process.env.B71_AUTO_MAINT_INTERLEAVED_RESUME === "1";
 
 const checkpointEventCount = () =>
   withDb(dir, (db) =>
@@ -205,7 +206,13 @@ function authorChoiceAckFor(wire, { runId, wireStart, expected }) {
 // 同 run 有界问答：每轮只回答 wire 上真实 open 的当前问题；点击前不按 AX 文本猜，
 // 点击后以本次 wire 的 author_choice ACK 绑定。下一次 awaiting 必须看到该 run 的
 // 新 question_ref/goal_version 才允许再点；checkpoint 早停仅供 warm-up 及时截图。
-async function settleAuthorRun({ runId, text, checkpointBaseline, checkpointEarlyStop }) {
+async function settleAuthorRun({
+  runId,
+  text,
+  checkpointBaseline,
+  checkpointEarlyStop,
+  answerBudget = SETTLE_ANSWER_BUDGET,
+}) {
   const attempts = [];
   let last = null;
   let reason = null;
@@ -227,7 +234,7 @@ async function settleAuthorRun({ runId, text, checkpointBaseline, checkpointEarl
       reason = "checkpoint_during_settle";
       break;
     }
-    if (answers >= SETTLE_ANSWER_BUDGET) {
+    if (answers >= answerBudget) {
       reason = "answer_budget_exhausted";
       break;
     }
@@ -256,6 +263,7 @@ async function settleAuthorRun({ runId, text, checkpointBaseline, checkpointEarl
     const wireStart = harness.transport().length;
     const steer = await respondToRunPause(text, attempts, {
       observed: true,
+      expectedQuestion: expected,
       strategy: process.env.B71_AUTO_MAINT_ANSWER_STRATEGY ?? "continue_verification",
     });
     attempts.push({
@@ -674,6 +682,9 @@ async function respondToRunPause(steerText, attempts, options = {}) {
       /回答当前问题/u.test(`${node?.title ?? ""} ${node?.desc ?? ""} ${node?.value ?? ""}`) &&
       ["AXGroup", "AXGenericGroup", "AXSheet", "AXList", "AXStaticText"].includes(String(node?.role ?? "")),
   );
+  if (options.expectedQuestion && !answerPanel) {
+    return { ok: false, reason: "expected_answer_panel_missing" };
+  }
   attempts.push({
     step: "find_answer_panel",
     ok: Boolean(answerPanel),
@@ -685,6 +696,15 @@ async function respondToRunPause(steerText, attempts, options = {}) {
     // 不做「固定文本刷轮次」——问题文本/选项进入证据，回答来源 option/extracted_text
     // 由 verifier 的 C11 判据核验（至少一轮必须来自观察）。
     const observation = observed ? readAnswerObservation(nodes, answerPanel) : null;
+    if (options.expectedQuestion) {
+      const labels = (options.expectedQuestion.options ?? [])
+        .filter((option) => option.kind === "choice").map((option) => option.label);
+      const matches = labels.length > 0
+        ? labels.every((label) => observation?.option_titles.includes(label))
+        : nodes.some((node) => node.role === "AXStaticText" &&
+          String(node.value ?? node.title ?? "").startsWith(options.expectedQuestion.question.slice(0, 48)));
+      if (!matches) return { ok: false, reason: "visible_question_does_not_match_run" };
+    }
     const planned = observed ? planObservedAnswer(observation, strategy) : null;
     const answerText = planned?.text ?? steerText;
     attempts.push({
@@ -1358,6 +1378,77 @@ async function sendNextRequestAfterTrigger({ index, queue, trigger, allowFreshTu
   }
 }
 
+// B81 专项。A 的未答问题保持打开，作者从主输入区发起 B，再回到 A 的原问题。
+// 常规 C1–C11 的验收口径保持，专项结果另记在 interleaved_resume。
+async function runInterleavedResume(report) {
+  const aText = process.env.B71_AUTO_MAINT_REQUEST ??
+    "先独立核对第一章章计划、第二章章计划、第二章正文首尾、两章间的故事推进和作品约束。缺资料就如实记录。读完先别写正文，请让我在“保留悬念”和“明示线索”之间做一个选择。";
+  const bText = process.env.B71_AUTO_MAINT_EXTRA_REQUEST ??
+    "另外帮我核对第一章章计划与第二章已采纳正文的衔接，只给出查到的两点依据。这个独立讨论不需要我确认，也不要修改作品。";
+  const a = await sendRequest(1, aText);
+  report.requests.push(a);
+  const result = { waiting_run_id: a.run_id, later_run_id: null, stop_reason: null };
+  report.interleaved_resume = result;
+  if (!a.run_id || readRunStatus(a.run_id) !== "awaiting_author") {
+    result.stop_reason = "first_run_not_waiting";
+    return;
+  }
+  const warmAnswers = Number(process.env.B71_AUTO_MAINT_INTERLEAVED_A_ANSWERS ?? 0);
+  if (warmAnswers > 0) {
+    result.warm_answers = await settleAuthorRun({
+      runId: a.run_id,
+      text: "确认这个选项，按顺序只问下一题。",
+      answerBudget: warmAnswers,
+    });
+    if (result.warm_answers.reason !== "answer_budget_exhausted") {
+      result.stop_reason = result.warm_answers.reason ?? "first_run_finished_during_warm_answers";
+      return;
+    }
+  }
+  const question = await harness.runStep("turn", "interleaved_open_question", () =>
+    harness.pollWire((wire) => {
+      const open = openAuthorQuestionFor(wire, a.run_id);
+      return open?.goal_version === 1 + warmAnswers ? open : null;
+    }, 20_000, `${FLOW_LABEL}:interleaved_open_question`),
+  );
+  result.waiting_question_ref = question.question_ref;
+  result.waiting_goal_version = question.goal_version;
+  result.waiting_exchange_facts = readRunExchangeFacts(a.run_id);
+  harness.capture("interleaved-a-waiting");
+
+  const newDiscussion = (nodes) => findButtonByText(nodes, (title) => title.trim() === "开始新讨论");
+  await harness.runStep("input", "interleaved_start_new_discussion", async () => {
+    const { nodes } = await harness.pollAx((_text, nodes) => Boolean(newDiscussion(nodes)), 15_000, `${FLOW_LABEL}:new_discussion`);
+    return harness.safeClick(newDiscussion(nodes), `${FLOW_LABEL}:new_discussion`);
+  });
+  const b = await sendRequest(2, bText, { settlePaused: true });
+  report.requests.push(b);
+  result.later_run_id = b.run_id;
+  result.later_exchange_facts = b.run_id ? readRunExchangeFacts(b.run_id) : null;
+  result.waiting_status_after_later_run = readRunStatus(a.run_id);
+  report.triggered = checkpointEventCount() > 0;
+  if (report.triggered) report.maintenance_strip = await captureTriggeredMaintenanceEvidence();
+  harness.capture("interleaved-b-settled");
+  if (!b.run_id || b.run_id === a.run_id || !b.settled ||
+      result.waiting_status_after_later_run !== "awaiting_author") {
+    result.stop_reason = "distinct_later_run_or_preserved_wait_missing";
+    return;
+  }
+
+  // B 结束后必须重新看到真实回答区。缺入口时留截图和待答事实，不走普通发送兜底。
+  const panel = await harness.runStep("maintenance", "interleaved_return_to_question", () =>
+    harness.tryPollAx((_text, nodes) => Boolean(newDiscussion(nodes)), 12_000, `${FLOW_LABEL}:return_to_question`),
+  );
+  harness.capture("interleaved-a-return");
+  if (!panel) {
+    result.stop_reason = "waiting_question_not_visible_after_later_run";
+    return;
+  }
+  result.resume = await settleAuthorRun({ runId: a.run_id, text: "保留悬念" });
+  result.stop_reason = result.resume.reason;
+  harness.capture("interleaved-a-resumed");
+}
+
 async function run() {
   runEvidenceMode(evidence, "prepare", dir);
   const config = readJson(path.join(dir, "native-b71-config.json"));
@@ -1403,7 +1494,9 @@ async function run() {
       termination: null,
     };
 
-    if (process.env.B71_AUTO_MAINT_MULTI_TURN === "1") {
+    if (INTERLEAVED_RESUME && !ANSWER_MODE) {
+      await runInterleavedResume(report);
+    } else if (process.env.B71_AUTO_MAINT_MULTI_TURN === "1") {
       await runMultiTurnFlow({ report, requests, workTitle: config.target.work_title });
     } else {
     // ≥2 次真实续行（最多 requests 条）；安全点自动整理触发后停止发送。
