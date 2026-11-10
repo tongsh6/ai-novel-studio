@@ -812,6 +812,16 @@ async function runMultiTurnFlow({ report, requests }) {
       report.checkpoint_events_after_second = session.checkpoint_events_after_second;
       report.triggered_after_second = session.checkpoint_events_after_second > 0;
       harness.capture("after-second-round");
+      if (report.triggered_after_second) {
+        // G6：页面细条展开证据（原因/原文保留/来源/完整记录入口四要素）+ 压缩后真实请求。
+        report.strip_expanded = await clickStripAndExpand();
+        harness.capture("after-expanded");
+        const third = await sendRequest(3, process.env.B71_ANSWER_MODE_THIRD_REQUEST ?? "继续：请把两个方向的共同前提写清楚，并说明各自适合什么时候用。");
+        session.third_round = third;
+        report.third_round = third;
+        report.checkpoint_events_after_third = checkpointEventCount();
+        harness.capture("after-next-request");
+      }
     } catch (error) {
       report.second_round = { ok: false, error: error.message };
     }
