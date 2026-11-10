@@ -467,7 +467,8 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - **落地实现**（ADR-0035 决策 9 授权；CP2 已让会话 canonical 历史以完整消息进入判断请求派生，旧摘要材料冗余，删除后单一来源）：
   1. `judgment_context_sections/2` 删除「## 会话摘要」段与 `judgment_conversation_section/1`；`context_materials/4` 不再供给 conversation ref（其事实仍作为 available ref 保留）；availability/selected sections 移除 conversation 项（commit `4356ec53`）；
   2. `ContextSourceRef` 删除 `:session_transcript` 类型；`ContextAssembler` 删除该来源与摘要分支（`conversation_ref_identity` 统一 `:conversation`）；展示名 SSOT 删除映射并 `mix codegen.author_visible` 重新生成；`ContextGroundingTest` 改为退役语义（commit `bc4d73ad`）。
-- **行为影响**：判断材料 prompt 不再含「会话摘要」文本（会话历史改由 CP2 消息承载，请求更小且单一来源）；作者可见 `context_refs` 不再出现 `session_transcript` 来源；历史验收资产（AU09/B40 verifier）保留只读历史证据，不再作为当前产品行为断言。
+- **行为影响**：判断材料 prompt 不再含「会话摘要」文本（会话历史改由 CP2 消息承载，请求更小且单一来源）；作者可见 `context_refs` 不再出现 `session_transcript` 来源（前端 `traceSummaryView` 的同名特判同步退役，旧数据降级为通用作者安全来源）；历史验收资产（AU09/B40 verifier）保留只读历史证据，不再作为当前产品行为断言。
+- **全量门禁暴露的两个遗漏消费方（已修）**：① `scripts/scenario_invariants/run_icache_prefix.exs` 用「## 会话摘要」作连续判断请求共享前缀 boundary marker → 改「## 章节列表（共」，I-CACHE 10 行 covered/enforced 全绿；② `frontend/src/lib/__tests__/traceSummaryView.test.ts` 断言会话转录独立标签 → 按退役语义更新（`pnpm test` 53 files/484 tests 全绿）。前端 display names 生成物 `frontend/src/generated/author_visible/displayNames.ts` 需 `pnpm codegen:author-visible` 同步（否则 `mix check` 报 hash 漂移）。
 - **验证（2026-11-10）**：`novel_application` 全量 **1370 tests / 0 failures**；`novel_web` 全量 **196 tests / 0 failures**（543.7s）；首轮页面回归 `b71-first-consumer` native **19/19 PASS**（工作区含 CP6 改动）。全量 `mix check` 与静态扫描结果见提交记录。
 - **验证方法注意（重要，避免误判）**：`novel_web` 全量存在多处 ~45s 既有等待（全量约 9 分钟）；在长时间会话/残留进程/临时库堆积时曾出现「无输出」假挂起——应等待 `Finished`/`EXIT`，或清理进程与临时库后重试；本次在干净环境确认基线 web 196/0，再验证 CP6 版 196/0，排除环境干扰。页面批次首次出现 `OwnershipError: no_element`（窗口元素未就绪的偶发），同代码重跑 19/19 PASS。
 - **边界**：`trace_summary.context_refs` 其余来源（current_work/memory/behavior/continuity…）不变；回放/Why 面板 source type 展示依赖 codegen 名表（已同步）；作者可见面安全约束由既有 TraceRedactor/回放保持。

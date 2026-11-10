@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-10 **B81 CP6 收尾（全量门禁暴露的两个遗漏消费方）**：① I-CACHE 场景脚本以「## 会话摘要」作判断请求共享前缀 boundary marker → 改「## 章节列表（共」（`2687ee9b`），I-CACHE 10 行 covered/enforced 全绿；② 前端 `traceSummaryView` 对 `session_transcript` 的对话摘要特判与测试断言按退役语义更新（`4859cee8`），前端 display names 生成物随 SSOT 重新生成（`8b3672bf`）；`pnpm test` 53 files/484 tests 全绿。全量 `mix check` EXIT=0（application 1370/0、web 196/0、e2e 1/0、arch、adr 32/32、I-CACHE 全绿）。
+
 > 2026-11-10 **B81 CP6 实现（旧 `:session_transcript` 材料退役）**：按 ADR-0035 决策 9 完成——判断材料「## 会话摘要」段与 conversation 供给删除（`4356ec53`）；`ContextSourceRef` 类型、`ContextAssembler` 来源/摘要分支、展示名 SSOT+codegen 删除（`bc4d73ad`）；测试按退役语义更新（B27 supplied=work/behavior、B33 阈值按实际比例、ContextGrounding 统一 conversation 来源）。会话 canonical 历史由 CP2 完整消息承载，判断材料不再重复摘要（请求更小、单一来源）。验证：application 全量 **1370/0**、web 全量 **196/0**（543.7s）、首轮页面回归 **19/19 PASS**；另确认基线 web 196/0，排除此前「web 全量假挂起」的环境干扰；页面批次首次 `OwnershipError: no_element` 为窗口未就绪偶发，同代码重跑 19/19。
 
 > 2026-11-09 **B81 CP6 实施尝试（已回滚，未代签）**：按 ADR-0035 决策 9 尝试退役旧 `:session_transcript` 材料：domain 类型删除、`ContextAssembler` 来源/摘要删除、判断材料「## 会话摘要」段与 conversation 供给删除、availability/selected sections 清理、display-name SSOT+codegen、3 个测试按退役语义更新。**application 全量 1370/0 通过**；但 `novel_web` 全量在 `WorkspaceChannelScopedEventsTest`（line 30，使用自定义 planner、不经判断链）挂起——与 CP6 无直接调用面，疑似既有 slow/flake 与 `TestAgentRunCleanup.await_quiescent` 交互。为保持门禁绿与不代签，**代码已回滚**（基线 `8d72113f` 绿），B81 §8.5.3 登记验证注意（web 全量多处 45s 既有等待，勿以无输出判挂起）与下轮拆分验证计划（先删材料段再删类型/展示名，逐步跑 application+web+页面批次）。
