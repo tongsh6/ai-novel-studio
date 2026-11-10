@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-10 **B81 CP5 实模自然压力触发成功（B71 三次失败目标达成）**：`cp5-real-05`（真实 strata 模型 + 窗口覆盖 4096 + 自动维护开启 + `B71_AUTO_MAINT_EXTRA_ROUNDS=2` 多轮补发，`21563976`）：driver `triggered=true`/`checkpoint_events=1`；DB `checkpoint_created`×1 + 会话 canonical checkpoint 消息（sequence 37，`covers.call_ids` 为真实 strata 的 4 个 call，跨 run 会话历史）；第 2 轮补发 run failed 但压缩已在安全点提交。A3 判据 C3/C6/C9/C11 未全过（截图前台竞争/真实模型输出含技术词/跨 run 与同 run 判据冲突），实模「触发+提交」成立、「页面细条+全判据」未闭环，不代签。另：作者提出「压缩应按会话单位」——当前压缩对象/K 计数已是会话级，但触发时机仍在 run 安全点；已登记 CP7 候选待裁决（会话级触发方案与影响见 B81 §8.6.4b/§9）。
+
 > 2026-11-10 **B81 CP5 实模自然压力尝试（cp5-real-01..04）**：strata 真实模型 + A3 多轮驱动。`cp5-real-02` 用引导请求让模型**自然询问**（`awaiting_author`）→ driver 回答成功 → 同 run 继续完成（`complete_exchanges=3`、`max_input_tokens=22133`）；`cp5-real-03` 暴露等待真实模型恢复 >120s 被 supervisor 判 `driver_idle_timeout`（已修 `bf62f751`：等待期每 ~30s 短活动记录）；`cp5-real-04`（修复后）driver 正常完成（3m24s，steers=1 + extra_round 第二轮成功）但压缩未触发（首轮 3 完成交换 < keep_recent_items=4，无可压缩更早回合）。**实模「询问→回答→同 run 继续→第二轮新 turn」全链已自然成立；触发压缩尚需更多完成交换（≥K+1）**。下一步：A3 驱动支持多轮补发（`B71_AUTO_MAINT_EXTRA_ROUNDS=N`）或首轮任务加重；不改生产 K/窗口。**实模自然压力仍未签。**
 
 > 2026-11-10 **作者体验反馈：等待回答态 UI/UX 丑（待改进，登记）**。作者在真实页面（真实 strata 模型询问后等待回答）截图反馈「这个 UI/UX 好丑」。复核截图后的具体问题（按体验影响排序）：
