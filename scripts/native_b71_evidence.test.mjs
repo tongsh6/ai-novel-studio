@@ -11,6 +11,7 @@ import {
   buildAuthoringCanonSnapshot,
 } from "./lib/native_ui/authoring_canon_evidence.mjs";
 import { planningProtocolEvidence, providerFreeInterval } from "./lib/native_ui/authoring_planning_evidence.mjs";
+import { evaluateAnswerMode } from "./lib/native_ui/authoring_answer_mode_evidence.mjs";
 import { irBodyFromWire } from "./lib/native_ui/fixtures/authoring_request_ir.mjs";
 
 const history = [
@@ -660,5 +661,35 @@ test("CLI 未知模式、缺批次目录与有效模式分发都在入口显式�
     await assert.rejects(() => main(["verify", dir]), /native-b71-config/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("D2 正反例：回答前基线必须非 null 且 waitRunPauseOrTerminal 后严格增量，resumed 仍必需", () => {
+  const evaluate = (afterSteer) =>
+    evaluateAnswerMode({
+      dbFacts: {
+        agent_runs: [],
+        agent_events: [],
+        provider_runs: [{ id: "prun-1" }, { id: "prun-2" }, { id: "prun-3" }],
+        authoring_session_messages: [],
+      },
+      driverLog: { answer_mode: { multi_turn: { after_steer: afterSteer } } },
+      scan: { ok: true, files: [], hits: [] },
+      cleanup: { remaining: [] },
+      runtime: { app_processes: 0, ports: { backend_4657: false, transport_4661: false }, llm_calls: 0 },
+      llmCalls: 0,
+    }).checks.D2_run_continued;
+
+  assert.equal(
+    evaluate({ index: 1, resumed: true, provider_calls_before: 1, provider_calls_after: 3 }).ok,
+    true,
+  );
+  for (const invalid of [
+    { index: 1, resumed: true, provider_calls_before: null, provider_calls_after: 2 },
+    { index: 1, resumed: true, provider_calls_before: 2, provider_calls_after: 2 },
+    { index: 1, resumed: false, provider_calls_before: 1, provider_calls_after: 2 },
+    { index: 1, resumed: true, provider_calls: 2 },
+  ]) {
+    assert.equal(evaluate(invalid).ok, false);
   }
 });

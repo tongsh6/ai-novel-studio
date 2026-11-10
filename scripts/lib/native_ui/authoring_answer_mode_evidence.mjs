@@ -158,12 +158,19 @@ export function evaluateAnswerMode({ dbFacts, driverLog = null, cleanup = null, 
   };
   if (!d1.ok) d1.reason = "same_run_second_author_turn_not_observed";
 
-  // D2：run 继续执行（回答后 provider 调用增加 + driver 观测 resumed）。
-  // 确定性 slice_verify 批次不写 llm-calls 日志，因此 provider 调用证据以 DB
-  // provider_runs 为准（llm_calls 仅作诊断，不参与判据）。
+  // D2：run 继续执行（回答前调用基线非 null，waitRunPauseOrTerminal 后同 run 调用严格增加，
+  // 且 driver 观测 resumed）。确定性 slice_verify 批次不写 llm-calls 日志，因此 provider
+  // 调用证据以 DB provider_runs 为准（llm_calls 仅作诊断，不参与判据）。
+  // 不在 waitRunResume 后立即读数：resume 先于下一次 provider 调用，立即读会得到回答前基线。
   const resumedAfterAnswer = multiTurn?.after_steer?.resumed === true;
-  const afterSteerCalls = Number(multiTurn?.after_steer?.provider_calls);
-  const providerCallsGrew = Number.isFinite(afterSteerCalls) && afterSteerCalls >= 2;
+  const callsBeforeAnswer = multiTurn?.after_steer?.provider_calls_before;
+  const callsAfterAnswer = multiTurn?.after_steer?.provider_calls_after;
+  const baselineRecorded = callsBeforeAnswer !== null && Number.isFinite(callsBeforeAnswer);
+  const providerCallsGrew =
+    baselineRecorded &&
+    callsAfterAnswer !== null &&
+    Number.isFinite(callsAfterAnswer) &&
+    callsAfterAnswer > callsBeforeAnswer;
   const d2 = {
     ok: providerRuns.length >= 2 && resumedAfterAnswer && providerCallsGrew,
     reason: null,

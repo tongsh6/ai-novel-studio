@@ -742,6 +742,10 @@ async function runMultiTurnFlow({ report, requests }) {
     const steerText = index === 1 ? steerBase : `${steerBase}（第${index}轮继续）`;
     harness.capture(`a3-paused-${index}`);
     session.problem_record = readProblemRecord();
+    // D2 基线：在真实作答前读取同 run 已发生的 provider 调用数。回答后先由
+    // waitRunResume 观测 resumed，再等 waitRunPauseOrTerminal 到下一次暂停/终态
+    // 后读数；立即在 resume 后读会停在基线，不能证明回答推动了同一 run 继续执行。
+    const callsBeforeAnswer = readRunUsageFacts(first.run_id)?.provider_calls ?? null;
     // 观察驱动：先读面板真实问题/选项再作答（问题与回答绑定进入证据，C11 核验）。
     const steer = await respondToRunPause(steerText, session.attempts, {
       observed: true,
@@ -754,17 +758,24 @@ async function runMultiTurnFlow({ report, requests }) {
     }
     const resume = await waitRunResume({ runId: first.run_id });
     session.resumes = [...(session.resumes ?? []), { index, ...resume }];
-    // D2 证据：回答后 run 是否继续（resumed + provider 调用增量）。
-    session.after_steer = {
-      index,
-      resumed: resume.resumed === true,
-      provider_calls: readRunUsageFacts(first.run_id)?.provider_calls ?? null,
-    };
     if (!resume.resumed) {
+      session.after_steer = {
+        index,
+        resumed: false,
+        provider_calls_before: callsBeforeAnswer,
+        provider_calls_after: null,
+      };
       session.stop_reason = "resume_failed";
       break;
     }
     pause = await waitRunPauseOrTerminal({ runId: first.run_id });
+    // D2 证据：resumed 后同 run 的调用数必须相对回答前基线严格增加。
+    session.after_steer = {
+      index,
+      resumed: true,
+      provider_calls_before: callsBeforeAnswer,
+      provider_calls_after: readRunUsageFacts(first.run_id)?.provider_calls ?? null,
+    };
     triggered = checkpointEventCount() > 0;
     session.rounds.push({
       index,
