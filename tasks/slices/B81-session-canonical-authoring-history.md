@@ -533,6 +533,15 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
   - **页面截图**（`after-second-round.jpg`，人工核对）：消息流出现 **「较早的 2 项创作过程已整理」** 整理细条（作者可见、可展开），顶栏「无任务」，下一步方向卡片可见。
   - **判据冲突（待解）**：该批次 verify FAIL 于 answer-mode 的 **D1**（要求 `run_count=1` 的同 run 第二作者回合）——G6 跨 turn 场景（2 run）与 D1 判据语义冲突。**G6 需要独立验收路径**：按 §8.6.2 的 G6-1..G6-6 判据核（checkpoint covers/omissions、压缩后真实请求投影、页面细条/展开、原话保留、未完成不压缩），而不是套 answer-mode D 判据。下一步：设计/实现 G6 独立验收（可复用本次 driver 证据 + wire/DB 核查），再跑一次点击细条展开与压缩后请求证据。
 
+- **第九次尝试（2026-11-10，cp5-g6-det-04）：G6 六项判据全绿（确定性压力，机制+页面+请求体）**。driver 扩展：第二轮触发自动维护后点击细条展开（capture `after-expanded`）、再发第三轮请求（压缩后真实请求）；新增独立探针 `scripts/g6_compaction_probe.mjs`（不套 answer-mode D 判据，避免跨 turn 与同 run 语义冲突）。探针 **verdict=pass**：
+  - G6-1 `completed_exchanges=6` ✓
+  - G6-2 `checkpoint_created`×2 + 会话 canonical checkpoint 消息×2（covers/omissions/summary 完整）✓
+  - G6-3 无重复整理（covers 无重叠、事件数=消息数）✓
+  - G6-4 压缩后请求折叠（llm-calls 8 条，最后请求无被覆盖 call_id 泄漏）✓
+  - G6-5 页面细条（`after-second-round`：AX 按钮「查看已整理的较早创作过程」）+ 展开四要素（`after-expanded`：已整理的较早记录/原因/原始记录仍然保留/查看完整记录）✓
+  - G6-6 被覆盖 call 仍在 canonical、作者原话保留（user 消息 4 条）✓
+  - 页面截图人工核对一致（细条 + 展开面板）。**边界**：该证据为**确定性压力（`slice_verify` + 窗口覆盖 1024 + 自动维护开启）**的机制层/页面层/请求体证据；实模自然压力（real strata 自然累积）仍未验证（`l4b_signed=false` 语义），不代签。
+
 #### 8.6.5 依赖与顺序
 
 CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4（投影等价/回查）；实模窗口与官方凭证另证（B82）；G6 在 CP5 前不得以机制层证据代签。
