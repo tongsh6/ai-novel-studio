@@ -6,9 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B81 | 会话级 canonical 创作历史（ADR-0035 落地，CP1–CP6 已登记；CP5 状态 done_with_known_gap，见 §7/§8.6.4b）：**CP1 已完成**（2026-11-08 会话级存储/追加/恢复/迁移，行为不变；页面回归 native 19/19 PASS；验收证据工具链已适配、全仓旧列残留清零；见 [B81](slices/B81-session-canonical-authoring-history.md) §8.1/§8.1.6）。**CP2 机制层已实现（2026-11-09 作者「按推荐」裁决后）**：会话历史 → 请求派生视图（application 层组装、无 novel_common 契约）、判断请求接入、持久化边界剥离；机制测试与 I1/I2/I3 通过、首轮页面 19/19 PASS；页面多轮证据归 CP5（§8.6），CP2 不代签页面层。**CP3 机制层已实现（2026-11-09）**：压缩作用域=会话历史（段校验升级为会话视图校验、跨 run checkpoint 追加本 run 段、显式+安全点压缩路径改会话视图）；机制测试与真实安全点跨 run 测试、首轮页面 19/19；G6 真实多轮页面取证归 CP5，CP3 不代签页面层。**CP4 机制层已实现（2026-11-09）**：会话级 canonical 回查（`AuthoringReplay.fetch_session/2`）+ 回放报告 `session_authoring_history`；三类投影在段编解码往返/恢复前后逐字节等价；run 级回查断言收窄到 `authoring_history`。**CP6 已实现（2026-11-10）**：旧 `:session_transcript` 材料类型/装配来源/展示名/判断材料「会话摘要」段全部退役（application 1370/0、web 196/0、首轮页面 19/19）；此前「web 全量挂起」经干净环境对比确认为环境干扰，非回归。**作者体验反馈（2026-11-10，登记待办）**：真实等待回答态 UI/UX 被评为「丑」——问题文本重复、底部面板全宽灰按钮/长提示条造成层级失衡、异常态（此问题暂不可回复）反馈粗糙。具体问题清单与改进方向见 `docs/project-ledger.md` 2026-11-10 条；待 UI 契约复核后实施（候选 B84/体验改进）。
-
-**CP5 收口（2026-11-11）**：机制层 G6 六项全绿（探针）；页面层确定性 answer-mode D1–D5 + 细条/展开四要素 PASS；实模触发+提交 done（cp5-real-05，构造压力）；实模页面视觉证据受真实模型 run failed 页面失败态影响未捕获（known-gap，确定性证据已覆盖）；C9 内部 ref 泄漏归 B86；C11 跨 turn 判据已适配（424cc4cb）；CP7 定论为安全点触发设计选择（无需改）。**CP5 页面层多轮尝试已启动（2026-11-10，未闭环）**：真实 strata 多轮批次 `cp5-g6-01` 第一轮 awaiting_author 后 driver 未能产生第二轮真实请求（requests=1/triggered=false），G6 判据未达成；原因方向为 A3 driver 回答面板注入与当前控制坞 UI 契约未匹配（验收资产问题，非产品回归），下一步修 driver 后重跑。**2026-11-11 进展**：确定性 G6 六项判据全绿（探针 `g6-compaction-probe`，`cp5-g6-det-04`）；真实 strata 自然触发压缩成功（`cp5-real-05`：`checkpoint_created`×1 + covers 真实 call_ids 跨 run，窗口覆盖构造压力）；实模判据修复 C6 假阴性（`checkpointCallIds` 补 blocks.candidates）；新发现 C9 作者可见面 `chapter:<uuid>` 内部 ref 泄漏缺陷（待修）；C11「同 run 多轮」判据与跨 turn 场景冲突（待适配）。B81 其余 CP1–CP4、CP6 均已完成机制层。后续 CP3 压缩作用域/触发 → CP4 投影与审计 → CP5 真实页面多轮验收+G6（承接 B71 G6，建议拆 CP5a/CP5b）→ CP6 旧语义退役；上下游/前置/后置见 §7.3、实现目标映射见 §7.4。 | [B81](slices/B81-session-canonical-authoring-history.md) |
+| B81 | 复核发现跨段请求入口断口和 G6 证据误判。继续验证共用请求视图，补 checkpoint 的覆盖回合范围及压缩后实际请求，清理 CP6 验收残留。当前状态与证据以原任务为准。 | [B81](slices/B81-session-canonical-authoring-history.md) |
 
 当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 
@@ -24,7 +22,7 @@
 | B86 | 模型材料与返回结构化（内部标识隔离）：作者指出根因「发给模型的数据没结构化、返回也不够结构化」——章节编号/名称/内容与内部 `chapter:<uuid>` 混在自然语言材料里，模型复述到作者可见正文（`cp5-real-05` 实模证据）。方案：材料结构化（ref 只进专用字段）+ tool schema 约束作者可见字段禁内部标识 + 作者可见出口统一 `AuthorVisible.Text` 投影；独立预注册验收。 | [B86](slices/B86-structured-model-materials-internal-ref-isolation.md) |
 | B85 | 模型上下文窗口用户设置（UI 入口）：作者反馈「窗口不应写死、要开放给用户配置」；初始能力已落（`preferences.json` 的 `context_windows` + Tauri 启动注入 sidecar env，`044092df`），**设置页 UI 未做**（当前应用无系统设置菜单，唯一设置入口是模型供应商弹窗）。 | [B85](slices/B85-model-context-window-settings.md) |
 
-依赖排序（2026-11-08 更新）：**当前任务 B81 CP1 可开工**（ADR-0035 已批准；CP2–CP6 按依赖链）。B79 CP0/CP1（候选，待作者确认启动）、B78 首个文件拆分、B71 后续候选的预注册准备、B84 慢测试收敛可并行推进；B81 与 B78 同文件冲突须协调顺序（建议先 B81 CP1 再 B78，或作者裁定）。B82 待真实模型窗口/官方凭证；B83 blocked（凭证）。B71 CP5 最终收口仍待 G 切片/Responses·Anthropic 实模证据；**G6 取证已移交 B81 CP5**（不再在 B71 构造异常场景）。排期结论不等于授权或完成声明。
+依赖排序（2026-11-08 更新）：**B81 按 §12 的复核发现继续推进**（ADR-0035 已批准；CP2–CP6 按依赖链）。B79 CP0/CP1（候选，待作者确认启动）、B78 首个文件拆分、B71 后续候选的预注册准备、B84 慢测试收敛可并行推进；B81 与 B78 同文件冲突须协调顺序（建议先 B81 CP1 再 B78，或作者裁定）。B82 待真实模型窗口/官方凭证；B83 blocked（凭证）。B71 CP5 最终收口仍待 G 切片/Responses·Anthropic 实模证据；**G6 取证已移交 B81 CP5**（不再在 B71 构造异常场景）。排期结论不等于授权或完成声明。
 
 ## 阻塞
 

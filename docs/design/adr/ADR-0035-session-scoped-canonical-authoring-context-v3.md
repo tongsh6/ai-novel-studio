@@ -125,7 +125,7 @@
 
 - 实现层承接待承重 slice（会话级 canonical 存储/恢复、请求派生、压缩作用域、arch_check 边界、测试与验收）：由 [B81](../../../tasks/slices/B81-session-canonical-authoring-history.md) CP1–CP6 承接（决策/条款 → CP 的逐条映射见 B81 §7.4）；落地后补实现路径与门禁引用。
   - **2026-11-08 CP1 已落地**（决策 1/2/9 的事实源与旧列退役部分）：`NovelPersistence.AuthoringSessionLog`（唯一会话 canonical 存储边界；`authoring_session_messages` + `authoring_run_segments`）、`NovelApplication.AuthoringCheckpoint`（会话段读写、身份/版本/可回读校验）、`AgentRunLog.commit_snapshot/2`（单事务追加 canonical 段，`mode: :immediate`）、`AgentRunPersistence.snapshot/4`（`authoring_segment` 投影）、`AgentRunService` 恢复路径与 `AuthoringReplay` 回查迁移；run 级 `agent_runs.authoring_transcript` 列按未发布原则退役。CP1 行为不变（请求仍由 run 内结构派生），CP2 起才改变请求派生；验证见 B81 §8.1.6/§11。
-- 现有实现（run 级 transcript、run 级压缩）与本 ADR 冲突，属已知偏差；未实现前不代签、不把本文当已交付。
+- 生产已接入会话级存储、请求视图与跨 run 压缩。当前实现与完整验收的差距见 [B81 §12](../../../tasks/slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)，包括交错顺序和压缩后真实请求证明。
 - 旧 `:session_transcript` 材料类型与旧装配链的退役范围需在 B81 CP6 中逐项核对消费者；压缩的**作者可见显式入口**仍待作者产品设计授权（B81 §7.4 已显式登记为未授权项，ADR-0035 不改变该边界）。
 
 ## 变更记录

@@ -1,6 +1,6 @@
 # B85 模型上下文窗口用户设置（UI 入口）
 
-**状态**：**候选（未启动，2026-11-11 作者要求先登记任务）**。
+**状态**：**todo（候选，未启动，2026-11-11 作者要求先登记任务）**。
 **来源**：作者反馈「模型上下文窗口不应该是代码写死的，要开放给用户做系统配置」；2026-11-11 初始能力已落（`preferences.json` 的 `context_windows` + Tauri 注入 sidecar env，提交 `044092df`），但**没有用户可见的设置入口**（应用当前无系统设置菜单/设置页；唯一设置类入口是顶栏模型供应商弹窗）。
 **设计真源**：`docs/design/tech-stack/05-desktop.md` §6（用户数据/偏好与 `context_windows` 字段）、`docs/design/ui/46-state-and-feedback.md`（设置/状态面）、`docs/design/ui/47-ui-copy-guidelines.md`。
 

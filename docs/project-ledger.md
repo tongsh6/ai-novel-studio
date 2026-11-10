@@ -1,5 +1,9 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-11 **B81 实模复验**。`b81-c5-c6-resume-02` 的两次 checkpoint 均取得首个后续 Strata wire 与 canonical 原交换配对证据，C5/C6 通过。真实 Tauri 展开了整理条，C3 经现行 AX 名称只读复评通过，C9 仍有内部词泄漏。`b81-two-questions-01` 从同一 run 的两道真实问题取得两次页面选择和 accepted ACK，run 以 `goal_version=3` 完成。原批次报告与证据保留，剩余工作见 [B81 §12](../tasks/slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)。
+
+> 2026-11-11 **B81 复核重开 CP5**：`cp5-answer-13` 回答模式和 `cp5-g6-det-04` 整理细条/展开、checkpoint 提交证据有效。旧 G6 探针误读空的请求字段，无法证明 wire 折叠。实模 `cp5-real-06/07` 的 C5/C7/C8 为 null，C3/C4/C9 为 false。下面的旧「六项全绿」「C5/C7/C8 通过」记录由本条更正。执行状态和剩余断点见 [B81 §12](../tasks/slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)。
+
 > 2026-11-11 **B81 CP5 收口（done_with_known_gap）**：真实 strata 批次（cp5-real-06/07）判据收敛为 C3/C4（页面细条/展开）+ C9（真实模型技术词），**C2/C5/C6/C7/C8/C10/C11 全过**。C11 跨 turn 适配（`424cc4cb`：按场景区分「同 run 多轮/跨 turn 多轮」，不放宽不变量；观察口径修正为「问题文本或真实选项标题」）；触发证据采集前移（`6415098b`：触发后立即 capture 细条+展开）；复跑仍缺页面细条的原因为真实模型该 turn run failed 后页面失败态不渲染细条（产品行为），页面细条/展开证据由确定性批次 `cp5-g6-det-04` 已取得（G6-5 pass），实模页面视觉按 known-gap 如实登记、不代签。C9 归 B86。CP7 定论：压缩对象/保留/covers 已是会话级，触发时机为 run 安全点（设计选择，非单位错误），无需改代码（除非作者要求请求前独立检查，另立 ADR）。证据单测 13/13 全过。
 
 > 2026-11-11 **B86 立项（模型材料与返回结构化：内部标识隔离）**：作者指出「chapter:<uuid> 泄漏」的根因不是模型不听话，而是**材料/返回契约结构化不足**——发给模型的章节材料是自然语言（`- 第 1 章「标题」[chapter_ref=chapter:<uuid>]（计划中）`），内部 uuid 与作者语言混在一条文本流；模型返回虽是 native tool call（有 input_schema/valid?），但 schema 未约束「作者可见自由文本字段禁止内部标识」。机制修复分步：① 材料结构化（ref 只进专用字段/结构化条目）；② 工具 schema 增加作者可见字段内部标识校验；③ 作者可见出口统一投影；④ 独立预注册验收（C9 类 hits=0、不破坏 I-CACHE 边界）。任务：[B86](slices/B86-structured-model-materials-internal-ref-isolation.md)；NEXT 候选已登记。**不是展示层事后过滤方案。2026-11-11 作者要求撤回 B86 的实现**：已 revert 两处实现提交（`3a084fcf` 撤 TurnResult 出口投影、`72f8fb7d` 撤 `AuthorVisible.Text` 投影扩展），未提交的材料结构化改动已撤销——B86 回到「立项/未实施」。
