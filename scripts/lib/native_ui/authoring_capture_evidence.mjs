@@ -64,7 +64,18 @@ const REVISION_CHAPTER_TITLE = "第02章：矿区追击战";
 const WHY_CHECKPOINTS = Object.freeze(["before-why", "after-why"]);
 const RUN_CHECKPOINTS = Object.freeze(["start", "before-revision", "final"]);
 // 回答模式 gate（等待即回答）：确定性 slice_verify 场景的 checkpoint。
-const ANSWER_MODE_CHECKPOINTS = Object.freeze(["start", "final"]);
+// answer-mode 驱动复用 A3 多轮驱动（同 run 多回合 + 安全点维护），因此 capture
+// 集合与 auto-maintenance 同源；start/final 仍是 answer-mode 验收的必需边界。
+const ANSWER_MODE_CHECKPOINTS = Object.freeze([
+  "start",
+  "after-maintenance",
+  "after-expanded",
+  "after-next-request",
+  "after-refresh",
+  "after-failure",
+  "after-recovery",
+  "final",
+]);
 const ANSWER_MODE_REQUEST = "第01章结尾有两个方向，先让我选择。";
 const ANSWER_MODE_MESSAGE = ANSWER_MODE_REQUEST;
 

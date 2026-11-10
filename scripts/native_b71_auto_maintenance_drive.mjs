@@ -620,7 +620,10 @@ async function runMultiTurnFlow({ report, requests }) {
   // 不伪造、不调 K/窗口。smoke 模式（B71_AUTO_MAINT_SMOKE=1）复用同一驱动但
   // runner 不产验收判据。
   // 正式 multi-turn 场景允许预注册指定长请求与 steer 文本（真实用户输入，不注入产品）。
+  // answer-mode 用确定性 ask_author fixture 的预注册请求（引导模型先询问作者），
+  // 否则会退回 A3 默认长请求、首轮直接完成而没有多回合。
   const longRequest =
+    (ANSWER_MODE ? ANSWER_MODE_REQUEST : null) ??
     process.env.B71_AUTO_MAINT_REQUEST ??
     process.env.B71_AUTO_MAINT_SMOKE_REQUEST ??
     requests[0] ??
