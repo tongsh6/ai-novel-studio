@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B81 | 实模已取得 checkpoint 后真实请求及双题页面证据。继续修复交错 run 的恢复顺序，验证真实重启和失败静默重试，再迁移 AU09 旧验收来源。 | [B81](slices/B81-session-canonical-authoring-history.md) |
+| B81 | 修复并发压缩提交的重复覆盖，验证交错 run 恢复后的真实请求，再迁移 AU09 旧验收来源。 | [B81](slices/B81-session-canonical-authoring-history.md) |
 
 当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 

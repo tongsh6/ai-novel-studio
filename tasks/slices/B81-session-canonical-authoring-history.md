@@ -622,10 +622,10 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 
 | 范围 | 已成立的事实 | 仍需闭合 |
 |---|---|---|
-| CP1 | 会话消息由已有 `AuthoringSessionLog` 与 run 段头持久化；run 快照、段、消息和 durable 引用走同一提交边界。 | 两路活 run 交错时，派生层目前仍把其他 run 历史前置，再接当前段。需按真实会话序号证明请求和恢复顺序，尤其是旧 run 恢复时遇到新 run 的 checkpoint。唯一序号索引只证明存储顺序。 |
-| CP2/CP3 | 步骤通过 `AgentRunFlows.AuthoringSession` 与 `AuthoringSessionHistory` 共用会话请求视图，回到 run 进程时按临时消息来源剥离已提交历史。新 checkpoint 在规划时从选中调用的作者消息派生 `covers.turn_range`，来源和版本与 IR 校验共用提取规则。 | 检查没有初始创作段的专业入口、长期会话历史与 refs 归属、交错 run 的回合绑定；确认保留的观察及来源/版本进入实际出站请求。退役既有仅含范围的旧 checkpoint 形状，现阶段仍未完成。 |
+| CP1 | 会话消息由已有 `AuthoringSessionLog` 与 run 段头持久化；run 快照、段、消息和 durable 引用走同一提交边界。当前改动按会话 `sequence` 组装已提交历史，接续本 run 未提交尾部；SQLite 回归验证旧 run 遇到新 run checkpoint 后仍可恢复。 | 交错恢复尚缺真实页面启动 A/B、由 A 续行出站的端到端证据。唯一序号索引只证明存储顺序，并发重复覆盖须在事务内解决。 |
+| CP2/CP3 | 步骤共用会话请求视图，按已有消息 run 归属剥离外部历史。`covers.turn_range` 在规划时按各 run 的作者回合派生，首末按会话顺序，当前 run 的作者回合继续受到保护。来源和版本与 IR 校验共用提取规则。 | 检查无初始创作段的专业入口、会话消息与 refs 的同读边界；确认保留的观察及来源/版本进入交错恢复后的实际出站请求。仅含范围的旧 checkpoint 形状尚待退役。 |
 | CP4 | 现有 `AuthoringReplay` 提供会话级回查；既有测试验证三类投影的段往返等价。 | 审计 `fetch_session/2` 是否与请求读取同样拒绝损坏或不一致的段。重放等价仅证明投影机制，不证明出站请求消费。 |
-| CP5 | `b81-answer-recheck-01` 原生 Tauri 的 D1–D5 全通过，回答前后同一 run 的 Provider 调用从 1 到 6。`b81-c5-c6-resume-02` 从真实页面发出四个作者回合，触发两次 checkpoint，C2/C4/C5/C6 通过。C3 由新判据只读复评通过。`b81-two-questions-01` 在同一 run 从页面回答两题，两次 ACK 均为 accepted，最终 `goal_version=3`。 | 继续取证重复安全点、刷新幂等和失败静默重试。C9 实际泄漏归 B86。 |
+| CP5 | `b81-answer-recheck-01` 的真实页面 D1–D5 通过。`b81-c7-c8-03` 在当前会话归属实现上从真实页面回答两题，继续到压缩、重启、静默失败与恢复，批次 C1–C11 全过。 | 仍需交错 A/B 恢复后的真实请求证据和并发重复覆盖修复。C9 此批未观察到泄漏，历史实际泄漏仍归 B86。 |
 | CP6 | 生产代码已退役旧列和旧材料类型；B71 live/behavior 验收从真实作者请求 ACK 定位 canonical 段，读取实际模型工具参数和同作用域引用。对 `b81-answer-recheck-01` 的原始 WS 和 SQLite 做了只读交叉核验，读出本 run 的 21 条消息。 | AU09 的外部 driver/verifier、夹具和质量清单仍断言旧 `session_transcript` 来源。旧种子只写展示用 interactions。迁移时需分别证明当前/历史 canonical 会话在实际请求中的隔离，以及已确认记忆和作品背景的分层。 |
 
 **实模页面发现**。`b81-c5-c6-resume-01` 的 `a3-paused-2.jpg` 与对应 AX 树记录了同一 run 的第二次提问。消息流已经显示第二题，底部回答区仍显示第一题，选项禁用且提示「此问题暂不可回复」。原始 `native-transport.jsonl` 证实两条 `turn_result` 分别携带 `goal_version=1` 与 `goal_version=2` 的 open 问题和各自的 `author_choice`。当前问题应沿用输入路由的 run 与 goal 版本绑定。批次以 `resume_failed` 结束，实际 checkpoint 为 0，C5 缺证、C6 失败。两次 Provider 调用均已落盘 `started.emitted_at`，结束后模型槽为空。验收需从页面回答第二题，核对 ACK 与同一 run 恢复，再检查压缩后的实际请求。
@@ -640,15 +640,17 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 
 **补发等待作者复现**。`b81-c7-c8-02` 从真实页面回答首题后，第一个 run 已完成。补发的 run 进入 `awaiting_author`，驱动随即等待普通输入，`input_ready` 超时。最终页面仍有待答问题，批次没有 checkpoint，重启与故障注入均未发生，应用和模型槽已清理。补发需沿用现有回答控件，按当次 ACK 绑定同一 run，确认继续或终结后再决定下一步。交错恢复专项可复用已有「开始新讨论」入口，让 A 保持待答时同会话启动 B。
 
+**真实重启与失败重试**。`b81-c7-c8-03` 的 Tauri/Strata 批次 C1–C11 通过，共 17 次真实模型调用。前两个 checkpoint 为序号 27、45，分别覆盖 1、5 对原交换；按 Provider run/call 绑定的两条首个后续报文各保留 5 对未覆盖交换，分别保留 4、5 条原作者消息及其原序，两条均携带 scope。真实重启的 PID 从 66778 变为 93283，整理条仍可见，checkpoint 事件与消息均为 2→2。故障 run 的应用日志报 `checkpoint_persistence_failed`，作者回合完成，页面未提示本次整理失败，两类计数均维持 2。移除隔离库 trigger 后，新的作者回合完成并提交序号 62 的 checkpoint，覆盖 3 对原交换。该回合作为 C8 恢复取证，批次在它完成后收尾，未产生序号 62 之后的请求。应用、端口和 Strata 槽均已清理。原始证据在 `artifacts/slice-verify/b71-first-consumer-auto-maint-b81-c7-c8-03/`，独立报文对账在 `artifacts/b81-review/live-c7-c8-03-wire-canonical.log`。
+
 **交错恢复红灯**。真实 SQLite 测试先提交旧 run A 的闭合交换，再由新 run B 提交覆盖 A 调用的 checkpoint。随后恢复 A 返回 `checkpoint_unknown_call`。持久层保留了 A 交换先于 B checkpoint 的顺序，错误发生在请求视图组装。已提交部分应沿用会话序号，局部未提交消息接在其后，恢复结果仍只返回 A 执行段。未闭合工具交换能否由生产并发流程落盘仍需独立证明。
 
-**并发提交边界**。`AgentRunLog.commit_snapshot/2` 在 SQLite 写事务中串行追加消息。压缩快照目前在进入事务前校验会话语义，两路提交仍可能基于同一份历史选择同一组调用。需用已准备的两份快照交错提交验证该窗口，再把会话语义校验收进既有事务边界。整理事件和作者可见回执须继续在实际提交后发布。
+**并发提交红灯**。在独立 SQLite 库中，B 与 C 基于同一份会话历史准备压缩快照，再依序提交。两次提交都成功，序号 15、18 的 checkpoint 覆盖同一个 call。单独提交 B 后 A 可恢复，C 提交后 A/B/C 均返回 `checkpoint_already_applied`。`AgentRunLog.commit_snapshot/2` 的写锁覆盖消息追加，会话语义仍在锁外校验。下一步将该校验收进既有事务边界，保留提交后发布整理事件和回执。证据在 `artifacts/b81-review/stale-compaction-commit-red.log`。
 
-**会话排序补丁的全量基线**。改为按会话序号恢复消息顺序后，`mix test --warnings-as-errors` 跑完 10 个 app，共 3135 个测试、0 失败，日志为 `artifacts/b81-review/full-mix-interleave.log`。这是交错归属进一步修订前的基线。测试按默认配置排除 `integration` 和 `real_llm`，实际页面与出站请求仍按 CP5 单独取证。
+**全量验证**。会话排序初版后端 3135 项通过，加入交错归属的三条回归后，`mix test --warnings-as-errors` 跑完 10 个 app，共 3138 个测试、0 失败。测试按默认配置排除 `integration` 和 `real_llm`。原生工作台首轮确定性验收 19/19，相关 Node 测试 140/140。全量与 Node 日志分别为 `artifacts/b81-review/full-mix-owner.log`、`artifacts/b81-review/node-owner-final.log`。
 
 **校验职责**：`TranscriptCompaction` 由已闭合交换和作者消息生成覆盖事实，外部输入不提交 `turn_range`。`AuthoringCheckpoint` 先在解码边界核对 run 身份，再由 `to_request_ir/2` 校验一次会话视图，不在同一路径重验同一份 IR。证据脚本在 DB、WS 与日志的交界处按 ACK/调用身份绑定，避免用终局子回合的 turn_id 推测父回合。
 
-实体存在性审核：复用 `work_sessions`、`AuthoringSessionLog`、`AuthoringSessionHistory`、`AgentRunFlows.AuthoringSession`、`RequestIR`、三类现有投影、`AuthoringReplay` 和现有 G6 探针。此次运行时改动不新增表、schema、Provider 接口或替代事实源。DB 消息行原有 run 归属；运行步骤内对加载的历史消息标记来源，避免按字节相等误删同文本的新作者回合。标记属于临时请求视图，出站投影和落库均不消费该标记。
+实体存在性审核沿用 `work_sessions`、`AuthoringSessionLog`、`AuthoringSessionHistory`、`AgentRunFlows.AuthoringSession`、`RequestIR`、三类现有投影、`AuthoringReplay` 和正式原生验收判据。DB 消息行原有 run 归属，步骤内用它标记历史消息，避免按字节相等误删同文本的新作者回合。标记只属于临时请求视图，已有投影与持久化形状继续适用。
 
 原则核对：SRP/SoC 由步骤入口负责生命周期、会话历史模块负责组装、持久层负责段提交，Wire 仍由 Provider 投影负责。OCP/LSP 保持三类投影使用同一 Request IR 和同一调用号语义，专业阶段不逐一追加分支。ISP/DIP/LoD 保留现有读端口与层间方向，Provider 无须读取会话表或了解执行段。CRP/DRY 通过现有步骤与历史组合复用规则。KISS/YAGNI 暂不加会话副本、版本兼容或另一个压缩触发器。
 
