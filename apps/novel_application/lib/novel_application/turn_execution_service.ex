@@ -453,13 +453,7 @@ defmodule NovelApplication.TurnExecutionService do
     # B27 CP3c / C5：结果叙述携带真实作者目标与工具后果（AuthoringTask :result_narration）；
     # 组装失败 → nil → 确定性叙述，不退回无依据的模型叙述。
     narration_task = narration_task(input, frame, tool_result, artifact_set)
-
-    # B86：作者可见投影——模型叙述可能复述材料里的内部标识（如 chapter:<uuid>）。
-    # 在 TurnResult 作者可见文本出口统一投影为作者可读占位；canonical 消息保留原始记录。
-    assistant_message =
-      tool_result
-      |> narrate(artifact_set, provider_execution, narration_task)
-      |> redact_author_visible_internal_refs()
+    assistant_message = narrate(tool_result, artifact_set, provider_execution, narration_task)
 
     turn_result =
       build_turn_result(
@@ -2822,19 +2816,6 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp assemble_artifacts(_result, _turn_id, _plan, _resolved_chapter, _resolved_chapter_ref),
     do: []
-
-  defp redact_author_visible_internal_refs(text) do
-    redacted = NovelCommon.AuthorVisible.Text.redact_internal_refs(text)
-
-    if is_binary(text) and is_binary(redacted) and redacted != text do
-      LogEmit.emit(:turn, :author_visible, :done, %{
-        field: "assistant_message",
-        redacted_internal_ref: true
-      })
-    end
-
-    redacted
-  end
 
   defp build_turn_result(
          frame,

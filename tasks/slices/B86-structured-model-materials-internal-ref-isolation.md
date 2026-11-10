@@ -19,11 +19,6 @@
 3. **作者可见出口统一投影**：消息流/回放/导出/摘要全部经 `NovelCommon.AuthorVisible.Text`（已具备 `new/1` 投影与 `redact_internal_refs/1`；补出口接线）。
 4. **验收**：单测（材料无裸 ref、schema 拒绝/投影生效、作者可见文本无内部标识）+ 真实页面批次扫描（C9 类判据 hits=0）+ 不破坏 I-CACHE 边界（章节列表段标题被 I-CACHE boundary marker 引用，改用结构化后需同步）。
 
-## 2.1 实施进度
-
-- **2026-11-11（已落）**：作者可见出口投影第一处——`TurnResult.assistant_message`（主消息流）在构建时统一经 `NovelCommon.AuthorVisible.Text.redact_internal_refs/1` 投影，发生替换时 `LogEmit.emit(:turn, :author_visible, :done, %{field: "assistant_message", redacted_internal_ref: true})` 可观测；canonical 消息保留原始记录。application 全量 1370/0。
-- **待做**：① 材料结构化（章索引行内 `[chapter_ref=…]` 移除/结构化附录；同步 I-CACHE 边界与 `slice_verify` 解析/材料断言）；② 判断/写作 tool schema 对作者可见字段的内部标识校验（拒绝重试 vs 投影+观测，需冻结策略）；③ 其余作者可见出口（回放/探索观察/导出）接线；④ 独立预注册验收（C9 类 hits=0）。
-
 ## 3. 边界与影响
 
 - 跨契约变更（判断/写作材料格式 + tool schema + 作者可见投影 + 测试资产），需独立预注册/验收，不与 B81 CP5 混签。
