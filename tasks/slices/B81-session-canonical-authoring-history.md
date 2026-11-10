@@ -642,6 +642,8 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 
 **真实重启与失败重试**。`b81-c7-c8-03` 的 Tauri/Strata 批次 C1–C11 通过，共 17 次真实模型调用。前两个 checkpoint 为序号 27、45，分别覆盖 1、5 对原交换；按 Provider run/call 绑定的两条首个后续报文各保留 5 对未覆盖交换，分别保留 4、5 条原作者消息及其原序，两条均携带 scope。真实重启的 PID 从 66778 变为 93283，整理条仍可见，checkpoint 事件与消息均为 2→2。故障 run 的应用日志报 `checkpoint_persistence_failed`，作者回合完成，页面未提示本次整理失败，两类计数均维持 2。移除隔离库 trigger 后，新的作者回合完成并提交序号 62 的 checkpoint，覆盖 3 对原交换。该回合作为 C8 恢复取证，批次在它完成后收尾，未产生序号 62 之后的请求。应用、端口和 Strata 槽均已清理。原始证据在 `artifacts/slice-verify/b71-first-consumer-auto-maint-b81-c7-c8-03/`，独立报文对账在 `artifacts/b81-review/live-c7-c8-03-wire-canonical.log`。
 
+**补发待答专项复验**。`b81-extra-question-01` 的补发 run 实际进入待答，新驱动从真实页面选择选项，`settle_author_choice_ack` 核对同一 run 的 accepted 与 `goal_version=2`，SQLite 记录该 run 为 completed。两次作者请求共 4 次真实模型调用，未触发 checkpoint，完整压缩场景的 verifier 因此报缺证。本批只取补发待答路径证据，C5–C8 以 `b81-c7-c8-03` 为准。
+
 **交错恢复红灯**。真实 SQLite 测试先提交旧 run A 的闭合交换，再由新 run B 提交覆盖 A 调用的 checkpoint。随后恢复 A 返回 `checkpoint_unknown_call`。持久层保留了 A 交换先于 B checkpoint 的顺序，错误发生在请求视图组装。已提交部分应沿用会话序号，局部未提交消息接在其后，恢复结果仍只返回 A 执行段。未闭合工具交换能否由生产并发流程落盘仍需独立证明。
 
 **并发提交红灯**。在独立 SQLite 库中，B 与 C 基于同一份会话历史准备压缩快照，再依序提交。两次提交都成功，序号 15、18 的 checkpoint 覆盖同一个 call。单独提交 B 后 A 可恢复，C 提交后 A/B/C 均返回 `checkpoint_already_applied`。`AgentRunLog.commit_snapshot/2` 的写锁覆盖消息追加，会话语义仍在锁外校验。下一步将该校验收进既有事务边界，保留提交后发布整理事件和回执。证据在 `artifacts/b81-review/stale-compaction-commit-red.log`。
