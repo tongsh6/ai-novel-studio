@@ -542,6 +542,13 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
   - G6-6 被覆盖 call 仍在 canonical、作者原话保留（user 消息 4 条）✓
   - 页面截图人工核对一致（细条 + 展开面板）。**边界**：该证据为**确定性压力（`slice_verify` + 窗口覆盖 1024 + 自动维护开启）**的机制层/页面层/请求体证据；实模自然压力（real strata 自然累积）仍未验证（`l4b_signed=false` 语义），不代签。
 
+- **实模自然压力尝试（2026-11-10，cp5-real-01..04）**：strata 真实模型 + A3 多轮驱动（`B71_AUTO_MAINTENANCE=1` + `NOVEL_CONTEXT_WINDOW_OVERRIDES=strata:4096`）：
+  - `cp5-real-01`：模型首轮直接完成（无询问，steers=0），页面真实截图见候选卡片；
+  - `cp5-real-02`：引导请求「请先向我提一个问题让我做选择」→ 模型**自然询问**（`status_after_send=awaiting_author`）、driver 回答发送成功（steers=1）、run 继续完成（complete_exchanges=3、max_input_tokens=22133）——**实模「询问→回答→同 run 继续」链自然成立**；但 `complete_exchanges=3 < keep_recent_items=4`，安全点无可压缩的「更早工作回合」→ 压缩未触发。
+  - `cp5-real-03`：等待真实模型恢复 >120s 被 supervisor 判 `driver_idle_timeout`（driver 只读 DB、无 begin/finish 命令）→ 即真实长任务下的等待账缺陷；已修（`bf62f751`：等待期间每 ~30s 发短活动记录）。
+  - `cp5-real-04`（心跳修复后）：driver 正常完成（3m24s，steers=1 + `extra_round` 第二轮成功、`complete_exchanges=3`）但**压缩仍未触发**（checkpoint_events=0；首轮 3 个完成交换 < K=4，第二轮安全点无可压项）。A3 判据 C2/C3/C4/C6/C11 未过。
+  - **结论**：实模自然压力路径已能走通「模型询问→作者回答→同 run 继续→第二轮新 turn」全链，但触发压缩还需更多完成交换（≥K+1）。下一步：给 A3 驱动支持多轮补发（`B71_AUTO_MAINT_EXTRA_ROUNDS=N`），或让首轮任务更重（多步骤）以积累 ≥5 完成交换；不得改生产 K/窗口配置。
+
 #### 8.6.5 依赖与顺序
 
 CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4（投影等价/回查）；实模窗口与官方凭证另证（B82）；G6 在 CP5 前不得以机制层证据代签。
