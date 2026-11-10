@@ -1,5 +1,7 @@
 # Project Ledger / 项目事实台账
 
+> 2026-11-10 **B81 CP5 确定性 ANSWER_MODE 第四次尝试（白名单/长请求修复，driver 卡在 answer/心跳）**：`d8139ef0` 修复 ① ANSWER_MODE capture 白名单扩展为 auto-maintenance 同源（此前 `未知 checkpoint: after-maintenance` 中止）；② ANSWER_MODE `longRequest` 优先取确定性预注册请求（此前退回 A3 默认长请求无多回合）。修复后 driver 能驱动到第一轮暂停（`a3-paused-1` 生成），但随后卡在 answer/心跳环节：runner `driver_idle_timeout`、driver log 为空。下一步：修 `respondToRunPause` 的确定性 fixture 回答发送与长等待心跳，再叠加自动维护 env 验证压缩触发与 G6 请求。**G6 不代签。**
+
 > 2026-11-10 **B81 CP5 确定性 ANSWER_MODE 多轮第三次尝试（进入真实链路，verify 契约未对齐）**：修复两处既有 batch 脚本 bug（`ffb07550`：`MEMORY_DETAIL` unbound with `set -u`；ANSWER_MODE 与 MULTI_TURN 门禁互斥冲突）后，`B71_ANSWER_MODE=1` 批次已能进入真实 runner/driver；但 verify 失败于 evidence capture 契约——`未知 checkpoint: after-maintenance`（ANSWER_MODE 驱动 a3 类 capture 不在白名单），runner 同时报 `driver_idle_timeout`（驱动长任务无心跳）。下一步：对齐 capture 集合/verify journey + 驱动心跳，再叠加自动维护 env 验证确定性多轮下的压缩触发与 G6 请求。**G6 不代签。**
 
 > 2026-11-10 **B81 CP5 页面层多轮第二次尝试（cp5-g6-02，仍 FAIL 未闭环）**：修复 A3 driver 的 `readAnswerObservation`（AX path 前缀不可用时按问题特征文本/非固定 UI 按钮提取问题与选项；`cf1f6a0d`）后重跑真实 strata 多轮——本轮首轮直接完成（steers=0/stop_reason=run_terminal），真实模型首轮行为随机（询问 vs 完成）导致多轮触发不稳定。结论：真实 strata 路径不作唯一取证路径；下一轮改确定性 `B71_ANSWER_MODE=1`（slice_verify ask_author fixture 确定性询问→回答→同 run 继续）+ 自动维护 + 小窗口验证同 run 多回合→压缩触发→G6 请求，真实 strata 保留为实模分层证据。**G6 不代签。**
