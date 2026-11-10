@@ -161,6 +161,17 @@ async function clickStripAndExpand() {
   return streak;
 }
 
+// 触发自动维护后的页面证据采集（细条 + 展开四要素）。extra round 循环内触发时立即
+// 调用一次；主分支只在未采集时补调，避免覆盖触发时刻的真实页面状态。
+async function captureTriggeredMaintenanceEvidence() {
+  harness.capture("after-maintenance");
+  runEvidenceMode(evidence, "capture", dir, ["after-maintenance"]);
+  const expanded = await clickStripAndExpand();
+  harness.capture("after-expanded");
+  runEvidenceMode(evidence, "capture", dir, ["after-expanded"]);
+  return expanded;
+}
+
 function authorErrorVisible() {
   try {
     const nodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:failure_scan`);
@@ -790,6 +801,11 @@ async function runMultiTurnFlow({ report, requests }) {
         session.extra_rounds.push({ round: round + 1, ...extra });
         triggered = checkpointEventCount() > 0;
         session.checkpoint_events_after_extra = checkpointEventCount();
+        if (triggered) {
+          // 触发后立即采集页面证据：此后的补发/等待会让细条消失或页面进入失败态。
+          report.strip_expanded = await captureTriggeredMaintenanceEvidence();
+          session.triggered_evidence_collected = true;
+        }
       } catch (error) {
         session.extra_rounds.push({ round: round + 1, ok: false, error: error.message });
         break;
@@ -816,11 +832,10 @@ async function runMultiTurnFlow({ report, requests }) {
   report.first_trigger_index = triggered ? 1 : null;
 
   if (triggered) {
-    harness.capture("after-maintenance");
-    runEvidenceMode(evidence, "capture", dir, ["after-maintenance"]);
-    report.maintenance_strip = await clickStripAndExpand();
-    harness.capture("after-expanded");
-    runEvidenceMode(evidence, "capture", dir, ["after-expanded"]);
+    if (report.strip_expanded === undefined) {
+      report.strip_expanded = await captureTriggeredMaintenanceEvidence();
+    }
+    report.maintenance_strip = report.strip_expanded;
 
     // 压缩后真实请求：同 run 再 steer 一轮（若 run 已终局则如实记录缺口）。
     const nextSteer = await sendSteerAfterPause({
