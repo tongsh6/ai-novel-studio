@@ -766,16 +766,34 @@ async function runMultiTurnFlow({ report, requests }) {
     });
   }
 
-  // G6 实模路径（strata A3）：首轮回答后若仍未触发，补发一轮新请求（新 turn），
-  // 让会话历史积累 ≥K 个已完成交换——安全点才有可压缩的「更早工作回合」。
-  // 仅在显式开关下执行（B71_AUTO_MAINT_EXTRA_ROUND=1），不改变既有 A3 批次行为。
-  if (!triggered && !ANSWER_MODE && process.env.B71_AUTO_MAINT_EXTRA_ROUND === "1") {
-    try {
-      const extra = await sendRequest(2, process.env.B71_AUTO_MAINT_EXTRA_REQUEST ?? "继续：按你刚才的判断，把下一个场景的开头写出来。");
-      session.extra_round = extra;
-      triggered = checkpointEventCount() > 0;
-    } catch (error) {
-      session.extra_round = { ok: false, error: error.message };
+  // G6 实模路径（strata A3）：首轮回答后若仍未触发，补发若干轮新请求（新 turn），
+  // 让会话历史累积 ≥K 个已完成交换——安全点才有可压缩的「更早工作回合」。
+  // 首轮（询问+回答）通常只有 3 个完成交换 < keep_recent_items=4，需要至少第 2 轮
+  // 补发后（累计 6 个）才有可压项。仅在显式开关下执行（B71_AUTO_MAINT_EXTRA_ROUNDS=N，
+  // 兼容旧 B71_AUTO_MAINT_EXTRA_ROUND=1），不改变既有 A3 批次行为。
+  const extraRoundBudget = Math.max(
+    0,
+    Number(
+      process.env.B71_AUTO_MAINT_EXTRA_ROUNDS ??
+        (process.env.B71_AUTO_MAINT_EXTRA_ROUND === "1" ? 1 : 0),
+    ),
+  );
+  if (!triggered && !ANSWER_MODE && extraRoundBudget > 0) {
+    session.extra_rounds = [];
+    for (let round = 0; round < extraRoundBudget && !triggered; round += 1) {
+      const requestText =
+        (process.env.B71_AUTO_MAINT_EXTRA_REQUEST && round === 0 ? process.env.B71_AUTO_MAINT_EXTRA_REQUEST : null) ??
+        ["继续：按你刚才的判断，把下一个场景的开头写出来。", "继续：把上一段的结尾收束到一个具体的动作上。", "继续：写出下一章开头的一段，并说明它承接了什么。"][round] ??
+        "继续：按你刚才的判断继续推进。";
+      try {
+        const extra = await sendRequest(2 + round, requestText);
+        session.extra_rounds.push({ round: round + 1, ...extra });
+        triggered = checkpointEventCount() > 0;
+        session.checkpoint_events_after_extra = checkpointEventCount();
+      } catch (error) {
+        session.extra_rounds.push({ round: round + 1, ok: false, error: error.message });
+        break;
+      }
     }
   }
   if (!triggered && !session.stop_reason) {
