@@ -203,11 +203,7 @@ function authorSafeGoal(value: unknown): string | null {
 function authorSafeSummary(value: unknown, sourceType: string): string | null {
   const summary = authorSafeText(value);
   if (!summary) return null;
-  if (
-    sourceType === "conversation" ||
-    sourceType === "recent_dialogue" ||
-    sourceType === "session_transcript"
-  ) {
+  if (sourceType === "conversation" || sourceType === "recent_dialogue") {
     return summarizeConversation(summary);
   }
 

@@ -56,7 +56,9 @@ describe("traceSummaryView", () => {
     expect(JSON.stringify(view)).not.toContain("ctx_1");
   });
 
-  it("renders active session transcript as a distinct author-safe source", () => {
+  it("retires the old session_transcript source type (CP6, ADR-0035 决策 9)", () => {
+    // 旧 session_transcript 材料类型已退役：不再有专门标签/对话摘要归一化，
+    // 历史数据降级为通用作者安全来源（不暴露内部名/技术词）。
     const view = toAuthorTraceSummary({
       decision_type: "reply_only",
       context_refs: [
@@ -71,12 +73,11 @@ describe("traceSummaryView", () => {
     expect(view?.contextSources).toEqual([
       {
         key: "session_transcript",
-        label: "当前会话记录",
-        summary: "上一轮围绕「确认当前蓝桥计划」展开，AI 已给出回应。",
+        label: "其他安全来源",
+        summary: "作者：确认当前蓝桥计划 AI：已记录当前蓝桥计划",
       },
     ]);
-    expect(JSON.stringify(view)).not.toContain("user:");
-    expect(JSON.stringify(view)).not.toContain("assistant:");
+    expect(JSON.stringify(view)).not.toContain("ctx_session");
   });
 
   it("does not expose unknown machine reason codes as primary author text", () => {
