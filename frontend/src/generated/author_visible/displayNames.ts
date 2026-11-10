@@ -1,7 +1,7 @@
 // AUTO-GENERATED FROM docs/design/schemas/author_visible/display_names.json — DO NOT EDIT.
 // Run `pnpm codegen:author-visible` to regenerate. Author-visible surfaces must only use these display names.
 
-export const SOURCE_HASH = "1eba7eec49e1942ca0543b60948edbe0c8aad4e362a7831e3671aac645ae752e";
+export const SOURCE_HASH = "145f0449c282dc318d621f93512f57f383f79c27adc77ff26ae827371d686d91";
 
 export const DISPLAY_NAMES = {
   "action": {
@@ -56,7 +56,6 @@ export const DISPLAY_NAMES = {
     "recent_dialogue": "近期对话",
     "memory": "已确认设定",
     "work_archive": "作品档案",
-    "session_transcript": "当前会话记录",
   },
   "decision": {
     "allow_tool": "允许执行工具",
