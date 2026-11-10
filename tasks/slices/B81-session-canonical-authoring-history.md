@@ -527,6 +527,12 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - **G6 压缩触发尝试（2026-11-10，cp5-g6-det-01/02）**：在 ANSWER_MODE 批次上叠加 `NOVEL_AUTO_MAINTENANCE_ENABLED=1` + `NOVEL_CONTEXT_WINDOW_OVERRIDES=slice_verify:4096/1024`，两批均 PASS（D 判据）但**压缩未触发**：`triggered=false`、`checkpoint_events=0`、`strip.visible=false`；driver 证据 `max_input_tokens=779`（1024 窗口的 76%）、`complete_exchanges=6`、run 完成（安全点）——压力/交换量已接近但自动维护仍未触发（可能触发条件还包含其他时机/阈值；待查 `ContextPressure`/安全点判定）。**G6 未取到证据，不代签**；下一轮需定位自动维护未触发的具体条件（或调整确定性压测构造，但不得伪造/改生产阈值）。
 - **结论与下一轮方向**：① 真实 strata 多轮页面路径受模型随机性影响，不能作为唯一取证路径；② 更可控的是确定性多轮：`B71_ANSWER_MODE=1`（slice_verify + ask_author fixture，确定性询问→回答→同 run 继续）+ 自动维护（`NOVEL_CONTEXT_WINDOW_OVERRIDES=slice_verify:<小窗口>`）验证「同 run 多作者回合→压缩触发→G6 请求」；③ 真实 strata 路径保留为实模分层证据，与确定性路径分开报告。**G6 仍不代签。**
 
+- **第八次尝试（2026-11-10，cp5-g6-det-03）：G6 压缩确定性触发成功（页面+DB+driver 三证）**。给 answer-mode 驱动补发第二轮请求（新 turn；`c3ccd4db`）后，在 `NOVEL_AUTO_MAINTENANCE_ENABLED=1` + `NOVEL_CONTEXT_WINDOW_OVERRIDES=slice_verify:1024` 下：
+  - **driver**：`checkpoint_events_after_second=1`、`triggered_after_second=true`；
+  - **DB**：`agent_events` 出现 `checkpoint_created` ×1；`authoring_session_messages` 出现 checkpoint 消息（sequence 27，挂在**第二个 run 段**，`covers.call_ids=["call_ask_author","call_judgment_decision"]`，`omissions` 完整）——压缩对象是更早 run 的交换，**跨段**（符合 CP3 会话级压缩）；
+  - **页面截图**（`after-second-round.jpg`，人工核对）：消息流出现 **「较早的 2 项创作过程已整理」** 整理细条（作者可见、可展开），顶栏「无任务」，下一步方向卡片可见。
+  - **判据冲突（待解）**：该批次 verify FAIL 于 answer-mode 的 **D1**（要求 `run_count=1` 的同 run 第二作者回合）——G6 跨 turn 场景（2 run）与 D1 判据语义冲突。**G6 需要独立验收路径**：按 §8.6.2 的 G6-1..G6-6 判据核（checkpoint covers/omissions、压缩后真实请求投影、页面细条/展开、原话保留、未完成不压缩），而不是套 answer-mode D 判据。下一步：设计/实现 G6 独立验收（可复用本次 driver 证据 + wire/DB 核查），再跑一次点击细条展开与压缩后请求证据。
+
 #### 8.6.5 依赖与顺序
 
 CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4（投影等价/回查）；实模窗口与官方凭证另证（B82）；G6 在 CP5 前不得以机制层证据代签。
