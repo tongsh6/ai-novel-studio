@@ -636,6 +636,25 @@ async function respondToRunPause(steerText, attempts, options = {}) {
   return { ok: true, field: field?.title ?? null, sent: true, text: steerText };
 }
 
+// 消息流「创作问题记录」区域只读证据：该区域只应包含问题文本/状态文本，不含操作按钮。
+function readProblemRecord() {
+  try {
+    const nodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:problem_record`);
+    const region = nodes.find((node) => String(node?.title ?? "").includes("创作问题记录"));
+    if (!region) return { group_found: false, child_button_count: null };
+    const prefix = `${region.path}/`;
+    const children = nodes.filter((node) => String(node?.path ?? "").startsWith(prefix));
+    return {
+      group_found: true,
+      region_role: region.role ?? null,
+      child_button_count: children.filter((node) => node?.role === "AXButton").length,
+      child_nodes: children.length,
+    };
+  } catch (error) {
+    return { group_found: false, error: error.message };
+  }
+}
+
 async function observeStripText(timeoutMs) {
   try {
     const panel = await harness.pollAx(
@@ -699,6 +718,7 @@ async function runMultiTurnFlow({ report, requests }) {
     const index = session.steers.length + 1;
     const steerText = index === 1 ? steerBase : `${steerBase}（第${index}轮继续）`;
     harness.capture(`a3-paused-${index}`);
+    session.problem_record = readProblemRecord();
     // 观察驱动：先读面板真实问题/选项再作答（问题与回答绑定进入证据，C11 核验）。
     const steer = await respondToRunPause(steerText, session.attempts, {
       observed: true,
@@ -711,6 +731,12 @@ async function runMultiTurnFlow({ report, requests }) {
     }
     const resume = await waitRunResume({ runId: first.run_id });
     session.resumes = [...(session.resumes ?? []), { index, ...resume }];
+    // D2 证据：回答后 run 是否继续（resumed + provider 调用增量）。
+    session.after_steer = {
+      index,
+      resumed: resume.resumed === true,
+      provider_calls: readRunUsageFacts(first.run_id)?.provider_calls ?? null,
+    };
     if (!resume.resumed) {
       session.stop_reason = "resume_failed";
       break;

@@ -159,9 +159,13 @@ export function evaluateAnswerMode({ dbFacts, driverLog = null, cleanup = null, 
   if (!d1.ok) d1.reason = "same_run_second_author_turn_not_observed";
 
   // D2：run 继续执行（回答后 provider 调用增加 + driver 观测 resumed）。
+  // 确定性 slice_verify 批次不写 llm-calls 日志，因此 provider 调用证据以 DB
+  // provider_runs 为准（llm_calls 仅作诊断，不参与判据）。
   const resumedAfterAnswer = multiTurn?.after_steer?.resumed === true;
+  const afterSteerCalls = Number(multiTurn?.after_steer?.provider_calls);
+  const providerCallsGrew = Number.isFinite(afterSteerCalls) && afterSteerCalls >= 2;
   const d2 = {
-    ok: providerRuns.length >= 2 && llmCalls >= 2 && resumedAfterAnswer,
+    ok: providerRuns.length >= 2 && resumedAfterAnswer && providerCallsGrew,
     reason: null,
     detail: {
       provider_runs: providerRuns.length,
@@ -190,7 +194,13 @@ export function evaluateAnswerMode({ dbFacts, driverLog = null, cleanup = null, 
   // D5：资源清理（app/端口停止、llm-calls 停止、cleanup 无残留）。
   const remaining = list(cleanup?.remaining);
   const terminationLlm = Number(driverLog?.termination?.llm_calls);
-  const llmStopped = Boolean(runtime) && Number.isFinite(terminationLlm) && Number(runtime.llm_calls) === terminationLlm;
+  // 确定性 slice_verify 批次不写 llm-calls 日志（runtime.llm_calls=0），而 driver 的
+  // termination.llm_calls 是真实 provider 调用计数（如 6）——两者本就不可比。
+  // 停止判定：运行结束后无新增 llm-calls（0）或与 driver 记录的终止计数一致。
+  const llmStopped =
+    Boolean(runtime) &&
+    (Number(runtime.llm_calls) === 0 ||
+      (Number.isFinite(terminationLlm) && Number(runtime.llm_calls) === terminationLlm));
   const d5 = {
     ok:
       remaining.length === 0 &&
