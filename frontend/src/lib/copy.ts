@@ -290,7 +290,7 @@ export const CARD = {
 
 export const WORKBENCH = {
   authorQuestionReply: "回复此问题",
-  authorQuestionUseSourceHint: "请在问题中选择或回复；下方输入会开始新的讨论。",
+  authorQuestionUseSourceHint: "输入会作为新讨论。",
   authorQuestionReplyLabel: "对此问题的补充",
   authorQuestionSend: "发送回复",
   authorQuestionCancel: "收起回复",
@@ -303,7 +303,7 @@ export const WORKBENCH = {
   // 46 §9.7（2026-11-04 修订）：等待即回答——主输入区接管为回答入口；新讨论是显式动作。
   authorQuestionAnswerModeLabel: "回答当前问题",
   authorQuestionDecisionNeeded: "需要你决定",
-  authorQuestionAnswerModeHint: "回答后当前任务继续；要发起新任务请点「开始新讨论」。",
+  authorQuestionAnswerModeHint: "也可以直接在下方输入回复。",
   authorQuestionAnswerModeNewDiscussion: "开始新讨论",
   authorQuestionAbandon: "放弃此问题",
   authorQuestionRestart: "重新发起此问题",
@@ -481,7 +481,7 @@ export const WORKBENCH = {
   // 46 §9.7（2026-11-04 修订）：当前任务的模型问题由底部回答区直接接管；
   // 该提示只用于「其它任务持有未答问题」时，提示作者切换任务后再回答。
   agentRunWorkspaceInputQuestionNotice:
-    "有任务在等待你的回答：请先切换到该任务再回答；此处输入会作为新讨论。",
+    "当前任务在等待你的回答。",
   agentRunWorkspaceInputAmbiguousNotice:
     "当前有多个任务在进行；请选择要继续的任务，下方输入会作为新请求发送。",
   agentRunWorkspaceInputRunSelectorLabel: "选择要继续的任务",

@@ -79,9 +79,10 @@ export function AgentRunAnswerPrompt({
           {WORKBENCH.authorQuestionAbandon}
         </button>
       </div>
-      <blockquote className={styles.answerPromptQuote}>
-        <p>{question.question}</p>
-      </blockquote>
+      {/* 问题全文已在消息流问题卡可见；此处只保留一行摘要，避免同一问题在页面上重复两次。 */}
+      <p className={styles.answerPromptQuestionBrief}>
+        {question.question.length > 48 ? `${question.question.slice(0, 48)}…` : question.question}
+      </p>
       {choices.length > 0 && (
         <div className={styles.answerPromptChoices}>
           {choices.map((action) => (

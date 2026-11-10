@@ -59,7 +59,7 @@ describe("AgentRunAnswerPrompt（回答上下文提示条）", () => {
     expect(html).toContain("这一章按哪个方向写？");
     expect(html).toContain("选项A");
     expect(html).toContain("开始新讨论");
-    expect(html).toContain("回答后当前任务继续");
+    expect(html).toContain("也可以直接在下方输入回复。");
     expect(html).toContain("放弃此问题");
   });
 
