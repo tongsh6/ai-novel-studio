@@ -11,10 +11,12 @@ defmodule NovelApplication.AutoMaintenanceTest do
 
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
+  alias NovelApplication.AgentRunFlows.AuthoringSession
   alias NovelApplication.AgentRunService
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.TestAgenticLoopFixtures
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Projection
   alias NovelDomain.AgentNextStepDecision
   alias NovelPersistence.AgentRunLog
   alias NovelPersistence.Repo
@@ -84,7 +86,20 @@ defmodule NovelApplication.AutoMaintenanceTest do
       |> AuthoringTranscript.append_author_turn("继续。", "author_turn:turn-2b")
 
     insert_provider_usage(run_id, @due_tokens)
-    assert {:ok, ^run_id} = start_run(run_id, [step_with_transcript(transcript)])
+    parent = self()
+
+    next_step = fn _run, _sequence, snapshot ->
+      request = AuthoringSession.request_ir(snapshot)
+      send(parent, {:professional_request, Projection.project(request, "chat_completions")})
+      {:ok, %{stage_state: AuthoringSession.provider_metadata(%{request_ir: request})}}
+    end
+
+    assert {:ok, ^run_id} = start_run(run_id, [step_with_transcript(transcript), next_step])
+    assert_receive {:professional_request, {:ok, %{messages: wire_messages}}}, 2_000
+
+    assert Enum.any?(wire_messages, &(Map.get(&1, :content) == "第一回合"))
+    assert Enum.any?(wire_messages, &(&1.role == "tool" and &1.tool_call_id == "call-2"))
+    refute Enum.any?(wire_messages, &(&1.role == "tool" and &1.tool_call_id == "call-1"))
     wait_until(fn -> terminal_run?(run_id) end, 5_000)
 
     assert [record] = checkpoint_events(run_id)
@@ -96,6 +111,8 @@ defmodule NovelApplication.AutoMaintenanceTest do
     checkpoint = Enum.find(persisted.messages, &(&1.role == "checkpoint"))
     assert checkpoint
     assert checkpoint.blocks |> hd() |> Map.get(:covers) |> Map.get(:call_ids) == ["call-1"]
+    assert Enum.reject(persisted.messages, &(&1.role == "checkpoint")) == transcript.messages
+    assert persisted.call_ids == []
   end
 
   test "T3：压力未到维护线时不触发" do

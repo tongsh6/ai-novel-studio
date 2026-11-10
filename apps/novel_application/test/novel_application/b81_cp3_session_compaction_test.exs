@@ -15,10 +15,13 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringSessionHistory
   alias NovelApplication.AuthoringTranscript
+  alias NovelApplication.JudgmentProtocol
   alias NovelApplication.TranscriptCompaction
+  alias NovelCommon.Contracts.ProviderOutput
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
   alias NovelPersistence.{AuthoringSessionLog, Repo}
@@ -150,6 +153,171 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
 
     assert {:ok, :nothing_to_compact} =
              TranscriptCompaction.plan_maintenance(view, keep_recent_items: 4)
+  end
+
+  # B81 ADR-0035 回归：判断请求组装会话历史，但持久化仍只落本 run 段。
+  describe "B81 ADR-0035：判断请求组装会话历史" do
+    @history_author_text "第一轮作者原话"
+    @current_author_text "本轮作者原话：继续判断"
+    @old_judgment_call_id "tool-judgment_decision"
+
+    test "跨段 checkpoint 覆盖历史已闭合调用时，判断出站成功且保存段不含历史作者原话" do
+      seed_run!(first_round_transcript())
+
+      assert {:ok, segment} =
+               base_transcript("run-cp3-b81-1", @current_author_text)
+               |> AuthoringCheckpoint.append_checkpoint(%{
+                 covers: %{call_ids: ["cp3-call-1-1"]},
+                 source_refs: [%{ref: "chapter:1"}],
+                 versions: %{},
+                 omissions: ["被覆盖的读取原文保留在会话历史中。"],
+                 summary: "跨段压缩历史读取"
+               })
+
+      assert {:ok, history} = AuthoringSessionHistory.fetch(segment.run)
+
+      assert {:ok, judgment} =
+               JudgmentProtocol.request_judgment(
+                 execution([response("本轮判断完成。", [])]),
+                 %{},
+                 b81_input(segment, history)
+               )
+
+      # 跨段 checkpoint 的 covers 只在会话视图可见；调用必须真实发生且携带历史作者原话。
+      assert_received {:provider_request, %RequestIR{messages: request_messages}}
+      assert Enum.any?(request_messages, &message_has_text?(&1, @history_author_text))
+
+      # 保存/返回的 transcript 仍是本 run 段：无历史作者原话，只有本轮作者原话。
+      assert judgment.transcript.run.run_id == "run-cp3-b81-1"
+      refute Enum.any?(judgment.transcript.messages, &message_has_text?(&1, @history_author_text))
+      assert Enum.any?(judgment.transcript.messages, &message_has_text?(&1, @current_author_text))
+    end
+
+    test "历史已闭合同名 judgment_decision 复用时 canonical 化并保留 provider_call_id" do
+      history_transcript =
+        base_transcript("run-cp3-b81-history-2", "历史作者原话：上一轮计划")
+        |> AuthoringTranscript.append_assistant("上一轮判断。", [
+          RequestIR.tool_call_block(
+            "judgment_decision",
+            %{"action" => "plan", "reason" => "旧计划"},
+            @old_judgment_call_id
+          )
+        ])
+        |> AuthoringTranscript.append_validation(
+          @old_judgment_call_id,
+          "passed",
+          "judgment_validated"
+        )
+
+      seed_run!(history_transcript)
+
+      segment = base_transcript("run-cp3-b81-2", "本轮作者原话：继续计划")
+      assert {:ok, history} = AuthoringSessionHistory.fetch(segment.run)
+
+      assert {:ok, judgment} =
+               JudgmentProtocol.request_judgment(
+                 execution([response("分步完成。", plan_pair())]),
+                 %{},
+                 b81_input(segment, history)
+               )
+
+      decision =
+        Enum.find(tool_call_blocks(judgment.transcript), &(&1.name == "judgment_decision"))
+
+      # 返回值与落段使用同一 canonical id；原 id 只作来源标记，旧 id 不写回本 run 段。
+      assert decision.call_id == judgment.tool_call_id
+      assert judgment.tool_call_id == @old_judgment_call_id <> ":2"
+      assert Map.get(decision, :provider_call_id) == @old_judgment_call_id
+      refute @old_judgment_call_id in judgment.transcript.call_ids
+    end
+
+    defp b81_input(segment, history) do
+      input()
+      |> Map.put(:transcript, segment)
+      |> Map.put(:session_history, history)
+    end
+
+    defp response(text, calls, ref \\ "call-1") do
+      %{
+        content: text,
+        tool_calls: calls,
+        provider_output: %ProviderOutput{
+          provider_run_ref: "run-#{ref}",
+          provider_call_ref: ref,
+          status: :ok,
+          content: %{text: text, tool_calls: calls}
+        }
+      }
+    end
+
+    defp call(name, args), do: %{id: "tool-#{name}", name: name, arguments: args}
+
+    defp input do
+      %{
+        author_text: "根据本章实际内容判断",
+        context_block: "章计划/读取范围",
+        source_input_ref: "author-turn",
+        supplied_context_refs: ["chapter:one"],
+        options: []
+      }
+    end
+
+    defp plan_pair do
+      [call("agent_plan_draft", plan_args()), call("judgment_decision", plan_decision_args())]
+    end
+
+    defp plan_args do
+      %{
+        "plan" => %{
+          "steps" => [
+            %{
+              "step_id" => "s1",
+              "kind" => "act",
+              "description" => "写正文",
+              "success_criteria" => ["done"],
+              "target_tool_ref" => "prose_writing"
+            }
+          ]
+        },
+        "author_reasoning" => "先取证再写",
+        "reason_codes" => ["planned"],
+        "confidence" => 0.9
+      }
+    end
+
+    defp plan_decision_args do
+      %{
+        "action" => "plan",
+        "dialogue_goal" => "分步执行",
+        "reason" => "需要计划"
+      }
+    end
+
+    defp execution(results) do
+      parent = self()
+      ref = make_ref()
+      Process.put(ref, results)
+
+      %Execution{
+        result_fn: fn prompt ->
+          send(parent, {:provider_request, prompt})
+          [result | rest] = Process.get(ref)
+          Process.put(ref, if(rest == [], do: [result], else: rest))
+
+          if match?({:error, _}, result), do: result, else: {:ok, result}
+        end
+      }
+    end
+
+    defp tool_call_blocks(%{messages: messages}) do
+      for message <- messages,
+          block <- message.blocks,
+          Map.get(block, :type) == "tool_call",
+          do: block
+    end
+
+    defp message_has_text?(%{blocks: blocks}, text),
+      do: Enum.any?(blocks, &(Map.get(&1, :text) == text))
   end
 
   defp collect_provider_message_ids(body) do

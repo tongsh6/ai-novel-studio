@@ -7,6 +7,7 @@ defmodule NovelApplication.AuthoringOperation do
   """
 
   alias NovelApplication.AgentRunFlows.AuthoringSession
+  alias NovelApplication.AuthoringSessionHistory
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.ExecutionOrchestrator
   alias NovelCommon.RequestIR
@@ -27,12 +28,29 @@ defmodule NovelApplication.AuthoringOperation do
   @spec prepare(map() | nil, map(), specification()) :: {:ok, RequestIR.t()} | {:error, term()}
   def prepare(run, snapshot, %{role: role, instructions: rules, scope: scope, tool: tool} = spec)
       when is_binary(role) and is_binary(rules) and is_binary(scope) and is_map(tool) do
-    with {:ok, previous} <- previous_ir(snapshot) do
-      Operation.prepare(previous, run, %{spec | scope: scope <> runtime_scope(run)})
+    with {:ok, previous} <- previous_ir(snapshot),
+         {:ok, ir} <-
+           Operation.prepare(previous, run, %{spec | scope: scope <> runtime_scope(run)}) do
+      include_initial_history(ir, snapshot)
     end
   end
 
   def prepare(_run, _snapshot, _spec), do: {:error, :invalid_authoring_operation}
+
+  defp include_initial_history(ir, %{initial_session_history: history} = snapshot) do
+    case AuthoringSession.transcript(snapshot) do
+      nil ->
+        with {:ok, segment} <- AuthoringTranscript.from_request_ir(ir) do
+          {view, _count} = AuthoringSessionHistory.compose(segment, history)
+          AuthoringTranscript.to_request_ir(view)
+        end
+
+      _transcript ->
+        {:ok, ir}
+    end
+  end
+
+  defp include_initial_history(ir, _snapshot), do: {:ok, ir}
 
   defp previous_ir(snapshot) do
     case AuthoringSession.transcript(snapshot) do

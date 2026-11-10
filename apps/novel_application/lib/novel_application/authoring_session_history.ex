@@ -16,6 +16,7 @@ defmodule NovelApplication.AuthoringSessionHistory do
   """
 
   alias NovelApplication.AuthoringTranscript
+  alias NovelCommon.RequestIR
   alias NovelPersistence.AuthoringSessionLog
 
   @type t :: %{
@@ -95,25 +96,36 @@ defmodule NovelApplication.AuthoringSessionHistory do
     {merged, length(history_messages)}
   end
 
-  @doc """
-  从请求派生视图剥离历史前缀，恢复当前 run 段 transcript。
+  @doc "为步骤内的临时请求视图标明来自已提交历史的消息。"
+  def mark_for_request(nil), do: nil
 
-  持久化/回写只接受段视图（裁决④：`stage_state` 只保存本 run 执行段）。
-  """
+  def mark_for_request(history) do
+    Map.update!(
+      history,
+      :messages,
+      &Enum.map(&1, fn message ->
+        Map.put(message, :session_history_message, true)
+      end)
+    )
+  end
+
+  @doc "只剥离确由步骤请求视图带入的历史消息；相同文本不能作为归属判断。"
+  def strip_request_history(%{messages: messages} = transcript) do
+    segment = Enum.reject(messages, &Map.get(&1, :session_history_message, false))
+    %{transcript | messages: segment, call_ids: RequestIR.call_ids(segment)}
+  end
+
+  def strip_request_history(transcript), do: transcript
+
+  @doc "从已知长度的请求视图剥离历史前缀，恢复当前 run 段。"
   @spec strip(AuthoringTranscript.t(), non_neg_integer()) :: AuthoringTranscript.t()
   def strip(transcript, 0), do: transcript
 
   def strip(transcript, history_count)
       when is_integer(history_count) and history_count > 0 and is_list(transcript.messages) do
-    case transcript.messages do
-      [%{role: "application_base"} = base | rest] ->
-        {_history, segment_rest} = Enum.split(rest, history_count)
-        %{transcript | messages: [base | segment_rest]}
-
-      messages ->
-        {_history, segment_rest} = Enum.split(messages, history_count)
-        %{transcript | messages: segment_rest}
-    end
+    {base, rest} = split_base(transcript.messages)
+    messages = List.wrap(base) ++ Enum.drop(rest, history_count)
+    %{transcript | messages: messages, call_ids: RequestIR.call_ids(messages)}
   end
 
   def strip(transcript, _history_count), do: transcript

@@ -58,7 +58,7 @@ defmodule NovelApplication.JudgmentProtocol do
 
     if is_function(result_fn, 1) do
       with {:ok, segment} <- transcript_for_production(input, profile) do
-        {request_transcript, history_count} = compose_session_history(segment, input)
+        {request_transcript, history_count} = compose_session_history(segment, input, snapshot)
 
         result_fn
         |> invoke(request_transcript, input, profile, 1)
@@ -69,8 +69,13 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
-  # 请求派生视图前置会话历史（CP2）；返回给 flow/持久化的 transcript 必须是段视图。
-  defp compose_session_history(transcript, input),
+  # 步骤快照已携带会话视图，只有新建的首段需要前置历史；步骤结束统一剥离。
+  defp compose_session_history(transcript, _input, %{initial_session_history: history}) do
+    {view, _count} = AuthoringSessionHistory.compose(transcript, history)
+    {view, 0}
+  end
+
+  defp compose_session_history(transcript, input, _snapshot),
     do: AuthoringSessionHistory.compose(transcript, Map.get(input, :session_history))
 
   defp strip_session_history({:ok, judgment}, history_count) when is_map(judgment) do
@@ -121,7 +126,7 @@ defmodule NovelApplication.JudgmentProtocol do
   @spec request_for_production(map(), atom()) :: RequestIR.t()
   def request_for_production(input, profile \\ :judgment) do
     with {:ok, segment} <- transcript_for_production(input, profile),
-         {request_transcript, _history_count} <- compose_session_history(segment, input),
+         {request_transcript, _history_count} <- compose_session_history(segment, input, %{}),
          {:ok, request} <- prepare_request(request_transcript, profile) do
       request
     else
@@ -150,11 +155,13 @@ defmodule NovelApplication.JudgmentProtocol do
   defp profile_scope_text(input, :continuation), do: continuation_scope_text(input)
 
   defp ensure_profile_tools(transcript, profile) do
-    with {:ok, ir} <- AuthoringTranscript.to_request_ir(transcript),
-         ir <- RequestIR.add_tools(ir, JudgmentToolContract.tools(profile)),
-         {:ok, transcript} <- AuthoringTranscript.from_request_ir(ir) do
-      transcript
-    end
+    ir =
+      RequestIR.add_tools(
+        RequestIR.new(%{tools: transcript.tools}),
+        JudgmentToolContract.tools(profile)
+      )
+
+    %{transcript | tools: ir.tools}
   end
 
   defp scope_versions(input, previous) do
@@ -311,7 +318,7 @@ defmodule NovelApplication.JudgmentProtocol do
     do: failure(reason, transcript, max(attempt - 1, 0))
 
   defp ensure_provider_call_ids(transcript, result),
-    do: RequestIR.normalize_provider_result(transcript.call_ids, result)
+    do: RequestIR.normalize_provider_result(RequestIR.call_ids(transcript.messages), result)
 
   defp validate_response(
          fun,

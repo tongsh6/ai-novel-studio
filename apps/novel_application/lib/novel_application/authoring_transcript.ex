@@ -382,13 +382,7 @@ defmodule NovelApplication.AuthoringTranscript do
          observation_refs: Map.get(ir.refs, :observation_refs, []),
          used_refs: Map.get(ir.refs, :used_refs, []),
          projection: ir.projection,
-         call_ids:
-           for(
-             message <- ir.messages,
-             block <- Map.get(message, :blocks, []),
-             Map.get(block, :type) == "tool_call",
-             do: Map.get(block, :call_id)
-           )
+         call_ids: RequestIR.call_ids(ir.messages)
        }}
     end
   end

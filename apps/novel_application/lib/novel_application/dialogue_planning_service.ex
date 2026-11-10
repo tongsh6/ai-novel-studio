@@ -25,7 +25,6 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.AgentRunFlows.ReadonlyBatchContext
   alias NovelApplication.AgentRunFlows.ToolConfirmation
   alias NovelApplication.AgentRunFlows.WorldBuildingWithContext
-  alias NovelApplication.AuthoringSessionHistory
   alias NovelApplication.ChapterListBudget
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExplorationService
@@ -1104,29 +1103,25 @@ defmodule NovelApplication.DialoguePlanningService do
     context = judgment_context(state)
     explorations = judgment_explorations(state)
 
-    # B81 CP2：判断请求由会话历史派生（跨 turn）。历史读取/段头损坏时 fail-closed，
-    # 不静默退化成「无历史」请求（§8.4.6 裁决④）。
-    with {:ok, session_history} <- AuthoringSessionHistory.fetch(run) do
-      protocol_input =
-        judgment_protocol_input(
-          input,
-          run,
-          context,
-          explorations,
-          native_observations_option(state) ++ [session_history: session_history]
-        )
-
-      request_judgment_result(
-        provider_execution,
-        snapshot,
-        protocol_input,
-        run,
-        sequence,
+    protocol_input =
+      judgment_protocol_input(
         input,
+        run,
         context,
-        explorations
+        explorations,
+        native_observations_option(snapshot.stage_state)
       )
-    end
+
+    request_judgment_result(
+      provider_execution,
+      snapshot,
+      protocol_input,
+      run,
+      sequence,
+      input,
+      context,
+      explorations
+    )
   end
 
   # LogContext 是进程本地的；判断步与 context 步在不同 step task 进程，
@@ -1365,8 +1360,6 @@ defmodule NovelApplication.DialoguePlanningService do
 
     protocol_input = %{
       author_text: author_text,
-      # B81 CP2：会话历史 → 请求派生视图（application 层组装；§8.4.6 裁决④）。
-      session_history: Keyword.get(opts, :session_history),
       # 作者输入来源标记（回答 vs 普通请求）：透传到 canonical transcript 消息元数据。
       author_turn: Map.get(run, :author_turn),
       source_input_ref: TurnInteractionService.input_ref(run),

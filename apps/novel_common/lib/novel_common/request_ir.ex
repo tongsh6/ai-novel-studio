@@ -555,7 +555,7 @@ defmodule NovelCommon.RequestIR do
     end
   end
 
-  defp call_ids(messages) do
+  def call_ids(messages) do
     for message <- messages,
         block <- Map.get(message, :blocks, []),
         Map.get(block, :type) == "tool_call",

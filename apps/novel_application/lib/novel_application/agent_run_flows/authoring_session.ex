@@ -17,6 +17,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
   """
 
   alias NovelApplication.AuthoringCheckpoint
+  alias NovelApplication.AuthoringSessionHistory
   alias NovelApplication.AuthoringTranscript
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.RequestIR
@@ -28,6 +29,43 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
     do: Map.get(state, :judgment_transcript)
 
   def transcript(_snapshot), do: nil
+
+  @doc "在同一步内共享会话请求视图；提交给运行进程的结果只保留本 run 执行段。"
+  def with_request_view(%{run: run} = snapshot, execute) do
+    with {:ok, history} <- AuthoringSessionHistory.fetch(run) do
+      snapshot
+      |> request_view(AuthoringSessionHistory.mark_for_request(history))
+      |> execute.()
+      |> strip_result_history()
+    end
+  end
+
+  defp request_view(snapshot, nil), do: snapshot
+
+  defp request_view(snapshot, history) do
+    case transcript(snapshot) do
+      nil ->
+        Map.put(snapshot, :initial_session_history, history)
+
+      segment ->
+        {view, _count} = AuthoringSessionHistory.compose(segment, history)
+        snapshot(snapshot, view)
+    end
+  end
+
+  defp strip_result_history({:ok, %{stage_state: %{judgment_transcript: _}} = result}) do
+    {:ok, update_in(result.stage_state, &strip_history/1)}
+  end
+
+  defp strip_result_history({:error, reason, %{judgment_transcript: _} = state}) do
+    {:error, reason, strip_history(state)}
+  end
+
+  defp strip_result_history(result), do: result
+
+  defp strip_history(state) do
+    Map.update!(state, :judgment_transcript, &AuthoringSessionHistory.strip_request_history/1)
+  end
 
   @spec request_ir(map()) :: NovelCommon.RequestIR.t() | nil
   def request_ir(snapshot) do

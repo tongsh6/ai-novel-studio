@@ -901,7 +901,11 @@ defmodule NovelApplication.AgentRunServer do
           run_for_step.session_id
         )
 
-        executor.(step_fun, run_for_step, sequence, step_snapshot(state, server, run_for_step))
+        state
+        |> step_snapshot(server, run_for_step)
+        |> AuthoringSession.with_request_view(fn snapshot ->
+          executor.(step_fun, run_for_step, sequence, snapshot)
+        end)
       end)
 
     state =
