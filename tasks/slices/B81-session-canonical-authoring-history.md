@@ -575,7 +575,7 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 - **CP7 已定论（2026-11-11）**：压缩对象/保留计数/covers 已是会话级；触发时机为 run 安全点（设计选择，非压缩单位错误）；如作者仍要请求前独立检查再立 ADR 补充，当前无需改代码。
 - **实模页面层判据（known-gap）**：C6/C11 已修（判据口径）、C3/C4 页面证据受真实模型 run failed 后页面失败态影响未捕获（确定性批次已各自 PASS）、C9 归 B86；不伪造证据、不降低不变量。
 - **G6 探针**尚未接入 runner 验收 gate（当前为独立探针 + 手工核查），是否纳入 CI 待定。
-- **C9 作者可见面内部 ref 泄漏（新缺陷，机制修复归 B86）**：真实模型输出复述 `chapter:<uuid>` 到作者消息/工具观察（cp5-real-05，20 hits）。作者指出的根因是**材料与返回的结构化不足**（章编号/名称/内容与内部 ref 混在自然语言材料里；返回 tool schema 未约束作者可见字段），机制修复（材料结构化 + schema 约束 + AuthorVisible.Text 投影）已立项 [B86](B86-structured-model-materials-internal-ref-isolation.md)；本项目内已先扩展 `NovelCommon.AuthorVisible.Text`（new/1 构造投影 + redact/contains 函数，含单测）。
+- **C9 作者可见面内部 ref 泄漏（新缺陷，机制修复归 B86）**：真实模型输出复述 `chapter:<uuid>` 到作者消息/工具观察（cp5-real-05，20 hits）。作者指出的根因是**材料与返回的结构化不足**（章编号/名称/内容与内部 ref 混在自然语言材料里；返回 tool schema 未约束作者可见字段），机制修复已立项 [B86](B86-structured-model-materials-internal-ref-isolation.md)。**2026-11-11 作者要求撤回 B86 的实现**（`3a084fcf`/`72f8fb7d` revert 了 TurnResult 出口投影与 `AuthorVisible.Text` 投影扩展；未提交的材料结构化改动也已撤销）——B86 回到「立项/未实施」状态，仅保留任务与设计记录。
 - **C11 判据适配**：A3 「同 run 多轮」判据与 G6「跨 turn」场景冲突，需区分场景判据（不放宽不变量）。
 - **B85 模型上下文窗口用户设置 UI**：初始配置能力已落（`preferences.json` + sidecar 注入），设置页 UI 待做（候选 [[B85]](slices/B85-model-context-window-settings.md)）。
 
