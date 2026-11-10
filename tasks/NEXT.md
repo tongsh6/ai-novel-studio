@@ -21,6 +21,7 @@
 | B79 | 存量书稿导入 + 导入后分析建档；**待作者确认启动**后按 [B79](slices/B79-work-import-and-analysis.md) CP0 契约冻结 → CP1 确定性导入链推进；B80 前置梳理已完成（2026-11-08）。 | [B79](slices/B79-work-import-and-analysis.md) |
 | B82 | B71 G2/G3/G5 黄金切片证据补证 + Responses/Anthropic 实模（G6 移交 B81 CP5，不在本任务）；每个切片独立冻结预注册、独立批次、如实登记；待真实模型窗口与官方凭证。 | [B82](slices/B82-b71-golden-slice-evidence.md) |
 | B84 | `novel_web` 慢测试收敛（193 tests/532s）+ 00f P2-E 剩余架构/测试债务；不缩小测试覆盖；与 B81 并行（测试前置层）。 | [B84](slices/B84-web-slow-tests-and-arch-debt.md) |
+| B86 | 模型材料与返回结构化（内部标识隔离）：作者指出根因「发给模型的数据没结构化、返回也不够结构化」——章节编号/名称/内容与内部 `chapter:<uuid>` 混在自然语言材料里，模型复述到作者可见正文（`cp5-real-05` 实模证据）。方案：材料结构化（ref 只进专用字段）+ tool schema 约束作者可见字段禁内部标识 + 作者可见出口统一 `AuthorVisible.Text` 投影；独立预注册验收。 | [B86](slices/B86-structured-model-materials-internal-ref-isolation.md) |
 | B85 | 模型上下文窗口用户设置（UI 入口）：作者反馈「窗口不应写死、要开放给用户配置」；初始能力已落（`preferences.json` 的 `context_windows` + Tauri 启动注入 sidecar env，`044092df`），**设置页 UI 未做**（当前应用无系统设置菜单，唯一设置入口是模型供应商弹窗）。 | [B85](slices/B85-model-context-window-settings.md) |
 
 依赖排序（2026-11-08 更新）：**当前任务 B81 CP1 可开工**（ADR-0035 已批准；CP2–CP6 按依赖链）。B79 CP0/CP1（候选，待作者确认启动）、B78 首个文件拆分、B71 后续候选的预注册准备、B84 慢测试收敛可并行推进；B81 与 B78 同文件冲突须协调顺序（建议先 B81 CP1 再 B78，或作者裁定）。B82 待真实模型窗口/官方凭证；B83 blocked（凭证）。B71 CP5 最终收口仍待 G 切片/Responses·Anthropic 实模证据；**G6 取证已移交 B81 CP5**（不再在 B71 构造异常场景）。排期结论不等于授权或完成声明。
