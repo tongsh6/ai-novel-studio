@@ -6257,120 +6257,68 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
-  it("requires AU-09/AU-03 session and memory source layering in the same work", () => {
+  it("binds AU09 layering to actual provider material and rejects lookalike evidence", () => {
+    const sliceId = "au09-au03-session-memory-layering";
+    const identity = { work_id: "work-layer", session_id: "session-active", turn_id: "turn-layer" };
+    const input = "继续讨论主角动机";
     const records = [
-      { event: "work_session.resume.done", work_id: "work-layer", session_id: "session-active" },
-      { event: "channel.join.done", work_id: "work-layer", session_id: "session-active" },
+      { event: "work_session.show.done", work_id: identity.work_id, session_id: "session-history", read_only: true },
+      { event: "channel.user_message.done", ...identity },
       {
-        event: "work_session.show.done",
-        work_id: "work-layer",
-        session_id: "session-history",
-        read_only: true,
-        transcript_count: 2,
-        pending_adoption_count: 0,
-      },
-      {
-        event: "channel.user_message.start",
-        turn_id: "turn-layer",
-        work_id: "work-layer",
-        session_id: "session-active",
-        generate_micro_plan: false,
-      },
-      {
-        event: "context.assemble.done",
-        turn_id: "turn-layer",
-        work_id: "work-layer",
-        session_id: "session-active",
-        has_snapshot: true,
-        has_conversation: true,
-        has_memory: true,
-        context_refs_count: 3,
-      },
-      {
-        event: "planner.form_frame.done",
-        turn_id: "turn-layer",
-        work_id: "work-layer",
-        session_id: "session-active",
-      },
-      {
-        event: "channel.user_message.done",
-        turn_id: "turn-layer",
-        work_id: "work-layer",
-        session_id: "session-active",
-      },
-      {
-        event: "slice_verify.ui_state.done",
-        slice_id: "au09-au03-session-memory-layering",
-        turn_id: "turn-layer",
-        recall_turn_id: "turn-layer",
-        work_id: "work-layer",
-        session_id: "session-active",
-        active_session_id: "session-active",
-        readonly_session_id: "session-history",
-        readonly_session_transcript_visible: true,
-        readonly_input_disabled: true,
-        active_session_restored: true,
-        context_source_types: ["current_work", "session_transcript", "memory"],
-        context_has_current_work: true,
-        context_has_session_transcript: true,
-        context_has_memory: true,
-        context_excludes_conversation_fallback: true,
-        context_session_summary_includes_active: true,
-        context_session_summary_excludes_history: true,
-        context_memory_summary_includes_memory: true,
-        context_memory_summary_excludes_history: true,
-        trace_why_dialog_open: true,
-        trace_why_contains_raw_prompt: false,
-        why_shows_current_work_source: true,
-        why_shows_session_source: true,
-        why_shows_memory_source: true,
-        why_shows_active_session_summary: true,
-        why_shows_memory_summary: true,
-        why_excludes_historical_transcript: true,
-        active_session_token: "当前蓝桥计划",
-        memory_token: "银槐誓约",
-        historical_session_token: "旧稿赤塔",
+        event: "slice_verify.ui_state.done", slice_id: sliceId, ...identity,
+        author_turn_id: identity.turn_id, readonly_session_id: "session-history",
+        readonly_session_transcript_visible: true, readonly_input_disabled: true, active_session_restored: true,
+        trace_why_dialog_open: true, why_shows_current_work_source: true, why_shows_memory_source: true,
+        why_excludes_historical_transcript: true, context_source_types: ["current_work", "memory"],
+        message_text: input, active_session_token: "当前蓝桥计划", current_work_token: "寻找妹妹林瑶",
+        memory_token: "银槐誓约", historical_session_token: "旧稿赤塔",
       },
     ];
 
-    const evidence = findNativeSliceEvidence("au09-au03-session-memory-layering", records);
-    expect(evidence).toEqual({
-      slice_id: "au09-au03-session-memory-layering",
-      turn_id: "turn-layer",
-      turn_ids: ["turn-layer"],
-      work_id: "work-layer",
-      session_id: "session-active",
-      readonly_session_id: "session-history",
-      context_refs_count: 3,
-      active_session_token: "当前蓝桥计划",
-      memory_token: "银槐誓约",
-      historical_session_token: "旧稿赤塔",
-      key_events: keyEventsForSlice("au09-au03-session-memory-layering"),
-    });
-    expect(
-      findSliceBehaviorEvidence("au09-au03-session-memory-layering", records, evidence),
-    ).toEqual({
-      slice_id: "au09-au03-session-memory-layering",
-      behavior:
-        "active_session_transcript_current_work_and_governed_memory_are_layered_without_history_leak",
-      turn_ids: ["turn-layer"],
-      work_id: "work-layer",
-      session_id: "session-active",
-      readonly_session_id: "session-history",
-      active_session_token: "当前蓝桥计划",
-      memory_token: "银槐誓约",
-      historical_session_token: "旧稿赤塔",
-      assertions: [
-        "historical_session_opened_readonly_from_real_workbench",
-        "readonly_history_input_was_disabled",
-        "active_session_restored_before_author_message",
-        "context_refs_contain_current_work_session_transcript_and_memory",
-        "active_session_transcript_not_labelled_as_generic_conversation",
-        "historical_session_transcript_not_in_session_or_memory_sources",
-        "why_panel_separates_current_work_session_and_memory_sources",
-        "deterministic_trace_refs_layered_session_and_memory_sources",
+    const evidence = findNativeSliceEvidence(sliceId, records);
+    expect(evidence).toMatchObject({ ...identity, author_turn_id: identity.turn_id, readonly_session_id: "session-history" });
+
+    const msg = (role, provenance, text) => ({ role, provenance, blocks: [{ type: "text", text }] });
+    const body = {
+      ir_version: "authoring-request-ir/v1", tools: [],
+      messages: [
+        msg("application_base", "application", "作品主线是寻找妹妹林瑶"),
+        msg("user", "author", "当前蓝桥计划"),
+        msg("user", "author", input),
       ],
+    };
+    const request = {
+      ...identity, provider_call_ref: "call-layering",
+      request_format: body.ir_version, request_body: body,
+    };
+    const prove = (promptRecords) =>
+      findSliceBehaviorEvidence(sliceId, records, evidence, { provider: "slice_verify", promptRecords });
+
+    const observed = {
+      ...request, provider_call_ref: "call-layering-observed",
+      request_body: { ...body, messages: [
+        ...body.messages,
+        { role: "assistant", provenance: "model", blocks: [
+          { type: "tool_call", call_id: "recall", name: "judgment_decision", arguments: {} },
+        ] },
+        { role: "tool", provenance: "tool", blocks: [
+          { type: "observation", call_id: "recall", content: { tool: "memory_recall", summary: "银槐誓约" } },
+        ] },
+      ] },
+    };
+
+    expect(prove([request, observed])).toMatchObject({
+      initial_provider_call_ref: "call-layering", observed_provider_call_ref: "call-layering-observed",
     });
+    expect(prove([])).toBeNull();
+    expect(prove([request])).toBeNull();
+    expect(prove([request, { ...observed, session_id: "session-history" }])).toBeNull();
+    expect(prove([request, { ...observed, turn_id: "unrelated" }])).toBeNull();
+    expect(prove([{ ...request, request_body: { ...body, messages: [
+      msg("application_base", "application", "寻找妹妹林瑶，登记原文：当前蓝桥计划"), msg("user", "author", input),
+    ] } }, observed])).toBeNull();
+    expect(prove([request, { ...observed, request_body: { ...body, messages: [msg("user", "author", "旧稿赤塔"), ...observed.request_body.messages] } }])).toBeNull();
+    expect(prove([{ ...request, request_body: { ...body, messages: [msg("scope_update", "application", "银槐誓约"), ...body.messages] } }, observed])).toBeNull();
   });
 
   it("finds startup context evidence after resume UI reports connected work/session state", () => {

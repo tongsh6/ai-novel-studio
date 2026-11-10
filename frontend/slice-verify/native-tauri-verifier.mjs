@@ -1,3 +1,5 @@
+import { requestFactsFromRecord } from "../../scripts/lib/native_ui/authoring_request_facts.mjs";
+
 const ua01AgentScenarioIds = [
   "ua01-agent-bounded-roster-to-character-design",
   "agent-bounded-roster-to-character-design",
@@ -1392,7 +1394,7 @@ const sliceKeyEvents = {
     "work_session.show.done",
     "channel.user_message.start",
     "context.assemble.done",
-    "planner.form_frame.done",
+    "judgment.decided.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
@@ -23660,143 +23662,104 @@ function au09CrossWorkMemoryIsolationBehavior(turnIds, _turnRecords, records, ev
 
 function findAu09Au03SessionMemoryLayeringEvidence(records) {
   const sliceId = "au09-au03-session-memory-layering";
-  const keyEvents = keyEventsForSlice(sliceId);
-
-  const uiState = records.find(
-    (record) =>
-      record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === sliceId &&
-      record.readonly_session_transcript_visible === true &&
-      record.readonly_input_disabled === true &&
-      record.active_session_restored === true &&
-      record.context_has_current_work === true &&
-      record.context_has_session_transcript === true &&
-      record.context_has_memory === true &&
-      record.context_excludes_conversation_fallback === true &&
-      record.context_session_summary_includes_active === true &&
-      record.context_session_summary_excludes_history === true &&
-      record.context_memory_summary_includes_memory === true &&
-      record.context_memory_summary_excludes_history === true &&
-      record.why_shows_session_source === true &&
-      record.why_shows_memory_source === true &&
-      record.why_excludes_historical_transcript === true,
+  const ui = records.find((record) =>
+    record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId &&
+    record.readonly_session_transcript_visible === true &&
+    record.readonly_input_disabled === true &&
+    record.active_session_restored === true &&
+    record.trace_why_dialog_open === true &&
+    record.why_shows_current_work_source === true &&
+    record.why_shows_memory_source === true &&
+    record.why_excludes_historical_transcript === true &&
+    record.context_source_types?.includes("current_work") &&
+    record.context_source_types?.includes("memory") &&
+    !record.context_source_types.includes("session_transcript"),
   );
-  if (!uiState) return null;
+  if (!ui?.turn_id || !ui.author_turn_id || !ui.work_id || !ui.session_id || !ui.readonly_session_id) return null;
+  if (ui.session_id === ui.readonly_session_id) return null;
 
-  const turnId = String(uiState.recall_turn_id ?? uiState.turn_id ?? "");
-  const workId = String(uiState.work_id ?? uiState.context_work_id ?? "");
-  const activeSessionId = String(uiState.session_id ?? uiState.active_session_id ?? "");
-  const readonlySessionId = String(uiState.readonly_session_id ?? "");
-  if (!turnId || !workId || !activeSessionId || !readonlySessionId) return null;
-  if (activeSessionId === readonlySessionId) return null;
-
-  const showDone = records.find(
-    (record) =>
-      record.event === "work_session.show.done" &&
-      record.work_id === workId &&
-      record.session_id === readonlySessionId &&
-      record.read_only === true,
+  const showDone = records.some((record) =>
+    record.event === "work_session.show.done" && record.work_id === ui.work_id &&
+    record.session_id === ui.readonly_session_id && record.read_only === true,
   );
-  if (!showDone) return null;
-
-  const contextDone = records.find(
-    (record) =>
-      record.event === "context.assemble.done" &&
-      record.turn_id === turnId &&
-      record.work_id === workId &&
-      record.session_id === activeSessionId &&
-      record.has_snapshot === true &&
-      record.has_conversation === true &&
-      record.has_memory === true,
+  const userDone = records.some((record) =>
+    record.event === "channel.user_message.done" && record.turn_id === ui.author_turn_id &&
+    record.work_id === ui.work_id && record.session_id === ui.session_id,
   );
-  if (!contextDone) return null;
-  if (Number(contextDone.context_refs_count ?? 0) < 3) return null;
-
-  const userDone = records.find(
-    (record) =>
-      record.event === "channel.user_message.done" &&
-      record.turn_id === turnId &&
-      record.work_id === workId &&
-      record.session_id === activeSessionId,
-  );
-  if (!userDone) return null;
+  if (!showDone || !userDone) return null;
 
   return {
     slice_id: sliceId,
-    turn_id: turnId,
-    turn_ids: [turnId],
-    work_id: workId,
-    session_id: activeSessionId,
-    readonly_session_id: readonlySessionId,
-    context_refs_count: Number(contextDone.context_refs_count ?? 0),
-    active_session_token: uiState.active_session_token,
-    memory_token: uiState.memory_token,
-    historical_session_token: uiState.historical_session_token,
-    key_events: keyEvents,
+    turn_id: ui.turn_id,
+    turn_ids: [...new Set([ui.turn_id, ui.author_turn_id])],
+    author_turn_id: ui.author_turn_id,
+    work_id: ui.work_id,
+    session_id: ui.session_id,
+    readonly_session_id: ui.readonly_session_id,
+    message_text: ui.message_text,
+    active_session_token: ui.active_session_token,
+    current_work_token: ui.current_work_token,
+    memory_token: ui.memory_token,
+    historical_session_token: ui.historical_session_token,
+    key_events: keyEventsForSlice(sliceId),
   };
 }
 
-function au09Au03SessionMemoryLayeringBehavior(turnIds, _turnRecords, records, evidence, options) {
-  const uiState = records.find(
-    (record) =>
-      record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === "au09-au03-session-memory-layering",
-  );
-  if (!uiState) return null;
-  if (uiState.readonly_session_transcript_visible !== true) return null;
-  if (uiState.readonly_input_disabled !== true) return null;
-  if (uiState.active_session_restored !== true) return null;
-  if (uiState.context_has_current_work !== true) return null;
-  if (uiState.context_has_session_transcript !== true) return null;
-  if (uiState.context_has_memory !== true) return null;
-  if (uiState.context_excludes_conversation_fallback !== true) return null;
-  if (uiState.context_session_summary_includes_active !== true) return null;
-  if (uiState.context_session_summary_excludes_history !== true) return null;
-  if (uiState.context_memory_summary_includes_memory !== true) return null;
-  if (uiState.context_memory_summary_excludes_history !== true) return null;
-  if (uiState.why_shows_current_work_source !== true) return null;
-  if (uiState.why_shows_session_source !== true) return null;
-  if (uiState.why_shows_memory_source !== true) return null;
-  if (uiState.why_shows_active_session_summary !== true) return null;
-  if (uiState.why_shows_memory_summary !== true) return null;
-  if (uiState.why_excludes_historical_transcript !== true) return null;
-  if (uiState.trace_why_contains_raw_prompt === true) return null;
-  if (String(uiState.readonly_session_id ?? "") !== evidence.readonly_session_id) return null;
+function au09Au03SessionMemoryLayeringBehavior(turnIds, _turnRecords, _records, evidence, options) {
+  const { active_session_token: active, current_work_token: work, memory_token: memory,
+    historical_session_token: historical, message_text: input } = evidence;
+  if (![active, work, memory, historical, input].every((value) => typeof value === "string" && value)) return null;
+  if ([active, work, memory, historical].some((token) => input.includes(token))) return null;
 
-  if (options.provider === "lmstudio") {
-    const promptRecords = (options.llmRecords ?? []).filter(
-      (record) => record.turn_id === evidence.turn_id,
-    );
-    const promptText = promptRecords
-      .map((record) => JSON.stringify(record.request?.body ?? ""))
-      .join("\n");
-    if (!promptText.includes(String(evidence.active_session_token ?? ""))) return null;
-    if (!promptText.includes(String(evidence.memory_token ?? ""))) return null;
-    if (promptText.includes(String(evidence.historical_session_token ?? ""))) return null;
+  const records = options.provider === "slice_verify" ? options.promptRecords : options.llmRecords;
+  const requests = (records ?? []).flatMap((record) => {
+    if (record.work_id !== evidence.work_id || record.session_id !== evidence.session_id ||
+        !record.provider_call_ref) return [];
+    const facts = requestFactsFromRecord(record);
+    if (!facts.ok || (record.turn_id !== evidence.author_turn_id &&
+        facts.run?.parent_turn_ref !== evidence.author_turn_id)) return [];
+    return [facts];
+  });
+  if (requests.some((facts) => JSON.stringify(facts.rawBody).includes(historical))) return null;
+
+  function matchesCurrentLayer(facts) {
+    const author = facts.authorMessages;
+    const context = [...facts.applicationBases, ...facts.scopeMessages].map((message) => message.text).join("\n");
+    // 原文登记还会引用作者输入。只认独立的历史作者消息，不能用登记材料替代。
+    return author.at(-1)?.text === input && author.slice(0, -1).some((message) => message.text.includes(active)) &&
+      context.includes(work) && !context.includes("## 会话摘要") && !context.includes(memory);
   }
 
+  const initial = requests.find((facts) => matchesCurrentLayer(facts) &&
+    !JSON.stringify(facts.rawBody).includes(memory));
+  const observed = requests.find((facts) => matchesCurrentLayer(facts) &&
+    facts.toolResults.some((result) =>
+      result.payload?.content?.tool === "memory_recall" &&
+      result.payload.content.summary?.includes(memory) &&
+      facts.toolCalls.some((call) => call.callId === result.callId),
+    ),
+  );
+  if (!initial || !observed || initial.record.provider_call_ref === observed.record.provider_call_ref ||
+      requests.indexOf(initial) >= requests.indexOf(observed)) return null;
+
   return {
-    slice_id: "au09-au03-session-memory-layering",
-    behavior:
-      "active_session_transcript_current_work_and_governed_memory_are_layered_without_history_leak",
+    slice_id: evidence.slice_id,
+    behavior: "active_canonical_history_current_work_and_governed_memory_are_layered_without_history_leak",
     turn_ids: turnIds,
     work_id: evidence.work_id,
     session_id: evidence.session_id,
     readonly_session_id: evidence.readonly_session_id,
-    active_session_token: evidence.active_session_token,
-    memory_token: evidence.memory_token,
-    historical_session_token: evidence.historical_session_token,
+    initial_provider_call_ref: initial.record.provider_call_ref,
+    observed_provider_call_ref: observed.record.provider_call_ref,
     assertions: [
       "historical_session_opened_readonly_from_real_workbench",
       "readonly_history_input_was_disabled",
       "active_session_restored_before_author_message",
-      "context_refs_contain_current_work_session_transcript_and_memory",
-      "active_session_transcript_not_labelled_as_generic_conversation",
-      "historical_session_transcript_not_in_session_or_memory_sources",
-      "why_panel_separates_current_work_session_and_memory_sources",
-      options.provider === "lmstudio"
-        ? "lmstudio_prompt_included_active_session_and_memory_excluded_history"
-        : "deterministic_trace_refs_layered_session_and_memory_sources",
+      "why_panel_shows_current_work_and_memory_without_historical_text",
+      "bound_provider_request_has_active_canonical_author_messages",
+      "initial_provider_request_has_work_context_without_preloaded_memory",
+      "confirmed_memory_enters_followup_request_as_linked_tool_observation",
+      "bound_provider_request_excludes_historical_session_text",
     ],
   };
 }

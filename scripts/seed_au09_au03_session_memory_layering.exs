@@ -1,6 +1,6 @@
-alias NovelApplication.{WorkService, WorkSessionService}
+alias NovelApplication.{AuthoringCheckpoint, AuthoringTranscript, WorkService, WorkSessionService}
 alias NovelFoundation.Enums.{MemoryScope, MemorySourceType, MemoryStatus, MemoryType}
-alias NovelPersistence.{MemoryLog, Repo, WorkSessionRepo}
+alias NovelPersistence.{AuthoringSessionLog, MemoryLog, Repo, WorkSessionRepo}
 alias NovelPersistence.Schemas.MemoryItem
 
 {:ok, work} =
@@ -80,8 +80,33 @@ entries = [
   }
 ]
 
-Enum.each(entries, fn entry ->
-  {:ok, _interaction} = MemoryLog.record(entry)
+Enum.each(Enum.chunk_every(entries, 2), fn [author, assistant] = turn ->
+  run = %{
+    run_id: "seed-#{author.turn_id}",
+    workspace_id: work.id,
+    work_id: work.id,
+    session_id: author.session_id,
+    parent_turn_ref: author.turn_id
+  }
+
+  transcript =
+    run
+    |> AuthoringTranscript.new(
+      base_text: "作品会话",
+      author_text: author.content.text,
+      author_turn_ref: author.turn_id
+    )
+    |> AuthoringTranscript.append_assistant(assistant.content.text)
+
+  {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(transcript)
+
+  {:ok, _result} =
+    Repo.transact(fn ->
+      with {:ok, _} <- AuthoringSessionLog.append_run(Map.put(run, :id, run.run_id), segment) do
+        Enum.each(turn, fn entry -> {:ok, _interaction} = MemoryLog.record(entry) end)
+        {:ok, :seeded}
+      end
+    end)
 end)
 
 IO.puts(

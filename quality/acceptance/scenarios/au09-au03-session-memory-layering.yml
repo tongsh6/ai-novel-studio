@@ -25,14 +25,15 @@ user_flow:
   - open: historical read-only session
   - verify: input is disabled
   - return: active session
-  - input: message matching active transcript and confirmed memory
-  - observe: why separates current work, session transcript, and governed memory
+  - input: follow-up requesting confirmed memory retrieval without repeating seeded evidence markers
+  - observe: why shows current work and governed memory without historical session text
 
 evidence:
   required:
     - screenshot
     - websocket_frames
     - app_jsonl
+    - llm_http_log
     - turn_result
     - summary_json
   artifact_dir: artifacts/slice-verify/au09-au03-session-memory-layering-tauri
@@ -42,13 +43,14 @@ assertions:
     - historical session opens read-only from the real workbench
     - read-only history input is disabled
     - active session is restored before author message
-    - why panel separates current work, session, and memory sources
+    - why panel separates current work and memory sources and excludes historical text
   network:
     - user_message is sent only after returning to active session
-    - turn_result context refs include current_work, session_transcript, and memory
+    - actual provider request is bound to the current work, active session and author turn
   data:
-    - active session transcript is not labelled as generic conversation
-    - historical session transcript is not in session or memory sources
+    - active canonical history is consumed as prior author messages
+    - current work is in application context and confirmed memory enters the follow-up request as a tool observation
+    - historical session text is absent from the actual provider request
 
 anti_hooks:
   product_acceptance_logic_added: false

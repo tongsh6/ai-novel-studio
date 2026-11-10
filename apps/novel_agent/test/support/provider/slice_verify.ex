@@ -748,10 +748,18 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     input = PendingDialogueInput.author_text(material)
     ir = request_ir(prompt)
 
-    if plan_protocol_mode(input) != nil do
-      plan_protocol_judgment(input)
-    else
-      judgment_result_cond(material, input, ir)
+    cond do
+      plan_protocol_mode(input) != nil ->
+        plan_protocol_judgment(input)
+
+      memory_recall_fixture?(input) ->
+        case memory_recall_answer(ir, input) do
+          nil -> regular_judgment_result(material, ir)
+          summary -> Result.new(summary, nil)
+        end
+
+      true ->
+        judgment_result_cond(material, input, ir)
     end
   end
 
@@ -3724,6 +3732,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     |> Enum.flat_map(&observation_summaries_of_tool_message/1)
   end
 
+  defp memory_recall_answer(%NovelCommon.RequestIR{} = ir, input) do
+    query = explore_quoted_term(input)
+
+    Enum.find(ir_observation_summaries(ir), fn summary ->
+      String.starts_with?(summary, ["记忆检索「#{query}」", "记忆中未检索到「#{query}」"])
+    end)
+  end
+
+  defp memory_recall_answer(_ir, _input), do: nil
+  defp memory_recall_fixture?(input), do: String.contains?(input, "检索已确认记忆")
+
   defp observation_summaries_of_tool_message(message) do
     message.blocks
     |> Enum.filter(&(Map.get(&1, :type) == "observation"))
@@ -4631,6 +4650,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     cond do
       String.contains?(author_text, "会话待采纳") -> "session_adoptions"
       contains_any?(author_text, ["改写", "重写", "续写", "正文草稿"]) -> nil
+      memory_recall_fixture?(author_text) -> "memory_recall"
       contains_any?(author_text, ["账面", "账本", "进度账", "脉络", "审读"]) -> "archive_read"
       contains_any?(author_text, ["按计划", "计划要写", "大纲里", "计划里"]) -> "chapter_read"
       contains_any?(author_text, ["查一下", "检索", "出现过", "正文里"]) -> "prose_search"

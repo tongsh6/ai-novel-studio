@@ -16,7 +16,7 @@
 
 - **Contract**：消费 `WorkSessionService.resume/show/create/archive`、`DialogueContext.context_refs`、`TraceSummaryView.context_refs`、`MemoryRecallRepo.recall/3`、`MemoryItem.work_id/status/recallable`。
 - **Invariant**：
-  - Active session transcript、historical session transcript、current work snapshot、governed memory 必须作为不同 context source 呈现。
+  - Active session canonical 历史以独立作者消息进入请求。当前作品是应用上下文，治理记忆经按需检索进入后续工具观察。
   - 历史只读会话被打开后，返回 active session 的下一轮不能用历史 transcript 覆盖当前 active transcript。
   - 历史 transcript 不能伪装成 `memory` source；governed memory 仍按 status / recallable / validity / work_id 过滤。
   - 产品代码不得为了验收读取 slice id、URL query、localStorage 或验收专用 env。
@@ -43,7 +43,7 @@
 
 ## 4. 当前缺口
 
-- `au09-au03-session-memory-layering` 已证明真实工作台打开历史只读会话后，返回 active session 的下一轮 `trace_summary.context_refs` 同时包含 `current_work`、`session_transcript` 和 `memory`，并排除 historical transcript。
+- ADR-0035 后的 `au09-au03-session-memory-layering` 已证明外部 Chromium 产品页打开历史只读会话并返回 active session 后，两次实际确定性 Provider 请求均排除历史文本。第一条携带当前会话作者消息与作品背景，第二条通过同一工具调用 ID 携带已确认记忆观察。Why 面板展示作品与记忆来源。此验收不代签原生 AX 或实模自主行为。
 - 本 checkpoint 不补完整 developer replay、多类型 replay UI、Channel 管理入口或独立 StateTrace/MemoryTrace 表；普通旧 turn scoped query 与 partial replay UI 已由 AU-07 回填。
 
 ## 5. 验证计划
@@ -59,3 +59,4 @@
 
 - 2026-06-18 — `AU09-cross-work-memory-isolation` 已闭环；下一 AU09 P0/P1 缺口转为 AU-09 governed memory 与 AU-03 active/historical session 分层，避免历史 transcript 覆盖当前作品事实或伪装成记忆来源。
 - 2026-06-18 — checkpoint closed。实现将 session-scoped context ref 标为 `session_transcript`，保留 workspace fallback `conversation`；外部 Tauri 证据 `artifacts/slice-verify/au09-au03-session-memory-layering-tauri/summary.json` 证明真实工作台打开历史只读会话后返回 active session，下一轮 context/why 分别展示当前作品背景、当前会话记录和已确认设定，并排除历史 `旧稿赤塔` transcript。
+- 2026-11-11 — 按 B81 CP6 迁移 verifier 与夹具。当前质量验收产物仍在原场景目录。旧 trace-only 证据保存在 `artifacts/slice-verify/au09-au03-session-memory-layering-tauri-before-b81-cp6/`。

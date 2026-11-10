@@ -4601,109 +4601,59 @@ async function driveAu09Au03SessionMemoryLayering(page) {
     { timeout: 15_000 },
   );
 
-  const message = `请结合${activeToken}和${memoryToken}，说明主角为什么继续追查灵源矿区。`;
+  const message = "请先检索已确认记忆「追查灵源矿区」，再结合我们当前讨论说说林澈为什么继续追查。";
   await page.locator(chatInputSelector).fill(message);
   await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentMessage = await waitForFrame(
+    (frame) => frame.direction === "sent" && frame.event === "user_message" && frame.body?.text === message,
+    "No AU09/AU03 layering user_message websocket frame was sent",
+    10_000,
+  );
+  const authorTurnId = sentMessage?.body?.turn_id;
+  assert(authorTurnId, "No AU09/AU03 layering user_message websocket frame was sent");
+  assert(sentMessage.body?.session_id !== showRecord.session_id, "Author message went to the historical session");
 
   const turnFrame = await waitForFrame(
     (frame) =>
       frame.direction === "received" &&
       frame.event === "turn_result" &&
+      (frame.body?.turn_id === authorTurnId || frame.body?.agent_run?.parent_turn_ref === authorTurnId) &&
       frame.body?.trace_summary != null,
-    "No turn_result with trace summary for AU09/AU03 session memory layering",
+    "No bound turn_result with trace summary for AU09/AU03 session memory layering",
     90_000,
   );
-
   const turnResult = turnFrame.body;
-  const sentMessage = latestSentUserMessage();
-  assert(sentMessage, "No AU09/AU03 layering user_message websocket frame was sent");
-
-  await waitForAppLogRecord(
-    (record) =>
-      record.event === "context.assemble.done" &&
-      record.turn_id === turnResult.turn_id &&
-      record.has_snapshot === true &&
-      record.has_conversation === true &&
-      record.has_memory === true,
-    "No context.assemble.done with work/session/memory context for AU09/AU03 layering",
-    30_000,
-  );
-
-  const contextRefs = Array.isArray(turnResult.trace_summary?.context_refs)
-    ? turnResult.trace_summary.context_refs
-    : [];
-  const sourceTypes = contextRefs.map((ref) => String(ref.source_type ?? ""));
-  const sessionRef = contextRefs.find(
-    (ref) => String(ref.source_type ?? "") === "session_transcript",
-  );
-  const memoryRef = contextRefs.find((ref) => String(ref.source_type ?? "") === "memory");
-  const currentWorkRef = contextRefs.find(
-    (ref) => String(ref.source_type ?? "") === "current_work",
-  );
-  const sessionSummary = String(sessionRef?.summary ?? "");
-  const memorySummary = String(memoryRef?.summary ?? "");
-
-  assert(currentWorkRef, "Trace context refs did not include current_work");
-  assert(sessionRef, "Trace context refs did not include session_transcript");
-  assert(memoryRef, "Trace context refs did not include memory");
-  assert(
-    !sourceTypes.includes("conversation"),
-    "Active session transcript was still labelled conversation",
-  );
-  assert(
-    sessionSummary.includes(activeToken),
-    "Session transcript summary did not include active session token",
-  );
-  assert(
-    !sessionSummary.includes(historyToken),
-    "Session transcript summary included historical session token",
-  );
-  assert(
-    memorySummary.includes(memoryToken),
-    "Memory summary did not include governed memory token",
-  );
-  assert(!memorySummary.includes(historyToken), "Memory summary included historical session token");
+  const contextRefs = turnResult.trace_summary?.context_refs ?? [];
+  const sourceTypes = contextRefs.map((ref) => ref.source_type);
+  assert(sourceTypes.includes("current_work"), "Trace context refs did not include current_work");
+  assert(sourceTypes.includes("memory"), "Trace context refs did not include memory");
+  assert(!sourceTypes.includes("session_transcript"), "Retired session_transcript appeared in trace");
+  assert(!JSON.stringify(contextRefs).includes(historyToken), "Historical text appeared in trace sources");
 
   const whyText = await openLatestWhyDialog(page);
   const uiState = await commonUiState(page, turnResult, sentMessage);
-  const unsafePattern = /raw prompt|provider raw|hidden policy|debug|trace_|ctx_/i;
-
   assert(whyText.includes("当前作品背景"), "Why dialog did not show current work source");
-  assert(whyText.includes("当前会话记录"), "Why dialog did not show active session source");
   assert(whyText.includes("已确认设定"), "Why dialog did not show governed memory source");
-  assert(whyText.includes(activeToken), "Why dialog did not show active session summary");
-  assert(whyText.includes(memoryToken), "Why dialog did not show governed memory summary");
-  assert(!whyText.includes(historyToken), "Why dialog included historical transcript content");
-  assert(!unsafePattern.test(whyText), "Why dialog exposed unsafe trace or prompt text");
+  assert(!whyText.includes(historyToken), "Why dialog included historical session content");
+  assert(!/raw prompt|provider raw|hidden policy|debug|trace_|ctx_/i.test(whyText), "Why dialog exposed unsafe trace or prompt text");
 
   return [
     {
       ...uiState,
-      turn_id: turnResult.turn_id,
-      recall_turn_id: turnResult.turn_id,
+      author_turn_id: authorTurnId,
+      message_text: message,
       readonly_session_id: showRecord.session_id,
-      readonly_session_transcript_visible: readOnlyText.includes(historyToken),
+      readonly_session_transcript_visible: true,
       readonly_input_disabled: readonlyInputDisabled,
       active_session_restored: true,
       context_source_types: sourceTypes,
-      context_has_current_work: Boolean(currentWorkRef),
-      context_has_session_transcript: Boolean(sessionRef),
-      context_has_memory: Boolean(memoryRef),
-      context_excludes_conversation_fallback: !sourceTypes.includes("conversation"),
-      context_session_summary_includes_active: sessionSummary.includes(activeToken),
-      context_session_summary_excludes_history: !sessionSummary.includes(historyToken),
-      context_memory_summary_includes_memory: memorySummary.includes(memoryToken),
-      context_memory_summary_excludes_history: !memorySummary.includes(historyToken),
       trace_why_dialog_open: true,
-      trace_why_text: whyText,
-      trace_why_contains_raw_prompt: unsafePattern.test(whyText),
-      why_shows_current_work_source: whyText.includes("当前作品背景"),
-      why_shows_session_source: whyText.includes("当前会话记录"),
-      why_shows_memory_source: whyText.includes("已确认设定"),
-      why_shows_active_session_summary: whyText.includes(activeToken),
-      why_shows_memory_summary: whyText.includes(memoryToken),
-      why_excludes_historical_transcript: !whyText.includes(historyToken),
+      why_shows_current_work_source: true,
+      why_shows_memory_source: true,
+      why_excludes_historical_transcript: true,
       active_session_token: activeToken,
+      current_work_token: "寻找妹妹林瑶",
       memory_token: memoryToken,
       historical_session_token: historyToken,
     },

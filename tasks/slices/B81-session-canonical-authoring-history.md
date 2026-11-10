@@ -622,11 +622,11 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 
 | 范围 | 已成立的事实 | 仍需闭合 |
 |---|---|---|
-| CP1 | 会话消息由已有 `AuthoringSessionLog` 与 run 段头持久化；run 快照、段、消息和 durable 引用走同一提交边界。按会话 `sequence` 组装历史，接续本 run 未提交尾部。旧快照的完整会话语义在写锁内校验，重复覆盖的第二次提交被拒绝并整笔回滚。 | 核查会话读取的一致快照与损坏段拒绝，见 CP2/CP4。 |
-| CP2/CP3 | 步骤共用会话请求视图，按已有消息 run 归属剥离外部历史。`covers.turn_range` 在规划时按各 run 的作者回合派生，首末按会话顺序，当前 run 的作者回合继续受到保护。来源和版本与 IR 校验共用提取规则。 | 检查无初始创作段的专业入口、会话消息与 refs 的同读边界；确认保留的观察及来源/版本进入交错恢复后的实际出站请求。仅含范围的旧 checkpoint 形状尚待退役。 |
-| CP4 | 现有 `AuthoringReplay` 提供会话级回查，既有测试验证三类投影的段往返等价。隔离 SQLite 红灯显示，同一个未知版本段头使请求读端拒绝，会话回查却仍返回 `status: :ok`。 | 让回查与请求读取复用会话级校验，同时保持同一读取快照。红灯在 `artifacts/b81-review/session-replay-corrupt-header-red.log`。 |
-| CP5 | `b81-answer-recheck-01` 的真实页面 D1–D5 通过。`b81-c7-c8-03` 的压缩、重启和失败恢复场景 C1–C11 全过。交错专项 05 与 07 取得真实页面 A 待答、B 整理、A 回答后的同一 run 出站报文。 | 05 与 07 的观察带来源、无版本。05 的 C9 内部标识泄漏归 B86，07 C9 未命中。 |
-| CP6 | 生产代码已退役旧列和旧材料类型；B71 live/behavior 验收从真实作者请求 ACK 定位 canonical 段，读取实际模型工具参数和同作用域引用。对 `b81-answer-recheck-01` 的原始 WS 和 SQLite 做了只读交叉核验，读出本 run 的 21 条消息。 | AU09 的外部 driver/verifier、夹具和质量清单仍断言旧 `session_transcript` 来源。旧种子只写展示用 interactions。迁移时需分别证明当前/历史 canonical 会话在实际请求中的隔离，以及已确认记忆和作品背景的分层。 |
+| CP1 | 会话消息由已有 `AuthoringSessionLog` 与 run 段头持久化。写锁内核对最新历史，重复覆盖的第二次提交整笔回滚。独立读取使用同一 SQLite 快照，提交内读取复用已有事务。 | 见 CP2/CP4 的共同读边界。 |
+| CP2/CP3 | 步骤共用会话请求视图。覆盖范围由原始作者回合和调用归属派生。会话消息和 refs 同读，已采纳正文版本由选中稿件和实际分页范围派生，并进入交错恢复后的 Strata 请求。 | 核查无初始创作段的专业入口；退役仅含范围的旧 checkpoint 形状。 |
+| CP4 | `AuthoringReplay` 与请求装配共用持久层会话快照。坏段未知版本及段头行数不一致均被拒绝，正常空会话保留原义。三类投影的段往返等价已有回归。 | 暂无本轮快照与坏段边界缺口。 |
+| CP5 | 已有 D1–D5 和压缩重启/静默失败恢复场景通过。交错专项取得 A 待答、B 整理、A 回答后的同一 run 请求，版本专项补齐带稿件版本的实际观察。 | 版本专项的主 runner 收尾失败，正文与版本以独立实际请求对账为准。05 的 C9 内部标识泄漏归 B86。 |
+| CP6 | 旧列及旧材料类型已退役。AU09 现使用 canonical 双会话夹具，质量入口 6/6；从当前作者回合绑定两次实际 Provider 请求，验证历史隔离、作品背景及按需记忆观察。 | AU09 本批为外部 Chromium 产品页与确定性 Provider，未补原生 AX 或 live 模型行为。 |
 
 **实模页面发现**。`b81-c5-c6-resume-01` 的 `a3-paused-2.jpg` 与对应 AX 树记录了同一 run 的第二次提问。消息流已经显示第二题，底部回答区仍显示第一题，选项禁用且提示「此问题暂不可回复」。原始 `native-transport.jsonl` 证实两条 `turn_result` 分别携带 `goal_version=1` 与 `goal_version=2` 的 open 问题和各自的 `author_choice`。当前问题应沿用输入路由的 run 与 goal 版本绑定。批次以 `resume_failed` 结束，实际 checkpoint 为 0，C5 缺证、C6 失败。两次 Provider 调用均已落盘 `started.emitted_at`，结束后模型槽为空。验收需从页面回答第二题，核对 ACK 与同一 run 恢复，再检查压缩后的实际请求。
 
@@ -651,6 +651,10 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 **交错恢复页面红绿**。02 中 A 仍待答，B 完成后输入框进入回答语义，问题和选项却消失。问题条取列表末位，输入路由按 B31 选 A。修复后问题条、输入模式和控制坞沿用同一个 run 选择，终止确认绑定打开时的目标。「开始新讨论」只针对当前题，发出后恢复该题的正常语义。04 已捕捉到选项恢复，但共享 AX 等待器引用未定义的 `label` 仍误报缺控件，已用回归修复。05 在真实页面完成 A 四次回答、B 新讨论与 checkpoint、A 第五题回答并继续。B 的序号 27 checkpoint 覆盖 A 一个闭合交换。按原问题帧和 ACK 绑定恢复后 A 首个 Strata 请求 `prun_mwb2z31q_fo/pcall_mwb2z31q_fn`，验证精确覆盖、未重放、6 对保留交换、7 条作者原话及当前 scope 字节一致。证据在 `artifacts/b81-review/live-interleaved-resume-05-wire-canonical.log`。专项不包含重启或故障注入。A 完成时另有序号 36 的 checkpoint，结束前没有它之后的请求，因此原 A3 总检查仍未通过。
 
 **交错专项复验与版本缺口**。07 在最终页面行为和事务实现上重复上述流程。A 第五题 ACK 为 accepted，目标版本 6，恢复请求 `prun_mwb3aeon_b6/pcall_mwb3aeon_b5` 保留 8 对交换、7 条作者原话、2 条带来源的观察和当前 scope。两条观察来自同名章歧义，版本为空。进一步追源发现 `ExplorationService.paged_chapter_observation` 输出章节引用和分页覆盖，未提供 `JudgmentProtocol.observation_payload` 可消费的 `versions`。下一步需在读取到已采纳正文的源头带出实际版本，再验证版本随观察进入后续请求。06 的 B 真实提出消歧问题，批次当时停在待答，驱动随后改为校验页面选项确属目标 run 后继续回答。专项 verifier 复用同一请求解析器，独立匹配实际 WS ACK、SQLite 事件和原生报文；错 run ACK 与缺失观察的两份反例均被拒绝。
+
+**会话读端与正文版本补齐**。同一坏段先复现请求读端拒绝、作者回查误报成功。两条路径改为读取 `AuthoringSessionLog.fetch_session/1` 的同一事务快照并复用段头格式校验和行数对账，移除分开的生产读入口。正文页从已选定的场景采纳稿获取版本，按实际页的字节区间确定来源，阅读 Channel 仍投影原有字段。版本专项 02 在真实 Tauri 页面完成 A/B 交错。A 恢复请求 `prun_mwb40ysa_8s/pcall_mwb40ysa_8r` 的 chapter_read 观察携带实际稿件 revision 2，正文第 1–6000 字符与 SQLite 采纳稿逐字一致。B 输入明确指定章序号与分页偏移，本证据不判模型自主寻址。主 runner 因执行时同一 shell 源文件被修改而在收尾报解析错误，独立请求对账通过，记录在 `artifacts/b81-review/live-interleave-versions-02-selected-draft.log`。
+
+**AU09 来源迁移**。现有夹具用同一组作者与助手消息建立展示 interactions 和 canonical 历史。外部页面打开历史只读会话再返回当前会话。实际调用 `pcall_mwb4h00e_7` 带当前会话作者消息与作品背景，未预装记忆正文；后续 `pcall_mwb4h04z_l` 以同一个工具调用 ID 携带已确认记忆观察。两次请求均排除历史只读会话文本。原文登记材料仍可能引用同一作者原话，verifier 必须找到独立的 prior author message，不能把登记引用当历史证据。质量入口 6/6，证据在 `artifacts/slice-verify/au09-au03-session-memory-layering-tauri/summary.json`。
 
 **全量验证**。会话排序初版后端 3135 项通过，加入交错归属的三条回归后，`mix test --warnings-as-errors` 跑完 10 个 app，共 3138 个测试、0 失败。测试按默认配置排除 `integration` 和 `real_llm`。原生工作台首轮确定性验收 19/19，相关 Node 测试 140/140。全量与 Node 日志分别为 `artifacts/b81-review/full-mix-owner.log`、`artifacts/b81-review/node-owner-final.log`。
 

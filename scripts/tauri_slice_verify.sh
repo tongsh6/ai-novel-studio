@@ -1473,7 +1473,7 @@ native_action_description() {
       echo "seed two works with conflicting memory keywords -> switch A then B from the real work menu -> verify B archive/memory page/recall/why only show current-work memories and exclude A"
       ;;
     au09-au03-session-memory-layering)
-      echo "seed one work with active session + historical session + confirmed memory -> open history read-only -> return active -> verify context/why separates current work, active session transcript, and governed memory without history leakage"
+      echo "seed active/historical canonical history and confirmed memory -> open history read-only -> return active -> bind the provider request to the author turn and verify history, work and memory layering"
       ;;
     au03-session-history-readonly)
       echo "search historical session from real workbench -> open read-only transcript -> verify input/send disabled and pending adoption not restored -> return to active session"
@@ -1805,7 +1805,7 @@ if (evidence) {
       .flatMap((line) => {
         try {
           const record = JSON.parse(line.replace(/^\[[^\]]+\]\s+/, ""));
-          return typeof record.prompt === "string" ? [record] : [];
+          return typeof record.prompt === "string" || record.request_format === "authoring-request-ir/v1" ? [record] : [];
         } catch {
           return [];
         }

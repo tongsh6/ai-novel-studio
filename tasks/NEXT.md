@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B81 | 复核会话消息与 refs 的同读边界、会话回查的坏段拒绝，再迁移 AU09 旧验收来源。 | [B81](slices/B81-session-canonical-authoring-history.md) |
+| B81 | 审计无初始创作段的专业入口，退役仅含范围的旧 checkpoint，并按实际证据复核剩余验收边界。 | [B81](slices/B81-session-canonical-authoring-history.md) |
 
 当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 
