@@ -155,7 +155,9 @@ if [[ "$A3B_SMOKE" == "1" && "$AUTO_MAINTENANCE" != "1" ]]; then
 fi
 
 # 回答模式 gate（等待即回答，确定性 slice_verify + ask_author fixture）。
+# 变量在使用前定义：ANSWER_MODE 的互斥检查引用 MEMORY_DETAIL（set -u 下未定义会 unbound）。
 ANSWER_MODE="${B71_ANSWER_MODE:-}"
+MEMORY_DETAIL="${B71_MEMORY_DETAIL:-}"
 if [[ -n "$ANSWER_MODE" ]]; then
   if [[ "$ANSWER_MODE" != "1" ]]; then
     echo "B71_ANSWER_MODE 只能是 1，实测: $ANSWER_MODE" >&2
@@ -176,7 +178,6 @@ if [[ -n "$ANSWER_MODE" ]]; then
 fi
 
 # 记忆详情/列表 P0 泄漏回归（确定性 slice_verify；需真实记忆数据 seed）。
-MEMORY_DETAIL="${B71_MEMORY_DETAIL:-}"
 if [[ -n "$MEMORY_DETAIL" ]]; then
   if [[ "$MEMORY_DETAIL" != "1" ]]; then
     echo "B71_MEMORY_DETAIL 只能是 1，实测: $MEMORY_DETAIL" >&2
@@ -315,8 +316,10 @@ fi
 # 触发或 steer 预算耗尽；产正式验收证据并由 runner verify（与 A3 跨 run 场景并列）。
 A3_MULTI_TURN="${B71_AUTO_MAINT_MULTI_TURN:-0}"
 if [[ "$A3_MULTI_TURN" == "1" ]]; then
-  if [[ "$AUTO_MAINTENANCE" != "1" ]]; then
-    echo "B71_AUTO_MAINT_MULTI_TURN=1 需要同时设置 B71_AUTO_MAINTENANCE=1" >&2
+  # 回答模式（确定性 ask_author fixture）也走同 run 多回合驱动，但不设置
+  # B71_AUTO_MAINTENANCE（该变量与 ANSWER_MODE 互斥）；此处放行 ANSWER_MODE。
+  if [[ "$AUTO_MAINTENANCE" != "1" && "$ANSWER_MODE" != "1" ]]; then
+    echo "B71_AUTO_MAINT_MULTI_TURN=1 需要同时设置 B71_AUTO_MAINTENANCE=1（或 B71_ANSWER_MODE=1）" >&2
     exit 64
   fi
   if [[ "$A3B_SMOKE" == "1" ]]; then
