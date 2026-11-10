@@ -107,7 +107,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 | CP2 | doing（机制层已实现，页面多轮证据归 CP5） | 每轮请求由会话派生（完整历史；窗口压力时 checkpoint 投影替代更早历史） | 真实页面多轮会话：跨轮上下文/指代/义务 + 请求证据；机制层判据：第 N 轮请求含第 N-1 轮作者原话字节与前序 observation refs | CP1 | `apps/novel_application`（JudgmentProtocol/AgentRunServer）；可能新增 `novel_common` 纯契约（需裁决） |
 | CP3 | doing（机制层已实现；真实多轮页面证据归 CP5） | 压缩作用域=会话历史、触发/细条/回查调整 | G6 压缩后真实请求（真实多轮自然触发）+ 失败静默/幂等 | CP2 | `apps/novel_application`（TranscriptCompaction/AgentRunServer/ContextPressure，跨 run usage 累计）、`frontend/src`（仅在细条/回查需适配时） |
 | CP4 | doing（机制层已实现；真实多轮页面证据归 CP5） | 三类投影/恢复幂等 + 审计/回查以会话为对象（窄化为"投影输入来源变化后的等价性验证"） | 投影/幂等/回查机制证据 | CP2、CP3 | `apps/novel_agent`（投影校验）、`apps/novel_application`（Replay）、`scripts/arch_check.exs`（边界规则细化） |
-| CP5 | todo（建议拆 CP5a/CP5b，见 §9） | 真实页面多轮会话综合验收 + G6 取证（承接 B71 G6） | 页面/机制/实模分层报告（实模不代签）；窗口不可用时按 known-gap 登记规则如实关闭 | CP2–CP4 | `scripts/`（验收 harness）、`artifacts/`（证据，只读保留） |
+| CP5 | doing（机制层证据已有；页面层多轮尝试未闭环，见 §8.6.4b） | 真实页面多轮会话综合验收 + G6 取证（承接 B71 G6） | 页面/机制/实模分层报告（实模不代签）；窗口不可用时按 known-gap 登记规则如实关闭 | CP2–CP4 | `scripts/`（验收 harness）、`artifacts/`（证据，只读保留） |
 | CP6 | doing（机制层已实现；web 全量/页面验证进行中） | 旧 `:session_transcript`/旧装配链/旧 run 级语义退役清理 | 删除后全量门禁 + 无消费者核对 | CP5 | `apps/novel_application`（ContextAssembler/DialoguePlanningService 旧路径）、`apps/novel_persistence`（旧列删除）、测试清理 |
 
 ### 7.1 相关任务与承接关系（登记全）
@@ -473,6 +473,56 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - **验证方法注意（重要，避免误判）**：`novel_web` 全量存在多处 ~45s 既有等待（全量约 9 分钟）；在长时间会话/残留进程/临时库堆积时曾出现「无输出」假挂起——应等待 `Finished`/`EXIT`，或清理进程与临时库后重试；本次在干净环境确认基线 web 196/0，再验证 CP6 版 196/0，排除环境干扰。页面批次首次出现 `OwnershipError: no_element`（窗口元素未就绪的偶发），同代码重跑 19/19 PASS。
 - **边界**：`trace_summary.context_refs` 其余来源（current_work/memory/behavior/continuity…）不变；回放/Why 面板 source type 展示依赖 codegen 名表（已同步）；作者可见面安全约束由既有 TraceRedactor/回放保持。
 
+### 8.6 CP5 验收设计：G6 分层取证（草案 + 2026-11-10 页面层尝试记录）
+
+> 背景：G6（压缩后真实请求）已由 B71 移交 B81 CP5。B71 三次失败归因是「真实模型单轮交换不足 + 压缩作用域是 run」；ADR-0035 后 G6 的对象改为**会话历史**（跨 turn 累计已完成交换 ≥ K 即可自然触发），不再需要构造单 run 异常路径。本节冻结验收设计，不实现、不代签。
+
+#### 8.6.1 场景（作者视角、真实页面、外部自动化）
+
+1. 真实 Tauri 工作台打开作品与活动会话（当前真实入口，无旁路 demo）。
+2. 作者**自然多轮**创作交互（每轮真实请求 → 候选/观察/判断），跨 turn 累计满足压缩触发条件（K=4 已完成交换 + 会话级压力/安全点，触发口径由 CP3 冻结）。
+3. 外部自动化**观察驱动**：每轮读取页面上的真实问题/选项后作答，记录 question→answer 绑定（沿用 B71 obs-01 原则，不用固定 steer 文本刷轮次）。
+4. 安全点自动维护自然触发压缩（不构造异常路径、不改生产阈值凑触发）；页面出现作者可见整理细条/展开。
+5. 压缩后的下一轮请求：真实 provider 请求体（确定性或实模）包含 checkpoint 折叠效果。
+6. 证据：请求 body/IR 字节、页面 AX/截图、WS 帧、app-log、会话 DB（消息行 + checkpoint 消息 + covers）、provider usage。
+
+#### 8.6.2 G6 判据（逐项可机械检查）
+
+| # | 判据 | 证据来源 |
+|---|---|---|
+| G6-1 | 压缩前会话历史中 ≥K 项**已完成**交换真实存在（跨 turn 累计，非单 run 推断） | 会话消息行 + events |
+| G6-2 | 压缩由产品压缩路径产生（checkpoint 消息追加到会话 canonical，`covers.call_ids` 覆盖更早已完成交换；`source_refs/versions/omissions/summary` 完整；覆盖 turn 范围） | 会话 DB + 压缩事件 |
+| G6-3 | 同批幂等：重复安全点不重复追加 checkpoint；失败静默、下一安全点重试 | DB 事件计数/批次日志 |
+| G6-4 | 压缩后真实请求：被覆盖交换折叠为 checkpoint 投影、保留最近 K、作者原话/当前 scope/未覆盖消息原序；`covers` 与请求投影一致 | 请求 body/IR 证据 |
+| G6-5 | 作者可见面：整理细条/展开可读、无技术词、无内部 ref/推理泄漏 | 页面 AX/截图 + 作者安全扫描 |
+| G6-6 | 未完成/未闭合交换不被压缩；当前 scope 与作者原话不被折叠 | 请求证据 + DB |
+
+#### 8.6.3 分层报告（不混报、不代签）
+
+- **机制层**：确定性 provider + 真实页面；压缩由确定性触发条件产生。证据=请求 IR/页面/DB。（CP2 机制测试 + CP3 跨 run 压缩测试 + 真实安全点 T2b 已覆盖）
+- **页面层**：真实 Tauri + 外部自动化多轮场景（§8.6.1）。证据=AX/截图/WS/DB。
+- **实模层**：真实模型多轮自然触发；单独冻结预注册与批次执行，不与机制层混报；窗口不可用时按 known-gap 登记规则如实关闭（该裁决路径见 B71 CP5 承接变更，不阻塞 B71 收口的裁决由作者定）。
+
+#### 8.6.4 防伪与反例（禁止）
+
+- 禁止在 fixture/DB 中直接构造 checkpoint 冒充产品压缩（必须由产品压缩路径产生）。
+- 禁止为触发压缩调整生产阈值、窗口或写死多轮输入文本；观察驱动必须读取真实页面问题/选项。
+- 禁止用「内存 transcript 断言」替代真实请求体证据；G6 的「压缩后真实请求」必须以真实 provider 调用（确定性或实模）的 body/IR 证据为准。
+- 禁止只证明「存在 checkpoint」而不证明「压缩后请求携带折叠投影且保留项正确」（G6-4 必须同时成立）。
+- 禁止重跑换分：批次失败如实登记；预注册冻结场景/判据/预算/模型/seed。
+
+#### 8.6.4b 页面层多轮尝试记录（2026-11-10，真实 strata，未闭环）
+
+- **批次**：`B71_AUTO_MAINTENANCE=1 B71_AUTO_MAINT_MULTI_TURN=1 B71_PROVIDER=strata bash scripts/native_b71_batch.sh cp5-g6-01`（真实 strata 本地模型 + `NOVEL_CONTEXT_WINDOW_OVERRIDES=strata:4096` + 自动维护开启；正式 G6 multi-turn 场景，steer 预算默认 6）。
+- **结果：FAIL（runner verify 未通过；driver 正常结束）**。driver 摘要 `requests=1 triggered=false checkpoint_events=0 failure_silent=false`；verify 失败判据 `C2_auto_maintenance_committed, C3_strip_visible, C4_expanded_factors, C6_canonical_complete, C11_multi_turn_same_run`。
+- **观察到的真实事实**：第一轮真实请求后 run 进入 `awaiting_author`（真实 strata 模型对「两章同名」歧义提问：「作品里有两章标题都叫「灰烬中的手印」，我按哪一章读正文和章计划？」）；driver 的 `recover_answer_surface` 已执行，但**没有产生第二轮真实请求**（`requests=1`）→ steer 预算内未形成「更早工作回合」→ 自动维护未触发。
+- **原因方向（非产品回归）**：`scripts/native_b71_auto_maintenance_drive.mjs` 的「等待即回答」面板识别/发送逻辑在当前控制坞 UI 契约（46 §9.7 底部输入区接管为 role=group aria-label「回答当前问题」）下未成功推进；该 driver 属验收资产，历史 A3 批次同样未闭环（B71 §16.16）。
+- **下一步**：修 driver 回答面板识别/发送（AX 节点契约核对），或调整预注册长请求减少首轮歧义提问（例如指定唯一章名）；修复后重跑该批次取 G6 判据。**G6 仍不代签。**
+
+#### 8.6.5 依赖与顺序
+
+CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4（投影等价/回查）；实模窗口与官方凭证另证（B82）；G6 在 CP5 前不得以机制层证据代签。
+
 ## 9. 剩余后果与阻塞
 
 - 阶段 1 完成不解除跨轮连续性/压缩/G6 的验收缺口；这些由阶段 2/3 承接，未实现前**不代签**。
@@ -502,6 +552,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - 2026-11-08：补充 §1.1 断链定位（schema 时间线 + 三项漏承接）与 §8.0 彻底重构/复用清单（作者确认：系统设计有、实现偏差；彻底重构但复用设计资料和实现）。
 - 2026-11-10：**CP6 机制层实现（旧 `:session_transcript` 材料退役）**：判断材料「会话摘要」段与 conversation 供给删除（4356ec53）；domain 类型/assembler 来源/展示名 SSOT+codegen 删除（bc4d73ad）；测试按退役语义更新。验证：application 1370/0、web 196/0、首轮页面 19/19；**基线 web 与 CP6 版 web 均 196/0**，排除历史环境干扰。详见 §8.5.3。
 - 2026-11-09：**CP6 实施尝试（已回滚）**：按 ADR-0035 决策 9 完成旧 `:session_transcript` 材料退役的生产+测试修改；application 全量 1370/0 通过，但 web 全量在 `WorkspaceChannelScopedEventsTest` 挂起（该测试不经判断链，疑似既有 slow/flake）；为保持门禁绿与不代签，回滚代码并登记验证注意与下轮拆分验证计划（§8.5.3）。
+- 2026-11-10：**CP5 页面层多轮尝试（FAIL，未闭环）**：真实 strata 多轮批次 `cp5-g6-01` 第一轮 awaiting_author 后 driver 未能产生第二轮真实请求（requests=1/triggered=false），G6 判据 C2/C3/C4/C6/C11 未达成；原因方向为 A3 driver 回答面板注入与当前控制坞 UI 契约未匹配（验收资产问题，非产品回归）。同时恢复此前被误删的 §8.6（CP5 验收设计：G6 分层取证）。证据与下一步见 §8.6.4b。
 - 2026-11-09：**CP4 机制层实现（会话级回查 + 投影等价）**：`AuthoringReplay.fetch_session/2`（会话级作者安全摘要）+ `TraceReplayService` 报告 `session_authoring_history`；新增 4 例机制测试（跨 run 摘要/作者安全/空会话/三类投影往返逐字节等价/恢复不改变投影）；run 级回查断言收窄到 `authoring_history`（会话级字段不参与错绑判定）；application+persistence 全量 1370/0。详见 §8.5.2。
 - 2026-11-09：**CP3 收尾：段编解码职责拆分**：`checkpoint/1`/`restore_segment/1`/`append_checkpoint/2` 移入 `AuthoringCheckpoint`（AuthoringTranscript 558→500 行，符合 module-size ratchet；职责回到组装）；测试调用点与 alias 同步；application+persistence 全量 1366/0。
 - 2026-11-09：**CP3 机制层实现（压缩作用域=会话历史）**：修正 CP1「段独立校验」与跨段 checkpoint 的架构冲突——新增段宽松恢复/checkpoint 追加，段校验升级为会话视图完整 IR 校验，压缩路径（显式+安全点）改在会话视图派生、checkpoint 追加本 run 段；新增机制测试与真实安全点跨 run 测试；application+persistence 全量 1366/0、首轮页面 19/19；§9 登记会话级 call_id 唯一约束。详见 §8.5.1。
