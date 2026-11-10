@@ -636,6 +636,10 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 
 **判据收敛**。`after-maintenance.ax.txt` 中现行整理条是可用的 `AXButton`，accessible name 为「查看已整理的较早创作过程」。正式 verifier 识别这一现行控件后只读复评 `b81-c5-c6-resume-02`，C3 通过，C4/C5/C6 结果一致，C9 仍失败。原批次报告保持归档。独立 G6 探针的历史结论只作对账，当前判据由既有 `authoring_auto_maintenance_evidence.mjs` 持有。
 
+**刷新与故障复验起点**。`b81-c7-c8-01` 使用现有 A3 直接续行路径，六个页面回合全部完成，实际请求峰值 80,048 tokens。各回合闭合工具交换数为 2、2、0、0、0、2。第六回合开始前只有 4 个较早交换，刚好等于保留数 K=4。第六回合新增的两个交换仍属当前回合，批次结束前没有 checkpoint，C7/C8 尚缺实际证据。原故障注入还调用了只读 `withDb`，C8 的 `errorEventCount >= 0` 无法证明失败确实发生。
+
+**交错恢复红灯**。真实 SQLite 测试先提交旧 run A 的闭合交换，再由新 run B 提交覆盖 A 调用的 checkpoint。随后恢复 A 返回 `checkpoint_unknown_call`。持久层保留了 A 交换先于 B checkpoint 的顺序，错误发生在请求视图组装。已提交部分应沿用会话序号，局部未提交消息接在其后，恢复结果仍只返回 A 执行段。未闭合工具交换能否由生产并发流程落盘仍需独立证明。
+
 **校验职责**：`TranscriptCompaction` 由已闭合交换和作者消息生成覆盖事实，外部输入不提交 `turn_range`。`AuthoringCheckpoint` 先在解码边界核对 run 身份，再由 `to_request_ir/2` 校验一次会话视图，不在同一路径重验同一份 IR。证据脚本在 DB、WS 与日志的交界处按 ACK/调用身份绑定，避免用终局子回合的 turn_id 推测父回合。
 
 实体存在性审核：复用 `work_sessions`、`AuthoringSessionLog`、`AuthoringSessionHistory`、`AgentRunFlows.AuthoringSession`、`RequestIR`、三类现有投影、`AuthoringReplay` 和现有 G6 探针。此次运行时改动不新增表、schema、Provider 接口或替代事实源。DB 消息行原有 run 归属；运行步骤内对加载的历史消息标记来源，避免按字节相等误删同文本的新作者回合。标记属于临时请求视图，出站投影和落库均不消费该标记。

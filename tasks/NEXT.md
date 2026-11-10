@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B81 | 复核发现跨段请求入口断口和 G6 证据误判。继续验证共用请求视图，补 checkpoint 的覆盖回合范围及压缩后实际请求，清理 CP6 验收残留。当前状态与证据以原任务为准。 | [B81](slices/B81-session-canonical-authoring-history.md) |
+| B81 | 实模已取得 checkpoint 后真实请求及双题页面证据。继续修复交错 run 的恢复顺序，验证真实重启和失败静默重试，再迁移 AU09 旧验收来源。 | [B81](slices/B81-session-canonical-authoring-history.md) |
 
 当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 
