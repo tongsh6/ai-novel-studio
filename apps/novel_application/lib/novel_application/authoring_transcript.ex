@@ -419,8 +419,7 @@ defmodule NovelApplication.AuthoringTranscript do
   defp append_compaction(transcript, checkpoint) do
     compacted = %{transcript | messages: transcript.messages ++ [checkpoint]}
 
-    with :ok <- Compaction.validate(compacted.messages),
-         {:ok, _ir} <- to_request_ir(compacted) do
+    with {:ok, _ir} <- to_request_ir(compacted) do
       {:ok, compacted}
     end
   end

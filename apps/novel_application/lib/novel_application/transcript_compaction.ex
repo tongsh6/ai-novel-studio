@@ -9,8 +9,8 @@ defmodule NovelApplication.TranscriptCompaction do
     变更提案评审）——**保留当前工作回合**与最近 `keep_recent_items` 项已完成交换，
     只整理更早的交换。工作回合以真实用户消息边界（`role == "user"`）为界，不按消息数。
 
-  共同约束：来源 refs 与版本逐字取自选中观察，与 `RequestIR.Compaction` 的证据校验
-  同构；不选中未完成、结果重复或已覆盖的调用；摘要只陈述真实项数与保留边界，不调用
+  共同约束：回合范围、来源 refs 与版本复用 `RequestIR.Compaction` 的派生规则；
+  不选中未完成、结果重复或已覆盖的调用；摘要只陈述真实项数与保留边界，不调用
   模型、不推断未读或已采纳事实；不改写 transcript、不写持久化、不产生 Provider 调用。
 
   第一个真实消费者是 `AgentRunServer` 的压缩路径；作者可见面的安全投影由既有
@@ -18,6 +18,7 @@ defmodule NovelApplication.TranscriptCompaction do
   """
 
   alias NovelApplication.AuthoringTranscript
+  alias NovelCommon.RequestIR.Compaction
 
   @result_types ["observation", "validation_result"]
   @default_keep_recent_items 4
@@ -28,7 +29,7 @@ defmodule NovelApplication.TranscriptCompaction do
   ]
 
   @type plan :: %{
-          required(:covers) => %{call_ids: [String.t()]},
+          required(:covers) => %{call_ids: [String.t()], turn_range: String.t()},
           required(:source_refs) => [map() | String.t()],
           required(:versions) => map(),
           required(:omissions) => [String.t()],
@@ -50,7 +51,7 @@ defmodule NovelApplication.TranscriptCompaction do
 
     case select_call_ids(messages, covered) do
       [] -> {:ok, :nothing_to_compact}
-      call_ids -> {:ok, build_plan(messages, call_ids)}
+      call_ids -> build_plan(messages, call_ids)
     end
   end
 
@@ -86,11 +87,10 @@ defmodule NovelApplication.TranscriptCompaction do
       call_ids ->
         retained_items = (kept ++ current) |> Enum.flat_map(& &1.call_ids) |> length()
 
-        {:ok,
-         build_plan(messages, call_ids,
-           retained_items: retained_items,
-           scope: @maintenance_scope
-         )}
+        build_plan(messages, call_ids,
+          retained_items: retained_items,
+          scope: @maintenance_scope
+        )
     end
   end
 
@@ -195,38 +195,18 @@ defmodule NovelApplication.TranscriptCompaction do
   # ── plan 构造 / 证据派生 ─────────────────────────────────────────────────
 
   defp build_plan(messages, call_ids, extra \\ []) do
-    {source_refs, versions} = evidence(messages, call_ids)
+    with {:ok, turn_range} <- Compaction.turn_range(messages, call_ids) do
+      {source_refs, versions} = Compaction.evidence(messages, call_ids)
 
-    base = %{
-      covers: %{call_ids: call_ids},
-      source_refs: source_refs,
-      versions: versions,
-      omissions: @omissions,
-      summary: "已整理本次任务较早的 #{length(call_ids)} 项已完成操作；这些记录的真实来源与版本仍按原记录保留。"
-    }
+      base = %{
+        covers: %{call_ids: call_ids, turn_range: turn_range},
+        source_refs: source_refs,
+        versions: versions,
+        omissions: @omissions,
+        summary: "已整理本次任务较早的 #{length(call_ids)} 项已完成操作；这些记录的真实来源与版本仍按原记录保留。"
+      }
 
-    Enum.reduce(extra, base, fn {key, value}, acc -> Map.put(acc, key, value) end)
-  end
-
-  # 与 `RequestIR.Compaction.validate_evidence/3` 同构：只看选中观察的 source_refs 与
-  # versions，顺序与合并方式保持一致，避免派生与校验对同一事实给出不同结果。
-  defp evidence(messages, call_ids) do
-    selected = MapSet.new(call_ids)
-
-    observations =
-      for message <- messages,
-          block <- Map.get(message, :blocks, []),
-          Map.get(block, :type) == "observation",
-          MapSet.member?(selected, Map.get(block, :call_id)),
-          do: block
-
-    source_refs = Enum.flat_map(observations, &(Map.get(&1, :source_refs) || []))
-
-    versions =
-      Enum.reduce(observations, %{}, fn block, acc ->
-        Map.merge(acc, Map.get(block, :versions) || %{})
-      end)
-
-    {source_refs, versions}
+      {:ok, Enum.into(extra, base)}
+    end
   end
 end

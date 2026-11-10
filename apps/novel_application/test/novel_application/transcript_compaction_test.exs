@@ -33,6 +33,7 @@ defmodule NovelApplication.TranscriptCompactionTest do
     AuthoringTranscript.new(run(),
       base_text: "run goal: 读取角色事实后给出 tentative 候选",
       author_text: @author_text,
+      author_turn_ref: "turn-1",
       tools: [%{name: "read_character", description: "读取角色", input_schema: %{type: "object"}}]
     )
   end
@@ -75,7 +76,11 @@ defmodule NovelApplication.TranscriptCompactionTest do
     before = transcript.messages
 
     assert {:ok, plan} = TranscriptCompaction.plan(transcript)
-    assert plan.covers == %{call_ids: ["call-1", "call-2"]}
+
+    assert plan.covers == %{
+             call_ids: ["call-1", "call-2"],
+             turn_range: "turn-1"
+           }
 
     assert plan.source_refs == [
              %{ref: "character:1", version: 2},
@@ -120,14 +125,14 @@ defmodule NovelApplication.TranscriptCompactionTest do
       |> AuthoringTranscript.append_assistant("再次读取。", [tool_call("call-2")])
 
     assert {:ok, plan} = TranscriptCompaction.plan(transcript)
-    assert plan.covers == %{call_ids: ["call-1"]}
+    assert plan.covers == %{call_ids: ["call-1"], turn_range: "turn-1"}
   end
 
   test "已经整理过的交换不重复覆盖；没有剩余交换时报 nothing_to_compact" do
     transcript = base_transcript() |> append_exchange("call-1")
 
     assert {:ok, plan} = TranscriptCompaction.plan(transcript)
-    assert plan.covers == %{call_ids: ["call-1"]}
+    assert plan.covers == %{call_ids: ["call-1"], turn_range: "turn-1"}
 
     assert {:ok, compacted} =
              AuthoringTranscript.compact(
@@ -166,7 +171,7 @@ defmodule NovelApplication.TranscriptCompactionTest do
       })
 
     assert {:ok, plan} = TranscriptCompaction.plan(transcript)
-    assert plan.covers == %{call_ids: ["call-1", "call-2"]}
+    assert plan.covers == %{call_ids: ["call-1", "call-2"], turn_range: "turn-1"}
     assert plan.source_refs == [%{ref: "character:1", version: 2}]
     assert plan.versions == %{"character:1" => 2}
   end
@@ -248,12 +253,29 @@ defmodule NovelApplication.TranscriptCompactionTest do
         versions: %{"character:2" => 3}
       )
 
-    assert TranscriptCompaction.plan(transcript) == TranscriptCompaction.plan(transcript)
+    assert {:ok, plan} = TranscriptCompaction.plan(transcript)
+    assert plan.covers == %{call_ids: ["call-1", "call-2"], turn_range: "turn-1"}
+    assert TranscriptCompaction.plan(transcript) == {:ok, plan}
   end
 
   test "nil transcript 如实返回 transcript_not_found，不伪造成功" do
     assert {:error, :transcript_not_found} = TranscriptCompaction.plan(nil)
     assert {:error, :transcript_not_found} = TranscriptCompaction.plan(%{})
+  end
+
+  test "无可绑定作者回合时拒绝派生压缩范围，不伪造 turn_range" do
+    transcript =
+      AuthoringTranscript.new(run(),
+        base_text: "run goal: 不绑定作者回合的续行",
+        allow_authorless: true,
+        tools: [
+          %{name: "read_character", description: "读取角色", input_schema: %{type: "object"}}
+        ]
+      )
+      |> append_exchange("call-1")
+
+    assert {:error, :checkpoint_turn_range_unavailable} =
+             TranscriptCompaction.plan(transcript)
   end
 
   # ── 安全点维护派生（VS-00L §18 提案方向；阶段 4 基础设施） ─────────────────
@@ -267,14 +289,18 @@ defmodule NovelApplication.TranscriptCompactionTest do
 
     # keep=0 隔离验证「当前工作回合永不整理」；默认 K=4 由下一用例单独验证。
     assert {:ok, plan} = TranscriptCompaction.plan_maintenance(transcript, keep_recent_items: 0)
-    assert plan.covers == %{call_ids: ["call-1"]}
+    assert plan.covers == %{call_ids: ["call-1"], turn_range: "turn-1"}
     assert plan.scope == "earlier_work_turns"
     # 当前工作回合的交换（call-2）不计入整理范围，只作为保留项计数。
     assert plan.retained_items == 1
 
     # 显式整理语义不变：仍然整理全部未覆盖完整交换。
     assert {:ok, explicit_plan} = TranscriptCompaction.plan(transcript)
-    assert explicit_plan.covers == %{call_ids: ["call-1", "call-2"]}
+
+    assert explicit_plan.covers == %{
+             call_ids: ["call-1", "call-2"],
+             turn_range: "turn-1..author_turn:turn-2"
+           }
   end
 
   test "维护派生保留最近 keep_recent_items 项，只整理更早的交换" do
@@ -288,7 +314,7 @@ defmodule NovelApplication.TranscriptCompactionTest do
       |> append_exchange("call-5")
 
     assert {:ok, plan} = TranscriptCompaction.plan_maintenance(transcript, keep_recent_items: 2)
-    assert plan.covers == %{call_ids: ["call-1", "call-2"]}
+    assert plan.covers == %{call_ids: ["call-1", "call-2"], turn_range: "turn-1"}
     # 保留 = 最近 2 项（call-3/4）+ 当前工作回合（call-5）。
     assert plan.retained_items == 3
   end
@@ -301,7 +327,7 @@ defmodule NovelApplication.TranscriptCompactionTest do
 
     # 显式整理仍然可以整理当前回合（作者主动选择）。
     assert {:ok, plan} = TranscriptCompaction.plan(transcript)
-    assert plan.covers == %{call_ids: ["call-1"]}
+    assert plan.covers == %{call_ids: ["call-1"], turn_range: "turn-1"}
   end
 
   test "全部交换都在保留线内时维护派生不产生 plan" do
@@ -332,7 +358,7 @@ defmodule NovelApplication.TranscriptCompactionTest do
     assert {:ok, plan} =
              TranscriptCompaction.plan_maintenance(transcript, keep_recent_items: "bad")
 
-    assert plan.covers == %{call_ids: ["call-1"]}
+    assert plan.covers == %{call_ids: ["call-1"], turn_range: "turn-1"}
     assert plan.retained_items == 4
   end
 end

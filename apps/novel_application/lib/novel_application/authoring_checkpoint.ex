@@ -165,8 +165,8 @@ defmodule NovelApplication.AuthoringCheckpoint do
     record = normalize(record)
 
     with {:ok, transcript} <- restore_from_parts(header, messages),
-         :ok <- validate_in_session(record, transcript) do
-      validate_identity(record, transcript.run)
+         :ok <- validate_identity(record, transcript.run) do
+      validate_in_session(transcript)
     end
   end
 
@@ -239,8 +239,8 @@ defmodule NovelApplication.AuthoringCheckpoint do
 
       {:ok, %{header: header, messages: messages}} ->
         with {:ok, transcript} <- restore_from_parts(header, messages),
-             :ok <- validate_in_session(record, transcript),
-             :ok <- validate_identity(record, transcript.run) do
+             :ok <- validate_identity(record, transcript.run),
+             :ok <- validate_in_session(transcript) do
           {:ok, transcript}
         end
 
@@ -267,14 +267,15 @@ defmodule NovelApplication.AuthoringCheckpoint do
   # 段 transcript 允许含跨段 checkpoint（covers 指向会话历史中的更早交换），因此
   # 完整 IR 校验必须放在「会话视图」上：历史（排除本 run 已提交消息）+ 本 run 段。
   # 首轮/无历史时视图就是段本身，与 CP1 校验强度一致。
-  defp validate_in_session(_record, %{run: run} = transcript) do
+  defp validate_in_session(%{run: run} = transcript) do
     # 用 canonical run envelope 的 run_id/session_id 读取历史：restore 的 record 是
     # 归一化后的存储行（id/字段名可能与 envelope 不同），不能作为排除当前 run 的依据。
     with {:ok, history} <- AuthoringSessionHistory.fetch(run) do
       {view, _history_count} = AuthoringSessionHistory.compose(transcript, history)
 
-      with {:ok, ir} <- AuthoringTranscript.to_request_ir(view) do
-        RequestIR.validate(ir)
+      case AuthoringTranscript.to_request_ir(view) do
+        {:ok, _ir} -> :ok
+        error -> error
       end
     end
   end

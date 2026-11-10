@@ -46,6 +46,48 @@ defmodule NovelCommon.RequestIR.Compaction do
   def require_call_ids(%{call_ids: _}), do: {:error, :checkpoint_invalid_call_ids}
   def require_call_ids(_), do: {:error, :checkpoint_call_ids_required}
 
+  @doc "从选中调用所在的作者回合派生首末范围；只有 call_ids 决定投影折叠。"
+  @spec turn_range([map()], [String.t()]) :: {:ok, String.t()} | {:error, atom()}
+  def turn_range(messages, ids) do
+    selected = MapSet.new(ids)
+
+    {_, turns} =
+      Enum.reduce(messages, {nil, []}, fn
+        %{role: "user", provenance: "author"} = message, {_, turns} ->
+          {author_turn_ref(message), turns}
+
+        %{role: "assistant"} = message, {turn, turns} ->
+          if Enum.any?(block_ids([message], ["tool_call"]), &MapSet.member?(selected, &1)),
+            do: {turn, [turn | turns]},
+            else: {turn, turns}
+
+        _, acc ->
+          acc
+      end)
+
+    case turns do
+      [last | _] ->
+        if nil in turns,
+          do: {:error, :checkpoint_turn_range_unavailable},
+          else: {:ok, format_range(List.last(turns), last)}
+
+      [] ->
+        {:error, :checkpoint_turn_range_unavailable}
+    end
+  end
+
+  defp author_turn_ref(%{source_refs: [ref]}) do
+    case reference_identity(ref) do
+      {id, _} when is_binary(id) -> if String.trim(id) != "", do: id
+      _ -> nil
+    end
+  end
+
+  defp author_turn_ref(_message), do: nil
+
+  defp format_range(first, first), do: first
+  defp format_range(first, last), do: first <> ".." <> last
+
   defp validate_message(message, {history, covered}) do
     result =
       Enum.reduce_while(checkpoint_blocks(message), {:ok, covered}, fn block, {:ok, previous} ->
@@ -62,10 +104,12 @@ defmodule NovelCommon.RequestIR.Compaction do
   end
 
   defp validate_checkpoint(%{covers: %{call_ids: ids} = covers} = block, history, covered) do
+    messages = Enum.reverse(history)
+
     with :ok <- require_call_ids(covers),
          :ok <- validate_selection(ids, history, covered),
          :ok <- validate_omissions(block),
-         :ok <- validate_evidence(block, ids, history) do
+         :ok <- validate_evidence(block, ids, messages) do
       {:ok, MapSet.union(covered, MapSet.new(ids))}
     end
   end
@@ -101,16 +145,25 @@ defmodule NovelCommon.RequestIR.Compaction do
   defp validate_omissions(%{omissions: [_ | _]}), do: :ok
   defp validate_omissions(_), do: {:error, :checkpoint_omissions_required}
 
-  defp validate_evidence(block, ids, history) do
+  @doc "从选中观察提取原始来源和版本，供规划和校验共同使用。"
+  @spec evidence([map()], [String.t()]) :: {[map() | String.t()], map()}
+  def evidence(messages, ids) do
+    selected = MapSet.new(ids)
+
     observations =
-      for message <- Enum.reverse(history),
+      for message <- messages,
           observation <- Map.get(message, :blocks, []),
           Map.get(observation, :type) == "observation",
-          Map.get(observation, :call_id) in ids,
+          MapSet.member?(selected, Map.get(observation, :call_id)),
           do: observation
 
     refs = Enum.flat_map(observations, &Map.get(&1, :source_refs, []))
     versions = Enum.reduce(observations, %{}, &Map.merge(&2, Map.get(&1, :versions, %{})))
+    {refs, versions}
+  end
+
+  defp validate_evidence(block, ids, messages) do
+    {refs, versions} = evidence(messages, ids)
 
     if reference_identities(refs) == reference_identities(Map.get(block, :source_refs, [])) and
          versions == Map.get(block, :versions, %{}),
