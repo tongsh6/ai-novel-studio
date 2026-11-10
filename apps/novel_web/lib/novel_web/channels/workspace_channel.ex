@@ -664,7 +664,8 @@ defmodule NovelWeb.WorkspaceChannel do
             |> Enum.sum()
         })
 
-        {:reply, {:ok, data}, socket}
+        scenes = Enum.map(data.scenes, &Map.take(&1, [:id, :title, :content]))
+        {:reply, {:ok, %{data | scenes: scenes}}, socket}
 
       {:error, :not_found} ->
         LogEmit.emit(:channel, :get_chapter_content, :error, %{

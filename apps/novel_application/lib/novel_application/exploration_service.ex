@@ -51,6 +51,7 @@ defmodule NovelApplication.ExplorationService do
           required(:query) => String.t(),
           required(:summary) => String.t(),
           required(:refs) => [String.t()],
+          optional(:versions) => %{String.t() => pos_integer()},
           required(:outcome) => observation_outcome(),
           required(:facts) => map(),
           optional(:activity_summary) => String.t(),
@@ -552,7 +553,7 @@ defmodule NovelApplication.ExplorationService do
               offset,
               prose,
               total,
-              content.word_count
+              content
             )
         end
 
@@ -624,9 +625,14 @@ defmodule NovelApplication.ExplorationService do
          offset,
          prose,
          total,
-         word_count
+         content
        ) do
     {page_text, page_end, next_offset} = chapter_page(prose, offset, total)
+    word_count = content.word_count
+    start_byte = byte_size(String.slice(prose, 0, offset))
+
+    versions =
+      chapter_page_versions(content.scenes, start_byte, start_byte + byte_size(page_text))
 
     sections =
       header_sections(work_id, chapter, volume, offset) ++
@@ -644,11 +650,34 @@ defmodule NovelApplication.ExplorationService do
        activity_summary: chapter_activity_summary(chapter, offset, page_end, total, word_count),
        extra:
          Map.merge(chapter_identity_keys(chapter), %{
+           versions: versions,
            next_offset: next_offset,
            prose_total_chars: total,
            prose_range: %{start: offset + 1, end: page_end}
          })
      )}
+  end
+
+  # 以拼接后的字节区间相交判断来源。场景边界的换行可能和前一场末尾组成 CRLF。
+  defp chapter_page_versions(scenes, page_start, page_end) do
+    {versions, _position} =
+      Enum.reduce(scenes, {%{}, 0}, fn scene, {versions, start_byte} ->
+        end_byte = start_byte + byte_size(scene.content)
+
+        versions =
+          case scene.draft_version do
+            {ref, revision}
+            when start_byte < page_end and end_byte > max(page_start, start_byte) ->
+              Map.put(versions, ref, revision)
+
+            _outside_page ->
+              versions
+          end
+
+        {versions, end_byte + 1}
+      end)
+
+    versions
   end
 
   # 【计划】【摘要】只在首页（offset=0）返回；续读页不重复（I-EXPLORE-READ-3 的

@@ -128,10 +128,13 @@ defmodule NovelPersistence.ReadingProjectionRepo do
 
       scene_views =
         Enum.map(scenes, fn scene ->
+          draft = Map.get(drafts_by_scene, scene.id)
+
           %{
             id: scene.id,
             title: scene.title,
-            content: drafts_by_scene |> Map.get(scene.id) |> draft_content()
+            content: draft_content(draft),
+            draft_version: draft && {"draft:#{draft.id}", draft.revision}
           }
         end)
 

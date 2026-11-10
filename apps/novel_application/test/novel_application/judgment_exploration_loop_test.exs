@@ -217,7 +217,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   end
 
   test "探索续读全回环：章节索引 ref → page1 → page2（JSON offset）→ reply 引用末页独有事实" do
-    {work_id, chapter_ref} = seed_work_with_full_chapter()
+    {work_id, chapter_ref, versions} = seed_work_with_full_chapter()
     chapter_id = String.replace_prefix(chapter_ref, "chapter:", "")
     test_pid = self()
 
@@ -338,6 +338,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     observation = Enum.find(tool_message.blocks, &(&1.type == "observation"))
     assert observation.next_offset == 6000
     assert chapter_ref in observation.source_refs
+    assert observation.versions == versions
 
     # 第 3 轮：reply 引用末页独有事实（字节透传观察），单一 turn 收束
     snapshot3 = %{empty | stage_state: Map.merge(snapshot2.stage_state, explore2.stage_state)}
@@ -352,6 +353,12 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     third_prompt = Enum.find(third_prompts, &String.contains?(&1, @last_page_anchor))
     assert third_prompt
     [third_prompt_map] = drain_prompt_maps([])
+
+    assert for(
+             %{role: "tool", blocks: blocks} <- third_prompt_map.messages,
+             %{type: "observation"} = block <- blocks,
+             do: block.versions
+           ) == [versions, versions]
 
     assert Enum.take(third_prompt_map.messages, length(second_prompt_map.messages)) ==
              second_prompt_map.messages
@@ -390,7 +397,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   end
 
   test "探索 progress signature：同页重复同签名（命中 no-progress），不同 offset 签名不同" do
-    {work_id, chapter_ref} = seed_work_with_full_chapter()
+    {work_id, chapter_ref, _versions} = seed_work_with_full_chapter()
     fixed_run_id = "run_b24_signature"
     empty = %{stage_state: %{}, observations: [], events: [], stage_sink: fn _ -> :ok end}
 
@@ -587,45 +594,14 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   end
 
   defp seed_work_with_full_chapter do
-    {:ok, work} = WorkService.create(%{"title" => "全章审核验证作品"})
-
-    volume =
-      %Volume{}
-      |> Volume.changeset(%{work_id: work.id, title: "卷一", seq: 1})
-      |> Repo.insert!()
-
-    chapter =
-      %Chapter{}
-      |> Chapter.changeset(%{
-        work_id: work.id,
-        volume_id: volume.id,
-        title: @full_read_title,
-        seq: 1
-      })
-      |> Repo.insert!()
-
-    scene =
-      %Scene{}
-      |> Scene.changeset(%{work_id: work.id, chapter_id: chapter.id, title: "场1", seq: 1})
-      |> Repo.insert!()
-
     base = "灰烬从指缝里漏下去，井底的风把纸灰卷成一条细线，他数着自己的呼吸等回声。"
     pad = 7000 - String.length(@first_page_anchor) - String.length(@last_page_anchor)
     middle = String.duplicate(base, div(pad, String.length(base)) + 1) |> String.slice(0, pad)
     prose = @first_page_anchor <> middle <> @last_page_anchor
     assert String.length(prose) == 7000
 
-    %Draft{}
-    |> Draft.changeset(%{
-      work_id: work.id,
-      scene_id: scene.id,
-      content: prose,
-      status: AdoptionStatus.accepted(),
-      revision: 1
-    })
-    |> Repo.insert!()
-
-    {work.id, "chapter:#{chapter.id}"}
+    {work_id, chapter_id, draft} = seed_work_with_draft("全章审核验证作品", @full_read_title, prose)
+    {work_id, "chapter:#{chapter_id}", %{"draft:#{draft.id}" => draft.revision}}
   end
 
   # ── 脚本执行 ──
@@ -761,7 +737,14 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   end
 
   defp seed_work_with_prose do
-    {:ok, work} = WorkService.create(%{"title" => "灵气矿工"})
+    {work_id, _chapter_id, _draft} =
+      seed_work_with_draft("灵气矿工", "第01章：底层灵气账单", @prose)
+
+    work_id
+  end
+
+  defp seed_work_with_draft(work_title, chapter_title, prose) do
+    {:ok, work} = WorkService.create(%{"title" => work_title})
 
     volume =
       %Volume{}
@@ -773,7 +756,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
       |> Chapter.changeset(%{
         work_id: work.id,
         volume_id: volume.id,
-        title: "第01章：底层灵气账单",
+        title: chapter_title,
         seq: 1
       })
       |> Repo.insert!()
@@ -783,16 +766,17 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
       |> Scene.changeset(%{work_id: work.id, chapter_id: chapter.id, title: "场1", seq: 1})
       |> Repo.insert!()
 
-    %Draft{}
-    |> Draft.changeset(%{
-      work_id: work.id,
-      scene_id: scene.id,
-      content: @prose,
-      status: AdoptionStatus.accepted(),
-      revision: 1
-    })
-    |> Repo.insert!()
+    draft =
+      %Draft{}
+      |> Draft.changeset(%{
+        work_id: work.id,
+        scene_id: scene.id,
+        content: prose,
+        status: AdoptionStatus.accepted(),
+        revision: 1
+      })
+      |> Repo.insert!()
 
-    work.id
+    {work.id, chapter.id, draft}
   end
 end

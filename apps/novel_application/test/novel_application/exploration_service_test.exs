@@ -284,6 +284,39 @@ defmodule NovelApplication.ExplorationServiceTest do
 
   @long_title "灰烬中的手印"
 
+  test "chapter_read 只携带当前页实际读到的采纳稿版本" do
+    first_prose = String.duplicate("烬", 5999) <> "\r"
+    {work_id, chapter_id} = seed_work_with_chapter(@long_title, first_prose)
+    first_scene = Repo.get_by!(Scene, chapter_id: chapter_id, seq: 1)
+    first_draft = Repo.get_by!(Draft, scene_id: first_scene.id)
+
+    second_scene =
+      %Scene{}
+      |> Scene.changeset(%{work_id: work_id, chapter_id: chapter_id, title: "场2", seq: 2})
+      |> Repo.insert!()
+
+    second_draft =
+      %Draft{}
+      |> Draft.changeset(%{
+        work_id: work_id,
+        scene_id: second_scene.id,
+        content: "井底浮现第二枚手印",
+        status: AdoptionStatus.accepted(),
+        revision: 3
+      })
+      |> Repo.insert!()
+
+    chapter_ref = "chapter:#{chapter_id}"
+    assert {:ok, page1} = ExplorationService.run(work_id, "chapter_read", chapter_ref)
+    assert page1.next_offset == 6000
+    assert page1.versions == %{"draft:#{first_draft.id}" => first_draft.revision}
+
+    query = Jason.encode!(%{chapter_ref: chapter_ref, offset: page1.next_offset})
+    assert {:ok, page2} = ExplorationService.run(work_id, "chapter_read", query)
+    assert page2.summary =~ second_draft.content
+    assert page2.versions == %{"draft:#{second_draft.id}" => second_draft.revision}
+  end
+
   test "chapter_read v2：长章两页覆盖——首页 6000 + 续读页余量，首尾相接无重叠无缺口" do
     anchor = "末页独有锚点"
     prose = long_prose(7000 - String.length(anchor)) <> anchor
