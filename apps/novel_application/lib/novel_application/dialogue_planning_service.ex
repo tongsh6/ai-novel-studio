@@ -1257,9 +1257,7 @@ defmodule NovelApplication.DialoguePlanningService do
     by_type =
       Enum.group_by(refs, fn ref -> Map.get(ref, :source_type) end)
 
-    conversation_ref =
-      Enum.find(by_type[:session_transcript] || [], fn _ -> true end) ||
-        Enum.find(by_type[:conversation] || [], fn _ -> true end)
+    conversation_ref = Enum.find(by_type[:conversation] || [], fn _ -> true end)
 
     supplied_refs =
       []
@@ -1505,7 +1503,6 @@ defmodule NovelApplication.DialoguePlanningService do
       "chapters",
       "pending_candidates",
       "named_chapter",
-      "conversation",
       "interaction",
       "behavior",
       "explorations",
@@ -2227,7 +2224,8 @@ defmodule NovelApplication.DialoguePlanningService do
       {"chapters", judgment_stable_chapters_section(context)},
       {"pending_candidates", judgment_pending_candidates_section(context)},
       {"named_chapters", judgment_named_chapters_section(context, author_text)},
-      {"conversation", judgment_conversation_section(context)},
+      # B81 CP6：旧会话记录材料段退役（ADR-0035 决策 9）——会话 canonical 历史由
+      # CP2 作为完整消息进入请求派生，不再在判断材料里重复摘要。
       {"behavior", context.open_behavior_summary || ""}
     ]
   end
@@ -2242,7 +2240,6 @@ defmodule NovelApplication.DialoguePlanningService do
   # 可用性状态来自 ContextAssembler（生产 fetcher 逐来源 safe 包装），旧构造缺省时保持既有语义。
   @availability_labels %{
     work: "当前作品事实",
-    conversation: "会话历史",
     memory: "相关记忆",
     behavior: "未完成行为/上轮状态",
     chapters: "章节事实",
@@ -2407,13 +2404,6 @@ defmodule NovelApplication.DialoguePlanningService do
   defp entry_title(entry), do: Map.get(entry, :title, "")
 
   defp entry_key(entry), do: {entry_title(entry), Map.get(entry, :seq), Map.get(entry, :id)}
-
-  defp judgment_conversation_section(%DialogueContext{conversation_summary: summary})
-       when is_binary(summary) and summary != "" do
-    "## 会话摘要\n#{summary}"
-  end
-
-  defp judgment_conversation_section(_context), do: ""
 
   defp emit_judgment_decided(snapshot, judgment) do
     emit_judgment_stage(

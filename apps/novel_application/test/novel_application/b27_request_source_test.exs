@@ -64,23 +64,23 @@ defmodule NovelApplication.B27RequestSourceTest do
     |> NovelApplication.TestAgenticLoopFixtures.prompt_text()
   end
 
-  test "普通 profile：supplied=实际渲染的 work/conversation/behavior；memory 为 available-not-supplied" do
+  test "普通 profile：supplied=实际渲染的 work/behavior；conversation/memory available-not-supplied（CP6 会话材料退役）" do
     context = context_with_all_sources()
     input = protocol_input(context, "judgment_loop_v1")
     prompt = prompt_text(input)
 
-    assert length(input.supplied_context_refs) == 3
-    assert length(input.available_context_refs) == 1
+    assert length(input.supplied_context_refs) == 2
+    assert length(input.available_context_refs) == 2
 
     by_id = Map.new(context.context_refs, &{&1.context_ref, &1.source_type})
     supplied_types = input.supplied_context_refs |> Enum.map(&by_id[&1]) |> Enum.sort()
     available_types = input.available_context_refs |> Enum.map(&by_id[&1])
 
-    assert supplied_types == [:behavior, :conversation, :current_work]
-    assert available_types == [:memory]
+    assert supplied_types == [:behavior, :current_work]
+    assert Enum.sort(available_types) == [:conversation, :memory]
 
     assert prompt =~ "B27 同源请求复现作品"
-    assert prompt =~ "会话摘要：作者上一轮确认主角在查旧账。"
+    refute prompt =~ "会话摘要：作者上一轮确认主角在查旧账。"
     assert prompt =~ "上轮开放行为：等待作者确认是否下井。"
     refute prompt =~ "相关记忆：作者确认主角动机是查清灯楼旧账"
 
@@ -88,7 +88,7 @@ defmodule NovelApplication.B27RequestSourceTest do
              Enum.filter(input.rendered_context_sections, &is_binary/1)
 
     assert "work" in input.rendered_context_sections
-    assert "conversation" in input.rendered_context_sections
+    refute "conversation" in input.rendered_context_sections
     assert "behavior" in input.rendered_context_sections
     refute "memory" in input.rendered_context_sections
   end

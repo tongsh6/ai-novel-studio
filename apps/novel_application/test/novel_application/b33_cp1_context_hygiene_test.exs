@@ -163,7 +163,10 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
     IO.puts("B33 CP1 prompt chars: default=#{default_chars} write_cropped=#{write_chars}")
 
     assert write_chars < default_chars
-    assert write_chars * 5 < default_chars * 3
+
+    # CP6 退役会话摘要材料后默认判断 prompt 变短，保留「写作判断显著更短」的意图；
+    # 门槛按实际比例（≈0.60）留出余量，而不是绑定到某次绝对字节数。
+    assert write_chars * 3 < default_chars * 2
     assert diagnostics.prompt_chars == production_chars
     assert diagnostics.prompt_tokens == div(production_chars, 4)
     assert diagnostics.cropped == true
