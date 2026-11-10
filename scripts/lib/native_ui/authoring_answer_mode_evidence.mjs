@@ -52,6 +52,8 @@ function readAnswerModeDbFacts(dir) {
       agent_events: rows("agent_events"),
       provider_runs: rows("provider_runs"),
       interactions: rows("interactions"),
+      // B81 CP1 后 canonical 创作历史在会话级消息表；answer-mode 判据只读当前批次。
+      authoring_session_messages: rows("authoring_session_messages"),
     };
   });
 }
@@ -131,7 +133,10 @@ export function evaluateAnswerMode({ dbFacts, driverLog = null, cleanup = null, 
   const runs = list(dbFacts?.agent_runs);
   const events = list(dbFacts?.agent_events);
   const providerRuns = list(dbFacts?.provider_runs);
-  const messages = runs.flatMap((run) => parseTranscript(run?.authoring_transcript));
+  // CP1/B81：agent_runs.authoring_transcript 已退役，canonical 消息在会话级消息表。
+  const messages = list(dbFacts?.authoring_session_messages)
+    .map((row) => (typeof row?.message === "string" ? JSON.parse(row.message) : row?.message))
+    .filter((message) => message && typeof message === "object");
   const userTurns = messages.filter((message) => message?.role === "user").length;
   const eventTypes = events.map((event) => String(event?.event_type ?? ""));
   const runCount = runs.length;
