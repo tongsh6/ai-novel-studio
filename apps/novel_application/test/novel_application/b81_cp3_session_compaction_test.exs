@@ -97,8 +97,7 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
 
     segment = second_round_segment()
     assert {:ok, history} = AuthoringSessionHistory.fetch(segment.run)
-    {view, history_count} = AuthoringSessionHistory.compose(segment, history)
-    assert history_count > 0
+    view = AuthoringSessionHistory.compose(segment, history)
 
     # 1) 会话视图上派生计划：保留最近 4 项已完成交换，整理 run1 最早 1 项。
     assert {:ok, plan} = TranscriptCompaction.plan_maintenance(view, keep_recent_items: 4)
@@ -125,7 +124,7 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
     assert is_map(stored)
 
     # 4) 压缩后的会话视图投影折叠被覆盖的历史交换；原始消息保留在 canonical 视图。
-    {compacted_view, _count} = AuthoringSessionHistory.compose(compacted_segment, history)
+    compacted_view = AuthoringSessionHistory.compose(compacted_segment, history)
     assert {:ok, compacted_ir} = AuthoringTranscript.to_request_ir(compacted_view)
     assert {:ok, body} = Projection.project(compacted_ir, "chat_completions")
     projected_ids = collect_provider_message_ids(body)
@@ -148,7 +147,7 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
     assert {:ok, history} =
              AuthoringSessionHistory.fetch(%{run_id: "run-cp3-next", session_id: "sess-cp3"})
 
-    {view, _count} =
+    view =
       AuthoringSessionHistory.compose(base_transcript("run-cp3-next", "下一轮"), history)
 
     assert {:ok, :nothing_to_compact} =
@@ -191,6 +190,40 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
       assert judgment.transcript.run.run_id == "run-cp3-b81-1"
       refute Enum.any?(judgment.transcript.messages, &message_has_text?(&1, @history_author_text))
       assert Enum.any?(judgment.transcript.messages, &message_has_text?(&1, @current_author_text))
+    end
+
+    test "已组装标记视图作为当前 transcript 且 input 无显式历史时，协议层保留会话前缀给外层" do
+      seed_run!(base_transcript("run-cp3-view-1", "更早会话作者原话"))
+
+      segment = base_transcript("run-cp3-view-2", @current_author_text)
+      assert {:ok, history} = AuthoringSessionHistory.fetch(segment.run)
+      view = AuthoringSessionHistory.compose(segment, history)
+      assert Enum.any?(view.messages, &(Map.get(&1, :session_history_run_id) == "run-cp3-view-1"))
+
+      input =
+        b81_input(view, nil)
+        |> Map.delete(:session_history)
+
+      assert {:ok, judgment} =
+               JudgmentProtocol.request_judgment(
+                 execution([response("本轮判断完成。", [])]),
+                 %{},
+                 input
+               )
+
+      assert_received {:provider_request, %RequestIR{messages: request_messages}}
+      assert Enum.any?(request_messages, &message_has_text?(&1, "更早会话作者原话"))
+
+      # 外层 AuthoringSession 仍需按归属剥离；协议层不得提前移除会话视图前缀。
+      assert Enum.any?(
+               judgment.transcript.messages,
+               &message_has_text?(&1, "更早会话作者原话")
+             )
+
+      assert Enum.any?(
+               judgment.transcript.messages,
+               &(Map.get(&1, :session_history_run_id) == "run-cp3-view-1")
+             )
     end
 
     test "历史已闭合同名 judgment_decision 复用时 canonical 化并保留 provider_call_id" do

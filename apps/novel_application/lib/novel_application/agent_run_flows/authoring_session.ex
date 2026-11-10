@@ -34,7 +34,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
   def with_request_view(%{run: run} = snapshot, execute) do
     with {:ok, history} <- AuthoringSessionHistory.fetch(run) do
       snapshot
-      |> request_view(AuthoringSessionHistory.mark_for_request(history))
+      |> request_view(history)
       |> execute.()
       |> strip_result_history()
     end
@@ -48,8 +48,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
         Map.put(snapshot, :initial_session_history, history)
 
       segment ->
-        {view, _count} = AuthoringSessionHistory.compose(segment, history)
-        snapshot(snapshot, view)
+        snapshot(snapshot, AuthoringSessionHistory.compose(segment, history))
     end
   end
 

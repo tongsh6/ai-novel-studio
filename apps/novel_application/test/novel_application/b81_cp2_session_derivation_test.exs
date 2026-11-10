@@ -95,6 +95,20 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
     }
   end
 
+  defp history_rows(run_id, messages) do
+    messages
+    |> Enum.with_index(1)
+    |> Enum.map(fn {message, sequence} ->
+      %{
+        sequence: sequence,
+        run_id: run_id,
+        run_sequence: sequence,
+        role: message.role,
+        message: message
+      }
+    end)
+  end
+
   test "第二轮请求含第一轮作者原话与历史观察，base 唯一且最前，段视图不含历史" do
     seed_first_round!()
 
@@ -149,10 +163,19 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
   describe "协议层合并视图（纯输入，无 DB）" do
     test "base 唯一且最前、历史原序、当前作者最后、refs 会话累计" do
       history = %{
-        messages: [
-          %{role: "user", provenance: "author", blocks: [%{type: "text", text: "上一轮作者原话"}]},
-          %{role: "assistant", provenance: "model", blocks: [%{type: "text", text: "上一轮助手回复"}]}
-        ],
+        rows:
+          history_rows("run-cp2-history", [
+            %{
+              role: "user",
+              provenance: "author",
+              blocks: [%{type: "text", text: "上一轮作者原话"}]
+            },
+            %{
+              role: "assistant",
+              provenance: "model",
+              blocks: [%{type: "text", text: "上一轮助手回复"}]
+            }
+          ]),
         refs: %{
           base_refs: [%{"ref" => "chapter:one"}],
           observation_refs: [%{"ref" => "chapter:two"}],
@@ -174,9 +197,14 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
 
     test "transcript_for_production 仍是本 run 段视图（持久化边界不含历史）" do
       history = %{
-        messages: [
-          %{role: "user", provenance: "author", blocks: [%{type: "text", text: "历史作者原话"}]}
-        ],
+        rows:
+          history_rows("run-cp2-history", [
+            %{
+              role: "user",
+              provenance: "author",
+              blocks: [%{type: "text", text: "历史作者原话"}]
+            }
+          ]),
         refs: %{base_refs: [], observation_refs: [], used_refs: []}
       }
 

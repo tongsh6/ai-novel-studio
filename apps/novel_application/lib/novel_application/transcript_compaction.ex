@@ -7,7 +7,8 @@ defmodule NovelApplication.TranscriptCompaction do
   - `plan/1`：作者显式整理——选择当前**全部**「未覆盖且已闭合」的完整工具交换。
   - `plan_maintenance/2`：安全点自动维护（阶段 4 基础设施；触发门控于 VS-00L §18
     变更提案评审）——**保留当前工作回合**与最近 `keep_recent_items` 项已完成交换，
-    只整理更早的交换。工作回合以真实用户消息边界（`role == "user"`）为界，不按消息数。
+    只整理更早的交换。工作回合以本 run 的本地作者消息（`role == "user"` 且无外 run
+    归属）为界，不按消息数；外 run 的交错作者消息不移动本 run 的当前回合起点。
 
   共同约束：回合范围、来源 refs 与版本复用 `RequestIR.Compaction` 的派生规则；
   不选中未完成、结果重复或已覆盖的调用；摘要只陈述真实项数与保留边界，不调用
@@ -17,6 +18,7 @@ defmodule NovelApplication.TranscriptCompaction do
   `AuthoringReplay` 统一负责，本模块不回传内部 ref/call_id。
   """
 
+  alias NovelApplication.AuthoringSessionHistory
   alias NovelApplication.AuthoringTranscript
   alias NovelCommon.RequestIR.Compaction
 
@@ -131,15 +133,21 @@ defmodule NovelApplication.TranscriptCompaction do
     end)
   end
 
-  # 当前工作回合起点 = 最后一条作者消息（`role == "user"`）的位置；该位置之后的交换
-  # 永不进入维护范围。没有作者消息时不整理（保守失败方向）。
+  # 当前工作回合起点 = 本 run 最后一条本地作者消息（`role == "user"`，无外 run 归属）
+  # 的位置；该位置之后的交换永不进入维护范围。外 run 作者消息不能移动本 run 的
+  # 保护起点。没有本地作者消息时不整理（保守失败方向）。
   defp current_turn_start(messages) do
     messages
     |> Enum.with_index()
     |> Enum.reduce(0, fn {message, index}, acc ->
-      if Map.get(message, :role) == "user", do: index, else: acc
+      if local_author_message?(message), do: index, else: acc
     end)
   end
+
+  defp local_author_message?(%{role: "user"} = message),
+    do: is_nil(AuthoringSessionHistory.session_history_run_id(message))
+
+  defp local_author_message?(_message), do: false
 
   # 从最近往前保留至少 keep 项（按 call 计），更早的组进入整理范围。
   defp split_groups(groups, keep) do
@@ -195,7 +203,12 @@ defmodule NovelApplication.TranscriptCompaction do
   # ── plan 构造 / 证据派生 ─────────────────────────────────────────────────
 
   defp build_plan(messages, call_ids, extra \\ []) do
-    with {:ok, turn_range} <- Compaction.turn_range(messages, call_ids) do
+    with {:ok, turn_range} <-
+           Compaction.turn_range(
+             messages,
+             call_ids,
+             &AuthoringSessionHistory.session_history_run_id/1
+           ) do
       {source_refs, versions} = Compaction.evidence(messages, call_ids)
 
       base = %{

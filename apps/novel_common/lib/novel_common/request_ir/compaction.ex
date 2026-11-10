@@ -46,35 +46,71 @@ defmodule NovelCommon.RequestIR.Compaction do
   def require_call_ids(%{call_ids: _}), do: {:error, :checkpoint_invalid_call_ids}
   def require_call_ids(_), do: {:error, :checkpoint_call_ids_required}
 
-  @doc "从选中调用所在的作者回合派生首末范围；只有 call_ids 决定投影折叠。"
-  @spec turn_range([map()], [String.t()]) :: {:ok, String.t()} | {:error, atom()}
-  def turn_range(messages, ids) do
+  @doc """
+  从选中调用所在的作者回合派生首末范围；只有 call_ids 决定投影折叠。
+
+  `attribution` 是显式归属访问器：为每条消息返回归属键（例如外 run 的 run_id），
+  `nil` 表示当前执行段。每个归属各自绑定自己最近的作者回合；范围首末按作者消息
+  在输入中的位置（会话顺序），不按调用的完成/开始顺序。
+  """
+  @spec turn_range([map()], [String.t()], (map() -> term())) ::
+          {:ok, String.t()} | {:error, atom()}
+  def turn_range(messages, ids, attribution)
+      when is_list(messages) and is_list(ids) and is_function(attribution, 1) do
     selected = MapSet.new(ids)
 
-    {_, turns} =
-      Enum.reduce(messages, {nil, []}, fn
-        %{role: "user", provenance: "author"} = message, {_, turns} ->
-          {author_turn_ref(message), turns}
-
-        %{role: "assistant"} = message, {turn, turns} ->
-          if Enum.any?(block_ids([message], ["tool_call"]), &MapSet.member?(selected, &1)),
-            do: {turn, [turn | turns]},
-            else: {turn, turns}
-
-        _, acc ->
-          acc
+    {_turns_by_scope, turns} =
+      messages
+      |> Enum.with_index()
+      |> Enum.reduce({%{}, []}, fn {message, index}, {turns_by_scope, turns} ->
+        accumulate_turn(message, index, attribution.(message), selected, turns_by_scope, turns)
       end)
 
     case turns do
-      [last | _] ->
-        if nil in turns,
-          do: {:error, :checkpoint_turn_range_unavailable},
-          else: {:ok, format_range(List.last(turns), last)}
-
       [] ->
         {:error, :checkpoint_turn_range_unavailable}
+
+      turns ->
+        if Enum.any?(turns, &match?({_index, nil}, &1)) do
+          {:error, :checkpoint_turn_range_unavailable}
+        else
+          {:ok, format_range(first_turn(turns), last_turn(turns))}
+        end
     end
   end
+
+  # 每个归属只记住自己最近的作者回合；跨 run 交错时不能共用会话级「最后一条作者」。
+  defp accumulate_turn(
+         %{role: "user", provenance: "author"} = message,
+         index,
+         scope,
+         _selected,
+         turns_by_scope,
+         turns
+       ) do
+    {Map.put(turns_by_scope, scope, {index, author_turn_ref(message)}), turns}
+  end
+
+  defp accumulate_turn(
+         %{role: "assistant"} = message,
+         _index,
+         scope,
+         selected,
+         turns_by_scope,
+         turns
+       ) do
+    if Enum.any?(block_ids([message], ["tool_call"]), &MapSet.member?(selected, &1)) do
+      {turns_by_scope, [Map.get(turns_by_scope, scope, {nil, nil}) | turns]}
+    else
+      {turns_by_scope, turns}
+    end
+  end
+
+  defp accumulate_turn(_message, _index, _scope, _selected, turns_by_scope, turns),
+    do: {turns_by_scope, turns}
+
+  defp first_turn(turns), do: turns |> Enum.min_by(&elem(&1, 0)) |> elem(1)
+  defp last_turn(turns), do: turns |> Enum.max_by(&elem(&1, 0)) |> elem(1)
 
   defp author_turn_ref(%{source_refs: [ref]}) do
     case reference_identity(ref) do

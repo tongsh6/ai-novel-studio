@@ -271,7 +271,7 @@ defmodule NovelApplication.AuthoringCheckpoint do
     # 用 canonical run envelope 的 run_id/session_id 读取历史：restore 的 record 是
     # 归一化后的存储行（id/字段名可能与 envelope 不同），不能作为排除当前 run 的依据。
     with {:ok, history} <- AuthoringSessionHistory.fetch(run) do
-      {view, _history_count} = AuthoringSessionHistory.compose(transcript, history)
+      view = AuthoringSessionHistory.compose(transcript, history)
 
       case AuthoringTranscript.to_request_ir(view) do
         {:ok, _ir} -> :ok

@@ -2,8 +2,8 @@ defmodule NovelApplication.AuthoringSessionHistoryTest do
   @moduledoc """
   B81 CP2：会话历史 → 请求派生视图（application 层组装）的机制测试。
 
-  覆盖：无历史 nil、跨 run 历史读取（排除当前 run 与历史 base）、refs 会话累计、
-  compose 顺序（当前 base 最前 → 历史原序 → 当前段消息）、strip 恢复段视图、
+  覆盖：无已提交消息 nil、会话行读取（含当前 run，排除 base）、refs 会话累计、
+  compose 顺序（当前 base → 已提交行原序 → 当前段未提交尾部）、按归属 strip、
   身份缺失/段头损坏 fail-closed。
   """
 
@@ -70,7 +70,42 @@ defmodule NovelApplication.AuthoringSessionHistoryTest do
     transcript(run_id, opts) |> seed_transcript!(run_id)
   end
 
-  test "无历史 run 返回 nil（首轮行为与 CP1 一致）" do
+  defp history(run_id, messages, refs \\ %{}) do
+    rows =
+      messages
+      |> Enum.with_index(1)
+      |> Enum.map(fn {message, sequence} ->
+        %{
+          sequence: sequence,
+          run_id: run_id,
+          run_sequence: sequence,
+          role: message.role,
+          message: message
+        }
+      end)
+
+    %{
+      rows: rows,
+      refs:
+        Map.merge(
+          %{base_refs: [], observation_refs: [], used_refs: []},
+          refs
+        )
+    }
+  end
+
+  defp fetch!(run_id) do
+    assert {:ok, history} =
+             AuthoringSessionHistory.fetch(%{run_id: run_id, session_id: "sess-history"})
+
+    history
+  end
+
+  defp message_text(%{blocks: blocks}) do
+    Enum.map_join(blocks, "", &(Map.get(&1, :text) || ""))
+  end
+
+  test "只有本 run 已提交行时返回 nil（局部已拥有完整顺序）" do
     seed_run!("run-history-first")
 
     assert {:ok, nil} =
@@ -80,39 +115,51 @@ defmodule NovelApplication.AuthoringSessionHistoryTest do
              })
   end
 
-  test "跨 run 历史只包含其他 run 的消息，排除历史 application_base" do
-    first = seed_run!("run-history-1", author_text: "上一轮作者原话")
+  test "存在外 run 已提交行时才返回全序 rows（含当前 run）" do
+    seed_run!("run-history-1", author_text: "上一轮作者原话")
 
-    assert {:ok, history} =
-             AuthoringSessionHistory.fetch(%{run_id: "run-history-2", session_id: "sess-history"})
+    assert {:ok, nil} =
+             AuthoringSessionHistory.fetch(%{
+               run_id: "run-history-1",
+               session_id: "sess-history"
+             })
 
-    refute Enum.any?(history.messages, &(&1.role == "application_base"))
-    assert Enum.any?(history.messages, &(&1.role == "user"))
-    assert length(history.messages) == length(first.messages) - 1
+    assert Enum.map(fetch!("run-history-2").rows, & &1.run_id) == ["run-history-1"]
+
+    seed_run!("run-history-2", author_text: "当前 run 作者原话")
+    history = fetch!("run-history-2")
+
+    assert Enum.map(history.rows, & &1.run_id) == ["run-history-1", "run-history-2"]
+    refute Enum.any?(history.rows, &(&1.role == "application_base"))
+    assert Enum.any?(history.rows, &(&1.role == "user"))
   end
 
   test "refs 按会话累计（历史段头 refs 并集）" do
     seed_run!("run-refs-1", base_refs: [%{ref: "base-1"}])
 
-    assert {:ok, history} =
-             AuthoringSessionHistory.fetch(%{run_id: "run-refs-2", session_id: "sess-history"})
-
+    history = fetch!("run-refs-2")
     assert history.refs.base_refs == [%{"ref" => "base-1"}]
     assert is_list(history.refs.observation_refs)
     assert is_list(history.refs.used_refs)
   end
 
-  test "compose 保持当前 base 最前、历史次之、当前段消息最后" do
-    history = %{
-      messages: [
-        %{role: "user", provenance: "author", blocks: [%{type: "text", text: "历史作者"}]}
-      ],
-      refs: %{
-        base_refs: [%{"ref" => "base-history"}],
-        observation_refs: [%{"ref" => "obs-history"}],
-        used_refs: []
-      }
-    }
+  test "compose 保持当前 base 最前、已提交行原序、当前段未提交尾部最后" do
+    history =
+      history(
+        "run-history-other",
+        [
+          %{
+            role: "user",
+            provenance: "author",
+            blocks: [%{type: "text", text: "历史作者"}]
+          }
+        ],
+        %{
+          base_refs: [%{"ref" => "base-history"}],
+          observation_refs: [%{"ref" => "obs-history"}],
+          used_refs: []
+        }
+      )
 
     segment =
       AuthoringTranscript.new(identity("run-compose"),
@@ -121,43 +168,44 @@ defmodule NovelApplication.AuthoringSessionHistoryTest do
       )
       |> AuthoringTranscript.append_author_turn("当前作者", "author_turn:current")
 
-    {merged, history_count} = AuthoringSessionHistory.compose(segment, history)
+    view = AuthoringSessionHistory.compose(segment, history)
 
-    assert history_count == 1
-    assert [%{role: "application_base"} = base | _] = merged.messages
+    assert [%{role: "application_base"} = base | _] = view.messages
     assert base == hd(segment.messages)
 
-    last = List.last(merged.messages)
-    assert last.blocks |> hd() |> Map.get(:text) == "当前作者"
+    assert List.last(view.messages).blocks |> hd() |> Map.get(:text) == "当前作者"
 
-    assert [%{ref: "base-history"} | _] = merged.base_refs
-    assert Enum.any?(merged.observation_refs, &(&1.ref == "obs-history"))
+    history_message = Enum.find(view.messages, &(message_text(&1) == "历史作者"))
+    assert history_message.session_history_run_id == "run-history-other"
+    refute Map.has_key?(List.last(view.messages), :session_history_run_id)
+
+    assert [%{ref: "base-history"} | _] = view.base_refs
+    assert Enum.any?(view.observation_refs, &(&1.ref == "obs-history"))
   end
 
-  test "strip 恢复当前 run 段视图（历史前缀被剥离，base 保留）" do
+  test "strip_request_history 按归属剥离外 run 行，恢复当前 run 段" do
     segment =
       transcript("run-strip")
       |> AuthoringTranscript.append_author_turn("当前作者", "author_turn:current")
 
-    history = %{
-      messages: [
+    history =
+      history("run-history-other", [
         %{role: "user", provenance: "author", blocks: [%{type: "text", text: "历史1"}]},
         %{role: "assistant", provenance: "model", blocks: [%{type: "text", text: "历史2"}]}
-      ],
-      refs: %{base_refs: [], observation_refs: [], used_refs: []}
-    }
+      ])
 
-    {merged, history_count} = AuthoringSessionHistory.compose(segment, history)
-    stripped = AuthoringSessionHistory.strip(merged, history_count)
+    view = AuthoringSessionHistory.compose(segment, history)
+    stripped = AuthoringSessionHistory.strip_request_history(view)
 
     assert stripped.messages == segment.messages
     assert length(stripped.messages) == length(segment.messages)
+    assert stripped.call_ids == segment.call_ids
   end
 
   test "nil 历史 compose/strip 是恒等变换" do
     segment = transcript("run-nil")
-    assert {^segment, 0} = AuthoringSessionHistory.compose(segment, nil)
-    assert AuthoringSessionHistory.strip(segment, 0) == segment
+    assert AuthoringSessionHistory.compose(segment, nil) == segment
+    assert AuthoringSessionHistory.strip_request_history(segment) == segment
   end
 
   test "会话身份缺失视为无历史；段头损坏 fail-closed 不静默退化" do

@@ -58,44 +58,51 @@ defmodule NovelApplication.JudgmentProtocol do
 
     if is_function(result_fn, 1) do
       with {:ok, segment} <- transcript_for_production(input, profile) do
-        {request_transcript, history_count} = compose_session_history(segment, input, snapshot)
+        {request_transcript, strip_history?} = compose_session_history(segment, input, snapshot)
 
         result_fn
         |> invoke(request_transcript, input, profile, 1)
-        |> strip_session_history(history_count)
+        |> strip_session_history(strip_history?)
       end
     else
       {:error, :provider_execution_required}
     end
   end
 
-  # 步骤快照已携带会话视图，只有新建的首段需要前置历史；步骤结束统一剥离。
+  # 步骤快照已携带会话视图，由外层 AuthoringSession 统一剥离；直接输入的历史在此
+  # 按归属剥离，不保留按位置计数的第二套剥离口径。input 无显式历史时，transcript
+  # 可能就是外层已组装的标记视图，原样交给外层，协议层不提前剥离。
   defp compose_session_history(transcript, _input, %{initial_session_history: history}) do
-    {view, _count} = AuthoringSessionHistory.compose(transcript, history)
-    {view, 0}
+    {AuthoringSessionHistory.compose(transcript, history), false}
   end
 
-  defp compose_session_history(transcript, input, _snapshot),
-    do: AuthoringSessionHistory.compose(transcript, Map.get(input, :session_history))
+  defp compose_session_history(transcript, input, _snapshot) do
+    case Map.get(input, :session_history) do
+      nil -> {transcript, false}
+      history -> {AuthoringSessionHistory.compose(transcript, history), true}
+    end
+  end
 
-  defp strip_session_history({:ok, judgment}, history_count) when is_map(judgment) do
-    {:ok, Map.update!(judgment, :transcript, &AuthoringSessionHistory.strip(&1, history_count))}
+  defp strip_session_history(result, false), do: result
+
+  defp strip_session_history({:ok, judgment}, true) when is_map(judgment) do
+    {:ok, Map.update!(judgment, :transcript, &AuthoringSessionHistory.strip_request_history/1)}
   end
 
   defp strip_session_history(
          {:error, reason, %{judgment_transcript: transcript} = state},
-         history_count
+         true
        )
        when is_map(transcript) do
     {:error, reason,
      Map.put(
        state,
        :judgment_transcript,
-       AuthoringSessionHistory.strip(transcript, history_count)
+       AuthoringSessionHistory.strip_request_history(transcript)
      )}
   end
 
-  defp strip_session_history(result, _history_count), do: result
+  defp strip_session_history(result, _strip_history?), do: result
 
   @doc "当前 run 的唯一请求事实源；每次 Provider body 都是它的瞬时投影。"
   @spec transcript_for_production(map(), atom()) ::
@@ -126,7 +133,7 @@ defmodule NovelApplication.JudgmentProtocol do
   @spec request_for_production(map(), atom()) :: RequestIR.t()
   def request_for_production(input, profile \\ :judgment) do
     with {:ok, segment} <- transcript_for_production(input, profile),
-         {request_transcript, _history_count} <- compose_session_history(segment, input, %{}),
+         {request_transcript, _strip_history?} <- compose_session_history(segment, input, %{}),
          {:ok, request} <- prepare_request(request_transcript, profile) do
       request
     else

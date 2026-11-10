@@ -2294,8 +2294,7 @@ defmodule NovelApplication.AgentRunServer do
       {:ok, nil}
     else
       with {:ok, history} <- AuthoringSessionHistory.fetch(state.run) do
-        {view, _history_count} = AuthoringSessionHistory.compose(transcript, history)
-        {:ok, view}
+        {:ok, AuthoringSessionHistory.compose(transcript, history)}
       end
     end
   end

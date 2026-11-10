@@ -41,8 +41,9 @@ defmodule NovelApplication.AuthoringOperation do
     case AuthoringSession.transcript(snapshot) do
       nil ->
         with {:ok, segment} <- AuthoringTranscript.from_request_ir(ir) do
-          {view, _count} = AuthoringSessionHistory.compose(segment, history)
-          AuthoringTranscript.to_request_ir(view)
+          segment
+          |> AuthoringSessionHistory.compose(history)
+          |> AuthoringTranscript.to_request_ir()
         end
 
       _transcript ->

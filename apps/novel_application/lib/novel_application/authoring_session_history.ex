@@ -7,10 +7,12 @@ defmodule NovelApplication.AuthoringSessionHistory do
   - 不新增 `novel_common` 纯契约；会话历史读取经 persistence 读端口
     （`AuthoringSessionLog.fetch_session_messages/1`、
     `fetch_session_refs/1`），组装在 application 内完成。
-  - **请求派生视图** = 当前 run 段 transcript 前置会话历史消息；**run 执行段
-    transcript 不受影响**（持久化仍只落本 run 消息，`strip/2` 在请求边界剥离）。
-  - 历史消息排除当前 run 已提交消息（避免重复）与历史 `application_base`
-    （base 是应用注入的稳定说明，由当前 run 的 base 唯一承载，保证请求前缀稳定）。
+  - **请求派生视图** = 当前 `application_base` 一次 → 全部非 base 已提交消息
+    （会话 sequence 原序，含当前 run 已提交行）→ 当前段未提交尾部；**run 执行段
+    transcript 不受影响**（持久化仍只落本 run 消息）。
+  - 外 run 的已提交消息在视图上临时标记 `session_history_run_id`（实际归属
+    run_id，不入库）；本 run 已提交行与局部新增消息不带标记。请求边界按同一
+    归属标记一次剥离，当前 run 已提交行不重复拼接本地副本。
   - refs 按会话累计合并（base/observation/used，按 ref 值去重；历史在前、当前在后），
     使 I-ART-9（used_refs ⊆ base ∪ observation）在跨 turn 观察下仍可机械校验。
   """
@@ -19,8 +21,18 @@ defmodule NovelApplication.AuthoringSessionHistory do
   alias NovelCommon.RequestIR
   alias NovelPersistence.AuthoringSessionLog
 
+  @history_run_id_key :session_history_run_id
+
+  @type row :: %{
+          required(:run_id) => String.t(),
+          required(:message) => map(),
+          optional(:sequence) => pos_integer(),
+          optional(:run_sequence) => pos_integer(),
+          optional(:role) => String.t()
+        }
+
   @type t :: %{
-          messages: [map()],
+          rows: [row()],
           refs: %{
             base_refs: list(),
             observation_refs: list(),
@@ -29,9 +41,10 @@ defmodule NovelApplication.AuthoringSessionHistory do
         }
 
   @doc """
-  读取本 run 的会话历史视图；无历史消息时返回 `{:ok, nil}`。
+  读取本会话已提交的 canonical 行；只有存在外 run 的非 base 行时才返回全序 rows
+  （含当前 run），否则返回 `{:ok, nil}`（当前段局部已拥有完整顺序）。
 
-  当前 run 已提交消息与会话级 `application_base` 不计入历史（见 moduledoc）。
+  `application_base` 不计入历史（base 由当前 run 唯一承载，保证请求前缀稳定）。
   会话身份缺失视为「无会话历史可派生」（首轮/非会话入口，行为与 CP1 一致）；
   有会话但段头损坏/版本未知 fail-closed（不静默把它当成空历史）。
   """
@@ -40,51 +53,49 @@ defmodule NovelApplication.AuthoringSessionHistory do
     session_id = field(run, :session_id)
 
     # 无会话身份 = 无会话历史可派生（首轮/非会话入口），不是损坏。
-    if nonblank?(session_id), do: fetch_session(run, session_id), else: {:ok, nil}
+    if nonblank?(session_id),
+      do: fetch_session(session_id, field(run, :run_id)),
+      else: {:ok, nil}
   end
 
-  defp fetch_session(run, session_id) do
+  defp fetch_session(session_id, run_id) do
     with {:ok, refs} <- AuthoringSessionLog.fetch_session_refs(session_id) do
-      session_id
-      |> history_messages(field(run, :run_id))
-      |> history_view(refs)
+      rows =
+        session_id
+        |> AuthoringSessionLog.fetch_session_messages()
+        |> Enum.reject(&(field(&1, :role) == "application_base"))
+
+      # 只有本 run 自己的已提交行时，局部段已有完整顺序，不归并自身历史 refs。
+      if Enum.any?(rows, &(field(&1, :run_id) != run_id)),
+        do: history_view(rows, refs),
+        else: {:ok, nil}
     end
   end
 
-  defp history_messages(session_id, run_id) do
-    session_id
-    |> AuthoringSessionLog.fetch_session_messages()
-    |> Enum.reject(&(field(&1, :run_id) == run_id or field(&1, :role) == "application_base"))
-    |> Enum.map(&field(&1, :message))
-    |> AuthoringTranscript.normalize_messages()
-  end
-
-  defp history_view([], _refs), do: {:ok, nil}
-  defp history_view(messages, refs), do: {:ok, %{messages: messages, refs: refs}}
+  defp history_view(rows, refs), do: {:ok, %{rows: rows, refs: refs}}
 
   @doc """
-  把会话历史前置到当前 run 的段 transcript，返回 `{请求派生视图, 历史消息数}`。
+  把会话已提交行与当前段拼成请求派生视图，直接返回 view。
 
-  顺序：当前 run 的 `application_base` 保持最前 → 历史消息（会话 sequence 原序）→
-  当前 run 其余消息（scope/作者/…）。refs 合并为会话累计（按 ref 值去重）。
+  顺序：当前 `application_base` 最前 → 已提交非 base 行按会话 sequence 原序 →
+  当前段未提交尾部。当前 run 已提交行数与本地段前缀一致（写入边界已保证不可变），
+  因此用非 base 已提交计数取本地未提交尾部，不重复拼接已提交副本。
 
-  `nil` 历史（首轮）返回原 transcript 与 0，行为与 CP1 完全一致。
+  `nil` 历史（首轮）返回原 transcript，行为与 CP1 完全一致。
   """
-  @spec compose(AuthoringTranscript.t(), t() | nil) ::
-          {AuthoringTranscript.t(), non_neg_integer()}
-  def compose(transcript, nil), do: {transcript, 0}
+  @spec compose(AuthoringTranscript.t(), t() | nil) :: AuthoringTranscript.t()
+  def compose(transcript, nil), do: transcript
 
-  def compose(transcript, %{messages: history_messages, refs: refs})
-      when is_list(history_messages) and is_map(refs) do
+  def compose(transcript, %{rows: rows, refs: refs}) when is_list(rows) and is_map(refs) do
+    run_id = field(transcript.run, :run_id)
     {base, rest} = split_base(transcript.messages)
+    committed_count = Enum.count(rows, &(field(&1, :run_id) == run_id))
+    tail = Enum.drop(rest, committed_count)
 
     messages =
-      case base do
-        nil -> history_messages ++ rest
-        base_message -> [base_message] ++ history_messages ++ rest
-      end
+      List.wrap(base) ++ committed_messages(rows, run_id) ++ tail
 
-    merged = %{
+    %{
       transcript
       | messages: messages,
         base_refs: merge_refs(Map.get(refs, :base_refs, []), transcript.base_refs),
@@ -92,43 +103,40 @@ defmodule NovelApplication.AuthoringSessionHistory do
           merge_refs(Map.get(refs, :observation_refs, []), transcript.observation_refs),
         used_refs: merge_refs(Map.get(refs, :used_refs, []), transcript.used_refs)
     }
-
-    {merged, length(history_messages)}
   end
 
-  @doc "为步骤内的临时请求视图标明来自已提交历史的消息。"
-  def mark_for_request(nil), do: nil
+  defp committed_messages(rows, run_id) do
+    run_ids = Enum.map(rows, &field(&1, :run_id))
 
-  def mark_for_request(history) do
-    Map.update!(
-      history,
-      :messages,
-      &Enum.map(&1, fn message ->
-        Map.put(message, :session_history_message, true)
-      end)
-    )
+    rows
+    |> Enum.map(&field(&1, :message))
+    |> AuthoringTranscript.normalize_messages()
+    |> Enum.zip(run_ids)
+    |> Enum.map(fn {message, row_run_id} ->
+      if row_run_id == run_id,
+        do: message,
+        else: Map.put(message, @history_run_id_key, row_run_id)
+    end)
   end
 
-  @doc "只剥离确由步骤请求视图带入的历史消息；相同文本不能作为归属判断。"
+  @doc """
+  视图消息的外 run 归属；`nil` 表示本 run 已提交行或本 run 局部新增消息。
+
+  归属是请求视图的临时事实：只用于按 run 剥离与按 run 绑定作者回合，不持久化。
+  """
+  @spec session_history_run_id(map()) :: String.t() | nil
+  def session_history_run_id(message) when is_map(message),
+    do: Map.get(message, @history_run_id_key)
+
+  def session_history_run_id(_message), do: nil
+
+  @doc "按归属剥离视图中的外 run 已提交消息，恢复当前 run 段。"
   def strip_request_history(%{messages: messages} = transcript) do
-    segment = Enum.reject(messages, &Map.get(&1, :session_history_message, false))
+    segment = Enum.reject(messages, &session_history_run_id/1)
     %{transcript | messages: segment, call_ids: RequestIR.call_ids(segment)}
   end
 
   def strip_request_history(transcript), do: transcript
-
-  @doc "从已知长度的请求视图剥离历史前缀，恢复当前 run 段。"
-  @spec strip(AuthoringTranscript.t(), non_neg_integer()) :: AuthoringTranscript.t()
-  def strip(transcript, 0), do: transcript
-
-  def strip(transcript, history_count)
-      when is_integer(history_count) and history_count > 0 and is_list(transcript.messages) do
-    {base, rest} = split_base(transcript.messages)
-    messages = List.wrap(base) ++ Enum.drop(rest, history_count)
-    %{transcript | messages: messages, call_ids: RequestIR.call_ids(messages)}
-  end
-
-  def strip(transcript, _history_count), do: transcript
 
   # 段 transcript 的首条消息是当前 run 的 application_base；历史合并时保持它最前，
   # 保证 Provider 请求前缀稳定（I-CACHE）与 base 唯一。
