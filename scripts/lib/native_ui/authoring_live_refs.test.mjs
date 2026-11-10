@@ -79,6 +79,42 @@ test("canonical 段消息自报与段头 used_refs 合并，再并入 decision_t
   assert.deepEqual(traces.trace_ids, ["trace_1"]);
 });
 
+test("自报只认 assistant+model 的 tool_call；缺报/空 refs/仿造路径与非法值不计", () => {
+  const parsed = parseSegmentUsedRefs({
+    messages: [
+      { role: "assistant", provenance: "model", blocks: [
+        { type: "tool_call" },
+        { type: "tool_call", arguments: {} },
+        { type: "tool_call", arguments: { self_report: { used_context_refs: [] } } },
+        { type: "tool_call", arguments: { self_report: { used_context_refs: "observation:obs_bad" } } },
+        { type: "tool_call", arguments: { self_report: { used_context_refs: ["observation:obs_1", 42, ""] } } },
+        { type: "observation", arguments: { self_report: { used_context_refs: ["observation:obs_fake"] } } },
+      ] },
+      { role: "assistant", provenance: "application", blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: ["observation:obs_app"] } } }] },
+      { role: "tool", provenance: "model", blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: ["observation:obs_tool"] } } }] },
+    ],
+    used_refs: ["chapter:ch-a", { ref: "chapter:ch-b" }, { ref: 42 }, 42, null, ""],
+  });
+  assert.deepEqual(parsed.used_refs, ["chapter:ch-a", "chapter:ch-b", "observation:obs_1"]);
+  assert.equal(parsed.self_report_count, 2);
+});
+
+test("L7 unknown：真实模型缺报或空 refs 不伪造 used，即使 wire 有材料也不假过", () => {
+  const result = liveRefsCheck({
+    llmRecords: [request([applicationBase("材料：chapter:ch-1"), author()])],
+    transcript: {
+      messages: [
+        { role: "assistant", provenance: "model", blocks: [{ type: "tool_call", arguments: {} }] },
+        { role: "assistant", provenance: "model", blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: [] } } }] },
+      ],
+      used_refs: [],
+    },
+  });
+  assert.equal(result.ok, null);
+  assert.equal(result.reason, "used_context_refs_unavailable");
+  assert.equal(result.sources.self_report_count, 1);
+});
+
 test("ref 归一：execution_brief:chapter 内嵌身份与 observation 前缀可比较", () => {
   assert.deepEqual(refVariants("execution_brief:chapter:ch-1").sort(), [
     "chapter:ch-1",

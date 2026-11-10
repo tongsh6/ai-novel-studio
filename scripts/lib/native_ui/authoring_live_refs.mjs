@@ -98,28 +98,42 @@ export function parseAgentEventRefs(rows) {
   return [...observation].sort();
 }
 
+// 段头 used_refs 是产品已校验快照，可为 string 或 { ref }；非字符串/空串不计。
+function readSegmentHeaderRefs(usedRefs) {
+  const refs = [];
+  for (const value of usedRefs) {
+    const ref = typeof value === "string" ? value : value?.ref;
+    if (typeof ref === "string" && ref !== "") refs.push(ref);
+  }
+  return refs;
+}
+
+function addStringRefs(values, used) {
+  for (const value of values) if (typeof value === "string" && value !== "") used.add(value);
+}
+
+// 工具参数自报只取 assistant+model 的 tool_call.arguments.self_report；
+// 应用/观察仿造路径不计，真实模型可省略 report。
+function readMessageSelfReport(message, used) {
+  if (message.role !== "assistant" || message.provenance !== "model") return 0;
+  let count = 0;
+  for (const block of message.blocks) {
+    if (block.type !== "tool_call") continue;
+    const refs = block.arguments?.self_report?.used_context_refs;
+    if (!Array.isArray(refs)) continue;
+    count += 1;
+    addStringRefs(refs, used);
+  }
+  return count;
+}
+
 // canonical 段消息内的模型自报 used_context_refs（非权威、非 APP 推算；B27 §9 / HO5）。
-// 段头 used_refs 是产品已校验快照，与消息内原始自报合并；两者都缺 → unknown。
+// readAuthoringHistory 已保证 messages/used_refs/blocks 均为数组；transcript=null 表示缺证。
 export function parseSegmentUsedRefs(transcript) {
-  const messages = Array.isArray(transcript?.messages) ? transcript.messages : [];
-  const used = new Set();
+  if (transcript === null) return { used_refs: [], self_report_count: 0 };
+  const used = new Set(readSegmentHeaderRefs(transcript.used_refs));
   let selfReportCount = 0;
-
-  for (const message of messages) {
-    if (message.role !== "assistant" || message.provenance !== "model") continue;
-    for (const block of message.blocks ?? []) {
-      if (block.type !== "tool_call") continue;
-      const refs = block.arguments?.self_report?.used_context_refs;
-      if (!Array.isArray(refs)) continue;
-      selfReportCount += 1;
-      for (const ref of refs) if (typeof ref === "string" && ref !== "") used.add(ref);
-    }
-  }
-
-  for (const ref of Array.isArray(transcript?.used_refs) ? transcript.used_refs : []) {
-    const value = typeof ref === "string" ? ref : ref?.ref;
-    if (typeof value === "string" && value !== "") used.add(value);
-  }
+  for (const message of transcript.messages) selfReportCount += readMessageSelfReport(message, used);
   return { used_refs: [...used].sort(), self_report_count: selfReportCount };
 }
 
