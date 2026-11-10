@@ -825,8 +825,13 @@ async function runMultiTurnFlow({ report, requests }) {
   }
   // G6 尝试（answer-mode）：首 run 完成后补发一轮新请求（新 turn）。首 run 的交换
   // 已完整进入会话 canonical 历史，第二轮 run 的安全点才具备「可压缩的更早工作
-  // 回合」（压缩对象=会话历史，ADR-0035）；只在首轮未触发时尝试，不伪造 any 证据。
-  if (!triggered && ANSWER_MODE) {
+  // 回合」（压缩对象=会话历史，ADR-0035）。
+  // 仅当自动维护显式开启（G6 场景）时执行：普通 answer-mode 验收批次必须保持单 run，
+  // 否则 D1（同 run 第二作者回合、run_count=1）会被第二轮新 turn 破坏。
+  const g6SecondRound =
+    ANSWER_MODE &&
+    (process.env.NOVEL_AUTO_MAINTENANCE_ENABLED === "1" || process.env.B71_ANSWER_MODE_G6 === "1");
+  if (!triggered && g6SecondRound) {
     try {
       const second = await sendRequest(2, process.env.B71_ANSWER_MODE_SECOND_REQUEST ?? "继续：请把两个结尾方向各写一小段，供我选择。");
       session.second_round = second;
