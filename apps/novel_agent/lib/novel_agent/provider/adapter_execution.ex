@@ -294,7 +294,8 @@ defmodule NovelAgent.Provider.AdapterExecution do
       event_type: :started,
       summary: "Provider execution started.",
       payload: %{provider: ctx.provider_name, model: ctx.model_name},
-      refs: [ctx.provider_call_ref]
+      refs: [ctx.provider_call_ref],
+      emitted_at: DateTime.utc_now()
     )
   end
 

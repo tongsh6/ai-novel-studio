@@ -847,6 +847,7 @@ defmodule NovelAgent.Provider.GatewayTest do
         |> Enum.map(& &1.payload[:phase])
 
       assert started_event
+      assert %DateTime{} = started_event.emitted_at
       assert final_event
       assert progress_phases == [:request_prepared, :request_dispatched, :response_received]
       assert ProviderEvent.author_safe?(started_event)
@@ -921,6 +922,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       final_event = Enum.find(events, &(&1.event_type == :final_output))
 
       assert started_event.event_type == :started
+      assert %DateTime{} = started_event.emitted_at
       assert ProviderEvent.author_safe?(started_event)
       assert final_event.event_type == :final_output
       assert final_event.visibility == :developer
@@ -1262,13 +1264,14 @@ defmodule NovelAgent.Provider.GatewayTest do
         endpoint: "http://stand-in.test/v1"
       )
 
-      assert {:ok, %{provider_run: run, output: output}} =
+      assert {:ok, %{provider_run: run, output: output, events: events}} =
                Gateway.execute(tool_ir(), nil, %InferenceParams{},
                  provider: :strata,
                  provider_call_ref: "pcall-log-success",
                  provider_run_id: "prun-log-success"
                )
 
+      assert %DateTime{} = Enum.find(events, &(&1.event_type == :started)).emitted_at
       assert run.provider_call_ref == "pcall-log-success"
       assert run.provider_run_id == "prun-log-success"
       assert output.provider_call_ref == "pcall-log-success"

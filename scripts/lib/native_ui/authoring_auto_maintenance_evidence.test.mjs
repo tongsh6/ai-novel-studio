@@ -15,9 +15,12 @@ import {
 
 const WORK = "work-auto-1";
 const SESSION = "session-auto-1";
+const OTHER_SESSION = "session-auto-2";
 const RUN = "run-auto-1";
 const CALL_ID = "call_auto_1";
 const EVENT_AT = "2026-11-04T10:00:00.000Z";
+const BEFORE_STARTED_AT = "2026-11-04T09:59:20.000Z";
+const AFTER_STARTED_AT = "2026-11-04T10:00:00.500Z";
 const readyAt = new Date(Date.now() - 3600_000).toISOString();
 
 function writeJson(file, value) {
@@ -28,25 +31,115 @@ function writeJsonl(file, rows) {
 }
 const png = () => Buffer.from("89504e470d0a1a0a", "hex");
 
+// checkpoint canonical 形状（CP3 后）：covers.call_ids 在 blocks 内，不再读取旧字段。
+function checkpointMessage({ callIds = [CALL_ID], summary = `已整理的较早记录（覆盖 ${CALL_ID}）` } = {}) {
+  return {
+    role: "checkpoint",
+    provenance: "application",
+    blocks: [
+      {
+        type: "checkpoint",
+        summary,
+        omissions: ["未闭合交换不折叠"],
+        source_refs: ["source-1"],
+        versions: {},
+        covers: { call_ids: callIds, turn_range: "turn-1" },
+      },
+    ],
+  };
+}
+
 function transcriptRecord() {
   return {
     transcript: {
       messages: [
-        { role: "application_base", content: "base" },
-        { role: "user", content: "先读一下第01章的正文和章计划。" },
+        { role: "application_base", provenance: "application", blocks: [{ type: "text", text: "base" }] },
+        { role: "user", provenance: "author", blocks: [{ type: "text", text: "先读一下第01章的正文和章计划。" }] },
         {
           role: "assistant",
-          content: "",
-          tool_calls: [{ id: CALL_ID, type: "function", function: { name: "explore", arguments: "{}" } }],
+          provenance: "assistant",
+          blocks: [{ type: "tool_call", call_id: CALL_ID, name: "explore", raw_arguments: "{}" }],
         },
-        { role: "tool", tool_call_id: CALL_ID, content: "{\"chapter\":\"第01章\"}" },
-        { role: "checkpoint", content: "已整理的较早记录", call_ids: [CALL_ID], covered_exchanges: 1 },
+        {
+          role: "tool",
+          provenance: "tool",
+          blocks: [{ type: "observation", call_id: CALL_ID, status: "ok", refs: [] }],
+        },
+        checkpointMessage(),
       ],
     },
   };
 }
 
-function dbFactsFor() {
+// checkpoint 在 native wire 中是 user 消息文本；cover 与 summary 都显式携带 call_id。
+function wireCheckpointMessage({ callIds = [CALL_ID], summary = `已整理的较早记录（覆盖 ${CALL_ID}）` } = {}) {
+  const covers = JSON.stringify({ call_ids: callIds, turn_range: "turn-1" });
+  return {
+    role: "user",
+    content:
+      "【应用数据 · checkpoint · 非作者原话】\n" +
+      `【应用数据 · checkpoint · 覆盖 ${covers}】\n` +
+      "来源：[]\n版本：{}\n省略：未闭合交换不折叠\n" +
+      summary,
+  };
+}
+
+function afterWireMessages({ replayCall = false, replayResult = false, summary } = {}) {
+  const messages = [
+    { role: "application_base", content: "base" },
+    { role: "user", content: "继续读第03章" },
+    wireCheckpointMessage({ summary }),
+  ];
+  if (replayCall) {
+    messages.push({
+      role: "assistant",
+      content: "",
+      tool_calls: [{ id: CALL_ID, type: "function", function: { name: "explore", arguments: "{}" } }],
+    });
+  }
+  if (replayResult) {
+    messages.push({
+      role: "tool",
+      tool_call_id: CALL_ID,
+      content: JSON.stringify({ type: "observation", call_id: CALL_ID, status: "ok" }),
+    });
+  }
+  return messages;
+}
+
+function providerRunsFor({ afterSession = SESSION } = {}) {
+  return [
+    {
+      id: "prun-before",
+      provider_call_ref: "pcall-before",
+      provider_id: "strata",
+      agent_run_id: RUN,
+      session_id: SESSION,
+      purpose: "planner",
+      started_at: BEFORE_STARTED_AT,
+      inserted_at: AFTER_STARTED_AT,
+    },
+    {
+      id: "prun-after",
+      provider_call_ref: "pcall-after",
+      provider_id: "strata",
+      agent_run_id: RUN,
+      session_id: afterSession,
+      purpose: "planner",
+      started_at: AFTER_STARTED_AT,
+      inserted_at: AFTER_STARTED_AT,
+    },
+  ];
+}
+
+function providerEventsFor({ afterEmittedAt = AFTER_STARTED_AT } = {}) {
+  return [
+    { id: "pevt-before", provider_run_id: "prun-before", provider_call_ref: "pcall-before", event_type: "started", emitted_at: BEFORE_STARTED_AT },
+    { id: "pevt-after", provider_run_id: "prun-after", provider_call_ref: "pcall-after", event_type: "started", emitted_at: afterEmittedAt },
+  ];
+}
+
+function dbFactsFor({ afterSession = SESSION, afterEmittedAt = AFTER_STARTED_AT } = {}) {
   return {
     agent_events: [
       {
@@ -59,38 +152,63 @@ function dbFactsFor() {
         inserted_at: EVENT_AT,
       },
     ],
-    agent_runs: [{ id: RUN, status: "completed" }],
+    agent_runs: [{ id: RUN, status: "completed", session_id: SESSION }],
     authoring_session_messages: transcriptRecord().transcript.messages.map((message, index) => ({
       run_id: RUN,
+      session_id: SESSION,
       sequence: index + 1,
       run_sequence: index + 1,
       message: JSON.stringify(message),
     })),
-    provider_runs: [
-      { id: "prun-1", provider_id: "strata", agent_run_id: RUN, purpose: "planner", inserted_at: "2026-11-04T09:59:10.000Z" },
-    ],
+    provider_runs: providerRunsFor({ afterSession }),
+    provider_events: providerEventsFor({ afterEmittedAt }),
     interactions: [],
     mutations: [],
   };
 }
 
+function afterRecord({
+  messages = afterWireMessages(),
+  sessionId = SESSION,
+  providerRunRef = "prun-after",
+  providerCallRef = "pcall-after",
+  ts = "2026-11-04T10:00:05.000Z",
+  inputTokens = 3000,
+} = {}) {
+  return {
+    ts,
+    provider: "strata",
+    turn_id: "turn-after",
+    session_id: sessionId,
+    provider_run_ref: providerRunRef,
+    provider_call_ref: providerCallRef,
+    request: { body: { messages } },
+    response: { status: 200, usage: { input_tokens: inputTokens, output_tokens: 40 } },
+  };
+}
+
+function beforeRecord() {
+  return {
+    ts: "2026-11-04T09:59:30.000Z",
+    provider: "strata",
+    turn_id: "turn-before",
+    session_id: SESSION,
+    provider_run_ref: "prun-before",
+    provider_call_ref: "pcall-before",
+    request: {
+      body: {
+        messages: [
+          { role: "user", content: "读第01章" },
+          { role: "tool", tool_call_id: CALL_ID, content: JSON.stringify({ type: "observation", call_id: CALL_ID, status: "ok" }) },
+        ],
+      },
+    },
+    response: { status: 200, usage: { input_tokens: 1200, output_tokens: 50 } },
+  };
+}
+
 function llmRecords() {
-  return [
-    {
-      ts: "2026-11-04T09:59:30.000Z",
-      provider: "strata",
-      turn_id: "turn-before",
-      request: { body: { messages: [{ role: "user", content: "读第01章" }, { role: "tool", tool_call_id: CALL_ID, content: "旧观察" }] } },
-      response: { status: 200, usage: { input_tokens: 1200, output_tokens: 50 } },
-    },
-    {
-      ts: "2026-11-04T10:00:05.000Z",
-      provider: "strata",
-      turn_id: "turn-after",
-      request: { body: { messages: [{ role: "application_base", content: "base" }, { role: "user", content: "继续读第03章" }] } },
-      response: { status: 200, usage: { input_tokens: 3000, output_tokens: 40 } },
-    },
-  ];
+  return [beforeRecord(), afterRecord()];
 }
 
 function driverLogFor() {
@@ -199,25 +317,47 @@ function buildDir({ strip = true, expanded = true } = {}) {
   const db = new DatabaseSync(path.join(dir, "database", "ai_novel_studio_test.sqlite3"));
   db.exec(`
     CREATE TABLE agent_events (id TEXT, run_id TEXT, event_type TEXT, visibility TEXT, sequence INTEGER, payload TEXT, inserted_at TEXT);
-    CREATE TABLE agent_runs (id TEXT, status TEXT);
-    CREATE TABLE authoring_session_messages (id TEXT, run_id TEXT, sequence INTEGER, run_sequence INTEGER, message TEXT, format_version TEXT);
-    CREATE TABLE provider_runs (id TEXT, provider_id TEXT, agent_run_id TEXT, purpose TEXT, inserted_at TEXT);
+    CREATE TABLE agent_runs (id TEXT, status TEXT, session_id TEXT);
+    CREATE TABLE authoring_session_messages (id TEXT, run_id TEXT, session_id TEXT, sequence INTEGER, run_sequence INTEGER, message TEXT, format_version TEXT);
+    CREATE TABLE provider_runs (id TEXT, provider_call_ref TEXT, provider_id TEXT, agent_run_id TEXT, session_id TEXT, purpose TEXT, started_at TEXT, inserted_at TEXT);
+    CREATE TABLE provider_events (id TEXT, provider_run_id TEXT, provider_call_ref TEXT, event_type TEXT, emitted_at TEXT);
     CREATE TABLE interactions (id TEXT, turn_id TEXT, content TEXT);
     CREATE TABLE mutations (id TEXT);
   `);
   db.prepare("INSERT INTO agent_events VALUES (?,?,?,?,?,?,?)").run("evt-1", RUN, "checkpoint_created", "author", 2, JSON.stringify({ covered_exchanges: 1, scope: "earlier_work_turns", sources: ["资料查阅"] }), EVENT_AT);
-  db.prepare("INSERT INTO agent_runs VALUES (?,?)").run(RUN, "completed");
+  db.prepare("INSERT INTO agent_runs VALUES (?,?,?)").run(RUN, "completed", SESSION);
   transcriptRecord().transcript.messages.forEach((message, index) => {
-    db.prepare("INSERT INTO authoring_session_messages VALUES (?,?,?,?,?,?)").run(
+    db.prepare("INSERT INTO authoring_session_messages VALUES (?,?,?,?,?,?,?)").run(
       `msg-${index + 1}`,
       RUN,
+      SESSION,
       index + 1,
       index + 1,
       JSON.stringify(message),
       "authoring-session-message/v1",
     );
   });
-  db.prepare("INSERT INTO provider_runs VALUES (?,?,?,?,?)").run("prun-1", "strata", RUN, "planner", "2026-11-04T09:59:10.000Z");
+  for (const run of providerRunsFor()) {
+    db.prepare("INSERT INTO provider_runs VALUES (?,?,?,?,?,?,?,?)").run(
+      run.id,
+      run.provider_call_ref,
+      run.provider_id,
+      run.agent_run_id,
+      run.session_id,
+      run.purpose,
+      run.started_at,
+      run.inserted_at,
+    );
+  }
+  for (const event of providerEventsFor()) {
+    db.prepare("INSERT INTO provider_events (id, provider_run_id, provider_call_ref, event_type, emitted_at) VALUES (?,?,?,?,?)").run(
+      event.id,
+      event.provider_run_id,
+      event.provider_call_ref,
+      event.event_type,
+      event.emitted_at,
+    );
+  }
   db.close();
   return dir;
 }
@@ -246,7 +386,10 @@ test("A3 正例：C1–C10 全过（真实压力/事件+checkpoint/细条/四要
   assert.equal(result.checks.C3_strip_visible.ok, true);
   assert.equal(result.checks.C4_expanded_factors.ok, true);
   assert.equal(result.checks.C5_next_request_compact.ok, true);
+  assert(result.checks.C5_next_request_compact.detail.covered_call_ids.includes(CALL_ID));
+  assert(result.checks.C5_next_request_compact.detail.checks[0].wire_checkpoint_covers.some((ids) => ids.includes(CALL_ID)));
   assert.equal(result.checks.C6_canonical_complete.ok, true);
+  assert(result.checks.C6_canonical_complete.detail.covered_call_ids.includes(CALL_ID));
   assert.equal(result.checks.C7_refresh_idempotent.ok, true);
   assert.equal(result.checks.C8_failure_silent.ok, true);
   assert.equal(result.checks.C9_author_visible_no_internal_tokens.ok, true);
@@ -266,13 +409,10 @@ test("A3 反例：压力不足/无事件/细条缺失/四要素缺失 分别 fai
 
 test("A3 反例：精简泄漏/ canonical 缺失/刷新不幂等/失败可见/清理失败 分别 fail", () => {
   const leak = evaluate({
-    llmRecords: llmRecords().map((record, index) =>
-      index === 1
-        ? { ...record, request: { body: { messages: [{ role: "tool", tool_call_id: CALL_ID, content: "旧观察" }, { role: "user", content: "x" }, { role: "user", content: "y" }] } } }
-        : record,
-    ),
+    llmRecords: [beforeRecord(), afterRecord({ messages: afterWireMessages({ replayCall: true, replayResult: true }) })],
   });
   assert.equal(leak.checks.C5_next_request_compact.ok, false);
+  assert.equal(leak.checks.C5_next_request_compact.reason, "covered_call_ids_still_in_next_request");
   const canonical = evaluate({
     dbFacts: {
       ...dbFactsFor(),
@@ -290,6 +430,143 @@ test("A3 反例：精简泄漏/ canonical 缺失/刷新不幂等/失败可见/�
   assert.equal(cleanup.checks.C10_cleanup.ok, false);
   const strata = evaluate({ strataSlot: { unloaded: false } });
   assert.equal(strata.checks.C10_cleanup.ok, false);
+});
+
+test("C5 正例：有效 checkpoint 文本显式携带 call_id 不算泄漏，只排除结构化 tool_call/tool_result 重放", () => {
+  const messages = afterWireMessages({ summary: `已整理的较早记录（原文含 ${CALL_ID}）` });
+  assert(messages.some((message) => typeof message.content === "string" && message.content.includes(CALL_ID)));
+  const result = evaluate({ llmRecords: [beforeRecord(), afterRecord({ messages })] });
+  const c5 = result.checks.C5_next_request_compact;
+  assert.equal(c5.ok, true);
+  assert(c5.detail.checks[0].wire_checkpoint_covers.some((ids) => ids.includes(CALL_ID)));
+  assert.deepEqual(c5.detail.checks[0].replayed_call_ids, []);
+});
+
+test("C5 反例：其他会话 / IR 代替 wire / 首请求缺证时第 2 请求不能补位 → unknown", () => {
+  const otherSession = evaluate({
+    dbFacts: dbFactsFor({ afterSession: OTHER_SESSION }),
+    llmRecords: [beforeRecord(), afterRecord({ sessionId: OTHER_SESSION })],
+  });
+  assert.equal(otherSession.checks.C5_next_request_compact.ok, null);
+  assert.equal(otherSession.checks.C5_next_request_compact.reason, "next_request_evidence_missing");
+  assert(otherSession.required.includes("C5_next_request_compact"));
+  assert(otherSession.failed.includes("C5_next_request_compact"));
+
+  const irRecord = {
+    ...afterRecord(),
+    request_format: "authoring-request-ir/v1",
+    request_body: {
+      ir_version: "authoring-request-ir/v1",
+      messages: [
+        { role: "application_base", provenance: "application", blocks: [{ type: "text", text: "base" }] },
+        { role: "user", provenance: "author", blocks: [{ type: "text", text: "继续读第03章" }] },
+        checkpointMessage(),
+      ],
+      tools: [],
+    },
+  };
+  delete irRecord.request;
+  const ir = evaluate({ llmRecords: [beforeRecord(), irRecord] });
+  assert.equal(ir.checks.C5_next_request_compact.ok, null);
+  assert.equal(ir.checks.C5_next_request_compact.reason, "next_request_evidence_missing");
+
+  const notAfterEvent = evaluate({
+    dbFacts: dbFactsFor({ afterEmittedAt: EVENT_AT }),
+    llmRecords: [beforeRecord(), afterRecord()],
+  });
+  assert.equal(notAfterEvent.checks.C5_next_request_compact.ok, null);
+
+  const maskedFacts = dbFactsFor();
+  maskedFacts.provider_runs = [
+    ...maskedFacts.provider_runs,
+    { id: "prun-first", provider_call_ref: "pcall-first", provider_id: "strata", agent_run_id: RUN, session_id: SESSION, purpose: "planner", started_at: null, inserted_at: null },
+  ];
+  maskedFacts.provider_events = [
+    ...maskedFacts.provider_events,
+    { id: "pevt-first", provider_run_id: "prun-first", provider_call_ref: "pcall-first", event_type: "started", emitted_at: "2026-11-04T10:00:00.100Z" },
+  ];
+  const masked = evaluate({ dbFacts: maskedFacts, llmRecords: [beforeRecord(), afterRecord()] });
+  assert.equal(masked.checks.C5_next_request_compact.ok, null);
+  assert.equal(masked.checks.C5_next_request_compact.reason, "next_request_evidence_missing");
+});
+
+test("C6 反例：covers 保留但真实 tool 结果被移除 / 顺序错误 / 旧 checkpoint 形状 → fail", () => {
+  const missingResultFacts = dbFactsFor();
+  missingResultFacts.authoring_session_messages = missingResultFacts.authoring_session_messages.filter(
+    (row) => JSON.parse(row.message).role !== "tool",
+  );
+  const missingResult = evaluate({ dbFacts: missingResultFacts });
+  assert.equal(missingResult.checks.C6_canonical_complete.ok, false);
+  assert(
+    missingResult.checks.C6_canonical_complete.detail.failures.some(
+      (failure) => failure.call_id === CALL_ID && failure.result_count === 0,
+    ),
+  );
+
+  const swappedRows = dbFactsFor().authoring_session_messages.map((row) => ({ ...row }));
+  const callIndex = swappedRows.findIndex((row) => JSON.parse(row.message).role === "assistant");
+  const resultIndex = swappedRows.findIndex((row) => JSON.parse(row.message).role === "tool");
+  [swappedRows[callIndex].sequence, swappedRows[resultIndex].sequence] = [
+    swappedRows[resultIndex].sequence,
+    swappedRows[callIndex].sequence,
+  ];
+  const outOfOrder = evaluate({ dbFacts: { ...dbFactsFor(), authoring_session_messages: swappedRows } });
+  assert.equal(outOfOrder.checks.C6_canonical_complete.ok, false);
+  assert.equal(outOfOrder.checks.C6_canonical_complete.detail.failures[0].call_count, 1);
+  assert.equal(outOfOrder.checks.C6_canonical_complete.detail.failures[0].result_count, 1);
+
+  const legacyFacts = dbFactsFor();
+  legacyFacts.authoring_session_messages = legacyFacts.authoring_session_messages.map((row) => {
+    const message = JSON.parse(row.message);
+    return message.role === "checkpoint"
+      ? { ...row, message: JSON.stringify({ role: "checkpoint", call_ids: [CALL_ID] }) }
+      : row;
+  });
+  const legacy = evaluate({ dbFacts: legacyFacts });
+  assert.equal(legacy.checks.C6_canonical_complete.ok, false);
+  assert.equal(legacy.checks.C6_canonical_complete.reason, "checkpoint_call_ids_missing");
+});
+
+test("C6：多条 canonical checkpoint 每条都必须有 covers，任一无 covers 不因另一条合法而假通过", () => {
+  const rows = dbFactsFor().authoring_session_messages;
+  const appendCheckpoint = (message) => ({
+    run_id: RUN,
+    session_id: SESSION,
+    sequence: rows.length + 1,
+    run_sequence: rows.length + 1,
+    message: JSON.stringify(message),
+  });
+  const allCovered = evaluate({
+    dbFacts: { ...dbFactsFor(), authoring_session_messages: [...rows, appendCheckpoint(checkpointMessage())] },
+  });
+  assert.equal(allCovered.checks.C6_canonical_complete.ok, true);
+
+  const oneUncovered = evaluate({
+    dbFacts: {
+      ...dbFactsFor(),
+      authoring_session_messages: [...rows, appendCheckpoint(checkpointMessage({ callIds: [] }))],
+    },
+  });
+  assert.equal(oneUncovered.checks.C6_canonical_complete.ok, false);
+  assert.equal(oneUncovered.checks.C6_canonical_complete.reason, "checkpoint_call_ids_missing");
+  assert.deepEqual(oneUncovered.checks.C6_canonical_complete.detail.checkpoints_without_covers, [rows.length + 1]);
+});
+
+test("C5 反例：wire 存在 malformed call/tool message 时不得通过（缺证语义只留给真缺失）", () => {
+  const malformedCallMessages = afterWireMessages();
+  malformedCallMessages.push({ role: "assistant", content: "", tool_calls: "not-an-array" });
+  const malformedCall = evaluate({ llmRecords: [beforeRecord(), afterRecord({ messages: malformedCallMessages })] });
+  assert.equal(malformedCall.checks.C5_next_request_compact.ok, false);
+  assert.equal(malformedCall.checks.C5_next_request_compact.reason, "next_request_wire_malformed");
+  assert.equal(malformedCall.checks.C5_next_request_compact.detail.checks[0].malformed_calls, 1);
+  assert(malformedCall.failed.includes("C5_next_request_compact"));
+
+  const malformedResultMessages = afterWireMessages();
+  malformedResultMessages.push({ role: "tool", content: JSON.stringify({ type: "observation", status: "ok" }) });
+  const malformedResult = evaluate({ llmRecords: [beforeRecord(), afterRecord({ messages: malformedResultMessages })] });
+  assert.equal(malformedResult.checks.C5_next_request_compact.ok, false);
+  assert.equal(malformedResult.checks.C5_next_request_compact.reason, "next_request_wire_malformed");
+  assert.equal(malformedResult.checks.C5_next_request_compact.detail.checks[0].malformed_tool_messages, 1);
 });
 
 test("A3 反例：AX 全类别泄漏命中（prose_writing / 工作过程）→ C9 fail", () => {

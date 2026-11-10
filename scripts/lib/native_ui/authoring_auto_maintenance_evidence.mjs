@@ -44,9 +44,14 @@ export const AUTO_MAINTENANCE_REQUESTS = Object.freeze([
 ]);
 export const AUTO_MAINTENANCE_STOP_EVENT = "checkpoint_created";
 
-import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
+import { NATIVE_CHAT_WIRE, requestFactsFromRecord } from "./authoring_request_facts.mjs";
 const list = (value) => (Array.isArray(value) ? value : []);
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+const nonBlank = (value) => typeof value === "string" && value.trim() !== "";
+const CHECKPOINT_COVER_PREFIX = "【应用数据 · checkpoint · 覆盖 ";
+// 正式 auto-maintenance 中 C5 缺证（ok=null）不是「不适用」，而是验收未通过；
+// C7/C8/C11 仍按适用场景保持 null=不判。
+const EVIDENCE_REQUIRED_CHECKS = new Set(["C5_next_request_compact"]);
 
 function parseJson(value) {
   if (typeof value !== "string") return value ?? null;
@@ -103,6 +108,7 @@ export function readAutoMaintenanceDbFacts(dir) {
       agent_runs: rows("agent_runs"),
       authoring_session_messages: rows("authoring_session_messages"),
       provider_runs: rows("provider_runs"),
+      provider_events: rows("provider_events"),
       interactions: rows("interactions"),
       mutations: rows("mutations"),
     };
@@ -113,31 +119,30 @@ function transcriptMessages(sessionMessageRows) {
   const messages = [];
   for (const row of list(sessionMessageRows)) {
     const message = parseJson(row?.message);
-    if (isObject(message)) messages.push({ ...message, run_id: row?.run_id ?? null });
+    if (isObject(message)) {
+      messages.push({
+        ...message,
+        run_id: row?.run_id ?? null,
+        session_id: row?.session_id ?? null,
+        sequence: row?.sequence ?? null,
+      });
+    }
   }
   return messages;
 }
 
+// checkpoint canonical 形状只有 {blocks: [{type: "checkpoint", covers: {call_ids}}]}。
+// 旧形状不再兜底：否则把任意字段里的 ID 当成 cover 证据（C6 假阳性）。
 function checkpointCallIds(message) {
-  // CP3 后 checkpoint 消息的 canonical 结构是 {blocks: [{covers: {call_ids}}]}；
-  // 旧结构（call_ids/covers/payload）保留兜底。缺少 blocks 候选会让 C6 假阴性
-  // （真实批次 cp5-real-05：DB 有 covers 4 个 call，判据却读到 0）。
   const blocks = Array.isArray(message?.blocks) ? message.blocks : [];
-  const blockCallIds = blocks.flatMap((block) => (Array.isArray(block?.covers?.call_ids) ? block.covers.call_ids : []));
-  const candidates = [
-    blockCallIds,
-    message?.call_ids,
-    message?.covers?.call_ids,
-    message?.compacted_call_ids,
-    message?.payload?.covers?.call_ids,
-    message?.payload?.call_ids,
-    message?.compaction?.covers?.call_ids,
-    message?.compaction?.call_ids,
-  ];
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate) && candidate.length > 0) return candidate.map(String);
+  const callIds = [];
+  for (const block of blocks) {
+    if (String(block?.type ?? "") !== "checkpoint") continue;
+    for (const callId of list(block?.covers?.call_ids)) {
+      if (nonBlank(callId)) callIds.push(String(callId));
+    }
   }
-  return [];
+  return [...new Set(callIds)];
 }
 
 function checkpointEvents(events) {
@@ -151,18 +156,56 @@ function eventAts(events) {
     .sort();
 }
 
-function llmRecordTs(record) {
-  return String(record?.ts ?? record?.at ?? record?.inserted_at ?? "");
+const timeValue = (value) => {
+  const parsed = Date.parse(String(value ?? "").replace(" ", "T").replace(/(\.\d{3})\d+/u, "$1"));
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+// checkpoint 在 native wire 中是 user 文本；取显式 projection cover 集合。
+function wireCheckpointCovers(facts) {
+  const covers = [];
+  for (const message of list(facts?.applicationMessages)) {
+    const text = typeof message?.text === "string" ? message.text : "";
+    let cursor = 0;
+    while (true) {
+      const start = text.indexOf(CHECKPOINT_COVER_PREFIX, cursor);
+      if (start < 0) break;
+      const jsonStart = start + CHECKPOINT_COVER_PREFIX.length;
+      const jsonEnd = text.indexOf("】", jsonStart);
+      if (jsonEnd < 0) break;
+      const value = parseJson(text.slice(jsonStart, jsonEnd));
+      if (isObject(value)) covers.push(list(value.call_ids).filter(nonBlank).map(String));
+      cursor = jsonEnd + 1;
+    }
+  }
+  return covers;
 }
 
-function messagesOfLlmRecord(record) {
-  const facts = requestFactsFromRecord(record);
-  return facts.ok ? facts.messages : null;
+function sameIdSet(left, right) {
+  const a = new Set(left);
+  const b = new Set(right);
+  return a.size === b.size && [...a].every((id) => b.has(id));
 }
 
-function requestMessagesText(record) {
-  const messages = messagesOfLlmRecord(record);
-  return list(messages).map((message) => JSON.stringify(message)).join("\n");
+function checkpointExchange(checkpoint, transcript) {
+  const calls = new Map();
+  const results = new Map();
+  const before = transcript.filter((message) =>
+    message.session_id === checkpoint.session_id && Number(message.sequence) < Number(checkpoint.sequence));
+  for (const message of before) {
+    for (const block of list(message?.blocks)) {
+      const callId = block?.call_id;
+      if (!nonBlank(callId)) continue;
+      const id = String(callId);
+      if (message.role === "assistant" && block.type === "tool_call") {
+        calls.set(id, [...(calls.get(id) ?? []), Number(message.sequence)]);
+      }
+      if (message.role === "tool" && ["observation", "validation_result"].includes(block.type)) {
+        results.set(id, [...(results.get(id) ?? []), Number(message.sequence)]);
+      }
+    }
+  }
+  return { calls, results };
 }
 
 function inputTokensOf(record) {
@@ -328,44 +371,87 @@ export function evaluateAutoMaintenance({
   };
   if (!c4.ok) c4.reason = "expanded_panel_factors_missing";
 
-  // C5：下一请求精简（整理后第一个 provider 请求不含 covers.call_ids；消息条数不增）。
-  const coveredCallIds = [...new Set(checkpointsMsgs.flatMap((message) => checkpointCallIds(message)))];
-  const sortedRecords = list(llmRecords)
-    .filter((record) => llmRecordTs(record) !== "")
-    .sort((left, right) => String(llmRecordTs(left)).localeCompare(String(llmRecordTs(right))));
-  const firstEventTime = eventTimes[0] ?? "";
-  const beforeRecord = [...sortedRecords].reverse().find((record) => String(llmRecordTs(record)) <= firstEventTime) ?? null;
-  const afterRecord = sortedRecords.find((record) => String(llmRecordTs(record)) > firstEventTime) ?? null;
-  const afterText = afterRecord ? requestMessagesText(afterRecord) : "";
-  const leakedCallIds = coveredCallIds.filter((callId) => afterText.includes(callId));
-  const beforeFacts = beforeRecord ? messagesOfLlmRecord(beforeRecord) : null;
-  const afterFacts = afterRecord ? messagesOfLlmRecord(afterRecord) : null;
-  const beforeMessages = beforeFacts ? beforeFacts.length : null;
-  const afterMessages = afterFacts ? afterFacts.length : null;
+  // C5：同 session checkpoint 后第一条 started 事件定位 ProviderRun；prun+pcall
+  // 同时唯一配对日志。缺证 unknown，后续第 2 请求不能补位。
+  const coveredCallIds = [...new Set(checkpointsMsgs.flatMap((checkpoint) => checkpointCallIds(checkpoint)))];
+  const providerRunsById = new Map(list(db.provider_runs).map((run) => [String(run.id), run]));
+  const c5Checks = list(events).map((event) => {
+    const eventRows = list(events).filter((row) => row.run_id === event.run_id);
+    const checkpointRows = checkpointsMsgs.filter((row) => row.run_id === event.run_id);
+    if (eventRows.length !== 1 || checkpointRows.length !== 1) return { ok: null, reason: "checkpoint_binding_unknown" };
+    const checkpoint = checkpointRows[0];
+    const eventAt = timeValue(event.inserted_at);
+    if (eventAt === null) return { ok: null, reason: "next_request_evidence_missing" };
+    const started = list(db.provider_events)
+      .filter((row) => row.event_type === "started" && timeValue(row.emitted_at) > eventAt &&
+        providerRunsById.get(String(row.provider_run_id))?.session_id === checkpoint.session_id)
+      .sort((left, right) => timeValue(left.emitted_at) - timeValue(right.emitted_at));
+    const firstAt = started.length ? timeValue(started[0].emitted_at) : null;
+    const first = started.filter((row) => timeValue(row.emitted_at) === firstAt);
+    const run = first.length === 1 ? providerRunsById.get(String(first[0].provider_run_id)) : null;
+    const records = run
+      ? list(llmRecords).filter((record) => record.provider_run_ref === run.id && record.provider_call_ref === run.provider_call_ref)
+      : [];
+    const facts = records.length === 1 ? requestFactsFromRecord(records[0]) : null;
+    const covered = checkpointCallIds(checkpoint);
+    const wireCovers = facts?.ok && facts.format === NATIVE_CHAT_WIRE ? wireCheckpointCovers(facts) : [];
+    const replayed = covered.filter((id) =>
+      list(facts?.toolCalls).some((call) => String(call.callId) === id) ||
+      list(facts?.toolResults).some((result) => [result.callId, result.toolCallId].some((ref) => String(ref) === id)));
+    const malformedCalls = Number(facts?.malformedCalls ?? 0);
+    const malformedToolMessages = Number(facts?.malformedToolMessages ?? 0);
+    const detail = {
+      session_id: checkpoint.session_id,
+      provider_run_id: run?.id ?? null,
+      provider_call_ref: run?.provider_call_ref ?? null,
+      started_event_at: first[0]?.emitted_at ?? null,
+      covered_call_ids: covered,
+      wire_checkpoint_covers: wireCovers,
+      replayed_call_ids: replayed,
+      malformed_calls: malformedCalls,
+      malformed_tool_messages: malformedToolMessages,
+    };
+    const evidence = first.length === 1 && records.length === 1 && facts?.ok && facts.format === NATIVE_CHAT_WIRE && covered.length > 0;
+    if (!evidence) return { ok: null, reason: "next_request_evidence_missing", detail };
+    if (malformedCalls > 0 || malformedToolMessages > 0) return { ok: false, reason: "next_request_wire_malformed", detail };
+    if (!wireCovers.some((ids) => sameIdSet(ids, covered))) return { ok: false, reason: "checkpoint_cover_mismatch", detail };
+    if (replayed.length > 0) return { ok: false, reason: "covered_call_ids_still_in_next_request", detail };
+    return { ok: true, reason: null, detail };
+  });
+  const c5Detail = c5Checks.map((check) => ({ ok: check.ok, reason: check.reason, ...check.detail }));
+  const c5Failed = c5Checks.find((check) => check.ok === false);
   const c5 =
-    coveredCallIds.length > 0 && afterRecord
-      ? {
-          ok: afterFacts !== null &&
-            leakedCallIds.length === 0 &&
-            (beforeMessages === null || afterMessages === null || afterMessages <= beforeMessages),
-          reason: leakedCallIds.length === 0 ? null : "covered_call_ids_still_in_next_request",
-          detail: {
-            covered_call_ids: coveredCallIds.slice(0, 20),
-            leaked_call_ids: leakedCallIds.slice(0, 20),
-            before_messages: beforeMessages,
-            after_messages: afterMessages,
-            after_capture: afterRecord?.turn_id ?? null,
-          },
-        }
-      : { ok: null, reason: "next_request_evidence_missing", detail: { covered_call_ids: coveredCallIds.slice(0, 20) } };
+    c5Failed
+      ? { ok: false, reason: c5Failed.reason, detail: { covered_call_ids: coveredCallIds, checks: c5Detail } }
+      : c5Checks.length > 0 && c5Checks.every((check) => check.ok === true)
+        ? { ok: true, reason: null, detail: { covered_call_ids: coveredCallIds, checks: c5Detail } }
+        : { ok: null, reason: c5Checks.find((check) => check.ok === null)?.reason ?? "next_request_evidence_missing", detail: { covered_call_ids: coveredCallIds, checks: c5Detail } };
 
-  // C6：canonical 完整（被整理 call 的 tool_call + tool observation 仍在 transcript）。
-  const canonicalText = transcript.map((message) => JSON.stringify(message)).join("\n");
-  const missingCallIds = coveredCallIds.filter((callId) => !canonicalText.includes(callId));
+  // C6：每条 canonical checkpoint 必须显式 covers，再按同 session、checkpoint 之前
+  // 真实交换恰好一对且顺序正确的规则逐条核查；任一无 covers 即失败，不因另一条合法而通过。
+  const c6Failures = [];
+  const checkpointsWithoutCovers = [];
+  for (const checkpoint of checkpointsMsgs) {
+    const covered = checkpointCallIds(checkpoint);
+    if (covered.length === 0) checkpointsWithoutCovers.push(Number(checkpoint.sequence));
+    const exchange = checkpointExchange(checkpoint, transcript);
+    for (const callId of covered) {
+      const callSequences = exchange.calls.get(callId) ?? [];
+      const resultSequences = exchange.results.get(callId) ?? [];
+      if (callSequences.length !== 1 || resultSequences.length !== 1 || callSequences[0] >= resultSequences[0]) {
+        c6Failures.push({ call_id: callId, checkpoint_sequence: checkpoint.sequence, call_count: callSequences.length, result_count: resultSequences.length });
+      }
+    }
+  }
+  const c6Covered = [...new Set(checkpointsMsgs.flatMap((checkpoint) => checkpointCallIds(checkpoint)))];
   const c6 = {
-    ok: coveredCallIds.length > 0 && missingCallIds.length === 0,
-    reason: missingCallIds.length === 0 ? null : "covered_call_missing_from_canonical",
-    detail: { covered_call_ids: coveredCallIds.slice(0, 20), missing_call_ids: missingCallIds.slice(0, 20) },
+    ok: c6Failures.length === 0 && checkpointsWithoutCovers.length === 0 && checkpointsMsgs.length > 0,
+    reason: c6Failures.length
+      ? "covered_exchange_not_closed_exactly_once_before_checkpoint"
+      : checkpointsWithoutCovers.length || !checkpointsMsgs.length
+        ? "checkpoint_call_ids_missing"
+        : null,
+    detail: { covered_call_ids: c6Covered, checkpoints_without_covers: checkpointsWithoutCovers, failures: c6Failures },
   };
 
   // C7：刷新幂等（刷新后细条仍在、checkpoint 事件数不变）。
@@ -530,8 +616,12 @@ export function evaluateAutoMaintenance({
     C10_cleanup: c10,
     C11_multi_turn_same_run: c11,
   };
-  const required = Object.entries(checks).filter(([, value]) => value.ok !== null).map(([key]) => key);
-  const failed = Object.entries(checks).filter(([, value]) => value.ok === false).map(([key]) => key);
+  const required = Object.entries(checks)
+    .filter(([key, value]) => value.ok !== null || EVIDENCE_REQUIRED_CHECKS.has(key))
+    .map(([key]) => key);
+  const failed = Object.entries(checks)
+    .filter(([key, value]) => value.ok === false || (value.ok === null && EVIDENCE_REQUIRED_CHECKS.has(key)))
+    .map(([key]) => key);
   return {
     schema: AUTO_MAINTENANCE_SCHEMA,
     case: "auto-maintenance-a3",
