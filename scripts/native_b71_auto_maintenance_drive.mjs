@@ -799,6 +799,24 @@ async function runMultiTurnFlow({ report, requests }) {
       reason: "not_triggered",
     };
   }
+  // G6 尝试（answer-mode）：首 run 完成后补发一轮新请求（新 turn）。首 run 的交换
+  // 已完整进入会话 canonical 历史，第二轮 run 的安全点才具备「可压缩的更早工作
+  // 回合」（压缩对象=会话历史，ADR-0035）；只在首轮未触发时尝试，不伪造 any 证据。
+  if (!triggered && ANSWER_MODE) {
+    try {
+      const second = await sendRequest(2, process.env.B71_ANSWER_MODE_SECOND_REQUEST ?? "继续：请把两个结尾方向各写一小段，供我选择。");
+      session.second_round = second;
+      session.checkpoint_events_after_second = checkpointEventCount();
+      session.strip_after_second = await observeStripText(8_000);
+      report.second_round = second;
+      report.checkpoint_events_after_second = session.checkpoint_events_after_second;
+      report.triggered_after_second = session.checkpoint_events_after_second > 0;
+      harness.capture("after-second-round");
+    } catch (error) {
+      report.second_round = { ok: false, error: error.message };
+    }
+  }
+
   harness.capture("a3-final");
 }
 
