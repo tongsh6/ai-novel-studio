@@ -17,6 +17,7 @@ function toolRecord(toolCalls) {
     ts: "2026-11-03T10:00:01.000Z",
     turn_id: "turn_1",
     provider_call_ref: "pcall_1",
+    provider_run_ref: "prun_1",
     provider: "strata",
     request: {
       body: {
@@ -115,7 +116,13 @@ function evaluate({ caseId, toolCalls = [], turn = turnBody(), canonical = { sta
     ? {
         ...db,
         segment_transcript: {
-          messages: [{ role: "assistant", provenance: "model", blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: usedRefs } } }] }],
+          messages: [{
+            role: "assistant",
+            provenance: "model",
+            provider_call_ref: "pcall_1",
+            provider_run_ref: "prun_1",
+            blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: usedRefs } } }],
+          }],
           used_refs: [],
         },
       }
@@ -270,13 +277,82 @@ test("unknown：canon 证据缺失 / HO5 used 不可提取 都不判 PASS", () =
   assert(missingUsed.unknown_reasons.some((reason) => reason.code.startsWith("HO5:")));
 });
 
-test("HO5 越界：used 引用未提供的观察（C-F1-001）→ violation", () => {
+test("HO5 越界：used 引用同次请求未提供的观察（C-F1-001）→ violation", () => {
   const verdict = evaluate({
     caseId: "C-F1-001",
+    toolCalls: [judgmentCall("explore")],
     turn: turnBody({ assistantText: "第02章目前有正文。" }),
     usedRefs: ["observation:obs_out_of_boundary"],
   });
   assert.equal(verdict.hard_oracles.HO5.status, "fail");
+  assert(verdict.violations.some((violation) => violation.code.startsWith("HO5:")));
+});
+
+test("HO5 逐调用反例：A 自报 ref 只在 B 的请求/事件/段头出现 → fail", () => {
+  const base = [
+    { role: "system", content: "system" },
+    { role: "user", content: "【应用数据 · application_base · 非作者原话】规则 chapter:ch-base" },
+    { role: "user", content: AUTHOR },
+  ];
+  const call = { id: "call_b", type: "function", function: { name: "read_chapter", arguments: "{}" } };
+  const recordA = {
+    ...toolRecord([]),
+    provider_call_ref: "pcall_A",
+    provider_run_ref: "prun_A",
+    request: { body: { messages: base } },
+  };
+  const recordB = {
+    ...toolRecord([]),
+    provider_call_ref: "pcall_B",
+    provider_run_ref: "prun_B",
+    request: {
+      body: {
+        messages: [
+          ...base,
+          { role: "assistant", content: "", tool_calls: [call] },
+          {
+            role: "tool",
+            tool_call_id: "call_b",
+            content: JSON.stringify({
+              type: "observation",
+              call_id: "call_b",
+              status: "ok",
+              source_refs: ["observation:obs_b"],
+            }),
+          },
+        ],
+      },
+    },
+  };
+  const facts = dbFacts({
+    agent_events: [{ event_type: "exploration_observed", refs: '["observation:obs_b"]' }],
+    decision_traces: [{ trace_id: "trace_1", turn_id: "turn_1", context_refs: '["observation:obs_b"]' }],
+    segment_transcript: {
+      messages: [{
+        role: "assistant",
+        provenance: "model",
+        provider_call_ref: "pcall_A",
+        provider_run_ref: "prun_A",
+        blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: ["observation:obs_b"] } } }],
+      }],
+      used_refs: [{ ref: "observation:obs_b" }],
+      observation_refs: ["observation:obs_b"],
+    },
+  });
+  const verdict = evaluateBehavior({
+    caseRecord: caseRecordOf("C-F1-001"),
+    evidence: {
+      llmRecords: [recordA, recordB],
+      turnBody: turnBody({ assistantText: "第02章目前有正文。" }),
+      authorActionFrames: [],
+      dbFacts: facts,
+      startCanon: canon(),
+      finalCanon: canon(),
+      appLog: [],
+    },
+  });
+  assert.equal(verdict.hard_oracles.HO5.status, "fail");
+  assert.equal(verdict.hard_oracles.HO5.detail.reports[0].provider_call_ref, "pcall_A");
   assert(verdict.violations.some((violation) => violation.code.startsWith("HO5:")));
 });
 

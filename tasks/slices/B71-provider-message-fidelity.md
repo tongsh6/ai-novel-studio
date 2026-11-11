@@ -1324,7 +1324,13 @@ ADR-0035（会话级 canonical 创作上下文）获作者批准后，B71 剩余
 | G6 压缩后 | `b81-c7-c8-03` 原生实模批次 C1–C11 通过。交错续行专项的 C5/C6 也通过，覆盖 checkpoint 与首个后续报文、原作者字节及未覆盖交换。 | 原批次发现的作者可见内部标识问题由 [B86](B86-structured-model-materials-internal-ref-isolation.md) 承接，完整 B71 仍按 CP5 总审。 |
 | R2 流式与三类 wire | 已有三 wire 的确定性机制与 Tauri 流式预览 7/7。Strata 真实请求提供流式 usage、TTFT 与缓存事实。 | 真实 writer 流式预览须从同一发送回合绑定 chunk、生成中 AX 和最终结果。Responses 与 Anthropic 的真实 body、流式终止和 usage 由 B82 另证。 |
 
-证据对账复用 `authoring_request_facts.mjs`、`scenario_evidence.mjs` 与 B81 已有的 Provider start / canonical 数据源。三条对账在 `artifacts/b71-audit/2026-11-11-g2-g3-wire-canonical.jsonl`。历史 Strata `response.body` 保存 `event_stream`，因此旧 verifier 的 L5/L6 为缺证。此处验证了实际请求内的观察和校验回流，供应商原始 SSE 响应与模型逐次使用声明仍须按正式批次另证。现有 L7 合并整批请求与事件 refs，只能反映批次引用集合，不能单独证明具体请求的使用边界。
+证据对账复用 `authoring_request_facts.mjs`、`scenario_evidence.mjs` 与 B81 已有的 Provider start / canonical 数据源。三条对账在 `artifacts/b71-audit/2026-11-11-g2-g3-wire-canonical.jsonl`。历史 Strata `response.body` 保存 `event_stream`，因此旧 verifier 的 L5/L6 为缺证。此处验证了实际请求内的观察和校验回流，供应商原始 SSE 响应仍须按正式批次另证。L7 的调用级复验见下。
 
 退役判据的反例可由历史实现复现。仅回放 `ask_author` 的通过校验就得到 G2 绿灯。失败的 observation 得到 G3 绿灯。作者原话包含 `resolved_adoptions` 与 `checkpoint` 就得到 G5/G6 绿灯。正式验收沿已有 native runner、请求事实解析、专用 revision/pending/压缩判据及 SQLite 读取路径继续推进。
+
+### L7 自报与实际请求绑定（2026-11-11）
+
+B71 实模验收与 B70 的 HO5 共用既有 L7。它按 canonical assistant 的 `provider_call_ref` 和 `provider_run_ref` 定位唯一请求，从这条请求的应用材料和成功观察核对该次模型自报。段头、决策 trace 与探索事件可供回查，缺少对应请求时判缺证。原生 tool 观察的结果必须绑定同一报文中在先且唯一的调用。生产协议、持久化和 UI 无新增实体。
+
+只读复核 B81 两个已有 Tauri/Strata 批次。原报文均通过；从自报所在请求移除引用、保留其他调用中的同一引用时均失败；移除该请求记录时均报缺证；把引用只放回压缩省略说明或 scope 引用的作者原文时仍失败。前后证据分别在 `artifacts/b71-audit/2026-11-11-l7-before.jsonl` 与 `artifacts/b71-audit/2026-11-11-l7-after.jsonl`。这是历史调用的 L7 复核，独立 B82 G2 仍需把首次分页观察与消费同一材料的模型自报连成同一条链。
 

@@ -455,14 +455,13 @@ export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheck
       : nonTerminalBindings.length > 0 &&
         nonTerminalBindings.every((entry) => entry.bound_in_later_request && entry.observation_length > 0);
 
-  // L7 used_refs ⊆ base_refs ∪ observation_refs：Lead 03 裁定从产品持久结构读取
-  // （canonical 段消息自报/段头 used_refs + decision_traces.context_refs +
-  // agent_events.refs + 请求应用数据消息）；wire 启发式只作观测辅助，不参与判定；
-  // 无法提取 used 时 ok=null（unknown，不假过）。
+  // L7 逐调用 used_refs ⊆ 同次 Base ∪ 同次 observation（VS-00L §7 G2/§16.9）：
+  // canonical assistant(model) 的 self_report 按顶层 pcall+prun 配对唯一真实
+  // llm record，边界只从该 record 的明确 application_base/scope 正式条目与唯一
+  // 成功 observation 读取；checkpoint/notice/作者原文不授信，段头 used_refs、
+  // decision_traces、agent_events 不参与正判，无法配对/解析记 null（不假过）。
   const refsCheck = liveRefsCheck({
     llmRecords: strataRecords,
-    agentEvents: Array.isArray(dbFacts?.agent_events) ? dbFacts.agent_events : [],
-    decisionTraces: Array.isArray(dbFacts?.decision_traces) ? dbFacts.decision_traces : [],
     transcript: dbFacts?.segment_transcript ?? null,
   });
   const l7 = refsCheck.ok;

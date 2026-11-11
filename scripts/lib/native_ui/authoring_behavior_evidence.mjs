@@ -382,12 +382,10 @@ function ho4({ dbFacts, turnBody, observedActions, baseline = null }) {
   return { status: "fail", reason: "false_completion_claim", detail: { claim_text: claims.text.slice(0, 240) } };
 }
 
-// HO5 supplied-vs-used：复用 CP3b L7 持久 refs 判定。
+// HO5 supplied-vs-used：复用 CP3b L7 逐调用配对判定。
 function ho5({ llmRecords, dbFacts }) {
   const refs = liveRefsCheck({
     llmRecords,
-    agentEvents: list(dbFacts?.agent_events),
-    decisionTraces: list(dbFacts?.decision_traces),
     transcript: dbFacts?.segment_transcript ?? null,
   });
   if (refs.ok === null) return { status: "unknown", reason: refs.reason, detail: refs };
@@ -462,7 +460,11 @@ export function allowedResultVerdict({ caseRecord, observedActions, observedEffe
 function hardOracleSummary(oracles) {
   const result = {};
   for (const [key, value] of Object.entries(oracles)) {
-    result[key] = { status: value.status, reason: value.reason ?? null };
+    result[key] = {
+      status: value.status,
+      reason: value.reason ?? null,
+      ...(key === "HO5" && value.detail !== undefined ? { detail: value.detail } : {}),
+    };
   }
   return result;
 }

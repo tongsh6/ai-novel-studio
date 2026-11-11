@@ -33,7 +33,10 @@ function writeJsonl(file, rows) {
 const png = () => Buffer.from("89504e470d0a1a0a", "hex");
 
 const system = () => ({ role: "system", content: "你在 AI Novel Studio 中工作，作者是唯一裁决者。" });
-const appBase = () => ({ role: "user", content: "【应用数据 · application_base · 非作者原话】\n创作判断器规则。" });
+const appBase = () => ({
+  role: "user",
+  content: "【应用数据 · application_base · 非作者原话】\n创作判断器规则。\n- [observation:obs_1]",
+});
 const author = () => ({ role: "user", content: AUTHOR });
 const scope = () => ({ role: "user", content: "【应用数据 · scope_update · 以最新版本为准】\n版本：{\"scope_revision\":1}" });
 
@@ -105,11 +108,28 @@ function checkpoint(name, { canonHash = "canon-content", counts = {}, design = "
 }
 
 // canonical 执行段：agent_runs 只保留身份/模式列，消息与 refs 在段头/消息行。
-function insertCanonicalRun(db, { runId = RUN, sessionId = SESSION, workId = WORK, usedRefs = ["observation:obs_1"] } = {}) {
+// L7 只认 assistant(model) 消息顶层的 pcall+prun 与真实 llm record 的配对。
+function insertCanonicalRun(
+  db,
+  {
+    runId = RUN,
+    sessionId = SESSION,
+    workId = WORK,
+    usedRefs = ["observation:obs_1"],
+    providerCallRef = "pcall_live_1",
+    providerRunRef = "prun_live_1",
+  } = {},
+) {
   const run = { run_id: runId, workspace_id: WORKSPACE, work_id: workId, session_id: sessionId, parent_turn_ref: TURN, profile_ref: "judgment_loop_v1" };
   const message =
     usedRefs.length > 0
-      ? { role: "assistant", provenance: "model", blocks: [{ type: "tool_call", call_id: "call-self-report", name: "submit_tentative_artifact", arguments: { self_report: { used_context_refs: usedRefs } } }] }
+      ? {
+          role: "assistant",
+          provenance: "model",
+          provider_call_ref: providerCallRef,
+          provider_run_ref: providerRunRef,
+          blocks: [{ type: "tool_call", call_id: "call-self-report", name: "submit_tentative_artifact", arguments: { self_report: { used_context_refs: usedRefs } } }],
+        }
       : { role: "assistant", provenance: "model", blocks: [{ type: "text", text: "我先核对第01章现有内容。" }] };
   const header = {
     version: SEGMENT_VERSION,

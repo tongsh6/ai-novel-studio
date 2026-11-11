@@ -55,7 +55,7 @@ assertions:
     - application_base 不含观察正文；续读 query 与上一页 footer 一致
   data:
     - 真实 ACK 的 run_id 指向同 workspace/work/session/parent 的 completed bounded agent_runs，保持 bounded，不为验收改 durable
-    - 私有 authoring-transcript/v1 与该 run 的完整身份一致，不要求 long_run_task，不从旧 checkpoint 或最新行猜取
+    - 会话级 canonical 消息按该 run 的执行段和完整身份读取，不要求 long_run_task，不从旧 checkpoint 或最新行猜取
     - ProviderRun 数量、配对请求/响应与 consumed_provider_calls 一致；同 parent 其它 run 不进入调用、完成结果或 exploration_observed 计数
     - 两次 exploration_observed，adoption_state.pending=[]，无 production write
 

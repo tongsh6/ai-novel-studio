@@ -23,6 +23,7 @@ function record(messages, overrides = {}) {
     ts: overrides.ts ?? "2026-11-03T10:00:01.000Z",
     turn_id: TURN,
     provider_call_ref: overrides.provider_call_ref ?? "pcall_1",
+    provider_run_ref: overrides.provider_run_ref ?? "prun_1",
     provider: "strata",
     request: { body: overrides.request_body ?? { messages, tools: [], tool_choice: "auto" } },
     response:
@@ -95,7 +96,16 @@ function evaluate({ llmRecords, start = checkpoint("start"), final = checkpoint(
   });
 }
 
-function designDbFacts({ mission = {}, usedRefs = [], agentEventRefs = ["obs_1"], traces = [{ trace_id: "trace_1", turn_id: TURN, context_refs: null }], mutations = 0 } = {}) {
+function designDbFacts({
+  mission = {},
+  usedRefs = [],
+  providerCallRef = "pcall_1",
+  providerRunRef = "prun_1",
+  segmentUsedRefs = [],
+  agentEventRefs = ["obs_1"],
+  traces = [{ trace_id: "trace_1", turn_id: TURN, context_refs: null }],
+  mutations = 0,
+} = {}) {
   return {
     mutations_count: mutations,
     chapters_rows: [
@@ -121,9 +131,15 @@ function designDbFacts({ mission = {}, usedRefs = [], agentEventRefs = ["obs_1"]
     segment_transcript: {
       messages:
         usedRefs.length > 0
-          ? [{ role: "assistant", provenance: "model", blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: usedRefs } } }] }]
+          ? [{
+              role: "assistant",
+              provenance: "model",
+              provider_call_ref: providerCallRef,
+              provider_run_ref: providerRunRef,
+              blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: usedRefs } } }],
+            }]
           : [],
-      used_refs: [],
+      used_refs: segmentUsedRefs,
     },
   };
 }
@@ -255,8 +271,13 @@ test("L5/L6：只有 messages 回放、无实时响应 tool_calls 时不伪造�
   assert.equal(checks.model_behavior.tool_call_count, 0);
 });
 
-test("L7：used 从持久结构读取——越界失败、合法通过、不可提取记 null", () => {
-  const messages = [system(), appBase("材料：chapter:ch-1"), author(), scope()];
+test("L7：used 按 pcall/prun 配对同次请求——越界失败、合法通过、不可提取记 null", () => {
+  const messages = [
+    system(),
+    appBase("材料：chapter:ch-1；执行简述：execution_brief:chapter:ch-1"),
+    author(),
+    { role: "user", content: "【应用数据 · scope_update · 以最新版本为准】\n- [observation:obs_1]" },
+  ];
   const records = [record(messages)];
   const outOfBoundary = evaluate({
     llmRecords: records,
@@ -264,11 +285,15 @@ test("L7：used 从持久结构读取——越界失败、合法通过、不可�
   });
   assert.equal(outOfBoundary.checks.mechanism.used_context_refs_within_boundary, false);
   assert(outOfBoundary.measured.refs.violations.length > 0);
+  assert.equal(outOfBoundary.measured.refs.reports[0].provider_call_ref, "pcall_1");
+  assert.equal(outOfBoundary.measured.refs.reports[0].provider_run_ref, "prun_1");
   const legal = evaluate({
     llmRecords: records,
     dbFacts: designDbFacts({ usedRefs: ["observation:obs_1", "execution_brief:chapter:ch-1"] }),
   });
   assert.equal(legal.checks.mechanism.used_context_refs_within_boundary, true);
+  assert.equal(legal.measured.refs.reports.length, 1);
+  assert(legal.measured.refs.reports[0].observation_refs.includes("observation:obs_1"));
   const unknown = evaluate({ llmRecords: records });
   assert.equal(unknown.checks.mechanism.used_context_refs_within_boundary, null);
 });
@@ -380,6 +405,49 @@ test("同一 run 的 <turn>:agent:N step turn 合并：前缀连续、跨段工�
   assert.equal(checks.measured.tool_binding.filter((b) => !b.terminal_without_replay).length, 2);
 });
 
+
+test("L7 逐调用反例：A 自报的 ref 只在 B 的请求/事件/段头出现 → false", () => {
+  const base = [system(), appBase("材料：chapter:ch-base"), author(), scope()];
+  const call = { id: "call_b", type: "function", function: { name: "read_chapter", arguments: "{}" } };
+  const recordA = record(base, {
+    provider_call_ref: "pcall_A",
+    provider_run_ref: "prun_A",
+  });
+  const recordB = record(
+    [
+      ...base,
+      { role: "assistant", content: "", tool_calls: [call] },
+      {
+        role: "tool",
+        tool_call_id: "call_b",
+        content: JSON.stringify({
+          type: "observation",
+          call_id: "call_b",
+          status: "ok",
+          source_refs: ["observation:obs_b"],
+        }),
+      },
+    ],
+    {
+      provider_call_ref: "pcall_B",
+      provider_run_ref: "prun_B",
+    },
+  );
+  const checks = evaluate({
+    llmRecords: [recordA, recordB],
+    dbFacts: designDbFacts({
+      usedRefs: ["observation:obs_b"],
+      providerCallRef: "pcall_A",
+      providerRunRef: "prun_A",
+      segmentUsedRefs: [{ ref: "observation:obs_b" }],
+      agentEventRefs: ["observation:obs_b"],
+    }),
+  });
+  assert.equal(checks.checks.mechanism.used_context_refs_within_boundary, false);
+  assert.equal(checks.measured.refs.reports[0].provider_call_ref, "pcall_A");
+  assert.equal(checks.measured.refs.reports[0].provider_run_ref, "prun_A");
+  assert(checks.measured.refs.violations.some((violation) => violation.ref === "observation:obs_b"));
+});
 
 test("L9 分层：有 pcall/decision_trace/basis_ref 支撑的 TENTATIVE 设计态派生允许，并单列", () => {
   const messages = [system(), appBase("材料：chapter:ch-1"), author(), scope()];
