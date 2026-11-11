@@ -48,14 +48,6 @@ export async function waitWorkbench(appName = APP, timeoutMs = 180_000) {
   timeoutMs, "workbench_ready");
 }
 
-// 测试数据准备：把目标作品标为最近打开，使原生启动直接进入该作品（等价于上一批次经作品菜单切换）。
-// 只改隔离副本 SQLite，不触碰产品代码/源库。
-export function markWorkNewest(dbPath, workId) {
-  execFileSync("python3", ["-c",
-    "import sqlite3,sys,datetime; db=sqlite3.connect(sys.argv[1]); ts=datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')+'Z'; db.execute('update works set updated_at=? where id=?',(ts,sys.argv[2])); db.commit(); db.close()",
-    dbPath, workId]);
-}
-
 export function readDb(dbPath, sql, params = []) {
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try { return db.prepare(sql).all(...params); } finally { db.close(); }

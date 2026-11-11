@@ -73,25 +73,6 @@ const SLICES = Object.freeze({
   },
 });
 
-function markWorkNewest(dir, workId) {
-  execFileSync(
-    "python3",
-    [
-      "-c",
-      [
-        "import sqlite3,sys,datetime",
-        "db=sqlite3.connect(sys.argv[1], timeout=10)",
-        "ts=datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')+'Z'",
-        "db.execute('update works set updated_at=? where id=?',(ts,sys.argv[2]))",
-        "db.commit(); db.close()",
-      ].join("\n"),
-      path.join(dir, "database", "ai_novel_studio_test.sqlite3"),
-      workId,
-    ],
-    { stdio: "ignore" },
-  );
-}
-
 function seedField(dir, name) {
   const file = path.join(dir, "seed.log");
   if (!fs.existsSync(file)) return null;
@@ -125,7 +106,6 @@ export function prepare(dir) {
   assert(foreignWorkId, "AU07 seed 缺少 foreign_work_id");
   assert(foreignCharacterId, "AU07 seed 缺少 foreign_character_id");
 
-  markWorkNewest(dir, workId);
   write(dir, "production-sources-before.json", productionFingerprint());
   write(dir, "native-au07-config.json", {
     slice_id: sliceId,

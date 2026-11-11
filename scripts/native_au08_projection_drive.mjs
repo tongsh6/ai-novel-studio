@@ -119,7 +119,7 @@ async function run() {
   await harness.runStep("maintenance", "workbench_ready:initial", () =>
     harness.rawWaitWorkbenchSettled("initial"),
   );
-  await ensureWorkSelected(harness, config.target.work_id, config.target.work_title, "initial");
+  await ensureWorkSelected(harness, config.target.work_title, "initial");
 
   const { turnId, pendingRecord } = await sendSource();
   const pending = (frameBody(pendingRecord).adoption_state?.pending ?? []).find(

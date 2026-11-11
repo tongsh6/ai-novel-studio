@@ -116,7 +116,7 @@ async function run() {
   const config = readJson(path.join(dir, "native-vs00g-config.json"));
   await harness.runStep("maintenance", "launch_app", () => harness.rawLaunchApp());
   await harness.runStep("maintenance", "workbench_ready:initial", () => harness.rawWaitWorkbenchSettled("initial"));
-  await ensureWorkSelected(harness, config.dismiss.work_id, config.dismiss.work_title, "initial");
+  await ensureWorkSelected(harness, config.dismiss.work_title, "initial");
 
   const first = await review("first");
   const firstTarget = startTarget(frameBody(first));
@@ -177,7 +177,7 @@ async function run() {
 
   await harness.runStep("restore", "relaunch_after_dismiss", () => harness.rawCloseAppAndRelaunch());
   await harness.runStep("maintenance", "workbench_ready:after_dismiss", () => harness.rawWaitWorkbenchSettled("after_dismiss"));
-  await ensureWorkSelected(harness, config.dismiss.work_id, config.dismiss.work_title, "after_dismiss");
+  await ensureWorkSelected(harness, config.dismiss.work_title, "after_dismiss");
   await noProposalButtons("after_relaunch");
   harness.capture("03-dismissed-after-relaunch");
   runEvidenceMode(EVIDENCE, "capture", dir, ["dismissed"]);
@@ -188,7 +188,7 @@ async function run() {
   harness.capture("04-no-repeat-closed");
   runEvidenceMode(EVIDENCE, "capture", dir, ["rescan"]);
 
-  await ensureWorkSelected(harness, config.start.work_id, config.start.work_title, "explicit_start");
+  await ensureWorkSelected(harness, config.start.work_title, "explicit_start");
   const explicit = await review("explicit_start");
   const explicitTarget = startTarget(frameBody(explicit));
   if (!explicitTarget || explicitTarget === firstTarget) throw new Error("independent_work_proposal_missing");

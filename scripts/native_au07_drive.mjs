@@ -37,7 +37,7 @@ async function run() {
   await harness.runStep("maintenance", "workbench_ready:initial", () =>
     harness.rawWaitWorkbenchSettled("initial"),
   );
-  await ensureWorkSelected(harness, target.work_id, target.work_title, "initial");
+  await ensureWorkSelected(harness, target.work_title, "initial");
   harness.capture("01-workbench");
   runEvidenceMode(EVIDENCE, "capture", dir, ["start"]);
 

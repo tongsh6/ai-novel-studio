@@ -102,25 +102,6 @@ const requestedIds = () =>
     .filter(Boolean)
     .filter((id) => byId.has(id));
 
-function markWorkNewest(dir, workId) {
-  execFileSync(
-    "python3",
-    [
-      "-c",
-      [
-        "import sqlite3,sys,datetime",
-        "db=sqlite3.connect(sys.argv[1], timeout=10)",
-        "ts=datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')+'Z'",
-        "db.execute('update works set updated_at=? where id=?',(ts,sys.argv[2]))",
-        "db.commit(); db.close()",
-      ].join("\n"),
-      path.join(dir, "database", "ai_novel_studio_test.sqlite3"),
-      workId,
-    ],
-    { stdio: "ignore" },
-  );
-}
-
 function seedField(dir, name) {
   const file = path.join(dir, "seed.log");
   if (!fs.existsSync(file)) return null;
@@ -216,7 +197,6 @@ export async function prepare(dir) {
       }
     : onlyWork(dir);
 
-  markWorkNewest(dir, target.work_id);
   write(dir, "production-sources-before.json", productionFingerprint());
 
   let endpointModels = null;

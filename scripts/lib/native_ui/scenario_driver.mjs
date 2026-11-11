@@ -619,25 +619,6 @@ export class NativeScenarioHarness {
     );
   }
 
-  markWorkNewest(workId) {
-    execFileSync(
-      "python3",
-      [
-        "-c",
-        [
-          "import sqlite3,sys,datetime",
-          "db=sqlite3.connect(sys.argv[1], timeout=10)",
-          "ts=datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')+'Z'",
-          "db.execute('update works set updated_at=? where id=?',(ts,sys.argv[2]))",
-          "db.commit(); db.close()",
-        ].join("\n"),
-        this.dbFile,
-        workId,
-      ],
-      { stdio: "ignore" },
-    );
-  }
-
   async rawSwitchWork(title, label) {
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       let nodes = this.dumpNodesForInteraction(`work_switch:${label}`);
@@ -1015,25 +996,15 @@ export class NativeScenarioHarness {
   }
 }
 
-// 顶层选中目标作品：正常走真实作品菜单；菜单不可用才用隔离副本 DB 的「最近打开」
-// 时间戳模拟作者上次打开该作品后重开应用（等价重开，不改产品）。close/relaunch 必须
-// 单独登记为 restore 分型等待（B37 监督据此区分「恢复重开」与「窗口意外退出」）。
-export async function ensureWorkSelected(harness, workId, title, label) {
-  const ok = await harness.runStep("maintenance", `select_work:${label}`, () =>
+// 顶层选中目标作品：只按作者可见的作品名走真实作品菜单和有界 AX 等待。
+// 菜单不可用就当场失败，不写库、不拿内部 ID、不改启动状态、不盲目重试；
+// 失败由调用方既有的 harness.fail 采真实证据。
+export async function ensureWorkSelected(harness, title, label) {
+  const selected = await harness.runStep("maintenance", `select_work:${label}`, () =>
     harness.rawTrySelectWork(title, label),
   );
-  if (ok) return true;
-  harness.log.push({ op: "work_restart_fallback", label, at: harness.nowIso() });
-  harness.markWorkNewest(workId);
-  await harness.runStep("restore", `relaunch:${label}`, () => harness.rawCloseAppAndRelaunch());
-  await harness.runStep("maintenance", `workbench_ready:${label}:restored`, () =>
-    harness.rawWaitWorkbenchSettled(`${label}:restored`),
-  );
-  const settled = await harness.runStep("maintenance", `select_work:${label}:restored`, () =>
-    harness.rawTrySelectWork(title, `${label}:restored`),
-  );
-  if (!settled) throw new Error(`work_not_selected:${title}`);
-  return false;
+  if (!selected) throw new Error(`work_not_selected:${title}`);
+  return true;
 }
 
 // 通过 CLI 调用对应 evidence 脚本的 prepare/capture 模式（证据始终由 evidence 模块写）。

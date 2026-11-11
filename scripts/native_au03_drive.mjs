@@ -733,7 +733,7 @@ async function main() {
   await harness.runStep("maintenance", "workbench_ready:initial", () =>
     harness.rawWaitWorkbenchSettled("initial"),
   );
-  await ensureWorkSelected(harness, config.target.work_id, config.target.work_title, "initial");
+  await ensureWorkSelected(harness, config.target.work_title, "initial");
   harness.capture("01-workbench");
   runEvidenceMode(EVIDENCE, "capture", dir, ["start"]);
 
@@ -759,7 +759,7 @@ async function main() {
     await harness.runStep("maintenance", "workbench_ready:final", () =>
       harness.rawWaitWorkbenchSettled("final"),
     );
-    await ensureWorkSelected(harness, config.target.work_id, config.target.work_title, "final");
+    await ensureWorkSelected(harness, config.target.work_title, "final");
     harness.capture("02-final");
     runEvidenceMode(EVIDENCE, "capture", dir, ["final"]);
     harness.writeDriverLog("au03-context-native-driver-log.json", {

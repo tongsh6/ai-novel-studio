@@ -7,7 +7,12 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { OwnershipError } from "./input_target.mjs";
-import { NativeScenarioHarness, activationConfirmed, evidenceText } from "./scenario_driver.mjs";
+import {
+  NativeScenarioHarness,
+  activationConfirmed,
+  ensureWorkSelected,
+  evidenceText,
+} from "./scenario_driver.mjs";
 
 function makeHarness(io) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "native-scenario-"));
@@ -554,4 +559,57 @@ test("evidenceText：value 单独标注，避免 AX 值裸拼成伪泄漏串", (
   assert.equal(evidenceText(null), "");
   // 真实数字 value 保留可读形式
   assert.equal(evidenceText({ title: "时长", value: 12 }), "时长 (value=12)");
+});
+
+const VISIBLE_WORK_TITLE = "潮汐来信";
+
+// 共享入口只允许作者可见菜单操作；mock 不暴露数据库、内部 ID 或重启入口。
+function visibleWorkHarness({ selected, calls }) {
+  return {
+    runStep: async (kind, label, fn) => {
+      calls.push(["step", kind, label]);
+      return fn();
+    },
+    rawTrySelectWork: async (title, label) => {
+      calls.push(["select", title, label]);
+      return selected;
+    },
+  };
+}
+
+test("ensureWorkSelected 只按可见作品名走真实菜单选中", async () => {
+  const calls = [];
+  const harness = visibleWorkHarness({ selected: true, calls });
+
+  const selected = await ensureWorkSelected(harness, VISIBLE_WORK_TITLE, "initial");
+
+  assert.equal(selected, true);
+  assert.deepEqual(
+    calls,
+    [
+      ["step", "maintenance", "select_work:initial"],
+      ["select", VISIBLE_WORK_TITLE, "initial"],
+    ],
+    "实际输入只有作者可见作品名",
+  );
+});
+
+test("ensureWorkSelected 菜单失败当场抛 work_not_selected，不重试", async () => {
+  const calls = [];
+  const harness = visibleWorkHarness({ selected: false, calls });
+
+  await assert.rejects(
+    () => ensureWorkSelected(harness, VISIBLE_WORK_TITLE, "initial"),
+    { message: `work_not_selected:${VISIBLE_WORK_TITLE}` },
+    "菜单失败必须当场失败，不能内部回退",
+  );
+
+  assert.deepEqual(
+    calls,
+    [
+      ["step", "maintenance", "select_work:initial"],
+      ["select", VISIBLE_WORK_TITLE, "initial"],
+    ],
+    "失败后不得盲重试",
+  );
 });

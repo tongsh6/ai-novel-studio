@@ -22,7 +22,6 @@ import {
   assertCommonEvidence,
   assertProviderAndWire,
   axText,
-  dbPath,
   evidenceBoundary,
   productionTableCounts,
   read,
@@ -97,23 +96,6 @@ export async function prepare(dir) {
   assert.equal(ready.provider, "slice_verify", "Q1c 原生批次必须使用 slice_verify");
 
   const created = await createWork(ready);
-  const { execFileSync } = await import("node:child_process");
-  execFileSync(
-    "python3",
-    [
-      "-c",
-      [
-        "import sqlite3,sys,datetime",
-        "db=sqlite3.connect(sys.argv[1], timeout=10)",
-        "ts=datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')+'Z'",
-        "db.execute('update works set updated_at=? where id=?',(ts,sys.argv[2]))",
-        "db.commit(); db.close()",
-      ].join("\n"),
-      dbPath(dir),
-      created.workId,
-    ],
-    { stdio: "ignore" },
-  );
 
   const sourceText = `岑舟今年${OLD_AGE}，是青云宗宗主，掌管东洲灵脉。资料校验标识${created.nonce}。`;
   const config = {

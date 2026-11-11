@@ -166,7 +166,7 @@ async function run() {
   await harness.runStep("maintenance", "workbench_ready:initial", () =>
     harness.rawWaitWorkbenchSettled("initial"),
   );
-  await ensureWorkSelected(harness, config.target.work_id, config.target.work_title, "initial");
+  await ensureWorkSelected(harness, config.target.work_title, "initial");
   harness.capture("00-workbench");
   runEvidenceMode(EVIDENCE, "capture", dir, ["start"]);
 
@@ -195,7 +195,7 @@ async function run() {
   await harness.runStep("maintenance", "workbench_ready:final", () =>
     harness.rawWaitWorkbenchSettled("final"),
   );
-  await ensureWorkSelected(harness, config.target.work_id, config.target.work_title, "final");
+  await ensureWorkSelected(harness, config.target.work_title, "final");
   harness.capture("04b-restarted");
 
   const followupSent = await sendMessage(config.messages.followup, "followup");

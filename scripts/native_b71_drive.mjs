@@ -36,7 +36,7 @@ async function run() {
   await harness.runStep("maintenance", "workbench_ready", () =>
     harness.rawWaitWorkbenchSettled("b71"),
   );
-  await ensureWorkSelected(harness, config.target.work_id, config.target.work_title, "b71");
+  await ensureWorkSelected(harness, config.target.work_title, "b71");
   harness.capture("01-workbench");
   // start 快照由公共 run 在作品选定后、首轮业务动作前唯一负责；各 journey 只消费该基线。
   runEvidenceMode(evidence, "capture", dir, ["start"]);

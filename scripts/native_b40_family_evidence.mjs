@@ -22,7 +22,6 @@ import fs from "node:fs";
 import path from "node:path";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
 import {
   all,
   assertAllChecks,
@@ -191,25 +190,6 @@ const SLOT_FORM_PATTERN = /必填字段|字段表单|请填写字段|slot_schema
 const EXECUTION_CARD_PATTERN = /确认执行|待确认的创作材料|保存为章节正文|工具执行|MicroPlan/i;
 
 // ── 隔离副本 DB 准备 ────────────────────────────────────────────────────────
-function markWorkNewest(dir, workId) {
-  execFileSync(
-    "python3",
-    [
-      "-c",
-      [
-        "import sqlite3,sys,datetime",
-        "db=sqlite3.connect(sys.argv[1], timeout=10)",
-        "ts=datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')+'Z'",
-        "db.execute('update works set updated_at=? where id=?',(ts,sys.argv[2]))",
-        "db.commit(); db.close()",
-      ].join("\n"),
-      path.join(dir, "database", "ai_novel_studio_test.sqlite3"),
-      workId,
-    ],
-    { stdio: "ignore" },
-  );
-}
-
 function seedField(dir, name) {
   const file = path.join(dir, "seed.log");
   if (!fs.existsSync(file)) return null;
@@ -280,7 +260,6 @@ export async function prepare(dir) {
     }
   }
 
-  markWorkNewest(dir, target.work_id);
   write(dir, "production-sources-before.json", productionFingerprint());
   write(dir, "native-b40-config.json", {
     slice_id: sliceId,

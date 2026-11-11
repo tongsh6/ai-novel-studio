@@ -248,7 +248,7 @@ async function bootstrap(config) {
   await harness.runStep("maintenance", "workbench_ready:initial", () =>
     harness.rawWaitWorkbenchSettled("initial"),
   );
-  await ensureWorkSelected(harness, config.target.work_id, config.target.work_title, "initial");
+  await ensureWorkSelected(harness, config.target.work_title, "initial");
   harness.capture("01-workbench");
   runEvidenceMode(EVIDENCE, "capture", dir, ["start"]);
   return sliceId;

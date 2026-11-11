@@ -25,7 +25,7 @@ async function run() {
   await harness.runStep("maintenance", "workbench_ready:initial", () =>
     harness.rawWaitWorkbenchSettled("initial"),
   );
-  await ensureWorkSelected(harness, config.target.work_id, config.target.work_title, "initial");
+  await ensureWorkSelected(harness, config.target.work_title, "initial");
 
   const text = "请根据已采纳章节计划生成第01章：底层灵气账单的正文草稿。UA01PROVIDERFAIL";
   const sent = await harness.runStep("input", "failure_send", () => harness.rawTypeAndSend(text, "failure"));

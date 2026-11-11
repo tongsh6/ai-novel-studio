@@ -24,7 +24,7 @@ async function run() {
   await harness.runStep("maintenance", "activate_before_work_menu", async () => {
     activate(harness.APP);
   });
-  await ensureWorkSelected(harness, config.dismiss.work_id, config.dismiss.work_title, "startup");
+  await ensureWorkSelected(harness, config.dismiss.work_title, "startup");
   const selected = await harness.runStep("maintenance", "selected_work_visible", () =>
     harness.pollAx(
       (_text, nodes) => harness.visibleWorkTitle(nodes) === config.dismiss.work_title,

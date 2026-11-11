@@ -200,7 +200,7 @@ async function run() {
     await harness.runStep("maintenance", "workbench_ready", () =>
       harness.rawWaitWorkbenchSettled("b71-live", READY_TIMEOUT_MS),
     );
-    await ensureWorkSelected(harness, config.target.work_id, config.target.work_title, "b71-live");
+    await ensureWorkSelected(harness, config.target.work_title, "b71-live");
     harness.capture("01-workbench");
     runEvidenceMode(evidence, "capture", dir, ["start"]);
 

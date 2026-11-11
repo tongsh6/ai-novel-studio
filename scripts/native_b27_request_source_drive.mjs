@@ -273,7 +273,7 @@ async function main() {
 
   await harness.runStep("maintenance", "launch_app", () => harness.rawLaunchApp());
   await harness.runStep("maintenance", "workbench_ready:initial", () => harness.rawWaitWorkbenchSettled("initial"));
-  await ensureWorkSelected(harness, null, WORK_TITLE, "initial");
+  await ensureWorkSelected(harness, WORK_TITLE, "initial");
   harness.capture("01-workbench");
 
   const results = [];

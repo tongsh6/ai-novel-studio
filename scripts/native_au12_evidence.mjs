@@ -33,8 +33,6 @@ const TITLE = "主线目标";
 const BODY = "让沈砚从被动卷入转向主动查账，在巡检收网前拿到暗抽主账。";
 const USER_TEXT = "我想修订当前作品的立项设定，包括题材、核心卖点、目标读者和基调。请先生成一份待采纳的设定修订草稿，不要直接写入作品档案。";
 
-const dbPath = (dir) => path.join(dir, "database", "ai_novel_studio_test.sqlite3");
-
 async function createWork(dir, ready) {
   const nonce = Date.now();
   const title = `AU12原生修订作品-${nonce}`;
@@ -63,20 +61,6 @@ export async function prepare(dir) {
   assert.equal(ready.provider, "slice_verify", "AU12 原生批次必须使用 slice_verify");
 
   const created = await createWork(dir, ready);
-  // 真实作品菜单的「最近打开」排序：仅改隔离副本 DB 的时间戳（等价作者上次打开）。
-  const { execFileSync } = await import("node:child_process");
-  execFileSync("python3", [
-    "-c",
-    [
-      "import sqlite3,sys,datetime",
-      "db=sqlite3.connect(sys.argv[1], timeout=10)",
-      "ts=datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')+'Z'",
-      "db.execute('update works set updated_at=? where id=?',(ts,sys.argv[2]))",
-      "db.commit(); db.close()",
-    ].join("\n"),
-    dbPath(dir),
-    created.workId,
-  ], { stdio: "ignore" });
 
   const config = {
     slice_id: SLICE,

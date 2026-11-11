@@ -465,7 +465,7 @@ async function run() {
 
   await harness.runStep("maintenance", "launch_app", () => harness.rawLaunchApp());
   await harness.runStep("maintenance", "workbench_ready", () => harness.rawWaitWorkbenchSettled("b71-confirmation", CONF.ready));
-  await ensureWorkSelected(harness, config.target.work_id, config.target.work_title, "b71-confirmation");
+  await ensureWorkSelected(harness, config.target.work_title, "b71-confirmation");
   harness.capture("01-source");
   runEvidenceMode(evidence, "capture", dir, ["start"]);
 
