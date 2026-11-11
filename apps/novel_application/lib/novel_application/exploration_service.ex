@@ -23,11 +23,13 @@ defmodule NovelApplication.ExplorationService do
   }
 
   alias NovelDomain.ChapterPlanDirection
+  alias NovelDomain.ProseFormatting
   alias NovelDomain.VolumeBlueprint
   alias NovelFoundation.Enums.ChapterMissionStatus
 
   alias NovelPersistence.{
     ChapterSummaryRepo,
+    LocalizedRevision,
     ProseSearchRepo,
     ReadingProjectionRepo,
     WorkSessionRepo
@@ -65,7 +67,10 @@ defmodule NovelApplication.ExplorationService do
           optional(:chapter_seq) => integer() | nil,
           optional(:next_offset) => non_neg_integer() | nil,
           optional(:prose_total_chars) => non_neg_integer(),
-          optional(:prose_range) => %{start: pos_integer(), end: non_neg_integer()} | nil
+          optional(:prose_range) => %{start: pos_integer(), end: non_neg_integer()} | nil,
+          optional(:source_hash) => String.t(),
+          optional(:prose_byte_range) => %{start: non_neg_integer(), end: non_neg_integer()},
+          optional(:target_segments) => [map()]
         }
 
   # ledgers 面为 VS-00F CP1（ADR-0026）第 9 面：五本账进度视图（探索面同步律，08 §8）。
@@ -637,8 +642,9 @@ defmodule NovelApplication.ExplorationService do
        ) do
     {page_text, page_end, next_offset} = chapter_page(prose, offset, total)
     start_byte = byte_size(String.slice(prose, 0, offset))
+    page_byte_end = start_byte + byte_size(page_text)
 
-    versions = chapter_page_versions(spans, start_byte, start_byte + byte_size(page_text))
+    versions = chapter_page_versions(spans, start_byte, page_byte_end)
 
     sections =
       header_sections(work_id, chapter, volume, offset) ++
@@ -659,7 +665,10 @@ defmodule NovelApplication.ExplorationService do
            versions: versions,
            next_offset: next_offset,
            prose_total_chars: total,
-           prose_range: %{start: offset + 1, end: page_end}
+           prose_range: %{start: offset + 1, end: page_end},
+           source_hash: ProseFormatting.source_hash(prose),
+           prose_byte_range: %{start: start_byte, end: page_byte_end},
+           target_segments: LocalizedRevision.page_segments(prose, start_byte, page_byte_end)
          })
      )}
   end

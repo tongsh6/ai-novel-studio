@@ -43,13 +43,58 @@ defmodule NovelPersistence.LocalizedRevision do
         occurrence: 1
       }
 
-      {acc ++ [segment], offset + byte_size(raw)}
+      {[segment | acc], offset + byte_size(raw)}
     end)
     |> elem(0)
+    |> Enum.reverse()
     |> put_occurrences()
   end
 
   def segment(_text), do: []
+
+  @doc """
+  B82 G2：由既有分段派生页内可见段坐标（纯函数，不复制正文、不造新段 ID）。
+
+  页范围是 canonical 正文的 0-based 字节半开区间。只列与该页正文实际相交的既有段：
+  `byte_start/byte_end` 是整段正文（去尾分隔符，`split_segment_raw/1`），
+  `page_range` 是该段在本页可见部分的 1-based 字素闭区间。部分段照常列出，
+  跨页完整性由消费者按各页实际范围合并验证。
+  """
+  @spec page_segments(binary(), non_neg_integer(), non_neg_integer()) :: [map()]
+  def page_segments(text, page_byte_start, page_byte_end)
+      when is_binary(text) and is_integer(page_byte_start) and is_integer(page_byte_end) do
+    text
+    |> segment()
+    |> Enum.flat_map(fn seg ->
+      {content, _separator} = split_segment_raw(seg.raw)
+      content_end = seg.byte_start + byte_size(content)
+      from = max(seg.byte_start, page_byte_start)
+      to = min(content_end, page_byte_end)
+
+      if content_end > seg.byte_start and from < to do
+        [page_segment(seg, content_end, text, page_byte_start, from, to)]
+      else
+        []
+      end
+    end)
+  end
+
+  def page_segments(_text, _page_byte_start, _page_byte_end), do: []
+
+  defp page_segment(seg, content_end, text, page_byte_start, from, to) do
+    %{
+      segment_id: seg.segment_id,
+      byte_start: seg.byte_start,
+      byte_end: content_end,
+      page_range: %{
+        start: grapheme_length(text, page_byte_start, from - page_byte_start) + 1,
+        end: grapheme_length(text, page_byte_start, to - page_byte_start)
+      }
+    }
+  end
+
+  defp grapheme_length(text, start_byte, length),
+    do: text |> binary_part(start_byte, length) |> String.length()
 
   @doc "拆出段落正文与其尾部分隔符（空白行/换行原样保留，供段替换重组）。"
   @spec split_segment_raw(binary()) :: {binary(), binary()}

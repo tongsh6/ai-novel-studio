@@ -575,8 +575,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       chapter_ref?(field(judgment, :adopted_content_ref))
   end
 
-  defp chapter_ref?(ref) when is_binary(ref), do: String.starts_with?(ref, "chapter:")
-  defp chapter_ref?(_ref), do: false
+  defp chapter_ref?(ref), do: ChapterRevisionScope.chapter_ref?(ref)
 
   defp run_artifact_target(judgment, input, run, context, provider, snapshot, session) do
     with false <- field(session, :read_only),
@@ -610,16 +609,17 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     work_id = run.work_id || run.workspace_id
     frame = frame(judgment, input, run, :execution_candidate, chapter_ref)
 
-    chapter_title = chapter_revision_title(work_id, chapter_ref)
-
     with {:ok, modification_scope} <- resolve_modification_scope(run, opts),
          false <- field(session, :read_only),
          :ok <- check_chapter_authority(run),
          :ok <- check_budget(run, "revise_adopted_content"),
          {:ok, facts} <- chapter_revision_facts(work_id, chapter_ref),
-         {:ok, revision_scope} <- b36_revision_scope(facts, modification_scope, run),
+         {:ok, revision_scope} <- b36_revision_scope(facts, modification_scope, run, judgment),
          {:ok, task} <-
            build_chapter_revision_task(facts, modification_scope, run, frame, judgment) do
+      # 标题与章号来自同一次 accepted 章事实（chapter_revision_context/2），
+      # 不再按全库章目录查找，也不回退到裸 chapter_ref。
+      chapter_title = facts.chapter_title
       tool = "prose_writing"
       plan = chapter_revision_plan(frame, tool)
       {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
@@ -714,7 +714,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
              :target_missing,
              :target_ambiguous,
              :incomplete_scope,
-             :author_scope_not_authorized
+             :author_scope_not_authorized,
+             :stale_base_version
            ] ->
         chapter_failure(reason, snapshot)
 
@@ -868,21 +869,6 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     AdoptionWorkflow.chapter_revision_context(work_id, chapter_ref)
   end
 
-  defp chapter_revision_title(work_id, chapter_ref) do
-    case AdoptionWorkflow.chapter_revision_targets(work_id) do
-      {:ok, targets} ->
-        Enum.find_value(targets, chapter_ref, &target_chapter_title(&1, chapter_ref))
-
-      _ ->
-        chapter_ref
-    end
-  end
-
-  defp target_chapter_title(%{chapter_ref: ref} = target, ref),
-    do: Map.get(target, :chapter_title)
-
-  defp target_chapter_title(_target, _chapter_ref), do: nil
-
   # B28 §元原则整改 CP1：修改范围属于作者授权，由纯函数 ChapterRevisionScope 判定；
   # 读取/通读/否定/条件不授予整章。显式 opts 仅保留给受信内部路径（排版计划再修订）。
   defp resolve_modification_scope(run, opts) do
@@ -994,7 +980,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           "#{chapter_title}当前已采纳正文（覆盖顺序：scene seq 升序，片段之间以空行分隔）：
 " <>
             facts.base_text <>
-            revision_target_context(facts, modification_scope, revision_scope) <>
+            revision_target_context(facts, revision_scope, modification_scope) <>
             previous_formatting_plan(Map.get(request_context, :previous_plan)),
         "revision" => chapter_revision_instruction(modification_scope),
         "artifact_type" =>
@@ -1022,12 +1008,12 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     }
   end
 
-  defp revision_target_context(facts, :target_segments, {ids, _, _, _}) do
+  # 目标段与正文段来自同一次 LocalizedRevision.segment/1 结果（revision_scope），
+  # 数组顺序即正文顺序；writer 与 adoption 共用这一顺序，避免多段错绑。
+  # 该区块必须保持纯结构化 JSON：多段顺序规则只放在 chapter_revision_instruction/1。
+  defp revision_target_context(_facts, %{target_segments: targets}, :target_segments) do
     targets =
-      facts.base_text
-      |> NovelPersistence.LocalizedRevision.segment()
-      |> Enum.filter(&(&1.segment_id in ids))
-      |> Enum.map(fn segment ->
+      Enum.map(targets, fn segment ->
         {text, _separator} = NovelPersistence.LocalizedRevision.split_segment_raw(segment.raw)
         %{segment_id: segment.segment_id, sha256: segment.sha256, text: text}
       end)
@@ -1035,14 +1021,14 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     "\n\n## 本轮局部修订目标段\n" <> Jason.encode!(targets)
   end
 
-  defp revision_target_context(facts, :format_only, _binding) do
+  defp revision_target_context(facts, _binding, :format_only) do
     view = ProseFormatting.view(facts.base_text)
 
     "\n\n## 可选换行边界（绑定当前章版本）\n" <>
       Jason.encode!(Map.take(view, [:source_hash, :boundaries]))
   end
 
-  defp revision_target_context(_facts, _scope, _binding), do: ""
+  defp revision_target_context(_facts, _binding, _scope), do: ""
 
   defp previous_formatting_plan(nil), do: ""
 
@@ -1074,7 +1060,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   defp chapter_revision_instruction(:target_segments) do
     "本轮为指定片段修订：只输出**目标段落的替换文本**（provider 原样返回该段正文，不要输出整章、" <>
       "不要重复未改段落、不要加解释/标题/摘要）。替换文本必须能直接替换目标段；" <>
-      "未改段落由系统逐字节保留，你不需要也不得输出它们。若无法确定目标段，只输出一句具体澄清请求（系统会转 ask_author）。"
+      "有多个目标段时，按目标段在正文中的实际先后顺序逐一输出对应替换段，段与段之间以空行分隔，" <>
+      "每段仍须是单个段落。未改段落由系统逐字节保留，你不需要也不得输出它们。" <>
+      "若无法确定目标段，只输出一句具体澄清请求（系统会转 ask_author）。"
   end
 
   defp chapter_revision_instruction(_scope) do
@@ -1095,28 +1083,111 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   defp chapter_candidate_title(chapter_title, _scope),
     do: "#{chapter_title}（整章内容修订稿）"
 
-  # B28/B36：writer调用前绑定目标段；同一份id/hash用于输入与候选，不把空目标留到采纳才拒绝。
-  defp b36_revision_scope(facts, modification_scope, run) do
+  # B28/B36：writer 调用前绑定目标段；同一份 id/hash/segments 用于 writer 输入与候选。
+  # 全文只切一次：绑定复核、目标上下文与 adoption_effect 共用这份段事实。
+  defp b36_revision_scope(facts, modification_scope, run, judgment) do
     segments = NovelPersistence.LocalizedRevision.segment(facts.base_text)
-    all_ids = Enum.map(segments, & &1.segment_id)
 
-    result =
-      case modification_scope do
-        :whole_chapter -> {:ok, all_ids}
-        :format_only -> {:ok, all_ids}
-        :target_segments -> ChapterRevisionScope.target_segment_ids(segments, run.goal.text)
-      end
-
-    with {:ok, ids} <- result do
-      hashes =
-        segments
-        |> Enum.filter(&(&1.segment_id in ids))
-        |> Enum.map(&%{"segment_id" => &1.segment_id, "sha256" => &1.sha256})
-
+    with {:ok, ids, target_source} <-
+           scope_target_ids(modification_scope, segments, run, judgment),
+         :ok <- verify_observed_targets(facts, judgment, ids, segments, target_source) do
+      id_set = MapSet.new(ids)
+      targets = Enum.filter(segments, &MapSet.member?(id_set, &1.segment_id))
       first = List.first(facts.materials) || %{}
-      {:ok, {ids, Map.get(first, :ref), Map.get(first, :version), hashes}}
+
+      {:ok,
+       %{
+         target_segment_ids: Enum.map(targets, & &1.segment_id),
+         target_segments: targets,
+         expected_segment_hashes:
+           Enum.map(targets, &%{"segment_id" => &1.segment_id, "sha256" => &1.sha256}),
+         base_draft_ref: Map.get(first, :ref),
+         base_version: Map.get(first, :version)
+       }}
     end
   end
+
+  defp scope_target_ids(:target_segments, segments, run, judgment),
+    do: revision_target_ids(segments, run, judgment)
+
+  defp scope_target_ids(_scope, segments, _run, _judgment),
+    do: {:ok, Enum.map(segments, & &1.segment_id), :scope}
+
+  # 作者原话定位优先；只有原文没有明确/成功的目标、且本轮确有真实观察绑定时才采用绑定。
+  # 明示目标不存在/歧义仍拒绝，不拿绑定覆盖作者写出的对象，也不跳过原文授权判断。
+  defp revision_target_ids(segments, run, judgment) do
+    case ChapterRevisionScope.target_segment_ids(segments, run.goal.text) do
+      {:ok, ids} ->
+        {:ok, ids, :author}
+
+      {:error, reason} ->
+        bound_revision_target_ids(judgment, reason, run.goal.text)
+    end
+  end
+
+  defp bound_revision_target_ids(judgment, reason, author_text) do
+    ids = observed_target_ids(judgment)
+
+    cond do
+      ids == [] ->
+        {:error, reason}
+
+      reason == :target_ambiguous ->
+        {:error, reason}
+
+      ChapterRevisionScope.explicit_target?(author_text) ->
+        {:error, reason}
+
+      true ->
+        {:ok, ids, :bound}
+    end
+  end
+
+  defp observed_target_ids(%{observed_targets: %{target_segment_ids: ids}}) when is_list(ids),
+    do: ids
+
+  defp observed_target_ids(_judgment), do: []
+
+  # writer 启动前以当前 canonical 事实复核协议绑定：hash、目标段身份与材料版本。
+  defp verify_observed_targets(facts, judgment, ids, segments, :bound) do
+    verify_bound_scopes(facts, Map.get(judgment, :observed_targets) || %{}, ids, segments)
+  end
+
+  defp verify_observed_targets(_facts, _judgment, _ids, _segments, _source), do: :ok
+
+  defp verify_bound_scopes(facts, observed, ids, segments) do
+    segment_ids = MapSet.new(segments, & &1.segment_id)
+
+    cond do
+      ProseFormatting.source_hash(facts.base_text) != Map.get(observed, :source_hash) ->
+        {:error, :stale_base_version}
+
+      not Enum.all?(ids, &MapSet.member?(segment_ids, &1)) ->
+        {:error, :target_missing}
+
+      not observed_versions_compatible?(
+        Map.get(observed, :versions),
+        facts.expected_base_versions
+      ) ->
+        {:error, :stale_base_version}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp observed_versions_compatible?(versions, expected_base_versions)
+       when is_map(versions) and is_list(expected_base_versions) do
+    current =
+      Map.new(expected_base_versions, fn item ->
+        {to_string(Map.get(item, :ref)), Map.get(item, :version)}
+      end)
+
+    versions != %{} and
+      Enum.all?(versions, fn {ref, version} -> Map.get(current, to_string(ref)) == version end)
+  end
+
+  defp observed_versions_compatible?(_versions, _expected_base_versions), do: false
 
   defp validated_chapter_payload(facts, scope, ref, title, binding, artifact) do
     payload =
@@ -1166,9 +1237,13 @@ defmodule NovelApplication.PendingArtifactWorkflow do
          modification_scope,
          chapter_ref,
          visible_title,
-         {target_segment_ids, base_draft_ref, base_version, expected_segment_hashes}
+         revision_scope
        ) do
     covered_refs = Enum.map(facts.materials, &"#{&1.ref}:#{&1.version}")
+    target_segment_ids = Map.get(revision_scope, :target_segment_ids, [])
+    expected_segment_hashes = Map.get(revision_scope, :expected_segment_hashes, [])
+    base_draft_ref = Map.get(revision_scope, :base_draft_ref)
+    base_version = Map.get(revision_scope, :base_version)
 
     effect =
       if modification_scope == :target_segments do

@@ -2218,6 +2218,7 @@ defmodule NovelPersistence.AdoptionRepository do
          chapter_id: chapter.id,
          chapter_ref: "chapter:#{chapter.id}",
          chapter_title: chapter.title,
+         seq: chapter.seq,
          scopes: scopes
        }}
     end

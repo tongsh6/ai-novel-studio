@@ -8,6 +8,7 @@ defmodule NovelApplication.AdoptionWorkflow do
   """
 
   alias NovelApplication.AdoptionBoundary
+  alias NovelApplication.ChapterDisplay
   alias NovelApplication.TraceSummaryRef
   alias NovelDomain.AdoptionDecision
   alias NovelDomain.BehaviorState
@@ -574,15 +575,18 @@ defmodule NovelApplication.AdoptionWorkflow do
   end
 
   @doc """
-  B28 CP1：章级修订上下文事实（只读）——阅读投影顺序的 covered refs/versions + 覆盖账。
+  B28 CP1：章级修订上下文事实（只读）——阅读投影顺序的 covered refs/versions + 覆盖账，
+  并以同一次章事实给出实际 seq 生成的 `chapter_title`（展示口径）。
   task-49（builder/render）可据此调用 AuthoringTaskBuilder.for_chapter_revision/1。
   """
   def chapter_revision_context(work_id, chapter_identity) do
     case NovelPersistence.AdoptionRepository.accepted_chapter_scopes(work_id, chapter_identity) do
-      {:ok, %{chapter_ref: ref, scopes: [_ | _] = scopes}} ->
+      {:ok, %{chapter_ref: ref, chapter_title: title, seq: seq, scopes: [_ | _] = scopes}} ->
         {:ok,
          %{
            target_chapter_ref: ref,
+           # 章号/标题来自同一次 accepted 章事实，不再由调用方另查全库目录。
+           chapter_title: ChapterDisplay.display_title(%{seq: seq, title: title}),
            covered_refs: Enum.map(scopes, &"draft:#{&1.draft_id}"),
            expected_base_versions:
              Enum.map(scopes, &%{ref: "draft:#{&1.draft_id}", version: &1.revision}),

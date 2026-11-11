@@ -119,4 +119,38 @@ defmodule NovelPersistence.B36LocalizedRevisionTest do
     assert {:ok, _} =
              LocalizedRevision.validate(@base, String.upcase(@base), scope: "whole_chapter")
   end
+
+  test "B82 G2 页坐标：只列实际相交且有正文的段；正文去尾分隔符；页内 1-based 字素闭区间" do
+    text = "甲😀\r\n\r\n乙𠀀乙\n\n丙"
+    [first_base, second_base, third_base] = LocalizedRevision.segment(text)
+
+    # 页从 "😀" 起、到 "乙" 止：首段部分可见，次段仅首字可见，末段不相交。
+    assert [first, second] =
+             LocalizedRevision.page_segments(
+               text,
+               byte_size("甲"),
+               byte_size("甲😀\r\n\r\n乙")
+             )
+
+    assert first.segment_id == first_base.segment_id
+    assert {first.byte_start, first.byte_end} == {0, byte_size("甲😀")}
+    assert binary_part(text, first.byte_start, first.byte_end - first.byte_start) == "甲😀"
+    assert first.page_range == %{start: 1, end: 1}
+
+    assert second.segment_id == second_base.segment_id
+    assert second.byte_start == byte_size("甲😀\r\n\r\n")
+    assert second.byte_end == second.byte_start + byte_size("乙𠀀乙")
+    assert binary_part(text, second.byte_start, second.byte_end - second.byte_start) == "乙𠀀乙"
+    assert second.page_range == %{start: 4, end: 4}
+
+    # 与页不相交或只有分隔符的段不列。
+    refute Enum.any?([first, second], &(&1.segment_id == third_base.segment_id))
+  end
+
+  test "B82 G2 页坐标：无正文页/非法范围不造段" do
+    text = "甲\n\n乙"
+    assert LocalizedRevision.page_segments(text, 0, 0) == []
+    assert LocalizedRevision.page_segments(text, byte_size(text), byte_size(text) + 3) == []
+    assert LocalizedRevision.page_segments(nil, 0, 1) == []
+  end
 end

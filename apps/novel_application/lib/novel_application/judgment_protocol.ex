@@ -10,6 +10,8 @@ defmodule NovelApplication.JudgmentProtocol do
     AuthoringSessionHistory,
     AuthoringTaskPolicy,
     AuthoringTranscript,
+    ChapterDisplay,
+    ChapterRevisionScope,
     CharacterProfile,
     JudgmentToolContract,
     PendingArtifactWorkflow,
@@ -243,7 +245,7 @@ defmodule NovelApplication.JudgmentProtocol do
       versions: field(observation, :versions) || %{},
       coverage:
         observation
-        |> Map.take([:prose_range, :prose_total_chars, :chapter_ref])
+        |> Map.take([:prose_range, :prose_byte_range, :prose_total_chars, :chapter_ref])
         |> Map.merge(%{
           coverage_note: field(observation, :coverage_note),
           continuation_hint: field(observation, :continue_hint)
@@ -258,6 +260,8 @@ defmodule NovelApplication.JudgmentProtocol do
           facts: field(observation, :facts) || %{}
         }
         |> put_present(:observation_ref, field(observation, :observation_ref))
+        |> put_present(:source_hash, field(observation, :source_hash))
+        |> put_present(:target_segments, field(observation, :target_segments))
     }
   end
 
@@ -315,7 +319,8 @@ defmodule NovelApplication.JudgmentProtocol do
           profile,
           attempt,
           provider_result,
-          previous_tools
+          previous_tools,
+          request
         )
 
       {:error, _reason} when attempt < @max_attempts ->
@@ -345,15 +350,17 @@ defmodule NovelApplication.JudgmentProtocol do
          profile,
          attempt,
          provider_result,
-         previous_tools
+         previous_tools,
+         request
        ) do
-    case decode(provider_result, profile, input, previous_tools, attempt) do
-      {:ok, judgment} ->
-        {:ok,
-         judgment
-         |> Map.put(:provider_call_count, attempt)
-         |> Map.put(:transcript, validated_transcript(transcript, judgment))}
-
+    with {:ok, judgment} <- decode(provider_result, profile, input, previous_tools, attempt),
+         {:ok, judgment} <-
+           ChapterRevisionScope.bind_observed_targets(judgment, request) do
+      {:ok,
+       judgment
+       |> Map.put(:provider_call_count, attempt)
+       |> Map.put(:transcript, validated_transcript(transcript, judgment))}
+    else
       {:error, reason} ->
         log_output_validation(attempt, reason)
         retry_or_degrade(fun, transcript, input, profile, attempt, provider_result, reason)
@@ -440,7 +447,7 @@ defmodule NovelApplication.JudgmentProtocol do
 
   defp correction_content(:character_target_ambiguous) do
     "本次响应未通过契约校验：character_target_ambiguous（作者点名的角色在角色索引里同名/别名歧义）。" <>
-      "用 ask_author 列出候选 character_ref+name 让作者选择，不得猜；不要新建角色。"
+      "用 ask_author 按姓名与作品内可见特征（身份/关系/最近出现处）列出候选让作者选择，不得猜；不要新建角色。"
   end
 
   defp correction_content(:character_target_missing) do
@@ -559,7 +566,8 @@ defmodule NovelApplication.JudgmentProtocol do
       "上次未允许字段：#{disallowed}；缺少必填字段：#{missing}；judgment_decision 允许字段：#{Enum.join(Map.get(detail, :allowed, []), "、")}。" <>
       if revision? do
         "内容修订的 execute 必须用 adopted_content_ref（章级 ref 或 pending artifact ref，按本轮可选目标原样复制），" <>
-          "范围（第一段/整章/仅排版）写在 dialogue_goal；不要在 judgment_decision 里填 target_chapter_ref/modification_scope（候选 payload 字段由产品生成）。"
+          "范围（第一段/整章/仅排版）写在 dialogue_goal；不要在 judgment_decision 里填 target_chapter_ref/modification_scope（候选 payload 字段由产品生成）。" <>
+          "target_segment_ids 仅在作者要求按本轮读取发现选段时填写，且只能从本轮成功 chapter_read 观察的 target_segments 原样复制；作者显式段号/字面目标时省略，由系统按作者原话定位。"
       else
         ""
       end <>
@@ -567,6 +575,15 @@ defmodule NovelApplication.JudgmentProtocol do
       "report_capability_gap 只填 dialogue_goal、missing_effect、author_reasoning（optional alternative_operation_refs）；" <>
       "ask_author 只填 question、options（optional reason_codes）；" <>
       "judgment_decision 按 action 填对应字段。保留原任务、目标、来源与范围，只纠正工具参数结构。"
+  end
+
+  # B82 G2：绑定原因已进 native validation_result；这里只给一段可操作的共用纠错，
+  # 不为每个 reason 复制整套规则。
+  defp correction_content({:target_segments, reason}) do
+    "本次响应未通过契约校验：target_segments（#{inspect(reason)}）。" <>
+      "只能从本轮当前作者输入之后成功 chapter_read 观察的 target_segments 原样复制 segment_id，" <>
+      "并保证同章、同源 hash、相容版本、连续页完整覆盖所选段全文；读取完整不扩大作者授权。" <>
+      "不要向作者索要内部段编号；保留同一作者输入、来源、目标、范围与权限，只纠正目标选择。"
   end
 
   defp correction_content(reason) do
@@ -739,6 +756,7 @@ defmodule NovelApplication.JudgmentProtocol do
     """
     本次你承担创作判断器的角色，与作者讨论并判断创作下一步。
     #{AuthoringTaskPolicy.rules()}
+    #{AuthoringTaskPolicy.judgment_operation_rules()}
     """
   end
 
@@ -803,23 +821,12 @@ defmodule NovelApplication.JudgmentProtocol do
     judgment_decision 各 action 的专属字段互斥：explore 只带 explore_request（tool/query），不得带
     capability/pending_artifact_ref/adopted_content_ref；execute 只带 capability 与一个目标 ref，
     不得带 explore_request；plan 只带 plan 相关字段，不得带 explore_request 或目标 ref。
-    需要作者裁决对象/来源/方向时，必须用 ask_author 工具提出具体问题（可带选项）——它是正式提问通道；
-    不能用普通 reply 里的问句或说明代替 ask_author；多候选无法消歧时先 explore 或 ask_author。
     能力缺口判断只看“是否存在能产出目标效果的最接近可行操作”：存在可产出的修订/生成候选（只是不能保证
     某些属性，如仅排版的字句不变）时，应执行该操作并在可见文本如实说明限制，不得用 report_capability_gap
     或“没有能力”拒绝；确实没有任何可行操作时才报缺口。
     修改已有对象的主档案/权威字段（如把已有角色改成主角/改身份）而目录没有对应能力时，缺口说明不得把
     “新建同名对象”“演化/记忆候选”列为实现该效果的最近路径或建议——它们不改变原对象主档案，属于不同效果；
     如需提及只能明确说明差别，不能说“新建档案后他就是主角/就实现了修改”。
-    系统已有的章节索引、章状态、统计、正文/档案材料不得向作者索取：能只读取证先 chapter_read/archive_read；
-    无法读取时用已有索引/统计事实回答并说明证据边界。问“某章写完了吗/有无矛盾/质量如何”必须先读正文与章计划，
-    不得仅凭章状态或“已保存/无待采纳候选”断言完成，也不得编造未读到的情节作为依据。
-    统计/章节索引已经足够回答的问题（如“第二章写完了吗”）直接 reply，不要为形式先 explore；
-    只有需要正文/章计划细节时才 chapter_read/archive_read。
-    统计/索引类问题只回答进度与可核对事实；不得凭统计给质量/完成度结论（如“更像骨架/片段/未成型/
-    篇幅不够=没写完”），需要质量判断时明确说明需读正文，或给下一步，而不是下结论。
-    只问进度/章数/字数/是否已写/章状态（如“第二章写完了吗”）时直接按索引/统计 reply，不要 chapter_read；
-    只有问质量/矛盾/计划兑现时才读正文。不得把统计本身当质量结论。
     作者明确“先别动笔/只聊/讨论/分析”且没有要求生成或登记时，属于分析任务：不得调用
     propose_creative_directions、register_author_content 或任何生成/写入操作；只在 content 给分析内容。
     分析/讨论类任务且系统已有充分事实（章节统计/索引/已给材料/最近观察）时直接 reply，
@@ -828,27 +835,9 @@ defmodule NovelApplication.JudgmentProtocol do
     （会被丢弃并触发纠错），也不得用伪工具文本代替作者可见答复。
     待采纳候选唯一且作者明确要修改它时，直接 execute revise_pending_artifact，不要先 explore；
     explore 只用于对象/版本不明；探索确认对象后必须继续执行修订，不得只描述计划或规则就结束。
-    章节结构维护：作者要求“把第N卷/第N章编号理顺、只改列表编号、重编号、只修正章节序号、章节顺序编号”等
-    既有结构维护时，必须用 judgment_decision.execute capability=maintain_chapter_structure（effect 仅
-    display_number_only：只重编号/只改展示章号，不生成大纲、不新建章、不改 title/正文/归卷/章数）；
-    不得回退为 reply/plot_outline/prose_writing，也不得生成大纲候选冒充维护。缺目标/越界/同名歧义时，
-    用 ask_author 给可辨认澄清（卷/章序号或 ref）或 report_capability_gap，不得猜。
-    角色主档案字段修订：作者要求“指定/改判/确立/把 <已有角色名或别名> 设为主角/反派/配角/群像”等
-    已有角色叙事身份修订时，必须用 judgment_decision.execute capability=revise_character_profile，
-    并逐字复制「角色索引」中该角色的 character_ref（身份只认 ref，name/aliases 仅展示与消歧）；
-    只允许修订既有角色主档案 narrative_role，不新建角色、不写正文、不冒充角色演化记忆。
-    同名/别名歧义不得猜：ask_author 列出候选 ref+name；不存在/越界用澄清或 report_capability_gap；
-    不得回退 reply/character_evolution/character_design（“设计/创建新主角”仍走 character_design）。
-    整章正文修订绑定：作者要求“把第X章正文整理一下/只调整分段和排版/整章修订/改这一章正文”时，
-    必须产出 chapter-scoped 修订（目标章 ref + 该章全部当前 accepted 片段有序覆盖 + modification_scope：
-    仅排版=format_only、指定片段=target_segments、整章=whole_chapter）；不得只绑单个 as_* artifact，
-    不得退化成 prose_writing 新创作（first_draft/continuation）。缺章 ref 或同名章歧义时，用 ask_author
-    给出可辨认澄清（章标题/序号/覆盖范围），禁止猜同名/跨作品。
     上一轮向作者提问后尚未收到作者回答/选择时，不得推进具体候选或版本：不得 execute/revise 指向某候选，
     不得规划“按某候选执行”，也不得用 report_capability_gap 代替作者回答；应保持等待、重新做具体澄清，
     或只说明仍在等待作者选择。不得把未回答当默认选择。
-    作者指代“资料/原文/之前那段”且可能存在于正文时，来源探索优先 prose_search/chapter_read 查正文原文，
-    不要只查 session_adoptions/memory_recall 就断定没有；探索预算内优先覆盖最可能来源。
     继续读取不是最终答复：读完后必须在本轮给出覆盖范围+结论（或明确缺口+下一步），不得只回“已继续读取/再给结论”
     这类过渡语结束。
     禁止用“-”“—”“…”或仅标点/空白的占位内容作为最终答复；覆盖不足时继续读取，或明确已覆盖范围+未读缺口+下一步。
@@ -865,7 +854,6 @@ defmodule NovelApplication.JudgmentProtocol do
     已有候选优先：pending_adoptions 中存在候选且本轮作者明确要对某个已有候选做修改/整理/排版/润色时，
     直接选择 revise_pending_artifact 并用 artifact_ref 引用该候选，不要先 ask_author。
     候选正文预览可能为空，不代表对象不存在——修订工具会读取真实候选全文；只有对象/范围确实无法消歧时才问。
-    提供资料但只要求收下时不调工具、不生成方向/候选；保存指令不能代替被引用原文。
     """
   end
 
@@ -913,7 +901,11 @@ defmodule NovelApplication.JudgmentProtocol do
     if is_list(targets) and targets != [] do
       lines =
         Enum.map_join(targets, "\n", fn target ->
-          "- #{Map.get(target, :chapter_ref)}｜#{Map.get(target, :chapter_title)}｜片段数 #{Map.get(target, :fragment_count)}｜覆盖 #{Map.get(target, :coverage)}｜modification_scope 按作者要求选择：format_only=仅排版 / target_segments=指定片段 / whole_chapter=整章"
+          "- #{Map.get(target, :chapter_ref)}｜" <>
+            "#{ChapterDisplay.display_title(%{seq: Map.get(target, :seq), title: Map.get(target, :chapter_title)})}｜" <>
+            "已采纳稿 #{Map.get(target, :fragment_count)} 篇｜覆盖 #{Map.get(target, :coverage)}（材料覆盖）｜" <>
+            "modification_scope：format_only=仅排版 / target_segments=指定片段 / whole_chapter=整章｜" <>
+            "可编辑=本章已采纳正文；修改授权另按作者本轮原话判定"
         end)
 
       "## 可选章级修订目标（只读；ref 唯一，title 仅展示）\n" <> lines
@@ -1368,6 +1360,7 @@ defmodule NovelApplication.JudgmentProtocol do
       dialogue_goal: field(args, :dialogue_goal),
       pending_artifact_ref: field(args, :pending_artifact_ref),
       adopted_content_ref: field(args, :adopted_content_ref),
+      target_segment_ids: field(args, :target_segment_ids),
       character_ref: field(args, :character_ref),
       explore_request: explore_request(field(args, :explore_request)),
       candidate_directions: field(args, :candidate_directions) || [],

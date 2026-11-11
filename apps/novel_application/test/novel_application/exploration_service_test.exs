@@ -3,6 +3,7 @@ defmodule NovelApplication.ExplorationServiceTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.{AdoptionWorkflow, ExplorationService, WorkService}
+  alias NovelDomain.ProseFormatting
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemorySourceType
   alias NovelFoundation.Enums.MemoryStatus
@@ -355,6 +356,17 @@ defmodule NovelApplication.ExplorationServiceTest do
     assert page1.prose_total_chars == 7000
     assert page1.next_offset == 6000
     assert page1.prose_range == %{start: 1, end: 6000}
+    assert page1.source_hash == ProseFormatting.source_hash(prose)
+    page1_end = byte_size(String.slice(prose, 0, 6000))
+    assert page1.prose_byte_range == %{start: 0, end: page1_end}
+    boundary = List.last(page1.target_segments)
+    assert boundary.byte_start < page1_end and boundary.byte_end > page1_end
+
+    assert boundary.page_range == %{
+             start: String.length(binary_part(prose, 0, boundary.byte_start)) + 1,
+             end: 6000
+           }
+
     # 观察首行 = seq + title 双面身份（模型面；ref 在结构字段/索引里）
     assert page1.summary =~ "「#{@long_title}」（第 1 章）"
     assert page1.summary =~ "【正文】第 1–6000 字符 / 共 7000 字符"
@@ -372,6 +384,8 @@ defmodule NovelApplication.ExplorationServiceTest do
              "已阅读章节正文「#{@long_title}」（第 1 章；第 1–6000 字符 / 共 7000 字符；有效字数 "
 
     assert page1.activity_summary =~ ~r/；有效字数 \d+）。\z/
+    refute page1.activity_summary =~ boundary.segment_id
+    refute page1.activity_summary =~ "source_hash"
 
     # 续读必须复用同一 chapter_ref（footer 逐字复制）。
     continuation = ~s({"chapter_ref":"#{chapter_ref}","offset":6000})
@@ -381,6 +395,9 @@ defmodule NovelApplication.ExplorationServiceTest do
     assert page2.chapter_ref == chapter_ref
     assert page2.prose_total_chars == 7000
     assert page2.prose_range == %{start: 6001, end: 7000}
+    assert page2.source_hash == page1.source_hash
+    assert page2.prose_byte_range == %{start: page1_end, end: byte_size(prose)}
+    assert hd(page2.target_segments).segment_id == boundary.segment_id
     assert page2.summary =~ "「#{@long_title}」（第 1 章）"
     assert page2.summary =~ "【正文】第 6001–7000 字符 / 共 7000 字符"
     assert String.contains?(page2.summary, String.slice(prose, 6000, 1000))

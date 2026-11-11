@@ -1636,7 +1636,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
              )
   end
 
-  test "B28 CP1：判断 prompt 明确整章修订绑定与缺 ref 澄清（不退化为 prose_writing）" do
+  test "B28 CP1：判断 prompt 明确整章修订绑定与缺章目标澄清（不退化为 prose_writing）" do
     content = first_text(JudgmentProtocol.request_for_production(input()))
 
     assert content =~ "整章正文修订绑定"
@@ -1645,36 +1645,10 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert content =~ "仅排版=format_only"
     assert content =~ "不得只绑单个 as_* artifact"
     assert content =~ "不得退化成 prose_writing 新创作"
-    assert content =~ "缺章 ref 或同名章歧义时"
+    assert content =~ "缺章目标或同名章歧义时"
+    assert content =~ "按页面章序与章名"
     assert content =~ "禁止猜同名/跨作品"
     assert String.split(content, "整章正文修订绑定") |> length() == 2
-  end
-
-  test "B28 CP1.5：判断 prompt 出现章级目标（ref/title/片段数/coverage/modification_scope）" do
-    targets = [
-      %{
-        chapter_ref: "chapter:c1",
-        chapter_title: "第01章：灯楼夜雨",
-        seq: 1,
-        covered_refs: ["draft:d1", "draft:d2"],
-        fragment_count: 2,
-        char_count: 218,
-        coverage: :complete
-      }
-    ]
-
-    prompt = JudgmentProtocol.request_for_production(input(chapter_revision_targets: targets))
-    content = first_text(prompt)
-
-    assert content =~ "## 可选章级修订目标"
-    assert content =~ "chapter:c1"
-    assert content =~ "第01章：灯楼夜雨"
-    assert content =~ "片段数 2"
-    assert content =~ "覆盖 complete"
-    assert content =~ "format_only=仅排版"
-    assert content =~ "target_segments=指定片段"
-    assert content =~ "whole_chapter=整章"
-    assert String.split(content, "## 可选章级修订目标") |> length() == 2
   end
 
   test "B33 §CP1 反例2：只解释章节编号的 reply 不再被词法强制维护能力（正例仍 execute）" do
