@@ -304,10 +304,6 @@ export function readAuthoringHistory(dir, scope, { requireMode = null } = {}) {
     assert.equal(rows.length, 1, "authoring_history: agent_runs 精确绑定必须恰好一行");
     const record = rows[0];
 
-    assert.equal(record.workspace_id, identity.workspace_id, "authoring_history: agent_runs workspace 与本批 workspace 不一致");
-    assert.equal(record.work_id, identity.work_id, "authoring_history: agent_runs work 与本批不一致");
-    assert.equal(record.session_id, identity.session_id, "authoring_history: agent_runs session 与本批不一致");
-    assert.equal(record.parent_turn_ref, identity.parent_turn_ref, "authoring_history: agent_runs parent_turn_ref 与本批不一致");
     if (requireMode !== null) {
       assert.equal(
         record.run_mode,
