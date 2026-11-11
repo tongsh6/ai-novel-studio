@@ -795,7 +795,9 @@ export class NativeScenarioHarness {
     return this.ensureInput().key("return", { focusRequired: true, expected: expectedFocus });
   }
 
-  async rawTypeAndSend(text, label) {
+  // 只走作者可见输入：定位/激活/聚焦/清空/键入/严格回读/点击发送。
+  // 返回点击发送的起始时刻；是否已送达由调用方按可见页面或既有 wire 入口判断。
+  async rawSubmitAuthorText(text, label) {
     this.checkSupervisor();
     const startedAt = this.nowIso();
     let nodes = this.dumpNodesForInteraction(`type_and_send:${label}`);
@@ -831,6 +833,12 @@ export class NativeScenarioHarness {
     }
     nodes = this.dumpNodesForInteraction(`type_and_send:send:${label}`);
     this.clickSend(nodes, expected);
+    return startedAt;
+  }
+
+  // 旧入口保持原契约：可见提交后仍轮询真实 wire，确认本批作者消息已送达。
+  async rawTypeAndSend(text, label) {
+    const startedAt = await this.rawSubmitAuthorText(text, label);
     return this.pollWire(
       (wire) => this.sentUserMessageSince(wire, startedAt, text),
       10_000,

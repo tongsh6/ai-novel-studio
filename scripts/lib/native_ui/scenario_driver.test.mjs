@@ -613,3 +613,41 @@ test("ensureWorkSelected 菜单失败当场抛 work_not_selected，不重试", a
     "失败后不得盲重试",
   );
 });
+
+test("rawSubmitAuthorText 只做可见输入/回读/点击，旧 rawTypeAndSend 仍组合 wire 轮询", async (t) => {
+  const { dir, harness } = makeHarness({});
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const calls = [];
+  let value = "";
+  const composer = { path: "0/1", role: "AXTextField", desc: "输入", enabled: true, frame: [0, 0, 10, 10] };
+  harness.checkSupervisor = () => {};
+  harness.dumpNodesForInteraction = () => [{ ...composer, value }];
+  harness.findComposer = () => ({ ...composer, value });
+  harness.clickSend = () => calls.push("send");
+  harness.ensureInput = () => ({
+    activate: () => {
+      calls.push("activate");
+      return { confirmed: true };
+    },
+    focus: () => calls.push("focus"),
+    clear: () => calls.push("clear"),
+    type: (text) => {
+      calls.push("type");
+      value = text;
+    },
+  });
+  harness.pollWire = async () => {
+    calls.push("wire");
+    return { frame: [] };
+  };
+
+  const startedAt = await harness.rawSubmitAuthorText("作者自然原话", "visible");
+  assert.match(startedAt, /^\d{4}-\d{2}-\d{2}T/u);
+  assert.deepEqual(calls, ["activate", "focus", "type", "send"], "可见提交不得轮询 wire");
+
+  calls.length = 0;
+  value = "";
+  const sent = await harness.rawTypeAndSend("作者自然原话", "wire");
+  assert.deepEqual(calls, ["activate", "focus", "type", "send", "wire"], "旧入口必须保留原 wire 轮询");
+  assert.deepEqual(sent, { frame: [] });
+});

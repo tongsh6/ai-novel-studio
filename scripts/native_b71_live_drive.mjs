@@ -8,8 +8,11 @@ import {
   ROOT,
   ensureWorkSelected,
   frameBody,
+  isVisibleNode,
   runEvidenceMode,
 } from "./lib/native_ui/scenario_driver.mjs";
+import { textOf } from "./lib/native_ui/driver.mjs";
+import { authorVisibleOutcome, readingPageFailure } from "./lib/native_ui/authoring_g2_evidence.mjs";
 import { all, logs, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
 import {
   classifyTurnBody,
@@ -40,6 +43,109 @@ const strataEndpoint = (() => {
 const TURN_TIMEOUT_MS = Number(process.env.B71_LIVE_TURN_TIMEOUT_MS ?? 360_000);
 const INPUT_TIMEOUT_MS = Number(process.env.B71_LIVE_INPUT_TIMEOUT_MS ?? 120_000);
 const READY_TIMEOUT_MS = Number(process.env.B71_LIVE_READY_TIMEOUT_MS ?? 180_000);
+
+// B82 G2 只按作者可见页面动作：作品名、章名、阅读原文、自然原话、可见终局。
+// 不读应用 DB、turn/run refs 或 wire 来推进；原始 wire/日志仍由外部代理采集供诊断。
+const excerptNode = (nodes, excerpt) =>
+  nodes.find((node) => String(textOf(node)).includes(excerpt) && isVisibleNode(node)) ??
+  nodes.find((node) => String(textOf(node)).includes(excerpt)) ??
+  null;
+
+// 只点作者真实可见的按钮：旧 workbench.openReading/closeReading 未导入 findByText，
+// 真实执行会 ReferenceError；这里复用同 harness 的可见按钮定位与安全点击。
+const visibleButton = (nodes, title) => {
+  const button = harness.findButton(nodes, title);
+  return button && isVisibleNode(button) ? button : null;
+};
+
+async function clickVisibleButton(name, title) {
+  const observed = await harness.pollAx(
+    (_text, nodes) => Boolean(visibleButton(nodes, title)),
+    30_000,
+    `b82-g2:${name}:${title}`,
+  );
+  harness.safeClick(visibleButton(observed.nodes, title), `${name}:${title}`);
+}
+
+async function captureReadingPage(name, target) {
+  await harness.runStep("maintenance", `reading_page:${name}`, async () => {
+    await clickVisibleButton(`${name}:open`, "阅读");
+    // 与 verifier 共用同一读取判定：作品/章/原文可见且非加载中、投影已 fresh。
+    const page = await harness.pollAx(
+      (text) => readingPageFailure(text, target) === null,
+      60_000,
+      `b82-g2:${name}`,
+    );
+    const node = excerptNode(page.nodes, target.reading_excerpt);
+    if (!node?.path) throw new Error(`reading_excerpt_node_missing:${name}`);
+    // 末页原文必须真的进入视口：始终执行 AXScrollToVisible，已可见时是无操作。
+    // 个别 Web 文本节点不支持该 action；只有原文已可见时才允许继续，否则如实失败。
+    try {
+      const scroll = harness.ensureInput().scrollTo(node.path);
+      harness.log.push({ op: "reading_scroll", name, path: node.path, scroll, at: harness.nowIso() });
+    } catch (error) {
+      harness.log.push({
+        op: "reading_scroll_failed",
+        name,
+        path: node.path,
+        error: error.message,
+        at: harness.nowIso(),
+      });
+      if (!isVisibleNode(node)) throw error;
+    }
+    await harness.pollAx(
+      (_text, nodes) => nodes.some((candidate) =>
+        String(textOf(candidate)).includes(target.reading_excerpt) && isVisibleNode(candidate)),
+      20_000,
+      `b82-g2:${name}:visible`,
+    );
+    harness.capture(name);
+  });
+}
+
+async function closeReadingPage(name) {
+  await harness.runStep("maintenance", `reading_close:${name}`, async () => {
+    await clickVisibleButton(`${name}:close`, "返回工作台");
+    // 不能按整页文本判「阅读模式」消失：回到工作台后候选卡说明里也含这四个字。
+    await harness.pollAx(
+      (_text, nodes) => Boolean(visibleButton(nodes, "阅读")),
+      30_000,
+      `b82-g2:${name}:closed`,
+    );
+  });
+}
+
+async function waitAuthorMessageVisible(message) {
+  return harness.pollAx(
+    (text, nodes) => {
+      const composer = harness.findComposer(nodes);
+      return text.includes(message) && String(composer?.value ?? "").trim() === "";
+    },
+    45_000,
+    "b82-g2:author_message",
+  );
+}
+
+async function waitVisibleOutcome(message) {
+  const terminal = new Set(["pending_candidate", "waiting", "failed", "completed"]);
+  const polled = await harness.tryPollAx(
+    (text) => terminal.has(authorVisibleOutcome(text, { message }).kind),
+    TURN_TIMEOUT_MS,
+    "b82-g2:outcome",
+  );
+  if (!polled) return { kind: "timeout", text: "" };
+  const outcome = { ...authorVisibleOutcome(polled.text, { message }), text: polled.text };
+  if (outcome.kind !== "completed") return outcome;
+  // 完成状态可能先于候选卡片渲染：只给可见页面一个有界候选等待，不引入 Why 耗时。
+  const candidate = await harness.tryPollAx(
+    (text) => authorVisibleOutcome(text, { message }).kind === "pending_candidate",
+    10_000,
+    "b82-g2:candidate_grace",
+  );
+  return candidate
+    ? { ...authorVisibleOutcome(candidate.text, { message }), text: candidate.text }
+    : outcome;
+}
 
 const readProviderCounts = () => ({
   llm_records: logs(path.join(dir, "llm-calls")).length,
@@ -185,6 +291,11 @@ async function run() {
   const config = readConfig(dir);
   if (config.journey !== "live") throw new Error(`live driver 只接受 journey=live，实测: ${config.journey}`);
   if (config.provider !== "strata") throw new Error(`live driver 只接受 provider=strata，实测: ${config.provider}`);
+  // b82-g2 新批次必须有冻结的作者可见目标；旧缺 visible_target 的批次只能读旧报告。
+  const authorVisible = config.scenario_id === "b82-g2";
+  const visibleTarget = config.author_visible_target ?? null;
+  if (authorVisible && !visibleTarget) throw new Error("b82_g2_author_visible_target_missing");
+  const flowLabel = authorVisible ? "b82-g2" : "b71-live";
 
   const before = await readStrataState({ endpoint: strataEndpoint }).catch((error) => ({
     ok: false,
@@ -198,11 +309,18 @@ async function run() {
   try {
     await harness.runStep("maintenance", "launch_app", () => harness.rawLaunchApp());
     await harness.runStep("maintenance", "workbench_ready", () =>
-      harness.rawWaitWorkbenchSettled("b71-live", READY_TIMEOUT_MS),
+      harness.rawWaitWorkbenchSettled(flowLabel, READY_TIMEOUT_MS),
     );
-    await ensureWorkSelected(harness, config.target.work_title, "b71-live");
+    // B82 只按冻结的作者可见作品名选中作品，不从 config.target 隐式回退；
+    // 其它 live 入口保持原 target 行为。
+    await ensureWorkSelected(
+      harness,
+      authorVisible ? visibleTarget.work_title : config.target.work_title,
+      flowLabel,
+    );
     harness.capture("01-workbench");
-    runEvidenceMode(evidence, "capture", dir, ["start"]);
+    // B82 页面只看作者可见证据：同步 DB 快照 capture 会卡作者动作，只留给旧普通 live。
+    if (!authorVisible) runEvidenceMode(evidence, "capture", dir, ["start"]);
 
     const afterLaunch = await readStrataState({ endpoint: strataEndpoint }).catch((error) => ({
       ok: false,
@@ -211,9 +329,47 @@ async function run() {
     const launchSlot = strataSlotCheck(afterLaunch);
     harness.log.push({ op: "strata_after_launch", slot: launchSlot, at: harness.nowIso() });
 
+    if (authorVisible) {
+      await captureReadingPage("02-reading-before", visibleTarget);
+      await closeReadingPage("before");
+    }
     await harness.runStep("maintenance", "input_ready", () =>
-      harness.rawWaitInputReady("b71-live", INPUT_TIMEOUT_MS),
+      harness.rawWaitInputReady(flowLabel, INPUT_TIMEOUT_MS),
     );
+    if (authorVisible) {
+      // 唯一一次作者原话提交：只走可见输入/点击，后续不读 wire/DB/turn/run 推进。
+      await harness.runStep("input", "author_creation_request", () =>
+        harness.rawSubmitAuthorText(config.message, flowLabel),
+      );
+      harness.capture("after-input");
+      await harness.runStep("turn", "author_message_visible", () =>
+        waitAuthorMessageVisible(config.message),
+      );
+      const outcome = await harness.runStep("turn", "author_visible_outcome", () =>
+        waitVisibleOutcome(config.message),
+      );
+      // 先保留本次终局现场，再回阅读页核对已采纳正文未变；等待/失败也照实截证。
+      harness.capture("final");
+      await captureReadingPage("03-reading-after", visibleTarget);
+      await closeReadingPage("after");
+      driverLog = {
+        slice_id: config.slice_id,
+        provider: "strata",
+        model:
+          config.preregistration?.model ??
+          config.target?.model ??
+          process.env.B71_STRATA_MODEL ??
+          "iq3_s",
+        author_visible_target: visibleTarget,
+        author_visible_outcome: { kind: outcome.kind, observed_at: harness.nowIso() },
+        strata: { endpoint: strataEndpoint, after_launch: launchSlot },
+      };
+      harness.writeDriverLog("native-b71-driver-log.json", driverLog);
+      console.log(
+        `B82 G2 作者可见驱动完成: outcome=${outcome.kind} screenshots=${harness.screenshots.length}`,
+      );
+      return;
+    }
     const sent = await harness.runStep("input", "author_creation_request", () =>
       harness.rawTypeAndSend(config.message, "b71-live"),
     );

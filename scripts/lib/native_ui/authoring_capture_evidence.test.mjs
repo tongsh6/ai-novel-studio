@@ -7,7 +7,12 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { capture, prepare, readConfig } from "./authoring_capture_evidence.mjs";
+import {
+  capture,
+  prepare,
+  readConfig,
+  validatePreregistrationFile,
+} from "./authoring_capture_evidence.mjs";
 import { pendingSourceMessage } from "./authoring_pending_evidence.mjs";
 import { shaFile } from "./scenario_evidence.mjs";
 
@@ -19,6 +24,11 @@ const DEFAULT_LIVE_MESSAGE =
   "先看看第01章现在的设定和正文，再按现有设定写一段更紧张的开场：主角在雨夜收到一封没有署名的信，生成待采纳的候选，先不要保存。";
 const G2_MESSAGE =
   "请先读第02章《灰烬中的手印》已经保存的正文，前后都核对一下，再把发现的重复写法改成一段候选给我看，先不要保存。";
+const G2_VISIBLE_TARGET = Object.freeze({
+  work_title: "灰烬手印验证作品",
+  chapter_title: "灰烬中的手印",
+  reading_excerpt: "井底浮现第七枚手印",
+});
 const LIVE_MODEL = process.env.B71_STRATA_MODEL || "iq3_s";
 
 function writeJson(dir, name, value) {
@@ -91,11 +101,47 @@ function seedLive(dir) {
   );
 }
 
+// B82 作者可见批次不建应用 DB；prepare 的 runner seed 边界仍要 work/session，
+// 这里用占位身份，作品只从封存的作者可见目标来，不注入应用域 ID。
+function visibleBatch() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "b71-capture-visible-"));
+}
+
+function seedVisibleBoundary(dir) {
+  fs.writeFileSync(path.join(dir, "seed.log"), "run_ref=run-1 work_id=seed-work session_id=seed-session\n");
+}
+
+// 直接按封存预注册构造 live 配置：target 只含作者可见 title，不写 DB/work/session 身份。
+function writeVisibleConfig(dir) {
+  const record = validatePreregistrationFile(path.join(dir, "preregistration.json"), { dir });
+  writeJson(dir, "native-b71-config.json", {
+    slice_id: "b71-first-consumer",
+    journey: "live",
+    provider: "strata",
+    target: { work_title: G2_VISIBLE_TARGET.work_title },
+    author_visible_target: G2_VISIBLE_TARGET,
+    preregistration: { id: record.id, sha256: record.sha256, model: LIVE_MODEL },
+    message: G2_MESSAGE,
+  });
+  return record;
+}
+
 function preregistration(
   dir,
-  { message = G2_MESSAGE, model = LIVE_MODEL, evidenceDir = dir, extraScenario = false } = {},
+  {
+    message = G2_MESSAGE,
+    model = LIVE_MODEL,
+    evidenceDir = dir,
+    extraScenario = false,
+    authorVisibleTarget = G2_VISIBLE_TARGET,
+  } = {},
 ) {
-  const scenario = { id: "b82-g2", message, evidence: { dir: evidenceDir } };
+  const scenario = {
+    id: "b82-g2",
+    ...(authorVisibleTarget ? { author_visible_target: authorVisibleTarget } : {}),
+    message,
+    evidence: { dir: evidenceDir },
+  };
   writeJson(dir, "preregistration.json", {
     id: "b82-g2-live-test",
     model: { provider: "strata", model },
@@ -250,34 +296,36 @@ test("prepare 在目标作品缺失、重名或 ready slice 未知时失败且�
 });
 
 test("普通 live 批次按冻结预注册副本取作者输入并保留 id/hash", () => {
-  const dir = prepareBatch("live");
+  const dir = visibleBatch();
   try {
     liveReady(dir);
-    seedLive(dir);
+    seedVisibleBoundary(dir);
     preregistration(dir);
+    // 可见批次不建 DB：prepare 仍能从封存目标写出配置，证明作品名不查库。
     prepare(dir);
     const config = readConfig(dir);
     assert.equal(config.journey, "live");
     assert.equal(config.message, G2_MESSAGE);
-    assert.equal(config.target.session_id, SESSION);
+    assert.equal(config.target.work_title, G2_VISIBLE_TARGET.work_title);
+    assert.deepEqual(config.author_visible_target, G2_VISIBLE_TARGET);
     assert.deepEqual(config.preregistration, {
       id: "b82-g2-live-test",
       sha256: shaFile(path.join(dir, "preregistration.json")),
       model: LIVE_MODEL,
     });
     assert.equal(readConfig(dir).message, G2_MESSAGE);
+    assert.deepEqual(readConfig(dir).author_visible_target, G2_VISIBLE_TARGET);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test("readConfig 按配置冻结模型复核，不按当前 env 推定", () => {
-  const dir = prepareBatch("live");
+  const dir = visibleBatch();
   try {
     liveReady(dir);
-    seedLive(dir);
     preregistration(dir);
-    prepare(dir);
+    writeVisibleConfig(dir);
     const moduleUrl = new URL("./authoring_capture_evidence.mjs", import.meta.url).href;
     const script =
       `import { readConfig } from ${JSON.stringify(moduleUrl)};` +
@@ -315,12 +363,13 @@ test("预注册作者输入为空、模型/目录不符时 prepare 失败且不�
     [{ model: `not-${LIVE_MODEL}` }, /预注册模型/],
     [{ evidenceDir: path.join(os.tmpdir(), "b82-other-batch") }, /evidence\.dir/],
     [{ extraScenario: true }, /恰好一项/],
+    [{ authorVisibleTarget: null }, /author_visible_target/],
+    [{ authorVisibleTarget: { ...G2_VISIBLE_TARGET, reading_excerpt: "  " } }, /reading_excerpt/],
   ];
   for (const [options, pattern] of cases) {
-    const dir = prepareBatch("live");
+    const dir = visibleBatch();
     try {
       liveReady(dir);
-      seedLive(dir);
       preregistration(dir, options);
       assert.throws(() => prepare(dir), pattern);
       assert.equal(fs.existsSync(path.join(dir, "native-b71-config.json")), false);
@@ -344,13 +393,87 @@ test("预注册文件只属于普通 live 批次", () => {
   }
 });
 
-test("readConfig 在预注册被删改或标记缺失时失败", () => {
-  const dir = prepareBatch("live");
+test("旧缺 author_visible_target 的 b82-g2 预注册仍可哈希诊断，但不能新 prepare", () => {
+  const dir = visibleBatch();
   try {
     liveReady(dir);
-    seedLive(dir);
+    preregistration(dir, { authorVisibleTarget: null });
+    const record = validatePreregistrationFile(path.join(dir, "preregistration.json"), { dir });
+    assert.equal(record.scenario_id, "b82-g2");
+    assert.equal(record.author_visible_target, null, "旧预注册保持通用哈希可读");
+    assert.equal(record.sha256, shaFile(path.join(dir, "preregistration.json")));
+    assert.throws(() => prepare(dir), /author_visible_target/);
+    assert.equal(fs.existsSync(path.join(dir, "native-b71-config.json")), false);
+
+    // 历史已准备批次：配置里也没有该字段，readConfig 只做通用哈希复核。
+    writeJson(dir, "native-b71-config.json", {
+      slice_id: "b71-first-consumer",
+      journey: "live",
+      provider: "strata",
+      target: { work_title: G2_VISIBLE_TARGET.work_title },
+      preregistration: { id: record.id, sha256: record.sha256, model: LIVE_MODEL },
+      message: G2_MESSAGE,
+    });
+    const config = readConfig(dir);
+    assert.equal(config.scenario_id, "b82-g2");
+    assert.equal(Object.hasOwn(config, "author_visible_target"), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readConfig 拒绝改写、缺失或补造作者可见目标", () => {
+  const dir = visibleBatch();
+  try {
+    liveReady(dir);
     preregistration(dir);
-    prepare(dir);
+    writeVisibleConfig(dir);
+    const configPath = path.join(dir, "native-b71-config.json");
+    const original = JSON.parse(fs.readFileSync(configPath, "utf8"));
+
+    fs.writeFileSync(configPath, JSON.stringify({
+      ...original,
+      author_visible_target: { ...G2_VISIBLE_TARGET, chapter_title: "另一章" },
+    }, null, 2));
+    assert.throws(() => readConfig(dir), /作者可见目标与预注册不一致/);
+
+    fs.writeFileSync(configPath, JSON.stringify({
+      ...original,
+      author_visible_target: undefined,
+    }, null, 2));
+    assert.throws(() => readConfig(dir), /作者可见目标与预注册不一致/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  const historical = visibleBatch();
+  try {
+    liveReady(historical);
+    preregistration(historical, { authorVisibleTarget: null });
+    const record = validatePreregistrationFile(path.join(historical, "preregistration.json"), {
+      dir: historical,
+    });
+    writeJson(historical, "native-b71-config.json", {
+      slice_id: "b71-first-consumer",
+      journey: "live",
+      provider: "strata",
+      target: { work_title: G2_VISIBLE_TARGET.work_title },
+      author_visible_target: G2_VISIBLE_TARGET,
+      preregistration: { id: record.id, sha256: record.sha256, model: LIVE_MODEL },
+      message: G2_MESSAGE,
+    });
+    assert.throws(() => readConfig(historical), /缺少冻结预注册来源/);
+  } finally {
+    fs.rmSync(historical, { recursive: true, force: true });
+  }
+});
+
+test("readConfig 在预注册被删改或标记缺失时失败", () => {
+  const dir = visibleBatch();
+  try {
+    liveReady(dir);
+    preregistration(dir);
+    writeVisibleConfig(dir);
     const preregPath = path.join(dir, "preregistration.json");
     const configPath = path.join(dir, "native-b71-config.json");
     const original = fs.readFileSync(preregPath);

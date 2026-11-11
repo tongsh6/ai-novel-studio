@@ -110,8 +110,41 @@ const AUTO_MAINTENANCE_REQUESTS = Object.freeze([
 // B82：实模批次冻结输入沿用 B71 已有预注册 JSON 形状（id/model/scenarios），
 // 只校验本批实际发送所需的字段，不解释预算或判据。
 const PREREGISTRATION_FILE = "preregistration.json";
+const AUTHOR_VISIBLE_TARGET_FIELDS = Object.freeze(["work_title", "chapter_title", "reading_excerpt"]);
 
-export function validatePreregistrationFile(file, { dir, model = DEFAULT_STRATA_MODEL } = {}) {
+// B82 G2 新运行的作者可见目标：只校验真实可见作品名/章名/阅读原文为非空字符串。
+// 旧预注册缺该字段仍可做通用哈希诊断；只有 prepare 会以 requireAuthorVisibleTarget
+// 拒绝新驱动，历史批次保持只读可查。
+function readAuthorVisibleTarget(scenario, { require = false } = {}) {
+  const value = scenario.author_visible_target;
+  if (value === undefined) {
+    assert(
+      !require,
+      "预注册 scenarios[0].author_visible_target 不能为空（b82-g2 新运行必须冻结作者可见目标）",
+    );
+    return null;
+  }
+  assert(
+    value !== null && typeof value === "object" && !Array.isArray(value),
+    "预注册 scenarios[0].author_visible_target 必须是对象",
+  );
+  for (const field of AUTHOR_VISIBLE_TARGET_FIELDS) {
+    assert(
+      typeof value[field] === "string" && value[field].trim() !== "",
+      `预注册 scenarios[0].author_visible_target.${field} 不能为空`,
+    );
+  }
+  return {
+    work_title: value.work_title,
+    chapter_title: value.chapter_title,
+    reading_excerpt: value.reading_excerpt,
+  };
+}
+
+export function validatePreregistrationFile(
+  file,
+  { dir, model = DEFAULT_STRATA_MODEL, requireAuthorVisibleTarget = false } = {},
+) {
   assert(typeof dir === "string" && dir !== "", "预注册校验缺少批次目录");
   assert(typeof model === "string" && model !== "", "预注册校验缺少冻结模型");
   let value;
@@ -174,12 +207,17 @@ export function validatePreregistrationFile(file, { dir, model = DEFAULT_STRATA_
   // G2 专项标识只从已验证哈希的冻结输入派生；缺省保持普通 live 行为。
   const scenarioId =
     typeof scenario.id === "string" && scenario.id.trim() !== "" ? scenario.id : null;
+  // 作者可见目标只属于 b82-g2；其它场景即使带同名字段也不改变入口行为。
+  const authorVisibleTarget = scenarioId === "b82-g2"
+    ? readAuthorVisibleTarget(scenario, { require: requireAuthorVisibleTarget })
+    : null;
   return {
     id: value.id,
     sha256: sha256(text),
     message: scenario.message,
     model: value.model.model,
     scenario_id: scenarioId,
+    author_visible_target: authorVisibleTarget,
   };
 }
 
@@ -203,16 +241,36 @@ function checkPreregistration(dir, config) {
   assert.equal(marker.id, record.id, "预注册 id 与配置不一致");
   assert.equal(marker.sha256, record.sha256, "预注册文件已被篡改");
   assert.equal(config.message, record.message, "配置作者输入与预注册不一致");
-  return record.scenario_id;
+  // B82 作者可见目标与作者输入一起封存在同一份预注册哈希里；旧批次缺字段时
+  // 保持历史可读，但新批次必须有冻结来源，且配置副本不得被改写或补造。
+  if (record.scenario_id === "b82-g2") {
+    if (record.author_visible_target) {
+      assert.deepEqual(
+        config.author_visible_target,
+        record.author_visible_target,
+        "配置作者可见目标与预注册不一致",
+      );
+    } else {
+      assert(
+        !Object.hasOwn(config, "author_visible_target"),
+        "配置作者可见目标缺少冻结预注册来源",
+      );
+    }
+  }
+  return record;
 }
 
 export function readConfig(dir) {
   const config = read(dir, "native-b71-config.json");
-  const scenarioId = checkPreregistration(dir, config);
-  // 配置文件自带的 scenario_id 可伪造，一律丢弃；只保留哈希验证后的冻结标识。
+  const record = checkPreregistration(dir, config);
+  // 配置文件自带的 scenario_id/作者可见目标可伪造，一律丢弃；只保留哈希验证后的冻结值。
   const sealed = { ...config };
   delete sealed.scenario_id;
-  return scenarioId === null ? sealed : { ...sealed, scenario_id: scenarioId };
+  if (record?.scenario_id === "b82-g2") {
+    delete sealed.author_visible_target;
+    if (record.author_visible_target) sealed.author_visible_target = record.author_visible_target;
+  }
+  return record?.scenario_id ? { ...sealed, scenario_id: record.scenario_id } : sealed;
 }
 
 function readyFor(dir) {
@@ -285,6 +343,21 @@ function targetFor(dir, { includeSession = false } = {}) {
   });
 }
 
+// B82 目标不再经 work_id 查库取标题：作品名取自已冻结的作者可见目标，工作/session
+// 身份只从 seed 日志抄录给独立诊断，不参与脚本选择或页面判据。
+function visibleTargetFor(dir, visible, { includeSession = false } = {}) {
+  const fields = seedFields(dir);
+  const workId = fields("work_id");
+  assert(workId, "seed 缺少 work_id");
+  const sessionId = includeSession ? fields("session_id") : null;
+  if (includeSession) assert(sessionId, "seed 缺少 session_id");
+  return {
+    work_id: workId,
+    work_title: visible.work_title,
+    ...(includeSession ? { session_id: sessionId } : {}),
+  };
+}
+
 const messageFor = (journey) => JOURNEY_MESSAGES[journey];
 
 export function prepare(dir) {
@@ -303,9 +376,14 @@ export function prepare(dir) {
     assert(ready.journey === "live", "预注册文件只属于普通 live 批次");
   }
   const preregistration = hasPreregistration
-    ? validatePreregistrationFile(preregistrationFile, { dir })
+    ? validatePreregistrationFile(preregistrationFile, { dir, requireAuthorVisibleTarget: true })
     : null;
-  const target = targetFor(dir, { includeSession: pending || live || confirmation || autoMaintenance });
+  const visibleTarget = preregistration?.author_visible_target ?? null;
+  const target = visibleTarget
+    ? visibleTargetFor(dir, visibleTarget, {
+      includeSession: pending || live || confirmation || autoMaintenance,
+    })
+    : targetFor(dir, { includeSession: pending || live || confirmation || autoMaintenance });
   const nonce = pending ? randomBytes(8).toString("hex") : null;
   // 作者行为覆盖：输入必须是 B70 冻结 case 的 expression 原文（禁止现场造输入）。
   let behaviorCase = null;
@@ -324,6 +402,7 @@ export function prepare(dir) {
     journey: ready.journey,
     provider: ready.provider,
     target,
+    ...(visibleTarget ? { author_visible_target: visibleTarget } : {}),
     ...(preregistration
       ? {
           preregistration: {

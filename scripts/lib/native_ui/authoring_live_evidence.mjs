@@ -20,7 +20,8 @@ import {
   writeNativeFrames,
 } from "./scenario_evidence.mjs";
 import { readConfig } from "./authoring_capture_evidence.mjs";
-import { bindNativeCalls, g2CandidateReport, g2PageReport, g2UsageReport } from "./authoring_run_evidence.mjs";
+import { bindNativeCalls } from "./authoring_run_evidence.mjs";
+import { g2VisibleEvidence } from "./authoring_g2_evidence.mjs";
 import {
   NATIVE_CHAT_WIRE,
   requestFactsFromRecord,
@@ -588,17 +589,104 @@ function reconcileNativeCalls(dir, config, history, records) {
   return calls;
 }
 
-function g2FailureMessage(g2) {
-  const detail = g2.pages
-    .map((page) => `${page.range[0]}-${page.range[1]}:${page.reason ?? "ok"}`)
-    .join(", ");
-  return `B82 §7 G2 页级证据未成立: ${detail}`;
+function visibleTextIfExists(dir, name) {
+  const file = path.join(dir, `${name}.text.txt`);
+  return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+}
+
+// B82 G2 新批次：页面只看作者可见文本，不跑内部 ref/版本/DB/wire 对账。
+// 截图来源、驱动与等待账仍由既有 assertCommonEvidence 核对；真实模型单槽仍由
+// strata-slot 核对。原始 wire/llm-calls/DB 保持原样，供独立诊断，不参与页面通过。
+function verifyAuthorVisibleBatch(dir, config) {
+  const target = config.author_visible_target;
+  assert(
+    target,
+    "b82-g2 缺少冻结的作者可见目标；旧缺 visible_target 的批次只能读取既有报告，不能重新签页面",
+  );
+  const common = assertCommonEvidence(dir, {
+    sliceId: config.slice_id,
+    minScreenshots: 4,
+    minimumWaits: 6,
+    // B82 只走可见提交/可见阅读页：保留 input/turn/maintenance 等待，不要求 ack。
+    requiredKinds: ["input", "turn", "maintenance"],
+  });
+  const strataSlot = readJsonIfExists(path.join(dir, "strata-slot.json"));
+  assert(strataSlot, "缺少 strata-slot.json（批次前后槽位/卸载核验）");
+  assert.equal(strataSlot.unloaded, true, "strata 批次结束必须核验 loaded=null");
+  const driverLog = readJsonIfExists(path.join(dir, "native-b71-driver-log.json"));
+  const model = driverLog?.model ?? config.preregistration?.model ?? DEFAULT_LIVE_MODEL;
+  // 真实模型 route：复用既有单槽记录，冻结模型必须与实际单槽一致。
+  if (config.preregistration?.model) {
+    assert.equal(strataSlot.model, config.preregistration.model, "strata 单槽模型与冻结模型不一致");
+  }
+  const visible = g2VisibleEvidence({
+    target,
+    message: config.message,
+    afterInputText: visibleTextIfExists(dir, "after-input"),
+    finalText: visibleTextIfExists(dir, "final"),
+    readingBeforeText: visibleTextIfExists(dir, "02-reading-before"),
+    readingAfterText: visibleTextIfExists(dir, "03-reading-after"),
+  });
+  const checks = {
+    schema: LIVE_CHECKS_SCHEMA,
+    scenario_id: config.scenario_id,
+    model,
+    checks: { author_visible: visible.observed },
+    required: ["author_visible"],
+    failed: visible.ok ? [] : ["author_visible"],
+    author_visible: visible,
+    measured: {
+      provider: "strata",
+      model,
+      surface: "tauri-native",
+      driver: "ax-native-system-ui",
+      screenshots: common.ui.screenshots,
+      wait_ledger: common.ledger,
+      visible_texts: ["after-input", "final", "02-reading-before", "03-reading-after"],
+      strata_slot: strataSlot,
+    },
+    not_signed: ["mechanism", "I10_literary_quality_not_signed"],
+  };
+  const summary = {
+    slice_id: config.slice_id,
+    scenario_id: config.scenario_id,
+    surface: "tauri-native",
+    driver: "ax-native-system-ui",
+    provider: "strata",
+    model,
+    verified_at: new Date().toISOString(),
+    checkpoints: Object.fromEntries(LIVE_CHECKPOINTS.map((name) => [
+      name,
+      readJsonIfExists(path.join(dir, `b71-${name}.json`))?.at ?? null,
+    ])),
+    author_visible_target: target,
+    author_visible: visible,
+    verdict: {
+      author_visible: visible.ok ? "pass" : "fail",
+      full_g1_g6_signed: false,
+    },
+    not_signed: checks.not_signed,
+    screenshots: common.ui.screenshots,
+    wait_ledger: common.ledger,
+    strata_slot: strataSlot,
+  };
+  fs.writeFileSync(path.join(dir, "native-b71-checks.json"), JSON.stringify(checks, null, 2));
+  fs.writeFileSync(path.join(dir, "summary.json"), JSON.stringify(summary, null, 2));
+  // 报告先落盘再失败，缺证原因保留在 author_visible.failures。
+  assert(
+    visible.ok,
+    `B82 §7 G2 作者可见证据未成立: ${visible.failures.join(", ")}`,
+  );
+  console.log("B82 §7 G2 作者可见判据通过");
+  return { checks, summary };
 }
 
 export function verifyLiveBatch(dir) {
   const config = readConfig(dir);
   assert.equal(config.journey, "live", "live verifier 只接受 journey=live");
   assert.equal(config.provider, "strata", "live verifier 只接受 provider=strata");
+  // b82-g2 新批次只签作者可见页面；内部对账/旧 G2 报告保留为独立诊断，不再同步卡 UI。
+  if (config.scenario_id === "b82-g2") return verifyAuthorVisibleBatch(dir, config);
   // live 驱动的固定等待步：launch_app/workbench_ready/select_work/input_ready/
   // author_creation_request/user_message_ack/live_run_terminal = 7 条（Why 触发再加）。
   // 不能沿用 pending/revision 的 8 条门槛，否则会把正常 live 路径误杀；6 条已覆盖
@@ -635,19 +723,6 @@ export function verifyLiveBatch(dir) {
     workId: config.target?.work_id,
   });
   const nativeCalls = reconcileNativeCalls(dir, config, history, evidence.llmRecords);
-  // 仅冻结的 b82-g2 复用本条 run 的 transcript 与已对账 records 生成页/候选证据。
-  const g2Pages = config.scenario_id === "b82-g2"
-    ? g2PageReport({ dir, config, history, records: nativeCalls?.records })
-    : null;
-  const g2Candidate = config.scenario_id === "b82-g2"
-    ? g2CandidateReport({
-      dir,
-      config,
-      history,
-      records: nativeCalls?.records,
-      chapterRef: g2Pages?.chapter_ref,
-    })
-    : null;
   const dbFacts = withDb(dir, (db) => {
     const tableCount = (table) => {
       try {
@@ -680,21 +755,6 @@ export function verifyLiveBatch(dir) {
     0,
     `B71 live mechanism 断言失败: ${checks.failed_mechanism.join(", ")}`,
   );
-  // 页级使用证据最后判定：只消费本次已算的 L7 reports；页/候选未成立时按缺证返回，
-  // 由入口在页与候选之后统一拒绝，不越过已失败项。
-  const g2Usage = g2Pages && g2Candidate
-    ? g2UsageReport({ config, pages: g2Pages, candidate: g2Candidate, refs: checks.measured.refs })
-    : null;
-  // 页/候选/页级使用证据并入既有报告；普通 live 与非 G2 冻结批次保持 checks 形状不变。
-  const reportChecks = g2Pages || g2Candidate || g2Usage
-    ? {
-      ...checks,
-      ...(g2Pages ? { g2_pages: g2Pages } : {}),
-      ...(g2Candidate ? { g2_candidate: g2Candidate } : {}),
-      ...(g2Usage ? { g2_usage: g2Usage } : {}),
-    }
-    : checks;
-
   writeNativeFrames(dir);
   const summary = {
     slice_id: config.slice_id,
@@ -717,9 +777,6 @@ export function verifyLiveBatch(dir) {
     strata_slot: strataSlot,
     wait_ledger: common.ledger,
     screenshots: common.ui.screenshots,
-    ...(g2Pages ? { g2_pages: g2Pages } : {}),
-    ...(g2Candidate ? { g2_candidate: g2Candidate } : {}),
-    ...(g2Usage ? { g2_usage: g2Usage } : {}),
     verdict: {
       mechanism: "pass",
       model_behavior: checks.model_behavior,
@@ -727,16 +784,8 @@ export function verifyLiveBatch(dir) {
       full_g1_g6_signed: false,
     },
   };
-  fs.writeFileSync(path.join(dir, "native-b71-checks.json"), JSON.stringify(reportChecks, null, 2));
+  fs.writeFileSync(path.join(dir, "native-b71-checks.json"), JSON.stringify(checks, null, 2));
   fs.writeFileSync(path.join(dir, "summary.json"), JSON.stringify(summary, null, 2));
   console.log(`B71 CP3b 实模机制判据通过: ${checks.required_mechanism.length}/${checks.required_mechanism.length}`);
-  // 报告先落盘再失败，保留可复查的 mechanism + g2_pages/g2_candidate/g2_usage 事实。
-  if (g2Pages && !g2Pages.ok) throw new Error(g2FailureMessage(g2Pages));
-  if (g2Candidate && !g2Candidate.ok) {
-    throw new Error(`B82 §7 G2 候选证据未成立: ${g2Candidate.reason ?? "unknown"}`);
-  }
-  if (g2Usage && !g2Usage.ok) {
-    throw new Error(`B82 §7 G2 页级使用证据未成立: ${g2Usage.reason ?? "unknown"}`);
-  }
-  return { checks: reportChecks, summary };
+  return { checks, summary };
 }

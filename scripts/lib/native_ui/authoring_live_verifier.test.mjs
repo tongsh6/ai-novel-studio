@@ -12,6 +12,55 @@ import { APP_BUNDLE, NATIVE_DRIVER, sha256 } from "./scenario_evidence.mjs";
 
 const AUTHOR =
   "先看看第01章现在的设定和正文，再按现有设定写一段更紧张的开场：主角在雨夜收到一封没有署名的信，生成待采纳的候选，先不要保存。";
+const G2_MESSAGE =
+  "请先读第02章《灰烬中的手印》已经保存的正文，前后都核对一下，再把发现的重复写法改成一段候选给我看，先不要保存。";
+const G2_VISIBLE_TARGET = Object.freeze({
+  work_title: "灰烬手印验证作品",
+  chapter_title: "第02章：灰烬中的手印",
+  reading_excerpt: "井底浮现第七枚手印",
+});
+const G2_FIRST_READ =
+  "(value=已阅读章节正文「灰烬中的手印」（第 2 章；第 1–6000 字符 / 共 7000 字符）。)";
+const G2_LAST_READ =
+  "(value=已阅读章节正文「灰烬中的手印」（第 2 章；第 6001–7000 字符 / 共 7000 字符）。)";
+function visibleReadingPage() {
+  return [
+    "阅读模式",
+    G2_VISIBLE_TARGET.work_title,
+    "目录",
+    "第02章：灰烬中的手印",
+    "灰烬从指缝里漏下去，井底的风把纸灰卷成一条细线。",
+    `末页锚点：${G2_VISIBLE_TARGET.reading_excerpt}`,
+  ].join("\n");
+}
+function visibleAfterInput(message = G2_MESSAGE) {
+  return [
+    G2_VISIBLE_TARGET.work_title,
+    "你",
+    message,
+    "AI 助手",
+    "当前创作任务工作区",
+    "(value=进行中 · 创作)",
+  ].join("\n");
+}
+function visibleFinal(message = G2_MESSAGE) {
+  return [
+    G2_VISIBLE_TARGET.work_title,
+    "你",
+    message,
+    "AI 助手",
+    "本轮创作过程",
+    G2_FIRST_READ,
+    G2_LAST_READ,
+    "第02章：灰烬中的手印（指定段落修订稿）",
+    "这是待保存章节草稿。确认保存后会写入章节正文；未保存前不会进入阅读模式或作品事实。预览：指定段落修订稿",
+    "指定段落修订稿 他把第七枚手印按进灰里。 创作依据：按作者要求保留原稿其余字句。",
+    "修订稿候选",
+    "保存修订稿",
+    "放弃修订稿",
+    "(value=已完成)",
+  ].join("\n");
+}
 const TURN = "message_live_1";
 const RUN = "run_live_1";
 const WORK = "work-live-1";
@@ -186,7 +235,10 @@ function rewriteTurnResult(dir, mutate) {
 
 // 既有预注册形状：配置只存 id/sha256/model，文件冻结在批次目录内。
 // scenarios[0].id 是冻结的 G2 专项标识（b82-g2）；缺省时不派生，保持普通冻结 live。
-function writePreregistration(dir, { scenarioId = null } = {}) {
+function writePreregistration(
+  dir,
+  { scenarioId = null, authorVisibleTarget = null, message = AUTHOR } = {},
+) {
   const file = path.join(dir, "preregistration.json");
   const text = JSON.stringify(
     {
@@ -194,7 +246,8 @@ function writePreregistration(dir, { scenarioId = null } = {}) {
       model: { provider: "strata", model: "iq3_s" },
       scenarios: [{
         ...(scenarioId ? { id: scenarioId } : {}),
-        message: AUTHOR,
+        ...(authorVisibleTarget ? { author_visible_target: authorVisibleTarget } : {}),
+        message,
         evidence: { dir },
       }],
     },
@@ -412,14 +465,18 @@ function insertNativeCallRun(db, { g2 = false } = {}) {
   }
 }
 
-function buildDir({ withStrataUnloaded = true, screenshots = 3, usedRefs = ["observation:obs_1"], nativeCall = false, preregistration = false, scenarioId = null, g2 = false, g2Revision = 1, nativeScenarioId = null } = {}) {
+function buildDir({ withStrataUnloaded = true, screenshots = 3, usedRefs = ["observation:obs_1"], nativeCall = false, preregistration = false, scenarioId = null, g2 = false, g2Revision = 1, nativeScenarioId = null, message = AUTHOR, authorVisibleTarget = null, authorVisible = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-live-verify-"));
-  fs.mkdirSync(path.join(dir, "app-log"), { recursive: true });
-  fs.mkdirSync(path.join(dir, "llm-calls"), { recursive: true });
-  fs.writeFileSync(
-    path.join(dir, "seed.log"),
-    `[g2-test-seed] work_id=${WORK} session_id=${SESSION} chapter_id=${G2_CHAPTER} chapter_seq=2\n`,
-  );
+  // B82 作者可见批次只准备冻结目标/可见页面/监督/模型槽位；seed、DB、wire、
+  // llm/app 日志都是应用内部信息，不能先写再删掉来证明判据没读它们。
+  if (!authorVisible) {
+    fs.mkdirSync(path.join(dir, "app-log"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "llm-calls"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "seed.log"),
+      `[g2-test-seed] work_id=${WORK} session_id=${SESSION} chapter_id=${G2_CHAPTER} chapter_seq=2\n`,
+    );
+  }
 
   writeJson(path.join(dir, "native-driver-ready.json"), {
     driver: "external-system-ui",
@@ -430,11 +487,20 @@ function buildDir({ withStrataUnloaded = true, screenshots = 3, usedRefs = ["obs
     ready_at: readyAt,
     app_path: "/tmp/B71 Live.app",
   });
-  const shotNames = ["01-workbench.png", "after-input.png", "final.png", "why.png"].slice(0, screenshots);
+  const shotNames = authorVisible
+    ? ["01-workbench.png", "02-reading-before.png", "after-input.png", "final.png", "03-reading-after.png"]
+    : ["01-workbench.png", "after-input.png", "final.png", "why.png"].slice(0, screenshots);
   for (const name of shotNames) fs.writeFileSync(path.join(dir, name), png());
   if (g2) {
     fs.writeFileSync(path.join(dir, "01-workbench.text.txt"), "工作台\n等待创作请求\n");
     fs.writeFileSync(path.join(dir, "final.text.txt"), `${G2_ITEM.title}\n${G2_ITEM.body}\n保存为章节正文\n`);
+  }
+  if (authorVisible) {
+    fs.writeFileSync(path.join(dir, "01-workbench.text.txt"), `${G2_VISIBLE_TARGET.work_title}\n等待创作请求\n`);
+    fs.writeFileSync(path.join(dir, "02-reading-before.text.txt"), visibleReadingPage());
+    fs.writeFileSync(path.join(dir, "after-input.text.txt"), visibleAfterInput(message));
+    fs.writeFileSync(path.join(dir, "final.text.txt"), visibleFinal(message));
+    fs.writeFileSync(path.join(dir, "03-reading-after.text.txt"), visibleReadingPage());
   }
   writeJson(path.join(dir, "native-ui-complete.json"), {
     harness_run_ref: "run-ref-live",
@@ -444,7 +510,9 @@ function buildDir({ withStrataUnloaded = true, screenshots = 3, usedRefs = ["obs
     screenshots: shotNames,
   });
 
-  const kinds = ["input", "ack", "turn", "maintenance", "maintenance", "maintenance", "maintenance", "maintenance", "maintenance"];
+  const kinds = authorVisible
+    ? ["maintenance", "maintenance", "maintenance", "input", "turn", "turn", "maintenance", "maintenance"]
+    : ["input", "ack", "turn", "maintenance", "maintenance", "maintenance", "maintenance", "maintenance", "maintenance"];
   writeJsonl(
     path.join(dir, "native-driver-commands.jsonl"),
     kinds.flatMap((kind, index) => [
@@ -462,71 +530,92 @@ function buildDir({ withStrataUnloaded = true, screenshots = 3, usedRefs = ["obs
   writeJson(path.join(dir, "wait-stats.json"), { active: null, completed: kinds.length });
   writeJsonl(path.join(dir, "heartbeat.jsonl"), [{ at: readyAt }]);
 
-  writeJsonl(path.join(dir, "app-log", "2026-11-03.jsonl"), [
-    { at: "2026-11-03T10:00:00.000Z", event: "provider_gateway.complete.start", provider: "strata" },
-  ]);
-  writeJsonl(
-    path.join(dir, "llm-calls", "2026-11-03.jsonl"),
-    nativeCall ? sseRecords({ writerItem: g2 ? G2_ITEM : null }) : [llmRecord()],
-  );
+  if (!authorVisible) {
+    writeJsonl(path.join(dir, "app-log", "2026-11-03.jsonl"), [
+      { at: "2026-11-03T10:00:00.000Z", event: "provider_gateway.complete.start", provider: "strata" },
+    ]);
+    writeJsonl(
+      path.join(dir, "llm-calls", "2026-11-03.jsonl"),
+      nativeCall ? sseRecords({ writerItem: g2 ? G2_ITEM : null }) : [llmRecord()],
+    );
 
-  writeJsonl(path.join(dir, "native-transport.jsonl"), [
-    {
-      at: "2026-11-03T10:00:00.300Z",
-      direction: "sent",
-      frame: ["3", "3", "workspace:test", "phx_join", { work_id: WORK, session_id: SESSION }],
-    },
-    {
-      at: "2026-11-03T10:00:00.400Z",
-      direction: "received",
-      frame: ["3", "3", "workspace:test", "phx_reply", { status: "ok", response: { joined: true, work_id: WORK, session_id: SESSION } }],
-    },
-    {
-      at: "2026-11-03T10:00:00.500Z",
-      direction: "sent",
-      frame: ["3", "4", "workspace:test", "user_message", { text: AUTHOR, turn_id: TURN, work_id: WORK, session_id: SESSION }],
-    },
-    {
-      at: "2026-11-03T10:00:00.600Z",
-      direction: "received",
-      frame: ["3", "4", "workspace:test", "phx_reply", { status: "ok", response: { turn_id: TURN, run_id: RUN } }],
-    },
-    {
-      at: "2026-11-03T10:00:02.000Z",
-      direction: "received",
-      frame: [null, null, "workspace:test", "turn_result", { ...(g2 ? g2TurnBody() : turnBody), turn_id: `${TURN}:agent:2` }],
-    },
-    {
-      at: "2026-11-03T10:00:00.400Z",
-      direction: "http",
-      method: "GET",
-      path: "/api/works/w/sessions/resume",
-      status: 200,
-    },
-  ]);
+    writeJsonl(path.join(dir, "native-transport.jsonl"), [
+      {
+        at: "2026-11-03T10:00:00.300Z",
+        direction: "sent",
+        frame: ["3", "3", "workspace:test", "phx_join", { work_id: WORK, session_id: SESSION }],
+      },
+      {
+        at: "2026-11-03T10:00:00.400Z",
+        direction: "received",
+        frame: ["3", "3", "workspace:test", "phx_reply", { status: "ok", response: { joined: true, work_id: WORK, session_id: SESSION } }],
+      },
+      {
+        at: "2026-11-03T10:00:00.500Z",
+        direction: "sent",
+        frame: ["3", "4", "workspace:test", "user_message", { text: message, turn_id: TURN, work_id: WORK, session_id: SESSION }],
+      },
+      {
+        at: "2026-11-03T10:00:00.600Z",
+        direction: "received",
+        frame: ["3", "4", "workspace:test", "phx_reply", { status: "ok", response: { turn_id: TURN, run_id: RUN } }],
+      },
+      {
+        at: "2026-11-03T10:00:02.000Z",
+        direction: "received",
+        frame: [null, null, "workspace:test", "turn_result", { ...(g2 ? g2TurnBody() : turnBody), turn_id: `${TURN}:agent:2` }],
+      },
+      {
+        at: "2026-11-03T10:00:00.400Z",
+        direction: "http",
+        method: "GET",
+        path: "/api/works/w/sessions/resume",
+        status: 200,
+      },
+    ]);
+  }
 
   const config = {
     slice_id: "b71-first-consumer",
     journey: "live",
     provider: "strata",
-    target: { work_id: WORK, work_title: "B71 live", session_id: SESSION },
-    message: AUTHOR,
+    target: authorVisible
+      ? { work_title: authorVisibleTarget?.work_title ?? "作者可见目标缺失" }
+      : { work_id: WORK, work_title: authorVisibleTarget?.work_title ?? "B71 live", session_id: SESSION },
+    message,
   };
+  if (authorVisibleTarget) config.author_visible_target = authorVisibleTarget;
   // 原生 config 不是冻结输入，不能凭它选择 G2；只在负例中模拟被写入的伪造字段。
   if (nativeScenarioId) config.scenario_id = nativeScenarioId;
   // 只有冻结批次带预注册标记；普通 live 批次保持原入口。
-  if (preregistration) config.preregistration = writePreregistration(dir, { scenarioId });
+  if (preregistration) {
+    config.preregistration = writePreregistration(dir, {
+      scenarioId,
+      authorVisibleTarget,
+      message,
+    });
+  }
   writeJson(path.join(dir, "native-b71-config.json"), config);
-  writeJson(path.join(dir, "b71-start.json"), checkpoint("start"));
-  // 真实持久结构（L7/L9 的数据源）：DB 由 live 场景 seed 建出，verify 只读。
-  writeLiveDatabase(dir, { usedRefs, nativeCall, g2, g2Revision });
-  writeJson(path.join(dir, "b71-final.json"), checkpoint("final", { design: "design-final" }));
+  // 旧内部 checkpoints 只属于非作者可见的技术 fixture；B82 可见批次不生成 DB 快照。
+  if (!authorVisible) {
+    writeJson(path.join(dir, "b71-start.json"), checkpoint("start"));
+    // 真实持久结构（L7/L9 的数据源）：DB 由 live 场景 seed 建出，verify 只读。
+    writeLiveDatabase(dir, { usedRefs, nativeCall, g2, g2Revision });
+    writeJson(path.join(dir, "b71-final.json"), checkpoint("final", { design: "design-final" }));
+  }
   writeJson(path.join(dir, "native-b71-driver-log.json"), {
     slice_id: "b71-first-consumer",
     provider: "strata",
     model: "iq3_s",
-    run: { status: "completed" },
-    why: { opened: true, before: { llm_records: 1, provider_runs: 1 }, after: { llm_records: 1, provider_runs: 1 } },
+    ...(authorVisible
+      ? {
+          author_visible_target: authorVisibleTarget,
+          author_visible_outcome: { kind: "pending_candidate" },
+        }
+      : {
+          run: { status: "completed" },
+          why: { opened: true, before: { llm_records: 1, provider_runs: 1 }, after: { llm_records: 1, provider_runs: 1 } },
+        }),
   });
   writeJson(path.join(dir, "strata-slot.json"), {
     schema: "b71-strata-slot/v1",
@@ -631,43 +720,355 @@ test("B82 冻结 live：真实 SSE 逐调用对账写入 measured.native_call �
   assert.equal(summary.measured.native_call.bound_request_count, 2);
   assert.equal(summary.measured.provider_calls, 2);
   assert.equal(summary.verdict.mechanism, "pass");
-  // 非 b82-g2 的冻结 live 不派生 G2 页证据，保持原入口。
-  assert.equal(summary.g2_pages, undefined);
+  // 非 b82-g2 的冻结 live 不派生作者可见页面判据，保持原入口。
+  assert.equal(summary.author_visible, undefined);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-// B82 §7 G2：实际批次 0 页时通用机制仍会全绿（这正是误 PASS 的来源）；冻结入口
-// 必须依据 b82-g2 页证据拒绝，并在拒绝前保留可复查的 checks/summary。
-test("B82 冻结 live：b82-g2 零页时通用机制仍绿但页证据拒绝并保留报告", () => {
-  const dir = buildDir({ nativeCall: true, preregistration: true, scenarioId: "b82-g2", g2: true });
-  assert.throws(() => verifyLiveBatch(dir), /G2 页级证据未成立/u);
-  const checks = JSON.parse(fs.readFileSync(path.join(dir, "native-b71-checks.json"), "utf8"));
-  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
-  assert.deepEqual(checks.failed_mechanism, []);
-  assert.equal(checks.g2_pages.ok, false);
-  assert.equal(checks.g2_pages.g2_signed, false);
-  assert.deepEqual(
-    checks.g2_pages.pages.map((page) => page.reason),
-    ["observation_missing", "observation_missing"],
-  );
-  assert.equal(summary.g2_pages.ok, false);
-  assert.equal(summary.verdict.mechanism, "pass");
+// B82 G2 新批次只签作者可见页面：真实原话、末页阅读原文前后不变、同章局部
+// 「指定段落修订稿」待采纳候选。旧内部页/候选对账保留在纯 helper 测试中诊断。
+test("B82 冻结 live：b82-g2 只按作者可见消息/末页阅读/同章修订候选签页面", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  const { checks, summary } = verifyLiveBatch(dir);
+  assert.equal(checks.author_visible.ok, true, checks.author_visible.failures.join(","));
+  assert.equal(checks.author_visible.observed.author_message, true);
+  assert.equal(checks.author_visible.observed.reading_unchanged, true);
+  assert.equal(checks.author_visible.observed.reading_complete, true);
+  assert.equal(checks.author_visible.observed.pending_candidate, true);
+  assert.deepEqual(checks.failed, []);
+  assert.equal(summary.verdict.author_visible, "pass");
   assert.equal(summary.verdict.full_g1_g6_signed, false);
+  assert.equal(summary.scenario_id, "b82-g2");
+  assert.equal(summary.surface, "tauri-native");
+  assert.equal(summary.screenshots.length, 5);
+  assert.equal(summary.wait_ledger.kinds.includes("ack"), false, "B82 不要求 ack 分型");
+  assert.equal(summary.author_visible_target.chapter_title, G2_VISIBLE_TARGET.chapter_title);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("B82 冻结 live：b82-g2 目标稿 revision=2 时报告实际版本并仍因无页拒绝", () => {
-  const dir = buildDir({ nativeCall: true, preregistration: true, scenarioId: "b82-g2", g2: true, g2Revision: 2 });
-  assert.throws(() => verifyLiveBatch(dir), /G2 页级证据未成立/u);
-  const checks = JSON.parse(fs.readFileSync(path.join(dir, "native-b71-checks.json"), "utf8"));
+test("B82 冻结 live：b82-g2 页面判据不生成也不读取 DB/wire", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  // 从构造开始就不写应用内部证据，而不是先写再删。
+  for (const entry of ["database", "seed.log", "llm-calls", "app-log", "native-transport.jsonl", "b71-start.json", "b71-final.json"]) {
+    assert.equal(fs.existsSync(path.join(dir, entry)), false, `作者可见批次不应生成 ${entry}`);
+  }
+  const { summary } = verifyLiveBatch(dir);
+  assert.equal(summary.verdict.author_visible, "pass");
+  assert.equal(summary.author_visible.observed.reading_complete, true);
+  assert.equal(summary.author_visible.observed.pending_candidate, true);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 单槽模型与冻结模型不一致时拒绝", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  const slotPath = path.join(dir, "strata-slot.json");
+  const slot = JSON.parse(fs.readFileSync(slotPath, "utf8"));
+  fs.writeFileSync(slotPath, JSON.stringify({ ...slot, model: "other-model" }, null, 2));
+  assert.throws(() => verifyLiveBatch(dir), /单槽模型与冻结模型不一致/u);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 旧失败批次只有失败/未完成时缺证拒绝并保留报告", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  fs.writeFileSync(path.join(dir, "final.text.txt"), [
+    G2_VISIBLE_TARGET.work_title,
+    "你",
+    G2_MESSAGE,
+    "AI 助手",
+    "这次候选处理未完成，目标可能已被处理或修订未成功。没有据此采纳或写入作品事实，请核对当前候选后继续。",
+    "(value=失败)",
+    "(value=第 3/3 步)",
+  ].join("\n"));
+  assert.throws(() => verifyLiveBatch(dir), /pending_candidate_missing/u);
   const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
-  assert.equal(checks.g2_pages.revision, 2);
-  assert.equal(summary.g2_pages.revision, 2);
-  assert.equal(summary.g2_pages.ok, false);
-  assert.deepEqual(
-    summary.g2_pages.pages.map((page) => page.reason),
-    ["observation_missing", "observation_missing"],
+  assert.equal(summary.verdict.author_visible, "fail");
+  assert(summary.author_visible.failures.includes("pending_candidate_missing"));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 历史同章候选不能代签本次失败终局", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  fs.writeFileSync(path.join(dir, "final.text.txt"), [
+    "第02章：灰烬中的手印（指定段落修订稿）",
+    "这是待保存章节草稿。确认保存后会写入章节正文；未保存前不会进入阅读模式或作品事实。预览：指定段落修订稿",
+    "指定段落修订稿 他把第七枚手印按进灰里。 创作依据：旧回合。",
+    "修订稿候选",
+    "保存修订稿",
+    "你",
+    G2_MESSAGE,
+    "AI 助手",
+    "(value=失败)",
+  ].join("\n"));
+  assert.throws(() => verifyLiveBatch(dir), /pending_candidate_missing/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.author_visible.observed.pending_candidate, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 可见等待不自动作答，也不因此签页面", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  fs.writeFileSync(path.join(dir, "final.text.txt"), [
+    G2_VISIBLE_TARGET.work_title,
+    "你",
+    G2_MESSAGE,
+    "AI 助手",
+    "我需要你补充要修订的段落。",
+    "(value=等待你回复)",
+  ].join("\n"));
+  assert.throws(() => verifyLiveBatch(dir), /pending_candidate_missing/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.author_visible.observed.pending_candidate, false);
+  assert(summary.author_visible.failures.includes("pending_candidate_missing"));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 缺 final 页时缺证失败并保留报告", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  fs.rmSync(path.join(dir, "final.text.txt"));
+  assert.throws(() => verifyLiveBatch(dir), /final_visible_missing/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.verdict.author_visible, "fail");
+  assert(summary.author_visible.failures.includes("final_visible_missing"));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 缺阅读后页时缺证失败并保留报告", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  fs.rmSync(path.join(dir, "03-reading-after.text.txt"));
+  assert.throws(() => verifyLiveBatch(dir), /reading_after_missing/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.verdict.author_visible, "fail");
+  assert(summary.author_visible.failures.includes("reading_after_missing"));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 阅读页仍显示旧投影状态时拒绝", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  fs.writeFileSync(
+    path.join(dir, "02-reading-before.text.txt"),
+    `${visibleReadingPage()}\n投影状态：重建中\n正在读取最新章节，请稍候。`,
   );
+  assert.throws(() => verifyLiveBatch(dir), /reading_before_projection_not_fresh/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.author_visible.observed.reading_unchanged, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 首页读活动无可见范围时不补缺口", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  fs.writeFileSync(
+    path.join(dir, "final.text.txt"),
+    visibleFinal().replace(
+      G2_FIRST_READ,
+      "(value=已阅读章节正文「灰烬中的手印」（第 2 章）（有效字数 6244）。)",
+    ),
+  );
+  assert.throws(() => verifyLiveBatch(dir), /reading_not_complete/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.author_visible.observed.reading_complete, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 只改非摘录正文也必须拒绝（完整同页比较）", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  fs.writeFileSync(
+    path.join(dir, "03-reading-after.text.txt"),
+    visibleReadingPage().replace(
+      "灰烬从指缝里漏下去，井底的风把纸灰卷成一条细线。",
+      "灰烬从指缝里漏下去，井底的风把纸灰卷成一条细线。（正文其它位置被改）",
+    ),
+  );
+  assert.throws(() => verifyLiveBatch(dir), /reading_changed/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.author_visible.observed.reading_unchanged, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 目标章缺少章序完整标签时缺证", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: { ...G2_VISIBLE_TARGET, chapter_title: "灰烬中的手印" },
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  assert.throws(() => verifyLiveBatch(dir), /chapter_label_incomplete/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert(summary.author_visible.failures.includes("chapter_label_incomplete"));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 另一章候选不能签同章页面", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  fs.writeFileSync(
+    path.join(dir, "final.text.txt"),
+    visibleFinal().replace(
+      "第02章：灰烬中的手印（指定段落修订稿）",
+      "第01章：夜潮（指定段落修订稿）",
+    ),
+  );
+  assert.throws(() => verifyLiveBatch(dir), /pending_candidate_missing/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.author_visible.observed.candidate_same_chapter, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 未显示完整阅读时缺证（手工阅读页不能替代读证）", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  fs.writeFileSync(
+    path.join(dir, "final.text.txt"),
+    visibleFinal().split(`${G2_FIRST_READ}\n`).join("").split(`${G2_LAST_READ}\n`).join(""),
+  );
+  assert.throws(() => verifyLiveBatch(dir), /reading_activity_missing/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.author_visible.observed.reading_complete, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 只显示末页读活动时不算读完整章", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  fs.writeFileSync(
+    path.join(dir, "final.text.txt"),
+    visibleFinal().split(`${G2_FIRST_READ}\n`).join(""),
+  );
+  assert.throws(() => verifyLiveBatch(dir), /reading_not_complete/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.author_visible.observed.reading_complete, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 缺当前作者消息时不用整页旧候选", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  // after-input 仍保留作者消息，但当前 final AX 缺 marker：不得用整页旧候选。
+  fs.writeFileSync(
+    path.join(dir, "final.text.txt"),
+    visibleFinal().split(`${G2_MESSAGE}\n`).join(""),
+  );
+  assert.throws(() => verifyLiveBatch(dir), /author_message_visible_missing/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.author_visible.observed.after_input_has_message, true);
+  assert.equal(summary.author_visible.observed.pending_candidate, false);
+  assert(summary.author_visible.failures.includes("pending_candidate_missing"));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 候选/澄清泄漏技术术语时拒绝", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  fs.appendFileSync(path.join(dir, "final.text.txt"), "\n本轮候选由 call_id 关联。\n");
+  assert.throws(() => verifyLiveBatch(dir), /author_visible_internal_token_leak/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.author_visible.observed.author_visible_clean, false);
+  assert(summary.author_visible.leak.hits.some((hit) => hit.token === "call_id"));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：旧缺 author_visible_target 的 b82-g2 不能重签页面且保留旧报告", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g2",
+    authorVisibleTarget: null,
+    authorVisible: true,
+    message: G2_MESSAGE,
+  });
+  assert.equal(fs.existsSync(path.join(dir, "summary.json")), false);
+  assert.throws(() => verifyLiveBatch(dir), /缺少冻结的作者可见目标/u);
+  assert.equal(fs.existsSync(path.join(dir, "summary.json")), false, "缺目标时不得改写旧报告");
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -676,79 +1077,11 @@ test("B82 冻结 live：原生 config 的 scenario_id 不能选择 b82-g2", () =
     nativeCall: true,
     preregistration: true,
     scenarioId: null,
-    g2: true,
     nativeScenarioId: "b82-g2",
   });
   const { summary } = verifyLiveBatch(dir);
-  assert.equal(summary.g2_pages, undefined);
-  fs.rmSync(dir, { recursive: true, force: true });
-});
-
-// B82 §7/§16.9：实际 B28 scope3 候选证据复用已绑定 run 的 turnFacts/pending/已对账
-// records，挂在冻结 g2 报告旁；页级使用仍未签，候选成立也不签 G2 整体。
-test("B82 冻结 live：b82-g2 实际 scope3 候选证据成立并挂到现有报告旁", () => {
-  const dir = buildDir({ nativeCall: true, preregistration: true, scenarioId: "b82-g2", g2: true });
-  assert.throws(() => verifyLiveBatch(dir), /G2 页级证据未成立/u);
-  const checks = JSON.parse(fs.readFileSync(path.join(dir, "native-b71-checks.json"), "utf8"));
-  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
-  assert.equal(checks.g2_candidate.ok, true, checks.g2_candidate.reason);
-  assert.equal(checks.g2_candidate.pending_ref, G2_ARTIFACT);
-  assert.deepEqual(checks.g2_candidate.item_refs, [G2_ITEM.item_id]);
-  assert.equal(checks.g2_candidate.provider_call_ref, G2_ITEM.provider_call_ref);
-  assert.equal(checks.g2_candidate.adoption_status, "TENTATIVE");
-  assert.equal(checks.g2_candidate.target_chapter_ref, `chapter:${G2_CHAPTER}`);
-  assert.equal(checks.g2_candidate.modification_scope, "target_segments");
-  assert.equal(checks.g2_candidate.adoption_effect, "replace_segments");
-  assert.equal(checks.g2_candidate.g2_signed, false);
-  assert.equal(checks.g2_candidate.signed_scope, "candidate_only");
-  assert.equal(JSON.stringify(checks.g2_candidate).includes(G2_ITEM.body), false);
-  assert.equal(summary.g2_candidate.ok, true);
-  assert.equal(checks.g2_pages.ok, false);
-  assert.equal(summary.verdict.full_g1_g6_signed, false);
-  fs.rmSync(dir, { recursive: true, force: true });
-});
-
-test("B82 冻结 live：b82-g2 外来 run 的 completed 终局不能代签候选", () => {
-  const dir = buildDir({ nativeCall: true, preregistration: true, scenarioId: "b82-g2", g2: true });
-  rewriteTurnResult(dir, (body) => {
-    body.agent_run.run_id = "run-foreign";
-  });
-  assert.throws(() => verifyLiveBatch(dir), /G2 页级证据未成立/u);
-  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
-  assert.equal(summary.g2_candidate.ok, false);
-  assert.equal(summary.g2_candidate.reason, "completed_result_missing");
-  fs.rmSync(dir, { recursive: true, force: true });
-});
-
-test("B82 冻结 live：b82-g2 候选文本输入前已可见时缺新可见证据且报告先落盘", () => {
-  const dir = buildDir({ nativeCall: true, preregistration: true, scenarioId: "b82-g2", g2: true });
-  fs.writeFileSync(path.join(dir, "01-workbench.text.txt"), `${G2_ITEM.title}\n${G2_ITEM.body}\n`);
-  assert.throws(() => verifyLiveBatch(dir), /G2 页级证据未成立/u);
-  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
-  assert.equal(summary.g2_candidate.ok, false);
-  assert.equal(summary.g2_candidate.reason, "visible_preexisting");
-  fs.rmSync(dir, { recursive: true, force: true });
-});
-
-test("B82 冻结 live：b82-g2 候选 item 篡改时 writer 原字节校验拒绝", () => {
-  const dir = buildDir({ nativeCall: true, preregistration: true, scenarioId: "b82-g2", g2: true });
-  rewriteTurnResult(dir, (body) => {
-    body.adoption_state.pending[0].payload.items[0].body += "（篡改）";
-  });
-  assert.throws(() => verifyLiveBatch(dir), /G2 页级证据未成立/u);
-  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
-  assert.equal(summary.g2_candidate.ok, false);
-  assert.equal(summary.g2_candidate.reason, "writer_item_field_mismatch");
-  fs.rmSync(dir, { recursive: true, force: true });
-});
-
-test("B82 冻结 live：b82-g2 缺 final 可见文本时缺证失败但仍保留候选报告", () => {
-  const dir = buildDir({ nativeCall: true, preregistration: true, scenarioId: "b82-g2", g2: true });
-  fs.rmSync(path.join(dir, "final.text.txt"));
-  assert.throws(() => verifyLiveBatch(dir), /G2 页级证据未成立/u);
-  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
-  assert.equal(summary.g2_candidate.ok, false);
-  assert.equal(summary.g2_candidate.reason, "final_visible_missing");
+  assert.equal(summary.author_visible, undefined);
+  assert.equal(summary.verdict.mechanism, "pass");
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

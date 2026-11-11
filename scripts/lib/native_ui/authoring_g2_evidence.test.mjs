@@ -3,7 +3,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AUTHORING_REQUEST_IR } from "./authoring_request_facts.mjs";
-import { g2CandidateEvidence, g2PageEvidence, g2PageUsageEvidence } from "./authoring_g2_evidence.mjs";
+import {
+  authorVisibleOutcome,
+  g2CandidateEvidence,
+  g2PageEvidence,
+  g2PageUsageEvidence,
+  g2VisibleEvidence,
+} from "./authoring_g2_evidence.mjs";
 import { g2UsageReport } from "./authoring_run_evidence.mjs";
 
 const TOTAL = 7000;
@@ -607,4 +613,364 @@ test("g2UsageReport：页未成立时按缺证拒绝，不越过页证据", () =
   });
   assert.equal(report.ok, false);
   assert.equal(report.reason, "pages_not_ok");
+});
+
+// ── B82 G2 作者可见判据：只构造实际可达的页面文本形状 ──────────────────────────
+const VISIBLE_TARGET = Object.freeze({
+  work_title: "灰烬手印验证作品",
+  chapter_title: "第02章：灰烬中的手印",
+  reading_excerpt: "井底浮现第七枚手印",
+});
+const VISIBLE_MESSAGE =
+  "请先读第02章《灰烬中的手印》已经保存的正文，前后都核对一下，再把发现的重复写法改成一段候选给我看，先不要保存。";
+const READING_PAGE = [
+  "阅读模式",
+  "灰烬手印验证作品",
+  "目录",
+  "第02章：灰烬中的手印",
+  "灰烬从指缝里漏下去，井底的风把纸灰卷成一条细线。",
+  "末页锚点：井底浮现第七枚手印",
+].join("\n");
+const AFTER_INPUT = [
+  "灰烬手印验证作品",
+  "你",
+  VISIBLE_MESSAGE,
+  "AI 助手",
+  "当前创作任务工作区",
+  "(value=进行中 · 创作)",
+].join("\n");
+const FIRST_READ =
+  "(value=已阅读章节正文「灰烬中的手印」（第 2 章；第 1–6000 字符 / 共 7000 字符）。)";
+const LAST_READ = "(value=已阅读章节正文「灰烬中的手印」（第 2 章；第 6001–7000 字符 / 共 7000 字符）。)";
+const FINAL_PAGE = [
+  "灰烬手印验证作品",
+  "你",
+  VISIBLE_MESSAGE,
+  "AI 助手",
+  "本轮创作过程",
+  FIRST_READ,
+  LAST_READ,
+  "第02章：灰烬中的手印（指定段落修订稿）",
+  "这是待保存章节草稿。确认保存后会写入章节正文；未保存前不会进入阅读模式或作品事实。预览：指定段落修订稿",
+  "指定段落修订稿 他把第七枚手印按进灰里。 创作依据：按作者要求保留原稿其余字句。",
+  "修订稿候选",
+  "保存修订稿",
+  "放弃修订稿",
+  "(value=已完成)",
+].join("\n");
+
+function visibleEvidence(overrides = {}) {
+  return g2VisibleEvidence({
+    target: VISIBLE_TARGET,
+    message: VISIBLE_MESSAGE,
+    afterInputText: AFTER_INPUT,
+    finalText: FINAL_PAGE,
+    readingBeforeText: READING_PAGE,
+    readingAfterText: READING_PAGE,
+    ...overrides,
+  });
+}
+
+test("可见终局只认本次作者消息之后的状态：缺 marker/旧回合/无任务/作者等待词都不算终局", () => {
+  assert.equal(
+    authorVisibleOutcome(`旧回合\n(value=已完成)\n你\n${VISIBLE_MESSAGE}\nAI 助手\n(value=进行中 · 创作)`, {
+      message: VISIBLE_MESSAGE,
+    }).kind,
+    "running",
+  );
+  assert.equal(
+    authorVisibleOutcome("(value=已完成)", { message: VISIBLE_MESSAGE }).kind,
+    "unknown",
+    "当前作者原话不在 AX 文本时不得用整页状态",
+  );
+  assert.equal(
+    authorVisibleOutcome(FINAL_PAGE.replace(`${VISIBLE_MESSAGE}\n`, ""), {
+      message: VISIBLE_MESSAGE,
+    }).kind,
+    "unknown",
+    "缺当前作者消息时即使页面有候选/完成状态也不得当终局",
+  );
+  assert.equal(
+    authorVisibleOutcome(`灰烬手印验证作品\n(value=无任务)\n你\n${VISIBLE_MESSAGE}\nAI 助手\n`, {
+      message: VISIBLE_MESSAGE,
+    }).kind,
+    "unknown",
+    "顶部「无任务」不是这次 run 的终局",
+  );
+  const authorWaitWords = "请等待我确认，失败也不要停。";
+  assert.equal(
+    authorVisibleOutcome(`你\n${authorWaitWords}\nAI 助手\n(value=进行中 · 创作)`, {
+      message: authorWaitWords,
+    }).kind,
+    "running",
+    "作者原话里的等待/失败词不能被当成终局",
+  );
+  assert.equal(
+    authorVisibleOutcome(`你\n${authorWaitWords}\n`, { message: authorWaitWords }).kind,
+    "unknown",
+  );
+});
+
+test("可见终局只认状态行：prose 里的失败/错误不算，实际 value 状态才认", () => {
+  assert.equal(
+    authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n这次候选处理失败，请核对后重试。`, {
+      message: VISIBLE_MESSAGE,
+    }).kind,
+    "unknown",
+    "正文任意出现「失败」不能当终局",
+  );
+  assert.equal(
+    authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n(value=失败)`, {
+      message: VISIBLE_MESSAGE,
+    }).kind,
+    "failed",
+  );
+  assert.equal(
+    authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n(value=已完成)`, {
+      message: VISIBLE_MESSAGE,
+    }).kind,
+    "completed",
+  );
+  assert.equal(
+    authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n(value=等待你回复)`, {
+      message: VISIBLE_MESSAGE,
+    }).kind,
+    "waiting",
+  );
+  assert.equal(
+    authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n(value=进行中 · 创作)`, {
+      message: VISIBLE_MESSAGE,
+    }).kind,
+    "running",
+  );
+  assert.equal(
+    authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n等待你回复`, {
+      message: VISIBLE_MESSAGE,
+    }).kind,
+    "waiting",
+  );
+  assert.equal(
+    authorVisibleOutcome(FINAL_PAGE, { message: VISIBLE_MESSAGE }).kind,
+    "pending_candidate",
+    "候选卡片优先于状态行",
+  );
+});
+
+test("G2 作者可见正例：真实原话、完整阅读、末页原文前后不变、同章局部修订候选", () => {
+  const result = visibleEvidence();
+  assert.equal(result.ok, true, result.failures.join(","));
+  assert.equal(result.observed.author_message, true);
+  assert.equal(result.observed.after_input_has_message, true);
+  assert.equal(result.observed.reading_excerpt_before, true);
+  assert.equal(result.observed.reading_excerpt_after, true);
+  assert.equal(result.observed.reading_unchanged, true);
+  assert.equal(result.observed.reading_complete, true);
+  assert.equal(result.observed.pending_candidate, true);
+  assert.equal(result.observed.candidate_same_chapter, true);
+  assert.equal(result.observed.author_visible_clean, true);
+  assert.deepEqual(result.leak.hits, []);
+});
+
+test("G2 未显示完整阅读：只有手工阅读页摘要/末页一行时缺证", () => {
+  const noActivity = visibleEvidence({
+    finalText: FINAL_PAGE
+      .split(`${FIRST_READ}\n`).join("")
+      .split(`${LAST_READ}\n`).join(""),
+  });
+  assert.equal(noActivity.ok, false);
+  assert(noActivity.failures.includes("reading_activity_missing"));
+  assert.equal(noActivity.observed.reading_complete, false);
+
+  const onlyLast = visibleEvidence({
+    finalText: FINAL_PAGE.split(`${FIRST_READ}\n`).join(""),
+  });
+  assert.equal(onlyLast.ok, false);
+  assert(onlyLast.failures.includes("reading_not_complete"));
+  assert.equal(onlyLast.observed.reading_complete, false);
+});
+
+test("G2 完整阅证只认可见范围连续覆盖：无首页范围/缺中页/总长不一致都缺证", () => {
+  // 生产首页读活动目前只显示有效字数；未标范围的初次活动不能补首页缺口。
+  const noFirstRange = visibleEvidence({
+    finalText: FINAL_PAGE.replace(
+      FIRST_READ,
+      "(value=已阅读章节正文「灰烬中的手印」（第 2 章）（有效字数 6244）。)",
+    ),
+  });
+  assert.equal(noFirstRange.ok, false);
+  assert.equal(noFirstRange.observed.reading_complete, false);
+  assert(noFirstRange.failures.includes("reading_not_complete"));
+
+  const missingMiddle = visibleEvidence({
+    finalText: FINAL_PAGE.replace(
+      FIRST_READ,
+      "(value=已阅读章节正文「灰烬中的手印」（第 2 章；第 1–3000 字符 / 共 7000 字符）。)",
+    ),
+  });
+  assert.equal(missingMiddle.ok, false);
+  assert.equal(missingMiddle.observed.reading_complete, false);
+  assert(missingMiddle.failures.includes("reading_not_complete"));
+
+  const inconsistentTotal = visibleEvidence({
+    finalText: FINAL_PAGE.replace(
+      LAST_READ,
+      "(value=已阅读章节正文「灰烬中的手印」（第 2 章；第 6001–8000 字符 / 共 8000 字符）。)",
+    ),
+  });
+  assert.equal(inconsistentTotal.observed.reading_complete, false);
+  assert(inconsistentTotal.failures.includes("reading_not_complete"));
+
+  const singleFullRange = visibleEvidence({
+    finalText: FINAL_PAGE.replace(
+      FIRST_READ,
+      "(value=已阅读章节正文「灰烬中的手印」（第 2 章；第 1–7000 字符 / 共 7000 字符）。)",
+    ).replace(LAST_READ, ""),
+  });
+  assert.equal(singleFullRange.ok, true, singleFullRange.failures.join(","));
+  assert.equal(singleFullRange.observed.reading_complete, true);
+});
+
+test("G2 阅读页投影未 fresh：重建中/已过期/重建失败都拒绝，不能把旧投影当未修改", () => {
+  for (const banner of [
+    "投影状态：重建中\n正在读取最新章节，请稍候。",
+    "投影状态：已过期\n底层设定已有变更，当前阅读的可能不是最新版本。",
+    "投影状态：重建失败\n未能完整读取最新章节，请重试。正文没有被改动。",
+  ]) {
+    const result = visibleEvidence({ readingBeforeText: `${READING_PAGE}\n${banner}` });
+    assert.equal(result.ok, false);
+    assert(result.failures.includes("reading_before_projection_not_fresh"));
+    assert.equal(result.observed.reading_unchanged, false);
+  }
+  const staleBoth = visibleEvidence({
+    readingBeforeText: `${READING_PAGE}\n投影状态：已过期`,
+    readingAfterText: `${READING_PAGE}\n投影状态：已过期`,
+  });
+  assert.equal(staleBoth.observed.reading_unchanged, false);
+  assert(staleBoth.failures.includes("reading_before_projection_not_fresh"));
+  assert(staleBoth.failures.includes("reading_after_projection_not_fresh"));
+});
+
+test("G2 阅读变更：只改非摘录正文也必须拒绝（完整同页比较）", () => {
+  const result = visibleEvidence({
+    readingAfterText: READING_PAGE.replace(
+      "灰烬从指缝里漏下去，井底的风把纸灰卷成一条细线。",
+      "灰烬从指缝里漏下去，井底的风把纸灰卷成一条细线。（正文其它位置被改）",
+    ),
+  });
+  assert.equal(result.ok, false);
+  assert(result.failures.includes("reading_changed"));
+});
+
+test("G2 阅读页作品名/章序不可辨时缺证", () => {
+  const wrongWork = visibleEvidence({
+    readingAfterText: READING_PAGE.replace("灰烬手印验证作品", "另一部作品"),
+  });
+  assert.equal(wrongWork.ok, false);
+  assert(wrongWork.failures.includes("reading_after_work_title_missing"));
+
+  const noOrder = visibleEvidence({
+    target: { ...VISIBLE_TARGET, chapter_title: "灰烬中的手印" },
+  });
+  assert.equal(noOrder.ok, false);
+  assert(noOrder.failures.includes("chapter_label_incomplete"));
+
+  const pageNoOrder = visibleEvidence({
+    readingBeforeText: READING_PAGE.replace("第02章：灰烬中的手印", "灰烬中的手印"),
+    readingAfterText: READING_PAGE.replace("第02章：灰烬中的手印", "灰烬中的手印"),
+  });
+  assert.equal(pageNoOrder.ok, false);
+  assert(pageNoOrder.failures.includes("reading_before_chapter_title_missing"));
+  assert(pageNoOrder.failures.includes("reading_after_chapter_title_missing"));
+});
+
+test("G2 旧失败批次：只有失败状态而没有候选时按缺证拒绝", () => {
+  const result = visibleEvidence({
+    finalText: [
+      "灰烬手印验证作品",
+      "你",
+      VISIBLE_MESSAGE,
+      "AI 助手",
+      "这次候选处理未完成，目标可能已被处理或修订未成功。没有据此采纳或写入作品事实，请核对当前候选后继续。",
+      "(value=失败)",
+      "(value=第 3/3 步)",
+    ].join("\n"),
+  });
+  assert.equal(result.ok, false);
+  assert(result.failures.includes("pending_candidate_missing"));
+});
+
+test("G2 等待状态：可见等待但不自动作答，也不因此签页面", () => {
+  const result = visibleEvidence({
+    finalText: [
+      "灰烬手印验证作品",
+      "你",
+      VISIBLE_MESSAGE,
+      "AI 助手",
+      "我需要你补充要修订的段落。",
+      "(value=等待你回复)",
+    ].join("\n"),
+  });
+  assert.equal(result.ok, false);
+  assert(result.failures.includes("pending_candidate_missing"));
+});
+
+test("G2 缺证：阅读后页缺失或仍在加载时拒绝", () => {
+  const missing = visibleEvidence({ readingAfterText: "" });
+  assert.equal(missing.ok, false);
+  assert(missing.failures.includes("reading_after_missing"));
+
+  const loading = visibleEvidence({ readingAfterText: `${READING_PAGE}\n加载中…` });
+  assert.equal(loading.ok, false);
+  assert(loading.failures.includes("reading_after_loading"));
+});
+
+test("G2 泄露：澄清或候选里出现技术术语/编号形式时拒绝", () => {
+  const result = visibleEvidence({
+    finalText: `${FINAL_PAGE}\n本轮候选由 call_id 关联。`,
+  });
+  assert.equal(result.ok, false);
+  assert(result.failures.includes("author_visible_internal_token_leak"));
+  assert(result.leak.hits.some((hit) => hit.token === "call_id"));
+});
+
+test("G2 同章约束：另一章的局部修订候选不能签", () => {
+  const result = visibleEvidence({
+    finalText: FINAL_PAGE.replace(
+      "第02章：灰烬中的手印（指定段落修订稿）",
+      "第01章：夜潮（指定段落修订稿）",
+    ),
+  });
+  assert.equal(result.ok, false);
+  assert(result.failures.includes("pending_candidate_missing"));
+  assert.equal(result.observed.candidate_same_chapter, false);
+});
+
+test("G2 真实作者消息缺失时不签，且不用整页里的旧候选", () => {
+  const result = visibleEvidence({
+    afterInputText: "灰烬手印验证作品\nAI 助手\n(value=进行中 · 创作)",
+    finalText: FINAL_PAGE.split(`${VISIBLE_MESSAGE}\n`).join(""),
+  });
+  assert.equal(result.ok, false);
+  assert(result.failures.includes("author_message_visible_missing"));
+  assert(result.failures.includes("pending_candidate_missing"));
+  assert.equal(result.observed.pending_candidate, false);
+});
+
+test("G2 旧回合候选不能签本次作者消息之后的空终局", () => {
+  const result = visibleEvidence({
+    finalText: [
+      "第02章：灰烬中的手印（指定段落修订稿）",
+      "这是待保存章节草稿。确认保存后会写入章节正文；未保存前不会进入阅读模式或作品事实。预览：指定段落修订稿",
+      "指定段落修订稿 他把第七枚手印按进灰里。 创作依据：旧回合。",
+      "修订稿候选",
+      "保存修订稿",
+      "你",
+      VISIBLE_MESSAGE,
+      "AI 助手",
+      "(value=失败)",
+    ].join("\n"),
+  });
+  assert.equal(result.ok, false);
+  assert(result.failures.includes("pending_candidate_missing"));
+  assert.equal(result.observed.pending_candidate, false);
 });
