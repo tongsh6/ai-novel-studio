@@ -7,6 +7,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.CreativeRequest
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Projection
 
   alias NovelAgent.TestSupport.AuthoringTaskFixtures
 
@@ -103,6 +104,37 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert session.provider_result.tool_calls |> hd() |> Map.get(:id) == "writer-call-1"
     assert List.last(session.request_ir.messages).role == "assistant"
     assert List.last(session.request_ir.messages).blocks |> Enum.any?(&(&1.type == "tool_call"))
+  end
+
+  test "native tentative 工具把 used_context_refs 声明为可选的观察身份字符串数组" do
+    assert {:ok, ir} = Real.request_ir(@request)
+    assert :ok = RequestIR.validate(ir)
+
+    assert [%{name: "submit_tentative_artifact", input_schema: schema}] =
+             RequestIR.Tools.tool_specs(ir)
+
+    assert {:ok, %{tools: [%{type: "function", function: function}]}} =
+             Projection.project(ir, "chat_completions")
+
+    assert function.name == "submit_tentative_artifact"
+    assert function.parameters == schema
+
+    assert schema["required"] == ["items"]
+    refute "self_report" in schema["required"]
+
+    self_report = schema["properties"]["self_report"]
+    assert self_report["type"] == "object"
+    assert self_report["additionalProperties"] == true
+    assert Map.get(self_report, "required", []) == []
+
+    used_context_refs = self_report["properties"]["used_context_refs"]
+    assert used_context_refs["type"] == "array"
+    assert used_context_refs["items"] == %{"type" => "string"}
+    refute Map.has_key?(used_context_refs, "minItems")
+
+    description = used_context_refs["description"]
+    assert description =~ "content.observation_ref"
+    assert description =~ "已声明来源"
   end
 
   test "并行工具响应整体拒绝并逐项回流后才允许下一次创作" do

@@ -201,7 +201,18 @@ defmodule NovelAgent.CreativeProvider.Real do
             }
           },
           companion_artifacts: %{type: "array", items: %{type: "object"}},
-          self_report: %{type: "object"}
+          self_report: %{
+            type: "object",
+            properties: %{
+              used_context_refs: %{
+                type: "array",
+                items: %{type: "string"},
+                description:
+                  "仅列本次实际使用的材料。成功工具观察使用 content.observation_ref，底座用本次已声明来源。目标定位、版本、调用编号不能作为观察身份；没有使用可省略，引用只留自报字段。"
+              }
+            },
+            additionalProperties: true
+          }
         },
         additionalProperties: false
       }
