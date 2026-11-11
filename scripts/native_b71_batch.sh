@@ -261,6 +261,59 @@ if [[ -e "$DIR" ]]; then
   exit 64
 fi
 
+# B82 冻结输入：仅普通 live 批次可用；启动前只读一次源到 STATE_DIR 快照，
+# 此后封存只链接同一快照，绝不再读源。判据只在 validatePreregistrationFile 中定义。
+preregistration_check() {
+  node "$ROOT/scripts/lib/native_ui/authoring_capture_evidence.mjs" \
+    validate-preregistration "$1" "$DIR"
+}
+
+PREREG_SNAPSHOT=""
+cleanup_prereg_snapshot() {
+  if [[ -n "$PREREG_SNAPSHOT" ]]; then
+    rm -f "$PREREG_SNAPSHOT"
+    PREREG_SNAPSHOT=""
+  fi
+}
+trap cleanup_prereg_snapshot EXIT
+
+seal_live_preregistration() {
+  # 只对启动前快照做 ln；Tauri 要求批次目录启动时不存在，故只能此刻写入。
+  [[ -n "$PREREG_SNAPSHOT" && -f "$PREREG_SNAPSHOT" ]] || return 1
+  preregistration_check "$PREREG_SNAPSHOT" >/dev/null &&
+    ln "$PREREG_SNAPSHOT" "$DIR/preregistration.json" &&
+    preregistration_check "$DIR/preregistration.json"
+}
+
+# 冻结模式沿用既有 strataSlotCheck 判据：mode=real、单一模型（slot.ok）。
+strata_precheck_ok() {
+  if [[ -n "$LIVE_PREREGISTRATION" ]]; then
+    node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.exit(j.slot?.ok===true&&j.state?.mode==="real"&&Array.isArray(j.state?.model_ids)&&j.state.model_ids.length===1?0:1)' "$1"
+  else
+    node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.exit(j.state?.models_ok===true?0:1)' "$1"
+  fi
+}
+
+LIVE_PREREGISTRATION="${B71_LIVE_PREREGISTRATION:-}"
+if [[ -n "$LIVE_PREREGISTRATION" ]]; then
+  if [[ "$LIVE" != "1" || "$B71_PROVIDER" != "strata" || "$SLICE" != "b71-first-consumer" ]]; then
+    echo "B71_LIVE_PREREGISTRATION 只用于 B71_PROVIDER=strata B71_SLICE=b71-first-consumer 的普通 live 批次" >&2
+    exit 64
+  fi
+  if [[ "$BEHAVIOR" == "1" || "$AUTO_MAINTENANCE" == "1" || "$CONFIRMATION" == "1" || "$ANSWER_MODE" == "1" || "$MEMORY_DETAIL" == "1" ]]; then
+    echo "B71_LIVE_PREREGISTRATION 不能与 behavior/auto-maintenance/confirmation/answer-mode/memory-detail 混用" >&2
+    exit 64
+  fi
+  if [[ ! -f "$LIVE_PREREGISTRATION" ]]; then
+    echo "B71_LIVE_PREREGISTRATION 文件不存在: $LIVE_PREREGISTRATION" >&2
+    exit 64
+  fi
+  # 批次目录尚未创建：只读这一次源，校验失败不消耗目录。
+  PREREG_SNAPSHOT="$(mktemp "$STATE_DIR/prereg-$TAG.XXXXXX")" || exit 1
+  cat "$LIVE_PREREGISTRATION" >"$PREREG_SNAPSHOT" || exit 1
+  preregistration_check "$PREREG_SNAPSHOT" >/dev/null || exit 1
+fi
+
 export TAURI_NATIVE_SYSTEM_DRIVER=1
 export TAURI_NATIVE_TRANSPORT_PROXY=1
 export TAURI_NATIVE_ARTIFACT_TAG="$TAG"
@@ -270,8 +323,12 @@ if [[ "$LIVE" == "1" ]]; then
   export SLICE_VERIFY_PROVIDER=strata
   export TAURI_NATIVE_ARTIFACT_DIR="$DIR"
   node "$ROOT/scripts/native_b71_strata_state.mjs" >"$STRATA_BEFORE" 2>/dev/null || true
-  if ! node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.exit(j.state?.models_ok===true?0:1)' "$STRATA_BEFORE"; then
-    echo "Strata 单槽不可达（GET /v1/models 失败）: $STRATA_BEFORE" >&2
+  if ! strata_precheck_ok "$STRATA_BEFORE"; then
+    if [[ -n "$LIVE_PREREGISTRATION" ]]; then
+      echo "Strata 单槽预检失败（要求 mode=real、单一模型、slot.ok）: $STRATA_BEFORE" >&2
+    else
+      echo "Strata 单槽不可达（GET /v1/models 失败）: $STRATA_BEFORE" >&2
+    fi
     exit 1
   fi
 fi
@@ -354,6 +411,15 @@ for _ in $(seq 1 180); do
 done
 if [[ "$READY" != "1" ]]; then
   echo "native driver ready timeout: $RUNNER_LOG" >&2
+  exit 1
+fi
+
+# runner 已建好本批目录、尚未启动 App 窗口：用启动前同一快照 ln 封存，driver 的
+# prepare 只消费该副本；封存/校验失败不启动 App。
+if [[ -n "$LIVE_PREREGISTRATION" ]] && ! seal_live_preregistration; then
+  echo "预注册封存或校验失败，未启动 App: $DIR" >&2
+  kill "$RUNNER" 2>/dev/null || true
+  wait "$RUNNER" 2>/dev/null || true
   exit 1
 fi
 

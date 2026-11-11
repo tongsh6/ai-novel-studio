@@ -6,15 +6,19 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import {
+  ROOT,
   all,
   productionFingerprint,
   productionTableCounts,
   read,
   seedFields,
+  sha256,
   withDb,
   write,
 } from "./scenario_evidence.mjs";
+import { DEFAULT_STRATA_MODEL } from "./strata_lifecycle.mjs";
 import { CANON_TABLES, buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
 import {
   PENDING_FOLLOWUP_MESSAGE,
@@ -103,8 +107,99 @@ const AUTO_MAINTENANCE_REQUESTS = Object.freeze([
   "最后再核对一遍第02章的正文，确保没有遗漏。",
 ]);
 
+// B82：实模批次冻结输入沿用 B71 已有预注册 JSON 形状（id/model/scenarios），
+// 只校验本批实际发送所需的字段，不解释预算或判据。
+const PREREGISTRATION_FILE = "preregistration.json";
+
+export function validatePreregistrationFile(file, { dir, model = DEFAULT_STRATA_MODEL } = {}) {
+  assert(typeof dir === "string" && dir !== "", "预注册校验缺少批次目录");
+  assert(typeof model === "string" && model !== "", "预注册校验缺少冻结模型");
+  let value;
+  let text;
+  try {
+    // 一次读取：parse 与 sha256 都只针对这份 UTF-8 原文，避免读两次读到不同字节。
+    text = fs.readFileSync(file, "utf8");
+    value = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`预注册不是合法 JSON: ${error.message}`);
+  }
+  assert(
+    value !== null && typeof value === "object" && !Array.isArray(value),
+    "预注册必须是 JSON 对象",
+  );
+  assert(
+    typeof value.id === "string" && value.id.trim() !== "",
+    "预注册 id 不能为空",
+  );
+  assert(
+    value.model !== null && typeof value.model === "object" && !Array.isArray(value.model),
+    "预注册缺少 model",
+  );
+  assert.equal(
+    value.model.provider,
+    "strata",
+    `预注册 provider 必须与当前 route 一致（strata），实测: ${value.model.provider}`,
+  );
+  assert.equal(
+    value.model.model,
+    model,
+    `预注册模型必须与冻结模型一致（${model}），实测: ${value.model.model}`,
+  );
+  assert(
+    Array.isArray(value.scenarios) && value.scenarios.length === 1,
+    "预注册 scenarios 必须恰好一项",
+  );
+  const scenario = value.scenarios[0];
+  assert(
+    scenario !== null && typeof scenario === "object" && !Array.isArray(scenario),
+    "预注册 scenarios[0] 必须是对象",
+  );
+  // 作者原话按冻结字节发送：只拒绝空输入，不做 trim/替换。
+  assert(
+    typeof scenario.message === "string" && scenario.message.trim() !== "",
+    "预注册 scenarios[0].message 不能为空",
+  );
+  assert(
+    scenario.evidence !== null &&
+      typeof scenario.evidence === "object" &&
+      typeof scenario.evidence.dir === "string" &&
+      scenario.evidence.dir !== "",
+    "预注册 scenarios[0].evidence.dir 不能为空",
+  );
+  assert.equal(
+    path.resolve(ROOT, scenario.evidence.dir),
+    path.resolve(dir),
+    `预注册 evidence.dir 必须等于实际批次目录: ${scenario.evidence.dir} != ${dir}`,
+  );
+  return { id: value.id, sha256: sha256(text), message: scenario.message, model: value.model.model };
+}
+
+// 有标记或普通 live 批次内有预注册文件时，配置必须与冻结副本一致。
+function checkPreregistration(dir, config) {
+  const marker = config.preregistration ?? null;
+  const file = path.join(dir, PREREGISTRATION_FILE);
+  if (!marker && !(config.journey === "live" && fs.existsSync(file))) return;
+  assert(marker, "预注册文件存在但配置缺少 preregistration 标记");
+  assert(
+    typeof marker === "object" && !Array.isArray(marker),
+    "native-b71-config.preregistration 必须是对象",
+  );
+  assert(fs.existsSync(file), `预注册文件缺失: ${PREREGISTRATION_FILE}`);
+  // 历史事实按配置里冻结的模型复核；当前 env/B71_STRATA_MODEL 只在 prepare 建批时生效。
+  assert(
+    typeof marker.model === "string" && marker.model !== "",
+    "native-b71-config.preregistration 缺少冻结模型",
+  );
+  const record = validatePreregistrationFile(file, { dir, model: marker.model });
+  assert.equal(marker.id, record.id, "预注册 id 与配置不一致");
+  assert.equal(marker.sha256, record.sha256, "预注册文件已被篡改");
+  assert.equal(config.message, record.message, "配置作者输入与预注册不一致");
+}
+
 export function readConfig(dir) {
-  return read(dir, "native-b71-config.json");
+  const config = read(dir, "native-b71-config.json");
+  checkPreregistration(dir, config);
+  return config;
 }
 
 function readyFor(dir) {
@@ -188,6 +283,15 @@ export function prepare(dir) {
   const autoMaintenance = ready.journey === "auto-maintenance";
   const memoryDetail = ready.journey === "memory-detail";
   const answerMode = ready.journey === "answer-mode";
+  // B82 冻结输入：只能由普通 live 批次消费批次目录内的同一副本。
+  const preregistrationFile = path.join(dir, PREREGISTRATION_FILE);
+  const hasPreregistration = fs.existsSync(preregistrationFile);
+  if (hasPreregistration) {
+    assert(ready.journey === "live", "预注册文件只属于普通 live 批次");
+  }
+  const preregistration = hasPreregistration
+    ? validatePreregistrationFile(preregistrationFile, { dir })
+    : null;
   const target = targetFor(dir, { includeSession: pending || live || confirmation || autoMaintenance });
   const nonce = pending ? randomBytes(8).toString("hex") : null;
   // 作者行为覆盖：输入必须是 B70 冻结 case 的 expression 原文（禁止现场造输入）。
@@ -207,6 +311,15 @@ export function prepare(dir) {
     journey: ready.journey,
     provider: ready.provider,
     target,
+    ...(preregistration
+      ? {
+          preregistration: {
+            id: preregistration.id,
+            sha256: preregistration.sha256,
+            model: preregistration.model,
+          },
+        }
+      : {}),
     ...(behaviorCase
       ? {
           behavior: {
@@ -226,7 +339,9 @@ export function prepare(dir) {
     ...(autoMaintenance
       ? { auto_maintenance: { requests: AUTO_MAINTENANCE_REQUESTS } }
       : {}),
-    message: pending
+    message: preregistration
+      ? preregistration.message
+      : pending
       ? pendingSourceMessage(nonce)
       : ready.journey === "revision"
         ? ""
@@ -343,4 +458,21 @@ export function capture(dir, checkpoint) {
   return writeRunCheckpoint(dir, checkpoint, canon, {
     includeChapterFacts: !(live || confirmation || autoMaintenance),
   });
+}
+
+// 批次 runner 在启动 App 前用同一函数校验冻结副本；直接运行本文件只暴露该校验，
+// 不新增脚本或协议版本。
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const [command, file, dir] = process.argv.slice(2);
+  if (command !== "validate-preregistration" || !file || !dir) {
+    console.error("usage: node authoring_capture_evidence.mjs validate-preregistration <file> <batch-dir>");
+    process.exit(64);
+  }
+  try {
+    const record = validatePreregistrationFile(file, { dir });
+    console.log(`preregistration=${record.id} sha256=${record.sha256}`);
+  } catch (error) {
+    console.error(`[b71-preregistration] ${error.message}`);
+    process.exit(1);
+  }
 }

@@ -1,6 +1,7 @@
 // B71 采集边界：before-revision 只在修订 journey、source 完成且动作前登记一次，
 // 并与其他 run checkpoint 一样保留真实只读 DB canon 快照。
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,10 +9,17 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { capture, prepare, readConfig } from "./authoring_capture_evidence.mjs";
 import { pendingSourceMessage } from "./authoring_pending_evidence.mjs";
+import { shaFile } from "./scenario_evidence.mjs";
 
 const WORK = "22222222-2222-4222-8222-222222222222";
+const SESSION = "88888888-8888-4888-8888-888888888888";
 const CHAPTER = "77777777-7777-4777-8777-777777777777";
 const AT = "2026-11-02T06:14:42.000000Z";
+const DEFAULT_LIVE_MESSAGE =
+  "先看看第01章现在的设定和正文，再按现有设定写一段更紧张的开场：主角在雨夜收到一封没有署名的信，生成待采纳的候选，先不要保存。";
+const G2_MESSAGE =
+  "请先读第02章《灰烬中的手印》已经保存的正文，前后都核对一下，再把发现的重复写法改成一段候选给我看，先不要保存。";
+const LIVE_MODEL = process.env.B71_STRATA_MODEL || "iq3_s";
 
 function writeJson(dir, name, value) {
   fs.writeFileSync(path.join(dir, name), JSON.stringify(value, null, 2));
@@ -70,6 +78,29 @@ function ready(dir, sliceId = "b71-authoring-revision") {
 
 function seed(dir, workId = WORK) {
   fs.writeFileSync(path.join(dir, "seed.log"), `run_ref=run-1 work_id=${workId}\n`);
+}
+
+function liveReady(dir) {
+  writeJson(dir, "native-driver-ready.json", { slice_id: "b71-first-consumer", provider: "strata" });
+}
+
+function seedLive(dir) {
+  fs.writeFileSync(
+    path.join(dir, "seed.log"),
+    `run_ref=run-1 work_id=${WORK} session_id=${SESSION}\n`,
+  );
+}
+
+function preregistration(
+  dir,
+  { message = G2_MESSAGE, model = LIVE_MODEL, evidenceDir = dir, extraScenario = false } = {},
+) {
+  const scenario = { id: "b82-g2", message, evidence: { dir: evidenceDir } };
+  writeJson(dir, "preregistration.json", {
+    id: "b82-g2-live-test",
+    model: { provider: "strata", model },
+    scenarios: extraScenario ? [scenario, { ...scenario, id: "b82-g2-extra" }] : [scenario],
+  });
 }
 
 test("before-revision 为修订批次登记一次独立 checkpoint，含真实 canon 章设计态见证", () => {
@@ -215,5 +246,136 @@ test("prepare 在目标作品缺失、重名或 ready slice 未知时失败且�
     assert.equal(fs.existsSync(path.join(unknown, "production-sources-before.json")), false);
   } finally {
     fs.rmSync(unknown, { recursive: true, force: true });
+  }
+});
+
+test("普通 live 批次按冻结预注册副本取作者输入并保留 id/hash", () => {
+  const dir = prepareBatch("live");
+  try {
+    liveReady(dir);
+    seedLive(dir);
+    preregistration(dir);
+    prepare(dir);
+    const config = readConfig(dir);
+    assert.equal(config.journey, "live");
+    assert.equal(config.message, G2_MESSAGE);
+    assert.equal(config.target.session_id, SESSION);
+    assert.deepEqual(config.preregistration, {
+      id: "b82-g2-live-test",
+      sha256: shaFile(path.join(dir, "preregistration.json")),
+      model: LIVE_MODEL,
+    });
+    assert.equal(readConfig(dir).message, G2_MESSAGE);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readConfig 按配置冻结模型复核，不按当前 env 推定", () => {
+  const dir = prepareBatch("live");
+  try {
+    liveReady(dir);
+    seedLive(dir);
+    preregistration(dir);
+    prepare(dir);
+    const moduleUrl = new URL("./authoring_capture_evidence.mjs", import.meta.url).href;
+    const script =
+      `import { readConfig } from ${JSON.stringify(moduleUrl)};` +
+      "process.stdout.write(readConfig(process.argv[1]).message);";
+    const run = spawnSync(process.execPath, ["--input-type=module", "-e", script, dir], {
+      encoding: "utf8",
+      env: { ...process.env, B71_STRATA_MODEL: "env-changed-after-freeze" },
+    });
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(run.stdout, G2_MESSAGE);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("无预注册的普通 live 批次保持历史默认输入且不写标记", () => {
+  const dir = prepareBatch("live");
+  try {
+    liveReady(dir);
+    seedLive(dir);
+    prepare(dir);
+    const config = readConfig(dir);
+    assert.equal(config.journey, "live");
+    assert.equal(config.message, DEFAULT_LIVE_MESSAGE);
+    assert.equal(Object.hasOwn(config, "preregistration"), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("预注册作者输入为空、模型/目录不符时 prepare 失败且不落配置", () => {
+  const cases = [
+    [{ message: "" }, /message 不能为空/],
+    [{ message: "   " }, /message 不能为空/],
+    [{ model: `not-${LIVE_MODEL}` }, /预注册模型/],
+    [{ evidenceDir: path.join(os.tmpdir(), "b82-other-batch") }, /evidence\.dir/],
+    [{ extraScenario: true }, /恰好一项/],
+  ];
+  for (const [options, pattern] of cases) {
+    const dir = prepareBatch("live");
+    try {
+      liveReady(dir);
+      seedLive(dir);
+      preregistration(dir, options);
+      assert.throws(() => prepare(dir), pattern);
+      assert.equal(fs.existsSync(path.join(dir, "native-b71-config.json")), false);
+      assert.equal(fs.existsSync(path.join(dir, "production-sources-before.json")), false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("预注册文件只属于普通 live 批次", () => {
+  const dir = prepareBatch("revision");
+  try {
+    ready(dir);
+    seed(dir);
+    preregistration(dir);
+    assert.throws(() => prepare(dir), /只属于普通 live 批次/);
+    assert.equal(fs.existsSync(path.join(dir, "native-b71-config.json")), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readConfig 在预注册被删改或标记缺失时失败", () => {
+  const dir = prepareBatch("live");
+  try {
+    liveReady(dir);
+    seedLive(dir);
+    preregistration(dir);
+    prepare(dir);
+    const preregPath = path.join(dir, "preregistration.json");
+    const configPath = path.join(dir, "native-b71-config.json");
+    const original = fs.readFileSync(preregPath);
+    const originalConfig = fs.readFileSync(configPath);
+
+    fs.writeFileSync(preregPath, original.toString("utf8").replace(G2_MESSAGE, "改成另一段输入"));
+    assert.throws(() => readConfig(dir), /预注册文件已被篡改/);
+
+    fs.writeFileSync(preregPath, original);
+    const tampered = JSON.parse(originalConfig);
+    tampered.message = "改写的发送输入";
+    fs.writeFileSync(configPath, JSON.stringify(tampered, null, 2));
+    assert.throws(() => readConfig(dir), /作者输入与预注册不一致/);
+
+    tampered.preregistration.id = "b82-other";
+    fs.writeFileSync(configPath, JSON.stringify({ ...tampered, message: G2_MESSAGE }, null, 2));
+    assert.throws(() => readConfig(dir), /预注册 id 与配置不一致/);
+
+    fs.writeFileSync(configPath, JSON.stringify({ ...tampered, preregistration: undefined }, null, 2));
+    assert.throws(() => readConfig(dir), /缺少 preregistration 标记/);
+
+    fs.writeFileSync(configPath, originalConfig);
+    fs.rmSync(preregPath);
+    assert.throws(() => readConfig(dir), /预注册文件缺失/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

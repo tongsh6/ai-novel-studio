@@ -2,7 +2,7 @@
 // 采集 AX/WS/llm-calls/DB 证据与 Strata 单槽生命周期；不轮询固定回复文本、不假设
 // 工具调用次数、不修改产品 prompt。判据与本文件分离（authoring_live_evidence）。
 import path from "node:path";
-import { readJson } from "./lib/native_ui/driver.mjs";
+import { readConfig } from "./lib/native_ui/authoring_capture_evidence.mjs";
 import {
   NativeScenarioHarness,
   ROOT,
@@ -182,7 +182,7 @@ async function observeWhy() {
 
 async function run() {
   runEvidenceMode(evidence, "prepare", dir);
-  const config = readJson(path.join(dir, "native-b71-config.json"));
+  const config = readConfig(dir);
   if (config.journey !== "live") throw new Error(`live driver 只接受 journey=live，实测: ${config.journey}`);
   if (config.provider !== "strata") throw new Error(`live driver 只接受 provider=strata，实测: ${config.provider}`);
 
