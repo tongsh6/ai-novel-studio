@@ -38,6 +38,35 @@ defmodule NovelPersistence.B36LocalizedRevisionTest do
     assert length(segs) >= 4
   end
 
+  test "跨 4000 字节汉字/合成字/emoji：grapheme 完整、JSON round-trip、行边界优先" do
+    text = String.duplicate("灰", 1_333) <> "𠀀😀" <> String.duplicate("灰", 400)
+    segs = LocalizedRevision.segment(text)
+
+    assert Enum.map_join(segs, & &1.raw) == text
+    assert Enum.all?(segs, &String.valid?(&1.raw))
+    assert Enum.all?(segs, &(byte_size(&1.raw) <= 4_000))
+    assert Enum.flat_map(segs, &String.graphemes(&1.raw)) == String.graphemes(text)
+
+    for seg <- segs do
+      assert Jason.decode!(Jason.encode!(%{"text" => seg.raw})) == %{"text" => seg.raw}
+    end
+
+    # 行边界优先：同一超长段的两行各 3001 字节，按整行切而非按 4000 字节硬切。
+    lines = String.duplicate("灰", 1_000) <> "\n" <> String.duplicate("灰", 1_000) <> "\n"
+    assert Enum.map(LocalizedRevision.segment(lines), &byte_size(&1.raw)) == [3_001, 3_001]
+  end
+
+  test "单个超过 4000 字节的 grapheme 保持完整、不拆字节" do
+    giant = "a" <> String.duplicate("\u0301", 2_000)
+    assert String.graphemes(giant) == [giant]
+    assert byte_size(giant) > 4_000
+
+    segs = LocalizedRevision.segment(giant <> "\n\n尾段")
+    assert hd(segs).raw == giant
+    assert Enum.map_join(segs, & &1.raw) == giant <> "\n\n尾段"
+    assert Enum.all?(segs, &String.valid?(&1.raw))
+  end
+
   test "diff：target 段内变化接受；集合外变化 out_of_scope；空/截断 incomplete；版本 stale" do
     segs = LocalizedRevision.segment(@base)
     first = List.first(segs).segment_id

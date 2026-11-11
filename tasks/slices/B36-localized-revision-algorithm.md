@@ -84,3 +84,9 @@ target_segments 修订 writer 只产目标段 replacement（不要求整章）�
 - canonical-3e final：content_revision 维护拍 **PASS**（attempts 1）：第03/04章（按 renumber 后映射）`scope=target_segments`、segment_changes；DB 25 段仅 segment0 变化、其余 24 段 sha 逐字节相同；首段 46→184 chars；字数 1344→1470 不塌缩；receipt 完整；无未确认写入。
 - CP3 scoped replay（`a014029b`）：第一段实际变化/其余 21 段逐字节/1002→1057；CP4 由 P1 canonical-3e 覆盖（10 章+维护 5/5+wrong-route 0）。
 - 残余（如实）：target 段替换文本含空行（多段）仍会被分段数校验拒绝 → 未来 CP2b/结构化 ops 扩展；本 CP 单段替换最小闭环已满足 P1。
+
+## 8. B82 所需的长段边界（2026-11-11）
+
+以 1,700 个连续汉字复现了固定字节切分产生两个非法 UTF-8 片段。原文仍可拼回，writer 的目标段 JSON 却无法编码。现优先按行切分，超长行按完整 grapheme 打包。通常上限为 4,000 字节，单个更长的 grapheme 独占一段。分段仍按原字节派生 ID、区间与 hash，CRLF 可逐字节重组。
+
+结构化采纳依据 Ecto 事务已经验证的草稿版本、目标段 ID 和 hash，将替换片段与原分隔符组合。回执直接按这一组新旧片段计算，整稿候选继续使用既有全文分段校验。真实事务用例先复现第一段缩短 6 字节后 `out_of_scope_changes`，再验证替换成功、原后缀逐字节保留且回执只记录一个目标。空替换、数量不符、单目标新增自然段及 hash 错误仍走拒绝或回滚。后续真实观察选段与 writer 使用证据见 [B82](B82-b71-golden-slice-evidence.md)。

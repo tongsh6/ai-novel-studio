@@ -6,7 +6,8 @@ defmodule NovelPersistence.LocalizedRevision do
   - 分段覆盖全文、无重叠，`Enum.map_join(segments, & &1.raw) == text`；
   - segment_id = `seg_<index>_<sha256(raw)[0..11]>`（index 0 基，重复正文也唯一）；
   - 空行分隔段落；CRLF/CR/LF 原样保留在 segment.raw（分隔空行归入前一段）；
-  - 超长段按行边界再切，仍保证重建==原文；
+  - 超长段按行边界再切；单行超长按完整 grapheme 打包（常规段 <= 4000 字节，
+    单个本身过大的 grapheme 独占一段），每段均为合法 UTF-8，仍保证重建==原文；
   - diff 校验只在目标 segment 集合内允许变化；集合外逐字节相同，否则
     `out_of_scope_changes`；空/截断/无法证明范围 -> `incomplete_scope`；
     版本不符 -> `stale_base_version`。
@@ -80,46 +81,19 @@ defmodule NovelPersistence.LocalizedRevision do
   def validate(base_text, candidate_text, opts)
       when is_binary(base_text) and is_binary(candidate_text) do
     scope = to_string(Keyword.get(opts, :scope) || "target_segments")
+    target_ids = normalize_target_ids(Keyword.get(opts, :target_segment_ids))
 
     with :ok <- validate_version(opts),
          base when base != [] <- segment(base_text),
          candidate when candidate != [] <- segment(candidate_text),
          :ok <- validate_segment_count(base, candidate),
-         :ok <-
-           validate_scope(
-             base,
-             candidate,
-             scope,
-             normalize_target_ids(Keyword.get(opts, :target_segment_ids))
-           ) do
-      changes =
+         :ok <- validate_scope(base, candidate, scope, target_ids) do
+      pairs =
         base
         |> Enum.zip(candidate)
-        |> Enum.reject(fn {old, new} -> old.raw == new.raw end)
+        |> Enum.map(fn {old, new} -> {old, new.raw} end)
 
-      {:ok,
-       %{
-         old_chars: String.length(base_text),
-         new_chars: String.length(candidate_text),
-         target_segment_ids: normalize_target_ids(Keyword.get(opts, :target_segment_ids)),
-         segment_changes:
-           Enum.map(changes, fn {old, new} ->
-             %{
-               segment_id: old.segment_id,
-               old_sha: old.sha256,
-               new_sha: new.sha256,
-               kind: change_kind(old.raw, new.raw)
-             }
-           end),
-         diff_stats: %{
-           segment_count: length(base),
-           changed_segment_count: length(changes),
-           changed_old_chars:
-             changes |> Enum.map(fn {o, _n} -> byte_size(o.raw) end) |> Enum.sum(),
-           changed_new_chars:
-             changes |> Enum.map(fn {_o, n} -> byte_size(n.raw) end) |> Enum.sum()
-         }
-       }}
+      {:ok, diff_info(base_text, candidate_text, length(base), pairs, target_ids)}
     else
       [] -> {:error, :incomplete_scope}
       {:error, reason} -> {:error, reason}
@@ -128,6 +102,78 @@ defmodule NovelPersistence.LocalizedRevision do
   end
 
   def validate(_base, _candidate, _opts), do: {:error, :incomplete_scope}
+
+  @doc """
+  结构化段替换：按真实 base_segments 绑定目标 id 与新片段。
+
+  调用前由既有事务绑定并校验 version / hash / id / 数量；本函数不再重复校验或归一化。
+  每个目标段替换为“新片段 + 原尾分隔符”，其余段逐字节原样；diff 信息直接由绑定的
+  旧/新片段派生，不再对候选全文重切（避免定长虚拟段窗口前移造成越界误判）。
+  空/只空白片段 -> `incomplete_scope`；单片新增空行段落 -> `out_of_scope_changes`。
+  """
+  @spec replace_segments([segment()], [String.t()], [binary()]) ::
+          {:ok, binary(), map()} | {:error, :incomplete_scope | :out_of_scope_changes}
+  def replace_segments(base_segments, target_ids, pieces) do
+    with :ok <- validate_pieces(pieces),
+         :ok <- validate_piece_paragraphs(pieces) do
+      by_id = Map.new(Enum.zip(target_ids, pieces))
+      pairs = Enum.map(base_segments, &pair_for_segment(&1, by_id))
+
+      old_text = Enum.map_join(pairs, fn {old, _new_raw} -> old.raw end)
+      new_text = Enum.map_join(pairs, fn {_old, new_raw} -> new_raw end)
+
+      {:ok, new_text, diff_info(old_text, new_text, length(base_segments), pairs, target_ids)}
+    end
+  end
+
+  defp pair_for_segment(seg, by_id) do
+    case Map.fetch(by_id, seg.segment_id) do
+      {:ok, piece} ->
+        {_content, separator} = split_segment_raw(seg.raw)
+        {seg, piece <> separator}
+
+      :error ->
+        {seg, seg.raw}
+    end
+  end
+
+  defp validate_pieces(pieces) do
+    if Enum.any?(pieces, &(String.trim(&1) == "")),
+      do: {:error, :incomplete_scope},
+      else: :ok
+  end
+
+  # 段落边界只看 pieces 本身；拼回原 separator 后的形态不参与判定。
+  defp validate_piece_paragraphs(pieces) do
+    if Enum.any?(pieces, &(length(paragraph_chunks(&1)) > 1)),
+      do: {:error, :out_of_scope_changes},
+      else: :ok
+  end
+
+  defp diff_info(old_text, new_text, segment_count, pairs, target_ids) do
+    changes = Enum.reject(pairs, fn {old, new_raw} -> old.raw == new_raw end)
+
+    %{
+      old_chars: String.length(old_text),
+      new_chars: String.length(new_text),
+      target_segment_ids: target_ids,
+      segment_changes:
+        Enum.map(changes, fn {old, new_raw} ->
+          %{
+            segment_id: old.segment_id,
+            old_sha: old.sha256,
+            new_sha: sha256(new_raw),
+            kind: change_kind(old.raw, new_raw)
+          }
+        end),
+      diff_stats: %{
+        segment_count: segment_count,
+        changed_segment_count: length(changes),
+        changed_old_chars: changes |> Enum.map(fn {o, _n} -> byte_size(o.raw) end) |> Enum.sum(),
+        changed_new_chars: changes |> Enum.map(fn {_o, n} -> byte_size(n) end) |> Enum.sum()
+      }
+    }
+  end
 
   defp validate_version(opts) do
     expected = Keyword.get(opts, :base_version)
@@ -237,16 +283,24 @@ defmodule NovelPersistence.LocalizedRevision do
 
   defp split_piece(piece) when byte_size(piece) <= @max_segment_bytes, do: [piece]
 
-  defp split_piece(piece) do
-    size = byte_size(piece)
+  # 单行超长：按完整 grapheme 装到 <= max；单个 grapheme 本身超长则独占一段。
+  defp split_piece(piece), do: grapheme_chunks(piece, 0, 0, [], byte_size(piece))
 
-    0
-    |> Stream.iterate(&(&1 + @max_segment_bytes))
-    |> Stream.take_while(&(&1 < size))
-    |> Enum.map(fn offset ->
-      binary_part(piece, offset, min(@max_segment_bytes, size - offset))
-    end)
-    |> then(fn chunks -> chunks end)
+  defp grapheme_chunks(piece, start, size, acc, rest) when rest <= 0 do
+    chunks = if size == 0, do: acc, else: [binary_part(piece, start, size) | acc]
+    Enum.reverse(chunks)
+  end
+
+  defp grapheme_chunks(piece, start, size, acc, rest) do
+    {grapheme, _rest} = String.next_grapheme(binary_part(piece, start + size, rest))
+    grapheme_size = byte_size(grapheme)
+
+    if size > 0 and size + grapheme_size > @max_segment_bytes do
+      chunk = binary_part(piece, start, size)
+      grapheme_chunks(piece, start + size, grapheme_size, [chunk | acc], rest - grapheme_size)
+    else
+      grapheme_chunks(piece, start, size + grapheme_size, acc, rest - grapheme_size)
+    end
   end
 
   defp segment_id(index, raw), do: "seg_#{index}_#{binary_part(sha256(raw), 0, 12)}"

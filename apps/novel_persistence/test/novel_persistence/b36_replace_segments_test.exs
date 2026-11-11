@@ -38,8 +38,11 @@ defmodule NovelPersistence.B36ReplaceSegmentsTest do
     LocalizedRevision.segment(@base) |> hd()
   end
 
+  defp sha256(raw), do: :crypto.hash(:sha256, raw) |> Base.encode16(case: :lower)
+
   defp persist(ctx, content, overrides \\ %{}) do
-    seg = first_segment(ctx)
+    base = Map.get(overrides, :base, @base)
+    seg = LocalizedRevision.segment(base) |> hd()
 
     effect =
       Map.merge(
@@ -100,6 +103,117 @@ defmodule NovelPersistence.B36ReplaceSegmentsTest do
     assert new_draft.revision > 5
     assert Repo.get!(Draft, ctx.draft.id).status == AdoptionStatus.superseded()
     assert Repo.aggregate(Chapter, :count) == 1
+  end
+
+  test "较长首虚拟段替换：非目标定长后缀字节原样、receipt 仅单目标", ctx do
+    long_base = String.duplicate("灰", 1_333) <> String.duplicate("雨", 367)
+    Repo.update!(Ecto.Changeset.change(ctx.draft, content: long_base))
+
+    assert [first, second] = LocalizedRevision.segment(long_base)
+    assert byte_size(first.raw) == 3_999
+    assert second.raw == String.duplicate("雨", 367)
+
+    # 首段缩短 6 字节：旧重切会把 4000 字节窗口整体前移，误判后缀越界。
+    replacement = String.duplicate("灰", 1_331)
+
+    assert {:ok, persisted} = persist(ctx, replacement, %{base: long_base})
+
+    new_draft = Repo.get!(Draft, persisted.reading_projection.draft_id)
+    assert new_draft.status == AdoptionStatus.accepted()
+    assert new_draft.content == replacement <> second.raw
+
+    assert binary_part(new_draft.content, byte_size(replacement), byte_size(second.raw)) ==
+             second.raw
+
+    assert persisted.reading_projection.target_segment_ids == [first.segment_id]
+    assert [change] = persisted.reading_projection.segment_changes
+    assert change.segment_id == first.segment_id
+    assert change.old_sha == first.sha256
+    assert change.new_sha == sha256(replacement)
+    assert persisted.reading_projection.diff_stats.segment_count == 2
+    assert persisted.reading_projection.diff_stats.changed_segment_count == 1
+    assert persisted.reading_projection.old_chars == String.length(long_base)
+    assert persisted.reading_projection.new_chars == String.length(new_draft.content)
+    assert Repo.get!(Draft, ctx.draft.id).status == AdoptionStatus.superseded()
+  end
+
+  test "多目标替换：逐段绑定、非目标原字节保留、receipt 两目标", ctx do
+    segments = LocalizedRevision.segment(@base)
+    first = Enum.at(segments, 0)
+    third = Enum.at(segments, 2)
+    new_first = "第一段：灯影改甲。"
+    new_third = "第三段：名册改丙。"
+
+    effect = %{
+      "mode" => "replace_segments",
+      "target_segment_ids" => [first.segment_id, third.segment_id],
+      "expected_segment_hashes" => [
+        %{"segment_id" => first.segment_id, "sha256" => first.sha256},
+        %{"segment_id" => third.segment_id, "sha256" => third.sha256}
+      ]
+    }
+
+    assert {:ok, persisted} =
+             persist(ctx, new_first <> "\n\n" <> new_third, %{effect: effect})
+
+    expected =
+      new_first <>
+        "\n\n" <> Enum.at(@paras, 1) <> "\n\n" <> new_third <> "\n\n" <> Enum.at(@paras, 3)
+
+    new_draft = Repo.get!(Draft, persisted.reading_projection.draft_id)
+    assert new_draft.content == expected
+
+    assert persisted.reading_projection.target_segment_ids == [first.segment_id, third.segment_id]
+
+    assert Enum.map(persisted.reading_projection.segment_changes, & &1.segment_id) ==
+             [first.segment_id, third.segment_id]
+
+    assert Enum.map(persisted.reading_projection.segment_changes, & &1.old_sha) ==
+             [first.sha256, third.sha256]
+
+    assert persisted.reading_projection.diff_stats.segment_count == 4
+    assert persisted.reading_projection.diff_stats.changed_segment_count == 2
+  end
+
+  test "多目标片数不符 / 单目标新增空行：拒绝零写入", ctx do
+    [first, _second, third, _fourth] = LocalizedRevision.segment(@base)
+
+    ids = [first.segment_id, third.segment_id]
+
+    hashes = [
+      %{"segment_id" => first.segment_id, "sha256" => first.sha256},
+      %{"segment_id" => third.segment_id, "sha256" => third.sha256}
+    ]
+
+    before =
+      Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision}) |> Enum.sort()
+
+    # 两目标只给一片
+    assert {:error, :incomplete_scope} =
+             persist(ctx, "只有一段", %{
+               effect: %{"target_segment_ids" => ids, "expected_segment_hashes" => hashes}
+             })
+
+    # 两目标给三片
+    assert {:error, :incomplete_scope} =
+             persist(ctx, "甲\n\n乙\n\n丙", %{
+               effect: %{"target_segment_ids" => ids, "expected_segment_hashes" => hashes}
+             })
+
+    # 单目标 replacement 内新增空行分段：沿用整稿段落数契约拒绝
+    assert {:error, :out_of_scope_changes} =
+             persist(ctx, "替换首段\n\n新增段", %{
+               effect: %{
+                 "target_segment_ids" => [first.segment_id],
+                 "expected_segment_hashes" => [
+                   %{"segment_id" => first.segment_id, "sha256" => first.sha256}
+                 ]
+               }
+             })
+
+    assert Repo.all(Draft)
+           |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision})
+           |> Enum.sort() == before
   end
 
   test "hash/version/空 replacement/缺段：全部拒绝零写入", ctx do

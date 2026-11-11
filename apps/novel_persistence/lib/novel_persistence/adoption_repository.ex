@@ -691,7 +691,7 @@ defmodule NovelPersistence.AdoptionRepository do
          :ok <- validate_expected_segment_hashes(attrs, effect, base_segments, target_ids),
          {:ok, pieces} <- replacement_pieces(content, target_ids),
          {:ok, new_text, info} <-
-           replace_in_base(base_segments, target_ids, pieces, base_text),
+           LocalizedRevision.replace_segments(base_segments, target_ids, pieces),
          :ok <- mark_chapter_drafted(repo, chapter),
          :ok <- supersede_covered_scenes(repo, work_id, covered),
          {:ok, draft} <- insert_segment_revision(repo, covered, new_text) do
@@ -812,30 +812,6 @@ defmodule NovelPersistence.AdoptionRepository do
     covered_ids = covered |> Enum.map(& &1.id) |> MapSet.new()
 
     if all == covered_ids, do: :ok, else: {:error, :incomplete_scope}
-  end
-
-  defp replace_in_base(base_segments, target_ids, pieces, base_text) do
-    target = MapSet.new(target_ids)
-    by_id = Map.new(Enum.zip(target_ids, pieces))
-
-    new_text =
-      Enum.map_join(base_segments, fn seg ->
-        if MapSet.member?(target, seg.segment_id) do
-          {_old_content, separator} = LocalizedRevision.split_segment_raw(seg.raw)
-          Map.fetch!(by_id, seg.segment_id) <> separator
-        else
-          seg.raw
-        end
-      end)
-
-    LocalizedRevision.validate(base_text, new_text,
-      scope: "target_segments",
-      target_segment_ids: target_ids
-    )
-    |> case do
-      {:ok, info} -> {:ok, new_text, info}
-      error -> error
-    end
   end
 
   defp insert_segment_revision(repo, [first | _] = _covered, content) do
