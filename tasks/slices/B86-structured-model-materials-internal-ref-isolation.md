@@ -10,13 +10,15 @@
 |---|---|---|
 | 材料（发给模型） | 章节列表、探索观察等以**自然语言段**注入（`ChapterListBudget.entry_line` 行内嵌 `chapter_ref=chapter:<uuid>`；observation summary 含裸 ref） | 内部标识与作者语言混在同一文本流，模型会把 ref 当自然语言学习/复述 |
 | 返回（模型 → 产品） | 已是**结构化 native tool call**（`judgment_tool_contract` 的 `input_schema` + `valid?` 校验；写作输出走 tool args 的 body/prose 字段） | schema 只校验类型/枚举；**没有「作者可见自由文本字段禁止内部标识」约束**，模型可合法把 ref 写进 body |
-| 作者可见出口 | `AuthorVisible.Text`（作者可见文本唯一形状，2026-11-11 扩展：`new/1` 构造时投影内部标识） | 正文/工具观察的作者可见出口未全部经该投影；投影只是兜底，不是根因修复 |
+| 作者可见出口 | `AuthorVisible.Text.new/1` 当前接收已准备好的非空展示文本 | 判断说明仍可把原生工具 `reason` 作为作者可见文本发布。结构化材料与说明契约均待收敛 |
+
+`b82-g2-observed-target-04` 再现了判断说明的泄漏。判断调用没有可见 `content`，原生工具参数 `reason` 同时含章节和草稿内部引用，并逐字出现在当前回合的创作活动；同次 `dialogue_goal` 没有这些引用。`JudgmentProtocol.tool_narrative/3` 从工具参数取作者说明，当前仅验证可用文本形状。下一轮设计需核对说明进入作者可见活动之前的契约位置及原生有界纠错，保留成功说明与模型原始字节的因果关系。见 [B82 实模记录](B82-b71-golden-slice-evidence.md#作者可见驱动的验收边界2026-11-11)。
 
 ## 2. 目标（机制修复，分步）
 
 1. **材料结构化**：章节等实体材料改为结构化字段表示（如 `{seq, title, status, chapter_ref}` 的 JSON/表格），内部标识只出现在**专用字段**，自然语言说明与数据分离；探索观察 summary 同理（ref 只进 `facts`/`evidence_refs`，summary 用作者可读名）。
 2. **返回结构化约束**：判断/写作 tool contract 增加**作者可见字段（body/prose/decision 文本）不得含内部标识**的校验（`valid?`/normalize 层）；违规处理策略二选一（设计冻结时定）：① 拒绝并让模型重试（fail-closed）；② 产品投影（`AuthorVisible.Text`）后记录一次「模型输出含内部标识」事件（可观测）。内部引用用结构化字段（如 `used_chapter_refs`）表达，不写进正文。
-3. **作者可见出口统一投影**：消息流/回放/导出/摘要全部经 `NovelCommon.AuthorVisible.Text`（已具备 `new/1` 投影与 `redact_internal_refs/1`；补出口接线）。
+3. **作者可见出口统一契约**：核对消息流、回放、导出与摘要的文本来源，复用 `NovelCommon.AuthorVisible.Text` 形状与现有作者可见词表。输出发生违约时的处理按第 2 项裁决。
 4. **验收**：单测（材料无裸 ref、schema 拒绝/投影生效、作者可见文本无内部标识）+ 真实页面批次扫描（C9 类判据 hits=0）+ 不破坏 I-CACHE 边界（章节列表段标题被 I-CACHE boundary marker 引用，改用结构化后需同步）。
 
 ## 3. 边界与影响
