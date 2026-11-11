@@ -1,6 +1,6 @@
 # B82：B71 G2/G3/G5 黄金切片证据补证（Responses/Anthropic 实模 + 逐片真实证据）
 
-- 状态：**doing（G2 实模作者页面通过，writer 页级使用声明待补证，见下）**
+- 状态：**doing（G2 冻结 Strata 批次的作者页面和技术核验通过，G3/G5 与其余实模补证开放）**
 - 来源：
   - 作者 2026-11-08 同意：B71 后续候选「G2–G6 切片补证」需独立任务文档、新冻结预注册后执行（原记录见 [B71](B71-provider-message-fidelity.md) 与 [NEXT](../NEXT.md)）。
   - B71 2026-11-08 实模批次 `b71-first-consumer-live-cp4b2-iq3s-01` 的 required_mechanism 8/8 通过。后续原生批次的实模报文复核与待补证项见 [B71 完成度复核](B71-provider-message-fidelity.md#2026-11-11-b81-交付后的完成度复核)。
@@ -123,6 +123,14 @@ B28 历史原生档案中，候选文本在后续页面仍可见，单凭文字�
 首页的续读提示进入第 4 次实际模型请求，明确给出未读范围和当前只允许同章续读的状态。两个正文页的原生结果各自进入紧邻请求，也等值进入第 6 次 writer 请求。模型从实际观察选中四段，writer 返回四个替换条目。它的自报使用了章、稿、段引用，未声明具体两页的观察身份。**G2 技术使用证据仍待补齐**。本次页面零检出不消除上一批从判断 `reason` 进入作者面的泄漏路径。逐项技术证据见 `artifacts/b71-audit/2026-11-11-b82-g2-continuation-05-diagnostic.json`。
 
 同批只读对账确认，两页原文与同一已保存稿的实际版本和字节范围一致。页面对应一个待保存候选，其四项标题、正文和理由与原生 writer 响应逐字相等。见 `artifacts/b71-audit/2026-11-11-b82-g2-continuation-05-pending-source-proof.json`。
+
+#### G2 冻结批次通过（2026-11-11）
+
+writer 的既有 `submit_tentative_artifact.self_report.used_context_refs` 在原生 schema 中明确为可选字符串数组，说明区分实际使用的底座来源与成功工具结果的观察身份。该字段属于模型自报。作者仍用章名、页面章序、原文和可见控件操作。
+
+`b82-g2-writer-refs-06` 沿用原作者输入。真实 Tauri 记录两页连续覆盖 1–7000，显示同章的一项待保存局部候选，前后阅读页逐字一致，本回合可见文本未检出内部标识。页面结果约 56 秒到达，Strata 已卸载。见 `artifacts/slice-verify/b71-first-consumer-live-b82-g2-writer-refs-06/summary.json`。
+
+事后运行 `node scripts/native_b71_evidence.mjs audit-g2 <batch-dir>`。06 的五次原生调用对账、两页版本/正文/紧邻请求、当前候选和 writer 响应逐字对账、逐调用引用边界及两页的实际 writer 自报全部通过。05 仍按同一判据因五项引用越界和缺少页级声明失败。技术命令只读取归档，原生页面判据独立完成。报告分别见 `artifacts/b71-audit/2026-11-11-b82-g2-writer-refs-06-mechanism.json` 与 `artifacts/b71-audit/2026-11-11-b82-g2-continuation-05-mechanism.json`。
 
 G3 和 G5 的后续场景继续按同一边界迁移。现有普通 live 和行为覆盖驱动以 ACK、报文或运行记录等待终局，确认/拒绝驱动也使用报文推进下一步。由这些路径得到的历史批次可用于技术对账。正式补证须先根据当次可见反馈完成作者操作与页面判定。
 

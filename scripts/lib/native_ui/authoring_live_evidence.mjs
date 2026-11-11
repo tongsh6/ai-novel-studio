@@ -20,7 +20,12 @@ import {
   writeNativeFrames,
 } from "./scenario_evidence.mjs";
 import { readConfig } from "./authoring_capture_evidence.mjs";
-import { bindNativeCalls } from "./authoring_run_evidence.mjs";
+import {
+  bindNativeCalls,
+  g2CandidateReport,
+  g2PageReport,
+  g2UsageReport,
+} from "./authoring_run_evidence.mjs";
 import { g2VisibleEvidence } from "./authoring_g2_evidence.mjs";
 import {
   NATIVE_CHAT_WIRE,
@@ -788,4 +793,67 @@ export function verifyLiveBatch(dir) {
   fs.writeFileSync(path.join(dir, "summary.json"), JSON.stringify(summary, null, 2));
   console.log(`B71 CP3b 实模机制判据通过: ${checks.required_mechanism.length}/${checks.required_mechanism.length}`);
   return { checks, summary };
+}
+
+// ── B82 G2 事后可复跑技术审计 ───────────────────────────────────────────────
+// 直接组合既有只读入口；前置采集异常交给 CLI 既有错误出口，不另造
+// schema/fallback/reasons。只看子结果表达缺证，不写 summary/checks/capture。
+function frozenWorkId(dir, workTitle) {
+  assert(nonBlank(workTitle), "audit-g2 缺少冻结可见作品名");
+  return withDb(dir, (db) => {
+    const rows = all(db, "SELECT id FROM works WHERE title = ?", [workTitle]);
+    assert.equal(rows.length, 1, "audit-g2 冻结可见作品名必须唯一命中作品");
+    return rows[0].id;
+  });
+}
+
+export function auditG2Batch(dir) {
+  const batchDir = path.resolve(dir);
+  const config = readConfig(batchDir);
+  assert.equal(config.scenario_id, "b82-g2", "audit-g2 只接受冻结的 b82-g2 批次");
+  assert.equal(config.journey, "live", "audit-g2 只接受 journey=live");
+  assert.equal(config.provider, "strata", "audit-g2 只接受 provider=strata");
+  assert(isObject(config.author_visible_target), "b82-g2 缺少冻结作者可见目标");
+  const evidence = assertProviderAndWire(batchDir, {
+    minUserMessages: 1,
+    minTurnResults: 1,
+    minProviderStarts: 1,
+    expectProviders: ["strata"],
+  });
+  // work 只由冻结可见作品名唯一解析；run 再由实际作者原文/ACK 精确定位。
+  const workId = frozenWorkId(batchDir, config.author_visible_target.work_title);
+  const history = readBatchAuthoringHistory(batchDir, {
+    wire: evidence.wire,
+    messageText: config.message,
+    workId,
+  });
+  const nativeCalls = reconcileNativeCalls(batchDir, config, history, evidence.llmRecords);
+  const pages = g2PageReport({ dir: batchDir, config, history, records: nativeCalls.records });
+  const candidate = g2CandidateReport({
+    dir: batchDir,
+    config,
+    history,
+    records: nativeCalls.records,
+    chapterRef: pages.chapter_ref,
+  });
+  const refs = liveRefsCheck({ llmRecords: nativeCalls.records, transcript: history.transcript });
+  const usage = g2UsageReport({ config, pages, candidate, refs });
+  const checks = {
+    native_calls: Object.values(nativeCalls.checks).every((value) => value === true),
+    pages: pages.ok === true,
+    candidate: candidate.ok === true,
+    refs: refs.ok === true,
+    usage: usage.ok === true,
+  };
+  const failed = Object.keys(checks).filter((name) => checks[name] !== true);
+  return {
+    ok: failed.length === 0,
+    checks,
+    failed,
+    native_call: { checks: nativeCalls.checks, measured: nativeCalls.measured },
+    pages,
+    candidate,
+    refs,
+    usage,
+  };
 }

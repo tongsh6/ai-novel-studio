@@ -19,7 +19,6 @@ import {
   frameEvent,
   frameOf,
   read,
-  seedFields,
   turnFacts,
   withDb,
   write,
@@ -29,7 +28,12 @@ import {
 import { authoringScope, readAuthoringHistory } from "./authoring_history_evidence.mjs";
 import { joinNativeCallEvidence, readProviderRuns } from "./authoring_call_evidence.mjs";
 import { readConfig } from "./authoring_capture_evidence.mjs";
-import { g2CandidateEvidence, g2PageEvidence, g2PageUsageEvidence } from "./authoring_g2_evidence.mjs";
+import {
+  g2CandidateEvidence,
+  g2PageEvidence,
+  g2PageUsageEvidence,
+  parseChapterLabel,
+} from "./authoring_g2_evidence.mjs";
 
 export function readCheckpoint(dir, checkpoint) {
   return read(dir, `b71-${checkpoint}.json`);
@@ -220,40 +224,54 @@ export function finishVerification(
 }
 
 
-// B82 §7 G2 页证据的只读输入边界：目标章由首批冻结 seed 的 chapter_id/chapter_seq 锁定，
-// draft 只取同 work、目标章序=2 的唯一 ACCEPTED 行；实际 revision 原样交给纯页判据做版本等值，
-// 不在此处硬编码版本号。started 只取同一 AgentRun。
-export function readG2PageInputs(dir, { workId, runId } = {}) {
+// B82 §7 G2 页证据的只读输入边界：目标章只由冻结作者可见章序+章名定位（复用
+// parseChapterLabel），不再依赖 seed.log；DB title 允许去编号名或完整可见名。
+// 唯一 ACCEPTED 稿与冻结阅读摘录必须同属该章，歧义/缺摘录直接拒绝；started 只取
+// 同一 AgentRun 的实际发生顺序。
+export function readG2PageInputs(dir, { workId, runId, target } = {}) {
   assert(typeof workId === "string" && workId !== "", "G2 页证据缺少 work_id");
   assert(typeof runId === "string" && runId !== "", "G2 页证据缺少 run_id");
-  const fields = seedFields(dir);
-  const chapterId = fields("chapter_id");
-  const chapterSeq = fields("chapter_seq");
-  assert(chapterId, "G2 页证据缺少 seed chapter_id");
-  assert.equal(chapterSeq, "2", "G2 页证据: 冻结 seed 的目标章序必须为 2");
+  assert(
+    target !== null && typeof target === "object" && !Array.isArray(target),
+    "G2 页证据缺少冻结作者可见目标",
+  );
+  const chapter = parseChapterLabel(target.chapter_title);
+  assert(chapter, "G2 页证据: 冻结可见章名必须包含完整章序与章名");
+  const order = Number(chapter.order);
+  assert(Number.isInteger(order) && order > 0, "G2 页证据: 冻结可见章序必须是正整数");
+  assert(
+    typeof target.reading_excerpt === "string" && target.reading_excerpt !== "",
+    "G2 页证据: 冻结阅读摘录不能为空",
+  );
   return withDb(dir, (db) => {
     const drafts = all(
       db,
-      "SELECT d.id, d.revision, d.content FROM drafts d " +
+      "SELECT c.id AS chapter_id, d.id AS draft_id, d.revision, d.content " +
+        "FROM drafts d " +
         "JOIN scenes s ON s.id = d.scene_id AND s.work_id = d.work_id " +
         "JOIN chapters c ON c.id = s.chapter_id AND c.work_id = d.work_id " +
-        "WHERE d.work_id = ? AND s.chapter_id = ? AND c.seq = ? " +
+        "WHERE d.work_id = ? AND c.seq = ? AND c.title IN (?, ?) " +
         "AND d.status = 'ACCEPTED'",
-      [workId, chapterId, Number(chapterSeq)],
+      [workId, order, chapter.name, target.chapter_title.trim()],
     );
-    assert.equal(drafts.length, 1, "G2 页证据: 目标章 ACCEPTED draft 必须恰好一份");
+    assert.equal(drafts.length, 1, "G2 页证据: 目标章 ACCEPTED draft 必须唯一");
+    const draft = drafts[0];
+    const prose = String(draft.content ?? "");
+    assert(
+      prose.includes(target.reading_excerpt),
+      "G2 页证据: 冻结阅读摘录不属于目标章已保存正文",
+    );
     const starts = all(
       db,
       "SELECT provider_run_id, provider_call_ref, emitted_at FROM provider_events " +
         "WHERE agent_run_id = ? AND event_type = 'started' ORDER BY emitted_at",
       [runId],
     );
-    const draft = drafts[0];
     return {
-      chapter_ref: `chapter:${chapterId}`,
-      draft_ref: `draft:${draft.id}`,
+      chapter_ref: `chapter:${draft.chapter_id}`,
+      draft_ref: `draft:${draft.draft_id}`,
       revision: Number(draft.revision),
-      prose: String(draft.content ?? ""),
+      prose,
       starts,
     };
   });
@@ -270,6 +288,7 @@ export function g2PageReport({ dir, config, history, records }) {
   const input = readG2PageInputs(dir, {
     workId: history.record.work_id,
     runId: history.record.id,
+    target: config.author_visible_target,
   });
   const evidence = g2PageEvidence({
     transcript: history.transcript,

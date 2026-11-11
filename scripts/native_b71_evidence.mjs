@@ -17,7 +17,7 @@ import {
   capturePending,
   verifyPendingBatch,
 } from "./lib/native_ui/authoring_pending_run_evidence.mjs";
-import { verifyLiveBatch } from "./lib/native_ui/authoring_live_evidence.mjs";
+import { auditG2Batch, verifyLiveBatch } from "./lib/native_ui/authoring_live_evidence.mjs";
 import { verifyBehaviorBatch } from "./lib/native_ui/authoring_behavior_evidence.mjs";
 import { verifyConfirmationBatch } from "./lib/native_ui/authoring_confirmation_evidence.mjs";
 import { verifyAutoMaintenanceBatch } from "./lib/native_ui/authoring_auto_maintenance_evidence.mjs";
@@ -600,11 +600,20 @@ const MODES = Object.freeze({
     }
   },
   verify: (dir) => verify(dir),
+  "audit-g2": (dir) => auditG2(dir),
 });
+
+// 事后技术审计只读冻结批次：stdout 单一 JSON，失败以 exit 1 收口；不写任何批次文件。
+export function auditG2(dir) {
+  const report = auditG2Batch(dir);
+  console.log(JSON.stringify(report, null, 2));
+  if (!report.ok) process.exitCode = 1;
+  return report;
+}
 
 export function modeHandler(mode, artifact) {
   assert(Object.hasOwn(MODES, mode), `unknown mode: ${mode}`);
-  assert(artifact, "usage: node scripts/native_b71_evidence.mjs <prepare|capture|verify> <dir> [checkpoint...]");
+  assert(artifact, "usage: node scripts/native_b71_evidence.mjs <prepare|capture|verify|audit-g2> <dir> [checkpoint...]");
   return MODES[mode];
 }
 

@@ -467,7 +467,7 @@ function normalizeOrder(value) {
   return ascii;
 }
 
-function parseChapterLabel(value) {
+export function parseChapterLabel(value) {
   const match = CHAPTER_LABEL_RE.exec(text(value).trim());
   if (!match) return null;
   const name = match[2].trim();
