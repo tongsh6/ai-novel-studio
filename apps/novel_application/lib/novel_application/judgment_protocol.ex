@@ -245,14 +245,20 @@ defmodule NovelApplication.JudgmentProtocol do
         }),
       omissions: field(observation, :omissions) || [],
       next_offset: field(observation, :next_offset),
-      content: %{
-        summary: field(observation, :summary),
-        tool: field(observation, :tool),
-        query: field(observation, :query),
-        facts: field(observation, :facts) || %{}
-      }
+      content:
+        %{
+          summary: field(observation, :summary),
+          tool: field(observation, :tool),
+          query: field(observation, :query),
+          facts: field(observation, :facts) || %{}
+        }
+        |> put_present(:observation_ref, field(observation, :observation_ref))
     }
   end
+
+  # 可选身份只写入原生 content；旧无 ref 结果保持原形状，不补空字段。
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
 
   defp planned_status(payloads) do
     statuses = Enum.map(payloads, & &1.status) |> Enum.uniq()

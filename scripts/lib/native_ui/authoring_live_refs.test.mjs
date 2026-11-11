@@ -493,3 +493,114 @@ test("L7 完整 ref / 唯一观察：不拆 wrapper、不做子串匹配，重�
   assert.deepEqual([...extractRefTokens("x mychapter:ch-1 chapter:ch-1")].sort(), ["chapter:ch-1"]);
   assert.deepEqual([...extractRefTokens("x xas_live_1 as_live_1")].sort(), ["as_live_1"]);
 });
+
+test("L7 同请求 observation 身份：content.observation_ref 与 source_refs 同边界，报告保留 call_id", () => {
+  const messages = [
+    system(),
+    appBase("材料 chapter:ch-1"),
+    author(),
+    assistantToolCall({ callId: "call_page" }),
+    nativeObservation({
+      callId: "call_page",
+      sourceRefs: ["chapter:ch-1"],
+      content: { observation_ref: "observation:obs_page_1" },
+    }),
+  ];
+  const result = resultOf({ messages, usedRefs: ["observation:obs_page_1"] });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.violations, []);
+  const match = result.reports[0].matched_refs.find(
+    (entry) => entry.ref === "observation:obs_page_1",
+  );
+  assert.deepEqual(
+    [match.kind, match.sources[0].call_id, match.sources[0].status, match.sources[0].channel],
+    ["observation", "call_page", "ok", "content_observation_ref"],
+  );
+  assert(result.reports[0].observation_refs.includes("chapter:ch-1"));
+  assert(result.reports[0].observation_refs.includes("observation:obs_page_1"));
+
+  const viaIr = liveRefsCheck({
+    llmRecords: [
+      irRecord({
+        messages: [
+          irMessage("user", "author", [{ type: "text", text: AUTHOR }]),
+          irMessage("assistant", "model", [
+            { type: "tool_call", call_id: "call-ir-page", name: "read_chapter", arguments: {} },
+          ]),
+          irMessage("tool", "tool_result", [
+            {
+              type: "observation",
+              call_id: "call-ir-page",
+              status: "ok",
+              source_refs: [],
+              content: { observation_ref: "observation:obs-ir-page" },
+            },
+          ]),
+        ],
+      }),
+    ],
+    transcript: {
+      messages: [
+        assistantCall({
+          pcall: "pcall_ir",
+          prun: "prun_ir",
+          refs: ["observation:obs-ir-page"],
+        }),
+      ],
+    },
+  });
+  assert.equal(viaIr.ok, true);
+
+  // 身份只在本请求的合法 observation 内兑现；别的请求/非 observation: 身份/文本都不授信。
+  const other = liveRefsCheck({
+    llmRecords: [
+      nativeRecord({ providerCallRef: "pcall_1", providerRunRef: "prun_1", messages }),
+      nativeRecord({
+        providerCallRef: "pcall_other",
+        providerRunRef: "prun_other",
+        messages: [
+          system(),
+          assistantToolCall({ callId: "call_other" }),
+          nativeObservation({
+            callId: "call_other",
+            content: { observation_ref: "observation:obs_other" },
+          }),
+        ],
+      }),
+    ],
+    transcript: { messages: [assistantCall({ refs: ["observation:obs_other"] })] },
+  });
+  assert.equal(other.ok, false);
+  assert(other.reports[0].violations.some((violation) => violation.ref === "observation:obs_other"));
+
+  const base = [system(), appBase("材料 chapter:ch-1"), author()];
+  for (const [label, content] of [
+    ["非 observation: 身份", { observation_ref: "chapter:identity_only" }],
+    ["content 文本", { text: "observation:obs_text_only" }],
+    ["非对象 content", "observation:obs_string_content"],
+  ]) {
+    assertViolation(
+      [
+        ...base,
+        assistantToolCall({ callId: "call_content" }),
+        nativeObservation({ callId: "call_content", content }),
+      ],
+      label === "非 observation: 身份" ? "chapter:identity_only" : label === "content 文本" ? "observation:obs_text_only" : "observation:obs_string_content",
+      label,
+    );
+  }
+
+  assertViolation(
+    [
+      ...base,
+      assistantToolCall({ callId: "call_failed" }),
+      nativeObservation({
+        callId: "call_failed",
+        status: "failed",
+        content: { observation_ref: "observation:obs_failed_identity" },
+      }),
+    ],
+    "observation:obs_failed_identity",
+    "失败 observation 身份",
+  );
+});

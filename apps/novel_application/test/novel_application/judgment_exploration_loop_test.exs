@@ -266,6 +266,10 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert page1.summary =~ "【续读】剩余 1000 字符"
     refute page1.summary =~ @last_page_anchor
 
+    # 单次判断只构造一个既有 AgentObservation：本步返回的观察即请求观察的稳定身份。
+    assert [page1_observation] = explore1.observations
+    page1_observation_ref = "observation:#{page1_observation.observation_id}"
+
     # 作者可见活动行：人类可读，不含内部工具 id / 原始 JSON / offset 字段名（I-READ-8）
     assert_received {:stage_event, %{event_type: :exploration_observed} = event1}
     assert event1.summary =~ "已阅读章节正文「#{@full_read_title}」（第 1 章）"
@@ -301,6 +305,12 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert page2.summary =~ "【正文】第 6001–7000 字符 / 共 7000 字符"
     assert page2.summary =~ @last_page_anchor
     refute page2.summary =~ "【续读】"
+
+    # 同一 actor 的 chapter ref 不变；两页是不同观察身份，下一请求按身份关联。
+    assert [page2_observation] = explore2.observations
+    page2_observation_ref = "observation:#{page2_observation.observation_id}"
+    assert page2.refs == [chapter_ref]
+    refute page1_observation_ref == page2_observation_ref
 
     continuation_query =
       Jason.decode!(
@@ -339,6 +349,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert observation.next_offset == 6000
     assert chapter_ref in observation.source_refs
     assert observation.versions == versions
+    assert observation.content["observation_ref"] == page1_observation_ref
 
     # 第 3 轮：reply 引用末页独有事实（字节透传观察），单一 turn 收束
     snapshot3 = %{empty | stage_state: Map.merge(snapshot2.stage_state, explore2.stage_state)}
@@ -354,11 +365,17 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert third_prompt
     [third_prompt_map] = drain_prompt_maps([])
 
-    assert for(
-             %{role: "tool", blocks: blocks} <- third_prompt_map.messages,
-             %{type: "observation"} = block <- blocks,
-             do: block.versions
-           ) == [versions, versions]
+    third_observations =
+      for %{role: "tool", blocks: blocks} <- third_prompt_map.messages,
+          %{type: "observation"} = block <- blocks,
+          do: block
+
+    assert Enum.map(third_observations, & &1.versions) == [versions, versions]
+    observation_refs = Enum.map(third_observations, & &1.content["observation_ref"])
+    assert observation_refs == [page1_observation_ref, page2_observation_ref]
+    assert Enum.map(third_observations, & &1.source_refs) == [[chapter_ref], [chapter_ref]]
+    refs = third_prompt_map.refs.observation_refs
+    assert Enum.all?([page1_observation_ref, page2_observation_ref], &(&1 in refs))
 
     assert Enum.take(third_prompt_map.messages, length(second_prompt_map.messages)) ==
              second_prompt_map.messages

@@ -1348,3 +1348,9 @@ Chat Completions 和 Anthropic 的确定性 adapter 测试逐项核对日志与�
 
 同日验收读侧复用 `joinNativeCallEvidence`。已识别的 Chat wire 请求、数字 2xx 状态和 `source=sse_decoder` 工具结果进入同一套 Provider run/call 归属核验。原生 ID 缺省或重用时，按对应响应内位置及 canonical 的原生 ID 来源对账。SSE 的测量项明确为工具对账，确定性替身仍逐字核对正文。历史占位、错误来源及参数字节篡改均拒绝。确定性 SSE 经真实 adapter 和 JSONL 到 canonical 工具对账的复验见 `artifacts/b71-audit/2026-11-11-sse-canonical-join-proof.json`。
 
+### 单次探索的观察身份（2026-11-11）
+
+对照 B81 的实模单页和 B82 首批的歧义观察，运行时有 `AgentObservation`，原生 tool 结果保留底层章节来源，但缺对应观察身份。逐调用自报只能证明章节在本次请求中可见，无法据此判断用了哪一页。原始对照见 `artifacts/b71-audit/2026-11-11-g2-page-identity-source.jsonl`。
+
+单次探索现从真实查询结果构造一次既有 `AgentObservation`。同一 `observation:<id>` 进入运行时和 canonical tool 的 `content.observation_ref`，底层章节仍由 `source_refs` 单独表达。既有 `observation_refs` 集合和验收读侧消费该身份。续页测试核对两页身份不同、后续请求携带原值，验收反例覆盖其他调用、普通正文与失败观察。三种原生 wire 的确定性投影均保留身份和独立章节来源，见 `artifacts/b71-audit/2026-11-11-page-observation-ref-wire-proof.json`。聚合检索的逐页身份与逐页版本仍待闭合。
+

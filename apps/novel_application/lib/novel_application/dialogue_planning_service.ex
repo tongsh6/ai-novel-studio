@@ -1941,6 +1941,20 @@ defmodule NovelApplication.DialoguePlanningService do
 
     observation = run_inline_exploration(work_id, run, tool, query)
 
+    # B71 §3.4：同一次判断只构造一个既有 AgentObservation；它既是本步返回观察，
+    # 也是请求 observation 的稳定身份（observation:<id>），供下一轮原生投影核对。
+    agent_observation =
+      judgment_observation(
+        run,
+        sequence,
+        observation.summary,
+        "explore:#{tool}:#{sequence}",
+        Map.merge(
+          %{stage: :exploration_observed},
+          ExplorationService.observation_metadata(observation)
+        )
+      )
+
     # B24 CP2（I-EXPLORE-READ-8）：作者可见活动行用集中人类可读文案——内部工具 id /
     # 原始 query JSON / offset 只留在 payload/trace/developer 面。
     activity = ExplorationService.activity_summary(observation)
@@ -1957,6 +1971,7 @@ defmodule NovelApplication.DialoguePlanningService do
       observation
       |> Map.put(:coverage_note, coverage_note([observation]))
       |> Map.put(:continue_hint, continue_hint([observation], exploration_budget(explorations)))
+      |> Map.put(:observation_ref, "observation:#{agent_observation.observation_id}")
 
     transcript =
       JudgmentProtocol.observation_transcript(judgment.transcript, judgment, request_observation)
@@ -1964,18 +1979,7 @@ defmodule NovelApplication.DialoguePlanningService do
     {:ok,
      %{
        step: judgment_agent_step(run, sequence, activity),
-       observations: [
-         judgment_observation(
-           run,
-           sequence,
-           observation.summary,
-           "explore:#{tool}:#{sequence}",
-           Map.merge(
-             %{stage: :exploration_observed},
-             ExplorationService.observation_metadata(observation)
-           )
-         )
-       ],
+       observations: [agent_observation],
        stage_state: %{
          judgment_explorations: explorations ++ [observation],
          judgment_transcript: transcript

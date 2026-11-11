@@ -484,10 +484,22 @@ defmodule NovelApplication.AuthoringTranscript do
 
   defp system_field(system, key), do: Map.get(system, key) || Map.get(system, to_string(key))
 
+  # 观察来源 refs 与该观察自身的原生身份同时进入 observation_refs：前者供 used_refs
+  # 越界校验，后者供同请求 observation:<id> 精确匹配。没有身份时保持原形状。
   defp refs_of(observation) do
-    case Map.get(observation, :source_refs, []) do
-      refs when is_list(refs) -> refs
-      _ -> []
+    source_refs =
+      case Map.get(observation, :source_refs, []) do
+        refs when is_list(refs) -> refs
+        _ -> []
+      end
+
+    source_refs ++ List.wrap(content_observation_ref(observation))
+  end
+
+  defp content_observation_ref(observation) do
+    case Map.get(observation, :content) || Map.get(observation, "content") do
+      %{} = content -> Map.get(content, :observation_ref) || Map.get(content, "observation_ref")
+      _ -> nil
     end
   end
 end
