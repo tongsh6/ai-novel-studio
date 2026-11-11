@@ -4,10 +4,19 @@
 // ProviderRun.provider_call_ref === pcall。turn/time/tool name/hash 都不参与绑定；
 // canonical 定位使用 assistant 顶层 provider_call_ref/provider_run_ref，而不是仅 call_id。
 import assert from "node:assert/strict";
-import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
+import { NATIVE_CHAT_WIRE, requestFactsFromRecord } from "./authoring_request_facts.mjs";
 import { all, withDb } from "./scenario_evidence.mjs";
 
 export const FIXTURE_RESPONSE_FORMAT = "fixture_provider_result/v1";
+
+const SSE_DECODER_SOURCE = "sse_decoder";
+
+// 来源由记录自身的显式标记决定：fixture 有 response_format；真实 SSE 没有，
+// 但请求必须是已识别 native wire。响应体形状只用于该来源内的校验，不做嗅探。
+const RECORD_SOURCE = Object.freeze({
+  FIXTURE: "fixture",
+  SSE_DECODER_TOOL_ONLY: "sse_decoder_tool_only",
+});
 
 const SCOPE_FIELDS = Object.freeze([
   "run_id",
@@ -100,12 +109,6 @@ function requestFailure(record) {
   return facts.ok ? null : "unsupported";
 }
 
-function formatFieldsFailure(record) {
-  return record.response_format === FIXTURE_RESPONSE_FORMAT
-    ? null
-    : "unsupported";
-}
-
 function okBodyFailure(response) {
   const body = response.body;
   if (!isRecord(body) || !Array.isArray(body.tool_calls)) return "unsupported";
@@ -130,12 +133,42 @@ function responseFailure(record) {
   return "unsupported";
 }
 
-function validateResponseFormat(record) {
-  return (
-    formatFieldsFailure(record) ??
-    requestFailure(record) ??
-    responseFailure(record)
-  );
+function fixtureFailure(record) {
+  return requestFailure(record) ?? responseFailure(record);
+}
+
+function isHttpSuccessStatus(status) {
+  return Number.isInteger(status) && status >= 200 && status <= 299;
+}
+
+// 真实 SSE 成功 body 只承载 decoder 交付的工具事实；event_stream 历史占位
+// 是字符串，不构成成功证据。
+function sseBodyFailure(response) {
+  const body = response.body;
+  return isRecord(body) &&
+    body.source === SSE_DECODER_SOURCE &&
+    Array.isArray(body.tool_calls)
+    ? null
+    : "unsupported";
+}
+
+function sseFailure(record) {
+  // 只认真实 Chat wire 请求；fixture IR 或其它 wire 不得借 SSE body 签字。
+  const facts = requestFactsFromRecord(record);
+  if (!facts.ok || facts.format !== NATIVE_CHAT_WIRE) return "unsupported";
+  if (!isRecord(record.response) || !isHttpSuccessStatus(record.response.status)) {
+    return "unsupported";
+  }
+  return sseBodyFailure(record.response);
+}
+
+function classifyRecord(record) {
+  if (record.response_format === FIXTURE_RESPONSE_FORMAT) {
+    return { source: RECORD_SOURCE.FIXTURE, failure: fixtureFailure(record) };
+  }
+  if (record.response_format !== undefined) return { failure: "unsupported" };
+  const failure = sseFailure(record);
+  return failure ? { failure } : { source: RECORD_SOURCE.SSE_DECODER_TOOL_ONLY, failure: null };
 }
 
 // JSON 语义等价：键顺序无关，类型/数组长度/值严格；不修补也不序列化未知对象。
@@ -492,12 +525,12 @@ function joinScopedRecords({ records, runsByPrun, runsByCall, scope, add }) {
       add("duplicate", "binding", refs);
       continue;
     }
-    const formatFailure = validateResponseFormat(record);
-    if (formatFailure) {
-      add(formatFailure, "binding", refs);
+    const classified = classifyRecord(record);
+    if (classified.failure) {
+      add(classified.failure, "binding", refs);
       continue;
     }
-    bound.set(pair.run.id, { row: pair.run, record });
+    bound.set(pair.run.id, { row: pair.run, record, source: classified.source });
     scopedRecords.push(record);
   }
   return { bound, scopedRecords };
@@ -515,7 +548,16 @@ function assistantMatches(assistantMessages, pcall, prun) {
   };
 }
 
-function checkSuccessPair({ assistantMessages, row, record, add, nativeIdState }) {
+// SSE 日志不记录正文，只对账 decoder 交付的工具事实；fixture 仍核对完整正文。
+function compareSuccessBody(source, message, body, refs, add, nativeIdState) {
+  if (source === RECORD_SOURCE.SSE_DECODER_TOOL_ONLY) {
+    compareAssistantCalls(message, body, refs, add, nativeIdState);
+    return;
+  }
+  compareAssistant(message, body, refs, add, nativeIdState);
+}
+
+function checkSuccessPair({ assistantMessages, row, record, source, add, nativeIdState }) {
   const refs = refsOfRun(row);
   if (row.status !== "completed") {
     add("mismatched", "success", { ...refs, field: "run_status" });
@@ -537,7 +579,7 @@ function checkSuccessPair({ assistantMessages, row, record, add, nativeIdState }
   if (partial.length > 0) {
     add("mismatched", "success", { ...refs, field: "assistant_refs" });
   }
-  compareAssistant(matching[0], record.response.body, refs, add, nativeIdState);
+  compareSuccessBody(source, matching[0], record.response.body, refs, add, nativeIdState);
 }
 
 function checkErrorPair({ assistantMessages, row, add }) {
@@ -555,9 +597,9 @@ function checkErrorPair({ assistantMessages, row, add }) {
 }
 
 function checkPairs({ bound, assistantMessages, add, nativeIdState }) {
-  for (const { row, record } of bound.values()) {
-    if (record.response.status === "ok") {
-      checkSuccessPair({ assistantMessages, row, record, add, nativeIdState });
+  for (const { row, record, source } of bound.values()) {
+    if (source === RECORD_SOURCE.SSE_DECODER_TOOL_ONLY || record.response.status === "ok") {
+      checkSuccessPair({ assistantMessages, row, record, source, add, nativeIdState });
     } else {
       checkErrorPair({ assistantMessages, row, add });
     }
@@ -567,11 +609,13 @@ function checkPairs({ bound, assistantMessages, add, nativeIdState }) {
 function countBoundPairs(bound) {
   let completed = 0;
   let errors = 0;
-  for (const { record } of bound.values()) {
-    if (record.response.status === "ok") completed += 1;
-    else errors += 1;
+  let sseToolOnly = 0;
+  for (const { record, source } of bound.values()) {
+    if (source === RECORD_SOURCE.SSE_DECODER_TOOL_ONLY) sseToolOnly += 1;
+    if (source === RECORD_SOURCE.FIXTURE && record.response.status === "error") errors += 1;
+    else completed += 1;
   }
-  return { completed, errors };
+  return { completed, errors, sseToolOnly };
 }
 
 function validateCanonicalCallIds(messages, add) {
@@ -638,7 +682,7 @@ export function joinNativeCallEvidence(input) {
   }
   checkPairs({ bound, assistantMessages, add, nativeIdState });
 
-  const { completed, errors } = countBoundPairs(bound);
+  const { completed, errors, sseToolOnly } = countBoundPairs(bound);
   const counts = {
     provider_runs: runs.length,
     bound_requests: bound.size,
@@ -687,6 +731,8 @@ export function joinNativeCallEvidence(input) {
       error_count: counts.errors,
       consumed_provider_calls: counts.consumed_provider_calls,
       native_id_not_provided: nativeIdState.notProvided,
+      // 真实 SSE 日志不记录正文，只能作为 tool-only 证据；fixture 仍做完整正文对账。
+      sse_decoder_tool_only_count: sseToolOnly,
     },
     failures,
   };

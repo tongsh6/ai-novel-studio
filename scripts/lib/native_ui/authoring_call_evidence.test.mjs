@@ -121,6 +121,72 @@ const checks = (patch) => result(patch).checks;
 const reasons = (patch) => result(patch).failures.map((failure) => failure.reason);
 const allPass = (value) => assert.deepEqual(Object.values(value.checks), [true, true, true, true, true]);
 
+// 74492267 之后的真实 SSE 成功日志：无 request_format/response_format，
+// request.body 是原生 Chat wire，response.status 是 2xx 数字，
+// response.body 只有 {source: "sse_decoder", tool_calls: Result.tool_calls}。
+function sseRequest(n) {
+  return {
+    method: "POST",
+    url: "https://provider.test/v1/chat/completions",
+    body: {
+      model: "test-model",
+      messages: [
+        { role: "system", content: "system" },
+        { role: "user", content: `request-${n}` },
+      ],
+      tools: [],
+    },
+  };
+}
+
+function sseExchange(n, { calls = [], refs = {}, status = 200, source = "sse_decoder", body } = {}) {
+  const providerCallRef = refs.providerCallRef ?? `pcall-${n}`;
+  const providerRunRef = refs.providerRunRef ?? `prun-${n}`;
+  return {
+    provider: "openai_chat",
+    provider_call_ref: providerCallRef,
+    provider_run_ref: providerRunRef,
+    work_id: WORK,
+    session_id: SESSION,
+    turn_id: `${PARENT}:agent:${n}`,
+    request: sseRequest(n),
+    response: {
+      status,
+      body: body === undefined ? { source, tool_calls: calls } : body,
+      model: "test-model",
+      usage: {},
+      duration_ms: 10,
+    },
+  };
+}
+
+function sseBase() {
+  return {
+    scope: scope(),
+    providerRuns: [pair(1)],
+    records: [
+      sseExchange(1, { calls: [call("native-judgment", "judgment_decision", { action: "read" })] }),
+    ],
+    transcript: {
+      run: scope(),
+      messages: [
+        { role: "user", blocks: [{ type: "text", text: "核对全章" }] },
+        assistant(1, [
+          { type: "text", text: "已核对全章。" },
+          { type: "tool_call", call_id: "native-judgment", name: "judgment_decision", arguments: { action: "read" } },
+        ]),
+      ],
+    },
+    consumedProviderCalls: 1,
+  };
+}
+
+const sseResult = (patch = {}) => {
+  const value = { ...sseBase(), ...patch };
+  value.transcript = { run: scope(), ...value.transcript };
+  return joinNativeCallEvidence(value);
+};
+
 test("显式 pcall+prun 唯一配对时逐调用与 canonical 原文一致", () => {
   const value = result();
   allPass(value);
@@ -886,6 +952,133 @@ test("参数缺少可比较原文或 raw 一侧非字符串时 encode_failed", (
   blankIds.records[0].response.body.tool_calls[0].id = "";
   blankIds.transcript.messages[1].blocks[1].call_id = "";
   assert.equal(checks(blankIds).native_call_success_matches_canonical, false);
+});
+
+test("真实 SSE decoder 成功记录按 Chat wire 只对账工具，正文不参与且标明 tool-only", () => {
+  const value = sseResult();
+  allPass(value);
+  assert.equal(value.measured.sse_decoder_tool_only_count, 1);
+  assert.equal(value.counts.completed, 1);
+  assert.equal(value.counts.errors, 0);
+  assert.equal(value.measured.native_id_not_provided, 0);
+  // fixture 来源不标 SSE；SSE 记录按真实 response 数字 2xx 计入 completed。
+  assert.equal(result().measured.sse_decoder_tool_only_count, 0);
+});
+
+test("SSE 工具参数按 raw 原始字节对账，空白不 trim，篡改 parsed/raw 都拒绝", () => {
+  const raw = ' { "character_ref": "character:1" } ';
+  const calls = [
+    { id: "native-read", name: "read_character", arguments: { character_ref: "character:1" }, raw_arguments: raw },
+  ];
+  const blocks = [
+    { type: "tool_call", call_id: "native-read", name: "read_character", arguments: { character_ref: "character:1" }, raw_arguments: raw },
+  ];
+  allPass(sseResult({ records: [sseExchange(1, { calls })], transcript: { messages: [assistant(1, blocks)] } }));
+
+  const rawTampered = structuredClone(calls);
+  rawTampered[0].raw_arguments = '{"character_ref":"character:1"}';
+  const rawValue = sseResult({ records: [sseExchange(1, { calls: rawTampered })], transcript: { messages: [assistant(1, blocks)] } });
+  assert.equal(rawValue.checks.native_call_success_matches_canonical, false);
+  assert.ok(rawValue.failures.some((failure) => failure.phase === "success" && failure.refs.field === "arguments"));
+
+  // raw 是权威：只改 parsed 而原文未动也必须拒绝。
+  const parsedTampered = structuredClone(calls);
+  parsedTampered[0].arguments = { character_ref: "character:2" };
+  assert.equal(
+    sseResult({ records: [sseExchange(1, { calls: parsedTampered })], transcript: { messages: [assistant(1, blocks)] } })
+      .checks.native_call_success_matches_canonical,
+    false,
+  );
+});
+
+test("SSE 响应无原生 id 时按 canonical 显式未提供通过并计数", () => {
+  const value = sseResult({
+    records: [sseExchange(1, { calls: [{ name: "read_character", arguments: { character_ref: "character:1" } }] })],
+    transcript: {
+      messages: [
+        assistant(1, [
+          {
+            type: "tool_call",
+            call_id: "call_read_character",
+            provider_call_id: null,
+            name: "read_character",
+            arguments: { character_ref: "character:1" },
+          },
+        ]),
+      ],
+    },
+  });
+  allPass(value);
+  assert.equal(value.measured.native_id_not_provided, 1);
+});
+
+test("SSE 两次执行引用重用原生 id：按 pcall+prun 区分，canonical 重映射通过", () => {
+  const value = sseResult({
+    providerRuns: [pair(1), pair(2)],
+    records: [
+      sseExchange(1, { calls: [call("native-submit", "submit_tentative_artifact", { body: "first" })] }),
+      sseExchange(2, { calls: [call("native-submit", "submit_tentative_artifact", { body: "second" })] }),
+    ],
+    transcript: {
+      messages: [
+        assistant(1, [{ type: "tool_call", call_id: "native-submit", name: "submit_tentative_artifact", arguments: { body: "first" } }]),
+        assistant(2, [
+          {
+            type: "tool_call",
+            call_id: "native-submit:2",
+            provider_call_id: "native-submit",
+            name: "submit_tentative_artifact",
+            arguments: { body: "second" },
+          },
+        ]),
+      ],
+    },
+    consumedProviderCalls: 2,
+  });
+  allPass(value);
+  assert.equal(value.measured.sse_decoder_tool_only_count, 2);
+});
+
+test("SSE 参数篡改、错源、event_stream 占位、非 2xx 与非 native wire 请求都不签成功", () => {
+  const tampered = sseBase();
+  tampered.records[0].response.body.tool_calls[0].arguments = { action: "write" };
+  assert.equal(checks(tampered).native_call_success_matches_canonical, false);
+
+  for (const source of ["event_stream", "fixture_provider_result/v1", "other"]) {
+    const value = sseResult({ records: [sseExchange(1, { source })] });
+    assert.equal(value.checks.native_call_pairs_bound, false, source);
+    assert.equal(value.checks.native_call_success_matches_canonical, false, source);
+    assert.ok(value.failures.some((failure) => failure.reason === "unsupported"), source);
+  }
+
+  const placeholder = sseResult({ records: [sseExchange(1, { body: "event_stream" })] });
+  assert.equal(placeholder.checks.native_call_pairs_bound, false);
+  assert.equal(placeholder.checks.native_call_success_matches_canonical, false);
+  assert.ok(placeholder.failures.some((failure) => failure.reason === "unsupported"));
+
+  const nonSuccess = sseResult({ records: [sseExchange(1, { status: 500 })] });
+  assert.equal(nonSuccess.checks.native_call_pairs_bound, false);
+  assert.ok(nonSuccess.failures.some((failure) => failure.reason === "unsupported"));
+
+  // 请求仍是 fixture canonical IR（非 native wire），即使响应有 sse body 也不认。
+  const irRequest = exchange(1, { calls: [call("native-judgment", "judgment_decision", { action: "read" })] });
+  delete irRequest.response_format;
+  irRequest.response = { status: 200, body: { source: "sse_decoder", tool_calls: irRequest.response.body.tool_calls } };
+  const irValue = sseResult({ records: [irRequest] });
+  assert.equal(irValue.checks.native_call_pairs_bound, false);
+  assert.ok(irValue.failures.some((failure) => failure.reason === "unsupported"));
+
+  // fixture 来源按 response_format 固定，不按 body 形状嗅探成 SSE；正文篡改仍拒。
+  const fixtureWithSseBody = base();
+  fixtureWithSseBody.records[0].response.body = {
+    source: "sse_decoder",
+    tool_calls: fixtureWithSseBody.records[0].response.body.tool_calls,
+  };
+  assert.equal(checks(fixtureWithSseBody).native_call_success_matches_canonical, false);
+
+  const fixtureTampered = base();
+  fixtureTampered.records[0].response.body.content = "伪造正文";
+  assert.equal(checks(fixtureTampered).native_call_success_matches_canonical, false);
 });
 
 const callrefs03 = JSON.parse(

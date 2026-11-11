@@ -1346,3 +1346,5 @@ VS-00L §16.9 要求同次请求与响应可按已有 Provider run/call 引用�
 
 Chat Completions 和 Anthropic 的确定性 adapter 测试逐项核对日志与实际交付。独立临时探针以确定性 SSE 经真实 adapter、既有 JSONL 写入和 Node live 读取器，验证两条执行引用、状态、usage 和含空白的参数字节，结果见 `artifacts/b71-audit/2026-11-11-sse-jsonl-proof.json`。既有 `event_stream` 档案保持历史状态。正式判据仍须按执行引用把原生工具 ID 与 canonical ID 对账，并另行核对原始 SSE 帧与终止顺序。
 
+同日验收读侧复用 `joinNativeCallEvidence`。已识别的 Chat wire 请求、数字 2xx 状态和 `source=sse_decoder` 工具结果进入同一套 Provider run/call 归属核验。原生 ID 缺省或重用时，按对应响应内位置及 canonical 的原生 ID 来源对账。SSE 的测量项明确为工具对账，确定性替身仍逐字核对正文。历史占位、错误来源及参数字节篡改均拒绝。确定性 SSE 经真实 adapter 和 JSONL 到 canonical 工具对账的复验见 `artifacts/b71-audit/2026-11-11-sse-canonical-join-proof.json`。
+
