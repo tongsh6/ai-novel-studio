@@ -14,6 +14,7 @@ const AUTHOR =
   "先看看第01章现在的设定和正文，再按现有设定写一段更紧张的开场：主角在雨夜收到一封没有署名的信，生成待采纳的候选，先不要保存。";
 const G2_MESSAGE =
   "请先读第02章《灰烬中的手印》已经保存的正文，前后都核对一下，再把发现的重复写法改成一段候选给我看，先不要保存。";
+const G3_MESSAGE = "我想先安静读一遍第02章已经保存的正文，只核对，不改也不保存。";
 const G2_VISIBLE_TARGET = Object.freeze({
   work_title: "灰烬手印验证作品",
   chapter_title: "第02章：灰烬中的手印",
@@ -58,6 +59,19 @@ function visibleFinal(message = G2_MESSAGE) {
     "修订稿候选",
     "保存修订稿",
     "放弃修订稿",
+    "(value=已完成)",
+  ].join("\n");
+}
+// B82 G3 只读：自然原话后给可见回复，只读目标章的一个真实范围页，完成且无候选。
+function visibleReadOnlyFinal(message = G3_MESSAGE) {
+  return [
+    G2_VISIBLE_TARGET.work_title,
+    "你",
+    message,
+    "AI 助手",
+    "我按你的要求只读了现有正文，没有改动，也没有生成候选或保存。",
+    "本轮创作过程",
+    G2_FIRST_READ,
     "(value=已完成)",
   ].join("\n");
 }
@@ -465,7 +479,7 @@ function insertNativeCallRun(db, { g2 = false } = {}) {
   }
 }
 
-function buildDir({ withStrataUnloaded = true, screenshots = 3, usedRefs = ["observation:obs_1"], nativeCall = false, preregistration = false, scenarioId = null, g2 = false, g2Revision = 1, nativeScenarioId = null, message = AUTHOR, authorVisibleTarget = null, authorVisible = false } = {}) {
+function buildDir({ withStrataUnloaded = true, screenshots = 3, usedRefs = ["observation:obs_1"], nativeCall = false, preregistration = false, scenarioId = null, g2 = false, g2Revision = 1, nativeScenarioId = null, message = AUTHOR, authorVisibleTarget = null, authorVisible = false, readOnly = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-live-verify-"));
   // B82 作者可见批次只准备冻结目标/可见页面/监督/模型槽位；seed、DB、wire、
   // llm/app 日志都是应用内部信息，不能先写再删掉来证明判据没读它们。
@@ -499,7 +513,7 @@ function buildDir({ withStrataUnloaded = true, screenshots = 3, usedRefs = ["obs
     fs.writeFileSync(path.join(dir, "01-workbench.text.txt"), `${G2_VISIBLE_TARGET.work_title}\n等待创作请求\n`);
     fs.writeFileSync(path.join(dir, "02-reading-before.text.txt"), visibleReadingPage());
     fs.writeFileSync(path.join(dir, "after-input.text.txt"), visibleAfterInput(message));
-    fs.writeFileSync(path.join(dir, "final.text.txt"), visibleFinal(message));
+    fs.writeFileSync(path.join(dir, "final.text.txt"), readOnly ? visibleReadOnlyFinal(message) : visibleFinal(message));
     fs.writeFileSync(path.join(dir, "03-reading-after.text.txt"), visibleReadingPage());
   }
   writeJson(path.join(dir, "native-ui-complete.json"), {
@@ -610,7 +624,7 @@ function buildDir({ withStrataUnloaded = true, screenshots = 3, usedRefs = ["obs
     ...(authorVisible
       ? {
           author_visible_target: authorVisibleTarget,
-          author_visible_outcome: { kind: "pending_candidate" },
+          author_visible_outcome: { kind: readOnly ? "completed" : "pending_candidate" },
         }
       : {
           run: { status: "completed" },
@@ -768,6 +782,139 @@ test("B82 冻结 live：b82-g2 页面判据不生成也不读取 DB/wire", () =>
   assert.equal(summary.verdict.author_visible, "pass");
   assert.equal(summary.author_visible.observed.reading_complete, true);
   assert.equal(summary.author_visible.observed.pending_candidate, true);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// B82 G3 只读批次：自然只读原话、目标章一个真实范围页、本次完成且无候选/保存。
+test("B82 冻结 live：b82-g3 按自然只读原话/真实已读范围/完成态签页面", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g3",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    readOnly: true,
+    message: G3_MESSAGE,
+  });
+  const { checks, summary } = verifyLiveBatch(dir);
+  assert.equal(checks.author_visible.ok, true, checks.author_visible.failures.join(","));
+  assert.equal(checks.author_visible.observed.author_message, true);
+  assert.equal(checks.author_visible.observed.completed, true);
+  assert.equal(checks.author_visible.observed.reply_visible, true);
+  assert.equal(checks.author_visible.observed.reading_activity, true);
+  assert.deepEqual(checks.author_visible.observed.reading_range, {
+    start: 1,
+    end: 6000,
+    total: 7000,
+  });
+  assert.equal(checks.author_visible.observed.reading_unchanged, true);
+  assert.equal(checks.author_visible.observed.pending_candidate, false);
+  assert.equal(checks.author_visible.observed.save_action, false);
+  assert.deepEqual(checks.failed, []);
+  assert.equal(summary.scenario_id, "b82-g3");
+  assert.equal(summary.verdict.author_visible, "pass");
+  assert.equal(summary.verdict.full_g1_g6_signed, false);
+  assert(summary.not_signed.includes("g3_validation_result_not_signed"));
+  assert(summary.not_signed.includes("mechanism"));
+  assert.equal(summary.wait_ledger.kinds.includes("ack"), false, "B82 不要求 ack 分型");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g3 模型失败或等待时留证不签", () => {
+  for (const status of ["失败", "等待你回复"]) {
+    const dir = buildDir({
+      preregistration: true,
+      scenarioId: "b82-g3",
+      authorVisibleTarget: G2_VISIBLE_TARGET,
+      authorVisible: true,
+      readOnly: true,
+      message: G3_MESSAGE,
+    });
+    fs.writeFileSync(
+      path.join(dir, "final.text.txt"),
+      visibleReadOnlyFinal().replace("(value=已完成)", `(value=${status})`),
+    );
+    assert.throws(() => verifyLiveBatch(dir), /author_visible_outcome_not_completed/u);
+    const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+    assert.equal(summary.verdict.author_visible, "fail");
+    assert.equal(summary.author_visible.observed.completed, false);
+    assert(summary.author_visible.failures.includes("author_visible_outcome_not_completed"));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("B82 冻结 live：b82-g3 本次出现新候选或保存操作时拒绝", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g3",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    readOnly: true,
+    message: G3_MESSAGE,
+  });
+  fs.writeFileSync(
+    path.join(dir, "final.text.txt"),
+    visibleReadOnlyFinal().replace(
+      "(value=已完成)",
+      [
+        "第02章：灰烬中的手印（指定段落修订稿）",
+        "修订稿候选",
+        "保存修订稿",
+        "(value=已完成)",
+      ].join("\n"),
+    ),
+  );
+  assert.throws(() => verifyLiveBatch(dir), /unexpected_pending_candidate/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.author_visible.observed.pending_candidate, true);
+  assert.equal(summary.author_visible.observed.save_action, true);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g3 没有真实范围页时缺证并保留报告", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g3",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    readOnly: true,
+    message: G3_MESSAGE,
+  });
+  fs.writeFileSync(
+    path.join(dir, "final.text.txt"),
+    visibleReadOnlyFinal().replace(
+      G2_FIRST_READ,
+      "(value=已阅读章节正文「灰烬中的手印」（第 2 章）（有效字数 6244）。)",
+    ),
+  );
+  assert.throws(() => verifyLiveBatch(dir), /reading_range_missing/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.author_visible.observed.reading_activity, true);
+  assert.equal(summary.author_visible.observed.reading_range, null);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g3 旧回合候选不能代签本次只读完成", () => {
+  const dir = buildDir({
+    preregistration: true,
+    scenarioId: "b82-g3",
+    authorVisibleTarget: G2_VISIBLE_TARGET,
+    authorVisible: true,
+    readOnly: true,
+    message: G3_MESSAGE,
+  });
+  fs.writeFileSync(
+    path.join(dir, "final.text.txt"),
+    [
+      "第02章：灰烬中的手印（指定段落修订稿）",
+      "修订稿候选",
+      "保存修订稿",
+      visibleReadOnlyFinal(),
+    ].join("\n"),
+  );
+  const { summary } = verifyLiveBatch(dir);
+  assert.equal(summary.verdict.author_visible, "pass");
+  assert.equal(summary.author_visible.observed.pending_candidate, false);
+  assert.equal(summary.author_visible.observed.save_action, false);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

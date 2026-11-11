@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import {
+  authorVisibleScenario,
   capture,
   prepare,
   readConfig,
@@ -24,6 +25,7 @@ const DEFAULT_LIVE_MESSAGE =
   "先看看第01章现在的设定和正文，再按现有设定写一段更紧张的开场：主角在雨夜收到一封没有署名的信，生成待采纳的候选，先不要保存。";
 const G2_MESSAGE =
   "请先读第02章《灰烬中的手印》已经保存的正文，前后都核对一下，再把发现的重复写法改成一段候选给我看，先不要保存。";
+const G3_MESSAGE = "我想先安静读一遍第02章已经保存的正文，只核对，不改也不保存。";
 const G2_VISIBLE_TARGET = Object.freeze({
   work_title: "灰烬手印验证作品",
   chapter_title: "灰烬中的手印",
@@ -107,7 +109,7 @@ function visibleBatch() {
 }
 
 // 直接按封存预注册构造 live 配置：只含作者可见目标，不写 DB/work/session 身份。
-function writeVisibleConfig(dir) {
+function writeVisibleConfig(dir, { message = G2_MESSAGE } = {}) {
   const record = validatePreregistrationFile(path.join(dir, "preregistration.json"), { dir });
   writeJson(dir, "native-b71-config.json", {
     slice_id: "b71-first-consumer",
@@ -115,7 +117,7 @@ function writeVisibleConfig(dir) {
     provider: "strata",
     author_visible_target: G2_VISIBLE_TARGET,
     preregistration: { id: record.id, sha256: record.sha256, model: LIVE_MODEL },
-    message: G2_MESSAGE,
+    message,
   });
   return record;
 }
@@ -128,18 +130,19 @@ function preregistration(
     evidenceDir = dir,
     extraScenario = false,
     authorVisibleTarget = G2_VISIBLE_TARGET,
+    scenarioId = "b82-g2",
   } = {},
 ) {
   const scenario = {
-    id: "b82-g2",
+    id: scenarioId,
     ...(authorVisibleTarget ? { author_visible_target: authorVisibleTarget } : {}),
     message,
     evidence: { dir: evidenceDir },
   };
   writeJson(dir, "preregistration.json", {
-    id: "b82-g2-live-test",
+    id: `${scenarioId}-live-test`,
     model: { provider: "strata", model },
-    scenarios: extraScenario ? [scenario, { ...scenario, id: "b82-g2-extra" }] : [scenario],
+    scenarios: extraScenario ? [scenario, { ...scenario, id: `${scenarioId}-extra` }] : [scenario],
   });
 }
 
@@ -310,6 +313,59 @@ test("普通 live 批次只按冻结预注册副本取作者输入，不依赖 s
     });
     assert.equal(readConfig(dir).message, G2_MESSAGE);
     assert.deepEqual(readConfig(dir).author_visible_target, G2_VISIBLE_TARGET);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("作者可见场景判定：G2/G3 共用冻结目标契约，普通 live 不派生", () => {
+  assert.equal(authorVisibleScenario("b82-g2"), "candidate");
+  assert.equal(authorVisibleScenario("b82-g3"), "read_only");
+  assert.equal(authorVisibleScenario("b71-first-consumer"), null);
+  assert.equal(authorVisibleScenario(null), null);
+});
+
+test("G3 只读批次同样只按冻结作者可见目标建批，不依赖 seed/DB", () => {
+  const dir = visibleBatch();
+  try {
+    liveReady(dir);
+    preregistration(dir, { scenarioId: "b82-g3", message: G3_MESSAGE });
+    // 零 seed、零 DB：G3 与 G2 共用同一目标契约，不从内部作品/会话 ID 派生。
+    prepare(dir);
+    const config = readConfig(dir);
+    assert.equal(config.journey, "live");
+    assert.equal(config.scenario_id, "b82-g3");
+    assert.equal(config.message, G3_MESSAGE, "作者只读原话按冻结字节发送");
+    assert.equal(Object.hasOwn(config, "target"), false);
+    assert.equal(Object.hasOwn(config, "work_id"), false);
+    assert.equal(Object.hasOwn(config, "session_id"), false);
+    assert.deepEqual(config.author_visible_target, G2_VISIBLE_TARGET);
+    assert.equal(config.preregistration.id, "b82-g3-live-test");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("G3 作者可见目标同样受预注册哈希绑定，改写或补造都拒绝", () => {
+  const dir = visibleBatch();
+  try {
+    liveReady(dir);
+    preregistration(dir, { scenarioId: "b82-g3", message: G3_MESSAGE });
+    writeVisibleConfig(dir, { message: G3_MESSAGE });
+    const configPath = path.join(dir, "native-b71-config.json");
+    const original = JSON.parse(fs.readFileSync(configPath, "utf8"));
+
+    fs.writeFileSync(configPath, JSON.stringify({
+      ...original,
+      author_visible_target: { ...G2_VISIBLE_TARGET, reading_excerpt: "另一段原文" },
+    }, null, 2));
+    assert.throws(() => readConfig(dir), /作者可见目标与预注册不一致/);
+
+    fs.writeFileSync(configPath, JSON.stringify({
+      ...original,
+      author_visible_target: undefined,
+    }, null, 2));
+    assert.throws(() => readConfig(dir), /作者可见目标与预注册不一致/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

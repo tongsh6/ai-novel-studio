@@ -2,7 +2,10 @@
 // 采集 AX/WS/llm-calls/DB 证据与 Strata 单槽生命周期；不轮询固定回复文本、不假设
 // 工具调用次数、不修改产品 prompt。判据与本文件分离（authoring_live_evidence）。
 import path from "node:path";
-import { readConfig } from "./lib/native_ui/authoring_capture_evidence.mjs";
+import {
+  authorVisibleScenario,
+  readConfig,
+} from "./lib/native_ui/authoring_capture_evidence.mjs";
 import {
   NativeScenarioHarness,
   ROOT,
@@ -44,7 +47,7 @@ const TURN_TIMEOUT_MS = Number(process.env.B71_LIVE_TURN_TIMEOUT_MS ?? 360_000);
 const INPUT_TIMEOUT_MS = Number(process.env.B71_LIVE_INPUT_TIMEOUT_MS ?? 120_000);
 const READY_TIMEOUT_MS = Number(process.env.B71_LIVE_READY_TIMEOUT_MS ?? 180_000);
 
-// B82 G2 只按作者可见页面动作：作品名、章名、阅读原文、自然原话、可见终局。
+// B82 G2/G3 只按作者可见页面动作：作品名、章名、阅读原文、自然原话、可见终局。
 // 不读应用 DB、turn/run refs 或 wire 来推进；原始 wire/日志仍由外部代理采集供诊断。
 const excerptNode = (nodes, excerpt) =>
   nodes.find((node) => String(textOf(node)).includes(excerpt) && isVisibleNode(node)) ??
@@ -62,7 +65,7 @@ async function clickVisibleButton(name, title) {
   const observed = await harness.pollAx(
     (_text, nodes) => Boolean(visibleButton(nodes, title)),
     30_000,
-    `b82-g2:${name}:${title}`,
+    `b82-visible:${name}:${title}`,
   );
   harness.safeClick(visibleButton(observed.nodes, title), `${name}:${title}`);
 }
@@ -84,7 +87,7 @@ async function captureReadingPage(name, target) {
         );
       },
       60_000,
-      `b82-g2:${name}`,
+      `b82-visible:${name}`,
     );
     const failure = readingPageFailure(page.text, target);
     if (failure !== null) {
@@ -119,7 +122,7 @@ async function captureReadingPage(name, target) {
       (_text, nodes) => nodes.some((candidate) =>
         String(textOf(candidate)).includes(target.reading_excerpt) && isVisibleNode(candidate)),
       20_000,
-      `b82-g2:${name}:visible`,
+      `b82-visible:${name}:visible`,
     );
     harness.capture(name);
   });
@@ -132,7 +135,7 @@ async function closeReadingPage(name) {
     await harness.pollAx(
       (_text, nodes) => Boolean(visibleButton(nodes, "阅读")),
       30_000,
-      `b82-g2:${name}:closed`,
+      `b82-visible:${name}:closed`,
     );
   });
 }
@@ -144,25 +147,27 @@ async function waitAuthorMessageVisible(message) {
       return text.includes(message) && String(composer?.value ?? "").trim() === "";
     },
     45_000,
-    "b82-g2:author_message",
+    "b82-visible:author_message",
   );
 }
 
-async function waitVisibleOutcome(message) {
+async function waitVisibleOutcome(message, { candidateGrace = true } = {}) {
   const terminal = new Set(["pending_candidate", "waiting", "failed", "completed"]);
   const polled = await harness.tryPollAx(
     (text) => terminal.has(authorVisibleOutcome(text, { message }).kind),
     TURN_TIMEOUT_MS,
-    "b82-g2:outcome",
+    "b82-visible:outcome",
   );
   if (!polled) return { kind: "timeout", text: "" };
   const outcome = { ...authorVisibleOutcome(polled.text, { message }), text: polled.text };
   if (outcome.kind !== "completed") return outcome;
-  // 完成状态可能先于候选卡片渲染：只给可见页面一个有界候选等待，不引入 Why 耗时。
+  // 完成状态可能先于候选卡片渲染：G2 只给可见页面一个有界候选等待，不引入 Why 耗时。
+  // G3 是只读场景，完成即终局，不能等 G2 专用候选 grace。
+  if (!candidateGrace) return outcome;
   const candidate = await harness.tryPollAx(
     (text) => authorVisibleOutcome(text, { message }).kind === "pending_candidate",
     10_000,
-    "b82-g2:candidate_grace",
+    "b82-visible:candidate_grace",
   );
   return candidate
     ? { ...authorVisibleOutcome(candidate.text, { message }), text: candidate.text }
@@ -313,11 +318,14 @@ async function run() {
   const config = readConfig(dir);
   if (config.journey !== "live") throw new Error(`live driver 只接受 journey=live，实测: ${config.journey}`);
   if (config.provider !== "strata") throw new Error(`live driver 只接受 provider=strata，实测: ${config.provider}`);
-  // b82-g2 新批次必须有冻结的作者可见目标；旧缺 visible_target 的批次只能读旧报告。
-  const authorVisible = config.scenario_id === "b82-g2";
+  // b82-g2/b82-g3 新批次必须有冻结的作者可见目标；旧缺 visible_target 的批次只能读旧报告。
+  const visibleMode = authorVisibleScenario(config.scenario_id);
+  const authorVisible = visibleMode !== null;
   const visibleTarget = config.author_visible_target ?? null;
-  if (authorVisible && !visibleTarget) throw new Error("b82_g2_author_visible_target_missing");
-  const flowLabel = authorVisible ? "b82-g2" : "b71-live";
+  if (authorVisible && !visibleTarget) {
+    throw new Error(`${config.scenario_id}_author_visible_target_missing`);
+  }
+  const flowLabel = authorVisible ? config.scenario_id : "b71-live";
 
   const before = await readStrataState({ endpoint: strataEndpoint }).catch((error) => ({
     ok: false,
@@ -368,7 +376,7 @@ async function run() {
         waitAuthorMessageVisible(config.message),
       );
       const outcome = await harness.runStep("turn", "author_visible_outcome", () =>
-        waitVisibleOutcome(config.message),
+        waitVisibleOutcome(config.message, { candidateGrace: visibleMode !== "read_only" }),
       );
       // 先保留本次终局现场，再回阅读页核对已采纳正文未变；等待/失败也照实截证。
       harness.capture("final");
@@ -388,7 +396,7 @@ async function run() {
       };
       harness.writeDriverLog("native-b71-driver-log.json", driverLog);
       console.log(
-        `B82 G2 作者可见驱动完成: outcome=${outcome.kind} screenshots=${harness.screenshots.length}`,
+        `B82 ${config.scenario_id} 作者可见驱动完成: outcome=${outcome.kind} screenshots=${harness.screenshots.length}`,
       );
       return;
     }

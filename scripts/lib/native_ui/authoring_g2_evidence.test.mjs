@@ -9,6 +9,7 @@ import {
   g2PageEvidence,
   g2PageUsageEvidence,
   g2VisibleEvidence,
+  g3VisibleEvidence,
 } from "./authoring_g2_evidence.mjs";
 import { g2UsageReport } from "./authoring_run_evidence.mjs";
 
@@ -988,4 +989,185 @@ test("G2 旧回合候选不能签本次作者消息之后的空终局", () => {
   assert.equal(result.ok, false);
   assert(result.failures.includes("pending_candidate_missing"));
   assert.equal(result.observed.pending_candidate, false);
+});
+
+// ── B82 G3 只读作者可见判据：自然只读原话、真实已读范围、完成态与无新候选 ────────
+const G3_MESSAGE = "我想先安静读一遍第02章已经保存的正文，只核对，不改也不保存。";
+const G3_REPLY = "我按你的要求只读了现有正文，没有改动，也没有生成候选或保存。";
+const G3_FINAL_PAGE = [
+  VISIBLE_TARGET.work_title,
+  "你",
+  G3_MESSAGE,
+  "AI 助手",
+  G3_REPLY,
+  "本轮创作过程",
+  FIRST_READ,
+  "(value=已完成)",
+].join("\n");
+const G3_AFTER_INPUT = [
+  VISIBLE_TARGET.work_title,
+  "你",
+  G3_MESSAGE,
+  "AI 助手",
+  "(value=进行中 · 创作)",
+].join("\n");
+
+function g3Evidence(overrides = {}) {
+  return g3VisibleEvidence({
+    target: VISIBLE_TARGET,
+    message: G3_MESSAGE,
+    afterInputText: G3_AFTER_INPUT,
+    finalText: G3_FINAL_PAGE,
+    readingBeforeText: READING_PAGE,
+    readingAfterText: READING_PAGE,
+    ...overrides,
+  });
+}
+
+test("G3 作者可见正例：自然只读原话后有真实回复并完成，一个带范围的真实页即签", () => {
+  const result = g3Evidence();
+  assert.equal(result.ok, true, result.failures.join(","));
+  assert.equal(result.observed.author_message, true);
+  assert.equal(result.observed.after_input_has_message, true);
+  assert.equal(result.observed.outcome, "completed");
+  assert.equal(result.observed.completed, true);
+  assert.equal(result.observed.reply_visible, true);
+  assert.equal(result.observed.reading_activity, true);
+  assert.deepEqual(result.observed.reading_range, { start: 1, end: 6000, total: 7000 });
+  assert.equal(result.observed.reading_unchanged, true);
+  assert.equal(result.observed.pending_candidate, false);
+  assert.equal(result.observed.save_action, false);
+  assert.equal(result.observed.author_visible_clean, true);
+  assert.deepEqual(result.leak.hits, []);
+});
+
+test("G3 只要求至少一个真实范围页，不要求读完整个目标章", () => {
+  const lastPage = g3Evidence({ finalText: G3_FINAL_PAGE.replace(FIRST_READ, LAST_READ) });
+  assert.equal(lastPage.ok, true, lastPage.failures.join(","));
+  assert.deepEqual(lastPage.observed.reading_range, { start: 6001, end: 7000, total: 7000 });
+});
+
+test("G3 读活动没有可见范围时不签（有效字数不能代替真实页）", () => {
+  const result = g3Evidence({
+    finalText: G3_FINAL_PAGE.replace(
+      FIRST_READ,
+      "(value=已阅读章节正文「灰烬中的手印」（第 2 章）（有效字数 6244）。)",
+    ),
+  });
+  assert.equal(result.ok, false);
+  assert(result.failures.includes("reading_range_missing"));
+  assert.equal(result.observed.reading_activity, true);
+  assert.equal(result.observed.reading_range, null);
+});
+
+test("G3 没有任何目标章读活动时不签", () => {
+  const result = g3Evidence({
+    finalText: G3_FINAL_PAGE.split(`${FIRST_READ}\n`).join(""),
+  });
+  assert.equal(result.ok, false);
+  assert(result.failures.includes("reading_activity_missing"));
+  assert.equal(result.observed.reading_activity, false);
+});
+
+test("G3 本次失败或等待终局只留证不签", () => {
+  for (const [status, kind] of [["失败", "failed"], ["等待你回复", "waiting"]]) {
+    const result = g3Evidence({
+      finalText: G3_FINAL_PAGE.replace("(value=已完成)", `(value=${status})`),
+    });
+    assert.equal(result.ok, false, status);
+    assert.equal(result.observed.outcome, kind);
+    assert.equal(result.observed.completed, false);
+    assert(result.failures.includes("author_visible_outcome_not_completed"));
+  }
+});
+
+test("G3 只有完成状态或只有读活动、没有真实回复时不签", () => {
+  const result = g3Evidence({
+    finalText: [
+      VISIBLE_TARGET.work_title,
+      "你",
+      G3_MESSAGE,
+      "AI 助手",
+      "本轮创作过程",
+      FIRST_READ,
+      "(value=已完成)",
+    ].join("\n"),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.observed.reply_visible, false);
+  assert.equal(result.observed.reading_activity, true);
+  assert(result.failures.includes("author_reply_missing"));
+});
+
+test("G3 本次出现新候选或保存操作时拒绝", () => {
+  const result = g3Evidence({
+    finalText: G3_FINAL_PAGE.replace(
+      "(value=已完成)",
+      [
+        "第02章：灰烬中的手印（指定段落修订稿）",
+        "修订稿候选",
+        "保存修订稿",
+        "(value=已完成)",
+      ].join("\n"),
+    ),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.observed.pending_candidate, true);
+  assert.equal(result.observed.save_action, true);
+  assert(result.failures.includes("unexpected_pending_candidate"));
+  assert(result.failures.includes("unexpected_save_action"));
+});
+
+test("G3 回复里提到保存字样但没有可见保存控件时不算保存操作", () => {
+  const result = g3Evidence({
+    finalText: G3_FINAL_PAGE.replace(
+      G3_REPLY,
+      "我只读了正文，不会保存修订稿，也没有生成候选。",
+    ),
+  });
+  assert.equal(result.ok, true, result.failures.join(","));
+  assert.equal(result.observed.save_action, false);
+  assert.equal(result.observed.pending_candidate, false);
+});
+
+test("G3 旧回合候选不在本回合，不影响只读完成判定", () => {
+  const result = g3Evidence({
+    finalText: [
+      "第02章：灰烬中的手印（指定段落修订稿）",
+      "修订稿候选",
+      "保存修订稿",
+      G3_FINAL_PAGE,
+    ].join("\n"),
+  });
+  assert.equal(result.ok, true, result.failures.join(","));
+  assert.equal(result.observed.pending_candidate, false);
+  assert.equal(result.observed.save_action, false);
+});
+
+test("G3 缺当前作者原话时不用整页旧状态或旧候选", () => {
+  const result = g3Evidence({
+    finalText: G3_FINAL_PAGE.split(`${G3_MESSAGE}\n`).join(""),
+  });
+  assert.equal(result.ok, false);
+  assert(result.failures.includes("author_message_visible_missing"));
+  assert.equal(result.observed.author_message, false);
+  assert.equal(result.observed.completed, false);
+});
+
+test("G3 阅读内容改变或泄漏内部词时不签", () => {
+  const changed = g3Evidence({
+    readingAfterText: READING_PAGE.replace(
+      "灰烬从指缝里漏下去，井底的风把纸灰卷成一条细线。",
+      "灰烬从指缝里漏下去，井底的风把纸灰卷成一条细线。（正文被改）",
+    ),
+  });
+  assert.equal(changed.ok, false);
+  assert(changed.failures.includes("reading_changed"));
+
+  const leaked = g3Evidence({
+    finalText: `${G3_FINAL_PAGE}\n本轮读取由 call_id 关联。`,
+  });
+  assert.equal(leaked.ok, false);
+  assert(leaked.failures.includes("author_visible_internal_token_leak"));
+  assert(leaked.leak.hits.some((hit) => hit.token === "call_id"));
 });

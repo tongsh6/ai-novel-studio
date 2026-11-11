@@ -19,14 +19,14 @@ import {
   withDb,
   writeNativeFrames,
 } from "./scenario_evidence.mjs";
-import { readConfig } from "./authoring_capture_evidence.mjs";
+import { authorVisibleScenario, readConfig } from "./authoring_capture_evidence.mjs";
 import {
   bindNativeCalls,
   g2CandidateReport,
   g2PageReport,
   g2UsageReport,
 } from "./authoring_run_evidence.mjs";
-import { g2VisibleEvidence } from "./authoring_g2_evidence.mjs";
+import { g2VisibleEvidence, g3VisibleEvidence } from "./authoring_g2_evidence.mjs";
 import {
   NATIVE_CHAT_WIRE,
   requestFactsFromRecord,
@@ -599,14 +599,14 @@ function visibleTextIfExists(dir, name) {
   return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
 }
 
-// B82 G2 新批次：页面只看作者可见文本，不跑内部 ref/版本/DB/wire 对账。
+// B82 G2/G3 新批次：页面只看作者可见文本，不跑内部 ref/版本/DB/wire 对账。
 // 截图来源、驱动与等待账仍由既有 assertCommonEvidence 核对；真实模型单槽仍由
 // strata-slot 核对。原始 wire/llm-calls/DB 保持原样，供独立诊断，不参与页面通过。
-function verifyAuthorVisibleBatch(dir, config) {
+function verifyAuthorVisibleBatch(dir, config, mode) {
   const target = config.author_visible_target;
   assert(
     target,
-    "b82-g2 缺少冻结的作者可见目标；旧缺 visible_target 的批次只能读取既有报告，不能重新签页面",
+    `${config.scenario_id} 缺少冻结的作者可见目标；旧缺 visible_target 的批次只能读取既有报告，不能重新签页面`,
   );
   const common = assertCommonEvidence(dir, {
     sliceId: config.slice_id,
@@ -624,14 +624,17 @@ function verifyAuthorVisibleBatch(dir, config) {
   if (config.preregistration?.model) {
     assert.equal(strataSlot.model, config.preregistration.model, "strata 单槽模型与冻结模型不一致");
   }
-  const visible = g2VisibleEvidence({
+  const evidenceInput = {
     target,
     message: config.message,
     afterInputText: visibleTextIfExists(dir, "after-input"),
     finalText: visibleTextIfExists(dir, "final"),
     readingBeforeText: visibleTextIfExists(dir, "02-reading-before"),
     readingAfterText: visibleTextIfExists(dir, "03-reading-after"),
-  });
+  };
+  const visible = mode === "read_only"
+    ? g3VisibleEvidence(evidenceInput)
+    : g2VisibleEvidence(evidenceInput);
   const checks = {
     schema: LIVE_CHECKS_SCHEMA,
     scenario_id: config.scenario_id,
@@ -645,12 +648,18 @@ function verifyAuthorVisibleBatch(dir, config) {
       model,
       surface: "tauri-native",
       driver: "ax-native-system-ui",
+      scenario_mode: mode,
       screenshots: common.ui.screenshots,
       wait_ledger: common.ledger,
       visible_texts: ["after-input", "final", "02-reading-before", "03-reading-after"],
       strata_slot: strataSlot,
     },
-    not_signed: ["mechanism", "I10_literary_quality_not_signed"],
+    not_signed: [
+      "mechanism",
+      "I10_literary_quality_not_signed",
+      // G3 的失败校验/紧邻请求/预算技术对账由独立工作单元接；页面判据不代签。
+      ...(mode === "read_only" ? ["g3_validation_result_not_signed"] : []),
+    ],
   };
   const summary = {
     slice_id: config.slice_id,
@@ -680,9 +689,9 @@ function verifyAuthorVisibleBatch(dir, config) {
   // 报告先落盘再失败，缺证原因保留在 author_visible.failures。
   assert(
     visible.ok,
-    `B82 §7 G2 作者可见证据未成立: ${visible.failures.join(", ")}`,
+    `B82 ${config.scenario_id} 作者可见证据未成立: ${visible.failures.join(", ")}`,
   );
-  console.log("B82 §7 G2 作者可见判据通过");
+  console.log(`B82 ${config.scenario_id} 作者可见判据通过`);
   return { checks, summary };
 }
 
@@ -690,8 +699,9 @@ export function verifyLiveBatch(dir) {
   const config = readConfig(dir);
   assert.equal(config.journey, "live", "live verifier 只接受 journey=live");
   assert.equal(config.provider, "strata", "live verifier 只接受 provider=strata");
-  // b82-g2 新批次只签作者可见页面；内部对账/旧 G2 报告保留为独立诊断，不再同步卡 UI。
-  if (config.scenario_id === "b82-g2") return verifyAuthorVisibleBatch(dir, config);
+  // b82-g2/b82-g3 新批次只签作者可见页面；内部对账/旧 G2 报告保留为独立诊断，不再同步卡 UI。
+  const visibleMode = authorVisibleScenario(config.scenario_id);
+  if (visibleMode !== null) return verifyAuthorVisibleBatch(dir, config, visibleMode);
   // live 驱动的固定等待步：launch_app/workbench_ready/select_work/input_ready/
   // author_creation_request/user_message_ack/live_run_terminal = 7 条（Why 触发再加）。
   // 不能沿用 pending/revision 的 8 条门槛，否则会把正常 live 路径误杀；6 条已覆盖

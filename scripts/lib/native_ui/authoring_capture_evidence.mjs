@@ -112,7 +112,20 @@ const AUTO_MAINTENANCE_REQUESTS = Object.freeze([
 const PREREGISTRATION_FILE = "preregistration.json";
 const AUTHOR_VISIBLE_TARGET_FIELDS = Object.freeze(["work_title", "chapter_title", "reading_excerpt"]);
 
-// B82 G2 新运行的作者可见目标：只校验真实可见作品名/章名/阅读原文为非空字符串。
+// B82 已冻结的作者可见场景：G2/G3 共享同一 author_visible_target 契约（同样 3 个
+// 字段、同一份预注册哈希与目标绑定）。这里是选择作者可见入口的唯一判定；普通 live
+// 与其它场景返回 null，保持原行为。
+const AUTHOR_VISIBLE_SCENARIO_MODES = Object.freeze({
+  "b82-g2": "candidate",
+  "b82-g3": "read_only",
+});
+
+export const authorVisibleScenario = (scenarioId) =>
+  typeof scenarioId === "string"
+    ? (AUTHOR_VISIBLE_SCENARIO_MODES[scenarioId] ?? null)
+    : null;
+
+// B82 作者可见新运行的冻结目标：只校验真实可见作品名/章名/阅读原文为非空字符串。
 // 旧预注册缺该字段仍可做通用哈希诊断；只有 prepare 会以 requireAuthorVisibleTarget
 // 拒绝新驱动，历史批次保持只读可查。
 function readAuthorVisibleTarget(scenario, { require = false } = {}) {
@@ -120,7 +133,7 @@ function readAuthorVisibleTarget(scenario, { require = false } = {}) {
   if (value === undefined) {
     assert(
       !require,
-      "预注册 scenarios[0].author_visible_target 不能为空（b82-g2 新运行必须冻结作者可见目标）",
+      "预注册 scenarios[0].author_visible_target 不能为空（b82-g2/b82-g3 新运行必须冻结作者可见目标）",
     );
     return null;
   }
@@ -207,8 +220,8 @@ export function validatePreregistrationFile(
   // G2 专项标识只从已验证哈希的冻结输入派生；缺省保持普通 live 行为。
   const scenarioId =
     typeof scenario.id === "string" && scenario.id.trim() !== "" ? scenario.id : null;
-  // 作者可见目标只属于 b82-g2；其它场景即使带同名字段也不改变入口行为。
-  const authorVisibleTarget = scenarioId === "b82-g2"
+  // 作者可见目标只属于已冻结的 b82-g2/b82-g3；其它场景即使带同名字段也不改变入口行为。
+  const authorVisibleTarget = authorVisibleScenario(scenarioId)
     ? readAuthorVisibleTarget(scenario, { require: requireAuthorVisibleTarget })
     : null;
   return {
@@ -242,8 +255,8 @@ function checkPreregistration(dir, config) {
   assert.equal(marker.sha256, record.sha256, "预注册文件已被篡改");
   assert.equal(config.message, record.message, "配置作者输入与预注册不一致");
   // B82 作者可见目标与作者输入一起封存在同一份预注册哈希里；旧批次缺字段时
-  // 保持历史可读，但新批次必须有冻结来源，且配置副本不得被改写或补造。
-  if (record.scenario_id === "b82-g2") {
+  // 保持历史可读，但 G2/G3 新批次必须有冻结来源，且配置副本不得被改写或补造。
+  if (authorVisibleScenario(record.scenario_id)) {
     if (record.author_visible_target) {
       assert.deepEqual(
         config.author_visible_target,
@@ -266,7 +279,7 @@ export function readConfig(dir) {
   // 配置文件自带的 scenario_id/作者可见目标可伪造，一律丢弃；只保留哈希验证后的冻结值。
   const sealed = { ...config };
   delete sealed.scenario_id;
-  if (record?.scenario_id === "b82-g2") {
+  if (authorVisibleScenario(record?.scenario_id)) {
     delete sealed.author_visible_target;
     if (record.author_visible_target) sealed.author_visible_target = record.author_visible_target;
   }

@@ -557,19 +557,23 @@ const activityForChapter = (line, chapter) => {
 
 // 本次回合的可见读证：只用同次实际可见的范围从 1 连续覆盖到一致 total。
 // 未标范围的读活动（生产首页目前只显示有效字数）不填缺口，单次 1..total 才算完整。
+// G2 要求整章覆盖；G3 只要求至少一个真实范围，因此范围合法性单独复用。
+function rangesValid(ranges) {
+  if (ranges.length === 0) return false;
+  const totals = new Set(ranges.map((range) => range.total));
+  if (totals.size !== 1) return false;
+  const [total] = totals;
+  return (
+    total > 0 &&
+    ranges.every((range) => range.start >= 1 && range.end >= range.start && range.end <= total)
+  );
+}
+
 function readingActivityReason(activities) {
   if (activities.length === 0) return "reading_activity_missing";
   const ranges = activities.map((activity) => activity.range).filter(Boolean);
-  if (ranges.length === 0) return "reading_not_complete";
-  const totals = new Set(ranges.map((range) => range.total));
-  if (totals.size !== 1) return "reading_not_complete";
-  const [total] = totals;
-  if (
-    total <= 0 ||
-    ranges.some((range) => range.start < 1 || range.end < range.start || range.end > total)
-  ) {
-    return "reading_not_complete";
-  }
+  if (!rangesValid(ranges)) return "reading_not_complete";
+  const [total] = new Set(ranges.map((range) => range.total));
   let covered = 0;
   for (const range of [...ranges].sort((left, right) => left.start - right.start)) {
     if (range.start > covered + 1) return "reading_not_complete";
@@ -578,9 +582,9 @@ function readingActivityReason(activities) {
   return covered === total ? null : "reading_not_complete";
 }
 
-// 页面通过只看：真实作者消息可见、本次可见读证覆盖完整章、阅读前后完整同页文本
-// 未变、同章局部「指定段落修订稿」待采纳候选可见、应用输出未泄漏技术术语/编号。
-export function g2VisibleEvidence({
+// 共享的作者可见页面表面：冻结目标、本次作者消息之后的本回合、前后完整阅读页与
+// 内部词扫描。G2/G3 只在这层之上追加各自终局判据，不复制阅读页/作者消息/泄漏判定。
+function visiblePageSurface({
   target,
   message,
   afterInputText,
@@ -588,7 +592,7 @@ export function g2VisibleEvidence({
   readingBeforeText,
   readingAfterText,
   tokens,
-} = {}) {
+}) {
   const observed = {
     author_message: false,
     after_input_has_message: false,
@@ -596,10 +600,6 @@ export function g2VisibleEvidence({
     reading_excerpt_before: false,
     reading_excerpt_after: false,
     reading_unchanged: false,
-    reading_complete: false,
-    pending_candidate: false,
-    candidate_same_chapter: false,
-    author_visible_clean: false,
   };
   const failures = [];
   const targetOk =
@@ -608,7 +608,6 @@ export function g2VisibleEvidence({
   const expected = targetOk ? target : null;
   const chapter = expected ? parseChapterLabel(expected.chapter_title) : null;
   if (expected && !chapter) failures.push("chapter_label_incomplete");
-  const afterInput = text(afterInputText);
   const final = text(finalText);
   const before = text(readingBeforeText);
   const after = text(readingAfterText);
@@ -619,7 +618,7 @@ export function g2VisibleEvidence({
   const currentTurn = messageIndex >= 0 ? final.slice(messageIndex + message.length) : "";
 
   // 页面判定只认当前 final AX 里的作者消息；after-input 只留作提交诊断。
-  observed.after_input_has_message = nonBlank(message) && afterInput.includes(message);
+  observed.after_input_has_message = nonBlank(message) && text(afterInputText).includes(message);
   observed.author_message = nonBlank(message) && final.includes(message);
   if (!observed.author_message) failures.push("author_message_visible_missing");
 
@@ -639,6 +638,73 @@ export function g2VisibleEvidence({
     if (beforeReason === null && afterReason === null && !observed.reading_unchanged) {
       failures.push("reading_changed");
     }
+  }
+
+  const scan = checkAuthorVisibleTexts({ visibleText: currentTurn, tokens });
+  return { observed, failures, expected, chapter, final, currentTurn, scan };
+}
+
+const NON_REPLY_LINES = Object.freeze(["你", "AI 助手", "本轮创作过程"]);
+
+// 真实回复只看作者消息、状态行、AX 角色/分区标签与读活动之外的本回合可见内容；
+// 只有状态徽标（哪怕显示「已完成」）或只有工具读活动都不算模型给作者的回复。
+function replyVisible(currentTurn) {
+  return currentTurn.split(/\r?\n/u).some((line) => {
+    const trimmed = line.trim();
+    return (
+      trimmed !== "" &&
+      !NON_REPLY_LINES.includes(trimmed) &&
+      !line.includes(READ_ACTIVITY_MARKER) &&
+      statusLineKind(line) === null
+    );
+  });
+}
+
+const hasPendingCandidate = (currentTurn) =>
+  currentTurn.includes(LOCAL_REVISION_SUFFIX) ||
+  (currentTurn.includes(LOCAL_REVISION_TITLE) &&
+    PENDING_REVISION_STATES.some((label) => currentTurn.includes(label)));
+
+// 保存操作只认独立可见控件行，不把模型回复里「不会保存修订稿」这类说明当成操作。
+const hasSaveAction = (currentTurn) =>
+  currentTurn
+    .split(/\r?\n/u)
+    .some((line) => PENDING_REVISION_ACTIONS.includes(line.trim()));
+
+// G2：真实作者消息可见、本次可见读证覆盖完整章、阅读前后完整同页文本未变、
+// 同章局部「指定段落修订稿」待采纳候选可见、应用输出未泄漏技术术语/编号。
+export function g2VisibleEvidence({
+  target,
+  message,
+  afterInputText,
+  finalText,
+  readingBeforeText,
+  readingAfterText,
+  tokens,
+} = {}) {
+  const surface = visiblePageSurface({
+    target,
+    message,
+    afterInputText,
+    finalText,
+    readingBeforeText,
+    readingAfterText,
+    tokens,
+  });
+  const failures = surface.failures;
+  const scan = surface.scan;
+  const observed = {
+    ...surface.observed,
+    reading_complete: false,
+    pending_candidate: false,
+    candidate_same_chapter: false,
+    author_visible_clean: scan.ok,
+  };
+
+  if (surface.expected) {
+    const expected = surface.expected;
+    const chapter = surface.chapter;
+    const currentTurn = surface.currentTurn;
     // 候选标题行必须同时带完整目标章标签和「（指定段落修订稿）」；只用本次回合。
     const candidateLines = currentTurn
       .split(/\r?\n/u)
@@ -668,8 +734,72 @@ export function g2VisibleEvidence({
     failures.push("pending_candidate_missing");
   }
 
-  const scan = checkAuthorVisibleTexts({ visibleText: currentTurn, tokens });
-  observed.author_visible_clean = scan.ok;
+  if (!scan.ok) failures.push("author_visible_internal_token_leak");
+
+  return {
+    ok: failures.length === 0,
+    reason: failures[0] ?? null,
+    failures,
+    observed,
+    leak: { ok: scan.ok, hits: scan.hits.map(({ token, kind }) => ({ token, kind })) },
+  };
+}
+
+// G3：本次只读原话之后出现真实回复且 completed；实际可见目标章至少一个带范围的
+// 真实页（不要求全章）；前后阅读内容一致；本回合没有新候选或保存操作。
+export function g3VisibleEvidence({
+  target,
+  message,
+  afterInputText,
+  finalText,
+  readingBeforeText,
+  readingAfterText,
+  tokens,
+} = {}) {
+  const surface = visiblePageSurface({
+    target,
+    message,
+    afterInputText,
+    finalText,
+    readingBeforeText,
+    readingAfterText,
+    tokens,
+  });
+  const failures = surface.failures;
+  const scan = surface.scan;
+  const currentTurn = surface.currentTurn;
+  const outcome = authorVisibleOutcome(surface.final, { message });
+  const observed = {
+    ...surface.observed,
+    outcome: outcome.kind,
+    completed: outcome.kind === "completed",
+    reply_visible: replyVisible(currentTurn),
+    reading_activity: false,
+    reading_range: null,
+    pending_candidate: hasPendingCandidate(currentTurn),
+    save_action: hasSaveAction(currentTurn),
+    author_visible_clean: scan.ok,
+  };
+
+  if (observed.author_message) {
+    if (!observed.completed) failures.push("author_visible_outcome_not_completed");
+    if (!observed.reply_visible) failures.push("author_reply_missing");
+  }
+
+  if (surface.chapter) {
+    const activities = currentTurn
+      .split(/\r?\n/u)
+      .map((line) => activityForChapter(line, surface.chapter))
+      .filter(Boolean);
+    const ranges = activities.map((activity) => activity.range).filter(Boolean);
+    observed.reading_activity = activities.length > 0;
+    observed.reading_range = ranges[0] ?? null;
+    if (activities.length === 0) failures.push("reading_activity_missing");
+    else if (!rangesValid(ranges)) failures.push("reading_range_missing");
+  }
+
+  if (observed.pending_candidate) failures.push("unexpected_pending_candidate");
+  if (observed.save_action) failures.push("unexpected_save_action");
   if (!scan.ok) failures.push("author_visible_internal_token_leak");
 
   return {
