@@ -1,7 +1,7 @@
 // AUTO-GENERATED FROM docs/design/schemas/author_visible/display_names.json — DO NOT EDIT.
 // Run `pnpm codegen:author-visible` to regenerate. Author-visible surfaces must only use these display names.
 
-export const SOURCE_HASH = "145f0449c282dc318d621f93512f57f383f79c27adc77ff26ae827371d686d91";
+export const SOURCE_HASH = "f9ea978f7d75a72bdf31a07a0f4858f83cb9ab92a69c8c798ac4b83da9f09a7c";
 
 export const DISPLAY_NAMES = {
   "action": {
@@ -293,6 +293,8 @@ export const FORBIDDEN_TOKENS = {
 ],
   ref_patterns: [
   "(?:character|chapter|work|artifact|trace|pcall|prun|pevt|turn|run|draft):[0-9A-Za-z_-]{6,}",
+  "\\bseg_[0-9]+_[0-9a-f]{12}\\b",
+  "\\btarget_segment_ids\\b",
 ],
 } as const;
 

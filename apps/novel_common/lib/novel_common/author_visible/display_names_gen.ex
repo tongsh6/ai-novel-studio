@@ -7,7 +7,7 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
   只允许通过 `NovelCommon.AuthorVisible.Display` 查询；作者可见面不得直接使用内部 code。
   """
 
-  @source_hash "145f0449c282dc318d621f93512f57f383f79c27adc77ff26ae827371d686d91"
+  @source_hash "f9ea978f7d75a72bdf31a07a0f4858f83cb9ab92a69c8c798ac4b83da9f09a7c"
 
   @domains %{
     "action" => %{
@@ -286,7 +286,9 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
       "provider_call_ref"
     ],
     "ref_patterns" => [
-      "(?:character|chapter|work|artifact|trace|pcall|prun|pevt|turn|run|draft):[0-9A-Za-z_-]{6,}"
+      "(?:character|chapter|work|artifact|trace|pcall|prun|pevt|turn|run|draft):[0-9A-Za-z_-]{6,}",
+      "\\bseg_[0-9]+_[0-9a-f]{12}\\b",
+      "\\btarget_segment_ids\\b"
     ]
   }
 

@@ -38,6 +38,25 @@ test("应用文案命中内部 code / 术语 / ref 时报告命中", () => {
   assert.ok(tokens.includes("artifact:abc123def"));
 });
 
+test("B36 真实段 ID 与模型专用 target_segment_ids 命中，普通段号/正文称呼不误报", () => {
+  const leaked = scanAuthorVisibleTexts([
+    "当前段：seg_12_4f3a9c0b1d2e",
+    'target_segment_ids: ["seg_0_0123456789ab"]',
+  ]);
+
+  assert.equal(leaked.ok, false);
+  const tokens = leaked.hits.map((hit) => hit.token);
+  assert.ok(tokens.includes("seg_12_4f3a9c0b1d2e"));
+  assert.ok(tokens.includes("target_segment_ids"));
+
+  const clean = scanAuthorVisibleTexts([
+    "只改第三段，其余保持原样。",
+    "他把开头那段重新抄了一遍，又接着写第二段。",
+  ]);
+
+  assert.equal(clean.ok, true, JSON.stringify(clean.hits));
+});
+
 test("作者可读文案零命中", () => {
   const result = scanAuthorVisibleTexts([
     "已取消等待；这项操作不会执行，也没有写入作品事实。",

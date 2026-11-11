@@ -295,7 +295,9 @@
       "[stub]"
     ],
     "ref_patterns": [
-      "(?:character|chapter|work|artifact|trace|pcall|prun|pevt|turn|run|draft):[0-9A-Za-z_-]{6,}"
+      "(?:character|chapter|work|artifact|trace|pcall|prun|pevt|turn|run|draft):[0-9A-Za-z_-]{6,}",
+      "\\bseg_[0-9]+_[0-9a-f]{12}\\b",
+      "\\btarget_segment_ids\\b"
     ]
   }
 }
