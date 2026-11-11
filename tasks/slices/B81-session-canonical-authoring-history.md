@@ -665,3 +665,9 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 原则核对：SRP/SoC 由步骤入口负责生命周期、会话历史模块负责组装、持久层负责段提交，Wire 仍由 Provider 投影负责。OCP/LSP 保持三类投影使用同一 Request IR 和同一调用号语义，专业阶段不逐一追加分支。ISP/DIP/LoD 保留现有读端口与层间方向，Provider 无须读取会话表或了解执行段。CRP/DRY 通过现有步骤与历史组合复用规则。KISS/YAGNI 暂不加会话副本、版本兼容或另一个压缩触发器。
 
 例：旧 run 已完成 `call-1` 至 `call-5`，本 run 的 checkpoint 只覆盖 `call-1`。专业阶段仍可把该会话投影给模型，旧作者原话与 `call-2` 保留，被覆盖的 `call-1` 交换只保留在 canonical。反例：Provider 在下一 run 重用一个原生调用号，判断返回与 canonical 落段必须引用同一个新号，原生号单独保留；也不能因历史作者文字与新输入完全一样而剥掉本次作者回合。
+
+**交错续行专项预注册。** `b81-interleave-tail-01` 沿用版本专项 02 的第 1 章五题和第 2 章已采纳正文请求。使用现有真实 Tauri 工作台、`seed_judgment_explore_chapter_full_read.exs`、Strata 单槽 `iq3_s` 和既有批次窗口 `strata:4096`。A 回答四题后保留第五题，B 在同会话发起新讨论，随后返回原题恢复 A。若 A 完成并提交最后一次整理，从页面发送一条作者续问，要求按已核对的内容重述最后选择。续问只发送一次，若模型提问则沿用现有按实见选项作答和六次回答上限。沿用正式 C5/C6 判据，按同会话首个 `started` 绑定实际请求体和精确覆盖，按 SQLite 核对每个覆盖调用与结果的原序。交错专项仍独立核对 A 的问题、ACK、恢复请求和保留观察。重启与故障恢复的证据使用 `b81-c7-c8-03`，主 runner 仍报告 C1–C11 的原有结果。
+
+**交错续行实模结果。** `b81-interleave-tail-01` 的外部 AX 驱动完成三次作者发送，共 9 次 Strata 调用。SQLite 记录 B 的 checkpoint 序号 27 和 A 的 checkpoint 序号 33。A 回答原题后，同一 run 的首个恢复请求 `pcall_mwbj11dv_75` 保留 5 对未覆盖交换、7 条原作者消息、当前 scope 和带来源版本的正文观察。A 完成后，第三次作者发送的首个请求 `pcall_mwbj18zb_a0` 与同一会话的 `started` 和新 run 精确绑定，原生报文携带 27、33 的精确覆盖，两个被覆盖交换均未重放。正式 C5/C6 和交错恢复专项均通过，Strata 槽已卸载。本批未执行重启和故障注入，主 runner 按 C7/C8 缺证退出 1，独立重启及故障证据见 `b81-c7-c8-03`。本批 C9 通过，先前复现仍由 B86 跟踪。证据在 `artifacts/slice-verify/b71-first-consumer-auto-maint-b81-interleave-tail-01/summary.json`。
+
+同一第三轮报文按 SQLite 会话顺序独立核对，保留 4 对未覆盖交换、8 条作者消息及当前 scope，原文和观察字段与 canonical 一致。对账在 `artifacts/b81-review/live-interleave-tail-01-last-wire-canonical.log`。真实 Tauri 规划入口的确定性批次 `b81-professional-planning-01` 通过 24 项判据，覆盖起草、重规划、同 run 两类候选与 Why 页面。

@@ -1447,6 +1447,20 @@ async function runInterleavedResume(report) {
   result.resume = await settleAuthorRun({ runId: a.run_id, text: "保留悬念" });
   result.stop_reason = result.resume.reason;
   harness.capture("interleaved-a-resumed");
+
+  // A 可能在恢复的最后一个安全点追加 checkpoint，完成后已无同 run 请求。
+  if (settlementOf(result.resume.last).completed && latestCheckpointRunId() === a.run_id) {
+    const index = nextRequestIndex(report.requests);
+    const nextRequest = await sendRequest(
+      index,
+      "请根据刚才已经核对的内容，用一句话重述我最后选择的处理方式。不再查新资料，也不修改作品。",
+      { settlePaused: true },
+    );
+    report.requests.push(nextRequest);
+    report.next_request = nextRequest;
+    harness.capture("after-next-request");
+    runEvidenceMode(evidence, "capture", dir, ["after-next-request"]);
+  }
 }
 
 async function run() {
