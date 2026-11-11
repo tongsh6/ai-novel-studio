@@ -17,6 +17,14 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(scriptDir, "..");
 const args = parseArgs(process.argv.slice(2));
 const staleToleranceMs = 2_000;
+// 只承认当前原生验收生产者显式写出的 surface + driver 组合；surface 字符串本身不代签。
+const nativeSurfaces = new Set(["tauri", "tauri-native"]);
+const nativeDrivers = new Set([
+  "ax-native-system-ui",
+  "cua-native-system-ui",
+  "macos-cgevent",
+  "macos-cgevent-plan-matrix",
+]);
 
 try {
   if (args["ui-required"]) {
@@ -177,8 +185,20 @@ function checkManifest() {
     }
 
     const summary = readJson(summaryPath);
-    if (summary.surface !== "tauri") {
-      throw new Error(`task-done: UI summary must come from Tauri surface: ${normalizePath(summaryPath)}`);
+    const problem = nativeUiProblem(
+      summary,
+      path.dirname(summaryPath),
+      optionalString(manifest.ui?.slice_id),
+    );
+    if (problem) {
+      throw new Error(
+        [
+          "task-done: UI summary is not accepted native evidence.",
+          `summary=${normalizePath(summaryPath)}`,
+          `reason=${problem}`,
+          "Use a current native summary (surface=tauri/tauri-native, explicit AX/CUA/macos-cgevent driver, no failure) for this slice.",
+        ].join("\n"),
+      );
     }
   }
 
@@ -290,21 +310,90 @@ function findLatestUiSummary() {
     return null;
   }
 
+  const expectedSliceId = optionalString(args["slice-id"]);
   return readdirSync(sliceVerifyDir, { recursive: true })
-    .filter((entry) => entry.endsWith("summary.json"))
+    .filter((entry) => path.basename(entry) === "summary.json")
     .map((entry) => path.join(sliceVerifyDir, entry))
     .filter(existsSync)
-    .filter(isTauriSummary)
+    .filter((file) => acceptedNativeUiSummary(file, expectedSliceId))
     .sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs)
     .map(normalizePath)[0] ?? null;
 }
 
-function isTauriSummary(file) {
+function acceptedNativeUiSummary(file, expectedSliceId) {
   try {
-    return readJson(file).surface === "tauri";
+    return nativeUiProblem(readJson(file), path.dirname(file), expectedSliceId) === null;
   } catch {
     return false;
   }
+}
+
+// 显式摘要与 latest 选择共用同一判据，避免两条路径对“原生通过”给出不同答案。
+function nativeUiProblem(summary, dir, expectedSliceId = null) {
+  if (!nativeSurfaces.has(summary.surface)) {
+    return `surface=${JSON.stringify(summary.surface)} is not tauri/tauri-native`;
+  }
+
+  if (!nativeDrivers.has(summary.driver)) {
+    return `driver=${JSON.stringify(summary.driver)} is not an explicit native driver`;
+  }
+
+  const failure = explicitFailure(summary, dir);
+  if (failure) {
+    return failure;
+  }
+
+  if (expectedSliceId && summary.slice_id !== expectedSliceId) {
+    return `slice_id=${JSON.stringify(summary.slice_id)} does not match ${JSON.stringify(expectedSliceId)}`;
+  }
+
+  // 现代 tauri-native runner 都会落 native-ui-complete.json；缺它、driver 不一致或
+  // scope 与 summary.slice_id 不一致都说明来源未证明，不能只凭 surface 字符串代签。
+  // 老 tauri 归档允许没有该文件，但一旦存在就必须与 summary 的 driver 一致。
+  const completePath = path.join(dir, "native-ui-complete.json");
+  if (summary.surface === "tauri-native" && !existsSync(completePath)) {
+    return "native-ui-complete.json is missing";
+  }
+  if (existsSync(completePath)) {
+    const complete = readJson(completePath);
+    if (!nativeDrivers.has(complete.driver) || complete.driver !== summary.driver) {
+      return `native-ui-complete.json driver=${JSON.stringify(complete.driver)} does not match summary driver=${JSON.stringify(summary.driver)}`;
+    }
+    if (summary.surface === "tauri-native" && complete.scope !== summary.slice_id) {
+      return `native-ui-complete.json scope=${JSON.stringify(complete.scope)} does not match summary slice_id=${JSON.stringify(summary.slice_id)}`;
+    }
+  }
+
+  return null;
+}
+
+// 只读取现役 producer 真实写出的失败字段；未在真实归档出现的形状不猜。
+function explicitFailure(summary, dir) {
+  if (existsSync(path.join(dir, "failure.json"))) {
+    return "failure.json is present";
+  }
+  if (summary.all_checks_passed === false) {
+    return "all_checks_passed=false";
+  }
+  if (Array.isArray(summary.failed) && summary.failed.length > 0) {
+    return `failed=${JSON.stringify(summary.failed)}`;
+  }
+  if (summary.verdict?.mechanism === "fail") {
+    return 'verdict.mechanism="fail"';
+  }
+  if (summary.author_visible?.ok === false) {
+    return "author_visible.ok=false";
+  }
+  if (summary.verdict?.author_visible !== undefined) {
+    if (summary.verdict.author_visible !== "pass") {
+      return `verdict.author_visible=${JSON.stringify(summary.verdict.author_visible)}`;
+    }
+    if (summary.author_visible?.ok !== true) {
+      return "author_visible.ok is not true";
+    }
+  }
+
+  return null;
 }
 
 function readJson(file) {

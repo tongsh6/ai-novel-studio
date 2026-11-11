@@ -12,11 +12,13 @@
 #   bash scripts/task_done.sh --skip-static-scan
 #
 # The script creates artifacts/task-done/<timestamp>/manifest.json.
-# If frontend/Tauri/UI files changed, it requires fresh Tauri UI evidence.
-# --ui-summary reuses an already-produced native/browser Tauri summary instead of
-# rerunning the slice; freshness (summary mtime vs UI edits) is still enforced by
-# `task_done_check.mjs --manifest`. TAURI_NATIVE_SYSTEM_DRIVER=1 reruns the slice
-# through the AX native driver and records the matching -tauri-native-<tag> summary.
+# If frontend/Tauri/UI files changed, it requires fresh native Tauri UI evidence
+# and an explicit --slice or --ui-summary; a missing slice candidate only falls
+# back to another summary of the same slice. --ui-summary reuses an
+# already-produced native summary instead of rerunning the slice; freshness
+# (summary mtime vs UI edits) is still enforced by `task_done_check.mjs
+# --manifest`. TAURI_NATIVE_SYSTEM_DRIVER=1 reruns the slice through the AX
+# native driver and records the matching -tauri-native-<tag> summary.
 
 set -euo pipefail
 
@@ -109,15 +111,17 @@ if [[ "$UI_REQUIRED" == "true" ]]; then
     if [[ -f "$CANDIDATE_SUMMARY" ]]; then
       UI_SUMMARY="$CANDIDATE_REL"
     else
-      UI_SUMMARY="$(cd "$ROOT_DIR" && node scripts/task_done_check.mjs --latest-ui-summary)"
+      UI_SUMMARY="$(cd "$ROOT_DIR" && node scripts/task_done_check.mjs --latest-ui-summary --slice-id "$SLICE_ID" || true)"
     fi
   else
-    UI_SUMMARY="$(cd "$ROOT_DIR" && node scripts/task_done_check.mjs --latest-ui-summary || true)"
+    echo "UI evidence is required but no slice or summary was selected." | tee -a "$CHECKS_LOG" >&2
+    echo "Run: bash scripts/task_done.sh --slice <slice-id> or --ui-summary <summary.json>" >&2
+    exit 1
   fi
 
   if [[ -z "$UI_SUMMARY" ]]; then
-    echo "UI evidence is required but no slice summary was found." | tee -a "$CHECKS_LOG" >&2
-    echo "Run: bash scripts/task_done.sh --slice <slice-id>" >&2
+    echo "UI evidence is required but no native summary was found for this slice." | tee -a "$CHECKS_LOG" >&2
+    echo "Run: bash scripts/task_done.sh --slice <slice-id> or --ui-summary <summary.json>" >&2
     exit 1
   fi
 
