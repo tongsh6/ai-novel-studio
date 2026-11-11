@@ -37,17 +37,11 @@ defmodule NovelApplication.AuthoringOperation do
 
   def prepare(_run, _snapshot, _spec), do: {:error, :invalid_authoring_operation}
 
-  defp include_initial_history(ir, %{initial_session_history: history} = snapshot) do
-    case AuthoringSession.transcript(snapshot) do
-      nil ->
-        with {:ok, segment} <- AuthoringTranscript.from_request_ir(ir) do
-          segment
-          |> AuthoringSessionHistory.compose(history)
-          |> AuthoringTranscript.to_request_ir()
-        end
-
-      _transcript ->
-        {:ok, ir}
+  defp include_initial_history(ir, %{initial_session_history: history}) do
+    with {:ok, segment} <- AuthoringTranscript.from_request_ir(ir) do
+      segment
+      |> AuthoringSessionHistory.compose(history)
+      |> AuthoringTranscript.to_request_ir()
     end
   end
 
