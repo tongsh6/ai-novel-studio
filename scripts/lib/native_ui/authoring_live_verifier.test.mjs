@@ -24,6 +24,20 @@ const G2_CHAPTER = "chapter-target-2";
 const G2_SCENE = "scene-target-2";
 const G2_DRAFT = "draft-target-2";
 const G2_PROSE = Array.from({ length: 7000 }, (_, index) => String.fromCodePoint(0x4e00 + (index % 2000))).join("");
+// 实际 B28 scope3 候选：TENTATIVE prose_fragment / target_segments / replace_segments。
+const G2_ARTIFACT = "as-g2-1";
+const G2_ITEM = {
+  item_id: "item-g2-1",
+  title: "第 2 章指定片段修订",
+  body: "雨声压在窗棂上，沈砚把信纸翻到背面。",
+  rationale: "只改指定片段。",
+  provider_call_ref: "pcall_live_2",
+};
+const G2_WRITER_CALL = {
+  id: "call-g2-writer",
+  name: "submit_tentative_artifact",
+  arguments: { items: [G2_ITEM] },
+};
 
 const readyAt = new Date(Date.now() - 3600_000).toISOString();
 const finishedAt = new Date(Date.now() - 1800_000).toISOString();
@@ -123,15 +137,51 @@ function replayMessages() {
   ];
 }
 
-function sseRecords() {
+function sseRecords({ writerItem = null } = {}) {
   return [
     sseRecord({ ref: SSE_CALL.first, ts: "2026-11-03T10:00:01.000Z", toolCalls: [SSE_TOOL_CALL] }),
-    sseRecord({ ref: SSE_CALL.second, ts: "2026-11-03T10:00:02.000Z", messages: replayMessages() }),
+    sseRecord({
+      ref: SSE_CALL.second,
+      ts: "2026-11-03T10:00:02.000Z",
+      messages: replayMessages(),
+      toolCalls: writerItem ? [{ ...G2_WRITER_CALL, arguments: { items: [writerItem] } }] : [],
+    }),
   ];
 }
 
+function g2PendingEntry() {
+  return {
+    artifact_id: G2_ARTIFACT,
+    artifact_type: "prose_fragment",
+    adoption_status: "TENTATIVE",
+    target_chapter_ref: `chapter:${G2_CHAPTER}`,
+    payload: {
+      title: "第 2 章正文草稿",
+      target_chapter_ref: `chapter:${G2_CHAPTER}`,
+      modification_scope: "target_segments",
+      adoption_effect: { mode: "replace_segments", target_segment_ids: ["segment-0"] },
+      items: [G2_ITEM],
+    },
+  };
+}
+
+const g2TurnBody = () => ({ ...turnBody, adoption_state: { pending: [g2PendingEntry()] } });
+
 function rewriteRecords(dir, records) {
   writeJsonl(path.join(dir, "llm-calls", "2026-11-03.jsonl"), records);
+}
+
+// 只改本批 wire 中真实 turn_result 的 body，用于候选证据负例。
+function rewriteTurnResult(dir, mutate) {
+  const file = path.join(dir, "native-transport.jsonl");
+  const rows = fs
+    .readFileSync(file, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map(JSON.parse);
+  const row = rows.find((entry) => entry.frame?.[3] === "turn_result");
+  mutate(row.frame[4]);
+  writeJsonl(file, rows);
 }
 
 // 既有预注册形状：配置只存 id/sha256/model，文件冻结在批次目录内。
@@ -158,6 +208,8 @@ function writePreregistration(dir, { scenarioId = null } = {}) {
 const turnBody = {
   turn_id: TURN,
   status: "conversational",
+  work_id: WORK,
+  session_id: SESSION,
   agent_run: { run_id: RUN, status: "completed" },
   assistant_message: { text: "我先核对第01章现有内容，再给出候选。" },
   adoption_state: {
@@ -274,7 +326,7 @@ function writeLiveDatabase(dir, { usedRefs = ["observation:obs_1"], nativeCall =
     .run("chapter-row", WORK, null, "第一章", 1, "PLANNED", "2026-11-03T10:00:00.000Z", "2026-11-03T10:00:00.000Z", null, JSON.stringify(mission));
   db.prepare("INSERT INTO agent_events (id, run_id, event_type, refs) VALUES (?,?,?,?)").run("ev-1", RUN, "exploration_observed", '["obs_1"]');
   db.prepare("INSERT INTO decision_traces (trace_id, workspace_id, session_id, turn_id, context_refs) VALUES (?,?,?,?,?)").run("trace_1", WORKSPACE, SESSION, TURN, null);
-  if (nativeCall) insertNativeCallRun(db);
+  if (nativeCall) insertNativeCallRun(db, { g2 });
   else insertCanonicalRun(db, { usedRefs });
   if (g2) insertG2Fixture(db, { revision: g2Revision });
   db.close();
@@ -299,7 +351,7 @@ function insertG2Fixture(db, { revision = 1 } = {}) {
 
 // B82：两轮真实 SSE 执行的 canonical 段 + 同 run 的 ProviderRun 行。
 // assistant 按 pcall+prun 唯一绑定，数据来源仍是产品持久结构，不新增并行台账。
-function insertNativeCallRun(db) {
+function insertNativeCallRun(db, { g2 = false } = {}) {
   const messages = [
     {
       role: "assistant",
@@ -314,7 +366,15 @@ function insertNativeCallRun(db) {
       provenance: "model",
       provider_call_ref: SSE_CALL.second.pcall,
       provider_run_ref: SSE_CALL.second.prun,
-      blocks: [{ type: "text", text: "我已核对第01章。" }],
+      blocks: [
+        { type: "text", text: "我已核对第01章。" },
+        ...(g2 ? [{
+          type: "tool_call",
+          call_id: G2_WRITER_CALL.id,
+          name: G2_WRITER_CALL.name,
+          arguments: { items: [G2_ITEM] },
+        }] : []),
+      ],
     },
   ];
   const run = { run_id: RUN, workspace_id: WORKSPACE, work_id: WORK, session_id: SESSION, parent_turn_ref: TURN, profile_ref: "judgment_loop_v1" };
@@ -327,12 +387,12 @@ function insertNativeCallRun(db) {
     base_refs: [],
     observation_refs: ["obs_1"],
     used_refs: [],
-    call_ids: [SSE_TOOL_CALL.id],
+    call_ids: g2 ? [SSE_TOOL_CALL.id, G2_WRITER_CALL.id] : [SSE_TOOL_CALL.id],
   };
   db.prepare(
     "INSERT INTO agent_runs (id, workspace_id, work_id, session_id, parent_turn_ref, long_run_task_ref, run_mode, status, plan_version, consumed_budget, pending_artifact_refs) " +
       "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-  ).run(RUN, WORKSPACE, WORK, SESSION, TURN, null, "bounded", "completed", 1, JSON.stringify({ provider_calls: messages.length - 1 }), "[]");
+  ).run(RUN, WORKSPACE, WORK, SESSION, TURN, null, "bounded", "completed", 1, JSON.stringify({ provider_calls: messages.length - 1 }), g2 ? JSON.stringify([G2_ARTIFACT]) : "[]");
   db.prepare(
     "INSERT INTO authoring_run_segments (run_id, workspace_id, work_id, session_id, parent_turn_ref, header, message_count, first_sequence, last_sequence, format_version) " +
       "VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -372,6 +432,10 @@ function buildDir({ withStrataUnloaded = true, screenshots = 3, usedRefs = ["obs
   });
   const shotNames = ["01-workbench.png", "after-input.png", "final.png", "why.png"].slice(0, screenshots);
   for (const name of shotNames) fs.writeFileSync(path.join(dir, name), png());
+  if (g2) {
+    fs.writeFileSync(path.join(dir, "01-workbench.text.txt"), "工作台\n等待创作请求\n");
+    fs.writeFileSync(path.join(dir, "final.text.txt"), `${G2_ITEM.title}\n${G2_ITEM.body}\n保存为章节正文\n`);
+  }
   writeJson(path.join(dir, "native-ui-complete.json"), {
     harness_run_ref: "run-ref-live",
     driver: NATIVE_DRIVER,
@@ -401,7 +465,10 @@ function buildDir({ withStrataUnloaded = true, screenshots = 3, usedRefs = ["obs
   writeJsonl(path.join(dir, "app-log", "2026-11-03.jsonl"), [
     { at: "2026-11-03T10:00:00.000Z", event: "provider_gateway.complete.start", provider: "strata" },
   ]);
-  writeJsonl(path.join(dir, "llm-calls", "2026-11-03.jsonl"), nativeCall ? sseRecords() : [llmRecord()]);
+  writeJsonl(
+    path.join(dir, "llm-calls", "2026-11-03.jsonl"),
+    nativeCall ? sseRecords({ writerItem: g2 ? G2_ITEM : null }) : [llmRecord()],
+  );
 
   writeJsonl(path.join(dir, "native-transport.jsonl"), [
     {
@@ -427,7 +494,7 @@ function buildDir({ withStrataUnloaded = true, screenshots = 3, usedRefs = ["obs
     {
       at: "2026-11-03T10:00:02.000Z",
       direction: "received",
-      frame: [null, null, "workspace:test", "turn_result", { ...turnBody, turn_id: `${TURN}:agent:2` }],
+      frame: [null, null, "workspace:test", "turn_result", { ...(g2 ? g2TurnBody() : turnBody), turn_id: `${TURN}:agent:2` }],
     },
     {
       at: "2026-11-03T10:00:00.400Z",
@@ -614,6 +681,74 @@ test("B82 冻结 live：原生 config 的 scenario_id 不能选择 b82-g2", () =
   });
   const { summary } = verifyLiveBatch(dir);
   assert.equal(summary.g2_pages, undefined);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// B82 §7/§16.9：实际 B28 scope3 候选证据复用已绑定 run 的 turnFacts/pending/已对账
+// records，挂在冻结 g2 报告旁；页级使用仍未签，候选成立也不签 G2 整体。
+test("B82 冻结 live：b82-g2 实际 scope3 候选证据成立并挂到现有报告旁", () => {
+  const dir = buildDir({ nativeCall: true, preregistration: true, scenarioId: "b82-g2", g2: true });
+  assert.throws(() => verifyLiveBatch(dir), /G2 页级证据未成立/u);
+  const checks = JSON.parse(fs.readFileSync(path.join(dir, "native-b71-checks.json"), "utf8"));
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(checks.g2_candidate.ok, true, checks.g2_candidate.reason);
+  assert.equal(checks.g2_candidate.pending_ref, G2_ARTIFACT);
+  assert.deepEqual(checks.g2_candidate.item_refs, [G2_ITEM.item_id]);
+  assert.equal(checks.g2_candidate.provider_call_ref, G2_ITEM.provider_call_ref);
+  assert.equal(checks.g2_candidate.adoption_status, "TENTATIVE");
+  assert.equal(checks.g2_candidate.target_chapter_ref, `chapter:${G2_CHAPTER}`);
+  assert.equal(checks.g2_candidate.modification_scope, "target_segments");
+  assert.equal(checks.g2_candidate.adoption_effect, "replace_segments");
+  assert.equal(checks.g2_candidate.g2_signed, false);
+  assert.equal(checks.g2_candidate.signed_scope, "candidate_only");
+  assert.equal(JSON.stringify(checks.g2_candidate).includes(G2_ITEM.body), false);
+  assert.equal(summary.g2_candidate.ok, true);
+  assert.equal(checks.g2_pages.ok, false);
+  assert.equal(summary.verdict.full_g1_g6_signed, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 外来 run 的 completed 终局不能代签候选", () => {
+  const dir = buildDir({ nativeCall: true, preregistration: true, scenarioId: "b82-g2", g2: true });
+  rewriteTurnResult(dir, (body) => {
+    body.agent_run.run_id = "run-foreign";
+  });
+  assert.throws(() => verifyLiveBatch(dir), /G2 页级证据未成立/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.g2_candidate.ok, false);
+  assert.equal(summary.g2_candidate.reason, "completed_result_missing");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 候选文本输入前已可见时缺新可见证据且报告先落盘", () => {
+  const dir = buildDir({ nativeCall: true, preregistration: true, scenarioId: "b82-g2", g2: true });
+  fs.writeFileSync(path.join(dir, "01-workbench.text.txt"), `${G2_ITEM.title}\n${G2_ITEM.body}\n`);
+  assert.throws(() => verifyLiveBatch(dir), /G2 页级证据未成立/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.g2_candidate.ok, false);
+  assert.equal(summary.g2_candidate.reason, "visible_preexisting");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 候选 item 篡改时 writer 原字节校验拒绝", () => {
+  const dir = buildDir({ nativeCall: true, preregistration: true, scenarioId: "b82-g2", g2: true });
+  rewriteTurnResult(dir, (body) => {
+    body.adoption_state.pending[0].payload.items[0].body += "（篡改）";
+  });
+  assert.throws(() => verifyLiveBatch(dir), /G2 页级证据未成立/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.g2_candidate.ok, false);
+  assert.equal(summary.g2_candidate.reason, "writer_item_field_mismatch");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 缺 final 可见文本时缺证失败但仍保留候选报告", () => {
+  const dir = buildDir({ nativeCall: true, preregistration: true, scenarioId: "b82-g2", g2: true });
+  fs.rmSync(path.join(dir, "final.text.txt"));
+  assert.throws(() => verifyLiveBatch(dir), /G2 页级证据未成立/u);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.g2_candidate.ok, false);
+  assert.equal(summary.g2_candidate.reason, "final_visible_missing");
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

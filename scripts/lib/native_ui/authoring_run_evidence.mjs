@@ -3,6 +3,8 @@
 // 本模块不判断场景是否通过；它负责把真实帧/日志/AX/DB 读数归一为纯函数输入，
 // 并把最终 checks/measured/summary 按既有命名写入批次目录。
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import {
   assertAllChecks,
   all,
@@ -27,6 +29,7 @@ import {
 import { authoringScope, readAuthoringHistory } from "./authoring_history_evidence.mjs";
 import { joinNativeCallEvidence, readProviderRuns } from "./authoring_call_evidence.mjs";
 import { readConfig } from "./authoring_capture_evidence.mjs";
+import { g2CandidateEvidence, g2PageEvidence, g2PageUsageEvidence } from "./authoring_g2_evidence.mjs";
 
 export function readCheckpoint(dir, checkpoint) {
   return read(dir, `b71-${checkpoint}.json`);
@@ -254,6 +257,86 @@ export function readG2PageInputs(dir, { workId, runId } = {}) {
       starts,
     };
   });
+}
+
+// ── B82 §7 G2 报告：复用同一条已绑定 run 的 canonical transcript 与已对账 records ──
+const nonBlank = (value) => typeof value === "string" && value.trim() !== "";
+
+// B82 §7 G2：只有冻结的 b82-g2 把页证据并入 live 报告；页证据只保留 refs/range/reason，
+// 正文不写入 checks/summary；两页成立也只签页级版本/紧邻请求，不代签 G2 整体。
+export function g2PageReport({ dir, config, history, records }) {
+  assert.equal(config.scenario_id, "b82-g2", "G2 页证据只属于冻结的 b82-g2");
+  assert(Array.isArray(records), "b82-g2 页证据需要已对账的 nativeCalls.records");
+  const input = readG2PageInputs(dir, {
+    workId: history.record.work_id,
+    runId: history.record.id,
+  });
+  const evidence = g2PageEvidence({
+    transcript: history.transcript,
+    records,
+    starts: input.starts,
+    chapterRef: input.chapter_ref,
+    draftRef: input.draft_ref,
+    revision: input.revision,
+    prose: input.prose,
+  });
+  return {
+    scenario_id: config.scenario_id,
+    chapter_ref: input.chapter_ref,
+    draft_ref: input.draft_ref,
+    revision: input.revision,
+    started_count: input.starts.length,
+    ok: evidence.ok,
+    pages: evidence.pages,
+    signed_scope: "pages_only",
+    g2_signed: false,
+    not_signed: ["page_level_usage", "final"],
+  };
+}
+
+// 实际 B28 scope3 候选：复用同一条已绑定 run 的 turnFacts/pending 与已对账 records。
+// 可见文本缺失按缺证返回（不在这里抛），让报告先落盘、再由入口统一失败。
+function visibleTextIfExists(dir, name) {
+  const file = path.join(dir, `${name}.text.txt`);
+  return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
+}
+
+export function g2CandidateReport({ dir, config, history, records, chapterRef }) {
+  assert.equal(config.scenario_id, "b82-g2", "G2 候选证据只属于冻结的 b82-g2");
+  assert(Array.isArray(records), "b82-g2 候选证据需要已对账的 nativeCalls.records");
+  // 同一快照只读一次：章 ref 直接消费页证据的结果，不再第二次 readG2PageInputs。
+  assert(nonBlank(chapterRef), "b82-g2 候选证据必须消费页证据的 chapter_ref");
+  const evidence = g2CandidateEvidence({
+    facts: history.facts,
+    run: history.record,
+    pending: history.pending,
+    chapterRef,
+    records,
+    beforeText: visibleTextIfExists(dir, "01-workbench"),
+    finalText: visibleTextIfExists(dir, "final"),
+  });
+  return {
+    scenario_id: config.scenario_id,
+    chapter_ref: chapterRef,
+    ...evidence,
+    signed_scope: "candidate_only",
+    g2_signed: false,
+    not_signed: ["page_level_usage"],
+  };
+}
+
+// 页级使用证据：只消费已算的 liveRefsCheck.reports；页/候选未成立时按缺证返回，
+// 由入口在页与候选之后统一拒绝。报告只保留 refs/理由，不写正文。
+export function g2UsageReport({ config, pages, candidate, refs }) {
+  assert.equal(config.scenario_id, "b82-g2", "G2 页级使用证据只属于冻结的 b82-g2");
+  const evidence = g2PageUsageEvidence({ pages, candidate, reports: refs?.reports });
+  return {
+    scenario_id: config.scenario_id,
+    ...evidence,
+    signed_scope: "page_usage_only",
+    g2_signed: false,
+    not_signed: ["final"],
+  };
 }
 
 // 修订批次只读 DB 读取：按明确 run/receipt/turn/trace 身份读取，不按“最新”猜。

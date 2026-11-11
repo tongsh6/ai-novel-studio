@@ -336,6 +336,8 @@ export function readAuthoringHistory(dir, scope, { requireMode = null } = {}) {
 }
 
 // 作者输入的 ACK 提供 run_id，终局 turn_result 可以属于该 run 的后续子回合。
+// 返回的 facts 是同一输入记录经 turnFacts 得到的内部事实（ACK/同 owning topic 结果）；
+// 下游不再重复选输入，只在该 scope 上判定，避免另造第二套输入/ACK 绑定。
 export function readBatchAuthoringHistory(dir, { wire, messageText, workId } = {}) {
   assert(Array.isArray(wire), "authoring_batch: wire 必须是帧数组");
   assertNonBlankString(messageText, "authoring_batch.messageText");
@@ -343,10 +345,11 @@ export function readBatchAuthoringHistory(dir, { wire, messageText, workId } = {
   const messages = sentUserMessages(wire, messageText);
   assert.equal(messages.length, 1, "authoring_batch: 本批作者输入必须唯一");
 
-  const { turnId: parentTurnId, ack } = turnFacts(wire, messages[0]);
+  const facts = turnFacts(wire, messages[0]);
+  const { turnId: parentTurnId, ack } = facts;
   const scope = authoringScope(wire, messages[0], { workId, parentTurnId });
   const runId = assertNonBlankString(frameBody(ack)?.response?.run_id, "authoring_batch ACK.run_id");
-  return readAuthoringHistory(dir, { ...scope, run_id: runId });
+  return { ...readAuthoringHistory(dir, { ...scope, run_id: runId }), facts };
 }
 
 export function readRunRefFacts(db, run) {

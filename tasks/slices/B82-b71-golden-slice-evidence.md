@@ -50,7 +50,7 @@
 
 第 02 章的已采纳稿由既有种子建立，7000 字符分别覆盖 1–6000 和 6001–7000。两页按实际落库的 draft 版本、范围和报文正文对账。模型只声明章节引用且该引用同时存在于 Base 时，可以核对引用边界，页级观察使用仍需页对应的证据。
 
-冻结 live 入口现已复用 `bindNativeCalls`。它以 ACK 对应 run 的完整归属读取 ProviderRun、canonical 和日志，逐调用核验原生 ID 与参数字节，并只把已绑定的本 run 记录交给机制判据。报告中 `measured.native_call` 记录执行引用和 SSE 工具对账数量。占位、缺响应、错属和带 Strata 标签的替身记录均不能满足该入口。后续还需把分页与页级使用作为专项必过项，并以同一 ACK 的实际终局页面核对候选归属。
+冻结 live 入口复用 `bindNativeCalls`。它以 ACK 对应 run 的完整归属读取 ProviderRun、canonical 和日志，逐调用核验原生 ID 与参数字节，并只把已绑定的本 run 记录交给机制判据。报告中 `measured.native_call` 记录执行引用和 SSE 工具对账数量。占位、缺响应、错属和带 Strata 标签的替身记录均不能满足该入口。分页、候选与页级使用的独立核对见下。
 
 #### G2 首批实模结果（2026-11-11）
 
@@ -71,6 +71,18 @@
 冻结场景 `b82-g2` 现已启用这一页级门禁。场景 ID 来自哈希核验后的预注册，目标章和唯一采纳稿取自隔离库。门禁失败时保留现有报告和逐页原因，再让专项验收退出。复验两页同源正例、实模档案的版本缺失、B82 首批无页，以及从紧邻请求删掉观察而仅留下后续回放的反例，见 `artifacts/b71-audit/2026-11-11-g2-page-gate-archive-proof.jsonl`。报告明确标记只核验分页，模型页级使用与作者可见候选仍须独立验收。
 
 首批冻结文本将种子传入的 revision 1 误记为落库版本。实际 SQLite 中第 02 章唯一采纳稿是 revision 2，因为 `Draft.changeset` 经过现有的 `optimistic_lock(:revision)`。原始预注册保留原值，首批未通过结论保持。后续批次按已持久化的版本冻结预期。读侧从该版本核对同一页的 canonical 和下一实际请求。对账见 `artifacts/b71-audit/2026-11-11-b82-g2-seed-actual-revision.json`。
+
+#### G2 局部候选的终局与可见证据
+
+冻结入口复用作者输入的同一 ACK 事实，只检查该 run、作品、会话的完成帧。候选以本 run 的持久待采纳 ID 收窄，再核对目标章、`TENTATIVE`、`target_segments` 与 `replace_segments`。现有 `writerArtifactMatch` 逐字对账同次 writer 的标题、正文和理由。最终可见文本必须出现对应 item，输入前已有同一 item 或缺输入前采样时记缺证。
+
+B28 历史原生档案中，候选文本在后续页面仍可见，单凭文字出现会错签后续回合，见 `artifacts/b71-audit/2026-11-11-g2-candidate-visible-baseline.jsonl`。用 B82 首批原始 ACK、终局和 AX 文本离线复验，候选判据返回 `run_not_completed`，见 `artifacts/b71-audit/2026-11-11-g2-candidate-actual-failed-run.json`。writer 新日志的字节匹配由确定性回归验证，正式实模正例仍待取证。
+
+#### G2 页级使用与 writer 自报
+
+页证据附带已核对的 canonical call ID 与原生 `content.observation_ref`。候选证据给出本 run 的 writer 调用引用。专项从该次 writer 已按 Provider 双键绑定的自报中，逐页核对引用和实际请求中同一个原生 tool 结果的 call ID。仅出现在 Base 或 scope 文本的引用、另一次 writer 的自报、对应其他 call ID 的观察都不足以成立。
+
+缺页、缺候选或缺页级使用时专项在保留报告后退出。原先实模未通过的结论保持，B28 的语义目标缺口仍需处理。直接读取已有独立页身份，聚合路径的逐页版本与身份仍待源端补证。上述判据的正负例为确定性证据，正式实模结论仍待取证。
 
 ### G3 既有批次预算对账
 

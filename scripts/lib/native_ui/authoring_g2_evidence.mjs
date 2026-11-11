@@ -1,11 +1,19 @@
-// B82 VS-00L §7 G2 页级证据：证明实际采纳稿版本与紧邻请求，而不是只证明确定性全章续读。
+// B82 VS-00L §7/§16.9 G2 证据：证明实际采纳稿版本与紧邻请求，而不是只证明确定性全章续读。
 //
-// 每页从 canonical transcript 的 chapter_read observation 出发，按 call_id 找回在先
+// 页级：每页从 canonical transcript 的 chapter_read observation 出发，按 call_id 找回在先
 // judgment_decision assistant，用它顶层的 pcall/prun 定位实际 started，再核对下一条
 // started 的请求确实携带同一调用和同一观察。源请求已带结果、缺/多义匹配、错版本、
-// 迟到回放都失败；聚合时不拿另一页的版本代签。结果只含 refs/range/reason，不含正文。
+// 迟到回放都失败；聚合时不拿另一页的版本代签。
+//
+// 候选：只认 ACK 后同 owning topic 的唯一 completed 终局（run 行也 completed，终局
+// work_id/session_id 必须精确等于 run 且不得缺字段），目标章 TENTATIVE prose_fragment
+// 先按本 run 持久 pending ids 收窄再核唯一（历史同章候选可同帧并存，但不得抢占或令
+// 当前候选误歧义），scope=target_segments、effect=replace_segments；writer item 经同 run
+// 已对账记录逐字节核对，最终可见文本必须新增出现对应 item 标题/正文，缺/空 baseline 记
+// baseline_visible_missing。结果只含 refs/原因，不含正文。
 import { isDeepStrictEqual } from "node:util";
 import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
+import { writerArtifactMatch } from "./authoring_pending_evidence.mjs";
 
 const TOTAL = 7000;
 const PAGES = [[1, 6000], [6001, 7000]];
@@ -116,9 +124,18 @@ function laterHasResult(starts, records, fromIndex, callId) {
   return false;
 }
 
+// 页报告只搬运 canonical observation 已带的身份；缺 ref 不改变页证据结论（旧档案
+// 页仍可成立），但后续页级使用证据会因缺证拒绝。
+function observationRefOf(block) {
+  const ref = isObject(block?.content) && typeof block.content.observation_ref === "string"
+    ? block.content.observation_ref.trim()
+    : "";
+  return ref.startsWith("observation:") ? ref : null;
+}
+
 function pageCheck({ messages, records, starts, chapterRef, draftRef, revision, chars, range }) {
   const [start, end] = range;
-  const page = { range, source: null, next: null, reason: null };
+  const page = { range, observation_ref: null, call_id: null, source: null, next: null, reason: null };
   const fail = (reason) => {
     if (page.reason === null) page.reason = reason;
   };
@@ -143,6 +160,8 @@ function pageCheck({ messages, records, starts, chapterRef, draftRef, revision, 
   }
 
   const callId = block.call_id;
+  page.call_id = nonBlank(callId) ? callId : null;
+  page.observation_ref = observationRefOf(block);
   if (!nonBlank(callId)) {
     fail("call_id_missing");
     return page;
@@ -207,6 +226,173 @@ function pageCheck({ messages, records, starts, chapterRef, draftRef, revision, 
     fail("next_payload_mismatch");
   }
   return page;
+}
+
+// ── B82 §7/§16.9 候选证据 ────────────────────────────────────────────────────
+// facts 是 readBatchAuthoringHistory 内部 turnFacts（同 owning topic、输入后 scoped）；
+// run 是该入口精确定位的 agent_runs 行；records 是同一 run 已对账的 native calls。
+function resultBody(record) {
+  return isObject(record?.frame?.[4]) ? record.frame[4] : null;
+}
+
+function candidateTurn(facts, run) {
+  if (!isObject(facts)) return { reason: "turn_facts_missing" };
+  if (!isObject(run)) return { reason: "run_row_missing" };
+  if (run.status !== "completed") return { reason: "run_not_completed" };
+  if (run.parent_turn_ref !== facts.turnId) return { reason: "run_turn_mismatch" };
+  if (!isObject(facts.ack) || !nonBlank(facts.ack.at)) return { reason: "ack_missing" };
+  const completed = list(facts.results).filter((record) => {
+    if (!nonBlank(record?.at) || record.at < facts.ack.at) return false;
+    const agentRun = resultBody(record)?.agent_run;
+    return isObject(agentRun) && agentRun.run_id === run.id && agentRun.status === "completed";
+  });
+  if (completed.length === 0) return { reason: "completed_result_missing" };
+  if (completed.length > 1) return { reason: "completed_result_ambiguous" };
+  const body = resultBody(completed[0]);
+  // 终局身份必须精确等于 run；缺字段不接受（nonBlank 同时排除 null/undefined/空串）。
+  if (!nonBlank(body.work_id) || body.work_id !== run.work_id) return { reason: "work_mismatch" };
+  if (!nonBlank(body.session_id) || body.session_id !== run.session_id) return { reason: "session_mismatch" };
+  return { body };
+}
+
+function candidateEntry(body, { pending, chapterRef }) {
+  if (!Array.isArray(pending) || pending.length === 0) return { reason: "pending_missing" };
+  const sameChapter = list(body?.adoption_state?.pending).filter((entry) =>
+    entry?.adoption_status === "TENTATIVE" &&
+    entry?.artifact_type === "prose_fragment" &&
+    entry?.target_chapter_ref === chapterRef);
+  // 终局帧可带历史同章候选：先按本 run 持久 pending ids 缩到本 run，再核唯一。
+  // 历史候选不能抢占当前候选，也不能让当前候选误歧义；旧 pending_not_in_run 反例保留。
+  const matches = sameChapter.filter((entry) =>
+    nonBlank(entry?.artifact_id) && pending.includes(entry.artifact_id));
+  if (matches.length === 0) {
+    return { reason: sameChapter.length > 0 ? "pending_not_in_run" : "candidate_missing" };
+  }
+  if (matches.length > 1) return { reason: "candidate_ambiguous" };
+  const entry = matches[0];
+  const payload = isObject(entry.payload) ? entry.payload : {};
+  if (payload.modification_scope !== "target_segments") return { reason: "scope_mismatch" };
+  if (!isObject(payload.adoption_effect) || payload.adoption_effect.mode !== "replace_segments") {
+    return { reason: "effect_mismatch" };
+  }
+  return { entry, payload, items: list(payload.items) };
+}
+
+// 最终真实文本必须看到对应 item 标题+正文；缺/空 baseline 无法证明「新增」，
+// 输入前已同时出现同 item 文本则不算新证据（stale 检查保留）。
+function visibleReason(items, beforeText, finalText) {
+  if (!items.every((item) => nonBlank(item?.title) && nonBlank(item?.body))) return "item_text_missing";
+  if (!nonBlank(beforeText)) return "baseline_visible_missing";
+  const final = text(finalText);
+  const before = text(beforeText);
+  if (!items.every((item) => final.includes(item.title) && final.includes(item.body))) {
+    return "final_visible_missing";
+  }
+  if (items.some((item) => before.includes(item.title) && before.includes(item.body))) {
+    return "visible_preexisting";
+  }
+  return null;
+}
+
+export function g2CandidateEvidence({ facts, run, pending, chapterRef, records, beforeText, finalText } = {}) {
+  const base = {
+    ok: false,
+    reason: null,
+    turn_ref: facts?.turnId ?? null,
+    run_ref: run?.id ?? null,
+    pending_ref: null,
+    artifact_type: null,
+    adoption_status: null,
+    target_chapter_ref: chapterRef ?? null,
+    modification_scope: null,
+    adoption_effect: null,
+    item_refs: [],
+    provider_call_ref: null,
+    writer_item_count: null,
+    visible: { before_has_item: false, final_has_item: false },
+  };
+  if (!nonBlank(chapterRef)) return { ...base, reason: "chapter_ref_missing" };
+  const turn = candidateTurn(facts, run);
+  if (turn.body === undefined) return { ...base, reason: turn.reason };
+  const found = candidateEntry(turn.body, { pending, chapterRef });
+  if (found.entry === undefined) return { ...base, reason: found.reason };
+  const { entry, payload, items } = found;
+  const candidate = {
+    ...base,
+    pending_ref: entry.artifact_id ?? null,
+    artifact_type: entry.artifact_type ?? null,
+    adoption_status: entry.adoption_status ?? null,
+    target_chapter_ref: entry.target_chapter_ref ?? null,
+    modification_scope: payload.modification_scope ?? null,
+    adoption_effect: payload.adoption_effect?.mode ?? null,
+    item_refs: items.map((item) => item?.item_id ?? null),
+  };
+  if (items.length === 0) return { ...candidate, reason: "items_missing" };
+  const writer = writerArtifactMatch({ artifact: { payload: { items } }, records });
+  if (!writer.ok) return { ...candidate, reason: writer.reason };
+  const bad = visibleReason(items, beforeText, finalText);
+  const final = text(finalText);
+  const before = text(beforeText);
+  return {
+    ...candidate,
+    ok: bad === null,
+    reason: bad,
+    provider_call_ref: writer.provider_call_ref,
+    writer_item_count: writer.writer_item_count,
+    visible: {
+      before_has_item: items.some((item) => before.includes(item.title) && before.includes(item.body)),
+      final_has_item: items.every((item) => final.includes(item.title) && final.includes(item.body)),
+    },
+  };
+}
+
+// ── B82 §7 G2 页级使用证据 ──────────────────────────────────────────────────
+// 只复用已算的 liveRefsCheck.reports：页与候选都成立后，按 candidate.provider_call_ref
+// 唯一配对 writer 自报报告（该报告已由 pcall/prun 与实际请求绑定）；每页的
+// observation_ref 必须在同报告 matched_refs 且来源 channel=content_observation_ref、
+// call_id 精确等于该页。Base/scope/其它调用/其它观察 ID 都不能补证。两页各自通过后
+// 还要求 observation_ref 彼此不同，避免同一 observation_ref 的两个 call_id 重复签两页。
+function pageUsage(page, report) {
+  const entry = {
+    range: Array.isArray(page?.range) ? page.range : null,
+    observation_ref: page?.observation_ref ?? null,
+    call_id: page?.call_id ?? null,
+    reason: null,
+  };
+  if (!nonBlank(entry.observation_ref)) return { ...entry, reason: "observation_ref_missing" };
+  if (!nonBlank(entry.call_id)) return { ...entry, reason: "call_id_missing" };
+  const matched = list(report.matched_refs).some((match) =>
+    match?.ref === entry.observation_ref &&
+    list(match.sources).some((source) =>
+      source?.channel === "content_observation_ref" && source?.call_id === entry.call_id));
+  return matched ? entry : { ...entry, reason: "page_observation_ref_unmatched" };
+}
+
+export function g2PageUsageEvidence({ pages, candidate, reports } = {}) {
+  const base = { ok: false, reason: null, writer_report_ref: null, pages: [] };
+  if (!isObject(pages) || pages.ok !== true) return { ...base, reason: "pages_not_ok" };
+  if (!isObject(candidate) || candidate.ok !== true) return { ...base, reason: "candidate_not_ok" };
+  if (!nonBlank(candidate.provider_call_ref)) return { ...base, reason: "candidate_provider_call_missing" };
+  const matched = list(reports).filter((report) => report?.provider_call_ref === candidate.provider_call_ref);
+  if (matched.length === 0) return { ...base, reason: "writer_report_missing" };
+  if (matched.length > 1) return { ...base, reason: "writer_report_ambiguous" };
+  const report = matched[0];
+  const pageReports = list(pages.pages).map((page) => pageUsage(page, report));
+  const pagesOk =
+    report.status === "verified" &&
+    pageReports.length === PAGES.length &&
+    pageReports.every((page) => page.reason === null);
+  const uniqueRefs = new Set(pageReports.map((page) => page.observation_ref));
+  let reason = null;
+  if (report.status !== "verified") reason = "writer_report_not_verified";
+  else if (!pagesOk) reason = "page_usage_missing";
+  else if (uniqueRefs.size !== pageReports.length) reason = "page_observation_ref_ambiguous";
+  return {
+    ok: reason === null,
+    reason,
+    writer_report_ref: candidate.provider_call_ref,
+    pages: pageReports,
+  };
 }
 
 export function g2PageEvidence({ transcript, records, starts, chapterRef, draftRef, revision, prose }) {
