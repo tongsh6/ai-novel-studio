@@ -842,7 +842,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         judgment_character_design_result(prompt_text)
 
       true ->
-        b34_or_regular_judgment_result(prompt_text, input, ir)
+        chapter_revision_or_b34_judgment_result(prompt_text, input, ir)
     end
   end
 
@@ -881,6 +881,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       steps: if(stage == :short, do: [context], else: [context | creative]),
       reason_codes: [if(stage == :revision, do: "agent_plan_revised", else: "agent_plan_drafted")]
     }
+  end
+
+  # B28 T4：明确针对已保存章节的修订意图，但同份可见目录没有章目标
+  # （空作品/无 accepted 正文）→ 直接 ask_author 具体缺正文，不降成新写作；
+  # 其余意图仍走既有 B34/generic 分支。
+  defp chapter_revision_or_b34_judgment_result(prompt_text, input, ir) do
+    if chapter_revision_missing_target?(prompt_text) do
+      judgment_chapter_revision_missing_target_result()
+    else
+      b34_or_regular_judgment_result(prompt_text, input, ir)
+    end
   end
 
   # B34 CP1/CP2 分支拆出，避免 judgment_result_cond 复杂度过高；仍保持
@@ -1108,8 +1119,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp regular_judgment_result(prompt_text, ir) do
-    result = judgment_decision_result(prompt_text, ir)
-    narrative = judgment_narrative_result(prompt_text, ir).content
+    # 同一次消费 canonical 请求的可见观察：decision 与 narrative 共用同一条摘要，
+    # 避免一边看到观察、另一边仍把本轮当「尚未检索」而重发同一查询。
+    observation = current_observation_summary(prompt_text, ir)
+    result = judgment_decision_result(prompt_text, ir, observation)
+    narrative = judgment_narrative_result(prompt_text, ir, observation).content
 
     case result.tool_calls do
       [call] -> single_judgment_output(call["arguments"], narrative, result)
@@ -3720,6 +3734,67 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp judgment_author_input(prompt), do: PendingDialogueInput.author_text(prompt)
 
+  # canonical IR 的当前操作材料只保留 scope + 作者原话，观察在结构化 tool_result 里。
+  # 复用生产投影：被 checkpoint 压缩掉的交换不参与；只认最近作者输入之后、与作者
+  # 请求同 tool 同 query 且 status ok 的真实 content.summary。
+  defp current_observation_summary(prompt, %NovelCommon.RequestIR{messages: messages}) do
+    author_text = judgment_author_input(prompt)
+
+    with tool when is_binary(tool) <- explore_tool_for(author_text),
+         query when is_binary(query) <- explore_query_for(tool, author_text) do
+      messages
+      |> RequestIR.Compaction.project()
+      |> messages_after_last_author()
+      |> Enum.filter(&(&1.role == "tool"))
+      |> Enum.flat_map(&observation_payloads_of_tool_message/1)
+      |> Enum.find_value(&matching_observation_summary(&1, tool, query))
+    end
+  end
+
+  # 非 canonical 请求（legacy 文本）只能在确有旧探索观察段、且作者目标工具可识别时
+  # 复用该段；canonical 不读任何文本观察段，避免作者原文里的旧段头被当观察。
+  defp current_observation_summary(prompt, nil) do
+    if is_binary(explore_tool_for(judgment_author_input(prompt))) and
+         String.contains?(prompt, "## 探索观察") do
+      exploration_observation_section(prompt)
+    end
+  end
+
+  defp messages_after_last_author(messages) do
+    last_author_index =
+      messages
+      |> Enum.with_index()
+      |> Enum.reverse()
+      |> Enum.find_value(fn {message, index} ->
+        if message.role == "user" and message.provenance == "author", do: index
+      end)
+
+    case last_author_index do
+      nil -> []
+      index -> Enum.drop(messages, index + 1)
+    end
+  end
+
+  defp observation_payloads_of_tool_message(message) do
+    message
+    |> Map.get(:blocks, [])
+    |> Enum.filter(&(Map.get(&1, :type) == "observation"))
+    |> Enum.flat_map(&RequestIR.observation_payloads/1)
+  end
+
+  defp matching_observation_summary(payload, tool, query) do
+    content = Map.get(payload, :content) || %{}
+
+    if Map.get(payload, :status) == "ok" and
+         Map.get(content, "tool") == tool and
+         Map.get(content, "query") == query do
+      case Map.get(content, "summary") do
+        summary when is_binary(summary) -> summary
+        _ -> nil
+      end
+    end
+  end
+
   # B71 R1 适配：canonical IR 把观察放在结构化 observation block；旧判断替身
   # （全章分页读取）按渲染文本识别观察段。这里为 IR 提供同一观察事实的只读视图，
   # 仅用于 test-support 替身识别，不伪造/改写真实请求或记录。
@@ -3758,7 +3833,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp judgment_narrative_result(prompt, ir) do
+  defp judgment_narrative_result(prompt, ir, observation) do
     narrative =
       cond do
         # B23-FOLLOWUP：真 no-progress 诱导——两轮都选同一个只读探索（观察字节相同）。
@@ -3769,10 +3844,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         full_read_request?(prompt) ->
           full_read_narrative(prompt, ir)
 
-        String.contains?(prompt, "## 探索观察") ->
-          exploration_reply_narrative(prompt)
+        # 同次请求选出的真实观察摘要（canonical 结构化匹配 / legacy 旧观察段）。
+        is_binary(observation) ->
+          exploration_reply_narrative(prompt, observation)
 
-        explore_request_for(prompt) != nil ->
+        explore_request_for(prompt, ir) != nil ->
           term = explore_quoted_term(judgment_author_input(prompt))
           "回答这个问题需要正文里的具体事实；我先检索「#{term}」相关的段落再回复你。"
 
@@ -3926,12 +4002,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # 回环第二判的回复：字节透传观察段命中行（含引用词的行），保持"回复引用检索
   # 事实"的产品语义可被外部验收（不由桩代答产品内容——引用行来自观察=检索结果）。
-  defp exploration_reply_narrative(prompt) do
+  # 引用逻辑只消费观察摘要字节：legacy 旧观察段 / canonical IR 同次请求选出的真实
+  # content.summary（不补造观察段标记）。
+  defp exploration_reply_narrative(prompt, observation) do
     term = explore_quoted_term(judgment_author_input(prompt))
 
     cited_line =
-      prompt
-      |> exploration_observation_section()
+      observation
       |> String.split("\n")
       |> cited_observation_line(term)
 
@@ -4041,7 +4118,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 判断结构不可用诱导（ADR-0025 判断纪元语义）：garbage = 单次判断响应返回原始垃圾
   # payload（无合法 tool call）；bad-frame = 结构完整但 action 非法（模型仍说帧
   # 语言）。两者都应触发协议携带片段重试一次 → 仍坏 → S7 安全失败终局。
-  defp judgment_decision_result(prompt, ir) do
+  defp judgment_decision_result(prompt, ir, observation) do
     cond do
       String.contains?(prompt, @garbage_json_marker) ->
         garbage = "not valid json {{{ AU01GARBAGE raw provider payload"
@@ -4051,7 +4128,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         judgment_invalid_action_result(prompt)
 
       true ->
-        judgment_decision_result_for(prompt, ir)
+        judgment_decision_result_for(prompt, ir, observation)
     end
   end
 
@@ -4073,8 +4150,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     )
   end
 
-  defp judgment_decision_result_for(prompt, ir) do
-    request = explore_request_for(prompt)
+  defp judgment_decision_result_for(prompt, ir, observation) do
+    request = explore_request_for(prompt, ir)
 
     cond do
       # B23-FOLLOWUP：两轮都探索同一个只读面（archive_read/profile），第二次观察
@@ -4093,8 +4170,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       work_profile_revision_request?(prompt) ->
         judgment_work_profile_revision_result(prompt)
 
-      # 单调用协议按真实观察和当前只读请求收束，不依赖旧两调用的叙事回声。
-      readonly_observation_reply?(prompt) ->
+      # 单调用协议按同次真实观察收束，不依赖旧两调用的叙事回声。
+      is_binary(observation) ->
         judgment_cited_reply_decision_result(prompt)
 
       # B30 CP4：章节结构维护（重编号）意图 → maintain_chapter_structure execute；
@@ -4134,11 +4211,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         }
       ]
     )
-  end
-
-  defp readonly_observation_reply?(prompt) do
-    String.contains?(prompt, "## 探索观察") and
-      is_binary(explore_tool_for(judgment_author_input(prompt)))
   end
 
   @doc """
@@ -4613,18 +4685,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   # CP5a 内部翼：作者点名查正文事实（「」引用词 + 查/检索类动词）且判断 prompt
-  # 开放「探索目录」时判 explore（explore_request 点名 prose_search + 引用词）；
-  # prompt 已带「探索观察」段则不再探索（回环第二判），由 reply 引用观察收束。
-  defp explore_request_for(prompt) do
+  # 开放「探索目录」时判 explore（explore_request 点名 prose_search + 引用词）。
+  # legacy 文本请求沿用旧观察段/内容回声收束；canonical 只按结构化观察收束。
+  defp explore_request_for(prompt, ir) do
     author_text = judgment_author_input(prompt)
 
-    # 单调用判断：探索目录开放且尚无观察段；或 content 回声（先检索「）标记本轮已判探索。
-    explore_context? =
-      (String.contains?(prompt, "## 探索目录") and
-         not String.contains?(prompt, "## 探索观察")) or
-        String.contains?(prompt, "我先检索「")
-
-    with true <- explore_context?,
+    with true <- explore_context?(prompt, ir),
          tool when is_binary(tool) <- explore_tool_for(author_text),
          query when is_binary(query) <- explore_query_for(tool, author_text) do
       %{"tool" => tool, "query" => query}
@@ -4632,6 +4698,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       _ -> nil
     end
   end
+
+  # 旧观察段标记与 content 回声只属于 legacy 文本协议；canonical 的作者原文可能
+  # 引用这些字面量，不能据此判定本轮已探索。
+  defp explore_context?(prompt, nil) do
+    (String.contains?(prompt, "## 探索目录") and
+       not String.contains?(prompt, "## 探索观察")) or
+      String.contains?(prompt, "我先检索「")
+  end
+
+  defp explore_context?(prompt, %NovelCommon.RequestIR{}),
+    do: String.contains?(prompt, "## 探索目录")
 
   # archive_read 的 query 是档案面名（VS-00F CP1：账面问句固定读 ledgers 面）；
   # 其余工具沿用引用词。
@@ -5081,6 +5158,32 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       String.contains?(input, "请放弃修订稿") -> "discard_pending_artifact"
       true -> nil
     end
+  end
+
+  # B28 T4：章级修订意图已明确，但同份可见目录没有可绑定的章目标。
+  # 只认 b28_modification_signal? 的明确局部/整章/排版/字面修改信号；单纯读取
+  # （如“请通读已保存第一章正文”）或新写作不成立。Q1c 已采纳设定不含章/正文目标。
+  defp chapter_revision_missing_target?(prompt) do
+    author_text = judgment_author_input(prompt)
+
+    chapter_revision_targets_from_prompt(prompt) == [] and
+      contains_any?(author_text, ["章", "正文"]) and
+      chapter_revision_intent?(author_text) and
+      b28_modification_signal?(author_text)
+  end
+
+  defp judgment_chapter_revision_missing_target_result do
+    question = "当前没有可修订的已保存章节正文。请确认目标章节，或先采纳一章正文再调整排版。"
+
+    Result.new(question, nil,
+      tool_calls: [
+        %{
+          "id" => "call_ask_author",
+          "name" => "ask_author",
+          "arguments" => %{"question" => question, "options" => []}
+        }
+      ]
+    )
   end
 
   @doc """

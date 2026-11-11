@@ -804,6 +804,38 @@ defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
     assert args["capability"] == "revise_adopted_content"
     assert args["adopted_content_ref"] == "as_q1c_setting"
   end
+
+  test "空目录下新写正文/纯读/普通聊天不误发缺目标澄清" do
+    new_writing = """
+    本次你承担创作判断器的角色。
+
+    ## 作者输入
+    帮我写第一章正文，注意分段和排版。
+    """
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, new_writing, %InferenceParams{})
+    refute Enum.any?(result.tool_calls, &(&1["name"] == "ask_author"))
+
+    read_only = """
+    本次你承担创作判断器的角色。
+
+    ## 作者输入
+    请通读已保存第一章正文。
+    """
+
+    assert {:ok, read_result} = SliceVerify.complete(nil, nil, read_only, %InferenceParams{})
+    refute Enum.any?(read_result.tool_calls, &(&1["name"] == "ask_author"))
+
+    chat = """
+    本次你承担创作判断器的角色。
+
+    ## 作者输入
+    我们聊聊这个故事的节奏吧。
+    """
+
+    assert {:ok, chat_result} = SliceVerify.complete(nil, nil, chat, %InferenceParams{})
+    refute Enum.any?(chat_result.tool_calls, &(&1["name"] == "ask_author"))
+  end
 end
 
 defmodule NovelAgent.Provider.SliceVerifyChapterWriterFixtureTest do

@@ -565,3 +565,7 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 在真实 `PendingArtifactWorkflow` 入口复现过「只改第十一段」误调用第一段 writer。修复后，存在第十一段时 writer 收到该段，不足十一段或序号为「十十」时在 writer 之前返回 `target_missing`。明确段与原文字面冲突仍返回 `target_ambiguous`。观察如何提出并绑定局部目标仍由上面的后续检查点承接。
 
 本轮浏览器复验的 T2 已完成「二十五岁」到「三十岁」的采纳，阅读截图显示新正文，隔离库从 revision 6 到 8 的变化逐字节等于这一次替换。随后 T7 已返回原生 `prose_search` 观察，确定性替身仍发出同一查询，run 进入 `awaiting_author`。驱动只等 `TurnResult`，因此保留数据库快照并停止此批；完整矩阵结论待替身修复后复验。见 `artifacts/slice-verify/b28-whole-chapter-revision-tauri-b36-b28-20261111/partial-browser-proof.json`。
+
+测试替身改为在实际可见的 Request IR 中选择同一作者回合、工具与查询均匹配的观察，判断与回复共用该摘要。第二批 T7 的新旧值检索均完成，T4 则暴露空目录时误走新写作。替身现对明确修订且缺已采纳章目标的请求发出具体澄清。第二批证据保留在 `artifacts/slice-verify/b28-whole-chapter-revision-tauri-b36-b28-20261111-canonical-r2/`。第三批在页面启动前遇到共享 Mix 编译目录冲突，第四批使用独立编译目录。
+
+第四批全部页面动作完成，原矩阵 **45/48**，T4 澄清、零 writer、零写入均成立。三项失败仍保留。按真实 Provider 调用和持久草稿独立复核，T1 判断选中了真实章 ref，同 run 的 writer 最新 scope 逐字节包含两份采纳稿；旧读侧取到的 prompt 为空对象。T7 的新值和旧值否定分别以同源 `prose_search` 观察进入各自后续请求，原矩阵仍要求在旧式当前上下文段查找正文。待按 B71 的 Base 与观察契约迁移这三项正式取证。独立核对见 `artifacts/slice-verify/b28-whole-chapter-revision-tauri-b36-b28-20261111-canonical-r4/canonical-request-audit.json`。
