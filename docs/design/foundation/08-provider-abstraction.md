@@ -773,7 +773,7 @@ provider 之后，建议继续：
 
 ### 25.3 Profile、解析顺序与配置旋钮
 
-Profile：`local` = `:lmstudio` / `:strata`（同一套本机推理后端）；`hosted` = 其余所有 provider。
+Profile：`local` = `:lmstudio` / `:strata` / `:splash`（同一套本机推理后端）；`hosted` = 其余所有 provider。
 
 解析优先级（`NovelAgent.Provider.TimeoutPolicy.resolve/2` 是唯一真源）：
 
@@ -793,11 +793,11 @@ Profile：`local` = `:lmstudio` / `:strata`（同一套本机推理后端）；`
 3. profile 组 env `NOVEL_LOCAL_DEADLINE_TIMEOUT_MS` / `NOVEL_HOSTED_DEADLINE_TIMEOUT_MS`
 4. 全都没有 → `nil`（关闭）；`0` / `"off"` / `"disabled"` 也视为关闭
 
-`connect_ms`：provider 配置 `connect_timeout:` > env `NOVEL_<PROVIDER>_CONNECT_TIMEOUT_MS` > 15_000。`<PROVIDER>` 为 provider atom 的大写形式（`LMSTUDIO`、`STRATA`、`ANTHROPIC`、`DEEPSEEK`、`OPENAI` 等）。
+`connect_ms`：provider 配置 `connect_timeout:` > env `NOVEL_<PROVIDER>_CONNECT_TIMEOUT_MS` > 15_000。`<PROVIDER>` 为 provider atom 的大写形式（`LMSTUDIO`、`STRATA`、`SPLASH`、`ANTHROPIC`、`DEEPSEEK`、`OPENAI` 等）。
 
 配置落点与行为变化：
 
-- `config/config.exs` / `config/dev.exs` / `config/prod.exs`：本地 provider（LM Studio / Strata）不再配置总时长 `timeout`；hosted provider 保留 legacy `timeout`（默认 300_000），只作为 response / non_stream 窗口兜底，不再承担总时长杀灭。
+- `config/config.exs` / `config/dev.exs` / `config/prod.exs`：本地 provider（LM Studio / Strata / Splash）不再配置总时长 `timeout`；hosted provider 保留 legacy `timeout`（默认 300_000），只作为 response / non_stream 窗口兜底，不再承担总时长杀灭。
 - 行为变化点：hosted provider 的 legacy `timeout` 过去兼作流式总挂钟（约 300s 必杀），现在只决定「多久没数据算挂死」；单次调用总时长默认不再有上界。
 - 唯一注入点：`NovelAgent.Provider.Gateway.execute/4` 的 `resolve_timeout_policy/2` 解析后写入 execution context（`ctx.timeout_policy`）；adapter 侧只经 `NovelAgent.Provider.AdapterExecution` 的 `timeout_policy/1`、`response_timeout/2`、`non_stream_timeout/2`、`deadline_timeout/1`、`connect_timeout/2`、`probe_timeout/1` 消费，不自行读 env。
 - 兼容：直接调用 adapter 的测试 / 旧路径没有 policy 时回退 legacy `state.timeout`，行为与 B22 前一致；生产主链走 `Gateway.execute/4`，不依赖该回退。

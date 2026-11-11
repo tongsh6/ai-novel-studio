@@ -10,6 +10,7 @@ import { apiBaseUrl, isTauri } from "./env";
 
 export type ProviderId =
   | "lmstudio"
+  | "splash"
   | "strata"
   | "anthropic"
   | "deepseek"
@@ -23,6 +24,7 @@ export type ProviderId =
 
 export const PROVIDER_IDS: readonly ProviderId[] = [
   "lmstudio",
+  "splash",
   "strata",
   "anthropic",
   "deepseek",

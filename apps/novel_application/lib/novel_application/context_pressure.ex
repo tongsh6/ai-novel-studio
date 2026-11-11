@@ -18,6 +18,7 @@ defmodule NovelApplication.ContextPressure do
   @default_windows %{
     "lmstudio" => 32_000,
     "strata" => 32_000,
+    "splash" => 32_000,
     "openai" => 128_000,
     "openai_subscription" => 128_000,
     "anthropic" => 200_000,

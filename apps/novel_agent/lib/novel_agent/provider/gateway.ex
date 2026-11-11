@@ -39,6 +39,7 @@ defmodule NovelAgent.Provider.Gateway do
 
   @provider_modules %{
     lmstudio: Provider.LMStudio,
+    splash: Provider.Splash,
     strata: Provider.Strata,
     anthropic: Provider.Anthropic,
     deepseek: Provider.DeepSeek,
@@ -72,6 +73,19 @@ defmodule NovelAgent.Provider.Gateway do
       requires_api_key: false,
       supports_api_key: true,
       supports_endpoint: false,
+      supports_thinking: true,
+      supports_streaming: true,
+      supports_cancellation: true
+    },
+    # 本地 Splash（Splash App / `splash serve` 管理的 OpenAI 兼容服务）：默认
+    # http://127.0.0.1:8000/v1，模型由 Splash 管理（未显式选择时请求不带 model）。
+    # 与 Strata 不同，Splash 端口可由本机 `--port` 调整，因此端点允许作者在设置页
+    # 配置；默认无 Key，也支持部署侧访问 Key；思考走请求级顶层 reasoning_effort。
+    splash: %{
+      label: "Splash",
+      requires_api_key: false,
+      supports_api_key: true,
+      supports_endpoint: true,
       supports_thinking: true,
       supports_streaming: true,
       supports_cancellation: true

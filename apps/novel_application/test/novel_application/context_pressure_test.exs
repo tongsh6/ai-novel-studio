@@ -27,6 +27,7 @@ defmodule NovelApplication.ContextPressureTest do
   test "window：默认保守值、未知 provider 兜底、应用配置可覆盖且不向作者暴露" do
     assert ContextPressure.window("deepseek") == 64_000
     assert ContextPressure.window("anthropic") == 200_000
+    assert ContextPressure.window("splash") == 32_000
     assert ContextPressure.window("unknown-provider") == 32_000
     assert ContextPressure.window(nil) == 32_000
 

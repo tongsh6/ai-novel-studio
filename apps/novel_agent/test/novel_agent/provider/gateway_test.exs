@@ -126,6 +126,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       assert :slice_verify in providers
       assert :lmstudio in providers
       assert :strata in providers
+      assert :splash in providers
       assert :anthropic in providers
       assert :deepseek in providers
     end

@@ -9,7 +9,7 @@ defmodule NovelAgent.Provider.TimeoutPolicyTest do
 
   describe "profile defaults" do
     test "local providers get wire-silence and non-stream windows but no total deadline" do
-      for provider <- [:lmstudio, :strata] do
+      for provider <- [:lmstudio, :strata, :splash] do
         policy = resolve(provider)
 
         assert policy.profile == :local

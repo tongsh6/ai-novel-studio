@@ -64,6 +64,19 @@ config :novel_agent, NovelAgent.Provider.Strata,
   reasoning_effort: System.get_env("NOVEL_STRATA_REASONING_EFFORT"),
   max_tokens: System.get_env("NOVEL_STRATA_MAX_TOKENS", "32000") |> String.to_integer()
 
+# Splash App / `splash serve` 管理的本机 OpenAI 兼容服务：默认 127.0.0.1:8000/v1，
+# 无 Key 也可用，可选 Bearer Key；模型由 Splash 管理（未设 NOVEL_SPLASH_MODEL 时请求
+# 不带 model）。端点可在设置页配置，部署侧也可用 NOVEL_SPLASH_ENDPOINT 覆盖。
+# Elixir 对同一模块配置是整块替换而非深合并，这里必须与 config.exs 同源写全。
+# 本地存活时限由 TimeoutPolicy 统一解析，不在 provider 配置里写总时长（B22）。
+config :novel_agent, NovelAgent.Provider.Splash,
+  api_key: System.get_env("NOVEL_SPLASH_API_KEY"),
+  endpoint: System.get_env("NOVEL_SPLASH_ENDPOINT", "http://127.0.0.1:8000/v1"),
+  model: System.get_env("NOVEL_SPLASH_MODEL"),
+  thinking: System.get_env("NOVEL_SPLASH_THINKING", "disabled"),
+  reasoning_effort: System.get_env("NOVEL_SPLASH_REASONING_EFFORT"),
+  max_tokens: System.get_env("NOVEL_SPLASH_MAX_TOKENS", "32000") |> String.to_integer()
+
 # 可选：Anthropic Claude API（需设置 ANTHROPIC_API_KEY 环境变量）
 # 切换到云端 provider 时，只需修改 :provider → default: :anthropic
 config :novel_agent, NovelAgent.Provider.Anthropic,

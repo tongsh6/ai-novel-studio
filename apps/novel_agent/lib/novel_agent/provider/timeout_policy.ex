@@ -29,7 +29,7 @@ defmodule NovelAgent.Provider.TimeoutPolicy do
 
   | profile | response_ms | non_stream_ms | deadline_ms |
   |---|---|---|---|
-  | local（`:lmstudio`, `:strata`） | 900_000（15 分钟无任何 wire 数据才判挂死） | 1_800_000（30 分钟） | 不启用 |
+  | local（`:lmstudio`, `:strata`, `:splash`） | 900_000（15 分钟无任何 wire 数据才判挂死） | 1_800_000（30 分钟） | 不启用 |
   | hosted（其余 provider） | 沿用 legacy `timeout`（默认 300_000） | 沿用 legacy `timeout` | 不启用 |
 
   本地 response 窗口取 15 分钟 bootstrap：实测本地 TTFT 最大 195s；预填充/后端
@@ -66,7 +66,7 @@ defmodule NovelAgent.Provider.TimeoutPolicy do
 
   defstruct [:provider, :profile, :connect_ms, :response_ms, :non_stream_ms, :deadline_ms]
 
-  @local_providers [:lmstudio, :strata]
+  @local_providers [:lmstudio, :strata, :splash]
 
   @connect_ms 15_000
   @probe_ms 15_000

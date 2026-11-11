@@ -12,6 +12,7 @@ import {
   saveAndApplyModelProviderConfig,
   testProviderConnection,
   normalizePurposeModels,
+  PROVIDER_IDS,
 } from "../modelProvider";
 
 function installLocalStorage() {
@@ -529,5 +530,13 @@ describe("providerDisplayName", () => {
         model: "slice_verify",
       } as never),
     ).toBe("当前模型服务");
+  });
+});
+
+describe("PROVIDER_IDS", () => {
+  it("keeps the local splash provider selectable in backend-driven options", () => {
+    // 本机 Splash 供应商由后端 Gateway registry 注册；前端白名单缺项时
+    // normalizeProviderOptions 会把它当未知 id 静默丢弃，模型设置页就选不到它。
+    expect(PROVIDER_IDS).toContain("splash");
   });
 });

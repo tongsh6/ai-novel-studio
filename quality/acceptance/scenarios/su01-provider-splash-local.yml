@@ -1,0 +1,80 @@
+id: su01-provider-splash-local
+title: 本地 Splash provider 真实页面闭环（registry → 可编辑端点 → live 模型列表 → 连接 → 保存切换 → 真实 turn）
+tier: nightly
+surface: tauri
+# 本轮状态：draft 登记（quality/acceptance/scenarios.yml 的 drafts 列表）；driver 未实现，
+# 当前不可执行、永不执行、不计 PASS。
+status_note: "draft（driver 未实现）：Splash 本地 provider 的 nightly/live Tauri 验收 manifest 草案；Splash 专属 external-ui-driver / native-tauri-verifier 分派与 tauri_slice_verify --provider splash 白名单尚未实现，本 manifest 当前不可执行、不得计入 PASS；driver 落地并取得真实 Tauri PASS 后方可转 active。"
+entrypoint: scripts/quality_accept.sh su01-provider-splash-local --surface tauri --provider splash
+
+contract:
+  - docs/design/acceptance/system/SU-01-model-provider.md
+  - docs/design/foundation/08-provider-abstraction.md
+  - docs/design/tech-stack/05-desktop.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - splash-provider-comes-from-backend-registry
+  - splash-defaults-to-the-local-openai-compatible-endpoint-127-0-0-1-8000
+  - splash-endpoint-is-author-configurable-because-the-port-is-deployment-owned
+  - splash-model-list-comes-from-the-live-splash-models-endpoint
+  - splash-model-is-managed-by-splash-and-not-pinned-by-the-scenario
+  - splash-api-key-is-optional-not-required
+  - splash-thinking-is-disabled-by-default-through-top-level-reasoning-effort
+  - saving-provider-switch-affects-the-next-real-turn
+  - live-provider-evidence-cannot-be-faked-by-command-log
+  - no-product-acceptance-hooks
+
+setup:
+  seed: null
+  provider: splash
+
+user_flow:
+  - open: real workbench model settings from the visible top-bar model status button
+  - select: Splash provider from the backend-driven provider dropdown
+  - observe: provider options expose the default endpoint http://127.0.0.1:8000/v1 and supports_endpoint=true, so the model settings dialog keeps an editable endpoint input for Splash (unlike Strata)
+  - refresh: the model list from the live Splash /v1/models endpoint of the running local Splash service
+  - select: the model currently reported by Splash from the visible model dropdown
+  - test: click the visible 测试连接 button and see 连接可用。
+  - save: click 保存并切换, the dialog closes and the top bar shows Splash with the current model
+  - send: one short chat message from the real workbench composer
+  - observe: the assistant reply is visible and the correlated turn was handled by the splash provider
+
+evidence:
+  required:
+    - screenshot
+    - app_jsonl
+    - llm_http_log
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/su01-provider-splash-local-tauri-splash
+
+assertions:
+  ui:
+    - Splash appears in the provider dropdown rendered from the backend provider registry
+    - the model settings dialog keeps an editable endpoint input for Splash and it defaults to http://127.0.0.1:8000/v1
+    - refreshing the model list shows the model currently reported by the running Splash service and it can be selected
+    - test connection shows 连接可用。 against the live local Splash service
+    - after save the top-bar model button shows Splash and the current model
+    - the assistant reply for the sent chat message is visible in the workbench
+  network:
+    - provider options reports current_provider=splash with label Splash, the default endpoint http://127.0.0.1:8000/v1 and supports_endpoint=true
+    - provider options reports requires_api_key=false and supports_api_key=true
+    - provider_gateway.complete.done for the correlated turn reports provider=splash with the model Splash currently reports
+  data:
+    - the LLM call log contains POST /v1/chat/completions with HTTP 2xx for the correlated turn
+    - ui_state records turn_id, live_provider=splash, connection_test_passed=true and assistant_reply_non_empty=true
+
+known_limits:
+  - This is a nightly/live scenario, not a deterministic CI scenario: it requires the local Splash service (Splash App / `splash serve`, verified against splash 1.6.1) to be running on the same machine with its OpenAI-compatible endpoint at http://127.0.0.1:8000/v1. tauri_slice_verify.sh fails fast when that endpoint is unreachable.
+  - The endpoint is author/deployment configurable (`splash serve --port`, or NOVEL_SPLASH_ENDPOINT), so the scenario asserts the product default rather than the only possible address; a machine serving Splash on another port must pass the endpoint explicitly.
+  - The model is managed by Splash outside this product; the scenario selects whatever model the live /v1/models endpoint currently reports instead of pinning a model name, so it does not prove a specific model id or a specific Splash routing policy.
+  - It does not prove cloud/remote Splash behavior or a key-protected Splash backend; the default local service is keyless and the optional Bearer path is covered by provider adapter tests, not by this live page scenario.
+  - It does not prove the model reply quality; it only proves the reply is a non-empty, visible assistant message produced by a real Splash turn.
+  - Like every nightly Tauri scenario, it needs the local Tauri dev toolchain and a working macOS/Linux desktop automation environment.
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -94,6 +94,20 @@ config :novel_agent, NovelAgent.Provider.Strata,
   # 存活时限见 TimeoutPolicy（本地 profile，无总时长杀灭）。
   max_tokens: System.get_env("NOVEL_STRATA_MAX_TOKENS", "32000") |> String.to_integer()
 
+# Splash —— Splash App / `splash serve` 管理的本机 OpenAI 兼容服务（默认
+# http://127.0.0.1:8000/v1）。模型由 Splash 管理：未设 NOVEL_SPLASH_MODEL 时请求不带
+# model，由服务路由到当前已加载模型；设置页刷新 /models 后可由作者显式选择。
+# 与 Strata 不同，Splash 端口可由本机 `splash serve --port` 调整，因此端点允许作者在
+# 设置页配置；部署侧可用 NOVEL_SPLASH_ENDPOINT 覆盖。默认无 Key，也支持部署侧访问 Key。
+# 思考控制走请求级顶层 reasoning_effort，thinking 默认 disabled → adapter 发 "none"。
+config :novel_agent, NovelAgent.Provider.Splash,
+  api_key: System.get_env("NOVEL_SPLASH_API_KEY"),
+  endpoint: System.get_env("NOVEL_SPLASH_ENDPOINT", "http://127.0.0.1:8000/v1"),
+  model: System.get_env("NOVEL_SPLASH_MODEL"),
+  thinking: System.get_env("NOVEL_SPLASH_THINKING", "disabled"),
+  reasoning_effort: System.get_env("NOVEL_SPLASH_REASONING_EFFORT"),
+  max_tokens: System.get_env("NOVEL_SPLASH_MAX_TOKENS", "32000") |> String.to_integer()
+
 config :novel_agent, NovelAgent.Provider.Anthropic,
   api_key: System.get_env("NOVEL_ANTHROPIC_API_KEY"),
   model: System.get_env("NOVEL_ANTHROPIC_MODEL", "claude-sonnet-4-6"),

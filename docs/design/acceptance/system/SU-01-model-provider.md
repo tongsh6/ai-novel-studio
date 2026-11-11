@@ -46,6 +46,8 @@
 > - 验收：`bash scripts/tauri_slice_verify.sh --provider strata su01-provider-strata-local`（真实 Tauri，nightly/live；需 Strata App 统一后台在 47831 运行）。scenario 不写死模型名，选择统一后台当前报告的模型；证据 `artifacts/slice-verify/su01-provider-strata-local-tauri-strata/summary.json`。
 > - 诚实边界：该场景是 nightly/live，不是 CI 确定性 gate；可选 Bearer 路径由 adapter 单测覆盖，不做 live key 场景冒充。
 
+> 2026-11-12 对账结论（新增本地 Splash provider；验收 scenario 为 draft，未闭环）：后端新增 `NovelAgent.Provider.Splash`（`apps/novel_agent/lib/novel_agent/provider/splash.ex`），经共享 `OpenAICompatible` 宏接入本机 Splash（Splash App / `splash serve`；本机 `splash --version` = 1.6.1）的 OpenAI 兼容入口：默认端点 `http://127.0.0.1:8000/v1`（与 Strata 固定统一入口不同，Splash 端口由本机 `splash serve --port` 或部署决定，因此 descriptor `supports_endpoint=true`，设置页保留端点输入；`NOVEL_SPLASH_ENDPOINT` 仅作部署侧覆盖）；默认无 Key、可选 Bearer Key（`splash serve --api-key` / `NOVEL_SPLASH_API_KEY`）；思考走请求级顶层 `reasoning_effort`（`thinking_style: :reasoning_effort`，默认 disabled → 发 `"none"`，绝不发 `thinking` 对象）；模型由 Splash 管理——`NOVEL_SPLASH_MODEL` 未配置时 adapter 请求体不带 `model`，由 Splash 路由到当前已加载模型，设置页刷新真实 `/v1/models` 后由作者显式选择（本机当前 `local/Q4-PLE4`、`context_length=262144`）；`health_check/1` 与 `list_models` 均走真实 `GET /models` 探活。Gateway `@provider_modules` 登记 `splash: Provider.Splash`，`@provider_descriptors` 登记 `label="Splash"`、`requires_api_key=false`、`supports_api_key=true`、`supports_endpoint=true`、`supports_thinking=true`、`supports_streaming/cancellation=true`；`config/config.exs` 与 `config/dev.exs` 提供 `NOVEL_SPLASH_{API_KEY,ENDPOINT,MODEL,THINKING,REASONING_EFFORT,MAX_TOKENS}`。前端 `frontend/src/lib/modelProvider.ts` 的 `ProviderId`/`PROVIDER_IDS` 与 `frontend/src-tauri/src/lib.rs` 的 `MODEL_PROVIDER_IDS` 已同步加入 `splash`，模型设置 Dialog 继续由后端 registry 渲染，Splash 供应商因此自然进入作者可见的供应商下拉（后端 label `Splash`，作者可见 display_name 由 display names SSOT/codegen 提供为「本地模型」），产品代码没有为验收新增任何识别逻辑。**验收入口与诚实边界（未闭环）**：Splash 供应商已进入后端 registry 与前端选择 UI，但**真实 Tauri 页面场景验收本次未执行**——`su01-provider-splash-local` 按 **draft** 登记在 `quality/acceptance/scenarios.yml` 的 `drafts:`（manifest `quality/acceptance/scenarios/su01-provider-splash-local.yml` 以 `status_note` 声明 driver 未实现、不可执行、不计 PASS），因为 Splash 专属 external-ui-driver / native-tauri-verifier 分派与 `scripts/tauri_slice_verify.sh --provider splash` 白名单尚未实现（该脚本由维护者负责，本 checkpoint 不改）；因此本段只证明后端 adapter/registry/config 与前端类型/桌面白名单已登记、本地 live 服务可用（2026-11-12 `GET http://127.0.0.1:8000/v1/models` 返回 `local/Q4-PLE4`），**不得据此写 SU-01 或该 checkpoint done/已验收**。sub-slice 记录见 `tasks/slices/SU01-splash-local-provider.md`。
+
 ---
 
 ## 1. 我能做什么
@@ -60,6 +62,7 @@
 | 测试连接 | 点击后立即得到成功/失败反馈 |
 | 本地使用 LM Studio | 默认指向 `http://localhost:1234/v1`，未启动时提示明确 |
 | 本地使用 Strata | 固定指向 Strata App 统一推理后台 `http://127.0.0.1:47831/v1`；模型由 Strata App 管理，设置页刷新 `/v1/models` 后从当前模型中选择；默认无 Key、可选 Key；思考经请求级顶层 `reasoning_effort` 控制且默认关闭 |
+| 本地使用 Splash | 默认指向本机 Splash（Splash App / `splash serve`）的 OpenAI 兼容入口 `http://127.0.0.1:8000/v1`；端口可由本机 `splash serve --port` 或部署调整，因此设置页保留端点输入；模型由 Splash 管理，设置页刷新 `/v1/models` 后从当前模型中选择（本机当前 `local/Q4-PLE4`）；默认无 Key、可选 Key；思考经请求级顶层 `reasoning_effort` 控制且默认关闭。真实 Tauri 页面场景验收仍为 draft（未闭环） |
 
 明确不覆盖：
 
@@ -87,7 +90,7 @@
 | `apps/novel_web/lib/novel_web/controllers/provider_controller.ex` | `GET /api/provider/health` 返回 `connected/provider/model/message/detail`；新增 provider options/models/config/test API | 后端 API 已能支撑设置 UI，但完整页面验收未闭环 |
 | `apps/novel_application/lib/novel_application.ex` | `provider_health/options/models/configure/test` 均经 Application 层代理 | `novel_web` 不直接依赖 `novel_agent` |
 | `apps/novel_agent/lib/novel_agent/provider/runtime_config.ex` | 保存当前进程的 provider 选择与运行时配置 | 持久化归桌面 shell，不落项目仓库 |
-| `apps/novel_agent/lib/novel_agent/provider/gateway.ex` | 注册 11 个真实供应商（lmstudio/strata/anthropic/deepseek/openai/openai_subscription/minimax/minimax_cn/zhipu/kimi/gemini），支持 registry、实时模型列表、health、运行时切换和连接测试；`clear_api_key` 不复用旧 runtime key；测试替身只经 `config/test.exs` 的 `:extra_providers` 注入，不进入生产注册表 | 后端最小切换闭环已实现并有单元/控制器测试 |
+| `apps/novel_agent/lib/novel_agent/provider/gateway.ex` | 注册 12 个真实供应商（lmstudio/strata/splash/anthropic/deepseek/openai/openai_subscription/minimax/minimax_cn/zhipu/kimi/gemini），支持 registry、实时模型列表、health、运行时切换和连接测试；`clear_api_key` 不复用旧 runtime key；测试替身只经 `config/test.exs` 的 `:extra_providers` 注入，不进入生产注册表 | 后端最小切换闭环已实现并有单元/控制器测试 |
 | `apps/novel_agent/lib/novel_agent/provider/strata.ex` | Strata App 统一推理后台 provider adapter：固定 OpenAI 兼容入口 `http://127.0.0.1:47831/v1`、`/chat/completions`、`/models`、真实 health 探活、可选 Bearer Key；模型由 App 管理，未配置模型时请求不带 `model`；思考走顶层 `reasoning_effort`（默认 `"none"`，不发 thinking 对象） | 后端 registry 单源；前端模型设置 Dialog 自动出现「Strata」，模型列表来自统一后台实时 `/v1/models` |
 | `frontend/src/lib/modelProvider.ts` | 集中封装 provider options/models/config/test、Tauri 偏好、本地密钥文件同步、浏览器 fallback | 前端只调用后端 API，不直接调用 provider |
 | `frontend/src-tauri/src/lib.rs` | 非 secret provider 偏好写 profile-scoped app config，API Key 写同目录的 profile-scoped `provider-secrets.json`（unix 0600）；保存 payload 支持前端 camelCase | dev/stage/slice verification 的 provider 选择与密钥互相隔离；所有桌面平台一致用本地受限文件，不再依赖 macOS Keychain |

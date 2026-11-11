@@ -12,6 +12,7 @@ defmodule NovelCommon.CapabilityProfileTest do
     MinimaxCN,
     OpenAI,
     OpenAISubscription,
+    Splash,
     Strata,
     Zhipu
   }
@@ -150,14 +151,14 @@ defmodule NovelCommon.CapabilityProfileTest do
     do: %{ir | projection: Map.put(ir.projection, :finite_mode, mode)}
 
   describe "能力事实来源" do
-    test "真实生产 registry 为 11 个 provider，全部 adapter 声明完整必备能力" do
+    test "真实生产 registry 为 12 个 provider，全部 adapter 声明完整必备能力" do
       previous = Application.get_env(:novel_agent, :extra_providers)
       Application.delete_env(:novel_agent, :extra_providers)
       RuntimeConfig.reset()
 
       try do
         providers = Gateway.registered_providers()
-        assert length(providers) == 11
+        assert length(providers) == 12
         refute :stub in providers
 
         # 能力事实来源是 adapter 自身（VS-00L §6.4）；按生产注册表逐一核对，
@@ -172,6 +173,7 @@ defmodule NovelCommon.CapabilityProfileTest do
           MinimaxCN,
           OpenAI,
           OpenAISubscription,
+          Splash,
           Strata,
           Zhipu
         ]

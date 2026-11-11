@@ -1,7 +1,7 @@
 // AUTO-GENERATED FROM docs/design/schemas/author_visible/display_names.json — DO NOT EDIT.
 // Run `pnpm codegen:author-visible` to regenerate. Author-visible surfaces must only use these display names.
 
-export const SOURCE_HASH = "f9ea978f7d75a72bdf31a07a0f4858f83cb9ab92a69c8c798ac4b83da9f09a7c";
+export const SOURCE_HASH = "ad83c0133151f0d9a441e3af714251bc4aced2ffe2489a8fb165a208729b9fc5";
 
 export const DISPLAY_NAMES = {
   "action": {
@@ -165,6 +165,7 @@ export const DISPLAY_NAMES = {
   },
   "provider": {
     "strata": "本地模型",
+    "splash": "本地模型",
     "lmstudio": "本地模型",
     "openai": "OpenAI",
     "openai_subscription": "OpenAI（订阅）",

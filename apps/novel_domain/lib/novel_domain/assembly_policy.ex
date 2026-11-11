@@ -43,6 +43,7 @@ defmodule NovelDomain.AssemblyPolicy do
   @provider_tier %{
     lmstudio: :floor,
     strata: :floor,
+    splash: :floor,
     deepseek: :large,
     anthropic: :large
   }

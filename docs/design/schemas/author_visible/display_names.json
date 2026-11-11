@@ -60,6 +60,7 @@
     },
     "provider": {
       "strata": "本地模型",
+      "splash": "本地模型",
       "lmstudio": "本地模型",
       "openai": "OpenAI",
       "openai_subscription": "OpenAI（订阅）",
