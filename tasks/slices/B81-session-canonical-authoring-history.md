@@ -1,6 +1,6 @@
 # B81：会话级 canonical 创作历史（ADR-0035 落地）
 
-- 状态：**doing（2026-11-11 完成度复核重开 CP5；分项状态见 §7，最新证据和未闭环边界见 §12）**
+- 状态：**done（2026-11-11 复核通过，分项状态见 §7，实模与门禁证据见 §12）**
 - 来源：
   - 作者 2026-11-08 批准 [ADR-0035：会话级 canonical 创作上下文](../../docs/design/adr/ADR-0035-session-scoped-canonical-authoring-context-v3.md)（Accepted）。
   - 产品级偏差诊断：[2026-11-08-session-level-product-deviation](../../docs/design/notes/2026-11-08-session-level-product-deviation.md)（P0-1 跨轮上下文断裂、P0-2 会话级 canonical 事实源缺失、P1-1 压缩/G6 不可达）。
@@ -104,11 +104,11 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 | CP | 状态 | 范围/交付 | 验收 | 依赖 | 预计写域 |
 |---|---|---|---|---|---|
 | CP1 | done（2026-11-08 实现+测试+全量门禁；2026-11-09 真实页面证据 19/19 + 真实数据质量审计） | 会话级 canonical 历史：存储/身份/追加/前缀校验/恢复幂等/旧 run 级列退役 | 确定性机制测试 + 全量门禁 + 既有批次回归（行为不变） | ADR-0035 已批准 | `apps/novel_application`（AuthoringCheckpoint/AgentRunPersistence/AgentRunService/AuthoringReplay）、`apps/novel_persistence`（AuthoringSessionLog/schema/migration/AgentRunLog） |
-| CP2 | doing（机制层已实现，页面多轮证据归 CP5） | 每轮请求由会话派生（完整历史；窗口压力时 checkpoint 投影替代更早历史） | 真实页面多轮会话：跨轮上下文/指代/义务 + 请求证据；机制层判据：第 N 轮请求含第 N-1 轮作者原话字节与前序 observation refs | CP1 | `apps/novel_application`（JudgmentProtocol/AgentRunServer）；可能新增 `novel_common` 纯契约（需裁决） |
-| CP3 | doing（机制层已实现；真实多轮页面证据归 CP5） | 压缩作用域=会话历史、触发/细条/回查调整 | G6 压缩后真实请求（真实多轮自然触发）+ 失败静默/幂等 | CP2 | `apps/novel_application`（TranscriptCompaction/AgentRunServer/ContextPressure，跨 run usage 累计）、`frontend/src`（仅在细条/回查需适配时） |
-| CP4 | doing（机制层已实现；真实多轮页面证据归 CP5） | 三类投影/恢复幂等 + 审计/回查以会话为对象（窄化为"投影输入来源变化后的等价性验证"） | 投影/幂等/回查机制证据 | CP2、CP3 | `apps/novel_agent`（投影校验）、`apps/novel_application`（Replay）、`scripts/arch_check.exs`（边界规则细化） |
-| CP5 | doing（已有确定性页面和实模触发证据，完整 G6 未闭环；见 §12） | 真实页面多轮会话综合验收 + G6 取证（承接 B71 G6） | 页面/机制/实模分层报告（实模不代签）；窗口不可用时按 known-gap 登记规则如实关闭 | CP2–CP4 | `scripts/`（验收 harness）、`artifacts/`（证据，只读保留） |
-| CP6 | doing（生产旧来源/旧列已退役；当前验收工具尚有活消费者，见 §12） | 旧 `:session_transcript`/旧装配链/旧 run 级语义退役清理 | 删除后全量门禁 + 无消费者核对 | CP5 | `apps/novel_application`（ContextAssembler/DialoguePlanningService 旧路径）、`apps/novel_persistence`（旧列删除）、测试清理 |
+| CP2 | done（判断与专业入口回归，真实多轮报文见 §12） | 每轮请求由会话派生，窗口压力时由 checkpoint 投影替代更早历史 | 跨轮作者原话、观察来源、当前 scope 及当前执行段独立写回 | CP1 | `apps/novel_application`（会话请求视图、判断及专业入口） |
+| CP3 | done（确定性机制、真实 Tauri/Strata、事务回归见 §12） | 会话级压缩、自动维护安全点、作者细条与回查 | 闭合交换、精确覆盖、原序、失败静默重试及幂等 | CP2 | `apps/novel_application`（TranscriptCompaction/AgentRunServer/ContextPressure）、`novel_common`（现有 RequestIR） |
+| CP4 | done（统一读快照、三类投影逐字节回归及真实回查） | 三类投影、恢复幂等、会话级审计与回查 | 段编解码、坏段拒绝、原生页面及原生报文 | CP2、CP3 | `apps/novel_application`、`apps/novel_persistence`、现有验收脚本 |
+| CP5 | done（交错 C5/C6 与重启/故障恢复各有实模页面证据。历史 C9 整改由 B86 跟踪） | 真实页面多轮会话综合验收 + G6 取证 | 页面、机制、实模分别核对，批次覆盖见 §12 | CP2–CP4 | `scripts/`（验收驱动）、`artifacts/`（证据） |
+| CP6 | done（旧来源、旧列及验收消费者已迁移，AU09 质量入口 6/6，整仓门禁见 §12） | 旧 `:session_transcript`、旧装配链与旧 run 级语义退役 | 删除后全量门禁、活消费者搜索、产品页请求与隔离证据 | CP5 | `apps/novel_application`、`apps/novel_persistence`、现有 AU09 验收 |
 
 ### 7.1 相关任务与承接关系（登记全）
 
@@ -565,24 +565,10 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 
 ## 9. 剩余后果与阻塞
 
-- **CP7 已定论（2026-11-11）**：压缩对象/保留计数/covers 已是会话级；触发时机为 run 安全点（设计选择，非压缩单位错误）；如作者仍要请求前独立检查再立 ADR 补充，当前无需改代码。
-- **实模页面层判据（known-gap）**：C6/C11 已修（判据口径）、C3/C4 页面证据受真实模型 run failed 后页面失败态影响未捕获（确定性批次已各自 PASS）、C9 归 B86；不伪造证据、不降低不变量。
-- **G6 探针**尚未接入 runner 验收 gate（当前为独立探针 + 手工核查），是否纳入 CI 待定。
-- **C9 作者可见面内部 ref 泄漏（新缺陷，机制修复归 B86）**：真实模型输出复述 `chapter:<uuid>` 到作者消息/工具观察（cp5-real-05，20 hits）。作者指出的根因是**材料与返回的结构化不足**（章编号/名称/内容与内部 ref 混在自然语言材料里；返回 tool schema 未约束作者可见字段），机制修复已立项 [B86](B86-structured-model-materials-internal-ref-isolation.md)。**2026-11-11 作者要求撤回 B86 的实现**（`3a084fcf`/`72f8fb7d` revert 了 TurnResult 出口投影与 `AuthorVisible.Text` 投影扩展；未提交的材料结构化改动也已撤销）——B86 回到「立项/未实施」状态，仅保留任务与设计记录。
-- **C11 判据适配**：A3 「同 run 多轮」判据与 G6「跨 turn」场景冲突，需区分场景判据（不放宽不变量）。
-- **B85 模型上下文窗口用户设置 UI**：初始配置能力已落（`preferences.json` + sidecar 注入），设置页 UI 待做（候选 [[B85]](slices/B85-model-context-window-settings.md)）。
-
-- 阶段 1 完成不解除跨轮连续性/压缩/G6 的验收缺口；这些由阶段 2/3 承接，未实现前**不代签**。
-- **CP2 需要裁决**：若"每轮请求由会话派生"需要 `novel_common` 新增纯契约（会话派生上下文），是否允许突破 §4「CP1 不改 novel_common」边界（ADR-0035 允许新增纯契约）。属 CP2 开工前裁决。
-- **旧列消费者清单补遗（2026-11-09）**：CP1 删列时遗漏了 `scripts/` 下的验收证据工具链——`scripts/lib/native_ui/authoring_history_evidence.mjs`（B71 私有历史读取）、`scripts/lib/native_ui/authoring_auto_maintenance_evidence.mjs`、`scripts/native_b71_auto_maintenance_drive.mjs`，以及 `scripts/native_b71_test.mjs`/`scripts/native_b71_pending_test.mjs` 的 DB 夹具；已适配并全绿。**教训**：旧列消费者核对必须覆盖 `apps/`、`scripts/`、`frontend/slice-verify/`、`tests/`、`quality/` 全仓，而非只看生产代码。
-- **会话级 call_id 唯一约束（CP3 引入的显式约束）**：会话视图 IR 要求 call_id 唯一；真实 provider 侧重复 id 的会话级规范化（`ensure_provider_call_ids` 按已用集合）未实现，登记为后续边界；当前真实 provider 未观察到重复。
-- 页面回归证据已补（native 19/19 PASS，§8.1.6）；browser driver 路径修复后待环境允许时复验（非 CP1 行为阻塞）；第二个 journey 批次（b71-authoring-transcript）与 native 复跑（连续 3 次同因）均因窗口激活环境失败未取证，已停止重试、不重跑换分、不代签。
-- 旧 `:session_transcript` 材料在阶段 6 退役；CP1 不动。旧列消费者核对清单（CP6 前必须逐项走查）：`AuthoringCheckpoint`、`AgentRunPersistence`、`AgentRunService`、`AuthoringReplay`、`TraceReplayService`、`TurnExecutionService`（内存字段回退）、`ActionIdempotencyService`（TurnResult 私有键）、`ContextAssembler`/`DialoguePlanningService`（旧材料类型）、测试夹具/脚本。
-- 真实页面多轮会话验收依赖阶段 2；实模证据另证（不代签）。
-- **G6/CP5 遗留承诺**：B71 CP5 依赖 G6 取证，而 G6 需真实多轮自然触发压缩（受模型窗口影响）。建议 CP5 启动前拆为 CP5a（机制层 + 确定性页面多轮）与 CP5b（实模自然触发；窗口不可用时按 known-gap 如实登记），并明确 B71 收口不因 CP5b 永久悬挂；该拆分属 CP5 开工裁决，不在 CP1 代签。
-- CP3 写域补 `context_pressure.ex`（跨 run usage 累计是压缩触发的会话级前提）。
-- 可观测性：会话追加冲突/恢复失败当前以错误原子 + 既有 run 事件面暴露；若需 telemetry 事件面，在 CP4/后续裁决，CP1 不改 novel_telemetry。
-- **并发 known-gap（CP1 显式登记）**：真实并发 run 事务在 Ecto SQL Sandbox（单连接、事务内测试）下无法构造；`authoring_session_log_test.exs` 的 N2 用确定性交错 + 唯一索引实证覆盖。并发正确性由 `(session_id, sequence)` / `(run_id, run_sequence)` 唯一索引 + `mode: :immediate` 事务串行化背书，真实并发压测不在单测范围。若后续需要真实并发证据，应在 CP4/CP5 的集成 harness（非 Sandbox）中补。
+- G6 判据已进入现有原生 runner。页面细条、展开、同回合和跨回合分类、压缩后真实请求及重启重试证据见 §12。实模批次按各自覆盖的场景记结果。
+- 历史批次复现 `chapter:<uuid>` 进入作者可见面。材料和返回的结构化整改归 [B86](B86-structured-model-materials-internal-ref-isolation.md)。作者已撤回该项实现，证据和裁决见 B86 原任务。
+- 会话内原生调用号重复由 `RequestIR.normalize_provider_result/2` 在生产入口处理，判断协议和独立操作共用该规则。写锁内的过期整理计划回归与真实页面 A/B 交错证据见 §12。SQLite Sandbox 证据覆盖确定性冲突与原子回滚，真实多写者压测仍无批次证据。
+- CP7 已裁定沿用 run 安全点触发。整理对象、保留计数和覆盖范围按会话计算。模型窗口设置界面由 [B85](B85-model-context-window-settings.md) 跟踪。
 
 ## 10. 决策与恢复指引
 
@@ -623,9 +609,9 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 | 范围 | 已成立的事实 | 仍需闭合 |
 |---|---|---|
 | CP1 | 会话消息由已有 `AuthoringSessionLog` 与 run 段头持久化。写锁内核对最新历史，重复覆盖的第二次提交整笔回滚。独立读取使用同一 SQLite 快照，提交内读取复用已有事务。 | 见 CP2/CP4 的共同读边界。 |
-| CP2/CP3 | 步骤共用会话请求视图。覆盖范围由原始作者回合和调用归属派生。会话消息和 refs 同读，已采纳正文版本由选中稿件和实际分页范围派生，并进入交错恢复后的 Strata 请求。 | 核查无初始创作段的专业入口；退役仅含范围的旧 checkpoint 形状。 |
+| CP2/CP3 | 步骤共用会话请求视图。规划草案和规划前使命从无当前执行段启动时均消费已落库会话历史，写回只含本段。压缩计划从闭合调用与原作者回合派生覆盖，canonical 入口拒绝仅含范围的 checkpoint。已采纳正文的版本由选中稿件与实际分页范围派生，并进入交错恢复后的 Strata 请求。 | 见 CP5 的真实页面证据与整仓验证。 |
 | CP4 | `AuthoringReplay` 与请求装配共用持久层会话快照。坏段未知版本及段头行数不一致均被拒绝，正常空会话保留原义。三类投影的段往返等价已有回归。 | 暂无本轮快照与坏段边界缺口。 |
-| CP5 | 已有 D1–D5 和压缩重启/静默失败恢复场景通过。交错专项取得 A 待答、B 整理、A 回答后的同一 run 请求，版本专项补齐带稿件版本的实际观察。 | 版本专项的主 runner 收尾失败，正文与版本以独立实际请求对账为准。05 的 C9 内部标识泄漏归 B86。 |
+| CP5 | D1–D5 已通过。真实 Tauri/Strata 交错续行批次验证 A 待答、B 整理、A 恢复、A 完成后新一轮请求。C5/C6 通过，两个 checkpoint 均与首个后续报文绑定。另有真实重启及静默失败恢复批次通过。 | 两批分别覆盖交错续行及重启/失败恢复。历史批次复现的 C9 内部标识泄漏归 B86。 |
 | CP6 | 旧列及旧材料类型已退役。AU09 现使用 canonical 双会话夹具，质量入口 6/6；从当前作者回合绑定两次实际 Provider 请求，验证历史隔离、作品背景及按需记忆观察。 | AU09 本批为外部 Chromium 产品页与确定性 Provider，未补原生 AX 或 live 模型行为。 |
 
 **实模页面发现**。`b81-c5-c6-resume-01` 的 `a3-paused-2.jpg` 与对应 AX 树记录了同一 run 的第二次提问。消息流已经显示第二题，底部回答区仍显示第一题，选项禁用且提示「此问题暂不可回复」。原始 `native-transport.jsonl` 证实两条 `turn_result` 分别携带 `goal_version=1` 与 `goal_version=2` 的 open 问题和各自的 `author_choice`。当前问题应沿用输入路由的 run 与 goal 版本绑定。批次以 `resume_failed` 结束，实际 checkpoint 为 0，C5 缺证、C6 失败。两次 Provider 调用均已落盘 `started.emitted_at`，结束后模型槽为空。验收需从页面回答第二题，核对 ACK 与同一 run 恢复，再检查压缩后的实际请求。
@@ -670,4 +656,8 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 
 **交错续行实模结果。** `b81-interleave-tail-01` 的外部 AX 驱动完成三次作者发送，共 9 次 Strata 调用。SQLite 记录 B 的 checkpoint 序号 27 和 A 的 checkpoint 序号 33。A 回答原题后，同一 run 的首个恢复请求 `pcall_mwbj11dv_75` 保留 5 对未覆盖交换、7 条原作者消息、当前 scope 和带来源版本的正文观察。A 完成后，第三次作者发送的首个请求 `pcall_mwbj18zb_a0` 与同一会话的 `started` 和新 run 精确绑定，原生报文携带 27、33 的精确覆盖，两个被覆盖交换均未重放。正式 C5/C6 和交错恢复专项均通过，Strata 槽已卸载。本批未执行重启和故障注入，主 runner 按 C7/C8 缺证退出 1，独立重启及故障证据见 `b81-c7-c8-03`。本批 C9 通过，先前复现仍由 B86 跟踪。证据在 `artifacts/slice-verify/b71-first-consumer-auto-maint-b81-interleave-tail-01/summary.json`。
 
-同一第三轮报文按 SQLite 会话顺序独立核对，保留 4 对未覆盖交换、8 条作者消息及当前 scope，原文和观察字段与 canonical 一致。对账在 `artifacts/b81-review/live-interleave-tail-01-last-wire-canonical.log`。真实 Tauri 规划入口的确定性批次 `b81-professional-planning-01` 通过 24 项判据，覆盖起草、重规划、同 run 两类候选与 Why 页面。
+同一第三轮报文按 SQLite 会话顺序独立核对，保留 4 对未覆盖交换、8 条作者消息及当前 scope，原文和观察字段与 canonical 一致。A 恢复报文中的正文观察也与 SQLite 采纳稿 revision 2 的第 1–6000 字符逐字一致。对账在 `artifacts/b81-review/live-interleave-tail-01-last-wire-canonical.log` 和 `artifacts/b81-review/live-interleave-tail-01-selected-draft.log`。真实 Tauri 规划入口的确定性批次 `b81-professional-planning-01` 通过 24 项判据，覆盖起草、重规划、同 run 两类候选与 Why 页面。
+
+**专业入口与 canonical 收敛。** 两条回归从 SQLite 读取前一 run 的 canonical 段，经 `AuthoringSession.with_request_view/2` 调用实际规划草案和规划前使命入口。Provider 边界收到历史作者原话、原工具调用、同一调用 ID 的观察与来源引用，以及当前 base 和 scope。返回的本 run 执行段只保留本次工具及校验结果。`initial_session_history` 由步骤视图在无当前段时生成，专业操作直接消费这一契约。纯 `turn_range` 的红灯原先返回有效 IR，收紧后由现有 `Compaction.require_call_ids/1` 拒绝。三类 Provider 投影依照 canonical 的 `call_ids` 折叠，不重复校验形状。事务内的闭合、来源、版本及重复覆盖核对继续以实际提交时的会话为准。定向回归共 112 项通过，日志在 `artifacts/b81-review/checkpoint-professional-targeted-final.log`。
+
+**收口验证。** 最终后端全量 3145 项、前端全量 491 项、原生驱动脚本全量 637 项，均为零失败。后端默认排除 `integration` 和 `real_llm`。格式、零警告编译、生成契约、依赖循环、Umbrella 边界、ADR 追溯、I1/I2/I3、N-NARR 和 I-CACHE 均通过。`bash scripts/ai_static_scan.sh --top 10` 的唯一扫描器红灯来自已处置的 6 项 gitleaks 历史发现，5 项为误报，1 项为已接受风险，阻断项为 0。最终代码的真实 Tauri 规划复验 `b81-professional-final` 通过 24 项。后端、脚本和静态扫描日志在 `artifacts/b81-review/{full-mix,node-native,static-scan}-checkpoint-professional.log`。AU09 质量入口的 6 项证据来自外部 Chromium 产品页及确定性 Provider，交错压缩和重启路径的真实 AX/Strata 证据见上文。

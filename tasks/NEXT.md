@@ -4,9 +4,9 @@
 
 ## 当前任务
 
-| 任务 | 下一步与用户结果 | 状态来源 |
+| 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B81 | 审计无初始创作段的专业入口，退役仅含范围的旧 checkpoint，并按实际证据复核剩余验收边界。 | [B81](slices/B81-session-canonical-authoring-history.md) |
+| B71-CP4b | 承接 B81 的 G6 证据。后续按 B71 与 B82 的预注册顺序补齐 G2/G3/G5、Responses 与 Anthropic 实模证据及页面流式预览证据。 | [B71](slices/B71-provider-message-fidelity.md) |
 
 当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 
@@ -14,15 +14,14 @@
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B71-CP4b | R1 请求边界/原生投影/三消费者迁移与 2026-11-06 作者裁决已实现：A（system 规则/版本，`6dbb9dd4`）、D（finite_mode 持久事实，`b7aecafb`）、Anthropic 相邻 role 合并退役（`19dcfad9`）、B27 冻结器退役（`a8645e85`）；后端全量 3089/0、credo no issues、I1/I2/I3/N-NARR/I-CACHE 通过（提交 b32da8cd/abf4c63b/c652277b/19dcfad9/b7aecafb/e5e1491c/6dbb9dd4/a8645e85/63361db1）。**已完成**：裁决 4 C 依赖图下沉三阶段——首轮 `29464e60`/`e6c97020`/`3e64e3b1`/`8628411d`（含既有严格门禁修复 `b125989c` 与文档 `7af7c904`），2026-11-07 按作者 A1 裁决恢复原计划统一归属 `776e3641`（Projection/三投影/能力事实一并下沉 `novel_common`）。原生批次 A 后复验**已于 2026-11-07 通过**（`b71-a1-03` 19/19，clean HEAD `26824567`；SliceVerify canonical IR 观察识别适配同提交）。**2026-11-07 R2 统一流式生命周期 + Responses SSE 已完成（确定性机制层）**：`SSEStream` 三 wire 共用取消/静默/总时长/终止物化，Chat/Anthropic 迁移为 decoder（行为不变），Responses SSE 新增并翻正 `streaming: true`；工具调用不再隐式非流式；`ResponsesWire` 统一 call_id/raw_arguments 归一；Responses 截断 fail-closed；DeepSeek 私有 reasoning 经 provider_state 回放；I-CACHE 扩展三投影（CI 强制）。验证：agent 498/0、全量 0 failures、credo/format/xref/arch/module-size、I1–I3/N-NARR/I-CACHE 全通过。**下一步（作者 2026-11-07 选择 C→A，均已执行）**：C——CP5 无窗口收口与 R2 流式正文预览机制已补齐（确定性层）；A——q2_0 实模预注册重冻结后 3 批：批次 01 PASS required mechanism 7/7（3 次真实调用、canon 零写、ask_author），但工具调用/G2–G6 未触发；批次 02 FAIL harness 时序竞争（已修）；批次 03 FAIL 真实模型 run failed（usage_collected），不重跑换分。**判定**：q2_0 不能替代完整 CP4b-2/G6 场景结论。下一步需更强模型窗口或 OpenAI/Anthropic 官方凭证（Responses/Anthropic 实模）、G6 auto-maintenance 场景、真实页面流式预览证据；B79 CP0/CP1 与 AU10 产品外 fixture 可并行，B78/B39 待 B71 收口。**2026-11-08 审核轮**：三项只读审计（契约/架构/测试资产）P0=0/P1=3+4+4/P2=8+11+9；实测修复 P0（`SSEStream.Result` 重复定义导致干净编译门禁红、增量编译曾假绿）+ 11 项 P1（执行边界/私有历史 v2 退役/error3 形状/前端测试替身/R2 verifier/system 测试/重编号回归等）+ 测试/验收入口统一前置（`scripts/lib/test_env.sh`）；门禁见 B71 末节。实模预注册 `scenario-preregistration-iq3-s-20261108.json` 已冻结；**2026-11-08 实模批次 `b71-first-consumer-live-cp4b2-iq3s-01` required_mechanism 8/8 通过**（真实 usage/缓存/流式/多轮/tentative/零写，G2/G3/G5/G6 未触发如实登记）。**作者 2026-11-08 同意的后续候选（均需新冻结预注册/独立任务文档，未授权不执行）**：G2–G6 切片补证、`stream_options.include_usage` vendor 接受度矩阵、`novel_common` 日志 I/O 与 `novel_web` 慢测试的架构/测试债务；详见 B71 文档后续节与 00f P2-E。CP5 仍 doing。I10 不代签 | [B71](slices/B71-provider-message-fidelity.md) |
 | B78 | 存量大模块拆分（P1：WorkspaceChat / dialogue_planning_service / agent_run_server / turn_execution_service / adoption_repository）；治理机制与 ratchet 门禁已落地，本任务只做结构化拆分，须在 B71 收口后按「一次一个文件、独立 refactor commit」排期 | [B78](slices/B78-module-size-debt.md) |
 | B79 | 存量书稿导入 + 导入后分析建档；**待作者确认启动**后按 [B79](slices/B79-work-import-and-analysis.md) CP0 契约冻结 → CP1 确定性导入链推进；B80 前置梳理已完成（2026-11-08）。 | [B79](slices/B79-work-import-and-analysis.md) |
 | B82 | B71 G2/G3/G5 黄金切片证据补证 + Responses/Anthropic 实模（G6 移交 B81 CP5，不在本任务）；每个切片独立冻结预注册、独立批次、如实登记；待真实模型窗口与官方凭证。 | [B82](slices/B82-b71-golden-slice-evidence.md) |
-| B84 | `novel_web` 慢测试收敛（193 tests/532s）+ 00f P2-E 剩余架构/测试债务；不缩小测试覆盖；与 B81 并行（测试前置层）。 | [B84](slices/B84-web-slow-tests-and-arch-debt.md) |
+| B84 | `novel_web` 慢测试收敛（193 tests/532s）+ 00f P2-E 剩余架构/测试债务；保持测试覆盖。 | [B84](slices/B84-web-slow-tests-and-arch-debt.md) |
 | B86 | 模型材料与返回结构化（内部标识隔离）：作者指出根因「发给模型的数据没结构化、返回也不够结构化」——章节编号/名称/内容与内部 `chapter:<uuid>` 混在自然语言材料里，模型复述到作者可见正文（`cp5-real-05` 实模证据）。方案：材料结构化（ref 只进专用字段）+ tool schema 约束作者可见字段禁内部标识 + 作者可见出口统一 `AuthorVisible.Text` 投影；独立预注册验收。 | [B86](slices/B86-structured-model-materials-internal-ref-isolation.md) |
 | B85 | 模型上下文窗口用户设置（UI 入口）：作者反馈「窗口不应写死、要开放给用户配置」；初始能力已落（`preferences.json` 的 `context_windows` + Tauri 启动注入 sidecar env，`044092df`），**设置页 UI 未做**（当前应用无系统设置菜单，唯一设置入口是模型供应商弹窗）。 | [B85](slices/B85-model-context-window-settings.md) |
 
-依赖排序（2026-11-08 更新）：**B81 按 §12 的复核发现继续推进**（ADR-0035 已批准；CP2–CP6 按依赖链）。B79 CP0/CP1（候选，待作者确认启动）、B78 首个文件拆分、B71 后续候选的预注册准备、B84 慢测试收敛可并行推进；B81 与 B78 同文件冲突须协调顺序（建议先 B81 CP1 再 B78，或作者裁定）。B82 待真实模型窗口/官方凭证；B83 blocked（凭证）。B71 CP5 最终收口仍待 G 切片/Responses·Anthropic 实模证据；**G6 取证已移交 B81 CP5**（不再在 B71 构造异常场景）。排期结论不等于授权或完成声明。
+依赖排序（2026-11-11 更新）。B79 CP0/CP1 等待作者确认启动。B78 按原任务的 B71 依赖排期，B84 和 B71 后续候选的预注册准备可并行。B82 待真实模型窗口和官方凭证，B83 阻塞于凭证。B71 CP5 的 G6 证据见 [B81 §12](slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)，其余 G 切片及 Responses、Anthropic 实模证据见 B71 与 B82 原任务。
 
 ## 阻塞
 
