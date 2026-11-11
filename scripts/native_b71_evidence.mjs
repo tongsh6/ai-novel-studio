@@ -50,7 +50,14 @@ import {
   readCheckpoint,
   verificationExtra,
 } from "./lib/native_ui/authoring_run_evidence.mjs";
-import { frameBody, frameEvent, isFrame, transport } from "./lib/native_ui/scenario_evidence.mjs";
+import {
+  broadcastFrames,
+  frameBody,
+  requestIdentity,
+  sentUserMessages,
+  transport,
+  turnFacts,
+} from "./lib/native_ui/scenario_evidence.mjs";
 
 export {
   capture,
@@ -365,6 +372,66 @@ function turnIdMatches(actual, expected) {
   );
 }
 
+const isNonBlank = (value) => typeof value === "string" && value !== "";
+const PREVIEW_PROSE_MIN_CHARS = 12;
+
+// 候选已限定在同一 owning topic、终局前、目标 run 的 writer/text chunk。
+// 这里只保留同组事件身份与真实 sequence 顺序；正文的连续长度不由 JS 的
+// UTF-16 长度推断（Elixir 侧累计长度按 grapheme 计数）。
+function writerChunkFacts(record) {
+  const body = frameBody(record);
+  const payload = body?.payload ?? {};
+  assert(isNonBlank(body?.event_id), "writer 增量缺 event_id");
+  assert(Number.isInteger(body?.sequence) && body.sequence > 0, "writer 增量缺 sequence");
+  assert(isNonBlank(payload.provider_call_ref), "writer 增量缺 provider_call_ref");
+  assert(isNonBlank(payload.provider_run_ref), "writer 增量缺 provider_run_ref");
+  assert(isNonBlank(payload.author_content_delta), "writer 增量缺 author_content_delta");
+  return {
+    eventId: body.event_id,
+    sequence: body.sequence,
+    runId: body.run_id,
+    providerCallRef: payload.provider_call_ref,
+    providerRunRef: payload.provider_run_ref,
+    delta: payload.author_content_delta,
+  };
+}
+
+// 同一 run 允许存在独立 writer 调用/重试：按 provider_call_ref/provider_run_ref
+// 分组，各组的正文只按本组真实 sequence 排列。组间不拼接；是否跨组混用由
+// AX 前缀的唯一匹配判定，不额外要求各组 sequence 区间不相交。
+function writerChunkGroups(records) {
+  const groups = new Map();
+  for (const record of records) {
+    const chunk = writerChunkFacts(record);
+    const key = `${chunk.providerCallRef}\u0000${chunk.providerRunRef}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(chunk);
+  }
+  const ordered = [...groups.values()].map((chunks) => {
+    chunks.sort((left, right) => left.sequence - right.sequence);
+    assert.equal(
+      new Set(chunks.map((chunk) => chunk.eventId)).size,
+      chunks.length,
+      "同组 writer 增量 event_id 重复",
+    );
+    for (let index = 1; index < chunks.length; index += 1) {
+      assert(chunks[index].sequence > chunks[index - 1].sequence, "同组 writer 增量 sequence 顺序冲突");
+    }
+    return {
+      providerCallRef: chunks[0].providerCallRef,
+      providerRunRef: chunks[0].providerRunRef,
+      chunks,
+      prose: chunks.map((chunk) => chunk.delta).join(""),
+    };
+  });
+  return ordered;
+}
+
+const previewProseMatched = (group, preview) => {
+  const snippet = group.prose.slice(0, PREVIEW_PROSE_MIN_CHARS);
+  return snippet.length === PREVIEW_PROSE_MIN_CHARS && preview.includes(snippet);
+};
+
 function verifyStreamPreview(dir) {
   const config = readConfig(dir);
   const ready = JSON.parse(readTextFile(dir, "native-driver-ready.json"));
@@ -392,12 +459,21 @@ function verifyStreamPreview(dir) {
   assert(sendTurnId !== "", "driver log 缺发送 turn_id：无法证明最终 turn_result");
 
   const wire = transport(dir);
-  const turnResults = wire.filter(
-    (entry) =>
-      entry.direction === "received" &&
-      isFrame(entry) &&
-      frameEvent(entry) === "turn_result" &&
-      turnIdMatches(String(frameBody(entry)?.turn_id ?? ""), sendTurnId),
+  const message = String(config.message ?? "");
+  assert(message !== "", "批次 config 缺作者输入文本，无法绑定发送 turn");
+  const sends = sentUserMessages(wire, message);
+  assert.equal(sends.length, 1, `发送 turn 必须唯一绑定作者输入，实测: ${sends.length}`);
+
+  // 发送 turn → ACK run → 终局 run 必须闭合在同一 owning topic 上。
+  const facts = turnFacts(wire, sends[0]);
+  const identity = requestIdentity(sends[0]);
+  assert.equal(String(driverLog.turn_id ?? ""), facts.turnId, "driver log turn_id 与真实发送 turn 不一致");
+  assert(facts.ack, "真实输入 ACK 缺失或未成功");
+  const ackRunId = String(frameBody(facts.ack)?.response?.run_id ?? "");
+  assert(ackRunId !== "", "真实输入 ACK 缺 run_id");
+
+  const turnResults = facts.results.filter(
+    (entry) => turnIdMatches(String(frameBody(entry)?.turn_id ?? ""), sendTurnId),
   );
 
   assert.equal(
@@ -408,6 +484,9 @@ function verifyStreamPreview(dir) {
 
   const turnResult = frameBody(turnResults[0]);
   assert.equal(typeof turnResult?.turn_id, "string", "turn_result 缺 turn_id");
+  const finalRunId = String(turnResult?.agent_run?.run_id ?? "");
+  assert(finalRunId !== "", "最终 turn_result 缺 agent_run.run_id");
+  assert.equal(finalRunId, ackRunId, "终局 run 与 ACK run 不一致");
   const assistantText = String(turnResult?.assistant_message?.text ?? "");
   assert(assistantText.trim() !== "", "turn_result 缺 assistant_message.text（完成态无真实回复）");
 
@@ -419,23 +498,41 @@ function verifyStreamPreview(dir) {
     );
   }
 
-  // 预览正文必须与同一批次真实流式增量同源：从 transport 的 writer
-  // author_content_delta 派生片段，不再使用与 seed 章节标题重叠的固定词表。
-  const deltas = wire
-    .map((entry) => frameBody(entry)?.payload)
-    .filter(
-      (payload) =>
-        payload?.output_type === "text" && typeof payload?.author_content_delta === "string",
-    )
-    .map((payload) => payload.author_content_delta)
-    .filter((delta) => delta !== "");
+  // 预览正文只取同一 owning topic、终局前、目标 run 的 writer/text 正文 chunk。
+  // 外来 run、非 writer 或不含作者正文的合法 chunk 全部忽略，不参与拼接。
+  // 终局前按 transport 输入顺序切片，避免同毫秒时间戳把先到的 chunk 误判为终局后。
+  const finalIndex = wire.indexOf(turnResults[0]);
+  assert(finalIndex >= 0, "终局 turn_result 不在传输记录中");
+  const progress = broadcastFrames(wire.slice(0, finalIndex), {
+    topic: identity.topic,
+    at: sends[0].at,
+    event: "agent_event",
+  }).filter((record) => {
+    const body = frameBody(record);
+    const payload = body?.payload ?? {};
+    return (
+      body?.event_type === "provider_progress" &&
+      body?.run_id === finalRunId &&
+      body?.run_ref === finalRunId &&
+      payload.purpose === "writer" &&
+      payload.provider_event_type === "chunk" &&
+      payload.output_type === "text" &&
+      isNonBlank(payload.author_content_delta)
+    );
+  });
+  assert(progress.length > 0, "缺少目标 run 终局前含正文的 writer chunk");
 
-  assert(deltas.length > 0, "缺少真实 writer author_content_delta 流式增量");
-
-  const streamedProse = deltas.join("");
-  const proseSnippet = streamedProse.slice(0, 20);
-  assert(proseSnippet.length >= 12, "流式正文增量过短，无法证明页面预览来自真实正文");
-  assert(previewText.includes(proseSnippet), `预览未显示真实流式正文增量片段: ${proseSnippet}`);
+  const groups = writerChunkGroups(progress);
+  const chunks = groups.flatMap((group) => group.chunks);
+  const matchingGroups = groups.filter((group) => previewProseMatched(group, previewText));
+  assert.equal(
+    matchingGroups.length,
+    1,
+    `同源 writer 正文前缀必须唯一命中 AX 采样，实测: ${matchingGroups.length}`,
+  );
+  const matched = matchingGroups[0];
+  const streamedProse = matched.prose;
+  const proseSnippet = streamedProse.slice(0, PREVIEW_PROSE_MIN_CHARS);
 
   // checks 由实际事实计算（不再硬编码 true）；任一缺失即 fail。
   const checks = {
@@ -443,7 +540,11 @@ function verifyStreamPreview(dir) {
     preview_captured_during_generation: driverLog.preview_captured === true,
     preview_label_visible: previewText.includes("正文生成中"),
     preview_not_saved_hint_visible: previewText.includes("生成中，尚未保存为候选。"),
-    preview_shows_real_prose: previewText.includes(proseSnippet),
+    preview_stream_bound_to_final_run:
+      finalRunId === ackRunId && chunks.every((chunk) => chunk.runId === finalRunId),
+    preview_stream_one_matching_source: matchingGroups.length === 1,
+    preview_shows_real_prose:
+      proseSnippet.length === PREVIEW_PROSE_MIN_CHARS && previewText.includes(proseSnippet),
     preview_hides_protocol_bytes:
       !previewText.includes("submit_tentative_artifact") && !previewText.includes("item_id"),
     final_turn_result_present:
@@ -453,8 +554,8 @@ function verifyStreamPreview(dir) {
 
   assert.equal(
     Object.keys(checks).length,
-    7,
-    "预览 checks 集合不完整：必须覆盖 7 项真实判据",
+    9,
+    "预览 checks 集合不完整：必须覆盖 9 项真实判据",
   );
   assert(
     Object.values(checks).every((value) => value === true),
@@ -468,9 +569,13 @@ function verifyStreamPreview(dir) {
     provider: "streaming_slice_verify",
     model: null,
     verified_at: new Date().toISOString(),
-    // 判据来源（可审计）：真实 WS turn_result 帧 + 同一批次流式正文增量。
+    // 判据来源（可审计）：发送 turn/ACK run/终局 run + 命中 AX 的同源 writer 组。
     turn_id: String(turnResult.turn_id),
+    run_id: finalRunId,
+    provider_call_ref: matched.providerCallRef,
+    provider_run_ref: matched.providerRunRef,
     streamed_prose_bytes: Buffer.byteLength(streamedProse, "utf8"),
+    preview_prefix_chars: PREVIEW_PROSE_MIN_CHARS,
     checks,
     not_signed: [
       "real_model_streaming_behavior_not_signed",

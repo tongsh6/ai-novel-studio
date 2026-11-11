@@ -1334,3 +1334,9 @@ B71 实模验收与 B70 的 HO5 共用既有 L7。它按 canonical assistant 的
 
 只读复核 B81 两个已有 Tauri/Strata 批次。原报文均通过；从自报所在请求移除引用、保留其他调用中的同一引用时均失败；移除该请求记录时均报缺证；把引用只放回压缩省略说明或 scope 引用的作者原文时仍失败。前后证据分别在 `artifacts/b71-audit/2026-11-11-l7-before.jsonl` 与 `artifacts/b71-audit/2026-11-11-l7-after.jsonl`。这是历史调用的 L7 复核，独立 B82 G2 仍需把首次分页观察与消费同一材料的模型自报连成同一条链。
 
+### R2 预览来源绑定（2026-11-11）
+
+旧 verifier 会拼接 transport 的所有正文增量。将 `stream-preview-06` 隔离副本的 30 个增量帧改属外来 run 与 evaluator 后，它仍给出 7/7。现复用已有发送帧与 ACK，以 owning topic 和终局 run 限定 writer 正文增量，按 Provider run/call 分组，以组内事件序号重建正文前缀，再与 AX 采样核对。
+
+原始确定性 Tauri 档案用新判据复核通过 9/9。外来 run、非 writer 与把同一正文拆进多次 Provider 调用的三个隔离反例均失败。对账见 `artifacts/b71-audit/2026-11-11-r2-preview-replay.jsonl`。真实模型仍需在同一作者操作中采集生成中 AX、writer SSE 对应的事件与终局。
+

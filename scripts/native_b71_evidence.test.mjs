@@ -693,3 +693,262 @@ test("D2 正反例：回答前基线必须非 null 且 waitRunPauseOrTerminal �
     assert.equal(evaluate(invalid).ok, false);
   }
 });
+
+const PREVIEW_MESSAGE = "先写第01章正文草稿，再做质量复核；这是一项可恢复的长任务。";
+const PREVIEW_TOPIC = "workspace:stream-preview";
+const PREVIEW_RUN = "run_stream_preview_1";
+const PREVIEW_CALL = "pcall_stream_preview_1";
+const PREVIEW_PROVIDER_RUN = "prun_stream_preview_1";
+const PREVIEW_DELTAS = [
+  "夜色压在这座赛博修仙城市上，",
+  "灵气账单从屋檐下垂落，像一串",
+  "像一串即将燃尽的符纸。",
+];
+const PREVIEW_PROSE = PREVIEW_DELTAS.join("");
+const PREVIEW_TURN = "message_stream_preview_1";
+
+function streamPreviewRecords() {
+  const at = (second) => `2026-01-01T00:00:${String(second).padStart(2, "0")}.000Z`;
+  let accumulated = 0;
+  return [
+    {
+      at: at(1),
+      direction: "sent",
+      frame: ["5", "9", PREVIEW_TOPIC, "user_message", {
+        turn_id: PREVIEW_TURN,
+        text: PREVIEW_MESSAGE,
+      }],
+    },
+    {
+      at: at(2),
+      direction: "received",
+      frame: ["5", "9", PREVIEW_TOPIC, "phx_reply", {
+        status: "ok",
+        response: { turn_id: PREVIEW_TURN, run_id: PREVIEW_RUN },
+      }],
+    },
+    ...PREVIEW_DELTAS.map((delta, index) => {
+      accumulated += delta.length;
+      return {
+        at: at(3 + index),
+        direction: "received",
+        frame: [null, null, PREVIEW_TOPIC, "agent_event", {
+          payload: {
+            status: "running",
+            provider_call_ref: PREVIEW_CALL,
+            provider_run_ref: PREVIEW_PROVIDER_RUN,
+            purpose: "writer",
+            output_type: "text",
+            chunk_index: index + 1,
+            accumulated_content_length: accumulated,
+            author_content_delta: delta,
+            chunk_content_length: delta.length,
+            provider_event_type: "chunk",
+          },
+          run_id: PREVIEW_RUN,
+          run_ref: PREVIEW_RUN,
+          event_type: "provider_progress",
+          event_id: `evt_stream_${index + 1}`,
+          sequence: index + 1,
+        }],
+      };
+    }),
+    {
+      at: at(20),
+      direction: "received",
+      frame: [null, null, PREVIEW_TOPIC, "turn_result", {
+        turn_id: `${PREVIEW_TURN}:agent:1`,
+        agent_run: { status: "completed", run_id: PREVIEW_RUN },
+        assistant_message: { text: "已生成预览。" },
+      }],
+    },
+  ];
+}
+
+const streamChunkBodies = (records) =>
+  records.map((record) => record.frame?.[4]).filter((body) => body?.event_type === "provider_progress");
+
+function streamPreviewDir(mutate = (records) => records, previewProse = PREVIEW_PROSE) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-stream-preview-"));
+  const write = (name, value) => fs.writeFileSync(path.join(dir, name), value);
+  write("native-b71-config.json", JSON.stringify({
+    slice_id: "b71-authoring-transcript",
+    journey: "continuation",
+    provider: "streaming_slice_verify",
+    message: PREVIEW_MESSAGE,
+  }));
+  write("native-driver-ready.json", JSON.stringify({ provider: "streaming_slice_verify" }));
+  write("native-b71-driver-log.json", JSON.stringify({
+    provider: "streaming_slice_verify",
+    preview_captured: true,
+    turn_id: PREVIEW_TURN,
+    assistant_text: "已生成预览。",
+  }));
+  write("02-prose-preview.text.txt", `正文生成中\n${previewProse.slice(0, 20)}\n生成中，尚未保存为候选。\n`);
+  write("02-prose-preview.ax.txt", "AX preview\n");
+  write("03-final.jpg", Buffer.from("ffd8ff00", "hex"));
+  write(
+    "native-transport.jsonl",
+    `${mutate(streamPreviewRecords()).map((record) => JSON.stringify(record)).join("\n")}\n`,
+  );
+  return dir;
+}
+
+async function rejectsStreamPreview(mutate, pattern, previewProse = PREVIEW_PROSE) {
+  const dir = streamPreviewDir(mutate, previewProse);
+  try {
+    await assert.rejects(() => main(["verify", dir]), pattern);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("流式预览正例：终局 run 的连续 writer 增量出现在 AX 采样时通过", async () => {
+  const dir = streamPreviewDir();
+  try {
+    await main(["verify", dir]);
+    const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+    assert.equal(summary.run_id, PREVIEW_RUN);
+    assert.equal(summary.provider_call_ref, PREVIEW_CALL);
+    assert.deepEqual(
+      Object.values(summary.checks),
+      Array(Object.keys(summary.checks).length).fill(true),
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("流式预览拒绝外来 run/purpose 的增量，不按全帧拼接", async () => {
+  await rejectsStreamPreview((records) => {
+    for (const body of streamChunkBodies(records)) {
+      body.run_id = "run_foreign";
+      body.run_ref = "run_foreign";
+      body.payload.purpose = "evaluator";
+      body.payload.provider_call_ref = "pcall_foreign";
+      body.payload.provider_run_ref = "prun_foreign";
+    }
+    return records;
+  }, /writer|增量|归属|run/);
+});
+
+test("流式预览拒绝同一 run 内混用不同 Provider call 或缺失归属", async () => {
+  // 让 AX 里显示的前 12 字跨在两组正文之间：任一组单独都匹配不到。
+  const splitPreview = `${PREVIEW_DELTAS[0].slice(-6)}${PREVIEW_DELTAS[1].slice(0, 6)}`;
+  for (const [mutate, pattern] of [
+    [(records) => {
+      streamChunkBodies(records)[1].payload.provider_call_ref = "pcall_other";
+      return records;
+    }, /匹配|前缀/],
+    [(records) => {
+      streamChunkBodies(records)[1].payload.provider_run_ref = "prun_other";
+      return records;
+    }, /匹配|前缀/],
+    [(records) => {
+      delete streamChunkBodies(records)[1].event_id;
+      return records;
+    }, /event_id|归属/],
+  ]) {
+    await rejectsStreamPreview(mutate, pattern, splitPreview);
+  }
+});
+
+test("流式预览正例：独立 writer、外来 run、非正文与 Unicode 不破坏同源前缀", async () => {
+  const at = (second) => `2026-01-01T00:00:${String(second).padStart(2, "0")}.000Z`;
+  const extraChunk = ({
+    second,
+    sequence,
+    runId = PREVIEW_RUN,
+    callRef = PREVIEW_CALL,
+    providerRunRef = PREVIEW_PROVIDER_RUN,
+    outputType = "text",
+    delta = "",
+  }) => ({
+    at: at(second),
+    direction: "received",
+    frame: [null, null, PREVIEW_TOPIC, "agent_event", {
+      payload: {
+        status: "running",
+        provider_call_ref: callRef,
+        provider_run_ref: providerRunRef,
+        purpose: "writer",
+        output_type: outputType,
+        ...(outputType === "text"
+          ? { author_content_delta: delta, chunk_content_length: delta.length }
+          : {}),
+        provider_event_type: "chunk",
+      },
+      run_id: runId,
+      run_ref: runId,
+      event_type: "provider_progress",
+      event_id: `evt_extra_${sequence}`,
+      sequence,
+    }],
+  });
+  const dir = streamPreviewDir((records) => {
+    // Unicode 让 Elixir grapheme 累计长度与 JS UTF-16 长度不同。
+    streamChunkBodies(records).at(-1).payload.author_content_delta += "🔥符纸燃尽。";
+    const extras = [
+      extraChunk({ second: 6, sequence: 6, outputType: "tool" }),
+      extraChunk({
+        second: 7,
+        sequence: 10,
+        callRef: "pcall_second",
+        providerRunRef: "prun_second",
+        delta: "另一路独立 writer 正文，",
+      }),
+      extraChunk({
+        second: 8,
+        sequence: 11,
+        callRef: "pcall_second",
+        providerRunRef: "prun_second",
+        delta: "不应参与匹配。",
+      }),
+      extraChunk({ second: 9, sequence: 12, runId: "run_foreign", delta: "外来 run 正文。" }),
+    ];
+    const finalIndex = records.findIndex((record) => record.frame?.[3] === "turn_result");
+    const ordered = [
+      ...records.slice(0, finalIndex),
+      ...extras,
+      ...records.slice(finalIndex),
+    ];
+    // 终局与 chunk 同毫秒：是否属于终局前由 wire 输入顺序决定。
+    const finalAt = ordered.find((record) => record.frame?.[3] === "turn_result").at;
+    for (const record of ordered) {
+      if (record.frame?.[4]?.event_type === "provider_progress") record.at = finalAt;
+    }
+    return ordered;
+  });
+  try {
+    await main(["verify", dir]);
+    const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+    assert.equal(summary.provider_call_ref, PREVIEW_CALL);
+    assert.equal(summary.provider_run_ref, PREVIEW_PROVIDER_RUN);
+    assert.deepEqual(
+      Object.values(summary.checks),
+      Array(Object.keys(summary.checks).length).fill(true),
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("流式预览只接受终局之前、owning topic 上的增量", async () => {
+  for (const mutate of [
+    (records) => {
+      const chunks = records.filter((record) => record.frame?.[4]?.event_type === "provider_progress");
+      const rest = records.filter((record) => record.frame?.[4]?.event_type !== "provider_progress");
+      return [...rest, ...chunks];
+    },
+    (records) => {
+      for (const record of records) {
+        if (record.frame?.[4]?.event_type === "provider_progress") {
+          record.frame[2] = "workspace:foreign";
+        }
+      }
+      return records;
+    },
+  ]) {
+    await rejectsStreamPreview(mutate, /writer|增量|topic/);
+  }
+});
