@@ -37,6 +37,49 @@ defmodule NovelApplication.ReadingProjectionServiceTest do
              ReadingProjectionService.chapter_content(Ecto.UUID.generate(), Ecto.UUID.generate())
   end
 
+  describe "toc_for_display/1 (AU08 visible chapter titles)" do
+    test "distinguishes same-title chapters by current seq and rewrites stale prefixes" do
+      work_id = Ecto.UUID.generate()
+      %{volume: volume} = insert_reading_chain(work_id)
+      insert_chapter(volume, "灰烬中的手印", 2)
+      insert_chapter(volume, "灰烬中的手印", 3)
+      insert_chapter(volume, "第1章：灰烬中的手印", 4)
+
+      assert chapter_titles(ReadingProjectionService.toc(work_id)) == [
+               "第一章",
+               "灰烬中的手印",
+               "灰烬中的手印",
+               "第1章：灰烬中的手印"
+             ]
+
+      assert chapter_titles(ReadingProjectionService.toc_for_display(work_id)) == [
+               "第一章",
+               "第2章：灰烬中的手印",
+               "第3章：灰烬中的手印",
+               "第4章：灰烬中的手印"
+             ]
+    end
+
+    test "turns trimmed/case-insensitive as_ placeholders into visible chapter numbers" do
+      work_id = Ecto.UUID.generate()
+      %{volume: volume} = insert_reading_chain(work_id)
+      insert_chapter(volume, " as_42 ", 2)
+      insert_chapter(volume, "AS_43", 3)
+
+      assert chapter_titles(ReadingProjectionService.toc(work_id)) == [
+               "第一章",
+               " as_42 ",
+               "AS_43"
+             ]
+
+      assert chapter_titles(ReadingProjectionService.toc_for_display(work_id)) == [
+               "第一章",
+               "第2章",
+               "第3章"
+             ]
+    end
+  end
+
   describe "current_writing_coordinate/2 (B13b §4.1 #11)" do
     test "prefers the latest turn writing_coordinate volume_ref and resolves its TOC title" do
       work_id = Ecto.UUID.generate()
@@ -82,6 +125,22 @@ defmodule NovelApplication.ReadingProjectionServiceTest do
       assert ReadingProjectionService.current_writing_coordinate(Ecto.UUID.generate(), []) ==
                nil
     end
+  end
+
+  defp chapter_titles(toc) do
+    toc.volumes
+    |> Enum.flat_map(fn volume -> Enum.map(volume.chapters, & &1.title) end)
+  end
+
+  defp insert_chapter(volume, title, seq) do
+    %Chapter{}
+    |> Chapter.changeset(%{
+      work_id: volume.work_id,
+      volume_id: volume.id,
+      title: title,
+      seq: seq
+    })
+    |> Repo.insert!()
   end
 
   defp insert_reading_chain(work_id) do

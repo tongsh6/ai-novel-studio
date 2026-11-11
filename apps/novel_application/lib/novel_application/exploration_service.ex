@@ -730,12 +730,11 @@ defmodule NovelApplication.ExplorationService do
     ["【续读】剩余 #{total - page_end} 字符；用 #{query} 继续。"]
   end
 
-  defp chapter_activity_summary(chapter, 0, _page_end, _total, word_count) do
-    "已阅读章节正文「#{chapter_title(chapter)}」#{chapter_seq_text(chapter)}（有效字数 #{word_count}）。"
-  end
-
-  defp chapter_activity_summary(chapter, offset, page_end, total, _word_count) do
+  # 所有成功正文页都从本页实际分页范围给作者可辨认读证；首页额外保留整章
+  # 有效字数，续页沿用同一范围格式（与 prose_page_section 一致），不做首页特判。
+  defp chapter_activity_summary(chapter, offset, page_end, total, word_count) do
     detail = "第 #{offset + 1}–#{page_end} 字符 / 共 #{total} 字符"
+    detail = if offset == 0, do: detail <> "；有效字数 #{word_count}", else: detail
 
     "已阅读章节正文「#{chapter_read_display_title(chapter)}」" <>
       chapter_detail_text(chapter, detail) <> "。"

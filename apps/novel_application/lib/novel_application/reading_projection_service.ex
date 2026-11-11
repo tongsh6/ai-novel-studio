@@ -6,6 +6,7 @@ defmodule NovelApplication.ReadingProjectionService do
   schemas directly.
   """
 
+  alias NovelApplication.ChapterDisplay
   alias NovelPersistence.ReadingProjectionRepo
 
   @type toc :: %{
@@ -27,6 +28,43 @@ defmodule NovelApplication.ReadingProjectionService do
   def toc(work_id) when is_binary(work_id) do
     ReadingProjectionRepo.toc(work_id)
   end
+
+  @doc """
+  AU08 工作台/阅读页可见 TOC：只把各章 `title` 投影为当前章序可读标题。
+
+  复用 ChapterDisplay 的当前 seq 与历史前缀规则，区分同名章、更正陈旧旧章号；
+  不改写 `toc/1` 的原始 title（内部读取/导出仍用原文）。`as_N` 占位标题
+  （trim、大小写不敏感）按无业务标题处理，由 ChapterDisplay 生成「第N章」，
+  避免直接渲染 `get_toc` 的面板继续暴露占位标识。
+  """
+  @spec toc_for_display(String.t()) :: toc()
+  def toc_for_display(work_id) when is_binary(work_id) do
+    data = toc(work_id)
+
+    %{data | volumes: Enum.map(data.volumes, &display_volume/1)}
+  end
+
+  defp display_volume(volume) do
+    %{volume | chapters: Enum.map(volume.chapters, &display_chapter/1)}
+  end
+
+  defp display_chapter(chapter) do
+    display_source =
+      if as_placeholder_title?(Map.get(chapter, :title)) do
+        Map.put(chapter, :title, "")
+      else
+        chapter
+      end
+
+    Map.put(display_source, :title, ChapterDisplay.display_title(display_source))
+  end
+
+  # 与前端 readingProjection 既有占位守卫同口径并先 trim；只识别 as_N，
+  # 其余标题不受影响，由 ChapterDisplay 按当前 seq 生成可见章号。
+  defp as_placeholder_title?(title) when is_binary(title),
+    do: Regex.match?(~r/^as_\d+$/i, String.trim(title))
+
+  defp as_placeholder_title?(_title), do: false
 
   @doc """
   工作台头部当前写作坐标（B13b §4.1 #11 / VS-00J §4 消费面 / ADR-0028 UI 影响）。

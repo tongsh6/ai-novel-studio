@@ -367,7 +367,11 @@ defmodule NovelApplication.ExplorationServiceTest do
 
     # I-EXPLORE-READ-2：正文页不被设计态材料挤占；整条观察 ≤7200。
     assert String.length(page1.summary) <= 7200
-    assert page1.activity_summary =~ "已阅读章节正文「#{@long_title}」（第 1 章）（有效字数"
+
+    assert page1.activity_summary =~
+             "已阅读章节正文「#{@long_title}」（第 1 章；第 1–6000 字符 / 共 7000 字符；有效字数 "
+
+    assert page1.activity_summary =~ ~r/；有效字数 \d+）。\z/
 
     # 续读必须复用同一 chapter_ref（footer 逐字复制）。
     continuation = ~s({"chapter_ref":"#{chapter_ref}","offset":6000})
@@ -404,7 +408,11 @@ defmodule NovelApplication.ExplorationServiceTest do
     assert observation.summary =~ "【正文】第 1–1800 字符 / 共 1800 字符"
     assert String.contains?(observation.summary, prose)
     refute observation.summary =~ "【续读】"
-    assert observation.activity_summary =~ "已阅读章节正文「恐惧体验」（第 1 章）（有效字数"
+
+    assert observation.activity_summary =~
+             "已阅读章节正文「恐惧体验」（第 1 章；第 1–1800 字符 / 共 1800 字符；有效字数 "
+
+    assert observation.activity_summary =~ ~r/；有效字数 \d+）。\z/
   end
 
   test "chapter_read v2：chapter_ref 是规范寻址（含 JSON offset），无效/跨作品 ref 诚实报错不 fallback" do
@@ -650,7 +658,10 @@ defmodule NovelApplication.ExplorationServiceTest do
     {work_id, _chapter_id} = seed_work_with_chapter(@long_title, long_prose(1000))
 
     assert {:ok, chapter} = ExplorationService.run(work_id, "chapter_read", @long_title)
-    assert chapter.activity_summary =~ "已阅读章节正文「#{@long_title}」（第 1 章）"
+
+    assert chapter.activity_summary =~
+             "已阅读章节正文「#{@long_title}」（第 1 章；第 1–1000 字符 / 共 1000 字符；有效字数 "
+
     refute chapter.activity_summary =~ "chapter_read"
     refute chapter.activity_summary =~ "chapter_ref"
     refute chapter.activity_summary =~ "chapter:"

@@ -141,8 +141,8 @@
 
 | tool | 作者可见文案（示例） |
 |---|---|
-| `chapter_read`（整章/首页） | `已阅读章节正文「<title>」（第 N 章）（有效字数 W）。` |
-| `chapter_read`（续读页） | `已阅读章节正文「<title>」（第 N 章；第 x–y 字符 / 共 N 字符）。` |
+| `chapter_read`（整章/首页） | `已阅读章节正文「<title>」（第 N 章；第 1–y 字符 / 共 T 字符；有效字数 W）。` |
+| `chapter_read`（续读页） | `已阅读章节正文「<title>」（第 N 章；第 x–y 字符 / 共 T 字符）。` |
 | `prose_search` | `已检索正文「<检索词>」。` |
 | `archive_read` | `已查阅作品档案：<面向中文名>。`（profile/characters/… 映射中文；缺省「作品档案」） |
 | `memory_recall` | `已检索记忆「<检索词>」。` |

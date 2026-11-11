@@ -272,7 +272,8 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
     # 作者可见活动行：人类可读，不含内部工具 id / 原始 JSON / offset 字段名（I-READ-8）
     assert_received {:stage_event, %{event_type: :exploration_observed} = event1}
-    assert event1.summary =~ "已阅读章节正文「#{@full_read_title}」（第 1 章）"
+    assert event1.summary =~ "已阅读章节正文「#{@full_read_title}」（第 1 章；"
+    assert event1.summary =~ "第 1–6000 字符 / 共 7000 字符；有效字数"
     refute event1.summary =~ "chapter_read"
     refute event1.summary =~ "chapter_ref"
     refute event1.summary =~ "chapter:"

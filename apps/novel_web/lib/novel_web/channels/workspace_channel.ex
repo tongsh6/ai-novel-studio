@@ -563,7 +563,7 @@ defmodule NovelWeb.WorkspaceChannel do
 
   def handle_in("get_toc", payload, socket) do
     work_id = Map.get(payload, "work_id") || socket.assigns[:work_id] || "lobby"
-    data = NovelApplication.ReadingProjectionService.toc(work_id)
+    data = NovelApplication.ReadingProjectionService.toc_for_display(work_id)
 
     LogEmit.emit(:channel, :get_toc, :done, %{
       work_id: work_id,
