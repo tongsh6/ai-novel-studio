@@ -42,6 +42,16 @@
 
 隔离 shell 验证覆盖两条路径。启动期间把预注册源的第 02 章改为第 99 章，封存副本仍逐字等于启动前原文。单槽返回空模型列表时，冻结批次在 runner 启动前退出。证据见 `artifacts/b71-audit/2026-11-11-frozen-input-shell-proof.jsonl`。正式 G2 的预算、场景判据和批次启动授权另按上表办理。
 
+#### G2 专项验收边界
+
+12:48 CST 再次只读核对 Strata，`/v1/models` 仅列出 `iq3_s`，原生单槽为 `mode=real`、`loaded=null`。启动时仍由 runner 复查该条件。
+
+现有 live 入口在模型未调用工具时会将观察相关判据记为 `null`，通用机制报告仍可通过。专项 G2 要求成功分页观察实际发生，并把同一次 Provider 执行的响应、canonical 工具 ID、紧接的下一请求和使用声明关联。已有确定性全章核对的工具交换和续页读取判据可复用。它要求的固定探索收尾属于原场景，专项 G2 仍以作者请求中的待采纳改写候选为出口。
+
+第 02 章的已采纳稿由既有种子建立，revision 为 1，7000 字符分别覆盖 1–6000 和 6001–7000。两页按实际 draft 版本、范围和报文正文对账。模型只声明章节引用且该引用同时存在于 Base 时，可以核对引用边界，页级观察使用仍需页对应的证据。
+
+冻结 live 入口现已复用 `bindNativeCalls`。它以 ACK 对应 run 的完整归属读取 ProviderRun、canonical 和日志，逐调用核验原生 ID 与参数字节，并只把已绑定的本 run 记录交给机制判据。报告中 `measured.native_call` 记录执行引用和 SSE 工具对账数量。占位、缺响应、错属和带 Strata 标签的替身记录均不能满足该入口。后续还需把分页与页级使用作为专项必过项，并以同一 ACK 的实际终局页面核对候选归属。
+
 ### G3 既有批次预算对账
 
 对 [B71 已登记的两次回流](B71-provider-message-fidelity.md#2026-11-11-b81-交付后的完成度复核)，SQLite 中的 canonical assistant 消息均以 `provider_call_ref` 和 `provider_run_ref` 精确匹配上一条 Strata 调用；失败结果按同一 canonical call ID 紧随其后。两次 run 均正常完成，Provider 实际调用数与持久化消耗分别为 5、6，低于各自上限 33、13。独立 G3 批次仍需核验修正授权和预算触顶后的终止行为。

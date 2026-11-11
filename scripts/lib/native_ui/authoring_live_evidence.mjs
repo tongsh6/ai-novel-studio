@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   all,
+  assertAllChecks,
   assertCommonEvidence,
   assertProviderAndWire,
   frameBody,
@@ -19,6 +20,7 @@ import {
   writeNativeFrames,
 } from "./scenario_evidence.mjs";
 import { readConfig } from "./authoring_capture_evidence.mjs";
+import { bindNativeCalls } from "./authoring_run_evidence.mjs";
 import {
   NATIVE_CHAT_WIRE,
   requestFactsFromRecord,
@@ -568,6 +570,24 @@ function readJsonIfExists(file) {
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
 }
 
+// B82 §16.9：只有带预注册标记的冻结普通 live 批次要求真实 SSE 逐调用对账。
+// scope 只取 readBatchAuthoringHistory 已精确绑定的 run 身份；对账要求全部既有
+// checks 成立（缺响应/错属/占位都不签），且只有对账后的 records 才能进入
+// b71LiveModelBehavior 签证。G2 分页是否发生与页级使用仍由专项 gate 判定。
+function reconcileNativeCalls(dir, config, history, records) {
+  if (!config.preregistration) return null;
+  const calls = bindNativeCalls(dir, history.transcript.run, history, records);
+  assertAllChecks(calls.checks, "B82 §16.9 逐调用对账");
+  // 共享对账同时接受 fixture 与 SSE：冻结真实批次要求每个已绑定 ProviderRun 都有
+  // 真实 SSE tool-only 记录，合法 fixture 替身不能冒充；格式解析仍只在共享层。
+  assert.equal(
+    calls.measured.sse_decoder_tool_only_count,
+    calls.measured.bound_request_count,
+    "B82 §16.9 冻结 live 只接受真实 SSE 来源：fixture 替身不能冒充真实调用",
+  );
+  return calls;
+}
+
 export function verifyLiveBatch(dir) {
   const config = readConfig(dir);
   assert.equal(config.journey, "live", "live verifier 只接受 journey=live");
@@ -607,6 +627,7 @@ export function verifyLiveBatch(dir) {
     messageText: config.message,
     workId: config.target?.work_id,
   });
+  const nativeCalls = reconcileNativeCalls(dir, config, history, evidence.llmRecords);
   const dbFacts = withDb(dir, (db) => {
     const tableCount = (table) => {
       try {
@@ -625,7 +646,8 @@ export function verifyLiveBatch(dir) {
   const checks = b71LiveModelBehavior({
     dir,
     config,
-    llmRecords: evidence.llmRecords,
+    // 冻结批次只把精确对账内的真实 SSE 记录交给行为判据；普通 live 入口不变。
+    llmRecords: nativeCalls ? nativeCalls.records : evidence.llmRecords,
     wire: evidence.wire,
     startCheckpoint: checkpoints.start,
     finalCheckpoint: checkpoints.final,
@@ -652,7 +674,10 @@ export function verifyLiveBatch(dir) {
     required_mechanism: checks.required_mechanism,
     model_behavior: checks.model_behavior,
     not_signed: checks.not_signed,
-    measured: checks.measured,
+    measured: {
+      ...checks.measured,
+      native_call: nativeCalls ? nativeCalls.measured : null,
+    },
     refs: checks.measured?.refs ?? null,
     tentative_design_derivations: checks.measured?.canon?.tentative_design_derivations ?? [],
     strata_slot: strataSlot,

@@ -35,7 +35,7 @@ export function fingerprintUnchanged(dir) {
   return checkProductionFingerprint(dir).unchanged;
 }
 
-function bindNativeCalls(dir, scope, history, records) {
+export function bindNativeCalls(dir, scope, history, records) {
   return joinNativeCallEvidence({
     scope,
     transcript: history.transcript,
