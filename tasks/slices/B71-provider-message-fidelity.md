@@ -2,7 +2,7 @@
 
 - **当前执行入口（2026-11-08 审核轮收口后）**：本轮完成三项只读审计（契约/架构/测试资产，报告 `artifacts/b71-audit-20261108/`）与 P0+P1 clean 度收口：修复 `SSEStream.Result` 重复 `materialize/1` 导致的干净编译门禁红与增量编译假绿（`mix check` 首步改 `--force`）；修复 11 项 P1（standalone 有限模式误记、Chat 流式 usage 声明、Provider 唯一 `execute/5` 执行入口、无消费者 API、私有历史 v2/legacy 退役、error3/flow state 形状收敛、前端测试替身/作者可见名退役、R2 verifier 真实判据、system 规则测试、重编号重算回归等）；按作者要求新增 `scripts/lib/test_env.sh` 统一测试/验收入口前置。**确定性页面批次** `b71-first-consumer-tauri-native-audit-1108` 19/19 PASS（HEAD `eca29943`）；**实模批次** `b71-first-consumer-live-cp4b2-iq3s-01`（iq3_s，预注册 `scenario-preregistration-iq3-s-20261108.json`）required_mechanism **8/8**（含 usage_collected：真实 input/output tokens 与 cached_tokens/ttft 回收），真实多轮 request_message_counts 4/7/10/13/16/19/22、tentative 候选 1、canon 零写、单槽卸载核验通过。**仍未闭环**：G2/G3/G5/G6 未触发、Responses/Anthropic 实模凭证、I10 文学质量与 CP5 最终收口（不代签）。
 
-- 状态：**doing**。CP2/CP3a/CP3c/CP4a/CP4b 确定性实现与页面证据、R1/R2 确定性机制层、2026-11-08 审核轮 clean 度收口与门禁真实性修复均已完成并提交（9 个可 review 提交 + 本轮文档；见文末审核轮节）；确定性页面批次 19/19、实模批次（iq3_s）required_mechanism 8/8 通过（usage/缓存/流式/多轮/tentative/零写逐项取证）。**未闭环**：G2/G3/G5/G6 切片未触发、真实 Responses/Anthropic 实模（需官方凭证）、CP5 最终收口与 I10 文学质量（I10 由原任务承接，不代签）。历史 R1「待独立验证」表述已更正为已提交并通过确定性门禁。
+- 状态：**doing**。R1 请求边界、R2 流式机制、确定性原生页面与 Strata 实模协议已有分层证据。G6 的会话压缩、后续报文、重启和失败恢复证据由 [B81 §12](B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核) 承接。G2/G3 已复核既有实模报文，G5 已有确定性真实页面证据，正式补证及 Responses/Anthropic 实模见 [B82](B82-b71-golden-slice-evidence.md)。实模正文预览与 CP5 最终收口仍开放，I10 归原验收任务。当前证据边界见[文末复核](#2026-11-11-b81-交付后的完成度复核)。
 - 来源：作者先要求对照 Codex、Claude Code、dsh 的真实多轮请求，随后明确“设计一个优秀、符合项目调性的请求体，不为现状妥协”。本文件已据此替换此前偏向现役最小修补的方案。
 - 设计真源：[Provider 抽象 §26](../../docs/design/foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)；目标方向与迁移规则已由 [ADR-0033](../../docs/design/adr/ADR-0033-authoring-run-transcript-request-ir-v3.md) Accepted（2026-10-31）；替换契约 [VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md) 已 Frozen，首个判断消费者已完成 canonical 原生多轮接线，其余消费者与完整迁移归 CP4。
 - 对账输入：[B26](B26-single-call-judgment-protocol.md)、[B39](B39-evidence-seeking-authoring.md)、[ADR-0030](../../docs/design/adr/ADR-0030-evidence-seeking-authoring-v3.md)、[ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md)、[VS-00I](../../docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md)、[UA-01](../../docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md)。它们是迁移事实与可能需要修订的决策，不是降低目标设计的约束。
@@ -88,7 +88,7 @@
 | CP1 | 冻结目标 contract pack、Request IR、消息/工具/观察/校验/候选/checkpoint 语义、provider 投影与能力门槛、六类黄金请求和场景预注册；完成 ADR/现役协议差异及迁移裁决 | **done（2026-10-31，见 §7 交付记录）**：VS-00L Frozen + 逐条迁移映射 + G1–G6 + 场景预注册；已复核通过，旧 ADR-0030/0031 已转 Superseded |
 | CP2 | 实现 canonical transcript/Request IR 与三类 provider 投影；建立真实只读观察和原生校验结果回流，黄金与 adapter 测试通过 | **机制完成、不单独标 done（2026-10-31）：IR v1 + 三类投影 + G1–G6 golden + OpenAI 兼容/Anthropic adapter 桥 + application 层 transcript 观察/校验回流机制已完成；生产接线与真实观察回流作为残差并入 CP3a** |
 | CP3a | 确定性接线（2026-10-31 从 CP3 拆出）：以统一 AgentRun 接通首个创作消费者并完成生产接线（IR 消费替换 call-site legacy prompt、观察/校验按 call_id 回流、预算/权限/trace/持久化/恢复），承接 CP2 残差；以确定性 provider 在真实页面驱动证明接线闭环，不签实模语义 | **done（2026-11-01，见 CP3c 实施记录）**：生产接线、浏览器及原生确定性页面证据完成，不签实模语义 |
-| CP3b | 实模窗口验收：真实 Tauri + 实际模型请求/响应、G1–G6 与作者边界证据；CP3a 不能替代实模 | **doing**：协议机制与 G1–G4 已取证；G5 当前为确定性证据，G6 和完整行为覆盖未闭环；R2 流式机制与 Responses SSE 已于 2026-11-07 完成，实模流式证据待批次；不再用资源等待概括已发生的产品/场景缺口 |
+| CP3b | 实模窗口验收：真实 Tauri + 实际模型请求/响应、G1–G6 与作者边界证据；CP3a 不能替代实模 | **doing**。已有 Strata 实模协议、G6 会话压缩和 G2/G3 原生报文事实。正式 G2/G3/G5 补证、实模正文预览及另外两类 wire 的实模仍待验证，见文末复核。 |
 | CP3c | 方案修订与稳定/恢复 checkpoint（2026-11-01）：先修订 ADR/VS-00L，再实现稳定层与动态 scope 分层更新、可恢复 canonical transcript；新增 G7 动态 scope 后与 G8 恢复后，不把整段 Base 刷新当终态 | **done（2026-11-01）**：canonical 整体重构、G7/G8、数据库离线恢复、原生 14/14 与门禁完成；不代表 CP3b/CP4/CP5 完成 |
 | CP4a | 统一创作/质量 canonical 主链：判断 → 原生创作调用 → 质量复核 → tentative artifact → 续行；迁移 creative/quality provider 与 TurnExecutionService，不形成第二控制环 | **done（2026-11-01）**：原生调用、阶段工具、应用结果闭合、durable checkpoint 与真实 Tauri 14/14 完成；不代表 CP3b/CP4b/CP5 完成 |
 | CP4b | 覆盖其它规划 profile、显式压缩恢复与旧协议退役；完成真实 Tauri 全链、真实模型行为、缓存/usage、replay/Why 和全部门禁 | **doing（2026-11-01，方案见末节）**：CP4b-1 统一机制与确定性页面；CP4b-2 实模行为、缓存/usage 与剩余证据。**R1 请求边界/原生输入迁移已按 VS-00L §19.1 实现并通过确定性门禁（详见末节 R1 收口记录）**：删除 `to_provider_prompt/2`、构造/执行双身份比对、Chat 中间层与生产 Stub 注册，初始快照按 §19.2 构造；**R2 统一流式生命周期与 Responses SSE 已于 2026-11-07 完成确定性机制层并提交**（`119b7c35` 等），CP4b-2 实模行为/缓存/usage 与真实页面证据仍待批次。CP4 仅在 CP4a+CP4b 均完成后才算 done |
@@ -794,6 +794,8 @@
 
 ### CP3b G1–G4 真实请求字节切片证据（2026-11-03，离线分析，非新批次）
 
+本节及后续历史条目中的离线分析绿灯仅保留为当时记录。判据局限与独立报文复核见[文末](#2026-11-11-b81-交付后的完成度复核)。
+
 - **方法与边界**：新增 `scripts/b71_golden_slices_from_live_batch.mjs`（+6 项测试），只读取已验证实模批次 03 的 `llm-calls` 原始请求记录做 VS-00L §7 切片分析；不重跑、不改写原证据、不代签模型语义。报告 `artifacts/b71-resume/golden-slices-cp3b-03/live-golden-slices.{json,md}`。
 - **请求序列事实**：9 条真实请求、追加式前缀**全部通过**（#0→#8 逐条前缀严格相等，仅追加）；阶段工具目录在 #3 起从 7 工具切换为 1 工具（阶段投影）。
 - **G1 首轮 ✅**：每条请求均为 `system ×2 → application_base（带【应用数据·application_base·非作者原话】header）→ 独立 author user → scope_update`；application_base 在 author 之前；作者原话字节独立（sha256 记录）。
@@ -1307,4 +1309,22 @@ ADR-0035（会话级 canonical 创作上下文）获作者批准后，B71 剩余
 - B71 状态保持 doing；G6 明确移交 B81 CP5，B71 原任务保留历史证据与契约，不再作为 G6 的排期/执行入口。
 - **2026-11-09 状态更新**：B81 CP1（会话级 canonical 事实源）已完成并通过全量门禁 + native 真实页面 19/19；G6 的取证对象随之变为**会话历史**（跨 turn 累计已完成交换），CP5 验收设计与 6 项判据见 B81 §8.6；CP2–CP4 未实现前 G6 仍不代签。B71 CP5 收口仍依赖 B81 CP5 + B82 证据。
 - 相关任务状态源：B81 §7.3（上下游/前置/后置关系登记）与各承接任务文档。
+
+### 2026-11-11 B81 交付后的完成度复核
+
+复核以 `c168734f` 为基线。ADR-0033 与 ADR-0035 共用现有会话历史和 Request IR。Application 从会话派生当前请求，Gateway 按实际 route 派生能力事实，三类 adapter 分别消费纯投影，Orchestrator 持有执行权。作者处置和压缩分别沿既有 pending 与会话维护入口验证。按仓库引用核对，离线脚本只有自己的测试、索引和历史记录引用，与正式 runner 重复读取请求并另判 G1–G6。退役该入口及锁定其旧行为的测试，保留历史 artifacts 和正式场景判据。没有新增生产实体、协议版本、证据存储或兼容路径。
+
+| 要求 | 本轮复核所得 | 剩余证据 |
+|---|---|---|
+| G1 首轮 | `b71-first-consumer-live-cp4b2-iq3s-01` 的原生报文与正式机制判据支持系统规则、独立 Base 与作者原话。 | Responses/Anthropic 另按各自 wire 核对。 |
+| G2 观察后 | B81 `b81-interleave-tail-01` 的 `pcall_mwbj0872_2b → pcall_mwbj0cup_2m` 是同一 AgentRun 内相邻的 Provider starts。后一请求首次携带 `call_b17dfc3e3c1a4c46b913ed4e` 的成功观察。assistant 调用、外层 tool ID 与内层 call ID 一致，原生 payload 与同 run 的 canonical 第 26 条完全等值，携带章节引用、采纳稿 revision 2 和正文范围 1–6000。 | 该批以压缩交错续行为主。B82 仍需把观察与消费该材料的具体调用绑定，核对该次模型使用声明与 Base/Observation 边界。 |
+| G3 校验失败后 | B81 `b81-interleaved-resume-07` 的 `pcall_mwb3a3k3_30 → pcall_mwb3a8r5_3a` 携带 `judgment_semantic_conflict`。B81 `b81-c5-c6-resume-02` 的 `pcall_mwb09bjp_dm → pcall_mwb09y9f_dz` 携带 `evaluator_invalid_json`。两个失败均首次以原生 tool 结果进入同一 run 的下一请求，与 canonical 同 call ID 的块等值，前后作者消息字节一致。 | B82 仍需以失败、有限修正、权限门和作者出口作为完整验收，并记录预算耗尽时的结果。 |
+| G4 候选后 | iq3_s 批次支持候选实际出现、未采纳零写和追加历史。pending 专项覆盖候选与后续请求的关联。 | 正式复核继续核对同一候选的 pending refs、I1 和工具授权，候选工具名本身不能证明这些后果。 |
+| G5 作者边界后 | `cp4b-pending-08-structure-clean` 的确定性 Tauri 判据 77/77，覆盖真实页面动作、采纳与放弃的回执、后续请求、恢复和零越权。 | B82 承接 ADR-0035 后的当前页面/实模取证，核对处置对象、新授权及旧调用是否越过边界。 |
+| G6 压缩后 | `b81-c7-c8-03` 原生实模批次 C1–C11 通过。交错续行专项的 C5/C6 也通过，覆盖 checkpoint 与首个后续报文、原作者字节及未覆盖交换。 | 原批次发现的作者可见内部标识问题由 [B86](B86-structured-model-materials-internal-ref-isolation.md) 承接，完整 B71 仍按 CP5 总审。 |
+| R2 流式与三类 wire | 已有三 wire 的确定性机制与 Tauri 流式预览 7/7。Strata 真实请求提供流式 usage、TTFT 与缓存事实。 | 真实 writer 流式预览须从同一发送回合绑定 chunk、生成中 AX 和最终结果。Responses 与 Anthropic 的真实 body、流式终止和 usage 由 B82 另证。 |
+
+证据对账复用 `authoring_request_facts.mjs`、`scenario_evidence.mjs` 与 B81 已有的 Provider start / canonical 数据源。三条对账在 `artifacts/b71-audit/2026-11-11-g2-g3-wire-canonical.jsonl`。历史 Strata `response.body` 保存 `event_stream`，因此旧 verifier 的 L5/L6 为缺证。此处验证了实际请求内的观察和校验回流，供应商原始 SSE 响应与模型逐次使用声明仍须按正式批次另证。现有 L7 合并整批请求与事件 refs，只能反映批次引用集合，不能单独证明具体请求的使用边界。
+
+退役判据的反例可由历史实现复现。仅回放 `ask_author` 的通过校验就得到 G2 绿灯。失败的 observation 得到 G3 绿灯。作者原话包含 `resolved_adoptions` 与 `checkpoint` 就得到 G5/G6 绿灯。正式验收沿已有 native runner、请求事实解析、专用 revision/pending/压缩判据及 SQLite 读取路径继续推进。
 

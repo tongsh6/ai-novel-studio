@@ -40,7 +40,6 @@
 | `macos_cgevent_local_secret_file_driver.swift` | macOS 本地 secret 文件 UI 驱动辅助。 |
 | `macos_cgevent_plan_matrix_driver.swift` | **B26 计划矩阵原生驱动**：CGEvent/AX 操作真实 Tauri 窗口完成同批计划/独立起草/核对后修订三路径，写 `native-ui-complete.json`；配合 `TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1` 与 `scripts/native_plan_evidence_check.mjs` 使用。 |
 | ~~`b27_case_freeze.exs`~~ | **已退役（2026-11-06 作者裁决）**：B27 CP0 案例冻结器在 R1 后不可运行（`SystemIdentity.inject/1` 已删除、请求形态改为 canonical IR）；历史快照（`quality/acceptance/fixtures/b27-semantic-cases/`）只读保留，不再提供 `--check` 可复跑性；需要规则臂对照时按 R1 形态作为独立任务重建。 |
-| `b71_golden_slices_from_live_batch.mjs` / `.test.mjs` | **B71 CP3b G1–G6 真实请求切片分析**：只读已验证实模批次的 `llm-calls` 原始请求（兼容 `[ts] {json}` 与纯 JSON 行），按 VS-00L §7 输出 G1–G6 结构切片、追加式前缀检查、作者字节 sha 与 tool call/result call_id 绑定；G2 按唯一 call_id 去重（回放不重复计数），G5/G6 未触发明确不代签；不重跑、不改写证据。用法 `node scripts/b71_golden_slices_from_live_batch.mjs <batch-dir> [--out <dir>]`。 |
 | `next_task_check.mjs` | 检查 NEXT 三段简表、唯一状态来源、当前/候选可推进、锚点与说明篇幅；候选无数量上限，阻塞/延期另列引用；拒绝借子标题状态及旅程双写。`--open` 只读列出原任务/小节开放项、是否排期及未识别历史状态，不生成第二份台账。 |
 | `next_task_check.test.mjs` | 排期/源状态/链接/体积与差距扫描迁移、快照保护反例；运行 `node --test scripts/next_task_check.test.mjs`，无需前端依赖。 |
 | `gap_ledger.sh` | 从既有差距表生成开放清单及跨次快照，落点见 `reports/gap-ledger/README.md`。 |
