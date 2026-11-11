@@ -475,10 +475,18 @@ function parseChapterLabel(value) {
   return { order: normalizeOrder(match[1]), name };
 }
 
+// 运行详情抽屉标题由 copy.agentRunDockTitle 拼成「状态 · 创作」；只在该精确 AX
+// value 状态行剥离这个已知徽标，正文/旧回合/作者原话里的同样文字仍不算状态。
+// 「创作执行」是作者可见内部术语（display_names 已禁），不是页面徽标，不在此列。
+const AX_STATUS_BADGE = " · 创作";
+
 // 只认真实状态行/状态 value，不在正文里搜「失败/错误」等词。
 function statusLineKind(line) {
   const valueMatch = /\(value=([^)\n]*)\)/u.exec(line);
-  const token = (valueMatch ? valueMatch[1] : line).trim();
+  const raw = (valueMatch ? valueMatch[1] : line).trim();
+  const token = valueMatch && raw.endsWith(AX_STATUS_BADGE)
+    ? raw.slice(0, -AX_STATUS_BADGE.length)
+    : raw;
   if (token === "失败" || token === "已停止" || token === "已取消") return "failed";
   if (token === "已完成") return "completed";
   // 历史进度行「已完成 创作执行 第 3/3 步」也是状态行；正文「已完成核对」不算。

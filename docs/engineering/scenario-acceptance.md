@@ -81,7 +81,7 @@
 优先策略：
 
 - 使用 `getByRole`、`getByLabel`、`getByPlaceholder`、可见按钮文案和页面可见文本。
-- 通过 WebSocket/network frame、截图、日志、持久化查询证明链路结果。
+- 通过真实页面的控件、可见文本和截图证明作者场景结果。需要对账技术机制时，另行读取网络帧、日志和持久化结果。
 - 把产物写入 `artifacts/slice-verify/<slice-id>/`。
 - 失败时也保存截图和已捕获帧，方便复盘。
 
@@ -102,7 +102,7 @@
 - 外部脚本是否打开真实产品入口，而不是旁路页面？
 - 脚本是否通过用户可见语义定位和操作 UI？
 - 产品代码是否没有新增验收专用 env、slice id、DOM hook、Channel/API 事件或 provider 注册？
-- 验收证据是否来自真实网络帧、前端可见反馈、日志、截图或持久化结果？
+- 作者场景能否在缺少应用内部编号、网络帧和数据库查询的情况下完成选目标、操作及页面判定？
 - **引用历史证据时必须先核对 `summary.surface` / `driver` / `provider`**：目录名（如 `-tauri`）
   不代表真实页面来源——历史目录中存在 `surface=browser`、`driver=外部 UI` 的混合情况；
   「真实页面验收」只能引用 `surface=native-tauri`（或当轮真实 Tauri 驱动）的产物，

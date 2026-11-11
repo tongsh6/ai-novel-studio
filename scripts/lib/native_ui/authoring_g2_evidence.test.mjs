@@ -743,6 +743,21 @@ test("可见终局只认状态行：prose 里的失败/错误不算，实际 val
     }).kind,
     "running",
   );
+  // 运行详情抽屉标题是「状态 · 创作」；b71 归档的真实等待就是
+  // `(value=等待你回复 · 创作)`，不认它会把页面等待误判成超时。
+  assert.equal(
+    authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n(value=等待你回复 · 创作)`, {
+      message: VISIBLE_MESSAGE,
+    }).kind,
+    "waiting",
+  );
+  assert.equal(
+    authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n这轮我先等待你回复 · 创作说明后再继续。`, {
+      message: VISIBLE_MESSAGE,
+    }).kind,
+    "unknown",
+    "正文里的近似状态词不能当 waiting",
+  );
   assert.equal(
     authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n等待你回复`, {
       message: VISIBLE_MESSAGE,

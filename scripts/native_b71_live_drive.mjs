@@ -71,11 +71,33 @@ async function captureReadingPage(name, target) {
   await harness.runStep("maintenance", `reading_page:${name}`, async () => {
     await clickVisibleButton(`${name}:open`, "阅读");
     // 与 verifier 共用同一读取判定：作品/章/原文可见且非加载中、投影已 fresh。
+    // 已读到作者冻结摘录、仅缺带章序的目标标题时，真实终局已确定：
+    // 立即保留当前 AX/截图并据实失败，不再等满有界窗口。
     const page = await harness.pollAx(
-      (text) => readingPageFailure(text, target) === null,
+      (text, nodes) => {
+        const failure = readingPageFailure(text, target);
+        return (
+          failure === null ||
+          (failure === "chapter_title_missing" &&
+            Boolean(visibleButton(nodes, "返回工作台")) &&
+            Boolean(excerptNode(nodes, target.reading_excerpt)))
+        );
+      },
       60_000,
       `b82-g2:${name}`,
     );
+    const failure = readingPageFailure(page.text, target);
+    if (failure !== null) {
+      harness.capture(name);
+      harness.log.push({
+        op: "reading_target_label_missing",
+        name,
+        reason: failure,
+        frozen_chapter_title: target.chapter_title,
+        at: harness.nowIso(),
+      });
+      throw new Error(`reading_target_label_missing:${name}:${target.chapter_title}`);
+    }
     const node = excerptNode(page.nodes, target.reading_excerpt);
     if (!node?.path) throw new Error(`reading_excerpt_node_missing:${name}`);
     // 末页原文必须真的进入视口：始终执行 AXScrollToVisible，已可见时是无操作。

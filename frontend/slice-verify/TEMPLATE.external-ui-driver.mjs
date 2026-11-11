@@ -71,8 +71,9 @@ async function driveScenario(page) {
   // Replace this with the slice scenario:
   // 1. Fill visible fields.
   // 2. Click visible controls by role/name.
-  // 3. Wait for product-visible feedback and network frames.
+  // 3. Wait for the current action's visible feedback.
   // 4. Assert business-visible outcome.
+  // Network frames are captured independently for technical diagnosis.
   //
   // Example shape:
   // await page.getByPlaceholder("输入你的想法、问题或指令...").fill("...");

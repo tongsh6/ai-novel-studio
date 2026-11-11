@@ -343,21 +343,6 @@ function targetFor(dir, { includeSession = false } = {}) {
   });
 }
 
-// B82 目标不再经 work_id 查库取标题：作品名取自已冻结的作者可见目标，工作/session
-// 身份只从 seed 日志抄录给独立诊断，不参与脚本选择或页面判据。
-function visibleTargetFor(dir, visible, { includeSession = false } = {}) {
-  const fields = seedFields(dir);
-  const workId = fields("work_id");
-  assert(workId, "seed 缺少 work_id");
-  const sessionId = includeSession ? fields("session_id") : null;
-  if (includeSession) assert(sessionId, "seed 缺少 session_id");
-  return {
-    work_id: workId,
-    work_title: visible.work_title,
-    ...(includeSession ? { session_id: sessionId } : {}),
-  };
-}
-
 const messageFor = (journey) => JOURNEY_MESSAGES[journey];
 
 export function prepare(dir) {
@@ -379,10 +364,9 @@ export function prepare(dir) {
     ? validatePreregistrationFile(preregistrationFile, { dir, requireAuthorVisibleTarget: true })
     : null;
   const visibleTarget = preregistration?.author_visible_target ?? null;
+  // B82 的场景目标只取封存的作者可见目标，不依赖种子日志或数据库。
   const target = visibleTarget
-    ? visibleTargetFor(dir, visibleTarget, {
-      includeSession: pending || live || confirmation || autoMaintenance,
-    })
+    ? null
     : targetFor(dir, { includeSession: pending || live || confirmation || autoMaintenance });
   const nonce = pending ? randomBytes(8).toString("hex") : null;
   // 作者行为覆盖：输入必须是 B70 冻结 case 的 expression 原文（禁止现场造输入）。
@@ -401,7 +385,7 @@ export function prepare(dir) {
     slice_id: ready.slice_id,
     journey: ready.journey,
     provider: ready.provider,
-    target,
+    ...(target ? { target } : {}),
     ...(visibleTarget ? { author_visible_target: visibleTarget } : {}),
     ...(preregistration
       ? {

@@ -101,24 +101,18 @@ function seedLive(dir) {
   );
 }
 
-// B82 作者可见批次不建应用 DB；prepare 的 runner seed 边界仍要 work/session，
-// 这里用占位身份，作品只从封存的作者可见目标来，不注入应用域 ID。
+// B82 作者可见批次不建应用 DB、也不写 seed：目标只取封存的作者可见目标。
 function visibleBatch() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "b71-capture-visible-"));
 }
 
-function seedVisibleBoundary(dir) {
-  fs.writeFileSync(path.join(dir, "seed.log"), "run_ref=run-1 work_id=seed-work session_id=seed-session\n");
-}
-
-// 直接按封存预注册构造 live 配置：target 只含作者可见 title，不写 DB/work/session 身份。
+// 直接按封存预注册构造 live 配置：只含作者可见目标，不写 DB/work/session 身份。
 function writeVisibleConfig(dir) {
   const record = validatePreregistrationFile(path.join(dir, "preregistration.json"), { dir });
   writeJson(dir, "native-b71-config.json", {
     slice_id: "b71-first-consumer",
     journey: "live",
     provider: "strata",
-    target: { work_title: G2_VISIBLE_TARGET.work_title },
     author_visible_target: G2_VISIBLE_TARGET,
     preregistration: { id: record.id, sha256: record.sha256, model: LIVE_MODEL },
     message: G2_MESSAGE,
@@ -295,18 +289,19 @@ test("prepare 在目标作品缺失、重名或 ready slice 未知时失败且�
   }
 });
 
-test("普通 live 批次按冻结预注册副本取作者输入并保留 id/hash", () => {
+test("普通 live 批次只按冻结预注册副本取作者输入，不依赖 seed/DB", () => {
   const dir = visibleBatch();
   try {
     liveReady(dir);
-    seedVisibleBoundary(dir);
     preregistration(dir);
-    // 可见批次不建 DB：prepare 仍能从封存目标写出配置，证明作品名不查库。
+    // 零 seed、零 DB：作者可见批次不得从内部作品/会话 ID 派生场景目标。
     prepare(dir);
     const config = readConfig(dir);
     assert.equal(config.journey, "live");
     assert.equal(config.message, G2_MESSAGE);
-    assert.equal(config.target.work_title, G2_VISIBLE_TARGET.work_title);
+    assert.equal(Object.hasOwn(config, "target"), false);
+    assert.equal(Object.hasOwn(config, "work_id"), false);
+    assert.equal(Object.hasOwn(config, "session_id"), false);
     assert.deepEqual(config.author_visible_target, G2_VISIBLE_TARGET);
     assert.deepEqual(config.preregistration, {
       id: "b82-g2-live-test",
