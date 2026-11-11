@@ -110,19 +110,34 @@ defmodule NovelAgent.Provider.StreamToolCallsTest do
       {:ok, 200, ""}
     end
 
+    parent = self()
+
     state = %OpenAI{
       api_key: "sk-test",
       endpoint: "https://example.invalid/v1",
       model: "fixture-model",
       timeout: 100,
       eventsource_fn: eventsource,
-      log_fn: nil
+      log_fn: fn vendor, url, body, log_result, started ->
+        send(parent, {:llm_log, vendor, url, body, log_result, started})
+      end
     }
 
     assert {:ok, %{result: result}} =
              OpenAI.execute(state, nil, prompt_ir(), %InferenceParams{}, provider_ctx(:openai))
 
     assert result.content == ""
+
+    assert_received {:llm_log, "openai", "https://example.invalid/v1/chat/completions", log_body,
+                     {:ok, ^result, attrs}, started}
+
+    assert log_body.stream == true
+    assert attrs.status == 200
+    assert attrs.usage == result.usage
+    assert is_integer(attrs.duration)
+    assert is_integer(started)
+
+    assert attrs.resp_body == %{source: "sse_decoder", tool_calls: result.tool_calls}
 
     assert [
              %{
@@ -208,12 +223,16 @@ defmodule NovelAgent.Provider.StreamToolCallsTest do
       {:ok, 200, ""}
     end
 
+    parent = self()
+
     state = %Anthropic{
       api_key: "sk-ant-test",
       model: "claude-fixture",
       timeout: 100,
       eventsource_fn: eventsource,
-      log_fn: nil
+      log_fn: fn vendor, url, body, log_result, started ->
+        send(parent, {:llm_log, vendor, url, body, log_result, started})
+      end
     }
 
     assert {:ok, %{result: result}} =
@@ -238,6 +257,17 @@ defmodule NovelAgent.Provider.StreamToolCallsTest do
 
     assert result.usage.input_tokens == 11
     assert result.usage.output_tokens == 6
+
+    assert_received {:llm_log, "anthropic", "https://api.anthropic.com/v1/messages", log_body,
+                     {:ok, ^result, attrs}, started}
+
+    assert is_map(log_body)
+    assert attrs.status == 200
+    assert attrs.usage == result.usage
+    assert is_integer(attrs.duration)
+    assert is_integer(started)
+
+    assert attrs.resp_body == %{source: "sse_decoder", tool_calls: result.tool_calls}
 
     {ir, _result} = RequestIR.append_assistant_result(ir_with_author_message(), result)
     assistant = Enum.find(ir.messages, &(&1.role == "assistant"))

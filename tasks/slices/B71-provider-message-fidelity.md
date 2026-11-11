@@ -1340,3 +1340,9 @@ B71 实模验收与 B70 的 HO5 共用既有 L7。它按 canonical assistant 的
 
 原始确定性 Tauri 档案用新判据复核通过 9/9。外来 run、非 writer 与把同一正文拆进多次 Provider 调用的三个隔离反例均失败。对账见 `artifacts/b71-audit/2026-11-11-r2-preview-replay.jsonl`。真实模型仍需在同一作者操作中采集生成中 AX、writer SSE 对应的事件与终局。
 
+### R2 流式工具响应进入逐调用日志（2026-11-11）
+
+VS-00L §16.9 要求同次请求与响应可按已有 Provider run/call 引用对账。三类 wire 共用的 `SSEStream.Result` 已从 decoder 得到工具结果，成功日志此前只写 `event_stream`。现在同一条 `LLMLog` 记录的 `response.body` 以 `source: "sse_decoder"` 标识解码来源，直接保存同次交付的 `Result.tool_calls`，包括 decoder 保留的 `raw_arguments`。日志用途是核对工具身份与参数，正文、私有状态和原始流帧不进入该字段。
+
+Chat Completions 和 Anthropic 的确定性 adapter 测试逐项核对日志与实际交付。独立临时探针以确定性 SSE 经真实 adapter、既有 JSONL 写入和 Node live 读取器，验证两条执行引用、状态、usage 和含空白的参数字节，结果见 `artifacts/b71-audit/2026-11-11-sse-jsonl-proof.json`。既有 `event_stream` 档案保持历史状态。正式判据仍须按执行引用把原生工具 ID 与 canonical ID 对账，并另行核对原始 SSE 帧与终止顺序。
+

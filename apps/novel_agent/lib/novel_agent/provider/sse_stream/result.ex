@@ -110,11 +110,18 @@ defmodule NovelAgent.Provider.SSEStream.Result do
       true ->
         result = success_result(opts, finalized, content, usage, tool_calls)
 
+        # resp_body 只承载解码出的工具事实：直接复用已交付 Result.tool_calls 的字节，
+        # 不重放正文/provider_state/thinking/原始帧；source 标明事实来自 SSE decoder。
         %{
           result: {:ok, result},
           log_result:
             {:ok, result,
-             %{status: status, usage: usage, duration: duration, resp_body: "event_stream"}}
+             %{
+               status: status,
+               usage: usage,
+               duration: duration,
+               resp_body: %{source: "sse_decoder", tool_calls: result.tool_calls}
+             }}
         }
     end
   end
