@@ -212,23 +212,28 @@ defmodule NovelApplication.JudgmentProtocol do
   def planned_observations_transcript(transcript, judgment, observations, coverage \\ %{}) do
     payloads = Enum.map(observations, &observation_payload/1)
 
+    # 叶子观察自身是版本与覆盖范围的真源：顶层只做来源去重、状态判定与汇总，
+    # 不再 merge versions 或重复映射 coverage.items；正文也不作为顶层 summary 重复入线。
     AuthoringTranscript.append_observation(transcript, judgment.tool_call_id, %{
       status: planned_status(payloads),
       source_refs: Enum.flat_map(payloads, & &1.source_refs) |> Enum.uniq(),
-      versions: Enum.reduce(payloads, %{}, &Map.merge(&2, &1.versions)),
       coverage: %{
-        items: Enum.map(payloads, & &1.coverage),
         coverage_note: Map.get(coverage, :coverage_note),
         continuation_hint: Map.get(coverage, :continuation_hint)
       },
       omissions: Enum.flat_map(payloads, & &1.omissions) |> Enum.uniq(),
       content: %{
-        summary: Enum.map_join(payloads, "\n\n", & &1.content.summary),
+        summary: planned_summary(payloads),
         tool: "planned_exploration",
         query: Enum.map_join(payloads, " / ", & &1.content.tool),
-        observations: Enum.map(payloads, & &1.content)
+        observations: payloads
       }
     })
+  end
+
+  defp planned_summary(payloads) do
+    tools = payloads |> Enum.map(& &1.content.tool) |> Enum.uniq() |> Enum.join(" / ")
+    "计划内只读检索完成（#{length(payloads)} 次：#{tools}）"
   end
 
   defp observation_payload(observation) do

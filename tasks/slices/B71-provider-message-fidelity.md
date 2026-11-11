@@ -1352,5 +1352,13 @@ Chat Completions 和 Anthropic 的确定性 adapter 测试逐项核对日志与�
 
 对照 B81 的实模单页和 B82 首批的歧义观察，运行时有 `AgentObservation`，原生 tool 结果保留底层章节来源，但缺对应观察身份。逐调用自报只能证明章节在本次请求中可见，无法据此判断用了哪一页。原始对照见 `artifacts/b71-audit/2026-11-11-g2-page-identity-source.jsonl`。
 
-单次探索现从真实查询结果构造一次既有 `AgentObservation`。同一 `observation:<id>` 进入运行时和 canonical tool 的 `content.observation_ref`，底层章节仍由 `source_refs` 单独表达。既有 `observation_refs` 集合和验收读侧消费该身份。续页测试核对两页身份不同、后续请求携带原值，验收反例覆盖其他调用、普通正文与失败观察。三种原生 wire 的确定性投影均保留身份和独立章节来源，见 `artifacts/b71-audit/2026-11-11-page-observation-ref-wire-proof.json`。聚合检索的逐页身份与逐页版本仍待闭合。
+单次探索现从真实查询结果构造一次既有 `AgentObservation`。同一 `observation:<id>` 进入运行时和 canonical tool 的 `content.observation_ref`，底层章节仍由 `source_refs` 单独表达。既有 `observation_refs` 集合和验收读侧消费该身份。续页测试核对两页身份不同、后续请求携带原值，验收反例覆盖其他调用、普通正文与失败观察。三种原生 wire 的确定性投影均保留身份和独立章节来源，见 `artifacts/b71-audit/2026-11-11-page-observation-ref-wire-proof.json`。
+
+### 计划内读取的观察与压缩证据（2026-11-11）
+
+只读计划和单次探索共用观察构造与活动发出。每次实际读取产生一个既有 `AgentObservation`，同一计划内用执行序位区分身份。一次模型计划仍只产生一个原生聚合工具结果，按原顺序携带每个子观察的状态、身份、来源、版本、正文范围和续读信息。父结果保留整体状态与覆盖提示，逐页版本由各子观察保留。
+
+会话压缩按父调用选择完整交换，再从子观察取来源和版本。`AuthoringTranscript` 从同一 canonical 结果取观察身份。压缩后原始交换仍可从会话历史回查。M17 的真实持久正文读取经确定性 Provider 验证两页在紧邻请求中使用同一父调用、不同观察身份，压缩回归覆盖两个独立版本。三种 wire 的确定性投影见 `artifacts/b71-audit/2026-11-11-planned-observation-wire-proof.json`。真实 Tauri 与实模聚合正例仍待取证，G2 余项见 [B82](B82-b71-golden-slice-evidence.md)。
+
+同轮直接续读回归使用现有 Tauri 工作台和外部 AX 驱动，确定性批次 `b71-first-consumer-tauri-native-planned-observation-reg-01` 通过 19/19。页面显示第 02 章末页范围与正文锚点，任务为「已完成」。输入控件就绪耗时 986 ms，ACK 等待 27 ms，等待账全部结束，隔离窗口进程已清理。该批覆盖直接续读的页面路径。证据见 `artifacts/slice-verify/b71-first-consumer-tauri-native-planned-observation-reg-01/summary.json`。
 

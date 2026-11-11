@@ -7,6 +7,8 @@ defmodule NovelCommon.RequestIR.Compaction do
   turn_range 只作说明；仅带 turn_range 的旧 checkpoint 不再被接受。
   """
 
+  alias NovelCommon.RequestIR
+
   @result_types ~w(observation validation_result)
 
   @doc "核对已通过 RequestIR 形状校验的消息所声明的压缩事实。"
@@ -191,8 +193,9 @@ defmodule NovelCommon.RequestIR.Compaction do
           MapSet.member?(selected, Map.get(observation, :call_id)),
           do: observation
 
-    refs = Enum.flat_map(observations, &Map.get(&1, :source_refs, []))
-    versions = Enum.reduce(observations, %{}, &Map.merge(&2, Map.get(&1, :versions, %{})))
+    payloads = Enum.flat_map(observations, &RequestIR.observation_payloads/1)
+    refs = Enum.flat_map(payloads, &Map.get(&1, :source_refs, []))
+    versions = Enum.reduce(payloads, %{}, &Map.merge(&2, Map.get(&1, :versions, %{})))
     {refs, versions}
   end
 

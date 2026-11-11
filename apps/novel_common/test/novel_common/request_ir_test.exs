@@ -71,6 +71,37 @@ defmodule NovelCommon.RequestIRTest do
   end
 
   describe "IR v1 数据边界校验" do
+    test "observation_payloads 只保留计划聚合叶实际存在的字段，不虚构缺省" do
+      block =
+        RequestIR.observation_block("call-plan", %{
+          status: "ok",
+          source_refs: [%{ref: "chapter:1"}],
+          content: %{
+            tool: "planned_exploration",
+            observations: [
+              %{
+                status: nil,
+                versions: %{"draft:page-1" => 1},
+                content: %{"observation_ref" => "observation:obs_1"}
+              }
+            ]
+          }
+        })
+
+      assert [leaf] = RequestIR.observation_payloads(block)
+
+      assert leaf == %{
+               status: nil,
+               versions: %{"draft:page-1" => 1},
+               content: %{"observation_ref" => "observation:obs_1"}
+             }
+
+      refute Map.has_key?(leaf, :source_refs)
+      refute Map.has_key?(leaf, :coverage)
+      refute Map.has_key?(leaf, :omissions)
+      refute Map.has_key?(leaf, :next_offset)
+    end
+
     test "canonical projection 只承载调用政策，prepare_request 不查询 Gateway" do
       ir = ir(g1_messages())
       assert ir.projection == %{usage_streaming: false}

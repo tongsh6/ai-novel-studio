@@ -696,24 +696,27 @@ defmodule NovelApplication.DialoguePlanningService do
     log_judgment_decided(judgment, "judgment_plan_inline_explore", 0)
     explorations = judgment_explorations(judgment_stage_state(snapshot))
 
-    observations =
-      Enum.map(steps, fn step ->
+    planned =
+      steps
+      |> Enum.with_index(1)
+      |> Enum.map(fn {step, index} ->
         tool = map_get(step, :target_tool_ref)
         query = map_get(step, :exploration_query) || ""
         observation = run_inline_exploration(work_id, run, tool, query)
 
-        emit_judgment_stage(
+        # 每次实际读只构造一个既有 AgentObservation；计划序位给同 run/step 内的
+        # 确定性 ID 后缀，source_ref 沿用工具/步并区分计划序位。
+        exploration_observation(
+          run,
+          sequence,
           snapshot,
-          :exploration_observed,
-          ExplorationService.activity_summary(observation),
-          ["exploration_observed", tool],
-          exploration_event_payload(tool, query, observation)
+          observation,
+          "explore:#{tool}:plan:#{sequence}:#{index}",
+          "judgment_plan_#{index}"
         )
-
-        observation
       end)
 
-    tools = Enum.map(steps, &map_get(&1, :target_tool_ref)) |> Enum.uniq()
+    {agent_observations, observations} = Enum.unzip(planned)
 
     transcript =
       JudgmentProtocol.planned_observations_transcript(
@@ -730,15 +733,7 @@ defmodule NovelApplication.DialoguePlanningService do
     {:ok,
      %{
        step: judgment_agent_step(run, sequence, "按模型计划完成只读检索（#{length(observations)} 步）"),
-       observations: [
-         judgment_observation(
-           run,
-           sequence,
-           "计划内只读检索完成：#{Enum.join(tools, " / ")}",
-           "explore:plan:#{sequence}",
-           %{stage: :exploration_observed, tools: tools, step_count: length(observations)}
-         )
-       ],
+       observations: agent_observations,
        stage_state: %{
          judgment_explorations: explorations ++ observations,
          judgment_transcript: transcript
@@ -1943,35 +1938,23 @@ defmodule NovelApplication.DialoguePlanningService do
 
     # B71 §3.4：同一次判断只构造一个既有 AgentObservation；它既是本步返回观察，
     # 也是请求 observation 的稳定身份（observation:<id>），供下一轮原生投影核对。
-    agent_observation =
-      judgment_observation(
+    {agent_observation, request_observation} =
+      exploration_observation(
         run,
         sequence,
-        observation.summary,
-        "explore:#{tool}:#{sequence}",
-        Map.merge(
-          %{stage: :exploration_observed},
-          ExplorationService.observation_metadata(observation)
-        )
+        snapshot,
+        observation,
+        "explore:#{tool}:#{sequence}"
       )
 
     # B24 CP2（I-EXPLORE-READ-8）：作者可见活动行用集中人类可读文案——内部工具 id /
     # 原始 query JSON / offset 只留在 payload/trace/developer 面。
     activity = ExplorationService.activity_summary(observation)
 
-    emit_judgment_stage(
-      snapshot,
-      :exploration_observed,
-      activity,
-      ["exploration_observed", tool],
-      exploration_event_payload(tool, query, observation)
-    )
-
     request_observation =
-      observation
+      request_observation
       |> Map.put(:coverage_note, coverage_note([observation]))
       |> Map.put(:continue_hint, continue_hint([observation], exploration_budget(explorations)))
-      |> Map.put(:observation_ref, "observation:#{agent_observation.observation_id}")
 
     transcript =
       JudgmentProtocol.observation_transcript(judgment.transcript, judgment, request_observation)
@@ -2488,10 +2471,49 @@ defmodule NovelApplication.DialoguePlanningService do
     step
   end
 
-  defp judgment_observation(run, sequence, summary, source_ref, payload) do
+  # 直接探索与计划内联共用：一次真实读取只产生一个既有 AgentObservation，
+  # 请求身份由同一观察 ID 派生（不从展示文案推断）；查询属性取自 observation。
+  defp exploration_observation(
+         run,
+         sequence,
+         snapshot,
+         observation,
+         source_ref,
+         suffix \\ "judgment"
+       ) do
+    agent_observation =
+      judgment_observation(
+        run,
+        sequence,
+        observation.summary,
+        source_ref,
+        Map.merge(
+          %{stage: :exploration_observed},
+          ExplorationService.observation_metadata(observation)
+        ),
+        suffix
+      )
+
+    observation =
+      Map.put(observation, :observation_ref, "observation:#{agent_observation.observation_id}")
+
+    emit_judgment_stage(
+      snapshot,
+      :exploration_observed,
+      ExplorationService.activity_summary(observation),
+      ["exploration_observed", observation.tool],
+      exploration_event_payload(observation.tool, observation.query, observation)
+    )
+
+    {agent_observation, observation}
+  end
+
+  defp judgment_observation(run, sequence, summary, source_ref, payload, suffix \\ "judgment") do
+    observation_id = "obs_#{run.run_id}_#{sequence}_#{suffix}"
+
     {:ok, observation} =
       AgentObservation.new(%{
-        observation_id: "obs_#{run.run_id}_#{sequence}_judgment",
+        observation_id: observation_id,
         run_ref: run.run_id,
         step_ref: run.current_step_ref || "step_#{run.run_id}_#{sequence}",
         observation_type: :custom,

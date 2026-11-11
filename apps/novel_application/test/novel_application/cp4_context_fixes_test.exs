@@ -90,7 +90,7 @@ defmodule NovelApplication.CP4ContextFixesTest do
   # ── M17：纯只读计划在判断循环内联执行后收束 ─────────────────
 
   test "M17 只读计划内联执行后回到判断收束，产生最终作者可见结论" do
-    {work_id, chapter_ref} = seed_chapter_with_prose("沈砚经营旧书铺。\n\n他把账册合上。")
+    {work_id, chapter_ref} = seed_chapter_with_prose(long_prose(7000))
     provider = planned_reads_then_reply_execution(self(), chapter_ref)
 
     fetch =
@@ -126,13 +126,80 @@ defmodule NovelApplication.CP4ContextFixesTest do
       )
 
     {:ok, run} = AgentRun.new(spec.run_attrs)
-    {_snapshot, result} = run_until_turn_result(spec, run, 16)
+    {snapshot, result} = run_until_turn_result(spec, run, 16)
 
     assert result.turn_result.assistant_message.text =~ "两份候选的真实差异"
+    assert result.turn_result.assistant_message.text =~ @long_tail_anchor
     prompts = drain_prompts([])
     assert Enum.any?(prompts, &String.contains?(&1, "## 探索观察"))
     # 计划内联执行不产生 plan_drafted 事件（不切 judgment_plan profile）
     assert run_plan_profile_events(spec, run) == []
+
+    # 下一次 provider 请求：计划内的多次真实读取以**单一**同 call_id 聚合观察回流。
+    prompt_maps = drain_prompt_maps([])
+    next_prompt_map = Enum.find(prompt_maps, &has_observation?/1)
+    assert next_prompt_map
+    assert [aggregate] = observation_blocks(next_prompt_map)
+
+    judgment_call =
+      next_prompt_map.messages
+      |> Enum.flat_map(&Map.get(&1, :blocks, []))
+      |> Enum.find(&(&1.type == "tool_call" and &1.name == "judgment_decision"))
+
+    assert judgment_call
+    assert aggregate.call_id == judgment_call.call_id
+    assert aggregate.content["tool"] == "planned_exploration"
+
+    # 汇总只留简洁说明，不把正文/叶 summary 作为顶层 summary 重复入线。
+    refute aggregate.content["summary"] =~ @first_page_anchor
+
+    leaves = aggregate.content["observations"]
+    assert is_list(leaves)
+    assert length(leaves) == 3
+    refute Enum.any?(leaves, &Map.has_key?(&1, "call_id"))
+
+    # 叶观察按执行顺序交还给 run：身份与 next request 的 observation_ref 逐字一致。
+    planned_actors =
+      Enum.filter(snapshot.observations, &String.starts_with?(&1.source_ref, "explore:"))
+
+    assert length(planned_actors) == length(leaves)
+
+    assert Enum.map(leaves, & &1["content"]["observation_ref"]) ==
+             Enum.map(planned_actors, &"observation:#{&1.observation_id}")
+
+    leaf_refs = Enum.map(leaves, & &1["content"]["observation_ref"])
+    assert length(Enum.uniq(leaf_refs)) == length(leaf_refs)
+
+    # 同章两页各自保留真实范围、原文与版本；叶子自身是版本/范围真源。
+    raw_chapters =
+      Enum.filter(snapshot.stage_state.judgment_explorations, &(&1.tool == "chapter_read"))
+
+    chapter_leaves = Enum.filter(leaves, &(&1["content"]["tool"] == "chapter_read"))
+    assert length(chapter_leaves) == 2
+
+    raw_ranges =
+      Enum.map(raw_chapters, fn observation ->
+        Map.new(observation.prose_range, fn {key, value} -> {to_string(key), value} end)
+      end)
+
+    assert Enum.map(chapter_leaves, & &1["coverage"]["prose_range"]) == raw_ranges
+
+    assert Enum.map(chapter_leaves, & &1["versions"]) ==
+             Enum.map(raw_chapters, & &1.versions)
+
+    assert Enum.all?(chapter_leaves, &(map_size(&1["versions"]) > 0))
+
+    [page1_leaf, page2_leaf] = chapter_leaves
+    assert page1_leaf["coverage"]["prose_range"] == %{"start" => 1, "end" => 6000}
+    assert page2_leaf["coverage"]["prose_range"] == %{"start" => 6001, "end" => 7000}
+    assert page1_leaf["next_offset"] == 6000
+    assert page2_leaf["next_offset"] == nil
+    assert page1_leaf["content"]["summary"] =~ @first_page_anchor
+    assert page2_leaf["content"]["summary"] =~ @long_tail_anchor
+
+    # transcript refs 跟随聚合形状：叶身份与真实底层来源进入 observation_refs。
+    assert Enum.all?(leaf_refs, &(&1 in next_prompt_map.refs.observation_refs))
+    assert Enum.all?(chapter_leaves, &(chapter_ref in &1["source_refs"]))
   end
 
   # ── M01/M20/M16：结构化作品事实块 ──────────────────────────
@@ -427,7 +494,8 @@ defmodule NovelApplication.CP4ContextFixesTest do
   defp continue_after_step(result, snapshot) do
     snapshot = %{
       snapshot
-      | stage_state: Map.merge(snapshot.stage_state, result[:stage_state] || %{})
+      | stage_state: Map.merge(snapshot.stage_state, result[:stage_state] || %{}),
+        observations: snapshot.observations ++ (result[:observations] || [])
     }
 
     if result[:turn_result],
@@ -446,6 +514,27 @@ defmodule NovelApplication.CP4ContextFixesTest do
     after
       0 -> Enum.reverse(acc)
     end
+  end
+
+  defp drain_prompt_maps(acc) do
+    receive do
+      {:prompt_map, prompt} -> drain_prompt_maps(acc ++ [prompt])
+    after
+      0 -> acc
+    end
+  end
+
+  defp has_observation?(prompt_map) do
+    Enum.any?(prompt_map.messages, fn
+      %{role: "tool", blocks: blocks} -> Enum.any?(blocks, &(&1.type == "observation"))
+      _ -> false
+    end)
+  end
+
+  defp observation_blocks(prompt_map) do
+    for %{role: "tool", blocks: blocks} <- prompt_map.messages,
+        %{type: "observation"} = block <- blocks,
+        do: block
   end
 
   # 长章脚本：按观察页数逐页续读；读满 6 页（34357 字符）后收束引用末页锚点。
@@ -473,15 +562,18 @@ defmodule NovelApplication.CP4ContextFixesTest do
     if pages == 0, do: explore_ref_query(text), else: footer_query(text)
   end
 
-  # M17 脚本：首轮 judgment_decision(plan)+agent_plan_draft（只读 archive_read），
-  # 内联执行后第二轮基于观察给出最终对比结论。
+  # M17 脚本：首轮 judgment_decision(plan)+agent_plan_draft（只读 archive_read +
+  # 同章两页 chapter_read），内联执行后第二轮基于观察给出最终对比结论。
   defp planned_reads_then_reply_execution(test_pid, chapter_ref) do
-    scripted_judgment_execution(fn _prompt, text ->
+    scripted_judgment_execution(fn prompt, text ->
       send(test_pid, {:prompt, text})
+      send(test_pid, {:prompt_map, prompt})
       has_observation = String.contains?(text, "## 探索观察")
 
       if has_observation do
-        {:narrative, "两份候选的真实差异：A 更冷峻克制，B 更热闹外放；建议先说明取舍再修订。"}
+        {:narrative,
+         "两份候选的真实差异：A 更冷峻克制，B 更热闹外放；建议先说明取舍再修订。\n\n" <>
+           @long_tail_anchor}
       else
         {:plan_pair,
          %{
@@ -501,10 +593,18 @@ defmodule NovelApplication.CP4ContextFixesTest do
                %{
                  "step_id" => "s2",
                  "kind" => "explore",
-                 "description" => "读取第01章当前正文。",
+                 "description" => "读取第01章当前正文首页。",
                  "success_criteria" => ["chapter_read"],
                  "target_tool_ref" => "chapter_read",
                  "exploration_query" => Jason.encode!(%{chapter_ref: chapter_ref, offset: 0})
+               },
+               %{
+                 "step_id" => "s3",
+                 "kind" => "explore",
+                 "description" => "续读第01章第二页。",
+                 "success_criteria" => ["chapter_read"],
+                 "target_tool_ref" => "chapter_read",
+                 "exploration_query" => Jason.encode!(%{chapter_ref: chapter_ref, offset: 6000})
                }
              ]
            },

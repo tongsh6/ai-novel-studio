@@ -229,6 +229,32 @@ defmodule NovelCommon.RequestIR do
     }
   end
 
+  @observation_payload_fields ~w(status source_refs versions coverage omissions next_offset content)a
+
+  @doc """
+  读取已建 canonical observation 的实际观察单元。
+
+  直接观察返回自身；仅 `content.tool == "planned_exploration"` 的计划内联聚合
+  返回一层完整叶。canonical content 经 `json_value/1` 后是字符串键，这里只把叶
+  实际存在的既有顶层字段换回原子键，供证据与身份读取统一访问；不补缺省、不递归、
+  不读摘要文本。
+  """
+  @spec observation_payloads(map()) :: [map()]
+  def observation_payloads(%{
+        type: "observation",
+        content: %{"tool" => "planned_exploration", "observations" => leaves}
+      })
+      when is_list(leaves) do
+    Enum.map(leaves, fn leaf ->
+      for key <- @observation_payload_fields,
+          {:ok, value} <- [fetch_field(leaf, key)],
+          into: %{},
+          do: {key, value}
+    end)
+  end
+
+  def observation_payloads(observation), do: [observation]
+
   @doc "校验结果块（I-ART-5：作为 tool 原生结果回流，不追加 user 纠错）。"
   def validation_result_block(call_id, status, reason_code, detail \\ %{}) do
     %{

@@ -118,6 +118,95 @@ defmodule NovelApplication.TranscriptCompactionTest do
     assert inspect(body) =~ "已整理本次任务较早的 2 项已完成操作"
   end
 
+  test "计划聚合的完整父交换进入 checkpoint 时，版本与来源来自各叶" do
+    page1_versions = %{"draft:page-1" => 1}
+    page2_versions = %{"draft:page-2" => 7}
+
+    payload = %{
+      status: "ok",
+      source_refs: [%{ref: "chapter:1", version: 3}],
+      coverage: %{},
+      omissions: [],
+      content: %{
+        tool: "planned_exploration",
+        summary: "计划内只读检索完成（2 次）",
+        observations: [
+          %{
+            status: "ok",
+            source_refs: [%{ref: "draft:page-1", version: 1}],
+            versions: page1_versions,
+            coverage: %{"prose_range" => %{"start" => 1, "end" => 6000}},
+            omissions: [],
+            next_offset: 6000,
+            content: %{
+              tool: "chapter_read",
+              summary: "第 1 页",
+              observation_ref: "observation:obs_page_1"
+            }
+          },
+          %{
+            status: "ok",
+            source_refs: [%{ref: "draft:page-2", version: 7}],
+            versions: page2_versions,
+            coverage: %{"prose_range" => %{"start" => 6001, "end" => 7000}},
+            omissions: [],
+            next_offset: nil,
+            content: %{
+              tool: "chapter_read",
+              summary: "第 2 页",
+              observation_ref: "observation:obs_page_2"
+            }
+          }
+        ]
+      }
+    }
+
+    transcript =
+      base_transcript()
+      |> AuthoringTranscript.append_assistant("读取同章两页。", [tool_call("call-plan")])
+      |> AuthoringTranscript.append_observation("call-plan", payload)
+
+    before = transcript.messages
+
+    assert {:ok, plan} = TranscriptCompaction.plan(transcript)
+    assert plan.covers.call_ids == ["call-plan"]
+
+    assert Enum.map(plan.source_refs, &(Map.get(&1, :ref) || Map.get(&1, "ref"))) ==
+             ["draft:page-1", "draft:page-2"]
+
+    # 两页不同 draft ref：若只读顶层或后页覆盖，前页版本会丢失。
+    assert plan.versions == %{"draft:page-1" => 1, "draft:page-2" => 7}
+
+    assert {:ok, %{call_ids: ["call-plan"]} = compacted} =
+             AuthoringTranscript.compact(
+               transcript,
+               plan.covers,
+               plan.source_refs,
+               plan.versions,
+               plan.omissions,
+               plan.summary
+             )
+
+    assert :ok = Compaction.validate(compacted.messages)
+
+    # checkpoint 自身携带两页各自的版本，而不是聚合顶层空 versions。
+    assert [%{blocks: [checkpoint]}] =
+             Enum.filter(compacted.messages, &(&1.role == "checkpoint"))
+
+    assert checkpoint.versions == %{"draft:page-1" => 1, "draft:page-2" => 7}
+
+    # canonical 原始交换仍在，checkpoint 只是追加视图。
+    assert Enum.take(compacted.messages, length(before)) == before
+
+    assert [%{blocks: [observation]}] =
+             Enum.filter(compacted.messages, &(&1.role == "tool"))
+
+    assert observation.content["tool"] == "planned_exploration"
+
+    assert Enum.map(observation.content["observations"], & &1["versions"]) ==
+             [page1_versions, page2_versions]
+  end
+
   test "未完成的交换不进入压缩范围，等待真实结果后才可整理" do
     transcript =
       base_transcript()

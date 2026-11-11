@@ -340,13 +340,16 @@ defmodule NovelApplication.AuthoringTranscript do
 
     message =
       RequestIR.message(:tool, :tool_result, [block], %{
-        source_refs: Map.get(observation, :source_refs, [])
+        source_refs: Map.get(block, :source_refs, [])
       })
+
+    observation_refs =
+      Map.get(block, :source_refs, []) ++ observation_identities(block)
 
     %{
       transcript
       | messages: transcript.messages ++ [message],
-        observation_refs: transcript.observation_refs ++ refs_of(observation)
+        observation_refs: transcript.observation_refs ++ observation_refs
     }
   end
 
@@ -484,22 +487,19 @@ defmodule NovelApplication.AuthoringTranscript do
 
   defp system_field(system, key), do: Map.get(system, key) || Map.get(system, to_string(key))
 
-  # 观察来源 refs 与该观察自身的原生身份同时进入 observation_refs：前者供 used_refs
-  # 越界校验，后者供同请求 observation:<id> 精确匹配。没有身份时保持原形状。
-  defp refs_of(observation) do
-    source_refs =
-      case Map.get(observation, :source_refs, []) do
-        refs when is_list(refs) -> refs
-        _ -> []
-      end
-
-    source_refs ++ List.wrap(content_observation_ref(observation))
+  # 父观察的 source_refs 已在聚合时去重；这里只从真实 observation payload 收集
+  # 身份（直接为自身，计划聚合为一层叶），不重复派生叶来源。
+  defp observation_identities(block) do
+    block
+    |> RequestIR.observation_payloads()
+    |> Enum.map(&observation_ref(content_of(&1)))
+    |> Enum.reject(&is_nil/1)
   end
 
-  defp content_observation_ref(observation) do
-    case Map.get(observation, :content) || Map.get(observation, "content") do
-      %{} = content -> Map.get(content, :observation_ref) || Map.get(content, "observation_ref")
-      _ -> nil
-    end
-  end
+  defp content_of(map), do: Map.get(map, :content) || Map.get(map, "content")
+
+  defp observation_ref(%{} = content),
+    do: Map.get(content, :observation_ref) || Map.get(content, "observation_ref")
+
+  defp observation_ref(_content), do: nil
 end
