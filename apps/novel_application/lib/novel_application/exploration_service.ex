@@ -25,7 +25,13 @@ defmodule NovelApplication.ExplorationService do
   alias NovelDomain.ChapterPlanDirection
   alias NovelDomain.VolumeBlueprint
   alias NovelFoundation.Enums.ChapterMissionStatus
-  alias NovelPersistence.{ChapterSummaryRepo, ProseSearchRepo, WorkSessionRepo}
+
+  alias NovelPersistence.{
+    ChapterSummaryRepo,
+    ProseSearchRepo,
+    ReadingProjectionRepo,
+    WorkSessionRepo
+  }
 
   # 观察 v2（B24）：基础形状不变（tool/query/summary/refs），chapter_read 观察
   # additive 携带续读/身份元数据（I-EXPLORE-READ-3/7/9）。
@@ -531,7 +537,9 @@ defmodule NovelApplication.ExplorationService do
   defp chapter_read_page(work_id, chapter, volume, query, offset) do
     case ReadingProjectionService.chapter_content(chapter.id, work_id) do
       {:ok, content} ->
-        prose = content.scenes |> Enum.map_join("\n", & &1.content)
+        # 与阅读投影/B28/B36 同一 canonical 正文（双 LF、剔除未写/空场），
+        # 分页与版本选择都基于这份正文及其字节区间，不新增 DB 查询。
+        {prose, spans} = ReadingProjectionRepo.assemble_chapter_prose(content.scenes)
         total = String.length(prose)
 
         cond do
@@ -551,9 +559,9 @@ defmodule NovelApplication.ExplorationService do
               volume,
               query,
               offset,
-              prose,
+              {prose, spans},
               total,
-              content
+              content.word_count
             )
         end
 
@@ -623,16 +631,14 @@ defmodule NovelApplication.ExplorationService do
          volume,
          query,
          offset,
-         prose,
+         {prose, spans},
          total,
-         content
+         word_count
        ) do
     {page_text, page_end, next_offset} = chapter_page(prose, offset, total)
-    word_count = content.word_count
     start_byte = byte_size(String.slice(prose, 0, offset))
 
-    versions =
-      chapter_page_versions(content.scenes, start_byte, start_byte + byte_size(page_text))
+    versions = chapter_page_versions(spans, start_byte, start_byte + byte_size(page_text))
 
     sections =
       header_sections(work_id, chapter, volume, offset) ++
@@ -658,26 +664,17 @@ defmodule NovelApplication.ExplorationService do
      )}
   end
 
-  # 以拼接后的字节区间相交判断来源。场景边界的换行可能和前一场末尾组成 CRLF。
-  defp chapter_page_versions(scenes, page_start, page_end) do
-    {versions, _position} =
-      Enum.reduce(scenes, {%{}, 0}, fn scene, {versions, start_byte} ->
-        end_byte = start_byte + byte_size(scene.content)
+  # 只有实际写入 canonical 正文的段才有 span：空/未写场没有字节，也不贡献版本。
+  # 以页面字节半开区间与段区间实际相交选版本；双 LF 分隔符不属于任何段。
+  defp chapter_page_versions(spans, page_start, page_end) do
+    Enum.reduce(spans, %{}, fn
+      {start_byte, end_byte, {ref, revision}}, versions
+      when start_byte < page_end and end_byte > page_start ->
+        Map.put(versions, ref, revision)
 
-        versions =
-          case scene.draft_version do
-            {ref, revision}
-            when start_byte < page_end and end_byte > max(page_start, start_byte) ->
-              Map.put(versions, ref, revision)
-
-            _outside_page ->
-              versions
-          end
-
-        {versions, end_byte + 1}
-      end)
-
-    versions
+      _no_version_or_outside_page, versions ->
+        versions
+    end)
   end
 
   # 【计划】【摘要】只在首页（offset=0）返回；续读页不重复（I-EXPLORE-READ-3 的

@@ -597,14 +597,10 @@ defmodule NovelApplication.AdoptionWorkflow do
                  omission_note: nil
                }
              end),
-           # 整章当前阅读投影正文：沿用 ReadingProjectionRepo.accepted_chapter_prose/2 的
-           # 约定——scene seq 升序、每 scene 当前 accepted draft、空片段剔除、
-           # 片段间以 "\n\n" 连接（与阅读模式/章节阅读消费的章节正文一致）。
-           base_text:
-             scopes
-             |> Enum.map(& &1.content)
-             |> Enum.reject(&(&1 in [nil, ""]))
-             |> Enum.join("\n\n"),
+           # 整章当前阅读投影正文：与阅读投影/探索读取/事务重校验共用
+           # `ReadingProjectionRepo` 的 canonical 拼接（scene seq 升序、空片段剔除、
+           # 双 LF 连接）。
+           base_text: NovelPersistence.ReadingProjectionRepo.chapter_prose_text(scopes),
            coverage: :complete
          }}
 

@@ -29,6 +29,7 @@ defmodule NovelPersistence.AdoptionRepository do
   alias NovelFoundation.ID
   alias NovelPersistence.ChapterPlanParser
   alias NovelPersistence.LocalizedRevision
+  alias NovelPersistence.ReadingProjectionRepo
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.Chapter
   alias NovelPersistence.Schemas.Character
@@ -606,7 +607,7 @@ defmodule NovelPersistence.AdoptionRepository do
          :ok <-
            ensure_complete_cover(repo, work_id, chapter.id, covered, %{"coverage" => "complete"}),
          covered = Enum.sort_by(covered, &{repo.get!(Scene, &1.scene_id).seq, &1.revision}),
-         base_text = Enum.map_join(covered, "\n\n", & &1.content),
+         base_text = ReadingProjectionRepo.chapter_prose_text(covered),
          {:ok, applied} <-
            NovelDomain.ProseFormatting.apply_plan(
              base_text,
@@ -683,7 +684,7 @@ defmodule NovelPersistence.AdoptionRepository do
          {:ok, covered} <- replace_segments_covered_drafts(repo, work_id, chapter, attrs, effect),
          :ok <- validate_replace_segments_versions(covered, attrs, effect),
          :ok <- ensure_covered_all_accepted(repo, work_id, chapter, covered),
-         base_text = Enum.map_join(covered, "\n\n", &to_string(&1.content || "")),
+         base_text = ReadingProjectionRepo.chapter_prose_text(covered),
          base_segments = LocalizedRevision.segment(base_text),
          {:ok, target_ids} <-
            target_segment_ids_for_segments(attrs, effect, base_segments),
@@ -1969,13 +1970,8 @@ defmodule NovelPersistence.AdoptionRepository do
       |> order_by([d], desc: d.revision, desc: d.updated_at)
       |> limit(1)
       |> Repo.one()
-      |> case do
-        %Draft{content: content} -> content
-        _ -> ""
-      end
     end)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join("\n\n")
+    |> ReadingProjectionRepo.chapter_prose_text()
   end
 
   defp accepted_draft_refs(work_uuid, chapter_id) do
@@ -2304,11 +2300,7 @@ defmodule NovelPersistence.AdoptionRepository do
   def canon_snapshot(_work_id, _target), do: {:error, :unsupported_canon_object}
 
   defp chapter_canon_snapshot(chapter_ref, scopes) do
-    base_text =
-      scopes
-      |> Enum.map(&to_string(&1.content || ""))
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.join("\n\n")
+    base_text = ReadingProjectionRepo.chapter_prose_text(scopes)
 
     %{
       object: :chapter_prose,
@@ -2567,7 +2559,7 @@ defmodule NovelPersistence.AdoptionRepository do
     if to_string(coverage) != "complete" do
       {:ok, empty_coverage(scope, content)}
     else
-      base_text = Enum.map_join(covered, "\n\n", &to_string(&1.content || ""))
+      base_text = ReadingProjectionRepo.chapter_prose_text(covered)
       target_ids = target_segment_ids(attrs, effect)
 
       opts = [

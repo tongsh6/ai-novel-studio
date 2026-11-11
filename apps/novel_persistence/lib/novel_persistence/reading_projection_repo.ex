@@ -24,6 +24,7 @@ defmodule NovelPersistence.ReadingProjectionRepo do
   # 阅读视图按当前产品阶段（P1）审计正文有效字数。阶段阈值见
   # NovelDomain.NovelMilestone / docs/product/novel-output-milestones.md §3。
   @audit_stage :p1
+  @chapter_prose_separator "\n\n"
 
   @spec toc(String.t()) ::
           %{
@@ -123,8 +124,7 @@ defmodule NovelPersistence.ReadingProjectionRepo do
     with {:ok, chapter_id} <- Ecto.UUID.cast(chapter_id),
          {:ok, work_id} <- Ecto.UUID.cast(work_id),
          %Chapter{} = chapter <- get_chapter(chapter_id, work_id) do
-      scenes = scenes_for_chapter(chapter.id, work_id)
-      drafts_by_scene = accepted_drafts_by_scene(Enum.map(scenes, & &1.id), work_id)
+      {scenes, drafts_by_scene} = chapter_scenes_and_drafts(chapter.id, work_id)
 
       scene_views =
         Enum.map(scenes, fn scene ->
@@ -193,14 +193,42 @@ defmodule NovelPersistence.ReadingProjectionRepo do
   end
 
   defp chapter_accepted_prose(work_uuid, %Chapter{} = chapter) do
-    scenes = scenes_for_chapter(chapter.id, work_uuid)
-    drafts_by_scene = accepted_drafts_by_scene(Enum.map(scenes, & &1.id), work_uuid)
-
-    scenes
-    |> Enum.map(fn scene -> drafts_by_scene |> Map.get(scene.id) |> draft_content() end)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join("\n\n")
+    {scenes, drafts_by_scene} = chapter_scenes_and_drafts(chapter.id, work_uuid)
+    scenes |> Enum.map(&Map.get(drafts_by_scene, &1.id)) |> chapter_prose_text()
   end
+
+  defp chapter_scenes_and_drafts(chapter_id, work_id) do
+    scenes = scenes_for_chapter(chapter_id, work_id)
+    {scenes, accepted_drafts_by_scene(Enum.map(scenes, & &1.id), work_id)}
+  end
+
+  @doc "只读正文消费者用的 canonical 文本；空/未写段剔除，段间双 LF。"
+  @spec chapter_prose_text([map() | nil]) :: String.t()
+  def chapter_prose_text(segments) when is_list(segments),
+    do: segments |> present_segments() |> join_chapter_prose()
+
+  @doc "canonical 双 LF 拼接正文；返回 `{text, spans}`，span 为 `{start_byte, end_byte, draft_version}` 半开区间。"
+  @spec assemble_chapter_prose([map() | nil]) :: {String.t(), [{integer(), integer(), term()}]}
+  def assemble_chapter_prose(segments) when is_list(segments) do
+    segments = present_segments(segments)
+    {spans, _cursor} = Enum.map_reduce(segments, 0, &chapter_prose_span/2)
+    {join_chapter_prose(segments), spans}
+  end
+
+  defp present_segments(segments), do: Enum.reject(segments, &(segment_content(&1) == ""))
+
+  defp join_chapter_prose(segments) do
+    Enum.map_join(segments, @chapter_prose_separator, &segment_content/1)
+  end
+
+  defp chapter_prose_span(%{content: content} = segment, cursor) do
+    end_byte = cursor + byte_size(content)
+    span = {cursor, end_byte, Map.get(segment, :draft_version)}
+    {span, end_byte + byte_size(@chapter_prose_separator)}
+  end
+
+  defp segment_content(%{content: content}) when is_binary(content), do: content
+  defp segment_content(_segment), do: ""
 
   @doc """
   判断上下文「作品事实」投影（B27 CP4 M01/M16/M20）：按章返回当前采纳草稿事实。
@@ -453,9 +481,8 @@ defmodule NovelPersistence.ReadingProjectionRepo do
 
       content =
         scenes
-        |> Enum.map(fn scene -> drafts |> Map.get(scene.id) |> draft_content() end)
-        |> Enum.reject(&is_nil/1)
-        |> Enum.join("\n\n")
+        |> Enum.map(&Map.get(drafts, &1.id))
+        |> chapter_prose_text()
 
       %{id: chapter_id, seq: Map.get(seq_by_chapter, chapter_id), content: content}
     end)

@@ -2,12 +2,12 @@ defmodule NovelApplication.ExplorationServiceTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelApplication.{ExplorationService, WorkService}
+  alias NovelApplication.{AdoptionWorkflow, ExplorationService, WorkService}
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemorySourceType
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MemoryType
-  alias NovelPersistence.Repo
+  alias NovelPersistence.{ReadingProjectionRepo, Repo}
   alias NovelPersistence.Schemas.{Chapter, ChapterSummary, Draft, MemoryItem, Scene, Volume}
 
   setup do
@@ -306,15 +306,39 @@ defmodule NovelApplication.ExplorationServiceTest do
       })
       |> Repo.insert!()
 
+    # 合法未写场：只有 Scene，没有采纳稿（Draft changeset 不接受空正文）。
+    %Scene{}
+    |> Scene.changeset(%{work_id: work_id, chapter_id: chapter_id, title: "场3", seq: 3})
+    |> Repo.insert!()
+
     chapter_ref = "chapter:#{chapter_id}"
+    canonical = first_draft.content <> "\n\n" <> second_draft.content
+
+    assert {:ok, context} = AdoptionWorkflow.chapter_revision_context(work_id, chapter_ref)
+    assert context.base_text == canonical
+    assert ReadingProjectionRepo.accepted_chapter_prose(work_id, chapter_ref) == canonical
+
     assert {:ok, page1} = ExplorationService.run(work_id, "chapter_read", chapter_ref)
+    assert page1.prose_range == %{start: 1, end: 6000}
     assert page1.next_offset == 6000
     assert page1.versions == %{"draft:#{first_draft.id}" => first_draft.revision}
 
+    # 首场末尾 CR 与分隔符首个 LF 合成一个 "\r\n" grapheme，留在首页末；另一个 LF 进续读页。
+    assert page_body(page1) == first_draft.content <> "\n"
+    assert page_body(page1) |> String.graphemes() |> List.last() == "\r\n"
+
     query = Jason.encode!(%{chapter_ref: chapter_ref, offset: page1.next_offset})
     assert {:ok, page2} = ExplorationService.run(work_id, "chapter_read", query)
-    assert page2.summary =~ second_draft.content
+    assert page2.prose_range == %{start: 6001, end: 6010}
+    assert page2.next_offset == nil
     assert page2.versions == %{"draft:#{second_draft.id}" => second_draft.revision}
+    assert page_body(page2) |> String.graphemes() |> hd() == "\n"
+    assert page_body(page2) == "\n" <> second_draft.content
+
+    restored = page_body(page1) <> page_body(page2)
+    assert restored == canonical
+    assert restored == context.base_text
+    assert restored == ReadingProjectionRepo.accepted_chapter_prose(work_id, chapter_ref)
   end
 
   test "chapter_read v2：长章两页覆盖——首页 6000 + 续读页余量，首尾相接无重叠无缺口" do
@@ -701,9 +725,17 @@ defmodule NovelApplication.ExplorationServiceTest do
       |> Volume.changeset(%{work_id: work.id, title: "卷一", seq: 1})
       |> Repo.insert!()
 
-    %Chapter{}
-    |> Chapter.changeset(%{work_id: work.id, volume_id: volume.id, title: "空章", seq: 1})
-    |> Repo.insert!()
+    chapter =
+      %Chapter{}
+      |> Chapter.changeset(%{work_id: work.id, volume_id: volume.id, title: "空章", seq: 1})
+      |> Repo.insert!()
+
+    # 两个未写场：单 LF 旧拼接会留下分隔符冒充正文；canonical 双 LF 口径下仍为空章。
+    for seq <- 1..2 do
+      %Scene{}
+      |> Scene.changeset(%{work_id: work.id, chapter_id: chapter.id, title: "场#{seq}", seq: seq})
+      |> Repo.insert!()
+    end
 
     assert {:ok, empty} = ExplorationService.run(work.id, "chapter_read", "空章")
     assert empty.outcome == :empty_content
@@ -775,11 +807,29 @@ defmodule NovelApplication.ExplorationServiceTest do
            }) == "- 第 1 章「#{@long_title}」[chapter_ref=chapter:#{chapter_id}]（计划中）"
   end
 
+  defp page_body(observation) do
+    [_, rest] = String.split(observation.summary, "\n【正文】", parts: 2)
+    [_, body] = String.split(rest, "\n", parts: 2)
+    body |> String.split("\n【续读】", parts: 2) |> hd()
+  end
+
   defp long_prose(total) do
     base = "灰烬从指缝里漏下去，井底的风把纸灰卷成一条细线，他数着自己的呼吸等回声。"
 
     String.duplicate(base, div(total, String.length(base)) + 1)
     |> String.slice(0, total)
+  end
+
+  defp insert_chapter(work_id, volume_id, title, seq, plan_direction \\ nil) do
+    %Chapter{}
+    |> Chapter.changeset(%{
+      work_id: work_id,
+      volume_id: volume_id,
+      title: title,
+      seq: seq,
+      plan_direction: plan_direction
+    })
+    |> Repo.insert!()
   end
 
   defp seed_work_with_chapter(title, prose, opts \\ []) do
@@ -815,15 +865,7 @@ defmodule NovelApplication.ExplorationServiceTest do
       end
 
     chapter =
-      %Chapter{}
-      |> Chapter.changeset(%{
-        work_id: work_id,
-        volume_id: volume.id,
-        title: title,
-        seq: opts[:seq] || 1,
-        plan_direction: opts[:plan_direction]
-      })
-      |> Repo.insert!()
+      insert_chapter(work_id, volume.id, title, opts[:seq] || 1, opts[:plan_direction])
 
     scene =
       %Scene{}
@@ -855,39 +897,7 @@ defmodule NovelApplication.ExplorationServiceTest do
   end
 
   defp seed_work_with_prose do
-    {:ok, work} = WorkService.create(%{"title" => "灵气矿工"})
-
-    volume =
-      %Volume{}
-      |> Volume.changeset(%{work_id: work.id, title: "卷一", seq: 1})
-      |> Repo.insert!()
-
-    chapter =
-      %Chapter{}
-      |> Chapter.changeset(%{
-        work_id: work.id,
-        volume_id: volume.id,
-        title: "第01章：底层灵气账单",
-        seq: 1
-      })
-      |> Repo.insert!()
-
-    scene =
-      %Scene{}
-      |> Scene.changeset(%{work_id: work.id, chapter_id: chapter.id, title: "场1", seq: 1})
-      |> Repo.insert!()
-
-    %Draft{}
-    |> Draft.changeset(%{
-      work_id: work.id,
-      scene_id: scene.id,
-      content: @prose,
-      status: AdoptionStatus.accepted(),
-      revision: 1
-    })
-    |> Repo.insert!()
-
-    work.id
+    seed_work_with_chapter("第01章：底层灵气账单", @prose, work_title: "灵气矿工") |> elem(0)
   end
 
   # AU08 CP3（08 §8 探索面同步律）：卷划分落地即须同批可达——判断循环里读到的章清单
@@ -937,23 +947,8 @@ defmodule NovelApplication.ExplorationServiceTest do
       })
       |> Repo.insert!()
 
-    %Chapter{}
-    |> Chapter.changeset(%{
-      work_id: work.id,
-      volume_id: first_volume.id,
-      title: "第01章：起",
-      seq: 1
-    })
-    |> Repo.insert!()
-
-    %Chapter{}
-    |> Chapter.changeset(%{
-      work_id: work.id,
-      volume_id: second_volume.id,
-      title: "第02章：承",
-      seq: 2
-    })
-    |> Repo.insert!()
+    insert_chapter(work.id, first_volume.id, "第01章：起", 1)
+    insert_chapter(work.id, second_volume.id, "第02章：承", 2)
 
     # 无蓝图卷：既有探索输出逐字节不变（不渲染所属卷/蓝图摘要）。
     assert {:ok, first} = ExplorationService.run(work.id, "chapter_read", "第01章")
@@ -982,14 +977,7 @@ defmodule NovelApplication.ExplorationServiceTest do
         |> Volume.changeset(%{work_id: work.id, title: volume_title, seq: seq})
         |> Repo.insert!()
 
-      %Chapter{}
-      |> Chapter.changeset(%{
-        work_id: work.id,
-        volume_id: volume.id,
-        title: chapter_title,
-        seq: seq
-      })
-      |> Repo.insert!()
+      insert_chapter(work.id, volume.id, chapter_title, seq)
     end
 
     work.id

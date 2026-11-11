@@ -267,10 +267,11 @@ defmodule NovelPersistence.ReadingProjectionRepoTest do
 
       second = insert_scene(work_id, chapter.id, "场景 2", 2)
       insert_draft(work_id, second.id, "第二场续写正文。", AdoptionStatus.accepted(), 1)
+      # 末尾未写场不写分隔符、不参与拼接。
+      insert_scene(work_id, chapter.id, "未写场", 3)
 
-      prose = ReadingProjectionRepo.accepted_chapter_prose(work_id, "第01章：底层灵气账单")
-      assert prose =~ "第一场正文。"
-      assert prose =~ "第二场续写正文。"
+      assert ReadingProjectionRepo.accepted_chapter_prose(work_id, "第01章：底层灵气账单") ==
+               "第一场正文。\n\n第二场续写正文。"
     end
 
     test "returns empty string for unknown chapter title" do
