@@ -44,4 +44,32 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
   test "否定整章但无局部限制 → 不授整章（保守局部，交由目标解析/澄清处理）" do
     assert ChapterRevisionScope.authorize("不要整章重写。") == {:ok, :target_segments}
   end
+
+  test "target_segment_ids/2：段号/字面定位只认唯一命中，未知或越界拒绝" do
+    segments =
+      for raw <- ~w(一 二 三 四 五 六 七 八 九 十 十一) do
+        %{segment_id: "seg_#{raw}", raw: raw}
+      end
+
+    assert ChapterRevisionScope.target_segment_ids(segments, "只改第十一段") ==
+             {:ok, ["seg_十一"]}
+
+    assert ChapterRevisionScope.target_segment_ids(segments, "只改第十段") == {:ok, ["seg_十"]}
+    assert ChapterRevisionScope.target_segment_ids(segments, "开头改一下") == {:ok, ["seg_一"]}
+
+    assert ChapterRevisionScope.target_segment_ids(segments, "把「三」改成「叁」") ==
+             {:ok, ["seg_三"]}
+
+    assert ChapterRevisionScope.target_segment_ids(segments, "只改第十二段") ==
+             {:error, :target_missing}
+
+    assert ChapterRevisionScope.target_segment_ids(segments, "只改第十十段") ==
+             {:error, :target_missing}
+
+    assert ChapterRevisionScope.target_segment_ids(segments, "只改第0段") ==
+             {:error, :target_missing}
+
+    assert ChapterRevisionScope.target_segment_ids(segments, "只改第十一段，把「三」改成「叁」") ==
+             {:error, :target_ambiguous}
+  end
 end

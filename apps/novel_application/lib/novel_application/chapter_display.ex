@@ -55,46 +55,12 @@ defmodule NovelApplication.ChapterDisplay do
   @doc "标题内嵌历史章号（第NN章/第二章）；无则 nil。"
   def title_number(title) when is_binary(title) do
     case Regex.run(~r/^\s*第\s*([0-9]+|[一二三四五六七八九十百千两]+)\s*章/u, title) do
-      [_, raw] -> parse_number(raw)
+      [_, raw] -> NovelFoundation.parse_ordinal(raw)
       _ -> nil
     end
   end
 
   def title_number(_title), do: nil
-
-  defp parse_number(raw) do
-    case Integer.parse(raw) do
-      {n, ""} -> n
-      _ -> chinese_number(raw)
-    end
-  end
-
-  @cn_digits %{
-    "一" => 1,
-    "二" => 2,
-    "两" => 2,
-    "三" => 3,
-    "四" => 4,
-    "五" => 5,
-    "六" => 6,
-    "七" => 7,
-    "八" => 8,
-    "九" => 9
-  }
-
-  defp chinese_number("十"), do: 10
-  defp chinese_number("百"), do: 100
-
-  defp chinese_number(raw) do
-    case Regex.run(~r/^([一二三四五六七八九两]?)十([一二三四五六七八九]?)$/u, raw) do
-      [_, tens, ones] ->
-        if(tens == "", do: 1, else: Map.get(@cn_digits, tens, 1)) * 10 +
-          if ones == "", do: 0, else: Map.get(@cn_digits, ones, 0)
-
-      _ ->
-        Map.get(@cn_digits, raw)
-    end
-  end
 
   @doc """
   文本是否指向该章（仅用于人类可读的候选匹配，最终身份仍用 ref）。

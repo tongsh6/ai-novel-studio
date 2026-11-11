@@ -557,3 +557,11 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 复用 B71 现有外部 AX 驱动，在隔离测试库以两份采纳稿和一个未写场跑真实 Tauri。确定性 Provider 批次 `b71-first-consumer-tauri-native-b28-multiscene-layout-final` 通过 19/19，页面显示第 02 章末页范围和「已完成」。两页重组逐字节等于采纳稿按阅读序拼接的正文，每页分别携带 revision 3、revision 2 及独立观察身份，并以各自原生调用 ID 进入紧邻请求。canon 保持原样。独立核对见 `artifacts/b71-audit/2026-11-11-b28-multiscene-ui-pages-final.json`。
 
 下一检查点是把模型从本次实际请求所见正文中提出的目标，绑定到当前章的既有 B36 段和版本。作者明确给出的段号或字面目标仍具有约束力。证据不足时走已有澄清路径，作者仍决定是否采纳。首批 B82 的 `target_missing` 保留为历史失败，当前检查点只修复正文来源与坐标差异。
+
+#### 作者明确指定的目标段
+
+把章级段号和精确原文定位收敛到 `ChapterRevisionScope`。它从既有 B36 分段返回真实目标 ID，`PendingArtifactWorkflow` 继续用同一段的 hash 构造 writer 材料和候选。章节展示和修订共用已有汉字序号规则，未知数字返回缺失。
+
+在真实 `PendingArtifactWorkflow` 入口复现过「只改第十一段」误调用第一段 writer。修复后，存在第十一段时 writer 收到该段，不足十一段或序号为「十十」时在 writer 之前返回 `target_missing`。明确段与原文字面冲突仍返回 `target_ambiguous`。观察如何提出并绑定局部目标仍由上面的后续检查点承接。
+
+本轮浏览器复验的 T2 已完成「二十五岁」到「三十岁」的采纳，阅读截图显示新正文，隔离库从 revision 6 到 8 的变化逐字节等于这一次替换。随后 T7 已返回原生 `prose_search` 观察，确定性替身仍发出同一查询，run 进入 `awaiting_author`。驱动只等 `TurnResult`，因此保留数据库快照并停止此批；完整矩阵结论待替身修复后复验。见 `artifacts/slice-verify/b28-whole-chapter-revision-tauri-b36-b28-20261111/partial-browser-proof.json`。

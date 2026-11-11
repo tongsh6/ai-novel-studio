@@ -1104,7 +1104,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       case modification_scope do
         :whole_chapter -> {:ok, all_ids}
         :format_only -> {:ok, all_ids}
-        :target_segments -> target_ids_from_author_text(segments, run.goal.text)
+        :target_segments -> ChapterRevisionScope.target_segment_ids(segments, run.goal.text)
       end
 
     with {:ok, ids} <- result do
@@ -1115,134 +1115,6 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
       first = List.first(facts.materials) || %{}
       {:ok, {ids, Map.get(first, :ref), Map.get(first, :version), hashes}}
-    end
-  end
-
-  defp target_ids_from_author_text(segments, text) when is_binary(text) do
-    ordinal =
-      cond do
-        Regex.match?(~r/开头|第一段/u, text) -> first_id(segments)
-        Regex.match?(~r/最后一段|结尾/u, text) -> last_id(segments)
-        true -> ordinal_target_ids(segments, text)
-      end
-
-    if ordinal == [] and Regex.match?(~r/开头|结尾|第\s*([0-9]+|[一二三四五六七八九十]+)\s*段/u, text) do
-      {:error, :target_missing}
-    else
-      reconcile_revision_target(ordinal, literal_revision_target(segments, text))
-    end
-  end
-
-  defp target_ids_from_author_text(_segments, _text), do: {:error, :incomplete_scope}
-
-  defp reconcile_revision_target(ordinal, literal_target) do
-    case literal_target do
-      :none when ordinal != [] -> {:ok, ordinal}
-      :none -> {:error, :incomplete_scope}
-      {:ok, ids} when ordinal == [] or ordinal == ids -> {:ok, ids}
-      {:ok, _ids} -> {:error, :target_ambiguous}
-      {:error, _} = error -> error
-    end
-  end
-
-  # 精确字词替换只认一个明确源文本；不截取近似后缀、不在重复命中里猜第一处。
-  defp literal_revision_target(segments, text) do
-    case Regex.scan(~r/改成|改为|替换为|替换成/u, text) do
-      [] -> :none
-      [_] -> locate_revision_literal(segments, revision_literal(text))
-      _ -> {:error, :target_ambiguous}
-    end
-  end
-
-  defp revision_literal(text) do
-    case Regex.run(~r/[「“"『](.+?)[」”"』]\s*(?:改成|改为|替换为|替换成)/su, text) do
-      [_, literal] ->
-        literal
-
-      _ ->
-        text
-        |> String.split(~r/改成|改为|替换为|替换成/u, parts: 2)
-        |> hd()
-        |> String.split(~r/[，,；;。！？!?\n]/u)
-        |> List.last()
-        |> String.trim()
-        |> String.replace(~r/^(?:(?:把|将)\s*)?.*?(?:正文|文本)(?:里|中)的?/u, "")
-        |> String.replace(~r/^(?:把|将)\s*/u, "")
-        |> String.trim()
-    end
-  end
-
-  defp locate_revision_literal(_segments, ""), do: {:error, :target_missing}
-
-  defp locate_revision_literal(segments, literal) do
-    base = Enum.map_join(segments, & &1.raw)
-
-    case :binary.match(base, literal) do
-      :nomatch ->
-        {:error, :target_missing}
-
-      {offset, _length} ->
-        remaining = {offset + 1, byte_size(base) - offset - 1}
-
-        case :binary.match(base, literal, scope: remaining) do
-          :nomatch -> unique_literal_segment(segments, literal)
-          _ -> {:error, :target_ambiguous}
-        end
-    end
-  end
-
-  defp unique_literal_segment(segments, literal) do
-    case Enum.filter(segments, &String.contains?(&1.raw, literal)) do
-      [segment] -> {:ok, [segment.segment_id]}
-      [] -> {:error, :target_missing}
-      _ -> {:error, :target_ambiguous}
-    end
-  end
-
-  defp first_id([%{segment_id: id} | _]), do: [id]
-  defp first_id(_segments), do: []
-
-  defp last_id(segments) do
-    case List.last(segments) do
-      nil -> []
-      %{segment_id: id} -> [id]
-    end
-  end
-
-  defp ordinal_target_ids(segments, text) do
-    case Regex.run(~r/第\s*([0-9]+|[一二三四五六七八九十]+)\s*段/u, text) do
-      [_, raw] ->
-        ordinal_id_at(segments, ordinal_to_index(raw))
-
-      _ ->
-        []
-    end
-  end
-
-  defp ordinal_id_at(segments, index) when index >= 0 do
-    case Enum.at(segments, index) do
-      nil -> []
-      segment -> [segment.segment_id]
-    end
-  end
-
-  defp ordinal_id_at(_segments, _index), do: []
-
-  defp ordinal_to_index(raw) when raw in ["一", "1"], do: 0
-  defp ordinal_to_index(raw) when raw in ["二", "2"], do: 1
-  defp ordinal_to_index(raw) when raw in ["三", "3"], do: 2
-  defp ordinal_to_index(raw) when raw in ["四", "4"], do: 3
-  defp ordinal_to_index(raw) when raw in ["五", "5"], do: 4
-  defp ordinal_to_index(raw) when raw in ["六", "6"], do: 5
-  defp ordinal_to_index(raw) when raw in ["七", "7"], do: 6
-  defp ordinal_to_index(raw) when raw in ["八", "8"], do: 7
-  defp ordinal_to_index(raw) when raw in ["九", "9"], do: 8
-  defp ordinal_to_index(raw) when raw in ["十", "10"], do: 9
-
-  defp ordinal_to_index(raw) do
-    case Integer.parse(raw) do
-      {n, _} -> n - 1
-      :error -> 0
     end
   end
 
@@ -1883,30 +1755,10 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     end
   end
 
-  @paragraph_index_words %{
-    "一" => 1,
-    "二" => 2,
-    "两" => 2,
-    "三" => 3,
-    "四" => 4,
-    "五" => 5,
-    "六" => 6,
-    "七" => 7,
-    "八" => 8,
-    "九" => 9,
-    "十" => 10
-  }
-
   defp paragraph_index(text) when is_binary(text) do
     case Regex.run(~r/第\s*([一二两三四五六七八九十\d]+)\s*段/u, text) do
-      [_, raw] ->
-        case Integer.parse(raw) do
-          {index, ""} -> index
-          _ -> Map.get(@paragraph_index_words, raw)
-        end
-
-      _ ->
-        nil
+      [_, raw] -> NovelFoundation.parse_ordinal(raw)
+      _ -> nil
     end
   end
 

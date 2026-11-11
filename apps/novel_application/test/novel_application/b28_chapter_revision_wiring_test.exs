@@ -557,21 +557,23 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert length(Repo.all(Chapter)) == 1
   end
 
-  test "文字目标缺失、重复或与指定段冲突时，不调用writer、不生成候选", c do
+  test "明确段号/文字目标缺失、越界、重复或冲突时，不调用writer、不生成候选", c do
     inputs = [
-      "把第一章正文里的四十五岁改成三十岁，其他不变。",
-      "把第一章正文里的「灯楼」改成「灯塔」，其他不变。",
-      "只改第二段，把「二十五岁」改成「三十岁」，其他不变。",
-      "只改第0段，把「二十五岁」改成「三十岁」，其他不变。",
-      "只改第99段，把「二十五岁」改成「三十岁」，其他不变。"
+      {"把第一章正文里的四十五岁改成三十岁，其他不变。", :target_missing},
+      {"把第一章正文里的「灯楼」改成「灯塔」，其他不变。", :target_ambiguous},
+      {"只改第二段，把「二十五岁」改成「三十岁」，其他不变。", :target_ambiguous},
+      {"只改第0段，把「二十五岁」改成「三十岁」，其他不变。", :target_missing},
+      {"只改第99段，把「二十五岁」改成「三十岁」，其他不变。", :target_missing},
+      {"只改第十一段，把「二十五岁」改成「三十岁」，其他不变。", :target_missing},
+      {"只改第十十段，把「二十五岁」改成「三十岁」，其他不变。", :target_missing}
     ]
 
     before = Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision})
 
-    for text <- inputs do
+    for {text, reason} <- inputs do
       run = %{c.run | goal: %{text: text, version: 1}}
 
-      assert {:error, {:pending_artifact_invalid, reason}, rejection_state} =
+      assert {:error, {:pending_artifact_invalid, ^reason}, rejection_state} =
                PendingArtifactWorkflow.run(
                  judgment(c.chapter_ref, %{dialogue_goal: text}),
                  %{},
@@ -580,11 +582,35 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                  %Execution{result_fn: fn _ -> flunk("范围不唯一不得调用writer") end}
                )
 
-      assert reason in [:target_missing, :target_ambiguous, :incomplete_scope]
       assert rejection_state.tool_call_count == 0 and rejection_state.provider_call_count == 0
     end
 
     assert Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision}) == before
+  end
+
+  test "CP1 有十一段时指定第十一段 → 精确选中第 11 段 B36 id，不回退首段", c do
+    draft2 = Repo.get!(Draft, String.replace_prefix(c.draft2_ref, "draft:", ""))
+    tail = Enum.map_join(1..10, "\n\n", &"灯楼第#{&1}层，灯焰未灭。")
+    Repo.update!(Ecto.Changeset.change(draft2, content: tail))
+
+    segments =
+      LocalizedRevision.segment(
+        ReadingProjectionRepo.accepted_chapter_prose(c.work.id, c.chapter_ref)
+      )
+
+    assert {:ok, result} =
+             PendingArtifactWorkflow.run(
+               judgment(c.chapter_ref, %{dialogue_goal: "只改第十一段"}),
+               %{},
+               %{c.run | goal: %{text: "只改第十一段，其他段逐字保留。", version: 1}},
+               c.context,
+               provider("灯楼第十层，灯焰骤亮。", self())
+             )
+
+    assert [pending] = result.turn_result.adoption_state.pending
+
+    assert pending.payload.adoption_effect["target_segment_ids"] ==
+             [Enum.at(segments, 10).segment_id]
   end
 
   for interpretation <- ["指定片段替换，非整章重写", "整章重写并给出完整替换稿"] do
@@ -674,13 +700,18 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
 
   # ── B28 §元原则整改 CP1：作者授权范围（否定/条件/读取不授整章）────────────────
 
-  test "CP1 否定整章+局部限制 → target_segments 首段，采纳后其他段逐字不变", c do
-    run = %{c.run | goal: %{text: "不要整章重写，只改第一段。", version: 1}}
-    target_body = "初稿：陈九斤二十五岁守着灯楼，第七盏灯不点自亮。"
+  test "CP1 否定整章+局部限制 → 长 CJK 末段 target_segments，采纳后其他段逐字节不变", c do
+    long = String.duplicate("灰", 1_700)
+    draft2 = Repo.get!(Draft, String.replace_prefix(c.draft2_ref, "draft:", ""))
+    Repo.update!(Ecto.Changeset.change(draft2, content: long))
+    base = ReadingProjectionRepo.accepted_chapter_prose(c.work.id, c.chapter_ref)
+    last = base |> LocalizedRevision.segment() |> List.last()
+    run = %{c.run | goal: %{text: "不要整章重写，只改最后一段。", version: 1}}
+    target_body = "续写：灯楼九层，每层九盏，他数到第九层时，天已经亮了。"
 
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
-               judgment(c.chapter_ref, %{dialogue_goal: "只改第一段"}),
+               judgment(c.chapter_ref, %{dialogue_goal: "只改最后一段"}),
                %{},
                run,
                c.context,
@@ -697,10 +728,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     effect = payload.adoption_effect
     assert effect["mode"] == "replace_segments"
 
-    [first_id] = effect["target_segment_ids"]
-
-    assert first_id ==
-             c.base_text |> LocalizedRevision.segment() |> hd() |> Map.fetch!(:segment_id)
+    assert effect["target_segment_ids"] == [last.segment_id]
 
     [item] = payload.items
     assert item.body == target_body
@@ -726,11 +754,11 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert length(persisted.reading_projection.segment_changes) == 1
 
     assert ReadingProjectionRepo.accepted_chapter_prose(c.work.id, c.chapter_ref) ==
-             target_body <> "\n\n续写：灯楼九层，每层九盏，他数到第九层时天边泛白。"
+             binary_part(base, 0, byte_size(base) - byte_size(last.raw)) <> target_body
 
-    # 第二段逐字节保留
+    # 非目标长 CJK 前缀逐字节保留
     assert ReadingProjectionRepo.accepted_chapter_prose(c.work.id, c.chapter_ref) =~
-             "续写：灯楼九层，每层九盏，他数到第九层时天边泛白。"
+             String.duplicate("灰", 1_333)
   end
 
   test "CP1 通读全文后只修第二段 → target_segments 第二段（读取不等于修改授权）", c do

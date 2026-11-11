@@ -23,6 +23,14 @@ defmodule NovelApplication.B30ChapterConsumerMigrationTest do
     refute ChapterDisplay.text_matches?(@ch3, "第11章")
   end
 
+  test "序号解析：十进制/汉字十位共用同一纯实现，未知序号返回 nil" do
+    assert NovelFoundation.parse_ordinal("十一") == 11
+    assert NovelFoundation.parse_ordinal("20") == 20
+    assert NovelFoundation.parse_ordinal("十十") == nil
+    assert ChapterDisplay.title_number("第十一章：灯楼夜雨") == 11
+    assert ChapterDisplay.title_number("第十十章：旧钱") == nil
+  end
+
   test "TEC 目标章：作者按当前 seq 点名 → 命中同章 ref/title（旧 title 编号不误导）" do
     context = %DialogueContext{
       workspace_id: "work-1",
