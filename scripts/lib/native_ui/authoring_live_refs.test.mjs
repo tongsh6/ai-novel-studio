@@ -100,6 +100,48 @@ function nativeObservation({ callId = "call_1", outerCallId = callId, type = "ob
   };
 }
 
+// planned_exploration 叶没有 type/call_id；身份与调用属于父块。
+function observationLeaf({ status = "ok", sourceRefs = [], observationRef = null, tool = "chapter_read" } = {}) {
+  return {
+    status,
+    source_refs: sourceRefs,
+    versions: {},
+    coverage: { chapter_ref: "chapter:1" },
+    omissions: [],
+    next_offset: null,
+    content: {
+      tool,
+      query: "{}",
+      summary: "观察",
+      facts: {},
+      ...(observationRef === null ? {} : { observation_ref: observationRef }),
+    },
+  };
+}
+
+function nativePlannedObservation({ callId = "call_1", outerCallId = callId, status = "ok", leaves = [] } = {}) {
+  return {
+    role: "tool",
+    tool_call_id: outerCallId,
+    content: JSON.stringify({
+      type: "observation",
+      call_id: callId,
+      status,
+      source_refs: [...new Set(leaves.flatMap((leaf) => leaf.source_refs))],
+      versions: {},
+      coverage: {},
+      omissions: [],
+      next_offset: null,
+      content: {
+        tool: "planned_exploration",
+        query: leaves.map((leaf) => leaf.content.tool).join(" / "),
+        summary: `计划内只读检索完成（${leaves.length} 次）`,
+        observations: leaves,
+      },
+    }),
+  };
+}
+
 function irRecord({ providerCallRef = "pcall_ir", providerRunRef = "prun_ir", messages } = {}) {
   return {
     provider: "slice_verify",
@@ -603,4 +645,60 @@ test("L7 同请求 observation 身份：content.observation_ref 与 source_refs 
     "observation:obs_failed_identity",
     "失败 observation 身份",
   );
+});
+
+test("L7 planned_exploration 聚合：ok/partial 父只授信 ok 叶自己的 refs，报告记同一父 call_id", () => {
+  const good = observationLeaf({
+    sourceRefs: ["chapter:leaf_ok"],
+    observationRef: "observation:obs_leaf_ok",
+  });
+  const bad = observationLeaf({
+    status: "unavailable",
+    sourceRefs: ["chapter:leaf_bad"],
+    observationRef: "observation:obs_leaf_bad",
+  });
+  const messages = [
+    system(),
+    appBase("材料 chapter:ch-1"),
+    author(),
+    assistantToolCall({ callId: "call_agg" }),
+    nativePlannedObservation({ callId: "call_agg", status: "partial", leaves: [good, bad] }),
+  ];
+  const result = resultOf({
+    messages,
+    usedRefs: ["chapter:leaf_ok", "observation:obs_leaf_ok"],
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.reports[0].observation_refs, ["chapter:leaf_ok", "observation:obs_leaf_ok"]);
+  assert.deepEqual(
+    result.reports[0].matched_refs.map((match) => [
+      match.ref,
+      match.sources[0].channel,
+      match.sources[0].call_id,
+      match.sources[0].status,
+    ]),
+    [
+      ["chapter:leaf_ok", "source_refs", "call_agg", "ok"],
+      ["observation:obs_leaf_ok", "content_observation_ref", "call_agg", "ok"],
+    ],
+  );
+  // 父块合并的 source_refs 与不可用叶自己的 ref 都不能代签。
+  assert(!result.reports[0].observation_refs.includes("chapter:leaf_bad"));
+  assertViolation(messages, "chapter:leaf_bad", "不可用叶来源");
+  assertViolation(messages, "observation:obs_leaf_bad", "不可用叶身份");
+});
+
+test("L7 planned_exploration 父不可用/重复/未绑定时不授信任何叶", () => {
+  const leaf = () => observationLeaf({
+    sourceRefs: ["chapter:leaf_ok"],
+    observationRef: "observation:obs_leaf_ok",
+  });
+  const base = [system(), appBase("材料 chapter:ch-1"), author(), assistantToolCall({ callId: "call_agg" })];
+  for (const [label, messages] of [
+    ["父不可用", [...base, nativePlannedObservation({ callId: "call_agg", status: "unavailable", leaves: [leaf()] })]],
+    ["父未绑定", [...base, nativePlannedObservation({ callId: "call_agg", outerCallId: "call_other", leaves: [leaf()] })]],
+    ["重复父结果", [...base, nativePlannedObservation({ callId: "call_agg", leaves: [leaf()] }), nativePlannedObservation({ callId: "call_agg", leaves: [leaf()] })]],
+  ]) {
+    assertViolation(messages, "chapter:leaf_ok", label);
+  }
 });

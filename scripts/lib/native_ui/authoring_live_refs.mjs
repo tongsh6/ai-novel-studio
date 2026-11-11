@@ -7,10 +7,16 @@
 // 只解析真实 producer 的正式条目（「## 材料与覆盖」、「## 对象与范围」目标项、
 // 正文 chapter_ref=、「- [observation:…]」使命条目），并停在「## 当前作者输入」之前。
 // 成功 observation 只认前置唯一 assistant call、同请求唯一 result 的结构化 source_refs
-// 与同请求原生 content.observation_ref 身份。checkpoint/notice、“省略：”、作者原文、
-// 段头 used_refs、decision_traces、agent_events 不授信，不做跨调用并集；ref 按
+// 与同请求原生 content.observation_ref 身份。直接 observation 只认自身 status=ok；
+// planned_exploration 聚合父块 status=ok/partial 时只接纳各自 ok 的叶，叶 refs/身份沿用
+// 同一父 call_id，父块或不可用叶的合并来源不代签。checkpoint/notice、“省略：”、作者
+// 原文、段头 used_refs、decision_traces、agent_events 不授信，不做跨调用并集；ref 按
 // EvidenceUsage.validate 的完整字符串精确匹配。
-import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
+import {
+  observationRefOf,
+  plannedExplorationLeaves,
+  requestFactsFromRecord,
+} from "./authoring_request_facts.mjs";
 
 export const LIVE_REFS_SCHEMA = "b71-live-refs/v1";
 
@@ -144,7 +150,7 @@ function collectApplication(boundary, message, kind) {
 
 // 成功 observation 只认前置唯一 assistant call 与同请求唯一 result；重复声明/重复结果
 // 都不是合法观察。除结构化 source_refs 外，也只读原生 content.observation_ref 身份，
-// 不扫描 tool.content 的其它文本。
+// 不扫描 tool.content 的其它文本；聚合叶同样只读这两处，不读父块合并来源。
 function resultTotals(facts) {
   const totals = new Map();
   for (const message of facts.messageFacts) {
@@ -155,22 +161,27 @@ function resultTotals(facts) {
   return totals;
 }
 
-function trustedObservation(result, earlierCalls, totals) {
+function trustedObservationParent(result, earlierCalls, totals) {
   return (
-    result.type === "observation" && String(result.status ?? "") === "ok" &&
+    result.type === "observation" &&
     nonBlank(result.callId) && result.callId === result.toolCallId &&
     earlierCalls.get(result.callId) === 1 && totals.get(result.callId) === 1
   );
 }
 
-// 原生 content 的 observation 身份：只有完整 observation: token 才进入观察边界；
-// content 的其它字段/文本不参与 ref 读取。
-function contentObservationRef(payload) {
-  const content = isObject(payload) && isObject(payload.content) ? payload.content : null;
-  const ref = content && typeof content.observation_ref === "string"
-    ? content.observation_ref.trim()
-    : "";
-  return ref.startsWith(OBSERVATION_PREFIX) ? ref : null;
+// 直接 observation 只认自身 status=ok。planned_exploration 聚合的父块 status=ok/partial
+// 才提供材料，且只接纳各自 ok 的叶；不可用父/叶不贡献任何 ref 或身份。
+function trustedObservationUnits(result) {
+  const leaves = plannedExplorationLeaves(result.payload);
+  if (leaves !== null) {
+    if (!["ok", "partial"].includes(String(result.status ?? ""))) return [];
+    return leaves
+      .filter((leaf) => String(leaf.status ?? "") === "ok")
+      .map((leaf) => ({ payload: leaf, status: leaf.status }));
+  }
+  return String(result.status ?? "") === "ok"
+    ? [{ payload: result.payload, status: result.status }]
+    : [];
 }
 
 function collectToolObservations(boundary, facts) {
@@ -178,18 +189,19 @@ function collectToolObservations(boundary, facts) {
   const earlierCalls = new Map();
   for (const message of facts.messageFacts) {
     for (const result of message.toolResults) {
-      if (!trustedObservation(result, earlierCalls, totals)) continue;
-      const payload = isObject(result.payload) ? result.payload : {};
-      for (const ref of refValues(payload.source_refs)) {
-        pushRef(boundary.observation, ref, {
-          message_index: message.index, channel: "source_refs", call_id: result.callId, status: result.status,
-        });
-      }
-      const identity = contentObservationRef(payload);
-      if (identity !== null) {
-        pushRef(boundary.observation, identity, {
-          message_index: message.index, channel: "content_observation_ref", call_id: result.callId, status: result.status,
-        });
+      if (!trustedObservationParent(result, earlierCalls, totals)) continue;
+      for (const unit of trustedObservationUnits(result)) {
+        for (const ref of refValues(unit.payload.source_refs)) {
+          pushRef(boundary.observation, ref, {
+            message_index: message.index, channel: "source_refs", call_id: result.callId, status: unit.status,
+          });
+        }
+        const identity = observationRefOf(unit.payload);
+        if (identity !== null) {
+          pushRef(boundary.observation, identity, {
+            message_index: message.index, channel: "content_observation_ref", call_id: result.callId, status: unit.status,
+          });
+        }
       }
     }
     for (const call of message.toolCalls) {
@@ -386,6 +398,7 @@ export function liveRefsCheck({ llmRecords = [], transcript = null } = {}) {
       base: ["application_base.source_refs（优先）/ text；scope_update.source_refs 与正式目标项"],
       observation: [
         "scope 正式 observation 条目；成功且前置唯一 call/唯一 result 的 tool source_refs 与 content.observation_ref",
+        "planned_exploration 聚合父块 status=ok/partial 时，只取各自 ok 叶的 source_refs 与身份，沿用父 call_id",
       ],
       excluded: ["段头 used_refs / decision_traces / agent_events / checkpoint / notice / 省略 / 作者输入"],
       self_report_count,

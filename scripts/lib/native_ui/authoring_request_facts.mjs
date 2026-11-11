@@ -443,4 +443,25 @@ export function requestFactsOf(records) {
   return list(records).map((record) => requestFactsFromRecord(record));
 }
 
+const OBSERVATION_REF_PREFIX = "observation:";
+const PLANNED_EXPLORATION_TOOL = "planned_exploration";
+
+// 原生 observation 身份只在 content.observation_ref，且必须是完整 observation: token；
+// content 的其它字段与文本不参与。两个证据消费者共用这一处读取。
+export function observationRefOf(payload) {
+  const content = isRecord(payload) && isRecord(payload.content) ? payload.content : null;
+  const ref = content && typeof content.observation_ref === "string"
+    ? content.observation_ref.trim()
+    : "";
+  return ref.startsWith(OBSERVATION_REF_PREFIX) ? ref : null;
+}
+
+// 已识别的 planned_exploration 聚合父块只读取一层叶（按 content.observations 执行顺序）；
+// 普通观察返回 null，调用方直接使用原 payload。叶没有 type/call_id，父块才是调用身份。
+export function plannedExplorationLeaves(payload) {
+  const content = isRecord(payload) && isRecord(payload.content) ? payload.content : null;
+  if (content === null || content.tool !== PLANNED_EXPLORATION_TOOL) return null;
+  return list(content.observations).filter(isRecord);
+}
+
 export { isRecord, list, nonBlank };

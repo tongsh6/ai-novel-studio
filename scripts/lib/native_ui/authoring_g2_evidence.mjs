@@ -1,9 +1,10 @@
 // B82 VS-00L §7/§16.9 G2 证据：证明实际采纳稿版本与紧邻请求，而不是只证明确定性全章续读。
 //
-// 页级：每页从 canonical transcript 的 chapter_read observation 出发，按 call_id 找回在先
-// judgment_decision assistant，用它顶层的 pcall/prun 定位实际 started，再核对下一条
-// started 的请求确实携带同一调用和同一观察。源请求已带结果、缺/多义匹配、错版本、
-// 迟到回放都失败；聚合时不拿另一页的版本代签。
+// 页级：每页从 canonical transcript 的 chapter_read observation 出发（直接 observation，
+// 或 planned_exploration 聚合父块内按执行顺序的一层叶；父块只给 status 与真正 call_id），
+// 按 call_id 找回在先 judgment_decision assistant，用它顶层的 pcall/prun 定位实际 started，
+// 再核对下一条 started 的请求确实携带同一调用和完整观察 payload。源请求已带结果、缺/多义
+// 匹配、错版本、迟到回放都失败；聚合时不拿另一页的版本代签。
 //
 // 候选：只认 ACK 后同 owning topic 的唯一 completed 终局（run 行也 completed，终局
 // work_id/session_id 必须精确等于 run 且不得缺字段），目标章 TENTATIVE prose_fragment
@@ -12,7 +13,11 @@
 // 已对账记录逐字节核对，最终可见文本必须新增出现对应 item 标题/正文，缺/空 baseline 记
 // baseline_visible_missing。结果只含 refs/原因，不含正文。
 import { isDeepStrictEqual } from "node:util";
-import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
+import {
+  observationRefOf,
+  plannedExplorationLeaves,
+  requestFactsFromRecord,
+} from "./authoring_request_facts.mjs";
 import { writerArtifactMatch } from "./authoring_pending_evidence.mjs";
 
 const TOTAL = 7000;
@@ -29,15 +34,20 @@ const nonBlank = (value) => typeof value === "string" && value.trim() !== "";
 const transcriptMessages = (transcript) =>
   Array.isArray(transcript) ? transcript : list(transcript?.messages);
 
+// 页可能是直接 chapter_read observation，也可能是 planned_exploration 聚合父块的一层叶。
+// 两种形状都以叶自身的 coverage/source_refs 认页，父块只提供 status 与真正 call_id。
 function pageObservations(messages, chapterRef) {
   const found = [];
   messages.forEach((message, messageIndex) => {
     if (message?.role !== "tool") return;
-    list(message.blocks).forEach((block) => {
-      const coverage = block?.coverage;
-      if (block?.type !== "observation" || !isObject(coverage) || coverage.chapter_ref !== chapterRef) return;
-      if (block.content?.tool !== "chapter_read" || !list(block.source_refs).includes(chapterRef)) return;
-      found.push({ block, messageIndex });
+    list(message.blocks).forEach((parent) => {
+      if (parent?.type !== "observation") return;
+      for (const block of plannedExplorationLeaves(parent) ?? [parent]) {
+        const coverage = block?.coverage;
+        if (!isObject(coverage) || coverage.chapter_ref !== chapterRef) continue;
+        if (block.content?.tool !== "chapter_read" || !list(block.source_refs).includes(chapterRef)) continue;
+        found.push({ block, parent, messageIndex });
+      }
     });
   });
   return found;
@@ -125,14 +135,7 @@ function laterHasResult(starts, records, fromIndex, callId) {
 }
 
 // 页报告只搬运 canonical observation 已带的身份；缺 ref 不改变页证据结论（旧档案
-// 页仍可成立），但后续页级使用证据会因缺证拒绝。
-function observationRefOf(block) {
-  const ref = isObject(block?.content) && typeof block.content.observation_ref === "string"
-    ? block.content.observation_ref.trim()
-    : "";
-  return ref.startsWith("observation:") ? ref : null;
-}
-
+// 页仍可成立），但后续页级使用证据会因缺证拒绝。身份读取与 L7 共用 request facts。
 function pageCheck({ messages, records, starts, chapterRef, draftRef, revision, chars, range }) {
   const [start, end] = range;
   const page = { range, observation_ref: null, call_id: null, source: null, next: null, reason: null };
@@ -147,7 +150,12 @@ function pageCheck({ messages, records, starts, chapterRef, draftRef, revision, 
     fail(candidates.length > 1 ? "observation_ambiguous" : "observation_missing");
     return page;
   }
-  const { block, messageIndex } = candidates[0];
+  const { block, parent, messageIndex } = candidates[0];
+  // 聚合父 status=unavailable 时，叶自身 ok 也不能提供成功页材料。
+  if (plannedExplorationLeaves(parent) !== null &&
+      !["ok", "partial"].includes(String(parent.status ?? ""))) {
+    fail("observation_status");
+  }
   const coverage = block.coverage;
   if (block.status !== "ok") fail("observation_status");
   if (coverage.prose_total_chars !== chars.length) fail("coverage_total_mismatch");
@@ -159,7 +167,8 @@ function pageCheck({ messages, records, starts, chapterRef, draftRef, revision, 
     fail("next_offset_mismatch");
   }
 
-  const callId = block.call_id;
+  // 真正 call_id 只在父块；同一父调用内的两页共享它去找 canonical assistant 与请求。
+  const callId = parent.call_id;
   page.call_id = nonBlank(callId) ? callId : null;
   page.observation_ref = observationRefOf(block);
   if (!nonBlank(callId)) {
@@ -222,7 +231,7 @@ function pageCheck({ messages, records, starts, chapterRef, draftRef, revision, 
     else fail(nextResults.length > 1 ? "next_result_ambiguous" : "next_result_missing");
   } else if (nextResults[0].toolCallId !== callId) {
     fail("result_id_mismatch");
-  } else if (!isDeepStrictEqual(nextResults[0].payload, block)) {
+  } else if (!isDeepStrictEqual(nextResults[0].payload, parent)) {
     fail("next_payload_mismatch");
   }
   return page;

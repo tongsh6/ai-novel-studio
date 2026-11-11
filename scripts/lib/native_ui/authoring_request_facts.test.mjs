@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   AUTHORING_REQUEST_IR,
   NATIVE_CHAT_WIRE,
+  observationRefOf,
+  plannedExplorationLeaves,
   requestFactsFromBody,
   requestFactsFromRecord,
   requestFactsOf,
@@ -275,6 +277,39 @@ test("wire 空 role 与 null 消息边界：null 容忍、空 role 明确 malfor
   assert.equal(blankChoice.toolChoice, "");
 });
 
+
+test("原生观察聚合纯读：普通 payload 原样、planned_exploration 只读一层叶，身份共用", () => {
+  const direct = { status: "ok", content: { tool: "chapter_read", observation_ref: "observation:obs_1" } };
+  assert.equal(plannedExplorationLeaves(direct), null);
+  assert.equal(observationRefOf(direct), "observation:obs_1");
+
+  const parent = {
+    type: "observation",
+    call_id: "call-1",
+    status: "partial",
+    content: {
+      tool: "planned_exploration",
+      observations: [
+        { status: "ok", source_refs: ["chapter:1"], content: { tool: "chapter_read", observation_ref: "observation:obs_1" } },
+        { status: "unavailable", source_refs: [], content: { tool: "chapter_read" } },
+      ],
+    },
+  };
+  const leaves = plannedExplorationLeaves(parent);
+  assert.equal(leaves.length, 2);
+  assert.equal(observationRefOf(leaves[0]), "observation:obs_1");
+  assert.equal(observationRefOf(leaves[1]), null);
+  // 身份只在叶的 content，父块自身不提供观察身份。
+  assert.equal(observationRefOf(parent), null);
+  // 已识别聚合但 observations 非数组时是零叶，不回退成把父块当普通观察。
+  assert.deepEqual(plannedExplorationLeaves({ content: { tool: "planned_exploration", observations: {} } }), []);
+  assert.equal(observationRefOf({ content: { observation_ref: "chapter:not-observation" } }), null);
+  // 非对象 payload 不读取、也不抛成观察。
+  for (const payload of [null, undefined, [], "text", 1]) {
+    assert.equal(plannedExplorationLeaves(payload), null);
+    assert.equal(observationRefOf(payload), null);
+  }
+});
 
 test("wire 非 assistant 消息携带/不携带 tool_calls 的 malformed 计数精确", () => {
   const none = requestFactsFromBody({ messages: [{ role: "user", content: "作者" }], tools: [] });

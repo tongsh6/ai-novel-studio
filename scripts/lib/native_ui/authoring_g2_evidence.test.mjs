@@ -84,6 +84,66 @@ function fixture({ versions = { [VERSION_KEY]: 2 }, page2 = null, pageRefs = [] 
   };
 }
 
+function plannedParent({ callId, status = "ok", leaves }) {
+  return {
+    type: "observation",
+    call_id: callId,
+    status,
+    source_refs: [...new Set(leaves.flatMap((entry) => entry.source_refs))],
+    coverage: { coverage_note: "计划内只读", continuation_hint: null },
+    omissions: leaves.flatMap((entry) => entry.omissions),
+    content: {
+      tool: "planned_exploration",
+      query: leaves.map((entry) => entry.content.tool).join(" / "),
+      summary: `计划内只读检索完成（${leaves.length} 次：chapter_read）`,
+      observations: leaves,
+    },
+  };
+}
+
+// 叶没有 type/call_id；真正调用身份属于父块。
+function leafOf(block) {
+  const { type, call_id, ...leaf } = block;
+  return leaf;
+}
+
+// 单一真实 native 调用（call-3）的聚合父 observation 内放两页，父后紧邻下一请求。
+function aggregateFixture({
+  parentStatus = "ok",
+  versions = { [VERSION_KEY]: 2 },
+  page2Versions = versions,
+  pageRefs = [],
+} = {}) {
+  const base = [
+    message("application_base", "application", [text("本 run 的应用数据")], { source_refs: [{ ref: "ctx-1" }] }),
+    message("user", "author", [text("请核对正文")], { source_refs: [{ ref: "msg-1" }] }),
+  ];
+  const first = call(3);
+  const parent = plannedParent({
+    callId: "call-3",
+    status: parentStatus,
+    leaves: [
+      leafOf(observation({
+        callId: "call-3", start: 1, end: 6000, versions, observationRef: pageRefs[0] ?? null,
+      })),
+      leafOf(observation({
+        callId: "call-3", start: 6001, end: 7000, versions: page2Versions, observationRef: pageRefs[1] ?? null,
+      })),
+    ],
+  });
+  return {
+    transcript: { messages: [first, tool(parent)] },
+    records: [
+      record(0, base),
+      record(1, base),
+      record(2, base),
+      record(3, base),
+      record(4, [...base, first, tool(parent)]),
+    ],
+    starts: [0, 1, 2, 3, 4].map(start),
+  };
+}
+
 const run = (input) => g2PageEvidence({ chapterRef: CHAPTER, draftRef: DRAFT, revision: 2, prose: PROSE, ...input });
 
 test("两页 revision 2：前置非页调用后仍按 call_id 找到第 4 条 started 和紧邻请求", () => {
@@ -139,6 +199,59 @@ test("下一请求 payload 与 canonical 观察深等", () => {
   input.records[5].request_body.messages[input.records[5].request_body.messages.length - 1] = tool(second);
   const result = run(input);
   assert.equal(result.pages[1].reason, "next_payload_mismatch");
+});
+
+// ── planned_exploration 聚合父块：同一次真实调用内两页各自核对 ──────────────
+test("同一实际父调用聚合两页：各自核对版本/范围，共享真正父 call_id 与紧邻请求", () => {
+  const result = run(aggregateFixture({ pageRefs: ["observation:obs-page-1", "observation:obs-page-2"] }));
+  assert.equal(result.ok, true, JSON.stringify(result.pages));
+  assert.deepEqual(result.pages.map((page) => page.call_id), ["call-3", "call-3"]);
+  assert.deepEqual(result.pages.map((page) => page.source.started_index), [3, 3]);
+  assert.deepEqual(result.pages.map((page) => page.next.started_index), [4, 4]);
+  assert.deepEqual(
+    result.pages.map((page) => page.observation_ref),
+    ["observation:obs-page-1", "observation:obs-page-2"],
+  );
+});
+
+test("聚合父内一页错版本或缺版本时逐页失败，另一页仍通过", () => {
+  const mismatch = run(aggregateFixture({ page2Versions: { [VERSION_KEY]: 1 } }));
+  assert.equal(mismatch.ok, false);
+  assert.deepEqual(mismatch.pages.map((page) => page.reason), [null, "version_mismatch"]);
+
+  const missing = run(aggregateFixture({ page2Versions: {} }));
+  assert.deepEqual(missing.pages.map((page) => page.reason), [null, "version_missing"]);
+});
+
+test("紧邻请求改动聚合内任一叶时完整父 payload 不一致，两页都不签", () => {
+  const input = aggregateFixture();
+  const next = structuredClone(input.records[4].request_body.messages.at(-1));
+  const leaf = next.blocks[0].content.observations[1];
+  leaf.content.summary = leaf.content.summary.replace("灰", "烬");
+  input.records[4].request_body.messages = [
+    ...input.records[4].request_body.messages.slice(0, -1),
+    next,
+  ];
+  const result = run(input);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.pages.map((page) => page.reason), ["next_payload_mismatch", "next_payload_mismatch"]);
+});
+
+test("聚合内非 chapter_read 叶不认页", () => {
+  const input = aggregateFixture();
+  const other = leafOf(observation({ callId: "call-3", start: 1, end: 6000, versions: { [VERSION_KEY]: 2 } }));
+  other.content.tool = "memory_search";
+  input.transcript.messages[1].blocks[0].content.observations.push(other);
+  input.records[4].request_body.messages.at(-1).blocks[0].content.observations.push(structuredClone(other));
+  const result = run(input);
+  assert.equal(result.ok, true, JSON.stringify(result.pages));
+  assert.deepEqual(result.pages.map((page) => page.call_id), ["call-3", "call-3"]);
+});
+
+test("聚合父 status unavailable 时即使叶 status=ok 也不通过", () => {
+  const result = run(aggregateFixture({ parentStatus: "unavailable" }));
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.pages.map((page) => page.reason), ["observation_status", "observation_status"]);
 });
 
 // ── B82 §7/§16.9 候选证据：实际 B28 scope3 形状 ────────────────────────────
@@ -355,6 +468,21 @@ test("页级使用证据正例：writer 自报报告按 pcall 唯一绑定并逐
     ],
   );
   assert.equal(JSON.stringify(result).includes(pageBody(1, 6000)), false);
+});
+
+test("页级使用证据：同一父 call_id 下两页不同 observation_ref 仍各自成立", () => {
+  const pages = run(aggregateFixture({ pageRefs: PAGE_REFS }));
+  const report = usageReport({ calls: [PAGE_CALLS[0], PAGE_CALLS[0]] });
+  const result = g2PageUsageEvidence({ pages, candidate: candidateRun(), reports: [report] });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.reason, null);
+  assert.deepEqual(
+    result.pages.map((page) => [page.observation_ref, page.call_id, page.reason]),
+    [
+      [PAGE_REFS[0], PAGE_CALLS[0], null],
+      [PAGE_REFS[1], PAGE_CALLS[0], null],
+    ],
+  );
 });
 
 test("页级使用证据：两页同 ref 且该 ref 来源含两 call 时歧义拒签", () => {

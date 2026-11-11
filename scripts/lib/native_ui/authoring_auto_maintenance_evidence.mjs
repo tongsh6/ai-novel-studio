@@ -48,7 +48,11 @@ export const AUTO_MAINTENANCE_REQUESTS = Object.freeze([
 ]);
 export const AUTO_MAINTENANCE_STOP_EVENT = "checkpoint_created";
 
-import { NATIVE_CHAT_WIRE, requestFactsFromRecord } from "./authoring_request_facts.mjs";
+import {
+  NATIVE_CHAT_WIRE,
+  plannedExplorationLeaves,
+  requestFactsFromRecord,
+} from "./authoring_request_facts.mjs";
 const list = (value) => (Array.isArray(value) ? value : []);
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const nonBlank = (value) => typeof value === "string" && value.trim() !== "";
@@ -380,8 +384,12 @@ function verifyInterleavedResumeFacts(trace, db, wire, llmRecords) {
     provider_run_id: run.id, provider_call_ref: run.provider_call_ref,
     retained_exchanges: retainedCalls.length, exact_author_messages: authorTexts.length,
     observations_with_refs: retainedResults.filter((block) => list(block.source_refs).length > 0).length,
+    // 仍按保留的原生父结果计数：历史直接 observation 看自身 versions；planned_exploration
+    // 聚合父块有一次内任一叶带真实版本即算 1，父块自身不重复计数。
     observations_with_versions: retainedResults.filter((block) =>
-      block.type === "observation" && Object.keys(block.versions ?? {}).length > 0).length,
+      block.type === "observation" &&
+      (plannedExplorationLeaves(block) ?? [block]).some((entry) =>
+        Object.keys(entry.versions ?? {}).length > 0)).length,
     goal_version: response.goal_version,
   };
 }
