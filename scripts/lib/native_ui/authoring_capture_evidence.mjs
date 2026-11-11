@@ -171,14 +171,23 @@ export function validatePreregistrationFile(file, { dir, model = DEFAULT_STRATA_
     path.resolve(dir),
     `预注册 evidence.dir 必须等于实际批次目录: ${scenario.evidence.dir} != ${dir}`,
   );
-  return { id: value.id, sha256: sha256(text), message: scenario.message, model: value.model.model };
+  // G2 专项标识只从已验证哈希的冻结输入派生；缺省保持普通 live 行为。
+  const scenarioId =
+    typeof scenario.id === "string" && scenario.id.trim() !== "" ? scenario.id : null;
+  return {
+    id: value.id,
+    sha256: sha256(text),
+    message: scenario.message,
+    model: value.model.model,
+    scenario_id: scenarioId,
+  };
 }
 
 // 有标记或普通 live 批次内有预注册文件时，配置必须与冻结副本一致。
 function checkPreregistration(dir, config) {
   const marker = config.preregistration ?? null;
   const file = path.join(dir, PREREGISTRATION_FILE);
-  if (!marker && !(config.journey === "live" && fs.existsSync(file))) return;
+  if (!marker && !(config.journey === "live" && fs.existsSync(file))) return null;
   assert(marker, "预注册文件存在但配置缺少 preregistration 标记");
   assert(
     typeof marker === "object" && !Array.isArray(marker),
@@ -194,12 +203,16 @@ function checkPreregistration(dir, config) {
   assert.equal(marker.id, record.id, "预注册 id 与配置不一致");
   assert.equal(marker.sha256, record.sha256, "预注册文件已被篡改");
   assert.equal(config.message, record.message, "配置作者输入与预注册不一致");
+  return record.scenario_id;
 }
 
 export function readConfig(dir) {
   const config = read(dir, "native-b71-config.json");
-  checkPreregistration(dir, config);
-  return config;
+  const scenarioId = checkPreregistration(dir, config);
+  // 配置文件自带的 scenario_id 可伪造，一律丢弃；只保留哈希验证后的冻结标识。
+  const sealed = { ...config };
+  delete sealed.scenario_id;
+  return scenarioId === null ? sealed : { ...sealed, scenario_id: scenarioId };
 }
 
 function readyFor(dir) {

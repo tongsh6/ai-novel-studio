@@ -20,7 +20,7 @@ import {
   writeNativeFrames,
 } from "./scenario_evidence.mjs";
 import { readConfig } from "./authoring_capture_evidence.mjs";
-import { bindNativeCalls } from "./authoring_run_evidence.mjs";
+import { bindNativeCalls, readG2PageInputs } from "./authoring_run_evidence.mjs";
 import {
   NATIVE_CHAT_WIRE,
   requestFactsFromRecord,
@@ -32,6 +32,7 @@ import {
   summarizeModelBehavior,
 } from "./live_run_wait.mjs";
 import { liveRefsCheck } from "./authoring_live_refs.mjs";
+import { g2PageEvidence } from "./authoring_g2_evidence.mjs";
 import { readBatchAuthoringHistory, readRunRefFacts } from "./authoring_history_evidence.mjs";
 
 export const LIVE_CHECKS_SCHEMA = "b71-live-checks/v1";
@@ -588,6 +589,46 @@ function reconcileNativeCalls(dir, config, history, records) {
   return calls;
 }
 
+// B82 §7 G2：只有冻结的 b82-g2 把页证据并入 live 报告；复用已绑定 run 的 canonical
+// transcript 与已对账 records，不另造旅程或持久台账。页证据只保留 refs/range/reason，
+// 正文不写入 checks/summary；两页成立也只签页级版本/紧邻请求，不代签 G2 整体。
+function g2PageReport({ dir, config, history, records }) {
+  assert.equal(config.scenario_id, "b82-g2", "G2 页证据只属于冻结的 b82-g2");
+  assert(Array.isArray(records), "b82-g2 页证据需要已对账的 nativeCalls.records");
+  const input = readG2PageInputs(dir, {
+    workId: history.record.work_id,
+    runId: history.record.id,
+  });
+  const evidence = g2PageEvidence({
+    transcript: history.transcript,
+    records,
+    starts: input.starts,
+    chapterRef: input.chapter_ref,
+    draftRef: input.draft_ref,
+    revision: input.revision,
+    prose: input.prose,
+  });
+  return {
+    scenario_id: config.scenario_id,
+    chapter_ref: input.chapter_ref,
+    draft_ref: input.draft_ref,
+    revision: input.revision,
+    started_count: input.starts.length,
+    ok: evidence.ok,
+    pages: evidence.pages,
+    signed_scope: "pages_only",
+    g2_signed: false,
+    not_signed: ["page_level_usage", "candidate", "final"],
+  };
+}
+
+function g2FailureMessage(g2) {
+  const detail = g2.pages
+    .map((page) => `${page.range[0]}-${page.range[1]}:${page.reason ?? "ok"}`)
+    .join(", ");
+  return `B82 §7 G2 页级证据未成立: ${detail}`;
+}
+
 export function verifyLiveBatch(dir) {
   const config = readConfig(dir);
   assert.equal(config.journey, "live", "live verifier 只接受 journey=live");
@@ -628,6 +669,10 @@ export function verifyLiveBatch(dir) {
     workId: config.target?.work_id,
   });
   const nativeCalls = reconcileNativeCalls(dir, config, history, evidence.llmRecords);
+  // 仅冻结的 b82-g2 复用本条 run 的 transcript 与已对账 records 生成页证据。
+  const g2Pages = config.scenario_id === "b82-g2"
+    ? g2PageReport({ dir, config, history, records: nativeCalls?.records })
+    : null;
   const dbFacts = withDb(dir, (db) => {
     const tableCount = (table) => {
       try {
@@ -660,6 +705,8 @@ export function verifyLiveBatch(dir) {
     0,
     `B71 live mechanism 断言失败: ${checks.failed_mechanism.join(", ")}`,
   );
+  // 页证据并入既有报告；普通 live 与非 G2 冻结批次保持 checks 形状不变。
+  const reportChecks = g2Pages ? { ...checks, g2_pages: g2Pages } : checks;
 
   writeNativeFrames(dir);
   const summary = {
@@ -683,6 +730,7 @@ export function verifyLiveBatch(dir) {
     strata_slot: strataSlot,
     wait_ledger: common.ledger,
     screenshots: common.ui.screenshots,
+    ...(g2Pages ? { g2_pages: g2Pages } : {}),
     verdict: {
       mechanism: "pass",
       model_behavior: checks.model_behavior,
@@ -690,8 +738,10 @@ export function verifyLiveBatch(dir) {
       full_g1_g6_signed: false,
     },
   };
-  fs.writeFileSync(path.join(dir, "native-b71-checks.json"), JSON.stringify(checks, null, 2));
+  fs.writeFileSync(path.join(dir, "native-b71-checks.json"), JSON.stringify(reportChecks, null, 2));
   fs.writeFileSync(path.join(dir, "summary.json"), JSON.stringify(summary, null, 2));
   console.log(`B71 CP3b 实模机制判据通过: ${checks.required_mechanism.length}/${checks.required_mechanism.length}`);
-  return { checks, summary };
+  // 报告先落盘再失败，保留可复查的 mechanism + g2_pages 事实。
+  if (g2Pages && !g2Pages.ok) throw new Error(g2FailureMessage(g2Pages));
+  return { checks: reportChecks, summary };
 }

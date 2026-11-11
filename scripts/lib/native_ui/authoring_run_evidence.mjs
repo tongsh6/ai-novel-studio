@@ -17,6 +17,7 @@ import {
   frameEvent,
   frameOf,
   read,
+  seedFields,
   turnFacts,
   withDb,
   write,
@@ -215,6 +216,45 @@ export function finishVerification(
   return { checks, measured };
 }
 
+
+// B82 §7 G2 页证据的只读输入边界：目标章由首批冻结 seed 的 chapter_id/chapter_seq 锁定，
+// draft 只取同 work、目标章序=2 的唯一 ACCEPTED 行；实际 revision 原样交给纯页判据做版本等值，
+// 不在此处硬编码版本号。started 只取同一 AgentRun。
+export function readG2PageInputs(dir, { workId, runId } = {}) {
+  assert(typeof workId === "string" && workId !== "", "G2 页证据缺少 work_id");
+  assert(typeof runId === "string" && runId !== "", "G2 页证据缺少 run_id");
+  const fields = seedFields(dir);
+  const chapterId = fields("chapter_id");
+  const chapterSeq = fields("chapter_seq");
+  assert(chapterId, "G2 页证据缺少 seed chapter_id");
+  assert.equal(chapterSeq, "2", "G2 页证据: 冻结 seed 的目标章序必须为 2");
+  return withDb(dir, (db) => {
+    const drafts = all(
+      db,
+      "SELECT d.id, d.revision, d.content FROM drafts d " +
+        "JOIN scenes s ON s.id = d.scene_id AND s.work_id = d.work_id " +
+        "JOIN chapters c ON c.id = s.chapter_id AND c.work_id = d.work_id " +
+        "WHERE d.work_id = ? AND s.chapter_id = ? AND c.seq = ? " +
+        "AND d.status = 'ACCEPTED'",
+      [workId, chapterId, Number(chapterSeq)],
+    );
+    assert.equal(drafts.length, 1, "G2 页证据: 目标章 ACCEPTED draft 必须恰好一份");
+    const starts = all(
+      db,
+      "SELECT provider_run_id, provider_call_ref, emitted_at FROM provider_events " +
+        "WHERE agent_run_id = ? AND event_type = 'started' ORDER BY emitted_at",
+      [runId],
+    );
+    const draft = drafts[0];
+    return {
+      chapter_ref: `chapter:${chapterId}`,
+      draft_ref: `draft:${draft.id}`,
+      revision: Number(draft.revision),
+      prose: String(draft.content ?? ""),
+      starts,
+    };
+  });
+}
 
 // 修订批次只读 DB 读取：按明确 run/receipt/turn/trace 身份读取，不按“最新”猜。
 export function readRunRecord(dir, runId) {

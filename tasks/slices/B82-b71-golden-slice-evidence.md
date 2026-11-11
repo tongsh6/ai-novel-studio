@@ -48,7 +48,7 @@
 
 现有 live 入口在模型未调用工具时会将观察相关判据记为 `null`，通用机制报告仍可通过。专项 G2 要求成功分页观察实际发生，并把同一次 Provider 执行的响应、canonical 工具 ID、紧接的下一请求和使用声明关联。已有确定性全章核对的工具交换和续页读取判据可复用。它要求的固定探索收尾属于原场景，专项 G2 仍以作者请求中的待采纳改写候选为出口。
 
-第 02 章的已采纳稿由既有种子建立，revision 为 1，7000 字符分别覆盖 1–6000 和 6001–7000。两页按实际 draft 版本、范围和报文正文对账。模型只声明章节引用且该引用同时存在于 Base 时，可以核对引用边界，页级观察使用仍需页对应的证据。
+第 02 章的已采纳稿由既有种子建立，7000 字符分别覆盖 1–6000 和 6001–7000。两页按实际落库的 draft 版本、范围和报文正文对账。模型只声明章节引用且该引用同时存在于 Base 时，可以核对引用边界，页级观察使用仍需页对应的证据。
 
 冻结 live 入口现已复用 `bindNativeCalls`。它以 ACK 对应 run 的完整归属读取 ProviderRun、canonical 和日志，逐调用核验原生 ID 与参数字节，并只把已绑定的本 run 记录交给机制判据。报告中 `measured.native_call` 记录执行引用和 SSE 工具对账数量。占位、缺响应、错属和带 Strata 标签的替身记录均不能满足该入口。后续还需把分页与页级使用作为专项必过项，并以同一 ACK 的实际终局页面核对候选归属。
 
@@ -61,6 +61,16 @@
 - **目标授权**。第二次模型绑定正确第 02 章并请求 `revise_adopted_content`，同时将其解释为整章替换。按原始作者文本复算，`ChapterRevisionScope` 仅授予 `:target_segments`。现有字面目标解析把「发现的重复写法」当作待定位原文，因未命中返回 `:target_missing`，writer 未启动。页面只提示核对当前候选，作者看不到应补充什么目标。该缺口沿 [B28](B28-whole-chapter-revision.md) 的章级修订边界处理，保持作者授权约束。
 
 两次 Provider 调用低于本 run 的 33 次预算，页级自报、正文分页及待采纳候选均缺证。Strata 已卸载，窗口进程已清理。本批原始文件保持只读，逐项判定、时间戳和清理结果见 `artifacts/b71-audit/2026-11-11-b82-g2-iq3s-01-verdict.json`。
+
+#### 分页判据的归属对照
+
+复核三份现有档案。确定性原生批次 `b81-snapshot-versions-final` 两页均与 revision 2 采纳稿和紧接的 Provider 请求等值。历史实模批次 `b81-c7-c8-03` 的第一页来自该 run 的第 4 次 Provider 启动，前面还有问答和探索。两页的正文和紧接请求均能对账，版本字段缺失。B82 首批无目标正文页。逐项对照见 `artifacts/b71-audit/2026-11-11-g2-archive-page-facts.jsonl`。
+
+原生执行的工具名为 `judgment_decision`，观察内容才标记 `chapter_read`。按每页的 canonical call ID 定位在先 assistant，再用其 Provider run/call 双键查找实际 started 和下一次请求。此前问答的调用保留在顺序中，页序本身不承担调用身份。
+
+冻结场景 `b82-g2` 现已启用这一页级门禁。场景 ID 来自哈希核验后的预注册，目标章和唯一采纳稿取自隔离库。门禁失败时保留现有报告和逐页原因，再让专项验收退出。复验两页同源正例、实模档案的版本缺失、B82 首批无页，以及从紧邻请求删掉观察而仅留下后续回放的反例，见 `artifacts/b71-audit/2026-11-11-g2-page-gate-archive-proof.jsonl`。报告明确标记只核验分页，模型页级使用与作者可见候选仍须独立验收。
+
+首批冻结文本将种子传入的 revision 1 误记为落库版本。实际 SQLite 中第 02 章唯一采纳稿是 revision 2，因为 `Draft.changeset` 经过现有的 `optimistic_lock(:revision)`。原始预注册保留原值，首批未通过结论保持。后续批次按已持久化的版本冻结预期。读侧从该版本核对同一页的 canonical 和下一实际请求。对账见 `artifacts/b71-audit/2026-11-11-b82-g2-seed-actual-revision.json`。
 
 ### G3 既有批次预算对账
 

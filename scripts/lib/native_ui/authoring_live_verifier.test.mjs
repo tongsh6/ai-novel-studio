@@ -19,6 +19,11 @@ const WORKSPACE = "test";
 const SESSION = "session-live-1";
 const SEGMENT_VERSION = "authoring-run-segment/v1";
 const MESSAGE_VERSION = "authoring-session-message/v1";
+// B82 §7 G2：目标为第 2 章的单场景采纳稿，正文 7000 字符，版本以落库值为准。
+const G2_CHAPTER = "chapter-target-2";
+const G2_SCENE = "scene-target-2";
+const G2_DRAFT = "draft-target-2";
+const G2_PROSE = Array.from({ length: 7000 }, (_, index) => String.fromCodePoint(0x4e00 + (index % 2000))).join("");
 
 const readyAt = new Date(Date.now() - 3600_000).toISOString();
 const finishedAt = new Date(Date.now() - 1800_000).toISOString();
@@ -130,13 +135,18 @@ function rewriteRecords(dir, records) {
 }
 
 // 既有预注册形状：配置只存 id/sha256/model，文件冻结在批次目录内。
-function writePreregistration(dir) {
+// scenarios[0].id 是冻结的 G2 专项标识（b82-g2）；缺省时不派生，保持普通冻结 live。
+function writePreregistration(dir, { scenarioId = null } = {}) {
   const file = path.join(dir, "preregistration.json");
   const text = JSON.stringify(
     {
       id: "b82-live-sse-prereg",
       model: { provider: "strata", model: "iq3_s" },
-      scenarios: [{ message: AUTHOR, evidence: { dir } }],
+      scenarios: [{
+        ...(scenarioId ? { id: scenarioId } : {}),
+        message: AUTHOR,
+        evidence: { dir },
+      }],
     },
     null,
     2,
@@ -231,18 +241,21 @@ function insertCanonicalRun(
   ).run(`msg-${runId}-1`, WORKSPACE, workId, sessionId, runId, 1, 1, "assistant", JSON.stringify(message), MESSAGE_VERSION);
 }
 
-function writeLiveDatabase(dir, { usedRefs = ["observation:obs_1"], nativeCall = false } = {}) {
+function writeLiveDatabase(dir, { usedRefs = ["observation:obs_1"], nativeCall = false, g2 = false, g2Revision = 1 } = {}) {
   const dbDir = path.join(dir, "database");
   fs.mkdirSync(dbDir, { recursive: true });
   const db = new DatabaseSync(path.join(dbDir, "ai_novel_studio_test.sqlite3"));
   db.exec(`
     CREATE TABLE chapters (id TEXT PRIMARY KEY, work_id TEXT, volume_id TEXT, title TEXT, seq INTEGER, status TEXT, inserted_at TEXT, updated_at TEXT, summary TEXT, plan_direction TEXT);
+    CREATE TABLE scenes (id TEXT PRIMARY KEY, chapter_id TEXT, work_id TEXT, seq INTEGER);
+    CREATE TABLE drafts (id TEXT PRIMARY KEY, work_id TEXT, scene_id TEXT, content TEXT, status TEXT, revision INTEGER);
     CREATE TABLE agent_events (id TEXT, run_id TEXT, event_type TEXT, refs TEXT);
     CREATE TABLE decision_traces (trace_id TEXT, workspace_id TEXT, session_id TEXT, turn_id TEXT, context_refs TEXT);
     CREATE TABLE agent_runs (id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, parent_turn_ref TEXT, long_run_task_ref TEXT, run_mode TEXT, status TEXT, plan_version INTEGER, consumed_budget TEXT, pending_artifact_refs TEXT);
     CREATE TABLE authoring_run_segments (run_id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, parent_turn_ref TEXT, header TEXT, message_count INTEGER, first_sequence INTEGER, last_sequence INTEGER, format_version TEXT);
     CREATE TABLE authoring_session_messages (id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, run_id TEXT, sequence INTEGER, run_sequence INTEGER, role TEXT, message TEXT, format_version TEXT);
     CREATE TABLE provider_runs (id TEXT PRIMARY KEY, provider_call_ref TEXT, agent_run_id TEXT, workspace_id TEXT, work_id TEXT, session_id TEXT, parent_turn_ref TEXT, status TEXT);
+    CREATE TABLE provider_events (id TEXT PRIMARY KEY, provider_run_id TEXT, provider_call_ref TEXT, agent_run_id TEXT, event_type TEXT, emitted_at TEXT);
     CREATE TABLE mutations (id TEXT);
   `);
   const mission = {
@@ -263,7 +276,25 @@ function writeLiveDatabase(dir, { usedRefs = ["observation:obs_1"], nativeCall =
   db.prepare("INSERT INTO decision_traces (trace_id, workspace_id, session_id, turn_id, context_refs) VALUES (?,?,?,?,?)").run("trace_1", WORKSPACE, SESSION, TURN, null);
   if (nativeCall) insertNativeCallRun(db);
   else insertCanonicalRun(db, { usedRefs });
+  if (g2) insertG2Fixture(db, { revision: g2Revision });
   db.close();
+}
+
+// B82 §7 G2 零页反例：目标第 2 章有唯一 ACCEPTED draft 与同 run 的 started 序列，
+// 但 canonical transcript 没有任何落在该章正文分页上的观察。
+function insertG2Fixture(db, { revision = 1 } = {}) {
+  db.prepare("INSERT INTO chapters (id, work_id, volume_id, title, seq, status, inserted_at, updated_at, summary, plan_direction) VALUES (?,?,?,?,?,?,?,?,?,?)")
+    .run(G2_CHAPTER, WORK, null, "灰烬中的手印", 2, "PLANNED", "2026-11-03T10:00:00.000Z", "2026-11-03T10:00:00.000Z", null, null);
+  db.prepare("INSERT INTO scenes (id, chapter_id, work_id, seq) VALUES (?,?,?,?)")
+    .run(G2_SCENE, G2_CHAPTER, WORK, 1);
+  db.prepare("INSERT INTO drafts (id, work_id, scene_id, content, status, revision) VALUES (?,?,?,?,?,?)")
+    .run(G2_DRAFT, WORK, G2_SCENE, G2_PROSE, "ACCEPTED", revision);
+  const insertEvent = db.prepare(
+    "INSERT INTO provider_events (id, provider_run_id, provider_call_ref, agent_run_id, event_type, emitted_at) VALUES (?,?,?,?,?,?)",
+  );
+  for (const [index, ref] of [SSE_CALL.first, SSE_CALL.second].entries()) {
+    insertEvent.run(`pevt-g2-${index}`, ref.prun, ref.pcall, RUN, "started", `2026-11-03T10:00:0${index + 1}.000Z`);
+  }
 }
 
 // B82：两轮真实 SSE 执行的 canonical 段 + 同 run 的 ProviderRun 行。
@@ -321,10 +352,14 @@ function insertNativeCallRun(db) {
   }
 }
 
-function buildDir({ withStrataUnloaded = true, screenshots = 3, usedRefs = ["observation:obs_1"], nativeCall = false, preregistration = false } = {}) {
+function buildDir({ withStrataUnloaded = true, screenshots = 3, usedRefs = ["observation:obs_1"], nativeCall = false, preregistration = false, scenarioId = null, g2 = false, g2Revision = 1, nativeScenarioId = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-live-verify-"));
   fs.mkdirSync(path.join(dir, "app-log"), { recursive: true });
   fs.mkdirSync(path.join(dir, "llm-calls"), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "seed.log"),
+    `[g2-test-seed] work_id=${WORK} session_id=${SESSION} chapter_id=${G2_CHAPTER} chapter_seq=2\n`,
+  );
 
   writeJson(path.join(dir, "native-driver-ready.json"), {
     driver: "external-system-ui",
@@ -410,12 +445,14 @@ function buildDir({ withStrataUnloaded = true, screenshots = 3, usedRefs = ["obs
     target: { work_id: WORK, work_title: "B71 live", session_id: SESSION },
     message: AUTHOR,
   };
+  // 原生 config 不是冻结输入，不能凭它选择 G2；只在负例中模拟被写入的伪造字段。
+  if (nativeScenarioId) config.scenario_id = nativeScenarioId;
   // 只有冻结批次带预注册标记；普通 live 批次保持原入口。
-  if (preregistration) config.preregistration = writePreregistration(dir);
+  if (preregistration) config.preregistration = writePreregistration(dir, { scenarioId });
   writeJson(path.join(dir, "native-b71-config.json"), config);
   writeJson(path.join(dir, "b71-start.json"), checkpoint("start"));
   // 真实持久结构（L7/L9 的数据源）：DB 由 live 场景 seed 建出，verify 只读。
-  writeLiveDatabase(dir, { usedRefs, nativeCall });
+  writeLiveDatabase(dir, { usedRefs, nativeCall, g2, g2Revision });
   writeJson(path.join(dir, "b71-final.json"), checkpoint("final", { design: "design-final" }));
   writeJson(path.join(dir, "native-b71-driver-log.json"), {
     slice_id: "b71-first-consumer",
@@ -527,6 +564,56 @@ test("B82 冻结 live：真实 SSE 逐调用对账写入 measured.native_call �
   assert.equal(summary.measured.native_call.bound_request_count, 2);
   assert.equal(summary.measured.provider_calls, 2);
   assert.equal(summary.verdict.mechanism, "pass");
+  // 非 b82-g2 的冻结 live 不派生 G2 页证据，保持原入口。
+  assert.equal(summary.g2_pages, undefined);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// B82 §7 G2：实际批次 0 页时通用机制仍会全绿（这正是误 PASS 的来源）；冻结入口
+// 必须依据 b82-g2 页证据拒绝，并在拒绝前保留可复查的 checks/summary。
+test("B82 冻结 live：b82-g2 零页时通用机制仍绿但页证据拒绝并保留报告", () => {
+  const dir = buildDir({ nativeCall: true, preregistration: true, scenarioId: "b82-g2", g2: true });
+  assert.throws(() => verifyLiveBatch(dir), /G2 页级证据未成立/u);
+  const checks = JSON.parse(fs.readFileSync(path.join(dir, "native-b71-checks.json"), "utf8"));
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.deepEqual(checks.failed_mechanism, []);
+  assert.equal(checks.g2_pages.ok, false);
+  assert.equal(checks.g2_pages.g2_signed, false);
+  assert.deepEqual(
+    checks.g2_pages.pages.map((page) => page.reason),
+    ["observation_missing", "observation_missing"],
+  );
+  assert.equal(summary.g2_pages.ok, false);
+  assert.equal(summary.verdict.mechanism, "pass");
+  assert.equal(summary.verdict.full_g1_g6_signed, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：b82-g2 目标稿 revision=2 时报告实际版本并仍因无页拒绝", () => {
+  const dir = buildDir({ nativeCall: true, preregistration: true, scenarioId: "b82-g2", g2: true, g2Revision: 2 });
+  assert.throws(() => verifyLiveBatch(dir), /G2 页级证据未成立/u);
+  const checks = JSON.parse(fs.readFileSync(path.join(dir, "native-b71-checks.json"), "utf8"));
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(checks.g2_pages.revision, 2);
+  assert.equal(summary.g2_pages.revision, 2);
+  assert.equal(summary.g2_pages.ok, false);
+  assert.deepEqual(
+    summary.g2_pages.pages.map((page) => page.reason),
+    ["observation_missing", "observation_missing"],
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("B82 冻结 live：原生 config 的 scenario_id 不能选择 b82-g2", () => {
+  const dir = buildDir({
+    nativeCall: true,
+    preregistration: true,
+    scenarioId: null,
+    g2: true,
+    nativeScenarioId: "b82-g2",
+  });
+  const { summary } = verifyLiveBatch(dir);
+  assert.equal(summary.g2_pages, undefined);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
