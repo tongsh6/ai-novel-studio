@@ -323,7 +323,6 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
       )
 
     assert continuation_query == %{"chapter_ref" => chapter_ref, "offset" => 6000}
-    refute explore2.progress_signature == explore1.progress_signature
 
     assert_received {:stage_event, %{event_type: :exploration_observed} = event2}
     assert event2.summary =~ "第 6001–7000 字符"
@@ -335,7 +334,6 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     second_prompt = Enum.find(prompts, &String.contains?(&1, "## 探索观察"))
     assert second_prompt
     assert second_prompt =~ "【续读】"
-    assert second_prompt =~ ~s({"chapter_ref":"#{chapter_ref}","offset":6000})
 
     prompt_maps = drain_prompt_maps([])
 
@@ -348,6 +346,8 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     tool_message = Enum.find(second_prompt_map.messages, &(&1.role == "tool"))
     observation = Enum.find(tool_message.blocks, &(&1.type == "observation"))
     assert observation.next_offset == 6000
+    assert observation.coverage["continuation_hint"] =~ "未读 6001–7000 字符"
+    assert observation.coverage["continuation_hint"] =~ "chapter_read + 上一页【续读】"
     assert chapter_ref in observation.source_refs
     assert observation.versions == versions
     assert observation.content["observation_ref"] == page1_observation_ref

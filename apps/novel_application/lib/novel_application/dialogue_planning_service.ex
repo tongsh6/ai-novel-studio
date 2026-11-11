@@ -1951,10 +1951,14 @@ defmodule NovelApplication.DialoguePlanningService do
     # 原始 query JSON / offset 只留在 payload/trace/developer 面。
     activity = ExplorationService.activity_summary(observation)
 
+    # 单次成功页、原生观察续读提示与 stage_state 共用同一份追加后列表：预算
+    # 必须包含刚发生的 observation，否则本页 next_offset 不会进入续读提示。
+    explorations = explorations ++ [observation]
+
     request_observation =
       request_observation
-      |> Map.put(:coverage_note, coverage_note([observation]))
-      |> Map.put(:continue_hint, continue_hint([observation], exploration_budget(explorations)))
+      |> Map.put(:coverage_note, coverage_note(explorations))
+      |> Map.put(:continue_hint, continue_hint(explorations, exploration_budget(explorations)))
 
     transcript =
       JudgmentProtocol.observation_transcript(judgment.transcript, judgment, request_observation)
@@ -1964,7 +1968,7 @@ defmodule NovelApplication.DialoguePlanningService do
        step: judgment_agent_step(run, sequence, activity),
        observations: [agent_observation],
        stage_state: %{
-         judgment_explorations: explorations ++ [observation],
+         judgment_explorations: explorations,
          judgment_transcript: transcript
        },
        provider_call_count: judgment.provider_call_count,
