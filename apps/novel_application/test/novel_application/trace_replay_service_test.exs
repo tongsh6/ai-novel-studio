@@ -473,14 +473,34 @@ defmodule NovelApplication.TraceReplayServiceTest do
   end
 
   test "历史说明与来源名称不把内部调用和私有推理字段展示给作者" do
-    transcript =
-      NovelApplication.AuthoringTranscript.new(%{}, base_text: "作者主权", author_text: "检查旧誓")
-      |> append_legacy_checkpoint(
-        %{turn_range: "早期轮次"},
-        [
-          "chapter:reference-only",
-          %{ref: "chapter:internal-03", display_name: "chapter:internal-03"}
-        ],
+    source_refs = [
+      "chapter:reference-only",
+      %{ref: "chapter:internal-03", display_name: "chapter:internal-03"}
+    ]
+
+    run = %{
+      run_id: "run-history-safe",
+      workspace_id: "ws-history-safe",
+      work_id: "work-history-safe",
+      session_id: "session-history-safe",
+      parent_turn_ref: "turn-history-safe"
+    }
+
+    {:ok, transcript} =
+      NovelApplication.AuthoringTranscript.new(run,
+        base_text: "作者主权",
+        author_text: "检查旧誓"
+      )
+      |> NovelApplication.AuthoringTranscript.append_assistant("", [
+        NovelCommon.RequestIR.tool_call_block("chapter_read", %{}, "call-history")
+      ])
+      |> NovelApplication.AuthoringTranscript.append_observation("call-history", %{
+        status: "ok",
+        source_refs: source_refs
+      })
+      |> NovelApplication.AuthoringTranscript.compact(
+        %{call_ids: ["call-history"], turn_range: "早期轮次"},
+        source_refs,
         %{},
         ["reasoning_content 含内部推理"],
         "RequestIR 的 call_123 已执行"
@@ -647,15 +667,5 @@ defmodule NovelApplication.TraceReplayServiceTest do
 
     assert {:error, :trace_not_found} =
              TraceReplayService.fetch_turn_report(work.id, session.id, turn_id)
-  end
-
-  # append_checkpoint/6 已按「无历史兼容」退役：生产唯一压缩入口是 compact/6。
-  # 历史 turn_range checkpoint 事实由测试直接构造 canonical 消息，不再经产品 API。
-  defp append_legacy_checkpoint(transcript, covers, source_refs, versions, omissions, summary) do
-    block =
-      NovelCommon.RequestIR.checkpoint_block(covers, source_refs, versions, omissions, summary)
-
-    message = NovelCommon.RequestIR.message(:checkpoint, :application, [block])
-    %{transcript | messages: transcript.messages ++ [message]}
   end
 end

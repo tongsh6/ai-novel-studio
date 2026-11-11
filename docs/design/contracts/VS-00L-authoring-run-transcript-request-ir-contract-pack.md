@@ -378,7 +378,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 ### 16.2 显式压缩而非历史丢弃
 
 - 压缩只能由 application 在明确边界调用，携带 `covers`、source_refs、versions、 omissions 和自然语言摘要。不得按消息数、字符数或 provider 私有句柄静默丢弃。
-- canonical 消息永久追加保留，`checkpoint` 是独立压缩事件；只有 Provider 投影视图替代其声明覆盖的已完成 assistant/tool 消息。实际压缩使用 `covers.call_ids` 精确选择完整交换，禁止部分选择同一 assistant 的并行调用、重复覆盖、覆盖未知或未完成调用。旧 `turn_range` 仅作历史说明，不授权删除消息。稳定 Base、作者原话、当前 scope 和未覆盖消息保持原序；选中观察的 refs/version 必须与 checkpoint 一致，摘要不能冒充未读或已采纳事实。
+- canonical 消息永久追加保留。`checkpoint` 是独立压缩事件，Provider 投影按必填的 `covers.call_ids` 精确替代已完成的 assistant/tool 交换。会话压缩计划从作者回合归属派生 `turn_range`，用于说明覆盖范围。仅有 `turn_range` 的 checkpoint 无法进入 canonical IR。禁止部分选择同一 assistant 的并行调用、重复覆盖、覆盖未知或未完成调用。稳定 Base、作者原话、当前 scope 和未覆盖消息保持原序。选中观察的 refs/version 必须与 checkpoint 一致，摘要不得冒充未读或已采纳事实。
 - 三种 Provider 投影必须对同一 canonical checkpoint 给出一致语义；恢复后再次投影保持幂等，不重复插入 checkpoint。长会话的原始 artifact 字节、来源和真实版本仍由 canonical trace/refs 支撑，不依赖 provider 服务端历史。
 
 ### 16.3 旧协议与 replay/Why

@@ -4,11 +4,12 @@ defmodule NovelCommon.RequestIR.Compaction do
 
   checkpoint 以 call_ids 精确选择已经闭合的完整交换。原始消息始终留在
   transcript 中；只有 Provider 投影视图省略这些消息，恢复和回查不依赖摘要。
-  仅带 turn_range 的历史 checkpoint 是说明事实，不授权删除任何消息。
+  turn_range 只作说明；仅带 turn_range 的旧 checkpoint 不再被接受。
   """
 
   @result_types ~w(observation validation_result)
 
+  @doc "核对已通过 RequestIR 形状校验的消息所声明的压缩事实。"
   @spec validate([map()]) :: :ok | {:error, atom()}
   def validate(messages) do
     messages
@@ -25,7 +26,7 @@ defmodule NovelCommon.RequestIR.Compaction do
     covered =
       for message <- messages,
           block <- checkpoint_blocks(message),
-          id <- Map.get(Map.get(block, :covers, %{}), :call_ids, []),
+          id <- block.covers.call_ids,
           into: MapSet.new(),
           do: id
 
@@ -35,7 +36,7 @@ defmodule NovelCommon.RequestIR.Compaction do
     end)
   end
 
-  @doc "实际压缩必须有明确调用选择器；纯范围说明仅供历史兼容读取。"
+  @doc "实际压缩必须有明确调用选择器；纯 turn_range 说明不再是可接受的选择器。"
   @spec require_call_ids(map()) :: :ok | {:error, atom()}
   def require_call_ids(%{call_ids: ids}) when is_list(ids) and ids != [] do
     if Enum.all?(ids, &(is_binary(&1) and &1 != "")) and length(Enum.uniq(ids)) == length(ids),
@@ -139,18 +140,15 @@ defmodule NovelCommon.RequestIR.Compaction do
     end
   end
 
-  defp validate_checkpoint(%{covers: %{call_ids: ids} = covers} = block, history, covered) do
+  defp validate_checkpoint(%{covers: %{call_ids: ids}} = block, history, covered) do
     messages = Enum.reverse(history)
 
-    with :ok <- require_call_ids(covers),
-         :ok <- validate_selection(ids, history, covered),
+    with :ok <- validate_selection(ids, history, covered),
          :ok <- validate_omissions(block),
          :ok <- validate_evidence(block, ids, messages) do
       {:ok, MapSet.union(covered, MapSet.new(ids))}
     end
   end
-
-  defp validate_checkpoint(_block, _history, covered), do: {:ok, covered}
 
   defp validate_selection(ids, history, covered) do
     selected = MapSet.new(ids)

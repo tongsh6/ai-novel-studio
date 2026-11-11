@@ -468,19 +468,17 @@ defmodule NovelCommon.RequestIR do
 
   defp validate_checkpoint_block(%{covers: covers, summary: summary} = block)
        when is_binary(summary) and summary != "" do
-    if is_list(Map.get(block, :source_refs, [])) and is_map(Map.get(block, :versions, %{})) and
-         is_list(Map.get(block, :omissions, [])) and valid_covers?(covers) do
+    with true <- is_list(Map.get(block, :source_refs, [])),
+         true <- is_map(Map.get(block, :versions, %{})),
+         true <- is_list(Map.get(block, :omissions, [])),
+         :ok <- Compaction.require_call_ids(covers) do
       :ok
     else
-      {:error, :invalid_checkpoint_block}
+      _ -> {:error, :invalid_checkpoint_block}
     end
   end
 
   defp validate_checkpoint_block(_block), do: {:error, :invalid_checkpoint_block}
-
-  defp valid_covers?(%{turn_range: range}) when is_binary(range) and range != "", do: true
-  defp valid_covers?(%{call_ids: [_ | _]}), do: true
-  defp valid_covers?(_covers), do: false
 
   defp validate_tools(tools) when is_list(tools) do
     names = Enum.map(tools, &tool_name/1)

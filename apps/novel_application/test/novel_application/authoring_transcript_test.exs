@@ -354,16 +354,20 @@ defmodule NovelApplication.AuthoringTranscriptTest do
   end
 
   test "checkpoint 与 author_exit：显式压缩、无伪作者消息" do
-    transcript =
+    {:ok, compacted} =
       base_transcript()
-      |> append_legacy_checkpoint(
-        %{turn_range: "turn-1..turn-20"},
-        [%{ref: "turn:1..20", version: 1}],
-        %{"turn:1..20" => 1},
+      |> AuthoringTranscript.append_assistant("读取角色。", [tool_call()])
+      |> AuthoringTranscript.append_observation("call-1", observation())
+      |> AuthoringTranscript.compact(
+        %{call_ids: ["call-1"], turn_range: "turn-1..turn-20"},
+        [%{ref: "character:1", version: 2}],
+        %{"character:1" => 2},
         ["对话细节"],
         "前 20 轮摘要。"
       )
-      |> AuthoringTranscript.append_author_exit("author_decision_required", %{
+
+    transcript =
+      AuthoringTranscript.append_author_exit(compacted, "author_decision_required", %{
         question_ref: "question:1"
       })
 
@@ -375,6 +379,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
 
     assert checkpoint_message.content =~ "turn-1..turn-20"
     refute inspect(body) =~ "author_exit"
+    refute Enum.any?(body.messages, &(&1.role == "tool"))
   end
 
   test "显式压缩只改变 Provider 投影，canonical 原始交换与作者字节仍可回查" do
@@ -547,16 +552,15 @@ defmodule NovelApplication.AuthoringTranscriptTest do
     assert inspect(request) =~ "尚未采纳"
   end
 
-  test "历史 turn_range checkpoint 只作说明，不授权删除真实交换" do
+  test "纯 turn_range checkpoint 在 RequestIR 结构入口被拒绝，不授权删除真实交换" do
     transcript =
       base_transcript()
       |> AuthoringTranscript.append_assistant("读取角色。", [tool_call()])
       |> AuthoringTranscript.append_observation("call-1", observation())
       |> append_legacy_checkpoint(%{turn_range: "turn-1"}, [], %{}, [], "旧版摘要")
 
-    assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
-    assert {:ok, request} = Projection.project(ir, "chat_completions")
-    assert provider_call_ids(request) == ["call-1", "call-1"]
+    assert {:error, :invalid_checkpoint_block} =
+             AuthoringTranscript.to_request_ir(transcript)
   end
 
   test "压缩更早的完整交换不会删除后来未完成的交换" do

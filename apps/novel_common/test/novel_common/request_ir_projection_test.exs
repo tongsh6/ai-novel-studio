@@ -292,33 +292,117 @@ defmodule NovelCommon.RequestIRProjectionTest do
       assert length(Enum.filter(body.messages, &(&1.role == "user"))) == 2
     end
 
-    test "G6 压缩后：checkpoint 显式携带覆盖范围，作者原话字节不变" do
-      checkpoint =
-        RequestIR.checkpoint_block(
-          %{turn_range: "turn-1..turn-40"},
-          [%{ref: "turn:1..40", version: 1}],
-          %{"turn:1..40" => 1},
-          ["对话细节"],
-          "前 40 轮摘要：沈砚身份与主角顾青的冲突。"
-        )
+    test "G6 压缩后：带 call_ids 的 checkpoint 在三种投影中折叠已覆盖交换，turn_range 可选" do
+      for covers <- [
+            %{call_ids: ["call-1"]},
+            %{call_ids: ["call-1"], turn_range: "turn-1..turn-40"}
+          ] do
+        checkpoint =
+          RequestIR.checkpoint_block(
+            covers,
+            [%{ref: "character:1", version: 2}],
+            %{},
+            ["对话细节"],
+            "前 40 轮摘要：沈砚身份与主角顾青的冲突。"
+          )
 
-      messages =
-        g1_messages() ++
-          [message(:checkpoint, :application, [checkpoint])] ++
-          [
-            message(:user, :author, [RequestIR.text_block("继续推进下一段冲突")], %{
-              source_refs: [%{ref: "author_turn:turn-41"}]
-            })
-          ]
+        messages =
+          g2_messages() ++
+            [message(:checkpoint, :application, [checkpoint])] ++
+            [
+              message(:user, :author, [RequestIR.text_block("继续推进下一段冲突")], %{
+                source_refs: [%{ref: "author_turn:turn-41"}]
+              })
+            ]
 
-      {:ok, body} = Projection.project(ir(messages), "chat_completions")
+        ir = ir(messages, refs: observed_refs())
+        assert :ok = RequestIR.validate(ir)
 
-      checkpoint_message =
-        Enum.find(body.messages, &(is_binary(&1.content) and &1.content =~ "checkpoint"))
+        for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
+          {:ok, body} = Projection.project(ir, target)
 
-      assert checkpoint_message.content =~ "turn-1..turn-40"
-      assert checkpoint_message.content =~ "对话细节"
-      assert Enum.any?(body.messages, &(&1 == %{role: "user", content: @author_text}))
+          checkpoint_text =
+            case target do
+              "chat_completions" ->
+                Enum.find_value(body.messages, fn message ->
+                  if message.role == "user" and is_binary(message.content) and
+                       message.content =~ "checkpoint",
+                     do: message.content
+                end)
+
+              "anthropic_messages" ->
+                Enum.find_value(body.messages, fn message ->
+                  Enum.find_value(Map.get(message, :content, []), fn block ->
+                    if block.type == "text" and block.text =~ "checkpoint", do: block.text
+                  end)
+                end)
+
+              "responses_api" ->
+                Enum.find_value(body.input, fn item ->
+                  Enum.find_value(Map.get(item, :content, []), fn block ->
+                    if block.type == "input_text" and block.text =~ "checkpoint",
+                      do: block.text
+                  end)
+                end)
+            end
+
+          assert is_binary(checkpoint_text)
+          assert checkpoint_text =~ ~s("call_ids":["call-1"])
+          if range = covers[:turn_range], do: assert(checkpoint_text =~ range)
+
+          case target do
+            "chat_completions" ->
+              assert Enum.any?(body.messages, &(&1 == %{role: "user", content: @author_text}))
+              refute Enum.any?(
+                       body.messages,
+                       &match?(%{role: "tool", tool_call_id: "call-1"}, &1)
+                     )
+
+              refute Enum.any?(body.messages, fn message ->
+                       Enum.any?(Map.get(message, :tool_calls, []), &(&1.id == "call-1"))
+                     end)
+
+            "anthropic_messages" ->
+              assert Enum.any?(
+                       body.messages,
+                       &(&1 == %{role: "user", content: [%{type: "text", text: @author_text}]})
+                     )
+
+              refute Enum.any?(body.messages, fn message ->
+                       Enum.any?(
+                         Map.get(message, :content, []),
+                         &match?(%{type: "tool_use", id: "call-1"}, &1)
+                       )
+                     end)
+
+              refute Enum.any?(body.messages, fn message ->
+                       Enum.any?(
+                         Map.get(message, :content, []),
+                         &match?(%{type: "tool_result", tool_use_id: "call-1"}, &1)
+                       )
+                     end)
+
+            "responses_api" ->
+              assert Enum.any?(body.input, fn item ->
+                       item == %{
+                         type: "message",
+                         role: "user",
+                         content: [%{type: "input_text", text: @author_text}]
+                       }
+                     end)
+
+              refute Enum.any?(
+                       body.input,
+                       &match?(%{type: "function_call", call_id: "call-1"}, &1)
+                     )
+
+              refute Enum.any?(
+                       body.input,
+                       &match?(%{type: "function_call_output", call_id: "call-1"}, &1)
+                     )
+          end
+        end
+      end
     end
   end
 

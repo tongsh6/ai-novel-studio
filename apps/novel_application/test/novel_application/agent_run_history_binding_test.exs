@@ -670,13 +670,7 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
         [],
         %{reasoning_content: "推理原文 " <> marker}
       )
-      |> append_legacy_checkpoint(
-        %{turn_range: "本轮"},
-        [],
-        %{},
-        ["旧细节已省略"],
-        "作者安全历史摘要"
-      )
+      |> append_compacted_checkpoint("call-#{run_id}", "作者安全历史摘要")
       |> AuthoringCheckpoint.checkpoint()
       |> db_json_roundtrip()
 
@@ -834,15 +828,29 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
       base_text: "应用 Base",
       author_text: "作者原话"
     )
-    |> append_legacy_checkpoint(
-      %{turn_range: "本轮"},
-      [],
-      %{},
-      ["旧细节已省略"],
-      summary
-    )
+    |> append_compacted_checkpoint("call-#{run_id}", summary)
     |> AuthoringCheckpoint.checkpoint()
     |> db_json_roundtrip()
+  end
+
+  # 真实闭合交换 + 有效覆盖的唯一测试装配；private marker 用例先追加自己的
+  # assistant 消息，再复用同一装配，保持“历史含 marker、作者回查不泄露”的原义。
+  defp append_compacted_checkpoint(transcript, call_id, summary) do
+    {:ok, compacted} =
+      transcript
+      |> AuthoringTranscript.append_assistant("读取章节。", [
+        NovelCommon.RequestIR.tool_call_block("chapter_read", %{}, call_id)
+      ])
+      |> AuthoringTranscript.append_observation(call_id, %{status: "ok", source_refs: []})
+      |> AuthoringTranscript.compact(
+        %{call_ids: [call_id], turn_range: "本轮"},
+        [],
+        %{},
+        ["旧细节已省略"],
+        summary
+      )
+
+    compacted
   end
 
   defp assert_complete_run_identity(checkpoint, work, session, run_id, parent_turn) do
@@ -1044,15 +1052,5 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
     for module <- @provider_entry_modules do
       :erlang.trace_pattern({module, :_, :_}, false, [:local])
     end
-  end
-
-  # append_checkpoint/6 已按「无历史兼容」退役：生产唯一压缩入口是 compact/6。
-  # 历史 turn_range checkpoint 事实由测试直接构造 canonical 消息，不再经产品 API。
-  defp append_legacy_checkpoint(transcript, covers, source_refs, versions, omissions, summary) do
-    block =
-      NovelCommon.RequestIR.checkpoint_block(covers, source_refs, versions, omissions, summary)
-
-    message = NovelCommon.RequestIR.message(:checkpoint, :application, [block])
-    %{transcript | messages: transcript.messages ++ [message]}
   end
 end
