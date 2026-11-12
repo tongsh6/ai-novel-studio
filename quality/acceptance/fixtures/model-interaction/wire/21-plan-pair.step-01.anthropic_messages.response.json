@@ -1,0 +1,62 @@
+{
+  "id": "fixture-response:demo-21",
+  "type": "message",
+  "role": "assistant",
+  "model": "fixture-model",
+  "content": [
+    {
+      "type": "tool_use",
+      "id": "call:demo-plan-decision",
+      "name": "judgment_decision",
+      "input": {
+        "action": "plan",
+        "dialogue_goal": "核查后提出修订",
+        "reason": "需要读取再执行两个阶段。"
+      }
+    },
+    {
+      "type": "tool_use",
+      "id": "call:demo-plan",
+      "name": "agent_plan_draft",
+      "input": {
+        "plan": {
+          "steps": [
+            {
+              "step_id": "read",
+              "kind": "explore",
+              "description": "读取现有正文",
+              "success_criteria": [
+                "取得完整正文及版本"
+              ],
+              "target_tool_ref": "chapter_read",
+              "exploration_query": "灯下旧卷",
+              "write_intent": "none",
+              "risk_hint": "low"
+            },
+            {
+              "step_id": "revise",
+              "kind": "act",
+              "description": "提出目标段修订候选",
+              "success_criteria": [
+                "其余段落不变"
+              ],
+              "target_tool_ref": "revise_adopted_content",
+              "depends_on": [
+                "read"
+              ],
+              "write_intent": "tentative",
+              "risk_hint": "medium",
+              "target_chapter_ref": "chapter:demo-lamp"
+            }
+          ]
+        },
+        "author_reasoning": "先核对现稿，再提出修订候选，是否采纳由你决定。",
+        "reason_codes": [
+          "needs_source_before_revision"
+        ],
+        "confidence": 0.9
+      }
+    }
+  ],
+  "stop_reason": "tool_use"
+}

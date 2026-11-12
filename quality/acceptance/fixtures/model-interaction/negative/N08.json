@@ -1,0 +1,15 @@
+{
+  "case_id": "N08",
+  "base_case": "03-capability-gap",
+  "description": "原始工具参数不是JSON",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/responses/0/output/tool_calls/0/arguments_raw",
+      "value": "{broken"
+    }
+  ],
+  "expected_error_codes": [
+    "RAW_ARGUMENTS_INVALID_JSON"
+  ]
+}

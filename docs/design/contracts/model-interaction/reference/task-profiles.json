@@ -1,0 +1,153 @@
+{
+  "native_kinds": [
+    {
+      "task_kind": "first_draft",
+      "existence": "existing_AuthoringTask_kind",
+      "source_id": "S04",
+      "model_role": "first_draft",
+      "native_output_tool": "submit_tentative_artifact",
+      "output_mapping_note": "现有原生工具，仍须领域payload检查",
+      "mandatory_materials": "按真实任务选择，缺材料先求证",
+      "canon_write_by_model": false
+    },
+    {
+      "task_kind": "continuation",
+      "existence": "existing_AuthoringTask_kind",
+      "source_id": "S04",
+      "model_role": "continuation",
+      "native_output_tool": "submit_tentative_artifact",
+      "output_mapping_note": "现有原生工具，仍须领域payload检查",
+      "mandatory_materials": "按真实任务选择，缺材料先求证",
+      "canon_write_by_model": false
+    },
+    {
+      "task_kind": "rewrite",
+      "existence": "existing_AuthoringTask_kind",
+      "source_id": "S04",
+      "model_role": "rewrite",
+      "native_output_tool": "submit_tentative_artifact",
+      "output_mapping_note": "现有原生工具，仍须领域payload检查",
+      "mandatory_materials": "完整版本基线/明确修改范围/保留项",
+      "canon_write_by_model": false
+    },
+    {
+      "task_kind": "revision",
+      "existence": "existing_AuthoringTask_kind",
+      "source_id": "S04",
+      "model_role": "revision",
+      "native_output_tool": "submit_tentative_artifact",
+      "output_mapping_note": "现有原生工具，仍须领域payload检查",
+      "mandatory_materials": "完整版本基线/明确修改范围/保留项",
+      "canon_write_by_model": false
+    },
+    {
+      "task_kind": "character_design",
+      "existence": "existing_AuthoringTask_kind",
+      "source_id": "S04",
+      "model_role": "character_design",
+      "native_output_tool": "submit_tentative_artifact",
+      "output_mapping_note": "现有原生工具，仍须领域payload检查",
+      "mandatory_materials": "按真实任务选择，缺材料先求证",
+      "canon_write_by_model": false
+    },
+    {
+      "task_kind": "character_evolution",
+      "existence": "existing_AuthoringTask_kind",
+      "source_id": "S04",
+      "model_role": "character_evolution",
+      "native_output_tool": "submit_tentative_artifact",
+      "output_mapping_note": "现有原生工具，仍须领域payload检查",
+      "mandatory_materials": "按真实任务选择，缺材料先求证",
+      "canon_write_by_model": false
+    },
+    {
+      "task_kind": "outline",
+      "existence": "existing_AuthoringTask_kind",
+      "source_id": "S04",
+      "model_role": "outline",
+      "native_output_tool": "submit_tentative_artifact",
+      "output_mapping_note": "现有原生工具，仍须领域payload检查",
+      "mandatory_materials": "按真实任务选择，缺材料先求证",
+      "canon_write_by_model": false
+    },
+    {
+      "task_kind": "world_building",
+      "existence": "existing_AuthoringTask_kind",
+      "source_id": "S04",
+      "model_role": "world_building",
+      "native_output_tool": "submit_tentative_artifact",
+      "output_mapping_note": "现有原生工具，仍须领域payload检查",
+      "mandatory_materials": "按真实任务选择，缺材料先求证",
+      "canon_write_by_model": false
+    },
+    {
+      "task_kind": "chapter_mission",
+      "existence": "existing_AuthoringTask_kind",
+      "source_id": "S04",
+      "model_role": "chapter_mission",
+      "native_output_tool": null,
+      "output_mapping_note": "具体严格JSON结果在本包是提案，不能冒称现役parser逐字段支持",
+      "mandatory_materials": "按真实任务选择，缺材料先求证",
+      "canon_write_by_model": false
+    },
+    {
+      "task_kind": "quality_evaluation",
+      "existence": "existing_AuthoringTask_kind",
+      "source_id": "S04",
+      "model_role": "independent_evaluator",
+      "native_output_tool": "report_quality_findings",
+      "output_mapping_note": "现有原生工具，仍须领域payload检查",
+      "mandatory_materials": "待评审正文覆盖/设计目标/可用事实证据",
+      "canon_write_by_model": false
+    },
+    {
+      "task_kind": "chapter_summary",
+      "existence": "existing_AuthoringTask_kind",
+      "source_id": "S04",
+      "model_role": "chapter_summary",
+      "native_output_tool": null,
+      "output_mapping_note": "具体严格JSON结果在本包是提案，不能冒称现役parser逐字段支持",
+      "mandatory_materials": "按真实任务选择，缺材料先求证",
+      "canon_write_by_model": false
+    },
+    {
+      "task_kind": "fact_inventory",
+      "existence": "existing_AuthoringTask_kind",
+      "source_id": "S04",
+      "model_role": "fact_inventory",
+      "native_output_tool": null,
+      "output_mapping_note": "具体严格JSON结果在本包是提案，不能冒称现役parser逐字段支持",
+      "mandatory_materials": "按真实任务选择，缺材料先求证",
+      "canon_write_by_model": false
+    },
+    {
+      "task_kind": "ledger_reconcile",
+      "existence": "existing_AuthoringTask_kind",
+      "source_id": "S04",
+      "model_role": "ledger_reconcile",
+      "native_output_tool": null,
+      "output_mapping_note": "具体严格JSON结果在本包是提案，不能冒称现役parser逐字段支持",
+      "mandatory_materials": "按真实任务选择，缺材料先求证",
+      "canon_write_by_model": false
+    },
+    {
+      "task_kind": "result_narration",
+      "existence": "existing_AuthoringTask_kind",
+      "source_id": "S04",
+      "model_role": "result_narration",
+      "native_output_tool": null,
+      "output_mapping_note": "具体严格JSON结果在本包是提案，不能冒称现役parser逐字段支持",
+      "mandatory_materials": "按真实任务选择，缺材料先求证",
+      "canon_write_by_model": false
+    }
+  ],
+  "additional_design_labels": [
+    "judgment",
+    "plan_draft",
+    "continuation_decision",
+    "author_content_registration",
+    "work_profile_revision",
+    "creative_directions"
+  ],
+  "note": "additional labels映射现有判断/动作场景，不是新增AuthoringTask kinds运行时枚举。"
+}

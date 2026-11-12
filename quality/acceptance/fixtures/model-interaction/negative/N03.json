@@ -1,0 +1,14 @@
+{
+  "case_id": "N03",
+  "base_case": "05-full-local-revision",
+  "description": "观察没有真实历史调用",
+  "mutations": [
+    {
+      "op": "remove",
+      "pointer": "/requests/0/history/messages/1"
+    }
+  ],
+  "expected_error_codes": [
+    "FABRICATED_OBSERVATION"
+  ]
+}

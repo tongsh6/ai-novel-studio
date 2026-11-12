@@ -1,0 +1,15 @@
+{
+  "case_id": "N06",
+  "base_case": "05-full-local-revision",
+  "description": "作者原话字节被组装器改写",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/author_input/text",
+      "value": "改写后的用户意图"
+    }
+  ],
+  "expected_error_codes": [
+    "AUTHOR_BYTES_CHANGED"
+  ]
+}

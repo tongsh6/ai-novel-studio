@@ -1,0 +1,15 @@
+{
+  "case_id": "N16",
+  "base_case": "29-full-delegation",
+  "description": "gate拒绝仍然写canon",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/outcomes/0/authorization/decision",
+      "value": "deny"
+    }
+  ],
+  "expected_error_codes": [
+    "UNAUTHORIZED_EXECUTION"
+  ]
+}

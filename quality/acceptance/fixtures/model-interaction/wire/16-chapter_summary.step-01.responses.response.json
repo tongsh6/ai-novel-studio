@@ -1,0 +1,19 @@
+{
+  "id": "fixture-response:demo-16",
+  "object": "response",
+  "model": "fixture-model",
+  "status": "completed",
+  "output": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"summary\": \"林岚在灯下核对卷宗，发现供词被改动，决定暂停封卷。\", \"source_refs\": [\"base:demo-prose\"], \"coverage\": {\"status\": \"complete\", \"unit\": \"item\", \"included\": 1, \"total\": 1, \"omitted_count\": 0, \"next_cursor\": null}, \"unresolved_points\": [\"改卷者身份\"]}",
+          "annotations": []
+        }
+      ]
+    }
+  ]
+}

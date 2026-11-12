@@ -1,0 +1,69 @@
+{
+  "kind": "application_outcome",
+  "request_id": "request:demo-05",
+  "response_ref": "response:demo-05",
+  "validation_ref": "validation:response:demo-05",
+  "authorization": {
+    "decision": "allow",
+    "risk_class": "medium",
+    "basis_ref": "policy:demo-1",
+    "policy_revision": 1,
+    "work_ref": "work:demo-paper-city",
+    "effect": "revise_candidate",
+    "target_refs": [
+      "chapter:demo-lamp"
+    ],
+    "expected_versions": [],
+    "reason_code": "candidate_only"
+  },
+  "execution": {
+    "state": "completed",
+    "executed_call_ids": [
+      "call:demo-revise"
+    ],
+    "effect": "create_candidate",
+    "receipt_refs": [
+      "receipt:demo-candidate-item-demo-revision"
+    ]
+  },
+  "canon": {
+    "changed": false,
+    "before_versions": [],
+    "after_versions": [],
+    "receipt_refs": [],
+    "rollback_supported": false,
+    "write_state": "not_written"
+  },
+  "artifacts": [
+    {
+      "artifact_ref": "artifact:demo-item-demo-revision",
+      "artifact_type": "prose_fragment",
+      "status": "TENTATIVE",
+      "item_id": "item-demo-revision",
+      "model_body": {
+        "content": "纸角比别处薄了一层。林岚把灯往近处移，指腹停在“未曾到场”四个字上。昨日抄录时，那人说的分明是“亲眼所见”。她又翻回卷首，核了签名，才将手里的笔慢慢放下。雨水从门缝飘进来，她没有去擦，只问许渡：“昨夜的钥匙，谁领过？”",
+        "response_ref": "response:demo-05",
+        "json_pointer": "/output/tool_calls/0/arguments/items/0/body",
+        "sha256": "cb99857c7c8a183d7d0080f5edf61c28398a497058af667ffb7bfb9d4fe65021"
+      },
+      "target_refs": [
+        "chapter:demo-lamp"
+      ]
+    }
+  ],
+  "author_visible": {
+    "model_texts": [],
+    "status_messages": [
+      {
+        "source": "system",
+        "code": "candidate_created",
+        "text": "已生成待审阅候选，尚未采纳。",
+        "receipt_refs": [
+          "receipt:demo-candidate-item-demo-revision"
+        ]
+      }
+    ]
+  },
+  "next_state": "awaiting_author",
+  "pending_call_refs": []
+}

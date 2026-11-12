@@ -1,0 +1,15 @@
+{
+  "case_id": "N12",
+  "base_case": "03-capability-gap",
+  "description": "只看到selected目录却宣称能力全集缺失",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/capabilities/inventory_coverage",
+      "value": "selected_subset"
+    }
+  ],
+  "expected_error_codes": [
+    "GAP_WITHOUT_CATALOG_EVIDENCE"
+  ]
+}

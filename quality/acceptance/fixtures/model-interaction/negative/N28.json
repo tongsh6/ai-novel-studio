@@ -1,0 +1,14 @@
+{
+  "case_id": "N28",
+  "base_case": "05-full-local-revision",
+  "description": "未闭合工具交换进入下次模型请求",
+  "mutations": [
+    {
+      "op": "remove",
+      "pointer": "/requests/0/history/messages/2"
+    }
+  ],
+  "expected_error_codes": [
+    "UNCLOSED_TOOL_CALL"
+  ]
+}

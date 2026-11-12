@@ -1,0 +1,15 @@
+{
+  "case_id": "N47",
+  "base_case": "40-paged-read-quality",
+  "description": "不同版本的分页不能拼成同一完整正文",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/2/context/materials/1/source/version",
+      "value": 2
+    }
+  ],
+  "expected_error_codes": [
+    "EVIDENCE_VERSION_MISMATCH"
+  ]
+}

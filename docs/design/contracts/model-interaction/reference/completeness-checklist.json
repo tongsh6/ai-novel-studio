@@ -1,0 +1,75 @@
+{
+  "kind": "design_completeness_checklist",
+  "status": "review_candidate_with_offline_conformance",
+  "source_commit": "f13ff6406a002eff54397b906872255048c31763",
+  "design_dimensions": [
+    {
+      "dimension": "产品场景",
+      "design_delivered": true,
+      "evidence": "docs/design/acceptance/model-interaction-coverage.md",
+      "production_verified": false
+    },
+    {
+      "dimension": "小说创作语义",
+      "design_delivered": true,
+      "evidence": "docs/design/contracts/model-interaction/reference/novel-elements.json",
+      "production_verified": false
+    },
+    {
+      "dimension": "多轮与生命周期",
+      "design_delivered": true,
+      "evidence": "docs/design/contracts/model-interaction/03-state-and-invariants.md",
+      "production_verified": false
+    },
+    {
+      "dimension": "字段及缺省语义",
+      "design_delivered": true,
+      "evidence": "docs/design/contracts/model-interaction/reference/field-dictionary.json",
+      "production_verified": false
+    },
+    {
+      "dimension": "来源与权威",
+      "design_delivered": true,
+      "evidence": "docs/design/schemas/model-interaction/model-interaction.schema.json",
+      "production_verified": false
+    },
+    {
+      "dimension": "权限与真实效果",
+      "design_delivered": true,
+      "evidence": "docs/design/contracts/model-interaction/01-protocol-spec.md",
+      "production_verified": false
+    },
+    {
+      "dimension": "失败与恢复",
+      "design_delivered": true,
+      "evidence": "quality/acceptance/fixtures/model-interaction/exchanges/36-unknown-side-effect.json",
+      "production_verified": false
+    },
+    {
+      "dimension": "Provider原生映射",
+      "design_delivered": true,
+      "evidence": "artifacts/model-contracts/vs00m-design/<run>/provider-projection-report.json",
+      "production_verified": false
+    },
+    {
+      "dimension": "现有实体映射",
+      "design_delivered": true,
+      "evidence": "docs/design/contracts/model-interaction/05-existence-audit-and-gaps.md",
+      "production_verified": false
+    },
+    {
+      "dimension": "可执行离线验证",
+      "design_delivered": true,
+      "evidence": "artifacts/model-contracts/vs00m-design/<run>/summary.json",
+      "production_verified": false
+    }
+  ],
+  "outstanding_design_decisions": [
+    "纯讨论/Scope Checkpoint覆盖须审查Frozen契约",
+    "委托持久载体与撤销原子性须实体审计",
+    "风险与smart确定性策略须冻结",
+    "细分领域payload与当前parser映射须逐消费者确认"
+  ],
+  "not_a_product_status_ledger": true,
+  "evidence_path_base": "repository_root; <run> is supplied by the offline checker, not a committed report"
+}

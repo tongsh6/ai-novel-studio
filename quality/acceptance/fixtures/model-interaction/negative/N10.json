@@ -1,0 +1,19 @@
+{
+  "case_id": "N10",
+  "base_case": "04-explore-loop",
+  "description": "explore同时附带执行capability",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/responses/0/output/tool_calls/0/arguments/capability",
+      "value": "prose_writing"
+    },
+    {
+      "op": "remove",
+      "pointer": "/responses/0/output/tool_calls/0/arguments_raw"
+    }
+  ],
+  "expected_error_codes": [
+    "ACTION_FIELD_CONFLICT"
+  ]
+}

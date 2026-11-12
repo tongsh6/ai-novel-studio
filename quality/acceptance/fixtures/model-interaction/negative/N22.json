@@ -1,0 +1,27 @@
+{
+  "case_id": "N22",
+  "base_case": "05-full-local-revision",
+  "description": "模型原文绑定正确但泄漏内部ref",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/responses/0/output/content",
+      "value": "当前目标是chapter:demo-lamp。"
+    },
+    {
+      "op": "replace",
+      "pointer": "/outcomes/0/author_visible/model_texts",
+      "value": [
+        {
+          "content": "当前目标是chapter:demo-lamp。",
+          "response_ref": "response:demo-05",
+          "json_pointer": "/output/content",
+          "sha256": "48a8a7c1c4fd36794ba331ad5907abdae53ebe69e73e1a83e38906780e898779"
+        }
+      ]
+    }
+  ],
+  "expected_error_codes": [
+    "INTERNAL_REF_IN_AUTHOR_TEXT"
+  ]
+}

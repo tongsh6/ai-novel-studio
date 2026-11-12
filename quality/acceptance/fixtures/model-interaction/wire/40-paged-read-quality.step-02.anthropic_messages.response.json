@@ -1,0 +1,23 @@
+{
+  "id": "fixture-response:demo-40-b",
+  "type": "message",
+  "role": "assistant",
+  "model": "fixture-model",
+  "content": [
+    {
+      "type": "tool_use",
+      "id": "call:demo-page-2",
+      "name": "judgment_decision",
+      "input": {
+        "action": "explore",
+        "dialogue_goal": "补齐全章覆盖",
+        "reason": "第一份观察只有部分正文，按真实游标续读。",
+        "explore_request": {
+          "tool": "chapter_read",
+          "query": "{\"chapter_ref\": \"chapter:demo-lamp\", \"cursor\": \"cursor:demo-next\"}"
+        }
+      }
+    }
+  ],
+  "stop_reason": "tool_use"
+}

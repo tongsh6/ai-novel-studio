@@ -1,0 +1,17 @@
+{
+  "case_id": "N56",
+  "base_case": "42-quality-author-revision",
+  "description": "按质量发现修订必须选真实finding而非规则类型",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/author_actions/0/quality_finding_refs",
+      "value": [
+        "validator:emotional_transition"
+      ]
+    }
+  ],
+  "expected_error_codes": [
+    "FINDING_SELECTION_INVALID"
+  ]
+}

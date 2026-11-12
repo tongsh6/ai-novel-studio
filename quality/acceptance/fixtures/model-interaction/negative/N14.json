@@ -1,0 +1,19 @@
+{
+  "case_id": "N14",
+  "base_case": "23-register-original",
+  "description": "登记指令替代历史原文",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/responses/0/output/tool_calls/0/arguments/author_content_source_ref",
+      "value": "message:demo-23"
+    },
+    {
+      "op": "remove",
+      "pointer": "/responses/0/output/tool_calls/0/arguments_raw"
+    }
+  ],
+  "expected_error_codes": [
+    "REGISTRATION_SOURCE_NOT_ELIGIBLE"
+  ]
+}

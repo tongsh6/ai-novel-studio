@@ -1,0 +1,5 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.ai-novel-studio.invalid/design/2026-11/application-outcome.schema.json",
+  "$ref": "model-interaction.schema.json#/$defs/Outcome"
+}

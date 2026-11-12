@@ -1,0 +1,47 @@
+{
+  "kind": "model_response",
+  "request_id": "request:demo-05",
+  "response_id": "response:demo-05",
+  "provider_run_ref": "provider_run:demo-05",
+  "provider_call_ref": "provider_call:demo-05",
+  "status": "tool_calls",
+  "native_finish_reason": "tool_calls",
+  "output": {
+    "role": "assistant",
+    "content": null,
+    "tool_calls": [
+      {
+        "call_id": "call:demo-revise",
+        "name": "submit_tentative_artifact",
+        "arguments": {
+          "items": [
+            {
+              "item_id": "item-demo-revision",
+              "title": "第二段修订",
+              "body": "纸角比别处薄了一层。林岚把灯往近处移，指腹停在“未曾到场”四个字上。昨日抄录时，那人说的分明是“亲眼所见”。她又翻回卷首，核了签名，才将手里的笔慢慢放下。雨水从门缝飘进来，她没有去擦，只问许渡：“昨夜的钥匙，谁领过？”",
+              "rationale": "补入纸面核验与停笔追问，保留原有事件方向。"
+            }
+          ],
+          "self_report": {
+            "used_context_refs": [
+              "observation:demo-read-1",
+              "base:demo-character"
+            ]
+          }
+        },
+        "arguments_raw": "{\"items\":[{\"item_id\":\"item-demo-revision\",\"title\":\"第二段修订\",\"body\":\"纸角比别处薄了一层。林岚把灯往近处移，指腹停在“未曾到场”四个字上。昨日抄录时，那人说的分明是“亲眼所见”。她又翻回卷首，核了签名，才将手里的笔慢慢放下。雨水从门缝飘进来，她没有去擦，只问许渡：“昨夜的钥匙，谁领过？”\",\"rationale\":\"补入纸面核验与停笔追问，保留原有事件方向。\"}],\"self_report\":{\"used_context_refs\":[\"observation:demo-read-1\",\"base:demo-character\"]}}"
+      }
+    ]
+  },
+  "usage": {
+    "measurement": "unavailable",
+    "input_tokens": null,
+    "output_tokens": null,
+    "cached_input_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "time_to_first_token_ms": null,
+    "duration_ms": null
+  },
+  "raw_capture_ref": "fixture://raw/demo-05.json"
+}

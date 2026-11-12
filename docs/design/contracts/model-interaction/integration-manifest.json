@@ -1,0 +1,1900 @@
+{
+  "kind": "vs00m_design_materials_integration_manifest",
+  "design_status": "proposed_not_production_contract",
+  "source_commit": "f13ff6406a002eff54397b906872255048c31763",
+  "integration_base_commit": "04492ea3b7a08cd4ce363110c099c6b4446a7488",
+  "source_zip_sha256": "116f10194a5f710a7af963626023f17667ae66916dbd5cf994e70d6474664923",
+  "runtime_evidence_tracked": false,
+  "production_schema_codegen_enabled": false,
+  "semantic_alignment_with_newer_commit": "not_claimed_review_in_B87_R00_R07_R08",
+  "files": [
+    {
+      "source_path": "catalogs/completeness-checklist.json",
+      "repository_path": "docs/design/contracts/model-interaction/reference/completeness-checklist.json",
+      "source_sha256": "7a878090648b5c4734e4fae0b54b621657741e8c87112ca86aef1eed8a5d51d7",
+      "repository_sha256": "dbea91aae4c6dd95e25bf37a0073134649f21ca002c2e088710a8703bf1fb37c",
+      "change": "navigation_paths_only"
+    },
+    {
+      "source_path": "catalogs/field-dictionary.json",
+      "repository_path": "docs/design/contracts/model-interaction/reference/field-dictionary.json",
+      "source_sha256": "88ea437922ee7ba3aca7e940f0bb3f875b3f08d761872e3a169c5c5679800523",
+      "repository_sha256": "d1e50092f65ab0fd0b1c4f127df34ab82313b683ad3e407dcefc22727f790cd9",
+      "change": "navigation_paths_only"
+    },
+    {
+      "source_path": "catalogs/fixture-ref-map.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/fixture-ref-map.json",
+      "source_sha256": "b92633661e8e7ccfc71575bb4c29574b3b22e88c0185c45d92b124fd3e585f67",
+      "repository_sha256": "b92633661e8e7ccfc71575bb4c29574b3b22e88c0185c45d92b124fd3e585f67",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "catalogs/novel-elements.json",
+      "repository_path": "docs/design/contracts/model-interaction/reference/novel-elements.json",
+      "source_sha256": "7523c52f05294f15322c5a4cd906ab66e3fa658e0ab442e1af0b5ba2bdebd3a3",
+      "repository_sha256": "7523c52f05294f15322c5a4cd906ab66e3fa658e0ab442e1af0b5ba2bdebd3a3",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "catalogs/task-profiles.json",
+      "repository_path": "docs/design/contracts/model-interaction/reference/task-profiles.json",
+      "source_sha256": "b6f3e7313ab4c234147f6441abd69c0a454c38aa7115da9067666e1e74be2592",
+      "repository_sha256": "b6f3e7313ab4c234147f6441abd69c0a454c38aa7115da9067666e1e74be2592",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "catalogs/tool-contracts.json",
+      "repository_path": "docs/design/contracts/model-interaction/reference/tool-contracts.json",
+      "source_sha256": "d888d5356f1be3af915f8ebdd2632151fa70eb1b6da1f1783026bbf845c4ba79",
+      "repository_sha256": "d888d5356f1be3af915f8ebdd2632151fa70eb1b6da1f1783026bbf845c4ba79",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "docs/00-sources.md",
+      "repository_path": "docs/design/contracts/model-interaction/00-sources.md",
+      "source_sha256": "9e809aecd85ebc3aa3b53b54699895a780683f7a35c52ca6e2e8d7c65ab3b106",
+      "repository_sha256": "9e809aecd85ebc3aa3b53b54699895a780683f7a35c52ca6e2e8d7c65ab3b106",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "docs/01-protocol-spec.md",
+      "repository_path": "docs/design/contracts/model-interaction/01-protocol-spec.md",
+      "source_sha256": "76d7e161b67ae899b9f94f38f680f7cb47ed0725f78a331366dc96f917ba9b59",
+      "repository_sha256": "91ff1d64c542c618fd92f61985e9f99c422f1a406d5e301fee735ca80e102a4e",
+      "change": "navigation_and_explicit_import_note_only"
+    },
+    {
+      "source_path": "docs/02-field-dictionary.md",
+      "repository_path": "docs/design/contracts/model-interaction/02-field-dictionary.md",
+      "source_sha256": "c51aef89a5c749ceb182dc5dc1ece92a7ab5977b2508f33259208b9c3e33c1ae",
+      "repository_sha256": "c51aef89a5c749ceb182dc5dc1ece92a7ab5977b2508f33259208b9c3e33c1ae",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "docs/03-state-and-invariants.md",
+      "repository_path": "docs/design/contracts/model-interaction/03-state-and-invariants.md",
+      "source_sha256": "2f356645c9c8a369bf286e7efa7eb4a40f288b45b90aa3b70e5615c94933c604",
+      "repository_sha256": "2f356645c9c8a369bf286e7efa7eb4a40f288b45b90aa3b70e5615c94933c604",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "docs/04-provider-mapping.md",
+      "repository_path": "docs/design/contracts/model-interaction/04-provider-mapping.md",
+      "source_sha256": "a040cff5ba0e64bf75f542853790c7c03abf3dd8890f785201bcfd382b94fe6f",
+      "repository_sha256": "8c5c50c6a321146bfd98d87b32ee289f39f9becb8891980a16439c1ef09b17d6",
+      "change": "navigation_paths_only"
+    },
+    {
+      "source_path": "docs/05-existence-audit-and-gaps.md",
+      "repository_path": "docs/design/contracts/model-interaction/05-existence-audit-and-gaps.md",
+      "source_sha256": "3a7de953390eaafcd9d6fa48853f037358315f5c6c7d7f4c4fdac5b3fc49fa17",
+      "repository_sha256": "581926c28df8198a299096347923cf8062541a2fc779fa8ab0ed5694607c2955",
+      "change": "navigation_and_explicit_import_note_only"
+    },
+    {
+      "source_path": "docs/06-coverage-matrix.md",
+      "repository_path": "docs/design/acceptance/model-interaction-coverage.md",
+      "source_sha256": "44d16223bd9d04f14a8624f247d767a1a0cbbafb69ffaa90381fa8e4659c10ac",
+      "repository_sha256": "b3c5773ba76291ac4a46e592e783afd4f23ca20bf72026f79834ade69618e38e",
+      "change": "navigation_paths_only"
+    },
+    {
+      "source_path": "docs/07-implementation-and-review.md",
+      "repository_path": "docs/design/contracts/model-interaction/07-implementation-and-review.md",
+      "source_sha256": "f5f87fa87cc533e98687c0e431e67ae2bc91e9eb33fb5aafb6c9340f20421bd1",
+      "repository_sha256": "3be3d237b10abd80759d24153d554575c0afdd31e982f23838c3c5a468f5b396",
+      "change": "navigation_and_explicit_import_note_only"
+    },
+    {
+      "source_path": "examples/exchanges/01-statistics.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/01-statistics.json",
+      "source_sha256": "1e446c128eee722fb58faf91a4bfac07529e3735f4123d887c0f26cf1fee1ea4",
+      "repository_sha256": "1e446c128eee722fb58faf91a4bfac07529e3735f4123d887c0f26cf1fee1ea4",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/02-discussion.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/02-discussion.json",
+      "source_sha256": "6a206af319ca7d1d22cfc73c59210fb22599397799988d4912faee2b9fd9550d",
+      "repository_sha256": "6a206af319ca7d1d22cfc73c59210fb22599397799988d4912faee2b9fd9550d",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/03-capability-gap.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/03-capability-gap.json",
+      "source_sha256": "c5e5ed6fc3440bb01d81fec6457dcc3fe72e6f798895d5032af489e292b34c83",
+      "repository_sha256": "c5e5ed6fc3440bb01d81fec6457dcc3fe72e6f798895d5032af489e292b34c83",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/04-explore-loop.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/04-explore-loop.json",
+      "source_sha256": "15229d14a874307e958ba594ad916378c71a5d8236b40b9bde557f6fc64b63a2",
+      "repository_sha256": "15229d14a874307e958ba594ad916378c71a5d8236b40b9bde557f6fc64b63a2",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/05-full-local-revision.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/05-full-local-revision.json",
+      "source_sha256": "5dc366e70d01560f0a33bf7677cb2cb4d3810067e31886965ee7056656576915",
+      "repository_sha256": "5dc366e70d01560f0a33bf7677cb2cb4d3810067e31886965ee7056656576915",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/06-first_draft.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/06-first_draft.json",
+      "source_sha256": "941730563d4ba809b8fdfc4e850d330ee215b5c0762891f91be44cdd4a3e5c82",
+      "repository_sha256": "941730563d4ba809b8fdfc4e850d330ee215b5c0762891f91be44cdd4a3e5c82",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/07-continuation.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/07-continuation.json",
+      "source_sha256": "a56932f77a69d583e197721eea530958d38671d275097ef6f3a3cabaacb18f5f",
+      "repository_sha256": "a56932f77a69d583e197721eea530958d38671d275097ef6f3a3cabaacb18f5f",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/08-rewrite.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/08-rewrite.json",
+      "source_sha256": "fe01202406e7d99b2002f156c16bd5e5c4e55135a9a8aeaf00316dff2aca6eb0",
+      "repository_sha256": "fe01202406e7d99b2002f156c16bd5e5c4e55135a9a8aeaf00316dff2aca6eb0",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/09-character_design.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/09-character_design.json",
+      "source_sha256": "b41b1582a04599cdda806d49bbfb97026623ce63c8c033d362386e41484b01b3",
+      "repository_sha256": "b41b1582a04599cdda806d49bbfb97026623ce63c8c033d362386e41484b01b3",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/10-character_evolution.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/10-character_evolution.json",
+      "source_sha256": "7b3b3127fdb288727ff0c68cd8a4d983b11009fc88e734d57f6065cf14c3ec27",
+      "repository_sha256": "7b3b3127fdb288727ff0c68cd8a4d983b11009fc88e734d57f6065cf14c3ec27",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/11-outline.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/11-outline.json",
+      "source_sha256": "bc6673886a22b25697f0307a8e03f2eafad04245835c3574f42eb0d9b54a18d2",
+      "repository_sha256": "bc6673886a22b25697f0307a8e03f2eafad04245835c3574f42eb0d9b54a18d2",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/12-world_building.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/12-world_building.json",
+      "source_sha256": "1581198564cb1346df6ed47509092019c4d9dcfd70b4646917246e15644dcc46",
+      "repository_sha256": "1581198564cb1346df6ed47509092019c4d9dcfd70b4646917246e15644dcc46",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/13-format-only.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/13-format-only.json",
+      "source_sha256": "3a1811027ceffe2a0d8c09463c7b8938ee7e314d45c5f7da0acccca845599e6b",
+      "repository_sha256": "3a1811027ceffe2a0d8c09463c7b8938ee7e314d45c5f7da0acccca845599e6b",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/14-quality-review.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/14-quality-review.json",
+      "source_sha256": "3d6b5d254c126626f11cc26e703a689b8c64e853bf2600afe784878315cfd7ec",
+      "repository_sha256": "3d6b5d254c126626f11cc26e703a689b8c64e853bf2600afe784878315cfd7ec",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/15-quality-unavailable.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/15-quality-unavailable.json",
+      "source_sha256": "24b1265965bdc2ead2ec54c07b676c47ed70be9feed9d1ccd1be67d8ebce72e3",
+      "repository_sha256": "24b1265965bdc2ead2ec54c07b676c47ed70be9feed9d1ccd1be67d8ebce72e3",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/16-chapter_summary.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/16-chapter_summary.json",
+      "source_sha256": "9dba887b1316c5c576ae6adca05e7ec14c313328d5a3469266daa3e0c5e5f738",
+      "repository_sha256": "9dba887b1316c5c576ae6adca05e7ec14c313328d5a3469266daa3e0c5e5f738",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/17-fact_inventory.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/17-fact_inventory.json",
+      "source_sha256": "920e6b1fa61d323c192fa055e6b0581010acc8663df4f642c53a2214402d7fac",
+      "repository_sha256": "920e6b1fa61d323c192fa055e6b0581010acc8663df4f642c53a2214402d7fac",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/18-ledger_reconcile.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/18-ledger_reconcile.json",
+      "source_sha256": "4c2fe57227123565248b79ef43090c4a0804e3aede8d57fbdfc9797513e69dc5",
+      "repository_sha256": "4c2fe57227123565248b79ef43090c4a0804e3aede8d57fbdfc9797513e69dc5",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/19-chapter_mission.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/19-chapter_mission.json",
+      "source_sha256": "1f7a87ae66ece2a3bc2a440667d3dec2db4f87a625ffd553dcb21c189bd3a8a4",
+      "repository_sha256": "1f7a87ae66ece2a3bc2a440667d3dec2db4f87a625ffd553dcb21c189bd3a8a4",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/20-narration.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/20-narration.json",
+      "source_sha256": "5a87938af6727751eb713d2a89be723fef87e9aac77a849c3bd055b8b18a1b23",
+      "repository_sha256": "5a87938af6727751eb713d2a89be723fef87e9aac77a849c3bd055b8b18a1b23",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/21-plan-pair.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/21-plan-pair.json",
+      "source_sha256": "182334ae2aa9fe52c15dc1573b051c4f43d79920fcb8984d8e3d4ceda6a9162a",
+      "repository_sha256": "182334ae2aa9fe52c15dc1573b051c4f43d79920fcb8984d8e3d4ceda6a9162a",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/22-clarify.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/22-clarify.json",
+      "source_sha256": "c8abcab26f87c20fc982c00523e331cf0affc916abf47a696ea930e52965cecc",
+      "repository_sha256": "c8abcab26f87c20fc982c00523e331cf0affc916abf47a696ea930e52965cecc",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/23-register-original.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/23-register-original.json",
+      "source_sha256": "305a846042aeb4c634ae7c66dad3626d49564ea3610b5b769c2b458f33c69359",
+      "repository_sha256": "305a846042aeb4c634ae7c66dad3626d49564ea3610b5b769c2b458f33c69359",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/24-directions.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/24-directions.json",
+      "source_sha256": "790ff26feed34da22f44d6c0960bc2bc90df8b6edda7f529a3e4b86c48a67c56",
+      "repository_sha256": "790ff26feed34da22f44d6c0960bc2bc90df8b6edda7f529a3e4b86c48a67c56",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/25-profile-revision.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/25-profile-revision.json",
+      "source_sha256": "1768164f0065d5d79b0cbf000ca2bc7b9415a24beffd7df01ea2549212803276",
+      "repository_sha256": "1768164f0065d5d79b0cbf000ca2bc7b9415a24beffd7df01ea2549212803276",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/26-partial-read.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/26-partial-read.json",
+      "source_sha256": "48b7edeabf39f7e91a53e9d69d36a66e0007db42b5429583df7c4110a7a49005",
+      "repository_sha256": "48b7edeabf39f7e91a53e9d69d36a66e0007db42b5429583df7c4110a7a49005",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/27-author-asset.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/27-author-asset.json",
+      "source_sha256": "af20b8a68de92d200bacd14dc15916618dd41fe35b4da1cc51670967d553b3ce",
+      "repository_sha256": "af20b8a68de92d200bacd14dc15916618dd41fe35b4da1cc51670967d553b3ce",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/28-author-adoption.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/28-author-adoption.json",
+      "source_sha256": "d148bdc954f7e17a1696cd46a0704e1fccac68b9397b21cacec97d4c247078c7",
+      "repository_sha256": "d148bdc954f7e17a1696cd46a0704e1fccac68b9397b21cacec97d4c247078c7",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/29-full-delegation.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/29-full-delegation.json",
+      "source_sha256": "5734b3c897ec05661acb3835881145443db33bb399bb11d70d404a408cf0ed32",
+      "repository_sha256": "5734b3c897ec05661acb3835881145443db33bb399bb11d70d404a408cf0ed32",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/30-revoked-delegation.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/30-revoked-delegation.json",
+      "source_sha256": "b33c1a9b6ed2d4a5cdce89ba575ab3f4bed0ad37b1b25b77afe36a325ad3ff69",
+      "repository_sha256": "b33c1a9b6ed2d4a5cdce89ba575ab3f4bed0ad37b1b25b77afe36a325ad3ff69",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/31-critical-confirmation.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/31-critical-confirmation.json",
+      "source_sha256": "209f8fb8877a5f67d3a4b0f121c21d3755f8efff20922e1f65e6fc920a435fed",
+      "repository_sha256": "209f8fb8877a5f67d3a4b0f121c21d3755f8efff20922e1f65e6fc920a435fed",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/32-cancellation.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/32-cancellation.json",
+      "source_sha256": "fe5621d51412a3a4d3f8ebc7ab4a2474804dd95d58d791a6b0d39dc8947e181f",
+      "repository_sha256": "fe5621d51412a3a4d3f8ebc7ab4a2474804dd95d58d791a6b0d39dc8947e181f",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/33-budget-stop.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/33-budget-stop.json",
+      "source_sha256": "ff1586f57fa592708cbdbb7f6ebdf399a5ac03618dc4f2e531e49f08a785c281",
+      "repository_sha256": "ff1586f57fa592708cbdbb7f6ebdf399a5ac03618dc4f2e531e49f08a785c281",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/34-explicit-checkpoint.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/34-explicit-checkpoint.json",
+      "source_sha256": "00d82aafe3af579717afddde73d36c6c8456ce543d4128283e3d3bc6ff08779e",
+      "repository_sha256": "00d82aafe3af579717afddde73d36c6c8456ce543d4128283e3d3bc6ff08779e",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/35-retry-scope.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/35-retry-scope.json",
+      "source_sha256": "b1f0705a19897d849312a52fe40ccdea43845471633be4e18cebd0f6553d0653",
+      "repository_sha256": "b1f0705a19897d849312a52fe40ccdea43845471633be4e18cebd0f6553d0653",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/36-unknown-side-effect.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/36-unknown-side-effect.json",
+      "source_sha256": "133af03d7412f97dd1ea896b6b7f5bcffe6f9e8ef9fd021bac4498f96cbdbc30",
+      "repository_sha256": "133af03d7412f97dd1ea896b6b7f5bcffe6f9e8ef9fd021bac4498f96cbdbc30",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/37-truncated-output.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/37-truncated-output.json",
+      "source_sha256": "ea03c49d0535fc5dc4aa7f524e0a110f901f8e1dae112b7cdb5a72d4311469b7",
+      "repository_sha256": "ea03c49d0535fc5dc4aa7f524e0a110f901f8e1dae112b7cdb5a72d4311469b7",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/38-pending-revision.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/38-pending-revision.json",
+      "source_sha256": "726a97ce50d33f34fac0553ea4f5bd38a78e82610bff7ab5fef2ed1d320f3408",
+      "repository_sha256": "726a97ce50d33f34fac0553ea4f5bd38a78e82610bff7ab5fef2ed1d320f3408",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/39-author-reject.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/39-author-reject.json",
+      "source_sha256": "c8aa65df3585220af94fcec68b11b4e50aafeb30539b64535a04e8f1d3f66cb4",
+      "repository_sha256": "c8aa65df3585220af94fcec68b11b4e50aafeb30539b64535a04e8f1d3f66cb4",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/40-paged-read-quality.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/40-paged-read-quality.json",
+      "source_sha256": "5508e1c46159685b121756c52e7a1e706ec8d05f4ed2889797f8faa2c703286d",
+      "repository_sha256": "5508e1c46159685b121756c52e7a1e706ec8d05f4ed2889797f8faa2c703286d",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/41-untrusted-reference.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/41-untrusted-reference.json",
+      "source_sha256": "796eb20c0373e171f6cce032456287fa421589a51612c56254aa724dd7aaab97",
+      "repository_sha256": "796eb20c0373e171f6cce032456287fa421589a51612c56254aa724dd7aaab97",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/42-quality-author-revision.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/42-quality-author-revision.json",
+      "source_sha256": "26db5fb9ed3ce259376bc85646b9870b448bb13922565027783aeefbd437cb86",
+      "repository_sha256": "26db5fb9ed3ce259376bc85646b9870b448bb13922565027783aeefbd437cb86",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/43-steer-goal-version.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/43-steer-goal-version.json",
+      "source_sha256": "ad13544622d20b976691de8e16a2a992d9a05bc0f1052531927fdb15e0d6d9d8",
+      "repository_sha256": "ad13544622d20b976691de8e16a2a992d9a05bc0f1052531927fdb15e0d6d9d8",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/exchanges/44-pause-resume.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/44-pause-resume.json",
+      "source_sha256": "bc8e295c86035648956f8836c03e8e9e166c3ad2b8ec37b8d1e6aa99db23b9e7",
+      "repository_sha256": "bc8e295c86035648956f8836c03e8e9e166c3ad2b8ec37b8d1e6aa99db23b9e7",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N01.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N01.json",
+      "source_sha256": "073b9a45cd908e36eac81e1cd6bd9a1e630cb38944a94e4f5fd3435c6d0a8456",
+      "repository_sha256": "073b9a45cd908e36eac81e1cd6bd9a1e630cb38944a94e4f5fd3435c6d0a8456",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N02.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N02.json",
+      "source_sha256": "36bd9e1c780dbee8d41ac395acf2051852e43e8d748c1510144b851f9e4e02c8",
+      "repository_sha256": "36bd9e1c780dbee8d41ac395acf2051852e43e8d748c1510144b851f9e4e02c8",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N03.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N03.json",
+      "source_sha256": "1fbadf1ca205855c8ed5419174277e031f9a314488242371012f071c7f02a643",
+      "repository_sha256": "1fbadf1ca205855c8ed5419174277e031f9a314488242371012f071c7f02a643",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N04.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N04.json",
+      "source_sha256": "ec2d1607014483739af603df6e5e5f15faff89fe0997f941b366a86518d38c44",
+      "repository_sha256": "ec2d1607014483739af603df6e5e5f15faff89fe0997f941b366a86518d38c44",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N05.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N05.json",
+      "source_sha256": "3e407939bfed651dda9b97992865b0e7f5b2f52256914cb52b9e605c496a813e",
+      "repository_sha256": "3e407939bfed651dda9b97992865b0e7f5b2f52256914cb52b9e605c496a813e",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N06.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N06.json",
+      "source_sha256": "775b78ad232adabc3dafeab8a484c5ae1802ec387c5e9530648278cb98c670d3",
+      "repository_sha256": "775b78ad232adabc3dafeab8a484c5ae1802ec387c5e9530648278cb98c670d3",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N07.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N07.json",
+      "source_sha256": "a457847bc9223320306aa69fd2107ca4358191f6f9b45d9936c1d70f0b7be578",
+      "repository_sha256": "a457847bc9223320306aa69fd2107ca4358191f6f9b45d9936c1d70f0b7be578",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N08.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N08.json",
+      "source_sha256": "282c2ad22c6088fc6866b70aeada9d813e661362efa4235f5bfcf52d301929fd",
+      "repository_sha256": "282c2ad22c6088fc6866b70aeada9d813e661362efa4235f5bfcf52d301929fd",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N09.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N09.json",
+      "source_sha256": "25a599339dd1e9162ec0a578e7417c575a06c06c7bbeb4abe90382094584d1a5",
+      "repository_sha256": "25a599339dd1e9162ec0a578e7417c575a06c06c7bbeb4abe90382094584d1a5",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N10.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N10.json",
+      "source_sha256": "d5b59bb0fd370471e41f2ba61945561e7815a1423395b4a7a6bd800f4d58db40",
+      "repository_sha256": "d5b59bb0fd370471e41f2ba61945561e7815a1423395b4a7a6bd800f4d58db40",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N11.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N11.json",
+      "source_sha256": "a2b76b81513296015e8ecac286d734818a170ca09ee2b76297d410c5da82b10b",
+      "repository_sha256": "a2b76b81513296015e8ecac286d734818a170ca09ee2b76297d410c5da82b10b",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N12.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N12.json",
+      "source_sha256": "b4346b96455ff32957d4004762f3b7855ba66ff5e1c90f64ce33f5a0f91cbe02",
+      "repository_sha256": "b4346b96455ff32957d4004762f3b7855ba66ff5e1c90f64ce33f5a0f91cbe02",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N13.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N13.json",
+      "source_sha256": "3ad1daff4dffeda9cc66dd470982fdaf29965fc40222ed8ba6922c57ef82608e",
+      "repository_sha256": "3ad1daff4dffeda9cc66dd470982fdaf29965fc40222ed8ba6922c57ef82608e",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N14.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N14.json",
+      "source_sha256": "ee74f8a39ccdbe36ce6dd3be9ea4961e92c48b6a565d5a62cff287278f4a1e8f",
+      "repository_sha256": "ee74f8a39ccdbe36ce6dd3be9ea4961e92c48b6a565d5a62cff287278f4a1e8f",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N15.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N15.json",
+      "source_sha256": "21ba03992b51e7a75d84ea873dd7a152471af08422fc301a3192bb15aadca6b6",
+      "repository_sha256": "21ba03992b51e7a75d84ea873dd7a152471af08422fc301a3192bb15aadca6b6",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N16.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N16.json",
+      "source_sha256": "33858d03aa3e8ca21a0fa23681da8cbb90bcda703d75025ff96faf5c15f24e3e",
+      "repository_sha256": "33858d03aa3e8ca21a0fa23681da8cbb90bcda703d75025ff96faf5c15f24e3e",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N17.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N17.json",
+      "source_sha256": "1ccac091dce518a6de22983ad56d5681352a3a5380b68a88f4e415ed5a936e80",
+      "repository_sha256": "1ccac091dce518a6de22983ad56d5681352a3a5380b68a88f4e415ed5a936e80",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N18.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N18.json",
+      "source_sha256": "64a1fcb30737dc65afdaa96e16dc90a98d97eb034cf8d4411e1a3b87b99f725e",
+      "repository_sha256": "64a1fcb30737dc65afdaa96e16dc90a98d97eb034cf8d4411e1a3b87b99f725e",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N19.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N19.json",
+      "source_sha256": "250b81f6a97a02a8738973a436b18e4662e1836d9cfe7e909ae05431386e1cd9",
+      "repository_sha256": "250b81f6a97a02a8738973a436b18e4662e1836d9cfe7e909ae05431386e1cd9",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N20.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N20.json",
+      "source_sha256": "963f52b2259c2faf34e5dfd1869f079d266aea4c87573dc97d3a59680a3b53db",
+      "repository_sha256": "963f52b2259c2faf34e5dfd1869f079d266aea4c87573dc97d3a59680a3b53db",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N21.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N21.json",
+      "source_sha256": "ab80c7b2a13626a0624a25afd436829ae6de4b873d77ad018364ede75694cf3d",
+      "repository_sha256": "ab80c7b2a13626a0624a25afd436829ae6de4b873d77ad018364ede75694cf3d",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N22.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N22.json",
+      "source_sha256": "814d1da4ddcbf796d6186ca5e8b3a73b504631968698b002dcec479dfde7e69d",
+      "repository_sha256": "814d1da4ddcbf796d6186ca5e8b3a73b504631968698b002dcec479dfde7e69d",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N23.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N23.json",
+      "source_sha256": "a30c38bf1e3871c282d831fc63e7eba76be1919425c7f7dbd2f23b4445692f0d",
+      "repository_sha256": "a30c38bf1e3871c282d831fc63e7eba76be1919425c7f7dbd2f23b4445692f0d",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N24.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N24.json",
+      "source_sha256": "e196bede273dd75ab53c04cdb5bba510724e579896c68d9e149b87de24a5e0d5",
+      "repository_sha256": "e196bede273dd75ab53c04cdb5bba510724e579896c68d9e149b87de24a5e0d5",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N25.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N25.json",
+      "source_sha256": "d98a511a284929f6338ffaf8f69bba1b84b53e66c99bb2a1959d017c0370f0e3",
+      "repository_sha256": "d98a511a284929f6338ffaf8f69bba1b84b53e66c99bb2a1959d017c0370f0e3",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N26.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N26.json",
+      "source_sha256": "73f6a6c99d34739e7b9992197dc7f2b067af1b2e60ebcef6ff1d7048e3dad2e5",
+      "repository_sha256": "73f6a6c99d34739e7b9992197dc7f2b067af1b2e60ebcef6ff1d7048e3dad2e5",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N27.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N27.json",
+      "source_sha256": "98946b4e39037ec77dee0629c7aafd0048193290c4e21a130da31b43abdb7388",
+      "repository_sha256": "98946b4e39037ec77dee0629c7aafd0048193290c4e21a130da31b43abdb7388",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N28.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N28.json",
+      "source_sha256": "4447620f8ac268f79cff2d2bf8c18665a6737728b47115fc098363997679f86b",
+      "repository_sha256": "4447620f8ac268f79cff2d2bf8c18665a6737728b47115fc098363997679f86b",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N29.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N29.json",
+      "source_sha256": "9fc598bf8e1cc12ca49b942cbc3e2fbcd95a1196729028efde4496b2b174f0cc",
+      "repository_sha256": "9fc598bf8e1cc12ca49b942cbc3e2fbcd95a1196729028efde4496b2b174f0cc",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N30.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N30.json",
+      "source_sha256": "47f61d44cb60f911ea79e48a620022483b48cb89f806cc6ab99d8da264408947",
+      "repository_sha256": "47f61d44cb60f911ea79e48a620022483b48cb89f806cc6ab99d8da264408947",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N31.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N31.json",
+      "source_sha256": "b07ee81bcf35ec5db0c89d8849efb2a8eccd4bd9be231eeb3f5c59fa9af9787f",
+      "repository_sha256": "b07ee81bcf35ec5db0c89d8849efb2a8eccd4bd9be231eeb3f5c59fa9af9787f",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N32.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N32.json",
+      "source_sha256": "102e9bd822c3ed36e9a5c88db32141ea869cccfc243d501b620306d72a5b83c7",
+      "repository_sha256": "102e9bd822c3ed36e9a5c88db32141ea869cccfc243d501b620306d72a5b83c7",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N33.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N33.json",
+      "source_sha256": "3c9fd25c379456e234667597ef66d48b6d00b41d7e12cc55c4763f2c0d3bce06",
+      "repository_sha256": "3c9fd25c379456e234667597ef66d48b6d00b41d7e12cc55c4763f2c0d3bce06",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N34.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N34.json",
+      "source_sha256": "09b0ae68522e7c11573df870bda3e9e5d85b0262b257f8bd6b54336bedd98c46",
+      "repository_sha256": "09b0ae68522e7c11573df870bda3e9e5d85b0262b257f8bd6b54336bedd98c46",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N35.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N35.json",
+      "source_sha256": "ab794329317d7a84534292c28a76a17b35565b63810518bf2b0247159063127c",
+      "repository_sha256": "ab794329317d7a84534292c28a76a17b35565b63810518bf2b0247159063127c",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N36.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N36.json",
+      "source_sha256": "d0ba406fb95246c2b5ca97042f043911c68dd78ee189ab1031fe66763ec2af91",
+      "repository_sha256": "d0ba406fb95246c2b5ca97042f043911c68dd78ee189ab1031fe66763ec2af91",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N37.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N37.json",
+      "source_sha256": "443d3fe8b9ca326d13ecbfda3e144560b1460a68a8f4b7417bc07c82b937f113",
+      "repository_sha256": "443d3fe8b9ca326d13ecbfda3e144560b1460a68a8f4b7417bc07c82b937f113",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N38.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N38.json",
+      "source_sha256": "777ea62dad7a07ba506a5b22c182ff622ecc9d52d5dd1ba6ba3d4ee571e2a10b",
+      "repository_sha256": "777ea62dad7a07ba506a5b22c182ff622ecc9d52d5dd1ba6ba3d4ee571e2a10b",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N39.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N39.json",
+      "source_sha256": "dab4d48279135c974145021a121f8886b027a04a6aa8bf8eb530f74accc93c7e",
+      "repository_sha256": "dab4d48279135c974145021a121f8886b027a04a6aa8bf8eb530f74accc93c7e",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N40.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N40.json",
+      "source_sha256": "05f89d9c68d7d4e6bdc93cfd56d46169ee69ae9463773d9b1d5908c41bf114ae",
+      "repository_sha256": "05f89d9c68d7d4e6bdc93cfd56d46169ee69ae9463773d9b1d5908c41bf114ae",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N41.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N41.json",
+      "source_sha256": "009c95b864e6b1c3dd567191cd18ebe996fe6a7bef8d8333bccf36450258c877",
+      "repository_sha256": "009c95b864e6b1c3dd567191cd18ebe996fe6a7bef8d8333bccf36450258c877",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N42.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N42.json",
+      "source_sha256": "1f082938c4f01e3f379d1d92744af9eb2bc6b94ae6eba6a50618b93c9e2ed343",
+      "repository_sha256": "1f082938c4f01e3f379d1d92744af9eb2bc6b94ae6eba6a50618b93c9e2ed343",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N43.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N43.json",
+      "source_sha256": "fdcd9551a44762f73610cadcd758f42ad8261dc73193d34d422061fea6754ab7",
+      "repository_sha256": "fdcd9551a44762f73610cadcd758f42ad8261dc73193d34d422061fea6754ab7",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N44.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N44.json",
+      "source_sha256": "73bd817f50be3a6675d59df68558318f241cea37567eff0e7a4b931b6ed00413",
+      "repository_sha256": "73bd817f50be3a6675d59df68558318f241cea37567eff0e7a4b931b6ed00413",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N45.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N45.json",
+      "source_sha256": "4b91bcb47cbd498098da64a34cae5bcaf2927c64c2ec7dbed8bc2d95286b87a8",
+      "repository_sha256": "4b91bcb47cbd498098da64a34cae5bcaf2927c64c2ec7dbed8bc2d95286b87a8",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N46.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N46.json",
+      "source_sha256": "7067f2651a17a7e02053de84e5fa55fb7bce7ad6fb844dad3cf26fdf7a780e92",
+      "repository_sha256": "7067f2651a17a7e02053de84e5fa55fb7bce7ad6fb844dad3cf26fdf7a780e92",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N47.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N47.json",
+      "source_sha256": "ac1ae2af3aa28ce9aeab2931e0a380ced0ce4f8a7c95f76fe1df288a942a6f1f",
+      "repository_sha256": "ac1ae2af3aa28ce9aeab2931e0a380ced0ce4f8a7c95f76fe1df288a942a6f1f",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N48.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N48.json",
+      "source_sha256": "06ccc16e0bb6859f86b3a97e837a2cef589ec4131e485e32869973460e258cbd",
+      "repository_sha256": "06ccc16e0bb6859f86b3a97e837a2cef589ec4131e485e32869973460e258cbd",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N49.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N49.json",
+      "source_sha256": "8851ba0c6405d95c22c85a5fef9728e9970a48ace8ca8d2d684b6c62b901e1b7",
+      "repository_sha256": "8851ba0c6405d95c22c85a5fef9728e9970a48ace8ca8d2d684b6c62b901e1b7",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N50.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N50.json",
+      "source_sha256": "98f4371fb0f029b55b3f2a7ffd3c4741d3b57dac4efc3c0736d716635cd02aeb",
+      "repository_sha256": "98f4371fb0f029b55b3f2a7ffd3c4741d3b57dac4efc3c0736d716635cd02aeb",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N51.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N51.json",
+      "source_sha256": "f981e2aa67a9293869945ee6c87c4b3c30fecd0660c150aae31d028cafb83d6f",
+      "repository_sha256": "f981e2aa67a9293869945ee6c87c4b3c30fecd0660c150aae31d028cafb83d6f",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N52.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N52.json",
+      "source_sha256": "5ead8c8fb77e97f9f1867689a92a4d37b26cd4639b2d92551c2fa35bb48d81dc",
+      "repository_sha256": "5ead8c8fb77e97f9f1867689a92a4d37b26cd4639b2d92551c2fa35bb48d81dc",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N53.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N53.json",
+      "source_sha256": "e441f689d69b7a6df39134d23b59c47db426780a0c1bafa137bb1b3227cfe409",
+      "repository_sha256": "e441f689d69b7a6df39134d23b59c47db426780a0c1bafa137bb1b3227cfe409",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N54.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N54.json",
+      "source_sha256": "9cddcf7a40faba1a8a96882759577d8ffcc64984ad2e03b0d9ce8fab1381c695",
+      "repository_sha256": "9cddcf7a40faba1a8a96882759577d8ffcc64984ad2e03b0d9ce8fab1381c695",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N55.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N55.json",
+      "source_sha256": "461717b103cb835ef81ec8620c0aad3467a0d5a20c5481933515f37976186187",
+      "repository_sha256": "461717b103cb835ef81ec8620c0aad3467a0d5a20c5481933515f37976186187",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/negative/N56.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/negative/N56.json",
+      "source_sha256": "b996de9ca0d9e7c6211d81fad4b846428c845062cfe2170d98e915c8c1f38197",
+      "repository_sha256": "b996de9ca0d9e7c6211d81fad4b846428c845062cfe2170d98e915c8c1f38197",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/read-first/application-outcome.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/read-first/application-outcome.json",
+      "source_sha256": "896d12a719f3f1ced2776e230f5e00a398ed8a0604f14c5d18251998ba9c4327",
+      "repository_sha256": "896d12a719f3f1ced2776e230f5e00a398ed8a0604f14c5d18251998ba9c4327",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/read-first/applied-local-revision.txt",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/read-first/applied-local-revision.txt",
+      "source_sha256": "f5c291bf5cdd55dd320c73db58846c3e35532e97ece7d739df8d294698a01d50",
+      "repository_sha256": "f5c291bf5cdd55dd320c73db58846c3e35532e97ece7d739df8d294698a01d50",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/read-first/model-response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/read-first/model-response.json",
+      "source_sha256": "1fcd89098c1fd5500a2f650506c2a71ebdcb7b13b33a92d503152089114760bb",
+      "repository_sha256": "1fcd89098c1fd5500a2f650506c2a71ebdcb7b13b33a92d503152089114760bb",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/read-first/request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/read-first/request.json",
+      "source_sha256": "cb2d2e00a71a10037711fd069f98b869103098b3cc78c54b844f6f14b9d1aaf4",
+      "repository_sha256": "cb2d2e00a71a10037711fd069f98b869103098b3cc78c54b844f6f14b9d1aaf4",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/01-statistics.step-01.anthropic_messages.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/01-statistics.step-01.anthropic_messages.request.json",
+      "source_sha256": "b0a62bc3ce06e9a9055f0fd1274235d8f396a3b1fbc9aa2e6ec4c502a90449db",
+      "repository_sha256": "b0a62bc3ce06e9a9055f0fd1274235d8f396a3b1fbc9aa2e6ec4c502a90449db",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/01-statistics.step-01.anthropic_messages.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/01-statistics.step-01.anthropic_messages.response.json",
+      "source_sha256": "df7b1cbe7bac5902d288f1b1d60619667bdd673cbd958283f79b143881ed01e1",
+      "repository_sha256": "df7b1cbe7bac5902d288f1b1d60619667bdd673cbd958283f79b143881ed01e1",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/01-statistics.step-01.chat_completions.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/01-statistics.step-01.chat_completions.request.json",
+      "source_sha256": "dc99f20d704c3ea9533c91df724b2ddbc4bfe3d89b245706c9fb7d07be78d4f0",
+      "repository_sha256": "dc99f20d704c3ea9533c91df724b2ddbc4bfe3d89b245706c9fb7d07be78d4f0",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/01-statistics.step-01.chat_completions.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/01-statistics.step-01.chat_completions.response.json",
+      "source_sha256": "38498f71082eb799b74104244f2764e07a285e0fe6c1a2aae3761be583c8bf7b",
+      "repository_sha256": "38498f71082eb799b74104244f2764e07a285e0fe6c1a2aae3761be583c8bf7b",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/01-statistics.step-01.responses.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/01-statistics.step-01.responses.request.json",
+      "source_sha256": "742f75e6f5eaa5a645cf74068a9e40ae8b62c8fdc0ac701239ed38699f2b65f7",
+      "repository_sha256": "742f75e6f5eaa5a645cf74068a9e40ae8b62c8fdc0ac701239ed38699f2b65f7",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/01-statistics.step-01.responses.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/01-statistics.step-01.responses.response.json",
+      "source_sha256": "d801b11d918652ca5707d67540b01e50db5d53543e2fa3c4a98b14264cbebb45",
+      "repository_sha256": "d801b11d918652ca5707d67540b01e50db5d53543e2fa3c4a98b14264cbebb45",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/04-explore-loop.step-01.anthropic_messages.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-01.anthropic_messages.request.json",
+      "source_sha256": "598b46bc1372c5be52af84c85c95256c0322b7f400fdbb07111f8cf63755b9be",
+      "repository_sha256": "598b46bc1372c5be52af84c85c95256c0322b7f400fdbb07111f8cf63755b9be",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/04-explore-loop.step-01.anthropic_messages.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-01.anthropic_messages.response.json",
+      "source_sha256": "3e3dc4e7dd8dd87022ef17eb571aac59f5474f3985c0b4fa82e3643939b1259a",
+      "repository_sha256": "3e3dc4e7dd8dd87022ef17eb571aac59f5474f3985c0b4fa82e3643939b1259a",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/04-explore-loop.step-01.chat_completions.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-01.chat_completions.request.json",
+      "source_sha256": "9bf20c7dab567d7de8c9a1d5d89f9aa72d4a7a56b88a0f120975d038f5d0cbec",
+      "repository_sha256": "9bf20c7dab567d7de8c9a1d5d89f9aa72d4a7a56b88a0f120975d038f5d0cbec",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/04-explore-loop.step-01.chat_completions.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-01.chat_completions.response.json",
+      "source_sha256": "26cdb43933ec437a24c533d195e57c2568d486bfbb3f94612d840315e0dadf0c",
+      "repository_sha256": "26cdb43933ec437a24c533d195e57c2568d486bfbb3f94612d840315e0dadf0c",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/04-explore-loop.step-01.responses.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-01.responses.request.json",
+      "source_sha256": "54c235bfec6e484eea85d302583f78c976568b63fa99aabf3607c3f7448038bc",
+      "repository_sha256": "54c235bfec6e484eea85d302583f78c976568b63fa99aabf3607c3f7448038bc",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/04-explore-loop.step-01.responses.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-01.responses.response.json",
+      "source_sha256": "c2ae4744d12086234ebdffc5b47f014856464048e6c2564068e608cbe9d70649",
+      "repository_sha256": "c2ae4744d12086234ebdffc5b47f014856464048e6c2564068e608cbe9d70649",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/04-explore-loop.step-02.anthropic_messages.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-02.anthropic_messages.request.json",
+      "source_sha256": "851896fdc0dec3994c2e0d8f14c3a04ffb12861b28d792c1cb619a8e5604f2d6",
+      "repository_sha256": "851896fdc0dec3994c2e0d8f14c3a04ffb12861b28d792c1cb619a8e5604f2d6",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/04-explore-loop.step-02.anthropic_messages.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-02.anthropic_messages.response.json",
+      "source_sha256": "0babc852f32fcef39a0be46c5bf7f99e57a20c894f05a31dbef22df330954ef9",
+      "repository_sha256": "0babc852f32fcef39a0be46c5bf7f99e57a20c894f05a31dbef22df330954ef9",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/04-explore-loop.step-02.chat_completions.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-02.chat_completions.request.json",
+      "source_sha256": "b3fc0ea793741a325acfdc8f58c7fe94b57ba963c275d6142b7e1791225202f5",
+      "repository_sha256": "b3fc0ea793741a325acfdc8f58c7fe94b57ba963c275d6142b7e1791225202f5",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/04-explore-loop.step-02.chat_completions.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-02.chat_completions.response.json",
+      "source_sha256": "6e08fa3740478b235fc7a449406336215f6f9687feb0e2926a697a0aa4a7badc",
+      "repository_sha256": "6e08fa3740478b235fc7a449406336215f6f9687feb0e2926a697a0aa4a7badc",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/04-explore-loop.step-02.responses.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-02.responses.request.json",
+      "source_sha256": "c999f9bb84d7c57b64fc09bd60fcb8701c3a9199f94c14172fec51478609ca5c",
+      "repository_sha256": "c999f9bb84d7c57b64fc09bd60fcb8701c3a9199f94c14172fec51478609ca5c",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/04-explore-loop.step-02.responses.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-02.responses.response.json",
+      "source_sha256": "a9c1922d204fcc9ed59bad3c8b4680516e34ca6d56294d139c5fa55074218190",
+      "repository_sha256": "a9c1922d204fcc9ed59bad3c8b4680516e34ca6d56294d139c5fa55074218190",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/05-full-local-revision.step-01.anthropic_messages.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/05-full-local-revision.step-01.anthropic_messages.request.json",
+      "source_sha256": "2285715ddaa9d8739d5133d94697c10caf1bba8e6e4a59f046b4b51951fb39ed",
+      "repository_sha256": "2285715ddaa9d8739d5133d94697c10caf1bba8e6e4a59f046b4b51951fb39ed",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/05-full-local-revision.step-01.anthropic_messages.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/05-full-local-revision.step-01.anthropic_messages.response.json",
+      "source_sha256": "6890f08d80a6cb25d3ffb22bd8acce8cf64ebb2b6382a734e68970f6766abd2a",
+      "repository_sha256": "6890f08d80a6cb25d3ffb22bd8acce8cf64ebb2b6382a734e68970f6766abd2a",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/05-full-local-revision.step-01.chat_completions.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/05-full-local-revision.step-01.chat_completions.request.json",
+      "source_sha256": "ac06a278253afc0092951d0c607755f549966d3d77fca9d2ef5252aa18ab8cdf",
+      "repository_sha256": "ac06a278253afc0092951d0c607755f549966d3d77fca9d2ef5252aa18ab8cdf",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/05-full-local-revision.step-01.chat_completions.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/05-full-local-revision.step-01.chat_completions.response.json",
+      "source_sha256": "c18f101b27c0d82c67bd42495a75b13ee3beba5c9f07e51ba96b06a2be8fe46d",
+      "repository_sha256": "c18f101b27c0d82c67bd42495a75b13ee3beba5c9f07e51ba96b06a2be8fe46d",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/05-full-local-revision.step-01.responses.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/05-full-local-revision.step-01.responses.request.json",
+      "source_sha256": "64436b5776d76278fb4d59a53c087c5e8596b5fb9e93c4fbba9208bcd78b9a9c",
+      "repository_sha256": "64436b5776d76278fb4d59a53c087c5e8596b5fb9e93c4fbba9208bcd78b9a9c",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/05-full-local-revision.step-01.responses.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/05-full-local-revision.step-01.responses.response.json",
+      "source_sha256": "734f69fec9896d0a624db9ef1af73803aaac0b241c49b0a0b6d2effcb0a5a3de",
+      "repository_sha256": "734f69fec9896d0a624db9ef1af73803aaac0b241c49b0a0b6d2effcb0a5a3de",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/13-format-only.step-01.anthropic_messages.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/13-format-only.step-01.anthropic_messages.request.json",
+      "source_sha256": "55be0a07dde78825fa015f36f423bdae3af1bf61fd1eb090b8eff1a62537a727",
+      "repository_sha256": "55be0a07dde78825fa015f36f423bdae3af1bf61fd1eb090b8eff1a62537a727",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/13-format-only.step-01.anthropic_messages.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/13-format-only.step-01.anthropic_messages.response.json",
+      "source_sha256": "5f5e6bb47511ef7f59f4614a38891fac109c5d32983e108fa68e10fde94496d3",
+      "repository_sha256": "5f5e6bb47511ef7f59f4614a38891fac109c5d32983e108fa68e10fde94496d3",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/13-format-only.step-01.chat_completions.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/13-format-only.step-01.chat_completions.request.json",
+      "source_sha256": "f8e8b7f0e3c6db898a0ba87fea2d7bab7fad7fbd5a923dcd708e274b8254e79a",
+      "repository_sha256": "f8e8b7f0e3c6db898a0ba87fea2d7bab7fad7fbd5a923dcd708e274b8254e79a",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/13-format-only.step-01.chat_completions.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/13-format-only.step-01.chat_completions.response.json",
+      "source_sha256": "911d7b55d9e808737b1cc63af2c5222c6040e9bcfb388bd940772b12a13c615e",
+      "repository_sha256": "911d7b55d9e808737b1cc63af2c5222c6040e9bcfb388bd940772b12a13c615e",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/13-format-only.step-01.responses.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/13-format-only.step-01.responses.request.json",
+      "source_sha256": "11d0ab5d6d134fd6fde3805b35f70ce9b4ad149d2817f555328cff7acb0bcac5",
+      "repository_sha256": "11d0ab5d6d134fd6fde3805b35f70ce9b4ad149d2817f555328cff7acb0bcac5",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/13-format-only.step-01.responses.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/13-format-only.step-01.responses.response.json",
+      "source_sha256": "f3930ef7a803a80f4d4cf31c946197c66c30e77c2cad731b279093b913c82eaa",
+      "repository_sha256": "f3930ef7a803a80f4d4cf31c946197c66c30e77c2cad731b279093b913c82eaa",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/14-quality-review.step-01.anthropic_messages.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/14-quality-review.step-01.anthropic_messages.request.json",
+      "source_sha256": "94844b14d19e1e706f685a277877d322f31957cf16aadda0ed084e0db1b7fceb",
+      "repository_sha256": "94844b14d19e1e706f685a277877d322f31957cf16aadda0ed084e0db1b7fceb",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/14-quality-review.step-01.anthropic_messages.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/14-quality-review.step-01.anthropic_messages.response.json",
+      "source_sha256": "a4bdae196f69f988c53faecbc605812a4d99726988e1668ecf47f0c7b980f8b6",
+      "repository_sha256": "a4bdae196f69f988c53faecbc605812a4d99726988e1668ecf47f0c7b980f8b6",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/14-quality-review.step-01.chat_completions.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/14-quality-review.step-01.chat_completions.request.json",
+      "source_sha256": "f9cf57d5761a47ebf424b043879f8f105b76408aa429850b16292ac6e06f27ac",
+      "repository_sha256": "f9cf57d5761a47ebf424b043879f8f105b76408aa429850b16292ac6e06f27ac",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/14-quality-review.step-01.chat_completions.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/14-quality-review.step-01.chat_completions.response.json",
+      "source_sha256": "c65d3fc4a987c8ee6acda32f2932870c8754a13fe535c92ef377784baffebb9c",
+      "repository_sha256": "c65d3fc4a987c8ee6acda32f2932870c8754a13fe535c92ef377784baffebb9c",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/14-quality-review.step-01.responses.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/14-quality-review.step-01.responses.request.json",
+      "source_sha256": "84a845f4a64af1a581a152b9a8124f543bc8699d0a58b23d48a1f0f4fd158516",
+      "repository_sha256": "84a845f4a64af1a581a152b9a8124f543bc8699d0a58b23d48a1f0f4fd158516",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/14-quality-review.step-01.responses.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/14-quality-review.step-01.responses.response.json",
+      "source_sha256": "6ed14529e895ea663adbed75073af05854ed360b8a57c1b0ba028221724ba3af",
+      "repository_sha256": "6ed14529e895ea663adbed75073af05854ed360b8a57c1b0ba028221724ba3af",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/16-chapter_summary.step-01.anthropic_messages.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/16-chapter_summary.step-01.anthropic_messages.request.json",
+      "source_sha256": "6560ceb4065dad16d16aea0458902fbdc7b51fb31ee26e4c1562fc0c0cf45bec",
+      "repository_sha256": "6560ceb4065dad16d16aea0458902fbdc7b51fb31ee26e4c1562fc0c0cf45bec",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/16-chapter_summary.step-01.anthropic_messages.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/16-chapter_summary.step-01.anthropic_messages.response.json",
+      "source_sha256": "a31e5918703650f2c6131a1fc201303b8682895aa1c0dcae30df4f4fb0c06de6",
+      "repository_sha256": "a31e5918703650f2c6131a1fc201303b8682895aa1c0dcae30df4f4fb0c06de6",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/16-chapter_summary.step-01.chat_completions.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/16-chapter_summary.step-01.chat_completions.request.json",
+      "source_sha256": "0dc48ee58f38c1b2523bcd881c7b0b7c5e6d7a934d715aee5c71bfc5be2d22ee",
+      "repository_sha256": "0dc48ee58f38c1b2523bcd881c7b0b7c5e6d7a934d715aee5c71bfc5be2d22ee",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/16-chapter_summary.step-01.chat_completions.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/16-chapter_summary.step-01.chat_completions.response.json",
+      "source_sha256": "7e6ab2fb483a948a0e0fed27392b6c29efb890c7999176a61dc7f3d680e353e6",
+      "repository_sha256": "7e6ab2fb483a948a0e0fed27392b6c29efb890c7999176a61dc7f3d680e353e6",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/16-chapter_summary.step-01.responses.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/16-chapter_summary.step-01.responses.request.json",
+      "source_sha256": "22540ca4bd78b67efe302c76ac37b0894c7865963ff2139202f93589012237d3",
+      "repository_sha256": "22540ca4bd78b67efe302c76ac37b0894c7865963ff2139202f93589012237d3",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/16-chapter_summary.step-01.responses.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/16-chapter_summary.step-01.responses.response.json",
+      "source_sha256": "46dd2d08b81d20484a97e850777db15d148225c0bebd9d661e8c7bba62a6a6bc",
+      "repository_sha256": "46dd2d08b81d20484a97e850777db15d148225c0bebd9d661e8c7bba62a6a6bc",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/21-plan-pair.step-01.anthropic_messages.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/21-plan-pair.step-01.anthropic_messages.request.json",
+      "source_sha256": "ffbf6290464be2a8f7ccf7177aba0affb317ff2679b06cbbac934853f20815e0",
+      "repository_sha256": "ffbf6290464be2a8f7ccf7177aba0affb317ff2679b06cbbac934853f20815e0",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/21-plan-pair.step-01.anthropic_messages.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/21-plan-pair.step-01.anthropic_messages.response.json",
+      "source_sha256": "b717f1552e194e3bfa809765eaf75f8d2d01e3fc4b69e7a686dd828240fdd5b4",
+      "repository_sha256": "b717f1552e194e3bfa809765eaf75f8d2d01e3fc4b69e7a686dd828240fdd5b4",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/21-plan-pair.step-01.chat_completions.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/21-plan-pair.step-01.chat_completions.request.json",
+      "source_sha256": "a5fc46cd9e6160fa9bb806522150ea4ca403eb28d8706cedb469c6ac6474e377",
+      "repository_sha256": "a5fc46cd9e6160fa9bb806522150ea4ca403eb28d8706cedb469c6ac6474e377",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/21-plan-pair.step-01.chat_completions.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/21-plan-pair.step-01.chat_completions.response.json",
+      "source_sha256": "5bdb32f9c9cc30273f97803a83d387cce4aba9b2828eeb84e5002e8fd5fbec55",
+      "repository_sha256": "5bdb32f9c9cc30273f97803a83d387cce4aba9b2828eeb84e5002e8fd5fbec55",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/21-plan-pair.step-01.responses.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/21-plan-pair.step-01.responses.request.json",
+      "source_sha256": "6dd560a7f5473ba66ef94863091cb7ae62310a7febeb1b246b596fc6712861f7",
+      "repository_sha256": "6dd560a7f5473ba66ef94863091cb7ae62310a7febeb1b246b596fc6712861f7",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/21-plan-pair.step-01.responses.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/21-plan-pair.step-01.responses.response.json",
+      "source_sha256": "9dd06809906e2b9565b5397f0770a99c01324a2b358409cfe560cd32d553746f",
+      "repository_sha256": "9dd06809906e2b9565b5397f0770a99c01324a2b358409cfe560cd32d553746f",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/23-register-original.step-01.anthropic_messages.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/23-register-original.step-01.anthropic_messages.request.json",
+      "source_sha256": "9476f579b96f4b5a9170c196eb716be849f0056ab3645fbfa323c965cfce22b5",
+      "repository_sha256": "9476f579b96f4b5a9170c196eb716be849f0056ab3645fbfa323c965cfce22b5",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/23-register-original.step-01.anthropic_messages.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/23-register-original.step-01.anthropic_messages.response.json",
+      "source_sha256": "92db65c8e85350a3a8b7b63011a0dc7849ae28f2853db4667c323f0ce5e6b0e7",
+      "repository_sha256": "92db65c8e85350a3a8b7b63011a0dc7849ae28f2853db4667c323f0ce5e6b0e7",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/23-register-original.step-01.chat_completions.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/23-register-original.step-01.chat_completions.request.json",
+      "source_sha256": "3993431bd200a96b515157a158b1163396f97ae907cd14598f91c3e02f50f789",
+      "repository_sha256": "3993431bd200a96b515157a158b1163396f97ae907cd14598f91c3e02f50f789",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/23-register-original.step-01.chat_completions.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/23-register-original.step-01.chat_completions.response.json",
+      "source_sha256": "d63d6405f813f80a8b40ccbfad57133a7958e0c427b6edc9d5406ddf63ef1ed2",
+      "repository_sha256": "d63d6405f813f80a8b40ccbfad57133a7958e0c427b6edc9d5406ddf63ef1ed2",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/23-register-original.step-01.responses.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/23-register-original.step-01.responses.request.json",
+      "source_sha256": "862357a4eb5416cb6a55b6384ed92268ea5d5cecf55a48456718afceb9bb4061",
+      "repository_sha256": "862357a4eb5416cb6a55b6384ed92268ea5d5cecf55a48456718afceb9bb4061",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/23-register-original.step-01.responses.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/23-register-original.step-01.responses.response.json",
+      "source_sha256": "c7d36f877b273f9bb1fd84f5d492c610b7e0393462a09651b625745c4d837158",
+      "repository_sha256": "c7d36f877b273f9bb1fd84f5d492c610b7e0393462a09651b625745c4d837158",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/34-explicit-checkpoint.step-01.anthropic_messages.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/34-explicit-checkpoint.step-01.anthropic_messages.request.json",
+      "source_sha256": "c4c29f3d18867ad16265752d1f1efe727d12c7dae1e225014a1ae87049dfb067",
+      "repository_sha256": "c4c29f3d18867ad16265752d1f1efe727d12c7dae1e225014a1ae87049dfb067",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/34-explicit-checkpoint.step-01.anthropic_messages.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/34-explicit-checkpoint.step-01.anthropic_messages.response.json",
+      "source_sha256": "211bee9151ab9679d1eda4553ff9edbe6dcd349ea4e4f461f0c5d7802e9b877b",
+      "repository_sha256": "211bee9151ab9679d1eda4553ff9edbe6dcd349ea4e4f461f0c5d7802e9b877b",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/34-explicit-checkpoint.step-01.chat_completions.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/34-explicit-checkpoint.step-01.chat_completions.request.json",
+      "source_sha256": "c80609bb72be9aebe416e00477cc11e443f42c8789d0b271886887b5488dad63",
+      "repository_sha256": "c80609bb72be9aebe416e00477cc11e443f42c8789d0b271886887b5488dad63",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/34-explicit-checkpoint.step-01.chat_completions.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/34-explicit-checkpoint.step-01.chat_completions.response.json",
+      "source_sha256": "a32b5484b70e6e05fb18b1797109bb2d085afdba7ba29d3a848679a0b2ffe9af",
+      "repository_sha256": "a32b5484b70e6e05fb18b1797109bb2d085afdba7ba29d3a848679a0b2ffe9af",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/34-explicit-checkpoint.step-01.responses.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/34-explicit-checkpoint.step-01.responses.request.json",
+      "source_sha256": "ffa8215f5e27348068927a1ce8d77c508843fb33950fcdeda721a4002279a9e2",
+      "repository_sha256": "ffa8215f5e27348068927a1ce8d77c508843fb33950fcdeda721a4002279a9e2",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/34-explicit-checkpoint.step-01.responses.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/34-explicit-checkpoint.step-01.responses.response.json",
+      "source_sha256": "3e59024012a1f1b56e9ab87f6f4c76a6bd4f4365ed092673a98fb9b4f7bd764a",
+      "repository_sha256": "3e59024012a1f1b56e9ab87f6f4c76a6bd4f4365ed092673a98fb9b4f7bd764a",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-01.anthropic_messages.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-01.anthropic_messages.request.json",
+      "source_sha256": "db1ddf0cb52fe292409b242bfe30614eff47f20f8157c32b576c0dfde0777ee3",
+      "repository_sha256": "db1ddf0cb52fe292409b242bfe30614eff47f20f8157c32b576c0dfde0777ee3",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-01.anthropic_messages.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-01.anthropic_messages.response.json",
+      "source_sha256": "af560f70ba51d0a11eb4d7d4541baded72d90ce7f11b1092577c02874c171c10",
+      "repository_sha256": "af560f70ba51d0a11eb4d7d4541baded72d90ce7f11b1092577c02874c171c10",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-01.chat_completions.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-01.chat_completions.request.json",
+      "source_sha256": "d6ab63f9402cdcdd3fe09554ef4ff1f93438c26f911069da18b90f962f93531b",
+      "repository_sha256": "d6ab63f9402cdcdd3fe09554ef4ff1f93438c26f911069da18b90f962f93531b",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-01.chat_completions.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-01.chat_completions.response.json",
+      "source_sha256": "8e229ba692bedbbc387bba507ec9fefd5aff200b36d4fdba4a6c8faea7900b8f",
+      "repository_sha256": "8e229ba692bedbbc387bba507ec9fefd5aff200b36d4fdba4a6c8faea7900b8f",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-01.responses.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-01.responses.request.json",
+      "source_sha256": "a0a24f59c6b15f43d5a021a7056de194ad7d1b202f4ea4803e160f5a4aab1bae",
+      "repository_sha256": "a0a24f59c6b15f43d5a021a7056de194ad7d1b202f4ea4803e160f5a4aab1bae",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-01.responses.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-01.responses.response.json",
+      "source_sha256": "58910412ddd069100e01bfed7e0fa87028ae2da7d4ccddfb6a6e1fbfa23ad653",
+      "repository_sha256": "58910412ddd069100e01bfed7e0fa87028ae2da7d4ccddfb6a6e1fbfa23ad653",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-02.anthropic_messages.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-02.anthropic_messages.request.json",
+      "source_sha256": "89fe483b4240a1146a0eea7546a87a0c5c28042040400dfbfbb508600314af6a",
+      "repository_sha256": "89fe483b4240a1146a0eea7546a87a0c5c28042040400dfbfbb508600314af6a",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-02.anthropic_messages.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-02.anthropic_messages.response.json",
+      "source_sha256": "150ca689f9e6e8751aa90edf42f38f29d439c9ac6cbc0931010432234f900df3",
+      "repository_sha256": "150ca689f9e6e8751aa90edf42f38f29d439c9ac6cbc0931010432234f900df3",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-02.chat_completions.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-02.chat_completions.request.json",
+      "source_sha256": "149f40d25b41f9e76b63f06a479d940fcfe3d8fb27bf828d9397acee34424587",
+      "repository_sha256": "149f40d25b41f9e76b63f06a479d940fcfe3d8fb27bf828d9397acee34424587",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-02.chat_completions.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-02.chat_completions.response.json",
+      "source_sha256": "f34451e13418693890936cdb9d4c28d43136589fd4636d74769f6ba60d19133f",
+      "repository_sha256": "f34451e13418693890936cdb9d4c28d43136589fd4636d74769f6ba60d19133f",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-02.responses.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-02.responses.request.json",
+      "source_sha256": "4b939bd641ef2c49ab647dcfae043176ca4b891f251b06607e250bedcb1ff38c",
+      "repository_sha256": "4b939bd641ef2c49ab647dcfae043176ca4b891f251b06607e250bedcb1ff38c",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-02.responses.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-02.responses.response.json",
+      "source_sha256": "4c98ae71dfad58ab5ec6ce246cfdfedacc04a1009cb21b8bd9d00d4bea5e317a",
+      "repository_sha256": "4c98ae71dfad58ab5ec6ce246cfdfedacc04a1009cb21b8bd9d00d4bea5e317a",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-03.anthropic_messages.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-03.anthropic_messages.request.json",
+      "source_sha256": "0b0292ad6c6b8b92c159c47257e41353f8bf940b4acd78403e2f66d2201a82b0",
+      "repository_sha256": "0b0292ad6c6b8b92c159c47257e41353f8bf940b4acd78403e2f66d2201a82b0",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-03.anthropic_messages.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-03.anthropic_messages.response.json",
+      "source_sha256": "eb066092e4080a7fa72c97b12506b4bd91a6f8614a36d115554295eb15cf5443",
+      "repository_sha256": "eb066092e4080a7fa72c97b12506b4bd91a6f8614a36d115554295eb15cf5443",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-03.chat_completions.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-03.chat_completions.request.json",
+      "source_sha256": "c84669ae4f911d657a8b8f11fb5508fd0158a379bc926223d4a3c898c4e90424",
+      "repository_sha256": "c84669ae4f911d657a8b8f11fb5508fd0158a379bc926223d4a3c898c4e90424",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-03.chat_completions.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-03.chat_completions.response.json",
+      "source_sha256": "5a6f4abdc124dd6e3990ef8e75a7c307d68bc7c4e02f78731581b16765fd2c29",
+      "repository_sha256": "5a6f4abdc124dd6e3990ef8e75a7c307d68bc7c4e02f78731581b16765fd2c29",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-03.responses.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-03.responses.request.json",
+      "source_sha256": "580b5dfcab5a5b4c29fffe81857cebb4b6a5e2337ab214de9a409af7c5a794ab",
+      "repository_sha256": "580b5dfcab5a5b4c29fffe81857cebb4b6a5e2337ab214de9a409af7c5a794ab",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/40-paged-read-quality.step-03.responses.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-03.responses.response.json",
+      "source_sha256": "6cdc39fa6e91055c5812f943ec2e9ea14169fc56a1df3d468f929209e9cdd636",
+      "repository_sha256": "6cdc39fa6e91055c5812f943ec2e9ea14169fc56a1df3d468f929209e9cdd636",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/41-untrusted-reference.step-01.anthropic_messages.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/41-untrusted-reference.step-01.anthropic_messages.request.json",
+      "source_sha256": "1656bf4cde8b93100327ee00c221584762f172dad4d5ff34da7be2da23553078",
+      "repository_sha256": "1656bf4cde8b93100327ee00c221584762f172dad4d5ff34da7be2da23553078",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/41-untrusted-reference.step-01.anthropic_messages.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/41-untrusted-reference.step-01.anthropic_messages.response.json",
+      "source_sha256": "816d4d7ca043c60c5b812dad7852c6992a367e40e0392120d01f81289cbff2d5",
+      "repository_sha256": "816d4d7ca043c60c5b812dad7852c6992a367e40e0392120d01f81289cbff2d5",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/41-untrusted-reference.step-01.chat_completions.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/41-untrusted-reference.step-01.chat_completions.request.json",
+      "source_sha256": "dd61d2ed3964bffd1a568bacaf5f2983d8e0b930420c9c9f6ed15ab4545b8c0d",
+      "repository_sha256": "dd61d2ed3964bffd1a568bacaf5f2983d8e0b930420c9c9f6ed15ab4545b8c0d",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/41-untrusted-reference.step-01.chat_completions.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/41-untrusted-reference.step-01.chat_completions.response.json",
+      "source_sha256": "5d3c13f24c79f2e0063314633922acc90569ff106141299c1a2a611e9d0853a2",
+      "repository_sha256": "5d3c13f24c79f2e0063314633922acc90569ff106141299c1a2a611e9d0853a2",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/41-untrusted-reference.step-01.responses.request.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/41-untrusted-reference.step-01.responses.request.json",
+      "source_sha256": "51f91d9316938c6917bf9d030097927b2efcccff96b29eda87f3a4fac700f1ca",
+      "repository_sha256": "51f91d9316938c6917bf9d030097927b2efcccff96b29eda87f3a4fac700f1ca",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "examples/wire/41-untrusted-reference.step-01.responses.response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/wire/41-untrusted-reference.step-01.responses.response.json",
+      "source_sha256": "90ba5731fa1d38a3b0ded7eb94b36261cf87255fd27578d6ee2400560d44c596",
+      "repository_sha256": "90ba5731fa1d38a3b0ded7eb94b36261cf87255fd27578d6ee2400560d44c596",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "requirements.txt",
+      "repository_path": "scripts/model_contracts/model_interaction/requirements.txt",
+      "source_sha256": "204eaf7850fae25d0f69bb45ff04d5ceba566b6922fc08cd84b6de140bee77b9",
+      "repository_sha256": "204eaf7850fae25d0f69bb45ff04d5ceba566b6922fc08cd84b6de140bee77b9",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "schemas/application-outcome.schema.json",
+      "repository_path": "docs/design/schemas/model-interaction/application-outcome.schema.json",
+      "source_sha256": "d67d1528ab0e048b38c54db66217d49cb4d9543268c6a12789bab357ebd27a2f",
+      "repository_sha256": "d67d1528ab0e048b38c54db66217d49cb4d9543268c6a12789bab357ebd27a2f",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "schemas/author-action.schema.json",
+      "repository_path": "docs/design/schemas/model-interaction/author-action.schema.json",
+      "source_sha256": "5535fb7ab3b43d35c679d0d1c7b3eb00657183dd80deb69b3c1a8462259312b2",
+      "repository_sha256": "5535fb7ab3b43d35c679d0d1c7b3eb00657183dd80deb69b3c1a8462259312b2",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "schemas/exchange.schema.json",
+      "repository_path": "docs/design/schemas/model-interaction/exchange.schema.json",
+      "source_sha256": "d36d054a713254118ad116bc168fd172e3935fe29a860da348b23025f487de62",
+      "repository_sha256": "d36d054a713254118ad116bc168fd172e3935fe29a860da348b23025f487de62",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "schemas/model-interaction.schema.json",
+      "repository_path": "docs/design/schemas/model-interaction/model-interaction.schema.json",
+      "source_sha256": "eaf8ac8f6a34a1a8dfc9d432b55a93f98d3d69a6518841e58312188ab97fdb4e",
+      "repository_sha256": "eaf8ac8f6a34a1a8dfc9d432b55a93f98d3d69a6518841e58312188ab97fdb4e",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "schemas/model-response.schema.json",
+      "repository_path": "docs/design/schemas/model-interaction/model-response.schema.json",
+      "source_sha256": "0154780edfed24e139aa30b1b3ab14d8c932f00a7e0da21acda72ad0429698f6",
+      "repository_sha256": "0154780edfed24e139aa30b1b3ab14d8c932f00a7e0da21acda72ad0429698f6",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "schemas/provider-event.schema.json",
+      "repository_path": "docs/design/schemas/model-interaction/provider-event.schema.json",
+      "source_sha256": "38c8550b496acceff7b42e5f2cf1ce2b482ebc12afd6394d43c0af7f6d50f816",
+      "repository_sha256": "38c8550b496acceff7b42e5f2cf1ce2b482ebc12afd6394d43c0af7f6d50f816",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "schemas/request.schema.json",
+      "repository_path": "docs/design/schemas/model-interaction/request.schema.json",
+      "source_sha256": "ded469e1e4ba26ae45df589a3ebb8b2649376f02e0cd93896f3223f718d83bae",
+      "repository_sha256": "ded469e1e4ba26ae45df589a3ebb8b2649376f02e0cd93896f3223f718d83bae",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "schemas/tool-result.schema.json",
+      "repository_path": "docs/design/schemas/model-interaction/tool-result.schema.json",
+      "source_sha256": "3896d8770d297f3fc40ab2e48c37dabfb67b89b432c3a9c7719320a2f44bcd28",
+      "repository_sha256": "3896d8770d297f3fc40ab2e48c37dabfb67b89b432c3a9c7719320a2f44bcd28",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "schemas/validation.schema.json",
+      "repository_path": "docs/design/schemas/model-interaction/validation.schema.json",
+      "source_sha256": "5d6a46ee66a15774f886e6cf5e54560616dcc28bf689d0b82ae7a110a1a6637f",
+      "repository_sha256": "5d6a46ee66a15774f886e6cf5e54560616dcc28bf689d0b82ae7a110a1a6637f",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "sources.json",
+      "repository_path": "docs/design/contracts/model-interaction/sources.json",
+      "source_sha256": "16605cff68d19a1343f16dc0ba6f2aad58436c2a43bffe6f75029b477db4112d",
+      "repository_sha256": "16605cff68d19a1343f16dc0ba6f2aad58436c2a43bffe6f75029b477db4112d",
+      "change": "unchanged"
+    },
+    {
+      "source_path": "tools/check_all.py",
+      "repository_path": "scripts/model_contracts/model_interaction/check_all.py",
+      "source_sha256": "d182bb6e99c28272105c86b5d9b1860dad0ddeb5e003ec8bc9f463c177d29afb",
+      "repository_sha256": "a5e11dec704b3887ee99f10349c6b14ef86fde8383ed9ef3556e3538f85aad5f",
+      "change": "script_repository_paths_and_artifacts_output_only"
+    },
+    {
+      "source_path": "tools/project_example.py",
+      "repository_path": "scripts/model_contracts/model_interaction/project_example.py",
+      "source_sha256": "df0975a511327515ae31108e40419cb76e5b6e1d47241e72d4d8b8f0799f6ed7",
+      "repository_sha256": "29904431bf3427ed3d5e1415407795285e80a1c63a60bac83fd0d953fabb037c",
+      "change": "script_repository_paths_and_artifacts_output_only"
+    },
+    {
+      "source_path": "tools/verify.py",
+      "repository_path": "scripts/model_contracts/model_interaction/verify.py",
+      "source_sha256": "759ffcfefb172e7bee2b5e7bd0f79ccf5a8a0fb0e7a0b96c3949bea7e1f99895",
+      "repository_sha256": "52718ccefd18d0e576bea2a418dd8f17ba2a8ed2dcc70b5f109665f2be1e63a9",
+      "change": "script_repository_paths_and_artifacts_output_only"
+    },
+    {
+      "source_path": "complete-request-response.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/05-full-local-revision.json",
+      "source_sha256": "5dc366e70d01560f0a33bf7677cb2cb4d3810067e31886965ee7056656576915",
+      "repository_sha256": "5dc366e70d01560f0a33bf7677cb2cb4d3810067e31886965ee7056656576915",
+      "change": "deduplicated_alias"
+    },
+    {
+      "source_path": "examples/read-first/full-exchange.json",
+      "repository_path": "quality/acceptance/fixtures/model-interaction/exchanges/05-full-local-revision.json",
+      "source_sha256": "5dc366e70d01560f0a33bf7677cb2cb4d3810067e31886965ee7056656576915",
+      "repository_sha256": "5dc366e70d01560f0a33bf7677cb2cb4d3810067e31886965ee7056656576915",
+      "change": "deduplicated_alias"
+    }
+  ],
+  "untracked_source_files": {
+    "README.md": "replaced by repository navigation",
+    "bundle-manifest.json": "replaced by this map; original ZIP retained separately",
+    "verification/summary.json": "regenerated under artifacts/model-contracts/vs00m-design/<run>/summary.json",
+    "verification/report.json": "regenerated under artifacts/model-contracts/vs00m-design/<run>/report.json",
+    "verification/provider-projection-report.json": "regenerated under artifacts/model-contracts/vs00m-design/<run>/provider-projection-report.json"
+  },
+  "new_files": [
+    "docs/design/acceptance/model-interaction-coverage.md",
+    "docs/design/contracts/model-interaction/00-sources.md",
+    "docs/design/contracts/model-interaction/01-protocol-spec.md",
+    "docs/design/contracts/model-interaction/02-field-dictionary.md",
+    "docs/design/contracts/model-interaction/03-state-and-invariants.md",
+    "docs/design/contracts/model-interaction/04-provider-mapping.md",
+    "docs/design/contracts/model-interaction/05-existence-audit-and-gaps.md",
+    "docs/design/contracts/model-interaction/07-implementation-and-review.md",
+    "docs/design/contracts/model-interaction/README.md",
+    "docs/design/contracts/model-interaction/integration-manifest.json",
+    "docs/design/contracts/model-interaction/integration-notes.md",
+    "docs/design/contracts/model-interaction/reference/README.md",
+    "docs/design/contracts/model-interaction/reference/completeness-checklist.json",
+    "docs/design/contracts/model-interaction/reference/field-dictionary.json",
+    "docs/design/contracts/model-interaction/reference/novel-elements.json",
+    "docs/design/contracts/model-interaction/reference/task-profiles.json",
+    "docs/design/contracts/model-interaction/reference/tool-contracts.json",
+    "docs/design/contracts/model-interaction/sources.json",
+    "docs/design/schemas/model-interaction/README.md",
+    "docs/design/schemas/model-interaction/application-outcome.schema.json",
+    "docs/design/schemas/model-interaction/author-action.schema.json",
+    "docs/design/schemas/model-interaction/exchange.schema.json",
+    "docs/design/schemas/model-interaction/model-interaction.schema.json",
+    "docs/design/schemas/model-interaction/model-response.schema.json",
+    "docs/design/schemas/model-interaction/provider-event.schema.json",
+    "docs/design/schemas/model-interaction/request.schema.json",
+    "docs/design/schemas/model-interaction/tool-result.schema.json",
+    "docs/design/schemas/model-interaction/validation.schema.json",
+    "quality/acceptance/fixtures/README.md",
+    "quality/acceptance/fixtures/model-interaction/README.md",
+    "quality/acceptance/fixtures/model-interaction/exchanges/01-statistics.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/02-discussion.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/03-capability-gap.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/04-explore-loop.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/05-full-local-revision.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/06-first_draft.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/07-continuation.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/08-rewrite.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/09-character_design.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/10-character_evolution.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/11-outline.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/12-world_building.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/13-format-only.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/14-quality-review.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/15-quality-unavailable.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/16-chapter_summary.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/17-fact_inventory.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/18-ledger_reconcile.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/19-chapter_mission.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/20-narration.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/21-plan-pair.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/22-clarify.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/23-register-original.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/24-directions.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/25-profile-revision.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/26-partial-read.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/27-author-asset.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/28-author-adoption.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/29-full-delegation.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/30-revoked-delegation.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/31-critical-confirmation.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/32-cancellation.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/33-budget-stop.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/34-explicit-checkpoint.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/35-retry-scope.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/36-unknown-side-effect.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/37-truncated-output.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/38-pending-revision.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/39-author-reject.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/40-paged-read-quality.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/41-untrusted-reference.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/42-quality-author-revision.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/43-steer-goal-version.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/44-pause-resume.json",
+    "quality/acceptance/fixtures/model-interaction/exchanges/README.md",
+    "quality/acceptance/fixtures/model-interaction/fixture-ref-map.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N01.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N02.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N03.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N04.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N05.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N06.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N07.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N08.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N09.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N10.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N11.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N12.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N13.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N14.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N15.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N16.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N17.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N18.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N19.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N20.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N21.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N22.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N23.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N24.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N25.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N26.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N27.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N28.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N29.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N30.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N31.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N32.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N33.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N34.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N35.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N36.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N37.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N38.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N39.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N40.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N41.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N42.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N43.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N44.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N45.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N46.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N47.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N48.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N49.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N50.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N51.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N52.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N53.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N54.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N55.json",
+    "quality/acceptance/fixtures/model-interaction/negative/N56.json",
+    "quality/acceptance/fixtures/model-interaction/negative/README.md",
+    "quality/acceptance/fixtures/model-interaction/read-first/README.md",
+    "quality/acceptance/fixtures/model-interaction/read-first/application-outcome.json",
+    "quality/acceptance/fixtures/model-interaction/read-first/applied-local-revision.txt",
+    "quality/acceptance/fixtures/model-interaction/read-first/model-response.json",
+    "quality/acceptance/fixtures/model-interaction/read-first/request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/01-statistics.step-01.anthropic_messages.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/01-statistics.step-01.anthropic_messages.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/01-statistics.step-01.chat_completions.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/01-statistics.step-01.chat_completions.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/01-statistics.step-01.responses.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/01-statistics.step-01.responses.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-01.anthropic_messages.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-01.anthropic_messages.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-01.chat_completions.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-01.chat_completions.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-01.responses.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-01.responses.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-02.anthropic_messages.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-02.anthropic_messages.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-02.chat_completions.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-02.chat_completions.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-02.responses.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/04-explore-loop.step-02.responses.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/05-full-local-revision.step-01.anthropic_messages.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/05-full-local-revision.step-01.anthropic_messages.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/05-full-local-revision.step-01.chat_completions.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/05-full-local-revision.step-01.chat_completions.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/05-full-local-revision.step-01.responses.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/05-full-local-revision.step-01.responses.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/13-format-only.step-01.anthropic_messages.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/13-format-only.step-01.anthropic_messages.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/13-format-only.step-01.chat_completions.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/13-format-only.step-01.chat_completions.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/13-format-only.step-01.responses.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/13-format-only.step-01.responses.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/14-quality-review.step-01.anthropic_messages.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/14-quality-review.step-01.anthropic_messages.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/14-quality-review.step-01.chat_completions.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/14-quality-review.step-01.chat_completions.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/14-quality-review.step-01.responses.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/14-quality-review.step-01.responses.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/16-chapter_summary.step-01.anthropic_messages.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/16-chapter_summary.step-01.anthropic_messages.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/16-chapter_summary.step-01.chat_completions.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/16-chapter_summary.step-01.chat_completions.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/16-chapter_summary.step-01.responses.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/16-chapter_summary.step-01.responses.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/21-plan-pair.step-01.anthropic_messages.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/21-plan-pair.step-01.anthropic_messages.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/21-plan-pair.step-01.chat_completions.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/21-plan-pair.step-01.chat_completions.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/21-plan-pair.step-01.responses.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/21-plan-pair.step-01.responses.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/23-register-original.step-01.anthropic_messages.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/23-register-original.step-01.anthropic_messages.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/23-register-original.step-01.chat_completions.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/23-register-original.step-01.chat_completions.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/23-register-original.step-01.responses.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/23-register-original.step-01.responses.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/34-explicit-checkpoint.step-01.anthropic_messages.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/34-explicit-checkpoint.step-01.anthropic_messages.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/34-explicit-checkpoint.step-01.chat_completions.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/34-explicit-checkpoint.step-01.chat_completions.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/34-explicit-checkpoint.step-01.responses.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/34-explicit-checkpoint.step-01.responses.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-01.anthropic_messages.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-01.anthropic_messages.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-01.chat_completions.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-01.chat_completions.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-01.responses.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-01.responses.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-02.anthropic_messages.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-02.anthropic_messages.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-02.chat_completions.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-02.chat_completions.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-02.responses.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-02.responses.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-03.anthropic_messages.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-03.anthropic_messages.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-03.chat_completions.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-03.chat_completions.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-03.responses.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/40-paged-read-quality.step-03.responses.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/41-untrusted-reference.step-01.anthropic_messages.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/41-untrusted-reference.step-01.anthropic_messages.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/41-untrusted-reference.step-01.chat_completions.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/41-untrusted-reference.step-01.chat_completions.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/41-untrusted-reference.step-01.responses.request.json",
+    "quality/acceptance/fixtures/model-interaction/wire/41-untrusted-reference.step-01.responses.response.json",
+    "quality/acceptance/fixtures/model-interaction/wire/README.md",
+    "scripts/model_contracts/model_interaction/README.md",
+    "scripts/model_contracts/model_interaction/check_all.py",
+    "scripts/model_contracts/model_interaction/paths.py",
+    "scripts/model_contracts/model_interaction/project_example.py",
+    "scripts/model_contracts/model_interaction/requirements.txt",
+    "scripts/model_contracts/model_interaction/verify.py"
+  ],
+  "entry_links": [
+    {
+      "path": "docs/design/README.md",
+      "required_fragment": "> 模型交互协议候选的完整阅读入口：[VS-00M 配套规范与样例](contracts/model-interaction/README.md)。该附件保留源基线和草案状态；[候选 Schema](schemas/model-interaction/README.md)、[覆盖矩阵](acceptance/model-interaction-coverage.md) 与 [B87](../../tasks/slices/B87-model-interaction-request-projection.md) 相互关联，不另建协议/任务真源。"
+    },
+    {
+      "path": "docs/design/contracts/README.md",
+      "required_fragment": "## VS-00M 配套审查材料"
+    },
+    {
+      "path": "docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md",
+      "required_fragment": "> **完整 JSON 候选审查材料**：[阅读入口](model-interaction/README.md) · [字段规范](model-interaction/01-protocol-spec.md) · [候选 Schema](../schemas/model-interaction/README.md) · [覆盖矩阵](../acceptance/model-interaction-coverage.md)。源包基线为 `f13ff640`；本文件 `04492ea3` 新增的输出通道、tool result envelope、SSE 约束见 [归档差异](model-interaction/integration-notes.md)，仍由 B87 R00/R07/R08 对账。附件入库不改变本文件状态，也不覆盖下文 §6.1。"
+    },
+    {
+      "path": "docs/design/schemas/README.md",
+      "required_fragment": "## model-interaction/（Proposed 审查候选）"
+    },
+    {
+      "path": "docs/design/acceptance/README.md",
+      "required_fragment": "## 模型交互协议候选的验收输入"
+    },
+    {
+      "path": "quality/README.md",
+      "required_fragment": "## 模型交互设计候选验证入口"
+    },
+    {
+      "path": "quality/acceptance/README.md",
+      "required_fragment": "## 固定输入与协议候选"
+    },
+    {
+      "path": "scripts/README.md",
+      "required_fragment": "> 离线模型交互设计候选校验：[model_contracts/model_interaction](model_contracts/model_interaction/README.md)。它不调用模型或生产数据库，报告进入 `artifacts/model-contracts/vs00m-design/`；生产协议与正式场景入口不变。"
+    },
+    {
+      "path": "scripts/model_contracts/README.md",
+      "required_fragment": "## VS-00M 离线设计候选"
+    },
+    {
+      "path": "tasks/slices/B87-model-interaction-request-projection.md",
+      "required_fragment": "> **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。"
+    },
+    {
+      "path": "tasks/slices/B87-model-interaction-request-projection/R00.md",
+      "required_fragment": "> 新增必读输入：[协议候选材料](../../../docs/design/contracts/model-interaction/README.md) 与 [归档差异](../../../docs/design/contracts/model-interaction/integration-notes.md)。先核 `f13ff640` 源包与当前 HEAD 的差异，尤其 VS-00M §6.1/R07/R08；实体存在性审查与 Frozen 裁决不能由 Schema/合成样例 PASS 代替。"
+    },
+    {
+      "path": "frontend/scripts/codegen-schemas.mjs",
+      "required_fragment": "// VS-00M is a Proposed review bundle, not a frontend contract/codegen input."
+    }
+  ],
+  "entry_edits": [
+    {
+      "path": "docs/design/README.md",
+      "anchor": "# 当前设计文档入口\n\n",
+      "addition": "> 模型交互协议候选的完整阅读入口：[VS-00M 配套规范与样例](contracts/model-interaction/README.md)。该附件保留源基线和草案状态；[候选 Schema](schemas/model-interaction/README.md)、[覆盖矩阵](acceptance/model-interaction-coverage.md) 与 [B87](../../tasks/slices/B87-model-interaction-request-projection.md) 相互关联，不另建协议/任务真源。\n\n"
+    },
+    {
+      "path": "docs/design/contracts/README.md",
+      "anchor": "# Contracts — Contract Pack 索引\n\n",
+      "addition": "## VS-00M 配套审查材料\n\n[完整规范、字段字典与来源](model-interaction/README.md) 是 [VS-00M](VS-00M-model-interaction-request-response-contract-pack.md) 的 Proposed 附件；关联候选 Schema、验收设计、合成正反例和可运行脚本。最新输出约束差异有单独对账说明，不将附件视为生产契约或 Frozen。\n\n"
+    },
+    {
+      "path": "docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md",
+      "anchor": "# VS-00M · 模型交互端到端架构与治理契约（Issue #4 / B87）\n\n",
+      "addition": "> **完整 JSON 候选审查材料**：[阅读入口](model-interaction/README.md) · [字段规范](model-interaction/01-protocol-spec.md) · [候选 Schema](../schemas/model-interaction/README.md) · [覆盖矩阵](../acceptance/model-interaction-coverage.md)。源包基线为 `f13ff640`；本文件 `04492ea3` 新增的输出通道、tool result envelope、SSE 约束见 [归档差异](model-interaction/integration-notes.md)，仍由 B87 R00/R07/R08 对账。附件入库不改变本文件状态，也不覆盖下文 §6.1。\n\n"
+    },
+    {
+      "path": "docs/design/schemas/README.md",
+      "anchor": "# Schemas — JSON Schema / enum SSOT 索引\n\n",
+      "addition": "## model-interaction/（Proposed 审查候选）\n\n[模型交互候选 Schema 索引](model-interaction/README.md)：九个离线验证入口，由 `scripts/model_contracts/model_interaction/check_all.py` 消费；**显式排除前端 codegen**，不是生产 RequestIR 或枚举的新真源。审查镜像不放本目录，见 [设计参考](../contracts/model-interaction/reference/README.md)。\n\n"
+    },
+    {
+      "path": "docs/design/acceptance/README.md",
+      "anchor": "# v3 验收场景全景\n\n",
+      "addition": "## 模型交互协议候选的验收输入\n\n[场景/反例覆盖矩阵](model-interaction-coverage.md) 与 [VS-00M 设计材料](../contracts/model-interaction/README.md) 对应。这里描述离线 Schema 与合成案例覆盖，不把它注册成已通过的原生页面/实模场景；执行状态仍由 B87 管理。\n\n"
+    },
+    {
+      "path": "quality/README.md",
+      "anchor": "# Quality Operating System\n\n",
+      "addition": "## 模型交互设计候选验证入口\n\n[场景验收目录](acceptance/README.md) → [固定输入索引](acceptance/fixtures/README.md) → [VS-00M 合成样例](acceptance/fixtures/model-interaction/README.md)，由 [离线脚本](../scripts/model_contracts/model_interaction/README.md) 消费。其结果是设计样例自洽性，不是产品验收；报告只进 `artifacts/`。\n\n"
+    },
+    {
+      "path": "quality/acceptance/README.md",
+      "anchor": "# Scenario Acceptance\n\n",
+      "addition": "## 固定输入与协议候选\n\n[fixtures 总索引](fixtures/README.md) 收录已有 B27/正文质量固定输入与 [VS-00M 合成模型交互](fixtures/model-interaction/README.md)。后者有独立离线 checker，不进入正式 scenarios.yml 的 active/PASS 口径，不改变现有质量门。\n\n"
+    },
+    {
+      "path": "scripts/README.md",
+      "anchor": "# Scripts Index\n\n",
+      "addition": "> 离线模型交互设计候选校验：[model_contracts/model_interaction](model_contracts/model_interaction/README.md)。它不调用模型或生产数据库，报告进入 `artifacts/model-contracts/vs00m-design/`；生产协议与正式场景入口不变。\n\n"
+    },
+    {
+      "path": "scripts/model_contracts/README.md",
+      "anchor": "# 模型契约探针索引\n\n",
+      "addition": "## VS-00M 离线设计候选\n\n[model_interaction/](model_interaction/README.md)：Schema、合成正反例、原生格式参考映射及导航/哈希检查。用 Python 独立运行，不走下述真实 Provider 探针，不写作品数据，也不证明模型语义/页面行为。\n\n"
+    },
+    {
+      "path": "tasks/slices/B87-model-interaction-request-projection.md",
+      "anchor": "# B87 · Issue #4 模型交互体系系统性重构：实施总计划与唯一任务状态源\n\n",
+      "addition": "> **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。\n\n"
+    },
+    {
+      "path": "tasks/slices/B87-model-interaction-request-projection/R00.md",
+      "anchor": "# R00 · 冻结契约对账与全仓实体存在性审计\n\n",
+      "addition": "> 新增必读输入：[协议候选材料](../../../docs/design/contracts/model-interaction/README.md) 与 [归档差异](../../../docs/design/contracts/model-interaction/integration-notes.md)。先核 `f13ff640` 源包与当前 HEAD 的差异，尤其 VS-00M §6.1/R07/R08；实体存在性审查与 Frozen 裁决不能由 Schema/合成样例 PASS 代替。\n\n"
+    },
+    {
+      "path": "frontend/scripts/codegen-schemas.mjs",
+      "anchor": "const files = walk(schemasRoot).filter(\n  (file) => !relative(schemasRoot, file).startsWith(\"author_visible/\"),\n);\n",
+      "replacement": "// VS-00M is a Proposed review bundle, not a frontend contract/codegen input.\nconst files = walk(schemasRoot).filter((file) => {\n  const schemaPath = relative(schemasRoot, file).replaceAll(\"\\\\\", \"/\");\n  return (\n    !schemaPath.startsWith(\"author_visible/\") &&\n    !schemaPath.startsWith(\"model-interaction/\")\n  );\n});\n"
+    }
+  ],
+  "new_directories": [
+    "docs/design/contracts/model-interaction",
+    "docs/design/contracts/model-interaction/reference",
+    "docs/design/schemas/model-interaction",
+    "quality/acceptance/fixtures",
+    "quality/acceptance/fixtures/model-interaction",
+    "quality/acceptance/fixtures/model-interaction/exchanges",
+    "quality/acceptance/fixtures/model-interaction/negative",
+    "quality/acceptance/fixtures/model-interaction/read-first",
+    "quality/acceptance/fixtures/model-interaction/wire",
+    "scripts/model_contracts/model_interaction"
+  ]
+}

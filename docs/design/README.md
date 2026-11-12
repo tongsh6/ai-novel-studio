@@ -1,5 +1,7 @@
 # 当前设计文档入口
 
+> 模型交互协议候选的完整阅读入口：[VS-00M 配套规范与样例](contracts/model-interaction/README.md)。该附件保留源基线和草案状态；[候选 Schema](schemas/model-interaction/README.md)、[覆盖矩阵](acceptance/model-interaction-coverage.md) 与 [B87](../../tasks/slices/B87-model-interaction-request-projection.md) 相互关联，不另建协议/任务真源。
+
 > 2026-11-13：作者授权 Issue #4 的系统级设计与批次重审，确认**未发布/不兼容历史/所有新实体先存在性审计**；[VS-00M](contracts/VS-00M-model-interaction-request-response-contract-pack.md) 重构为唯一增量设计（Proposed，需先核对 Frozen 契约），[B87](../../tasks/slices/B87-model-interaction-request-projection.md) 登记 R00–R19、统一 clean/授权/创作质量最终验收；B86 C9 责任归 B87 R06，原历史证据保留。此处不是实施完成声明。
 
 > 2026-11-12：B71/B81 完成度独立复核（三份只读审计）后完成文档与实现收口——B81 状态对齐为 done（CP1–CP6，2026-11-11 复核，§12 证据）并修正索引/契约漂移；B71 保持 doing（G3/G5 与 Responses/Anthropic 实模、真实流式预览、I10、CP5 最终收口未闭环）。本轮同批清理：VS-00L §4 移除未落地/已退役字段、§16.2/§16.8/§17 状态回写；08 §26 日期化状态改为指针（设计文档不维护第二状态源）；删除 `TurnExecutionService` 旧 `authoring_transcript` 回退与 4 个零消费者模块；checkpoint 版本与 artifact 谓词收敛到唯一契约。状态真源仍为 `tasks/slices/` 原任务。

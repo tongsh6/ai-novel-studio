@@ -1,0 +1,15 @@
+{
+  "case_id": "N50",
+  "base_case": "27-author-asset",
+  "description": "跨作品作者资产没有本作品关联不可消费",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/context/materials/0/payload/linked_work_ref",
+      "value": "work:other"
+    }
+  ],
+  "expected_error_codes": [
+    "ASSET_LINK_INVALID"
+  ]
+}

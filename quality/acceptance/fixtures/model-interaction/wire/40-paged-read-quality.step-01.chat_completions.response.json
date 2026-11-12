@@ -1,0 +1,25 @@
+{
+  "id": "fixture-response:demo-40-a",
+  "object": "chat.completion",
+  "model": "fixture-model",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call:demo-page-1",
+            "type": "function",
+            "function": {
+              "name": "judgment_decision",
+              "arguments": "{\"action\":\"explore\",\"dialogue_goal\":\"检查全章情绪铺垫\",\"reason\":\"先取得当前正文。\",\"explore_request\":{\"tool\":\"chapter_read\",\"query\":\"灯下旧卷\"}}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ]
+}

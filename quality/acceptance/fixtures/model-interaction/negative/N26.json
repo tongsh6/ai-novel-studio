@@ -1,0 +1,15 @@
+{
+  "case_id": "N26",
+  "base_case": "32-cancellation",
+  "description": "流式事件序号倒退",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/events/2/sequence",
+      "value": 1
+    }
+  ],
+  "expected_error_codes": [
+    "EVENT_SEQUENCE_INVALID"
+  ]
+}

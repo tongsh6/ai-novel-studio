@@ -1,0 +1,19 @@
+{
+  "id": "fixture-response:demo-23",
+  "type": "message",
+  "role": "assistant",
+  "model": "fixture-model",
+  "content": [
+    {
+      "type": "tool_use",
+      "id": "call:demo-register",
+      "name": "register_author_content",
+      "input": {
+        "author_content_source_ref": "message:demo-original",
+        "dialogue_goal": "按来源逐字登记作者原文",
+        "author_reasoning": "会以原始作者消息作为登记来源，形成待审阅候选。"
+      }
+    }
+  ],
+  "stop_reason": "tool_use"
+}

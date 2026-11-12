@@ -1,0 +1,15 @@
+{
+  "case_id": "N40",
+  "base_case": "16-chapter_summary",
+  "description": "独立文本操作不得伪造AgentRun",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/identity/run_ref",
+      "value": "run:fake"
+    }
+  ],
+  "expected_error_codes": [
+    "SCHEMA_INVALID"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "case_id": "N17",
+  "base_case": "29-full-delegation",
+  "description": "委托撤销后仍自动采纳",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/authority/delegation/revoked",
+      "value": true
+    }
+  ],
+  "expected_error_codes": [
+    "INVALID_DELEGATION"
+  ]
+}

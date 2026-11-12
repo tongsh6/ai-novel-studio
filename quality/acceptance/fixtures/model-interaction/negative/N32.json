@@ -1,0 +1,24 @@
+{
+  "case_id": "N32",
+  "base_case": "01-statistics",
+  "description": "缓存Token不能大于输入Token",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/responses/0/usage",
+      "value": {
+        "measurement": "provider_reported",
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "cached_input_tokens": 20,
+        "reasoning_tokens": null,
+        "total_tokens": 15,
+        "time_to_first_token_ms": null,
+        "duration_ms": null
+      }
+    }
+  ],
+  "expected_error_codes": [
+    "CACHED_EXCEEDS_INPUT"
+  ]
+}

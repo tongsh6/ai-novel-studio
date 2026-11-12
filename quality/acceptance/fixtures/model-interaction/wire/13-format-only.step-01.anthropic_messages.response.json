@@ -1,0 +1,29 @@
+{
+  "id": "fixture-response:demo-13",
+  "type": "message",
+  "role": "assistant",
+  "model": "fixture-model",
+  "content": [
+    {
+      "type": "tool_use",
+      "id": "call:demo-format",
+      "name": "submit_tentative_artifact",
+      "input": {
+        "items": [
+          {
+            "item_id": "item-demo-format",
+            "title": "段落换行方案",
+            "body": "将第一处段落间距改为一个换行。",
+            "line_break_changes": [
+              {
+                "boundary_id": "boundary:demo-1",
+                "lines": 1
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "stop_reason": "tool_use"
+}

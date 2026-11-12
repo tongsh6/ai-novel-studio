@@ -1,0 +1,19 @@
+{
+  "case_id": "N35",
+  "base_case": "13-format-only",
+  "description": "模型捏造排版边界",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/responses/0/output/tool_calls/0/arguments/items/0/line_break_changes/0/boundary_id",
+      "value": "boundary:unknown"
+    },
+    {
+      "op": "remove",
+      "pointer": "/responses/0/output/tool_calls/0/arguments_raw"
+    }
+  ],
+  "expected_error_codes": [
+    "UNKNOWN_FORMATTING_BOUNDARY"
+  ]
+}

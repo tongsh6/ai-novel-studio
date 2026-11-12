@@ -1,5 +1,7 @@
 # Scripts Index
 
+> 离线模型交互设计候选校验：[model_contracts/model_interaction](model_contracts/model_interaction/README.md)。它不调用模型或生产数据库，报告进入 `artifacts/model-contracts/vs00m-design/`；生产协议与正式场景入口不变。
+
 本目录是项目内可复跑工程脚本入口。脚本应只服务构建、验收、扫描、开发启动、seed 或调试，不作为设计真源；设计和任务仍登记到 `docs/design/` 与 `tasks/`。
 
 ## 子目录

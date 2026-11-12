@@ -1,0 +1,14 @@
+{
+  "id": "fixture-response:demo-14",
+  "object": "response",
+  "model": "fixture-model",
+  "status": "completed",
+  "output": [
+    {
+      "type": "function_call",
+      "call_id": "call:demo-quality",
+      "name": "report_quality_findings",
+      "arguments": "{\"findings\":[{\"quality_finding_id\":\"finding:demo-emotion\",\"quality_gate_ref\":\"quality_gate.pacing\",\"validator_ref\":\"validator.emotional_transition\",\"summary\":\"发现改卷到愤怒之间缺少过渡\",\"reasoning\":\"原文直接给出情绪标签，没有呈现核实与受压过程。\",\"evidence_spans\":[{\"text\":\"她很生气，决定查清是谁动的手。\",\"sentence_start\":4,\"sentence_end\":4}],\"impact_scope\":\"paragraph\",\"revision_scope\":\"paragraph\",\"confidence\":0.83,\"brief_field_refs\":[\"scene:demo-1.emotion_transition\"]}]}"
+    }
+  ]
+}

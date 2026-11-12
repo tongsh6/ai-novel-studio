@@ -1,0 +1,19 @@
+{
+  "id": "fixture-response:demo-01",
+  "object": "response",
+  "model": "fixture-model",
+  "status": "completed",
+  "output": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "当前有一章已采纳正文。章节列表另有一条无正文的规划记录，不能计作已写正文。",
+          "annotations": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "case_id": "N46",
+  "base_case": "01-statistics",
+  "description": "伪工具XML不能当原生调用",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/responses/0/output/content",
+      "value": "<tool_call>adopt()</tool_call>"
+    }
+  ],
+  "expected_error_codes": [
+    "FAKE_TEXT_TOOL_CALL"
+  ]
+}

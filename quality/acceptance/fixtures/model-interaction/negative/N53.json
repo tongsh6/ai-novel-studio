@@ -1,0 +1,17 @@
+{
+  "case_id": "N53",
+  "base_case": "28-author-adoption",
+  "description": "作者同意了其它目标不能通用放行",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/author_actions/0/target_refs",
+      "value": [
+        "chapter:unrelated"
+      ]
+    }
+  ],
+  "expected_error_codes": [
+    "AUTHOR_DECISION_BINDING_MISMATCH"
+  ]
+}

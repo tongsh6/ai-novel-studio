@@ -1,0 +1,15 @@
+{
+  "case_id": "N39",
+  "base_case": "01-statistics",
+  "description": "空回复不能作为完整答案",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/responses/0/output/content",
+      "value": ""
+    }
+  ],
+  "expected_error_codes": [
+    "EMPTY_FINAL_REPLY"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "case_id": "N49",
+  "base_case": "27-author-asset",
+  "description": "素材参考不能变为canon",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/context/materials/0/source/authority",
+      "value": "canon"
+    }
+  ],
+  "expected_error_codes": [
+    "ASSET_BECOMES_CANON"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "id": "fixture-response:demo-34",
+  "object": "response",
+  "model": "fixture-model",
+  "status": "completed",
+  "output": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "继续围绕卷宗异常推进，但暂不确定改卷者。下一步可以先安排钥匙交接记录出现矛盾。",
+          "annotations": []
+        }
+      ]
+    }
+  ]
+}

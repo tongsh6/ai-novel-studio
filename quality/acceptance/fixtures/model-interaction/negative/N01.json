@@ -1,0 +1,15 @@
+{
+  "case_id": "N01",
+  "base_case": "01-statistics",
+  "description": "模型请求不允许无定义的额外字段",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/unknown_control",
+      "value": true
+    }
+  ],
+  "expected_error_codes": [
+    "SCHEMA_INVALID"
+  ]
+}

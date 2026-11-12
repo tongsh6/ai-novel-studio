@@ -1,0 +1,17 @@
+{
+  "case_id": "N51",
+  "base_case": "34-explicit-checkpoint",
+  "description": "checkpoint覆盖不存在的历史原消息",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/history/checkpoints/0/covers/message_refs",
+      "value": [
+        "message:not-existent"
+      ]
+    }
+  ],
+  "expected_error_codes": [
+    "CHECKPOINT_SOURCE_NOT_FOUND"
+  ]
+}

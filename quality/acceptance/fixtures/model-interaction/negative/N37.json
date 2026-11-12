@@ -1,0 +1,15 @@
+{
+  "case_id": "N37",
+  "base_case": "05-full-local-revision",
+  "description": "情绪迁移不是任意数值曲线",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/context/literary/execution_brief/scene_units/0/emotion_transition/start",
+      "value": 0.9
+    }
+  ],
+  "expected_error_codes": [
+    "SCHEMA_INVALID"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "case_id": "N48",
+  "base_case": "40-paged-read-quality",
+  "description": "分页区间有缺口却宣称全章已读",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/2/context/materials/1/coverage/ranges/0/start",
+      "value": 84
+    }
+  ],
+  "expected_error_codes": [
+    "COMPLETE_TARGET_NOT_READ"
+  ]
+}

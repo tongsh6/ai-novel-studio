@@ -1,0 +1,15 @@
+{
+  "case_id": "N34",
+  "base_case": "08-rewrite",
+  "description": "未读全章不能冒充完整重写基线",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/context/materials/0/coverage/status",
+      "value": "partial"
+    }
+  ],
+  "expected_error_codes": [
+    "COMPLETE_TARGET_NOT_READ"
+  ]
+}

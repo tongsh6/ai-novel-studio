@@ -1,5 +1,9 @@
 # Scenario Acceptance
 
+## 固定输入与协议候选
+
+[fixtures 总索引](fixtures/README.md) 收录已有 B27/正文质量固定输入与 [VS-00M 合成模型交互](fixtures/model-interaction/README.md)。后者有独立离线 checker，不进入正式 scenarios.yml 的 active/PASS 口径，不改变现有质量门。
+
 本目录保存场景化验收 manifest。Manifest 说明验收标准和证据要求，不替代 driver。真实执行仍由外部 Playwright / Tauri 自动化驱动真实页面完成。
 
 ## Entrypoints

@@ -1,0 +1,15 @@
+{
+  "case_id": "N21",
+  "base_case": "01-statistics",
+  "description": "UI改写模型原文却保留原来源绑定",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/outcomes/0/author_visible/model_texts/0/content",
+      "value": "系统已经自动修复了全部章节。"
+    }
+  ],
+  "expected_error_codes": [
+    "NARRATIVE_BYTES_REWRITTEN"
+  ]
+}

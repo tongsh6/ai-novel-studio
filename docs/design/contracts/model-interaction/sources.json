@@ -1,0 +1,187 @@
+{
+  "repository": "tongsh6/ai-novel-studio",
+  "branch": "develop/dialogue-based-novel-workbench",
+  "pinned_commit": "f13ff6406a002eff54397b906872255048c31763",
+  "sources": [
+    {
+      "source_id": "S01",
+      "title": "愿景与创作信息获取元原则",
+      "path": "docs/design/00-vision-and-engineering-roadmap.md",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/docs/design/00-vision-and-engineering-roadmap.md",
+      "classification": "confirmed_product_goal",
+      "review_scope": "Agent-native、最小供给/按需求证/证据闭环；本轮已存在对话上下文，具体原文以上轮及仓库为准。"
+    },
+    {
+      "source_id": "S02",
+      "title": "小说要素模型：37要素×结构层级×三态",
+      "path": "docs/design/08-novel-element-model.md",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/docs/design/08-novel-element-model.md",
+      "classification": "source_design",
+      "review_scope": "本轮读取1–220行。该文明确不负责字段schema，本文元素payload子字段属于新增设计细化。"
+    },
+    {
+      "source_id": "S03",
+      "title": "现役 RequestIR",
+      "path": "apps/novel_common/lib/novel_common/request_ir.ex",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/apps/novel_common/lib/novel_common/request_ir.ex",
+      "classification": "existing_code",
+      "review_scope": "本轮读取1–330行。现役ir_version=v1；独立文本操作不必有AgentRun。"
+    },
+    {
+      "source_id": "S04",
+      "title": "AuthoringTask",
+      "path": "apps/novel_common/lib/novel_common/contracts/authoring_task.ex",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/apps/novel_common/lib/novel_common/contracts/authoring_task.ex",
+      "classification": "existing_code",
+      "review_scope": "本轮读取文件；14种专业任务、source/scope/preserve/materials/output_contract。"
+    },
+    {
+      "source_id": "S05",
+      "title": "CreativeRequest",
+      "path": "apps/novel_common/lib/novel_common/contracts/creative_request.ex",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/apps/novel_common/lib/novel_common/contracts/creative_request.ex",
+      "classification": "existing_code",
+      "review_scope": "任务、brief、revision、decision_packet等既有专业入口；注释中的历史兼容不作为本提案设计目标。"
+    },
+    {
+      "source_id": "S06",
+      "title": "ProseExecutionBrief",
+      "path": "apps/novel_domain/lib/novel_domain/prose_execution_brief.ex",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/apps/novel_domain/lib/novel_domain/prose_execution_brief.ex",
+      "classification": "existing_code",
+      "review_scope": "本轮读取1–240行。设计态值对象，绝非canon；核心场级因果与情绪字段。"
+    },
+    {
+      "source_id": "S07",
+      "title": "VS-00E正文与独立质量闭环",
+      "path": "docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md",
+      "classification": "source_design",
+      "review_scope": "本轮读取1–240行；保留独立evaluator、finding证据及人类文学盲评边界。"
+    },
+    {
+      "source_id": "S08",
+      "title": "判断阶段原生工具契约",
+      "path": "apps/novel_application/lib/novel_application/judgment_tool_contract.ex",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/apps/novel_application/lib/novel_application/judgment_tool_contract.ex",
+      "classification": "existing_code",
+      "review_scope": "本轮读取1–300行。7个判断工具和3个continuation工具，字段及组合规则。"
+    },
+    {
+      "source_id": "S09",
+      "title": "计划原生工具契约",
+      "path": "apps/novel_application/lib/novel_application/agent_plan_tool_contract.ex",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/apps/novel_application/lib/novel_application/agent_plan_tool_contract.ex",
+      "classification": "existing_code",
+      "review_scope": "本轮读取1–245行。agent_plan_draft与judgment plan同批成对。"
+    },
+    {
+      "source_id": "S10",
+      "title": "原生创作与修订调用",
+      "path": "apps/novel_agent/lib/novel_agent/creative_provider/real.ex",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/apps/novel_agent/lib/novel_agent/creative_provider/real.ex",
+      "classification": "existing_code",
+      "review_scope": "本轮读取1–395行。submit_tentative_artifact；formatting plan与target_segments等。"
+    },
+    {
+      "source_id": "S11",
+      "title": "独立质量评估请求",
+      "path": "apps/novel_common/lib/novel_common/contracts/quality_evaluation_request.ex",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/apps/novel_common/lib/novel_common/contracts/quality_evaluation_request.ex",
+      "classification": "existing_code",
+      "review_scope": "本轮读取文件；评审只读，不产生正文事实。"
+    },
+    {
+      "source_id": "S12",
+      "title": "质量原生工具",
+      "path": "apps/novel_agent/lib/novel_agent/prose_quality_evaluator.ex",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/apps/novel_agent/lib/novel_agent/prose_quality_evaluator.ex",
+      "classification": "existing_code",
+      "review_scope": "本轮读取1–260行。report_quality_findings及真实原句/句序要求。"
+    },
+    {
+      "source_id": "S13",
+      "title": "QualityFinding",
+      "path": "apps/novel_domain/lib/novel_domain/quality_finding.ex",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/apps/novel_domain/lib/novel_domain/quality_finding.ex",
+      "classification": "existing_code",
+      "review_scope": "本轮读取1–140行。finding不是作品事实；severity/action/位置/brief来源等。"
+    },
+    {
+      "source_id": "S14",
+      "title": "ProviderEvent",
+      "path": "apps/novel_common/lib/novel_common/contracts/provider_event.ex",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/apps/novel_common/lib/novel_common/contracts/provider_event.ex",
+      "classification": "existing_code",
+      "review_scope": "本轮读取1–160行。8类事件、可见性、禁止raw prompt/私有推理。"
+    },
+    {
+      "source_id": "S15",
+      "title": "SystemEnvelope",
+      "path": "apps/novel_common/lib/novel_common/request_ir/system_envelope.ex",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/apps/novel_common/lib/novel_common/request_ir/system_envelope.ex",
+      "classification": "existing_code",
+      "review_scope": "本轮读取1–150行。SystemIdentity唯一真源和稳定系统前缀。"
+    },
+    {
+      "source_id": "S16",
+      "title": "VS-00M系统重审稿",
+      "path": "docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md",
+      "classification": "proposed_design",
+      "review_scope": "当前仍Proposed。授权模式/委托/新scope覆盖不得伪装已实现。"
+    },
+    {
+      "source_id": "S17",
+      "title": "现役VS-00L冻结语义",
+      "path": "docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md",
+      "classification": "source_contract_prior_review",
+      "review_scope": "前序已核对；本轮不声称逐行重新审计。变化必须由契约所有者核对。"
+    },
+    {
+      "source_id": "S18",
+      "title": "B87实施计划",
+      "path": "tasks/slices/B87-model-interaction-request-projection.md",
+      "url": "https://github.com/tongsh6/ai-novel-studio/blob/f13ff6406a002eff54397b906872255048c31763/tasks/slices/B87-model-interaction-request-projection.md",
+      "classification": "existing_task_document",
+      "review_scope": "引用已有任务而不新建平行任务状态；状态以当前原文件为准。"
+    },
+    {
+      "source_id": "S19",
+      "title": "Issue #3 作者创作资产",
+      "url": "https://github.com/tongsh6/ai-novel-studio/issues/3",
+      "classification": "confirmed_requirement_proposed_implementation",
+      "review_scope": "本轮读取Issue；没有作者级素材库已经实现的证明。"
+    },
+    {
+      "source_id": "X01",
+      "title": "JSON Schema 2020-12",
+      "url": "https://json-schema.org/draft/2020-12",
+      "classification": "external_primary_documentation",
+      "review_scope": "仅用于Schema方言/原生工具传输格式，不替代本项目业务规则。"
+    },
+    {
+      "source_id": "X02",
+      "title": "OpenAI Function Calling",
+      "url": "https://developers.openai.com/api/docs/guides/function-calling",
+      "classification": "external_primary_documentation",
+      "review_scope": "仅用于Schema方言/原生工具传输格式，不替代本项目业务规则。"
+    },
+    {
+      "source_id": "X03",
+      "title": "OpenAI Responses migration",
+      "url": "https://developers.openai.com/api/docs/guides/migrate-to-responses",
+      "classification": "external_primary_documentation",
+      "review_scope": "仅用于Schema方言/原生工具传输格式，不替代本项目业务规则。"
+    },
+    {
+      "source_id": "X04",
+      "title": "Claude tool call handling",
+      "url": "https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls",
+      "classification": "external_primary_documentation",
+      "review_scope": "仅用于Schema方言/原生工具传输格式，不替代本项目业务规则。"
+    }
+  ],
+  "verification_scope": "本包为设计及合成测试，不代表运行时、数据库或API通过。"
+}

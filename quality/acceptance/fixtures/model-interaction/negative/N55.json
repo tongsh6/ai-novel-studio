@@ -1,0 +1,15 @@
+{
+  "case_id": "N55",
+  "base_case": "28-author-adoption",
+  "description": "采纳后正文hash与目标段确定性替换不符",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/outcomes/0/canon/after_versions/0/sha256",
+      "value": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "expected_error_codes": [
+    "APPLIED_REVISION_HASH_MISMATCH"
+  ]
+}

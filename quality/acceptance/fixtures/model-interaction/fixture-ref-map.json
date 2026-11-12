@@ -1,0 +1,369 @@
+{
+  "note": "fixture://不是生产可访问地址；此map只定位本包合成字节，不证明真实Provider/DB来源。相同ref可在隔离case重复。",
+  "entries": [
+    {
+      "case_id": "01-statistics",
+      "ref": "fixture://raw/demo-01.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/01-statistics.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "02-discussion",
+      "ref": "fixture://raw/demo-02.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/02-discussion.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "03-capability-gap",
+      "ref": "fixture://raw/demo-03.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/03-capability-gap.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "04-explore-loop",
+      "ref": "fixture://raw/demo-04-a.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/04-explore-loop.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "04-explore-loop",
+      "ref": "fixture://raw/demo-04-b.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/04-explore-loop.json",
+      "json_pointer": "/responses/1"
+    },
+    {
+      "case_id": "05-full-local-revision",
+      "ref": "fixture://raw/demo-05.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/05-full-local-revision.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "06-first_draft",
+      "ref": "fixture://raw/demo-06.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/06-first_draft.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "07-continuation",
+      "ref": "fixture://raw/demo-07.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/07-continuation.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "08-rewrite",
+      "ref": "fixture://raw/demo-08.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/08-rewrite.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "09-character_design",
+      "ref": "fixture://raw/demo-09.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/09-character_design.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "10-character_evolution",
+      "ref": "fixture://raw/demo-10.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/10-character_evolution.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "11-outline",
+      "ref": "fixture://raw/demo-11.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/11-outline.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "12-world_building",
+      "ref": "fixture://raw/demo-12.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/12-world_building.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "13-format-only",
+      "ref": "fixture://raw/demo-13.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/13-format-only.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "14-quality-review",
+      "ref": "fixture://raw/demo-14.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/14-quality-review.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "15-quality-unavailable",
+      "ref": "fixture://raw/demo-15.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/15-quality-unavailable.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "16-chapter_summary",
+      "ref": "fixture://raw/demo-16.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/16-chapter_summary.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "17-fact_inventory",
+      "ref": "fixture://raw/demo-17.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/17-fact_inventory.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "18-ledger_reconcile",
+      "ref": "fixture://raw/demo-18.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/18-ledger_reconcile.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "19-chapter_mission",
+      "ref": "fixture://raw/demo-19.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/19-chapter_mission.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "20-narration",
+      "ref": "fixture://raw/demo-20.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/20-narration.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "21-plan-pair",
+      "ref": "fixture://raw/demo-21.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/21-plan-pair.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "22-clarify",
+      "ref": "fixture://raw/demo-22.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/22-clarify.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "23-register-original",
+      "ref": "fixture://raw/demo-23.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/23-register-original.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "24-directions",
+      "ref": "fixture://raw/demo-24.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/24-directions.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "25-profile-revision",
+      "ref": "fixture://raw/demo-25.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/25-profile-revision.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "26-partial-read",
+      "ref": "fixture://raw/demo-26.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/26-partial-read.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "27-author-asset",
+      "ref": "fixture://raw/demo-27.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/27-author-asset.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "28-author-adoption",
+      "ref": "fixture://raw/demo-05.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/28-author-adoption.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "28-author-adoption",
+      "ref": "fixture://applied/local-revision.txt",
+      "file": "examples/read-first/applied-local-revision.txt",
+      "sha256": "f5c291bf5cdd55dd320c73db58846c3e35532e97ece7d739df8d294698a01d50",
+      "kind": "deterministic_fixture_application"
+    },
+    {
+      "case_id": "29-full-delegation",
+      "ref": "fixture://raw/demo-05.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/29-full-delegation.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "29-full-delegation",
+      "ref": "fixture://applied/local-revision.txt",
+      "file": "examples/read-first/applied-local-revision.txt",
+      "sha256": "f5c291bf5cdd55dd320c73db58846c3e35532e97ece7d739df8d294698a01d50",
+      "kind": "deterministic_fixture_application"
+    },
+    {
+      "case_id": "30-revoked-delegation",
+      "ref": "fixture://raw/demo-05.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/30-revoked-delegation.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "31-critical-confirmation",
+      "ref": "fixture://raw/demo-31.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/31-critical-confirmation.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "32-cancellation",
+      "ref": "fixture://raw/demo-32.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/32-cancellation.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "33-budget-stop",
+      "ref": "fixture://raw/demo-33.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/33-budget-stop.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "34-explicit-checkpoint",
+      "ref": "fixture://raw/demo-34.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/34-explicit-checkpoint.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "35-retry-scope",
+      "ref": "fixture://raw/demo-35.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/35-retry-scope.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "36-unknown-side-effect",
+      "ref": "fixture://raw/demo-36.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/36-unknown-side-effect.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "37-truncated-output",
+      "ref": "fixture://raw/demo-37.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/37-truncated-output.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "38-pending-revision",
+      "ref": "fixture://raw/demo-38.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/38-pending-revision.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "39-author-reject",
+      "ref": "fixture://raw/demo-39.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/39-author-reject.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "40-paged-read-quality",
+      "ref": "fixture://raw/demo-40-a.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/40-paged-read-quality.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "40-paged-read-quality",
+      "ref": "fixture://raw/demo-40-b.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/40-paged-read-quality.json",
+      "json_pointer": "/responses/1"
+    },
+    {
+      "case_id": "40-paged-read-quality",
+      "ref": "fixture://raw/demo-40-c.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/40-paged-read-quality.json",
+      "json_pointer": "/responses/2"
+    },
+    {
+      "case_id": "41-untrusted-reference",
+      "ref": "fixture://raw/demo-41.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/41-untrusted-reference.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "42-quality-author-revision",
+      "ref": "fixture://raw/demo-14.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/42-quality-author-revision.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "42-quality-author-revision",
+      "ref": "fixture://raw/demo-05.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/42-quality-author-revision.json",
+      "json_pointer": "/responses/1"
+    },
+    {
+      "case_id": "43-steer-goal-version",
+      "ref": "fixture://raw/demo-02.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/43-steer-goal-version.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "43-steer-goal-version",
+      "ref": "fixture://raw/demo-steer.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/43-steer-goal-version.json",
+      "json_pointer": "/responses/1"
+    },
+    {
+      "case_id": "44-pause-resume",
+      "ref": "fixture://raw/demo-02.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/44-pause-resume.json",
+      "json_pointer": "/responses/0"
+    },
+    {
+      "case_id": "44-pause-resume",
+      "ref": "fixture://raw/demo-steer.json",
+      "kind": "synthetic_response_representation_not_network_capture",
+      "file": "examples/exchanges/44-pause-resume.json",
+      "json_pointer": "/responses/1"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "case_id": "N29",
+  "base_case": "34-explicit-checkpoint",
+  "description": "把纯回合覆盖冒充现役call-id压缩",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/history/checkpoints/0/contract_state",
+      "value": "current_call_id_coverage"
+    }
+  ],
+  "expected_error_codes": [
+    "CHECKPOINT_UNAPPROVED_COVERAGE"
+  ]
+}

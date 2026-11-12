@@ -1,0 +1,23 @@
+{
+  "id": "fixture-response:demo-40-a",
+  "type": "message",
+  "role": "assistant",
+  "model": "fixture-model",
+  "content": [
+    {
+      "type": "tool_use",
+      "id": "call:demo-page-1",
+      "name": "judgment_decision",
+      "input": {
+        "action": "explore",
+        "dialogue_goal": "检查全章情绪铺垫",
+        "reason": "先取得当前正文。",
+        "explore_request": {
+          "tool": "chapter_read",
+          "query": "灯下旧卷"
+        }
+      }
+    }
+  ],
+  "stop_reason": "tool_use"
+}

@@ -1,0 +1,15 @@
+{
+  "case_id": "N52",
+  "base_case": "34-explicit-checkpoint",
+  "description": "checkpoint覆盖的原始字节被改写",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/canonical_fixture_records/0/text",
+      "value": "修改后的历史作者原话"
+    }
+  ],
+  "expected_error_codes": [
+    "CHECKPOINT_SOURCE_BYTES_CHANGED"
+  ]
+}

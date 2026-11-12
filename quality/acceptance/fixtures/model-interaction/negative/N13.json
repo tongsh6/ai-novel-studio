@@ -1,0 +1,21 @@
+{
+  "case_id": "N13",
+  "base_case": "03-capability-gap",
+  "description": "引用字段夹带解释性文本",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/responses/0/output/tool_calls/0/arguments/alternative_operation_refs",
+      "value": [
+        "maintain_chapter_structure（可修复一切）"
+      ]
+    },
+    {
+      "op": "remove",
+      "pointer": "/responses/0/output/tool_calls/0/arguments_raw"
+    }
+  ],
+  "expected_error_codes": [
+    "INVALID_CAPABILITY_REF"
+  ]
+}

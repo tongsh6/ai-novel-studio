@@ -1,0 +1,19 @@
+{
+  "case_id": "N42",
+  "base_case": "14-quality-review",
+  "description": "质量证据范围倒置",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/responses/0/output/tool_calls/0/arguments/findings/0/evidence_spans/0/sentence_end",
+      "value": 1
+    },
+    {
+      "op": "remove",
+      "pointer": "/responses/0/output/tool_calls/0/arguments_raw"
+    }
+  ],
+  "expected_error_codes": [
+    "QUALITY_SPAN_ORDER_INVALID"
+  ]
+}

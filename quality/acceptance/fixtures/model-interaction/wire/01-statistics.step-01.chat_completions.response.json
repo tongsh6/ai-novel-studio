@@ -1,0 +1,15 @@
+{
+  "id": "fixture-response:demo-01",
+  "object": "chat.completion",
+  "model": "fixture-model",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "当前有一章已采纳正文。章节列表另有一条无正文的规划记录，不能计作已写正文。"
+      },
+      "finish_reason": "stop"
+    }
+  ]
+}

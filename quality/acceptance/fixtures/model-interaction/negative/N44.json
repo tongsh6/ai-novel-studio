@@ -1,0 +1,15 @@
+{
+  "case_id": "N44",
+  "base_case": "28-author-adoption",
+  "description": "声称改变canon却不更新版本",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/outcomes/0/canon/after_versions/0/version",
+      "value": 1
+    }
+  ],
+  "expected_error_codes": [
+    "CANON_VERSION_NOT_ADVANCED"
+  ]
+}

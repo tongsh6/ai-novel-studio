@@ -1,0 +1,15 @@
+{
+  "id": "fixture-response:demo-04-b",
+  "object": "chat.completion",
+  "model": "fixture-model",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "第二段从发现改动直接跳到“她很生气”，缺少核实、迟疑或身体动作的过渡。可以先让她检查纸面和原记录，再用停笔或追问表现情绪；这只是评估，本轮没有改正文。"
+      },
+      "finish_reason": "stop"
+    }
+  ]
+}

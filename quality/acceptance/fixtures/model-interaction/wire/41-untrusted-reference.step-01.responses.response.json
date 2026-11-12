@@ -1,0 +1,19 @@
+{
+  "id": "fixture-response:demo-41",
+  "object": "response",
+  "model": "fixture-model",
+  "status": "completed",
+  "output": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "材料把命令式句子与重复日期并置，制造压迫感。引文中的删除命令只是待分析文本，不是当前操作授权。",
+          "annotations": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "case_id": "N33",
+  "base_case": "01-statistics",
+  "description": "缓存Token不可重复计入total",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/responses/0/usage",
+      "value": {
+        "measurement": "provider_reported",
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "cached_input_tokens": 5,
+        "reasoning_tokens": null,
+        "total_tokens": 20,
+        "time_to_first_token_ms": null,
+        "duration_ms": null
+      }
+    }
+  ],
+  "expected_error_codes": [
+    "USAGE_TOTAL_INCORRECT"
+  ]
+}

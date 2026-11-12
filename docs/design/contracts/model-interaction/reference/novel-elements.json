@@ -1,0 +1,431 @@
+{
+  "source": "docs/design/08-novel-element-model.md",
+  "source_commit": "f13ff6406a002eff54397b906872255048c31763",
+  "axes": {
+    "level": [
+      "work",
+      "volume",
+      "chapter",
+      "scene"
+    ],
+    "plane": [
+      "design",
+      "realization",
+      "progress"
+    ]
+  },
+  "elements": [
+    {
+      "id": "E01",
+      "name": "前提",
+      "primary_level": "work",
+      "proposed_payload_fields": [
+        "logline"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E01"
+    },
+    {
+      "id": "E02",
+      "name": "主题",
+      "primary_level": "work",
+      "proposed_payload_fields": [
+        "central_question",
+        "value_conflict",
+        "intended_argument"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E02"
+    },
+    {
+      "id": "E03",
+      "name": "类型契约",
+      "primary_level": "work",
+      "proposed_payload_fields": [
+        "genre_rules",
+        "reader_promises",
+        "avoidances"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E03"
+    },
+    {
+      "id": "E04",
+      "name": "定位",
+      "primary_level": "work",
+      "proposed_payload_fields": [
+        "target_readers",
+        "core_selling_points",
+        "comparables"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E04"
+    },
+    {
+      "id": "E05",
+      "name": "世界观",
+      "primary_level": "work",
+      "proposed_payload_fields": [
+        "time_space",
+        "social_structure",
+        "history",
+        "power_rules"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E05"
+    },
+    {
+      "id": "E06",
+      "name": "核心设定引擎",
+      "primary_level": "work",
+      "proposed_payload_fields": [
+        "mechanism",
+        "benefits",
+        "limits",
+        "costs"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E06"
+    },
+    {
+      "id": "E07",
+      "name": "人物体系",
+      "primary_level": "work",
+      "proposed_payload_fields": [
+        "surface_desire",
+        "deep_need",
+        "fatal_flaw",
+        "arc_design",
+        "opposition",
+        "relationships"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E07"
+    },
+    {
+      "id": "E08",
+      "name": "主线架构",
+      "primary_level": "work",
+      "proposed_payload_fields": [
+        "central_conflict",
+        "stakes_escalation",
+        "major_climax"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E08"
+    },
+    {
+      "id": "E09",
+      "name": "成长体系",
+      "primary_level": "work",
+      "proposed_payload_fields": [
+        "stages",
+        "resource_economy",
+        "costs_and_limits"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E09"
+    },
+    {
+      "id": "E10",
+      "name": "叙述策略",
+      "primary_level": "work",
+      "proposed_payload_fields": [
+        "person",
+        "viewpoint",
+        "tense",
+        "distance"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E10"
+    },
+    {
+      "id": "E11",
+      "name": "语言风格",
+      "primary_level": "work",
+      "proposed_payload_fields": [
+        "syntax",
+        "register",
+        "voice_rules",
+        "taboos"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E11"
+    },
+    {
+      "id": "E12",
+      "name": "命名体系",
+      "primary_level": "work",
+      "proposed_payload_fields": [
+        "naming_rules",
+        "reserved_names"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E12"
+    },
+    {
+      "id": "E13",
+      "name": "母题与意象",
+      "primary_level": "work",
+      "proposed_payload_fields": [
+        "motifs",
+        "images",
+        "meaning_evolution"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E13"
+    },
+    {
+      "id": "E14",
+      "name": "卷目标",
+      "primary_level": "volume",
+      "proposed_payload_fields": [
+        "conflict_goal",
+        "arc_milestone",
+        "location_boundary"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E14"
+    },
+    {
+      "id": "E15",
+      "name": "支线编织",
+      "primary_level": "volume",
+      "proposed_payload_fields": [
+        "start_threads",
+        "advance_threads",
+        "close_threads"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E15"
+    },
+    {
+      "id": "E16",
+      "name": "节奏蓝图",
+      "primary_level": "volume",
+      "proposed_payload_fields": [
+        "climax_distribution",
+        "payoff_density",
+        "breathing_spaces"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E16"
+    },
+    {
+      "id": "E17",
+      "name": "新要素释放计划",
+      "primary_level": "volume",
+      "proposed_payload_fields": [
+        "characters_to_introduce",
+        "settings_to_introduce",
+        "release_order"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E17"
+    },
+    {
+      "id": "E18",
+      "name": "章功能定位",
+      "primary_level": "chapter",
+      "proposed_payload_fields": [
+        "chapter_function"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E18"
+    },
+    {
+      "id": "E19",
+      "name": "章目标四件套",
+      "primary_level": "chapter",
+      "proposed_payload_fields": [
+        "plot_change",
+        "character_change",
+        "information_release",
+        "foreshadowing_action"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E19"
+    },
+    {
+      "id": "E20",
+      "name": "情绪定位",
+      "primary_level": "chapter",
+      "proposed_payload_fields": [
+        "intended_reader_emotion",
+        "tension_source"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E20"
+    },
+    {
+      "id": "E21",
+      "name": "章首拉力与章尾断章",
+      "primary_level": "chapter",
+      "proposed_payload_fields": [
+        "opening_pull",
+        "ending_hook",
+        "hook_type"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E21"
+    },
+    {
+      "id": "E22",
+      "name": "字数与场次划分",
+      "primary_level": "chapter",
+      "proposed_payload_fields": [
+        "length_goal",
+        "scene_division"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E22"
+    },
+    {
+      "id": "E23",
+      "name": "场景解剖",
+      "primary_level": "scene",
+      "proposed_payload_fields": [
+        "goal",
+        "conflict_or_dilemma",
+        "turn",
+        "consequence",
+        "required_change"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E23"
+    },
+    {
+      "id": "E24",
+      "name": "出场人物议程",
+      "primary_level": "scene",
+      "proposed_payload_fields": [
+        "wants",
+        "hides",
+        "conflicts"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E24"
+    },
+    {
+      "id": "E25",
+      "name": "场内信息差",
+      "primary_level": "scene",
+      "proposed_payload_fields": [
+        "reader_knows",
+        "characters_know",
+        "reveals",
+        "withheld"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E25"
+    },
+    {
+      "id": "E26",
+      "name": "时空与感官",
+      "primary_level": "scene",
+      "proposed_payload_fields": [
+        "location",
+        "time",
+        "atmosphere",
+        "sensory_anchors"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E26"
+    },
+    {
+      "id": "E27",
+      "name": "对白设计",
+      "primary_level": "scene",
+      "proposed_payload_fields": [
+        "voices",
+        "surface_topic",
+        "subtext",
+        "dialogue_action_balance"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E27"
+    },
+    {
+      "id": "E28",
+      "name": "动作编排",
+      "primary_level": "scene",
+      "proposed_payload_fields": [
+        "spatial_logic",
+        "action_causality"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E28"
+    },
+    {
+      "id": "E29",
+      "name": "内心戏",
+      "primary_level": "scene",
+      "proposed_payload_fields": [
+        "emotional_flow",
+        "thought_presentation"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E29"
+    },
+    {
+      "id": "E30",
+      "name": "场间过渡",
+      "primary_level": "scene",
+      "proposed_payload_fields": [
+        "time_transition",
+        "viewpoint_transition",
+        "continuity_bridge"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E30"
+    },
+    {
+      "id": "E31",
+      "name": "连续性账",
+      "primary_level": "cross_level",
+      "proposed_payload_fields": [
+        "state_changes",
+        "timeline",
+        "rule_consistency"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E31"
+    },
+    {
+      "id": "E32",
+      "name": "伏笔账",
+      "primary_level": "cross_level",
+      "proposed_payload_fields": [
+        "plants",
+        "development",
+        "payoffs"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E32"
+    },
+    {
+      "id": "E33",
+      "name": "弧光账",
+      "primary_level": "cross_level",
+      "proposed_payload_fields": [
+        "arc_steps",
+        "realized_changes",
+        "remaining_changes"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E33"
+    },
+    {
+      "id": "E34",
+      "name": "冲突账",
+      "primary_level": "cross_level",
+      "proposed_payload_fields": [
+        "main_progress",
+        "subplot_progress",
+        "unresolved_conflicts"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E34"
+    },
+    {
+      "id": "E35",
+      "name": "信息账",
+      "primary_level": "cross_level",
+      "proposed_payload_fields": [
+        "reader_knowledge",
+        "character_knowledge",
+        "full_truth"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E35"
+    },
+    {
+      "id": "E36",
+      "name": "情绪曲线账",
+      "primary_level": "cross_level",
+      "proposed_payload_fields": [
+        "realized_tension",
+        "release_points",
+        "emotional_residue"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E36"
+    },
+    {
+      "id": "E37",
+      "name": "承诺账",
+      "primary_level": "cross_level",
+      "proposed_payload_fields": [
+        "promises",
+        "fulfillments",
+        "outstanding_promises"
+      ],
+      "schema_ref": "../schemas/model-interaction.schema.json#/$defs/ElementPayload_E37"
+    }
+  ],
+  "note": "E01–E37名称/组织源自项目；payload字段是本稿提案。不要求37项同时加载，不声明37项全部已实现，也不为每项建表。"
+}

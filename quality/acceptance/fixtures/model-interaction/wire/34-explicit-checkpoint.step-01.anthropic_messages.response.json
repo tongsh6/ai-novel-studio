@@ -1,0 +1,13 @@
+{
+  "id": "fixture-response:demo-34",
+  "type": "message",
+  "role": "assistant",
+  "model": "fixture-model",
+  "content": [
+    {
+      "type": "text",
+      "text": "继续围绕卷宗异常推进，但暂不确定改卷者。下一步可以先安排钥匙交接记录出现矛盾。"
+    }
+  ],
+  "stop_reason": "end_turn"
+}

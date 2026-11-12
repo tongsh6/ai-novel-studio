@@ -1,0 +1,19 @@
+{
+  "case_id": "N23",
+  "base_case": "14-quality-review",
+  "description": "质量发现引用不存在原句",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/responses/0/output/tool_calls/0/arguments/findings/0/evidence_spans/0/text",
+      "value": "这是原文没有的一句。"
+    },
+    {
+      "op": "remove",
+      "pointer": "/responses/0/output/tool_calls/0/arguments_raw"
+    }
+  ],
+  "expected_error_codes": [
+    "QUALITY_EVIDENCE_NOT_IN_TEXT"
+  ]
+}

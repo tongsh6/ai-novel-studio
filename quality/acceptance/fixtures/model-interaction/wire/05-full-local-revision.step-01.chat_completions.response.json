@@ -1,0 +1,25 @@
+{
+  "id": "fixture-response:demo-05",
+  "object": "chat.completion",
+  "model": "fixture-model",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call:demo-revise",
+            "type": "function",
+            "function": {
+              "name": "submit_tentative_artifact",
+              "arguments": "{\"items\":[{\"item_id\":\"item-demo-revision\",\"title\":\"第二段修订\",\"body\":\"纸角比别处薄了一层。林岚把灯往近处移，指腹停在“未曾到场”四个字上。昨日抄录时，那人说的分明是“亲眼所见”。她又翻回卷首，核了签名，才将手里的笔慢慢放下。雨水从门缝飘进来，她没有去擦，只问许渡：“昨夜的钥匙，谁领过？”\",\"rationale\":\"补入纸面核验与停笔追问，保留原有事件方向。\"}],\"self_report\":{\"used_context_refs\":[\"observation:demo-read-1\",\"base:demo-character\"]}}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ]
+}

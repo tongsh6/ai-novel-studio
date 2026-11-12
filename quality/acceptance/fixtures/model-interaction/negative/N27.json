@@ -1,0 +1,15 @@
+{
+  "case_id": "N27",
+  "base_case": "36-unknown-side-effect",
+  "description": "状态不明却宣称没有写入",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/outcomes/0/canon/changed",
+      "value": false
+    }
+  ],
+  "expected_error_codes": [
+    "UNKNOWN_WRITE_FALSE_CERTAINTY"
+  ]
+}

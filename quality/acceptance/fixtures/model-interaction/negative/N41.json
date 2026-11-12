@@ -1,0 +1,19 @@
+{
+  "case_id": "N41",
+  "base_case": "05-full-local-revision",
+  "description": "模型不能自填自动采纳系统字段",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/responses/0/output/tool_calls/0/arguments/items/0/auto_adopted",
+      "value": true
+    },
+    {
+      "op": "remove",
+      "pointer": "/responses/0/output/tool_calls/0/arguments_raw"
+    }
+  ],
+  "expected_error_codes": [
+    "MODEL_WRITES_SYSTEM_FIELDS"
+  ]
+}

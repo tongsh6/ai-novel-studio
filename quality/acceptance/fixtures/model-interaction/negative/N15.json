@@ -1,0 +1,15 @@
+{
+  "case_id": "N15",
+  "base_case": "05-full-local-revision",
+  "description": "系统把候选状态写成accepted却无采纳回执",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/outcomes/0/artifacts/0/status",
+      "value": "ACCEPTED"
+    }
+  ],
+  "expected_error_codes": [
+    "ACCEPTED_WITHOUT_COMMIT"
+  ]
+}

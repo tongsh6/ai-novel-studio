@@ -1,0 +1,19 @@
+{
+  "case_id": "N11",
+  "base_case": "31-critical-confirmation",
+  "description": "模型凭空创造角色目标ref",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/responses/0/output/tool_calls/0/arguments/character_ref",
+      "value": "character:unknown"
+    },
+    {
+      "op": "remove",
+      "pointer": "/responses/0/output/tool_calls/0/arguments_raw"
+    }
+  ],
+  "expected_error_codes": [
+    "TARGET_NOT_READ_OR_SUPPLIED"
+  ]
+}

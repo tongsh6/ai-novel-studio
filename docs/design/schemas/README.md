@@ -1,5 +1,9 @@
 # Schemas — JSON Schema / enum SSOT 索引
 
+## model-interaction/（Proposed 审查候选）
+
+[模型交互候选 Schema 索引](model-interaction/README.md)：九个离线验证入口，由 `scripts/model_contracts/model_interaction/check_all.py` 消费；**显式排除前端 codegen**，不是生产 RequestIR 或枚举的新真源。审查镜像不放本目录，见 [设计参考](../contracts/model-interaction/reference/README.md)。
+
 > 当前 JSON Schema 与 enum 单一真源。消费者：`pnpm codegen:schemas`（Zod 生成）、schema 漂移检查、兼容层。
 >
 > 规则：前端 TypeScript 类型不得手写，必须从此处 codegen；设计引用 schema 一律指向 `docs/design/schemas/...`。

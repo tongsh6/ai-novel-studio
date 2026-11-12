@@ -1,0 +1,25 @@
+{
+  "id": "fixture-response:demo-04-a",
+  "object": "chat.completion",
+  "model": "fixture-model",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call:demo-read-1",
+            "type": "function",
+            "function": {
+              "name": "judgment_decision",
+              "arguments": "{\"action\":\"explore\",\"dialogue_goal\":\"核查第二段情绪推进\",\"reason\":\"先读取当前正文，不能凭章节状态评价质量。\",\"explore_request\":{\"tool\":\"chapter_read\",\"query\":\"灯下旧卷\"}}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ]
+}

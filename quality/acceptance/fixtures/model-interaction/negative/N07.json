@@ -1,0 +1,15 @@
+{
+  "case_id": "N07",
+  "base_case": "05-full-local-revision",
+  "description": "目标段原文字节与范围不符",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/context/materials/0/payload/segments/1/end_byte_exclusive",
+      "value": 1
+    }
+  ],
+  "expected_error_codes": [
+    "SEGMENT_BYTES_MISMATCH"
+  ]
+}

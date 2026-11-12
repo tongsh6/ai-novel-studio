@@ -1,0 +1,15 @@
+{
+  "case_id": "N31",
+  "base_case": "04-explore-loop",
+  "description": "读取预算用尽仍探索",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/authority/budget/tool_calls_remaining",
+      "value": 0
+    }
+  ],
+  "expected_error_codes": [
+    "TOOL_BUDGET_EXHAUSTED"
+  ]
+}

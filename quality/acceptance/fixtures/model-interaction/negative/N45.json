@@ -1,0 +1,26 @@
+{
+  "case_id": "N45",
+  "base_case": "32-cancellation",
+  "description": "终态之后不能继续进度/生成",
+  "mutations": [
+    {
+      "op": "append",
+      "pointer": "/events",
+      "value": {
+        "kind": "provider_event",
+        "event_id": "event:demo-late",
+        "provider_run_ref": "provider_run:demo-32",
+        "sequence": 5,
+        "event_type": "progress",
+        "visibility": "author",
+        "summary": "正在处理",
+        "payload": {},
+        "refs": [],
+        "emitted_at": "2026-11-13T01:00:00Z"
+      }
+    }
+  ],
+  "expected_error_codes": [
+    "EVENT_AFTER_TERMINAL"
+  ]
+}

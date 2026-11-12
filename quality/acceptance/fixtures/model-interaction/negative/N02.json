@@ -1,0 +1,15 @@
+{
+  "case_id": "N02",
+  "base_case": "01-statistics",
+  "description": "章位数不能冒充正文数",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/context/materials/0/payload/chapters_with_accepted_prose",
+      "value": 2
+    }
+  ],
+  "expected_error_codes": [
+    "CHAPTER_COUNTS_MISMATCH"
+  ]
+}

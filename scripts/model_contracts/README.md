@@ -1,5 +1,9 @@
 # 模型契约探针索引
 
+## VS-00M 离线设计候选
+
+[model_interaction/](model_interaction/README.md)：Schema、合成正反例、原生格式参考映射及导航/哈希检查。用 Python 独立运行，不走下述真实 Provider 探针，不写作品数据，也不证明模型语义/页面行为。
+
 通过 `bash scripts/probe_run.sh <script> <provider> <runs>` 执行；不写作品数据。
 
 | 文件 | 角色 |

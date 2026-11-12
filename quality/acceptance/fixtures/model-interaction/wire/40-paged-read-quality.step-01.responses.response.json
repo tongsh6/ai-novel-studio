@@ -1,0 +1,14 @@
+{
+  "id": "fixture-response:demo-40-a",
+  "object": "response",
+  "model": "fixture-model",
+  "status": "completed",
+  "output": [
+    {
+      "type": "function_call",
+      "call_id": "call:demo-page-1",
+      "name": "judgment_decision",
+      "arguments": "{\"action\":\"explore\",\"dialogue_goal\":\"检查全章情绪铺垫\",\"reason\":\"先取得当前正文。\",\"explore_request\":{\"tool\":\"chapter_read\",\"query\":\"灯下旧卷\"}}"
+    }
+  ]
+}

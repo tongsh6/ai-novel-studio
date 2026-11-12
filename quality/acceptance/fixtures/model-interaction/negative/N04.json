@@ -1,0 +1,15 @@
+{
+  "case_id": "N04",
+  "base_case": "05-full-local-revision",
+  "description": "正文来源越过作品边界",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/context/materials/0/source/work_ref",
+      "value": "work:other"
+    }
+  ],
+  "expected_error_codes": [
+    "CROSS_WORK_MATERIAL"
+  ]
+}

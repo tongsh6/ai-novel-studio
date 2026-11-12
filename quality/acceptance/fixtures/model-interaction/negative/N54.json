@@ -1,0 +1,15 @@
+{
+  "case_id": "N54",
+  "base_case": "29-full-delegation",
+  "description": "委托没有对应的真实签发来源",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/author_actions",
+      "value": []
+    }
+  ],
+  "expected_error_codes": [
+    "DELEGATION_SOURCE_MISSING"
+  ]
+}

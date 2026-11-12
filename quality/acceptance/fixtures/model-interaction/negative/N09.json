@@ -1,0 +1,14 @@
+{
+  "case_id": "N09",
+  "base_case": "21-plan-pair",
+  "description": "判断阶段只交计划工具而无成对plan决定",
+  "mutations": [
+    {
+      "op": "remove",
+      "pointer": "/responses/0/output/tool_calls/0"
+    }
+  ],
+  "expected_error_codes": [
+    "PLAN_PAIR_INVALID"
+  ]
+}

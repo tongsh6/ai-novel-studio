@@ -1,0 +1,15 @@
+{
+  "case_id": "N20",
+  "base_case": "29-full-delegation",
+  "description": "critical不能通过full自动采纳",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/outcomes/0/authorization/risk_class",
+      "value": "critical"
+    }
+  ],
+  "expected_error_codes": [
+    "CRITICAL_AUTO_ADOPTION"
+  ]
+}

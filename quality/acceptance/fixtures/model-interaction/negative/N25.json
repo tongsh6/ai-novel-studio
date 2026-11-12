@@ -1,0 +1,15 @@
+{
+  "case_id": "N25",
+  "base_case": "32-cancellation",
+  "description": "只发取消请求但宣称已取消",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/events/3/payload/cancel_acknowledged",
+      "value": false
+    }
+  ],
+  "expected_error_codes": [
+    "CANCELLATION_NOT_ACKNOWLEDGED"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "case_id": "N19",
+  "base_case": "29-full-delegation",
+  "description": "委托不覆盖当前目标",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/authority/delegation/target_refs",
+      "value": [
+        "chapter:another"
+      ]
+    }
+  ],
+  "expected_error_codes": [
+    "DELEGATION_SCOPE_EXCEEDED"
+  ]
+}

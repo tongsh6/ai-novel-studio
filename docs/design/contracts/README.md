@@ -1,5 +1,9 @@
 # Contracts — Contract Pack 索引
 
+## VS-00M 配套审查材料
+
+[完整规范、字段字典与来源](model-interaction/README.md) 是 [VS-00M](VS-00M-model-interaction-request-response-contract-pack.md) 的 Proposed 附件；关联候选 Schema、验收设计、合成正反例和可运行脚本。最新输出约束差异有单独对账说明，不将附件视为生产契约或 Frozen。
+
 > 当前唯一 contract pack 目录。contract pack 是承重竖切面实现前的契约冻结文档，消费者：backend / application / domain / frontend contract 对齐。
 >
 > 不授权代码实现；实现须经对应 `tasks/slices/v3/` slice 与 ADR。

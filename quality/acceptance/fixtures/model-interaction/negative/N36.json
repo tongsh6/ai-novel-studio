@@ -1,0 +1,15 @@
+{
+  "case_id": "N36",
+  "base_case": "32-cancellation",
+  "description": "作者可见流式事件包含原始prompt",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/events/0/payload/raw_prompt",
+      "value": "secret"
+    }
+  ],
+  "expected_error_codes": [
+    "SCHEMA_INVALID"
+  ]
+}

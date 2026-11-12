@@ -1,0 +1,15 @@
+{
+  "case_id": "N43",
+  "base_case": "28-author-adoption",
+  "description": "无作者决定也无委托不得采纳",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/author_actions",
+      "value": []
+    }
+  ],
+  "expected_error_codes": [
+    "ADOPTION_WITHOUT_AUTHOR_DECISION"
+  ]
+}

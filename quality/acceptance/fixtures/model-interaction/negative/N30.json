@@ -1,0 +1,21 @@
+{
+  "case_id": "N30",
+  "base_case": "01-statistics",
+  "description": "当前作者原话被重复装入历史",
+  "mutations": [
+    {
+      "op": "append",
+      "pointer": "/requests/0/history/messages",
+      "value": {
+        "message_ref": "message:demo-01",
+        "role": "user",
+        "provenance": "author",
+        "text": "现在有几章正文？",
+        "sha256": "e04b13cd7e5cad64c2b36de5ff85b1aeab72a3c59da54e0dec1368b8408266c3"
+      }
+    }
+  ],
+  "expected_error_codes": [
+    "CURRENT_AUTHOR_DUPLICATED"
+  ]
+}

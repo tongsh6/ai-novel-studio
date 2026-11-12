@@ -1,0 +1,15 @@
+{
+  "case_id": "N18",
+  "base_case": "29-full-delegation",
+  "description": "已过期委托",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/requests/0/authority/delegation/expires_at",
+      "value": "2026-11-12T01:00:00Z"
+    }
+  ],
+  "expected_error_codes": [
+    "DELEGATION_EXPIRED"
+  ]
+}

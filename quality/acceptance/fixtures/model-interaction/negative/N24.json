@@ -1,0 +1,31 @@
+{
+  "case_id": "N24",
+  "base_case": "15-quality-unavailable",
+  "description": "评审失败却伪造候选",
+  "mutations": [
+    {
+      "op": "replace",
+      "pointer": "/outcomes/0/artifacts",
+      "value": [
+        {
+          "artifact_ref": "artifact:demo-item-demo-revision",
+          "artifact_type": "prose_fragment",
+          "status": "TENTATIVE",
+          "item_id": "item-demo-revision",
+          "model_body": {
+            "content": "纸角比别处薄了一层。林岚把灯往近处移，指腹停在“未曾到场”四个字上。昨日抄录时，那人说的分明是“亲眼所见”。她又翻回卷首，核了签名，才将手里的笔慢慢放下。雨水从门缝飘进来，她没有去擦，只问许渡：“昨夜的钥匙，谁领过？”",
+            "response_ref": "response:demo-05",
+            "json_pointer": "/output/tool_calls/0/arguments/items/0/body",
+            "sha256": "cb99857c7c8a183d7d0080f5edf61c28398a497058af667ffb7bfb9d4fe65021"
+          },
+          "target_refs": [
+            "chapter:demo-lamp"
+          ]
+        }
+      ]
+    }
+  ],
+  "expected_error_codes": [
+    "INVALID_RESPONSE_MATERIALIZED"
+  ]
+}
