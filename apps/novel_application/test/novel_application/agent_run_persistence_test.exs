@@ -114,6 +114,14 @@ defmodule NovelApplication.AgentRunPersistenceTest do
     assert attrs.checkpoint_data["step"] == "AgentRun 检查点"
   end
 
+  test "durable checkpoint 版本唯一真源在持久层契约（写入侧与恢复校验侧同源）" do
+    # AuthoringCheckpoint 的恢复校验与 AgentRunPersistence 的写入都读
+    # AuthoringSessionLog.task_checkpoint_version/0；任一侧独立升版会让所有恢复
+    # 静默失败（checkpoint_version_mismatch），因此这里锁定唯一来源。
+    assert AgentRunPersistence.checkpoint_version() ==
+             NovelPersistence.AuthoringSessionLog.task_checkpoint_version()
+  end
+
   defp snapshot(run, events, mode, opts \\ []) do
     AgentRunPersistence.snapshot(
       run,

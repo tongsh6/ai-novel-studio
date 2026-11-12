@@ -60,4 +60,13 @@ defmodule NovelDomain.AgentObservationTest do
 
     assert {:ok, %{confidence: 1.0}} = AgentObservation.new(attrs(%{confidence: 1.2}))
   end
+
+  test "artifact_created?/1 只认待采纳 artifact 观察（各 flow 共用同一谓词）" do
+    assert {:ok, created} = AgentObservation.new(attrs(%{observation_type: :artifact_created}))
+    assert AgentObservation.artifact_created?(created)
+
+    assert {:ok, fact} = AgentObservation.new(attrs())
+    refute AgentObservation.artifact_created?(fact)
+    refute AgentObservation.artifact_created?(%{})
+  end
 end

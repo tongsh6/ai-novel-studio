@@ -37,6 +37,11 @@ defmodule NovelPersistence.AuthoringSessionLog do
   @message_format_version "authoring-session-message/v1"
   @segment_format_version "authoring-run-segment/v1"
 
+  # durable 执行 checkpoint 的格式版本（`checkpoint_data["agent_run"]["checkpoint_version"]`）。
+  # 写入侧（AgentRunPersistence）与读取校验侧（AuthoringCheckpoint）共同消费本契约，
+  # 不再各自持有常量——任一侧独立升版会让所有恢复静默失败（checkpoint_version_mismatch）。
+  @task_checkpoint_version 3
+
   # 段头 run 身份：{header 内的 run 字段, run 行字段}。与旧 run 级 checkpoint 的
   # 不可变身份一致（B71/VS-00L §16.8），只是落点从 run 列改为会话段头。
   @identity_fields [
@@ -69,6 +74,10 @@ defmodule NovelPersistence.AuthoringSessionLog do
 
   @spec segment_format_version() :: String.t()
   def segment_format_version, do: @segment_format_version
+
+  @doc "durable 执行 checkpoint 的格式版本唯一真源（写入与恢复校验共用）。"
+  @spec task_checkpoint_version() :: pos_integer()
+  def task_checkpoint_version, do: @task_checkpoint_version
 
   @doc """
   段头携带的 transcript data 键（atom 形式；段头 JSON 键是其 `Atom.to_string/1`）。

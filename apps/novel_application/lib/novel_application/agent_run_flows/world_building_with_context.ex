@@ -220,10 +220,7 @@ defmodule NovelApplication.AgentRunFlows.WorldBuildingWithContext do
   defp completion_ready?(snapshot) do
     snapshot
     |> Map.get(:observations, [])
-    |> Enum.any?(fn
-      %AgentObservation{observation_type: :artifact_created} -> true
-      _ -> false
-    end)
+    |> Enum.any?(&AgentObservation.artifact_created?/1)
   end
 
   defp observation_refs(observations) when is_list(observations),

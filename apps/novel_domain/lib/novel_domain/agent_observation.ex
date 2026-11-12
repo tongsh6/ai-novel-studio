@@ -68,6 +68,16 @@ defmodule NovelDomain.AgentObservation do
     }
   end
 
+  @doc """
+  本步是否产出了待采纳 artifact。
+
+  各 agent flow 用它判断「本步已有候选、无需再生成」，避免每个 flow 重复
+  同一 struct 匹配谓词（此前 7 处 flow 各写一份相同分支）。
+  """
+  @spec artifact_created?(t()) :: boolean()
+  def artifact_created?(%__MODULE__{observation_type: :artifact_created}), do: true
+  def artifact_created?(_observation), do: false
+
   defp normalize(attrs) when is_list(attrs), do: attrs |> Map.new() |> normalize()
 
   defp normalize(attrs) when is_map(attrs) do

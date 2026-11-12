@@ -26,7 +26,6 @@ defmodule NovelApplication.AuthoringCheckpoint do
   alias NovelPersistence.AuthoringSessionLog
 
   @identity_fields ["run_id", "workspace_id", "work_id", "session_id", "parent_turn_ref"]
-  @durable_checkpoint_version 3
 
   @type restore_result ::
           {:ok, AuthoringTranscript.t() | nil, :session_segment | :none}
@@ -192,11 +191,20 @@ defmodule NovelApplication.AuthoringCheckpoint do
     ref = segment_ref(data)
 
     cond do
-      map_size(data) == 0 or is_nil(version) -> {:ok, transcript, :session_segment}
-      version != @durable_checkpoint_version -> {:error, :checkpoint_version_mismatch}
-      is_nil(ref) -> {:error, :authoring_segment_ref_missing}
-      not valid_ref?(ref, record) -> {:error, :authoring_segment_ref_mismatch}
-      true -> {:ok, transcript, :session_segment}
+      map_size(data) == 0 or is_nil(version) ->
+        {:ok, transcript, :session_segment}
+
+      version != AuthoringSessionLog.task_checkpoint_version() ->
+        {:error, :checkpoint_version_mismatch}
+
+      is_nil(ref) ->
+        {:error, :authoring_segment_ref_missing}
+
+      not valid_ref?(ref, record) ->
+        {:error, :authoring_segment_ref_mismatch}
+
+      true ->
+        {:ok, transcript, :session_segment}
     end
   end
 
@@ -213,7 +221,7 @@ defmodule NovelApplication.AuthoringCheckpoint do
       is_nil(version) ->
         {:partial, :checkpoint_version_missing}
 
-      version != @durable_checkpoint_version ->
+      version != AuthoringSessionLog.task_checkpoint_version() ->
         {:error, :checkpoint_version_mismatch}
 
       is_nil(ref) ->

@@ -22,9 +22,7 @@ defmodule NovelApplication.AgentRunPersistence do
   alias NovelCommon.Contracts.AgentEvent
   alias NovelDomain.{AgentObservation, AgentRun, AgentStep}
   alias NovelFoundation.Enums.{Status, TaskPhase}
-  alias NovelPersistence.AgentRunLog
-
-  @checkpoint_version 3
+  alias NovelPersistence.{AgentRunLog, AuthoringSessionLog}
 
   @type mode ::
           :delivery
@@ -42,9 +40,12 @@ defmodule NovelApplication.AgentRunPersistence do
           authoring_validator: (map(), map() -> :ok | {:error, term()})
         }
 
-  @doc "run/task checkpoint 版本决策的唯一所属点。"
+  @doc """
+  run/task checkpoint 版本。唯一真源在持久层
+  `AuthoringSessionLog.task_checkpoint_version/0`：写入侧与恢复校验侧必须读取同一契约。
+  """
   @spec checkpoint_version() :: pos_integer()
-  def checkpoint_version, do: @checkpoint_version
+  def checkpoint_version, do: AuthoringSessionLog.task_checkpoint_version()
 
   @doc """
   构建一次提交所需的全部 snapshot 事实。
@@ -216,7 +217,7 @@ defmodule NovelApplication.AgentRunPersistence do
           "pending_artifact_refs" => run.pending_artifact_refs,
           "consumed_budget" => json_safe(run.consumed_budget),
           "event_sequence" => state.event_sequence,
-          "checkpoint_version" => @checkpoint_version
+          "checkpoint_version" => checkpoint_version()
         },
         durable_fact_checkpoint_data(run.authority_scope)
       )
