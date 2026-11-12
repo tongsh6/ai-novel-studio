@@ -676,7 +676,8 @@ defmodule NovelApplication.AgentRunService do
   安全点受理；durable/bounded 同一提交边界先持久化、成功后才推进内存。
   回执只含作者可见的整理项数/摘要/省略/来源显示名。
 
-  属于 §16.16 两类入口之一（作者命令）；另一类是应用安全点自动维护。
+  属于 §16.16 应用层 internal 能力（VS-00L §16.16 2026-11-04 修订：作者命令入口
+  未产品化、已从 Channel 撤销）；产品唯一触发是应用安全点自动维护。
   """
   @spec compact_transcript(String.t()) :: {:ok, map()} | {:error, term()}
   def compact_transcript(run_id) when is_binary(run_id) do

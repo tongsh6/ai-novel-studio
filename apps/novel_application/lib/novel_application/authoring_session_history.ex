@@ -5,8 +5,8 @@ defmodule NovelApplication.AuthoringSessionHistory do
   裁决（B81 §8.4.6，2026-11-09 作者「按推荐」批准）：
 
   - 不新增 `novel_common` 纯契约；会话历史读取经 persistence 读端口
-    （`AuthoringSessionLog.fetch_session_messages/1`、
-    `fetch_session_refs/1`），组装在 application 内完成。
+    （`AuthoringSessionLog.fetch_session/1`，返回同一事务快照），组装在
+    application 内完成。
   - **请求派生视图** = 当前 `application_base` 一次 → 全部非 base 已提交消息
     （会话 sequence 原序，含当前 run 已提交行）→ 当前段未提交尾部；**run 执行段
     transcript 不受影响**（持久化仍只落本 run 消息）。

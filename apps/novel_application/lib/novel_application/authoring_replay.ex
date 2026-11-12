@@ -54,8 +54,9 @@ defmodule NovelApplication.AuthoringReplay do
     end
   end
 
-  # durable 必须能按当前 run 的任务引用读取 checkpoint；bounded 没有任务时只允许
-  # 直接读私有列。任务存在时仍核对 work/parent/header，防止同父轮次串用。
+  # durable 必须能按当前 run 的任务引用读取 checkpoint；bounded 没有任务时按 run
+  # 读取会话执行段（run 级私有列已退役）。任务存在时仍核对 work/parent/header，
+  # 防止同父轮次串用。
   defp task_checkpoint(run) do
     case run.long_run_task_ref do
       nil ->

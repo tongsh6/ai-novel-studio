@@ -183,7 +183,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
       # VS-00E CP3：按质量发现重写的要求文本放入 input["revision"]，同样透传给 provider。
       revision: optional_text(Map.get(req.input, "revision")),
       # B27 CP3b：专业调用共同任务语义（application 组装、common 校验后由本 adapter 恢复）。
-      # 无 task 的旧调用保持 nil（迁移期兼容，CP3d 清理清单）。
+      # `authoring_task/1` 缺失即在本函数早返回错误，因此这里的 task 恒非 nil。
       task: task,
       run: Map.get(req.input, "agent_run"),
       request_ir: Map.get(req.input, "request_ir"),

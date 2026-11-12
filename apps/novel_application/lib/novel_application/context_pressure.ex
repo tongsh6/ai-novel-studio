@@ -3,8 +3,8 @@ defmodule NovelApplication.ContextPressure do
   B71 上下文压力的只读派生边界（阶段 4 基础设施）。
 
   只从真实 `ProviderRun` usage 读取最近一次请求的输入 token 规模，按保守模型窗口计算
-  压力；不写库、不触发压缩、不向作者展示。自动维护的**触发门控**于 VS-00L §18 变更提案
-  评审通过：提案通过前本模块没有生产调用者，只被测试与后续安全点触发消费。
+  压力；不写库、不触发压缩、不向作者展示。VS-00L §18 变更提案已 Accepted（2026-11-04），
+  生产消费者是 `AgentRunServer` 的安全点自动维护（`maybe_auto_maintain/1`）。
 
   阈值只决定后续维护的触发时机，不决定丢弃范围（VS-00L §16.2）。窗口配置保守偏小，
   宁早整理不冒险；覆盖通过 `:novel_application, :context_window_overrides` 与

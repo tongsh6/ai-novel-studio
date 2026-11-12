@@ -201,8 +201,8 @@ defmodule NovelAgent.Provider.Gateway do
   通过统一 provider execution stream 执行一次 provider 调用。
 
   Gateway 只负责选择 adapter、生成 provider execution context、记录入口日志。
-  底层 adapter 目前仍可能只提供一次性 `complete/4` 回调，但 final-only 结果由
-  adapter execution boundary 物化为同一套 ProviderRun / ProviderEvent /
+  adapter 唯一执行入口是 `Provider.execute/5`（`complete/4` 已退役）；final-only
+  结果由 adapter execution boundary 物化为同一套 ProviderRun / ProviderEvent /
   ProviderOutput 事实。应用层不得在这里之外再新增 complete-vs-stream 分支。
   """
   # 缺陷九（2026-07-20）：默认值必须走 InferenceParams.new/1（带 max_tokens 止血阀），

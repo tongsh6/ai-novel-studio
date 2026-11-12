@@ -631,7 +631,8 @@ defmodule NovelApplication.AdoptionWorkflow do
   end
 
   # B28 CP1：采纳前契约守卫（目标作用域/排版模式）。仅在有 B28 additive 信号时收紧；
-  # 缺省旧 artifact 保持 legacy 行为（迁移期兼容）。
+  # 无 `adoption_effect` 的候选（修订类/非 append 类型）是合法业务路径
+  # （见 `CandidateAdoptionEffect`），按宽松只读校验处理，不是历史兼容。
   @doc false
   def validate_b28_contract(artifact) do
     payload = artifact_field(artifact, :payload) || %{}
