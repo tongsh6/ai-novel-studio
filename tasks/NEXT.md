@@ -16,7 +16,7 @@
 |---|---|---|
 | B78 | 存量大模块拆分（P1：WorkspaceChat / dialogue_planning_service / agent_run_server / turn_execution_service / adoption_repository）；治理机制与 ratchet 门禁已落地，本任务只做结构化拆分，须在 B71 收口后按「一次一个文件、独立 refactor commit」排期 | [B78](slices/B78-module-size-debt.md) |
 | B79 | 存量书稿导入 + 导入后分析建档；**待作者确认启动**后按 [B79](slices/B79-work-import-and-analysis.md) CP0 契约冻结 → CP1 确定性导入链推进；B80 前置梳理已完成（2026-11-08）。 | [B79](slices/B79-work-import-and-analysis.md) |
-| B82 | B71 G2/G3/G5 黄金切片证据补证 + Responses/Anthropic 实模（G6 移交 B81 CP5，不在本任务）；每个切片独立冻结预注册、独立批次、如实登记；待真实模型窗口与官方凭证。 | [B82](slices/B82-b71-golden-slice-evidence.md) |
+| B82 | B71 G2/G3/G5 黄金切片证据补证 + Responses/Anthropic 实模（G6 移交 B81 CP5，不在本任务）；G2 done；**2026-11-13 作者选 A：Splash 补 G3/G5 Chat wire**；Responses/Anthropic 待官方凭证；每个切片独立冻结预注册、独立批次、如实登记。 | [B82](slices/B82-b71-golden-slice-evidence.md) |
 | B84 | `novel_web` 慢测试收敛（193 tests/532s）+ 00f P2-E 剩余架构/测试债务；不缩小测试覆盖；与 B81 并行（测试前置层）。 | [B84](slices/B84-web-slow-tests-and-arch-debt.md) |
 | B85 | 模型上下文窗口用户设置（UI 入口）：作者反馈「窗口不应写死、要开放给用户配置」；初始能力已落（`preferences.json` 的 `context_windows` + Tauri 启动注入 sidecar env，`044092df`），**设置页 UI 未做**（当前应用无系统设置菜单，唯一设置入口是模型供应商弹窗）。 | [B85](slices/B85-model-context-window-settings.md) |
 | B87 | Issue #4 模型交互请求/响应投影治理：**仅登记计划，未开始实施**；R00 基线/边界核对可作为候选，R01 需原始请求证据；R02/R03 先核 B81 CP5/G6 与冻结契约，不重做 B71/B81 已实现内容。R10 为授权体系（风险等级/授权模式/critical/full 自动采纳），以 [VS-00M](../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md) §3.4/§3.6 为设计输入。不得抢占 B81 当前队首。 | [B87](slices/B87-model-interaction-request-projection.md) |
@@ -26,7 +26,7 @@
 
 ## 阻塞
 
-- **B83 vendor `stream_options.include_usage` 矩阵**：Strata/LM Studio 已有首批接受证据；OpenAI/Anthropic 官方凭证缺失、其它本地 vendor 窗口未授权。解除条件=凭证/窗口到位后按预注册执行；矩阵结论不得用于伪造能力声明。见 [B83](slices/B83-vendor-stream-options-matrix.md)。
+- **B83 vendor `stream_options.include_usage` 矩阵（2026-11-13 作者选 A）**：Splash 作为本地 vendor 补测 include_usage；OpenAI/Anthropic 官方凭证仍缺，未测项登记为未验证；矩阵结论不得用于伪造能力声明。见 [B83](slices/B83-vendor-stream-options-matrix.md)。
 - **B72 作者行为语料扩增（2026-11-13 作者选 D）**：放弃离线规则扩增（mutation known-gap 只读保留，不再阻塞），转真实 LLM 语料扩增；Splash 全局授权用于 CP1 ≤60 校准，待冻结预注册后执行；生成≠冻结≠PASS。见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md)。
 - **UA01 B13 完整失败矩阵**：独立 run_failed 触发与三源 join 已原生 8/8 done；独立 DecisionTrace、真实供应商、取消/恢复/跨作品及 AU04 漂移仍未闭环；见 [UA01](slices/UA01-provider-execution-stream-unification.md#可独立推进-受控最终-run_failed-触发2026-10-31)。
 - **AU08 原生故障恢复（2026-11-13 作者选 A）**：新 scoped 预注册只重放 parent_ref 修复后的单链（1 批/0 重试），预注册 `artifacts/model-contracts/au08-channel-fault/preregistration-scoped-single-chain-20261113.json` 已冻结，待真实 Tauri 页面执行；不整批刷分。见 [AU08](slices/AU08-file-level-closure.md)。

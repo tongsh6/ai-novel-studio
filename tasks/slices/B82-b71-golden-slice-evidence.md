@@ -1,6 +1,6 @@
 # B82：B71 G2/G3/G5 黄金切片证据补证（Responses/Anthropic 实模 + 逐片真实证据）
 
-- 状态：**doing（G2 冻结 Strata 批次的作者页面和技术核验通过，G3/G5 与其余实模补证开放）**
+- 状态：**doing（G2 冻结 Strata 批次通过；2026-11-13 作者选 A：用 Splash 补 G3/G5 Chat wire 证据；Responses/Anthropic 保留官方凭证条件）**
 - 来源：
   - 作者 2026-11-08 同意：B71 后续候选「G2–G6 切片补证」需独立任务文档、新冻结预注册后执行（原记录见 [B71](B71-provider-message-fidelity.md) 与 [NEXT](../NEXT.md)）。
   - B71 2026-11-08 实模批次 `b71-first-consumer-live-cp4b2-iq3s-01` 的 required_mechanism 8/8 通过。后续原生批次的实模报文复核与待补证项见 [B71 完成度复核](B71-provider-message-fidelity.md#2026-11-11-b81-交付后的完成度复核)。
@@ -18,6 +18,14 @@
 - 恢复入口：`tasks/NEXT.md` → 本任务；批次证据在 `artifacts/`；B71 原任务保留历史上下文。
 
 ## 正式预注册准备
+
+### 2026-11-13 作者选 A：Splash 补 G3/G5 Chat wire
+
+- **决策**：作者选择 A——用 Splash（`local/Q4-PLE4`，OpenAI-compatible Chat wire）补 B82 的 G3/G5 真实证据；Responses/Anthropic 实模继续等官方凭证，不伪造。
+- **范围**：G3（失败校验同 call ID/reason 进入下一请求、作者原话不追加伪纠错、修正受预算/权限门）；G5（采纳/放弃处置与后续请求对账、新 run 授权边界、canon 变更）。G2 已 done，不重跑。
+- **预注册**：各切片独立冻结（provider=Splash、model=local/Q4-PLE4、入口、种子、预算、证据目录）；先冻结后执行，失败只读保留。
+- **边界**：Splash 只覆盖 Chat Completions；Responses/Anthropic 未测项登记为未验证；不把确定性证据冒充实模；I10 不代签。
+- **下一步**：冻结 G3/G5 的 Splash 预注册，再跑真实 Tauri 批次。
 
 沿用 [VS-00L §7](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md#7-六类黄金请求)、`native_b71_batch.sh` 及各既有场景判据。每批冻结 provider/model、入口、作品种子、作者动作、最大调用与重试预算、证据目录和结果条件。模型未触发目标行为、页面未推进或证据缺项均按实记账。
 
