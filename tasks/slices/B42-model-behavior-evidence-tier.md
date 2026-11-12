@@ -1,6 +1,6 @@
 # B42：真实模型行为与求证证据分层
 
-- 状态：**doing（CP0–CP3 与 §12 历史交付保留；§13 实际请求输入绑定整改 CP0–CP3 done（2026-10-30）；CP4 真实运行仍 blocked：待 B39 接线、预注册/driver 与资源窗口）**。
+- 状态：**doing（CP0–CP3 与 §12 历史交付保留；§13 CP0–CP3 done；2026-11-13 作者选 A：用 Splash 补 AU-15 预注册/driver，先跑 A0/A1/A2；CP4 真实运行待执行）**。
 - 登记日期：2026-10-27；来源：`release` / `release-real-llm` 均为 0 注册场景，实模与 deterministic 结果混在 nightly，AU-15 还缺 Base→Observation→used refs 的证据字段。
 - 上游：[B41](B41-quality-evidence-foundation.md)、[AU-15](../../docs/design/acceptance/author/AU-15-evidence-seeking-authoring.md)、[B39](B39-evidence-seeking-authoring.md)、[tiers](../../quality/acceptance/tiers.md)。
 
@@ -192,11 +192,18 @@ bash scripts/quality_accept.sh --tier release-real-llm          # exit 65 no sce
 
 见 §6.5。当前登记：
 
-- 状态：`blocked`（真实运行）；尚未注册可执行 AU-15 场景、未运行真实模型、无模型行为 PASS。预注册与 driver 设计可先准备，不能将整项工作都视为作者阻塞。
+- 状态：`todo`（2026-11-13 作者选 A：用 Splash 补 AU-15 预注册/driver，先跑 A0/A1/A2）；尚未注册可执行场景、未运行真实模型、无模型行为 PASS。预注册与 driver 设计可先准备，不能将整项工作都视为作者阻塞。
 - 已解除：作者于 2026-10-29 明确接受 ADR-0030、VS-00K、AU-15 为 B39 实施基线，记录见 [B39 §9.7.17](B39-evidence-seeking-authoring.md#9717-c01-实施基线收口)。
 - 剩余前置：B39 场景所需产品接线与最小准备判断、外部 driver/verifier 和可执行场景登记、运行前参数/必需证据预注册、真实 provider 可用性与单槽模型窗口；设计接受不自动满足这些条件。
 - 恢复顺序：按已接受 AU-15 与 B39 CP 设计预注册/driver → 所需产品接线就绪 → 冻结自然输入、参数、必需证据、关键缺事实场景≥2独立重复及失败分母 → 协调资源窗口并真实运行 → 分别记录机制/实模/原生交互。文学评价仍交 I10。
 - 不得以历史探索场景、stub 批次、HTTP 200、旧 summary 代替；缺凭据只标 blocked。
+
+### 2026-11-13 作者选 A：Splash 启动 AU-15 真实求证
+
+- **决策**：作者选择 A——用 Splash（`local/Q4-PLE4`）补 AU-15 预注册/driver，先跑 A0/A1/A2（关键缺事实场景至少 2 次独立重复），再逐步 B1/B2/C1/C2。
+- **预注册**：`artifacts/model-contracts/b42-au15/preregistration-splash-20261113.json`（场景、模型、预算、判据、证据目录；先冻结后执行）。
+- **边界**：机制证据与模型行为证据分层报告；不新增产品分支/专用 packet；文学质量仍归 I10；失败只读保留。
+- **下一步**：先注册场景 + driver，再跑 A0/A1/A2；不把确定性证据冒充实模。
 
 ### 10.1 AU-15 预注册与 driver 准备
 
