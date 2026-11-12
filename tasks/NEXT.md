@@ -43,7 +43,7 @@
 - **B43 后续（2026-11-13 作者选 A）**：GateOrder 新增显式 `missing_policy` gate（ADR-0005 12→13 门）；六个 flow 与 TurnExecutionService 统一进门；待实施。见 [B43](slices/B43-gate-order-residual.md)。
 - **B67 后续**：维护 StateTrace 依赖 VS00F-TRACE 先冻结；见 [B67](slices/B67-revision-aware-ledger-maintenance.md)。
 - **B65 后续**：release 打包 Origin 采集环境缺失；见 [B65](slices/B65-local-http-websocket-origin-boundary.md)。
-- **B64 实模**：一次 judgment_protocol_violation 失败待裁决；见 [B64](slices/B64-coordinate-aware-memory-consumption.md)。
+- **B64 实模（2026-11-13 作者选 B）**：用 Splash 按新预注册重跑一次 B64 CP3 真实模型消费；失败只读保留，仍失败则转 B39/B27 判断协议处理。见 [B64](slices/B64-coordinate-aware-memory-consumption.md)。
 - **B39 重锚**：目标实现由 B71 CP3/CP4 承接；原 setup 第02章候选区 AX 同因失败记录只读保留，不再单独驱动实现；见 [B39](slices/B39-evidence-seeking-authoring.md)。
 - **AU10-FAILED**：缺真实页面确定性失败触发（产品外 fixture/原生目录替身可先构造，真实页面证据仍需窗口）；见 [AU10](slices/AU10-workbench-recovery-taskstate.md#failed-cp0-盘点2026-10-31)。
 - **B71 实模/页面后续窗口（2026-11-13 更新）**：作者全局授权 Splash（本机 OpenAI 兼容，`local/Q4-PLE4`），实模窗口阻塞解除；冒烟已验证 tool_calls/流式/多轮观察回流/usage，预注册 `artifacts/model-contracts/b71-cp1/scenario-preregistration-splash-20261113.json` 已冻结，下一步按该预注册跑 CP4b-2/G6。R2 真实流式正文预览 UI 已完成确定性层：SSEStream 对「工具参数 JSON body」（写作真实形态）产出 author_content_delta、三 wire 测试 8/8、真实 Tauri 页面批次 `b71-authoring-transcript-tauri-native-stream-preview-06` PASS（生成中预览 + 协议字节零泄漏 + 最终 turn_result）；真实模型流式行为与 Responses/Anthropic 实模另证。I10 不代签。详见 [B71](slices/B71-provider-message-fidelity.md) 对应小节。

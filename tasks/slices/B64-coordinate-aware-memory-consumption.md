@@ -1,6 +1,6 @@
 # B64：按真实写作坐标消费记忆有效窗
 
-- 状态：**blocked（2026-10-31 CP0–CP2 done；CP3 确定性真实 Tauri 矩阵 PASS；真实模型消费一次 `judgment_protocol_violation` 失败，按预算停止，待作者/跨切面判断协议处理后复验；B64 未 done）**。
+- 状态：**todo（2026-11-13 作者选 B：用 Splash 重跑一次 B64 CP3 真实模型消费；预注册已冻结，待执行；CP0–CP2 done、CP3 确定性矩阵 PASS；B64 未 done）**。
 - 来源：有效期已在普通 recall 路径验证，但 CA02 的专业创作事实读端口没有目标章或有效窗输入；本轮只读代码核对发现消费边界不一致，尚未运行数据库、真实模型或页面反例。
 - 上游：[AU09 有效窗原任务](AU09-validity-window-recall.md)、[CA02](CA02-writing-facts-context.md)、[VS-00C](../../docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md)、[B39](B39-evidence-seeking-authoring.md)。本项保护既有章节级窗口，不等待 B54 新建故事时间读模型，也不重复建设 B39 的求证循环。
 
@@ -116,6 +116,14 @@ CP0 还须明确：未知当前位置、无窗口、无效章节引用、重编�
   - 该失败与 B39 AU15 A2-run2 的 `judgment_protocol_violation` 同属真实模型判断协议失败类，需 provider/prompt 侧系统处理，不在本 slice 盲修。
 - 实现补充（Why replay 同源）：`memory_window` 进入 `DecisionTrace.state_trace_refs` + TraceReplayService 重建，修复广播 summary 有、Why replay 丢失的问题（trace replay 测试覆盖）。
 - CP3 未关闭：真实模型消费未成立；待判断协议问题处理后再按预注册复验（不重试刷分）。
+
+### 2026-11-13 作者选 B：Splash 重跑 B64 CP3
+
+- **决策**：作者选择 B——用 Splash（`local/Q4-PLE4`）按新预注册重跑一次 B64 CP3 真实模型消费，失败只读保留、不重试刷分。
+- **预注册**：`artifacts/model-contracts/b64-cp3/preregistration-splash-20261113.json`（1 批/0 重试；supersedes 2026-10-31 strata 版）。
+- **证据目录**：`artifacts/slice-verify/b64-coordinate-memory-tauri-splash/`。
+- **目的**：判断上次 `judgment_protocol_violation` 是判断协议普遍问题，还是 iq3_s 模型特有；不改变 B64 记忆过滤判据。
+- **边界**：若仍失败，转 B39/B27 跨切面判断协议处理，不在本 slice 盲修。
 
 ## 5. 非目标与恢复
 
