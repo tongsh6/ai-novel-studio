@@ -33,7 +33,7 @@
 - **Q1C 原生补验（2026-11-13 作者选 A）**：新诊断预注册已冻结（1 诊断批 + 1 scoped replay，0 重试），先查 owned_native_window_process_exited 根因，再只重放失败类型单链；不整批刷分。见 [Q1C](slices/Q1C-adopted-content-revision.md)。
 - **SU04 外部后续**：CP1 与真实 release app 四场景已 done；签名/公证（需 Apple 证书）、Intel/Windows/Linux CI 真实跑通、失败分类外部 AX 渠道改进为条件后续；见 [SU04](slices/SU04-desktop-sidecar-packaging.md#cp1-缺陷修复与四场景复验2026-10-31收口)。
 - **UA01 T3′（2026-11-13 作者选 A）**：维持完整计划契约；把 slice_verify 修订 fixture 修正为「已完成前缀 + 尾部」后接入 `validate_completed_prefix/2`；不改 schema、不恢复 revised_tail。见 [UA01](slices/UA01-agentic-loop-prompt-hardening.md)。
-- **B27 CP4 语义**：确定性负例矩阵已冻结（`artifacts/model-contracts/b27-cp4-hardening/negative-matrix.json`，确定性侧无机械可修缺口）；模型语义 known-gap 关闭需实模预注册窗口 + 第二方复核；见 [B27](slices/B27-systematic-prompt-and-intent-integration.md)。
+- **B27 CP4 语义（2026-11-13 作者选 A）**：用 Splash 定向重跑 5 个 known-gap（M01r2/M02/M08r2/M16r1/M18r1）+ 第二方复核；不全量 retest、不改阈值/分母。预注册 `artifacts/model-contracts/b27-cp4-hardening/preregistration-splash-20261113.json` 已冻结。见 [B27](slices/B27-systematic-prompt-and-intent-integration.md)。
 - **B72 CP1 模型窗口**：离线生成器已入候选，真实模型资源窗口与生成预算未授权；见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#阻塞记录2026-10-31-cp1)。
 - **VS00F-TRACE CP1（2026-11-13 作者选 A）**：新增最小持久 StateTrace 实体；先冻结 schema/迁移设计并获授权，再实施；字段含 before/after、source refs、mutation receipt、idempotency key。见 [VS00F](slices/VS-00F-five-ledgers-three-state.md)。
 - ~~B71 原生批次复验~~ **已于 2026-11-07 关闭**：`b71-first-consumer` 在 A1 收口后经 SliceVerify canonical IR 观察识别修复（`26824567`）取得 clean HEAD 真实页面 **19/19**（`artifacts/slice-verify/b71-first-consumer-tauri-native-b71-a1-03/`）；根因是 test-support 旧文本识别与 R1 canonical IR 不同步，产品当时进入 `no_progress_stopped` 的行为正确。实模/CP4b-2/CP5 仍不代签；证据与失败批次见 [B71](slices/B71-provider-message-fidelity.md) 原生批次验收状态小节。
