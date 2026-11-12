@@ -38,7 +38,6 @@
 - **VS00F-TRACE CP1**：A（推荐持久 StateTrace，需 schema 授权）/B（明确 no-trace 边界）/C（延期）；见 [VS00F](slices/VS-00F-five-ledgers-three-state.md#cp0-盘点2026-10-31)。
 - ~~B71 原生批次复验~~ **已于 2026-11-07 关闭**：`b71-first-consumer` 在 A1 收口后经 SliceVerify canonical IR 观察识别修复（`26824567`）取得 clean HEAD 真实页面 **19/19**（`artifacts/slice-verify/b71-first-consumer-tauri-native-b71-a1-03/`）；根因是 test-support 旧文本识别与 R1 canonical IR 不同步，产品当时进入 `no_progress_stopped` 的行为正确。实模/CP4b-2/CP5 仍不代签；证据与失败批次见 [B71](slices/B71-provider-message-fidelity.md) 原生批次验收状态小节。
 - **B57 CP1 B/C/D**：需 B39/UA01 受控观察/外部资料 fixture 与数据授权；A/E/F 已 PASS；见 [B57](slices/B57-sec-injection-boundary.md#阻塞记录2026-10-31)。
-- **UA01-PROMPT-T5**：T5 需 schema/迁移 A/B/C 裁决；D2 driver 超时；T3 已入候选；见 [UA01](slices/UA01-agentic-loop-prompt-hardening.md#阻塞记录2026-10-31)。
 - **P1-AUDIT-BC 页面**：两次 stale projection banner 断言失败，依赖 AU08 投影新鲜度缺口或断言重锚；见 [P1](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外)。
 - **B01 后续**：需 A（推荐 nullable origin_turn_ref）/B/C 与 migration 授权；见 [B01](2026-10-27-design-to-execution-reconciliation.md#b01-入口来源与语义边界)。
 - **B43 后续**：MissingPolicy 门序需 A（推荐）/B/C/D 裁决（工程依赖，不阻塞 B48 CP0）；见 [B43](slices/B43-gate-order-residual.md)。

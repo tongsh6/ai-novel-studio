@@ -33,7 +33,7 @@ ADR-0023 CP4 后，loop 的模型调用收敛为五类：profile 路由（strict
 | T2 | 双通道（content+forced tool call）live provider 兼容验证与策略 | **done（2026-07-05 拍板 A 并落地）** | adapter 能力整形（DeepSeek thinking 降级、LM Studio tool_choice→required）+ `author_reasoning` arguments 回退 + `provider_output_tool_narrative` 源绑定；live LM Studio 探针 pass_rate=1.0。T5 的 description 溯源基础已就位（运行时 output 携带 arguments），剩余为 driver 计划面板断言。 |
 | T3 | 修订协议改「app 保留前缀＋模型只产尾部」 | P1 | tool schema 改 revised_tail＋可选废弃列表；app 按 step_id 确定性合并；contract pack 同步；消除 cursor 错位风险并省 token。 |
 | T4 | 修订 prompt 观察保真移植 | P1 | 把 CP0 的紧凑 structured_payload 渲染（含 finding gate/severity/summary）移植进修订 prompt，字符预算随 AssemblyPolicy 档位。 |
-| T5 | PlanStep.description 溯源哈希＋N-NARR driver 计划面板断言 | P1 | 持久化 per-description（或 arguments 整体）哈希进 `author_narrative_source` 同款 provenance；driver 补计划面板字节断言；不把 description 重新归类为结构（与 ADR-0022 冲突）。 |
+| T5 | ~~PlanStep.description 溯源哈希＋N-NARR driver 计划面板断言~~ | **removed（2026-11-13 作者决定）** | 作者判断计划面板步骤描述不需要 provenance/测试，移除；历史设计只读保留，不实施、不阻塞 T3/T4。 |
 | T6 | 一致性打包 + **前缀稳定性（`contracts/VS-00I`）** | P2 → 前缀部分 **P1** | 原项：路由迁 native tool call＋一次重试；step_catalog 收敛 AgentTaskProfileRegistry 单源；success_criteria 决定消费或 schema 降级可选；`evaluation_of_last` app 盖章语义注记进 contract pack；I3 回显指令作用域收窄评估。**前缀稳定性**（原"prompt 静态段前置"一句展开，依赖 T7 已完成的 L0）：按 VS-00I 五层模型 L0–L4 对各调用点重排与分块，只改排序不改语义；**L4 置尾与调用对工具恒定为硬规则**（2026-10-21 拍板）；厂商无关，adapter 只做断点 / 字段映射。分期 **CP-AB**（离线前缀共享度量 + 全厂商 TTFT + §5 矩阵待核实回填 + live 基线 + 工具恒定 + 续行调用对重排作首个对照 + 顺带修 VS-00H P1 activity 投影）→ CP-D 起草 / 修订 → CP-C 判断 call1 重排（**MBC A/B 硬门禁，失败即登记例外**）→ CP-E 厂商断点与基线复测 + I-CACHE-1 升 CI 阻断。**排期：Q1c 收口后首位、任何再碰 prompt 的工作之前。** VS-00I 已于 2026-10-21 冻结（§14 选项 1：call2 覆盖 call1 L0–L2 + I-CACHE-1 全绿 + 可达厂商 live 命中）。 |
 | T7 | 系统身份消息层（`contracts/VS-00H`） | P1 | **CP1–CP3 实现完成（2026-10-21）**。VS-00D §4.4 SYSTEM 块首次落地：身份文本唯一真源模块 + `Gateway.execute/4` 唯一注入（幂等、首位、不设 opt-out）+ ProviderRun 事实携带 `system_identity_ref`（不落原文）；CP2 去 18 处调用点产品自称 + I-SYS-2 静态守卫；CP3 `Usage.cached_tokens` + adapter 映射 + Anthropic `cache_control`。Boundary：CP1 只改 `novel_agent`；CP2 仅改 application/agent 调用点文本；web/frontend/persistence schema 不动。Proof：gateway focused tests + 全量 `mix test` + 一条既有 slice_verify 场景复跑（Stub 捕获帧或 developer activity API 中 `system_identity_ref`）+ I1/I2/I3。分期与风险见 VS-00H §8/§9。 |
 
@@ -43,7 +43,7 @@ ADR-0023 CP4 后，loop 的模型调用收敛为五类：profile 路由（strict
 - [ ] T2：live LM Studio 单场景（经用户批准）＋策略落地后的 focused tests
 - [ ] T3：修订合并 focused tests＋D6/steer Tauri 场景复跑＋contract pack 同步
 - [ ] T4：D2 场景复跑（修订 prompt 含 finding 明细断言可经 developer 视图/trace 验证）
-- [ ] T5：N-NARR driver 扩展后 `run_n_narr.exs` PASS 含计划面板断言
+- [x] ~~T5：N-NARR driver 扩展后 `run_n_narr.exs` PASS 含计划面板断言~~（2026-11-13 作者移除，不实施）
 - [ ] T6：逐项 focused tests；路由重试有单测
 - [ ] T6 CP-AB：`run_icache_prefix.exs` 对续行调用对给出"改前≈L0 / 改后 call2≈call1 全长"可区分数字；I-CACHE-2 绿；MBC 不退化且 call1 在 `tool_choice: none` 下无工具调用倾向；TTFT 进 ProviderRun；VS-00I §5 矩阵"待核实"项回填；有凭据厂商各一条 `cached_tokens` / TTFT 基线落 `artifacts/`；activity API 可见 `system_identity_ref`（VS-00H P1 收口）
 - [x] T6 CP-D：起草 / 修订 / 章节使命 prompt 按 L0–L4 重排（只改排序不改语义）；`run_id` 移至 L3 尾部；跨 run 共享前缀覆盖 L1（`run_icache_prefix.exs` 5 条 cross_run 全 `covered=true`，enforce 硬断言）；N-PLAN 回归绿（planner / drafting flow / mission focused tests）
@@ -123,10 +123,10 @@ xref/arch、I1/I2/I3/N-NARR/I-CACHE、静态扫描；Acceptance Driver=既有外
 
 ## T3-T5 当前语义审计与承接
 
-- 状态：**blocked（2026-10-31 CP0 done；T4 finding 结构渲染+单测完成；D2 页面 driver 超时待 reanchor；T3 前缀校验与 T5 provenance 待，T5 需 schema/迁移 A/B/C 裁决）**。
+- 状态：**blocked（2026-10-31 CP0 done；T4 finding 结构渲染+单测完成；D2 页面 driver 超时待 reanchor；T3 已按 2026-11-13 作者选 A 待实施；T5 已由作者 2026-11-13 移除，不再阻塞）**。
 - 来源：本文件 §3 T3/T4/T5 与 [全量对账 E05](../2026-10-27-design-to-execution-reconciliation.md#45-其余任务)。旧任务表含七月协议假设，须先按当前 B26/B27 单调用主链及 [ADR-0031](../../docs/design/adr/ADR-0031-core-chain-semantics-narrowing-v3.md) 复核；ADR-0022 保留历史血缘，不恢复其已被替代的协议形态。
 - 下一步：沿现役计划起草/修订 producer、完成前缀/cursor、finding 观察渲染、计划面板来源绑定与 N-NARR 证据逐项核对，记录已实现、需补接线和需修订的旧表述；现有工具/字段能满足的直接复用，不先冻结 `revised_tail` 等旧建议字段，也不恢复两段式调用。
-- 完整后果：T3 保持真实已完成步骤与执行历史，修订不重放已完成副作用或错位 cursor；T4 保留 finding 的 gate/severity/summary、来源与覆盖信息，裁剪不得伪造完整观察；T5 将作者可见 PlanStep.description 的来源与字节证明闭合到真实计划面板。契约、实现、局部负例与外部真实页面分别取证，不能用一次 prompt 快照关闭整个范围。
+- 完整后果：T3 保持真实已完成步骤与执行历史，修订不重放已完成副作用或错位 cursor；T4 保留 finding 的 gate/severity/summary、来源与覆盖信息，裁剪不得伪造完整观察；T5 已移除（作者 2026-11-13 决定计划面板步骤描述不需要 provenance/测试），不再要求该闭合。契约、实现、局部负例与外部真实页面分别取证，不能用一次 prompt 快照关闭整个范围。
 - 依赖与边界：与 B43 的逐步裁决/执行、B45 的必要 schema、B39 的观察消费协同，职责仍由原任务负责，不另建规划器或 prompt 体系。T6 已完成的前缀治理、T7 身份注入不重做；live vendor/cache、developer 身份展示等原条件项不混入本次 T3–T5。若需实模验证，先提交具体样本/预算与资源安排，不因排入候选自动运行。
 
 ### T3-T5 CP0 现役核对（2026-10-31）
@@ -135,13 +135,13 @@ xref/arch、I1/I2/I3/N-NARR/I-CACHE、静态扫描；Acceptance Driver=既有外
 |---|---|---|
 | T3 修订协议 | 现行单调用 `agent_plan_revision`，prompt 要求「输出完整修订后计划；已完成前缀保留，未完成追加/替换」；`revision_meta` 由 app 生成 plan_revision；无 `revised_tail`/废弃列表字段（旧七月建议已被 B26/B27 单调用取代）。 | 旧 revised_tail 不再适用；但「保留已完成前缀」目前靠 prompt + runtime cursor，**无确定性合并/前缀 hash 校验**；需补 focused 测试/必要时机械校验，不能只信模型。 |
 | T4 finding 观察保真 | `observation_lines/1` 只渲染 `observation_id / observation_type: summary`，`take(-8)` 截断；finding gate/severity/summary/来源/覆盖在 structured_payload，不进修订 prompt。 | **真实缺口**：修订观察保真不足；需按 AssemblyPolicy 字符预算紧凑渲染 structured finding 字段，不能裁剪成伪造完整观察。 |
-| T5 PlanStep.description 溯源 | 计划起草/修订有 `author_narrative_source`（author_reasoning 的 content/tool_arguments 源绑定）；`PlanStep.description` 未做 per-description hash，ProviderRunLog 不存 arguments 原文；N-NARR driver 只验 reasoning 前缀。 | **真实缺口**：作者可见计划面板描述无字节级 provenance；需 provenance 小扩展/持久化（schema 变更需授权），不能把 description 重新归类为结构。 |
+| T5 PlanStep.description 溯源 | 计划起草/修订有 `author_narrative_source`（author_reasoning 的 content/tool_arguments 源绑定）；`PlanStep.description` 未做 per-description hash，ProviderRunLog 不存 arguments 原文；N-NARR driver 只验 reasoning 前缀。 | **removed（2026-11-13 作者决定）**：计划面板步骤描述不需要 provenance/测试；不实施、不涉及 schema/迁移，不阻塞 T3/T4。 |
 | 依赖/去重 | B43 裁决、B45 schema、B39 观察消费；T6 前缀/T7 身份已完成不重做。 | 边界确认。 |
 
 **CP1 计划**：
 1. T4 先做最小机械渲染（structured_payload 的 finding 字段 + 预算/截断标记），focused prompt 测试 + D2 场景复跑；
 2. T3 补确定性前缀/cursor 测试；若证明需要机械合并再冻结契约，不恢复 revised_tail 字段；
-3. T5 需要 provenance 字段/存储扩展，涉及 schema/迁移，先向作者给出 A（加 description hash provenance）/B（仅运行时 arguments 哈希落 trace，不改表）/C（登记 known-gap）选项后再实施。
+3. ~~T5 provenance~~：2026-11-13 作者决定移除，不实施、不涉及 schema/迁移。
 - 不调用真实模型；不恢复两段式调用；不改 ADR-0022 分类。
 
 ### T4 实施记录（2026-10-31）
@@ -152,7 +152,7 @@ xref/arch、I1/I2/I3/N-NARR/I-CACHE、静态扫描；Acceptance Driver=既有外
   - 渲染 `finding [<gate>, severity=<severity>] <summary>`，summary-only 不再冒充完整 finding。
 - 测试：`agentic_plan_draft_planner_test` 新增 7 findings → 5 条 + `…(+2)`，并断言 gate/severity/明细；39/0。
 - 全量 backend **1056/0**（首次 AgentRunRuntime 既有 flake，单测复跑通过，登记非本次回归）。
-- **未闭环**：T4 真实页面 D2 场景复跑一次超时（app log 有 plan_revised/artifact_superseded/run_completed，但 driver 未写出 ui-state；根因未定位，未据此宣称页面 PASS）；T3 完成前缀无机械 hash 校验；T5 仍无 PlanStep.description provenance，需作者裁决 A/B/C。
+- **未闭环**：T4 真实页面 D2 场景复跑一次超时（app log 有 plan_revised/artifact_superseded/run_completed，但 driver 未写出 ui-state；根因未定位，未据此宣称页面 PASS）；T3 完成前缀无机械 hash 校验（2026-11-13 作者选 A 待实施）；T5 已由作者 2026-11-13 移除，不再要求。
 - 未调用真实模型；未改 schema/迁移。
 
 ### T4 页面复跑记录（2026-10-31）
@@ -166,15 +166,12 @@ xref/arch、I1/I2/I3/N-NARR/I-CACHE、静态扫描；Acceptance Driver=既有外
 - 未接线实现：按 `run.completed_step_refs` 对应当前 plan 前缀校验身份字段；模型只产尾部时机械前置；空尾/仅重复前缀报 `:empty_revision_tail`。
 - 回退证据：接入后 `AgentRunJudgmentPlanFlowTest` 2 例失败（延长到 20s 仍不达 awaiting_author），回退后 53/53 全绿、全量各 app 0 failures；未改断言、未放宽守卫（超时仅用于诊断，已恢复原值）。
 - 下一步（T3′）：先与 plan cursor/运行期步骤状态协同设计（机械合并后 cursor 定位、已完成步骤是否重入 plan.steps、耗尽判定口径），再单测级验证接入，不重复盲接生产。
-- 残余：确定性前缀校验未接入生产；T3 原 prompt 前缀稳定性快照对比未单独新增（既有 I-CACHE/VS-00I 覆盖），T4/T5 状态不变。
+- 残余：确定性前缀校验未接入生产；T3 原 prompt 前缀稳定性快照对比未单独新增（既有 I-CACHE/VS-00I 覆盖）；T4 状态不变，T5 已于 2026-11-13 移除。
 
 ### 阻塞记录（2026-10-31）
 
 - **T4 页面**：`agentic-loop-quality-deviation-replan` 复跑一次，事件链已到 `run_completed` 且存在最终 turn_result，但 driver 未写出 ui-state、verifier 未 PASS；未定位到产品错误（事件/预算正常），按同因预算停止，登记 driver/evidence reanchor。D2 流程不消费 `revision_prompt`，需另找真正消费入口。
-- **T5 provenance**：需要 schema/迁移或明确的 known-gap 裁决：
-  - A（推荐）新增 per-description provenance/hash 并持久化；
-  - B 仅运行时 arguments 整体哈希落 trace，不改表；
-  - C 登记 known-gap。
+- **T5 provenance**：**removed（2026-11-13 作者决定）**——计划面板步骤描述不需要 provenance/测试；A/B/C 选项作废，历史保留。
 - **T3**：完成前缀只靠 prompt+cursor，无确定性校验；需补规划器测试/必要时机械合并，不恢复 revised_tail。
 - 未裁决/未定位前不改 schema、不重复盲跑、不宣称页面 PASS。
 
