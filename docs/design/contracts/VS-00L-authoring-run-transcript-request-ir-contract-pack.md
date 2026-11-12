@@ -2,6 +2,7 @@
 
 > 状态：**Frozen（2026-10-31，B71 CP1；ADR-0033 Accepted 目标方向的替换契约）**。本 pack 只冻结目标契约与迁移映射，不授权产品代码/schema/provider 实现。CP1 已由作者复核通过（2026-10-31）：ADR-0030/0031 已转 Superseded，原则由 ADR-0033 §3 承接，实现迁移进行中（B71 CP2–CP4）。**2026-11-04 R1 请求边界重构已实现（已提交并通过确定性门禁，2026-11-04/05，见 §19.1/§19.2 与 §17 表末行）；Frozen 契约内容未变，实施状态以 B71 原任务为准。**
 > **2026-11-08 ADR-0035 批准（作者）**：本 pack 保持 Frozen 判据不变；按 ADR-0035 补充 §16.1/§16.6/§16.12/§16.16/§17/§18 的落地说明——canonical authoring transcript 作用域=会话（跨 turn），AgentRun 为执行段；压缩作用域=会话历史。实施待承重 slice，未实现前不代签。
+> **2026-11-12 实施状态复核（Frozen 判据不变）**：B71 机制层（R1 请求边界、R2 三 wire 流式）与 G1/G2/G4/G6 证据、B81 CP1–CP6（会话级 canonical 上下文，done 2026-11-11）均已完成；本 pack 只保留契约与阶段结论，实施状态维护在 [B71](../../../tasks/slices/B71-provider-message-fidelity.md)/[B81](../../../tasks/slices/B81-session-canonical-authoring-history.md)/[B82](../../../tasks/slices/B82-b71-golden-slice-evidence.md) 原任务。
 > 上游：[ADR-0033](../adr/ADR-0033-authoring-run-transcript-request-ir-v3.md)、[Provider 抽象 §26](../foundation/08-provider-abstraction.md#26-ai-novel-studio-原生多轮创作请求体2026-10-30-目标设计2026-10-31-作者选-a方向-accepted)、[00 §2.2–§2.4](../00-vision-and-engineering-roadmap.md)。
 > 承接与对账：`VS-00K`、`UA-01`、`VS-00I`、`VS-00H`、`VS-02`、`VS-02A`、`VS-04`、`VS-06`、ADR-0030/0031。
 > 执行与验收：[B71 CP1–CP5](../../../tasks/slices/B71-provider-message-fidelity.md)。
@@ -114,13 +115,10 @@ AuthoringRequestIR v1 = {
   tools: [ToolSchema...],             // run 角色最小完整目录
   projection: {
     tool_choice: nil | "auto" | "none" | "required" | ToolName,
-    cache_hints: [...],               // 仅优化，不改变顺序/语义
-    reasoning_options: {...},
     usage_streaming: boolean,
     finite_mode: nil | FiniteMode
   },
-  refs: { base_refs: [...], observation_refs: [...], used_refs: [...] },
-  provider_session: nil | {...}       // provider 私有回放数据，不入事实源
+  refs: { base_refs: [...], observation_refs: [...], used_refs: [...] }
 }
 ```
 
@@ -128,7 +126,8 @@ AuthoringRequestIR v1 = {
 
 - `ir_version` 采用 major/minor：major 变更需 ADR 与 projection matrix 更新；minor 只能 additive。
 - 字段增删必须同步 §6 投影矩阵、§7 黄金请求与迁移映射；不得只改 IR 不改投影。
-- provider 私有字段只允许出现在 `provider_session` / `projection` 或 assistant 消息的 opaque `provider_state`；后者绑定来源 provider/model，只供同源 adapter 回投，不进入作品事实、ProviderOutput/作者事件或 Why 文案。默认及跨 Provider/model 投影不输出这些私有字段。
+- **2026-11-12 字段收口（未发布、不保留预留字段）**：早期目标字段 `projection.cache_hints` / `projection.reasoning_options` 落地时未实现（全仓零消费者），`provider_session` 已由 B71 删除（provider 私有回放只经 assistant 消息 opaque `provider_state`），三者从冻结结构移除；需要时按 minor/additive 规则重新提交契约 + 投影 + 黄金请求。
+- provider 私有字段只允许出现在 assistant 消息的 opaque `provider_state`（或 `projection` 中显式声明的传输选项）；`provider_state` 绑定来源 provider/model，只供同源 adapter 回投，不进入作品事实、ProviderOutput/作者事件或 Why 文案。默认及跨 Provider/model 投影不输出这些私有字段。
 - `RunEnvelope` 只保存运行身份与目标快照（run_id/work_id/workspace_id/session_id/parent_turn_ref/profile_ref/goal）；运行进程、策略 struct、执行函数与热状态不进入 IR。统一构造边界解析一次，保证 durable JSON 可恢复。
 - legacy 输入（旧 giant prompt 组装结果）可在 CP2 迁移期经 `legacy_adapter` 转成 v1 IR；`legacy_adapter` 必须有显式标记并在 CP4 前退役（§8）。
 
@@ -157,7 +156,7 @@ AuthoringRequestIR v1 = {
 | assistant + tool_calls | `assistant.tool_calls[]`（`id`=call_id, `function.name/arguments`） |
 | tool result | `role=tool` + `tool_call_id` |
 | checkpoint | `role=user`/`role=assistant` 的显式压缩块，带 covers/refs/omissions（若 provider 无专用位，按声明格式） |
-| 推理回放 | DeepSeek 仅按原生要求回放 `reasoning_content`（provider_session） |
+| 推理回放 | DeepSeek 仅按原生要求回放 `reasoning_content`（assistant 消息 opaque `provider_state`） |
 
 ### 6.2 Anthropic Messages
 
@@ -178,7 +177,7 @@ AuthoringRequestIR v1 = {
 |---|---|
 | input | 完整 input items（message/function_call/function_call_output） |
 | tools | 原生工具项 |
-| reasoning | 推理句柄（provider_session），不得成为 replay 唯一来源 |
+| reasoning | 推理句柄（opaque `provider_state`），不得成为 replay 唯一来源 |
 | `previous_response_id` | 仅优化；项目 trace/replay 仍由 run 事实重建 |
 
 ### 6.4 能力门槛与显式有限模式
@@ -381,6 +380,8 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 - canonical 消息永久追加保留。`checkpoint` 是独立压缩事件，Provider 投影按必填的 `covers.call_ids` 精确替代已完成的 assistant/tool 交换。会话压缩计划从作者回合归属派生 `turn_range`，用于说明覆盖范围。仅有 `turn_range` 的 checkpoint 无法进入 canonical IR。禁止部分选择同一 assistant 的并行调用、重复覆盖、覆盖未知或未完成调用。稳定 Base、作者原话、当前 scope 和未覆盖消息保持原序。选中观察的 refs/version 必须与 checkpoint 一致，摘要不得冒充未读或已采纳事实。
 - 三种 Provider 投影必须对同一 canonical checkpoint 给出一致语义；恢复后再次投影保持幂等，不重复插入 checkpoint。长会话的原始 artifact 字节、来源和真实版本仍由 canonical trace/refs 支撑，不依赖 provider 服务端历史。
 
+- **2026-11-11 变更记录（判据不变，Frozen 下登记）**：本节「仅有 `turn_range` 的 checkpoint 无法进入 canonical IR」的判定由 B81 CP3/CP4 落地为 `RequestIR.Compaction.require_call_ids/1` 与三类投影的折叠校验（提交 `473e1339`）；依据是 ADR-0035 §Contract 影响的「补齐覆盖 turn 范围落地」授权，原文语义（显式压缩、原文不删不改、covers/refs/versions/omissions/summary 完整）不变。
+
 ### 16.3 旧协议与 replay/Why
 
 - creative/quality 只有一条原生 Request IR 主链。旧独立 JSON prompt、字符串纠错和重复实现删除；仅为历史调用保留的 `generate/evaluate` 兼容外观也在消费者迁移后删除（2026-11-04 作者确认，见 §19）。仍服务现役业务的调用先直接迁入统一入口，不能删功能来伪造退役。JSON 内容仅可作为显式有限模式的 Provider 响应解析，不再构造第二条请求协议。
@@ -426,6 +427,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 
 ### 16.8 私有历史存储、提交与回查身份（CP4b 后续实施契约）
 
+- **2026-11-08 ADR-0035 落地说明（判据不变；2026-11-12 复核）**：私有历史作用域按 ADR-0035 调整为**会话**——`authoring_session_messages`（会话消息流）+ `authoring_run_segments`（run 执行段头），`NovelPersistence.AuthoringSessionLog` 为唯一存储边界，`AgentRunLog.commit_snapshot/2` 单事务追加；`agent_runs.authoring_transcript` 私有列按未发布原则退役（零残留）。durable 执行 checkpoint v3 只存 `authoring_segment_ref`，引用同一事务提交的会话段；坏段/未知版本/身份错绑一律 fail-closed，不回退旧内嵌副本。本节其余事务/发布/回查身份判据不变；实施由 B81 CP1–CP6 承接（done，见 B81 §12）。
 - bounded 与 durable 共用 `agent_runs.authoring_transcript` 私有 nullable JSON 列，保存现有 `authoring-transcript/v1` 完整 canonical checkpoint。未产生会话时为空；已存在的历史不得因不含新 transcript 的状态更新被清空。新写入必须校验完整不可变身份（run/work/workspace/session/parent turn）及旧消息的完整前缀；goal/profile 等可变 scope 不作为不可变身份。该列不进入 Domain AgentRun、公开 JSON Schema、TurnResult、事件或 HTTP DTO。
 - durable 执行 checkpoint 升为 v3，只存 `authoring_transcript_ref`（run_id 与 transcript 格式版本），引用同一事务中保存的 run 私有历史，不再复制 canonical。旧 v2 内嵌历史仅允许只读兼容：必须通过身份和格式校验，缺少可验证身份时报告 partial，不能补造来源。新私有字段损坏或新引用错绑时不得回退到旧副本掩盖错误。保留完整原消息提供历史回查；此处不引入第二套按步骤历史台账。
 - run、step、非流式事件及 durable checkpoint 使用同一持久化提交操作；问题/答复事务复用该操作。显式压缩对两种 run 都必须先提交再确认，任一写入失败则回滚且内存历史不推进。结果 Interaction/DecisionTrace 与本步运行事实也须处于同一结果提交边界，成功后才广播作者结果；实际 Provider 消耗和收到的历史在失败内存状态中保留，不能因为交付失败退回执行前计数。流式进度通知不冒充已提交的结果。
@@ -545,7 +547,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 | **R1 请求边界与原生输入迁移（2026-11-04）** | **已实现（R1，已提交并通过确定性门禁）**：`RequestIR.prepare_request/2` 选本次工具与 tool_choice；Gateway 按实际 route 单次解析并派生能力；Chat/Anthropic/Responses 三类 adapter 直接消费原生投影；测试替身移出生产注册表；初始快照按 §19.2 构造。**剩余未闭环**：R1 独立验证与 R1 后全量门禁/I1–I3、真实 route/原生 body 回归、I-CACHE 独立输入、Responses SSE（R2）、G6/真实页面/实模、CP5。三个直接文本消费者已完成 IR 迁移（见 §16.6/§19.1）。**2026-11-04/05 确定性门禁已通过**：后端全量 3085/0、credo no issues、xref 无环、arch 通过、I1 4/4、I2 3 pairs/0 violations、I3 3/3、N-NARR、I-CACHE 4/4、前端 486 tests；未代签真实模型/真实页面/Responses SSE/G6/CP5 |
 | **2026-11-08 审核轮：clean 度、门禁真实性与契约执行边界修复** | **已实现（本轮提交）**：① 门禁真实性——`SSEStream.Result` 逐字重复 `materialize/1`（95 行）使干净编译 `--warnings-as-errors` 失败；增量编译跳过该文件造成 2026-11-07「mix check EXIT=0」假绿，已如实更正并把 `mix check` 首步改为强制全量编译；② 契约——`standalone_operation` 运行恢复受限不再写入传输有限模式持久事实（`IR.projection.finite_mode`/`ProviderRun.metadata.finite_mode`）；Chat 流式请求声明 `stream_options.include_usage`（OpenAI 官方语义，usage 才能回收）；Provider behaviour 收敛为唯一 `execute/5` 执行入口（删除 `complete/4` callback 与不可达 final-only 兜底）；删除无消费者 Gateway 诊断 API/`AdapterExecution.non_stream_timeout/2`/`TimeoutPolicy.local?/profile`/`CapabilityProfile.complete?/1`/测试专用 `AuthoringTranscript.append_checkpoint/6`；③ 架构——私有历史 checkpoint v2/unversioned/legacy 只读链退役（未发布原则；未知版本诚实拒绝）；error3 增量与 flow state 形状按 runtime 契约收紧（flow state canonical=`stage_state.judgment_transcript`；error3 第三元素=stage_state 增量顶层键），删除跨形状兼容读取与不一致兜底；前端生产代码与作者可见名不再认知测试替身（统一 fallback「当前模型服务」，代码生成双端同步）；`AuthorProseStream` 正确解码 `\uXXXX`；`ResponsesDecoder` 参数累积键与 item 身份同源；④ 测试资产——R2 预览 verifier 改真实 turn_result/流式增量判据并补负例、system 规则/版本测试、重编号采纳账面重算回归；⑤ 按作者要求测试/验收入口统一运行时前置（`scripts/lib/test_env.sh`）。**未代签**：真实模型行为、实模 usage 回收、真实页面证据与 I10 |
 | **依赖图下沉与测试 helper 迁移（2026-11-06 裁决 4 C；2026-11-07 作者 A1 定稿）** | **已实现（已提交并通过确定性门禁）**：`RequestIR`/`Tools`/`SystemEnvelope`/`Compaction`/`Operation`/`SystemIdentity`/`Projection`（+`ChatCompletions`/`AnthropicMessages`/`ResponsesAPI`）/`CapabilityProfile` 全部下沉 `novel_common`（`NovelCommon.*`；A1 按原计划恢复统一归属，执行边界只保留实际路由选择、传输发送与运行时监督）；`RequestIR.rejection_message/1` 回迁 canonical IR；`novel_test` 去 `novel_agent` 依赖并承载 `NovelTest.TestRequestIR`/`TestProviderPrompt`；`arch_check` 新增 common/test 边界与跨 app test-support 白名单。wire 与持久化字节未改变；实模、页面与 CP5 不代签 |
-| **会话级 canonical 上下文（ADR-0035，2026-11-08 作者批准）** | **CP1 已实现（2026-11-08）**：canonical 作用域=会话（跨 turn）、run 为执行段；会话级消息流（`authoring_session_messages`）+ run 执行段头（`authoring_run_segments`）两表，`NovelPersistence.AuthoringSessionLog` 为唯一存储边界，`AgentRunLog.commit_snapshot/2` 单事务追加（`mode: :immediate`）；恢复/回查/durable 段引用迁移到 `authoring_segment_ref`；run 级私有 `authoring_transcript` 列按未发布原则退役；格式版本 `authoring-session-message/v1` / `authoring-run-segment/v1`。**CP2 请求派生、CP3 压缩作用域、CP4 投影审计、CP5 页面+G6、CP6 旧材料退役未实现，不代签**；G6→B81 CP5；G2/G3/G5 与 Responses/Anthropic 实模→B82；CP5 收口→B71（依赖前两者）。实现目标映射见 B81 §7.4、CP1 实施设计见 B81 §8.1。**2026-11-09 证据更新**：CP1 行为不变的页面层证据已补（native 真实页面批次 19/19 PASS，B81 §8.1.6）；B71 验收证据工具链已适配会话级 canonical（不再读退役 run 私有列），全仓旧列读取残留清零；CP3/CP4/CP6 开工设计要点见 B81 §8.5，CP2 设计见 §8.4（均未实现、待裁决） |
+| **会话级 canonical 上下文（ADR-0035，2026-11-08 作者批准；2026-11-11 复核完成）** | **CP1–CP6 全部完成**（B81 done，分项见 B81 §7，实模页面/门禁证据见 B81 §12）：canonical 作用域=会话（跨 turn）、run 为执行段；`authoring_session_messages` + `authoring_run_segments` 两表，`NovelPersistence.AuthoringSessionLog` 为唯一存储边界，`AgentRunLog.commit_snapshot/2` 单事务追加（`mode: :immediate`）；恢复/回查/durable 段引用为 `authoring_segment_ref`；run 级 `agent_runs.authoring_transcript` 列已按未发布原则退役且零残留；格式版本 `authoring-session-message/v1` / `authoring-run-segment/v1`。CP2 请求派生、CP3 压缩/自动维护、CP4 投影与审计回查、CP5 真实页面+G6、CP6 旧材料退役均已实现；G6 证据见 B81 §12；G2/G3/G5 与 Responses/Anthropic 实模归 B82；CP5 最终收口与 I10 归 B71/原验收任务。实现目标映射见 B81 §7.4，CP1 实施设计见 B81 §8.1。 |
 
 ## 18. 变更记录（Accepted，2026-11-04）：显式压缩的自动维护触发（提案 2026-11-03）
 

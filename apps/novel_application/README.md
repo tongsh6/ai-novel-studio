@@ -45,13 +45,15 @@ be found at <https://hexdocs.pm/novel_application>.
 - [adoption_boundary.ex](lib/novel_application/adoption_boundary.ex)：gate 顺序加入 contract→canon_freshness（先于 legacy 自报冲突/overwrite/高风险确认）；stale/conflict/missing/unavailable → `fail_with_recovery` 零写入。
 - [集成测试](test/novel_application/b47_canon_freshness_adoption_test.exs)：stale/冲突零写入、TOCTOU 事务重 gate、重放幂等、覆盖确认重 gate、legacy 候选不误判；切片 `tasks/slices/B47-canon-freshness-and-conflict-detection.md` §8。
 
-## B71 私有 canonical 恢复（VS-00L §16.8）
+## B81 会话级 canonical 历史：请求派生、恢复与回查（ADR-0035 / VS-00L §16.8）
 
-- [authoring_checkpoint.ex](lib/novel_application/authoring_checkpoint.ex)：v3 `authoring_transcript_ref` 与 v2 内嵌副本的统一选择/身份校验；损坏/错绑不回退旧副本，v2 缺身份如实 partial；有数据但缺版本按未知格式拒绝。
+- [authoring_session_history.ex](lib/novel_application/authoring_session_history.ex)：每轮请求的会话历史组装边界（`fetch/1` 只在外 run 行存在时返回历史；`compose/2` 顺序 = application base 最前 → 会话已提交原序 → 本 run 段尾部；外 run 归属临时标记只属于请求视图）。
+- [authoring_transcript.ex](lib/novel_application/authoring_transcript.ex)：canonical transcript 结构 codec 与组装操作（消息/工具调用/观察/校验/候选/checkpoint 合并；`checkpoint_version/0` 为 transcript 结构版本）。
+- [authoring_checkpoint.ex](lib/novel_application/authoring_checkpoint.ex)：会话段读写边界——`encode_segment_for_write/2`（JSON 真实形状 + 完整 IR 可回读 + 不可变身份校验）、`restore/2`（会话视图完整 IR 校验，段+历史 compose）、`append_checkpoint/2`（B81 CP3 跨 run 压缩）、`authoring_segment_ref` 引用；损坏/错绑/未知版本 fail-closed，不回退旧内嵌副本。
 - [agent_run_history.ex](lib/novel_application/agent_run_history.ex)：work/session/turn 持久 run 身份的唯一解析边界；显式绑定、legacy parent/step、批量 row scope 与 scoped 批量读；显式畸形值 fail closed。
 - [agent_event_publisher.ex](lib/novel_application/agent_event_publisher.ex)：按真实 work/session 作用域统一发布 AgentRun 事件；Channel join 订阅一次，Registry 随进程退出清理。运行 owner 不持有窗口回调或 subscriber monitor，重连只恢复事实。
 - [agent_run_event_query.ex](lib/novel_application/agent_run_event_query.ex)：历史 `agent_events_since` 补拉的只读应用边界；按持久 run 校验 work/session 归属（含 dead run），返回 since 之后的作者可见事件语义 DTO，Web 只做 wire 序列化；scope/since 信任 Web 归一输入，应用内不重复校验，只校验真实外部 run_id 与持久归属。
-- [authoring_replay.ex](lib/novel_application/authoring_replay.ex)：消费统一 run 解析，严格校验 task header/run/work/parent 后读取 v3 或正确 v2 canonical；缺版本/错绑不补造。
+- [authoring_replay.ex](lib/novel_application/authoring_replay.ex)：消费统一 run 解析，严格校验 task header/run/work/parent 后读取会话段 canonical（`fetch/3`）或会话级作者安全摘要（`fetch_session/2`，B81 CP4）；缺版本/错绑不补造，会话级摘要不暴露 run/turn/call/ref 内部标识。
 - [agent_run_server.ex](lib/novel_application/agent_run_server.ex)：状态机、received/staged 转换与提交后发布；结果/问题/状态/压缩统一走 `AgentRunPersistence`，不再自带序列化与 durable task 写入细节。
 - [agent_run_persistence.ex](lib/novel_application/agent_run_persistence.ex)：AgentRun snapshot 的唯一投影/写入请求边界；run/step/author-safe event、私有 checkpoint 编码调用与 durable task header/progress/step 投影，定义 delivery/status/compaction/question 四种事件语义；checkpoint_version 的唯一所属点。
 - [agent_run_startup.ex](lib/novel_application/agent_run_startup.ex)：B71 启动事实的单一生产点（VS-00L §16.14）；初始 run、`run_started` 事件、事件游标与空 stage_state 只构造一次，受理事务与执行 owner 共用同一份数据单元，普通启动/作者动作受理/已提交确认子 run 不再各自生成启动事件。
@@ -72,7 +74,7 @@ be found at <https://hexdocs.pm/novel_application>.
 - [agent_event_subscription_test.exs](test/novel_application/agent_event_subscription_test.exs)：验证作品/会话订阅隔离、work-wide 观察与订阅进程退出清理。
 - [agent_run_subscription_lifecycle_test.exs](test/novel_application/agent_run_subscription_lifecycle_test.exs)：验证观察者退出不影响实际执行任务和已提交结果；不依赖已退役的事件回调接口。
 - [agent_run_event_query_test.exs](test/novel_application/agent_run_event_query_test.exs)：7 项只读边界回归（since/author-only、dead run、跨 work/session 拒绝、nil session 语义、缺失/空 run_id 拒绝）；scope/since 由 Web 归一，应用内信任。
-- [authoring_checkpoint_test.exs](test/novel_application/authoring_checkpoint_test.exs)：私有列/v3 引用/旧 v2/缺版本选择边界。
+- [authoring_checkpoint_test.exs](test/novel_application/authoring_checkpoint_test.exs)：会话段读写/恢复/身份/版本/引用边界与不可回读拒绝；[authoring_session_history_test.exs](test/novel_application/authoring_session_history_test.exs)、[b81_cp2_session_derivation_test.exs](test/novel_application/b81_cp2_session_derivation_test.exs)、[b81_cp3_session_compaction_test.exs](test/novel_application/b81_cp3_session_compaction_test.exs)、[b81_cp4_session_replay_test.exs](test/novel_application/b81_cp4_session_replay_test.exs)：会话历史组装、请求派生、跨 run 压缩、会话回查与三类投影等价。
 - [agent_run_result_commit_test.exs](test/novel_application/agent_run_result_commit_test.exs)：结果提交/发布时序、失败与取消事实保留、原文去重及替换回滚回归。
 - [共享测试生命周期支持](test/support/README.md)：application 与 web 共用的 AgentRun 测试收尾，Sandbox owner 由各测试模块自行管理。
 - [authoring_execution_refs_test.exs](test/novel_application/authoring_execution_refs_test.exs)：assistant 执行引用经 checkpoint/真实写入边界的 JSON 恢复；旧 v1 不回填、非法引用拒绝、三投影字节等价（VS-00L §16.9）。

@@ -52,7 +52,7 @@
 | `workspaces` | 旧 UI workspace 表 | 仅保留 legacy 非 UUID `workspace_id` fallback；正式 work/session 主链使用 VS-09 `works.id` |
 | `interactions` | turn 级 user/assistant 日志 | 已实现；可作为 transcript 底层材料 |
 | `WorkspaceContext.context_fetcher/0` / `context_fetcher_with_query/0` | 真实 persistence context fetcher | 返回最新 Work snapshot、会话 summary、memory summary、章节结构和最新 active behavior summary；active session 按 `session_id` 取最近 transcript，默认排除 archived session；已测试 latest-turn-cleared 和 archived session 不复活旧等待态 |
-| `ContextAssembler` | 组装 DialogueContext | 已有 `safe_fetch` 降级为空上下文，支持 `current_work` / `session_transcript` / `memory` / `behavior` context refs 和 author-safe summary |
+| `ContextAssembler` | 组装 DialogueContext | 已有 `safe_fetch` 降级为空上下文，支持 `current_work` / `conversation` / `memory` / `behavior` context refs 和 author-safe summary（旧 `session_transcript` 材料类型已按 ADR-0035/B81 CP6 退役，会话历史改由 canonical 消息承载） |
 | `DialogueContext.to_prompt_text/1` | 把上下文写入 LLM prompt | 有单测覆盖非空段落和当前待处理动作段落 |
 | `TraceWriter` / `TraceSummaryView` | 记录和展示 context_refs | 已记录 author-safe context refs；`au03-context-source-ui` 证明 why 面板可展示 current work / session or recent dialogue / memory，并排除 raw prompt/provider debug |
 | 会话 Session / Conversation 表 | 作品内多会话、会话状态、归档、搜索 | 已补 `WorkSession`、resume/show/search/create/archive API 和工作台 UI；`au03-session-history-readonly`、`au03-session-new-active`、`au03-branch-from-history`、`au03-archive-session-filter` 已接当前可复跑入口；仍缺搜索命中 turn 定位/高亮、显式引用 archived source 和完整 replay 页面 |

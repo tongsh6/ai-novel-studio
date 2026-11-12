@@ -91,12 +91,10 @@ novel_agent / novel_application / novel_persistence / novel_web → novel_common
 
 ### 可观测性协议
 
-- [log_context.ex](lib/novel_common/log_context.ex)：Logger metadata 与跨进程传递协议
-  （ADR-0018 §2）。
-- [log_emit.ex](lib/novel_common/log_emit.ex)：结构化业务日志 emit 宏与 phase 校验
-  （ADR-0018 §3）。
-- [llm_log.ex](lib/novel_common/llm_log.ex)：LLM HTTP 调用 JSONL 日志。
-- [log_file_date.ex](lib/novel_common/log_file_date.ex)：日志文件名使用的本地日历日。
+日志/可观测性运行时（`LogContext`/`LogEmit`/`LLMLog`/`LogFileDate`）已按
+[ADR-0034](../../docs/design/adr/ADR-0034-observability-runtime-app-v3.md) 迁往
+`novel_telemetry`：本层不再包含日志运行时、文件 I/O 或异步写出；见
+[novel_telemetry/README.md](../novel_telemetry/README.md)。
 - [novel_common.ex](lib/novel_common.ex)：本 app 模块入口与定位说明。
 
 ## test 索引

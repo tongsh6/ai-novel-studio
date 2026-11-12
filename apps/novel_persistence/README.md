@@ -44,12 +44,15 @@ be found at <https://hexdocs.pm/novel_persistence>.
 - [adoption_repository.ex](lib/novel_persistence/adoption_repository.ex)：B47 只读 `canon_snapshot/2`——章正文版本/format digest 复用 `accepted_chapter_scopes/2`，角色 fingerprint 复用 `character_profile_context/2`（与采纳事务重校验同源）；不建表、不写模型，错误面 `target_missing|target_ambiguous|cross_work_scope|unsupported_canon_object`。
 - [读取测试](test/novel_persistence/b47_canon_freshness_read_test.exs)：章/角色快照、缺失/歧义/跨作品错误面；实现切片 `tasks/slices/B47-canon-freshness-and-conflict-detection.md` §7。
 
-## B71 私有 canonical 历史（VS-00L §16.8）
+## B81 会话级 canonical 创作历史（ADR-0035 / VS-00L §16.8）
 
-- [agent_run_record.ex](lib/novel_persistence/schemas/agent_run_record.ex)：`agent_runs.authoring_transcript` nullable map；写边界拒绝清空、身份错绑与旧消息截断/覆写，同值/追加/纯状态更新允许。
-- [migration 20261102000001](priv/repo/migrations/20261102000001_add_authoring_transcript_to_agent_runs.exs)：只新增私有列，不进入公开 schema/DTO。
-- [agent_run_log.ex](lib/novel_persistence/agent_run_log.ex)：`commit_snapshot/2` 同一事务提交 run/step/event/durable checkpoint；事件插入错误回滚。
-- [agent_run_authoring_transcript_test.exs](test/novel_persistence/agent_run_authoring_transcript_test.exs)：私有列身份/前缀/清空边界与跨表回滚回归。
+- [authoring_session_log.ex](lib/novel_persistence/authoring_session_log.ex)：唯一会话 canonical 存储边界——消息流 + run 执行段头；事务内读快照、追加（`run_sequence`/会话 `sequence` 接续）、前缀不可变校验、坏段/未知版本 fail-closed；`segment_format_version/0`、`task_checkpoint_version/0`、`header_data_keys/0` 为存储格式契约的单一来源。
+- [schemas/authoring_session_message.ex](lib/novel_persistence/schemas/authoring_session_message.ex)：会话消息行（append-only；`session_id`+`sequence` 与 `run_id`+`run_sequence` 双唯一）。
+- [schemas/authoring_run_segment.ex](lib/novel_persistence/schemas/authoring_run_segment.ex)：run 执行段头（身份五元组、格式版本、header data 键契约、消息数/首尾序号）。
+- [migration 20261108000001](priv/repo/migrations/20261108000001_create_authoring_session_canonical.exs)：新建会话级 canonical 两表；旧 `agent_runs.authoring_transcript` 列按未发布原则退役（不迁移旧数据、零残留）。
+- [agent_run_record.ex](lib/novel_persistence/schemas/agent_run_record.ex)：run 行只保留执行身份/状态，不再持有 canonical 历史列。
+- [agent_run_log.ex](lib/novel_persistence/agent_run_log.ex)：`commit_snapshot/2` 同一事务提交 run/step/event/durable checkpoint/会话 canonical 段；写锁内按实际提交历史再校验，任一失败整笔回滚。
+- [agent_run_authoring_transcript_test.exs](test/novel_persistence/agent_run_authoring_transcript_test.exs)：会话级前缀/身份/事务原子/段引用 fail-closed 回归；[authoring_session_log_test.exs](test/novel_persistence/authoring_session_log_test.exs)：跨 run 顺序、并发、幂等、未知版本、前缀冲突。
 
 ## B71 作者动作原子受理存储（VS-00L §16.10）
 

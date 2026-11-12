@@ -40,7 +40,7 @@
 ### Umbrella 依赖方向（编译期强制，违反即编译失败）
 
 ```
-novel_web → {novel_application, novel_telemetry}
+novel_web → {novel_application, novel_common, novel_domain, novel_foundation, novel_telemetry}
 novel_application → {novel_agent, novel_domain, novel_persistence, novel_common, novel_foundation, novel_telemetry}
 novel_agent → {novel_common, novel_foundation, novel_telemetry}
 novel_persistence → {novel_domain, novel_common, novel_foundation, novel_telemetry}
@@ -48,6 +48,8 @@ novel_domain → novel_foundation
 novel_common → novel_foundation
 novel_telemetry → novel_foundation
 
+# novel_web 只消费 novel_common 纯契约与 domain/foundation 纯值类型（AgentEvent、
+# AuthorActionInput/BehaviorState/VolumeScope、ID）；不引用 persistence/agent 内部。
 # 测试支撑（仅 :test 环境，不进生产 release）
 novel_agent / novel_application / novel_web / novel_e2e ──(only: :test)──> novel_test → novel_common
 ```

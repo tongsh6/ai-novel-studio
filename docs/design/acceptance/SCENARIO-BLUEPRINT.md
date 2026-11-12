@@ -165,7 +165,7 @@ ID:
 | SC-SU02-B5 | 删除或移出作品 | 已补：对当前作品执行二次确认后的安全废弃/移出；删除当前作品后切到另一个真实 Work 或新建未命名 Work；reload 恢复不再打开已移出的 Work；恢复/归档入口和异常矩阵仍待补 |
 | SC-AU11-01 | AI 引导质量诊断 | 已补：`au11-quality-diagnosis-message-envelope` 证明输入“这一章不够爽，主角赢得太轻了”后 trace/why 可重建三层 message，assistant 给出具体取舍且 no tool/adoption/write |
 | SC-AU11-02 | 缺上下文不编造 | 已补：`au11-missing-workstate-policy` 证明真实工作台空白作品下输入“帮我看看这一章哪里不成立”后，WorkState 显式记录 chapter/prose/character missing，assistant 要求补材料且不声称已读该章，why 显示 missing，no tool/adoption/write |
-| SC-AU09-D3 | 会话与记忆来源分层 | 已补：`au09-au03-session-memory-layering` 证明同一作品 active/historical session + confirmed memory 分层，下一轮 context/why 区分 current work、session_transcript 与 governed memory |
+| SC-AU09-D3 | 会话与记忆来源分层 | 已补：`au09-au03-session-memory-layering` 证明同一作品 active/historical session + confirmed memory 分层，下一轮 context/why 区分 current work、canonical 会话历史与 governed memory |
 | SC-AU01-01 | 普通聊天真实工作台闭环 | 已补：真实 Tauri 工作台两轮普通聊天，收到自然回复，thinking 清退，不出现执行/候选/采纳卡；`--real-lmstudio` 证明真实 provider 两轮请求 |
 | SC-AU01-B3 | 空消息不会发送 | 已补：真实 Tauri 工作台空白输入点击发送，不产生 websocket `user_message`，不追加可见消息，不进入 thinking；随后有效普通聊天完成 |
 | SC-AU04-A1 | 高风险执行先确认 | 已补：`au04-confirm-before-execute` 证明真实工作台高风险重写先确认，确认前无工具/无写入，确认后重新 gate 并产出待采纳草稿 |
