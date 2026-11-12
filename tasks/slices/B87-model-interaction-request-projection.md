@@ -1,6 +1,7 @@
 # AI Novel Studio — Issue #4 系统重构：单会话可闭环执行批次（方案）
 
-> **状态：todo（仅登记实施方案；R00–R09 尚未执行）。**
+**状态**：**todo（仅登记实施方案；R00–R10 尚未执行）**。
+
 > **任务状态唯一真源：本文件。** 关联 [Issue #4](https://github.com/tongsh6/ai-novel-studio/issues/4)；[单会话总契约](B87-model-interaction-request-projection/README.md) 与 R00–R10 独立任务卡只承载执行指令，不在卡片中重复维护任务状态或作者裁决。更新进度时只修改本文件对应 Rxx 小节，`tasks/NEXT.md` 只维护排期。当前 B81 仍是队首，本任务未启动。
 > 任务卡：[R00](B87-model-interaction-request-projection/R00.md) · [R01](B87-model-interaction-request-projection/R01.md) · [R02](B87-model-interaction-request-projection/R02.md) · [R03](B87-model-interaction-request-projection/R03.md) · [R04](B87-model-interaction-request-projection/R04.md) · [R05](B87-model-interaction-request-projection/R05.md) · [R06](B87-model-interaction-request-projection/R06.md) · [R07](B87-model-interaction-request-projection/R07.md) · [R08](B87-model-interaction-request-projection/R08.md) · [R09](B87-model-interaction-request-projection/R09.md) · [R10](B87-model-interaction-request-projection/R10.md)
 
