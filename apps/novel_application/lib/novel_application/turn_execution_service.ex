@@ -88,8 +88,7 @@ defmodule NovelApplication.TurnExecutionService do
           optional(:planning_mission) => map() | nil,
           optional(:volume_scope) => map() | nil,
           optional(:agent_run) => map(),
-          optional(:request_ir) => map() | nil,
-          optional(:authoring_transcript) => AuthoringTranscript.t() | nil
+          optional(:request_ir) => map() | nil
         }
 
   @spec execute(execution_input()) ::
@@ -516,16 +515,14 @@ defmodule NovelApplication.TurnExecutionService do
     }
   end
 
-  # 已有 IR 时只能由 IR 派生；损坏的 IR 由 AuthoringSession 显式拒绝，不能伪装成缺
-  # 席再回退旧 authoring_transcript。只有真正没有 IR 的会话才保留旧快照回退。
+  # 已有 IR 时只能由 IR 派生；损坏的 IR 由 AuthoringSession 显式拒绝，不能伪装成缺席
+  # 再回退旧快照。B81 CP1 退役 run 级私有列后生产已无 `:authoring_transcript` 写入者，
+  # 无 IR 的会话（含 blocked_result 的普通 turn input）按「无历史」处理。
   defp canonical_transcript(%{request_ir: ir} = session) when not is_nil(ir) do
     session
     |> AuthoringSession.provider_metadata()
     |> Map.fetch!(:judgment_transcript)
   end
-
-  defp canonical_transcript(session) when is_map(session),
-    do: Map.get(session, :authoring_transcript)
 
   defp canonical_transcript(_session), do: nil
 

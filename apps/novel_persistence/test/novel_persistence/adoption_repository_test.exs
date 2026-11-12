@@ -12,13 +12,13 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
   alias NovelFoundation.Enums.StructureStatus
   alias NovelFoundation.Enums.VolumeBlueprintStatus
   alias NovelPersistence.AdoptionRepository
-  alias NovelPersistence.MutationLog
   alias NovelPersistence.ReadingProjectionRepo
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.Chapter
   alias NovelPersistence.Schemas.Character
   alias NovelPersistence.Schemas.Draft
   alias NovelPersistence.Schemas.MemoryItem
+  alias NovelPersistence.Schemas.Mutation
   alias NovelPersistence.Schemas.Scene
   alias NovelPersistence.Schemas.Volume
 
@@ -43,7 +43,7 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert persisted.source_revision_ref == "mutation:#{persisted.mutation_id}"
       assert persisted.reading_projection == nil
 
-      assert [mutation] = MutationLog.list_by_turn("turn-adopt-source")
+      assert [mutation] = mutations_for_turn("turn-adopt-source")
       assert mutation.id == persisted.mutation_id
       assert mutation.mutation_type == "adopt_artifact"
       assert mutation.target_object_ref == "as-adopt-1"
@@ -423,7 +423,7 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert updated.planned_volumes == nil
       assert updated.serial_form == nil
 
-      assert [mutation] = MutationLog.list_by_turn("turn-skeleton-adopt")
+      assert [mutation] = mutations_for_turn("turn-skeleton-adopt")
       assert mutation.mutation_type == "adopt_artifact"
     end
 
@@ -503,7 +503,7 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       untouched = Repo.get!(NovelPersistence.Schemas.Work, work.id)
       assert untouched.target_length == nil
       assert untouched.premise == nil
-      assert MutationLog.list_by_turn("turn-skeleton-reject") == []
+      assert mutations_for_turn("turn-skeleton-reject") == []
     end
 
     test "adopts foreshadowing_seed into governed memory visible in archive tab" do
@@ -2023,5 +2023,14 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       |> Enum.find(&(&1.title == title))
 
     ReadingProjectionRepo.chapter_content(chapter.id, work_id)
+  end
+
+  # mutations 表由 AdoptionRepository 在采纳事务内写入；测试直接按来源回合读取，
+  # 不再依赖生产零调用的 MutationLog 查询模块。
+  defp mutations_for_turn(source_turn_ref) do
+    Mutation
+    |> where([m], m.source_turn_ref == ^source_turn_ref)
+    |> order_by([m], desc: m.inserted_at)
+    |> Repo.all()
   end
 end
