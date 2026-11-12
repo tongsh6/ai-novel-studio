@@ -6,7 +6,7 @@
 
 | 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B71-CP4b | 承接 B82 的 G3/G5 补证与 Responses/Anthropic 实模证据（[B82](slices/B82-b71-golden-slice-evidence.md)）；B81 CP5 的 G6 证据已于 2026-11-11 复核（[B81 §12](slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)）；**实模窗口已由 Splash 解除（2026-11-13 全局授权，预注册 `scenario-preregistration-splash-20261113.json` 已冻结）**；B71 的 CP5 最终收口含契约/索引/台账回写。 | [B71](slices/B71-provider-message-fidelity.md) |
+| B87 | **模型交互重构（基石起点）**：Issue #4 结构化模型请求/响应与系统治理；R00 全仓实体查重与 Frozen 契约对账 → R01–R19 分批闭环；优先于其他功能/验收任务。 | [B87](slices/B87-model-interaction-request-projection.md) |
 
 当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 
@@ -14,15 +14,15 @@
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B78 | 存量大模块拆分（P1：WorkspaceChat / dialogue_planning_service / agent_run_server / turn_execution_service / adoption_repository）；治理机制与 ratchet 门禁已落地，本任务只做结构化拆分，须在 B71 收口后按「一次一个文件、独立 refactor commit」排期 | [B78](slices/B78-module-size-debt.md) |
-| B79 | 存量书稿导入 + 导入后分析建档；**待作者确认启动**后按 [B79](slices/B79-work-import-and-analysis.md) CP0 契约冻结 → CP1 确定性导入链推进；B80 前置梳理已完成（2026-11-08）。 | [B79](slices/B79-work-import-and-analysis.md) |
+| B71-CP4b | 承接 B82 的 G3/G5 补证与 Responses/Anthropic 实模证据（[B82](slices/B82-b71-golden-slice-evidence.md)）；B81 CP5 的 G6 证据已于 2026-11-11 复核（[B81 §12](slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)）；**实模窗口已由 Splash 解除（2026-11-13 全局授权，预注册 `scenario-preregistration-splash-20261113.json` 已冻结）**；B71 的 CP5 最终收口含契约/索引/台账回写。 | [B71](slices/B71-provider-message-fidelity.md) |
 | B82 | B71 G2/G3/G5 黄金切片证据补证 + Responses/Anthropic 实模（G6 移交 B81 CP5，不在本任务）；G2 done；**2026-11-13 作者选 A：Splash 补 G3/G5 Chat wire**；Responses/Anthropic 待官方凭证；每个切片独立冻结预注册、独立批次、如实登记。 | [B82](slices/B82-b71-golden-slice-evidence.md) |
 | B84 | `novel_web` 慢测试收敛（193 tests/532s）+ 00f P2-E 剩余架构/测试债务；不缩小测试覆盖；与 B81 并行（测试前置层）。 | [B84](slices/B84-web-slow-tests-and-arch-debt.md) |
 | B85 | 模型上下文窗口用户设置（UI 入口）：作者反馈「窗口不应写死、要开放给用户配置」；初始能力已落（`preferences.json` 的 `context_windows` + Tauri 启动注入 sidecar env，`044092df`），**设置页 UI 未做**（当前应用无系统设置菜单，唯一设置入口是模型供应商弹窗）。 | [B85](slices/B85-model-context-window-settings.md) |
-| B87 | Issue #4 结构化模型请求/响应与系统治理 **todo（方案已重审，尚未执行）**；首批 R00 全仓实体查重与 Frozen 契约对账，后续 R01–R19 分别实现来源/Scope/求证、B86 C9 真实缺口、工具/风险/授权/委托/自动采纳和长篇创作回归。**不兼容历史**，仅重构现存 RequestIR/AgentRun 等真实职责；最终 R19 真实 Tauri/模型/全部质量门。B86 后果归 R06，B85 设置功能仍独立。 | [B87](slices/B87-model-interaction-request-projection.md) |
 | B88 | sidecar 端口可配置（产品功能）：默认 4658，支持冲突回退/显式配置；前端 API/WS/CSP 与 OriginPolicy 跟随；受益 B65 release Origin 采集与多实例调试，不是验收钩子。 | [B88](slices/B88-configurable-sidecar-port.md) |
+| B78 | 存量大模块拆分（P1：WorkspaceChat / dialogue_planning_service / agent_run_server / turn_execution_service / adoption_repository）；治理机制与 ratchet 门禁已落地，本任务只做结构化拆分，须在 B71 收口后按「一次一个文件、独立 refactor commit」排期 | [B78](slices/B78-module-size-debt.md) |
+| B79 | 存量书稿导入 + 导入后分析建档；**待作者确认启动**后按 [B79](slices/B79-work-import-and-analysis.md) CP0 契约冻结 → CP1 确定性导入链推进；B80 前置梳理已完成（2026-11-08）。 | [B79](slices/B79-work-import-and-analysis.md) |
 
-依赖排序（2026-11-13 更新）。B79 CP0/CP1 等待作者确认启动。B78 按原任务的 B71 依赖排期，B84 和 B71 后续候选的预注册准备可并行。B82 的独立批次条件见原任务，B83 阻塞于凭证。B81 已于 2026-11-11 复核 done（CP1–CP6，G6 证据见 [B81 §12](slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)）；B71 实模窗口已由 Splash 解除（2026-11-13 全局授权），收口仍依赖 B82 的 G3/G5 与 Responses/Anthropic 实模（后者仍需官方凭证），G2 与剩余 G 切片证据见 B71 与 B82 原任务。
+依赖排序（2026-11-13 重排）。**B87 模型交互重构是基石起点，优先于其他功能与验收任务**；R00 先做全仓实体查重与 Frozen 契约对账，再按 R01–R19 分批。B71 实模/CP5 与 B82 切片证据为 B87 提供基线但不抢占主线；B84/B85/B88 可在 B87 批次间并行；B78 待 B71 收口后按文件拆分；B79 待作者确认；B83 阻塞于凭证；B50/B42/B68 等延期项不重开。
 
 ## 阻塞
 
