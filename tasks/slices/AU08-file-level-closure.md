@@ -135,7 +135,7 @@
 
 ## 可独立推进 channel 故障注入代理（2026-10-31）
 
-- 状态：blocked（代理自检 done；两批原生预算耗尽，真实 ReadingMode 注入/恢复证据未闭环，父任务该 CP 仍 blocked；本小节只做产品外 harness）
+- 状态：todo（作者 2026-11-13 选 A：批准新 scoped 预注册/预算，只重放 parent_ref 修复后的单链；代理自检 done；两批原生预算耗尽的历史证据只读保留；待真实 Tauri 页面执行）
 - 范围：通用按 channel（get_toc/get_chapter_content）注入错误/延迟的外部代理，复用既有 `native_question_transport_proxy.mjs`；不改产品代码、不增验收开关。
 - 冻结契约：`transport-control.json.channel_faults[event] = {mode, count, delay_ms?}`；event 仅允许 `get_toc` / `get_chapter_content`，mode 仅 `error` / `delay`，count 1–10，delay 0–30000ms。按 Phoenix ref 精确消费；error 返回同 ref/topic 的 `phx_reply(status=error, reason=external_channel_fault)` 且不到上游；delay 后真实转发；次数耗尽自动恢复，全部动作写 `native-transport.jsonl`。
 - 代理证据：`node --test scripts/native_question_transport_proxy.test.mjs` = 7/7，覆盖规则消费/递减/数值边界/非法输入、同 ref error、真实 WS error 零上游后恢复、真实 WS delay 后恢复。`node scripts/next_task_check.mjs` 通过；静态扫描 17 PASS / 2 FAIL / 1 SKIP、0 touched-file findings，唯一 blocking 仍是未闭环任务的过期 task-done manifest。
@@ -150,3 +150,12 @@
 - 两批达到预注册上限，停止第三批；STALE→error→FAILED→重试→FRESH 全链没有原生 summary，不能标 done，也不能回推 AU08 CP1/P1-AUDIT-BC 已解除。
 - 局部证据：代理测试 7/7 + parent_ref 回归 1/1，JS/bash 语法与 `git diff --check` 通过。`quality_manifest_check` 仍缺 PyYAML；mutation 总门 56.3% 与 legacy survivors 未闭环。
 - 恢复选项：A（推荐）作者批准新的 scoped 预注册/预算，只重放 parent_ref 修复后的单链，不整批刷分；B 暂缓原生页面，保留代理自检与 blocked 状态并推进其他候选。未选择前不再启动 AU08 原生批次。
+
+### 2026-11-13 作者选 A：scoped 单链补验
+
+- **决策**：作者选择 A——新 scoped 预注册/预算，只重放 `parent_ref` 修复后的单链，不整批刷分。
+- **预注册**：`artifacts/model-contracts/au08-channel-fault/preregistration-scoped-single-chain-20261113.json`（status=preregistered；1 批/0 重试；证据目录 `artifacts/slice-verify/au08-reading-projection-failure-recovery-tauri-native-scoped-20261113/`；supersedes `au08-channel-fault-native-cp1-20261031`）。
+- **修复前提**：`turnMatchesMessage` 已接受 `agent_run.parent_turn_ref`，回归 `native_au08_projection_evidence.test.mjs` 1/1。
+- **验收判据**：沿用原 criteria（STALE→error→FAILED→重试→FRESH、同 ref channel error、旧内容不冒充最新、no-write、DB 快照一致）。
+- **边界**：只验单链；两次失败批次的完整根因矩阵不代签；legacy B26 proxy mutation survivors 不在本批。
+- **下一步**：真实 Tauri 页面执行 1 批；失败只读保留，不重跑换分；完成后回推 AU08 CP1 与 P1-AUDIT-BC 依赖。
