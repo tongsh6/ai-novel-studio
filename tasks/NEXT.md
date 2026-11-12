@@ -6,7 +6,7 @@
 
 | 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B71-CP4b | 承接 B82 的 G3/G5 补证与 Responses/Anthropic 实模证据（[B82](slices/B82-b71-golden-slice-evidence.md)）；B81 CP5 的 G6 证据已于 2026-11-11 复核（[B81 §12](slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)），B71 的 CP5 最终收口含契约/索引/台账回写。 | [B71](slices/B71-provider-message-fidelity.md) |
+| B71-CP4b | 承接 B82 的 G3/G5 补证与 Responses/Anthropic 实模证据（[B82](slices/B82-b71-golden-slice-evidence.md)）；B81 CP5 的 G6 证据已于 2026-11-11 复核（[B81 §12](slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)）；**实模窗口已由 Splash 解除（2026-11-13 全局授权，预注册 `scenario-preregistration-splash-20261113.json` 已冻结）**；B71 的 CP5 最终收口含契约/索引/台账回写。 | [B71](slices/B71-provider-message-fidelity.md) |
 
 当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 
@@ -22,7 +22,7 @@
 | B87 | Issue #4 模型交互请求/响应投影治理：**仅登记计划，未开始实施**；R00 基线/边界核对可作为候选，R01 需原始请求证据；R02/R03 先核 B81 CP5/G6 与冻结契约，不重做 B71/B81 已实现内容。R10 为授权体系（风险等级/授权模式/critical/full 自动采纳），以 [VS-00M](../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md) §3.4/§3.6 为设计输入。不得抢占 B81 当前队首。 | [B87](slices/B87-model-interaction-request-projection.md) |
 | B86 | 模型材料与返回结构化（内部标识隔离）：作者指出根因「发给模型的数据没结构化、返回也不够结构化」——章节编号/名称/内容与内部 `chapter:<uuid>` 混在自然语言材料里，模型复述到作者可见正文（`cp5-real-05` 实模证据）。方案：材料结构化（ref 只进专用字段）+ tool schema 约束作者可见字段禁内部标识 + 作者可见出口统一 `AuthorVisible.Text` 投影；独立预注册验收。 | [B86](slices/B86-structured-model-materials-internal-ref-isolation.md) |
 
-依赖排序（2026-11-11 更新）。B79 CP0/CP1 等待作者确认启动。B78 按原任务的 B71 依赖排期，B84 和 B71 后续候选的预注册准备可并行。B82 的独立批次条件见原任务，B83 阻塞于凭证。B81 已于 2026-11-11 复核 done（CP1–CP6，G6 证据见 [B81 §12](slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)）；B71 收口依赖 B82 的 G3/G5 与 Responses、Anthropic 实模，G2 与剩余 G 切片证据见 B71 与 B82 原任务。
+依赖排序（2026-11-13 更新）。B79 CP0/CP1 等待作者确认启动。B78 按原任务的 B71 依赖排期，B84 和 B71 后续候选的预注册准备可并行。B82 的独立批次条件见原任务，B83 阻塞于凭证。B81 已于 2026-11-11 复核 done（CP1–CP6，G6 证据见 [B81 §12](slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)）；B71 实模窗口已由 Splash 解除（2026-11-13 全局授权），收口仍依赖 B82 的 G3/G5 与 Responses/Anthropic 实模（后者仍需官方凭证），G2 与剩余 G 切片证据见 B71 与 B82 原任务。
 
 ## 阻塞
 
@@ -47,7 +47,7 @@
 - **B64 实模**：一次 judgment_protocol_violation 失败待裁决；见 [B64](slices/B64-coordinate-aware-memory-consumption.md)。
 - **B39 重锚**：目标实现由 B71 CP3/CP4 承接；原 setup 第02章候选区 AX 同因失败记录只读保留，不再单独驱动实现；见 [B39](slices/B39-evidence-seeking-authoring.md)。
 - **AU10-FAILED**：缺真实页面确定性失败触发（产品外 fixture/原生目录替身可先构造，真实页面证据仍需窗口）；见 [AU10](slices/AU10-workbench-recovery-taskstate.md#failed-cp0-盘点2026-10-31)。
-- **B71 实模/页面后续窗口（2026-11-07 更新）**：R2 机制层已完成并提交；作者选择 C（B71 收口剩余：实模/G6/CP5），当前只读探测 Strata 在线但可用模型为 `q2_0`（预注册为 `iq3_s`），且无 OpenAI/Anthropic 官方凭证。待作者裁决：A（推荐）以 `q2_0` 重新预注册跑 CP4b-2/G6 + Responses/Anthropic 实模等凭证；B 等 iq3_s 窗口；C 先做 CP5 无窗口收口与 R2 预览 UI 设计。未获批前不启动实模批次。R2 真实流式正文预览 UI 已按作者裁决 B 纳入 R2 后续 checkpoint 并**完成确定性层**：SSEStream 对「工具参数 JSON body」（写作真实形态）产出 author_content_delta、三 wire 测试 8/8、真实 Tauri 页面批次 `b71-authoring-transcript-tauri-native-stream-preview-06` PASS（生成中预览 + 协议字节零泄漏 + 最终 turn_result）；真实模型流式行为与 Responses/Anthropic 实模另证。详见 [B71](slices/B71-provider-message-fidelity.md) 对应小节。
+- **B71 实模/页面后续窗口（2026-11-13 更新）**：作者全局授权 Splash（本机 OpenAI 兼容，`local/Q4-PLE4`），实模窗口阻塞解除；冒烟已验证 tool_calls/流式/多轮观察回流/usage，预注册 `artifacts/model-contracts/b71-cp1/scenario-preregistration-splash-20261113.json` 已冻结，下一步按该预注册跑 CP4b-2/G6。R2 真实流式正文预览 UI 已完成确定性层：SSEStream 对「工具参数 JSON body」（写作真实形态）产出 author_content_delta、三 wire 测试 8/8、真实 Tauri 页面批次 `b71-authoring-transcript-tauri-native-stream-preview-06` PASS（生成中预览 + 协议字节零泄漏 + 最终 turn_result）；真实模型流式行为与 Responses/Anthropic 实模另证。I10 不代签。详见 [B71](slices/B71-provider-message-fidelity.md) 对应小节。
 - **B48 CP3**：CP0–CP2 done；CP3 需真实模型/原生 runtime 窗口 + native driver 前置，预注册 `artifacts/b48-cp3/preregistration.json`；见 [B48](slices/B48-character-revision-noop-and-ambiguity.md)。
 - **延期/条件**：多 Agent/24x7 [B50](slices/B50-multi-agent-current-boundary.md#61-延期实施与重新开放)；AU-15 [B42](slices/B42-model-behavior-evidence-tier.md#10-cp4blocked-登记不执行不代签)；I10 盲评 [安排](slices/VS00D-G-GAP-RECONCILIATION.md#i10-人工盲评安排)；stage 修复需授权 [B28](slices/B28-whole-chapter-revision.md)；B38/Experience [B38](slices/B38-world-rule-save-intent.md)/[B68](slices/B68-experience-rule-governance.md)。
 

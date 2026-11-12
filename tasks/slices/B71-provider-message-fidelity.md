@@ -1208,6 +1208,17 @@
 - **判定**：q2_0 下 CP3b 机制必选项可复现 PASS，但**完整实模场景（工具调用/观察回流/G2–G6/压缩后请求）未触发**；CP4b-2/G6 结论不成立。R2 Responses/Anthropic 实模仍需官方凭证。**不代签** CP4b-2/G6/CP5/I10。
 - **后续入口**：① 更强模型窗口或官方凭证后按同一预注册重跑（先冻结后执行、失败只读保留）；② G6 需 auto-maintenance 场景（`B71_AUTO_MAINTENANCE=1`，需同 run 多回合且压缩实际触发）；③ 真实页面流式正文预览证据随流式 provider 批次取证。
 
+### Splash 实模窗口授权与冻结（2026-11-13）
+
+- **作者授权**：2026-11-13 全局授权全程使用 Splash（本机 OpenAI 兼容入口，当前模型 `local/Q4-PLE4`，262k 上下文）；不再依赖 Strata `q2_0`/`iq3_s` 窗口；R2 Responses/Anthropic 实模仍缺官方凭证。
+- **冒烟证据（2026-11-12T16:28Z，非正式批次，不替代场景验收）**：
+  - 非流式：`finish_reason=tool_calls`，`arguments` 为完整 JSON；
+  - 流式：`finish_reason=tool_calls`，12 个 `tool_calls` delta，`include_usage` 返回 usage；
+  - 多轮：第 2 轮带 `tool` 结果后 `finish_reason=stop`，content 引用观察，无重复 tool_call；
+  - usage：prompt/completion/total + `cached_tokens` + `reasoning_tokens`。
+- **预注册**：`artifacts/model-contracts/b71-cp1/scenario-preregistration-splash-20261113.json`（`preregistered-frozen-before-run`；场景/判据/预算沿用 q2_0 20261107，模型/provider 改为 Splash；supersedes `b71-cp4b2-live-q2-0-20261107`）。
+- **下一步**：按本预注册执行 CP4b-2/G6 实模批次（真实 Tauri 页面 + Splash）；失败只读保留、不重跑换分；G6 的 auto-maintenance 场景仍按需单独构造。
+- **不代签**：CP4b-2/G6 未跑前不标 PASS；I10 文学质量不代签；R2 Responses/Anthropic 实模仍需官方凭证。
 
 ### 2026-11-08 审核轮：clean 度收口、门禁真实性与实模回归（进行中）
 
