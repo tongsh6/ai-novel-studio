@@ -129,7 +129,7 @@
 
 #### B01 入口来源与语义边界
 
-- 状态：**blocked（2026-10-31 CP0 完成：origin_frame_ref 为合成串；CP1 需新增 nullable origin_turn_ref/改 origin_frame_ref 可空，涉及 SQLite 表重建与历史兼容，待作者 migration/命名裁决）**。
+- 状态：**todo（作者 2026-11-13 选 A：新增 nullable origin_turn_ref、origin_frame_ref 改 nullable；SQLite 表重建 migration；旧合成值按 legacy 读取、不回填；CP0 完成，待实施）**。
 - 范围：保留原 B01 的完整 judgment→frame→plan 语义边界与 B26/B27 后继校验；新增明确承接 [B49 R7](slices/B49-core-semantics-and-adr-review.md#715-c02-r7-裁决记录) 的真实入口引用。R7 修复只是原 B01 的一个 checkpoint，不代替其它语义/权限/registry/ref 校验。
 - 下一步：核对入口产生时间、实际 turn/frame 对象、现有 parent_turn_ref/author_input 关联及所有读取方，选择真实 frame ref 或显式 turn ref；不为字段名造空对象、不建第二 Router。
 - Checkpoint：CP0 明确来源契约、七问与原语义校验剩余矩阵 → CP1 真实来源贯穿生成/存储/trace/回放并保留历史读取 → CP2 原 B01 反例及引用存在性/作品会话隔离/幂等恢复 → CP3 外部真实工作台触发与 Why/持久回放验证。各项未开工。
@@ -168,6 +168,13 @@
 - C：暂不实现，B01 保持 known-gap（lineage 仍不可验证）。
 
 A/B 都需要作者确认是否允许 schema migration/历史兼容策略；C 则明确不关闭 R7。未裁决前不改 schema/DB，不造空 frame。
+
+#### 2026-11-13 作者选 A：origin_turn_ref + origin_frame_ref nullable
+
+- **决策**：作者选择 A——新增 nullable `origin_turn_ref`，同时把 `origin_frame_ref` 改为 nullable；SQLite 表重建 migration；新 run 写真实 turn ref，旧合成值按 legacy 读取、不回填。
+- **实施顺序**：先冻结 migration 设计（nullable 改造 + 历史兼容读取），再改 domain/persistence/application 入口与 Replay/Why 消费；未授权前不改表。
+- **边界**：不伪造 frame；无真实 frame 时 `origin_frame_ref = nil`；旧记录不回填；前端/Why 是否展示 origin turn 按现有 trace 消费面决定。
+- **验收**：真实 turn ref 贯穿生成→持久化→状态→回放；无真实 frame 时不得输出 frame ref；旧记录读取兼容；本地测试不代签 CP3 页面。
 
 
 
