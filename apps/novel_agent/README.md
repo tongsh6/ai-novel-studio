@@ -20,6 +20,28 @@ and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
 be found at <https://hexdocs.pm/novel_agent>.
 
 
+## Provider adapter 索引（本机 + 云端）
+
+统一执行入口是 `Gateway.execute/5`（`Provider.execute/5` 为 adapter 唯一回调，
+`complete/4` 已退役）；adapter 只消费 canonical Request IR 投影，不自行拼 prompt。
+配置来源：`config/config.exs` + 各环境配置，运行时选择由 `RuntimeConfig` 持有。
+
+- [gateway.ex](lib/novel_agent/provider/gateway.ex)：provider registry、descriptor（label/endpoint/api_key/thinking/streaming）、按实际 route 单次解析配置并派生能力事实、执行边界。
+- [provider.ex](lib/novel_agent/provider/provider.ex)：adapter behaviour（唯一 `execute/5`）。
+- [openai_compatible.ex](lib/novel_agent/provider/openai_compatible.ex)：OpenAI 兼容共享基类（Chat wire 投影、tools、流式、usage、reasoning_effort/thinking 策略）。
+- [anthropic.ex](lib/novel_agent/provider/anthropic.ex) / [anthropic_stream.ex](lib/novel_agent/provider/anthropic_stream.ex)：Anthropic Messages wire。
+- [responses_wire.ex](lib/novel_agent/provider/responses_wire.ex) / [responses_stream.ex](lib/novel_agent/provider/responses_stream.ex)：Responses API wire。
+- [lm_studio.ex](lib/novel_agent/provider/lm_studio.ex)：LM Studio 本机 provider。
+- [strata.ex](lib/novel_agent/provider/strata.ex)：Strata App 统一推理后台（固定 `127.0.0.1:47831/v1`，模型由 App 管理）。
+- [splash.ex](lib/novel_agent/provider/splash.ex)：Splash App / `splash serve` 本机 OpenAI 兼容服务（默认 `127.0.0.1:8000/v1`，端点可配置，模型由 Splash 管理，可选 Bearer Key）。
+- [deep_seek.ex](lib/novel_agent/provider/deep_seek.ex)、[openai.ex](lib/novel_agent/provider/openai.ex)、[openai_subscription.ex](lib/novel_agent/provider/openai_subscription.ex)、[minimax.ex](lib/novel_agent/provider/minimax.ex)、[minimax_cn.ex](lib/novel_agent/provider/minimax_cn.ex)、[zhipu.ex](lib/novel_agent/provider/zhipu.ex)、[kimi.ex](lib/novel_agent/provider/kimi.ex)、[gemini.ex](lib/novel_agent/provider/gemini.ex)：云端 vendor adapter。
+- [adapter_execution.ex](lib/novel_agent/provider/adapter_execution.ex) / [execution.ex](lib/novel_agent/provider/execution.ex)：adapter 执行边界（ProviderRun/ProviderEvent/ProviderOutput 物化、超时策略消费）。
+- [timeout_policy.ex](lib/novel_agent/provider/timeout_policy.ex)：local/hosted 时钟策略唯一真源（connect/response/non_stream/deadline/probe）。
+- [native_tool_exchange.ex](lib/novel_agent/provider/native_tool_exchange.ex)：原生工具交换（单工具、最多一次重试、失败闭合）。
+- [sse_stream.ex](lib/novel_agent/provider/sse_stream.ex)：三 wire 共用 SSE 生命周期（见下节）。
+- [author_prose_stream.ex](lib/novel_agent/provider/author_prose_stream.ex)：写作工具参数写正文增量 → 作者可见 `author_content_delta`。
+- [runtime_config.ex](lib/novel_agent/provider/runtime_config.ex)：当前 provider 选择与运行时配置持有。
+
 ## B71 R2 统一流式生命周期（VS-00L §19.3，2026-11-07）
 
 - [sse_stream.ex](lib/novel_agent/provider/sse_stream.ex)：三 wire 共用的 SSE 传输生命周期（取消/静默窗口/总时长/帧分割/文本增量事件/终止分流）。

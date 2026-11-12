@@ -60,6 +60,18 @@ config :novel_agent, NovelAgent.Provider.Strata,
   reasoning_effort: System.get_env("NOVEL_STRATA_REASONING_EFFORT"),
   max_tokens: System.get_env("NOVEL_STRATA_MAX_TOKENS", "32000") |> String.to_integer()
 
+# Splash —— Splash App / `splash serve` 管理的本机 OpenAI 兼容服务（默认
+# http://127.0.0.1:8000/v1）。与 config.exs/dev.exs 同源写全（Elixir 对同一模块配置
+# 是整块替换而非深合并）。模型由 Splash 管理：未设 NOVEL_SPLASH_MODEL 时请求不带
+# model；端点可由作者在设置页配置，部署侧可用 NOVEL_SPLASH_ENDPOINT 覆盖。
+config :novel_agent, NovelAgent.Provider.Splash,
+  api_key: System.get_env("NOVEL_SPLASH_API_KEY"),
+  endpoint: System.get_env("NOVEL_SPLASH_ENDPOINT", "http://127.0.0.1:8000/v1"),
+  model: System.get_env("NOVEL_SPLASH_MODEL"),
+  thinking: System.get_env("NOVEL_SPLASH_THINKING", "disabled"),
+  reasoning_effort: System.get_env("NOVEL_SPLASH_REASONING_EFFORT"),
+  max_tokens: System.get_env("NOVEL_SPLASH_MAX_TOKENS", "32000") |> String.to_integer()
+
 config :novel_agent, NovelAgent.Provider.DeepSeek,
   api_key: System.get_env("NOVEL_DEEPSEEK_API_KEY"),
   endpoint: System.get_env("NOVEL_DEEPSEEK_ENDPOINT", "https://api.deepseek.com"),
