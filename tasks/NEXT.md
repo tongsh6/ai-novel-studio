@@ -27,7 +27,7 @@
 ## 阻塞
 
 - **B83 vendor `stream_options.include_usage` 矩阵**：Strata/LM Studio 已有首批接受证据；OpenAI/Anthropic 官方凭证缺失、其它本地 vendor 窗口未授权。解除条件=凭证/窗口到位后按预注册执行；矩阵结论不得用于伪造能力声明。见 [B83](slices/B83-vendor-stream-options-matrix.md)。
-- **B72 离线生成器质量门**：离线生成器/manifest/persona 已实现且契约测试 12/12，但 mutation 两轮后 51.5%、111 survivors；真实模型校准未授权。待 A（推荐：专门 mutation 测试预算/负责人）/B（保留 known-gap）/C（进一步拆分实现）；见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#可独立推进-离线生成器契约2026-10-31)。
+- **B72 作者行为语料扩增（2026-11-13 作者选 D）**：放弃离线规则扩增（mutation known-gap 只读保留，不再阻塞），转真实 LLM 语料扩增；Splash 全局授权用于 CP1 ≤60 校准，待冻结预注册后执行；生成≠冻结≠PASS。见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md)。
 - **UA01 B13 完整失败矩阵**：独立 run_failed 触发与三源 join 已原生 8/8 done；独立 DecisionTrace、真实供应商、取消/恢复/跨作品及 AU04 漂移仍未闭环；见 [UA01](slices/UA01-provider-execution-stream-unification.md#可独立推进-受控最终-run_failed-触发2026-10-31)。
 - **AU08 原生故障恢复**：两批预注册预算耗尽，无原生 summary；parent_ref 关联已修并有单测但未复验。待作者选择 A（推荐：新 scoped 预算只重放单链）/B（暂缓并推进其他候选）；见 [AU08](slices/AU08-file-level-closure.md#原生批次预算耗尽2026-10-31)。
 - **Q1C 原生补验**：原生批次已超过预注册上限，停止重试；待作者选择 A（推荐：新启动诊断预注册与 scoped 预算）/B（暂缓，保留 browser 边界）/C（更大 harness 改造授权）；见 [Q1C](slices/Q1C-adopted-content-revision.md#原生补验-s1s4-预算耗尽与暂停2026-10-31)。

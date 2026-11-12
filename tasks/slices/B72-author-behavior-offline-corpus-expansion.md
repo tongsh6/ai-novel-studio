@@ -1,6 +1,6 @@
 # B72：作者行为离线 LLM 语料扩增（P2）
 
-- 状态：**blocked（2026-10-31 CP0 done；CP1 需离线生成器实现 + 真实模型校准/核心批次，超出当前授权的实现/资源窗口，未调用模型、未改正式 corpus）**。
+- 状态：**todo（2026-11-13 作者选择 D：放弃离线规则扩增，转真实 LLM 语料扩增；Splash 全局授权用于 CP1 ≤60 校准，待冻结预注册后执行；CP0 done；尚未调用模型、未改正式 corpus）**。
 - 类型：验证资产与外部生成工具；实现交由其他实现者，本文维护执行状态与证据。
 - 来源：B70 交付后审计确认当前仅 17 cases、15 条人工模板 + 2 条确定性模板生成，尚无真正 LLM 扩增。作者明确选择先做一次 P2 离线语料扩增，再处理 P0/P1 的运行/动作缺口。
 - 上游：[B70](B70-author-behavior-corpus-and-state-exploration.md)（done，验证基础设施）；设计真源：[作者行为离线语料扩增设计](../../docs/design/acceptance/author-behavior-offline-corpus-expansion.md)。
@@ -83,3 +83,11 @@ CP1 生成不等于冻结，CP2 冻结不等于全部执行，CP3 资产数量�
 - 验证：`node --test scripts/lib/quality/author_behavior_offline_generator.test.mjs` = 12/12，含 F5 holdout、精确重复/泄漏、失败候选、multi_turn 只候选不执行、accepted 人工审核与原子落盘。CLI help/语法通过。使用本机已有 Homebrew Bash 5.3 + PyYAML 6.0.3 后，`quality_manifest_check.sh` passed（224 scenarios / 2 drafts / 226 manifests），全量质量库 295/295；不再登记 PyYAML 环境缺口。
 - known-gap：mutation 首轮 41.0%、第二轮 51.5%（118/229 killed、111 survivors），同失败类型两轮后停止，质量门仍红。crapper 已按边界拆分校验函数，不声称 CRAP 通过。最终静态扫描 18 PASS / 2 FAIL、0 touched-file findings；唯一 blocking 是独立 checkpoint 未闭环导致旧 task-done manifest 过期，未伪造新 manifest。后续可选 A（推荐：作者批准专门 mutation 测试预算/负责人，逐项覆盖剩余验证分支）/B（接受当前契约能力但保留 known-gap，不宣称 ub-mode 完成）/C（进一步拆分实现减少可变异分支）。
 - 边界：未调用模型、未启动真实校准、未生成正式候选包、未改生产代码或正式 corpus；生成≠冻结≠执行≠PASS，CP1 仍 blocked。
+
+## 2026-11-13 作者选择 D：转真实 LLM 语料扩增（Splash）
+
+- **决策**：放弃离线规则扩增路线（`author_behavior_offline_generator.mjs` 的 mutation 质量门不再作为阻塞项；其 known-gap 保留只读记录）；CP1 改为直接用真实模型生成作者行为候选。
+- **模型资源**：作者全局授权 Splash（本机 OpenAI 兼容，`local/Q4-PLE4`，262k 上下文），不再等 Strata/官方凭证。
+- **执行边界（不变）**：≤60 校准并复核质量，再决定是否开放 300–500 核心扩增；候选默认 pending，不直接改 `cases.yml`；生成≠冻结≠执行≠PASS；生成调用不是 B42 产品模型行为证据；不读真实作品/私有日志。
+- **执行前必须**：冻结 CP1 校准预注册（范围：≤60 候选；模型/端点；persona/边界覆盖判据；人工审核规则；预算；证据目录 `artifacts/author-behavior/`），先冻结后执行。
+- **风险**：本地 Q4 模型生成的作者消息质量需校准，人工审核通过率可能低；不合格候选只读保留，不凑数。
