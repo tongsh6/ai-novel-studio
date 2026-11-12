@@ -42,7 +42,7 @@
 - **B01 后续（2026-11-13 作者选 A）**：新增 nullable `origin_turn_ref`、`origin_frame_ref` 改 nullable；SQLite 表重建 migration，旧合成值按 legacy 读取、不回填；待实施。见 [B01](2026-10-27-design-to-execution-reconciliation.md)。
 - **B43 后续（2026-11-13 作者选 A）**：GateOrder 新增显式 `missing_policy` gate（ADR-0005 12→13 门）；六个 flow 与 TurnExecutionService 统一进门；待实施。见 [B43](slices/B43-gate-order-residual.md)。
 - **B67 后续**：维护 StateTrace 依赖 VS00F-TRACE 先冻结；见 [B67](slices/B67-revision-aware-ledger-maintenance.md)。
-- **B65 后续**：release 打包 Origin 采集环境缺失；见 [B65](slices/B65-local-http-websocket-origin-boundary.md)。
+- **B65 后续（2026-11-13 检查）**：release app 可冷启动（端口 4658 listen），但无 sudo 无法 tcpdump、sidecar 端口硬编码无法代理拦截；release Origin 外部采集仍缺手段，CP3 保持 blocked。见 [B65](slices/B65-local-http-websocket-origin-boundary.md)。
 - **B64 实模（2026-11-13 作者选 B）**：用 Splash 按新预注册重跑一次 B64 CP3 真实模型消费；失败只读保留，仍失败则转 B39/B27 判断协议处理。见 [B64](slices/B64-coordinate-aware-memory-consumption.md)。
 - **B39 重锚**：目标实现由 B71 CP3/CP4 承接；原 setup 第02章候选区 AX 同因失败记录只读保留，不再单独驱动实现；见 [B39](slices/B39-evidence-seeking-authoring.md)。
 - **AU10-FAILED**：缺真实页面确定性失败触发（产品外 fixture/原生目录替身可先构造，真实页面证据仍需窗口）；见 [AU10](slices/AU10-workbench-recovery-taskstate.md#failed-cp0-盘点2026-10-31)。

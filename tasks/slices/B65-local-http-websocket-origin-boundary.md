@@ -74,6 +74,11 @@ CP1/CP2 只能证明局部边界；完整 slice 要有真实客户端与最终�
 - CP1 后真实 Tauri 正常链回归：`b64-coordinate-memory` PASS（三 turn 创作/新会话，HTTP+WS 正常通过来源策略）。
 - 恢复/重连回归：`au10-workbench-recovery-reconnect` PASS（停服→离线→重启→WS rejoin→后续 turn 成功，`join_count_after_restore=4`）。
 - 未覆盖：release 打包后 `tauri://localhost`/`http://tauri.localhost` 实际 Origin（需要 packaged Tauri + 外部代理/服务器采集握手 Origin；当前 harness 跑 dev Vite 来源，不能冒充）；设置页真实操作未单独跑。B65 因此 blocked，待打包采集环境/SU04 工具后 scoped 复验，不重开全量。
+- **2026-11-13 release 冷启动与 Origin 采集可行性核对**：
+  - 隔离 HOME + profile 启动现有 release app（`AI Novel Studio.app`，2026-11-12 构建）成功：进程存活、sidecar 端口 4658 listen、安装 marker 存在。
+  - 关闭路径：本次无 GUI 焦点/屏幕交互，`exit_app` 的 AX 关闭失败，走 TERM fallback；TERM 后 10s 内端口未释放 → `port_not_released_after_cold_start`。这是关闭路径证据缺口，不是启动失败。
+  - Origin 采集：`sudo -n` 不可用（需要密码），无法 `tcpdump`；sidecar 端口在 `frontend/src-tauri/src/lib.rs` 硬编码 `4658`，无法用代理占位转发而不改产品/重新打包。按红线不为验收改生产端口。
+  - 结论：release 自定义协议 Origin 的外部采集手段仍缺；CP3 保持 blocked/known-gap，不伪造。
 
 ## 4. 依赖与不授权范围
 
