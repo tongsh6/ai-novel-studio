@@ -263,16 +263,23 @@ function isTestFile(file) {
   );
 }
 
+// 验收 harness 不是产品 UI：`frontend/slice-verify/**` 与
+// `scripts/tauri_slice_verify.sh` 是驱动真实页面的外部验收资产，改它们不改变产品
+// 行为，其改动由 quality manifest + 对应真实批次证据校验。若不排除，browser-surface
+// 场景（如 su01-provider-splash-local）会被强制要求 native 证据，只能伪造或阻塞
+// 收口（与 2026-11-08「测试文件不产生 UI 证据需求」同族）。
+function isAcceptanceHarnessFile(file) {
+  return file.startsWith("frontend/slice-verify/") || file === "scripts/tauri_slice_verify.sh";
+}
+
 function isUiRelevantFile(file) {
-  if (isTestFile(file)) {
+  if (isTestFile(file) || isAcceptanceHarnessFile(file)) {
     return false;
   }
 
   return (
     file.startsWith("frontend/src/") ||
-    file.startsWith("frontend/slice-verify/") ||
     file.startsWith("frontend/src-tauri/") ||
-    file === "scripts/tauri_slice_verify.sh" ||
     /(^|\/)(ui|card|copy|socket|workspace|projection|adoption|reading|tauri|slice-verify)/i.test(file)
   );
 }

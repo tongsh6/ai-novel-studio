@@ -803,7 +803,7 @@ async function configureProviderRuntime(attrs) {
 function activeSliceVerifyProvider() {
   const provider = process.env.SLICE_VERIFY_PROVIDER ?? "slice_verify";
   assert(
-    ["slice_verify", "lmstudio", "deepseek", "strata"].includes(provider),
+    ["slice_verify", "lmstudio", "deepseek", "strata", "splash"].includes(provider),
     `Unsupported slice verify provider: ${provider}`,
   );
   return provider;
@@ -853,6 +853,21 @@ async function providerRuntimeAttrsForExternalRun(provider) {
     return compactProviderAttrs({
       provider: "strata",
       model: process.env.NOVEL_STRATA_MODEL ?? "iq3_s",
+    });
+  }
+
+  if (provider === "splash") {
+    // 本机 Splash：默认 OpenAI 兼容入口 http://127.0.0.1:8000/v1；端口由本机
+    // `splash serve --port`/部署决定，因此端点可由部署侧 env 覆盖、设置页可编辑。
+    // 模型由 Splash 管理：优先读 NOVEL_SPLASH_MODEL，否则取 live /v1/models 报告的模型；
+    // 都没有时留空（产品请求不带 model，由 Splash 路由当前加载模型）。
+    const endpoint = process.env.NOVEL_SPLASH_ENDPOINT ?? "http://127.0.0.1:8000/v1";
+    const model = process.env.NOVEL_SPLASH_MODEL ?? (await firstOpenAiCompatibleModel(endpoint));
+    return compactProviderAttrs({
+      provider: "splash",
+      endpoint,
+      model,
+      api_key: process.env.NOVEL_SPLASH_API_KEY,
     });
   }
 
@@ -21891,6 +21906,266 @@ async function driveSu01ProviderStrataLocal(page) {
   ];
 }
 
+// SU01：本机 Splash（Splash App / `splash serve` 管理的 OpenAI 兼容服务）。
+// 与 Strata 的固定统一后台不同：Splash 端口由本机/部署决定，therefore the descriptor
+// `supports_endpoint=true`，设置页必须保留可编辑端点输入；模型由 Splash 管理，从
+// 真实 /v1/models 刷新后由作者显式选择；未配置模型时产品请求不带 model。
+async function driveSu01ProviderSplashLocal(page) {
+  const provider = "splash";
+  const providerLabel = "Splash";
+  const defaultEndpoint = process.env.NOVEL_SPLASH_ENDPOINT ?? "http://127.0.0.1:8000/v1";
+  const message = "请用一句话回复：Splash 已连接。";
+
+  const joined = await waitForAppLogRecord(
+    (record) => record.event === "channel.join.done" && record.work_id,
+    "Workbench did not join a work before verifying the local Splash provider",
+    30_000,
+  );
+
+  // 1) 从真实工作台打开模型设置；供应商下拉由后端 registry 渲染。
+  await openModelProviderSettings(page);
+  const providerOptionLabels = await page
+    .locator("#model-provider-select option")
+    .evaluateAll((nodes) =>
+      Object.fromEntries(nodes.map((node) => [node.value, (node.textContent ?? "").trim()])),
+    );
+  const splashListed = Boolean(providerOptionLabels[provider]);
+  await page.locator("#model-provider-select").selectOption(provider);
+  const providerSelected = await page.locator("#model-provider-select").inputValue();
+
+  // 2) Splash 端点可配置（supports_endpoint=true）：设置页保留端点输入框，
+  //    默认为本机 8000 入口，允许作者按 `splash serve --port` 调整。
+  const endpointInput = page.locator("#model-provider-endpoint-input");
+  const endpointInputCount = await endpointInput.count();
+  const endpointInputValue = endpointInputCount === 0 ? "" : (await endpointInput.inputValue()).trim();
+  if (endpointInputCount > 0 && endpointInputValue === "") {
+    await endpointInput.fill(defaultEndpoint);
+  }
+  const endpointForRuntime =
+    endpointInputCount > 0 ? (await endpointInput.inputValue()).trim() : defaultEndpoint;
+
+  const optionsAfterSelectResponse = await fetch(`${baseUrl}/api/provider/options`);
+  assert(
+    optionsAfterSelectResponse.ok,
+    `Provider options failed after selecting Splash: ${optionsAfterSelectResponse.status}`,
+  );
+  const optionsAfterSelect = await optionsAfterSelectResponse.json();
+  const splashOptionAfterSelect = (optionsAfterSelect.providers ?? []).find(
+    (option) => option.id === provider,
+  );
+  const providerOptionLabel = providerOptionLabels[providerSelected] ?? "";
+
+  // 3) 刷新模型列表 = 真实请求本机 Splash /v1/models；选中它当前报告的模型。
+  //    模型由 Splash 管理，驱动不硬编码模型名。
+  const refreshButton = page.getByRole("button", { name: "刷新模型列表" });
+  await refreshButton.waitFor({ timeout: 10_000 });
+  await refreshButton.click();
+  await page.waitForFunction(
+    () =>
+      Array.from(
+        document.querySelectorAll("#model-provider-model-input option"),
+        (option) => option.value,
+      ).some((value) => value !== ""),
+    undefined,
+    { timeout: 60_000 },
+  );
+  const listedModelIds = await page
+    .locator("#model-provider-model-input option")
+    .evaluateAll((nodes) => nodes.map((node) => node.value));
+  const expectedModel = listedModelIds.find((modelId) => modelId !== "") ?? "";
+  await page.locator("#model-provider-model-input").selectOption(expectedModel);
+  const modelSelected = await page.locator("#model-provider-model-input").inputValue();
+
+  // 4) 测试连接：真实探测本机 Splash。首次请求需要恢复权重（无请求 600s 后释放），
+  //    窗口放宽到 120s。
+  await page.getByRole("button", { name: "测试连接" }).click();
+  await page.waitForFunction(() => document.body.innerText.includes("连接可用。"), {
+    timeout: 120_000,
+  });
+  const connectionTestPassed = (await page.locator("body").innerText()).includes("连接可用。");
+
+  // 5) 保存并切换：Dialog 关闭，顶栏模型按钮显示 Splash + 当前模型。
+  const providerOptionsBeforeSaveResponse = await fetch(`${baseUrl}/api/provider/options`);
+  assert(
+    providerOptionsBeforeSaveResponse.ok,
+    `Provider options failed before saving Splash: ${providerOptionsBeforeSaveResponse.status}`,
+  );
+  const providerOptionsBeforeSave = await providerOptionsBeforeSaveResponse.json();
+  const runtimeProviderBeforeSave = providerOptionsBeforeSave.current_provider;
+  await page.getByRole("button", { name: "保存并切换" }).click();
+  await page
+    .getByRole("dialog", { name: "模型供应商" })
+    .waitFor({ state: "detached", timeout: 15_000 });
+
+  const providerOptionsResponse = await fetch(`${baseUrl}/api/provider/options`);
+  assert(
+    providerOptionsResponse.ok,
+    `Provider options failed after saving Splash: ${providerOptionsResponse.status}`,
+  );
+  const providerOptions = await providerOptionsResponse.json();
+  const splashOption = (providerOptions.providers ?? []).find((option) => option.id === provider);
+
+  // 顶栏模型按钮的作者可见名只来自 provider options 的 display_name（当前 UI 契约：
+  // providerDisplayName 不回退后端 label）；Splash 的 display_name 是「本地模型」。
+  // provider 身份另由保存后的 /api/provider/options.current_provider 断言，不靠 badge 文本。
+  const providerDisplayName =
+    splashOptionAfterSelect?.display_name?.trim() || splashOption?.display_name?.trim() || providerLabel;
+  const badge = modelProviderBadge(page);
+  try {
+    await page.waitForFunction(
+      ({ displayName }) => {
+        const buttons = Array.from(document.querySelectorAll("button"));
+        const target = buttons.find((button) =>
+          /模型已连接|模型未连接|模型检测中/.test(button.textContent ?? ""),
+        );
+        const text = `${target?.textContent ?? ""} ${target?.getAttribute("title") ?? ""}`;
+        return text.includes(displayName);
+      },
+      { displayName: providerDisplayName },
+      { timeout: 30_000 },
+    );
+  } catch (error) {
+    // 失败时把顶栏按钮的可见文本/title 逐项带入错误，便于区分「保存未生效」与
+    // 「badge 文案契约变化」，不靠猜测。
+    const observed = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("button"))
+        .map((button) => ({
+          text: (button.textContent ?? "").trim(),
+          title: button.getAttribute("title") ?? "",
+        }))
+        .filter((entry) => entry.text !== "" || entry.title !== ""),
+    );
+    throw new Error(
+      `${error.message}; providerDisplayName=${providerDisplayName}; expectedModel=${expectedModel}; observedButtons=${JSON.stringify(observed).slice(0, 2000)}`,
+      { cause: error },
+    );
+  }
+  const modelButtonText = (await badge.textContent())?.trim() ?? "";
+  const modelButtonTitle = (await badge.getAttribute("title")) ?? "";
+  const topBarText = `${modelButtonText} ${modelButtonTitle}`;
+
+  // 6) 真实聊天 turn：等待 provider 回复，并断言回复在页面可见。
+  const frameCountBeforeSend = frames.length;
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const turnFrame = await waitForNewFrame(
+    frameCountBeforeSend,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      assistantReplyText(frame.body).length > 0,
+    "No turn_result frame with a non-empty assistant reply after the Splash chat message",
+    240_000,
+  );
+  const turnResult = turnFrame.body;
+  const assistantText = assistantReplyText(turnResult);
+  const visibleNeedle = assistantReplyVisibleNeedle(assistantText);
+  await page.waitForFunction((needle) => document.body.innerText.includes(needle), visibleNeedle, {
+    timeout: 30_000,
+  });
+  const visibleText = await page.locator("body").innerText();
+  const assistantReplyVisible = visibleText.includes(visibleNeedle);
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, turnResult, sentMessage);
+
+  assert(splashListed, "Provider dropdown did not list the backend-registered splash provider");
+  assert(providerSelected === provider, "Splash was not selected in the model settings dialog");
+  assert(
+    providerOptionLabel === providerLabel,
+    `Provider dropdown label for splash was ${providerOptionLabel}`,
+  );
+  assert(
+    endpointInputCount > 0,
+    "Model settings dialog must keep an editable endpoint input for the configurable Splash provider",
+  );
+  assert(
+    endpointForRuntime.length > 0,
+    "Splash endpoint input must carry the default or author-edited endpoint",
+  );
+  assert(
+    splashOptionAfterSelect?.supports_endpoint === true,
+    "Splash provider options must declare a configurable endpoint",
+  );
+  assert(
+    endpointForRuntime === (splashOptionAfterSelect?.endpoint ?? "").trim() ||
+      (splashOptionAfterSelect?.endpoint ?? "").trim() === "",
+    `Splash provider options endpoint (${splashOptionAfterSelect?.endpoint}) did not match the dialog endpoint (${endpointForRuntime})`,
+  );
+  assert(expectedModel !== "", "Splash /v1/models returned no model");
+  assert(listedModelIds.includes(expectedModel), `Splash model list did not include ${expectedModel}`);
+  assert(modelSelected === expectedModel, "Splash model was not selected in the model settings dialog");
+  assert(connectionTestPassed, "Splash test connection did not show 连接可用。");
+  assert(
+    providerOptions.current_provider === provider,
+    "Saving did not switch the runtime provider to splash",
+  );
+  assert(
+    splashOption?.label === providerLabel &&
+      splashOption?.model === modelSelected,
+    "Provider options did not expose the Splash label/model contract after save",
+  );
+  assert(
+    splashOption?.requires_api_key === false && splashOption?.supports_api_key === true,
+    "Splash provider options did not declare optional API key semantics",
+  );
+  assert(
+    topBarText.includes(providerDisplayName),
+    `Top bar model button did not show the author-visible provider name (${providerDisplayName})`,
+  );
+  // 模型名是否出现在作者可见顶栏由 display SSOT 决定（`model` domain 未登记时产品有意
+  // 只显示中性的「当前模型」）；模型选择的证据来自 provider options，不靠顶栏文本。
+  const topBarShowsModelName = modelSelected !== "" && topBarText.includes(modelSelected);
+  assert(assistantText.length > 0, "Splash turn_result did not include a non-empty assistant reply");
+  assert(assistantReplyVisible, "Splash assistant reply was not visible in the real workbench");
+  assert(sentMessage, "No user_message websocket frame was sent for the Splash turn");
+  assert(visibleText.includes(message), "Real UI did not retain the Splash chat user message");
+  assert(
+    uiState.work_id === joined.work_id,
+    "Splash chat turn was not sent to the workbench channel that joined the work",
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: turnResult.turn_id,
+      provider_selected: provider,
+      provider_label: providerLabel,
+      provider_option_label: providerOptionLabel,
+      endpoint_default: (splashOptionAfterSelect?.endpoint ?? defaultEndpoint).trim(),
+      endpoint_input_visible: endpointInputCount > 0,
+      endpoint_input_hidden: endpointInputCount === 0,
+      endpoint_input_value: endpointForRuntime,
+      provider_options_supports_endpoint: splashOptionAfterSelect?.supports_endpoint === true,
+      provider_options_endpoint_fixed: splashOptionAfterSelect?.supports_endpoint === false,
+      splash_model_selected: modelSelected,
+      listed_model_ids: listedModelIds,
+      connection_test_passed: true,
+      live_provider: provider,
+      assistant_reply_non_empty: assistantText.length > 0,
+      assistant_reply_visible: assistantReplyVisible,
+      assistant_reply_text: assistantText.slice(0, 500),
+      provider_options_current_provider: providerOptions.current_provider,
+      provider_options_current_provider_before_save: runtimeProviderBeforeSave,
+      provider_switch_saved: providerOptions.current_provider === provider,
+      provider_options_label: splashOption?.label ?? null,
+      provider_options_model: splashOption?.model ?? null,
+      provider_options_endpoint: splashOption?.endpoint ?? null,
+      provider_options_requires_api_key: splashOption?.requires_api_key === true,
+      provider_options_supports_api_key: splashOption?.supports_api_key === true,
+      provider_options_supports_thinking: splashOption?.supports_thinking === true,
+      provider_display_name: providerDisplayName,
+      top_bar_contains_provider_label: topBarText.includes(providerDisplayName),
+      top_bar_contains_model: topBarShowsModelName,
+      model_name_display_suppressed_by_ssot: !topBarShowsModelName,
+      model_provider_button_text: modelButtonText,
+      model_provider_button_title: modelButtonTitle,
+      message_text: message,
+      no_acceptance_hooks: true,
+    },
+  ];
+}
+
 async function driveSu02WorkSwitching(page) {
   const nonce = `SU02-${Date.now()}`;
   const sourceWork = await createWorkSeed({ title: `SU02甲作品-${nonce}` });
@@ -41173,6 +41448,7 @@ const drivers = {
   "su01-api-key-secret-redaction": driveSu01ApiKeySecretRedaction,
   "su01-provider-vendor-matrix": driveSu01ProviderVendorMatrix,
   "su01-provider-strata-local": driveSu01ProviderStrataLocal,
+  "su01-provider-splash-local": driveSu01ProviderSplashLocal,
   "su01-model-provider-switching": driveSu01ModelProviderSwitching,
   "su02-work-switching": driveSu02WorkSwitching,
   "su02-artifact-projection-trace-isolation": driveSu02ArtifactProjectionTraceIsolation,

@@ -1,6 +1,6 @@
 # SU01 Splash Local Provider / 本地 Splash provider checkpoint
 
-- 状态：**in_progress（checkpoint，未闭环）**——后端 adapter / Gateway registry / config / 前端 provider id 与桌面白名单 / 验收 draft manifest / 文档已交付；**真实 Tauri 页面场景验收未执行**，Splash 专属外部 driver 与 runner 分派未实现，scenario 按 **draft** 登记、不可执行、不计 PASS，见 §7。
+- 状态：**closed（2026-11-12）**——后端 adapter / Gateway registry / config / 前端 provider id 与桌面白名单、Splash 专属外部 driver（`driveSu01ProviderSplashLocal`）、native verifier（evidence/behavior/key events）、`tauri_slice_verify.sh --provider splash` 与 live 预检全部交付，**真实 Tauri 批次已通过**（`artifacts/slice-verify/su01-provider-splash-local-tauri-splash/summary.json`：真实 POST `http://127.0.0.1:8000/v1/chat/completions` 200、作者可见回复「Splash 已连接。」、可编辑端点、live 模型列表、连接测试、保存切换）。**诚实边界**：该场景是 nightly/live 真实 provider，B41 `quality_accept` 按体系规则不写 pass verdict（`evidence_missing`，真实 provider 的 PASS 需 B42 model_behavior 层签署）；UI 驱动是真实 Tauri app + 真实前后端链路上的 headless-chromium 页面驱动，与既有 `su01-provider-strata-local` 同机制，见 §7。
 - 类型：System Slice（Provider Runtime）checkpoint + Acceptance Scenario draft 登记
 - 启动日期：2026-11-12
 - 来源：作者定向插单「模型供应商下拉新增本机 Splash」
@@ -72,14 +72,14 @@
 | T3 | 后端/前端局部测试 | 部分（各自负责人汇报） | 前端 `modelProvider.test.ts` 已覆盖 splash 可选；后端 `apps/novel_agent/test/novel_agent/provider/splash_test.exs`（286 行）已由后端测试 checkpoint 落盘，本文件不代签其运行结果；本 checkpoint 不以局部测试代替真实页面验收 |
 | T4 | 验收 scenario manifest + draft 登记 | done | `quality/acceptance/scenarios/su01-provider-splash-local.yml`（含非空 `status_note`，声明 driver 未实现、不可执行、不计 PASS）+ `scenarios.yml` 的 `drafts:` 条目 `{id, manifest, reason}` + `scenarios/README.md` draft 索引行 |
 | T5 | SU-01 文档对账 | done | 2026-11-12 对账结论（明确写 draft/未闭环）、§1「本地使用 Splash」行、§3 gateway 注册数量 11→12 |
-| T6 | 外部 driver / native verifier / runner 的 splash 注册 | **未闭环（本次不做）** | 需要 Splash 专属 `external-ui-driver` 场景、`native-tauri-verifier` 的 slice id/required events/evidence/behavior、`scripts/tauri_slice_verify.sh --provider splash` 白名单与场景分派；本次明确不实现、不改 runner |
-| T7 | 真实 Tauri 场景实跑 | **未闭环（当前不可执行）** | 依赖 T6；且需要本机 Tauri 桌面自动化环境与运行中的 Splash 服务；本次未跑，scenario 为 draft，永不计 PASS |
+| T6 | 外部 driver / native verifier / runner 的 splash 注册 | **done（2026-11-12）** | `frontend/slice-verify/external-ui-driver.mjs`：provider 白名单 + `splash` 运行时 attrs（端点可配置、模型读 live /v1/models、可选 key）+ `driveSu01ProviderSplashLocal`（registry → 可编辑端点 → live 模型列表 → 连接 → 保存切换 → 真实 turn → ui_state→dispatch）；`native-tauri-verifier.mjs`：key events、`findSu01ProviderSplashLocalEvidence`、`su01ProviderSplashLocalBehavior`、`findLiveProviderEvidence` 白名单；`scripts/tauri_slice_verify.sh`：`--provider splash` 白名单/分派、`-tauri-splash` 证据后缀、live `/models` 可达性预检、seed 空分派；`quality_accept.sh` usage；scenario 从 drafts 转 active（`quality/acceptance/scenarios.yml`） |
+| T7 | 真实 Tauri 场景实跑 | **done（2026-11-12）** | `bash scripts/tauri_slice_verify.sh --provider splash su01-provider-splash-local` → `passed`；证据 `artifacts/slice-verify/su01-provider-splash-local-tauri-splash/`（summary.json / app-log.json / ui-state.json / llm-calls / splash-log.json / 截图）；关键事实：`live_provider.provider=splash`、`request_count=1`、`status_codes=[200]`、`urls=["http://127.0.0.1:8000/v1/chat/completions"]`、`splash_model_selected=local/Q4-PLE4`、`endpoint_input_visible=true`、`connection_test_passed=true`、`assistant_reply_visible=true`、`log_noise.ok=true`。`quality_accept.sh` 走同一入口复跑再次 `passed`，但按 B41 规则对真实 provider 报 `evidence_missing`（需 B42 层签署），如实登记。 |
 
 ## 5. 验证
 
 本次已执行：
 
-- [x] `ruby -ryaml -e 'YAML.load_file("quality/acceptance/scenarios.yml"); YAML.load_file("quality/acceptance/scenarios/su01-provider-splash-local.yml")'` → 通过；校验 `scenarios` 不含 splash、`drafts` 含 splash、manifest id 一致、`status_note` 非空
+- [x] `ruby -ryaml -e 'YAML.load_file("quality/acceptance/scenarios.yml"); YAML.load_file("quality/acceptance/scenarios/su01-provider-splash-local.yml")'` → 通过；2026-11-12 起校验 `scenarios` **含** splash、`drafts` 不含 splash、manifest id 一致、`status_note` 非空；`node scripts/lib/quality/manifest_cli.mjs validate --root .` → passed（232 scenarios / 2 drafts / 234 manifests）
 - [x] `bash scripts/quality_manifest_check.sh` → `[quality-manifest-check] passed（231 scenarios / 3 drafts / 234 manifests；yaml=6.0.3）`
 - [x] `curl -s http://127.0.0.1:8000/v1/models`（本机 Splash live 探活，返回 `local/Q4-PLE4`）
 - [x] `splash --version` → `Splash 1.6.1`
@@ -97,7 +97,21 @@ bash scripts/tauri_slice_verify.sh --provider splash su01-provider-splash-local
 bash scripts/quality_accept.sh su01-provider-splash-local --surface tauri --provider splash
 ```
 
-**当前结果：未实跑。** 上述命令依赖 T6（driver/verifier/runner 的 splash 注册），本次未交付；scenario 为 draft，永不执行、不计 PASS，不得把 draft 登记或后端代码存在当作页面验收通过。
+**当前结果：已实跑并通过（2026-11-12）。**
+
+```
+bash scripts/tauri_slice_verify.sh --provider splash su01-provider-splash-local
+# → [tauri-slice-verify] verified su01-provider-splash-local turn_id=...
+# → [tauri-slice-verify] passed: su01-provider-splash-local
+```
+
+证据目录 `artifacts/slice-verify/su01-provider-splash-local-tauri-splash/`：
+- `summary.json`：`live_provider {provider: splash, request_count: 1, status_codes: [200], urls: [http://127.0.0.1:8000/v1/chat/completions]}`；`endpoint_input_visible=true`、`endpoint_input_value=http://127.0.0.1:8000/v1`、`splash_model_selected=local/Q4-PLE4`、`connection_test_passed=true`、`assistant_reply_visible=true`、`top_bar_contains_provider_label=true`（作者可见名「本地模型」；内部模型名按 display SSOT 不在顶栏展示，`top_bar_contains_model=false` 并显式记录为设计抑制）、`log_noise.ok=true`、behavior assertions 15 项。
+- `llm-calls/2026-11-12.jsonl`：真实产品请求体（canonical system prompt + 作者原话），`POST http://127.0.0.1:8000/v1/chat/completions` 200。
+- `su01-provider-splash-local-external-ui.png`：真实页面截图（作者消息 → AI 助手「Splash 已连接。」→ 已完成）。
+- `ui-state.json` / `app-log.json` / `ui-frames.json`：页面、日志与 WS 帧证据。
+
+**边界**：`quality_accept.sh` 再次执行同样得到 `passed`，但按 B41 体系规则对真实 provider 不写 pass verdict（`evidence_missing`，需 B42 model_behavior 层签署）——与 `su01-provider-strata-local` 同层级；不得据此宣称 SU-01 完成 B42 层模型行为验收。
 
 ## 6. 证据路径
 
@@ -105,7 +119,7 @@ bash scripts/quality_accept.sh su01-provider-splash-local --surface tauri --prov
 - draft 登记：`quality/acceptance/scenarios.yml` 的 `drafts:` 条目（id `su01-provider-splash-local`，reason 写明 driver 未实现）
 - 索引：`quality/acceptance/scenarios/README.md`（draft 标注行）、`tasks/slices/README.md`（本 slice 行）
 - 文档：`docs/design/acceptance/system/SU-01-model-provider.md`（2026-11-12 对账结论）
-- 预期 runner 证据目录（**尚未产出，当前不可产出**）：`artifacts/slice-verify/su01-provider-splash-local-tauri-splash/`；未来 T6 完成后应包含 `summary.json`、`app-log.jsonl`、`llm-calls/*.jsonl`、`ui-state.json`、`ui-frames.json`、真实工作台截图
+- runner 证据目录（**已产出，2026-11-12**）：`artifacts/slice-verify/su01-provider-splash-local-tauri-splash/`，含 `summary.json`、`app-log.json`、`llm-calls/2026-11-12.jsonl`、`ui-state.json`、`ui-frames.json`、`splash-log.json`、`log-noise.json`、真实页面截图 `su01-provider-splash-local-external-ui.png`
 - live 服务事实（2026-11-12 本地实测）：`GET http://127.0.0.1:8000/v1/models` 返回 `id=local/Q4-PLE4`、`owned_by=splash`、`context_length=262144`；`splash --version` = `Splash 1.6.1`。这是服务事实，不是产品页面验收证据。
 
 ## 7. 诚实边界（未闭环项）
@@ -128,7 +142,9 @@ bash scripts/quality_accept.sh su01-provider-splash-local --surface tauri --prov
   - 思考控制沿用 `OpenAICompatible` 宏的 `thinking_style: :reasoning_effort`：默认 disabled → 顶层 `reasoning_effort: "none"`，不发 `thinking` 对象。
   - 验收采用 **draft 登记**而非 active 登记（Lead 2026-11-12 决定）：该场景需要 Splash 专属 driver / verifier / runner 分派，本次均不实现，也不修改 `scripts/tauri_slice_verify.sh`；若强行登记为 active 会制造「脚本支持 splash 场景」的假象。因此写入 `scenarios.yml` 的 `drafts:`，manifest 加 `status_note`，索引标注 draft/不可执行。
   - 未改产品源码以外的验收产品行为；scenario/文档均位于验收侧。
-- 2026-11-12 — 本次 checkpoint **不**包含 driver/verifier/runner，也不包含真实页面实跑；后续 checkpoint 需补齐 T6 并取得真实 Tauri PASS 后，才能把 scenario 从 draft 转为 active、把本 slice 状态从 in_progress 改为 closed。
+- 2026-11-12 — 首个 checkpoint：**不**包含 driver/verifier/runner，也不包含真实页面实跑（scenario 当时为 draft）。
+- 2026-11-12 — 第二 checkpoint（T6）：补齐 Splash 专属 driver/verifier/runner 注册与 live 预检，scenario 从 drafts 转 active（`manifest_cli validate` 232/2/234 通过）。
+- 2026-11-12 — 第三 checkpoint（T7）：真实 Tauri 批次 `su01-provider-splash-local-tauri-splash` **passed**（真实 Splash 模型 POST /v1/chat/completions 200、作者可见回复、可编辑端点、live 模型列表、连接测试、保存切换、页面证据齐）；同一入口经 `quality_accept.sh` 复跑再次 passed。B41 体系对真实 provider 不写 pass verdict（evidence_missing，B42 层另签），如实登记。slice 转 closed。
 
 ## 9. 试行反馈
 

@@ -56,6 +56,14 @@ scenarios:
     manifest: quality/acceptance/scenarios/su01-provider-strata-local.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh su01-provider-strata-local --surface tauri --provider strata
+  - id: su01-provider-splash-local
+    title: "本机 Splash provider 真实页面闭环（registry → 可编辑端点 → live 模型列表 → 连接 → 保存切换 → 真实 turn）"
+    tier: nightly
+    surface: tauri
+    default_provider: splash
+    manifest: quality/acceptance/scenarios/su01-provider-splash-local.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh su01-provider-splash-local --surface tauri --provider splash
   - id: su01-local-secret-file-roundtrip
     title: "真实 Tauri WebView 本地密钥文件写读与脱敏"
     tier: nightly
@@ -1682,9 +1690,3 @@ drafts:
     reason: >-
       draft（无外部 driver）：B34 确定性 fixture manifest，映射 CP1 契约到 slice_verify
       判断 fixture + application/agent 确定性测试；CP3 真实模型 scoped 验证另行登记。
-  - id: su01-provider-splash-local
-    manifest: quality/acceptance/scenarios/su01-provider-splash-local.yml
-    reason: >-
-      draft（driver 未实现）：Splash 本地 provider 的 nightly/live Tauri 场景草案；
-      需要 Splash 专属 external-ui-driver / native-tauri-verifier 分派与
-      tauri_slice_verify provider 白名单后才能转 active。

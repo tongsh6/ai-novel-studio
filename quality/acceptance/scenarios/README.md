@@ -187,7 +187,7 @@
 | `su01-provider-endpoint-validation.yml` | 供应商 endpoint URL 校验 |
 | `su01-provider-health-model.yml` | 供应商健康状态与模型徽标 |
 | `su01-provider-model-list-success.yml` | 供应商实时模型列表成功矩阵 |
-| `su01-provider-splash-local.yml` | **draft（driver 未实现，不可执行、不计 PASS）**：本地 Splash provider 真实页面验收草案（registry/可编辑端点/live 模型列表/连接/保存切换/真实 turn）；需 Splash 专属 external-ui-driver / native-tauri-verifier 分派与 tauri_slice_verify provider 白名单后转 active |
+| `su01-provider-splash-local.yml` | **active（driver 已注册，2026-11-12；真实批次证据待跑）**：本机 Splash provider 真实页面闭环（registry/可编辑端点/live 模型列表/连接/保存切换/真实 turn）；nightly/live，需本机 Splash 服务与已加载模型；未产出真实 Tauri 批次证据前不计 PASS |
 | `su01-provider-strata-local.yml` | Strata App 统一推理后台 provider 真实页面闭环（registry/统一端点/模型列表/连接/保存切换/真实 turn） |
 | `su01-provider-test-failure-ui.yml` | 模型测试连接失败反馈与恢复 |
 | `su01-provider-vendor-matrix.yml` | 供应商矩阵扩展（OpenAI/Minimax/智谱/Kimi/Gemini）与认证方式区分 |

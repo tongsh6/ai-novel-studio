@@ -2,9 +2,11 @@ id: su01-provider-splash-local
 title: 本地 Splash provider 真实页面闭环（registry → 可编辑端点 → live 模型列表 → 连接 → 保存切换 → 真实 turn）
 tier: nightly
 surface: tauri
-# 本轮状态：draft 登记（quality/acceptance/scenarios.yml 的 drafts 列表）；driver 未实现，
-# 当前不可执行、永不执行、不计 PASS。
-status_note: "draft（driver 未实现）：Splash 本地 provider 的 nightly/live Tauri 验收 manifest 草案；Splash 专属 external-ui-driver / native-tauri-verifier 分派与 tauri_slice_verify --provider splash 白名单尚未实现，本 manifest 当前不可执行、不得计入 PASS；driver 落地并取得真实 Tauri PASS 后方可转 active。"
+# 状态（2026-11-12）：driver 已在 external-ui-driver.mjs / native-tauri-verifier.mjs 注册，
+# tauri_slice_verify 支持 --provider splash，本 manifest 已转 active。active 只表示可执行，
+# 不等于 PASS：真实 Tauri 批次证据（summary.json + 真实 POST /v1/chat/completions 2xx）
+# 必须由批次产出；未跑批次前不代签。
+status_note: "active（driver 已注册，2026-11-12）：Splash 专属 external-ui-driver / native-tauri-verifier 分派与 tauri_slice_verify --provider splash 白名单已实现；本场景是 nightly/live，需要本机 Splash 服务运行（默认 http://127.0.0.1:8000/v1）并已加载模型。场景可执行不代表已通过：必须由真实 Tauri 批次产出 summary.json 与真实 POST /v1/chat/completions 2xx 证据后才可计 PASS。"
 entrypoint: scripts/quality_accept.sh su01-provider-splash-local --surface tauri --provider splash
 
 contract:
@@ -36,7 +38,7 @@ user_flow:
   - refresh: the model list from the live Splash /v1/models endpoint of the running local Splash service
   - select: the model currently reported by Splash from the visible model dropdown
   - test: click the visible 测试连接 button and see 连接可用。
-  - save: click 保存并切换, the dialog closes and the top bar shows Splash with the current model
+  - save: click 保存并切换, the dialog closes and the top bar shows the author-visible provider name with the connection state; the model name is shown only when registered in the author-visible display SSOT (model names managed by Splash are not exposed as internal strings)
   - send: one short chat message from the real workbench composer
   - observe: the assistant reply is visible and the correlated turn was handled by the splash provider
 

@@ -355,6 +355,14 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  "su01-provider-splash-local": [
+    "channel.join.done",
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "su01-local-secret-file-roundtrip": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-model-provider-switching": [
     "channel.join.done",
@@ -1851,7 +1859,7 @@ export function keyEventsForSlice(sliceId) {
 }
 
 export function findLiveProviderEvidence(provider, turnIds, records) {
-  if (!["lmstudio", "deepseek", "strata"].includes(provider)) return null;
+  if (!["lmstudio", "deepseek", "strata", "splash"].includes(provider)) return null;
 
   const requiredTurnIds = new Set(turnIds.filter(Boolean));
   if (requiredTurnIds.size === 0) return null;
@@ -2746,6 +2754,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findSu01ProviderStrataLocalEvidence(records);
   }
 
+  if (sliceId === "su01-provider-splash-local") {
+    return findSu01ProviderSplashLocalEvidence(records);
+  }
+
   if (sliceId === "su01-local-secret-file-roundtrip") {
     return findSu01LocalSecretFileRoundtripEvidence(records);
   }
@@ -3596,6 +3608,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "su01-provider-strata-local") {
     return su01ProviderStrataLocalBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "su01-provider-splash-local") {
+    return su01ProviderSplashLocalBehavior(records, evidence, options);
   }
 
   if (sliceId === "su01-local-secret-file-roundtrip") {
@@ -11157,6 +11173,97 @@ function findSu01ProviderStrataLocalEvidence(records) {
       provider_label: uiState.provider_label,
       endpoint_default: uiState.endpoint_default,
       strata_model_selected: uiState.strata_model_selected,
+      connection_test_passed: uiState.connection_test_passed,
+      live_provider: uiState.live_provider,
+      assistant_reply_non_empty: uiState.assistant_reply_non_empty,
+      assistant_reply_visible: uiState.assistant_reply_visible,
+      top_bar_contains_provider_label: uiState.top_bar_contains_provider_label,
+      top_bar_contains_model: uiState.top_bar_contains_model,
+      listed_model_ids: uiState.listed_model_ids,
+      provider_after_switch: providerDone.provider,
+      model_after_switch: providerDone.model,
+      message_text: uiState.message_text,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findSu01ProviderSplashLocalEvidence(records) {
+  const sliceId = "su01-provider-splash-local";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.provider_selected === "splash" &&
+      record.provider_label === "Splash" &&
+      // Splash 端口由本机 `splash serve --port`/部署决定：descriptor 声明
+      // supports_endpoint=true，设置页必须保留可编辑端点输入（与 Strata 固定入口相反）。
+      typeof record.endpoint_default === "string" &&
+      record.endpoint_default.length > 0 &&
+      record.endpoint_input_visible === true &&
+      record.endpoint_input_hidden === false &&
+      typeof record.endpoint_input_value === "string" &&
+      record.endpoint_input_value.length > 0 &&
+      record.provider_options_supports_endpoint === true &&
+      record.provider_options_endpoint_fixed === false &&
+      typeof record.splash_model_selected === "string" &&
+      record.splash_model_selected.length > 0 &&
+      Array.isArray(record.listed_model_ids) &&
+      record.listed_model_ids.includes(record.splash_model_selected) &&
+      record.connection_test_passed === true &&
+      record.live_provider === "splash" &&
+      record.assistant_reply_non_empty === true &&
+      record.turn_id &&
+      record.work_id &&
+      record.context_work_id === record.work_id,
+  );
+
+  for (const uiState of uiStates) {
+    const turnRecords = byTurn.get(uiState.turn_id) ?? [];
+    const joined = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === uiState.work_id,
+    );
+    if (!joined) continue;
+    if (uiState.socket_connected !== true) continue;
+    if (uiState.assistant_reply_visible !== true) continue;
+    if (uiState.top_bar_contains_provider_label !== true) continue;
+    // 顶栏是否展示模型名由 display SSOT 的 `model` domain 决定；未登记时产品有意
+    // 只显示中性的「当前模型」。因此这里只要求作者可见 provider 名，模型选择证据
+    // 来自 provider options / provider_gateway 日志。
+    if (uiState.provider_options_current_provider !== "splash") continue;
+    if (uiState.provider_switch_saved !== true) continue;
+    if (uiState.no_acceptance_hooks !== true) continue;
+
+    const hasAllEvents = keyEvents.every((event) =>
+      event === "channel.join.done" ? true : turnRecords.some((record) => record.event === event),
+    );
+    if (!hasAllEvents) continue;
+
+    const providerDone = turnRecords.find(
+      (record) =>
+        record.event === "provider_gateway.complete.done" &&
+        record.provider === "splash" &&
+        typeof record.model === "string" &&
+        record.model.length > 0,
+    );
+    if (!providerDone) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: uiState.turn_id,
+      turn_ids: [uiState.turn_id],
+      work_id: uiState.work_id,
+      provider_selected: uiState.provider_selected,
+      provider_label: uiState.provider_label,
+      endpoint_default: uiState.endpoint_default,
+      endpoint_input_visible: uiState.endpoint_input_visible,
+      endpoint_input_value: uiState.endpoint_input_value,
+      provider_options_supports_endpoint: uiState.provider_options_supports_endpoint,
+      splash_model_selected: uiState.splash_model_selected,
       connection_test_passed: uiState.connection_test_passed,
       live_provider: uiState.live_provider,
       assistant_reply_non_empty: uiState.assistant_reply_non_empty,
@@ -26046,6 +26153,54 @@ function su01ProviderStrataLocalBehavior(records, evidence, options) {
       "save_switched_runtime_provider_to_strata",
       "top_bar_model_button_showed_strata_and_current_model",
       "post_save_turn_used_strata_provider_in_gateway_log",
+      "assistant_reply_was_non_empty_and_visible_in_real_workbench",
+      "llm_http_log_has_post_v1_chat_completions_2xx_for_the_correlated_turn",
+      "product_code_added_no_acceptance_hooks",
+      "no_error_events",
+    ],
+  };
+}
+
+function su01ProviderSplashLocalBehavior(records, evidence, options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+  // live 本地 provider 验收：必须用 --provider splash 跑，且 LLM HTTP 日志里同一
+  // turn 有真实 POST /v1/chat/completions 2xx，才允许通过。
+  if (options.provider !== "splash") return null;
+  if (!findLiveProviderEvidence("splash", evidence.turn_ids, options.llmRecords ?? [])) return null;
+
+  const turnRecords = records.filter((record) => evidence.turn_ids.includes(record.turn_id));
+  const providerDone = turnRecords.find(
+    (record) => record.event === "provider_gateway.complete.done" && record.provider === "splash",
+  );
+  if (!providerDone) return null;
+
+  return {
+    slice_id: "su01-provider-splash-local",
+    behavior: "local_splash_provider_registry_configurable_endpoint_model_connection_and_real_turn",
+    turn_ids: evidence.turn_ids,
+    work_id: evidence.work_id,
+    provider_selected: evidence.provider_selected,
+    provider_label: evidence.provider_label,
+    endpoint_default: evidence.endpoint_default,
+    endpoint_input_visible: evidence.endpoint_input_visible,
+    endpoint_input_value: evidence.endpoint_input_value,
+    splash_model_selected: evidence.splash_model_selected,
+    connection_test_passed: evidence.connection_test_passed,
+    live_provider: evidence.live_provider,
+    provider_after_switch: evidence.provider_after_switch,
+    model_after_switch: evidence.model_after_switch,
+    assertions: [
+      "splash_provider_came_from_backend_registry",
+      "splash_default_endpoint_is_the_local_openai_compatible_8000_entry",
+      "model_settings_kept_an_editable_endpoint_input_because_the_port_is_deployment_owned",
+      "provider_options_declared_supports_endpoint_true",
+      "model_list_came_from_live_splash_models_endpoint",
+      "splash_managed_model_was_selected_in_the_visible_dialog",
+      "test_connection_succeeded_against_live_splash",
+      "save_switched_runtime_provider_to_splash",
+      "top_bar_model_button_showed_the_author_visible_provider_name",
+      "model_name_is_only_shown_when_registered_in_the_display_ssot",
+      "post_save_turn_used_splash_provider_in_gateway_log",
       "assistant_reply_was_non_empty_and_visible_in_real_workbench",
       "llm_http_log_has_post_v1_chat_completions_2xx_for_the_correlated_turn",
       "product_code_added_no_acceptance_hooks",
