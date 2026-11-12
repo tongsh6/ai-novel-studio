@@ -21,6 +21,7 @@
 | B85 | 模型上下文窗口用户设置（UI 入口）：作者反馈「窗口不应写死、要开放给用户配置」；初始能力已落（`preferences.json` 的 `context_windows` + Tauri 启动注入 sidecar env，`044092df`），**设置页 UI 未做**（当前应用无系统设置菜单，唯一设置入口是模型供应商弹窗）。 | [B85](slices/B85-model-context-window-settings.md) |
 | B87 | Issue #4 模型交互请求/响应投影治理：**仅登记计划，未开始实施**；R00 基线/边界核对可作为候选，R01 需原始请求证据；R02/R03 先核 B81 CP5/G6 与冻结契约，不重做 B71/B81 已实现内容。R10 为授权体系（风险等级/授权模式/critical/full 自动采纳），以 [VS-00M](../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md) §3.4/§3.6 为设计输入。不得抢占 B81 当前队首。 | [B87](slices/B87-model-interaction-request-projection.md) |
 | B86 | 模型材料与返回结构化（内部标识隔离）：作者指出根因「发给模型的数据没结构化、返回也不够结构化」——章节编号/名称/内容与内部 `chapter:<uuid>` 混在自然语言材料里，模型复述到作者可见正文（`cp5-real-05` 实模证据）。方案：材料结构化（ref 只进专用字段）+ tool schema 约束作者可见字段禁内部标识 + 作者可见出口统一 `AuthorVisible.Text` 投影；独立预注册验收。 | [B86](slices/B86-structured-model-materials-internal-ref-isolation.md) |
+| B88 | sidecar 端口可配置（产品功能）：默认 4658，支持冲突回退/显式配置；前端 API/WS/CSP 与 OriginPolicy 跟随；受益 B65 release Origin 采集与多实例调试，不是验收钩子。 | [B88](slices/B88-configurable-sidecar-port.md) |
 
 依赖排序（2026-11-13 更新）。B79 CP0/CP1 等待作者确认启动。B78 按原任务的 B71 依赖排期，B84 和 B71 后续候选的预注册准备可并行。B82 的独立批次条件见原任务，B83 阻塞于凭证。B81 已于 2026-11-11 复核 done（CP1–CP6，G6 证据见 [B81 §12](slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)）；B71 实模窗口已由 Splash 解除（2026-11-13 全局授权），收口仍依赖 B82 的 G3/G5 与 Responses/Anthropic 实模（后者仍需官方凭证），G2 与剩余 G 切片证据见 B71 与 B82 原任务。
 
