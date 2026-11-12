@@ -40,7 +40,7 @@
 - **B57 CP1 B/C/D**：需 B39/UA01 受控观察/外部资料 fixture 与数据授权；A/E/F 已 PASS；见 [B57](slices/B57-sec-injection-boundary.md#阻塞记录2026-10-31)。
 - **P1-AUDIT-BC 页面**：两次 stale projection banner 断言失败，依赖 AU08 投影新鲜度缺口或断言重锚；见 [P1](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外)。
 - **B01 后续（2026-11-13 作者选 A）**：新增 nullable `origin_turn_ref`、`origin_frame_ref` 改 nullable；SQLite 表重建 migration，旧合成值按 legacy 读取、不回填；待实施。见 [B01](2026-10-27-design-to-execution-reconciliation.md)。
-- **B43 后续**：MissingPolicy 门序需 A（推荐）/B/C/D 裁决（工程依赖，不阻塞 B48 CP0）；见 [B43](slices/B43-gate-order-residual.md)。
+- **B43 后续（2026-11-13 作者选 A）**：GateOrder 新增显式 `missing_policy` gate（ADR-0005 12→13 门）；六个 flow 与 TurnExecutionService 统一进门；待实施。见 [B43](slices/B43-gate-order-residual.md)。
 - **B67 后续**：维护 StateTrace 依赖 VS00F-TRACE 先冻结；见 [B67](slices/B67-revision-aware-ledger-maintenance.md)。
 - **B65 后续**：release 打包 Origin 采集环境缺失；见 [B65](slices/B65-local-http-websocket-origin-boundary.md)。
 - **B64 实模**：一次 judgment_protocol_violation 失败待裁决；见 [B64](slices/B64-coordinate-aware-memory-consumption.md)。

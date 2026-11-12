@@ -1,6 +1,6 @@
 # B43：统一执行裁决与 Gate 残余——行为输入、幂等输入与回放
 
-- 状态：**blocked（2026-10-31 CP0/CP1 done；CP2 Form R/Replay 同源已落地，但 MissingPolicy 与 open_behavior 的门序位置需先冻结设计；CP3/CP4 未开工）**。
+- 状态：**todo（作者 2026-11-13 选 A：GateOrder 增加显式 missing_policy gate 并改 ADR-0005 门集合/顺序；CP0/CP1 done、CP2 Form R/Replay 已落地；CP2 剩余统一进门与 CP3/CP4 待实施）**。
 - 登记日期：2026-10-27；来源：12 门与 allow 路径已验收，但 blocked 页面、open_behavior/slot 顺序和同键异 payload 仍未闭合。
 - 上游：ADR-0005、[GATE-ORDER-CLOSURE](GATE-ORDER-CLOSURE-execution-gate-order-12.md)、[B40](B40-judgment-era-acceptance-reanchor.md)、[B49](B49-core-semantics-and-adr-review.md)。
 
@@ -95,6 +95,13 @@
   - D）先只覆盖 prose_writing flow，其余五 flow 留缺口；代价：非完整 CP2。
   该选择涉及 ADR-0005 门集合与验收判据，需作者/ADR owner 裁决，不能由实现自行扩门。CP3 blocked 页面 driver 也依赖该门序结论，故 B43 转 blocked，CP3/CP4 未开工。
 - 未完成（CP2 剩余）：六个 agent run flow 与 TurnExecutionService 的 open_behavior/slot/MissingPolicy 统一进门未做；真实页面 Why/Replay 证据、等待/失败出口映射未做。
+
+### 2026-11-13 作者选 A：显式 missing_policy gate
+
+- **决策**：作者选择 A——在 GateOrder 增加显式 `missing_policy` gate（ADR-0005 门集合/顺序变更，12 门 → 13 门），flow 把真实坐标/缺失事实注入 gate_context。
+- **实施**：先更新 ADR-0005 门集合与版本；六个 agent run flow 与 TurnExecutionService 的 open_behavior/slot/MissingPolicy 统一进门；trace `first_blocking_gate` 与 GateResult 一致；CP3 页面 driver 依赖该门序。
+- **边界**：不自批扩门以外的语义；B01/B45 契约按消费者协同；不把局部覆盖当完整 CP2。
+- **验收**：缺章/缺失槽位/behavior 阻断在 trace 显示为对应 gate；Why/Replay 一致；真实页面证据。
 
 ## 4. 非目标
 
