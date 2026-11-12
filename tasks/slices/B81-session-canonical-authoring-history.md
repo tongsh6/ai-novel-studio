@@ -1,6 +1,6 @@
 # B81：会话级 canonical 创作历史（ADR-0035 落地）
 
-- 状态：**done（2026-11-11 复核通过，分项状态见 §7，实模与门禁证据见 §12）**
+- 状态：**done（2026-11-11 复核通过，分项状态见 §7，实模与门禁证据见 §12；2026-11-12 独立复核与文档/清理修复见 §11 末条）**。已知缺口：CP5 的 C9 作者可见面内部标识泄漏由 [B86](B86-structured-model-materials-internal-ref-isolation.md) 跟踪（B86 未启动、实现已撤回），G6 判据映射与读取规模边界见 §8.6.2/§9。
 - 来源：
   - 作者 2026-11-08 批准 [ADR-0035：会话级 canonical 创作上下文](../../docs/design/adr/ADR-0035-session-scoped-canonical-authoring-context-v3.md)（Accepted）。
   - 产品级偏差诊断：[2026-11-08-session-level-product-deviation](../../docs/design/notes/2026-11-08-session-level-product-deviation.md)（P0-1 跨轮上下文断裂、P0-2 会话级 canonical 事实源缺失、P1-1 压缩/G6 不可达）。
@@ -72,7 +72,7 @@ v3 早期设计（[01 §3.3](../../docs/design/01-user-llm-workbench-interaction
 ## 4. 边界
 
 - 修改：`novel_application`（`AuthoringCheckpoint`、`AgentRunPersistence`、`AgentRunService` 恢复路径、`AuthoringReplay`、`AuthoringTranscript.checkpoint_version/0`）、`novel_persistence`（新增 `AuthoringSessionLog` + 两个 schema + 迁移；`AgentRunLog`、`AuthoringRunRecord`、`AuthorQuestionRepo`）。
-- 不改：`novel_common`（Request IR/Compaction 契约族；阶段 2 若需纯契约另行裁决，见 §9）、`novel_agent`（provider 投影/能力事实）、`novel_web`（Channel/TurnResult 投影）、前端、`novel_telemetry`、内存 flow 边界（`AgentRunFlows.AuthoringSession` 的 stage_state 契约与 error3 形状不变）。
+- 不改：`novel_agent`（provider 投影/能力事实）、`novel_web`（Channel/TurnResult 投影）、前端、`novel_telemetry`、内存 flow 边界（`AgentRunFlows.AuthoringSession` 的 stage_state 契约与 error3 形状不变）。**`novel_common` 边界按阶段登记**：CP1 零改动；CP3/CP4 为 ADR-0035 落地修改了 `RequestIR`/`Compaction`（`473e1339` 拒绝仅含 turn_range 的 checkpoint、`a8bacecf`/`ae1c077a` 观察与压缩形状）并同步修订 VS-00L §16.2 正文，属 ADR-0035 §Contract 影响授权的「补齐覆盖 turn 范围落地」；Frozen 判据不变，变更记录见 VS-00L §16.2 与 §9。
 - 迁移只按未发布原则：删除/替换旧列，不做历史兼容；只读历史证据保留在 `artifacts/`。
 
 ## 5. 消费者
@@ -115,7 +115,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 | 任务 | 关系 | 当前状态/依赖 |
 |---|---|---|
 | [B71](B71-provider-message-fidelity.md) | 上游契约与历史证据；**G6 取证移交 B81 CP5**；B71 CP5 收口依赖 G 切片/实模凭证 | CP5 仍 doing |
-| [B82](B82-b71-golden-slice-evidence.md) | G2/G3/G5 与 Responses/Anthropic 实模补证；与 B81 互补不重复（G6 不在 B82） | todo，待窗口/凭证 |
+| [B82](B82-b71-golden-slice-evidence.md) | G2/G3/G5 与 Responses/Anthropic 实模补证；与 B81 互补不重复（G6 不在 B82） | doing（G2 页面+技术核验通过；G3 判据就绪；G5 与 Responses/Anthropic 实模开放） |
 | [B83](B83-vendor-stream-options-matrix.md) | `stream_options.include_usage` 矩阵；与 CP2/CP4 的 usage/能力事实相关但不阻塞 | blocked（凭证） |
 | [B84](B84-web-slow-tests-and-arch-debt.md) | web 慢测试/测试债务；与 B81 并行，写域在测试前置层 | todo |
 | [B78](B78-module-size-debt.md) | 大模块拆分；CP1 未改 `agent_run_server.ex`（内存流程不变），同文件冲突降低 | 待 B71 收口 |
@@ -130,6 +130,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - **B78 冲突面盘点（2026-11-09 只读）**：CP2 拟定改动与 B78 拆分目标重叠文件——`agent_run_server.ex`（3499 行，B78 P1：状态机/命令处理/结果提交/恢复/预算拆分；CP2 需改会话历史加载、`maybe_auto_maintain`/压缩作用域、stage_state 语义）、`judgment_protocol.ex`（1435 行，B78 P3；CP2 需改 `new_transcript` 接受会话历史）、`dialogue_planning_service.ex`（3200 行，B78 P1；CP2 需改 `judgment_protocol_input` 传入会话历史）、`turn_execution_service.ex`（3059 行，B78 P1；CP2 恢复/请求路径可能改）。**顺序建议（待裁决）**：先 CP2 再 B78——B78 的验收前提是「行为不变 + 全量测试为基线」，而 CP2 变更行为；先拆分会让 CP2 在新结构上再改一次并增加两次回归；先 CP2 则 B78 可把 CP2 新代码按职责一次搬移。反方向若必须先 B78：至少完成 `agent_run_server.ex` 首个拆分后 CP2 才开工，且 CP2 改动落在拆分后的新模块。
 - **CP2 修改预算**：`agent_run_server.ex` 受 module-size ratchet 限制（baseline max 3471 + 允许增量 174 = 3645，当前 3499，余量约 146 行）；CP2 的会话历史加载/组装应放进新 application 模块（如会话历史视图/组装器）而非继续堆入该文件，既满足 ratchet 也符合 SRP。
 - 与 B84 并行无冲突（测试前置层）；与 B82/B83 无写域冲突（验收/矩阵脚本与 artifacts）。
+- **2026-11-12 更新**：CP2–CP6 已全部实现（§7/§12），§7.2 的「先 CP2 再 B78」顺序裁决已随 CP2 完成而生效——B78 可在当前结构上按「一次一个文件、独立 refactor commit」排期；`agent_run_server.ex` 等文件的 ratchet 基线未被净增长（§12 门禁记录）。
 
 ### 7.3 上下游、前置与后置任务（登记全）
 
@@ -156,35 +157,35 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 
 | 实现目标 | 承接任务 | 状态/说明 |
 |---|---|---|
-| 决策 1–2：session 为上下文主体、run 为执行段 | B81 CP1（事实源，**已实现**）+ CP2（请求派生） | CP1 done；CP2 todo |
-| 决策 3：每轮请求由会话派生（窗口压力 checkpoint 投影） | B81 CP2 | todo |
-| 决策 4–5：压缩作用域会话历史 + 压缩为上下文管理机制 | B81 CP3 | todo |
+| 决策 1–2：session 为上下文主体、run 为执行段 | B81 CP1（事实源）+ CP2（请求派生） | **done**（CP1/CP2；证据见 §7/§12） |
+| 决策 3：每轮请求由会话派生（窗口压力 checkpoint 投影） | B81 CP2 | **done**（CP2） |
+| 决策 4–5：压缩作用域会话历史 + 压缩为上下文管理机制 | B81 CP3 | **done**（CP3） |
 | 决策 6：事实材料经工具按需读取（不改） | 既有工具/探索链（B71 历史实现） | 已实现，无新任务 |
-| 决策 7：保留 ADR-0033 契约族 | B81 CP1–CP4 的边界约束 | CP1 已遵守（契约族零改动） |
-| 决策 8：审计/回查以会话为对象 | B81 CP4 | todo |
-| 决策 9：旧语义处置（未发布不兼容） | B81 CP6（旧材料退役）；CP1 已退役 run 级私有列 | CP1 done；CP6 todo |
+| 决策 7：保留 ADR-0033 契约族 | B81 CP1–CP4 的边界约束 | **CP1 零改动**；CP3/CP4 按 ADR-0035 落地修改 `RequestIR`/`Compaction` 与 VS-00L §16.2（已登记变更记录，见 §4/§9） |
+| 决策 8：审计/回查以会话为对象 | B81 CP4 | **done**（CP4） |
+| 决策 9：旧语义处置（未发布不兼容） | B81 CP6（旧材料退役）；CP1 已退役 run 级私有列 | **done**（CP1/CP6） |
 | 决策 10：不隐式压缩 | B81 CP3 验收约束 + VS-00L 既有契约 | 约束 |
-| 迁移 6 阶段 | B81 CP1–CP6 | CP1 done，其余 todo |
+| 迁移 6 阶段 | B81 CP1–CP6 | **done**（CP1–CP6） |
 | Contract 影响：VS-00L 落地说明修订 | 2026-11-08 已补 §16.1/§16.6/§16.12/§16.16/§17/§18.8 | done（§16.6/§16.12 为本轮复核补齐） |
-| Umbrella 边界影响（application/persistence 等） | B81 CP1–CP6 写域 | CP1 done（见 §8.1） |
-| UI/Trace/Replay 影响 | B81 CP3/CP4 | todo |
-| 垂直切面证明（机制/页面/实模分层） | B81 CP5；G6 移交 CP5 | todo |
-| enforcement_gaps：arch_check 边界规则 | B81 CP1（基础）/CP4（细化） | 评估结论：CP1 无需新增 arch_check 规则（新存储模块仅被 application 引用，现有依赖方向/编译期约束已覆盖）；CP4 再裁决是否需要"会话 canonical 唯一入口"的正向 allowlist |
-| 旧 `:session_transcript` 退役范围核对 | B81 CP6 | todo |
+| Umbrella 边界影响（application/persistence 等） | B81 CP1–CP6 写域 | **done**（CP1 见 §8.1；CP3/CP4 的 `novel_common` 修改见 §4/§9） |
+| UI/Trace/Replay 影响 | B81 CP3/CP4 | **done**（CP3/CP4） |
+| 垂直切面证明（机制/页面/实模分层） | B81 CP5；G6 移交 CP5 | **done**（CP5；证据见 §12，已知缺口见 §9） |
+| enforcement_gaps：arch_check 边界规则 | B81 CP1（基础）/CP4（细化） | 评估结论（2026-11-12 复核维持）：无需新增规则——新存储模块仅被 application 引用，现有依赖方向/编译期约束与 `@web_forbidden` 已覆盖；不引入「会话 canonical 唯一入口」正向 allowlist（YAGNI，现有测试已锁定唯一写入口） |
+| 旧 `:session_transcript` 退役范围核对 | B81 CP6 | **done**（CP6；生产代码零残留，设计/验收资产残留已于 2026-11-12 修复） |
 
 #### B. VS-00L（Frozen；ADR-0035 落地说明修订后）
 
 | 未实现/未验目标（§17/§16.x） | 承接任务 | 状态/说明 |
 |---|---|---|
-| §16.6 独立计划/使命的同一会话边界（会话级落地） | B81 CP2 | 落地说明已补；实现 todo |
+| §16.6 独立计划/使命的同一会话边界（会话级落地） | B81 CP2 | 落地说明已补；实现 **done**（CP2） |
 | §16.8 canonical 存储身份/前缀/事务提交（会话级落地） | B81 CP1 | **已实现**（`AuthoringSessionLog` 唯一存储边界 + `AgentRunLog.commit_snapshot` 单一事务） |
 | §16.12 transcript 持久化身份/恢复（会话级落地） | B81 CP1 | **已实现**（段头+消息存储/恢复；run 级列退役） |
-| 压缩自动维护 AX（§16.16，A3 未闭环） | B81 CP3（作用域/触发）+ CP5（真实多轮页面取证） | todo |
-| G6 压缩后真实请求 | B81 CP5 | todo；不再构造单 run/异常路径 |
-| 会话级 canonical 上下文（ADR-0035） | B81 CP1–CP6 | CP1 done |
+| 压缩自动维护 AX（§16.16，A3 未闭环） | B81 CP3（作用域/触发）+ CP5（真实多轮页面取证） | **done**（CP3/CP5；真实页面批次见 §12，C9 缺口归 B86） |
+| G6 压缩后真实请求 | B81 CP5 | **done**（CP5，`b81-c7-c8-03` C1–C11）；不再构造单 run/异常路径 |
+| 会话级 canonical 上下文（ADR-0035） | B81 CP1–CP6 | **done**（CP1–CP6） |
 | 真实 Responses/Anthropic 实模（含相邻 role 服务端合并、cache 行为） | B82 | todo（需官方凭证） |
 | R1 剩余：真实 route/原生 body 回归 | B82（真实输入补证） | 部分机制证据已在 B71 |
-| I-CACHE 独立输入/多投影（真实生产输入） | B82（真实输入）+ B81 CP4（投影一致性） | 机制/CI 已有 |
+| I-CACHE 独立输入/多投影（真实生产输入） | B82（真实输入）+ B81 CP4（投影一致性） | 机制/CI 已有；CP4 投影一致性 **done** |
 | CP5 最终收口 | B71 CP5（依赖 B81 CP5 + B82） | doing；B71 保留状态真源 |
 | 显式压缩的**作者可见前端入口**（§16.17 设计缺口） | **无实现任务；待作者产品设计授权** | 显式登记为未授权/待裁决 |
 | 作者可见 displayName 未闭环低优先 | 无独立任务；低优先待排期 | 显式登记 |
@@ -195,10 +196,10 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 
 | 实现目标/未闭环项 | 承接任务 | 状态/说明 |
 |---|---|---|
-| 决策 1–7 原则（唯一事实源/原生多轮/最小 Base/作者主权/投影/显式压缩/回放） | 已实现（B71 历史）；作用域按 ADR-0035 落地 | CP1 已落地作用域；CP2–CP6 承接其余 |
-| §11 作用域落地边界 | B81 CP1–CP6 | CP1 done |
+| 决策 1–7 原则（唯一事实源/原生多轮/最小 Base/作者主权/投影/显式压缩/回放） | 已实现（B71 历史）；作用域按 ADR-0035 落地 | **CP1–CP6 全部落地** |
+| §11 作用域落地边界 | B81 CP1–CP6 | **done**（CP1–CP6） |
 | CP3b 实模协议层 | 历史 e79032cd PASS；完整 CP4b-2 实模行为/缓存/usage → B82 | 已实现（协议层）；实模行为待 B82 |
-| G6 压缩后真实请求 | B81 CP5 | todo |
+| G6 压缩后真实请求 | B81 CP5 | **done**（CP5，见 §12） |
 | CP5 最终收口 | B71 CP5 | doing |
 | 压缩前端设计授权（状态行未闭环项） | **无实现任务；待作者设计授权** | 与 VS-00L §16.17 同一项 |
 | G7/G8（动态 scope/恢复后） | 已实现（B71 CP3c done 2026-11-01） | 无新任务 |
@@ -339,9 +340,9 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 | SoC 关注点分离 | application（编排/语义校验）/persistence（存储/事务）/web（投影）分层不变；CP1 未触碰 UI/agent 投影/作者安全面 | 满足；`novel_web` 对持久层零直接依赖（arch_check 验证） |
 | 抽象与封装 | 段头 JSON 形状与错误原子文档化；application 经契约函数访问存储；错误 fail-closed 且不泄漏内容（不可 JSON 表示值不泄漏 marker） | 满足；负例覆盖 |
 
-> 审计中确认的**既有例外**（非 CP1 引入，不扩大范围）：`TurnExecutionService.canonical_transcript/1` 的「无 IR 时回退旧 `session.authoring_transcript`」路径保留（有测试锁定其安全语义：损坏 IR 不得冒充历史；生产无新写入者，CP2 重新评估）；`ActionIdempotencyService` 对 TurnResult 私有键的防御性 drop 保留。
+> 审计中确认的**既有例外**（非 CP1 引入，不扩大范围）：`ActionIdempotencyService` 对 TurnResult 私有键的防御性 drop 保留（作者安全面防御，不是历史兼容）。`TurnExecutionService.canonical_transcript/1` 的「无 IR 时回退旧 `session.authoring_transcript`」路径已按 CP2–CP6 复核结论**删除**（2026-11-12）：run 级私有列退役后生产无写入者，无 IR 的会话按「无历史」处理；IR 派生与坏 IR fail-closed 语义不变。
 
-### 8.4 CP2 开工设计（草案，未实现，待裁决）
+### 8.4 CP2 开工设计与实施记录（2026-11-09 裁决并实现）
 
 > 状态：**设计草案，只读调研产出，未实现、未代签**。CP2 是 B81 的行为变化阶段（每轮请求由会话派生），
 > 必须等 §7.1 前置裁决与开工确认；本文只把可裁决的方案与验收判据定清楚，避免实现中临时发明。
@@ -431,7 +432,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 - **证据（2026-11-09）**：`mix check` 全量 **3123 tests / 0 failures**、credo/format/xref/arch/adr/module-size 全过；I1 `cases=4 pass=4`、I2 `pairs=3 disjoint=3 violations=0`、I3 `Layer-B 3/3 pass`；首轮页面回归 `b71-first-consumer` native **19/19 PASS**（`git_head=0279a217`，CP2 逻辑提交后；证明首轮行为不变）；静态扫描 **20 passed / 1 failed**（仅既有 gitleaks 处置，touched 0）。**页面多轮（跨 turn 上下文/指代/义务）证据归 CP5**（§8.6），CP2 不代签页面层。
 - **已知边界**：历史消息前缀稳定（base 唯一最前 + 历史原序 + 尾部追加）→ I-CACHE 追加式前缀语义保持；历史中未闭合调用理论上不应存在（已完成交换），若出现由 IR 校验 fail-closed；I1/I2 driver 的临时库 schema 守卫属门禁层修复（非产品逻辑）。
 
-### 8.5 CP3/CP4/CP6 开工设计与实施记录（CP3 机制层已实现；CP4/CP6 待实施）
+### 8.5 CP3/CP4/CP6 开工设计与实施记录（CP3/CP4/CP6 已实现，证据见 §12）
 
 > 延续 §8.4 的「先设计、后实现、不代签」节奏；本节点出各阶段现状事实（行号为当前树）、改动面、风险与验收判据，供开工时直接展开，不在实现中临时发明范围。
 
@@ -457,7 +458,7 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
   1. `AuthoringReplay.fetch_session/2`：按真实 work/session 读取**会话级** canonical 历史作者安全摘要——复用既有 `checkpoint_summaries/1`、`safe_text/1`、`source_names/1`（不暴露 run/turn/call/ref 内部标识），返回 `status/turn_count/run_count/checkpoints`；会话不存在返回 `:session_not_found`；读取失败 fail-closed `:authoring_transcript`（不静默空历史）。
   2. `TraceReplayService.fetch_turn_report/3`：`trace_summary.session_authoring_history` 增加会话级证据（成功=摘要；失败=`%{status: :unavailable}` 安全标记），**turn 级** `authoring_history` 与 partial 语义不变（真实消费者=回放报告 API）。
   3. 既有 `AgentRunHistoryBindingTest` 的「错绑 run 不得冒充当前 turn 历史」断言收窄到 run 级字段（`Map.get(trace_summary, :authoring_history)`）：会话级字段本就是跨 run 证据，不得按「错绑泄漏」判定；run 级 fail-closed 强度保持。
-- **投影等价验收（S1）**：新增 `b81_cp4_session_replay_test.exs` 4 例——① 跨 run checkpoint 摘要与作者安全扫描；② 会话不存在/空会话 fail-closed；③ 含跨段 checkpoint 的会话视图在「段编解码往返」前后，三类 Provider 投影（chat_completions/responses_api/anthropic_messages）逐字节一致；④ 恢复段 + 会话历史重建的请求视图与写入前视图在三类投影上逐字节一致（恢复不改变投影）。
+- **投影等价验收（S1）**：新增 `b81_cp4_session_replay_test.exs`（截至 2026-11-12 共 9 例；本节记为初始 4 例，后续交错归属回归增量）——① 跨 run checkpoint 摘要与作者安全扫描；② 会话不存在/空会话 fail-closed；③ 含跨段 checkpoint 的会话视图在「段编解码往返」前后，三类 Provider 投影（chat_completions/responses_api/anthropic_messages）逐字节一致；④ 恢复段 + 会话历史重建的请求视图与写入前视图在三类投影上逐字节一致（恢复不改变投影）。
 - **证据（2026-11-09）**：`novel_application` + `novel_persistence` 全量 **1370 tests / 0 failures**；credo no issues、format/module-size 通过；全量 `mix check` 与页面批次见提交记录。
 - **边界**：不新增 UI 会话历史入口（属 §16.17 作者可见面设计，未授权）；不回放 Provider 请求（只读 canonical 摘要）；CP5 的多轮页面/G6 取证仍归 §8.6。
 
@@ -496,6 +497,14 @@ CP 是可独立排期与验收的 checkpoint；状态统一在本任务维护（
 | G6-4 | 压缩后真实请求：被覆盖交换折叠为 checkpoint 投影、保留最近 K、作者原话/当前 scope/未覆盖消息原序；`covers` 与请求投影一致 | 请求 body/IR 证据 |
 | G6-5 | 作者可见面：整理细条/展开可读、无技术词、无内部 ref/推理泄漏 | 页面 AX/截图 + 作者安全扫描 |
 | G6-6 | 未完成/未闭合交换不被压缩；当前 scope 与作者原话不被折叠 | 请求证据 + DB |
+
+> **判据落点（2026-11-12 复核登记）**：G6-1..G6-6 是冻结的验收语义；实际机械判据由
+> `scripts/lib/native_ui/authoring_auto_maintenance_evidence.mjs` 的 C1–C11 承担，映射为：
+> G6-2→C2+C6；G6-3→C7+C8；G6-4→C5（折叠/精确覆盖/无重放）+ 独立对账日志
+> `live-*-wire-canonical.log`（保留最近 K、作者原话字节与顺序，非 runner 断言）；
+> G6-5→C3+C4+C9。**G6-1（跨 turn ≥K 已完成交换计数）与 G6-6 的「当前 scope/作者原话
+> 不被折叠」当前没有 runner 机械断言**，由 §12 的 SQLite/wire 只读对账覆盖。接手时不得
+> 把「C1–C11 全绿」直接等同于「G6-1..G6-6 全绿」；补机械判据属后续增强，不阻塞本轮收口。
 
 #### 8.6.3 分层报告（不混报、不代签）
 
@@ -569,18 +578,21 @@ CP5 依赖 CP2（请求由会话派生）+ CP3（压缩作用域/触发）+ CP4�
 - 历史批次复现 `chapter:<uuid>` 进入作者可见面。材料和返回的结构化整改归 [B86](B86-structured-model-materials-internal-ref-isolation.md)。作者已撤回该项实现，证据和裁决见 B86 原任务。
 - 会话内原生调用号重复由 `RequestIR.normalize_provider_result/2` 在生产入口处理，判断协议和独立操作共用该规则。写锁内的过期整理计划回归与真实页面 A/B 交错证据见 §12。SQLite Sandbox 证据覆盖确定性冲突与原子回滚，真实多写者压测仍无批次证据。
 - CP7 已裁定沿用 run 安全点触发。整理对象、保留计数和覆盖范围按会话计算。模型窗口设置界面由 [B85](B85-model-context-window-settings.md) 跟踪。
+- G6 判据映射见 §8.6.2：C1–C11 覆盖 G6-2/3/4/5，G6-1 与 G6-6 的关键项（跨 turn ≥K 计数、当前 scope/作者原话不被折叠）由 §12 的只读对账日志覆盖，尚无 runner 机械断言。
+- 读取规模边界（§8.4.3 D9 的实施选择）：`AuthoringSessionHistory.fetch/1` 全量读取会话历史，未加 `after_sequence`/limit 或投影后再读；长会话（>10 万 token 级）规模未实测，登记为已知边界，需要时按 D9 增加分页读端口（不得在调用方旁路）。
 
 ## 10. 决策与恢复指引
 
-### 10.1 新会话开工交接（2026-11-08 作者决定另起会话执行）
+### 10.1 新会话开工交接（2026-11-08 立；2026-11-12 复核后更新）
 
-- **入口顺序**：`tasks/NEXT.md`（当前任务=B81）→ 本文件 §7（CP 与依赖）→ §8（设计与实施）→ §9（剩余后果）→ ADR-0035 / VS-00L 落地说明（必要引用）→ B71 历史证据（只读）。
-- **CP1 状态**：已完成——实现/测试/全量门禁（2026-11-08）、真实页面证据 19/19 与真实数据质量审计（2026-11-09）；CP2 尚未开工，需作者对 §8.4.6 五项裁决后确认。
-- **验证**：确定性机制测试 + 全量 `mix test` + `mix check` + credo/format/xref/arch/adr_trace/模块规模 + 静态扫描；不变量 I1/I2/I3/N-NARR/I-CACHE；阶段 1 行为不变 → 既有确定性/页面批次回归应保持。
-- **边界**：不改每轮请求派生（CP2）、不改压缩作用域/触发（CP3）、不退役旧 `:session_transcript` 材料（CP6）；未实现前不代签。
+- **入口顺序**：`tasks/NEXT.md` → 本文件 §7（CP 状态）→ §12（2026-11-11 完成度复核）→ §9（剩余后果与已知边界）→ ADR-0035 / VS-00L §16.x 落地说明（必要引用）→ B71 历史证据（只读）。
+- **状态**：CP1–CP6 全部 done（分项与证据见 §7/§12）。已知缺口：C9 内部标识泄漏由 B86 跟踪（B86 未启动、实现已撤回）；G6-1/G6-6 无 runner 机械断言；真实多写者压测与长会话读取规模未实测；模型窗口设置 UI 归 B85。
+- **继续工作前的验证**：`mix check`（含全量测试、xref、arch、ADR 追溯、I-CACHE）、`mix credo --strict`、`mix format --check-formatted`、`node scripts/check_module_size.mjs --check`、`bash scripts/ai_static_scan.sh --top 10`；场景不变量 I1/I2/I3/N-NARR/I-CACHE；原生页面批次入口见 §12 与 `scripts/native_b71_batch.sh`。
+- **边界**：不改写已完成 CP 的行为语义；新增需求先判断是否属于 B81 范围或另立任务（B85/B86/B82）；下游承接关系以 §7.1/§7.3 为准。
 
 ## 11. 变更记录
 
+- 2026-11-12：**独立完成度复核与文档/清理修复**：三份只读审计（B71 完成度、B81 完成度、clean 度/架构/文档漂移）交叉复核本任务 §12 结论；修复：§7.4 三表 todo→done、§8.3 旧回退结论（代码已删除）、§8.4/§8.5 标题、§8.5.2 例数、§10.1 交接、§4 边界（CP3/CP4 的 `novel_common` 与 VS-00L §16.2 修改登记）、§7.1/§7.2 状态；§8.6.2 补 G6 判据→C1–C11 映射；§9 补 G6-1/G6-6 无机械断言与读取规模边界。同批代码修复：删除 `TurnExecutionService` 旧 `authoring_transcript` 回退、checkpoint 版本收敛到 `AuthoringSessionLog.task_checkpoint_version/0`、`AgentObservation.artifact_created?/1` 统一 7 处 flow 谓词。索引漂移（`tasks/slices/README.md`、`apps/*/README.md`、VS-00L、08 §26）同日修复。
 - 2026-11-08：立项 + 阶段 1 设计草案（作者批准 ADR-0035 后产出；未授权实现）。
 - 2026-11-08：补充 §1.1 断链定位（schema 时间线 + 三项漏承接）与 §8.0 彻底重构/复用清单（作者确认：系统设计有、实现偏差；彻底重构但复用设计资料和实现）。
 - 2026-11-10：**CP6 机制层实现（旧 `:session_transcript` 材料退役）**：判断材料「会话摘要」段与 conversation 供给删除（4356ec53）；domain 类型/assembler 来源/展示名 SSOT+codegen 删除（bc4d73ad）；测试按退役语义更新。验证：application 1370/0、web 196/0、首轮页面 19/19；**基线 web 与 CP6 版 web 均 196/0**，排除历史环境干扰。详见 §8.5.3。

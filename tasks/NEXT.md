@@ -6,7 +6,7 @@
 
 | 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B71-CP4b | 承接 B81 的 G6 与 B82 的 G2 证据。后续按预注册补齐 G3/G5、Responses 与 Anthropic 实模证据及页面流式预览证据。 | [B71](slices/B71-provider-message-fidelity.md) |
+| B71-CP4b | 承接 B82 的 G3/G5 补证与 Responses/Anthropic 实模证据；B81 CP5 的 G6 证据已于 2026-11-11 复核（[B81 §12](slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)），B71 的 CP5 最终收口含契约/索引/台账回写。 | [B71](slices/B71-provider-message-fidelity.md)、[B82](slices/B82-b71-golden-slice-evidence.md) |
 
 当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 
@@ -16,12 +16,11 @@
 |---|---|---|
 | B78 | 存量大模块拆分（P1：WorkspaceChat / dialogue_planning_service / agent_run_server / turn_execution_service / adoption_repository）；治理机制与 ratchet 门禁已落地，本任务只做结构化拆分，须在 B71 收口后按「一次一个文件、独立 refactor commit」排期 | [B78](slices/B78-module-size-debt.md) |
 | B79 | 存量书稿导入 + 导入后分析建档；**待作者确认启动**后按 [B79](slices/B79-work-import-and-analysis.md) CP0 契约冻结 → CP1 确定性导入链推进；B80 前置梳理已完成（2026-11-08）。 | [B79](slices/B79-work-import-and-analysis.md) |
-| B82 | 继续补齐 G3/G5 和 Responses/Anthropic 实模证据。每个切片独立冻结预注册和批次，官方接口待凭证。 | [B82](slices/B82-b71-golden-slice-evidence.md) |
 | B84 | `novel_web` 慢测试收敛（193 tests/532s）+ 00f P2-E 剩余架构/测试债务；保持测试覆盖。 | [B84](slices/B84-web-slow-tests-and-arch-debt.md) |
 | B86 | 模型材料与返回结构化（内部标识隔离）：作者指出根因「发给模型的数据没结构化、返回也不够结构化」——章节编号/名称/内容与内部 `chapter:<uuid>` 混在自然语言材料里，模型复述到作者可见正文（`cp5-real-05` 实模证据）。方案：材料结构化（ref 只进专用字段）+ tool schema 约束作者可见字段禁内部标识 + 作者可见出口统一 `AuthorVisible.Text` 投影；独立预注册验收。 | [B86](slices/B86-structured-model-materials-internal-ref-isolation.md) |
 | B85 | 模型上下文窗口用户设置（UI 入口）：作者反馈「窗口不应写死、要开放给用户配置」；初始能力已落（`preferences.json` 的 `context_windows` + Tauri 启动注入 sidecar env，`044092df`），**设置页 UI 未做**（当前应用无系统设置菜单，唯一设置入口是模型供应商弹窗）。 | [B85](slices/B85-model-context-window-settings.md) |
 
-依赖排序（2026-11-11 更新）。B79 CP0/CP1 等待作者确认启动。B78 按原任务的 B71 依赖排期，B84 和 B71 后续候选的预注册准备可并行。B82 的独立批次条件见原任务，B83 阻塞于凭证。B71 CP5 的 G6 证据见 [B81 §12](slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)，G2 及剩余 G 切片和 Responses、Anthropic 实模证据见 B71 与 B82 原任务。
+依赖排序（2026-11-11 更新）。B79 CP0/CP1 等待作者确认启动。B78 按原任务的 B71 依赖排期，B84 和 B71 后续候选的预注册准备可并行。B82 的独立批次条件见原任务，B83 阻塞于凭证。B81 已于 2026-11-11 复核 done（CP1–CP6，G6 证据见 [B81 §12](slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)）；B71 收口依赖 B82 的 G3/G5 与 Responses、Anthropic 实模，G2 与剩余 G 切片证据见 B71 与 B82 原任务。
 
 ## 阻塞
 
