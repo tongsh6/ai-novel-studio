@@ -50,5 +50,6 @@
 - **B48 CP3（2026-11-13 作者选 A）**：先实现 native_b48_drive/evidence 并注册 allowlist，再用 Splash 按新预注册跑四场景；预注册 `artifacts/b48-cp3/preregistration-splash-20261113.json` 已冻结。见 [B48](slices/B48-character-revision-noop-and-ambiguity.md)。
 - **B28 stage 重复章根因（2026-11-13）**：stage work 在仓库 `data/*.sqlite3` 未检出（可能已删除），数据修复关闭；作者要求“为什么写了重复的章”在请求体重构（B87/VS-00M/B86）之后调查。见 [B28](slices/B28-whole-chapter-revision.md)。
 - **B42 AU-15（2026-11-13 作者选 A）**：用 Splash 补 AU-15 预注册/driver，先跑 A0/A1/A2（每场景至少 2 次独立重复）；预注册 `artifacts/model-contracts/b42-au15/preregistration-splash-20261113.json` 已冻结。见 [B42](slices/B42-model-behavior-evidence-tier.md)。
-- **延期/条件**：多 Agent/24x7 [B50](slices/B50-multi-agent-current-boundary.md#61-延期实施与重新开放)；I10 盲评 [安排](slices/VS00D-G-GAP-RECONCILIATION.md#i10-人工盲评安排)；B38/Experience [B38](slices/B38-world-rule-save-intent.md)/[B68](slices/B68-experience-rule-governance.md)。
+- **B38 世界规则保存意图（2026-11-13）**：允许用 Splash/真实页面主动复现一次；缺陷观察放到请求体重构后，不据此关闭；保持 deferred。见 [B38](slices/B38-world-rule-save-intent.md)。
+- **延期/条件**：多 Agent/24x7 [B50](slices/B50-multi-agent-current-boundary.md#61-延期实施与重新开放)；I10 盲评 [安排](slices/VS00D-G-GAP-RECONCILIATION.md#i10-人工盲评安排)；B68 Experience [B68](slices/B68-experience-rule-governance.md)（2026-11-13 确认保持 deferred）。
 
