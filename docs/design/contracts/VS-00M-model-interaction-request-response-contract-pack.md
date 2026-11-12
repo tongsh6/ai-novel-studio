@@ -172,6 +172,14 @@ Provider raw response（原始 content / tool_calls / arguments / call_id / usag
 
 **引用与错误**： `alternative_operation_refs` 必须为真实 capability ID，描述去 `author_reasoning`；`used_refs ⊆ base_refs ∪ observation_refs`；不允许跨作品伪引用、未查实空列表、无 call_id 的假 Observation、tool 伪 XML、同一调用仅局部闭合。不合法必须拒绝/明确失败与必要可恢复状态，不能吞掉错误或绕过门禁。
 
+### 6.1 输出通道与工具结果的硬约束
+
+- **作者可见通道唯一**：当响应携带 `write_candidate` 等作者可见正文工具时，`content` 必须为 null；作者可读说明只走 `change_reason`/`coverage_note`。应用必须校验，出现 `content + 候选工具` 即 `contract_violation`，不生成候选并回流有界纠错；不能只靠 system prompt。
+- **工具结果 envelope**：所有工具结果必须为 `{ok, data, error_code, message, retryable, observation_ref, budget_after}`；失败不得伪装成成功，`retryable` 必须真实；应用校验/执行/采纳事实不得合并为一个 `success`。
+- **流式一致性**：请求 `stream: true` 时 wire 响应必须是 SSE（delta content/tool_calls、finish_reason、usage chunk、`[DONE]`）；完整 `chat.completion` JSON 只是应用重组后的内部结构，不得当作 wire 响应。
+- **协议包结构化**：`application_base`/`scope_update` 的 goal/target_refs/permissions/budget/coverage/output_contract 在应用内部是结构化值，wire 只是序列化视图；工具越权、预算耗尽、target 不在 observed_refs 等校验读内部结构，不读模型复述。
+- **decision 不塞给模型**：应用解析 `tool_calls` 生成 `decision {type,target_ref,tool_call_id,modification_scope,source_refs,evidence_coverage}`，与 tool result 一起进入下一轮 loop；HTTP 响应不新增自定义顶层字段。
+
 ## 7. 授权、风险与采纳：完整安全模型（替代旧 R10 巨型任务）
 
 ### 7.1 五个独立判断
