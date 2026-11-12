@@ -37,7 +37,7 @@
 - **B72 CP1 模型窗口**：离线生成器已入候选，真实模型资源窗口与生成预算未授权；见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#阻塞记录2026-10-31-cp1)。
 - **VS00F-TRACE CP1（2026-11-13 作者选 A）**：新增最小持久 StateTrace 实体；先冻结 schema/迁移设计并获授权，再实施；字段含 before/after、source refs、mutation receipt、idempotency key。见 [VS00F](slices/VS-00F-five-ledgers-three-state.md)。
 - ~~B71 原生批次复验~~ **已于 2026-11-07 关闭**：`b71-first-consumer` 在 A1 收口后经 SliceVerify canonical IR 观察识别修复（`26824567`）取得 clean HEAD 真实页面 **19/19**（`artifacts/slice-verify/b71-first-consumer-tauri-native-b71-a1-03/`）；根因是 test-support 旧文本识别与 R1 canonical IR 不同步，产品当时进入 `no_progress_stopped` 的行为正确。实模/CP4b-2/CP5 仍不代签；证据与失败批次见 [B71](slices/B71-provider-message-fidelity.md) 原生批次验收状态小节。
-- **B57 CP1 B/C/D**：需 B39/UA01 受控观察/外部资料 fixture 与数据授权；A/E/F 已 PASS；见 [B57](slices/B57-sec-injection-boundary.md#阻塞记录2026-10-31)。
+- **B57 CP1 B/C/D（2026-11-13 作者选 A）**：授权受控 fixture/seed（隔离 DB），补内容夹带/观察夹带/伪完成三场景；A/E/F 已 PASS。见 [B57](slices/B57-sec-injection-boundary.md)。
 - **P1-AUDIT-BC 页面**：两次 stale projection banner 断言失败，依赖 AU08 投影新鲜度缺口或断言重锚；见 [P1](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外)。
 - **B01 后续（2026-11-13 作者选 A）**：新增 nullable `origin_turn_ref`、`origin_frame_ref` 改 nullable；SQLite 表重建 migration，旧合成值按 legacy 读取、不回填；待实施。见 [B01](2026-10-27-design-to-execution-reconciliation.md)。
 - **B43 后续（2026-11-13 作者选 A）**：GateOrder 新增显式 `missing_policy` gate（ADR-0005 12→13 门）；六个 flow 与 TurnExecutionService 统一进门；待实施。见 [B43](slices/B43-gate-order-residual.md)。

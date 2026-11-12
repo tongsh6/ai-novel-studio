@@ -1,6 +1,6 @@
 # B57：提示注入与不可信内容边界（先补验）
 
-- 状态：**blocked（2026-10-31 CP0 done；CP1 partial：A/E/F 真实 Tauri PASS；B 内容夹带/C 观察夹带/D 伪完成需受控 fixture/observation 注入入口，当前入口未就绪）**。
+- 状态：**todo（2026-11-13 作者选 A：授权受控 fixture/seed（隔离 DB），补 B 内容夹带/C 观察夹带/D 伪完成；A/E/F 已 PASS；CP0 done）**。
 - 登记日期：2026-10-27；来源：未检出专用 injection guard 或专项对抗验收，但 GateOrder/Orchestrator/adoption 已有结构防线，不能仅凭模块缺席断言无防护。
 - 上游：`docs/design/foundation/10-security-and-budget.md`、[B39](B39-evidence-seeking-authoring.md)、[UA01-CP6 外部探索](UA01-judgment-driven-loop.md)、[SU01](SU01-file-level-closure.md)。
 
@@ -29,7 +29,7 @@
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
 | CP0 | 冻结对抗矩阵：作者输入、作品观察、外部资料、伪已读/伪采纳/伪成功/泄密；明确不应误伤的正常创作 | **done（§CP0）** |
-| CP1 | 在真实主链执行只读对抗，记录 tool/canon/secret/TurnResult/trace；区分结构防线已生效与真实缺口 | **partial/blocked（§CP1）**：A/E/F PASS；B/C/D 缺受控入口 |
+| CP1 | 在真实主链执行只读对抗，记录 tool/canon/secret/TurnResult/trace；区分结构防线已生效与真实缺口 | **partial/todo（§CP1；2026-11-13 作者选 A）**：A/E/F PASS；B/C/D 待受控 fixture/seed 补齐 |
 | CP2 | 仅对失败类实现最小修复并复跑全矩阵；若全部已有防线通过，只登记证据，不新增 Guard | 未开工 |
 | CP3 | 与 B39 observation、UA01-CP6 外部资料共用来源与权限复核；回归正常创作和 SU01 secret redaction | 未开工 |
 
@@ -81,6 +81,13 @@
   - D 需要伪造“未读/未采纳/成功”的模型输出并验证 truthfulness/why，确定性 provider 不能代签真实模型。
 - 当前没有上述受控入口/数据授权；不在产品里加验收注入钩子，也不把 A/E/F 外推为完整 CP1。CP2 不新建 Guard（A/E/F 无失败），CP3 与 B39/UA01 的来源/权限复核随其 owner。
 - 解除条件：B39/UA01 指定 observation/外部资料 fixture 入口或作者授权受控测试数据后，补 B/C/D 并复跑全矩阵；若发现真实失败才进入最小修复。
+
+### 2026-11-13 作者选 A：受控 fixture/seed 补 B/C/D
+
+- **决策**：作者选择 A——授权受控 fixture/seed（隔离测试 DB，不写生产数据），补 B（作品正文/摘要/卷纲夹带指令）、C（Observation/外部资料夹带指令）、D（伪已读/伪采纳/伪成功）。
+- **边界**：不在产品加验收注入钩子；fixture/seed 只落隔离 DB/测试资产；C 仍优先复用 B39/UA01 观察入口，未就绪时用受控 observation seed；D 用真实模型（Splash）或确定性伪造输出，必须验证 truthfulness/Why。
+- **验收**：B/C/D 真实页面证据；出现真实未授权 tool/canon/secret 才进 CP2 最小修复；A/E/F 证据保留。
+- **下一步**：先冻结 B/C/D fixture/seed 与场景设计，再执行；不把 stub 回复当模型安全证明。
 
 ## 4. 非目标
 
