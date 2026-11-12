@@ -1,66 +1,41 @@
-# B86 模型材料与返回结构化：内部标识隔离
+# B86 · 模型材料与返回结构化：内部标识泄漏（历史任务、范围已归并）
 
-**状态**：**todo（候选，未启动；设计已推进到 [VS-00M](../../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md) Proposed（2026-11-12/13），实现未启动；2026-11-11 作者提出方向并要求撤回已落后的实现——`3a084fcf`/`72f8fb7d` revert；仅保留设计记录）**。
-**来源**：作者在 B81 CP5 实模批次发现「内部引用 `chapter:<uuid>` 泄漏到作者可见面」后指出根因：**发给模型的数据没有结构化，模型返回也不够结构化**——章节编号/名称/内容混在自然语言文本里，模型自然会把内部 uuid 当可复述文本写进正文。修复应从契约机制做，不是展示层事后过滤。
-**证据**：`cp5-real-05`（真实 strata）扫描 20 个 AX/text 证据命中 `chapter:5d6d6360-…`：模型正文「定位到第1章（chapter:…）」+ 工具观察「已检索章节「chapter:…」」；`judgment_stable_chapters_section` 的章索引行 `- 第 1 章「标题」[chapter_ref=chapter:<uuid>]（计划中）` 是直接来源。
+**状态**：**superseded（2026-11-13 任务责任归并；原问题**未解决**，禁止以 superseded 冒充 done）**。
 
-## 1. 现状（机制层面）
+> **唯一后续执行与验收归属**：[B87 R06](B87-model-interaction-request-projection/R06.md) / [B87 唯一任务状态源](B87-model-interaction-request-projection.md)。架构契约：[VS-00M §5–6](../../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md)。B86 不再作为独立排队任务，不维护重复 checkpoint 或执行状态；保留为历史失败问题/作者裁决与迁移映射入口。
 
-| 层 | 现状 | 缺口 |
-|---|---|---|
-| 材料（发给模型） | 章节列表、探索观察等以**自然语言段**注入（`ChapterListBudget.entry_line` 行内嵌 `chapter_ref=chapter:<uuid>`；observation summary 含裸 ref） | 内部标识与作者语言混在同一文本流，模型会把 ref 当自然语言学习/复述 |
-| 返回（模型 → 产品） | 已是**结构化 native tool call**（`judgment_tool_contract` 的 `input_schema` + `valid?` 校验；写作输出走 tool args 的 body/prose 字段） | schema 只校验类型/枚举；**没有「作者可见自由文本字段禁止内部标识」约束**，模型可合法把 ref 写进 body |
-| 作者可见出口 | `AuthorVisible.Text.new/1` 当前接收已准备好的非空展示文本 | 判断说明仍可把原生工具 `reason` 作为作者可见文本发布。结构化材料与说明契约均待收敛 |
+## 1. 已发生的产品问题（不得销账）
 
-`b82-g2-observed-target-04` 再现了判断说明的泄漏。判断调用没有可见 `content`，原生工具参数 `reason` 同时含章节和草稿内部引用，并逐字出现在当前回合的创作活动；同次 `dialogue_goal` 没有这些引用。`JudgmentProtocol.tool_narrative/3` 从工具参数取作者说明，当前仅验证可用文本形状。下一轮设计需核对说明进入作者可见活动之前的契约位置及原生有界纠错，保留成功说明与模型原始字节的因果关系。见 [B82 实模记录](B82-b71-golden-slice-evidence.md#作者可见驱动的验收边界2026-11-11)。
+B81 CP5 真实 Strata 批次 `cp5-real-05` 的作者可见页面出现内部标识 `chapter:<uuid>`。已登记的 AX/text 证据中有 20 次标识命中：模型自然叙事把 `chapter:...` 当作正文可复述内容，观察回执也以内部编号称呼章节。另一真实场景 `b82-g2-observed-target-04` 表明判断器的原生工具参数 `reason` 可夹带内部 ref，并逐字进入作者可见创作活动。
 
-## 2. 目标（机制修复，分步）
+根因不是单纯显示组件缺少过滤：
+- 章节列表 `ChapterListBudget.entry_line` 等把内部 `chapter_ref` 与标题/正文文字拼入同一叙事段；
+- Native Tool Calling 虽有 JSON Schema，但作者可见 `body/prose/reason` 未有明确禁止内部标识的语义校验；
+- `JudgmentProtocol.tool_narrative` 使用模型的工具字段作为作者可见内容；若直接在 UI 后处理，破坏 I1/N-NARR 字节来源契约。
 
-1. **材料结构化**：章节等实体材料改为结构化字段表示（如 `{seq, title, status, chapter_ref}` 的 JSON/表格），内部标识只出现在**专用字段**，自然语言说明与数据分离；探索观察 summary 同理（ref 只进 `facts`/`evidence_refs`，summary 用作者可读名）。
-2. **返回结构化约束**：判断/写作 tool contract 增加**作者可见字段（body/prose/decision 文本）不得含内部标识**的校验（`valid?`/normalize 层）；违规处理策略二选一（设计冻结时定）：① 拒绝并让模型重试（fail-closed）；② 产品投影（`AuthorVisible.Text`）后记录一次「模型输出含内部标识」事件（可观测）。内部引用用结构化字段（如 `used_chapter_refs`）表达，不写进正文。
-3. **作者可见出口统一契约**：核对消息流、回放、导出与摘要的文本来源，复用 `NovelCommon.AuthorVisible.Text` 形状与现有作者可见词表。输出发生违约时的处理按第 2 项裁决。
-4. **验收**：单测（材料无裸 ref、schema 拒绝/投影生效、作者可见文本无内部标识）+ 真实页面批次扫描（C9 类判据 hits=0）+ 不破坏 I-CACHE 边界（章节列表段标题被 I-CACHE boundary marker 引用，改用结构化后需同步）。
+原实现尝试 **`2785c2c9` / `36fe5c52` 已撤销**（revert `3a084fcf` / `72f8fb7d`）：不能以“之前写过”认定当前 HEAD 已实现或获证。
 
-## 3. 边界与影响
+## 2. 为什么转入 B87，不再两套任务并行
 
-- 跨契约变更（判断/写作材料格式 + tool schema + 作者可见投影 + 测试资产），需独立预注册/验收，不与 B81 CP5 混签。
-- 不改判断/写作的**语义**（谁读什么、压缩阈值、K 等）；只改**表示与校验**。
-- 与 B85（窗口设置 UI）无关；与 B81 的关联仅是 B81 CP5 发现该问题。
-- 文档真源：`docs/design/contracts/VS-00L-*`（请求 IR/材料结构）、`judgment_tool_contract`/`authoring_operation`（工具 schema）、`docs/design/ui/46/47`（作者可见面）、`scenario-acceptance.md`（红线）。
+B87 的根目标包含请求语义/材料来源、原生模型工具输出、系统验证和作者可见面。B86 的 C9 问题恰好贯穿这条主链，单独维持 B86 状态会形成两个任务同时修改同一 RequestIR/Prompt/ToolContract/Visible consumer 的双归属。
 
-## 4. 设计进展（2026-11-12/13）
+**本次属于任务责任迁移**，而非功能取消或降级。B87 R06 对以下后果承担不可减少的完整 DoD：
+1. **模型输入结构化**：内部 ref 只位于专用引用字段，自然语言摘要/章节标题不夹裸 `chapter:<uuid>`；仍可用真实 ref 调用工具。
+2. **返回字段校验**：模型写给作者的文本含内部标识 → 同一 call_id 的验证失败、反馈与受界重试；不让应用改写原文以伪造干净输出。
+3. **作者可见单字段字节因果**：`AgentNarrativeSource`、`NovelCommon.AuthorVisible.Text`、I1/N-NARR 同源；系统状态另由系统来源给出，不参与模型字节等价。
+4. **真实页面 + 实模**：以 `cp5-real-05` 和 `b82-g2-observed-target-04` 作为回归正反例；真实工作台可见标识命中必须为 0；工具标识仍能完成正确业务定位。
+5. **无新平行过滤/事实源**：必须先审查现存实体，尽量复用现有 RequestIR/ToolContract/Presenter，不新建隐藏式 UI 文本过滤器。
 
-设计已从“材料结构化 + 返回约束”推进为完整的模型交互与授权契约，设计输入是 [VS-00M](../../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md)（Proposed，未冻结）；执行计划登记在 [B87（原 B85）R10](B87-model-interaction-request-projection.md)。本节只记录决策与实现顺序，不授权实现。
+## 3. 已记录的用户与设计决策
 
-### 4.1 已定决策
+- 对话工作面必须让作者看到小说语言而不是软件内部 ID；
+- 模型材料/工具输出应当结构化，保持 Ref 与可见文案的源头分离；
+- 模型原生叙事字段的作者可见字节保持不变（N-NARR）；不做展示层后处理字节替换；
+- 用户 2026-11-13 授权彻底重审设计/任务；项目未发布、不做旧接口兼容、不新增未经存在性审核的实体；
+- 方案仍在 VS-00M Proposed/未来 R00 核验阶段，**不能将此任务的历史意图冒充已完成实现**。
 
-| 决策 | 结论 |
-|---|---|
-| 四层闭环 | AgentRun + Canonical Transcript → Application Request → Provider Request/Response → Validation + Outcome |
-| 材料结构化 | `base_facts`（fact_ref/origin/work_revision）、`evidence_coverage`/`omissions`、`target_issue`、`effect_keys` |
-| 作者可见字节 | 单字段：`author_visible.content` 字节 = 模型字段；系统不改写；系统说明走 `status_message`（N-NARR） |
-| 能力目录 | `authorized` 最小供给（本轮可建议）；catalog 不预装，按需 `capability_lookup`（00 §2.4） |
-| 风险等级 | `low/medium/high/critical`，按 `capability + effect + target + context` 动态计算，纯函数 |
-| 授权模式 | `manual/risk_based/full/smart`；优先级 run > 会话 > 作品 > 全局 |
-| `full` | 含自动采纳；需 `delegation_ref`、可撤销、可回滚、仍过 `validation` |
-| `critical` | 所有模式都询问作者；同意=执行+采纳；拒绝回流；永不自动采纳 |
+## 4. 验收/恢复入口
 
-### 4.2 实现顺序（未启动）
-
-1. `authorized` 派生 + `allowed_tools` 统一来源（替换 `@judgment_capabilities` 硬编码）。
-2. 风险函数 `risk_of/4` + 可版本化规则表。
-3. 模式优先级解析 + `mode_source` 落 trace。
-4. `critical` 确认流（请求结构/拒绝回流/审计）。
-5. `full` 自动采纳（`delegation_ref`/撤销/回滚/状态标注）。
-
-### 4.3 未定项
-
-- `smart` 模式的判断主体（规则 / 子代理）与误判回滚。
-- `effect_keys` 词表冻结。
-- transcript 投影范围（完整历史 + checkpoint vs 当前 turn）。
-- reviewed-v1 示例包是否保留为正式 contract example。
-
-### 4.4 状态
-
-- 文档：VS-00M 已落（Proposed）；reviewed-v1 示例包已登记进 `docs/design/contracts/`。
-- 代码：未改；现有 `@judgment_capabilities`、`authority_scope`、`gate_order` 均未动。
+- 实施唯一入口：[B87 R06](B87-model-interaction-request-projection/R06.md)，与 R02（结构化请求）、R07（工具校验）、R19（最终实模/原生验收）关联。
+- 测试应保留原 B81/B82 失败记录并在有效当前 HEAD 运行同类真实页面场景；不能仅通过静态扫描或人为删掉 ID 文本宣告通过。
+- B81 的历史任务文档可保留“当时由 B86 跟踪”的事实，当前责任以本页和 B87 为准。无新的 B86 状态/任务批次。

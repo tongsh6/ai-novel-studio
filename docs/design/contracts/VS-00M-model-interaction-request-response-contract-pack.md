@@ -1,395 +1,250 @@
-# VS-00M Model Interaction Request / Response Contract Pack
+# VS-00M · 模型交互端到端架构与治理契约（Issue #4 / B87）
 
-> 状态：**Proposed（2026-11-12）**。作者给出四层闭环与 `reviewed-v1` 示例包；本 pack 将闭环与示例整理为契约草案，**未冻结，不授权产品代码/schema/provider 实现**。
-> 示例：[VS-00M-model-interaction-reviewed-v1.example.json](VS-00M-model-interaction-reviewed-v1.example.json)（`design_example_bundle`，README 标注 `proposed_example_not_production_contract`）。
-> 来源：作者 2026-11-12 四层闭环与 reviewed-v1；根因记录 [B86](../../../tasks/slices/B86-structured-model-materials-internal-ref-isolation.md)。
-> 上游：[VS-00L](VS-00L-authoring-run-transcript-request-ir-contract-pack.md)（Request IR v1，Frozen）、ADR-0033、[VS-00H](VS-00H-system-identity-message-contract-pack.md)、[VS-00I](VS-00I-prompt-prefix-stability-contract-pack.md)、[B81](../../../tasks/slices/B81-session-canonical-authoring-history.md)（会话级 canonical history）。
-> 非目标：不冻结 provider 能力等级、模型参数数值、工具全集、effect 词表、预算常数。
-> **定位（2026-11-13，作者裁决 C）**：本 pack 的请求/响应四层结构只作为**设计输入与投影视图**，不构成第二事实源；执行计划登记在 [B87（原 B85）Issue #4 R10](../../../tasks/slices/B87-model-interaction-request-projection.md)。本 pack 保留价值集中在 §3.4（风险等级/授权模式/critical/full）与 §3.6（authorized 最小供给 + catalog 按需探索），作为 R10 的设计输入；请求/响应结构复用现有 `authoring-request-ir/v1`，不替代 RequestIR。
+> **状态：Proposed · 2026-11-13 系统性重审稿（设计已落文档，尚未实施、尚未宣称 Frozen）**。本次作者明确授权彻底审核和修改设计/任务文档，确认**项目未发布、无需历史兼容、要求 clean、禁止不经存在性审查新增实体/设计**。R00 完成 Frozen 契约影响审计与设计决策后再进行正式冻结；不能把本稿直接当现网实现事实。
+>
+> **设计真源**：本文件只负责“模型请求材料—Provider 往返—系统校验—授权/采纳—审计”的增量契约；[VS-00L](VS-00L-authoring-run-transcript-request-ir-contract-pack.md)（Frozen）、[VS-00I](VS-00I-prompt-prefix-stability-contract-pack.md)、[ADR-0033](../adr/ADR-0033-authoring-run-transcript-request-ir-v3.md)、[ADR-0035](../adr/ADR-0035-session-scoped-canonical-authoring-context-v3.md)、[产品愿景与元原则](../00-vision-and-engineering-roadmap.md#24-创作信息获取元原则最小供给按需求证证据闭环2026-10-27-用户拍板) 高于未经批准的本文件字段草案。与 Frozen 不同处在 §8 单独列出，**先裁决后改**，不偷偷实现。
+>
+> **任务唯一状态源**：[B87](../../../tasks/slices/B87-model-interaction-request-projection.md)；[B86](../../../tasks/slices/B86-structured-model-materials-internal-ref-isolation.md) 的 C9 未完成后果并入 B87 R06，原失败证据不销账。**不建立第二套 ModelInteraction 持久事实源、Agent loop、Provider adapter 或能力注册表。**
 
-## 1. 根问题与目标
+## 1. 产品目标、反目标与优先级
 
-现行请求把角色规则、作品投影、章节索引、候选清单、操作目录、来源规则、证据纪律全部拼成自然语言塞进 `messages[].content`，导致：不可版本化、不可校验、不可复用、易膨胀、模型混淆材料与指令。响应侧只保留 `content + tool_calls + usage`，不记录决策分类、证据使用、校验结果与真实性核对。
+AI Novel Studio 是 **Dialogue-first / Agent-native 的小说创作伙伴**，不是关键词 Router、表单编排器或 Prompt 拼接工厂。作者提出目标，模型自主判断是答复、讨论、取证、创作、修订还是向作者请示；应用提供事实、能力、预算与权威门禁，最后由作品状态和作者授权确定真实效果。
 
-目标：**四层闭环，每层只做自己的事**。Prompt 不是一个大字符串，而是由结构化上下文渲染出来的视图。
+最终评价顺序：
+1. **事实正确、无越权、作者主权与正文质量不退化**；再评价成本与延迟。
+2. **跨轮语义连续**：模型知道此前承诺、问题、未决目标；不因压缩漏掉最近义务。
+3. **来源真实**：Base、作者原话、模型推断、Tool Observation、系统执行结果不冒充彼此。
+4. **系统 clean**：没有平行事实源、重复决策器、无消费者实体、旧版运行时兼容、无效抽象。
+5. **性能可量化**：简单问答不随轮数携带多份完整 Scope；固定工具/系统前缀继续有效缓存。
 
-## 2. 四层闭环
+反目标：预先用 APP 判完作者意图、按自然语言关键词配发专用 Packet、用模糊摘要代替必要正文、用结构化 JSON 外观冒充上下文优化、用模型文本冒充执行成功、为将来可能性搭框架。
+
+## 2. 系统唯一主链与职责所有权
 
 ```text
-L1 AgentRun + Canonical Transcript         唯一运行事实源
-        │ build（派生，不复制事实）
-        ▼
-L2 Application Request / Context Projection  任务语义、有效事实、权限与可用能力
-        │ render（确定性投影）
-        ▼
-L3 Provider Request / Response              原生 messages、tools、模型输出
-        │ decode + validate
-        ▼
-L4 Validation + Application Outcome         协议校验、权限验证、执行事实、作者可见结果
+真实作者输入（author turn，原文字节）
+ → AgentRun（目标/预算/权限/中断/恢复；编排决策）
+ → 会话 Canonical Transcript（完整追加、run 执行段、真实工具/校验）
+ → application 的请求派生：System + 当前有效 Scope + 必要历史/Checkpoint + 证据
+ → 现有 NovelCommon.RequestIR（唯一中立模型交互契约）
+ → 三种 wire projection（Chat Completions / Responses / Anthropic）
+ → NovelAgent.Provider.Gateway / Adapter 原生请求、流式/终止响应
+ → JudgmentProtocol / ToolContract 与 refs/effect/字节验证
+ → ExecutionOrchestrator/GateOrder + 作者确认/委托策略 + AdoptionWorkflow
+ → 已发生的工具结果/版本事务/DecisionTrace/TurnResult
+ → Canonical 追加与 Replay/Why / 真实作者可见展示
 ```
 
-| 层 | 输入 | 输出 | 约束 |
-|---|---|---|---|
-| L1 | run 事实、会话 transcript、作品状态 | run envelope、canonical messages、budget、authority | 唯一事实源；L2 只能派生，不能创造事实 |
-| L2 | L1 + 本轮授权 | `application_request` | 事实必须带 `origin`/`work_revision`/`fact_ref`，可回溯 L1 |
-| L3 | L2 | `provider_request`（method/url/api/body） | 只有 `body` 发给 provider；不承载业务语义 |
-| L4 | provider 原始响应 + L2 | `validation` + `application_outcome` | 模型只产 `decision`/`author_visible` 字节；校验与执行事实由系统生成 |
-
-**不可越层的行为**：L2 不得直接写作品；L3 不得引入 L2 没有的语义；L4 不得用展示层过滤冒充契约（I1 因果绑定）。
-
-## 3. L2 Application Request
-
-reviewed-v1 的 `application_request` 顶层：`protocol / trace / task / authority / context / capabilities / runtime`。字段语义按下述固定；标注「待补」的项见 §7。
-
-### 3.1 protocol
-
-```json
-{
-  "kind": "model_interaction_request",
-  "schema_version": "design-v1",
-  "request_ir_version": "authoring-request-ir/v1",
-  "source_constitution_version": "b27-task-v2",
-  "tool_protocol_version": "b26-tools-v1"
-}
-```
-
-`request_ir_version` 引用现有 VS-00L Request IR v1，表明 L2 是现有 IR 的请求视图，不是替换；`schema_version` 冻结时换成契约版本。`source_constitution_version` / `tool_protocol_version` 的值来自各自唯一真源（`AuthoringTaskPolicy` / 工具契约）。
-
-### 3.2 trace
-
-```json
-{"turn_ref": "...", "run_ref": "...", "work_ref": "...", "session_ref": "...", "stage": "judgment"}
-```
-
-映射 AgentRun 的 `run_id/workspace_id/work_id/session_id/parent_turn_ref`。缺 `parent_turn_ref`、`profile_ref`、`run_mode`、`status`、`phase`（待补 §7）。
-
-### 3.3 task
-
-```json
-{
-  "purpose": "judgment",
-  "role": "creative_judger",
-  "author_input": {"message_ref": "message_...", "text": "..."},
-  "goal": {"source_ref": "message_...", "raw_text": "..."},
-  "intent_status": "not_preclassified"
-}
-```
-
-规则：
-
-- `author_input` 是作者原话事实（字节不变）；`goal` 是本次任务目标，`source_ref` 指向作者消息或系统任务来源。
-- `intent_status: not_preclassified` 表示系统不预判作者意图分类；判断器自行判断，不在 L2 加 `intent` 枚举（避免预分类污染）。
-- `purpose` 是运行阶段（judgment），不是作者意图；`role` 是模型角色。
-- 示例中 `author_input.text` 与 `goal.raw_text` 相同。冻结时二者必须合并或明确分工（一个作为原话事实、一个作为目标引用），不允许双源。
-
-### 3.4 authority
-
-```json
-{
-  "model_action_authority": "suggest_only",
-  "canon_write_authorized": false,
-  "creative_artifact_default_status": "TENTATIVE",
-  "author_adoption_required_for_canon_mutation": true,
-  "object_and_source_refs_must_be_real": true,
-  "mode": "risk_based",
-  "mode_source": {"scope": "session", "ref": "session:..."},
-  "delegation_ref": null,
-  "budget": {"provider_calls_remaining": 2, "tool_calls_remaining": 1}
-}
-```
-
-这是本轮权限事实（L1 `authority_scope` + `budget` + 用户授权模式 的投影）。模型可见，用于约束行为：只能建议、不能自行写 canon、候选默认 TENTATIVE。`mode` 是有效授权模式，`mode_source` 记录生效层级，`delegation_ref` 在 `full` 自动采纳时指向作者委托来源。`allowed_tools` / `authorized` 派生待补（§7）。
-
-#### 3.4.1 风险等级（capability + effect + target 动态）
-
-| 等级 | 判据 | 典型能力 |
+| 层 / 归属 | 已存在的事实与模块 | 唯一责任；禁止重复 |
 |---|---|---|
-| `low` | 只读/查询/探索，无副作用 | `chapter_read`、`prose_search`、`capability_lookup` |
-| `medium` | 生成 tentative 候选、可回滚修订 | `prose_writing`、`plot_outline`、`revise_adopted_content(format_only)` |
-| `high` | 改已采纳正文、改角色主档案、结构重编号、单对象高风险变更 | `revise_adopted_content(whole_chapter)`、`revise_character_profile`、`maintain_chapter_structure` |
-| `critical` | 删除、批量（≥3 对象）、不可逆覆盖、跨作品、改 canon 核心（立项/卷结构/主角身份） | 删除章位、批量重写、改作品立项 |
+| 运行与权限事实（domain/application） | `NovelDomain.AgentRun` / `AgentRunPolicy`、`ExecutionOrchestrator`、`GateOrder` | run 目标、预算、工具权限、风险与重门；不得由 Prompt 或 Provider 持有权威执行状态 |
+| Canonical 历史（application/persistence） | `AuthoringTranscript`、`AuthoringSessionHistory`、`AuthoringCheckpoint`、`TranscriptCompaction`、`AuthoringSessionLog`、`AuthoringReplay` | 会话唯一追加事实，checkpoint 与作用域投影，run 只为执行段；不能引入新 ModelInteraction 表 |
+| 模型请求/协议（common/application） | `NovelCommon.RequestIR`、`RequestIR.Projection`、`JudgmentProtocol`、`ContextAssembler`、`AuthoringTaskBuilder` | common 纯契约与 wire，application 组装可信领域事实；不复制工具 Schema，不把写作任务简化成判断器 |
+| Provider 传输（agent） | `Gateway`、`AdapterExecution`、三类 adapter、流式归一化 | 原生工具请求、响应、usage/TTFT、有限模式；不得创造领域事实或自我授权 |
+| 能力/效果（common+application） | `NovelCommon.CapabilityRegistry`、`NovelApplication.CapabilityRegistry`、`CapabilityRegistryEntry`、`JudgmentToolContract` | 已注册的能力及运行时可用性，已有 application 局部维护能力不得复制为第三目录；业务 effect 与 agent 决策工具分离 |
+| 作者可见来源（common/application） | `NovelCommon.AuthorVisible.Text`、`AgentNarrativeSource`、`TurnResultBuilder` | 模型叙事字节不被应用改写；系统事实使用独立明确标注的状态文案 |
+| 作者确认/采纳（domain/application/persistence） | `ConfirmationBinding`、`AuthorActionConfirmation`、`AuthorActionAdmission`、`ApprovalAudit`、`AdoptionBoundary`、`AdoptionWorkflow`、`AuthorActionReceiptRepo` | 对象绑定、重新 gate、版本与写入事务、可重试回执；不绕过边界另开“自动采纳写库”服务 |
+| 展示/读取 | `WorkspaceChannel`、`WorkspaceChat`、`ReadingProjectionRepo` | 展示真实结果与作品权威阅读投影；不得把模型的显示建议当成已修改章位 |
 
-风险由注册表基线 + 规则表计算（纯函数，输入 `capability / effect / target / context`），模型只读，不能自评。同一能力不同 effect 可以不同等级。
+**分层原则**：`NovelDomain` 不依赖 `NovelCommon`、`NovelApplication` 不反向被 `NovelAgent` 引用；三 wire 与跨应用纯契约归 `novel_common`，IO/决策编排归 application，DB 事务归 persistence。遵守 `AGENTS.md` 与 `scripts/arch_check.exs`；“四层闭环”是观察模型，不是四套新持久对象。
 
-#### 3.4.2 授权模式与优先级
+## 3. 软件工程原则在本项目的可操作判据
 
-| 模式 | 含义 |
+| 原则 | 实施要求 / 典型违例 |
 |---|---|
-| `manual` | 每步手动授权 |
-| `risk_based` | 低风险自动放行，中高风险确认 |
-| `full` | 除 `critical` 外自动执行，含自动采纳 |
-| `smart` | 结合上下文的动态判断，高风险仍有确认兜底 |
+| SRP | 请求派生、Provider 传输、授权决策、采纳事务、作者可见来源分别负责；禁止一个 Builder 同时组装 Prompt、判断风险并写库 |
+| OCP | 采用现有 registry/contract 添加能力，扩展已有行为；**不是禁止为修复错误而修改已测模块**，不为 OCP 生成无消费者接口或兼容胶水 |
+| LSP | Elixir 重点体现在 Provider behaviour/Tool executor 契约替换：不同 adapter 的 call_id、流式终止、usage/错误语义和原始字节不得悄悄降级 |
+| ISP | 判断器只拿当前需要的工具/事实，Writer 获得必要正文；不把全能力目录、管理功能与原始作品档案强制塞入每次调用 |
+| DIP | application 的上层规则只依赖 common/domain 契约，IO 经现有端口注入；不在 common/domain 为了读取数据库或 Provider 反向依赖 |
+| LoD | Writer 不知道持久化表结构，Provider 不知道作者采纳，UI 不访问 Repo；交互经合法直接协作者和明确结果契约 |
+| CRP | 复用模块组合、行为协议与已实现纯函数；Elixir 无须为“继承体系”造类 |
+| DRY | 能力 effect、工具 JSON Schema、风险基线、错误 reason_code、来源判据只存在一个权威注册/校验位置 |
+| KISS | 能用现有 IR/Transcript、已有 Gate 和 Receipt 收口，不多加 Adapter、协调器、路由器和重复状态层 |
+| YAGNI | 不预建泛用规则引擎、权限服务、复杂配置中心、多 Agent；缺现实消费者的抽象一律不落地 |
+| SoC / 封装 | 清晰的领域值、应用编排、持久化与模型传输边界；公开尽量少的稳定接口，内部 shape 不泄漏 UI |
+| 适度工程 | 复杂度与真实需求、已知风险、明确演进一致；无历史兼容不等于牺牲边界/回滚/可观测性 |
 
-优先级：**run > 会话 > 作品 > 全局**；未设置向下继承；生效结果写 `mode` + `mode_source`。模式由作者选择，模型不能设置或修改。
+审查标准不是“写了多少层”，而是**一个事实只由一个责任方负责、一个改变有真实消费者且可被端到端验证**。
 
-#### 3.4.3 决策矩阵
+## 4. 强制存在性审查（新实体/新设计/新字段之前）
 
-| 风险 \ 模式 | `manual` | `risk_based` | `full` | `smart` |
-|---|---|---|---|---|
-| `low` | allow | allow | allow | allow |
-| `medium` | require_confirmation | allow + adoption_required | allow + auto_adopt | 判断；adoption_required |
-| `high` | require_confirmation | require_confirmation | allow + auto_adopt | 判断 + 确认兜底 |
-| `critical` | ask_author | ask_author | ask_author | ask_author |
-
-`allow` 也必须过 `validation`；`auto_adopt` 需要 `delegation_ref` 与审计。
-
-#### 3.4.4 critical：询问作者，同意 / 不同意
-
-`critical` 在**所有模式**下都停下问作者：
-
-```json
-{
-  "kind": "critical_confirmation",
-  "action": "delete_chapter_slot",
-  "target": {"chapter_ref": "chapter:...", "title": "..."},
-  "impact": {"objects_affected": 1, "references_at_risk": ["..."], "reversible": false},
-  "consequence": "……不可撤销。",
-  "options": [
-    {"value": "approve", "label": "同意，执行并写入作品事实"},
-    {"value": "reject", "label": "不同意，保持现状"}
-  ]
-}
-```
-
-同意 = 执行 + 写入 canon（一次决策覆盖执行与采纳）；不同意 = 不执行，拒绝结果回流给模型；记录 `author_decision` 与审计。`critical` 永远不自动采纳。
-
-#### 3.4.5 `full` 自动采纳的约束
-
-`full` 命中时连采纳一起放行，但必须：默认关闭、作者显式选择、`delegation_ref` 记录委托来源、可随时撤销、仍过 `validation`、产物可回滚、`status_message` 明确标注"自动采纳"。`critical` 不受 `full` 影响。
-
-### 3.5 context（有效事实）
-
-```json
-{
-  "scope": {"work_revision": 1, "scope_revision": 1, "snapshot_status": "current"},
-  "base_facts": [],
-  "author_reported_problem": {"source_ref": "message_...", "text": "..."},
-  "observations": [],
-  "evidence_coverage": {"chapter_index": "complete_for_current_work", "chapter_body": "not_read", "outline_to_chapter_binding": "not_verified"},
-  "omissions": [{"kind": "character_dossiers", "reason": "not_relevant_to_structure_problem"}]
-}
-```
-
-`base_facts` 规则：
-
-- 每项带 `fact_ref`（稳定事实标识）、`origin`（`work_projection` / `adoption_projection`）、`work_revision`，可回溯 L1；对象 `ref`（`chapter_ref` / `artifact_ref`）只作为字段值出现。
-- `fact_ref` 建议加命名空间（如 `fact:chapter_slot:1`），避免模型把它当对象 ref 复述。
-- `has_accepted_prose`、`chapter_status`、`accepted_char_count`、`effective_word_count` 是事实；示例缺 `visible_in_reading`（作者问题正是阅读可见性），待补 §7。
-- `link_evidence_status: not_verified` 诚实表达"卷纲档案与错误章位之间的绑定尚未核验"，是正确设计；不得把它改写成确定事实。
-- `observations` 为空时必须由 `evidence_coverage` / `omissions` 说明未读与省略；不得让模型把"未读"当"没有"。
-- `author_reported_problem` 与 `task.author_input` 在示例中重复同一句；冻结时明确一个是原话事实、一个是问题陈述，或合并。
-
-### 3.6 capabilities（authorized 最小供给 + catalog 按需探索）
-
-```json
-{
-  "authorized_complete_for_run": true,
-  "effect_vocabulary_status": "proposed_normalized_keys",
-  "authorized": [
-    {
-      "name": "maintain_chapter_structure",
-      "allowed_effects": ["display_number_only"],
-      "risk_class": "medium",
-      "preconditions": [{"kind": "chapter_ref_required", "status": "satisfied"}]
-    }
-  ],
-  "exploration": ["prose_search", "chapter_read", "archive_read", "session_adoptions", "memory_recall", "capability_lookup"],
-  "provider_toolset_ref": "b26-tools-v1"
-}
-```
-
-规则（依据 [00 §2.4](../00-vision-and-engineering-roadmap.md)：最小供给、按需求证、证据闭环）：
-
-- `authorized` 是本轮 run 允许模型**建议**的操作与效果，从 L1 run 事实派生（profile + `authority_scope.allowed_tools` + step + 前置条件 + budget）。它不是系统能力全集，也不预装 `catalog` 内容。
-- 每个 `authorized` 项带 `risk_class`（§3.4.1）与 `preconditions`；effect 粒度按 §3.4.1 动态细分。
-- `authorized_complete_for_run: true` 表示"本轮可建议操作已完整"；未列出的操作模型不得建议，执行 gate 同源拒绝。
-- **catalog 不预装**：系统能力全集、effect 词表、限制与未授权原因，通过 `capability_lookup` 只读探索按需取得；查询结果作为 observation 进入后续请求，带 `refs_used` / `coverage` / `omissions`。
-- `report_capability_gap` 的 `missing_effect` 必须绑定一次 catalog 观察，或由系统在建议后校验并回流"不存在/未授权"；不允许模型没查就断言"系统没有"。
-- `work_archive_read` 属于只读操作，进 `exploration` 或 `authorized` 的只读子集；不与可写操作混在同一列表。
-- `provider_toolset_ref` 指向工具真源；L3 展开完整 schema，不内联手写。
-
-> 预装 catalog 等于"全知投喂"，违反 00 §2.4；判断器需要的是"本轮能建议什么"，不是"系统一共有什么"。catalog 的相关性由模型在判断中决定是否查询。
-
-### 3.7 runtime
-
-`provider / model / temperature / reasoning_effort / max_tokens / tool_choice / stream`。是执行参数，**模型不可见**，不进 messages。
-
-### 3.8 与 L1 的绑定（待补）
-
-reviewed-v1 只覆盖了判断场景的最小集。对照 `NovelDomain.AgentRun` 与 VS-00L RunEnvelope，还需：
-
-| L1 字段 | 现状 | 用途 |
-|---|---|---|
-| `budget {max_steps, max_tool_calls, max_provider_calls, max_replans, max_pending_artifacts, remaining}` | 缺 | 模型知道还能调几次工具/provider |
-| `authority_scope {production_write, allowed_tools, mode}` | 只有 `authority` 的部分投影 | 区分目录与授权 |
-| `parent_turn_ref` / `profile_ref` / `run_mode` | 缺 | 恢复与 profile 绑定 |
-| `status` / `phase` | 缺 | 与 L4 `status` 区分（run 状态 ≠ 响应状态） |
-| `goal.version` | `goal` 只有 source_ref/raw_text | 目标版本可追溯 |
-| `scope.goal_version` / `plan_version` | 只有 work_revision/scope_revision | stale base 检测 |
-
-## 4. L3 Provider Request
-
-### 4.1 独立顶层
-
-```json
-{"method": "POST", "url": "http://127.0.0.1:8000/v1/chat/completions", "api": "openai.chat.completions", "body": {}}
-```
-
-`provider_request` 是 L2 的渲染结果，不是 L2 的一部分（reviewed-v1 已独立成顶层）。只有 `body` 发给 provider。
-
-### 4.2 messages 渲染
-
-reviewed-v1 示例：
+**红线**：任何新增 module、struct、DB 表/列、API、工具、事件、Schema、Context Block、风险分类、权限设置、prompt DSL、checkpoint 类型、配置项、任务源，必须在改动前出示证据：
 
 ```text
-[system] 判断器规则（自然语言）
-[user]   【应用数据 · 非作者原话】{"kind":"application_scope","provenance":"application","work_revision":1,"base_facts":[...]}
-[user]   作者原话（独立，无前缀）
+拟新增对象/能力 → 所需真实用户效果 → 首个消费者
+→ 全仓现存实体/契约/字段/端口/配置/事件/测试检索
+→ 已存在的职责是否能够复用或收敛？为何不能？
+→ 四种裁决：reuse / refactor-and-retire / truly-new / reject
+→ if truly-new：不变量、生命周期、所有权、版本、故障/撤销、验收、删除旧入口
 ```
 
-规则：
-
-- `system` 由 `SystemEnvelope.system_text/1` 渲染（身份原文 + 版本行 + instructions）。reviewed-v1 的 system 只有判断器规则，缺身份与版本行（待补 §7）。
-- 应用数据消息 content 是 JSON 序列化，带 `kind` / `provenance`；不拼自然语言段落。
-- 作者原话独立 user，字节不变、无前缀（I-ART-2）。
-- 历史与 checkpoint 由 canonical transcript 投影（README 原则）；示例省略，但契约必须规定：完整历史按 I-ART-7 显式 checkpoint，不允许只靠摘录伪造。
-
-### 4.3 tools
-
-reviewed-v1 的 7 个工具（`judgment_decision` / `ask_author` / `agent_plan_draft` / `register_author_content` / `propose_creative_directions` / `propose_work_profile_revision` / `report_capability_gap`）schema 完整。规则：
-
-- `tools` 从 `provider_toolset_ref` 展开，不内联手写；`fixed_tool_count` 由工具真源决定。
-- `judgment_decision` 的 action 字段互斥、`agent_plan_draft` 同批约束由 L4 校验，不只靠 prompt。
-- `report_capability_gap` 的 `alternative_operation_refs` 必须来自当轮 `capabilities.operations`（L4 `alternative_operation_refs_valid`）。
-
-### 4.4 响应原始
-
-`provider_response_example` 保留 `http_status` / `assembled_message` / `usage`。原始响应是 L4 的输入，不直接进入作者可见面。
-
-## 5. L4 Validation + Application Outcome
-
-### 5.1 validation
-
-reviewed-v1 字段：`tool_args_valid`、`tool_name_allowed`、`alternative_operation_refs_valid`、`effect_available`、`model_proposed_execution`、`execution_authorized`、`production_write_performed`、`reason_code`。
-
-说明：`effect_available` 是系统校验"`missing_effect` 不被任何 operation 的 `effect_keys` 覆盖"，正好替代了把 `capability_status` 塞给模型的做法（判断仍由模型做，校验由系统做）。
-
-授权决策字段（§3.4.3 / §3.4.4）：
-
-- `risk_class`：本次动作的实际风险等级（`low / medium / high / critical`）；
-- `risk_decision`：`allow / require_confirmation / ask_author / deny`；
-- `author_decision`：`approved / rejected / null`（`critical` 或 `manual` 下由作者给出）；
-- `auto_adopted`：是否由 `full` 自动采纳；
-- `author_delegation_ref`：自动采纳时的作者委托来源；
-- `execution_authorized` / `production_write_performed`：最终执行与写入事实。
-
-待补（§7）：
-
-- `refs_exist`：引用的 ref 真实存在；
-- `refs_in_scope`：`used_refs ⊆ base_facts ∪ observations`（I-ART-9）；
-- `author_visible_clean`：作者可见文本不含内部标识（`chapter:` / `character:` / `call_` / `pcall_` / `fact:` 等）；
-- `action_field_conflict`：`judgment_decision` 的 action 专属字段互斥、`plan` 同批约束。
-
-### 5.2 application_outcome
-
-```json
-{
-  "kind": "model_interaction_outcome",
-  "decision_type": "capability_gap",
-  "status": "completed_without_execution",
-  "author_visible": {"content": "..."},
-  "status_message": {"text": "本轮未修改作品。", "source": "system"},
-  "truthfulness": {
-    "artifact_adopted": false,
-    "production_write_performed": false,
-    "execution_authorized": false,
-    "author_confirmed": false,
-    "auto_adopted": false,
-    "adoption_required": true
-  },
-  "evidence_used": ["chapter:...", "as_..."],
-  "evidence_limitations": ["..."]
-}
-```
-
-规则：
-
-- `author_visible.content` 是**唯一作者可见正文**，必须逐字等于 provider 响应中的模型字段（`reason` / `author_reasoning` / `question` / `content`），由 `AgentNarrativeSource` 绑定；系统不改写、不摘要、不拼接、不删除标识（§5.3）。
-- `status_message` 是系统事实说明（"本轮未修改作品" / "已生成候选待审阅"），由固定模板生成，`source: system`，不冒充模型原话，不参与 I1；UI 需与 `author_visible` 分开展示。
-- `decision_type` 与 L2 `allowed_decision_types` / 工具名映射；`status` 是运行结果分类（`completed_without_execution` 等），与 AgentRun `status/phase` 区分。
-- `truthfulness` 复用现有 `TurnResult` 形状（`tool_called` / `tool_status` / `tool_name` / `artifact_adopted` / `production_write_performed` / `execution_blocked` / `decision_type` / `first_blocking_gate` / `reason_codes`）；reviewed-v1 的三字段是子集，需扩展而不是另建。`author_confirmed` / `auto_adopted` / `adoption_required` 由授权决策（§3.4）回填，模型不得自填。
-- `evidence_used` 是扁平 refs 列表；`as_*` artifact ref 与 `chapter:*` 混在一起，建议加 `source_kind` 或按类型分组（待补 §7）。
-- `evidence_limitations` 需要 `visibility` 标注：进作者可见面就要作者可读措辞，否则只作系统审计。
-
-### 5.3 作者可见字节（已定：单字段）
-
-**决定（2026-11-12，作者）：`author_visible.content` 采用单字段，是唯一作者可见正文，字节必须等于模型响应中的对应字段。**
-
-- 来源字段：`report_capability_gap.author_reasoning`、`judgment_decision.reason`、`ask_author.question`、纯文本回复的 `content` 等；由 `AgentNarrativeSource.from_tool_call_narrative/4` / `from_provider_result/2` 绑定，记录 `source_hash` / `byte_range` / `narrative_hash`。
-- 系统不得：改写、摘要、拼接、删除内部标识、前端重写。展示层只允许格式渲染（换行、Markdown、卡片排版、高亮），不改字词。
-- 违规处理：`author_visible_clean` 失败（含内部标识）→ 作为该 `call_id` 的原生 tool 失败结果回流，模型重试；不产生候选，不做展示层过滤。
-- 系统事实说明（"本轮未修改作品"等）走独立 `status_message`，由模板生成，标注 `source: system`，不参与 I1，不冒充模型原话。
-- reviewed-v1 示例的处理：`application_outcome_example.author_visible.content` 与 `provider_response_example` 的 `author_reasoning` 字节不一致，按本决定应改为 `author_reasoning` 原文；示例里那句整理后的文案如需保留，应移到 `status_message`。
-
-**为什么不做双字段（系统展示文案 + 模型原话）**：现有 N-NARR 明确禁止应用摘要、解析后的 map、前端文案作为作者可见过程叙事来源（见 `AgentNarrativeSource` 模块说明）；系统也没有语义整理能力（只有 `Display` 固定映射与 `Presenter` 固定模板）。双字段要么新增 LLM 二次整理（成本、延迟、事实漂移、新来源类型），要么用规则改写（破坏字节一致性），都会让作者看到的话与记录的话不一致。整理能力交给模型：在工具 schema / 描述里要求作者可见字段直接写成作者可读文本，系统只校验与拒绝回流。
-
-## 6. 不变量
-
-沿用 VS-00L I-ART-1～12，新增：
-
-| ID | 不变量 | 违反示例 |
+| 曾建议新增的名字 | 核查到的存量事实 | 本设计裁决 |
 |---|---|---|
-| I-MIR-1 | L2 只从 L1 派生；`base_facts` 必须带 `origin`/`work_revision`/`fact_ref` | L2 创造事实或只写 `source: "xxx_v1"` 字符串 |
-| I-MIR-2 | 内部 ref 只允许出现在结构化 ref 字段；作者可见文本禁止出现 | `author_reasoning` 里写 `chapter:<uuid>` 或 `fact:...` |
-| I-MIR-3 | `author_visible.content` 单字段，字节 = provider 响应中对应模型字段；系统不得改写/摘要/拼接；系统事实说明走 `status_message`，不参与 I1 | 展示层改写模型原话后冒充原话；或把系统文案放进 `author_visible` |
-| I-MIR-4 | 系统回填区（validation/truthfulness/evidence_used/outcome）不得由模型填充 | 模型参数里传 `truthfulness` |
-| I-MIR-5 | 观察必须绑定 `call_id` 与真实查询；未读/截断/省略如实表达 | 无 call_id 的观察进上下文，或把 `not_read` 当"没有" |
-| I-MIR-6 | 覆盖三账一致：计数、列表、省略数可机械对账 | `resolved_count=7` 但只列 1 条且 `omitted_count=0` |
-| I-MIR-7 | `target_issue`/`capability_status` 等系统结论不得进入模型可见区（除非标 `visibility` 且作者裁决） | 模型复述"系统已标记能力缺失" |
+| `ModelInteraction` 表、`ApplicationRequest` 持久实体 | Session Canonical + RequestIR + ProviderRunLog + DecisionTrace | **REJECT**：仅作为非持久化观察/投影视图 |
+| `ContextBlock` 新总线 | `RequestIR` message/blocks、`DialogueContext`、`scope_update` | **REUSE/REFACTOR**：优先用现有 typed payload + 投影；证明确有语义缺口再改现役 IR |
+| 新 Session、Run、Checkpoint 仓库 | `WorkSessionRepo`、`AuthoringSessionLog`、`AuthoringCheckpoint`、`RequestIR.Compaction` | **REUSE**：不可再建第二套；需要拓展覆盖必须审查 Frozen 合同 |
+| 新 Provider Wire、工具 Schema 管理器 | `RequestIR.Projection`、`JudgmentToolContract`、Gateway/Adapter | **REUSE**：同源校验与失败结构化，不建立外壳 |
+| `CapabilityCatalog` 第二表、`capability_lookup` 新工具 | common+application registry 和已有 explore 工具；`capability_lookup` 当前尚无核实的生产入口 | **先审查真实调用价值**；不足则在既有探索面/注册表加只读端口，绝不直接新增第二 registry 或预先要求第八个判断工具 |
+| `RiskPolicy` 新服务、风险主表 | `CapabilityRegistryEntry.risk_class`、`MicroPlan.risk_hint`、`GateOrder`、`ApprovalAudit.risk_class` | **REFACTOR**：registry 为能力基准，应用统一派生实际效果风险；淘汰互相矛盾的风险副本 |
+| `AuthorizationMode`、`DelegationRecord`、新偏好表 | `AgentRun.authority_scope`、`AgentRunPolicy`、WorkSession/作品配置、author action/receipt/trace 已有 | **存在性审查未完结**：若现有模型不能安全表达继承、到期、撤销、范围绑定，才允许新增最小值/持久字段；先于代码有专门审查表 |
+| `ApprovalRecord`、`AutoAdoptionService` | ConfirmationBinding、AuthorActionAdmission/Confirmation、ApprovalAudit、AdoptionWorkflow、ReceiptRepo | **REUSE/REFACTOR**：复用已存在的决策与事务，不再建第二采纳服务 |
+| `AuthorVisibleFilter` | AuthorVisible.Text、AgentNarrativeSource、JudgmentToolContract | **REFACTOR**：模型内容拒绝+纠错，不做展示文本后处理/替换，保护 I1/N-NARR |
 
-## 7. 待补项（v1 → v2）
+这是一份**已核实对象存在性的架构审计入口，不是“所有能力均已实现”的声明**。真实性、可满足程度由 R00/各批在现行 HEAD 逐符号与真实消费者复核；未验证的持久授权设置/撤销机制不能写成已有能力。
 
-| 项 | 现状 | 待补 | 依据 |
-|---|---|---|---|
-| AgentRun 执行边界 | `authority` 已有 mode/budget 部分投影，其余缺 | `authorized` 派生、`authority_scope.allowed_tools`、`parent_turn_ref`、`profile_ref`、`run_mode`、`status/phase` | `NovelDomain.AgentRun`、VS-00L §3.1 |
-| Canonical transcript | README 声明，示例省略 | `dialogue.messages` + `checkpoint` + `coverage`，或明确"本次不投影历史" | I-ART-7、B81 |
-| system identity | system 只有判断器规则 | `SystemEnvelope` 身份原文 + 版本行 + `identity_ref` | VS-00H |
-| 阅读可见性事实 | 只有 `in_chapter_index` / `has_accepted_prose` | `visible_in_reading`（当前事实），期望态放 `target_issue.desired_state` 或作者问题 | 作者本轮诉求 |
-| authorized 派生 | `@judgment_capabilities` 硬编码，未从 run 事实派生 | 从 run 事实派生 `authorized`；统一 `allowed_tools` 来源；`capability_lookup` 只读探索 | §3.6 |
-| effect 词表 | `proposed_normalized_keys` | 冻结 effect 词表真源；风险规则与 authorized 都引用同一词表 | §3.6 |
-| 风险规则表 | 等级定义已定（§3.4.1） | 注册表基线 + 可版本化规则表（纯函数 `risk_of(capability, effect, target, context)`） | §3.4.1 |
-| 授权模式优先级 | 已定 run > session > work > global | `mode_source` 落 trace；继承/撤销规则；模型不可改模式 | §3.4.2 |
-| critical 确认 | 已定：所有模式都询问作者；同意=执行+采纳 | 确认请求结构、拒绝回流、审计字段 | §3.4.4 |
-| full 自动采纳 | 已定：可自动采纳 | `delegation_ref`、可撤销、可回滚、`status_message` 明确标注"自动采纳" | §3.4.5 |
-| validation 覆盖 | 缺 refs/文本/互斥/风险校验 | `refs_exist` / `refs_in_scope` / `author_visible_clean` / `action_field_conflict` / `risk_decision` / `author_decision` | §5.1 |
-| author_visible 字节 | **已定**：单字段，字节 = 模型响应字段（§5.3） | 示例 outcome 文案需改为 `author_reasoning` 原文，或移入 `status_message` | §5.3、I-MIR-3 |
-| evidence_used 类型 | 扁平 refs 混 artifact/chapter | `source_kind` 或分组 | §5.2 |
-| fact_ref 命名空间 | `chapter_slot:1` 可能被当对象 ref | 加 `fact:` 前缀或独立 field | §3.5 |
-| observations | 示例为空 | 真实观察或明确"本轮未调用工具" | I-ART-4 |
+## 5. 请求构造、上下文与明确的来源类型
 
-## 8. 验收
+### 5.1 单一事实流与示意结构
 
-- L1→L2 派生：`base_facts` 可回溯 run 事实（`origin`/`work_revision`）。
-- L2→L3 渲染：字节级快照；作者原话独立、无前缀；system 身份/版本行存在。
-- L3→L4 解码：`decision_type`/`status` 映射；`author_visible` 字节来源。
-- 负例矩阵：内部标识进作者可见文本、ref 越界、无 call_id 观察、effect 词表外 effect、`alternative_operation_refs` 不在目录、action 字段冲突、模型声称已执行。
-- 授权矩阵：`low/medium/high/critical` × `manual/risk_based/full/smart` 的决策与 §3.4.3 一致；`critical` 恒 `ask_author`；`full` 自动采纳必须有 `delegation_ref` 且可回滚。
-- 风险函数：同一 `capability/effect/target/context` 重算得到同一等级；模型不能自评风险；模式优先级 run > session > work > global 可回放。
-- catalog 按需探索：首轮 prompt 不预装 catalog；真实 run 中模型主动调用 `capability_lookup`，观察带 `refs_used`/`coverage` 进入后续请求；`report_capability_gap` 的断言与观察一致（00 §2.4 验收口径）。
-- 真实页面：capability_gap 案例往返 + 一次执行案例；I1/I2/I3 复跑。
+```text
+RequestIR（已存在，生产中立契约）：
+  run       : 运行身份/目标的不可变快照
+  system    : 身份 ref + 宪法/输出协议版本
+  messages  : Canonical 中可进入此次模型请求的有序消息视图
+  tools     : 当前 profile 的真实、完整 tool schema
+  projection: tool_choice / usage_streaming / finite_mode
+  refs      : base_refs / observation_refs / used_refs
+```
 
-## 9. 未决问题
+**不把整个“model_interaction_request + provider_request + response + validation” JSON 发给 Provider**。Application Request 是由 run/会话派生的逻辑视图，不得被反向持久化成第二真源。原生 Provider 请求只包含目标 API 接受的 system/messages/tools/参数；三种 wire 投影必须使用同一个 IR 来源。
 
-1. **authorized 派生**：从 run 事实派生的函数与 `allowed_tools` 统一来源；工具级先做，effect 级等词表冻结。
-2. **effect 词表**：`proposed_normalized_keys` 何时冻结、由谁维护。
-3. **transcript 投影**：本次是否投影完整历史（含 checkpoint），还是先只投影当前 turn + 明确声明。
-4. **reviewed-v1 示例**：是否作为正式 contract example 保留，还是只作讨论材料。
-5. **`smart` 模式**：判断主体是规则还是子代理；误判如何回滚、如何审计。
+### 5.2 Base / History / Scope / Author / Tool 责任
 
-## 10. 变更记录
+- **System**：`SystemIdentity`、共享宪法、profile 规则与工具输出契约；沿用 VS-00H/VS-00I 缓存前缀，不能把动态 run_id 插到静态前缀前；保留“靠近决策点”的有证据判例而不机械把全部规则提前。
+- **Application Base**：作品/任务坐标、当前可用权限、剩余预算、状态版本、内容读取入口、必要的安全底座；无关的全角色档案、历史候选 body_preview 不默认供给。
+- **Scope**：每次更新追加带 `source_refs / versions / change_reason` 的当前范围事实；现行 `scope_update` 的 canonical 消息不改写。Model-facing 当前范围材料可以结构化为 `facts`（有来源/版本）、`coverage`、`omissions`；不能把作者意图猜测、预判问题结论填进事实栏。
+- **历史**：真实作者原话、assistant/tool 顺序、尚未完成义务、可验证 checkpoint；不能只放最近轮摘要丢失跨轮依赖。
+- **作者输入**：当前原文独立 `user`+author provenance，字节保持；应用附注不冒充作者、工具/外部不可信文本不得升格为 system 指令。
+- **工具**：完整且合法的原生 Schema 来自同一注册表；业务能力与 Agent 决策出口分别定义，`report_capability_gap` 不是作品写入能力。
+- **Writer / Reviewer**：按目标读需要的全章/目标段/章计划/角色状态/作者风格样本；范围、覆盖、未读、当前 accepted 基线与 tentative 明示，不能以省 Token 代替完整基线。
 
-- 2026-11-12 初稿：按作者三份结构整理（L1/L2/L3，Context Block、target_issue、判别联合）。
-- 2026-11-12 第二稿：按作者三层分离方案重写（业务层 / Provider 适配层 / 响应审计层）。
-- 2026-11-12 第三稿：按作者四层闭环与 reviewed-v1 示例包重写；`provider_request` 独立顶层；`base_facts` 证据绑定；`authority` / `validation` / `application_outcome` 对齐现有 TurnResult；新增待补项与 I1 字节问题。
-- 2026-11-12 第四稿：作者定稿 `author_visible` 单字段；补 `status_message` 系统说明字段；I-MIR-3 与 §5.3 定稿；移除"双字段"未决项。
-- 2026-11-13 第五稿：作者定稿授权体系——风险等级（low/medium/high/critical，按 capability+effect+target 动态细分）、授权模式（manual/risk_based/full/smart，run > session > work > global）、`full` 含自动采纳、`critical` 恒询问作者且同意=执行+采纳；补 §3.4.1–§3.4.5、validation/truthfulness 字段与验收矩阵。
+### 5.3 事实/意图/观察分界
+
+| 类别 | 谁说/谁证实 | 可进入后续模型请求的方式 |
+|---|---|---|
+| 当前作品事实 | persistence/current snapshot，应用读端口 | `base_refs` + 版本/权限/覆盖；仅真实已读字段 |
+| 作者指令/目标 | 当前原话或明确被绑定的作者历史消息 | 独立 user 消息/author_message_ref；目标解释不冒充客观事实 |
+| Agent 推断 | 模型当前讨论/工具决策 | assistant/工具参数，尚未验收；不得写入 Base 作为已经确认的类别 |
+| 真实 Observation | 受控工具已执行且有 `call_id` | tool-result + source_refs、版本、coverage/omissions；未执行不伪造 |
+| 系统动作与采纳 | gate/transaction receipt 与 canon 版本 | 系统确认后的回执；模型曾提建议 ≠ 真执行 |
+| 作者素材/风格（未来 Issue #3） | 作者资产系统，非当前 canon | 按需探索，`inspiration_only` 与 `canon` 不混同；本次不实现资产系统 |
+
+实例：`visible_in_reading=true` 若实际查得是当前事实；“应该只在档案显示”是作者要求；“目录缺少删除章位能力”只有真实目录/校验支持时才能说已证实。卷纲/章节误分类是独立领域缺陷，不得靠 prompt 移花接木。
+
+### 5.4 Scope 去冗余与显式压缩（重要的 Frozen 冲突边界）
+
+当前 B81 已把会话 Canonical → Request IR 接通，且能对**闭合工具交换**做 checkpoint，但纯讨论中旧完整 Scope 可能随历史重复进入 Provider 请求。
+
+**目标行为**：
+1. Canonical 仍严格追加、跨 turn 可回查，作者原文字节不变；
+2. “当前有效 Scope”只能有一份权威值，旧 Scope 是历史事实但不再被呈现为**同样当前有效**的状态；
+3. 若 Provider 投影不携带旧 Scope 的完整文本，必须有**先提交、可验证的显式 checkpoint/覆盖契约**（包括被替代 scope 的身份/版本/来源、仍生效的历史义务与摘要、省略说明）；没有合法覆盖则不能静默丢；
+4. 压缩不能捏造旧作者/工具话语、不能覆盖未闭合或其他 run 当前责任；错版本/错作品/交错恢复 fail-closed；
+5. 先根据 R01 数据确定是“重复文本导致增长”还是“合法历史必须保留”，不能盲删历史；
+6. 各 Provider 投影应当等价消费**同一覆盖语义**；缓存前缀仍按 VS-00I 验证，cached_tokens 属于 input_tokens 子集。
+
+**协议注意**：目前 VS-00L 对 `covers.call_ids` 与 tool exchange 有严格约束，ADR-0035 明确会话连续性；若需要覆盖纯 user/assistant 回合或被替代 Scope，R00 必须先给出**现有 Compaction 可否合法承载的证明**。不能合法承载则先按真实需求提交 VS-00L/ADR 补充决策，选定唯一覆盖结构并迁移现有消费者，**不保留旧兼容分支**。不能把“只保留最新 Scope”作为绕过契约的快捷优化。
+
+## 6. 响应链、工具协议与作者可见原文
+
+```text
+Provider raw response（原始 content / tool_calls / arguments / call_id / usage）
+  -> wire 解码与 schema 检查（失败按原 call_id 纠错；不伪造）
+  -> effect / target ref / work scope / version / budget 校验
+  -> 系统权限与风险裁决（非模型自报）
+  -> Orchestrator 逐步 gate / 作者确认 / 可撤销委托
+  -> ToolResult、真实采纳回执、版本改变或明确无写入
+  -> 同一 Canonical 追加工具结果/校验
+  -> 作者可见 narration（模型原文字节） + status_message（系统事实）
+```
+
+**必须区别**：
+- `model_suggested`：模型只是提出工具；
+- `schema_validated`：字段格式合法；
+- `effect_authorized`：系统确认该对象/动作处于授权范围；
+- `execution_completed`：真实工具操作已成功；
+- `candidate_created`：生成了待采纳作品；
+- `canon_adopted`：经过合法作者决定或事先有效委托、真正提交并产生回执。
+这些属于不同事实来源和时间，不能用一个 `status=success` 代替。
+
+**内部标识与作者可见面（B86 缺口整体并入 B87 R06）**：`chapter:<uuid>` 等仅在结构化 ref 字段中出现，普通叙事和摘要使用作者能理解的名称；工具 narrative 字段不可夹带内部标识。遇违规**拒绝模型内容并回流有界纠错**，不把展示过滤后的文本伪装为模型原话。模型作者可见字节必须绑定实际 Provider 输出（`AgentNarrativeSource`、I1/N-NARR）；系统“本轮没有写入”等独立 `status_message` 只记录系统事实。不能把 `target_issue`、`capability_status` 先验预测塞给模型替其判断。
+
+**引用与错误**： `alternative_operation_refs` 必须为真实 capability ID，描述去 `author_reasoning`；`used_refs ⊆ base_refs ∪ observation_refs`；不允许跨作品伪引用、未查实空列表、无 call_id 的假 Observation、tool 伪 XML、同一调用仅局部闭合。不合法必须拒绝/明确失败与必要可恢复状态，不能吞掉错误或绕过门禁。
+
+## 7. 授权、风险与采纳：完整安全模型（替代旧 R10 巨型任务）
+
+### 7.1 五个独立判断
+
+```text
+① 对象/作者/作品身份与允许操作合法？（违法/越界直接 DENY）
+② 该 capability + effect + target + 当前版本存在且可执行？（无则 GAP）
+③ 此 run/profile/预算可以向模型建议该 effect 吗？（AUTHORIZED SUGGESTION）
+④ 真正执行前的风险与权限模式怎么判？（ALLOW / CONFIRM / DENY）
+⑤ 创作候选能否进入 Canon？（采纳边界+版本+回执+委托真实性）
+```
+
+顺序不可交换。**跨作品越权绝不是“critical 可确认”的行为**；不存在的删除工具也不能因为作者点“确认”被执行。低/中/高/critical 风险只适用于身份/能力/版本合法的动作。
+
+### 7.2 风险的唯一派生
+
+- 来源基线：既有 `CapabilityRegistryEntry.risk_class`，不是另造新 `RiskClass` 表；动态调整由已有应用权威 gate 的纯规则对 `capability/effect/target/context` 决定。改写已采纳正文、结构重排和核心设定等实际影响需区分；风险的差异必须可重算、可测试、可审计。
+- `MicroPlan.risk_hint` 是模型提示，不是权威风险；`ApprovalAudit` 的风险审计应记录最终系统计算结果，不再维护不同来源的“全部 HIGH”等平行推导。
+- 已有 `capabilities` 分为 **系统注册能力**、**run 可建议效果**、**执行权限**、**采纳授权**。仅把当前可建议/必要只读探索最小信息送模型；完整 registry 可经真实现有探索通道查询，`capability_lookup` 如无真实消费不要先行新增。
+
+### 7.3 模式语义与决策表（拟冻结）
+
+| 模式 | 只读（low） | 创建 TENTATIVE / 中风险 | 高风险已采纳对象变更 | critical（合法且可确认） |
+|---|---|---|---|---|
+| `manual` | 可直接只读；“每步”指每次有副作用的**执行** | 执行前需作者允许；**采纳仍独立** | 逐对象确认，再按采纳门 | 永远单次明确确认 |
+| `risk_based` | 可直接只读 | 可生成 tentative，等待作者采纳 | 逐对象确认，按采纳门 | 永远单次明确确认 |
+| `full` | 可直接只读 | 有效委托范围内可执行并自动采纳 | 仅有效委托/合法对象/可回滚时允许；否则明确确认 | 永远单次明确确认；不能靠 full 绕过 |
+| `smart` | 可直接只读 | **确定性、可解释策略**根据范围与委托放行；未知降级到 risk_based/manual | 保守确认，不使用模型主观“安全评分” | 永远单次明确确认 |
+
+- 选择 `run > session > work > global`；默认无设置时采用保守、现有产品兼容的 *安全行为*，但**不保留旧代码兼容分支**。模式的作者输入、作用域、版本、撤销与生效时间必须有真实记录。无真实设置事实不能推断作者已经选择 `full`。
+- 任何模式下作品边界错误、操作不存在、候选已过期/作品版本变化、预算耗尽先拒绝/缺口，再谈风险。
+- `critical` 的确认绑定到确切对象/effect/版本/后果（`ConfirmationBinding`），作者明确同意后在执行时**再次 gate/rebase**；一项确认不得升级成今后自动通行。原文“同意=执行+采纳”的体验目标只有在**原子、安全且对象类型允许**时成立；创作过程要先生成候选的，不可以把尚未存在的候选预采纳。
+- `full` 自动采纳必须有作者显式 **delegation scope**（作品、操作/effect、目标范围、可选版本、过期/撤销、签发来源、最大影响界限），实际消费时再次验证、记录系统来源 `auto_adopted`，走**现有 AdoptionWorkflow/Repository 原子写入**，可回滚/可追踪；不可通过只改前端开关或模型工具调用实现。遇失败不“补写成功”；重复提交严格幂等。
+- `smart` 不得引入第二 Agent 或规则引擎；只有能用现有 run/风险/委托事实定义可重算策略时才发布，未知/歧义保守退回确认，**不是临时跳过该批就把整体任务标 done**。
+
+### 7.4 持久化/授权实体红线
+
+`AgentRun.authority_scope`、`AgentRunPolicy.allowed_tool_refs`、`ConfirmationBinding`、`AuthorActionReceiptRepo`、`ApprovalAudit`、作品/会话配置是已经存在的起点，**不等于它们已经支持长期委托的授权生命周期**。
+
+R00/R11/R13 必须按“现存表/列/状态/消费者/事务”评估能否承载模式与委托。只有可机械证明无法在现存语义中正确表达授权范围、撤销/并发和审计时，允许**最小必要新实体**，并附替代方案比较、唯一生命周期、消费链和退役清单。禁止先创建“通用 Authorization 服务表集”。
+
+## 8. 与冻结设计的差异及先决裁决
+
+| 差异 | 当前已存在基线 | 实施前门槛 |
+|---|---|---|
+| 纯对话/旧 Scope 去冗余 | VS-00L/ADR-0035 只认可特定显式 checkpoint/closed tool exchanges；canonical 不删改 | R00/03 明确检查 `covers` 的正确性；如需新覆盖语义先补 Frozen 契约/ADR，连同三 wire/恢复/回查测试一起决定 |
+| 请求材料从文本到结构化 | RequestIR 已有 message+block，但很多 `scope_update` 仍是长文本 | R02 给出现有 IR 消费者/真实 Provider 展开方式；必要时直接重构现役 schema，删旧拼串分支；不做双轨 |
+| 作者可见引用泄漏 | B86 真实模型 C9 失败与两次已撤回实现 | R06 以结构化来源+作者可见字节验证闭环；保留历史失败案例但不保留已撤回代码的兼容 |
+| 授权模式/委托/自动采纳 | Registry 风险基线/Orchestrator/Confirmation/Adoption 已存在，**完整委托能力尚未核实存在** | R09–R14 先冻结授权行为/生命周期，不得以纯文本声明或模型自报代替实际审计与事务；只改现存消费者所需对象 |
+| 快速迭代 clean | 未发布；ADR-0035/VS-00L 已批准不做历史兼容 | 现行代码/Schema 允许无兼容迁移，旧入口在全部实际消费者转移后删除；仍保留用户已创作数据和历史证据的安全边界 |
+
+**作者授权范围**：2026-11-13 已明确授权**修改设计与任务文档并进行整体性重审**；不代表本文件可以无证据宣称实模行为、数据库事务、作者自动采纳已实现，也不自动替代对 Frozen 契约有实质语义改变时必须留下的裁决和证据。
+
+## 9. 验收口径：从证据到真实创作
+
+**机制证据**：结构化输入的 provenance/身份/版本/覆盖/省略；静态 schema/运行时权限不同源的负例；不合法工具/文本引用 fail-closed；重复或交错 checkpoint；跨作品与 stale；真实事务 rollback、撤销、重复提交。
+
+**原生/真实页面证据**：同一作者真实 Tauri 工作台连续输入 3/10/20 轮，真实新消息与 checkpoint 投影；统计查询不读无关正文、纠错讨论不误执行、明确操作正确处理效果缺口；同一会话跨 run、恢复/取消、采纳/自动采纳/拒绝及作者可见状态。外部驱动不植入产品特殊验收分支。
+
+**实模证据**：同源模型/provider/推理预算、样本冻结和请求 A/B；测量 input/output/cached_tokens、TTFT、latency、Tool Call 正确率、事实引用正确率、候选可追溯与作者负担。cached_tokens 是 input_tokens 子集，不能另加；以多个样本/重复试验区分模型性能波动。写作质量必须有正常小说章节材料的连续性、情绪铺垫、目标外正文保真/文学盲评，不能用短 Token 指标代签。
+
+**强制回归**：`mix check`、`mix test`、xref、arch_check、I1/I2/I3、N-NARR、I-CACHE、B71/B81、当前质量清单/真实 Tauri、三 wire；任何 FAIL/BLOCKED 均不算最终 PASS。外部供应商无法测试时明确 known-gap，不声称完成全部支持。
+
+## 10. 实施、替换与退役策略
+
+- 按 [B87](../../../tasks/slices/B87-model-interaction-request-projection.md) 单会话独立批次实施；先重新读取当前分支 HEAD/WIP 与事实/实体审计，再改。
+- **不兼容历史产品协议**：无 legacy adapter、双写、旧工具 schema fallback、临时开关和“未来过渡”分支；现存消费者同批迁移且删旧入口/旧专属测试。代码变更与完整行为验收同批完成。
+- **不是破坏式清空作者资料**：即使未发布，真实作品/会话/已采纳内容/审计证据的丢弃仍需明确告知与备份/数据重置授权；禁止用“无兼容”掩盖误删用户创作事实。
+- 结束时盘点新的/退役的 module、struct、表/列、schema、工具、配置、路由/事件、测试 fixture；新增的均须回答“为何现存不能用”，退役的均不得留零消费者/僵尸适配。
+- 唯一任务状态在 B87；本设计文档不复制 Rxx 状态，`tasks/NEXT.md` 只记录排期，验收/历史批次可在现有 artifacts/ledger 登记。
+
+## 11. 本次设计重审摘要（2026-11-13）
+
+保留：四层逻辑闭环、作者主权、真实来源、源头结构化、场景化验收，以及已记录的 manual/risk_based/full/smart 和 critical/full 用户体验目标。
+
+纠正：不新增平行 Request、Capability、Approval/Adoption 存储；不把 `critical` 当越权豁免；不让 manual 的“每一步”与只读操作矛盾；不让 full 自动采纳绕过独立采纳边界；不提前将 `capability_lookup` 写为已存在工具；不让旧 B86 与 B87 双持任务真源；R10 拆分而不是挤进一次会话；最终 A/B 与实模验收放所有功能变更之后。
