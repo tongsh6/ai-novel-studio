@@ -95,6 +95,7 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 - **Q05 错误码（8 类，已落 `AuthoringSemantics.revision_error_codes/0`）**：`target_missing/target_ambiguous/stale_base_version/cross_work_scope/duplicate_apply/incomplete_scope/format_only_violation/partial_failure`；拒绝零写入、可解释。
 - **Q06 契约/持久化边界**：复用 B25 `chapter_ref`、Q1c `revision_base`/覆盖确认、VS-04 provenance、B27 `AuthoringTask` scope/materials；无 DB 表/列变更；`adoption_effect`/错误码落 TurnResult/adoption receipt payload（additive JSON），schema/codegen 若有增量在 CP2 前登记并同步 docs。
 - **Q07 stage 存量**：只读清单见 `stage-impact.md`（ch1 两份 accepted + ch17 新章）；修复需作者单独授权（备份+sha256、replace_scope 目标 ch1、ch17 保留历史），本 slice 不自动删除/合并。
+- **2026-11-13 作者选 A（数据已不存在）**：作者授权修复 stage 存量；但只读查询仓库内 `data/*.sqlite3` 均未检出 work `374dfa01-db8b-4240-99ba-5f67cbfe0e2f` 的章节（count=0），作者确认可能已删除。修复不可执行，`stage-impact.md` 清单保持只读；真正的根因问题是“为什么写了重复的章”（ch1 两份 accepted + ch17 误建），按作者要求放到请求体重构（B87/VS-00M/B86）之后调查，不在本任务盲修。
 - **Q08 边界**：不改 provider/创作工具/采纳语义之外的体系；粘贴正文/摘要/检索按同一当前版本消费；模型意图原话/改述验证归 CP4；真实模型不得承担章节寻址。
 
 ### 7.3 CP1/CP1.5 实施记录（2026-10-25）
