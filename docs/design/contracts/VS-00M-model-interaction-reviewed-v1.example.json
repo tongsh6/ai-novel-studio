@@ -1,0 +1,791 @@
+{
+  "README": {
+    "kind": "design_example_bundle",
+    "schema_version": "design-v1",
+    "status": "proposed_example_not_production_contract",
+    "note": "这是应用业务请求、可发送的 OpenAI-compatible Provider HTTP body、模拟模型响应和系统审计结果的组合演示。真正发给 Provider 的只有 provider_request.body。动态的完整会话历史应由既有 canonical transcript / 显式 checkpoint 投影，不允许仅靠摘录伪造。",
+    "fixed_tool_count": 7
+  },
+  "application_request": {
+    "protocol": {
+      "kind": "model_interaction_request",
+      "schema_version": "design-v1",
+      "request_ir_version": "authoring-request-ir/v1",
+      "source_constitution_version": "b27-task-v2",
+      "tool_protocol_version": "b26-tools-v1"
+    },
+    "trace": {
+      "turn_ref": "message_f752b5aa-aa2a-4847-a5a5-53997b4ea830",
+      "run_ref": "run_mwcgga5t_6t",
+      "work_ref": "9803bb97-89e2-49ac-bd53-c23d3a7f73a9",
+      "session_ref": "c7b4e8d7-f9c7-4975-960c-79ef7954b36b",
+      "stage": "judgment"
+    },
+    "task": {
+      "purpose": "judgment",
+      "role": "creative_judger",
+      "author_input": {
+        "message_ref": "message_f752b5aa-aa2a-4847-a5a5-53997b4ea830",
+        "text": "不能接受卷纲在阅读里显示，应该在作品档案显示"
+      },
+      "goal": {
+        "source_ref": "message_f752b5aa-aa2a-4847-a5a5-53997b4ea830",
+        "raw_text": "不能接受卷纲在阅读里显示，应该在作品档案显示"
+      },
+      "intent_status": "not_preclassified"
+    },
+    "authority": {
+      "model_action_authority": "suggest_only",
+      "canon_write_authorized": false,
+      "creative_artifact_default_status": "TENTATIVE",
+      "author_adoption_required_for_canon_mutation": true,
+      "object_and_source_refs_must_be_real": true
+    },
+    "context": {
+      "scope": {
+        "work_revision": 1,
+        "scope_revision": 1,
+        "snapshot_status": "current"
+      },
+      "base_facts": [
+        {
+          "fact_ref": "chapter_slot:1",
+          "origin": "work_projection",
+          "work_revision": 1,
+          "chapter_ref": "chapter:19d52d44-1fdf-4409-9a8e-87b420200ae6",
+          "display_number": 1,
+          "title": "第一卷卷纲（阶段纲）：三案三级——澉州案链拧入朝堂",
+          "has_accepted_prose": false,
+          "in_chapter_index": true
+        },
+        {
+          "fact_ref": "chapter_slot:2",
+          "origin": "work_projection",
+          "work_revision": 1,
+          "chapter_ref": "chapter:3956dabc-983f-45f1-9d87-c25d75747dad",
+          "display_number": 2,
+          "title": "抄家见改卷",
+          "has_accepted_prose": true,
+          "chapter_status": "DRAFTING",
+          "accepted_char_count": 4183,
+          "effective_word_count": 3204,
+          "in_chapter_index": true
+        },
+        {
+          "fact_ref": "accepted_outline:1",
+          "origin": "adoption_projection",
+          "work_revision": 1,
+          "artifact_ref": "as_mw102nty_49",
+          "artifact_type": "outline_draft",
+          "status": "ACCEPTED",
+          "title": "第一卷卷纲（阶段纲）：三案三级——澉州案链拧入朝堂",
+          "linked_chapter_ref": null,
+          "link_evidence_status": "not_verified"
+        }
+      ],
+      "author_reported_problem": {
+        "source_ref": "message_f752b5aa-aa2a-4847-a5a5-53997b4ea830",
+        "text": "不能接受卷纲在阅读里显示，应该在作品档案显示"
+      },
+      "observations": [],
+      "evidence_coverage": {
+        "chapter_index": "complete_for_current_work",
+        "chapter_body": "not_read",
+        "outline_to_chapter_binding": "not_verified"
+      },
+      "omissions": [
+        {
+          "kind": "character_dossiers",
+          "reason": "not_relevant_to_structure_problem"
+        },
+        {
+          "kind": "artifact_inventory",
+          "reason": "not_relevant_to_structure_problem"
+        }
+      ]
+    },
+    "capabilities": {
+      "operations_complete_for_run": true,
+      "effect_vocabulary_status": "proposed_normalized_keys",
+      "operations": [
+        {
+          "name": "character_design",
+          "effect_keys": [
+            "create_character_candidate"
+          ]
+        },
+        {
+          "name": "character_evolution",
+          "effect_keys": [
+            "propose_character_evolution"
+          ]
+        },
+        {
+          "name": "prose_writing",
+          "effect_keys": [
+            "create_prose_candidate"
+          ]
+        },
+        {
+          "name": "plot_outline",
+          "effect_keys": [
+            "create_outline_candidate"
+          ]
+        },
+        {
+          "name": "world_building",
+          "effect_keys": [
+            "create_world_setting_candidate"
+          ]
+        },
+        {
+          "name": "work_archive_read",
+          "effect_keys": [
+            "read_work_archive"
+          ]
+        },
+        {
+          "name": "revise_pending_artifact",
+          "effect_keys": [
+            "propose_pending_artifact_revision"
+          ]
+        },
+        {
+          "name": "discard_pending_artifact",
+          "effect_keys": [
+            "discard_pending_artifact"
+          ]
+        },
+        {
+          "name": "revise_adopted_content",
+          "effect_keys": [
+            "propose_adopted_content_revision"
+          ]
+        },
+        {
+          "name": "maintain_chapter_structure",
+          "effect_keys": [
+            "display_number_only"
+          ]
+        },
+        {
+          "name": "revise_character_profile",
+          "effect_keys": [
+            "propose_narrative_role_revision"
+          ]
+        }
+      ],
+      "exploration": [
+        "prose_search",
+        "chapter_read",
+        "archive_read",
+        "session_adoptions",
+        "memory_recall"
+      ],
+      "provider_toolset_ref": "b26-tools-v1"
+    },
+    "runtime": {
+      "provider": "splash",
+      "model": "local/Q4-PLE4",
+      "temperature": 0.2,
+      "reasoning_effort": "high",
+      "max_tokens": 32000,
+      "tool_choice": "auto",
+      "stream": true
+    }
+  },
+  "provider_request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:8000/v1/chat/completions",
+    "api": "openai.chat.completions",
+    "body": {
+      "model": "local/Q4-PLE4",
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是 AI Novel Studio 的创作判断器。作者为作品权威状态的最终裁决者。仅凭当前消息中明确标为应用事实的材料与真实工具观察判断；材料不足时说明缺口。区分讨论、意图和执行授权；模型只提出建议，不能自行批准采纳或写入 canon。已采纳设定与候选严格区分，操作不得以近似效果冒充目标效果。普通问答可直接回复；需进一步取证时使用 judgment_decision.explore；能力缺失时使用 report_capability_gap。只能通过真正的原生工具调用提出动作；所有对象引用必须来自真实材料。不要提前宣称工具执行、候选生成或作品写入。"
+        },
+        {
+          "role": "user",
+          "content": "【应用数据 · 非作者原话】\n{\"kind\":\"application_scope\",\"provenance\":\"application\",\"work_revision\":1,\"base_facts\":[{\"fact_ref\":\"chapter_slot:1\",\"origin\":\"work_projection\",\"work_revision\":1,\"chapter_ref\":\"chapter:19d52d44-1fdf-4409-9a8e-87b420200ae6\",\"display_number\":1,\"title\":\"第一卷卷纲（阶段纲）：三案三级——澉州案链拧入朝堂\",\"has_accepted_prose\":false,\"in_chapter_index\":true},{\"fact_ref\":\"chapter_slot:2\",\"origin\":\"work_projection\",\"work_revision\":1,\"chapter_ref\":\"chapter:3956dabc-983f-45f1-9d87-c25d75747dad\",\"display_number\":2,\"title\":\"抄家见改卷\",\"has_accepted_prose\":true,\"chapter_status\":\"DRAFTING\",\"accepted_char_count\":4183,\"effective_word_count\":3204,\"in_chapter_index\":true},{\"fact_ref\":\"accepted_outline:1\",\"origin\":\"adoption_projection\",\"work_revision\":1,\"artifact_ref\":\"as_mw102nty_49\",\"artifact_type\":\"outline_draft\",\"status\":\"ACCEPTED\",\"title\":\"第一卷卷纲（阶段纲）：三案三级——澉州案链拧入朝堂\",\"linked_chapter_ref\":null,\"link_evidence_status\":\"not_verified\"}],\"operation_catalog\":[{\"name\":\"character_design\",\"effect_keys\":[\"create_character_candidate\"]},{\"name\":\"character_evolution\",\"effect_keys\":[\"propose_character_evolution\"]},{\"name\":\"prose_writing\",\"effect_keys\":[\"create_prose_candidate\"]},{\"name\":\"plot_outline\",\"effect_keys\":[\"create_outline_candidate\"]},{\"name\":\"world_building\",\"effect_keys\":[\"create_world_setting_candidate\"]},{\"name\":\"work_archive_read\",\"effect_keys\":[\"read_work_archive\"]},{\"name\":\"revise_pending_artifact\",\"effect_keys\":[\"propose_pending_artifact_revision\"]},{\"name\":\"discard_pending_artifact\",\"effect_keys\":[\"discard_pending_artifact\"]},{\"name\":\"revise_adopted_content\",\"effect_keys\":[\"propose_adopted_content_revision\"]},{\"name\":\"maintain_chapter_structure\",\"effect_keys\":[\"display_number_only\"]},{\"name\":\"revise_character_profile\",\"effect_keys\":[\"propose_narrative_role_revision\"]}],\"exploration_tools\":[\"prose_search\",\"chapter_read\",\"archive_read\",\"session_adoptions\",\"memory_recall\"],\"coverage\":{\"chapter_index\":\"complete_for_current_work\",\"chapter_body\":\"not_read\",\"outline_to_chapter_binding\":\"not_verified\"},\"omitted\":[{\"kind\":\"character_dossiers\",\"reason\":\"not_relevant_to_structure_problem\"},{\"kind\":\"artifact_inventory\",\"reason\":\"not_relevant_to_structure_problem\"}]}"
+        },
+        {
+          "role": "user",
+          "content": "不能接受卷纲在阅读里显示，应该在作品档案显示"
+        }
+      ],
+      "tools": [
+        {
+          "function": {
+            "name": "judgment_decision",
+            "description": "建议创作执行、规划或只读探索；不批准执行。对象/版本操作只引用上下文中真实存在的 ref；多候选未消歧先 explore/ask_author，不得猜；改权威版本前先取得当前版本事实。execute 只填一个目标 ref 字段（pending_artifact_ref / adopted_content_ref / character_ref）。章级 revise_adopted_content 可按本轮 chapter_read 观察填 target_segment_ids。",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "enum": [
+                    "execute",
+                    "plan",
+                    "explore"
+                  ],
+                  "type": "string"
+                },
+                "adopted_content_ref": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "capability": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "仅 execute 时提供；plan/explore 时省略或为 null。"
+                },
+                "character_ref": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "仅 revise_character_profile 时提供：从「角色索引」原样复制 character_ref（身份），不得猜。"
+                },
+                "dialogue_goal": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "explore_request": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "query": {
+                          "type": "string"
+                        },
+                        "tool": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool",
+                        "query"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "pending_artifact_ref": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reason": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "target_segment_ids": {
+                  "description": "仅 execute + revise_adopted_content + 章级 chapter_ref 时可选。只从本轮成功 chapter_read 观察的 target_segments 原样复制 segment_id；作者显式段号/字面目标时省略。",
+                  "items": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "action",
+                "dialogue_goal",
+                "reason"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "name": "ask_author",
+            "description": "只用于需要作者裁决方向/对象/范围且材料无法消歧；能力缺口必须用 report_capability_gap，不能用本工具代替或封装。",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "options": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "enum": [
+                          "choice",
+                          "free_text"
+                        ],
+                        "type": "string"
+                      },
+                      "label": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "recommended": {
+                        "type": "boolean"
+                      },
+                      "value": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "question": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "reason_codes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "question",
+                "options"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "name": "agent_plan_draft",
+            "description": "Return the complete AgentPlan structure for this AgentRun. 必须与 judgment_decision(action=plan) 同一响应同批返回；单独返回非法。",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "author_reasoning": {
+                  "description": "本响应的作者可见计划说明原文，content 为空时的叙事来源",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "confidence": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "plan": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "steps": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "authoring_intent": {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "none",
+                                  "continuation",
+                                  "rewrite"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "depends_on": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "description": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "exploration_query": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "kind": {
+                            "enum": [
+                              "explore",
+                              "act"
+                            ],
+                            "type": "string"
+                          },
+                          "requested_chapter_raw": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "risk_hint": {
+                            "enum": [
+                              "low",
+                              "medium",
+                              "high"
+                            ],
+                            "type": "string"
+                          },
+                          "step_id": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "success_criteria": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "target_chapter": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "target_chapter_ref": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "target_tool_ref": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "target_word_count": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "write_intent": {
+                            "enum": [
+                              "none",
+                              "tentative"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "step_id",
+                          "kind",
+                          "description",
+                          "success_criteria",
+                          "target_tool_ref"
+                        ],
+                        "type": "object"
+                      },
+                      "minItems": 1,
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "steps"
+                  ],
+                  "type": "object"
+                },
+                "reason_codes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "plan",
+                "author_reasoning",
+                "reason_codes",
+                "confidence"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "name": "register_author_content",
+            "description": "按明确来源逐字登记作者原文为待采纳候选，不重写。",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "author_content_source_ref": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "author_reasoning": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "dialogue_goal": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "author_content_source_ref",
+                "dialogue_goal",
+                "author_reasoning"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "name": "propose_creative_directions",
+            "description": "给出可选择的小说内容方向，不是保存/查看等流程菜单。",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "author_reasoning": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "candidate_directions": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "pitch": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "title": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "tone_tags": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "pitch"
+                    ],
+                    "type": "object"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "candidate_directions",
+                "author_reasoning"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "name": "propose_work_profile_revision",
+            "description": "作者明确要求修订作品立项字段时，给出一个显式字段级修订提案（title/body/field/value），等待作者逐项采纳；不直接写 works，不用 world_setting 泛化覆盖。",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "author_reasoning": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "body": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "field": {
+                  "enum": [
+                    "premise",
+                    "theme",
+                    "main_goal",
+                    "core_selling_point",
+                    "target_reader",
+                    "tone_preference",
+                    "target_length",
+                    "planned_volumes",
+                    "serial_form"
+                  ],
+                  "type": "string"
+                },
+                "title": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "title",
+                "body",
+                "field",
+                "value",
+                "author_reasoning"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        },
+        {
+          "function": {
+            "name": "report_capability_gap",
+            "description": "所需效果不在本轮可用操作目录时必须用它说明缺失效果与最近可行路径；不派发近似工具，也不以 ask_author 代替。",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "alternative_operation_refs": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "author_reasoning": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "dialogue_goal": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "missing_effect": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "dialogue_goal",
+                "missing_effect",
+                "author_reasoning"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "function"
+        }
+      ],
+      "tool_choice": "auto",
+      "temperature": 0.2,
+      "reasoning_effort": "high",
+      "max_tokens": 32000,
+      "stream": true,
+      "stream_options": {
+        "include_usage": true
+      }
+    }
+  },
+  "provider_response_example": {
+    "http_status": 200,
+    "assembled_message": {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "call_example_001",
+          "type": "function",
+          "function": {
+            "name": "report_capability_gap",
+            "arguments": "{\"dialogue_goal\":\"让卷纲退出阅读章节结构，同时保留作品档案中的已采纳卷纲\",\"missing_effect\":\"移出或转换错误的卷纲章位，使正文章成为第一章\",\"alternative_operation_refs\":[\"maintain_chapter_structure\"],\"author_reasoning\":\"已确认卷纲占用章节列表的事实，但当前操作目录仅能修改展示章号，不能把该章位从阅读结构中移出。本轮没有修改作品。\"}"
+          }
+        }
+      ]
+    },
+    "usage": null,
+    "sample_only": true
+  },
+  "application_validation_example": {
+    "kind": "application_validation",
+    "tool_args_valid": true,
+    "tool_name_allowed": true,
+    "alternative_operation_refs_valid": true,
+    "effect_available": false,
+    "model_proposed_execution": false,
+    "execution_authorized": false,
+    "production_write_performed": false,
+    "reason_code": "capability_gap"
+  },
+  "application_outcome_example": {
+    "kind": "model_interaction_outcome",
+    "decision_type": "capability_gap",
+    "status": "completed_without_execution",
+    "author_visible": {
+      "content": "卷纲目前错误地占用一个章节位置。已采纳的卷纲应保留在作品档案中，但现有结构工具只能调整展示章号，无法移出该章位，因此本轮未修改作品。"
+    },
+    "truthfulness": {
+      "artifact_adopted": false,
+      "production_write_performed": false,
+      "execution_authorized": false
+    },
+    "evidence_used": [
+      "chapter:19d52d44-1fdf-4409-9a8e-87b420200ae6",
+      "chapter:3956dabc-983f-45f1-9d87-c25d75747dad",
+      "as_mw102nty_49"
+    ],
+    "evidence_limitations": [
+      "卷纲档案与错误章位之间的直接数据库关联尚未核验"
+    ]
+  }
+}

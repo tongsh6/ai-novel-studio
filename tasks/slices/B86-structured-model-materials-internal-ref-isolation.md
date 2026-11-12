@@ -1,6 +1,6 @@
 # B86 模型材料与返回结构化：内部标识隔离
 
-**状态**：**todo（候选，未启动；2026-11-11 作者提出方向；同日作者要求撤回已落后的实现——`3a084fcf`/`72f8fb7d` revert，未提交的材料结构化改动已撤销；仅保留本设计记录）**。
+**状态**：**todo（候选，未启动；设计已推进到 [VS-00M](../../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md) Proposed（2026-11-12/13），实现未启动；2026-11-11 作者提出方向并要求撤回已落后的实现——`3a084fcf`/`72f8fb7d` revert；仅保留设计记录）**。
 **来源**：作者在 B81 CP5 实模批次发现「内部引用 `chapter:<uuid>` 泄漏到作者可见面」后指出根因：**发给模型的数据没有结构化，模型返回也不够结构化**——章节编号/名称/内容混在自然语言文本里，模型自然会把内部 uuid 当可复述文本写进正文。修复应从契约机制做，不是展示层事后过滤。
 **证据**：`cp5-real-05`（真实 strata）扫描 20 个 AX/text 证据命中 `chapter:5d6d6360-…`：模型正文「定位到第1章（chapter:…）」+ 工具观察「已检索章节「chapter:…」」；`judgment_stable_chapters_section` 的章索引行 `- 第 1 章「标题」[chapter_ref=chapter:<uuid>]（计划中）` 是直接来源。
 
@@ -27,3 +27,40 @@
 - 不改判断/写作的**语义**（谁读什么、压缩阈值、K 等）；只改**表示与校验**。
 - 与 B85（窗口设置 UI）无关；与 B81 的关联仅是 B81 CP5 发现该问题。
 - 文档真源：`docs/design/contracts/VS-00L-*`（请求 IR/材料结构）、`judgment_tool_contract`/`authoring_operation`（工具 schema）、`docs/design/ui/46/47`（作者可见面）、`scenario-acceptance.md`（红线）。
+
+## 4. 设计进展（2026-11-12/13）
+
+设计已从“材料结构化 + 返回约束”推进为完整的模型交互与授权契约，设计输入是 [VS-00M](../../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md)（Proposed，未冻结）；执行计划登记在 [B87（原 B85）R10](B87-model-interaction-request-projection.md)。本节只记录决策与实现顺序，不授权实现。
+
+### 4.1 已定决策
+
+| 决策 | 结论 |
+|---|---|
+| 四层闭环 | AgentRun + Canonical Transcript → Application Request → Provider Request/Response → Validation + Outcome |
+| 材料结构化 | `base_facts`（fact_ref/origin/work_revision）、`evidence_coverage`/`omissions`、`target_issue`、`effect_keys` |
+| 作者可见字节 | 单字段：`author_visible.content` 字节 = 模型字段；系统不改写；系统说明走 `status_message`（N-NARR） |
+| 能力目录 | `authorized` 最小供给（本轮可建议）；catalog 不预装，按需 `capability_lookup`（00 §2.4） |
+| 风险等级 | `low/medium/high/critical`，按 `capability + effect + target + context` 动态计算，纯函数 |
+| 授权模式 | `manual/risk_based/full/smart`；优先级 run > 会话 > 作品 > 全局 |
+| `full` | 含自动采纳；需 `delegation_ref`、可撤销、可回滚、仍过 `validation` |
+| `critical` | 所有模式都询问作者；同意=执行+采纳；拒绝回流；永不自动采纳 |
+
+### 4.2 实现顺序（未启动）
+
+1. `authorized` 派生 + `allowed_tools` 统一来源（替换 `@judgment_capabilities` 硬编码）。
+2. 风险函数 `risk_of/4` + 可版本化规则表。
+3. 模式优先级解析 + `mode_source` 落 trace。
+4. `critical` 确认流（请求结构/拒绝回流/审计）。
+5. `full` 自动采纳（`delegation_ref`/撤销/回滚/状态标注）。
+
+### 4.3 未定项
+
+- `smart` 模式的判断主体（规则 / 子代理）与误判回滚。
+- `effect_keys` 词表冻结。
+- transcript 投影范围（完整历史 + checkpoint vs 当前 turn）。
+- reviewed-v1 示例包是否保留为正式 contract example。
+
+### 4.4 状态
+
+- 文档：VS-00M 已落（Proposed）；reviewed-v1 示例包已登记进 `docs/design/contracts/`。
+- 代码：未改；现有 `@judgment_capabilities`、`authority_scope`、`gate_order` 均未动。

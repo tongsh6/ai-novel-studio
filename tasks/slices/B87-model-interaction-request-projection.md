@@ -1,8 +1,8 @@
 # AI Novel Studio — Issue #4 系统重构：单会话可闭环执行批次（方案）
 
 > **状态：todo（仅登记实施方案；R00–R09 尚未执行）。**
-> **任务状态唯一真源：本文件。** 关联 [Issue #4](https://github.com/tongsh6/ai-novel-studio/issues/4)；[单会话总契约](B85-model-interaction-request-projection/README.md) 与 R00–R09 独立任务卡只承载执行指令，不在卡片中重复维护任务状态或作者裁决。更新进度时只修改本文件对应 Rxx 小节，`tasks/NEXT.md` 只维护排期。当前 B81 仍是队首，本任务未启动。
-> 任务卡：[R00](B85-model-interaction-request-projection/R00.md) · [R01](B85-model-interaction-request-projection/R01.md) · [R02](B85-model-interaction-request-projection/R02.md) · [R03](B85-model-interaction-request-projection/R03.md) · [R04](B85-model-interaction-request-projection/R04.md) · [R05](B85-model-interaction-request-projection/R05.md) · [R06](B85-model-interaction-request-projection/R06.md) · [R07](B85-model-interaction-request-projection/R07.md) · [R08](B85-model-interaction-request-projection/R08.md) · [R09](B85-model-interaction-request-projection/R09.md)
+> **任务状态唯一真源：本文件。** 关联 [Issue #4](https://github.com/tongsh6/ai-novel-studio/issues/4)；[单会话总契约](B87-model-interaction-request-projection/README.md) 与 R00–R10 独立任务卡只承载执行指令，不在卡片中重复维护任务状态或作者裁决。更新进度时只修改本文件对应 Rxx 小节，`tasks/NEXT.md` 只维护排期。当前 B81 仍是队首，本任务未启动。
+> 任务卡：[R00](B87-model-interaction-request-projection/R00.md) · [R01](B87-model-interaction-request-projection/R01.md) · [R02](B87-model-interaction-request-projection/R02.md) · [R03](B87-model-interaction-request-projection/R03.md) · [R04](B87-model-interaction-request-projection/R04.md) · [R05](B87-model-interaction-request-projection/R05.md) · [R06](B87-model-interaction-request-projection/R06.md) · [R07](B87-model-interaction-request-projection/R07.md) · [R08](B87-model-interaction-request-projection/R08.md) · [R09](B87-model-interaction-request-projection/R09.md) · [R10](B87-model-interaction-request-projection/R10.md)
 
 > 依据 2026-11-12 读取的 `仓库活跃分支`及 Issue #4、B71/B81 任务台账形成的**建议执行方案**。本文件仅为任务实施方案登记，未修改生产代码，也未变更项目的冻结契约。实际开工以最新远端代码与作者授权为准。
 
@@ -33,6 +33,8 @@ flowchart LR
     G --> H[R07 语义判界]
     H --> I[R08 创作链回归]
     I --> J[R09 真实 A/B 验收]
+    G -.授权依赖.-> L[R10 授权体系]
+    J --> L
     K[B81 CP5 / G6 基线门] -.须核验.-> C
     K -.须核验.-> J
 ```
@@ -53,6 +55,7 @@ flowchart LR
 | R07 | 讨论、纠错、明确行动的语义判界 | 限定既有 application / common 职责 | 独立测试与验收证据 |
 | R08 | 专业创作链不退化回归 | 限定既有 application / common 职责 | 独立测试与验收证据 |
 | R09 | 真实工作台多轮 A/B 与最终发布判定 | 产品外验收脚本/报告 | 独立测试与验收证据 |
+| R10 | 授权体系：风险等级、授权模式、critical/full 边界 | 限定既有 application / domain 职责 | 授权矩阵 + 真实 run 证据 |
 
 ---
 
@@ -404,7 +407,40 @@ Outcome: PASS | FAIL | BLOCKED
 
 ---
 
-## 2. 为什么不能把十批合并成一个“大重构”
+## R10 — 授权体系：风险等级、授权模式与 critical/full 边界
+
+**唯一目标**：在现有 RequestIR / JudgmentProtocol / Orchestrator gate 上增加可机械校验的授权层——能力风险等级（按 capability + effect + target 动态）、用户授权模式（manual / risk_based / full / smart，run > 会话 > 作品 > 全局）、critical 询问作者、full 自动采纳的委托与审计；不修改 RequestIR 真源，不新建 ModelInteraction 持久化结构。
+
+**开工依赖**：R05、R06 PASS；[VS-00M](../../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md) §3.4/§3.6 作为设计输入；B81 当前机制不重做；若需改 Frozen 契约，先获 ADR/契约批准。
+
+**允许改动**：优先 application 的授权决策/风险规则模块、Orchestrator gate、JudgmentProtocol 的 authorized 派生与 validation 字段；domain 纯函数 `risk_of/4`；相关 tests。
+
+**禁止改动**：不新建 ModelInteraction 持久化真源；不重写 RequestIR 三 wire 投影；不让模型自评风险或自授模式；`full` 自动采纳不得绕过 adoption boundary / I1 / validation；不改变现有七工具语义。
+
+**本批执行步骤**：
+
+1. 定义 `risk_of(capability, effect, target, context)` 纯函数与可版本化规则表：low / medium / high / critical；critical = 删除、批量（≥3 对象）、不可逆覆盖、跨作品、改 canon 核心。
+2. 实现授权模式解析：run > 会话 > 作品 > 全局；记录 `mode_source`；模型不可设置或修改模式。
+3. 实现 `authorized` 派生：从 `authority_scope.allowed_tools` + profile/step + 前置条件 + budget 派生，替换判断器硬编码 `@judgment_capabilities`；catalog 仍按需 `capability_lookup`，不预装。
+4. 实现决策矩阵：low/medium/high/critical × manual/risk_based/full/smart；critical 恒 `ask_author`（同意=执行+采纳，拒绝回流，永不自动采纳）；full 自动采纳需 `delegation_ref`、可撤销、可回滚、`status_message` 明确标注。
+5. validation / truthfulness 增加 `risk_decision` / `author_decision` / `auto_adopted` / `author_confirmed` / `author_delegation_ref`；系统回填，模型不能自填。
+
+**必须全部满足的 DoD**：
+
+- [ ] 授权矩阵与 VS-00M §3.4.3 一致；critical 恒询问作者；full 自动采纳有 `delegation_ref` 且可回滚。
+- [ ] `authorized` 从 run 事实派生，与执行 gate 同源；模型建议 ⊆ authorized。
+- [ ] 风险函数可重算；模型不能自评/自授；不破 I1 / N-NARR / I-CACHE。
+- [ ] 现有判断/创作/修订链不退化；三 wire 投影不变。
+
+**专属验证**：authorized/risk policy 单测 + 授权矩阵负例 + judgment_protocol_test + execution_authority_test + 共同门禁 + 一次真实 run 证据。
+
+**交付物**：授权体系实现、矩阵负例、真实 run 证据、full 自动采纳审计样例。
+
+**硬性执行约束**：本会话仅执行 R10，开工先核查 README 中的总契约和分支 HEAD。未经作者重新裁决不得扩展范围或降低要求。PASS 必须有真实场景、完整门禁、证据和可验证提交 SHA；任何必选条件不具备即 BLOCKED，不允许把未完成标为完成。
+
+---
+
+## 2. 为什么不能把十一批合并成一个“大重构”
 
 - R02/R03 改的是会话历史与请求派生，属于最容易破坏作者连续性/证据的高风险边界，不能同时改 R04 的材料集合和 R07 的意图判界，否则失败难归因。
 - R05 证明事实来源真实性，R06 证明工具协议可校验，R07 才能证明判断语义行为；先分解证据链，再讨论模型本身的准确性。
