@@ -1,458 +1,199 @@
-# AI Novel Studio — Issue #4 系统重构：单会话可闭环执行批次（方案）
+# B87 · Issue #4 模型交互体系系统性重构：实施总计划与唯一任务状态源
 
-**状态**：**todo（仅登记实施方案；R00–R10 尚未执行）**。
+**状态**：**todo（2026-11-13 设计/批次重新评审并登记；R00–R19 均未实施）**。
 
-> **任务状态唯一真源：本文件。** 关联 [Issue #4](https://github.com/tongsh6/ai-novel-studio/issues/4)；[单会话总契约](B87-model-interaction-request-projection/README.md) 与 R00–R10 独立任务卡只承载执行指令，不在卡片中重复维护任务状态或作者裁决。更新进度时只修改本文件对应 Rxx 小节，`tasks/NEXT.md` 只维护排期。当前 B81 仍是队首，本任务未启动。
-> 任务卡：[R00](B87-model-interaction-request-projection/R00.md) · [R01](B87-model-interaction-request-projection/R01.md) · [R02](B87-model-interaction-request-projection/R02.md) · [R03](B87-model-interaction-request-projection/R03.md) · [R04](B87-model-interaction-request-projection/R04.md) · [R05](B87-model-interaction-request-projection/R05.md) · [R06](B87-model-interaction-request-projection/R06.md) · [R07](B87-model-interaction-request-projection/R07.md) · [R08](B87-model-interaction-request-projection/R08.md) · [R09](B87-model-interaction-request-projection/R09.md) · [R10](B87-model-interaction-request-projection/R10.md)
+- 目标分支：`develop/dialogue-based-novel-workbench`；执行时以最新 HEAD 为准，不使用 2026-11-11 的旧日志推断现状。
+- 关联：[Issue #4](https://github.com/tongsh6/ai-novel-studio/issues/4) / [VS-00M 唯一增量架构契约](../../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md)（Proposed 重审稿）/[VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md)（Frozen）/[ADR-0035](../../docs/design/adr/ADR-0035-session-scoped-canonical-authoring-context-v3.md)（Accepted）。
+- 本文件是 **唯一执行状态真源**；[批次 README](B87-model-interaction-request-projection/README.md) 定统一执行门禁，各 `Rxx.md` 只给该会话的目标/范围/验收，不登记独立进度。索引/NEXT 只导航。
+- 作者 2026-11-13 明确授予**设计与任务文档调整**权限，原则为：**未上线、无历史兼容、彻底重构保持 clean、所有新实体/设计先查重、践行 SOLID/DRY/KISS/YAGNI/SoC 等原则**。当前仅文档落地，**不等于已授权并执行生产代码/数据库修改**。
 
-> 依据 2026-11-12 读取的 `仓库活跃分支`及 Issue #4、B71/B81 任务台账形成的**建议执行方案**。本文件仅为任务实施方案登记，未修改生产代码，也未变更项目的冻结契约。实际开工以最新远端代码与作者授权为准。
+## 1. 为什么重排
 
-## 1. 目标、排期与依赖
+旧 R00–R10 有三项结构性问题：
+1. 旧 R10 把已存在的能力注册表、风险基线、确认门、采纳边界当作一个全新“授权层”去重造，且合并风险分级、模式、数据存储、确认、自动采纳，无法在一次编码会话完整自证；
+2. 旧 R09 提前做“最终发布判定”，新 R10 仍会随后改变执行/采纳权限，导致验收对最危险的后续变更**未覆盖**；
+3. 旧 B86 与 B87 同时声称负责“结构化模型材料与作者可见字段”，双状态源风险；B81 已 done 的机制/G6 在旧计划仍被当作“未实现前置”，状态漂移。
 
-### 根目标（不是重新设计一个 JSON）
+本次方案是**完整重构目标 + 单会话可交付的小闭环 + 系统级最终全量验收**，并非接受原有实现问题或用“兼容历史”降低架构要求。
 
-**让 AI Novel Studio 的模型交互在保证作者主权、真实证据、多轮连续性和创作质量的前提下，以任务相关的上下文完成自然判断与创作，并可分别审计原生模型返回、系统验证、权限放行、实际写入。**
+## 2. 全局硬红线与实现裁决
 
-### 关键约束
+### 2.1 产品/架构不可妥协
 
-- 项目愿景：Dialogue-first / Agent-native / 最小供给、按需求证、证据闭环。
-- 不发明新的 ModelInteraction 持久化真源，复用已有会话 Canonical Transcript、AgentRun、`authoring-request-ir/v1`。
-- B71 已承接三 Provider wire 与流式/工具协议；B81 CP1–CP4/CP6 机制已在台账中取得阶段性结果，**B81 CP5 真实多轮页面/G6 仍待验**。不能把已有机制重新实现，也不能宣称 CP5 已过。
-- 不用 `outline_in_chapter_slot` 等推断字段冒充数据库事实；卷纲占阅读章位是单独的领域结构/投影异常，本重构只以它作回归场景，不默认修改原有作品数据。
-- **执行批次严格限于一次独立 AI 编码会话的范围**，每批必须完成有证据的目标效果，不能把缺测试或回归挪给下一批。
+- Dialogue-first / Agent-native，不退回关键词 Router-first；模型有自主求证职责，APP 是可信事实与执行门禁提供者。
+- **唯一 Canonical**：会话 Transcript + AgentRun 段；**唯一 Request IR**：`NovelCommon.RequestIR`；三 wire 共享来源；不建“业务请求+IR”双主模型，不建第二 Run、第二 Workflow。
+- 当前事实、作者要求、模型推断、真实 Observation、真正执行结果各有唯一来源；未读/过期/不完整必须如实传递。
+- 提示词与工具 Schema、能力 effect、授权结果、采纳回执不得靠字符串重复定义权威规则；保留必要静态 System 规则和缓存顺序。
+- 作者可见模型叙事字节绑定真实 Provider 输出（I1/N-NARR），系统状态另有系统来源；内部 ref 不泄漏。
+- **越权/跨作品先拒绝；critical 再确认合法高风险行为；full 仍必须校验委托范围与真实采纳事务**，不可直接用模型建议/“提示用户已同意”写 canon。
+- Writer 必要正文/章计划/文风/目标段不能为了缩 Token 被截断。正确性、文学质量、作者负担优先于成本。
+- **未发布：零产品历史兼容承诺**。消费者迁移后同步删除旧 API、字段、代码、无消费者测试、adapter、冗余配置/Prompt，不留双轨或“暂且 fallback”；但不授权随意删除作者实际创作数据/原始质量证据。
 
-### 建议依赖图
+### 2.2 新实体“先证明不存在”门禁（对**每一批**强制）
 
-```mermaid
-flowchart LR
-    A[R00 基线与边界] --> B[R01 可测成本基线]
-    B --> C[R02 纯对话 Checkpoint]
-    C --> D[R03 请求去冗余]
-    D --> E[R04 最小 Base]
-    E --> F[R05 来源/观察真实性]
-    F --> G[R06 工具引用与效果校验]
-    G --> H[R07 语义判界]
-    H --> I[R08 创作链回归]
-    I --> J[R09 真实 A/B 验收]
-    G -.授权依赖.-> L[R10 授权体系]
-    J --> L
-    K[B81 CP5 / G6 基线门] -.须核验.-> C
-    K -.须核验.-> J
-```
+每个新增 `module/struct/DB table/column/tool/API/route/event/schema/policy/config/ContextBlock/checkpoint`，必须在该批开工报告列出：
 
-> 它是推荐主线顺序，不强迫独立源检查必须串行开发；但每批开工时检查依赖，未通过则不能开始该批。
+| 项 | 证明要求 |
+|---|---|
+| 用户场景与首个真实消费者 | 不得只写“未来扩展性” |
+| 全仓现有等价物 | 按符号/路径、调用者、字段与当前存储事实核查；尤其检索相关已退役设计 |
+| 替代方案 | `reuse / refactor-and-retire / truly-new / reject` 四选一，解释为何现存不能胜任 |
+| 与其他实体职责重叠 | 若发现双重真源，**先合并/退役**，不能继续增第三套 |
+| 新对象的完整生命周期 | 创建、版本、身份、授权、并发、撤销/删除、失败、追溯、消费者、测试和最终退役旧入口 |
+| 决策证据 | 可定位到代码和 Accepted/Frozen 契约；不得靠模型推测“不存在” |
 
-### 批次一览
+**默认是收敛现役模块、严格重构并删除旧消费者**。允许在确有需求时新建必要实体（例如经审计证明现有持久结构无法表示可撤销委托），但绝不允许为图方便新增。
 
-| 批次 | 唯一结果 | 生产改动边界 | 放行依据 |
-|---|---|---|---|
-| R00 | 基线盘点与实施边界冻结 | 仅文档 | 独立测试与验收证据 |
-| R01 | 模型请求成本与重复源可观测基线 | 仅测试/离线脚本 | 独立测试与验收证据 |
-| R02 | 已完成纯对话轮次的合法 Checkpoint 支持 | 限定既有 application / common 职责 | 独立测试与验收证据 |
-| R03 | Checkpoint 后的请求派生视图去冗余 | 限定既有 application / common 职责 | 独立测试与验收证据 |
-| R04 | 判断阶段最小可信 Base（移除无关大正文） | 限定既有 application / common 职责 | 独立测试与验收证据 |
-| R05 | 当前事实、作者要求、真实 Observation 的来源边界 | 限定既有 application / common 职责 | 独立测试与验收证据 |
-| R06 | 工具效果与引用参数的确定性校验 | 限定既有 application / common 职责 | 独立测试与验收证据 |
-| R07 | 讨论、纠错、明确行动的语义判界 | 限定既有 application / common 职责 | 独立测试与验收证据 |
-| R08 | 专业创作链不退化回归 | 限定既有 application / common 职责 | 独立测试与验收证据 |
-| R09 | 真实工作台多轮 A/B 与最终发布判定 | 产品外验收脚本/报告 | 独立测试与验收证据 |
-| R10 | 授权体系：风险等级、授权模式、critical/full 边界 | 限定既有 application / domain 职责 | 授权矩阵 + 真实 run 证据 |
+### 2.3 设计七原则的代码审查应用
 
----
+- **SRP/SoC**：Request IR/会话历史、Context 派生、Provider wire、权限/风险、采纳事务、作者可见分别独立变更原因；不建包办一切的 Manager。
+- **OCP/LSP**：从现有注册表扩展能力；Provider behaviour 行为语义一致；**不要用 OCP 为禁止改已测代码找借口**，修错误必须重构真实归属。
+- **ISP/LoD**：判断/写作消费者只拿必要材料，Web/Provider 不越过直接契约读持久化或裁决作品。
+- **DIP/CRP**：遵守 Umbrella 单向依赖，使用 Elixir 组合/behaviour 和纯函数，不造继承式抽象。
+- **DRY/KISS/YAGNI**：唯一 Schema/风险/效果/错误真源；拒绝没有消费者的新规则引擎、跨 app 适配层、抽象仓库。
 
-# Issue #4：单会话任务执行总契约（所有批次强制）
+## 3. 已确认的现存实体审查结论（2026-11-13 设计阶段）
 
-**仓库**：`tongsh6/ai-novel-studio`  
-**目标基线**：`develop/dialogue-based-novel-workbench`，每批开工时重新核实远端 HEAD、工作区状态与 B71/B81 现状。  
-**来源**：[Issue #4](https://github.com/tongsh6/ai-novel-studio/issues/4)、`tasks/NEXT.md`、`tasks/slices/B71-provider-message-fidelity.md`、`tasks/slices/B81-session-canonical-authoring-history.md`、`docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md`、`docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md`。  
-**目的**：重构模型交互请求/响应的任务相关投影与治理，**不重建 AgentRun / Canonical Transcript / Request IR**。
+| 需求 | 已存在的实际模块（需每批复核 HEAD） | 架构裁决 |
+|---|---|---|
+| 会话与请求证据 | `AuthoringSessionHistory`、`AuthoringTranscript`、`AuthoringCheckpoint`、`AuthoringSessionLog`、`NovelCommon.RequestIR` | 复用/必要时**重构现役**；不建 ModelInteraction 持久模型 |
+| 压缩/请求派生 | `TranscriptCompaction`、`RequestIR.Compaction`、`JudgmentProtocol`、`RequestIR.Projection` | 复用；纯对话/旧 Scope 的合法覆盖先核 Frozen |
+| 业务 Context/专业 Writer | `ContextAssembler`、`DialogueContext`、`AuthoringTaskBuilder`、专业创作 flows | 重构当前请求组装；保留按需探索与正文基线 |
+| 工具/能力 | `NovelCommon.CapabilityRegistry`、`NovelApplication.CapabilityRegistry`、`CapabilityRegistryEntry`、`JudgmentToolContract` | 消除重叠描述；动态 allowed/authorized 基于真实 run |
+| 风险/确认/采纳 | `CapabilityRegistryEntry.risk_class`、`MicroPlan.risk_hint`、`GateOrder`、`ExecutionOrchestrator`、`ConfirmationBinding`、`AuthorActionConfirmation/Admission`、`ApprovalAudit`、`AdoptionWorkflow`、`AuthorActionReceiptRepo` | **先核各层责任与实际事务/持久化**，不凭空另建 RiskEngine、ApprovalRecord 或 AutoAdoptionService |
+| 叙事与可见来源 | `AgentNarrativeSource`、`NovelCommon.AuthorVisible.Text`、`TurnResultBuilder` | 输入结构化 + 校验/有界模型纠错，不可应用改写模型字节 |
+| 授权模式、可撤销委托 | `AgentRun.authority_scope`、`AgentRunPolicy`、作品/会话配置与现有 Receipt/Trace 仅为已知候选 | **尚需 R11/R14 的精确存储/消费者审计**；不是“已经支持完整授权生命周期” |
+| 只读能力目录查询 | 注册表与现有探索工具存在，但专用 `capability_lookup` 未证实有生产消费者 | 先评估复用既有探索；无需求不造第八个工具 |
 
-## 每批强制的工程纪律
+查重范围包括：已运行代码、当前测试、`docs/design/00f-capability-atlas.md`、`00c`、现有 ADR/Contract、已退役代码迹象；**索引存在不证明功能完整**。严禁只凭文档“已有”或“没有”作为裁决。
 
-- **任务原子性**：本批只有一个主验收结果；禁止为了显示进度而把一个未闭环功能拆成“只写实现、后补测试、后补证据”。对应的测试和文档属于同一批完成内容。
-- **单会话**：开启新的 AI 编码会话并固定一个批次号和一个提交目标；先核实依赖和冻结输入，再按“现状定位→实现→验证→提交→汇报”闭环。不得借继续对话偷偷改变目标、标准或对象。
-- **有效完成判定**：`PASS` = 目标效果可观察 + 全部批次专属场景通过 + 受影响的项目必选门禁通过 + 没有新 P0/P1 + 提交 SHA 可验证。没有全部证据只可报告 `BLOCKED` 或 `FAIL`，**不叫完成**。
-- **依赖检查**：如 B81 CP5、冻结协议或真实模型环境未达到前置条件，立即报告缺口并停止改代码；不能用现有不相干证据冒充。
-- **禁止扩大范围**：除本批注明的文件/层次和必需测试/文档外，不改其它功能；遇到跨模块广泛调整，停止并报告拆批建议，不得擅自扩大、调低验收或引入新协议框架。
-- **不允许伪证**：不得把 Stub / SliceVerify 结论说成真实模型质量；不得声称未运行的测试通过；不得改变历史作者原文字节，伪造 tool call/观察、静默删掉已存在的 canonical 历史。
-- **不可突破的边界**：作者主权、tentative-first、Orchestrator gate、I1/I2/I3、N-NARR、I-CACHE、cross-work 隔离、原生工具消息顺序、`used_refs` 来源闭环、checkpoint 覆盖/版本/省略信息、三种 Provider wire 投影。
-- **提交纪律**：工作区若有非本次改动，先报告；不得替用户覆盖。通过门禁后提交仅本批的文件；提交消息遵守仓库中文规范。若无代码变更的审计批次，提交独立审核文档/fixture 或按任务要求产出可复核证据。
-
-### 每个代码批次的最低共同门禁
-
-在仓库指定的正确环境中执行（若命令因环境缺失不可执行则 **BLOCKED**，不能写“跳过/视为通过”）：
-
-```bash
-mix compile --warnings-as-errors
-mix test
-mix xref graph --format cycles --label compile-connected --fail-above 0
-mix run scripts/arch_check.exs
-bash scripts/ai_static_scan.sh --top 10
-MIX_ENV=test mix run scripts/scenario_invariants/run_i1_causal.exs
-MIX_ENV=test mix run scripts/scenario_invariants/run_i2_variation.exs
-MIX_ENV=test mix run scripts/scenario_invariants/run_i3_nonce.exs
-MIX_ENV=test mix run scripts/scenario_invariants/run_n_narr.exs
-MIX_ENV=test mix run scripts/scenario_invariants/run_icache_prefix.exs
-```
-
-项目已有 `mix check` 或当前任务指定的更严格质量门若覆盖上述项目，可使用它们，但报告必须逐项列明最终结果；不要把一次 `mix test` 的运行等同于所有门禁。若改动前端，再加 `cd frontend && pnpm typecheck && pnpm lint && pnpm test` 和项目规定的设计/前端审计门。新增场景验收只允许**产品外** driver，生产代码不得增加测试专用开关或隐藏钩子。
-
-### 单批最终交付证明模板（每个编码会话最后必须填写）
+## 4. 改造主线与批次 DAG
 
 ```text
-Batch: Rxx
-基线: <branch + base SHA>
-Outcome: PASS | FAIL | BLOCKED
-目标效果实证: <具体场景、真实观察或证据文件，不能写“已实现”代替>
-改动文件: <路径列表>
-明确未改: <禁止触碰的范围核对>
-专属测试: <命令 / 结果 / 数量>
-公共门禁: <每条命令 / PASS-FAIL-未执行原因>
-跨 wire: <Chat / Responses / Anthropic 结果，若本批不触碰则说明>
-版本与事实不变量: <作者原文、refs、checkpoint、未授权写入的证据>
-已知缺口: <无，或精确原因；有必需缺口则不能 PASS>
-提交: <SHA；无提交则不能声称完成代码批次>
-下批入参: <最小、真实、可复核的产出与依赖>
+R00 存在性/契约核验 → R01 真实成本基线
+   ↓
+R02 结构化事实/来源 → R03 合法 Scope checkpoint → R04 三 wire 请求派生
+   ↓                                                ↓
+R05 按需取证与专业 Task Base                     R06 作者可见 ref 零泄漏（承接 B86）
+   └────────────────┬────────────────────────────────┘
+                    ↓
+R07 原生工具/refs/结果闭环 → R08 讨论/修订/执行判界
+                    ↓
+R09 授权能力/效果同源 → R10 风险派生 → R11 模式持久继承 → R12 作者设置入口
+                                                 ↓
+                                           R13 critical 确认
+                                                 ↓
+                                   R14 撤销委托与生效范围
+                                                 ↓
+                                     R15 full 原子自动采纳
+                                                 ↓
+                                     R16 smart 保守确定性策略
+                                                 ↓
+R17 清理/删旧双轨 → R18 专业创作与采纳全链回归 → R19 真正最终实模/原生 UI A/B 验收
 ```
 
----
-## R00 — 基线盘点与实施边界冻结
+R05 与 R06 允许在不同工作树、**无同文件冲突**时按已通过前置并行；其它依赖按实际改动路径审查。任何历史 checkpoint、B71/B81 G6/C9 等失效证据不得作为当前 HEAD 成功证明。
+
+### 4.1 独立批次导航（每批只开一个 AI 编码会话）
+
+| 编号 | 唯一完成结果 | 独立执行任务卡 | 首个真实消费者/证明 |
+|---|---|---|---|
+| R00 | 完整架构/新实体存在性审计、冻结冲突与决策 | [R00](B87-model-interaction-request-projection/R00.md) | 可定位的符号/调用关系和裁决记录 |
+| R01 | 原始请求成本、缓存、前缀和质量可复现基线 | [R01](B87-model-interaction-request-projection/R01.md) | 真实 Provider JSONL 与可重算报告 |
+| R02 | 基于现役 RequestIR 的结构化 Scope/事实/来源 | [R02](B87-model-interaction-request-projection/R02.md) | 判断请求的真实投影，不能有伪作者/观察 |
+| R03 | 纯讨论/旧 Scope 的**显式**覆盖、Checkpoint 与恢复 | [R03](B87-model-interaction-request-projection/R03.md) | Canonical、Replay、三 wire |
+| R04 | 当前有效 Scope + 真实历史的无重复 Provider 视图 | [R04](B87-model-interaction-request-projection/R04.md) | 连续 3/10/20 轮多 wire |
+| R05 | 最小可信 Base + 按需只读取证与专业写作材料 | [R05](B87-model-interaction-request-projection/R05.md) | Judgment → Explore → Writer |
+| R06 | B86 C9 内部标识模型输入/输出/作者出口全闭环 | [R06](B87-model-interaction-request-projection/R06.md) | 真实 Tauri 页面 + 原生模型字节 |
+| R07 | Tool call、refs、effect、response 与系统执行各归其位 | [R07](B87-model-interaction-request-projection/R07.md) | Judgment → Validation → Gate → Replay |
+| R08 | 事实问答、讨论、纠错、执行的 Agent 语义可靠 | [R08](B87-model-interaction-request-projection/R08.md) | 真实三轮作者请求 + 负例 |
+| R09 | Registry 基线/授权效果目录/实际 Gate 同源 | [R09](B87-model-interaction-request-projection/R09.md) | run 可建议集合 + Orchestrator |
+| R10 | 有效 action 的动态风险分级与统一审计 | [R10](B87-model-interaction-request-projection/R10.md) | capability/effect/target + Audit |
+| R11 | 授权模式继承/撤销/版本的真实持久事实 | [R11](B87-model-interaction-request-projection/R11.md) | 模式读写 + Run 权限派生 |
+| R12 | 作者有实际设置入口与当前授权可见状态 | [R12](B87-model-interaction-request-projection/R12.md) | 真实 Workbench UI |
+| R13 | Critical 合法高风险的明确确认/拒绝/re-gate | [R13](B87-model-interaction-request-projection/R13.md) | Confirm → Auth → Tool → Receipt |
+| R14 | Full 委托的对象/effect 范围、到期/撤销、审计 | [R14](B87-model-interaction-request-projection/R14.md) | 真实用户委托入口 + Run 读取 |
+| R15 | Full 自动采纳经现有事务门禁原子闭环 | [R15](B87-model-interaction-request-projection/R15.md) | 候选 → 再 gate → Adoption receipt |
+| R16 | Smart 确定性策略/保守回退，无隐式自授权 | [R16](B87-model-interaction-request-projection/R16.md) | 同一矩阵 + 真实 UI |
+| R17 | 删除迁移完成的旧拼串/重复事实源/兼容胶水 | [R17](B87-model-interaction-request-projection/R17.md) | 静态扫描/依赖/零消费者 |
+| R18 | 专业创作、修订、质量、采纳、不泄漏回归 | [R18](B87-model-interaction-request-projection/R18.md) | 真实作者创作链、整章材料 |
+| R19 | **全部变更后的**最终实模/Tauri A/B 与发布门禁 | [R19](B87-model-interaction-request-projection/R19.md) | 真实模型 + 三 wire + 全矩阵 |
+
+> R00–R19 是**独立验收单元**，不是“一轮只写 Helper、下一轮再补测试”的横向拆包。每个改动作者体验的批次都必须在真实产品入口证明闭环。R00/R01 属事实与验收基线，可作为文档/测试类完成，其完成**不代表**功能最终完成。
+
+### 4.2 外部依赖与非本 Issue 的责任
+
+| 关联 | 已验证状态 / 责任 |
+|---|---|
+| B71 | 目前 `doing`；已存在 IR/三 wire 机制；G3/G5、供应商实模等应沿原任务承接；**不得为 B87 改写 B71 的验收口径** |
+| B81 | 目前 `done`（部分历史 C9 由 B86 转交），已有跨 run 会话 Canonical/Checkpoint/Replay；**R03 只处理 B81 没解决的新 Scope 重复语义** |
+| B86 | 原 C9 领域缺口、历史失败反例与目标**完整承接至 B87 R06**；旧文档标 `superseded`，不是标 `done`；同一开放后果只认 B87 |
+| B85 | “模型上下文窗口用户设置 UI”独立任务，编号保持；本任务不得误覆盖其配置 UI |
+| Issue #3 | 作者素材个性化，未来通过同一探索/来源机制消费；不在 B87 实现新素材库 |
+| 卷纲误占章位 | 领域数据/采纳映射真实缺陷与本 Issue 的交互回归样例不同；不靠 Prompt 隐藏 |
+| 长篇文学质量 | R18/R19 必有创作质量实证，不能仅凭判断器工具通过签署 I10 |
+
+## 5. 批次 DoD 与强制失败策略
+
+每一批独立执行必须交付：**首个真实消费者 + 现有实体查重证明 + 原生可观察行为 + 负例/异常/并发/版本 + 该批真实页面入口（行为变更）+ I1/I2/I3/N-NARR/I-CACHE 等相关门禁 + commit SHA + SSOT 回写**。只要其中必需环节缺失，结果必须是 FAIL/BLOCKED。禁止修改测试/阈值/预注册样本以逃避失败。
+
+**不做历史兼容**：迁移本批所有受影响的当前消费者，删除旧 adapter/字段/配置/伪工具/死代码和无消费者 legacy tests，不能同时保留“v1/v2 路径”供临时回退；若迁移范围超出单批，**先按真实消费者调整批次，禁止产生双主运行态**。错误恢复/事务回滚必须保留，不属于历史兼容负担。
+
+**不做过度工程**：命令和检查尽量复用现有 `scripts/quality_accept.sh`、`mix check`、`scenario_invariants`、B71/B81 的真实驱动。只有现有验收无法表达必要真实后果才增测试资产。对基础模块可提供机制证明，但**父任务不能在缺失真实 UI/实模证据时 done**。
+
+**现有强制 CI 失败不能伪报**：先做 R00 当前基线审计，区分既有失败/新引入失败；旧失败不能简单归因本次文档变化，也不能拿“与本批无关”掩盖最终 full green 目标。若外部资源暂缺，记真实 BLOCKED 和解除条件，不跳过改称 PASS。
+
+## 6. 一次编码会话的执行契约（所有任务卡共享）
+
+详见 [README](B87-model-interaction-request-projection/README.md)，每次仅下发 **README + 当前 Rxx**，不可把全套卡片叠进模型上下文。
+
+一轮必须依次完成：
+1. 最新分支 HEAD + 工作树 + NEXT + 本批依赖状态检查；
+2. 7 问（Contract/Invariant/Boundary/Consumer/Proof/Acceptance Driver/Exploration）；
+3. **新增实体存在性审查表**（无新增也要明确 `none`）与“删旧收敛表”；
+4. 更改设计/测试/实现直到当前批次可复现；不可在失败时降低 DoD；
+5. 实际运行专属门禁、共同门禁及真实 UI/实模；记录完整结果；
+6. 只提交本批内容，更新**本文件本批**状态与证据、Next 调度（实际队列更替时）；
+7. 最终报告 PASS / FAIL / BLOCKED，不用“完成大部分”替代。
+
+R00 需先对本设计提出的差异给出有效裁决；若 VS-00L/ADR-0035 等 Frozen 行为需调整，必须先落 **修订契约+场景/版本/旧入口删除计划**，不得在产品代码里暗改，也不得因“不兼容历史”绕开现有安全不变量。
+
+## 7. 验收与最终退出标准
+
+### 7.1 R01 冻结 Before，不以 Token 缩小作为唯一优化目标
+
+使用用户真实三轮的 request/response 及 3/10/20 轮压力样本，分别记录静态 system/tools、Scope、历史、观察、正文、输入输出与 cached tokens（包含于输入），覆盖 provider/model/推理强度及是否冷缓存。
+
+### 7.2 作者真实可观察结果
+
+- “有几章内容”无需无关全文，准确区分数据库章位与已采纳正文；
+- “第一章是卷纲不对吧”能自然讨论事实、不直接执行；
+- “卷纲在阅读里显示不接受”能识别目标效果、核实实际能力、不拿重编号冒充移除；
+- 长会话已有确认的事实/问题/作者目标连续，checkpoint/多轮恢复不丢；
+- 章修订的完整 baselines、角色关系、文风、版本、采纳和冲突检查不退化；
+- 作者可见无内部 `chapter:<uuid>` 等协议标识，拒绝伪工具响应；
+- 授权模式/委托/critical/full/smart 每项从 UI 到真实事务和撤销/回查均可验证，非法越界拒绝。
+
+### 7.3 全量 Release Gate（最终 R19）
+
+- 全部 Rxx 及每个验收物有真实 PASS 证据；B86 C9、Scope 线性增长、双重真源等根问题真实解除；
+- `mix check` + repo 所规定的全部必选质量/架构/静态/I1–I3/N-NARR/I-CACHE 与原生 UI 质量清单通过；
+- Chat/Responses/Anthropic 三 wire 的确定性保真通过，供应商实模逐实际可用性报告，缺的真实证据不能冒充已验；
+- 同一 A/B 样本，语义不退化，成本/延迟有实数、误调用与越权零容忍；
+- **clean audit**：不存在遗留并行 Request、旧作用域/工具兼容、零消费者实体，所有新增在存在性表有审查闭环；不以重置开发库代替源代码正确性；
+- 所有“本功能已完成”的表述有证据，任何缺口回归本文件和原相关任务，不虚构 PASS。
+
+## 8. 当前决定、开放问题和恢复入口
+
+**生效**：用户明确要求未发布**不兼容历史**、彻底重审、实体存在性红线与软件原则；本文件完成**规划/契约建议文档修订**，不改生产代码。保留原产品既有作者采纳、权限、证据、安全约束。
+
+**需由 R00/对应批在代码和 Frozen 合同上确认**：
+- 旧 Scope 与纯讨论覆盖究竟能否用现有 `Compaction` 精确表达；不能时先补唯一契约再迁消费者；
+- 模式持久位置、授权委托的范围与到期/撤销，是否确需新最小字段/实体；
+- `smart` 可重复、可解释的保守决策表达，不得以模型自评风险替代；
+- `capability_lookup` 是否真有新增的业务消费者，避免平行探索工具；
+- B71 的 G3/G5/实模遗留与本任务最终 R19 的证据边界，分别归各自任务维护。
 
-**唯一目标**：形成唯一、可核对的 Issue #4 实施基线，不写生产代码，不先发明新 Request IR。
+**最先可启动**：R00（只读审计+冻结冲突核对+实体查重，不修改生产代码）；R01 需 R00 形成经过复核的成本样本。其它批次依实际依赖推进，不能因“作者授权改设计”自动跳过 R00。
 
-**开工依赖**：无；必须读取目标分支最新 HEAD、Issue #4、B71/B81 当前状态。
-
-**允许改动**：文档/验证输入：tasks/NEXT.md、B71/B81、VS-00L、VS-00I、ADR-0035、相关 modules/test；只新增或更新 Issue #4 对应的任务设计/对账文档。
-
-**禁止改动**：不改生产逻辑、Schema、Prompt 文案、Provider Adapter、历史数据；不能把 B81 的已实现机制重复列作新建任务。
-
-**本批执行步骤**：
-
-1. 检视活跃分支、工作区、B81 CP5 / G6 当前状况及相关冻结契约；逐条列明已有、缺失、待决。
-2. 画出“canonical session → run segment → request derived view → Request IR → 三 wire → validation/outcome”当前真实数据流，给出源文件入口。
-3. 用用户提供的三轮真实日志建立**基线事实表**（16,462 / 27,540 / 39,772 input tokens；缓存是 input 的子集），明确哪些数字属于真实日志，哪些仅估算。
-4. 预注册本重构的正例/反例：统计、讨论、明确修复、跨轮引用、真实探索、长篇创作、不完整证据、跨作品隔离。
-5. 列出 R01–R09 对现有合同的冲突点与授权门槛；若需改 Frozen 契约，先形成 ADR/契约裁决建议，不自签已批准。
-
-**必须全部满足的 DoD**：
-
-- [ ] 产出一份**单一权威**设计/任务对账记录；所有关键结论有仓库来源及代码定位。
-- [ ] 单独标明 B81 CP5 尚需的证据与后续 R02/R03 的实际开工前提。
-- [ ] 每个后续批次有独立验收输入，不提前规定模型判断结果为“作品事实”。
-
-**专属验证**：文档内部自检 + 现有契约/任务关联审计；没有生产改动不必伪称运行代码门禁。
-
-**交付物**：一份本 Issue 专用 SSOT 任务对账文档，含可追踪文件路径、冻结/待裁决表和前置条件清单。
-
----
-
-## R01 — 模型请求成本与重复源可观测基线
-
-**唯一目标**：取得可复核的“每轮请求为何增长”证据，明确 bytes/tokens/cached、原生消息与来源类型，而非凭文本长度猜测。
-
-**开工依赖**：R00 已确认来源；需要三轮原始请求日志或等价合法重放。若实际样本不可得则 BLOCKED，不伪造真实基线。
-
-**允许改动**：只允许测试/离线脚本及其 fixtures/报告；优先复用 scripts/model_contracts、run_icache_prefix.exs 与 RequestIR.Projection 的捕获接口。
-
-**禁止改动**：不改变生产请求、Schema、tokenizer/Provider 计费口径、缓存策略或日志安全机制；禁止记录密钥及真实私人原文到公开制品。
-
-**本批执行步骤**：
-
-1. 使用真实 Request IR / Provider 投影捕获：system、tools、current scope、previous scopes、dialogue、observation、raw author turn。
-2. 按 role/source/call_site/run 计算字节量、已知 token 统计、缓存命中与重复块；没有准确 tokenizer 则将 byte 与 token 分开标注。
-3. 输出三轮前缀共享、scope 数、重复材料数量与“本轮最小必要事实”人工审阅表。
-4. 编写确定性测试确认统计器不修改 Request IR、不泄漏作者内容和 secrets。
-
-**必须全部满足的 DoD**：
-
-- [ ] 三轮报告可复现且分组加总与原请求 body 相符。
-- [ ] 精确区分 input_tokens、cached_tokens（子集）、output_tokens；不把 TTFT 变化当作唯一性能因果证据。
-- [ ] 不触碰生产请求行为。
-
-**专属验证**：脚本/测试自检 + 现有 I-CACHE 检测；若新增代码受 AGENTS 规范约束，照共同门禁执行。
-
-**交付物**：脱敏基线报告、测试夹具、固定 A/B 指标定义，为 R02/R03 和 R09 使用。
-
----
-
-## R02 — 已完成纯对话轮次的合法 Checkpoint 支持
-
-**唯一目标**：填补没有工具交换的纯 user/assistant 轮次无法有效整理的缺口，使后续请求有可引用的合法历史检查点。
-
-**开工依赖**：R00/R01；必须先核验 B81 CP5 的真实多轮基线与 ADR-0035 / VS-00L 的压缩许可；若 Frozen 契约不允许扩充覆盖范围，先走契约裁决，停止本批。
-
-**允许改动**：首选 NovelApplication.TranscriptCompaction / AuthoringCheckpoint 既有压缩职责、对应会话测试；必要消费者仅限现有压缩安全点；不得新建第二 checkpoint 存储。
-
-**禁止改动**：不直接改 Provider 投影、不压缩活跃轮、未闭合 tool calls、未回答作者问题；不压缩改变作者文字或 artifact 字节。
-
-**本批执行步骤**：
-
-1. 定位纯对话完成轮次为何不入已完成交换压缩组，定义完整轮次的可安全整理条件。
-2. 在现有 checkpoint 机制中承接纯对话的完整覆盖、来源、版本和遗漏说明；原 transcript 追加不可变。
-3. 覆盖纯对话、工具交换、混合、跨 run、空历史、重复整理、取消/失败、错误版本的负例。
-4. 证明 Replay 可回查原文及 checkpoint，并在异常数据下 fail-closed。
-
-**必须全部满足的 DoD**：
-
-- [ ] 纯对话历史达到**经批准**的安全点条件时可产生有效 checkpoint；未满足则不产生。
-- [ ] checkpoint 能精确覆盖对应历史、可追溯、幂等；不丢作者原话、工具引用或未结束交互。
-- [ ] B81 原有压缩/恢复/多轮校验全部回归。
-
-**专属验证**：指定目标 ExUnit + b81_cp3_session_compaction_test.exs / b81_cp4_session_replay_test.exs + 全部门禁。
-
-**交付物**：当前压缩链的增量能力与对应的确定性证明。
-
----
-
-## R03 — Checkpoint 后的请求派生视图去冗余
-
-**唯一目标**：让完成压缩的历史 Scope 不再以全文重复进入后续 Provider 请求，同时仍通过 checkpoint 可核查，避免三轮内容无变化时全量 Scope 无界线性累积。
-
-**开工依赖**：R02 完成；B81 CP5 与 VS-00L 请求派生要求已满足；没有合法 checkpoint 时不能静默省略历史消息。
-
-**允许改动**：优先 AuthoringSessionHistory.compose/2、JudgmentProtocol.request_for_production/2 现有派生边界，RequestIR.Projection 测试；仅必要的压缩消费接线。
-
-**禁止改动**：不修改 canonical storage，不改作者原话原字节，不压缩当前仍有效的行为义务，不能改成只有 latest scope 且丢旧证据。
-
-**本批执行步骤**：
-
-1. 实现“当前有效 Scope + 有来源的 checkpoint + 需要的近期原生交换”派生规则。
-2. 校验 checkpoint 实际覆盖、source_refs、versions、omissions；未覆盖部分保持完整原序。
-3. 检查 used_refs 与 base/observations 关联，跨 run/跨作品/版本漂移时拒绝或明确降级。
-4. 对相同统计事实连续 3、10、20 轮做无界增长反例，使用 R01 同一口径报告 before/after。
-
-**必须全部满足的 DoD**：
-
-- [ ] canonical 持久内容、追溯与 Replay 不变；Provider 视图无旧 Scope 无界重复。
-- [ ] 无 checkpoint 不得实现静默删历史的“优化”。
-- [ ] Chat Completions / Responses / Anthropic 的消息顺序、来源与引用闭环通过测试。
-
-**专属验证**：b81_cp2_session_derivation_test.exs + judgment_initial_snapshot_test.exs + 三投影 round-trip 与 I-CACHE 等共同门禁。
-
-**交付物**：一个可独立观察的新请求派生行为与 R01 口径的成本对比报告。
-
----
-
-## R04 — 判断阶段最小可信 Base（移除无关大正文）
-
-**唯一目标**：在不预判用户语义的前提下，判断阶段默认提供必要权威事实和对象身份，而非完整角色档案、候选正文和多份历史全文。
-
-**开工依赖**：R03；必须通过 R00 审定的不可省略 Base 最低集合。
-
-**允许改动**：优先 JudgmentProtocol 的 scope 组装、当前 ContextAssembler/DialogueContext 的投影出口及对应 judgment context tests；只改首个判断消费者。
-
-**禁止改动**：不新增关键词路由、意图分类 Router、不删除必要对象 refs/权限、不强制 writer/修订器复用判断阶段的瘦上下文。
-
-**本批执行步骤**：
-
-1. 定义判断阶段的必带集合：作者原话、作品/会话身份与当前权威版本、必要章节索引/统计、合法身份 refs、工具目录/预算/权限。
-2. 长角色说明、resolved/pending 历史 body_preview 与正文改为摘要/引用入口（如当前任务确需，应按现有探索工具读取）；保持可发现性。
-3. 对“当前章数”和“已有角色改成主角/改已有候选/章节修订”场景分别验证：第一类少读，后几类可取回所需身份/全文，不要求作者重新提供系统已有事实。
-4. 使用 R01 统计 before/after：少了什么，有什么证据，是否出现错误遗漏。
-
-**必须全部满足的 DoD**：
-
-- [ ] 简单统计请求不含无关长角色全文/候选全文；必要 refs 未丢。
-- [ ] 已有对象修订、待采纳候选、非唯一目标、跨作品隔离保持原行为。
-- [ ] 真正需要全文的请求能经授权只读探索补足；不编造内容。
-
-**专属验证**：b27_request_source_test.exs + judgment_protocol_test.exs + character_roster_context_test.exs + judgment_exploration_loop_test.exs + 共同门禁。
-
-**交付物**：判断阶段最小 Base 变更与原始请求差异证据。
-
----
-
-## R05 — 当前事实、作者要求、真实 Observation 的来源边界
-
-**唯一目标**：系统不能把“作者想要的结果”标记为已发生事实，不能把应用基础投影伪装成已调用工具的 Observation。
-
-**开工依赖**：R00、R04；检查 VS-00L / RequestIR 当前 provenance/refs 能否承载；若需主协议字段变更先获契约批准。
-
-**允许改动**：优先现有 RequestIR / JudgmentProtocol 的请求事实投影与来源校验，相关 tests；不建新持久事实表。
-
-**禁止改动**：不引入第二模型交互事实源、不凭标题推造 artifact_type、不自动生成 observations、不把作者指令塞进 application scope 冒充系统事实。
-
-**本批执行步骤**：
-
-1. 对输入区分四类：base_facts、author_requirements（由真实作者消息引用）、model_inference、tool_observations。
-2. 为每类定义允许的 source_ref、version、coverage/status 与事实引用规则；已存在结构优先复用。
-3. 测试应用章索引不会出现伪 tool_call；真实 chapter_read 才产生 observation 且绑定真实 call_id；未读、stale、partial 诚实传递。
-4. 保持三 Provider 原生消息投影与后续模型消费的一致性。
-
-**必须全部满足的 DoD**：
-
-- [ ] 无法以应用统计冒充“已读取整章”或“已执行 work_archive_read”。
-- [ ] 作者期望与当前状态不会因请求组装混同。
-- [ ] 已绑定的真实 refs、投影顺序及旧消息回放行为保持。
-
-**专属验证**：judgment_initial_snapshot_test.exs + authoring_transcript_test.exs + authoring_execution_refs_test.exs + 相关三投影回归 + 共同门禁。
-
-**交付物**：来源类型与已验证绑定行为，不是另一份持久化 JSON 真源。
-
----
-
-## R06 — 工具效果与引用参数的确定性校验
-
-**唯一目标**：确保工具引用字段只携带真实目录标识、业务效果与能力范围机械一致，验证成功不等于执行授权。
-
-**开工依赖**：R00、R05；工具 Schema 若必须变更，先冻结版本或批准契约迁移。
-
-**允许改动**：优先 JudgmentToolContract 与 JudgmentProtocol 已有 validate_operation / ExecutionOrchestrator；尽量只增强现有引用和效果判定。
-
-**禁止改动**：不大规模重写七工具 schema、不让模型直接 adopt/canon_write、不将 report_capability_gap 冒充业务创作能力。
-
-**本批执行步骤**：
-
-1. 新增/补全针对 alternative_operation_refs 的真实 catalog id 校验，不接受“标识符（说明文字）”拼接。
-2. 验证 judgment_decision 的 action 对应字段互斥、真实 target ref、错作品、不存在目标、能力不支持、重复/歧义。
-3. 模型提出可用能力但无授权时仍只记录 validated，必须由后续 gate 放行；缺能力只能准确报告缺口。
-4. 工具错误生成与原因一致的结构化失败，修复重试不得扩大当前目标/对象/权限。
-
-**必须全部满足的 DoD**：
-
-- [ ] 非法引用/不合法 schema、错误 effect 100% 由系统拒绝。
-- [ ] model tool_call → passed validation → authorized execution → actual write/adoption 分开可证明。
-- [ ] 现有合法调用/plan 双工具组合不退化。
-
-**专属验证**：judgment_protocol_test.exs + judgment tool schema/contract tests + execution_authority_test.exs + 共同门禁。
-
-**交付物**：工具/效果边界有效、可拒绝错误引用、无越权的测试证据。
-
----
-
-## R07 — 讨论、纠错、明确行动的语义判界
-
-**唯一目标**：避免作者只是讨论时模型过早调用能力缺口/动作，同时在作者明确授权目标时能够继续执行或准确报告缺口。
-
-**开工依赖**：R04、R06；需与 B27 既有模型语义矩阵与冻结规则冲突对账。
-
-**允许改动**：优先 AuthoringTaskPolicy、既有 JudgmentProtocol / TurnInteractionService 的当前判别语义与相关测试；只改已经证明确有冲突的规则。
-
-**禁止改动**：禁止新增 if/contains 语句专门识别“卷纲”等词、硬编码某个用户或小说输入；禁止为通过某一场景削弱其他创作请求。
-
-**本批执行步骤**：
-
-1. 将“章状态是否完成”与“文学意义写完了吗”分开；提供事实分类和必要取证边界，不重复冲突判例。
-2. 建立最小对比语义矩阵：事实询问、结构异议/讨论、明确效果请求、条件句否定、明确生成、缺信息、缺能力。
-3. 用同一真实上下文测三轮判界；讨论回合只回复，明确要求缺能力时报告缺口；不检查未读正文就宣称质量已通过。
-4. 确定性机制测试之外，实模质量单独记为待 R09 复证，不用 stub“证明模型真正理解”。
-
-**必须全部满足的 DoD**：
-
-- [ ] 针对用户真实三轮输入的决策语义不发生误升级。
-- [ ] 其它负例、已有候选修订/作者明确生成/作者只说“先收下”不发生回归。
-- [ ] 系统层仍不预先声明模型应当认为的具体意图。
-
-**专属验证**：b27_request_source_test.exs + b34_author_intent_fixture_test.exs + judgment_protocol_test.exs + B27 模型语义负例矩阵（在可用模型环境下） + 共同门禁。
-
-**交付物**：可独立运行的语义回归矩阵与收敛后的唯一规则真源。
-
----
-
-## R08 — 专业创作链不退化回归
-
-**唯一目标**：确保瘦化判断上下文与历史压缩不会破坏真正需要完整正文、章计划、人物状态和作者风格的创作链。
-
-**开工依赖**：R03–R07 已通过；现有作品/修订/作者原文/质量契约为准。
-
-**允许改动**：以现有 writer/prose revision/quality 入口及测试为主，新增端到端机制夹具和小范围回归修复；如果发现较大独立缺陷，创建单独任务，不在本批展开新功能。
-
-**禁止改动**：不重构 Writer、不更换小说质量算法、不新增作者资产系统、不以压缩/summary 代替整章修订的必要全文。
-
-**本批执行步骤**：
-
-1. 验首稿、续写、指定片段修订、整章修订、纯排版、角色已有档案修改、缺证据取证，覆盖作者限制/版本/对象一致性。
-2. 检验 writer 实际接收到目标正文及完整基线（需要全章时不能只用片段），未采纳产物不污染 canonical。
-3. 对作者素材/文风所需事实仅验证存在按需扩展路径，不在此实现 Issue #3。
-4. 将确认的回归问题限定于此次 Context Projection 引入的差异，修复和场景一同提交。
-
-**必须全部满足的 DoD**：
-
-- [ ] 所有专业创作入参保持完整性、来源、范围及作者原话字节。
-- [ ] 现有 prose writing / revising / quality / adoption tests 通过，0 个未授权写入。
-- [ ] 不存在用短摘要或单段冒充完整章节修订。
-
-**专属验证**：agent_run_prose_drafting_flow_test.exs + agent_run_prose_revision_flow_test.exs + prose_execution_brief_builder_test.exs + quality tests + 共同门禁。
-
-**交付物**：专业创作链零退化机制证明和若干真实产物校验输入。
-
----
-
-## R09 — 真实工作台多轮 A/B 与最终发布判定
-
-**唯一目标**：在严格同口径 A/B 中验证 Token、缓存、延迟、语义判断和事实一致性，得出是否可合并/发布的证据结论。
-
-**开工依赖**：R00–R08 PASS；B81 CP5/G6 所需证据完成或明确与当前批次合并验证；**真实模型、Tauri、测试驱动与预注册样本可用**，否则 BLOCKED，不降低验收。
-
-**允许改动**：仅产品外 Tauri 驱动、测试报告和必要的自身验收脚本修复；不在本批顺手改生产内核或额外增加业务功能。
-
-**禁止改动**：不改变样本/阈值掩盖失败、不编造实模/前端证据、不为跑测试在生产代码加特殊路径。
-
-**本批执行步骤**：
-
-1. 冻结同一作品、三轮作者原话及若干逆向样本的前后请求（model/provider/推理/缓存/并发条件记录）。
-2. 从真实桌面工作台执行：统计 → 异议讨论 → 明确结构效果；加跨轮引用、checkpoint 触发、授权只读探索、失败/取消和作者采纳边界。
-3. 分别采集 A/B 的实际 input/output/cached tokens、请求组成、TTFT、latency、工具选择、结果正确性；缓存不能算作新增输入。
-4. 复跑三 Provider wire 投影与 I1/I2/I3/N-NARR/I-CACHE，确认原始消息顺序/来源、跨作品、回放和真实阅读投影。
-5. 按预注册规则判定 PASS/FAIL/BLOCKED，将所有残余问题准确归因到批次与已有任务，不为凑最终 PASS 改历史结论。
-
-**必须全部满足的 DoD**：
-
-- [ ] 真实 3 轮对话正确：问章数不读取无关全文；讨论不误授权；明确移出卷纲目标不以重编号冒充已修。
-- [ ] 请求多轮旧 Scope 无无界增长，报出 before/after 的数值与模型表现，无虚假的“固定降幅保证”。
-- [ ] 真实 Tauri + 有效模型证据、三 wire/全部门禁与完整 trace；必要缺口必须 FAIL/BLOCKED。
-
-**专属验证**：bash scripts/quality_accept.sh <本批注册的真实场景 ID> --surface tauri；B81/G6 对应驱动；完整共同门禁；实模依预注册工具/环境操作。
-
-**交付物**：最终 A/B 报告、实模与 UI 证据路径、剩余风险判断、Issue #4 完成/不完成建议；不得自动宣称业务领域问题（卷纲数据修复）已解决。
-
----
-
-## R10 — 授权体系：风险等级、授权模式与 critical/full 边界
-
-**唯一目标**：在现有 RequestIR / JudgmentProtocol / Orchestrator gate 上增加可机械校验的授权层——能力风险等级（按 capability + effect + target 动态）、用户授权模式（manual / risk_based / full / smart，run > 会话 > 作品 > 全局）、critical 询问作者、full 自动采纳的委托与审计；不修改 RequestIR 真源，不新建 ModelInteraction 持久化结构。
-
-**开工依赖**：R05、R06 PASS；[VS-00M](../../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md) §3.4/§3.6 作为设计输入；B81 当前机制不重做；若需改 Frozen 契约，先获 ADR/契约批准。
-
-**允许改动**：优先 application 的授权决策/风险规则模块、Orchestrator gate、JudgmentProtocol 的 authorized 派生与 validation 字段；domain 纯函数 `risk_of/4`；相关 tests。
-
-**禁止改动**：不新建 ModelInteraction 持久化真源；不重写 RequestIR 三 wire 投影；不让模型自评风险或自授模式；`full` 自动采纳不得绕过 adoption boundary / I1 / validation；不改变现有七工具语义。
-
-**本批执行步骤**：
-
-1. 定义 `risk_of(capability, effect, target, context)` 纯函数与可版本化规则表：low / medium / high / critical；critical = 删除、批量（≥3 对象）、不可逆覆盖、跨作品、改 canon 核心。
-2. 实现授权模式解析：run > 会话 > 作品 > 全局；记录 `mode_source`；模型不可设置或修改模式。
-3. 实现 `authorized` 派生：从 `authority_scope.allowed_tools` + profile/step + 前置条件 + budget 派生，替换判断器硬编码 `@judgment_capabilities`；catalog 仍按需 `capability_lookup`，不预装。
-4. 实现决策矩阵：low/medium/high/critical × manual/risk_based/full/smart；critical 恒 `ask_author`（同意=执行+采纳，拒绝回流，永不自动采纳）；full 自动采纳需 `delegation_ref`、可撤销、可回滚、`status_message` 明确标注。
-5. validation / truthfulness 增加 `risk_decision` / `author_decision` / `auto_adopted` / `author_confirmed` / `author_delegation_ref`；系统回填，模型不能自填。
-
-**必须全部满足的 DoD**：
-
-- [ ] 授权矩阵与 VS-00M §3.4.3 一致；critical 恒询问作者；full 自动采纳有 `delegation_ref` 且可回滚。
-- [ ] `authorized` 从 run 事实派生，与执行 gate 同源；模型建议 ⊆ authorized。
-- [ ] 风险函数可重算；模型不能自评/自授；不破 I1 / N-NARR / I-CACHE。
-- [ ] 现有判断/创作/修订链不退化；三 wire 投影不变。
-
-**专属验证**：authorized/risk policy 单测 + 授权矩阵负例 + judgment_protocol_test + execution_authority_test + 共同门禁 + 一次真实 run 证据。
-
-**交付物**：授权体系实现、矩阵负例、真实 run 证据、full 自动采纳审计样例。
-
-**硬性执行约束**：本会话仅执行 R10，开工先核查 README 中的总契约和分支 HEAD。未经作者重新裁决不得扩展范围或降低要求。PASS 必须有真实场景、完整门禁、证据和可验证提交 SHA；任何必选条件不具备即 BLOCKED，不允许把未完成标为完成。
-
----
-
-## 2. 为什么不能把十一批合并成一个“大重构”
-
-- R02/R03 改的是会话历史与请求派生，属于最容易破坏作者连续性/证据的高风险边界，不能同时改 R04 的材料集合和 R07 的意图判界，否则失败难归因。
-- R05 证明事实来源真实性，R06 证明工具协议可校验，R07 才能证明判断语义行为；先分解证据链，再讨论模型本身的准确性。
-- R08 是“不能因优化请求而降低创作效果”的独立防线；R09 则验证作者实际体验。两者不互相代签。
-- **缩减工作量的方法是缩小批次目标，不是缩小某个批次的验收门禁**。如果一个批次在执行中发现超过其界限，必须停止，先修订计划/依赖再创建新的完整闭环批次。
-
-## 3. 指令使用方法
-
-1. 为每批新建独立的 Codex CLI / Claude Code / OpenCode 会话（不要在同一聊天里滚动执行十个批次）。
-2. 给模型提供本总契约、**仅当前批次**任务卡和仓库可访问权限；让 Agent 自行读取该分支的真实代码/任务文档，不能以本计划中的旧示例当当前代码事实。
-3. 每批结束仅接受完整 `PASS` 证据或如实 `FAIL/BLOCKED`，不接受“下次补测试/等以后实模”。
-4. 通过后再启动下一批；建议将批次完成结论回填 Issue #4 或项目既有任务 SSOT，避免重复台账。
-
-**注意**：一次有效会话不意味着强迫 AI 在外部依赖缺失时制造成功。硬件/凭证/冻结契约冲突属于真实阻塞，应先解除条件，再启动或重新安排该批。没有任何任务描述能绝对保证模型不会跑偏；能可靠保证的是没有独立证据就不得将偏离结果判为完成。
+**历史证据与计划修订**：旧 B87 R00–R10 的编号/任务范围已整体替换，Git 历史可回查；不保留旧任务卡副本或把旧批次标 done；未上线的产品无旧 API/旧 Schema 兼容承诺。

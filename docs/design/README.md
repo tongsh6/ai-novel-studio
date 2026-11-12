@@ -1,5 +1,7 @@
 # 当前设计文档入口
 
+> 2026-11-13：作者授权 Issue #4 的系统级设计与批次重审，确认**未发布/不兼容历史/所有新实体先存在性审计**；[VS-00M](contracts/VS-00M-model-interaction-request-response-contract-pack.md) 重构为唯一增量设计（Proposed，需先核对 Frozen 契约），[B87](../../tasks/slices/B87-model-interaction-request-projection.md) 登记 R00–R19、统一 clean/授权/创作质量最终验收；B86 C9 责任归 B87 R06，原历史证据保留。此处不是实施完成声明。
+
 > 2026-11-12：B71/B81 完成度独立复核（三份只读审计）后完成文档与实现收口——B81 状态对齐为 done（CP1–CP6，2026-11-11 复核，§12 证据）并修正索引/契约漂移；B71 保持 doing（G3/G5 与 Responses/Anthropic 实模、真实流式预览、I10、CP5 最终收口未闭环）。本轮同批清理：VS-00L §4 移除未落地/已退役字段、§16.2/§16.8/§17 状态回写；08 §26 日期化状态改为指针（设计文档不维护第二状态源）；删除 `TurnExecutionService` 旧 `authoring_transcript` 回退与 4 个零消费者模块；checkpoint 版本与 artifact 谓词收敛到唯一契约。状态真源仍为 `tasks/slices/` 原任务。
 
 > 2026-11-08：系统现有功能梳理启动——新增 [00f 实现态能力图谱](00f-capability-atlas.md)（真实入口 → 功能域 → 实现/消费 → 证据/缺口，living 文档）；首轮盘点登记死代码/旧协议退役/未取证/文档一致性缺口（P1–P3）。历史状态行中「R1 实现位于未提交工作区」等描述是当时记录，当前 R1/R2/流式预览证据均已提交（见 `docs/project-ledger.md`）。B79 导入/分析为独立大功能，本轮不启动。

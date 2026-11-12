@@ -1,6 +1,6 @@
 # B81：会话级 canonical 创作历史（ADR-0035 落地）
 
-- 状态：**done（2026-11-11 复核通过，分项状态见 §7，实模与门禁证据见 §12；2026-11-12 独立复核与文档/清理修复见 §11 末条）**。已知缺口：CP5 的 C9 作者可见面内部标识泄漏由 [B86](B86-structured-model-materials-internal-ref-isolation.md) 跟踪（B86 未启动、实现已撤回），G6 判据映射与读取规模边界见 §8.6.2/§9。
+- 状态：**done（2026-11-11 复核通过，分项状态见 §7，实模与门禁证据见 §12；2026-11-12 独立复核与文档/清理修复见 §11 末条）**。已知缺口：CP5 的 C9 作者可见面内部标识泄漏历史上由 [B86](B86-structured-model-materials-internal-ref-isolation.md) 跟踪（实现已撤回）；2026-11-13 起原缺陷**尚未解决**，由 [B87 R06](B87-model-interaction-request-projection/R06.md) 唯一承接并验收，G6 判据映射与读取规模边界见 §8.6.2/§9。
 - 来源：
   - 作者 2026-11-08 批准 [ADR-0035：会话级 canonical 创作上下文](../../docs/design/adr/ADR-0035-session-scoped-canonical-authoring-context-v3.md)（Accepted）。
   - 产品级偏差诊断：[2026-11-08-session-level-product-deviation](../../docs/design/notes/2026-11-08-session-level-product-deviation.md)（P0-1 跨轮上下文断裂、P0-2 会话级 canonical 事实源缺失、P1-1 压缩/G6 不可达）。
