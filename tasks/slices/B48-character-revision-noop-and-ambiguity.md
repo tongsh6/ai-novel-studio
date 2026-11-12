@@ -1,6 +1,6 @@
 # B48：角色修订 no-op 与同名歧义边界
 
-- 状态：**doing（2026-10-30 作者已确认 C04=A；2026-10-31 CP0 契约冻结、CP1 no-op 普通说明出口、CP2 统一裁决/trace 与边界矩阵完成；CP3 需真实模型窗口）**。
+- 状态：**doing（2026-10-30 作者已确认 C04=A；CP0–CP2 完成；2026-11-13 作者选 A：先实现 CP3 native driver/evidence，再用 Splash 跑四场景；待执行）**。
 - 登记日期：2026-10-27；来源：B29 主业务已完成，但实模 T2 出现 old==new no-op 候选，且“跨轮已经唯一消歧”与“同名必须澄清”相冲突。
 - 上游：[B29](B29-existing-character-role-revision.md)、[B27](B27-systematic-prompt-and-intent-integration.md)、[B31](B31-author-reply-run-binding.md)。
 
@@ -185,8 +185,9 @@ B29 主业务 done 不能重开，T2 也不能记 PASS。任何硬化都不能�
 - CP3 真实 Tauri + 真实模型四场景（no-op/真实修订/同名未消歧/跨轮已消歧）未跑，需预注册与资源窗口；Why 面板与页面证据归 CP3；B29 T2 历史 known-gap 保持原状；
 - 跨作品边界沿用既有读端口 work 绑定与持久层 guard（未在本 CP 新增页面证据）。
 
-### CP3 阻塞记录（2026-10-31）
+### CP3 阻塞记录（2026-10-31，2026-11-13 解除决策）
 
-- 状态：**blocked（实现前置未建 + 需真实模型/原生 runtime 窗口）**：CP3 要求外部驱动真实 Tauri + 真实模型覆盖四场景；当前无 `native_b48_drive.mjs`/证据核验器（CP3 实施第一步），真实模型窗口未授权。
-- 预注册已就绪：`artifacts/b48-cp3/preregistration.json`（四场景判据、单槽串行/卸载验证、input120s/turn360s 等预算、2 批上限、失败批次只读、证据目录）。恢复时先按预注册实现 driver/evidence 并注册 allowlist，再申请窗口执行；不得用 browser summary 或确定性 provider 代签真实模型语义，I10 不适用。
+- 状态：**todo（作者 2026-11-13 选 A：先实现 native driver/evidence，再用 Splash 跑四场景）**：CP3 要求外部驱动真实 Tauri + 真实模型覆盖四场景；当前仍缺 `native_b48_drive.mjs`/证据核验器（CP3 实施第一步），Splash 已全局授权。
+- 预注册：`artifacts/b48-cp3/preregistration-splash-20261113.json`（四场景判据、2 批上限、失败批次只读；provider 改为 Splash，supersedes 2026-10-31 版）。
+- 恢复顺序：实现 driver/evidence 并注册 allowlist → 按预注册跑四场景 → 失败只读保留；不得用 browser summary 或确定性 provider 代签真实模型语义，I10 不适用。
 
