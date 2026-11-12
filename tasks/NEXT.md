@@ -30,7 +30,7 @@
 - **B72 作者行为语料扩增（2026-11-13 作者选 D）**：放弃离线规则扩增（mutation known-gap 只读保留，不再阻塞），转真实 LLM 语料扩增；Splash 全局授权用于 CP1 ≤60 校准，待冻结预注册后执行；生成≠冻结≠PASS。见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md)。
 - **UA01 B13 完整失败矩阵**：独立 run_failed 触发与三源 join 已原生 8/8 done；独立 DecisionTrace、真实供应商、取消/恢复/跨作品及 AU04 漂移仍未闭环；见 [UA01](slices/UA01-provider-execution-stream-unification.md#可独立推进-受控最终-run_failed-触发2026-10-31)。
 - **AU08 原生故障恢复（2026-11-13 作者选 A）**：新 scoped 预注册只重放 parent_ref 修复后的单链（1 批/0 重试），预注册 `artifacts/model-contracts/au08-channel-fault/preregistration-scoped-single-chain-20261113.json` 已冻结，待真实 Tauri 页面执行；不整批刷分。见 [AU08](slices/AU08-file-level-closure.md)。
-- **Q1C 原生补验**：原生批次已超过预注册上限，停止重试；待作者选择 A（推荐：新启动诊断预注册与 scoped 预算）/B（暂缓，保留 browser 边界）/C（更大 harness 改造授权）；见 [Q1C](slices/Q1C-adopted-content-revision.md#原生补验-s1s4-预算耗尽与暂停2026-10-31)。
+- **Q1C 原生补验（2026-11-13 作者选 A）**：新诊断预注册已冻结（1 诊断批 + 1 scoped replay，0 重试），先查 owned_native_window_process_exited 根因，再只重放失败类型单链；不整批刷分。见 [Q1C](slices/Q1C-adopted-content-revision.md)。
 - **SU04 外部后续**：CP1 与真实 release app 四场景已 done；签名/公证（需 Apple 证书）、Intel/Windows/Linux CI 真实跑通、失败分类外部 AX 渠道改进为条件后续；见 [SU04](slices/SU04-desktop-sidecar-packaging.md#cp1-缺陷修复与四场景复验2026-10-31收口)。
 - **UA01 T3′**：校验模式接入尝试回退；待作者选择 A（推荐：维持完整计划契约，适配 fixture 后接入）/B（支持只产尾部，需 cursor 协同）/C（known-gap）；见 [UA01](slices/UA01-agentic-loop-prompt-hardening.md#t3-第二次尝试校验模式与暂停2026-10-31)。
 - **B27 CP4 语义**：确定性负例矩阵已冻结（`artifacts/model-contracts/b27-cp4-hardening/negative-matrix.json`，确定性侧无机械可修缺口）；模型语义 known-gap 关闭需实模预注册窗口 + 第二方复核；见 [B27](slices/B27-systematic-prompt-and-intent-integration.md)。

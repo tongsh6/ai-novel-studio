@@ -396,7 +396,7 @@ Q1B 第十轮模型已经提出“保留或替代已保存编辑版”，但作�
 
 #### 原生补验 S1–S4 预算耗尽与暂停（2026-10-31）
 
-- 状态：**blocked（原生批次已超过预注册 ≤2 的上限；停止重试，不追加 score-shopping 批次）**。
+- 状态：**todo（作者 2026-11-13 选 A：新诊断预注册已冻结；先查 owned_native_window_process_exited 根因，再只重放失败类型单链；0 重试）**。
 - S1–S3 WIP：补齐 `native_q1c_drive.mjs` / `native_q1c_evidence.mjs` / `native_q1c_batch.sh` 与 `tauri_slice_verify.sh` 接线；新增共享 `adoption_contract.mjs` 和 3 条契约测试。driver 统一消费 prepare 配置，补齐 input/ack/turn/candidate/adoption/restore/maintenance 等待账、目标绑定回执、`needs_confirmation`、确认截图、真实重开、`native-ui-complete` 与失败收尾；verifier 按现役 `payload.items[].body` / `payload.revision_of` 和追问自身 `trace_summary.context_refs` 核验。上述仅为**确定性实现与局部测试证据，不是原生 PASS**。
 - 失败台账（全部只读保留）：
   - `q1c-first/second/third-20261031`：native allowlist/dispatch 接线未就绪，未形成产品场景证据。
@@ -408,3 +408,11 @@ Q1B 第十轮模型已经提出“保留或替代已保存编辑版”，但作�
 - 静态扫描：`bash scripts/ai_static_scan.sh --top 10 --quick` = 17 PASS / 2 FAIL / 1 SKIP；compile/xref/arch/I3/I1/I2/N-NARR/I-CACHE/frontend typecheck/lint 等通过。Top 10 共 6 条、0 touched-file findings：5 条 gitleaks 既有处置（4 false_positive、1 accepted_risk）；唯一 blocking 是旧 task-done manifest 已过期，Q1c 原生未闭环，不伪造新完成 manifest，也不手工改为非阻断。详见 `artifacts/static-scan/top10.md` / `disposition.md`。
 - 资源：批次相关进程为空；`lms unload --all` 后无加载模型。资源复核 initially 只查 47831 统一控制面，遗漏了 18500 独立 runtime；作者指出后确认其 `/health` 为 `loaded=true`（iq3_s），已通过 Strata 自身模型页点击「卸载」。最终 UI 显示「未加载模型」、18500 不可连接、推理进程退出，47831 `loaded=null`。后续资源证据必须同时覆盖统一控制面与实际 runtime，不能只凭单一端口销账。
 - 恢复选项：A（推荐）由作者批准新的原生启动诊断预注册与预算，采集独立包 stdout/stderr 和进程退出证据后只做失败类型 scoped replay；B 暂缓原生补验，保留 browser closed 边界并按 NEXT 候选推进；C 授权更大的原生 harness 启动/生命周期改造。未选择前不追加原生批次。
+
+### 2026-11-13 作者选 A：启动诊断 + scoped replay
+
+- **决策**：作者选择 A——先做原生启动诊断，采集独立包 stdout/stderr 与进程退出证据，确认 `cp1-s1-01` 的 `owned_native_window_process_exited` 根因；确认后只重放失败类型单链。
+- **预注册**：`artifacts/model-contracts/q1c-native/preregistration-scoped-diagnostic-20261113.json`（1 诊断批 + 1 scoped replay；0 重试；supersedes `q1c-native-cp1-20261031`）。
+- **证据目录**：`artifacts/slice-verify/q1c-adopted-content-revision-tauri-native-diagnostic-20261113/`。
+- **边界**：诊断批不计产品证据；scoped replay 沿用原 16 断言语义（min_assertions 13）；不整批刷分；不把 browser summary 当原生证据。
+- **下一步**：执行诊断批；根因确认后再跑 scoped replay；失败只读保留。
