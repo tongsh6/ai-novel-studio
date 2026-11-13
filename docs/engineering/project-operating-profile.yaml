@@ -1,0 +1,239 @@
+apiVersion: aief.dev/project-profile/v1
+kind: ProjectProfile
+
+metadata:
+  name: ai-novel-studio
+  schemaVersion: "1.0"
+
+project:
+  identity:
+    name: AI Novel Studio
+    description: 面向小说作者的桌面优先 AI 创作工作台，围绕作品上下文、对话式创作与可控 Agent 执行组织创作流程。
+    ownership: personal
+    purposes:
+      - personal_tool
+      - open_source
+    productForms:
+      - desktop_app
+    audiences:
+      - other
+    horizon: long_term
+
+  lifecycle:
+    stage: unknown
+    operatingMode: system_refactoring
+
+  release:
+    everReleased: false
+    channel: none
+
+  commitments:
+    users:
+      scope: personal
+      support: none
+
+    deployment:
+      scope: unknown
+
+    data:
+      classification: user_content
+      retention: preserve
+      recovery: unknown
+
+    compatibility:
+      publicApi: none
+      internalApi: none
+      databaseSchema: unknown
+      userData: preserve
+
+    maintenance:
+      commitment: long_term
+
+  constraints:
+    - id: no-historical-product-compatibility
+      statement: The product has not been released; do not retain historical product compatibility layers without an actual consumer or explicit commitment.
+      scope: project_wide
+    - id: preserve-author-content
+      statement: Preserve real author-created content and required quality evidence; no-release status does not authorize destructive resets.
+      scope: project_wide
+    - id: audit-entity-existence
+      statement: Before adding any entity, field, module, or design concept, inspect the repository for an existing equivalent; prefer reuse and consolidation.
+      scope: project_wide
+    - id: proportional-engineering
+      statement: Match engineering complexity to real requirements, known risks, and confirmed evolution; avoid speculative complexity and under-design.
+      scope: project_wide
+    - id: respect-document-ssot
+      statement: Place project knowledge and work products only in the established SSOT locations defined by AGENTS.md; do not create parallel knowledge trees.
+      scope: project_wide
+
+  currentFocus:
+    summary: B87 model interaction system refactoring, R00-R19 execution plan.
+    source: tasks/NEXT.md
+
+governance:
+  provenance:
+    /project/identity/name:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: Project maintainer direction and repository identity
+      confirmedAt: "2026-11-13"
+    /project/identity/description:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: Project vision and maintainer direction
+      confirmedAt: "2026-11-13"
+    /project/identity/ownership:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: Maintainer-owned personal project
+      confirmedAt: "2026-11-13"
+    /project/identity/purposes:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: Personal tool and public open-source project direction
+      confirmedAt: "2026-11-13"
+    /project/identity/productForms:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: Desktop-first product direction
+      confirmedAt: "2026-11-13"
+    /project/identity/audiences:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: Novel authors; represented by other because the base schema has no author-specific audience enum
+      confirmedAt: "2026-11-13"
+    /project/identity/horizon:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: Long-term product evolution direction
+      confirmedAt: "2026-11-13"
+    /project/lifecycle/stage:
+      status: unknown
+      source:
+        type: unknown
+        reference: Lifecycle stage requires maintainer confirmation; not inferred from release status
+    /project/lifecycle/operatingMode:
+      status: confirmed
+      source:
+        type: current_work_plan
+        reference: tasks/NEXT.md
+      updatedAt: "2026-11-13T15:00:00+08:00"
+    /project/release/everReleased:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: Maintainer confirmation that the product has not been released
+      confirmedAt: "2026-11-12"
+    /project/release/channel:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: Maintainer confirmation that the product has not been released
+      confirmedAt: "2026-11-12"
+    /project/commitments/users/scope:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: Personal project usage
+      confirmedAt: "2026-11-13"
+    /project/commitments/users/support:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: No external user support commitment established
+      confirmedAt: "2026-11-13"
+    /project/commitments/deployment/scope:
+      status: unknown
+      source:
+        type: unknown
+        reference: Confirm deployment boundary separately; desktop form does not prove local-only operation
+    /project/commitments/data/classification:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: Author-created novel and project content must be preserved
+      confirmedAt: "2026-11-13"
+    /project/commitments/data/retention:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: Preserve real author-created content
+      confirmedAt: "2026-11-13"
+    /project/commitments/data/recovery:
+      status: unknown
+      source:
+        type: unknown
+        reference: Backup and restore commitment not yet explicitly confirmed
+    /project/commitments/compatibility/publicApi:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: No historical product compatibility commitment before release
+      confirmedAt: "2026-11-12"
+    /project/commitments/compatibility/internalApi:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: No historical product compatibility commitment before release
+      confirmedAt: "2026-11-12"
+    /project/commitments/compatibility/databaseSchema:
+      status: unknown
+      source:
+        type: unknown
+        reference: No historical compatibility does not determine the data migration strategy
+    /project/commitments/compatibility/userData:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: Preserve author-created content while allowing clean internal refactoring
+      confirmedAt: "2026-11-13"
+    /project/commitments/maintenance/commitment:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: Long-term project evolution
+      confirmedAt: "2026-11-13"
+    /project/constraints/no-historical-product-compatibility:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: 2026-11-12 system-wide redesign direction
+      confirmedAt: "2026-11-12"
+    /project/constraints/preserve-author-content:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: 2026-11-12 system-wide redesign direction and project data requirements
+      confirmedAt: "2026-11-12"
+    /project/constraints/audit-entity-existence:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: 2026-11-12 explicit no-duplicate-entity red line
+      confirmedAt: "2026-11-12"
+    /project/constraints/proportional-engineering:
+      status: confirmed
+      source:
+        type: user_instruction
+        reference: Project-wide Proportional Engineering principle
+      confirmedAt: "2026-11-13"
+    /project/constraints/respect-document-ssot:
+      status: confirmed
+      source:
+        type: manual_document
+        reference: AGENTS.md project knowledge structure SSOT
+      confirmedAt: "2026-11-13"
+    /project/currentFocus:
+      status: confirmed
+      source:
+        type: current_work_plan
+        reference: tasks/NEXT.md
+      updatedAt: "2026-11-13T15:00:00+08:00"
+  pendingChanges: []
