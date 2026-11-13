@@ -6,6 +6,8 @@
 
 本目录是 AI Novel Studio 的质量体系总入口，用来把设计、架构、运行时不变量、场景化验收和证据归档串成一条可审计链路。
 
+测试环境与 fixture 的统一责任契约见[质量门禁护栏 §2.5](../docs/engineering/quality-gates.md)，审查事实与迁移计划归 [B84](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)。继续复用现有测试框架、`test_env.sh`、Case/Sandbox、场景 runner 和本目录的 gate/manifest；本索引不复制实施状态。
+
 ## 目录关系
 
 - `docs/engineering/` 保存工程原则、红线和解释性规范。

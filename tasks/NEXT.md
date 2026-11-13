@@ -6,23 +6,23 @@
 
 | 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B87 | **模型交互重构（基石起点）**：Issue #4 结构化模型请求/响应与系统治理；R00 全仓实体查重与 Frozen 契约对账 → R01–R19 分批闭环；优先于其他功能/验收任务。 | [B87](slices/B87-model-interaction-request-projection.md) |
+| B84 | **全项目测试体系审查与治理**：先核已有入口/fixture，统一环境作用域、初始化、隔离和退出；按原任务分步收敛，不另建测试框架。 | [B84](slices/B84-web-slow-tests-and-arch-debt.md) |
 
-当前任务的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
+B87 的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
+| B87 | 模型交互重构：承接 B84 测试作用域治理后收口 R01 工程质量，再按原依赖推进 R02–R19；已有真实基线按原任务保留。 | [B87](slices/B87-model-interaction-request-projection.md) |
 | B71-CP4b | 承接 B82 的 G3/G5 补证与 Responses/Anthropic 实模证据（[B82](slices/B82-b71-golden-slice-evidence.md)）；B81 CP5 的 G6 证据已于 2026-11-11 复核（[B81 §12](slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)）；**实模窗口已由 Splash 解除（2026-11-13 全局授权，预注册 `scenario-preregistration-splash-20261113.json` 已冻结）**；B71 的 CP5 最终收口含契约/索引/台账回写。 | [B71](slices/B71-provider-message-fidelity.md) |
-| B84 | `novel_web` 慢测试收敛（193 tests/532s）+ 00f P2-E 剩余架构/测试债务；不缩小测试覆盖；与 B81 并行（测试前置层）。 | [B84](slices/B84-web-slow-tests-and-arch-debt.md) |
 | B85 | 模型上下文窗口用户设置（UI 入口）：作者反馈「窗口不应写死、要开放给用户配置」；初始能力已落（`preferences.json` 的 `context_windows` + Tauri 启动注入 sidecar env，`044092df`），**设置页 UI 未做**（当前应用无系统设置菜单，唯一设置入口是模型供应商弹窗）。 | [B85](slices/B85-model-context-window-settings.md) |
 | B88 | sidecar 端口可配置（产品功能）：默认 4658，支持冲突回退/显式配置；前端 API/WS/CSP 与 OriginPolicy 跟随；受益 B65 release Origin 采集与多实例调试，不是验收钩子。 | [B88](slices/B88-configurable-sidecar-port.md) |
 | B82 | B71 G2/G3/G5 黄金切片证据补证 + Responses/Anthropic 实模（G6 移交 B81 CP5，不在本任务）；G2 done；**2026-11-13 作者选 A：Splash 补 G3/G5 Chat wire**；Responses/Anthropic 待官方凭证；**B87 R04 后执行**（请求体稳定后再测请求字节）。 | [B82](slices/B82-b71-golden-slice-evidence.md) |
 | B78 | 存量大模块拆分（P1：WorkspaceChat / dialogue_planning_service / agent_run_server / turn_execution_service / adoption_repository）；治理机制与 ratchet 门禁已落地，本任务只做结构化拆分，**B87 R17 后**按「一次一个文件、独立 refactor commit」排期 | [B78](slices/B78-module-size-debt.md) |
 | B79 | 存量书稿导入 + 导入后分析建档；**待作者确认启动**，且 **B87 R02/R05 后**（材料/来源结构化稳定）按 [B79](slices/B79-work-import-and-analysis.md) CP0 契约冻结 → CP1 确定性导入链推进；B80 前置梳理已完成（2026-11-08）。 | [B79](slices/B79-work-import-and-analysis.md) |
 
-依赖排序（2026-11-13 按 B87 基石分层）。层 0 基线：B81 done、B71 机制层、VS-00L/ADR-0035、B84 测试基线。层 1 主线：B87 R00–R19。层 2 按批次解锁：B42/B64 在 R05/R06 后；B28 根因在 R06 后；Q1C/B48/B27/B57/B38 在 R07/R08 后；B82/B71 实模在 R04/R17 后；I10 在 R18/R19 后。层 3 并行：B84/B85/B88/B72/AU08。层 4 B87 后：B78/B79。B83 凭证阻塞；B50/B68 不重开。
+依赖排序（2026-11-13 作者先审测试体系）：B84 的环境作用域治理先于 B87 恢复广泛验证。其余层次保持：B81、B71 机制、VS-00L/ADR-0035为基础；B87 R00–R19为产品主线。B42/B64在R05/R06后；B28根因在R06后；Q1C/B48/B27/B57/B38在R07/R08后；B82/B71实模在R04/R17后；I10在R18/R19后。B85/B88/B72/AU08可按原条件并行，B78/B79在B87后；B83凭证阻塞，B50/B68不重开。
 
 ## 阻塞
 
