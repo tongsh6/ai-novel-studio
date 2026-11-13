@@ -210,7 +210,7 @@ R00 需先对本设计提出的差异给出有效裁决；若 VS-00L/ADR-0035 �
 
 | 问题 | 当前事实与裁决 |
 |---|---|
-| Contract | VS-00L 与 ADR-0035 是 Frozen/Accepted 运行契约；VS-00M 是 Proposed 设计候选。源包基线 `f13ff640` 到归档核对基线 `04492ea3` 只有一个提交，改动限于 VS-00M `6.1、R07、R08。新增硬约束不能被误称为 Frozen。 |
+| Contract | VS-00L 与 ADR-0035 是 Frozen/Accepted 运行契约；VS-00M 是 Proposed 设计候选。源包基线 `f13ff640` 到归档核对基线 `04492ea3` 只有一个提交，改动限于 VS-00M `6.1`、R07、R08。新增硬约束不能被误称为 Frozen。 |
 | Invariant | 会话 Transcript + AgentRun 执行段是 canonical；`NovelCommon.RequestIR` 是唯一 IR；checkpoint 不改写 canonical；Provider 能力按真实 adapter route 派生；模型建议、Gate、执行、候选、Canon 采纳必须分开；作者可见叙事必须绑定真实 Provider 输出字节。 |
 | Boundary | RequestIR/Compaction 属 `novel_common`；会话历史、压缩派生、判断、Gate、采纳属 `novel_application`；canonical 会话持久化与 run/receipt/provider facts 属 `novel_persistence`；Provider route/wire 属 `novel_agent`；前端只消费 Workspace/TurnResult/作者动作，不建立旁路事实源。 |
 | Consumer | R00 结论的首个消费者是后续 R01（测量输入）与 R03/R04（Scope/历史投影）；R07 消费工具协议与结果闭环；R06 消费作者可见来源约束；R09–R15 消费授权/风险/采纳边界。 |
@@ -234,17 +234,17 @@ R00 需先对本设计提出的差异给出有效裁决；若 VS-00L/ADR-0035 �
 
 #### Frozen 冲突与唯一裁决
 
-1. **纯对话/Scope 覆盖：保持 Frozen，不暗改。** VS-00L `16.2 的 checkpoint 选择器是非空 `call_ids`；`RequestIR.Compaction` 只允许完整、恰好一次闭合的 tool exchange。纯 Scope 更新没有 call_id，当前不会被 checkpoint 覆盖，继续保留在历史/请求投影。R01 先测其真实重复成本；如 R03 证明必须折叠，先修订 VS-00L/ADR-0035，明确 Scope checkpoint 的身份、覆盖范围、恢复/replay、三 wire 投影和负例，再改消费者。**当前不允许纯 Scope 自动压缩。**
-2. **full/自动采纳：当前禁止模型自行触发。** VS-00M `7.3 是 Proposed 模式语义；现有 `authority_scope` 是 AgentRun 级执行事实，`ConfirmationBinding` 是一次性、绑定对象的确认，`AuthorActionReceipt` 是幂等作者动作回执。尚未证明存在 work/session/global 持久委托、范围版本、签发、到期、撤销/并发与审计生命周期。R11/R14 完成存储与消费者审计前，不实现 full 自动采纳；R15 只能在有效委托、再次 Gate、现有 AdoptionWorkflow/Repository 原子事务和回滚/幂等证据齐备后接入。
+1. **纯对话/Scope 覆盖：保持 Frozen，不暗改。** VS-00L `16.2` 的 checkpoint 选择器是非空 `call_ids`；`RequestIR.Compaction` 只允许完整、恰好一次闭合的 tool exchange。纯 Scope 更新没有 call_id，当前不会被 checkpoint 覆盖，继续保留在历史/请求投影。R01 先测其真实重复成本；如 R03 证明必须折叠，先修订 VS-00L/ADR-0035，明确 Scope checkpoint 的身份、覆盖范围、恢复/replay、三 wire 投影和负例，再改消费者。**当前不允许纯 Scope 自动压缩。**
+2. **full/自动采纳：当前禁止模型自行触发。** VS-00M `7.3` 是 Proposed 模式语义；现有 `authority_scope` 是 AgentRun 级执行事实，`ConfirmationBinding` 是一次性、绑定对象的确认，`AuthorActionReceipt` 是幂等作者动作回执。尚未证明存在 work/session/global 持久委托、范围版本、签发、到期、撤销/并发与审计生命周期。R11/R14 完成存储与消费者审计前，不实现 full 自动采纳；R15 只能在有效委托、再次 Gate、现有 AdoptionWorkflow/Repository 原子事务和回滚/幂等证据齐备后接入。
 3. **能力查询工具：拒绝新增 `capability_lookup`。** 先复用 Registry、`explore_request` 与 `report_capability_gap`。只有真实作者场景无法由现有只读探索表达，且给出首个消费者后才可重新提案。
 4. **候选写入工具：不预先接受 `write_candidate`。** 当前 `JudgmentToolContract` 没有该工具；R07 先对照登记作者内容、现有 tentative artifact/pending artifact 流程和真实执行入口，裁决为复用/重构/新建/拒绝之一。不能仅为统一命名新建工具。
-5. **ToolResult envelope：不新增平行内部实体。** `ToolResult` 是内部执行事实；VS-00M `6.1 的 `{ok,data,error_code,message,retryable,observation_ref,budget_after}` 只能先作为待对账的 Provider-facing 投影候选。R07 必须证明字段映射、缺失事实来源和错误/重试语义；不允许把 schema_valid、authorized、executed、candidate_created、canon_adopted 合并成一个成功值。
+5. **ToolResult envelope：不新增平行内部实体。** `ToolResult` 是内部执行事实；VS-00M `6.1` 的 `{ok,data,error_code,message,retryable,observation_ref,budget_after}` 只能先作为待对账的 Provider-facing 投影候选。R07 必须证明字段映射、缺失事实来源和错误/重试语义；不允许把 schema_valid、authorized、executed、candidate_created、canon_adopted 合并成一个成功值。
 6. **content/decision/SSE：按 Proposed 条款进入 R07/R08 验证，不宣称已实现。** `content + write_candidate` 冲突、应用派生内部 decision、stream=true 的真实 SSE 与应用重组 JSON 区分，均需对应真实 Provider response/工具回流证据；不得把归档 wire JSON 片段当真实 SSE。
 7. **B86 C9：唯一承接批次是 R06。** 现有来源绑定模块复用；历史失败案例保留为反例，已撤回实现不保留兼容路径。
 
 #### VS-00M 源包差异核验
 
-`f13ff6406a002eff54397b906872255048c31763` → `04492ea3b7a08cd4ce363110c099c6b4446a7488` 只有一个提交，改动仅三处：VS-00M 新增 `6.1（8 行）；R07 新增工具结果 envelope、严格 schema/content 冲突和 decision/SSE 约束（3 项）；R08 新增局部改写范围、来源覆盖与 change_reason 一致性（2 项）。归档说明已明确原包 wire JSON 是归一/重组参考片段，不是完整 SSE 轨迹。上述变化是 R07/R08 的 Proposed 验收输入，不得倒灌为当前实现事实。
+`f13ff6406a002eff54397b906872255048c31763` → `04492ea3b7a08cd4ce363110c099c6b4446a7488` 只有一个提交，改动仅三处：VS-00M 新增 `6.1`（8 行）；R07 新增工具结果 envelope、严格 schema/content 冲突和 decision/SSE 约束（3 项）；R08 新增局部改写范围、来源覆盖与 change_reason 一致性（2 项）。归档说明已明确原包 wire JSON 是归一/重组参考片段，不是完整 SSE 轨迹。上述变化是 R07/R08 的 Proposed 验收输入，不得倒灌为当前实现事实。
 
 #### CI 基线对账（本次合并后 HEAD）
 
