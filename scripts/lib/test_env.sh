@@ -7,7 +7,8 @@
 # 不再各自实现「建库并迁移 / 等端口就绪 / 检查端口占用」：
 #   - 测试数据库目录与迁移：novel_test_db_dir / novel_test_db_prepare；
 #   - HTTP 就绪等待：novel_wait_for_http；
-#   - 端口占用预检：novel_ports_precheck。
+#   - 端口占用预检：novel_ports_precheck；
+#   - Node 测试运行作用域：novel_node_test_scope（委托 test_env.mjs，不建库）。
 #
 # 约定：
 # - 只 source，不单独执行；不改变调用方的 `set -euo pipefail` 状态。
@@ -199,4 +200,41 @@ novel_ports_precheck() {
     return 1
   fi
   return 0
+}
+
+# Node 测试运行作用域入口（薄委托 scripts/lib/test_env.mjs 的 run 子命令）。
+# 用法：novel_node_test_scope [--timeout-ms N] [--archive DIR] [--base DIR] -- COMMAND [ARGS...]
+# - 外层调用创建 owned scratch，并给子进程传 NOVEL_TEST_RUN_DIR 与进程局部
+#   TMPDIR/TMP/TEMP（不改全局）；退出时等待/停止本 run 子进程后再回收 scratch；
+# - 嵌套调用沿用已有 NOVEL_TEST_RUN_DIR，不重复创建、不删除父 scope；
+# - 只提供作用域，不建库、不启动服务、不做测试发现。
+novel_node_test_scope() {
+  local helper_dir
+  helper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 1
+  node "$helper_dir/test_env.mjs" run "$@"
+}
+
+# 工程入口统一作用域保障：最外层只申请一次 run，嵌套入口继承有效 scope。
+# 用法：novel_node_test_scope_ensure COMMAND [ARGS...]
+# - 无 NOVEL_TEST_RUN_DIR：经 novel_node_test_scope 创建 owned run 后退出，
+#   并带内部标记避免被委托的入口再次申请；
+# - 已有 NOVEL_TEST_RUN_DIR：先用 Node borrow 校验 marker/tmp（不在 Shell 复制
+#   marker 解析）；有效且已在本 helper 委托的 scope 内则直接返回，由调用方继续；
+#   有效但来自外部则经 novel_node_test_scope 借用执行，保证 TMPDIR/DB 归属；
+# - 无效外部 scope fail-closed，不静默创建或继续。
+novel_node_test_scope_ensure() {
+  local helper_dir
+  helper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 1
+  if [[ -n "${NOVEL_TEST_RUN_DIR:-}" ]]; then
+    if ! node "$helper_dir/test_env.mjs" run -- true >/dev/null 2>&1; then
+      test_env_log "NOVEL_TEST_RUN_DIR 不可借用，拒绝在无归属 scope 下继续: ${NOVEL_TEST_RUN_DIR}"
+      return 65
+    fi
+    if [[ "${NOVEL_TEST_ENTRY_SCOPED:-}" == "1" &&
+          "${TMPDIR:-}" == "${NOVEL_TEST_RUN_DIR%/}/tmp" ]]; then
+      return 0
+    fi
+  fi
+  NOVEL_TEST_ENTRY_SCOPED=1 novel_node_test_scope -- "$@"
+  exit $?
 }

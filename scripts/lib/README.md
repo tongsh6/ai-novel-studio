@@ -5,8 +5,10 @@
 | 文件 | 角色 |
 |---|---|
 | `process_tree.sh` | 进程树终止与清理 helper，被 stage/dev/Tauri 验收脚本复用。进程组查询优先 `ps`，setuid `ps` 被执行环境拒绝/缺失时退化为 `python3 os.getpgid`（非 setuid）；两者都不可用时跳过组信号、只按 `pgrep -P` 收集的子孙回收，安全护栏绝不自杀。 |
-| `test_env.sh` | **测试/验收入口统一运行时前置**（只 source）：`novel_test_db_dir` / `novel_test_db_prepare`（测试库目录解析、可选重置、create+migrate，migrate 失败 fail-closed）、`novel_wait_for_http`、`novel_ports_precheck`。被 `ai_static_scan.sh`、`slice_verify.sh`、`tauri_slice_verify.sh`、`dogfood_run.sh` 与 CI 复用，消除各入口自带的建库/等待/端口前置漂移。 |
-| `test_env.test.mjs` | `test_env.sh` 的行为与接线回归（临时目录 + fake mix + 本地回环 HTTP）：目录解析、create/migrate 调用序列、`--reset` 的 drop 次序、migrate 失败 fail-closed、HTTP 等待成功/超时、端口占用、入口与 CI 不再各自实现建库三连。 |
+| `test_env.sh` | **测试/验收入口统一运行时前置与 Node 运行作用域入口**（只 source）：`novel_test_db_dir` / `novel_test_db_prepare`（测试库目录解析、可选重置、create+migrate，migrate 失败 fail-closed）、`novel_wait_for_http`、`novel_ports_precheck`；`novel_node_test_scope` 薄委托 `test_env.mjs run`，不建库。被 `ai_static_scan.sh`、`slice_verify.sh`、`tauri_slice_verify.sh`、`dogfood_run.sh`、`quality_manifest_check.sh` 与 CI 复用，消除各入口自带的建库/等待/端口/Node 作用域前置漂移。 |
+| `test_env.mjs` | 同一作用域契约的 Node 薄适配（不是测试框架/发现器/fixture DSL）：`openTestRunScope` 创建或借用 run scope 并给子进程传 `NOVEL_TEST_RUN_DIR` + 进程局部 `TMPDIR/TMP/TEMP`；受控 `NOVEL_TEST_RUN_DIR`/`TMPDIR`/`TMP`/`TEMP` 由 scope owner 最终派生（完整转发 env 也不能覆盖/删除）；`runInScope` 在顶层退出后收口本 run 进程组（正常/失败/取消/被杀同一 finalization 顺序，借用入口不建脱离组、不清理父组），收口失败保留 scratch 并非零；SIGINT/SIGTERM/超时复用 `process_tree.sh`；CLI 的最终结果在拥有的进程/资源收口之后确定，归档/输出/返回共用同一份有效退出码与失败事实（`cleanup_error`、`scope_removed`），cleanup 失败不掩成子进程成功；win32 owned 树收口显式未实现（非成功），parent-scope 借用仍由外层 owner 收口；`materializeFixture` 对「相对路径+内容」规格先在 run 内按内容指纹原子取得唯一初始化权（`.claims/*.claim`），只有 owner 构建并在完整校验后发布、再写 `ready`；其余进程等待该完整结果，不各自构建后竞争；初始化失败写 `failed`，等待者在本 run 明确失败不重建，owner 被杀或等待期限耗尽按基础设施失败。`createWorkingCopy` 给写文件 case 提供绑定 `TestContext` 的隔离副本。 |
+| `test_env.test.mjs` | `test_env.sh` 的行为与接线回归（临时目录 + fake mix + 本地回环 HTTP）：目录解析、create/migrate 调用序列、`--reset` 的 drop 次序、migrate 失败 fail-closed、HTTP 等待成功/超时、端口占用、`novel_node_test_scope` 无建库/退出码透传/嵌套复用父 scope、入口与 CI 不再各自实现建库三连。 |
+| `test_env_scope.test.mjs` | `test_env.mjs` 的真实 CLI/子进程作用域回归：owned scratch 与进程局部 TMPDIR、成功/真实断言失败/初始化失败、SIGTERM 取消与超时的进程树回收、子进程被杀后的 parent 收口、CLI finalization 顺序（先收口再归档）、cleanup/树收口失败的非零与保留 scratch、参数与借用边界 fail-closed、借用/嵌套不删父 scope 与 sentinel、同规格 fixture 单次物化与并发同 inode、两真实 Node 子进程同 scope/规格竞争时经 fs 边界观测 payload 只写入一次、初始化失败不发布/等待者不重建、owner 被杀与等待超时的明确基础设施失败、完整 env 转发仍写 owned tmp、正常/失败/被杀/取消（子进程捕获 TERM 后 exit 0）均收口后台孙进程且取消不返回成功、嵌套借用不清理父组并由外层收口、fixture 规格纯校验与复用前缺失/漂移/额外文件检查、工作副本隔离与模板只读/哈希不变、裸 node:test 直接入口生命周期（before 初始化失败不残留、cleanup 失败非 PASS、借用不删父 scope、原 11 个 IO 全量通过且回收）。 |
 | `tauri_dev_config.sh` | 生成 Tauri dev runtime overlay config，避免启动脚本改写 `frontend/src-tauri/tauri.conf.json`。 |
 | `tauri_toolchain.sh` | Tauri dev/native build 共享的只读工具链定位：优先保留现有 PATH，缺失时仅把 `CARGO_HOME/bin` 或原始用户 home 的 `.cargo/bin` 前置到本次子进程 PATH；不安装/切换、不读隔离 HOME。被 `scripts/tauri_slice_verify.sh`、`scripts/frontend_audit.sh` 复用。 |
 | `tauri_toolchain.test.mjs` | `tauri_toolchain.sh` 的受控最小 PATH/fake toolchain 回归：fallback、含空格 CARGO_HOME、不替换现有工具、隔离 HOME 不采用、缺失失败与两入口接线；不读写用户凭证。 |
@@ -18,6 +20,55 @@
 
 | `native_app_ownership.mjs` | B37原生重开归属清理：精确匹配本批独立可执行路径，清理前复核PID身份，输出退出证据；进程观测统一走 `native_ui/process_observation.mjs`（优先ps，setuid ps被环境拒绝时用pgrep+lsof等价精确归属），cleanup证据含 `process_observation`；由Tauri runner调用。 |
 | `native_app_ownership.test.mjs` | 重开/同名其他批次/参数伪匹配的归属回归；共享解析器行为由 `native_ui/process_observation.test.mjs` 覆盖。 |
+
+## Node 测试/变异作用域示例
+
+外层入口只创建一次 run scope，整次调用的测试文件与重复重启的变异子进程都借用同一个
+`NOVEL_TEST_RUN_DIR` 和受控 `TMPDIR/TMP/TEMP`。不要在每个测试文件、每个变异点或每次
+重启时自行 `openTestRunScope()`，否则会为同一调用反复创建/回收 run。
+
+```bash
+# 整次 Node 测试调用共用一个 run scope（由外层 owned，退出时统一回收）
+source scripts/lib/test_env.sh
+novel_node_test_scope -- node --test scripts/lib/quality/manifest.test.mjs
+```
+
+```bash
+# 纯 manifest 变异：只选能判别纯规则的测试；scope 包住 mutator 整次调用，
+# 变异工具重启的每个测试子进程都继承外层 TMPDIR，而不是各自创建新 run。
+# overlay 由 mutator 建立，必须让 Node 按 symlink 路径加载 overlay SUT；
+# pure coverage 必须来自真实 pure 测试（target/coverage/typescript/lcov.info），
+# 不能把 IO 用例混进 pure 覆盖，也不能让未覆盖站点假装被执行。
+source scripts/lib/test_env.sh
+NODE_OPTIONS="--preserve-symlinks --preserve-symlinks-main" \
+  novel_node_test_scope -- ~/scripts/ub-tools/mutator/mutator \
+  scripts/lib/quality/manifest.mjs \
+  --use-existing-coverage \
+  --test-command "node --test scripts/lib/quality/manifest.test.mjs"
+
+# 作用域自身测试需要 owned scope：在外层 run 内移除继承的 NOVEL_TEST_RUN_DIR，
+# 继续继承外层 TMPDIR，由外层 owner 统一收口。
+novel_node_test_scope -- env -u NOVEL_TEST_RUN_DIR node --test \
+  scripts/lib/test_env_scope.test.mjs
+```
+
+IO 边界测试在独立阶段用自己的 run scope 运行（真实文件/子进程），不要塞进每个纯变异点；
+`manifest.test.mjs` 只覆盖内存规则，IO 点必须由 `manifest_io.test.mjs` 真实入口执行：
+
+```bash
+source scripts/lib/test_env.sh
+novel_node_test_scope -- node --test scripts/lib/quality/manifest_io.test.mjs
+```
+
+工程入口（`scripts/ai_static_scan.sh` / `scripts/task_done.sh`）在参数解析后、资源初始化前
+调用 `novel_node_test_scope_ensure`：裸入口由最外层申请一次 owned run；`task_done →
+ai_static_scan` 等嵌套入口继承父 scope，不重复创建/不结束父 scope。已有
+`NOVEL_TEST_RUN_DIR` 先经 Node borrow 校验（不在 Shell 解析 marker），无效则 fail-closed；
+`--help` 与非法参数不构造 run。原始 argv 与退出码原样透传。
+
+`test_env.test.mjs` / `test_env_scope.test.mjs` 是作用域自身的回归，必须直接拥有 run scope
+（验证 owned/借用/清理语义）；可在外层 run 内运行，但入口必须 `env -u NOVEL_TEST_RUN_DIR`，
+不能以借用父 scope 的方式运行。
 
 ## quality/（B41 证据基建）
 

@@ -120,5 +120,12 @@
     "updated_at": "2026-11-04",
     "handling": "gitleaks generic-api-key 命中测试 fixture 的假 idempotency 标识（真实批次形状样本 confirm_decision_<随机后缀>），非真实凭证/密钥；工作树已改为明显非凭证占位（act_confirm_decision_placeholder 等，低熵不触发）。gitleaks 仍报告该 fingerprint 是因为历史 commit 0524502b 内含旧 fixture 字节；v3 开发分支不重写历史（与既有 gitleaks 处置同族），故登记 false_positive。",
     "recommendation": "保持 gitleaks 扫描。若未来历史清理需要清零该项，由仓库维护者按 dev-branch-scope 约束评估 filter-repo 重写；本分支不重写历史。后续测试 fixture 一律用低熵占位（如 *_placeholder），避免再次命中。"
+  },
+  "semgrep|javascript.lang.security.insecure-object-assign.insecure-object-assign|scripts/model_contracts/request_cost_capture.test.mjs|850|javascript.lang.security.insecure-object-assign.insecure-object-assign": {
+    "status": "false_positive",
+    "owner": "codex",
+    "updated_at": "2026-11-14",
+    "handling": "B84 首批全仓扫描复核：命中位于 R01 既有未提交测试。firstRecord 来自同文件 makeSource 创建的本地合成日志，Object.assign 的源对象是四个固定字段的零值字面量，目标为测试自己的 response.usage；不存在不受信任字段合并、HTTP 响应写入或产品权限边界。这是验证合法零值的用例设置，不是 mass assignment 漏洞。不为消除扫描命中改写受保护的测试语义。",
+    "recommendation": "保留 Semgrep 原规则；后续 fixture 拆分或输入来源改变时按实际来源重新审核，不用本条为产品 Object.assign 或其他行号放行。"
   }
 }

@@ -5,9 +5,11 @@
 | 文件 | 角色 |
 |---|---|
 | `yaml_bridge.py` | 标准 YAML 解析桥：stdin 收 `{root, paths}`，用 PyYAML SafeLoader + 重复键检测解析，输出 JSON `{path, ok, data, error, line}`。唯一 YAML 语法入口。 |
-| `manifest.mjs` | manifest 语义校验与查询的唯一实现（规则见 `tasks/slices/B41-quality-evidence-foundation.md` §6）；被 `quality_manifest_check.sh`、`quality_accept.sh`、e2e 聚合器消费。 |
+| `manifest.mjs` | manifest 语义校验与查询的唯一实现（规则见 `tasks/slices/B41-quality-evidence-foundation.md` §6）；`loadProject` 是唯一 reader，并把实际目录 manifest 列表与 driver 存在性作为事实挂在 Project 上；`validateProject` 只消费这些事实做纯判定，外部 driver/`tauri --list`/`ci.md` 检查由 `validate()` 编排。被 `quality_manifest_check.sh`（经统一 Node 运行作用域）、`quality_accept.sh`、e2e 聚合器消费。 |
 | `manifest_cli.mjs` | `validate` / `list` / `ids-by-tier` / `field` / `registry-status` CLI；执行入口与聚合器通过它读 registry。 |
-| `manifest.test.mjs` | 负例矩阵测试：非法 YAML、重复键、词表漂移、未注册/ draft、blocked/anti_hooks/重复 id 等；运行 `node --test scripts/lib/quality/manifest.test.mjs`。 |
+| `manifest.test.mjs` | 纯语义负例矩阵：非法/重复/缺失 ID、路径越界、词表漂移、required_artifacts、anti_hooks、blocked、draft 注册与 `idsByTier`，以及合法 dogfood/e2e driver 正例；只在内存 Project/事实值上验证，不写临时项目、不读 YAML、不启动子进程/DB。真实的 `fs/子进程/DB 初始化 = 0` 观测与真实 IO 接线在 `manifest_io.test.mjs`。运行 `node --test scripts/lib/quality/manifest.test.mjs`。 |
+| `manifest_io.test.mjs` | 真实 IO/接线负例：标准 YAML 解析、重复键、缺 manifest 文件/未注册 stray、driver 存在性事实、registry 解析错误与真实仓库集合一致性；只读 fixture 经外层 run scope 单次发布，写文件负例使用隔离工作副本。作用域申请与 fixture 初始化在 `before` 内完成，`after` 校验 close 事实（cleanup 失败使 framework 失败，借用只归还）；裸 node 入口初始化失败不残留 scratch。运行 `node --test scripts/lib/quality/manifest_io.test.mjs`。 |
+| `manifest_fixture.mjs` | manifest 测试唯一合成 fixture owner：独立字面值 `minimalManifest/scenarioEntry/draftEntry`、真实 IO 规格 `fixtureProjectSpec`、纯语义 `memoryFixtureProject`（显式 IO 事实）；不 import 被测实现、不读 artifacts。 |
 | `verdict.mjs` | B41 CP4：evidence verdict v2 生成/读取/校验（由 CP4 负责）。 |
 | `verdict_cli.mjs` | B41 CP4：verdict 读写 CLI（供 runner/聚合器调用）。 |
 | `verdict.test.mjs` | B41 CP4：verdict 构造/读取/迁移负例测试。 |

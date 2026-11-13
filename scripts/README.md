@@ -17,7 +17,7 @@
 | 文件 | 角色 |
 |---|---|
 | `adr_trace.exs` | **ADR 追溯硬门禁（B13a）**：校验每个 Accepted ADR 的 `## enforced_by` 实装证据清单存在且引用路径有效；缺失/空清单/坏引用 exit 1。Proposed/Superseded/Deferred 不参与门禁。CI `backend` job 已强制运行。 |
-| `ai_static_scan.sh` | AI 静态扫描统一入口。 |
+| `ai_static_scan.sh` | AI 静态扫描统一入口。B84：解析参数后、资源初始化前经 `novel_node_test_scope_ensure` 申请一次 owned run（嵌套入口继承父 scope）；原始 argv/退出码透传，`--help`/非法参数不构造 run。 |
 | `ai_static_scan_report.mjs` | 静态扫描报告生成器。 |
 | `arch_check.exs` | Umbrella 架构边界检查。 |
 | `before-tauri-dev.sh` | Tauri `beforeDevCommand` 启动 Vite 的入口。 |
@@ -47,7 +47,7 @@
 | `gap_ledger.sh` | 从既有差距表生成开放清单及跨次快照，落点见 `reports/gap-ledger/README.md`。 |
 | `quality_accept.sh` | quality acceptance 统一入口。 |
 | `lib/quality/au15_evidence.mjs` | B39 CP1d AU-15 证据 sidecar：解析 llm-calls 请求字节，对照 trace base/observation/used refs，产出机制/模型行为分层与 observed_in_calls；CLI `au15_evidence.mjs verify <dir> --scenario A0|A1|A2`。 |
-| `quality_manifest_check.sh` | quality manifest 门禁：PyYAML 标准解析 + `scripts/lib/quality/manifest.mjs` 语义校验（非法 YAML/重复键/词表/未注册/draft 硬失败；B41 CP1）。 |
+| `quality_manifest_check.sh` | quality manifest 门禁：PyYAML 标准解析 + `scripts/lib/quality/manifest.mjs` 语义校验（非法 YAML/重复键/词表/未注册/draft 硬失败；B41 CP1）；经统一 Node 运行作用域执行，owned scratch 自回收且不建库。CI 的 `scripts/lib/quality/*.test.mjs` parser 测试也经 `novel_node_test_scope` 覆盖整次调用；作用域自测单独直接运行。 |
 | `author_behavior_check.mjs` | B70 CP0 author-behavior 冻结语料/状态/oracle/覆盖报告格式校验（PyYAML 标准解析；schema/引用/provenance/split/holdout 泄漏/覆盖报告一致性；exit 66 格式错误）。 |
 | `author_behavior_offline_generate.mjs` | B72 离线生成唯一 CLI：仅显式 `--offline` 运行确定性执行器，真实模型校准未接线；生成 manifest/candidates/coverage 且旧文件不可覆盖，不自动改正式 corpus。 |
 | `lib/quality/author_behavior_offline_generator.mjs` / `.test.mjs` | B72 离线生成器与 12 条正反例：manifest/persona/semantic cell 校验、expected seed 派生、去重/holdout 泄漏、失败留痕、multi_turn 候选、审核与原子落盘；mutation 未闭环见 B72。 |
@@ -110,7 +110,7 @@
 | `slice_verify_server.exs` | slice verify server 辅助入口。 |
 | `smoke_test.sh` | smoke test 入口。 |
 | `stage.sh` | stage 桌面启动入口。 |
-| `task_done.sh` | 任务完成统一门禁入口。 |
+| `task_done.sh` | 任务完成统一门禁入口。B84：资源初始化前接入同一 run scope；`task_done → ai_static_scan` 嵌套共用父 run，不重复创建/不结束父 scope。 |
 | `task_done_check.mjs` | task-done manifest 与 UI evidence 检查。 |
 | `tauri_slice_verify.sh` | 启动 Tauri 的验收入口；默认交互为 Chromium，summary 如实标 browser；B26 的 `TAURI_NATIVE_SYSTEM_DRIVER=1` 使用外部系统 UI 驱动原生窗口。 |
 | `native_question_transport_proxy.mjs` | B26/AU08/B71 原生验收外部 WebSocket/HTTP 代理；复用已安装 ws，按证据目录 control 文件丢 ack/断线、改绑负例，或对 `get_toc`/`get_chapter_content` 注入一次性 error/有界 delay；HTTP 只对真实 session resume / turn replay 额外记录 method/完整 path/status/request_id/scope 与有界 response JSON 完成状态（非候选路径保持旧日志字段），对外原样透传压缩字节、仅对证据副本解压（gzip/x-gzip/deflate/br）后判定完整 JSON，未知编码标 unsupported、超限/截断/非法 JSON 不冒充完整；不改请求头、不记录密钥，生产代码无感知。 |

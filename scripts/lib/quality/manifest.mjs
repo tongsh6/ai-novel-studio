@@ -89,6 +89,57 @@ const ANTI_HOOK_KEYS = Object.freeze([
 const DOGFOOD_DRIVER = "dogfood-runner.mjs";
 const E2E_DRIVER = "scripts/e2e_01_full_chain_check.sh";
 
+const SCENARIO_REQUIRED_FIELDS = Object.freeze([
+  "id",
+  "title",
+  "tier",
+  "surface",
+  "manifest",
+  "driver",
+  "entrypoint",
+]);
+
+// runner → 必须的 surface 与对应报错措辞（保持既有可读报错不变）。
+const RUNNER_SURFACE_RULES = Object.freeze({
+  slice_verify: { surface: "browser", message: "runner slice_verify 要求 surface=browser" },
+  tauri_slice_verify: { surface: "tauri", message: "runner tauri_slice_verify 要求 surface=tauri" },
+  dogfood_run: { surface: "browser", message: "dogfood_run 必须 surface=browser" },
+  e2e_aggregate: { surface: "browser", message: "e2e_aggregate 必须 surface=browser" },
+});
+
+const RUNNER_DRIVER_ENTRYPOINTS = Object.freeze({
+  dogfood_run: {
+    pattern: /scripts\/dogfood_run\.sh\b/u,
+    label: "scripts/dogfood_run.sh",
+    driver: DOGFOOD_DRIVER,
+  },
+  e2e_aggregate: {
+    pattern: /scripts\/e2e_01_full_chain_check\.sh\b/u,
+    label: "scripts/e2e_01_full_chain_check.sh",
+    driver: E2E_DRIVER,
+  },
+});
+
+const REQUIRED_TAURI_IDS = Object.freeze([
+  "p1-chapter-plan-minimum",
+  "p1-chapter-draft-generation",
+  "au02-candidate-adoption-bridge",
+  "au03-context-source-ui",
+  "au13-review-adjudication-roundtrip",
+]);
+
+const IGNORED_BROWSER_DRIVERS = Object.freeze(
+  new Set([
+    "external-ui-driver.mjs",
+    "native-tauri-verifier.mjs",
+    "native-tauri-verifier.test.mjs",
+    "TEMPLATE.external-ui-driver.mjs",
+    "q1c-adopted-content-revision-audit.mjs",
+    "au10-workbench-render-stability.mjs",
+  ]),
+);
+
+// 质量 manifest 错误类型由本 owner 保留为标准 Error 子类；名称/消息/instanceof 契约稳定。
 export class ManifestLoadError extends Error {
   constructor(message) {
     super(message);
@@ -147,21 +198,35 @@ export function parseYamlFiles(projectRoot, relativePaths, options = {}) {
   return bundle;
 }
 
+function isParsedRecord(record) {
+  return Boolean(record) && record.ok === true;
+}
+
+function isRegistryData(data) {
+  return isPlainObject(data) && Array.isArray(data.scenarios);
+}
+
+function recordLocation(record) {
+  return record?.line ? `:${record.line}:${record.column ?? 0}` : "";
+}
+
+function registryParseError(record) {
+  return `${INDEX_PATH}${recordLocation(record)}: YAML 解析失败：${record?.error ?? "unknown error"}`;
+}
+
+function requireRegistryData(record) {
+  if (!isParsedRecord(record)) throw new ManifestLoadError(registryParseError(record));
+  if (!isRegistryData(record.data)) {
+    throw new ManifestLoadError(`${INDEX_PATH}: 顶层必须是包含 scenarios 数组的 mapping`);
+  }
+  return record.data;
+}
+
 /** 解析 scenarios.yml；返回 {data, record, bundle}，解析失败抛出可读错误。 */
 export function loadRegistry(projectRoot = DEFAULT_PROJECT_ROOT) {
   const bundle = parseYamlFiles(projectRoot, [INDEX_PATH]);
   const record = bundle.files[0];
-  if (!record || record.ok !== true) {
-    const where = record?.line ? `:${record.line}:${record.column ?? 0}` : "";
-    throw new ManifestLoadError(
-      `${INDEX_PATH}${where}: YAML 解析失败：${record?.error ?? "unknown error"}`,
-    );
-  }
-  const data = record.data;
-  if (!isPlainObject(data) || !Array.isArray(data.scenarios)) {
-    throw new ManifestLoadError(`${INDEX_PATH}: 顶层必须是包含 scenarios 数组的 mapping`);
-  }
-  return { data, record, bundle };
+  return { data: requireRegistryData(record), record, bundle };
 }
 
 /** scenarios/ 目录下所有 yml 文件（repo-relative）。 */
@@ -186,29 +251,48 @@ export function loadRegistryScenarios(projectRoot = DEFAULT_PROJECT_ROOT) {
   };
 }
 
-/** 一次性加载 registry + 所有 manifest 文件（含未被引用的 stray 文件）。 */
-export function loadProject(projectRoot = DEFAULT_PROJECT_ROOT) {
-  const { data, bundle } = loadRegistry(projectRoot);
-  const manifestPaths = Array.from(
-    new Set([
-      ...collectScenarioManifestFiles(projectRoot),
-      ...normalizeList(data.scenarios?.map?.((entry) => entry?.manifest)).filter(nonEmptyString),
-      ...normalizeList(data.drafts?.map?.((entry) => entry?.manifest)).filter(nonEmptyString),
-    ]),
-  ).sort();
+function declaredManifestPaths(data, manifestFiles) {
+  const declared = [...normalizeList(data.scenarios), ...normalizeList(data.drafts)]
+    .map((entry) => entry?.manifest)
+    .filter(nonEmptyString);
+  return Array.from(new Set([...manifestFiles, ...declared])).sort();
+}
+
+function readManifestRecords(projectRoot, manifestPaths) {
   const files = new Map();
-  if (manifestPaths.length > 0) {
-    const manifestBundle = parseYamlFiles(projectRoot, manifestPaths);
-    for (const record of manifestBundle.files) {
-      files.set(record.path, record);
+  if (manifestPaths.length === 0) return files;
+  const manifestBundle = parseYamlFiles(projectRoot, manifestPaths);
+  for (const record of manifestBundle.files) {
+    files.set(record.path, record);
+  }
+  return files;
+}
+
+// 实际目录枚举与 driver 存在性由唯一 reader 观察；validateProject 只消费事实。
+function collectExistingDrivers(projectRoot, scenarios) {
+  const existingDrivers = new Set();
+  for (const scenario of scenarios) {
+    const driver = scenario?.driver;
+    if (nonEmptyString(driver) && fs.existsSync(path.join(projectRoot, driver))) {
+      existingDrivers.add(driver);
     }
   }
+  return existingDrivers;
+}
+
+/** 一次性加载 registry + 所有 manifest 文件（含未被引用的 stray 文件）及 IO 事实。 */
+export function loadProject(projectRoot = DEFAULT_PROJECT_ROOT) {
+  const { data, bundle } = loadRegistry(projectRoot);
+  const scenarios = normalizeList(data.scenarios);
+  const manifestFiles = collectScenarioManifestFiles(projectRoot);
   return {
     projectRoot,
     registry: data,
-    scenarios: normalizeList(data.scenarios),
+    scenarios,
     drafts: normalizeList(data.drafts),
-    files,
+    files: readManifestRecords(projectRoot, declaredManifestPaths(data, manifestFiles)),
+    manifestFiles,
+    existingDrivers: collectExistingDrivers(projectRoot, scenarios),
     python: bundle.python,
     pyyaml: bundle.pyyaml,
   };
@@ -529,26 +613,15 @@ function checkDrafts(project, errors, drafts, scenariosById, referencedManifestP
 }
 
 /**
- * 校验 registry + manifests。
+ * 校验 registry + manifests。只消费 loadProject 已读取的 Project 事实，不再做
+ * 文件/子进程读取；外部 driver/tauri --list/ci.md 检查由 validate() 编排。
  *
  * @param {object} project loadProject 的返回值
- * @param {object} [options]
- * @param {boolean} [options.skipExternalChecks] 跳过 frontend driver / tauri --list / ci.md 检查（供单元测试夹具使用）
  * @returns {{errors: string[], warnings: string[]}}
  */
-export function validateProject(project, options = {}) {
-  const { projectRoot, registry, scenarios, drafts } = project;
-  const errors = [];
-  const warnings = [];
-
-  if (scenarios.length < 5) {
-    errors.push(`${INDEX_PATH}: 至少应有 5 个 scenario，当前 ${scenarios.length}`);
-  }
-
-  const scenariosById = new Map();
-  const manifestPathOwner = new Map();
-  const referencedManifestPaths = new Set();
-
+function collectScenarioIndex(scenarios, errors) {
+  const entries = [];
+  const byId = new Map();
   for (const scenario of scenarios) {
     if (!isPlainObject(scenario)) {
       errors.push(`${INDEX_PATH}: scenario 项必须是 mapping`);
@@ -562,235 +635,371 @@ export function validateProject(project, options = {}) {
     if (!/^[a-z0-9][a-z0-9-]+$/u.test(id)) {
       errors.push(`${INDEX_PATH}: ${id} id 必须是小写 kebab-case`);
     }
-    if (scenariosById.has(id)) {
-      errors.push(`${INDEX_PATH}: scenario id 重复 ${id}`);
-    }
-    scenariosById.set(id, scenario);
+    if (byId.has(id)) errors.push(`${INDEX_PATH}: scenario id 重复 ${id}`);
+    byId.set(id, scenario);
+    entries.push(scenario);
+  }
+  return { entries, byId };
+}
 
-    for (const field of ["id", "title", "tier", "surface", "manifest", "driver", "entrypoint"]) {
-      if (!nonEmptyString(scenario[field])) {
-        errors.push(`${INDEX_PATH}: ${id} 缺少 ${field}`);
-      }
-    }
+function checkScenarioStatus(scenario, id, errors) {
+  if (scenario.status === undefined) return;
+  if (!MANIFEST_STATUSES.includes(scenario.status)) {
+    errors.push(
+      `${INDEX_PATH}: ${id} 未知 status ${scenario.status}（manifest 只允许 active|blocked；draft 走 drafts 注册）`,
+    );
+  }
+  if (scenario.status === "blocked" && !nonEmptyString(scenario.blocked_reason)) {
+    errors.push(`${INDEX_PATH}: ${id} status=blocked 但缺少 blocked_reason`);
+  }
+}
 
-    if (nonEmptyString(scenario.tier) && !TIERS.includes(scenario.tier)) {
-      errors.push(`${INDEX_PATH}: ${id} 未知 tier ${scenario.tier}`);
-    }
-    if (nonEmptyString(scenario.surface) && !SURFACES.includes(scenario.surface)) {
-      errors.push(`${INDEX_PATH}: ${id} 未知 surface ${scenario.surface}`);
-    }
-    if (scenario.status !== undefined) {
-      if (!MANIFEST_STATUSES.includes(scenario.status)) {
-        errors.push(
-          `${INDEX_PATH}: ${id} 未知 status ${scenario.status}（manifest 只允许 active|blocked；draft 走 drafts 注册）`,
-        );
-      }
-      if (scenario.status === "blocked" && !nonEmptyString(scenario.blocked_reason)) {
-        errors.push(`${INDEX_PATH}: ${id} status=blocked 但缺少 blocked_reason`);
-      }
-    }
+function checkScenarioShape(scenario, id, errors) {
+  for (const field of SCENARIO_REQUIRED_FIELDS) {
+    if (!nonEmptyString(scenario[field])) errors.push(`${INDEX_PATH}: ${id} 缺少 ${field}`);
+  }
+  if (nonEmptyString(scenario.tier) && !TIERS.includes(scenario.tier)) {
+    errors.push(`${INDEX_PATH}: ${id} 未知 tier ${scenario.tier}`);
+  }
+  if (nonEmptyString(scenario.surface) && !SURFACES.includes(scenario.surface)) {
+    errors.push(`${INDEX_PATH}: ${id} 未知 surface ${scenario.surface}`);
+  }
+  checkScenarioStatus(scenario, id, errors);
+}
 
-    const runner = scenarioRunner(scenario);
-    if (!RUNNERS.includes(runner)) {
-      errors.push(`${INDEX_PATH}: ${id} 不支持的 runner ${runner}`);
-    }
-    if (runner === "slice_verify" && scenario.surface !== "browser") {
-      errors.push(`${INDEX_PATH}: ${id} runner slice_verify 要求 surface=browser`);
-    }
-    if (runner === "tauri_slice_verify" && scenario.surface !== "tauri") {
-      errors.push(`${INDEX_PATH}: ${id} runner tauri_slice_verify 要求 surface=tauri`);
-    }
-    if (runner === "dogfood_run") {
-      if (scenario.surface !== "browser") errors.push(`${INDEX_PATH}: ${id} dogfood_run 必须 surface=browser`);
-      if (scenario.default_provider !== "lmstudio") {
-        errors.push(`${INDEX_PATH}: ${id} dogfood_run 必须 default_provider=lmstudio`);
-      }
-      if (!/scripts\/dogfood_run\.sh\b/u.test(scenario.entrypoint ?? "")) {
-        errors.push(`${INDEX_PATH}: ${id} dogfood_run entrypoint 必须指向 scripts/dogfood_run.sh`);
-      }
-      if (/scripts\/quality_accept\.sh\b/u.test(scenario.entrypoint ?? "")) {
-        errors.push(`${INDEX_PATH}: ${id} dogfood_run entrypoint 不得经 quality_accept.sh`);
-      }
-      if (scenario.driver && !String(scenario.driver).endsWith(`/${DOGFOOD_DRIVER}`)) {
-        errors.push(`${INDEX_PATH}: ${id} dogfood_run driver 必须是 ${DOGFOOD_DRIVER}`);
-      }
-    }
-    if (runner === "e2e_aggregate") {
-      if (scenario.surface !== "browser") errors.push(`${INDEX_PATH}: ${id} e2e_aggregate 必须 surface=browser`);
-      if (scenario.default_provider !== "lmstudio") {
-        errors.push(`${INDEX_PATH}: ${id} e2e_aggregate 必须 default_provider=lmstudio`);
-      }
-      if (!/scripts\/e2e_01_full_chain_check\.sh\b/u.test(scenario.entrypoint ?? "")) {
-        errors.push(`${INDEX_PATH}: ${id} e2e_aggregate entrypoint 必须指向 scripts/e2e_01_full_chain_check.sh`);
-      }
-      if (/scripts\/quality_accept\.sh\b/u.test(scenario.entrypoint ?? "")) {
-        errors.push(`${INDEX_PATH}: ${id} e2e_aggregate entrypoint 不得经 quality_accept.sh`);
-      }
-      if (
-        scenario.driver &&
-        scenario.driver !== E2E_DRIVER &&
-        !String(scenario.driver).endsWith(`/${E2E_DRIVER}`)
-      ) {
-        errors.push(`${INDEX_PATH}: ${id} e2e_aggregate driver 必须是 ${E2E_DRIVER}`);
-      }
-    }
-    if (runner === "tauri_slice_verify" && /scripts\/slice_verify\.sh\b/u.test(scenario.entrypoint ?? "")) {
-      errors.push(`${INDEX_PATH}: ${id} tauri 场景不能路由到 browser slice_verify.sh`);
-    }
-    if (runner === "slice_verify" && /scripts\/tauri_slice_verify\.sh\b/u.test(scenario.entrypoint ?? "")) {
-      errors.push(`${INDEX_PATH}: ${id} browser 场景不能路由到 tauri_slice_verify.sh`);
-    }
-    if (
-      ["slice_verify", "tauri_slice_verify"].includes(runner) &&
-      nonEmptyString(scenario.surface) &&
-      nonEmptyString(scenario.entrypoint) &&
-      !String(scenario.entrypoint).includes(`--surface ${scenario.surface}`)
-    ) {
-      errors.push(`${INDEX_PATH}: ${id} entrypoint 未包含 --surface ${scenario.surface}`);
-    }
+function checkRunnerSurface(runner, scenario, id, errors) {
+  const rule = RUNNER_SURFACE_RULES[runner];
+  if (rule && scenario.surface !== rule.surface) {
+    errors.push(`${INDEX_PATH}: ${id} ${rule.message}`);
+  }
+}
 
-    if (nonEmptyString(scenario.driver) && !fs.existsSync(path.join(projectRoot, scenario.driver))) {
-      errors.push(`${INDEX_PATH}: ${id} driver 缺失：${scenario.driver}`);
-    }
+function checkRunnerProvider(runner, scenario, id, errors) {
+  if (!["dogfood_run", "e2e_aggregate"].includes(runner)) return;
+  if (scenario.default_provider !== "lmstudio") {
+    errors.push(`${INDEX_PATH}: ${id} ${runner} 必须 default_provider=lmstudio`);
+  }
+}
 
-    if (!nonEmptyString(scenario.manifest)) continue;
-    const manifestPath = scenario.manifest;
-    referencedManifestPaths.add(manifestPath);
-    if (!manifestPath.startsWith(`${SCENARIOS_DIR}/`)) {
-      errors.push(`${INDEX_PATH}: ${id} 的 manifest 必须位于 ${SCENARIOS_DIR}/（实际 ${manifestPath}）`);
-      continue;
-    }
-    if (manifestPathOwner.has(manifestPath)) {
-      errors.push(`${INDEX_PATH}: ${id} 与 ${manifestPathOwner.get(manifestPath)} 复用同一 manifest（${manifestPath}）`);
-    } else {
-      manifestPathOwner.set(manifestPath, id);
-    }
-    const record = project.files.get(manifestPath);
-    if (!record) {
-      errors.push(`${INDEX_PATH}: ${id} manifest 缺失：${manifestPath}`);
-      continue;
-    }
-    if (record.ok !== true) {
-      const where = record.line ? `:${record.line}:${record.column ?? 0}` : "";
-      errors.push(`${manifestPath}${where}: YAML 解析失败：${record.error}`);
-      continue;
-    }
-    if (!isPlainObject(record.data)) {
-      errors.push(`${manifestPath}: manifest 顶层必须是 mapping`);
-      continue;
-    }
-    checkManifestConsistency(manifestPath, record.data, scenario, runner, errors);
+function entrypointOf(scenario) {
+  return scenario.entrypoint ?? "";
+}
+
+function checkRequiredScript(entrypoint, pattern, message, errors) {
+  if (!pattern.test(entrypoint)) errors.push(message);
+}
+
+function checkForbiddenScript(entrypoint, pattern, message, errors) {
+  if (pattern.test(entrypoint)) errors.push(message);
+}
+
+function driverMatches(driver, expected) {
+  return [driver === expected, String(driver).endsWith(`/${expected}`)].some(Boolean);
+}
+
+function checkDriverValue(driver, expected, message, errors) {
+  if (driver && !driverMatches(driver, expected)) errors.push(message);
+}
+
+function checkScenarioScripts(scenario, id, runner, expectedScript, errors) {
+  const entrypoint = entrypointOf(scenario);
+  checkRequiredScript(
+    entrypoint,
+    expectedScript.pattern,
+    `${INDEX_PATH}: ${id} ${runner} entrypoint 必须指向 ${expectedScript.label}`,
+    errors,
+  );
+  checkForbiddenScript(
+    entrypoint,
+    /scripts\/quality_accept\.sh\b/u,
+    `${INDEX_PATH}: ${id} ${runner} entrypoint 不得经 quality_accept.sh`,
+    errors,
+  );
+}
+
+function checkDriverEntrypoint(scenario, id, rule, errors) {
+  checkScenarioScripts(scenario, id, rule.runner, rule, errors);
+  checkDriverValue(
+    scenario.driver,
+    rule.driver,
+    `${INDEX_PATH}: ${id} ${rule.runner} driver 必须是 ${rule.driver}`,
+    errors,
+  );
+}
+
+function runnerDriverRule(runner) {
+  return RUNNER_DRIVER_ENTRYPOINTS[runner]
+    ? { ...RUNNER_DRIVER_ENTRYPOINTS[runner], runner }
+    : null;
+}
+
+function checkSliceEntrypoint(runner, scenario, id, errors) {
+  const entrypoint = scenario.entrypoint ?? "";
+  const wrongScript =
+    runner === "tauri_slice_verify"
+      ? /scripts\/slice_verify\.sh\b/u
+      : /scripts\/tauri_slice_verify\.sh\b/u;
+  if (wrongScript.test(entrypoint)) {
+    errors.push(
+      `${INDEX_PATH}: ${id} ${runner === "tauri_slice_verify" ? "tauri 场景不能路由到 browser slice_verify.sh" : "browser 场景不能路由到 tauri_slice_verify.sh"}`,
+    );
+  }
+  if (
+    nonEmptyString(scenario.surface) &&
+    nonEmptyString(entrypoint) &&
+    !entrypoint.includes(`--surface ${scenario.surface}`)
+  ) {
+    errors.push(`${INDEX_PATH}: ${id} entrypoint 未包含 --surface ${scenario.surface}`);
+  }
+}
+
+function checkRunnerEntrypoint(runner, scenario, id, errors) {
+  const driverRule = runnerDriverRule(runner);
+  if (driverRule) return checkDriverEntrypoint(scenario, id, driverRule, errors);
+  if (runner === "tauri_slice_verify" || runner === "slice_verify") {
+    return checkSliceEntrypoint(runner, scenario, id, errors);
+  }
+  return undefined;
+}
+
+function checkRunnerRules(scenario, id, errors) {
+  const runner = scenarioRunner(scenario);
+  if (!RUNNERS.includes(runner)) {
+    errors.push(`${INDEX_PATH}: ${id} 不支持的 runner ${runner}`);
+  }
+  checkRunnerSurface(runner, scenario, id, errors);
+  checkRunnerProvider(runner, scenario, id, errors);
+  checkRunnerEntrypoint(runner, scenario, id, errors);
+  return runner;
+}
+
+function checkScenarioManifest(scenario, project, context) {
+  if (!nonEmptyString(scenario.manifest)) return;
+  const { errors, manifestPathOwner, referencedManifestPaths } = context;
+  const manifestPath = scenario.manifest;
+  referencedManifestPaths.add(manifestPath);
+  if (!manifestPath.startsWith(`${SCENARIOS_DIR}/`)) {
+    errors.push(
+      `${INDEX_PATH}: ${scenario.id} 的 manifest 必须位于 ${SCENARIOS_DIR}/（实际 ${manifestPath}）`,
+    );
+    return;
+  }
+  if (manifestPathOwner.has(manifestPath)) {
+    errors.push(
+      `${INDEX_PATH}: ${scenario.id} 与 ${manifestPathOwner.get(manifestPath)} 复用同一 manifest（${manifestPath}）`,
+    );
+  } else {
+    manifestPathOwner.set(manifestPath, scenario.id);
+  }
+  const record = project.files.get(manifestPath);
+  if (!record) {
+    errors.push(`${INDEX_PATH}: ${scenario.id} manifest 缺失：${manifestPath}`);
+    return;
+  }
+  if (record.ok !== true) {
+    const where = record.line ? `:${record.line}:${record.column ?? 0}` : "";
+    errors.push(`${manifestPath}${where}: YAML 解析失败：${record.error}`);
+    return;
+  }
+  if (!isPlainObject(record.data)) {
+    errors.push(`${manifestPath}: manifest 顶层必须是 mapping`);
+    return;
+  }
+  checkManifestConsistency(manifestPath, record.data, scenario, context.runner, errors);
+}
+
+function checkScenario(scenario, project, context) {
+  const { errors } = context;
+  const id = scenario.id;
+  checkScenarioShape(scenario, id, errors);
+  context.runner = checkRunnerRules(scenario, id, errors);
+  if (nonEmptyString(scenario.driver) && !project.existingDrivers.has(scenario.driver)) {
+    errors.push(`${INDEX_PATH}: ${id} driver 缺失：${scenario.driver}`);
+  }
+  checkScenarioManifest(scenario, project, context);
+}
+
+function reportMissingMembers(members, knownMembers, messageFor, errors) {
+  for (const member of members) {
+    if (!knownMembers.has(member)) errors.push(messageFor(member));
+  }
+}
+
+function checkStrayManifests(manifestFiles, referencedManifestPaths, errors) {
+  reportMissingMembers(
+    manifestFiles,
+    referencedManifestPaths,
+    (manifestPath) =>
+      `${manifestPath}: manifest 未注册（必须出现在 ${INDEX_PATH} 的 scenarios 或 drafts 中）`,
+    errors,
+  );
+}
+
+/**
+ * 校验 registry + manifests。只消费 loadProject 已读取的 Project 事实，不再做
+ * 文件/子进程读取；外部 driver/tauri --list/ci.md 检查由 validate() 编排。
+ *
+ * @param {object} project loadProject 的返回值
+ * @returns {{errors: string[], warnings: string[]}}
+ */
+export function validateProject(project) {
+  const { scenarios, drafts, manifestFiles } = project;
+  const errors = [];
+  const warnings = [];
+
+  if (scenarios.length < 5) {
+    errors.push(`${INDEX_PATH}: 至少应有 5 个 scenario，当前 ${scenarios.length}`);
   }
 
-  checkDrafts(project, errors, drafts, scenariosById, referencedManifestPaths);
-
-  // stray manifest：scenarios/ 下每个 yml 必须被 scenarios 或 drafts 引用。
-  for (const manifestPath of collectScenarioManifestFiles(projectRoot)) {
-    if (!referencedManifestPaths.has(manifestPath)) {
-      errors.push(
-        `${manifestPath}: manifest 未注册（必须出现在 ${INDEX_PATH} 的 scenarios 或 drafts 中）`,
-      );
-    }
-  }
-
-  if (!options.skipExternalChecks) {
-    validateExternalChecks(projectRoot, scenariosById, errors, warnings);
-  }
-
+  const index = collectScenarioIndex(scenarios, errors);
+  const context = {
+    errors,
+    manifestPathOwner: new Map(),
+    referencedManifestPaths: new Set(),
+    runner: "",
+  };
+  for (const scenario of index.entries) checkScenario(scenario, project, context);
+  checkDrafts(project, errors, drafts, index.byId, context.referencedManifestPaths);
+  checkStrayManifests(manifestFiles, context.referencedManifestPaths, errors);
   return { errors, warnings };
 }
 
-function validateExternalChecks(projectRoot, scenariosById, errors, warnings) {
+function indexScenariosById(scenarios) {
+  const scenariosById = new Map();
+  for (const scenario of scenarios) {
+    if (isPlainObject(scenario) && nonEmptyString(scenario.id)) scenariosById.set(scenario.id, scenario);
+  }
+  return scenariosById;
+}
+
+function checkBrowserDrivers(projectRoot, scenariosById, errors) {
   const verifyDir = path.join(projectRoot, "frontend/slice-verify");
-  if (fs.existsSync(verifyDir)) {
-    // 这些 .mjs 不是独立验收 driver（与旧门禁语义一致）：
-    const ignored = new Set([
-      "external-ui-driver.mjs",
-      "native-tauri-verifier.mjs",
-      "native-tauri-verifier.test.mjs",
-      "TEMPLATE.external-ui-driver.mjs",
-      "q1c-adopted-content-revision-audit.mjs",
-      "au10-workbench-render-stability.mjs",
-    ]);
-    const ids = new Set(scenariosById.keys());
-    for (const fileName of fs.readdirSync(verifyDir)) {
-      if (!fileName.endsWith(".mjs") || fileName.endsWith(".test.mjs") || ignored.has(fileName)) continue;
-      const scenarioId = fileName.replace(/\.mjs$/u, "");
-      if (!ids.has(scenarioId)) {
-        errors.push(`frontend/slice-verify/${fileName}: 真实 browser driver 未注册到 ${INDEX_PATH}`);
-      }
+  if (!fs.existsSync(verifyDir)) return;
+  const ids = new Set(scenariosById.keys());
+  for (const fileName of fs.readdirSync(verifyDir)) {
+    if (
+      !fileName.endsWith(".mjs") ||
+      fileName.endsWith(".test.mjs") ||
+      IGNORED_BROWSER_DRIVERS.has(fileName)
+    ) {
+      continue;
+    }
+    const scenarioId = fileName.replace(/\.mjs$/u, "");
+    if (!ids.has(scenarioId)) {
+      errors.push(`frontend/slice-verify/${fileName}: 真实 browser driver 未注册到 ${INDEX_PATH}`);
     }
   }
+}
 
+function parseTauriImplementedIds(output) {
+  const tauriIds = new Set();
+  let inImplementedBlock = false;
+  for (const line of output.split("\n")) {
+    if (line.includes("Implemented external UI driver slice ids:")) {
+      inImplementedBlock = true;
+      continue;
+    }
+    if (!inImplementedBlock) continue;
+    if (!line.trim()) break;
+    const id = line.trim();
+    if (/^[a-z0-9][a-z0-9-]+$/u.test(id)) tauriIds.add(id);
+  }
+  return tauriIds;
+}
+
+function checkTauriScenarioSurface(scenario, id, errors) {
+  if (scenario.surface !== "tauri") {
+    errors.push(`${INDEX_PATH}: ${id} 由 tauri_slice_verify 实现但 surface=${scenario.surface}`);
+  }
+}
+
+function checkTauriScenarioRegistered(scenariosById, id, errors) {
+  const scenario = scenariosById.get(id);
+  if (!scenario) {
+    errors.push(`${INDEX_PATH}: 缺少 tauri_slice_verify 已实现场景 ${id} 的登记`);
+    return;
+  }
+  checkTauriScenarioSurface(scenario, id, errors);
+}
+
+function checkRequiredTauriIds(tauriIds, scenariosById, errors) {
+  reportMissingMembers(
+    REQUIRED_TAURI_IDS,
+    tauriIds,
+    (id) => `scripts/tauri_slice_verify.sh --list: 缺少必需已实现场景 ${id}`,
+    errors,
+  );
+  for (const id of REQUIRED_TAURI_IDS) {
+    checkTauriScenarioRegistered(scenariosById, id, errors);
+  }
+}
+
+function checkExtraTauriIds(tauriIds, scenariosById, errors, warnings) {
+  for (const id of tauriIds) {
+    if (id === "desktop-stage-process-ownership") continue;
+    const scenario = scenariosById.get(id);
+    if (!scenario) {
+      warnings.push(`scripts/tauri_slice_verify.sh --list: ${id} 没有质量验收 manifest`);
+    } else if (scenario.surface !== "tauri") {
+      errors.push(`${INDEX_PATH}: ${id} surface=${scenario.surface}，应为 tauri`);
+    }
+  }
+}
+
+function readTauriImplementedIds(projectRoot, errors) {
   try {
     const output = execFileSync("bash", ["scripts/tauri_slice_verify.sh", "--list"], {
       cwd: projectRoot,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     });
-    const tauriIds = new Set();
-    let inImplementedBlock = false;
-    for (const line of output.split("\n")) {
-      if (line.includes("Implemented external UI driver slice ids:")) {
-        inImplementedBlock = true;
-        continue;
-      }
-      if (!inImplementedBlock) continue;
-      if (!line.trim()) break;
-      const id = line.trim();
-      if (/^[a-z0-9][a-z0-9-]+$/u.test(id)) tauriIds.add(id);
-    }
-    const requiredTauriIds = [
-      "p1-chapter-plan-minimum",
-      "p1-chapter-draft-generation",
-      "au02-candidate-adoption-bridge",
-      "au03-context-source-ui",
-      "au13-review-adjudication-roundtrip",
-    ];
-    for (const id of requiredTauriIds) {
-      if (!tauriIds.has(id)) {
-        errors.push(`scripts/tauri_slice_verify.sh --list: 缺少必需已实现场景 ${id}`);
-      }
-      const scenario = scenariosById.get(id);
-      if (!scenario) {
-        errors.push(`${INDEX_PATH}: 缺少 tauri_slice_verify 已实现场景 ${id} 的登记`);
-      } else if (scenario.surface !== "tauri") {
-        errors.push(`${INDEX_PATH}: ${id} 由 tauri_slice_verify 实现但 surface=${scenario.surface}`);
-      }
-    }
-    for (const id of tauriIds) {
-      if (id === "desktop-stage-process-ownership") continue;
-      const scenario = scenariosById.get(id);
-      if (!scenario) {
-        warnings.push(`scripts/tauri_slice_verify.sh --list: ${id} 没有质量验收 manifest`);
-      } else if (scenario.surface !== "tauri") {
-        errors.push(`${INDEX_PATH}: ${id} surface=${scenario.surface}，应为 tauri`);
-      }
-    }
+    return parseTauriImplementedIds(output);
   } catch (error) {
     errors.push(`无法检查 scripts/tauri_slice_verify.sh --list：${error.message}`);
+    return null;
   }
+}
 
+function checkTauriDrivers(projectRoot, scenariosById, errors, warnings) {
+  const tauriIds = readTauriImplementedIds(projectRoot, errors);
+  if (!tauriIds) return;
+  checkRequiredTauriIds(tauriIds, scenariosById, errors);
+  checkExtraTauriIds(tauriIds, scenariosById, errors, warnings);
+}
+
+function readCiDoc(projectRoot, errors) {
   const ciDocPath = path.join(projectRoot, "quality/gates/ci.md");
   if (!fs.existsSync(ciDocPath)) {
     errors.push("quality/gates/ci.md 缺失");
-    return;
+    return "";
   }
-  const ciDoc = fs.readFileSync(ciDocPath, "utf8");
+  return fs.readFileSync(ciDocPath, "utf8");
+}
+
+function checkReleaseTiers(ciDoc, scenariosById, errors) {
+  if (!ciDoc) return;
   const releasePlanned = /## Release Candidate[\s\S]*?Status:\s*planned,\s*not yet enforced\./u.test(ciDoc);
   const targetOnly = /target commands[\s\S]*?until release-tier scenarios are registered/u.test(ciDoc);
-  const scenarios = Array.from(scenariosById.values());
+  const declaredScenarios = Array.from(scenariosById.values());
   for (const tier of ["release", "release-real-llm"]) {
-    const hasTier = scenarios.some((scenario) => scenario.tier === tier);
+    const hasTier = declaredScenarios.some((scenario) => scenario.tier === tier);
     if (!hasTier && !(releasePlanned && targetOnly)) {
       errors.push(`quality/gates/ci.md 把 ${tier} 命令声明为当前门禁但 scenarios.yml 无该 tier 场景`);
     }
   }
 }
 
-/** 便捷入口：加载并校验，供 CLI/测试使用。 */
-export function validate(projectRoot = DEFAULT_PROJECT_ROOT, options = {}) {
+function validateExternalChecks(projectRoot, scenarios, errors, warnings) {
+  const scenariosById = indexScenariosById(scenarios);
+  checkBrowserDrivers(projectRoot, scenariosById, errors);
+  checkTauriDrivers(projectRoot, scenariosById, errors, warnings);
+  checkReleaseTiers(readCiDoc(projectRoot, errors), scenariosById, errors);
+}
+
+/** 便捷入口：加载并校验（含真实外部 driver/tauri/ci.md 检查），供 CLI/测试使用。 */
+export function validate(projectRoot = DEFAULT_PROJECT_ROOT) {
   const project = loadProject(projectRoot);
-  const { errors, warnings } = validateProject(project, options);
+  const { errors, warnings } = validateProject(project);
+  validateExternalChecks(project.projectRoot, project.scenarios, errors, warnings);
   return { project, errors, warnings };
 }

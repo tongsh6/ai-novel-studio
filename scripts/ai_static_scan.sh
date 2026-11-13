@@ -15,6 +15,12 @@
 
 set -uo pipefail
 
+ORIGINAL_ARGS=("$@")
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$ROOT_DIR/scripts/lib/test_env.sh"
+
 TOP=10
 QUICK=false
 WRITE_BASELINE=false
@@ -54,12 +60,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# 资源初始化前确保 run scope；--help/非法参数已提前退出，不构造资源。
+# 最外层创建一次 owned run，嵌套入口继承父 scope；原始 argv 完整传给被委托入口。
+if [[ ${#ORIGINAL_ARGS[@]} -gt 0 ]]; then
+  novel_node_test_scope_ensure bash "$SCRIPT_PATH" "${ORIGINAL_ARGS[@]}" || exit $?
+else
+  novel_node_test_scope_ensure bash "$SCRIPT_PATH" || exit $?
+fi
+
 # 测试库前置与其它验收入口共用同一实现（scripts/lib/test_env.sh）：
 # 未显式提供 NOVEL_TEST_DB_DIR 时创建一次性库并迁移，保证默认入口可直接复跑；
 # 已提供（CI/本地专用库）时沿用调用方环境，不覆盖。
-source "$ROOT_DIR/scripts/lib/test_env.sh"
-
 if ! novel_test_db_prepare --quiet --root "$ROOT_DIR"; then
   echo "[ai-static-scan] 测试库前置失败；mix 类检查无法在缺表库上给出可信结果" >&2
   exit 1

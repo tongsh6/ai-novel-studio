@@ -22,7 +22,12 @@
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ORIGINAL_ARGS=("$@")
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$ROOT_DIR/scripts/lib/test_env.sh"
+
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 ARTIFACT_DIR="$ROOT_DIR/artifacts/task-done/$STAMP"
 CHECKS_LOG="$ARTIFACT_DIR/checks.log"
@@ -65,6 +70,14 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# 资源初始化前确保 run scope；--help/非法参数已提前退出，不构造资源。
+# 最外层创建一次 owned run，task_done→ai_static_scan 等嵌套入口继承父 scope。
+if [[ ${#ORIGINAL_ARGS[@]} -gt 0 ]]; then
+  novel_node_test_scope_ensure bash "$SCRIPT_PATH" "${ORIGINAL_ARGS[@]}" || exit $?
+else
+  novel_node_test_scope_ensure bash "$SCRIPT_PATH" || exit $?
+fi
 
 mkdir -p "$ARTIFACT_DIR/screenshots"
 : > "$CHECKS_LOG"

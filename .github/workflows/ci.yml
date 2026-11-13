@@ -24,8 +24,15 @@ jobs:
           .quality-venv/bin/pip install --upgrade pip >/dev/null
           .quality-venv/bin/pip install 'pyyaml==6.0.3'
 
+      # 外层 run scope 覆盖整次 node --test：同一作用的 TMPDIR/scratch 贯穿
+      # 所有测试文件，而不是每个文件或每次重启各自创建 run。
       - name: Quality manifest parser tests
-        run: PATH="$PWD/.quality-venv/bin:$PATH" node --test scripts/lib/quality/*.test.mjs
+        run: PATH="$PWD/.quality-venv/bin:$PATH" bash -c 'source scripts/lib/test_env.sh && novel_node_test_scope -- node --test scripts/lib/quality/*.test.mjs'
+
+      # 作用域自身测试必须直接拥有 run scope（它们验证 owned/借用/清理语义），
+      # 不能继承外层借用 scope，因此按既有 Node 测试步骤直接运行。
+      - name: Node test scope self-tests
+        run: node --test scripts/lib/test_env.test.mjs scripts/lib/test_env_scope.test.mjs
 
       - name: Quality manifest check
         run: PATH="$PWD/.quality-venv/bin:$PATH" bash scripts/quality_manifest_check.sh

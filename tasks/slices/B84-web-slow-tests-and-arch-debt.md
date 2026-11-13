@@ -1,6 +1,6 @@
 # B84：全项目测试环境作用域、fixture 体系与剩余架构/测试债务
 
-- 状态：**doing（A0全项目静态审查与统一设计已完成；A1–A5实施和运行验收尚未开始，原web慢测试及既有债务保留）**
+- 状态：**doing（A0完成；A1/A2首批Node质量manifest及工程入口已实现并通过局部机制验收；其他测试族、后端/Rust/前端/原生接入与全量运行验收未完成，原web慢测试及既有债务保留）**
 - 来源：
   - [00f 能力图谱 P2-E](../../docs/design/00f-capability-atlas.md)：`novel_web` 193 tests / 532s 慢测试仍待收敛；`novel_common` 日志 I/O 部分已由 ADR-0034（`novel_telemetry`）闭环，本任务只承接 web 慢测试与剩余债务。
   - B71 审核轮架构 P2-10 记录与 2026-11-08 候选。
@@ -150,9 +150,50 @@
 - 本次没有执行测试/编译/变异/模型/页面，没有删除残留或改全局工具。A0完成只证明审查和设计交付，不能关闭B84实施，也不能给R01工程门签通过。
 - 文档提交沿用Git hooks、未跳过；lefthook缺仓库配置的提示如上登记。实际通过的是本节列明的手动文档/索引/指纹核对，未声称pre-commit替代完整工程验证。
 
+### A1/A2 首个实施闭环：Node质量manifest（2026-11-14 开始）
+
+作者明确“开始”，授权进入既定实施顺序。首批不是只加清理：贯通现有Shell入口 → 运行作用域 → 只读fixture复用 → 纯规则/IO测试分别消费 → 统一退出。完整B84范围仍为A1–A5，本checkpoint不代替后端、Rust、前端及原生场景的后续接入。
+
+- **Contract/Invariant**：消费quality-gates §2.5及既有B41 manifest语义；纯判定不触发文件/子进程，外部资源基础规格只初始化一次，可变差异隔离，嵌套调用不删除父作用域，借用资料与原始证据不变。
+- **Boundary/Consumer**：仅scripts测试支撑、quality manifest族与现有工程入口；`quality_manifest_check.sh/manifest_cli.mjs`、Node测试、`ai_static_scan.sh`、`task_done.sh`及既有CI步骤是真实消费者。产品lib、作品Schema、Provider、Frontend UI均不修改。
+- **Proof/Acceptance Driver**：从真实CLI与Node子进程验证：两次/并发子进程复用同一规格、纯规则零外部环境构建、必要可写副本互不污染、正常/断言失败/初始化失败/取消/子进程退出时owned scratch回收。这个机制checkpoint不启动页面；native入口变更的真实Tauri证明仍在A4/A5，不能代签。
+- **Exploration**：不改变作品知识或模型请求，不适用。
+
+本批实体审核：`test_env.sh`已有前置，缺Node运行/fixture薄适配，允许在既有`scripts/lib/`增加`test_env.mjs`作为同一契约的适配（不是新框架/调度器/结果平台）；manifest测试已有`minimalManifest/buildFixtureProject`，提取到同目录fixture owner并删旧复制；IO测试另文件承接原真实读取/YAML/文件存在性反例，纯测试保留在原邻接文件。`loadProject`增加必要的目录/driver存在性观察供既有`validateProject`消费，禁止另建第二Project/registry。删除仅为测试绕过IO的`skipExternalChecks`分支，真实`validate()`仍完整执行原外部检查。
+
+运行身份与scratch只在测试层；复用只读文件fixture以相对路径和内容作为规格，不依赖被测实现生成期望。纯内存值的构造/拷贝是用例输入，不为其引入跨进程缓存；“初始化一次”针对外部基础环境。宿主SIGKILL后的遗留恢复、其他语言入口及全量运行验证仍需在后续checkpoint完成，不把首批正常退出验证外推。
+
+开工`mix compile`退出0，相关WIP文件已备份并记录指纹于 `artifacts/b84-test-system/20261114/a1-manifest/`。先有界红绿验证，不运行整组旧变异或模型采集，不安装依赖、不改全局工具。
+
+#### 首批机制验收 checkpoint（2026-11-14）
+
+实现已接入 `test_env.sh`、Node scope、manifest reader/pure validator 与现有 CI 入口。fixture 的唯一初始化权必须在构建前取得；竞争者只等待结果，不能各自构造后丢弃副本。leader 已用两个真实进程的 payload 写入计数核对该约束，并从 CLI 外部核对正常/失败退出、后台后代进程、清理失败时实际退出码与归档的一致性。证据均在上述目录；未运行旧 R01 大矩阵或新增模型采集。
+
+审查中曾出现“66例通过但仍有真实缺口”，以下反例均已修复并复验；保留红态，不能用早期测试通过数代替验收：
+
+| 缺口 | 独立反例与修复归属 |
+|---|---|
+| 超时后取消覆盖退出结果 | 红态 `leader-acceptance/timeout-then-cancel.json`；已删除重复可变的 `stopCode`，从已有事实派生。绿态 `final-contracts/green/timeout-then-cancel.json` 为124且子进程已结束、scope已回收。 |
+| 裸 Node 入口初始化失败遗留 scope | 初始化移入现有 `before/after`，after检验cleanup事实。红态 `leader-acceptance/direct-initialization-failure.json` 曾残留1目录；leader复验 `direct-initialization-failure-green.json` 为预期非零且0残留。清理失败不再误报PASS；零IO边界探针的临时bin也归文件scope持有。 |
+| 变异存活误判为等价，及新增 helper 漏选 | leader的 `driver-survivor-counterexample.json` 推翻早期等价结论；已补合法dogfood/e2e正例，相关变异被击杀。21个可达的新/改纯helper完整列入 `final-contracts/manifest-mutation-selection.json`，含零站点函数，不隐去未执行点。 |
+| 默认工程入口绕过owner | worker直接运行旧扫描入口后出现新临时DB，见 `leader-acceptance/unscoped-scan-db.json`。现有helper新增薄委托 `novel_node_test_scope_ensure`，实际消费者是 `ai_static_scan.sh` / `task_done.sh`；复用Node借用校验，不复制marker解析、trap或进程树。两入口在资源初始化前申请/借用，同scope不重复申请，保留参数/退出码、父scope和显式DB。`engineering-entry/`保存真实Shell/Node及外部fake工具的红绿证据，不将其称为完整扫描。 |
+
+审查同时退役为指标而建的 `named_error.mjs` 工厂，保留各 owner 的标准 Error 子类；两个短构造器是语言样板，不是重复业务政策。生命周期逻辑按实际职责组织，不以拆出大量单表达式函数满足 CRAP。manifest 的纯测试不构造目录/假可执行文件；零 IO 的边界证明移到现有 IO 测试，不随每个纯规则变异重复执行。
+
+定稿后的合并局部回归：`node --test --test-concurrency=1 scripts/lib/test_env.test.mjs scripts/lib/test_env_scope.test.mjs scripts/lib/quality/manifest.test.mjs scripts/lib/quality/manifest_io.test.mjs`，**78/78，0失败/跳过，退出0**，27.1秒；日志 `leader-acceptance/all-tests.log`。leader另从真实CLI复验成功、child失败、cleanup失败、双重失败的退出/归档一致性及正常退出后的孙进程回收（`leader-acceptance/result.json`）。真实manifest CLI仍执行外部检查，不恢复测试绕过开关；现有CI全glob未删减，但干净CI的AU15等既有债务仍在本任务后续范围，未声称该完整glob已经通过。
+
+质量证明按实际范围记录：manifest纯规则42个已执行点中40个击杀、2个在合法非空entrypoint值域下等价的`?? → ||`存活；`checkScenarioManifest`另2个消息定位站点未执行，A2仍需核对其真实parser值域/相应IO证明，不能说全文件变异通过。scope的五个关键函数16点中15个击杀，1个`state.closed=true → false`仅在失败后再次close时有重试差异；现役消费者每个scope只关闭一次，正常/借用重复关闭结果一致，保留该限定解释，不伪报击杀。完整原始输出在 `final-contracts/`，退出3与基线/环境错误均保留。
+
+CRAP采用**未改写的Node标准完整测试LCOV**（包含CLI `main` 33次命中），默认保留BRDA，经leader独立调用crapper核对，本批新/改完整函数最高9，严格小于10。`leader-acceptance/crapper-native/review.json`是有效复核。worker自行按“行号/ordinal”合并多次CLI覆盖会错配分支，随后删除BRDA的派生也不作为验收依据；无需为这个采集错误再加壳函数或重复CLI矩阵。五个高于10的manifest既有函数体经与开工备份逐项比对未变，仍是开放债务。Dryer保留两个标准Error构造器的1.00样板命中及语义说明，不新建工厂刷零。
+
+提交收口走现有真实入口 `bash scripts/task_done.sh --top 10`，内部完整执行 `bash scripts/ai_static_scan.sh --top 10`，结果、目录前后核对与task-done manifest绑定于 `leader-acceptance/final-gate-result.json`。Semgrep命中R01合成测试的固定零值赋值，经来源审查登记为误报，未改测试躲扫描；既有六个gitleaks历史处置沿用且保留原始扫描事实。
+
+**本checkpoint不关闭B84。** A1/A2其余Node测试族与重型SQLite fixture迁移、A3后端/Rust/前端入口、A4真实原生场景、A5宿主SIGKILL恢复/完整门禁与跨平台验证仍开放。Windows进程树收口明确未支持，不外推本机成功。历史约149GiB残留未清理，未恢复旧R01大变异或模型采集。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。
 - 2026-11-12：登记验收资产 driver 漂移（aria-label="推理"）与验收脚本规模治理盲区；补 native_ui README 与 novel_e2e README 索引。
 - 2026-11-13：B87 R00 核实干净 CI 的质量 parser 前置/集合断言失败，登记可独立执行的测试隔离修复；尚未实施。
 - 2026-11-13：按作者指令扩展为全项目测试体系审查；复用既有owner设计运行/fixture/worker/case作用域及迁移顺序，代码实施与运行验收仍开放。
+- 2026-11-14：实现A1/A2首批Node manifest与默认工程入口，分离纯规则/IO消费者，完成唯一fixture初始化及失败收口的局部机制验收；其余接入与全项目验收继续开放。

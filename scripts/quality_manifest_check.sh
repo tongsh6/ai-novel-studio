@@ -25,4 +25,7 @@ if ! python3 -c "import yaml" >/dev/null 2>&1; then
   exit 1
 fi
 
-exec node "$PROJECT_ROOT/scripts/lib/quality/manifest_cli.mjs" validate --root "$PROJECT_ROOT"
+# 唯一 YAML/语义入口挂在统一 Node 运行作用域下：owned scratch 由外层回收，
+# 子进程只拿到本 run 的 NOVEL_TEST_RUN_DIR/TMPDIR，不建库、不启动服务。
+source "$PROJECT_ROOT/scripts/lib/test_env.sh"
+novel_node_test_scope -- node "$PROJECT_ROOT/scripts/lib/quality/manifest_cli.mjs" validate --root "$PROJECT_ROOT" || exit $?
