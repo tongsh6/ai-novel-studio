@@ -85,6 +85,7 @@
 | Rust桌面单测 | `frontend/src-tauri/src/lib.rs`的`#[cfg(test)]`，CI `cargo test --locked` | 多处创建temp目录后在断言末尾remove_dir_all；panic可越过该语句 | 需要按Rust原生生命周期/外层owner归还资源，不引入Node作为Rust测试框架 |
 | Python离线契约 | `scripts/model_contracts/model_interaction/check_all.py`与`paths.py` | 固定只读fixture、独立时间戳输出、拒绝覆盖已有summary；生成wire用于对照 | 已有输入/输出边界；保持为离线设计证明，不并入真实Provider测试，不把证据输出自动删掉 |
 | CI/全量入口 | `.github/workflows/ci.yml`、`nightly.yml`、`ai_static_scan.sh`、`task_done.sh`、`quality_accept.sh` | CI给invariants/mix test分别指定DB目录；PR fast set与nightly全量分开；静态扫描先调用test_env前置 | 已有分层，不重建CI体系；本地/CI/嵌套入口统一作用域与退出，完整门禁保留 |
+| Git提交入口 | 本机`core.hooksPath=/Users/loong/scripts/git-hooks`的pre-commit委托lefthook | 当前仓库未发现lefthook配置；本次文档提交实际提示未找到配置，退出0 | commit成功不代表质量门自动执行；A5须明确本地提交与既有gate的接线，不改全局hook、不复制第二门禁清单 |
 | 技术spike | `spikes/v2_verification/mix.exs`与test_helper | 独立Mix项目和验证入口，不参与产品umbrella | 保留独立验证性质，资源仍受同一所有权原则约束；本轮未执行其外部依赖 |
 
 ### 根因与设计决定
@@ -147,6 +148,7 @@
 - 证据目录 `artifacts/b84-test-system-audit/20261113/`：`source-inventory.json`为全仓文件普查，`source-anchors.json`绑定关键路径/行号/源码哈希，`worker-results.json`保留worker失败事实，`validation.json`记录文档检查。
 - `git diff --check`、`node scripts/next_task_check.mjs --open`退出0；改动文档本地链接均存在，1378个实施源码/配置文件与本次审查前指纹一致。全仓文档标记扫描的24处占位相关匹配及13处旧slice范围匹配均在既有未改正文中，不据此改写历史文档或扩大本次范围。
 - 本次没有执行测试/编译/变异/模型/页面，没有删除残留或改全局工具。A0完成只证明审查和设计交付，不能关闭B84实施，也不能给R01工程门签通过。
+- 文档提交沿用Git hooks、未跳过；lefthook缺仓库配置的提示如上登记。实际通过的是本节列明的手动文档/索引/指纹核对，未声称pre-commit替代完整工程验证。
 
 ## 变更记录
 
