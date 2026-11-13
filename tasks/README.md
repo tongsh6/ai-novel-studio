@@ -60,6 +60,7 @@
 | [slices/](slices/README.md) | 各任务执行状态与恢复入口；索引只导航 |
 | [2026-06-14-design-v2-to-v3-absorption.md](2026-06-14-design-v2-to-v3-absorption.md) | 既有设计整合任务 |
 | [2026-10-27-design-to-execution-reconciliation.md](2026-10-27-design-to-execution-reconciliation.md) | 全量设计、v3 与后续 slices 的实现/验收/承接对账；§10 为跨任务裁决材料，§11–§17 记录裁决收口、候选规则、逐文件承接、元原则审查及整改排期；裁决结果与执行状态仍写回各原任务 |
+| [2026-11-13-project-operating-context-adoption.md](2026-11-13-project-operating-context-adoption.md) | 项目画像接入、机械校验、决策验收与证据边界；不替代产品任务排期 |
 | [历史执行记录](../docs/project-ledger.md#10-next-历史执行记录) | 从旧 NEXT 迁回的完成记录、历史 Order 与决策；不是当前状态源 |
 
 新增执行文件仍放现有 `tasks/` / `tasks/slices/`，同步所属 README；跨周期文件使用 `YYYY-MM-DD-<scope>-<slug>.md`。任务最小内容为：范围与契约引用、状态/checkpoint、剩余后果与阻塞、验证/证据、决策与恢复指引。不新增工具专属目录或另一份状态总表。
