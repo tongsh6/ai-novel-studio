@@ -1,6 +1,6 @@
 # B84：全项目测试环境作用域、fixture 体系与剩余架构/测试债务
 
-- 状态：**doing（A0完成；A1/A2首批Node质量manifest及工程入口已实现并通过局部机制验收；其他测试族、后端/Rust/前端/原生接入与全量运行验收未完成，原web慢测试及既有债务保留）**
+- 状态：**doing（A0完成；A1/A2首批Node质量manifest与工程入口、A2质量测试自足及close异常传播已实现；干净源码环境完整quality集合通过，其他测试族、后端/Rust/前端/原生接入与全量运行验收未完成，原web慢测试及既有债务保留）**
 - 来源：
   - [00f 能力图谱 P2-E](../../docs/design/00f-capability-atlas.md)：`novel_web` 193 tests / 532s 慢测试仍待收敛；`novel_common` 日志 I/O 部分已由 ADR-0034（`novel_telemetry`）闭环，本任务只承接 web 慢测试与剩余债务。
   - B71 审核轮架构 P2-10 记录与 2026-11-08 候选。
@@ -189,6 +189,35 @@ CRAP采用**未改写的Node标准完整测试LCOV**（包含CLI `main` 33次命
 提交收口走现有真实入口 `bash scripts/task_done.sh --top 10`，内部完整执行 `bash scripts/ai_static_scan.sh --top 10`，结果、目录前后核对与task-done manifest绑定于 `leader-acceptance/final-gate-result.json`。Semgrep命中R01合成测试的固定零值赋值，经来源审查登记为误报，未改测试躲扫描；既有六个gitleaks历史处置沿用且保留原始扫描事实。
 
 **本checkpoint不关闭B84。** A1/A2其余Node测试族与重型SQLite fixture迁移、A3后端/Rust/前端入口、A4真实原生场景、A5宿主SIGKILL恢复/完整门禁与跨平台验证仍开放。Windows进程树收口明确未支持，不外推本机成功。历史约149GiB残留未清理，未恢复旧R01大变异或模型采集。
+
+### A2 下一实施单元：质量测试自足与统一失败传播（2026-11-14 开始）
+
+首批已本地提交 `57b5abb6`，未推送。本单元消费同一scope，不另建框架：
+
+- **Contract/Invariant**：quality-gates §2.5、B42 §10.1准备报告的原有schema与只读边界。测试不依赖私人artifacts/预建repo/tmp；未知前置不得被判ready；cleanup异常不能因为调用者漏检查返回值而变成PASS。
+- **Boundary/Consumer**：现有 `au15_preregistration_check.mjs`、两个quality测试文件、既有Node scope及其当前消费者；CI的quality parser集合和准备报告CLI是消费者。产品、AU-15真实场景、Splash采集及旧原始证据均不修改。
+- **Proof/Acceptance Driver**：沿真实CLI、Node hooks及受控文件输入验证；使用自足合成预注册/场景/文件存在性，保留缺文件/坏JSON/YAML/预算不符/前置未知/拒绝覆盖等反例，并验证父scope与原始资料不变。该测试支撑checkpoint不代替产品页面验收。
+- **Exploration**：不物化作品要素或改变模型输入，不适用。
+
+设计审核：`au15_preregistration_check`已有唯一owner；在原文件分离reader、纯判定、writer，增加明确的项目根输入，测试根与输出均在现有scope内，不提取第二个准备报告模块。YAML复用 `manifest.mjs` 的标准解析桥，不再正则解析YAML字段。模型/供应商检查对照输入声明，不把固定Strata字符串视作通用正确性；报告仍仅审查旧v1准备材料，不据此声称当前Splash计划就绪或授予运行权限。前置要求的存在不证明已经满足，缺满足证据为unknown，整体不ready；旧v1无独立frozen字段，不为满足测试发明字段。
+
+统一退出的API收敛：现有 `close()` 将清理失败作为异常传播；CLI在唯一finalization边界把异常转为非零及保留原始child失败事实，Node `after`自然失败。迁移所有当前调用者，退役各测试文件重复检查soft-error返回值的做法；不新增Node fixture DSL/Case类或兼容别名。初始化继续在框架before生命周期内，借用资源只归还。
+
+重型SQLite/快照fixture的下一步设计，以 `artifacts/b84-test-system/20261114/a2-node-fixtures/` 的现有builder/输入规格/消费者采集为依据；尚未批准新的builder接口或实现，不能从“都使用SQLite”推导可以共享同一规格。
+
+实施与复核：公共close失败改为异常，成功关闭幂等，CLI在唯一出口保留child失败并转录cleanup错误；各Node after不再重复解释soft-error。准备检查器在原owner内分离reader/纯判定/writer/CLI，用标准YAML桥和明确的 `--root`；两测试共享独立合成输入，新增文件已在原索引登记。身份核对包括已声明的setup.provider；预算只称符合v1约定，不伪造冻结；资源窗口的条件声明不冒充满足/未满足，仍为unknown；来源status原样转录但不授予完成信用。`evidence_chain`输出归scope，不预建repo/tmp。产品、真实预注册和原生batch未修改。
+
+证据根 `artifacts/b84-test-system/20261114/a2-quality/`：
+
+- leader的 `leader-review/unknown-ready-counterexample.json` 证明旧checker四项unknown却ready；`declaration-counterexamples.json`证明setup.provider冲突漏检及条件词误报blocked。修正后的对照见 `review-1/feedback-closure.json`、`review-2/feedback-probe.json`，不把旧测试期望视为权威。
+- `review-2/` 的IO证明使用真正 `node --import <固定preload> <CHECKER> --root <owned>`，经过argv/main guard/process.exitCode；14次受控CLI调用无意外越界，另有真实CLI指向repo根的拒绝反例、静态named fs绑定负控制及自有路径允许控制。review-1仅调用main的证据保留为函数级IO，不能冒充CLI。测试不再读取真实报告求hash；测试外只读保全观察与测试依赖分开。
+- leader在共享run串行两次启动IO文件，复现固定 `guard-*.jsonl` 串扰（`leader-clean/repeat-red/`）。现在固定preload经同一materialize owner物化一次，各文件进程的可变日志/哨兵进入独有worker叶子；after释放叶子后再close/归还scope。`review-3/result-green.json`为串行2次、并行2进程各17/17，父marker/sentinel与模板不变、worker目录无净增；leader独立串行复验亦为两次exit0（`leader-clean/repeat-io-result.json`）。
+- **干净源码环境完整quality集合**：以 `57b5abb6` + 本批代码建立一次本地隔离源码副本，起点无私有artifacts与repo/tmp；24文件、338测试，**325通过/0失败/13既有历史证据缺失跳过**，6.8秒，未过滤集合或新增skip。副本与所属scope已回收。来源hash/命令/原始输出在 `leader-clean/result.json`、`quality-tests.log`；之后只有上述IO测试生命周期调整，SUT、断言集合与其余来源未变，按串行/并行专项补验，不重跑未变化的大集合。
+- 局部门：scope 55/55、AU15纯/IO 28/28；标准单次Node原生LCOV保留BRDA，新改完整函数最高8（close相关先前最高9），没有自定义覆盖合并。Dryer保留标准Error构造样板的真实1.00命中与语义说明。差量变异按原始清单记录：准备判定保留类型域/不可达计数的限定等价点，close转换5/5击杀，无消费者字段及包装已退役；不宣称全文件变异通过。具体来源/hash/范围见 `review-1/result.json` 与 `review-2/result.json`。
+
+本单元提交收口仍走现有 `bash scripts/task_done.sh --top 10`（内部完整静态扫描），最终记录在 `leader-final/result.json`；这里的测试支撑机制证明不替代A3/A4/A5或真实模型/页面验收。
+
+后续迁移的边界裁决：采集清单中的“非目标”仅是worker对非SQLite类别的标签，**不采纳为B84范围排除**；日志/文本、native_ui_wait等仍在A2。局部 `writeSource/createSourceDb` 已是现有builder，应审核后提取/复用，不能说“没有共享builder”就自由另造一套。snapshot的14表与capture的20表是不同测试投影，种子与列集合不能直接合并；是否符合当前真实消费者目标还要独立复核，不把现状当权威，也不把最小I/O夹具称为生产全Schema证据。纯判定先摆脱无关建库；确需文件/SQLite的反例与各类退出证明不得删除。
 
 ## 变更记录
 

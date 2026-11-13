@@ -5,11 +5,11 @@
 // - artifacts/slice-verify/agentic-loop-plan-replan-reasoning-tauri/ui-frames.json
 // - artifacts/slice-verify/p1-chapter-draft-generation-native/（原生实模 + llm-calls + app-log）
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { after, before } from "node:test";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { openTestRunScope } from "../test_env.mjs";
 import {
   BINDING_STATUSES,
   CREDITABLE_OUTCOMES,
@@ -48,6 +48,16 @@ const schema = JSON.parse(
   fs.readFileSync(path.join(REPO_ROOT, "quality/acceptance/evidence-schema.json"), "utf8"),
 );
 const CHAIN_SCHEMA = schema.$defs.evidence_chain;
+
+// 本文件所有实际临时输出目录都归文件级 run scope（case 再用独立子目录隔离）；
+// after 直接 close：cleanup 失败抛给 framework，借用 scope 只归还父 owner。
+let scope;
+before(() => {
+  scope = openTestRunScope();
+});
+after(() => {
+  if (scope) scope.close();
+});
 
 // B42 §13：合法证据链必须由请求侧记录观察包含（request_observation_refs），
 // 自报告 used refs 必须绑定产生该报告的实际 provider call。
@@ -408,7 +418,7 @@ test("validateEvidenceChain 拒绝非法版本/枚举/used 类型", () => {
 
 test("writeEvidenceChain 默认拒绝覆盖既有证据链（失败证据只增不删）", (t) => {
   const { mkdtempSync, rmSync } = fs;
-  const dir = mkdtempSync(path.join(REPO_ROOT, "tmp", "evidence-chain-test-"));
+  const dir = mkdtempSync(path.join(scope.tmpDir, "evidence-chain-test-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const chain = buildEvidenceChain(baseInput());
   const written = writeEvidenceChain(dir, chain);
@@ -731,7 +741,7 @@ test("evaluateEvidenceCompleteness：严格默认声明下缺 replay 三态 → 
 });
 
 test("读取 artifact 记录的证据链/必需证据声明：缺文件 null、非法抛错（不静默放宽）", (t) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evidence-recorded-"));
+  const dir = fs.mkdtempSync(path.join(scope.tmpDir, "evidence-recorded-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   assert.equal(readRecordedEvidenceChain(dir), null);
   assert.equal(readRecordedEvidenceRequirements(dir), null);

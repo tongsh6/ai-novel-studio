@@ -115,25 +115,22 @@ function writeArchive(scope, state, summary) {
   return file;
 }
 
-// 借用 scope 绝不删除；owned scope 只删除本 run 创建的目录。
+// 公共 close：借用永不删除；owned 清理失败抛异常（不再返回软错误）。
+// 成功 close 幂等：首次关闭的事实被固定，重复调用不再次删除目录。
 function closeScope(scope, state) {
-  if (state.closed) {
-    return { dir: scope.dir, borrowed: scope.borrowed, removed: !fs.existsSync(scope.dir) };
+  if (state.closed) return state.closeResult;
+  if (scope.borrowed) {
+    state.closed = true;
+    state.closeResult = { dir: scope.dir, borrowed: true, removed: false };
+    return state.closeResult;
+  }
+  fs.rmSync(scope.dir, { recursive: true, force: true });
+  if (fs.existsSync(scope.dir)) {
+    throw new TestEnvError(`owned scratch 回收后仍然存在: ${scope.dir}`);
   }
   state.closed = true;
-  if (scope.borrowed) return { dir: scope.dir, borrowed: true, removed: false };
-  try {
-    fs.rmSync(scope.dir, { recursive: true, force: true });
-  } catch (error) {
-    return { dir: scope.dir, borrowed: false, removed: false, error: error.message };
-  }
-  const removed = !fs.existsSync(scope.dir);
-  return {
-    dir: scope.dir,
-    borrowed: false,
-    removed,
-    error: removed ? undefined : "owned scratch 回收后仍然存在",
-  };
+  state.closeResult = { dir: scope.dir, borrowed: false, removed: true };
+  return state.closeResult;
 }
 
 function makeScope({ dir, marker, borrowed, archiveDir }) {
@@ -960,22 +957,16 @@ function isTreeFailed(result) {
 }
 
 // owned 收口只在拥有者且树已收口时执行；树失败时保留可能仍在使用的 scratch。
+// 借用路径交给 public close 自然 no-op。CLI 是唯一把 close 异常转换为
+// cleanup_error 的边界；Node 测试 after 直接调用 close()，由 framework 接收异常
+// 并真实失败。
 function closeOwnedScope(scope, treeFailed) {
-  if (scope.borrowed) return { dir: scope.dir, borrowed: true, removed: false };
-  if (treeFailed) return { dir: scope.dir, borrowed: false, removed: false, retained: true };
-  return scope.close();
-}
-
-// owned 收口事实：树失败只保留 scratch；cleanup 失败明确非通过；成功则已回收。
-function cleanupFacts(closed) {
-  if (closed.retained || closed.removed) {
-    return { scope_removed: Boolean(closed.removed) };
+  if (scope.owned && treeFailed) return { removed: false };
+  try {
+    return scope.close();
+  } catch (error) {
+    return { removed: false, error: error.message };
   }
-  return { scope_removed: false, cleanup_error: closed.error };
-}
-
-function cleanupForScope(scope, closed) {
-  return scope.borrowed ? { scope_removed: false } : cleanupFacts(closed);
 }
 
 function scratchRetained(scope, result) {
@@ -999,7 +990,8 @@ function archiveResultIfConfigured(scope, result) {
  */
 function finalizeRun(scope, result) {
   const closed = closeOwnedScope(scope, isTreeFailed(result));
-  Object.assign(result, cleanupForScope(scope, closed));
+  result.scope_removed = Boolean(closed.removed);
+  if (closed.error) result.cleanup_error = closed.error;
   if (result.cleanup_error) result.exitCode = result.exitCode || 1;
   result.scratch_retained = scratchRetained(scope, result);
   archiveResultIfConfigured(scope, result);

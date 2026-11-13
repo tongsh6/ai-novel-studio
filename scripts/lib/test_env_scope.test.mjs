@@ -831,14 +831,14 @@ test("作用域 env：extra 的 undefined 表示删除而不是字符串化", ()
   }
 });
 
-test("close 契约：owned/借用幂等、失败与外部回收事实", (t) => {
+test("close 契约：owned/借用幂等、清理失败抛异常、外部回收事实", (t) => {
   const owned = openTestRunScope({ baseDir: path.join(scratch, "base-close-owned") });
   const first = owned.close();
   const second = owned.close();
   for (const closed of [first, second]) {
     assert.equal(closed.borrowed, false);
     assert.equal(closed.removed, true);
-    assert.equal(closed.error, undefined);
+    assert.equal("error" in closed, false, "成功 close 不再用软错误字段表达");
   }
 
   const parent = openTestRunScope({ baseDir: path.join(scratch, "base-close-borrowed") });
@@ -857,7 +857,7 @@ test("close 契约：owned/借用幂等、失败与外部回收事实", (t) => {
   for (const closed of [borrowed.close(), borrowed.close()]) {
     assert.equal(closed.borrowed, true);
     assert.equal(closed.removed, false);
-    assert.equal(closed.error, undefined);
+    assert.equal("error" in closed, false);
   }
   assert.equal(fs.readFileSync(sentinel, "utf8"), "keep\n", "借用 close 不得删除父 scope");
 
@@ -871,15 +871,12 @@ test("close 契约：owned/借用幂等、失败与外部回收事实", (t) => {
     }
     return original.call(fs, target, ...rest);
   };
-  let failed;
   try {
-    failed = failing.close();
+    assert.throws(() => failing.close(), /injected closeScope rm failure/u);
   } finally {
     fs.rmSync = original;
   }
-  assert.equal(failed.borrowed, false);
-  assert.equal(failed.removed, false);
-  assert.match(failed.error, /injected closeScope rm failure/u);
+  assert.equal(fs.existsSync(failing.dir), true, "cleanup 失败必须保留 scratch 供核验");
   fs.rmSync(failing.dir, { recursive: true, force: true });
 
   const gone = openTestRunScope({ baseDir: path.join(scratch, "base-close-gone") });
@@ -887,7 +884,38 @@ test("close 契约：owned/借用幂等、失败与外部回收事实", (t) => {
   const goneClosed = gone.close();
   assert.equal(goneClosed.borrowed, false);
   assert.equal(goneClosed.removed, true, "force 必须容忍外部已回收");
-  assert.equal(goneClosed.error, undefined);
+  assert.equal("error" in goneClosed, false);
+});
+
+test("close 契约：成功 close 幂等，旧路径后来重建的哨兵不被第二次 close 删除", (t) => {
+  const owned = openTestRunScope({ baseDir: path.join(scratch, "base-close-idempotent-recreated") });
+  const first = owned.close();
+  assert.equal(first.borrowed, false);
+  assert.equal(first.removed, true);
+
+  // 真实外部效果：首次 close 回收后，测试宿主在旧路径重建一个哨兵，代表后来
+  // 落到该路径的资源；第二次 close 只能复用关闭事实，不能再删除它。
+  const sentinel = path.join(owned.dir, "recreated-resource.txt");
+  fs.mkdirSync(owned.dir, { recursive: true });
+  fs.writeFileSync(sentinel, "later-resource\n");
+  t.after(() => {
+    fs.rmSync(sentinel, { force: true });
+    try {
+      fs.rmdirSync(owned.dir);
+    } catch {
+      // 第二次 close 若已删除目录，哨兵断言会先失败；这里只回收自己重建的空目录。
+    }
+  });
+
+  const second = owned.close();
+  assert.equal(second.borrowed, false);
+  assert.equal(second.removed, true, "关闭事实必须保持");
+  assert.equal("error" in second, false);
+  assert.equal(
+    fs.readFileSync(sentinel, "utf8"),
+    "later-resource\n",
+    "第二次 close 不得再次删除旧路径上后来重建的资源",
+  );
 });
 
 // 直接 node:test 入口的真实消费者回归：初始化在 before 内，失败后 after 仍须
