@@ -1,115 +1,30 @@
-// B71 §16.9 逐调用外部证据关联的纯函数测试：临时只读 SQLite + 真实记录形状。
+// B71 §16.9 逐调用外部证据关联的纯函数测试。
 //
 // 只按显式 provider_call_ref(prun/pcall) 绑定；turn/time/name/hash 不参与关联。
+// 本文件不 import fs/os/DatabaseSync，不创建 run scope/DB；callrefs-03 记录语义
+// 用 Node 标准 JSON 模块加载受跟踪静态输入（属于代码/输入加载，不是业务 IO），
+// 真实 SQLite 读边界在邻接 `authoring_call_evidence_io.test.mjs`。
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import test from "node:test";
-import { DatabaseSync } from "node:sqlite";
+import callrefs03 from "./fixtures/callrefs-03-native-id-provenance.json" with { type: "json" };
 import {
-  joinNativeCallEvidence,
-  readProviderRuns,
-} from "./authoring_call_evidence.mjs";
-
-const RUN = "run-target";
-const WORK = "work-target";
-const WORKSPACE = "workspace-channel-7";
-const SESSION = "session-target";
-const PARENT = "message-parent";
-
-const scope = (overrides = {}) => ({
-  run_id: RUN,
-  workspace_id: WORKSPACE,
-  work_id: WORK,
-  session_id: SESSION,
-  parent_turn_ref: PARENT,
-  ...overrides,
-});
-
-const pair = (n, overrides = {}) => ({
-  id: `prun-${n}`,
-  provider_call_ref: `pcall-${n}`,
-  agent_run_id: RUN,
-  workspace_id: WORKSPACE,
-  work_id: WORK,
-  session_id: SESSION,
-  parent_turn_ref: PARENT,
-  status: "completed",
-  ...overrides,
-});
-
-const call = (id, name, args, extra = {}) => ({ id, name, arguments: args, ...extra });
-
-function exchange(n, { status = "ok", content = "", calls = [], refs = {}, ...overrides } = {}) {
-  const providerCallRef = refs.providerCallRef ?? `pcall-${n}`;
-  const providerRunRef = refs.providerRunRef ?? `prun-${n}`;
-  return {
-    provider: "slice_verify",
-    request_format: "authoring-request-ir/v1",
-    response_format: "fixture_provider_result/v1",
-    provider_call_ref: providerCallRef,
-    provider_run_ref: providerRunRef,
-    work_id: WORK,
-    session_id: SESSION,
-    turn_id: `${PARENT}:agent:${n}`,
-    request_body: {
-      ir_version: "authoring-request-ir/v1",
-      run: scope(),
-      system: { identity_ref: "identity:writer" },
-      messages: [
-        {
-          role: "user",
-          provenance: "author",
-          blocks: [{ type: "text", text: `request-${n}` }],
-          source_refs: [],
-          versions: {},
-        },
-      ],
-      tools: [],
-      projection: { tool_choice: null },
-      refs: {},
-    },
-    response:
-      status === "ok"
-        ? { status: "ok", body: { content, tool_calls: calls } }
-        : { status: "error", body: { error: { reason: "transport_failed" } } },
-    ...overrides,
-  };
-}
-
-const assistant = (n, blocks, overrides = {}) => ({
-  role: "assistant",
-  provenance: "model",
-  provider_call_ref: `pcall-${n}`,
-  provider_run_ref: `prun-${n}`,
-  blocks,
-  ...overrides,
-});
-
-function base() {
-  return {
-    scope: scope(),
-    providerRuns: [pair(1)],
-    records: [
-      exchange(1, {
-        content: "已核对全章。",
-        calls: [call("native-judgment", "judgment_decision", { action: "read" })],
-      }),
-    ],
-    transcript: {
-      run: scope(),
-      messages: [
-        { role: "user", blocks: [{ type: "text", text: "核对全章" }] },
-        assistant(1, [
-          { type: "text", text: "已核对全章。" },
-          { type: "tool_call", call_id: "native-judgment", name: "judgment_decision", arguments: { action: "read" } },
-        ]),
-      ],
-    },
-    consumedProviderCalls: 1,
-  };
-}
+  PARENT,
+  RUN,
+  SESSION,
+  WORK,
+  WORKSPACE,
+  assistant,
+  base,
+  call,
+  exchange,
+  nativeCall,
+  pair,
+  rawCall,
+  scope,
+  sseBase,
+  sseExchange,
+} from "./fixtures/authoring_call_fixture.mjs";
+import { joinNativeCallEvidence } from "./authoring_call_evidence.mjs";
 
 // 正式夹具一律携带真实 transcript.run 身份；缺/错 run 的负例仍直接调用纯入口。
 const result = (patch = {}) => {
@@ -120,66 +35,6 @@ const result = (patch = {}) => {
 const checks = (patch) => result(patch).checks;
 const reasons = (patch) => result(patch).failures.map((failure) => failure.reason);
 const allPass = (value) => assert.deepEqual(Object.values(value.checks), [true, true, true, true, true]);
-
-// 74492267 之后的真实 SSE 成功日志：无 request_format/response_format，
-// request.body 是原生 Chat wire，response.status 是 2xx 数字，
-// response.body 只有 {source: "sse_decoder", tool_calls: Result.tool_calls}。
-function sseRequest(n) {
-  return {
-    method: "POST",
-    url: "https://provider.test/v1/chat/completions",
-    body: {
-      model: "test-model",
-      messages: [
-        { role: "system", content: "system" },
-        { role: "user", content: `request-${n}` },
-      ],
-      tools: [],
-    },
-  };
-}
-
-function sseExchange(n, { calls = [], refs = {}, status = 200, source = "sse_decoder", body } = {}) {
-  const providerCallRef = refs.providerCallRef ?? `pcall-${n}`;
-  const providerRunRef = refs.providerRunRef ?? `prun-${n}`;
-  return {
-    provider: "openai_chat",
-    provider_call_ref: providerCallRef,
-    provider_run_ref: providerRunRef,
-    work_id: WORK,
-    session_id: SESSION,
-    turn_id: `${PARENT}:agent:${n}`,
-    request: sseRequest(n),
-    response: {
-      status,
-      body: body === undefined ? { source, tool_calls: calls } : body,
-      model: "test-model",
-      usage: {},
-      duration_ms: 10,
-    },
-  };
-}
-
-function sseBase() {
-  return {
-    scope: scope(),
-    providerRuns: [pair(1)],
-    records: [
-      sseExchange(1, { calls: [call("native-judgment", "judgment_decision", { action: "read" })] }),
-    ],
-    transcript: {
-      run: scope(),
-      messages: [
-        { role: "user", blocks: [{ type: "text", text: "核对全章" }] },
-        assistant(1, [
-          { type: "text", text: "已核对全章。" },
-          { type: "tool_call", call_id: "native-judgment", name: "judgment_decision", arguments: { action: "read" } },
-        ]),
-      ],
-    },
-    consumedProviderCalls: 1,
-  };
-}
 
 const sseResult = (patch = {}) => {
   const value = { ...sseBase(), ...patch };
@@ -761,64 +616,6 @@ test("canonical assistant 的跨 run / 半截 refs 不得被当作本 run 绑定
   assert.ok(duplicated.failures.some((failure) => failure.reason === "duplicate"));
 });
 
-test("只读 SQLite 先按 agent_run_id 读取，再由纯函数核对全部 ownership", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-call-evidence-"));
-  const file = path.join(dir, "database", "ai_novel_studio_test.sqlite3");
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  try {
-    const db = new DatabaseSync(file);
-    try {
-      db.exec(
-        "CREATE TABLE provider_runs (id TEXT PRIMARY KEY, provider_call_ref TEXT, agent_run_id TEXT, " +
-          "workspace_id TEXT, work_id TEXT, session_id TEXT, parent_turn_ref TEXT, status TEXT, " +
-          "finite_mode_name TEXT)",
-      );
-      db.prepare(
-        "INSERT INTO provider_runs (id, provider_call_ref, agent_run_id, workspace_id, work_id, session_id, parent_turn_ref, status, finite_mode_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      ).run("prun-1", "pcall-1", RUN, WORKSPACE, WORK, SESSION, PARENT, "completed", "standalone_operation");
-      db.prepare(
-        "INSERT INTO provider_runs (id, provider_call_ref, agent_run_id, workspace_id, work_id, session_id, parent_turn_ref, status, finite_mode_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      ).run("prun-foreign", "pcall-foreign", "run-foreign", WORKSPACE, WORK, SESSION, PARENT, "completed", null);
-    } finally {
-      db.close();
-    }
-
-    const rows = readProviderRuns(dir, scope());
-    assert.deepEqual(rows.map((row) => row.id), ["prun-1"]);
-    assert.equal(rows[0].finite_mode_name, "standalone_operation");
-    const joined = joinNativeCallEvidence({ ...base(), providerRuns: rows });
-    allPass(joined);
-
-    // VS-00L §6.4：验收读侧可报告受限模式；完整模式按缺省计数，不进入 PASS 判据。
-    assert.deepEqual(joined.finite_modes, {
-      restricted: [
-        {
-          provider_run_ref: "prun-1",
-          provider_call_ref: "pcall-1",
-          finite_mode_name: "standalone_operation",
-        },
-      ],
-      complete_count: 0,
-    });
-
-    const db2 = new DatabaseSync(file);
-    try {
-      db2.prepare(
-        "INSERT INTO provider_runs (id, provider_call_ref, agent_run_id, workspace_id, work_id, session_id, parent_turn_ref, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      ).run("prun-bad", "pcall-bad", RUN, "workspace-other", WORK, SESSION, PARENT, "completed");
-    } finally {
-      db2.close();
-    }
-    const badRows = readProviderRuns(dir, scope());
-    assert.equal(badRows.length, 2);
-    const mismatched = joinNativeCallEvidence({ ...base(), providerRuns: badRows });
-    assert.equal(mismatched.checks.native_call_pairs_owned, false);
-    assert.equal(mismatched.checks.native_call_pairs_bound, false);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 test("ownership 缺 id/pcall 与非对象行按 missing/mismatched 拒绝", () => {
   const nonObject = result({ providerRuns: [null] });
   assert.equal(nonObject.checks.native_call_pairs_owned, false);
@@ -954,6 +751,15 @@ test("参数缺少可比较原文或 raw 一侧非字符串时 encode_failed", (
   assert.equal(checks(blankIds).native_call_success_matches_canonical, false);
 });
 
+test("夹具显式空 provider ref 保留原值，不被默认值吞掉", () => {
+  const fixture = exchange(1, { refs: { providerCallRef: "", providerRunRef: "" } });
+  assert.equal(fixture.provider_call_ref, "");
+  assert.equal(fixture.provider_run_ref, "");
+  const sse = sseExchange(2, { refs: { providerCallRef: "", providerRunRef: "" } });
+  assert.equal(sse.provider_call_ref, "");
+  assert.equal(sse.provider_run_ref, "");
+});
+
 test("真实 SSE decoder 成功记录按 Chat wire 只对账工具，正文不参与且标明 tool-only", () => {
   const value = sseResult();
   allPass(value);
@@ -1079,25 +885,6 @@ test("SSE 参数篡改、错源、event_stream 占位、非 2xx 与非 native wi
   const fixtureTampered = base();
   fixtureTampered.records[0].response.body.content = "伪造正文";
   assert.equal(checks(fixtureTampered).native_call_success_matches_canonical, false);
-});
-
-const callrefs03 = JSON.parse(
-  fs.readFileSync(new URL("./fixtures/callrefs-03-native-id-provenance.json", import.meta.url), "utf8"),
-);
-
-const nativeCall = (overrides = {}) => ({
-  type: "tool_call",
-  call_id: "read_character",
-  provider_call_id: null,
-  name: "read_character",
-  arguments: { character_ref: "character:1" },
-  ...overrides,
-});
-
-const rawCall = (overrides = {}) => ({
-  name: "read_character",
-  arguments: { character_ref: "character:1" },
-  ...overrides,
 });
 
 const missingNativeId = (patch = {}) =>
@@ -1303,6 +1090,61 @@ test("pcall+同响应内 ordinal 绑定：交换 canonical 顺序必须失败", 
   assert.ok(swapped.failures.some((failure) => failure.phase === "success"));
 });
 
+test("fixture canonical IR 记录按真实 source format 读取并通过配对", () => {
+  const irBody = (messages) => ({
+    ir_version: "authoring-request-ir/v1",
+    run: { run_id: RUN, workspace_id: WORKSPACE, work_id: WORK, session_id: SESSION, parent_turn_ref: PARENT },
+    system: { identity_ref: "identity:writer" },
+    messages,
+    tools: [{ name: "judgment_decision", description: "", input_schema: {} }],
+    projection: { tool_choice: "auto" },
+    refs: {},
+  });
+  const record = exchange(1, {
+    request_format: "authoring-request-ir/v1",
+    request_body: irBody([
+      {
+        role: "user",
+        provenance: "author",
+        blocks: [{ type: "text", text: "核对全章" }],
+        source_refs: [],
+        versions: {},
+      },
+    ]),
+    content: "已核对全章。",
+    calls: [call("native-judgment", "judgment_decision", { action: "read" })],
+  });
+  const joined = joinNativeCallEvidence({
+    scope: scope(),
+    providerRuns: [pair(1)],
+    records: [record],
+    transcript: {
+      run: scope(),
+      messages: [
+        {
+          role: "assistant",
+          provenance: "model",
+          provider_call_ref: "pcall-1",
+          provider_run_ref: "prun-1",
+          blocks: [
+            { type: "text", text: "已核对全章。" },
+            {
+              type: "tool_call",
+              call_id: "native-judgment",
+              name: "judgment_decision",
+              arguments: { action: "read" },
+            },
+          ],
+        },
+      ],
+    },
+    consumedProviderCalls: 1,
+  });
+  allPass(joined);
+  assert.equal(joined.records.length, 1);
+});
+
+// callrefs-03 的历史记录只是静态输入；消费者是纯 join，不读 DB/目录。
 const irRequestFor = (record) => ({
   ...record,
   request_format: "authoring-request-ir/v1",
@@ -1370,58 +1212,4 @@ test("callrefs-03 历史 provider_prompt 记录明确 unsupported，native id �
   });
   allPass(repaired);
   assert.equal(repaired.measured.native_id_not_provided, 1);
-});
-
-test("fixture canonical IR 记录按真实 source format 读取并通过配对", () => {
-  const irBody = (messages) => ({
-    ir_version: "authoring-request-ir/v1",
-    run: { run_id: RUN, workspace_id: WORKSPACE, work_id: WORK, session_id: SESSION, parent_turn_ref: PARENT },
-    system: { identity_ref: "identity:writer" },
-    messages,
-    tools: [{ name: "judgment_decision", description: "", input_schema: {} }],
-    projection: { tool_choice: "auto" },
-    refs: {},
-  });
-  const record = exchange(1, {
-    request_format: "authoring-request-ir/v1",
-    request_body: irBody([
-      {
-        role: "user",
-        provenance: "author",
-        blocks: [{ type: "text", text: "核对全章" }],
-        source_refs: [],
-        versions: {},
-      },
-    ]),
-    content: "已核对全章。",
-    calls: [call("native-judgment", "judgment_decision", { action: "read" })],
-  });
-  const joined = joinNativeCallEvidence({
-    scope: scope(),
-    providerRuns: [pair(1)],
-    records: [record],
-    transcript: {
-      run: scope(),
-      messages: [
-        {
-          role: "assistant",
-          provenance: "model",
-          provider_call_ref: "pcall-1",
-          provider_run_ref: "prun-1",
-          blocks: [
-            { type: "text", text: "已核对全章。" },
-            {
-              type: "tool_call",
-              call_id: "native-judgment",
-              name: "judgment_decision",
-              arguments: { action: "read" },
-            },
-          ],
-        },
-      ],
-    },
-    consumedProviderCalls: 1,
-  });
-  allPass(joined);
-  assert.equal(joined.records.length, 1);
 });

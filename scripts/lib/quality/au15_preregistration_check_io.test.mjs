@@ -10,7 +10,8 @@
 // 给真正的 CLI 入口（node CHECKER --root ...）装一个共享静态 preload。preload 只
 // 装配 fs hooks，不 import/call SUT；argv、invokedDirectly、main 与 process.exitCode
 // 都由实际 CLI 文件执行。CLI 代码本身不感知验收开关；guard 拒绝访问真实
-// repo/artifacts（测试自有 scope 例外），并把拒绝事实写到本进程的 worker 日志。
+// repo/artifacts，只放行调用方显式交出的窄根（正常 runChecker 正在使用的隔离
+// 工作副本），负控制缺省无豁免；拒绝事实写到本进程的 worker 日志。
 // 诊断程序是独立 `--eval` 模块，用静态命名 `readFileSync` 负控制证明 hook 作用到
 // named import。
 //
@@ -211,7 +212,9 @@ function guardLogPath() {
   return path.join(workerDir, `guard-${guardSequence}.jsonl`);
 }
 
-function guardedEnv({ realRoot = REAL_ARTIFACTS_ROOT, allowedRoot = scope.dir, log, extra = {} } = {}) {
+// 缺省不给允许根：允许根必须由调用者明确交出它拥有的路径，不能拿 scope.dir
+// 这类父目录做包含关系推导，否则会把其下所有子树（含真实 artifacts）一并放行。
+function guardedEnv({ realRoot = REAL_ARTIFACTS_ROOT, allowedRoot = "", log, extra = {} } = {}) {
   return scope.env({
     AU15_GUARD_REAL_ROOT: realRoot,
     AU15_GUARD_ALLOWED: allowedRoot,
@@ -222,30 +225,33 @@ function guardedEnv({ realRoot = REAL_ARTIFACTS_ROOT, allowedRoot = scope.dir, l
 
 // 真正 Node 入口：preload 只装配 fs hooks，不负责调用 SUT；argv/main guard/
 // process.exitCode 由实际 CLI 文件执行，因此正反例都穿过 CLI 的退出路径。
-function spawnCli(root) {
+// 允许路径只由正常 runChecker 显式传入；负控制（如 spawnCli(REPO_ROOT)）保持缺省。
+function spawnCli(root, allowedRoot = "") {
   const log = guardLogPath();
   const result = spawnSync(process.execPath, ["--import", preloadUrl, CHECKER, "--root", root], {
     cwd: REPO_ROOT,
     encoding: "utf8",
     timeout: 30_000,
-    env: guardedEnv({ log }),
+    env: guardedEnv({ allowedRoot, log }),
   });
   result.guard_log = log;
   return result;
 }
 
+// 工作副本是本 case 明确拥有并正在使用的根；把它本身而不是 scope.dir 交给 guard。
 function runChecker(root) {
-  const result = spawnCli(root);
+  const result = spawnCli(root, root);
   guardedRuns.push(result);
   return result;
 }
 
 // 独立 --eval 诊断程序：只验证 preload 的 hook，不冒充 SUT CLI。
+// 缺省无允许根：负控制直接访问真实 artifact 必须被拒绝，正控制显式传入窄根。
 function spawnProbe({
   expected,
   probePath,
   realRoot = REAL_ARTIFACTS_ROOT,
-  allowedRoot = scope.dir,
+  allowedRoot = "",
 }) {
   const log = guardLogPath();
   const result = spawnSync(
@@ -546,7 +552,29 @@ test("guard 负控制：静态命名 fs 导入读真实 artifact 被拒绝并落
   assert.equal(denials[0].path, REAL_PREREG);
 });
 
-test("guard 允许测试自有 scope：即使 scope 位于 denied root 下也不误拒绝", (t) => {
+// 缺省不给允许根：模拟 denied root 虽然位于父 run scope 子树内，也不能由
+// scope.dir 的包含关系获得授权（旧默认会把整棵子树放行）。
+test("guard 负控制：缺省无允许根，父 run scope 子树内的模拟 denied root 仍被拒绝", (t) => {
+  const simulatedRoot = path.join(workerDir, "simulated-denied-artifacts");
+  const ownedFile = path.join(simulatedRoot, "owned.txt");
+  fs.mkdirSync(simulatedRoot, { recursive: true });
+  fs.writeFileSync(ownedFile, "owned\n");
+  t.after(() => fs.rmSync(simulatedRoot, { recursive: true, force: true }));
+
+  const probe = spawnProbe({
+    expected: "denied",
+    probePath: ownedFile,
+    realRoot: simulatedRoot,
+  });
+
+  assert.equal(probe.status, 0, probe.stderr);
+  assert.match(probe.stdout, /guard-probe: denied/u);
+  const denials = readDenials(probe.guard_log);
+  assert.equal(denials.length, 1, "拒绝事实必须记录在测试自有 worker 日志");
+  assert.equal(denials[0].path, ownedFile);
+});
+
+test("guard 正控制：显式窄 allowedRoot 放行自有路径，即使位于 denied root 下", (t) => {
   const simulatedRoot = path.join(workerDir, "simulated-artifacts");
   const ownedFile = path.join(simulatedRoot, "owned.txt");
   fs.mkdirSync(simulatedRoot, { recursive: true });

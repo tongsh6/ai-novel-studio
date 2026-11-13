@@ -517,16 +517,48 @@ export function runInScope(scope, command, args = [], options = {}) {
   });
 }
 
-function assertFixtureShape(spec) {
+// 发布事实控制记录是与 payload 同目录封存的私有文件名；不进入文件 Map/工作副本。
+const FIXTURE_CONTROL_FILE = ".fixture-control.json";
+
+function assertFixtureName(spec) {
   if (!spec || typeof spec !== "object" || Array.isArray(spec)) {
     throw new TestEnvError("fixture 规格必须是普通对象");
   }
   if (!nonEmptyString(spec.name) || !FIXTURE_NAME_RE.test(spec.name)) {
     throw new TestEnvError(`fixture name 必须是小写 kebab-case: ${JSON.stringify(spec.name)}`);
   }
-  if (!spec.files || typeof spec.files !== "object" || Array.isArray(spec.files)) {
-    throw new TestEnvError("fixture 规格缺少 files 普通对象");
+}
+
+function assertFixtureFormExclusive(hasFiles, hasInputs, hasBuild) {
+  if (hasFiles && (hasInputs || hasBuild)) {
+    throw new TestEnvError("fixture 规格不能同时提供 files 与 inputs/build");
   }
+}
+
+function assertFixtureBuildPair(hasInputs, hasBuild) {
+  if (hasInputs && !hasBuild) {
+    throw new TestEnvError("fixture inputs 必须与 build 一起提供");
+  }
+  if (hasBuild && !hasInputs) {
+    throw new TestEnvError("fixture 构造形式缺少 inputs");
+  }
+}
+
+function assertFixtureFormPresent(hasFiles, hasBuild) {
+  if (!hasFiles && !hasBuild) {
+    throw new TestEnvError("fixture 规格必须提供 files 或 inputs+build");
+  }
+}
+
+function assertFixtureShape(spec) {
+  assertFixtureName(spec);
+  const hasFiles = spec.files !== undefined;
+  const hasInputs = spec.inputs !== undefined;
+  const hasBuild = spec.build !== undefined;
+  assertFixtureFormExclusive(hasFiles, hasInputs, hasBuild);
+  assertFixtureBuildPair(hasInputs, hasBuild);
+  assertFixtureFormPresent(hasFiles, hasBuild);
+  return hasFiles ? "literal" : "built";
 }
 
 function normalizeFixturePath(rel) {
@@ -537,10 +569,16 @@ function normalizeFixturePath(rel) {
   if (parts.some((part) => part === "" || part === "." || part === "..")) {
     throw new TestEnvError(`fixture 路径不得包含空段/./..: ${rel}`);
   }
+  if (rel === FIXTURE_CONTROL_FILE) {
+    throw new TestEnvError(`fixture 路径不得占用私有控制记录: ${rel}`);
+  }
   return rel;
 }
 
 function normalizeFixtureFiles(files) {
+  if (!files || typeof files !== "object" || Array.isArray(files)) {
+    throw new TestEnvError("fixture 规格缺少 files 普通对象");
+  }
   const normalized = {};
   for (const rel of Object.keys(files).sort()) {
     const content = files[rel];
@@ -555,17 +593,62 @@ function normalizeFixtureFiles(files) {
   return normalized;
 }
 
+function normalizeFixtureInputs(inputs) {
+  if (!inputs || typeof inputs !== "object" || Array.isArray(inputs)) {
+    throw new TestEnvError("fixture 构造形式缺少 inputs 普通对象");
+  }
+  const keys = Object.keys(inputs).sort();
+  if (keys.length === 0) {
+    throw new TestEnvError("fixture inputs 至少需要一个 input");
+  }
+  const normalized = {};
+  for (const key of keys) {
+    const value = inputs[key];
+    if (!nonEmptyString(key)) {
+      throw new TestEnvError(`fixture input 键必须是非空文本: ${JSON.stringify(key)}`);
+    }
+    // 空字符串是合法输入值（空 seed/空配置有意义）；缺键由 Object.keys 决定，不写占位。
+    if (typeof value !== "string") {
+      throw new TestEnvError(`fixture input 值必须是字符串: ${JSON.stringify(key)}`);
+    }
+    normalized[key] = value;
+  }
+  return normalized;
+}
+
 /**
- * 校验并规范化只读 fixture 规格：{name, files: {相对路径: 内容}}。
+ * 校验并规范化只读 fixture 规格：字面形式 {name, files: {相对路径: 内容}}，
+ * 或构造形式 {name, inputs: {文本键: 文本值}, build(stagingDir) => 相对路径[]}。
  * 规格是普通 JS 数据，不引入 DSL；不读取被测实现生成期望。
  */
 export function normalizeFixtureSpec(spec) {
-  assertFixtureShape(spec);
-  return { name: spec.name, files: normalizeFixtureFiles(spec.files) };
+  const form = assertFixtureShape(spec);
+  if (form === "literal") {
+    return { name: spec.name, form, files: normalizeFixtureFiles(spec.files) };
+  }
+  if (typeof spec.build !== "function") {
+    throw new TestEnvError("fixture build 必须是函数");
+  }
+  return {
+    name: spec.name,
+    form,
+    inputs: normalizeFixtureInputs(spec.inputs),
+    build: spec.build,
+  };
 }
 
 function fixtureDigest(spec) {
   const hash = crypto.createHash("sha256");
+  if (spec.form === "built") {
+    hash.update("form:built\n");
+    hash.update(`name:${spec.name}\n`);
+    for (const key of Object.keys(spec.inputs)) {
+      hash.update(`input:${key}\n`);
+      hash.update(`len:${Buffer.byteLength(spec.inputs[key])}\n`);
+      hash.update(spec.inputs[key]);
+    }
+    return hash.digest("hex");
+  }
   for (const rel of Object.keys(spec.files)) {
     hash.update(`file:${rel}\n`);
     hash.update(`len:${Buffer.byteLength(spec.files[rel])}\n`);
@@ -574,20 +657,72 @@ function fixtureDigest(spec) {
   return hash.digest("hex");
 }
 
-function listFiles(root, prefix = "") {
-  const entries = fs.readdirSync(root, { withFileTypes: true });
+// 只接受普通文件与真实目录：symlink/设备等不会被递归跟随，也不会被 chmod。
+function inspectTree(root) {
   const files = [];
-  for (const entry of entries) {
-    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) files.push(...listFiles(path.join(root, entry.name), rel));
-    else files.push(rel);
-  }
-  return files.sort();
+  const dirs = [];
+  const invalid = [];
+  const walk = (dir, prefix) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isSymbolicLink()) {
+        invalid.push(rel);
+      } else if (entry.isDirectory()) {
+        dirs.push(rel);
+        walk(path.join(dir, entry.name), rel);
+      } else if (entry.isFile()) {
+        files.push(rel);
+      } else {
+        invalid.push(rel);
+      }
+    }
+  };
+  walk(root, "");
+  return { files: files.sort(), dirs: dirs.sort(), invalid: invalid.sort() };
 }
 
-function verifyFixture(dir, spec, label) {
-  const expected = Object.keys(spec.files).sort();
-  for (const rel of expected) {
+function payloadDirs(paths) {
+  const dirs = new Set();
+  for (const rel of paths) {
+    let dir = path.posix.dirname(rel);
+    while (dir !== ".") {
+      dirs.add(dir);
+      dir = path.posix.dirname(dir);
+    }
+  }
+  return [...dirs].sort();
+}
+
+// 实际完整文件集合/目录集合必须与声明一致；控制记录是唯一允许额外存在的私有文件。
+function assertPayloadTree(dir, expected, label, allowControl) {
+  const tree = inspectTree(dir);
+  if (tree.invalid.length > 0) {
+    throw new TestEnvError(`${label} 含非普通文件/symlink: ${tree.invalid.join(", ")}`);
+  }
+  const actual = allowControl
+    ? tree.files.filter((rel) => rel !== FIXTURE_CONTROL_FILE)
+    : tree.files;
+  const missing = expected.filter((rel) => !actual.includes(rel));
+  if (missing.length > 0) {
+    throw new TestEnvError(`${label} 不完整，缺少 ${missing.join(", ")}`);
+  }
+  const extra = actual.filter((rel) => !expected.includes(rel));
+  if (extra.length > 0) {
+    throw new TestEnvError(`${label} 含规格外文件: ${extra.join(", ")}`);
+  }
+  const expectedDirs = payloadDirs(expected);
+  if (tree.dirs.length !== expectedDirs.length || tree.dirs.some((rel, index) => rel !== expectedDirs[index])) {
+    throw new TestEnvError(`${label} 含规格外目录: ${tree.dirs.join(", ")}`);
+  }
+}
+
+function sha256Bytes(content) {
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+// 读取声明文件的事实；调用前必须已通过集合校验，避免跟随 symlink 读借用目标。
+function payloadFacts(dir, expected, label) {
+  return expected.map((rel) => {
     const absolute = path.join(dir, rel);
     let content;
     try {
@@ -595,33 +730,49 @@ function verifyFixture(dir, spec, label) {
     } catch (error) {
       throw new TestEnvError(`${label} 不完整，缺少 ${rel}: ${error.message}`);
     }
-    if (Buffer.compare(content, Buffer.from(spec.files[rel], "utf8")) !== 0) {
-      throw new TestEnvError(`${label} 内容与规格不一致: ${rel}`);
+    return { path: rel, bytes: content.length, sha256: sha256Bytes(content), content };
+  });
+}
+
+function assertLiteralContent(facts, spec, label) {
+  for (const fact of facts) {
+    if (Buffer.compare(fact.content, Buffer.from(spec.files[fact.path], "utf8")) !== 0) {
+      throw new TestEnvError(`${label} 内容与规格不一致: ${fact.path}`);
     }
   }
-  const actual = listFiles(dir);
-  if (actual.length !== expected.length || actual.some((rel, index) => rel !== expected[index])) {
-    throw new TestEnvError(`${label} 含规格外文件: ${actual.join(", ")}`);
+}
+
+function assertRecordFacts(record, facts, label) {
+  const expected = record.files;
+  for (let index = 0; index < expected.length; index += 1) {
+    const declared = expected[index];
+    const actual = facts[index];
+    if (declared.path !== actual.path || declared.bytes !== actual.bytes || declared.sha256 !== actual.sha256) {
+      throw new TestEnvError(`${label} 控制记录与payload字节哈希不一致: ${actual.path}`);
+    }
   }
 }
 
-function freezeFixture(dir, spec) {
-  for (const rel of Object.keys(spec.files)) {
-    fs.chmodSync(path.join(dir, rel), 0o444);
+function freezePayload(dir, facts) {
+  for (const fact of facts) {
+    fs.chmodSync(path.join(dir, fact.path), 0o444);
   }
 }
 
-function fixtureDescriptor(scope, spec, digest, dir) {
+function fixtureDescriptor(scope, spec, digest, dir, paths) {
   const files = new Map();
-  for (const rel of Object.keys(spec.files)) files.set(rel, path.join(dir, rel));
+  for (const rel of paths) files.set(rel, path.join(dir, rel));
   return { scope, name: spec.name, digest, dir, files };
 }
 
 // 每个 (run, fixture 内容指纹) 的初始化归属记录，只有两个消费者：
 //   - owner：用 claim 的原子独占创建取得唯一初始化权；
-//   - 等待者：用 ready/failed 得知 owner 的完整结果，绝不自行构建。
+//   - 等待者：用 claim/failed 得知 owner 是否仍在初始化，绝不自行构建。
 // 记录放在 run scope 的 fixtures/.claims 下，随 scope 回收；不是全局锁服务。
+// 发布事实不再外置：完整 payload 清单/字节哈希/规格 digest 与 payload 同目录，
+// 控制记录先写进 staging，再由一次 rename 整体发布。
 const FIXTURE_RECORD_KIND = "ai-novel-test-fixture-init/v1";
+const FIXTURE_CONTROL_KIND = "ai-novel-test-fixture-payload/v2";
 const FIXTURE_CLAIMS_DIR = ".claims";
 const FIXTURE_WAIT_MS = 30000;
 const FIXTURE_WAIT_POLL_MS = 20;
@@ -631,7 +782,6 @@ function fixtureRecordPaths(scope, base) {
   return {
     dir,
     claim: path.join(dir, `${base}.claim`),
-    ready: path.join(dir, `${base}.ready`),
     failed: path.join(dir, `${base}.failed`),
   };
 }
@@ -695,11 +845,123 @@ function fixtureFailedMessage(normalized, failed) {
   }；本 run 不再重建`;
 }
 
-function reuseFixture(request, normalized) {
+function normalizeControlFileEntry(entry, name) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    throw new TestEnvError(`fixture ${name} 控制记录文件条目必须是普通对象`);
+  }
+  const rel = normalizeFixturePath(entry.path);
+  if (!Number.isSafeInteger(entry.bytes) || entry.bytes < 0) {
+    throw new TestEnvError(`fixture ${name} 控制记录字节数非法: ${rel}`);
+  }
+  if (typeof entry.sha256 !== "string" || !/^[0-9a-f]{64}$/u.test(entry.sha256)) {
+    throw new TestEnvError(`fixture ${name} 控制记录字节哈希非法: ${rel}`);
+  }
+  return { path: rel, bytes: entry.bytes, sha256: entry.sha256 };
+}
+
+function normalizeControlFiles(files, name) {
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new TestEnvError(`fixture ${name} 控制记录缺少非空payload清单`);
+  }
+  const normalized = files.map((entry) => normalizeControlFileEntry(entry, name));
+  const seen = new Set();
+  for (const entry of normalized) {
+    if (seen.has(entry.path)) {
+      throw new TestEnvError(`fixture ${name} 控制记录含重复路径: ${entry.path}`);
+    }
+    seen.add(entry.path);
+  }
+  // 控制记录顺序只描述它自己的 payload；接受判定与字节核对按记录路径逐项进行，
+  // 不依赖排序，因此不再引入第二套 locale/比较器次序。
+  return normalized;
+}
+
+function verifyControlRecord(record, normalized, digest) {
+  if (record.kind !== FIXTURE_CONTROL_KIND) {
+    throw new TestEnvError(`fixture ${normalized.name} 控制记录格式不受支持（旧格式不兼容）`);
+  }
+  if (record.name !== normalized.name || record.form !== normalized.form) {
+    throw new TestEnvError(`fixture ${normalized.name} 控制记录身份与规格不一致`);
+  }
+  if (record.digest !== digest) {
+    throw new TestEnvError(`fixture ${normalized.name} 控制记录规格 digest 不一致`);
+  }
+  const files = normalizeControlFiles(record.files, normalized.name);
+  if (normalized.form === "literal") {
+    const expected = Object.keys(normalized.files).sort();
+    const actual = files.map((entry) => entry.path).sort();
+    if (actual.length !== expected.length || actual.some((rel, index) => rel !== expected[index])) {
+      throw new TestEnvError(`fixture ${normalized.name} 控制记录路径与字面规格不一致`);
+    }
+  }
+  return { ...record, files };
+}
+
+function controlRecordPath(dir) {
+  return path.join(dir, FIXTURE_CONTROL_FILE);
+}
+
+// 目标目录存在时只接受同一 staging 目录内已封存的控制记录；旧 ready/裸目录不兼容。
+function readControlRecord(dir) {
+  const file = controlRecordPath(dir);
+  let stat;
+  try {
+    stat = fs.lstatSync(file);
+  } catch {
+    return null;
+  }
+  if (!stat.isFile()) {
+    throw new TestEnvError(`fixture 控制记录必须是普通文件: ${file}`);
+  }
+  let record;
+  try {
+    record = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new TestEnvError(`fixture 控制记录不可解析: ${error.message}`);
+  }
+  return record;
+}
+
+function controlRecordFromFacts(normalized, digest, facts) {
+  return {
+    kind: FIXTURE_CONTROL_KIND,
+    name: normalized.name,
+    form: normalized.form,
+    digest,
+    files: facts.map(({ path: rel, bytes, sha256 }) => ({ path: rel, bytes, sha256 })),
+    pid: process.pid,
+    finishedAt: new Date().toISOString(),
+  };
+}
+
+function writeControlRecord(dir, record) {
+  const file = controlRecordPath(dir);
+  fs.writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`, { flag: "wx" });
+  fs.chmodSync(file, 0o444);
+}
+
+// 复用前先核规格与真实字节事实；任何漂移都失败，不静默修补。
+function publishedFixture(request, normalized) {
   const { scope, digest, target } = request;
-  verifyFixture(target, normalized, target);
-  freezeFixture(target, normalized);
-  return fixtureDescriptor(scope, normalized, digest, target);
+  if (!fs.existsSync(target)) return null;
+  const stat = fs.lstatSync(target);
+  if (!stat.isDirectory()) {
+    throw new TestEnvError(`fixture ${normalized.name} 发布路径不是目录: ${target}`);
+  }
+  const record = readControlRecord(target);
+  if (!record) {
+    throw new TestEnvError(
+      `fixture ${normalized.name} 目标目录缺少控制记录（旧格式不兼容，不做 fallback）`,
+    );
+  }
+  const verified = verifyControlRecord(record, normalized, digest);
+  const expected = verified.files.map((entry) => entry.path);
+  assertPayloadTree(target, expected, target, true);
+  const facts = payloadFacts(target, expected, target);
+  if (normalized.form === "literal") assertLiteralContent(facts, normalized, target);
+  assertRecordFacts(verified, facts, target);
+  freezePayload(target, facts);
+  return fixtureDescriptor(scope, normalized, digest, target, expected);
 }
 
 // 调用边界只解析一次：作用域、等待期限、内容指纹与记录坐标。
@@ -713,7 +975,7 @@ function resolveFixtureRequest(normalized, options) {
     throw new TestEnvError("waitTimeoutMs 必须是正数");
   }
   const digest = fixtureDigest(normalized);
-  const base = `${normalized.name}-${digest.slice(0, 16)}`;
+  const base = `${normalized.name}-${digest}`;
   const target = path.join(scope.fixturesDir, base);
   fs.mkdirSync(scope.fixturesDir, { recursive: true });
   const paths = fixtureRecordPaths(scope, base);
@@ -721,25 +983,27 @@ function resolveFixtureRequest(normalized, options) {
   return { scope, digest, target, paths, waitMs };
 }
 
-function readyFixture(request, normalized) {
-  if (!fs.existsSync(request.paths.ready)) return null;
-  return reuseFixture(request, normalized);
-}
-
-function recordFixtureFailure(normalized, request, error) {
+function recordFixtureFailure(normalized, request, failure) {
   try {
     writeFixtureRecord(request.paths.failed, {
       kind: FIXTURE_RECORD_KIND,
       name: normalized.name,
       digest: request.digest,
       pid: process.pid,
-      message: error.message,
+      message: failure.message,
       failedAt: new Date().toISOString(),
     });
   } catch {
-    // 失败记录本身写不进去时保留原始错误；等待者会因无 ready 而超时失败。
+    // 失败记录本身写不进去时保留原始错误；等待者会因无发布事实而超时失败。
   }
-  return new TestEnvError(`fixture ${normalized.name} 初始化失败: ${error.message}`);
+  const message = `fixture ${normalized.name} 初始化失败: ${failure.message}`;
+  if (failure instanceof AggregateError) {
+    // 双失败：保留 primary 与 cleanup 两段事实，调用者不只看 cleanup。
+    return new AggregateError(failure.errors, message);
+  }
+  const wrapped = new TestEnvError(message);
+  wrapped.cause = failure;
+  return wrapped;
 }
 
 function writeStagingFiles(staging, normalized) {
@@ -748,61 +1012,100 @@ function writeStagingFiles(staging, normalized) {
     fs.mkdirSync(path.dirname(absolute), { recursive: true });
     fs.writeFileSync(absolute, content, { flag: "wx" });
   }
+  return Object.keys(normalized.files).sort();
 }
 
-// 只有 claim 的 owner 进入这里；完整构建 + 校验后才 rename 发布，再写 ready。
-function buildFixturePayload(request, normalized) {
-  const { scope, digest, target, paths } = request;
-  const staging = fs.mkdtempSync(path.join(scope.fixturesDir, ".staging-"));
-  let published = false;
+// 构造回调只在 claim 成功后运行；声明路径必须非空、唯一、留在 staging 内。
+function runFixtureBuilder(staging, normalized) {
+  let declared;
   try {
-    writeStagingFiles(staging, normalized);
-    verifyFixture(staging, normalized, staging);
-    freezeFixture(staging, normalized);
-    fs.renameSync(staging, target);
-    published = true;
-    writeFixtureRecord(paths.ready, {
-      kind: FIXTURE_RECORD_KIND,
-      name: normalized.name,
-      digest,
-      dir: target,
-      pid: process.pid,
-      finishedAt: new Date().toISOString(),
-    });
-    return fixtureDescriptor(scope, normalized, digest, target);
+    declared = normalized.build(staging);
   } catch (error) {
-    throw recordFixtureFailure(normalized, request, error);
-  } finally {
-    if (!published && fs.existsSync(staging)) fs.rmSync(staging, { recursive: true, force: true });
+    throw new TestEnvError(`fixture ${normalized.name} builder 执行失败: ${error.message}`);
+  }
+  if (!Array.isArray(declared) || declared.length === 0) {
+    throw new TestEnvError(`fixture ${normalized.name} builder 必须返回非空的相对payload路径数组`);
+  }
+  const paths = declared.map((rel) => normalizeFixturePath(rel));
+  const unique = new Set(paths);
+  if (unique.size !== paths.length) {
+    throw new TestEnvError(`fixture ${normalized.name} builder 声明了重复payload路径`);
+  }
+  return paths.sort();
+}
+
+function snapshotStaging(staging, expected, normalized, label) {
+  assertPayloadTree(staging, expected, label, false);
+  const facts = payloadFacts(staging, expected, label);
+  if (normalized.form === "literal") assertLiteralContent(facts, normalized, label);
+  return facts;
+}
+
+// 只回收本 owner 在失败路径上仍持有的 staging；借用资源不在此处触碰。
+function cleanupStaging(staging) {
+  try {
+    fs.rmSync(staging, { recursive: true, force: true });
+    return null;
+  } catch (error) {
+    return error;
+  }
+}
+
+// 同一失败边界同时保留 primary 与 cleanup：不吞 cleanup，也不让 cleanup 顶替 primary。
+// label 只决定消息里的资源名，调用者仍拿到同一个标准 AggregateError 形状。
+function failureWithCleanup(primary, cleanupError, label = "staging") {
+  if (!cleanupError) return primary;
+  return new AggregateError(
+    [primary, cleanupError],
+    `${primary.message}；${label} 清理失败: ${cleanupError.message}`,
+  );
+}
+
+// 只有 claim 的 owner 进入这里；完整构建 + 校验 + 控制记录后才 rename 整体发布。
+// 发布成功后 staging 路径已原子转移给 target，所有权结束；只有失败路径才回收 staging。
+function buildFixturePayload(request, normalized) {
+  const { scope, digest, target } = request;
+  const staging = fs.mkdtempSync(path.join(scope.fixturesDir, ".staging-"));
+  try {
+    const expected =
+      normalized.form === "literal"
+        ? writeStagingFiles(staging, normalized)
+        : runFixtureBuilder(staging, normalized);
+    const facts = snapshotStaging(staging, expected, normalized, staging);
+    freezePayload(staging, facts);
+    writeControlRecord(staging, controlRecordFromFacts(normalized, digest, facts));
+    const descriptor = fixtureDescriptor(scope, normalized, digest, target, expected);
+    fs.renameSync(staging, target);
+    return descriptor;
+  } catch (primary) {
+    const cleanupError = cleanupStaging(staging);
+    throw recordFixtureFailure(normalized, request, failureWithCleanup(primary, cleanupError));
   }
 }
 
 // 等待者的单次判定：只接受 owner 已发布的事实，绝不自行构建。
 function ownerOutcome(request, normalized) {
-  const { digest, paths, target } = request;
-  if (fs.existsSync(paths.ready)) return reuseFixture(request, normalized);
+  const { digest, paths } = request;
   const failed = readFixtureRecord(paths.failed, digest);
   if (failed) throw new TestEnvError(fixtureFailedMessage(normalized, failed));
-  // owner 改名成功后、写 ready 前退出的窗口：目标已完整发布，可直接复用。
-  if (fs.existsSync(target)) return reuseFixture(request, normalized);
-  return null;
+  return publishedFixture(request, normalized);
 }
 
 function awaitFixtureOwner(request, normalized) {
   const { digest, paths, waitMs } = request;
   const deadline = Date.now() + waitMs;
-  let claim = readFixtureRecord(paths.claim, digest);
   while (Date.now() < deadline) {
     const outcome = ownerOutcome(request, normalized);
     if (outcome) return outcome;
+    // 每轮重读 claim：首次读取可能撞上 owner 刚创建、内容尚未写完的文件。
+    const claim = readFixtureRecord(paths.claim, digest);
     if (claim?.pid && claim.pid !== process.pid && !processAlive(claim.pid)) {
       throw new TestEnvError(
-        `fixture ${normalized.name} 初始化 owner(pid=${claim.pid}) 已退出且未发布 ready/failed，` +
+        `fixture ${normalized.name} 初始化 owner(pid=${claim.pid}) 已退出且未发布完整模板/failed，` +
           "本 run 按基础设施失败处理",
       );
     }
     sleepSync(FIXTURE_WAIT_POLL_MS);
-    if (!claim) claim = readFixtureRecord(paths.claim, digest);
   }
   throw new TestEnvError(
     `fixture ${normalized.name} 等待 fixture 初始化超时（${waitMs}ms），不自行构建`,
@@ -813,19 +1116,21 @@ function awaitFixtureOwner(request, normalized) {
  * 在同一 run scope 内只物化一次只读 fixture。
  *
  * 并发进程先原子取得该 (run, 规格指纹) 的唯一初始化权（claim），只有 owner
- * 在 staging 构建并校验完整后 rename 发布，再写 ready；其余进程等待 owner 的
- * 完整结果，绝不各自构建后竞争。初始化失败会写 failed，等待者在本 run 明确
- * 失败而不是重建；owner 被杀或等待期限耗尽同样按基础设施失败处理。
- * 消费者拿到目录与文件路径，不能修改模板（文件只读；复用时校验完整内容与文件集合）。
+ * 在 staging 构建并校验完整后写控制记录、一次 rename 整体发布；其余进程等待
+ * owner 的完整结果，绝不各自构建后竞争。初始化失败会写 failed，等待者在本 run
+ * 明确失败而不是重建；owner 被杀或等待期限耗尽同样按基础设施失败处理。
+ * 消费者拿到目录与文件路径，不能修改模板（文件只读；复用时校验规格 digest、
+ * 完整文件集合与每文件字节哈希）。
  *
- * @param {{name: string, files: Record<string, string>}} spec
+ * @param {{name: string, files: Record<string, string>}
+ *   | {name: string, inputs: Record<string, string>, build: (stagingDir: string) => string[]}} spec
  * @param {{scope: object, waitTimeoutMs?: number}} options
  */
 export function materializeFixture(spec, options = {}) {
   const normalized = normalizeFixtureSpec(spec);
   const request = resolveFixtureRequest(normalized, options);
-  const ready = readyFixture(request, normalized);
-  if (ready) return ready;
+  const published = publishedFixture(request, normalized);
+  if (published) return published;
   const failed = readFixtureRecord(request.paths.failed, request.digest);
   if (failed) throw new TestEnvError(fixtureFailedMessage(normalized, failed));
   if (!acquireFixtureClaim(request.paths, normalized, request.digest)) {
@@ -867,17 +1172,32 @@ export function createWorkingCopy(fixture, options = {}) {
   }
   fs.mkdirSync(scope.workDir, { recursive: true });
   const dir = fs.mkdtempSync(path.join(scope.workDir, `${fixture.name}-`));
-  const files = copyFixtureFiles(fixture, dir);
+  // 清理成功后才标记完成：重复 cleanup 不再触碰旧路径（宿主可能已在上面重建
+  // 资源）；清理失败保持未完成，后续仍可重试，不能提前放弃 owned 目录。
   let cleaned = false;
   const cleanup = () => {
     if (cleaned) return;
-    cleaned = true;
     fs.rmSync(dir, { recursive: true, force: true });
+    cleaned = true;
   };
-  if (options.context && typeof options.context.after === "function") {
-    options.context.after(cleanup);
+  // 释放责任先于复制建立：复制中途失败时，除了本函数立即关闭，已注册的 after
+  // 也只能对同一目录做幂等收口。
+  try {
+    if (options.context && typeof options.context.after === "function") {
+      options.context.after(cleanup);
+    }
+    const files = copyFixtureFiles(fixture, dir);
+    return { dir, files, cleanup, fixture };
+  } catch (primary) {
+    let cleanupError = null;
+    try {
+      cleanup();
+    } catch (error) {
+      cleanupError = error;
+    }
+    // 复制失败是 primary；已创建目录的回收失败是附加事实，二者都不能被掩盖。
+    throw failureWithCleanup(primary, cleanupError, "工作副本");
   }
-  return { dir, files, cleanup, fixture };
 }
 
 const RUN_OPTIONS = Object.freeze({

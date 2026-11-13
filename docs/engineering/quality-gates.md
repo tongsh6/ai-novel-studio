@@ -207,6 +207,18 @@ Suite 是组织用例和依赖的边界，不能仅凭 `beforeAll/setup_all` 的
 - 必要原始证据与借用资源保持不变；基础设施失败不变成有效通过或有效击杀。
 - 全部原有业务/隔离/失败矩阵与受影响的真实页面场景保留。只证明生命周期机制不能代签模型语义或整项 B84 完成。
 
+#### 2.5.7 已构造文件资产的最小扩展（2026-11-14 设计，实施见B84）
+
+现有 `materializeFixture({name, files}, {scope})` 已承接文本模板；SQLite必须先执行构造，不能让每个消费者先建库再把结果交给缓存。继续使用这一owner，在同一入口增加当前需要的构造形式 `{name, inputs, build}`：`inputs`是参与指纹的文本键值（实际builder源码/依赖、schema、seed与影响输出的配置），同步 `build(stagingDir)` 只在获得唯一初始化权后运行，返回本次声明的相对payload文件路径。两种形式共享claim、失败传播、发布、复用、工作副本和退出逻辑，不建第二个数据库池或fixture注册器。
+
+调用者必须从实际输入派生指纹材料，包含未提交的builder变化；不能手写一个版本标签代替，也不能在申请前运行建库/快照操作。inputs集合及文本key非空，value为字符串并允许空值（例如空seed SQL）；空值与缺键不是同一个输入。schema/seed的owner仍是已有领域fixture构造器，通用scope不理解作品表、不执行迁移器、不替领域输入设计“完美数据”。文本形式仍按原字面值核对payload，构造形式核对声明路径、完整文件集合与实际字节哈希；二者不混成业务正确性证明，业务期望仍须独立于被测实现。
+
+已完成的文件清单与指纹记录必须和payload在同一staging目录封存后原子发布。复用时先核规格和文件事实；owner在发布后退出仍能读取完整结果，发布前失败不能被当作可用模板。由此替换现有外置ready记录的发布窗口，不保留两套运行时格式兼容；旧失败/原始证据只读保留。控制记录不进入case工作副本；只接收拥有的普通文件，不跟随symlink对借用文件做chmod或归档。正常可写副本继续复用现有 `createWorkingCopy`，不改为各case重新执行builder。
+
+SQLite的“只读连接”不等于目录没有写入：本机合成实验中，WAL库在 `readOnly:true` 打开后生成并保留 `-wal/-shm`，主文件哈希不变；DELETE模式在相同实验中无辅助文件。证据为 `artifacts/b84-test-system/20261114/a2-node-fixtures/sqlite-readonly-probe.json`，与 [SQLite WAL只读说明](https://www.sqlite.org/wal.html)一致。因此可共享的合成SQLite模板必须在builder内关闭连接并封存为无可变辅助文件的形式；专门验证WAL/写入的case使用自己的可变副本。这不授权改作者源库的journal模式，也不授权对活动数据库使用immutable读取。
+
+首个实际消费者是逐调用证据的SQLite读边界；该case会追加反例行，故需要一份可写副本。先在此证明串行/并行消费者只执行一次builder、模板不变、case写入隔离、失败后不发布半成品与完整退出，再迁移confirmation及R01等后续族。当前不提前增加选择性复制、共享Schema生成器、跨日缓存或异步builder接口。
+
 API 语义参考：[Node 24.19 测试执行模型与 hooks](https://nodejs.org/download/release/v24.19.0/docs/api/test.html#test-runner-execution-model)、[Vitest globalSetup](https://vitest.dev/config/globalsetup.html)。Node 的测试文件进程隔离与 Vitest 的 globalSetup 全局空间不同，均不能据“global/beforeAll”名称推断跨外层变异运行的共享范围；本仓实现仍以锁定版本、现有配置和实测为准。
 
 ---

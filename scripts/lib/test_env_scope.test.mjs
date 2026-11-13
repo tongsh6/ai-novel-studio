@@ -96,6 +96,34 @@ function trackPid(t, pid) {
   });
 }
 
+// 用例创建的 CLI/owner 子进程在 after 里结束；断言提前抛出也要收口，不能只靠
+// 成功路径末尾的 kill。stop 复用 startProcess 的 done 事实，不另建退出体系。
+function stopStarted(started) {
+  if (started.child.exitCode === null && started.child.signalCode === null) {
+    started.child.kill("SIGKILL");
+  }
+  return started.done;
+}
+
+function trackStarted(t, started) {
+  t.after(() => stopStarted(started));
+}
+
+// 子进程脚本已把真实 PID 写盘时，立刻登记该 PID；即使后续等待/断言先失败，
+// 也能在释放父 scope 前杀掉实际作业进程。
+function trackPidFile(t, file) {
+  t.after(() => {
+    if (!fs.existsSync(file)) return;
+    const pid = Number(fs.readFileSync(file, "utf8").trim());
+    if (!Number.isFinite(pid) || pid <= 0 || !isAlive(pid)) return;
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // 已退出即无需处理。
+    }
+  });
+}
+
 async function waitUntilDead(pid) {
   await waitFor(() => !isAlive(pid), 5000);
 }
@@ -266,7 +294,7 @@ test("超时：只回收本 run 进程树，退出 124，结果归档且 scratch
   assert.equal(archived[0].timed_out, true);
 });
 
-test("取消(SIGTERM)：父 owner 停止本 run 子进程树、退出 143、scratch 回收", async () => {
+test("取消(SIGTERM)：父 owner 停止本 run 子进程树、退出 143、scratch 回收", async (t) => {
   const base = path.join(scratch, "base-cancel");
   const archive = path.join(scratch, "archive-cancel");
   const ready = path.join(scratch, "ready-cancel");
@@ -290,6 +318,9 @@ test("取消(SIGTERM)：父 owner 停止本 run 子进程树、退出 143、scra
     ],
     { env: { ...process.env, READY_DIR: ready } },
   );
+  trackPidFile(t, path.join(ready, "child.pid"));
+  trackPidFile(t, path.join(ready, "grandchild.pid"));
+  trackStarted(t, started);
   await waitFor(() => fs.existsSync(path.join(ready, "child.pid")));
   started.child.kill("SIGTERM");
   const result = await started.done;
@@ -320,6 +351,9 @@ test("子进程被杀：parent 观察信号退出、收口后台孙进程、仍�
     [TEST_ENV, "run", "--base", base, "--archive", archive, "--", "/bin/bash", "-c", script],
     { env: { ...process.env, READY_DIR: ready } },
   );
+  trackPidFile(t, path.join(ready, "child.pid"));
+  trackPidFile(t, path.join(ready, "grandchild.pid"));
+  trackStarted(t, started);
   await waitFor(
     () =>
       fs.existsSync(path.join(ready, "child.pid")) &&
@@ -374,6 +408,8 @@ test("超时后父 SIGTERM：timeout 语义优先，退出 124 而非取消 143"
     ],
     { env: { ...process.env, READY_DIR: ready } },
   );
+  trackPidFile(t, path.join(ready, "child.pid"));
+  trackStarted(t, started);
   await waitFor(() => fs.existsSync(path.join(ready, "child.pid")));
   const childPid = Number(fs.readFileSync(path.join(ready, "child.pid"), "utf8").trim());
   trackPid(t, childPid);
@@ -713,6 +749,9 @@ test("取消：子进程捕获 SIGTERM 后 exit 0 仍报取消，且孙进程收
     ],
     { env: { ...process.env, READY_DIR: ready } },
   );
+  trackPidFile(t, path.join(ready, "child.pid"));
+  trackPidFile(t, path.join(ready, "grandchild.pid"));
+  trackStarted(t, started);
   await waitFor(
     () =>
       fs.existsSync(path.join(ready, "child.pid")) &&
@@ -758,6 +797,10 @@ test("嵌套借用：内层不清理父组，外层 owner 收口嵌套孙进程"
       INNER_PID: innerPidFile,
     },
   });
+  // 先登记 PID 文件里的真实进程，再断言；外层命令已退出时残留的 sleep 仍能被
+  // 本用例收口，而不是留给文件级 scratch 清理。
+  trackPidFile(t, outerPidFile);
+  trackPidFile(t, innerPidFile);
   assert.equal(result.status, 0, result.stderr);
   const values = {};
   for (const line of result.stdout.trim().split("\n")) {
@@ -1107,6 +1150,7 @@ function writeRaceHarness(dir) {
       "const original = fs.writeFileSync;",
       'const MARK = `${nodePath.sep}fixtures${nodePath.sep}`;',
       'const CLAIMS = `${nodePath.sep}.claims${nodePath.sep}`;',
+      'const CONTROL = ".fixture-control.json";',
       "let arrived = false;",
       "function append(entry) {",
       '  fs.appendFileSync(LOG, `${JSON.stringify(entry)}\\n`);',
@@ -1126,7 +1170,8 @@ function writeRaceHarness(dir) {
       "}",
       "fs.writeFileSync = function (file, ...rest) {",
       "  const target = String(file);",
-      "  if (target.includes(MARK) && !target.includes(CLAIMS)) {",
+      "  const isPayload = target.includes(MARK) && !target.includes(CLAIMS) && !target.endsWith(CONTROL);",
+      "  if (isPayload) {",
       "    if (!arrived) {",
       "      arrived = true;",
       '      append({ kind: "arrive", pid: process.pid, at: Date.now() });',
@@ -1208,14 +1253,20 @@ test("fixture 调用边界：缺少 run scope / 非法等待期限 fail-closed",
   }
 });
 
-test("owner 发布后、写 ready 前退出的崩溃窗口：完整目标可直接复用，不重建", (t) => {
+test("发布事实与payload同目录：不依赖外置 ready，owner 退出后可直接复用", (t) => {
   const parent = openTestRunScope({ baseDir: path.join(scratch, "base-fixture-crash-window") });
   t.after(() => parent.close());
   const spec = { name: "crash-window-fixture", files: { "alpha.txt": "alpha\n" } };
   const first = materializeFixture(spec, { scope: parent });
   const claimsDir = path.join(parent.fixturesDir, ".claims");
+  assert.deepEqual(
+    fs.readdirSync(claimsDir).filter((name) => name.endsWith(".ready")),
+    [],
+    "不再写外置 ready 发布窗口",
+  );
+  // owner 已发布并退出后，claim 不再是可用性前提；目标目录内的控制记录自描述。
   for (const name of fs.readdirSync(claimsDir)) {
-    if (name.endsWith(".ready")) fs.rmSync(path.join(claimsDir, name));
+    if (name.endsWith(".claim")) fs.rmSync(path.join(claimsDir, name));
   }
   const reused = materializeFixture(spec, { scope: parent });
   assert.equal(reused.dir, first.dir);
@@ -1224,6 +1275,23 @@ test("owner 发布后、写 ready 前退出的崩溃窗口：完整目标可直�
     fs.readdirSync(parent.fixturesDir).filter((name) => name.startsWith(spec.name)),
     [path.basename(first.dir)],
   );
+
+  const control = path.join(first.dir, ".fixture-control.json");
+  const controlBytes = fs.readFileSync(control);
+  const controlMode = fs.statSync(control).mode & 0o777;
+  fs.chmodSync(control, 0o644);
+  try {
+    fs.rmSync(control);
+    assert.throws(
+      () => materializeFixture(spec, { scope: parent }),
+      /控制记录|旧格式|不完整/u,
+      "裸目录/旧格式不得 fallback 为可用模板",
+    );
+  } finally {
+    // 断言先抛出也要恢复控制记录与权限，避免把借来的模板留在被篡改状态。
+    fs.writeFileSync(control, controlBytes);
+    fs.chmodSync(control, controlMode);
+  }
 });
 
 test("反例：两个真实 Node 子进程同 scope/规格竞争，payload 只构建一次", async (t) => {
@@ -1284,13 +1352,24 @@ test("反例：两个真实 Node 子进程同 scope/规格竞争，payload 只�
   const claimsDir = path.join(parent.fixturesDir, ".claims");
   const records = fs.readdirSync(claimsDir);
   assert.ok(records.some((name) => name.endsWith(".claim")), "必须留下唯一初始化归属记录");
-  assert.ok(records.some((name) => name.endsWith(".ready")), "必须留下完成事实");
+  assert.ok(
+    records.every((name) => !name.endsWith(".ready")),
+    "不得再写外置 ready 发布记录",
+  );
+  assert.equal(
+    fs.existsSync(path.join(leftReport.dir, ".fixture-control.json")),
+    true,
+    "发布事实必须与payload同目录封存",
+  );
   recordEvidence("fixture-race", {
     spec,
     child_exit: { left: left.status, right: right.status },
     consumers: [leftReport, rightReport],
     payload_dirs: payloadDirs,
     records,
+    control_record: JSON.parse(
+      fs.readFileSync(path.join(leftReport.dir, ".fixture-control.json"), "utf8"),
+    ),
     arrive_pids: [...new Set(events.filter((e) => e.kind === "arrive").map((e) => e.pid))],
     payload_writes: writes,
   });
@@ -1413,10 +1492,7 @@ async function waitForStalledOwner(markerDir) {
 }
 
 async function stopStalledOwner(started) {
-  if (started.child.exitCode === null && started.child.signalCode === null) {
-    started.child.kill("SIGKILL");
-  }
-  await started.done;
+  await stopStarted(started);
 }
 
 function claimRecords(parent) {
@@ -1427,13 +1503,21 @@ function claimRecords(parent) {
 
 test("fixture owner 被杀：等待者明确基础设施失败，不重建不无限等待", async (t) => {
   const parent = openTestRunScope({ baseDir: path.join(scratch, "base-fixture-dead-owner") });
-  t.after(() => parent.close());
+  let started = null;
+  // 同一个 after 先停本用例的 stalled owner，再释放父 scope；断言先抛出也不会
+  // 让子进程活过 parent.close。
+  t.after(async () => {
+    if (started) await stopStalledOwner(started);
+    parent.close();
+  });
   const spec = { name: "dead-owner-fixture", files: { "alpha.txt": "alpha\n" } };
-  const { started, markerDir } = startStalledOwner(
+  const owner = startStalledOwner(
     parent,
     spec,
     path.join(scratch, "dead-owner-harness"),
   );
+  started = owner.started;
+  const { markerDir } = owner;
   try {
     await waitForStalledOwner(markerDir);
     assert.equal(claimRecords(parent).length, 1, "owner 必须先取得唯一初始化权");
@@ -1469,13 +1553,20 @@ test("fixture owner 被杀：等待者明确基础设施失败，不重建不无
 
 test("fixture 等待期限耗尽：明确超时失败，不重建", async (t) => {
   const parent = openTestRunScope({ baseDir: path.join(scratch, "base-fixture-timeout") });
-  t.after(() => parent.close());
+  let started = null;
+  // 先停 stalled owner，再释放 base-fixture-timeout；等待超时断言失败时同样按此顺序。
+  t.after(async () => {
+    if (started) await stopStalledOwner(started);
+    parent.close();
+  });
   const spec = { name: "stuck-owner-fixture", files: { "alpha.txt": "alpha\n" } };
-  const { started, markerDir } = startStalledOwner(
+  const owner = startStalledOwner(
     parent,
     spec,
     path.join(scratch, "timeout-harness"),
   );
+  started = owner.started;
+  const { markerDir } = owner;
   try {
     await waitForStalledOwner(markerDir);
     const startedAt = Date.now();
@@ -1602,6 +1693,11 @@ test("fixture 规格纯校验：非法形状/名称/路径/内容 fail-closed", 
     [[], /普通对象/u],
     [{ name: "Bad_Name", files: { "a.txt": "a" } }, /kebab-case/u],
     [{ name: "ok", files: [] }, /files 普通对象/u],
+    // leader-review/file-shape-non-equivalence.json：字符串是可迭代的 key 集合，
+    // 但不是 files mapping；不能因两个 || 任一改 && 就被 Object.keys 拆成 index→char。
+    [{ name: "ok", files: "abc" }, /files 普通对象/u],
+    [{ name: "ok", files: null }, /files 普通对象/u],
+    [{ name: "ok", files: 123 }, /files 普通对象/u],
     [{ name: "ok", files: {} }, /至少需要一个文件/u],
     [{ name: "ok", files: { "/abs.txt": "a" } }, /repo 相对 POSIX/u],
     [{ name: "ok", files: { "a\\b.txt": "a" } }, /repo 相对 POSIX/u],
@@ -1634,15 +1730,24 @@ test("fixture 复用前校验缺失/内容漂移/额外文件", (t) => {
     }
   };
   const alpha = fixture.files.get("alpha.txt");
+  const alphaMode = fs.statSync(alpha).mode & 0o777;
   fs.chmodSync(alpha, 0o644);
-  fs.writeFileSync(alpha, "tampered\n");
-  removeReady();
-  assert.throws(() => materializeFixture(spec, { scope: parent }), /内容与规格不一致/u);
+  try {
+    fs.writeFileSync(alpha, "tampered\n");
+    removeReady();
+    assert.throws(() => materializeFixture(spec, { scope: parent }), /内容与规格不一致/u);
+  } finally {
+    fs.writeFileSync(alpha, "alpha\n");
+    fs.chmodSync(alpha, alphaMode);
+  }
 
-  fs.writeFileSync(alpha, "alpha\n");
-  fs.writeFileSync(path.join(fixture.dir, "extra.txt"), "extra\n");
-  assert.throws(() => materializeFixture(spec, { scope: parent }), /含规格外文件/u);
-  fs.rmSync(path.join(fixture.dir, "extra.txt"));
+  const extra = path.join(fixture.dir, "extra.txt");
+  try {
+    fs.writeFileSync(extra, "extra\n");
+    assert.throws(() => materializeFixture(spec, { scope: parent }), /含规格外文件/u);
+  } finally {
+    fs.rmSync(extra, { force: true });
+  }
 
   fs.rmSync(fixture.files.get("nested/beta.txt"));
   assert.throws(() => materializeFixture(spec, { scope: parent }), /缺少 nested\/beta\.txt/u);
@@ -1664,4 +1769,1018 @@ test("工作副本：无 context 时由调用方 cleanup，缺 scope fail-closed
   copy.cleanup();
   copy.cleanup();
   assert.equal(fs.existsSync(copy.dir), false);
+  // scope 只接受真实 run scope 对象；空字符串不能被 ??.|| 回退成 fixture.scope。
+  assert.throws(
+    () => createWorkingCopy(fixture, { scope: "" }),
+    /需要 run scope/u,
+  );
+  // 没有 TestContext/after 的普通对象不注册钩子，由调用方 cleanup。
+  const noAfter = createWorkingCopy(fixture, { scope: parent, context: {} });
+  assert.equal(fs.existsSync(noAfter.dir), true);
+  noAfter.cleanup();
+  assert.equal(fs.existsSync(noAfter.dir), false);
+});
+
+test("工作副本 cleanup：失败不提前标完成，成功后旧路径重建的宿主资源不被第二次删除", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-workcopy-idempotent") });
+  t.after(() => parent.close());
+  const fixture = materializeFixture(
+    { name: "workcopy-idempotent", files: { "alpha.txt": "alpha\n" } },
+    { scope: parent },
+  );
+  const copy = createWorkingCopy(fixture, { scope: parent });
+
+  // 清理失败不能提前标记完成：目录仍由本 owner 持有，下一次 cleanup 必须能重试。
+  const originalRmSync = fs.rmSync;
+  fs.rmSync = function (target, ...rest) {
+    if (String(target) === copy.dir) {
+      const error = new Error("EACCES: injected workcopy cleanup failure");
+      error.code = "EACCES";
+      throw error;
+    }
+    return originalRmSync.call(fs, target, ...rest);
+  };
+  try {
+    assert.throws(() => copy.cleanup(), /injected workcopy cleanup failure/u);
+  } finally {
+    fs.rmSync = originalRmSync;
+  }
+  assert.equal(fs.existsSync(copy.dir), true, "清理失败必须保留目录供重试/核验");
+
+  copy.cleanup();
+  assert.equal(fs.existsSync(copy.dir), false, "失败后重试应完成清理");
+
+  // 真实外部效果：成功清理后宿主在旧路径重建资源；第二次 cleanup 只能复用完成
+  // 事实，不得再删除这个后来者。
+  const sentinel = path.join(copy.dir, "later-resource.txt");
+  fs.mkdirSync(copy.dir, { recursive: true });
+  fs.writeFileSync(sentinel, "later-resource\n");
+  copy.cleanup();
+  assert.equal(
+    fs.readFileSync(sentinel, "utf8"),
+    "later-resource\n",
+    "成功后重复 cleanup 不得触碰旧路径上的新资源",
+  );
+});
+
+test("工作副本复制中途失败：首个文件真实落盘，第二个边界失败时关闭本 case 目录", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-workcopy-copy-failure") });
+  t.after(() => parent.close());
+  const fixture = materializeFixture(
+    { name: "workcopy-copy-failure", files: { "alpha.txt": "alpha\n", "nested/beta.txt": "beta\n" } },
+    { scope: parent },
+  );
+  const workPrefix = `${parent.workDir}${path.sep}${fixture.name}-`;
+  const isWorkCopyTarget = (target) => String(target).startsWith(workPrefix);
+  const originalCopyFileSync = fs.copyFileSync;
+  const originalRmSync = fs.rmSync;
+
+  // 单失败：第一个 copyFileSync 走真实实现并落盘，第二个才在边界抛错；证明 partial
+  // copy 真实存在，而不是“第一次就失败”的空目录。
+  let copyCalls = 0;
+  let copyDir = "";
+  let firstTarget = "";
+  let firstContent = "";
+  let firstPresentAtSecond = false;
+  fs.copyFileSync = function (source, target, ...rest) {
+    if (!isWorkCopyTarget(target)) {
+      return originalCopyFileSync.call(fs, source, target, ...rest);
+    }
+    copyCalls += 1;
+    if (copyCalls === 1) {
+      const result = originalCopyFileSync.call(fs, source, target, ...rest);
+      copyDir = path.dirname(String(target));
+      firstTarget = String(target);
+      firstContent = fs.readFileSync(firstTarget, "utf8");
+      return result;
+    }
+    if (copyCalls === 2) {
+      firstPresentAtSecond = fs.existsSync(firstTarget);
+      const error = new Error("EACCES: injected workcopy copy failure");
+      error.code = "EACCES";
+      throw error;
+    }
+    return originalCopyFileSync.call(fs, source, target, ...rest);
+  };
+  let copyFailure = null;
+  try {
+    try {
+      createWorkingCopy(fixture, { scope: parent, context: t });
+    } catch (error) {
+      copyFailure = error;
+    }
+  } finally {
+    fs.copyFileSync = originalCopyFileSync;
+  }
+  assert.equal(copyCalls, 2, "复制必须走到第二个文件才失败");
+  assert.equal(path.basename(firstTarget), "alpha.txt");
+  assert.equal(firstContent, "alpha\n", "第一个 copyFileSync 必须真实成功落盘");
+  assert.equal(firstPresentAtSecond, true, "第二个复制失败前，第一个文件已在工作副本中");
+  assert.match(copyFailure?.message ?? "", /injected workcopy copy failure/u);
+  assert.notEqual(copyDir, "");
+  assert.ok(copyDir.startsWith(workPrefix), "失败目录必须是本 case 新建的工作副本");
+  assert.equal(fs.existsSync(copyDir), false, "第二个文件失败后必须关闭本 case 的工作目录");
+
+  // 双失败：同一 partial copy 边界 + 本 case 目录清理失败；只定位本 case 捕获的
+  // copyDir 清场，不触碰共享 workDir 里的其他 owner 资源。
+  let doubleCalls = 0;
+  let doubleCopyDir = "";
+  let doubleFirstTarget = "";
+  let doubleFirstContent = "";
+  let doubleFirstPresentAtSecond = false;
+  fs.copyFileSync = function (source, target, ...rest) {
+    if (!isWorkCopyTarget(target)) {
+      return originalCopyFileSync.call(fs, source, target, ...rest);
+    }
+    doubleCalls += 1;
+    if (doubleCalls === 1) {
+      const result = originalCopyFileSync.call(fs, source, target, ...rest);
+      doubleCopyDir = path.dirname(String(target));
+      doubleFirstTarget = String(target);
+      doubleFirstContent = fs.readFileSync(doubleFirstTarget, "utf8");
+      return result;
+    }
+    if (doubleCalls === 2) {
+      doubleFirstPresentAtSecond = fs.existsSync(doubleFirstTarget);
+      const error = new Error("EACCES: injected workcopy copy failure");
+      error.code = "EACCES";
+      throw error;
+    }
+    return originalCopyFileSync.call(fs, source, target, ...rest);
+  };
+  fs.rmSync = function (target, ...rest) {
+    if (doubleCopyDir && String(target) === doubleCopyDir) {
+      const error = new Error("EPERM: injected workcopy cleanup failure");
+      error.code = "EPERM";
+      throw error;
+    }
+    return originalRmSync.call(fs, target, ...rest);
+  };
+  let doubleFailure = null;
+  try {
+    try {
+      createWorkingCopy(fixture, { scope: parent });
+    } catch (error) {
+      doubleFailure = error;
+    }
+  } finally {
+    // 无论断言/构建如何结束，两个注入都从真实函数恢复。
+    fs.copyFileSync = originalCopyFileSync;
+    fs.rmSync = originalRmSync;
+  }
+  assert.equal(doubleCalls, 2, "双失败也必须先真实写完第一个文件");
+  assert.equal(path.basename(doubleFirstTarget), "alpha.txt");
+  assert.equal(doubleFirstContent, "alpha\n");
+  assert.equal(doubleFirstPresentAtSecond, true);
+  assert.ok(doubleFailure instanceof AggregateError, "双失败必须同时携带 primary 与 cleanup");
+  assert.equal(doubleFailure.errors.length, 2);
+  assert.match(doubleFailure.message, /injected workcopy copy failure/u);
+  assert.match(doubleFailure.message, /injected workcopy cleanup failure/u);
+  assert.match(doubleFailure.errors[0].message, /injected workcopy copy failure/u);
+  assert.equal(doubleFailure.errors[0].code, "EACCES");
+  assert.match(doubleFailure.errors[1].message, /injected workcopy cleanup failure/u);
+  assert.equal(doubleFailure.errors[1].code, "EPERM");
+  assert.notEqual(doubleCopyDir, "");
+  assert.ok(doubleCopyDir.startsWith(workPrefix), "双失败目录必须是本 case 新建的工作副本");
+  assert.equal(fs.existsSync(doubleCopyDir), true, "cleanup 失败时保留本 case 自己的目录");
+  assert.equal(
+    fs.existsSync(path.join(doubleCopyDir, "alpha.txt")),
+    true,
+    "双失败时 partial copy 事实仍在",
+  );
+
+  // 只清本 case 捕获的目录；共享 workDir 中其他 owner 的资源不参与清场。
+  fs.rmSync(doubleCopyDir, { recursive: true, force: true });
+  assert.equal(fs.existsSync(doubleCopyDir), false);
+});
+
+// ── 构造形式（{name, inputs, build}）：与字面形式共享 claim/发布/复用/工作副本 ──
+// 观测点在测试侧 builder 与真实目录/文件边界，不给 SUT 增加验收开关；构造形式只核对
+// 声明输出、完整文件集合与字节哈希，业务正确性仍由各自领域测试独立证明。
+
+function appendBuildMarker(marker, kind = "build") {
+  fs.appendFileSync(marker, `${JSON.stringify({ kind, pid: process.pid })}\n`);
+}
+
+function markerEvents(marker) {
+  if (!fs.existsSync(marker)) return [];
+  return fs
+    .readFileSync(marker, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
+function buildPayloadSpec(name, marker, inputs = { schema: "provider_runs/v1", seed: "two-rows" }) {
+  return {
+    name,
+    inputs,
+    build(staging) {
+      appendBuildMarker(marker);
+      fs.writeFileSync(path.join(staging, "payload.txt"), `${inputs.seed}\n`);
+      return ["payload.txt"];
+    },
+  };
+}
+
+function builtFixtureEntries(fixture) {
+  return fs.readdirSync(fixture.dir).sort();
+}
+
+function controlRecord(fixture) {
+  return JSON.parse(
+    fs.readFileSync(path.join(fixture.dir, ".fixture-control.json"), "utf8"),
+  );
+}
+
+test("构造形式规格：inputs 非空文本、build 函数、与 files 互斥", () => {
+  const build = (staging) => {
+    fs.writeFileSync(path.join(staging, "a.txt"), "a");
+    return ["a.txt"];
+  };
+  const normalized = normalizeFixtureSpec({
+    name: "built-shape",
+    inputs: { schema: "s", seed: "x" },
+    build,
+  });
+  assert.equal(normalized.form, "built");
+  assert.deepEqual(Object.keys(normalized.inputs), ["schema", "seed"]);
+  assert.equal(normalizeFixtureSpec({ name: "literal-shape", files: { "a.txt": "a" } }).form, "literal");
+  // 空值是可构造输入（空 seed/空配置），与缺键不同；键仍必须是非空文本。
+  const withEmptyValue = normalizeFixtureSpec({ name: "built-empty-value", inputs: { seed: "" }, build });
+  assert.deepEqual(withEmptyValue.inputs, { seed: "" });
+  assert.equal(Object.hasOwn(withEmptyValue.inputs, "seed"), true);
+
+  const cases = [
+    [{ name: "ok" }, /必须提供 files 或 inputs\+build/u],
+    [
+      { name: "ok", files: { "a.txt": "a" }, inputs: { a: "x" }, build },
+      /不能同时提供/u,
+    ],
+    [{ name: "ok", files: { "a.txt": "a" }, inputs: { a: "x" } }, /不能同时提供/u],
+    [{ name: "ok", files: { "a.txt": "a" }, build }, /不能同时提供/u],
+    [{ name: "ok", inputs: {}, build }, /至少需要一个 input/u],
+    [{ name: "ok", inputs: null, build }, /缺少 inputs 普通对象/u],
+    [{ name: "ok", inputs: [], build }, /缺少 inputs 普通对象/u],
+    [{ name: "ok", inputs: { "": "x" }, build }, /input 键必须是非空文本/u],
+    [{ name: "ok", inputs: { "  ": "x" }, build }, /input 键必须是非空文本/u],
+    [{ name: "ok", inputs: { a: 1 }, build }, /input 值必须是字符串/u],
+    [{ name: "ok", inputs: { a: null }, build }, /input 值必须是字符串/u],
+    [{ name: "ok", inputs: { a: "x" } }, /inputs 必须与 build/u],
+    [{ name: "ok", inputs: { a: "x" }, build: "no" }, /build 必须是函数/u],
+    [{ name: "ok", build }, /缺少 inputs/u],
+  ];
+  for (const [spec, message] of cases) {
+    assert.throws(() => normalizeFixtureSpec(spec), message, JSON.stringify(Object.keys(spec)));
+  }
+});
+
+test("构造形式：空值输入可物化且与非空值规格区分，不发明占位", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-built-empty-value") });
+  t.after(() => parent.close());
+  const marker = path.join(scratch, "built-empty-value.jsonl");
+  const emptySpec = buildPayloadSpec("built-empty-value", marker, { schema: "s", seed: "" });
+  const empty = materializeFixture(emptySpec, { scope: parent });
+  const nonEmpty = materializeFixture(
+    buildPayloadSpec("built-empty-value", marker, { schema: "s", seed: "two-rows" }),
+    { scope: parent },
+  );
+  assert.notEqual(nonEmpty.dir, empty.dir, "空 seed 与非空 seed 属于不同规格");
+  assert.equal(markerEvents(marker).length, 2, "两种规格各真实构建一次");
+  assert.equal(fs.readFileSync(empty.files.get("payload.txt"), "utf8"), "\n");
+  assert.notEqual(controlRecord(empty).digest, controlRecord(nonEmpty).digest);
+  assert.equal(materializeFixture(emptySpec, { scope: parent }).dir, empty.dir);
+  assert.equal(markerEvents(marker).length, 2, "空值规格复用时不得重建");
+});
+
+test("构造形式：同 run 串行复用同一构建，控制记录不进入工作副本", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-built-serial") });
+  t.after(() => parent.close());
+  const marker = path.join(scratch, "built-serial.jsonl");
+  const spec = buildPayloadSpec("built-serial", marker);
+  const first = materializeFixture(spec, { scope: parent });
+  const second = materializeFixture(spec, { scope: parent });
+
+  assert.equal(second.dir, first.dir);
+  assert.equal(markerEvents(marker).length, 1, "同 run 同 inputs 只能真实构建一次");
+  assert.deepEqual([...first.files.keys()], ["payload.txt"]);
+  assert.deepEqual(builtFixtureEntries(first), [".fixture-control.json", "payload.txt"]);
+  const record = controlRecord(first);
+  assert.equal(record.kind, "ai-novel-test-fixture-payload/v2");
+  assert.equal(record.name, spec.name);
+  assert.equal(record.form, "built");
+  assert.equal(record.files.length, 1);
+  assert.equal(record.files[0].path, "payload.txt");
+  assert.match(record.files[0].sha256, /^[0-9a-f]{64}$/u);
+
+  const before = fixtureTemplateHash(first);
+  const copy = createWorkingCopy(first, { scope: parent, context: t });
+  assert.deepEqual([...copy.files.keys()], ["payload.txt"]);
+  assert.deepEqual(fs.readdirSync(copy.dir).sort(), ["payload.txt"]);
+  fs.writeFileSync(copy.files.get("payload.txt"), "changed\n");
+  assert.equal(fixtureTemplateHash(first), before);
+  assert.equal(fs.readFileSync(first.files.get("payload.txt"), "utf8"), "two-rows\n");
+});
+
+test("构造形式反例：两个真实子进程同 inputs 竞争，builder 只执行一次", async (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-built-race") });
+  t.after(() => parent.close());
+  const harness = path.join(scratch, "built-race-harness");
+  const barrier = path.join(harness, "barrier");
+  fs.mkdirSync(barrier, { recursive: true });
+  const buildLog = path.join(harness, "build.jsonl");
+  const driver = path.join(harness, "built-race-driver.mjs");
+  fs.writeFileSync(
+    driver,
+    [
+      'import fs from "node:fs";',
+      'import path from "node:path";',
+      `import { materializeFixture, openTestRunScope } from ${JSON.stringify(TEST_ENV_URL)};`,
+      "const scope = openTestRunScope();",
+      'fs.writeFileSync(path.join(process.env.FIXTURE_BARRIER, `arrived-${process.pid}`), "x");',
+      "const started = Date.now();",
+      "while (Date.now() - started < 20000) {",
+      '  const arrivals = fs.readdirSync(process.env.FIXTURE_BARRIER).filter((name) => name.startsWith("arrived-")).length;',
+      "  if (arrivals >= 2) break;",
+      "  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);",
+      "}",
+      "const fixture = materializeFixture({",
+      '  name: "built-race",',
+      "  inputs: JSON.parse(process.env.FIXTURE_INPUTS),",
+      "  build(staging) {",
+      '    fs.appendFileSync(process.env.FIXTURE_BUILD_LOG, `${JSON.stringify({ kind: "build", pid: process.pid })}\\n`);',
+      '    fs.writeFileSync(path.join(staging, "payload.txt"), "race\\n");',
+      '    fs.appendFileSync(process.env.FIXTURE_BUILD_LOG, `${JSON.stringify({ kind: "payload", pid: process.pid })}\\n`);',
+      '    return ["payload.txt"];',
+      "  },",
+      "}, { scope, waitTimeoutMs: 15000 });",
+      "scope.close();",
+      "console.log(JSON.stringify({ dir: fixture.dir, pid: process.pid }));",
+      "",
+    ].join("\n"),
+  );
+  const env = {
+    ...parent.env(),
+    FIXTURE_BUILD_LOG: buildLog,
+    FIXTURE_INPUTS: JSON.stringify({ schema: "provider_runs/v1", seed: "race" }),
+    FIXTURE_BARRIER: barrier,
+  };
+  const [left, right] = await Promise.all([
+    runProcess(process.execPath, [driver], { env }),
+    runProcess(process.execPath, [driver], { env }),
+  ]);
+  assert.equal(left.status, 0, left.stderr);
+  assert.equal(right.status, 0, right.stderr);
+  const reports = [left, right].map((result) => JSON.parse(result.stdout));
+  assert.equal(reports[0].dir, reports[1].dir, "两个消费者必须拿到同一发布目录");
+  const events = markerEvents(buildLog);
+  assert.equal(events.filter((event) => event.kind === "build").length, 1);
+  assert.equal(events.filter((event) => event.kind === "payload").length, 1);
+  assert.equal(new Set(events.map((event) => event.pid)).size, 1, "payload 只能由一个 owner 构建");
+  assert.deepEqual(
+    fs.readdirSync(parent.fixturesDir).filter((name) => name.startsWith("built-race-")),
+    [path.basename(reports[0].dir)],
+    "不得残留 staging 等副本",
+  );
+  const record = JSON.parse(
+    fs.readFileSync(path.join(reports[0].dir, ".fixture-control.json"), "utf8"),
+  );
+  assert.equal(record.files[0].path, "payload.txt");
+  assert.deepEqual(
+    markerEvents(buildLog).map((event) => event.kind),
+    ["build", "payload"],
+    "真实 builder/payload 构造计数都必须是 1",
+  );
+});
+
+test("构造形式：inputs 变化产生新规格且不污染旧模板", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-built-inputs") });
+  t.after(() => parent.close());
+  const marker = path.join(scratch, "built-inputs.jsonl");
+  const makeSpec = (seed) => ({
+    name: "built-inputs",
+    inputs: { schema: "provider_runs/v1", seed },
+    build(staging) {
+      appendBuildMarker(marker);
+      fs.writeFileSync(path.join(staging, "payload.txt"), `${seed}\n`);
+      return ["payload.txt"];
+    },
+  });
+  const first = materializeFixture(makeSpec("v1"), { scope: parent });
+  const second = materializeFixture(makeSpec("v2"), { scope: parent });
+  assert.notEqual(second.dir, first.dir);
+  assert.equal(markerEvents(marker).length, 2);
+  assert.equal(fs.readFileSync(first.files.get("payload.txt"), "utf8"), "v1\n");
+  assert.equal(fs.readFileSync(second.files.get("payload.txt"), "utf8"), "v2\n");
+  const firstDigest = controlRecord(first).digest;
+  const secondDigest = controlRecord(second).digest;
+  assert.notEqual(firstDigest, secondDigest);
+
+  const firstAgain = materializeFixture(makeSpec("v1"), { scope: parent });
+  assert.equal(firstAgain.dir, first.dir);
+  assert.equal(markerEvents(marker).length, 2, "旧 inputs 复用时不得重建");
+  assert.equal(controlRecord(first).digest, firstDigest);
+});
+
+test("构造形式失败矩阵：异常/空声明/缺输出/多余文件/路径越界/symlink 均不发布", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-built-failure") });
+  t.after(() => parent.close());
+  const sentinel = path.join(scratch, "built-sentinel.txt");
+  fs.writeFileSync(sentinel, "sentinel\n");
+  fs.chmodSync(sentinel, 0o644);
+  const sentinelBefore = {
+    content: fs.readFileSync(sentinel, "utf8"),
+    mode: fs.statSync(sentinel).mode & 0o777,
+  };
+  const written = (staging, rel, content = "x\n") => {
+    fs.mkdirSync(path.dirname(path.join(staging, rel)), { recursive: true });
+    fs.writeFileSync(path.join(staging, rel), content);
+  };
+  const cases = [
+    {
+      name: "built-throw",
+      pattern: /初始化失败|injected builder failure/u,
+      build(staging, marker) {
+        appendBuildMarker(marker);
+        throw new Error("injected builder failure");
+      },
+    },
+    {
+      name: "built-empty",
+      pattern: /非空/u,
+      build(staging, marker) {
+        appendBuildMarker(marker);
+        return [];
+      },
+    },
+    {
+      name: "built-missing",
+      pattern: /缺少|不完整/u,
+      build(staging, marker) {
+        appendBuildMarker(marker);
+        written(staging, "present.txt");
+        return ["missing.txt"];
+      },
+    },
+    {
+      name: "built-extra",
+      pattern: /规格外|含规格外文件/u,
+      build(staging, marker) {
+        appendBuildMarker(marker);
+        written(staging, "payload.txt");
+        written(staging, "extra.txt");
+        return ["payload.txt"];
+      },
+    },
+    {
+      // 声明文件在多级目录下时，规格外目录排序在期望目录之后；dirs 长度比较
+      // 任一 || 变 && 会把 extra 目录放过去，必须按完整目录集合拒绝。
+      name: "built-extra-dir",
+      pattern: /规格外目录/u,
+      build(staging, marker) {
+        appendBuildMarker(marker);
+        written(staging, "nested/payload.txt");
+        fs.mkdirSync(path.join(staging, "zzz-extra-dir"));
+        return ["nested/payload.txt"];
+      },
+    },
+    {
+      // 私有控制记录只能由 owner 写；builder 在 staging 伪造同名文件必须按规格外
+      // 文件拒绝，不能靠随后 control 记录的 wx 失败来“碰巧”失败。
+      name: "built-control-forge",
+      pattern: /含规格外文件/u,
+      build(staging, marker) {
+        appendBuildMarker(marker);
+        written(staging, "payload.txt");
+        written(staging, ".fixture-control.json", "{}\n");
+        return ["payload.txt"];
+      },
+    },
+    {
+      name: "built-absolute",
+      pattern: /repo 相对 POSIX/u,
+      build(staging, marker) {
+        appendBuildMarker(marker);
+        return ["/tmp/escape.txt"];
+      },
+    },
+    {
+      name: "built-traversal",
+      pattern: /不得包含/u,
+      build(staging, marker) {
+        appendBuildMarker(marker);
+        return ["../escape.txt"];
+      },
+    },
+    {
+      name: "built-symlink",
+      pattern: /普通文件|symlink/u,
+      build(staging, marker) {
+        appendBuildMarker(marker);
+        fs.symlinkSync(sentinel, path.join(staging, "link.txt"));
+        return ["link.txt"];
+      },
+    },
+    {
+      name: "built-symlink-extra",
+      pattern: /普通文件|symlink/u,
+      build(staging, marker) {
+        appendBuildMarker(marker);
+        written(staging, "payload.txt");
+        fs.symlinkSync(sentinel, path.join(staging, "link.txt"));
+        return ["payload.txt"];
+      },
+    },
+  ];
+  for (const item of cases) {
+    const marker = path.join(scratch, `built-failure-${item.name}.jsonl`);
+    const spec = {
+      name: item.name,
+      inputs: { case: item.name },
+      build: (staging) => item.build(staging, marker),
+    };
+    assert.throws(() => materializeFixture(spec, { scope: parent }), item.pattern, item.name);
+    assert.equal(markerEvents(marker).length, 1, `${item.name}: builder 只执行一次`);
+    assert.deepEqual(
+      fs.readdirSync(parent.fixturesDir).filter((name) => name.startsWith(`${item.name}-`)),
+      [],
+      `${item.name}: 失败不得发布半成品`,
+    );
+    assert.deepEqual(
+      fs.readdirSync(parent.fixturesDir).filter((name) => name.startsWith(".staging-")),
+      [],
+      `${item.name}: 失败后不得残留 staging`,
+    );
+    const claims = fs.readdirSync(path.join(parent.fixturesDir, ".claims"));
+    assert.ok(
+      claims.some((name) => name.startsWith(`${item.name}-`) && name.endsWith(".failed")),
+      `${item.name}: 必须留下失败事实`,
+    );
+    let follower = "";
+    try {
+      materializeFixture(spec, { scope: parent });
+    } catch (error) {
+      follower = error.message;
+    }
+    assert.match(follower, /初始化已失败/u, `${item.name}: 同 run 不得擅自再构造`);
+    assert.equal(markerEvents(marker).length, 1, `${item.name}: 等待者不得重建`);
+  }
+  assert.deepEqual(
+    { content: fs.readFileSync(sentinel, "utf8"), mode: fs.statSync(sentinel).mode & 0o777 },
+    sentinelBefore,
+    "不得对 symlink 指向的借用文件 chmod/改写",
+  );
+});
+
+test("构造形式失败：primary 不被 staging 清理失败掩盖，正常/单失败/双失败分别可见", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-built-double-failure") });
+  const stagingResidue = () =>
+    fs.existsSync(parent.fixturesDir)
+      ? fs.readdirSync(parent.fixturesDir).filter((name) => name.startsWith(".staging-"))
+      : [];
+  const failedRecordOf = (name) => {
+    const claimsDir = path.join(parent.fixturesDir, ".claims");
+    const file = fs
+      .readdirSync(claimsDir)
+      .find((entry) => entry.startsWith(`${name}-`) && entry.endsWith(".failed"));
+    assert.ok(file, `${name}: 必须留下 failed 事实`);
+    return JSON.parse(fs.readFileSync(path.join(claimsDir, file), "utf8"));
+  };
+  const caught = (fn) => {
+    try {
+      fn();
+    } catch (error) {
+      return error;
+    }
+    assert.fail("期望初始化失败但成功发布");
+  };
+  t.after(() => {
+    for (const name of stagingResidue()) {
+      try {
+        fs.chmodSync(path.join(parent.fixturesDir, name), 0o755);
+      } catch {
+        // 仅用于失败路径清场。
+      }
+      try {
+        fs.rmSync(path.join(parent.fixturesDir, name), { recursive: true, force: true });
+      } catch {
+        // 仅用于失败路径清场。
+      }
+    }
+  });
+  // 先恢复 staging 权限并清场，再释放父 scope；否则 parent.close 可能先撞上 0555
+  // 目录而无法回收。该顺序在断言提前抛出时同样成立。
+  t.after(() => parent.close());
+  const failingSpec = (name, mutate) => ({
+    name,
+    inputs: { case: name },
+    build(staging) {
+      fs.writeFileSync(path.join(staging, "partial.txt"), "partial\n");
+      mutate?.(staging);
+      throw new Error("primary-builder-failure");
+    },
+  });
+
+  // 正常：成功发布、无 staging 残留。
+  const ok = materializeFixture(
+    {
+      name: "built-cleanup-ok",
+      inputs: { case: "ok" },
+      build(staging) {
+        fs.writeFileSync(path.join(staging, "payload.txt"), "ok\n");
+        return ["payload.txt"];
+      },
+    },
+    { scope: parent },
+  );
+  assert.deepEqual([...ok.files.keys()], ["payload.txt"]);
+  assert.deepEqual(stagingResidue(), [], "正常发布后 staging 所有权已随 rename 转移");
+
+  // 单失败：调用者看到 primary；staging 仍被清理；failed 记录准确。
+  const single = caught(() => materializeFixture(failingSpec("built-cleanup-single"), { scope: parent }));
+  assert.match(single.message, /primary-builder-failure/u);
+  assert.doesNotMatch(single.message, /清理失败/u, "单失败不得凭空出现清理失败");
+  assert.equal(single instanceof AggregateError, false);
+  assert.deepEqual(stagingResidue(), [], "单失败仍必须尝试并完成 owned staging 清理");
+  assert.match(failedRecordOf("built-cleanup-single").message, /primary-builder-failure/u);
+
+  // 双失败：staging 清理被真实文件系统拒绝（父目录不可写 → ENOTEMPTY/EACCES），
+  // primary 与 cleanup 都必须到达调用者和 failed 事实，不能只留 primary 在文件里。
+  const doubleName = "built-cleanup-double";
+  try {
+    const double = caught(() =>
+      materializeFixture(
+        failingSpec(doubleName, (staging) => fs.chmodSync(staging, 0o555)),
+        { scope: parent },
+      ),
+    );
+    assert.ok(double instanceof AggregateError, "双失败必须同时携带 primary 与 cleanup");
+    assert.match(double.message, /primary-builder-failure/u);
+    assert.match(double.message, /清理失败|staging/u);
+    assert.match(double.errors[0].message, /primary-builder-failure/u);
+    assert.ok(
+      ["EACCES", "EPERM", "ENOTEMPTY"].includes(double.errors[1].code),
+      double.errors[1].message,
+    );
+    const doubleRecord = failedRecordOf(doubleName);
+    assert.match(doubleRecord.message, /primary-builder-failure/u);
+    assert.match(doubleRecord.message, /清理失败|staging/u);
+    const retained = stagingResidue();
+    assert.equal(retained.length, 1, "清理失败时 staging 作为诊断事实保留，不伪装成已清理");
+  } finally {
+    // 无论断言是否抛出，都先恢复 0555 staging 的权限再删除，避免把只读目录留给
+    // 父 scope 回收或污染后续用例。
+    for (const name of stagingResidue()) {
+      try {
+        fs.chmodSync(path.join(parent.fixturesDir, name), 0o755);
+      } catch {
+        // 仅用于失败路径清场。
+      }
+      try {
+        fs.rmSync(path.join(parent.fixturesDir, name), { recursive: true, force: true });
+      } catch {
+        // 仅用于失败路径清场。
+      }
+    }
+  }
+  assert.deepEqual(stagingResidue(), []);
+
+  // builder 自己删掉 staging 后再失败：清理缺失不是第二个失败，primary 仍必须直出。
+  const vanished = caught(() =>
+    materializeFixture(
+      {
+        name: "built-staging-gone",
+        inputs: { case: "gone" },
+        build(staging) {
+          fs.rmSync(staging, { recursive: true, force: true });
+          throw new Error("primary-builder-failure");
+        },
+      },
+      { scope: parent },
+    ),
+  );
+  assert.match(vanished.message, /primary-builder-failure/u);
+  assert.equal(vanished instanceof AggregateError, false, "staging 已不存在不得伪造清理失败");
+  assert.deepEqual(stagingResidue(), []);
+});
+
+test("构造形式：owner 发布后退出，另一进程直接复用；缺控制记录不 fallback", async (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-built-exit") });
+  t.after(() => parent.close());
+  const marker = path.join(scratch, "built-exit.jsonl");
+  const inputs = { schema: "provider_runs/v1", seed: "exit" };
+  const driver = path.join(scratch, "built-exit-driver.mjs");
+  fs.writeFileSync(
+    driver,
+    [
+      'import fs from "node:fs";',
+      'import path from "node:path";',
+      `import { materializeFixture, openTestRunScope } from ${JSON.stringify(TEST_ENV_URL)};`,
+      "const scope = openTestRunScope();",
+      "const fixture = materializeFixture({",
+      '  name: "built-exit",',
+      "  inputs: JSON.parse(process.env.FIXTURE_INPUTS),",
+      "  build(staging) {",
+      '    fs.appendFileSync(process.env.FIXTURE_BUILD_LOG, `${JSON.stringify({ kind: "build", pid: process.pid })}\\n`);',
+      '    fs.writeFileSync(path.join(staging, "payload.txt"), "exit\\n");',
+      '    return ["payload.txt"];',
+      "  },",
+      "}, { scope });",
+      "scope.close();",
+      "console.log(JSON.stringify({ dir: fixture.dir }));",
+      "",
+    ].join("\n"),
+  );
+  const child = await runProcess(process.execPath, [driver], {
+    env: {
+      ...parent.env(),
+      FIXTURE_BUILD_LOG: marker,
+      FIXTURE_INPUTS: JSON.stringify(inputs),
+    },
+  });
+  assert.equal(child.status, 0, child.stderr);
+  const childReport = JSON.parse(child.stdout);
+  assert.equal(fs.existsSync(path.join(childReport.dir, ".fixture-control.json")), true);
+
+  const reused = materializeFixture(buildPayloadSpec("built-exit", marker, inputs), { scope: parent });
+  assert.equal(reused.dir, childReport.dir, "发布后 owner 退出仍可直接复用");
+  assert.equal(markerEvents(marker).length, 1, "复用不得重跑 builder");
+  assert.equal(fs.readFileSync(reused.files.get("payload.txt"), "utf8"), "exit\n");
+
+  const control = path.join(reused.dir, ".fixture-control.json");
+  const controlBytes = fs.readFileSync(control);
+  const controlMode = fs.statSync(control).mode & 0o777;
+  fs.chmodSync(control, 0o644);
+  try {
+    fs.rmSync(control);
+    assert.throws(
+      () => materializeFixture(buildPayloadSpec("built-exit", marker, inputs), { scope: parent }),
+      /控制记录|旧格式|不完整/u,
+      "缺控制记录的目标不能被当作可用模板",
+    );
+  } finally {
+    fs.writeFileSync(control, controlBytes);
+    fs.chmodSync(control, controlMode);
+  }
+  assert.equal(markerEvents(marker).length, 1);
+});
+
+test("构造形式复用前校验：字节漂移/额外文件/缺文件/控制记录 digest 均失败", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-built-drift") });
+  t.after(() => parent.close());
+  const marker = path.join(scratch, "built-drift.jsonl");
+  const spec = buildPayloadSpec("built-drift", marker);
+  const fixture = materializeFixture(spec, { scope: parent });
+  const payload = fixture.files.get("payload.txt");
+  const recordFile = path.join(fixture.dir, ".fixture-control.json");
+  const original = fs.readFileSync(payload);
+  const originalRecord = fs.readFileSync(recordFile, "utf8");
+
+  const payloadMode = fs.statSync(payload).mode & 0o777;
+  const recordMode = fs.statSync(recordFile).mode & 0o777;
+  const restorePayload = () => {
+    if (fs.existsSync(payload)) fs.chmodSync(payload, 0o644);
+    fs.writeFileSync(payload, original);
+    fs.chmodSync(payload, payloadMode);
+  };
+  const restoreRecord = () => {
+    fs.chmodSync(recordFile, 0o644);
+    fs.writeFileSync(recordFile, originalRecord);
+    fs.chmodSync(recordFile, recordMode);
+  };
+
+  fs.chmodSync(payload, 0o644);
+  try {
+    fs.writeFileSync(payload, "tampered\n");
+    assert.throws(() => materializeFixture(spec, { scope: parent }), /字节哈希|内容/u);
+  } finally {
+    restorePayload();
+  }
+
+  const extra = path.join(fixture.dir, "extra.txt");
+  try {
+    fs.writeFileSync(extra, "extra\n");
+    assert.throws(() => materializeFixture(spec, { scope: parent }), /规格外|完整文件集合/u);
+  } finally {
+    fs.rmSync(extra, { force: true });
+  }
+
+  try {
+    fs.rmSync(payload);
+    assert.throws(() => materializeFixture(spec, { scope: parent }), /缺少|不完整/u);
+  } finally {
+    restorePayload();
+  }
+
+  const record = JSON.parse(originalRecord);
+  record.digest = "0".repeat(64);
+  try {
+    fs.chmodSync(recordFile, 0o644);
+    fs.writeFileSync(recordFile, `${JSON.stringify(record, null, 2)}\n`);
+    assert.throws(() => materializeFixture(spec, { scope: parent }), /规格 digest|digit|控制记录/u);
+  } finally {
+    restoreRecord();
+  }
+
+  assert.equal(markerEvents(marker).length, 1, "漂移失败不得触发重建或静默修补");
+  assert.equal(materializeFixture(spec, { scope: parent }).dir, fixture.dir);
+});
+
+test("构造形式控制记录反例：空清单/坏条目/越界路径/坏字节/坏哈希/重复路径均失败", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-built-control") });
+  t.after(() => parent.close());
+  const marker = path.join(scratch, "built-control.jsonl");
+  const spec = buildPayloadSpec("built-control", marker);
+  const fixture = materializeFixture(spec, { scope: parent });
+  const recordFile = path.join(fixture.dir, ".fixture-control.json");
+  const original = fs.readFileSync(recordFile, "utf8");
+  const recordMode = fs.statSync(recordFile).mode & 0o777;
+  const rewrite = (mutate) => {
+    const record = JSON.parse(original);
+    mutate(record);
+    fs.chmodSync(recordFile, 0o644);
+    fs.writeFileSync(recordFile, `${JSON.stringify(record, null, 2)}\n`);
+  };
+  const cases = [
+    [(record) => { record.files = []; }, /非空payload清单/u],
+    [(record) => { record.files = ["bad"]; }, /普通对象/u],
+    [(record) => { record.name = "other-name"; }, /身份与规格不一致/u],
+    [(record) => { record.form = "literal"; }, /身份与规格不一致/u],
+    [(record) => { record.files[0].path = "/abs.txt"; }, /repo 相对 POSIX/u],
+    [(record) => { record.files[0].path = "../escape.txt"; }, /不得包含/u],
+    [(record) => { record.files[0].bytes = -1; }, /字节数非法/u],
+    [(record) => { record.files[0].sha256 = "abc"; }, /字节哈希非法/u],
+    // 声明事实漂移：类型合法但与真实 payload 不一致，也必须逐项拒绝。
+    [(record) => { record.files[0].bytes += 1; }, /字节哈希不一致/u],
+    [(record) => { record.files[0].sha256 = "0".repeat(64); }, /字节哈希不一致/u],
+    [(record) => { record.files.push({ ...record.files[0] }); }, /重复路径/u],
+  ];
+  for (const [mutate, pattern] of cases) {
+    rewrite(mutate);
+    try {
+      assert.throws(() => materializeFixture(spec, { scope: parent }), pattern);
+    } finally {
+      // 断言失败也要把控制记录恢复为原字节与原权限，避免残留被篡改的只读模板。
+      fs.chmodSync(recordFile, 0o644);
+      fs.writeFileSync(recordFile, original);
+      fs.chmodSync(recordFile, recordMode);
+    }
+  }
+  assert.equal(markerEvents(marker).length, 1, "控制记录反例不得触发重建");
+  assert.equal(materializeFixture(spec, { scope: parent }).dir, fixture.dir);
+});
+
+test("字面fixture允许空文件，控制记录字节数为0", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-empty-file") });
+  t.after(() => parent.close());
+  const spec = { name: "empty-file-fixture", files: { "empty.txt": "" } };
+  const fixture = materializeFixture(spec, { scope: parent });
+  assert.equal(fs.readFileSync(fixture.files.get("empty.txt"), "utf8"), "");
+  const record = controlRecord(fixture);
+  assert.deepEqual(record.files, [
+    { path: "empty.txt", bytes: 0, sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+  ]);
+  assert.equal(materializeFixture(spec, { scope: parent }).dir, fixture.dir);
+});
+
+test("fixture 调用边界：非法 scope 形状与最小正等待期限", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-fixture-scope-shape") });
+  t.after(() => parent.close());
+  const literal = { name: "scope-shape", files: { "alpha.txt": "alpha\n" } };
+  assert.throws(
+    () => materializeFixture(literal, { scope: { env() {} } }),
+    /需要外层 run scope/u,
+  );
+  assert.throws(
+    () => materializeFixture(literal, { scope: { fixturesDir: "not-a-scope" } }),
+    /需要外层 run scope/u,
+  );
+  const fixture = materializeFixture(
+    { name: "one-ms-wait", files: { "alpha.txt": "alpha\n" } },
+    { scope: parent, waitTimeoutMs: 1 },
+  );
+  assert.equal(fs.readFileSync(fixture.files.get("alpha.txt"), "utf8"), "alpha\n");
+  for (const waitTimeoutMs of [0, -1, Number.NaN, "10"]) {
+    assert.throws(
+      () => materializeFixture(literal, { scope: parent, waitTimeoutMs }),
+      /waitTimeoutMs 必须是正数/u,
+      `非法等待期限必须拒绝: ${waitTimeoutMs}`,
+    );
+  }
+});
+
+test("等待者遇到不可读 claim 仍按有界超时失败，不抛类型错误", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-unreadable-claim") });
+  t.after(() => parent.close());
+  const marker = path.join(scratch, "unreadable-claim.jsonl");
+  const spec = buildPayloadSpec("unreadable-claim", marker);
+  const fixture = materializeFixture(spec, { scope: parent });
+  const claimsDir = path.join(parent.fixturesDir, ".claims");
+  const claimFile = fs
+    .readdirSync(claimsDir)
+    .find((name) => name.startsWith(`${spec.name}-`) && name.endsWith(".claim"));
+  assert.ok(claimFile, "必须先存在归属记录");
+  fs.rmSync(fixture.dir, { recursive: true, force: true });
+  fs.writeFileSync(path.join(claimsDir, claimFile), "{}\n");
+  const started = Date.now();
+  assert.throws(
+    () => materializeFixture(spec, { scope: parent, waitTimeoutMs: 50 }),
+    /等待 fixture 初始化超时/u,
+  );
+  assert.ok(Date.now() - started < 2000, "不可读 claim 不得无限等待");
+  assert.equal(markerEvents(marker).length, 1);
+});
+
+test("字面fixture大小写混排路径可跨调用/进程复用", async (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-mixed-case-paths") });
+  t.after(() => parent.close());
+  const spec = {
+    name: "mixed-case-paths",
+    files: {
+      // leader-review/path-order.json 的原始两文件：READ M E 与 config 的首字符
+      // 大小写关系正是 localeCompare 与 code-unit 次序分歧的最小形状。
+      "README.md": "# readme\n",
+      "config.yml": "key: value\n",
+      "Beta.txt": "B\n",
+      "alpha.txt": "A\n",
+      "nested/Zeta.txt": "Z\n",
+    },
+  };
+  const first = materializeFixture(spec, { scope: parent });
+  assert.equal(materializeFixture(spec, { scope: parent }).dir, first.dir);
+  const childCode = `
+import { materializeFixture, openTestRunScope } from ${JSON.stringify(TEST_ENV_URL)};
+const scope = openTestRunScope();
+const fixture = materializeFixture(JSON.parse(process.env.MIXED_CASE_SPEC), { scope });
+scope.close();
+console.log(JSON.stringify({ dir: fixture.dir }));
+`;
+  const child = await runProcess(process.execPath, ["--input-type=module", "-e", childCode], {
+    env: { ...parent.env(), MIXED_CASE_SPEC: JSON.stringify(spec) },
+  });
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(JSON.parse(child.stdout).dir, first.dir, "跨进程必须复用同一发布目录");
+  for (const [rel, content] of Object.entries(spec.files)) {
+    assert.equal(fs.readFileSync(first.files.get(rel), "utf8"), content);
+  }
+});
+
+test("字面控制记录必须包含规格的完整文件集合，缺项/多项均拒绝", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-literal-completeness") });
+  t.after(() => parent.close());
+  const spec = {
+    name: "literal-completeness",
+    files: { "alpha.txt": "alpha\n", "beta.txt": "beta\n" },
+  };
+  const fixture = materializeFixture(spec, { scope: parent });
+  const recordFile = path.join(fixture.dir, ".fixture-control.json");
+  const original = fs.readFileSync(recordFile, "utf8");
+  const recordMode = fs.statSync(recordFile).mode & 0o777;
+  const rewrite = (mutate) => {
+    const record = JSON.parse(original);
+    mutate(record);
+    fs.chmodSync(recordFile, 0o644);
+    fs.writeFileSync(recordFile, `${JSON.stringify(record, null, 2)}\n`);
+  };
+  const restoreRecord = () => {
+    fs.chmodSync(recordFile, 0o644);
+    fs.writeFileSync(recordFile, original);
+    fs.chmodSync(recordFile, recordMode);
+  };
+  rewrite((record) => {
+    record.files = record.files.filter((entry) => entry.path !== "beta.txt");
+  });
+  const tampered = JSON.parse(fs.readFileSync(recordFile, "utf8"));
+  assert.equal(tampered.digest, JSON.parse(original).digest, "反例保留原 digest");
+  assert.deepEqual(tampered.files.map((entry) => entry.path), ["alpha.txt"]);
+  // leader-review/literal-completeness.json：同时删掉测试自有目录里的 beta.txt，
+  // 独立字面输入仍要求它；期望集合只能来自 normalized.files，不能被 metadata 缩小。
+  const betaFile = path.join(fixture.dir, "beta.txt");
+  const betaMode = fs.statSync(betaFile).mode & 0o777;
+  try {
+    fs.chmodSync(betaFile, 0o644);
+    fs.rmSync(betaFile);
+    assert.throws(
+      () => materializeFixture(spec, { scope: parent }),
+      /控制记录路径与字面规格不一致/u,
+      "控制记录缺项时不得只核对剩余文件就通过",
+    );
+  } finally {
+    fs.writeFileSync(betaFile, "beta\n");
+    fs.chmodSync(betaFile, betaMode);
+    restoreRecord();
+  }
+  rewrite((record) => {
+    record.files.push({ path: "gamma.txt", bytes: 1, sha256: "0".repeat(64) });
+  });
+  try {
+    assert.throws(
+      () => materializeFixture(spec, { scope: parent }),
+      /控制记录路径与字面规格不一致/u,
+      "控制记录多项时必须拒绝",
+    );
+  } finally {
+    restoreRecord();
+  }
+  assert.equal(materializeFixture(spec, { scope: parent }).dir, fixture.dir);
 });

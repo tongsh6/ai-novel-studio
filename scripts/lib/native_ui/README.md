@@ -141,7 +141,8 @@
 - `authoring_g3_evidence.test.mjs`：G3 失败校验回流的正反例（紧邻请求/同 call ID/唯一 source/预算与权限边界/迟到回放拒绝）。
 - `authoring_auto_maintenance_evidence.test.mjs`：C1–C11 自动维护判据正反例（checkpoint 与消息同边界、精确 covers、细条/展开、刷新幂等、失败静默、清理）。
 - `authoring_behavior_verifier.test.mjs`：behavior verifier 合成目录端到端（合法 case 通过并写分层 summary；违规/unknown 失败关闭）。
-- `authoring_call_evidence.test.mjs`：逐调用证据关联纯函数测试（临时只读 SQLite + 真实记录形状；只按显式 prun/pcall 绑定）。
+- `authoring_call_evidence.test.mjs`：逐调用证据关联纯函数测试（只按显式 prun/pcall 绑定；不 import fs/os/DatabaseSync，不创建 scope/DB；callrefs-03 记录语义用 Node 标准 JSON 模块加载受跟踪静态输入，属于代码/输入加载而非业务 IO）。
+- `authoring_call_evidence_io.test.mjs`：上者的真实 SQLite 读边界：文件入口 `before` 一次申请 run scope 并 `materializeFixture({name, inputs, build})` 构造 DELETE 封存的 1 表 2 行模板，`after` 关闭；两个 DB case 只读共享模板或取自己的可写副本，不各自 openTestRunScope/重建 run。`readProviderRuns → joinNativeCallEvidence` 复验 owned/foreign 与 finite mode；两可写副本独立，case 追加 wrong ownership 行只被真实 reader+纯 join 拒绝，模板/父 marker 不变，本 case 独有 sentinel/叶子显式回收且共享 work/tmp 无净增。callrefs-03 反例已回纯测试集，本文件不因它触发业务 IO。
 - `authoring_live_refs.test.mjs`：L7 refs 证据纯判据正反例（唯一自报来源、配对唯一记录、缺失/重复/越界拒绝）。
 - `authoring_memory_detail_evidence.test.mjs`：记忆详情证据 I/O 边界（正确 journey/checkpoint、覆盖/跳步拒绝）。
 - `live_run_wait.test.mjs` / `strata_lifecycle.test.mjs`：run 终局只认 owning turn/run 绑定与 DB 兜底、模型行为分类；strata 单槽加载/卸载判据与 error 语义。

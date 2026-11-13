@@ -219,6 +219,39 @@ CRAP采用**未改写的Node标准完整测试LCOV**（包含CLI `main` 33次命
 
 后续迁移的边界裁决：采集清单中的“非目标”仅是worker对非SQLite类别的标签，**不采纳为B84范围排除**；日志/文本、native_ui_wait等仍在A2。局部 `writeSource/createSourceDb` 已是现有builder，应审核后提取/复用，不能说“没有共享builder”就自由另造一套。snapshot的14表与capture的20表是不同测试投影，种子与列集合不能直接合并；是否符合当前真实消费者目标还要独立复核，不把现状当权威，也不把最小I/O夹具称为生产全Schema证据。纯判定先摆脱无关建库；确需文件/SQLite的反例与各类退出证明不得删除。
 
+### A2 构造资产与首个SQLite消费者（2026-11-14 开始）
+
+质量测试单元已本地提交 `d14a4e7a`，未推送。下面的设计由 [quality-gates §2.5.7](../../docs/engineering/quality-gates.md)统一维护；构造资产及首个SQLite消费者已实现并完成本单元工程验收，不能据此关闭A2或B84。
+
+- **Contract/Invariant**：§2.5.7、B71 §16.9逐调用归属；纯集合不创建DB，同run同构造规格只初始化一次，回调只在获claim后运行；完整payload和指纹原子发布，借用原始资料不动，可写case隔离。
+- **Boundary/Consumer**：扩展现有 `test_env.mjs`；将 `authoring_call_evidence.test.mjs` 的1个SQLite用例移到邻接IO测试，其余纯判定留原文件；真实消费者为已有 `readProviderRuns → joinNativeCallEvidence`，不改生产app或该证据判定语义。
+- **实体查重**：唯一run/fixture owner已存在；call测试的 `scope/pair/exchange/base` 等合成数据构造器也已存在，提取为该家族fixture owner后删原复制。既有confirmation/R01 fixture不是同一规格，不能借名字合并；仅批准这一家族的纯fixture文件、SQLite fixture构造文件和邻接IO测试，均放既有fixtures/索引链，不另建框架或通用SQL builder。SQL构造复用原case实现并按实际producer字段/类型复核，不把最小查询投影称为可运行生产库。
+- **Proof/Acceptance Driver**：外部进程分别重复/并发调用，观测真实builder与payload写入次数（不能只数最终目录）；同输入复用、输入变化新规格、失败不发布、发布后owner退出、模板漂移/越界、两可写副本与原始父sentinel、文件/DB关闭及退出。保留只按run读行、逐字段归属拒绝、有限模式观察的原反例。由真实Node/SQLite消费者驱动，不触发真实Tauri/模型。
+- **Exploration**：不物化作品要素或改变模型请求，不适用；app全Schema及真实页面证明仍留在后续A3/A4/A5。
+
+事实依据为 `a2-node-fixtures/consumer-review.json` 与摘要：已存在的迁移入口只启动Ecto/adapter/Repo，不启动provider；restoreSnapshot已有copy后chmod0600，不需要另修一套恢复；call读取1表，confirmation读取8表，R01两族是不同投影。合成WAL只读实验已证实辅助文件会生成，模板封存须处理此实际边界。不得改真实源或原始基线，也不在本步引入Node新特性/升级依赖。
+
+实施中审查（未提交/未验收）：leader用真实入口证明首版仍有三个缺口：字面输入的完整集合被控制记录缩小、README.md与小写路径排序不一致，以及裸IO文件两个case各自申请run而把同规格DB构造两次。证据在 `artifacts/b84-test-system/20261114/a2-sqlite-call/leader-review/`（`literal-completeness.json`、`path-order.json`、`bare-io-lifecycle.json`）；测试退出0没有代替这些目标判据。已主动停止首版的质量循环，先修正实际作用域与独立期望，再收敛验证；中断结果不记通过，取消后未观察到owned系统scope残留。静态JSON输入的纯join用例仍应留在纯集合，不因文件加载被机械归入需建库的IO集合。
+
+#### 第三单元复核与验证路径纠正（2026-11-14）
+
+首版缺口已修正；之后的验证仍发生过一次违规扩大：worker `fa0906e0` 未使用外层run，在系统TMPDIR执行全段变异。取消worker后孤儿mutator仍在运行，leader核实其根PID并以既有Bash `process_tree.sh`终止，随后未发现该运行的mutator/fixture子进程。新残留最终为104个 `test-env-scope-*` 目录、4,968,448分配字节，与此前约149GiB旧残留分开。初次88目录快照与停止后104目录清单分别保留在 `leader-review/unsafe-validation-residue*.json`；leader逐项核对来源代码/owned marker、ctime、完整文件集合与lsof无占用，复核inode后按清单回收104目录，证据见 `leader-final/residue-cleanup-{preflight,result}.json`。该新前缀现为0，旧DB前缀仍161，未触碰旧R01目录。**取消worker不是子进程已收口的证据；全局工具入口的受控运行仍属A5必做项，不能以人工指令代替机制。**
+
+leader同时拒绝为消除存活变异而删除工作副本cleanup幂等状态：`workcopy-ownership-regression.json`证明重复cleanup会删除原路径后来创建的数据。修复恢复“成功后完成、失败可重试”，在复制前建立释放责任，半途复制失败立即回收，仅当回收也失败时合并主因和清理错误。测试故障注入必须在finally恢复；stalled owner先结束，再释放父scope。SQLite用例不再以共享work目录全空作判据，只核对本case目录，并保留其他owner哨兵。此后worker限于代码修正，所有执行由leader经现有run入口完成。
+
+当前独立证据统一在 `artifacts/b84-test-system/20261114/a2-sqlite-call/leader-final/`：
+
+- `lifecycle-probe.json`：重复cleanup保留后来者、首文件成功后第二文件失败的半成品回收、复制/清理双失败完整传播、字面规格完整集合和大小写路径复用全部通过，owned scope已回收。
+- `sqlite-lifecycle.json`：真实裸IO入口一次、同run串行两次、同run并行两进程，分别观察到**一次真实模板DatabaseSync构造**；可写副本隔离，其他owner资源/父marker未动，子进程退出后无净增scratch。计数器在外部preload观察真实构造，不只数最终目录或控制记录。
+- `coverage-green/`：6个相关文件 **146/146通过、0失败**，单次标准Node原生LCOV保留BRDA。此前失败记录保留在 `coverage/`：一项新增测试漏绑TestContext已修，另两项原Shell测试明确为沙箱 `listen EPERM 127.0.0.1`（`ports-sandbox.log`），在获准本地监听的环境复验通过，未修改端口断言。
+- `crapper.log`：三个本批源文件最高CRAP **9**，使用上述未改写的原生LCOV；`dryer/`使用字节一致的`.ts`镜像适配工具已知扩展名限制，阈值0.8无重复候选。
+- 干净源码副本的完整quality集合与两个call消费者：**26文件、385测试，372通过/13既有历史证据缺失跳过/0失败**（`clean-quality-green.{json,log}`），起点无私有artifacts与repo/tmp，源码副本随run回收。此前同拓扑的两项负控制失败见 `clean-quality.log`：AU15 guard把整个父run作为允许根，导致run内源码副本的artifacts被放行；现只由正常调用显式放行当前工作副本，负控制缺省无豁免，并补父run内子树反例。未改SUT或放宽拒绝断言。
+- 差量变异按完整变更函数分纯规格/文件生命周期/等待语义执行，源码副本及工具overlay均位于同一owned run内，每次子测试保存源码hash/输出/退出码。144个owner点+3个SQLite builder点：140项正常非零，1项自等待用50ms公开等待期限独立证明失败，2项分别复现根目录固定点/索引不推进造成的不终止；4个存活点保留契约说明（目录祖先集合已由文件集合约束、等待边界一轮poll容差、Node版本非空域、一级目录创建）。不把存活点改码刷掉，不把13个未选中的旧CLI/平台未覆盖点算本批失败或补全。具体原始退出码与限定结论见 `mutation-review.json`、`timeout-classification.json`；工具原始exit3保留，不宣称全文件100%。首次混合用例的35个强杀、源码副本缺依赖的baseline失败均不直接计绿。
+
+最终工程门已执行既有 `bash scripts/task_done.sh --top 10`（内含完整 `bash scripts/ai_static_scan.sh --top 10`），退出0：21项原始检查20通过、1项gitleaks非零、0跳过；Top10实际7项均有既有处置（6误报、1已接受的其他开发线历史风险），阻塞数0，本批无新增待处置问题。`artifacts/task-done/20261113T234432Z/manifest.json`记录完整运行；随后仅修正文档消费者说明与本段状态，刷新manifest时复用同源扫描结果，不重跑未变化的代码集合。不跳hook、不推送；最终manifest、源文件hash、提交与临时目录检查归 `leader-final/result.json`。
+
+本单元不改变生产证据reader/join语义、不触发模型或真实页面。confirmation、R01各族、其余Node临时资源、后端/Rust/前端/原生入口与宿主强杀恢复仍按A2–A5继续；已发现的外部工具绕过入口问题必须在该范围内闭环。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。
