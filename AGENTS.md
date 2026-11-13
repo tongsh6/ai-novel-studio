@@ -6,7 +6,10 @@
 
 工程设计、实现、重构、数据、兼容和发布任务开始前，必须读取唯一项目画像：
 
-- `docs/engineering/project-operating-profile.yaml`
+Profile: `docs/engineering/project-operating-profile.yaml`
+
+AIEF v1 normative specification: https://github.com/tongsh6/ai-engineering-framework/blob/main/docs/standards/patterns/project-operating-context.md
+AIEF v1 JSON Schema: https://github.com/tongsh6/ai-engineering-framework/blob/main/docs/standards/schemas/project-profile.schema.json
 
 本项目遵循 AIEF Project Operating Context v1 契约，但项目画像位置服从本仓库既有 SSOT；禁止为了使用默认路径而新建平行的 `context/` 目录。
 

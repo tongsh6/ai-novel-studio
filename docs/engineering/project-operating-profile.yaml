@@ -227,8 +227,8 @@ governance:
     /project/constraints/respect-document-ssot:
       status: confirmed
       source:
-        type: manual_document
-        reference: AGENTS.md project knowledge structure SSOT
+        type: user_instruction
+        reference: Maintainer-confirmed AGENTS.md project knowledge structure SSOT
       confirmedAt: "2026-11-13"
     /project/currentFocus:
       status: confirmed
