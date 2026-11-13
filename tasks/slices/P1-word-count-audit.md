@@ -88,7 +88,7 @@ P1 已经能：生成章节计划 → 生成正文草稿 → 采纳进入作品�
 - **门禁**：后端 631 测试 0 failures、xref 无循环、arch、I1/I2/I3、credo 0 issues；前端 typecheck/lint/test(176)、frontend_audit(exit 0)、design_trace 100%。本次引入的唯一 touched-file finding（credo nesting at reading_projection_repo.ex）已修。
 - **外部 Tauri 验收（确定性 provider）通过**：`bash scripts/tauri_slice_verify.sh p1-word-count-audit`。真实工作台生成并采纳一个 168 字（<1000）短章 → ReadingMode 目录标「短章」、顶栏显示「P1 进度 168 / 100,000 字」非「已达 P1 目标」。证据 `artifacts/slice-verify/p1-word-count-audit-tauri/summary.json`（`short_chapter_marked=true`、`milestone_met=false`、11 条 assertions 含 `sub_1000_word_chapter_marked_short_in_toc` / `p1_milestone_progress_visible_not_met`）+ 产物 `artifacts/novel-output/p1-word-count-audit/word-count.json`。
 
-### checkpoint B / C（未做，slice 内后续，非范围外）
+### checkpoint B C（未做，slice 内后续，非范围外）
 
 - 状态：**todo（2026-10-30 明确既有 B/C 的排期入口；checkpoint A 历史完成记录不变，B/C 未实施）**。
 - **B**：重复段落 / 重复章检测（确定性段落比对）。

@@ -2,12 +2,14 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**todo（2026-11-13 设计/批次重新评审并登记；R00–R19 均未实施）**。
+**状态**：**doing（2026-11-13：R00 事实/契约审计交付完成，收口见 §9.6；R01–R19 未实施，生产行为未变；远端 CI 基线缺口仍开放）**。
 
 - 目标分支：`develop/dialogue-based-novel-workbench`；执行时以最新 HEAD 为准，不使用 2026-11-11 的旧日志推断现状。
 - 关联：[Issue #4](https://github.com/tongsh6/ai-novel-studio/issues/4) / [VS-00M 唯一增量架构契约](../../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md)（Proposed 重审稿）/[VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md)（Frozen）/[ADR-0035](../../docs/design/adr/ADR-0035-session-scoped-canonical-authoring-context-v3.md)（Accepted）。
 - 本文件是 **唯一执行状态真源**；[批次 README](B87-model-interaction-request-projection/README.md) 定统一执行门禁，各 `Rxx.md` 只给该会话的目标/范围/验收，不登记独立进度。索引/NEXT 只导航。
-- 作者 2026-11-13 明确授予**设计与任务文档调整**权限，原则为：**未上线、无历史兼容、彻底重构保持 clean、所有新实体/设计先查重、践行 SOLID/DRY/KISS/YAGNI/SoC 等原则**。当前仅文档落地，**不等于已授权并执行生产代码/数据库修改**。
+- 作者 2026-11-13 最初授予**设计与任务文档调整**权限，原则为：**未上线、无历史兼容、彻底重构保持 clean、所有新实体/设计先查重、践行 SOLID/DRY/KISS/YAGNI/SoC 等原则**。当时仅文档落地，**不等于当时已授权并执行生产代码/数据库修改**；本次后续授权见下条。
+- **后续授权（同日，本次 goal）**：作者授权高质量推进 NEXT，要求先整体审查设计再实现，并明确使用 dsh-worker。此前“仅文档”的授权记录保留为历史事实；现在可按任务契约推进实现，但不据此把 Proposed 方案、自动采纳产品语义或未运行验收记成 Accepted/PASS。当前先完成禁止生产修改的 R00。
+- **实模资源授权（同日，本会话）**：作者明确“授权使用 splash”。B87 后继按固定预注册使用 Splash 做实模基线/回归/真实页面；无需重复申请同一供应商使用权限。授权不等于预注册、实际运行或 PASS，也不允许更换样本、修改分母或覆盖失败证据。
 
 ## 1. 为什么重排
 
@@ -199,3 +201,137 @@ R00 需先对本设计提出的差异给出有效裁决；若 VS-00L/ADR-0035 �
 **最先可启动**：R00（只读审计+冻结冲突核对+实体查重，不修改生产代码）；R01 需 R00 形成经过复核的成本样本。其它批次依实际依赖推进，不能因“作者授权改设计”自动跳过 R00。
 
 **历史证据与计划修订**：旧 B87 R00–R10 的编号/任务范围已整体替换，Git 历史可回查；不保留旧任务卡副本或把旧批次标 done；未上线的产品无旧 API/旧 Schema 兼容承诺。
+
+## 9. R00 执行记录（2026-11-13）
+
+### 9.1 开工与七问
+
+- 基线：`develop/dialogue-based-novel-workbench`，`89b44a95e22f0c4902c5dfff5002838b3097b12d`；开工工作树干净。Issue #4 本文及 3 条评论已读取；历史评论的 B85/队首导航以当前 NEXT/B87 为准。
+- 分工：leader 审查愿景、Frozen 冲突、设计取舍和最终证据；dsh-worker 执行代码/调用者清单与质量基线采集（任务 `a3178e1e-73ee-4026-8357-cb7f9a510207`，session `mcp-a3178e1e-73ee-4026-8357-cb7f9a510207`）。worker 自述不代替源码/退出码验收。
+- 可改：本任务执行记录、VS-00M 的审计结论与必要任务卡导航；机器证据写 `artifacts/model-contracts/b87-r00/20261113/`。禁止修改生产、测试、Schema、原始质量证据与作者数据；本批不调用真实 Provider，不改变数据库结构。
+
+| 七问 | 本批答案 |
+|---|---|
+| Contract | 消费 Frozen VS-00L、Accepted ADR-0033/0035、愿景 §2.1/§2.4；审查 Proposed VS-00M 和固定源基线候选包。审计不自动冻结提案。 |
+| Invariant | 唯一 Canonical/RequestIR；作者原文字节、真实观察/执行来源；不可静默丢历史；采纳/作品隔离；新增实体先查重。 |
+| Boundary | 只读贯穿 common/domain/agent/application/persistence/web/frontend；本批没有生产跨层修改。 |
+| Consumer | R01 的可重算成本基线，以及 R02–R19 开工时必须核查的现役归属与冲突表。 |
+| Proof | 符号定义+真实调用者+存储字段/事务、Frozen 原条款；共同门禁原命令/退出码/日志。历史证据与当前 HEAD 实测分开。 |
+| Acceptance Driver | R00 不改变用户行为，验收是可复查审计和既有命令；无需把 UI 或实模结果伪装成本批产物。后续行为批次沿既有真实 Tauri 驱动。 |
+| Exploration | 不物化作品要素、不改变模型作品知识输入，故本批不适用；审计必须确认后继复用既有只读探索及 refs 绑定，而非新建固定投喂目录。 |
+
+新增产品实体/字段/Schema/API/事件/配置：**none**。本批不删除产品入口；删旧收敛计划与候选概念的逐项归属在审计结果中登记，实施时仍须重新核查全部当前消费者。
+
+### 9.2 Leader 审核：现役归属与删旧约束
+
+代码定位的完整采集表见 `artifacts/model-contracts/b87-r00/20261113/code-existence.md`；下表是审核后的设计结论。路径相对仓库根；函数调用与字段检查优先于“同名/不同名”判断。
+
+| 需求/候选对象 | 已核实归属与消费链 | 决定 / 不足 / 删旧约束 |
+|---|---|---|
+| 新请求/Exchange/ModelInteraction | `apps/novel_common/lib/novel_common/request_ir.ex` → `provider/gateway.ex:execute/4` → `RequestIR.Projection.project/3`；`AuthoringTranscript.to_request_ir/2` 为应用 producer | **reject** 平行实体，**reuse** IR；候选 Exchange 仅离线容器，生产不引入第二请求包装和数据库 |
+| 新历史/Checkpoint 仓库 | `authoring_session_history.ex:fetch/compose` → `AuthoringSessionLog.fetch_session/append_run`；`AgentRunLog.commit_snapshot` 同事务提交；`AuthoringReplay`/`TraceReplayService` 回查 | **reuse** 唯一消息/段头存储；不能因 run checkpoint 与 IR checkpoint 同名就合并两种不同职责 |
+| 新 Scope 压缩器 | `request_ir/compaction.ex:require_call_ids/project` + `transcript_compaction.ex:plan_maintenance` + `authoring_checkpoint.ex:append_checkpoint` | **refactor-and-retire** 现役覆盖契约，见 VS-00M §12；未冻结新选择器前不删 Scope，不伪造工具交换 |
+| Context/Task 两种值 | `context_assembler.ex:assemble_for_input` 读取并组装 `DialogueContext`；`authoring_task_builder.ex:new/for_revision` 从已验证事实组装 `AuthoringTask` | **reuse** 不同职责，不因存在两种值就二选一删除。R02/R05 要收敛的是重复取数/供给/来源决策，专业 Task 仍有独立消费者；禁止建立巨型统一 Builder |
+| Context/Task 兼容入口 | `ContextAssembler.fetcher_return` 仍列 5–9 元组、`safe_fetch` 兼容旧 fetcher；`AuthoringTaskBuilder.from_input` 缺字段返回 `{:ok,nil}` 并标迁移期兼容 | **refactor-and-retire**：R02/R05 查全生产与测试调用后一次迁移；不能直接删专业能力，也不能保留旧 stub 专用形状来冒充产品需求 |
+| 新 Provider/路由/投影 | `NovelAgent.Provider` behaviour、`Provider.Gateway`、`SSEStream`、common 三 wire 投影均有现役 adapter 消费 | **reuse**；区分原生流、重组输出与 ProviderOutput，禁止引入候选 Python 投影器作为生产第二 adapter |
+| 两个 CapabilityRegistry | common 提供共享工具事实，application 查询 common 并添加 `revise_character_profile`/`maintain_chapter_structure`；Toolbox 与 Orchestrator 消费面不同 | **reuse** 归属；**refactor-and-retire** 重复 grants/dispatchable 纯判定，不把 additive 目录误删成双真源，不新增第三 registry |
+| 新 RiskPolicy/RiskEngine | `CapabilityRegistryEntry.risk_class`、`MicroPlan.risk_hint`、`GateOrder` authority、`ApprovalAudit` | **refactor-and-retire** 现有风险派生：authority 当前读模型 risk_hint，Audit 对已知动作固定 HIGH；基准/提示/最终风险不是同一事实。R10 接唯一系统派生，不新建风险服务 |
+| 确认/审批记录 | `ConfirmationBinding.build` → `AuthorActionAdmission/Confirmation` → re-gate；`ApprovalAudit.enrich/project_receipt` 依托 `author_action_receipts.result` | **reuse** 现有 binding/receipt；它们是一次动作事实，不是长期授权。禁止新建 ApprovalRecord 平行存储 |
+| 模式/撤销委托 | `AgentRun.authority_scope` 持久 map、`AgentRunPolicy`、work/session/偏好是候选载体；当前 run 默认 production_write=false、allowed_tools 白名单；run_mode 是 bounded/durable | **refactor-and-retire（载体选择待 R11/R14）**；尚未查得完整授权生命周期，**不能由此直接裁定 truly-new 表**。逐字段比较现存配置/receipt 的所有权、继承、撤销并发后再定最小存储；critical 是风险等级而非第五种模式 |
+| 新 AutoAdoptionService | `AdoptionWorkflow`、`AdoptionBoundary`、`AuthorActionReceiptRepo` 与既有 repository 事务 | **reject** 平行采纳服务；R15 消费真实授权后复用事务，候选未存在不能预采纳，回执失败不能补写成功 |
+| 新作者可见过滤器 | `AgentNarrativeSource.from_provider_result/from_tool_call_narrative` 在 JudgmentProtocol 生产调用中检查原始来源字节；`verify/3` 是独立复核函数；`AuthorVisible.Text`/Presenter 与 TurnResultBuilder 为现役出口 | **reject** 后处理改写器，**refactor-and-retire** 输入/输出漏洞。`verify/3` 无生产调用不证明“生产没有字节校验”；来源字节匹配也不证明内部 ref 不泄漏。C9 仍由 R06 处理 |
+| 新页面/Channel/验收钩子 | `frontend/src/App.tsx` → `WorkspaceChat` → `WorkspaceChannel` → 应用服务；回放有 TraceReplayController | **reuse** 真实入口；不新增专用验收路由、隐藏字段或产品感知自动化 |
+
+本批 **truly-new 产品对象为 0**。新字段及最终类型必须在所属批次逐字段复查；本表不把当前候选 Schema 的形状批准为实际字段。上述明确退役项的消费者与零残留证明由实际迁移批次补齐，未迁移前不写 clean 已完成。
+
+**Scope 进入历史请求的实际链**：`JudgmentProtocol.transcript_for_production/2`（:112）每次从 `profile_scope_text/2` 取得材料；新段 `new_transcript/4`（:706）写 initial_scope，已有段 `refresh_transcript/5`（:146）仅在**该段当前 scope 文本相等**时不追加。随后 `compose_session_history`（:63/:78/:84）经 `AuthoringSessionHistory.fetch_session/2`（:61）只排除历史 application_base，`compose/2`（:82）保留其余已提交消息与当前未提交尾部；三 wire 再经仅折叠工具交换的 Compaction。故“段内相等不追加”不能证明“跨 turn 不重复带完整 Scope”；R01 必须据原始消息分组量化，R03/R04 从覆盖契约修复，不能怪罪 Provider 缓存或在 wire 中按关键词删消息。
+
+**目录与历史设计复核**：00f 的能力等级及 00c 的 B58/后续表是历史导航，不替代任务状态或真实源码。除 ADR-0033/0035，还核对了 ADR-0020 与 `docs/design/quality/32-human-approval-policy.md`：maintenance 的 `auto_adoption_hint` 仅为建议、现行 HIGH/CRITICAL 与批准主体仍受限制；full 委托的影响必须覆盖这些条款，见 VS-00M §7.3/§12，不能只审 RequestIR 后便批准自动采纳。
+
+### 9.3 候选包全量概念边界
+
+当前候选包 9 份 Schema 中，8 份是根定义引用，105 个 `$defs` 集中在 `model-interaction.schema.json`。以下覆盖全部定义族；它们是候选审阅材料，不是 105 个待创建实体。所有嵌套字段仍受“该批查明现役字段/调用者再迁移”的门禁，不因本表分组而获得实施许可。
+
+| 候选定义族 | 处置与真实归属 |
+|---|---|
+| VersionRef / Source / Coverage / Omission / Coordinate / Count / Constraint / Goal / AuthorInput / ExecutionIdentity / TaskScope / OutputContract / Task | reuse/refactor-and-retire：RequestIR、AuthoringTask、领域坐标/来源；作者原文字节单独保留；字段详细映射归 R02/R05 |
+| ElementPayload_E01–E37 / NovelElement | reuse 已有要素模型与各领域契约；reject 37 张新表或全部默认材料包；payload 细字段不是现役事实 |
+| SceneUnit / ExecutionBrief / StyleContext / LiteraryContext | reuse 专业创作 brief 与来源约束；StyleContext 细字段待实际消费者证明，不扩张为作者资产系统 |
+| ChapterIndexPayload / TextPayload / EntityPayload / AssetPayload / CatalogPayload / Payload / Material / Context | refactor-and-retire 现役事实投影；AssetPayload 属 Issue #3 未来输入，reject 在 B87 新建资产库；禁止把所有材料整包再塞 Scope |
+| Budget / Delegation / Authority / ToolDefinition / Capabilities / System / Runtime / Protocol | reuse 已有 run/budget/registry/SystemIdentity/路由；Delegation 的存储待 R11/R14，无新授权字段获准；Protocol 仅候选版本标记 |
+| ToolArgs_judgment_decision / ask_author / agent_plan_draft / register_author_content / propose_creative_directions / propose_work_profile_revision / report_capability_gap / submit_tentative_artifact / report_quality_findings / continuation_decision | reuse 现役 10 个工具定义镜像；对应 profile 只取实际工具；不从候选镜像反向生成第二生产注册表 |
+| ToolCall / HistoryMessage / Checkpoint / History / Request / Usage / ModelResponse / ToolResult | reuse/refactor-and-retire IR、会话与 ProviderOutput/Usage/结果契约；Scope 覆盖、结果 envelope 和缺用量需按 VS-00M §12 冻结，不能把归一结果冒充原始网络字节 |
+| ValidationCheck / Validation / AuthorizationDecision / ModelTextBinding / SystemStatusMessage / ArtifactOutcome / Outcome / AuthorAction / ProviderEvent / Exchange | reuse 当前 validator/gate/trace/receipt/TurnResult/事件；reject 新 outcome/decision 持久总线；授权/执行/采纳分别保留来源 |
+| SummaryResult / FactInventoryResult / LedgerResult / MissionResult / CharacterItem / FormattingItem | reuse 专业 task/parser/领域契约；不得默认候选 JSON 与全部现役 parser 逐字段等价；维护/排版的确定性后果与生成正文分开 |
+
+### 9.4 R01 输入冻结与读侧证据
+
+R00 已定位并由 leader 独立复算三轮原始日志，**不是当前 HEAD 新跑的成功证据**。来源：`log/llm-calls/stage/2026-11-12.jsonl` 的第 1/2/3 行，文件 SHA-256 `c1d79f7e7cf39bf0ee567b0eb13bd9c16c3897015c753b8051b130a8aa4fdafc`；应用事件 join 来源为 `log/app/stage/2026-11-12.jsonl`，SHA-256 `39fcf5190f89648e63330351e0dd9e82eb101b808782d7028a0ff4691a90ddd7`。完整行号/turn/run/call 定位见 `artifacts/model-contracts/b87-r00/20261113/sample-locations.json`。源文件只读、不提交作品全文。
+
+| 轮次 / 固定作者原话 | 原始请求消息索引（0 起） | input / cached / output tokens | TTFT / 延迟（ms） |
+|---|---|---|---|
+| 1：当前有几章内容 | `request.body.messages[3].content` | 16462 / 0 / 335 | 22450 / 24930 |
+| 2：第一章是 卷纲，这不对吧 | `request.body.messages[6].content` | 27540 / 16448 / 2976 | 33235 / 39898 |
+| 3：不能接受卷纲在阅读里显示，应该在作品档案显示 | `request.body.messages[10].content` | 39772 / 27520 / 1621 | 17189 / 26248 |
+
+证据边界与后继口径：
+
+- 请求 `model` 与 `response.usage.model` 均为 `local/Q4-PLE4`，日志 `response.model` 为 `splash`；分别保留，不能把后者误认模型权重身份。日志 UTC 时间为 2026-11-11，对应本地 11-12 文件。三轮消息数 4/7/11，仅表明历史增长，不代替 R01 对 Scope/System/Tools/Observation 的精确分组。
+- 请求 `stream=true`；leader 检查三行 `response.body` 均为仅含 `source`/`tool_calls` 的对象，不是原始 SSE 帧。此来源明确 `raw_sse=not_collected`；可以分析请求和应用收集的输出，不能代签网络流验收或补造帧。
+- 每行去日志时间前缀后解析 JSON，来源 SHA 不符立即停止比较；按 session/turn/provider_call_ref join 应用事件，作者原话按独立 user 消息定位，不能把 application 数据块里重复出现的短语当第二条作者输入。消息哈希的编码约定见 sample manifest；原始文件哈希与解析字符串 UTF-8 哈希分开。
+- `cached_tokens` 属 input 子集；分组成本以精确 UTF-8 字节为确定量，若没有同源 tokenizer/供应商分组计量则分组 tokens=`not_collected`，不按字符数伪装精确 token。缺推理选项、冷缓存状态、模型版本、真实用量按未知记录；不由耗时推断。
+- **多轮固定构造（R01 入参，尚未执行）**：长度 3/10/20，输入 `T[n]=上述三条原话[(n-1) mod 3]`，不添加自动“正确答案”；每个长度独立 session、同一隔离作品起点、同一 provider/model/推理与窗口配置，轮间保留真实会话历史与实际结果，不每轮重置。它只测重复会话增长，**不是 I2 的语义独立样本或文学质量样本**。Before/After 使用同一输入序列、作品内容与配置哈希；先冻结 manifest 再运行；失败也保留，不按输出挑样。
+- 原始三轮仅可作历史 Before。新 3/10/20 轮必须从当时真实可运行版本取证并标 HEAD；若作品起点不能恢复，另建明确标注的隔离复现 fixture，不能假装重放同一作者数据库。R01 先复用 B71/B81 驱动/分析入口并记录读侧分组与负例，不修改生产 Prompt 来让基线变好。
+
+### 9.5 验证状态与恢复
+
+本节保留首轮失败与纠错过程；最终审计结论见 §9.6。B87 全部实现及最终 R19 仍未闭环。
+
+**当前 HEAD 的远端 CI 基线（leader 只读取得）**：[push run 43294123379](https://github.com/tongsh6/ai-novel-studio/actions/runs/43294123379)，HEAD=`89b44a95`，completed/failure；并非本轮 Markdown 修改触发。不要用仅查 PR 的 workflow API 返回空数组推定此 HEAD 没有 CI。原始 job 日志与摘要已保存 `artifacts/model-contracts/b87-r00/20261113/ci-job-*.log`、`ci-baseline.json`。
+
+| 检查 | 真实结果 | 失败定位与后续责任 |
+|---|---|---|
+| Elixir CI | FAIL，Dialyzer exit 2；随后的 mix test **skipped** | `openai_compatible_stream.ex` 未知类型、`sse_stream.ex` 类型/分支、application 的 spec/不可达分支及 persistence/web 类型告警；不能用本地 ExUnit 全绿冒充已修复。B84 架构/测试债务及对应 B87 消费者重构复核，禁止 ignore/降阈值 |
+| Quality manifest CI | FAIL，302 tests 中出现 4 项失败 | `au15_preregistration_check` 依赖未跟踪 artifacts 文件；`evidence_chain.test.mjs` 假定 repo/tmp 已存在；manifest 两项硬编码计数漂移（232≠231、234≠233）。需复用既有质量测试体系修正隔离和真实集合断言，不提交机器产物来满足测试 |
+| Windows Tauri smoke | FAIL，11 passed/1 failed，exit 101 | `pending_message_is_durable_immutable_and_scoped` 在 `src/lib.rs:1017` 写入时报 Access is denied（os error 5）；原因尚未在 Windows 复现，不据 macOS 通过推断已解决。沿 SU04 多平台责任补证 |
+| AI static scan CI | FAIL，Secret leak scan exit 1 | 需与本地新扫描及长期 disposition 对照；保留红灯，不因历史处置写成整仓全绿 |
+| Frontend CI / macOS、Ubuntu Tauri smoke | PASS | 仅此 HEAD 的对应 job；smoke 使用 dummy sidecar，不是 native 创作页面或实际 sidecar release 验收 |
+
+**本地首轮共同门禁**（14 命令原记录：`artifacts/model-contracts/b87-r00/20261113/gate-summary.tsv` 与 `logs/`）：
+
+| 命令 | 退出码 / 证据结论 |
+|---|---|
+| `mix compile`；`mix compile --warnings-as-errors` | 均 0 |
+| `mix test` | 0，3185 tests/0 failures；novel_web 196 tests/548.1 秒 |
+| `mix check` | 0，含强制全量编译、codegen、全量测试、架构/ADR、I-CACHE；不是 Dialyzer/所有 CI 的替代 |
+| `mix xref graph --format cycles --label compile-connected --fail-above 0`；`mix run scripts/arch_check.exs` | 均 0 |
+| `MIX_ENV=test mix run scripts/scenario_invariants/run_i1_causal.exs`；`run_i2_variation.exs`；`run_i3_nonce.exs`；`run_icache_prefix.exs`（四项均沿同一 `MIX_ENV=test mix run scripts/scenario_invariants/` 前缀） | 均 0 |
+| `MIX_ENV=test mix run scripts/scenario_invariants/run_n_narr.exs`（裸命令） | 1，默认测试库缺 `authoring_run_segments`，不是已证实的叙事字节违规；统一扫描内经 test_env 迁移后同 driver 为 PASS。保留原失败，需隔离库独立复验 |
+| `bash scripts/ai_static_scan.sh --top 10` | 1，18 passed/3 failed/0 skipped；首轮完整报告保存在 `initial-static-scan/` |
+| `node scripts/next_task_check.mjs`；`git diff --check` | 均 0；leader 修改后亦复核通过 |
+
+初扫 Top 10 实际 7 项，touched=0：5 个 gitleaks 历史误报（测试 idempotency fixture、RFC WebSocket nonce、B63 文档场景 ID、E10 spec ID、Pencil 元数据），长期台账均 `false_positive`；1 个 ProjectGod 历史凭证命中为既有 `accepted_risk`（不读取/展示凭证，不在本批重写其他分支历史，轮换仍属所有者）；1 个 `task-done-manifest` 为 `pending`（旧清单早于本次文档修改）。另一个检查失败为 Semgrep 无权写全局 `~/.semgrep/semgrep.log`，并非得到“无问题”扫描结果。后续用现有 `task_done.sh` 生成真实清单、用临时进程日志/配置位置复验 Semgrep，禁止改检查规则或长期处置来放行。
+
+原始失败不得覆盖；复验输出归 `recheck/`，不重复运行已通过的全量测试。含 `:integration/:real_llm` 的测试排除声明保持原样，未执行的实模不代签。旧 B84 193/532s 与本轮 196/548.1s 分开记录。本批仅 Markdown 修改，crapper/dryer/mutator 对产品代码变更不适用，不伪报已运行。
+
+**复验过程纠错**：
+
+- N-NARR 经既有 `test_env` 创建迁移的一次性库后独立 PASS（`logs/11b-n-narr-prepared-db.log`，另见 `recheck/n-narr/`），不改不变量脚本；共用 README 已补相同运行前置。
+- worker 的 Markdown 锚点审查与项目 `next_task_check` 的空白折叠规则不同；leader 一度将 NEXT 的 P1 链接改为双连字符，造成真实检查失败。最终把 P1 标题改为 `checkpoint B C` 并沿用单连字符链接，两个规则一致；实际 `node scripts/next_task_check.mjs` 再次 exit 0。不改检查规则，不改 P1 状态/验收范围。
+- 首次环境复验把整条流程的 XDG 目录隔离到 artifacts，意外触发 Corepack 将已有同版本 pnpm 12.3.4 重新下载到本批临时缓存；这不符合本机“不主动重装既有工具”的要求。未修改全局配置或升级版本；leader 独立确认常规 `pnpm` 仍来自 nvm Node 24.19.0，版本 12.3.4。缓存和日志保留，不掩盖这次执行偏差。另有 Semgrep 版本缓存路径误建为目录导致 `IsADirectoryError`，不是扫描成功。
+- leader 取消该轮 worker（`76d7dc16-7e1f-4630-ab99-192b75e017f1`），再以只读进程核查确认无残留 task_done/scan/semgrep。最终复验任务 `d5ab3dbe-545f-460c-8268-58321da59568` 只设置 Semgrep 的日志、设置、版本缓存**文件**变量，不再改整个 XDG/HOME 或工具版本；证据落 `closure/`，不得覆盖首轮/取消批。
+- 审计返工任务 `60151a82-4123-4205-8ef8-e88f561bbf7a` 已修正 Context/Task、字节校验、委托存在性及样本哈希的过度推断；`review-followup.md` 的历史断锚发现与后续实际修复分开保留。候选定义分组核对为 105/105，本批最终跟踪修改仅 10 个 Markdown。
+
+质量 parser 修复已登记到 [B84 既有测试债务任务](B84-web-slow-tests-and-arch-debt.md#2026-11-13-r00-核实的质量测试前置债务可独立推进)，不新建平行任务。Windows 失败的**候选根因（尚未运行验证）**：`write_submission` 在 `frontend/src-tauri/src/lib.rs:236` 以只读 `File::open` 重新打开文件后调用 `sync_all`；[Rust File 文档](https://doc.rust-lang.org/std/fs/struct.File.html#method.open) 明确 open 为只读，[Windows FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers) 要求可写句柄。这与 os error 5 一致，需在 SU04 用保留可写句柄的真实持久化链和 Windows 测试确认；不通过删 fsync 或吞错误规避。
+
+### 9.6 R00 审计交付与后继边界
+
+**R00 Outcome：PASS（仅本批事实/契约审计，不是生产实现或全仓 CI PASS）**。已交付：当前代码与消费者存在性矩阵、105/105 候选定义族的归属、Frozen 差异逐条处置、R01 原始样本定位/固定输入、当前本地与远端失败基线、无新增产品实体及删旧约束。设计中尚待冻结的 Scope 覆盖、字段、委托/自动采纳边界列在 VS-00M §12；它们没有被本次审计自动接受。
+
+本批适用的治理/差异检查通过；`mix test`、含强制全量编译的 `mix check`、架构、I1/I2/I3/N-NARR/I-CACHE 均有实际成功日志。最终 `bash scripts/task_done.sh`（完整调用 `bash scripts/ai_static_scan.sh --top 10`）退出 0；扫描为 **20 passed / 1 failed / 0 skipped，6 findings，touched=0，blocking=0**。失败项仍是 gitleaks，按原长期台账 5 false_positive + 1 accepted_risk 通过处置门；没有改台账、扫描规则或阈值，**不能写成 21 项全绿**。原始和复验报告分别在 `initial-static-scan/`、`recheck/`、`closure/`，所有失败只读保留。
+
+**Semgrep 覆盖限制**：命令退出 0、结果 findings=0，但 raw JSON 仍有 28 条错误/部分解析记录（16 条 Other syntax error、12 条 PartialParsing，涉及 YAML、workflow 与 shell）。因此这里只确认扫描命令完成，不证明这些文件得到完整语义扫描，也不把它们全部判为源码语法错误；后续应与项目标准 YAML/shell 校验分别核对，不安装/升级或屏蔽规则换绿。
+
+首个完成清单为 `artifacts/task-done/20261113T033300Z/manifest.json`（UI not_required）；本节回填后的最终清单由相同入口重新生成，以覆盖最终 Markdown 字节。提交只包含这批设计/任务/导航文档；提交身份以本节所在提交和交付报告为准，原始机器证据不提交。
+
+**恢复/后继**：NEXT 仍为 B87。R01 读取 README + R01 卡 + 本节/§9.4 + sample manifest，使用作者已授权的 Splash；先冻结新批次 manifest，再作当前版本 3/10/20 轮实模基线，未执行部分不能代签。B84 已登记可独立推进的质量测试前置修复；远端 Dialyzer、Windows smoke、Semgrep 覆盖与历史 gitleaks 仍是完整质量目标的开放后果，不能因 R00 审计交付而销账。R02–R19 实现、真实页面与文学质量均未完成，整个 goal 保持 active。

@@ -40,12 +40,13 @@
 ## 4. 通用验证入口（以当前仓库可执行命令与 AGENTS.md 为准）
 
 ```bash
+source scripts/lib/test_env.sh
+novel_test_db_prepare --quiet
 mix compile --warnings-as-errors
 mix test
 mix check
 mix xref graph --format cycles --label compile-connected --fail-above 0
 mix run scripts/arch_check.exs
-bash scripts/ai_static_scan.sh --top 10
 MIX_ENV=test mix run scripts/scenario_invariants/run_i1_causal.exs
 MIX_ENV=test mix run scripts/scenario_invariants/run_i2_variation.exs
 MIX_ENV=test mix run scripts/scenario_invariants/run_i3_nonce.exs
@@ -53,7 +54,10 @@ MIX_ENV=test mix run scripts/scenario_invariants/run_n_narr.exs
 MIX_ENV=test mix run scripts/scenario_invariants/run_icache_prefix.exs
 node scripts/next_task_check.mjs
 git diff --check
+bash scripts/task_done.sh
 ```
+
+`test_env` 在未指定 `NOVEL_TEST_DB_DIR` 时创建并迁移一次性测试库，不重置作者数据库；直接裸跑 `mix run` 可能落入缺表的新测试库，R00 已保留该失败反例。所有本批文档/代码修改完成后运行 `task_done.sh`：它先生成真实完成清单，再完整执行 `bash scripts/ai_static_scan.sh --top 10`；有 UI 改动时仍须按该入口提供真实页面证据，不能手造 manifest。工具因沙箱日志路径或网络失败时，保留失败并只纠正运行前置，不安装/升级、不改扫描规则、不把未扫描记为通过。
 
 有前端/UI 改动追加 `cd frontend && pnpm typecheck && pnpm lint && pnpm test` 及适用 Tauri/AX 场景。涉及 Provider/会话/权限/采纳的后端行为变化，必须从真实工作台路径补证明；产品代码不得植入验收专用逻辑。测试失败/外部环境缺失要记录完整命令、退出码与现象，不能不跑却写“通过”。
 

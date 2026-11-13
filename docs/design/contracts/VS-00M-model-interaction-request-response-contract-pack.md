@@ -178,7 +178,7 @@ Provider raw response（原始 content / tool_calls / arguments / call_id / usag
 
 - **作者可见通道唯一**：当响应携带 `write_candidate` 等作者可见正文工具时，`content` 必须为 null；作者可读说明只走 `change_reason`/`coverage_note`。应用必须校验，出现 `content + 候选工具` 即 `contract_violation`，不生成候选并回流有界纠错；不能只靠 system prompt。
 - **工具结果 envelope**：所有工具结果必须为 `{ok, data, error_code, message, retryable, observation_ref, budget_after}`；失败不得伪装成成功，`retryable` 必须真实；应用校验/执行/采纳事实不得合并为一个 `success`。
-- **流式一致性**：请求 `stream: true` 时 wire 响应必须是 SSE（delta content/tool_calls、finish_reason、usage chunk、`[DONE]`）；完整 `chat.completion` JSON 只是应用重组后的内部结构，不得当作 wire 响应。
+- **流式一致性**：本项目 HTTP 请求 `stream: true` 时，wire 证据必须来自实际 SSE，不能以应用重组 JSON 冒充原始流。三类 wire 各按自身协议判定：Chat Completions 为 `chat.completion.chunk`/delta、`finish_reason` 与 `[DONE]`（支持且请求 `include_usage` 时另有 usage chunk）；Responses 为带类型的 `response.*` 事件，区分 `response.completed`、`response.incomplete` 和失败；Anthropic 为 `message_start`、内容块增量、`message_delta` 与 `message_stop`。不得要求 Responses/Anthropic 产生 Chat 专属字段或 `[DONE]`；缺用量不能伪填实测 0，流中断不能当正常完成。依据与现役归属见 §12。
 - **协议包结构化**：`application_base`/`scope_update` 的 goal/target_refs/permissions/budget/coverage/output_contract 在应用内部是结构化值，wire 只是序列化视图；工具越权、预算耗尽、target 不在 observed_refs 等校验读内部结构，不读模型复述。
 - **decision 不塞给模型**：应用解析 `tool_calls` 生成 `decision {type,target_ref,tool_call_id,modification_scope,source_refs,evidence_coverage}`，与 tool result 一起进入下一轮 loop；HTTP 响应不新增自定义顶层字段。
 
@@ -216,6 +216,8 @@ Provider raw response（原始 content / tool_calls / arguments / call_id / usag
 - `critical` 的确认绑定到确切对象/effect/版本/后果（`ConfirmationBinding`），作者明确同意后在执行时**再次 gate/rebase**；一项确认不得升级成今后自动通行。原文“同意=执行+采纳”的体验目标只有在**原子、安全且对象类型允许**时成立；创作过程要先生成候选的，不可以把尚未存在的候选预采纳。
 - `full` 自动采纳必须有作者显式 **delegation scope**（作品、操作/effect、目标范围、可选版本、过期/撤销、签发来源、最大影响界限），实际消费时再次验证、记录系统来源 `auto_adopted`，走**现有 AdoptionWorkflow/Repository 原子写入**，可回滚/可追踪；不可通过只改前端开关或模型工具调用实现。遇失败不“补写成功”；重复提交严格幂等。
 - `smart` 不得引入第二 Agent 或规则引擎；只有能用现有 run/风险/委托事实定义可重算策略时才发布，未知/歧义保守退回确认，**不是临时跳过该批就把整体任务标 done**。
+
+**R00 冻结冲突补记**：上述 `full` 目标尚不能覆盖 [ADR-0020](../adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md) 的修订/自动采纳边界，以及 [32 §5.1/§11.1/§13.1](../quality/32-human-approval-policy.md) 的现行 HIGH/CRITICAL 人工采纳、批准主体与 maintenance auto-adoption 约束。R14/R15 必须先明确哪些对象/effect 可被作者事先委托，并逐条修订受影响 Frozen 条款；未裁决前仍执行原边界。`auto_adopted` 若用于未来审计，只能表示实际系统来源/命中策略，**不是新增 adoption_status**；采纳仍使用既有七态，不能写成作者本人点击批准。
 
 ### 7.4 持久化/授权实体红线
 
@@ -258,3 +260,32 @@ R00/R11/R13 必须按“现存表/列/状态/消费者/事务”评估能否承�
 保留：四层逻辑闭环、作者主权、真实来源、源头结构化、场景化验收，以及已记录的 manual/risk_based/full/smart 和 critical/full 用户体验目标。
 
 纠正：不新增平行 Request、Capability、Approval/Adoption 存储；不把 `critical` 当越权豁免；不让 manual 的“每一步”与只读操作矛盾；不让 full 自动采纳绕过独立采纳边界；不提前将 `capability_lookup` 写为已存在工具；不让旧 B86 与 B87 双持任务真源；R10 拆分而不是挤进一次会话；最终 A/B 与实模验收放所有功能变更之后。
+
+## 12. R00 增量契约审查（2026-11-13；不自动冻结）
+
+本节区分**已核实的技术事实与工程处置**、**尚需冻结的语义改变**。本次 NEXT 推进授权允许审查后实施；它不构成作者已经选择未裁决的产品权限语义的证据。执行结果和质量状态只记 [B87 §9](../../../tasks/slices/B87-model-interaction-request-projection.md#9-r00-执行记录2026-11-13)。候选包仍保留固定源基线，不逐份覆写历史 fixture 来制造一致。
+
+### 12.1 冻结差异处置表
+
+| 差异 | 当前可核实依据 | 唯一处置与实施前条件 | 首个消费者 |
+|---|---|---|---|
+| 第二 Request/Exchange/ModelInteraction 主模型 | VS-00L §4/§16.1、ADR-0035 决策 1/2；候选规范 §2 明确 Exchange 只是离线容器 | **禁止**新建平行聚合/存储/控制环；候选四层视图只能映射现役事实。R02 在现役 IR 细化，不能照搬候选 Request 顶层替换主链 | Judgment/专业创作 |
+| Scope 的事实/来源/覆盖结构化 | VS-00L §19.2 已区分 application_base/scope_update/author；候选 Source/Material 是建议表达 | **修改现役归属**，R02 逐字段对账、明确版本与全消费者迁移后实施；保持作者原文独立，不制造 Observation；不另建 ContextBlock 总线 | ContextAssembler → JudgmentProtocol → RequestIR |
+| 纯讨论或旧 Scope 的显式覆盖 | VS-00L §16.2 要求非空 `covers.call_ids`；`RequestIR.Compaction.require_call_ids/1`、`project/1` 只选择 assistant/tool 的交换 ID；ADR-0035 决策 3/4/10 | **待冻结裁决**：现行契约不能承载 Scope/无工具回合覆盖。禁止伪造 call_id、仅用 turn_range 或直接过滤旧 Scope。R03 必须先修订选择器/来源/义务保留/提交失败/恢复契约及版本、负例矩阵，所有三 wire 同批迁移，不新增第二压缩器 | SessionHistory/Compaction/Replay/三 wire |
+| `write_candidate` 与现役候选工具 | 候选包规范 §7 和现役 creative 工具使用 `submit_tentative_artifact`；新用语不能证明缺少工具 | **复用/重构并退旧**；`write_candidate` 在 §6.1/R07 只是待映射用语，不授权新增同义工具。R07 在现役工具上落实输出互斥，若改名必须先列全消费者并同批删旧名，不双注册 | NativeToolExchange/ArtifactAssembler |
+| `change_reason`/`coverage_note`/`paragraph_only` 与 `rationale`/`target_segments` | 候选包 §4.3、§7 与 §6.1 使用不同字段；来源字节约束仍为 Frozen I1/N-NARR | **待字段级冻结**；先证明哪些是相同语义、哪些是新增覆盖声明，不直接把说明字段当正文或用应用补写。R07/R08 同步 schema、解析、正文范围、作者出口和反例；本批不造字段 | Writer/局部修订/作者可见卡片 |
+| 统一七字段工具结果 envelope | VS-00L §16.5/§16.7 区分 observation、validation_result 和真正执行；候选 ToolResult 不等于现役领域 ToolResult | **修改现役契约前先对账**；R07 为各结果类型给出七字段来源及不适用值、原 call_id 与重试语义，保留验证≠授权≠执行≠采纳，不新建一套响应事实。校验反馈不得伪造 observation_ref | Judgment correction/三 wire/Replay |
+| target / source / observation 引用混用 | 候选规范 §4.3 区分 scope.refs、material_refs、observation_ref、provider_call_ref；§6 约束 used_refs | **保持分界并澄清集合**；R07 冻结 `observed_refs` 的来源与覆盖含义，不能拿目标 ID 或“可读取”冒充已读，也不能把 observation 身份与领域目标 ID 作字符串集合比较；真实 Base 与真实观察分别校验 | Ref 校验/修订目标范围 |
+| `decision` 派生结构 | 已有 Judgment/AgentPlan/ToolResult/DecisionTrace；候选 Outcome 是观察视图 | **复用现有结果和 trace**；是否需要新字段以真实 caller 为准，禁止新建决策器/持久 Decision 真源；Provider HTTP 不新增自定义顶层业务字段 | JudgmentProtocol → Orchestrator |
+| 四种权限模式/委托/full 自动采纳 | ADR-0033/0035 保留 tentative-first、无模型 adopt/canon_write；VS-00M §7 是拟冻结目标 | **待产品语义及持久生命周期裁决**；模式选择不是任意对象采纳授权。R09–R16 在现存 gate/receipt/事务上补齐，R11/R14 必须证明签发、继承、撤销、到期、并发和范围；未批准前保持现役采纳边界，不能把 map 字段当已实现委托 | 作者设置 → Gate → Adoption |
+| 自动采纳对象与批准主体 | ADR-0020 明确禁止自动采纳/递归修订；32 §5.1/§11.1 固定当前作者批准主体，§13.1 仅允许 LOW maintenance 进入自动采纳候选，HIGH/CRITICAL 仍人工，且不增第八种 adoption 状态 | **待冻结裁决**；R14/R15 必须对正文/修订/维护分别审查委托是否形成合法例外，保留 sibling、只读 evaluator、一次动作边界及真实审计主体。不能以“已有 auto_adoption_hint”推定 full 已合法，也不能直接删原保护测试 | ProseRevision/maintenance/ApprovalAudit/Adoption |
+| 三 wire 流式格式 | 现役 `SSEStream.ChatDecoder`、`ResponsesDecoder`、`AnthropicDecoder` 已分开；见下节官方协议 | **技术纠正** §6.1：共享终态语义，不共享 Chat 字段布局；不改 Frozen 原生保真原则。R07 校验真实 SSE 和重组结果边界 | 三 adapter/流式证据采集 |
+| 旧接口与旧证据 | ADR-0035 决策 9/迁移章节、B87 §2.1 | **保持**无历史兼容：当前消费者迁完即删旧入口/专属测试；原始失败证据与真实作品数据不随接口退役销毁 | R17 clean audit |
+
+“待冻结”是有明确承接点的设计差异，不等于整项审计无法完成，也不允许后续实现越过该条件。R00 不把 Proposed 自动改成 Frozen，不为未确定的字段先创建迁移或 stub。
+
+### 12.2 三 wire 流式依据
+
+2026-11-13 核对 [OpenAI Chat 创建接口](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)、[OpenAI 流式响应指南](https://developers.openai.com/api/docs/guides/streaming-responses) 与 [Anthropic 流式消息文档](https://platform.claude.com/docs/en/build-with-claude/streaming)。Chat 的 usage chunk 在启用时位于 `[DONE]` 之前，中断可能缺失；Responses 使用类型事件；Anthropic 使用 message/content-block 事件和 `message_stop`。这些只是协议事实，不证明任一本地 vendor 或当前 decoder 已通过全部实测。
+
+现役实现核对入口：`apps/novel_agent/lib/novel_agent/provider/sse_stream.ex` 及其 `chat_decoder.ex`、`responses_decoder.ex`、`anthropic_decoder.ex`。无原始 SSE 捕获的旧响应 JSON 只能用于已说明的重组层分析，不补造网络事件。

@@ -36,7 +36,19 @@
 3. 已在本轮修复、无需跟进：`scripts/lib/native_ui/README.md` 索引补全 10 个漏列 mjs（含 g3）；
    `apps/novel_e2e/README.md` 补齐（目录可达性规则）。
 
+## 2026-11-13 R00 核实的质量测试前置债务（可独立推进）
+
+来源：[B87 R00 基线](B87-model-interaction-request-projection.md#95-验证状态与恢复)，HEAD `89b44a95` 的 [CI run 43294123379](https://github.com/tongsh6/ai-novel-studio/actions/runs/43294123379)。本节只登记测试前置层的具体修复范围；本任务仍未实施，不把代码问题笼统视作环境故障。
+
+- `scripts/lib/quality/au15_preregistration_check.test.mjs` 直接调用真实仓库检查器，并读取 gitignored `artifacts/model-contracts/b39-cp1/au15-preregistration.json`；干净 CI 缺文件即失败。应让现有检查器消费显式输入/输出，测试使用隔离且自足的夹具；保留缺文件、缺前置、冻结状态等失败语义，不提交真实运行产物充当测试依赖。
+- `scripts/lib/quality/evidence_chain.test.mjs:411` 在仓库 `tmp/` 未存在时调用 `mkdtempSync`，导致 ENOENT。复用该文件已有 `os.tmpdir()` 模式与测试清理；验证原本的拒绝覆盖/显式覆盖行为，不删断言。
+- `scripts/lib/quality/manifest.test.mjs` 两项真实仓库断言硬编码 231/233，与实际 232/234 漂移。应按 registry/扫描来源分别校验集合、草案分离、重复/漏项和路径边界，另用小型固定夹具测精确数量；不能仅把常数加一或删除仓库完整性断言。
+- 验收：上述完整质量 parser suite 在无用户 artifacts、无预建 repo/tmp 的干净 checkout 中通过；既有正反例仍有效；入口无模型/产品写入；`quality_manifest` 检查、NEXT/索引及适用 ub-mode 门禁通过。使用现有框架，不另建测试库。
+
+本地 `mix test` 同 HEAD 为 3185 tests/0 failures，其中 web 196 tests/548.1 秒；旧 193/532s 是历史基线。远端 Dialyzer 与 Windows smoke 失败另见 B87 归因，不能由本节测试修复代签生产类型修复或 Windows 实测。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。
 - 2026-11-12：登记验收资产 driver 漂移（aria-label="推理"）与验收脚本规模治理盲区；补 native_ui README 与 novel_e2e README 索引。
+- 2026-11-13：B87 R00 核实干净 CI 的质量 parser 前置/集合断言失败，登记可独立执行的测试隔离修复；尚未实施。
