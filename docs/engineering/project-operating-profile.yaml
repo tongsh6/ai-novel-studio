@@ -20,7 +20,7 @@ project:
     horizon: long_term
 
   lifecycle:
-    stage: unknown
+    stage: development
     operatingMode: system_refactoring
 
   release:
@@ -112,10 +112,11 @@ governance:
         reference: Long-term product evolution direction
       confirmedAt: "2026-11-13"
     /project/lifecycle/stage:
-      status: unknown
+      status: confirmed
       source:
-        type: unknown
-        reference: Lifecycle stage requires maintainer confirmation; not inferred from release status
+        type: user_instruction
+        reference: '2026-11-13 项目全局状态确认对话，维护者原话：“我认为是在研发中”。仅确认研发阶段，不推定为 MVP 或发布准备。'
+      confirmedAt: "2026-11-13"
     /project/lifecycle/operatingMode:
       status: confirmed
       source:
@@ -197,25 +198,25 @@ governance:
         type: user_instruction
         reference: Long-term project evolution
       confirmedAt: "2026-11-13"
-    /project/constraints/no-historical-product-compatibility:
+    /project/constraints/@no-historical-product-compatibility:
       status: confirmed
       source:
         type: user_instruction
         reference: 2026-11-12 system-wide redesign direction
       confirmedAt: "2026-11-12"
-    /project/constraints/preserve-author-content:
+    /project/constraints/@preserve-author-content:
       status: confirmed
       source:
         type: user_instruction
         reference: 2026-11-12 system-wide redesign direction and project data requirements
       confirmedAt: "2026-11-12"
-    /project/constraints/audit-entity-existence:
+    /project/constraints/@audit-entity-existence:
       status: confirmed
       source:
         type: user_instruction
         reference: 2026-11-12 explicit no-duplicate-entity red line
       confirmedAt: "2026-11-12"
-    /project/constraints/proportional-engineering:
+    /project/constraints/@proportional-engineering:
       status: confirmed
       source:
         type: user_instruction
