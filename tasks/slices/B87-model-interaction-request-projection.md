@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**todo（2026-11-13 设计/批次重新评审并登记；R00–R19 均未实施）**。
+**状态**：**doing（2026-11-13：R00 只读实体/契约审计已完成并形成裁决；R00 共同门禁尚未执行，未签 PASS；R01 尚未启动）**。
 
 - 目标分支：`develop/dialogue-based-novel-workbench`；执行时以最新 HEAD 为准，不使用 2026-11-11 的旧日志推断现状。
 - 关联：[Issue #4](https://github.com/tongsh6/ai-novel-studio/issues/4) / [VS-00M 唯一增量架构契约](../../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md)（Proposed 重审稿）/[VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md)（Frozen）/[ADR-0035](../../docs/design/adr/ADR-0035-session-scoped-canonical-authoring-context-v3.md)（Accepted）。
@@ -199,3 +199,69 @@ R00 需先对本设计提出的差异给出有效裁决；若 VS-00L/ADR-0035 �
 **最先可启动**：R00（只读审计+冻结冲突核对+实体查重，不修改生产代码）；R01 需 R00 形成经过复核的成本样本。其它批次依实际依赖推进，不能因“作者授权改设计”自动跳过 R00。
 
 **历史证据与计划修订**：旧 B87 R00–R10 的编号/任务范围已整体替换，Git 历史可回查；不保留旧任务卡副本或把旧批次标 done；未上线的产品无旧 API/旧 Schema 兼容承诺。
+
+### 8.1 R00 只读审计结果与冻结裁决（2026-11-13）
+
+**审计基线**：活跃分支 `develop/dialogue-based-novel-workbench`，HEAD `a43d374c56e83e4d5bf60fa462fb3e26fb563659`。本轮只读检查生产代码、契约、任务卡、测试资产与 CI 日志；未修改产品代码/数据库、未调用 Provider、未创建产品实体。
+
+**R00 结果边界**：实体与契约审计已完成；由于当前会话没有仓库本地 checkout，未执行 README 要求的完整共同门禁、`git diff --check` 和 `node scripts/next_task_check.mjs --open`。因此本批记为 **BLOCKED（审计结论已形成，门禁证据待补）**，不得记 PASS，也不据此启动 R01 的真实 Provider 调用。
+
+#### 7 问审计结论
+
+| 问题 | 当前事实与裁决 |
+|---|---|
+| Contract | VS-00L 与 ADR-0035 是 Frozen/Accepted 运行契约；VS-00M 是 Proposed 设计候选。源包基线 `f13ff640` 到归档核对基线 `04492ea3` 只有一个提交，改动限于 VS-00M `6.1`、R07、R08。新增硬约束不能被误称为 Frozen。 |
+| Invariant | 会话 Transcript + AgentRun 执行段是 canonical；`NovelCommon.RequestIR` 是唯一 IR；checkpoint 不改写 canonical；Provider 能力按真实 adapter route 派生；模型建议、Gate、执行、候选、Canon 采纳必须分开；作者可见叙事必须绑定真实 Provider 输出字节。 |
+| Boundary | RequestIR/Compaction 属 `novel_common`；会话历史、压缩派生、判断、Gate、采纳属 `novel_application`；canonical 会话持久化与 run/receipt/provider facts 属 `novel_persistence`；Provider route/wire 属 `novel_agent`；前端只消费 Workspace/TurnResult/作者动作，不建立旁路事实源。 |
+| Consumer | R00 结论的首个消费者是后续 R01（测量输入）与 R03/R04（Scope/历史投影）；R07 消费工具协议与结果闭环；R06 消费作者可见来源约束；R09–R15 消费授权/风险/采纳边界。 |
+| Proof | 代码、Frozen 契约、数据库 Schema/迁移、调用点和已有测试分别核对；“有模块”不等于“完整支持”，历史 fixture/离线 Schema PASS 不等于当前产品行为 PASS。 |
+| Acceptance Driver | R01 成本基线由真实 Tauri 会话与 Provider JSONL 取证；3/10/20 压力样本用固定输入确定性构造；R06/R07/R08 等行为变化仍需真实工作台入口，不能由单测代签。 |
+| Exploration | 只读复用现有实体；不引入新 Request/Registry/ToolResult/Authorization 平行实体；任何新对象必须由具体消费者、现有替代失败和完整生命周期证明。 |
+
+#### 现有实体与消费者裁决
+
+| 领域 | 已存在实体/实现及真实职责 | R00 裁决 |
+|---|---|---|
+| Canonical 会话与请求 | `AuthoringSessionHistory`、`AuthoringTranscript`、`AuthoringCheckpoint`、`AuthoringSessionLog`、`NovelCommon.RequestIR`；会话日志 append-only，按 sequence 重建；Application 组装请求视图 | **reuse / refactor**；不新建 ModelInteraction 持久模型或第二 Transcript |
+| 压缩 | `TranscriptCompaction` 选择未覆盖且已闭合的 tool exchange；`RequestIR.Compaction` 以 `covers.call_ids` 验证和投影；首个生产消费者为 `AgentRunServer` | **reuse**；当前只覆盖完整 tool exchange，不覆盖纯 Scope 更新 |
+| Provider 能力与 wire | `CapabilityProfile`、`Provider.Gateway`、adapter `capabilities/1`；必备能力来自 RequestIR，未声明按 false 处理 | **reuse**；不新增 Provider 能力注册表或第二执行路径 |
+| Provider 证据 | `NovelTelemetry.LLMLog` 记录 request/response body、usage、duration、provider refs；`ProviderRunLog` 持久化 author-safe run/event/output 与用量摘要 | **reuse**；精确 wire 取证读 LLM JSONL；ProviderRun facts 仅交叉核对，不能替代原始请求体 |
+| Capability Registry | `NovelCommon.CapabilityRegistry` 是公共能力事实；`NovelApplication.CapabilityRegistry` 提供应用侧扩展；`CapabilityRegistryEntry` 统一条目结构 | **reuse**；两层是公共基线+应用扩展，不是应再建第三个 Registry |
+| 判断工具 | `JudgmentToolContract`、`JudgmentProtocol` 已有 judgment/continuation、ask_author、plan、登记作者内容、方向提案、作品画像修订、能力缺口和 explore_request | **reuse / refactor**；`capability_lookup` 没有已证实的首个生产消费者，当前拒绝新增；`write_candidate` 不是现役工具，R07 必须先证明现有候选流程不能表达再决定 |
+| 工具结果 | `NovelCommon.Contracts.ToolResult` 已表达 status/output/state_delta/artifact_refs/errors/warnings/usage/trace_refs；`TurnResultBuilder` 消费它 | **refactor existing contract**；不新建第二 ToolResult/Envelope struct。R07 将 Proposed wire envelope 映射到现有事实；确有缺失字段时修改唯一契约并迁移消费者 |
+| 授权/确认/采纳 | `AgentRunRecord.run_policy/authority_scope`、`AgentRunPolicy`、`MicroPlan.risk_hint`、`GateOrder`、`ConfirmationBinding`、`ApprovalAudit`、`AdoptionWorkflow`、`AuthorActionReceiptRepo` | **reuse current run/gate/receipt/adoption path**；现有 run scope 与一次确认/动作回执不等于持久、可撤销的用户委托生命周期；R11/R14 必须核表/列/事务/消费者，不预建通用 Authorization 服务 |
+| 作者可见来源 | `AgentNarrativeSource`、`NovelCommon.AuthorVisible.Text`、`AuthorVisible.Presenter`、`TurnResultBuilder`；JudgmentProtocol 的 tool narrative 从 Provider output 绑定 | **reuse**；B86 C9 完整归 B87 R06；不新增并行作者文案过滤器/来源 Serializer |
+
+#### Frozen 冲突与唯一裁决
+
+1. **纯对话/Scope 覆盖：保持 Frozen，不暗改。** VS-00L `16.2` 的 checkpoint 选择器是非空 `call_ids`；`RequestIR.Compaction` 只允许完整、恰好一次闭合的 tool exchange。纯 Scope 更新没有 call_id，当前不会被 checkpoint 覆盖，继续保留在历史/请求投影。R01 先测其真实重复成本；如 R03 证明必须折叠，先修订 VS-00L/ADR-0035，明确 Scope checkpoint 的身份、覆盖范围、恢复/replay、三 wire 投影和负例，再改消费者。**当前不允许纯 Scope 自动压缩。**
+2. **full/自动采纳：当前禁止模型自行触发。** VS-00M `7.3` 是 Proposed 模式语义；现有 `authority_scope` 是 AgentRun 级执行事实，`ConfirmationBinding` 是一次性、绑定对象的确认，`AuthorActionReceipt` 是幂等作者动作回执。尚未证明存在 work/session/global 持久委托、范围版本、签发、到期、撤销/并发与审计生命周期。R11/R14 完成存储与消费者审计前，不实现 full 自动采纳；R15 只能在有效委托、再次 Gate、现有 AdoptionWorkflow/Repository 原子事务和回滚/幂等证据齐备后接入。
+3. **能力查询工具：拒绝新增 `capability_lookup`。** 先复用 Registry、`explore_request` 与 `report_capability_gap`。只有真实作者场景无法由现有只读探索表达，且给出首个消费者后才可重新提案。
+4. **候选写入工具：不预先接受 `write_candidate`。** 当前 `JudgmentToolContract` 没有该工具；R07 先对照登记作者内容、现有 tentative artifact/pending artifact 流程和真实执行入口，裁决为复用/重构/新建/拒绝之一。不能仅为统一命名新建工具。
+5. **ToolResult envelope：不新增平行内部实体。** `ToolResult` 是内部执行事实；VS-00M `6.1` 的 `{ok,data,error_code,message,retryable,observation_ref,budget_after}` 只能先作为待对账的 Provider-facing 投影候选。R07 必须证明字段映射、缺失事实来源和错误/重试语义；不允许把 schema_valid、authorized、executed、candidate_created、canon_adopted 合并成一个成功值。
+6. **content/decision/SSE：按 Proposed 条款进入 R07/R08 验证，不宣称已实现。** `content + write_candidate` 冲突、应用派生内部 decision、stream=true 的真实 SSE 与应用重组 JSON 区分，均需对应真实 Provider response/工具回流证据；不得把归档 wire JSON 片段当真实 SSE。
+7. **B86 C9：唯一承接批次是 R06。** 现有来源绑定模块复用；历史失败案例保留为反例，已撤回实现不保留兼容路径。
+
+#### VS-00M 源包差异核验
+
+`f13ff6406a002eff54397b906872255048c31763` → `04492ea3b7a08cd4ce363110c099c6b4446a7488` 只有一个提交，改动仅三处：VS-00M 新增 `6.1`（8 行）；R07 新增工具结果 envelope、严格 schema/content 冲突和 decision/SSE 约束（3 项）；R08 新增局部改写范围、来源覆盖与 change_reason 一致性（2 项）。归档说明已明确原包 wire JSON 是归一/重组参考片段，不是完整 SSE 轨迹。上述变化是 R07/R08 的 Proposed 验收输入，不得倒灌为当前实现事实。
+
+#### CI 基线对账（本次合并后 HEAD）
+
+- 小说项目合并后整仓 run `43406293569` 为 failure；合并前基线 run `43401436744` 已有同四类失败。逐项日志对照确认以下失败签名在合并前已存在，但不据此推断所有根因完全相同：
+  - Windows Tauri：`pending_message_is_durable_immutable_and_scoped`，`write before send: Access is denied (os error 5)`。
+  - Elixir/Dialyzer：多个既有 pattern-match / unused-function / opaque-type 警告（涉及 workspace_channel、controllers、origin_policy 等）；Test(PR fast set) 被 Dialyzer 失败跳过。
+  - Quality manifest：缺少 `artifacts/model-contracts/b39-cp1/au15-preregistration.json`、测试临时目录 `tmp/` 不存在，以及 manifest 计数差异（232 vs 231、234 vs 233）。
+  - AI static scan：Gitleaks Secret leak scan `FAIL (1)`，Semgrep `PASS`；具体 finding 需读取 artifact，不能仅凭摘要判定误报。
+- 新增 Project Operating Context 专项工作流 run `43406293644` 成功；它只证明画像/入口/只读校验，不替代整仓 CI。
+- 以上为基线红灯分类，不属于 B87 R00 新引入的产品代码失败；根因修复应回到各自质量债务/原任务承接，B87 不降低门禁、不改样本换绿。
+
+#### R01 Before 输入与读侧取证冻结
+
+- **A：真实三轮样本。** 使用同一 work/session 的真实 Tauri 作者连续三轮输入；Provider 固定沿用已授权的 B71 Splash 预注册路径，不擅自换模型/推理配置。每个真实 Provider call 按 `provider_call_ref`/turn/session 分组，保留 tool call 与最终作者可见结果的对应关系。若 B71 既有授权不覆盖本次 R01 新调用，则先取得明确授权；不得把授权范围外推。
+- **B：确定性压力样本。** 以 A 冻结的 RequestIR/消息序列为种子，构造 3/10/20 轮三档；明确标注 synthetic，不生成虚构真实 usage。固定 seed、Scope 更新、闭合/未闭合 tool exchange、observation/ref、正文基线和 projection 版本。B 只比较当前实现的字节/Token/前缀增长；没有真实 Provider 调用时 TTFT/latency/cached_tokens 标 `not_collected`。
+- **读侧 SSOT：** 精确 Provider request/response body 读 `NovelTelemetry.LLMLog` JSONL（`log/llm-calls/YYYY-MM-DD.jsonl`）；`ProviderRunLog`/`ProviderOutputRecord` 用于交叉核对 run 状态、usage、duration/ref，不作为完整 request body 来源；`RequestIR` 与 `RequestIR.Projection` 只用于确定性重建/对照，不冒充实际发出的 wire。
+- **隐私：** LLMLog 的 request body 会包含真实作者文本，当前 `sanitize_request/1` 不等于内容脱敏。原始 JSONL 只在受限本地环境读取，不提交 Git、不上传 Actions artifact；报告仅保存 source path、SHA-256、字节/Token 计数、provider/model/options、refs、时间/延迟与必要的脱敏分类。cached_tokens 是 input_tokens 子集，不相加。
+- **当前可用性：** 本次 GitHub HEAD 未包含 `log/llm-calls/stage/2026-10-29.jsonl` 或 B71 ignored artifact `scenario-preregistration-splash-20261113.json`；因此不能声称已取得真实三轮样本。R01-A 在合法日志/本地运行证据可访问前保持 BLOCKED；R01-B 的构造规格已冻结，但不得先把 synthetic 结果写成真实成本。
+
+**R00 退出状态**：审计事实与设计裁决已记录；由于尚未执行仓库本地共同门禁、`git diff --check`、`next_task_check`，本批保持 BLOCKED。没有生产实现、数据库迁移或模型调用。下一步先补 R00 规定的仓库环境门禁；通过后才可将 R00 标 PASS 并启动 R01。
