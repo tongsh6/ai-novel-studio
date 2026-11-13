@@ -2,6 +2,23 @@
 
 本项目是 Elixir/Phoenix Umbrella + TypeScript/React 前端项目。以下规则适用于所有在此项目中工作的 AI 编码助手。
 
+## Project Operating Context
+
+工程设计、实现、重构、数据、兼容和发布任务开始前，必须读取唯一项目画像：
+
+- `docs/engineering/project-operating-profile.yaml`
+
+本项目遵循 AIEF Project Operating Context v1 契约，但项目画像位置服从本仓库既有 SSOT；禁止为了使用默认路径而新建平行的 `context/` 目录。
+
+使用规则：
+1. 区分 confirmed、proposed、unknown、stale；不得把 unknown 当作 none。
+2. 生命周期只提供默认策略；真实作者内容、已确认承诺和系统不变量优先。
+3. 不得自行修改人工确认字段；发现画像可能过期时提出证据和待确认建议。
+4. 任务级调整必须限定在当前任务，不得反向修改项目画像。
+5. 本项目的实体查重、作者内容保护、比例适度工程和文档 SSOT 约束必须参与工程决策。
+
+项目画像是项目级身份、生命周期和责任事实的唯一来源；任务进度仍由 tasks/ 维护，技术结构仍由 docs/design/ 与仓库代码维护。
+
 ---
 
 ## git
@@ -318,6 +335,7 @@ slice 可以只覆盖其中一段连续链路，但必须形成可执行闭环�
 | 验收设计 | `docs/design/acceptance/` | 场景化验收 |
 | 技术栈 | `docs/design/tech-stack/` | — |
 | 工程实践规则 | `docs/engineering/` | vertical-slice、scenario-invariants 等 |
+| 项目画像、生命周期与责任约束 | `docs/engineering/project-operating-profile.yaml` | 工程决策前必须读取；遵循 AIEF Project Operating Context v1 |
 | 讨论备忘 / 运行经验（不授权实现） | `docs/design/notes/` | 唯一 notes 落点 |
 | 任务、计划、进度、决策日志、恢复指引 | `tasks/` | `tasks/README.md`；开工前必读 `tasks/NEXT.md` |
 | 承重竖切面任务 | `tasks/slices/` | slice 开工检查与验证 |
