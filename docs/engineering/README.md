@@ -6,6 +6,7 @@
 
 | 文档 | 角色 |
 |---|---|
+| `project-operating-profile.yaml` | 项目身份、生命周期、发布状态、责任约束与事实来源的唯一画像；遵循 AIEF Project Operating Context v1 |
 | `architecture-operating-system.md` | 工程操作系统蓝图：原则、DAG、深模块、性能、前沿建模与阶段规划 |
 | `vertical-slice.md` | 承重竖切面试行规则 |
 | `architecture-guardrails.md` | 技术架构护栏：把当前主链、umbrella 边界和可复用工程经验落成实现前规则 |
