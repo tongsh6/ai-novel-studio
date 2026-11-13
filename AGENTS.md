@@ -13,6 +13,8 @@ AIEF v1 JSON Schema: https://github.com/tongsh6/ai-engineering-framework/blob/ma
 
 本项目遵循 AIEF Project Operating Context v1 契约，但项目画像位置服从本仓库既有 SSOT；禁止为了使用默认路径而新建平行的 `context/` 目录。
 
+本仓库采用既有 SSOT 下的手动接入，不运行 `aief-init retrofit`：该命令会创建默认 `context/INDEX.md` 与 `context/` 目录，违反本仓库的文档结构约束。
+
 使用规则：
 1. 区分 confirmed、proposed、unknown、stale；不得把 unknown 当作 none。
 2. 生命周期只提供默认策略；真实作者内容、已确认承诺和系统不变量优先。

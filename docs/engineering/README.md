@@ -4,6 +4,8 @@
 
 本目录记录“如何建设这个项目”的长期方法，不替代 `docs/design/` 的产品与系统设计，也不替代 `tasks/` 的执行日志。
 
+本项目画像按既有文档 SSOT 手动接入 AIEF Project Operating Context v1；不生成 AIEF 默认 `context/` 知识树。
+
 | 文档 | 角色 |
 |---|---|
 | [project-operating-profile.yaml](project-operating-profile.yaml) | 项目身份、生命周期、发布状态、责任约束与事实来源的唯一画像；遵循 [AIEF Project Operating Context v1](https://github.com/tongsh6/ai-engineering-framework/blob/main/docs/standards/patterns/project-operating-context.md) 与 [Profile Schema](https://github.com/tongsh6/ai-engineering-framework/blob/main/docs/standards/schemas/project-profile.schema.json) |
