@@ -13,3 +13,18 @@
 | `vertical-slice.md` | 承重竖切面试行规则 |
 | `architecture-guardrails.md` | 技术架构护栏：把当前主链、umbrella 边界和可复用工程经验落成实现前规则 |
 | `quality-gates.md` | 质量门禁护栏：收口工程门禁、slice 门禁、小说质量门禁和 trace / replay 证明 |
+
+## 项目画像专项校验
+
+[Project Operating Context 工作流](../../.github/workflows/project-operating-context.yml) 固定 AIEF 检查器到不可变 commit，直接校验本仓库的真实画像和入口；不复制另一份 Schema 或画像，不运行 Retrofit，不新建 `context/`。升级检查器须显式更新工作流中的 `AIEF_REVISION` 并重新验收。
+
+本地复跑：在项目之外准备上述工作流固定版本的 AIEF 源码，安装其 canonical package 依赖；从本仓库根目录执行：
+
+```sh
+node /path/to/AIEF/packages/ai-engineering-framework-init/bin/aief-init.mjs doctor \
+  --profile-only --profile-path docs/engineering/project-operating-profile.yaml --json
+```
+
+使用支持该选项的固定源码版本，不假设 npm `latest` 已发布。专项模式的 `scope=profile` 只证明 YAML/Schema、来源声明及确定性语义检查；人工确认的真实性、AI 实际是否消费画像、模型工程决策效果和全仓 CI 必须分别取证。unknown 警告不会被改写为已确认事实。
+
+执行状态、验收证据和剩余工作见[画像接入任务](../../tasks/2026-11-13-project-operating-context-adoption.md)，不在本索引维护第二份状态。
