@@ -62,9 +62,6 @@ project:
     - id: proportional-engineering
       statement: Match engineering complexity to real requirements, known risks, and confirmed evolution; avoid speculative complexity and under-design.
       scope: project_wide
-    - id: respect-document-ssot
-      statement: Place project knowledge and work products only in the established SSOT locations defined by AGENTS.md; do not create parallel knowledge trees.
-      scope: project_wide
 
   currentFocus:
     summary: B87 model interaction system refactoring, R00-R19 execution plan.
@@ -223,12 +220,6 @@ governance:
       source:
         type: user_instruction
         reference: Project-wide Proportional Engineering principle
-      confirmedAt: "2026-11-13"
-    /project/constraints/respect-document-ssot:
-      status: confirmed
-      source:
-        type: user_instruction
-        reference: Maintainer-confirmed AGENTS.md project knowledge structure SSOT
       confirmedAt: "2026-11-13"
     /project/currentFocus:
       status: confirmed
