@@ -1,0 +1,121 @@
+name: Project Operating Context
+
+on:
+  pull_request:
+    paths:
+      - AGENTS.md
+      - docs/engineering/project-operating-profile.yaml
+      - docs/engineering/README.md
+      - tasks/2026-11-13-project-operating-context-adoption.md
+      - .github/workflows/project-operating-context.yml
+  push:
+    branches: [develop/dialogue-based-novel-workbench]
+    paths:
+      - AGENTS.md
+      - docs/engineering/project-operating-profile.yaml
+      - docs/engineering/README.md
+      - tasks/2026-11-13-project-operating-context-adoption.md
+      - .github/workflows/project-operating-context.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  profile:
+    name: Profile contract and SSOT
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Immutable AIEF revision: includes development and read-only profile-only Doctor.
+      AIEF_REVISION: abbb196a27752cceb21c22a93da080b9dd632e71
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          path: project
+          persist-credentials: false
+
+      - name: Checkout the pinned AIEF validator outside the project tree
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          repository: tongsh6/ai-engineering-framework
+          ref: ${{ env.AIEF_REVISION }}
+          path: aief
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+
+      - name: Install validator dependencies (not product dependencies)
+        working-directory: aief/packages/ai-engineering-framework-init
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          mkdir -p "$RUNNER_TEMP/project-profile-evidence"
+          npm ls --json > "$RUNNER_TEMP/project-profile-evidence/dependencies.json"
+
+      - name: Check project entry and documentation SSOT
+        working-directory: project
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const expected = 'docs/engineering/project-operating-profile.yaml';
+          const agents = fs.readFileSync('AGENTS.md', 'utf8');
+          const declarations = [...agents.matchAll(/^Profile:\s*`([^`]+)`\s*$/gm)].map(m => m[1]);
+          assert.deepEqual(declarations, [expected], 'AGENTS must declare exactly the existing Profile SSOT');
+          const index = fs.readFileSync('docs/engineering/README.md', 'utf8');
+          assert.ok(index.includes('[project-operating-profile.yaml](project-operating-profile.yaml)'), 'Engineering index must link the Profile');
+          assert.ok(fs.existsSync(expected), 'Declared Profile must exist');
+          assert.ok(!fs.existsSync('context'), 'Do not create a parallel context tree');
+          console.log('Entry and SSOT checks passed; this does not prove model consumption.');
+          JS
+
+      - name: Validate the actual Profile with upstream Doctor
+        working-directory: project
+        run: |
+          node "$GITHUB_WORKSPACE/aief/packages/ai-engineering-framework-init/bin/aief-init.mjs" doctor \
+            --profile-only --profile-path docs/engineering/project-operating-profile.yaml --json \
+            > "$RUNNER_TEMP/project-profile-evidence/doctor.json"
+          cat "$RUNNER_TEMP/project-profile-evidence/doctor.json"
+
+      - name: Record exact validation scope and verify read-only execution
+        working-directory: project
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { createHash } from 'node:crypto';
+          import { execFileSync } from 'node:child_process';
+          import assert from 'node:assert/strict';
+          const evidence = path.join(process.env.RUNNER_TEMP, 'project-profile-evidence');
+          const report = JSON.parse(fs.readFileSync(path.join(evidence, 'doctor.json'), 'utf8'));
+          assert.equal(report.scope, 'profile');
+          assert.equal(report.summary.blockingFail, 0);
+          assert.ok(!fs.existsSync('context'));
+          assert.equal(execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim(), '', 'Validator must not change project files');
+          const metadata = {
+            checked_commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+            aief_commit: process.env.AIEF_REVISION,
+            profile: report.profilePath,
+            profile_sha256: createHash('sha256').update(fs.readFileSync(report.profilePath)).digest('hex'),
+            scope: 'profile_contract_and_entry_only',
+            warnings: report.summary.warn,
+            human_confirmation_authenticity: 'not_independently_verified',
+            model_behavior: 'not_run',
+            product_acceptance: 'not_run',
+            repository_ci: 'reported_by_other_workflows',
+          };
+          fs.writeFileSync(path.join(evidence, 'metadata.json'), JSON.stringify(metadata, null, 2) + '\n');
+          console.log(JSON.stringify(metadata, null, 2));
+          JS
+
+      - name: Upload Profile evidence (separate from product acceptance)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: project-operating-context
+          path: ${{ runner.temp }}/project-profile-evidence/
+          if-no-files-found: error
