@@ -1,5 +1,5 @@
 defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
   alias NovelCommon.RequestIR
 
   alias NovelAgent.Provider.Execution
@@ -10,20 +10,6 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.ContextSourceRef
   alias NovelDomain.DialogueContext
-
-  alias Ecto.Adapters.SQL.Sandbox
-  alias NovelPersistence.Repo
-
-  setup do
-    owner = Sandbox.start_owner!(Repo, shared: true)
-
-    on_exit(fn ->
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(owner)
-    end)
-
-    :ok
-  end
 
   @work "work-agent-world-flow"
 
@@ -89,6 +75,8 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
                end),
                next_step_planner: planned.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :run_started, _}
     # CP2b：机械步序不发 plan_drafted（付费伪计划已消灭），
@@ -224,6 +212,8 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
                end),
                next_step_planner: planned.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     artifact_event = receive_agent_event(:artifact_created)
     assert_receive {:provider_prompt, provider_prompt}, 500

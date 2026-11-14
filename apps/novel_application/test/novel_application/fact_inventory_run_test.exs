@@ -2,27 +2,13 @@ defmodule NovelApplication.FactInventoryRunTest do
   @moduledoc """
   VS-00G CP4b-2：`fact_inventory_v1` 从作品材料到多 seed tentative 提案的 AgentRun。
   """
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   alias NovelAgent.AgentTaskProfileRegistry
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TestAgenticLoopFixtures
-
-  alias Ecto.Adapters.SQL.Sandbox
-  alias NovelPersistence.Repo
-
-  setup do
-    owner = Sandbox.start_owner!(Repo, shared: true)
-
-    on_exit(fn ->
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(owner)
-    end)
-
-    :ok
-  end
 
   # D5：全量退化 → 降批两半各自成功 → 提案合并去重（batch_fallback 事件留痕）。
   test "全量盘点退化 → 降批重试合并提案（D5）" do
@@ -82,13 +68,15 @@ defmodule NovelApplication.FactInventoryRunTest do
         provider_execution
       )
 
-    assert {:ok, _run_id} =
+    assert {:ok, run_id} =
              AgentRunService.start_bounded(
                NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
                next_step_planner: spec.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :artifact_created, artifact_event}, 2_000
     assert_receive {:agent_event, :run_completed, _}, 2_000
@@ -168,6 +156,8 @@ defmodule NovelApplication.FactInventoryRunTest do
                end),
                next_step_planner: spec.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :run_started, _}, 500
     assert_receive {:inventory_prompt, prompt}, 1_000

@@ -1,5 +1,5 @@
 defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentRunFlows.CharacterEvolutionWithContext
@@ -8,20 +8,6 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
   alias NovelApplication.TestAgenticLoopFixtures
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.DialogueContext
-
-  alias Ecto.Adapters.SQL.Sandbox
-  alias NovelPersistence.Repo
-
-  setup do
-    owner = Sandbox.start_owner!(Repo, shared: true)
-
-    on_exit(fn ->
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(owner)
-    end)
-
-    :ok
-  end
 
   @work "work-agent-character-evolution-flow"
 
@@ -93,6 +79,8 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
                end),
                next_step_planner: planned.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :run_started, _}
     # CP2b：机械步序不发 plan_drafted（付费伪计划已消灭），

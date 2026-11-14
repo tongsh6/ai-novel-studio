@@ -1,6 +1,6 @@
 # B84：全项目测试环境作用域、fixture 体系与剩余架构/测试债务
 
-- 状态：**doing（A0完成；A1/A2运行入口与manifest、质量测试自足、构造资产与首个SQLite消费者已分批提交；confirmation族与同步副本出口已完成本批实现/工程验收；其余Node族、后端/Rust/前端/原生接入与全量验收未完成，原web慢测试及既有债务保留）**
+- 状态：**doing（A0完成；A1/A2已有6个局部实施单元通过各自验收，前4个已提交，R01快照/capture两族随原R01整体保持WIP；A3的Application流程首批已通过资源退出与回归验收；其余Node族、Channel/其余后端/Rust/前端/原生接入与全体系验收未完成，原web慢测试及既有债务保留）**
 - 来源：
   - [00f 能力图谱 P2-E](../../docs/design/00f-capability-atlas.md)：`novel_web` 193 tests / 532s 慢测试仍待收敛；`novel_common` 日志 I/O 部分已由 ADR-0034（`novel_telemetry`）闭环，本任务只承接 web 慢测试与剩余债务。
   - B71 审核轮架构 P2-10 记录与 2026-11-08 候选。
@@ -282,6 +282,100 @@ leader同时拒绝为消除存活变异而删除工作副本cleanup幂等状态�
 最终已执行 `bash scripts/task_done.sh --top 10`（内含完整静态扫描），退出0；完整运行manifest为 `artifacts/task-done/20261114T003549Z/manifest.json`。21项原始检查20通过、1项gitleaks非零、0跳过；Top10实际7项均有既有处置（6误报、1已接受的其他开发线历史风险），0阻塞，本批没有新增待处理发现。之后仅本段/状态的文档更新，刷新manifest复用同源完整扫描，不重复未变化的代码验证。最终manifest、源hash、范围及本地提交事实见 `leader/result.json`。
 
 尚不签B84或A2完成；R01与其他Node测试族、后端/Rust、前端/原生、宿主失联恢复与原web慢测试仍未闭环。
+
+### A2 R01快照族与启动清单事实来源（2026-11-14 开始）
+
+confirmation单元已本地提交 `88b3e1cf`，未推送。R01消费者和测试仍属于原R01未提交整体，已保存8个相关文件的原始源码/指纹于 `artifacts/b84-test-system/20261114/a2-r01-snapshot/before/`、`source-before.json`；本步不能单独提交缺少消费者的R01测试片段，通用owner既有提交不回滚。capture的20表家族仍是下一单元，不与本步14表源投影合并。
+
+**独立目标反例先于迁移**：当前 `preflightNative`直接信任snapshot JSON的`run_inventory`，既有纯测试还保护“缺inventory按空事实处理”。leader以现有合成源构造器创建含durable run与RUNNING task的数据库，原清单会被拒绝；仅将JSON清单改成null、DB字节/hash不变，实际预检返回ok及0任务。有效证据为 `inventory-origin-red.{json,log}`，不是推断历史真实批次曾触发该问题。三份`inventory-probe-invalid-*`只是探针路径未满足manifest契约的设置失败，不计产品结论；合法路径的探针scope及专属空父目录均已回收，未访问原作者DB/日志或启动应用。
+
+- **Contract/Invariant**：R01完整副本、源不变、作者数据保护与不意外恢复旧任务；同run同源规格只构造一次，纯运行清单判断0文件环境；空表的实测0与缺失/伪造声明分开，实际数据库是安全判断的来源，声明须与事实一致。
+- **Boundary/Consumer**：复用 `request_cost_snapshot.mjs` 已有runInventory读取和纯assert判定，在现有owner内导出/命名清楚的实际DB读取入口，服务create/restore/preflight/prepare的当前消费者，不复制第二套清单扫描。preflight读取实际work DB，restore核对实际DB与记录，prepare核对source及实际batch的安全事实；完整复制本身不因源中含旧任务而改写数据。生产app、Prompt、IR、Provider行为不改，不启动模型或真实页面。
+- **设计与查重**：删除无实际消费者的“清单缺失即空/关键运行表缺失即空”回退；在实际文件/DB边界揭示错误，不给纯内部函数堆不可达类型拦截。既有纯规则测试保留安全实测0/任意数量终止task与非终止/未知状态反例，退役缺失清单被当安全的错误期待；真实IO增加缺失和完整伪空JSON、声明与实际不一致、关键表缺失、实际batch被改成危险任务等反例。
+- **fixture**：提取既有writeSource到同族fixture，复用materializeFixture，14表源模板DELETE封存/finally关闭；纯与IO邻接分开。正常源只读共享，需要改源的case才取隔离副本；实际快照/恢复输出使用run/work下必要case叶子并预先绑定Node TestContext退出，不为分配输出目录伪造空fixture。write/rename/reconcile的连接含部分初始化失败均须关闭。按真实消费者核对种子枚举，普通种子不冒充完整生产Schema；另保留明确的opaque字节/未知值透传证明，不清洗源数据。与20表capture不合并、不新建SQL框架。
+- **Proof**：保留全部完整字节副本、其他作品、逐表行数、BLOB UUID/引用原始行、声明setup delta、同tick/时间回退等证明；源与副本字节/hash至少一条由Node crypto/Buffer独立核对，不能只用SUT自己的hash当oracle。使用实际preflight/restore/prepare入口验证JSON不能替代DB；使用构造/写入计数与串行/并发/失败出口证明模板复用及无净增。R01中其它仍混合的capture测试只做受影响的定向验证，其完整资源迁移随后接续，不恢复旧大变异。
+- **Acceptance Driver**：外部Node进程、真实文件/SQLite及现有公开诊断入口；产品验收感知新增no。这里只签诊断与测试机制，真实模型基线仍使用既有3/10/20轮证据，不重新采集或代签产品改进。
+- **Exploration**：不物化作品知识或改变模型请求，不适用。
+
+`active-metadata-shapes.json`已核实：原冻结目录名real-v2中的原manifest实际是snapshot/v1，保持原字节；当前rebuild从其冻结full.sqlite3生成snapshot/v2，不应把v1直接接入新启动入口或回填它。formal-before manifest已有业务hash与引用签名。原证据和当前运行契约须区分，任何进一步退役须核实真实消费者，不为改测试改写冻结资料。
+
+#### 快照族实施与验收 checkpoint（R01整体仍为WIP）
+
+当前边界已实现：`readRunInventory`复用原SQL读取，关键运行表缺失直接失败；JSON schema/清单声明检查集中于同一私有读取器，两条现有公开入口按各自路径委托。纯安全规则只消费run mode/task状态；声明结构不是DB观察。preflight与prepare以实际库判断并对账；restore目标是将要启动的batch DB，复制前也检查实际安全，完整备份create仍原样保留危险源、不改任务状态。
+
+leader运行发现并修复两处测试实现错误（误把restore返回值当落盘记录、SQLite null-prototype行的内容比较），没有为通过而改SUT返回形状。随后独立真实verify故障注入证明：仅写`not_collected=run_inventory`仍会被原报告分类为pass；现已在既有`MEASUREMENT_GAPS`接通partial，既不签完整测量，也不把读库失败伪报为unsafe/model failure。原错误与修复证据分别为 `verify-inventory-read-{red,green}.{jsonl,log}`；未启动应用或模型。
+
+最终来源在 `a2-r01-snapshot/leader/`：
+
+- `coverage-final/`：快照纯/IO、纯报告及完整capture集合一次标准原生LCOV，**102/102通过**；受影响preflight/prepare/verify定向6/6通过。完整capture仅作为受影响回归运行一次，未放回旧全段变异。
+- `resource-final/result.json`：纯2例0目录/DB；串行两次及并行两进程各25个IO用例，共用2个不同标题源规格，各只执行一次14表构造；326连接/326关闭，82个必要副本/输出叶子在退出后无残留，父marker/其它owner哨兵不变；构造故障时每规格只尝试一次、连接关闭、不发布半成品。
+- 源模板改为DELETE封存，普通枚举按当前schema核实；未知枚举与16字节BLOB仍有明确原样透传反例。源/full/work的字节和hash用Node crypto/Buffer独立核对。原冻结v1 metadata及formal-before metadata的hash保持不变（`metadata-preserved.json`）；没有改写作者证据。
+- `inventory-origin-green.json`证明原始“DB危险但null声明放行”的反例已转拒绝；完整伪空、声明不一致、缺运行表、危险batch、实际空表的真实IO反例均保留。缺表或读取失败在报告中为缺证/partial，已观察到危险状态才记unsafe/fail。
+- Crapper四个本批相关源码最高9；Dryer原0.80重复已合并为同一JSON入口，最终阈值0.8无重复。差量变异原始exit3保留：最后JSON边界14点13击杀/1拒绝错误输入形式差异；原纯规则/IO/种子按未变函数范围复用，不能把不同运行累计成全文件分数。数值/布尔种子变化不靠镜像断言刷分，详见 `mutation-review.json`。
+
+最终工程门已执行两次：首轮因既有合成usage零值测试从850行移到851行而产生新Semgrep指纹，阻塞数1；核对表达式和本地合成来源未变后，在原 `reports/static-scan/dispositions.json` 补新位置处置并保留旧记录，未改扫描规则或测试代码。复跑 `bash scripts/task_done.sh --top 10` 退出0，manifest为 `artifacts/task-done/20261114T022956Z/manifest.json`；21项原始检查20通过、1项gitleaks非零，Top10实际7项（6误报/1已接受历史风险），0阻塞。原失败与复跑报告均保留，见 `disposition-review.json` 与最终 `leader/result.json`。
+
+当前不单独提交依赖原R01未提交消费者的测试碎片。capture的20表资产及其IO编排变异、其余R01工程闭环仍为下一checkpoint；本步只签上述实际证明，未签R01或B84完成。
+
+### A2 R01 capture家族（2026-11-14 设计/开始）
+
+事实输入为 `artifacts/b84-test-system/20261114/a2-r01-capture/design-inputs.json`、`facts-summary.md`：现有33个case，20表源builder只有一份固定DDL/seed，prepareFixture有40个静态调用点；当前每例重建源、两份snapshot镜像和batch。与14表snapshot投影不是同一Schema/seed。manifest/config/source record包含实际路径，不能直接把旧临时目录整体当跨case模板。
+
+- **Contract/Invariant**：R01测量事实与合成fixture边界、quality-gates §2.5。纯规则零环境；同run同规格作者日志、20表源/完整快照及初始批次只构造一次；必要mutable batch与负例变更隔离；路径引用指向实际发布资源，不能遗留staging路径。缺证不当pass，初始/末态事实分别观察。
+- **Boundary/Consumer**：复用当前 `makeMessages/makeRecord/makeSource/createSourceDb/prepareFixture/writeDriverLog/writeCalls/writeCheckpoints/writeCheckpointAt` 等真实factory，消费已有analyze/preflight/prepare/capture/verify/CLI main；不改产品lib、Prompt、IR、Provider，不读真实作者数据或重采模型。原33例目的/失败矩阵必须保留；已有main函数级证据不能冒充进程CLI证据。
+- **资产设计**：按当前真实依赖分作者源日志（无DB）、native只读源/完整snapshot（20表）、已做固定setup的批次初始资产三类，全部走同一materialize owner。作者日志的只读消费者借用，改日志者取必要副本；源DB/snapshot正常只读共享，确需篡改snapshot的反例才复制；每个native case只复制会被写入的batch DB/记录/日志输入，并在case绑定manifest.path/sha、batch_dir等位置。固定setup从现有SQL提取，所有连接finally关闭，合成库DELETE封存；不把全部只读源/镜像随每个batch重复复制。
+- **路径决策/实体查重**：现有owner内部已经计算最终target，缺的是向builder提供只读发布定位。仅批准§2.5.7的第二个publicationDir参数，供本族在staging内序列化正确的发布路径；禁止在publish后修模板或预建目标目录，不复制digest/目录计算。复用现有纯manifest fixture组成所需元数据，不把其最小样本整份当真实capture输入。native manifest的冻结源规范引用与传给preflight的实际隔离副本位置是不同角色，按现有hash绑定，不改SUT路径规则或读取真实冻结路径。
+- **前后状态**：旧writeCheckpoints在调用后取一次末态canon，再同时写start/final，并把实际2行memory写成0；正常fixture不能继续自证这组矛盾值。复用现有checkpoint helper，在初始批次阶段保存真正的初始DB/日志观察，再在case写入/变更后观察末态；行数取实际DB，不只把0硬改2；保留明确的合成时序/显式at场景，禁止把末态倒填初态。真正captureBatch的IO测试仍验证公开producer，独立断言初始/末态计数与受控变更，避免producer/consumer共享错误仍自洽。
+- **Proof/Acceptance Driver**：原33例迁移为纯/IO并保留全部反例，外部Node入口验证source/快照/批次基准构造与必要副本数、串行/并行复用、模板/父哨兵不变、异常退出/连接关闭/无残留；capture的IO变异在该迁移后才执行。真实页面/模型不在此机制checkpoint代签，产品新增验收感知为no。
+- **Exploration**：不物化作品知识或改变模型请求，不适用。全B84及R01原工程闭环仍开放。
+
+本步批准本族纯fixture与IO fixture模块、邻接capture IO测试，以及上述现有owner参数扩展；均须先复用/搬迁已有定义并更新既有索引，不引入通用测试编排器、场景注册表、SQL生成器或未来状态机。实现前保存当前修复后的R01源码指纹；worker只做限定代码实现，leader统一运行验收。
+
+#### capture实施与局部验收 checkpoint（2026-11-14）
+
+当前证据唯一落点为 `artifacts/b84-test-system/20261114/a2-r01-capture/leader/`，最终来源和限定结论见 `result.json`。worker负责限定源码迁移，leader审查并经既有run入口执行验收。该单元收口，不继续扩展同一族的验证矩阵；接续A3后端生命周期设计/实施，其余A2消费者仍保留在原清单。
+
+- 3个资产域落为4个实际规格：固定作者日志、20表源/完整快照、冻结native manifest、已做固定setup的初始batch。全部复用同一 `materializeFixture`。正常case仅复制可写batch；需改日志/快照的反例才复制该资源。既有builder增加第二个只读定位参数 `publicationDir`，仍在staging写完后原子发布，不在发布后改模板。实际source/snapshot/restore引用均可解析，无staging路径或WAL辅助文件泄入模板。
+- 原33个验收目的完整保留，拆成纯7/IO28共35例；新增两例分别证明非法rebuild入参不触碰私有文件、坏driver声明不得伪造0轮。初始/末态分别观察真实DB/日志/driver，独立断言实际memory=2、work_sessions=2、driver 0→3及LLM记录0→6；真正 `captureBatch` producer的期望不再从fixture计数器反推。计数决策收敛到一个owner。
+- 干净源码副本曾暴露 `rebuildSnapshot` 在拒绝非法source前先读冻结manifest，原工作树测试因存在私有artifact而掩盖了问题。现有snapshot owner的路径规则提取为 `assertFrozenFullPath`，rebuild在任何I/O前调用；SHA/WAL/合法来源等原检查保留。未复制真实artifact进测试环境，未改写原基线。
+- `coverage-observation/`：合并capture/快照/报告集合 **104/104通过，0失败**，标准Node原生LCOV未改写。原owner参数扩展有发布前target不存在、发布后路径可读的实际测试；scope完整集合已在本批较早的162/162合并运行通过，之后未修改owner。
+- `resource-observation/result.json`：纯7例0目录/DB；历史3例0DB。共享run串行两次与并行两进程分别只构造**1份20表源库、发布4个规格、执行3次固定DB复制**；1832次连接全部关闭，130个必要case叶子退出后回收，模板/父marker/其它owner哨兵不变。构造故障只尝试一次、关闭连接、不发布半成品。相关owned scratch及系统 `test-env-scope-*` / `ai-novel-test-run.*` 前缀均为0；旧DB前缀161保持，旧149GiB资料未清理。
+- `qa-observation/`：本轮变更的三个源文件最高CRAP8.8，未变owner沿用此前最高9的证据；Dryer字节一致镜像、阈值0.8无重复。`mutation-review.json`按函数/源码hash解释证据：capture完整选定范围25点18击杀/7存活；补独立审计和零记录缺证断言后，3个相关点均击杀；重构后的两个计数函数8点全部击杀。保留只读连接权限、合法输入域可选访问、非空runtime版本域等存活说明，不删除有效约束刷分，不宣称全文件100%。初次干净副本失败和一次源码漂移后的旧行选择不计通过。
+- 完整 `bash scripts/task_done.sh --top 10`（内含 `bash scripts/ai_static_scan.sh --top 10`）最终退出0，manifest为 `artifacts/task-done/20261114T042159Z/manifest.json`。首次沙箱执行因Mix.PubSub本机socket `:eperm`未能建立测试库，保留原失败，获准本地执行后通过。21项原始检查20通过、gitleaks 1项非零；Top10实际6项，5项既有误报、1项既有接受风险，0阻塞；Semgrep实际扫描了全部新capture源码，两个既有author-behavior YAML parser警告保留。没有新增扫描排除或绕过门禁。
+
+本批未单独提交依赖R01未提交消费者的测试碎片，未推送、未启动真实模型或原生页面，未签R01或B84完成。按主阶段完整验收只关闭A0（1/6）；A1/A2部分完成，A3–A5仍开放，不能把上述局部测试通过数当作整体完成率。
+
+### A3 Application流程资源所有权（2026-11-14 设计/开始）
+
+承接 `a3-backend/ownership-facts.json` 与真实 `task-owner-probe.exs`：当前helper等待全部run/task，超时返回成功；终态run不退出。独立Task.Supervisor实验已证明run/caller退出不会自动结束 `async_nolink` / `start_child` 任务，不能把stop server当作资源已清空。A2 capture局部验收已收口，本步不重跑该族矩阵。
+
+- **Contract**：quality-gates §2.5.8；现有ExUnit退出顺序、DataCase/Sandbox事务与OTP进程身份。复用 `TestAgentRunCleanup`，新增函数仅服务当前run分配/释放消费者，不建新owner实体或框架。
+- **Invariant**：同次运行复用已迁移数据库，case只拥有事务；本case实际run及其派生任务先结束，Sandbox owner后结束；其他owner的阻塞任务保持存活且不被等待；超时/释放失败不签成功。
+- **Boundary**：仅application测试/support及既有索引；首批10个流程模块接入DataCase与明确登记。生产lib、Provider、产品状态协议、R01 WIP和Channel尚未迁移的实际消费者不改。
+- **Consumer**：character design/evolution、world building、plot outline、prose drafting/revision、judgment plan、pending revision、fact inventory、ledger reconciliation的实际 `AgentRunService.start_bounded` 调用。成功创建后立即登记实际PID；显式中途释放与退出释放复用同一路径。已有relay仍只负责真实事件转发。
+- **Proof**：实际run/嵌套Task、其他owner阻塞哨兵、run先死亡仍有task、重复释放、case断言失败、Sandbox回滚次序分别验证；原业务断言不减少。故意失败的子ExUnit运行应退出非零，外层观察必须证明run/task已终止后才停止Sandbox。旧全局入口的deadline反例只证明已知机制问题，不冒充新产品发现。
+- **Acceptance Driver**：既有ExUnit真实服务/SQLite入口与外部受控子进程；这是一段测试机制闭环，产品验收感知新增no，不代签真实页面或模型。
+- **Exploration**：不物化作品要素、不改变模型请求，不适用。
+
+源码备份与当前单元证据落 `artifacts/b84-test-system/20261114/a3-backend/application-owner/`。worker按ub-mode做限定代码改造，leader通过现有run入口执行编译/目标测试/故障验证及所需工程门。Channel、Rust及其余入口仍是计划内后续，不能以本步替代完整A3。
+
+实现前独立基线：`compile-before.log`编译退出0；`baseline-flow.json`的单个真实角色演化流程1/1通过后仍有1个run server，`baseline-all.json`的10模块46/46通过后仍有44个run server（step/background各0，测试耗时3475ms）。这些记录来自已备份源码和单一隔离SQLite库，不读取真实作者数据、不调用模型；源码重载警告属于该旧版本探针，不计当前工程编译告警。`legacy-timeout-probe.log`复现无本case资源时仍等其他阻塞task，30ms期限后返回`:ok`且task存活；`nested-callers-probe.log`确认当前Elixir的实际嵌套Task携带完整caller链。以上是本次迁移的前置事实，未签修复通过。
+
+首稿未通过leader验收：`review-all.log`为51/51、残留0，但 `review-flows-trace.log`证明原46个流程中的character steer和volume scope两个case退出时出现 `DBConnection.ConnectionError: client ... exited`，旧基线无此日志；首稿直接结束run/task会打断尚在进行的数据库操作。`deadline-red.log`的真实Task shutdown反例为期限1ms、实耗73ms、返回`:ok`，不能按worker“最终仍raise”的描述签收。设计已在§2.5.8修正为先取消派发、仅等本run在途提交到安全点，再停止；超时仍须收口owned资源并暴露失败。`assertion-failure-invalid-setup.log`仅是探针allowed_tools为空的前置失败，不计退出机制证明；已修正探针输入，后续另记有效结果。
+
+#### Application首批实施与验收 checkpoint
+
+- 10个模块复用既有DataCase；32个成功启动点全部登记实际run PID，原46个业务用例名称/判据保留。`pending_revision`中途读取状态后释放该PID，随后退出再次释放仍幂等。relay职责未改，没有生产测试开关或新测试框架。
+- `accepted-suite.json`：**53/53、0失败，run/step/background残留均0**，两个原流程的DB断连消失。对照旧46/46通过却遗留44个run server的基线，本步证明的是资源所有权和安全退出，不能据不同用例数/调度时长宣传整体提速。
+- `inflight-transaction-valid.log`与`inflight-transaction.json`：真实AgentRun的step正在SQLite事务中时触发释放，事务完成后的作品行在case内可读，DataCase结束后同一库中该行已回滚，run/task均退出。首版探针把WorkRepo不接受的输入id当成实际主键，导致读nil；`inflight-invalid-id*`及`graceful-all.log`保留该探针错误，不当产品失败。
+- `deadline-green.log`及`deadline-20ms-green.log`：1ms/20ms期限下均明确报错、所属run/task均死亡；后者实际进入50ms的阻塞shutdown并在期限触发强制收口。其它owner哨兵保持存活，实际嵌套caller链与run先死后的收口由7个helper用例验证。停止操作使用短受监控进程，返回前确认它也退出。
+- `accepted-failure.log`与`accepted-failure-order.json`：故意断言失败、任务拒绝结束时，原断言和清理5000ms超时同时留证；清理后owned任务0，Sandbox尚可查询，其他owner任务仍活着。ExUnit原生会丢弃第二个on_exit异常，因此只在登记回调边界增加既有Logger记录并原样重抛，不改框架、不把错误转为成功。
+- helper替身已改为真实 `{:command, :cancel}` 协议，并独立断言取消消息；移除无读取消费者的测试状态。曾吞掉未知cast而仍通过的首稿不能证明取消已送达。`consumer-purpose-check.json`记录32个启动/登记点和原用例名称不变。
+- **全量 `MIX_ENV=test mix check`退出0：3194测试、0失败**，含强制零警告编译、codegen/enum、编译循环、架构、ADR与I-CACHE检查。该运行开始于最终日志边界/风格收敛之前；这些后续局部变化由最终53例、双失败探针和完整扫描复验，不冒充整套再次执行。Web的196例仍耗时547.9秒，仍属下一步的真实待治理对象，未签Web慢测试解决。
+- 完整 `bash scripts/task_done.sh --top 10`（含完整 `bash scripts/ai_static_scan.sh --top 10`）首轮因本批helper的两项Credo规则失败；在原函数内改隐式catch和原生comprehension后复跑退出0，Credo issues为空，格式检查通过。原始21检查20通过/gitleaks 1非零；Top10实际6项，5项既有误报/1项既有接受风险，0阻塞。两轮扫描、最终manifest与源hash归 `application-owner/result.json`。
+- 本机crapper/dryer未识别Elixir源码，mutator未提供该helper的有效分析；原输出归 `tool-support/`，退出0不计CRAP/重复率/变异覆盖通过。使用真实ExUnit、故障探针、Credo与仓库工程门补充本批证据，保留工具适用性限制，不安装或伪造评分。
+
+本批只关闭Application流程这一checkpoint；Channel现役全局等待入口、其它runtime测试、裸Mix、Rust及A4/A5仍按原范围推进。没有重采R01模型基线或改生产lib；临时资源全部经既有owned入口运行，旧系统残留与作者证据保持不动。本地提交范围/结果见同一`result.json`，不推送。
 
 ## 变更记录
 

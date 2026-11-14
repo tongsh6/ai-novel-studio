@@ -1,5 +1,5 @@
 defmodule NovelApplication.AgentRunProseDraftingFlowTest do
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentRunFlows.ProseDraftingWithQuality
@@ -11,20 +11,6 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   alias NovelCommon.RequestIR
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.DialogueContext
-
-  alias Ecto.Adapters.SQL.Sandbox
-  alias NovelPersistence.Repo
-
-  setup do
-    owner = Sandbox.start_owner!(Repo, shared: true)
-
-    on_exit(fn ->
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(owner)
-    end)
-
-    :ok
-  end
 
   @work "work-agent-prose-flow"
   @bad_prose "他走进房间，看了看四周，坐了下来。他拿起书本，翻了翻几页，放了下来。他望向窗外，看了看天色，叹了口气。他端起茶杯，喝了一小口，搁了回去。"
@@ -194,6 +180,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                interaction_store: planned.interaction_store,
                interaction_input: planned.interaction_input
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :run_started, _}
     assert_receive {:agent_event, :plan_drafted, context_step}
@@ -602,6 +590,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                next_step_planner: planned.next_step_planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:writer_prompt, writer_prompt}, 2_000
     assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ prior_prose
 
@@ -738,13 +728,15 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         %Execution{result_fn: writer}
       )
 
-    assert {:ok, _run_id} =
+    assert {:ok, run_id} =
              AgentRunService.start_bounded(
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
                next_step_planner: planned.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:writer_prompt, writer_prompt}, 2_000
 
@@ -859,6 +851,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                end),
                next_step_planner: planned.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:planner_prompt, 1, initial_prompt}, 500
     assert RequestIR.Tools.tool_choice(initial_prompt) == "auto"
@@ -1113,6 +1107,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                end),
                next_step_planner: planned.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :plan_drafted, _}, 500
     assert_receive {:agent_event, :awaiting_author, awaiting}, 2_000
@@ -1958,6 +1954,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                end),
                next_step_planner: planned.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     run_id
   end

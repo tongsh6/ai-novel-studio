@@ -221,7 +221,21 @@ SQLite的“只读连接”不等于目录没有写入：本机合成实验中�
 
 confirmation迁移的真实双故障反例进一步要求同步副本使用的出口一致：现有 `createWorkingCopy` 仍用于向TestContext/调用者交付副本；同一owner增加 `withWorkingCopy(fixture, use, options)`，为当前同步消费者组合“创建→回调使用→cleanup”。回调失败与cleanup失败必须同时保留，复用已有错误组合逻辑；单失败原样抛出，正常返回回调结果。两个副本可组合嵌套调用，不新建资源池/登记器或通用资源框架；不在此引入无消费者的异步回调协议。批次/reader测试消费这一出口，停止各自维护会遮掉主因的finally。
 
+R01 capture的当前消费者需要在JSON载荷中引用发布后的源文件位置。构造入口可把已有的最终目标目录作为第二个只读定位参数交给同步builder：`build(stagingDir, publicationDir)`。它不授予在目标目录写入的权限；文件仍只能在staging构造，经同一校验/控制记录/rename发布。该路径只用于序列化发布后的引用，不能把随机staging路径固化进模板。既有一参builder仍为现役消费者；不增加路径注册器、选择性复制或另一套fixture池。若规格输出依赖project root等上下文，必须把这些实际输入纳入指纹，不能假设不同checkout的路径相同。
+
 API 语义参考：[Node 24.19 测试执行模型与 hooks](https://nodejs.org/download/release/v24.19.0/docs/api/test.html#test-runner-execution-model)、[Vitest globalSetup](https://vitest.dev/config/globalsetup.html)。Node 的测试文件进程隔离与 Vitest 的 globalSetup 全局空间不同，均不能据“global/beforeAll”名称推断跨外层变异运行的共享范围；本仓实现仍以锁定版本、现有配置和实测为准。
+
+#### 2.5.8 后端用例的运行资源退出（B84 A3，2026-11-14）
+
+Sandbox事务仍由既有 `NovelPersistence.DataCase` 创建/回滚，不给每个流程case重新建库。实际创建bounded run的Application测试在服务成功返回后、业务断言前，经现有 `TestAgentRunCleanup` 登记run的实际PID；登记绑定该次分配的进程身份，不以退出时整个Supervisor的新增集合推断归属。登记的ExUnit退出回调晚于Sandbox初始化注册，先释放run，再由DataCase停止owner。测试改变Application env时，恢复回调须在创建run之前登记，使run先退出再恢复依赖环境。不得把借用的其他run登记为拥有。
+
+释放先经现有run command请求取消派发，再仅对登记的run同步状态并等待其在途step/提交到达安全点，最后通过实际 `AgentRunSupervisor` 结束该run。首稿直接停止run/task虽使残留归零，却在两个真实流程中打断了仍在进行的DB操作，因此不能把“全部进程已死”作为唯一退出判据。安全点同时核对该run的 `current_task?` 和其所属task，不能只看到task退出就推断server已完成结果提交。超时须记失败，继续强制收口本作用域剩余资源，不能带着活任务进入Sandbox释放，也不能在停止操作阻塞超过期限后因列表已空而返回成功。
+
+从现有step/background Task.Supervisor中按 `$callers` 链识别属于登记PID的任务。扫描任务身份不等于等待或清理全局任务：没有该归属链的任务不得等待、停止或计入busy。嵌套任务沿同一调用来源归属，生产者停止后复查仍存活的本作用域子任务；不调用其他run的state，不把全局空闲或固定两次空扫描当作因果证明。run已退出时仍使用此前捕获的PID处理派生任务，不能因为Registry条目消失就把孤儿任务漏掉。正常、断言失败与已退出run采用同一释放路径，退出失败必须暴露。
+
+首批消费者是10个Application流程测试模块；复用既有cleanup模块和ExUnit `on_exit`，不新建进程注册框架、全局测试服务或生产测试开关。Channel快照任务的caller是Channel，须按其真实创建入口另行接入；未迁移的现役调用者仍由原入口承接，不能称本条已覆盖全部后端。完整A3仍包括这些调用者、其余DataCase/env/direct Mix入口与Rust。
+
+当前ExUnit在用例已失败时保留原失败、忽略附加的on_exit异常（[1.19.5 runner源码](https://github.com/elixir-lang/elixir/blob/v1.19.5/lib/ex_unit/lib/ex_unit/runner.ex) 的 `exec_on_exit`）。因此同一cleanup helper只在登记的on_exit边界记录退出异常到既有Logger，再带原始类型/原因/栈重抛；不修改框架、不新建退出台账，也不把清理失败转换为成功。双故障证据必须同时含原断言失败和退出失败，以及实际资源收口结果。
 
 ---
 

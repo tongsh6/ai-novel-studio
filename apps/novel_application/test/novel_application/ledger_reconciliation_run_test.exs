@@ -5,23 +5,10 @@ defmodule NovelApplication.LedgerReconciliationRunTest do
   readonly 纪律 + 恰一次机械审读物化（reconcile_fn 注入）；规则判定不经模型
   （模型只起草计划）；turn 文案为 app 侧事实口径且引导到「脉络」页。
   """
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
-  alias NovelPersistence.Repo
-
-  setup do
-    owner = Sandbox.start_owner!(Repo, shared: true)
-
-    on_exit(fn ->
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(owner)
-    end)
-
-    :ok
-  end
 
   test "全书审读 run：机械物化恰一次，完成 turn 引导到脉络页，不产生待采纳 artifact" do
     parent = self()
@@ -68,6 +55,8 @@ defmodule NovelApplication.LedgerReconciliationRunTest do
                next_step_planner: spec.next_step_planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:agent_event, :run_started, _}, 500
     assert_receive {:reconciled, "work-ledger-review"}, 500
 
@@ -110,13 +99,15 @@ defmodule NovelApplication.LedgerReconciliationRunTest do
         nil
       )
 
-    assert {:ok, _run_id} =
+    assert {:ok, run_id} =
              AgentRunService.start_bounded(
                NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
                next_step_planner: spec.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :turn_result_ready, turn_event}, 1_000
     turn_result = turn_event.payload.turn_result

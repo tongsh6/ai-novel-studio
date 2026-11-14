@@ -1,5 +1,5 @@
 defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentRunService
@@ -7,20 +7,6 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TestAgenticLoopFixtures
   alias NovelCommon.RequestIR
-
-  alias Ecto.Adapters.SQL.Sandbox
-  alias NovelPersistence.Repo
-
-  setup do
-    owner = Sandbox.start_owner!(Repo, shared: true)
-
-    on_exit(fn ->
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(owner)
-    end)
-
-    :ok
-  end
 
   test "bounded roster-to-character-design run executes two re-gated steps and keeps artifact tentative" do
     parent = self()
@@ -65,6 +51,8 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
                end),
                next_step_planner: next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :run_started, _}
 
@@ -140,6 +128,8 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
                next_step_planner: spec.next_step_planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:agent_event, :run_failed, _}, 2000
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :failed
@@ -189,6 +179,8 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
                end),
                next_step_planner: spec.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :run_failed, _}, 2000
     assert {:ok, state} = AgentRunService.state(run_id)
@@ -251,6 +243,8 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
                end),
                next_step_planner: next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive :roster_reader_started
     assert {:ok, _} = AgentRunService.steer(run_id, "改成政治操盘者，不做武力型反派")

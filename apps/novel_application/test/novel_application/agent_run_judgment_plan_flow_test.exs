@@ -6,28 +6,15 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
   每步过 Orchestrator gate；多产物逐个进待采纳区；完成收束停 S1/S2。
   外部页面级验收由场景 `judgment-plan-multi-step` 驱动。
   """
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
   alias NovelCommon.RequestIR
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Test.Provider.SliceVerify
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TestAgenticLoopFixtures
   alias NovelCommon.Contracts.ProviderOutput
-  alias NovelPersistence.Repo
-
-  setup do
-    owner = Sandbox.start_owner!(Repo, shared: true)
-
-    on_exit(fn ->
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(owner)
-    end)
-
-    :ok
-  end
 
   test "旧任务的计划耗尽标记不能改写当前问题回复的单产物目标" do
     previous = System.get_env("SLICE_VERIFY_PLAN_EXHAUST")
@@ -120,7 +107,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                next_step_planner: spec.next_step_planner
              )
 
-    on_exit(fn -> AgentRunService.cancel(run_id) end)
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
     assert_receive {:b31_plan_event, :plan_drafted, _}, 2_000
     assert_receive {:b31_plan_event, :awaiting_author, awaiting}, 3_000
     assert "plan_exhausted_without_completion" in awaiting.reason_codes
@@ -187,7 +174,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                  next_step_planner: spec.next_step_planner
                )
 
-      on_exit(fn -> AgentRunService.cancel(run_id) end)
+      _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
       # 根因是 cold test-env 首跑缺 sandbox 共享所有权（见上），已修；等待保留 5s 防御高负载，
       # 断言语义不变（仍要求 plan_drafted 到达）。
@@ -313,6 +300,8 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                next_step_planner: spec.next_step_planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive :plan_draft_called, 500
 
     # 真计划：plan_drafted 照发（模型自产步序，非 app 预制轨道）。
@@ -429,6 +418,8 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                end),
                next_step_planner: spec.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     # 计划带检索步（模型自产，exploration_query 随步）
     assert_receive {:agent_event, :plan_drafted, plan_event}, 500
@@ -565,6 +556,8 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                next_step_planner: spec.next_step_planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:agent_event, :plan_drafted, _}, 500
     assert_receive :plan_revision_called, 2_000
 
@@ -670,6 +663,8 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                end),
                next_step_planner: spec.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :plan_drafted, _}, 500
     assert_receive :plan_revision_called, 2_000

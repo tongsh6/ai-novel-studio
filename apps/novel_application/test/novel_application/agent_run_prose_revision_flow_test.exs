@@ -1,5 +1,5 @@
 defmodule NovelApplication.AgentRunProseRevisionFlowTest do
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Test.Provider.SliceVerify
@@ -20,8 +20,6 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
   alias NovelDomain.MicroPlan
   alias NovelDomain.OrchestratorDecision
 
-  alias Ecto.Adapters.SQL.Sandbox
-
   alias NovelPersistence.{
     AgentRunLog,
     InteractionLifecycle,
@@ -31,17 +29,6 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
     WorkRepo,
     WorkSessionRepo
   }
-
-  setup do
-    owner = Sandbox.start_owner!(Repo, shared: true)
-
-    on_exit(fn ->
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(owner)
-    end)
-
-    :ok
-  end
 
   @work "work-agent-prose-revision-flow"
   @bad_prose "他走进房间，看了看四周，坐了下来。他拿起书本，翻了翻几页，放了下来。他望向窗外，看了看天色，叹了口气。他端起茶杯，喝了一小口，搁了回去。"
@@ -152,6 +139,8 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
                next_step_planner: planner,
                interaction_store: planned.interaction_store
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :run_started, _}
 
@@ -334,6 +323,8 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
                next_step_planner: planner,
                interaction_store: planned.interaction_store
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:revision_writer_attempt, 1}, 1_000
     assert_receive {:revision_writer_attempt, 2}, 1_000
@@ -1174,6 +1165,8 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
                next_step_planner: planner,
                interaction_store: planned.interaction_store
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     run_id
   end

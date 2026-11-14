@@ -6,9 +6,8 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
   canonical transcript 不会被 planner 的旧 metadata 覆盖；不冒充真实 UI/实模。
   """
 
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Test.Provider.SliceVerify
 
@@ -23,12 +22,9 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
   alias NovelApplication.AgentRunService
 
   alias NovelDomain.DialogueFrame
-  alias NovelPersistence.{AgentRunLog, MemoryLog, ProviderRunLog, Repo, WorkSessionRepo}
+  alias NovelPersistence.{AgentRunLog, MemoryLog, ProviderRunLog, WorkSessionRepo}
 
   setup do
-    :ok = Sandbox.checkout(Repo)
-    Sandbox.mode(Repo, {:shared, self()})
-
     {:ok, work} = WorkService.create(%{title: "B71 修订接线"})
     {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
 
@@ -127,7 +123,7 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
                next_step_planner: spec.next_step_planner
              )
 
-    on_exit(fn -> AgentRunService.cancel(run_id) end)
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:provider_call, :judgment}, 3_000
     assert_receive {:provider_call, {:revision, 1, _tools}}, 3_000
@@ -277,7 +273,7 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
                next_step_planner: spec.next_step_planner
              )
 
-    on_exit(fn -> AgentRunService.cancel(run_id) end)
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:provider_call, :judgment}, 3_000
     assert_receive {:provider_call, {:revision, _}}, 3_000
@@ -384,14 +380,14 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
                  next_step_planner: spec.next_step_planner
                )
 
-      on_exit(fn -> AgentRunService.cancel(run_id) end)
+      run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
       assert_receive {:agent_event, :run_failed, failed}, 5_000
       refute_received {:agent_event, :artifact_created, _}
       refute_received {:agent_event, :run_completed, _}
 
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
       assert {:ok, state} = AgentRunService.state(run_id)
+      :ok = NovelApplication.TestAgentRunCleanup.release_run(run_pid)
       assert state.run.status == :failed
       assert state.run.consumed_budget.provider_calls == 2
       assert state.run.consumed_budget.tool_calls == 0

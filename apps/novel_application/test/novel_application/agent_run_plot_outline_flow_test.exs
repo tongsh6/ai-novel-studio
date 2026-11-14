@@ -1,5 +1,5 @@
 defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
   alias NovelCommon.RequestIR
 
   alias NovelAgent.Provider.Execution
@@ -9,20 +9,6 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
   alias NovelApplication.TestAgenticLoopFixtures
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.DialogueContext
-
-  alias Ecto.Adapters.SQL.Sandbox
-  alias NovelPersistence.Repo
-
-  setup do
-    owner = Sandbox.start_owner!(Repo, shared: true)
-
-    on_exit(fn ->
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(owner)
-    end)
-
-    :ok
-  end
 
   @work "work-agent-outline-flow"
 
@@ -135,6 +121,8 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
                end),
                next_step_planner: planned.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :run_started, _}
     # CP2b：机械步序不发 plan_drafted（付费伪计划已消灭），
@@ -332,6 +320,8 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
                next_step_planner: planned.next_step_planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:agent_event, :run_completed, _}, 2_000
     refute_received {:planning_mission_prompt, _}
     refute_received {:planning_mission_persisted, _}
@@ -527,13 +517,15 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
         %Execution{result_fn: result_fn}
       )
 
-    assert {:ok, _run_id} =
+    assert {:ok, run_id} =
              AgentRunService.start_bounded(
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn _event ->
                  :ok
                end),
                next_step_planner: planned.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:scope_writer_prompt, writer_prompt}, 2_000
     text = prompt_text(writer_prompt)
