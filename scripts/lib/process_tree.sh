@@ -73,36 +73,71 @@ kill_process_tree() {
     done
   fi
 
+  # 信号失败不能吞：目标仍存在（EPERM/其他失败）时记录为 cleanup 失败；
+  # 目标已不存在（ESRCH）属于正常。条件上下文避免调用方 set -e 提前退出。
   _proc_tree_signal() {
-    local sig="$1" p g
+    local sig="$1" p g failed=0
     for p in $pids; do
-      kill "-$sig" "$p" 2>/dev/null || true
+      if ! kill "-$sig" "$p" 2>/dev/null; then
+        if kill -0 "$p" 2>/dev/null; then failed=1; fi
+      fi
     done
     for g in $group_targets; do
-      kill "-$sig" "-$g" 2>/dev/null || true
+      if ! kill "-$sig" "-$g" 2>/dev/null; then
+        if kill -0 "-$g" 2>/dev/null; then failed=1; fi
+      fi
     done
+    return "$failed"
+  }
+
+  # 僵尸进程（stat=Z）已不占运行资源，等待其被 reap 不等于树未收口；
+  # 但 ps 不可用/查询失败时保守按存活处理，避免把无法确认当成成功。
+  _proc_tree_pid_alive() {
+    local p="$1" stat
+    kill -0 "$p" 2>/dev/null || return 1
+    stat="$(ps -o stat= -p "$p" 2>/dev/null | tr -d '[:space:]')"
+    [[ -n "$stat" && "$stat" != Z* ]] || return 1
+    return 0
+  }
+
+  _proc_tree_group_alive() {
+    local g="$1" output found
+    kill -0 -- "-$g" 2>/dev/null || return 1
+    output="$(ps -axo pgid=,stat= 2>/dev/null)" || return 0
+    found="$(printf '%s\n' "$output" | awk -v g="$g" '$1 == g && $2 !~ /^Z/ { print $1; exit }')"
+    [[ -n "$found" ]]
   }
 
   _proc_tree_alive() {
     local p g
     for p in $pids; do
-      kill -0 "$p" 2>/dev/null && return 0
+      _proc_tree_pid_alive "$p" && return 0
     done
     for g in $group_targets; do
-      kill -0 "-$g" 2>/dev/null && return 0
+      _proc_tree_group_alive "$g" && return 0
     done
     return 1
   }
 
   _proc_tree_signal TERM
+  local term_failed=$?
 
   local waited=0
   while (( waited < grace )); do
-    _proc_tree_alive || return 0
+    _proc_tree_alive || return "$term_failed"
     sleep 1
     (( waited += 1 ))
   done
 
   _proc_tree_signal KILL
-  return 0
+  local kill_failed=$?
+
+  # SIGKILL 后必须有界确认已经退出；仍存活/信号拒绝都不能报告成功。
+  local kill_waited=0
+  while (( kill_waited < 20 )); do
+    _proc_tree_alive || return "$(( term_failed != 0 || kill_failed != 0 ? 1 : 0 ))"
+    sleep 0.1
+    (( kill_waited += 1 ))
+  done
+  return 1
 }
