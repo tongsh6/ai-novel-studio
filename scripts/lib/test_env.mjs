@@ -115,11 +115,31 @@ function writeArchive(scope, state, summary) {
   return file;
 }
 
+// 借用 scope 的 owner 不删除目录，但借用方仍要登记自己的生命周期：
+// owner 失联时，未闭合的借用记录证明可能还有借用方的活动资源，恢复不能归档。
+function releaseBorrowedScope(scope) {
+  try {
+    fs.appendFileSync(
+      scopeChildrenJournal(scope.dir),
+      `${JSON.stringify({
+        kind: "borrow_released",
+        id: scope.borrowId,
+        at: new Date().toISOString(),
+      })}\n`,
+    );
+  } catch (error) {
+    process.stderr.write(
+      `[test-env] 借用作用域释放登记失败（reap 将保留现场）: ${error.message}\n`,
+    );
+  }
+}
+
 // 公共 close：借用永不删除；owned 清理失败抛异常（不再返回软错误）。
 // 成功 close 幂等：首次关闭的事实被固定，重复调用不再次删除目录。
 function closeScope(scope, state) {
   if (state.closed) return state.closeResult;
   if (scope.borrowed) {
+    if (scope.borrowId) releaseBorrowedScope(scope);
     state.closed = true;
     state.closeResult = { dir: scope.dir, borrowed: true, removed: false };
     return state.closeResult;
@@ -133,13 +153,14 @@ function closeScope(scope, state) {
   return state.closeResult;
 }
 
-function makeScope({ dir, marker, borrowed, archiveDir }) {
+function makeScope({ dir, marker, borrowed, archiveDir, borrowId = "" }) {
   const state = { closed: false, archiveSequence: 0 };
   const scope = {
     dir,
     runId: marker.runId,
     borrowed,
     owned: !borrowed,
+    borrowId,
     tmpDir: path.join(dir, "tmp"),
     fixturesDir: path.join(dir, "fixtures"),
     workDir: path.join(dir, "work"),
@@ -182,7 +203,22 @@ function borrowRunScope(borrowedDir) {
         `拒绝在失联 scope 上继续；先确认/回收该 scratch 或重建 scope。`,
     );
   }
-  return makeScope({ dir, marker, borrowed: true, archiveDir: "" });
+  const borrowId = crypto.randomBytes(8).toString("hex");
+  try {
+    fs.appendFileSync(
+      scopeChildrenJournal(dir),
+      `${JSON.stringify({
+        kind: "borrow_attached",
+        id: borrowId,
+        pid: process.pid,
+        at: new Date().toISOString(),
+      })}\n`,
+    );
+  } catch (error) {
+    // 无法登记借用生命周期时 fail-closed：否则 owner 失联后无法判断借用方是否仍在。
+    throw new TestEnvError(`借用运行作用域无法登记借用生命周期，拒绝继续: ${error.message}`);
+  }
+  return makeScope({ dir, marker, borrowed: true, archiveDir: "", borrowId });
 }
 
 /**
@@ -264,8 +300,9 @@ function processGroupId(pid) {
 // 启动意图先于 spawn 落盘：若 owner 在子进程启动后、登记完成前被杀，
 // 恢复阶段会看到未闭合意图，不能把“没有可见活动”当成已证明子进程结束。
 // 意图写入失败时拒绝启动（fail closed），不留下无法核实的身份缺口。
+// borrowed scope 的子进程同样登记到 owner journal：外部借用方也是真实启动链，
+// 不能因为它不拥有 scratch 就让其子进程完全不可见。
 function registerScopeChildIntent(scope) {
-  if (scope.borrowed) return null;
   const id = crypto.randomBytes(8).toString("hex");
   try {
     appendChildrenJournal(scope, { kind: "spawn_intent", id, at: new Date().toISOString() });
@@ -294,12 +331,20 @@ function registerScopeChild(scope, child, intentId) {
     registerScopeChildFailure(scope, intentId);
     return;
   }
+  // owned 子进程在 POSIX 上 detached 启动（setsid），组身份天然等于 PID；
+  // ps 查询失败时不能用 null 冒充“身份充分”，回退到这个已建立的事实。
+  // borrowed 子进程共享外层组，组身份不单独代表该子进程，只按 PID 判活。
+  const owned = !scope.borrowed;
+  const queried = owned ? processGroupId(child.pid) : null;
+  const pgid = owned ? (queried ?? (process.platform === "win32" ? null : child.pid)) : null;
   try {
     appendChildrenJournal(scope, {
       kind: "spawn_registered",
       id: intentId,
+      group: owned ? "owned" : "shared",
       pid: child.pid,
-      pgid: processGroupId(child.pid),
+      pgid,
+      pgid_source: owned ? (queried ? "ps" : "detached_pid") : "shared_group",
       started_at: new Date().toISOString(),
     });
   } catch (error) {
@@ -339,8 +384,11 @@ function processGroupAlive(pgid) {
 function scopeEntryIdentity(entry) {
   const pid = Number.isInteger(entry?.pid) && entry.pid > 0 ? entry.pid : null;
   const pgid = Number.isInteger(entry?.pgid) && entry.pgid > 0 ? entry.pgid : null;
-  if (pid === null && pgid === null) return null;
-  return { pid, pgid };
+  const group = entry?.group === "shared" ? "shared" : "owned";
+  if (group === "shared") return pid === null ? null : { pid, pgid: null, group };
+  // owned detached 子进程必须有真实组身份；只有 PID 不足以证明同组后代已结束。
+  if (pid === null || pgid === null) return null;
+  return { pid, pgid, group };
 }
 
 function liveChildren(entries) {
@@ -404,6 +452,7 @@ function scopeChildrenState(dir) {
     return { verified: false, live: liveChildren(legacyEntries), state: "legacy" };
   }
   const openIntents = new Set();
+  const openBorrows = new Map();
   const registered = [];
   for (const entry of entries.slice(1)) {
     if (entry.kind === "spawn_intent") {
@@ -412,6 +461,10 @@ function scopeChildrenState(dir) {
       continue;
     }
     if (entry.kind === "spawn_registered") {
+      const group = entry.group ?? "owned";
+      if (group !== "owned" && group !== "shared") {
+        return childrenStateFailure("corrupt", "registered_group_unknown");
+      }
       if (!nonEmptyString(entry.id) || !scopeEntryIdentity(entry)) {
         return childrenStateFailure("corrupt", "registered_identity_missing");
       }
@@ -427,18 +480,37 @@ function scopeChildrenState(dir) {
       }
       continue;
     }
+    if (entry.kind === "borrow_attached") {
+      if (!nonEmptyString(entry.id) || !Number.isInteger(entry.pid) || entry.pid <= 0) {
+        return childrenStateFailure("corrupt", "borrow_identity_missing");
+      }
+      if (openBorrows.has(entry.id)) {
+        return childrenStateFailure("corrupt", "duplicate_borrow");
+      }
+      openBorrows.set(entry.id, entry);
+      continue;
+    }
+    if (entry.kind === "borrow_released") {
+      if (!nonEmptyString(entry.id) || !openBorrows.delete(entry.id)) {
+        return childrenStateFailure("corrupt", "unpaired_borrow_release");
+      }
+      continue;
+    }
     return childrenStateFailure("corrupt", `unknown_record:${String(entry.kind)}`);
   }
   const live = liveChildren(registered);
-  if (openIntents.size > 0) {
+  const liveBorrowers = [...openBorrows.values()].filter((entry) => pidAlive(entry.pid));
+  const allLive = [...live, ...liveBorrowers];
+  if (openIntents.size > 0 || openBorrows.size > 0) {
     return {
       verified: false,
-      live,
+      live: allLive,
       state: "incomplete",
-      open_intents: [...openIntents],
+      ...(openIntents.size > 0 ? { open_intents: [...openIntents] } : {}),
+      ...(openBorrows.size > 0 ? { open_borrows: [...openBorrows.keys()] } : {}),
     };
   }
-  return { verified: true, live, state: "complete" };
+  return { verified: true, live: allLive, state: "complete" };
 }
 
 export function reapOrphanScopes({
@@ -497,6 +569,7 @@ export function reapOrphanScopes({
         children_state: children.state,
         ...(children.detail ? { detail: children.detail } : {}),
         ...(children.open_intents ? { open_intents: children.open_intents } : {}),
+        ...(children.open_borrows ? { open_borrows: children.open_borrows } : {}),
       });
       continue;
     }
@@ -876,6 +949,8 @@ function wireChild(child, state, resolve) {
   });
 }
 
+// options.onSpawn(child) 在 spawn 成功后同步调用，供调用方在 PID 文件/输出可见前
+// 立即登记子进程归属；回调抛错时终止已启动子进程并按启动失败返回。
 export function runInScope(scope, command, args = [], options = {}) {
   const stdio = options.stdio ?? "inherit";
   const capture = Array.isArray(stdio) && stdio[1] === "pipe";
@@ -898,6 +973,19 @@ export function runInScope(scope, command, args = [], options = {}) {
       return;
     }
     state.childPid = child.pid;
+    if (typeof options.onSpawn === "function") {
+      try {
+        options.onSpawn(child);
+      } catch (error) {
+        const failure = spawnFailureResult(
+          state,
+          new TestEnvError(`onSpawn 回调失败: ${error.message}`),
+        );
+        child.once("exit", () => resolve(failure));
+        child.kill("SIGKILL");
+        return;
+      }
+    }
     captureOutput(child, state);
     state.cleanup = installStopHandlers(child, state);
     wireChild(child, state, resolve);

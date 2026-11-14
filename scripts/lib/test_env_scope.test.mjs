@@ -3333,8 +3333,14 @@ test("reap：真实启动链登记下，仅经 env 持有 TMPDIR 的静默 paylo
     ].join("\n"),
   );
   // payload 只通过 owner 传入的 TMPDIR 持有 scope，不写文件/不开句柄/命令行不含 scope 路径。
-  const running = runInScope(scope, process.execPath, [script], { stdio: "ignore" });
   let payloadPid = 0;
+  const running = runInScope(scope, process.execPath, [script], {
+    stdio: "ignore",
+    // 取得 PID 不依赖 payload 写出的 pid 文件：文件迟到/不可见时仍能登记清理。
+    onSpawn: (child) => {
+      payloadPid = child.pid;
+    },
+  });
   t.after(async () => {
     if (payloadPid > 0) {
       try {
@@ -3345,9 +3351,9 @@ test("reap：真实启动链登记下，仅经 env 持有 TMPDIR 的静默 paylo
     }
     await running;
   });
-  await waitFor(() => fs.existsSync(pidFile), 5000);
-  payloadPid = Number(fs.readFileSync(pidFile, "utf8"));
+  assert.ok(payloadPid > 0, "spawn 后必须立即拿到 PID，供失败路径登记清理");
   trackPid(t, payloadPid);
+  await waitFor(() => fs.existsSync(pidFile), 5000);
   // 登记必须来自真实 spawnScoped，而不是测试手工写入 journal。
   const journal = fs.readFileSync(path.join(scope.dir, CHILDREN_JOURNAL_FILE), "utf8");
   assert.match(journal, /"kind":"spawn_registered"/u);
@@ -3511,13 +3517,18 @@ test("reap：旧登记后追加失败保留 children_incomplete，显式允许�
     return originalAppend(file, data, options);
   };
   let running;
+  let payloadPid = 0;
   try {
-    running = runInScope(scope, process.execPath, [script], { stdio: "ignore" });
-    await waitFor(() => fs.existsSync(pidFile), 5000);
+    running = runInScope(scope, process.execPath, [script], {
+      stdio: "ignore",
+      onSpawn: (child) => {
+        payloadPid = child.pid;
+      },
+    });
   } finally {
     fs.appendFileSync = originalAppend;
   }
-  const payloadPid = Number(fs.readFileSync(pidFile, "utf8"));
+  assert.ok(payloadPid > 0, "spawn 后必须立即拿到 PID，供失败路径登记清理");
   trackPid(t, payloadPid);
   t.after(async () => {
     try {
@@ -3527,6 +3538,7 @@ test("reap：旧登记后追加失败保留 children_incomplete，显式允许�
     }
     await running;
   });
+  await waitFor(() => fs.existsSync(pidFile), 5000);
   const records = fs
     .readFileSync(journalPath, "utf8")
     .trimEnd()
@@ -3602,6 +3614,250 @@ test("reap：启动失败闭合意图后仍可归档，不把未启动当成未�
   assert.deepEqual(resultAfter.reaped.map((entry) => entry.dir), [scope.dir]);
 });
 
+test("reap：PGID 查询失败时回退 detached 组身份，同组后代存活则保留现场", async (t) => {
+  const base = path.join(scratch, "reap-pgid-fallback-base");
+  fs.mkdirSync(base, { recursive: true });
+  const harness = path.join(scratch, "reap-pgid-fallback-harness");
+  fs.mkdirSync(harness, { recursive: true });
+  const fakeBin = path.join(harness, "bin");
+  fs.mkdirSync(fakeBin);
+  // 只让 processGroupId 的 `ps -o pgid=` 失败；恢复阶段在测试进程用真实 ps 观察。
+  fs.writeFileSync(
+    path.join(fakeBin, "ps"),
+    [
+      "#!/bin/sh",
+      'case " $* " in',
+      '  *" -o pgid= "*) exit 1 ;;',
+      "esac",
+      'exec /bin/ps "$@"',
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  const rootPidFile = path.join(harness, "root.pid");
+  const grandchildPidFile = path.join(harness, "grandchild.pid");
+  const releaseFile = path.join(harness, "root-release");
+  const rootScript = path.join(harness, "root.mjs");
+  fs.writeFileSync(
+    rootScript,
+    [
+      'import fs from "node:fs";',
+      'import { spawn } from "node:child_process";',
+      "const grandchild = spawn(process.execPath, [\"-e\", \"setInterval(() => {}, 1000)\"], {",
+      '  stdio: "ignore",',
+      "});",
+      `fs.writeFileSync(${JSON.stringify(rootPidFile)}, String(process.pid));`,
+      `fs.writeFileSync(${JSON.stringify(grandchildPidFile)}, String(grandchild.pid));`,
+      `while (!fs.existsSync(${JSON.stringify(releaseFile)})) {`,
+      "  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);",
+      "}",
+      "process.exit(0);",
+      "",
+    ].join("\n"),
+  );
+
+  const env = {
+    ...directEntryEnv(scratch),
+    PATH: `${fakeBin}:${process.env.PATH}`,
+  };
+  const owner = startProcess(
+    process.execPath,
+    [TEST_ENV, "run", "--base", base, "--", process.execPath, rootScript],
+    { env },
+  );
+  t.after(async () => {
+    // root 在等 release 文件；先放行，再收本次进程与 scratch。
+    if (!fs.existsSync(releaseFile)) fs.writeFileSync(releaseFile, "go");
+    for (const file of [rootPidFile, grandchildPidFile]) {
+      if (!fs.existsSync(file)) continue;
+      try {
+        process.kill(Number(fs.readFileSync(file, "utf8")), "SIGKILL");
+      } catch {
+        // 已退出即无需处理。
+      }
+    }
+    await stopStarted(owner);
+    fs.rmSync(base, { recursive: true, force: true });
+  });
+
+  await waitFor(() => fs.existsSync(rootPidFile) && fs.existsSync(grandchildPidFile), 10000);
+  const rootPid = Number(fs.readFileSync(rootPidFile, "utf8"));
+  const grandchildPid = Number(fs.readFileSync(grandchildPidFile, "utf8"));
+  trackPid(t, rootPid);
+  trackPid(t, grandchildPid);
+  const scopeDirs = fs
+    .readdirSync(base)
+    .filter((name) => name.startsWith("ai-novel-test-run."));
+  assert.equal(scopeDirs.length, 1);
+  const scopeDir = path.join(base, scopeDirs[0]);
+  const journalPath = path.join(scopeDir, CHILDREN_JOURNAL_FILE);
+  // child 可能与 owner 并发写 pid 文件；等真实登记行落盘后再断言。
+  await waitFor(
+    () => fs.existsSync(journalPath) && fs.readFileSync(journalPath, "utf8").includes('"kind":"spawn_registered"'),
+    5000,
+  );
+  const records = fs
+    .readFileSync(journalPath, "utf8")
+    .trimEnd()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const registered = records.find((entry) => entry.kind === "spawn_registered");
+  assert.equal(registered?.group, "owned");
+  assert.equal(registered?.pid, rootPid);
+  assert.equal(registered?.pgid, rootPid, "PGID 查询失败时必须回退 detached 组事实");
+  assert.equal(registered?.pgid_source, "detached_pid");
+
+  // owner 失联；root 正常退出，同组静默后代仍在。经 exit 而非 close 等待：
+  // root 继承 owner 的 stdout/stderr 管道，close 会拖到 root 退出。
+  const ownerExited = new Promise((resolve) => owner.child.once("exit", resolve));
+  owner.child.kill("SIGKILL");
+  await ownerExited;
+  fs.writeFileSync(releaseFile, "go");
+  await waitUntilDead(rootPid);
+  assert.equal(isAlive(grandchildPid), true);
+
+  ageTree(scopeDir);
+  const kept = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
+  assert.deepEqual(kept.reaped, []);
+  const entry = kept.kept.find((item) => item.dir === scopeDir);
+  assert.equal(entry?.reason, "live_children");
+  assert.equal(entry?.children_state, "complete");
+  assert.equal(fs.existsSync(scopeDir), true);
+
+  process.kill(grandchildPid, "SIGKILL");
+  await waitUntilDead(grandchildPid);
+  ageTree(scopeDir);
+  const reaped = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
+  assert.deepEqual(reaped.reaped.map((item) => item.dir), [scopeDir]);
+});
+
+test("reap：外部借用方的 payload 与未释放借用阻止归档，释放并结束后才归档", async (t) => {
+  const base = path.join(scratch, "reap-borrowed-base");
+  fs.mkdirSync(base, { recursive: true });
+  const harness = path.join(scratch, "reap-borrowed-harness");
+  fs.mkdirSync(harness, { recursive: true });
+  const ownerScopeFile = path.join(harness, "owner-scope");
+  const payloadPidFile = path.join(harness, "payload.pid");
+  const borrowerClose = path.join(harness, "borrower-close");
+  const borrowerClosed = path.join(harness, "borrower-closed");
+  const payloadScript = path.join(harness, "payload.mjs");
+  fs.writeFileSync(payloadScript, "setInterval(() => {}, 1000);\n");
+
+  const ownerScript = path.join(harness, "owner.mjs");
+  fs.writeFileSync(
+    ownerScript,
+    [
+      'import fs from "node:fs";',
+      `import { openTestRunScope } from ${JSON.stringify(TEST_ENV_URL)};`,
+      "const scope = openTestRunScope({ baseDir: process.env.OWNER_BASE });",
+      `fs.writeFileSync(${JSON.stringify(ownerScopeFile)}, scope.dir);`,
+      "setInterval(() => {}, 1000);",
+      "",
+    ].join("\n"),
+  );
+
+  const borrowerScript = path.join(harness, "borrower.mjs");
+  fs.writeFileSync(
+    borrowerScript,
+    [
+      'import fs from "node:fs";',
+      `import { openTestRunScope, runInScope } from ${JSON.stringify(TEST_ENV_URL)};`,
+      "const scope = openTestRunScope();",
+      "const payload = runInScope(scope, process.execPath, [process.env.PAYLOAD_SCRIPT], {",
+      '  stdio: "ignore",',
+      "  onSpawn: (child) => {",
+      "    fs.writeFileSync(process.env.PAYLOAD_PID_FILE, String(child.pid));",
+      "  },",
+      "});",
+      "while (!fs.existsSync(process.env.BORROWER_CLOSE)) {",
+      "  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);",
+      "}",
+      "scope.close();",
+      "fs.writeFileSync(process.env.BORROWER_CLOSED, \"closed\");",
+      "await payload;",
+      "console.log(JSON.stringify({ role: \"borrower\", released: true }));",
+      "",
+    ].join("\n"),
+  );
+
+  const owner = startProcess(process.execPath, [ownerScript], {
+    env: {
+      ...directEntryEnv(scratch),
+      OWNER_BASE: base,
+    },
+  });
+  const borrower = { started: null };
+  t.after(async () => {
+    await stopStarted(owner);
+    if (borrower.started) await stopStarted(borrower.started);
+    if (fs.existsSync(payloadPidFile)) {
+      try {
+        process.kill(Number(fs.readFileSync(payloadPidFile, "utf8")), "SIGKILL");
+      } catch {
+        // 已退出即无需处理。
+      }
+    }
+    fs.rmSync(base, { recursive: true, force: true });
+  });
+
+  await waitFor(() => fs.existsSync(ownerScopeFile), 10000);
+  const ownerDir = fs.readFileSync(ownerScopeFile, "utf8").trim();
+  borrower.started = startProcess(process.execPath, [borrowerScript], {
+    env: {
+      ...directEntryEnv(scratch),
+      NOVEL_TEST_RUN_DIR: ownerDir,
+      PAYLOAD_SCRIPT: payloadScript,
+      PAYLOAD_PID_FILE: payloadPidFile,
+      BORROWER_CLOSE: borrowerClose,
+      BORROWER_CLOSED: borrowerClosed,
+    },
+  });
+  await waitFor(() => fs.existsSync(payloadPidFile), 10000);
+  const payloadPid = Number(fs.readFileSync(payloadPidFile, "utf8"));
+  trackPid(t, payloadPid);
+
+  const journalPath = path.join(ownerDir, CHILDREN_JOURNAL_FILE);
+  const records = fs
+    .readFileSync(journalPath, "utf8")
+    .trimEnd()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const attached = records.find((entry) => entry.kind === "borrow_attached");
+  const shared = records.find((entry) => entry.kind === "spawn_registered");
+  assert.ok(attached, "外部借用必须登记借用生命周期");
+  assert.equal(shared?.group, "shared");
+  assert.equal(shared?.pid, payloadPid);
+  assert.equal(records.some((entry) => entry.kind === "borrow_released"), false);
+
+  owner.child.kill("SIGKILL");
+  await owner.done;
+  ageTree(ownerDir);
+  const kept = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
+  assert.deepEqual(kept.reaped, []);
+  const entry = kept.kept.find((item) => item.dir === ownerDir);
+  assert.equal(entry?.reason, "live_children");
+  assert.equal(fs.existsSync(ownerDir), true);
+
+  fs.writeFileSync(borrowerClose, "go");
+  await waitFor(() => fs.existsSync(borrowerClosed), 10000);
+  assert.equal(
+    fs
+      .readFileSync(journalPath, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .some((entry) => entry.kind === "borrow_released"),
+    true,
+  );
+
+  process.kill(payloadPid, "SIGKILL");
+  const borrowerResult = await borrower.started.done;
+  assert.equal(borrowerResult.status, 0, borrowerResult.stderr);
+  ageTree(ownerDir);
+  const reaped = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
+  assert.deepEqual(reaped.reaped.map((item) => item.dir), [ownerDir]);
+});
+
 test("reap：空/损坏/旧格式/未闭合/未配对登记都不自动归档", async () => {
   const base = path.join(scratch, "reap-unverifiable-states");
   fs.mkdirSync(base, { recursive: true });
@@ -3622,13 +3878,35 @@ test("reap：空/损坏/旧格式/未闭合/未配对登记都不自动归档", 
     "ai-novel-test-run.unpaired": `${header}${JSON.stringify({
       kind: "spawn_registered",
       id: "x",
+      group: "owned",
       pid: deadPid,
-      pgid: null,
+      pgid: deadPid,
       started_at: new Date().toISOString(),
     })}\n`,
+    "ai-novel-test-run.missing-pgid":
+      `${header}${JSON.stringify({ kind: "spawn_intent", id: "m" })}\n` +
+      `${JSON.stringify({
+        kind: "spawn_registered",
+        id: "m",
+        group: "owned",
+        pid: deadPid,
+        pgid: null,
+        started_at: new Date().toISOString(),
+      })}\n`,
     "ai-novel-test-run.incomplete": `${header}${JSON.stringify({
       kind: "spawn_intent",
       id: "open",
+      at: new Date().toISOString(),
+    })}\n`,
+    "ai-novel-test-run.open-borrow": `${header}${JSON.stringify({
+      kind: "borrow_attached",
+      id: "borrow-open",
+      pid: deadPid,
+      at: new Date().toISOString(),
+    })}\n`,
+    "ai-novel-test-run.unpaired-borrow-release": `${header}${JSON.stringify({
+      kind: "borrow_released",
+      id: "borrow-missing",
       at: new Date().toISOString(),
     })}\n`,
     "ai-novel-test-run.legacy": `${JSON.stringify({
@@ -3670,8 +3948,19 @@ test("reap：空/损坏/旧格式/未闭合/未配对登记都不自动归档", 
   );
   assert.equal(byName["ai-novel-test-run.unpaired"]?.reason, "children_corrupt");
   assert.equal(byName["ai-novel-test-run.unpaired"]?.detail, "unpaired_registration");
+  assert.equal(byName["ai-novel-test-run.missing-pgid"]?.reason, "children_corrupt");
+  assert.equal(
+    byName["ai-novel-test-run.missing-pgid"]?.detail,
+    "registered_identity_missing",
+  );
   assert.equal(byName["ai-novel-test-run.incomplete"]?.reason, "children_incomplete");
   assert.equal(byName["ai-novel-test-run.incomplete"]?.children_state, "incomplete");
+  assert.equal(byName["ai-novel-test-run.open-borrow"]?.reason, "children_incomplete");
+  assert.equal(byName["ai-novel-test-run.open-borrow"]?.open_borrows?.length, 1);
+  assert.equal(
+    byName["ai-novel-test-run.unpaired-borrow-release"]?.detail,
+    "unpaired_borrow_release",
+  );
   assert.equal(byName["ai-novel-test-run.legacy"]?.reason, "children_legacy");
   assert.equal(byName["ai-novel-test-run.legacy"]?.children_state, "legacy");
   for (const name of Object.keys(entries)) {
@@ -3684,4 +3973,48 @@ test("reap：空/损坏/旧格式/未闭合/未配对登记都不自动归档", 
     allowUnverifiedChildren: true,
   });
   assert.equal(forced.reaped.length, Object.keys(entries).length);
+});
+
+test("reap：借用 attach/release 完整且无活子进程时可归档", async () => {
+  const base = path.join(scratch, "reap-borrow-released");
+  fs.mkdirSync(base, { recursive: true });
+  const dead = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+  const deadPid = dead.pid;
+  await new Promise((resolve) => dead.on("exit", resolve));
+  const scope = path.join(base, "ai-novel-test-run.borrow-released");
+  fs.mkdirSync(path.join(scope, "tmp"), { recursive: true });
+  const header = `${JSON.stringify({
+    kind: "ai-novel-test-run-children",
+    version: 2,
+    at: new Date().toISOString(),
+  })}\n`;
+  const borrowId = "borrow-released";
+  const journal =
+    header +
+    `${JSON.stringify({
+      kind: "borrow_attached",
+      id: borrowId,
+      pid: deadPid,
+      at: new Date().toISOString(),
+    })}\n` +
+    `${JSON.stringify({
+      kind: "borrow_released",
+      id: borrowId,
+      at: new Date().toISOString(),
+    })}\n`;
+  fs.writeFileSync(path.join(scope, CHILDREN_JOURNAL_FILE), journal);
+  fs.writeFileSync(
+    path.join(scope, MARKER),
+    JSON.stringify({
+      kind: "ai-novel-test-run",
+      owner: "test-env",
+      runId: "borrow-released",
+      pid: deadPid,
+      createdAt: new Date().toISOString(),
+      version: 1,
+    }),
+  );
+  ageTree(scope);
+  const result = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
+  assert.deepEqual(result.reaped.map((entry) => entry.dir), [scope]);
 });
