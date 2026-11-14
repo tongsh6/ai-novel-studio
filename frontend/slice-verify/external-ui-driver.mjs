@@ -30565,6 +30565,16 @@ async function driveAgentProviderExecutionActivityRestored(page) {
     "AgentRun activity API leaked raw ProviderRun content",
   );
 
+  // 刷新前采集本 run 的可见叙事片段，刷新后必须能匹配同一段内容，不能只凭
+  // 外层容器或任意段落证明“已恢复”；普通对话无叙事段时保留可见非空段落判据。
+  const narrativeBeforeReload = await page.evaluate(() => {
+    const region = document.querySelector('[aria-label="本轮创作过程"]');
+    if (!region) return [];
+    return Array.from(region.querySelectorAll('[class*="agenticLoopReasoning"] p'))
+      .filter((paragraph) => paragraph.getClientRects().length > 0)
+      .map((paragraph) => paragraph.innerText.trim())
+      .filter(Boolean);
+  });
   const appLogCountBeforeReload = readAppLogRecords().length;
   await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
@@ -30588,22 +30598,31 @@ async function driveAgentProviderExecutionActivityRestored(page) {
   // 一次性取值（否则与补水完成产生竞态）。
   // 46§9.5：计划面板已移除；恢复语义 = 模型叙事段落从持久化事件重建可见。
   await page.waitForFunction(
-    (expected) => {
-      if (!expected.every((value) => document.body.innerText.includes(value))) return false;
+    (input) => {
+      if (!input.titles.every((value) => document.body.innerText.includes(value))) return false;
       const region = document.querySelector('[aria-label="本轮创作过程"]');
       if (!region) return false;
-      return Array.from(region.querySelectorAll(".agenticLoopReasoning p")).some(
-        (paragraph) =>
-          paragraph.getClientRects().length > 0 && paragraph.innerText.trim().length > 0,
+      const visible = Array.from(
+        region.querySelectorAll('[class*="agenticLoopReasoning"] p'),
+      )
+        .filter((paragraph) => paragraph.getClientRects().length > 0)
+        .map((paragraph) => paragraph.innerText.trim())
+        .filter(Boolean);
+      if (visible.length === 0) return false;
+      if (input.expected.length === 0) return true;
+      return visible.some((text) =>
+        input.expected.some(
+          (expected) => text.includes(expected.slice(0, 24)) || expected.includes(text.slice(0, 24)),
+        ),
       );
     },
-    ["创作执行", "已完成"],
+    { titles: ["创作执行", "已完成"], expected: narrativeBeforeReload },
     { timeout: 30_000 },
   );
   const restoredSections = await page.evaluate(() => {
     const region = document.querySelector('[aria-label="本轮创作过程"]');
     const paragraphs = region
-      ? Array.from(region.querySelectorAll(".agenticLoopReasoning p"))
+      ? Array.from(region.querySelectorAll('[class*="agenticLoopReasoning"] p'))
       : [];
     const visible = paragraphs.filter(
       (paragraph) => paragraph.getClientRects().length > 0 && paragraph.innerText.trim(),
