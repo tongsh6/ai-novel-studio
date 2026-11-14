@@ -634,6 +634,16 @@ Tauri surface：
 
 本checkpoint签浏览器3场景+Tauri非原生1场景+原生真实模型1场景；A4真实批次已闭环，A5未开始。本次更正与证据已本地提交（未推送）。
 
+### A5 宿主失联恢复与质量枚举修复（2026-11-14）
+
+- 受控实验：用真实 `test_env.mjs run` 创建 owned scope，SIGKILL owner 后新进程用同一 `NOVEL_TEST_RUN_DIR` 调用 `run -- true`，修复前**借用成功**（`BORROW_EXIT=0`），即新运行在无 owner 的 scratch 上继续——A5 宿主失联缺口。
+- 修复：`borrowRunScope` 在 marker/tmp 校验后增加 owner 存活校验（`process.kill(pid,0)`；EPERM 视为存活；ESRCH/非法 pid fail-closed）。错误明确给出 pid/run，不删除、不复用失联 scratch。
+- 回归：`test_env_scope.test.mjs` 新增“借用失联 owner”用例；该文件全套通过（含原 11 个 IO 证明）。修复后同一实验返回 `BORROW_EXIT=1`，错误含 owner pid/run。
+- 顺带修复 A4 回归：新增的 `frontend/slice-verify/vitest.config.mjs` 被 quality manifest 误判为未注册 browser driver；在 `IGNORED_BROWSER_DRIVERS` 登记（它是自测配置，不是场景 driver），`manifest_io.test.mjs` 11/11。
+- **未闭环**：失联 scratch 的自动回收策略（当前只 fail-closed）、不清理孤儿子进程的机制化入口、web 两次稳定性复核、历史残留、Windows/跨平台、门禁接线、G2/大文件拆分。
+
+本checkpoint只签失联 owner fail-closed 与质量枚举修复，不签 A5 全部。本批已本地提交（未推送）。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。
