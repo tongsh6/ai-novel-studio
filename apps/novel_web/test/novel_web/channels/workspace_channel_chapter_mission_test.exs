@@ -3,23 +3,16 @@ defmodule NovelWeb.WorkspaceChannelChapterMissionTest do
   WR01b（ADR-0024 S8）：本章使命裁决三动作经真实 channel——确认 / 改写 / 作废；
   TOC 投影带回 plan_direction.chapter_mission 供档案大纲 tab 渲染。
   """
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   import Phoenix.ChannelTest
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.{WorkService, WorkSessionService}
-  alias NovelPersistence.{AdoptionRepository, ChapterMissionRepo, Repo}
+  alias NovelPersistence.{AdoptionRepository, ChapterMissionRepo}
   alias NovelPersistence.Schemas.Chapter
   alias NovelWeb.{UserSocket, WorkspaceChannel}
 
   @endpoint NovelWeb.Endpoint
-
-  setup do
-    pid = Sandbox.start_owner!(Repo, shared: true)
-    on_exit(fn -> Sandbox.stop_owner(pid) end)
-    :ok
-  end
 
   defp join_work do
     {:ok, work} = WorkService.create(%{"title" => "本章使命裁决作品"})
@@ -55,6 +48,7 @@ defmodule NovelWeb.WorkspaceChannelChapterMissionTest do
         "session_id" => session_id
       })
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
     {work, chapter, socket}
   end
 

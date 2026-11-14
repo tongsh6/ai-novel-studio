@@ -1,9 +1,8 @@
 defmodule NovelWeb.WorkspaceChannelTest do
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   import Phoenix.ChannelTest
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelCommon.Contracts.AgentEvent
   alias NovelDomain.BehaviorState
   alias NovelPersistence.MemoryLog
@@ -15,31 +14,23 @@ defmodule NovelWeb.WorkspaceChannelTest do
   @agent_run_timeout 45_000
   @agent_run_stopped_events ["run_completed", "awaiting_author", "run_failed", "run_cancelled"]
 
-  setup do
-    owner = Sandbox.start_owner!(NovelPersistence.Repo, shared: true)
-
-    on_exit(fn ->
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(owner)
-    end)
-
-    :ok
-  end
-
   test "join workspace:lobby returns success" do
     {:ok, _, socket} =
       UserSocket
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
     assert socket.topic == "workspace:lobby"
   end
 
   test "join workspace with arbitrary id" do
-    {:ok, reply, _socket} =
+    {:ok, reply, socket} =
       UserSocket
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:01HJX-test")
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
     # VS-09: join now reports the work_id resolved from payload (or, by
     # default, the workspace id). Old clients still see {joined: true} +.
@@ -52,6 +43,8 @@ defmodule NovelWeb.WorkspaceChannelTest do
       UserSocket
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:identity-scope")
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(channel.channel_pid)
 
     for {payload, reason} <- [
           {%{"text" => "原文", "turn_id" => "stable-id", "work_id" => "other-work"},
@@ -67,15 +60,15 @@ defmodule NovelWeb.WorkspaceChannelTest do
   end
 
   test "已接收候选继续的重传不重新校验消失的候选，也不激活历史会话" do
-    prior = Application.get_env(:novel_web, :persistence, [])
+    prior = Application.fetch_env(:novel_web, :persistence)
 
     Application.put_env(
       :novel_web,
       :persistence,
-      Keyword.put(prior, :inject_real_persistence, true)
+      Keyword.put(prior_persistence(prior), :inject_real_persistence, true)
     )
 
-    on_exit(fn -> Application.put_env(:novel_web, :persistence, prior) end)
+    on_exit(fn -> restore_persistence(prior) end)
 
     {:ok, work} = NovelApplication.WorkService.create(%{title: "重复回执"})
     {:ok, old} = NovelApplication.WorkSessionService.create(work.id)
@@ -103,6 +96,8 @@ defmodule NovelWeb.WorkspaceChannelTest do
         work_id: work.id,
         session_id: old.id
       })
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(channel.channel_pid)
 
     ref =
       push(channel, "user_message", %{
@@ -136,6 +131,8 @@ defmodule NovelWeb.WorkspaceChannelTest do
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:basic-agent-ack")
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
     ref = push(socket, "user_message", %{"text" => "hello"})
 
     assert_reply(
@@ -146,6 +143,7 @@ defmodule NovelWeb.WorkspaceChannelTest do
     )
 
     assert is_binary(run_id)
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_push("turn_result", %{turn_id: ^turn_id, phase: "dialogue"}, @agent_run_timeout)
     assert_agent_run_stopped(run_id)
@@ -157,6 +155,8 @@ defmodule NovelWeb.WorkspaceChannelTest do
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:basic-agent-events")
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
     ref = push(socket, "user_message", %{"text" => "聊聊创作方向"})
 
     assert_reply(
@@ -165,6 +165,8 @@ defmodule NovelWeb.WorkspaceChannelTest do
       %{received: true, run_id: run_id, run_mode: "bounded", turn_id: turn_id},
       @agent_run_timeout
     )
+
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_push(
       "agent_event",
@@ -193,6 +195,8 @@ defmodule NovelWeb.WorkspaceChannelTest do
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:basic-agent-character")
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
     ref = push(socket, "user_message", %{"text" => "先看看现有角色阵容，然后设计一个反派"})
 
     assert_reply(
@@ -203,6 +207,7 @@ defmodule NovelWeb.WorkspaceChannelTest do
     )
 
     assert is_binary(run_id)
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
     assert profile_ref == "judgment_loop_v1"
 
     assert_push(
@@ -220,6 +225,8 @@ defmodule NovelWeb.WorkspaceChannelTest do
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:basic-agent-prose")
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
     ref = push(socket, "user_message", %{"text" => "写下一章"})
 
     assert_reply(
@@ -230,6 +237,7 @@ defmodule NovelWeb.WorkspaceChannelTest do
     )
 
     assert is_binary(run_id)
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
     assert profile_ref == "judgment_loop_v1"
 
     assert_push(
@@ -246,6 +254,8 @@ defmodule NovelWeb.WorkspaceChannelTest do
       UserSocket
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
     ref =
       push(socket, "author_action", %{
@@ -281,6 +291,8 @@ defmodule NovelWeb.WorkspaceChannelTest do
         "session_id" => session.id
       })
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
     assert %BehaviorState{behavior_id: "bh-open"} = socket.assigns.active_behavior
 
     assert {:ok, _snapshot, _summary, nil, behavior_summary, [], [], _interaction_state,
@@ -303,6 +315,8 @@ defmodule NovelWeb.WorkspaceChannelTest do
         "work_id" => work.id,
         "session_id" => session.id
       })
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
     assert %BehaviorState{behavior_id: "bh-live"} = socket.assigns.active_behavior
 
@@ -377,6 +391,14 @@ defmodule NovelWeb.WorkspaceChannelTest do
         flunk("live active_behavior did not settle, last value: #{inspect(active_behavior)}")
     end
   end
+
+  defp prior_persistence({:ok, value}), do: value
+  defp prior_persistence(:error), do: []
+
+  defp restore_persistence({:ok, value}),
+    do: Application.put_env(:novel_web, :persistence, value)
+
+  defp restore_persistence(:error), do: Application.delete_env(:novel_web, :persistence)
 
   defp record_channel_turn_result(work_id, session_id, turn_result) do
     {:ok, _interaction} =

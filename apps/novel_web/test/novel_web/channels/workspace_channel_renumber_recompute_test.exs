@@ -11,48 +11,38 @@ defmodule NovelWeb.WorkspaceChannelRenumberRecomputeTest do
   - application 重算入口按已采纳章摘要返回真实机械账结果（非空手）。
   """
 
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   import ExUnit.CaptureLog
   import Phoenix.ChannelTest
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelFoundation.Enums.AdoptionStatus
-  alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.{Chapter, ChapterSummary, Draft, Scene, Volume, Work}
   alias NovelWeb.{UserSocket, WorkspaceChannel}
 
   @endpoint NovelWeb.Endpoint
 
   setup do
-    owner = Sandbox.start_owner!(Repo, shared: true)
-
     # 真实重编号采纳只在 persistence 注入开启时走持久化 renumber 分支（否则退化为
     # 内存采纳、不会产生 adoption_effect，也就不会触发账面重算）。本文件全部用例
     # 使用隔离 Sandbox 库，显式开启注入。
-    previous_persistence = Application.get_env(:novel_web, :persistence)
+    previous_persistence = Application.fetch_env(:novel_web, :persistence)
+    previous_log_level = Logger.get_module_level([NovelTelemetry.LogEmit])
 
     Application.put_env(
       :novel_web,
       :persistence,
-      Keyword.put(previous_persistence || [], :inject_real_persistence, true)
+      Keyword.put(prior_persistence(previous_persistence), :inject_real_persistence, true)
     )
 
     # LogEmit 的 done/error 事件经 Logger.info 输出；测试环境全局 level=warning，
     # 这里只对 LogEmit 模块放开 info，避免影响其它并行测试的日志级。
     Logger.put_module_level(NovelTelemetry.LogEmit, :info)
 
+    # 恢复登记在 Channel/run 创建之前；on_exit 后注册先执行，故资源先收口、再恢复。
     on_exit(fn ->
-      Logger.delete_module_level(NovelTelemetry.LogEmit)
-
-      if previous_persistence do
-        Application.put_env(:novel_web, :persistence, previous_persistence)
-      else
-        Application.delete_env(:novel_web, :persistence)
-      end
-
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(owner)
+      restore_log_level(NovelTelemetry.LogEmit, previous_log_level)
+      restore_persistence(previous_persistence)
     end)
 
     :ok
@@ -231,6 +221,8 @@ defmodule NovelWeb.WorkspaceChannelRenumberRecomputeTest do
     # 来源 turn 由内存 turn_results_by_id 提供（与既有 channel 合同测试同边界）；
     # session_id 置 nil，避免 AdoptionWorkflow 的持久 pending 校验把内存来源
     # 误判为「已不可用」——本测试聚焦 Channel 后置重算触发链，不测持久来源恢复。
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
     socket
     |> Phoenix.Socket.assign(:workspace_id, "lobby")
     |> Phoenix.Socket.assign(:work_id, work.id)
@@ -238,6 +230,19 @@ defmodule NovelWeb.WorkspaceChannelRenumberRecomputeTest do
     |> Phoenix.Socket.assign(:current_turn_id, turn.turn_id)
     |> Phoenix.Socket.assign(:turn_results_by_id, %{turn.turn_id => turn})
   end
+
+  defp prior_persistence({:ok, value}), do: value
+  defp prior_persistence(:error), do: []
+
+  defp restore_persistence({:ok, value}),
+    do: Application.put_env(:novel_web, :persistence, value)
+
+  defp restore_persistence(:error), do: Application.delete_env(:novel_web, :persistence)
+
+  defp restore_log_level(module, []), do: Logger.delete_module_level(module)
+
+  defp restore_log_level(module, [{level_module, level} | _]) when level_module == module,
+    do: Logger.put_module_level(module, level)
 
   defp accept_action(artifact_id, turn_id) do
     %{

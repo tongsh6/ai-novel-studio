@@ -1,36 +1,28 @@
 defmodule NovelWeb.WorkspaceChannelLoggingTest do
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   import Phoenix.ChannelTest
 
-  alias Ecto.Adapters.SQL.Sandbox
-  alias NovelPersistence.Repo
   alias NovelWeb.UserSocket
   alias NovelWeb.WorkspaceChannel
 
   @endpoint NovelWeb.Endpoint
 
   setup do
-    owner = Sandbox.start_owner!(Repo, shared: true)
-    old_enabled = Application.get_env(:novel_telemetry, :log_jsonl_enabled)
-    old_dir = Application.get_env(:novel_telemetry, :log_jsonl_dir)
+    old_enabled = Application.fetch_env(:novel_telemetry, :log_jsonl_enabled)
+    old_dir = Application.fetch_env(:novel_telemetry, :log_jsonl_dir)
 
-    log_dir =
-      Path.join(System.tmp_dir!(), "novel-channel-log-#{System.unique_integer([:positive])}")
+    log_dir = Path.join(System.tmp_dir!(), "novel-channel-log-#{Ecto.UUID.generate()}")
 
     Application.put_env(:novel_telemetry, :log_jsonl_enabled, true)
     Application.put_env(:novel_telemetry, :log_jsonl_dir, log_dir)
 
+    # 恢复/清理登记早于 Channel 与 run；其 on_exit 晚执行，先由 run/caller 资源
+    # 收口，再恢复原 telemetry app/key 并删除本 case 独立目录。
     on_exit(fn ->
       restore_env(:log_jsonl_enabled, old_enabled)
       restore_env(:log_jsonl_dir, old_dir)
-      File.rm_rf(log_dir)
-    end)
-
-    # 后注册者先执行：先等待本模块 run/step 安静并停 owner，再恢复 env/删日志目录。
-    on_exit(fn ->
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(owner)
+      File.rm_rf!(log_dir)
     end)
 
     {:ok, log_dir: log_dir}
@@ -42,11 +34,22 @@ defmodule NovelWeb.WorkspaceChannelLoggingTest do
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
-    push(socket, "user_message", %{
-      "text" => "我想调整或新增伏笔",
-      "generate_micro_plan" => true
-    })
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
+    ref =
+      push(socket, "user_message", %{
+        "text" => "我想调整或新增伏笔",
+        "generate_micro_plan" => true
+      })
+
+    assert_receive %Phoenix.Socket.Reply{
+                     ref: ^ref,
+                     status: :ok,
+                     payload: %{run_id: run_id}
+                   },
+                   2_000
+
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
     assert_push("turn_result", %{turn_id: _}, 2_000)
 
     records = eventually_read_records(log_dir)
@@ -89,6 +92,8 @@ defmodule NovelWeb.WorkspaceChannelLoggingTest do
     end
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:novel_common, key)
-  defp restore_env(key, value), do: Application.put_env(:novel_common, key, value)
+  defp restore_env(key, :error), do: Application.delete_env(:novel_telemetry, key)
+
+  defp restore_env(key, {:ok, value}),
+    do: Application.put_env(:novel_telemetry, key, value)
 end

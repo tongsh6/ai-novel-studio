@@ -1,6 +1,6 @@
 # B84：全项目测试环境作用域、fixture 体系与剩余架构/测试债务
 
-- 状态：**doing（A0完成；A1/A2已有6个局部实施单元通过各自验收，前4个已提交，R01快照/capture两族随原R01整体保持WIP；A3的Application流程首批已通过资源退出与回归验收；其余Node族、Channel/其余后端/Rust/前端/原生接入与全体系验收未完成，原web慢测试及既有债务保留）**
+- 状态：**doing（A0完成；A1/A2已有6个局部实施单元通过各自验收，前4个已提交，R01快照/capture两族随原R01整体保持WIP；A3的Application流程首批已提交；A3的16个Channel测试模块与日志写出源头收口已通过全量回归并本地提交（未推送）；web回归196例耗时由547.9秒降至62.2秒；其余Node族、Rust/前端/原生接入、A4/A5与既有债务保留）**
 - 来源：
   - [00f 能力图谱 P2-E](../../docs/design/00f-capability-atlas.md)：`novel_web` 193 tests / 532s 慢测试仍待收敛；`novel_common` 日志 I/O 部分已由 ADR-0034（`novel_telemetry`）闭环，本任务只承接 web 慢测试与剩余债务。
   - B71 审核轮架构 P2-10 记录与 2026-11-08 候选。
@@ -377,6 +377,57 @@ leader运行发现并修复两处测试实现错误（误把restore返回值当�
 
 本批只关闭Application流程这一checkpoint；Channel现役全局等待入口、其它runtime测试、裸Mix、Rust及A4/A5仍按原范围推进。没有重采R01模型基线或改生产lib；临时资源全部经既有owned入口运行，旧系统残留与作者证据保持不动。本地提交范围/结果见同一`result.json`，不推送。
 
+### A3 Channel作用域与全局等待退役（2026-11-14 设计/开始）
+
+Application首批已提交 `75722dde`。本步复用既有helper继续迁移，先前全量Web为196测试/547.9秒/0失败；该数是同一次umbrella回归的实测，不与不同入口的单文件耗时直接相减。
+
+只读输入见 `a3-backend/channel-inputs.json`：8个旧全局等待模块共有97例，约45例会启动runtime（确认/拒绝竞态另辨），生产Channel只持单个active run字段，没有完整run所有权集合。leader进一步查到另外8个现役Channel测试模块，包括旧清单未覆盖的handoff、steer、task_state等，故迁移范围为当前全部16模块，避免只清旧helper调用点。
+
+独立前置证据：`channel-owner/phoenix-caller-before.json`使用真实Phoenix Channel与受控Task，观察到Channel已由框架关闭、其后台Task仍活且caller链指向该Channel；失败探针自行释放该Task，未遗留到下一次运行。此为生命周期机制故障注入，不冒充实际模型/UI场景。`steer-before.json`运行现有steer模块，确认其永久等待fixture是否留下run/step以及对无关全局等待的影响；完整记录以原文件为准，不把全部Web耗时先验归给一个fixture。
+
+- **Contract**：quality-gates §2.5.9、Phoenix.ChannelTest/ExUnit原生所有权与当前AgentRun身份；实体查重复用 `TestAgentRunCleanup` 的caller匹配、停止、deadline及退出错误记录，不新建框架、transport代理或进程注册器。
+- **Invariant**：case/Channel/真实run的资源有明确PID来源；caller先退出、所属任务随后退出、Sandbox最后释放；其他owner不被等待或停止；持久记录不冒充runtime；配置恢复不串例，故障退出不假成功。
+- **Boundary**：16个web Channel测试、既有application测试helper及其测试/索引；生产lib、Provider、R01 WIP不改。所有当前旧await调用者迁移后退役全局入口。
+- **Consumer**：真实join返回的socket.channel_pid，实际ACK/child run/start返回的run_id；手工多transport测试仍使用已有Supervisor/forwarder，仅补资源登记。live kill场景保留原故障注入与业务判据。
+- **Proof**：保留原测试名称/失败矩阵；真实Channel caller退出与子任务收口、无关阻塞哨兵、断言失败/超时/配置恢复；重跑steer实际模块与全web/umbrella回归，分别记录run/task残留与耗时。新功能先按已观察反例验证，不把目录为空或测试数量本身当目标达成。
+- **Acceptance Driver**：既有ExUnit实际Channel/SQLite入口与外部受控进程；产品新增验收感知no。本步不代签Tauri或模型体验验收。
+- **Exploration**：不物化作品要素、不改变模型请求，不适用。
+
+备份与本步证据为 `artifacts/b84-test-system/20261114/a3-backend/channel-owner/`。worker负责限定代码改造，leader统一通过owned运行入口执行验收。
+
+#### Channel checkpoint 验收（2026-11-14）
+
+16/16 个 Channel 测试模块完成迁移，`await_quiescent` 与全局遍历删除且无残留调用者；真实 `socket.channel_pid` 在 join 后由 `register_task_caller/1` 登记，退出先等该 caller 再按 `$callers` 收口派生任务。证据在 `leader-final/result.json`：
+
+- `apps/novel_web/test/novel_web/channels/` **132/132、0失败、62.2秒**；全量 `apps/novel_web/test/` **196/196、0失败、62.2秒**，用例数与迁移前记录的196一致，耗时由547.9秒降至62.2秒（同一web入口测量）。
+- 修复两处真实缺陷：`workspace_channel_renumber_recompute_test.exs:244` 函数头 `^module` 无法编译，改为独立变量加 guard；`agent_run_cleanup_test.exs:341` 的断言正则按 `inspect` 对 keyword list 的实际输出修正，保留 timeout 与 supervisor 名断言。
+- 全量 `MIX_ENV=test mix check` 退出0，umbrella **3203 tests、0失败**；web仍为196例/62.2秒。
+- 运行后本机 `test-env-scope-*` 与 `ai-novel-test-run.*` 前缀均为0；本checkpoint未跑真实Tauri、模型或宿主强杀。
+
+本checkpoint只签Channel迁移与回归，不签B84、A3全部或A4/A5。
+
+### A3 日志写出责任源头收口（2026-11-14 设计/开始）
+
+这是Channel审查中发现的责任层缺口，纳入B84原任务，不建立平行测试框架。`logging-lifecycle-inputs.json`审计167个LogEmit出现行/36文件以及尾位置调用链，未发现现役消费者依赖返回的Task PID；未宣称静态搜索等价于全部运行行为证明。ADR-0034的独立telemetry app、字段/路径/配置键约束继续生效；历史迁移为保持时序而留下的无监督Task由同一ADR补充接续，原Accepted身份不变。
+
+`channel-owner/logging-before.json`已证明：旧logging测试1/1通过，但telemetry配置没有恢复、novel_common被误改，随后真实LogEmit writer完成后重建了已删除的case目录。早期探针漏require宏、以及未等writer就读取目录的版本分别保留在`logging-before-invalid-probe.log`和`logging-before-unawaited.*`，不算有效否定/肯定证据。配置恢复错误由Channel迁移修；已派发的writer捕获旧dir、不受后来配置恢复影响的独立问题须在生产者层处理。
+
+- **Contract/Invariant**：ADR-0034 B84补充、quality-gates §2.5.10；日志调用归属于其调用者，返回即完成本次写出或诊断失败；无独立Task越过作用域重新创建目录，日志IO故障不改变业务控制流。
+- **Boundary/实体查重**：仅现有novel_telemetry LogEmit及其测试/说明；复用已有write_jsonl、Logger与foundation ID，不新建writer/sink/队列/flush实体，不依赖application Supervisor，不改生产Channel/Provider/作品数据。编码与行字段仍由现有owner维护。
+- **Consumer**：现役Channel、application、agent及LLMLog错误报告的LogEmit调用链。没有现役Task PID消费者，不保留两套返回形态兼容；副作用命令统一`:ok`。
+- **Proof**：独立文件读取证明调用返回时完整行可见；启用/禁用、IO错误、producer退出、并发可解析JSONL、原字段/关联键与配置恢复；重跑telemetry及受影响消费测试、完整后端/工程门。测试不从writer自己派生期望字段或用sleep掩盖未完成。
+- **Acceptance Driver**：外部受控ExUnit/真实文件边界，产品验收感知新增no。本checkpoint不代签B84后续Tauri真实页面与全系统强杀恢复。
+- **Exploration**：不物化作品知识或改变模型输入，不适用。同步IO耗时是明确取舍，验证不得声称仍与旧异步时序等价或提供fsync保证。
+
+备份与证据落 `artifacts/b84-test-system/20261114/a3-backend/logging-owner/`，实现与验收见 `leader-final/result.json`。
+
+#### 日志源头收口 checkpoint 验收（2026-11-14）
+
+- `LogEmit.maybe_write_jsonl` 由未受监督的 `Task.start` 改为调用者内同步写出；`mkdir_p/File.write` 失败经既有 `Logger` 诊断且业务调用仍返回 `:ok`；`emit/__emit__` 统一为 `:ok`，未保留第二套返回值。编码失败边界与原实现一致。
+- telemetry 用例覆盖返回即可读完整行、禁用不创建目录、路径被普通文件占用只留诊断、producer退出后无独立writer继续重建目录、并发行仍可解析；`MIX_ENV=test mix test apps/novel_telemetry/test/novel_telemetry/log_emit_test.exs` **6/6、0失败**。
+- 契约裁决：`event`/`level`/`timestamp` 为相位保留字段；`outcome` 是业务结果字段，允许调用方显式指定（`plan_draft`/`judgment` 的 `output_validation` 依赖 `rejected`/`retry`），未指定时按phase推导。原注释声称 `outcome` 不可覆盖，与两处真实生产消费者冲突；按真实消费者修正注释与测试期望，不改生产日志字段。日志读取脚本消费 `reason_code`，不读 `outcome`。
+- 全量 `MIX_ENV=test mix check` 退出0；本checkpoint不签B84、A3全部或A4/A5，也不声称仍具备旧异步时序或fsync保证。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。
@@ -384,3 +435,4 @@ leader运行发现并修复两处测试实现错误（误把restore返回值当�
 - 2026-11-13：B87 R00 核实干净 CI 的质量 parser 前置/集合断言失败，登记可独立执行的测试隔离修复；尚未实施。
 - 2026-11-13：按作者指令扩展为全项目测试体系审查；复用既有owner设计运行/fixture/worker/case作用域及迁移顺序，代码实施与运行验收仍开放。
 - 2026-11-14：实现A1/A2首批Node manifest与默认工程入口，分离纯规则/IO消费者，完成唯一fixture初始化及失败收口的局部机制验收；其余接入与全项目验收继续开放。
+- 2026-11-14：A3 Channel 16模块迁移与日志源头收口完成并通过全量回归（3203 tests/0失败，web 196例62.2秒）；修复两处测试缺陷；已本地提交（未推送），B84、A4/A5仍开放。

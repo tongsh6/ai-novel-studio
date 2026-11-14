@@ -237,6 +237,24 @@ Sandbox事务仍由既有 `NovelPersistence.DataCase` 创建/回滚，不给每�
 
 当前ExUnit在用例已失败时保留原失败、忽略附加的on_exit异常（[1.19.5 runner源码](https://github.com/elixir-lang/elixir/blob/v1.19.5/lib/ex_unit/lib/ex_unit/runner.ex) 的 `exec_on_exit`）。因此同一cleanup helper只在登记的on_exit边界记录退出异常到既有Logger，再带原始类型/原因/栈重抛；不修改框架、不新建退出台账，也不把清理失败转换为成功。双故障证据必须同时含原断言失败和退出失败，以及实际资源收口结果。
 
+#### 2.5.9 Channel测试的调用者资源归属（B84 A3，2026-11-14）
+
+Phoenix.ChannelTest已将Channel放入ExUnit的测试Supervisor并链接到用例进程；继续由该原生机制关闭Channel，不再建立平行ChannelCase、transport代理或资源注册服务。真实Channel的异步状态快照由 `BackgroundTaskSupervisor` 执行，其 `$callers` 归属于Channel PID，不能把它当作run PID的子任务。现有 `TestAgentRunCleanup` 增加 `register_task_caller(pid)` / `release_task_caller(pid, timeout)`，在成功join后登记实际Channel PID；退出时先确认这个已拥有的caller退出，再复用同一任务归属/停止/超时/错误保留逻辑收口其派生任务。当前消费者仅为已审核的测试Channel，不向无任务的纯case预先分配环境。caller未按期限退出时须保留失败并收口已登记资源；不停止未登记的其他Channel或任务。
+
+所有真实runtime启动仍使用既有 `register_run`，在首次成功ACK、start返回或实际child结果取得身份后立即登记，故意杀owner的场景在杀之前捕获PID。持久source记录、历史 `runtime_live:false` 回执、拒绝确认产生的非runtime记录不登记；确认/拒绝竞态按实际胜出的动作判定，不能以“Registry存在就随便收”隐藏身份错误。不能从退出时的全局新增集合、work/session碰巧相同或事件到达时间推断资源归属。
+
+迁移涵盖当前16个Channel测试模块：既有8个全局等待消费者，以及其余实际join/runtime消费者。继续用DataCase获得事务，保留原业务/失败/并发断言。检查阻塞型fixture的退出出口：例如steer测试用 `receive :never` 永久阻塞的step，必须改为可由用例释放的显式latch，并在取得task PID后立即登记释放兜底；不能靠降低测试覆盖、增大超时或把强制结束当正常成功。全部当前消费者接入后删除 `await_quiescent` 及其全局遍历，不留无消费者旧入口。
+
+恢复Application配置必须命中原app/key并保留原有presence和值；恢复与目录清理的注册顺序必须使owned运行先退出。测试Logger module level同样按先前状态恢复。只读日志和导出case使用必要的进程/case独立叶子，不复制整套环境或改全局TMPDIR。本条不授权改变生产Channel、模型协议或真实作者内容。
+
+#### 2.5.10 日志写出责任的源头收口（B84 A3，2026-11-14）
+
+`LogEmit`未受监督的异步writer不属于application的两个Task.Supervisor；恢复env或增加caller清理不能结束已捕获旧目录的writer。按 [ADR-0034的B84补充](../design/adr/ADR-0034-observability-runtime-app-v3.md)，复用现有写出函数，由调用者同步完成本地写出或记录失败，去除每条日志额外创建的Task。退出机制不增加全Process.list扫描或测试专用writer开关。
+
+验证从独立期望出发：启用时调用返回即可读到完整JSONL行，生产者结束后没有独立writer继续创建目录；禁用时不创建文件环境；文件路径被普通文件占用等真实IO失败只留下诊断、不破坏业务调用；原事件/level/关联键/本地日滚动与既有reader仍成立。不以固定sleep或静默轮询失败当作完成，不把`:ok`解释为fsync落盘保证。测试使用已有foundation身份生成和必要的独立叶子，并按原app/key/presence恢复配置。
+
+字段语义：`event`/`level`/`timestamp` 由相位推导，调用方不得覆盖；`outcome` 是业务结果字段，允许调用方显式指定（`plan_draft`/`judgment` 的 `output_validation` 依赖 `rejected`/`retry` 表达done相位的业务结果），未指定时按phase推导。测试期望以真实消费者为准，不把过时注释当作契约。
+
 ---
 
 ## 3. slice 门禁

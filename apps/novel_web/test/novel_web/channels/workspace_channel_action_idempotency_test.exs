@@ -1,11 +1,10 @@
 defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   import Phoenix.ChannelTest
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.{WorkService, WorkSessionService}
-  alias NovelPersistence.{AgentRunLog, InteractionLifecycle, Repo, WorkSessionRepo}
+  alias NovelPersistence.{AgentRunLog, InteractionLifecycle, WorkSessionRepo}
   alias NovelPersistence.Schemas.AuthorActionReceipt
   alias NovelPersistence.TraceRepository
   alias NovelWeb.{UserSocket, WorkspaceChannel}
@@ -15,20 +14,22 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
   @author_text "把陆沉舟的人物设定改得更像一个底层散修，保持为待采纳草稿。"
 
   setup do
-    pid = Sandbox.start_owner!(Repo, shared: true)
-    previous = Application.get_env(:novel_web, :persistence, [])
-    previous_facts = Application.get_env(:novel_application, :agent_run_fact_persistence_enabled)
-    Application.put_env(:novel_web, :persistence, inject_real_persistence: true)
+    previous = Application.fetch_env(:novel_web, :persistence)
+    previous_facts = Application.fetch_env(:novel_application, :agent_run_fact_persistence_enabled)
+
+    Application.put_env(
+      :novel_web,
+      :persistence,
+      Keyword.put(prior_persistence(previous), :inject_real_persistence, true)
+    )
+
     Application.put_env(:novel_application, :agent_run_fact_persistence_enabled, true)
 
+    # 确认交接会启动真实 child AgentRun；每个成功 ACK/receipt 在用例内立即登记，
+    # 其 on_exit 晚执行，先收口 run/caller 再恢复配置与 Sandbox owner。
     on_exit(fn ->
-      Application.put_env(:novel_web, :persistence, previous)
+      restore_persistence(previous)
       restore_fact_persistence(previous_facts)
-
-      # 确认交接会启动真实 child AgentRun；先等 step/后台任务自然退出，避免下一条
-      # 用例在 owner 退出或并发写库时撞 SQLite busy。
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(pid)
     end)
   end
 
@@ -41,6 +42,7 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
              WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
 
     receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
+    NovelApplication.TestAgentRunCleanup.register_run(receipt.result["run_id"])
     # B58 CP2：确认动作的 approval 投影随 receipt 持久化；缺失字段不伪造。
     assert receipt.result["approval_policy_ref"] == "approval_policy.long_run_budget_gate"
     assert receipt.result["risk_class"] == "HIGH"
@@ -90,6 +92,9 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
     assert {:reply, {:ok, %{received: true}}, socket} =
              WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
 
+    receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
+    NovelApplication.TestAgentRunCleanup.register_run(receipt.result["run_id"])
+
     changed = Map.put(action, "payload", %{"edited_content" => "同键异内容"})
 
     assert {:reply, {:error, %{reason: :idempotency_payload_conflict}}, _socket} =
@@ -120,6 +125,7 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
     # 执行 writer 后提交的真实结果。
     decision_turn_id = receive_broadcast("turn_result", 10_000) |> payload_turn_id()
     receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
+    NovelApplication.TestAgentRunCleanup.register_run(receipt.result["run_id"])
     creative = await_creative_result(receipt.result["run_id"], work.id, session_id)
 
     assert creative["turn_id"] != decision_turn_id
@@ -157,6 +163,8 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
         "work_id" => work.id,
         "session_id" => session_id
       })
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
     source_turn = %{
       turn_id: "turn-au07-state-source",
@@ -297,6 +305,7 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
         "session_id" => session_id
       })
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
     {work, session_id, socket}
   end
 
@@ -466,11 +475,19 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
     |> Phoenix.Socket.assign(:turn_results_by_id, turn_results)
   end
 
-  defp restore_fact_persistence(nil),
+  defp prior_persistence({:ok, value}), do: value
+  defp prior_persistence(:error), do: []
+
+  defp restore_persistence({:ok, value}),
+    do: Application.put_env(:novel_web, :persistence, value)
+
+  defp restore_persistence(:error), do: Application.delete_env(:novel_web, :persistence)
+
+  defp restore_fact_persistence(:error),
     do: Application.delete_env(:novel_application, :agent_run_fact_persistence_enabled)
 
-  defp restore_fact_persistence(previous),
-    do: Application.put_env(:novel_application, :agent_run_fact_persistence_enabled, previous)
+  defp restore_fact_persistence({:ok, value}),
+    do: Application.put_env(:novel_application, :agent_run_fact_persistence_enabled, value)
 
   defp subscription_count(work_id, session_id) do
     NovelApplication.AgentEventRegistry

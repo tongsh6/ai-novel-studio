@@ -119,7 +119,9 @@ defmodule NovelApplication.AgentRunCleanupTest do
   用真实 AgentRunSupervisor/Registry/Task.Supervisor 与 `$callers` 验证：取消后等待
   本 run 的在途 step 提交到达安全点，再停止 run 并只收口其派生任务；run 先退出仍可
   回收孤儿；其他 owner 哨兵不被等待或停止；超时/登记缺失不假成功且 forced 收口后
-  不再留下活任务；释放先于 DataCase 停 Sandbox owner。
+  不再留下活任务；释放先于 DataCase 停 Sandbox owner。另以真实 caller PID 验证
+  `register_task_caller/1` 的边界：caller 先死或自然退出只收其 task（含 nested），
+  其他 owner 保留；重复释放幂等；caller 超时与 Task 拒绝 shutdown 仍收口并保留失败。
   """
 
   use NovelPersistence.DataCase, async: false
@@ -128,6 +130,7 @@ defmodule NovelApplication.AgentRunCleanupTest do
   alias NovelApplication.TestAgentRunCleanup
 
   @run_supervisor NovelApplication.AgentRunSupervisor
+  @background_supervisor NovelApplication.BackgroundTaskSupervisor
 
   test "release_run waits for an in-flight step commit before stopping the registered run" do
     {run_id, run_pid} = start_fake_run(self(), step: :slow, step_delay: 40)
@@ -261,6 +264,162 @@ defmodule NovelApplication.AgentRunCleanupTest do
 
     assert_raise RuntimeError, ~r/could not find run/, fn ->
       TestAgentRunCleanup.register_run(missing)
+    end
+  end
+
+  test "release_task_caller collects a dead caller's tasks and leaves other owners alone" do
+    {caller, bg, nested} = start_caller(delay: 5_000)
+    {other_caller, other_bg, other_nested} = start_caller(delay: 5_000)
+
+    assert TestAgentRunCleanup.register_task_caller(caller) == caller
+    assert TestAgentRunCleanup.register_task_caller(other_caller) == other_caller
+
+    # Phoenix 原生关闭后 caller 已死，遗留的 background/nested task 仍需按 caller 收口。
+    monitor = Process.monitor(caller)
+    Process.exit(caller, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^caller, _reason}, 1_000
+    refute Process.alive?(caller)
+
+    assert :ok = TestAgentRunCleanup.release_task_caller(caller)
+    refute Process.alive?(bg)
+    refute Process.alive?(nested)
+
+    assert Process.alive?(other_caller)
+    assert Process.alive?(other_bg)
+    assert Process.alive?(other_nested)
+
+    send(other_caller, :stop)
+    assert :ok = TestAgentRunCleanup.release_task_caller(other_caller, 1_000)
+    refute Process.alive?(other_bg)
+    refute Process.alive?(other_nested)
+  end
+
+  test "release_task_caller waits for a caller to exit naturally and is idempotent" do
+    {caller, bg, nested} = start_caller(delay: 5_000)
+
+    assert TestAgentRunCleanup.register_task_caller(caller) == caller
+
+    # release 调用时 caller 仍活；由本 fixture 的受控 :stop 让它稍后自然退出。
+    Process.send_after(caller, :stop, 30)
+    assert Process.alive?(caller)
+
+    assert :ok = TestAgentRunCleanup.release_task_caller(caller)
+    refute Process.alive?(caller)
+    refute Process.alive?(bg)
+    refute Process.alive?(nested)
+
+    assert :ok = TestAgentRunCleanup.release_task_caller(caller)
+  end
+
+  test "release_task_caller raises when a caller misses the deadline and still kills it" do
+    {caller, bg, nested} = start_caller(delay: 5_000, stubborn: true)
+
+    assert TestAgentRunCleanup.register_task_caller(caller) == caller
+
+    assert_raise RuntimeError, ~r/failed within 1ms/, fn ->
+      TestAgentRunCleanup.release_task_caller(caller, 1)
+    end
+
+    refute Process.alive?(caller)
+    refute Process.alive?(bg)
+    refute Process.alive?(nested)
+  end
+
+  test "release_task_caller raises when a supervised task ignores shutdown and still kills owned" do
+    {caller, bg, nested} = start_caller(delay: 5_000, trap: true)
+
+    assert TestAgentRunCleanup.register_task_caller(caller) == caller
+
+    # caller 先正常退出并等 DOWN；trap_exit 背景任务仍活，failure 只能来自 task stop。
+    monitor = Process.monitor(caller)
+    send(caller, :stop)
+    assert_receive {:DOWN, ^monitor, :process, ^caller, _reason}, 1_000
+    refute Process.alive?(caller)
+    assert Process.alive?(bg)
+    assert Process.alive?(nested)
+
+    assert_raise RuntimeError,
+                 ~r/failed within 30ms: \[timeout: \{:stop, NovelApplication.BackgroundTaskSupervisor/,
+                 fn ->
+                   TestAgentRunCleanup.release_task_caller(caller, 30)
+                 end
+
+    refute Process.alive?(bg)
+    refute Process.alive?(nested)
+  end
+
+  # caller 是真实进程（Channel 的替身）：它启动的 background+nested task 的 `$callers`
+  # 指向该 caller，而不是 run server 或 test 进程。
+  defp start_caller(opts) do
+    parent = self()
+    delay = Keyword.get(opts, :delay, 5_000)
+    trap? = Keyword.get(opts, :trap, false)
+    stubborn? = Keyword.get(opts, :stubborn, false)
+
+    caller = spawn(fn -> caller_loop(parent, delay, trap?, stubborn?) end)
+
+    # 先登记释放责任，再做任何 send/断言；fixture 兜底晚于正式 register 执行。
+    ExUnit.Callbacks.on_exit({:agent_run_cleanup_caller_fixture, caller}, fn ->
+      TestAgentRunCleanup.release_task_caller(caller)
+    end)
+
+    send(caller, :start)
+    assert_receive {:caller_task_started, bg, nested}, 1_000
+    {caller, bg, nested}
+  end
+
+  defp caller_loop(parent, delay, trap?, stubborn?) do
+    parent_monitor = Process.monitor(parent)
+
+    receive do
+      :start -> start_caller_tasks(parent, parent_monitor, delay, trap?, stubborn?)
+      {:DOWN, ^parent_monitor, :process, ^parent, _reason} -> :ok
+    end
+  end
+
+  defp start_caller_tasks(parent, parent_monitor, delay, trap?, stubborn?) do
+    {:ok, _bg} =
+      Task.Supervisor.start_child(
+        @background_supervisor,
+        fn ->
+          {:ok, nested} =
+            Task.Supervisor.start_child(@background_supervisor, fn ->
+              Process.sleep(delay)
+              send(parent, {:caller_nested_done, self()})
+            end)
+
+          send(parent, {:caller_task_started, self(), nested})
+
+          if trap? do
+            Process.flag(:trap_exit, true)
+            bg_monitor = Process.monitor(parent)
+            wait_for_stop(parent, bg_monitor, false)
+          else
+            Process.sleep(delay)
+          end
+        end,
+        shutdown: if(trap?, do: 50, else: 5_000)
+      )
+
+    wait_for_stop(parent, parent_monitor, stubborn?)
+  end
+
+  # parent DOWN 是 fixture 的永久出口（模拟测试框架拥有 caller）；stubborn 只忽略
+  # 正常 :stop，用于验证 release 的 live deadline，不会让失败用例留下无出口 caller。
+  defp wait_for_stop(parent, parent_monitor, stubborn?) do
+    receive do
+      {:DOWN, ^parent_monitor, :process, ^parent, _reason} ->
+        :ok
+
+      :stop ->
+        if stubborn? do
+          wait_for_stop(parent, parent_monitor, stubborn?)
+        else
+          :ok
+        end
+
+      :never ->
+        wait_for_stop(parent, parent_monitor, stubborn?)
     end
   end
 

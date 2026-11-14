@@ -1,9 +1,9 @@
 defmodule NovelTelemetry.MixProject do
   use Mix.Project
 
-  # 可观测性运行时 app（2026-11-08 作者裁决 C）：日志文件 I/O、异步写出、
-  # Logger metadata 关联与 LLM 调用 JSONL 记录从 novel_common 纯契约层迁出，
-  # 独立承载运行时副作用。common 保持纯契约/纯函数。
+  # 可观测性运行时 app（2026-11-08 作者裁决 C）：日志文件 I/O、调用者内同步
+  # JSONL 写出（B84，2026-11-14）、Logger metadata 关联与 LLM 调用 JSONL 记录从
+  # novel_common 纯契约层迁出，独立承载运行时副作用。common 保持纯契约/纯函数。
   def project do
     [
       app: :novel_telemetry,

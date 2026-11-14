@@ -6,21 +6,17 @@ defmodule NovelWeb.WorkspaceChannelAgentEventsTest do
   形状与实时 `agent_event` 广播一致。
   """
 
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   import Phoenix.ChannelTest
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelCommon.Contracts.AgentEvent
-  alias NovelPersistence.{AgentRunLog, Repo, WorkRepo, WorkSessionRepo}
+  alias NovelPersistence.{AgentRunLog, WorkRepo, WorkSessionRepo}
   alias NovelWeb.{UserSocket, WorkspaceChannel}
 
   @endpoint NovelWeb.Endpoint
 
   setup do
-    owner = Sandbox.start_owner!(Repo, shared: true)
-    on_exit(fn -> Sandbox.stop_owner(owner) end)
-
     {:ok, work} = WorkRepo.create(%{title: "事件补拉"})
     {:ok, session} = WorkSessionRepo.create(%{work_id: work.id})
     run_id = "run_events_#{System.unique_integer([:positive, :monotonic])}"
@@ -199,6 +195,7 @@ defmodule NovelWeb.WorkspaceChannelAgentEventsTest do
         "session_id" => ctx.session.id
       })
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
     socket
   end
 

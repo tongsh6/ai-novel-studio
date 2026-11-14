@@ -5,22 +5,14 @@ defmodule NovelWeb.WorkspaceChannelScopedEventsTest do
   reconnect 不增加订阅。
   """
 
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.AgentRunService
   alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentStep}
-  alias NovelPersistence.{AgentRunLog, Repo, WorkRepo, WorkSessionRepo}
+  alias NovelPersistence.{AgentRunLog, WorkRepo, WorkSessionRepo}
   alias NovelWeb.{UserSocket, WorkspaceChannel}
 
   setup do
-    owner = Sandbox.start_owner!(Repo, shared: true)
-
-    on_exit(fn ->
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(owner)
-    end)
-
     {:ok, work} = WorkRepo.create(%{title: "作用域事件回归"})
     {:ok, session} = WorkSessionRepo.create(%{work_id: work.id})
 
@@ -30,16 +22,6 @@ defmodule NovelWeb.WorkspaceChannelScopedEventsTest do
   test "two real transports each receive one copy; live join does not replay history", ctx do
     parent = self()
     {:ok, sup} = Supervisor.start_link([], strategy: :one_for_one)
-
-    on_exit(fn ->
-      if Process.alive?(sup) do
-        try do
-          Supervisor.stop(sup)
-        catch
-          :exit, _reason -> :ok
-        end
-      end
-    end)
 
     forwarder_a = start_forwarder(:window_a, parent)
     forwarder_b = start_forwarder(:window_b, parent)
@@ -68,7 +50,11 @@ defmodule NovelWeb.WorkspaceChannelScopedEventsTest do
                next_step_planner: sequential_steps([step])
              )
 
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
     assert_receive {:step_started, 1, step_pid}, 5_000
+
+    # 晚于 register_run 登记：断言失败时也先释放 step latch，再走 run 安全点。
+    on_exit(fn -> send(step_pid, :release) end)
 
     {:ok, _, socket_b} = join_window(forwarder_b, sup, ctx)
 
@@ -119,6 +105,20 @@ defmodule NovelWeb.WorkspaceChannelScopedEventsTest do
       })
 
     _ = :sys.get_state(socket.channel_pid)
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
+    # 手工 Sup 是 Channel 的真实所有者；其 stop 登记晚于 caller，因此先关闭
+    # Channel，caller 收口时无需等待或强杀。仍在 test 进程登记，不放进 forwarder。
+    on_exit(fn ->
+      if Process.alive?(sup) do
+        try do
+          Supervisor.stop(sup)
+        catch
+          :exit, _reason -> :ok
+        end
+      end
+    end)
+
     {:ok, reply, socket}
   end
 

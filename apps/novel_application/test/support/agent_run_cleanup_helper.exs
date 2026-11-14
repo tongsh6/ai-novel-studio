@@ -13,7 +13,11 @@ defmodule NovelApplication.TestAgentRunCleanup do
   失败，继续强制终止本 run 及已识别的本作用域任务并确认死亡，最后 raise；不会带着
   活任务进入 Sandbox 释放，也不会在阻塞停止超过期限后因列表已空而返回 `:ok`。
 
-  `await_quiescent/1` 是尚未迁移的 Channel 调用者使用的旧入口，保留原语义，不扩用。
+  `register_task_caller/1` 登记真实 Channel 的 `socket.channel_pid`：退出时先确认该
+  caller 已退出，再收口其 `$callers` 归属的派生任务。Phoenix 的原生 per-test
+  Supervisor/链接仍负责关闭 Channel；本模块不建立平行的 Channel 所有权，也不停止未
+  登记的其他 caller。run 与 Channel caller 是两种 producer，分别用 `release_run/2`
+  与 `release_task_caller/2` 收口，不能互相替代。
   """
 
   @run_supervisor NovelApplication.AgentRunSupervisor
@@ -29,7 +33,6 @@ defmodule NovelApplication.TestAgentRunCleanup do
   require Logger
 
   @poll_ms 10
-  @stable_polls 2
 
   @doc """
   捕获 run 的实际 PID，并在 `on_exit` 登记一次基于该 PID 的释放。
@@ -68,75 +71,61 @@ defmodule NovelApplication.TestAgentRunCleanup do
     end
   end
 
+  @doc """
+  登记真实 Channel caller PID，并在 `on_exit` 登记一次基于该 PID 的退出收口。
+
+  服务成功 join 后的 `socket.channel_pid`；重复登记同一 PID 复用同一 `on_exit`
+  key。Channel 的关闭仍由 Phoenix 的原生 per-test Supervisor 与链接负责。
+  """
+  @spec register_task_caller(pid()) :: pid()
+  def register_task_caller(pid) when is_pid(pid) do
+    ExUnit.Callbacks.on_exit({__MODULE__, :caller, pid}, fn ->
+      release_registered_task_caller(pid)
+    end)
+
+    pid
+  end
+
+  @doc """
+  等待已登记的 caller 退出，再只收口其 `$callers` 归属的派生任务。
+
+  返回 `:ok` 表示本 caller 域内已收口；到期时仍精准结束该 caller 与已识别 tasks，
+  然后保留失败并 raise。未登记的其他 caller/task 不被等待或停止。
+  """
+  @spec release_task_caller(pid(), non_neg_integer()) :: :ok
+  def release_task_caller(pid, timeout_ms \\ 5_000)
+      when is_pid(pid) and is_integer(timeout_ms) and timeout_ms >= 0 do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+
+    failures = await_caller_exit(pid, deadline)
+    failures = drain_owned_tasks(pid, deadline, failures)
+
+    case failures do
+      [] ->
+        :ok
+
+      failures ->
+        raise "release_task_caller(#{inspect(pid)}) failed within #{timeout_ms}ms: #{inspect(failures)}"
+    end
+  end
+
   # ExUnit 1.19 的 on_exit 在 test 已失败时只保留首个异常；在登记边界记录退出错误
   # 后原样重抛，只补足证据，不改 release_run 的正常/超时/所有权语义。
   defp release_registered_run(pid) do
-    release_run(pid)
+    record_exit_failure(fn -> release_run(pid) end)
+  end
+
+  defp release_registered_task_caller(pid) do
+    record_exit_failure(fn -> release_task_caller(pid) end)
+  end
+
+  defp record_exit_failure(release) do
+    release.()
   catch
     kind, reason ->
       stacktrace = __STACKTRACE__
-      Logger.error("测试run退出失败: " <> Exception.format(kind, reason, stacktrace))
+      Logger.error("测试资源退出失败: " <> Exception.format(kind, reason, stacktrace))
       :erlang.raise(kind, reason, stacktrace)
-  end
-
-  # 旧入口：仅为当前 Channel 调用者保留；等全部 run/task 安静，到期返回 :ok。
-  def await_quiescent(timeout \\ 5_000) do
-    deadline = System.monotonic_time(:millisecond) + timeout
-    settle(deadline, 0)
-  end
-
-  defp settle(deadline, stable) do
-    sync_run_servers()
-
-    cond do
-      busy?() and System.monotonic_time(:millisecond) < deadline ->
-        Process.sleep(@poll_ms)
-        settle(deadline, 0)
-
-      stable >= @stable_polls ->
-        :ok
-
-      System.monotonic_time(:millisecond) >= deadline ->
-        :ok
-
-      true ->
-        Process.sleep(@poll_ms)
-        settle(deadline, stable + 1)
-    end
-  end
-
-  # GenServer.call 排队在当前回调之后；返回即证明该 run server 已处理完当前
-  # 结果提交，不会在 owner 退出时还停在事务里。
-  defp sync_run_servers do
-    NovelApplication.AgentRunSupervisor
-    |> DynamicSupervisor.which_children()
-    |> Enum.each(fn {_, pid, _, _} when is_pid(pid) ->
-      try do
-        NovelApplication.AgentRunServer.state(pid, 1_000)
-      catch
-        :exit, _reason -> :ok
-      end
-    end)
-  end
-
-  defp busy? do
-    step_tasks?() or background_tasks?()
-  end
-
-  defp step_tasks? do
-    NovelApplication.AgentStepTaskSupervisor
-    |> DynamicSupervisor.which_children()
-    |> Enum.any?()
-  end
-
-  defp background_tasks? do
-    case Process.whereis(NovelApplication.BackgroundTaskSupervisor) do
-      nil ->
-        false
-
-      _pid ->
-        NovelApplication.BackgroundTaskSupervisor |> Task.Supervisor.children() |> Enum.any?()
-    end
   end
 
   defp lookup_run_pid!(run_id) do
@@ -147,6 +136,31 @@ defmodule NovelApplication.TestAgentRunCleanup do
       [] ->
         raise "register_run/1 could not find run #{inspect(run_id)} in #{inspect(@run_registry)}; " <>
                 "refusing to assume the run has already stopped"
+    end
+  end
+
+  # caller 是 Channel 进程，由 Phoenix 原生机制关闭；这里只等它自然退出，期限到才
+  # 精准结束并保留失败。已死亡 PID 视为已退出，随后仍收口它遗留的派生任务。
+  defp await_caller_exit(pid, deadline) do
+    cond do
+      not Process.alive?(pid) ->
+        []
+
+      remaining_ms(deadline) <= 0 ->
+        force_kill(pid)
+        [{:timeout, {:caller_exit, pid}}]
+
+      true ->
+        monitor = Process.monitor(pid)
+
+        receive do
+          {:DOWN, ^monitor, :process, ^pid, _reason} -> []
+        after
+          remaining_ms(deadline) ->
+            Process.demonitor(monitor, [:flush])
+            force_kill(pid)
+            [{:timeout, {:caller_exit, pid}}]
+        end
     end
   end
 

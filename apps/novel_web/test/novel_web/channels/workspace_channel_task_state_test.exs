@@ -1,9 +1,8 @@
 defmodule NovelWeb.WorkspaceChannelTaskStateTest do
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   import Phoenix.ChannelTest
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.AgentRunService
   alias NovelApplication.WorkService
   alias NovelApplication.WorkSessionService
@@ -22,12 +21,6 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
   alias NovelWeb.WorkspaceChannel
 
   @endpoint NovelWeb.Endpoint
-
-  setup do
-    pid = Sandbox.start_owner!(Repo, shared: true)
-    on_exit(fn -> Sandbox.stop_owner(pid) end)
-    :ok
-  end
 
   test "join restores turn results from the requested session rather than work-level resume" do
     {:ok, work} = WorkService.create(%{"title" => "会话绑定作品"})
@@ -70,6 +63,8 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
         "session_id" => requested.id
       })
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
     assert reply.session_id == requested.id
     assert socket.assigns.session_id == requested.id
     assert Map.has_key?(socket.assigns.turn_results_by_id, "turn-requested")
@@ -90,10 +85,13 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
         "session_id" => requested.id
       })
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
     ref = push(socket, "user_message", %{"text" => "继续讨论"})
 
     assert_reply(ref, :ok, %{received: true, run_id: run_id, run_mode: "bounded"})
     assert is_binary(run_id)
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
     assert WorkSessionRepo.get_by_work(work.id, requested.id).status == "ACTIVE"
     assert WorkSessionRepo.get_by_work(work.id, other.id).status == "EXITED"
 
@@ -112,6 +110,8 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
       |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{"work_id" => work.id})
 
     ref = push(socket, "export_work", %{"work_id" => work.id})
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
     assert_reply(ref, :ok, %{format: "markdown"})
 
@@ -175,6 +175,8 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
 
     ref = push(socket, "export_work", %{"work_id" => work.id})
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
     assert_reply(ref, :error, %{reason: "nothing_to_export"})
 
     assert_broadcast("task_state", %{task_id: task_id, task_type: "export_work", phase: "RUNNING"})
@@ -207,6 +209,8 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
 
     ref = push(socket, "export_work", %{"work_id" => other_work.id})
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
     assert_reply(ref, :ok, %{format: "markdown"})
 
     assert_broadcast("task_state", %{
@@ -223,21 +227,22 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     work = seed_exportable_work!()
 
     custom_dir =
-      Path.join(System.tmp_dir!(), "channel_export_test_#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "channel_export_test_#{Ecto.UUID.generate()}")
 
     File.mkdir_p!(custom_dir)
+    on_exit(fn -> File.rm_rf(custom_dir) end)
 
     {:ok, _, socket} =
       UserSocket
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{"work_id" => work.id})
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
     ref = push(socket, "export_work", %{"work_id" => work.id, "export_dir" => custom_dir})
 
     assert_reply(ref, :ok, %{format: "markdown", path: path})
     assert String.starts_with?(path, custom_dir)
-
-    File.rm_rf!(custom_dir)
   end
 
   test "join recovers active durable AgentRun state from LongRunTask checkpoint" do
@@ -307,13 +312,15 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
 
     task_id = task.id
 
-    {:ok, _, _socket} =
+    {:ok, _, socket} =
       UserSocket
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
         "work_id" => work.id,
         "session_id" => session_id
       })
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
     assert_push(
       "agent_event",
@@ -452,6 +459,8 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
         "session_id" => session_id
       })
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
     {:ok, legacy_event} =
       AgentEvent.new(%{
         event_id: legacy_record.id,
@@ -569,6 +578,8 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
         "session_id" => session_id
       })
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
     assert_push(
       "agent_run_state",
       %{
@@ -587,13 +598,15 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     assert reaped.failure_ref == "runtime_lost_on_restart"
 
     # 收口是幂等的：第二次 join 不再返回该 run，也不重复广播。
-    {:ok, _, _second_socket} =
+    {:ok, _, second_socket} =
       UserSocket
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
         "work_id" => work.id,
         "session_id" => session_id
       })
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(second_socket.channel_pid)
 
     refute_receive %Phoenix.Socket.Message{
                      event: "agent_run_state",
@@ -626,6 +639,8 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
         "work_id" => work.id,
         "session_id" => session_id
       })
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
     ref = push(socket, "get_assumptions", %{"work_id" => work.id})
     assert_reply(ref, :ok, %{assumptions: [listed]})
@@ -742,6 +757,8 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
         "session_id" => session_id
       })
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
     merge_ref =
       push(socket, "author_action", %{
         "action" => %{
@@ -857,13 +874,15 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
 
     assert changed_work.revision == work.revision + 1
 
-    {:ok, _, _socket} =
+    {:ok, _, socket} =
       UserSocket
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
         "work_id" => work.id,
         "session_id" => session_id
       })
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
     assert_push(
       "agent_event",
@@ -949,13 +968,15 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
 
     task_id = task.id
 
-    {:ok, _, _socket} =
+    {:ok, _, socket} =
       UserSocket
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
         "work_id" => work.id,
         "session_id" => changed_session_id
       })
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
     assert_push(
       "agent_event",

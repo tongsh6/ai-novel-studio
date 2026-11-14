@@ -1,9 +1,8 @@
 defmodule NovelWeb.WorkspaceChannelContractTest do
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   import Phoenix.ChannelTest
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.{WorkService, WorkSessionService}
   alias NovelPersistence.{InteractionLifecycle, Repo}
   alias NovelPersistence.Schemas.AuthorActionReceipt
@@ -13,17 +12,6 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
   @endpoint NovelWeb.Endpoint
   @agent_run_timeout 45_000
   @agent_run_stopped_events ["run_completed", "awaiting_author", "run_failed", "run_cancelled"]
-
-  setup do
-    owner = Sandbox.start_owner!(Repo, shared: true)
-
-    on_exit(fn ->
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(owner)
-    end)
-
-    :ok
-  end
 
   @server_turn_result %{
     turn_id: "turn-action-1",
@@ -167,6 +155,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       ref = push(socket, "user_message", %{"text" => "你好，我想聊聊创作"})
 
       assert_reply(
@@ -176,6 +166,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         @agent_run_timeout
       )
 
+      NovelApplication.TestAgentRunCleanup.register_run(run_id)
       assert is_binary(run_id)
 
       assert_push(
@@ -193,8 +184,11 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       ref = push(socket, "user_message", %{"text" => "聊聊赛博朋克方向"})
       assert_reply(ref, :ok, %{run_id: run_id, turn_id: turn_id}, @agent_run_timeout)
+      NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
       assert_push(
         "agent_event",
@@ -224,6 +218,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       ref = push(socket, "user_message", %{"text" => ""})
       assert_reply(ref, :error, %{reason: "empty_text"})
       refute_push("turn_result", %{}, 50)
@@ -235,8 +231,11 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       ref = push(socket, "user_message", %{"text" => "你好"})
       assert_reply(ref, :ok, %{run_id: run_id, turn_id: turn_id}, @agent_run_timeout)
+      NovelApplication.TestAgentRunCleanup.register_run(run_id)
       assert_push("turn_result", %{turn_id: ^turn_id} = result, @agent_run_timeout)
 
       assert result.schema_version == "3.0-draft"
@@ -254,8 +253,11 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       ref = push(socket, "user_message", %{"text" => "先聊方向不写正文"})
       assert_reply(ref, :ok, %{run_id: run_id, turn_id: turn_id}, @agent_run_timeout)
+      NovelApplication.TestAgentRunCleanup.register_run(run_id)
       assert_push("turn_result", %{turn_id: ^turn_id} = result, @agent_run_timeout)
 
       assert result.truthfulness.tool_called == false
@@ -270,8 +272,11 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       ref = push(socket, "user_message", %{"text" => "我想写小说但没想好"})
       assert_reply(ref, :ok, %{run_id: run_id, turn_id: turn_id}, @agent_run_timeout)
+      NovelApplication.TestAgentRunCleanup.register_run(run_id)
       assert_push("turn_result", %{turn_id: ^turn_id} = result, @agent_run_timeout)
 
       refute Map.has_key?(result, :required_slots)
@@ -286,6 +291,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       socket = assign_server_turn(socket, @candidate_turn_result)
 
@@ -306,6 +313,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
                )
 
       assert is_binary(run_id)
+      NovelApplication.TestAgentRunCleanup.register_run(run_id)
       assert_push("turn_result", %{turn_id: ^turn_id} = result, @agent_run_timeout)
       assert result.truthfulness.artifact_adopted == false
       assert result.truthfulness.production_write_performed == false
@@ -318,6 +326,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       socket = assign_server_turn(socket, @candidate_turn_result)
 
@@ -346,10 +356,13 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       ref =
         push(socket, "user_message", %{"text" => "帮我创作角色设定", "generate_micro_plan" => true})
 
       assert_reply(ref, :ok, %{run_id: run_id, turn_id: turn_id}, @agent_run_timeout)
+      NovelApplication.TestAgentRunCleanup.register_run(run_id)
       assert_push("turn_result", %{turn_id: ^turn_id} = result, @agent_run_timeout)
 
       assert result.turn_id != nil
@@ -367,6 +380,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       socket = assign_server_turn(socket, @server_turn_result)
 
@@ -451,6 +466,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       socket = assign_server_turn(socket, @server_turn_result)
 
       assert {:reply, {:error, %{reason: reason}}, _socket} =
@@ -477,6 +494,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       socket = assign_server_turn(socket, @server_turn_result)
 
@@ -506,6 +525,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       ref =
         push(socket, "author_action", %{
           "action" => %{
@@ -524,6 +545,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       ref =
         push(socket, "author_action", %{
@@ -552,6 +575,9 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
                  socket
                )
 
+      receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
+      NovelApplication.TestAgentRunCleanup.register_run(receipt.result["run_id"])
+
       payload = receive_turn_result()
       turn_id = payload[:turn_id] || payload["turn_id"]
       assert turn_id
@@ -569,6 +595,9 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
       assert {:reply, {:ok, %{received: true}}, socket} =
                WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
 
+      receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
+      NovelApplication.TestAgentRunCleanup.register_run(receipt.result["run_id"])
+
       payload = receive_turn_result()
       first_dispatch_turn_id = payload[:turn_id] || payload["turn_id"]
 
@@ -585,6 +614,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       ref =
         push(socket, "author_action", %{
@@ -656,6 +687,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       socket = assign_server_turn(socket, @candidate_turn_result)
 
       assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, socket} =
@@ -697,6 +730,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       high_risk_turn_result =
         put_in(@candidate_turn_result, [:candidate_directions, Access.at(0), :risk_hint], :high)
@@ -743,6 +778,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       stale_turn_result =
         @candidate_turn_result
@@ -791,6 +828,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       cross_work_turn_result =
         @candidate_turn_result
@@ -842,6 +881,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       canon_conflict_turn_result =
         @candidate_turn_result
@@ -907,6 +948,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       socket = assign_server_turn(socket, @quality_revision_turn_result)
 
       params = %{
@@ -937,6 +980,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       source_turn =
         Map.put(@pending_adoption_turn_result, :available_actions, [
@@ -987,6 +1032,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       # @pending_adoption_turn_result has available_actions: [] → accept is invented here
       socket = assign_server_turn(socket, @pending_adoption_turn_result)
 
@@ -1012,6 +1059,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       source_turn =
         Map.put(@pending_adoption_turn_result, :available_actions, [
@@ -1054,6 +1103,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       source_turn =
         Map.put(@pending_adoption_turn_result, :available_actions, [
@@ -1109,6 +1160,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       source_turn =
         Map.put(@pending_adoption_turn_result, :available_actions, [
           %{
@@ -1163,6 +1216,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       source_turn =
         Map.put(@pending_adoption_turn_result, :available_actions, [
           %{
@@ -1197,6 +1252,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:work-b")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       source_turn =
         @pending_adoption_turn_result
@@ -1245,6 +1302,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       socket =
         socket
@@ -1314,6 +1373,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       socket =
         assign_server_turn(
           socket,
@@ -1377,6 +1438,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       ref = push(socket, "get_toc", %{"work_id" => "lobby"})
 
       assert_reply(ref, :ok, %{work_id: "lobby", volumes: [], audit: audit}, @agent_run_timeout)
@@ -1393,6 +1456,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       ref = push(socket, "get_writing_coordinate", %{})
 
       assert_reply(ref, :ok, %{coordinate: nil}, @agent_run_timeout)
@@ -1403,6 +1468,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       ref = push(socket, "get_chapter_content", %{"chapter_id" => "missing"})
 
@@ -1416,6 +1483,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       ref = push(socket, "get_characters", %{"work_id" => "lobby"})
       assert_reply(ref, :ok, [])
@@ -1435,6 +1504,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       ref = push(socket, "get_ledger_threads", %{"work_id" => "lobby"})
 
@@ -1456,6 +1527,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
       ref =
         push(socket, "author_action", %{
           "action" => %{
@@ -1467,6 +1540,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         })
 
       assert_reply(ref, :ok, %{action_status: "running", run_id: run_id})
+      NovelApplication.TestAgentRunCleanup.register_run(run_id)
       assert is_binary(run_id)
     end
 
@@ -1475,6 +1549,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       ref =
         push(socket, "author_action", %{
@@ -1487,6 +1563,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         })
 
       assert_reply(ref, :ok, %{action_status: "running", run_id: run_id})
+      NovelApplication.TestAgentRunCleanup.register_run(run_id)
       assert is_binary(run_id)
     end
 
@@ -1495,6 +1572,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       ref =
         push(socket, "author_action", %{
@@ -1521,6 +1600,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       ref =
         push(socket, "author_action", %{
@@ -1550,6 +1631,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
       ref = push(socket, "ping", %{"hello" => "world"})
       assert_reply(ref, :ok, %{event: "pong", echo: %{"hello" => "world"}})
@@ -1632,6 +1715,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         "work_id" => work.id,
         "session_id" => session_id
       })
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
     {work, session_id, socket}
   end
@@ -1752,13 +1837,16 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
   end
 
   defp enable_real_persistence do
-    previous = Application.get_env(:novel_web, :persistence, [])
+    previous = Application.fetch_env(:novel_web, :persistence)
     Application.put_env(:novel_web, :persistence, inject_real_persistence: true)
 
-    on_exit(fn ->
-      Application.put_env(:novel_web, :persistence, previous)
-    end)
+    on_exit(fn -> restore_persistence(previous) end)
   end
+
+  defp restore_persistence({:ok, value}),
+    do: Application.put_env(:novel_web, :persistence, value)
+
+  defp restore_persistence(:error), do: Application.delete_env(:novel_web, :persistence)
 
   defp receive_turn_result(timeout \\ 5_000) do
     receive do

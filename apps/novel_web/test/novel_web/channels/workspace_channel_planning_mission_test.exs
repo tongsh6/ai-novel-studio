@@ -3,22 +3,15 @@ defmodule NovelWeb.WorkspaceChannelPlanningMissionTest do
   WR01c（ADR-0024 S9）：规划使命裁决三动作经真实 channel——确认 / 改写 / 作废；
   TOC 投影顶层带 planning_direction 供档案「大纲与结构」工作级块渲染。
   """
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   import Phoenix.ChannelTest
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.{WorkService, WorkSessionService}
-  alias NovelPersistence.{PlanningMissionRepo, Repo}
+  alias NovelPersistence.PlanningMissionRepo
   alias NovelWeb.{UserSocket, WorkspaceChannel}
 
   @endpoint NovelWeb.Endpoint
-
-  setup do
-    pid = Sandbox.start_owner!(Repo, shared: true)
-    on_exit(fn -> Sandbox.stop_owner(pid) end)
-    :ok
-  end
 
   defp join_work do
     {:ok, work} = WorkService.create(%{"title" => "规划使命裁决作品"})
@@ -40,6 +33,7 @@ defmodule NovelWeb.WorkspaceChannelPlanningMissionTest do
         "session_id" => session_id
       })
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
     {work, socket}
   end
 

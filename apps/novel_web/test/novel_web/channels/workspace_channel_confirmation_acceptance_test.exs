@@ -7,11 +7,9 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
   源子身份、作者字节与调用/预算。不启动 GUI、不注册生产验收 provider。
   """
 
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   import Phoenix.ChannelTest
-
-  alias Ecto.Adapters.SQL.Sandbox
 
   alias NovelApplication.{
     AgentRunService,
@@ -25,7 +23,6 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
     AgentRunLog,
     InteractionLifecycle,
     ProviderRunLog,
-    Repo,
     WorkSessionRepo
   }
 
@@ -38,19 +35,20 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
   @author_text "给陆沉舟设计一个底层散修人物设定，保持为待采纳草稿。"
 
   setup do
-    owner = Sandbox.start_owner!(Repo, shared: true)
+    previous_persistence = Application.fetch_env(:novel_web, :persistence)
+    previous_facts = Application.fetch_env(:novel_application, :agent_run_fact_persistence_enabled)
 
-    previous_persistence = Application.get_env(:novel_web, :persistence, [])
-    previous_facts = Application.get_env(:novel_application, :agent_run_fact_persistence_enabled)
+    Application.put_env(
+      :novel_web,
+      :persistence,
+      Keyword.put(prior_persistence(previous_persistence), :inject_real_persistence, true)
+    )
 
-    Application.put_env(:novel_web, :persistence, inject_real_persistence: true)
     Application.put_env(:novel_application, :agent_run_fact_persistence_enabled, true)
 
     on_exit(fn ->
-      Application.put_env(:novel_web, :persistence, previous_persistence)
+      restore_persistence(previous_persistence)
       restore_fact_persistence(previous_facts)
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(owner)
     end)
 
     {:ok, work} =
@@ -78,6 +76,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
              WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
 
     receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
+    NovelApplication.TestAgentRunCleanup.register_run(receipt.result["run_id"])
     decision_turn_id = receipt.result["turn_id"]
 
     # 首次受理必须广播本次提交的作者决定结果（前端首次渲染需要）。
@@ -137,6 +136,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
 
     run_id_a = reply_a.payload.run_id
     run_id_b = reply_b.payload.run_id
+    NovelApplication.TestAgentRunCleanup.register_run(run_id_a)
     assert run_id_a == run_id_b
     refute is_nil(run_id_a)
 
@@ -187,6 +187,11 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
              AgentRunLog.list_by_parent_turn(ctx.work.id, ctx.session_id, source.turn_id)
 
     child_run_id = receipt.result["run_id"]
+
+    if receipt.action_type == "confirm_before_execute" do
+      NovelApplication.TestAgentRunCleanup.register_run(child_run_id)
+    end
+
     assert child_run.id == child_run_id
 
     assert await_record_status_any(child_run_id, ["completed", "cancelled", "failed"])
@@ -304,6 +309,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
 
     receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
     child_run_id = receipt.result["run_id"]
+    NovelApplication.TestAgentRunCleanup.register_run(child_run_id)
     await_terminal(child_run_id)
 
     source_after = AgentRunLog.get_run(source.run_id)
@@ -335,6 +341,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
              )
 
     receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
+    NovelApplication.TestAgentRunCleanup.register_run(receipt.result["run_id"])
     await_terminal(receipt.result["run_id"])
 
     source_after = AgentRunLog.get_run(source.run_id)
@@ -413,6 +420,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
 
     receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
     child_run_id = receipt.result["run_id"]
+    NovelApplication.TestAgentRunCleanup.register_run(child_run_id)
     decision_turn_id = receipt.result["turn_id"]
     state = await_terminal(child_run_id)
 
@@ -482,6 +490,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
 
     receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
     child_run_id = receipt.result["run_id"]
+    NovelApplication.TestAgentRunCleanup.register_run(child_run_id)
     decision_turn_id = receipt.result["turn_id"]
     await_terminal(child_run_id)
 
@@ -530,6 +539,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
 
     receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
     child_run_id = receipt.result["run_id"]
+    NovelApplication.TestAgentRunCleanup.register_run(child_run_id)
     await_terminal(child_run_id)
 
     messages = child_transcript_messages(child_run_id)
@@ -580,6 +590,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
 
     receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
     child_run_id = receipt.result["run_id"]
+    NovelApplication.TestAgentRunCleanup.register_run(child_run_id)
     await_terminal(child_run_id)
 
     creative = await_creative_result(child_run_id, ctx.work.id, ctx.session_id)
@@ -606,6 +617,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
 
     receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
     child_run_id = receipt.result["run_id"]
+    NovelApplication.TestAgentRunCleanup.register_run(child_run_id)
     decision_turn_id = receipt.result["turn_id"]
     await_terminal(child_run_id)
 
@@ -624,11 +636,19 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
 
   # ── helpers ────────────────────────────────────────────────────────────────
 
-  defp restore_fact_persistence(nil),
+  defp prior_persistence({:ok, value}), do: value
+  defp prior_persistence(:error), do: []
+
+  defp restore_persistence({:ok, value}),
+    do: Application.put_env(:novel_web, :persistence, value)
+
+  defp restore_persistence(:error), do: Application.delete_env(:novel_web, :persistence)
+
+  defp restore_fact_persistence(:error),
     do: Application.delete_env(:novel_application, :agent_run_fact_persistence_enabled)
 
-  defp restore_fact_persistence(previous),
-    do: Application.put_env(:novel_application, :agent_run_fact_persistence_enabled, previous)
+  defp restore_fact_persistence({:ok, value}),
+    do: Application.put_env(:novel_application, :agent_run_fact_persistence_enabled, value)
 
   defp join_socket(work_id, session_id) do
     {:ok, _, socket} =
@@ -639,6 +659,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
         "session_id" => session_id
       })
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
     socket
   end
 

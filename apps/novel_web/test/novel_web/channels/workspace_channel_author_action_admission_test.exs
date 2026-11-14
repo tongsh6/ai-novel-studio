@@ -47,12 +47,11 @@ defmodule NovelWeb.AuthorActionAdmissionTestProvider do
 end
 
 defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   import Ecto.Query
   import Phoenix.ChannelTest
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.RuntimeConfig
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
@@ -62,7 +61,6 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
   alias NovelDomain.AuthorActionInput
   alias NovelPersistence.AgentRunLog
   alias NovelPersistence.MemoryLog
-  alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.AgentEventRecord
   alias NovelPersistence.Schemas.AgentRunRecord
   alias NovelPersistence.Schemas.AuthorActionReceipt
@@ -76,37 +74,44 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
   @idempotency_key "idem:author-action-admission"
 
   setup do
-    owner = Sandbox.start_owner!(Repo, shared: true)
-    previous_persistence = Application.get_env(:novel_web, :persistence, [])
-    previous_provider = Application.get_env(:novel_agent, :provider, [])
-    previous_extra = Application.get_env(:novel_agent, :extra_providers, [])
+    previous_persistence = Application.fetch_env(:novel_web, :persistence)
+    previous_provider = Application.fetch_env(:novel_agent, :provider)
+    previous_extra = Application.fetch_env(:novel_agent, :extra_providers)
+    previous_test_pid = Application.fetch_env(:novel_agent, :author_action_admission_test_pid)
+    previous_fail = Application.fetch_env(:novel_agent, :author_action_admission_fail_provider)
 
-    Application.put_env(:novel_web, :persistence, inject_real_persistence: true)
+    Application.put_env(
+      :novel_web,
+      :persistence,
+      Keyword.put(prior_value(previous_persistence, []), :inject_real_persistence, true)
+    )
 
     Application.put_env(
       :novel_agent,
       :provider,
-      Keyword.put(previous_provider, :default, :admission_test)
+      Keyword.put(prior_value(previous_provider, []), :default, :admission_test)
     )
 
     Application.put_env(
       :novel_agent,
       :extra_providers,
-      Map.put(Map.new(previous_extra || []), :admission_test, AuthorActionAdmissionTestProvider)
+      Map.put(
+        Map.new(prior_value(previous_extra, [])),
+        :admission_test,
+        AuthorActionAdmissionTestProvider
+      )
     )
 
     Application.put_env(:novel_agent, :author_action_admission_test_pid, self())
     RuntimeConfig.put_current_provider(:admission_test)
 
     on_exit(fn ->
-      Application.put_env(:novel_web, :persistence, previous_persistence)
-      Application.put_env(:novel_agent, :provider, previous_provider)
-      Application.put_env(:novel_agent, :extra_providers, previous_extra)
-      Application.delete_env(:novel_agent, :author_action_admission_test_pid)
-      Application.delete_env(:novel_agent, :author_action_admission_fail_provider)
+      restore_env(:novel_web, :persistence, previous_persistence)
+      restore_env(:novel_agent, :provider, previous_provider)
+      restore_env(:novel_agent, :extra_providers, previous_extra)
+      restore_env(:novel_agent, :author_action_admission_test_pid, previous_test_pid)
+      restore_env(:novel_agent, :author_action_admission_fail_provider, previous_fail)
       RuntimeConfig.reset()
-      NovelApplication.TestAgentRunCleanup.await_quiescent()
-      Sandbox.stop_owner(owner)
     end)
 
     :ok
@@ -127,6 +132,7 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
     assert_reply(push_a, :ok, %{received: true, run_id: run_id_a}, 15_000)
     assert_reply(push_b, :ok, %{received: true, run_id: run_id_b}, 15_000)
     assert run_id_a == run_id_b
+    NovelApplication.TestAgentRunCleanup.register_run(run_id_a)
     run_id = run_id_a
 
     assert receipt_count(work) == 1
@@ -157,6 +163,8 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
                revision_params("turn-admission-conflict"),
                socket
              )
+
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     changed =
       revision_params("turn-admission-conflict", %{
@@ -247,6 +255,8 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
                socket
              )
 
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive :provider_executed, 5_000
     status = await_terminal!(run_id)
     assert status in ["completed", "failed"]
@@ -299,6 +309,8 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
                revision_params("turn-admission-broken-run"),
                socket
              )
+
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     await_terminal!(run_id)
     terminate_run_server!(run_id)
@@ -438,6 +450,8 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
                socket
              )
 
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     refute run_id == source_run_id
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
 
@@ -505,11 +519,11 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
   end
 
   test "正式：已受理 bounded owner 异常退出不重启旧 Provider，也不拖垮其他运行" do
-    previous = Application.get_env(:novel_agent, :author_action_admission_block_provider, false)
+    previous = Application.fetch_env(:novel_agent, :author_action_admission_block_provider)
     Application.put_env(:novel_agent, :author_action_admission_block_provider, true)
 
     on_exit(fn ->
-      Application.put_env(:novel_agent, :author_action_admission_block_provider, previous)
+      restore_env(:novel_agent, :author_action_admission_block_provider, previous)
     end)
 
     {work, session} = create_scope()
@@ -520,6 +534,8 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
 
     assert {:reply, {:ok, %{run_id: run_id}}, _socket} =
              WorkspaceChannel.handle_in("author_action", params, socket)
+
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive :provider_executed, 5_000
     assert_receive {:provider_waiting, provider_pid}, 5_000
@@ -558,17 +574,17 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
     after
       send(provider_pid, :provider_release)
       await_process_down(provider_monitor, provider_pid)
-      Application.put_env(:novel_agent, :author_action_admission_block_provider, false)
+      restore_env(:novel_agent, :author_action_admission_block_provider, previous)
       terminate_run_server!(other_run_id)
     end
   end
 
   test "正式：runtime-lost 写入被拒绝时 Channel 明确失败且不广播成功" do
-    previous = Application.get_env(:novel_agent, :author_action_admission_block_provider, false)
+    previous = Application.fetch_env(:novel_agent, :author_action_admission_block_provider)
     Application.put_env(:novel_agent, :author_action_admission_block_provider, true)
 
     on_exit(fn ->
-      Application.put_env(:novel_agent, :author_action_admission_block_provider, previous)
+      restore_env(:novel_agent, :author_action_admission_block_provider, previous)
     end)
 
     {work, session} = create_scope()
@@ -579,6 +595,8 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
 
     assert {:reply, {:ok, %{run_id: run_id, receipt_id: receipt_id}}, socket} =
              WorkspaceChannel.handle_in("author_action", params, socket)
+
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive :provider_executed, 5_000
     assert_receive {:provider_waiting, provider_pid}, 5_000
@@ -754,10 +772,11 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
   end
 
   test "失败回执不把旧 accepted/running 当执行真相" do
+    previous = Application.fetch_env(:novel_agent, :author_action_admission_fail_provider)
     Application.put_env(:novel_agent, :author_action_admission_fail_provider, true)
 
     on_exit(fn ->
-      Application.delete_env(:novel_agent, :author_action_admission_fail_provider)
+      restore_env(:novel_agent, :author_action_admission_fail_provider, previous)
     end)
 
     ctx = completed_action!("ack-failed")
@@ -882,6 +901,7 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
                admission
              )
 
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
     {run_id, receipt}
   end
 
@@ -916,6 +936,7 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
              WorkspaceChannel.handle_in("author_action", params, socket)
 
     run_id = initial_ack.run_id
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
     assert_broadcast("action_result", %{run_id: ^run_id, status: "running"}, 5_000)
     assert_receive :provider_executed, 5_000
     status = await_terminal!(initial_ack.run_id)
@@ -1061,6 +1082,7 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
         "session_id" => session.id
       })
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
     socket
   end
 
@@ -1102,6 +1124,12 @@ defmodule NovelWeb.WorkspaceChannelAuthorActionAdmissionTest do
     |> where([r], r.work_id == ^work.id)
     |> Repo.aggregate(:count, :id)
   end
+
+  defp prior_value({:ok, value}, _default), do: value
+  defp prior_value(:error, default), do: default
+
+  defp restore_env(module, key, :error), do: Application.delete_env(module, key)
+  defp restore_env(module, key, {:ok, value}), do: Application.put_env(module, key, value)
 
   defp await_terminal!(run_id) do
     deadline = System.monotonic_time(:millisecond) + 10_000

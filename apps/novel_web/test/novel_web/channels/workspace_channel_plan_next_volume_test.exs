@@ -6,11 +6,10 @@ defmodule NovelWeb.WorkspaceChannelPlanNextVolumeTest do
   → 复用既有 user_message AgentRun 提交路径 → reply 带 turn_id + volume_scope；
   无卷/未知作品给出明确 reason。只走真实产品链路，不新增 artifact/卡型/写路径。
   """
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   import Phoenix.ChannelTest
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.WorkService
   alias NovelApplication.WorkSessionService
   alias NovelPersistence.Repo
@@ -20,12 +19,6 @@ defmodule NovelWeb.WorkspaceChannelPlanNextVolumeTest do
   @endpoint NovelWeb.Endpoint
   @run_stopped_events ["run_completed", "awaiting_author", "run_failed", "run_cancelled"]
   @agent_run_timeout 45_000
-
-  setup do
-    pid = Sandbox.start_owner!(Repo, shared: true)
-    on_exit(fn -> Sandbox.stop_owner(pid) end)
-    :ok
-  end
 
   test "已有两卷 → 机械推导下一卷 scope，reply 带 turn_id + volume_scope，并起 AgentRun" do
     {work_id, socket} = join_work_with_volumes()
@@ -52,6 +45,7 @@ defmodule NovelWeb.WorkspaceChannelPlanNextVolumeTest do
 
     assert is_binary(turn_id)
     assert is_binary(run_id)
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     # reply 后 AgentRun 已经在既有提交路径上跑起来（run_started 是既有事件流的证明）。
     assert_push(
@@ -75,6 +69,7 @@ defmodule NovelWeb.WorkspaceChannelPlanNextVolumeTest do
         "session_id" => session_id
       })
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
     ref = push(socket, "plan_next_volume", %{"work_id" => work.id})
 
     assert_reply(ref, :error, %{reason: "no_volume_to_extend"})
@@ -86,6 +81,8 @@ defmodule NovelWeb.WorkspaceChannelPlanNextVolumeTest do
       UserSocket
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
     for work_id <- [Ecto.UUID.generate(), "lobby", "", nil] do
       ref = push(socket, "plan_next_volume", %{"work_id" => work_id})
@@ -100,6 +97,8 @@ defmodule NovelWeb.WorkspaceChannelPlanNextVolumeTest do
       UserSocket
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
     ref = push(socket, "plan_next_volume", ["bad"])
     assert_reply(ref, :error, %{reason: "invalid_payload"})
@@ -125,6 +124,7 @@ defmodule NovelWeb.WorkspaceChannelPlanNextVolumeTest do
         "session_id" => session_id
       })
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
     {work.id, socket}
   end
 

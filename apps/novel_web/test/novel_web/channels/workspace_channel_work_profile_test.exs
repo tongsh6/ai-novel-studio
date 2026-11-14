@@ -1,21 +1,13 @@
 defmodule NovelWeb.WorkspaceChannelWorkProfileTest do
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   import Phoenix.ChannelTest
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.WorkService
-  alias NovelPersistence.Repo
   alias NovelWeb.UserSocket
   alias NovelWeb.WorkspaceChannel
 
   @endpoint NovelWeb.Endpoint
-
-  setup do
-    pid = Sandbox.start_owner!(Repo, shared: true)
-    on_exit(fn -> Sandbox.stop_owner(pid) end)
-    :ok
-  end
 
   test "get_work_profile returns the joined work profile and does not expose internal ids" do
     {:ok, work} =
@@ -37,6 +29,8 @@ defmodule NovelWeb.WorkspaceChannelWorkProfileTest do
       UserSocket
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{"work_id" => work.id})
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
     ref = push(socket, "get_work_profile", %{"work_id" => other_work.id})
 

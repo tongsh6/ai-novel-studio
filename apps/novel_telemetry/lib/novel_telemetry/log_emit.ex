@@ -30,6 +30,13 @@ defmodule NovelTelemetry.LogEmit do
       LogEmit.emit(:planner, :form_frame, :done, %{duration_ms: 482})
 
   `module` + `step` together form the event name: `"planner.form_frame.start"`.
+
+  ## File output
+
+  JSONL 写出在调用者进程内完成：`emit/4` 返回前，当前行已 append 完毕，或文件
+  写入失败已经由 `Logger` 报告。返回值统一为 `:ok`，它是副作用命令的回执，不
+  代表 fsync 落盘保证，也不构成“日志已持久化”的承诺。文件 IO 失败不改变业务
+  控制流，也不会递归经本模块记录自身失败。
   """
 
   # ── Public macro (compile-time phase validation) ─
@@ -102,8 +109,10 @@ defmodule NovelTelemetry.LogEmit do
       |> maybe_put_from_meta(:decision_id, metadata)
       |> maybe_put_from_meta(:tool_request_id, metadata)
 
-    # Merge caller-supplied business fields last so they can override
-    # inferred fields.  Must never override `event`, `outcome`, or `timestamp`.
+    # Merge caller-supplied business fields last so they can override inferred
+    # fields.  `event`/`level`/`timestamp` 由相位推导，不可覆盖；`outcome` 是业务
+    # 结果字段，允许调用方显式指定（plan_draft/judgment 的 output_validation 用
+    # rejected/retry 表达 done 相位的业务结果），未指定时按 phase 推导。
     enriched = Map.merge(enriched, strip_reserved(fields))
     enriched = Map.put(enriched, :msg, build_msg(module, step, phase, enriched))
 
@@ -209,12 +218,16 @@ defmodule NovelTelemetry.LogEmit do
 
   # ── JSONL file output (ADR-0018 §4) ─────────────
 
-  # Async fire-and-forget — never blocks the caller.  Test env no-ops.
+  # 调用者内同步写出（ADR-0034 B84 补充）。禁用时不创建任何文件资源；文件
+  # 写入失败由 append_line/3 经 Logger 报告，调用仍返回 :ok，避免日志 IO 错误
+  # 改变业务控制流。
   defp maybe_write_jsonl(entry) do
     if Application.get_env(:novel_telemetry, :log_jsonl_enabled, false) do
       dir = Application.get_env(:novel_telemetry, :log_jsonl_dir) || default_app_log_dir()
-      Task.start(fn -> write_jsonl(dir, entry) end)
+      write_jsonl(dir, entry)
     end
+
+    :ok
   end
 
   defp write_jsonl(dir, entry) do
@@ -227,10 +240,23 @@ defmodule NovelTelemetry.LogEmit do
 
     case Jason.encode(record) do
       {:ok, json} ->
-        File.mkdir_p!(dir)
-        File.write!(path, json <> "\n", [:append])
+        append_line(dir, path, json)
 
       _ ->
+        :ok
+    end
+  end
+
+  defp append_line(dir, path, json) do
+    with :ok <- File.mkdir_p(dir),
+         :ok <- File.write(path, json <> "\n", [:append]) do
+      :ok
+    else
+      {:error, reason} ->
+        Logger.error(
+          "novel_telemetry LogEmit JSONL write failed: path=#{path} reason=#{inspect(reason)}"
+        )
+
         :ok
     end
   end

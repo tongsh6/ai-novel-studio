@@ -65,5 +65,13 @@ novel_agent / novel_application / novel_persistence / novel_web 共 41 个生产
 
 ## enforcement_gaps
 
-- 日志写入仍是调用进程内 `Task.start` fire-and-forget（与原实现一致）；未改为 OTP 监督的 sink 进程——刻意保持字节/时序等价，如需更强可观测性可靠性另行立项。
+- 2026-11-08迁移时保留 `Task.start` fire-and-forget（与原实现一致），当时未改为OTP监督的sink，刻意保持迁移的字节/时序等价。该历史生命周期缺口由下述B84补充接续，实施/验收状态以原任务为准。
 - `novel_telemetry` 未新增独立启动监督树；app 目前只提供纯函数/宏 + 文件写出，不引入 GenServer。
+
+## 2026-11-14 B84：业务日志写出的生命周期补充
+
+B84的资源审查发现，`LogEmit`在调用进程读取配置目录后，将它捕获进未受监督的`Task.start`；恢复配置和关闭调用者都不能结束这个writer。测试结束后，延迟writer或未恢复的配置会再次创建已清理的目录。此处不能由测试框架全进程扫描兜底，责任在日志写出源头。原app依赖、配置键、事件字段、文件路径与本地日滚动决策继续适用，Accepted状态及2026-11-08历史迁移事实不改写。
+
+本补充将现有JSONL写出归回调用者：启用时直接调用同一 `write_jsonl`，调用返回前完成写出或记录写入失败；禁用时不创建文件资源。`emit/__emit__`作为副作用命令统一返回`:ok`，没有现役消费者依赖旧的nil/Task PID返回值。文件系统错误通过既有Logger报告，并保持业务调用不因日志失败而中断；不通过LogEmit递归记录自身的文件写入错误。编码失败保留既有不抛到业务调用者的边界。
+
+调用者承担这次本地文件IO的耗时，这是生命周期收口的明确取舍；不能宣称仍保持旧的异步时序或具备fsync持久性。当前无新队列、sink、Supervisor、flush注册器或业务依赖。后续若真实测量提出异步吞吐要求，应重新设计具有明确拥有者和退出协议的运行时，不能恢复无归属Task。具体实现与目标证据见 [B84](../../../tasks/slices/B84-web-slow-tests-and-arch-debt.md) 的日志写出checkpoint。

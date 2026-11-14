@@ -1,29 +1,26 @@
 defmodule NovelWeb.WorkspaceChannelSteerBindingTest do
   @moduledoc "B31 CP1 Q03/Q05：steer expected_goal_version 校验与 additive ack 绑定字段。"
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   import Phoenix.ChannelTest
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.AgentRunService
-  alias NovelPersistence.{Repo, WorkRepo, WorkSessionRepo}
+  alias NovelDomain.AgentNextStepDecision
+  alias NovelPersistence.{WorkRepo, WorkSessionRepo}
   alias NovelWeb.{UserSocket, WorkspaceChannel}
 
   @endpoint NovelWeb.Endpoint
 
   setup do
-    pid = Sandbox.start_owner!(Repo, shared: true)
-    on_exit(fn -> Sandbox.stop_owner(pid) end)
-
-    prior = Application.get_env(:novel_web, :persistence, [])
+    previous = Application.fetch_env(:novel_web, :persistence)
 
     Application.put_env(
       :novel_web,
       :persistence,
-      Keyword.put(prior, :inject_real_persistence, true)
+      Keyword.put(prior_persistence(previous), :inject_real_persistence, true)
     )
 
-    on_exit(fn -> Application.put_env(:novel_web, :persistence, prior) end)
+    on_exit(fn -> restore_persistence(previous) end)
     :ok
   end
 
@@ -49,16 +46,20 @@ defmodule NovelWeb.WorkspaceChannelSteerBindingTest do
       }
     }
 
-    planner = fn _run, _sequence, _snapshot ->
-      send(parent, :b31_steer_running)
+    planner = fn run, sequence, _snapshot ->
+      send(parent, {:b31_steer_running, self()})
 
       receive do
-        :never -> :ok
+        :release -> complete_step(run, sequence)
       end
     end
 
     assert {:ok, ^run_id} = AgentRunService.start_bounded(attrs, next_step_planner: planner)
-    assert_receive :b31_steer_running
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
+    assert_receive {:b31_steer_running, step_pid}, 1_000
+    # 晚于 register_run 登记，因此先释放 step latch，run 再走取消/安全点。
+    on_exit(fn -> send(step_pid, :release) end)
 
     {:ok, _reply, socket} =
       UserSocket
@@ -67,6 +68,8 @@ defmodule NovelWeb.WorkspaceChannelSteerBindingTest do
         "work_id" => work.id,
         "session_id" => session.id
       })
+
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
 
     base = %{
       "command" => "steer",
@@ -129,6 +132,8 @@ defmodule NovelWeb.WorkspaceChannelSteerBindingTest do
         "session_id" => session.id
       })
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+
     ref =
       push(socket, "agent_command", %{
         "command" => "steer",
@@ -140,4 +145,26 @@ defmodule NovelWeb.WorkspaceChannelSteerBindingTest do
 
     assert_reply(ref, :error, %{reason: "message_scope_mismatch"})
   end
+
+  defp complete_step(run, sequence) do
+    {:ok, decision} =
+      AgentNextStepDecision.new(%{
+        decision_id: "decision_#{run.run_id}_#{sequence}",
+        run_ref: run.run_id,
+        sequence: sequence,
+        decision_type: :goal_satisfied,
+        summary: "latch released",
+        reason_codes: ["goal_satisfied"]
+      })
+
+    {:complete, decision, %{provider_call_count: 0}}
+  end
+
+  defp prior_persistence({:ok, value}), do: value
+  defp prior_persistence(:error), do: []
+
+  defp restore_persistence({:ok, value}),
+    do: Application.put_env(:novel_web, :persistence, value)
+
+  defp restore_persistence(:error), do: Application.delete_env(:novel_web, :persistence)
 end

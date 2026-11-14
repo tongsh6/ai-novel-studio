@@ -1,9 +1,8 @@
 defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
   import Phoenix.ChannelTest
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
 
   alias NovelApplication.{
@@ -18,7 +17,6 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
     AgentRunLog,
     InteractionLifecycle,
     ProviderRunLog,
-    Repo,
     WorkSessionRepo
   }
 
@@ -30,16 +28,20 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
   @author_text "给陆沉舟设计一个底层散修人物设定，保持为待采纳草稿。"
 
   setup do
-    pid = Sandbox.start_owner!(Repo, shared: true)
-    previous = Application.get_env(:novel_web, :persistence, [])
-    previous_facts = Application.get_env(:novel_application, :agent_run_fact_persistence_enabled)
-    Application.put_env(:novel_web, :persistence, inject_real_persistence: true)
+    previous = Application.fetch_env(:novel_web, :persistence)
+    previous_facts = Application.fetch_env(:novel_application, :agent_run_fact_persistence_enabled)
+
+    Application.put_env(
+      :novel_web,
+      :persistence,
+      Keyword.put(prior_persistence(previous), :inject_real_persistence, true)
+    )
+
     Application.put_env(:novel_application, :agent_run_fact_persistence_enabled, true)
 
     on_exit(fn ->
-      Application.put_env(:novel_web, :persistence, previous)
+      restore_persistence(previous)
       restore_fact_persistence(previous_facts)
-      Sandbox.stop_owner(pid)
     end)
 
     {:ok, work} =
@@ -64,6 +66,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
 
     receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
     child_run_id = receipt.result["run_id"]
+    NovelApplication.TestAgentRunCleanup.register_run(child_run_id)
     assert is_binary(child_run_id)
     refute child_run_id == source.run_id
 
@@ -122,6 +125,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
              )
 
     child_run_id = result.child_run.run_id
+    NovelApplication.TestAgentRunCleanup.register_run(child_run_id)
 
     assert child_run_id != source.run_id
     assert AgentRunLog.list_events(source.run_id) == []
@@ -130,6 +134,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
     assert startup_event.run_ref == child_run_id
     assert_receive {:confirmed_agent_event, %{event_type: :tool_started} = tool_event}, 5_000
     assert_receive {:confirmed_provider_called, provider_pid}, 5_000
+    on_exit(fn -> send(provider_pid, :release_confirmed_provider) end)
 
     [persisted_startup] =
       child_run_id
@@ -194,6 +199,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
                    5_000
 
     child_run_id = startup.run_id
+    NovelApplication.TestAgentRunCleanup.register_run(child_run_id)
     assert startup.sequence == 1
 
     assert_receive %Phoenix.Socket.Message{
@@ -269,6 +275,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
 
     receipt = Repo.get_by!(AuthorActionReceipt, behavior_ref: source.behavior_id)
     run_id = receipt.result["run_id"]
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
     _ = await_terminal(run_id)
 
     assert {:reply, {:ok, %{received: true, duplicate: true}}, _socket} =
@@ -284,11 +291,19 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
     assert AgentRunLog.get_run(source.run_id)
   end
 
-  defp restore_fact_persistence(nil),
+  defp prior_persistence({:ok, value}), do: value
+  defp prior_persistence(:error), do: []
+
+  defp restore_persistence({:ok, value}),
+    do: Application.put_env(:novel_web, :persistence, value)
+
+  defp restore_persistence(:error), do: Application.delete_env(:novel_web, :persistence)
+
+  defp restore_fact_persistence(:error),
     do: Application.delete_env(:novel_application, :agent_run_fact_persistence_enabled)
 
-  defp restore_fact_persistence(previous),
-    do: Application.put_env(:novel_application, :agent_run_fact_persistence_enabled, previous)
+  defp restore_fact_persistence({:ok, value}),
+    do: Application.put_env(:novel_application, :agent_run_fact_persistence_enabled, value)
 
   defp join_socket(work_id, session_id) do
     {:ok, _, socket} =
@@ -299,6 +314,7 @@ defmodule NovelWeb.WorkspaceChannelConfirmationHandoffTest do
         "session_id" => session_id
       })
 
+    NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
     socket
   end
 
