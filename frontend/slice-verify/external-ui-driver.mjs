@@ -30581,15 +30581,36 @@ async function driveAgentProviderExecutionActivityRestored(page) {
   // 一次性取值（否则与补水完成产生竞态）。
   // 46§9.5：计划面板已移除；恢复语义 = 模型叙事段落从持久化事件重建可见。
   await page.waitForFunction(
-    (expected) =>
-      expected.every((value) => document.body.innerText.includes(value)) &&
-      Boolean(document.querySelector('[aria-label="本轮创作过程"]')),
+    (expected) => {
+      if (!expected.every((value) => document.body.innerText.includes(value))) return false;
+      const region = document.querySelector('[aria-label="本轮创作过程"]');
+      if (!region) return false;
+      return Array.from(region.querySelectorAll(".agenticLoopReasoning p")).some(
+        (paragraph) =>
+          paragraph.getClientRects().length > 0 && paragraph.innerText.trim().length > 0,
+      );
+    },
     ["创作执行", "已完成"],
     { timeout: 30_000 },
   );
-  const restoredSections = await page.evaluate(() => ({
-    reasoning: Boolean(document.querySelector('[aria-label="本轮创作过程"]')),
-  }));
+  const restoredSections = await page.evaluate(() => {
+    const region = document.querySelector('[aria-label="本轮创作过程"]');
+    const paragraphs = region
+      ? Array.from(region.querySelectorAll(".agenticLoopReasoning p"))
+      : [];
+    const visible = paragraphs.filter(
+      (paragraph) => paragraph.getClientRects().length > 0 && paragraph.innerText.trim(),
+    );
+    return {
+      region_present: Boolean(region),
+      reasoning: Boolean(region) && visible.length > 0,
+      narrative_paragraph_count: visible.length,
+      narrative_text_length: visible.reduce(
+        (total, paragraph) => total + paragraph.innerText.trim().length,
+        0,
+      ),
+    };
+  });
 
   const restoredVisibleText = await page.locator("body").innerText();
   const providerRunReplayUiRawContentLeaked = [
@@ -30631,6 +30652,8 @@ async function driveAgentProviderExecutionActivityRestored(page) {
       restored_ui_agent_flow_visible:
         restoredVisibleText.includes("创作执行") && restoredSections.reasoning,
       restored_ui_reasoning_restored: restoredSections.reasoning,
+      restored_ui_narrative_paragraph_count: restoredSections.narrative_paragraph_count,
+      restored_ui_narrative_text_length: restoredSections.narrative_text_length,
       restored_ui_provider_run_replay_raw_content_leaked: providerRunReplayUiRawContentLeaked,
     },
   ];
