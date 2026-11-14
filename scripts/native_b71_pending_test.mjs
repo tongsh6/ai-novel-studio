@@ -7,7 +7,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
-import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
@@ -21,6 +20,7 @@ import {
   pendingSourceMessage,
 } from "./lib/native_ui/authoring_pending_evidence.mjs";
 import { capturePending, verifyPendingBatch } from "./lib/native_ui/authoring_pending_run_evidence.mjs";
+import { createWorkingCopy, openTestRunScope } from "./lib/test_env.mjs";
 
 import { irBodyFromWire } from "./lib/native_ui/fixtures/authoring_request_ir.mjs";
 const SLICE_ID = "b71-authoring-pending";
@@ -710,9 +710,9 @@ async function waitForHttpCapture(file, requestPath) {
   throw new Error(`proxy 未记录 capture: ${requestPath}`);
 }
 
-async function captureHttpFixture() {
+async function captureHttpFixture(workRoot) {
   const server = httpFixtureServer();
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-pending-http-"));
+  const dir = fs.mkdtempSync(path.join(workRoot, "b71-pending-http-"));
   const controlPath = path.join(dir, "transport-control.json");
   const logPath = path.join(dir, "native-transport.jsonl");
   fs.writeFileSync(controlPath, "{}");
@@ -738,9 +738,9 @@ async function captureHttpFixture() {
   };
 }
 
-export async function buildBatch() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-pending-"));
-  const httpCapture = await captureHttpFixture();
+async function buildBatch(workRoot) {
+  const dir = fs.mkdtempSync(path.join(workRoot, "b71-pending-"));
+  const httpCapture = await captureHttpFixture(workRoot);
   fs.mkdirSync(path.join(dir, "database"), { recursive: true });
   fs.mkdirSync(path.join(dir, "llm-calls"), { recursive: true });
   fs.mkdirSync(path.join(dir, "app-log"), { recursive: true });
@@ -973,14 +973,37 @@ export async function buildBatch() {
   return dir;
 }
 
-function cloneBatch(source) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-pending-neg-"));
-  fs.cpSync(source, dir, { recursive: true });
-  for (const name of ["native-ws-frames.json", "native-b71-checks.json", "summary.json"]) {
-    fs.rmSync(path.join(dir, name), { force: true });
-  }
-  return dir;
+// 模板文件集合：批次在 run 内只构建一次（真实代理/HTTP capture + SUT checkpoint
+// 采集都是异步/有副作用路径），每个需要篡改或写 summary 的 case 取隔离工作副本。
+function pendingTemplateFor(dir) {
+  const files = new Map();
+  const walk = (absolute, prefix) => {
+    for (const entry of fs.readdirSync(absolute, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const child = path.join(absolute, entry.name);
+      if (entry.isDirectory()) walk(child, rel);
+      else files.set(rel, child);
+    }
+  };
+  walk(dir, "");
+  return { name: "b71-pending-batch", dir, files, scope: runScope };
 }
+
+function batchCopy(t) {
+  return createWorkingCopy(pendingTemplateFor(batchDir), { context: t }).dir;
+}
+
+let runScope;
+let batchDir;
+
+test.before(async () => {
+  runScope = openTestRunScope();
+  batchDir = await buildBatch(runScope.workDir);
+});
+
+test.after(() => {
+  runScope?.close();
+});
 
 function authorityOf(overrides = {}) {
   return {
@@ -991,19 +1014,19 @@ function authorityOf(overrides = {}) {
   };
 }
 
-function assertAuthorityRejected(scope, pattern = undefined, runId = SOURCE_RUN) {
-  const dir = cloneBatch(shared);
+function assertAuthorityRejected(t, scope, pattern = undefined, runId = SOURCE_RUN) {
+  const dir = batchCopy(t);
   const db = openDb(dir);
-  dbExec(db, "UPDATE agent_runs SET authority_scope = ? WHERE id = ?", [scope, runId]);
-  const row = db.prepare("SELECT authority_scope AS scope FROM agent_runs WHERE id = ?").get(runId);
-  db.close();
-  assert.equal(row.scope, scope);
+  let row;
   try {
-    if (pattern === undefined) assert.throws(() => verifyPendingBatch(dir));
-    else assert.throws(() => verifyPendingBatch(dir), pattern);
+    dbExec(db, "UPDATE agent_runs SET authority_scope = ? WHERE id = ?", [scope, runId]);
+    row = db.prepare("SELECT authority_scope AS scope FROM agent_runs WHERE id = ?").get(runId);
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    db.close();
   }
+  assert.equal(row.scope, scope);
+  if (pattern === undefined) assert.throws(() => verifyPendingBatch(dir));
+  else assert.throws(() => verifyPendingBatch(dir), pattern);
 }
 
 function mutateJsonl(file, fn) {
@@ -1017,11 +1040,9 @@ function mutateCheckpoint(dir, name, fn) {
   writeJson(file, fn(value) ?? value);
 }
 
-let shared;
-
-test("pending 全链正例：三 run、两稿、采纳/放弃、恢复与新请求", async () => {
-  shared = await buildBatch();
-  const { checks } = verifyPendingBatch(shared);
+test("pending 全链正例：三 run、两稿、采纳/放弃、恢复与新请求", (t) => {
+  const dir = batchCopy(t);
+  const { checks } = verifyPendingBatch(dir);
   assert.equal(checks.canon_accept_only_adds_bound_memory_and_receipt, true);
   assert.equal(checks.revision_writer_bytes_exact, true);
   assert.equal(checks.followup_reply_exact_provider, true);
@@ -1030,20 +1051,20 @@ test("pending 全链正例：三 run、两稿、采纳/放弃、恢复与新请�
   assert.equal(checks.resume_projection_resolved_count_exact, true);
   assert.equal(checks.resume_projection_source_discarded, true);
   assert.equal(checks.resume_projection_revision_accepted, true);
-  const summary = JSON.parse(fs.readFileSync(path.join(shared, "summary.json"), "utf8"));
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
   assert.equal(summary.slice_id, SLICE_ID);
   assert.equal(summary.all_checks_passed, true);
 });
 
-test("缺失/多义 revision ACK 不能通过", () => {
-  const dir = cloneBatch(shared);
+test("缺失/多义 revision ACK 不能通过", (t) => {
+  const dir = batchCopy(t);
   mutateJsonl(path.join(dir, "native-transport.jsonl"), (rows) =>
     rows.filter((row) => !(row.frame?.[1] === "req-revision" && row.frame?.[3] === "phx_reply")));
   assert.throws(() => verifyPendingBatch(dir), /ACK 必须唯一/);
 });
 
-test("revision artifact 字节改变不能冒充同次 writer 响应", () => {
-  const dir = cloneBatch(shared);
+test("revision artifact 字节改变不能冒充同次 writer 响应", (t) => {
+  const dir = batchCopy(t);
   mutateJsonl(path.join(dir, "native-transport.jsonl"), (rows) =>
     rows.map((row) => {
       if (row.frame?.[3] !== "turn_result") return row;
@@ -1055,36 +1076,39 @@ test("revision artifact 字节改变不能冒充同次 writer 响应", () => {
   assert.throws(() => verifyPendingBatch(dir), /revision_writer_bytes_exact/);
 });
 
-test("writer 应用校验 failed 不能签候选字节合法", () => {
-  const dir = cloneBatch(shared);
+test("writer 应用校验 failed 不能签候选字节合法", (t) => {
+  const dir = batchCopy(t);
   const db = openDb(dir);
-  const rows = db
-    .prepare("SELECT sequence, message FROM authoring_session_messages WHERE run_id = ? ORDER BY run_sequence")
-    .all(REVISION_RUN);
-  for (const row of rows) {
-    const message = JSON.parse(row.message);
-    let changed = false;
-    for (const block of message.blocks ?? []) {
-      if (block.type === "validation_result" && block.call_id === "call-writer") {
-        block.status = "failed";
-        changed = true;
+  try {
+    const rows = db
+      .prepare("SELECT sequence, message FROM authoring_session_messages WHERE run_id = ? ORDER BY run_sequence")
+      .all(REVISION_RUN);
+    for (const row of rows) {
+      const message = JSON.parse(row.message);
+      let changed = false;
+      for (const block of message.blocks ?? []) {
+        if (block.type === "validation_result" && block.call_id === "call-writer") {
+          block.status = "failed";
+          changed = true;
+        }
+      }
+      if (changed) {
+        db.prepare("UPDATE authoring_session_messages SET message = ? WHERE run_id = ? AND run_sequence = ?").run(
+          JSON.stringify(message),
+          REVISION_RUN,
+          row.sequence,
+        );
       }
     }
-    if (changed) {
-      db.prepare("UPDATE authoring_session_messages SET message = ? WHERE run_id = ? AND run_sequence = ?").run(
-        JSON.stringify(message),
-        REVISION_RUN,
-        row.sequence,
-      );
-    }
+  } finally {
+    db.close();
   }
-  db.close();
   assert.throws(() => verifyPendingBatch(dir), /revision_writer_validation_passed/);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("action target/source 错绑不能通过", () => {
-  const dir = cloneBatch(shared);
+test("action target/source 错绑不能通过", (t) => {
+  const dir = batchCopy(t);
   mutateJsonl(path.join(dir, "native-transport.jsonl"), (rows) =>
     rows.map((row) => {
       if (row.frame?.[3] === "author_action" && row.frame[4]?.action?.action_type === "accept") {
@@ -1095,8 +1119,8 @@ test("action target/source 错绑不能通过", () => {
   assert.throws(() => verifyPendingBatch(dir), /accept_action_ack_bound|accept_action_result_exact|author_action|冲突/);
 });
 
-test("restore 错 session 不能通过", () => {
-  const dir = cloneBatch(shared);
+test("restore 错 session 不能通过", (t) => {
+  const dir = batchCopy(t);
   mutateJsonl(path.join(dir, "native-transport.jsonl"), (rows) =>
     rows.map((row) => {
       if (row.frame?.[3] === "user_message" && row.frame[4]?.turn_id === FOLLOWUP_TURN) {
@@ -1107,8 +1131,8 @@ test("restore 错 session 不能通过", () => {
   assert.throws(() => verifyPendingBatch(dir), /session/);
 });
 
-test("followup 请求缺少真实处置状态不能通过", () => {
-  const dir = cloneBatch(shared);
+test("followup 请求缺少真实处置状态不能通过", (t) => {
+  const dir = batchCopy(t);
   const file = path.join(dir, "llm-calls", "calls.jsonl");
   const rows = fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map(JSON.parse);
   const last = rows.at(-1);
@@ -1119,8 +1143,8 @@ test("followup 请求缺少真实处置状态不能通过", () => {
   assert.throws(() => verifyPendingBatch(dir), /scope facts/);
 });
 
-test("followup 回放旧 assistant 历史不能通过", () => {
-  const dir = cloneBatch(shared);
+test("followup 回放旧 assistant 历史不能通过", (t) => {
+  const dir = batchCopy(t);
   const file = path.join(dir, "llm-calls", "calls.jsonl");
   const rows = fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map(JSON.parse);
   rows.at(-1).request_body.messages.push({
@@ -1134,15 +1158,15 @@ test("followup 回放旧 assistant 历史不能通过", () => {
   assert.throws(() => verifyPendingBatch(dir), /followup_request_is_new_boundary/);
 });
 
-test("缺失 Why 持久 replay 不能通过", () => {
-  const dir = cloneBatch(shared);
+test("缺失 Why 持久 replay 不能通过", (t) => {
+  const dir = batchCopy(t);
   mutateJsonl(path.join(dir, "native-transport.jsonl"), (rows) =>
     rows.filter((row) => !(row.direction === "http" && String(row.path).includes(`/turns/${REVISION_TURN}/replay`))));
   assert.throws(() => verifyPendingBatch(dir), /why_replay_scoped_http/);
 });
 
-test("accept 额外新增 memory/receipt 不能通过", () => {
-  const dir = cloneBatch(shared);
+test("accept 额外新增 memory/receipt 不能通过", (t) => {
+  const dir = batchCopy(t);
   mutateCheckpoint(dir, "after-accept", (checkpoint) => {
     const extra = { ...checkpoint.memory_items[0], id: "66666666-6666-4666-8666-666666666666", content: "未知写入" };
     checkpoint.memory_items.push(extra);
@@ -1151,8 +1175,8 @@ test("accept 额外新增 memory/receipt 不能通过", () => {
   assert.throws(() => verifyPendingBatch(dir), /canon_accept_only_adds_bound_memory_and_receipt/);
 });
 
-test("discard 改变已采纳 memory 字节不能通过", () => {
-  const dir = cloneBatch(shared);
+test("discard 改变已采纳 memory 字节不能通过", (t) => {
+  const dir = batchCopy(t);
   mutateCheckpoint(dir, "after-discard", (checkpoint) => {
     checkpoint.memory_items[0].content = "被改写的已采纳内容";
     return checkpoint;
@@ -1160,8 +1184,8 @@ test("discard 改变已采纳 memory 字节不能通过", () => {
   assert.throws(() => verifyPendingBatch(dir), /canon_discard_only_adds_bound_source_receipt/);
 });
 
-test("revision 额外 item 不能靠部分匹配通过", () => {
-  const dir = cloneBatch(shared);
+test("revision 额外 item 不能靠部分匹配通过", (t) => {
+  const dir = batchCopy(t);
   mutateJsonl(path.join(dir, "native-transport.jsonl"), (rows) =>
     rows.map((row) => {
       if (row.frame?.[3] !== "turn_result") return row;
@@ -1178,8 +1202,8 @@ test("revision 额外 item 不能靠部分匹配通过", () => {
   assert.throws(() => verifyPendingBatch(dir), /revision_writer_bytes_exact|item 必须恰好一条/);
 });
 
-test("未知 canon 列变化不能被 restore/final 的 0 写入签名掩盖", () => {
-  const dir = cloneBatch(shared);
+test("未知 canon 列变化不能被 restore/final 的 0 写入签名掩盖", (t) => {
+  const dir = batchCopy(t);
   mutateCheckpoint(dir, "after-restore", (checkpoint) => {
     const hash = "0000000000000000000000000000000000000000000000000000000000000000";
     checkpoint.canon.tables.ledger_entries.rows_sha256 = hash;
@@ -1189,8 +1213,8 @@ test("未知 canon 列变化不能被 restore/final 的 0 写入签名掩盖", (
   assert.throws(() => verifyPendingBatch(dir), /canon_restore_writes_nothing/);
 });
 
-test("source 作者原文字节被模型改写不能通过", () => {
-  const dir = cloneBatch(shared);
+test("source 作者原文字节被模型改写不能通过", (t) => {
+  const dir = batchCopy(t);
   mutateJsonl(path.join(dir, "native-transport.jsonl"), (rows) =>
     rows.map((row) => {
       if (row.frame?.[3] !== "turn_result") return row;
@@ -1207,8 +1231,8 @@ function mutateHttp(dir, fn) {
     rows.map((row) => (row.direction === "http" ? (fn(row) ?? row) : row)));
 }
 
-test("restore resume 错 work 不能通过", () => {
-  const dir = cloneBatch(shared);
+test("restore resume 错 work 不能通过", (t) => {
+  const dir = batchCopy(t);
   mutateHttp(dir, (row) => {
     if (!String(row.path).includes("/sessions/resume")) return row;
     row.body.work.id = "99999999-9999-4999-8999-999999999999";
@@ -1217,8 +1241,8 @@ test("restore resume 错 work 不能通过", () => {
   assert.throws(() => verifyPendingBatch(dir), /resume_body_scope_same_work_session/);
 });
 
-test("restore resume 错 session 不能通过", () => {
-  const dir = cloneBatch(shared);
+test("restore resume 错 session 不能通过", (t) => {
+  const dir = batchCopy(t);
   mutateHttp(dir, (row) => {
     if (!String(row.path).includes("/sessions/resume")) return row;
     row.body.active_session.id = "99999999-9999-4999-8999-999999999999";
@@ -1227,8 +1251,8 @@ test("restore resume 错 session 不能通过", () => {
   assert.throws(() => verifyPendingBatch(dir), /resume_body_scope_same_work_session/);
 });
 
-test("restore resume 仍含 pending 不能通过", () => {
-  const dir = cloneBatch(shared);
+test("restore resume 仍含 pending 不能通过", (t) => {
+  const dir = batchCopy(t);
   mutateHttp(dir, (row) => {
     if (!String(row.path).includes("/sessions/resume")) return row;
     row.body.pending_adoptions = [{ artifact_id: REVISION_ID, adoption_status: "TENTATIVE" }];
@@ -1237,14 +1261,14 @@ test("restore resume 仍含 pending 不能通过", () => {
   assert.throws(() => verifyPendingBatch(dir), /resume_projection_pending_empty/);
 });
 
-test("restore resume 缺失 pending 字段不能当成已证空", () => {
+test("restore resume 缺失 pending 字段不能当成已证空", (t) => {
   for (const field of [
     "pending_adoptions",
     "inbox_pending_adoptions",
     "pending_adoption_turn_results",
     "inbox_pending_adoption_turn_results",
   ]) {
-    const dir = cloneBatch(shared);
+    const dir = batchCopy(t);
     mutateHttp(dir, (row) => {
       if (!String(row.path).includes("/sessions/resume")) return row;
       delete row.body[field];
@@ -1254,14 +1278,14 @@ test("restore resume 缺失 pending 字段不能当成已证空", () => {
   }
 });
 
-test("restore resume pending 字段非数组不能通过", () => {
+test("restore resume pending 字段非数组不能通过", (t) => {
   for (const field of [
     "pending_adoptions",
     "inbox_pending_adoptions",
     "pending_adoption_turn_results",
     "inbox_pending_adoption_turn_results",
   ]) {
-    const dir = cloneBatch(shared);
+    const dir = batchCopy(t);
     mutateHttp(dir, (row) => {
       if (!String(row.path).includes("/sessions/resume")) return row;
       row.body[field] = {};
@@ -1271,8 +1295,8 @@ test("restore resume pending 字段非数组不能通过", () => {
   }
 });
 
-test("restore resume 缺 inbox_resolved_adoptions 不能借用 session resolved", () => {
-  const dir = cloneBatch(shared);
+test("restore resume 缺 inbox_resolved_adoptions 不能借用 session resolved", (t) => {
+  const dir = batchCopy(t);
   mutateHttp(dir, (row) => {
     if (!String(row.path).includes("/sessions/resume")) return row;
     delete row.body.inbox_resolved_adoptions;
@@ -1281,8 +1305,8 @@ test("restore resume 缺 inbox_resolved_adoptions 不能借用 session resolved"
   assert.throws(() => verifyPendingBatch(dir), /resume_projection_resolved_count_exact/);
 });
 
-test("restore resume revision_of 双别名冲突不能通过", () => {
-  const dir = cloneBatch(shared);
+test("restore resume revision_of 双别名冲突不能通过", (t) => {
+  const dir = batchCopy(t);
   mutateHttp(dir, (row) => {
     if (!String(row.path).includes("/sessions/resume")) return row;
     for (const entries of [row.body.resolved_adoptions, row.body.inbox_resolved_adoptions]) {
@@ -1294,15 +1318,15 @@ test("restore resume revision_of 双别名冲突不能通过", () => {
   assert.throws(() => verifyPendingBatch(dir), /resume_projection_revision_accepted/);
 });
 
-test("restore resume 响应缺失不能通过", () => {
-  const dir = cloneBatch(shared);
+test("restore resume 响应缺失不能通过", (t) => {
+  const dir = batchCopy(t);
   mutateJsonl(path.join(dir, "native-transport.jsonl"), (rows) =>
     rows.filter((row) => !(row.direction === "http" && String(row.path).includes("/sessions/resume"))));
   assert.throws(() => verifyPendingBatch(dir), /restore_resume_http/);
 });
 
-test("restore resume 截断不能通过", () => {
-  const dir = cloneBatch(shared);
+test("restore resume 截断不能通过", (t) => {
+  const dir = batchCopy(t);
   mutateHttp(dir, (row) => {
     if (!String(row.path).includes("/sessions/resume")) return row;
     row.body = null;
@@ -1312,8 +1336,8 @@ test("restore resume 截断不能通过", () => {
   assert.throws(() => verifyPendingBatch(dir), /restore_resume_http/);
 });
 
-test("restore resume 仅 status 200 不能通过", () => {
-  const dir = cloneBatch(shared);
+test("restore resume 仅 status 200 不能通过", (t) => {
+  const dir = batchCopy(t);
   mutateHttp(dir, (row) => {
     if (!String(row.path).includes("/sessions/resume")) return row;
     return {
@@ -1327,53 +1351,60 @@ test("restore resume 仅 status 200 不能通过", () => {
   assert.throws(() => verifyPendingBatch(dir), /restore_resume_http/);
 });
 
-test("followup 缺持久 decision trace 不能通过", () => {
-  const dir = cloneBatch(shared);
+test("followup 缺持久 decision trace 不能通过", (t) => {
+  const dir = batchCopy(t);
   const db = openDb(dir);
-  dbExec(db, "DELETE FROM decision_traces WHERE turn_id = ?", [FOLLOWUP_TURN]);
-  db.close();
+  try {
+    dbExec(db, "DELETE FROM decision_traces WHERE turn_id = ?", [FOLLOWUP_TURN]);
+  } finally {
+    db.close();
+  }
   assert.throws(() => verifyPendingBatch(dir), /followup_decision_trace_present/);
 });
 
-test("源运行 authority_scope 缺失事实自然失败", () => {
+test("源运行 authority_scope 缺失事实自然失败", (t) => {
   // 这些形状在真实 producer 不会出现；不为其扩展产品拦截，只证明 reader 不会假绿。
-  assertAuthorityRejected(null);
-  assertAuthorityRejected("null");
-  assertAuthorityRejected("[]");
-  assertAuthorityRejected("{");
+  assertAuthorityRejected(t, null);
+  assertAuthorityRejected(t, "null");
+  assertAuthorityRejected(t, "[]");
+  assertAuthorityRejected(t, "{");
 });
 
-test("源运行 authority profile 错绑不能通过", () => {
+test("源运行 authority profile 错绑不能通过", (t) => {
   assertAuthorityRejected(
+    t,
     JSON.stringify(authorityOf({ profile_selection: { profile_ref: "other_profile" } })),
     /source_profile_bound/,
   );
 });
 
-test("源运行 production_write=true 不能通过", () => {
+test("源运行 production_write=true 不能通过", (t) => {
   assertAuthorityRejected(
+    t,
     JSON.stringify(authorityOf({ production_write: true })),
     /source_production_write_disabled/,
   );
 });
 
-test("源运行写工具不能通过", () => {
+test("源运行写工具不能通过", (t) => {
   assertAuthorityRejected(
+    t,
     JSON.stringify(authorityOf({ allowed_tools: ["judgment", "production_write"] })),
     /source_no_adopt_tool/,
   );
 });
 
-test("followup 权限必须只允许 judgment", () => {
+test("followup 权限必须只允许 judgment", (t) => {
   assertAuthorityRejected(
+    t,
     JSON.stringify(authorityOf({ allowed_tools: ["world_building"] })),
     /followup_judgment_only/,
     FOLLOWUP_RUN,
   );
 });
 
-test("followup 缺 trace_summary 不能借用旧 trace", () => {
-  const dir = cloneBatch(shared);
+test("followup 缺 trace_summary 不能借用旧 trace", (t) => {
+  const dir = batchCopy(t);
   mutateJsonl(path.join(dir, "native-transport.jsonl"), (rows) =>
     rows.map((row) => {
       if (row.frame?.[3] === "turn_result" && row.frame[4]?.turn_id === FOLLOWUP_TURN) {
@@ -1384,8 +1415,8 @@ test("followup 缺 trace_summary 不能借用旧 trace", () => {
   assert.throws(() => verifyPendingBatch(dir), /followup_decision_trace_present/);
 });
 
-test("followup 缺 assistant_message 不能通过", () => {
-  const dir = cloneBatch(shared);
+test("followup 缺 assistant_message 不能通过", (t) => {
+  const dir = batchCopy(t);
   mutateJsonl(path.join(dir, "native-transport.jsonl"), (rows) =>
     rows.map((row) => {
       if (row.frame?.[3] === "turn_result" && row.frame[4]?.turn_id === FOLLOWUP_TURN) {

@@ -1,18 +1,30 @@
 // B70 CP1：oracle 评估器正反例（确定性判卷；负例必须能被抓到，unknown 不判 PASS）。
+// 纯判卷用例只在内存中构造观察；唯一需要落盘的 CLI --evaluate 输出目录归外层
+// run scope 的 work 区，不再落系统 TMPDIR 裸目录。
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
 import { DEFAULT_PROJECT_ROOT, loadAuthorBehaviorCorpus, validateAuthorBehaviorCorpus, validateCoverageReport } from "./author_behavior.mjs";
 import { evaluateCase, evaluateCorpus, buildCoverageReport } from "./author_behavior_oracle.mjs";
+import { openTestRunScope } from "../test_env.mjs";
 
 
 const ROOT = DEFAULT_PROJECT_ROOT;
 const CLI = path.join(ROOT, "scripts/author_behavior_check.mjs");
 const CORPUS = loadAuthorBehaviorCorpus(ROOT);
 const CASES = CORPUS.cases.cases;
+
+let runScope;
+
+test.before(() => {
+  runScope = openTestRunScope();
+});
+
+test.after(() => {
+  runScope?.close();
+});
 
 function allowedObservation(testCase) {
   const allowedActions = testCase.expected.allowed_actions;
@@ -284,7 +296,7 @@ test("B73 hard oracle 执行与判定来自逐步证据，不从 case 引用复�
 });
 
 test("CLI --evaluate 生成覆盖报告并退出 0", () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "b70-oracle-"));
+  const tmpDir = fs.mkdtempSync(path.join(runScope.workDir, "b70-oracle-"));
   const observationsPath = path.join(tmpDir, "observations.json");
   const coveragePath = path.join(tmpDir, "coverage.json");
   const observations = {

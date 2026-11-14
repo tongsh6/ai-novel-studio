@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
+import {
+  createWorkingCopy,
+  materializeFixture,
+  openTestRunScope,
+} from "./lib/test_env.mjs";
 import { main, nativeStageHistoryPreserved, planningCanonSnapshot, continuationRequestChecks, characterRequestChecks } from "./native_b71_evidence.mjs";
 import { joinNativeCallEvidence } from "./lib/native_ui/authoring_call_evidence.mjs";
 import {
@@ -13,6 +17,29 @@ import {
 import { planningProtocolEvidence, providerFreeInterval } from "./lib/native_ui/authoring_planning_evidence.mjs";
 import { evaluateAnswerMode } from "./lib/native_ui/authoring_answer_mode_evidence.mjs";
 import { irBodyFromWire } from "./lib/native_ui/fixtures/authoring_request_ir.mjs";
+import {
+  PREVIEW_CALL,
+  PREVIEW_DELTAS,
+  PREVIEW_PROSE,
+  PREVIEW_PROVIDER_RUN,
+  PREVIEW_RUN,
+  PREVIEW_TOPIC,
+  PREVIEW_TRANSPORT,
+  PREVIEW_TEXT,
+  previewText,
+  streamPreviewRecords,
+} from "./lib/native_ui/fixtures/native_b71_stream_preview_facts.mjs";
+import { streamPreviewFixtureSpec } from "./lib/native_ui/fixtures/native_b71_stream_preview_io_fixture.mjs";
+
+let runScope;
+
+test.before(() => {
+  runScope = openTestRunScope();
+});
+
+test.after(() => {
+  runScope?.close();
+});
 
 const history = [
   ["judge", "judgment_decision"],
@@ -325,7 +352,7 @@ const uuidFromHex = (hex) =>
 const bytesFromHex = (hex) => Buffer.from(hex, "hex");
 
 test("真实 TEXT 列中的 16-byte UUID 在捕获边界无损投影，旧 JS 解码仍拒绝", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-canon-capture-"));
+  const dir = fs.mkdtempSync(path.join(runScope.workDir, "b71-canon-capture-"));
   const dbFile = path.join(dir, "database", "ai_novel_studio_test.sqlite3");
   fs.mkdirSync(path.dirname(dbFile), { recursive: true });
   const memory = "11111111-1111-4111-8111-111111111111";
@@ -345,6 +372,7 @@ test("真实 TEXT 列中的 16-byte UUID 在捕获边界无损投影，旧 JS �
   try {
     const db = new DatabaseSync(dbFile);
     try {
+      db.exec("PRAGMA journal_mode = DELETE");
       for (const table of CANON_TABLES) {
         if (table === "memory_items") {
           db.exec(
@@ -656,7 +684,7 @@ test("continuation consumer 使用 refs 绑定集合：本地记录跨 turn_id �
 test("CLI 未知模式、缺批次目录与有效模式分发都在入口显式失败", async () => {
   await assert.rejects(() => main(["unknown-mode", "/tmp/b71"]), /unknown mode: unknown-mode/);
   await assert.rejects(() => main(["verify"]), /usage: node scripts\/native_b71_evidence\.mjs/);
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-cli-"));
+  const dir = fs.mkdtempSync(path.join(runScope.workDir, "b71-cli-"));
   try {
     await assert.rejects(() => main(["verify", dir]), /native-b71-config/);
   } finally {
@@ -694,133 +722,45 @@ test("D2 正反例：回答前基线必须非 null 且 waitRunPauseOrTerminal �
   }
 });
 
-const PREVIEW_MESSAGE = "先写第01章正文草稿，再做质量复核；这是一项可恢复的长任务。";
-const PREVIEW_TOPIC = "workspace:stream-preview";
-const PREVIEW_RUN = "run_stream_preview_1";
-const PREVIEW_CALL = "pcall_stream_preview_1";
-const PREVIEW_PROVIDER_RUN = "prun_stream_preview_1";
-const PREVIEW_DELTAS = [
-  "夜色压在这座赛博修仙城市上，",
-  "灵气账单从屋檐下垂落，像一串",
-  "像一串即将燃尽的符纸。",
-];
-const PREVIEW_PROSE = PREVIEW_DELTAS.join("");
-const PREVIEW_TURN = "message_stream_preview_1";
-
-function streamPreviewRecords() {
-  const at = (second) => `2026-01-01T00:00:${String(second).padStart(2, "0")}.000Z`;
-  let accumulated = 0;
-  return [
-    {
-      at: at(1),
-      direction: "sent",
-      frame: ["5", "9", PREVIEW_TOPIC, "user_message", {
-        turn_id: PREVIEW_TURN,
-        text: PREVIEW_MESSAGE,
-      }],
-    },
-    {
-      at: at(2),
-      direction: "received",
-      frame: ["5", "9", PREVIEW_TOPIC, "phx_reply", {
-        status: "ok",
-        response: { turn_id: PREVIEW_TURN, run_id: PREVIEW_RUN },
-      }],
-    },
-    ...PREVIEW_DELTAS.map((delta, index) => {
-      accumulated += delta.length;
-      return {
-        at: at(3 + index),
-        direction: "received",
-        frame: [null, null, PREVIEW_TOPIC, "agent_event", {
-          payload: {
-            status: "running",
-            provider_call_ref: PREVIEW_CALL,
-            provider_run_ref: PREVIEW_PROVIDER_RUN,
-            purpose: "writer",
-            output_type: "text",
-            chunk_index: index + 1,
-            accumulated_content_length: accumulated,
-            author_content_delta: delta,
-            chunk_content_length: delta.length,
-            provider_event_type: "chunk",
-          },
-          run_id: PREVIEW_RUN,
-          run_ref: PREVIEW_RUN,
-          event_type: "provider_progress",
-          event_id: `evt_stream_${index + 1}`,
-          sequence: index + 1,
-        }],
-      };
-    }),
-    {
-      at: at(20),
-      direction: "received",
-      frame: [null, null, PREVIEW_TOPIC, "turn_result", {
-        turn_id: `${PREVIEW_TURN}:agent:1`,
-        agent_run: { status: "completed", run_id: PREVIEW_RUN },
-        assistant_message: { text: "已生成预览。" },
-      }],
-    },
-  ];
-}
-
 const streamChunkBodies = (records) =>
   records.map((record) => record.frame?.[4]).filter((body) => body?.event_type === "provider_progress");
 
-function streamPreviewDir(mutate = (records) => records, previewProse = PREVIEW_PROSE) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-stream-preview-"));
-  const write = (name, value) => fs.writeFileSync(path.join(dir, name), value);
-  write("native-b71-config.json", JSON.stringify({
-    slice_id: "b71-authoring-transcript",
-    journey: "continuation",
-    provider: "streaming_slice_verify",
-    message: PREVIEW_MESSAGE,
-  }));
-  write("native-driver-ready.json", JSON.stringify({ provider: "streaming_slice_verify" }));
-  write("native-b71-driver-log.json", JSON.stringify({
-    provider: "streaming_slice_verify",
-    preview_captured: true,
-    turn_id: PREVIEW_TURN,
-    assistant_text: "已生成预览。",
-  }));
-  write("02-prose-preview.text.txt", `正文生成中\n${previewProse.slice(0, 20)}\n生成中，尚未保存为候选。\n`);
-  write("02-prose-preview.ax.txt", "AX preview\n");
-  write("03-final.jpg", Buffer.from("ffd8ff00", "hex"));
-  write(
-    "native-transport.jsonl",
+function previewFixture() {
+  return materializeFixture(streamPreviewFixtureSpec(), { scope: runScope });
+}
+
+// 反例只改隔离副本：重写 wire 或预览文本，模板本身不动。
+function previewCopy(t, mutate = (records) => records, previewProse = PREVIEW_PROSE) {
+  const copy = createWorkingCopy(previewFixture(), { context: t });
+  if (previewProse !== PREVIEW_PROSE) {
+    fs.writeFileSync(copy.files.get(PREVIEW_TEXT), previewText(previewProse));
+  }
+  fs.writeFileSync(
+    copy.files.get(PREVIEW_TRANSPORT),
     `${mutate(streamPreviewRecords()).map((record) => JSON.stringify(record)).join("\n")}\n`,
   );
-  return dir;
+  return copy.dir;
 }
 
-async function rejectsStreamPreview(mutate, pattern, previewProse = PREVIEW_PROSE) {
-  const dir = streamPreviewDir(mutate, previewProse);
-  try {
-    await assert.rejects(() => main(["verify", dir]), pattern);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+async function rejectsStreamPreview(t, mutate, pattern, previewProse = PREVIEW_PROSE) {
+  const dir = previewCopy(t, mutate, previewProse);
+  await assert.rejects(() => main(["verify", dir]), pattern);
 }
 
-test("流式预览正例：终局 run 的连续 writer 增量出现在 AX 采样时通过", async () => {
-  const dir = streamPreviewDir();
-  try {
-    await main(["verify", dir]);
-    const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
-    assert.equal(summary.run_id, PREVIEW_RUN);
-    assert.equal(summary.provider_call_ref, PREVIEW_CALL);
-    assert.deepEqual(
-      Object.values(summary.checks),
-      Array(Object.keys(summary.checks).length).fill(true),
-    );
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+test("流式预览正例：终局 run 的连续 writer 增量出现在 AX 采样时通过", async (t) => {
+  const dir = previewCopy(t);
+  await main(["verify", dir]);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.run_id, PREVIEW_RUN);
+  assert.equal(summary.provider_call_ref, PREVIEW_CALL);
+  assert.deepEqual(
+    Object.values(summary.checks),
+    Array(Object.keys(summary.checks).length).fill(true),
+  );
 });
 
-test("流式预览拒绝外来 run/purpose 的增量，不按全帧拼接", async () => {
-  await rejectsStreamPreview((records) => {
+test("流式预览拒绝外来 run/purpose 的增量，不按全帧拼接", async (t) => {
+  await rejectsStreamPreview(t, (records) => {
     for (const body of streamChunkBodies(records)) {
       body.run_id = "run_foreign";
       body.run_ref = "run_foreign";
@@ -832,7 +772,7 @@ test("流式预览拒绝外来 run/purpose 的增量，不按全帧拼接", asyn
   }, /writer|增量|归属|run/);
 });
 
-test("流式预览拒绝同一 run 内混用不同 Provider call 或缺失归属", async () => {
+test("流式预览拒绝同一 run 内混用不同 Provider call 或缺失归属", async (t) => {
   // 让 AX 里显示的前 12 字跨在两组正文之间：任一组单独都匹配不到。
   const splitPreview = `${PREVIEW_DELTAS[0].slice(-6)}${PREVIEW_DELTAS[1].slice(0, 6)}`;
   for (const [mutate, pattern] of [
@@ -849,11 +789,11 @@ test("流式预览拒绝同一 run 内混用不同 Provider call 或缺失归属
       return records;
     }, /event_id|归属/],
   ]) {
-    await rejectsStreamPreview(mutate, pattern, splitPreview);
+    await rejectsStreamPreview(t, mutate, pattern, splitPreview);
   }
 });
 
-test("流式预览正例：独立 writer、外来 run、非正文与 Unicode 不破坏同源前缀", async () => {
+test("流式预览正例：独立 writer、外来 run、非正文与 Unicode 不破坏同源前缀", async (t) => {
   const at = (second) => `2026-01-01T00:00:${String(second).padStart(2, "0")}.000Z`;
   const extraChunk = ({
     second,
@@ -885,7 +825,7 @@ test("流式预览正例：独立 writer、外来 run、非正文与 Unicode 不
       sequence,
     }],
   });
-  const dir = streamPreviewDir((records) => {
+  const dir = previewCopy(t, (records) => {
     // Unicode 让 Elixir grapheme 累计长度与 JS UTF-16 长度不同。
     streamChunkBodies(records).at(-1).payload.author_content_delta += "🔥符纸燃尽。";
     const extras = [
@@ -919,21 +859,17 @@ test("流式预览正例：独立 writer、外来 run、非正文与 Unicode 不
     }
     return ordered;
   });
-  try {
-    await main(["verify", dir]);
-    const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
-    assert.equal(summary.provider_call_ref, PREVIEW_CALL);
-    assert.equal(summary.provider_run_ref, PREVIEW_PROVIDER_RUN);
-    assert.deepEqual(
-      Object.values(summary.checks),
-      Array(Object.keys(summary.checks).length).fill(true),
-    );
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  await main(["verify", dir]);
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  assert.equal(summary.provider_call_ref, PREVIEW_CALL);
+  assert.equal(summary.provider_run_ref, PREVIEW_PROVIDER_RUN);
+  assert.deepEqual(
+    Object.values(summary.checks),
+    Array(Object.keys(summary.checks).length).fill(true),
+  );
 });
 
-test("流式预览只接受终局之前、owning topic 上的增量", async () => {
+test("流式预览只接受终局之前、owning topic 上的增量", async (t) => {
   for (const mutate of [
     (records) => {
       const chunks = records.filter((record) => record.frame?.[4]?.event_type === "provider_progress");
@@ -949,6 +885,6 @@ test("流式预览只接受终局之前、owning topic 上的增量", async () =
       return records;
     },
   ]) {
-    await rejectsStreamPreview(mutate, /writer|增量|topic/);
+    await rejectsStreamPreview(t, mutate, /writer|增量|topic/);
   }
 });

@@ -553,6 +553,16 @@ SUT仅在`dir`缺失时把C3/C4/C7/C9/C10标为unknown（不冒充pass/fail）�
 
 证据在`artifacts/b84-test-system/20261114/a2-history/`。本批已本地提交（未推送）。
 
+### A2 剩余八族批量迁移（2026-11-14）
+
+按族并行迁移并逐族回归：capture/live-behavior **72/72**、b71-integration/b27 **101/101**、scenario-production-counts **20/20**、file-log 族的 memory-detail/pending-run/oracle **31/31**。所有族保留原判据；纯/IO拆分、不同规格不合并、模板+副本原则同前。13个新fixture均登记索引。
+
+- **可独立提交**（不依赖R01 WIP）：上述测试与fixture；HEAD worktree子集**224/224**通过；主工作树native_ui **913/0**、model_contracts **43/0**、根scripts **67/0**。
+- **随R01 WIP保留**：`native_ui_wait.test.mjs`依赖R01分支的`native_ui_wait.mjs` `main`导出；request-cost-cli-drive-reference的`request_cost_baseline_cli*`与`reference_log_evidence*`依赖R01未提交模块。两者不单独提交，避免把B87 WIP混入A2；迁移已在该工作树完成并通过37/37、51/51。
+- **未完成**：quality其余资源族仍开放；b71-pending因异步transport仍按run构建（非materializeFixture），已记录原因；A4/A5未动。
+
+本批提交范围为前一行“可独立提交”文件，已本地提交（未推送）；R01 WIP与随其保留的文件不在本提交内。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。

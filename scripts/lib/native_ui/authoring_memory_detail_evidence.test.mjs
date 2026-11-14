@@ -1,9 +1,13 @@
 // 记忆详情/列表 P0 泄漏回归判据 D1–D8 正反例 + 全类别扫描 + 合成目录端到端。
+//
+// 纯 D1–D8 判定只在内存中构造 scan/runtime 事实，不建目录；真实文件读取与 verify
+// 写入使用外层 run scope：合成证据模板由 `fixtures/authoring_memory_detail_io_fixture.mjs`
+// 在 run 内物化一次（只读共享），需要改 config/删证据/写 summary 的 case 取
+// `withWorkingCopy` 隔离副本。小规模单用途目录仍按 case 取独立可写目录。
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -12,6 +16,9 @@ import {
   scanMemoryDetailTexts,
   verifyMemoryDetailBatch,
 } from "./authoring_memory_detail_evidence.mjs";
+import { materializeFixture, openTestRunScope, withWorkingCopy } from "../test_env.mjs";
+import { CLEAN_DETAIL_TEXT, CLEAN_LIST_TEXT } from "./fixtures/authoring_memory_detail_facts.mjs";
+import { memoryDetailFixtureSpec } from "./fixtures/authoring_memory_detail_io_fixture.mjs";
 
 const DISPLAY_NAMES_SSOT = JSON.parse(
   fs.readFileSync(
@@ -25,7 +32,24 @@ const MEMORY_DOMAIN_KEYS = Object.freeze({
   scope: "memory_scope",
   source: "memory_source_type",
 });
-const readyAt = new Date(Date.now() - 3600_000).toISOString();
+
+let runScope;
+
+test.before(() => {
+  runScope = openTestRunScope();
+});
+
+test.after(() => {
+  runScope?.close();
+});
+
+function fixture(options = {}) {
+  return materializeFixture(memoryDetailFixtureSpec(options), { scope: runScope });
+}
+
+function tempDir(tag) {
+  return fs.mkdtempSync(path.join(runScope.workDir, tag));
+}
 
 function writeJson(file, value) {
   fs.writeFileSync(file, JSON.stringify(value, null, 2));
@@ -33,7 +57,6 @@ function writeJson(file, value) {
 function writeJsonl(file, rows) {
   fs.writeFileSync(file, rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
 }
-const png = () => Buffer.from("89504e470d0a1a0a", "hex");
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -137,14 +160,6 @@ for (const port of ports) {
   });
 }
 `;
-
-const CLEAN_LIST_TEXT =
-  "记忆管理\n新建记忆\n搜索记忆...\n内容 类型 范围 状态 召回 锁定\n" +
-  "陈九斤守着雨港旧灯楼，账页上记着一笔不能公开的旧账。 世界观规则 整部作品 已确认 召回 否\n" +
-  "井底回声在雷雨夜出现，与上一笔欠款有关。 伏笔 整部作品 已确认 召回 否\n";
-const CLEAN_DETAIL_TEXT =
-  "记忆详情\n已确认\n世界观规则\n整部作品\n摘要\n灯楼旧账\n治理信息\n权重: 1\n来源类型: 作者创建\n" +
-  "创建: 2026-11-04 10:00\n更新: 2026-11-04 10:00\n引用记录\n暂无引用\n";
 
 function memoryScan({ list = CLEAN_LIST_TEXT, detail = CLEAN_DETAIL_TEXT, extraHits = [] } = {}) {
   return {
@@ -340,7 +355,7 @@ test("中文展示表按实际 SSOT 数据枚举：四 domain 全部展示值被
 });
 
 test("D1 全类别扫描：真实文件中的协议码与中文内部术语仍被扫描", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-memory-scan-"));
+  const dir = tempDir("b71-memory-scan-");
   try {
     fs.writeFileSync(path.join(dir, "memory-list.text.txt"), "记忆管理\n工作过程\n");
     fs.writeFileSync(
@@ -361,7 +376,7 @@ test("D1 全类别扫描：真实文件中的协议码与中文内部术语仍�
 });
 
 test("D1 命中证据 context 从可见文本首字符起精确取 240 字符", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-memory-context-"));
+  const dir = tempDir("b71-memory-context-");
   const visible = `${"雨港旧灯楼的账页记着一笔未结的旧账。".repeat(20)}工作过程`;
   try {
     fs.writeFileSync(path.join(dir, "memory-detail.text.txt"), visible);
@@ -400,7 +415,7 @@ test("D8 清理判据：runtime 缺失/进程/端口/llm 未停均失败", () =>
 });
 
 test("runtimeAfterBatch：缺失/非法 ready 与 llm-calls 目录统计", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-memory-runtime-"));
+  const dir = tempDir("b71-memory-runtime-");
   try {
     const empty = runtimeAfterBatch(dir);
     assert.ok(Number.isInteger(empty.app_processes));
@@ -427,7 +442,7 @@ test("runtimeAfterBatch：缺失/非法 ready 与 llm-calls 目录统计", () =>
 });
 
 test("runtimeAfterBatch：ready.app_path 只统计本次目标进程，不统计其他进程", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-memory-apppath-"));
+  const dir = tempDir("b71-memory-apppath-");
   const stamp = `${process.pid}${Date.now()}`;
   const target = `b71target${stamp}`;
   const other = `b71other${stamp}`;
@@ -469,7 +484,7 @@ test("runtimeAfterBatch：真实 TCP listener 使 4657/4661 为 true，关闭后
     return;
   }
 
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-memory-ports-"));
+  const dir = tempDir("b71-memory-ports-");
   try {
     let child = null;
     try {
@@ -498,128 +513,37 @@ test("runtimeAfterBatch：真实 TCP listener 使 4657/4661 为 true，关闭后
 });
 
 test("verify 失败关闭：journey/provider/证据不足均不写通过结论", () => {
-  const journey = buildDir();
-  try {
-    const configPath = path.join(journey, "native-b71-config.json");
+  const template = fixture();
+  withWorkingCopy(template, (copy) => {
+    const configPath = path.join(copy.dir, "native-b71-config.json");
     writeJson(configPath, { ...JSON.parse(fs.readFileSync(configPath, "utf8")), journey: "other" });
-    assert.throws(() => verifyMemoryDetailBatch(journey), /只接受 journey=memory-detail/u);
-  } finally {
-    fs.rmSync(journey, { recursive: true, force: true });
-  }
-
-  const provider = buildDir();
-  try {
-    const configPath = path.join(provider, "native-b71-config.json");
+    assert.throws(() => verifyMemoryDetailBatch(copy.dir), /只接受 journey=memory-detail/u);
+  });
+  withWorkingCopy(template, (copy) => {
+    const configPath = path.join(copy.dir, "native-b71-config.json");
     writeJson(configPath, { ...JSON.parse(fs.readFileSync(configPath, "utf8")), provider: "stub" });
-    assert.throws(() => verifyMemoryDetailBatch(provider), /只接受确定性 slice_verify/u);
-  } finally {
-    fs.rmSync(provider, { recursive: true, force: true });
-  }
-
-  const missingEvidence = buildDir();
-  try {
-    fs.rmSync(path.join(missingEvidence, "memory-detail.jpg"));
-    assert.throws(() => verifyMemoryDetailBatch(missingEvidence));
-  } finally {
-    fs.rmSync(missingEvidence, { recursive: true, force: true });
-  }
-
-  const noDriverLog = buildDir();
-  try {
-    fs.rmSync(path.join(noDriverLog, "native-b71-driver-log.json"));
-    assert.throws(() => verifyMemoryDetailBatch(noDriverLog), /B71 memory-detail 判据失败/u);
-  } finally {
-    fs.rmSync(noDriverLog, { recursive: true, force: true });
-  }
+    assert.throws(() => verifyMemoryDetailBatch(copy.dir), /只接受确定性 slice_verify/u);
+  });
+  withWorkingCopy(template, (copy) => {
+    fs.rmSync(path.join(copy.dir, "memory-detail.jpg"));
+    assert.throws(() => verifyMemoryDetailBatch(copy.dir));
+  });
+  withWorkingCopy(template, (copy) => {
+    fs.rmSync(path.join(copy.dir, "native-b71-driver-log.json"));
+    assert.throws(() => verifyMemoryDetailBatch(copy.dir), /B71 memory-detail 判据失败/u);
+  });
 });
 
 test("合成目录端到端：verify 通过并写 summary；内部 code 泄漏时失败关闭", () => {
-  const dir = buildDir();
-  const { result, summary } = verifyMemoryDetailBatch(dir);
-  assert.deepEqual(result.failed, []);
-  assert.equal(summary.verdict.mechanism, "pass");
-  assert.equal(summary.verdict.p0_leak_fixed, true);
-  assert.equal(summary.verdict.full_g1_g6_signed, false);
-  assert.equal(summary.verdict.i10_signed, false);
-  fs.rmSync(dir, { recursive: true, force: true });
-
-  const failing = buildDir({ detail: CLEAN_DETAIL_TEXT.replace("已确认", "CONFIRMED") });
-  assert.throws(() => verifyMemoryDetailBatch(failing), /memory-detail 判据失败/u);
-  fs.rmSync(failing, { recursive: true, force: true });
+  withWorkingCopy(fixture(), (copy) => {
+    const { result, summary } = verifyMemoryDetailBatch(copy.dir);
+    assert.deepEqual(result.failed, []);
+    assert.equal(summary.verdict.mechanism, "pass");
+    assert.equal(summary.verdict.p0_leak_fixed, true);
+    assert.equal(summary.verdict.full_g1_g6_signed, false);
+    assert.equal(summary.verdict.i10_signed, false);
+  });
+  withWorkingCopy(fixture({ detail: CLEAN_DETAIL_TEXT.replace("已确认", "CONFIRMED") }), (copy) => {
+    assert.throws(() => verifyMemoryDetailBatch(copy.dir), /memory-detail 判据失败/u);
+  });
 });
-
-function buildDir({ detail = CLEAN_DETAIL_TEXT } = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-memory-detail-"));
-  writeJson(path.join(dir, "native-driver-ready.json"), {
-    driver: "external-system-ui",
-    browser_driver_started: false,
-    run_ref: "run-ref-memory",
-    provider: "slice_verify",
-    slice_id: "b71-first-consumer",
-    ready_at: readyAt,
-    app_path: "/tmp/B71 Memory Detail.app",
-  });
-  writeJson(path.join(dir, "native-b71-config.json"), {
-    slice_id: "b71-first-consumer",
-    journey: "memory-detail",
-    provider: "slice_verify",
-    target: { work_id: "work-memory-1", work_title: "记忆验证作品" },
-    message: "打开记忆管理并查看记忆详情（作者可见文案回归）。",
-  });
-  const screenshots = ["01-workbench.jpg", "memory-detail.jpg"];
-  for (const name of screenshots) fs.writeFileSync(path.join(dir, name), png());
-  writeJson(path.join(dir, "native-ui-complete.json"), {
-    harness_run_ref: "run-ref-memory",
-    driver: "ax-native-system-ui",
-    app_bundle: "com.ai-novel-studio.app",
-    scope: "b71-first-consumer",
-    screenshots,
-  });
-  const kinds = ["maintenance", "maintenance", "maintenance"];
-  writeJsonl(
-    path.join(dir, "native-driver-commands.jsonl"),
-    kinds.flatMap((kind, index) => [
-      { op: "begin", id: `wait-${index}`, kind },
-      { op: "finish", id: `wait-${index}`, kind },
-    ]),
-  );
-  writeJsonl(
-    path.join(dir, "wait-events.jsonl"),
-    kinds.flatMap((kind, index) => [
-      { event: "wait_start", kind, at: Date.now() - 6000, id: `wait-${index}` },
-      { event: "wait_end", kind, ended_at: Date.now() - 5000, id: `wait-${index}` },
-    ]),
-  );
-  writeJson(path.join(dir, "wait-stats.json"), { active: null, completed: kinds.length });
-  writeJsonl(path.join(dir, "heartbeat.jsonl"), [{ at: readyAt }]);
-  writeJsonl(path.join(dir, "native-transport.jsonl"), [
-    { at: "2026-11-04T10:00:01.000Z", direction: "http", method: "GET", path: "/api/health", status: 200 },
-    { at: "2026-11-04T10:00:01.100Z", direction: "sent", frame: [null, "1", "phoenix", "heartbeat", {}] },
-    { at: "2026-11-04T10:00:01.150Z", direction: "received", frame: [null, "1", "phoenix", "phx_reply", { status: "ok", response: {} }] },
-  ]);
-  writeJson(path.join(dir, "native-b71-driver-log.json"), {
-    slice_id: "b71-first-consumer",
-    provider: "slice_verify",
-    journey: "memory-detail",
-    navigation: [{ step: "memory_list_ready", ok: true }, { step: "memory_detail_ready", ok: true }],
-    memory_rows: null,
-    termination: { at: new Date().toISOString(), llm_calls: 0 },
-  });
-  writeJson(path.join(dir, "native-app-cleanup.json"), { remaining: [], process_observation: { method: "pgrep+lsof", actions: [] } });
-  // 确定性 slice_verify 无 llm-calls 文件：runtime 检查按 0 次统计（目录缺失=0）。
-  for (const name of ["start", "memory-list", "memory-detail", "final"]) {
-    writeJson(path.join(dir, `b71-${name}.json`), {
-      checkpoint: name,
-      db_production_counts: {},
-    });
-  }
-  fs.writeFileSync(path.join(dir, "memory-list.ax.txt"), `\t\t0/0/0/0/0/1 AXStaticText, Value: ${CLEAN_LIST_TEXT.replace(/\n/g, " ")}\n`);
-  fs.writeFileSync(path.join(dir, "memory-list.text.txt"), CLEAN_LIST_TEXT);
-  fs.writeFileSync(path.join(dir, "memory-detail.ax.txt"), `\t\t0/0/0/0/0/2 AXStaticText, Value: ${detail.replace(/\n/g, " ")}\n`);
-  fs.writeFileSync(path.join(dir, "memory-detail.text.txt"), detail);
-  fs.writeFileSync(path.join(dir, "01-workbench.ax.txt"), "\t\t0/0/0/0/0/3 AXStaticText, Value: 项目\n");
-  fs.writeFileSync(path.join(dir, "01-workbench.text.txt"), "项目\n");
-  fs.writeFileSync(path.join(dir, "final.ax.txt"), "\t\t0/0/0/0/0/4 AXStaticText, Value: 记忆详情\n");
-  fs.writeFileSync(path.join(dir, "final.text.txt"), "记忆详情\n");
-  return dir;
-}

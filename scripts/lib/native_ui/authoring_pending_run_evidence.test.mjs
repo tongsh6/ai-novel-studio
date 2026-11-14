@@ -1,17 +1,31 @@
 // B71 pending 运行证据 I/O 边界：命名 checkpoint 读取与 capture 写入前校验。
 // 不启动 GUI/Mix，不写产品路径；完整 DB/WS 链路由 native_b71_pending_test 回归。
+//
+// 每个反例需要独立的可写 config/checkpoint 目录，属于 case 级独立状态，不共享只读
+// 模板；目录统一落在外层 run scope 的 work 区，由 scope 退出时回收，不再落系统
+// TMPDIR 裸目录。
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   capturePending,
   readPendingCheckpoint,
 } from "./authoring_pending_run_evidence.mjs";
+import { openTestRunScope } from "../test_env.mjs";
+
+let runScope;
+
+test.before(() => {
+  runScope = openTestRunScope();
+});
+
+test.after(() => {
+  runScope?.close();
+});
 
 function tempDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "b71-pending-run-evidence-"));
+  return fs.mkdtempSync(path.join(runScope.workDir, "b71-pending-run-evidence-"));
 }
 
 function writeConfig(dir, value) {
