@@ -9,6 +9,7 @@
 // 不跑真实 Tauri/产品 driver；fixture 不进入工作树。
 
 import test from "node:test";
+import { openTestRunScope } from "../test_env.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -20,7 +21,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "../../..");
 
 function mkFixtureRoot() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "quality-accept-batch-"));
+  return fs.mkdtempSync(path.join(runScope.workDir, "quality-accept-batch-"));
 }
 
 function write(root, rel, content, mode) {
@@ -114,6 +115,16 @@ function readLatestBatch(root) {
   assert.ok(entries.length > 0, "no batch run");
   return JSON.parse(fs.readFileSync(path.join(dir, entries[0].name, "batch.json"), "utf8"));
 }
+
+let runScope;
+
+test.before(() => {
+  runScope = openTestRunScope();
+});
+
+test.after(() => {
+  runScope?.close();
+});
 
 test("批量：pass/fail/skipped(blocked)/evidence_missing 分层 + fail 优先退出 1", () => {
   const root = buildFixture([

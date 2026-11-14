@@ -13,6 +13,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { openTestRunScope } from "../test_env.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -48,7 +49,7 @@ function scenarioEntry(id, { status = "active", blockedReason, tier = "release",
 }
 
 function buildFixture(scenarios) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "release-layer-accept-"));
+  const root = fs.mkdtempSync(path.join(runScope.workDir, "release-layer-accept-"));
   fs.cpSync(path.join(REPO_ROOT, "scripts/quality_accept.sh"), path.join(root, "scripts/quality_accept.sh"));
   fs.cpSync(path.join(REPO_ROOT, "scripts/lib/quality"), path.join(root, "scripts/lib/quality"), {
     recursive: true,
@@ -110,6 +111,16 @@ function releaseLayerOf(batchDir) {
   assert.ok(fs.existsSync(file), `release-layer.json 缺失：${batchDir}`);
   return readJson(file);
 }
+
+let runScope;
+
+test.before(() => {
+  runScope = openTestRunScope();
+});
+
+test.after(() => {
+  runScope?.close();
+});
 
 test("release tier 批次：写出 release-layer.json，且既有 pass 退出码 0 不变", () => {
   const root = buildFixture([{ id: "rel-alpha-pass", tier: "release" }]);

@@ -1,7 +1,7 @@
 import test from "node:test";
+import { openTestRunScope } from "../test_env.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import {
   GENERATOR_VERSION,
@@ -100,6 +100,16 @@ function manifestFixture() {
 function expectedFor(seedId) {
   return corpus.cases.cases.find((testCase) => testCase.id === seedId).expected;
 }
+
+let runScope;
+
+test.before(() => {
+  runScope = openTestRunScope();
+});
+
+test.after(() => {
+  runScope?.close();
+});
 
 test("persona sidecar 提供 12 个有行为差异的合法画像", () => {
   const sidecar = loadPersonaSidecar(ROOT);
@@ -215,7 +225,7 @@ test("accepted 必须有人工审核，缺 boundary 的候选被拒绝", async (
 });
 
 test("generation artifacts 原子落盘且旧 manifest/候选包不可覆盖", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b72-offline-"));
+  const dir = fs.mkdtempSync(path.join(runScope.workDir, "b72-offline-"));
   const result = await generateBatch(manifestFixture(), {
     corpus,
     personas: loadPersonaSidecar(ROOT).personas,

@@ -6,6 +6,7 @@
 // 以及 CLI 读取真实历史 batch/verdict/artifact 的只读验证（artifacts 缺失时跳过）。
 import assert from "node:assert/strict";
 import test from "node:test";
+import { openTestRunScope } from "../test_env.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -37,7 +38,7 @@ const schema = JSON.parse(
 const RELEASE_SCHEMA = schema.$defs.release_layer_summary;
 
 function tmpDir(t, prefix = "release-layer-") {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const dir = fs.mkdtempSync(path.join(runScope.workDir, prefix));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -173,6 +174,16 @@ function retention() {
 }
 
 // ---------- schema / 常量同源 ----------
+
+let runScope;
+
+test.before(() => {
+  runScope = openTestRunScope();
+});
+
+test.after(() => {
+  runScope?.close();
+});
 
 test("schema $defs 与模块常量同源（quality-release-layer/v1）", () => {
   assert.equal(RELEASE_SCHEMA.properties.schema_version.const, RELEASE_LAYER_SCHEMA_VERSION);
@@ -699,7 +710,7 @@ test("CLI：真实 au10 verdict 作为 release 层机制证据 → pass；输出
       },
     ],
   });
-  const outDir = path.join(os.tmpdir(), `release-layer-out-${process.pid}-${Date.now()}`);
+  const outDir = path.join(runScope.workDir, `release-layer-out-${process.pid}-${Date.now()}`);
   test.after(() => fs.rmSync(outDir, { recursive: true, force: true }));
   const result = runCli(["summarize", "--tier", "release", "--batch", file, "--json", "--out", outDir, "--overwrite"]);
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);

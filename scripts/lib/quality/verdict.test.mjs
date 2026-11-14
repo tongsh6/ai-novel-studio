@@ -1,8 +1,8 @@
 // B41 CP4：verdict v2 契约的负例矩阵与生成/读取同源测试（node --test，无外部依赖）。
 import assert from "node:assert/strict";
 import test from "node:test";
+import { openTestRunScope } from "../test_env.mjs";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -30,7 +30,7 @@ const schema = JSON.parse(
 const cliPath = fileURLToPath(new URL("./verdict_cli.mjs", import.meta.url));
 
 function tempDir(t) {
-  const dir = mkdtempSync(path.join(tmpdir(), "quality-verdict-test-"));
+  const dir = mkdtempSync(path.join(runScope.workDir, "quality-verdict-test-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -81,6 +81,16 @@ function failOpts(overrides = {}) {
     ...overrides,
   });
 }
+
+let runScope;
+
+test.before(() => {
+  runScope = openTestRunScope();
+});
+
+test.after(() => {
+  runScope?.close();
+});
 
 test("构造 pass verdict：默认值与必填字段完整且通过校验", () => {
   const verdict = buildVerdict(passOpts());

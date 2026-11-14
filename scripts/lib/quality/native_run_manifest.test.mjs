@@ -9,8 +9,8 @@
 // - artifacts/slice-verify/b29-existing-character-role-revision-native-strata（failure → fail）
 import assert from "node:assert/strict";
 import test from "node:test";
+import { openTestRunScope } from "../test_env.mjs";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -46,7 +46,7 @@ function writeJsonl(file, rows) {
  * 合成一个最小原生 artifact 目录，验证扫描器语义（不进入工作树、不冒充真实运行）。
  */
 function makeNativeFixture(t, overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "native-run-manifest-"));
+  const dir = fs.mkdtempSync(path.join(runScope.workDir, "native-run-manifest-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const run = path.join(dir, "run");
   fs.mkdirSync(run, { recursive: true });
@@ -138,6 +138,16 @@ function makeNativeFixture(t, overrides = {}) {
 
 // ---------- schema / 常量同源 ----------
 
+let runScope;
+
+test.before(() => {
+  runScope = openTestRunScope();
+});
+
+test.after(() => {
+  runScope?.close();
+});
+
 test("schema $defs 与模块常量同源（quality-native-run/v1）", () => {
   assert.equal(NATIVE_SCHEMA.properties.schema_version.const, NATIVE_RUN_SCHEMA_VERSION);
   assert.deepEqual(
@@ -201,7 +211,7 @@ test("缺少 final 与 failure → evidence_missing（summary 存在也不等于
 });
 
 test("目录没有任何 run 证据 → evidence_missing run_evidence_missing", (t) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "native-run-empty-"));
+  const dir = fs.mkdtempSync(path.join(runScope.workDir, "native-run-empty-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const manifest = scanNativeArtifactDir(dir);
   assert.equal(manifest.status, "evidence_missing");
@@ -332,7 +342,7 @@ test("validateNativeRunManifest：pass 不得带 failure / 非干净 termination
 test("writeNativeRunManifest 默认拒绝覆盖（旧证据只读）；显式 out 可写", (t) => {
   const dir = makeNativeFixture(t);
   const manifest = scanNativeArtifactDir(dir);
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "native-run-out-"));
+  const outDir = fs.mkdtempSync(path.join(runScope.workDir, "native-run-out-"));
   t.after(() => fs.rmSync(outDir, { recursive: true, force: true }));
   const out = path.join(outDir, "native-run-manifest.json");
   const written = writeNativeRunManifest(manifest, { out });
@@ -437,10 +447,10 @@ test("CLI scan：真实 p1 原生目录输出 pass/scoped JSON", { skip: !fs.exi
 });
 
 test("CLI scan：缺少目录返回 66；--out 拒绝覆盖", (t) => {
-  const usage = runNativeCli(["scan", path.join(os.tmpdir(), `missing-native-${process.pid}`)]);
+  const usage = runNativeCli(["scan", path.join(runScope.workDir, `missing-native-${process.pid}`)]);
   assert.equal(usage.status, 66);
   const dir = makeNativeFixture(t);
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "native-run-cli-"));
+  const outDir = fs.mkdtempSync(path.join(runScope.workDir, "native-run-cli-"));
   t.after(() => fs.rmSync(outDir, { recursive: true, force: true }));
   const out = path.join(outDir, "native-run-manifest.json");
   assert.equal(runNativeCli(["scan", dir, "--out", out]).status, 0);

@@ -563,6 +563,16 @@ SUT仅在`dir`缺失时把C3/C4/C7/C9/C10标为unknown（不冒充pass/fail）�
 
 本批提交范围为前一行“可独立提交”文件，已本地提交（未推送）；R01 WIP与随其保留的文件不在本提交内。
 
+### A2 quality 资源族收口（2026-11-14）
+
+`au15_evidence`、`author_behavior_offline_generator`、`native_run_manifest`、`quality_accept_batch`、`release_layer`、`release_layer_accept`、`verdict` 共7个quality测试文件的临时目录/子进程工作区从系统TMPDIR改为run scope的`workDir`；每个文件before/after申请/关闭scope，case目录由scope回收。
+
+- 7文件**118/118**；全量quality组**339/339**；运行前后`au15-evidence-*`/`b72-offline-*`/`native-run-*`/`quality-accept-batch-*`/`release-layer-*`/`quality-verdict-test-*`前缀均为0。
+- 这些族本身即IO/CLI契约测试，无纯/IO拆分必要；被测断言未改。
+- A2至此收口：`native_ui_wait.test.mjs`与request-cost-cli/reference_log相关随R01 WIP；b71-pending仍按run构建（异步transport，已记录原因）；quality其余资源测试均已接入。
+
+本checkpoint只签quality族scope归属，不签A4/A5或B84。本批已本地提交（未推送）。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。

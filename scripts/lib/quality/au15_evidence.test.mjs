@@ -1,10 +1,10 @@
 // B39 CP1d：AU-15 证据 sidecar 正反例（请求字节对账/准备判断/used refs 绑定）。
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
+import { openTestRunScope } from "../test_env.mjs";
 import { buildAu15Evidence, parseLlmCalls } from "./au15_evidence.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "../../..");
@@ -41,6 +41,16 @@ function driverLog({ scenario = "A1", observationRef = "observation:obs_1", cont
     artifact_bytes_unchanged: true,
   };
 }
+
+let runScope;
+
+test.before(() => {
+  runScope = openTestRunScope();
+});
+
+test.after(() => {
+  runScope?.close();
+});
 
 test("A1：请求字节含观察 ref/内容、used refs 绑定、准备判断 → mechanism pass / model observed", () => {
   const observationRef = "observation:obs_1";
@@ -95,7 +105,7 @@ test("parseLlmCalls 读取 request/response 字节与模型身份", () => {
 });
 
 test("CLI verify 读取 artifact 并写 sidecar", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "au15-evidence-"));
+  const dir = fs.mkdtempSync(path.join(runScope.workDir, "au15-evidence-"));
   fs.mkdirSync(path.join(dir, "llm-calls"));
   fs.writeFileSync(
     path.join(dir, "llm-calls/2026-10-30.jsonl"),
