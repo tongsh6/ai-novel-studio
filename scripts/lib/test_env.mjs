@@ -151,6 +151,21 @@ function makeScope({ dir, marker, borrowed, archiveDir }) {
   return scope;
 }
 
+// B84 A5：owned scope 的 owner 是创建者进程；借用前必须确认它仍存活。
+// 宿主被 SIGKILL 后环境里可能仍残留 NOVEL_TEST_RUN_DIR，直接复用会让新运行
+// 在无 owner 的 scratch 上继续（假成功/失去退出归属）。EPERM 表示进程存在但
+// 当前进程无权发信号，仍按存活处理；其余错误不冒充存活。
+function scopeOwnerAlive(marker) {
+  const pid = marker?.pid;
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
 function borrowRunScope(borrowedDir) {
   const dir = path.resolve(borrowedDir);
   const marker = readRunMarker(dir);
@@ -160,6 +175,12 @@ function borrowRunScope(borrowedDir) {
   const tmpDir = path.join(dir, "tmp");
   if (!fs.existsSync(tmpDir) || !fs.statSync(tmpDir).isDirectory()) {
     throw new TestEnvError(`借用运行作用域缺少 tmp 目录: ${dir}`);
+  }
+  if (!scopeOwnerAlive(marker)) {
+    throw new TestEnvError(
+      `借用运行作用域 owner 已不在（pid=${String(marker.pid ?? "missing")}, run=${String(marker.runId ?? "missing")}）：` +
+        `拒绝在失联 scope 上继续；先确认/回收该 scratch 或重建 scope。`,
+    );
   }
   return makeScope({ dir, marker, borrowed: true, archiveDir: "" });
 }
@@ -618,7 +639,8 @@ function normalizeFixtureInputs(inputs) {
 
 /**
  * 校验并规范化只读 fixture 规格：字面形式 {name, files: {相对路径: 内容}}，
- * 或构造形式 {name, inputs: {文本键: 文本值}, build(stagingDir) => 相对路径[]}。
+ * 或构造形式 {name, inputs: {文本键: 文本值}, build(stagingDir, publicationDir) => 相对路径[]}。
+ * publicationDir 是本 owner 已计算的最终发布位置，只读；builder 只能写 staging。
  * 规格是普通 JS 数据，不引入 DSL；不读取被测实现生成期望。
  */
 export function normalizeFixtureSpec(spec) {
@@ -1016,10 +1038,12 @@ function writeStagingFiles(staging, normalized) {
 }
 
 // 构造回调只在 claim 成功后运行；声明路径必须非空、唯一、留在 staging 内。
-function runFixtureBuilder(staging, normalized) {
+// 第二个参数只是发布后位置的只读字符串定位：文件仍只能在 staging 构造，回调不得
+// 借它预建/写入目标目录，也不得把随机 staging 路径序列进可复用模板。
+function runFixtureBuilder(staging, normalized, publicationDir) {
   let declared;
   try {
-    declared = normalized.build(staging);
+    declared = normalized.build(staging, publicationDir);
   } catch (error) {
     throw new TestEnvError(`fixture ${normalized.name} builder 执行失败: ${error.message}`);
   }
@@ -1070,7 +1094,7 @@ function buildFixturePayload(request, normalized) {
     const expected =
       normalized.form === "literal"
         ? writeStagingFiles(staging, normalized)
-        : runFixtureBuilder(staging, normalized);
+        : runFixtureBuilder(staging, normalized, target);
     const facts = snapshotStaging(staging, expected, normalized, staging);
     freezePayload(staging, facts);
     writeControlRecord(staging, controlRecordFromFacts(normalized, digest, facts));
@@ -1123,7 +1147,11 @@ function awaitFixtureOwner(request, normalized) {
  * 完整文件集合与每文件字节哈希）。
  *
  * @param {{name: string, files: Record<string, string>}
- *   | {name: string, inputs: Record<string, string>, build: (stagingDir: string) => string[]}} spec
+ *   | {name: string, inputs: Record<string, string>,
+ *      build: (stagingDir: string, publicationDir: string) => string[]}} spec
+ *   构造形式的 build 只在获得唯一初始化权后同步运行；第二个参数是本次发布后的
+ *   目标目录只读定位，只用于把将来真实路径序列进 payload，文件仍只能写 staging。
+ *   既有一参 builder 照常忽略该参数。
  * @param {{scope: object, waitTimeoutMs?: number}} options
  */
 export function materializeFixture(spec, options = {}) {

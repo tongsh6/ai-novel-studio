@@ -2657,6 +2657,47 @@ test("构造形式：owner 发布后退出，另一进程直接复用；缺控�
   assert.equal(markerEvents(marker).length, 1);
 });
 
+test("构造形式：builder 取得 staging 与最终发布位置，发布前 target 不存在且最终路径可读", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-built-publication") });
+  t.after(() => parent.close());
+  const marker = path.join(scratch, "built-publication.jsonl");
+  let observed = null;
+  const spec = {
+    name: "built-publication",
+    inputs: { schema: "publication/v1" },
+    build(staging, publicationDir) {
+      appendBuildMarker(marker);
+      observed = {
+        staging,
+        publicationDir,
+        targetBeforePublish: fs.existsSync(publicationDir),
+      };
+      // 只把发布后位置序列进 staging 内的 payload；文件仍只在 staging 构造。
+      fs.writeFileSync(path.join(staging, "payload.txt"), `${publicationDir}\n`);
+      return ["payload.txt"];
+    },
+  };
+
+  const fixture = materializeFixture(spec, { scope: parent });
+  assert.ok(observed, "builder 必须在 owner 内真实执行");
+  assert.notEqual(observed.staging, observed.publicationDir, "staging 与最终位置必须是不同路径");
+  assert.ok(observed.staging.startsWith(`${parent.fixturesDir}${path.sep}`), observed.staging);
+  assert.equal(observed.publicationDir, fixture.dir, "第二个参数就是本次实际发布目标");
+  assert.equal(observed.targetBeforePublish, false, "发布前 target 不能被预建");
+  assert.equal(
+    fs.readFileSync(fixture.files.get("payload.txt"), "utf8"),
+    `${fixture.dir}\n`,
+    "payload 序列化的是发布后路径，不是临时 staging 路径",
+  );
+  assert.equal(fs.existsSync(fixture.dir), true, "发布后声明的最终路径可读");
+  assert.equal(fs.existsSync(observed.staging), false, "发布后 staging 已整体 rename");
+
+  const reused = materializeFixture(spec, { scope: parent });
+  assert.equal(reused.dir, fixture.dir);
+  assert.equal(markerEvents(marker).length, 1, "复用不得再次执行 builder");
+  assert.equal(fs.readFileSync(reused.files.get("payload.txt"), "utf8"), `${fixture.dir}\n`);
+});
+
 test("构造形式复用前校验：字节漂移/额外文件/缺文件/控制记录 digest 均失败", (t) => {
   const parent = openTestRunScope({ baseDir: path.join(scratch, "base-built-drift") });
   t.after(() => parent.close());
@@ -2915,4 +2956,38 @@ test("字面控制记录必须包含规格的完整文件集合，缺项/多项�
     restoreRecord();
   }
   assert.equal(materializeFixture(spec, { scope: parent }).dir, fixture.dir);
+});
+
+test("借用 owner 已失联的 scope：fail-closed，不复用死 owner 的 scratch", async () => {
+  const dir = path.join(scratch, "dead-owner-scope");
+  fs.mkdirSync(path.join(dir, "tmp"), { recursive: true });
+  const child = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+  const deadPid = child.pid;
+  await new Promise((resolve) => child.on("exit", resolve));
+  let dead = false;
+  try {
+    process.kill(deadPid, 0);
+  } catch (error) {
+    dead = error?.code === "ESRCH";
+  }
+  assert.equal(dead, true, "fixture pid 必须已退出");
+  fs.writeFileSync(
+    path.join(dir, MARKER),
+    JSON.stringify({
+      kind: "ai-novel-test-run",
+      owner: "test-env",
+      runId: "dead-owner",
+      pid: deadPid,
+      createdAt: new Date().toISOString(),
+      version: 1,
+    }),
+  );
+  const previous = process.env.NOVEL_TEST_RUN_DIR;
+  process.env.NOVEL_TEST_RUN_DIR = dir;
+  try {
+    assert.throws(() => openTestRunScope(), /owner 已不在|失联/u);
+  } finally {
+    if (previous === undefined) delete process.env.NOVEL_TEST_RUN_DIR;
+    else process.env.NOVEL_TEST_RUN_DIR = previous;
+  }
 });
