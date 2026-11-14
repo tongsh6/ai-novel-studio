@@ -586,6 +586,15 @@ SUT仅在`dir`缺失时把C3/C4/C7/C9/C10标为unknown（不冒充pass/fail）�
 
 新增`frontend/slice-verify/vitest.config.ts`与`package.json`脚本`test:slice-verify`，并在README登记。真实批次重跑、入口scope/固定目录覆盖与规模盲区仍属A4后续。本批已本地提交（未推送）。
 
+### A4 场景入口作用域与验收脚本规模登记（2026-11-14）
+
+- `quality_accept.sh` 在参数解析与`--list`查询之后、资源初始化之前经`novel_node_test_scope_ensure`申请统一run scope；嵌套的`slice_verify`/`tauri_slice_verify`子入口继承父scope，不各自重复申请。`--list`不构造资源。
+- module-size门禁新增`harness`类别（关注门槛1500行）与扫描范围`frontend/slice-verify/*.mjs`、`scripts/lib/native_ui/*.mjs`（排除`.test.mjs`）；baseline登记3个既有超门槛文件（external-ui-driver 41636、native-tauri-verifier 27473、dogfood-runner 3081），`max_lines`只降不升。
+- **Proof**：`check_module_size.test.mjs` **23/23**；`--check`通过（988文件/80观察/2豁免）；`quality_accept.sh --list`正常，未知场景入口有真实scope申请/回收记录（exit 66 + test-env）。
+- **未闭环**：固定artifact目录`rm -rf`覆盖、tauri cleanup的`|| true`与退出失败区分、真实批次重跑（需窗口）仍属A4后续；本批不代签。
+
+本checkpoint只签入口scope与规模登记，不签A4全部或B84。本批已本地提交（未推送）。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。

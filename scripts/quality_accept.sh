@@ -2,6 +2,9 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_PATH="$PROJECT_ROOT/scripts/quality_accept.sh"
+source "$PROJECT_ROOT/scripts/lib/test_env.sh"
+ORIGINAL_ARGS=("$@")
 
 SCENARIO_ID=""
 SURFACE=""
@@ -117,6 +120,14 @@ fi
 if [[ "$LIST" == true ]]; then
   query_scenarios list
   exit 0
+fi
+
+# B84 A4：资源初始化前确保统一 run scope；最外层创建一次 owned run，嵌套的
+# slice_verify/tauri_slice_verify 子入口继承父 scope，不各自重复申请。
+if [[ ${#ORIGINAL_ARGS[@]} -gt 0 ]]; then
+  novel_node_test_scope_ensure bash "$SCRIPT_PATH" "${ORIGINAL_ARGS[@]}" || exit $?
+else
+  novel_node_test_scope_ensure bash "$SCRIPT_PATH" || exit $?
 fi
 
 run_scenario() {

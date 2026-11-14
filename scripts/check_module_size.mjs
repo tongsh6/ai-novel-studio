@@ -36,6 +36,9 @@ const BASELINE_SCHEMA = "module-size-baseline/v1";
 export const DEFAULT_POLICY = {
   prod: { outlier_floor: 500 },
   test: { outlier_floor: 800 },
+  // A4：验收 harness（外部 driver/verifier/原生证据 helper）单独门槛，避免把既有
+  // 巨文件当正常增量；仍登记观察名单，只降不升。
+  harness: { outlier_floor: 1500 },
 };
 
 /**
@@ -307,6 +310,25 @@ export function collectScanEntries(root = rootDir) {
       scope: "frontend",
       kind: isFrontendTest(relative) ? "test" : "prod",
     });
+  }
+
+  // A4：验收 harness 不在产品/测试目录，但同样需要趋势观察；只登记 .mjs 实现
+  // （.test.mjs 是测试自身，不属于该债务），门槛由 harness policy 决定。
+  for (const [dir, scope] of [
+    [path.join(root, "frontend", "slice-verify"), "frontend"],
+    [path.join(root, "scripts", "lib", "native_ui"), "scripts"],
+  ]) {
+    for (const file of walkFiles(
+      dir,
+      (filePath) => filePath.endsWith(".mjs") && !filePath.endsWith(".test.mjs"),
+    )) {
+      entries.push({
+        path: path.relative(root, file),
+        lines: countLines(file),
+        scope,
+        kind: "harness",
+      });
+    }
   }
 
   return entries.sort((a, b) => a.path.localeCompare(b.path));

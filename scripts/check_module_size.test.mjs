@@ -26,6 +26,7 @@ import {
 const policy = {
   prod: { outlier_floor: 500 },
   test: { outlier_floor: 800 },
+  harness: { outlier_floor: 1500 },
 };
 
 function prod(path, lines, scope = "novel_application") {
@@ -49,6 +50,17 @@ test("detectOutliers：超过关注门槛的文件进入观察名单，未超过
   const group = detectOutliers(scan, policy).get("novel_application\u0000prod");
   assert.equal(group.floor, 500);
   assert.deepEqual([...group.outliers], ["c.ex", "d.ex"]);
+});
+
+test("detectOutliers：验收 harness 使用 1500 行关注门槛，且按 scope 分组", () => {
+  const scan = [
+    { path: "frontend/slice-verify/a.mjs", lines: 1500, scope: "frontend", kind: "harness" },
+    { path: "frontend/slice-verify/b.mjs", lines: 1501, scope: "frontend", kind: "harness" },
+    { path: "scripts/lib/native_ui/c.mjs", lines: 1501, scope: "scripts", kind: "harness" },
+  ];
+  const groups = detectOutliers(scan, policy);
+  assert.deepEqual([...groups.get("frontend\u0000harness").outliers], ["frontend/slice-verify/b.mjs"]);
+  assert.deepEqual([...groups.get("scripts\u0000harness").outliers], ["scripts/lib/native_ui/c.mjs"]);
 });
 
 test("detectOutliers：生产与测试用不同关注门槛，分组独立", () => {
@@ -253,6 +265,23 @@ test("collectScanEntries：test/support 下的 .ex 纳入 test 扫描，其它 t
       },
       { path: "frontend/src/lib/modelProvider.ts", kind: "prod", scope: "frontend" },
     ]);
+  }));
+
+
+test("collectScanEntries：验收 harness 目录只收 .mjs 实现，排除 .test.mjs", () =>
+  withFixtureRoot((root) => {
+    writeFixture(root, "frontend/slice-verify/driver.mjs", 3);
+    writeFixture(root, "frontend/slice-verify/driver.test.mjs", 3);
+    writeFixture(root, "scripts/lib/native_ui/helper.mjs", 3);
+    writeFixture(root, "scripts/lib/native_ui/helper.test.mjs", 3);
+    const entries = collectScanEntries(root).filter((entry) => entry.kind === "harness");
+    assert.deepEqual(
+      entries.map(({ path: filePath, scope }) => ({ path: filePath, scope })),
+      [
+        { path: "frontend/slice-verify/driver.mjs", scope: "frontend" },
+        { path: "scripts/lib/native_ui/helper.mjs", scope: "scripts" },
+      ],
+    );
   }));
 
 test("collectScanEntries：test/support 大文件进入 ratchet 未登记判定（B71 P1-4 覆盖）", () =>

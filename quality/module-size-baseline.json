@@ -1,6 +1,6 @@
 {
   "schema": "module-size-baseline/v1",
-  "generated_at": "2026-11-14T09:46:20.282Z",
+  "generated_at": "2026-11-14T12:13:50.274Z",
   "policy": {
     "prod": {
       "outlier_floor": 500
@@ -520,6 +520,27 @@
       "max_lines": 1850,
       "scope": "novel_web",
       "kind": "test",
+      "class": "watched"
+    },
+    "frontend/slice-verify/dogfood-runner.mjs": {
+      "lines": 3081,
+      "max_lines": 3081,
+      "scope": "frontend",
+      "kind": "harness",
+      "class": "watched"
+    },
+    "frontend/slice-verify/external-ui-driver.mjs": {
+      "lines": 41636,
+      "max_lines": 41636,
+      "scope": "frontend",
+      "kind": "harness",
+      "class": "watched"
+    },
+    "frontend/slice-verify/native-tauri-verifier.mjs": {
+      "lines": 27473,
+      "max_lines": 27473,
+      "scope": "frontend",
+      "kind": "harness",
       "class": "watched"
     },
     "frontend/src/components/StructurePanel.tsx": {
