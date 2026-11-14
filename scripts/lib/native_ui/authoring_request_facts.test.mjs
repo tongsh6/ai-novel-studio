@@ -330,3 +330,23 @@ test("wire 非 assistant 消息携带/不携带 tool_calls 的 malformed 计数�
   assert.equal(smuggled.toolCalls.length, 0);
   assert.equal(smuggled.malformedCalls, 1);
 });
+
+test("tools 字段在场与缺省分开：canonical IR 必带 tools，wire 只在真实存在时标 true", () => {
+  const ir = requestFactsFromRecord(
+    irRecord(irBody([irMessage("user", "author", [{ type: "text", text: "作者" }])])),
+  );
+  assert.equal(ir.ok, true);
+  assert.equal(ir.toolsFieldPresent, true);
+
+  const wirePresent = requestFactsFromBody({ messages: [], tools: [] });
+  assert.equal(wirePresent.ok, true);
+  assert.equal(wirePresent.toolsFieldPresent, true);
+
+  const wireAbsent = requestFactsFromBody({ messages: [] });
+  assert.equal(wireAbsent.ok, true);
+  assert.equal(wireAbsent.toolsFieldPresent, false, "缺 tools 字段不能伪装成显式空数组");
+
+  const malformed = requestFactsFromBody({ messages: [], tools: false });
+  assert.equal(malformed.ok, false);
+  assert.equal(malformed.toolsFieldPresent, false);
+});
