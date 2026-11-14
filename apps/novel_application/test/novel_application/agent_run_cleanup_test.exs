@@ -440,23 +440,61 @@ defmodule NovelApplication.AgentRunCleanupTest do
       TestAgentRunCleanup.release_run(pid)
     end)
   end
+
+  # 共享 Supervisor 的真实 shutdown 屏障：blocker trap_exit 后回执“已收到 EXIT”，
+  # 测试据此确认 supervisor 已进入等待，不再用 sleep 猜调度时机。
+  defp start_blocked_shutdown(supervisor, parent) do
+    {:ok, blocker} =
+      Task.Supervisor.start_child(supervisor, fn ->
+        Process.flag(:trap_exit, true)
+        send(parent, {:blocker_ready, self()})
+
+        receive do
+          {:EXIT, _from, _reason} ->
+            send(parent, {:blocker_shutdown_received, self()})
+
+            receive do
+              :never -> :ok
+            end
+        end
+      end)
+
+    stopper = Task.async(fn -> DynamicSupervisor.terminate_child(supervisor, blocker) end)
+    assert_receive {:blocker_ready, ^blocker}, 1_000
+    {blocker, stopper}
+  end
+
+  # 资源一创建就登记幂等兜底；断言失败时尾部显式清理会被跳过，on_exit 仍执行。
+  # stopper 是 Task.async，link 在测试进程上，测试进程退出时会随之结束；
+  # on_exit 只负责杀掉不会自动退出的 blocker。
+  defp track_blocked_shutdown(blocker) do
+    ExUnit.Callbacks.on_exit({:agent_run_cleanup_blocker, blocker}, fn ->
+      if Process.alive?(blocker) do
+        monitor = Process.monitor(blocker)
+        Process.exit(blocker, :kill)
+        assert_receive {:DOWN, ^monitor, :process, ^blocker, _reason}, 1_000
+      end
+    end)
+  end
+
+  defp track_task(pid) do
+    ExUnit.Callbacks.on_exit({:agent_run_cleanup_task, pid}, fn ->
+      if Process.alive?(pid) do
+        monitor = Process.monitor(pid)
+        Process.exit(pid, :kill)
+        assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 1_000
+      end
+    end)
+  end
+
   test "release_task_caller 不把其他 owner shutdown 期间的迟到空集合当成功" do
     dead_caller = spawn(fn -> :ok end)
     ref = Process.monitor(dead_caller)
     assert_receive {:DOWN, ^ref, :process, ^dead_caller, _}
 
-    {:ok, blocker} =
-      Task.Supervisor.start_child(@background_supervisor, fn ->
-        Process.flag(:trap_exit, true)
-        receive do
-          :never -> :ok
-        end
-      end)
-
-    stopper =
-      Task.async(fn -> DynamicSupervisor.terminate_child(@background_supervisor, blocker) end)
-
-    Process.sleep(20)
+    {blocker, stopper} = start_blocked_shutdown(@background_supervisor, self())
+    track_blocked_shutdown(blocker)
+    assert_receive {:blocker_shutdown_received, ^blocker}, 1_000
     started = System.monotonic_time(:millisecond)
 
     assert_raise RuntimeError, ~r/failed within 20ms/, fn ->
@@ -469,22 +507,13 @@ defmodule NovelApplication.AgentRunCleanupTest do
     Process.exit(blocker, :kill)
     Task.await(stopper, 2_000)
   end
+
   test "release_run 在其他 owner 占用 step supervisor 时仍按 deadline 结束" do
-    {:ok, blocker} =
-      Task.Supervisor.start_child(NovelApplication.AgentStepTaskSupervisor, fn ->
-        Process.flag(:trap_exit, true)
+    {blocker, stopper} =
+      start_blocked_shutdown(NovelApplication.AgentStepTaskSupervisor, self())
 
-        receive do
-          :never -> :ok
-        end
-      end)
-
-    stopper =
-      Task.async(fn ->
-        DynamicSupervisor.terminate_child(NovelApplication.AgentStepTaskSupervisor, blocker)
-      end)
-
-    Process.sleep(20)
+    track_blocked_shutdown(blocker)
+    assert_receive {:blocker_shutdown_received, ^blocker}, 1_000
     {run_id, run_pid} = start_fake_run(self(), background: false)
     assert TestAgentRunCleanup.register_run(run_id) == run_pid
     started = System.monotonic_time(:millisecond)
@@ -517,23 +546,14 @@ defmodule NovelApplication.AgentRunCleanupTest do
         end
       end)
 
+    track_task(owned_task)
     assert_receive {:owned_task_started, ^owned_task}, 1_000
 
-    {:ok, blocker} =
-      Task.Supervisor.start_child(NovelApplication.AgentStepTaskSupervisor, fn ->
-        Process.flag(:trap_exit, true)
+    {blocker, stopper} =
+      start_blocked_shutdown(NovelApplication.AgentStepTaskSupervisor, parent)
 
-        receive do
-          :never -> :ok
-        end
-      end)
-
-    stopper =
-      Task.async(fn ->
-        DynamicSupervisor.terminate_child(NovelApplication.AgentStepTaskSupervisor, blocker)
-      end)
-
-    Process.sleep(20)
+    track_blocked_shutdown(blocker)
+    assert_receive {:blocker_shutdown_received, ^blocker}, 1_000
 
     assert_raise RuntimeError, ~r/failed within 20ms/, fn ->
       TestAgentRunCleanup.release_task_caller(dead_caller, 20)
@@ -545,6 +565,43 @@ defmodule NovelApplication.AgentRunCleanupTest do
     Task.await(stopper, 2_000)
   end
 
+  test "清理兜底不依赖断言后的显式 tail cleanup" do
+    parent = self()
+    probe_key = {__MODULE__, make_ref()}
+
+    # 先注册最终 observer；on_exit 逆序执行，兜底清理后 observer 才断言。
+    ExUnit.Callbacks.on_exit(fn ->
+      for pid <- :persistent_term.get(probe_key, []) do
+        refute Process.alive?(pid), "清理兜底必须回收本用例资源"
+      end
+
+      :persistent_term.erase(probe_key)
+    end)
+
+    {:ok, owned_task} =
+      Task.Supervisor.start_child(@background_supervisor, fn ->
+        send(parent, {:owned_task_started, self()})
+
+        receive do
+          :never -> :ok
+        end
+      end)
+
+    track_task(owned_task)
+    assert_receive {:owned_task_started, ^owned_task}, 1_000
+
+    {blocker, _stopper} =
+      start_blocked_shutdown(NovelApplication.AgentStepTaskSupervisor, parent)
+
+    track_blocked_shutdown(blocker)
+    assert_receive {:blocker_shutdown_received, ^blocker}, 1_000
+
+    :persistent_term.put(probe_key, [blocker, owned_task])
+
+    # 故意不在用例末尾 kill/await：清理只能由已登记的 on_exit 兜底完成。
+    # ExUnit 在断言失败时同样执行 on_exit，此结构覆盖“尾部显式清理被跳过”。
+  end
+
   test "release_task_caller 零期限也不返回 :ok" do
     dead_caller = spawn(fn -> :ok end)
     ref = Process.monitor(dead_caller)
@@ -554,5 +611,4 @@ defmodule NovelApplication.AgentRunCleanupTest do
       TestAgentRunCleanup.release_task_caller(dead_caller, 0)
     end
   end
-
 end

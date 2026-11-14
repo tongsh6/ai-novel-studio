@@ -1227,6 +1227,186 @@ function readProbeLog(file) {
     .map((line) => JSON.parse(line));
 }
 
+// REV-04：把“waiter 先读到未发布、owner 在其存活判断前发布并正常退出”的精确时序
+// 固化为双进程回归。owner preload 停在首个 payload 写入前；waiter preload 停在
+// 对 owner PID 的存活判断前，由测试进程按确定顺序放行，不依赖 sleep 猜调度。
+function writePublicationRaceHarness(dir) {
+  const preload = path.join(dir, "publication-race-preload.cjs");
+  fs.writeFileSync(
+    preload,
+    [
+      'const fs = require("node:fs");',
+      'const nodePath = require("node:path");',
+      "const role = process.env.RACE_ROLE;",
+      'if (role === "owner") {',
+      "  const original = fs.writeFileSync;",
+      "  let stalled = false;",
+      "  fs.writeFileSync = function (file, ...rest) {",
+      "    const target = String(file);",
+      "    const isPayload = target.includes(`${nodePath.sep}fixtures${nodePath.sep}`) &&",
+      "      !target.includes(`${nodePath.sep}.claims${nodePath.sep}`) &&",
+      '      !target.endsWith(".fixture-control.json");',
+      "    if (isPayload && !stalled) {",
+      "      stalled = true;",
+      "      original.call(fs, process.env.RACE_OWNER_STARTED, String(process.pid));",
+      "      while (!fs.existsSync(process.env.RACE_OWNER_RELEASE)) {",
+      "        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);",
+      "      }",
+      "    }",
+      "    return original.call(fs, file, ...rest);",
+      "  };",
+      "}",
+      'if (role === "waiter") {',
+      "  const original = process.kill;",
+      "  let paused = false;",
+      "  process.kill = function (pid, signal) {",
+      "    if (!paused && signal === 0 && pid === Number(process.env.RACE_OWNER_PID)) {",
+      "      paused = true;",
+      "      fs.writeFileSync(process.env.RACE_WAITER_AT_CHECK, String(process.pid));",
+      "      while (!fs.existsSync(process.env.RACE_WAITER_RELEASE)) {",
+      "        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);",
+      "      }",
+      "    }",
+      "    return original.call(process, pid, signal);",
+      "  };",
+      "}",
+      "",
+    ].join("\n"),
+  );
+
+  const ownerDriver = path.join(dir, "publication-race-owner.mjs");
+  fs.writeFileSync(
+    ownerDriver,
+    [
+      "import fs from \"node:fs\";",
+      `import { materializeFixture, openTestRunScope } from ${JSON.stringify(TEST_ENV_URL)};`,
+      "const scope = openTestRunScope();",
+      "const fixture = materializeFixture(JSON.parse(process.env.FIXTURE_SPEC), {",
+      "  scope,",
+      "  waitTimeoutMs: 15000,",
+      "});",
+      "scope.close();",
+      "console.log(JSON.stringify({ role: \"owner\", dir: fixture.dir, pid: process.pid }));",
+      "",
+    ].join("\n"),
+  );
+
+  const waiterDriver = path.join(dir, "publication-race-waiter.mjs");
+  fs.writeFileSync(
+    waiterDriver,
+    [
+      "import fs from \"node:fs\";",
+      `import { materializeFixture, openTestRunScope } from ${JSON.stringify(TEST_ENV_URL)};`,
+      "const scope = openTestRunScope();",
+      "const fixture = materializeFixture(JSON.parse(process.env.FIXTURE_SPEC), {",
+      "  scope,",
+      "  waitTimeoutMs: 15000,",
+      "});",
+      "scope.close();",
+      "console.log(JSON.stringify({",
+      "  role: \"waiter\",",
+      "  accepted: true,",
+      "  dir: fixture.dir,",
+      "  bytes: fs.readFileSync(fixture.files.get(\"alpha.txt\"), \"utf8\"),",
+      "}));",
+      "",
+    ].join("\n"),
+  );
+
+  return { preload, ownerDriver, waiterDriver };
+}
+
+test("发布竞争：owner 在 waiter 未发布观察与存活判断之间发布并退出，waiter 复用模板", async (t) => {
+  const parent = openTestRunScope({
+    baseDir: path.join(scratch, "base-fixture-publication-race"),
+  });
+  const harness = path.join(scratch, "fixture-publication-race-harness");
+  fs.mkdirSync(harness, { recursive: true });
+  const { preload, ownerDriver, waiterDriver } = writePublicationRaceHarness(harness);
+  const spec = { name: "publication-race-fixture", files: { "alpha.txt": "alpha\n" } };
+  const ownerStarted = path.join(harness, "owner-started");
+  const ownerRelease = path.join(harness, "owner-release");
+  const waiterAtCheck = path.join(harness, "waiter-at-check");
+  const waiterRelease = path.join(harness, "waiter-release");
+  const started = [];
+
+  t.after(async () => {
+    for (const item of started) await stopStarted(item);
+    parent.close();
+  });
+
+  const owner = startProcess(process.execPath, [ownerDriver], {
+    env: {
+      ...parent.env(),
+      NODE_OPTIONS: `--require=${preload}`,
+      RACE_ROLE: "owner",
+      FIXTURE_SPEC: JSON.stringify(spec),
+      RACE_OWNER_STARTED: ownerStarted,
+      RACE_OWNER_RELEASE: ownerRelease,
+    },
+  });
+  started.push(owner);
+
+  try {
+    await waitFor(() => fs.existsSync(ownerStarted), 10000);
+    assert.equal(claimRecords(parent).length, 1, "owner 必须先取得唯一初始化权");
+    assert.equal(
+      fs.existsSync(path.join(parent.fixturesDir, "publication-race-fixture")),
+      false,
+      "owner 在 waiter 观察时仍未发布",
+    );
+
+    const waiter = startProcess(process.execPath, [waiterDriver], {
+      env: {
+        ...parent.env(),
+        NODE_OPTIONS: `--require=${preload}`,
+        RACE_ROLE: "waiter",
+        FIXTURE_SPEC: JSON.stringify(spec),
+        RACE_OWNER_PID: String(owner.child.pid),
+        RACE_WAITER_AT_CHECK: waiterAtCheck,
+        RACE_WAITER_RELEASE: waiterRelease,
+      },
+    });
+    started.push(waiter);
+
+    // waiter 已读到“未发布”并停在 owner 存活判断之前；此刻 owner 仍卡在 payload 写入。
+    await waitFor(() => fs.existsSync(waiterAtCheck), 10000);
+    fs.writeFileSync(ownerRelease, "go");
+    const ownerResult = await owner.done;
+    assert.equal(ownerResult.status, 0, ownerResult.stderr);
+    assert.equal(owner.child.exitCode, 0);
+
+    // owner 已发布并正常退出，才放行 waiter 的存活判断。
+    fs.writeFileSync(waiterRelease, "go");
+    const waiterResult = await waiter.done;
+    assert.equal(waiterResult.status, 0, waiterResult.stderr);
+
+    const ownerReport = JSON.parse(ownerResult.stdout);
+    const waiterReport = JSON.parse(waiterResult.stdout);
+    assert.equal(waiterReport.accepted, true);
+    assert.equal(waiterReport.dir, ownerReport.dir, "waiter 必须复用 owner 已发布的模板");
+    assert.equal(waiterReport.bytes, "alpha\n");
+    assert.equal(fs.readFileSync(path.join(ownerReport.dir, "alpha.txt"), "utf8"), "alpha\n");
+    assert.deepEqual(
+      fs.readdirSync(parent.fixturesDir).filter((name) => name.startsWith(spec.name)),
+      [path.basename(ownerReport.dir)],
+      "不得残留 staging 或 waiter 重建副本",
+    );
+    recordEvidence("fixture-publication-exit-race", {
+      spec,
+      owner_exit: ownerResult.status,
+      waiter_exit: waiterResult.status,
+      owner_report: ownerReport,
+      waiter_report: waiterReport,
+      claims: claimRecords(parent),
+    });
+  } finally {
+    if (!fs.existsSync(ownerRelease)) fs.writeFileSync(ownerRelease, "go");
+    if (!fs.existsSync(waiterRelease)) fs.writeFileSync(waiterRelease, "go");
+  }
+});
+
+
 // 仅测试侧证据落盘：设置 B84_EVIDENCE_DIR 时把本轮可观测事实写成 JSON。
 // 不参与断言，也不是 SUT 的验收开关。
 function recordEvidence(name, payload) {
