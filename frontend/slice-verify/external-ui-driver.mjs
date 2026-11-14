@@ -29043,18 +29043,23 @@ async function driveAgentConversationTurn(page, options = {}) {
 
   await page.locator(chatInputSelector).fill(message);
   await page.getByRole("button", { name: /^发送$/ }).click();
-  await page.waitForFunction(
-    () => {
-      const text = document.body.innerText;
-      return (
-        text.includes("创作执行") &&
-        (text.includes("准备中") || text.includes("进行中") || text.includes("正在启动创作执行"))
-      );
-    },
-    {},
-    { timeout: 3_000 },
-  );
-  const immediateAgentRunFeedbackVisible = true;
+  // 普通对话（stub 判 reply）没有"创作执行"过程区，不能用该中间态作为发送
+  // 成功的判据；启动仍由下方 sent/ack/turn_result 真实帧与 app-log 证明，
+  // 后续 provider activity 断言不因此减少。仅普通对话场景族关闭该 UI 判据。
+  const immediateAgentRunFeedbackVisible = options.expectImmediateRunFeedback !== false;
+  if (immediateAgentRunFeedbackVisible) {
+    await page.waitForFunction(
+      () => {
+        const text = document.body.innerText;
+        return (
+          text.includes("创作执行") &&
+          (text.includes("准备中") || text.includes("进行中") || text.includes("正在启动创作执行"))
+        );
+      },
+      {},
+      { timeout: 3_000 },
+    );
+  }
 
   const sentFrame = await waitForNewFrame(
     frameStart,
@@ -30294,7 +30299,9 @@ async function driveAgenticLoopDeterministicGapReplan(page) {
 }
 
 async function driveAgentProviderExecutionStreamUnified(page) {
-  const [conversationState] = await driveAgentConversationTurn(page);
+  const [conversationState] = await driveAgentConversationTurn(page, {
+    expectImmediateRunFeedback: false,
+  });
   const runId = conversationState.run_id;
   const turnId = conversationState.final_turn_id ?? conversationState.turn_id;
 
