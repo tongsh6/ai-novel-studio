@@ -527,6 +527,19 @@ A3计划行的范围项均有实际证据，**签A3完成、不签B84**：
 
 SUT仅在`dir`缺失时把C3/C4/C7/C9/C10标为unknown（不冒充pass/fail），真实批次始终有目录；端到端verify已复验通过。证据在`artifacts/b84-test-system/20261114/a2-auto-maintenance/`。本批已本地提交（未推送）。
 
+### A2 authoring-run-history 族：first-consumer 文件迁移（2026-11-14）
+
+只读事实：`authoring_run_evidence.test.mjs` 666行/18个测试；3个文件边界测试每次`mkdtemp`写transport/checkpoint，5个批次测试每case调用`createFirstConsumerBatch`建4表SQLite+config。该族另一个文件`authoring_history_evidence.test.mjs`仍开放，本checkpoint只签前者。
+
+- **Contract/Invariant**：§2.5、A2；纯帧/transcript/llm事实零目录/DB；4表模板每run一次；改DB反例取隔离副本；原18个测试判据不减少。
+- **Boundary/Consumer**：原测试（纯）、邻接IO测试、两个fixture模块；真实`authoringRunFacts/readAuthoringHistory`路径不变，不碰产品。
+- **实体查重**：复用`materializeFixture`/`withWorkingCopy`；4表取`authoringRunFacts`实际读取投影；不与confirmation/call/R01合并。
+- **Proof**：纯5/5、fixtures/work均0 entry；IO13/13；同run串行两次与并发两进程均出现1个fixture（串行inode/mtime一致）；全量native_ui组913/0。
+- **Acceptance Driver**：真实`node --test`与文件系统、受控并发进程；产品验收感知no。
+- **Exploration**：不适用。
+
+证据在`artifacts/b84-test-system/20261114/a2-run-history/`。本批已本地提交（未推送）。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。
