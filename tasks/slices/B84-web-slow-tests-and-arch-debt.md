@@ -1,7 +1,7 @@
 # B84：全项目测试环境作用域、fixture 体系与剩余架构/测试债务
 
-- 状态：**doing（A0完成；A1/A2已有实施，A2随R01 WIP与b71-pending债务保留；A3/A4及A5 macOS已有验收记录；2026-11-14独立审查确认1个P1、5个P2，整改与补证未开始，B84待复核签收；Windows/Linux不在本次验收范围）**
-- 独立审查报告：[B84 实现审查（2026-11-14）](../../reports/2026-11-14-b84-implementation-review.md)；本轮修复承接见下方“独立实现审查与整改承接”。
+- 状态：**doing（A0完成；A1/A2已有实施，A2随R01 WIP与b71-pending债务保留；A3/A4及A5 macOS已有验收记录；2026-11-14复核后整改：REV-01/03/05/06已修并回归，REV-02选择器与run绑定已修但页面被ProviderRun数量契约阻塞，REV-04精确回归待固化；B84待复核签收；Windows/Linux不在本次验收范围）**
+- 独立审查报告：[B84 实现审查（2026-11-14）](../../reports/2026-11-14-b84-implementation-review.md)；最新交接见[报告 §9](../../reports/2026-11-14-b84-implementation-review.md#9-整改后独立复核与交接)，执行状态见下方“独立实现审查与整改承接”。
 - 来源：
   - [00f 能力图谱 P2-E](../../docs/design/00f-capability-atlas.md)：`novel_web` 193 tests / 532s 慢测试仍待收敛；`novel_common` 日志 I/O 部分已由 ADR-0034（`novel_telemetry`）闭环，本任务只承接 web 慢测试与剩余债务。
   - B71 审核轮架构 P2-10 记录与 2026-11-08 候选。
@@ -661,22 +661,24 @@ Tauri surface：
 本次按作者“生成一个报告到仓库”的指令，将已完成的独立审查保存为[固定审查报告](../../reports/2026-11-14-b84-implementation-review.md)。审查基线为 `208033fc` 加当时未提交工作区；报告不是第二份执行状态台账，整改 checkpoint 和签收继续只维护本任务。
 
 - **已确认边界**：作者明确“A5 验证过 mac 了，win/Linux 不需要验”。保留上方 A5 macOS 验收事实；Windows/Linux 不作为本次 B84 签收条件。
-- **本轮结果**：scope 自检在既有 `--self` 入口及正确依赖路径下 62/62 通过；另有六项独立反例。完整版本、输出摘要、有效命令、两次无效执行的归因与源码指纹见报告。
-- **版本区别**：`reapOrphanScopes` 及新增用例为审查时未提交实现；其余 finding 由已提交逻辑或 B84 新调用方依赖的既有 helper 触发。不能将本轮证据描述为 clean HEAD 验收。
-- **当前后果**：本轮只落审查文档，尚未修复代码或增加正式回归；已有通过记录不覆盖这六个新反例，B84 保持 doing。原有 R01 WIP、b71-pending、driver/G2 拆分、dogfood 与门禁接线等承接不因本报告消失。
+- **首次审查结果（历史）**：scope 自检在既有 `--self` 入口及正确依赖路径下 62/62 通过；另确认六项审查发现，证据包括真实实现的受控反例与提取谓词验证。完整版本、输出摘要、有效命令、两次无效执行的归因与源码指纹见报告 §1–7。
+- **首次审查版本（历史）**：`reapOrphanScopes` 及新增用例为首次审查时未提交实现；其余 finding 由已提交逻辑或 B84 新调用方依赖的既有 helper 触发。首次审查不能描述为 clean HEAD 验收；整改后复核基线另见报告 §9。
+- **首次审查后果（历史）**：首次仅落审查文档，未修复代码或增加正式回归。随后实施与独立复核已发生，当前执行状态以下表及本任务后续 checkpoint 为准；原有 R01 WIP、b71-pending、driver/G2、dogfood 与门禁接线等承接保留。
 
-| 报告编号 | 级别 | 本任务承接内容 | 执行状态 |
+| 报告编号 | 级别 | 本任务承接内容 | 执行状态（整改后独立复核） |
 |---|---|---|---|
-| B84-REV-01 | P1 | 失联 owner 的活子进程先收口，归档后无原路径再生；保留必要证据 | 已修复：归档前检查 open_handles/recent_write/process_reference/unverifiable；受控 SIGKILL 反例 reaped=0、原 scope 保留 |
-| B84-REV-02 | P2 | 恢复判据核对本 run 可见叙事，零叙事不能通过；复核相关流式采样 | 判据已修复：零叙事/隐藏叙事 false、有叙事 true；真实场景失败于普通对话 `provider_runs` 为空。根因：普通对话调用 provider，但生产 snapshot 未注入 `stage_sink`，`ProviderActivityProjector` 不记录 ProviderRun（UA-01/B87 产品接线缺口）；**页面复验未闭环** |
-| B84-REV-03 | P2 | 打通 process_tree 返回契约与 runner cleanup 失败传播，等待有界 | 已修复：信号拒绝/仍存活返回非零、僵尸忽略、SIGKILL 后有界确认；4/4 回归 |
-| B84-REV-04 | P2 | owner 退出前后重核 fixture 最终发布事实，补竞争时序回归 | 已修复：owner 退出后重核 published/failed；现有并发与 scope 全套通过；**未新增精确调度反例** |
-| B84-REV-05 | P2 | Task.Supervisor 枚举纳入同一 deadline，迟到空集合不签成功 | 已修复：查询受 deadline 约束、超期仍 force_kill 已知任务；12/12（含其他 owner shutdown 反例） |
-| B84-REV-06 | P2 | 自有 DB 删除失败保留诊断并反映退出结果；核对 Rust 同类静态观察 | 已修复：ENOENT 幂等、其他失败 stderr 诊断且成功测试改为退出1；受控三态验证；Rust `TempDir::drop` 静态观察未修 |
+| B84-REV-01 | P1 | 失联 owner 的活子进程先收口，归档后无原路径再生；保留必要证据 | **仍开放**：持续写入等迹象检查已补；静默、仅经 env 持有 TMPDIR 的活 payload 仍被归档并重建无 marker 原路径，见报告 §9.2 |
+| B84-REV-02 | P2 | 恢复判据核对本 run 可见叙事，零叙事不能通过；复核相关流式采样 | **仍开放**：明文 CSS Modules 选择器不匹配真实 DOM；页面尚未通过；撤回“缺 stage_sink 未落库”归因，先核现行契约与数量/purpose 断言，见 §9.3/9.8 |
+| B84-REV-03 | P2 | 打通 process_tree 返回契约与 runner cleanup 失败传播，等待有界 | **部分修复，仍开放**：helper 能报告部分信号失败，但调用者随后无期限 wait，阻塞后续清理与最终失败；见 §9.4 |
+| B84-REV-04 | P2 | owner 退出前后重核 fixture 最终发布事实，补竞争时序回归 | **原缺陷复核通过**：本轮精确时序回放 waiter accepted=true，读取 valid fixture；精确回归用例尚待入库，见 §9.5 |
+| B84-REV-05 | P2 | Task.Supervisor 枚举纳入同一 deadline，迟到空集合不签成功 | **部分修复，仍开放**：原 dead-caller 超时分支已改；live-run 安全点仍无界查询，查询超时可漏清另一 Supervisor 的自有任务，宽限仍可能假成功；见 §9.6 |
+| B84-REV-06 | P2 | 自有 DB 删除失败保留诊断并反映退出结果；核对 Rust 同类静态观察 | **部分修复，仍开放**：失败诊断/退出码已验证；原运行成功时首文件删除失败立即 halt，跳过可删 wal/shm；Rust 静态观察仍未修，见 §9.7 |
 
 再次签收以报告中的对应反例、既有覆盖与修改面适用门禁共同判断。页面判据或 runner 修改须补受影响真实页面证据；不通过删断言、提高超时或把清理错误视作成功收口。
 
-### 审查整改 checkpoint（2026-11-14）
+### 审查整改 checkpoint（2026-11-14，实施者历史记录）
+
+> 以下保留整改实施者当时的自检与签署判断；其中“六项代码修复”的关闭结论已由后续独立复核纠正。当前执行状态以上表和“整改后独立复核 checkpoint”为准。
 
 - **REV-01（P1）**：`reapOrphanScopes` 移动前执行打开句柄、全树最新写入、命令行引用三重检查；任一命中或无法确认归属即保留现场并给 reason。受控反例（payload 每30ms写、owner SIGKILL、root mtime 调老）复验 `reaped=0/kept=recent_write/原 scope 与 marker 保留`；活动结束后才归档。
 - **REV-03**：`kill_process_tree` 区分 ESRCH 正常与信号失败；SIGKILL 后有界确认；僵尸（stat=Z）不当作存活；进程组用 `ps pgid/stat` 复核。回归 4/4（正常、信号拒绝+仍存活、不存在/空、子孙树）。
@@ -688,9 +690,31 @@ Tauri surface：
 
 本checkpoint只签六项代码修复与局部复验，不签 B84；页面判据修改仍待真实恢复场景通过。本批已本地提交（未推送）。
 
-**REV-02 页面复验阻塞根因（2026-11-14 追加）**：普通对话 `provider_gateway.complete` 在 app-log 有真实记录（provider=slice_verify，purpose=planner），但场景数据库 `provider_runs` 为 0 行。`ProviderActivityProjector.with_stage_sink/3` 只在 `snapshot.stage_sink` 是函数时订阅并调用 `ProviderRunLog.record_execution/2`；生产代码中除测试外**没有给 snapshot 注入 `stage_sink` 的调用点**（渲染/flow 只读取该键或提供 emitter），普通对话 snapshot 未携带 sink，因此 ProviderRun/Event/Output 不落库，activity API 的 usage 断言必然失败。该缺口属于 UA-01/ADR-0023 CP4D 的产品接线（`ProviderActivityProjector` 的 stage snapshot 注入），不是 B84 测试作用域或场景预期可自行修绿；需由 UA-01/B87 产品负责人确认注入位置（普通对话 AgentRun stage 构造处）并补接线，再重跑 `agent-provider-execution-activity-restored` 补页面证据。B84 因此保持 `doing`；本批只记录根因，不修改产品代码。该缺口已登记到 [B87 总计划 §12](../B87-model-interaction-request-projection.md)（跨任务缺口，当前 B87 计划无批次承接，需作者裁决是否新增/前置批次）。
+**REV-02 页面归因更正（整改后独立复核）**：撤回上轮“生产 snapshot 没有 stage_sink、ProviderRun 从未落库”的确诊，原判断保留在报告 §8。生产 `AgentRunServer.step_snapshot` 已构造并传递 sink；历史 backend.log 有 ProviderRun/Output 写入，ui-frames 有同一 ProviderRun 的进度事件。历史报错对应 driver 的 `queriedProviderRuns.length >= 3`，不能解释成集合必为 0；非系统原生 Tauri dev cleanup 会重建数据库，退出后空库不能倒推运行期间未持久化。先按现行愿景、设计和契约核对数量/purpose/恢复判据，不直接降低阈值或新增无业务意义调用。完整证据与限制见[报告 §9.8](../../reports/2026-11-14-b84-implementation-review.md#98-撤回缺少-stage_sink-导致未持久化的归因)；[B87 §12](B87-model-interaction-request-projection.md#12-跨任务登记更正rev-02-页面复验归因)同步撤回新增 sink 接线批次的依据，本轮不改变 B87 批次范围。
+
+### 整改后独立复核 checkpoint（2026-11-14）
+
+- **交接入口**：[报告 §9 整改后独立复核与交接](../../reports/2026-11-14-b84-implementation-review.md#9-整改后独立复核与交接)。作者要求“写报告，我叫人处理”；本次只同步文档，修复交由后续处理人。
+- **复核基线**：`adc71f2cf70ac577b29709b53384c5ef501cc66d`；仓库含其他 WIP，本轮关键被审文件与 HEAD 一致。平台范围仍为 macOS。
+- **本次后果**：REV-04 原缺陷已验证修复；REV-01/02/03/05/06 按上表继续整改。报告 §9 保存代码位置、受控反例、证据边界、关闭条件和指纹；不建立第二份活动台账。
+- **优先顺序**：先修 REV-01 所有权与失联恢复，再补 REV-03/05/06 完整清理链；REV-02 同时修真实 DOM 定位并重新核对前置场景契约，补受影响真实页面；REV-04 精确时序固化到现有 scope 回归。
+- **证据限制**：本轮运行隔离机制探针，未重跑全量 Mix/Cargo、真实模型或页面；live-run cleanup 探针使用最小 GenServer 协议替身，配置删除探针用普通占位文件，不能代签产品整链。部分残留由探针兜底清理，不得计作被测 helper 正常收口。
+- **签收条件**：各项新增反例、既有覆盖、修改面适用门禁与受影响真实页面共同复验；B84 保持 doing，原 A2/R01、b71-pending、driver/G2、dogfood、lefthook 等债务保留。
+
+### 复核问题整改 checkpoint（2026-11-14，整改后）
+
+- **REV-01（P1）已修复**：`spawnScoped` 把真实子进程 pid/pgid 持久登记到 scope 的 `.novel-test-run-children.jsonl`；`reap` 先核对 journal，存活子进程/进程组保留 `live_children`，缺失 journal 默认 `children_unverifiable`。受控静默 env-only payload：`reaped=0`；终止后才归档；旧无 journal scope 默认保留。scope 全套 **65/65**。提交 `02b16162`。
+- **REV-02 判据已修复，页面复验未闭环**：选择器改为 `[class*="agenticLoopReasoning"]` 以匹配真实 CSS Modules 哈希类名；刷新前采集本 run 可见叙事，刷新后必须匹配同一片段。合成 DOM：零叙事/隐藏/其他 run 为 `false`，哈希类名叙事与 expected 匹配为 `true`；driver 260/260、lint 0。提交 `10ebf4b4`。真实场景仍失败于恢复判据之前的 `queriedProviderRuns.length >= 3`；普通对话 stub 只产生 1 个 ProviderRun（planner），需按 UA-01/场景契约核对数量与 purpose，不能直接降阈值或加无意义调用。
+- **REV-03 已修复**：新增 `wait_process_exit`/`reap_process_tree`，`slice_verify`/`tauri_slice_verify` cleanup 不再无期限 `wait`；信号失败有界返回非零，后续 owned 资源继续处理。回归 **7/7**。提交 `00737ef7`。
+- **REV-04**：复核者已用精确发布/退出时序验证原缺陷通过；仓库内精确回归用例**尚未固化**。
+- **REV-05 已修复**：safe point 使用有界查询；逐 Supervisor 查询，一处超时不丢其他自有任务；deadline 已过的宽限查询记录超期。新增 live-run safe point、跨 Supervisor、零期限反例，**15/15**。提交 `fba0fca4`。
+- **REV-06 已修复**：先尝试 db/wal/shm 全部清理再决定退出码；原成功+删除失败→1 且 sidecars 已删，原失败码保留。受控四态验证。提交 `79a3912f`。
+- **仍未修**：Rust `TempDir::drop` 静态观察；REV-02 真实页面（ProviderRun 数量契约待核对）；REV-04 精确回归固化。
+- 本checkpoint只记录复核问题整改与局部回归，不签 B84；等复核者按报告 §9 关闭条件复验页面与反例。本批已本地提交（未推送）。
 
 ## 变更记录
+
+- 2026-11-14：按作者要求将整改后独立复核写回原报告 §9；REV-04 原竞争已复验，其他五项仍开放；纠正 REV-02 缺 stage_sink 的归因与 B87 登记，交接剩余修复/复验，保留历史实施记录和 macOS-only 边界。本轮仅更新文档。
 
 - 2026-11-14：接入独立实现审查报告，保留 A5 macOS 已验事实并纠正顶部旧摘要；登记六项修复与补证，明确 Windows/Linux 不属本次验收范围，本轮只修改文档。
 
