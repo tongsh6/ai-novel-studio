@@ -423,7 +423,11 @@ export function evaluateAutoMaintenance({
   const providerIds = [...new Set(list(db.provider_runs).map((run) => String(run?.provider_id ?? "")).filter(Boolean))];
   const autoMaintenanceEnabled = String(env.auto_maintenance_enabled ?? "") === "1";
   const windowOverride = String(env.window_overrides ?? "");
-  const autoVisible = scanAuthorVisibleFiles(dir);
+  // 无目录时（纯评估/无文件证据）文件类检查为 unknown，不冒充 pass 或 fail；
+  // 真实批次 verify 始终传入目录，不进入本分支。
+  const autoVisible = dir
+    ? scanAuthorVisibleFiles(dir)
+    : { ok: null, hits: [], files: [], reason: null };
   const runtime = dir ? runtimeAfterBatch(dir) : null;
 
   // C1：真实压力成立（真实 usage 越线 + 窗口 override 生效 + strata provider）。
@@ -463,20 +467,23 @@ export function evaluateAutoMaintenance({
   if (!c2.ok) c2.reason = "auto_maintenance_not_observed";
 
   // C3：行内细条可见（旧作者文案「较早的 N 项创作过程已整理」，或现行 AX 细条按钮）。
-  const maintenanceAx = readCaptureText(dir, "after-maintenance");
+  const maintenanceAx = dir ? readCaptureText(dir, "after-maintenance") : null;
   // 现行 UI 的细条 accessible name 是「查看已整理的较早创作过程」；只认 AXButton 角色、
   // 精确名称且 enabled=true——同名静态文本/纯文本/disabled 控件都不是可见条。
   const stripText =
     /较早的\s*\d+\s*项创作过程已整理|创作过程已整理|^[\t ]*(?:[^\s,]+[\t ]+)?AXButton,[ \t]+查看已整理的较早创作过程,[ \t]+enabled=true(?:,|$)/mu;
   const c3 = {
-    ok: stripText.test(maintenanceAx),
+    ok: dir ? stripText.test(maintenanceAx) : null,
     reason: null,
-    detail: { matched: (maintenanceAx.match(stripText) ?? [])[0] ?? null, capture: "after-maintenance" },
+    detail: {
+      matched: maintenanceAx ? ((maintenanceAx.match(stripText) ?? [])[0] ?? null) : null,
+      capture: "after-maintenance",
+    },
   };
-  if (!c3.ok) c3.reason = "maintenance_strip_not_visible";
+  if (c3.ok === false) c3.reason = "maintenance_strip_not_visible";
 
   // C4：展开面板四要素（原因/原文保留/来源/完整记录入口）。
-  const expandedAx = readCaptureText(dir, "after-expanded");
+  const expandedAx = dir ? readCaptureText(dir, "after-expanded") : null;
   const factors = {
     heading: /已整理的较早记录/u.test(expandedAx),
     reason: /为了保持这次创作始终清晰连贯/u.test(expandedAx),
@@ -485,11 +492,11 @@ export function evaluateAutoMaintenance({
     sources: /涉及：/u.test(expandedAx),
   };
   const c4 = {
-    ok: factors.heading && factors.reason && factors.original_kept && factors.full_record_entry,
+    ok: dir ? factors.heading && factors.reason && factors.original_kept && factors.full_record_entry : null,
     reason: null,
     detail: factors,
   };
-  if (!c4.ok) c4.reason = "expanded_panel_factors_missing";
+  if (c4.ok === false) c4.reason = "expanded_panel_factors_missing";
 
   // C5：同 session checkpoint 后第一条 started 事件定位 ProviderRun；prun+pcall
   // 同时唯一配对日志。缺证 unknown，后续第 2 请求不能补位。
@@ -586,14 +593,15 @@ export function evaluateAutoMaintenance({
   const sameNonNegativeCount = (left, right) =>
     Number.isInteger(left) && left >= 0 &&
     Number.isInteger(right) && right >= 0 && left === right;
-  const refreshAx = readCaptureText(dir, "after-refresh");
+  const refreshAx = dir ? readCaptureText(dir, "after-refresh") : null;
   const refresh = driverLog?.refresh ?? null;
   const c7 = {
-    ok:
-      stripText.test(refreshAx) &&
-      isObject(refresh) &&
-      sameNonNegativeCount(refresh.before_checkpoint_events, refresh.after_checkpoint_events) &&
-      sameNonNegativeCount(refresh.before_checkpoint_messages, refresh.after_checkpoint_messages),
+    ok: dir
+      ? stripText.test(refreshAx) &&
+        isObject(refresh) &&
+        sameNonNegativeCount(refresh.before_checkpoint_events, refresh.after_checkpoint_events) &&
+        sameNonNegativeCount(refresh.before_checkpoint_messages, refresh.after_checkpoint_messages)
+      : null,
     reason: null,
     detail: {
       strip_visible_after_refresh: stripText.test(refreshAx),
@@ -699,7 +707,7 @@ export function evaluateAutoMaintenance({
   // C9：全类别无技术词（扫描目录全部 ax/text 证据）。
   const c9 = {
     ok: autoVisible.ok,
-    reason: autoVisible.ok ? null : "author_visible_internal_token_leak",
+    reason: autoVisible.ok === false ? "author_visible_internal_token_leak" : null,
     detail: autoVisible,
   };
 
@@ -708,15 +716,16 @@ export function evaluateAutoMaintenance({
   const terminationLlm = Number(driverLog?.termination?.llm_calls);
   const llmStopped = Boolean(runtime) && Number.isFinite(terminationLlm) && Number(runtime.llm_calls) === terminationLlm;
   const c10 = {
-    ok:
-      remaining.length === 0 &&
+    ok: dir
+      ? remaining.length === 0 &&
       Boolean(runtime) &&
       runtime.app_processes === 0 &&
       runtime.ports.backend_4657 === false &&
       runtime.ports.transport_4661 === false &&
       llmStopped &&
       Boolean(strataSlot) &&
-      strataSlot.unloaded === true,
+      strataSlot.unloaded === true
+      : null,
     reason: null,
     detail: {
       remaining: remaining.length,
@@ -725,7 +734,7 @@ export function evaluateAutoMaintenance({
       strata_unloaded: strataSlot?.unloaded ?? null,
     },
   };
-  if (!c10.ok) c10.reason = "cleanup_unverified_or_runtime_not_stopped";
+  if (c10.ok === false) c10.reason = "cleanup_unverified_or_runtime_not_stopped";
 
   const multiTurnSteers = list(multiTurn?.steers);
   const multiTurnResumes = list(multiTurn?.resumes);

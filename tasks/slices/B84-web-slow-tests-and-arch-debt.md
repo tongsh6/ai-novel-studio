@@ -514,6 +514,19 @@ A3计划行的范围项均有实际证据，**签A3完成、不签B84**：
 
 验收：CI步骤与本地入口同源；真实provider探测本批未运行（服务仅借用，不代签模型行为）；A4原生/浏览器入口与A5 SIGKILL仍开放。本批已本地提交（未推送）。
 
+### A2 authoring-auto-maintenance 族迁移（2026-11-14）
+
+只读事实：`authoring_auto_maintenance_evidence.test.mjs` 1022行/23个测试；`evaluate()` 默认先 `buildDir()`，纯评估也每case建7表SQLite+20个驱动/AX文件；该族属A2未迁移的`authoring-auto-maintenance`（7表、真实SQLite）。
+
+- **Contract/Invariant**：quality-gates §2.5、A2；纯评估零目录/DB；同run同规格模板只构建一次；写AX/DB或verify写summary的case取隔离副本；原23个测试判据不减少、不放宽。
+- **Boundary/Consumer**：原测试文件（纯评估）、新增邻接IO测试、两个fixture模块，以及SUT的`dir`可选语义；真实`verifyAutoMaintenanceBatch`路径不变（始终传目录），模型/产品/运行时不改。
+- **实体查重**：复用既有`materializeFixture`/`withWorkingCopy`与既有纯事实；不新建SQL/断言/场景框架；不与confirmation/call/R01族合并。7表是当前SUT实际投影，不称为生产完整Schema。
+- **Proof**：纯14/14、fixtures/work均为0 entry；IO13/13；同run串行两次与并发两进程均只出现1个fixture目录（串行inode/mtime一致）；全量native_ui组913/0；原23判据拆为27个测试仍全部保留。
+- **Acceptance Driver**：真实`node --test`与文件系统、受控并发进程；产品验收感知no。
+- **Exploration**：不适用。
+
+SUT仅在`dir`缺失时把C3/C4/C7/C9/C10标为unknown（不冒充pass/fail），真实批次始终有目录；端到端verify已复验通过。证据在`artifacts/b84-test-system/20261114/a2-auto-maintenance/`。本批已本地提交（未推送）。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。
