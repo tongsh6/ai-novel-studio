@@ -1,6 +1,6 @@
 # B84：全项目测试环境作用域、fixture 体系与剩余架构/测试债务
 
-- 状态：**doing（A0完成；A1/A2已有6个局部实施单元通过各自验收，前4个已提交，R01快照/capture两族随原R01整体保持WIP；A3的Application流程首批已提交；A3的16个Channel测试模块与日志写出源头收口已通过全量回归并本地提交（未推送）；Rust单测资源释放已通过验收并本地提交（未推送）；裸Mix/config/test自有库归还已通过验收并本地提交（未推送）；其余runtime测试已全部迁移并本地提交（未推送）；web回归196例耗时62.2秒；其余Node族、前端/原生接入、A4/A5与既有债务保留）**
+- 状态：**doing（A0完成；A1/A2六个局部实施单元前4个已提交、R01快照/capture两族随原R01整体保持WIP；**A3已收口**：Application流程、Channel 16模块、日志源头、Rust单测、裸Mix/config/test、其余runtime测试全部完成并本地提交；web回归196例62.2秒；A1/A2其余Node族、A4/A5与既有债务保留）**
 - 来源：
   - [00f 能力图谱 P2-E](../../docs/design/00f-capability-atlas.md)：`novel_web` 193 tests / 532s 慢测试仍待收敛；`novel_common` 日志 I/O 部分已由 ADR-0034（`novel_telemetry`）闭环，本任务只承接 web 慢测试与剩余债务。
   - B71 审核轮架构 P2-10 记录与 2026-11-08 候选。
@@ -484,6 +484,22 @@ Application首批已提交 `75722dde`。本步复用既有helper继续迁移，�
 - `agent_run_runtime_test` **55/55通过**，临时探针 **0 run/0 step/0 bg**；全量application **1406/1406、0失败、9.9秒**；格式检查通过。
 - 该文件3733行因本批45处登记越过ratchet，按§3.2在baseline登记豁免理由与2027-03-31复核日期；未压缩代码、未调高上限，拆分（提取共享fixture）留B78。
 - 本checkpoint签runtime测试全部迁移；不签A3全部或B84。本批已本地提交（未推送）。
+
+### A3 收口结论（2026-11-14）
+
+A3计划行的范围项均有实际证据，**签A3完成、不签B84**：
+
+| 范围项 | 证据 |
+|---|---|
+| DataCase/Sandbox复用 | Application 10模块与Channel 16模块统一用DataCase；46+132用例保留 |
+| application/web support与test_helper | run/caller两种producer分别登记释放；web test_helper说明同步 |
+| config/test | 自有库`System.at_exit`归还db/wal/shm；借用不删；裸/失败/并发无净增 |
+| Rust现有测试模块 | `TempDir` RAII；14/14；`catch_unwind` panic用例；运行前后无净增 |
+| 其余runtime测试 | 7文件87 tests迁移；探针0 run/0 step/0 bg；全量application 1406/0 |
+| Application env不串例 | Channel迁移按原app/key/presence恢复；telemetry测试恢复env |
+| 依赖方向/纯novel_test | 全量`mix check`架构检查通过；未改novel_test边界 |
+
+本批之后A3不再有已知未迁移的后台run消费者；B84仍开放A1/A2其余Node族与A4/A5。
 
 ## 变更记录
 
