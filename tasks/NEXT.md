@@ -6,7 +6,7 @@
 
 | 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B87 | **模型交互体系系统性重构**：R01 收口优先（3/10/20 真实基线已采集，测量实现质量门与最终提交未闭合），随后按原依赖推进 R02–R19；生产行为未变，验收按原任务。双向沟通整改见[原优化计划](slices/bidirectional-gaps-optimization.md)，批次 A–E 状态只在原计划维护。 | [B87](slices/B87-model-interaction-request-projection.md) |
+| B87 | **模型交互体系系统性重构**：按原依赖从 R02 结构化 Scope/事实/来源推进 R02–R19；R01 结果、已知质量边界及恢复入口只见原任务 §11.21，验收不由本排期代签。双向沟通整改见[原优化计划](slices/bidirectional-gaps-optimization.md)，批次 A–E 状态只在原计划维护。 | [B87](slices/B87-model-interaction-request-projection.md) |
 
 ## 后续候选
 

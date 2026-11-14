@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing（2026-11-13：R00 事实审计已提交 `465b1a3f`；R01 的3/10/20真实基线采集及逐轮目标审阅已完成，测量实现质量门与最终提交尚未闭合，最新证据见 §11.20；R02–R19 未实施，生产行为未变；远端 CI 基线缺口仍开放）**。
+**状态**：**doing（2026-11-14：R00 已提交 `465b1a3f`；R01 可靠测量基线及工程实现已收口并分组提交，证据与限制见 §11.21；当前后继为 R02，R02–R19 尚未实施，生产行为未变；远端 CI 与既有全仓质量缺口仍开放）**。
 
 - **排期（2026-11-14）**：作者决定 B84 退出当前任务队列，B87 提为 [NEXT](../NEXT.md) 当前任务；R01 测量实现质量门与最终提交优先收口，随后按原依赖推进 R02–R19。调度变化不改变 R00–R19 的验收范围或证据状态。
 
@@ -200,7 +200,7 @@ R00 需先对本设计提出的差异给出有效裁决；若 VS-00L/ADR-0035 �
 - `capability_lookup` 是否真有新增的业务消费者，避免平行探索工具；
 - B71 的 G3/G5/实模遗留与本任务最终 R19 的证据边界，分别归各自任务维护。
 
-**当前执行入口**：R00 事实审计已交付（§9），R01 按既有成本样本进入测量/实模基线（§10）。其它批次依实际依赖推进，不能跳过实体查重、冻结契约和完整验收。
+**当前执行入口**：R00 事实审计已交付（§9），R01 真实测量基线及工程收口见 §11.21；下一批 R02 在独立编码上下文内先冻结结构化 Scope 字段与来源，再完整实现和验收。其它批次依实际依赖推进，不能跳过实体查重、冻结契约和完整验收。
 
 **历史证据与计划修订**：旧 B87 R00–R10 的编号/任务范围已整体替换，Git 历史可回查；不保留旧任务卡副本或把旧批次标 done；未上线的产品无旧 API/旧 Schema 兼容承诺。
 
@@ -637,6 +637,45 @@ leader独立读取原始Phoenix发送帧，并在DB/WAL字节副本中只读对�
 当前完整基线为before03、before10、before20-r1；旧before20的6/20保留为失败证据。最后一调用input227833、25份Scope文本共772324 UTF-8字节，首调用input10789、1份Scope18897字节；未到窗口溢出，不冒充压缩完整性证明。接下来只收口本次测量实现的必要质量缺口及最终静态扫描/任务提交，不再为本基线重调模型；R01仍doing，R02尚未实施。
 
 2026-11-13 作者随后暂停原推进，并要求先整体审查测试体系。测试入口、fixture和环境作用域的跨项目设计/迁移统一归 [B84](B84-web-slow-tests-and-arch-debt.md)，不能只给R01补清理后恢复原整组变异循环。R01未提交实现及原始基线继续保留；工程质量未签，不能由B84的设计文档代签。当前只完成审查/设计，不恢复模型采集或广泛变异执行。
+
+### 11.21 R01 工程收口接续（2026-11-14）
+
+本轮按维护者对 NEXT 的推进授权，先收口 R01，再依原依赖推进后续批次。开工基线为 `a6f1e6a650454ee7e5a73f2f109b6a5aef04e76e`，分支 `develop/dialogue-based-novel-workbench`。工作区已有 53 项修改/未跟踪文件，包含 R01 测量实现及 B84 审查记录；只处理并提交已核实属于本批的内容，保留其他工作。原 §11.20 的停止广泛变异/模型重采约束继续有效。
+
+本批七问与存在性复核：
+
+| 项 | 当前执行边界 |
+|---|---|
+| Contract | R01 可靠成本基线、VS-00L 的 Canonical IR / 原生 wire 来源与既有 request-cost 报告口径。 |
+| Invariant | 作者身份/字节不混同应用材料；System/Tools/Scope/History/Observation/Validation 成本按真实载体归属；cached 是 input 子集；缺证不补造；源库及原始批次不变。 |
+| Boundary | 仅 `scripts/` 测量/测试与现有质量注册、任务记录；生产 Prompt、IR、Provider、数据模型与前端均不改变。 |
+| Consumer | 现有 `request_cost_baseline.mjs`、`request_cost_capture.mjs` 与 `request_cost_batch_evidence.mjs`，供 R02–R19 同口径对比。 |
+| Proof | 真实源 SHA 与旧批次只读核对、邻接纯规则/IO 反例、`mix check`、统一静态扫描及适用门禁；不用测试数量替代来源/分类判断。 |
+| Acceptance Driver | 复用 `native_request_cost_batch.sh` / `native_request_cost_drive.mjs`；已冻结的 3/10/20 页面与实模证据保持原样，本轮不重采。报告派生修复只重算，不把测量完成写成作者目标完成。 |
+| Exploration | 不适用：本批不物化作品要素、不改变模型获得作品知识的入口。 |
+| Existence audit | 无新增产品实体/字段/模块。成本修复归现有 `request_cost_evidence.mjs`，公共消息读取仍归 `authoring_request_facts.mjs`；不新增第二成本分析器或旧格式 fallback。索引状态只纠正导航，不复制执行台账。 |
+
+已复跑 R01 邻接 Node 测试 306/306（0 skip）；退役无消费者分支后的成本/批次判据 77/77；新增他作记账隔离矩阵后 capture IO 29/29。`mix check` 退出 0（3208 项 Elixir 测试，含全量强制编译、枚举/作者可见 codegen、xref、架构/ADR/I-CACHE）。证据统一位于 `artifacts/model-contracts/b87-r01/20261114-quality-closeout/`。
+
+**存在性与删减裁决**：两个真实成本消费者都提供 native Chat wire，Canonical IR 的顶层 System/混合 tool blocks 成本路径只有测试消费者。按 YAGNI / 单一职责退役成本模块中的 IR 分类、自动可信来源和仅测试使用的包装导出，其他格式显式 `request_cost_requires_native_chat_wire`；共用 `authoring_request_facts` 的 IR 读取仍有 B71 等真实消费者，继续保留。没有增加第二分析器。前后 44 次冻结真实调用的完整 analysis 逐项相同，6 个原始日志/报告 hash 不变，证据 `20261113/quality-closure/cost-wire-retirement-20261114/comparison.json`。本轮不调用模型、不重采 3/10/20、不重写作者原始数据。
+
+**历史质量清单的收口方法**：§11.17 的 140 是旧 qualified 源码/测试范围下的 `unclosed_or_unclassified`，保留原数，不能改写为当前 140 个实现缺陷或 0。复用匹配源码的 B84 capture/snapshot 实际 DB、初末快照、缺证和零值独立证明，以及 `batch-contract-subtraction`、`snapshot-projection-control` 和真实成功 preflight；不复用缺源码 hash/neutral control 的 `reachable-quality/` 裸计数。唯一发现的当前可达独立断言缺口已补：在公共 `verifyBatch` 下，他作不变、仅 `reference_count` 改变、仅 `last_referenced_at` 改变三个场景均不增加日志，精确断言 `other_work_reference_bookkeeping_intact` 与对应错误；完整采集与产品偏离仍分开，模型/语义不自签。没有恢复全范围变异，也不声称 mutation 100%。提交前只清理了 capture/manifest/test 末尾空行，业务内容不变；当前 hash 以 closeout 记录为准。
+
+**适用质量门与限制**：13 个必要源文件的本次 CRAP 计算最高新增/修改函数为 9.5339；全文件工具仍退出 2，因为 20 个已有超限函数的函数体相对开工 HEAD 完全相同（`crap-range-review.json`），不把全文件结果伪报通过。Dryer 0.8 阈值无重复候选，13 份 .mjs→.ts 镜像逐字节一致。源库 SHA 仍为 `c5732f99ca320ad526069d8b578162265eac1e481ba8d15e24760e8657a559db`，240 行引用 UUID 无损核验通过；235 个质量 manifest 与 NEXT 检查通过。统一 `task_done.sh` 退出 0，I1/I2/I3/N-NARR/I-CACHE、编译/架构/前端及安全处置门均执行；原始 gitleaks 仍有 6 条已登记历史命中，0 条触及本批文件，不能写成扫描器全部绿色。
+
+**邻接整组失败如实保留**：首次扩展 Node 回归因 PATH 选到无 PyYAML 的系统 Python 有 2 项加载失败，纠正 PATH 后为 1001/1002、0 skip，唯一失败为旧 G6 `C10_cleanup`。其 evaluator 直接检查宿主 4657/4661，同组既有 memory-detail 测试会真实监听这两端口；三份相关源码均未变。唯一一次有观测的单文件诊断为 13/13，57 次 pgrep/lsof 均无进程/监听，源码和原失败日志 hash 未变。原批次没有 C10.detail/PID/观测时间，不能声称还原原失败 PID，也不能以隔离通过覆盖整组失败。该既有测试资源边界由 B84 后续治理，本批不新增兼容/放宽断言；原失败保存在 `node-g6-cleanup-failure.log`，不代签全仓 clean。
+
+**R01 Outcome：PASS（仅可靠测量基线与本批工程实现）**。3/10/20 共 33 条输入、44 次真实调用及独立目标审阅承接 §11.20，旧 6/20 失败保留；卷纲移出阅读等产品目标仍未完成。R01 五组代码提交为：
+
+| 提交 | 可审阅职责 |
+|---|---|
+| `da9c38accfd7486bb46d887f1cbdd2fbb69d8e11` | 本轮 AX 作者归属、可见终态与外部等待生命周期。 |
+| `19febf1319f641600a8dc283b654480514fd6b77` | 原生请求成本、实验 recipe、manifest 与纯批次判据。 |
+| `5f4640e012e2cbe1a4381827e675454bc4ef8b7c` | 完整快照、实际运行清单安全与共享无损引用读取。 |
+| `524a523c94899628b5828dec460d7002865df70c` | prepare/capture/verify CLI、调用身份对账及独立 IO 反例。 |
+| `b612e91e168106d71a989cee4a1302cff452a797` | 既有 Tauri runner 的受控多轮驱动、运行事实与显式质量注册。 |
+
+提交使用普通 Git hooks，没有 `--no-verify`；全局 hook 提示本项目无 lefthook 配置而退出 0，真实验证以上述显式命令为准，不拿 commit 成功代替门禁。B84/AGENTS/历史扫描处置的原有 WIP 保留未纳入。后继为 R02：先在既有设计冻结结构化 Scope 字段与来源，再同批迁移全部现役生产者/三 wire/codec，保留原始 canonical 历史，不提前跳过 R03/R04 压缩契约。
 
 ## 12. 跨任务登记更正：REV-02 页面复验归因
 
