@@ -2,6 +2,7 @@
 
 > 本文件保存本次审查的版本、发现、证据摘要与复验要求，是固定时间点的审查记录。
 > B84 的执行状态、整改 checkpoint 与后续签收只维护在[原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)；本报告不建立第二份活动状态台账。
+> **最新复核入口：**请先读 [§9 整改后独立复核与交接](#9-整改后独立复核与交接)。REV-04 原缺陷复核通过；其余五项仍开放。§8.2 的页面失败归因已在 §9.8 撤回并更正。
 
 ## 1. 结论与验收边界
 
@@ -293,6 +294,8 @@ duration_ms: 25383.575875
 
 ## 8. 处理结果（2026-11-14，整改实施后）
 
+> **后续独立复核提示：**本节保留整改实施者当时的记录；其“已修复”判断及 §8.2 根因已由 [§9](#9-整改后独立复核与交接) 重新核对。请勿直接将本节历史判断作为当前签收或派工依据。
+
 > 本节由整改实施者追加，记录对本次审查发现的处理事实与证据；上方审查结论、证据与固定时间点记录保持不变。执行状态仍只维护在[原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)。
 
 ### 8.1 逐项状态
@@ -324,3 +327,322 @@ duration_ms: 25383.575875
 ### 8.4 提交清单（均未 push）
 
 `1e732920`、`51fc8bfc`、`760c81fe`、`f84514ce`、`99b0fa35`、`6e066e48`、`759406cc`、`ad5d2da7`、`01a2125f`、`10bec53a`。本地分支领先远端，推送需作者通知。
+
+## 9. 整改后独立复核与交接
+
+> 复核日期：2026-11-14。本节是在 §8 整改实施结果之后完成的独立复核快照，供后续处理人修复与复验；不覆盖 §1–8 的历史记录。执行状态继续只维护在 [B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)。作者指令：“写报告，我叫人处理”；本次仅更新文档，不实施代码修复。
+
+### 9.1 结论、版本与范围
+
+**复核结论：REV-04 的原竞争缺陷已验证修复；REV-01、02、03、05、06 仍有确定的剩余问题。不能认可 §8 所述六项均已完成代码修复，也不能据此签收 B84。§8.2 的“缺少 stage_sink 导致未持久化”归因撤回，依据见 §9.8。**
+
+| 项目 | 本轮口径 |
+|---|---|
+| 分支 / HEAD | `develop/dialogue-based-novel-workbench` / `adc71f2cf70ac577b29709b53384c5ef501cc66d` |
+| 被复核提交 | `1e732920`、`51fc8bfc`、`760c81fe`、`f84514ce`、`99b0fa35`、`6e066e48` 及其报告/任务记录 |
+| 工作区 | 仓库含其他开发线 WIP；本轮关键被审源码与报告在复核时与 HEAD 一致。不能宣称全仓 clean |
+| 平台边界 | macOS；沿用作者“A5 验证过 mac 了，win/Linux 不需要验”的裁决 |
+| 本轮新增执行 | 自有进程/目录的有界故障与竞态探针；真实 helper/配置的隔离机制验证 |
+| 本轮读取 | 当前源码、既有编译 CSS、上轮页面运行的日志/帧/数据库与场景断言 |
+| 未重新执行 | 完整 Mix/Cargo/task_done、完整前端套件、真实模型批次、真实页面、前端重新构建 |
+| 证据归属 | §8 的 12/12、260/260 等是整改实施者历史批次，不计成本轮重新执行；本轮探针不是整链产品验收 |
+
+以下级别沿用原发现，不新增一套问题编号；REV-05 的两条路径与 REV-06 的剩余清理问题均归原编号承接。
+
+| 编号 | 本轮独立复核结论 | 已成立的部分 | 仍需完成 |
+|---|---|---|---|
+| REV-01 / P1 | **仍开放** | 持续写入、打开句柄、命令路径引用能被拦截 | 静默存活的失联 payload 仍会被归档，随后重建无 marker 原路径 |
+| REV-02 / P2 | **仍开放** | 判据增加了可见非空段落条件；启动证明已调整 | CSS Modules 明文选择器不匹配真实 DOM；当前 run 内容绑定与真实页面通过证据待完成 |
+| REV-03 / P2 | **部分修复，仍开放** | helper 在受控信号失败时能够返回非零 | 调用者收到失败后仍无期限 wait，阻塞后续回收与最终失败传播 |
+| REV-04 / P2 | **原缺陷复核通过，可关闭** | 精确发布/退出竞争回放转绿，waiter 正确复用已发布模板 | 将该精确时序固化为仓库回归用例 |
+| REV-05 / P2 | **部分修复，仍开放** | 原 dead-caller 分支会报告查询超时 | live-run 安全点仍无界查询；首个查询超时可漏掉其他 Supervisor 中的自有任务；宽限不得抹掉超期 |
+| REV-06 / P2 | **部分修复，仍开放** | 缺失幂等、失败诊断、成功改非零、原失败码保留均有证据 | 成功运行遇首个删除失败立即 halt，跳过本可删除的 wal/shm |
+
+### 9.2 REV-01：静默存活的 payload 仍被归档（P1）
+
+**定位：**[test_env.mjs](../scripts/lib/test_env.mjs) 的 `latestTreeMtimeMs`（195–206）、`openHandlesInScope`（209–215）、`processesReferencingScope`（218–231）和 `reapOrphanScopes`（260–287）。当前 marker 在 306–313 行仅记录创建者 PID，没有持久登记实际 payload 进程组身份。
+
+三种检查可以发现某些活动迹象，但三者均未命中不能证明子进程已经结束。payload 可以只通过环境变量持有 TMPDIR，暂时无文件句柄、无近期写入、命令行也不包含 scope 路径，随后恢复工作。
+
+**本轮复现步骤：**
+
+1. 用真实 `test_env.mjs run` 在本次专属 base 创建 owned scope；payload 从环境变量读取 TMPDIR，安装信号处理器并静默等待。
+2. SIGKILL wrapper owner，确认 payload 仍存活。
+3. 仅将本次合成 scope 的完整文件树 mtime 调到两分钟前，以一分钟阈值调用当前 reaper。
+4. 归档后向该 payload 发送 SIGUSR1，观察它是否继续向原 TMPDIR 写入。
+
+实际关键输出：
+
+```json
+{
+  "probe": "idle-orphan-env-only-path",
+  "ownerKilled": true,
+  "payloadAliveAtReap": true,
+  "reapedCount": 1,
+  "keptReasons": [],
+  "markerPreservedBeforeWake": false,
+  "originalScopeRecreated": true,
+  "originalMarkerExists": false,
+  "payloadResumedWrite": true
+}
+```
+
+这是受控目录老化和信号时序，不是等待自然过期，也没有操作历史 scope。探针最终按捕获 PID 结束本次 payload 并回收自有目录。
+
+**处理要求：**在现有 owner 生命周期内补齐可验证的实际子进程/进程组归属与退出事实。无法证明归属或结束时保留现场；不能继续把“未发现活动迹象”当成“已证明资源结束”。先核对既有进程所有权机制，避免另建平行管理框架。
+
+**关闭条件：**新增“静默、通过 env 持有路径、稍后恢复写入”的回归；归档前确认 owned 活动资源已收口，归档后原路径不再生，证据保留；未知归属保持现场且给出原因。已有近期写入/句柄/命令引用、已退出 owner、无 marker、重复执行等覆盖继续保留。现有 [scope 测试](../scripts/lib/test_env_scope.test.mjs) 3048–3127 行覆盖了新增迹象检查，但没有覆盖本轮反例。
+
+### 9.3 REV-02：编译前 CSS 类名不能定位真实叙事（P2）
+
+**定位：**[external-ui-driver.mjs](../frontend/slice-verify/external-ui-driver.mjs) 30595、30606 行使用：
+
+```js
+region.querySelectorAll(".agenticLoopReasoning p")
+```
+
+而 [WorkspaceChat.tsx](../frontend/src/components/WorkspaceChat.tsx) 230 行导入 `WorkspaceChat.module.css`，931 行通过 `styles.agenticLoopReasoning` 渲染；[vite.config.ts](../frontend/vite.config.ts) 没有保留明文类名的例外。工作区既有 `frontend/dist/assets/index-q0_YfWjJ.css` 对应类名为 `._agenticLoopReasoning_1p1yf_753`，不含明文类选择器。
+
+因此实际叙事即使显示，新增选择器仍会得到空集合。§8 的合成 DOM 三态验证没有覆盖 CSS Modules 转换。另一个待落实条件是当前 run 绑定：当前代码读取第一个“本轮创作过程”并接受任意非空段落，尚不能单凭该条件证明当前目标 run 的预期叙事恢复。
+
+**证据边界：**本轮核对源码、配置与既有编译 CSS，没有重新构建或重跑页面。第三次历史页面运行先在 ProviderRun 数量断言失败，尚未走到这个选择器；不能把本缺陷改写成该次运行已经观测到的直接失败原因。其他 run 内容代签的风险本轮未另做 GUI 复现，不另计新 finding。
+
+**处理要求与关闭条件：**
+
+1. 按真实页面可达的语义定位当前待恢复 run，并核对该 run 的预期可见叙事；不固定匹配编译前类名，不添加产品验收专用 hook。
+2. 在既有测试集合补实际 DOM 形态的正反例：正确叙事、区域存在但零叙事、隐藏叙事、其他 run 有叙事而目标 run 未恢复。
+3. 按 §9.8 对齐前置场景与现行设计契约后，完成受影响真实页面复验；局部谓词通过不能代签页面。
+4. 同时复核原报告指出的流式采样是否混入活动文案/时长，避免把状态文字增长当作模型叙事增量；该项仍是原静态检查项，不冒充本轮新页面证据。
+
+### 9.4 REV-03：helper 失败后，调用者仍无期限 wait（P2）
+
+**定位：**[slice_verify.sh](../scripts/slice_verify.sh) 76–79 行、[tauri_slice_verify.sh](../scripts/tauri_slice_verify.sh) 765–776 行。调用链仍为：
+
+```bash
+kill_process_tree "$PID" || cleanup_failed=1
+wait "$PID" 2>/dev/null || true
+```
+
+[process_tree.sh](../scripts/lib/process_tree.sh) 135–142 行虽然加入 SIGKILL 后有界确认，但 helper 报告目标仍活着后，调用者下一行又无期限等待同一进程，后续 owned 资源和最终失败诊断都无法继续。
+
+**本轮复现：**从当前 slice 脚本原文提取未修改的 cleanup 函数，加载真实 helper；专有 shell/独立进程组中启动 sleep 30，仅对 TERM/KILL 注入失败，kill -0 保持真实探测。外层在 9 秒处结束观察。
+
+```json
+{
+  "source": "scripts/slice_verify.sh cleanup (unmodified function)",
+  "signal_failure_injected": true,
+  "still_blocked_at_9s": true,
+  "helper_failure_recorded": true,
+  "caller_wait_lines": ["+ wait 62990"],
+  "cleanup_failure_message_reached": false,
+  "probe_process_group_killed_and_reaped": true
+}
+```
+
+PID 62990 仅为该次专有 sleep 的临时 PID。探针外层终止了本次专有进程组并回收直接 shell；没有做全机残留扫描，不声称逐一 reap 所有后代。这是信号失败注入，不声称宿主自然发生了 EPERM，也不是完整页面入口验收。
+
+**处理要求与关闭条件：**调用者在 helper 失败后等待仍须有界；一个资源失败不能阻塞其他自有资源的处理。保留原始退出码及附加 cleanup 诊断，原运行成功而清理失败时最终必须非零。回归要从真实 cleanup 调用链进入，验证结束期限、后续资源确实被处理、最终结果与幂等不存在路径，而不是只直接测试 helper。
+
+另需核对 helper 的现有静态边界：81–87 行中 kill -0 本身不能区分 ESRCH 与 EPERM；95–100 行无法取得 stat 时返回“不存活”，与注释“无法查询时保守按存活”相反。本轮未扩展这两项故障探针，不单独增加发现计数。
+
+### 9.5 REV-04：精确发布/退出竞争已转绿
+
+**定位：**[test_env.mjs](../scripts/lib/test_env.mjs) 的 `awaitFixtureOwner`，1231–1235 行。发现 claim owner 已退出后再次调用 `ownerOutcome`，接受已发布或失败的最终事实。
+
+本轮重放原来的关键调度：waiter 首先读到未发布，在读取 claim 后受控暂停；owner 完成原子 rename 并正常退出；waiter 再继续判断 owner 状态。
+
+```json
+{
+  "probe": "publication-between-observation-and-owner-exit",
+  "ownerExit": 0,
+  "waiterAccepted": true,
+  "publishedBytes": "valid fixture"
+}
+```
+
+上面为原始双进程回执的字段摘要；waiter 原始 stdout 是 `{"accepted":true,"bytes":"valid fixture"}`。上一轮同一时序会误报 owner 退出且未发布；本轮正确复用模板，没有发生 waiter 重建。
+
+**结论：原缺陷已验证修复，可关闭。** §8 的“未执行精确调度反例”仍是整改实施当时的历史事实；本轮已经补上运行证据。该反例尚未固化为仓库测试，应作为防回归工作继续承接，不能把“未入库”混写成“本轮没有验证”。
+
+### 9.6 REV-05：安全点漏接 deadline，查询失败还可漏清其他自有任务（P2）
+
+**定位：**[agent_run_cleanup_helper.exs](../apps/novel_application/test/support/agent_run_cleanup_helper.exs) 202–211、236–265、354–360 行。
+
+**已经成立的修复：**原 dead-caller + 其他 owner background shutdown 的 20ms 反例，现在会报告 owned_tasks 超时，不再把迟到空集合当成成功；本轮该探针耗时 40ms，普通调度开销不另计缺陷。
+
+**剩余路径 A：安全点仍无界查询。** `safe_point_state/2` 第 208 行直接执行 `owned_tasks(pid, [@step_supervisor])`，没有调用新增有界包装。另一 owner 的 step task 已进入 250ms shutdown 等待后，`release_run(live_run, 20)` 实际耗时 310ms，最终才报告 stop 超时。新实现改了最终 drain，却漏掉了实际 live-run 清理链上的安全点查询。
+
+**剩余路径 B：前一个 Supervisor 阻塞时，另一个中的自有任务未处理。** `owned_tasks` 顺序查询两只 Supervisor；首个查询超时后 247–248 行直接返回错误，已经退出的 caller 所属 background task 仍然存活。
+
+本轮字段摘要：
+
+```text
+original_dead_caller_20ms:
+  result = owned_tasks timeout; elapsed_ms = 40
+
+live_run_safe_point_20ms:
+  result = stop timeout; elapsed_ms = 310
+  live_run_alive_after = false
+
+step_blocked_owned_background_20ms:
+  result = owned_tasks timeout; elapsed_ms = 83
+  owned_background_alive_after_cleanup = true
+
+dead_caller_zero_deadline:
+  result = :ok; elapsed_ms = 25
+```
+
+最后一个结果补充说明：259 行在 deadline 已过后给 50ms 查询机会，却没有记录超期；263 行返回迟到空集合后仍可能成功。宽限可以用于继续清理，不能抹掉已经发生的期限失败。
+
+**严格证据边界：**通过 Code.require_file 加载当前真实 helper，使用真实 Task.Supervisor、DynamicSupervisor、任务、shutdown、监控与 $callers 归属。live-run 分支使用最小 GenServer 协议替身返回 current_task?: false，并在独立进程内以最小 API 转发模块承接 command/state；没有加载生产 AgentRunServer，也没有启动 Repo、SQLite、Provider 或创作业务。其他 owner 已收到 shutdown 的消息作为调度屏障。本证据证明 helper/OTP 机制问题，不代签产品整链。探针结束后自行清掉剩余任务，不能据此声称被测 helper 已经收净。
+
+**处理要求与关闭条件：**
+
+- 安全点及最终 drain 的查询都消费同一 deadline；不能等待无关 owner 的整个 shutdown。
+- 各 Supervisor 查询失败要独立处理，保留已取得的归属任务；一处失败不能丢弃其他可查询范围的回收责任。
+- deadline 已过时明确记录失败；随后如有有限清理宽限，迟到空集合也不能恢复为成功。
+- 在既有 [agent_run_cleanup_test.exs](../apps/novel_application/test/novel_application/agent_run_cleanup_test.exs) 补 live-run、跨 Supervisor、自有任务实际存活状态、零期限/期限耗尽反例；用消息屏障控制时序，保留正常、嵌套、重复释放和无关 owner 保护覆盖。
+- 仍须保证本 case 任务收口后才释放 Sandbox。只断言抛异常不足以证明所有权边界正确。
+
+### 9.7 REV-06：成功运行的首个删除错误截断后续清理（P2）
+
+**定位：**[config/test.exs](../config/test.exs) 39–52 行；50 行的 System.halt(1) 位于三个文件的遍历内部。
+
+**已验证正确的部分：**正常删除和文件缺失均退出 0；真实删除拒绝会输出路径与 :eperm，原运行成功时改为 1，原运行退出 2 时保留 2。原“静默成功”的缺陷已经修复。
+
+**剩余问题与本轮复现：**
+
+1. 用当前 Config.Reader.read! 加载真实退出钩子，按其路径规则创建本次专属 db/wal/shm 普通文件。
+2. 仅给主文件设置 macOS uchg，wal/shm 保持普通可删除状态。
+3. 分别观察原运行成功退出与原运行失败退出的结果。
+
+| 条件 | 最终退出 | 诊断 | 被测钩子执行后残留 |
+|---|---:|---|---|
+| 正常删除 | 0 | 无 | 无 |
+| 文件原本缺失 | 0 | 无 | 无 |
+| 仅主文件拒绝删除，原运行成功 | 1 | 主文件路径 + :eperm | **db、wal、shm** |
+| 仅主文件拒绝删除，原运行退出 2 | 2 | 主文件路径 + :eperm | **仅 db** |
+
+后一个结果证明 sidecars 原本可以删除；前一个结果的残留来自循环第一项失败后立即 halt。
+
+**证据边界：**这是当前配置注册的真实 at_exit 与真实文件系统删除，不是真实 SQLite 业务库/连接测试。文件内容只是 owned-review-fixture。失败码有效补验使用 `exit({:shutdown, 2})`；早先一次 `System.stop(2)` 尝试绕过了目标退出钩子，属于探针设置错误，不参与验收结论。外层 finally 清除了自己设置的 uchg 并回收文件，没有处理历史 DB 或作者资料。
+
+**处理要求与关闭条件：**完整尝试 db/wal/shm 清理并汇总失败后，再统一决定退出码；保留原失败码，继续处理仍可删除的文件。将正常、缺失、主文件失败但 sidecars 可删、原失败码保留、显式 NOVEL_TEST_DB_DIR 借用路径不删除等反例纳入既有测试体系。实施前先定位现有测试承接，不另建退出管理框架。
+
+Rust TempDir::drop 忽略删除结果仍仅为原报告的静态观察，本轮没有补 Rust 故障复现，也不增加为第七项确认发现。
+
+### 9.8 撤回“缺少 stage_sink 导致未持久化”的归因
+
+§8.2 将页面失败确诊为“生产 snapshot 没有注入 stage_sink，ProviderRun/Event/Output 因此未落库”。当前源码及同次历史运行材料足以否定该确诊：
+
+| 核对对象 | 已观察事实 | 可支持的判断 |
+|---|---|---|
+| [agent_run_server.ex](../apps/novel_application/lib/novel_application/agent_run_server.ex) 3442–3453、904–908 行 | step_snapshot 构造 stage_sink，再通过 with_request_view 传给 executor | 生产注入点存在；“生产没有注入调用点”不成立 |
+| [authoring_session.ex](../apps/novel_application/lib/novel_application/agent_run_flows/authoring_session.ex) 34–52、283–291 行 | 请求视图扩展/更新 snapshot，保留已有字段 | 所核对链路没有在这里丢掉 sink |
+| [judgment_protocol.ex](../apps/novel_application/lib/novel_application/judgment_protocol.ex) 49–59 行 | 普通判断执行经 with_stage_sink 包装 | 不能跳过真实调用链，仅凭搜索不全断言接线缺失 |
+| 历史 backend.log 704–705、907–908 行 | QUERY OK 的 provider_runs INSERT 与 provider_outputs INSERT，后者含 input_tokens=746、output_tokens=5 | 运行期间实际执行过事实写入；成功 INSERT 单独不替代事务提交证明 |
+| 历史 ui-frames.json | 同一 ProviderRun 有 6 条作者可见 provider_progress | 流式投影实际发生；6 条事件不等于 6 个 ProviderRun，也不能单独证明提交 |
+| [external-ui-driver.mjs](../frontend/slice-verify/external-ui-driver.mjs) 30533–30548 行 | 历史报错对应 queriedProviderRuns.length >= 3；此前依次检查 AgentRun、started/final 与 provider refs | 该报错是集合数量门槛失败，不能解释成 ProviderRun 必然为 0 |
+| [tauri_slice_verify.sh](../scripts/tauri_slice_verify.sh) 516–521、758–781 行与历史 tauri.log | 该场景不在系统原生 allowlist；日志为 tauri dev；非系统原生分支退出时会 reset_test_db | 退出后空库受到后处理影响，不能倒推运行期间从未持久化 |
+
+历史材料位于 `artifacts/slice-verify/agent-provider-execution-activity-restored-tauri/`。本轮只读复核：保存库中的 provider_runs、provider_events、provider_outputs、agent_runs、agent_events 均为 0；日志有一次 ProviderRun INSERT、一次 ProviderOutput INSERT、28 条 commit、未见 rollback。后两个计数是日志汇总，不表示已逐笔重新对账每个事务。API 顺序断言的判断来自历史报错与当前源代码执行顺序，本轮没有重新调用运行中的 API 或取得新的响应快照。
+
+**更正结论：**保留“真实页面未通过”的事实；撤回“没有 sink、从未落库”的确诊。退出后的数据库不能作为该确诊依据。当前已定位的直接失败门槛为 ProviderRun 数量 >= 3；其上层根因仍须按现行愿景、设计、调用契约与场景要求继续核对。
+
+**交接要求：**
+
+1. 先核对当前运行 profile、真实调用生命周期与场景所要求的数量/purpose/usage/恢复语义，判断是否为场景漂移、执行路径未覆盖或 API 投影遗漏。
+2. 不能因为只观察到较少调用就直接把 >=3 改成 >=1，也不能增加无业务意义调用凑数。
+3. 保留当前 run 因果绑定、usage、持久事实恢复、不重复调用 Provider、无原文泄露等原验收目标。
+4. 复跑前明确证据保留时点，读取/快照必须在会重建 DB 的 cleanup 之前完成；不得把清理后空库当作运行期事实。
+5. [B87 §12](../tasks/slices/B87-model-interaction-request-projection.md#12-跨任务登记更正rev-02-页面复验归因) 同步撤回“新增 sink 接线批次”的依据。本轮不改 B87 批次范围；后续若证明有产品缺口，再按真实责任层归属处理。
+
+### 9.9 处理顺序与验收交接
+
+| 建议顺序 | 处理对象 | 必须交回的证据 |
+|---|---|---|
+| 1 | REV-01 所有权与失联恢复 | 静默 payload 反例、活动结束/不可确认两类结果、原路径不再生、证据保留 |
+| 2 | REV-03 / 05 / 06 清理调用链 | 真实 cleanup 入口有界失败；跨 Supervisor 自有任务收口；首文件失败后 sidecars 仍清理；原失败保留 |
+| 3 | REV-02 页面与前置场景 | 现行设计/契约判据核对记录、真实 DOM 正反例、受影响真实页面通过、清理前持久证据 |
+| 4 | REV-04 防回归 | 将本轮精确发布竞争固化到已有 scope 测试；既有并发/复用/失败路径继续通过 |
+
+实施者先读本节与 [B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)，复用既有 owner/helper/driver/test owner；任何新实体先查重。修复只处理已证明的问题及必要调用链，避免另建任务台账、清理框架或产品验收 hook。
+
+scope 自测仍走仓库既有 self 入口，不套普通 borrowed run；本机依赖路径包含 Node 与 Homebrew Python/PyYAML：
+
+```bash
+/usr/bin/env -u NOVEL_TEST_RUN_DIR -u NOVEL_TEST_ENTRY_SCOPED \
+  PATH=/Users/loong/.nvm/versions/node/v24.19.0/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin \
+  bash scripts/node_test.sh --self scripts/lib/test_env_scope.test.mjs
+```
+
+此命令是已核实入口说明，**本轮复核没有重新执行完整 scope 套件**。其他验证按修改面复用当前工程入口、[质量门禁](../docs/engineering/quality-gates.md) 与场景 manifest；不要把上轮计数、合成谓词或本节诊断探针冒充新一轮完整验收。
+
+修复回报必须包含：基线/改动文件、各反例修前修后结果、适用回归命令和实际计数、真实页面与局部机制的证据分层、剩余缺口及 owned 资源回收结果。整改状态只更新 B84 原任务，历史证据以追加方式保存。A2 随 R01 两族、b71-pending、driver/G2 拆分、dogfood、lefthook 等既有债务不因本节消失。
+
+### 9.10 本轮证据标识、限制与源码指纹
+
+| 内容 | 标识 / 来源 | 收尾与解释 |
+|---|---|---|
+| REV-01 静默 orphan | test_env run `5d9d4b32f5fd0477` | 外层 exit=0、tree_finalized=true；负例明确仍可误归档 |
+| REV-04 精确发布竞争 | test_env run `611a304938f95c67` | 外层 exit=0、tree_finalized=true；waiter accepted=true |
+| REV-05 四个机制反例 | test_env run `48817a12c00fa849` | 外层 exit=0、tree_finalized=true；残留任务由探针兜底结束，不算 helper 自行清净 |
+| REV-06 正常/缺失/拒绝 | test_env run `2841694c67e4ae97` | 含一次被排除的 System.stop(2) 探针设置错误 |
+| REV-06 原失败码有效补验 | test_env run `5accd2e39cc9a5c8` | exit({:shutdown, 2}) 执行目标钩子；外层回收自有标记/文件 |
+| REV-03 调用者 wait | WebCodex 同步 run_script 回执 | 未返回 Job ID；临时 PID 不是证据编号，未虚构 artifacts 路径 |
+| REV-02 / 页面归因 | 当前源码、既有 CSS、历史页面 artifacts | 本轮没有新构建/页面/API 运行证据 |
+
+以上 run 值是 test_env 输出，不是 wc_job 编号。外层 exit=0 表示探针本身完成观察与收尾，不代表被测负例通过。短探针脚本未作为正式回归用例落库，本报告保存足够定位和重建反例的步骤、屏障、输出与边界；不得声称仓库已经新增这些测试。
+
+REV-05 直接加载 helper 时还有“owned_tasks/2 默认参数未使用”的编译 warning；本轮不将其另计主要发现，也不宣称零告警编译通过。REV-06 无效的 System.stop(2) 尝试已排除。全部故障注入只作用于本次自有合成资源；没有全局 reap、历史 DB 清理或共享模型操作。
+
+复核开始与文档写入前核对的源码 SHA-256：
+
+| 文件 | SHA-256 |
+|---|---|
+| `scripts/lib/test_env.mjs` | `80a87e5825e4f938f1f17c47ab146503709e85dc784c2f804fe02a59bbc97c23` |
+| `scripts/lib/test_env_scope.test.mjs` | `08b31690a06c105aa4751c8fdd2c739263c2cc747dc59feb85b59502329def5f` |
+| `scripts/lib/process_tree.sh` | `d3001aa9d31c7b2226f96f3edccefd58c2cc9e9fa09b625e86a9e5083e914b41` |
+| `scripts/slice_verify.sh` | `eed37de39f2decaf71fc94329e8088c4d8976026a5022589b70d37813008a670` |
+| `scripts/tauri_slice_verify.sh` | `d85d705e5d421151b1fc5194c0e7557882b7d227911c911f96899c304fc7427c` |
+| `frontend/slice-verify/external-ui-driver.mjs` | `9c48bc906931587a008f0aa96cccb0510b916052044b3a057479b889c52c8cb2` |
+| `frontend/src/components/WorkspaceChat.tsx` | `de5db70bfdfd70e9ae3493e1547f12a83ebc6e0a483d9244f562b18241eafcf9` |
+| `apps/novel_application/test/support/agent_run_cleanup_helper.exs` | `f099efa71d1fe7ca7120ca662ee0064b9a4c092ec5cd59869edc3e3d404ef86c` |
+| `config/test.exs` | `5c93b79adb194bee741be48dbec266612933ccfee969413d247049bfd1ffbdd4` |
+| `apps/novel_application/lib/novel_application/agent_run_server.ex` | `8c00d92fe2912cfda1982b04ce9a9d316476bbd0a4946c385f82f1f7dbe6bd66` |
+
+追加前报告（326 行，含整改实施者 §8）的 SHA-256 为 `9c48fe693b181da23983c016b7a5dddd477e76c5df5f0357999649b7e32ac892`。本轮只追加复核和导航说明、同步原任务与 B87 归因更正；§1–8 的历史正文保留。后续源码变化时应按函数和指纹重新定位，不机械使用本节行号。
+
+## 10. 复核问题整改结果（2026-11-14，复核后）
+
+> 本节由整改实施者按 §9.9 的处理顺序追加，记录对 §9 剩余项的修复、局部证据与未闭环项；§1–9 的历史记录与判断保持不变。执行状态仍只维护在[B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)。
+
+### 10.1 逐项结果
+
+| 编号 | 处理结果 | 提交 | 本轮证据 |
+|---|---|---|---|
+| REV-01（P1） | **已修复**：`spawnScoped` 将真实子进程 pid/pgid 持久登记到 scope 的 `.novel-test-run-children.jsonl`；`reap` 归档前先核对 journal：存活子进程/进程组 → `live_children`，缺失 journal → `children_unverifiable`（默认保留现场） | `02b16162` | 静默 env-only payload（不写文件/无句柄/命令行不含 scope）复验 `reaped=0`、原 scope 保留；终止后才归档；旧无 journal scope 默认保留。scope 全套 **65/65** |
+| REV-02（P2） | **判据已修复，页面复验未闭环**：选择器改用 `[class*="agenticLoopReasoning"]` 匹配真实 CSS Modules 哈希类名；刷新前采集本 run 可见叙事，刷新后必须匹配同一片段 | `10ebf4b4` | 从 driver 原文提取谓词做合成 DOM：零叙事、隐藏叙事、其他 run 叙事均 `false`；哈希类名叙事与 expected 匹配为 `true`；driver 260/260、lint 0 |
+| REV-03（P2） | **已修复**：新增 `wait_process_exit`/`reap_process_tree`；`slice_verify`/`tauri_slice_verify` cleanup 不再无期限 `wait`，信号失败有界返回非零后继续处理其他 owned 资源 | `00737ef7` | 正常、信号拒绝+仍存活、不存在/空 PID、子孙树、有界失败共 **7/7** |
+| REV-04（P2） | **复核者已用精确发布/退出时序验证通过**；仓库内精确回归用例**尚未固化** | — | 本轮未新增调度反例；既有 fixture 并发/复用与 scope 套件通过 |
+| REV-05（P2） | **已修复**：safe point 使用有界查询；逐 Supervisor 查询，一处超时不丢弃其他自有任务；deadline 已过的宽限查询记录超期，不再把迟到空集合当成功 | `fba0fca4` | live-run safe point、跨 Supervisor 清理、零期限反例；**15/15** |
+| REV-06（P2） | **已修复**：先尝试 db/wal/shm 全部删除，再统一决定退出码；原运行成功+删除失败→1 且 sidecars 已清理，原失败码保留 | `79a3912f` | 受控四态：正常 0 / 缺失 0 / 原成功+主文件拒绝 1（sidecars 已删）/ 原失败 2（sidecars 已删） |
+| Rust `TempDir::drop` | **未修**（原报告静态观察，未计数） | — | 未做 Rust 故障复现 |
+
+### 10.2 REV-02 页面为何仍未闭环
+
+真实场景 `agent-provider-execution-activity-restored` 在恢复判据之前失败于 `queriedProviderRuns.length >= 3`。历史 backend.log 确认运行期确有 ProviderRun/ProviderOutput 写入（此前“缺少 stage_sink、从未落库”的归因已按 §9.8 撤回）；退出后的数据库为空是 cleanup 重建所致，不能倒推运行期无持久化。
+
+当前普通对话（`slice_verify` stub）只产生 **1 个** ProviderRun（purpose=planner），而 driver 断言至少 3 个；UA-01 CP1 的历史 routed conversation 验收口径为 3 次 provider calls。二者差异需要按现行愿景、设计与场景契约核对：判断是场景预期漂移，还是 stub/执行路径未覆盖。**不能直接把 >=3 改成 >=1，也不能增加无业务意义调用凑数**；本轮未修改该断言。
+
+因此 REV-02 的页面关闭条件仍未满足：选择器与 run 绑定已有局部证据，但“受影响真实页面通过”尚未取得。
+
+### 10.3 验证范围与诚实限制
+
+- 本轮执行：`node --test scripts/lib/test_env_scope.test.mjs`（65/65）；`node --test scripts/lib/process_tree.test.mjs`（7/7）；`MIX_ENV=test mix test .../agent_run_cleanup_test.exs`（15/15）；`pnpm test:slice-verify`（260/260）；`pnpm lint`（0）；受控 REP-06 四态脚本。
+- **未执行**：完整 `task_done`/`mix check`/Cargo、完整真实模型批次、REV-02 受影响真实页面通过证据、REV-04 精确回归入库。
+- 局部探针与合成 DOM 不是整链页面验收；本轮不据此签收 B84。B84 保持 `doing`，等复核者按 §9 关闭条件复验。
+
+### 10.4 提交清单（均未 push）
+
+`79a3912f`（REV-06）、`00737ef7`（REV-03）、`fba0fca4`（REV-05）、`02b16162`（REV-01）、`10ebf4b4`（REV-02 判据）、`2c10b788`（B84 状态记录）。本地分支领先远端 23 个提交，推送需作者通知。
