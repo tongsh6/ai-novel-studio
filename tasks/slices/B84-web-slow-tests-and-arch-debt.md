@@ -623,12 +623,16 @@ SUT仅在`dir`缺失时把C3/C4/C7/C9/C10标为unknown（不冒充pass/fail）�
 - `vs10-observability-spine`：passed。
 - 三个批次都经新归档helper（旧目录进入`.history/`），未直接删除证据；启动/退出由脚本打印真实ready/passed。
 
-Tauri native（`TAURI_NATIVE_SYSTEM_DRIVER=1`）：
+Tauri surface：
 
-- `b28-scope-authorization`：app构建/签名完成，但外部driver在120s内未观察到窗口（`failure.json`: `driver_idle_timeout`，`commands_processed=0`）；cleanup `remaining=[]`，无进程/端口残留。
-- 该失败是窗口观察/环境问题，不是断言失败；原生真实批次**未闭环**，需辅助功能授权或窗口确认后重跑。没有用浏览器结果或单测代签原生。
+- 非原生入口`su01-provider-health-model`（真实Tauri dev窗口 + Playwright driver，provider=slice_verify）：**passed**，exit 0。
+- 原生AX入口`b28-scope-authorization`（`TAURI_NATIVE_SYSTEM_DRIVER=1`，provider=strata，真实`iq3_s`）：
+  - 首次单独运行runner时`driver_idle_timeout`（0 commands）。复核确认**不是辅助功能权限或窗口缺失**：`AXIsProcessTrusted()=true`，手动启动bundle有1个AX窗口（1280×801）。根因是原生模式runner只准备bundle并等待外部driver，必须与`native_b28_scope_drive.mjs`配对启动；单独跑runner必然超时。
+  - 第二次配对后已进入窗口输入/发送，但`wait_wire_timeout:P3:user_message_sent`：未开`TAURI_NATIVE_TRANSPORT_PROXY=1`，`native-transport.jsonl`未生成；app-log显示Strata HTTP 409（当时`/v1/models`无iq3_s）。
+  - 作者在Strata加载`iq3_s`后，以`TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1` + runner/driver配对重跑：**107/107 checks、7场景（P3/N1/N2/N3/N4/P1/P2）、39 waits**；summary `surface=tauri`、`driver=ax-native-system-ui`、`provider=strata`、`model_unloaded_after=true`；19条真实模型调用、855行wire；cleanup有真实动作且无残留进程/端口。
+  - 这是A4真实原生闭环证据，不是用单测或浏览器结果代签。
 
-本checkpoint签浏览器真实批次；原生批次保留失败证据、A4未完全闭环。本批已本地提交（未推送）。
+本checkpoint签浏览器3场景+Tauri非原生1场景+原生真实模型1场景；A4真实批次已闭环，A5未开始。本次更正与证据已本地提交（未推送）。
 
 ## 变更记录
 
