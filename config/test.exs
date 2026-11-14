@@ -34,8 +34,22 @@ test_db_path =
 # 自有临时库（未显式指定 NOVEL_TEST_DB_DIR）属于本次测试进程：正常或失败退出时
 # 归还 db/wal/shm；显式目录是外部 owner 借用的资源，不在此删除。
 if is_nil(test_db_dir) do
-  System.at_exit(fn _status ->
-    Enum.each([test_db_path, test_db_path <> "-wal", test_db_path <> "-shm"], &File.rm/1)
+  # ENOENT 是幂等成功；其他删除失败必须留诊断，并在测试本身成功时把退出码改为
+  # 非零（不掩盖失败）；测试本身已失败时保留原失败码。
+  System.at_exit(fn status ->
+    Enum.each([test_db_path, test_db_path <> "-wal", test_db_path <> "-shm"], fn path ->
+      case File.rm(path) do
+        :ok ->
+          :ok
+
+        {:error, :enoent} ->
+          :ok
+
+        {:error, reason} ->
+          IO.puts(:stderr, "[test-db] 删除自有测试库失败 #{path}: #{inspect(reason)}")
+          if status == 0, do: System.halt(1)
+      end
+    end)
   end)
 end
 
