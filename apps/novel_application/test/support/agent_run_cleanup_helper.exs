@@ -205,7 +205,9 @@ defmodule NovelApplication.TestAgentRunCleanup do
     try do
       state = NovelApplication.AgentRunServer.state(pid, timeout)
 
-      if state.current_task? or owned_tasks(pid, [@step_supervisor]) != [] do
+      result = owned_tasks_within(pid, [@step_supervisor], deadline)
+
+      if state.current_task? or result.tasks != [] or result.failures != [] do
         :wait
       else
         :safe
@@ -234,34 +236,55 @@ defmodule NovelApplication.TestAgentRunCleanup do
   end
 
   defp drain_owned_tasks(pid, deadline, failures) do
-    case owned_tasks_within(pid, @task_supervisors, deadline) do
-      {:ok, []} ->
+    result = owned_tasks_within(pid, @task_supervisors, deadline)
+
+    failures =
+      if result.expired? do
+        failures ++ [{:timeout, {:owned_tasks, pid}}]
+      else
         failures
+      end
 
-      {:ok, tasks} ->
-        failures =
-          Enum.reduce(tasks, failures, fn task, acc -> stop_task(task, deadline, acc) end)
+    failures =
+      Enum.reduce(result.tasks, failures, fn task, acc -> stop_task(task, deadline, acc) end)
 
-        drain_owned_tasks(pid, deadline, failures)
+    failures = failures ++ result.failures
 
-      {:error, failure} ->
-        failures ++ [failure]
+    # 查询超时/已取得其他 Supervisor 的失败时，不再递归等同一 deadline；
+    # 已取得的任务都已处理，未查询到的范围保留明确失败。
+    if result.expired? or result.failures != [] or result.tasks == [] do
+      failures
+    else
+      drain_owned_tasks(pid, deadline, failures)
     end
   end
 
   # Supervisor 查询本身也要受同一 deadline 约束：共享 supervisor 可能正为其他
   # owner shutdown，同步 which_children 会让本 case 无界等待；迟到的空集合不能
-  # 被解释成按时收口。查询放在受监控短进程里，超时即返回明确失败（不重建 owner）。
+  # 被解释成按时收口。逐个 Supervisor 查询，一处失败不丢弃其他范围的自有任务。
   defp owned_tasks_within(run_pid, supervisors, deadline) do
+    Enum.reduce(supervisors, %{tasks: [], expired?: false, failures: []}, fn supervisor, acc ->
+      case owned_tasks_from_supervisor(run_pid, supervisor, deadline) do
+        {:ok, tasks, expired?} ->
+          %{acc | tasks: acc.tasks ++ tasks, expired?: acc.expired? or expired?}
+
+        {:error, failure} ->
+          %{acc | failures: acc.failures ++ [failure]}
+      end
+    end)
+  end
+
+  defp owned_tasks_from_supervisor(run_pid, supervisor, deadline) do
     remaining = remaining_ms(deadline)
     # deadline 已过时仍给一次很短的查询机会：拿到任务列表后由 stop_task 的
-    # remaining<=0 分支 force_kill，不能因为超期就跳过清理已知任务。
+    # remaining<=0 分支 force_kill，但必须记录已经超期，不能把迟到空集合当成功。
+    expired? = remaining <= 0
     budget = if remaining > 0, do: remaining, else: 50
-    task = Task.async(fn -> owned_tasks(run_pid, supervisors) end)
+    task = Task.async(fn -> owned_tasks(run_pid, [supervisor]) end)
 
     case Task.yield(task, budget) || Task.shutdown(task, :brutal_kill) do
-      {:ok, tasks} -> {:ok, tasks}
-      _ -> {:error, {:timeout, {:owned_tasks, run_pid}}}
+      {:ok, tasks} -> {:ok, tasks, expired?}
+      _ -> {:error, {:timeout, {:owned_tasks, supervisor}}}
     end
   end
 
@@ -351,7 +374,7 @@ defmodule NovelApplication.TestAgentRunCleanup do
     end
   end
 
-  defp owned_tasks(run_pid, supervisors \\ @task_supervisors) do
+  defp owned_tasks(run_pid, supervisors) do
     for supervisor <- supervisors,
         {_, pid, _, _} <- DynamicSupervisor.which_children(supervisor),
         is_pid(pid),

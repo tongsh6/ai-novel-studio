@@ -469,4 +469,90 @@ defmodule NovelApplication.AgentRunCleanupTest do
     Process.exit(blocker, :kill)
     Task.await(stopper, 2_000)
   end
+  test "release_run 在其他 owner 占用 step supervisor 时仍按 deadline 结束" do
+    {:ok, blocker} =
+      Task.Supervisor.start_child(NovelApplication.AgentStepTaskSupervisor, fn ->
+        Process.flag(:trap_exit, true)
+
+        receive do
+          :never -> :ok
+        end
+      end)
+
+    stopper =
+      Task.async(fn ->
+        DynamicSupervisor.terminate_child(NovelApplication.AgentStepTaskSupervisor, blocker)
+      end)
+
+    Process.sleep(20)
+    {run_id, run_pid} = start_fake_run(self(), background: false)
+    assert TestAgentRunCleanup.register_run(run_id) == run_pid
+    started = System.monotonic_time(:millisecond)
+
+    assert_raise RuntimeError, ~r/failed within 20ms/, fn ->
+      TestAgentRunCleanup.release_run(run_pid, 20)
+    end
+
+    elapsed = System.monotonic_time(:millisecond) - started
+    assert elapsed < 500, "safe point 查询必须受 deadline 约束，实际 #{elapsed}ms"
+
+    Process.exit(blocker, :kill)
+    Task.await(stopper, 2_000)
+  end
+
+  test "release_task_caller 在一个 supervisor 超时后仍清理另一 supervisor 的自有任务" do
+    dead_caller = spawn(fn -> :ok end)
+    ref = Process.monitor(dead_caller)
+    assert_receive {:DOWN, ^ref, :process, ^dead_caller, _}
+
+    parent = self()
+
+    {:ok, owned_task} =
+      Task.Supervisor.start_child(@background_supervisor, fn ->
+        Process.put(:"$callers", [dead_caller])
+        send(parent, {:owned_task_started, self()})
+
+        receive do
+          :never -> :ok
+        end
+      end)
+
+    assert_receive {:owned_task_started, ^owned_task}, 1_000
+
+    {:ok, blocker} =
+      Task.Supervisor.start_child(NovelApplication.AgentStepTaskSupervisor, fn ->
+        Process.flag(:trap_exit, true)
+
+        receive do
+          :never -> :ok
+        end
+      end)
+
+    stopper =
+      Task.async(fn ->
+        DynamicSupervisor.terminate_child(NovelApplication.AgentStepTaskSupervisor, blocker)
+      end)
+
+    Process.sleep(20)
+
+    assert_raise RuntimeError, ~r/failed within 20ms/, fn ->
+      TestAgentRunCleanup.release_task_caller(dead_caller, 20)
+    end
+
+    refute Process.alive?(owned_task), "另一 Supervisor 的自有任务必须被清理"
+
+    Process.exit(blocker, :kill)
+    Task.await(stopper, 2_000)
+  end
+
+  test "release_task_caller 零期限也不返回 :ok" do
+    dead_caller = spawn(fn -> :ok end)
+    ref = Process.monitor(dead_caller)
+    assert_receive {:DOWN, ^ref, :process, ^dead_caller, _}
+
+    assert_raise RuntimeError, ~r/failed within 0ms/, fn ->
+      TestAgentRunCleanup.release_task_caller(dead_caller, 0)
+    end
+  end
+
 end
