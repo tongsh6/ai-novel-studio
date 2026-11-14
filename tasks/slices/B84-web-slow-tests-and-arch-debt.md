@@ -644,6 +644,17 @@ Tauri surface：
 
 本checkpoint只签失联 owner fail-closed 与质量枚举修复，不签 A5 全部。本批已本地提交（未推送）。
 
+### A5 完成（本机 macOS，2026-11-14）
+
+- **终止形态**：`test_env_scope.test.mjs` **62/62** 覆盖正常、断言失败、初始化失败、超时、SIGTERM 取消、子进程被杀、owner 失联；宿主失联新增 fail-closed 借用拒绝与 `reap` 显式归档。
+- **宿主失联恢复**：受控 SIGKILL owner 后借用返回 1（修复前为 0）；`reap` 归档 4 个失联 scope（共35M）到 `$TMPDIR/.orphaned/`，TMPDIR 根前缀清零，归档保留原内容。
+- **两次无净增**：同一 `manifest_io` 入口连续两次，TMPDIR `ai-novel-test-run.*`/`test-env-scope-*` 计数 4→4→4，两次各 **11/11**。
+- **并行隔离**：两进程并行运行同一入口，各 **11/11**，计数仍 4；无串扰。
+- **覆盖不降**：`MIX_ENV=test mix check` 退出0（**3203 tests/0**，web **196/61.9s**）；web 独立两次均 **196/0**（64s/63s）。
+- **历史残留**：旧 161 个 DB 前缀与约149GiB 资料在当前宿主已不可见（此前/系统清理）；`artifacts/` 23G 是证据产物，不是测试 scratch；4 个失联 scope 已归档，`.orphaned` 可人工删除。
+- **明确限制（不假签）**：Windows 进程树收口与跨平台验证**未支持/未验证**，本机 macOS 结论不外推；B84 既有债务保留（A2 随 R01 两族、b71-pending、driver/G2 拆分、dogfood 固定目录、lefthook 接线）。
+- 本checkpoint签 A5 本机验收；B84 是否签收待作者决定。本批已本地提交（未推送）。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。
