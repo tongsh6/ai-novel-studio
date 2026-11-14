@@ -319,13 +319,6 @@
       "kind": "test",
       "class": "watched"
     },
-    "apps/novel_application/test/novel_application/agent_run_runtime_test.exs": {
-      "lines": 3645,
-      "max_lines": 3477,
-      "scope": "novel_application",
-      "kind": "test",
-      "class": "watched"
-    },
     "apps/novel_application/test/novel_application/agentic_plan_draft_planner_test.exs": {
       "lines": 1438,
       "max_lines": 1389,
@@ -563,6 +556,11 @@
       "reason": "UI 文案唯一真源（AGENTS.md 设计驱动 / docs/design/ui/47-ui-copy-guidelines.md 强制集中）：所有用户可见文案必须在此集中，拆散会造成文案漂移。体积来自文案条目而非逻辑。",
       "owner": "frontend",
       "review_by": "2027-06-30"
+    },
+    "apps/novel_application/test/novel_application/agent_run_runtime_test.exs": {
+      "reason": "AgentRun runtime 状态机端到端测试的唯一聚合点：启动/暂停/恢复/取消/预算/durable/steer/flow 场景共享同一组真实 Supervisor/Registry/Sandbox fixture 与事件观测 helper；本批净增仅是按实际 run_id 的生命周期登记（每处1行）。拆分需先把私有 fixture 提取为跨文件 support，属独立重构（B78 领域），不在 B84 生命周期收口范围。",
+      "owner": "novel_application",
+      "review_by": "2027-03-31"
     }
   }
 }

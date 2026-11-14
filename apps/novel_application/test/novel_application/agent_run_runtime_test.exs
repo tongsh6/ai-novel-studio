@@ -75,6 +75,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       end)
 
     assert [id] = Enum.uniq(ids)
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(id)
     assert_receive {:delivery_step, ^id, pid}
     refute_receive {:delivery_step, _, _}
 
@@ -92,6 +93,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                opts
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(id)
 
     assert {:ok, receipt} = AgentRunService.message_receipt(id, attrs.work_id, attrs.session_id)
     assert receipt.state.run.status == :completed
@@ -140,6 +143,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                next_step_planner: planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:agent_event, :run_failed, _}, 2000
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :failed
@@ -174,6 +179,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :run_failed, _}, 2000
     assert {:ok, state} = AgentRunService.state(run_id)
@@ -219,6 +226,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                next_step_planner: planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:execution_transcript, ^planned}, 2000
     assert_receive {:agent_event, :run_completed, _}, 2000
     assert {:ok, state} = AgentRunService.state(run_id)
@@ -261,6 +270,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                  ),
                  next_step_planner: planner
                )
+
+      _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
       terminal = if mode == :complete, do: :run_completed, else: :run_failed
       assert_receive {:agent_event, ^terminal, _}, 2000
@@ -307,6 +318,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :run_failed, _}, 2000
 
@@ -381,6 +394,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                  next_step_planner: planner
                )
 
+      _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
       assert_receive {:agent_event, :run_failed, _}, 2000
       assert {:ok, before_state} = AgentRunService.state(run_id)
       task = LongRunTaskLog.get(before_state.run.long_run_task_ref)
@@ -446,6 +461,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                  opts
                )
 
+      _run_pid = NovelApplication.TestAgentRunCleanup.register_run(id)
+
       assert_receive {:delivery_started, _}
 
       if outcome == :failed do
@@ -465,6 +482,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                  opts
                )
 
+      # 重传只返回旧事实，不重建 run；这里没有新 run 可登记（:dead 场景旧 pid 已终止）。
       assert {:ok, receipt} = AgentRunService.message_receipt(id, attrs.work_id, attrs.session_id)
 
       if outcome == :failed,
@@ -489,6 +507,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     {:ok, id} = AgentRunService.start_bounded(attrs, next_step_planner: sequential_steps([step]))
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(id)
     assert_receive {:steer_delivery_waiting, _}
 
     submission = %{
@@ -535,6 +554,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     {:ok, id} = AgentRunService.start_bounded(attrs, next_step_planner: sequential_steps([step]))
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(id)
     assert_receive :steer_version_waiting
 
     base = %{
@@ -628,6 +648,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                next_step_planner: sequential_steps([step])
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:step_started, 1}
     assert_receive {:agent_event, :run_started, "AgentRun 已启动。"}
     assert_receive {:agent_event, :plan_drafted, "执行测试步骤 1。"}
@@ -673,6 +695,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
              AgentRunService.start_bounded(run_attrs,
                next_step_planner: sequential_steps([blocking_step])
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:bounded_reconnect_step_started, 1, step_pid}, 1_000
     on_exit(fn -> send(step_pid, :release_reconnected_step) end)
@@ -751,6 +775,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                next_step_planner: planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     # 步 2 阻塞窗口内作者采纳候选（真实竞态形态：run 仍在执行中）。
     assert_receive {:blocking_step_started, 2, step_pid}, 1_000
     assert :ok = AgentRunService.notify_artifact_resolved(run_id, "as_author_settle")
@@ -794,6 +820,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                next_step_planner: planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:agent_event_full, :plan_revised, event}, 500
     assert "agent_plan_revised" in event.reason_codes
     assert event.payload.evaluation_of_last.plan_holds == false
@@ -834,6 +862,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: sequential_steps([step])
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:step_started, 1}
     assert_receive {:agent_event, :run_completed, "AgentRun 已完成。"}, 500
@@ -889,7 +919,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         execution
       )
 
-    assert {:ok, _run_id} =
+    assert {:ok, run_id} =
              AgentRunService.start_bounded(
                NovelApplication.TestAgentEventRelay.observe(
                  spec.run_attrs,
@@ -897,6 +927,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: spec.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     events = collect_full_events_until(:run_failed, 1_000)
     failed = List.last(events)
@@ -979,7 +1011,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         execution
       )
 
-    assert {:ok, _run_id} =
+    assert {:ok, run_id} =
              AgentRunService.start_bounded(
                NovelApplication.TestAgentEventRelay.observe(
                  spec.run_attrs,
@@ -987,6 +1019,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: spec.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     events = collect_full_events_until(:run_failed, 1_000)
     failed = List.last(events)
@@ -1037,7 +1071,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         execution
       )
 
-    assert {:ok, _run_id} =
+    assert {:ok, run_id} =
              AgentRunService.start_bounded(
                NovelApplication.TestAgentEventRelay.observe(
                  spec.run_attrs,
@@ -1045,6 +1079,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: spec.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     events = collect_full_events_until(:run_failed, 1_000)
     failed = List.last(events)
@@ -1079,6 +1115,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                next_step_planner: sequential_steps([step])
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:agent_event, :run_failed, _, %{turn_result: result}}, 2000
     assert result.truthfulness.tool_called
     assert result.truthfulness.tool_name == "world_building"
@@ -1112,6 +1150,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: sequential_steps([slow_step, fast_step])
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:step_started, 1}
     assert :ok = AgentRunService.pause(run_id)
@@ -1149,6 +1189,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: sequential_steps([slow_step, fast_step])
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:step_started, 1}
     assert :ok = AgentRunService.pause(run_id)
@@ -1198,6 +1240,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                next_step_planner: planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:agent_event, :awaiting_author, "请补充具体扩写方向。"}, 500
 
     assert {:error, :awaiting_author_requires_input} = AgentRunService.resume(run_id)
@@ -1229,6 +1273,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: sequential_steps([slow_step])
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:step_started, 1}
     assert :ok = AgentRunService.cancel(run_id)
@@ -1273,6 +1319,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                NovelApplication.TestAgentEventRelay.observe(attrs, event_forward(parent)),
                next_step_planner: sequential_steps([step, step])
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:step_started, 1}
     assert_receive {:agent_event, :awaiting_author, "AgentRun 已达到预算上限。"}, 500
@@ -1323,6 +1371,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                NovelApplication.TestAgentEventRelay.observe(attrs, event_forward_full(parent)),
                next_step_planner: planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:step_started, 1}
     assert_receive {:agent_event_full, :plan_drafted, first_plan}, 500
@@ -1379,6 +1429,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                NovelApplication.TestAgentEventRelay.observe(attrs, event_forward(parent)),
                next_step_planner: sequential_steps([step, step])
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:step_started, 1}
     assert_receive {:agent_event, :awaiting_author, "AgentRun 已达到预算上限。"}, 500
@@ -1464,6 +1516,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                NovelApplication.TestAgentEventRelay.observe(attrs, event_forward(parent)),
                next_step_planner: sequential_steps([step, step])
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:g8_step, 1}
     assert_receive {:agent_event, :awaiting_author, "AgentRun 已达到预算上限。"}, 500
@@ -1629,6 +1683,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                next_step_planner: sequential_steps([step, step])
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:step_started, 1}
     assert_receive {:agent_event, :awaiting_author, "AgentRun 已达到预算上限。"}, 500
 
@@ -1680,6 +1736,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                NovelApplication.TestAgentEventRelay.observe(attrs, event_forward(parent)),
                next_step_planner: sequential_steps([step, step])
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:step_started, 1}
     assert_receive {:agent_event, :awaiting_author, "AgentRun 已达到预算上限。"}, 500
@@ -2117,6 +2175,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                next_step_planner: sequential_steps([step, step])
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:step_started, 1}
     assert_receive {:step_started, 2}
     assert_receive {:agent_event, :awaiting_author, "AgentRun 未取得新进展，已停止等待作者回复。"}, 500
@@ -2152,6 +2212,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: sequential_steps([step, step])
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event_full, :awaiting_author, event}, 800
 
@@ -2193,6 +2255,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                next_step_planner: sequential_steps([step, step])
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:agent_event, :awaiting_author, "AgentRun 未取得新进展，已停止等待作者回复。"}, 800
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :awaiting_author
@@ -2229,6 +2293,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :awaiting_author, "请补充具体扩写方向。"}, 500
     assert {:ok, %{run: awaiting_run}} = AgentRunService.state(run_id)
@@ -2282,6 +2348,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event_full, :awaiting_author, awaiting_event}, 500
     assert "plan_exhausted_without_completion" in awaiting_event.reason_codes
@@ -2349,6 +2417,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                next_step_planner: planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:agent_event_full, :awaiting_author, _}, 500
 
     assert {:ok, %{run: awaiting_run}} =
@@ -2387,6 +2457,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: sequential_steps([slow_step])
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:step_started, 1}
     assert {:ok, _} = AgentRunService.steer(run_id, "改成更冷静的反派")
@@ -2440,6 +2512,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                next_step_planner: planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:step_started, 1}
     assert {:ok, _} = AgentRunService.steer(run_id, "改成更冷静的反派")
 
@@ -2490,6 +2564,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: spec.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :exploration_observed, "当前作品暂未读取到已确认角色。", _payload},
                    500
@@ -2549,6 +2625,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: spec.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event_full, :run_started, _}, 500
 
@@ -2620,6 +2698,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                next_step_planner: spec.next_step_planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:agent_event, :awaiting_author, summary}, 500
     assert summary =~ "预算不足"
     assert summary =~ "计划 2 步"
@@ -2656,6 +2736,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: spec.next_step_planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event_full, :awaiting_author, awaiting}, 1_000
     turn_result = awaiting.payload.turn_result
@@ -2744,6 +2826,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                next_step_planner: spec.next_step_planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive :provider_called, 500
     assert_receive {:agent_event, :run_completed, "AgentRun 已完成。"}, 500
 
@@ -2783,6 +2867,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :run_completed, _}, 2000
 
@@ -2836,6 +2922,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                ),
                next_step_planner: planner
              )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive {:agent_event, :run_failed, _}, 2000
     assert {:ok, before_state} = AgentRunService.state(run_id)
