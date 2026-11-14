@@ -668,7 +668,7 @@ Tauri surface：
 | 报告编号 | 级别 | 本任务承接内容 | 执行状态 |
 |---|---|---|---|
 | B84-REV-01 | P1 | 失联 owner 的活子进程先收口，归档后无原路径再生；保留必要证据 | 已修复：归档前检查 open_handles/recent_write/process_reference/unverifiable；受控 SIGKILL 反例 reaped=0、原 scope 保留 |
-| B84-REV-02 | P2 | 恢复判据核对本 run 可见叙事，零叙事不能通过；复核相关流式采样 | 判据已修复：零叙事/隐藏叙事 false、有叙事 true；真实恢复场景两次启动早期超时，第三次跳过普通对话中间态后失败于 `AgentRun activity API` 无 ProviderRun usage（场景基线），**页面复验未闭环** |
+| B84-REV-02 | P2 | 恢复判据核对本 run 可见叙事，零叙事不能通过；复核相关流式采样 | 判据已修复：零叙事/隐藏叙事 false、有叙事 true；真实场景失败于普通对话 `provider_runs` 为空。根因：普通对话调用 provider，但生产 snapshot 未注入 `stage_sink`，`ProviderActivityProjector` 不记录 ProviderRun（UA-01/B87 产品接线缺口）；**页面复验未闭环** |
 | B84-REV-03 | P2 | 打通 process_tree 返回契约与 runner cleanup 失败传播，等待有界 | 已修复：信号拒绝/仍存活返回非零、僵尸忽略、SIGKILL 后有界确认；4/4 回归 |
 | B84-REV-04 | P2 | owner 退出前后重核 fixture 最终发布事实，补竞争时序回归 | 已修复：owner 退出后重核 published/failed；现有并发与 scope 全套通过；**未新增精确调度反例** |
 | B84-REV-05 | P2 | Task.Supervisor 枚举纳入同一 deadline，迟到空集合不签成功 | 已修复：查询受 deadline 约束、超期仍 force_kill 已知任务；12/12（含其他 owner shutdown 反例） |
@@ -687,6 +687,8 @@ Tauri surface：
 - **未修/后续**：`frontend/src-tauri/src/lib.rs` 的 `TempDir::drop` 忽略删除结果（报告静态观察，未计数）；REV-04 精确调度反例；REV-02 真实页面复验；B84 既有债务。B84 仍 `doing`。
 
 本checkpoint只签六项代码修复与局部复验，不签 B84；页面判据修改仍待真实恢复场景通过。本批已本地提交（未推送）。
+
+**REV-02 页面复验阻塞根因（2026-11-14 追加）**：普通对话 `provider_gateway.complete` 在 app-log 有真实记录（provider=slice_verify，purpose=planner），但场景数据库 `provider_runs` 为 0 行。`ProviderActivityProjector.with_stage_sink/3` 只在 `snapshot.stage_sink` 是函数时订阅并调用 `ProviderRunLog.record_execution/2`；生产代码中除测试外**没有给 snapshot 注入 `stage_sink` 的调用点**（渲染/flow 只读取该键或提供 emitter），普通对话 snapshot 未携带 sink，因此 ProviderRun/Event/Output 不落库，activity API 的 usage 断言必然失败。该缺口属于 UA-01/ADR-0023 CP4D 的产品接线（`ProviderActivityProjector` 的 stage snapshot 注入），不是 B84 测试作用域或场景预期可自行修绿；需由 UA-01/B87 产品负责人确认注入位置（普通对话 AgentRun stage 构造处）并补接线，再重跑 `agent-provider-execution-activity-restored` 补页面证据。B84 因此保持 `doing`；本批只记录根因，不修改产品代码。
 
 ## 变更记录
 
