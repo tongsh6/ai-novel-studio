@@ -100,3 +100,64 @@ test("process_tree：root 及其子进程树一并回收", () => {
   assert.equal(values.helper, "0");
   assert.equal(values.root_alive, "no");
 });
+
+test("process_tree：wait_process_exit 有界确认退出，超时返回 1", () => {
+  const result = runBash(
+    [
+      `source "${HELPER}"`,
+      "sleep 30 & pid=$!",
+      'kill -9 "$pid" 2>/dev/null || true',
+      'wait_process_exit "$pid" 2; echo "exited=$?"',
+      'wait "$pid" 2>/dev/null || true',
+      "sleep 30 & pid2=$!",
+      'wait_process_exit "$pid2" 0; echo "timeout=$?"',
+      'kill -9 "$pid2" 2>/dev/null || true',
+      'wait "$pid2" 2>/dev/null || true',
+    ].join("\n"),
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const values = parseValues(result.stdout);
+  assert.equal(values.exited, "0");
+  assert.equal(values.timeout, "1");
+});
+
+test("process_tree：reap_process_tree 正常回收并返回 0", () => {
+  const result = runBash(
+    [
+      `source "${HELPER}"`,
+      "sleep 30 & pid=$!",
+      'reap_process_tree "$pid" 1 1; echo "reap=$?"',
+      'kill -0 "$pid" 2>/dev/null && echo "alive=yes" || echo "alive=no"',
+    ].join("\n"),
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const values = parseValues(result.stdout);
+  assert.equal(values.reap, "0");
+  assert.equal(values.alive, "no");
+});
+
+test("process_tree：reap_process_tree 信号失败时有界返回非零，不无限 wait", () => {
+  const result = runBash(
+    [
+      `source "${HELPER}"`,
+      "sleep 30 & pid=$!",
+      "kill() {",
+      '  case "$1" in',
+      '    -0) builtin kill "$@" ;;',
+      '    -TERM|-KILL|-9|-15) return 1 ;;',
+      '    *) builtin kill "$@" ;;',
+      "  esac",
+      "}",
+      'start=$(date +%s)',
+      'reap_process_tree "$pid" 0 0; echo "reap=$?"',
+      'echo "elapsed=$(($(date +%s)-start))"',
+      'builtin kill -0 "$pid" 2>/dev/null && echo "alive=yes" || echo "alive=no"',
+      'builtin kill -9 "$pid" 2>/dev/null || true',
+    ].join("\n"),
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const values = parseValues(result.stdout);
+  assert.equal(values.reap, "1");
+  assert.equal(values.alive, "yes");
+  assert.ok(Number(values.elapsed) < 6, `不得无期限阻塞，实际 ${values.elapsed}s`);
+});

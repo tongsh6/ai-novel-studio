@@ -762,18 +762,14 @@ cleanup() {
   trap '' TERM INT
   # 整棵进程树回收：pnpm tauri dev 之下的 vite node、cargo、target/debug/app
   # 与 mix 之下的 beam.smp 必须一并终止，否则会留下孤儿 Tauri 窗口/端口。
-  kill_process_tree "$UI_DRIVER_PID" || cleanup_failed=1
-  wait "$UI_DRIVER_PID" 2>/dev/null || true
+  reap_process_tree "$UI_DRIVER_PID" 3 3 || cleanup_failed=1
   if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
     # macOS重开可能归launchd；独立包路径维持本批归属，不对同名作者实例发信号。
     node "$PROJECT_ROOT/scripts/lib/native_app_ownership.mjs" "$ARTIFACT_DIR" >"$ARTIFACT_DIR/native-app-cleanup.log" 2>&1 || cleanup_failed=1
   fi
-  kill_process_tree "$NATIVE_PROXY_PID" || cleanup_failed=1
-  wait "$NATIVE_PROXY_PID" 2>/dev/null || true
-  kill_process_tree "$TAURI_PID" || cleanup_failed=1
-  wait "$TAURI_PID" 2>/dev/null || true
-  kill_process_tree "$PHX_PID" || cleanup_failed=1
-  wait "$PHX_PID" 2>/dev/null || true
+  reap_process_tree "$NATIVE_PROXY_PID" 3 3 || cleanup_failed=1
+  reap_process_tree "$TAURI_PID" 3 3 || cleanup_failed=1
+  reap_process_tree "$PHX_PID" 3 3 || cleanup_failed=1
   if [[ -n "$TAURI_CONFIG_OVERRIDE" ]]; then
     rm -f "$TAURI_CONFIG_OVERRIDE" 2>/dev/null || cleanup_failed=1
   fi

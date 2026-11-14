@@ -94,10 +94,15 @@ kill_process_tree() {
   # 但 ps 不可用/查询失败时保守按存活处理，避免把无法确认当成成功。
   _proc_tree_pid_alive() {
     local p="$1" stat
-    kill -0 "$p" 2>/dev/null || return 1
     stat="$(ps -o stat= -p "$p" 2>/dev/null | tr -d '[:space:]')"
-    [[ -n "$stat" && "$stat" != Z* ]] || return 1
-    return 0
+    if [[ -n "$stat" ]]; then
+      [[ "$stat" != Z* ]]
+      return
+    fi
+    # ps 查不到：若进程仍可发信号（含 EPERM 之外的存活）按存活处理；
+    # kill -0 失败且 ps 为空才视为已不存在。
+    if kill -0 "$p" 2>/dev/null; then return 0; fi
+    return 1
   }
 
   _proc_tree_group_alive() {
@@ -140,4 +145,36 @@ kill_process_tree() {
     (( kill_waited += 1 ))
   done
   return 1
+}
+
+# 有界等待 pid 退出（僵尸视为已退出）。返回 0 已退出，1 超时仍存活。
+# 调用方不得在超时后继续无期限 wait 同一进程。
+wait_process_exit() {
+  local pid="$1" timeout="${2:-3}" waited=0 limit stat
+  [[ -n "$pid" ]] || return 0
+  limit=$(( timeout * 10 ))
+  while (( waited < limit )); do
+    stat="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+    if [[ "$stat" == Z* ]]; then return 0; fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      if [[ -z "$stat" ]]; then return 0; fi
+      # 进程存在但当前无权发信号：保守继续等待，不当作已退出。
+    fi
+    sleep 0.1
+    (( waited += 1 ))
+  done
+  return 1
+}
+
+# 终止 owned 进程树并确认退出；失败仍有界返回 1。成功时 reap 直接子进程。
+reap_process_tree() {
+  local pid="$1" grace="${2:-3}" wait_s="${3:-3}"
+  local failed=0
+  kill_process_tree "$pid" "$grace" || failed=1
+  if wait_process_exit "$pid" "$wait_s"; then
+    wait "$pid" 2>/dev/null || true
+  else
+    failed=1
+  fi
+  return "$failed"
 }

@@ -73,10 +73,8 @@ cleanup() {
   local cleanup_failed=0
   # 整棵进程树回收：pnpm/mix 包装进程之下的 vite node、beam.smp 必须一并终止，
   # 否则包装进程一死，真实实例被 reparent 到 init 后常驻、占用端口。
-  kill_process_tree "$VITE_PID" || cleanup_failed=1
-  wait "$VITE_PID" 2>/dev/null || true
-  kill_process_tree "$PHX_PID" || cleanup_failed=1
-  wait "$PHX_PID" 2>/dev/null || true
+  reap_process_tree "$VITE_PID" 3 3 || cleanup_failed=1
+  reap_process_tree "$PHX_PID" 3 3 || cleanup_failed=1
   if (( cleanup_failed != 0 )); then
     echo "[slice-verify] cleanup failed (original exit=$original)" >&2
     if (( original == 0 )); then exit 1; fi
