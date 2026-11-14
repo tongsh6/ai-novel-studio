@@ -573,6 +573,19 @@ SUT仅在`dir`缺失时把C3/C4/C7/C9/C10标为unknown（不冒充pass/fail）�
 
 本checkpoint只签quality族scope归属，不签A4/A5或B84。本批已本地提交（未推送）。
 
+### A4 外部driver漂移修复与自测入口（2026-11-14）
+
+只读事实：`external-ui-driver.mjs` 仍有12处查询`section[aria-label="推理"]`；当前产品契约是`WorkspaceChat`外层`div[aria-label="本轮创作过程"]`（`copy.ts`的`agentRunFlowAriaLabel`），推理叙事作为该区域内段落渲染，已不再有独立landmark。旧选择器在真实窗口会假阴性/超时，而相关场景仍在active清单。
+
+- **Contract/Invariant**：46§9.5文档流化后的当前UI契约与用户可见语义；外部driver不得用已移除landmark判绿；不引入`data-testid`或验收钩子。
+- **Boundary/Consumer**：仅`frontend/slice-verify/external-ui-driver.mjs`与新增自测入口配置/脚本；不改产品UI、copy与driver业务判据。
+- **实体查重**：复用既有driver与Vitest测试，不新建第二driver/测试框架；自测入口只拆分include，不启动浏览器/后端/原生窗口。
+- **Proof**：12处旧selector替换为`[aria-label="本轮创作过程"]`；driver自测`pnpm test:slice-verify` **260/260**通过；`task_done_check --ui-required`仍为false（harness配置位于排除路径）。
+- **Acceptance Driver**：本checkpoint只证明driver选择器与自测；**真实Tauri/nightly批次未重跑，未闭环**（缺窗口），不能以单测或旧landmark代签真实页面。
+- **Exploration**：不适用。
+
+新增`frontend/slice-verify/vitest.config.ts`与`package.json`脚本`test:slice-verify`，并在README登记。真实批次重跑、入口scope/固定目录覆盖与规模盲区仍属A4后续。本批已本地提交（未推送）。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。

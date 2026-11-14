@@ -8,6 +8,7 @@
 | `native-tauri-verifier.mjs`                          | 场景日志/测量验证器；summary 按实际 driver 标识证据层级。                                                                                                           |
 | `native-tauri-verifier.test.mjs`                     | 验证器的正反例回归。                                                                                                                                                |
 | [共用证明与正文fixture](../../scripts/lib/README.md) | B31问题绑定证明、B28原正文与冻结归一位于scripts/lib，浏览器和原生驱动共用。                                                                                         |
+| `vitest.config.mjs` | 本目录自测入口配置：`pnpm test:slice-verify` 只跑 `*.test.mjs`，不启动浏览器/后端/原生窗口，与主前端 `pnpm test` 分离。 |
 | `b31-question-proof.test.mjs`                        | 错绑、改字节、重复回执、重复问题、预算与其他任务保护的回归。                                                                                                        |
 | `dogfood-runner.mjs`                                 | 连续创作/维护/恢复/导出的浏览器驱动；等待/问答均有预算。                                                                                                            |
 | `dogfood-p1-plan.md`                                 | 历史驱动说明；当前执行范围与状态以 tasks 中真实创作复验为准。                                                                                                       |

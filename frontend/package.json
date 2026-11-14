@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:slice-verify": "vitest run --config slice-verify/vitest.config.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "codegen:schemas": "node scripts/codegen-schemas.mjs && node scripts/codegen-author-visible.mjs",

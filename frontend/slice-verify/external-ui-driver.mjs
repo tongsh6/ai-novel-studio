@@ -1192,7 +1192,7 @@ async function installReasoningStreamObserver(page) {
     window.__sliceVerifyReasoningStreamSamples = [];
 
     const currentReasoningText = () => {
-      const sections = Array.from(document.querySelectorAll('section[aria-label="推理"]'));
+      const sections = Array.from(document.querySelectorAll('[aria-label="本轮创作过程"]'));
       const section = sections[sections.length - 1];
       return section?.innerText ?? "";
     };
@@ -2594,7 +2594,7 @@ async function driveAgentSessionTranscriptLazyPage(page) {
   await page.waitForFunction(
     () =>
       document.body.innerText.includes("创作执行") &&
-      document.querySelectorAll('section[aria-label="推理"]').length >= 1,
+      document.querySelectorAll('[aria-label="本轮创作过程"]').length >= 1,
     undefined,
     { timeout: 30_000 },
   );
@@ -26549,7 +26549,7 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
       //（状态 chip + 计划 checklist），完成态以状态标签/顶栏无任务判定。
       ui_agent_panel_visible:
         visibleText.includes("创作执行") &&
-        (await page.evaluate(() => Boolean(document.querySelector('section[aria-label="推理"]')))),
+        (await page.evaluate(() => Boolean(document.querySelector('[aria-label="本轮创作过程"]')))),
       ui_agent_completed_visible: visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_artifact_event_visible:
         visibleText.includes("已生成待采纳候选") ||
@@ -26979,7 +26979,7 @@ async function driveAgentProseDraftingWithQuality(page) {
       //（状态标签 + 计划 checklist）与持久化 ProviderRun 事实判定。
       ui_agent_panel_visible:
         visibleText.includes("创作执行") &&
-        (await page.evaluate(() => Boolean(document.querySelector('section[aria-label="推理"]')))),
+        (await page.evaluate(() => Boolean(document.querySelector('[aria-label="本轮创作过程"]')))),
       ui_agent_completed_visible: visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_prose_draft_visible: visibleText.includes("章节正文草稿"),
       ui_quality_review_visible: visibleText.includes("质量复核"),
@@ -27373,7 +27373,7 @@ async function driveWr01ChapterMissionBeforeProse(page) {
   const narrativeSnippet = missionNarrative.slice(0, 24);
   await page.waitForFunction(
     (snippet) => {
-      const sections = Array.from(document.querySelectorAll('section[aria-label="推理"]'));
+      const sections = Array.from(document.querySelectorAll('[aria-label="本轮创作过程"]'));
       return sections.some((section) => section.innerText.includes(snippet));
     },
     narrativeSnippet,
@@ -27781,7 +27781,7 @@ async function driveWr02PlanningMissionBeforeOutline(page) {
   const narrativeSnippet = missionNarrative.slice(0, 20);
   await page.waitForFunction(
     (snippet) => {
-      const sections = Array.from(document.querySelectorAll('section[aria-label="推理"]'));
+      const sections = Array.from(document.querySelectorAll('[aria-label="本轮创作过程"]'));
       return sections.some((section) => section.innerText.includes(snippet));
     },
     narrativeSnippet,
@@ -29307,7 +29307,7 @@ async function driveAgentConversationTurn(page, options = {}) {
   }
   const agenticLoopEvidenceLayout = await focusLatestAgenticLoopEvidence(page);
   const agenticLoopSections = await page.evaluate(() => ({
-    reasoning: Boolean(document.querySelector('section[aria-label="推理"]')),
+    reasoning: Boolean(document.querySelector('[aria-label="本轮创作过程"]')),
   }));
   const logsAfter = readAppLogRecords().slice(logStart);
   const parentUserMessageLog = logsAfter.find(
@@ -30583,12 +30583,12 @@ async function driveAgentProviderExecutionActivityRestored(page) {
   await page.waitForFunction(
     (expected) =>
       expected.every((value) => document.body.innerText.includes(value)) &&
-      Boolean(document.querySelector('section[aria-label="推理"]')),
+      Boolean(document.querySelector('[aria-label="本轮创作过程"]')),
     ["创作执行", "已完成"],
     { timeout: 30_000 },
   );
   const restoredSections = await page.evaluate(() => ({
-    reasoning: Boolean(document.querySelector('section[aria-label="推理"]')),
+    reasoning: Boolean(document.querySelector('[aria-label="本轮创作过程"]')),
   }));
 
   const restoredVisibleText = await page.locator("body").innerText();
@@ -31123,7 +31123,7 @@ async function driveAgentPlotOutlineWithContext(page) {
       // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
       ui_agent_panel_visible:
         visibleText.includes("创作执行") &&
-        (await page.evaluate(() => Boolean(document.querySelector('section[aria-label="推理"]')))),
+        (await page.evaluate(() => Boolean(document.querySelector('[aria-label="本轮创作过程"]')))),
       ui_agent_completed_visible: visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_outline_draft_visible:
         visibleText.includes("章节大纲草稿") || visibleText.includes("大纲草稿"),
@@ -31498,7 +31498,7 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
       // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
       ui_agent_panel_visible:
         visibleText.includes("创作执行") &&
-        (await page.evaluate(() => Boolean(document.querySelector('section[aria-label="推理"]')))),
+        (await page.evaluate(() => Boolean(document.querySelector('[aria-label="本轮创作过程"]')))),
       ui_agent_completed_visible: visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_world_building_draft_visible:
         visibleText.includes("世界设定草稿") || visibleText.includes(expectedDraftLabel),
@@ -32069,7 +32069,7 @@ async function driveAgentCharacterEvolutionWithContext(page) {
       // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
       ui_agent_panel_visible:
         visibleText.includes("创作执行") &&
-        (await page.evaluate(() => Boolean(document.querySelector('section[aria-label="推理"]')))),
+        (await page.evaluate(() => Boolean(document.querySelector('[aria-label="本轮创作过程"]')))),
       ui_agent_completed_visible: visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_character_evolution_draft_visible: visibleText.includes("角色演化记忆草稿"),
       ui_execution_brief_path_visible:

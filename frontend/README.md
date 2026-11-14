@@ -15,6 +15,7 @@ pnpm format:check
 pnpm typecheck
 pnpm lint
 pnpm test
+pnpm test:slice-verify   # 外部验收脚本自测（slice-verify/*.test.mjs），不启动浏览器/后端/原生窗口
 pnpm check
 pnpm build
 pnpm tauri build
