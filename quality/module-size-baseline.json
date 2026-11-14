@@ -1,6 +1,6 @@
 {
   "schema": "module-size-baseline/v1",
-  "generated_at": "2026-11-04T18:48:25.269Z",
+  "generated_at": "2026-11-14T09:46:20.282Z",
   "policy": {
     "prod": {
       "outlier_floor": 500
@@ -12,92 +12,78 @@
   "note": "outlier_floor 是进入观察名单的关注门槛，不是行数红线；门禁 fail 只有 ratchet 与未登记两种。exemptions 是本质聚合型文件（规范要求集中），豁免 ratchet 但必须登记理由与复核日期。更新 baseline 时 max_lines 只降不升；新增观察文件需显式 --register-new。",
   "files": {
     "apps/novel_agent/lib/novel_agent/creative_provider/real.ex": {
-      "lines": 708,
-      "max_lines": 708,
+      "lines": 706,
+      "max_lines": 706,
       "scope": "novel_agent",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_agent/lib/novel_agent/provider/adapter_execution.ex": {
-      "lines": 720,
-      "max_lines": 714,
-      "scope": "novel_agent",
-      "kind": "prod",
-      "class": "watched"
-    },
-    "apps/novel_agent/lib/novel_agent/provider/anthropic_stream.ex": {
-      "lines": 605,
-      "max_lines": 598,
+      "lines": 691,
+      "max_lines": 691,
       "scope": "novel_agent",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_agent/lib/novel_agent/provider/gateway.ex": {
-      "lines": 953,
-      "max_lines": 953,
+      "lines": 873,
+      "max_lines": 873,
       "scope": "novel_agent",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_agent/lib/novel_agent/provider/openai_compatible.ex": {
-      "lines": 884,
-      "max_lines": 862,
-      "scope": "novel_agent",
-      "kind": "prod",
-      "class": "watched"
-    },
-    "apps/novel_agent/lib/novel_agent/provider/openai_compatible_stream.ex": {
-      "lines": 599,
-      "max_lines": 599,
+      "lines": 504,
+      "max_lines": 504,
       "scope": "novel_agent",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_agent/test/novel_agent/provider/gateway_test.exs": {
-      "lines": 1407,
+      "lines": 1445,
       "max_lines": 1405,
       "scope": "novel_agent",
       "kind": "test",
       "class": "watched"
     },
     "apps/novel_agent/test/novel_agent/provider/slice_verify_test.exs": {
-      "lines": 2415,
+      "lines": 2455,
       "max_lines": 2347,
       "scope": "novel_agent",
       "kind": "test",
       "class": "watched"
     },
     "apps/novel_agent/test/support/provider/slice_verify.ex": {
-      "lines": 6665,
+      "lines": 6884,
       "max_lines": 6665,
       "scope": "novel_agent",
       "kind": "test",
       "class": "watched"
     },
     "apps/novel_agent/test/support/provider/stub.ex": {
-      "lines": 1424,
+      "lines": 1427,
       "max_lines": 1424,
       "scope": "novel_agent",
       "kind": "test",
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/adoption_workflow.ex": {
-      "lines": 2707,
+      "lines": 2708,
       "max_lines": 2707,
       "scope": "novel_application",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/agent_run_flows/character_design_with_context.ex": {
-      "lines": 636,
-      "max_lines": 636,
+      "lines": 633,
+      "max_lines": 633,
       "scope": "novel_application",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/agent_run_flows/character_evolution_with_context.ex": {
-      "lines": 838,
-      "max_lines": 838,
+      "lines": 835,
+      "max_lines": 835,
       "scope": "novel_application",
       "kind": "prod",
       "class": "watched"
@@ -110,29 +96,29 @@
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/agent_run_flows/judgment_plan.ex": {
-      "lines": 1077,
-      "max_lines": 1077,
+      "lines": 1074,
+      "max_lines": 1074,
       "scope": "novel_application",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/agent_run_flows/plot_outline_with_context.ex": {
-      "lines": 1201,
-      "max_lines": 1201,
+      "lines": 1198,
+      "max_lines": 1198,
       "scope": "novel_application",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/agent_run_flows/prose_drafting_with_quality.ex": {
-      "lines": 2198,
+      "lines": 2195,
       "max_lines": 2190,
       "scope": "novel_application",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/agent_run_flows/prose_revision_from_findings.ex": {
-      "lines": 901,
-      "max_lines": 901,
+      "lines": 898,
+      "max_lines": 898,
       "scope": "novel_application",
       "kind": "prod",
       "class": "watched"
@@ -145,28 +131,28 @@
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/agent_run_flows/world_building_with_context.ex": {
-      "lines": 826,
-      "max_lines": 826,
+      "lines": 823,
+      "max_lines": 823,
       "scope": "novel_application",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/agent_run_server.ex": {
-      "lines": 3499,
+      "lines": 3528,
       "max_lines": 3471,
       "scope": "novel_application",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/agent_run_service.ex": {
-      "lines": 1382,
+      "lines": 1383,
       "max_lines": 1382,
       "scope": "novel_application",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/agentic_plan_draft_planner.ex": {
-      "lines": 1277,
+      "lines": 1282,
       "max_lines": 1277,
       "scope": "novel_application",
       "kind": "prod",
@@ -187,15 +173,15 @@
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/authoring_transcript.ex": {
-      "lines": 501,
+      "lines": 505,
       "max_lines": 501,
       "scope": "novel_application",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/context_assembler.ex": {
-      "lines": 560,
-      "max_lines": 560,
+      "lines": 554,
+      "max_lines": 554,
       "scope": "novel_application",
       "kind": "prod",
       "class": "watched"
@@ -208,7 +194,7 @@
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/dialogue_planning_service.ex": {
-      "lines": 3200,
+      "lines": 3220,
       "max_lines": 3195,
       "scope": "novel_application",
       "kind": "prod",
@@ -222,14 +208,14 @@
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/exploration_service.ex": {
-      "lines": 1245,
+      "lines": 1279,
       "max_lines": 1245,
       "scope": "novel_application",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/fact_inventory_service.ex": {
-      "lines": 620,
+      "lines": 633,
       "max_lines": 620,
       "scope": "novel_application",
       "kind": "prod",
@@ -243,7 +229,7 @@
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/judgment_protocol.ex": {
-      "lines": 1430,
+      "lines": 1482,
       "max_lines": 1430,
       "scope": "novel_application",
       "kind": "prod",
@@ -257,8 +243,8 @@
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/pending_artifact_workflow.ex": {
-      "lines": 2277,
-      "max_lines": 2277,
+      "lines": 2204,
+      "max_lines": 2204,
       "scope": "novel_application",
       "kind": "prod",
       "class": "watched"
@@ -278,8 +264,8 @@
       "class": "watched"
     },
     "apps/novel_application/lib/novel_application/turn_execution_service.ex": {
-      "lines": 3059,
-      "max_lines": 3059,
+      "lines": 3056,
+      "max_lines": 3056,
       "scope": "novel_application",
       "kind": "prod",
       "class": "watched"
@@ -306,63 +292,56 @@
       "class": "watched"
     },
     "apps/novel_application/test/novel_application/agent_run_history_binding_test.exs": {
-      "lines": 1041,
+      "lines": 1056,
       "max_lines": 1041,
       "scope": "novel_application",
       "kind": "test",
       "class": "watched"
     },
     "apps/novel_application/test/novel_application/agent_run_prose_drafting_flow_test.exs": {
-      "lines": 2047,
+      "lines": 2071,
       "max_lines": 2028,
       "scope": "novel_application",
       "kind": "test",
       "class": "watched"
     },
     "apps/novel_application/test/novel_application/agent_run_prose_revision_flow_test.exs": {
-      "lines": 1312,
+      "lines": 1320,
       "max_lines": 1307,
       "scope": "novel_application",
       "kind": "test",
       "class": "watched"
     },
     "apps/novel_application/test/novel_application/agent_run_result_commit_test.exs": {
-      "lines": 957,
+      "lines": 964,
       "max_lines": 957,
       "scope": "novel_application",
       "kind": "test",
       "class": "watched"
     },
     "apps/novel_application/test/novel_application/agent_run_runtime_test.exs": {
-      "lines": 3599,
+      "lines": 3645,
       "max_lines": 3477,
       "scope": "novel_application",
       "kind": "test",
       "class": "watched"
     },
     "apps/novel_application/test/novel_application/agentic_plan_draft_planner_test.exs": {
-      "lines": 1449,
+      "lines": 1438,
       "max_lines": 1389,
       "scope": "novel_application",
       "kind": "test",
       "class": "watched"
     },
-    "apps/novel_application/test/novel_application/authoring_session_test.exs": {
-      "lines": 835,
-      "max_lines": 835,
-      "scope": "novel_application",
-      "kind": "test",
-      "class": "watched"
-    },
     "apps/novel_application/test/novel_application/authoring_transcript_test.exs": {
-      "lines": 880,
+      "lines": 900,
       "max_lines": 868,
       "scope": "novel_application",
       "kind": "test",
       "class": "watched"
     },
     "apps/novel_application/test/novel_application/b28_chapter_revision_wiring_test.exs": {
-      "lines": 817,
+      "lines": 848,
       "max_lines": 817,
       "scope": "novel_application",
       "kind": "test",
@@ -376,21 +355,28 @@
       "class": "watched"
     },
     "apps/novel_application/test/novel_application/exploration_service_test.exs": {
-      "lines": 980,
+      "lines": 1029,
       "max_lines": 980,
       "scope": "novel_application",
       "kind": "test",
       "class": "watched"
     },
+    "apps/novel_application/test/novel_application/judgment_exploration_loop_test.exs": {
+      "lines": 802,
+      "max_lines": 802,
+      "scope": "novel_application",
+      "kind": "test",
+      "class": "watched"
+    },
     "apps/novel_application/test/novel_application/judgment_protocol_test.exs": {
-      "lines": 2660,
+      "lines": 2686,
       "max_lines": 2614,
       "scope": "novel_application",
       "kind": "test",
       "class": "watched"
     },
     "apps/novel_application/test/novel_application/pending_artifact_workflow_test.exs": {
-      "lines": 1818,
+      "lines": 1827,
       "max_lines": 1818,
       "scope": "novel_application",
       "kind": "test",
@@ -425,7 +411,7 @@
       "class": "watched"
     },
     "apps/novel_common/lib/novel_common/request_ir.ex": {
-      "lines": 896,
+      "lines": 936,
       "max_lines": 896,
       "scope": "novel_common",
       "kind": "prod",
@@ -453,28 +439,28 @@
       "class": "watched"
     },
     "apps/novel_persistence/lib/novel_persistence/adoption_repository.ex": {
-      "lines": 2950,
-      "max_lines": 2950,
+      "lines": 2919,
+      "max_lines": 2919,
       "scope": "novel_persistence",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_persistence/lib/novel_persistence/agent_run_log.ex": {
-      "lines": 533,
+      "lines": 561,
       "max_lines": 533,
       "scope": "novel_persistence",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_persistence/lib/novel_persistence/provider_run_log.ex": {
-      "lines": 584,
+      "lines": 598,
       "max_lines": 584,
       "scope": "novel_persistence",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_persistence/lib/novel_persistence/reading_projection_repo.ex": {
-      "lines": 510,
+      "lines": 540,
       "max_lines": 510,
       "scope": "novel_persistence",
       "kind": "prod",
@@ -495,7 +481,7 @@
       "class": "watched"
     },
     "apps/novel_persistence/test/novel_persistence/adoption_repository_test.exs": {
-      "lines": 2027,
+      "lines": 2036,
       "max_lines": 2027,
       "scope": "novel_persistence",
       "kind": "test",
@@ -509,35 +495,35 @@
       "class": "watched"
     },
     "apps/novel_web/lib/novel_web/channels/workspace_channel.ex": {
-      "lines": 3471,
-      "max_lines": 3469,
+      "lines": 3232,
+      "max_lines": 3232,
       "scope": "novel_web",
       "kind": "prod",
       "class": "watched"
     },
     "apps/novel_web/test/novel_web/channels/workspace_channel_author_action_admission_test.exs": {
-      "lines": 1141,
+      "lines": 1171,
       "max_lines": 1140,
       "scope": "novel_web",
       "kind": "test",
       "class": "watched"
     },
     "apps/novel_web/test/novel_web/channels/workspace_channel_confirmation_acceptance_test.exs": {
-      "lines": 948,
+      "lines": 968,
       "max_lines": 946,
       "scope": "novel_web",
       "kind": "test",
       "class": "watched"
     },
     "apps/novel_web/test/novel_web/channels/workspace_channel_task_state_test.exs": {
-      "lines": 1062,
+      "lines": 1083,
       "max_lines": 1062,
       "scope": "novel_web",
       "kind": "test",
       "class": "watched"
     },
     "apps/novel_web/test/novel_web/channels/workspace_channel_v3_test.exs": {
-      "lines": 1850,
+      "lines": 1866,
       "max_lines": 1850,
       "scope": "novel_web",
       "kind": "test",
@@ -558,7 +544,7 @@
       "class": "watched"
     },
     "frontend/src/components/WorkspaceChat.tsx": {
-      "lines": 5953,
+      "lines": 5961,
       "max_lines": 5760,
       "scope": "frontend",
       "kind": "prod",

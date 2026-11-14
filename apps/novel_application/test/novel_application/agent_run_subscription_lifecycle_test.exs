@@ -41,6 +41,8 @@ defmodule NovelApplication.AgentRunSubscriptionLifecycleTest do
                next_step_planner: sequential_steps([slow_step])
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:step_started, 1}
 
     assert :ok = AgentRunService.pause(run_id)
@@ -74,6 +76,8 @@ defmodule NovelApplication.AgentRunSubscriptionLifecycleTest do
 
     assert_receive {:step_task_started, 1, task_pid}, 1_000
     assert {:ok, %{current_task?: true}} = AgentRunService.state(run_id)
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     on_exit(fn -> if Process.alive?(task_pid), do: Process.exit(task_pid, :kill) end)
 
@@ -111,6 +115,8 @@ defmodule NovelApplication.AgentRunSubscriptionLifecycleTest do
              )
 
     assert_receive {:step_task_started, 1, task_pid}, 1_000
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     subscriber =
       spawn(fn ->

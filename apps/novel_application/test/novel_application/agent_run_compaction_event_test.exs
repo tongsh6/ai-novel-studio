@@ -123,6 +123,8 @@ defmodule NovelApplication.AgentRunCompactionEventTest do
                next_step_planner: planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:agent_event, :run_failed, _}, 2_000
   end
 

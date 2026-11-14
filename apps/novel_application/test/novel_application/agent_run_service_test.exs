@@ -211,6 +211,8 @@ defmodule NovelApplication.AgentRunServiceTest do
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(attrs, next_step_planner: planner)
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     assert_receive {:await_author_step, ^run_id}, 1_000
 
     assert {:ok, %{run: %{status: :awaiting_author}}} =

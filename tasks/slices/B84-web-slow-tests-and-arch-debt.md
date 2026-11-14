@@ -1,6 +1,6 @@
 # B84：全项目测试环境作用域、fixture 体系与剩余架构/测试债务
 
-- 状态：**doing（A0完成；A1/A2已有6个局部实施单元通过各自验收，前4个已提交，R01快照/capture两族随原R01整体保持WIP；A3的Application流程首批已提交；A3的16个Channel测试模块与日志写出源头收口已通过全量回归并本地提交（未推送）；Rust单测资源释放已通过验收并本地提交（未推送）；裸Mix/config/test自有库归还已通过验收并本地提交（未推送）；web回归196例耗时由547.9秒降至62.2秒；其余Node族、前端/原生接入、A4/A5与既有债务保留）**
+- 状态：**doing（A0完成；A1/A2已有6个局部实施单元通过各自验收，前4个已提交，R01快照/capture两族随原R01整体保持WIP；A3的Application流程首批已提交；A3的16个Channel测试模块与日志写出源头收口已通过全量回归并本地提交（未推送）；Rust单测资源释放已通过验收并本地提交（未推送）；裸Mix/config/test自有库归还已通过验收并本地提交（未推送）；其余runtime测试首批6文件已迁移并本地提交（未推送），agent_run_runtime_test 55例仍开放；web回归196例耗时62.2秒；其余Node族、前端/原生接入、A4/A5与既有债务保留）**
 - 来源：
   - [00f 能力图谱 P2-E](../../docs/design/00f-capability-atlas.md)：`novel_web` 193 tests / 532s 慢测试仍待收敛；`novel_common` 日志 I/O 部分已由 ADR-0034（`novel_telemetry`）闭环，本任务只承接 web 慢测试与剩余债务。
   - B71 审核轮架构 P2-10 记录与 2026-11-08 候选。
@@ -471,6 +471,14 @@ Application首批已提交 `75722dde`。本步复用既有helper继续迁移，�
 - `MIX_ENV=test mix check`退出0（全量回归）；历史207个库/约54MB残留未删除（历史状态，A5统一处置）；宿主强杀不在本checkpoint。
 - 本checkpoint只签direct Mix入口的自有库归还，不签A3全部、B84或A4/A5；证据在 `artifacts/b84-test-system/20261114/a3-backend/mix-owner/`。本批已本地提交（未推送）。
 
+#### 其余 runtime 测试盘点与首批迁移（2026-11-14）
+
+盘点用临时`after_suite`探针（不提交）逐个文件统计`AgentRunSupervisor`子进程与step/background任务。11个启动run但未登记的测试文件中，7个有残留：`agent_run_runtime_test` **42 run+3 step**、`auto_maintenance_test` 12、`agent_run_compaction_event_test` 3、`agent_run_subscription_lifecycle_test` 3、`agent_run_terminal_replan_test` 2、`agent_run_service_test` 1、`judgment_exploration_loop_test` 1，共**64 run+3 step**；`agent_run_result_commit_test`、`turn_interaction_service_test`、`author_question_roundtrip_test`、`agent_event_subscription_test`为0。
+
+首批迁移6个文件、32 tests：run成功启动后按实际run_id调用`register_run/1`，退出先释放本run再停Sandbox。订阅生命周期测试保持on_exit顺序：登记release早于latch释放/杀task，使阻塞step先退出（LIFO）。验证：6文件各自0残留、32/32通过；全量application **1406/1406、0失败、10.4秒**；格式检查通过。
+
+未迁移：`agent_run_runtime_test` 55 tests/42 run+3 step，启动点50+处，含并发Task与匿名函数内启动，需逐测试确认收口状态；保留为下一checkpoint，不在此步代签。本checkpoint只签首批6文件，不签A3全部或B84。本批已本地提交（未推送）。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。
@@ -479,3 +487,4 @@ Application首批已提交 `75722dde`。本步复用既有helper继续迁移，�
 - 2026-11-13：按作者指令扩展为全项目测试体系审查；复用既有owner设计运行/fixture/worker/case作用域及迁移顺序，代码实施与运行验收仍开放。
 - 2026-11-14：实现A1/A2首批Node manifest与默认工程入口，分离纯规则/IO消费者，完成唯一fixture初始化及失败收口的局部机制验收；其余接入与全项目验收继续开放。
 - 2026-11-14：A3 Channel 16模块迁移与日志源头收口完成并通过全量回归（3203 tests/0失败，web 196例62.2秒）；修复两处测试缺陷；已本地提交（未推送），B84、A4/A5仍开放。
+- 2026-11-14：A3 Rust单测RAII释放、裸Mix自有库归还、其余runtime测试首批6文件迁移完成；`agent_run_runtime_test` 42 run+3 step残留保留为下一checkpoint；B84、A4/A5仍开放。

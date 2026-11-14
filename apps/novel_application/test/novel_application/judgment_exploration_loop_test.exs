@@ -519,6 +519,8 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
                next_step_planner: spec.next_step_planner
              )
 
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
     on_exit(fn -> AgentRunService.cancel(run_id) end)
     assert_receive {:missing_target_event, :awaiting_author}, 4_000
 

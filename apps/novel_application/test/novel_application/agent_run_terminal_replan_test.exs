@@ -51,6 +51,8 @@ defmodule NovelApplication.AgentRunTerminalReplanTest do
                  next_step_planner: planner
                )
 
+      _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
       on_exit(fn -> AgentRunService.cancel(run_id) end)
       assert_receive {:revision_request, _prompt}, 2_000
       assert_receive {:terminal_plan_result, {:await_author, decision, meta}}, 2_000

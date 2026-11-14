@@ -301,10 +301,17 @@ defmodule NovelApplication.AutoMaintenanceTest do
       end
     end
 
-    AgentRunService.start_bounded(
-      NovelApplication.TestAgentEventRelay.observe(base_run(run_id), event_forward(self())),
-      next_step_planner: planner
-    )
+    case AgentRunService.start_bounded(
+           NovelApplication.TestAgentEventRelay.observe(base_run(run_id), event_forward(self())),
+           next_step_planner: planner
+         ) do
+      {:ok, started_id} = ok ->
+        _run_pid = NovelApplication.TestAgentRunCleanup.register_run(started_id)
+        ok
+
+      other ->
+        other
+    end
   end
 
   defp step_with_transcript(transcript) do
