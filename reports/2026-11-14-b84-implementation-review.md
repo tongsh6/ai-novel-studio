@@ -2,7 +2,7 @@
 
 > 本文件保存本次审查的版本、发现、证据摘要与复验要求，是固定时间点的审查记录。
 > B84 的执行状态、整改 checkpoint 与后续签收只维护在[原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)；本报告不建立第二份活动状态台账。
-> **最新复核入口：**请先读 [§9 整改后独立复核与交接](#9-整改后独立复核与交接)。REV-04 原缺陷复核通过；其余五项仍开放。§8.2 的页面失败归因已在 §9.8 撤回并更正。
+> **最新入口：**请先读 [§12 REV-01 第二轮整改结果](#12-rev-01-第二轮整改结果2026-11-14)。REV-01 的登记完整性、启动/登记窗口与真实启动链回归已落实（scope 70/70），待独立复核；REV-02/05/04 的剩余项仍按 [§11 第二轮整改后的静态复核与交接](#11-第二轮整改后的静态复核与交接)处理。§9–11 为历史复核与整改记录，不冒充新一轮运行验收。
 
 ## 1. 结论与验收边界
 
@@ -617,6 +617,8 @@ REV-05 直接加载 helper 时还有“owned_tasks/2 默认参数未使用”的
 
 > 本节由整改实施者按 §9.9 的处理顺序追加，记录对 §9 剩余项的修复、局部证据与未闭环项；§1–9 的历史记录与判断保持不变。执行状态仍只维护在[B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)。
 
+> **后续复核提示：**本节保留整改实施者当时的处理结果与运行记录；“已修复／run 绑定”的范围由 [§11 静态复核](#11-第二轮整改后的静态复核与交接)进一步核对和限定。请勿将本节自检声明直接作为独立签收结论。
+
 ### 10.1 逐项结果
 
 | 编号 | 处理结果 | 提交 | 本轮证据 |
@@ -646,3 +648,164 @@ REV-05 直接加载 helper 时还有“owned_tasks/2 默认参数未使用”的
 ### 10.4 提交清单（均未 push）
 
 `79a3912f`（REV-06）、`00737ef7`（REV-03）、`fba0fca4`（REV-05）、`02b16162`（REV-01）、`10ebf4b4`（REV-02 判据）、`2c10b788`（B84 状态记录）。本地分支领先远端 23 个提交，推送需作者通知。
+
+## 11. 第二轮整改后的静态复核与交接
+
+> 复核日期：2026-11-14。本节核对 §10 的整改声明，保存本次固定基线下的判断与交接要求；执行状态仍只维护在 [B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)。本节为静态复核，未新增功能运行验收。
+
+### 11.1 基线与证据边界
+
+- **代码基线**：`7f3208ef7749a5814d54cc629f1814f380d45ece`，分支 `develop/dialogue-based-novel-workbench`。仓库含其他 WIP；本次核对的 11 份实现、测试和调用方文件均与该 HEAD 一致，不能把全仓描述为 clean checkout。
+- **已做**：读取 §10、相关整改提交、当前实现与回归代码；核对真实调用方、DataCase 收尾责任及报告导航。写回时再次确认基线和相关源码指纹。
+- **未做**：未重跑 scope、driver、process_tree、Mix/Cargo 套件，未执行新的故障探针、真实页面或模型批次。§10 的 65/65、260/260、7/7、15/15、lint 0 与 DB 四态均为整改者记录的运行证据，不改写为本次独立复跑通过。
+- **历史证据**：REV-04 沿用 §9.5 已取得的精确发布／退出竞争回放，不冒充当前基线新执行；§9 的其他反例用于说明修复目标，不把旧版本故障直接归到新代码。
+- **平台范围**：沿用作者确认的 A5 macOS 已验事实；Windows/Linux 不属于本次验收范围，不列为补验缺口。
+- **交付边界**：本次写回原报告、B84 任务状态及报告索引；实现与正式回归交由后续处理人。B84 保持 `doing`。
+
+### 11.2 六项复核判断
+
+| 编号 | 本次可支持的结论 | 仍需处理或证据限制 |
+|---|---|---|
+| REV-01（P1） | 子 PID/PGID 登记、缺失 journal 默认保留已落地；**尚未满足关闭条件** | journal 损坏或漏登仍可能被当成已核实，启动与登记之间的中断窗口未处理；见 §11.3 |
+| REV-02（P2） | CSS Modules 选择器已修；**本 run 绑定仍未成立** | 首个区域、空 expected 放行及前缀匹配仍可接受错误叙事；真实页面未闭环；见 §11.4 |
+| REV-03（P2） | 上轮“helper 失败后调用方无限 wait”的缺口**已在源码中补齐** | 本轮核对完整 cleanup 调用链及对应回归，未独立重跑 §10 的 7/7；见 §11.6 |
+| REV-04（P2） | **维持 §9 原缺陷复核通过** | 精确竞争时序尚未固化为仓库回归；本轮没有新运行证据 |
+| REV-05（P2） | 上轮三处实现缺口已补；**新增回归的失败收尾仍待补齐** | 用例断言失败会越过唯一显式清理，shutdown 时序仍依赖 sleep；见 §11.5 |
+| REV-06（P2） | 上轮首个删除错误截断 sidecar 清理的问题**已在源码中修复** | §10 四态属于整改者受控脚本证据，未固化为本次新增仓库回归；见 §11.6 |
+
+上述“源码落实”限定为本次所核对的具体缺陷，不等同于完整 B84 签收；也不因本轮未复跑，把已有明确对应修改写回成“原实现仍未修”。
+
+### 11.3 REV-01：登记完整性尚不能支撑安全归档
+
+**已认可的进展。** [test_env.mjs](../scripts/lib/test_env.mjs) 的 `spawnScoped` 在真实启动后登记 PID/PGID（486–497 行）；`reapOrphanScopes` 在归档前核对登记，已登记活子进程／进程组会保留为 `live_children`，无 journal 默认保留为 `children_unverifiable`（343–350 行）。这针对了 §9 的静默 env-only payload 缺口。
+
+**遗留路径一：损坏记录仍得到 verified。** `scopeChildrenState`（291–309 行）忽略 JSON 解析失败的行，对剩余条目筛选活 PID/PGID，最终无条件返回 `verified: true`。空文件、仅有截断 JSON 的文件、缺少身份字段的 `{}` 都可能被认定为“已核实且无活子进程”。必要的组身份未知也没有单独判为不可验证。在 owner 已死、目录过期且其他活动检查未命中时，恢复过程仍可走到 rename（379 行）。
+
+**遗留路径二：启动成功与登记完成之间没有可靠状态。** `registerScopeChild`（250–261 行）吞掉追加失败，注释只考虑“缺失 journal 会保留”。但同一 scope 已有旧登记时，新子进程启动后追加失败，或 owner 在 spawn 与登记之间被杀，旧 journal 仍存在；旧进程退出后，恢复阶段不能从这份不完整记录识别新活进程。首次追加创建空文件后失败也会落入上一条路径。
+
+**现有回归的边界。** [test_env_scope.test.mjs](../scripts/lib/test_env_scope.test.mjs) 的静默 payload 用例（3135–3188 行）直接 spawn 后手工写入正确 journal（3165–3168 行），证明“登记完整时能检测静默 payload”。它没有覆盖真实 `spawnScoped` 登记、既有 journal 上的漏写、半行损坏或启动／登记中断。因此 65/65 不能代替这些路径的证明。
+
+**影响与证据等级。** 上述判断由当前代码路径确认；本轮未执行新的写入失败或 SIGKILL 探针。原风险仍是：无法证明全部自有子进程已结束，却恢复归档资格，活 payload 随后可能继续使用原路径。
+
+**处理及关闭条件：**
+
+1. 复用已有 scope owner，明确区分完整登记、登记未完成和不可验证；空／损坏／必要身份缺失不能自动获得归档资格。
+2. 令启动意图、登记完成或等价事实参与恢复判断，消除“子进程已启动，但 journal 看起来仍完整”的窗口；登记失败不能静默保留安全归档资格。
+3. 在现有 scope 回归中走真实启动链，覆盖旧 journal 后追加失败、启动／登记中断、损坏尾行、静默 payload 及正常结束后可归档；未知状态默认保留现场。
+4. 探针与回归只处理本用例资源，失败时也有独立清理兜底；不新建平行 owner 框架。
+
+### 11.4 REV-02：选择器修正不等于本 run 绑定
+
+**已认可的进展。** [external-ui-driver.mjs](../frontend/slice-verify/external-ui-driver.mjs) 使用 `[class*="agenticLoopReasoning"] p`，修正了 §9 中明文 CSS Modules 类名不匹配的问题。
+
+**当前仍存在的判据缺口：**
+
+- 刷新前（30570–30576 行）和刷新后（30603 行）都取全页面第一个 `[aria-label="本轮创作过程"]`，没有消费当前 run/turn 身份来定位对应消息。
+- 刷新前未采集到预期叙事时，`input.expected.length === 0` 直接返回 true（30612 行）；只要刷新后有任意可见非空叙事便可通过。
+- 30613–30616 行采用双向前 24 字子串匹配，相同前缀不能证明叙事属于同一 run。
+
+**静态反例条件。** 历史 run A 的区域排在本次 run B 前面时，前后都可能采集 A；即使 B 的叙事丢失，比较仍可通过。刷新前 expected 为空时，连“同一片段”的约束也不存在。本轮未实际运行该页面反例，不将其写为新取得的页面故障复现。
+
+因此，§10 的“刷新前采集本 run 叙事”“run 绑定已有局部证据”应被限定为实施者自检声明，不能作为本次关闭结论。
+
+**真实页面的前置契约仍待核对。** 同文件 `driveAgentConversationTurn`（29036–29037 行）预期 1 次 Provider 调用；恢复场景仍要求 `queriedProviderRuns.length >= 3`（30547 行），并要求 purpose 包含 `author_reasoning` 与 `conversation`（30555–30557 行）。§10.2 已说明历史页面失败于数量断言，尚未执行到恢复判据；真正恢复判据仍未取得通过证据。调用数、purpose 及场景要证明的行为必须按现行愿景、设计和契约一并核对，不能仅把 3 改成 1，也不能增加无业务意义调用。§9.8 对“缺少 stage_sink、从未落库”归因的撤回继续有效。
+
+**处理及关闭条件：**
+
+1. 使用已有 run/turn 事实和作者可见语义定位对应消息及叙事，不增加产品验收专用 hook。
+2. 缺少当前 run 预期时报告证据不足，或选用契约明确包含叙事的场景；不能退回任意非空段落放行。
+3. 覆盖历史 run 存在而当前 run 恢复丢失、相同文本前缀、expected 为空、隐藏／零叙事等反例。
+4. 对齐数量与 purpose 的场景契约，再取得受影响真实页面通过证据；合成 DOM 与 driver 套件只作局部证据。
+
+### 11.5 REV-05：实现缺口已补，新增回归自身仍缺失败收尾
+
+**实现修复与上轮问题对应。** [agent_run_cleanup_helper.exs](../apps/novel_application/test/support/agent_run_cleanup_helper.exs) 已在 safe point 使用有界查询（208 行）；逐 Supervisor 累积已取得任务和失败（265–287 行），并先处理已取得任务（248–251 行）；deadline 已过的宽限查询记录超期（241–255、281–287 行）。不再将 §9 中“安全点仍无界”“一次查询失败丢弃另一 Supervisor 的任务”“零期限可假成功”直接描述为当前实现事实。
+
+**新增测试的失败路径仍有缺口。** [agent_run_cleanup_test.exs](../apps/novel_application/test/novel_application/agent_run_cleanup_test.exs) 的 live-run 用例（473–500 行）与跨 Supervisor 用例（510–545 行）创建 blocker、stopper 或自有 background task 后，只在断言之后显式清理；没有在资源创建成功时登记 `on_exit` 或 `try … after`。跨 Supervisor 用例中的任务等待 `:never`，若被测 cleanup 退化，断言恰好会失败并越过后续收尾，缺少独立兜底。
+
+这些任务由全局 `AgentStepTaskSupervisor`／`BackgroundTaskSupervisor` 持有。[DataCase](../apps/novel_persistence/test/support/data_case.ex)（26–28 行）只登记 Sandbox owner 的停止，不能替代这些任务的清理。stopper 的链接或 Supervisor 后续超时也不等同于本 case 已确认归还全部资源。本轮为静态路径核对，未执行新泄漏探针。
+
+另外，487、536 行使用 `Process.sleep(20)` 推测 shutdown 已进入；这仍依赖调度时机，未形成确定性消息屏障。它是回归可靠性问题，不另写成已动态复现的运行故障。
+
+**处理及关闭条件：**
+
+1. 每个资源创建成功后立即登记可幂等的兜底，覆盖中途断言失败；fixture 的归还不能仅依赖被测 cleanup 成功。
+2. 用 blocker 已收到 shutdown 的消息确认替代固定 sleep，再进入被测操作。
+3. 补定向失败退出验证，证明用例断言失败时本用例资源仍被回收、其他 owner 不受影响；复用现有测试体系，不因此扩展成全量模型／页面批次。
+4. 保留 15/15 的准确证据层级：当前用例使用既有 FakeRunServer 与受控 `$callers`，属于 helper/OTP 生命周期回归，不是产品 AgentRun 整链验收。
+
+### 11.6 可认可的修复与保留项
+
+- **REV-03**：[process_tree.sh](../scripts/lib/process_tree.sh) 的 `wait_process_exit`／`reap_process_tree`（152–179 行）在确认进程退出后才执行 shell wait；[slice_verify.sh](../scripts/slice_verify.sh)（76–77 行）及 [tauri_slice_verify.sh](../scripts/tauri_slice_verify.sh)（765、770–772 行）已接入，失败记录非零并继续处理后续资源，保留原始失败码。对应 [process_tree.test.mjs](../scripts/lib/process_tree.test.mjs) 已包含有界失败用例。本次范围内未发现足以否定该具体修复的新问题；7/7 仍注明来源为 §10。
+- **REV-06**：[config/test.exs](../config/test.exs)（40–56 行）先遍历 db/wal/shm，记录所有删除失败，再统一决定是否将原成功改为退出 1；原失败码保留，ENOENT 仍为幂等成功，外部指定目录的借用边界未变。上轮首个错误截断后续清理的缺陷已对应修复。四态受控脚本与已入库自动回归是不同证据，报告应继续区分。
+- **REV-04**：维持 §9.5 原竞争缺陷通过；精确发布／退出时序仍须固化到已有 scope 回归，不能用普通并发用例替代。
+- **Rust TempDir::drop**：维持既有未修静态观察，未新增故障复现，不纳入本轮六项之外的新实测缺陷计数。
+
+### 11.7 处理顺序与文档交接
+
+1. 先处理 REV-01 的登记完整性和启动／登记窗口，保护失联恢复边界。
+2. 处理 REV-02 的当前 run 绑定，并核对 ProviderRun 数量与 purpose 的现行场景契约；补真实页面证据。
+3. 补 REV-05 新增测试的失败兜底与确定性时序，固化 REV-04 精确竞争回归。
+4. REV-03/06 保留已落实的修复进展，按修改面复用现有证据和适用回归，不退回旧缺陷描述。B84 原有其他债务与 Rust 静态观察继续由原任务承接。
+
+原报告 §1–10 保留历史内容；顶部入口改指本节，§10 增加后续复核提示。B84 顶部、当前状态表及新 checkpoint 同步本节判断，旧 checkpoint 标明历史层级；reports 索引更新导航，不另建活动状态台账。本节只完成复核结论交接，不签收完整 B84。
+
+## 12. REV-01 第二轮整改结果（2026-11-14）
+
+> 本节由整改实施者按 §11.7 第 1 项追加，记录 B84-REV-01 的修复、回归与实际限制；§1–11 的历史记录与判断保持不变。执行状态仍只维护在 [B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)。本轮只处理 REV-01，REV-02/05/04 等仍按 §11 承接。
+
+### 12.1 基线与改动面
+
+- **代码基线**：`7f3208ef7749a5814d54cc629f1814f380d45ece` 加工作区；仓库其他 WIP 保留，不描述为 clean checkout。
+- **改动文件**：`scripts/lib/test_env.mjs`、`scripts/lib/test_env_scope.test.mjs`。复用既有 scope owner、owner marker 与 `reapOrphanScopes`，未新建并行 owner/清理框架，也未改产品代码、driver 或页面。
+- **整改后源码指纹**：`scripts/lib/test_env.mjs` = `f63ccd43d6d8e0169adbc3fa90eb00633d1af5c8eeab98731a1e339b0b76d308`；`scripts/lib/test_env_scope.test.mjs` = `87139a82d28811af7dcf08804ad41286abd2769ae71f58e0fabd09b3999baa7a`。后续源码变化时按函数名重新定位，不机械使用 §11 行号。
+- **平台范围**：沿用作者 macOS 验收边界；Windows/Linux 不在本次范围。
+
+### 12.2 实现变化
+
+1. **登记格式带启动意图**。`createRunScope` 在创建时写入 journal 头部（`ai-novel-test-run-children` v2）。`spawnScoped` 在真实 `spawn` 之前写 `spawn_intent`，子进程启动成功后写 `spawn_registered`（pid/pgid）；启动失败写 `spawn_failed` 闭合意图。意图先落盘，消除“子进程已启动，但 journal 看起来仍完整”的窗口。
+2. **恢复判定区分状态**。`scopeChildrenState` 返回 `complete | missing | empty | unreadable | corrupt | legacy | incomplete` 与 `live`；只有 `complete`（所有意图已闭合、登记身份完整、无活子进程）可自动获得归档资格。损坏尾行、非法 JSON、缺身份、未配对登记、旧格式与未闭合意图都不能自动归档。
+3. **失败不静默保留归档资格**。`spawn_intent` 写入失败时拒绝启动（fail closed）；`spawn_registered` 写入失败时保留未闭合意图，并向 stderr 输出诊断，恢复阶段提示该 scope 将保留现场。
+4. **reap 可审计原因**。保留现场时输出 `children_unverifiable`（缺失/空/不可读）、`children_corrupt`、`children_legacy`、`children_incomplete` 与 `children_state`/`detail`/`open_intents`；`--allow-unverified-children` 仍作为显式人工处置入口。
+
+### 12.3 §11.3 两条遗留路径的修前／修后
+
+| 反例 | §11.3 修前（静态结论） | 本轮修后（运行回归） |
+|---|---|---|
+| 空 journal 文件 | 无条件 `verified: true`，可归档 | 保留现场：`children_unverifiable` + `children_state=empty` |
+| 截断/半行 JSON | 损坏行被忽略，仍可 verified | 保留现场：`children_corrupt` + `detail=unterminated_line` |
+| `{}` 缺身份字段 | 不算活进程，仍可 verified | 保留现场：`children_corrupt` + `detail=registered_identity_missing` |
+| 未配对登记 | 无此判定，仍可 verified | 保留现场：`children_corrupt` + `detail=unpaired_registration` |
+| 旧格式 journal（无头部/意图） | 按完整登记处理 | 保留现场：`children_legacy`（无法排除启动/登记窗口） |
+| 已有完整登记后追加失败 | 旧 journal 仍完整，活 payload 不可见 | 保留现场：`children_incomplete` + 1 个 open intent；终止该 payload 后仍不自动归档，显式允许才归档 |
+| 启动意图写入失败 | 旧实现无此路径 | `runInScope` 返回失败，payload 未启动；journal 无 `spawn_intent` 残留 |
+| 启动失败（命令不存在） | 旧实现无此记录 | `spawn_failed` 闭合意图，登记仍完整；可正常归档 |
+| 静默 env-only payload（真实登记） | 若手工写入正确 journal 才可识别 | 真实 `spawnScoped` 登记后保留 `live_children`；终止后归档 |
+| 真实启动链正常结束 | 未覆盖真实登记链 | 完整 `spawn_intent` + `spawn_registered`，owner 失联且过期后可归档 |
+
+上表修前列是 §11.3 的静态判断，本轮没有回跑旧实现；修后列是本轮新增/改写回归的实际断言。没有把任一静态结论写成新的运行故障复现。
+
+### 12.4 回归命令与实际计数
+
+```bash
+/usr/bin/env -u NOVEL_TEST_RUN_DIR -u NOVEL_TEST_ENTRY_SCOPED \
+  PATH=/Users/loong/.nvm/versions/node/v24.19.0/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin \
+  bash scripts/node_test.sh --self scripts/lib/test_env_scope.test.mjs
+```
+
+- **scope 全套：70/70 通过**，exit 0，duration ≈ 13.8s。原 65 项全部保留（其中 2 项手工空 journal 改为合法完整头部，1 项静默 payload 改为真实启动链），新增 5 项：真实启动链可归档、intent 失败拒绝启动、登记失败保留 incomplete、启动失败闭合意图、空/损坏/旧格式/未闭合/未配对状态族。
+- **定向子集：9/9 通过**（`node --test --test-name-pattern='reap|spawnScoped'`），用于快速定位。
+- **`node --test scripts/lib/test_env.test.mjs`：15/16**。唯一失败“工程入口借用已有父 scope”是既有基线问题：测试构造的 parent owner 进程已退出，与 `borrowRunScope` 要求 owner 存活的规则冲突。用 HEAD `7f3208ef` 的独立 worktree 复跑得到同样 15/16，该项不是本轮 REV-01 改动引入；本轮未顺手扩大范围修改它。
+
+### 12.5 证据分层与限制
+
+- 本轮证据是 **Node 机制/回归级**：真实 `spawnScoped`、真实子进程、真实文件系统与 `reapOrphanScopes`；不是产品页面、真实模型、Tauri 或完整 Mix/Cargo 验收。
+- 失败注入只作用于本用例自有的 scope/子进程/`fs.appendFileSync`，测试用 `t.after`/`trackPid` 兜底结束 payload 并回收 scratch；未做全局 reap、未触碰历史作者资料或产品数据库。
+- 回归未证明自然运行中的发生频率；“旧格式默认保留”是保守恢复策略，不是产品行为变化。
+- 本批改动本地提交后未 push；B84 仍不据此签收。
+
+### 12.6 关闭判断与剩余缺口
+
+- 按 §11.3 的四条关闭条件：完整/未完成/不可验证已区分；启动意图、登记完成与失败闭合参与恢复判断；真实启动链回归覆盖正常归档、静默 payload、旧 journal 后追加失败、登记中断、损坏尾行与未知状态保留；测试资源有独立兜底。**REV-01 的整改与局部回归已闭环，待独立复核确认。**
+- **行为变化提示**：无头部/空/损坏的旧 scope 不会再被自动归档；需要人工确认后用 `reap --allow-unverified-children` 或删除。这是为避免把无法证明已结束的活 payload 移走。
+- 仍开放：REV-02 的当前 run 绑定、ProviderRun 数量/purpose 契约与真实页面；REV-05 回归失败兜底与确定性时序；REV-04 精确竞争回归固化；REV-03/06 保留既有修复；Rust `TempDir::drop` 静态观察。B84 保持 `doing`，由复核者按 §11 剩余关闭条件继续验证。
