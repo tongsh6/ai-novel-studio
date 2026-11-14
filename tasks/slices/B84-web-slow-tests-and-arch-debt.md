@@ -614,6 +614,22 @@ SUT仅在`dir`缺失时把C3/C4/C7/C9/C10标为unknown（不冒充pass/fail）�
 
 本checkpoint只签批量收尾吞错与既有目录限制登记，不签A4全部或B84。本批已本地提交（未推送）。
 
+### A4 真实批次重跑（2026-11-14）
+
+浏览器surface（真实页面、Playwright、provider=slice_verify）：
+
+- `au10-workbench-render-stability`：**6 scenes/0 violations/0 errors**，产物`render-baseline.json`与6张截图。
+- `au02-candidate-continuation`：passed，summary/frames落盘。
+- `vs10-observability-spine`：passed。
+- 三个批次都经新归档helper（旧目录进入`.history/`），未直接删除证据；启动/退出由脚本打印真实ready/passed。
+
+Tauri native（`TAURI_NATIVE_SYSTEM_DRIVER=1`）：
+
+- `b28-scope-authorization`：app构建/签名完成，但外部driver在120s内未观察到窗口（`failure.json`: `driver_idle_timeout`，`commands_processed=0`）；cleanup `remaining=[]`，无进程/端口残留。
+- 该失败是窗口观察/环境问题，不是断言失败；原生真实批次**未闭环**，需辅助功能授权或窗口确认后重跑。没有用浏览器结果或单测代签原生。
+
+本checkpoint签浏览器真实批次；原生批次保留失败证据、A4未完全闭环。本批已本地提交（未推送）。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。
