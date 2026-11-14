@@ -1,10 +1,8 @@
 // B71 §16.14 确认/拒绝判据 C1–C12 正反例（硬门禁：缺证据不得 PASS）。
+// 本文件只保留纯判据/解析/按钮定位；runtime 观察、AX 文件扫描与 SQLite reader
+// 等真实 IO 集合在邻接 `authoring_confirmation_evidence_io.test.mjs`。
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import test from "node:test";
-import { DatabaseSync } from "node:sqlite";
 import { CONFIRMATION_REQUEST } from "./authoring_confirmation_constants.mjs";
 import { irBodyFromWire } from "./fixtures/authoring_request_ir.mjs";
 import {
@@ -12,10 +10,7 @@ import {
   evaluateConfirmation,
   executedConfirmationTurnResult,
   locateConfirmationButton,
-  observeConfirmationRuntime,
-  readConfirmationDbFacts,
   rejectConfirmationTurnResult,
-  scanAuthorVisibleBatch,
   selectConfirmationAction,
 } from "./authoring_confirmation_evidence.mjs";
 import { assembleConfirmationFacts } from "./authoring_confirmation_facts.mjs";
@@ -32,7 +27,6 @@ import {
   USER_TURN,
   canonSnapshot,
   childAgentEventFrame,
-  childDbEvents,
   childWireEvents,
   confirmActions,
   confirmationInput,
@@ -42,8 +36,6 @@ import {
   needsBody,
   received,
   runtimeObservation,
-  sentFrame,
-  testDir,
   wireFor,
   withoutChildAgentEvents,
 } from "./fixtures/authoring_confirmation_scenarios.mjs";
@@ -700,106 +692,16 @@ test("evaluateConfirmation 纯计算：只消费显式 runtime，不读取 dir�
   const explicitRuntime = evaluateConfirmation({
     ...input,
     runtime: runtimeObservation(1),
-    dir: path.join(os.tmpdir(), "b71-confirmation-runtime-does-not-exist"),
+    dir: "/nonexistent/b71-confirmation-runtime-does-not-exist",
   });
   assert.equal(explicitRuntime.checks.C11_cleanup.ok, true);
   assert.deepEqual(explicitRuntime.measured.runtime_after_batch, runtimeObservation(1));
-
-  const noRuntime = evaluateConfirmation({ ...input, runtime: undefined, dir: testDir(1) });
-  assert.equal(noRuntime.checks.C11_cleanup.ok, false);
-  assert.equal(noRuntime.measured.runtime_after_batch, undefined);
 
   const stringLlmCalls = evaluateConfirmation({
     ...input,
     runtime: { ...runtimeObservation(1), llm_calls: "1" },
   });
   assert.equal(stringLlmCalls.checks.C11_cleanup.ok, false);
-});
-
-function runtimeFixture({ withLlmDir = true, llmCalls = 1 } = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-confirmation-runtime-"));
-  const appPath = path.join(dir, "AI Novel Studio.app");
-  const executable = path.join(appPath, "Contents", "MacOS", "app");
-  fs.mkdirSync(path.dirname(executable), { recursive: true });
-  fs.writeFileSync(executable, "fixture-executable");
-  if (withLlmDir) {
-    fs.mkdirSync(path.join(dir, "llm-calls"), { recursive: true });
-    fs.writeFileSync(
-      path.join(dir, "llm-calls", "2026-11-03.jsonl"),
-      `${JSON.stringify({ provider: "slice_verify" })}\n`.repeat(llmCalls),
-    );
-  }
-  return {
-    dir,
-    executable: fs.realpathSync(executable),
-    ready: {
-      driver: "external-system-ui",
-      run_ref: "run-runtime-fixture",
-      bundle_identifier: "com.ai-novel-studio.runtime-fixture",
-      app_path: appPath,
-      native_executable: "app",
-    },
-  };
-}
-
-function fakeRuntimeExec(executable, { listener4657 = true } = {}) {
-  const calls = [];
-  const exec = (command, args) => {
-    calls.push({ command, args });
-    if (command === "ps") return ` 111 1 ${executable}\n 222 1 /usr/bin/other\n`;
-    if (command === "lsof") {
-      return args.includes("-iTCP:4657") && listener4657 ? "app 111 lo TCP *:4657 (LISTEN)\n" : "";
-    }
-    throw new Error(`unexpected command: ${command}`);
-  };
-  return { exec, calls };
-}
-
-test("observeConfirmationRuntime：只按本批 ready 的精确 executable 归属，并区分 lsof 无匹配/执行错误", () => {
-  const fixture = runtimeFixture({ llmCalls: 2 });
-  try {
-    const { exec, calls } = fakeRuntimeExec(fixture.executable);
-    assert.deepEqual(observeConfirmationRuntime(fixture.dir, fixture.ready, { exec }), {
-      app_processes: 1,
-      ports: { backend_4657: true, transport_4661: false },
-      llm_calls: 2,
-    });
-    assert.equal(calls[0].command, "ps");
-    assert.equal(calls.filter((call) => call.command === "lsof").length, 2);
-
-    const noListener = (command, args) => {
-      if (command === "ps") return "";
-      if (command === "lsof") throw Object.assign(new Error("lsof no match"), { status: 1 });
-      throw new Error(`unexpected command: ${command}`);
-    };
-    assert.deepEqual(observeConfirmationRuntime(fixture.dir, fixture.ready, { exec: noListener }).ports, {
-      backend_4657: false,
-      transport_4661: false,
-    });
-
-    const brokenLsof = (command) => {
-      if (command === "ps") return "";
-      throw Object.assign(new Error("lsof denied"), { status: 2 });
-    };
-    assert.throws(() => observeConfirmationRuntime(fixture.dir, fixture.ready, { exec: brokenLsof }), /lsof denied/u);
-  } finally {
-    fs.rmSync(fixture.dir, { recursive: true, force: true });
-  }
-});
-
-test("observeConfirmationRuntime：缺 ready/app/llm-calls 观察失败如实抛出，不回退默认名字或伪造 0", () => {
-  const fixture = runtimeFixture({ withLlmDir: false });
-  try {
-    const { exec } = fakeRuntimeExec(fixture.executable);
-    assert.throws(() => observeConfirmationRuntime(fixture.dir, null, { exec }), /ready_invalid/u);
-    assert.throws(
-      () => observeConfirmationRuntime(fixture.dir, { ...fixture.ready, app_path: path.join(fixture.dir, "missing.app") }, { exec }),
-      /app_path_missing/u,
-    );
-    assert.throws(() => observeConfirmationRuntime(fixture.dir, fixture.ready, { exec }), /llm-calls/u);
-  } finally {
-    fs.rmSync(fixture.dir, { recursive: true, force: true });
-  }
 });
 
 test("反例：拒绝路径出现 Provider 调用/canon 变化/非 CANCELLED receipt fail", () => {
@@ -936,39 +838,6 @@ test("executedConfirmationTurnResult / rejectConfirmationTurnResult：时间窗�
 });
 
 
-test("AX 断言层：全类别内部 token 命中判红（含中文内部术语）", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-author-visible-"));
-  fs.writeFileSync(path.join(dir, "01-source.ax.txt"), "\t\t0/0/0/0/0/8 AXPopUpButton, 模型已连接, Description: Stub · 当前模型：slice_verify, enabled=true\n");
-  const leak = scanAuthorVisibleBatch(dir);
-  assert.equal(leak.ok, false);
-  assert(leak.hits.some((hit) => hit.token === "slice_verify" || hit.token === "Stub"));
-  fs.rmSync(dir, { recursive: true, force: true });
-
-  const prose = fs.mkdtempSync(path.join(os.tmpdir(), "b71-author-visible-"));
-  fs.writeFileSync(path.join(prose, "02-after-confirm.ax.txt"), "\t\t0/0/0/0/0/27/0 AXStaticText, Value: 已确认「prose_writing」操作，正在处理。\n");
-  const proseLeak = scanAuthorVisibleBatch(prose);
-  assert.equal(proseLeak.ok, false);
-  assert(proseLeak.hits.some((hit) => hit.token === "prose_writing"));
-  fs.rmSync(prose, { recursive: true, force: true });
-
-  const p1 = fs.mkdtempSync(path.join(os.tmpdir(), "b71-author-visible-"));
-  fs.writeFileSync(path.join(p1, "02-after-confirm.ax.txt"), "\t\t0/0/0/0/0/1 AXStaticText, Value: 当前创作请求的工作过程\n");
-  const p1Scan = scanAuthorVisibleBatch(p1);
-  // P1 后全类别启用：中文内部术语与其它类别一样判红，同时单独输出清单供报告。
-  assert.equal(p1Scan.ok, false);
-  assert(p1Scan.hits.some((hit) => hit.token === "工作过程"));
-  assert(p1Scan.internal_terms_zh_hits.some((hit) => hit.token === "工作过程"));
-  fs.rmSync(p1, { recursive: true, force: true });
-
-  const clean = fs.mkdtempSync(path.join(os.tmpdir(), "b71-author-visible-"));
-  fs.writeFileSync(path.join(clean, "01-source.ax.txt"), "\t\t0/0/0/0/0/2 AXStaticText, Value: 需要确认\n");
-  const cleanScan = scanAuthorVisibleBatch(clean);
-  assert.equal(cleanScan.ok, true);
-  assert.deepEqual(cleanScan.hits, []);
-  fs.rmSync(clean, { recursive: true, force: true });
-});
-
-
 test("confirmationCardLines：标题/三类正文语义与缺失边界", () => {
   assert.deepEqual(confirmationCardLines("  需要确认  \n 确认对象：正文草稿 "), {
     title: "需要确认",
@@ -984,60 +853,6 @@ test("confirmationCardLines：标题/三类正文语义与缺失边界", () => {
   });
   assert.equal(confirmationCardLines("需要确认\n其它文案"), null);
   assert.equal(confirmationCardLines("确认对象：正文草稿"), null);
-});
-
-test("readConfirmationDbFacts：真实只读 SQLite 行按既有列读取", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-confirmation-db-"));
-  fs.mkdirSync(path.join(dir, "database"), { recursive: true });
-  const db = new DatabaseSync(path.join(dir, "database", "ai_novel_studio_test.sqlite3"));
-  const json = (value) => JSON.stringify(value);
-  db.exec(`
-    CREATE TABLE author_action_receipts (id TEXT, inserted_at TEXT, action_id TEXT, result TEXT);
-    CREATE TABLE agent_runs (id TEXT, inserted_at TEXT, status TEXT);
-    CREATE TABLE interactions (id TEXT, inserted_at TEXT, turn_id TEXT, content TEXT);
-    CREATE TABLE provider_runs (id TEXT, inserted_at TEXT, agent_run_id TEXT);
-    CREATE TABLE agent_events (id TEXT, inserted_at TEXT, run_id TEXT, event_type TEXT);
-    CREATE TABLE decision_traces (id TEXT, inserted_at TEXT, turn_id TEXT);
-    CREATE TABLE mutations (id TEXT, inserted_at TEXT);
-    CREATE TABLE memory_items (id TEXT, inserted_at TEXT);
-  `);
-  db.prepare("INSERT INTO author_action_receipts VALUES (?, ?, ?, ?)").run("r1", "2026-11-03T10:00:00Z", "a1", json({ turn_id: "turn_dec" }));
-  db.prepare("INSERT INTO agent_runs VALUES (?, ?, ?)").run("run-child", "2026-11-03T10:00:01Z", "completed");
-  db.prepare("INSERT INTO interactions VALUES (?, ?, ?, ?)").run("i1", "2026-11-03T10:00:02Z", "turn_dec", json({ text: "作者原话" }));
-  db.prepare("INSERT INTO provider_runs VALUES (?, ?, ?)").run("p1", "2026-11-03T10:00:03Z", "run-child");
-  db.prepare("INSERT INTO agent_events VALUES (?, ?, ?, ?)").run("e1", "2026-11-03T10:00:04Z", "run-child", "tool_started");
-  db.prepare("INSERT INTO decision_traces VALUES (?, ?, ?)").run("d1", "2026-11-03T10:00:05Z", "turn_dec");
-  db.prepare("INSERT INTO mutations VALUES (?, ?)").run("m1", "2026-11-03T10:00:06Z");
-  db.prepare("INSERT INTO memory_items VALUES (?, ?)").run("mem1", "2026-11-03T10:00:07Z");
-  db.close();
-
-  const facts = readConfirmationDbFacts(dir);
-  assert.equal(facts.receipts.length, 1);
-  assert.equal(facts.receipts[0].id, "r1");
-  assert.equal(facts.agent_runs[0].id, "run-child");
-  assert.equal(facts.interactions[0].turn_id, "turn_dec");
-  assert.equal(facts.provider_runs[0].agent_run_id, "run-child");
-  assert.equal(facts.agent_events[0].event_type, "tool_started");
-  assert.equal(facts.decision_traces[0].turn_id, "turn_dec");
-  assert.equal(facts.mutations_count, 1);
-  assert.equal(facts.memory_count, 1);
-  assert.equal(facts.receipts_count, 1);
-  assert.equal(facts.provider_runs_count, 1);
-  assert.equal(facts.agent_runs_count, 1);
-  fs.rmSync(dir, { recursive: true, force: true });
-});
-
-test("readConfirmationDbFacts：缺表/读取失败如实抛出，不伪造 0/[]", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-confirmation-db-missing-"));
-  fs.mkdirSync(path.join(dir, "database"), { recursive: true });
-  const db = new DatabaseSync(path.join(dir, "database", "ai_novel_studio_test.sqlite3"));
-  db.exec("CREATE TABLE unrelated (id TEXT)");
-  db.close();
-  try {
-    assert.throws(() => readConfirmationDbFacts(dir), /author_action_receipts/u);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 });
 
 test("C7 tool_failed：真实失败 tool_result + trace + truthfulness 才成立", () => {
@@ -1160,16 +975,6 @@ test("executedConfirmationTurnResult：无 click_at 时按 source turn 前缀定
   assert.equal(result.checks.C7_confirmed_child_execution.detail.branch, "executed");
   assert.equal(result.checks.C7_confirmed_child_execution.detail.executed_turn_id, `${SOURCE_TURN}:exec`);
 });
-
-test("AX 断言层：text.txt 可见文本同样扫描真实内部 token", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-author-visible-text-"));
-  fs.writeFileSync(path.join(dir, "01-source.text.txt"), "Value: slice_verify\n");
-  const scan = scanAuthorVisibleBatch(dir);
-  assert.equal(scan.ok, false);
-  assert(scan.hits.some((hit) => hit.token === "slice_verify" && hit.file === "01-source.text.txt"));
-  fs.rmSync(dir, { recursive: true, force: true });
-});
-
 
 test("C8 红：application-data 冒充作者/字节改写/按钮文案/重复作者消息", () => {
   const records = (messages) => [{

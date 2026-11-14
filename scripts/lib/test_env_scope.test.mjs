@@ -4,8 +4,9 @@
 // 初始化失败、取消(SIGTERM)/超时、子进程被杀后的 parent 收口、受控 env 所有权、
 // 正常/失败/取消时后台孙进程的进程组收口、嵌套借用不清理父组且由外层 owner 收口、
 // 只读 fixture 同 run 单次物化与并发复用、两真实子进程竞争的 payload 写入计数、
-// 初始化失败/owner 被杀/等待超时的明确失败、必要工作副本隔离。全部使用真实
-// CLI/子进程与本文件专属 scratch，不用打印的 PASS 自证。
+// 初始化失败/owner 被杀/等待超时的明确失败、必要工作副本隔离与同步
+// withWorkingCopy 的正常/单失败/双失败。全部使用真实 CLI/子进程与本文件专属
+// scratch，不用打印的 PASS 自证。
 
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
@@ -21,6 +22,7 @@ import {
   normalizeFixtureSpec,
   openTestRunScope,
   runInScope,
+  withWorkingCopy,
 } from "./test_env.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -1952,6 +1954,136 @@ test("工作副本复制中途失败：首个文件真实落盘，第二个边�
   // 只清本 case 捕获的目录；共享 workDir 中其他 owner 的资源不参与清场。
   fs.rmSync(doubleCopyDir, { recursive: true, force: true });
   assert.equal(fs.existsSync(doubleCopyDir), false);
+});
+
+// 只让目标工作副本的 rmSync 失败；返回的恢复函数必须在 finally 调用。
+function injectWorkCopyCleanupFailure(holder) {
+  const originalRmSync = fs.rmSync;
+  fs.rmSync = function (target, ...rest) {
+    if (holder.dir && String(target) === holder.dir) {
+      const error = new Error("EACCES: injected withWorkingCopy cleanup failure");
+      error.code = "EACCES";
+      throw error;
+    }
+    return originalRmSync.call(fs, target, ...rest);
+  };
+  return () => {
+    fs.rmSync = originalRmSync;
+  };
+}
+
+test("withWorkingCopy：正常返回在关闭副本后交回结果，借用父 scope 不被删除", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-with-workcopy") });
+  t.after(() => parent.close());
+  const sentinel = path.join(parent.dir, "borrowed-sentinel.txt");
+  fs.writeFileSync(sentinel, "kept\n");
+  const fixture = materializeFixture(
+    { name: "with-workcopy-normal", files: { "alpha.txt": "alpha\n" } },
+    { scope: parent },
+  );
+  let copyDir;
+  const value = withWorkingCopy(
+    fixture,
+    (copy) => {
+      copyDir = copy.dir;
+      assert.equal(fs.readFileSync(path.join(copy.dir, "alpha.txt"), "utf8"), "alpha\n");
+      return "used";
+    },
+    { scope: parent },
+  );
+  assert.equal(value, "used", "正常返回必须交回回调结果");
+  assert.ok(copyDir.startsWith(`${parent.workDir}${path.sep}`), "副本由 createWorkingCopy 建在本 run 的 workDir 下");
+  assert.equal(fs.existsSync(copyDir), false, "正常返回后必须关闭本 case 副本");
+  assert.equal(fs.readFileSync(sentinel, "utf8"), "kept\n", "借用父 scope 的资源不被删除");
+});
+
+test("withWorkingCopy：回调单失败与 cleanup 单失败各自原样抛出，副本仍实际回收", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-with-workcopy-single") });
+  t.after(() => parent.close());
+  const fixture = materializeFixture(
+    { name: "with-workcopy-single", files: { "alpha.txt": "alpha\n" } },
+    { scope: parent },
+  );
+
+  let callbackDir;
+  let callbackFailure;
+  try {
+    withWorkingCopy(
+      fixture,
+      (copy) => {
+        callbackDir = copy.dir;
+        throw new Error("injected withWorkingCopy callback failure");
+      },
+      { scope: parent },
+    );
+  } catch (error) {
+    callbackFailure = error;
+  }
+  assert.match(callbackFailure?.message ?? "", /injected withWorkingCopy callback failure/u);
+  assert.equal(callbackFailure instanceof AggregateError, false, "单失败保持原错误形状");
+  assert.equal(fs.existsSync(callbackDir), false, "回调失败后仍必须关闭副本");
+
+  const holder = { dir: "" };
+  let cleanupCopy;
+  let cleanupFailure;
+  const restore = injectWorkCopyCleanupFailure(holder);
+  try {
+    withWorkingCopy(
+      fixture,
+      (copy) => {
+        cleanupCopy = copy;
+        holder.dir = copy.dir;
+        return "ok";
+      },
+      { scope: parent },
+    );
+  } catch (error) {
+    cleanupFailure = error;
+  } finally {
+    restore();
+  }
+  assert.match(cleanupFailure?.message ?? "", /injected withWorkingCopy cleanup failure/u);
+  assert.equal(cleanupFailure instanceof AggregateError, false, "cleanup 单失败也保持原错误形状");
+  assert.equal(cleanupFailure.code, "EACCES");
+  assert.equal(fs.existsSync(holder.dir), true, "cleanup 失败时目录保留供核验");
+  cleanupCopy.cleanup();
+  assert.equal(fs.existsSync(holder.dir), false, "恢复注入后重试实际回收副本");
+});
+
+test("withWorkingCopy：回调与 cleanup 双失败同时保留，恢复注入后可回收", (t) => {
+  const parent = openTestRunScope({ baseDir: path.join(scratch, "base-with-workcopy-double") });
+  t.after(() => parent.close());
+  const fixture = materializeFixture(
+    { name: "with-workcopy-double", files: { "alpha.txt": "alpha\n" } },
+    { scope: parent },
+  );
+  const holder = { dir: "" };
+  let doubleCopy;
+  let doubleFailure;
+  const restore = injectWorkCopyCleanupFailure(holder);
+  try {
+    withWorkingCopy(
+      fixture,
+      (copy) => {
+        doubleCopy = copy;
+        holder.dir = copy.dir;
+        throw new Error("injected withWorkingCopy callback primary");
+      },
+      { scope: parent },
+    );
+  } catch (error) {
+    doubleFailure = error;
+  } finally {
+    restore();
+  }
+  assert.ok(doubleFailure instanceof AggregateError, "双失败必须同时携带 primary 与 cleanup");
+  assert.equal(doubleFailure.errors.length, 2);
+  assert.match(doubleFailure.errors[0].message, /injected withWorkingCopy callback primary/u);
+  assert.match(doubleFailure.errors[1].message, /injected withWorkingCopy cleanup failure/u);
+  assert.match(doubleFailure.message, /工作副本 清理失败/u);
+  assert.equal(fs.existsSync(holder.dir), true, "双失败时目录保留供核验");
+  doubleCopy.cleanup();
+  assert.equal(fs.existsSync(holder.dir), false, "恢复注入后实际回收副本");
 });
 
 // ── 构造形式（{name, inputs, build}）：与字面形式共享 claim/发布/复用/工作副本 ──

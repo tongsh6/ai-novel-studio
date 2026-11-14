@@ -1,9 +1,7 @@
 // B71 §16.14 confirmation 判据的测试场景夹具：只被 Node 正反例与只读差分对账消费。
 // 这里的事实形状来自真实批次（received/agent_event、SQLite 行、driver log），测试只替换
 // 单个字段来构造反例，不另造一套与真实 wire/DB 不同的“完美输入”。
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+// 本 owner 只提供纯事实；文件/SQLite 构造在邻接 `authoring_confirmation_io_fixture.mjs`。
 import { CONFIRMATION_REQUEST } from "../authoring_confirmation_constants.mjs";
 import { irBodyFromWire } from "./authoring_request_ir.mjs";
 
@@ -383,13 +381,6 @@ export function wireFor(mode, overrides = {}) {
   }
   if (mode === "confirm") frames.push(...childWireEvents().map(childAgentEventFrame));
   return { frames, action, ...overrides };
-}
-
-export function testDir(llmCalls = 1) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-confirmation-unit-"));
-  fs.mkdirSync(path.join(dir, "llm-calls"), { recursive: true });
-  fs.writeFileSync(path.join(dir, "llm-calls", "2026-11-03.jsonl"), `${JSON.stringify({ provider: "slice_verify" })}\n`.repeat(llmCalls));
-  return dir;
 }
 
 // 纯 evaluator 的显式运行态事实：批次后无 app/端口、llm-calls 与 termination 一致。

@@ -1,36 +1,40 @@
 // B71 §16.14 确认批次 I/O/报告编排测试（合成完整批次，不启动真实 App）。
 //
-// 入口是生产公开的 verifyConfirmationBatch；测试在临时目录写真实文件与临时 SQLite，
-// 复用 fixtures 的真实 wire/DB/canon 形状。OS 观察只 mock child_process.execFileSync
-// 的 ps/lsof 边界（明确模拟无目标进程/无监听），其它命令仍交回真实 exec。
-// 不访问 UserNotificationCenter/SystemNotificationCenter，也不依赖用户当前进程/端口。
+// 入口是生产公开的 verifyConfirmationBatch；文件级 `before` 只申请/借用 run scope
+// 并安装 ps/lsof mock，`after` 关闭。固定 wire/canon/AX/PNG/合成 app/DB 只在首个
+// 真正需要批次模板的 case 经 `materializeFixture` 物化成唯一只读模板（同 run 同规格
+// 由 owner 复用）。每个 case 取自己的可写副本，并在副本上装配绝对 app_path/
+// ready_at/heartbeat 与单一缺输入变更；报告只写本副本，模板和另一副本不受影响。
+//
+// OS 观察只 mock child_process.execFileSync 的 ps/lsof 边界（明确模拟无目标进程/
+// 无监听），其它命令仍交回真实 exec。不访问 UserNotificationCenter/
+// SystemNotificationCenter，也不依赖用户当前进程/端口。
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test, { mock } from "node:test";
-import { verifyConfirmationBatch } from "./authoring_confirmation_evidence.mjs";
-import { CONFIRMATION_REQUEST } from "./authoring_confirmation_constants.mjs";
-import { irBodyFromWire } from "./fixtures/authoring_request_ir.mjs";
-import { APP_BUNDLE, NATIVE_DRIVER } from "./scenario_evidence.mjs";
 import {
-  CHILD_RUN,
-  CLICK_AT,
-  SOURCE_RUN,
-  SOURCE_TURN,
-  USER_TURN,
-  canonSnapshot,
-  dbFactsFor,
-  driverLogFor,
-  sentFrame,
-  wireFor,
-  withoutChildAgentEvents,
-} from "./fixtures/authoring_confirmation_scenarios.mjs";
+  fixtureTemplateHash,
+  materializeFixture,
+  openTestRunScope,
+  withWorkingCopy,
+} from "../test_env.mjs";
+import { readConfirmationDbFacts, verifyConfirmationBatch } from "./authoring_confirmation_evidence.mjs";
+import { CONFIRMATION_REQUEST } from "./authoring_confirmation_constants.mjs";
+import { CHILD_RUN, CLICK_AT, SOURCE_RUN, SOURCE_TURN } from "./fixtures/authoring_confirmation_scenarios.mjs";
+import {
+  BATCH_SCREENSHOTS,
+  CONFIRMATION_DB_REL,
+  assembleConfirmationBatchCase,
+  confirmationBatchFixtureSpec,
+} from "./fixtures/authoring_confirmation_io_fixture.mjs";
 
 const realExecFileSync = childProcess.execFileSync;
+
+let runScope;
 
 // 只替换 ps/lsof（以及 ps 失败后才会用到的 pgrep）边界：明确声明无目标进程、无监听。
 // git 等其它只读调用原样交回真实 exec；生产实现没有 test 注入开关。
@@ -45,228 +49,35 @@ test.before(() => {
     return realExecFileSync(command, args, options);
   });
   syncBuiltinESMExports();
+  runScope = openTestRunScope();
 });
 
 test.after(() => {
-  mock.restoreAll();
-  syncBuiltinESMExports();
-});
-
-const readyAt = new Date(Date.now() - 3600_000).toISOString();
-const runRef = "run-ref-confirmation-batch";
-const png = () => Buffer.from("89504e470d0a1a0a", "hex");
-const shotNames = ["01-source.png", "02-card.png", "03-why.png", "04-restored.png"];
-const SAFE_VISIBLE_COPY = [
-  "需要确认",
-  "确认对象：第01章正文草稿",
-  "确认前不会调用工具",
-  "确认后系统会重新检查当前作品状态",
-  "待确认正文片段",
-].join("\n");
-
-function writeJson(file, value) {
-  fs.writeFileSync(file, JSON.stringify(value, null, 2));
-}
-
-function writeJsonl(file, rows) {
-  fs.writeFileSync(file, rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
-}
-
-// 真实等待账形状：begin/finish 平衡 + 分型 wait-events；confirmation 必须有 restore。
-function waitLedger(dir) {
-  const kinds = ["input", "ack", "turn", "maintenance", "restore", "input", "ack", "turn", "maintenance"];
-  const commands = kinds.flatMap((kind, index) => [
-    { op: "begin", id: `wait-${index}`, kind },
-    { op: "finish", id: `wait-${index}`, kind },
-  ]);
-  writeJsonl(path.join(dir, "native-driver-commands.jsonl"), commands);
-  writeJsonl(
-    path.join(dir, "wait-events.jsonl"),
-    kinds.flatMap((kind, index) => [
-      { event: "wait_start", kind, at: 1000 + index * 100, id: `wait-${index}` },
-      { event: "wait_end", kind, ended_at: 1050 + index * 100, id: `wait-${index}` },
-    ]),
-  );
-  writeJson(path.join(dir, "wait-stats.json"), { active: null, completed: kinds.length });
-  writeJsonl(path.join(dir, "heartbeat.jsonl"), [{ at: readyAt }]);
-}
-
-function schemaSql() {
-  return `
-    CREATE TABLE author_action_receipts (id TEXT, source_turn_ref TEXT, action_id TEXT, action_type TEXT, idempotency_key TEXT, behavior_ref TEXT, status TEXT, result TEXT, inserted_at TEXT);
-    CREATE TABLE agent_runs (id TEXT, profile_ref TEXT, run_mode TEXT, status TEXT, active_behavior_ref TEXT, trigger TEXT, parent_turn_ref TEXT, inserted_at TEXT);
-    CREATE TABLE interactions (id TEXT, role TEXT, turn_id TEXT, content TEXT, inserted_at TEXT);
-    CREATE TABLE provider_runs (id TEXT, agent_run_id TEXT, purpose TEXT, inserted_at TEXT);
-    CREATE TABLE agent_events (id TEXT, run_id TEXT, sequence INTEGER, event_type TEXT, summary TEXT, reason_codes TEXT, refs TEXT, payload TEXT, inserted_at TEXT);
-    CREATE TABLE decision_traces (id TEXT, trace_id TEXT, turn_id TEXT, decision_type TEXT, inserted_at TEXT);
-    CREATE TABLE mutations (id TEXT, inserted_at TEXT);
-    CREATE TABLE memory_items (id TEXT, inserted_at TEXT);
-  `;
-}
-
-const JSON_COLUMNS = Object.freeze({
-  author_action_receipts: ["result"],
-  agent_runs: ["trigger"],
-  interactions: ["content"],
-  agent_events: ["reason_codes", "refs", "payload"],
-});
-
-function insertRows(db, table, rows) {
-  rows.forEach((row, index) => {
-    const record = {
-      ...row,
-      id: row.id ?? `${table}-${index + 1}`,
-      inserted_at: row.inserted_at ?? `2026-11-03T10:00:${String(index).padStart(2, "0")}.000Z`,
-    };
-    const columns = Object.keys(record);
-    const values = columns.map((column) =>
-      JSON_COLUMNS[table]?.includes(column) && typeof record[column] !== "string"
-        ? JSON.stringify(record[column])
-        : record[column],
-    );
-    db.prepare(`INSERT INTO ${table} (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`).run(
-      ...values,
-    );
-  });
-}
-
-// 临时 SQLite 只使用当前 confirmation reader 实际查询的列/表，不制造缺列兼容。
-function writeDatabase(dir, facts, { dropTables = [] } = {}) {
-  const dbDir = path.join(dir, "database");
-  fs.mkdirSync(dbDir, { recursive: true });
-  const db = new DatabaseSync(path.join(dbDir, "ai_novel_studio_test.sqlite3"));
   try {
-    db.exec(schemaSql());
-    insertRows(db, "author_action_receipts", facts.receipts);
-    insertRows(db, "agent_runs", facts.agent_runs);
-    insertRows(db, "interactions", facts.interactions);
-    insertRows(db, "provider_runs", facts.provider_runs);
-    insertRows(db, "agent_events", facts.agent_events);
-    insertRows(db, "decision_traces", facts.decision_traces);
-    for (const table of dropTables) db.exec(`DROP TABLE ${table}`);
+    mock.restoreAll();
+    syncBuiltinESMExports();
   } finally {
-    db.close();
+    runScope?.close();
   }
+});
+
+// 惰性依赖：before 只拥有/借用 run（并安装 ps/lsof mock）；首个真正需要批次模板的
+// case 才申请，同 run 同规格由 materializeFixture 自行复用，不在这里维护 memo。
+function batchFixture() {
+  return materializeFixture(confirmationBatchFixtureSpec(), { scope: runScope });
 }
 
-function writeAxCaptures(dir) {
-  for (const name of ["02-card", "03-why", "04-restored"]) {
-    fs.writeFileSync(path.join(dir, `${name}.text.txt`), `${SAFE_VISIBLE_COPY}\n`);
-  }
-}
-
-function makeAppBundle(dir) {
-  const appPath = path.join(dir, "B71 Synthetic.app");
-  fs.mkdirSync(path.join(appPath, "Contents", "MacOS"), { recursive: true });
-  fs.writeFileSync(path.join(appPath, "Contents", "MacOS", "app"), "");
-  return appPath;
-}
-
-// 完整批次：ready/uiComplete/分型等待账/真实 wire/DB/源与 child/receipt/events/
-// llm 记录/canon 快照/AX 可见 copy。options 只做单一真实缺输入，不改变正例形状。
-function writeBatch(dir, options = {}) {
-  const mode = options.mode ?? "confirm";
-  const appPath = makeAppBundle(dir);
-  fs.mkdirSync(path.join(dir, "app-log"), { recursive: true });
-  fs.mkdirSync(path.join(dir, "llm-calls"), { recursive: true });
-
-  writeJson(path.join(dir, "native-driver-ready.json"), {
-    driver: "external-system-ui",
-    browser_driver_started: false,
-    run_ref: runRef,
-    provider: "slice_verify",
-    slice_id: "b71-first-consumer",
-    ready_at: readyAt,
-    app_path: appPath,
-    bundle_identifier: "com.ai-novel-studio.app",
-    native_executable: "app",
-  });
-
-  for (const name of shotNames) fs.writeFileSync(path.join(dir, name), png());
-  writeJson(path.join(dir, "native-ui-complete.json"), {
-    harness_run_ref: runRef,
-    driver: NATIVE_DRIVER,
-    app_bundle: APP_BUNDLE,
-    scope: "b71-first-consumer",
-    screenshots: options.screenshots ?? shotNames,
-  });
-
-  waitLedger(dir);
-
-  if (options.providerStart === false) {
-    writeJsonl(path.join(dir, "app-log", "2026-11-03.jsonl"), [
-      { at: "2026-11-03T10:00:00.000Z", event: "provider_gateway.complete.finish", provider: "slice_verify" },
-    ]);
-  } else {
-    writeJsonl(path.join(dir, "app-log", "2026-11-03.jsonl"), [
-      { at: "2026-11-03T10:00:00.000Z", event: "provider_gateway.complete.start", provider: "slice_verify" },
-    ]);
-  }
-
-  if (options.omitLlmCalls !== true) {
-    writeJsonl(path.join(dir, "llm-calls", "2026-11-03.jsonl"), [
-      {
-        provider: "slice_verify",
-        request_format: "authoring-request-ir/v1",
-        request_body: irBodyFromWire({
-          messages: [
-            { role: "system", content: "system" },
-            { role: "user", content: "【应用数据 · application_base · 非作者原话】材料" },
-            { role: "user", content: CONFIRMATION_REQUEST },
-          ],
-        }),
-      },
-    ]);
-  }
-
-  const wire = [...wireFor(mode).frames];
-  if (options.userMessage !== false) {
-    wire.unshift(sentFrame("user_message", { text: CONFIRMATION_REQUEST, turn_id: USER_TURN }, "2026-11-03T10:00:00.000Z"));
-  }
-  const batchWire = options.withoutChildEvents ? withoutChildAgentEvents(wire) : wire;
-  writeJsonl(path.join(dir, "native-transport.jsonl"), [
-    ...batchWire,
-    {
-      at: "2026-11-03T10:00:00.500Z",
-      direction: "http",
-      method: "GET",
-      path: "/api/works/work-1/sessions/resume",
-      status: 200,
-    },
-  ]);
-
-  writeJson(path.join(dir, "native-b71-config.json"), {
-    slice_id: "b71-first-consumer",
-    journey: options.journey ?? "confirmation",
-    provider: "slice_verify",
-    target: { work_id: "work-1", work_title: "B71 confirmation", session_id: "session-1" },
-    message: CONFIRMATION_REQUEST,
-    confirmation: { mode },
-  });
-
-  if (options.omitStartCheckpoint !== true) {
-    writeJson(path.join(dir, "b71-start.json"), canonSnapshot());
-  }
-  writeJson(path.join(dir, "b71-final.json"), canonSnapshot());
-
-  writeJson(path.join(dir, "native-b71-driver-log.json"), driverLogFor(mode));
-  writeJson(path.join(dir, "native-app-cleanup.json"), {
-    remaining: [],
-    process_observation: { method: "ps", fallback_reason: null, actions: [] },
-  });
-  writeDatabase(dir, dbFactsFor(mode), { dropTables: options.dropTables ?? [] });
-  writeAxCaptures(dir);
-  return { dir, wire: batchWire };
-}
-
+// 副本的唯一出口是 withWorkingCopy：assemble 与 fn 都在回调内，任一失败都由同一
+// 组合器关闭副本并保留主因，不再维护会遮掉 primary 的局部 finally。
 function withBatch(options, fn) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-confirmation-batch-"));
-  try {
-    const batch = writeBatch(dir, options);
-    return fn(batch);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  return withWorkingCopy(
+    batchFixture(),
+    (copy) => {
+      assembleConfirmationBatchCase(copy.dir, options);
+      return fn({ dir: copy.dir });
+    },
+    { scope: runScope },
+  );
 }
 
 const confirmationChecks = [
@@ -286,7 +97,20 @@ const confirmationChecks = [
 const expectedChecks = [...confirmationChecks, "author_visible_no_internal_tokens"];
 
 test("完整确认批次：verifyConfirmationBatch 生成 summary/checks/ws frames 并通过 C1–C12", () => {
+  const fixture = batchFixture();
+  const templateBefore = fixtureTemplateHash(fixture);
+  assert.equal(
+    fs.existsSync(path.join(fixture.dir, ".fixture-control.json")),
+    true,
+    "只读模板保留自己的控制记录",
+  );
+
   withBatch({}, ({ dir }) => {
+    assert.equal(
+      fs.existsSync(path.join(dir, ".fixture-control.json")),
+      false,
+      "控制记录不进入 case 工作副本",
+    );
     const { result, summary } = verifyConfirmationBatch(dir);
 
     assert.equal(result.schema, "b71-confirmation-checks/v1");
@@ -349,6 +173,76 @@ test("完整确认批次：verifyConfirmationBatch 生成 summary/checks/ws fram
     assert(frames.every((frame) => frame.direction !== "http"));
     assert(frames.some((frame) => frame.event === "agent_event" && frame.body.run_id === CHILD_RUN));
   });
+
+  assert.equal(fixtureTemplateHash(fixture), templateBefore, "报告写入不得污染只读模板");
+});
+
+test("两可写副本写隔离：报告/DB 变更只落本副本，另一副本与模板不变", () => {
+  const fixture = batchFixture();
+  const templateBefore = fixtureTemplateHash(fixture);
+  let leftDir;
+  let rightDir;
+  withBatch({}, ({ dir: outerDir }) => {
+    leftDir = outerDir;
+    withBatch({}, ({ dir: innerDir }) => {
+      rightDir = innerDir;
+      verifyConfirmationBatch(leftDir);
+      assert.equal(fs.existsSync(path.join(leftDir, "summary.json")), true);
+      assert.equal(
+        fs.existsSync(path.join(rightDir, "summary.json")),
+        false,
+        "报告不得写入另一副本",
+      );
+
+      const db = new DatabaseSync(path.join(leftDir, CONFIRMATION_DB_REL));
+      try {
+        db.prepare("INSERT INTO mutations (id, inserted_at) VALUES (?, ?)").run("mut-left", "2026-11-03T10:00:09.000Z");
+      } finally {
+        db.close();
+      }
+      assert.equal(readConfirmationDbFacts(leftDir).mutations_count, 1, "左副本看到自己的写入");
+      assert.equal(readConfirmationDbFacts(rightDir).mutations_count, 0, "右副本不得看到左副本写入");
+      assert.equal(fixtureTemplateHash(fixture), templateBefore, "副本写入不得污染只读模板");
+    });
+    assert.equal(fs.existsSync(rightDir), false, "内层副本在回调后已回收");
+    assert.equal(fs.existsSync(leftDir), true, "外层回调期间外层副本仍持有");
+  });
+  assert.equal(fs.existsSync(leftDir), false, "case 后回收左副本");
+  assert.equal(fs.existsSync(rightDir), false, "case 后回收右副本");
+});
+
+test("withBatch 双失败：批次回调主因与副本 cleanup 失败同时保留", () => {
+  const holder = { dir: "" };
+  const originalRmSync = fs.rmSync;
+  fs.rmSync = function (target, ...rest) {
+    if (holder.dir && String(target) === holder.dir) {
+      const error = new Error("EACCES: injected batch copy cleanup failure");
+      error.code = "EACCES";
+      throw error;
+    }
+    return originalRmSync.call(fs, target, ...rest);
+  };
+  let failure;
+  try {
+    withBatch({}, ({ dir }) => {
+      holder.dir = dir;
+      throw new Error("injected batch assertion primary");
+    });
+  } catch (error) {
+    failure = error;
+  } finally {
+    fs.rmSync = originalRmSync;
+  }
+  // leader dual-failure-red.log 的回归：withBatch 若再包一层 finally，primary 会被
+  // cleanup 掩掉，这里必须同时看到二者且 primary 在首位。
+  assert.ok(failure instanceof AggregateError, "批次消费者双失败必须同时携带 primary 与 cleanup");
+  assert.equal(failure.errors.length, 2);
+  assert.match(failure.errors[0].message, /injected batch assertion primary/u);
+  assert.match(failure.errors[1].message, /injected batch copy cleanup failure/u);
+  assert.match(failure.message, /工作副本 清理失败/u);
+  assert.equal(fs.existsSync(holder.dir), true, "cleanup 失败时保留目录供核验");
+  fs.rmSync(holder.dir, { recursive: true, force: true });
+  assert.equal(fs.existsSync(holder.dir), false, "恢复注入后实际回收副本");
 });
 
 test("缺 child 实时启动 WS（DB 完整）：判据失败且报告只写 fail 结论", () => {
@@ -408,7 +302,7 @@ test("DB 缺 mutations 表：只读计数失败关闭，不伪造 0", () => {
 });
 
 test("截图不足：原生证据门槛失败关闭", () => {
-  withBatch({ screenshots: shotNames.slice(0, 3) }, ({ dir }) => {
+  withBatch({ screenshots: BATCH_SCREENSHOTS.slice(0, 3) }, ({ dir }) => {
     assert.throws(() => verifyConfirmationBatch(dir), /原生截图不足: 3 < 4/);
     assert.equal(fs.existsSync(path.join(dir, "summary.json")), false);
   });

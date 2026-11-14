@@ -1200,6 +1200,29 @@ export function createWorkingCopy(fixture, options = {}) {
   }
 }
 
+/**
+ * 同步组合 createWorkingCopy 与 use：正常结果在副本关闭后返回；use 抛错也关闭副本，
+ * use 与 cleanup 同时失败时用 failureWithCleanup 同时保留两者，单错误原样抛出。
+ * use 必须是同步函数；不在这里引入 Promise/async 回调协议。
+ */
+export function withWorkingCopy(fixture, use, options = {}) {
+  const copy = createWorkingCopy(fixture, options);
+  let result;
+  try {
+    result = use(copy);
+  } catch (primary) {
+    let cleanupError = null;
+    try {
+      copy.cleanup();
+    } catch (error) {
+      cleanupError = error;
+    }
+    throw failureWithCleanup(primary, cleanupError, "工作副本");
+  }
+  copy.cleanup();
+  return result;
+}
+
 const RUN_OPTIONS = Object.freeze({
   "--timeout-ms": "timeoutMs",
   "--archive": "archiveDir",

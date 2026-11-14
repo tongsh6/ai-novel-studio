@@ -1,6 +1,6 @@
 # B84：全项目测试环境作用域、fixture 体系与剩余架构/测试债务
 
-- 状态：**doing（A0完成；A1/A2首批Node质量manifest与工程入口、A2质量测试自足及close异常传播已实现；干净源码环境完整quality集合通过，其他测试族、后端/Rust/前端/原生接入与全量运行验收未完成，原web慢测试及既有债务保留）**
+- 状态：**doing（A0完成；A1/A2运行入口与manifest、质量测试自足、构造资产与首个SQLite消费者已分批提交；confirmation族与同步副本出口已完成本批实现/工程验收；其余Node族、后端/Rust/前端/原生接入与全量验收未完成，原web慢测试及既有债务保留）**
 - 来源：
   - [00f 能力图谱 P2-E](../../docs/design/00f-capability-atlas.md)：`novel_web` 193 tests / 532s 慢测试仍待收敛；`novel_common` 日志 I/O 部分已由 ADR-0034（`novel_telemetry`）闭环，本任务只承接 web 慢测试与剩余债务。
   - B71 审核轮架构 P2-10 记录与 2026-11-08 候选。
@@ -251,6 +251,37 @@ leader同时拒绝为消除存活变异而删除工作副本cleanup幂等状态�
 最终工程门已执行既有 `bash scripts/task_done.sh --top 10`（内含完整 `bash scripts/ai_static_scan.sh --top 10`），退出0：21项原始检查20通过、1项gitleaks非零、0跳过；Top10实际7项均有既有处置（6误报、1已接受的其他开发线历史风险），阻塞数0，本批无新增待处置问题。`artifacts/task-done/20261113T234432Z/manifest.json`记录完整运行；随后仅修正文档消费者说明与本段状态，刷新manifest时复用同源扫描结果，不重跑未变化的代码集合。不跳hook、不推送；最终manifest、源文件hash、提交与临时目录检查归 `leader-final/result.json`。
 
 本单元不改变生产证据reader/join语义、不触发模型或真实页面。confirmation、R01各族、其余Node临时资源、后端/Rust/前端/原生入口与宿主强杀恢复仍按A2–A5继续；已发现的外部工具绕过入口问题必须在该范围内闭环。
+
+### A2 confirmation测试族（2026-11-14 开始）
+
+上一个构造资产单元已本地提交 `af988ca`，未推送。本步承接同一§2.5契约，迁移confirmation家族，不能恢复旧R01大矩阵。既有审查清单与当前消费者共同决定范围：`authoring_confirmation_evidence.test.mjs` 含纯判定、runtime/AX/SQLite读边界；`authoring_confirmation_batch_evidence.test.mjs` 从 `verifyConfirmationBatch` 读文件/DB并写报告；既有 `fixtures/authoring_confirmation_scenarios.mjs` 提供纯事实，唯独 `testDir` 混入文件创建，缺失runtime反例会因此遗留目录。
+
+- **Contract**：B71 §16.14 C1–C12证据归属与只读观察；quality-gates §2.5的run/fixture/case所有权、§2.5.7的两种规格和原子发布。沿用现有Node测试与owner，不增加框架、fixture registry或通用SQL生成器。
+- **Invariant**：纯计算不申请文件环境；同run同规格模板只构造一次；真实reader/批次报告依然读所声明的文件和SQL行，缺失/污染反例不得被默认值掩盖；模板只读、mutable copy互不影响，异常与断言失败也必须释放case资源和恢复mock。
+- **Boundary/Consumer**：只改该家族测试和fixture，消费已有 `evaluateConfirmation`、`observeConfirmationRuntime`、`scanAuthorVisibleBatch`、`readConfirmationDbFacts`、`verifyConfirmationBatch`；不改这些证据判定实现、生产app或R01 WIP。纯事实owner去掉IO职责，IO用例迁到邻接文件；已有batch测试继续承接完整报告证明。
+- **实体查重/设计**：复用现有 `schemaSql/insertRows/writeDatabase/writeBatch/runtimeFixture`，审核后收敛进该家族唯一IO fixture模块；正常8表DDL采用既有batch查询投影，reader与batch使用独立且有真实消费者的seed规格，不因都用SQLite就和call/R01合并。缺表、少帧、缺日志等反例从正常模板的case副本显式变更，不每case重建Schema。模板保留固定wire/canon/AX/PNG/合成app文件；当前case的绝对app路径、ready时间与相关heartbeat由现有批次装配在副本层完成，不能封存staging绝对路径或以动态时间把相同静态资产变成不同规格。DB连接finally关闭，合成模板采用无WAL sidecar的DELETE方式；作者源库不动。
+- **Proof**：先保存现有两文件基线；保留所有原有判据/缺失反例。纯集合零目录/DB构造；公开DB reader验证真实行、顺序、JSON字节与计数；同run串行/并发进程通过真实构造和写入观察证明固定模板一次、两个case修改互不污染、父资源不动、报告只落owned副本、正常/失败退出无净增。缺失runtime且实际日志存在的反例保留在IO集合，不用不存在路径替代它而缩小证明。
+- **Acceptance Driver**：外部Node进程驱动现有公开reader/`verifyConfirmationBatch`，文件/SQLite/产出报告均真实；OS进程观察沿用既有测试边界替身，只证明观察接线，不能冒充真实Tauri/模型场景。产品验收感知新增为no。
+- **Exploration**：不物化作品知识、不改变模型请求，不适用；真实页面与全系统作用域仍由后续A3–A5闭环。
+
+本步批准新增该家族邻接IO测试文件和一个IO fixture模块，并同步既有README；新接口只服务这些现有消费者。worker仍负责限定代码实现，leader负责运行验证；任何验证必须在现有run入口内，纯/IO/并发用例按目标职责选择，不再把全部集成场景绑到每个纯函数变异上。
+
+实施复核：首轮69/69及外部六场景均通过；IO/批次按需物化后，pure/AX-only/git-only零建库，共享run串行及并发各2个真实8表构造、8个静态规格、28连接全部关闭，老化2小时模板复用及初始化失败退出均成立。leader随后以真实批次测试入口同时注入断言/cleanup失败，`a2-confirmation/leader/dual-failure-red.log`只输出cleanup，原始断言被局部finally遮掉；Node原生after双错误探针也不能替代完整错误传播证据。经查重现有owner只有 `createWorkingCopy` 与私有 `failureWithCleanup`、没有同步使用组合器，因此本步补充批准§2.5.7的 `withWorkingCopy`，仅服务当前两个同步测试消费者并复用现有创建/幂等清理/错误组合，不另建退出体系。对应所有权与双失败用例由现有 `test_env_scope.test.mjs`承接。
+
+#### confirmation实施与局部验收
+
+证据落点：`artifacts/b84-test-system/20261114/a2-confirmation/leader/`，以 `lifecycle-owner/`、`coverage-owner/`、`mutation-owner/` 为当前来源；此前记录保留为阶段证据，不混算分数。
+
+- 既有纯事实owner去掉 `testDir`；51个纯测试不创建scope/文件环境或DB。7个真实IO测试按实际消费者惰性物化，AX-only两用例只读5个明确文本规格，0 DB、0可写副本；仅Git mock对照也不建批次模板。完整批次反例从正常副本删文件/帧/表，writer与reader语义均未改。
+- 正常模板按既有8表投影/真实seed复用同一写库实现。reader的JSON字节、时间/id排序、计数与缺表反例保留；batch报告、源/子run归属、作者字节和缺失反例保留。真实callback/cleanup双故障现在同时作为标准AggregateError到达实际批次测试入口（`dual-failure-result.json`）；嵌套副本内层先释放、外层仍可用，最终两者回收。
+- 当前confirmation集合70/70（比原67增加缺runtime独立IO边界、双副本隔离及双故障证明）；干净HEAD加本批源码的本地副本同样通过70/70。加完整scope集合的单次原生coverage为 **129/129、0失败**；同步副本相关定向8/8通过，LCOV未改写/未删BRDA。
+- `lifecycle-owner/result.json`六场景：pure/AX-only/git-only均0建库；同run串行两次（含模板mtime老化2小时）和并行两进程，各只构造reader/batch两份8表库、发布8个静态规格，28次连接/28次关闭，30个必要工作叶子在退出后无残留，父marker/其它owner哨兵不变；注入建库失败时只尝试一次、关闭已打开连接、没有发布半成品或遗留case副本。
+- `withWorkingCopy`只增加当前同步使用组合，复用既有创建/cleanup/双错误组合，不改原API的现役消费者。移除模板中会被case整文件覆写的ready/heartbeat；**保留ID回退**，因为当前interactions/provider_runs/decision_traces seed仍有缺id行，不因变异存活误删有效逻辑。
+- CRAP最高9，新批次装配函数按transport职责拆分后为8；Dryer对字节一致镜像、阈值0.8无重复。夹具变异38点：25击杀、13存活、0未覆盖，所有39次子运行有退出码，无环境失败/超时冒充kill；存活按合法值域、合成opaque id、等待事件非计时判据载荷及实际IO调用域分别解释（`mutation-review.json`），原始exit3保留。新增同步owner函数工具可识别变异点为0，依靠正常/单失败/双失败和真实消费者反例证明，不捏造分数。
+
+最终已执行 `bash scripts/task_done.sh --top 10`（内含完整静态扫描），退出0；完整运行manifest为 `artifacts/task-done/20261114T003549Z/manifest.json`。21项原始检查20通过、1项gitleaks非零、0跳过；Top10实际7项均有既有处置（6误报、1已接受的其他开发线历史风险），0阻塞，本批没有新增待处理发现。之后仅本段/状态的文档更新，刷新manifest复用同源完整扫描，不重复未变化的代码验证。最终manifest、源hash、范围及本地提交事实见 `leader/result.json`。
+
+尚不签B84或A2完成；R01与其他Node测试族、后端/Rust、前端/原生、宿主失联恢复与原web慢测试仍未闭环。
 
 ## 变更记录
 

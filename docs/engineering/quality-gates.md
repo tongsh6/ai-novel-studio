@@ -219,6 +219,8 @@ SQLite的“只读连接”不等于目录没有写入：本机合成实验中�
 
 首个实际消费者是逐调用证据的SQLite读边界；该case会追加反例行，故需要一份可写副本。先在此证明串行/并行消费者只执行一次builder、模板不变、case写入隔离、失败后不发布半成品与完整退出，再迁移confirmation及R01等后续族。当前不提前增加选择性复制、共享Schema生成器、跨日缓存或异步builder接口。
 
+confirmation迁移的真实双故障反例进一步要求同步副本使用的出口一致：现有 `createWorkingCopy` 仍用于向TestContext/调用者交付副本；同一owner增加 `withWorkingCopy(fixture, use, options)`，为当前同步消费者组合“创建→回调使用→cleanup”。回调失败与cleanup失败必须同时保留，复用已有错误组合逻辑；单失败原样抛出，正常返回回调结果。两个副本可组合嵌套调用，不新建资源池/登记器或通用资源框架；不在此引入无消费者的异步回调协议。批次/reader测试消费这一出口，停止各自维护会遮掉主因的finally。
+
 API 语义参考：[Node 24.19 测试执行模型与 hooks](https://nodejs.org/download/release/v24.19.0/docs/api/test.html#test-runner-execution-model)、[Vitest globalSetup](https://vitest.dev/config/globalsetup.html)。Node 的测试文件进程隔离与 Vitest 的 globalSetup 全局空间不同，均不能据“global/beforeAll”名称推断跨外层变异运行的共享范围；本仓实现仍以锁定版本、现有配置和实测为准。
 
 ---
