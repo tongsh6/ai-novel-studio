@@ -2,7 +2,7 @@
 
 > 本文件保存本次审查的版本、发现、证据摘要与复验要求，是固定时间点的审查记录。
 > B84 的执行状态、整改 checkpoint 与后续签收只维护在[原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)；本报告不建立第二份活动状态台账。
-> **最新入口：**请先读 [§12 REV-01 第二轮整改结果](#12-rev-01-第二轮整改结果2026-11-14)。REV-01 的登记完整性、启动/登记窗口与真实启动链回归已落实（scope 70/70），待独立复核；REV-02/05/04 的剩余项仍按 [§11 第二轮整改后的静态复核与交接](#11-第二轮整改后的静态复核与交接)处理。§9–11 为历史复核与整改记录，不冒充新一轮运行验收。
+> **最新入口：**请先读 [§14 REV-05 与 REV-04 整改结果](#14-rev-05-与-rev-04-整改结果2026-11-14)：cleanup 16/16、scope 71/71，REV-05 的资源兜底/shutdown 屏障与 REV-04 的精确发布-退出回归已落实，待独立复核。[§13 REV-01 第二轮整改独立复核](#13-rev-01-第二轮整改独立复核)仍判定 REV-01 开放（必要 PGID 缺失、外部 borrowed 未登记、回归早期失败收尾）。§9–13 为历史复核与整改记录，不冒充新一轮运行验收。
 
 ## 1. 结论与验收边界
 
@@ -754,6 +754,8 @@ REV-05 直接加载 helper 时还有“owned_tasks/2 默认参数未使用”的
 
 > 本节由整改实施者按 §11.7 第 1 项追加，记录 B84-REV-01 的修复、回归与实际限制；§1–11 的历史记录与判断保持不变。执行状态仍只维护在 [B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)。本轮只处理 REV-01，REV-02/05/04 等仍按 §11 承接。
 
+> **后续独立复核：**[§13](#13-rev-01-第二轮整改独立复核)已独立复跑 70/70，并取得两条未覆盖的真实恢复反例及回归早期失败证据。下文“已闭环”是实施者当时判断，不能代替 §13 的关闭结论；原运行记录保留。
+
 ### 12.1 基线与改动面
 
 - **代码基线**：`7f3208ef7749a5814d54cc629f1814f380d45ece` 加工作区；仓库其他 WIP 保留，不描述为 clean checkout。
@@ -809,3 +811,181 @@ REV-05 直接加载 helper 时还有“owned_tasks/2 默认参数未使用”的
 - 按 §11.3 的四条关闭条件：完整/未完成/不可验证已区分；启动意图、登记完成与失败闭合参与恢复判断；真实启动链回归覆盖正常归档、静默 payload、旧 journal 后追加失败、登记中断、损坏尾行与未知状态保留；测试资源有独立兜底。**REV-01 的整改与局部回归已闭环，待独立复核确认。**
 - **行为变化提示**：无头部/空/损坏的旧 scope 不会再被自动归档；需要人工确认后用 `reap --allow-unverified-children` 或删除。这是为避免把无法证明已结束的活 payload 移走。
 - 仍开放：REV-02 的当前 run 绑定、ProviderRun 数量/purpose 契约与真实页面；REV-05 回归失败兜底与确定性时序；REV-04 精确竞争回归固化；REV-03/06 保留既有修复；Rust `TempDir::drop` 静态观察。B84 保持 `doing`，由复核者按 §11 剩余关闭条件继续验证。
+
+## 13. REV-01 第二轮整改独立复核
+
+> 复核日期：2026-11-14。本节独立核对 §12，保存当前基线的运行证据、剩余缺口和处理条件；执行状态继续只维护在 [B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)。
+
+### 13.1 结论、基线与认可的进展
+
+**REV-01 仍开放（P1）。** scope 70/70 已独立复跑通过，但另两条真实公共启动链反例仍会把活进程使用的 scope 归档；新增 Node 回归还存在一个 P2 级早期失败收尾缺口。§12 的“整改与局部回归已闭环”不能直接作为关闭结论。
+
+- **当前基线**：`fc8aecf43513f8a5fa24f5509a7fe679a9a197de`，实现提交 `245fdc67319ea235e3d5282e5fcc70553c25b3dc`。本版实际只整改 REV-01；其余 finding 没有新实现变化。
+- **源码稳定性**：探针前后核对 11 份被审实现/测试/调用方指纹均未漂移，并与当前 HEAD 一致；其中 9 份与 §11 基线相同。仓库仍有其他 WIP，不描述为 clean checkout。
+- **关键指纹**：`scripts/lib/test_env.mjs` SHA-256 为 `f63ccd43d6d8e0169adbc3fa90eb00633d1af5c8eeab98731a1e339b0b76d308`；`scripts/lib/test_env_scope.test.mjs` 为 `87139a82d28811af7dcf08804ad41286abd2769ae71f58e0fabd09b3999baa7a`。
+- **已认可**：v2 journal 对空/截断/非法/旧格式/未配对/未闭合状态的保守处理、owned spawn 前先登记 intent、intent 写入失败拒绝启动、登记追加失败保留 incomplete，以及静默 payload 改走真实启动链。这些进展不因新反例而被抹去。
+- **平台范围**：macOS；沿用 A5 已验事实，Windows/Linux 不列为补验项。
+
+### 13.2 本轮实际运行与证据层级
+
+| 验证 | 实际结果 | 能证明及不能证明的范围 |
+|---|---|---|
+| 现有 scope 自检 | **70 tests / 70 pass / 0 fail**，exit 0，14,252.18675ms；Job `wc_job_jPDSFtK7wsF8fxpI` | 当前源码下现有套件通过，不代表覆盖下面的新反例 |
+| 必要 PGID 缺失 | 真实 journal 为 root PID + `pgid:null`；owner/root 已退出、同组后代仍活，`reaped=1, kept=0`；后代恢复写入并重建原 scope | 受控 PGID 查询失败下的实际公共启动链机制缺陷，见 §13.3；不证明自然发生频率 |
+| 外部借用与 header-only journal | 无 journal/marker 伪造；owner 已死、borrower/payload 均活，`reaped=1, kept=[]`；原目录移走后又由 payload 重建 | 已支持的外部 borrowed 调用路径未被登记覆盖，见 §13.4；不等同于标准受控父组内嵌套必然有问题 |
+| 新增回归的 PID 观察早期失败 | 原测试用例在 5s 等待失败后，9.020s 时 suite/payload 仍活；外部终止 payload 后才退出 1，并报告原始 5000ms 超时 | 测试失败收尾缺口，见 §13.5；这个 exit 1 是故障注入结果，不是普通 70 项自检失败 |
+
+独立自检使用原入口：
+
+```bash
+/usr/bin/env -u NOVEL_TEST_RUN_DIR -u NOVEL_TEST_ENTRY_SCOPED \
+  PATH=/Users/loong/.nvm/versions/node/v24.19.0/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin \
+  bash scripts/node_test.sh --self scripts/lib/test_env_scope.test.mjs
+```
+
+后面三个探针均为同步工具执行，没有工具生成的 Job ID。两个恢复探针中的 runId 是被测 scope 身份，不是 Runner Job ID；诊断程序 exit 0 仅说明观察和自身收尾完成，不表示被测恢复正确。
+
+### 13.3 P1：必要 PGID 缺失仍被判为完整登记
+
+**代码链路。** [test_env.mjs](../scripts/lib/test_env.mjs) 的 `processGroupId`（254–261 行）查询失败返回 null；`registerScopeChild`（291–304 行）仍写入 `spawn_registered`。但 `scopeEntryIdentity`（339–343 行）只要求 PID/PGID 至少一个有效，415–421 行便可闭合 intent，最终 441 行返回 complete。恢复时 `liveChildren`（346–353 行）没有 PGID 就只检查 root PID；root 已退出、同组后代仍活时会漏掉后代，530 行继续归档。
+
+**一次实际复现。** scope runId `83c9f5d394157c97`。真实 `openTestRunScope → runInScope → spawnScoped` 创建 owned detached 组；仅在 creator 进程中将 `ps -o pgid= -p <root_pid>` 查询注入为失败，登记/文件系统/归档均使用原实现，恢复及外部观察使用正常 ps。真实 journal 记录 `pid=17579, pgid=null`；外部 ps 同时确认 root 17579 与后代 17580 的 PGID 都是 17579。
+
+SIGKILL owner 17578 并确认退出后，令 root 正常退出，保留同组静默后代。恢复前后均观测到后代为活进程（PPID 1、PGID 17579）；恢复结果为：
+
+```json
+{
+  "owner_alive": false,
+  "root_alive": false,
+  "payload_alive_at_reap": true,
+  "registered_pgid": null,
+  "reaped_count": 1,
+  "kept_count": 0,
+  "original_scope_exists_after_reap": false,
+  "scope_recreated_after_payload_write": true,
+  "owner_marker_exists_after_recreation": false
+}
+```
+
+归档后用 payload 已注册的 SIGUSR2 handler 根据继承的 TMPDIR 写入，实际重建原路径；marker 检查使用正确名称 `.novel-test-run-owner.json`。为避免等待年龄窗口，探针仅对自有 base 使用 `olderThanMs: 0`；结论是达到恢复年龄后该身份缺口会误归档，不是默认一小时阈值会立即触发。正常完成时的 `finalizeOnce` 能收整组，但 owner 在其执行前失联正是本次恢复契约必须覆盖的情况。
+
+**关闭要求。** 可靠保留 owned POSIX detached 子进程已建立的组身份；必要身份无法确认时默认不可验证，不能把“intent 已闭合”当成“身份充分”。在现有回归中加入真实启动、PGID 查询失败、root 退出而同组静默后代存活的反例。
+
+### 13.4 P1：外部 borrowed 启动绕过登记，header-only 被误判为完整
+
+**当前接口已允许这种调用。** [test_env_scope.test.mjs](../scripts/lib/test_env_scope.test.mjs) 846–855 行先由 `openTestRunScope` 创建 scope，再另起 CLI 进程、仅通过 `NOVEL_TEST_RUN_DIR` 借用，没有先把它登记到 owned 进程组。[test_env.mjs](../scripts/lib/test_env.mjs) 的 `borrowRunScope`（169–185 行）只检查目录/marker/owner 存活；268 行对 borrowed 直接跳过 intent，291–292 行随之跳过子进程登记。566–570 行创建的 header-only journal 却会在 406–441 行得到 complete。
+
+**一次实际复现。** scope runId `38b58ecfada5bc5e`。独立 owner 16757 创建真实 scope；独立 borrower 16758 在 owner 尚活时经环境借用并调用 `runInScope`，启动同组 payload 16759（PGID 16758）。journal 真实内容始终只有一行 v2 header，没有手工重写 journal 或 marker，也没有替换 ps/lsof/文件 API。
+
+确认 owner 被 SIGKILL 并 wait 到退出 -9 后，只将自有 scope 全树 mtime 置旧 120s，执行 `reapOrphanScopes({baseDir, olderThanMs: 60000})`：
+
+```json
+{
+  "journal_line_count": 1,
+  "owner_exit": -9,
+  "borrower_alive_after_reap": true,
+  "payload_alive_before_reap": true,
+  "payload_alive_after_reap": true,
+  "reaped_count": 1,
+  "kept": [],
+  "original_scope_exists_before_wake": false,
+  "original_scope_recreated": true,
+  "payload_resumed_write": true
+}
+```
+
+归档后的 journal 字节与归档前一致。随后触发 payload 在 ready 前已安装的 SIGUSR1 handler，它只根据继承 TMPDIR 建目录并写 `after-reap.txt`；结果文件证实原路径已重建。此反例只覆盖外部 borrowed 拓扑，不把正常的已登记父组内嵌套一起判错。
+
+**关闭要求。** 外部借用必须能够证明属于哪个已登记进程组，或由现有 owner 协议持久覆盖其借用/子进程生命周期；无法证明时保留现场或拒绝该启动。应区分“真实零子进程”与“有借用子进程但完全未登记”，不能仅禁用所有 header-only scope 来掩盖缺口。
+
+### 13.5 P2：新增 Node 回归在取得 PID 前失败时不能可靠收尾
+
+**代码与范围。** [test_env_scope.test.mjs](../scripts/lib/test_env_scope.test.mjs) 的静默 payload 用例（3156–3170 行）先启动长期进程，`payloadPid` 初始为 0；等待 PID 文件成功之后才赋值。若 3168 行等待失败，3158 行已登记的 after 跳过 kill，却在 3166 行 `await running`。调用只传 stdio，没有 timeoutMs；[test_env.mjs](../scripts/lib/test_env.mjs) 768–773、879–903 行也没有默认期限。
+
+**真实测试文件定向验证。** 通过原 `node_test.sh --self` 运行该单一用例，使用外部 preload 仅令该用例 PID 文件的 `fs.existsSync` 暂时不可见，模拟“payload 已启动、PID 尚不可观察”。测试文件及被测实现均未改。Python 外层通过真实文件系统已读到 payload PID/PGID 16869，确认文件实际存在、进程在独立组内。
+
+```json
+{
+  "injection_seen": true,
+  "pid_file_actually_created": true,
+  "elapsed_at_observation_ms": 9020,
+  "suite_alive_at_observation": true,
+  "payload_alive_at_observation": true,
+  "exit_after_external_payload_stop": 1,
+  "scope_original_timeout_reported": true
+}
+```
+
+5s 的等待失败没有让 case 完成；到 9.020s 仍挂在收尾，只有探针外层终止 payload 后，才报告原始“等待条件超时（5000ms）”并退出 1。该外层兜底不能计作被测用例正常收尾。
+
+**同类静态遗漏。** 新增“旧登记后追加失败”用例（3333–3349 行）也在等待成功后才登记 trackPid/after；3336 行失败时 finally 只恢复 `fs.appendFileSync`，尚未登记 payload 归还。此第二条仅做静态确认，未另跑故障注入。两处 fs.appendFileSync 注入本身均按本例 journalPath 过滤并在 finally 恢复，当前没有证据把它另判为并行污染。
+
+**关闭要求。** 在读取 PID 文件之前就建立可终止、等待有界的资源归属，覆盖“启动成功但 PID 发布迟到/不可见”的失败分支；复用已有 runner/清理 helper，不只在取得 PID 后才登记。新增定向失败回归必须证明本例资源退出、其他 owner 不受影响。该缺口属于 REV-01 新增回归及 §11.3 第 4 条关闭条件，不替代原 REV-05 留项。
+
+### 13.6 清理事实与证据口径
+
+- PGID 探针只终止已核实的本次 PID/PGID，直接 owner 已关闭，root/payload/owned group 均无活进程，专有 temp 已删除。
+- borrowed 探针只终止经 argv 与 PGID 确认的自有 payload；borrower 随后自然退出 0，owner 已 wait 到 -9，专有 temp 已删除。没有全局按名称杀进程或全局 reap。
+- Node 用例探针的直接 suite 已回收，payload 不再是活进程，自有 temp 已删除。探针残留由外层清理，不计作被测清理成功。
+- borrowed 探针原始输出有一个误查 `.novel-test-run.json` 的 marker 布尔字段，**已剔除、不采信**。本节只用其目录移动、活进程和恢复写入的直接事实；正确 owner marker 缺失的直接测量来自 §13.3。
+- Node 探针首次仅从 stderr 取注入标记，遗漏了测试 runner 转发到 stdout 的记录；修正为合并观察后再执行得到 §13.5 的有效记录，未改 SUT。两个执行均完成自身资源收尾。
+- 本轮未执行完整 Mix/Cargo、真实模型或产品页面，也未重跑 §12 的 `test_env.test.mjs` 15/16 及其旧 worktree 对照；后者保留为实施者证据，不据此新增或消除 finding。
+
+### 13.7 其余状态与下一步
+
+| 项目 | 本轮结论 |
+|---|---|
+| REV-01 | **继续开放**：保留 v2 登记与 70/70 的进展，处理 §13.3/13.4 两条实测误归档和 §13.5 回归收尾 |
+| REV-02 | 本版未处理；当前 run 绑定、数量/purpose 契约与真实页面仍按 §11.4 开放，未重复执行同一谓词或页面 |
+| REV-03/06 | 相关源码无变化，沿用 §11 对具体实现修复的认可；本轮未复跑各自局部证据 |
+| REV-04 | `awaitFixtureOwner` 1488–1496 行仍保留退出后复查发布事实；沿用 §9.5 原缺陷通过，精确竞争回归本版未入库 |
+| REV-05 | helper/ExUnit 源码无变化；实现修复进展保留，失败兜底与 shutdown 消息屏障仍待补 |
+| 其他 | Rust 静态观察及 B84 原有债务继续承接，完整 B84 保持 doing |
+
+处理顺序为：先补 REV-01 的必要身份与外部借用覆盖，再补新增回归早期失败收尾；随后按原任务处理 REV-02/05/04。使用当前复现条件与原不变量验证，不通过改低判据、跳过测试或全局清理获取通过。报告 §1–12 保留历史，只追加复核提示；本次写回报告、任务当前状态与索引，实施代码交由后续处理人。
+
+## 14. REV-05 与 REV-04 整改结果（2026-11-14）
+
+> 本节由整改实施者按 §13.7 的 REV-05/REV-04 待补项追加；§13 对 REV-01 的开放结论、§13.3–13.5 的新缺口保持不变。执行状态仍只维护在 [B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)。
+
+### 14.1 基线与改动面
+
+- **代码基线**：`fc8aecf43513f8a5fa24f5509a7fe679a9a197de` 加工作区；仓库其他 WIP 保留，不描述为 clean checkout。
+- **本轮只处理**：§13.7 列出的 REV-05 测试治理与 REV-04 精确回归固化。REV-01 的 §13.3/13.4/13.5、REV-02、REV-03/06 源码、driver、产品页面均未改动。
+- **改动文件**：`apps/novel_application/test/novel_application/agent_run_cleanup_test.exs`、`scripts/lib/test_env_scope.test.mjs`。没有改 `agent_run_cleanup_helper.exs`、`test_env.mjs` 或产品代码。
+- **整改后源码指纹**：`agent_run_cleanup_test.exs` = `8f8ff02eddd6d92cfbbb1a610bf53b80f77416e5489c1cdb3c0a5b8939245688`；`test_env_scope.test.mjs` = `a37437c1d1204dcb08f31452459158859776e736cd91166bbe985aaeb7af5fb0`。`test_env.mjs` 保持 §13 的 `f63ccd43…308`。
+
+### 14.2 REV-05：资源创建即登记兜底，shutdown 用回执代替 sleep
+
+1. **资源兜底**。新增 `track_blocked_shutdown/1` 与 `track_task/1`：blocker/owned task 一旦创建就登记 `on_exit`，测试体末尾的显式 kill/await 不再是唯一收尾。blocker 由 `on_exit` 杀死并等到 `:DOWN`；`Task.async` 的 stopper 链接在测试进程上，随测试进程退出，`on_exit` 不再跨 owner 调 `Task.shutdown`。
+2. **确定性屏障**。新增 `start_blocked_shutdown/2`：blocker `trap_exit` 后先回执 `{:blocker_ready, pid}`，收到 Supervisor 的 `{:EXIT, …}` 后再回执 `{:blocker_shutdown_received, pid}`。三个共享 Supervisor 用例改为等该回执后进入被测 cleanup，删除三处 `Process.sleep(20)`。
+3. **失败退出验证**。临时探针测试体在创建真实 `BackgroundTaskSupervisor` task 后 `flunk`，`on_exit` 仍执行并杀掉该 task，marker 为 `killed_by_on_exit`；`mix test` 输出 `1 test, 1 failure`，非零退出。探针文件跑完即删除，不作为入库回归或验收资产。
+4. **入库结构回归**。新增“清理兜底不依赖断言后的显式 tail cleanup”：测试体故意不做尾部清理，由 `on_exit` 逆序先执行兜底、后执行最终 observer 断言资源已死；覆盖“尾部显式清理被跳过”的结构缺口。
+5. **其他 owner 保护**沿用既有覆盖：`release_run stops only…`、`release_task_caller collects a dead caller's tasks and leaves other owners alone` 等继续通过；本轮没有用新 helper 改变被测 cleanup 语义。
+
+**实际计数**：`MIX_ENV=test mix test apps/novel_application/test/novel_application/agent_run_cleanup_test.exs` → **16/16**（原 15 + 1 兜底结构测试），零 warning；`MIX_ENV=test mix compile --warnings-as-errors` 通过。证据层级仍是 helper/OTP 生命周期回归，不是产品 AgentRun 整链或页面验收。
+
+### 14.3 REV-04：精确发布-退出竞争已入库
+
+新增 `writePublicationRaceHarness` 与双进程测试，重放 §9.5 的精确时序：
+
+1. owner 子进程取得 claim，preload 在首个 payload 写入前停住并写“已开始构建”标记。
+2. waiter 子进程经环境借用同一 scope；进入 `awaitFixtureOwner` 后，preload 在对 owner PID 的 `process.kill(pid, 0)` 存活判断前停住并写“到达检查点”标记。此时 owner 尚未发布，waiter 已读过“未发布”。
+3. 测试进程按文件屏障先放行 owner；owner 完成原子发布并正常退出（exit 0）。
+4. 再放行 waiter；waiter 的存活判断发现 owner 已退出，按 `awaitFixtureOwner` 的最终事实复查复用已发布模板。
+
+断言：waiter `accepted=true`、与 owner 同一 `dir`、`alpha.txt` 字节为 `alpha\n`、无 staging 或 waiter 重建副本。定向测试 **1/1** 通过；完整 scope 套件 **71/71**（原 70 + 1），exit 0，14.4s。该时序因此不再只依赖外部探针，已固化为仓库回归。
+
+### 14.4 证据分层与限制
+
+- 本轮是 **Node 双进程 / OTP 生命周期机制级**证据；不是真实页面、真实模型、Tauri 或完整 Mix/Cargo 验收。
+- 失败退出探针是临时受控证据，已删除；仓库内保留的是结构回归（on_exit 兜底 + 最终 observer），不是“故意让入库用例失败”。
+- 未改 `test_env.mjs` 与 cleanup helper 实现；§13.5 指出的静默 payload 用例“取得 PID 前失败”的 P2 收尾缺口仍在本轮范围之外，仍开放。
+- `test_env.test.mjs` 的 15/16 既有失败未修，保留为既有问题，不并入本轮关闭结论。
+- macOS 范围；改动本地提交后未 push；B84 不据此签收。
+
+### 14.5 关闭判断与剩余
+
+- **REV-04**：§9.5 原缺陷通过，本轮精确时序回归已入库；可关闭，待独立复核确认。
+- **REV-05**：资源兜底、确定性屏障、失败退出探针与入库结构回归均已落实；关闭条件满足，待独立复核确认。
+- **仍开放**：REV-01（§13.3 必要 PGID 缺失、§13.4 外部 borrowed 未登记、§13.5 静默 payload 回归早期失败收尾）；REV-02（当前 run 绑定、数量/purpose 契约、真实页面）；REV-03/06 保留既有源码修复；Rust `TempDir::drop` 静态观察。B84 保持 `doing`。

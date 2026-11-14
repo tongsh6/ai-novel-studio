@@ -8,7 +8,7 @@
 
 | 文件 | 内容与承接 |
 |---|---|
-| [2026-11-14-b84-implementation-review.md](2026-11-14-b84-implementation-review.md) | B84 实现独立审查及历次整改复核；最新[§12 REV-01 第二轮整改结果](2026-11-14-b84-implementation-review.md#12-rev-01-第二轮整改结果2026-11-14)记录登记完整性/启动登记窗口的修复与 scope 70/70 回归（待独立复核）；[§11 静态复核与交接](2026-11-14-b84-implementation-review.md#11-第二轮整改后的静态复核与交接)说明其余剩余代码/回归缺口、证据层级与关闭条件；§9/§10 保留历史反例与整改记录；执行状态见 [B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md) |
+| [2026-11-14-b84-implementation-review.md](2026-11-14-b84-implementation-review.md) | B84 实现独立审查及历次整改复核；最新[§14 REV-05/REV-04 整改结果](2026-11-14-b84-implementation-review.md#14-rev-05-与-rev-04-整改结果2026-11-14)记录 cleanup 16/16、scope 71/71（待独立复核）；[§13 REV-01 独立复核](2026-11-14-b84-implementation-review.md#13-rev-01-第二轮整改独立复核)保存仍开放的 PGID/借用/回归收尾缺口与证据；§9–12 保留历史审查/整改记录；执行状态见 [B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md) |
 
 ## 子目录
 
