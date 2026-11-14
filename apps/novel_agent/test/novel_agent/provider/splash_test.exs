@@ -92,6 +92,31 @@ defmodule NovelAgent.Provider.SplashTest do
       refute Map.has_key?(unconfigured_body, :model)
     end
 
+    test "R01 runtime recipe 的 enabled+high 经产品配置形状进入真实流式请求体" do
+      state =
+        Splash.from_config(
+          model: @model,
+          thinking: "enabled",
+          reasoning_effort: "high",
+          max_tokens: 32_000,
+          timeout: 300_000
+        )
+
+      {_url, body, _opts} = capture_stream_body(state)
+
+      assert body.model == @model
+      assert body.reasoning_effort == "high"
+      refute Map.has_key?(body, :thinking)
+    end
+
+    test "单设 reasoning_effort 而 thinking disabled 时发 none（必须同时 enabled）" do
+      state = Splash.from_config(model: @model, thinking: "disabled", reasoning_effort: "high")
+      {_url, body, _opts} = capture_stream_body(state)
+
+      assert body.reasoning_effort == "none"
+      refute Map.has_key?(body, :thinking)
+    end
+
     test "thinking 控制进入流式请求体（reasoning_effort，绝不发 thinking 对象）" do
       cases = [
         {[thinking: :disabled], {:effort, "none"}},

@@ -127,6 +127,17 @@ runtime_provider_config =
 NovelAgent.Provider.RuntimeConfig.put_provider_config(provider, runtime_provider_config)
 NovelAgent.Provider.RuntimeConfig.put_current_provider(provider)
 
+# B87 R01：同一后端进程内采集白名单运行时事实（不读密钥、不 dump 全 env）。
+# 只有外层入口显式给出非空路径时才写；不影响其它 slice 场景。
+case System.get_env("SLICE_VERIFY_RUNTIME_FACTS_PATH") do
+  path when is_binary(path) and path != "" ->
+    Code.require_file("request_cost_runtime_facts.exs", __DIR__)
+    RequestCostRuntimeFacts.write!(path)
+
+  _ ->
+    :ok
+end
+
 skip_default_work_seed = System.get_env("SLICE_VERIFY_SKIP_DEFAULT_WORK_SEED") == "1"
 
 case {NovelApplication.WorkService.list(), skip_default_work_seed} do

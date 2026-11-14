@@ -1,0 +1,120 @@
+id: b87-r01-request-cost
+title: B87 R01：可重算请求成本与同源原生多轮测量（3/10/20）
+tier: nightly
+surface: tauri
+# draft 注册用于排除全局自动运行；本场景依赖作者本机的冻结作品副本和显式采集参数。
+# 实际执行/验收状态只在 B87 原任务维护，不能由 draft/active 注册状态反推。
+status_note: >-
+  仅显式采集：须提供作者本机冻结 manifest、完整源副本、长度与唯一 tag；
+  不进入全局 nightly 自动实模执行，不因注册或代码就绪计 PASS。
+  实际批次、失败样本、独立语义审阅与工程门状态见 B87 原任务 §11，
+  不在场景注册表复制执行状态。启动观察、实际请求参数和产品目标效果分别举证。
+entrypoint: REQUEST_COST_MANIFEST=<frozen-native-manifest.json> REQUEST_COST_SNAPSHOT=<source-snapshot-dir> REQUEST_COST_LENGTH=3 bash scripts/native_request_cost_batch.sh <tag>
+
+contract:
+  - docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md
+  - docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/B87-model-interaction-request-projection/R01.md
+
+invariants:
+  - source-log-sha256-is-immutable-and-mismatch-stops-comparison
+  - author-bytes-are-exact-and-application-header-cannot-grant-provenance
+  - category-bytes-are-mutually-exclusive-and-conserve-json-envelope
+  - history-and-writer-are-cross-dimensions-not-double-counted
+  - cached-tokens-are-an-input-subset-and-never-added
+  - missing-usage-is-not-zero-and-raw-sse-is-not-invented
+  - actual-tool-calls-and-request-replay-tool-calls-are-separate
+  - native-progress-uses-visible-text-and-controls-only
+  - post-hoc-join-uses-session-turn-pcall-prun
+  - incomplete-measurement-retains-all-calls-and-never-passes
+  - measurement-completeness-is-not-product-goal-success
+  - same-process-runtime-facts-match-frozen-experiment-or-fail
+  - reference-logs-are-read-losslessly-from-16-byte-sqlite-uuid
+  - raw-rows-canon-content-and-reference-accounting-are-separate
+  - runtime-reference-bookkeeping-requires-matching-new-logs
+
+setup:
+  source: >-
+    artifacts/model-contracts/b87-r01/20261113/source-snapshot/20261113-real-v2/full.sqlite3
+    (SHA c5732f99ca320ad526069d8b578162265eac1e481ba8d15e24760e8657a559db; read-only, not modified)
+  snapshot: >-
+    complete full/work.sqlite3 copy under artifacts/model-contracts/b87-r01/20261113/source-snapshot/
+    (no work trimming; all 15 works and references preserved as background data)
+  seed: >-
+    scripts/seed_request_cost_work.exs (WorkService.rename to a frozen unique visible title,
+    then WorkSessionService.create one new ACTIVE session; old ACTIVE session EXITED as declared delta)
+  provider: splash
+  manifest: frozen native manifest by leader before run (seed.work_id/title/session_title + targets)
+  lengths: [3, 10, 20]
+
+user_flow:
+  - open: real Tauri workbench with the seeded isolated work selected by visible title
+  - send: cycle the three frozen author utterances for the frozen length
+  - verify: each turn waits for a new author echo and a new visible terminal after it; old AX/old reply cannot advance
+  - verify: model failed/waiting is recorded as Before behavior; continue next fixed input while input remains usable
+  - verify: when the model asks, click visible 开始新讨论 for the next fixed input; never auto-answer or adopt
+  - verify: one independent complete-copy restore per length; post-setup canon content identical across batches; session ids/timestamps are declared differences
+  - verify: no model call before the start checkpoint and no reuse of snapshot provider_call_refs
+
+evidence:
+  required:
+    - screenshot
+    - ax_text
+    - websocket_frames
+    - app_jsonl
+    - llm_http_log
+    - request_cost_report
+    - summary_json
+  artifact_dir: artifacts/slice-verify/b87-r01-request-cost-live-<length>-<tag>
+
+assertions:
+  ui:
+    - 每条作者输入由真实工作台可见输入发送，作者原文逐字
+    - 进度只由可见状态/控件推进；模型提问时只使用可见“开始新讨论”
+  network:
+    - 每条 llm-calls 记录按 session/turn/pcall/prun 严格绑定，重复或错绑失败
+    - 请求 model/reasoning_effort 与冻结 manifest 一致
+    - 真实源 memory_reference_logs 240 条经唯一 16-byte SQLite 投影全部读取，不写空数组
+    - 独立核对运行期新增引用日志与 reference_count/last_referenced_at；
+      无日志计数、内容变化、他作记账、旧日志改写须分别呈现，不能被计数不变掩盖
+    - 原始行签名、业务 canon 签名、引用记账分开；业务签名排除 at 与引用运营列
+    - 同进程 runtime facts 核对 Gateway 公开 provider/model/endpoint、ContextPressure.window=262144、
+      自动维护 enabled/keep4、summary 异步；已要求的观察缺失/不一致/批次中被改写即失败
+    - thinking/effort/max_tokens/timeout 的实验声明不冒充启动观察；启动未观察到的字段显式保留未观察，
+      请求 model/effort/max_tokens 另由每次真实请求核对
+    - 生产 Splash 路由须按实际启动配置与调用链核对，不以固定 adapter 名冒充运行时观察；
+      endpoint 事实已脱敏（无 userinfo/query/fragment）
+    - cached_tokens 是 input 子集，报告不相加；缺 usage 为 not_collected
+    - response.body 只作解码体证据，raw_sse 缺失时保留 not_collected
+  data:
+    - 每个调用的 System/Tools/Scope/History/Observation/CurrentAuthor 字节互斥且与稳定 JSON 守恒
+    - 作者短语出现在 scope 不计为第二作者；application 头不能授予作者身份
+    - 历史回放 tool_calls 与实际响应 tool_calls 分开计数
+    - 完整副本 full/work 字节一致；源 full SHA 不变；setup 只改目标 title/revision/updated_at + 新 session
+    - 三批 setup 后业务 canon 内容一致；准备期未声明的正文/角色/记忆/别作内容变化即使行数不变也必须失败
+    - start/final 计数、内容哈希、引用记账与状态变化分别记录；运行期真实变化交由独立目标审阅，
+      不因行数相同声称未写入，也不把模型暂定设计态当成作者已采纳
+    - 完整长度且证据关联成立才通过测量；采集超时/缺证保留 partial 与全部已发生调用，不换样本
+    - 模型失败、能力缺口或等待作者是待审的 Before 行为；不得据测量 PASS 宣称作者目标完成
+
+known_limits:
+  - 真实 Splash 服务与 local/Q4-PLE4 由作者环境提供；本场景不修改服务默认/用户偏好。
+  - 原始 SSE 帧未由 llm-calls 保存；报告明确 raw_sse=not_collected，不用它签 TTFT。
+  - 三 wire 的真实 HTTP 字节未采集；只报告当前 Chat wire 与既有 I-CACHE canonical proxy，Responses/Anthropic 标 not_collected。
+  - 历史三轮只作 Before；当前 HEAD 3/10/20 必须另跑并单列。
+  - 未冻结 manifest / history-only manifest 时批处理在启动 runner 前拒绝执行。
+  - 262144 是本批受控实验窗口，不是产品默认值，也不是 Splash/模型原生窗口事实；真实模型窗口单独记录。
+  - runtime facts 是同一后端进程的启动观察，不是第二配置真源；wire model/effort 仍以实际请求为准。
+  - 旧快照 manifest 的 canon.memory_reference_logs 为空是历史证据；恢复时从完整副本重算业务/引用签名，不改写旧 manifest。
+  - 运行清单只按“可能自动恢复”的危险边界判断，不把当前 bounded/任务数量写成通用正确性条件。
+  - 快照是完整库副本（含 15 部同标题作品与真实引用）；不删行、不裁剪、不改源 stage/full。
+  - 目标作品通过现役服务改名得到唯一可见名，GUI 仍按可见名选择，不按 DB/UUID 推动。
+  - 现役服务副作用不假定正确：prepare 独立核对 title/revision/updated_at 与新 session；不符即失败。
+  - 启动前已有模型调用或复用旧 provider_call_ref 会真实失败，不通过删任务/改记录变绿。
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

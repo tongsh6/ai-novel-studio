@@ -7,6 +7,7 @@
 
 | 文件 | 场景 |
 |---|---|
+| `b87-r01-request-cost.yml` | **draft（仅显式采集，不进入全局自动实模执行）**：B87 R01 可重算请求成本，区分内容 UTF-8 / 稳定 JSON / 原始 HTTP 口径，System/Tools/Scope/History/Observation 互斥并记录 history/Writer 交叉维度；真实页面驱动 3/10/20 轮与事后 session/turn/pcall/prun 关联。冻结输入、实际批次、失败样本和验收状态仅见 [B87 §11](../../../tasks/slices/B87-model-interaction-request-projection.md#11-作者纠正后的目标一致性复核2026-11-13当前裁决)；注册不代表 PASS，测量完整不代签产品效果。 |
 | `b71-authoring-pending.yml` | B71 CP4b 对话候选修订→作者采纳/放弃→恢复→新请求（**active/nightly；确定性 provider 原生批次 pending-08 已 77/77 PASS（2026-11-03），不代签实模**）：三 run 独立、两稿并存、Why 持久 replay/0 调用、采纳/放弃 0 Provider 与精确 receipt/唯一 CONFIRMED 事实、重启同 work/session 恢复、新请求真实 ACCEPTED/DISCARDED refs 与 judgment-only 权限；确定性 provider 不代签实模 |
 | `b71-authoring-planning.yml` | B71 CP4b 独立计划→重规划→角色与世界设定双候选的原生 durable 验收；校验请求前缀、原生结果、版本/预算、Why与零canon写入；确定性接线不代签实模 |
 | `b71-authoring-profiles.yml` | B71 CP4b 角色设计与前序判断共享 canonical transcript（真实 Tauri durable run；原生调用/应用校验/严格前缀/作者安全文案；确定性 provider 不代签实模） |

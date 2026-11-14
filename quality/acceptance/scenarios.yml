@@ -1690,3 +1690,9 @@ drafts:
     reason: >-
       draft（无外部 driver）：B34 确定性 fixture manifest，映射 CP1 契约到 slice_verify
       判断 fixture + application/agent 确定性测试；CP3 真实模型 scoped 验证另行登记。
+  - id: b87-r01-request-cost
+    manifest: quality/acceptance/scenarios/b87-r01-request-cost.yml
+    reason: >-
+      仅显式采集：依赖作者本机冻结 manifest/完整作品副本、长度与唯一 tag，
+      不进入全局 nightly 自动实模执行。实际批次与验收状态见 B87 原任务 §11；
+      draft 是调度注册边界，不代表未运行，也不因已有批次自动计 PASS。
