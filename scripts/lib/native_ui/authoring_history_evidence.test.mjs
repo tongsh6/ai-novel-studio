@@ -1,23 +1,26 @@
-// B71 canonical 历史读取的真实验收消费者测试：只读临时 SQLite + 真实 WS 帧形状。
-// ADR-0035 / B81 CP1：canonical 作用域=会话，run 执行段 = authoring_run_segments
-// （段头九键）+ authoring_session_messages（该 run 的消息）。
+// B71 canonical 历史读取族：真实 4 表 SQLite 与 WS 帧形状的只读断言/负例矩阵。
+// DDL/seed/批次构造在 `fixtures/authoring_history_fixture.mjs`（唯一 owner）；本文件
+// 只保留各规格的 case 变体，不重复 DDL。该族负例是不同 DB 规格（run_mode/身份/
+// 段版本/形状/checkpoint），按 A2 规则不合并成共享模板；目录落在 run scope 的 work
+// 区并由 case 结束时回收。
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import test from "node:test";
-import { DatabaseSync } from "node:sqlite";
 import { authoringScope, readAuthoringHistory } from "./authoring_history_evidence.mjs";
-
-const SEGMENT_VERSION = "authoring-run-segment/v1";
-const MESSAGE_VERSION = "authoring-session-message/v1";
-const RUN = "run-target";
-const WORK = "work-1";
-const WORKSPACE = "workspace-1";
-const SESSION = "session-1";
-const PARENT = "message-1";
-const TASK = "task-target";
-const TARGET_TEXT = "目标 run 的作者原话";
+import { openTestRunScope } from "../test_env.mjs";
+import {
+  HISTORY_PARENT as PARENT,
+  HISTORY_RUN as RUN,
+  HISTORY_SESSION as SESSION,
+  HISTORY_TASK as TASK,
+  HISTORY_TEXT as TARGET_TEXT,
+  HISTORY_WORK as WORK,
+  HISTORY_WORKSPACE as WORKSPACE,
+  SEGMENT_VERSION,
+  checkpointFor,
+  createHistoryBatch,
+  transcriptFor,
+} from "./fixtures/authoring_history_fixture.mjs";
 
 const scope = (overrides = {}) => ({
   run_id: RUN,
@@ -28,183 +31,18 @@ const scope = (overrides = {}) => ({
   ...overrides,
 });
 
-function transcriptFor(overrides = {}) {
-  return {
-    run: {
-      run_id: RUN,
-      workspace_id: WORKSPACE,
-      work_id: WORK,
-      session_id: SESSION,
-      parent_turn_ref: PARENT,
-      profile_ref: "judgment_loop_v1",
-    },
-    system: { identity_ref: "identity:authoring/v1" },
-    messages: [
-      { role: "user", provenance: "author", blocks: [{ type: "text", text: TARGET_TEXT }] },
-      { role: "assistant", provenance: "model", blocks: [{ type: "tool_call", call_id: "call-1", name: "judgment_decision" }] },
-    ],
-    tools: [{ name: "judgment_decision" }],
-    base_refs: [{ ref: "base-1" }],
-    observation_refs: ["obs-1"],
-    used_refs: [],
-    projection: { target: "chat_completions" },
-    call_ids: ["call-1"],
-    ...overrides,
-  };
-}
+let runScope;
 
-function segmentHeaderFor(transcript, headerOverrides = {}) {
-  return {
-    version: SEGMENT_VERSION,
-    run: transcript.run,
-    system: transcript.system,
-    tools: transcript.tools,
-    projection: transcript.projection,
-    base_refs: transcript.base_refs,
-    observation_refs: transcript.observation_refs,
-    used_refs: transcript.used_refs,
-    call_ids: transcript.call_ids,
-    ...headerOverrides,
-  };
-}
+test.before(() => {
+  runScope = openTestRunScope();
+});
 
-function checkpointFor(runId = RUN) {
-  return {
-    agent_run: {
-      run_id: runId,
-      checkpoint_version: 3,
-      authoring_segment_ref: { run_id: runId, version: SEGMENT_VERSION },
-      status: "completed",
-      run_mode: "durable",
-    },
-    progress: 100,
-  };
-}
+test.after(() => {
+  runScope?.close();
+});
 
-function jsonColumn(value) {
-  if (value === null) return null;
-  return typeof value === "string" ? value : JSON.stringify(value);
-}
-
-// 段头/消息行写入：默认从内存 transcript 派生；变体用于负例（版本/身份/形状/消息 JSON）。
-function insertSegment(db, {
-  run_id = RUN,
-  transcript = transcriptFor(),
-  segment_version = SEGMENT_VERSION,
-  header_overrides = {},
-  message_json = null,
-  message_rows = null,
-  omit = null,
-} = {}) {
-  if (omit === "segment" || transcript === null) return;
-  const header = { ...segmentHeaderFor(transcript, header_overrides), version: segment_version };
-  const rawMessages = message_rows ?? transcript.messages;
-  const messages = Array.isArray(rawMessages) ? rawMessages : [];
-  db.prepare(
-    "INSERT INTO authoring_run_segments (run_id, workspace_id, work_id, session_id, parent_turn_ref, header, message_count, first_sequence, last_sequence, format_version) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(
-    run_id,
-    transcript.run.workspace_id,
-    transcript.run.work_id,
-    transcript.run.session_id,
-    transcript.run.parent_turn_ref,
-    JSON.stringify(header),
-    messages.length,
-    1,
-    messages.length,
-    SEGMENT_VERSION,
-  );
-  if (omit === "messages") return;
-  messages.forEach((message, index) => {
-    db.prepare(
-      "INSERT INTO authoring_session_messages (id, workspace_id, work_id, session_id, run_id, sequence, run_sequence, role, message, format_version) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(
-      `msg-${run_id}-${index + 1}`,
-      transcript.run.workspace_id,
-      transcript.run.work_id,
-      transcript.run.session_id,
-      run_id,
-      index + 1,
-      index + 1,
-      typeof message?.role === "string" ? message.role : "",
-      message_json ?? JSON.stringify(message),
-      MESSAGE_VERSION,
-    );
-  });
-}
-
-function insertRun(db, {
-  id = RUN,
-  workspace_id = WORKSPACE,
-  work_id = WORK,
-  session_id = SESSION,
-  parent_turn_ref = PARENT,
-  long_run_task_ref = TASK,
-  run_mode = "durable",
-  transcript = transcriptFor(),
-  segment = {},
-} = {}) {
-  db.prepare(
-    "INSERT INTO agent_runs (id, workspace_id, work_id, session_id, parent_turn_ref, long_run_task_ref, run_mode, status, plan_version, consumed_budget, pending_artifact_refs) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(
-    id,
-    workspace_id,
-    work_id,
-    session_id,
-    parent_turn_ref,
-    long_run_task_ref,
-    run_mode,
-    "completed",
-    2,
-    JSON.stringify({ provider_calls: 2, replans: 1 }),
-    JSON.stringify(["artifact-1"]),
-  );
-  insertSegment(db, { run_id: id, transcript, ...segment });
-}
-
-function insertTask(db, { id = TASK, workspace_id = WORK, parent_turn_ref = PARENT, checkpoint_data = checkpointFor(), scope_ref = null, updated_at = "2026-11-01 08:00:00.000000" } = {}) {
-  db.prepare(
-    "INSERT INTO long_run_tasks (id, workspace_id, parent_turn_ref, checkpoint_data, scope_ref, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-  ).run(id, workspace_id, parent_turn_ref, jsonColumn(checkpoint_data), scope_ref, updated_at);
-}
-
-function createBatch({ run, task, extraRuns = [], extraTasks = [], runSegment } = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b71-history-"));
-  const file = path.join(dir, "database", "ai_novel_studio_test.sqlite3");
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const db = new DatabaseSync(file);
-  try {
-    db.exec(
-      "CREATE TABLE agent_runs (id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, " +
-        "parent_turn_ref TEXT, long_run_task_ref TEXT, run_mode TEXT, status TEXT, plan_version INTEGER, " +
-        "consumed_budget TEXT, pending_artifact_refs TEXT)",
-    );
-    db.exec(
-      "CREATE TABLE long_run_tasks (id TEXT PRIMARY KEY, workspace_id TEXT, parent_turn_ref TEXT, " +
-        "checkpoint_data TEXT, scope_ref TEXT, updated_at TEXT)",
-    );
-    db.exec(
-      "CREATE TABLE authoring_run_segments (run_id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, " +
-        "session_id TEXT, parent_turn_ref TEXT, header TEXT, message_count INTEGER, first_sequence INTEGER, " +
-        "last_sequence INTEGER, format_version TEXT)",
-    );
-    db.exec(
-      "CREATE TABLE authoring_session_messages (id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, " +
-        "session_id TEXT, run_id TEXT, sequence INTEGER, run_sequence INTEGER, role TEXT, message TEXT, " +
-        "format_version TEXT)",
-    );
-    if (run !== null) insertRun(db, run);
-    if (task !== null) insertTask(db, task);
-    for (const row of extraRuns) insertRun(db, row);
-    for (const row of extraTasks) insertTask(db, row);
-    if (runSegment !== undefined) insertSegment(db, runSegment);
-  } finally {
-    db.close();
-  }
-  return dir;
+function createBatch(options = {}) {
+  return createHistoryBatch({ ...options, workDir: runScope.workDir });
 }
 
 function withCleanup(build, run) {
@@ -617,3 +455,4 @@ test("重连后 join_ref 复用：按作者输入所在连接段选择最新 joi
   // 重连 join 缺对应回复时失败关闭（不能借用旧连接的 join 回复）。
   assert.throws(() => scopeFor([oldJoin, oldReply, currentJoin, currentReply, input, reconnectJoin, followup], followup), /join 回复/);
 });
+

@@ -540,6 +540,19 @@ SUT仅在`dir`缺失时把C3/C4/C7/C9/C10标为unknown（不冒充pass/fail）�
 
 证据在`artifacts/b84-test-system/20261114/a2-run-history/`。本批已本地提交（未推送）。
 
+### A2 authoring-run-history 族：canonical 历史读取迁移（2026-11-14）
+
+只读事实：`authoring_history_evidence.test.mjs` 619行/26个测试，26/26每case在系统TMPDIR建4表SQLite；负例覆盖run_mode/身份/段版本/形状/checkpoint v3，每个规格不同。按A2“不能从都使用SQLite推导可以共享同一规格”，不合并为单一模板。
+
+- **Contract/Invariant**：§2.5、A2；唯一Schema/批次owner；case目录归run scope并在退出时回收；不同负例规格各自构建、不强行合并；原26判据不减少。
+- **Boundary/Consumer**：测试文件与fixture模块；真实`authoringScope/readAuthoringHistory`路径不变，不碰产品。
+- **实体查重**：复用既有`createBatch`语义与4表DDL；不新建SQL/断言框架；不与first-consumer/confirmation/call族合并。
+- **Proof**：26/26通过；scope work/fixtures均0 entry；系统TMPDIR历史2个`b71-history-*`保持、无净增；全量native_ui组913/0。
+- **Acceptance Driver**：真实`node --test`与文件系统；产品验收感知no。
+- **Exploration**：不适用。
+
+证据在`artifacts/b84-test-system/20261114/a2-history/`。本批已本地提交（未推送）。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。
