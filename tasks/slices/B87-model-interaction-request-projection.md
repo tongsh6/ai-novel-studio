@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing（2026-11-13：R00 事实/契约审计交付完成，收口见 §9.6；R01–R19 未实施，生产行为未变；远端 CI 基线缺口仍开放）**。
+**状态**：**doing（2026-11-13：R00 事实审计已提交 `465b1a3f`；R01 的3/10/20真实基线采集及逐轮目标审阅已完成，测量实现质量门与最终提交尚未闭合，最新证据见 §11.20；R02–R19 未实施，生产行为未变；远端 CI 基线缺口仍开放）**。
 
 - 目标分支：`develop/dialogue-based-novel-workbench`；执行时以最新 HEAD 为准，不使用 2026-11-11 的旧日志推断现状。
 - 关联：[Issue #4](https://github.com/tongsh6/ai-novel-studio/issues/4) / [VS-00M 唯一增量架构契约](../../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md)（Proposed 重审稿）/[VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md)（Frozen）/[ADR-0035](../../docs/design/adr/ADR-0035-session-scoped-canonical-authoring-context-v3.md)（Accepted）。
@@ -198,7 +198,7 @@ R00 需先对本设计提出的差异给出有效裁决；若 VS-00L/ADR-0035 �
 - `capability_lookup` 是否真有新增的业务消费者，避免平行探索工具；
 - B71 的 G3/G5/实模遗留与本任务最终 R19 的证据边界，分别归各自任务维护。
 
-**最先可启动**：R00（只读审计+冻结冲突核对+实体查重，不修改生产代码）；R01 需 R00 形成经过复核的成本样本。其它批次依实际依赖推进，不能因“作者授权改设计”自动跳过 R00。
+**当前执行入口**：R00 事实审计已交付（§9），R01 按既有成本样本进入测量/实模基线（§10）。其它批次依实际依赖推进，不能跳过实体查重、冻结契约和完整验收。
 
 **历史证据与计划修订**：旧 B87 R00–R10 的编号/任务范围已整体替换，Git 历史可回查；不保留旧任务卡副本或把旧批次标 done；未上线的产品无旧 API/旧 Schema 兼容承诺。
 
@@ -335,3 +335,313 @@ R00 已定位并由 leader 独立复算三轮原始日志，**不是当前 HEAD 
 首个完成清单为 `artifacts/task-done/20261113T033300Z/manifest.json`（UI not_required）；本节回填后的最终清单由相同入口重新生成，以覆盖最终 Markdown 字节。提交只包含这批设计/任务/导航文档；提交身份以本节所在提交和交付报告为准，原始机器证据不提交。
 
 **恢复/后继**：NEXT 仍为 B87。R01 读取 README + R01 卡 + 本节/§9.4 + sample manifest，使用作者已授权的 Splash；先冻结新批次 manifest，再作当前版本 3/10/20 轮实模基线，未执行部分不能代签。B84 已登记可独立推进的质量测试前置修复；远端 Dialyzer、Windows smoke、Semgrep 覆盖与历史 gitleaks 仍是完整质量目标的开放后果，不能因 R00 审计交付而销账。R02–R19 实现、真实页面与文学质量均未完成，整个 goal 保持 active。
+
+## 10. R01 请求成本与语义基线（2026-11-13）
+
+> 本节保留实施与失败历史，不作为现状正确性的证明。作者后续明确的判断顺序及当前设计裁决见 §11；与之冲突的旧执行方案（尤其自建目标作品裁剪器）已撤回，不继续实现或保留兼容路径。
+
+### 10.1 开工、七问与测量边界
+
+基线 `465b1a3f`，开工工作树干净；R00 worker 均终态，没有仍在运行的旧采集批次。R01 使用全新 dsh-worker 会话 `mcp-04b2d6e4-f22f-4108-9a9d-b25fb3d6a807`，先查现役测量/原生驱动与实模前置；leader 负责测量定义、存在性裁决、预注册与最终验收。Splash 使用已获作者授权，不改模型设置、不卸载用户模型、不安装工具。
+
+| 七问 | 本批答案 |
+|---|---|
+| Contract | 消费现役 RequestIR/VS-00L/ADR-0035、VS-00I 缓存前缀和 Provider 日志；不实现 Proposed Scope 覆盖、权限模式或新响应契约 |
+| Invariant | 原始证据不可改写；作者原文与应用重复材料分开；缓存 tokens 是输入子集；未知不填 0；分组统计不得重复计量或冒充真实网络字节 |
+| Boundary | 仅 `scripts/` 的外部测量/驱动、必要 `quality/` 测试夹具及任务文档；`apps/*/lib`、`frontend/src`、生产 Schema/Prompt/Provider 行为不改 |
+| Consumer | R01 Before 报告、R04 请求派生对比和 R19 最终 A/B；按真实调用/会话/轮次可重算 |
+| Proof | 固定日志 hash、精确字节计量与分组守恒；错误来源/错 join/缺 usage/截断证据等负例；当前 HEAD 实模样本单列，不以历史结果证明当前行为 |
+| Acceptance Driver | 优先复用 B71/B81 原生外部驱动、日志与请求采集；真实工作台 3/10/20 输入需先冻结 manifest、隔离作品起点与模型配置；任何脚本/API 局部证据不标 native UI |
+| Exploration | 不增加作品知识供给；只观察实际 Base、Scope、工具调用/Observation 与后续请求。实际模型选择取证与纯测量机制分别报告，不添加固定材料包让结果变好 |
+
+计量必须区分：① 原始捕获的 HTTP body 字节；② 固定编码规则重建的 JSON 字节；③ 解析后字符串 UTF-8 字节。日志只存对象时不能声称恢复了原始 HTTP 字节。System/Tools/Scope/History/Observation/Writer 同时含结构、来源、时序和调用目的，分组采用互斥归类并明确交叉维度；不得把“历史中的 Scope/Observation”在合计中算两次。分组 token 没有同源 tokenizer/供应商计量时仍为 not_collected。
+
+### 10.2 入口存在性审查（进行中）
+
+已核实：`prompt_prefix_probe.exs` 有真实 HTTP/SSE 捕获与 usage/hash，但其 `judgment_input/1` 是独立测试输入；`native_b71_*` 有真实窗口/会话采集，现役 batch 的真实 provider 白名单仅 Strata，不接受 Splash；`live_run_wait.mjs` 已有日志请求、响应及 usage 字段读取 helper。不能直接复制第二套 Provider 或把 Strata 槽位卸载判据假装适用于 Splash。
+
+当前新增产品实体：none。新增/修改测量脚本与 fixture 的最终清单须在 worker 给出调用者/职责查重后由 leader 裁决；在此之前不新增持久模型或平行报告状态源。本节尚未签署 R01 PASS，3/10/20 当前版本实模尚未执行。
+
+### 10.3 Leader 独立校准与证据定义
+
+对 §9.4 固定 SHA 的三行日志独立解码，按现役 `RequestIR.Projection.scope_update_text/1` 的消息头核对：Scope 内容 UTF-8 字节依次为 36097、37129、38866；第二轮仍含第一份 Scope，第三轮同时含三份，历史两份合计 73226 字节。`json.dumps(ensure_ascii=False, sort_keys=True, separators=(',', ':'))` 的重编码请求分别为 61466、100703、144207 字节；这些数字是该编码规则的结果，**不是原始 HTTP wire 长度**。首轮 system 内容为 16713 字节，三轮 hash 相同。后续正式测量器需独立重算，不硬编码本样本数值来通过。
+
+额外证据限制来自真实代码而非推测：`SSEStream.Result` 的成功日志 `resp_body` 明确只记录 `source=sse_decoder` 与 `tool_calls`（:112–124），不记录纯正文/私有状态/原始帧；因此后续请求中回放的 assistant 文本只能标为 replay/canonical 证据，不能改名为“原始响应”。`SSEStream.mark_ttft/2` 在 `activity?=true` 时记时，故日志 `ttft_ms` 是应用流活动口径，不能等同“作者看到首个正文字符”或 HTTP 首字节。
+
+正式报告至少区分：精确内容字节与 JSON 包装开销；互斥类别合计与历史/目的等交叉标签；实际模型调用与请求里回放的调用；明确 0 与未知；原始响应/流与 canonical/页面投影。只凭 wire 文本标记不能给任意 user 内容授予 application provenance，分类依据和是否已由 canonical/冻结作者输入绑定需随数据携带。
+
+**原作品仍存在（leader 只读复核）**：按历史日志 work_id 对 `priv/ai_novel_studio_stage.db` 的只读 SQL 查询命中同一作品及两章：seq=1 的卷纲/PLANNED 与 seq=2 的正文章/DRAFTING。dev 与 data/workbench 库未命中。故不能用初版的空作品 seed 代替这一问题场景；正式当前版本基线须从该作品的明确隔离快照建立起点，记录“当前 stage 快照”而非宣称精确恢复 11-12 时点。原 stage 库只读、无迁移/删除/设置修改，原作品正文不得进入跟踪 fixture 或报告正文。
+
+### 10.4 测量链实施裁决（leader；尚非实模验收）
+
+入口审计见 `artifacts/model-contracts/b87-r01/20261113/entry-audit.md`。当前 Splash 的 `/v1/models` 可读，报告 `local/Q4-PLE4` / 262144 context；服务默认 reasoning=max，历史请求为 high。正式批次固定请求 high，并在实际 wire/日志复核；只设隔离测试进程参数，不更改 Splash 服务默认或用户偏好。不同长度分别使用三个独立原生批次/隔离 DB，固定同一 seed 内容哈希，真实生成的 work/session UUID 单独记录，不能宣称身份字节或冷缓存相同。
+
+| 对象 | 已存在与不足 | 决定 / 生命周期 / 消费者 |
+|---|---|---|
+| 请求分类/日志读取 | `authoring_request_facts.mjs` 已识别 IR/native Chat；`scenario_evidence.mjs`、`live_run_wait.mjs` 已读取日志/usage；`mine_author_intents.mjs` 属 B34 意图语料，含启发式且目录写死 | **reuse** 现役读取边界；不把成本模式塞入意图挖掘器，不复制第二套 wire/日志 DTO；需要严格读取时收敛现役纯 reader，当前消费者同批回归 |
+| 成本纯投影 | 现役 facts 只读来源/调用，不提供字节分组、守恒、去重或 usage 可观测性 | **truly-new** 测量函数放 `scripts/lib/native_ui/request_cost_evidence.mjs`（配行为测试），只消费已有 facts，不承担 IO/模型调用；历史 CLI 与原生批次同用；版本/hash/未知项写机器报告，不新增生产 Schema |
+| 历史/批次 CLI | 现有 live 单调用探针与 B71 verifier 均不能表达固定历史源、33 个作者 turn、成本报告；候选 Python checker 不是运行测量 | **truly-new** 薄 `scripts/model_contracts/request_cost_baseline.mjs` 与测试，负责 manifest 校验、source hash、读侧 join/报告；原生 prepare/capture/verify 复用同入口，不另建一份 verifier/报告真源 |
+| 任意多轮原生驱动 | `NativeScenarioHarness`/AX/工作选择/transport 已有，B71 live 只一条，auto-maintenance 固定六条且属于其它验收语义 | **truly-new** `scripts/native_request_cost_drive.mjs`（配测试），消费冻结输入/可见工作名；复用 harness，不复制 AX/PID/输入安全；页面可见状态推动流程，内部 ID/DB/网络仅在事后关联证据 |
+| 原生批次编排/注册 | `tauri_slice_verify.sh` 已管理隔离 DB、Phoenix、Tauri、proxy、日志与 cleanup；缺 R01 journey 和 Splash 原生分派 | **reuse/extend** 既有 runner，仅注册 R01 的 prepare/driver/verify/seed；必要薄 `scripts/native_request_cost_batch.sh` 只调用既有 runner并监督已拥有的子进程，不复制运行时。保持 B71 既有验收判据，禁止把 Strata 槽位规则套到 Splash |
+| seed / 预注册 | 现有 seed 可创建作品/session，但原 stage 作品快照不保证可恢复；B71 prereg 限一条/Strata | **reuse** 现役 seed 所有权与 fixture 机制，必要时新增最小合成 seed（先列内容与查重）；**truly-new** R01 测量 manifest 位于既有 quality fixture/运行 artifacts 体系，固定作者输入、seed hash、模型/参数、3/10/20、预算和失败策略。不新增产品字段或另一任务状态源 |
+
+**种子裁决补正**：§10.3 已找到真实源作品。替换初版空作品 seed，不保留空/真实双轨用于逃避复现。复用 B28 既有只读 SQLite backup 方法及测试库复制边界（`scripts/native_b28_evidence.mjs:copySource` 只服务已终止 B28 证据库，不能伪造 B28 元数据绕过其限制）；R01 仅在自己的明确快照路径/批次隔离库内恢复源作品起点，并通过实际内容 fingerprint 证明三批一致。不得复制第二套产品存储/迁移器。快照需标原始来源、采集时点、文件与目标作品内容哈希、范围；不能把旧会话当新会话，须经现役会话服务或可见 UI 创建新 session。真实作品原文始终只在 gitignored 的受控本地证据内。
+
+**实现结构补正（SRP/ISP，非新增事实模型）**：初版 CLI 已超过 1000 行，混入纯 manifest 校验、逐调用/整批判据、数据库/文件读写和命令调度；把函数拆成 CC<10 并不解决这些独立变更原因。批准对本批尚未提交代码作 `refactor-and-retire`，同批迁移调用者、删除原定义及兼容 re-export：
+
+| 归属 | 现存重复/不足证据 | 本批唯一职责与真实消费者 |
+|---|---|---|
+| `scripts/lib/native_ui/request_cost_manifest.mjs`（及测试） | 当前 CLI 的 validateManifest/readManifest 混合 IO 与纯约束；B71 prereg 限 Strata/单场景，无法直接替代本批 | 纯 manifest 类型/冻结模式/范围校验；文件读取留 capture 边界。CLI 历史与原生入口共用，不建生产 Schema 或新授权模型 |
+| `scripts/lib/native_ui/request_cost_batch_evidence.mjs`（及测试） | 当前 CLI 的 verifyTurn/verifyBatch/汇总同时查询 DB、找身份、判定状态、写报告 | 已采集事实 → 逐 turn/call 测量/模型结果/缺证判据；复用现役 authoring_call/run evidence，禁止复制第二套身份真源；消费者 capture/verify 和反例 |
+| `scripts/lib/native_ui/request_cost_capture.mjs`（及测试） | 当前 CLI 同时承担 source/seed/日志读、prepare/capture 与写报告；原生 driver 直接 import CLI | 唯一外部证据 IO 边界，调用现有 SQLite/日志/快照底座与上述纯函数；原生 driver 和 CLI 调用它，不造通用 Manager/Repository/控制环 |
+| `scripts/model_contracts/request_cost_baseline.mjs` | 当前超过 1000 行，名称“薄 CLI”与职责不符 | 只保留参数解析、命令分派、退出码；原公共函数/常量的消费者迁到实际 owner，不留旧出口兼容壳 |
+
+单请求 `request_cost_evidence.mjs` 继续只管字节/来源/usage 纯投影，不塞整批状态或 IO。上述只是在已批准 R01 测量链内搬正职责；新文件同步 README，数据形状仍只有同一组测量报告，不能借拆分扩出第二事实源或泛用框架。
+
+**隔离快照反例（leader 独立复核，必须先修）**：`source-snapshot/20261113-real-v2/work.sqlite3` 虽仅有 1 work/1 session，却保留源库全部 298 条 interactions 与 158 条 decision_traces；其中 267/140 条 session_id 被删除父会话的 `ON DELETE SET NULL` 变为空。原 stage 对应两表均无空 session_id，故这些不是原有全局事实，是越界历史残留。此 provisional 快照**未验收、不得用于实模**，保留失败副本。修复须从原只读来源、在删父行之前固定各表保留集合，按真实 work/session/foreign-key 归属筛选依赖行；不能从已经置空的副本猜来源、把 NULL 当全局、或只验证 works 数量。新增负例包含两个作品各有会话/历史/trace，证明副本只保留目标原始归属，不遗留被置空的别作内容，且原库不变。新副本另名，原失败证据不覆盖。
+
+**mutation/version 裁决（已查实际 owner）**：目标原会话在只读源中有 31 interactions、18 decision_traces；目标 `mutations.target_scope="work:<id>"` 有 9 行，必须保留。`AdoptionRepository.mutation_attrs/1` 以该 scope 写入，`direction_mutation_exists?/2` 实际读取其幂等事实，不能把无 work_id 列误作无消费者而清空。`versions` 在此源为 0 行；ADR-0032 已逻辑退役 PaperTrail，但要求保留物理表/迁移，R01 不改变该决定、不新增版本兼容，保留该空表。机器反例为 `artifacts/model-contracts/b87-r01/20261113/leader-snapshot-review.json`；正确过滤应以原始归属集合证明，而非把 31/18/9 写死进程序。
+
+**成本守恒仍有反例（leader 真实调用入口，exit 1）**：当前 `analyzeRequestCost` 对 native Chat content 数组中的未知材料块仍给 `ok=true/unclassified=0`，把其内容吞入 envelope；请求根本没有 tools 字段时也凭默认空数组计出 `tools=2` 字节。合成输入、原始观测与源码 hash 保存在 `artifacts/model-contracts/b87-r01/20261113/leader-cost-review.json`。后继必须修真实来源覆盖/已出现字段核算，再补 public 入口反例；不能用 `total - categories >= 0` 冒充独立守恒。未知材料可以明确 unsupported/unclassified，无需为过门禁实现新的多模态产品能力。
+
+**同因再次失败：v3 仍未验收**。v3 修正了 interactions/traces/mutations，但 retained run/provider 子表仍未隔离：agent_events 应155/实2362，agent_run_steps 应32/实456，provider_events 应350/实133091，provider_outputs 应24/实595；目标行未缺，额外行全属保留集合外。机器 ID 集合差集证据 `leader-snapshot-v3-review.json`（exit 1）。共同错误前提是“让删除中的父表承担归属判断”：子表查询发生时父表还包含其他作品，删除父表又无外键级联。
+
+**撤销该前提的设计**：先在只读源一次固定 work/session/AgentRun/ProviderRun 及各表原始保留 ID 集合、内容指纹，再对新副本应用筛选；删除顺序不再决定谁属于目标。Provider 子表按 `provider_run_id` 对应的已选 ProviderRun 集合，不能只按可空 agent_run_id；Agent 子表按已选 run_id；会话子表按原始已选 session；mutation 按真实 target_scope。每个非空业务表必须有明确保留/派生/拒绝策略，未知归属 fail-closed；过滤后逐表核精确 ID 集合和 retained row 原始字段，不只核数量。FTS/索引按既有派生语义处理，不把缓存当新作品事实。允许将当前 capture 中的快照备份/归属/恢复职责 `refactor-and-retire` 到 `request_cost_snapshot.mjs` 及测试：现有 B28 helper 有专属边界不能冒用，本批消费者为 capture/seed；不建通用备份框架、生产表或新存储真源。失败 v2/v3 与只读 full 均保留，新合规副本另名。
+
+**作品内容指纹复用裁决**：当前 `workContentHash` 只覆盖 title/genre/premise/tone，`contentFingerprint` 只额外读章节元数据，不能证明正文、角色、记忆、账本相同；start/final 只比行数也不能证明没有 in-place 内容改写。已有 `authoring_canon_evidence.mjs` 的 `CANON_TABLES`/`buildAuthoringCanonSnapshot`/`compareAuthoringCanonSnapshots` 与 `authoring_capture_evidence.mjs:planningCanonSnapshot` 正式处理完整 canon 内容签名及运营字段差异。必须复用它们的定义：三批起点覆盖 works/drafts/chapters/volumes/scenes/characters/memory/ledger/receipts，而非另造四字段真源；单独保留 raw row 签名与 canon 签名，真实版本/身份另记。新增“只改正文/记忆/角色而行数不变”反例必须使对应指纹/变更事实变化。模型行为与测量完整性继续分开，不把合法运营计数或有来源的派生内容伪装成作者采纳，也不把未知变化写成零写入。
+
+实现阶段先完成同一测量链的负例、自测和历史复算，再由 leader 审核源码与实际 seed/config 后冻结运行 manifest；**未冻结前不调用模型**。3/10/20 每个长度只开一批、0 harness 重试，产品原有有界纠错单列实际调用；失败不得换样本刷分。遇模型提问不自动选答案/采纳，下一固定输入只能经作者可见“开始新讨论”进入新 turn；入口不可用即记录部分执行与失败，不用 API/DB 推进。
+
+**测量完整性与模型行为分开**：模型回复错误、报告 gap、询问或有证据的失败，都是应保留的 Before 结果，不为得到正确答案重试/换样本。只要页面仍可按预注册进行下一作者输入，继续收集固定序列；UI/传输不可继续、输入缺失、调用错绑或原始证据不足才造成测量 partial/fail。测量 PASS 只能证明完整、可复算地记录实际结果，不能签模型语义正确或整个产品 PASS。
+
+R01 测量当前真实 Chat 请求；三 wire 机制回归继续用既有 I-CACHE，Responses/Anthropic 未采集字段如实 not_collected。不为了补历史缺失 SSE 改生产日志；有原生捕获就核验完整性，没有就保留缺测。后续 R07/R19 仍须提供各自要求的真实 wire 证据。
+
+### 10.5 实施与审查 checkpoint（未验收）
+
+入口审计任务 `04b2d6e4-f22f-4108-9a9d-b25fb3d6a807` 已终态；实现任务 `2faa3f21-7670-4c8e-b70b-50cab3fb6f39` 承担整条测量链与自测。leader 对初版代码作语义审查后，已在同一 worker 会话排队返工 `f6e372b5-957d-48cd-adbe-3d2c0700b174`，必须逐条用反例闭合：
+
+1. `validation_result` 不能计为真实 Observation；unknown block 不得藏进 JSON 开销。
+2. ProviderRun 与 AgentRun 不同；一个作者 turn 的所有判断/纠错/探索/Writer 调用必须精确关联，不能限定一条调用或只按 provider_run_ref 分组。
+3. 固定输入第 4/7 等轮会重复原文字节，不能依赖“请求中原文唯一”；须依真实作者消息/turn 身份或受证据约束的顺序定位。
+4. 字节守恒要独立核对材料覆盖与结构开销，不能仅用 `total - categories` 自证；单条作者绑定不授信全部历史内容。
+5. 缺 usage 不作为 0 汇总，token 值校验与真实 Writer purpose 不能缺席。
+6. 合法显式 checkpoint 导致前缀缩短是观测事实；不能以永远 append-only 拒绝正常压缩。
+7. 状态由检查事实推导；模型行为失败与测量缺证分开，禁止 checks=false 却无范围说明地报告 PASS。
+8. CLI 的职责与重复 reader 需收敛，不能以“薄 CLI”命名掩盖大模块；额外公共实体仍先查重裁决。
+9. 保留失败/冻结证据不可覆盖；seed 内容哈希必须由真实隔离作品事实复算，不能只信 seed 自报。
+10. 原生驱动必须等待本轮新作者消息及其新响应，不能在重复输入时凭整页 `includes`/旧终局文本提前推进；模型可见失败与 UI 不可继续应区分。
+11. 冻结检查必须在真实批次启动前完成；历史分析的 frozen manifest 不能自动充当尚未审核 seed/config 的实模授权。
+
+以上是初版审查点，不是已修复声明。当前没有启动 Splash 或真实 UI 批次；完成源码/测试审查后才冻结运行 manifest，R01 保持 doing。
+
+真实起点/原生新回合与冻结前置返工由同会话任务 `8a1c4412-749d-408b-993d-bd8fc3c779d8` 承接（排在语义修复之后）。只读 stage 源、创建任务自有快照和隔离测试副本；原数据库不迁移、不删除、不改配置。源库 15 个作品不等于可以把其余作品当测试材料，运行副本必须审查目标作品可达数据范围。当前生成的 `request-cost-history.manifest.json` 只用于历史分析，**不是正式原生 3/10/20 批次的冻结批准**。
+
+**初版质量门不能代签**：新测试 19/19、相关 Node 150/150、B71 67/67 和 `mix check` 等通过，仅是已覆盖范围的证据；初版 mutator 为 85 killed/107 survived（44.3%），crapper 的 Cov/CRAP 为 N/A、最大 CC=9，dryer 不支持 `.mjs`，均不能冒充全部 ub-mode 门通过。现有 crapper 支持读取 `coverage/**/lcov.info` 或 `target/coverage/**/lcov.info`；Node 24 自带 test coverage/LCOV reporter，可生成真实报告后用 `--use-existing-coverage`，无需安装额外工具。后继须补行为反例/消除无效代码、核查等价变异，保留实际局限，不用 CC 替换 CRAP。
+
+**本 checkpoint 恢复点**：`2faa3f21` 实现、`f6e372b5` 语义返工、`8a1c4412` 快照/freshness 返工均已终态；worker 的 completed 不代表 leader 验收。已观察到 validation=195 的历史误归类得到修正，26/28 项局部测试通过，但 source-snapshot v2 被 leader SQL 反例否定，mutation 数据丢失未闭合。结构/质量收口任务 `e640f455-8d32-4521-9937-7700f5629073` 正在同一会话执行；随后排队 `ac333b4a-bc52-4fce-aeab-ba4a3c2c782c` 按 actual counterexample 修复隔离与 mutation 保真。接手先查询这两个 task 的真实状态，不重复派发、不重启仍在跑的质量作业；报告分别以其终态结果与当前文件为准。尚未冻结 native manifest、未运行 Splash/真实 UI、未提交本批代码；R01 不签 PASS。
+
+## 11. 作者纠正后的目标一致性复核（2026-11-13；当前裁决）
+
+### 11.1 判断依据
+
+作者明确：**愿景 → 元原则 → 设计 → 任务规划 → 代码实现，测试用于验证是否达到目标**。当前实现是否正确是待证问题，不能反过来成为设计/验收的标准。该要求已写入 AGENTS 和本批执行 README。
+
+R00 的存在性地图仍是事实证据，但“已有”不推出“正确/应保留”。Frozen/Accepted 是决策记录，也要审查与愿景/元原则是否一致；偏差回到对应设计与任务纠正，不能为维持旧实现或让测试变绿改小目标。门禁、覆盖率、变异分数均不代替目标验证。
+
+### 11.2 上层目标 → R01 必须证明什么
+
+| 上层依据 | R01 的必要作用与独立判据 | 当前不能据以判正确的现状 |
+|---|---|---|
+| 愿景 §2.1/§2.3：自然对话、目标连续、作者主权 | 以真实三轮输入记录作者可见回应、实际工具/效果与未完成目标，分别评估符合/偏离/缺证 | schema 合法、run completed、存在两条章记录，都不是“理解正确/已经完成”的证据 |
+| 元原则 §2.4：最小供给、按需求证、证据闭环 | 记录实际 Base/Scope/Observation、供给与真实读取来源、后续请求引用；成本变化与语义质量分开 | Prompt/上下文已由现役 assembler 生成，不证明材料必要、来源正确或使用未越界 |
+| 要素设计 §5：设计态/实现态分离；卷蓝图设计 | 章位/卷纲/已采纳正文分开对账，异常作为 Before 缺陷，不从表名/状态反推正确领域语义 | 现存卷纲占章位、reading projection 渲染结果不能做标准答案 |
+| VS-00M §1/§5/§6：来源与实际效果分层 | 区分作者原话、模型建议、校验、执行、采纳；不能用重编号替代归档目标或提前宣称修复 | 复用现役 registry/gate/receipt 仍需证明其语义和实际效果一致 |
+| SRP/DRY/KISS/YAGNI | 最小可靠测量链服务 R01/R04/R19；每个组件必须证明当前必要性，重复/无效职责应删除 | 已写完/测过的裁剪器、manifest 或 helper 不因此获得保留理由 |
+
+R01 卡已补目标驱动的场景判据。基线“采集完整”与产品“符合目标”分别出结果；必须能记录当前系统失败，不能把错误冻结为 golden behavior。3/10/20 循环仅为受控压力样本，不代签正常长篇创作、语义独立性或文学质量。
+
+### 11.3 测试准备方案收敛：隔离实例，不再重造作品裁剪规则
+
+**撤回 §10 的作品数据裁剪方案与 keep-set 引擎**。R01 要求原作者数据不受影响、三批起点一致、由真实页面操作目标作品并记录真实请求；它不要求测试数据库只含一部作品。裁剪方案复制了作品/会话/运行数据的归属规则，还改变了真实环境、引入引用丢失与跨作品残留，属于不必要的测试子系统。即使 v5 个别检查通过，也不据此认定该设计必要。
+
+当前方案：
+
+1. 复用已有 SQLite 一致性 backup/隔离批次机制，使用已冻结的完整 `20261113-real-v2/full.sqlite3`（SHA `c5732f99ca320ad526069d8b578162265eac1e481ba8d15e24760e8657a559db`）恢复三个独立运行副本；不裁剪/删除行，不篡改原 stage 或只读源。其它作品是原环境背景，不能变成额外测量任务或被主动发送给模型。
+2. 冻结数据实测 124 个 run 均 bounded，唯一 long_run_task 为 DONE；现役恢复设计仅重建 durable，bounded 的说明是不重新发起 planner/provider。**这只决定待验证前提，不证明实现正确**：准备/启动期间的真实调用与状态必须记录，出现未声明的恢复/调用如实失败，不能改记录或切更简单的数据源。
+3. 源中 15 个作品标题相同，不能用内部 ID 驱动页面选目标。只在运行副本的 fixture 准备阶段，经现役作品服务为目标设置一个冻结的、普通且唯一的可见副本名，并经会话服务创建新 session；实际作者操作仍点击该可见作品。此为明确的 fixture 转换，不声称原始状态逐字未变。独立核对只发生声明的标题/版本/运营字段与新 session 变化，其余作品/正文/角色/记忆/账本/审计引用不变；不能因调用了现役服务就假定它正确。
+4. 使用现有 canon 内容签名定义及独立原始行/文件对账，验证复制保真、声明 setup delta 和每个长度的同一起点；正文/角色/记忆变更即使行数不变也必须可见。记录所有新调用，按实际目标 work/session/run/call 关联测量，不把背景历史调用算入本批。
+5. 退役未提交的过滤/keep-set 实现、对应专属接口与仅保护该算法的测试；保留 v2/v3 等机器失败证据。目标层的复制保真、作者数据保护、作用域与内容变化测试保留并改指最小方案；不得以删除实现为由删除这些目标约束。
+
+该方案仍须实现与独立验收，不因本段设计通过而签 R01 完成。不存在兼容旧裁剪格式/新旧路径开关；历史报告只读留存，不进入新执行链。
+
+### 11.4 验收与恢复状态
+
+截止本次纠正，既有 dsh-worker 任务已终态，所有完成自述均只作为待审材料。`bb655b20` 的 keep-set/v5 方案按 §11.3 退役；`5072d4ab` 报 manifest 子模块变异闭合，仅能支持该子模块当时输入边界，不能证明上层设计、整个 R01 或产品达标。未提交代码、未冻结 native 批次、未运行 Splash/真实页面。先收敛未提交实现并完成目标判据，再采集基线；整体 goal 继续 active。
+
+按本节裁决的新工作单元为 `e6a2e35a-8387-4429-93ad-4832c55b8f48`（会话 `mcp-e6a2e35a-8387-4429-93ad-4832c55b8f48`），只收敛必要测量、完整隔离副本与目标判据，禁止实模/UI调用或提交。恢复时先核其真实状态和当前 diff，不继续旧裁剪方案，不将前一轮工具分数搬作新方案验收。
+
+### 11.5 真实入口前的参数一致性核对
+
+收敛实现已报告完整副本/真实 seed/prepare 的无模型干跑及 89 项局部测试，但这些不证明真实入口可运行。leader 直接核实以下差异：
+
+- 批次脚本用 `require(process.argv[1])` 读取相对 `artifacts/...json`，Node 实际报 MODULE_NOT_FOUND；必须按数据文件解析并沿既定根目录解析路径，不能把 manifest 当可执行模块。
+- `NOVEL_SPLASH_REASONING_EFFORT=high` 单独设置不够：现役 adapter 在 thinking disabled 时发送 `reasoning_effort=none`。实验所需 high 必须同时经真实配置得到 enabled，并由实际请求对账，不能从 env 字面量推定。
+- `MIX_ENV=test` 默认 auto maintenance=false、sync summary=true；产品默认 auto maintenance=true、sync summary=false。`ContextPressure` 的 Splash 默认窗口为 32000；manifest 中的 262144 尚未接到实际配置。必须通过现有产品运维配置对本批进程明确设置并捕获实际值。
+
+本批 **受控实验设置**：应用维护窗口 262144（显式配置，不声称是产品默认值），真实模型当前宣告窗口单独记录；自动维护开启、keep_recent=4 与现役阈值；摘要维护使用产品异步语义；Splash thinking enabled + effort high。不改全局偏好/服务默认，不为了让压缩发生而改小窗口。测试后端与 release 的其余差异（例如测试服务器的 Origin 检查）明确留在证据边界，不以本批签其正确性。
+
+在外部启动脚本/测试服务器中采集同一运行进程的白名单 runtime facts（provider/config、实际维护窗口/开关/摘要策略、进程身份等），并与 manifest 及实际请求互证；不得在生产路径新增验收开关、隐藏事件或暴露密钥。配置接线可用测试环境传输替身验证，但仍不能代签真实模型/页面。
+
+### 11.6 引用记账与首次真实入口验证
+
+**引用日志不是已证坏数据**：worker 曾因 Node 直接读 TEXT 列后 UUID 解析失败，把 240 条历史引用日志视为不可解析，并给 canon builder 传空数组。leader 只读 SQL 已核实 `id` 与 `memory_id` 的 `length(CAST(... AS BLOB))` 全部为16；沿现有 `authoring_capture_evidence.referenceLogRows` 的 SQLite 无损投影后，`buildAuthoringCanonSnapshot` 实际成功解析240条。不能把新读取代码的错误当作源数据事实，也不能把丢弃日志作为修复。
+
+复用这一现役读取边界，单点维护并由 snapshot/capture 消费；不复制第二套 UUID 兼容器。准备阶段只允许声明的 setup delta；运行阶段正常只读取证可更新有真实来源的引用记账，必须用原始行/内容签名及实际新日志对账。作品内容变化、无凭据的计数变化和他作越界各自记录，不能用“所有行字节完全不变”拒绝合法求证，也不能忽略记账字段后直接判无写入。业务内容签名与原始行签名、引用会计证据分开保留。
+
+首次真实入口按 ub-mode 的可观察结果验证：在复制/源保护/冻结配置/模型路由等前置完成独立核验后，可另冻结一次**工程诊断批次**验证真实 Tauri+Splash 接线，全部结果保留，不作为正式3/10/20已覆盖或模型改善证明，不改生产Prompt/模型以刷分。正式 Before 仍沿冻结3/10/20输入与参数各一批、0自动重试；诊断与正式样本分开列明，不删去失败或把诊断当原始基线。最后仍须完成相关质量门与目标语义评审才能签 R01。
+
+### 11.7 工程诊断 01 登记
+
+leader 复核完整源/副本及原始两类日志 SHA 均与冻结值相符；独立运行引用读取器与 runtime recipe 负例共5项通过。无模型 bootstrap 事实记录为 Splash adapter、thinking enabled、effort high、window 262144、auto maintenance true/keep4、sync summary false；这仅证明配置接线，实模仍待验证。worker 对质量工具的 PATH 检查不足：三个工具在 `/Users/loong/scripts/ub-tools/` 的既有绝对路径均存在，不应写“未安装”；尚未执行的门禁仍未通过。
+
+诊断注册：`artifacts/model-contracts/b87-r01/20261113/diagnostic-01/registration.json`；manifest SHA `f4707bcd34c28bea4dbd1bf1fe52461b436ded82a202186e9c20d4f3c3a444ae`。只授权该注册的一批 length=3、tag `diag01`、0自动重试，独立目录 `artifacts/slice-verify/b87-r01-request-cost-live-3-diag01`；正式 Before 覆盖仍为0。候选保持 frozen=false。启动前修正已独立复现的测量错误：未知/未解码响应不能计工具调用为0；聚合不得用 `null ?? 0` 隐藏缺证。任何失败保留原样，先判断测量/接线/产品语义责任，再决策后续，不为通过当前代码的判据改写目标。
+
+### 11.8 诊断 01 结果与报告职责纠正
+
+诊断 01 退出1：真实原生窗口已观察，选择作品前因 `runWithHarness` 在 `ensureWorkSelected` 外重复包 `runStep` 触发 `invalid_wait_begin`。单层等待由既有 helper 负责，修复调用方，不放宽等待账本、不修改产品。未发作者输入，调用日志为空；不能给出模型/目标语义结论。leader 独立比较源/运行副本全部36表原始行签名，仅 works/work_sessions 变化；证据 `diagnostic-01/leader-startup-table-diff.json`。源及副本 SHA 未变，批次所属 app/4657/4661 已清理。
+
+缺失响应的0值误报已修，leader 相关公共入口30项复验通过。诊断又暴露报告边界错误：缺 start checkpoint 被写成 `undeclared_model_calls_before_start`，无请求被写成 wire 不匹配，缺前后检查点被写成 `production_changed`。**缺证只能判缺证，不能捏造反例事实。** 复用现有 `checks`/`not_collected`/`failures` 与测量状态，不建立第二验证器。
+
+同时收回“无 canon 写入 = 本成本基线通过”的隐含假设：R01 需要完整测量真实行为，不能以现有系统输出不变为标准答案。准备阶段的源保护/setup边界仍为硬门；运行阶段的业务内容/引用记账/跨作品变化须完整保留在现有 `reference_accounting` 的比较证据和 `model_behavior`/`semantic_review` 中，供目标与授权评审。证据完整但产品越权时，应明确产品偏离，不能把它误称采集失败；证据缺失时不得声称作品未变或已变。复用已存在的 canon compare（checks+measured）、checkpoint 与报告字段，删除误将无写入作为测量成功条件的耦合，不新增产品判定器或平行事实源。
+
+下一次工程诊断在修正上述接线/报告、公共入口负例通过后单独登记为 diagnostic-02；最多一批三轮、0自动重试、旧失败只读保留。正式 Before 仍0批。只读 `/v1/models` 确认 local/Q4-PLE4，宣告262144窗口、efforts low/medium/xhigh；本机已安装 Splash 1.6.1 的 `server/chat_format.py` 接受 high，`chat_templates.py` 对模板拒绝 high 提供 xhigh alias。此为本机代码事实，实际请求与推理效果仍须观察，不凭配置宣称已发生思考。
+
+### 11.9 诊断 02：拒绝“三轮完成”自述，改正可见终态的所属范围
+
+diagnostic-02 退出1，真实页面发送三条作者输入；3条已完成 Splash 调用的请求日志均为 local/Q4-PLE4/high，另1条 ProviderRun 留在 running。**未完成三轮结果采集**：第1轮 completed、第2轮等待作者；第3轮发送后约0.4秒，驱动把页底仍呈现的旧任务“等待你回复”当作新回合终态，随即收尾，数据库新 root run/ProviderRun 仍 running。该截断是驱动错误，不能归因模型失败或算合法等待结果。
+
+事后关联另有独立错误：既有 `NativeScenarioHarness` 返回 Phoenix 五元组帧，数据在 `frameBody(record)` 即 frame[4]；新 driver 却读 `record.body`，其测试也自造了错误的四元组+body夹具。3个真实回执的 turn/run 均存在，程序报告却均为空。leader 复用真实 harness 的读取方法独立复现，证据 `diagnostic-02/leader-driver-rejection.json`。
+
+撤回前提“新作者 echo 后出现任意终态文案即可判定本轮结束”。下一修正只在外部驱动中按实际 AX 可访问分组取**本条作者消息对应的消息流**：既有“本轮创作过程”的状态、“创作问题记录”的“等待你的回答”属于可见证据；页底“当前创作任务操作”/回答面板中的旧等待不属于本轮消息终态。不得读内部 ID/WS/DB 决定点击与下一轮，不增加产品 hook，不用固定 sleep 掩盖竞态。优先复用现有 AX/状态读取函数，在既有 driver 内完成必要范围适配，不另建通用 DOM/状态框架。必须先让本次真实旧等待反例失败，并覆盖 repeated input、模型正文引用状态词、快速完成、运行中旧等待共存；只引用 WS 帧格式和 DB 事后判断采集是否截断。
+
+diagnostic-03 在上述纯函数/公共入口反例通过后另跑一批3轮、0自动重试，继续保留01/02。截至此处正式 Before 仍0批，R01 doing，产品行为质量尚未签署。
+
+### 11.10 诊断 03：先补观察，不以后台完成代替页面证据
+
+diagnostic-03 退出1；5条已完成请求日志与5条 ProviderRun、3条 root run 均 completed，第1/2轮页面 completed 已采集且回执关联正确，第3轮在120秒处由 supervisor 超时收尾。第3轮实际 turn_result 在发出后约29秒已到，但缺当时 AX 树；失败采集晚于 app 清理，得到 target_not_running。**因此原因仍未证实**：不可直接宣布产品未渲染，也不可宣布只是滚动或某个 parser 分支。保留完整请求/帧/数据库和已有截图，不将第3轮算页面验收通过。
+
+另核实外部预算接线差异：manifest/driver 360秒，但 `native_ui_wait.budgetsFor` 的实模供应商集合遗漏 Splash，实际 turn 门为120秒。应在既有外部预算 owner 补齐适用 provider，测试消费真实有效值，不能只改报告或扩大全局默认；这不是第3轮29秒后仍未识别的已证根因。
+
+下一步禁止直接再发模型批次：先保存轮询中的最新实际 AX 原始观察及判据事实，使独立 supervisor 清理后仍有失败前证据；复用现有外部日志/写盘能力，不新增产品 hook 或第二 supervisor。可在 diagnostic-03 的**另建完整复制品**上启动同一真实产品入口，仅读回持久的三轮结果、拍摄/采 AX，禁止新作者输入/Provider 生成、禁止改原03证据库；还原页面观察只能说明恢复态，不能冒充03丢失的现场。再根据观察审查判据与产品显示是否达到目标。当前 `axTurnOutcome` 只取第一组、通用 flat 状态函数拆分后的语义漂移属于待验证代码疑点，不据疑点直接修补或盲跑。
+
+### 11.11 恢复观察后的目标判据裁决
+
+无新模型的恢复读回已完成，LLM日志0文件、ProviderRun/AgentRun/Canonical条数不增，原03与冻结源SHA未变；证据在 `diagnostic-03-observation/`。已修观察落盘、Splash外部360秒预算、下一作者消息边界、通用状态行语义漂移和完整身份关联。恢复态中三条答复均可读，显式选择会话后过程组不显示。**这只是观察事实，不因 driver 依赖过程组就直接判产品缺陷**；恢复状态设计的完整性仍应独立对照既有设计，不能由验收脚本倒推产品必须增加展示。
+
+leader 实际查看恢复截图/原始AX，并核对 `WorkspaceChat` 的 `framePresentationForSummary` 消费者：第2/3轮已有结构化 `capability_gap` 的可见“能力缺口”标记及完整作者解释，后接该条“为什么”按钮。愿景允许模型诚实指出能力缺口；R01的目标是记录此真实结果及其未满足的作者目标，不要求所有结果都显示过程状态徽标。故在既有 AX owner 中复用该**现役领域结果类型**，按当前作者消息边界、真实 AXGroup 的可访问说明/直接标记子节点和对应回复/为什么按钮识别 `capability_gap`；不能从模型正文搜索关键词，也不能借用旧回合标记。无过程组也不能自行标“running”，未观察到状态就是 unknown。
+
+新增/复用审查：没有新产品实体、Schema或验收hook；`capability_gap` 已是 `frame_summary.frame_type`，当前真实消费者为 framePresentation/WorkspaceChat，外部驱动只是补齐已有可见结果的读取。结果类型为缺口答复，绝不等同于作品效果完成；运行状态与全部调用完成性继续仅在事后互证。先回放恢复态AX与02旧等待反例，成立后才单独执行 diagnostic-04（1批3轮、0自动重试）。03实时页面仍未补成PASS，正式Before仍0批。
+
+### 11.12 诊断 04 通过测量复核，正式 Before 冻结
+
+diagnostic-04 退出0：真实页面第1/2轮 completed、第3轮 capability_gap；4条完成请求日志/4条ProviderRun与3条root run全部关联且终态一致。leader 逐轮从保存的原始AX重算 outcome、只读DB核对 turn/run/provider归属，查看第三轮截图，并复跑driver/batch/wait共26项测试（exit0）。input79386、cached55808（输入子集）、output6037；原始HTTP/SSE/分组tokens仍缺测。作品业务内容不变、8条新增引用有记账来源。**仅测量链通过；模型语义、作者目标效果未签，缺口尚未解决。** 诊断01–03保持失败/未闭环事实。
+
+正式3/10/20已另冻结 `artifacts/model-contracts/b87-r01/20261113/formal-before/manifest.json`，注册见同目录 `registration.json`（含HEAD与测量脚本哈希）；三个tag为 `before03`/`before10`/`before20`，各一批、0自动重试、各自完整隔离副本。任何测量失败保留后停止依赖推进，模型/产品失败本身是需记录的Before结果。生产代码本批未改，不把诊断与历史日志算正式样本；正式数据、独立语义评审、最终质量门与提交全部完成之前，R01仍doing。
+
+**正式采集期间的独立口径复核（保留原数据，收口时派生重算）**：before03已采完3轮/4调用，原测量报告pass；leader逐调用发现 `analyzeAuthorCall` 仅按 `callIndex===0` 将root作者字节算作current_author。同一第2轮第2次调用仍真实携带34字节的同一作者原文，却被移入history（0/1468，而按root作者归属为34/1434）；唯一false消费者就在该batch函数。当前“本轮作者”应由已绑定root turn决定，不能随内部求证调用序号消失。证据 `formal-before/leader-author-category-review.json`。这是可由原始请求重新计算的分类错误，不改模型/源数据、不重跑已冻结样本；正式采集结束后统一修正唯一owner/消费者、明确口径并生成另名派生报告，旧报告与方法哈希保留。总tokens、scope字节不受该34字节分类调整影响，尚不签最终成本口径。
+
+**before10实际结果与后续执行事实**：10轮/15条调用和页面均采集完整，原runner退出1、JSON fail；全量关联/Provider终态/日志完整/引用记账均true。leader只读核实：作品标题始终为声明的副本名，实际变化是 `works.planning_direction.planning_mission`（model/TENTATIVE）和revision 2→4，发生在第3/8轮的规划使命步骤；不能称标题变动，也不能直接称正式正文被采纳。起点业务内容SHA与seed相等。错误在 `verifyPostSetupContent` 把**最终**revision与准备revision比较，并用 `setup_visible_name:changed_during_run` 命名；准备阶段与运行后事实仍未完全分开。源码/响应/截图与VS-00E §16.8的暂定使命设计需独立评审其意图和真实效果。
+
+worker在检查上述完整性后继续了原登记的before20；leader曾按JSON失败以为20尚未启动，现已按worker审计事件纠正。before20属于原一次采集授权、独立副本、未换方法/输入/模型、未重跑10；继续保留正在采集的数据。收口须修正上述错误测量门并对3/10/20原数据另名重算，完整保留原10轮失败及产品状态变化；不能把原退出码改成0或用新版报告掩盖原方法缺陷。
+
+### 11.13 正式采集结果与测量收敛裁决
+
+原正式采集终态：before03退出0（3/3、4调用）；before10退出1（10/10、15调用，准备/运行混判与暂定使命字段变化）；before20退出1（6/20、11调用，第7轮普通输入入口等待超时）。全部原始数据保留，3/10可用于同源重算；20未完整覆盖，不得签R01。
+
+leader选择：保留10轮真实行为，不换样本；先修测量实现，再对已采集数据另名派生，最后单独登记一次20轮补采。`works.planning_direction.planning_mission` 的model/TENTATIVE落盘已有VS-00E §16.8 B与PlanningMissionRepo消费者；本次发生在第3/8轮，是否符合作者意图仍需审实际模型决策，不能把“TENTATIVE有合同”当成意图正确，也不能将其误称正式正文已采纳。
+
+20轮失败的已证入口问题：第6轮最后原始AX（08:15:47.188）有真实窗口、完成的本轮过程，以及旧问题的“开始新讨论”/“回答并继续”，没有普通“发送”入口。新driver只依据前一轮outcome设needsNewDiscussion，没有依据**当前可见输入模式**准备下一条原文。应删除这份推导状态，复用现有普通composer判定与可见“开始新讨论”操作；先对真实AX回放和公共入口验证，等待作者的受控压力协议保持不变，不生成新答案或点击选项。输入准备等待也须留存最新原始AX，避免只记录模型阶段。
+
+worker将超时后的无窗口观察解释为“窗口丢失原因”，leader不采纳该因果结论：无窗口观测在08:20:47.714，监督器已于08:20:47.514报maintenance_timeout，清理与失败抓取并发；现有证据不足以证明窗口先于超时丢失。是否还有独立窗口问题留作未验证，不能据此改产品或重启作者环境。
+
+同批测量收敛还包括：本轮作者按root turn归属而非调用序号；准备完整性在start处验证，运行期revision/使命/会话变化分别如实记录；runtime事实中的adapter白名单只是预期，不得冒充Gateway实际路由观察，优先复用Gateway现有只读metadata/options。全部是外部测量责任修正，生产行为、源/输入/模型/窗口不改，旧报告不覆盖。修正后完成适用质量门与新增实体复用复核，再登记20轮补采。
+
+**已核实的产品语义偏差（Before，不在R01偷偷修生产）**：before10第3轮判断调用 `pcall_mweotsr1_br` 的 `dialogue_goal` 明确为“卷级大纲候选、不新建章节”；实际规划使命请求却要求“下一批章节”，Writer `pcall_mweov6uc_mr` 的最新应用消息将固定“基于已读取的章节上下文生成章节大纲草稿”标为“应用据作者输入与已验证上下文归纳”的本轮目标，覆盖范围为多对象/多章；其实际产出为第03–05章候选。第8轮再次明确卷级目标，应用目标仍相同，模型这次产出了卷纲。对应固定生产入口为 `agent_run_flows/plot_outline_with_context.ex:93` 与 `chapter_mission_service.ex:139`，同源证据 `formal-before/leader-delegated-goal-review.json`。这是应用供给存在目标冲突的实证，不是“原文字节保留就意图正确”，也不凭两例宣称唯一因果或模型普遍质量。R02的来源类型与R05的专业任务材料必须承接该反例，修源头并迁移实际消费者，不能只给请求换JSON外观或增补提示语掩盖。
+
+### 11.14 工程质量复核仍未闭合
+
+method-v2及点击契约返工已终态，当前相关Node881项、后端compile/test/check、xref/arch与I1/I2/I3/N-NARR/I-CACHE均有成功日志；独立重算保留3/10完整与20的6/20不完整。原始AX node不可用诊断投影替代的反例已修，当前driver单文件CRAP最高9.5。仍不得签R01。
+
+leader扩大到本次实际改动的共享owner后，发现前轮CRAP遗漏新增G2函数：`capabilityGapFacts` 23.1、`axTurnOutcome` 16.3、`statusTokenKind` 13.1；`observeNativeLifecycle` 30、`maybeHeartbeat` 12、`assertSnapshotRunInventory` 10.6仍须同批闭合。G2原有未修改函数的复杂度已登记[B84](B84-web-slow-tests-and-arch-debt.md#2026-11-13-b87-复核发现的既有-g2-判据复杂度未整改)，不冒充已通过，也不能拿该既有债务豁免本次新增代码。
+
+变异报告此前将第三列误写为timeout，真实列名为 **Uncovered**；evidence组日志明确有两个R01新模块当时未读到覆盖，不是526次超时。leader以安装工具的真实covered_lines读取器复核当前新鲜LCOV：cost evidence711行、batch742行、G2 989行、driver444行可读（见 `method-v2/leader-mutation-coverage-probe.json`）；不能猜旧运行缺失的原因。下一轮需绑定测试/源码/coverage哈希、按完整新增或修改函数明确范围，逐一处理未杀死的非等价变异，不用局部高分代替完整门。静态扫描当前另有最终task-done manifest待生成，6条既有gitleaks处置不改。
+
+另收敛残留的双重可见性判据：实际推进已用AX作者归属，但driver的freshness及verifier仍消费flat字符串出现次数/尾部变化。以真实AX作者边界与已落盘原始观察作为唯一依据，删除这份近似计数的门，不为模型引用作者原话或历史过程折叠引入伪失败；现有原始观察足以离线重算，原driver字段只作为旧报告事实留存，不续造兼容运行分支。
+
+### 11.15 变异测试环境的独立控制组复核
+
+cost-batch单元报告469/469 killed，I/O单元报告372 killed+1等价；普通测试及原始数据保护证据保留。但leader没有仅据计数签门：快照中两个位于changed保护内的时间比较有相同等价推理，工具却一杀一存活，故增加独立控制。
+
+使用安装工具**原create_workers**构造隔离树、目标源码不做任何变异：原目录命令exit0；snapshot目标的未变隔离树exit0；cost evidence目标的未变隔离树exit1，具体是两个相对manifest的CLI用例在另一个根目录读文件而ENOENT（`quality-closure/leader-overlay-controls/result.json`及日志）。这是当前环境中已复现的控制失败，不推定历史每个KILLED均错误，但缺未变控制组时不能排除非变异原因。
+
+仅在测试子进程使用Node的`--preserve-symlinks --preserve-symlinks-main`，同一未变隔离树恢复exit0；将真实`unclassifiedMessages === 0`判据反转的副本exit1。原工具、全局配置、项目源均未改，证据 `logical-resolution-controls.json`。后续需对当前质量范围先核同命令未变控制组，再执行站点，并分清断言发现、隔离路径故障与资源超时；不把任意非零退出都当作可靠击杀。源码/测试/coverage哈希之外，需记录本次测试进程解析配置与隔离控制，旧结果不覆盖。
+
+### 11.16 远端同步与项目画像消费
+
+按维护者2026-11-13指令获取远端，保留本地R00提交后合入`a43d374c`，当前同步提交`e0976d98`；新增内容仅为项目画像、索引、接入任务和专项CI，无产品代码变化。46个WIP已先归档再stash，恢复后45个文件字节一致，AGENTS原4行增量完整叠加，0冲突；证据 `artifacts/git-sync/20261113T105225Z/restore-verification.json`。原stash与归档保留，未重写R00或旧基线提交。
+
+已读取AGENTS指定的唯一[项目画像](../../docs/engineering/project-operating-profile.yaml)及AIEF规范。当前任务继续执行已授权B87范围：保护真实作者数据和质量证据，复用现役实体，清理无消费者兼容路径，按实际风险控制测试工具复杂度；不因未发布推定数据库可重置，不把部署/恢复/Schema责任的unknown当none。不修改画像人工确认值、不建context树、不运行Retrofit或安装新依赖。本次读取与取舍不等于AIEF模型效果实验通过，画像接入任务状态仍在原任务。
+
+### 11.17 当前复核结果与可复现性修复
+
+资格化变异运行完成：12个目标未变隔离控制exit0，11个有站点目标的业务负控制exit1；1050站点中883 killed、167 survived，worker判27个等价、140个未闭合/待分类。**这不是通过结论**：leader还要求复核snapshot投影分支的等价依据，按真实producer/consumer值域删死逻辑、补有效反例；禁止为分数制造不可达输入。此前“全杀”计数不作为当前门禁。证据在 `quality-closure/qualified-mutation/`，后续修复及复跑在 `quality-closure/reachable-quality/`，不覆盖原结果。
+
+独立发现并修复CLI测试依赖ignored真实candidate的可移植性问题：复用既有manifest合成对象，提取到 `scripts/lib/native_ui/fixtures/request_cost_manifest_fixture.mjs` 并删除原内联复制；CLI不再读取作者真实数据，临时目录自行创建并清理，保留无`./`的相对路径和含空格子进程用例。worker在无artifacts的源码副本复现旧失败后修复；leader审阅关键文件并在该无symlink副本复跑11/11、exit0，核对测试/fixture字节一致且无临时残留。证据 `quality-closure/cli-self-contained/leader-clean-review.json`。这是R01内部验证修复，不是新的正式完成批次。
+
+已完成before03/before10共13轮、19次调用的独立目标对账，证据 `formal-before/leader-before03-before10-goal-review.json`。冻结DB只读查询核实2个章条目、1章含2场已采纳正文（4183字符，去空白标点3204字符）；两批章数回答与此一致。原请求显示第2轮已重带旧Scope，before10第10轮累计15份Scope、其content共366500 UTF-8字节，单次input由10790增至117683 tokens；这些不是原始网络字节或分组tokens。已知目标传递偏差仍见§11.13，本次只补齐逐轮页面/请求/状态证据，不重复登记为新缺陷。第8轮“登记到档案侧”的主回复与待采纳状态不一致，后续状态表述验收需承接；未观察到因此完成作者采纳或章结构变化。
+
+当前仍为R01 doing：3/10已完整采集，旧20保持6/20；剩余质量门、单独登记20补采、完整语义与最终静态扫描/任务收口尚未完成。R02–R19未实施。进度汇报区分新发现、已知问题补证和已修复，不将同一失败样本的重复核验写成新进展。
+
+### 11.18 执行收敛纠正（作者指出死循环风险）
+
+作者指出的不是汇报措辞，而是执行是否陷入循环。leader复查后确认：R01测量实现及测试不断扩张，先前未可靠的质量计数导致重复复跑；新一轮又添加了与既有用例相同的缺body测试，以及被`readAuthoringHistory`入口校验排除的`transcript.messages=[null]`内部输入。不能将测试数量或变异击杀数量增长当成向目标收敛。
+
+已主动取消广泛补测试任务`241ed351-28de-44c2-b9c2-a65a0edeb062`，保留所有改动与中间证据；这是执行策略纠正，不是worker超时或外部阻塞，不暂停B87目标。其未完成变异运行不得记通过。
+
+后续严格沿已有R01职责收口：先清除已证无生产者的兼容分支和重复/不可达测试，再以固定的真实来源、身份绑定、成本缺测、完整快照、真实页面终态判据验收；质量工具验证这些判据，不另造需求。明确发现：`prepareBatch`只产出`author_id`，测量报告却接受`authorId`并为其写兼容测试；`readAuthoringHistory`已保证消息为map，consumer不应再为null消息提供第二套容错。按源头契约删除，保留入口对损坏证据的失败行为。
+
+R01退出条件保持原范围：可靠测量及适用质量门完成 → 单独登记并完成20轮补采（保留旧6/20）→ 独立语义对账、静态扫描与任务收口 → 本批提交。已完整的3/10不重调模型；已验且未变化的目标不重跑；新问题仅在影响上述判据、作者数据或本次改动正确性时阻断，不能用无关扩展推迟退出，也不能降低门槛签PASS。
+
+### 11.19 删减验收与20轮补采登记
+
+batch契约收敛单元已验：仅修改batch测量源与测试，删除3处无生产者兼容/内部重复防御，测试45→42；leader审阅差异并独立复跑相关119项、exit0。3个完整改动函数CRAP均<10、Dryer无新增重复，资格化变异5 killed+1已证对象/undefined域等价；原199个批次文件未变，目标映射保持一致。证据 `quality-closure/batch-contract-subtraction/`。该单元退出，不再继续追加改进；其它未闭合质量项未被代签。
+
+修正此前把全部报表质量复核串行放在原始数据采集之前的安排：**采集安全/入口门通过后可取得真实数据，最终报告质量门仍在R01验收提交前强制完成**。当前驱动、等待、快照、manifest/runtime源码哈希与已审控制组一致，公开20轮preflight退出0、冻结源哈希不变，生产路径相对原基线无变化。预检CLI无stdout协议；leader展示包装曾误按JSON解码空stdout，CLI本身退出0，原记录保留，不改CLI为该包装配合。
+
+单独登记 `formal-before/registration-before20-r1.json`（SHA `55444d3f127307f2fc26d1a08d4eb41fb2a223e70229f009b664d9d0c639301c`）：只执行1批20轮、tag `before20-r1`、0自动重试；沿用原冻结manifest/输入/模型/完整源副本，冻结29个测量文件哈希。旧3/10不重跑，旧6/20保留；采集期间不修改测量源码，任何失败如实保存，不现场换输入、补答案或修脚本重跑。此登记不代表20轮完成，也不签R01。
+
+该批已由DSH任务`2a44960d-4adc-4d4d-8e90-605ff4476b0e`启动；恢复时查询同一任务/进程，不因观察超时重新启动。原始证据目录 `artifacts/slice-verify/b87-r01-request-cost-live-20-before20-r1/`，仅批次终态后签发送/完成及调用关联数量。
+
+等待采集期间对snapshot投影的争议完成一次独立确认：全量脚本字节副本、无symlink回原库，当前公开snapshot测试中性组exit0；把`fields.length === 0`分别改为`!== 0`和`=== 1`，均因“works.updated_at不应改变内容canon”的业务断言exit1。证据 `quality-closure/snapshot-projection-control/`。因此这两处不能按前轮报告视为等价/缺测试；当前用例已保护，不再增加相同测试或修改正确实现。该结论仅覆盖这两处，不代签其余变异项。
+
+### 11.20 正式3/10/20采集闭合，最终工程门仍开放
+
+`before20-r1`仅执行一次，runner退出0；20条普通作者输入均送达并取得页面终态，20个root为19 completed+1 awaiting_author，25个ProviderRun为completed、25份ProviderOutput为ok、25条完成日志为HTTP 200。页面为16 completed、3 capability_gap、1 waiting，不能写成20个作者目标完成。input 2660608、cached 2121824（input子集）、output 33263；29个方法文件及冻结源哈希不变，旧199个批次文件未变；本批进程已收尾。worker证据 `formal-before/before20-r1-result.json`。
+
+leader独立读取原始Phoenix发送帧，并在DB/WAL字节副本中只读对账全部输入→root→持久step→ProviderRun→输出→调用日志，同时复核每轮AX终态与截图：`formal-before/leader-before20-r1-readback/result.json`（SHA `3a1a4efb8ca4eb2854b0111aa211b6cdc7ed9b0c6cae0110d3e578b6be1042c2`）。两个Writer日志使用真实子步骤turn id，通过ProviderRun.step_id与持久sequence绑定，不能强令其等于根作者turn id；leader原过严断言的纠正已记录，不靠前缀猜归属。DB的completed_at/finalized_at为空，未补造时间；终态用持久状态、输出记录、完成日志和页面共同证明。
+
+20轮逐项独立目标审阅已落 `formal-before/leader-before20-r1-goal-review.json`（SHA `1e5faacbe642c02925b73caf6af5f11ed36bc44b9972084e7f81880e3d9ef37e`），连同原3/10共33条输入的正式基线审阅。第5/6轮复现§11.13同类目标传递冲突，不另计新缺陷；7次章数回答均与2条目/1章正文相符。卷纲移出阅读仍未实现，候选未采纳；带卷级标题不能代签采纳后的真实层级效果。运行期仅works的canon哈希改变（模型TENTATIVE规划使命、revision到4），各类产量不变，未把设计态变化误报成正式采纳。
+
+当前完整基线为before03、before10、before20-r1；旧before20的6/20保留为失败证据。最后一调用input227833、25份Scope文本共772324 UTF-8字节，首调用input10789、1份Scope18897字节；未到窗口溢出，不冒充压缩完整性证明。接下来只收口本次测量实现的必要质量缺口及最终静态扫描/任务提交，不再为本基线重调模型；R01仍doing，R02尚未实施。
+
+2026-11-13 作者随后暂停原推进，并要求先整体审查测试体系。测试入口、fixture和环境作用域的跨项目设计/迁移统一归 [B84](B84-web-slow-tests-and-arch-debt.md)，不能只给R01补清理后恢复原整组变异循环。R01未提交实现及原始基线继续保留；工程质量未签，不能由B84的设计文档代签。当前只完成审查/设计，不恢复模型采集或广泛变异执行。
+
+## 12. 跨任务缺口登记：普通对话 ProviderRun 未持久化（2026-11-14）
+
+> 本节是 B87 总计划内的跨任务缺口登记，不是 R01/R02 的目标变更，也不改变本任务状态。来源为 B84 REV-02 的真实页面复验。
+
+- **事实**：普通对话 `provider_gateway.complete` 有真实 app-log（`provider=slice_verify`、`purpose=planner`、`outcome=ok`），但场景数据库 `provider_runs` 为 0 行。`ProviderActivityProjector.with_stage_sink/3` 只在 `snapshot.stage_sink` 是函数时订阅执行结果并调用 `ProviderRunLog.record_execution/2`；生产代码中未找到给 snapshot 注入 `stage_sink` 的调用点（只有测试显式传入），普通对话 AgentRun stage 未携带 sink，因此 ProviderRun/Event/Output 不落库，activity API 的 usage 断言必然失败。
+- **设计口径**：UA-01 CP4D/CP5/CP6 明确普通对话进入 `conversation_turn_v1`，ProviderRun/Event/Output 应进入 developer telemetry 并可恢复。因此这是**产品接线缺口**，不是场景过时，也不能靠改场景预期或放宽断言修绿。
+- **B87 当前承接检查**：R01 边界明确“仅 scripts/quality/任务文档，不改 `apps/*/lib`”；R02–R19 没有 ProviderActivityProjector/stage_sink 注入的批次；R19 只做最终真实模型/原生 Tauri A/B 与系统质量门，不主动修接线。**结论：按当前计划 B87 不会处理该缺口**；若要处理，需作者裁决新增批次或并入/前置到某批（改生产代码需单独授权）。
+- **关联**：[B84 任务](B84-web-slow-tests-and-arch-debt.md) REV-02；[审查报告](../../reports/2026-11-14-b84-implementation-review.md)；场景 `quality/acceptance/scenarios/agent-provider-execution-activity-restored.yml`；本地证据 `artifacts/slice-verify/agent-provider-execution-activity-restored-tauri/`（`provider_runs` 0、app-log 2 条 provider_gateway.complete）。
+- **状态**：未分配批次，未修改生产代码。

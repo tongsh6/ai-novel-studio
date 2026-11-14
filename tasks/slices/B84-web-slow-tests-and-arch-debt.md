@@ -688,7 +688,7 @@ Tauri surface：
 
 本checkpoint只签六项代码修复与局部复验，不签 B84；页面判据修改仍待真实恢复场景通过。本批已本地提交（未推送）。
 
-**REV-02 页面复验阻塞根因（2026-11-14 追加）**：普通对话 `provider_gateway.complete` 在 app-log 有真实记录（provider=slice_verify，purpose=planner），但场景数据库 `provider_runs` 为 0 行。`ProviderActivityProjector.with_stage_sink/3` 只在 `snapshot.stage_sink` 是函数时订阅并调用 `ProviderRunLog.record_execution/2`；生产代码中除测试外**没有给 snapshot 注入 `stage_sink` 的调用点**（渲染/flow 只读取该键或提供 emitter），普通对话 snapshot 未携带 sink，因此 ProviderRun/Event/Output 不落库，activity API 的 usage 断言必然失败。该缺口属于 UA-01/ADR-0023 CP4D 的产品接线（`ProviderActivityProjector` 的 stage snapshot 注入），不是 B84 测试作用域或场景预期可自行修绿；需由 UA-01/B87 产品负责人确认注入位置（普通对话 AgentRun stage 构造处）并补接线，再重跑 `agent-provider-execution-activity-restored` 补页面证据。B84 因此保持 `doing`；本批只记录根因，不修改产品代码。
+**REV-02 页面复验阻塞根因（2026-11-14 追加）**：普通对话 `provider_gateway.complete` 在 app-log 有真实记录（provider=slice_verify，purpose=planner），但场景数据库 `provider_runs` 为 0 行。`ProviderActivityProjector.with_stage_sink/3` 只在 `snapshot.stage_sink` 是函数时订阅并调用 `ProviderRunLog.record_execution/2`；生产代码中除测试外**没有给 snapshot 注入 `stage_sink` 的调用点**（渲染/flow 只读取该键或提供 emitter），普通对话 snapshot 未携带 sink，因此 ProviderRun/Event/Output 不落库，activity API 的 usage 断言必然失败。该缺口属于 UA-01/ADR-0023 CP4D 的产品接线（`ProviderActivityProjector` 的 stage snapshot 注入），不是 B84 测试作用域或场景预期可自行修绿；需由 UA-01/B87 产品负责人确认注入位置（普通对话 AgentRun stage 构造处）并补接线，再重跑 `agent-provider-execution-activity-restored` 补页面证据。B84 因此保持 `doing`；本批只记录根因，不修改产品代码。该缺口已登记到 [B87 总计划 §12](../B87-model-interaction-request-projection.md)（跨任务缺口，当前 B87 计划无批次承接，需作者裁决是否新增/前置批次）。
 
 ## 变更记录
 
