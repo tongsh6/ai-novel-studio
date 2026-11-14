@@ -643,7 +643,13 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   // ADR-0025 CP1 判断循环：reply 路径无 Orchestrator 工具裁决，无 orchestrator.decide。
-  "b26-author-question-roundtrip": ["channel.user_message.start", "channel.user_message.done", "channel.author_action.start", "channel.author_action.done", "slice_verify.ui_state.done"],
+  "b26-author-question-roundtrip": [
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "channel.author_action.done",
+    "slice_verify.ui_state.done",
+  ],
   "b27-prompt-lifecycle-consistency": [
     "work_session.resume.done",
     "channel.join.done",
@@ -1767,15 +1773,40 @@ const sliceKeyEvents = {
   // Q3c 作者内容物化：判断链直答 + 作者字节候选 + 作者采纳。
   "q1b-candidate-revision-adoption": ["pending_artifact.completed.done", "adoption.evaluate.done"],
   "q1b-candidate-stale-modal": ["pending_artifact.completed.done", "channel.author_action.error"],
-  "q1b-candidate-lifecycle": ["judgment.decided.done", "pending_artifact.completed.done", "adoption.evaluate.done"],
-  "q1b-live-archive-roundtrip": ["channel.user_message.start", "judgment.decided.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
+  "q1b-candidate-lifecycle": [
+    "judgment.decided.done",
+    "pending_artifact.completed.done",
+    "adoption.evaluate.done",
+  ],
+  "q1b-live-archive-roundtrip": [
+    "channel.user_message.start",
+    "judgment.decided.done",
+    "judgment.author_content_materialized.done",
+    "adoption.evaluate.done",
+  ],
   "q3d-message-delivery-recovery": ["channel.user_message.start", "channel.user_message.done"],
-  "q3d-long-session-adoption-state": ["judgment.decided.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
-  "q3d-candidate-semantics": ["judgment.output_validation.done", "judgment.decided.done", "adoption.evaluate.done"],
-  "q3d-author-registration-guards": ["judgment.output_validation.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
+  "q3d-long-session-adoption-state": [
+    "judgment.decided.done",
+    "judgment.author_content_materialized.done",
+    "adoption.evaluate.done",
+  ],
+  "q3d-candidate-semantics": [
+    "judgment.output_validation.done",
+    "judgment.decided.done",
+    "adoption.evaluate.done",
+  ],
+  "q3d-author-registration-guards": [
+    "judgment.output_validation.done",
+    "judgment.author_content_materialized.done",
+    "adoption.evaluate.done",
+  ],
   "q3d-message-outcome-roundtrip": [
-    "channel.user_message.start", "context.assemble.done", "judgment.decided.done",
-    "judgment.author_content_materialized.done", "channel.user_message.done", "adoption.evaluate.done",
+    "channel.user_message.start",
+    "context.assemble.done",
+    "judgment.decided.done",
+    "judgment.author_content_materialized.done",
+    "channel.user_message.done",
+    "adoption.evaluate.done",
   ],
   "q3c-author-content-materialization": [
     "channel.user_message.start",
@@ -2004,18 +2035,48 @@ function isErrorLevelAppLogRecord(record) {
 }
 
 function findQ1bLiveArchiveEvidence(records) {
-  const ui = records.find((record) => record.event === "slice_verify.ui_state.done" &&
-    record.slice_id === "q1b-live-archive-roundtrip");
-  if (!ui || ui.author_bytes_intact !== true || ui.no_write_before_adoption !== true ||
-    ui.record_only_has_no_candidates !== true || ui.workflow_has_no_direction_actions !== true ||
-    ui.canonical_state_restored !== true || ui.confirmed_fact_count !== 1) return null;
+  const ui = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "q1b-live-archive-roundtrip",
+  );
+  if (
+    !ui ||
+    ui.author_bytes_intact !== true ||
+    ui.no_write_before_adoption !== true ||
+    ui.record_only_has_no_candidates !== true ||
+    ui.workflow_has_no_direction_actions !== true ||
+    ui.canonical_state_restored !== true ||
+    ui.confirmed_fact_count !== 1
+  )
+    return null;
   if (!Array.isArray(ui.turn_ids) || new Set(ui.turn_ids).size !== 4) return null;
-  if (!ui.turn_ids.includes(ui.source_turn_id) || !ui.turn_ids.includes(ui.materialization_turn_id)) return null;
-  if (!ui.turn_ids.every((turn) => records.some((r) => r.turn_id === turn && r.event === "judgment.decided.done"))) return null;
-  if (!records.some((r) => r.event === "judgment.author_content_materialized.done" && r.turn_id === ui.materialization_turn_id)) return null;
+  if (!ui.turn_ids.includes(ui.source_turn_id) || !ui.turn_ids.includes(ui.materialization_turn_id))
+    return null;
+  if (
+    !ui.turn_ids.every((turn) =>
+      records.some((r) => r.turn_id === turn && r.event === "judgment.decided.done"),
+    )
+  )
+    return null;
+  if (
+    !records.some(
+      (r) =>
+        r.event === "judgment.author_content_materialized.done" &&
+        r.turn_id === ui.materialization_turn_id,
+    )
+  )
+    return null;
   // 采纳日志绑定来源 turn；派生回执可以带后缀，但相似前缀的其它 turn 不算关联。
-  if (!records.some((r) => r.event === "adoption.evaluate.done" &&
-    (r.turn_id === ui.materialization_turn_id || String(r.turn_id ?? "").startsWith(`${ui.materialization_turn_id}:`)))) return null;
+  if (
+    !records.some(
+      (r) =>
+        r.event === "adoption.evaluate.done" &&
+        (r.turn_id === ui.materialization_turn_id ||
+          String(r.turn_id ?? "").startsWith(`${ui.materialization_turn_id}:`)),
+    )
+  )
+    return null;
   return { ...ui, turn_id: ui.materialization_turn_id };
 }
 
@@ -2102,7 +2163,8 @@ function b27PromptLifecycleBehavior(records, evidence, options) {
   );
   const authorActions = count((record) => record.event === "channel.author_action.start");
   const acceptedActions = count(
-    (record) => record.event === "channel.author_action.done" && record.action_status === "accepted",
+    (record) =>
+      record.event === "channel.author_action.done" && record.action_status === "accepted",
   );
   const summaries = count(
     (record) =>
@@ -2126,7 +2188,11 @@ function b27PromptLifecycleBehavior(records, evidence, options) {
     (record) =>
       record.event === "chapter_summary_maintenance.run.done" && record.four_column === true,
   );
-  if (proseToolIndex < 0 || authorActionIndex <= proseToolIndex || summaryIndex <= authorActionIndex) {
+  if (
+    proseToolIndex < 0 ||
+    authorActionIndex <= proseToolIndex ||
+    summaryIndex <= authorActionIndex
+  ) {
     return null;
   }
   // 判断/取证引用轮必须在采纳与章摘要之后：若历史引用回复仍能再次触发探索回环，
@@ -2221,9 +2287,34 @@ function findB31AuthorReplyRunBindingEvidence(records) {
   if (ui.no_product_code_changed !== true) return null;
   const measured = ui.cp2_measured ?? {};
   const replies = ui.author_question_events;
-  if (!Array.isArray(replies) || replies.length < 4 || measured.author_question_reply_count !== replies.length) return null;
+  if (
+    !Array.isArray(replies) ||
+    replies.length < 4 ||
+    measured.author_question_reply_count !== replies.length
+  )
+    return null;
   if (new Set(replies.map((reply) => reply.submission_id)).size !== replies.length) return null;
-  if (!replies.every((reply) => reply.question_ref && reply.source_turn_ref && reply.run_id && reply.action_id && reply.submission_id && Number.isInteger(reply.expected_goal_version) && reply.receipt_goal_version === reply.expected_goal_version + 1 && records.some((record) => record.event === "channel.author_action.done" && record.action_status === "accepted" && record.action_id === reply.action_id && record.target_ref === reply.run_id && record.turn_id === reply.source_turn_ref))) return null;
+  if (
+    !replies.every(
+      (reply) =>
+        reply.question_ref &&
+        reply.source_turn_ref &&
+        reply.run_id &&
+        reply.action_id &&
+        reply.submission_id &&
+        Number.isInteger(reply.expected_goal_version) &&
+        reply.receipt_goal_version === reply.expected_goal_version + 1 &&
+        records.some(
+          (record) =>
+            record.event === "channel.author_action.done" &&
+            record.action_status === "accepted" &&
+            record.action_id === reply.action_id &&
+            record.target_ref === reply.run_id &&
+            record.turn_id === reply.source_turn_ref,
+        ),
+    )
+  )
+    return null;
   if (Number(measured.plain_input_new_run_count ?? 0) < 5) return null;
   if (Number(measured.plain_input_steer_count ?? 0) !== 1) {
     // 唯一允许的 plain steer 是「点选任务后显式继续该任务」（T5）。
@@ -2273,8 +2364,7 @@ function b31AuthorReplyRunBindingBehavior(records, evidence, _options) {
       "reload_then_plain_input_still_new_request_not_cross_run_steer",
       "no_product_code_or_acceptance_hook_changed",
     ],
-    note:
-      "B31 CP2 binding semantics evidence uses slice_verify deterministic provider; real-model natural-language quality belongs to the semantic matrix, not this scenario.",
+    note: "B31 CP2 binding semantics evidence uses slice_verify deterministic provider; real-model natural-language quality belongs to the semantic matrix, not this scenario.",
   };
 }
 
@@ -2332,7 +2422,8 @@ function findB28WholeChapterRevisionEvidence(records) {
 function b28WholeChapterRevisionBehavior(records, evidence, _options) {
   const ui = records.find(
     (record) =>
-      record.event === "slice_verify.ui_state.done" && record.slice_id === "b28-whole-chapter-revision",
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "b28-whole-chapter-revision",
   );
   if (!ui) return null;
   return {
@@ -2370,8 +2461,7 @@ function b28WholeChapterRevisionBehavior(records, evidence, _options) {
       "archive_and_reading_show_target_chapter_and_summary_source_without_hidden_hooks",
       "production_sources_unchanged_during_measurement_and_no_acceptance_hooks_added",
     ],
-    note:
-      "Deterministic slice_verify provider validates the real workbench/state-chain contract; real-model intent and formatting quality belong to CP4.",
+    note: "Deterministic slice_verify provider validates the real workbench/state-chain contract; real-model intent and formatting quality belong to CP4.",
   };
 }
 
@@ -2464,8 +2554,7 @@ function b30ChapterRenumberBehavior(records, evidence, _options) {
         "no_fallback_to_plot_outline_or_prose_writing_for_maintenance_intent",
         "no_product_code_or_acceptance_hook_changed",
       ],
-      note:
-        "B30 CP4 real-model behavior evidence only; product state-chain PASS is the deterministic b30 roundtrip scenario.",
+      note: "B30 CP4 real-model behavior evidence only; product state-chain PASS is the deterministic b30 roundtrip scenario.",
     };
   }
   return {
@@ -2490,8 +2579,7 @@ function b30ChapterRenumberBehavior(records, evidence, _options) {
       "harness_mixed_blueprint_chapter_block_rejected_type_mismatch_zero_rows",
       "no_product_code_or_acceptance_hook_changed",
     ],
-    note:
-      "B30 CP0 isolation reproduction only; scenario remains an unregistered draft until Lead freezes CP0 and CP1/CP2 implement the structure-maintenance contract.",
+    note: "B30 CP0 isolation reproduction only; scenario remains an unregistered draft until Lead freezes CP0 and CP1/CP2 implement the structure-maintenance contract.",
   };
 }
 
@@ -2591,9 +2679,13 @@ function findB29ExistingCharacterRoleEvidence(records) {
   if (ui.outcome !== "done") return null;
   if (ui.summary?.all_checks_passed !== true) return null;
   if (!measured || typeof measured !== "object") return null;
-  if (measured.shen_old_role !== "ENSEMBLE_POV" || measured.shen_new_role !== "PROTAGONIST") return null;
+  if (measured.shen_old_role !== "ENSEMBLE_POV" || measured.shen_new_role !== "PROTAGONIST")
+    return null;
   if (measured.character_count_before !== measured.character_count_after) return null;
-  if (!Array.isArray(measured.receipt_committed_changes) || measured.receipt_committed_changes.length < 1) {
+  if (
+    !Array.isArray(measured.receipt_committed_changes) ||
+    measured.receipt_committed_changes.length < 1
+  ) {
     return null;
   }
   if (measured.same_name_asked !== true) return null;
@@ -2617,7 +2709,8 @@ function findB29ExistingCharacterRoleEvidence(records) {
 }
 
 function b29ExistingCharacterRoleBehavior(records, evidence, _options) {
-  if (!records.some((record) => record.slice_id === "b29-existing-character-role-revision")) return null;
+  if (!records.some((record) => record.slice_id === "b29-existing-character-role-revision"))
+    return null;
   if (evidence?.model_only === true) {
     return {
       slice_id: "b29-existing-character-role-revision",
@@ -2660,8 +2753,7 @@ function b29ExistingCharacterRoleBehavior(records, evidence, _options) {
       "discard_keeps_original_repeat_adoption_idempotent_and_cross_work_zero_write",
       "no_product_code_or_acceptance_hook_changed",
     ],
-    note:
-      "B29 CP0 isolation reproduction only; scenario remains an unregistered draft until Lead freezes CP0 and CP1/CP2 implement existing-character narrative-role revision.",
+    note: "B29 CP0 isolation reproduction only; scenario remains an unregistered draft until Lead freezes CP0 and CP1/CP2 implement existing-character narrative-role revision.",
   };
 }
 
@@ -2690,7 +2782,8 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findB27PromptLifecycleEvidence(records);
   }
 
-  if (sliceId === "q1b-candidate-revision-adoption") return findCandidateRevisionAdoptionEvidence(records);
+  if (sliceId === "q1b-candidate-revision-adoption")
+    return findCandidateRevisionAdoptionEvidence(records);
   if (sliceId === "q1b-candidate-stale-modal") return findCandidateStaleModalEvidence(records);
   if (sliceId === "q1b-candidate-lifecycle") return findCandidateLifecycleEvidence(records);
   if (sliceId === "q1b-live-archive-roundtrip") return findQ1bLiveArchiveEvidence(records);
@@ -2980,7 +3073,8 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "q3d-message-delivery-recovery") return findMessageDeliveryEvidence(records);
 
-  if (sliceId === "q3d-long-session-adoption-state") return findLongSessionAdoptionEvidence(records);
+  if (sliceId === "q3d-long-session-adoption-state")
+    return findLongSessionAdoptionEvidence(records);
 
   if (sliceId === "q3d-candidate-semantics") return findCandidateSemanticsEvidence(records);
 
@@ -3515,39 +3609,88 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "q1b-candidate-revision-adoption") {
     const verified = findCandidateRevisionAdoptionEvidence(records);
-    if (verified && options.provider && options.provider !== "slice_verify" &&
-      !findLiveProviderEvidence(options.provider, verified.turn_ids, options.llmRecords ?? [])) return null;
-    return verified ? { ...verified, behavior: "only_explicit_author_action_adopts_revised_bytes",
-      assertions: ["discussion_does_not_execute", "resolved_goal_reaches_revision", "zero_write_before_adoption",
-        "revised_content_saved", "original_pending_until_explicit_discard", "discard_receipt_matches_state"] } : null;
+    if (
+      verified &&
+      options.provider &&
+      options.provider !== "slice_verify" &&
+      !findLiveProviderEvidence(options.provider, verified.turn_ids, options.llmRecords ?? [])
+    )
+      return null;
+    return verified
+      ? {
+          ...verified,
+          behavior: "only_explicit_author_action_adopts_revised_bytes",
+          assertions: [
+            "discussion_does_not_execute",
+            "resolved_goal_reaches_revision",
+            "zero_write_before_adoption",
+            "revised_content_saved",
+            "original_pending_until_explicit_discard",
+            "discard_receipt_matches_state",
+          ],
+        }
+      : null;
   }
 
   if (sliceId === "q1b-candidate-stale-modal") {
     const verified = findCandidateStaleModalEvidence(records);
-    if (verified && options.provider && options.provider !== "slice_verify" &&
-      !findLiveProviderEvidence(options.provider, verified.turn_ids, options.llmRecords ?? [])) return null;
-    return verified ? { ...verified, behavior: "stale_editor_cannot_resurrect_discarded_candidate",
-      assertions: ["persistent_state_rejects_stale_save", "edited_text_retained", "zero_canon_writes"] } : null;
+    if (
+      verified &&
+      options.provider &&
+      options.provider !== "slice_verify" &&
+      !findLiveProviderEvidence(options.provider, verified.turn_ids, options.llmRecords ?? [])
+    )
+      return null;
+    return verified
+      ? {
+          ...verified,
+          behavior: "stale_editor_cannot_resurrect_discarded_candidate",
+          assertions: [
+            "persistent_state_rejects_stale_save",
+            "edited_text_retained",
+            "zero_canon_writes",
+          ],
+        }
+      : null;
   }
 
   if (sliceId === "q1b-candidate-lifecycle") {
     const verified = findCandidateLifecycleEvidence(records);
     if (!verified) return null;
-    if (options.provider && options.provider !== "slice_verify" &&
-      !findLiveProviderEvidence(options.provider, verified.turn_ids, options.llmRecords ?? [])) return null;
-    return { ...verified, behavior: "natural_language_candidate_revision_discard_and_registration_match_state",
-      assertions: ["revision_preserves_original_and_provider_bytes", "no_implicit_adoption",
-        "discard_binds_actual_pending_target", "registration_respects_lineage_and_terminal_state",
-        "edited_content_and_state_survive_reload"] };
+    if (
+      options.provider &&
+      options.provider !== "slice_verify" &&
+      !findLiveProviderEvidence(options.provider, verified.turn_ids, options.llmRecords ?? [])
+    )
+      return null;
+    return {
+      ...verified,
+      behavior: "natural_language_candidate_revision_discard_and_registration_match_state",
+      assertions: [
+        "revision_preserves_original_and_provider_bytes",
+        "no_implicit_adoption",
+        "discard_binds_actual_pending_target",
+        "registration_respects_lineage_and_terminal_state",
+        "edited_content_and_state_survive_reload",
+      ],
+    };
   }
 
   if (sliceId === "q1b-live-archive-roundtrip") {
     if (!findQ1bLiveArchiveEvidence(records)) return null;
-    if (!findLiveProviderEvidence(options.provider, evidence.turn_ids, options.llmRecords ?? [])) return null;
-    return { behavior: "live_model_historical_author_content_adoption_roundtrip",
-      assertions: ["four_turns_used_real_provider", "historical_author_bytes_bound",
-        "no_production_fact_before_author_adoption", "one_confirmed_fact_after_adoption",
-        "canonical_state_survives_reload"], turn_ids: evidence.turn_ids };
+    if (!findLiveProviderEvidence(options.provider, evidence.turn_ids, options.llmRecords ?? []))
+      return null;
+    return {
+      behavior: "live_model_historical_author_content_adoption_roundtrip",
+      assertions: [
+        "four_turns_used_real_provider",
+        "historical_author_bytes_bound",
+        "no_production_fact_before_author_adoption",
+        "one_confirmed_fact_after_adoption",
+        "canonical_state_survives_reload",
+      ],
+      turn_ids: evidence.turn_ids,
+    };
   }
 
   if (sliceId === "workspace-runtime-state") {
@@ -3793,10 +3936,21 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "q3d-message-delivery-recovery") {
     const verified = findMessageDeliveryEvidence(records);
-    return verified ? { slice_id: sliceId, turn_ids: verified.turn_ids,
-      behavior: "stable_submission_retries_reuse_original_run_and_restore_truthful_receipt",
-      assertions: ["external_receipt_loss_injected", "reload_and_reconnect_keep_identity", "completed_and_failed_receipts_are_terminal",
-        "dead_runtime_is_not_restarted", "same_text_new_send_has_new_identity", "one_input_and_run_per_submission"] } : null;
+    return verified
+      ? {
+          slice_id: sliceId,
+          turn_ids: verified.turn_ids,
+          behavior: "stable_submission_retries_reuse_original_run_and_restore_truthful_receipt",
+          assertions: [
+            "external_receipt_loss_injected",
+            "reload_and_reconnect_keep_identity",
+            "completed_and_failed_receipts_are_terminal",
+            "dead_runtime_is_not_restarted",
+            "same_text_new_send_has_new_identity",
+            "one_input_and_run_per_submission",
+          ],
+        }
+      : null;
   }
 
   if (sliceId === "b46-cross-session-inbox") {
@@ -3824,28 +3978,51 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
   if (sliceId === "q3d-long-session-adoption-state") {
     const verified = findLongSessionAdoptionEvidence(records);
     if (!verified || hasErrorEvent(turnRecords)) return null;
-    return { slice_id: sliceId, turn_ids: verified.turn_ids,
+    return {
+      slice_id: sliceId,
+      turn_ids: verified.turn_ids,
       behavior: "complete_adoption_state_survives_long_chat_and_old_candidate_remains_actionable",
-      assertions: ["pending_survives_transcript_and_context_windows", "omission_count_is_true",
-        "omitted_candidate_is_explorable", "old_candidate_uses_real_author_action", "resolved_candidate_never_reappears"] };
+      assertions: [
+        "pending_survives_transcript_and_context_windows",
+        "omission_count_is_true",
+        "omitted_candidate_is_explorable",
+        "old_candidate_uses_real_author_action",
+        "resolved_candidate_never_reappears",
+      ],
+    };
   }
 
   if (sliceId === "q3d-candidate-semantics") {
     const verified = findCandidateSemanticsEvidence(records);
     if (!verified) return null;
-    return { ...verified, behavior: "author_constraint_and_candidate_purpose_match_actions",
-      assertions: ["record_only_has_no_candidates", "workflow_never_becomes_work_direction",
-        "legacy_actions_revoked", "creative_discussion_and_choice_work", "real_artifact_actions_preserved"] };
+    return {
+      ...verified,
+      behavior: "author_constraint_and_candidate_purpose_match_actions",
+      assertions: [
+        "record_only_has_no_candidates",
+        "workflow_never_becomes_work_direction",
+        "legacy_actions_revoked",
+        "creative_discussion_and_choice_work",
+        "real_artifact_actions_preserved",
+      ],
+    };
   }
 
   if (sliceId === "q3d-author-registration-guards") {
     const verified = findAuthorRegistrationGuardsEvidence(records);
     if (!verified || verified.turn_id !== evidence.turn_id) return null;
-    return { slice_id: sliceId, turn_ids: verified.turn_ids,
+    return {
+      slice_id: sliceId,
+      turn_ids: verified.turn_ids,
       behavior: "invalid_registration_stops_before_dispatch_and_corrected_source_can_be_adopted",
-      assertions: ["missing_and_foreign_sources_rejected", "creative_execution_conflict_rejected",
-        "failed_inputs_and_results_survive_reload", "corrected_historical_bytes_preserved",
-        "only_author_adoption_writes_fact"] };
+      assertions: [
+        "missing_and_foreign_sources_rejected",
+        "creative_execution_conflict_rejected",
+        "failed_inputs_and_results_survive_reload",
+        "corrected_historical_bytes_preserved",
+        "only_author_adoption_writes_fact",
+      ],
+    };
   }
 
   if (sliceId === "q3b-capability-gap-honest-reply") {
@@ -4026,13 +4203,7 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
   }
 
   if (sliceId === "judgment-explore-chapter-full-read") {
-    return judgmentExploreChapterFullReadBehavior(
-      turnIds,
-      turnRecords,
-      records,
-      evidence,
-      options,
-    );
+    return judgmentExploreChapterFullReadBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "b57-injection-boundary") {
@@ -4290,7 +4461,18 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "b26-author-question-roundtrip") {
     const verified = findB26QuestionEvidence(records);
-    return verified ? { ...verified, behavior: "source_bound_author_question_roundtrip", assertions: ["choice_and_free_text_restored", "same_run_goal_advanced_once", "answer_bytes_persisted", "no_unbound_steer_or_canon_write"] } : null;
+    return verified
+      ? {
+          ...verified,
+          behavior: "source_bound_author_question_roundtrip",
+          assertions: [
+            "choice_and_free_text_restored",
+            "same_run_goal_advanced_once",
+            "answer_bytes_persisted",
+            "no_unbound_steer_or_canon_write",
+          ],
+        }
+      : null;
   }
 
   if (sliceId === "agent-conversation-turn") {
@@ -4849,7 +5031,9 @@ function vs00cCp3StructuredContextBehavior(turnIds, turnRecords, records, eviden
   // 父 turn；planner.form_micro_plan.* 已退役，当前语义位是父 turn 的 judgment.decided
   // （execute + capability=prose_writing），随后才进入 toolbox.execute。
   const draftTurnId = String(evidence.draft_turn_id ?? "");
-  const parentTurnId = draftTurnId.includes(":agent:") ? draftTurnId.split(":agent:")[0] : draftTurnId;
+  const parentTurnId = draftTurnId.includes(":agent:")
+    ? draftTurnId.split(":agent:")[0]
+    : draftTurnId;
   const parentStart = records.find(
     (record) =>
       record.event === "channel.user_message.start" &&
@@ -6225,8 +6409,7 @@ function wr01ChapterMissionBehavior(turnIds, records, evidence, options = {}) {
 
   return {
     slice_id: "wr01-chapter-mission-before-prose",
-    behavior:
-      "model_derived_chapter_mission_before_prose_writing_with_bound_basis_and_no_write",
+    behavior: "model_derived_chapter_mission_before_prose_writing_with_bound_basis_and_no_write",
     turn_ids: turnIds,
     run_id: evidence.run_id,
     profile_ref: evidence.profile_ref,
@@ -6834,7 +7017,11 @@ function wr02PlanningMissionBehavior(turnIds, records, evidence, options = {}) {
     return null;
   }
   if (uiState.trace_mission_ref_matches !== true) return null;
-  if (uiState.outline_pending !== true || uiState.no_write !== true || uiState.no_adoption !== true) {
+  if (
+    uiState.outline_pending !== true ||
+    uiState.no_write !== true ||
+    uiState.no_adoption !== true
+  ) {
     return null;
   }
   if (options.provider !== "lmstudio" && Number(evidence.dropped_unbound_count ?? 0) < 1) {
@@ -6843,8 +7030,7 @@ function wr02PlanningMissionBehavior(turnIds, records, evidence, options = {}) {
 
   return {
     slice_id: "wr02-planning-mission-before-outline",
-    behavior:
-      "model_derived_planning_mission_before_plot_outline_with_bound_basis_and_no_write",
+    behavior: "model_derived_planning_mission_before_plot_outline_with_bound_basis_and_no_write",
     turn_ids: turnIds,
     run_id: evidence.run_id,
     profile_ref: evidence.profile_ref,
@@ -7153,21 +7339,72 @@ function agentProseDraftingWithQualityBehavior(turnIds, turnRecords, records, ev
 // ADR-0025 CP1 判断循环口径：机械准备（0 调用）→ 判断①两段式（2 调用）→ 回复内联
 // 终结；judgment_decided 取代 plan_drafted 计划步断言；provider 取证走持久化事实。
 function findB26QuestionEvidence(records) {
-  const ui = records.find((r) => r.event === "slice_verify.ui_state.done" && r.slice_id === "b26-author-question-roundtrip");
+  const ui = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" && r.slice_id === "b26-author-question-roundtrip",
+  );
   const rounds = ui?.roundtrips;
   if (!Array.isArray(rounds) || rounds.length !== 3 || ui.no_production_write !== true) return null;
-  if (!rounds.some((r) => r.option_count === 0 && r.reply_kind === "free_text") || !rounds.some((r) => r.reply_kind === "choice")) return null;
+  if (
+    !rounds.some((r) => r.option_count === 0 && r.reply_kind === "free_text") ||
+    !rounds.some((r) => r.reply_kind === "choice")
+  )
+    return null;
   for (const round of rounds) {
-    if (![round.restored_same_question, round.source_bound, round.answer_bytes_preserved, round.open_question_closed, round.no_new_user_message_for_answer].every((v) => v === true)) return null;
+    if (
+      ![
+        round.restored_same_question,
+        round.source_bound,
+        round.answer_bytes_preserved,
+        round.open_question_closed,
+        round.no_new_user_message_for_answer,
+      ].every((v) => v === true)
+    )
+      return null;
     if (round.goal_version !== 2) return null;
-    if (!records.some((r) => r.event === "channel.author_action.done" && r.action_id === round.action_id && r.target_ref === round.run_id && r.action_status === "accepted")) return null;
-    if (!records.some((r) => r.event === "channel.user_message.done" && r.run_id === round.run_id)) return null;
+    if (
+      !records.some(
+        (r) =>
+          r.event === "channel.author_action.done" &&
+          r.action_id === round.action_id &&
+          r.target_ref === round.run_id &&
+          r.action_status === "accepted",
+      )
+    )
+      return null;
+    if (!records.some((r) => r.event === "channel.user_message.done" && r.run_id === round.run_id))
+      return null;
   }
   const multi = ui.multi_run;
-  if (!multi || multi.older_run_id === multi.newer_run_id || multi.independent_new_request !== true || multi.explicit_old_source_preserved !== true || multi.newer_question_still_open !== true || multi.outside_recent_transcript !== true || multi.restored_after_pagination !== true) return null;
-  if (!records.some((r) => r.event === "channel.author_action.done" && r.action_id === multi.older_action_id && r.target_ref === multi.older_run_id && r.action_status === "accepted")) return null;
-  return { slice_id: "b26-author-question-roundtrip", turn_id: ui.turn_id, turn_ids: ui.turn_ids,
-    run_id: rounds[0].run_id, roundtrips: rounds, multi_run: multi, key_events: keyEventsForSlice("b26-author-question-roundtrip") };
+  if (
+    !multi ||
+    multi.older_run_id === multi.newer_run_id ||
+    multi.independent_new_request !== true ||
+    multi.explicit_old_source_preserved !== true ||
+    multi.newer_question_still_open !== true ||
+    multi.outside_recent_transcript !== true ||
+    multi.restored_after_pagination !== true
+  )
+    return null;
+  if (
+    !records.some(
+      (r) =>
+        r.event === "channel.author_action.done" &&
+        r.action_id === multi.older_action_id &&
+        r.target_ref === multi.older_run_id &&
+        r.action_status === "accepted",
+    )
+  )
+    return null;
+  return {
+    slice_id: "b26-author-question-roundtrip",
+    turn_id: ui.turn_id,
+    turn_ids: ui.turn_ids,
+    run_id: rounds[0].run_id,
+    roundtrips: rounds,
+    multi_run: multi,
+    key_events: keyEventsForSlice("b26-author-question-roundtrip"),
+  };
 }
 
 function findAgentConversationTurnEvidence(records, requestedSliceId = "agent-conversation-turn") {
@@ -7640,9 +7877,7 @@ function findAgenticLoopBudgetDeviationReplanEvidence(records) {
     ),
     checkpoint_accept_action_type: uiState.checkpoint_accept_action_type,
     checkpoint_accept_action_status: uiState.checkpoint_accept_action_status,
-    pre_action_tool_started_event_count: Number(
-      uiState.pre_action_tool_started_event_count ?? -1,
-    ),
+    pre_action_tool_started_event_count: Number(uiState.pre_action_tool_started_event_count ?? -1),
     log_sync_turn_count: Number(uiState.log_sync_turn_count ?? -1),
     log_toolbox_execute_count: Number(uiState.log_toolbox_execute_count ?? -1),
     post_action_run_status: uiState.post_action_run_status,
@@ -7672,15 +7907,11 @@ function agenticLoopBudgetDeviationReplanBehavior(turnIds, _turnRecords, records
   if (!(uiState.awaiting_turn_result_action_types ?? []).includes("agent_run_budget_next_step"))
     return null;
   if (
-    !(uiState.awaiting_turn_result_action_types ?? []).includes(
-      "agent_run_budget_selected_steps",
-    )
+    !(uiState.awaiting_turn_result_action_types ?? []).includes("agent_run_budget_selected_steps")
   )
     return null;
   if (
-    !(uiState.awaiting_turn_result_action_types ?? []).includes(
-      "agent_run_budget_remaining_plan",
-    )
+    !(uiState.awaiting_turn_result_action_types ?? []).includes("agent_run_budget_remaining_plan")
   )
     return null;
   if (Number(uiState.execution_steps_before_action ?? 0) < 1) return null;
@@ -8009,11 +8240,13 @@ function proseDeviationTurnResultMatches(record, expected) {
     );
   }
 
-  return boolValue(record.final_turn_result_arrived) === true &&
+  return (
+    boolValue(record.final_turn_result_arrived) === true &&
     record.final_turn_result_agent_run_status === "awaiting_author" &&
     boolValue(record.author_question_present) === true &&
     boolValue(record.source_bound_reply_action_present) === true &&
-    Number(record.final_turn_result_pending_artifact_count ?? -1) === 0;
+    Number(record.final_turn_result_pending_artifact_count ?? -1) === 0
+  );
 }
 
 function findAgentPlotOutlineWithContextEvidence(records) {
@@ -9574,7 +9807,10 @@ function findUa01AgentBoundedRosterToCharacterDesignEvidence(
     return lineage;
   });
   if (stepGateLineages.some((lineage) => lineage == null)) return null;
-  if (new Set(allowToolDecisions.map((record) => record.decision_id)).size !== allowToolDecisions.length) {
+  if (
+    new Set(allowToolDecisions.map((record) => record.decision_id)).size !==
+    allowToolDecisions.length
+  ) {
     return null;
   }
   const budgetGate = stepGateLineages[0].find((entry) => entry.gate === "budget");
@@ -10095,15 +10331,83 @@ function findUa01AgentSteerEvidence(records, sliceId) {
 }
 
 function findExplicitQuestionReplyEvidence(records, sliceId) {
-  const state = records.find((row) => row.event === "slice_verify.ui_state.done" && row.slice_id === sliceId);
-  if (!state || state.run_mode !== "bounded" || state.awaiting_status !== "awaiting_author" || state.terminal_status !== "completed") return null;
-  if (state.reply_action_type !== "author_choice" || state.reply_ack_received !== true || state.reply_source_bound !== true || state.adjusted_goal_version !== 2) return null;
-  if (!["bare_resume_absent", "question_reply_hint_visible", "question_reply_composer_visible", "empty_reply_disabled", "question_answered", "no_second_user_message_for_reply", "no_second_run_after_reply", "final_message_is_not_old_question", "same_parent", "source_controls_closed_after_reply"].every((key) => state[key] === true)) return null;
-  if (state.blank_reply_request_count !== 0 || state.question_record_count !== 1 || state.reply_record_count !== 1) return null;
-  if (!state.run_resumed_reason_codes?.includes("resume_after_steer") || !state.question_ref || !state.question_source_turn_ref || !state.reply_action_id || !state.reply_submission_id) return null;
-  if (!records.some((row) => row.event === "channel.user_message.done" && row.run_id === state.run_id && row.run_mode === "bounded" && row.work_id === state.work_id && row.session_id === state.session_id)) return null;
-  if (!records.some((row) => row.event === "channel.author_action.done" && row.action_type === "author_choice" && row.action_status === "accepted" && row.target_ref === state.run_id && row.action_id === state.reply_action_id && row.turn_id === state.question_source_turn_ref && row.work_id === state.work_id && row.session_id === state.session_id)) return null;
-  return { ...state, turn_id: state.parent_turn_id, turn_ids: [state.parent_turn_id], key_events: keyEventsForSlice(sliceId) };
+  const state = records.find(
+    (row) => row.event === "slice_verify.ui_state.done" && row.slice_id === sliceId,
+  );
+  if (
+    !state ||
+    state.run_mode !== "bounded" ||
+    state.awaiting_status !== "awaiting_author" ||
+    state.terminal_status !== "completed"
+  )
+    return null;
+  if (
+    state.reply_action_type !== "author_choice" ||
+    state.reply_ack_received !== true ||
+    state.reply_source_bound !== true ||
+    state.adjusted_goal_version !== 2
+  )
+    return null;
+  if (
+    ![
+      "bare_resume_absent",
+      "question_reply_hint_visible",
+      "question_reply_composer_visible",
+      "empty_reply_disabled",
+      "question_answered",
+      "no_second_user_message_for_reply",
+      "no_second_run_after_reply",
+      "final_message_is_not_old_question",
+      "same_parent",
+      "source_controls_closed_after_reply",
+    ].every((key) => state[key] === true)
+  )
+    return null;
+  if (
+    state.blank_reply_request_count !== 0 ||
+    state.question_record_count !== 1 ||
+    state.reply_record_count !== 1
+  )
+    return null;
+  if (
+    !state.run_resumed_reason_codes?.includes("resume_after_steer") ||
+    !state.question_ref ||
+    !state.question_source_turn_ref ||
+    !state.reply_action_id ||
+    !state.reply_submission_id
+  )
+    return null;
+  if (
+    !records.some(
+      (row) =>
+        row.event === "channel.user_message.done" &&
+        row.run_id === state.run_id &&
+        row.run_mode === "bounded" &&
+        row.work_id === state.work_id &&
+        row.session_id === state.session_id,
+    )
+  )
+    return null;
+  if (
+    !records.some(
+      (row) =>
+        row.event === "channel.author_action.done" &&
+        row.action_type === "author_choice" &&
+        row.action_status === "accepted" &&
+        row.target_ref === state.run_id &&
+        row.action_id === state.reply_action_id &&
+        row.turn_id === state.question_source_turn_ref &&
+        row.work_id === state.work_id &&
+        row.session_id === state.session_id,
+    )
+  )
+    return null;
+  return {
+    ...state,
+    turn_id: state.parent_turn_id,
+    turn_ids: [state.parent_turn_id],
+    key_events: keyEventsForSlice(sliceId),
+  };
 }
 
 function findUa01AwaitingAuthorSteerEvidence(records) {
@@ -10204,16 +10508,31 @@ function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
 
 function explicitQuestionReplyBehavior(turnIds, records, evidence, sliceId) {
   if (turnIds.length !== 1 || !findExplicitQuestionReplyEvidence(records, sliceId)) return null;
-  return { slice_id: sliceId, behavior: "explicit_question_reply_resumes_same_run_with_immutable_source",
-    turn_ids: evidence.turn_ids, run_id: evidence.run_id, question_ref: evidence.question_ref,
-    reply_action_type: "author_choice", adjusted_goal_version: evidence.adjusted_goal_version,
-    assertions: ["explicit_question_action_bound_source_run_and_version", "empty_reply_disabled_without_request",
-      "plan_adjusted_and_run_resumed_for_same_run", "question_and_reply_persisted_once_after_reload",
-      "historical_question_closed_without_reissuing_or_new_run"] };
+  return {
+    slice_id: sliceId,
+    behavior: "explicit_question_reply_resumes_same_run_with_immutable_source",
+    turn_ids: evidence.turn_ids,
+    run_id: evidence.run_id,
+    question_ref: evidence.question_ref,
+    reply_action_type: "author_choice",
+    adjusted_goal_version: evidence.adjusted_goal_version,
+    assertions: [
+      "explicit_question_action_bound_source_run_and_version",
+      "empty_reply_disabled_without_request",
+      "plan_adjusted_and_run_resumed_for_same_run",
+      "question_and_reply_persisted_once_after_reload",
+      "historical_question_closed_without_reissuing_or_new_run",
+    ],
+  };
 }
 
 function ua01AwaitingAuthorSteerBehavior(turnIds, records, evidence) {
-  return explicitQuestionReplyBehavior(turnIds, records, evidence, "agent-awaiting-author-steer-resume");
+  return explicitQuestionReplyBehavior(
+    turnIds,
+    records,
+    evidence,
+    "agent-awaiting-author-steer-resume",
+  );
 }
 
 function findDs03AwaitingAuthorInputRequiredEvidence(records) {
@@ -10221,7 +10540,12 @@ function findDs03AwaitingAuthorInputRequiredEvidence(records) {
 }
 
 function ds03AwaitingAuthorInputRequiredBehavior(turnIds, records, evidence) {
-  return explicitQuestionReplyBehavior(turnIds, records, evidence, "agent-awaiting-author-input-required");
+  return explicitQuestionReplyBehavior(
+    turnIds,
+    records,
+    evidence,
+    "agent-awaiting-author-input-required",
+  );
 }
 
 // ── DS03 状态矩阵：刷新后活 runtime 重连同一 bounded run 并原地恢复 ──
@@ -10259,8 +10583,7 @@ function findDs03BoundedRefreshLiveResumeEvidence(records) {
   if (!parentAck) return null;
 
   const reconnectLogged = records.some(
-    (record) =>
-      record.event === "channel.agent_run_reconnect.done" && record.run_id === runId,
+    (record) => record.event === "channel.agent_run_reconnect.done" && record.run_id === runId,
   );
   if (!reconnectLogged) return null;
 
@@ -13207,8 +13530,7 @@ function findE2E01ReplayReportEvidence(records) {
 
   const uiState = records.find(
     (record) =>
-      record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === "e2e-01-replay-report",
+      record.event === "slice_verify.ui_state.done" && record.slice_id === "e2e-01-replay-report",
   );
   if (!uiState) return null;
   if (uiState.replay_report_provider_called !== false) return null;
@@ -14303,15 +14625,42 @@ function findAu12CorrectionIntentRoundtripEvidence(records) {
 // app JSONL；采纳可发生在源 turn 关联的 author_action turn。
 function findMessageDeliveryEvidence(records) {
   const sliceId = "q3d-message-delivery-recovery";
-  const ui = records.find((r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId);
-  if (!ui || !Array.isArray(ui.cases) || ui.cases.length !== 4 || !(ui.dropped_frame_count > 0)) return null;
-  if (!ui.steer_submission_id || !ui.steer_run_id || ui.steer_goal_version !== 2 || ui.steer_retransmission_count < 2 || ui.steer_input_restored_once !== true || ui.assistant_replay_deduplicated !== true) return null;
-  if (!["immutable_inputs", "one_run_per_message", "pending_deliveries_cleared", "rejected_original_retained", "rejected_not_retried"].every((key) => ui[key] === true)) return null;
-  if (new Set(ui.cases.map((c) => c.turn_id)).size !== 4 || ui.cases.some((c) => c.turn_id === ui.fresh_message_id)) return null;
-  if (!ui.cases.some((c) => c.method === "reload" && c.receipt_status === "completed") ||
-      !ui.cases.some((c) => c.method === "reload" && c.receipt_status === "failed") ||
-      !ui.cases.some((c) => c.method === "disconnect") ||
-      !ui.cases.some((c) => c.method === "restart" && c.runtime_live === false)) return null;
+  const ui = records.find(
+    (r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId,
+  );
+  if (!ui || !Array.isArray(ui.cases) || ui.cases.length !== 4 || !(ui.dropped_frame_count > 0))
+    return null;
+  if (
+    !ui.steer_submission_id ||
+    !ui.steer_run_id ||
+    ui.steer_goal_version !== 2 ||
+    ui.steer_retransmission_count < 2 ||
+    ui.steer_input_restored_once !== true ||
+    ui.assistant_replay_deduplicated !== true
+  )
+    return null;
+  if (
+    ![
+      "immutable_inputs",
+      "one_run_per_message",
+      "pending_deliveries_cleared",
+      "rejected_original_retained",
+      "rejected_not_retried",
+    ].every((key) => ui[key] === true)
+  )
+    return null;
+  if (
+    new Set(ui.cases.map((c) => c.turn_id)).size !== 4 ||
+    ui.cases.some((c) => c.turn_id === ui.fresh_message_id)
+  )
+    return null;
+  if (
+    !ui.cases.some((c) => c.method === "reload" && c.receipt_status === "completed") ||
+    !ui.cases.some((c) => c.method === "reload" && c.receipt_status === "failed") ||
+    !ui.cases.some((c) => c.method === "disconnect") ||
+    !ui.cases.some((c) => c.method === "restart" && c.runtime_live === false)
+  )
+    return null;
   for (const c of ui.cases) {
     if (c.input_count !== 1 || c.run_count !== 1) return null;
     const logs = records.filter((r) => r.turn_id === c.turn_id);
@@ -14319,139 +14668,487 @@ function findMessageDeliveryEvidence(records) {
     const accepted = logs.filter((r) => r.event === "channel.user_message.done");
     if (accepted.length < 2 || accepted.some((r) => r.run_id !== c.run_id)) return null;
   }
-  return { slice_id: sliceId, turn_id: ui.turn_id, turn_ids: ui.cases.map((c) => c.turn_id), cases: ui.cases };
+  return {
+    slice_id: sliceId,
+    turn_id: ui.turn_id,
+    turn_ids: ui.cases.map((c) => c.turn_id),
+    cases: ui.cases,
+  };
 }
 
 function findLongSessionAdoptionEvidence(records) {
   const sliceId = "q3d-long-session-adoption-state";
-  const ui = records.find((r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId);
-  if (!ui || !Array.isArray(ui.turn_ids) || new Set(ui.turn_ids).size !== 15 ||
-    !ui.turn_ids.includes(ui.turn_id) || !ui.query_turn_id || !ui.count_turn_id) return null;
-  if (ui.pending_count_before !== 15 || ui.pending_count_after !== 14 || ui.omitted_count !== 3 ||
-    ui.confirmed_fact_count !== 1 || ui.history_rounds_before < 45 || ui.history_rounds_after < 45) return null;
-  if (!["transcript_stays_paged", "work_scope_isolated", "old_action_enabled", "terminal_survives_window"].every((key) => ui[key] === true)) return null;
-  if (!ui.turn_ids.every((id) => records.some((r) => r.turn_id === id && r.event === "judgment.author_content_materialized.done"))) return null;
-  if (!records.some((r) => r.turn_id === ui.query_turn_id && r.event === "judgment.decided.done" && r.action === "explore")) return null;
-  if (!records.some((r) => r.turn_id === ui.count_turn_id && r.event === "judgment.decided.done" && r.action === "reply")) return null;
-  if (!records.some((r) => r.event === "adoption.evaluate.done" && (r.turn_id === ui.turn_id || String(r.turn_id ?? "").startsWith(`${ui.turn_id}:`)))) return null;
-  return { slice_id: sliceId, turn_id: ui.turn_id, turn_ids: [...ui.turn_ids, ui.query_turn_id, ui.count_turn_id],
-    pending_count_before: 15, pending_count_after: 14, omitted_count: 3 };
+  const ui = records.find(
+    (r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId,
+  );
+  if (
+    !ui ||
+    !Array.isArray(ui.turn_ids) ||
+    new Set(ui.turn_ids).size !== 15 ||
+    !ui.turn_ids.includes(ui.turn_id) ||
+    !ui.query_turn_id ||
+    !ui.count_turn_id
+  )
+    return null;
+  if (
+    ui.pending_count_before !== 15 ||
+    ui.pending_count_after !== 14 ||
+    ui.omitted_count !== 3 ||
+    ui.confirmed_fact_count !== 1 ||
+    ui.history_rounds_before < 45 ||
+    ui.history_rounds_after < 45
+  )
+    return null;
+  if (
+    ![
+      "transcript_stays_paged",
+      "work_scope_isolated",
+      "old_action_enabled",
+      "terminal_survives_window",
+    ].every((key) => ui[key] === true)
+  )
+    return null;
+  if (
+    !ui.turn_ids.every((id) =>
+      records.some(
+        (r) => r.turn_id === id && r.event === "judgment.author_content_materialized.done",
+      ),
+    )
+  )
+    return null;
+  if (
+    !records.some(
+      (r) =>
+        r.turn_id === ui.query_turn_id &&
+        r.event === "judgment.decided.done" &&
+        r.action === "explore",
+    )
+  )
+    return null;
+  if (
+    !records.some(
+      (r) =>
+        r.turn_id === ui.count_turn_id &&
+        r.event === "judgment.decided.done" &&
+        r.action === "reply",
+    )
+  )
+    return null;
+  if (
+    !records.some(
+      (r) =>
+        r.event === "adoption.evaluate.done" &&
+        (r.turn_id === ui.turn_id || String(r.turn_id ?? "").startsWith(`${ui.turn_id}:`)),
+    )
+  )
+    return null;
+  return {
+    slice_id: sliceId,
+    turn_id: ui.turn_id,
+    turn_ids: [...ui.turn_ids, ui.query_turn_id, ui.count_turn_id],
+    pending_count_before: 15,
+    pending_count_after: 14,
+    omitted_count: 3,
+  };
 }
 
 function findCandidateRevisionAdoptionEvidence(records) {
-  const ui = records.find((r) => r.event === "slice_verify.ui_state.done" && r.slice_id === "q1b-candidate-revision-adoption");
-  if (!ui || !ui.original_id || !ui.revised_id || ui.original_id === ui.revised_id || ui.confirmed_fact_count !== 1 ||
-    !["no_write_before_adoption", "original_pending_after_adoption", "revised_bytes_saved", "accepted_state_restored",
-      "discussion_only", "contextual_revision", "discard_receipt_visible"].every((k) => ui[k] === true)) return null;
+  const ui = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" && r.slice_id === "q1b-candidate-revision-adoption",
+  );
+  if (
+    !ui ||
+    !ui.original_id ||
+    !ui.revised_id ||
+    ui.original_id === ui.revised_id ||
+    ui.confirmed_fact_count !== 1 ||
+    ![
+      "no_write_before_adoption",
+      "original_pending_after_adoption",
+      "revised_bytes_saved",
+      "accepted_state_restored",
+      "discussion_only",
+      "contextual_revision",
+      "discard_receipt_visible",
+    ].every((k) => ui[k] === true)
+  )
+    return null;
   const turnIds = [ui.source_turn_id, ui.discussion_turn_id, ui.turn_id, ui.discard_turn_id];
   if (turnIds.some((id) => !id) || new Set(turnIds).size !== 4) return null;
-  if (!records.some((r) => r.event === "judgment.decided.done" && r.turn_id === ui.discussion_turn_id && r.action === "reply" && r.candidate_count === 0)) return null;
-  if (!records.some((r) => r.event === "pending_artifact.completed.done" && r.turn_id === ui.turn_id &&
-    r.operation === "revise" && r.target_ref === ui.original_id && r.production_write === false)) return null;
-  if (!records.some((r) => r.event === "adoption.evaluate.done" && r.turn_id === ui.turn_id)) return null;
-  if (!records.some((r) => r.event === "channel.author_action.done" && r.turn_id === ui.turn_id && r.action_type === "accept")) return null;
-  if (!records.some((r) => r.event === "pending_artifact.completed.done" && r.turn_id === ui.discard_turn_id &&
-    r.operation === "discard" && r.target_ref === ui.original_id && r.production_write === false)) return null;
+  if (
+    !records.some(
+      (r) =>
+        r.event === "judgment.decided.done" &&
+        r.turn_id === ui.discussion_turn_id &&
+        r.action === "reply" &&
+        r.candidate_count === 0,
+    )
+  )
+    return null;
+  if (
+    !records.some(
+      (r) =>
+        r.event === "pending_artifact.completed.done" &&
+        r.turn_id === ui.turn_id &&
+        r.operation === "revise" &&
+        r.target_ref === ui.original_id &&
+        r.production_write === false,
+    )
+  )
+    return null;
+  if (!records.some((r) => r.event === "adoption.evaluate.done" && r.turn_id === ui.turn_id))
+    return null;
+  if (
+    !records.some(
+      (r) =>
+        r.event === "channel.author_action.done" &&
+        r.turn_id === ui.turn_id &&
+        r.action_type === "accept",
+    )
+  )
+    return null;
+  if (
+    !records.some(
+      (r) =>
+        r.event === "pending_artifact.completed.done" &&
+        r.turn_id === ui.discard_turn_id &&
+        r.operation === "discard" &&
+        r.target_ref === ui.original_id &&
+        r.production_write === false,
+    )
+  )
+    return null;
   return { ...ui, turn_ids: turnIds };
 }
 
 function findCandidateStaleModalEvidence(records) {
-  const ui = records.find((r) => r.event === "slice_verify.ui_state.done" && r.slice_id === "q1b-candidate-stale-modal");
-  if (!ui || !ui.target_ref || !ui.discard_turn_id || ui.confirmed_fact_count !== 0 ||
-    !["stale_edit_rejected", "editor_text_retained", "error_visible"].every((k) => ui[k] === true)) return null;
-  if (!records.some((r) => r.turn_id === ui.discard_turn_id && r.event === "pending_artifact.completed.done" &&
-    r.operation === "discard" && r.target_ref === ui.target_ref)) return null;
-  if (!records.some((r) => r.turn_id === ui.turn_id && r.event === "channel.author_action.error" && r.action_type === "edit_then_accept")) return null;
-  if (records.some((r) => r.event === "adoption.evaluate.done" && r.turn_id === ui.turn_id)) return null;
+  const ui = records.find(
+    (r) => r.event === "slice_verify.ui_state.done" && r.slice_id === "q1b-candidate-stale-modal",
+  );
+  if (
+    !ui ||
+    !ui.target_ref ||
+    !ui.discard_turn_id ||
+    ui.confirmed_fact_count !== 0 ||
+    !["stale_edit_rejected", "editor_text_retained", "error_visible"].every((k) => ui[k] === true)
+  )
+    return null;
+  if (
+    !records.some(
+      (r) =>
+        r.turn_id === ui.discard_turn_id &&
+        r.event === "pending_artifact.completed.done" &&
+        r.operation === "discard" &&
+        r.target_ref === ui.target_ref,
+    )
+  )
+    return null;
+  if (
+    !records.some(
+      (r) =>
+        r.turn_id === ui.turn_id &&
+        r.event === "channel.author_action.error" &&
+        r.action_type === "edit_then_accept",
+    )
+  )
+    return null;
+  if (records.some((r) => r.event === "adoption.evaluate.done" && r.turn_id === ui.turn_id))
+    return null;
   return { ...ui, turn_ids: [ui.turn_id, ui.discard_turn_id] };
 }
 
 function findCandidateLifecycleEvidence(records) {
   const sliceId = "q1b-candidate-lifecycle";
-  const ui = records.find((r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId);
-  if (!ui || !Array.isArray(ui.turn_ids) || new Set(ui.turn_ids).size !== 10 || ui.confirmed_fact_count !== 1) return null;
-  if (!["original_preserved", "revision_is_tentative", "lineage_registration_guard",
-    "discarded_source_can_register", "edited_state_restored", "discard_receipts_match_state"].every((k) => ui[k] === true)) return null;
+  const ui = records.find(
+    (r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId,
+  );
+  if (
+    !ui ||
+    !Array.isArray(ui.turn_ids) ||
+    new Set(ui.turn_ids).size !== 10 ||
+    ui.confirmed_fact_count !== 1
+  )
+    return null;
+  if (
+    ![
+      "original_preserved",
+      "revision_is_tentative",
+      "lineage_registration_guard",
+      "discarded_source_can_register",
+      "edited_state_restored",
+      "discard_receipts_match_state",
+    ].every((k) => ui[k] === true)
+  )
+    return null;
   if (!ui.turn_ids.includes(ui.turn_id) || !ui.turn_ids.includes(ui.adoption_turn_id)) return null;
-  if (ui.operations?.length !== 3 || ui.operations.filter((o) => o.operation === "discard").length !== 2 ||
-    ui.operations.filter((o) => o.operation === "revise").length !== 1) return null;
+  if (
+    ui.operations?.length !== 3 ||
+    ui.operations.filter((o) => o.operation === "discard").length !== 2 ||
+    ui.operations.filter((o) => o.operation === "revise").length !== 1
+  )
+    return null;
   for (const op of ui.operations) {
     if (!op.target_ref || !ui.turn_ids.includes(op.turn_id)) return null;
-    if (!records.some((r) => r.event === "pending_artifact.completed.done" && r.turn_id === op.turn_id &&
-      r.target_ref === op.target_ref && r.operation === op.operation && r.production_write === false)) return null;
+    if (
+      !records.some(
+        (r) =>
+          r.event === "pending_artifact.completed.done" &&
+          r.turn_id === op.turn_id &&
+          r.target_ref === op.target_ref &&
+          r.operation === op.operation &&
+          r.production_write === false,
+      )
+    )
+      return null;
   }
-  if (!ui.turn_ids.every((id) => records.some((r) => r.turn_id === id && r.event === "judgment.decided.done"))) return null;
-  if (!records.some((r) => r.event === "adoption.evaluate.done" && r.turn_id === ui.adoption_turn_id)) return null;
-  if (ui.turn_ids.some((id) => records.some((r) => r.turn_id === id && r.outcome === "error"))) return null;
+  if (
+    !ui.turn_ids.every((id) =>
+      records.some((r) => r.turn_id === id && r.event === "judgment.decided.done"),
+    )
+  )
+    return null;
+  if (
+    !records.some((r) => r.event === "adoption.evaluate.done" && r.turn_id === ui.adoption_turn_id)
+  )
+    return null;
+  if (ui.turn_ids.some((id) => records.some((r) => r.turn_id === id && r.outcome === "error")))
+    return null;
   return { ...ui, source_turn_ref: ui.turn_ids[0] };
 }
 
 function findCandidateSemanticsEvidence(records) {
   const sliceId = "q3d-candidate-semantics";
-  const ui = records.find((r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId);
-  if (!ui || !["legacy_actions_revoked", "legacy_content_preserved", "record_only_has_no_candidates",
-    "workflow_has_no_direction_actions", "failed_results_restored"].every((key) => ui[key] === true)) return null;
+  const ui = records.find(
+    (r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId,
+  );
+  if (
+    !ui ||
+    ![
+      "legacy_actions_revoked",
+      "legacy_content_preserved",
+      "record_only_has_no_candidates",
+      "workflow_has_no_direction_actions",
+      "failed_results_restored",
+    ].every((key) => ui[key] === true)
+  )
+    return null;
   if (ui.confirmed_fact_count !== 2 || ui.failed_turns?.length !== 2) return null;
-  if (!["record_only_conflict", "candidate_purpose_conflict"].every((reason) => ui.failed_turns.some((f) => f.reason_code === reason))) return null;
+  if (
+    !["record_only_conflict", "candidate_purpose_conflict"].every((reason) =>
+      ui.failed_turns.some((f) => f.reason_code === reason),
+    )
+  )
+    return null;
   for (const failed of ui.failed_turns) {
     const logs = records.filter((r) => r.turn_id === failed.turn_id);
-    if (!["retry", "rejected"].every((outcome) => logs.some((r) => r.event === "judgment.output_validation.done" &&
-      r.reason_code === failed.reason_code && r.outcome === outcome))) return null;
-    if (logs.some((r) => r.event?.startsWith("toolbox.execute.") ||
-      ["judgment.decided.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"].includes(r.event))) return null;
+    if (
+      !["retry", "rejected"].every((outcome) =>
+        logs.some(
+          (r) =>
+            r.event === "judgment.output_validation.done" &&
+            r.reason_code === failed.reason_code &&
+            r.outcome === outcome,
+        ),
+      )
+    )
+      return null;
+    if (
+      logs.some(
+        (r) =>
+          r.event?.startsWith("toolbox.execute.") ||
+          [
+            "judgment.decided.done",
+            "judgment.author_content_materialized.done",
+            "adoption.evaluate.done",
+          ].includes(r.event),
+      )
+    )
+      return null;
   }
-  for (const [turn, reason] of [[ui.source_turn_id, "record_only_conflict"], [ui.turn_id, "candidate_purpose_conflict"]]) {
-    if (!records.some((r) => r.turn_id === turn && r.event === "judgment.output_validation.done" && r.outcome === "retry" && r.reason_code === reason)) return null;
-    if (!records.some((r) => r.turn_id === turn && r.event === "judgment.decided.done" && r.candidate_count === 0)) return null;
+  for (const [turn, reason] of [
+    [ui.source_turn_id, "record_only_conflict"],
+    [ui.turn_id, "candidate_purpose_conflict"],
+  ]) {
+    if (
+      !records.some(
+        (r) =>
+          r.turn_id === turn &&
+          r.event === "judgment.output_validation.done" &&
+          r.outcome === "retry" &&
+          r.reason_code === reason,
+      )
+    )
+      return null;
+    if (
+      !records.some(
+        (r) => r.turn_id === turn && r.event === "judgment.decided.done" && r.candidate_count === 0,
+      )
+    )
+      return null;
   }
   if (!ui.creative_turn_id || !ui.discussed_turn_id || !ui.chosen_turn_id) return null;
-  if (!records.some((r) => r.turn_id === ui.creative_turn_id && r.event === "judgment.decided.done" &&
-    r.frame_type === "creative_exploration" && Number(r.candidate_count) > 0)) return null;
-  if (!records.some((r) => r.turn_id === ui.discussed_turn_id && r.event === "judgment.decided.done")) return null;
-  if (!records.some((r) => [ui.creative_turn_id, ui.discussed_turn_id].includes(r.turn_id) &&
-    r.event === "channel.author_action.done" && r.action_type === "choose_candidate")) return null;
-  if (ui.artifact_actions?.length !== 3 || !["accept", "discard", "edit_then_accept"].every((type) => ui.artifact_actions.some((a) => a.type === type))) return null;
+  if (
+    !records.some(
+      (r) =>
+        r.turn_id === ui.creative_turn_id &&
+        r.event === "judgment.decided.done" &&
+        r.frame_type === "creative_exploration" &&
+        Number(r.candidate_count) > 0,
+    )
+  )
+    return null;
+  if (
+    !records.some((r) => r.turn_id === ui.discussed_turn_id && r.event === "judgment.decided.done")
+  )
+    return null;
+  if (
+    !records.some(
+      (r) =>
+        [ui.creative_turn_id, ui.discussed_turn_id].includes(r.turn_id) &&
+        r.event === "channel.author_action.done" &&
+        r.action_type === "choose_candidate",
+    )
+  )
+    return null;
+  if (
+    ui.artifact_actions?.length !== 3 ||
+    !["accept", "discard", "edit_then_accept"].every((type) =>
+      ui.artifact_actions.some((a) => a.type === type),
+    )
+  )
+    return null;
   for (const action of ui.artifact_actions) {
-    if (!records.some((r) => r.event === "channel.author_action.done" && r.action_type === action.type &&
-      r.turn_id === action.source_turn_id)) return null;
-    if (action.type !== "discard" && !records.some((r) => r.event === "adoption.evaluate.done" &&
-      (r.turn_id === action.source_turn_id || String(r.turn_id ?? "").startsWith(`${action.source_turn_id}:`)))) return null;
+    if (
+      !records.some(
+        (r) =>
+          r.event === "channel.author_action.done" &&
+          r.action_type === action.type &&
+          r.turn_id === action.source_turn_id,
+      )
+    )
+      return null;
+    if (
+      action.type !== "discard" &&
+      !records.some(
+        (r) =>
+          r.event === "adoption.evaluate.done" &&
+          (r.turn_id === action.source_turn_id ||
+            String(r.turn_id ?? "").startsWith(`${action.source_turn_id}:`)),
+      )
+    )
+      return null;
   }
-  return { slice_id: sliceId, turn_id: ui.turn_id,
-    turn_ids: [...new Set([ui.source_turn_id, ui.turn_id, ui.creative_turn_id, ui.discussed_turn_id,
-      ...ui.artifact_actions.map((a) => a.source_turn_id)])], source_turn_ref: ui.source_turn_id };
+  return {
+    slice_id: sliceId,
+    turn_id: ui.turn_id,
+    turn_ids: [
+      ...new Set([
+        ui.source_turn_id,
+        ui.turn_id,
+        ui.creative_turn_id,
+        ui.discussed_turn_id,
+        ...ui.artifact_actions.map((a) => a.source_turn_id),
+      ]),
+    ],
+    source_turn_ref: ui.source_turn_id,
+  };
 }
 
 function findAuthorRegistrationGuardsEvidence(records) {
   const sliceId = "q3d-author-registration-guards";
-  const ui = records.find((r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId);
+  const ui = records.find(
+    (r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId,
+  );
   if (!ui || !Array.isArray(ui.failed_turns) || ui.failed_turns.length !== 3) return null;
-  if (!["historical_bytes_preserved", "source_binding_preserved", "failed_results_restored",
-    "no_write_before_adoption"].every((key) => ui[key] === true) || ui.confirmed_fact_count !== 1) return null;
+  if (
+    ![
+      "historical_bytes_preserved",
+      "source_binding_preserved",
+      "failed_results_restored",
+      "no_write_before_adoption",
+    ].every((key) => ui[key] === true) ||
+    ui.confirmed_fact_count !== 1
+  )
+    return null;
   const expected = ["source_required", "source_not_available", "invalid_tool_combination"];
-  if (new Set(ui.failed_turns.map((r) => r.turn_id)).size !== 3 ||
-    !expected.every((code) => ui.failed_turns.some((r) => r.reason_code === code && r.status === "failed_recoverable"))) return null;
+  if (
+    new Set(ui.failed_turns.map((r) => r.turn_id)).size !== 3 ||
+    !expected.every((code) =>
+      ui.failed_turns.some((r) => r.reason_code === code && r.status === "failed_recoverable"),
+    )
+  )
+    return null;
   for (const failed of ui.failed_turns) {
     const logs = records.filter((r) => r.turn_id === failed.turn_id);
-    if (!["retry", "rejected"].every((outcome) => logs.some((r) =>
-      r.event === "judgment.output_validation.done" && r.outcome === outcome &&
-      r.reason_code === failed.reason_code))) return null;
-    if (logs.some((r) => r.event?.startsWith("toolbox.execute.") ||
-      ["judgment.decided.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"].includes(r.event))) return null;
+    if (
+      !["retry", "rejected"].every((outcome) =>
+        logs.some(
+          (r) =>
+            r.event === "judgment.output_validation.done" &&
+            r.outcome === outcome &&
+            r.reason_code === failed.reason_code,
+        ),
+      )
+    )
+      return null;
+    if (
+      logs.some(
+        (r) =>
+          r.event?.startsWith("toolbox.execute.") ||
+          [
+            "judgment.decided.done",
+            "judgment.author_content_materialized.done",
+            "adoption.evaluate.done",
+          ].includes(r.event),
+      )
+    )
+      return null;
   }
-  if (!ui.turn_id || !ui.source_turn_id || ui.turn_id === ui.source_turn_id ||
-    ui.failed_turns.some((r) => [ui.turn_id, ui.source_turn_id].includes(r.turn_id))) return null;
+  if (
+    !ui.turn_id ||
+    !ui.source_turn_id ||
+    ui.turn_id === ui.source_turn_id ||
+    ui.failed_turns.some((r) => [ui.turn_id, ui.source_turn_id].includes(r.turn_id))
+  )
+    return null;
   const corrected = records.filter((r) => r.turn_id === ui.turn_id);
-  if (!["judgment.decided.done", "judgment.author_content_materialized.done"].every((event) =>
-    corrected.some((r) => r.event === event))) return null;
-  if (!corrected.some((r) => r.event === "judgment.output_validation.done" &&
-    r.reason_code === "source_required" && r.outcome === "retry")) return null;
-  if (hasErrorEvent(corrected) || hasEventPrefix(corrected, "toolbox.execute.") ||
-    corrected.some((r) => r.event === "judgment.output_validation.done" && r.outcome === "rejected")) return null;
-  if (!records.some((r) => r.event === "adoption.evaluate.done" &&
-    (r.turn_id === ui.turn_id || String(r.turn_id ?? "").startsWith(`${ui.turn_id}:`)))) return null;
-  return { slice_id: sliceId, turn_id: ui.turn_id, turn_ids: [ui.turn_id],
-    source_turn_ref: ui.source_turn_id, failed_turns: ui.failed_turns };
+  if (
+    !["judgment.decided.done", "judgment.author_content_materialized.done"].every((event) =>
+      corrected.some((r) => r.event === event),
+    )
+  )
+    return null;
+  if (
+    !corrected.some(
+      (r) =>
+        r.event === "judgment.output_validation.done" &&
+        r.reason_code === "source_required" &&
+        r.outcome === "retry",
+    )
+  )
+    return null;
+  if (
+    hasErrorEvent(corrected) ||
+    hasEventPrefix(corrected, "toolbox.execute.") ||
+    corrected.some((r) => r.event === "judgment.output_validation.done" && r.outcome === "rejected")
+  )
+    return null;
+  if (
+    !records.some(
+      (r) =>
+        r.event === "adoption.evaluate.done" &&
+        (r.turn_id === ui.turn_id || String(r.turn_id ?? "").startsWith(`${ui.turn_id}:`)),
+    )
+  )
+    return null;
+  return {
+    slice_id: sliceId,
+    turn_id: ui.turn_id,
+    turn_ids: [ui.turn_id],
+    source_turn_ref: ui.source_turn_id,
+    failed_turns: ui.failed_turns,
+  };
 }
 
 function findQ3cAuthorContentEvidence(records, sliceId = "q3c-author-content-materialization") {
@@ -14495,7 +15192,12 @@ function findQ3cAuthorContentEvidence(records, sliceId = "q3c-author-content-mat
   return null;
 }
 
-function q3cAuthorContentBehavior(turnIds, turnRecords, records, sliceId = "q3c-author-content-materialization") {
+function q3cAuthorContentBehavior(
+  turnIds,
+  turnRecords,
+  records,
+  sliceId = "q3c-author-content-materialization",
+) {
   if (turnIds.length !== 1) return null;
   if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
@@ -14853,13 +15555,11 @@ function findCandidateContinuationEvidence(records) {
       frame_badge_goal: uiState.frame_badge_goal,
       candidate_panel_count: Number(uiState.candidate_panel_count ?? 0),
       candidate_panel_width: Number(uiState.candidate_panel_width),
-      candidate_panel_aligned_to_assistant_rail:
-        uiState.candidate_panel_aligned_to_assistant_rail,
+      candidate_panel_aligned_to_assistant_rail: uiState.candidate_panel_aligned_to_assistant_rail,
       candidate_panel_surface_defined: uiState.candidate_panel_surface_defined,
       candidate_card_boundary_visible: uiState.candidate_card_boundary_visible,
       candidate_actions_match_prototype: uiState.candidate_actions_match_prototype,
-      candidate_panel_collapsed_after_continue:
-        uiState.candidate_panel_collapsed_after_continue,
+      candidate_panel_collapsed_after_continue: uiState.candidate_panel_collapsed_after_continue,
       candidate_panel_collapsed_after_reload: uiState.candidate_panel_collapsed_after_reload,
       candidate_panel_reexpanded: uiState.candidate_panel_reexpanded,
       key_events: keyEvents,
@@ -15864,8 +16564,7 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
   const expectedVolumeTitles = [...planVolumeTitles, scopedVolumeTitle];
   if (
     threeVolumeToc.some(
-      (volume, index) =>
-        volume?.title !== expectedVolumeTitles[index] || volume?.seq !== index + 1,
+      (volume, index) => volume?.title !== expectedVolumeTitles[index] || volume?.seq !== index + 1,
     )
   ) {
     return null;
@@ -15876,8 +16575,7 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
   if (scopedTocBlueprint.has_blueprint !== true) return null;
   if (scopedTocBlueprint.status !== "CONFIRMED") return null;
   if (
-    scopedTocBlueprint.source_ref !==
-    `artifact:${String(uiState.scoped_outline_artifact_id ?? "")}`
+    scopedTocBlueprint.source_ref !== `artifact:${String(uiState.scoped_outline_artifact_id ?? "")}`
   ) {
     return null;
   }
@@ -16085,8 +16783,7 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
       chapter_count: volume.chapter_titles.length,
       id: volume.id,
     })),
-    toc_volume_blueprint_count: tocVolumeBlueprints.filter((volume) => volume.has_blueprint)
-      .length,
+    toc_volume_blueprint_count: tocVolumeBlueprints.filter((volume) => volume.has_blueprint).length,
     toc_volume_blueprint_confirmed_count: tocVolumeBlueprints.filter(
       (volume) => volume.status === "CONFIRMED",
     ).length,
@@ -16871,10 +17568,7 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
   if (!Array.isArray(scopedBlueprintLines) || scopedBlueprintLines.length !== 1) return null;
   const scopedChapterTitles = evidence.scoped_outline_chapter_titles;
   if (!Array.isArray(scopedChapterTitles) || scopedChapterTitles.length !== 3) return null;
-  if (
-    JSON.stringify(evidence.scoped_outline_chapter_seqs ?? []) !==
-    JSON.stringify([13, 14, 15])
-  ) {
+  if (JSON.stringify(evidence.scoped_outline_chapter_seqs ?? []) !== JSON.stringify([13, 14, 15])) {
     return null;
   }
   const threeVolumeHeaders = evidence.three_volume_headers;
@@ -16885,9 +17579,7 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
   if (evidence.planning_scope_old_book_volume_directive_absent !== true) return null;
   // scoped turn 的真实留痕按 turn_id 绑定（工具执行 + 采纳授权都在本次 scoped 执行 turn 上）。
   if (evidence.scoped_outline_turn_id) {
-    if (
-      !turnsHaveEvent([evidence.scoped_outline_turn_id], turnRecords, "toolbox.execute.done")
-    ) {
+    if (!turnsHaveEvent([evidence.scoped_outline_turn_id], turnRecords, "toolbox.execute.done")) {
       return null;
     }
     if (
@@ -16916,8 +17608,7 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
     coordinate_volume_ref: evidence.coordinate_volume_ref,
     current_volume_id: evidence.current_volume_id,
     workbench_header_volume_title: evidence.workbench_header_volume_title,
-    workbench_header_volume_title_from_channel:
-      evidence.workbench_header_volume_title_from_channel,
+    workbench_header_volume_title_from_channel: evidence.workbench_header_volume_title_from_channel,
     workbench_header_shows_current_volume: true,
     plan_next_volume_scope: evidence.plan_next_volume_scope,
     scoped_outline_volume_blueprint_lines: scopedBlueprintLines,
@@ -17299,9 +17990,7 @@ function parseChapterFullReadPage(record) {
   const payload = record.payload ?? {};
   const text = String(payload.summary ?? "");
   const titleMatch = text.match(/^「([^」]+)」（第 (\d+) 章）\n/u);
-  const rangeMatch = text.match(
-    /【正文】第 (\d+)–(\d+) 字符 \/ 共 (\d+) 字符（有效字数 (\d+)）/u,
-  );
+  const rangeMatch = text.match(/【正文】第 (\d+)–(\d+) 字符 \/ 共 (\d+) 字符（有效字数 (\d+)）/u);
   const footerMatch = text.match(
     /【续读】剩余 (\d+) 字符；用 (\{"chapter_ref":"chapter:[0-9a-f-]{36}","offset":\d+\}) 继续。/u,
   );
@@ -17316,9 +18005,9 @@ function parseChapterFullReadPage(record) {
   } catch {
     queryPayload = null;
   }
-  const parsedChapterRef = payload.chapter_ref ?? ((queryPayload && queryPayload.chapter_ref) || null);
-  const parsedChapterSeq =
-    payload.chapter_seq ?? (titleMatch ? Number(titleMatch[2]) : null);
+  const parsedChapterRef =
+    payload.chapter_ref ?? ((queryPayload && queryPayload.chapter_ref) || null);
+  const parsedChapterSeq = payload.chapter_seq ?? (titleMatch ? Number(titleMatch[2]) : null);
 
   let prose = "";
   if (rangeMatch) {
@@ -17558,9 +18247,7 @@ function judgmentExploreChapterFullReadBehavior(
         (entry) => entry.chapter_ref !== evidence.chapter_ref && entry.planned === true,
       );
 
-      return Boolean(
-        target && target.seq === 2 && distractor && distractor.seq === 1,
-      );
+      return Boolean(target && target.seq === 2 && distractor && distractor.seq === 1);
     });
   if (!chapterIndex) return null;
 
@@ -17673,12 +18360,14 @@ function b71NativeRequestEvidence(options, evidence) {
 
   if (observations.length < 2) return null;
 
-  const continuation = observations.find(
-    (observation) => observation.next_offset === 6000,
-  );
+  const continuation = observations.find((observation) => observation.next_offset === 6000);
   if (!continuation) return null;
   if (!continuation.source_refs.includes(evidence.chapter_ref)) return null;
-  if (!observations.some((observation) => observation.summary.includes(CHAPTER_FULL_READ_ENDING_ANCHOR))) {
+  if (
+    !observations.some((observation) =>
+      observation.summary.includes(CHAPTER_FULL_READ_ENDING_ANCHOR),
+    )
+  ) {
     return null;
   }
 
@@ -18122,15 +18811,13 @@ function findAu12CharacterIdentityMergeEvidence(records) {
 
   const rosterCollapsed = records.some(
     (record) =>
-      record.event === "channel.get_characters.done" &&
-      Number(record.character_count ?? 0) === 1,
+      record.event === "channel.get_characters.done" && Number(record.character_count ?? 0) === 1,
   );
   if (!rosterCollapsed) return null;
 
   const ledgerUnified = records.some(
     (record) =>
-      record.event === "channel.get_ledger_threads.done" &&
-      Number(record.entry_count ?? 0) === 1,
+      record.event === "channel.get_ledger_threads.done" && Number(record.entry_count ?? 0) === 1,
   );
   if (!ledgerUnified) return null;
 
@@ -18221,8 +18908,7 @@ function findAu14AssumptionConfirmEvidence(records) {
 
   const assumptionsRead = records.find(
     (record) =>
-      record.event === "channel.get_assumptions.done" &&
-      Number(record.assumption_count ?? 0) >= 1,
+      record.event === "channel.get_assumptions.done" && Number(record.assumption_count ?? 0) >= 1,
   );
   if (!assumptionsRead) return null;
 
@@ -18236,8 +18922,7 @@ function findAu14AssumptionConfirmEvidence(records) {
 
   const charactersRead = records.find(
     (record) =>
-      record.event === "channel.get_characters.done" &&
-      Number(record.character_count ?? 0) === 1,
+      record.event === "channel.get_characters.done" && Number(record.character_count ?? 0) === 1,
   );
   if (!charactersRead) return null;
 
@@ -18579,7 +19264,10 @@ function au13ReviewAdjudicationBehavior(_turnIds, _turnRecords, records, evidenc
   }
   if (!uiState.volume_intent_texts.every((text) => String(text).includes("修订设定"))) return null;
   if (Number(uiState.volume_debt_dispositions ?? 0) !== 3) return null;
-  if (!Array.isArray(uiState.volume_report_findings) || uiState.volume_report_findings.length !== 3) {
+  if (
+    !Array.isArray(uiState.volume_report_findings) ||
+    uiState.volume_report_findings.length !== 3
+  ) {
     return null;
   }
   if (uiState.volume_report_proposed_dispositions_visible !== true) return null;
@@ -20420,7 +21108,10 @@ function au06SingleActiveConfirmationBehavior(turnIds, _turnRecords, records, ev
   if (!uiState) return null;
   if (uiState.distinct_behavior_refs !== true) return null;
   if (uiState.supersede_explicit !== true) return null;
-  if (String(uiState.superseded_behavior_id ?? "") !== String(uiState.first_confirm_action_behavior_ref ?? "")) {
+  if (
+    String(uiState.superseded_behavior_id ?? "") !==
+    String(uiState.first_confirm_action_behavior_ref ?? "")
+  ) {
     return null;
   }
   if (uiState.supersede_resolution_references_replacement !== true) return null;
@@ -22993,9 +23684,13 @@ function findAu09CharacterRoleTaxonomyEvidence(records) {
     const writingTools = turnRecords.some(
       (record) =>
         record.event === "toolbox.execute.done" &&
-        ["character_design", "character_evolution", "prose_writing", "world_building", "plot_outline"].includes(
-          String(record.tool_name ?? ""),
-        ),
+        [
+          "character_design",
+          "character_evolution",
+          "prose_writing",
+          "world_building",
+          "plot_outline",
+        ].includes(String(record.tool_name ?? "")),
     );
     return (
       Boolean(judgment) &&
@@ -23004,7 +23699,10 @@ function findAu09CharacterRoleTaxonomyEvidence(records) {
       !writingTools
     );
   };
-  if (!readonlyQueryTurn(uiState.pre_query_turn_id) || !readonlyQueryTurn(uiState.post_query_turn_id)) {
+  if (
+    !readonlyQueryTurn(uiState.pre_query_turn_id) ||
+    !readonlyQueryTurn(uiState.post_query_turn_id)
+  ) {
     return null;
   }
 
@@ -23512,8 +24210,7 @@ function findB64CoordinateMemoryEvidence(records) {
     turn_ids: checks.map((check) => check.turn_id),
     checks,
     screenshots: ["b64-old-chapter.png", "b64-new-chapter.png"],
-    note:
-      "确定性 provider 真实 Tauri 页面矩阵：旧章/新会话旧章/新章；writer prompt 事实窗口与 Why 目标章行同时成立。",
+    note: "确定性 provider 真实 Tauri 页面矩阵：旧章/新会话旧章/新章；writer prompt 事实窗口与 Why 目标章行同时成立。",
   };
 }
 
@@ -23769,29 +24466,44 @@ function au09CrossWorkMemoryIsolationBehavior(turnIds, _turnRecords, records, ev
 
 function findAu09Au03SessionMemoryLayeringEvidence(records) {
   const sliceId = "au09-au03-session-memory-layering";
-  const ui = records.find((record) =>
-    record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId &&
-    record.readonly_session_transcript_visible === true &&
-    record.readonly_input_disabled === true &&
-    record.active_session_restored === true &&
-    record.trace_why_dialog_open === true &&
-    record.why_shows_current_work_source === true &&
-    record.why_shows_memory_source === true &&
-    record.why_excludes_historical_transcript === true &&
-    record.context_source_types?.includes("current_work") &&
-    record.context_source_types?.includes("memory") &&
-    !record.context_source_types.includes("session_transcript"),
+  const ui = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.readonly_session_transcript_visible === true &&
+      record.readonly_input_disabled === true &&
+      record.active_session_restored === true &&
+      record.trace_why_dialog_open === true &&
+      record.why_shows_current_work_source === true &&
+      record.why_shows_memory_source === true &&
+      record.why_excludes_historical_transcript === true &&
+      record.context_source_types?.includes("current_work") &&
+      record.context_source_types?.includes("memory") &&
+      !record.context_source_types.includes("session_transcript"),
   );
-  if (!ui?.turn_id || !ui.author_turn_id || !ui.work_id || !ui.session_id || !ui.readonly_session_id) return null;
+  if (
+    !ui?.turn_id ||
+    !ui.author_turn_id ||
+    !ui.work_id ||
+    !ui.session_id ||
+    !ui.readonly_session_id
+  )
+    return null;
   if (ui.session_id === ui.readonly_session_id) return null;
 
-  const showDone = records.some((record) =>
-    record.event === "work_session.show.done" && record.work_id === ui.work_id &&
-    record.session_id === ui.readonly_session_id && record.read_only === true,
+  const showDone = records.some(
+    (record) =>
+      record.event === "work_session.show.done" &&
+      record.work_id === ui.work_id &&
+      record.session_id === ui.readonly_session_id &&
+      record.read_only === true,
   );
-  const userDone = records.some((record) =>
-    record.event === "channel.user_message.done" && record.turn_id === ui.author_turn_id &&
-    record.work_id === ui.work_id && record.session_id === ui.session_id,
+  const userDone = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.turn_id === ui.author_turn_id &&
+      record.work_id === ui.work_id &&
+      record.session_id === ui.session_id,
   );
   if (!showDone || !userDone) return null;
 
@@ -23813,45 +24525,78 @@ function findAu09Au03SessionMemoryLayeringEvidence(records) {
 }
 
 function au09Au03SessionMemoryLayeringBehavior(turnIds, _turnRecords, _records, evidence, options) {
-  const { active_session_token: active, current_work_token: work, memory_token: memory,
-    historical_session_token: historical, message_text: input } = evidence;
-  if (![active, work, memory, historical, input].every((value) => typeof value === "string" && value)) return null;
+  const {
+    active_session_token: active,
+    current_work_token: work,
+    memory_token: memory,
+    historical_session_token: historical,
+    message_text: input,
+  } = evidence;
+  if (
+    ![active, work, memory, historical, input].every((value) => typeof value === "string" && value)
+  )
+    return null;
   if ([active, work, memory, historical].some((token) => input.includes(token))) return null;
 
   const records = options.provider === "slice_verify" ? options.promptRecords : options.llmRecords;
   const requests = (records ?? []).flatMap((record) => {
-    if (record.work_id !== evidence.work_id || record.session_id !== evidence.session_id ||
-        !record.provider_call_ref) return [];
+    if (
+      record.work_id !== evidence.work_id ||
+      record.session_id !== evidence.session_id ||
+      !record.provider_call_ref
+    )
+      return [];
     const facts = requestFactsFromRecord(record);
-    if (!facts.ok || (record.turn_id !== evidence.author_turn_id &&
-        facts.run?.parent_turn_ref !== evidence.author_turn_id)) return [];
+    if (
+      !facts.ok ||
+      (record.turn_id !== evidence.author_turn_id &&
+        facts.run?.parent_turn_ref !== evidence.author_turn_id)
+    )
+      return [];
     return [facts];
   });
   if (requests.some((facts) => JSON.stringify(facts.rawBody).includes(historical))) return null;
 
   function matchesCurrentLayer(facts) {
     const author = facts.authorMessages;
-    const context = [...facts.applicationBases, ...facts.scopeMessages].map((message) => message.text).join("\n");
+    const context = [...facts.applicationBases, ...facts.scopeMessages]
+      .map((message) => message.text)
+      .join("\n");
     // 原文登记还会引用作者输入。只认独立的历史作者消息，不能用登记材料替代。
-    return author.at(-1)?.text === input && author.slice(0, -1).some((message) => message.text.includes(active)) &&
-      context.includes(work) && !context.includes("## 会话摘要") && !context.includes(memory);
+    return (
+      author.at(-1)?.text === input &&
+      author.slice(0, -1).some((message) => message.text.includes(active)) &&
+      context.includes(work) &&
+      !context.includes("## 会话摘要") &&
+      !context.includes(memory)
+    );
   }
 
-  const initial = requests.find((facts) => matchesCurrentLayer(facts) &&
-    !JSON.stringify(facts.rawBody).includes(memory));
-  const observed = requests.find((facts) => matchesCurrentLayer(facts) &&
-    facts.toolResults.some((result) =>
-      result.payload?.content?.tool === "memory_recall" &&
-      result.payload.content.summary?.includes(memory) &&
-      facts.toolCalls.some((call) => call.callId === result.callId),
-    ),
+  const initial = requests.find(
+    (facts) => matchesCurrentLayer(facts) && !JSON.stringify(facts.rawBody).includes(memory),
   );
-  if (!initial || !observed || initial.record.provider_call_ref === observed.record.provider_call_ref ||
-      requests.indexOf(initial) >= requests.indexOf(observed)) return null;
+  const observed = requests.find(
+    (facts) =>
+      matchesCurrentLayer(facts) &&
+      facts.toolResults.some(
+        (result) =>
+          result.payload?.content?.tool === "memory_recall" &&
+          result.payload.content.summary?.includes(memory) &&
+          facts.toolCalls.some((call) => call.callId === result.callId),
+      ),
+  );
+  if (
+    !initial ||
+    !observed ||
+    initial.record.provider_call_ref === observed.record.provider_call_ref ||
+    requests.indexOf(initial) >= requests.indexOf(observed)
+  )
+    return null;
 
   return {
     slice_id: evidence.slice_id,
-    behavior: "active_canonical_history_current_work_and_governed_memory_are_layered_without_history_leak",
+    behavior:
+      "active_canonical_history_current_work_and_governed_memory_are_layered_without_history_leak",
     turn_ids: turnIds,
     work_id: evidence.work_id,
     session_id: evidence.session_id,
@@ -26660,8 +27405,7 @@ function findGapWt04NonExplorationFrameEvidence(records) {
     if (
       !currentTurn.some(
         (record) =>
-          record.event === "judgment.decided.done" &&
-          record.frame_type === expectedFrameType,
+          record.event === "judgment.decided.done" && record.frame_type === expectedFrameType,
       )
     ) {
       return null;
@@ -26702,7 +27446,11 @@ function findGapWt04NonExplorationFrameEvidence(records) {
   };
 }
 
-function ordinaryChatUiState(turnIds, turnRecords, sliceId = "au01-ordinary-chat-two-turn-roundtrip") {
+function ordinaryChatUiState(
+  turnIds,
+  turnRecords,
+  sliceId = "au01-ordinary-chat-two-turn-roundtrip",
+) {
   const uiState = turnRecords.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
@@ -27284,10 +28032,17 @@ function findB47C07CharacterFreshnessEvidence(records) {
   const byScenario = new Map(uiState.trials.map((trial) => [trial.scenario, trial]));
   for (const scenario of ["stale", "fresh"]) {
     const trial = byScenario.get(scenario);
-    if (!trial || !trial.work_id || !trial.artifact_id || !trial.action_result || !trial.turn_result) {
+    if (
+      !trial ||
+      !trial.work_id ||
+      !trial.artifact_id ||
+      !trial.action_result ||
+      !trial.turn_result
+    ) {
       return null;
     }
-    if (!Array.isArray(trial.before_characters) || !Array.isArray(trial.after_characters)) return null;
+    if (!Array.isArray(trial.before_characters) || !Array.isArray(trial.after_characters))
+      return null;
   }
 
   return {
@@ -27309,15 +28064,22 @@ function b47C07CharacterFreshnessBehavior(evidence) {
 
   const staleReasons = stale.action_result?.decision?.reason_codes ?? [];
   if (stale.action_result?.status !== "failed") return null;
-  if ((stale.decision_type ?? stale.action_result?.decision_type ?? stale.action_result?.decision?.decision_type) !== "fail_with_recovery") return null;
+  if (
+    (stale.decision_type ??
+      stale.action_result?.decision_type ??
+      stale.action_result?.decision?.decision_type) !== "fail_with_recovery"
+  )
+    return null;
   if (!staleReasons.includes("stale_base")) return null;
   if (stale.declared_fingerprint === stale.current_fingerprint) return null;
   if (stale.role_changed !== false) return null;
   if (stale.rows_identical !== true) return null;
   if (stale.declared_fingerprint === stale.current_fingerprint) return null;
   const staleAction = stale.action_result ?? {};
-  const staleExpected = staleAction.canon_freshness?.expected?.fingerprint ?? stale.declared_fingerprint;
-  const staleCurrent = staleAction.canon_freshness?.current?.fingerprint ?? stale.current_fingerprint;
+  const staleExpected =
+    staleAction.canon_freshness?.expected?.fingerprint ?? stale.declared_fingerprint;
+  const staleCurrent =
+    staleAction.canon_freshness?.current?.fingerprint ?? stale.current_fingerprint;
   if (staleExpected !== stale.declared_fingerprint) return null;
   if (staleCurrent !== stale.current_fingerprint) return null;
   const staleRolesUnchanged = stale.before_characters.every((row) => {
@@ -27327,7 +28089,12 @@ function b47C07CharacterFreshnessBehavior(evidence) {
   if (!staleRolesUnchanged) return null;
 
   if (fresh.action_result?.status !== "accepted") return null;
-  if ((fresh.decision_type ?? fresh.action_result?.decision_type ?? fresh.action_result?.decision?.decision_type) !== "adopt_tentative") return null;
+  if (
+    (fresh.decision_type ??
+      fresh.action_result?.decision_type ??
+      fresh.action_result?.decision?.decision_type) !== "adopt_tentative"
+  )
+    return null;
   if (fresh.role_changed !== true) return null;
   if (fresh.fresh_only_role_changed !== true) return null;
   if (!fresh.after_characters.some((row) => row.narrative_role === "PROTAGONIST")) return null;
@@ -27402,11 +28169,24 @@ function b47CanonFreshnessBehavior(evidence) {
 
   // T1 stale：系统从持久 canon 检出基线过期，失败恢复且零写入。
   if (stale.action_result?.status !== "failed") return null;
-  if ((stale.decision_type ?? stale.action_result?.decision_type ?? stale.action_result?.decision?.decision_type) !== "fail_with_recovery") return null;
+  if (
+    (stale.decision_type ??
+      stale.action_result?.decision_type ??
+      stale.action_result?.decision?.decision_type) !== "fail_with_recovery"
+  )
+    return null;
   if (stale.action_result?.canon_freshness?.status !== "stale") return null;
   if (!b47ReasonCodesInclude(stale, ["stale_base_version"])) return null;
-  if (JSON.stringify(stale.action_result?.expected_versions ?? {}) !== JSON.stringify(stale.declared_versions ?? {})) return null;
-  if (JSON.stringify(stale.action_result?.current_versions ?? {}) !== JSON.stringify(stale.current_versions ?? {})) return null;
+  if (
+    JSON.stringify(stale.action_result?.expected_versions ?? {}) !==
+    JSON.stringify(stale.declared_versions ?? {})
+  )
+    return null;
+  if (
+    JSON.stringify(stale.action_result?.current_versions ?? {}) !==
+    JSON.stringify(stale.current_versions ?? {})
+  )
+    return null;
   if (stale.turn_result?.status !== "failed_recoverable") return null;
   if (stale.turn_result?.truthfulness?.production_write_performed !== false) return null;
   if (!b47TrialZeroWrite(stale)) return null;
@@ -27415,14 +28195,20 @@ function b47CanonFreshnessBehavior(evidence) {
   if (conflict.action_result?.status !== "failed") return null;
   if (conflict.action_result?.decision_type !== "fail_with_recovery") return null;
   if (conflict.action_result?.canon_freshness?.status !== "conflict") return null;
-  if (!b47ReasonCodesInclude(conflict, ["canon_conflict_detected", "incomplete_scope"])) return null;
+  if (!b47ReasonCodesInclude(conflict, ["canon_conflict_detected", "incomplete_scope"]))
+    return null;
   if (conflict.turn_result?.status !== "failed_recoverable") return null;
   if (conflict.turn_result?.truthfulness?.production_write_performed !== false) return null;
   if (!b47TrialZeroWrite(conflict)) return null;
 
   // T3 fresh 对照：基线一致 → 正常采纳，旧稿 SUPERSEDED、新稿 ACCEPTED、mutation +1。
   if (fresh.action_result?.status !== "accepted") return null;
-  if ((fresh.decision_type ?? fresh.action_result?.decision_type ?? fresh.action_result?.decision?.decision_type) !== "adopt_tentative") return null;
+  if (
+    (fresh.decision_type ??
+      fresh.action_result?.decision_type ??
+      fresh.action_result?.decision?.decision_type) !== "adopt_tentative"
+  )
+    return null;
   if (fresh.action_result?.canon_freshness?.status !== "fresh") return null;
   // 产品 supersede 语义：旧 draft 行保留同 draft_id、revision 递增（旧 ref 变成历史版本），
   // 状态转 SUPERSEDED；因此按 draft_id 而不是含 revision 的 draft_ref 匹配。
@@ -27442,7 +28228,8 @@ function b47CanonFreshnessBehavior(evidence) {
   if (acceptedAfter[0].content_sha256 !== fresh.candidate_content_sha256) return null;
   if (
     Number(fresh.after?.mutation_count) !==
-    Number(fresh.before?.mutation_count) + Number(fresh.expected_after_adoption?.mutation_delta ?? 1)
+    Number(fresh.before?.mutation_count) +
+      Number(fresh.expected_after_adoption?.mutation_delta ?? 1)
   ) {
     return null;
   }
@@ -27450,7 +28237,8 @@ function b47CanonFreshnessBehavior(evidence) {
 
   return {
     slice_id: "b47-canon-freshness",
-    behavior: "stale_and_conflict_candidates_are_blocked_from_persistent_canon_while_fresh_adoption_materializes",
+    behavior:
+      "stale_and_conflict_candidates_are_blocked_from_persistent_canon_while_fresh_adoption_materializes",
     turn_ids: evidence.turn_ids,
     work_ids: evidence.work_ids,
     work_titles: evidence.work_titles,

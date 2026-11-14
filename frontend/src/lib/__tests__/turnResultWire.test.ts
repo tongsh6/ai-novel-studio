@@ -80,9 +80,7 @@ describe("validateTurnResultPayload", () => {
       },
     };
     const issues = validateTurnResultPayload(payload);
-    expect(
-      issues.some((issue) => issue.path.startsWith("orchestrator_decision")),
-    ).toBe(true);
+    expect(issues.some((issue) => issue.path.startsWith("orchestrator_decision"))).toBe(true);
   });
 
   it("漂移 payload 返回带 path 的 issue", () => {

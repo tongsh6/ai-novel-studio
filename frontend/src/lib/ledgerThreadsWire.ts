@@ -2,10 +2,7 @@
 // VS-00F B06：脉络面板 DTO 的唯一前端校验入口。合法空账=五个空数组；
 // schema 校验失败必须显式失败（reject），不能伪装成空账。
 
-import {
-  LedgerThreadsSchema,
-  type LedgerThreads,
-} from "../generated/foundation/ledger_threads";
+import { LedgerThreadsSchema, type LedgerThreads } from "../generated/foundation/ledger_threads";
 
 export type { LedgerThreads };
 export type { LedgerThreadEntry } from "../generated/foundation/ledger_thread_entry";

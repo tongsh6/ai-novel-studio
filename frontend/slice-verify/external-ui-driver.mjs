@@ -1,4 +1,9 @@
-import { b28BuildInitialFragment, b28BuildContinuationFragment, b28SegmentCandidateMatches, b28SourceFingerprint } from "../../scripts/lib/b28-chapter-fixture.mjs";
+import {
+  b28BuildInitialFragment,
+  b28BuildContinuationFragment,
+  b28SegmentCandidateMatches,
+  b28SourceFingerprint,
+} from "../../scripts/lib/b28-chapter-fixture.mjs";
 import { chromium } from "playwright";
 import { createHash, randomUUID } from "node:crypto";
 import { Socket } from "phoenix";
@@ -7,8 +12,15 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import os from "node:os";
-import { b28FormattingPlanMatches, b28NonNewlineText } from "../../scripts/lib/b28-chapter-fixture.mjs";
-import { B31QuestionProof, B31_STRUCTURE_REPLIES, assertProtectedVersions } from "../../scripts/lib/b31-question-proof.mjs";
+import {
+  b28FormattingPlanMatches,
+  b28NonNewlineText,
+} from "../../scripts/lib/b28-chapter-fixture.mjs";
+import {
+  B31QuestionProof,
+  B31_STRUCTURE_REPLIES,
+  assertProtectedVersions,
+} from "../../scripts/lib/b31-question-proof.mjs";
 
 const sliceId = process.argv[2];
 const baseUrl = process.env.SLICE_VERIFY_BASE_URL ?? "http://127.0.0.1:5769";
@@ -49,15 +61,21 @@ function recordFrame(direction, payload) {
   if (decoded) {
     frames.push({ direction, ...decoded });
     if (["user_message", "turn_result"].includes(decoded.event)) {
-      recordLifecycleTransport("frame", { direction, event: decoded.event, turn_id: decoded.body?.turn_id });
+      recordLifecycleTransport("frame", {
+        direction,
+        event: decoded.event,
+        turn_id: decoded.body?.turn_id,
+      });
     }
   }
 }
 
 function recordLifecycleTransport(kind, details = {}) {
   if (!sliceId.startsWith("q1b-candidate-")) return;
-  fs.appendFileSync(path.join(artifactDir, "lifecycle-transport.jsonl"),
-    `${JSON.stringify({ at: new Date().toISOString(), kind, ...details })}\n`);
+  fs.appendFileSync(
+    path.join(artifactDir, "lifecycle-transport.jsonl"),
+    `${JSON.stringify({ at: new Date().toISOString(), kind, ...details })}\n`,
+  );
 }
 
 function assert(condition, message) {
@@ -2068,8 +2086,6 @@ async function driveAu01OrdinaryChatTwoTurnRoundtrip(page) {
   ];
 }
 
-
-
 async function driveAu01EmptyMessageGuard(page) {
   const blankMessage = "   ";
   const recoveryMessage = "空消息后继续聊一个雨夜开场的悬疑气质。";
@@ -2159,7 +2175,6 @@ async function driveAu01EmptyMessageGuard(page) {
     },
   ];
 }
-
 
 async function driveAu01FrameValidationFriendlyError(page) {
   const invalidFrameMessage =
@@ -2354,9 +2369,7 @@ async function driveAu01TurnresultRecorderUiConsistency(page) {
   // 输入恢复后输入框可用、键入文本后发送按钮变为可用，再清空并保持输入可用断言。
   let restoredSendEnabledAfterInput;
   try {
-    await page
-      .locator('input[placeholder="输入你的想法、问题或指令..."]')
-      .fill("恢复后可用性检查");
+    await page.locator('input[placeholder="输入你的想法、问题或指令..."]').fill("恢复后可用性检查");
     restoredSendEnabledAfterInput = await page
       .getByRole("button", { name: /^发送$/ })
       .first()
@@ -2788,17 +2801,13 @@ async function driveAu03SessionHistoryReadonly(page) {
   const searchHitArchivedVisible =
     (await page.getByText("矿区档案室归档会话", { exact: false }).count()) > 0;
   assert(searchHitArchivedVisible, "AU03-SEARCH archived hit was not visible in hit list");
-  const searchHitButton = page
-    .locator("button")
-    .filter({ hasText: "林瑶留下的旧线索" })
-    .first();
+  const searchHitButton = page.locator("button").filter({ hasText: "林瑶留下的旧线索" }).first();
   await searchHitButton.waitFor({ timeout: 10_000 });
   await searchHitButton.click();
 
   await page.waitForFunction(
     (snippet) =>
-      document.body.innerText.includes(snippet) &&
-      document.body.innerText.includes("返回当前会话"),
+      document.body.innerText.includes(snippet) && document.body.innerText.includes("返回当前会话"),
     "林瑶留下的旧线索",
     { timeout: 15_000 },
   );
@@ -3682,7 +3691,6 @@ async function driveAu07TraceWhyEntry(page) {
   ];
 }
 
-
 async function driveAu07PersistedTraceQuery(page) {
   const message = "这一轮请只聊林烬进入灵源矿区前的心理压力，不要写正文。";
   const beforeFrameCount = frames.length;
@@ -4267,7 +4275,8 @@ async function driveAu11QualityDiagnosisMessageEnvelope(page) {
     `AU11 reply_record.response_kind was not plain_text: ${replyRecord.response_kind}`,
   );
   assert(
-    typeof replyRecord.task_policy_version === "string" && replyRecord.task_policy_version.length > 0,
+    typeof replyRecord.task_policy_version === "string" &&
+      replyRecord.task_policy_version.length > 0,
     "AU11 reply_record did not record the AuthoringTask policy version",
   );
   assert(
@@ -4467,7 +4476,8 @@ async function driveAu11MissingWorkstatePolicy(page) {
     `AU11 missing WorkState reply_record.response_kind was not plain_text: ${replyRecord.response_kind}`,
   );
   assert(
-    typeof replyRecord.task_policy_version === "string" && replyRecord.task_policy_version.length > 0,
+    typeof replyRecord.task_policy_version === "string" &&
+      replyRecord.task_policy_version.length > 0,
     "AU11 missing WorkState reply_record did not record the AuthoringTask policy version",
   );
   assert(
@@ -4621,19 +4631,24 @@ async function driveAu09Au03SessionMemoryLayering(page) {
   await page.getByRole("button", { name: /^发送$/ }).click();
 
   const sentMessage = await waitForFrame(
-    (frame) => frame.direction === "sent" && frame.event === "user_message" && frame.body?.text === message,
+    (frame) =>
+      frame.direction === "sent" && frame.event === "user_message" && frame.body?.text === message,
     "No AU09/AU03 layering user_message websocket frame was sent",
     10_000,
   );
   const authorTurnId = sentMessage?.body?.turn_id;
   assert(authorTurnId, "No AU09/AU03 layering user_message websocket frame was sent");
-  assert(sentMessage.body?.session_id !== showRecord.session_id, "Author message went to the historical session");
+  assert(
+    sentMessage.body?.session_id !== showRecord.session_id,
+    "Author message went to the historical session",
+  );
 
   const turnFrame = await waitForFrame(
     (frame) =>
       frame.direction === "received" &&
       frame.event === "turn_result" &&
-      (frame.body?.turn_id === authorTurnId || frame.body?.agent_run?.parent_turn_ref === authorTurnId) &&
+      (frame.body?.turn_id === authorTurnId ||
+        frame.body?.agent_run?.parent_turn_ref === authorTurnId) &&
       frame.body?.trace_summary != null,
     "No bound turn_result with trace summary for AU09/AU03 session memory layering",
     90_000,
@@ -4643,15 +4658,24 @@ async function driveAu09Au03SessionMemoryLayering(page) {
   const sourceTypes = contextRefs.map((ref) => ref.source_type);
   assert(sourceTypes.includes("current_work"), "Trace context refs did not include current_work");
   assert(sourceTypes.includes("memory"), "Trace context refs did not include memory");
-  assert(!sourceTypes.includes("session_transcript"), "Retired session_transcript appeared in trace");
-  assert(!JSON.stringify(contextRefs).includes(historyToken), "Historical text appeared in trace sources");
+  assert(
+    !sourceTypes.includes("session_transcript"),
+    "Retired session_transcript appeared in trace",
+  );
+  assert(
+    !JSON.stringify(contextRefs).includes(historyToken),
+    "Historical text appeared in trace sources",
+  );
 
   const whyText = await openLatestWhyDialog(page);
   const uiState = await commonUiState(page, turnResult, sentMessage);
   assert(whyText.includes("当前作品背景"), "Why dialog did not show current work source");
   assert(whyText.includes("已确认设定"), "Why dialog did not show governed memory source");
   assert(!whyText.includes(historyToken), "Why dialog included historical session content");
-  assert(!/raw prompt|provider raw|hidden policy|debug|trace_|ctx_/i.test(whyText), "Why dialog exposed unsafe trace or prompt text");
+  assert(
+    !/raw prompt|provider raw|hidden policy|debug|trace_|ctx_/i.test(whyText),
+    "Why dialog exposed unsafe trace or prompt text",
+  );
 
   return [
     {
@@ -5017,7 +5041,10 @@ async function driveCandidateMultiturnContext(page) {
   const followupLlmCall = readLlmCallRecords().find(
     (record) => record.turn_id === followupTurnResult.turn_id,
   );
-  assert(followupLlmCall, "No provider prompt record was captured for the candidate context follow-up");
+  assert(
+    followupLlmCall,
+    "No provider prompt record was captured for the candidate context follow-up",
+  );
   const followupPromptText = llmCallPromptText(followupLlmCall);
   assert(
     followupPromptText.includes(nonce),
@@ -5143,8 +5170,7 @@ function isCandidateSemanticallyRelevantToCyberCultivation(candidate) {
 
 async function driveCapabilityGapHonestReply(page) {
   const beforeFrameCount = frames.length;
-  const gapMessage =
-    "把已有角色的叙事身份从配角改为主角。";
+  const gapMessage = "把已有角色的叙事身份从配角改为主角。";
   await page.locator(chatInputSelector).fill(gapMessage);
   await page.getByRole("button", { name: /^发送$/ }).click();
 
@@ -5175,7 +5201,10 @@ async function driveCapabilityGapHonestReply(page) {
     replyText.includes("没有修改已有角色主档案叙事身份的能力"),
     "Gap reply did not honestly admit the missing write capability",
   );
-  assert(visibleText.includes("没有修改已有角色主档案叙事身份的能力"), "Honest gap reply was not visible");
+  assert(
+    visibleText.includes("没有修改已有角色主档案叙事身份的能力"),
+    "Honest gap reply was not visible",
+  );
   assert(
     visibleText.includes("可以先讨论调整方案"),
     "Nearest-path guidance was not visible in the reply",
@@ -5189,8 +5218,14 @@ async function driveCapabilityGapHonestReply(page) {
     turnResult.truthfulness?.production_write_performed === false,
     "Capability gap turn claimed a production write",
   );
-  assert((turnResult.candidate_directions ?? []).length === 0, "Workflow guidance became a creative direction");
-  assert(!(turnResult.available_actions ?? []).some((a) => a.action_type === "choose_candidate"), "Workflow guidance received a direction action");
+  assert(
+    (turnResult.candidate_directions ?? []).length === 0,
+    "Workflow guidance became a creative direction",
+  );
+  assert(
+    !(turnResult.available_actions ?? []).some((a) => a.action_type === "choose_candidate"),
+    "Workflow guidance received a direction action",
+  );
   assert(!turnResult.tool_result, "Capability gap turn produced a tool result");
   assert(!turnResult.adoption_decision, "Capability gap turn produced an adoption decision");
   const framesAfter = frames.slice(beforeFrameCount);
@@ -5223,27 +5258,43 @@ async function seedLegacyAdoptionStatus(turnId, artifactId, group, canonicalStat
   assert(process.env.SLICE_VERIFY_PROVIDER === "slice_verify", "历史夹具只允许确定性验收环境");
   const partition = process.env.MIX_TEST_PARTITION ?? "";
   assert(/^[\w-]*$/.test(partition), "测试分区名不能包含路径");
-  const dbPath = path.join(process.env.NOVEL_TEST_DB_DIR ?? os.tmpdir(),
-    `ai_novel_studio_test${partition}.sqlite3`);
+  const dbPath = path.join(
+    process.env.NOVEL_TEST_DB_DIR ?? os.tmpdir(),
+    `ai_novel_studio_test${partition}.sqlite3`,
+  );
   assert(fs.existsSync(dbPath), "历史夹具找不到已启动的隔离测试库");
   const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(dbPath, { timeout: 5000 });
   try {
-    const rows = db.prepare("SELECT id, content FROM interactions WHERE turn_id = ? AND role = 'assistant'").all(turnId);
+    const rows = db
+      .prepare("SELECT id, content FROM interactions WHERE turn_id = ? AND role = 'assistant'")
+      .all(turnId);
     let changed = 0;
     for (const row of rows) {
       const content = JSON.parse(row.content);
-      const entry = content.turn_result?.adoption_state?.[group]?.find((item) => item.artifact_id === artifactId);
+      const entry = content.turn_result?.adoption_state?.[group]?.find(
+        (item) => item.artifact_id === artifactId,
+      );
       if (!entry) continue;
       assert(entry.adoption_status === canonicalStatus, "新写入的状态不是 canonical");
       entry.adoption_status = canonicalStatus.toLowerCase();
-      db.prepare("UPDATE interactions SET content = ? WHERE id = ?").run(JSON.stringify(content), row.id);
+      db.prepare("UPDATE interactions SET content = ? WHERE id = ?").run(
+        JSON.stringify(content),
+        row.id,
+      );
       changed++;
     }
     assert(changed === 1, `历史夹具应精确修改一条消息，实际 ${changed}`);
-    fs.appendFileSync(path.join(artifactDir, "legacy-adoption-fixtures.jsonl"),
-      JSON.stringify({ turn_id: turnId, artifact_id: artifactId, group,
-        written_status: canonicalStatus.toLowerCase(), changed }) + "\n");
+    fs.appendFileSync(
+      path.join(artifactDir, "legacy-adoption-fixtures.jsonl"),
+      JSON.stringify({
+        turn_id: turnId,
+        artifact_id: artifactId,
+        group,
+        written_status: canonicalStatus.toLowerCase(),
+        changed,
+      }) + "\n",
+    );
   } finally {
     db.close();
   }
@@ -5255,13 +5306,18 @@ async function driveQ3dMessageOutcomeRoundtrip(page) {
     const before = frames.length;
     await page.locator(chatInputSelector).fill(text);
     await page.getByRole("button", { name: /^发送$/ }).click();
-    const frame = await waitForNewFrame(before,
+    const frame = await waitForNewFrame(
+      before,
       (f) => f.direction === "received" && f.event === "turn_result",
-      "新消息没有收到 TurnResult", 120_000);
+      "新消息没有收到 TurnResult",
+      120_000,
+    );
     return frame.body;
   }
   async function reload() {
-    const response = page.waitForResponse((res) => res.url().endsWith("/sessions/resume") && res.ok());
+    const response = page.waitForResponse(
+      (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+    );
     await page.reload({ waitUntil: "commit" });
     await page.locator(chatInputSelector).waitFor();
     await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
@@ -5273,9 +5329,15 @@ async function driveQ3dMessageOutcomeRoundtrip(page) {
   assert(readonly.trace_summary?.production_write === false, "只读结果缺少明确的无写入证据");
   assert((readonly.adoption_state?.pending ?? []).length === 0, "只读结果不应创建待采纳内容");
   await reload();
-  assert((await page.locator("body").innerText()).includes(readonly.assistant_message.text), "刷新丢失只读结果");
+  assert(
+    (await page.locator("body").innerText()).includes(readonly.assistant_message.text),
+    "刷新丢失只读结果",
+  );
   const recalled = await send("读取结果回顾：刚才实际做了什么？");
-  assert(recalled.assistant_message.text.includes(readonly.assistant_message.text), "下一轮未消费实际读取结果");
+  assert(
+    recalled.assistant_message.text.includes(readonly.assistant_message.text),
+    "下一轮未消费实际读取结果",
+  );
 
   const nonce = randomUUID().replaceAll("-", "");
   const original = `先只记录这份资料，不要生成候选：主角李衡在灵气枯竭的都市里靠账单推演天机。来源标识${nonce}。`;
@@ -5283,7 +5345,10 @@ async function driveQ3dMessageOutcomeRoundtrip(page) {
   const sourceRef = received.turn_id;
   assert((received.adoption_state?.pending ?? []).length === 0, "资料输入不应直接创建候选");
   await reload();
-  assert((await page.locator("body").innerText()).split(nonce).length - 1 === 1, "输入恢复丢失或重复");
+  assert(
+    (await page.locator("body").innerText()).split(nonce).length - 1 === 1,
+    "输入恢复丢失或重复",
+  );
 
   const requested = await send("把上一条资料原文保存为作品设定。");
   const pending = requested.adoption_state?.pending?.[0];
@@ -5295,11 +5360,19 @@ async function driveQ3dMessageOutcomeRoundtrip(page) {
   assert(requested.truthfulness?.production_write_performed === false, "未采纳时不应写入");
   await seedLegacyAdoptionStatus(requested.turn_id, pending.artifact_id, "pending", "TENTATIVE");
   const pendingSnapshot = await reload();
-  const restoredPending = pendingSnapshot.pending_adoptions.find((entry) => entry.artifact_id === pending.artifact_id);
+  const restoredPending = pendingSnapshot.pending_adoptions.find(
+    (entry) => entry.artifact_id === pending.artifact_id,
+  );
   assert(restoredPending?.adoption_status === "TENTATIVE", "旧小写候选恢复未归一");
   assert(restoredPending.payload.items[0].body === original, "历史状态转换改写了作者原文");
-  fs.writeFileSync(path.join(artifactDir, "legacy-pending-resume.json"), JSON.stringify(pendingSnapshot, null, 2));
-  assert((await page.getByRole("button", { name: acceptDraftButtonPattern }).count()) > 0, "刷新丢失待采纳入口");
+  fs.writeFileSync(
+    path.join(artifactDir, "legacy-pending-resume.json"),
+    JSON.stringify(pendingSnapshot, null, 2),
+  );
+  assert(
+    (await page.getByRole("button", { name: acceptDraftButtonPattern }).count()) > 0,
+    "刷新丢失待采纳入口",
+  );
 
   const duplicate = await send("把上一条资料原文保存为作品设定。");
   assert((duplicate.adoption_state?.pending ?? []).length === 0, "重复请求创建了第二份候选");
@@ -5308,33 +5381,72 @@ async function driveQ3dMessageOutcomeRoundtrip(page) {
 
   const before = frames.length;
   await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
-  const adoptedFrame = await waitForNewFrame(before,
-    (f) => f.event === "turn_result" && f.body?.truthfulness?.artifact_adopted === true &&
-      (f.body?.adoption_state?.resolved ?? []).some((entry) => entry.artifact_id === pending.artifact_id),
-    "未收到作者采纳结果", 120_000);
-  const adopted = adoptedFrame.body.adoption_state.resolved.find((entry) => entry.artifact_id === pending.artifact_id);
+  const adoptedFrame = await waitForNewFrame(
+    before,
+    (f) =>
+      f.event === "turn_result" &&
+      f.body?.truthfulness?.artifact_adopted === true &&
+      (f.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === pending.artifact_id,
+      ),
+    "未收到作者采纳结果",
+    120_000,
+  );
+  const adopted = adoptedFrame.body.adoption_state.resolved.find(
+    (entry) => entry.artifact_id === pending.artifact_id,
+  );
   assert(adopted.adoption_status === "ACCEPTED", "采纳回执未输出 canonical 状态");
-  await seedLegacyAdoptionStatus(adoptedFrame.body.turn_id, pending.artifact_id, "resolved", "ACCEPTED");
+  await seedLegacyAdoptionStatus(
+    adoptedFrame.body.turn_id,
+    pending.artifact_id,
+    "resolved",
+    "ACCEPTED",
+  );
   const adoptedSnapshot = await reload();
-  assert(adoptedSnapshot.resolved_adoptions.some((entry) => entry.artifact_id === pending.artifact_id && entry.adoption_status === "ACCEPTED"), "历史采纳回执未归一");
-  assert(!adoptedSnapshot.pending_adoptions.some((entry) => entry.artifact_id === pending.artifact_id), "恢复后已采纳产物重入待采纳");
-  fs.writeFileSync(path.join(artifactDir, "legacy-adopted-resume.json"), JSON.stringify(adoptedSnapshot, null, 2));
+  assert(
+    adoptedSnapshot.resolved_adoptions.some(
+      (entry) => entry.artifact_id === pending.artifact_id && entry.adoption_status === "ACCEPTED",
+    ),
+    "历史采纳回执未归一",
+  );
+  assert(
+    !adoptedSnapshot.pending_adoptions.some((entry) => entry.artifact_id === pending.artifact_id),
+    "恢复后已采纳产物重入待采纳",
+  );
+  fs.writeFileSync(
+    path.join(artifactDir, "legacy-adopted-resume.json"),
+    JSON.stringify(adoptedSnapshot, null, 2),
+  );
   const afterDuplicate = await send("把上一条资料原文保存为作品设定。");
   assert((afterDuplicate.adoption_state?.pending ?? []).length === 0, "已采纳来源被重复物化");
   const afterAdoption = await send("资料处理进度怎么样？");
   assert(afterAdoption.assistant_message.text.includes("已经采纳入档"), "下一轮未消费真实采纳结果");
 
-  return { slice_id: "q3d-message-outcome-roundtrip", source_turn_id: sourceRef,
-    materialization_turn_id: requested.turn_id, artifact_id: pending.artifact_id,
-    readonly_result_restored: true, readonly_result_recalled: true, author_input_restored_once: true,
-    historical_author_bytes_intact: true, duplicate_candidate_prevented: true,
-    pending_state_honest: true, adopted_state_recalled: true,
-    canonical_adoption_status: true, legacy_pending_restored: true, legacy_accepted_restored: true, nonce };
+  return {
+    slice_id: "q3d-message-outcome-roundtrip",
+    source_turn_id: sourceRef,
+    materialization_turn_id: requested.turn_id,
+    artifact_id: pending.artifact_id,
+    readonly_result_restored: true,
+    readonly_result_recalled: true,
+    author_input_restored_once: true,
+    historical_author_bytes_intact: true,
+    duplicate_candidate_prevented: true,
+    pending_state_honest: true,
+    adopted_state_recalled: true,
+    canonical_adoption_status: true,
+    legacy_pending_restored: true,
+    legacy_accepted_restored: true,
+    nonce,
+  };
 }
 
 // Q1b：真实模型复验；只读取隔离库作为证据，不注入消息、结果或业务状态。
 async function driveQ1bLiveArchiveRoundtrip(page) {
-  assert(["lmstudio", "deepseek"].includes(process.env.SLICE_VERIFY_PROVIDER), "Q1b 必须使用真实模型");
+  assert(
+    ["lmstudio", "deepseek"].includes(process.env.SLICE_VERIFY_PROVIDER),
+    "Q1b 必须使用真实模型",
+  );
   const turnResults = [];
   const nonce = randomUUID().replaceAll("-", "");
   const original = `先只把下面这份资料记在本次对话中，暂时不要生成候选，也不要存档：主角沈砚在雨港经营旧书铺，能听见失落书页留下的声音。他要寻找失踪的姐姐，但每次追索都会遗忘一段童年记忆。资料校验标识：${nonce}。`;
@@ -5348,18 +5460,33 @@ async function driveQ1bLiveArchiveRoundtrip(page) {
     const frontendStopped = new Promise((_, reject) => {
       healthTimer = setInterval(() => {
         fetch(baseUrl, { signal: AbortSignal.timeout(5_000) })
-          .then((response) => { if (!response.ok) throw new Error(`HTTP ${response.status}`); })
+          .then((response) => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          })
           .catch(() => reject(new Error(`${phase}: 验收前端服务已退出或不可达`)));
       }, 10_000);
     });
     let result;
     try {
-      result = (await Promise.race([waitForNewFrame(before,
-        (frame) => frame.direction === "received" && frame.event === "turn_result",
-        `${phase} 未返回 TurnResult`, 900_000), frontendStopped])).body;
-    } finally { clearInterval(healthTimer); }
+      result = (
+        await Promise.race([
+          waitForNewFrame(
+            before,
+            (frame) => frame.direction === "received" && frame.event === "turn_result",
+            `${phase} 未返回 TurnResult`,
+            900_000,
+          ),
+          frontendStopped,
+        ])
+      ).body;
+    } finally {
+      clearInterval(healthTimer);
+    }
     turnResults.push({ phase, input: text, result });
-    fs.writeFileSync(path.join(artifactDir, "live-turn-results.json"), JSON.stringify(turnResults, null, 2));
+    fs.writeFileSync(
+      path.join(artifactDir, "live-turn-results.json"),
+      JSON.stringify(turnResults, null, 2),
+    );
     await page.screenshot({ path: path.join(artifactDir, `${phase}.png`), fullPage: true });
     assert(!["failed", "cancelled"].includes(result.status), `${phase} 返回失败状态`);
     console.log(`[q1b] ${phase}: 已收到 ${result.turn_id}`);
@@ -5367,7 +5494,9 @@ async function driveQ1bLiveArchiveRoundtrip(page) {
   }
 
   async function reload() {
-    const response = page.waitForResponse((res) => res.url().endsWith("/sessions/resume") && res.ok());
+    const response = page.waitForResponse(
+      (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+    );
     await page.reload({ waitUntil: "commit" });
     await page.locator(chatInputSelector).waitFor();
     await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
@@ -5383,61 +5512,131 @@ async function driveQ1bLiveArchiveRoundtrip(page) {
     const { DatabaseSync } = await import("node:sqlite");
     const db = new DatabaseSync(dbPath, { readOnly: true, timeout: 5000 });
     try {
-      return db.prepare("SELECT content, status, source_type FROM memory_items WHERE instr(content, ?) > 0").all(nonce);
-    } finally { db.close(); }
+      return db
+        .prepare(
+          "SELECT content, status, source_type FROM memory_items WHERE instr(content, ?) > 0",
+        )
+        .all(nonce);
+    } finally {
+      db.close();
+    }
   }
 
   const source = await send(original, "01-source");
   assert((source.adoption_state?.pending ?? []).length === 0, "记录阶段擅自生成候选");
   assert((source.candidate_directions ?? []).length === 0, "仅记录阶段仍生成了创作方向");
-  assert(!(source.available_actions ?? []).some((a) => a.action_type === "choose_candidate"), "仅记录阶段仍授予方向动作");
-  assert(await page.getByRole("button", { name: "设为后续方向", exact: true }).count() === 0, "仅记录页面仍出现方向采用入口");
+  assert(
+    !(source.available_actions ?? []).some((a) => a.action_type === "choose_candidate"),
+    "仅记录阶段仍授予方向动作",
+  );
+  assert(
+    (await page.getByRole("button", { name: "设为后续方向", exact: true }).count()) === 0,
+    "仅记录页面仍出现方向采用入口",
+  );
   await reload();
   const saved = await send("把上一条资料原文存档为作品设定。", "02-save-request");
   const pending = saved.adoption_state?.pending ?? [];
   assert((saved.candidate_directions ?? []).length === 0, "存档操作建议被装入创作方向");
-  assert(!(saved.available_actions ?? []).some((a) => a.action_type === "choose_candidate"), "存档流程建议仍获得方向动作");
+  assert(
+    !(saved.available_actions ?? []).some((a) => a.action_type === "choose_candidate"),
+    "存档流程建议仍获得方向动作",
+  );
   assert(pending.length === 1, "跨轮存档没有返回唯一待采纳原文");
   const candidate = pending[0];
   assert(candidate.adoption_status === "TENTATIVE", "候选状态不是 TENTATIVE");
   assert(candidate.payload?.items?.[0]?.body === original, "候选改写或引用错作者原文");
-  assert(candidate.payload.items[0].provider_call_ref === `author_input:${source.turn_id}`, "跨轮来源未绑定资料输入");
+  assert(
+    candidate.payload.items[0].provider_call_ref === `author_input:${source.turn_id}`,
+    "跨轮来源未绑定资料输入",
+  );
   assert(saved.truthfulness?.production_write_performed === false, "存档请求未经采纳即宣称写入");
   assert((await facts()).length === 0, "采纳前已有作品事实写入");
   const pendingSnapshot = await reload();
-  assert(pendingSnapshot.pending_adoptions.some((entry) => entry.artifact_id === candidate.artifact_id), "刷新丢失候选");
+  assert(
+    pendingSnapshot.pending_adoptions.some((entry) => entry.artifact_id === candidate.artifact_id),
+    "刷新丢失候选",
+  );
   const before = await send("现在已经存到作品档案里了吗？请按实际状态回答。", "03-before-adoption");
   assert((before.adoption_state?.pending ?? []).length === 0, "状态追问重复生成候选");
   assert((await facts()).length === 0, "状态追问越权写入作品事实");
 
   const start = frames.length;
   await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
-  const adopted = (await waitForNewFrame(start,
-    (frame) => frame.event === "turn_result" && frame.body?.adoption_state?.resolved?.some(
-      (entry) => entry.artifact_id === candidate.artifact_id && entry.adoption_status === "ACCEPTED"),
-    "作者采纳没有成功回执", 120_000)).body;
+  const adopted = (
+    await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.event === "turn_result" &&
+        frame.body?.adoption_state?.resolved?.some(
+          (entry) =>
+            entry.artifact_id === candidate.artifact_id && entry.adoption_status === "ACCEPTED",
+        ),
+      "作者采纳没有成功回执",
+      120_000,
+    )
+  ).body;
   const afterFacts = await facts();
-  assert(afterFacts.length === 1 && afterFacts[0].status === "CONFIRMED", "采纳后未形成唯一 CONFIRMED 作品事实");
+  assert(
+    afterFacts.length === 1 && afterFacts[0].status === "CONFIRMED",
+    "采纳后未形成唯一 CONFIRMED 作品事实",
+  );
   assert(afterFacts[0].content.includes(original), "已入档事实未保留作者原文");
   const adoptedSnapshot = await reload();
-  assert(!adoptedSnapshot.pending_adoptions.some((entry) => entry.artifact_id === candidate.artifact_id), "已采纳候选刷新后重新待采纳");
-  const after = await send("刚才那份资料现在保存了吗？作者还需要做什么？请依据实际结果回答。", "04-after-adoption");
+  assert(
+    !adoptedSnapshot.pending_adoptions.some((entry) => entry.artifact_id === candidate.artifact_id),
+    "已采纳候选刷新后重新待采纳",
+  );
+  const after = await send(
+    "刚才那份资料现在保存了吗？作者还需要做什么？请依据实际结果回答。",
+    "04-after-adoption",
+  );
   assert((after.adoption_state?.pending ?? []).length === 0, "已采纳后的状态追问再次创建候选");
   assert((await facts()).length === 1, "采纳结果追问重复写入作品事实");
-  fs.writeFileSync(path.join(artifactDir, "live-adoption-evidence.json"), JSON.stringify({
-    nonce, original, adopted, facts: afterFacts, pendingSnapshot, adoptedSnapshot,
-    before_reply: before.assistant_message?.text, after_reply: after.assistant_message?.text,
-  }, null, 2));
-  return [{ event: "slice_verify.ui_state.done", slice_id: "q1b-live-archive-roundtrip",
-    turn_ids: turnResults.map(({ result }) => result.turn_id), source_turn_id: source.turn_id,
-    materialization_turn_id: saved.turn_id, artifact_id: candidate.artifact_id,
-    author_bytes_intact: true, no_write_before_adoption: true, canonical_state_restored: true,
-    record_only_has_no_candidates: true, workflow_has_no_direction_actions: true,
-    confirmed_fact_count: afterFacts.length, before_reply: before.assistant_message?.text,
-    after_reply: after.assistant_message?.text }];
+  fs.writeFileSync(
+    path.join(artifactDir, "live-adoption-evidence.json"),
+    JSON.stringify(
+      {
+        nonce,
+        original,
+        adopted,
+        facts: afterFacts,
+        pendingSnapshot,
+        adoptedSnapshot,
+        before_reply: before.assistant_message?.text,
+        after_reply: after.assistant_message?.text,
+      },
+      null,
+      2,
+    ),
+  );
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "q1b-live-archive-roundtrip",
+      turn_ids: turnResults.map(({ result }) => result.turn_id),
+      source_turn_id: source.turn_id,
+      materialization_turn_id: saved.turn_id,
+      artifact_id: candidate.artifact_id,
+      author_bytes_intact: true,
+      no_write_before_adoption: true,
+      canonical_state_restored: true,
+      record_only_has_no_candidates: true,
+      workflow_has_no_direction_actions: true,
+      confirmed_fact_count: afterFacts.length,
+      before_reply: before.assistant_message?.text,
+      after_reply: after.assistant_message?.text,
+    },
+  ];
 }
 
-const deliveryFault = { active: false, rejectNext: false, turnId: null, wire: [], sockets: [], dropped: [] };
+const deliveryFault = {
+  active: false,
+  rejectNext: false,
+  turnId: null,
+  wire: [],
+  sockets: [],
+  dropped: [],
+};
 
 async function installDeliveryFaultProxy(page) {
   await page.routeWebSocket(/\/socket\/websocket/, (client) => {
@@ -5447,7 +5646,10 @@ async function installDeliveryFaultProxy(page) {
     client.onMessage((message) => {
       const data = JSON.parse(String(message));
       deliveryFault.wire.push({ direction: "sent", data });
-      if (data[3] === "user_message" || (data[3] === "agent_command" && data[4].command === "steer")) {
+      if (
+        data[3] === "user_message" ||
+        (data[3] === "agent_command" && data[4].command === "steer")
+      ) {
         submissions.set(data[1], data[4].turn_id);
         if (deliveryFault.active && !deliveryFault.turnId) deliveryFault.turnId = data[4].turn_id;
       }
@@ -5460,9 +5662,10 @@ async function installDeliveryFaultProxy(page) {
     });
     server.onMessage((message) => {
       const data = JSON.parse(String(message));
-      const blocked = deliveryFault.active && (
-        (data[3] === "phx_reply" && submissions.get(data[1]) === deliveryFault.turnId) ||
-        ["agent_event", "agent_run_state", "turn_result"].includes(data[3]));
+      const blocked =
+        deliveryFault.active &&
+        ((data[3] === "phx_reply" && submissions.get(data[1]) === deliveryFault.turnId) ||
+          ["agent_event", "agent_run_state", "turn_result"].includes(data[3]));
       deliveryFault.wire.push({ direction: "received", data, dropped: blocked });
       if (blocked) deliveryFault.dropped.push({ event: data[3], turn_id: deliveryFault.turnId });
       else client.send(message);
@@ -5479,15 +5682,30 @@ async function driveMessageDeliveryRecovery(page) {
     // 与 config/test.exs 相同的默认路径：NOVEL_TEST_DB_DIR 未显式设置时落在系统
     // 临时目录；使标准 quality_accept 命令无需额外 env 也能核对持久事实。
     const dbDir = process.env.NOVEL_TEST_DB_DIR ?? os.tmpdir();
-    const db = new DatabaseSync(path.join(dbDir, `ai_novel_studio_test${process.env.MIX_TEST_PARTITION ?? ""}.sqlite3`), { readOnly: true });
+    const db = new DatabaseSync(
+      path.join(dbDir, `ai_novel_studio_test${process.env.MIX_TEST_PARTITION ?? ""}.sqlite3`),
+      { readOnly: true },
+    );
     try {
-      const inputs = db.prepare("SELECT content, workspace_id, session_id FROM interactions WHERE role='user' AND turn_id=?").all(turnId);
-      const runs = db.prepare("SELECT id, status FROM agent_runs WHERE parent_turn_ref=?").all(turnId);
+      const inputs = db
+        .prepare(
+          "SELECT content, workspace_id, session_id FROM interactions WHERE role='user' AND turn_id=?",
+        )
+        .all(turnId);
+      const runs = db
+        .prepare("SELECT id, status FROM agent_runs WHERE parent_turn_ref=?")
+        .all(turnId);
       return { inputs, runs };
-    } finally { db.close(); }
+    } finally {
+      db.close();
+    }
   }
   async function waitUntil(fn, message) {
-    for (let n = 0; n < 240; n++) { const value = await fn(); if (value) return value; await sleep(250); }
+    for (let n = 0; n < 240; n++) {
+      const value = await fn();
+      if (value) return value;
+      await sleep(250);
+    }
     throw new Error(message);
   }
   async function recover(text, expected, method) {
@@ -5505,12 +5723,34 @@ async function driveMessageDeliveryRecovery(page) {
     deliveryFault.active = false;
     if (method === "reload") await page.reload({ waitUntil: "commit" });
     if (method === "disconnect") {
-      await deliveryFault.sockets.at(-1).client.close({ code: 1012, reason: "external delivery interruption" });
-      await deliveryFault.sockets.at(-1).server.close().catch(() => {});
+      await deliveryFault.sockets
+        .at(-1)
+        .client.close({ code: 1012, reason: "external delivery interruption" });
+      await deliveryFault.sockets
+        .at(-1)
+        .server.close()
+        .catch(() => {});
     }
     if (method === "restart") await service.restart();
-    await waitUntil(() => deliveryFault.wire.filter((f) => f.direction === "sent" && f.data[3] === "user_message" && f.data[4].turn_id === turnId).length >= 2, "重连/刷新未重传原消息身份");
-    const receipt = await waitUntil(() => deliveryFault.wire.findLast((f) => f.direction === "received" && !f.dropped && f.data[3] === "phx_reply" && f.data[4]?.response?.turn_id === turnId)?.data[4].response, "重传没有返回事实回执");
+    await waitUntil(
+      () =>
+        deliveryFault.wire.filter(
+          (f) =>
+            f.direction === "sent" && f.data[3] === "user_message" && f.data[4].turn_id === turnId,
+        ).length >= 2,
+      "重连/刷新未重传原消息身份",
+    );
+    const receipt = await waitUntil(
+      () =>
+        deliveryFault.wire.findLast(
+          (f) =>
+            f.direction === "received" &&
+            !f.dropped &&
+            f.data[3] === "phx_reply" &&
+            f.data[4]?.response?.turn_id === turnId,
+        )?.data[4].response,
+      "重传没有返回事实回执",
+    );
     assert(receipt.run_id === before.runs[0].id, "重传启动了另一个运行");
     if (method === "restart") {
       assert(receipt.runtime_live === false, "已失活运行被回执伪装成活进程");
@@ -5519,18 +5759,39 @@ async function driveMessageDeliveryRecovery(page) {
       assert(receipt.agent_run_state?.status === expected, "终态重传回执被改成运行中");
       assert(receipt.turn_results.length > 0, "终态回执丢失已落盘结果");
     }
-    if (method === "disconnect") await waitUntil(async () => (await database(turnId)).runs[0]?.status === "completed", "重连后原运行未完成");
-    await page.waitForFunction(() => !Object.keys(localStorage).some((key) => key.startsWith("ans.userMessage.")), undefined, { timeout: 30_000 });
+    if (method === "disconnect")
+      await waitUntil(
+        async () => (await database(turnId)).runs[0]?.status === "completed",
+        "重连后原运行未完成",
+      );
+    await page.waitForFunction(
+      () => !Object.keys(localStorage).some((key) => key.startsWith("ans.userMessage.")),
+      undefined,
+      { timeout: 30_000 },
+    );
     const after = await database(turnId);
     assert(after.inputs.length === 1 && after.runs.length === 1, "重传产生重复输入或运行");
     assert(JSON.parse(after.inputs[0].content).text === text, "重传改变作者原文");
-    assert(await page.getByText(text, { exact: true }).count() === 1, "恢复后原输入重复显示");
-    const proof = { turn_id: turnId, run_id: receipt.run_id, expected_status: expected,
-      runtime_live: receipt.runtime_live, receipt_status: receipt.agent_run_state?.status, method,
-      input_count: after.inputs.length, run_count: after.runs.length };
+    assert((await page.getByText(text, { exact: true }).count()) === 1, "恢复后原输入重复显示");
+    const proof = {
+      turn_id: turnId,
+      run_id: receipt.run_id,
+      expected_status: expected,
+      runtime_live: receipt.runtime_live,
+      receipt_status: receipt.agent_run_state?.status,
+      method,
+      input_count: after.inputs.length,
+      run_count: after.runs.length,
+    };
     cases.push(proof);
-    fs.writeFileSync(path.join(artifactDir, `${method}-${expected}.json`), JSON.stringify({ before, after, receipt }, null, 2));
-    await page.screenshot({ path: path.join(artifactDir, `${method}-${expected}.png`), fullPage: true });
+    fs.writeFileSync(
+      path.join(artifactDir, `${method}-${expected}.json`),
+      JSON.stringify({ before, after, receipt }, null, 2),
+    );
+    await page.screenshot({
+      path: path.join(artifactDir, `${method}-${expected}.png`),
+      fullPage: true,
+    });
     return proof;
   }
   try {
@@ -5542,18 +5803,29 @@ async function driveMessageDeliveryRecovery(page) {
     const sentCount = deliveryFault.wire.length;
     await page.locator(chatInputSelector).fill(text);
     await page.getByRole("button", { name: /^发送$/ }).click();
-    const fresh = await waitUntil(() => deliveryFault.wire.slice(sentCount).find((f) => f.direction === "sent" && f.data[3] === "user_message")?.data[4], "作者新发送没有上 wire");
+    const fresh = await waitUntil(
+      () =>
+        deliveryFault.wire
+          .slice(sentCount)
+          .find((f) => f.direction === "sent" && f.data[3] === "user_message")?.data[4],
+      "作者新发送没有上 wire",
+    );
     assert(fresh.turn_id !== cases[0].turn_id, "作者主动新发被当作旧消息重传");
-    await waitUntil(async () => (await database(fresh.turn_id)).runs[0]?.status === "completed", "新请求未独立完成");
-    await page.waitForFunction(() => !Object.keys(localStorage).some((key) => key.startsWith("ans.userMessage.")));
+    await waitUntil(
+      async () => (await database(fresh.turn_id)).runs[0]?.status === "completed",
+      "新请求未独立完成",
+    );
+    await page.waitForFunction(
+      () => !Object.keys(localStorage).some((key) => key.startsWith("ans.userMessage.")),
+    );
     // 引导也是用户输入：丢失命令回执后刷新，不得再次推进目标版本。
     // B31 CP3（Lead 裁决 Option A）：Q3D 只验 steer 投递恢复；显式问题回复归
     // agent-awaiting-author-* 场景。这里用 plan-exhaust awaiting（无 open
     // author_question），主输入保持「发送调整」steer 语义。
     const awaitingStart = frames.length;
-    await page.locator(chatInputSelector).fill(
-      `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，UA01PLANEXHAUST-${nonce}`,
-    );
+    await page
+      .locator(chatInputSelector)
+      .fill(`先读完第01章正文，再调整章节大纲，最后更新主角当前状态，UA01PLANEXHAUST-${nonce}`);
     await page.getByRole("button", { name: /^发送$/ }).click();
     const awaitingEvent = await waitForNewFrame(
       awaitingStart,
@@ -5564,14 +5836,16 @@ async function driveMessageDeliveryRecovery(page) {
       "未进入计划耗尽等待补充状态",
       180_000,
     );
-    const awaiting = (await waitForNewFrame(
-      awaitingStart,
-      (f) =>
-        f.event === "agent_run_state" &&
-        f.body?.status === "awaiting_author" &&
-        f.body?.run_id === awaitingEvent.body?.run_ref,
-      "未进入等待补充状态",
-    )).body;
+    const awaiting = (
+      await waitForNewFrame(
+        awaitingStart,
+        (f) =>
+          f.event === "agent_run_state" &&
+          f.body?.status === "awaiting_author" &&
+          f.body?.run_id === awaitingEvent.body?.run_ref,
+        "未进入等待补充状态",
+      )
+    ).body;
     assert(
       (await page.getByRole("button", { name: "回复此问题", exact: true }).count()) === 0,
       "plan-exhaust awaiting 不应出现显式问题卡（Q3D 仅验 steer 投递恢复）",
@@ -5598,30 +5872,70 @@ async function driveMessageDeliveryRecovery(page) {
     await page.getByRole("button", { name: /^发送调整$/ }).click();
     const steerId = await waitUntil(() => deliveryFault.turnId, "引导未携带稳定身份");
     const steerRoot = awaiting.parent_turn_ref;
-    await waitUntil(async () => (await database(steerRoot)).runs[0]?.status === "completed", "引导后的运行未完成");
+    await waitUntil(
+      async () => (await database(steerRoot)).runs[0]?.status === "completed",
+      "引导后的运行未完成",
+    );
     deliveryFault.active = false;
     await page.reload({ waitUntil: "commit" });
-    const steerReceipt = await waitUntil(() => deliveryFault.wire.findLast((f) => f.direction === "received" && !f.dropped && f.data[3] === "phx_reply" && f.data[4]?.response?.turn_id === steerId)?.data[4].response, "刷新后未核对原引导消息");
-    assert(steerReceipt.run_id === awaiting.run_id && steerReceipt.goal_version === 2 && steerReceipt.agent_run_state?.goal?.version === 2, "引导重传重复推进目标版本");
+    const steerReceipt = await waitUntil(
+      () =>
+        deliveryFault.wire.findLast(
+          (f) =>
+            f.direction === "received" &&
+            !f.dropped &&
+            f.data[3] === "phx_reply" &&
+            f.data[4]?.response?.turn_id === steerId,
+        )?.data[4].response,
+      "刷新后未核对原引导消息",
+    );
+    assert(
+      steerReceipt.run_id === awaiting.run_id &&
+        steerReceipt.goal_version === 2 &&
+        steerReceipt.agent_run_state?.goal?.version === 2,
+      "引导重传重复推进目标版本",
+    );
     assert(steerReceipt.agent_run_state.status === "completed", "引导终态被改成运行中");
-    assert(await page.getByText(steerText, { exact: true }).count() === 1, "引导原文恢复后重复显示");
-    const restoredResponse = await fetch(`${baseUrl}/api/works/${steerReceipt.agent_run_state.work_id}/sessions/resume`);
+    assert(
+      (await page.getByText(steerText, { exact: true }).count()) === 1,
+      "引导原文恢复后重复显示",
+    );
+    const restoredResponse = await fetch(
+      `${baseUrl}/api/works/${steerReceipt.agent_run_state.work_id}/sessions/resume`,
+    );
     const restoredConversation = await restoredResponse.json();
     const assistantCounts = new Map();
-    for (const entry of restoredConversation.transcript.filter((entry) => entry.role === "assistant" && entry.text)) {
+    for (const entry of restoredConversation.transcript.filter(
+      (entry) => entry.role === "assistant" && entry.text,
+    )) {
       assistantCounts.set(entry.text, (assistantCounts.get(entry.text) ?? 0) + 1);
     }
     for (const [text, expectedCount] of assistantCounts) {
       const matches = page.getByText(text, { exact: true });
       let visible = 0;
-      for (let i = 0; i < await matches.count(); i++) if (await matches.nth(i).isVisible()) visible++;
-      assert(visible === expectedCount, `回复重放数量与持久记录不一致：${visible}/${expectedCount}`);
+      for (let i = 0; i < (await matches.count()); i++)
+        if (await matches.nth(i).isVisible()) visible++;
+      assert(
+        visible === expectedCount,
+        `回复重放数量与持久记录不一致：${visible}/${expectedCount}`,
+      );
     }
-    fs.writeFileSync(path.join(artifactDir, "steer-restored-snapshot.json"), JSON.stringify(restoredConversation, null, 2));
-    const steerRequests = deliveryFault.wire.filter((f) => f.direction === "sent" && f.data[3] === "agent_command" && f.data[4].turn_id === steerId);
+    fs.writeFileSync(
+      path.join(artifactDir, "steer-restored-snapshot.json"),
+      JSON.stringify(restoredConversation, null, 2),
+    );
+    const steerRequests = deliveryFault.wire.filter(
+      (f) =>
+        f.direction === "sent" && f.data[3] === "agent_command" && f.data[4].turn_id === steerId,
+    );
     assert(steerRequests.length >= 2, "没有实际重传引导命令");
-    fs.writeFileSync(path.join(artifactDir, "steer-delivery.json"), JSON.stringify({ requests: steerRequests, receipt: steerReceipt }, null, 2));
-    await page.waitForFunction(() => !Object.keys(localStorage).some((key) => key.startsWith("ans.userMessage.")));
+    fs.writeFileSync(
+      path.join(artifactDir, "steer-delivery.json"),
+      JSON.stringify({ requests: steerRequests, receipt: steerReceipt }, null, 2),
+    );
+    await page.waitForFunction(
+      () => !Object.keys(localStorage).some((key) => key.startsWith("ans.userMessage.")),
+    );
     await recover(`SU02SLOW${Date.now()}：请回一句收到，进程中断 ${nonce}。`, "running", "restart");
     // 外部破坏一次作用域，让真实服务拒绝；客户端应留存原文且停止自动投递。
     deliveryFault.rejectNext = true;
@@ -5629,24 +5943,79 @@ async function driveMessageDeliveryRecovery(page) {
     const rejectedStart = deliveryFault.wire.length;
     await page.locator(chatInputSelector).fill(rejectedText);
     await page.getByRole("button", { name: /^发送$/ }).click();
-    const rejectedId = await waitUntil(() => deliveryFault.wire.slice(rejectedStart).find((f) => f.direction === "sent" && f.data[3] === "user_message")?.data[4].turn_id, "拒绝场景未发送消息");
-    await page.waitForFunction((id) => Object.keys(localStorage).some((key) => key.endsWith(id) && JSON.parse(localStorage.getItem(key)).delivery_status === "rejected"), rejectedId);
+    const rejectedId = await waitUntil(
+      () =>
+        deliveryFault.wire
+          .slice(rejectedStart)
+          .find((f) => f.direction === "sent" && f.data[3] === "user_message")?.data[4].turn_id,
+      "拒绝场景未发送消息",
+    );
+    await page.waitForFunction(
+      (id) =>
+        Object.keys(localStorage).some(
+          (key) =>
+            key.endsWith(id) &&
+            JSON.parse(localStorage.getItem(key)).delivery_status === "rejected",
+        ),
+      rejectedId,
+    );
     await page.reload({ waitUntil: "commit" });
-    await page.getByText("有消息未被接受，原文已保留；系统不会自动重试这些消息，请修改后重新发送。", { exact: true }).waitFor();
-    assert(await page.getByText(rejectedText, { exact: true }).count() === 1, "明确拒绝的原文刷新后丢失或重复");
-    assert(deliveryFault.wire.filter((f) => f.direction === "sent" && f.data[3] === "user_message" && f.data[4].turn_id === rejectedId).length === 1, "被明确拒绝的消息被自动重试");
+    await page
+      .getByText("有消息未被接受，原文已保留；系统不会自动重试这些消息，请修改后重新发送。", {
+        exact: true,
+      })
+      .waitFor();
+    assert(
+      (await page.getByText(rejectedText, { exact: true }).count()) === 1,
+      "明确拒绝的原文刷新后丢失或重复",
+    );
+    assert(
+      deliveryFault.wire.filter(
+        (f) =>
+          f.direction === "sent" &&
+          f.data[3] === "user_message" &&
+          f.data[4].turn_id === rejectedId,
+      ).length === 1,
+      "被明确拒绝的消息被自动重试",
+    );
     const rejectedFacts = await database(rejectedId);
-    assert(rejectedFacts.inputs.length === 0 && rejectedFacts.runs.length === 0, "作用域非法的消息进入了业务运行");
-    fs.writeFileSync(path.join(artifactDir, "rejected-retained.json"), JSON.stringify({ turn_id: rejectedId, facts: rejectedFacts }, null, 2));
-    fs.writeFileSync(path.join(artifactDir, "delivery-wire.json"), JSON.stringify(deliveryFault.wire, null, 2));
-    return [{ event: "slice_verify.ui_state.done", slice_id: "q3d-message-delivery-recovery",
-      turn_id: cases[0].turn_id, turn_ids: cases.map((c) => c.turn_id), cases,
-      dropped_frame_count: deliveryFault.dropped.length, fresh_message_id: fresh.turn_id,
-      immutable_inputs: true, one_run_per_message: true, pending_deliveries_cleared: true,
-      rejected_original_retained: true, rejected_not_retried: true,
-      steer_submission_id: steerId, steer_run_id: awaiting.run_id, steer_goal_version: steerReceipt.goal_version,
-      steer_retransmission_count: steerRequests.length, steer_input_restored_once: true, assistant_replay_deduplicated: true }];
-  } finally { await service.stopRestarted(); }
+    assert(
+      rejectedFacts.inputs.length === 0 && rejectedFacts.runs.length === 0,
+      "作用域非法的消息进入了业务运行",
+    );
+    fs.writeFileSync(
+      path.join(artifactDir, "rejected-retained.json"),
+      JSON.stringify({ turn_id: rejectedId, facts: rejectedFacts }, null, 2),
+    );
+    fs.writeFileSync(
+      path.join(artifactDir, "delivery-wire.json"),
+      JSON.stringify(deliveryFault.wire, null, 2),
+    );
+    return [
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "q3d-message-delivery-recovery",
+        turn_id: cases[0].turn_id,
+        turn_ids: cases.map((c) => c.turn_id),
+        cases,
+        dropped_frame_count: deliveryFault.dropped.length,
+        fresh_message_id: fresh.turn_id,
+        immutable_inputs: true,
+        one_run_per_message: true,
+        pending_deliveries_cleared: true,
+        rejected_original_retained: true,
+        rejected_not_retried: true,
+        steer_submission_id: steerId,
+        steer_run_id: awaiting.run_id,
+        steer_goal_version: steerReceipt.goal_version,
+        steer_retransmission_count: steerRequests.length,
+        steer_input_restored_once: true,
+        assistant_replay_deduplicated: true,
+      },
+    ];
+  } finally {
+    await service.stopRestarted();
+  }
 }
 
 async function driveLongSessionAdoptionState(page) {
@@ -5657,19 +6026,41 @@ async function driveLongSessionAdoptionState(page) {
     const start = frames.length;
     await page.locator(chatInputSelector).fill(text);
     await page.getByRole("button", { name: /^发送$/ }).click();
-    const result = (await waitForNewFrame(start, (f) => f.direction === "received" && f.event === "turn_result", "长会话没有返回结果", 120_000)).body;
+    const result = (
+      await waitForNewFrame(
+        start,
+        (f) => f.direction === "received" && f.event === "turn_result",
+        "长会话没有返回结果",
+        120_000,
+      )
+    ).body;
     assert(result.status !== "failed", "长会话消息处理失败");
-    await waitForNewFrame(start, (f) => f.event === "agent_run_state" && f.body?.run_id === result.agent_run?.run_id && f.body?.status === "completed", "长会话运行未完成");
+    await waitForNewFrame(
+      start,
+      (f) =>
+        f.event === "agent_run_state" &&
+        f.body?.run_id === result.agent_run?.run_id &&
+        f.body?.status === "completed",
+      "长会话运行未完成",
+    );
     return result;
   }
   async function reload(label) {
-    const response = page.waitForResponse((res) => res.url().endsWith("/sessions/resume") && res.ok());
+    const response = page.waitForResponse(
+      (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+    );
     await page.reload({ waitUntil: "commit" });
     await page.locator(chatInputSelector).waitFor();
     await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
     const snapshot = await (await response).json();
-    fs.writeFileSync(path.join(artifactDir, `${label}-resume.json`), JSON.stringify(snapshot, null, 2));
-    assert(snapshot.transcript.length === 30 && snapshot.transcript_page.has_more_before, "聊天分页被待办恢复改变");
+    fs.writeFileSync(
+      path.join(artifactDir, `${label}-resume.json`),
+      JSON.stringify(snapshot, null, 2),
+    );
+    assert(
+      snapshot.transcript.length === 30 && snapshot.transcript_page.has_more_before,
+      "聊天分页被待办恢复改变",
+    );
     return snapshot;
   }
   for (let n = 1; n <= 15; n++) {
@@ -5689,53 +6080,137 @@ async function driveLongSessionAdoptionState(page) {
   }
   const snapshot = await reload("outside-80-interactions");
   const pendingIds = snapshot.pending_adoptions.map((item) => item.artifact_id);
-  assert(candidates.every((item) => pendingIds.includes(item.artifact_id)) && pendingIds.length === 15, "80 条窗口外的完整待办缺失或重复");
+  assert(
+    candidates.every((item) => pendingIds.includes(item.artifact_id)) && pendingIds.length === 15,
+    "80 条窗口外的完整待办缺失或重复",
+  );
   assert(snapshot.pending_adoption_turn_results.length === 15, "旧候选缺少真实操作凭据");
-  assert(!snapshot.transcript.some((entry) => turns.includes(entry.turn_id)), "旧候选被偷偷塞回聊天分页");
+  assert(
+    !snapshot.transcript.some((entry) => turns.includes(entry.turn_id)),
+    "旧候选被偷偷塞回聊天分页",
+  );
   const otherWork = await createWorkSeed({ title: `待办隔离-${nonce}` });
-  const otherResponse = page.waitForResponse((res) => res.url().endsWith(`/works/${otherWork.id}/sessions/resume`) && res.ok());
+  const otherResponse = page.waitForResponse(
+    (res) => res.url().endsWith(`/works/${otherWork.id}/sessions/resume`) && res.ok(),
+  );
   await refreshAndSelectWork(page, otherWork.title);
   const otherSnapshot = await (await otherResponse).json();
   await waitForVisibleWorkTitle(page, otherWork.title);
-  assert(otherSnapshot.pending_adoptions.length === 0 && otherSnapshot.pending_adoption_turn_results.length === 0, "待办或授权动作串入另一作品");
-  assert(!(await page.locator("body").innerText()).includes("雨港每天只在清晨开城门"), "旧候选内容串入另一作品");
-  const returnResponse = page.waitForResponse((res) => res.url().endsWith(`/works/${snapshot.work.id}/sessions/resume`) && res.ok());
+  assert(
+    otherSnapshot.pending_adoptions.length === 0 &&
+      otherSnapshot.pending_adoption_turn_results.length === 0,
+    "待办或授权动作串入另一作品",
+  );
+  assert(
+    !(await page.locator("body").innerText()).includes("雨港每天只在清晨开城门"),
+    "旧候选内容串入另一作品",
+  );
+  const returnResponse = page.waitForResponse(
+    (res) => res.url().endsWith(`/works/${snapshot.work.id}/sessions/resume`) && res.ok(),
+  );
   await refreshAndSelectWork(page, snapshot.work.title);
   const returnedSnapshot = await (await returnResponse).json();
   assert(returnedSnapshot.pending_adoptions.length === 15, "切回原作品丢失完整待办");
-  fs.writeFileSync(path.join(artifactDir, "work-isolation.json"), JSON.stringify({ other: otherSnapshot, returned: returnedSnapshot }, null, 2));
+  fs.writeFileSync(
+    path.join(artifactDir, "work-isolation.json"),
+    JSON.stringify({ other: otherSnapshot, returned: returnedSnapshot }, null, 2),
+  );
   const countReply = await send("请核对会话候选数量，只报告真实待采纳、已处置和摘要省略数量。");
-  assert(/待采纳 15 份/.test(countReply.assistant_message.text) && /摘要省略 3 份/.test(countReply.assistant_message.text), "Agent 摘要数量不是完整业务事实");
+  assert(
+    /待采纳 15 份/.test(countReply.assistant_message.text) &&
+      /摘要省略 3 份/.test(countReply.assistant_message.text),
+    "Agent 摘要数量不是完整业务事实",
+  );
   const queryReply = await send(`查一下当前会话待采纳的「${nonce}-01」，说明其内容与状态。`);
-  assert(queryReply.assistant_message.text.includes(nonce + "-01") && queryReply.assistant_message.text.includes("TENTATIVE"), "超出摘要预算的旧候选不能经探索找回");
+  assert(
+    queryReply.assistant_message.text.includes(nonce + "-01") &&
+      queryReply.assistant_message.text.includes("TENTATIVE"),
+    "超出摘要预算的旧候选不能经探索找回",
+  );
   await page.getByText(queryReply.assistant_message.text, { exact: true }).last().waitFor();
   await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: /经验规则/ }).click();
   const card = page.locator('[class*="cardAccent"]').filter({ hasText: nonce + "-01" });
-  assert(await card.count() === 1, "档案中未找到唯一旧候选");
+  assert((await card.count()) === 1, "档案中未找到唯一旧候选");
   const accept = card.getByRole("button", { name: "启用规则", exact: true });
   assert(await accept.isEnabled(), "旧候选采纳按钮不可用");
   await page.screenshot({ path: path.join(artifactDir, "old-pending-action.png"), fullPage: true });
   const start = frames.length;
   await accept.click();
-  await waitForNewFrame(start, (f) => f.event === "turn_result" && f.body?.adoption_state?.resolved?.some((item) => item.artifact_id === candidates[0].artifact_id && item.adoption_status === "ACCEPTED"), "旧候选未能通过真实作者动作采纳");
+  await waitForNewFrame(
+    start,
+    (f) =>
+      f.event === "turn_result" &&
+      f.body?.adoption_state?.resolved?.some(
+        (item) =>
+          item.artifact_id === candidates[0].artifact_id && item.adoption_status === "ACCEPTED",
+      ),
+    "旧候选未能通过真实作者动作采纳",
+  );
   await closeArchiveIfOpen(page);
   for (let n = 46; n <= 90; n++) await send(`本轮只聊写作心情，不生成候选，第 ${n} 次。`);
   const resolved = await reload("terminal-outside-80-interactions");
-  assert(resolved.pending_adoptions.length === 14 && !resolved.pending_adoptions.some((item) => item.artifact_id === candidates[0].artifact_id), "终态落到窗口外后旧候选复活");
-  assert(resolved.resolved_adoptions.some((item) => item.artifact_id === candidates[0].artifact_id && item.adoption_status === "ACCEPTED"), "完整终态事实丢失");
+  assert(
+    resolved.pending_adoptions.length === 14 &&
+      !resolved.pending_adoptions.some((item) => item.artifact_id === candidates[0].artifact_id),
+    "终态落到窗口外后旧候选复活",
+  );
+  assert(
+    resolved.resolved_adoptions.some(
+      (item) =>
+        item.artifact_id === candidates[0].artifact_id && item.adoption_status === "ACCEPTED",
+    ),
+    "完整终态事实丢失",
+  );
   const { DatabaseSync } = await import("node:sqlite");
-  assert(process.env.NOVEL_TEST_DB_DIR && /^[\w-]+$/.test(process.env.MIX_TEST_PARTITION ?? ""), "长会话验收需要隔离测试库");
-  const db = new DatabaseSync(path.join(process.env.NOVEL_TEST_DB_DIR, `ai_novel_studio_test${process.env.MIX_TEST_PARTITION}.sqlite3`), { readOnly: true });
+  assert(
+    process.env.NOVEL_TEST_DB_DIR && /^[\w-]+$/.test(process.env.MIX_TEST_PARTITION ?? ""),
+    "长会话验收需要隔离测试库",
+  );
+  const db = new DatabaseSync(
+    path.join(
+      process.env.NOVEL_TEST_DB_DIR,
+      `ai_novel_studio_test${process.env.MIX_TEST_PARTITION}.sqlite3`,
+    ),
+    { readOnly: true },
+  );
   let facts;
-  try { facts = db.prepare("SELECT content, status FROM memory_items WHERE instr(content, ?) > 0").all(nonce); } finally { db.close(); }
-  assert(facts.length === 1 && facts[0].status === "CONFIRMED" && facts[0].content.includes(nonce + "-01"), "采纳事实不唯一或目标不正确");
+  try {
+    facts = db
+      .prepare("SELECT content, status FROM memory_items WHERE instr(content, ?) > 0")
+      .all(nonce);
+  } finally {
+    db.close();
+  }
+  assert(
+    facts.length === 1 &&
+      facts[0].status === "CONFIRMED" &&
+      facts[0].content.includes(nonce + "-01"),
+    "采纳事实不唯一或目标不正确",
+  );
   fs.writeFileSync(path.join(artifactDir, "confirmed-facts.json"), JSON.stringify(facts, null, 2));
   await page.screenshot({ path: path.join(artifactDir, "terminal-restored.png"), fullPage: true });
-  return [{ event: "slice_verify.ui_state.done", slice_id: "q3d-long-session-adoption-state", turn_id: turns[0], turn_ids: turns,
-    query_turn_id: queryReply.turn_id, count_turn_id: countReply.turn_id, pending_count_before: 15, pending_count_after: 14,
-    omitted_count: 3, queried_artifact_id: candidates[0].artifact_id, history_rounds_before: 45, history_rounds_after: 45,
-    transcript_stays_paged: true, work_scope_isolated: true, old_action_enabled: true, terminal_survives_window: true, confirmed_fact_count: facts.length }];
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "q3d-long-session-adoption-state",
+      turn_id: turns[0],
+      turn_ids: turns,
+      query_turn_id: queryReply.turn_id,
+      count_turn_id: countReply.turn_id,
+      pending_count_before: 15,
+      pending_count_after: 14,
+      omitted_count: 3,
+      queried_artifact_id: candidates[0].artifact_id,
+      history_rounds_before: 45,
+      history_rounds_after: 45,
+      transcript_stays_paged: true,
+      work_scope_isolated: true,
+      old_action_enabled: true,
+      terminal_survives_window: true,
+      confirmed_fact_count: facts.length,
+    },
+  ];
 }
 
 async function driveB46CrossSessionInbox(page) {
@@ -5805,18 +6280,19 @@ async function driveB46CrossSessionInbox(page) {
     "B46 inbox missing source turn result",
   );
 
-  await page.waitForFunction(
-    (token) => !document.body.innerText.includes(token),
-    nonce,
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction((token) => !document.body.innerText.includes(token), nonce, {
+    timeout: 10_000,
+  });
   await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: /经验规则/ }).click();
   const card = page.locator('[class*="cardAccent"]').filter({ hasText: nonce });
   assert((await card.count()) === 1, "B46 cross-session pending not visible in real archive");
   const accept = card.getByRole("button", { name: "启用规则", exact: true });
   assert(await accept.isEnabled(), "B46 cross-session pending action disabled");
-  await page.screenshot({ path: path.join(artifactDir, "cross-session-inbox.png"), fullPage: true });
+  await page.screenshot({
+    path: path.join(artifactDir, "cross-session-inbox.png"),
+    fullPage: true,
+  });
 
   const adoptStart = frames.length;
   await accept.click();
@@ -5863,7 +6339,10 @@ async function driveB46CrossSessionInbox(page) {
   await page.getByRole("tab", { name: /经验规则/ }).click();
   const acceptedCards = page.locator('[class*="cardAccent"]').filter({ hasText: nonce });
   assert((await acceptedCards.count()) === 0, "B46 accepted pending card still actionable");
-  await page.screenshot({ path: path.join(artifactDir, "idempotent-after-accept.png"), fullPage: true });
+  await page.screenshot({
+    path: path.join(artifactDir, "idempotent-after-accept.png"),
+    fullPage: true,
+  });
   await closeArchiveIfOpen(page);
   const acceptActionsForCandidate = frames.filter(
     (frame) =>
@@ -5942,8 +6421,7 @@ async function driveB46CrossSessionInbox(page) {
   assert(
     (afterDiscardSnapshot.inbox_resolved_adoptions ?? []).some(
       (entry) =>
-        entry.artifact_id === discardCandidate.artifact_id &&
-        entry.adoption_status === "DISCARDED",
+        entry.artifact_id === discardCandidate.artifact_id && entry.adoption_status === "DISCARDED",
     ),
     "B46 discarded artifact missing from inbox history",
   );
@@ -5956,13 +6434,21 @@ async function driveB46CrossSessionInbox(page) {
   const db = new DatabaseSync(dbPath, { readOnly: true });
   let facts;
   try {
-    facts = db.prepare("SELECT content, status FROM memory_items WHERE instr(content, ?) > 0").all(nonce);
+    facts = db
+      .prepare("SELECT content, status FROM memory_items WHERE instr(content, ?) > 0")
+      .all(nonce);
   } finally {
     db.close();
   }
-  assert(facts.length === 1 && facts[0].status === "CONFIRMED", "B46 adopted fact not unique/confirmed");
+  assert(
+    facts.length === 1 && facts[0].status === "CONFIRMED",
+    "B46 adopted fact not unique/confirmed",
+  );
   fs.writeFileSync(path.join(artifactDir, "confirmed-facts.json"), JSON.stringify(facts, null, 2));
-  await page.screenshot({ path: path.join(artifactDir, "after-processed-inbox.png"), fullPage: true });
+  await page.screenshot({
+    path: path.join(artifactDir, "after-processed-inbox.png"),
+    fullPage: true,
+  });
 
   // B46 §12 E1（2026-10-31）：第三个候选跨会话 edit_then_accept——编辑后保存路径。
   const editNonce = `${nonce}-edit`;
@@ -5972,13 +6458,16 @@ async function driveB46CrossSessionInbox(page) {
   const editCandidate = editCandidateResult.adoption_state?.pending?.[0];
   assert(editCandidate?.artifact_id, "B46 edit candidate missing");
 
-  const editResumePromise = page.waitForResponse((res) =>
-    res.url().endsWith("/sessions/resume") && res.ok(),
+  const editResumePromise = page.waitForResponse(
+    (res) => res.url().endsWith("/sessions/resume") && res.ok(),
   );
   await openSessionRail(page);
   await page.getByRole("button", { name: "新建会话" }).click();
   const editSnapshot = await (await editResumePromise).json();
-  fs.writeFileSync(path.join(artifactDir, "edit-session-resume.json"), JSON.stringify(editSnapshot, null, 2));
+  fs.writeFileSync(
+    path.join(artifactDir, "edit-session-resume.json"),
+    JSON.stringify(editSnapshot, null, 2),
+  );
   assert(
     (editSnapshot.inbox_pending_adoptions ?? []).some(
       (entry) => entry.artifact_id === editCandidate.artifact_id,
@@ -6027,8 +6516,8 @@ async function driveB46CrossSessionInbox(page) {
   );
   await closeArchiveIfOpen(page);
 
-  const editReloadResponse = page.waitForResponse((res) =>
-    res.url().endsWith("/sessions/resume") && res.ok(),
+  const editReloadResponse = page.waitForResponse(
+    (res) => res.url().endsWith("/sessions/resume") && res.ok(),
   );
   await page.reload({ waitUntil: "commit" });
   await page.locator(chatInputSelector).waitFor();
@@ -6070,12 +6559,18 @@ async function driveB46CrossSessionInbox(page) {
     editFacts.length === 1 && editFacts[0].status === "CONFIRMED",
     "B46 edited content is not the unique CONFIRMED fact",
   );
-  assert(originalFacts.length === 0, "B46 original candidate bytes were persisted instead of edited content");
+  assert(
+    originalFacts.length === 0,
+    "B46 original candidate bytes were persisted instead of edited content",
+  );
   fs.writeFileSync(
     path.join(artifactDir, "edit-then-accept-facts.json"),
     JSON.stringify({ editFacts, originalFacts }, null, 2),
   );
-  await page.screenshot({ path: path.join(artifactDir, "cross-session-edit-adopt.png"), fullPage: true });
+  await page.screenshot({
+    path: path.join(artifactDir, "cross-session-edit-adopt.png"),
+    fullPage: true,
+  });
 
   // B46 §12 E4（2026-10-31）：EXITED 旧会话历史只读——不提供待处理动作。
   await openSessionRail(page);
@@ -6114,7 +6609,10 @@ async function driveB46CrossSessionInbox(page) {
     path.join(artifactDir, "exited-history-readonly.json"),
     JSON.stringify({ button_text: exitedButtonText, snapshot: exitedReadonlySnapshot }, null, 2),
   );
-  await page.screenshot({ path: path.join(artifactDir, "exited-history-readonly.png"), fullPage: true });
+  await page.screenshot({
+    path: path.join(artifactDir, "exited-history-readonly.png"),
+    fullPage: true,
+  });
   await page.getByRole("button", { name: "返回当前会话" }).click();
   await page.waitForFunction(
     () => !document.body.innerText.includes("正在只读查看历史 transcript"),
@@ -6143,7 +6641,10 @@ async function driveB46CrossSessionInbox(page) {
   await page.locator(chatInputSelector).waitFor();
   await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
   const bSnapshot = await (await bResumePromise).json();
-  fs.writeFileSync(path.join(artifactDir, "isolation-work-b-resume.json"), JSON.stringify(bSnapshot, null, 2));
+  fs.writeFileSync(
+    path.join(artifactDir, "isolation-work-b-resume.json"),
+    JSON.stringify(bSnapshot, null, 2),
+  );
   assert(
     !(bSnapshot.inbox_pending_adoptions ?? []).some(
       (entry) => entry.artifact_id === isolationCandidate.artifact_id,
@@ -6155,7 +6656,10 @@ async function driveB46CrossSessionInbox(page) {
   await page.getByRole("tab", { name: /经验规则/ }).click();
   const leakedCards = page.locator('[class*="cardAccent"]').filter({ hasText: isolationNonce });
   assert((await leakedCards.count()) === 0, "B46 cross-work artifact visible in work B archive");
-  await page.screenshot({ path: path.join(artifactDir, "cross-work-isolation.png"), fullPage: true });
+  await page.screenshot({
+    path: path.join(artifactDir, "cross-work-isolation.png"),
+    fullPage: true,
+  });
   await closeArchiveIfOpen(page);
 
   await switchToWorkByTitle(page, workATitle);
@@ -6240,18 +6744,39 @@ async function driveCandidateRevisionAdoption(page) {
     const start = frames.length;
     await page.locator(chatInputSelector).fill(text);
     await page.getByRole("button", { name: /^发送$/ }).click();
-    const sent = await waitForNewFrame(start, (f) => f.direction === "sent" && f.event === "user_message", "未发出作者消息");
-    const result = (await waitForNewFrame(start, (f) => f.event === "turn_result" && f.body?.turn_id === sent.body.turn_id,
-      "未返回候选", 900_000)).body;
+    const sent = await waitForNewFrame(
+      start,
+      (f) => f.direction === "sent" && f.event === "user_message",
+      "未发出作者消息",
+    );
+    const result = (
+      await waitForNewFrame(
+        start,
+        (f) => f.event === "turn_result" && f.body?.turn_id === sent.body.turn_id,
+        "未返回候选",
+        900_000,
+      )
+    ).body;
     turns.push({ input: text, result });
-    fs.writeFileSync(path.join(artifactDir, "revision-adoption-turns.json"), JSON.stringify(turns, null, 2));
+    fs.writeFileSync(
+      path.join(artifactDir, "revision-adoption-turns.json"),
+      JSON.stringify(turns, null, 2),
+    );
     assert(result.status !== "failed", "候选处理失败");
-    await waitForNewFrame(start, (f) => f.event === "agent_run_state" && f.body?.run_id === result.agent_run?.run_id &&
-      f.body?.status === "completed", "候选运行未完成");
+    await waitForNewFrame(
+      start,
+      (f) =>
+        f.event === "agent_run_state" &&
+        f.body?.run_id === result.agent_run?.run_id &&
+        f.body?.status === "completed",
+      "候选运行未完成",
+    );
     return result;
   }
   async function reload() {
-    const response = page.waitForResponse((res) => res.url().endsWith("/sessions/resume") && res.ok());
+    const response = page.waitForResponse(
+      (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+    );
     await page.reload({ waitUntil: "commit" });
     await page.locator(chatInputSelector).waitFor();
     await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
@@ -6260,67 +6785,175 @@ async function driveCandidateRevisionAdoption(page) {
   const original = `把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识${nonce}。`;
   const source = await send(original);
   const a = source.adoption_state.pending[0];
-  assert(a.payload.items[0].body === original && a.payload.items[0].provider_call_ref === `author_input:${source.turn_id}`, "原文登记没有保持完整消息及其来源");
-  const discussion = await send("资料处理进度：我想把主角从沈砚改名林渡，其他内容和校验标识不变；现在只讨论，不要执行或生成候选。");
-  assert((discussion.adoption_state?.pending ?? []).length === 0 && (discussion.candidate_directions ?? []).length === 0, "只讨论仍生成了候选");
+  assert(
+    a.payload.items[0].body === original &&
+      a.payload.items[0].provider_call_ref === `author_input:${source.turn_id}`,
+    "原文登记没有保持完整消息及其来源",
+  );
+  const discussion = await send(
+    "资料处理进度：我想把主角从沈砚改名林渡，其他内容和校验标识不变；现在只讨论，不要执行或生成候选。",
+  );
+  assert(
+    (discussion.adoption_state?.pending ?? []).length === 0 &&
+      (discussion.candidate_directions ?? []).length === 0,
+    "只讨论仍生成了候选",
+  );
   const discussedSnapshot = await reload();
-  assert(discussedSnapshot.pending_adoptions.length === 1 && discussedSnapshot.pending_adoptions[0].artifact_id === a.artifact_id &&
-    discussedSnapshot.pending_adoptions[0].payload.items[0].body === a.payload.items[0].body, "只讨论改变了原候选");
+  assert(
+    discussedSnapshot.pending_adoptions.length === 1 &&
+      discussedSnapshot.pending_adoptions[0].artifact_id === a.artifact_id &&
+      discussedSnapshot.pending_adoptions[0].payload.items[0].body === a.payload.items[0].body,
+    "只讨论改变了原候选",
+  );
   const revision = await send("请修改现有候选，按我刚才说的改名要求生成修订稿，不要保存。");
   const b = revision.adoption_state.pending[0];
-  assert(b.artifact_id !== a.artifact_id && b.payload.revision_of === a.artifact_id, "修订未绑定原稿");
+  assert(
+    b.artifact_id !== a.artifact_id && b.payload.revision_of === a.artifact_id,
+    "修订未绑定原稿",
+  );
   const body = b.payload.items.map((item) => item.body).join("\n");
   assert(body.includes("林渡") && !body.includes("沈砚") && body.includes(nonce), "修订正文不正确");
   const { DatabaseSync } = await import("node:sqlite");
-  assert(process.env.NOVEL_TEST_DB_DIR && /^[\w-]+$/.test(process.env.MIX_TEST_PARTITION), "需要隔离库");
+  assert(
+    process.env.NOVEL_TEST_DB_DIR && /^[\w-]+$/.test(process.env.MIX_TEST_PARTITION),
+    "需要隔离库",
+  );
   function facts() {
-    const db = new DatabaseSync(path.join(process.env.NOVEL_TEST_DB_DIR, `ai_novel_studio_test${process.env.MIX_TEST_PARTITION}.sqlite3`), { readOnly: true });
-    try { return db.prepare("SELECT content, status FROM memory_items WHERE instr(content, ?) > 0").all(nonce); }
-    finally { db.close(); }
+    const db = new DatabaseSync(
+      path.join(
+        process.env.NOVEL_TEST_DB_DIR,
+        `ai_novel_studio_test${process.env.MIX_TEST_PARTITION}.sqlite3`,
+      ),
+      { readOnly: true },
+    );
+    try {
+      return db
+        .prepare("SELECT content, status FROM memory_items WHERE instr(content, ?) > 0")
+        .all(nonce);
+    } finally {
+      db.close();
+    }
   }
   assert(facts().length === 0, "修订已自动入档");
-  await page.screenshot({ path: path.join(artifactDir, "revision-before-adoption.png"), fullPage: true });
+  await page.screenshot({
+    path: path.join(artifactDir, "revision-before-adoption.png"),
+    fullPage: true,
+  });
   const start = frames.length;
   await page.getByRole("button", { name: "保存到作品档案", exact: true }).last().click();
-  await waitForNewFrame(start, (f) => f.event === "turn_result" && f.body?.adoption_state?.resolved?.some(
-    (e) => e.artifact_id === b.artifact_id && e.adoption_status === "ACCEPTED"), "修订稿不能通过真实按钮采纳");
-  const action = frames.slice(start).find((f) => f.direction === "sent" && f.event === "author_action");
+  await waitForNewFrame(
+    start,
+    (f) =>
+      f.event === "turn_result" &&
+      f.body?.adoption_state?.resolved?.some(
+        (e) => e.artifact_id === b.artifact_id && e.adoption_status === "ACCEPTED",
+      ),
+    "修订稿不能通过真实按钮采纳",
+  );
+  const action = frames
+    .slice(start)
+    .find((f) => f.direction === "sent" && f.event === "author_action");
   assert(action?.body?.action?.target_ref === b.artifact_id, "采纳指向了原稿");
   const snapshot = await reload();
-  assert(snapshot.pending_adoptions.length === 1 && snapshot.pending_adoptions[0].artifact_id === a.artifact_id, "采纳修订稿错误处置原稿");
-  assert(snapshot.resolved_adoptions.some((e) => e.artifact_id === b.artifact_id && e.adoption_status === "ACCEPTED"), "修订采纳状态未恢复");
+  assert(
+    snapshot.pending_adoptions.length === 1 &&
+      snapshot.pending_adoptions[0].artifact_id === a.artifact_id,
+    "采纳修订稿错误处置原稿",
+  );
+  assert(
+    snapshot.resolved_adoptions.some(
+      (e) => e.artifact_id === b.artifact_id && e.adoption_status === "ACCEPTED",
+    ),
+    "修订采纳状态未恢复",
+  );
   const saved = facts();
-  assert(saved.length === 1 && saved[0].status === "CONFIRMED" && saved[0].content.includes(body), "保存的不是模型修订全文");
+  assert(
+    saved.length === 1 && saved[0].status === "CONFIRMED" && saved[0].content.includes(body),
+    "保存的不是模型修订全文",
+  );
   await page.screenshot({ path: path.join(artifactDir, "revision-adopted.png"), fullPage: true });
   const discarded = await send("请放弃原候选。");
-  assert(discarded.adoption_state?.resolved?.some((e) => e.artifact_id === a.artifact_id && e.adoption_status === "DISCARDED"), "未放弃指定原稿");
-  assert(discarded.assistant_message.text === "已放弃该待采纳内容。", "完成后仍复用执行前的判断，缺少真实处置回执");
+  assert(
+    discarded.adoption_state?.resolved?.some(
+      (e) => e.artifact_id === a.artifact_id && e.adoption_status === "DISCARDED",
+    ),
+    "未放弃指定原稿",
+  );
+  assert(
+    discarded.assistant_message.text === "已放弃该待采纳内容。",
+    "完成后仍复用执行前的判断，缺少真实处置回执",
+  );
   await page.getByText(discarded.assistant_message.text, { exact: true }).last().waitFor();
   const finalSnapshot = await reload();
-  assert(finalSnapshot.pending_adoptions.length === 0 && facts().length === 1, "放弃原稿改变了已采纳修订稿的事实");
+  assert(
+    finalSnapshot.pending_adoptions.length === 0 && facts().length === 1,
+    "放弃原稿改变了已采纳修订稿的事实",
+  );
   await page.screenshot({ path: path.join(artifactDir, "discard-completed.png"), fullPage: true });
-  fs.writeFileSync(path.join(artifactDir, "revision-adoption-evidence.json"), JSON.stringify({ source, discussion, discussedSnapshot, revision, snapshot, discarded, finalSnapshot, saved }, null, 2));
-  return [{ event: "slice_verify.ui_state.done", slice_id: "q1b-candidate-revision-adoption", turn_id: revision.turn_id,
-    source_turn_id: source.turn_id, discussion_turn_id: discussion.turn_id, discard_turn_id: discarded.turn_id,
-    original_id: a.artifact_id, revised_id: b.artifact_id, discussion_only: true, contextual_revision: true,
-    discard_receipt_visible: true, no_write_before_adoption: true, original_pending_after_adoption: true, revised_bytes_saved: true,
-    accepted_state_restored: true, confirmed_fact_count: 1 }];
+  fs.writeFileSync(
+    path.join(artifactDir, "revision-adoption-evidence.json"),
+    JSON.stringify(
+      {
+        source,
+        discussion,
+        discussedSnapshot,
+        revision,
+        snapshot,
+        discarded,
+        finalSnapshot,
+        saved,
+      },
+      null,
+      2,
+    ),
+  );
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "q1b-candidate-revision-adoption",
+      turn_id: revision.turn_id,
+      source_turn_id: source.turn_id,
+      discussion_turn_id: discussion.turn_id,
+      discard_turn_id: discarded.turn_id,
+      original_id: a.artifact_id,
+      revised_id: b.artifact_id,
+      discussion_only: true,
+      contextual_revision: true,
+      discard_receipt_visible: true,
+      no_write_before_adoption: true,
+      original_pending_after_adoption: true,
+      revised_bytes_saved: true,
+      accepted_state_restored: true,
+      confirmed_fact_count: 1,
+    },
+  ];
 }
 
 async function driveCandidateStaleModal(page) {
   const nonce = randomUUID().replaceAll("-", "");
   const start = frames.length;
-  await page.locator(chatInputSelector).fill(`把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识${nonce}。`);
+  await page
+    .locator(chatInputSelector)
+    .fill(`把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识${nonce}。`);
   await page.getByRole("button", { name: /^发送$/ }).click();
-  const source = (await waitForNewFrame(start, (f) => f.event === "turn_result" && f.body?.adoption_state?.pending?.length,
-    "没有产生待采纳原稿", 900_000)).body;
+  const source = (
+    await waitForNewFrame(
+      start,
+      (f) => f.event === "turn_result" && f.body?.adoption_state?.pending?.length,
+      "没有产生待采纳原稿",
+      900_000,
+    )
+  ).body;
   const target = source.adoption_state.pending[0].artifact_id;
   await page.getByRole("button", { name: "修改后保存", exact: true }).first().click();
   const edited = `这是仍未提交的编辑全文：沈砚改为岑舟。${nonce}`;
   await page.getByRole("dialog").getByRole("textbox").fill(edited);
-  const otherContext = await page.context().browser().newContext({
-    storageState: await page.context().storageState(),
-  });
+  const otherContext = await page
+    .context()
+    .browser()
+    .newContext({
+      storageState: await page.context().storageState(),
+    });
   const other = await otherContext.newPage();
   other.on("websocket", (ws) => {
     ws.on("framesent", (event) => recordFrame("sent", event.payload));
@@ -6332,30 +6965,83 @@ async function driveCandidateStaleModal(page) {
   const discardStart = frames.length;
   await other.locator(chatInputSelector).fill("请放弃原候选。");
   await other.getByRole("button", { name: /^发送$/ }).click();
-  const discarded = (await waitForNewFrame(discardStart, (f) => f.event === "turn_result" &&
-    f.body?.adoption_state?.resolved?.some((e) => e.artifact_id === target && e.adoption_status === "DISCARDED"),
-    "另一视图没有实际放弃目标", 900_000)).body;
-  await waitForNewFrame(discardStart, (f) => f.event === "agent_run_state" &&
-    f.body?.run_id === discarded.agent_run?.run_id && f.body?.status === "completed", "放弃运行未完成");
+  const discarded = (
+    await waitForNewFrame(
+      discardStart,
+      (f) =>
+        f.event === "turn_result" &&
+        f.body?.adoption_state?.resolved?.some(
+          (e) => e.artifact_id === target && e.adoption_status === "DISCARDED",
+        ),
+      "另一视图没有实际放弃目标",
+      900_000,
+    )
+  ).body;
+  await waitForNewFrame(
+    discardStart,
+    (f) =>
+      f.event === "agent_run_state" &&
+      f.body?.run_id === discarded.agent_run?.run_id &&
+      f.body?.status === "completed",
+    "放弃运行未完成",
+  );
   const submitStart = frames.length;
   await page
     .getByRole("button", { name: /保存修改后的版本|修改后保存|保存修改后/ })
     .first()
     .click();
-  await waitForNewFrame(submitStart, (f) => f.event === "phx_reply" && f.body?.status === "error" &&
-    f.body?.response?.reason === "pending artifact is no longer available", "旧编辑未被持久状态拒绝");
-  assert(await page.getByRole("dialog").getByRole("textbox").inputValue() === edited, "失败后丢失编辑文本");
+  await waitForNewFrame(
+    submitStart,
+    (f) =>
+      f.event === "phx_reply" &&
+      f.body?.status === "error" &&
+      f.body?.response?.reason === "pending artifact is no longer available",
+    "旧编辑未被持久状态拒绝",
+  );
+  assert(
+    (await page.getByRole("dialog").getByRole("textbox").inputValue()) === edited,
+    "失败后丢失编辑文本",
+  );
   await page.getByRole("dialog").getByRole("alert").waitFor();
-  await page.screenshot({ path: path.join(artifactDir, "stale-edit-retained.png"), fullPage: true });
+  await page.screenshot({
+    path: path.join(artifactDir, "stale-edit-retained.png"),
+    fullPage: true,
+  });
   await otherContext.close();
   const { DatabaseSync } = await import("node:sqlite");
-  assert(process.env.NOVEL_TEST_DB_DIR && /^[\w-]+$/.test(process.env.MIX_TEST_PARTITION), "需要隔离库");
-  const db = new DatabaseSync(path.join(process.env.NOVEL_TEST_DB_DIR, `ai_novel_studio_test${process.env.MIX_TEST_PARTITION}.sqlite3`), { readOnly: true });
-  try { assert(db.prepare("SELECT count(*) AS n FROM memory_items WHERE instr(content, ?) > 0").get(nonce).n === 0, "旧编辑复活并保存了已放弃材料"); }
-  finally { db.close(); }
-  return [{ event: "slice_verify.ui_state.done", slice_id: "q1b-candidate-stale-modal", turn_id: source.turn_id,
-    discard_turn_id: discarded.turn_id, target_ref: target, stale_edit_rejected: true,
-    editor_text_retained: true, error_visible: true, confirmed_fact_count: 0 }];
+  assert(
+    process.env.NOVEL_TEST_DB_DIR && /^[\w-]+$/.test(process.env.MIX_TEST_PARTITION),
+    "需要隔离库",
+  );
+  const db = new DatabaseSync(
+    path.join(
+      process.env.NOVEL_TEST_DB_DIR,
+      `ai_novel_studio_test${process.env.MIX_TEST_PARTITION}.sqlite3`,
+    ),
+    { readOnly: true },
+  );
+  try {
+    assert(
+      db.prepare("SELECT count(*) AS n FROM memory_items WHERE instr(content, ?) > 0").get(nonce)
+        .n === 0,
+      "旧编辑复活并保存了已放弃材料",
+    );
+  } finally {
+    db.close();
+  }
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "q1b-candidate-stale-modal",
+      turn_id: source.turn_id,
+      discard_turn_id: discarded.turn_id,
+      target_ref: target,
+      stale_edit_rejected: true,
+      editor_text_retained: true,
+      error_visible: true,
+      confirmed_fact_count: 0,
+    },
+  ];
 }
 
 async function driveCandidateLifecycle(page) {
@@ -6368,35 +7054,76 @@ async function driveCandidateLifecycle(page) {
     const start = frames.length;
     await page.locator(chatInputSelector).fill(text);
     await page.getByRole("button", { name: /^发送$/ }).click();
-    const sent = await waitForNewFrame(start, (f) => f.direction === "sent" && f.event === "user_message", "未发送作者消息");
+    const sent = await waitForNewFrame(
+      start,
+      (f) => f.direction === "sent" && f.event === "user_message",
+      "未发送作者消息",
+    );
     const turnId = sent.body.turn_id;
-    const received = await waitForNewFrame(start, (f) => f.direction === "received" &&
-      ((f.event === "turn_result" && f.body?.turn_id === turnId) ||
-       (f.event === "phx_reply" && f.body?.response?.turn_results?.some((r) => r.turn_id === turnId))), "未返回候选处理结果", 900_000);
-    const result = received.event === "turn_result" ? received.body : received.body.response.turn_results.find((r) => r.turn_id === turnId);
+    const received = await waitForNewFrame(
+      start,
+      (f) =>
+        f.direction === "received" &&
+        ((f.event === "turn_result" && f.body?.turn_id === turnId) ||
+          (f.event === "phx_reply" &&
+            f.body?.response?.turn_results?.some((r) => r.turn_id === turnId))),
+      "未返回候选处理结果",
+      900_000,
+    );
+    const result =
+      received.event === "turn_result"
+        ? received.body
+        : received.body.response.turn_results.find((r) => r.turn_id === turnId);
     turns.push({ phase, input: text, result });
-    fs.writeFileSync(path.join(artifactDir, "lifecycle-turns.json"), JSON.stringify(turns, null, 2));
+    fs.writeFileSync(
+      path.join(artifactDir, "lifecycle-turns.json"),
+      JSON.stringify(turns, null, 2),
+    );
     assert(!["failed", "cancelled"].includes(result.status), `${phase} 失败`);
-    await waitForNewFrame(start, (f) => {
-      const state = f.event === "agent_run_state" ? f.body : f.body?.response?.agent_run_state;
-      return state?.run_id === result.agent_run?.run_id && ["completed", "awaiting_author"].includes(state.status);
-    }, "运行未收束", 30_000);
+    await waitForNewFrame(
+      start,
+      (f) => {
+        const state = f.event === "agent_run_state" ? f.body : f.body?.response?.agent_run_state;
+        return (
+          state?.run_id === result.agent_run?.run_id &&
+          ["completed", "awaiting_author"].includes(state.status)
+        );
+      },
+      "运行未收束",
+      30_000,
+    );
     await page.screenshot({ path: path.join(artifactDir, `${phase}.png`), fullPage: true });
     return result;
   }
   async function reload() {
-    const response = page.waitForResponse((res) => res.url().endsWith("/sessions/resume") && res.ok());
+    const response = page.waitForResponse(
+      (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+    );
     await page.reload({ waitUntil: "commit" });
     await page.locator(chatInputSelector).waitFor();
     await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
     return (await response).json();
   }
   async function facts() {
-    assert(process.env.NOVEL_TEST_DB_DIR && /^[\w-]+$/.test(process.env.MIX_TEST_PARTITION), "需要隔离测试库");
+    assert(
+      process.env.NOVEL_TEST_DB_DIR && /^[\w-]+$/.test(process.env.MIX_TEST_PARTITION),
+      "需要隔离测试库",
+    );
     const { DatabaseSync } = await import("node:sqlite");
-    const db = new DatabaseSync(path.join(process.env.NOVEL_TEST_DB_DIR, `ai_novel_studio_test${process.env.MIX_TEST_PARTITION}.sqlite3`), { readOnly: true });
-    try { return db.prepare("SELECT content, status FROM memory_items WHERE instr(content, ?) > 0").all(nonce); }
-    finally { db.close(); }
+    const db = new DatabaseSync(
+      path.join(
+        process.env.NOVEL_TEST_DB_DIR,
+        `ai_novel_studio_test${process.env.MIX_TEST_PARTITION}.sqlite3`,
+      ),
+      { readOnly: true },
+    );
+    try {
+      return db
+        .prepare("SELECT content, status FROM memory_items WHERE instr(content, ?) > 0")
+        .all(nonce);
+    } finally {
+      db.close();
+    }
   }
   function noNewCandidate(result) {
     assert((result.adoption_state?.pending ?? []).length === 0, "重复登记或状态问答产生新候选");
@@ -6410,37 +7137,99 @@ async function driveCandidateLifecycle(page) {
   const duplicate = await send("把上一条资料原文重新登记为作品设定。", "03-repeat-pending");
   noNewCandidate(duplicate);
   assert((await reload()).pending_adoptions.length === 1, "已有来源重复物化");
-  const revised = await send("请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。", "04-revise");
+  const revised = await send(
+    "请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。",
+    "04-revise",
+  );
   const b = revised.adoption_state?.pending?.[0];
-  assert(b && b.artifact_id !== a.artifact_id && b.payload.revision_of === a.artifact_id, "修订未绑定原候选");
+  assert(
+    b && b.artifact_id !== a.artifact_id && b.payload.revision_of === a.artifact_id,
+    "修订未绑定原候选",
+  );
   const revisedText = b.payload.items.map((item) => item.body).join("\n");
-  assert(revisedText.includes("林渡") && !revisedText.includes("沈砚") && revisedText.includes(nonce), "模型修订未执行作者修改或丢失资料标识");
-  assert(b.payload.items.every((i) => i.provider_call_ref && !i.provider_call_ref.startsWith("author_input:")), "修订冒充作者原文字节");
+  assert(
+    revisedText.includes("林渡") && !revisedText.includes("沈砚") && revisedText.includes(nonce),
+    "模型修订未执行作者修改或丢失资料标识",
+  );
+  assert(
+    b.payload.items.every(
+      (i) => i.provider_call_ref && !i.provider_call_ref.startsWith("author_input:"),
+    ),
+    "修订冒充作者原文字节",
+  );
   let snapshot = await reload();
   assert(snapshot.pending_adoptions.length === 2, "修订没有保留原稿和新稿两份候选");
-  assert(snapshot.pending_adoptions.find((e) => e.artifact_id === a.artifact_id)?.payload.items[0].body === original, "修订覆盖了原稿");
+  assert(
+    snapshot.pending_adoptions.find((e) => e.artifact_id === a.artifact_id)?.payload.items[0]
+      .body === original,
+    "修订覆盖了原稿",
+  );
   assert((await facts()).length === 0, "仅要求修改就自动入档");
   operations.push({ operation: "revise", turn_id: revised.turn_id, target_ref: a.artifact_id });
 
   const discardedOriginal = await send("请放弃原候选，保留修订稿。", "05-discard-original");
-  assert(discardedOriginal.adoption_state?.resolved?.some((e) => e.artifact_id === a.artifact_id && e.adoption_status === "DISCARDED"), "放弃错对象或没有执行");
-  assert(discardedOriginal.assistant_message.text === "已放弃该待采纳内容。", "放弃完成回执与状态不一致");
-  operations.push({ operation: "discard", turn_id: discardedOriginal.turn_id, target_ref: a.artifact_id });
+  assert(
+    discardedOriginal.adoption_state?.resolved?.some(
+      (e) => e.artifact_id === a.artifact_id && e.adoption_status === "DISCARDED",
+    ),
+    "放弃错对象或没有执行",
+  );
+  assert(
+    discardedOriginal.assistant_message.text === "已放弃该待采纳内容。",
+    "放弃完成回执与状态不一致",
+  );
+  operations.push({
+    operation: "discard",
+    turn_id: discardedOriginal.turn_id,
+    target_ref: a.artifact_id,
+  });
   snapshot = await reload();
-  assert(snapshot.pending_adoptions.length === 1 && snapshot.pending_adoptions[0].artifact_id === b.artifact_id, "放弃原稿影响修订稿");
-  const lineageRepeat = await send("把上一条资料原文重新登记为作品设定。", "06-repeat-with-revision");
+  assert(
+    snapshot.pending_adoptions.length === 1 &&
+      snapshot.pending_adoptions[0].artifact_id === b.artifact_id,
+    "放弃原稿影响修订稿",
+  );
+  const lineageRepeat = await send(
+    "把上一条资料原文重新登记为作品设定。",
+    "06-repeat-with-revision",
+  );
   noNewCandidate(lineageRepeat);
   assert((await reload()).pending_adoptions.length === 1, "存在修订稿时重复登记了祖先来源");
   const discardedRevision = await send("请放弃修订稿。", "07-discard-revision");
-  assert(discardedRevision.adoption_state?.resolved?.some((e) => e.artifact_id === b.artifact_id && e.adoption_status === "DISCARDED"), "修订稿未被放弃");
-  assert(discardedRevision.assistant_message.text === "已放弃该待采纳内容。", "修订稿放弃完成回执与状态不一致");
-  operations.push({ operation: "discard", turn_id: discardedRevision.turn_id, target_ref: b.artifact_id });
-  assert((await reload()).pending_adoptions.length === 0 && (await facts()).length === 0, "放弃改变了作品事实或没有清空待办");
+  assert(
+    discardedRevision.adoption_state?.resolved?.some(
+      (e) => e.artifact_id === b.artifact_id && e.adoption_status === "DISCARDED",
+    ),
+    "修订稿未被放弃",
+  );
+  assert(
+    discardedRevision.assistant_message.text === "已放弃该待采纳内容。",
+    "修订稿放弃完成回执与状态不一致",
+  );
+  operations.push({
+    operation: "discard",
+    turn_id: discardedRevision.turn_id,
+    target_ref: b.artifact_id,
+  });
+  assert(
+    (await reload()).pending_adoptions.length === 0 && (await facts()).length === 0,
+    "放弃改变了作品事实或没有清空待办",
+  );
 
-  const registered = await send("把上一条资料原文重新登记为作品设定。", "08-register-after-discard");
+  const registered = await send(
+    "把上一条资料原文重新登记为作品设定。",
+    "08-register-after-discard",
+  );
   const c = registered.adoption_state?.pending?.[0];
-  assert(c && ![a.artifact_id, b.artifact_id].includes(c.artifact_id), "全部放弃后未形成新候选身份");
-  assert(c.payload.items[0].body === original && c.payload.items[0].provider_call_ref === `author_input:${source.turn_id}`, "重新登记丢失原文或来源");
+  assert(
+    c && ![a.artifact_id, b.artifact_id].includes(c.artifact_id),
+    "全部放弃后未形成新候选身份",
+  );
+  assert(
+    c.payload.items[0].body === original &&
+      c.payload.items[0].provider_call_ref === `author_input:${source.turn_id}`,
+    "重新登记丢失原文或来源",
+  );
   const edited = original.replace("沈砚", "岑舟");
   const actionStart = frames.length;
   await page.getByRole("button", { name: "修改后保存", exact: true }).last().click();
@@ -6449,27 +7238,80 @@ async function driveCandidateLifecycle(page) {
     .getByRole("button", { name: /保存修改后的版本|修改后保存|保存修改后/ })
     .first()
     .click();
-  await waitForNewFrame(actionStart, (f) => f.event === "turn_result" && f.body?.adoption_state?.resolved?.some(
-    (e) => e.artifact_id === c.artifact_id && e.adoption_status === "EDITED_ACCEPTED"), "作者修改后采纳失败");
-  const sentAction = frames.slice(actionStart).find((f) => f.event === "author_action" && f.direction === "sent");
-  assert(sentAction?.body?.action?.target_ref === c.artifact_id && sentAction.body.action.payload.edited_content === edited, "全文编辑引用错误");
+  await waitForNewFrame(
+    actionStart,
+    (f) =>
+      f.event === "turn_result" &&
+      f.body?.adoption_state?.resolved?.some(
+        (e) => e.artifact_id === c.artifact_id && e.adoption_status === "EDITED_ACCEPTED",
+      ),
+    "作者修改后采纳失败",
+  );
+  const sentAction = frames
+    .slice(actionStart)
+    .find((f) => f.event === "author_action" && f.direction === "sent");
+  assert(
+    sentAction?.body?.action?.target_ref === c.artifact_id &&
+      sentAction.body.action.payload.edited_content === edited,
+    "全文编辑引用错误",
+  );
   snapshot = await reload();
   assert(snapshot.pending_adoptions.length === 0, "已采纳候选仍待处理");
   const finalFacts = await facts();
-  assert(finalFacts.length === 1 && finalFacts[0].status === "CONFIRMED" && finalFacts[0].content.includes(edited), "保存的版本或事实数量不正确");
-  const status = await send("资料处理进度：保存的版本中主角叫什么？原文是否逐字保存？请依据实际已保存的内容回答。", "09-edited-state");
+  assert(
+    finalFacts.length === 1 &&
+      finalFacts[0].status === "CONFIRMED" &&
+      finalFacts[0].content.includes(edited),
+    "保存的版本或事实数量不正确",
+  );
+  const status = await send(
+    "资料处理进度：保存的版本中主角叫什么？原文是否逐字保存？请依据实际已保存的内容回答。",
+    "09-edited-state",
+  );
   noNewCandidate(status);
   assert(status.assistant_message.text.includes("岑舟"), "状态回答仍引用编辑前的旧正文");
   const acceptedRepeat = await send("把上一条资料原文重新登记为作品设定。", "10-repeat-accepted");
   noNewCandidate(acceptedRepeat);
-  assert((await facts()).length === 1 && (await reload()).pending_adoptions.length === 0, "已采纳后又重复生成或写入");
-  fs.writeFileSync(path.join(artifactDir, "lifecycle-evidence.json"), JSON.stringify({ nonce, original, edited,
-    source, original_id: a.artifact_id, revised_id: b.artifact_id, registered_id: c.artifact_id,
-    operations, finalFacts, snapshot }, null, 2));
-  return [{ event: "slice_verify.ui_state.done", slice_id: "q1b-candidate-lifecycle", turn_id: revised.turn_id,
-    turn_ids: turns.map((t) => t.result.turn_id), operations, adoption_turn_id: registered.turn_id,
-    original_preserved: true, revision_is_tentative: true, lineage_registration_guard: true, discard_receipts_match_state: true,
-    discarded_source_can_register: true, edited_state_restored: true, confirmed_fact_count: 1 }];
+  assert(
+    (await facts()).length === 1 && (await reload()).pending_adoptions.length === 0,
+    "已采纳后又重复生成或写入",
+  );
+  fs.writeFileSync(
+    path.join(artifactDir, "lifecycle-evidence.json"),
+    JSON.stringify(
+      {
+        nonce,
+        original,
+        edited,
+        source,
+        original_id: a.artifact_id,
+        revised_id: b.artifact_id,
+        registered_id: c.artifact_id,
+        operations,
+        finalFacts,
+        snapshot,
+      },
+      null,
+      2,
+    ),
+  );
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "q1b-candidate-lifecycle",
+      turn_id: revised.turn_id,
+      turn_ids: turns.map((t) => t.result.turn_id),
+      operations,
+      adoption_turn_id: registered.turn_id,
+      original_preserved: true,
+      revision_is_tentative: true,
+      lineage_registration_guard: true,
+      discard_receipts_match_state: true,
+      discarded_source_can_register: true,
+      edited_state_restored: true,
+      confirmed_fact_count: 1,
+    },
+  ];
 }
 
 async function driveCandidateSemantics(page) {
@@ -6482,25 +7324,49 @@ async function driveCandidateSemantics(page) {
     const start = frames.length;
     await page.locator(chatInputSelector).fill(text);
     await page.getByRole("button", { name: /^发送$/ }).click();
-    const sent = await waitForNewFrame(start, (f) => f.direction === "sent" && f.event === "user_message", "页面未发出输入");
+    const sent = await waitForNewFrame(
+      start,
+      (f) => f.direction === "sent" && f.event === "user_message",
+      "页面未发出输入",
+    );
     const turnId = sent.body.turn_id;
-    const frame = await waitForNewFrame(start, (f) => f.direction === "received" &&
-      ((f.event === "turn_result" && f.body?.turn_id === turnId) ||
-       (f.event === "phx_reply" && f.body?.response?.turn_results?.some((r) => r.turn_id === turnId))),
-      "候选语义场景未收到结果", 120_000);
-    const result = frame.event === "turn_result" ? frame.body : frame.body.response.turn_results.find((r) => r.turn_id === turnId);
-    await waitForNewFrame(start, (f) => {
-      const state = f.event === "agent_run_state" ? f.body : f.body?.response?.agent_run_state;
-      return state?.run_id === result.agent_run?.run_id && ["completed", "failed", "awaiting_author"].includes(state?.status);
-    },
-      "候选语义场景运行尚未收束");
+    const frame = await waitForNewFrame(
+      start,
+      (f) =>
+        f.direction === "received" &&
+        ((f.event === "turn_result" && f.body?.turn_id === turnId) ||
+          (f.event === "phx_reply" &&
+            f.body?.response?.turn_results?.some((r) => r.turn_id === turnId))),
+      "候选语义场景未收到结果",
+      120_000,
+    );
+    const result =
+      frame.event === "turn_result"
+        ? frame.body
+        : frame.body.response.turn_results.find((r) => r.turn_id === turnId);
+    await waitForNewFrame(
+      start,
+      (f) => {
+        const state = f.event === "agent_run_state" ? f.body : f.body?.response?.agent_run_state;
+        return (
+          state?.run_id === result.agent_run?.run_id &&
+          ["completed", "failed", "awaiting_author"].includes(state?.status)
+        );
+      },
+      "候选语义场景运行尚未收束",
+    );
     await page.getByText(result.assistant_message.text, { exact: true }).last().waitFor();
     results.push({ input: text, result });
-    fs.writeFileSync(path.join(artifactDir, "semantic-turns.json"), JSON.stringify(results, null, 2));
+    fs.writeFileSync(
+      path.join(artifactDir, "semantic-turns.json"),
+      JSON.stringify(results, null, 2),
+    );
     return result;
   }
   async function reload() {
-    const response = page.waitForResponse((res) => res.url().endsWith("/sessions/resume") && res.ok());
+    const response = page.waitForResponse(
+      (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+    );
     await page.reload({ waitUntil: "commit" });
     await page.locator(chatInputSelector).waitFor();
     await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
@@ -6508,7 +7374,10 @@ async function driveCandidateSemantics(page) {
   }
   function noDirections(result) {
     assert((result.candidate_directions ?? []).length === 0, "仅记录/流程回复仍产方向");
-    assert(!(result.available_actions ?? []).some((a) => a.action_type === "choose_candidate"), "错误授予方向动作");
+    assert(
+      !(result.available_actions ?? []).some((a) => a.action_type === "choose_candidate"),
+      "错误授予方向动作",
+    );
     assert(!result.truthfulness?.production_write_performed, "未经作者操作写入事实");
   }
   async function database(callback) {
@@ -6516,39 +7385,72 @@ async function driveCandidateSemantics(page) {
     const partition = process.env.MIX_TEST_PARTITION;
     assert(process.env.NOVEL_TEST_DB_DIR && /^[\w-]+$/.test(partition), "必须使用隔离库");
     const { DatabaseSync } = await import("node:sqlite");
-    const db = new DatabaseSync(path.join(process.env.NOVEL_TEST_DB_DIR, `ai_novel_studio_test${partition}.sqlite3`), { timeout: 5000 });
-    try { return callback(db); } finally { db.close(); }
+    const db = new DatabaseSync(
+      path.join(process.env.NOVEL_TEST_DB_DIR, `ai_novel_studio_test${partition}.sqlite3`),
+      { timeout: 5000 },
+    );
+    try {
+      return callback(db);
+    } finally {
+      db.close();
+    }
   }
   async function facts() {
-    return database((db) => db.prepare("SELECT content, status FROM memory_items WHERE instr(content, ?) > 0").all(nonce));
+    return database((db) =>
+      db.prepare("SELECT content, status FROM memory_items WHERE instr(content, ?) > 0").all(nonce),
+    );
   }
   const source = await send(original);
   noDirections(source);
-  assert(source.status !== "failed" && (source.adoption_state?.pending ?? []).length === 0, "仅记录纠正失败或物化候选");
+  assert(
+    source.status !== "failed" && (source.adoption_state?.pending ?? []).length === 0,
+    "仅记录纠正失败或物化候选",
+  );
   await reload();
-  assert(await page.getByRole("button", { name: "设为后续方向", exact: true }).count() === 0, "刷新恢复了错误方向动作");
+  assert(
+    (await page.getByRole("button", { name: "设为后续方向", exact: true }).count()) === 0,
+    "刷新恢复了错误方向动作",
+  );
   await page.screenshot({ path: path.join(artifactDir, "record-only.png"), fullPage: true });
 
-  for (const [text, reason] of [["这轮仍只收下资料。仅记录持续矛盾样例。", "record_only_conflict"],
-    ["资料处理进度：流程建议持续矛盾样例。", "candidate_purpose_conflict"]]) {
+  for (const [text, reason] of [
+    ["这轮仍只收下资料。仅记录持续矛盾样例。", "record_only_conflict"],
+    ["资料处理进度：流程建议持续矛盾样例。", "candidate_purpose_conflict"],
+  ]) {
     const result = await send(text);
     noDirections(result);
     // B13b BB-4（ADR-0006 #2）：run 失败兜底 TurnResult = failed_recoverable；run 级 status 仍 failed。
     assert(result.status === "failed_recoverable", "持续矛盾未停止");
     assert((result.adoption_state?.pending ?? []).length === 0, "持续矛盾生成产物");
     const snapshot = await reload();
-    assert(snapshot.transcript.some((e) => e.text === text), "失败后丢失作者输入");
-    assert(snapshot.transcript.some((e) => e.turn_result?.turn_id === result.turn_id && e.turn_result.status === "failed_recoverable"), "失败结果未恢复");
+    assert(
+      snapshot.transcript.some((e) => e.text === text),
+      "失败后丢失作者输入",
+    );
+    assert(
+      snapshot.transcript.some(
+        (e) =>
+          e.turn_result?.turn_id === result.turn_id &&
+          e.turn_result.status === "failed_recoverable",
+      ),
+      "失败结果未恢复",
+    );
     failed.push({ turn_id: result.turn_id, reason_code: reason });
   }
   const saved = await send("把上一条资料原文保存为作品设定。流程建议纠正样例。");
   noDirections(saved);
   const pending = saved.adoption_state?.pending?.[0];
   assert(pending?.payload?.items?.[0]?.body === original, "流程纠正改写原文");
-  assert(pending.payload.items[0].provider_call_ref === `author_input:${source.turn_id}`, "原文来源错误");
+  assert(
+    pending.payload.items[0].provider_call_ref === `author_input:${source.turn_id}`,
+    "原文来源错误",
+  );
   assert((await facts()).length === 0, "采纳前写入了事实");
   await reload();
-  assert(await page.getByRole("button", { name: "设为后续方向", exact: true }).count() === 0, "流程建议仍可设为方向");
+  assert(
+    (await page.getByRole("button", { name: "设为后续方向", exact: true }).count()) === 0,
+    "流程建议仍可设为方向",
+  );
   await page.screenshot({ path: path.join(artifactDir, "workflow-actions.png"), fullPage: true });
 
   async function resolveArtifact(result, type, label, status, edited) {
@@ -6558,17 +7460,37 @@ async function driveCandidateSemantics(page) {
     if (edited) {
       await page.getByRole("dialog").getByRole("textbox").fill(edited);
       await page
-    .getByRole("button", { name: /保存修改后的版本|修改后保存|保存修改后/ })
-    .first()
-    .click();
+        .getByRole("button", { name: /保存修改后的版本|修改后保存|保存修改后/ })
+        .first()
+        .click();
     }
-    await waitForNewFrame(start, (f) => f.event === "turn_result" && f.body?.adoption_state?.resolved?.some(
-      (entry) => entry.artifact_id === item.artifact_id && entry.adoption_status === status), "真实产物操作未产生正确结果");
-    const sent = frames.slice(start).find((f) => f.direction === "sent" && f.event === "author_action");
-    assert(sent?.body?.action?.action_type === type && sent.body.action.target_ref === item.artifact_id, "按钮未调用真实产物动作");
-    artifactActions.push({ type, source_turn_id: result.turn_id, artifact_id: item.artifact_id, status });
+    await waitForNewFrame(
+      start,
+      (f) =>
+        f.event === "turn_result" &&
+        f.body?.adoption_state?.resolved?.some(
+          (entry) => entry.artifact_id === item.artifact_id && entry.adoption_status === status,
+        ),
+      "真实产物操作未产生正确结果",
+    );
+    const sent = frames
+      .slice(start)
+      .find((f) => f.direction === "sent" && f.event === "author_action");
+    assert(
+      sent?.body?.action?.action_type === type && sent.body.action.target_ref === item.artifact_id,
+      "按钮未调用真实产物动作",
+    );
+    artifactActions.push({
+      type,
+      source_turn_id: result.turn_id,
+      artifact_id: item.artifact_id,
+      status,
+    });
     const snapshot = await reload();
-    assert(!snapshot.pending_adoptions.some((e) => e.artifact_id === item.artifact_id), "处置后仍在待办");
+    assert(
+      !snapshot.pending_adoptions.some((e) => e.artifact_id === item.artifact_id),
+      "处置后仍在待办",
+    );
   }
   await resolveArtifact(saved, "discard", "不保存", "DISCARDED");
   assert((await facts()).length === 0, "放弃操作写入事实");
@@ -6576,56 +7498,126 @@ async function driveCandidateSemantics(page) {
   noDirections(edit);
   const edited = `沈砚为寻找姐姐离开旧书铺。作者修订${nonce}。`;
   await resolveArtifact(edit, "edit_then_accept", "修改后保存", "EDITED_ACCEPTED", edited);
-  assert((await facts()).some((f) => f.content.includes(edited)), "修改后保存未写作者修改内容");
+  assert(
+    (await facts()).some((f) => f.content.includes(edited)),
+    "修改后保存未写作者修改内容",
+  );
   const accept = await send(`把这份大纲直接存档为作品设定：雨港每天午夜停潮。采纳标识${nonce}。`);
   noDirections(accept);
   await resolveArtifact(accept, "accept", "保存到作品档案", "ACCEPTED");
 
   // 用实际持久结果模拟旧版无用途标记的流程卡；产品不识别夹具。
   const legacySource = await send("我想写一个赛博修仙方向，给我几个候选。");
-  assert(legacySource.candidate_directions?.every((c) => c.kind === "creative_direction"), "新方向缺用途标记");
+  assert(
+    legacySource.candidate_directions?.every((c) => c.kind === "creative_direction"),
+    "新方向缺用途标记",
+  );
   await database((db) => {
-    const rows = db.prepare("SELECT id, content FROM interactions WHERE turn_id = ? AND role = 'assistant'").all(legacySource.turn_id);
+    const rows = db
+      .prepare("SELECT id, content FROM interactions WHERE turn_id = ? AND role = 'assistant'")
+      .all(legacySource.turn_id);
     assert(rows.length === 1, "历史夹具必须精确命中一条结果");
     const content = JSON.parse(rows[0].content);
-    content.turn_result.candidate_directions.forEach((c) => { delete c.kind; c.title = "丢弃候选"; c.pitch = "历史流程建议"; });
-    db.prepare("UPDATE interactions SET content = ? WHERE id = ?").run(JSON.stringify(content), rows[0].id);
+    content.turn_result.candidate_directions.forEach((c) => {
+      delete c.kind;
+      c.title = "丢弃候选";
+      c.pitch = "历史流程建议";
+    });
+    db.prepare("UPDATE interactions SET content = ? WHERE id = ?").run(
+      JSON.stringify(content),
+      rows[0].id,
+    );
   });
   const legacySnapshot = await reload();
-  const legacy = legacySnapshot.transcript.find((e) => e.turn_result?.turn_id === legacySource.turn_id)?.turn_result;
+  const legacy = legacySnapshot.transcript.find(
+    (e) => e.turn_result?.turn_id === legacySource.turn_id,
+  )?.turn_result;
   assert(legacy?.candidate_directions?.[0]?.title === "丢弃候选", "旧内容未保留");
-  assert(!(legacy.available_actions ?? []).some((a) => a.action_type === "choose_candidate"), "服务端恢复旧错误动作");
-  assert(await page.getByRole("button", { name: "设为后续方向", exact: true }).count() === 0, "页面恢复旧错误动作");
+  assert(
+    !(legacy.available_actions ?? []).some((a) => a.action_type === "choose_candidate"),
+    "服务端恢复旧错误动作",
+  );
+  assert(
+    (await page.getByRole("button", { name: "设为后续方向", exact: true }).count()) === 0,
+    "页面恢复旧错误动作",
+  );
   await page.getByText("历史流程建议", { exact: true }).first().waitFor();
   await page.screenshot({ path: path.join(artifactDir, "legacy-readonly.png"), fullPage: true });
 
   const creative = await send("我想写一个赛博修仙方向，重新给我几个创作候选。");
-  assert(creative.frame_summary?.frame_type === "creative_exploration" && creative.candidate_directions.length > 0, "正常创作探索被压制");
+  assert(
+    creative.frame_summary?.frame_type === "creative_exploration" &&
+      creative.candidate_directions.length > 0,
+    "正常创作探索被压制",
+  );
   await reload();
   const discussStart = frames.length;
-  await page.getByText("可讨论方向", { exact: true }).last().locator("..")
-    .getByRole("button", { name: "继续讨论", exact: true }).first().click();
-  const discussed = (await waitForNewFrame(discussStart, (f) => f.event === "turn_result", "创作方向不能继续讨论")).body;
-  const discussion = frames.slice(discussStart).find((f) => f.event === "user_message" && f.direction === "sent");
-  assert(discussion?.body?.candidate_selection?.source_turn_ref === creative.turn_id, "讨论未绑定真实方向");
+  await page
+    .getByText("可讨论方向", { exact: true })
+    .last()
+    .locator("..")
+    .getByRole("button", { name: "继续讨论", exact: true })
+    .first()
+    .click();
+  const discussed = (
+    await waitForNewFrame(discussStart, (f) => f.event === "turn_result", "创作方向不能继续讨论")
+  ).body;
+  const discussion = frames
+    .slice(discussStart)
+    .find((f) => f.event === "user_message" && f.direction === "sent");
+  assert(
+    discussion?.body?.candidate_selection?.source_turn_ref === creative.turn_id,
+    "讨论未绑定真实方向",
+  );
   assert(!discussed.truthfulness?.production_write_performed, "继续讨论写入事实");
   assert((discussed.adoption_state?.pending ?? []).length === 0, "继续讨论擅自生成产物");
   await page.getByText("展开", { exact: true }).last().click();
   const choiceStart = frames.length;
   await page.getByRole("button", { name: "设为后续方向", exact: true }).last().click();
-  const chosen = (await waitForNewFrame(choiceStart, (f) => f.event === "turn_result" && f.body?.truthfulness?.candidate_selected, "合法方向选择未成功")).body;
-  assert(chosen.truthfulness.candidate_adopted && !chosen.truthfulness.production_write_performed, "方向选择后果错误");
+  const chosen = (
+    await waitForNewFrame(
+      choiceStart,
+      (f) => f.event === "turn_result" && f.body?.truthfulness?.candidate_selected,
+      "合法方向选择未成功",
+    )
+  ).body;
+  assert(
+    chosen.truthfulness.candidate_adopted && !chosen.truthfulness.production_write_performed,
+    "方向选择后果错误",
+  );
   await reload();
   const finalFacts = await facts();
-  assert(finalFacts.length === 2 && finalFacts.every((f) => f.status === "CONFIRMED"), "三类产物操作的事实后果不正确");
-  await page.screenshot({ path: path.join(artifactDir, "creative-and-adoption.png"), fullPage: true });
-  fs.writeFileSync(path.join(artifactDir, "semantic-evidence.json"), JSON.stringify({ failed, artifactActions, legacySnapshot, finalFacts }, null, 2));
-  return [{ event: "slice_verify.ui_state.done", slice_id: "q3d-candidate-semantics",
-    turn_id: saved.turn_id, source_turn_id: source.turn_id, failed_turns: failed,
-    creative_turn_id: creative.turn_id, discussed_turn_id: discussed.turn_id, chosen_turn_id: chosen.turn_id,
-    artifact_actions: artifactActions, legacy_actions_revoked: true, legacy_content_preserved: true,
-    record_only_has_no_candidates: true, workflow_has_no_direction_actions: true,
-    failed_results_restored: true, confirmed_fact_count: finalFacts.length }];
+  assert(
+    finalFacts.length === 2 && finalFacts.every((f) => f.status === "CONFIRMED"),
+    "三类产物操作的事实后果不正确",
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, "creative-and-adoption.png"),
+    fullPage: true,
+  });
+  fs.writeFileSync(
+    path.join(artifactDir, "semantic-evidence.json"),
+    JSON.stringify({ failed, artifactActions, legacySnapshot, finalFacts }, null, 2),
+  );
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "q3d-candidate-semantics",
+      turn_id: saved.turn_id,
+      source_turn_id: source.turn_id,
+      failed_turns: failed,
+      creative_turn_id: creative.turn_id,
+      discussed_turn_id: discussed.turn_id,
+      chosen_turn_id: chosen.turn_id,
+      artifact_actions: artifactActions,
+      legacy_actions_revoked: true,
+      legacy_content_preserved: true,
+      record_only_has_no_candidates: true,
+      workflow_has_no_direction_actions: true,
+      failed_results_restored: true,
+      confirmed_fact_count: finalFacts.length,
+    },
+  ];
 }
 
 async function driveAuthorRegistrationGuards(page) {
@@ -6636,11 +7628,19 @@ async function driveAuthorRegistrationGuards(page) {
     const start = frames.length;
     await page.locator(chatInputSelector).fill(text);
     await page.getByRole("button", { name: /^发送$/ }).click();
-    return (await waitForNewFrame(start, (f) => f.direction === "received" && f.event === "turn_result",
-      "原文登记没有返回处理结果", 120_000)).body;
+    return (
+      await waitForNewFrame(
+        start,
+        (f) => f.direction === "received" && f.event === "turn_result",
+        "原文登记没有返回处理结果",
+        120_000,
+      )
+    ).body;
   }
   async function reload() {
-    const response = page.waitForResponse((res) => res.url().endsWith("/sessions/resume") && res.ok());
+    const response = page.waitForResponse(
+      (res) => res.url().endsWith("/sessions/resume") && res.ok(),
+    );
     await page.reload({ waitUntil: "commit" });
     await page.locator(chatInputSelector).waitFor();
     await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
@@ -6651,39 +7651,96 @@ async function driveAuthorRegistrationGuards(page) {
     const partition = process.env.MIX_TEST_PARTITION;
     assert(dbDir && partition && /^[\w-]+$/.test(partition), "边界验收需要独立测试库和分区");
     const { DatabaseSync } = await import("node:sqlite");
-    const db = new DatabaseSync(path.join(dbDir, `ai_novel_studio_test${partition}.sqlite3`), { readOnly: true });
+    const db = new DatabaseSync(path.join(dbDir, `ai_novel_studio_test${partition}.sqlite3`), {
+      readOnly: true,
+    });
     try {
       return {
-        inputs: db.prepare("SELECT content FROM interactions WHERE role = 'user' AND json_extract(content, '$.agent_run_id') = ?").all(runId).map((row) => JSON.parse(row.content)),
-        facts: db.prepare("SELECT count(*) AS n FROM memory_items WHERE instr(content, ?) > 0").get(nonce).n,
-        confirmed: db.prepare("SELECT count(*) AS n FROM memory_items WHERE instr(content, ?) > 0 AND status = 'CONFIRMED'").get(nonce).n,
+        inputs: db
+          .prepare(
+            "SELECT content FROM interactions WHERE role = 'user' AND json_extract(content, '$.agent_run_id') = ?",
+          )
+          .all(runId)
+          .map((row) => JSON.parse(row.content)),
+        facts: db
+          .prepare("SELECT count(*) AS n FROM memory_items WHERE instr(content, ?) > 0")
+          .get(nonce).n,
+        confirmed: db
+          .prepare(
+            "SELECT count(*) AS n FROM memory_items WHERE instr(content, ?) > 0 AND status = 'CONFIRMED'",
+          )
+          .get(nonce).n,
       };
-    } finally { db.close(); }
+    } finally {
+      db.close();
+    }
   }
   const source = await send(original);
   assert((source.adoption_state?.pending ?? []).length === 0, "仅记录时不应生成候选");
-  for (const [label, code] of [["来源缺失样例", "source_required"], ["矛盾动作样例", "invalid_tool_combination"], ["越界来源样例", "source_not_available"]]) {
+  for (const [label, code] of [
+    ["来源缺失样例", "source_required"],
+    ["矛盾动作样例", "invalid_tool_combination"],
+    ["越界来源样例", "source_not_available"],
+  ]) {
     const start = frames.length;
     const result = await send(`把上一条资料原文保存为作品设定。${label}。`);
     // B13b BB-4（ADR-0006 #2）：run 失败兜底 TurnResult = failed_recoverable。
     assert(result.status === "failed_recoverable", `${label} 没有安全停止`);
     assert((result.adoption_state?.pending ?? []).length === 0, `${label} 产生了候选`);
-    assert(result.truthfulness?.production_write_performed === false && result.truthfulness?.tool_called === false,
-      `${label} 越过了无创作调用/无写入边界`);
-    assert(/没有生成候选|没有改写原文/.test(result.assistant_message?.text ?? ""), "失败说明未解释业务后果");
-    await waitForNewFrame(start, (f) => f.event === "agent_run_state" && f.body?.run_id === result.agent_run?.run_id && f.body?.status === "failed", "失败运行未结束");
+    assert(
+      result.truthfulness?.production_write_performed === false &&
+        result.truthfulness?.tool_called === false,
+      `${label} 越过了无创作调用/无写入边界`,
+    );
+    assert(
+      /没有生成候选|没有改写原文/.test(result.assistant_message?.text ?? ""),
+      "失败说明未解释业务后果",
+    );
+    await waitForNewFrame(
+      start,
+      (f) =>
+        f.event === "agent_run_state" &&
+        f.body?.run_id === result.agent_run?.run_id &&
+        f.body?.status === "failed",
+      "失败运行未结束",
+    );
     const stored = await persisted(result.agent_run.run_id);
     assert(stored.facts === 0, `${label} 写入了作品事实`);
-    assert(stored.inputs.length === 1 && stored.inputs[0].message_handling?.status === "failed" &&
-      stored.inputs[0].message_handling.result_turn_refs.includes(result.turn_id), "失败没有回填到原输入");
+    assert(
+      stored.inputs.length === 1 &&
+        stored.inputs[0].message_handling?.status === "failed" &&
+        stored.inputs[0].message_handling.result_turn_refs.includes(result.turn_id),
+      "失败没有回填到原输入",
+    );
     const snapshot = await reload();
-    assert(snapshot.transcript.some((entry) => entry.turn_result?.turn_id === result.turn_id && entry.turn_result?.status === "failed_recoverable"), "刷新丢失失败结果");
+    assert(
+      snapshot.transcript.some(
+        (entry) =>
+          entry.turn_result?.turn_id === result.turn_id &&
+          entry.turn_result?.status === "failed_recoverable",
+      ),
+      "刷新丢失失败结果",
+    );
     assert(snapshot.pending_adoptions.length === 0, "失败恢复出了候选");
     await page.getByText(result.assistant_message.text, { exact: true }).last().waitFor();
-    fs.writeFileSync(path.join(artifactDir, `${code}-restored.json`), JSON.stringify({ stored, snapshot }, null, 2));
-    assert(await page.getByRole("button", { name: acceptDraftButtonPattern }).count() === 0, "拒绝后仍可采纳错误内容");
+    fs.writeFileSync(
+      path.join(artifactDir, `${code}-restored.json`),
+      JSON.stringify({ stored, snapshot }, null, 2),
+    );
+    assert(
+      (await page.getByRole("button", { name: acceptDraftButtonPattern }).count()) === 0,
+      "拒绝后仍可采纳错误内容",
+    );
     const logs = readAppLogRecords().filter((r) => r.turn_id === result.turn_id);
-    assert(logs.some((r) => r.event === "judgment.output_validation.done" && r.reason_code === code && r.outcome === "rejected"), "缺少业务拒绝留痕");
+    assert(
+      logs.some(
+        (r) =>
+          r.event === "judgment.output_validation.done" &&
+          r.reason_code === code &&
+          r.outcome === "rejected",
+      ),
+      "缺少业务拒绝留痕",
+    );
     assert(!logs.some((r) => r.event?.startsWith("toolbox.execute.")), "拒绝前派发了创作工具");
     failedTurns.push({ turn_id: result.turn_id, reason_code: code, status: "failed_recoverable" });
     await page.screenshot({ path: path.join(artifactDir, `${code}.png`), fullPage: true });
@@ -6691,20 +7748,49 @@ async function driveAuthorRegistrationGuards(page) {
   const corrected = await send("把上一条资料原文保存为作品设定。一次纠正样例。");
   const candidate = corrected.adoption_state?.pending?.[0];
   assert(candidate?.payload?.items?.[0]?.body === original, "纠正后未保留历史原文字节");
-  assert(candidate.payload.items[0].provider_call_ref === `author_input:${source.turn_id}`, "纠正后引用错误来源");
+  assert(
+    candidate.payload.items[0].provider_call_ref === `author_input:${source.turn_id}`,
+    "纠正后引用错误来源",
+  );
   assert((await persisted(corrected.agent_run.run_id)).facts === 0, "纠正成功即提前入档");
   const start = frames.length;
   await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
-  await waitForNewFrame(start, (f) => f.event === "turn_result" && f.body?.adoption_state?.resolved?.some(
-    (entry) => entry.artifact_id === candidate.artifact_id && entry.adoption_status === "ACCEPTED"), "作者采纳失败");
+  await waitForNewFrame(
+    start,
+    (f) =>
+      f.event === "turn_result" &&
+      f.body?.adoption_state?.resolved?.some(
+        (entry) =>
+          entry.artifact_id === candidate.artifact_id && entry.adoption_status === "ACCEPTED",
+      ),
+    "作者采纳失败",
+  );
   const snapshot = await reload();
   const finalStored = await persisted(corrected.agent_run.run_id);
-  assert(snapshot.pending_adoptions.length === 0 && finalStored.facts === 1 && finalStored.confirmed === 1, "采纳恢复状态与事实不一致");
-  fs.writeFileSync(path.join(artifactDir, "adopted-restored.json"), JSON.stringify({ stored: finalStored, snapshot }, null, 2));
-  return [{ event: "slice_verify.ui_state.done", slice_id: "q3d-author-registration-guards",
-    source_turn_id: source.turn_id, turn_id: corrected.turn_id, failed_turns: failedTurns,
-    historical_bytes_preserved: true, source_binding_preserved: true, failed_results_restored: true,
-    no_write_before_adoption: true, confirmed_fact_count: 1 }];
+  assert(
+    snapshot.pending_adoptions.length === 0 &&
+      finalStored.facts === 1 &&
+      finalStored.confirmed === 1,
+    "采纳恢复状态与事实不一致",
+  );
+  fs.writeFileSync(
+    path.join(artifactDir, "adopted-restored.json"),
+    JSON.stringify({ stored: finalStored, snapshot }, null, 2),
+  );
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "q3d-author-registration-guards",
+      source_turn_id: source.turn_id,
+      turn_id: corrected.turn_id,
+      failed_turns: failedTurns,
+      historical_bytes_preserved: true,
+      source_binding_preserved: true,
+      failed_results_restored: true,
+      no_write_before_adoption: true,
+      confirmed_fact_count: 1,
+    },
+  ];
 }
 
 async function driveQ3cAuthorContentMaterialization(page) {
@@ -6760,9 +7846,7 @@ async function driveQ3cAuthorContentMaterialization(page) {
       f.direction === "received" &&
       f.event === "turn_result" &&
       f.body?.truthfulness?.artifact_adopted === true &&
-      (f.body?.adoption_state?.resolved ?? []).some(
-        (e) => e.artifact_id === pending.artifact_id,
-      ),
+      (f.body?.adoption_state?.resolved ?? []).some((e) => e.artifact_id === pending.artifact_id),
     "Adoption resolved turn_result frame was not received",
     120_000,
   );
@@ -7417,7 +8501,9 @@ function readB47Seed(seedText) {
 }
 
 function b47Sha256(text) {
-  return createHash("sha256").update(String(text ?? ""), "utf8").digest("hex");
+  return createHash("sha256")
+    .update(String(text ?? ""), "utf8")
+    .digest("hex");
 }
 
 function b47EffectiveWordCount(text) {
@@ -7637,7 +8723,9 @@ async function driveB47CanonFreshness(page) {
           work_id: trial.work_id,
           before: trial.before,
           after: trial.after,
-          expected_after: seed.works.find((work) => work.scenario === trial.scenario)?.expected_after_adoption ?? null,
+          expected_after:
+            seed.works.find((work) => work.scenario === trial.scenario)?.expected_after_adoption ??
+            null,
         })),
       },
       null,
@@ -7655,13 +8743,17 @@ async function driveB47CanonFreshness(page) {
       work_title: trials[0]?.work_title ?? null,
       session_id: null,
       socket_connected: true,
-      title_text: trials.map((trial) => trial.work_title).filter(Boolean).join(" / "),
+      title_text: trials
+        .map((trial) => trial.work_title)
+        .filter(Boolean)
+        .join(" / "),
       message_count: trials.length,
       duration_ms: 0,
       outcome: "done",
       three_work_trials_completed: trials.length === 3,
       trials,
-      reading_projection_after_fresh: trials.find((trial) => trial.scenario === "fresh")?.reading_projection ?? null,
+      reading_projection_after_fresh:
+        trials.find((trial) => trial.scenario === "fresh")?.reading_projection ?? null,
       visible_text_excerpt: visibleText.slice(-1500),
     },
   ];
@@ -8205,10 +9297,12 @@ async function driveAu08VolumeStructuredPlanning(page) {
     assert(
       volumeChapterTitles.includes(blueprint.climaxes) &&
         volumeChapterTitles.includes(blueprint.buffers),
-      `Volume blueprint ${index + 1} must reference chapter titles inside its own volume: ${JSON.stringify({
-        blueprint,
-        volumeChapterTitles,
-      })}`,
+      `Volume blueprint ${index + 1} must reference chapter titles inside its own volume: ${JSON.stringify(
+        {
+          blueprint,
+          volumeChapterTitles,
+        },
+      )}`,
     );
   }
 
@@ -8428,9 +9522,7 @@ async function driveAu08VolumeStructuredPlanning(page) {
     const list = title?.nextElementSibling;
     if (!list) return [];
 
-    return [...list.children].map((group) =>
-      ((group.firstElementChild?.textContent ?? "").trim()),
-    );
+    return [...list.children].map((group) => (group.firstElementChild?.textContent ?? "").trim());
   });
 
   const tocRecord = await waitForNewAppLogRecord(
@@ -8452,9 +9544,7 @@ async function driveAu08VolumeStructuredPlanning(page) {
   const tocResponse = lastTocReply
     ? (lastTocReply.body?.response ?? lastTocReply.payload?.response ?? lastTocReply.body)
     : null;
-  const tocFrameVolumeCount = Array.isArray(tocResponse?.volumes)
-    ? tocResponse.volumes.length
-    : 0;
+  const tocFrameVolumeCount = Array.isArray(tocResponse?.volumes) ? tocResponse.volumes.length : 0;
 
   const readingTocGroupedByVolume =
     readingTocVolumeHeaders.length === 2 &&
@@ -8570,8 +9660,7 @@ async function driveAu08VolumeStructuredPlanning(page) {
     ({ volumeHeaderText, chapterTitle }) => {
       const header = [...document.querySelectorAll("div")].find(
         (element) =>
-          element.children.length === 0 &&
-          (element.textContent ?? "").trim() === volumeHeaderText,
+          element.children.length === 0 && (element.textContent ?? "").trim() === volumeHeaderText,
       );
       const group = header?.parentElement;
       if (!group) return -1;
@@ -8717,12 +9806,13 @@ async function driveAu08VolumeStructuredPlanning(page) {
   );
 
   const readWorkbenchHeaderVolume = async () =>
-    (await page
-      .locator('[class*="volText"]')
-      .first()
-      .innerText()
-      .catch(() => ""))
-      .trim();
+    (
+      await page
+        .locator('[class*="volText"]')
+        .first()
+        .innerText()
+        .catch(() => "")
+    ).trim();
   let workbenchHeaderVolumeTitle = "";
   for (let attempt = 0; attempt < 60; attempt += 1) {
     workbenchHeaderVolumeTitle = await readWorkbenchHeaderVolume();
@@ -8731,8 +9821,7 @@ async function driveAu08VolumeStructuredPlanning(page) {
   }
   const workbenchBodyText = await page.locator("body").innerText();
   const workbenchHeaderShowsCurrentVolume =
-    workbenchHeaderVolumeTitle === proseVolumeTitle &&
-    !workbenchBodyText.includes("未定卷");
+    workbenchHeaderVolumeTitle === proseVolumeTitle && !workbenchBodyText.includes("未定卷");
   assert(
     workbenchHeaderShowsCurrentVolume,
     `Workbench header did not show the real current volume ${proseVolumeTitle} (got ${JSON.stringify(
@@ -8910,8 +9999,7 @@ async function driveAu08VolumeStructuredPlanning(page) {
     const targetBlock = sectionBlockFor("后续卷规划");
     const skeletonBlock = sectionBlockFor("全书规划");
     const planTitle = [...document.querySelectorAll("span")].find(
-      (element) =>
-        element.children.length === 0 && leafText(element).startsWith("已采纳章节计划"),
+      (element) => element.children.length === 0 && leafText(element).startsWith("已采纳章节计划"),
     );
     const planBlock = planTitle?.closest("div")?.parentElement ?? null;
     if (!targetBlock || !skeletonBlock || !planBlock) {
@@ -9181,10 +10269,7 @@ async function driveAu08VolumeStructuredPlanning(page) {
 
   // 截图证据：把档案面板滚到第三卷表头（三卷目录 + 第三卷卷蓝图/章卡可见），
   // 面板内部滚动不会进入 fullPage 截图，必须先 scrollIntoView。
-  await page
-    .getByText(expectedThirdVolumeHeader, { exact: true })
-    .first()
-    .scrollIntoViewIfNeeded();
+  await page.getByText(expectedThirdVolumeHeader, { exact: true }).first().scrollIntoViewIfNeeded();
   await page.screenshot({
     path: path.join(artifactDir, "au08-volume-structured-planning-plan-next-volume.png"),
     fullPage: true,
@@ -9230,8 +10315,7 @@ async function driveAu08VolumeStructuredPlanning(page) {
   assert(
     threeVolumeToc.length === 3 &&
       threeVolumeToc.every(
-        (volume, index) =>
-          volume.title === expectedVolumeTitles[index] && volume.seq === index + 1,
+        (volume, index) => volume.title === expectedVolumeTitles[index] && volume.seq === index + 1,
       ),
     `get_toc projection did not carry the three expected volumes in order: ${JSON.stringify(
       threeVolumeToc.map((volume) => ({ title: volume.title, seq: volume.seq })),
@@ -9249,8 +10333,7 @@ async function driveAu08VolumeStructuredPlanning(page) {
   assert(
     scopedTocVolume.blueprint.has_blueprint &&
       scopedTocVolume.blueprint.status === "CONFIRMED" &&
-      scopedTocVolume.blueprint.source_ref ===
-        `artifact:${scopedPendingArtifact.artifact_id}` &&
+      scopedTocVolume.blueprint.source_ref === `artifact:${scopedPendingArtifact.artifact_id}` &&
       scopedTocVolume.blueprint.goal_conflict === scopedBlueprint.goal_conflict,
     `The third volume TOC node did not carry the adopted confirmed blueprint: ${JSON.stringify({
       scopedTocVolume,
@@ -9298,9 +10381,7 @@ async function driveAu08VolumeStructuredPlanning(page) {
     const list = title?.nextElementSibling;
     if (!list) return [];
 
-    return [...list.children].map((group) =>
-      ((group.firstElementChild?.textContent ?? "").trim()),
-    );
+    return [...list.children].map((group) => (group.firstElementChild?.textContent ?? "").trim());
   });
   const readingTocThreeVolumes =
     JSON.stringify(readingTocHeadersAfterThird) === JSON.stringify(expectedVolumeTitles);
@@ -9319,10 +10400,7 @@ async function driveAu08VolumeStructuredPlanning(page) {
     );
     if (!scopedPlannerPrompt) await sleep(200);
   }
-  assert(
-    scopedPlannerPrompt,
-    "Planner prompt did not carry the mechanical planning scope section",
-  );
+  assert(scopedPlannerPrompt, "Planner prompt did not carry the mechanical planning scope section");
   const planningScopePromptCount = readPromptTexts().filter((prompt) =>
     prompt.includes("## 本轮规划范围（机械给定，不得改）"),
   ).length;
@@ -9488,9 +10566,7 @@ async function driveAu08VolumeStructuredPlanning(page) {
       scoped_accept_payload: scopedAcceptFrame.body,
       scoped_action_result_status: scopedActionResultFrame.body.status,
       three_volume_headers: threeVolumeHeaders,
-      three_volume_chapter_counts: finalOutlineGroups.map(
-        (group) => group.chapter_titles.length,
-      ),
+      three_volume_chapter_counts: finalOutlineGroups.map((group) => group.chapter_titles.length),
       three_volume_chapter_titles: threeVolumeChapterTitles,
       three_volume_toc_blueprints: threeVolumeToc,
       third_volume_blueprint: scopedTocVolume.blueprint,
@@ -9531,9 +10607,7 @@ async function driveB25ChapterIdentityUnification(page) {
     ({ title, marker }) => {
       const text = document.body.innerText;
       return (
-        text.includes(title) &&
-        text.includes(marker) &&
-        /待确认的创作材料|正文草稿/.test(text)
+        text.includes(title) && text.includes(marker) && /待确认的创作材料|正文草稿/.test(text)
       );
     },
     { title: targetTitle, marker: continuationBody },
@@ -9572,9 +10646,7 @@ async function driveB25ChapterIdentityUnification(page) {
       frame.event === "turn_result" &&
       frame.body?.truthfulness?.artifact_adopted === true &&
       Array.isArray(frame.body?.adoption_state?.resolved) &&
-      frame.body.adoption_state.resolved.some(
-        (entry) => entry.artifact_id === seededArtifactId,
-      ),
+      frame.body.adoption_state.resolved.some((entry) => entry.artifact_id === seededArtifactId),
     "No resolved adoption turn_result for the restored same-title artifact",
     120_000,
   );
@@ -9592,11 +10664,9 @@ async function driveB25ChapterIdentityUnification(page) {
   // 3) 档案大纲：两章同名并存（不得被 title 合并成一行）。
   await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
-  await page.waitForFunction(
-    (title) => document.body.innerText.includes(title),
-    targetTitle,
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction((title) => document.body.innerText.includes(title), targetTitle, {
+    timeout: 10_000,
+  });
 
   const outlineSameTitleCount = await page.evaluate(
     (title) =>
@@ -9649,8 +10719,7 @@ async function driveB25ChapterIdentityUnification(page) {
   const firstChapterContentRecord = await waitForNewAppLogRecord(
     beforeReadingLogCount,
     (record) =>
-      record.event === "channel.get_chapter_content.done" &&
-      record.chapter_id === firstChapterId,
+      record.event === "channel.get_chapter_content.done" && record.chapter_id === firstChapterId,
     "Reading mode did not read the empty same-title chapter",
     30_000,
   );
@@ -9668,9 +10737,8 @@ async function driveB25ChapterIdentityUnification(page) {
   const readingText = await page.locator("body").innerText();
   const sameTitleHeadingCount = await page.evaluate(
     (title) =>
-      [...document.querySelectorAll("h1")].filter(
-        (el) => (el.textContent ?? "").trim() === title,
-      ).length,
+      [...document.querySelectorAll("h1")].filter((el) => (el.textContent ?? "").trim() === title)
+        .length,
     targetTitle,
   );
 
@@ -9726,8 +10794,7 @@ async function driveB25ChapterIdentityUnification(page) {
     "get_toc chapter order/identity did not follow work-unique seq",
   );
   assert(
-    Number(tocChapters[0]?.word_count ?? -1) === 0 &&
-      Number(tocChapters[1]?.word_count ?? 0) > 0,
+    Number(tocChapters[0]?.word_count ?? -1) === 0 && Number(tocChapters[1]?.word_count ?? 0) > 0,
     `get_toc word counts did not isolate prose to the ref-target chapter: ${JSON.stringify(
       tocChapters.map((chapter) => chapter.word_count),
     )}`,
@@ -12293,9 +13360,7 @@ async function driveAu06SingleActiveConfirmation(page) {
 
   await sleep(1_000);
 
-  const adoptedTurnIds = new Set(
-    [latestExecutedTurnResult.turn_id].filter(Boolean),
-  );
+  const adoptedTurnIds = new Set([latestExecutedTurnResult.turn_id].filter(Boolean));
   const unresolvedFirstArtifact = (latestExecutedTurnResult.adoption_state?.pending ?? []).some(
     (entry) => entry?.artifact_id === firstArtifactId,
   );
@@ -12320,8 +13385,7 @@ async function driveAu06SingleActiveConfirmation(page) {
       first_tool_called_before_confirm: firstConfirmTurnResult.truthfulness?.tool_called === true,
       first_production_write_before_confirm:
         firstConfirmTurnResult.truthfulness?.production_write_performed === true,
-      second_tool_called_before_confirm:
-        secondConfirmTurnResult.truthfulness?.tool_called === true,
+      second_tool_called_before_confirm: secondConfirmTurnResult.truthfulness?.tool_called === true,
       second_production_write_before_confirm:
         secondConfirmTurnResult.truthfulness?.production_write_performed === true,
       second_confirmation_advanced_current_turn:
@@ -12329,8 +13393,7 @@ async function driveAu06SingleActiveConfirmation(page) {
       second_turn_behavior_context_ref_visible: Boolean(behaviorContextRef),
       second_turn_behavior_context_author_safe: behaviorContextAuthorSafe,
       second_turn_behavior_context_summary: behaviorSummary,
-      second_turn_behavior_context_redaction_level:
-        behaviorContextRef?.redaction_level ?? "",
+      second_turn_behavior_context_redaction_level: behaviorContextRef?.redaction_level ?? "",
       second_turn_behavior_context_ref: behaviorContextRef?.context_ref ?? "",
       second_turn_behavior_context_source_id: behaviorContextRef?.source_id ?? "",
       behavior_context_leaks_behavior_ref:
@@ -12343,7 +13406,8 @@ async function driveAu06SingleActiveConfirmation(page) {
       supersede_resolution_ref: supersedeRef,
       trace_behavior_supersede_ref: traceSupersedeRef,
       supersede_resolution_references_replacement:
-        supersedeRef !== "" && supersedeRef.includes(String(secondConfirmAction.behavior_ref ?? "")),
+        supersedeRef !== "" &&
+        supersedeRef.includes(String(secondConfirmAction.behavior_ref ?? "")),
       supersede_ref_matches_trace: supersedeRef === traceSupersedeRef,
       second_confirm_active_behavior_matches_action:
         secondActive.behavior_id === secondConfirmAction.behavior_ref,
@@ -13184,9 +14248,7 @@ const CHAPTER_FULL_READ_INTERNAL_PATTERNS = [
 function parseChapterReadObservationText(summary) {
   const text = String(summary ?? "");
   const titleMatch = text.match(/^「([^」]+)」（第 (\d+) 章）\n/u);
-  const rangeMatch = text.match(
-    /【正文】第 (\d+)–(\d+) 字符 \/ 共 (\d+) 字符（有效字数 (\d+)）/u,
-  );
+  const rangeMatch = text.match(/【正文】第 (\d+)–(\d+) 字符 \/ 共 (\d+) 字符（有效字数 (\d+)）/u);
   const footerMatch = text.match(
     /【续读】剩余 (\d+) 字符；用 (\{"chapter_ref":"chapter:[0-9a-f-]{36}","offset":\d+\}) 继续。/u,
   );
@@ -13234,9 +14296,7 @@ async function chapterFullReadAuthorFeedback(page) {
     return {
       timeline_text: flows.map((flow) => flow.innerText).join("\n"),
       exploration_paragraphs: flows.flatMap((flow) =>
-        Array.from(flow.querySelectorAll('p[data-tone="explore"]')).map(
-          (node) => node.innerText,
-        ),
+        Array.from(flow.querySelectorAll('p[data-tone="explore"]')).map((node) => node.innerText),
       ),
     };
   });
@@ -13348,7 +14408,10 @@ async function driveJudgmentExploreChapterFullRead(page) {
   });
   const [page1, page2] = pages;
 
-  assert(page1.tool === "chapter_read" && page2.tool === "chapter_read", "Exploration tool is not chapter_read");
+  assert(
+    page1.tool === "chapter_read" && page2.tool === "chapter_read",
+    "Exploration tool is not chapter_read",
+  );
   assert(
     typeof page1.chapter_ref === "string" && CHAPTER_FULL_READ_REF_PATTERN.test(page1.chapter_ref),
     `First page did not address a unique chapter_ref: ${page1.chapter_ref}`,
@@ -13373,8 +14436,14 @@ async function driveJudgmentExploreChapterFullRead(page) {
     page2.range_start === 6001 && page2.range_end === 7000 && page2.prose_total_chars === 7000,
     "Page 2 range is not 6001–7000 / 7000",
   );
-  assert(page1.page_prose_chars === 6000, `Page 1 prose is not 6000 chars: ${page1.page_prose_chars}`);
-  assert(page2.page_prose_chars === 1000, `Page 2 prose is not 1000 chars: ${page2.page_prose_chars}`);
+  assert(
+    page1.page_prose_chars === 6000,
+    `Page 1 prose is not 6000 chars: ${page1.page_prose_chars}`,
+  );
+  assert(
+    page2.page_prose_chars === 1000,
+    `Page 2 prose is not 1000 chars: ${page2.page_prose_chars}`,
+  );
   assert(
     page1.page_prose_contains_opening_anchor && !page1.page_prose_contains_ending_anchor,
     "Page 1 prose does not contain exactly the opening-page anchor",
@@ -13389,7 +14458,9 @@ async function driveJudgmentExploreChapterFullRead(page) {
   );
   assert(page1.plan_truncated, "Page 1 plan section was not truncated with …（略）");
   assert(
-    page1.has_summary_section && page1.summary_section_chars !== null && page1.summary_section_chars <= 400,
+    page1.has_summary_section &&
+      page1.summary_section_chars !== null &&
+      page1.summary_section_chars <= 400,
     "Page 1 summary section is missing or exceeded its 400-char budget",
   );
   assert(page1.summary_section_truncated, "Page 1 summary section was not truncated with …（略）");
@@ -13436,8 +14507,8 @@ async function driveJudgmentExploreChapterFullRead(page) {
     `Page 2 author-visible activity text is not human readable: ${page2.author_summary}`,
   );
 
-  const authorEventLeaks = CHAPTER_FULL_READ_INTERNAL_PATTERNS.filter(([pattern]) =>
-    pattern.test(page1.author_summary) || pattern.test(page2.author_summary),
+  const authorEventLeaks = CHAPTER_FULL_READ_INTERNAL_PATTERNS.filter(
+    ([pattern]) => pattern.test(page1.author_summary) || pattern.test(page2.author_summary),
   ).map(([, label]) => label);
   assert(
     authorEventLeaks.length === 0,
@@ -13448,7 +14519,10 @@ async function driveJudgmentExploreChapterFullRead(page) {
     replyText.includes("依据如下") && replyText.includes(CHAPTER_FULL_READ_ENDING_ANCHOR),
     "Reply does not cite the last-page-only fact with a citation prefix",
   );
-  assert(reply.truthfulness?.artifact_adopted !== true, "Explore reply turn must not adopt anything");
+  assert(
+    reply.truthfulness?.artifact_adopted !== true,
+    "Explore reply turn must not adopt anything",
+  );
   assert(
     reply.truthfulness?.production_write_performed !== true,
     "Paged chapter read turn must not perform a production write",
@@ -13913,8 +14987,7 @@ async function driveAu12CharacterIdentityMerge(page) {
   await waitForNewAppLogRecord(
     logStart,
     (record) =>
-      record.event === "channel.get_characters.done" &&
-      Number(record.character_count ?? 0) === 2,
+      record.event === "channel.get_characters.done" && Number(record.character_count ?? 0) === 2,
     "First merge did not refresh the roster to two rows",
     20_000,
   );
@@ -13957,8 +15030,7 @@ async function driveAu12CharacterIdentityMerge(page) {
   const charactersFinalRecord = await waitForNewAppLogRecord(
     logStart,
     (record) =>
-      record.event === "channel.get_characters.done" &&
-      Number(record.character_count ?? 0) === 1,
+      record.event === "channel.get_characters.done" && Number(record.character_count ?? 0) === 1,
     "Second merge did not collapse the roster to a single row",
     20_000,
   );
@@ -14078,9 +15150,8 @@ async function driveAu12CharacterIdentityMerge(page) {
     { timeout: 15_000 },
   );
   const aliasGuardMessage = String(aliasGuardFrame.body?.assistant_message?.text ?? "").trim();
-  const aliasGuardNamesCanonical = aliasGuardMessage.includes(
-    "「洛公子」是已确认角色「沈洛」的已登记别名",
-  );
+  const aliasGuardNamesCanonical =
+    aliasGuardMessage.includes("「洛公子」是已确认角色「沈洛」的已登记别名");
   assert(
     aliasGuardNamesCanonical,
     `Alias guard card did not name the canonical row: ${aliasGuardMessage}`,
@@ -14120,16 +15191,13 @@ async function driveAu12CharacterIdentityMerge(page) {
   const charactersAfterGuardRecord = await waitForNewAppLogRecord(
     afterGuardLogStart,
     (record) =>
-      record.event === "channel.get_characters.done" &&
-      Number(record.character_count ?? 0) === 1,
+      record.event === "channel.get_characters.done" && Number(record.character_count ?? 0) === 1,
     "Alias guard rejection did not leave the roster unchanged",
     20_000,
   );
   await rowsTitled("沈洛").first().waitFor({ timeout: 10_000 });
   const rowsAfterGuard = await rowsTitled("沈洛").count();
-  const aliasStillVisible = (await rowsTitled("沈洛").first().innerText()).includes(
-    "别名：洛公子",
-  );
+  const aliasStillVisible = (await rowsTitled("沈洛").first().innerText()).includes("别名：洛公子");
 
   const logsAfter = readAppLogRecords().slice(logStart);
   const joinRecord = readAppLogRecords()
@@ -14215,28 +15283,26 @@ async function driveAu14ForeshadowResolutionRoundtrip(page) {
   await page.getByRole("button", { name: "发起全书审读", exact: true }).click();
   const reconcileRecord = await waitForNewAppLogRecord(
     reviewLogStart,
-    (record) =>
-      record.event === "ledger.reconcile.done" && Number(record.finding_count ?? 0) >= 1,
+    (record) => record.event === "ledger.reconcile.done" && Number(record.finding_count ?? 0) >= 1,
     "Full review did not reconcile with findings",
     200_000,
   );
   const overdueRuleCount = Number(reconcileRecord.rules?.foreshadowing_overdue ?? 0);
-  assert(overdueRuleCount >= 1, `Review did not record foreshadowing_overdue: ${JSON.stringify(reconcileRecord.rules)}`);
-
-  await page.waitForFunction(
-    () => document.body.innerText.includes("全书审读完成"),
-    undefined,
-    { timeout: 200_000 },
+  assert(
+    overdueRuleCount >= 1,
+    `Review did not record foreshadowing_overdue: ${JSON.stringify(reconcileRecord.rules)}`,
   );
+
+  await page.waitForFunction(() => document.body.innerText.includes("全书审读完成"), undefined, {
+    timeout: 200_000,
+  });
 
   // 报告物化后面板是旧态：重开脉络 tab 刷新审读区，finding 才上屏（au13 同款）。
   await closeArchiveIfOpen(page);
   await openArchiveTab(page, "脉络");
-  await page.waitForFunction(
-    () => document.body.innerText.includes("审读报告"),
-    undefined,
-    { timeout: 15_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("审读报告"), undefined, {
+    timeout: 15_000,
+  });
   await page.waitForFunction(
     () =>
       document.body.innerText.includes("预期第 1 章回收") &&
@@ -15423,8 +16489,7 @@ async function driveAu14ReopenOverviewWithAssumptions(page) {
   const assumptionsRecord = await waitForNewAppLogRecord(
     assumptionLogStart,
     (record) =>
-      record.event === "channel.get_assumptions.done" &&
-      Number(record.assumption_count ?? 0) >= 1,
+      record.event === "channel.get_assumptions.done" && Number(record.assumption_count ?? 0) >= 1,
     "Archive did not expose the activated assumption through get_assumptions",
     20_000,
   );
@@ -15495,11 +16560,9 @@ async function driveAu14AssumptionConfirmRoundtrip(page) {
   );
 
   // 确认后暂定设定区消失（页面不再含【暂定】主角行）。
-  await page.waitForFunction(
-    () => !document.body.innerText.includes("【暂定】主角"),
-    undefined,
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => !document.body.innerText.includes("【暂定】主角"), undefined, {
+    timeout: 10_000,
+  });
   await archivePanel
     .getByText("暂定设定", { exact: true })
     .first()
@@ -15509,8 +16572,7 @@ async function driveAu14AssumptionConfirmRoundtrip(page) {
   const charactersRecord = await waitForNewAppLogRecord(
     confirmLogStart,
     (record) =>
-      record.event === "channel.get_characters.done" &&
-      Number(record.character_count ?? 0) === 1,
+      record.event === "channel.get_characters.done" && Number(record.character_count ?? 0) === 1,
     "Confirmed assumption did not appear as exactly one accepted character",
     20_000,
   );
@@ -15610,9 +16672,7 @@ async function driveAu14AssumptionProvisionalInjection(page) {
   const firstProseLlmCalls = readLlmCallRecords().slice(llmCallCountBeforeFirstProse);
   const provisionalMarkerInLlm = firstProseLlmCalls.some((record) => {
     const text = llmCallPromptText(record);
-    return (
-      text.includes("【暂定】主角：沈砚") && text.includes("不得当作已定案设定展开重大转折")
-    );
+    return text.includes("【暂定】主角：沈砚") && text.includes("不得当作已定案设定展开重大转折");
   });
 
   // 打开档案概览 → 否决假定。
@@ -15648,11 +16708,9 @@ async function driveAu14AssumptionProvisionalInjection(page) {
     30_000,
   );
 
-  await page.waitForFunction(
-    () => !document.body.innerText.includes("【暂定】主角"),
-    undefined,
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => !document.body.innerText.includes("【暂定】主角"), undefined, {
+    timeout: 10_000,
+  });
   await archivePanel
     .getByText("暂定设定", { exact: true })
     .first()
@@ -15962,8 +17020,9 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
     `R11 report findings must carry revise_design, got ${JSON.stringify(blueprintReportFindings)}`,
   );
   assert(
-    JSON.stringify(sortStrings(blueprintReportFindings.flatMap((finding) => finding.source_refs))) ===
-      JSON.stringify(sortStrings(["volume:第二卷：暗流", "volume:第三卷：收束"])),
+    JSON.stringify(
+      sortStrings(blueprintReportFindings.flatMap((finding) => finding.source_refs)),
+    ) === JSON.stringify(sortStrings(["volume:第二卷：暗流", "volume:第三卷：收束"])),
     `R11 report findings must carry exact volume refs, got ${JSON.stringify(blueprintReportFindings)}`,
   );
 
@@ -16063,9 +17122,7 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
   // correction intent 把收官信号原文带回对话流（不静默改规划）。
   await openThreadsTab();
   const frameStartFinale = frames.length;
-  await findingCard("终局/收官定位")
-    .getByRole("button", { name: "修订设定", exact: true })
-    .click();
+  await findingCard("终局/收官定位").getByRole("button", { name: "修订设定", exact: true }).click();
   const finaleIntentFrame = await waitForNewFrame(
     frameStartFinale,
     (frame) =>
@@ -16116,9 +17173,21 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
     });
   };
 
-  await disposeVolumeDebt("立项计划 4 卷，实际已建 3 卷", "立项计划 4 卷", "R10 volume plan mismatch");
-  await disposeVolumeDebt("卷「第二卷：暗流」尚无设计态卷蓝图", "第二卷：暗流", "R11 missing blueprint vol2");
-  await disposeVolumeDebt("卷「第三卷：收束」尚无设计态卷蓝图", "第三卷：收束", "R11 missing blueprint vol3");
+  await disposeVolumeDebt(
+    "立项计划 4 卷，实际已建 3 卷",
+    "立项计划 4 卷",
+    "R10 volume plan mismatch",
+  );
+  await disposeVolumeDebt(
+    "卷「第二卷：暗流」尚无设计态卷蓝图",
+    "第二卷：暗流",
+    "R11 missing blueprint vol2",
+  );
+  await disposeVolumeDebt(
+    "卷「第三卷：收束」尚无设计态卷蓝图",
+    "第三卷：收束",
+    "R11 missing blueprint vol3",
+  );
 
   // 5. 全部处置 → 报告转 ACCEPTED、活跃报告清空（latest 只回 TENTATIVE）：
   // 重开面板读真实持久态，诚实显示"暂无待处置的审读报告"。
@@ -16169,12 +17238,14 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
       review_rules: reviewRules,
       rail_review_pending_after_report: railPendingAfterReport,
       rail_review_pending_after_disposition: railPendingAfterDisposition,
-      rail_review_pending_matches_report: railPendingAfterReport === Number(reportRecord.finding_count ?? 0),
+      rail_review_pending_matches_report:
+        railPendingAfterReport === Number(reportRecord.finding_count ?? 0),
       // B13b §4.1 #10（R10/R11 正触发）：卷级设计负债作者可见信号/source_refs/处置。
       volume_debt_visible: true,
       volume_plan_mismatch_signal: mismatchSignal,
       volume_plan_mismatch_source_refs_visible:
-        mismatchSignal.includes("work:planned_volumes=4") && mismatchSignal.includes("volumes:actual=3"),
+        mismatchSignal.includes("work:planned_volumes=4") &&
+        mismatchSignal.includes("volumes:actual=3"),
       volume_blueprint_signals: [secondVolumeSignal, thirdVolumeSignal],
       volume_blueprint_source_refs_visible:
         secondVolumeSignal.includes("volume:第二卷：暗流") &&
@@ -16974,8 +18045,7 @@ async function driveP1ChapterEditThenAccept(page) {
     await sleep(200);
 
     const newFrames = frames.slice(frameStart);
-    acceptActionFrame =
-      newFrames.find((frame) => acceptActionMatcher(frame)) ?? acceptActionFrame;
+    acceptActionFrame = newFrames.find((frame) => acceptActionMatcher(frame)) ?? acceptActionFrame;
 
     const errorReply = newFrames.find(
       (frame) =>
@@ -18784,11 +19854,16 @@ async function driveAu09CharacterRoleTaxonomyProtagonistPolicy(page) {
   // 与后续断言使用 items[0] 的主角名一致。单候选仍走原采纳按钮。
   const candidateRadios = page.getByRole("radio");
   if ((await candidateRadios.count()) > 0) {
-    await candidateRadios.first().check().catch(() => {});
+    await candidateRadios
+      .first()
+      .check()
+      .catch(() => {});
     // 选中后的采纳动作文案是「保存方案 A 到作品档案」（空选择态是「保存所选方案到作品档案」）。
     // 必须等 React 的选中摘要出现后再点选中态按钮，避免点到空选择态的禁用按钮。
     await page
-      .waitForFunction(() => /已选择：|方案 [A-Z]/.test(document.body.innerText), { timeout: 15_000 })
+      .waitForFunction(() => /已选择：|方案 [A-Z]/.test(document.body.innerText), {
+        timeout: 15_000,
+      })
       .catch(() => {});
     const selectedAccept = page.getByRole("button", { name: /保存方案 [A-Z] 到作品档案/ });
     await selectedAccept.first().waitFor({ timeout: 15_000 });
@@ -19430,10 +20505,14 @@ async function driveAu09MemoryTaxonomyWritePolicy(page) {
       );
     if (!writerPrompt) await sleep(200);
   }
-  assert(writerPrompt, "New-session writer prompt did not recall adopted character evolution memory");
+  assert(
+    writerPrompt,
+    "New-session writer prompt did not recall adopted character evolution memory",
+  );
   const recallAppLog = readAppLogRecords().find(
     (record) =>
-      record.event === "context.creative_facts.done" && record.turn_id === recallTurn.turnResult.turn_id,
+      record.event === "context.creative_facts.done" &&
+      record.turn_id === recallTurn.turnResult.turn_id,
   );
   assert(recallAppLog, "New-session writer turn did not emit creative facts context record");
 
@@ -19444,7 +20523,12 @@ async function driveAu09MemoryTaxonomyWritePolicy(page) {
     {
       ...uiState,
       turn_id: evoAdopt.body.turn_id,
-      turn_ids: [design.turnResult.turn_id, evolution.turnResult.turn_id, evoAdopt.body.turn_id, recallTurn.turnResult.turn_id],
+      turn_ids: [
+        design.turnResult.turn_id,
+        evolution.turnResult.turn_id,
+        evoAdopt.body.turn_id,
+        recallTurn.turnResult.turn_id,
+      ],
       recall_turn_id: recallTurn.turnResult.turn_id,
       recall_prompt_has_memory: writerPrompt.includes(evoNonce),
       approval_replay_decision: adoptedApproval.decision,
@@ -19599,7 +20683,10 @@ async function driveAu09WorkDirectionMemoryRecall(page) {
   const recalledAfterDeprecate = deprecatedRecallLog.has_memory === true;
   assert(!recalledAfterDeprecate, "Deprecated direction was still recalled into a later request");
 
-  await page.screenshot({ path: path.join(artifactDir, "au09-work-direction.png"), fullPage: true });
+  await page.screenshot({
+    path: path.join(artifactDir, "au09-work-direction.png"),
+    fullPage: true,
+  });
   fs.writeFileSync(
     path.join(artifactDir, "work-direction-evidence.json"),
     JSON.stringify(
@@ -20530,13 +21617,15 @@ async function driveAgentProviderSlowStreamLiveness(page) {
       (record) => record.turn_id === result.turn_id,
     );
     const providerDoneRecords = turnLogRecords.filter(
-      (record) => record.event === "provider_gateway.complete.done" && record.provider === "lmstudio",
+      (record) =>
+        record.event === "provider_gateway.complete.done" && record.provider === "lmstudio",
     );
     const providerErrorRecords = turnLogRecords.filter(
       (record) => record.event === "provider_gateway.complete.error",
     );
     const providerTimeoutRecords = turnLogRecords.filter(
-      (record) => record.event === "provider_gateway.complete.error" && record.reason_code === "timeout",
+      (record) =>
+        record.event === "provider_gateway.complete.error" && record.reason_code === "timeout",
     );
 
     await page.waitForFunction(() => !document.body.innerText.includes("思考中..."), {
@@ -20546,8 +21635,14 @@ async function driveAgentProviderSlowStreamLiveness(page) {
     const inputEnabled = await page.locator(chatInputSelector).isEnabled();
 
     assert(durationMs >= 6_000, `慢流回合耗时过短，无法覆盖慢流存活语义: ${durationMs}ms`);
-    assert(elapsedVisibleAtMs >= 4_000, `等待时长出现过早，未覆盖 5s 门槛: ${elapsedVisibleAtMs}ms`);
-    assert(!["failed", "failed_recoverable", "cancelled"].includes(result.status), "慢流被误杀/失败");
+    assert(
+      elapsedVisibleAtMs >= 4_000,
+      `等待时长出现过早，未覆盖 5s 门槛: ${elapsedVisibleAtMs}ms`,
+    );
+    assert(
+      !["failed", "failed_recoverable", "cancelled"].includes(result.status),
+      "慢流被误杀/失败",
+    );
     assert(
       String(result.assistant_message?.text ?? "").includes("这一轮只需要用文字回应"),
       "作者回复未使用慢流叙事",
@@ -21660,9 +22755,7 @@ async function openModelProviderSettings(page) {
 }
 
 function modelProviderBadge(page) {
-  return page
-    .getByRole("button", { name: /模型已连接|模型未连接|模型检测中/ })
-    .first();
+  return page.getByRole("button", { name: /模型已连接|模型未连接|模型检测中/ }).first();
 }
 
 function assistantReplyText(turnResult) {
@@ -21836,7 +22929,10 @@ async function driveSu01ProviderStrataLocal(page) {
     "Strata provider options must declare the fixed unified backend endpoint",
   );
   assert(expectedModel !== "", "Strata App unified backend returned no loadable model");
-  assert(listedModelIds.includes(expectedModel), `Strata model list did not include ${expectedModel}`);
+  assert(
+    listedModelIds.includes(expectedModel),
+    `Strata model list did not include ${expectedModel}`,
+  );
   assert(
     modelSelected === expectedModel,
     "Strata model was not selected in the model settings dialog",
@@ -21860,7 +22956,10 @@ async function driveSu01ProviderStrataLocal(page) {
     topBarText.includes(providerLabel) && topBarText.includes(modelSelected),
     `Top bar model button did not show Strata and the selected model (${modelSelected})`,
   );
-  assert(assistantText.length > 0, "Strata turn_result did not include a non-empty assistant reply");
+  assert(
+    assistantText.length > 0,
+    "Strata turn_result did not include a non-empty assistant reply",
+  );
   assert(assistantReplyVisible, "Strata assistant reply was not visible in the real workbench");
   assert(sentMessage, "No user_message websocket frame was sent for the Strata turn");
   assert(visibleText.includes(message), "Real UI did not retain the Strata chat user message");
@@ -21937,7 +23036,8 @@ async function driveSu01ProviderSplashLocal(page) {
   //    默认为本机 8000 入口，允许作者按 `splash serve --port` 调整。
   const endpointInput = page.locator("#model-provider-endpoint-input");
   const endpointInputCount = await endpointInput.count();
-  const endpointInputValue = endpointInputCount === 0 ? "" : (await endpointInput.inputValue()).trim();
+  const endpointInputValue =
+    endpointInputCount === 0 ? "" : (await endpointInput.inputValue()).trim();
   if (endpointInputCount > 0 && endpointInputValue === "") {
     await endpointInput.fill(defaultEndpoint);
   }
@@ -22009,7 +23109,9 @@ async function driveSu01ProviderSplashLocal(page) {
   // providerDisplayName 不回退后端 label）；Splash 的 display_name 是「本地模型」。
   // provider 身份另由保存后的 /api/provider/options.current_provider 断言，不靠 badge 文本。
   const providerDisplayName =
-    splashOptionAfterSelect?.display_name?.trim() || splashOption?.display_name?.trim() || providerLabel;
+    splashOptionAfterSelect?.display_name?.trim() ||
+    splashOption?.display_name?.trim() ||
+    providerLabel;
   const badge = modelProviderBadge(page);
   try {
     await page.waitForFunction(
@@ -22093,16 +23195,21 @@ async function driveSu01ProviderSplashLocal(page) {
     `Splash provider options endpoint (${splashOptionAfterSelect?.endpoint}) did not match the dialog endpoint (${endpointForRuntime})`,
   );
   assert(expectedModel !== "", "Splash /v1/models returned no model");
-  assert(listedModelIds.includes(expectedModel), `Splash model list did not include ${expectedModel}`);
-  assert(modelSelected === expectedModel, "Splash model was not selected in the model settings dialog");
+  assert(
+    listedModelIds.includes(expectedModel),
+    `Splash model list did not include ${expectedModel}`,
+  );
+  assert(
+    modelSelected === expectedModel,
+    "Splash model was not selected in the model settings dialog",
+  );
   assert(connectionTestPassed, "Splash test connection did not show 连接可用。");
   assert(
     providerOptions.current_provider === provider,
     "Saving did not switch the runtime provider to splash",
   );
   assert(
-    splashOption?.label === providerLabel &&
-      splashOption?.model === modelSelected,
+    splashOption?.label === providerLabel && splashOption?.model === modelSelected,
     "Provider options did not expose the Splash label/model contract after save",
   );
   assert(
@@ -22116,7 +23223,10 @@ async function driveSu01ProviderSplashLocal(page) {
   // 模型名是否出现在作者可见顶栏由 display SSOT 决定（`model` domain 未登记时产品有意
   // 只显示中性的「当前模型」）；模型选择的证据来自 provider options，不靠顶栏文本。
   const topBarShowsModelName = modelSelected !== "" && topBarText.includes(modelSelected);
-  assert(assistantText.length > 0, "Splash turn_result did not include a non-empty assistant reply");
+  assert(
+    assistantText.length > 0,
+    "Splash turn_result did not include a non-empty assistant reply",
+  );
   assert(assistantReplyVisible, "Splash assistant reply was not visible in the real workbench");
   assert(sentMessage, "No user_message websocket frame was sent for the Splash turn");
   assert(visibleText.includes(message), "Real UI did not retain the Splash chat user message");
@@ -22731,13 +23841,22 @@ async function driveSu02PendingResultWorkIsolation(page) {
   // channel.user_message.done 现在是接收回执，不能冒充 AgentRun 完成。
   let storedResult = null;
   for (let attempt = 0; attempt < 120 && !storedResult; attempt++) {
-    const response = await fetch(`${baseUrl}/api/works/${encodeURIComponent(sourceWork.id)}/sessions/resume`);
+    const response = await fetch(
+      `${baseUrl}/api/works/${encodeURIComponent(sourceWork.id)}/sessions/resume`,
+    );
     assert(response.ok, "Source work resume failed while waiting for its real result");
     const snapshot = await response.json();
-    storedResult = snapshot.transcript.find((entry) => entry.turn_result?.turn_id === sourceStart.turn_id && entry.turn_result?.agent_run?.status === "completed")?.turn_result;
+    storedResult = snapshot.transcript.find(
+      (entry) =>
+        entry.turn_result?.turn_id === sourceStart.turn_id &&
+        entry.turn_result?.agent_run?.status === "completed",
+    )?.turn_result;
     if (!storedResult) await sleep(250);
   }
-  assert(storedResult?.assistant_message?.text?.includes(assistantText), "Slow fixture did not produce its completed source result");
+  assert(
+    storedResult?.assistant_message?.text?.includes(assistantText),
+    "Slow fixture did not produce its completed source result",
+  );
   const targetVisibleAfterSourceDone = await page.locator("body").innerText();
   const sourceUserVisibleInTarget = targetVisibleAfterSourceDone.includes(message);
   const sourceAssistantVisibleInTarget = targetVisibleAfterSourceDone.includes(assistantText);
@@ -23360,8 +24479,7 @@ async function driveAu12CorrectionIntentRoundtrip(page) {
     (entry) => entry.artifact_type === "work_skeleton_suggestion",
   );
   console.error("[au12-correction] stage: turn_result received");
-  const pendingItem =
-    pendingArtifact?.payload?.items?.[0] ?? pendingArtifact?.items?.[0] ?? null;
+  const pendingItem = pendingArtifact?.payload?.items?.[0] ?? pendingArtifact?.items?.[0] ?? null;
   const pendingField = pendingItem?.skeleton_field ?? null;
   const pendingValue = pendingItem?.skeleton_value ?? null;
   const actions = turnResult.available_actions ?? [];
@@ -23371,7 +24489,8 @@ async function driveAu12CorrectionIntentRoundtrip(page) {
     logStart,
     (record) =>
       record.event === "judgment.decided.done" &&
-      record.turn_id === (String(turnResult.turn_id ?? "").split(":agent:")[0] || turnResult.turn_id) &&
+      record.turn_id ===
+        (String(turnResult.turn_id ?? "").split(":agent:")[0] || turnResult.turn_id) &&
       record.action === "work_profile_revision",
     "No judgment.decided.done work_profile_revision log was recorded",
     60_000,
@@ -23464,7 +24583,10 @@ async function driveAu12CorrectionIntentRoundtrip(page) {
   console.error("[au12-correction] stage: api checks passed");
   // 回到真实档案概览，确认作者可见同源更新（不整页 reload，避免丢当前 work 上下文）。
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: /打开档案|^档案$/ }).first().click();
+  await page
+    .getByRole("button", { name: /打开档案|^档案$/ })
+    .first()
+    .click();
   await page.getByRole("tab", { name: "概览" }).click();
   await page.waitForFunction(
     () => document.body.innerText.includes("在巡检收网前拿到暗抽主账"),
@@ -23481,20 +24603,14 @@ async function driveAu12CorrectionIntentRoundtrip(page) {
   await page.getByRole("button", { name: "关闭档案" }).first().click();
   await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
   const llmCountBefore = readLlmCallRecords().length;
-  const resume = page.waitForResponse(
-    (res) => res.url().endsWith("/sessions/resume") && res.ok(),
-  );
+  const resume = page.waitForResponse((res) => res.url().endsWith("/sessions/resume") && res.ok());
   await openSessionRail(page);
   await page.getByRole("button", { name: "新建会话" }).click();
   await resume;
   await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
   await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
 
-  await sendOrdinaryChatTurn(
-    page,
-    "请围绕刚刚修订的主线目标，继续推进下一段冲突。",
-    frames.length,
-  );
+  await sendOrdinaryChatTurn(page, "请围绕刚刚修订的主线目标，继续推进下一段冲突。", frames.length);
   const nextRequestPrompts = readLlmCallRecords()
     .slice(llmCountBefore)
     .map((record) => llmCallPromptText(record));
@@ -24125,7 +25241,6 @@ async function driveCp0MissingChapterBlock(page) {
     },
   ];
 }
-
 
 // B40 CP2（判断纪元重锚）：E2E-01 只读 ToolTrace 场景的当前链路。
 //
@@ -25559,8 +26674,7 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
     "Backend finding has no stable quality_finding_id",
   );
   assert(
-    Array.isArray(finding.evidence_spans) &&
-      String(finding.evidence_spans[0]?.text ?? "") !== "",
+    Array.isArray(finding.evidence_spans) && String(finding.evidence_spans[0]?.text ?? "") !== "",
     "Backend finding has no original prose evidence",
   );
   assert(String(finding.reasoning ?? "") !== "", "Backend finding has no judgment reasoning");
@@ -25655,8 +26769,7 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
       .map((record) => String(record?.prompt ?? ""))
       .find(
         (prompt) =>
-          prompt.includes("[质量修订要求]") &&
-          prompt.includes("场级作用域：第 2 场（撤退）"),
+          prompt.includes("[质量修订要求]") && prompt.includes("场级作用域：第 2 场（撤退）"),
       );
     if (!revisionPrompt) await sleep(200);
   }
@@ -25696,9 +26809,7 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
       visibleText.includes("置信度"),
     local_revision_action_visible: visibleText.includes("局部修订所选问题"),
     finding_in_draft_body: draftBody.includes(findingSummary),
-    adopt_event_sent: frames.some(
-      (frame) => frame.direction === "sent" && frame.event === "adopt",
-    ),
+    adopt_event_sent: frames.some((frame) => frame.direction === "sent" && frame.event === "adopt"),
     // B11D：finding 场归属（scene_2 → 撤退）+ brief_field_refs 作者可见 + 场级修订 prompt。
     finding_scene_index: Number(finding.scene_index ?? 0),
     finding_scene_title: String(finding.scene_title ?? ""),
@@ -25708,10 +26819,10 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
     revision_candidate_pending:
       String(revisionPending?.artifact_id ?? "") !== "" &&
       revisionTurnResult.truthfulness?.artifact_adopted !== true,
-    revision_of_original: String(revisionPending?.payload?.revision_of ?? "") !== "" ||
+    revision_of_original:
+      String(revisionPending?.payload?.revision_of ?? "") !== "" ||
       String(revisionPending?.revision_of ?? "") !== "",
-    revision_prompt_has_scene_scope:
-      Boolean(revisionPrompt) && revisionPromptCarriesSceneBoundary,
+    revision_prompt_has_scene_scope: Boolean(revisionPrompt) && revisionPromptCarriesSceneBoundary,
     revision_turn_id: String(revisionTurnResult.turn_id ?? ""),
   };
 
@@ -25735,9 +26846,9 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
     (frame) =>
       frame.direction === "received" &&
       frame.event === "turn_result" &&
-      String(
-        frame.body?.adoption_state?.pending?.[0]?.payload?.items?.[0]?.title ?? "",
-      ).includes(rhetoricChapterTitle),
+      String(frame.body?.adoption_state?.pending?.[0]?.payload?.items?.[0]?.title ?? "").includes(
+        rhetoricChapterTitle,
+      ),
     "No prose turn_result was received for the intentional-rhetoric chapter",
   );
   const rhetoricTurnResult = rhetoricTurnFrame.body;
@@ -25759,11 +26870,7 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
     Number(rhetoricQualityRecord.form_candidate_count ?? 0) >= 1,
     "Intentional rhetoric was not recalled by the form analyzer before semantic suppression",
   );
-  const rhetoricUiState = await commonUiState(
-    page,
-    rhetoricTurnResult,
-    latestSentUserMessage(),
-  );
+  const rhetoricUiState = await commonUiState(page, rhetoricTurnResult, latestSentUserMessage());
 
   // 语义边界 2：正文没有同句首/同骨架召回，但实际叙事密度与主线推进章功能错配；
   // evaluator 独立生成 chapter scope pacing finding。
@@ -25785,9 +26892,9 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
     (frame) =>
       frame.direction === "received" &&
       frame.event === "turn_result" &&
-      String(
-        frame.body?.adoption_state?.pending?.[0]?.payload?.items?.[0]?.title ?? "",
-      ).includes(pacingChapterTitle),
+      String(frame.body?.adoption_state?.pending?.[0]?.payload?.items?.[0]?.title ?? "").includes(
+        pacingChapterTitle,
+      ),
     "No prose turn_result was received for the pacing-mismatch chapter",
   );
   const pacingTurnResult = pacingTurnFrame.body;
@@ -25827,11 +26934,7 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
     { timeout: 10_000 },
   );
   const pacingVisibleText = await page.locator("body").innerText();
-  const pacingUiState = await commonUiState(
-    page,
-    pacingTurnResult,
-    latestSentUserMessage(),
-  );
+  const pacingUiState = await commonUiState(page, pacingTurnResult, latestSentUserMessage());
 
   return [
     mechanicalState,
@@ -25841,9 +26944,7 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
       quality_case: "intentional_rhetoric",
       chapter_title: rhetoricChapterTitle,
       quality_review_status: rhetoricReview.review_status,
-      quality_form_candidate_count_logged: Number(
-        rhetoricQualityRecord.form_candidate_count ?? 0,
-      ),
+      quality_form_candidate_count_logged: Number(rhetoricQualityRecord.form_candidate_count ?? 0),
       quality_findings_count: rhetoricReview.findings.length,
       mechanical_finding_suppressed: !rhetoricReview.findings.some(
         (item) => item.validator === "validator.sentence_rhythm_uniformity",
@@ -25858,9 +26959,7 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
       quality_case: "chapter_pacing",
       chapter_title: pacingChapterTitle,
       quality_review_status: pacingReview.review_status,
-      quality_form_candidate_count_logged: Number(
-        pacingQualityRecord.form_candidate_count ?? 0,
-      ),
+      quality_form_candidate_count_logged: Number(pacingQualityRecord.form_candidate_count ?? 0),
       quality_findings_count: pacingReview.findings.length,
       finding_validator: String(pacingFinding.validator ?? ""),
       finding_id_present: String(pacingFinding.quality_finding_id ?? "") !== "",
@@ -26327,8 +27426,7 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
     gateWhyEvidence = {
       gate_why_dialog_open: true,
       gate_why_text: whyText,
-      gate_why_shows_tool_decision:
-        whyText.includes("已调用工具") || whyText.includes("AI 回应"),
+      gate_why_shows_tool_decision: whyText.includes("已调用工具") || whyText.includes("AI 回应"),
       gate_why_shows_author_safe_tool_line: whyText.includes("本轮使用了工具"),
       gate_why_states_no_provider_replay: whyText.includes("不会重新调用模型"),
       gate_why_contains_raw_prompt: unsafeWhyPattern.test(whyText),
@@ -26393,9 +27491,14 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
       `Gate decision recorded gate_count=${record.gate_count}`,
     );
     const lineage = Array.isArray(record.gate_outcomes) ? record.gate_outcomes : [];
-    assert(lineage.length === expectedGateOrder.length, `Gate lineage length ${lineage.length} != 12`);
     assert(
-      lineage.every((entry, index) => entry.gate === expectedGateOrder[index] && entry.order === index),
+      lineage.length === expectedGateOrder.length,
+      `Gate lineage length ${lineage.length} != 12`,
+    );
+    assert(
+      lineage.every(
+        (entry, index) => entry.gate === expectedGateOrder[index] && entry.order === index,
+      ),
       "Gate lineage is not in ADR-0005 order",
     );
     assert(
@@ -26423,13 +27526,15 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
     stepTraceReadiness?.outcome === "pass",
     "Trace readiness gate was not evaluated against the real persistence channel",
   );
-  const gateDecidedFrames = frames.slice(frameStart).filter(
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "gate_decided",
-  );
+  const gateDecidedFrames = frames
+    .slice(frameStart)
+    .filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId &&
+        frame.body?.event_type === "gate_decided",
+    );
   assert(
     gateDecidedFrames.length === 2,
     `Expected 2 gate_decided step events, got ${gateDecidedFrames.length}`,
@@ -26441,7 +27546,8 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
       "gate_decided payload missed gate_order_version",
     );
     assert(
-      Array.isArray(payload.gate_results) && payload.gate_results.length === expectedGateOrder.length,
+      Array.isArray(payload.gate_results) &&
+        payload.gate_results.length === expectedGateOrder.length,
       "gate_decided payload missed 12 gate results",
     );
     assert(payload.first_blocking_gate == null, "gate_decided payload reported a blocking gate");
@@ -27127,10 +28233,12 @@ async function driveP1ProseCompanionArtifacts(page) {
 
   // 正文的采纳文案是「保存为章节正文」，其后第一个「保存到作品档案」即角色组；
   // 点击后的 author_action.target_ref 仍做精确绑定断言，避免仅凭视觉顺序放行。
-  const characterAccept = page.getByRole("button", {
-    name: "保存到作品档案",
-    exact: true,
-  }).first();
+  const characterAccept = page
+    .getByRole("button", {
+      name: "保存到作品档案",
+      exact: true,
+    })
+    .first();
   await characterAccept.waitFor({ timeout: 10_000 });
 
   const adoptionStart = frames.length;
@@ -27163,8 +28271,7 @@ async function driveP1ProseCompanionArtifacts(page) {
   const afterCharacterQuery = await waitForNewAppLogRecord(
     afterArchiveLogStart,
     (record) =>
-      record.event === "channel.get_characters.done" &&
-      Number(record.character_count ?? 0) >= 1,
+      record.event === "channel.get_characters.done" && Number(record.character_count ?? 0) >= 1,
     "Archive did not expose the adopted companion character as an accepted fact",
     30_000,
   );
@@ -27175,11 +28282,7 @@ async function driveP1ProseCompanionArtifacts(page) {
   });
   await closeArchiveIfOpen(page);
 
-  const remainingCompanionTitles = [
-    "第三盏灯的蓝灰",
-    "夜间灯禁",
-    "前三章不揭示灯禁源头",
-  ];
+  const remainingCompanionTitles = ["第三盏灯的蓝灰", "夜间灯禁", "前三章不揭示灯禁源头"];
   await page.waitForFunction(
     (titles) => titles.every((title) => document.body.innerText.includes(title)),
     remainingCompanionTitles,
@@ -27324,7 +28427,10 @@ async function driveWr01ChapterMissionBeforeProse(page) {
     basisRefs.every((ref) => /^(plan|ledger|skeleton|roster|chapter_summary):/.test(ref)) &&
     Number(missionRecord.input_ref_count ?? 0) >= basisRefs.length;
   const unboundBasisExcluded = !basisRefs.some((ref) => ref.endsWith("foreshadow_unlisted"));
-  assert(basisRefsWithinMaterials, `Mission basis refs escaped the selected materials: ${JSON.stringify(missionRecord)}`);
+  assert(
+    basisRefsWithinMaterials,
+    `Mission basis refs escaped the selected materials: ${JSON.stringify(missionRecord)}`,
+  );
   assert(unboundBasisExcluded, "Out-of-material basis was not dropped by the binding filter");
   assert(
     Number(missionRecord.dropped_unbound_count ?? 0) >= 1,
@@ -27350,14 +28456,16 @@ async function driveWr01ChapterMissionBeforeProse(page) {
   const briefRecord = await waitForNewAppLogRecord(
     logStart,
     (record) =>
-      record.event === "prose_execution_brief.built.done" &&
-      record.turn_id === turnResult.turn_id,
+      record.event === "prose_execution_brief.built.done" && record.turn_id === turnResult.turn_id,
     "No prose_execution_brief.built.done app log for the prose turn",
     30_000,
   );
   const briefSourceHasMission = (briefRecord.brief_source ?? []).includes("chapter_mission");
   const briefMissionRefMatches = briefRecord.chapter_mission_ref === missionRecord.mission_ref;
-  assert(briefSourceHasMission, `Execution brief did not source from chapter_mission: ${JSON.stringify(briefRecord)}`);
+  assert(
+    briefSourceHasMission,
+    `Execution brief did not source from chapter_mission: ${JSON.stringify(briefRecord)}`,
+  );
   assert(briefMissionRefMatches, "Execution brief mission ref did not match the derived mission");
 
   const traceMissionRefMatches =
@@ -27526,8 +28634,14 @@ async function driveWr01ChapterMissionAuthorDecision(page) {
 
   // 档案大纲 tab：第 03 章显示【暂定】使命与三动作
   const archive = await openArchiveTab(page, "大纲与结构");
-  await archive.getByText(targetChapterTitle, { exact: false }).first().waitFor({ timeout: 15_000 });
-  const chapterCard = archive.locator('[class*="cardItem"]').filter({ hasText: targetChapterTitle }).first();
+  await archive
+    .getByText(targetChapterTitle, { exact: false })
+    .first()
+    .waitFor({ timeout: 15_000 });
+  const chapterCard = archive
+    .locator('[class*="cardItem"]')
+    .filter({ hasText: targetChapterTitle })
+    .first();
   await chapterCard.getByText("本章使命", { exact: true }).waitFor({ timeout: 15_000 });
   await chapterCard.getByText("【暂定】", { exact: true }).waitFor({ timeout: 10_000 });
   const confirmVisible = await chapterCard
@@ -27742,7 +28856,10 @@ async function driveWr02PlanningMissionBeforeOutline(page) {
     basisRefs.every((ref) => /^(plan|ledger|skeleton|roster|chapter_summary):/.test(ref)) &&
     Number(missionRecord.input_ref_count ?? 0) >= basisRefs.length;
   const unboundBasisExcluded = !basisRefs.some((ref) => ref.endsWith("foreshadow_unlisted"));
-  assert(basisRefsWithinMaterials, `Planning mission basis escaped materials: ${JSON.stringify(missionRecord)}`);
+  assert(
+    basisRefsWithinMaterials,
+    `Planning mission basis escaped materials: ${JSON.stringify(missionRecord)}`,
+  );
   assert(unboundBasisExcluded, "Out-of-material basis was not dropped by the binding filter");
   assert(
     Number(missionRecord.dropped_unbound_count ?? 0) >= 1,
@@ -28080,8 +29197,7 @@ async function driveCa04CarryGapClosure(page) {
   const blueprintPrompt = readLlmCallRecords()
     .map((record) => String(record?.prompt ?? ""))
     .find(
-      (prompt) =>
-        prompt.includes("## 当前卷蓝图（设计态）") && prompt.includes("第03章：巡检收网"),
+      (prompt) => prompt.includes("## 当前卷蓝图（设计态）") && prompt.includes("第03章：巡检收网"),
     );
   assert(
     blueprintPrompt &&
@@ -28349,9 +29465,13 @@ async function driveWr01cPlanningMissionDecision(page) {
   // why 弹窗：结构化使命区块（标签+状态+一句使命+逐条）
   await page.getByRole("button", { name: "为什么", exact: true }).last().click();
   const whyDialog = page.getByRole("dialog");
-  await whyDialog.getByText("本轮规划使命（作者改写）", { exact: false }).waitFor({ timeout: 15_000 });
+  await whyDialog
+    .getByText("本轮规划使命（作者改写）", { exact: false })
+    .waitFor({ timeout: 15_000 });
   await whyDialog.getByText(authorStatement, { exact: false }).waitFor({ timeout: 10_000 });
-  await whyDialog.getByText("必须推进：收束黑市支线", { exact: false }).waitFor({ timeout: 10_000 });
+  await whyDialog
+    .getByText("必须推进：收束黑市支线", { exact: false })
+    .waitFor({ timeout: 10_000 });
   const whyDialogShowsMission = true;
   await page.screenshot({
     path: path.join(artifactDir, "wr01c-planning-mission-why-dialog.png"),
@@ -28487,9 +29607,7 @@ async function driveD1CharacterVacuumToNamedRoster(page) {
   });
 
   // ② 采纳伴生角色 seed（真实候选卡按钮 + server-authorized accept 绑定）
-  const characterAccept = page
-    .getByRole("button", { name: "保存到作品档案", exact: true })
-    .first();
+  const characterAccept = page.getByRole("button", { name: "保存到作品档案", exact: true }).first();
   await characterAccept.waitFor({ timeout: 15_000 });
   const adoptionStart = frames.length;
   await characterAccept.click();
@@ -28623,9 +29741,7 @@ async function driveD3SummaryLazyRepair(page) {
     "请根据已采纳章节计划生成第01章：D3SUMFAIL断供夜的正文草稿，约200字，保持为待采纳草稿。",
     "first",
   );
-  const acceptButton = page
-    .getByRole("button", { name: /^(保存为章节正文|保存原稿)$/ })
-    .last();
+  const acceptButton = page.getByRole("button", { name: /^(保存为章节正文|保存原稿)$/ }).last();
   await acceptButton.waitFor({ timeout: 15_000 });
   const adoptStart = frames.length;
   await acceptButton.click();
@@ -28741,8 +29857,7 @@ async function driveD6PurposeModelRouting(page) {
   await dialog.getByRole("button", { name: "取消" }).click();
   await dialog.waitFor({ state: "detached", timeout: 10_000 });
 
-  const message =
-    "请根据已采纳章节计划生成第03章：巡检收网的正文草稿，约300字，保持为待采纳草稿。";
+  const message = "请根据已采纳章节计划生成第03章：巡检收网的正文草稿，约300字，保持为待采纳草稿。";
 
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
   const frameStart = frames.length;
@@ -28927,8 +30042,16 @@ async function driveB26AuthorQuestionRoundtrip(page) {
   const rounds = [];
   const cases = [
     { input: "结尾有两个方向，先让我选择。", option: "保留悬念", expected: "保留悬念" },
-    { input: "结尾还没想清楚，请先问我一个问题。", option: "回复此问题", expected: "  留下一点希望，但不要改动开头。  " },
-    { input: "结尾有两个方向，先让我选择。", option: "自行补充", expected: "结尾有希望，也保留悬念。" },
+    {
+      input: "结尾还没想清楚，请先问我一个问题。",
+      option: "回复此问题",
+      expected: "  留下一点希望，但不要改动开头。  ",
+    },
+    {
+      input: "结尾有两个方向，先让我选择。",
+      option: "自行补充",
+      expected: "结尾有希望，也保留悬念。",
+    },
   ];
   let lastSource;
   let lastSent;
@@ -28937,43 +30060,130 @@ async function driveB26AuthorQuestionRoundtrip(page) {
     const start = frames.length;
     await page.locator(chatInputSelector).fill(scenario.input);
     await page.getByRole("button", { name: /^发送$/ }).click();
-    const sent = await waitForNewFrame(start, (f) => f.direction === "sent" && f.event === "user_message" && f.body?.text === scenario.input, "question input missing");
-    const source = await waitForNewFrame(start, (f) => f.direction === "received" && f.event === "turn_result" && f.body?.author_question?.status === "open", "question result missing");
+    const sent = await waitForNewFrame(
+      start,
+      (f) =>
+        f.direction === "sent" && f.event === "user_message" && f.body?.text === scenario.input,
+      "question input missing",
+    );
+    const source = await waitForNewFrame(
+      start,
+      (f) =>
+        f.direction === "received" &&
+        f.event === "turn_result" &&
+        f.body?.author_question?.status === "open",
+      "question result missing",
+    );
     const question = source.body.author_question;
     const snapshot = await fetchSessionSnapshotFromApi(sent.body.work_id, sent.body.session_id);
-    const restored = (snapshot.open_author_question_turn_results ?? []).find((tr) => tr.author_question?.question_ref === question.question_ref);
-    assert(restored?.turn_id === source.body.turn_id, "persisted question not independently recoverable");
+    const restored = (snapshot.open_author_question_turn_results ?? []).find(
+      (tr) => tr.author_question?.question_ref === question.question_ref,
+    );
+    assert(
+      restored?.turn_id === source.body.turn_id,
+      "persisted question not independently recoverable",
+    );
     const reloadStart = frames.length;
     await page.reload({ waitUntil: "commit" });
-    await page.getByRole("button", { name: scenario.option, exact: true }).waitFor({ timeout: 30_000 });
-    await waitForNewFrame(reloadStart, (f) => f.direction === "received" && f.event === "phx_reply" &&
-      (f.body?.response?.open_author_question_turn_results ?? []).some((tr) => tr.author_question?.question_ref === question.question_ref), "join lost question binding");
+    await page
+      .getByRole("button", { name: scenario.option, exact: true })
+      .waitFor({ timeout: 30_000 });
+    await waitForNewFrame(
+      reloadStart,
+      (f) =>
+        f.direction === "received" &&
+        f.event === "phx_reply" &&
+        (f.body?.response?.open_author_question_turn_results ?? []).some(
+          (tr) => tr.author_question?.question_ref === question.question_ref,
+        ),
+      "join lost question binding",
+    );
     const answerStart = frames.length;
     await page.getByRole("button", { name: scenario.option, exact: true }).click();
     if (scenario.option !== "保留悬念") {
-      await page.getByRole("textbox", { name: "对此问题的补充", exact: true }).fill(scenario.expected);
+      await page
+        .getByRole("textbox", { name: "对此问题的补充", exact: true })
+        .fill(scenario.expected);
       await page.getByRole("button", { name: "发送回复", exact: true }).click();
     }
-    const action = await waitForNewFrame(answerStart, (f) => f.direction === "sent" && f.event === "author_action" && f.body?.action?.action_type === "author_choice", "source reply action missing");
+    const action = await waitForNewFrame(
+      answerStart,
+      (f) =>
+        f.direction === "sent" &&
+        f.event === "author_action" &&
+        f.body?.action?.action_type === "author_choice",
+      "source reply action missing",
+    );
     const payload = action.body.action;
-    assert(payload.source_turn_ref === source.body.turn_id && payload.target_ref === question.run_id, "reply crossed question/run");
-    assert(payload.payload.question_ref === question.question_ref && payload.payload.expected_goal_version === question.goal_version, "reply lost question/version");
-    const ack = await waitForNewFrame(answerStart, (f) => f.direction === "received" && f.event === "phx_reply" &&
-      f.body?.response?.submission_id === payload.payload.submission_id && f.body?.response?.status === "accepted", "reply receipt missing");
-    assert(ack.body.response.goal_version === question.goal_version + 1, "answer did not advance exactly one goal version");
-    await waitForNewFrame(answerStart, (f) => f.direction === "received" && f.event === "agent_event" && f.body?.run_ref === question.run_id && f.body?.event_type === "run_completed", "same run did not finish after answer");
+    assert(
+      payload.source_turn_ref === source.body.turn_id && payload.target_ref === question.run_id,
+      "reply crossed question/run",
+    );
+    assert(
+      payload.payload.question_ref === question.question_ref &&
+        payload.payload.expected_goal_version === question.goal_version,
+      "reply lost question/version",
+    );
+    const ack = await waitForNewFrame(
+      answerStart,
+      (f) =>
+        f.direction === "received" &&
+        f.event === "phx_reply" &&
+        f.body?.response?.submission_id === payload.payload.submission_id &&
+        f.body?.response?.status === "accepted",
+      "reply receipt missing",
+    );
+    assert(
+      ack.body.response.goal_version === question.goal_version + 1,
+      "answer did not advance exactly one goal version",
+    );
+    await waitForNewFrame(
+      answerStart,
+      (f) =>
+        f.direction === "received" &&
+        f.event === "agent_event" &&
+        f.body?.run_ref === question.run_id &&
+        f.body?.event_type === "run_completed",
+      "same run did not finish after answer",
+    );
     const after = await fetchSessionSnapshotFromApi(sent.body.work_id, sent.body.session_id);
-    const input = after.transcript.find((entry) => entry.submission_id === payload.payload.submission_id);
-    assert(input?.text === scenario.expected, "persisted answer bytes differ from author input/selected label");
-    assert(!(after.open_author_question_turn_results ?? []).some((tr) => tr.author_question?.question_ref === question.question_ref), "answered question remained open");
-    rounds.push({ question_ref: question.question_ref, run_id: question.run_id, source_turn_ref: source.body.turn_id,
-      source_input_ref: sent.body.turn_id, submission_id: payload.payload.submission_id, action_id: payload.action_id,
-      option_count: question.options.length, reply_kind: scenario.option === "保留悬念" ? "choice" : "free_text",
-      restored_same_question: restored.turn_id === source.body.turn_id, source_bound: true,
-      goal_version: ack.body.response.goal_version, answer_bytes_preserved: input.text === scenario.expected,
-      open_question_closed: true, no_new_user_message_for_answer: !frames.slice(answerStart).some((f) => f.direction === "sent" && f.event === "user_message") });
-    await page.screenshot({ path: path.join(artifactDir, `question-${rounds.length}.png`), fullPage: true });
-    lastSource = source.body; lastSent = sent;
+    const input = after.transcript.find(
+      (entry) => entry.submission_id === payload.payload.submission_id,
+    );
+    assert(
+      input?.text === scenario.expected,
+      "persisted answer bytes differ from author input/selected label",
+    );
+    assert(
+      !(after.open_author_question_turn_results ?? []).some(
+        (tr) => tr.author_question?.question_ref === question.question_ref,
+      ),
+      "answered question remained open",
+    );
+    rounds.push({
+      question_ref: question.question_ref,
+      run_id: question.run_id,
+      source_turn_ref: source.body.turn_id,
+      source_input_ref: sent.body.turn_id,
+      submission_id: payload.payload.submission_id,
+      action_id: payload.action_id,
+      option_count: question.options.length,
+      reply_kind: scenario.option === "保留悬念" ? "choice" : "free_text",
+      restored_same_question: restored.turn_id === source.body.turn_id,
+      source_bound: true,
+      goal_version: ack.body.response.goal_version,
+      answer_bytes_preserved: input.text === scenario.expected,
+      open_question_closed: true,
+      no_new_user_message_for_answer: !frames
+        .slice(answerStart)
+        .some((f) => f.direction === "sent" && f.event === "user_message"),
+    });
+    await page.screenshot({
+      path: path.join(artifactDir, `question-${rounds.length}.png`),
+      fullPage: true,
+    });
+    lastSource = source.body;
+    lastSent = sent;
   }
   const multi = [];
   for (const scenario of cases.slice(0, 2)) {
@@ -28981,8 +30191,20 @@ async function driveB26AuthorQuestionRoundtrip(page) {
     await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
     await page.locator(chatInputSelector).fill(scenario.input);
     await page.getByRole("button", { name: /^发送$/ }).click();
-    const sent = await waitForNewFrame(start, (f) => f.direction === "sent" && f.event === "user_message" && f.body?.text === scenario.input, "unbound input was stolen by old run");
-    const source = await waitForNewFrame(start, (f) => f.direction === "received" && f.event === "turn_result" && f.body?.author_question?.status === "open", "second independent question missing");
+    const sent = await waitForNewFrame(
+      start,
+      (f) =>
+        f.direction === "sent" && f.event === "user_message" && f.body?.text === scenario.input,
+      "unbound input was stolen by old run",
+    );
+    const source = await waitForNewFrame(
+      start,
+      (f) =>
+        f.direction === "received" &&
+        f.event === "turn_result" &&
+        f.body?.author_question?.status === "open",
+      "second independent question missing",
+    );
     multi.push({ sent, result: source.body });
   }
   const older = multi[0].result.author_question;
@@ -28991,36 +30213,119 @@ async function driveB26AuthorQuestionRoundtrip(page) {
   for (let index = 1; index <= 16; index += 1) {
     await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
     const turnStart = frames.length;
-    await sendOrdinaryChatTurn(page, `关于故事节奏的第${index}条补充，这轮只交流观点，不生成候选。`, turnStart);
+    await sendOrdinaryChatTurn(
+      page,
+      `关于故事节奏的第${index}条补充，这轮只交流观点，不生成候选。`,
+      turnStart,
+    );
     const ordinary = frames.slice(turnStart).find((frame) => frame.event === "turn_result")?.body;
-    assert(ordinary && !["failed", "failed_recoverable"].includes(ordinary.status), "分页讨论不能用失败回应充数");
-    assert((ordinary.adoption_state?.pending ?? []).length === 0 && !(ordinary.available_actions ?? []).some((action) => action.action_type === "choose_candidate"), "只交流观点却生成了候选");
+    assert(
+      ordinary && !["failed", "failed_recoverable"].includes(ordinary.status),
+      "分页讨论不能用失败回应充数",
+    );
+    assert(
+      (ordinary.adoption_state?.pending ?? []).length === 0 &&
+        !(ordinary.available_actions ?? []).some(
+          (action) => action.action_type === "choose_candidate",
+        ),
+      "只交流观点却生成了候选",
+    );
   }
   const paged = await fetchSessionSnapshotFromApi(lastSent.body.work_id, lastSent.body.session_id);
-  assert(!paged.transcript.some((entry) => [older.question_ref, newer.question_ref].includes(entry.turn_result?.author_question?.question_ref)), "questions did not leave the recent transcript page");
+  assert(
+    !paged.transcript.some((entry) =>
+      [older.question_ref, newer.question_ref].includes(
+        entry.turn_result?.author_question?.question_ref,
+      ),
+    ),
+    "questions did not leave the recent transcript page",
+  );
   const pagedReload = frames.length;
   await page.reload({ waitUntil: "commit" });
   await page.getByRole("button", { name: "当章收束", exact: true }).waitFor({ timeout: 30_000 });
-  await waitForNewFrame(pagedReload, (f) => f.direction === "received" && f.event === "phx_reply" &&
-    (f.body?.response?.open_author_question_turn_results ?? []).some((tr) => tr.author_question?.question_ref === older.question_ref), "question beyond transcript page was not restored");
-  const concurrent = await fetchSessionSnapshotFromApi(lastSent.body.work_id, lastSent.body.session_id);
-  assert([older.question_ref, newer.question_ref].every((ref) => concurrent.open_author_question_turn_results.some((tr) => tr.author_question?.question_ref === ref)), "multiple questions were not independently restored");
-  await page.screenshot({ path: path.join(artifactDir, "question-multiple-open.png"), fullPage: true });
+  await waitForNewFrame(
+    pagedReload,
+    (f) =>
+      f.direction === "received" &&
+      f.event === "phx_reply" &&
+      (f.body?.response?.open_author_question_turn_results ?? []).some(
+        (tr) => tr.author_question?.question_ref === older.question_ref,
+      ),
+    "question beyond transcript page was not restored",
+  );
+  const concurrent = await fetchSessionSnapshotFromApi(
+    lastSent.body.work_id,
+    lastSent.body.session_id,
+  );
+  assert(
+    [older.question_ref, newer.question_ref].every((ref) =>
+      concurrent.open_author_question_turn_results.some(
+        (tr) => tr.author_question?.question_ref === ref,
+      ),
+    ),
+    "multiple questions were not independently restored",
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, "question-multiple-open.png"),
+    fullPage: true,
+  });
   const olderAnswerStart = frames.length;
   await page.getByRole("button", { name: "当章收束", exact: true }).click();
-  const olderAction = await waitForNewFrame(olderAnswerStart, (f) => f.direction === "sent" && f.event === "author_action" && f.body?.action?.payload?.question_ref === older.question_ref, "older question action was rebound to latest run");
+  const olderAction = await waitForNewFrame(
+    olderAnswerStart,
+    (f) =>
+      f.direction === "sent" &&
+      f.event === "author_action" &&
+      f.body?.action?.payload?.question_ref === older.question_ref,
+    "older question action was rebound to latest run",
+  );
   assert(olderAction.body.action.target_ref === older.run_id, "older answer target changed");
-  await waitForNewFrame(olderAnswerStart, (f) => f.direction === "received" && f.event === "phx_reply" && f.body?.response?.question_ref === older.question_ref && f.body?.response?.status === "accepted", "older answer rejected");
-  const afterOlder = await fetchSessionSnapshotFromApi(lastSent.body.work_id, lastSent.body.session_id);
-  assert(afterOlder.open_author_question_turn_results.some((tr) => tr.author_question?.question_ref === newer.question_ref), "answering older question changed newer run");
-  const multiRun = { older_run_id: older.run_id, newer_run_id: newer.run_id,
-    older_question_ref: older.question_ref, newer_question_ref: newer.question_ref,
-    older_action_id: olderAction.body.action.action_id, independent_new_request: true,
-    outside_recent_transcript: true, restored_after_pagination: true,
-    explicit_old_source_preserved: true, newer_question_still_open: true };
-  return [{ ...(await commonUiState(page, lastSource, lastSent)), slice_id: "b26-author-question-roundtrip",
-    turn_ids: [...rounds.flatMap((round) => [round.source_input_ref, round.source_turn_ref]), ...multi.flatMap((item) => [item.sent.body.turn_id, item.result.turn_id])], roundtrips: rounds, multi_run: multiRun,
-    no_production_write: frames.filter((f) => f.event === "turn_result").every((f) => f.body?.truthfulness?.production_write_performed !== true) }];
+  await waitForNewFrame(
+    olderAnswerStart,
+    (f) =>
+      f.direction === "received" &&
+      f.event === "phx_reply" &&
+      f.body?.response?.question_ref === older.question_ref &&
+      f.body?.response?.status === "accepted",
+    "older answer rejected",
+  );
+  const afterOlder = await fetchSessionSnapshotFromApi(
+    lastSent.body.work_id,
+    lastSent.body.session_id,
+  );
+  assert(
+    afterOlder.open_author_question_turn_results.some(
+      (tr) => tr.author_question?.question_ref === newer.question_ref,
+    ),
+    "answering older question changed newer run",
+  );
+  const multiRun = {
+    older_run_id: older.run_id,
+    newer_run_id: newer.run_id,
+    older_question_ref: older.question_ref,
+    newer_question_ref: newer.question_ref,
+    older_action_id: olderAction.body.action.action_id,
+    independent_new_request: true,
+    outside_recent_transcript: true,
+    restored_after_pagination: true,
+    explicit_old_source_preserved: true,
+    newer_question_still_open: true,
+  };
+  return [
+    {
+      ...(await commonUiState(page, lastSource, lastSent)),
+      slice_id: "b26-author-question-roundtrip",
+      turn_ids: [
+        ...rounds.flatMap((round) => [round.source_input_ref, round.source_turn_ref]),
+        ...multi.flatMap((item) => [item.sent.body.turn_id, item.result.turn_id]),
+      ],
+      roundtrips: rounds,
+      multi_run: multiRun,
+      no_production_write: frames
+        .filter((f) => f.event === "turn_result")
+        .every((f) => f.body?.truthfulness?.production_write_performed !== true),
+    },
+  ];
 }
 
 async function driveAgentConversationTurn(page, options = {}) {
@@ -29358,7 +30663,7 @@ async function driveAgentConversationTurn(page, options = {}) {
   const authorReasoningDeltaFrames = providerProgressEvents.filter(
     (frame) =>
       frame.body?.visibility === "author" &&
-        typeof frame.body?.payload?.author_narrative_delta === "string",
+      typeof frame.body?.payload?.author_narrative_delta === "string",
   );
   const providerPurposes = [
     ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.purpose)),
@@ -29425,8 +30730,12 @@ async function driveAgentConversationTurn(page, options = {}) {
       persisted_provider_run_count: persistedProviderRunCount,
       persisted_provider_purposes: activityPurposes,
       persisted_provider_facts_matched_budget: persistedProviderRunCount === expectedProviderCalls,
-      ui_final_reply_occurrences: normalizeVisibleText(authorVisibleText).split(normalizeVisibleText(turnResult.assistant_message.text)).length - 1,
-      plain_reply_provenance_valid: turnResult.frame_summary?.frame_origin === "application_display_default" &&
+      ui_final_reply_occurrences:
+        normalizeVisibleText(authorVisibleText).split(
+          normalizeVisibleText(turnResult.assistant_message.text),
+        ).length - 1,
+      plain_reply_provenance_valid:
+        turnResult.frame_summary?.frame_origin === "application_display_default" &&
         turnResult.trace_summary?.reply_record?.model_interpretation_status === "not_provided" &&
         (turnResult.available_actions ?? []).length === 0,
       ui_agentic_loop_reasoning_visible: agenticLoopSections.reasoning,
@@ -30098,8 +31407,12 @@ async function driveAgenticLoopProseDeviationReplan(page, config) {
     );
   }
   const actualBudget = terminalStateFrame.body?.consumed_budget ?? {};
-  assert(Number(actualBudget.steps) === expected.steps && Number(actualBudget.tool_calls) === expected.toolCalls && Number(actualBudget.provider_calls) === expected.providerCalls,
-    `${signal} budget mismatch: ${JSON.stringify(actualBudget)} expected ${JSON.stringify(expected)}`);
+  assert(
+    Number(actualBudget.steps) === expected.steps &&
+      Number(actualBudget.tool_calls) === expected.toolCalls &&
+      Number(actualBudget.provider_calls) === expected.providerCalls,
+    `${signal} budget mismatch: ${JSON.stringify(actualBudget)} expected ${JSON.stringify(expected)}`,
+  );
   const awaitingFrame = terminalFrame;
   const awaitingStateFrame = terminalStateFrame;
 
@@ -30132,7 +31445,6 @@ async function driveAgenticLoopProseDeviationReplan(page, config) {
       (finalTurnResultFrame.body?.adoption_state?.pending ?? []).length === 1,
       `${signal} improved TurnResult did not expose exactly the improved pending candidate`,
     );
-
   } else if (allowCandidateTurnResult) {
     assert(
       finalTurnResultArrived,
@@ -30151,9 +31463,24 @@ async function driveAgenticLoopProseDeviationReplan(page, config) {
       `${signal} candidate TurnResult did not carry quality confirm policy evidence`,
     );
   } else {
-    assert(finalTurnResultFrame?.body?.author_question?.run_id === runId, `${signal} 未交付独立持久问题`);
-    assert((finalTurnResultFrame.body.available_actions ?? []).some((action) => action.action_type === "author_choice" && action.response_kind === "free_text" && action.question_ref === finalTurnResultFrame.body.author_question.question_ref && action.target_ref === runId), `${signal} 缺少绑定源问题的自由回复动作`);
-    assert((finalTurnResultFrame.body.adoption_state?.pending ?? []).length === 0, `${signal} 故障提问不应伪造候选`);
+    assert(
+      finalTurnResultFrame?.body?.author_question?.run_id === runId,
+      `${signal} 未交付独立持久问题`,
+    );
+    assert(
+      (finalTurnResultFrame.body.available_actions ?? []).some(
+        (action) =>
+          action.action_type === "author_choice" &&
+          action.response_kind === "free_text" &&
+          action.question_ref === finalTurnResultFrame.body.author_question.question_ref &&
+          action.target_ref === runId,
+      ),
+      `${signal} 缺少绑定源问题的自由回复动作`,
+    );
+    assert(
+      (finalTurnResultFrame.body.adoption_state?.pending ?? []).length === 0,
+      `${signal} 故障提问不应伪造候选`,
+    );
     await page.getByRole("button", { name: "回复此问题", exact: true }).waitFor();
   }
 
@@ -30207,7 +31534,13 @@ async function driveAgenticLoopProseDeviationReplan(page, config) {
       consumed_replans: awaitingStateFrame.body?.consumed_budget?.replans,
       final_turn_result_arrived: finalTurnResultArrived,
       author_question_present: Boolean(finalTurnResultFrame?.body?.author_question),
-      source_bound_reply_action_present: (finalTurnResultFrame?.body?.available_actions ?? []).some((action) => action.action_type === "author_choice" && action.response_kind === "free_text" && action.question_ref === finalTurnResultFrame.body.author_question?.question_ref && action.target_ref === runId),
+      source_bound_reply_action_present: (finalTurnResultFrame?.body?.available_actions ?? []).some(
+        (action) =>
+          action.action_type === "author_choice" &&
+          action.response_kind === "free_text" &&
+          action.question_ref === finalTurnResultFrame.body.author_question?.question_ref &&
+          action.target_ref === runId,
+      ),
       final_turn_result_agent_run_status: finalTurnResultFrame?.body?.agent_run?.status ?? null,
       final_turn_result_pending_artifact_count:
         finalTurnResultFrame?.body?.adoption_state?.pending?.length ?? 0,
@@ -30602,9 +31935,7 @@ async function driveAgentProviderExecutionActivityRestored(page) {
       if (!input.titles.every((value) => document.body.innerText.includes(value))) return false;
       const region = document.querySelector('[aria-label="本轮创作过程"]');
       if (!region) return false;
-      const visible = Array.from(
-        region.querySelectorAll('[class*="agenticLoopReasoning"] p'),
-      )
+      const visible = Array.from(region.querySelectorAll('[class*="agenticLoopReasoning"] p'))
         .filter((paragraph) => paragraph.getClientRects().length > 0)
         .map((paragraph) => paragraph.innerText.trim())
         .filter(Boolean);
@@ -30612,7 +31943,8 @@ async function driveAgentProviderExecutionActivityRestored(page) {
       if (input.expected.length === 0) return true;
       return visible.some((text) =>
         input.expected.some(
-          (expected) => text.includes(expected.slice(0, 24)) || expected.includes(text.slice(0, 24)),
+          (expected) =>
+            text.includes(expected.slice(0, 24)) || expected.includes(text.slice(0, 24)),
         ),
       );
     },
@@ -32370,7 +33702,6 @@ async function driveAgentDurableResumeLongRunTask(page) {
   }
 }
 
-
 async function driveAgentProviderCancelHonestBoundary(page) {
   await configureProviderRuntime({ provider: "slice_verify" });
 
@@ -33590,20 +34921,49 @@ async function driveExplicitQuestionResume(page, sliceId) {
   const nonce = randomUUID().slice(0, 8);
   const initialText = `第一章字数太少了，标记UA01AWAITSTEER-${nonce}。`;
   const replyText = "直接在现有正文基础上扩写，增加场景、细节和心理描写，保持现有结构与情节不变。";
-  const work = await createWorkSeed({ title: `B26 问题回传 ${nonce}`, genre: "悬疑", core_selling_point: "明确问题的原话、绑定与恢复" });
+  const work = await createWorkSeed({
+    title: `B26 问题回传 ${nonce}`,
+    genre: "悬疑",
+    core_selling_point: "明确问题的原话、绑定与恢复",
+  });
   await refreshAndSelectWork(page, work.title);
   await waitForVisibleWorkTitle(page, work.title);
   const start = frames.length;
   await page.locator(chatInputSelector).fill(initialText);
   await page.getByRole("button", { name: /^发送$/ }).click();
-  const sent = await waitForNewFrame(start, (frame) => frame.direction === "sent" && frame.event === "user_message" && frame.body?.text === initialText, "原输入未发送");
-  const ack = await waitForNewFrame(start, (frame) => frame.event === "phx_reply" && frame.body?.response?.turn_id === sent.body.turn_id && frame.body?.response?.run_id, "原输入未确认");
+  const sent = await waitForNewFrame(
+    start,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.text === initialText,
+    "原输入未发送",
+  );
+  const ack = await waitForNewFrame(
+    start,
+    (frame) =>
+      frame.event === "phx_reply" &&
+      frame.body?.response?.turn_id === sent.body.turn_id &&
+      frame.body?.response?.run_id,
+    "原输入未确认",
+  );
   const runId = ack.body.response.run_id;
-  const questionFrame = await waitForNewFrame(start, (frame) => frame.event === "turn_result" && frame.body?.author_question?.run_id === runId, "没有独立问题结果");
+  const questionFrame = await waitForNewFrame(
+    start,
+    (frame) => frame.event === "turn_result" && frame.body?.author_question?.run_id === runId,
+    "没有独立问题结果",
+  );
   const question = questionFrame.body.author_question;
-  const awaiting = await waitForNewFrame(start, (frame) => frame.event === "agent_run_state" && frame.body?.run_id === runId && frame.body.status === "awaiting_author", "运行未等待作者");
+  const awaiting = await waitForNewFrame(
+    start,
+    (frame) =>
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body.status === "awaiting_author",
+    "运行未等待作者",
+  );
   await page.getByText(question.question, { exact: true }).first().waitFor();
-  const bareResumeAbsent = await page.getByRole("button", { name: /^继续$/ }).count() === 0;
+  const bareResumeAbsent = (await page.getByRole("button", { name: /^继续$/ }).count()) === 0;
   assert(bareResumeAbsent, "明确问题仍提供裸继续");
   await page.getByText("请在问题中选择或回复；下方输入会开始新的讨论。", { exact: true }).waitFor();
   const blankStart = frames.length;
@@ -33614,49 +34974,167 @@ async function driveExplicitQuestionResume(page, sliceId) {
   assert(await sendReply.isDisabled(), "空回复未禁用发送");
   await composer.fill(" \n ");
   assert(await sendReply.isDisabled(), "空白回复未禁用发送");
-  assert(!frames.slice(blankStart).some((frame) => frame.direction === "sent" && ["author_action", "agent_command", "user_message"].includes(frame.event)), "空回复发送了请求");
+  assert(
+    !frames
+      .slice(blankStart)
+      .some(
+        (frame) =>
+          frame.direction === "sent" &&
+          ["author_action", "agent_command", "user_message"].includes(frame.event),
+      ),
+    "空回复发送了请求",
+  );
   const replyStart = frames.length;
   await composer.fill(replyText);
   await sendReply.click();
-  const action = await waitForNewFrame(replyStart, (frame) => frame.direction === "sent" && frame.event === "author_action" && frame.body?.action?.action_type === "author_choice", "回复未走源动作");
+  const action = await waitForNewFrame(
+    replyStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "author_choice",
+    "回复未走源动作",
+  );
   const input = action.body.action;
-  assert(input.target_ref === runId && input.source_turn_ref === question.source_turn_ref && input.payload.question_ref === question.question_ref && input.payload.text === replyText, "问题回复的源绑定或原话变化");
-  const received = await waitForNewFrame(replyStart, (frame) => frame.event === "phx_reply" && frame.body?.status === "ok" && frame.body?.response?.submission_id === input.payload.submission_id && frame.body.response.action_type === "author_choice", "问题回复没有真实回执");
-  assert(received.body.response.goal_version === question.goal_version + 1, "目标版本并非恰好增加一次");
-  await waitForNewFrame(replyStart, (frame) => frame.event === "agent_event" && frame.body?.run_ref === runId && frame.body.event_type === "plan_adjusted", "原运行未接受调整");
-  const resumed = await waitForNewFrame(replyStart, (frame) => frame.event === "agent_event" && frame.body?.run_ref === runId && frame.body.event_type === "run_resumed" && frame.body.reason_codes.includes("resume_after_steer"), "原运行未恢复");
-  const terminal = await waitForNewFrame(replyStart, (frame) => frame.event === "agent_run_state" && frame.body?.run_id === runId && frame.body.status === "completed", "原运行未完成", 120_000);
-  const final = await waitForNewFrame(replyStart, (frame) => frame.event === "turn_result" && frame.body?.agent_run?.run_id === runId && frame.body.agent_run.status === "completed", "原运行无完成结果");
+  assert(
+    input.target_ref === runId &&
+      input.source_turn_ref === question.source_turn_ref &&
+      input.payload.question_ref === question.question_ref &&
+      input.payload.text === replyText,
+    "问题回复的源绑定或原话变化",
+  );
+  const received = await waitForNewFrame(
+    replyStart,
+    (frame) =>
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.submission_id === input.payload.submission_id &&
+      frame.body.response.action_type === "author_choice",
+    "问题回复没有真实回执",
+  );
+  assert(
+    received.body.response.goal_version === question.goal_version + 1,
+    "目标版本并非恰好增加一次",
+  );
+  await waitForNewFrame(
+    replyStart,
+    (frame) =>
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body.event_type === "plan_adjusted",
+    "原运行未接受调整",
+  );
+  const resumed = await waitForNewFrame(
+    replyStart,
+    (frame) =>
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body.event_type === "run_resumed" &&
+      frame.body.reason_codes.includes("resume_after_steer"),
+    "原运行未恢复",
+  );
+  const terminal = await waitForNewFrame(
+    replyStart,
+    (frame) =>
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body.status === "completed",
+    "原运行未完成",
+    120_000,
+  );
+  const final = await waitForNewFrame(
+    replyStart,
+    (frame) =>
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body.agent_run.status === "completed",
+    "原运行无完成结果",
+  );
   assert(final.body.assistant_message.text !== question.question, "把旧问题又当作新结果发送");
-  assert(final.body.agent_run.parent_turn_ref === questionFrame.body.agent_run.parent_turn_ref, "完成结果改投其他父输入");
+  assert(
+    final.body.agent_run.parent_turn_ref === questionFrame.body.agent_run.parent_turn_ref,
+    "完成结果改投其他父输入",
+  );
   const after = frames.slice(replyStart);
-  assert(!after.some((frame) => frame.direction === "sent" && ["user_message", "agent_command"].includes(frame.event)), "明确问题回复走了无绑定入口");
-  const runs = new Set(after.filter((frame) => frame.event === "agent_run_state").map((frame) => frame.body.run_id));
+  assert(
+    !after.some(
+      (frame) =>
+        frame.direction === "sent" && ["user_message", "agent_command"].includes(frame.event),
+    ),
+    "明确问题回复走了无绑定入口",
+  );
+  const runs = new Set(
+    after.filter((frame) => frame.event === "agent_run_state").map((frame) => frame.body.run_id),
+  );
   assert(runs.size === 1 && runs.has(runId), "回复创建了其他运行");
   await page.reload({ waitUntil: "commit" });
   await page.locator(chatInputSelector).waitFor();
   const snapshot = await fetchSessionSnapshotFromApi(work.id, sent.body.session_id);
-  const questionRows = snapshot.transcript.filter((row) => row.turn_result?.author_question?.question_ref === question.question_ref);
-  const replyRows = snapshot.transcript.filter((row) => row.submission_id === input.payload.submission_id);
-  assert(questionRows.length === 1 && questionRows[0].turn_result.author_question.status === "answered", "原问题未唯一闭合");
-  assert(replyRows.length === 1 && replyRows[0].text === replyText && replyRows[0].agent_run_id === runId, "回复原话未唯一恢复到原运行");
+  const questionRows = snapshot.transcript.filter(
+    (row) => row.turn_result?.author_question?.question_ref === question.question_ref,
+  );
+  const replyRows = snapshot.transcript.filter(
+    (row) => row.submission_id === input.payload.submission_id,
+  );
+  assert(
+    questionRows.length === 1 && questionRows[0].turn_result.author_question.status === "answered",
+    "原问题未唯一闭合",
+  );
+  assert(
+    replyRows.length === 1 &&
+      replyRows[0].text === replyText &&
+      replyRows[0].agent_run_id === runId,
+    "回复原话未唯一恢复到原运行",
+  );
   await page.getByText(replyText, { exact: true }).last().waitFor();
-  assert(await page.getByRole("button", { name: "回复此问题", exact: true }).count() === 0, "已答问题仍可发送");
-  await page.screenshot({ path: path.join(artifactDir, "explicit-question-restored.png"), fullPage: true });
-  fs.writeFileSync(path.join(artifactDir, "question-reply-restored.json"), JSON.stringify(snapshot, null, 2));
-  return [{ ...(await commonUiState(page, final.body, sent)), slice_id: sliceId,
-    work_id: work.id, session_id: sent.body.session_id, parent_turn_id: sent.body.turn_id,
-    run_id: runId, run_mode: "bounded", awaiting_status: awaiting.body.status, terminal_status: terminal.body.status,
-    question_ref: question.question_ref, question_source_turn_ref: question.source_turn_ref,
-    reply_action_id: input.action_id, reply_submission_id: input.payload.submission_id,
-    reply_action_type: input.action_type, reply_text: replyText, reply_ack_received: true,
-    reply_source_bound: true, adjusted_goal_version: received.body.response.goal_version,
-    bare_resume_absent: bareResumeAbsent, question_reply_hint_visible: true,
-    question_reply_composer_visible: true, empty_reply_disabled: true, blank_reply_request_count: 0,
-    question_record_count: questionRows.length, question_answered: true, reply_record_count: replyRows.length,
-    no_second_user_message_for_reply: true, no_second_run_after_reply: true,
-    final_message_is_not_old_question: true, same_parent: true,
-    source_controls_closed_after_reply: true, run_resumed_reason_codes: resumed.body.reason_codes }];
+  assert(
+    (await page.getByRole("button", { name: "回复此问题", exact: true }).count()) === 0,
+    "已答问题仍可发送",
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, "explicit-question-restored.png"),
+    fullPage: true,
+  });
+  fs.writeFileSync(
+    path.join(artifactDir, "question-reply-restored.json"),
+    JSON.stringify(snapshot, null, 2),
+  );
+  return [
+    {
+      ...(await commonUiState(page, final.body, sent)),
+      slice_id: sliceId,
+      work_id: work.id,
+      session_id: sent.body.session_id,
+      parent_turn_id: sent.body.turn_id,
+      run_id: runId,
+      run_mode: "bounded",
+      awaiting_status: awaiting.body.status,
+      terminal_status: terminal.body.status,
+      question_ref: question.question_ref,
+      question_source_turn_ref: question.source_turn_ref,
+      reply_action_id: input.action_id,
+      reply_submission_id: input.payload.submission_id,
+      reply_action_type: input.action_type,
+      reply_text: replyText,
+      reply_ack_received: true,
+      reply_source_bound: true,
+      adjusted_goal_version: received.body.response.goal_version,
+      bare_resume_absent: bareResumeAbsent,
+      question_reply_hint_visible: true,
+      question_reply_composer_visible: true,
+      empty_reply_disabled: true,
+      blank_reply_request_count: 0,
+      question_record_count: questionRows.length,
+      question_answered: true,
+      reply_record_count: replyRows.length,
+      no_second_user_message_for_reply: true,
+      no_second_run_after_reply: true,
+      final_message_is_not_old_question: true,
+      same_parent: true,
+      source_controls_closed_after_reply: true,
+      run_resumed_reason_codes: resumed.body.reason_codes,
+    },
+  ];
 }
 
 async function driveAgentAwaitingAuthorSteerResume(page) {
@@ -33767,11 +35245,9 @@ async function driveAgentBoundedRefreshLiveResume(page) {
   const reloadFrameStart = frames.length;
   const reloadLogStart = readAppLogRecords().length;
   await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
-  await page.waitForFunction(
-    () => /服务: 已连接|同步已连接/.test(document.body.innerText),
-    null,
-    { timeout: 60_000 },
-  );
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), null, {
+    timeout: 60_000,
+  });
 
   await waitForNewAppLogRecord(
     reloadLogStart,
@@ -34221,8 +35697,7 @@ async function driveAgentDeadBoundedRunExpiry(page) {
       secondJoinDeadStateFrames.length === 0 && secondJoinExpiredLogs.length === 0;
     const deadRunFailureRefRecord = readAppLogRecords().find(
       (record) =>
-        record.run_id === runId &&
-        JSON.stringify(record).includes("runtime_lost_on_restart"),
+        record.run_id === runId && JSON.stringify(record).includes("runtime_lost_on_restart"),
     );
     const deadRunFailureRef = deadRunFailureRefRecord
       ? (deadRunFailureRefRecord.failure_ref ?? "runtime_lost_on_restart")
@@ -34346,11 +35821,9 @@ async function visibleChatInputPlaceholder(page) {
 
 async function waitForVisibleText(page, expected, label, timeoutMs = 30_000) {
   try {
-    await page.waitForFunction(
-      (text) => document.body.innerText.includes(text),
-      expected,
-      { timeout: timeoutMs },
-    );
+    await page.waitForFunction((text) => document.body.innerText.includes(text), expected, {
+      timeout: timeoutMs,
+    });
   } catch {
     const bodyText = await page.locator("body").innerText();
     throw new Error(
@@ -34366,8 +35839,7 @@ async function driveAgentPlanExhaustedAwaitingReason(page) {
   // 一条自然语言跨能力请求：读正文（prose）+ 调整大纲（plot_outline）+ 更新主角状态
   // （character_evolution）。标记只用于 test-support 替身触发，不参与产品语义。
   const initialText = `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${nonce}`;
-  const steerText =
-    `按已核对结果先出方案，继续推进：先给出章节大纲草案，保留你对已读正文的核对结论，${nonce}`;
+  const steerText = `按已核对结果先出方案，继续推进：先给出章节大纲草案，保留你对已读正文的核对结论，${nonce}`;
   const structuralWords = ["计划", "已完成", "目标产出尚未完成", "已核对", "下一步"];
   const fallbackCopy = "任务正在等待你的回复或补充。";
   const awaitingHint = "等待你的回复：在下方输入框补充方向后发送，任务才会继续。";
@@ -34543,11 +36015,9 @@ async function driveAgentPlanExhaustedAwaitingReason(page) {
   // ③ CP1：刷新后理由仍可见。纯只读耗尽停等不产 TurnResult，前端以 standalone 运行组
   // events 补水恢复理由；这里只按可见文本断言，不依赖新的网络帧/后端字段。
   await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
-  await page.waitForFunction(
-    () => /服务: 已连接|同步已连接/.test(document.body.innerText),
-    null,
-    { timeout: 60_000 },
-  );
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), null, {
+    timeout: 60_000,
+  });
   const reloadedSummaryText = await waitForVisibleAwaitingReason(
     page,
     structuralWords,
@@ -34663,9 +36133,7 @@ async function driveAgentPlanExhaustedAwaitingReason(page) {
     (record) => record.event === "channel.user_message.done" && record.run_id === runId,
   );
   const steerBudgetGrantLog = readAppLogRecords().find(
-    (record) =>
-      record.run_id === runId &&
-      JSON.stringify(record).includes("steer_budget_granted"),
+    (record) => record.run_id === runId && JSON.stringify(record).includes("steer_budget_granted"),
   );
 
   const runIdsSeen = new Set(
@@ -34700,10 +36168,7 @@ async function driveAgentPlanExhaustedAwaitingReason(page) {
     String(frame.body?.text ?? "").includes("按已核对结果先出方案"),
   );
   const noNewRun = runIdsSeen.size === 1 && runIdsSeen.has(runId);
-  assert(
-    noNewRun,
-    `steering created or referenced another AgentRun: ${[...runIdsSeen].join(",")}`,
-  );
+  assert(noNewRun, `steering created or referenced another AgentRun: ${[...runIdsSeen].join(",")}`);
   assert(
     userMessageTurnIds.size === 1,
     `steering produced a second author turn instead of agent_command (turns=${[...userMessageTurnIds].join(",")})`,
@@ -34729,11 +36194,7 @@ async function driveAgentPlanExhaustedAwaitingReason(page) {
     .filter((turnId) => typeof turnId === "string");
   const parentTurnId = parentUserMessageLog?.turn_id ?? null;
   const resumedVisibleText = await page.locator("body").innerText();
-  const uiState = await commonUiState(
-    page,
-    { turn_id: parentTurnId ?? "" },
-    sentFrame,
-  );
+  const uiState = await commonUiState(page, { turn_id: parentTurnId ?? "" }, sentFrame);
 
   return [
     {
@@ -35140,9 +36601,9 @@ async function installAu10RenderObserver(page) {
     };
     const mark = (name) => state.marks.push({ name, at: performance.now() });
     const messageNodes = () =>
-      Array.from(
-        document.querySelectorAll('[class*="userMsg"], [class*="assistantMsg"]'),
-      ).filter((node) => (node.innerText ?? "").trim().length > 0);
+      Array.from(document.querySelectorAll('[class*="userMsg"], [class*="assistantMsg"]')).filter(
+        (node) => (node.innerText ?? "").trim().length > 0,
+      );
     const ids = new WeakMap();
     let seq = 0;
     const idOf = (node) => {
@@ -35245,8 +36706,7 @@ async function readAu10RenderScene(page, name) {
     for (let index = 1; index < samples.length; index += 1) {
       const before = samples[index - 1];
       const after = samples[index];
-      const recentUserInput =
-        after.touchedAt > 0 && after.at - after.touchedAt < 1_500;
+      const recentUserInput = after.touchedAt > 0 && after.at - after.touchedAt < 1_500;
       if (recentUserInput) continue;
       if (before.scrollTop == null || after.scrollTop == null) continue;
       if (Math.abs(after.scrollTop - before.scrollTop) > 4) scrollJumpsWithoutInput += 1;
@@ -35267,7 +36727,10 @@ async function readAu10RenderScene(page, name) {
 
 function assertAu10RenderScene(scene, metrics, { skipRemount = false } = {}) {
   assert(metrics, `AU10 ${scene}: render metrics unavailable`);
-  assert(metrics.sample_count > 20, `AU10 ${scene}: too few render samples (${metrics.sample_count})`);
+  assert(
+    metrics.sample_count > 20,
+    `AU10 ${scene}: too few render samples (${metrics.sample_count})`,
+  );
   assert(metrics.blank_frames === 0, `AU10 ${scene}: blank message frames=${metrics.blank_frames}`);
   if (!skipRemount) {
     assert(
@@ -35388,9 +36851,7 @@ async function driveAu10WorkbenchRenderStability(page) {
     .reduce((sum, scene) => sum + scene.same_text_remounts, 0);
   const scrollJumps = scenes.reduce((sum, scene) => sum + scene.scroll_jumps_without_input, 0);
   const maxRegionDelta = Math.max(
-    ...scenes.map((scene) =>
-      Math.max(scene.max_chat_height_delta, scene.max_input_height_delta),
-    ),
+    ...scenes.map((scene) => Math.max(scene.max_chat_height_delta, scene.max_input_height_delta)),
   );
   const maxRailDelta = Math.max(...scenes.map((scene) => scene.max_rail_height_delta));
 
@@ -35414,7 +36875,6 @@ async function driveAu10WorkbenchRenderStability(page) {
     },
   ];
 }
-
 
 // B17：writer 连续超时后的真实原因与「先写第一场（500 字）」scoped steer。
 // 依赖 harness 只为该 slice 注入 SLICE_VERIFY_WRITER_TIMEOUT=1 的测试替身行为；
@@ -35478,13 +36938,15 @@ async function driveB17WriterTimeoutSteer(page) {
     "B17: awaiting event did not carry writer_timeout_retry_recommended",
   );
 
-  await page.waitForFunction(
-    () => document.body.innerText.includes("正文写作调用超时"),
-    { timeout: 15_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("正文写作调用超时"), {
+    timeout: 15_000,
+  });
   const retryButton = page.getByRole("button", { name: "先写第一场（500 字）" });
   await retryButton.waitFor({ state: "visible", timeout: 15_000 });
-  assert(await retryButton.isEnabled(), "B17: writer timeout retry button is disabled while runtime live");
+  assert(
+    await retryButton.isEnabled(),
+    "B17: writer timeout retry button is disabled while runtime live",
+  );
   const visibleBeforeRetry = await page.locator("body").innerText();
   assert(
     visibleBeforeRetry.includes("可以先缩小范围重试"),
@@ -35723,7 +37185,10 @@ async function driveB27PromptLifecycleConsistency(page) {
   await waitForVisibleWorkTitle(page, workTitle, 30_000).catch(async () => {
     await refreshAndSelectWork(page, workTitle);
   });
-  assert((await page.locator(chatInputSelector).count()) === 1, "B27: main chat input is not unique");
+  assert(
+    (await page.locator(chatInputSelector).count()) === 1,
+    "B27: main chat input is not unique",
+  );
 
   // ── Stage 1：判断/计划 → writer 候选 → 独立 evaluator；停待采纳零写入 ────
   const writerTurn = await sendAuthorMessage(writerMessage, "writer_with_evaluator", 300_000);
@@ -35816,7 +37281,9 @@ async function driveB27PromptLifecycleConsistency(page) {
   );
   const proseToolRecords = readAppLogRecords()
     .slice(writerTurn.logStart)
-    .filter((record) => record.event === "toolbox.execute.done" && record.tool_name === "prose_writing");
+    .filter(
+      (record) => record.event === "toolbox.execute.done" && record.tool_name === "prose_writing",
+    );
   assert(proseToolRecords.length === 1, "B27: writer tool was not dispatched exactly once");
   const pendingNeedle = bodyPhrase(pendingBody);
   await waitForPendingProseCard(pendingNeedle);
@@ -35879,7 +37346,10 @@ async function driveB27PromptLifecycleConsistency(page) {
     "B27: restored transcript duplicated an author message",
   );
   await waitForPendingProseCard(pendingNeedle);
-  const statusTurnBeforeAdoption = await sendAuthorMessage(statusQuestion, "pending_status_question");
+  const statusTurnBeforeAdoption = await sendAuthorMessage(
+    statusQuestion,
+    "pending_status_question",
+  );
   const statusBeforeText = turns.at(-1).assistant_text;
   assert(
     statusBeforeText.includes("待采纳 1 份"),
@@ -36057,7 +37527,10 @@ async function driveB27PromptLifecycleConsistency(page) {
     String(resolvedAfterReload?.payload?.items?.[0]?.body ?? "") === pendingBody,
     "B27: adopted bytes differ from the tentative candidate bytes",
   );
-  const statusTurnAfterAdoption = await sendAuthorMessage(statusQuestion, "adopted_status_question");
+  const statusTurnAfterAdoption = await sendAuthorMessage(
+    statusQuestion,
+    "adopted_status_question",
+  );
   const statusAfterText = turns.at(-1).assistant_text;
   assert(
     statusAfterText.includes("已处置 1 份"),
@@ -36123,7 +37596,10 @@ async function driveB27PromptLifecycleConsistency(page) {
   const planTurn = await sendAuthorMessage(planQuestion, "judgment_plan_grounded");
   const planTurnResult = planTurn.turnResult;
   const planReplyText = turns.at(-1).assistant_text;
-  assert(planReplyText.includes("依据如下"), "B27: judgment reply does not cite retrieved evidence");
+  assert(
+    planReplyText.includes("依据如下"),
+    "B27: judgment reply does not cite retrieved evidence",
+  );
   assert(planReplyText.includes("第02章"), "B27: judgment reply does not cite the asked chapter");
   assert(
     /矿区|巡检傀儡/.test(planReplyText),
@@ -36207,7 +37683,11 @@ async function driveB27PromptLifecycleConsistency(page) {
     surface: "tauri",
     driver: "headless-chromium-real-frontend-backend",
     seeded_work: { work_id: seedWorkId, title: workTitle },
-    author_inputs: turns.map((turn) => ({ label: turn.label, text: turn.text, turn_id: turn.turn_id })),
+    author_inputs: turns.map((turn) => ({
+      label: turn.label,
+      text: turn.text,
+      turn_id: turn.turn_id,
+    })),
     stages,
     persistence: {
       first_resume_snapshot_pending: (firstResumeSnapshot.pending_adoptions ?? []).map((entry) => ({
@@ -36234,7 +37714,10 @@ async function driveB27PromptLifecycleConsistency(page) {
     path.join(artifactDir, "b27-lifecycle-evidence.json"),
     JSON.stringify(evidence, null, 2),
   );
-  fs.writeFileSync(path.join(artifactDir, "b27-lifecycle-turns.json"), JSON.stringify(turns, null, 2));
+  fs.writeFileSync(
+    path.join(artifactDir, "b27-lifecycle-turns.json"),
+    JSON.stringify(turns, null, 2),
+  );
 
   return [
     {
@@ -36254,7 +37737,8 @@ async function driveB27PromptLifecycleConsistency(page) {
       judgment_explore_observed: planExplorations.length,
       judgment_explore_tool: planObservation.payload?.tool,
       judgment_actions: planJudgmentRecords.map((record) => record.action),
-      judgment_reply_cites_plan: planReplyText.includes("第02章") && /矿区|巡检傀儡/.test(planReplyText),
+      judgment_reply_cites_plan:
+        planReplyText.includes("第02章") && /矿区|巡检傀儡/.test(planReplyText),
       judgment_no_pending_artifacts: (planTurnResult.adoption_state?.pending ?? []).length === 0,
       judgment_no_production_write:
         planTurnResult.truthfulness?.production_write_performed !== true,
@@ -36298,7 +37782,6 @@ async function driveB27PromptLifecycleConsistency(page) {
     },
   ];
 }
-
 
 // B31 CP0（真实工作台隔离复现）：同一 work/session 内两个 live awaiting_author run，
 // 用普通主输入回应「当代问题」，记录输入来源/可见焦点/请求 run_id/服务端绑定/持久 refs，
@@ -36603,7 +38086,7 @@ async function driveB31AuthorReplyRunBinding(page) {
     );
     const ackResponse = ack.body.response;
     const targetRunId =
-      sentEvent === "agent_command" ? sent.body?.run_id : ackResponse.run_id ?? null;
+      sentEvent === "agent_command" ? sent.body?.run_id : (ackResponse.run_id ?? null);
     if (sentEvent === "agent_command") {
       await waitForNewFrame(
         start,
@@ -36664,7 +38147,7 @@ async function driveB31AuthorReplyRunBinding(page) {
       new_run_id: sentEvent === "user_message" ? targetRunId : null,
       target_run_id: targetRunId,
       expected_goal_version_sent:
-        sentEvent === "agent_command" ? sent.body?.expected_goal_version ?? null : null,
+        sentEvent === "agent_command" ? (sent.body?.expected_goal_version ?? null) : null,
       ack: {
         run_id: ackResponse.run_id ?? null,
         goal_version: ackResponse.goal_version ?? null,
@@ -36700,17 +38183,34 @@ async function driveB31AuthorReplyRunBinding(page) {
     return { goal_summary: goalSummary, clicked: true };
   }
 
-  async function probeExplicitReply(page, question, label, questionRunId, trackedRunIds, workId, sessionId) {
+  async function probeExplicitReply(
+    page,
+    question,
+    label,
+    questionRunId,
+    trackedRunIds,
+    workId,
+    sessionId,
+  ) {
     const start = frames.length;
     const logStart = readAppLogRecords().length;
     const before = await fetchSessionSnapshotFromApi(workId, sessionId);
     const questionRef = (question.author_question ?? question).question_ref;
-    const source = before.open_author_question_turn_results.find((result) => result.author_question.question_ref === questionRef);
+    const source = before.open_author_question_turn_results.find(
+      (result) => result.author_question.question_ref === questionRef,
+    );
     assert(source, `${label}: 原问题没有可恢复的源动作`);
-    const protectedRunIds = [...new Set([...normalizeTrackedRunIds(trackedRunIds), ...before.open_author_question_turn_results.map((result) => result.author_question.run_id)])].filter((id) => id !== questionRunId);
+    const protectedRunIds = [
+      ...new Set([
+        ...normalizeTrackedRunIds(trackedRunIds),
+        ...before.open_author_question_turn_results.map((result) => result.author_question.run_id),
+      ]),
+    ].filter((id) => id !== questionRunId);
     const versionsBefore = await readGoalVersions(protectedRunIds);
     const visibleBefore = await readVisibleInputState(page, `${label} before`);
-    const replyButtons = await page.getByRole("button", { name: "回复此问题", exact: true }).count();
+    const replyButtons = await page
+      .getByRole("button", { name: "回复此问题", exact: true })
+      .count();
     assert(replyButtons > 0, `${label}: explicit question card has no reply entry`);
     await page.getByRole("button", { name: "回复此问题", exact: true }).first().click();
     const composer = page.getByRole("textbox", { name: "对此问题的补充", exact: true });
@@ -36759,13 +38259,29 @@ async function driveB31AuthorReplyRunBinding(page) {
     );
     assert(terminalState.body.status === "completed", `${label}: 原问题没有正常完成`);
     const snapshot = await fetchSessionSnapshotFromApi(workId, sessionId);
-    const proofEvent = new B31QuestionProof().record({ source, action, receipt: ack.body.response, inputs: snapshot.transcript, at: new Date().toISOString() });
+    const proofEvent = new B31QuestionProof().record({
+      source,
+      action,
+      receipt: ack.body.response,
+      inputs: snapshot.transcript,
+      at: new Date().toISOString(),
+    });
     evidence.author_question_events.push({ label, ...proofEvent });
-    fs.writeFileSync(path.join(artifactDir, "author_question_events.json"), JSON.stringify(evidence.author_question_events, null, 2));
-    assertProtectedVersions(versionsBefore, await readGoalVersions(protectedRunIds), protectedRunIds);
+    fs.writeFileSync(
+      path.join(artifactDir, "author_question_events.json"),
+      JSON.stringify(evidence.author_question_events, null, 2),
+    );
+    assertProtectedVersions(
+      versionsBefore,
+      await readGoalVersions(protectedRunIds),
+      protectedRunIds,
+    );
     await sleep(800);
     const visibleAfter = await readVisibleInputState(page, `${label} after`);
-    const afterStates = frameRunStates(start, [questionRunId, ...normalizeTrackedRunIds(trackedRunIds)]);
+    const afterStates = frameRunStates(start, [
+      questionRunId,
+      ...normalizeTrackedRunIds(trackedRunIds),
+    ]);
     return {
       label,
       reply_button_count_before: replyButtons,
@@ -36787,7 +38303,10 @@ async function driveB31AuthorReplyRunBinding(page) {
         duplicate: ack.body?.response?.duplicate ?? null,
       },
       resumed_event: resumedEvent
-        ? { event_type: resumedEvent.body?.event_type, reason_codes: resumedEvent.body?.reason_codes }
+        ? {
+            event_type: resumedEvent.body?.event_type,
+            reason_codes: resumedEvent.body?.reason_codes,
+          }
         : null,
       terminal_status: terminalState?.body?.status ?? null,
       run_states_after: afterStates.states,
@@ -36803,15 +38322,28 @@ async function driveB31AuthorReplyRunBinding(page) {
     const versions = await readGoalVersions([...newRunIds, ...protectedRunIds]);
     let snapshot = await fetchSessionSnapshotFromApi(workId, sessionId);
     const initial = snapshot.open_author_question_turn_results ?? [];
-    assert(initial.every((result) => newRunIds.includes(result.author_question.run_id)), "原问题答复后出现未知来源问题");
+    assert(
+      initial.every((result) => newRunIds.includes(result.author_question.run_id)),
+      "原问题答复后出现未知来源问题",
+    );
     if (initial.length) {
-      const visible = await readVisibleInputState(page, `${trialId} original answered; other questions open`);
-      assert(visible.question_notice_visible && !visible.steer_mode, "其他问题开放时不能自动 steer 结构任务");
+      const visible = await readVisibleInputState(
+        page,
+        `${trialId} original answered; other questions open`,
+      );
+      assert(
+        visible.question_notice_visible && !visible.steer_mode,
+        "其他问题开放时不能自动 steer 结构任务",
+      );
     }
     while ((snapshot.open_author_question_turn_results ?? []).length > 0) {
       const open = snapshot.open_author_question_turn_results;
-      assert(open.every((result) => newRunIds.includes(result.author_question.run_id)), "不回答当前测例之外的问题");
-      const source = open[0], question = source.author_question;
+      assert(
+        open.every((result) => newRunIds.includes(result.author_question.run_id)),
+        "不回答当前测例之外的问题",
+      );
+      const source = open[0],
+        question = source.author_question;
       const attempt = proof.assertCanAnswer(source);
       const beforeVersions = await readGoalVersions([...newRunIds, ...protectedRunIds]);
       const option = question.options.find((item) => item.recommended) ?? question.options[0];
@@ -36819,29 +38351,97 @@ async function driveB31AuthorReplyRunBinding(page) {
       if (option && option.kind !== "free_text") {
         await page.getByRole("button", { name: option.label, exact: true }).first().click();
       } else {
-        await page.getByRole("button", { name: option?.label ?? "回复此问题", exact: true }).first().click();
-        await page.getByRole("textbox", { name: "对此问题的补充", exact: true }).fill(B31_STRUCTURE_REPLIES[attempt]);
+        await page
+          .getByRole("button", { name: option?.label ?? "回复此问题", exact: true })
+          .first()
+          .click();
+        await page
+          .getByRole("textbox", { name: "对此问题的补充", exact: true })
+          .fill(B31_STRUCTURE_REPLIES[attempt]);
         await page.getByRole("button", { name: "发送回复", exact: true }).click();
       }
-      const sent = await waitForNewFrame(start, (frame) => frame.direction === "sent" && frame.event === "author_action", `${trialId}: 新问题回复未发送`, 30_000);
+      const sent = await waitForNewFrame(
+        start,
+        (frame) => frame.direction === "sent" && frame.event === "author_action",
+        `${trialId}: 新问题回复未发送`,
+        30_000,
+      );
       const action = sent.body.action;
-      assert(action.payload?.question_ref === question.question_ref, "可见问题卡与计划回答的来源不同");
-      const ack = await waitForNewFrame(start, (frame) => frame.event === "phx_reply" && frame.body?.status === "ok" && frame.body?.response?.submission_id === action.payload.submission_id, `${trialId}: 新问题回复未收到回执`, 30_000);
-      const next = await waitForNewFrame(start, (frame) => frame.event === "agent_run_state" && frame.body?.run_id === question.run_id && frame.body.goal?.version === question.goal_version + 1 && ["completed", "awaiting_author", "failed", "cancelled"].includes(frame.body.status), `${trialId}: 回答后没有结果或后续问题`, 120_000);
+      assert(
+        action.payload?.question_ref === question.question_ref,
+        "可见问题卡与计划回答的来源不同",
+      );
+      const ack = await waitForNewFrame(
+        start,
+        (frame) =>
+          frame.event === "phx_reply" &&
+          frame.body?.status === "ok" &&
+          frame.body?.response?.submission_id === action.payload.submission_id,
+        `${trialId}: 新问题回复未收到回执`,
+        30_000,
+      );
+      const next = await waitForNewFrame(
+        start,
+        (frame) =>
+          frame.event === "agent_run_state" &&
+          frame.body?.run_id === question.run_id &&
+          frame.body.goal?.version === question.goal_version + 1 &&
+          ["completed", "awaiting_author", "failed", "cancelled"].includes(frame.body.status),
+        `${trialId}: 回答后没有结果或后续问题`,
+        120_000,
+      );
       snapshot = await fetchSessionSnapshotFromApi(workId, sessionId);
-      const event = proof.record({ source, action, receipt: ack.body.response, inputs: snapshot.transcript, at: new Date().toISOString() });
+      const event = proof.record({
+        source,
+        action,
+        receipt: ack.body.response,
+        inputs: snapshot.transcript,
+        at: new Date().toISOString(),
+      });
       evidence.author_question_events.push({ trial: trialId, ...event });
-      fs.writeFileSync(path.join(artifactDir, "author_question_events.json"), JSON.stringify(evidence.author_question_events, null, 2));
-      assertProtectedVersions(beforeVersions, await readGoalVersions([...newRunIds, ...protectedRunIds]), [...newRunIds, ...protectedRunIds].filter((runId) => runId !== question.run_id));
-      assert(["completed", "awaiting_author"].includes(next.body.status), "问题运行失败不能算关闭完成");
-      if (next.body.status === "awaiting_author") assert(snapshot.open_author_question_turn_results.some((result) => result.author_question.run_id === question.run_id), "author_question_unresolved: 等待任务没有问题文本");
-      assert(!frames.slice(start).some((frame) => frame.direction === "sent" && ["user_message", "agent_command"].includes(frame.event)), "额外问题回复不得重发原指令或走无绑定入口");
+      fs.writeFileSync(
+        path.join(artifactDir, "author_question_events.json"),
+        JSON.stringify(evidence.author_question_events, null, 2),
+      );
+      assertProtectedVersions(
+        beforeVersions,
+        await readGoalVersions([...newRunIds, ...protectedRunIds]),
+        [...newRunIds, ...protectedRunIds].filter((runId) => runId !== question.run_id),
+      );
+      assert(
+        ["completed", "awaiting_author"].includes(next.body.status),
+        "问题运行失败不能算关闭完成",
+      );
+      if (next.body.status === "awaiting_author")
+        assert(
+          snapshot.open_author_question_turn_results.some(
+            (result) => result.author_question.run_id === question.run_id,
+          ),
+          "author_question_unresolved: 等待任务没有问题文本",
+        );
+      assert(
+        !frames
+          .slice(start)
+          .some(
+            (frame) =>
+              frame.direction === "sent" && ["user_message", "agent_command"].includes(frame.event),
+          ),
+        "额外问题回复不得重发原指令或走无绑定入口",
+      );
     }
     const states = frameRunStates(0, newRunIds).states;
-    assert(newRunIds.every((id) => states[id]?.status === "completed"), "普通请求尚未完成，不能假定只剩结构任务");
+    assert(
+      newRunIds.every((id) => states[id]?.status === "completed"),
+      "普通请求尚未完成，不能假定只剩结构任务",
+    );
     assertProtectedVersions(versions, await readGoalVersions(protectedRunIds), protectedRunIds);
-    return { initial_question_refs: initial.map((result) => result.author_question.question_ref), events: proof.events,
-      all_questions_closed: true, protected_versions: await readGoalVersions(protectedRunIds), visible_after: await readVisibleInputState(page, `${trialId} all questions closed`) };
+    return {
+      initial_question_refs: initial.map((result) => result.author_question.question_ref),
+      events: proof.events,
+      all_questions_closed: true,
+      protected_versions: await readGoalVersions(protectedRunIds),
+      visible_after: await readVisibleInputState(page, `${trialId} all questions closed`),
+    };
   }
 
   async function createTrialWork(label, token) {
@@ -36946,7 +38546,10 @@ async function driveB31AuthorReplyRunBinding(page) {
       ),
       `${label}: protocol user_message`,
     );
-    assert(reply.status === "ok", `${label}: protocol seed push failed: ${JSON.stringify(reply.payload)}`);
+    assert(
+      reply.status === "ok",
+      `${label}: protocol seed push failed: ${JSON.stringify(reply.payload)}`,
+    );
     const runId = reply.payload?.run_id ?? reply.payload?.agent_run_state?.run_id;
     assert(runId, `${label}: protocol seed push did not return a run_id`);
     await waitForNewFrame(
@@ -37007,7 +38610,10 @@ async function driveB31AuthorReplyRunBinding(page) {
     const trackedRunIds = { question: questionRun.run_id, plan: planRun.run_id };
     await sleep(1_000);
     const visibleAfterCreation = await readVisibleInputState(page, "T1 after creation");
-    await page.screenshot({ path: path.join(artifactDir, "b31-cp2-t1-two-awaiting-runs.png"), fullPage: true });
+    await page.screenshot({
+      path: path.join(artifactDir, "b31-cp2-t1-two-awaiting-runs.png"),
+      fullPage: true,
+    });
     checks.open_question_notice_visible &&= visibleAfterCreation.question_notice_visible;
     checks.open_question_plain_input_new_request &&= !visibleAfterCreation.steer_mode;
     const plainFirst = await probeMainInput(
@@ -37021,8 +38627,7 @@ async function driveB31AuthorReplyRunBinding(page) {
     checks.open_question_plain_input_new_request &&= plainFirst.sent_event === "user_message";
     checks.question_run_left_open &&=
       plainFirst.goal_versions_after[questionRun.run_id] === questionRun.question.goal_version;
-    checks.structure_run_not_advanced &&=
-      plainFirst.goal_versions_after[planRun.run_id] === 1;
+    checks.structure_run_not_advanced &&= plainFirst.goal_versions_after[planRun.run_id] === 1;
     checks.open_question_notice_visible &&= plainFirst.visible_after.question_notice_visible;
     const plainRepeat = await probeMainInput(
       page,
@@ -37033,12 +38638,10 @@ async function driveB31AuthorReplyRunBinding(page) {
       sessionId,
     );
     checks.open_question_plain_input_new_request &&=
-      plainRepeat.sent_event === "user_message" &&
-      plainRepeat.new_run_id !== plainFirst.new_run_id;
+      plainRepeat.sent_event === "user_message" && plainRepeat.new_run_id !== plainFirst.new_run_id;
     checks.question_run_left_open &&=
       plainRepeat.goal_versions_after[questionRun.run_id] === questionRun.question.goal_version;
-    checks.structure_run_not_advanced &&=
-      plainRepeat.goal_versions_after[planRun.run_id] === 1;
+    checks.structure_run_not_advanced &&= plainRepeat.goal_versions_after[planRun.run_id] === 1;
     const explicit = await probeExplicitReply(
       page,
       questionRun.question,
@@ -37052,8 +38655,13 @@ async function driveB31AuthorReplyRunBinding(page) {
     checks.explicit_reply_goal_version_advanced &&=
       explicit.ack.goal_version === questionRun.question.goal_version + 1 &&
       explicit.terminal_status === "completed";
-    const additional = await settleAdditionalQuestions("T1", work.id, sessionId,
-      [plainFirst.new_run_id, plainRepeat.new_run_id], [questionRun.run_id, planRun.run_id]);
+    const additional = await settleAdditionalQuestions(
+      "T1",
+      work.id,
+      sessionId,
+      [plainFirst.new_run_id, plainRepeat.new_run_id],
+      [questionRun.run_id, planRun.run_id],
+    );
     checks.additional_question_bindings_preserved &&= additional.all_questions_closed;
     checks.all_questions_closed_before_steer &&= additional.all_questions_closed;
     // 只有所有明确问题关闭、普通新请求终结后，才确实只剩结构 run。
@@ -37103,11 +38711,7 @@ async function driveB31AuthorReplyRunBinding(page) {
     const reloads = [];
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       reloads.push(
-        await reloadAndObserve(
-          frames.length,
-          readAppLogRecords().length,
-          `T2 reload #${attempt}`,
-        ),
+        await reloadAndObserve(frames.length, readAppLogRecords().length, `T2 reload #${attempt}`),
       );
     }
     // JoinRestore 稳定序以 WS 到达帧序为准：app JSONL 由异步 LogEmit 写入，同一
@@ -37144,7 +38748,8 @@ async function driveB31AuthorReplyRunBinding(page) {
     );
     checks.reload_plain_input_new_request &&= plainAfterReload.sent_event === "user_message";
     checks.question_run_left_open &&=
-      plainAfterReload.goal_versions_after[questionRun.run_id] === questionRun.question.goal_version;
+      plainAfterReload.goal_versions_after[questionRun.run_id] ===
+      questionRun.question.goal_version;
     checks.structure_run_not_advanced &&=
       plainAfterReload.goal_versions_after[planRun.run_id] === 1;
     const explicit = await probeExplicitReply(
@@ -37157,8 +38762,13 @@ async function driveB31AuthorReplyRunBinding(page) {
       sessionId,
     );
     checks.explicit_reply_bound_question_run &&= explicit.binds_question_run;
-    const additional = await settleAdditionalQuestions("T2", work.id, sessionId,
-      [plainAfterReload.new_run_id], [questionRun.run_id, planRun.run_id]);
+    const additional = await settleAdditionalQuestions(
+      "T2",
+      work.id,
+      sessionId,
+      [plainAfterReload.new_run_id],
+      [questionRun.run_id, planRun.run_id],
+    );
     checks.additional_question_bindings_preserved &&= additional.all_questions_closed;
     checks.all_questions_closed_before_steer &&= additional.all_questions_closed;
     evidence.trials.push({
@@ -37201,7 +38811,10 @@ async function driveB31AuthorReplyRunBinding(page) {
       );
       const trackedRunIds = { question: questionSeed.runId, plan: planSeed.runId };
       const reload = await reloadAndObserve(frames.length, readAppLogRecords().length, "T3 reload");
-      await page.screenshot({ path: path.join(artifactDir, "b31-cp2-t3-seeded-restored.png"), fullPage: true });
+      await page.screenshot({
+        path: path.join(artifactDir, "b31-cp2-t3-seeded-restored.png"),
+        fullPage: true,
+      });
       checks.open_question_notice_visible &&= reload.visible.question_notice_visible;
       checks.open_question_plain_input_new_request &&= !reload.visible.steer_mode;
       const plain = await probeMainInput(
@@ -37213,8 +38826,7 @@ async function driveB31AuthorReplyRunBinding(page) {
         sessionId,
       );
       checks.open_question_plain_input_new_request &&= plain.sent_event === "user_message";
-      checks.question_run_left_open &&=
-        plain.goal_versions_after[questionSeed.runId] === 1;
+      checks.question_run_left_open &&= plain.goal_versions_after[questionSeed.runId] === 1;
       checks.structure_run_not_advanced &&= plain.goal_versions_after[planSeed.runId] === 1;
       const explicit = await probeExplicitReply(
         page,
@@ -37270,7 +38882,10 @@ async function driveB31AuthorReplyRunBinding(page) {
       );
       const trackedRunIds = { question: questionSeed.runId, plan: planSeed.runId };
       const reload = await reloadAndObserve(frames.length, readAppLogRecords().length, "T4 reload");
-      await page.screenshot({ path: path.join(artifactDir, "b31-cp2-t4-seeded-restored.png"), fullPage: true });
+      await page.screenshot({
+        path: path.join(artifactDir, "b31-cp2-t4-seeded-restored.png"),
+        fullPage: true,
+      });
       const plain = await probeMainInput(
         page,
         `我回答上面那个问题：直接在现有正文基础上扩写，增加细节，B31CP2-T4-${token}`,
@@ -37335,7 +38950,10 @@ async function driveB31AuthorReplyRunBinding(page) {
       );
       const trackedRunIds = [planSeedA.runId, planSeedB.runId];
       const reload = await reloadAndObserve(frames.length, readAppLogRecords().length, "T5 reload");
-      await page.screenshot({ path: path.join(artifactDir, "b31-cp2-t5-live-only-ambiguous.png"), fullPage: true });
+      await page.screenshot({
+        path: path.join(artifactDir, "b31-cp2-t5-live-only-ambiguous.png"),
+        fullPage: true,
+      });
       checks.ambiguous_notice_and_selector_visible &&=
         reload.visible.ambiguous_notice_visible &&
         reload.visible.selector_group_visible &&
@@ -37367,15 +38985,17 @@ async function driveB31AuthorReplyRunBinding(page) {
       checks.selector_focus_steer_ok &&=
         steerProbe.sent_event === "agent_command" &&
         steerProbe.target_run_id === selectorTarget.runId;
-      checks.steer_expected_goal_version_sent &&=
-        steerProbe.expected_goal_version_sent === 1;
+      checks.steer_expected_goal_version_sent &&= steerProbe.expected_goal_version_sent === 1;
       checks.steer_ack_binding_fields &&=
         steerProbe.ack.resolved_run_id === selectorTarget.runId &&
         steerProbe.ack.binding_source === "explicit_steer" &&
         steerProbe.ack.goal_version === 2;
       checks.selector_steer_other_run_untouched &&=
         steerProbe.goal_versions_after[planSeedB.runId] === 1;
-      await page.screenshot({ path: path.join(artifactDir, "b31-cp2-t5-focused-steer.png"), fullPage: true });
+      await page.screenshot({
+        path: path.join(artifactDir, "b31-cp2-t5-focused-steer.png"),
+        fullPage: true,
+      });
       evidence.trials.push({
         id: "T5_live_only_ambiguous_selector_then_steer",
         purpose:
@@ -37431,11 +39051,12 @@ async function driveB31AuthorReplyRunBinding(page) {
           ?.expected_goal_version_sent ?? null,
       selector_steer_ack:
         evidence.trials.find((trial) => trial.steer_after_focus)?.steer_after_focus?.ack ?? null,
-      explicit_reply_ack: evidence.trials
-        .map((trial) => trial.explicit_reply?.ack)
-        .filter(Boolean),
+      explicit_reply_ack: evidence.trials.map((trial) => trial.explicit_reply?.ack).filter(Boolean),
       author_question_reply_count: evidence.author_question_events.length,
-      additional_question_reply_count: evidence.trials.reduce((sum, trial) => sum + (trial.additional_questions?.events.length ?? 0), 0),
+      additional_question_reply_count: evidence.trials.reduce(
+        (sum, trial) => sum + (trial.additional_questions?.events.length ?? 0),
+        0,
+      ),
       reconnect_log_orders: evidence.trials
         .filter((trial) => trial.reconnect_log_orders)
         .map((trial) => trial.reconnect_log_orders),
@@ -37461,9 +39082,7 @@ async function driveB31AuthorReplyRunBinding(page) {
       cp2_checks: checks,
       cp2_measured: evidence.cp2.measured,
       author_question_events: evidence.author_question_events,
-      passed_trial_ids: evidence.trials
-        .filter((trial) => trial.id)
-        .map((trial) => trial.id),
+      passed_trial_ids: evidence.trials.filter((trial) => trial.id).map((trial) => trial.id),
       no_product_code_changed: true,
       measured_inputs_all_from_real_workbench: true,
       protocol_seed_used_for_trial_setup: true,
@@ -37477,21 +39096,21 @@ async function driveB31AuthorReplyRunBinding(page) {
 // 采纳走 replace_scope（同章替代、章身份/章数不变、旧稿 superseded 可查）；format_only
 // 候选按冻结归一规则与源字节等价；缺 ref 澄清/拒绝而非新建章。
 const B28_SLICE_ID = "b28-whole-chapter-revision";
-const B28_FORMAT_ONLY_REQUEST =
-  "把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。";
+const B28_FORMAT_ONLY_REQUEST = "把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。";
 const B28_CONTENT_REQUEST =
   "把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。";
 // B28 CP4：整章只排版请求的「原话」与「改述」版本（任务原文，不得改写）。
-const B28_CP4_ORIGINAL_REQUEST =
-  "把第一章正文整理一下，只调整分段和排版，不要改字句。";
-const B28_CP4_PARAPHRASE_REQUEST =
-  "第一章正文帮我统一下排版和分段，文字别动。";
+const B28_CP4_ORIGINAL_REQUEST = "把第一章正文整理一下，只调整分段和排版，不要改字句。";
+const B28_CP4_PARAPHRASE_REQUEST = "第一章正文帮我统一下排版和分段，文字别动。";
 
 async function driveB28WholeChapterRevision(page) {
   const productionBefore = b28SourceFingerprint();
   await configureProviderRuntime({ provider: "slice_verify" });
   const { createHash } = await import("node:crypto");
-  const sha256 = (value) => createHash("sha256").update(String(value ?? "")).digest("hex");
+  const sha256 = (value) =>
+    createHash("sha256")
+      .update(String(value ?? ""))
+      .digest("hex");
   const seedWorkId = readSeedField("work_id");
   const seedSessionId = readSeedField("session_id");
   const chapterAId = readSeedField("chapter_a_id");
@@ -37570,7 +39189,10 @@ async function driveB28WholeChapterRevision(page) {
       "SELECT s.seq AS scene_seq, d.content FROM scenes s JOIN drafts d ON d.scene_id = s.id WHERE s.chapter_id = ? AND d.status = 'ACCEPTED' ORDER BY s.seq, d.revision",
       [chapterId],
     );
-    return rows.map((row) => String(row.content ?? "")).filter((text) => text !== "").join(separator);
+    return rows
+      .map((row) => String(row.content ?? ""))
+      .filter((text) => text !== "")
+      .join(separator);
   }
 
   async function acceptedDraftRefs(chapterId) {
@@ -37584,7 +39206,10 @@ async function driveB28WholeChapterRevision(page) {
   async function closeArchiveIfOpen() {
     const closeButton = page.getByRole("button", { name: "关闭档案" });
     if ((await closeButton.count()) > 0) {
-      await closeButton.first().click().catch(() => {});
+      await closeButton
+        .first()
+        .click()
+        .catch(() => {});
       await sleep(200);
     }
   }
@@ -37616,8 +39241,8 @@ async function driveB28WholeChapterRevision(page) {
     );
     return {
       turnResult: turnFrame.body,
-      pending: turnFrame.body.adoption_state.pending.find(
-        (entry) => ["prose_fragment", "prose_formatting_plan"].includes(entry.artifact_type),
+      pending: turnFrame.body.adoption_state.pending.find((entry) =>
+        ["prose_fragment", "prose_formatting_plan"].includes(entry.artifact_type),
       ),
     };
   }
@@ -37655,7 +39280,10 @@ async function driveB28WholeChapterRevision(page) {
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       if ((await saveButton.count()) === 0) break;
       const attemptStart = frames.length;
-      await saveButton.first().click().catch(() => {});
+      await saveButton
+        .first()
+        .click()
+        .catch(() => {});
       await sleep(250);
       acceptFrame =
         frames
@@ -37740,7 +39368,9 @@ async function driveB28WholeChapterRevision(page) {
     await sleep(1_200);
     const llmPromptTexts = readLlmCallRecords()
       .slice(llmStart)
-      .map((record) => (typeof record?.prompt === "string" ? record.prompt : llmCallPromptText(record)));
+      .map((record) =>
+        typeof record?.prompt === "string" ? record.prompt : llmCallPromptText(record),
+      );
     const appRecords = readAppLogRecords().slice(logStart);
     const turnFrames = frames.slice(start);
     const explorationFrames = turnFrames
@@ -37781,30 +39411,32 @@ async function driveB28WholeChapterRevision(page) {
     const promptFlags = (prompt) => {
       const contextSlice = currentContextSlice(prompt);
       return {
-      chars: prompt.length,
-      contains_initial_anchor: prompt.includes(initialAnchor),
-      contains_continuation_anchor: prompt.includes(continuationAnchor),
-      contains_initial_unique_phrase: prompt.includes("点灯人第一次点灯时才二十五岁"),
-      contains_continuation_unique_phrase: prompt.includes("点灯人不能回头看灯焰"),
-      contains_chapter_ref: prompt.includes(`chapter:${chapterAId}`),
-      contains_chapter_title: prompt.includes("第01章：夜潮"),
-      contains_format_only: prompt.includes("format_only") || prompt.includes("只调整分段"),
-      contains_replace_scope: prompt.includes("replace_scope"),
-      contains_modification_scope: prompt.includes("modification_scope"),
-      contains_covered_scope:
-        prompt.includes("covered_refs") || prompt.includes("覆盖顺序") || prompt.includes("draft:"),
-      contains_whole_chapter_words: prompt.includes("整章") || prompt.includes("覆盖范围"),
-      contains_thirty_age: prompt.includes("三十岁"),
-      contains_twentyfive_age: prompt.includes("二十五岁"),
-      contains_old_chapter_phrase: prompt.includes("点灯人第一次点灯时才二十五岁"),
-      contains_search_observation:
-        prompt.includes("正文检索") || prompt.includes("未检索到") || prompt.includes("探索观察"),
-      current_context_has_thirty_age: contextSlice.includes("三十岁"),
-      current_context_has_twentyfive_age: contextSlice.includes("二十五岁"),
-      current_context_has_old_chapter_phrase:
-        contextSlice.includes("点灯人第一次点灯时才二十五岁"),
-      current_context_chars: contextSlice.length,
-    };
+        chars: prompt.length,
+        contains_initial_anchor: prompt.includes(initialAnchor),
+        contains_continuation_anchor: prompt.includes(continuationAnchor),
+        contains_initial_unique_phrase: prompt.includes("点灯人第一次点灯时才二十五岁"),
+        contains_continuation_unique_phrase: prompt.includes("点灯人不能回头看灯焰"),
+        contains_chapter_ref: prompt.includes(`chapter:${chapterAId}`),
+        contains_chapter_title: prompt.includes("第01章：夜潮"),
+        contains_format_only: prompt.includes("format_only") || prompt.includes("只调整分段"),
+        contains_replace_scope: prompt.includes("replace_scope"),
+        contains_modification_scope: prompt.includes("modification_scope"),
+        contains_covered_scope:
+          prompt.includes("covered_refs") ||
+          prompt.includes("覆盖顺序") ||
+          prompt.includes("draft:"),
+        contains_whole_chapter_words: prompt.includes("整章") || prompt.includes("覆盖范围"),
+        contains_thirty_age: prompt.includes("三十岁"),
+        contains_twentyfive_age: prompt.includes("二十五岁"),
+        contains_old_chapter_phrase: prompt.includes("点灯人第一次点灯时才二十五岁"),
+        contains_search_observation:
+          prompt.includes("正文检索") || prompt.includes("未检索到") || prompt.includes("探索观察"),
+        current_context_has_thirty_age: contextSlice.includes("三十岁"),
+        current_context_has_twentyfive_age: contextSlice.includes("二十五岁"),
+        current_context_has_old_chapter_phrase:
+          contextSlice.includes("点灯人第一次点灯时才二十五岁"),
+        current_context_chars: contextSlice.length,
+      };
     };
     return {
       label,
@@ -37859,7 +39491,9 @@ async function driveB28WholeChapterRevision(page) {
   }
 
   function candidateFacts(turn) {
-    const candidate = turn.pending.find((entry) => ["prose_fragment", "prose_formatting_plan"].includes(entry.artifact_type));
+    const candidate = turn.pending.find((entry) =>
+      ["prose_fragment", "prose_formatting_plan"].includes(entry.artifact_type),
+    );
     const body = candidate ? candidateBody(candidate) : "";
     const payload = candidate?.payload ?? {};
     const effect = payload.adoption_effect ?? payload["adoption_effect"] ?? null;
@@ -37871,7 +39505,10 @@ async function driveB28WholeChapterRevision(page) {
       pending_entry: candidate,
       model_items: payload.items ?? [],
       formatting_preview: payload.formatting_preview ?? null,
-      candidate_text_source: candidate?.artifact_type === "prose_formatting_plan" ? "computed_formatting_preview" : "provider_body",
+      candidate_text_source:
+        candidate?.artifact_type === "prose_formatting_plan"
+          ? "computed_formatting_preview"
+          : "provider_body",
       candidate_id: candidate?.artifact_id ?? null,
       candidate_text: body,
       candidate_text_chars: body.length,
@@ -37884,11 +39521,12 @@ async function driveB28WholeChapterRevision(page) {
       target_chapter: candidate?.target_chapter ?? null,
       target_chapter_ref: candidate?.target_chapter_ref ?? payload.target_chapter_ref ?? null,
       modification_scope:
-        payload.modification_scope ?? payload["modification_scope"] ??
-        (scope ? scope.modification_scope ?? scope["modification_scope"] : null) ??
+        payload.modification_scope ??
+        payload["modification_scope"] ??
+        (scope ? (scope.modification_scope ?? scope["modification_scope"]) : null) ??
         null,
       adoption_effect: effect,
-      adoption_effect_mode: effect ? effect.mode ?? effect["mode"] ?? null : null,
+      adoption_effect_mode: effect ? (effect.mode ?? effect["mode"] ?? null) : null,
       covered_refs: effect
         ? (effect.covered ?? effect["covered"] ?? []).map((item) => {
             if (typeof item === "string") return item;
@@ -37896,9 +39534,9 @@ async function driveB28WholeChapterRevision(page) {
           })
         : [],
       expected_base_versions: effect
-        ? effect.expected_base_versions ?? effect["expected_base_versions"] ?? []
+        ? (effect.expected_base_versions ?? effect["expected_base_versions"] ?? [])
         : [],
-      coverage: effect ? effect.coverage ?? effect["coverage"] ?? null : null,
+      coverage: effect ? (effect.coverage ?? effect["coverage"] ?? null) : null,
       base_text: baseText,
       base_text_chars: typeof baseText === "string" ? baseText.length : null,
       base_text_sha256: typeof baseText === "string" ? sha256(baseText) : null,
@@ -37928,17 +39566,26 @@ async function driveB28WholeChapterRevision(page) {
       candidateTurn.pending.find((entry) => entry.artifact_type === "prose_fragment");
     const start = frames.length;
     const saveButton = page.getByRole("button", {
-      name: pendingEntry?.artifact_type === "prose_formatting_plan" ? /^应用分段方案$/ : /保存修订稿|保存为章节正文|采纳修订|替代已保存版本/,
+      name:
+        pendingEntry?.artifact_type === "prose_formatting_plan"
+          ? /^应用分段方案$/
+          : /保存修订稿|保存为章节正文|采纳修订|替代已保存版本/,
     });
     const buttonCount = await saveButton.count();
     let confirmationClicked = false;
     if (buttonCount > 0) {
-      await saveButton.first().click().catch(() => {});
+      await saveButton
+        .first()
+        .click()
+        .catch(() => {});
       const confirmButton = page.getByRole("button", {
         name: /确认覆盖|确认替代|确认替换|确认保存|^确认$/,
       });
       if ((await confirmButton.count()) > 0) {
-        await confirmButton.first().click().catch(() => {});
+        await confirmButton
+          .first()
+          .click()
+          .catch(() => {});
         confirmationClicked = true;
       }
     }
@@ -38047,19 +39694,23 @@ async function driveB28WholeChapterRevision(page) {
       const start = frames.length;
       await page.getByRole("button", { name: readingModeButtonPattern }).click();
       await page.waitForFunction(
-        () => document.body.innerText.includes("阅读模式") && document.body.innerText.includes("本章有效字数"),
+        () =>
+          document.body.innerText.includes("阅读模式") &&
+          document.body.innerText.includes("本章有效字数"),
         { timeout: 25_000 },
       );
       // B28 阅读投影刷新（ADR-0016/44§3-4）：replace_scope 采纳后阅读会先显示既有投影并标注
       // “投影状态：重建中/正在读取最新章节/投影已过期”，随后以新 canon 重读。旧 driver 在重建中
       // 快照导致 3 项消费断言读旧值；这里等投影进入 FRESH（状态标记消失）后再采证，不放宽任何判据。
-      await page.waitForFunction(
-        () => {
-          const text = document.body.innerText;
-          return !/投影状态：重建中|正在读取最新章节|投影已过期|投影刷新失败/.test(text);
-        },
-        { timeout: 45_000 },
-      ).catch(() => {});
+      await page
+        .waitForFunction(
+          () => {
+            const text = document.body.innerText;
+            return !/投影状态：重建中|正在读取最新章节|投影已过期|投影刷新失败/.test(text);
+          },
+          { timeout: 45_000 },
+        )
+        .catch(() => {});
       const text = await page.locator("body").innerText();
       await page.screenshot({
         path: path.join(artifactDir, `${B28_SLICE_ID}-${label}.png`),
@@ -38073,7 +39724,9 @@ async function driveB28WholeChapterRevision(page) {
       const targetReply =
         readingReplies.find(
           (response) => String(response?.title ?? "").trim() === "第01章：夜潮",
-        ) ?? readingReplies.find((response) => (response?.scenes ?? []).length > 0) ?? null;
+        ) ??
+        readingReplies.find((response) => (response?.scenes ?? []).length > 0) ??
+        null;
       const sceneTexts = (targetReply?.scenes ?? [])
         .map((scene) => String(scene?.content ?? ""))
         .filter((content) => content !== "");
@@ -38127,10 +39780,12 @@ async function driveB28WholeChapterRevision(page) {
   const isolationNewChapters = isolationAfter.chapters.filter(
     (row) => !isolationBefore.chapters.some((old) => old.id === row.id),
   );
-  await page.screenshot({
-    path: path.join(artifactDir, "b28-cp2-t0-ambiguous-clarification.png"),
-    fullPage: true,
-  }).catch(() => {});
+  await page
+    .screenshot({
+      path: path.join(artifactDir, "b28-cp2-t0-ambiguous-clarification.png"),
+      fullPage: true,
+    })
+    .catch(() => {});
   evidence.trials.push({
     id: "T0a_same_title_ambiguous_blocked_with_clarification",
     purpose:
@@ -38153,8 +39808,10 @@ async function driveB28WholeChapterRevision(page) {
     chapters_before: isolationBefore.chapters.length,
     chapters_after: isolationAfter.chapters.length,
     new_chapters: isolationNewChapters,
-    accepted_drafts_before: isolationBefore.drafts.filter((row) => row.draft_status === "ACCEPTED").length,
-    accepted_drafts_after: isolationAfter.drafts.filter((row) => row.draft_status === "ACCEPTED").length,
+    accepted_drafts_before: isolationBefore.drafts.filter((row) => row.draft_status === "ACCEPTED")
+      .length,
+    accepted_drafts_after: isolationAfter.drafts.filter((row) => row.draft_status === "ACCEPTED")
+      .length,
     no_pending_candidate: isolationPending.length === 0,
   });
 
@@ -38163,7 +39820,11 @@ async function driveB28WholeChapterRevision(page) {
   await waitForVisibleWorkTitle(page, mainWorkTitle, 20_000);
   const firstDraft = await generateChapterDraft("B28 T1 first draft");
   const mainGeneratedTargetChapterRef = firstDraft.pending?.target_chapter_ref ?? null;
-  const firstAdoption = await editThenAccept(firstDraft.pending, initialFragment, "B28 T1 initial fragment");
+  const firstAdoption = await editThenAccept(
+    firstDraft.pending,
+    initialFragment,
+    "B28 T1 initial fragment",
+  );
   // edit_then_accept 的持久化/投影在 TurnResult 之后异步可见；轮询隔离 DB 再断言，
   // 避免把「读取太早」误判成未绑定章。
   let mainChapterAcceptedAfterFirst = 0;
@@ -38219,9 +39880,9 @@ async function driveB28WholeChapterRevision(page) {
     },
     accepted_drafts_on_main_chapter_after_first: mainChapterAcceptedAfterFirst,
     main_chapter_draft_statuses_after_first: mainChapterDraftStatusesAfterFirst,
-    accepted_drafts_on_isolation_after_first: (
-      await chapterFacts(isolationWorkId)
-    ).drafts.filter((row) => row.draft_status === "ACCEPTED").length,
+    accepted_drafts_on_isolation_after_first: (await chapterFacts(isolationWorkId)).drafts.filter(
+      (row) => row.draft_status === "ACCEPTED",
+    ).length,
     accepted_drafts_total_after_second: baseline.accepted_refs.length,
   });
 
@@ -38245,7 +39906,10 @@ async function driveB28WholeChapterRevision(page) {
       ? await page.locator("body").innerText()
       : "";
     await page
-      .screenshot({ path: path.join(artifactDir, `b28-cp4-${cp4Phrasing}-candidate.png`), fullPage: true })
+      .screenshot({
+        path: path.join(artifactDir, `b28-cp4-${cp4Phrasing}-candidate.png`),
+        fullPage: true,
+      })
       .catch(() => {});
     const cp4PlanMatchesSource =
       cp4Candidate.candidate_present &&
@@ -38271,28 +39935,24 @@ async function driveB28WholeChapterRevision(page) {
     const cp4OldSuperseded =
       cp4After.drafts.filter((row) => row.draft_status === "SUPERSEDED").length >= 2;
     const cp4ReadingEqualsCandidate =
-      cp4Candidate.candidate_present &&
-      cp4After.accepted_text === cp4Candidate.candidate_text;
+      cp4Candidate.candidate_present && cp4After.accepted_text === cp4Candidate.candidate_text;
     const cp4Positive = cp4PlanMatchesSource && cp4Adoption;
     const cp4Checks = {
       model_provider_strata: true,
       model_requested: process.env.NOVEL_STRATA_MODEL ?? "iq3_s",
       prehistory_deterministic_slice_verify: true,
-      judgment_bound_chapter:
-        cp4Flags.some(
-          (prompt) =>
-            (prompt.contains_chapter_ref || prompt.contains_chapter_title) &&
-            (prompt.contains_format_only || prompt.contains_whole_chapter_words),
-        ),
+      judgment_bound_chapter: cp4Flags.some(
+        (prompt) =>
+          (prompt.contains_chapter_ref || prompt.contains_chapter_title) &&
+          (prompt.contains_format_only || prompt.contains_whole_chapter_words),
+      ),
       writer_prompt_covers_both_fragments: cp4Flags.some(
         (prompt) =>
           prompt.contains_initial_unique_phrase && prompt.contains_continuation_unique_phrase,
       ),
       candidate_present: cp4Candidate.candidate_present,
-      candidate_target_chapter_ref:
-        cp4Candidate.target_chapter_ref === `chapter:${chapterAId}`,
-      candidate_modification_scope_format_only:
-        cp4Candidate.modification_scope === "format_only",
+      candidate_target_chapter_ref: cp4Candidate.target_chapter_ref === `chapter:${chapterAId}`,
+      candidate_modification_scope_format_only: cp4Candidate.modification_scope === "format_only",
       candidate_effect_replace_scope: cp4Candidate.adoption_effect_mode === "replace_scope",
       candidate_covers_both_fragments:
         cp4Candidate.contains_initial_anchor && cp4Candidate.contains_continuation_anchor,
@@ -38424,7 +40084,8 @@ async function driveB28WholeChapterRevision(page) {
         summary: evidence.summary,
         trials: evidence.trials.length,
         trial_ids: evidence.trials.map((trial) => trial.id),
-        production_sources_unchanged_during_measurement: JSON.stringify(productionBefore) === JSON.stringify(b28SourceFingerprint()),
+        production_sources_unchanged_during_measurement:
+          JSON.stringify(productionBefore) === JSON.stringify(b28SourceFingerprint()),
         measured_inputs_all_from_real_workbench: true,
       },
     ];
@@ -38432,16 +40093,18 @@ async function driveB28WholeChapterRevision(page) {
 
   // ── T1：整章只排版 ────────────────────────────────────────────────────────────
   const formatBaseline = await factsFor(seedWorkId, chapterAId);
-  const formatTurn = await sendAuthorTurn(B28_FORMAT_ONLY_REQUEST, "B28 T1 format-only whole-chapter");
+  const formatTurn = await sendAuthorTurn(
+    B28_FORMAT_ONLY_REQUEST,
+    "B28 T1 format-only whole-chapter",
+  );
   const formatCandidate = candidateFacts(formatTurn);
   const formatPromptFlags = formatTurn.llm_prompts;
   const formatVisibleText = formatCandidate.candidate_present
     ? await page.locator("body").innerText()
     : "";
   const formatVisibleTargetChapter = /第01章[：:]夜潮/.test(formatVisibleText);
-  const formatVisibleModificationScope = /分段方案|整章(排版|内容)修订稿|整章排版|只调整分段|只排版/.test(
-    formatVisibleText,
-  );
+  const formatVisibleModificationScope =
+    /分段方案|整章(排版|内容)修订稿|整章排版|只调整分段|只排版/.test(formatVisibleText);
   await page
     .screenshot({ path: path.join(artifactDir, "b28-cp2-t1-candidate.png"), fullPage: true })
     .catch(() => {});
@@ -38488,18 +40151,19 @@ async function driveB28WholeChapterRevision(page) {
       initial_fragment_chars: initialFragment.length,
       continuation_fragment_chars: continuationFragment.length,
       continuation_newline_count: (continuationFragment.match(/\n/g) ?? []).length,
-      fragments_created_via_real_ui: firstAdoption.edited_chars === initialFragment.length &&
+      fragments_created_via_real_ui:
+        firstAdoption.edited_chars === initialFragment.length &&
         secondAdoption.edited_chars === continuationFragment.length,
     },
     judgment: formatTurn.judgment_records,
-    judgment_prompt_has_chapter_target:
-      formatPromptFlags.some(
-        (prompt) =>
-          (prompt.contains_chapter_ref || prompt.contains_chapter_title) &&
-          (prompt.contains_format_only || prompt.contains_whole_chapter_words),
-      ),
+    judgment_prompt_has_chapter_target: formatPromptFlags.some(
+      (prompt) =>
+        (prompt.contains_chapter_ref || prompt.contains_chapter_title) &&
+        (prompt.contains_format_only || prompt.contains_whole_chapter_words),
+    ),
     writer_prompt_has_both_fragments: formatPromptFlags.some(
-      (prompt) => prompt.contains_initial_unique_phrase && prompt.contains_continuation_unique_phrase,
+      (prompt) =>
+        prompt.contains_initial_unique_phrase && prompt.contains_continuation_unique_phrase,
     ),
     writer_prompt_has_chapter_ref: formatPromptFlags.some((prompt) => prompt.contains_chapter_ref),
     writer_prompt_has_covered_scope: formatPromptFlags.some(
@@ -38520,13 +40184,13 @@ async function driveB28WholeChapterRevision(page) {
     },
     candidate: formatCandidate,
     contract_checks: {
-      target_chapter_ref_matches:
-        formatCandidate.target_chapter_ref === `chapter:${chapterAId}`,
+      target_chapter_ref_matches: formatCandidate.target_chapter_ref === `chapter:${chapterAId}`,
       modification_scope_format_only: formatCandidate.modification_scope === "format_only",
-      adoption_effect_format_paragraphs: formatCandidate.adoption_effect_mode === "format_paragraphs",
+      adoption_effect_format_paragraphs:
+        formatCandidate.adoption_effect_mode === "format_paragraphs",
       effect_coverage_complete: formatCandidate.coverage === "complete",
-      covered_refs_match_accepted: JSON.stringify(formatCoveredRefs.sort()) ===
-        JSON.stringify([...formatExpectedRefs].sort()),
+      covered_refs_match_accepted:
+        JSON.stringify(formatCoveredRefs.sort()) === JSON.stringify([...formatExpectedRefs].sort()),
       expected_base_versions_count: Array.isArray(formatCandidate.expected_base_versions)
         ? formatCandidate.expected_base_versions.length
         : 0,
@@ -38595,8 +40259,13 @@ async function driveB28WholeChapterRevision(page) {
   const expectedChangedSource = contentSource.replaceAll("二十五岁", "三十岁");
   const contentOnlySpotChanged =
     contentCandidate.candidate_present &&
-    b28SegmentCandidateMatches(contentCandidate.candidate_text, contentCandidate.adoption_effect,
-      contentSource, contentBaseline.accepted_refs) && contentAfter.accepted_text === expectedChangedSource;
+    b28SegmentCandidateMatches(
+      contentCandidate.candidate_text,
+      contentCandidate.adoption_effect,
+      contentSource,
+      contentBaseline.accepted_refs,
+    ) &&
+    contentAfter.accepted_text === expectedChangedSource;
   evidence.trials.push({
     id: "T2_explicit_content_revision",
     purpose:
@@ -38620,18 +40289,22 @@ async function driveB28WholeChapterRevision(page) {
     candidate: contentCandidate,
     contract_checks: {
       target_chapter_ref_matches: contentCandidate.target_chapter_ref === `chapter:${chapterAId}`,
-      adoption_effect_replace_segments: contentCandidate.adoption_effect_mode === "replace_segments",
-      candidate_matches_bound_segment:
-        b28SegmentCandidateMatches(contentCandidate.candidate_text, contentCandidate.adoption_effect,
-          contentSource, contentBaseline.accepted_refs),
+      adoption_effect_replace_segments:
+        contentCandidate.adoption_effect_mode === "replace_segments",
+      candidate_matches_bound_segment: b28SegmentCandidateMatches(
+        contentCandidate.candidate_text,
+        contentCandidate.adoption_effect,
+        contentSource,
+        contentBaseline.accepted_refs,
+      ),
       result_covers_both_fragments:
-        contentAfter.accepted_text.includes(initialAnchor) && contentAfter.accepted_text.includes(continuationAnchor),
+        contentAfter.accepted_text.includes(initialAnchor) &&
+        contentAfter.accepted_text.includes(continuationAnchor),
       contains_thirty_age: contentCandidate.contains_thirty_age,
       only_specified_change_applied: contentOnlySpotChanged,
-      expected_base_versions_count:
-        Array.isArray(contentCandidate.expected_base_versions)
-          ? contentCandidate.expected_base_versions.length
-          : 0,
+      expected_base_versions_count: Array.isArray(contentCandidate.expected_base_versions)
+        ? contentCandidate.expected_base_versions.length
+        : 0,
     },
     adoption: contentAdoption,
     consequence: {
@@ -38643,8 +40316,7 @@ async function driveB28WholeChapterRevision(page) {
       chapter_a_content_chars_after: contentAfter.accepted_text.length,
       chapter_a_content_sha256_after: sha256(contentAfter.accepted_text),
       chapter_a_contains_thirty_age: contentAfter.accepted_text.includes("三十岁"),
-      chapter_a_equals_expected:
-        contentAfter.accepted_text === expectedChangedSource,
+      chapter_a_equals_expected: contentAfter.accepted_text === expectedChangedSource,
       superseded_drafts_present:
         contentAfter.drafts.filter((row) => row.draft_status === "SUPERSEDED").length >
         contentBaseline.drafts.filter((row) => row.draft_status === "SUPERSEDED").length,
@@ -38751,14 +40423,14 @@ async function driveB28WholeChapterRevision(page) {
     reading_matches_content_candidate:
       contentReading.visible === true &&
       contentReading.projection_content_sha256 === contentAcceptedSha,
-    chapter_word_count_matches_content:
-      contentReading.chapter_words === expectedEffectiveWords,
+    chapter_word_count_matches_content: contentReading.chapter_words === expectedEffectiveWords,
     refresh_reading_same_value:
       readingAfterRefresh.visible === true &&
       readingAfterRefresh.projection_content_sha256 === contentReading.projection_content_sha256 &&
       readingAfterRefresh.chapter_words === contentReading.chapter_words,
     visible_target_chapter:
-      formatReading.visible_target_chapter !== false && contentReading.visible_target_chapter === true,
+      formatReading.visible_target_chapter !== false &&
+      contentReading.visible_target_chapter === true,
   };
   evidence.trials.push({
     id: "T5_reading_projection_after_replace_scope",
@@ -38859,10 +40531,12 @@ async function driveB28WholeChapterRevision(page) {
         String(summaryCurrent.summary_text).replace(/\s+/g, "").slice(0, 18),
       )
     : false;
-  await page.screenshot({
-    path: path.join(artifactDir, "b28-cp3-archive-summary-source.png"),
-    fullPage: true,
-  }).catch(() => {});
+  await page
+    .screenshot({
+      path: path.join(artifactDir, "b28-cp3-archive-summary-source.png"),
+      fullPage: true,
+    })
+    .catch(() => {});
   await closeArchiveIfOpen();
   const historyEvidence = {
     accepted_current_count: currentAcceptedRows.length,
@@ -38876,7 +40550,8 @@ async function driveB28WholeChapterRevision(page) {
       String(row.content ?? "").includes(continuationAnchor),
     ),
     current_accepted_equals_final_content:
-      latestAccepted !== null && String(latestAccepted.content ?? "") === contentAfter.accepted_text,
+      latestAccepted !== null &&
+      String(latestAccepted.content ?? "") === contentAfter.accepted_text,
     current_accepted_has_thirty_age: String(latestAccepted?.content ?? "").includes("三十岁"),
     current_accepted_has_twentyfive_age: String(latestAccepted?.content ?? "").includes("二十五岁"),
     archive_visible_target_chapter: /第01章[：:]夜潮/.test(archiveVisibleText),
@@ -38901,10 +40576,9 @@ async function driveB28WholeChapterRevision(page) {
   });
   await refreshAndSelectWork(page, missingWork.title);
   await waitForVisibleWorkTitle(page, missingWork.title, 20_000);
-  const missingChaptersBefore = await dbAll(
-    "SELECT id FROM chapters WHERE work_id = ?",
-    [missingWork.id],
-  );
+  const missingChaptersBefore = await dbAll("SELECT id FROM chapters WHERE work_id = ?", [
+    missingWork.id,
+  ]);
   const missingTurn = await sendAuthorTurn(
     B28_FORMAT_ONLY_REQUEST,
     "B28 T4 missing accepted ref",
@@ -38932,8 +40606,7 @@ async function driveB28WholeChapterRevision(page) {
     new_chapters: missingChaptersAfter,
     no_production_write: missingTurn.truthfulness?.production_write_performed !== true,
     no_writer_execution:
-      missingTurn.truthfulness?.tool_called !== true &&
-      (missingTurn.pending ?? []).length === 0,
+      missingTurn.truthfulness?.tool_called !== true && (missingTurn.pending ?? []).length === 0,
     clarification_visible: /裁决|澄清|无法|需要你|多个标题|确认目标/.test(
       missingTurn.assistant_text,
     ),
@@ -38975,35 +40648,39 @@ async function driveB28WholeChapterRevision(page) {
     two_accepted_fragments_built_via_real_ui: baseline.accepted_refs.length === 2,
     format_target_chapter_ref_present: t1?.contract_checks?.target_chapter_ref_matches === true,
     format_judgment_bound_chapter:
-      t1?.judgment_prompt_has_chapter_target === true &&
-      t1?.writer_prompt_has_chapter_ref === true,
+      t1?.judgment_prompt_has_chapter_target === true && t1?.writer_prompt_has_chapter_ref === true,
     format_writer_prompt_covers_both_fragments: t1?.writer_prompt_has_both_fragments === true,
-    format_candidate_covers_both_fragments: t1?.contract_checks?.candidate_covers_both_fragments === true,
+    format_candidate_covers_both_fragments:
+      t1?.contract_checks?.candidate_covers_both_fragments === true,
     format_base_text_covers_both_fragments:
       t1?.contract_checks?.base_text_covers_both_fragments === true,
-    format_effect_format_paragraphs: t1?.contract_checks?.adoption_effect_format_paragraphs === true,
+    format_effect_format_paragraphs:
+      t1?.contract_checks?.adoption_effect_format_paragraphs === true,
     format_modification_scope: t1?.contract_checks?.modification_scope_format_only === true,
     format_covered_refs_match: t1?.contract_checks?.covered_refs_match_accepted === true,
     format_expected_base_versions_present:
       t1?.contract_checks?.effect_expected_base_versions_present === true,
-    format_plan_preserves_bytes_and_adds_paragraph: t1?.contract_checks?.format_plan_preserves_bytes_and_adds_paragraph === true,
+    format_plan_preserves_bytes_and_adds_paragraph:
+      t1?.contract_checks?.format_plan_preserves_bytes_and_adds_paragraph === true,
     format_adoption_applied: t1?.adoption?.adopted === true,
     format_adoption_receipt_echoes_effect:
       t1?.adoption?.receipt_additive?.echoes_adoption_effect === true &&
       t1?.adoption?.receipt_additive?.echoes_superseded_refs === true,
-    format_same_chapter_identity: t1?.consequence?.chapter_count_before === t1?.consequence?.chapter_count_after &&
+    format_same_chapter_identity:
+      t1?.consequence?.chapter_count_before === t1?.consequence?.chapter_count_after &&
       (t1?.consequence?.new_chapters ?? []).length === 0,
     format_old_fragments_superseded:
       t1?.consequence?.old_fragments_superseded === true ||
       (t1?.consequence?.draft_status_counts_after?.SUPERSEDED ?? 0) >= 2 ||
-      (t1?.consequence?.superseded_draft_refs_from_receipt ?? "").split(",").filter(Boolean).length >= 2,
-    format_reading_equals_preview:
-      t1?.consequence?.chapter_a_equals_preview === true,
+      (t1?.consequence?.superseded_draft_refs_from_receipt ?? "").split(",").filter(Boolean)
+        .length >= 2,
+    format_reading_equals_preview: t1?.consequence?.chapter_a_equals_preview === true,
     content_target_chapter_ref_present: t2?.contract_checks?.target_chapter_ref_matches === true,
     content_candidate_matches_bound_segment:
       t2?.contract_checks?.candidate_matches_bound_segment === true &&
       t2?.contract_checks?.result_covers_both_fragments === true,
-    content_only_specified_change_applied: t2?.contract_checks?.only_specified_change_applied === true,
+    content_only_specified_change_applied:
+      t2?.contract_checks?.only_specified_change_applied === true,
     content_adoption_applied: t2?.adoption?.adopted === true,
     content_adoption_receipt_echoes_effect:
       t2?.adoption?.receipt_additive?.echoes_adoption_effect === true &&
@@ -39013,8 +40690,9 @@ async function driveB28WholeChapterRevision(page) {
       (t2?.consequence?.new_chapters ?? []).length === 0,
     content_reading_consumes_new_value: t2?.consequence?.chapter_a_contains_thirty_age === true,
     refresh_idempotent: t3?.idempotent === true,
-    format_visible_target_and_scope:
-      Boolean(formatVisibleTargetChapter && formatVisibleModificationScope),
+    format_visible_target_and_scope: Boolean(
+      formatVisibleTargetChapter && formatVisibleModificationScope,
+    ),
     missing_ref_no_new_chapter: (t4?.chapter_count_before ?? 0) === (t4?.chapter_count_after ?? 0),
     missing_ref_zero_write: t4?.no_production_write === true,
     missing_ref_blocked_with_clarification: t4?.clarification_visible === true,
@@ -39023,20 +40701,16 @@ async function driveB28WholeChapterRevision(page) {
       t5?.facts?.reading_matches_format_candidate === true,
     reading_projection_after_t2_equals_applied_text:
       t5?.facts?.reading_matches_content_candidate === true,
-    chapter_word_count_matches_new_content:
-      t5?.facts?.chapter_word_count_matches_content === true,
-    reading_after_refresh_consumes_same_new_value:
-      t5?.facts?.refresh_reading_same_value === true,
+    chapter_word_count_matches_new_content: t5?.facts?.chapter_word_count_matches_content === true,
+    reading_after_refresh_consumes_same_new_value: t5?.facts?.refresh_reading_same_value === true,
     reading_visible_target_chapter: t5?.facts?.visible_target_chapter === true,
     chapter_summary_refreshed_after_replace_scope:
       t6?.summary_facts?.refreshed_after_replace_scope === true,
     chapter_summary_not_pointing_to_superseded_old_draft:
       t6?.summary_facts?.references_superseded_old_draft === false,
-    next_round_context_reads_new_chapter:
-      t7?.next_round?.context_reads_new_chapter === true,
+    next_round_context_reads_new_chapter: t7?.next_round?.context_reads_new_chapter === true,
     retrieval_hits_new_value: t7?.next_round?.retrieval_hits_new_value === true,
-    retrieval_old_value_not_current:
-      t7?.next_round?.retrieval_old_value_not_current === true,
+    retrieval_old_value_not_current: t7?.next_round?.retrieval_old_value_not_current === true,
     history_old_drafts_superseded_and_retained:
       (t8?.history_facts?.superseded_count ?? 0) >= 3 &&
       t8?.history_facts?.superseded_retained_initial_anchor === true &&
@@ -39050,7 +40724,8 @@ async function driveB28WholeChapterRevision(page) {
       t8?.history_facts?.archive_visible_target_chapter === true &&
       formatVisibleTargetChapter === true &&
       formatVisibleModificationScope === true,
-    production_sources_unchanged_during_measurement: JSON.stringify(productionBefore) === JSON.stringify(b28SourceFingerprint()),
+    production_sources_unchanged_during_measurement:
+      JSON.stringify(productionBefore) === JSON.stringify(b28SourceFingerprint()),
     no_acceptance_hooks_added: true,
   };
   evidence.summary = {
@@ -39078,8 +40753,7 @@ async function driveB28WholeChapterRevision(page) {
         format_base_text_chars: t1?.candidate?.base_text_chars ?? null,
         content_candidate_chars: t2?.candidate?.candidate_text_chars ?? null,
         covered_refs_count: (t1?.candidate?.covered_refs ?? []).length,
-        expected_base_versions_count:
-          (t1?.candidate?.expected_base_versions ?? []).length,
+        expected_base_versions_count: (t1?.candidate?.expected_base_versions ?? []).length,
         chapter_count_before: t1?.baseline?.chapter_count ?? null,
         chapter_count_after: t1?.consequence?.chapter_count_after ?? null,
         content_change_only_specified: t2?.contract_checks?.only_specified_change_applied ?? null,
@@ -39091,28 +40765,24 @@ async function driveB28WholeChapterRevision(page) {
         unique_title_candidate_has_chapter_ref:
           typeof t0b?.generated_candidate_target_chapter_ref === "string" &&
           t0b.generated_candidate_target_chapter_ref.startsWith("chapter:"),
-        main_edit_then_accept_binds_chapter:
-          t0b?.accepted_drafts_on_main_chapter_after_first === 1,
+        main_edit_then_accept_binds_chapter: t0b?.accepted_drafts_on_main_chapter_after_first === 1,
         same_title_clarification_text: t0a?.turn?.assistant_text ?? null,
         refresh_idempotent: t3?.idempotent === true,
         missing_ref_zero_write: t4?.no_production_write === true,
         missing_ref_blocked_with_clarification: t4?.clarification_visible ?? null,
         missing_ref_no_new_writing_execution: t4?.no_writer_execution ?? null,
         missing_ref_judgment_routed_prose_writing: t4?.routed_to_new_writing ?? null,
-        visible_target_and_scope:
-          Boolean(formatVisibleTargetChapter && formatVisibleModificationScope),
+        visible_target_and_scope: Boolean(
+          formatVisibleTargetChapter && formatVisibleModificationScope,
+        ),
         reading_chapter_words: t5?.facts?.content_reading?.chapter_words ?? null,
-        reading_effective_words_expected:
-          t5?.facts?.expected_effective_words_after_t2 ?? null,
-        reading_after_refresh_words:
-          t5?.facts?.reading_after_refresh?.chapter_words ?? null,
+        reading_effective_words_expected: t5?.facts?.expected_effective_words_after_t2 ?? null,
+        reading_after_refresh_words: t5?.facts?.reading_after_refresh?.chapter_words ?? null,
         summary_rows_before_t1: t6?.summary_facts?.before_t1?.length ?? null,
         summary_rows_after_t2: t6?.summary_facts?.after_t2?.length ?? null,
         summary_current_status: t6?.summary_facts?.current_accepted_summary?.status ?? null,
-        summary_current_source_ref:
-          t6?.summary_facts?.current_accepted_summary?.source_ref ?? null,
-        summary_visible_in_archive:
-          t8?.history_facts?.summary_visible_in_archive ?? null,
+        summary_current_source_ref: t6?.summary_facts?.current_accepted_summary?.source_ref ?? null,
+        summary_visible_in_archive: t8?.history_facts?.summary_visible_in_archive ?? null,
         retrieval_new_hit: t7?.next_round?.retrieval_hits_new_value ?? null,
         retrieval_old_miss: t7?.next_round?.retrieval_old_value_not_current ?? null,
         history_superseded_count: t8?.history_facts?.superseded_count ?? null,
@@ -39124,7 +40794,8 @@ async function driveB28WholeChapterRevision(page) {
       },
       summary: evidence.summary,
       seed: evidence.seed,
-      production_sources_unchanged_during_measurement: JSON.stringify(productionBefore) === JSON.stringify(b28SourceFingerprint()),
+      production_sources_unchanged_during_measurement:
+        JSON.stringify(productionBefore) === JSON.stringify(b28SourceFingerprint()),
       measured_inputs_all_from_real_workbench: true,
     },
   ];
@@ -39137,7 +40808,10 @@ const B30_SLICE_ID = "b30-chapter-renumber-roundtrip";
 async function driveB30ChapterRenumberRoundtrip(page) {
   await configureProviderRuntime({ provider: "slice_verify" });
   const { createHash } = await import("node:crypto");
-  const sha256 = (value) => createHash("sha256").update(String(value ?? "")).digest("hex");
+  const sha256 = (value) =>
+    createHash("sha256")
+      .update(String(value ?? ""))
+      .digest("hex");
   const workAId = readSeedField("work_a_id");
   const volume1Id = readSeedField("volume1_id");
   const volume2Id = readSeedField("volume2_id");
@@ -39307,7 +40981,10 @@ async function driveB30ChapterRenumberRoundtrip(page) {
   async function closeArchiveIfOpen() {
     const closeButton = page.getByRole("button", { name: "关闭档案" });
     if ((await closeButton.count()) > 0) {
-      await closeButton.first().click().catch(() => {});
+      await closeButton
+        .first()
+        .click()
+        .catch(() => {});
       await sleep(200);
     }
   }
@@ -39318,8 +40995,15 @@ async function driveB30ChapterRenumberRoundtrip(page) {
       await waitForVisibleWorkTitle(page, title, 10_000);
     } catch {
       await refreshAndSelectWork(page, title).catch(async () => {
-        await page.getByRole("button", { name: /作品|切换作品/ }).first().click().catch(() => {});
-        await page.getByRole("menuitem", { name: new RegExp(title) }).first().click();
+        await page
+          .getByRole("button", { name: /作品|切换作品/ })
+          .first()
+          .click()
+          .catch(() => {});
+        await page
+          .getByRole("menuitem", { name: new RegExp(title) })
+          .first()
+          .click();
       });
       await waitForVisibleWorkTitle(page, title, 20_000);
     }
@@ -39361,7 +41045,9 @@ async function driveB30ChapterRenumberRoundtrip(page) {
       turnResult: turnFrame?.body ?? null,
       assistant_text: String(turnFrame?.body?.assistant_message?.text ?? ""),
       pending: turnFrame?.body?.adoption_state?.pending ?? [],
-      pending_types: (turnFrame?.body?.adoption_state?.pending ?? []).map((entry) => entry.artifact_type),
+      pending_types: (turnFrame?.body?.adoption_state?.pending ?? []).map(
+        (entry) => entry.artifact_type,
+      ),
       resolved: turnFrame?.body?.adoption_state?.resolved ?? [],
       truthfulness: turnFrame?.body?.truthfulness ?? {},
       judgment_records: appRecords
@@ -39406,7 +41092,9 @@ async function driveB30ChapterRenumberRoundtrip(page) {
       adopted: Boolean(actionFrame),
       pending_artifact_id: pending.artifact_id,
       item_count: (pending.payload?.items ?? []).length,
-      chapter_count: Number(pending.payload?.chapter_count ?? (pending.payload?.items ?? []).length),
+      chapter_count: Number(
+        pending.payload?.chapter_count ?? (pending.payload?.items ?? []).length,
+      ),
       volume_blueprint_lines: (pending.payload?.items ?? [])
         .flatMap((item) => String(item?.body ?? "").split("\n"))
         .map((line) => line.trim())
@@ -39446,9 +41134,11 @@ async function driveB30ChapterRenumberRoundtrip(page) {
     const cp4LlmRecords = readLlmCallRecords().slice(cp4LlmStart);
     const cp4ProviderRecords = cp4AppRecords
       .filter((record) =>
-        ["provider_gateway.complete.start", "provider_gateway.complete.done", "judgment.decided.done"].includes(
-          String(record.event ?? ""),
-        ),
+        [
+          "provider_gateway.complete.start",
+          "provider_gateway.complete.done",
+          "judgment.decided.done",
+        ].includes(String(record.event ?? "")),
       )
       .map((record) => ({
         event: record.event,
@@ -39482,7 +41172,8 @@ async function driveB30ChapterRenumberRoundtrip(page) {
     const cp4ClarificationOrGap = cp4JudgmentActions.some(
       (record) => record.action === "ask_author" || record.action === "capability_gap",
     );
-    const cp4ProviderSeen = cp4ProviderRecords.find((record) => record.provider === "strata") ?? null;
+    const cp4ProviderSeen =
+      cp4ProviderRecords.find((record) => record.provider === "strata") ?? null;
     const cp4ModelSeen = cp4ProviderSeen?.model ?? null;
     const cp4PhrasingChecks =
       phrasingKey === "negative"
@@ -39583,7 +41274,11 @@ async function driveB30ChapterRenumberRoundtrip(page) {
     const start = frames.length;
     const button = page.getByRole("button", { name: /^保存到作品$|保存到作品|保存到作品档案/ });
     const buttonCount = await button.count();
-    if (buttonCount > 0) await button.first().click().catch(() => {});
+    if (buttonCount > 0)
+      await button
+        .first()
+        .click()
+        .catch(() => {});
     let actionFrame = null;
     let errorFrame = null;
     for (let attempt = 0; attempt < 120; attempt += 1) {
@@ -39613,7 +41308,9 @@ async function driveB30ChapterRenumberRoundtrip(page) {
       adopted: Boolean(actionFrame),
       button_count: buttonCount,
       action_result: actionFrame?.body ?? null,
-      error: errorFrame ? JSON.stringify(errorFrame.body?.response ?? errorFrame.body).slice(0, 600) : null,
+      error: errorFrame
+        ? JSON.stringify(errorFrame.body?.response ?? errorFrame.body).slice(0, 600)
+        : null,
       pending_artifact_id: pending.artifact_id,
       pending_payload: pending.payload ?? {},
       visible_text: visibleText,
@@ -39665,7 +41362,9 @@ async function driveB30ChapterRenumberRoundtrip(page) {
       before.summaries.length === after.summaries.length &&
       before.summaries.every((summary) =>
         after.summaries.some(
-          (next) => next.chapter_id === summary.chapter_id && next.summary_sha256 === summary.summary_sha256,
+          (next) =>
+            next.chapter_id === summary.chapter_id &&
+            next.summary_sha256 === summary.summary_sha256,
         ),
       );
     const seqs = after.chapters.map((row) => row.seq);
@@ -39678,13 +41377,13 @@ async function driveB30ChapterRenumberRoundtrip(page) {
         before.chapters.length === after.chapters.length &&
         before.chapters.every((row) => afterById.get(row.id)?.title === row.title),
       chapter_count_unchanged: before.chapters.length === after.chapters.length,
-      title_number_seq_mismatch_after: after.chapters
-        .filter((row) => row.title_number !== null && row.title_number !== row.seq)
-        .length,
+      title_number_seq_mismatch_after: after.chapters.filter(
+        (row) => row.title_number !== null && row.title_number !== row.seq,
+      ).length,
     };
   }
 
-    async function latestTocChapters() {
+  async function latestTocChapters() {
     const replies = frames
       .filter((frame) => frame.direction === "received")
       .map((frame) => frame.body?.response ?? frame.body)
@@ -39704,7 +41403,9 @@ async function driveB30ChapterRenumberRoundtrip(page) {
     const results = [];
     await page.getByRole("button", { name: readingModeButtonPattern }).click();
     await page.waitForFunction(
-      () => document.body.innerText.includes("阅读模式") && document.body.innerText.includes("本章有效字数"),
+      () =>
+        document.body.innerText.includes("阅读模式") &&
+        document.body.innerText.includes("本章有效字数"),
       { timeout: 25_000 },
     );
     for (const title of chapterTitles) {
@@ -39713,24 +41414,40 @@ async function driveB30ChapterRenumberRoundtrip(page) {
         results.push({ title, clicked: false, reason: "title_not_visible_in_reading_toc" });
         continue;
       }
-      await entry.first().click().catch(() => {});
+      await entry
+        .first()
+        .click()
+        .catch(() => {});
       await sleep(500);
       const text = await page.locator("body").innerText();
       results.push({ title, clicked: true, body_excerpt: text.slice(0, 1200) });
     }
-    await page.screenshot({ path: path.join(artifactDir, "b30-cp4-reading-chapter-query.png"), fullPage: true }).catch(() => {});
-    await page.getByRole("button", { name: "返回工作台" }).click().catch(() => {});
+    await page
+      .screenshot({
+        path: path.join(artifactDir, "b30-cp4-reading-chapter-query.png"),
+        fullPage: true,
+      })
+      .catch(() => {});
+    await page
+      .getByRole("button", { name: "返回工作台" })
+      .click()
+      .catch(() => {});
     return results;
   }
 
   // ── T1：正例 dense 重编号（真实输入→候选→保存→seq 原子更新）────────────────
   await selectWorkByTitle(workATitle);
   const t1Before = await structureFacts(workAId);
-  const t1Turn = await sendAuthorInput("把第2卷章节编号理顺，内容不要动", "B30 CP4 T1 dense renumber");
+  const t1Turn = await sendAuthorInput(
+    "把第2卷章节编号理顺，内容不要动",
+    "B30 CP4 T1 dense renumber",
+  );
   const t1VisibleCandidate = t1Turn.pending_types.includes("chapter_structure_change_plan")
     ? await page.locator("body").innerText()
     : "";
-  await page.screenshot({ path: path.join(artifactDir, "b30-cp4-t1-change-plan.png"), fullPage: true }).catch(() => {});
+  await page
+    .screenshot({ path: path.join(artifactDir, "b30-cp4-t1-change-plan.png"), fullPage: true })
+    .catch(() => {});
   const t1Adoption = await adoptVisibleChangePlan(t1Turn.turnResult);
   const t1Plan = changePlanFacts(t1Adoption);
   const t1After = await structureFacts(workAId);
@@ -39776,7 +41493,8 @@ async function driveB30ChapterRenumberRoundtrip(page) {
   const t2State = applyStateChecks(t2Before, t2After, t2Plan);
   evidence.trials.push({
     id: "T2_swap_two_phase_renumber",
-    purpose: "点名第11/12章对调：候选映射交换两章 seq；两阶段临时序号处理唯一冲突；采纳后 id/正文/归卷不变。",
+    purpose:
+      "点名第11/12章对调：候选映射交换两章 seq；两阶段临时序号处理唯一冲突；采纳后 id/正文/归卷不变。",
     request: "把第2卷的第11章和第12章的编号对调",
     before: t2Before,
     judgment: t2Turn.judgment_records,
@@ -39790,14 +41508,16 @@ async function driveB30ChapterRenumberRoundtrip(page) {
 
   // ── T3：再次 dense 重编号（nothing_to_change / 幂等，不再次移动）─────────────
   const t3Before = await structureFacts(workAId);
-  const t3Turn = await sendAuthorInput("把第2卷章节编号理顺，内容不要动", "B30 CP4 T3 dense reapply");
+  const t3Turn = await sendAuthorInput(
+    "把第2卷章节编号理顺，内容不要动",
+    "B30 CP4 T3 dense reapply",
+  );
   const t3Adoption = await adoptVisibleChangePlan(t3Turn.turnResult);
   const t3Plan = changePlanFacts(t3Adoption);
   const t3After = await structureFacts(workAId);
-  const t3SeqsUnchanged =
-    t3Before.chapters.every(
-      (row) => t3After.chapters.find((next) => next.id === row.id)?.seq === row.seq,
-    );
+  const t3SeqsUnchanged = t3Before.chapters.every(
+    (row) => t3After.chapters.find((next) => next.id === row.id)?.seq === row.seq,
+  );
   evidence.trials.push({
     id: "T3_reapply_idempotent_renumber",
     purpose:
@@ -39827,9 +41547,7 @@ async function driveB30ChapterRenumberRoundtrip(page) {
   await (await resumeResponse).json().catch(() => null);
   await sleep(800);
   const afterRefresh = await structureFacts(workAId);
-  const acceptButtonsAfterRefresh = await page
-    .getByRole("button", { name: /保存到作品/ })
-    .count();
+  const acceptButtonsAfterRefresh = await page.getByRole("button", { name: /保存到作品/ }).count();
   await openArchiveOutline();
   const tocAfter = await latestTocChapters();
   await closeArchiveIfOpen();
@@ -39855,9 +41573,16 @@ async function driveB30ChapterRenumberRoundtrip(page) {
     reading_queries: readingQueries,
     refreshed_stable: refreshedStable,
     toc_order_matches_seq: (() => {
-      const expected = [...afterRefresh.chapters].sort((a, b) => a.seq - b.seq).map((row) => row.title);
-      const actual = tocAfter.chapters.map((row) => row.title).filter((title) => expected.includes(title));
-      return JSON.stringify(actual) === JSON.stringify(expected.filter((title) => actual.includes(title)));
+      const expected = [...afterRefresh.chapters]
+        .sort((a, b) => a.seq - b.seq)
+        .map((row) => row.title);
+      const actual = tocAfter.chapters
+        .map((row) => row.title)
+        .filter((title) => expected.includes(title));
+      return (
+        JSON.stringify(actual) ===
+        JSON.stringify(expected.filter((title) => actual.includes(title)))
+      );
     })(),
     reading_queries_visible: readingQueries.every((query) => query.clicked === true),
   });
@@ -40015,11 +41740,9 @@ async function driveB30ChapterRenumberRoundtrip(page) {
     t6?.next_volume_adoption?.adopted === true ||
     typeof t6?.next_volume_adoption?.reason === "string";
   evidence.checks = {
-    maintenance_capability_bound_on_positive:
-      (t1?.judgment ?? []).some(
-        (record) =>
-          record.action === "execute" && record.capability === "maintain_chapter_structure",
-      ),
+    maintenance_capability_bound_on_positive: (t1?.judgment ?? []).some(
+      (record) => record.action === "execute" && record.capability === "maintain_chapter_structure",
+    ),
     maintenance_not_fallback_to_outline_or_prose:
       (t1?.turn?.pending_types ?? []).every((type) =>
         ["chapter_structure_change_plan"].includes(type),
@@ -40052,26 +41775,28 @@ async function driveB30ChapterRenumberRoundtrip(page) {
       t2StateChecks.seq_matches_committed_mapping === true &&
       (t2Plan.mapping_count ?? 0) === 2 &&
       t2StateChecks.chapter_identity_content_volume_unchanged === true,
-    reapply_idempotent_no_move:
-      t3?.seqs_unchanged === true && t3?.no_new_chapters === true,
+    reapply_idempotent_no_move: t3?.seqs_unchanged === true && t3?.no_new_chapters === true,
     refresh_stable_and_consumers:
       t4?.refreshed_stable === true &&
       t4?.accept_buttons_after_refresh === 0 &&
       t4?.toc_order_matches_seq === true &&
       t4?.reading_queries_visible === true,
     negative_matrix_all_zero_write:
-      negativeTrialResults.length >= 3 && negativeTrialResults.every((item) => item.zero_write === true),
-    negative_matrix_no_new_chapters:
-      negativeTrialResults.every((item) => item.no_new_chapters === true),
-    negative_matrix_no_outline_or_prose_candidate:
-      negativeTrialResults.every((item) => item.no_outline_or_prose_candidate === true),
-    negative_matrix_clarified_or_rejected:
-      negativeTrialResults.every((item) => item.clarified_or_rejected === true),
+      negativeTrialResults.length >= 3 &&
+      negativeTrialResults.every((item) => item.zero_write === true),
+    negative_matrix_no_new_chapters: negativeTrialResults.every(
+      (item) => item.no_new_chapters === true,
+    ),
+    negative_matrix_no_outline_or_prose_candidate: negativeTrialResults.every(
+      (item) => item.no_outline_or_prose_candidate === true,
+    ),
+    negative_matrix_clarified_or_rejected: negativeTrialResults.every(
+      (item) => item.clarified_or_rejected === true,
+    ),
     blueprint_plan_adopted: t6PlanAdopted,
     blueprint_not_materialized_as_chapter_after_plan:
       (t6?.blueprint_chapters_after_plan ?? []).length === 0,
-    blueprint_stored_on_volumes:
-      (t6?.volumes_with_blueprint_after_plan ?? []).length > 0,
+    blueprint_stored_on_volumes: (t6?.volumes_with_blueprint_after_plan ?? []).length > 0,
     blueprint_not_materialized_after_next_volume:
       (t6?.blueprint_chapters_after_next ?? []).length === 0,
     blueprint_next_volume_action_recorded: t6NextRecorded,
@@ -40093,7 +41818,9 @@ async function driveB30ChapterRenumberRoundtrip(page) {
     path.join(artifactDir, "b30-cp4-evidence.json"),
     JSON.stringify(evidence, null, 2),
   );
-  await page.screenshot({ path: path.join(artifactDir, "b30-cp4-final.png"), fullPage: true }).catch(() => {});
+  await page
+    .screenshot({ path: path.join(artifactDir, "b30-cp4-final.png"), fullPage: true })
+    .catch(() => {});
   return [
     {
       event: "slice_verify.ui_state.done",
@@ -40109,7 +41836,10 @@ async function driveB30ChapterRenumberRoundtrip(page) {
         t1_object_count: t1PlanFacts.object_count ?? null,
         t1_receipt_committed_mapping_count: t1?.adoption?.receipt_committed_mapping_count ?? null,
         t1_warnings: t1PlanFacts.receipt_warnings ?? null,
-        chapter_count_before: t1StateChecks.chapter_count_unchanged === undefined ? null : t1?.before?.chapters?.length ?? null,
+        chapter_count_before:
+          t1StateChecks.chapter_count_unchanged === undefined
+            ? null
+            : (t1?.before?.chapters?.length ?? null),
         chapter_count_after: t1?.after?.chapters?.length ?? null,
         title_number_seq_mismatch_after: t1StateChecks.title_number_seq_mismatch_after ?? null,
         swap_mapping_count: t2Plan.mapping_count ?? null,
@@ -40117,8 +41847,11 @@ async function driveB30ChapterRenumberRoundtrip(page) {
         refreshed_stable: t4?.refreshed_stable ?? null,
         toc_order_matches_seq: t4?.toc_order_matches_seq ?? null,
         reading_queries_visible: t4?.reading_queries_visible ?? null,
-        negative_zero_write_count: negativeTrialResults.filter((item) => item.zero_write === true).length,
-        negative_clarified_count: negativeTrialResults.filter((item) => item.clarified_or_rejected === true).length,
+        negative_zero_write_count: negativeTrialResults.filter((item) => item.zero_write === true)
+          .length,
+        negative_clarified_count: negativeTrialResults.filter(
+          (item) => item.clarified_or_rejected === true,
+        ).length,
         blueprint_chapters: (t6?.blueprint_chapters_after_plan ?? []).length,
         blueprints_after_plan: (t6?.volumes_with_blueprint_after_plan ?? []).length,
         blueprints_after_next: (t6?.volumes_with_blueprint_after_next ?? []).length,
@@ -40224,7 +41957,10 @@ async function driveB30VolumeBlueprintKindBoundary(page) {
   async function closeArchiveIfOpen() {
     const closeButton = page.getByRole("button", { name: "关闭档案" });
     if ((await closeButton.count()) > 0) {
-      await closeButton.first().click().catch(() => {});
+      await closeButton
+        .first()
+        .click()
+        .catch(() => {});
       await sleep(200);
     }
   }
@@ -40256,7 +41992,9 @@ async function driveB30VolumeBlueprintKindBoundary(page) {
       adopted: Boolean(actionFrame),
       pending_artifact_id: pending.artifact_id,
       item_count: (pending.payload?.items ?? []).length,
-      chapter_count: Number(pending.payload?.chapter_count ?? (pending.payload?.items ?? []).length),
+      chapter_count: Number(
+        pending.payload?.chapter_count ?? (pending.payload?.items ?? []).length,
+      ),
       volume_blueprint_lines: blueprintLines,
     };
   }
@@ -40319,14 +42057,17 @@ async function driveB30VolumeBlueprintKindBoundary(page) {
   const checks = {
     real_plan_adopted: planAdoption.adopted === true,
     plan_carried_volume_blueprint_lines: (planAdoption.volume_blueprint_lines ?? []).length > 0,
-    blueprint_stored_on_volumes_after_plan: afterPlan.volumes.filter((row) => row.has_blueprint).length > 0,
+    blueprint_stored_on_volumes_after_plan:
+      afterPlan.volumes.filter((row) => row.has_blueprint).length > 0,
     no_blueprint_chapter_after_plan: blueprintChapterRows(afterPlan).length === 0,
     no_blueprint_seq_after_plan: blueprintChapterRows(afterPlan).length === 0,
     next_volume_action_visibility_recorded: nextVolumeRecorded,
     next_volume_plan_adopted_or_recorded_boundary:
-      nextVolumeAdoption.adopted === true || nextVolumeAdoption.reason === "next_volume_button_not_visible",
+      nextVolumeAdoption.adopted === true ||
+      nextVolumeAdoption.reason === "next_volume_button_not_visible",
     no_blueprint_chapter_after_next_volume: blueprintChapterRows(afterNext).length === 0,
-    blueprint_count_grew_or_kept: afterNext.volumes.filter((row) => row.has_blueprint).length >=
+    blueprint_count_grew_or_kept:
+      afterNext.volumes.filter((row) => row.has_blueprint).length >=
       afterPlan.volumes.filter((row) => row.has_blueprint).length,
     harness_type_mismatch_rejected_zero_rows:
       seedTypeMismatchReason === "type_mismatch" &&
@@ -40367,7 +42108,9 @@ async function driveB30VolumeBlueprintKindBoundary(page) {
     path.join(artifactDir, "b30-blueprint-evidence.json"),
     JSON.stringify(evidence, null, 2),
   );
-  await page.screenshot({ path: path.join(artifactDir, "b30-blueprint-final.png"), fullPage: true }).catch(() => {});
+  await page
+    .screenshot({ path: path.join(artifactDir, "b30-blueprint-final.png"), fullPage: true })
+    .catch(() => {});
   return [
     {
       event: "slice_verify.ui_state.done",
@@ -40384,7 +42127,8 @@ async function driveB30VolumeBlueprintKindBoundary(page) {
         volumes_after_plan: afterPlan.volumes.length,
         volumes_after_next_volume: afterNext.volumes.length,
         blueprint_volumes_after_plan: afterPlan.volumes.filter((row) => row.has_blueprint).length,
-        blueprint_volumes_after_next_volume: afterNext.volumes.filter((row) => row.has_blueprint).length,
+        blueprint_volumes_after_next_volume: afterNext.volumes.filter((row) => row.has_blueprint)
+          .length,
         blueprint_chapter_count: blueprintChapterRows(afterNext).length,
         harness_type_mismatch_reason: seedTypeMismatchReason,
         harness_chapter_count: seedTypeMismatchChapterCount,
@@ -40442,7 +42186,10 @@ async function driveB47C07CharacterFreshness(page) {
   const trials = [];
   for (const scenario of ["stale", "fresh"]) {
     const work = works.find((entry) => entry.scenario === scenario);
-    assert(work?.work_id && work?.work_title && work?.artifact_id, `B47-C07 seed missing ${scenario}`);
+    assert(
+      work?.work_id && work?.work_title && work?.artifact_id,
+      `B47-C07 seed missing ${scenario}`,
+    );
     await ensureWorkSelectedByTitle(page, work.work_title, work.work_id);
     await waitForVisibleWorkTitle(page, work.work_title);
 
@@ -40480,8 +42227,7 @@ async function driveB47C07CharacterFreshness(page) {
       const current = after.find((item) => item.id === row.id);
       return current && current.narrative_role !== row.narrative_role;
     });
-    const decisionType =
-      actionResult.decision_type ?? actionResult.decision?.decision_type ?? null;
+    const decisionType = actionResult.decision_type ?? actionResult.decision?.decision_type ?? null;
     const rowsIdentical = JSON.stringify(before) === JSON.stringify(after);
     const freshOnlyRoleChanged =
       before.length === after.length &&
@@ -40571,7 +42317,10 @@ const B29_SLICE_ID = "b29-existing-character-role-revision";
 async function driveB29ExistingCharacterRoleRevision(page) {
   await configureProviderRuntime({ provider: "slice_verify" });
   const { createHash } = await import("node:crypto");
-  const sha256 = (value) => createHash("sha256").update(String(value ?? "")).digest("hex");
+  const sha256 = (value) =>
+    createHash("sha256")
+      .update(String(value ?? ""))
+      .digest("hex");
   const workId = readSeedField("work_id");
   const shenId = readSeedField("shen_character_id");
   const guId = readSeedField("gu_character_id");
@@ -40585,7 +42334,12 @@ async function driveB29ExistingCharacterRoleRevision(page) {
     provider: "slice_verify",
     evidence_boundary:
       "确定性 provider 复现真实页面上的判断绑定/候选/采纳与 DB/消费者后果；真实模型意图归 CP4。主档案字段与角色记忆分开记录，不以 memory 出现“主角”判主档案通过。",
-    seed: { work_id: workId, shen_character_id: shenId, gu_character_id: guId, shen_small_character_id: shenSmallId },
+    seed: {
+      work_id: workId,
+      shen_character_id: shenId,
+      gu_character_id: guId,
+      shen_small_character_id: shenSmallId,
+    },
     trials: [],
   };
 
@@ -40663,7 +42417,9 @@ async function driveB29ExistingCharacterRoleRevision(page) {
     const sent = await waitForNewFrame(
       start,
       (frame) =>
-        frame.direction === "sent" && frame.event === "user_message" && String(frame.body?.text ?? "") === text,
+        frame.direction === "sent" &&
+        frame.event === "user_message" &&
+        String(frame.body?.text ?? "") === text,
       `${label}: author input was not sent`,
       30_000,
     );
@@ -40686,7 +42442,9 @@ async function driveB29ExistingCharacterRoleRevision(page) {
       turnResult: turnFrame?.body ?? null,
       assistant_text: String(turnFrame?.body?.assistant_message?.text ?? ""),
       pending: turnFrame?.body?.adoption_state?.pending ?? [],
-      pending_types: (turnFrame?.body?.adoption_state?.pending ?? []).map((entry) => entry.artifact_type),
+      pending_types: (turnFrame?.body?.adoption_state?.pending ?? []).map(
+        (entry) => entry.artifact_type,
+      ),
       resolved: turnFrame?.body?.adoption_state?.resolved ?? [],
       truthfulness: turnFrame?.body?.truthfulness ?? {},
       judgment_records: appRecords
@@ -40708,16 +42466,26 @@ async function driveB29ExistingCharacterRoleRevision(page) {
   }
 
   async function openArchiveCharacters() {
-    const archiveOpen = await page.getByRole("tab", { name: "角色" }).isVisible().catch(() => false);
+    const archiveOpen = await page
+      .getByRole("tab", { name: "角色" })
+      .isVisible()
+      .catch(() => false);
     if (!archiveOpen) await page.getByRole("button", { name: "打开档案" }).first().click();
     await page.getByRole("tab", { name: "角色" }).click();
-    await page.getByText("角色", { exact: true }).first().waitFor({ timeout: 15_000 }).catch(() => {});
+    await page
+      .getByText("角色", { exact: true })
+      .first()
+      .waitFor({ timeout: 15_000 })
+      .catch(() => {});
   }
 
   async function closeArchiveIfOpen() {
     const closeButton = page.getByRole("button", { name: "关闭档案" });
     if ((await closeButton.count()) > 0) {
-      await closeButton.first().click().catch(() => {});
+      await closeButton
+        .first()
+        .click()
+        .catch(() => {});
       await sleep(200);
     }
   }
@@ -40749,9 +42517,11 @@ async function driveB29ExistingCharacterRoleRevision(page) {
     const cp4LlmRecords = readLlmCallRecords().slice(cp4LlmStart);
     const cp4ProviderRecords = cp4AppRecords
       .filter((record) =>
-        ["provider_gateway.complete.start", "provider_gateway.complete.done", "judgment.decided.done"].includes(
-          String(record.event ?? ""),
-        ),
+        [
+          "provider_gateway.complete.start",
+          "provider_gateway.complete.done",
+          "judgment.decided.done",
+        ].includes(String(record.event ?? "")),
       )
       .map((record) => ({
         event: record.event,
@@ -40785,7 +42555,8 @@ async function driveB29ExistingCharacterRoleRevision(page) {
         const old = cp4Before.characters.find((item) => item.id === row.id);
         return old && old.narrative_role === row.narrative_role;
       });
-    const cp4ProviderSeen = cp4ProviderRecords.find((record) => record.provider === "strata") ?? null;
+    const cp4ProviderSeen =
+      cp4ProviderRecords.find((record) => record.provider === "strata") ?? null;
     const cp4ModelSeen = cp4ProviderSeen?.model ?? null;
     const cp4Checks =
       phrasingKey === "paraphrase"
@@ -40848,7 +42619,10 @@ async function driveB29ExistingCharacterRoleRevision(page) {
       JSON.stringify(cp4Evidence, null, 2),
     );
     await page
-      .screenshot({ path: path.join(artifactDir, `b29-cp4-model-${phrasingKey}.png`), fullPage: true })
+      .screenshot({
+        path: path.join(artifactDir, `b29-cp4-model-${phrasingKey}.png`),
+        fullPage: true,
+      })
       .catch(() => {});
     return [
       {
@@ -40885,12 +42659,22 @@ async function driveB29ExistingCharacterRoleRevision(page) {
     );
     const text = await visibleText();
     if (!pending) {
-      return { adopted: false, reason: "no_character_profile_revision_pending", visible_text: text };
+      return {
+        adopted: false,
+        reason: "no_character_profile_revision_pending",
+        visible_text: text,
+      };
     }
     const start = frames.length;
-    const button = page.getByRole("button", { name: /^保存到作品$|保存到作品|保存到作品档案|保存修订稿/ });
+    const button = page.getByRole("button", {
+      name: /^保存到作品$|保存到作品|保存到作品档案|保存修订稿/,
+    });
     const buttonCount = await button.count();
-    if (buttonCount > 0) await button.first().click().catch(() => {});
+    if (buttonCount > 0)
+      await button
+        .first()
+        .click()
+        .catch(() => {});
     let actionFrame = null;
     let errorFrame = null;
     for (let attempt = 0; attempt < 120; attempt += 1) {
@@ -40923,7 +42707,9 @@ async function driveB29ExistingCharacterRoleRevision(page) {
       pending_artifact_id: pending.artifact_id,
       pending_payload: pending.payload ?? {},
       action_result: actionFrame?.body ?? null,
-      error: errorFrame ? JSON.stringify(errorFrame.body?.response ?? errorFrame.body).slice(0, 800) : null,
+      error: errorFrame
+        ? JSON.stringify(errorFrame.body?.response ?? errorFrame.body).slice(0, 800)
+        : null,
     };
   }
 
@@ -40958,20 +42744,21 @@ async function driveB29ExistingCharacterRoleRevision(page) {
   }
 
   async function acceptedDraftHashes(workUuid) {
-    const rows = await dbAll(
-      "SELECT id, content FROM drafts WHERE work_id = ? ORDER BY id",
-      [workUuid],
-    );
+    const rows = await dbAll("SELECT id, content FROM drafts WHERE work_id = ? ORDER BY id", [
+      workUuid,
+    ]);
     return rows.map((row) => ({ id: row.id, content_sha256: sha256(row.content) }));
   }
 
   function stateChecks(before, after, plan) {
     const afterById = new Map(after.characters.map((row) => [row.id, row]));
     return {
-      target_character_id_present: afterById.has(String(plan.character_ref ?? "").replace(/^character:/, "")),
-      narrative_role_updated_to_new: afterById.get(
+      target_character_id_present: afterById.has(
         String(plan.character_ref ?? "").replace(/^character:/, ""),
-      )?.narrative_role === plan.new_value,
+      ),
+      narrative_role_updated_to_new:
+        afterById.get(String(plan.character_ref ?? "").replace(/^character:/, ""))
+          ?.narrative_role === plan.new_value,
       character_count_unchanged: before.characters.length === after.characters.length,
       character_id_set_unchanged:
         JSON.stringify(before.characters.map((row) => row.id).sort()) ===
@@ -41015,7 +42802,9 @@ async function driveB29ExistingCharacterRoleRevision(page) {
   const t1After = await facts(workId);
   const t1DraftHashesAfter = await acceptedDraftHashes(workId);
   const t1State = stateChecks(t1Before, t1After, t1Plan);
-  await page.screenshot({ path: path.join(artifactDir, "b29-cp4-t1-after-adoption.png"), fullPage: true }).catch(() => {});
+  await page
+    .screenshot({ path: path.join(artifactDir, "b29-cp4-t1-after-adoption.png"), fullPage: true })
+    .catch(() => {});
   evidence.trials.push({
     id: "T1_positive_unique_alias_narrative_role_revision",
     purpose:
@@ -41035,7 +42824,8 @@ async function driveB29ExistingCharacterRoleRevision(page) {
     drafts_before: t1DraftHashesBefore,
     drafts_after: t1DraftHashesAfter,
     state_checks: t1State,
-    gu_still_protagonist: t1After.characters.find((row) => row.id === guId)?.narrative_role === "PROTAGONIST",
+    gu_still_protagonist:
+      t1After.characters.find((row) => row.id === guId)?.narrative_role === "PROTAGONIST",
   });
 
   // ── T2：同名「沈砚」→ ask_author 澄清候选，零写入 ────────────────────────────
@@ -41075,7 +42865,8 @@ async function driveB29ExistingCharacterRoleRevision(page) {
   const t3After = await facts(workId);
   evidence.trials.push({
     id: "T3_discussion_only_no_candidate_zero_write",
-    purpose: "「老沈适合当主角吗？只讨论」→ 普通 reply，无 character_profile_revision 候选、不改字段。",
+    purpose:
+      "「老沈适合当主角吗？只讨论」→ 普通 reply，无 character_profile_revision 候选、不改字段。",
     request: "老沈适合当主角吗？只讨论，不要改作品设定",
     judgment: t3Turn.judgment_records,
     assistant_text: t3Turn.assistant_text,
@@ -41103,10 +42894,15 @@ async function driveB29ExistingCharacterRoleRevision(page) {
   const afterRefresh = await facts(workId);
   await openArchiveCharacters();
   const rosterText = await visibleText();
-  await page.screenshot({ path: path.join(artifactDir, "b29-cp4-roster.png"), fullPage: true }).catch(() => {});
+  await page
+    .screenshot({ path: path.join(artifactDir, "b29-cp4-roster.png"), fullPage: true })
+    .catch(() => {});
   await closeArchiveIfOpen();
   await waitInputEnabled();
-  const followupTurn = await sendAuthorInput("现在谁是主角？", "B29 CP4 T4 followup protagonist question");
+  const followupTurn = await sendAuthorInput(
+    "现在谁是主角？",
+    "B29 CP4 T4 followup protagonist question",
+  );
   evidence.trials.push({
     id: "T4_refresh_reopen_roster_and_followup_new_value",
     purpose:
@@ -41129,7 +42925,8 @@ async function driveB29ExistingCharacterRoleRevision(page) {
     },
     followup_mentions_shen: followupTurn.assistant_text.includes("沈砚"),
     followup_mentions_gu: followupTurn.assistant_text.includes("顾青"),
-    zero_write_after: JSON.stringify(afterRefresh.characters.map((row) => [row.id, row.narrative_role])) ===
+    zero_write_after:
+      JSON.stringify(afterRefresh.characters.map((row) => [row.id, row.narrative_role])) ===
       JSON.stringify((await facts(workId)).characters.map((row) => [row.id, row.narrative_role])),
   });
 
@@ -41140,7 +42937,10 @@ async function driveB29ExistingCharacterRoleRevision(page) {
   const discardButton = page.getByRole("button", { name: /^不保存$|不保存|放弃|不采纳/ });
   let discardClicked = false;
   if ((await discardButton.count()) > 0) {
-    await discardButton.first().click().catch(() => {});
+    await discardButton
+      .first()
+      .click()
+      .catch(() => {});
     discardClicked = true;
     await sleep(800);
   }
@@ -41202,11 +43002,9 @@ async function driveB29ExistingCharacterRoleRevision(page) {
   const draftHashesUnchanged =
     JSON.stringify(t1?.drafts_before ?? []) === JSON.stringify(t1?.drafts_after ?? []);
   const checks = {
-    judgment_bound_revise_character_profile:
-      (t1?.judgment ?? []).some(
-        (record) =>
-          record.action === "execute" && record.capability === "revise_character_profile",
-      ),
+    judgment_bound_revise_character_profile: (t1?.judgment ?? []).some(
+      (record) => record.action === "execute" && record.capability === "revise_character_profile",
+    ),
     candidate_object_and_old_to_new_visible:
       t1PlanFacts.character_name === "沈砚" &&
       t1PlanFacts.field === "narrative_role" &&
@@ -41226,20 +43024,22 @@ async function driveB29ExistingCharacterRoleRevision(page) {
       Boolean(t1PlanFacts.receipt_character_ref) &&
       Boolean(t1PlanFacts.receipt_base_fingerprint) &&
       Boolean(t1PlanFacts.receipt_current_fingerprint),
-    same_character_id_updated: t1StateChecks.target_character_id_present === true &&
+    same_character_id_updated:
+      t1StateChecks.target_character_id_present === true &&
       t1StateChecks.narrative_role_updated_to_new === true,
     character_count_and_id_set_unchanged:
-      t1StateChecks.character_count_unchanged === true && t1StateChecks.character_id_set_unchanged === true,
+      t1StateChecks.character_count_unchanged === true &&
+      t1StateChecks.character_id_set_unchanged === true,
     other_characters_unchanged: t1StateChecks.other_characters_unchanged === true,
     gu_protagonist_retained: t1?.gu_still_protagonist === true,
-    no_new_character_or_memory: t1StateChecks.no_new_character === true && t1StateChecks.no_new_memory === true,
+    no_new_character_or_memory:
+      t1StateChecks.no_new_character === true && t1StateChecks.no_new_memory === true,
     prose_hashes_unchanged: draftHashesUnchanged,
     same_name_asks_author: t2?.asked_author === true,
     same_name_zero_write: t2?.zero_write === true && (t2?.pending_types ?? []).length === 0,
     discussion_no_candidate_zero_write: t3?.no_candidate === true && t3?.zero_write === true,
     refresh_stable_new_value:
-      t4?.refresh_stable === true &&
-      t4?.shen_after_refresh?.narrative_role === "PROTAGONIST",
+      t4?.refresh_stable === true && t4?.shen_after_refresh?.narrative_role === "PROTAGONIST",
     roster_and_followup_new_value:
       t4?.roster_mentions_protagonist === true &&
       t4?.followup_mentions_shen === true &&
@@ -41262,7 +43062,9 @@ async function driveB29ExistingCharacterRoleRevision(page) {
     path.join(artifactDir, "b29-cp4-evidence.json"),
     JSON.stringify(evidence, null, 2),
   );
-  await page.screenshot({ path: path.join(artifactDir, "b29-cp4-final.png"), fullPage: true }).catch(() => {});
+  await page
+    .screenshot({ path: path.join(artifactDir, "b29-cp4-final.png"), fullPage: true })
+    .catch(() => {});
   return [
     {
       event: "slice_verify.ui_state.done",
@@ -41338,12 +43140,17 @@ async function driveB64CoordinateMemory(page) {
     const turnResult = turnFrame.body;
     const factsPrompt =
       promptTextsSince(promptBefore).find(
-        (prompt) => prompt.includes("## 作品事实（作者已确认") || prompt.includes("世界规则与约束："),
+        (prompt) =>
+          prompt.includes("## 作品事实（作者已确认") || prompt.includes("世界规则与约束："),
       ) ?? "";
     const whyText = await openLatestWhyDialog(page);
     // 读完 Why 后关闭对话框，后续会话切换针对真实页面入口（不能隔着 modal）。
     await page.keyboard.press("Escape");
-    await page.getByRole("dialog").first().waitFor({ state: "hidden", timeout: 10_000 }).catch(() => {});
+    await page
+      .getByRole("dialog")
+      .first()
+      .waitFor({ state: "hidden", timeout: 10_000 })
+      .catch(() => {});
     const check = {
       label,
       turn_id: turnResult.turn_id,
@@ -41351,7 +43158,8 @@ async function driveB64CoordinateMemory(page) {
       includes_early: factsPrompt.includes(early),
       includes_future: factsPrompt.includes(future),
       includes_core: factsPrompt.includes(core),
-      why_line_present: whyText.includes("作品事实已按目标章过滤：") && expectedTargetPattern.test(whyText),
+      why_line_present:
+        whyText.includes("作品事实已按目标章过滤：") && expectedTargetPattern.test(whyText),
       why_has_no_early: !whyText.includes(early),
       why_has_no_future: !whyText.includes(future),
     };
@@ -41647,11 +43455,17 @@ page.on("websocket", (ws) => {
   ws.on("framesent", (event) => recordFrame("sent", event.payload));
   ws.on("framereceived", (event) => recordFrame("received", event.payload));
   ws.on("close", () => recordLifecycleTransport("socket_close", connection));
-  ws.on("socketerror", (error) => recordLifecycleTransport("socket_error", { ...connection, error }));
+  ws.on("socketerror", (error) =>
+    recordLifecycleTransport("socket_error", { ...connection, error }),
+  );
 });
-page.on("requestfailed", (request) => recordLifecycleTransport("request_failed", {
-  origin: new URL(request.url()).origin, pathname: new URL(request.url()).pathname, error: request.failure()?.errorText,
-}));
+page.on("requestfailed", (request) =>
+  recordLifecycleTransport("request_failed", {
+    origin: new URL(request.url()).origin,
+    pathname: new URL(request.url()).pathname,
+    error: request.failure()?.errorText,
+  }),
+);
 page.on("pageerror", (error) => recordLifecycleTransport("page_error", { error: error.message }));
 
 try {

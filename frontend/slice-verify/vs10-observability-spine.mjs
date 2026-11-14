@@ -139,8 +139,9 @@ try {
     allRecords
       .filter((record) => record.event === "channel.user_message.start")
       .map((record) => String(record.turn_id ?? ""))
-      .find((candidate) => candidate && (turnId === candidate || turnId.startsWith(`${candidate}:`))) ??
-    turnId;
+      .find(
+        (candidate) => candidate && (turnId === candidate || turnId.startsWith(`${candidate}:`)),
+      ) ?? turnId;
   const records = await eventuallyReadKeyRecords(parentTurnId);
 
   assert(

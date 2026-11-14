@@ -480,8 +480,7 @@ export const WORKBENCH = {
     goalText.trim() !== "" ? `将发给：「${goalText}」` : "将发给当前任务",
   // 46 §9.7（2026-11-04 修订）：当前任务的模型问题由底部回答区直接接管；
   // 该提示只用于「其它任务持有未答问题」时，提示作者切换任务后再回答。
-  agentRunWorkspaceInputQuestionNotice:
-    "当前任务在等待你的回答。",
+  agentRunWorkspaceInputQuestionNotice: "当前任务在等待你的回答。",
   agentRunWorkspaceInputAmbiguousNotice:
     "当前有多个任务在进行；请选择要继续的任务，下方输入会作为新请求发送。",
   agentRunWorkspaceInputRunSelectorLabel: "选择要继续的任务",

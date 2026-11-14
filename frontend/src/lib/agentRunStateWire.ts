@@ -5,10 +5,7 @@
 // 绝不能让漂移字段或历史快照被当作 live 授予实时命令。历史快照缺 runtime_live
 // 是合法 optional，仍按 unknown 处理（由 agentRunRuntimeAuthority 决定）。
 
-import {
-  AgentRunStateSchema,
-  type AgentRunState,
-} from "../generated/foundation/agent_run_state";
+import { AgentRunStateSchema, type AgentRunState } from "../generated/foundation/agent_run_state";
 
 export type AgentRunStateData = AgentRunState;
 

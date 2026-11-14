@@ -45,10 +45,7 @@ function nameFromPath(jsonPath) {
 // VS-00M is a Proposed review bundle, not a frontend contract/codegen input.
 const files = walk(schemasRoot).filter((file) => {
   const schemaPath = relative(schemasRoot, file).replaceAll("\\", "/");
-  return (
-    !schemaPath.startsWith("author_visible/") &&
-    !schemaPath.startsWith("model-interaction/")
-  );
+  return !schemaPath.startsWith("author_visible/") && !schemaPath.startsWith("model-interaction/");
 });
 if (files.length === 0) {
   console.error("no schema files found under", schemasRoot);

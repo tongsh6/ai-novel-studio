@@ -111,7 +111,9 @@
 .btnPrimary {
   background-color: var(--accent);
   color: var(--surface-primary);
-  transition: background-color 0.15s ease-in-out, filter 0.15s ease-in-out;
+  transition:
+    background-color 0.15s ease-in-out,
+    filter 0.15s ease-in-out;
 }
 
 .btnPrimary:hover:not(:disabled) {
@@ -127,7 +129,9 @@
   background-color: transparent;
   color: var(--foreground-primary);
   border-color: var(--border-subtle);
-  transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+  transition:
+    background-color 0.15s ease-in-out,
+    border-color 0.15s ease-in-out;
 }
 
 .btnSecondary:hover:not(:disabled) {

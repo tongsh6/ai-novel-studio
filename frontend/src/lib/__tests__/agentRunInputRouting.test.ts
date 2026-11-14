@@ -25,12 +25,7 @@ function run(
   };
 }
 
-function questionResult(
-  runId: string,
-  status: string,
-  goalVersion: number | null,
-  turnId: string,
-) {
+function questionResult(runId: string, status: string, goalVersion: number | null, turnId: string) {
   return {
     turn_id: turnId,
     author_question: { run_id: runId, status, goal_version: goalVersion },
@@ -194,9 +189,7 @@ describe("findCurrentOpenAuthorQuestion", () => {
   it("题版本缺失时仍按现有兼容规则匹配", () => {
     const legacy = questionResult("run-same", "open", null, "turn-legacy");
 
-    expect(
-      findCurrentOpenAuthorQuestion(currentRun, [[legacy]])?.turn_id,
-    ).toBe("turn-legacy");
+    expect(findCurrentOpenAuthorQuestion(currentRun, [[legacy]])?.turn_id).toBe("turn-legacy");
   });
 });
 

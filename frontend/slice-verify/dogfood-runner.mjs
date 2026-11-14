@@ -80,7 +80,9 @@ const WAIT_BUDGET_TABLES = Object.freeze({
 });
 
 function budgetTable(providerOverride = provider) {
-  return providerOverride === "slice_verify" ? WAIT_BUDGET_TABLES.slice_verify : WAIT_BUDGET_TABLES.real;
+  return providerOverride === "slice_verify"
+    ? WAIT_BUDGET_TABLES.slice_verify
+    : WAIT_BUDGET_TABLES.real;
 }
 
 function waitBudget(kind, providerOverride = provider) {
@@ -248,7 +250,10 @@ async function withTimeout(promise, timeoutMs, label) {
     return await Promise.race([
       promise,
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+        timer = setTimeout(
+          () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
       }),
     ]);
   } finally {
@@ -510,7 +515,6 @@ function authorQuestionDefaultAnswer(context = {}) {
   }
 }
 
-
 async function respondToAuthorQuestion(page, result, context = {}) {
   const question = result.question;
   if (!question?.question) {
@@ -548,7 +552,8 @@ async function respondToAuthorQuestion(page, result, context = {}) {
   const options = question.options ?? [];
   const actions = result.actions ?? [];
   const choiceOptions = options.filter((option) => option.kind !== "free_text");
-  const recommended = choiceOptions.find((option) => option.recommended) ?? choiceOptions[0] ?? null;
+  const recommended =
+    choiceOptions.find((option) => option.recommended) ?? choiceOptions[0] ?? null;
   let chosenOption = null;
   let replyText = null;
   try {
@@ -596,10 +601,7 @@ async function respondToAuthorQuestion(page, result, context = {}) {
       replyText = authorQuestionDefaultAnswer(context);
       const buttonLabel = freeTextAction.label ?? "回复此问题";
       await withTimeout(
-        page
-          .getByRole("button", { name: buttonLabel, exact: true })
-          .last()
-          .click(),
+        page.getByRole("button", { name: buttonLabel, exact: true }).last().click(),
         waitBudget("ack"),
         "author question free-text open",
       );
@@ -611,7 +613,10 @@ async function respondToAuthorQuestion(page, result, context = {}) {
       );
       await withTimeout(textarea.fill(replyText), waitBudget("input"), "author question fill");
       await withTimeout(
-        page.getByRole("button", { name: /^发送回复$/ }).last().click(),
+        page
+          .getByRole("button", { name: /^发送回复$/ })
+          .last()
+          .click(),
         waitBudget("ack"),
         "author question send",
       );
@@ -770,9 +775,11 @@ async function sendAuthorMessage(page, instruction) {
       20_000,
       "chat-input-unavailable screenshot",
     ).catch(() => {});
-    const visibleText = await withTimeout(page.locator("body").innerText(), 15_000, "body text").catch(
-      () => "",
-    );
+    const visibleText = await withTimeout(
+      page.locator("body").innerText(),
+      15_000,
+      "body text",
+    ).catch(() => "");
     fs.appendFileSync(
       path.join(artifactDir, "recovery-diagnostics.jsonl"),
       `${JSON.stringify({
@@ -789,9 +796,11 @@ async function sendAuthorMessage(page, instruction) {
     if ((await backButton.count()) > 0) {
       log("input hidden — leaving reading mode before retrying");
       recoveryDecisions.push({ kind: "reading_mode_recovery", decision: "leave_mode_then_retry" });
-      await withTimeout(backButton.click({ timeout: 10_000 }), 20_000, "return to workspace click").catch(
-        () => {},
-      );
+      await withTimeout(
+        backButton.click({ timeout: 10_000 }),
+        20_000,
+        "return to workspace click",
+      ).catch(() => {});
       await withTimeout(
         page.locator(chatInputSelector).waitFor({ state: "visible", timeout: waitBudget("input") }),
         waitBudget("input") + 10_000,
@@ -810,9 +819,11 @@ async function sendAuthorMessage(page, instruction) {
       );
       const confirmButton = page.getByRole("button", { name: /^确认终止$/ });
       if ((await confirmButton.count()) > 0) {
-        await withTimeout(confirmButton.click({ timeout: 10_000 }), 20_000, "confirm cancel click").catch(
-          () => {},
-        );
+        await withTimeout(
+          confirmButton.click({ timeout: 10_000 }),
+          20_000,
+          "confirm cancel click",
+        ).catch(() => {});
       }
       await withTimeout(
         page.locator(chatInputSelector).waitFor({ state: "visible", timeout: waitBudget("input") }),
@@ -1001,9 +1012,7 @@ function classifyJourneyFrame(frame, ctx = {}) {
 
   if (
     body.status === "needs_confirmation" &&
-    (body.available_actions ?? []).some(
-      (action) => action.action_type === "confirm_before_execute",
-    )
+    (body.available_actions ?? []).some((action) => action.action_type === "confirm_before_execute")
   ) {
     return {
       kind: "confirmation_required",
@@ -1016,8 +1025,7 @@ function classifyJourneyFrame(frame, ctx = {}) {
   const prosePending = pending.find((entry) => entry.artifact_type === "prose_fragment");
   if (
     prosePending &&
-    (toolName === "prose_writing" ||
-      String(body.agent_run?.profile_ref ?? "").includes("prose"))
+    (toolName === "prose_writing" || String(body.agent_run?.profile_ref ?? "").includes("prose"))
   ) {
     return { kind: "prose_ready", pending: prosePending, turnId: body.turn_id ?? null, toolName };
   }
@@ -1063,7 +1071,13 @@ function assertNever(value, label) {
 
 // B37 CP1 单源等待器：每 tick 分类一次 + 预算/心跳/看门狗/fail-fast。
 // waitKind 必须来自 WAIT_BUDGET_DEFAULTS；调用方不传则默认 turn 预算。
-async function waitForJourneyKind(predicate, message, timeoutMs = waitBudget("turn"), fromIndex = 0, waitKind = "turn") {
+async function waitForJourneyKind(
+  predicate,
+  message,
+  timeoutMs = waitBudget("turn"),
+  fromIndex = 0,
+  waitKind = "turn",
+) {
   const started = Date.now();
   const startedIso = new Date(started).toISOString();
   const record = {
@@ -1303,7 +1317,9 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
     case "run_failed":
       throw new Error(`agent run failed for ${chapterTitle} (fail fast)`);
     case "agent_awaiting_author":
-      throw new Error(`agent run reached awaiting_author for ${chapterTitle} (tool failure, fail fast)`);
+      throw new Error(
+        `agent run reached awaiting_author for ${chapterTitle} (tool failure, fail fast)`,
+      );
     case "candidate_ready":
       throw new Error(
         `prose request produced non-prose candidate(s) for ${chapterTitle}: ${classification.artifactTypes.join(",")} (misroute, fail fast)`,
@@ -1340,8 +1356,7 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
     (candidate) =>
       (candidate.kind === "adoption_settled" &&
         candidate.resolved?.some((entry) => entry.artifact_id === pendingArtifactId)) ||
-      (candidate.kind === "confirmation_required" &&
-        candidate.artifactId === pendingArtifactId) ||
+      (candidate.kind === "confirmation_required" && candidate.artifactId === pendingArtifactId) ||
       candidate.kind === "action_accepted",
     `No adoption or overwrite-confirmation result for ${chapterTitle}`,
     waitBudget("adoption"),
@@ -1696,14 +1711,18 @@ async function waitForMaintenanceOutcome(
     }
     break;
   }
-  if (result.classification.kind === "wrong_route_reply" || result.classification.kind === "run_failed") {
+  if (
+    result.classification.kind === "wrong_route_reply" ||
+    result.classification.kind === "run_failed"
+  ) {
     const detail = result.classification.assistantText ?? result.classification.kind;
     throw new Error(
       `${label}: maintenance misroute/failure (${result.classification.kind}): ${String(detail).slice(0, 300)}`,
     );
   }
   if (
-    (result.classification.kind === "candidate_ready" || result.classification.kind === "prose_ready") &&
+    (result.classification.kind === "candidate_ready" ||
+      result.classification.kind === "prose_ready") &&
     !predicate(result.classification)
   ) {
     const types =
@@ -1719,7 +1738,9 @@ async function waitForMaintenanceOutcome(
 
 function assertNotAwaitingWithoutClarification(result, label) {
   if (result.classification.kind === "agent_awaiting_author") {
-    throw new Error(`${label}: product asked author for clarification, but this beat has no scoped disambiguation`);
+    throw new Error(
+      `${label}: product asked author for clarification, but this beat has no scoped disambiguation`,
+    );
   }
 }
 
@@ -1941,12 +1962,9 @@ async function waitForDesignOutcome({ label, fromIndex, timeoutMs, questionConte
       result = await waitForJourneyKind(
         (classification) =>
           isCharacterSeedClassification(classification) ||
-          [
-            "agent_awaiting_author",
-            "wrong_route_reply",
-            "run_failed",
-            "author_question",
-          ].includes(classification.kind) ||
+          ["agent_awaiting_author", "wrong_route_reply", "run_failed", "author_question"].includes(
+            classification.kind,
+          ) ||
           isUnrelatedMaintenanceCandidate(classification),
         label,
         grace,
@@ -2100,8 +2118,7 @@ async function runDesignCharacterBeat(page, state, toc) {
 
   const candidate = outcome.candidate;
   const pendings = candidate.classification.pendings ?? [candidate.classification.pending];
-  const target =
-    pendings.find((entry) => entry.artifact_type === "character_seed") ?? pendings[0];
+  const target = pendings.find((entry) => entry.artifact_type === "character_seed") ?? pendings[0];
   const itemName = target.payload?.items?.[0]?.title ?? null;
   const sameSet = pendings.filter(
     (entry) =>
@@ -2553,8 +2570,7 @@ function observeChapterQuality(exportPath, toc) {
   const chapters = flatChapters(toc);
   let exportText = "";
   try {
-    exportText =
-      exportPath && fs.existsSync(exportPath) ? fs.readFileSync(exportPath, "utf8") : "";
+    exportText = exportPath && fs.existsSync(exportPath) ? fs.readFileSync(exportPath, "utf8") : "";
   } catch {
     exportText = "";
   }
@@ -2565,8 +2581,7 @@ function observeChapterQuality(exportPath, toc) {
     const matches = [...exportText.matchAll(headingPattern)];
     matches.forEach((match, index) => {
       const startIndex = match.index + match[0].length;
-      const endIndex =
-        index + 1 < matches.length ? matches[index + 1].index : exportText.length;
+      const endIndex = index + 1 < matches.length ? matches[index + 1].index : exportText.length;
       const body = exportText.slice(startIndex, endIndex);
       const paragraphs = body
         .split(/\n\s*\n/u)
@@ -2632,9 +2647,7 @@ function maintenanceDetailLines() {
         beat: detail.beat,
         chapter: detail.chapter ?? detail.character_name ?? null,
         words:
-          detail.words_before != null
-            ? `${detail.words_before} → ${detail.words_after}`
-            : null,
+          detail.words_before != null ? `${detail.words_before} → ${detail.words_after}` : null,
         mapping: detail.mapping ?? detail.changes ?? null,
         artifact: detail.adoption?.artifact_type ?? null,
       };
@@ -2723,11 +2736,14 @@ function writeArtifacts(toc, exportPath, runMeta) {
     "",
     `- 观察来源：${qualityObservation.source}（导出分节 ${qualityObservation.exported_section_count} 个，TOC 章数 ${qualityObservation.chapter_count}）`,
     `- 空章数：${qualityObservation.empty_chapter_count}${
-      qualityObservation.empty_chapters.length > 0 ? `（${qualityObservation.empty_chapters.join("、")}）` : ""
+      qualityObservation.empty_chapters.length > 0
+        ? `（${qualityObservation.empty_chapters.join("、")}）`
+        : ""
     }`,
     `- 重复段（≥80 字完全相同段落）：${qualityObservation.duplicate_paragraph_count}`,
     ...qualityObservation.duplicate_paragraphs.map(
-      (item) => `  - ${item.count} 次｜${item.chapters.join("、")}｜「${item.excerpt}…」（${item.length} 字）`,
+      (item) =>
+        `  - ${item.count} 次｜${item.chapters.join("、")}｜「${item.excerpt}…」（${item.length} 字）`,
     ),
     "",
     "## 维护动作（真实 UI/自然语言，非旁路）",
@@ -2745,7 +2761,9 @@ function writeArtifacts(toc, exportPath, runMeta) {
     "  按「质量放后」延后），本报告不替代该门禁。",
     "- 人工抽样指引：从 export/ 导出文件抽 ≥10 章，检查无断裂、无系统泄漏、无空章、无重复章。",
     `- 空章观察（B9）：${qualityObservation.empty_chapter_count} 个${
-      qualityObservation.empty_chapters.length > 0 ? `（${qualityObservation.empty_chapters.join("、")}）` : ""
+      qualityObservation.empty_chapters.length > 0
+        ? `（${qualityObservation.empty_chapters.join("、")}）`
+        : ""
     }`,
     `- 重复段观察（B9）：${qualityObservation.duplicate_paragraph_count} 段（≥80 字相同段落）`,
     `- 确认路径（B9）：confirm ${confirmationCounts().confirmed} 次 / skip ${confirmationCounts().skipped} 次`,
@@ -2840,172 +2858,175 @@ try {
     // 这是验收支架模式，不替代 canonical，也不重跑章节/不换分。
     log(`maintenance-only replay: retry_ids=${JSON.stringify(maintenanceRetryIds)}`);
     for (const id of maintenanceRetryIds) {
-      maintenanceState.completed = (maintenanceState.completed ?? []).filter((beatId) => beatId !== id);
+      maintenanceState.completed = (maintenanceState.completed ?? []).filter(
+        (beatId) => beatId !== id,
+      );
       if (maintenanceState.attempts) delete maintenanceState.attempts[id];
     }
     saveMaintenanceState(maintenanceState);
     appendProgress({ maintenance_only_replay: maintenanceRetryIds });
     toc = await maybeRunMaintenanceBeats(page, toc, maintenanceState);
   } else {
-  // 逐章推进：每轮处理一个未达标章的一次产出（首稿或续写），失败重试一次后跳过。
-  // maxChapters 限制的是“本次推进了多少个不同的章”，0 = 跑到全部达标。
-  const advancedTitles = new Set();
-  const skippedTitles = new Set();
-  let planFailures = 0;
+    // 逐章推进：每轮处理一个未达标章的一次产出（首稿或续写），失败重试一次后跳过。
+    // maxChapters 限制的是“本次推进了多少个不同的章”，0 = 跑到全部达标。
+    const advancedTitles = new Set();
+    const skippedTitles = new Set();
+    let planFailures = 0;
 
-  for (;;) {
-    const chapter = nextPendingChapter(toc, skippedTitles, planChapters, onlySeq);
+    for (;;) {
+      const chapter = nextPendingChapter(toc, skippedTitles, planChapters, onlySeq);
 
-    // 全部章达标但总字数未到目标 → 增量扩章（targetWords=0 时不扩，保持原行为）。
-    if (!chapter && targetWords > 0 && Number(toc.total_word_count ?? 0) < targetWords) {
-      if (planFailures >= 2) {
-        log("plan expansion failed twice — stopping");
+      // 全部章达标但总字数未到目标 → 增量扩章（targetWords=0 时不扩，保持原行为）。
+      if (!chapter && targetWords > 0 && Number(toc.total_word_count ?? 0) < targetWords) {
+        if (planFailures >= 2) {
+          log("plan expansion failed twice — stopping");
+          break;
+        }
+
+        try {
+          const added = await planMoreChapters(page);
+          toc = await readToc(page);
+          log(
+            `plan expanded: +${added} chapters (now ${flatChapters(toc).length} chapters, ${toc.total_word_count} words)`,
+          );
+          appendProgress({ plan_expanded_by: added, chapter_count: flatChapters(toc).length });
+        } catch (error) {
+          if (isFatalWaitError(error)) throw error;
+          planFailures += 1;
+          appendProgress({ plan_expansion_error: String(error?.message ?? error) });
+          log(`plan expansion error: ${error?.message ?? error}`);
+          // M5 实锤（2026-08-25）：此处恢复 readToc 裸奔——它再抛（输入框被困 60s）就是
+          // 未捕获异常、整个 runner 崩死。失败时保留旧 toc 继续循环，下一轮再自愈。
+          try {
+            toc = await readToc(page);
+          } catch (tocError) {
+            log(
+              `readToc after expansion error also failed (keeping stale toc): ${tocError?.message ?? tocError}`,
+            );
+          }
+        }
+        continue;
+      }
+
+      if (!chapter) {
+        log("no pending chapters left (all at min words or skipped)");
         break;
       }
 
+      if (
+        maxChapters > 0 &&
+        !advancedTitles.has(chapter.title) &&
+        advancedTitles.size >= maxChapters
+      ) {
+        log(`chapter limit ${maxChapters} reached`);
+        break;
+      }
+
+      const chapterFailureWeight = failures
+        .filter((f) => f.title === chapter.title)
+        .reduce((sum, f) => sum + (/fail fast|coordinate regression/.test(f.error) ? 0.5 : 1.5), 0);
+      if (chapterFailureWeight >= 3) {
+        log(`skip ${chapter.title} after repeated failures — moving on`);
+        skippedTitles.add(chapter.title);
+        continue;
+      }
+
+      const wordsBefore = Number(chapter.word_count ?? 0);
+      const turnStarted = Date.now();
+
       try {
-        const added = await planMoreChapters(page);
+        const turnId = await driveChapterTurn(page, chapter);
+        advancedTitles.add(chapter.title);
+        chaptersAdvanced = advancedTitles.size;
         toc = await readToc(page);
-        log(
-          `plan expanded: +${added} chapters (now ${flatChapters(toc).length} chapters, ${toc.total_word_count} words)`,
-        );
-        appendProgress({ plan_expanded_by: added, chapter_count: flatChapters(toc).length });
+        const after = flatChapters(toc).find((c) => c.title === chapter.title);
+        const wordsAfter = Number(after?.word_count ?? 0);
+        appendProgress({
+          chapter: chapter.title,
+          turn_id: turnId,
+          words_before: wordsBefore,
+          words_after: wordsAfter,
+          duration_ms: Date.now() - turnStarted,
+        });
+        log(`${chapter.title}: ${wordsBefore} -> ${wordsAfter} words`);
+        if (wordsBefore > 0 && wordsAfter < wordsBefore) {
+          // 字数单调兜底：续写后字数倒退=已采纳正文被覆盖/丢失，按失败登记。
+          throw new Error(
+            `word count regression on ${chapter.title}: ${wordsBefore} -> ${wordsAfter}`,
+          );
+        }
+
+        // P1 CP0：本章达标后按 settled 阈值触发维护组合（排版/内容修订、重编号、角色身份），
+        // 每个动作都走真实主输入/候选卡；失败记录重试但不阻断主链。
+        toc = await maybeRunMaintenanceBeats(page, toc, maintenanceState);
+
+        if (stopAfterAdvanced > 0 && advancedTitles.size >= stopAfterAdvanced) {
+          stoppedForBreakpoint = true;
+          appendProgress({
+            stopped_for_resume_breakpoint: true,
+            advanced: [...advancedTitles],
+            maintenance_completed: maintenanceState.completed,
+          });
+          log(
+            `stopped after ${advancedTitles.size} advanced chapters for resume rehearsal (maintenance=${JSON.stringify(
+              maintenanceState.completed,
+            )})`,
+          );
+          break;
+        }
+
+        // VS-00G 盘点节拍：达标章数过 R5 阈值（10+2 缓冲）后模拟作者响应补全引导，
+        // 一次性发起盘点并采纳主角/全书规划——之后收官守则、弧光账、R7/R8 全部上线。
+        // 节拍阈值用固定下限，不绑当轮 --min-words：节拍语义是「书已经写够章数、
+        // 该盘点补全设定了」，与本轮把字数目标抬到多少无关（否则调高 min-words
+        // 会连带把节拍推迟到重写完所有章之后）。
+        const settledChapters = flatChapters(toc).filter(
+          (c) => Number(c.word_count ?? 0) >= BEAT_SETTLED_MIN_WORDS,
+        ).length;
+        // 盘点节拍是本跑的关键验证靶（补全回路真实表现），失败允许重试至多 3 次
+        // （每次隔一章），全败才登记放弃——不阻断长跑主链。
+        if (!inventoryBeat.done && inventoryBeat.attempts < 3 && settledChapters >= 12) {
+          inventoryBeat.attempts += 1;
+          inventoryBeat.attempted = true;
+          try {
+            inventoryBeat.result = await runInventoryBeat(page);
+            inventoryBeat.done = true;
+            appendProgress({ inventory_beat: inventoryBeat.result });
+            log(`inventory beat done: ${JSON.stringify(inventoryBeat.result)}`);
+          } catch (error) {
+            if (isFatalWaitError(error)) throw error;
+            inventoryBeat.result = {
+              error: String(error?.message ?? error),
+              attempt: inventoryBeat.attempts,
+            };
+            appendProgress({ inventory_beat_error: inventoryBeat.result.error });
+            log(
+              `inventory beat attempt ${inventoryBeat.attempts} failed (run continues): ${inventoryBeat.result.error}`,
+            );
+            await closeArchiveIfOpen(page).catch(() => {});
+          }
+        }
       } catch (error) {
-        if (isFatalWaitError(error)) throw error;
-        planFailures += 1;
-        appendProgress({ plan_expansion_error: String(error?.message ?? error) });
-        log(`plan expansion error: ${error?.message ?? error}`);
-        // M5 实锤（2026-08-25）：此处恢复 readToc 裸奔——它再抛（输入框被困 60s）就是
-        // 未捕获异常、整个 runner 崩死。失败时保留旧 toc 继续循环，下一轮再自愈。
+        if (isFatalWaitError(error)) {
+          appendProgress({
+            chapter: chapter.title,
+            fatal_wait_error: String(error?.message ?? error),
+            code: error?.code ?? "error",
+          });
+          throw error;
+        }
+        failures.push({ title: chapter.title, error: String(error?.message ?? error) });
+        appendProgress({ chapter: chapter.title, error: String(error?.message ?? error) });
+        log(`retry ${chapter.title} after error: ${error?.message ?? error}`);
         try {
           toc = await readToc(page);
         } catch (tocError) {
-          log(`readToc after expansion error also failed (keeping stale toc): ${tocError?.message ?? tocError}`);
+          // 恢复路径读目录失败不终止整跑（M0 实锤：uncaught 曾直接杀死进程）；
+          // 保留旧 toc 进入下一轮重试。
+          log(`readToc failed during recovery: ${tocError?.message ?? tocError}`);
         }
       }
-      continue;
     }
-
-    if (!chapter) {
-      log("no pending chapters left (all at min words or skipped)");
-      break;
-    }
-
-    if (
-      maxChapters > 0 &&
-      !advancedTitles.has(chapter.title) &&
-      advancedTitles.size >= maxChapters
-    ) {
-      log(`chapter limit ${maxChapters} reached`);
-      break;
-    }
-
-    const chapterFailureWeight = failures
-      .filter((f) => f.title === chapter.title)
-      .reduce((sum, f) => sum + (/fail fast|coordinate regression/.test(f.error) ? 0.5 : 1.5), 0);
-    if (chapterFailureWeight >= 3) {
-      log(`skip ${chapter.title} after repeated failures — moving on`);
-      skippedTitles.add(chapter.title);
-      continue;
-    }
-
-    const wordsBefore = Number(chapter.word_count ?? 0);
-    const turnStarted = Date.now();
-
-    try {
-      const turnId = await driveChapterTurn(page, chapter);
-      advancedTitles.add(chapter.title);
-      chaptersAdvanced = advancedTitles.size;
-      toc = await readToc(page);
-      const after = flatChapters(toc).find((c) => c.title === chapter.title);
-      const wordsAfter = Number(after?.word_count ?? 0);
-      appendProgress({
-        chapter: chapter.title,
-        turn_id: turnId,
-        words_before: wordsBefore,
-        words_after: wordsAfter,
-        duration_ms: Date.now() - turnStarted,
-      });
-      log(`${chapter.title}: ${wordsBefore} -> ${wordsAfter} words`);
-      if (wordsBefore > 0 && wordsAfter < wordsBefore) {
-        // 字数单调兜底：续写后字数倒退=已采纳正文被覆盖/丢失，按失败登记。
-        throw new Error(
-          `word count regression on ${chapter.title}: ${wordsBefore} -> ${wordsAfter}`,
-        );
-      }
-
-      // P1 CP0：本章达标后按 settled 阈值触发维护组合（排版/内容修订、重编号、角色身份），
-      // 每个动作都走真实主输入/候选卡；失败记录重试但不阻断主链。
-      toc = await maybeRunMaintenanceBeats(page, toc, maintenanceState);
-
-      if (stopAfterAdvanced > 0 && advancedTitles.size >= stopAfterAdvanced) {
-        stoppedForBreakpoint = true;
-        appendProgress({
-          stopped_for_resume_breakpoint: true,
-          advanced: [...advancedTitles],
-          maintenance_completed: maintenanceState.completed,
-        });
-        log(
-          `stopped after ${advancedTitles.size} advanced chapters for resume rehearsal (maintenance=${JSON.stringify(
-            maintenanceState.completed,
-          )})`,
-        );
-        break;
-      }
-
-      // VS-00G 盘点节拍：达标章数过 R5 阈值（10+2 缓冲）后模拟作者响应补全引导，
-      // 一次性发起盘点并采纳主角/全书规划——之后收官守则、弧光账、R7/R8 全部上线。
-      // 节拍阈值用固定下限，不绑当轮 --min-words：节拍语义是「书已经写够章数、
-      // 该盘点补全设定了」，与本轮把字数目标抬到多少无关（否则调高 min-words
-      // 会连带把节拍推迟到重写完所有章之后）。
-      const settledChapters = flatChapters(toc).filter(
-        (c) => Number(c.word_count ?? 0) >= BEAT_SETTLED_MIN_WORDS,
-      ).length;
-      // 盘点节拍是本跑的关键验证靶（补全回路真实表现），失败允许重试至多 3 次
-      // （每次隔一章），全败才登记放弃——不阻断长跑主链。
-      if (!inventoryBeat.done && inventoryBeat.attempts < 3 && settledChapters >= 12) {
-        inventoryBeat.attempts += 1;
-        inventoryBeat.attempted = true;
-        try {
-          inventoryBeat.result = await runInventoryBeat(page);
-          inventoryBeat.done = true;
-          appendProgress({ inventory_beat: inventoryBeat.result });
-          log(`inventory beat done: ${JSON.stringify(inventoryBeat.result)}`);
-        } catch (error) {
-          if (isFatalWaitError(error)) throw error;
-          inventoryBeat.result = {
-            error: String(error?.message ?? error),
-            attempt: inventoryBeat.attempts,
-          };
-          appendProgress({ inventory_beat_error: inventoryBeat.result.error });
-          log(
-            `inventory beat attempt ${inventoryBeat.attempts} failed (run continues): ${inventoryBeat.result.error}`,
-          );
-          await closeArchiveIfOpen(page).catch(() => {});
-        }
-      }
-    } catch (error) {
-      if (isFatalWaitError(error)) {
-        appendProgress({
-          chapter: chapter.title,
-          fatal_wait_error: String(error?.message ?? error),
-          code: error?.code ?? "error",
-        });
-        throw error;
-      }
-      failures.push({ title: chapter.title, error: String(error?.message ?? error) });
-      appendProgress({ chapter: chapter.title, error: String(error?.message ?? error) });
-      log(`retry ${chapter.title} after error: ${error?.message ?? error}`);
-      try {
-        toc = await readToc(page);
-      } catch (tocError) {
-        // 恢复路径读目录失败不终止整跑（M0 实锤：uncaught 曾直接杀死进程）；
-        // 保留旧 toc 进入下一轮重试。
-        log(`readToc failed during recovery: ${tocError?.message ?? tocError}`);
-      }
-    }
-  }
-
   }
 
   // 导出后页面停在阅读模式；最终 toc 用循环尾的最新投影。

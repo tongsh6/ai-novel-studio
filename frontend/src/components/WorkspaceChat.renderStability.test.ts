@@ -37,25 +37,17 @@ describe("messageRenderKey", () => {
   it("prefers immutable local client ids, then turn ids, then index; role stays distinct", () => {
     // The author message is first appended with a local clientMessageId and only
     // later receives a server turnId via ack binding; the key must not move.
+    expect(messageRenderKey({ role: "user", clientMessageId: "client_a" }, 0)).toBe(
+      "user:client_a",
+    );
     expect(
-      messageRenderKey({ role: "user", clientMessageId: "client_a" }, 0),
-    ).toBe("user:client_a");
-    expect(
-      messageRenderKey(
-        { role: "user", clientMessageId: "client_a", turnId: "turn_a" },
-        0,
-      ),
+      messageRenderKey({ role: "user", clientMessageId: "client_a", turnId: "turn_a" }, 0),
     ).toBe("user:client_a");
 
-    expect(
-      messageRenderKey({ role: "assistant", turnId: "turn_b" }, 1),
-    ).toBe("assistant:turn_b");
-    expect(
-      messageRenderKey(
-        { role: "assistant", turnResult: { turn_id: "turn_c" } },
-        2,
-      ),
-    ).toBe("assistant:turn_c");
+    expect(messageRenderKey({ role: "assistant", turnId: "turn_b" }, 1)).toBe("assistant:turn_b");
+    expect(messageRenderKey({ role: "assistant", turnResult: { turn_id: "turn_c" } }, 2)).toBe(
+      "assistant:turn_c",
+    );
 
     expect(messageRenderKey({ role: "assistant" }, 2)).toBe("assistant:2");
     expect(messageRenderKey({ role: "user" }, 2)).toBe("user:2");

@@ -290,9 +290,9 @@ describe("跨分页待采纳操作凭据", () => {
         inbox_pending_adoption_turn_results: [inboxResult],
       })[0],
     ).toBe(inboxResult);
-    expect(
-      pendingAdoptionTurnResults({ pending_adoption_turn_results: [sessionResult] })[0],
-    ).toBe(sessionResult);
+    expect(pendingAdoptionTurnResults({ pending_adoption_turn_results: [sessionResult] })[0]).toBe(
+      sessionResult,
+    );
 
     expect(
       snapshotPendingAdoptions({

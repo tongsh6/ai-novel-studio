@@ -64,9 +64,9 @@ const OBSERVER_SCRIPT = () => {
   };
 
   const currentMessageNodes = () =>
-    Array.from(
-      document.querySelectorAll('[class*="userMsg"], [class*="assistantMsg"]'),
-    ).filter((node) => (node.innerText ?? "").trim().length > 0);
+    Array.from(document.querySelectorAll('[class*="userMsg"], [class*="assistantMsg"]')).filter(
+      (node) => (node.innerText ?? "").trim().length > 0,
+    );
 
   let previousNodes = new Map();
   let nodeSeq = 0;
@@ -195,16 +195,14 @@ async function waitForReady(page) {
 
 async function waitForAnyMessage(page, timeout = 30_000) {
   await page.waitForFunction(
-    () =>
-      document.querySelectorAll('[class*="userMsg"], [class*="assistantMsg"]').length > 0,
+    () => document.querySelectorAll('[class*="userMsg"], [class*="assistantMsg"]').length > 0,
     { timeout },
   );
 }
 
 function turnResultCount() {
-  return frames.filter(
-    (frame) => frame.direction === "received" && frame.event === "turn_result",
-  ).length;
+  return frames.filter((frame) => frame.direction === "received" && frame.event === "turn_result")
+    .length;
 }
 
 async function waitForTurnResult(timeout = 90_000) {
@@ -253,8 +251,7 @@ function computeMetrics({ samples, layoutShifts, nodeEvents }) {
     const previous = samples[i - 1];
     const current = samples[i];
     const recentUserInput =
-      current.lastUserScrollTouchedAt > 0 &&
-      current.at - current.lastUserScrollTouchedAt < 1_500;
+      current.lastUserScrollTouchedAt > 0 && current.at - current.lastUserScrollTouchedAt < 1_500;
     if (recentUserInput) continue;
     if (previous.chatScrollTop === null || current.chatScrollTop === null) continue;
     if (Math.abs(current.chatScrollTop - previous.chatScrollTop) > 4) {
@@ -301,7 +298,8 @@ async function recordScene(name, page, fn, { before, after } = {}) {
     const extracted = await page.evaluate((sceneName) => {
       const state = window.__au10?.state;
       if (!state) return { samples: [], layoutShifts: [], nodeEvents: [] };
-      const start = state.marks.find((entry) => entry.name === `${sceneName}:start`)?.at ?? -Infinity;
+      const start =
+        state.marks.find((entry) => entry.name === `${sceneName}:start`)?.at ?? -Infinity;
       const end = state.marks.find((entry) => entry.name === `${sceneName}:end`)?.at ?? Infinity;
       const within = (at) => at >= start && at <= end;
       const payload = {
@@ -323,7 +321,7 @@ async function recordScene(name, page, fn, { before, after } = {}) {
     sceneErrors.push({ scene: name, error: item.errors[item.errors.length - 1] });
     try {
       item.debug = await page.evaluate(() => {
-        const input = document.querySelector('input[placeholder]');
+        const input = document.querySelector("input[placeholder]");
         const bodyText = (document.body.innerText ?? "").replace(/\s+/g, " ").slice(0, 800);
         return {
           inputDisabled: input ? input.disabled : null,
@@ -488,7 +486,8 @@ scenes.push(
 
 const sceneMetrics = {};
 for (const item of scenes) {
-  sceneMetrics[item.name] = item.metrics ?? computeMetrics({ samples: [], layoutShifts: [], nodeEvents: [] });
+  sceneMetrics[item.name] =
+    item.metrics ?? computeMetrics({ samples: [], layoutShifts: [], nodeEvents: [] });
 }
 
 const thresholds = {
@@ -583,10 +582,7 @@ const summary = {
   ],
 };
 
-fs.writeFileSync(
-  path.join(artifactDir, "render-baseline.json"),
-  JSON.stringify(summary, null, 2),
-);
+fs.writeFileSync(path.join(artifactDir, "render-baseline.json"), JSON.stringify(summary, null, 2));
 
 const lines = [
   "# AU10 CP0 render-stability baseline (browser surface)",

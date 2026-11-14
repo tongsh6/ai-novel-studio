@@ -7,8 +7,16 @@ const pending = [
     artifact_type: "prose_fragment",
     payload: { items: [{ title: "灯楼夜戏：归人与立约" }] },
   },
-  { artifact_id: "char-1", artifact_type: "character_seed", payload: { items: [{ title: "顾青" }] } },
-  { artifact_id: "set-1", artifact_type: "world_rule_seed", payload: { items: [{ title: "灯楼约定" }] } },
+  {
+    artifact_id: "char-1",
+    artifact_type: "character_seed",
+    payload: { items: [{ title: "顾青" }] },
+  },
+  {
+    artifact_id: "set-1",
+    artifact_type: "world_rule_seed",
+    payload: { items: [{ title: "灯楼约定" }] },
+  },
 ];
 
 function actionsFor(artifactId: string) {
@@ -50,12 +58,12 @@ describe("候选动作按对象分组", () => {
   });
 
   it("原稿/修订稿质量候选使用分组标题，并保留各自 hint", () => {
-    expect(candidateArtifactTitle({ artifact_id: "p", artifact_type: "prose_fragment" }, "original")).toBe(
-      "原稿候选",
-    );
-    expect(candidateArtifactTitle({ artifact_id: "p", artifact_type: "prose_fragment" }, "revision")).toBe(
-      "修订稿候选",
-    );
+    expect(
+      candidateArtifactTitle({ artifact_id: "p", artifact_type: "prose_fragment" }, "original"),
+    ).toBe("原稿候选");
+    expect(
+      candidateArtifactTitle({ artifact_id: "p", artifact_type: "prose_fragment" }, "revision"),
+    ).toBe("修订稿候选");
     const result = describeCandidateActionGroups(actionsFor("prose-1"), pending, "original");
     expect(result.groups[0].hint).not.toBe("");
   });
@@ -72,12 +80,22 @@ describe("候选内容卡片与 pending artifact 对应", () => {
     expect(pendingArtifactForCard(pending, cards[0])?.artifact_id).toBe("prose-1");
     expect(pendingArtifactForCard(pending, cards[1])?.artifact_id).toBe("char-1");
     const twoCharacters = [
-      { artifact_id: "char-a", artifact_type: "character_seed", payload: { items: [{ item_id: "a" }] } },
-      { artifact_id: "char-b", artifact_type: "character_seed", payload: { items: [{ item_id: "b" }] } },
+      {
+        artifact_id: "char-a",
+        artifact_type: "character_seed",
+        payload: { items: [{ item_id: "a" }] },
+      },
+      {
+        artifact_id: "char-b",
+        artifact_type: "character_seed",
+        payload: { items: [{ item_id: "b" }] },
+      },
     ];
     expect(
-      pendingArtifactForCard(twoCharacters, { artifact_type: "character_seed", items: [{ item_id: "b" }] })
-        ?.artifact_id,
+      pendingArtifactForCard(twoCharacters, {
+        artifact_type: "character_seed",
+        items: [{ item_id: "b" }],
+      })?.artifact_id,
     ).toBe("char-b");
   });
 

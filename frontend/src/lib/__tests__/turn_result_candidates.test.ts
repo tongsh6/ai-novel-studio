@@ -45,9 +45,9 @@ describe("TurnResult.candidate_directions contract", () => {
       },
     ];
     const result = baseTurnResult(candidates);
-    expect(candidates.every((candidate) => CandidateDirectionSchema.safeParse(candidate).success)).toBe(
-      true,
-    );
+    expect(
+      candidates.every((candidate) => CandidateDirectionSchema.safeParse(candidate).success),
+    ).toBe(true);
 
     // 这是 WorkspaceChat.tsx 的渲染门禁条件，必须为真
     expect(result.candidate_directions).toBeDefined();

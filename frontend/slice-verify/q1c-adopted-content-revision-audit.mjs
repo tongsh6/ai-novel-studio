@@ -136,9 +136,7 @@ async function send(page, text, label = "turn") {
       : resultFrame.body.response.turn_results.find((r) => r.turn_id === turnId);
   await page.waitForTimeout(1_000);
   const elapsedMs = Date.now() - started;
-  console.log(
-    `[q1c] ${label} turn=${turnId} status=${result.status} elapsed=${elapsedMs}ms`,
-  );
+  console.log(`[q1c] ${label} turn=${turnId} status=${result.status} elapsed=${elapsedMs}ms`);
   return { turnId, result, elapsedMs };
 }
 
@@ -147,7 +145,10 @@ async function clickAcceptIfPresent(page, stepName) {
   if ((await buttons.count()) === 0) return false;
   await buttons.first().click();
   await page.waitForTimeout(500);
-  await page.screenshot({ path: path.join(artifactDir, `${stepName}-after-accept.png`), fullPage: true });
+  await page.screenshot({
+    path: path.join(artifactDir, `${stepName}-after-accept.png`),
+    fullPage: true,
+  });
   return { clicked: true };
 }
 
@@ -159,9 +160,7 @@ async function waitForAcceptOutcome(artifactRef, timeout = TURN_TIMEOUT_MS) {
         f.direction === "received" &&
         f.event === "turn_result" &&
         f.body?.truthfulness?.artifact_adopted === true &&
-        (f.body?.adoption_state?.resolved ?? []).some(
-          (entry) => entry.artifact_id === artifactRef,
-        ),
+        (f.body?.adoption_state?.resolved ?? []).some((entry) => entry.artifact_id === artifactRef),
     );
     if (adopted) return { type: "adopted", frame: adopted };
 
@@ -218,7 +217,10 @@ const report = {
 try {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
-  await page.getByText(/同步已连接|服务: 已连接/).first().waitFor({ timeout: 30_000 });
+  await page
+    .getByText(/同步已连接|服务: 已连接/)
+    .first()
+    .waitFor({ timeout: 30_000 });
   await page.screenshot({ path: path.join(artifactDir, "00-start.png"), fullPage: true });
 
   // 1. 先通过作者原文登记建立一条已采纳的 world_setting 事实。
@@ -272,7 +274,10 @@ try {
     };
     await page.waitForTimeout(1_500);
     report.source_facts = readMemoryRows(source.result.work_id);
-    await page.screenshot({ path: path.join(artifactDir, "02-source-adopted.png"), fullPage: true });
+    await page.screenshot({
+      path: path.join(artifactDir, "02-source-adopted.png"),
+      fullPage: true,
+    });
   }
 
   // 2. 请求修订已采纳的设定。这里不提供 candidate ref，模拟真实作者的自然语言。
@@ -331,8 +336,7 @@ try {
       try {
         await waitForActionSent(revisionPending.artifact_id);
         const revisionOutcome = await waitForAcceptOutcome(revisionPending.artifact_id);
-        report.revision_accept.confirmation_required =
-          revisionOutcome.type === "confirmation";
+        report.revision_accept.confirmation_required = revisionOutcome.type === "confirmation";
         let adopted = revisionOutcome.frame;
         if (revisionOutcome.type === "confirmation") {
           report.revision_accept.confirmation = {
@@ -398,7 +402,10 @@ try {
   const superseded = rows.filter((row) => row.status === "SUPERSEDED");
   const oldConfirmed = confirmed.filter((row) => row.content.includes("二十五岁"));
   const newConfirmed = confirmed.filter((row) => row.content.includes("三十岁"));
-  const revisionOf = revisionPending?.payload?.revision_of ?? revisionPending?.payload?.items?.[0]?.revision_of ?? null;
+  const revisionOf =
+    revisionPending?.payload?.revision_of ??
+    revisionPending?.payload?.items?.[0]?.revision_of ??
+    null;
   const acceptedTargetIdentified = Boolean(revisionOf && sourcePending?.artifact_id === revisionOf);
 
   report.observations = {
@@ -414,7 +421,8 @@ try {
     new_version_confirmed: newConfirmed.length > 0,
     superseded_facts: superseded.length,
     assistant_claimed_done_without_candidate:
-      !revisionPending && /已(修改|更新|保存|替换)/.test(revision.result.assistant_message?.text ?? ""),
+      !revisionPending &&
+      /已(修改|更新|保存|替换)/.test(revision.result.assistant_message?.text ?? ""),
     capability_gap_visible: /做不到|没有.*能力|无法.*直接|不能.*直接/.test(
       revision.result.assistant_message?.text ?? "",
     ),
@@ -467,10 +475,7 @@ try {
       .filter((f) => f.event === "author_action")
       .map((f) => ({ direction: f.direction, body: f.body })),
   };
-  fs.writeFileSync(
-    path.join(artifactDir, "audit-report.json"),
-    JSON.stringify(report, null, 2),
-  );
+  fs.writeFileSync(path.join(artifactDir, "audit-report.json"), JSON.stringify(report, null, 2));
   await browser.close();
 }
 
@@ -494,10 +499,7 @@ check(
   !report.observations.assistant_claimed_done_without_candidate,
 );
 check("followup_uses_new_version", report.observations.followup_uses_new_version);
-check(
-  "followup_memory_context_is_new",
-  report.observations.followup_memory_context_is_new,
-);
+check("followup_memory_context_is_new", report.observations.followup_memory_context_is_new);
 
 const summary = {
   audit: report.audit,
@@ -511,10 +513,7 @@ const summary = {
   steps: report.steps,
   db: report.db,
 };
-fs.writeFileSync(
-  path.join(artifactDir, "summary.json"),
-  JSON.stringify(summary, null, 2),
-);
+fs.writeFileSync(path.join(artifactDir, "summary.json"), JSON.stringify(summary, null, 2));
 console.log(JSON.stringify(summary, null, 2));
 
 if (report.error || failedChecks.length > 0) process.exitCode = 1;

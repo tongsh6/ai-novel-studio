@@ -45,12 +45,10 @@ bash ../scripts/quality_accept.sh au03-context-source-ui --surface tauri
 
 - [AuthorQuestionReply.tsx](src/components/AuthorQuestionReply.tsx)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。
 
-
 ## B28 分段预览
 
 - [UICards.tsx](src/components/UICards.tsx)：candidate_set 中区分模型方案说明与计算出的排版预览。
 - [UICards.formattingPlan.test.tsx](src/components/UICards.formattingPlan.test.tsx)：预览独立、换行可见与模型说明保真。
-
 
 ## 阅读投影查询
 

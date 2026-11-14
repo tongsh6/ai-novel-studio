@@ -63,8 +63,9 @@ describe("fact inventory proposal actions", () => {
     };
 
     expect(isFactInventoryProposalAction(start)).toBe(true);
-    expect(removeFactInventoryProposalActions(result, "finding:report-r5:0").available_actions)
-      .toEqual([{ action_id: "other", action_type: "accept" }]);
+    expect(
+      removeFactInventoryProposalActions(result, "finding:report-r5:0").available_actions,
+    ).toEqual([{ action_id: "other", action_type: "accept" }]);
     expect(result.available_actions).toHaveLength(3);
   });
 

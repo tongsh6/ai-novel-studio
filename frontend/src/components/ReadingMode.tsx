@@ -221,7 +221,10 @@ export function ReadingMode() {
             {audit.missingNotApplicable
               ? READING.auditClean
               : [
-                  READING.auditMissingChapters(audit.missingChapterCount, audit.plannedChapterCount),
+                  READING.auditMissingChapters(
+                    audit.missingChapterCount,
+                    audit.plannedChapterCount,
+                  ),
                   audit.duplicateParagraphCount > 0
                     ? READING.auditDuplicateParagraphs(audit.duplicateParagraphCount)
                     : null,

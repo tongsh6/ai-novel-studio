@@ -14,36 +14,67 @@ import {
 describe("Q1b 真实模型存档证据", () => {
   const slice = "q1b-live-archive-roundtrip";
   const turnIds = ["source", "save", "before", "after"];
-  const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_ids: turnIds,
-    source_turn_id: "source", materialization_turn_id: "save", artifact_id: "artifact",
-    author_bytes_intact: true, no_write_before_adoption: true,
-    record_only_has_no_candidates: true, workflow_has_no_direction_actions: true,
-    canonical_state_restored: true, confirmed_fact_count: 1 };
-  const records = [ui, ...turnIds.map((turn_id) => ({ turn_id, event: "judgment.decided.done" })),
+  const ui = {
+    event: "slice_verify.ui_state.done",
+    slice_id: slice,
+    turn_ids: turnIds,
+    source_turn_id: "source",
+    materialization_turn_id: "save",
+    artifact_id: "artifact",
+    author_bytes_intact: true,
+    no_write_before_adoption: true,
+    record_only_has_no_candidates: true,
+    workflow_has_no_direction_actions: true,
+    canonical_state_restored: true,
+    confirmed_fact_count: 1,
+  };
+  const records = [
+    ui,
+    ...turnIds.map((turn_id) => ({ turn_id, event: "judgment.decided.done" })),
     { turn_id: "save", event: "judgment.author_content_materialized.done" },
-    { turn_id: "save", event: "adoption.evaluate.done" }];
-  const llmRecords = turnIds.map((turn_id) => ({ turn_id, provider: "lmstudio",
-    request: { method: "POST", url: "http://localhost:1234/v1/chat/completions" }, response: { status: 200 } }));
+    { turn_id: "save", event: "adoption.evaluate.done" },
+  ];
+  const llmRecords = turnIds.map((turn_id) => ({
+    turn_id,
+    provider: "lmstudio",
+    request: { method: "POST", url: "http://localhost:1234/v1/chat/completions" },
+    response: { status: 200 },
+  }));
 
   it("四轮主链和真实模型调用完整才通过", () => {
     const evidence = findNativeSliceEvidence(slice, records);
     expect(evidence?.turn_ids).toEqual(turnIds);
-    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio", llmRecords })).not.toBeNull();
+    expect(
+      findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio", llmRecords }),
+    ).not.toBeNull();
   });
 
   it("只有 UI 旗标或无关回合的采纳日志不能通过", () => {
     expect(findNativeSliceEvidence(slice, [ui])).toBeNull();
-    const unrelated = records.map((record) => record.event === "adoption.evaluate.done" ? { ...record, turn_id: "other:adoption" } : record);
+    const unrelated = records.map((record) =>
+      record.event === "adoption.evaluate.done" ? { ...record, turn_id: "other:adoption" } : record,
+    );
     expect(findNativeSliceEvidence(slice, unrelated)).toBeNull();
-    const similarPrefix = records.map((record) => record.event === "adoption.evaluate.done" ? { ...record, turn_id: "save-other:adoption" } : record);
+    const similarPrefix = records.map((record) =>
+      record.event === "adoption.evaluate.done"
+        ? { ...record, turn_id: "save-other:adoption" }
+        : record,
+    );
     expect(findNativeSliceEvidence(slice, similarPrefix)).toBeNull();
     expect(findNativeSliceEvidence(slice, [{ ...ui, turn_ids: null }])).toBeNull();
   });
 
   it("缺一轮真实调用或改用确定性替身不能通过", () => {
     const evidence = findNativeSliceEvidence(slice, records);
-    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio", llmRecords: llmRecords.slice(1) })).toBeNull();
-    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "slice_verify", llmRecords })).toBeNull();
+    expect(
+      findSliceBehaviorEvidence(slice, records, evidence, {
+        provider: "lmstudio",
+        llmRecords: llmRecords.slice(1),
+      }),
+    ).toBeNull();
+    expect(
+      findSliceBehaviorEvidence(slice, records, evidence, { provider: "slice_verify", llmRecords }),
+    ).toBeNull();
   });
 });
 
@@ -55,91 +86,249 @@ describe("BIZ-06 候选生命周期证据", () => {
     { operation: "discard", turn_id: turnIds[4], target_ref: "original" },
     { operation: "discard", turn_id: turnIds[6], target_ref: "revision" },
   ];
-  const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_ids: turnIds,
-    turn_id: turnIds[3], adoption_turn_id: turnIds[7], operations,
-    original_preserved: true, revision_is_tentative: true, lineage_registration_guard: true, discard_receipts_match_state: true,
-    discarded_source_can_register: true, edited_state_restored: true, confirmed_fact_count: 1 };
-  const records = [ui, ...turnIds.map((turn_id) => ({ turn_id, event: "judgment.decided.done" })),
-    ...operations.map((op) => ({ ...op, event: "pending_artifact.completed.done", production_write: false })),
-    { turn_id: turnIds[7], event: "adoption.evaluate.done" }];
+  const ui = {
+    event: "slice_verify.ui_state.done",
+    slice_id: slice,
+    turn_ids: turnIds,
+    turn_id: turnIds[3],
+    adoption_turn_id: turnIds[7],
+    operations,
+    original_preserved: true,
+    revision_is_tentative: true,
+    lineage_registration_guard: true,
+    discard_receipts_match_state: true,
+    discarded_source_can_register: true,
+    edited_state_restored: true,
+    confirmed_fact_count: 1,
+  };
+  const records = [
+    ui,
+    ...turnIds.map((turn_id) => ({ turn_id, event: "judgment.decided.done" })),
+    ...operations.map((op) => ({
+      ...op,
+      event: "pending_artifact.completed.done",
+      production_write: false,
+    })),
+    { turn_id: turnIds[7], event: "adoption.evaluate.done" },
+  ];
   it("十轮判断、目标动作和显式采纳必须逐项关联", () => {
     const evidence = findNativeSliceEvidence(slice, records);
     expect(evidence?.turn_ids).toEqual(turnIds);
-    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "slice_verify" })).not.toBeNull();
+    expect(
+      findSliceBehaviorEvidence(slice, records, evidence, { provider: "slice_verify" }),
+    ).not.toBeNull();
     expect(findNativeSliceEvidence(slice, [ui])).toBeNull();
-    expect(findNativeSliceEvidence(slice, records.filter((r) => r.turn_id !== turnIds[4]))).toBeNull();
-    expect(findNativeSliceEvidence(slice, records.map((r) => r.event === "pending_artifact.completed.done" ? { ...r, target_ref: "wrong" } : r))).toBeNull();
-    expect(findNativeSliceEvidence(slice, [...records, { turn_id: turnIds[9], outcome: "error" }])).toBeNull();
-    expect(findNativeSliceEvidence(slice, [{ ...ui, revision_is_tentative: false }, ...records.slice(1)])).toBeNull();
+    expect(
+      findNativeSliceEvidence(
+        slice,
+        records.filter((r) => r.turn_id !== turnIds[4]),
+      ),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(
+        slice,
+        records.map((r) =>
+          r.event === "pending_artifact.completed.done" ? { ...r, target_ref: "wrong" } : r,
+        ),
+      ),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [...records, { turn_id: turnIds[9], outcome: "error" }]),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        { ...ui, revision_is_tentative: false },
+        ...records.slice(1),
+      ]),
+    ).toBeNull();
   });
   it("实模模式必须每轮都有真实调用证据", () => {
     const evidence = findNativeSliceEvidence(slice, records);
-    const llmRecords = turnIds.map((turn_id) => ({ turn_id, provider: "lmstudio",
-      request: { method: "POST", url: "http://localhost:1234/v1/chat/completions" }, response: { status: 200 } }));
-    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio", llmRecords })).not.toBeNull();
-    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio", llmRecords: llmRecords.slice(1) })).toBeNull();
+    const llmRecords = turnIds.map((turn_id) => ({
+      turn_id,
+      provider: "lmstudio",
+      request: { method: "POST", url: "http://localhost:1234/v1/chat/completions" },
+      response: { status: 200 },
+    }));
+    expect(
+      findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio", llmRecords }),
+    ).not.toBeNull();
+    expect(
+      findSliceBehaviorEvidence(slice, records, evidence, {
+        provider: "lmstudio",
+        llmRecords: llmRecords.slice(1),
+      }),
+    ).toBeNull();
   });
 });
 
 describe("BIZ-06 修订采纳证据", () => {
   const slice = "q1b-candidate-revision-adoption";
-  const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_id: "revision", source_turn_id: "source",
-    discussion_turn_id: "discussion", discard_turn_id: "discard", discussion_only: true, contextual_revision: true, discard_receipt_visible: true,
-    original_id: "a", revised_id: "b", no_write_before_adoption: true, original_pending_after_adoption: true,
-    revised_bytes_saved: true, accepted_state_restored: true, confirmed_fact_count: 1 };
-  const records = [ui,
+  const ui = {
+    event: "slice_verify.ui_state.done",
+    slice_id: slice,
+    turn_id: "revision",
+    source_turn_id: "source",
+    discussion_turn_id: "discussion",
+    discard_turn_id: "discard",
+    discussion_only: true,
+    contextual_revision: true,
+    discard_receipt_visible: true,
+    original_id: "a",
+    revised_id: "b",
+    no_write_before_adoption: true,
+    original_pending_after_adoption: true,
+    revised_bytes_saved: true,
+    accepted_state_restored: true,
+    confirmed_fact_count: 1,
+  };
+  const records = [
+    ui,
     { event: "judgment.decided.done", turn_id: "discussion", action: "reply", candidate_count: 0 },
-    { event: "pending_artifact.completed.done", turn_id: "discard", target_ref: "a", operation: "discard", production_write: false },
-    { event: "pending_artifact.completed.done", turn_id: "revision", target_ref: "a", operation: "revise", production_write: false },
+    {
+      event: "pending_artifact.completed.done",
+      turn_id: "discard",
+      target_ref: "a",
+      operation: "discard",
+      production_write: false,
+    },
+    {
+      event: "pending_artifact.completed.done",
+      turn_id: "revision",
+      target_ref: "a",
+      operation: "revise",
+      production_write: false,
+    },
     { event: "adoption.evaluate.done", turn_id: "revision" },
-    { event: "channel.author_action.done", turn_id: "revision", action_type: "accept" }];
+    { event: "channel.author_action.done", turn_id: "revision", action_type: "accept" },
+  ];
   it("必须证明采纳修订稿而非原稿，且原稿没有被自动处置", () => {
     expect(findNativeSliceEvidence(slice, records)).not.toBeNull();
     expect(findNativeSliceEvidence(slice, records.slice(0, -1))).toBeNull();
-    expect(findNativeSliceEvidence(slice, [{ ...ui, original_pending_after_adoption: false }, ...records.slice(1)])).toBeNull();
-    expect(findNativeSliceEvidence(slice, records.map((r) => r.event === "adoption.evaluate.done" ? { ...r, turn_id: "source" } : r))).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        { ...ui, original_pending_after_adoption: false },
+        ...records.slice(1),
+      ]),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(
+        slice,
+        records.map((r) =>
+          r.event === "adoption.evaluate.done" ? { ...r, turn_id: "source" } : r,
+        ),
+      ),
+    ).toBeNull();
     const evidence = findNativeSliceEvidence(slice, records);
-    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio" })).toBeNull();
-    const llmRecords = evidence.turn_ids.map((turn_id) => ({ turn_id, provider: "lmstudio",
-      request: { method: "POST", url: "http://localhost:1234/v1/chat/completions" }, response: { status: 200 } }));
-    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio", llmRecords })).not.toBeNull();
+    expect(
+      findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio" }),
+    ).toBeNull();
+    const llmRecords = evidence.turn_ids.map((turn_id) => ({
+      turn_id,
+      provider: "lmstudio",
+      request: { method: "POST", url: "http://localhost:1234/v1/chat/completions" },
+      response: { status: 200 },
+    }));
+    expect(
+      findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio", llmRecords }),
+    ).not.toBeNull();
   });
 });
 
 describe("BIZ-06 过期编辑证据", () => {
   const slice = "q1b-candidate-stale-modal";
-  const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_id: "source",
-    discard_turn_id: "discard", target_ref: "original", stale_edit_rejected: true,
-    editor_text_retained: true, error_visible: true, confirmed_fact_count: 0 };
-  const records = [ui, { turn_id: "discard", event: "pending_artifact.completed.done", operation: "discard", target_ref: "original" },
-    { turn_id: "source", event: "channel.author_action.error", action_type: "edit_then_accept" }];
+  const ui = {
+    event: "slice_verify.ui_state.done",
+    slice_id: slice,
+    turn_id: "source",
+    discard_turn_id: "discard",
+    target_ref: "original",
+    stale_edit_rejected: true,
+    editor_text_retained: true,
+    error_visible: true,
+    confirmed_fact_count: 0,
+  };
+  const records = [
+    ui,
+    {
+      turn_id: "discard",
+      event: "pending_artifact.completed.done",
+      operation: "discard",
+      target_ref: "original",
+    },
+    { turn_id: "source", event: "channel.author_action.error", action_type: "edit_then_accept" },
+  ];
   it("必须证明同一对象被放弃、旧保存拒绝和编辑保留，不能夹带采纳", () => {
     expect(findNativeSliceEvidence(slice, records)).not.toBeNull();
     expect(findNativeSliceEvidence(slice, [ui])).toBeNull();
-    expect(findNativeSliceEvidence(slice, [...records, { event: "adoption.evaluate.done", turn_id: "source" }])).toBeNull();
-    expect(findNativeSliceEvidence(slice, [{ ...ui, editor_text_retained: false }, ...records.slice(1)])).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        ...records,
+        { event: "adoption.evaluate.done", turn_id: "source" },
+      ]),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [{ ...ui, editor_text_retained: false }, ...records.slice(1)]),
+    ).toBeNull();
   });
 });
 
 describe("BIZ-05 候选语义证据", () => {
   const slice = "q3d-candidate-semantics";
-  const failed = ["record_only_conflict", "candidate_purpose_conflict"].map((reason_code) => ({ turn_id: reason_code, reason_code }));
-  const actions = ["discard", "edit_then_accept", "accept"].map((type) => ({ type, source_turn_id: type }));
-  const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_id: "save", source_turn_id: "source",
-    failed_turns: failed, creative_turn_id: "creative", discussed_turn_id: "discuss", chosen_turn_id: "chosen",
-    artifact_actions: actions, legacy_actions_revoked: true, legacy_content_preserved: true,
-    record_only_has_no_candidates: true, workflow_has_no_direction_actions: true, failed_results_restored: true,
-    confirmed_fact_count: 2 };
-  const records = [ui,
-    ...failed.flatMap((f) => ["retry", "rejected"].map((outcome) => ({ ...f, outcome, event: "judgment.output_validation.done" }))),
-    ...[["source", "record_only_conflict"], ["save", "candidate_purpose_conflict"]].flatMap(([turn_id, reason_code]) => [
+  const failed = ["record_only_conflict", "candidate_purpose_conflict"].map((reason_code) => ({
+    turn_id: reason_code,
+    reason_code,
+  }));
+  const actions = ["discard", "edit_then_accept", "accept"].map((type) => ({
+    type,
+    source_turn_id: type,
+  }));
+  const ui = {
+    event: "slice_verify.ui_state.done",
+    slice_id: slice,
+    turn_id: "save",
+    source_turn_id: "source",
+    failed_turns: failed,
+    creative_turn_id: "creative",
+    discussed_turn_id: "discuss",
+    chosen_turn_id: "chosen",
+    artifact_actions: actions,
+    legacy_actions_revoked: true,
+    legacy_content_preserved: true,
+    record_only_has_no_candidates: true,
+    workflow_has_no_direction_actions: true,
+    failed_results_restored: true,
+    confirmed_fact_count: 2,
+  };
+  const records = [
+    ui,
+    ...failed.flatMap((f) =>
+      ["retry", "rejected"].map((outcome) => ({
+        ...f,
+        outcome,
+        event: "judgment.output_validation.done",
+      })),
+    ),
+    ...[
+      ["source", "record_only_conflict"],
+      ["save", "candidate_purpose_conflict"],
+    ].flatMap(([turn_id, reason_code]) => [
       { turn_id, reason_code, outcome: "retry", event: "judgment.output_validation.done" },
       { turn_id, candidate_count: 0, event: "judgment.decided.done" },
     ]),
-    { turn_id: "creative", frame_type: "creative_exploration", candidate_count: 2, event: "judgment.decided.done" },
+    {
+      turn_id: "creative",
+      frame_type: "creative_exploration",
+      candidate_count: 2,
+      event: "judgment.decided.done",
+    },
     { turn_id: "discuss", event: "judgment.decided.done" },
     { turn_id: "discuss", event: "channel.author_action.done", action_type: "choose_candidate" },
-    ...actions.map((a) => ({ turn_id: a.source_turn_id, event: "channel.author_action.done", action_type: a.type })),
+    ...actions.map((a) => ({
+      turn_id: a.source_turn_id,
+      event: "channel.author_action.done",
+      action_type: a.type,
+    })),
     ...actions.map((a) => ({ turn_id: a.source_turn_id, event: "adoption.evaluate.done" })),
   ];
   it("必须同时证明负例受控、正例可用和真实产物操作", () => {
@@ -147,27 +336,70 @@ describe("BIZ-05 候选语义证据", () => {
     expect(evidence).not.toBeNull();
     expect(findSliceBehaviorEvidence(slice, records, evidence)).not.toBeNull();
     expect(findNativeSliceEvidence(slice, [ui])).toBeNull();
-    expect(findNativeSliceEvidence(slice, records.filter((r) => r.turn_id !== "creative"))).toBeNull();
-    expect(findNativeSliceEvidence(slice, records.filter((r) => r.turn_id !== "discard"))).toBeNull();
-    expect(findNativeSliceEvidence(slice, [...records, { turn_id: failed[0].turn_id, event: "toolbox.execute.start" }])).toBeNull();
-    expect(findNativeSliceEvidence(slice, [{ ...ui, legacy_actions_revoked: false }, ...records.slice(1)])).toBeNull();
+    expect(
+      findNativeSliceEvidence(
+        slice,
+        records.filter((r) => r.turn_id !== "creative"),
+      ),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(
+        slice,
+        records.filter((r) => r.turn_id !== "discard"),
+      ),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        ...records,
+        { turn_id: failed[0].turn_id, event: "toolbox.execute.start" },
+      ]),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        { ...ui, legacy_actions_revoked: false },
+        ...records.slice(1),
+      ]),
+    ).toBeNull();
   });
 });
 
 describe("Q3D 原文登记边界证据", () => {
   const slice = "q3d-author-registration-guards";
   // B13b BB-4（ADR-0006 #2）：run 失败兜底 TurnResult status = failed_recoverable。
-  const failed = ["source_required", "source_not_available", "invalid_tool_combination"].map((reason_code) =>
-    ({ turn_id: reason_code, reason_code, status: "failed_recoverable" }));
-  const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_id: "save", source_turn_id: "source",
-    failed_turns: failed, historical_bytes_preserved: true, source_binding_preserved: true,
-    failed_results_restored: true, no_write_before_adoption: true, confirmed_fact_count: 1 };
-  const records = [ui, ...failed.flatMap((entry) => ["retry", "rejected"].map((outcome) =>
-    ({ ...entry, event: "judgment.output_validation.done", outcome }))),
-    { turn_id: "save", event: "judgment.output_validation.done", reason_code: "source_required", outcome: "retry" },
+  const failed = ["source_required", "source_not_available", "invalid_tool_combination"].map(
+    (reason_code) => ({ turn_id: reason_code, reason_code, status: "failed_recoverable" }),
+  );
+  const ui = {
+    event: "slice_verify.ui_state.done",
+    slice_id: slice,
+    turn_id: "save",
+    source_turn_id: "source",
+    failed_turns: failed,
+    historical_bytes_preserved: true,
+    source_binding_preserved: true,
+    failed_results_restored: true,
+    no_write_before_adoption: true,
+    confirmed_fact_count: 1,
+  };
+  const records = [
+    ui,
+    ...failed.flatMap((entry) =>
+      ["retry", "rejected"].map((outcome) => ({
+        ...entry,
+        event: "judgment.output_validation.done",
+        outcome,
+      })),
+    ),
+    {
+      turn_id: "save",
+      event: "judgment.output_validation.done",
+      reason_code: "source_required",
+      outcome: "retry",
+    },
     { turn_id: "save", event: "judgment.decided.done" },
     { turn_id: "save", event: "judgment.author_content_materialized.done" },
-    { turn_id: "save:adopt", event: "adoption.evaluate.done" }];
+    { turn_id: "save:adopt", event: "adoption.evaluate.done" },
+  ];
 
   it("三类拒绝及纠正采纳有逐轮主链证据才通过", () => {
     const evidence = findNativeSliceEvidence(slice, records);
@@ -177,16 +409,43 @@ describe("Q3D 原文登记边界证据", () => {
   });
 
   it("缺少一种拒绝、刷新证据或误执行工具不能通过", () => {
-    expect(findNativeSliceEvidence(slice, records.filter((r) => r.turn_id !== "invalid_tool_combination"))).toBeNull();
-    expect(findNativeSliceEvidence(slice, [{ ...ui, failed_results_restored: false }, ...records.slice(1)])).toBeNull();
-    expect(findNativeSliceEvidence(slice, [...records, { turn_id: "source_required", event: "toolbox.execute.start" }])).toBeNull();
-    expect(findNativeSliceEvidence(slice, [...records, { turn_id: "invalid_tool_combination", event: "judgment.author_content_materialized.done" }])).toBeNull();
+    expect(
+      findNativeSliceEvidence(
+        slice,
+        records.filter((r) => r.turn_id !== "invalid_tool_combination"),
+      ),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        { ...ui, failed_results_restored: false },
+        ...records.slice(1),
+      ]),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        ...records,
+        { turn_id: "source_required", event: "toolbox.execute.start" },
+      ]),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        ...records,
+        { turn_id: "invalid_tool_combination", event: "judgment.author_content_materialized.done" },
+      ]),
+    ).toBeNull();
   });
 
   it("其他回合的采纳或纠正失败不能替代恢复成功", () => {
-    const unrelated = records.map((r) => r.event === "adoption.evaluate.done" ? { ...r, turn_id: "save-other:adopt" } : r);
+    const unrelated = records.map((r) =>
+      r.event === "adoption.evaluate.done" ? { ...r, turn_id: "save-other:adopt" } : r,
+    );
     expect(findNativeSliceEvidence(slice, unrelated)).toBeNull();
-    expect(findNativeSliceEvidence(slice, [...records, { turn_id: "save", event: "judgment.output_validation.done", outcome: "rejected" }])).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        ...records,
+        { turn_id: "save", event: "judgment.output_validation.done", outcome: "rejected" },
+      ]),
+    ).toBeNull();
   });
 });
 
@@ -492,8 +751,10 @@ describe("native Tauri slice verifier", () => {
       adjudicated_count: 8,
       dispositions: ["accept_drift", "dismiss", "revise_design", "revise_prose"],
       dismiss_evidence_logged: true,
-      design_intent_text: "审读报告发现「韩晟 自第1章后未再出场（停滞阈值超限）」，我选择修订设定：…",
-      prose_intent_text: "审读报告发现「白露 自第1章后未再出场（停滞阈值超限）」，我选择修订正文：…",
+      design_intent_text:
+        "审读报告发现「韩晟 自第1章后未再出场（停滞阈值超限）」，我选择修订设定：…",
+      prose_intent_text:
+        "审读报告发现「白露 自第1章后未再出场（停滞阈值超限）」，我选择修订正文：…",
       report_fully_dispositioned: true,
       premature_finale_visible: true,
       premature_finale_chapter_seq: 4,
@@ -570,7 +831,11 @@ describe("native Tauri slice verifier", () => {
       { event: "ledger.adjudicate.done", disposition: "revise_design" },
       { event: "ledger.adjudicate.done", disposition: "revise_prose" },
       { event: "ledger.adjudicate.done", disposition: "revise_design", rule: "premature_finale" },
-      { event: "ledger.adjudicate.done", disposition: "revise_design", rule: "volume_plan_mismatch" },
+      {
+        event: "ledger.adjudicate.done",
+        disposition: "revise_design",
+        rule: "volume_plan_mismatch",
+      },
       {
         event: "ledger.adjudicate.done",
         disposition: "revise_design",
@@ -1621,9 +1886,7 @@ describe("native Tauri slice verifier", () => {
         final_turn_result_arrived: true,
         author_question_present: !improve,
         source_bound_reply_action_present: !improve,
-        final_turn_result_agent_run_status: improve
-          ? "completed"
-          : "awaiting_author",
+        final_turn_result_agent_run_status: improve ? "completed" : "awaiting_author",
         final_turn_result_pending_artifact_count:
           improve || expected.allowCandidateTurnResult === true ? 1 : 0,
         final_turn_result_quality_policy_action:
@@ -1720,33 +1983,88 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
-  it.each(["agent-awaiting-author-steer-resume", "agent-awaiting-author-input-required"])("requires source-bound author_choice evidence for %s", (sliceId) => {
-    const state = { event: "slice_verify.ui_state.done", slice_id: sliceId, work_id: "work", session_id: "session",
-      parent_turn_id: "parent", run_id: "run", run_mode: "bounded", awaiting_status: "awaiting_author", terminal_status: "completed",
-      question_ref: "question", question_source_turn_ref: "question-turn", reply_action_id: "reply", reply_submission_id: "submission",
-      reply_action_type: "author_choice", reply_ack_received: true, reply_source_bound: true, adjusted_goal_version: 2,
-      bare_resume_absent: true, question_reply_hint_visible: true, question_reply_composer_visible: true,
-      empty_reply_disabled: true, blank_reply_request_count: 0, question_record_count: 1, question_answered: true,
-      reply_record_count: 1, no_second_user_message_for_reply: true, no_second_run_after_reply: true,
-      final_message_is_not_old_question: true, same_parent: true, source_controls_closed_after_reply: true,
-      run_resumed_reason_codes: ["resume_after_steer"] };
-    const logs = [
-      { event: "channel.user_message.done", work_id: "work", session_id: "session", run_id: "run", run_mode: "bounded" },
-      { event: "channel.author_action.done", work_id: "work", session_id: "session", action_type: "author_choice", action_status: "accepted", action_id: "reply", target_ref: "run", turn_id: "question-turn" }
-    ];
-    const records = [...logs, state];
-    const evidence = findNativeSliceEvidence(sliceId, records);
-    expect(evidence).toMatchObject({ question_ref: "question", adjusted_goal_version: 2, turn_ids: ["parent"] });
-    expect(findSliceBehaviorEvidence(sliceId, records, evidence)).toMatchObject({
-      behavior: "explicit_question_reply_resumes_same_run_with_immutable_source",
-      assertions: expect.arrayContaining(["question_and_reply_persisted_once_after_reload"])
-    });
-    for (const invalid of [{ question_record_count: 2 }, { reply_record_count: 2 }, { adjusted_goal_version: 3 }, { empty_reply_disabled: false }, { bare_resume_absent: false }, { reply_action_type: "steer" }]) {
-      expect(findNativeSliceEvidence(sliceId, [...logs, { ...state, ...invalid }])).toBeNull();
-    }
-    expect(findNativeSliceEvidence(sliceId, [logs[0], state])).toBeNull();
-    expect(findNativeSliceEvidence(sliceId, [logs[0], { ...logs[1], target_ref: "other-run" }, state])).toBeNull();
-  });
+  it.each(["agent-awaiting-author-steer-resume", "agent-awaiting-author-input-required"])(
+    "requires source-bound author_choice evidence for %s",
+    (sliceId) => {
+      const state = {
+        event: "slice_verify.ui_state.done",
+        slice_id: sliceId,
+        work_id: "work",
+        session_id: "session",
+        parent_turn_id: "parent",
+        run_id: "run",
+        run_mode: "bounded",
+        awaiting_status: "awaiting_author",
+        terminal_status: "completed",
+        question_ref: "question",
+        question_source_turn_ref: "question-turn",
+        reply_action_id: "reply",
+        reply_submission_id: "submission",
+        reply_action_type: "author_choice",
+        reply_ack_received: true,
+        reply_source_bound: true,
+        adjusted_goal_version: 2,
+        bare_resume_absent: true,
+        question_reply_hint_visible: true,
+        question_reply_composer_visible: true,
+        empty_reply_disabled: true,
+        blank_reply_request_count: 0,
+        question_record_count: 1,
+        question_answered: true,
+        reply_record_count: 1,
+        no_second_user_message_for_reply: true,
+        no_second_run_after_reply: true,
+        final_message_is_not_old_question: true,
+        same_parent: true,
+        source_controls_closed_after_reply: true,
+        run_resumed_reason_codes: ["resume_after_steer"],
+      };
+      const logs = [
+        {
+          event: "channel.user_message.done",
+          work_id: "work",
+          session_id: "session",
+          run_id: "run",
+          run_mode: "bounded",
+        },
+        {
+          event: "channel.author_action.done",
+          work_id: "work",
+          session_id: "session",
+          action_type: "author_choice",
+          action_status: "accepted",
+          action_id: "reply",
+          target_ref: "run",
+          turn_id: "question-turn",
+        },
+      ];
+      const records = [...logs, state];
+      const evidence = findNativeSliceEvidence(sliceId, records);
+      expect(evidence).toMatchObject({
+        question_ref: "question",
+        adjusted_goal_version: 2,
+        turn_ids: ["parent"],
+      });
+      expect(findSliceBehaviorEvidence(sliceId, records, evidence)).toMatchObject({
+        behavior: "explicit_question_reply_resumes_same_run_with_immutable_source",
+        assertions: expect.arrayContaining(["question_and_reply_persisted_once_after_reload"]),
+      });
+      for (const invalid of [
+        { question_record_count: 2 },
+        { reply_record_count: 2 },
+        { adjusted_goal_version: 3 },
+        { empty_reply_disabled: false },
+        { bare_resume_absent: false },
+        { reply_action_type: "steer" },
+      ]) {
+        expect(findNativeSliceEvidence(sliceId, [...logs, { ...state, ...invalid }])).toBeNull();
+      }
+      expect(findNativeSliceEvidence(sliceId, [logs[0], state])).toBeNull();
+      expect(
+        findNativeSliceEvidence(sliceId, [logs[0], { ...logs[1], target_ref: "other-run" }, state]),
+      ).toBeNull();
+    },
+  );
 
   it("accepts DS03 live refresh-resume evidence only when the same run reconnects and resumes in place", () => {
     const records = [
@@ -1976,9 +2294,7 @@ describe("native Tauri slice verifier", () => {
     const withNewRun = records.map((record) =>
       record.event === "slice_verify.ui_state.done" ? { ...record, no_new_run: false } : record,
     );
-    expect(
-      findNativeSliceEvidence("agent-plan-exhausted-awaiting-reason", withNewRun),
-    ).toBeNull();
+    expect(findNativeSliceEvidence("agent-plan-exhausted-awaiting-reason", withNewRun)).toBeNull();
   });
 
   it("rejects main-input steer evidence when the terminal work state disappears after the latest user message", () => {
@@ -4013,7 +4329,9 @@ describe("native Tauri slice verifier", () => {
       "turn-continuation",
       "turn-followup",
     ).map((record) =>
-      record.event === "slice_verify.ui_state.done" ? { ...record, followup_reply_present: false } : record,
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, followup_reply_present: false }
+        : record,
     );
 
     expect(findNativeSliceEvidence("au02-candidate-multiturn-context", records)).toBeNull();
@@ -6262,25 +6580,50 @@ describe("native Tauri slice verifier", () => {
     const identity = { work_id: "work-layer", session_id: "session-active", turn_id: "turn-layer" };
     const input = "继续讨论主角动机";
     const records = [
-      { event: "work_session.show.done", work_id: identity.work_id, session_id: "session-history", read_only: true },
+      {
+        event: "work_session.show.done",
+        work_id: identity.work_id,
+        session_id: "session-history",
+        read_only: true,
+      },
       { event: "channel.user_message.done", ...identity },
       {
-        event: "slice_verify.ui_state.done", slice_id: sliceId, ...identity,
-        author_turn_id: identity.turn_id, readonly_session_id: "session-history",
-        readonly_session_transcript_visible: true, readonly_input_disabled: true, active_session_restored: true,
-        trace_why_dialog_open: true, why_shows_current_work_source: true, why_shows_memory_source: true,
-        why_excludes_historical_transcript: true, context_source_types: ["current_work", "memory"],
-        message_text: input, active_session_token: "当前蓝桥计划", current_work_token: "寻找妹妹林瑶",
-        memory_token: "银槐誓约", historical_session_token: "旧稿赤塔",
+        event: "slice_verify.ui_state.done",
+        slice_id: sliceId,
+        ...identity,
+        author_turn_id: identity.turn_id,
+        readonly_session_id: "session-history",
+        readonly_session_transcript_visible: true,
+        readonly_input_disabled: true,
+        active_session_restored: true,
+        trace_why_dialog_open: true,
+        why_shows_current_work_source: true,
+        why_shows_memory_source: true,
+        why_excludes_historical_transcript: true,
+        context_source_types: ["current_work", "memory"],
+        message_text: input,
+        active_session_token: "当前蓝桥计划",
+        current_work_token: "寻找妹妹林瑶",
+        memory_token: "银槐誓约",
+        historical_session_token: "旧稿赤塔",
       },
     ];
 
     const evidence = findNativeSliceEvidence(sliceId, records);
-    expect(evidence).toMatchObject({ ...identity, author_turn_id: identity.turn_id, readonly_session_id: "session-history" });
+    expect(evidence).toMatchObject({
+      ...identity,
+      author_turn_id: identity.turn_id,
+      readonly_session_id: "session-history",
+    });
 
-    const msg = (role, provenance, text) => ({ role, provenance, blocks: [{ type: "text", text }] });
+    const msg = (role, provenance, text) => ({
+      role,
+      provenance,
+      blocks: [{ type: "text", text }],
+    });
     const body = {
-      ir_version: "authoring-request-ir/v1", tools: [],
+      ir_version: "authoring-request-ir/v1",
+      tools: [],
       messages: [
         msg("application_base", "application", "作品主线是寻找妹妹林瑶"),
         msg("user", "author", "当前蓝桥计划"),
@@ -6288,37 +6631,93 @@ describe("native Tauri slice verifier", () => {
       ],
     };
     const request = {
-      ...identity, provider_call_ref: "call-layering",
-      request_format: body.ir_version, request_body: body,
+      ...identity,
+      provider_call_ref: "call-layering",
+      request_format: body.ir_version,
+      request_body: body,
     };
     const prove = (promptRecords) =>
-      findSliceBehaviorEvidence(sliceId, records, evidence, { provider: "slice_verify", promptRecords });
+      findSliceBehaviorEvidence(sliceId, records, evidence, {
+        provider: "slice_verify",
+        promptRecords,
+      });
 
     const observed = {
-      ...request, provider_call_ref: "call-layering-observed",
-      request_body: { ...body, messages: [
-        ...body.messages,
-        { role: "assistant", provenance: "model", blocks: [
-          { type: "tool_call", call_id: "recall", name: "judgment_decision", arguments: {} },
-        ] },
-        { role: "tool", provenance: "tool", blocks: [
-          { type: "observation", call_id: "recall", content: { tool: "memory_recall", summary: "银槐誓约" } },
-        ] },
-      ] },
+      ...request,
+      provider_call_ref: "call-layering-observed",
+      request_body: {
+        ...body,
+        messages: [
+          ...body.messages,
+          {
+            role: "assistant",
+            provenance: "model",
+            blocks: [
+              { type: "tool_call", call_id: "recall", name: "judgment_decision", arguments: {} },
+            ],
+          },
+          {
+            role: "tool",
+            provenance: "tool",
+            blocks: [
+              {
+                type: "observation",
+                call_id: "recall",
+                content: { tool: "memory_recall", summary: "银槐誓约" },
+              },
+            ],
+          },
+        ],
+      },
     };
 
     expect(prove([request, observed])).toMatchObject({
-      initial_provider_call_ref: "call-layering", observed_provider_call_ref: "call-layering-observed",
+      initial_provider_call_ref: "call-layering",
+      observed_provider_call_ref: "call-layering-observed",
     });
     expect(prove([])).toBeNull();
     expect(prove([request])).toBeNull();
     expect(prove([request, { ...observed, session_id: "session-history" }])).toBeNull();
     expect(prove([request, { ...observed, turn_id: "unrelated" }])).toBeNull();
-    expect(prove([{ ...request, request_body: { ...body, messages: [
-      msg("application_base", "application", "寻找妹妹林瑶，登记原文：当前蓝桥计划"), msg("user", "author", input),
-    ] } }, observed])).toBeNull();
-    expect(prove([request, { ...observed, request_body: { ...body, messages: [msg("user", "author", "旧稿赤塔"), ...observed.request_body.messages] } }])).toBeNull();
-    expect(prove([{ ...request, request_body: { ...body, messages: [msg("scope_update", "application", "银槐誓约"), ...body.messages] } }, observed])).toBeNull();
+    expect(
+      prove([
+        {
+          ...request,
+          request_body: {
+            ...body,
+            messages: [
+              msg("application_base", "application", "寻找妹妹林瑶，登记原文：当前蓝桥计划"),
+              msg("user", "author", input),
+            ],
+          },
+        },
+        observed,
+      ]),
+    ).toBeNull();
+    expect(
+      prove([
+        request,
+        {
+          ...observed,
+          request_body: {
+            ...body,
+            messages: [msg("user", "author", "旧稿赤塔"), ...observed.request_body.messages],
+          },
+        },
+      ]),
+    ).toBeNull();
+    expect(
+      prove([
+        {
+          ...request,
+          request_body: {
+            ...body,
+            messages: [msg("scope_update", "application", "银槐誓约"), ...body.messages],
+          },
+        },
+        observed,
+      ]),
+    ).toBeNull();
   });
 
   it("finds startup context evidence after resume UI reports connected work/session state", () => {
@@ -8170,18 +8569,12 @@ describe("native Tauri slice verifier", () => {
 
   it("accepts non-exploration frame behavior without action or write semantics", () => {
     const records = gapWt04NonExplorationFrameRecords();
-    const evidence = findNativeSliceEvidence(
-      "gap-wt04-non-exploration-frame-badges",
-      records,
-    );
+    const evidence = findNativeSliceEvidence("gap-wt04-non-exploration-frame-badges", records);
 
     expect(
-      findSliceBehaviorEvidence(
-        "gap-wt04-non-exploration-frame-badges",
-        records,
-        evidence,
-        { provider: "slice_verify" },
-      ),
+      findSliceBehaviorEvidence("gap-wt04-non-exploration-frame-badges", records, evidence, {
+        provider: "slice_verify",
+      }),
     ).toEqual({
       slice_id: "gap-wt04-non-exploration-frame-badges",
       behavior: "non_exploration_frames_are_visibly_distinct_without_execution",
@@ -9105,17 +9498,9 @@ describe("native Tauri slice verifier", () => {
       scoped_outline_blueprint: au08ScopedBlueprint(),
       scoped_outline_chapter_titles: au08ScopedChapterTitles(),
       scoped_outline_chapter_seqs: [13, 14, 15],
-      scoped_outline_volume_assignments: [
-        "第三卷·归墟",
-        "第三卷·归墟",
-        "第三卷·归墟",
-      ],
+      scoped_outline_volume_assignments: ["第三卷·归墟", "第三卷·归墟", "第三卷·归墟"],
       scoped_outline_adopted: true,
-      three_volume_headers: [
-        "第一卷·觉醒 · 5章",
-        "第二卷·裂变 · 7章",
-        "第三卷·归墟 · 3章",
-      ],
+      three_volume_headers: ["第一卷·觉醒 · 5章", "第二卷·裂变 · 7章", "第三卷·归墟 · 3章"],
       three_volume_chapter_counts: [5, 7, 3],
       three_volume_chapter_titles: [
         au08VolumeOneChapters(),
@@ -9163,11 +9548,7 @@ describe("native Tauri slice verifier", () => {
       third_volume_blueprint: au08ThirdVolumeBlueprint(),
       previous_volumes_unchanged: true,
       chapter_seq_continuity: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-      reading_toc_volume_headers_after_third_volume: [
-        "第一卷·觉醒",
-        "第二卷·裂变",
-        "第三卷·归墟",
-      ],
+      reading_toc_volume_headers_after_third_volume: ["第一卷·觉醒", "第二卷·裂变", "第三卷·归墟"],
       reading_toc_three_volumes: true,
       planning_scope_in_planner_prompt: true,
       planning_scope_prompt_fragments: au08PlanningScopePromptFragments(),
@@ -9289,11 +9670,7 @@ describe("native Tauri slice verifier", () => {
       scoped_outline_volume_blueprint_lines: [au08ScopedBlueprintLine()],
       scoped_outline_chapter_titles: au08ScopedChapterTitles(),
       scoped_outline_chapter_seqs: [13, 14, 15],
-      three_volume_headers: [
-        "第一卷·觉醒 · 5章",
-        "第二卷·裂变 · 7章",
-        "第三卷·归墟 · 3章",
-      ],
+      three_volume_headers: ["第一卷·觉醒 · 5章", "第二卷·裂变 · 7章", "第三卷·归墟 · 3章"],
       three_volume_chapter_counts: [5, 7, 3],
       planning_scope_prompt_fragments: au08PlanningScopePromptFragments(),
       assertions: [
@@ -9695,7 +10072,14 @@ describe("native Tauri slice verifier", () => {
     expect(evidence).toEqual({
       slice_id: "wr01-chapter-mission-author-decision",
       turn_id: "turn-b:agent:4",
-      turn_ids: ["turn-a", "turn-b", "turn-a:agent:3", "turn-a:agent:4", "turn-b:agent:3", "turn-b:agent:4"],
+      turn_ids: [
+        "turn-a",
+        "turn-b",
+        "turn-a:agent:3",
+        "turn-a:agent:4",
+        "turn-b:agent:3",
+        "turn-b:agent:4",
+      ],
       first_run_id: "run-a",
       second_run_id: "run-b",
       chapter_ref: "ch-3",
@@ -9720,9 +10104,7 @@ describe("native Tauri slice verifier", () => {
         ? { ...record, source: "model", provider_call_count: 1 }
         : record,
     );
-    expect(
-      findNativeSliceEvidence("wr01-chapter-mission-author-decision", modelAgain),
-    ).toBeNull();
+    expect(findNativeSliceEvidence("wr01-chapter-mission-author-decision", modelAgain)).toBeNull();
 
     const wrongBriefRef = records.map((record) =>
       record.event === "prose_execution_brief.built.done"
@@ -9807,9 +10189,7 @@ describe("native Tauri slice verifier", () => {
           }
         : record,
     );
-    expect(
-      findNativeSliceEvidence("wr02-planning-mission-before-outline", leakedBasis),
-    ).toBeNull();
+    expect(findNativeSliceEvidence("wr02-planning-mission-before-outline", leakedBasis)).toBeNull();
 
     const wroteProduction = records.map((record) =>
       record.event === "slice_verify.ui_state.done" ? { ...record, no_write: false } : record,
@@ -9830,7 +10210,12 @@ describe("native Tauri slice verifier", () => {
       prose_carried: ["target_structure", "creative_facts", "execution_brief", "dialogue_context"],
       prose_gated: ["planning_mission", "roster_payload"],
       prose_empty: ["prior_prose", "style_guide", "work_skeleton"],
-      planning_carried: ["creative_facts", "planning_mission", "progress_state", "dialogue_context"],
+      planning_carried: [
+        "creative_facts",
+        "planning_mission",
+        "progress_state",
+        "dialogue_context",
+      ],
       planning_gated: ["target_structure", "execution_brief"],
       planning_empty: ["work_skeleton", "style_guide"],
       prose_prior_prose_empty_not_gated: true,
@@ -9873,21 +10258,25 @@ describe("native Tauri slice verifier", () => {
     // work_skeleton 被门挡（CA04 后不允许）/ 规划把 creative_facts 挡回去 → 不成立
     const skeletonGated = records.map((record) =>
       record.event === "context.carry.done" && record.capability === "prose_writing"
-        ? { ...record, gated: [...record.gated, "work_skeleton"], empty: ["prior_prose", "style_guide"] }
+        ? {
+            ...record,
+            gated: [...record.gated, "work_skeleton"],
+            empty: ["prior_prose", "style_guide"],
+          }
         : record,
     );
-    expect(
-      findNativeSliceEvidence("ca03-carry-registry-observability", skeletonGated),
-    ).toBeNull();
+    expect(findNativeSliceEvidence("ca03-carry-registry-observability", skeletonGated)).toBeNull();
 
     const factsGatedBack = records.map((record) =>
       record.event === "context.carry.done" && record.capability === "plot_outline"
-        ? { ...record, carried: ["planning_mission", "progress_state", "dialogue_context"], gated: [...record.gated, "creative_facts"] }
+        ? {
+            ...record,
+            carried: ["planning_mission", "progress_state", "dialogue_context"],
+            gated: [...record.gated, "creative_facts"],
+          }
         : record,
     );
-    expect(
-      findNativeSliceEvidence("ca03-carry-registry-observability", factsGatedBack),
-    ).toBeNull();
+    expect(findNativeSliceEvidence("ca03-carry-registry-observability", factsGatedBack)).toBeNull();
   });
 
   it("requires approved carry gate changes to take effect while deferred gates stay (CA04)", () => {
@@ -10027,7 +10416,11 @@ describe("native Tauri slice verifier", () => {
       "t-2:agent:4",
     ]);
 
-    const behavior = findSliceBehaviorEvidence("wr01c-planning-mission-decision", records, evidence);
+    const behavior = findSliceBehaviorEvidence(
+      "wr01c-planning-mission-decision",
+      records,
+      evidence,
+    );
     expect(behavior?.assertions).toContain(
       "second_planning_run_took_author_version_with_zero_mission_provider_calls",
     );
@@ -10041,9 +10434,7 @@ describe("native Tauri slice verifier", () => {
     expect(findNativeSliceEvidence("wr01c-planning-mission-decision", modelCalled)).toBeNull();
 
     // 改写没走 author_action 决策面 → 不成立
-    const noRewrite = records.filter(
-      (record) => record.action_type !== "rewrite_planning_mission",
-    );
+    const noRewrite = records.filter((record) => record.action_type !== "rewrite_planning_mission");
     expect(findNativeSliceEvidence("wr01c-planning-mission-decision", noRewrite)).toBeNull();
   });
 
@@ -10120,10 +10511,7 @@ describe("native Tauri slice verifier", () => {
       repair_completed: true,
       repaired_summary_in_prompt: true,
     };
-    const records = [
-      uiState,
-      { event: "chapter_summary_repair.run.done", chapter_id: "ch-1" },
-    ];
+    const records = [uiState, { event: "chapter_summary_repair.run.done", chapter_id: "ch-1" }];
 
     const evidence = findNativeSliceEvidence("d3-summary-lazy-repair", records);
     expect(evidence?.repaired_chapter_id).toBe("ch-1");
@@ -10205,9 +10593,7 @@ describe("native Tauri slice verifier", () => {
     expect(evidence?.turn_ids).toEqual(["t-1", "t-1:agent:5"]);
 
     const behavior = findSliceBehaviorEvidence("d4-planner-transient-retry", records, evidence);
-    expect(behavior?.assertions).toContain(
-      "planner_retried_same_prompt_once_and_logged_it",
-    );
+    expect(behavior?.assertions).toContain("planner_retried_same_prompt_once_and_logged_it");
 
     // retry 事件缺席 → 不成立
     const noRetry = records.filter((record) => record.event !== "plan_draft.retry.start");
@@ -13653,8 +14039,7 @@ function au08VolumeStructuredPlanningRecords({ uiStateOverrides = {}, tocOverrid
       prose_parent_turn_id: proseParentTurnId,
       prose_turn_chapter_title: "第01章：觉醒",
       prose_turn_volume_title: "第一卷·觉醒",
-      prose_user_message_text:
-        "请根据已采纳章节计划生成第01章：觉醒正文草稿，保持为待采纳草稿。",
+      prose_user_message_text: "请根据已采纳章节计划生成第01章：觉醒正文草稿，保持为待采纳草稿。",
       prose_draft_pending: true,
       prose_draft_card_visible: true,
       volume_blueprint_in_writer_prompt: true,
@@ -13706,19 +14091,11 @@ function au08VolumeStructuredPlanningRecords({ uiStateOverrides = {}, tocOverrid
       scoped_outline_blueprint: scopedBlueprint,
       scoped_outline_chapter_titles: scopedChapterTitles,
       scoped_outline_chapter_seqs: [13, 14, 15],
-      scoped_outline_volume_assignments: [
-        scopedVolumeTitle,
-        scopedVolumeTitle,
-        scopedVolumeTitle,
-      ],
+      scoped_outline_volume_assignments: [scopedVolumeTitle, scopedVolumeTitle, scopedVolumeTitle],
       scoped_outline_adopted: true,
       scoped_accept_payload: { action: { action_type: "accept" } },
       scoped_action_result_status: "accepted",
-      three_volume_headers: [
-        "第一卷·觉醒 · 5章",
-        "第二卷·裂变 · 7章",
-        "第三卷·归墟 · 3章",
-      ],
+      three_volume_headers: ["第一卷·觉醒 · 5章", "第二卷·裂变 · 7章", "第三卷·归墟 · 3章"],
       three_volume_chapter_counts: [5, 7, 3],
       three_volume_chapter_titles: [
         au08VolumeOneChapters(),
@@ -13767,9 +14144,7 @@ function au08VolumeStructuredPlanningRecords({ uiStateOverrides = {}, tocOverrid
       ],
       third_volume_blueprint: thirdVolumeBlueprint,
       previous_volumes_unchanged: true,
-      chapter_seq_continuity: [
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
-      ],
+      chapter_seq_continuity: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
       reading_toc_volume_headers_after_third_volume: [
         "第一卷·觉醒",
         "第二卷·裂变",
@@ -15366,33 +15741,68 @@ function au04LatestContextRebaseConfirmationRecords() {
   ];
 }
 
-
 describe("Q3D 长会话待办证据", () => {
   const slice = "q3d-long-session-adoption-state";
   const ids = Array.from({ length: 15 }, (_, n) => `source-${n}`);
-  const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_id: ids[0], turn_ids: ids,
-    query_turn_id: "query", count_turn_id: "count", pending_count_before: 15, pending_count_after: 14,
-    omitted_count: 3, confirmed_fact_count: 1, history_rounds_before: 45, history_rounds_after: 45,
-    transcript_stays_paged: true, work_scope_isolated: true, old_action_enabled: true, terminal_survives_window: true };
-  const records = [ui, ...ids.map((turn_id) => ({ turn_id, event: "judgment.author_content_materialized.done" })),
+  const ui = {
+    event: "slice_verify.ui_state.done",
+    slice_id: slice,
+    turn_id: ids[0],
+    turn_ids: ids,
+    query_turn_id: "query",
+    count_turn_id: "count",
+    pending_count_before: 15,
+    pending_count_after: 14,
+    omitted_count: 3,
+    confirmed_fact_count: 1,
+    history_rounds_before: 45,
+    history_rounds_after: 45,
+    transcript_stays_paged: true,
+    work_scope_isolated: true,
+    old_action_enabled: true,
+    terminal_survives_window: true,
+  };
+  const records = [
+    ui,
+    ...ids.map((turn_id) => ({ turn_id, event: "judgment.author_content_materialized.done" })),
     { turn_id: "query", event: "judgment.decided.done", action: "explore" },
     { turn_id: "count", event: "judgment.decided.done", action: "reply" },
-    { turn_id: "source-0:adopt", event: "adoption.evaluate.done" }];
+    { turn_id: "source-0:adopt", event: "adoption.evaluate.done" },
+  ];
   it("完整生成、查询与原回合采纳日志绑定才能通过", () => {
     const evidence = findNativeSliceEvidence(slice, records);
     expect(evidence).not.toBeNull();
     expect(findSliceBehaviorEvidence(slice, records, evidence)).not.toBeNull();
     expect(findNativeSliceEvidence(slice, [ui])).toBeNull();
-    expect(findNativeSliceEvidence(slice, records.filter((r) => r.turn_id !== "query"))).toBeNull();
+    expect(
+      findNativeSliceEvidence(
+        slice,
+        records.filter((r) => r.turn_id !== "query"),
+      ),
+    ).toBeNull();
   });
   it("短会话、不可操作或无关采纳不能充当完整闭环", () => {
-    for (const change of [{ history_rounds_before: 20 }, { work_scope_isolated: false }, { old_action_enabled: false }, { omitted_count: 0 }, { terminal_survives_window: false }]) {
-      expect(findNativeSliceEvidence(slice, [{ ...ui, ...change }, ...records.slice(1)])).toBeNull();
+    for (const change of [
+      { history_rounds_before: 20 },
+      { work_scope_isolated: false },
+      { old_action_enabled: false },
+      { omitted_count: 0 },
+      { terminal_survives_window: false },
+    ]) {
+      expect(
+        findNativeSliceEvidence(slice, [{ ...ui, ...change }, ...records.slice(1)]),
+      ).toBeNull();
     }
-    expect(findNativeSliceEvidence(slice, records.map((r) => r.event === "adoption.evaluate.done" ? { ...r, turn_id: "source-00:adopt" } : r))).toBeNull();
+    expect(
+      findNativeSliceEvidence(
+        slice,
+        records.map((r) =>
+          r.event === "adoption.evaluate.done" ? { ...r, turn_id: "source-00:adopt" } : r,
+        ),
+      ),
+    ).toBeNull();
   });
 });
-
 
 describe("Q3D 消息投递恢复证据", () => {
   const slice = "q3d-message-delivery-recovery";
@@ -15400,14 +15810,42 @@ describe("Q3D 消息投递恢复证据", () => {
     { turn_id: "done", run_id: "run-done", method: "reload", receipt_status: "completed" },
     { turn_id: "fail", run_id: "run-fail", method: "reload", receipt_status: "failed" },
     { turn_id: "live", run_id: "run-live", method: "disconnect", receipt_status: "running" },
-    { turn_id: "dead", run_id: "run-dead", method: "restart", receipt_status: "running", runtime_live: false },
+    {
+      turn_id: "dead",
+      run_id: "run-dead",
+      method: "restart",
+      receipt_status: "running",
+      runtime_live: false,
+    },
   ].map((entry) => ({ ...entry, input_count: 1, run_count: 1 }));
-  const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_id: "done", cases,
-    fresh_message_id: "fresh", dropped_frame_count: 4, steer_submission_id: "steer-message", steer_run_id: "steer-run", steer_goal_version: 2, steer_retransmission_count: 2, steer_input_restored_once: true, assistant_replay_deduplicated: true, immutable_inputs: true, one_run_per_message: true, pending_deliveries_cleared: true, rejected_original_retained: true, rejected_not_retried: true };
-  const records = [ui, ...cases.flatMap((entry) => [0, 1].flatMap(() => [
-    { event: "channel.user_message.start", turn_id: entry.turn_id },
-    { event: "channel.user_message.done", turn_id: entry.turn_id, run_id: entry.run_id },
-  ]))];
+  const ui = {
+    event: "slice_verify.ui_state.done",
+    slice_id: slice,
+    turn_id: "done",
+    cases,
+    fresh_message_id: "fresh",
+    dropped_frame_count: 4,
+    steer_submission_id: "steer-message",
+    steer_run_id: "steer-run",
+    steer_goal_version: 2,
+    steer_retransmission_count: 2,
+    steer_input_restored_once: true,
+    assistant_replay_deduplicated: true,
+    immutable_inputs: true,
+    one_run_per_message: true,
+    pending_deliveries_cleared: true,
+    rejected_original_retained: true,
+    rejected_not_retried: true,
+  };
+  const records = [
+    ui,
+    ...cases.flatMap((entry) =>
+      [0, 1].flatMap(() => [
+        { event: "channel.user_message.start", turn_id: entry.turn_id },
+        { event: "channel.user_message.done", turn_id: entry.turn_id, run_id: entry.run_id },
+      ]),
+    ),
+  ];
   it("四类故障均与重复接收但同运行的主链日志绑定才通过", () => {
     const evidence = findNativeSliceEvidence(slice, records);
     expect(evidence).not.toBeNull();
@@ -15415,12 +15853,26 @@ describe("Q3D 消息投递恢复证据", () => {
     expect(findNativeSliceEvidence(slice, [ui])).toBeNull();
   });
   it("重复运行、虚假活进程或作者新发复用旧身份均不通过", () => {
-    expect(findNativeSliceEvidence(slice, [...records, { event: "channel.user_message.done", turn_id: "done", run_id: "another-run" }])).toBeNull();
-    expect(findNativeSliceEvidence(slice, [{ ...ui, fresh_message_id: "done" }, ...records.slice(1)])).toBeNull();
-    expect(findNativeSliceEvidence(slice, [{ ...ui, cases: cases.map((c) => c.method === "restart" ? { ...c, runtime_live: true } : c) }, ...records.slice(1)])).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        ...records,
+        { event: "channel.user_message.done", turn_id: "done", run_id: "another-run" },
+      ]),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [{ ...ui, fresh_message_id: "done" }, ...records.slice(1)]),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        {
+          ...ui,
+          cases: cases.map((c) => (c.method === "restart" ? { ...c, runtime_live: true } : c)),
+        },
+        ...records.slice(1),
+      ]),
+    ).toBeNull();
   });
 });
-
 
 // SU01 本地 Strata provider：registry/端点/真实模型列表/连接/真实 turn/LLM HTTP 日志
 // 必须同源绑定；命令日志或 UI 文案不能替代 live provider 的 HTTP 2xx 证据。
@@ -15459,12 +15911,20 @@ describe("SU01 本地 Strata provider 证据", () => {
     { event: "channel.join.done", work_id: workId },
     ui,
     ...turnEvents.map((event) => ({ event, turn_id: turnId })),
-    { event: "provider_gateway.complete.done", turn_id: turnId, provider: "strata", model: "iq3_s" },
+    {
+      event: "provider_gateway.complete.done",
+      turn_id: turnId,
+      provider: "strata",
+      model: "iq3_s",
+    },
   ];
   const llmRecords = [
-    { turn_id: turnId, provider: "strata",
+    {
+      turn_id: turnId,
+      provider: "strata",
       request: { method: "POST", url: "http://127.0.0.1:47831/v1/chat/completions" },
-      response: { status: 200 } },
+      response: { status: 200 },
+    },
   ];
 
   it("registry/端点/模型/连接/真实 turn/HTTP 2xx 全齐才通过", () => {
@@ -15472,28 +15932,70 @@ describe("SU01 本地 Strata provider 证据", () => {
     expect(evidence).not.toBeNull();
     expect(evidence.live_provider).toBe("strata");
     expect(findLiveProviderEvidence("strata", [turnId], llmRecords)).not.toBeNull();
-    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "strata", llmRecords })).not.toBeNull();
+    expect(
+      findSliceBehaviorEvidence(slice, records, evidence, { provider: "strata", llmRecords }),
+    ).not.toBeNull();
   });
 
   it("缺 live HTTP 证据、未用 --provider strata 或 gateway 未走 strata 均不通过", () => {
     const evidence = findNativeSliceEvidence(slice, records);
-    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "strata", llmRecords: [] })).toBeNull();
-    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "slice_verify", llmRecords })).toBeNull();
-    const withoutGateway = records.filter((record) => record.event !== "provider_gateway.complete.done");
+    expect(
+      findSliceBehaviorEvidence(slice, records, evidence, { provider: "strata", llmRecords: [] }),
+    ).toBeNull();
+    expect(
+      findSliceBehaviorEvidence(slice, records, evidence, { provider: "slice_verify", llmRecords }),
+    ).toBeNull();
+    const withoutGateway = records.filter(
+      (record) => record.event !== "provider_gateway.complete.done",
+    );
     expect(findNativeSliceEvidence(slice, withoutGateway)).toBeNull();
     const otherProvider = records.map((record) =>
-      record.event === "provider_gateway.complete.done" ? { ...record, provider: "lmstudio" } : record,
+      record.event === "provider_gateway.complete.done"
+        ? { ...record, provider: "lmstudio" }
+        : record,
     );
     expect(findNativeSliceEvidence(slice, otherProvider)).toBeNull();
-    expect(findNativeSliceEvidence(slice, [{ ...ui, connection_test_passed: false }, ...records.slice(1)])).toBeNull();
-    expect(findNativeSliceEvidence(slice, [{ ...ui, endpoint_default: "http://localhost:1234/v1" }, ...records.slice(1)])).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        { ...ui, connection_test_passed: false },
+        ...records.slice(1),
+      ]),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        { ...ui, endpoint_default: "http://localhost:1234/v1" },
+        ...records.slice(1),
+      ]),
+    ).toBeNull();
     // 2026-10-22 方案修正：per-profile 旧端点 / 端点输入框重新出现 / 模型不在实时列表
     // 都不允许通过——统一后台端点与 App 管理模型必须同源。
-    expect(findNativeSliceEvidence(slice, [{ ...ui, endpoint_default: "http://127.0.0.1:8081/v1" }, ...records.slice(1)])).toBeNull();
-    expect(findNativeSliceEvidence(slice, [{ ...ui, endpoint_input_hidden: false }, ...records.slice(1)])).toBeNull();
-    expect(findNativeSliceEvidence(slice, [{ ...ui, provider_options_endpoint_fixed: false }, ...records.slice(1)])).toBeNull();
-    expect(findNativeSliceEvidence(slice, [{ ...ui, listed_model_ids: [] }, ...records.slice(1)])).toBeNull();
-    expect(findNativeSliceEvidence(slice, [{ ...ui, assistant_reply_non_empty: false }, ...records.slice(1)])).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        { ...ui, endpoint_default: "http://127.0.0.1:8081/v1" },
+        ...records.slice(1),
+      ]),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        { ...ui, endpoint_input_hidden: false },
+        ...records.slice(1),
+      ]),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        { ...ui, provider_options_endpoint_fixed: false },
+        ...records.slice(1),
+      ]),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [{ ...ui, listed_model_ids: [] }, ...records.slice(1)]),
+    ).toBeNull();
+    expect(
+      findNativeSliceEvidence(slice, [
+        { ...ui, assistant_reply_non_empty: false },
+        ...records.slice(1),
+      ]),
+    ).toBeNull();
   });
 });
 
@@ -15535,8 +16037,18 @@ describe("B21 多场计划首次 append 场名证据", () => {
   };
   const chainRecords = [
     { event: "channel.user_message.start", turn_id: turnId, generate_micro_plan: true },
-    { event: "toolbox.execute.done", turn_id: turnId, tool_name: "prose_writing", tool_outcome: "succeeded" },
-    { event: "channel.author_action.done", turn_id: turnId, action_type: "accept", action_status: "accepted" },
+    {
+      event: "toolbox.execute.done",
+      turn_id: turnId,
+      tool_name: "prose_writing",
+      tool_outcome: "succeeded",
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: turnId,
+      action_type: "accept",
+      action_status: "accepted",
+    },
     { event: "channel.get_toc.done", work_id: workId, chapter_count: 1 },
     { event: "channel.get_chapter_content.done", work_id: workId, content_chars: 120 },
   ];
@@ -15599,7 +16111,9 @@ describe("B24 全章分页读取证据（chapter_ref 唯一寻址 + 续读）", 
     if (offset === 0) {
       lines.push(`【计划】${planText}`, `【摘要】${summaryText}`);
     }
-    lines.push(`【正文】第 ${rangeStart}–${rangeEnd} 字符 / 共 7000 字符（有效字数 6244）\n${prose}`);
+    lines.push(
+      `【正文】第 ${rangeStart}–${rangeEnd} 字符 / 共 7000 字符（有效字数 6244）\n${prose}`,
+    );
     if (nextOffset != null) {
       lines.push(
         `【续读】剩余 ${7000 - rangeEnd} 字符；用 ${JSON.stringify({
@@ -15788,13 +16302,16 @@ describe("B24 全章分页读取证据（chapter_ref 唯一寻址 + 续读）", 
       record.event === "slice_verify.ws_agent_event" && record.sequence === 2
         ? {
             ...record,
-            payload: { ...record.payload, summary: observationSummary({
-              offset: 6000,
-              rangeStart: 6001,
-              rangeEnd: 7000,
-              prose: page2Prose,
-              nextOffset: null,
-            }).replace("第 6001–7000 字符", "第 6000–7000 字符") },
+            payload: {
+              ...record.payload,
+              summary: observationSummary({
+                offset: 6000,
+                rangeStart: 6001,
+                rangeEnd: 7000,
+                prose: page2Prose,
+                nextOffset: null,
+              }).replace("第 6001–7000 字符", "第 6000–7000 字符"),
+            },
           }
         : record,
     );
@@ -15915,12 +16432,20 @@ describe("业务日志噪声通用断言（ADR-0018 §6）", () => {
   it("正常路径出现 error 级即失败", () => {
     const records = [
       ...normalTurnRecords,
-      { turn_id: "turn-log:agent:2", event: "toolbox.execute.error", level: "error", outcome: "error" },
+      {
+        turn_id: "turn-log:agent:2",
+        event: "toolbox.execute.error",
+        level: "error",
+        outcome: "error",
+      },
     ];
     // 注意：出现 .error 事件会把该 base turn 归为失败恢复路径；要测「正常路径
     // 混入 error 级」，用 outcome=error 但事件名非失败族（如 done 相带 error 结果）。
     const result = evaluateAppLogNoise(
-      [...normalTurnRecords, { turn_id: "turn-log", event: "judgment.decided.done", level: "error", outcome: "ok" }],
+      [
+        ...normalTurnRecords,
+        { turn_id: "turn-log", event: "judgment.decided.done", level: "error", outcome: "ok" },
+      ],
       evidence,
     );
     expect(result.ok).toBe(false);
@@ -15945,7 +16470,12 @@ describe("业务日志噪声通用断言（ADR-0018 §6）", () => {
 
   it("失败恢复路径允许 error 级但不超过 60 行", () => {
     const failureRecords = [
-      { turn_id: "turn-log", event: "agent_run.run_failed.error", level: "error", outcome: "error" },
+      {
+        turn_id: "turn-log",
+        event: "agent_run.run_failed.error",
+        level: "error",
+        outcome: "error",
+      },
       ...Array.from({ length: 59 }, (_, index) => ({
         turn_id: "turn-log",
         event: `module.step_${index}.done`,
@@ -15959,7 +16489,10 @@ describe("业务日志噪声通用断言（ADR-0018 §6）", () => {
     expect(ok.turns[0].max_lines).toBe(60);
 
     const overflow = evaluateAppLogNoise(
-      [...failureRecords, { turn_id: "turn-log", event: "module.extra.done", level: "info", outcome: "ok" }],
+      [
+        ...failureRecords,
+        { turn_id: "turn-log", event: "module.extra.done", level: "info", outcome: "ok" },
+      ],
       evidence,
     );
     expect(overflow.ok).toBe(false);
@@ -16032,16 +16565,22 @@ describe("B22 慢流存活证据", () => {
     const evidence = findNativeSliceEvidence(slice, records);
     expect(evidence?.turn_id).toBe(turnId);
     expect(evidence?.streamed_ms).toBe(8_400);
-    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio" })).not.toBeNull();
+    expect(
+      findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio" }),
+    ).not.toBeNull();
   });
 
   it("timeout 误杀 / 流太短 / 等待时长未出现 / 写入事实都不能通过", () => {
     const timeout = records.map((r) =>
-      r.event === "provider_gateway.complete.done" ? { ...r, event: "provider_gateway.complete.error", reason_code: "timeout" } : r,
+      r.event === "provider_gateway.complete.done"
+        ? { ...r, event: "provider_gateway.complete.error", reason_code: "timeout" }
+        : r,
     );
     expect(findNativeSliceEvidence(slice, timeout)).toBeNull();
 
-    const short = records.map((r) => (r.event === "slice_verify.ui_state.done" ? { ...r, streamed_ms: 2_000 } : r));
+    const short = records.map((r) =>
+      r.event === "slice_verify.ui_state.done" ? { ...r, streamed_ms: 2_000 } : r,
+    );
     expect(findNativeSliceEvidence(slice, short)).toBeNull();
 
     const noElapsed = records.map((r) =>
@@ -16139,8 +16678,7 @@ describe("B25 同名章节身份统一证据", () => {
     expect(findNativeSliceEvidence(slice, merged)).toBeNull();
 
     const wroteFirst = records.map((record) =>
-      record.event === "channel.get_chapter_content.done" &&
-      record.chapter_id === firstChapterId
+      record.event === "channel.get_chapter_content.done" && record.chapter_id === firstChapterId
         ? { ...record, scene_count: 1, content_chars: 20 }
         : record,
     );
@@ -16153,9 +16691,7 @@ describe("B25 同名章节身份统一证据", () => {
     );
     expect(findNativeSliceEvidence(slice, leaked)).toBeNull();
 
-    const noAccept = records.filter(
-      (record) => record.event !== "channel.author_action.done",
-    );
+    const noAccept = records.filter((record) => record.event !== "channel.author_action.done");
     expect(findNativeSliceEvidence(slice, noAccept)).toBeNull();
   });
 
@@ -16180,7 +16716,10 @@ describe("B47 canon freshness 页面矩阵判定", () => {
   }
 
   function trial(scenario, overrides = {}) {
-    const oldDrafts = [draft("d-old-1", 2, "ACCEPTED", "sha-old-1"), draft("d-old-2", 2, "ACCEPTED", "sha-old-2")];
+    const oldDrafts = [
+      draft("d-old-1", 2, "ACCEPTED", "sha-old-1"),
+      draft("d-old-2", 2, "ACCEPTED", "sha-old-2"),
+    ];
     const freshDrafts = [
       draft("d-old-1", 3, "SUPERSEDED", "sha-old-1"),
       draft("d-old-2", 3, "SUPERSEDED", "sha-old-2"),
@@ -16189,7 +16728,9 @@ describe("B47 canon freshness 页面矩阵判定", () => {
     const snapshot = (drafts, mutation = 3) => ({
       drafts,
       mutation_count: mutation,
-      accepted_draft_refs: drafts.filter((item) => item.status === "ACCEPTED").map((item) => item.draft_ref),
+      accepted_draft_refs: drafts
+        .filter((item) => item.status === "ACCEPTED")
+        .map((item) => item.draft_ref),
     });
     const base = {
       scenario,
@@ -16244,8 +16785,10 @@ describe("B47 canon freshness 页面矩阵判定", () => {
       });
     }
     const merged = { ...base, ...overrides };
-    if (overrides.action_result) merged.action_result = { ...base.action_result, ...overrides.action_result };
-    if (overrides.turn_result) merged.turn_result = { ...base.turn_result, ...overrides.turn_result };
+    if (overrides.action_result)
+      merged.action_result = { ...base.action_result, ...overrides.action_result };
+    if (overrides.turn_result)
+      merged.turn_result = { ...base.turn_result, ...overrides.turn_result };
     if (overrides.after) merged.after = overrides.after;
     return merged;
   }
@@ -16276,8 +16819,12 @@ describe("B47 canon freshness 页面矩阵判定", () => {
       provider: "slice_verify",
     });
     expect(behavior).not.toBeNull();
-    expect(behavior.assertions).toContain("stale_candidate_rejected_with_zero_write_and_recovery_copy");
-    expect(behavior.assertions).toContain("fresh_baseline_adoption_accepted_and_supersedes_old_drafts");
+    expect(behavior.assertions).toContain(
+      "stale_candidate_rejected_with_zero_write_and_recovery_copy",
+    );
+    expect(behavior.assertions).toContain(
+      "fresh_baseline_adoption_accepted_and_supersedes_old_drafts",
+    );
   });
 
   it("拒绝 stale/conflict 发生写入或 reason code 不符的矩阵", () => {
@@ -16286,12 +16833,19 @@ describe("B47 canon freshness 页面矩阵判定", () => {
     });
     expect(findNativeSliceEvidence("b47-canon-freshness", written)).not.toBeNull();
     expect(
-      findSliceBehaviorEvidence("b47-canon-freshness", written, findNativeSliceEvidence("b47-canon-freshness", written), {
-        provider: "slice_verify",
-      }),
+      findSliceBehaviorEvidence(
+        "b47-canon-freshness",
+        written,
+        findNativeSliceEvidence("b47-canon-freshness", written),
+        {
+          provider: "slice_verify",
+        },
+      ),
     ).toBeNull();
 
-    const wrongReason = b47Records({ conflict: { action_result: { reason_codes: ["something_else"] } } });
+    const wrongReason = b47Records({
+      conflict: { action_result: { reason_codes: ["something_else"] } },
+    });
     expect(
       findSliceBehaviorEvidence(
         "b47-canon-freshness",

@@ -39,7 +39,10 @@ export async function createWork(input: { title: string; genre?: string }): Prom
   return body.work;
 }
 
-export async function ensureInitialWork(input: { title: string; genre?: string }): Promise<WorkDto> {
+export async function ensureInitialWork(input: {
+  title: string;
+  genre?: string;
+}): Promise<WorkDto> {
   const res = await fetch(url("/api/works/ensure-initial"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -15,7 +15,8 @@ function fakeTarget() {
   const handlers = new Map<string, (event: unknown) => void>();
   const target = {
     handlers,
-    addEventListener: (type: string, listener: (event: unknown) => void) => handlers.set(type, listener),
+    addEventListener: (type: string, listener: (event: unknown) => void) =>
+      handlers.set(type, listener),
     removeEventListener: (type: string, listener: (event: unknown) => void) => {
       if (handlers.get(type) === listener) handlers.delete(type);
     },

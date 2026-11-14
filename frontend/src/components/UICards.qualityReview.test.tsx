@@ -183,5 +183,4 @@ describe("QualityReviewCard", () => {
     expect(text).toContain("第 2 场 · 情绪迁移");
     expect(text).toContain(CARD.qualityReview.sceneScopeNote);
   });
-
 });
