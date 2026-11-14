@@ -1,7 +1,7 @@
 # B84：全项目测试环境作用域、fixture 体系与剩余架构/测试债务
 
-- 状态：**doing（A0完成；A1/A2已有实施，A2随R01 WIP与b71-pending债务保留；A3/A4及A5 macOS已有验收记录；2026-11-14：REV-01 独立复核仍开放（必要PGID缺失、外部borrowed未登记、回归早期失败收尾待补）；REV-02 仍开放；REV-03/06 源码修复进展保留；REV-05 资源兜底/shutdown屏障/失败退出探针已补（16/16）；REV-04 精确发布-退出回归已入库（scope 71/71）；B84未签收；Windows/Linux不在本次验收范围）**
-- 独立审查报告：[B84 实现审查（2026-11-14）](../../reports/2026-11-14-b84-implementation-review.md)；最新整改见[报告 §14](../../reports/2026-11-14-b84-implementation-review.md#14-rev-05-与-rev-04-整改结果2026-11-14)，REV-01 独立复核见[§13](../../reports/2026-11-14-b84-implementation-review.md#13-rev-01-第二轮整改独立复核)，§12/§11 保留历史；执行状态见下方“独立实现审查与整改承接”。
+- 状态：**doing（A0完成；A1/A2已有实施，A2随R01 WIP与b71-pending债务保留；A3/A4及A5 macOS已有验收记录；2026-11-14：REV-01 第三轮整改已覆盖 §13.3–13.5（PGID 回退、外部借用 attach/release、onSpawn 早期收尾），scope 74/74，待独立复核；REV-02 仍开放；REV-03/06 源码修复进展保留；REV-05 cleanup 16/16；REV-04 精确回归已入库；B84未签收；Windows/Linux不在本次验收范围）**
+- 独立审查报告：[B84 实现审查（2026-11-14）](../../reports/2026-11-14-b84-implementation-review.md)；最新整改见[报告 §15](../../reports/2026-11-14-b84-implementation-review.md#15-rev-01-复核缺口整改结果2026-11-14)，§14（REV-05/04）、§13（REV-01 独立复核）、§12/§11 保留历史；执行状态见下方“独立实现审查与整改承接”。
 - 来源：
   - [00f 能力图谱 P2-E](../../docs/design/00f-capability-atlas.md)：`novel_web` 193 tests / 532s 慢测试仍待收敛；`novel_common` 日志 I/O 部分已由 ADR-0034（`novel_telemetry`）闭环，本任务只承接 web 慢测试与剩余债务。
   - B71 审核轮架构 P2-10 记录与 2026-11-08 候选。
@@ -667,7 +667,7 @@ Tauri surface：
 
 | 报告编号 | 级别 | 本任务承接内容 | 执行状态（2026-11-14，REV-01 第二轮整改独立复核） |
 |---|---|---|---|
-| B84-REV-01 | P1 | 失联 owner 的活子进程先收口，归档后无原路径再生；保留必要证据 | **仍开放**：v2 登记与独立 scope 70/70进展保留；必要PGID缺失、外部borrowed漏登两条路径仍实测误归档并再生原目录；新增Node回归另缺PID观察早期失败的有界兜底，见报告 §13.3–13.5 |
+| B84-REV-01 | P1 | 失联 owner 的活子进程先收口，归档后无原路径再生；保留必要证据 | **第三轮整改已落实，待独立复核**：PGID 查询失败回退 detached PID、owned/shared 身份区分、外部借用 attach/release、onSpawn 早期收尾；scope 74/74，见报告 §15.2–15.5 |
 | B84-REV-02 | P2 | 恢复判据核对本 run 可见叙事，零叙事不能通过；复核相关流式采样 | **仍开放**：哈希类名选择器已修；首个区域、空 expected 放行、文本前缀比较尚未绑定当前 run；数量/purpose 契约与真实页面待闭环，见 §11.4 |
 | B84-REV-03 | P2 | 打通 process_tree 返回契约与 runner cleanup 失败传播，等待有界 | **上轮缺陷已在源码中补齐**：slice/Tauri cleanup 已接有界 reap，失败继续后续资源；7/7 为实施者记录，本轮未复跑，见 §11.6 |
 | B84-REV-04 | P2 | owner 退出前后重核 fixture 最终发布事实，补竞争时序回归 | **精确回归已入库，待独立复核**：双进程屏障重放“未发布观察→owner 发布退出→waiter 复用”，定向 1/1；scope 71/71，见报告 §14.3 |
@@ -765,7 +765,20 @@ Tauri surface：
 - **证据层级**：Node/OTP 机制级；不是真实页面、模型或完整 Mix/Cargo。失败探针临时、不入库。§13.5 的静默 payload 早期失败收尾仍未修；`test_env.test.mjs` 15/16 既有失败保留。
 - **关闭判断**：REV-04 原缺陷 + 精确回归入库，可关闭；REV-05 关闭条件满足；均待独立复核。REV-01 仍开放，B84 保持 `doing`。
 
+### REV-01 第三轮整改 checkpoint（2026-11-14）
+
+> 本段对应[报告 §15](../../reports/2026-11-14-b84-implementation-review.md#15-rev-01-复核缺口整改结果2026-11-14)，回应 §13.3–13.5。REV-02 与既有债务不变。
+
+- **基线与改动面**：`4112ecb7` 加工作区；改 `test_env.mjs`、`test_env_scope.test.mjs`、`scripts/lib/README.md`；未改 cleanup helper、产品、driver 或页面。指纹见报告 §15.1。
+- **PGID**：owned detached 子进程在 `ps -o pgid=` 失败时回退到真实 PID，记录 `pgid_source=detached_pid`；`group=owned` 必须有 PID+PGID，`group=shared` 只按 PID 判活。真实 fake-ps 反例：owner 死、root 退出、同组后代存活 → `live_children` 保留；后代结束才归档。
+- **外部借用**：`borrow_attached`/`borrow_released` 持久覆盖借用生命周期；borrowed 子进程以 shared 条目登记；未释放借用使状态为 incomplete，借用方 PID 活也进入 live 证据；attach 写入失败拒绝借用。真实双进程反例：owner 死、borrower/payload 活 → 保留；release + payload 结束后归档。
+- **早期收尾**：`runInScope` 新增 `onSpawn`，两个用例在 spawn 后立即登记 PID；PID 文件不可见探针 5s 退出 1、`payload_left=0`（修复前 §13.5 为 9.020s 挂住）。
+- **回归**：scope **74/74**、受影响子集 **7/7**；`test_env.test.mjs` 仍 15/16 既有失败，未扩大范围修复。证据为 Node 机制级，不是页面/模型/完整 Mix/Cargo；macOS；未 push。
+- **关闭判断**：§13.3/13.4/13.5 关闭条件已覆盖，待独立复核。REV-02 仍开放；REV-03/06 保留；Rust 静态观察保留；B84 保持 `doing`。
+
 ## 变更记录
+
+- 2026-11-14：完成 REV-01 第三轮整改：PGID 回退与 owned/shared 身份、外部借用 attach/release、onSpawn 早期收尾；scope 74/74，写入报告 §15。REV-02 与既有债务仍开放。
 
 - 2026-11-14：完成 REV-05 测试兜底/屏障与 REV-04 精确发布-退出回归，cleanup 16/16、scope 71/71；写入报告 §14 与本任务状态。REV-01 独立复核缺口（§13.3–13.5）与 REV-02 仍开放。
 

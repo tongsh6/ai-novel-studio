@@ -2,7 +2,7 @@
 
 > 本文件保存本次审查的版本、发现、证据摘要与复验要求，是固定时间点的审查记录。
 > B84 的执行状态、整改 checkpoint 与后续签收只维护在[原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)；本报告不建立第二份活动状态台账。
-> **最新入口：**请先读 [§14 REV-05 与 REV-04 整改结果](#14-rev-05-与-rev-04-整改结果2026-11-14)：cleanup 16/16、scope 71/71，REV-05 的资源兜底/shutdown 屏障与 REV-04 的精确发布-退出回归已落实，待独立复核。[§13 REV-01 第二轮整改独立复核](#13-rev-01-第二轮整改独立复核)仍判定 REV-01 开放（必要 PGID 缺失、外部 borrowed 未登记、回归早期失败收尾）。§9–13 为历史复核与整改记录，不冒充新一轮运行验收。
+> **最新入口：**请先读 [§15 REV-01 复核缺口整改结果](#15-rev-01-复核缺口整改结果2026-11-14)：必要 PGID 回退、外部借用 attach/release、onSpawn 早期收尾已落实（scope 74/74），待独立复核。[§14 REV-05/REV-04 整改](#14-rev-05-与-rev-04-整改结果2026-11-14)保留上一轮记录；[§13 REV-01 独立复核](#13-rev-01-第二轮整改独立复核)的开放前提已由 §15 回应。§9–14 为历史复核与整改记录，不冒充新一轮运行验收。
 
 ## 1. 结论与验收边界
 
@@ -989,3 +989,38 @@ SIGKILL owner 17578 并确认退出后，令 root 正常退出，保留同组静
 - **REV-04**：§9.5 原缺陷通过，本轮精确时序回归已入库；可关闭，待独立复核确认。
 - **REV-05**：资源兜底、确定性屏障、失败退出探针与入库结构回归均已落实；关闭条件满足，待独立复核确认。
 - **仍开放**：REV-01（§13.3 必要 PGID 缺失、§13.4 外部 borrowed 未登记、§13.5 静默 payload 回归早期失败收尾）；REV-02（当前 run 绑定、数量/purpose 契约、真实页面）；REV-03/06 保留既有源码修复；Rust `TempDir::drop` 静态观察。B84 保持 `doing`。
+
+## 15. REV-01 复核缺口整改结果（2026-11-14）
+
+> 本节由整改实施者按 §13.3/13.4/13.5 追加，回应 REV-01 独立复核的三条开放项；§13 的修复前反例与判断保留。执行状态仍只维护在 [B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)。
+
+### 15.1 基线与改动面
+
+- **代码基线**：`fc8aecf43513f8a5fa24f5509a7fe679a9a197de`（§13 复核基线）之后的 `4112ecb7` 加工作区；仓库其他 WIP 保留。
+- **改动文件**：`scripts/lib/test_env.mjs`、`scripts/lib/test_env_scope.test.mjs`、`scripts/lib/README.md`。未改 cleanup helper、产品代码、driver 或页面。
+- **整改后指纹**：`test_env.mjs` = `524252491a0c1793c07b95bd3a467d07ad355e15fb5afa7e6d06a3c6ae8825a5`；`test_env_scope.test.mjs` = `371da645f8d571f827feadd7ec890d260a2623ef5edcbaad4cb336414fc4388a`。
+
+### 15.2 §13.3：必要 PGID 缺失改为回退 detached 组事实
+
+- **实现**：owned 子进程在 POSIX 上 `detached` 启动（`setsid`），其真实进程组身份等于 PID。`registerScopeChild` 仍优先使用 `ps -o pgid=` 的查询值；查询失败时回退到 `child.pid`，并记录 `pgid_source="detached_pid"`。`spawn_registered` 增加 `group: "owned" | "shared"`：owned 条目必须同时有有效 PID 与 PGID，shared 条目只按 PID 判活。只有 PID、PGID 为 null 的 owned 条目被视为 `registered_identity_missing`，不再闭合为 complete。
+- **真实回归**：新增 fake `ps` 只让 `-o pgid=` 失败；真实 CLI owner 创建 scope、root 启动同组静默后代，测试 SIGKILL owner 后让 root 正常退出。journal 记录 `pid=rootPid, pgid=rootPid, pgid_source=detached_pid`；恢复结果为 `live_children`、scope 保留；后代结束后才归档。这对应 §13.3 的“root 退出而同组静默后代存活”关闭条件。
+- **边界**：PGID 查询成功时仍以查询值为准；只有查询失败且平台为非 win32 的 owned detached 路径才回退。win32 不在本次验收范围，缺失 PGID 会保守保留现场。
+
+### 15.3 §13.4：外部借用登记生命周期与 shared 子进程
+
+- **实现**：`borrowRunScope` 在验证 owner 存活后写 `borrow_attached`（borrower pid）；借用方 `scope.close()` 写 `borrow_released`。写入失败时拒绝借用（fail closed），避免 owner 失联后无法判断借用方是否仍在。borrowed scope 的 `spawnScoped` 也写 `spawn_intent`/`spawn_registered`，条目为 `group:"shared"`、只以 PID 判活。
+- **恢复判据**：`scopeChildrenState` 解析 attach/release；未闭合借用使状态为 `incomplete`（附 `open_borrows`），借用方 PID 活着也进入 `live` 证据；释放后若 shared 子进程已结束才为 complete。header-only 且无任何借用/子进程的 scope 仍是真实零子进程，可归档，没有用“禁用所有 header-only”掩盖缺口。
+- **真实回归**：独立 owner 创建 scope；独立 borrower 经 `NOVEL_TEST_RUN_DIR` 借用并启动长驻 payload；owner 被 SIGKILL 后，journal 有 attach + shared registered，恢复为 `live_children`、scope 保留。borrower 正常 `close()` 写 release、payload 结束后再恢复才归档。另有合成回归覆盖 attach/release 完整时可归档。
+
+### 15.4 §13.5：在取得 PID 文件之前建立可终止归属
+
+- **实现**：`runInScope` 新增 `onSpawn(child)`，在 spawn 成功、任何等待/PID 文件可见之前同步回调；回调抛错时终止已启动子进程并按启动失败返回。静默 payload 与“旧登记后追加失败”两个用例改为在 `onSpawn` 中立即取得 PID 并登记 `trackPid`/`t.after`，不再等 payload 写出的 PID 文件。
+- **定向验证**：临时 preload 令该用例的 `reap-real-silent.pid` 的 `fs.existsSync` 始终不可见，再运行单一用例。结果为 exit 1、**5s** 报告原始等待超时、`payload_left=0`；修复前 §13.5 的记录是 9.020s 仍挂住、需外部终止。探针临时文件已删除，不入库。
+- **保留的边界**：`fs.appendFileSync` 注入仍只对本次 journalPath 且在 finally 恢复；失败用例的资源由 `onSpawn` 登记后回收。`test_env.test.mjs` 的 15/16 既有失败仍未修，不并入本轮。
+
+### 15.5 计数、证据层级与剩余
+
+- **scope 全套**：**74/74 通过**，exit 0，15.149s；受影响子集 **7/7**。新增 3 项：PGID 回退真实反例、外部借用真实反例、借用 release 完整合成回归；状态族扩展了 missing-pgid/open-borrow/unpaired-borrow-release。
+- **test_env.test.mjs**：仍 **15/16**，唯一失败与 HEAD 基线相同（借用测试的 parent owner 已退出），本轮未扩大范围修复。
+- **证据层级**：Node 机制/回归级，使用真实子进程、进程组与文件系统；不是真实页面、模型、Tauri 或完整 Mix/Cargo。PGID/借用反例只终止已核实的本次 PID/组，探针临时文件已清理。
+- **关闭判断**：§13.3、§13.4、§13.5 的关闭条件已由实现与回归覆盖，待独立复核确认。REV-02 仍开放；REV-03/06 沿用既有源码修复；Rust `TempDir::drop` 静态观察保留。B84 保持 `doing`。
