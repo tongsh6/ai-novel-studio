@@ -1,6 +1,6 @@
 # B84：全项目测试环境作用域、fixture 体系与剩余架构/测试债务
 
-- 状态：**doing（A0完成；A1/A2已有6个局部实施单元通过各自验收，前4个已提交，R01快照/capture两族随原R01整体保持WIP；A3的Application流程首批已提交；A3的16个Channel测试模块与日志写出源头收口已通过全量回归并本地提交（未推送）；Rust单测资源释放已通过验收并本地提交（未推送）；web回归196例耗时由547.9秒降至62.2秒；其余Node族、裸Mix/config/test、前端/原生接入、A4/A5与既有债务保留）**
+- 状态：**doing（A0完成；A1/A2已有6个局部实施单元通过各自验收，前4个已提交，R01快照/capture两族随原R01整体保持WIP；A3的Application流程首批已提交；A3的16个Channel测试模块与日志写出源头收口已通过全量回归并本地提交（未推送）；Rust单测资源释放已通过验收并本地提交（未推送）；裸Mix/config/test自有库归还已通过验收并本地提交（未推送）；web回归196例耗时由547.9秒降至62.2秒；其余Node族、前端/原生接入、A4/A5与既有债务保留）**
 - 来源：
   - [00f 能力图谱 P2-E](../../docs/design/00f-capability-atlas.md)：`novel_web` 193 tests / 532s 慢测试仍待收敛；`novel_common` 日志 I/O 部分已由 ADR-0034（`novel_telemetry`）闭环，本任务只承接 web 慢测试与剩余债务。
   - B71 审核轮架构 P2-10 记录与 2026-11-08 候选。
@@ -449,6 +449,27 @@ Application首批已提交 `75722dde`。本步复用既有helper继续迁移，�
 - 历史5个残留未删除（旧运行证据，不顺手清理）；CI platform smoke 的 `cargo test --locked` 是同一消费者，本机未执行跨平台 smoke。
 - `task_done.sh --top 10` 因 `frontend/src-tauri/` 路径被文件级UI判定阻塞（要求 native slice/summary）；本批只改 `#[cfg(test)]`、无产品UI行为变化，未伪造native证据。原始失败保留在 `leader-final/task_done-blocked.log`，替代证据为完整 `ai_static_scan.sh --top 10` 与 `cargo test --locked`。该门禁分类缺口登记到A5（与既有“Git提交入口质量门接线”同族），本单元不改门禁规则。
 - 本checkpoint只签Rust单测资源释放，不签A3全部、B84或A4/A5；源码备份与结果见 `artifacts/b84-test-system/20261114/a3-backend/rust-owner/`。本批已本地提交（未推送）。
+
+### A3 裸Mix/config/test入口的数据库归还（2026-11-14 设计/开始）
+
+只读事实：`config/test.exs` 自2026-11-04按PID+partition命名测试库以避免并发busy；显式`NOVEL_TEST_DB_DIR`供外部驱动/长生命周期共用。本机系统TMPDIR现有**207个** `ai_novel_studio_test*.sqlite3`（约54MB），裸`mix test`每次运行留下本进程库，正常退出也不归还；`scripts/lib/test_env.sh`已为脚本入口提供owned run/借用与退出，但Elixir测试进程自身没有对应退出契约。
+
+- **Contract/Invariant**：§2.5.8“direct Mix入口”与A1拥有/借用契约；自有库在正常与失败退出时都归还，显式目录属于借用不删除，并发进程互不影响。
+- **Boundary/Consumer**：仅`config/test.exs`的测试库路径与退出登记；裸`mix test`、CI中经`test_env.sh`前置的`mix test`、既有slice/probe入口消费同一路径规则；不改产品配置、CI命令或`test_env.sh`。
+- **实体查重**：复用现有PID/partition命名与`NOVEL_TEST_DB_DIR`语义，不新建scope服务；在配置求值时对**本进程自有库**注册标准`at_exit`删除db/wal/shm。
+- **Proof**：裸`mix test`前后临时前缀无净增；故意失败的子运行退出非零仍无净增；显式`NOVEL_TEST_DB_DIR`运行后文件保留；两个并发进程各自归还；历史207个残留不动。
+- **Acceptance Driver**：真实`mix test`与真实文件系统；产品验收感知no。
+- **Exploration**：不涉及作品知识或模型请求，不适用。
+
+实施前保存`config/test.exs`备份；验证走既有测试入口，不删除历史残留。
+
+#### 裸Mix/config/test归还 checkpoint 验收（2026-11-14）
+
+- `config/test.exs` 提取 `test_db_path`；仅当未设置 `NOVEL_TEST_DB_DIR`（本进程自有）时注册 `System.at_exit` 删除db/wal/shm；显式目录保持借用语义、不删除。
+- 裸`mix test`：6/6通过，运行前后主库文件集合完全一致（净增0）；故意失败子运行退出2后同样净增0；两个并发`mix test`各自退出0且净增0，日志在 `mix-owner/b84-conc-{a,b}.log`。
+- 显式`NOVEL_TEST_DB_DIR`：运行后`ai_novel_studio_test.sqlite3`、`-shm`、`-wal`均保留，证明借用未被误删。
+- `MIX_ENV=test mix check`退出0（全量回归）；历史207个库/约54MB残留未删除（历史状态，A5统一处置）；宿主强杀不在本checkpoint。
+- 本checkpoint只签direct Mix入口的自有库归还，不签A3全部、B84或A4/A5；证据在 `artifacts/b84-test-system/20261114/a3-backend/mix-owner/`。本批已本地提交（未推送）。
 
 ## 变更记录
 

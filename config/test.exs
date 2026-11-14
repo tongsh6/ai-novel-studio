@@ -25,15 +25,25 @@ test_db_suffix =
     test_db_partition <> "-" <> System.pid()
   end
 
+test_db_path =
+  Path.join(
+    test_db_dir || System.tmp_dir!(),
+    "ai_novel_studio_test#{test_db_suffix}.sqlite3"
+  )
+
+# 自有临时库（未显式指定 NOVEL_TEST_DB_DIR）属于本次测试进程：正常或失败退出时
+# 归还 db/wal/shm；显式目录是外部 owner 借用的资源，不在此删除。
+if is_nil(test_db_dir) do
+  System.at_exit(fn _status ->
+    Enum.each([test_db_path, test_db_path <> "-wal", test_db_path <> "-shm"], &File.rm/1)
+  end)
+end
+
 config :novel_persistence, NovelPersistence.Repo,
   adapter: Ecto.Adapters.SQLite3,
   # NOVEL_TEST_DB_DIR：长生命周期分区（狗粮 --resume 断点）用，缺省仍走系统
   # 临时目录。2026-07-21 实锤：macOS 重启清 /var/folders，M2 断点库随之蒸发。
-  database:
-    Path.join(
-      test_db_dir || System.tmp_dir!(),
-      "ai_novel_studio_test#{test_db_suffix}.sqlite3"
-    ),
+  database: test_db_path,
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: 10,
   journal_mode: :wal,
