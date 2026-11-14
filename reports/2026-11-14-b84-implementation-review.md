@@ -290,3 +290,37 @@ duration_ms: 25383.575875
 | `frontend/slice-verify/external-ui-driver.mjs` | `4a62babd47a1dc0c753628514da1145b6b8e78cef068677f9921692c672a7d04` |
 
 本报告通过 [reports 索引](README.md) 与 [B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md) 双向可达。原任务顶部旧摘要的“A5 未开始”在落库时按已有记录纠正；历史 A5 段保留，本轮发现和 macOS-only 裁决追加到原任务。文档生成不代表代码已经修复，也不改变其他开发线 WIP。
+
+## 8. 处理结果（2026-11-14，整改实施后）
+
+> 本节由整改实施者追加，记录对本次审查发现的处理事实与证据；上方审查结论、证据与固定时间点记录保持不变。执行状态仍只维护在[原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)。
+
+### 8.1 逐项状态
+
+| 编号 | 处理结果 | 代码提交 | 本轮回放证据 |
+|---|---|---|---|
+| B84-REV-01（P1） | **已修复**：`reapOrphanScopes` 移动前检查打开句柄、全树最新写入、进程命令行引用；任一命中或无法确认归属即保留现场并给 reason | `1e732920` | 受控反例（payload 每30ms写、owner SIGKILL、root mtime 调老）：`reaped=0`、`kept=recent_write`、原 scope/marker 保留；活动结束后才归档。回归 2/2 |
+| B84-REV-02（P2） | **判据已修复，页面复验未闭环**：恢复区域要求可见非空 `.agenticLoopReasoning p`；普通对话启动改用真实帧证明，不再依赖“创作执行”中间态 | `99b0fa35`、`6e066e48` | 从 driver 原文提取谓词：零叙事 `false`、有叙事 `true`、隐藏叙事 `false`；真实场景两次启动早超时，第三次后段失败于 `AgentRun activity API` 无 ProviderRun usage |
+| B84-REV-03（P2） | **已修复**：区分 ESRCH 与信号失败、SIGKILL 后有界确认、僵尸(stat=Z)不计存活、进程组用 `ps pgid/stat` 复核 | `51fc8bfc` | 4/4 真实 bash 回归：正常、信号拒绝且仍存活、不存在/空 PID、子孙树 |
+| B84-REV-04（P2） | **已修复**：owner 退出后再核对 published/failed 最终事实 | `1e732920` | scope 全套通过（含 fixture 并发/复用）；**未新增报告所述的精确调度反例** |
+| B84-REV-05（P2） | **已修复**：Supervisor 查询移入受监控短进程并按剩余 deadline 等待；超期仍给短查询机会以 `force_kill` 已知任务 | `760c81fe` | `agent_run_cleanup_test` **12/12**，含其他 owner shutdown、迟到空集合不签成功 |
+| B84-REV-06（P2） | **已修复**：ENOENT 幂等；其他删除失败写 stderr，测试成功时退出 1、测试已失败时保留原码 | `f84514ce` | 受控三态：正常 0 / 缺失 0 / 拒绝 1 + 诊断 + 文件保留 |
+| Rust `TempDir::drop` 静态观察 | **未修**（报告未计数） | — | 登记为后续；未做 Rust 故障复现 |
+
+### 8.2 REV-02 页面复验阻塞根因
+
+真实场景 `agent-provider-execution-activity-restored` 第三次已通过启动与 provider 调用（app-log 有 `provider_gateway.complete`，`provider=slice_verify`、`purpose=planner`、`outcome=ok`），但场景数据库 `provider_runs` 为 **0 行**。
+
+根因：`ProviderActivityProjector.with_stage_sink/3` 只在 `snapshot.stage_sink` 是函数时才订阅执行结果并调用 `ProviderRunLog.record_execution/2`；生产代码中未找到给 snapshot 注入 `stage_sink` 的调用点（只有测试显式传入），普通对话 AgentRun stage 未携带 sink，所以 ProviderRun/Event/Output 不落库，activity API 的 usage 断言必然失败。
+
+该缺口属于 UA-01/ADR-0023 CP4D 的产品接线，不是 B84 测试作用域或场景预期可自行修绿。已登记到 [B87 总计划 §12](../tasks/slices/B87-model-interaction-request-projection.md)（跨任务缺口）；按 B87 当前计划**没有批次承接**：R01 不改 `apps/*/lib`，R02–R19 无 ProviderActivityProjector/stage_sink 注入批次，R19 只做最终质量门。需作者裁决新增批次或并入/前置某批；本轮未修改生产代码。
+
+### 8.3 验证范围与诚实限制
+
+- 本轮执行：`node --test scripts/lib/process_tree.test.mjs scripts/lib/test_env_scope.test.mjs`（通过）；`MIX_ENV=test mix test apps/novel_application/test/novel_application/agent_run_cleanup_test.exs`（12/12）；`pnpm test:slice-verify`（260/260）；`pnpm lint`（0）；REV-06 受控三态脚本。
+- **未执行**：完整 `task_done`/`mix check`/Cargo 全量（本轮多次按作者要求中断长门禁）、完整真实模型批次、REV-04 精确调度反例、REV-02 受影响页面通过证据。
+- 因此本节的“已修复”仅指对应代码与局部回归通过；**B84 不能据此签收**，REV-02 页面与 REV-04 反例仍是复核缺口。原有 A2 随 R01 两族、b71-pending、driver/G2 拆分、dogfood、lefthook 等 B84 债务也不因本节消失。
+
+### 8.4 提交清单（均未 push）
+
+`1e732920`、`51fc8bfc`、`760c81fe`、`f84514ce`、`99b0fa35`、`6e066e48`、`759406cc`、`ad5d2da7`、`01a2125f`、`10bec53a`。本地分支领先远端，推送需作者通知。
