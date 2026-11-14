@@ -1,6 +1,7 @@
 # B84：全项目测试环境作用域、fixture 体系与剩余架构/测试债务
 
-- 状态：**doing（A0完成；A1基本完成；A2已收口：`native_ui_wait`与request-cost-cli/reference_log两族随R01 WIP、b71-pending保留技术债；A3已收口：Application/Channel/日志/Rust/裸Mix/runtime全部完成，全量3203 tests/0，web 196例62.2秒；A4真实批次闭环：浏览器3场景+Tauri非原生1场景+原生AX真实`iq3_s` 107/107；A5未开始；本地`72f38196`未推送）**
+- 状态：**doing（A0完成；A1/A2已有实施，A2随R01 WIP与b71-pending债务保留；A3/A4及A5 macOS已有验收记录；2026-11-14独立审查确认1个P1、5个P2，整改与补证未开始，B84待复核签收；Windows/Linux不在本次验收范围）**
+- 独立审查报告：[B84 实现审查（2026-11-14）](../../reports/2026-11-14-b84-implementation-review.md)；本轮修复承接见下方“独立实现审查与整改承接”。
 - 来源：
   - [00f 能力图谱 P2-E](../../docs/design/00f-capability-atlas.md)：`novel_web` 193 tests / 532s 慢测试仍待收敛；`novel_common` 日志 I/O 部分已由 ADR-0034（`novel_telemetry`）闭环，本任务只承接 web 慢测试与剩余债务。
   - B71 审核轮架构 P2-10 记录与 2026-11-08 候选。
@@ -655,7 +656,41 @@ Tauri surface：
 - **明确限制（不假签）**：Windows 进程树收口与跨平台验证**未支持/未验证**，本机 macOS 结论不外推；B84 既有债务保留（A2 随 R01 两族、b71-pending、driver/G2 拆分、dogfood 固定目录、lefthook 接线）。
 - 本checkpoint签 A5 本机验收；B84 是否签收待作者决定。本批已本地提交（未推送）。
 
+### 独立实现审查与整改承接（2026-11-14）
+
+本次按作者“生成一个报告到仓库”的指令，将已完成的独立审查保存为[固定审查报告](../../reports/2026-11-14-b84-implementation-review.md)。审查基线为 `208033fc` 加当时未提交工作区；报告不是第二份执行状态台账，整改 checkpoint 和签收继续只维护本任务。
+
+- **已确认边界**：作者明确“A5 验证过 mac 了，win/Linux 不需要验”。保留上方 A5 macOS 验收事实；Windows/Linux 不作为本次 B84 签收条件。
+- **本轮结果**：scope 自检在既有 `--self` 入口及正确依赖路径下 62/62 通过；另有六项独立反例。完整版本、输出摘要、有效命令、两次无效执行的归因与源码指纹见报告。
+- **版本区别**：`reapOrphanScopes` 及新增用例为审查时未提交实现；其余 finding 由已提交逻辑或 B84 新调用方依赖的既有 helper 触发。不能将本轮证据描述为 clean HEAD 验收。
+- **当前后果**：本轮只落审查文档，尚未修复代码或增加正式回归；已有通过记录不覆盖这六个新反例，B84 保持 doing。原有 R01 WIP、b71-pending、driver/G2 拆分、dogfood 与门禁接线等承接不因本报告消失。
+
+| 报告编号 | 级别 | 本任务承接内容 | 执行状态 |
+|---|---|---|---|
+| B84-REV-01 | P1 | 失联 owner 的活子进程先收口，归档后无原路径再生；保留必要证据 | 已修复：归档前检查 open_handles/recent_write/process_reference/unverifiable；受控 SIGKILL 反例 reaped=0、原 scope 保留 |
+| B84-REV-02 | P2 | 恢复判据核对本 run 可见叙事，零叙事不能通过；复核相关流式采样 | 判据已修复：零叙事/隐藏叙事 false、有叙事 true；真实恢复场景两次启动早期 `driveAgentConversationTurn` 超时，**页面复验未闭环** |
+| B84-REV-03 | P2 | 打通 process_tree 返回契约与 runner cleanup 失败传播，等待有界 | 已修复：信号拒绝/仍存活返回非零、僵尸忽略、SIGKILL 后有界确认；4/4 回归 |
+| B84-REV-04 | P2 | owner 退出前后重核 fixture 最终发布事实，补竞争时序回归 | 已修复：owner 退出后重核 published/failed；现有并发与 scope 全套通过；**未新增精确调度反例** |
+| B84-REV-05 | P2 | Task.Supervisor 枚举纳入同一 deadline，迟到空集合不签成功 | 已修复：查询受 deadline 约束、超期仍 force_kill 已知任务；12/12（含其他 owner shutdown 反例） |
+| B84-REV-06 | P2 | 自有 DB 删除失败保留诊断并反映退出结果；核对 Rust 同类静态观察 | 已修复：ENOENT 幂等、其他失败 stderr 诊断且成功测试改为退出1；受控三态验证；Rust `TempDir::drop` 静态观察未修 |
+
+再次签收以报告中的对应反例、既有覆盖与修改面适用门禁共同判断。页面判据或 runner 修改须补受影响真实页面证据；不通过删断言、提高超时或把清理错误视作成功收口。
+
+### 审查整改 checkpoint（2026-11-14）
+
+- **REV-01（P1）**：`reapOrphanScopes` 移动前执行打开句柄、全树最新写入、命令行引用三重检查；任一命中或无法确认归属即保留现场并给 reason。受控反例（payload 每30ms写、owner SIGKILL、root mtime 调老）复验 `reaped=0/kept=recent_write/原 scope 与 marker 保留`；活动结束后才归档。
+- **REV-03**：`kill_process_tree` 区分 ESRCH 正常与信号失败；SIGKILL 后有界确认；僵尸（stat=Z）不当作存活；进程组用 `ps pgid/stat` 复核。回归 4/4（正常、信号拒绝+仍存活、不存在/空、子孙树）。
+- **REV-04**：`awaitFixtureOwner` 发现 claim owner 退出时再核对 published/failed 最终事实；现有 fixture 并发/复用测试与 scope 全套通过。未新增精确调度反例，作为已知回归缺口保留。
+- **REV-05**：`owned_tasks_within` 把 Supervisor 查询放进受监控短进程并按剩余 deadline 等待；超期仍给 50ms 拿列表以 force_kill 已知任务；`agent_run_cleanup_test` 12/12（含其他 owner shutdown、迟到集合不签成功）。
+- **REV-06**：`config/test.exs` 退出钩子 ENOENT 幂等，其余删除失败写 stderr，测试成功时 `System.halt(1)`、测试已失败时保留原码。受控三态：正常0/缺失0/拒绝1+诊断+文件保留。
+- **REV-02**：恢复判据改为检查 `[aria-label="本轮创作过程"]` 内可见非空叙事段落；从 driver 原文提取谓词做合成 DOM 验证：零叙事 false、有叙事 true、隐藏叙事 false。真实恢复场景两次均在启动早期 `driveAgentConversationTurn` 3s 等待超时（非恢复判据），**页面复验未闭环**，未用合成验证代签。
+- **未修/后续**：`frontend/src-tauri/src/lib.rs` 的 `TempDir::drop` 忽略删除结果（报告静态观察，未计数）；REV-04 精确调度反例；REV-02 真实页面复验；B84 既有债务。B84 仍 `doing`。
+
+本checkpoint只签六项代码修复与局部复验，不签 B84；页面判据修改仍待真实恢复场景通过。本批已本地提交（未推送）。
+
 ## 变更记录
+
+- 2026-11-14：接入独立实现审查报告，保留 A5 macOS 已验事实并纠正顶部旧摘要；登记六项修复与补证，明确 Windows/Linux 不属本次验收范围，本轮只修改文档。
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。
 - 2026-11-12：登记验收资产 driver 漂移（aria-label="推理"）与验收脚本规模治理盲区；补 native_ui README 与 novel_e2e README 索引。
