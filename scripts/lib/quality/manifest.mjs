@@ -136,6 +136,8 @@ const IGNORED_BROWSER_DRIVERS = Object.freeze(
     "TEMPLATE.external-ui-driver.mjs",
     "q1c-adopted-content-revision-audit.mjs",
     "au10-workbench-render-stability.mjs",
+    // slice-verify 自测的 Vitest 配置，不是场景 driver（B84 A4）。
+    "vitest.config.mjs",
   ]),
 );
 
