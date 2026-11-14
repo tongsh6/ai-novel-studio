@@ -20,6 +20,7 @@ import {
 } from "./scenario_evidence.mjs";
 import { DEFAULT_STRATA_MODEL } from "./strata_lifecycle.mjs";
 import { CANON_TABLES, buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
+import { referenceLogRows } from "./reference_log_evidence.mjs";
 import {
   PENDING_FOLLOWUP_MESSAGE,
   PENDING_REVISION_MESSAGE,
@@ -456,27 +457,6 @@ export function prepare(dir) {
       : {}),
     ...(ready.journey === "revision" ? { chapter_title: REVISION_CHAPTER_TITLE } : {}),
   });
-}
-
-// 真实 schema 的 binary_id 以 16 原始字节存进 TEXT 列；node:sqlite 按 TEXT 解码会损坏
-// 非法 UTF-8/NUL。SQLite 层先做无损投影，纯函数仍只接受合法 UUID 字符串或 16-byte BLOB。
-const REFERENCE_LOG_UUID_COLUMNS = Object.freeze([
-  "id",
-  "memory_id",
-  "work_id",
-  "task_id",
-  "conversation_id",
-]);
-
-function referenceLogRows(db) {
-  const projections = REFERENCE_LOG_UUID_COLUMNS.map((column) =>
-    `CASE WHEN length(CAST(${column} AS BLOB)) = 16 THEN lower(hex(${column})) ELSE ${column} END AS ${column}`,
-  );
-  // 同名 alias 位于 * 之后，node:sqlite 以后出现的同名字段覆盖前者；未知列仍全部保留。
-  return all(
-    db,
-    `SELECT *, ${projections.join(", ")} FROM memory_reference_logs ORDER BY inserted_at, id`,
-  );
 }
 
 export function planningCanonSnapshot(dir, { includeChapterFacts = true } = {}) {
