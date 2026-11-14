@@ -440,4 +440,33 @@ defmodule NovelApplication.AgentRunCleanupTest do
       TestAgentRunCleanup.release_run(pid)
     end)
   end
+  test "release_task_caller 不把其他 owner shutdown 期间的迟到空集合当成功" do
+    dead_caller = spawn(fn -> :ok end)
+    ref = Process.monitor(dead_caller)
+    assert_receive {:DOWN, ^ref, :process, ^dead_caller, _}
+
+    {:ok, blocker} =
+      Task.Supervisor.start_child(@background_supervisor, fn ->
+        Process.flag(:trap_exit, true)
+        receive do
+          :never -> :ok
+        end
+      end)
+
+    stopper =
+      Task.async(fn -> DynamicSupervisor.terminate_child(@background_supervisor, blocker) end)
+
+    Process.sleep(20)
+    started = System.monotonic_time(:millisecond)
+
+    assert_raise RuntimeError, ~r/failed within 20ms/, fn ->
+      TestAgentRunCleanup.release_task_caller(dead_caller, 20)
+    end
+
+    elapsed = System.monotonic_time(:millisecond) - started
+    assert elapsed < 1_000, "查询必须受 deadline 约束，实际 #{elapsed}ms"
+
+    Process.exit(blocker, :kill)
+    Task.await(stopper, 2_000)
+  end
 end

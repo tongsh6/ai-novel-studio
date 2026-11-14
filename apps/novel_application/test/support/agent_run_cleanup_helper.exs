@@ -234,15 +234,34 @@ defmodule NovelApplication.TestAgentRunCleanup do
   end
 
   defp drain_owned_tasks(pid, deadline, failures) do
-    case owned_tasks(pid) do
-      [] ->
+    case owned_tasks_within(pid, @task_supervisors, deadline) do
+      {:ok, []} ->
         failures
 
-      tasks ->
+      {:ok, tasks} ->
         failures =
           Enum.reduce(tasks, failures, fn task, acc -> stop_task(task, deadline, acc) end)
 
         drain_owned_tasks(pid, deadline, failures)
+
+      {:error, failure} ->
+        failures ++ [failure]
+    end
+  end
+
+  # Supervisor 查询本身也要受同一 deadline 约束：共享 supervisor 可能正为其他
+  # owner shutdown，同步 which_children 会让本 case 无界等待；迟到的空集合不能
+  # 被解释成按时收口。查询放在受监控短进程里，超时即返回明确失败（不重建 owner）。
+  defp owned_tasks_within(run_pid, supervisors, deadline) do
+    remaining = remaining_ms(deadline)
+    # deadline 已过时仍给一次很短的查询机会：拿到任务列表后由 stop_task 的
+    # remaining<=0 分支 force_kill，不能因为超期就跳过清理已知任务。
+    budget = if remaining > 0, do: remaining, else: 50
+    task = Task.async(fn -> owned_tasks(run_pid, supervisors) end)
+
+    case Task.yield(task, budget) || Task.shutdown(task, :brutal_kill) do
+      {:ok, tasks} -> {:ok, tasks}
+      _ -> {:error, {:timeout, {:owned_tasks, run_pid}}}
     end
   end
 
