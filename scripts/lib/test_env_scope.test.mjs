@@ -2994,6 +2994,25 @@ test("借用 owner 已失联的 scope：fail-closed，不复用死 owner 的 scr
 });
 
 
+const CHILDREN_JOURNAL_FILE = ".novel-test-run-children.jsonl";
+
+// 合成 scope 的登记头：声明“完整登记且无子进程”。空文件/缺失文件不能当同义。
+function writeCompleteChildrenJournal(dir) {
+  fs.writeFileSync(
+    path.join(dir, CHILDREN_JOURNAL_FILE),
+    `${JSON.stringify({ kind: "ai-novel-test-run-children", version: 2, at: new Date().toISOString() })}\n`,
+  );
+}
+
+function ageTree(dir, when = new Date(Date.now() - 120_000)) {
+  for (const name of fs.readdirSync(dir)) {
+    const full = path.join(dir, name);
+    if (fs.lstatSync(full).isDirectory()) ageTree(full, when);
+    fs.utimesSync(full, when, when);
+  }
+  fs.utimesSync(dir, when, when);
+}
+
 test("reap：只归档 owner 失联且过期的 scope，保留 live 与未过期目录", async () => {
   const base = path.join(scratch, "reap-base");
   fs.mkdirSync(base, { recursive: true });
@@ -3010,8 +3029,7 @@ test("reap：只归档 owner 失联且过期的 scope，保留 live 与未过期
         version: 1,
       }),
     );
-    // 登记为空：证明本次 scope 没有遗留子进程；缺失 journal 的旧 scope 会被保留。
-    fs.writeFileSync(path.join(dir, ".novel-test-run-children.jsonl"), "");
+    writeCompleteChildrenJournal(dir);
   };
   const child = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
   const deadPid = child.pid;
@@ -3026,15 +3044,6 @@ test("reap：只归档 owner 失联且过期的 scope，保留 live 与未过期
   ]) {
     writeMarker(dir, pid);
   }
-  const old = new Date(Date.now() - 120_000);
-  const ageTree = (dir) => {
-    for (const name of fs.readdirSync(dir)) {
-      const full = path.join(dir, name);
-      if (fs.lstatSync(full).isDirectory()) ageTree(full);
-      fs.utimesSync(full, old, old);
-    }
-    fs.utimesSync(dir, old, old);
-  };
   ageTree(dead);
   const result = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
   assert.deepEqual(result.reaped.map((entry) => entry.dir), [dead]);
@@ -3063,21 +3072,12 @@ test("reap：活动资源未结束时保留现场，结束后才归档", async (
         version: 1,
       }),
     );
-    // 登记为空：证明本次 scope 没有遗留子进程；缺失 journal 的旧 scope 会被保留。
-    fs.writeFileSync(path.join(dir, ".novel-test-run-children.jsonl"), "");
+    // 登记完整且无子进程：活动迹象检查是登记之外的第二道防线。
+    writeCompleteChildrenJournal(dir);
   };
   const child = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
   const deadPid = child.pid;
   await new Promise((resolve) => child.on("exit", resolve));
-  const old = new Date(Date.now() - 120_000);
-  const ageTree = (dir) => {
-    for (const name of fs.readdirSync(dir)) {
-      const full = path.join(dir, name);
-      if (fs.lstatSync(full).isDirectory()) ageTree(full);
-      fs.utimesSync(full, old, old);
-    }
-    fs.utimesSync(dir, old, old);
-  };
   const recent = path.join(base, "ai-novel-test-run.recent");
   const opened = path.join(base, "ai-novel-test-run.opened");
   const referenced = path.join(base, "ai-novel-test-run.referenced");
@@ -3132,60 +3132,66 @@ test("reap：活动资源未结束时保留现场，结束后才归档", async (
 });
 
 
-test("reap：仅经 env 持有 TMPDIR 的静默 payload 阻止归档，结束后才归档", async () => {
-  const base = path.join(scratch, "reap-silent-payload");
-  fs.mkdirSync(base, { recursive: true });
-  const child = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
-  const deadPid = child.pid;
-  await new Promise((resolve) => child.on("exit", resolve));
-  const scope = path.join(base, "ai-novel-test-run.silent");
-  fs.mkdirSync(path.join(scope, "tmp"), { recursive: true });
-  fs.writeFileSync(
-    path.join(scope, MARKER),
-    JSON.stringify({
-      kind: "ai-novel-test-run",
-      owner: "test-env",
-      runId: "silent",
-      pid: deadPid,
-      createdAt: new Date().toISOString(),
-      version: 1,
-    }),
-  );
-  // payload 只通过环境变量持有 TMPDIR，不写文件/不开句柄/命令行不含 scope 路径。
-  const payload = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
-    detached: true,
-    stdio: "ignore",
-    env: {
-      ...process.env,
-      TMPDIR: path.join(scope, "tmp"),
-      TMP: path.join(scope, "tmp"),
-      TEMP: path.join(scope, "tmp"),
-    },
-  });
-  fs.writeFileSync(
-    path.join(scope, ".novel-test-run-children.jsonl"),
-    `${JSON.stringify({ pid: payload.pid, pgid: payload.pid, started_at: new Date().toISOString() })}\n`,
-  );
-  const old = new Date(Date.now() - 120_000);
-  const ageTree = (dir) => {
-    for (const name of fs.readdirSync(dir)) {
-      const full = path.join(dir, name);
-      if (fs.lstatSync(full).isDirectory()) ageTree(full);
-      fs.utimesSync(full, old, old);
+test("reap：真实启动链登记下，仅经 env 持有 TMPDIR 的静默 payload 阻止归档", async (t) => {
+  const base = path.join(scratch, "reap-real-silent");
+  const scope = openTestRunScope({ baseDir: base });
+  t.after(() => {
+    try {
+      scope.close();
+    } catch {
+      // 已归档或不存在的目录无需处理。
     }
-    fs.utimesSync(dir, old, old);
-  };
-  ageTree(scope);
+  });
+  const pidFile = path.join(scratch, "reap-real-silent.pid");
+  const script = path.join(scratch, "reap-real-silent.mjs");
+  fs.writeFileSync(
+    script,
+    [
+      'import fs from "node:fs";',
+      `fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
+      "setInterval(() => {}, 1000);",
+    ].join("\n"),
+  );
+  // payload 只通过 owner 传入的 TMPDIR 持有 scope，不写文件/不开句柄/命令行不含 scope 路径。
+  const running = runInScope(scope, process.execPath, [script], { stdio: "ignore" });
+  let payloadPid = 0;
+  t.after(async () => {
+    if (payloadPid > 0) {
+      try {
+        process.kill(payloadPid, "SIGKILL");
+      } catch {
+        // 已退出即无需处理。
+      }
+    }
+    await running;
+  });
+  await waitFor(() => fs.existsSync(pidFile), 5000);
+  payloadPid = Number(fs.readFileSync(pidFile, "utf8"));
+  trackPid(t, payloadPid);
+  // 登记必须来自真实 spawnScoped，而不是测试手工写入 journal。
+  const journal = fs.readFileSync(path.join(scope.dir, CHILDREN_JOURNAL_FILE), "utf8");
+  assert.match(journal, /"kind":"spawn_registered"/u);
+  assert.match(journal, new RegExp(`"pid":${payloadPid}`, "u"));
+  // 模拟宿主失联：marker 指向已退出进程，目录整体过期。
+  const markerPath = path.join(scope.dir, MARKER);
+  const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
+  const dead = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+  const deadPid = dead.pid;
+  await new Promise((resolve) => dead.on("exit", resolve));
+  fs.writeFileSync(markerPath, JSON.stringify({ ...marker, pid: deadPid }));
+  ageTree(scope.dir);
   const kept = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
   assert.deepEqual(kept.reaped, []);
-  assert.equal(kept.kept.find((entry) => entry.dir === scope)?.reason, "live_children");
-  assert.equal(fs.existsSync(scope), true);
-  payload.kill("SIGKILL");
-  await new Promise((resolve) => payload.on("exit", resolve));
-  ageTree(scope);
+  const entry = kept.kept.find((item) => item.dir === scope.dir);
+  assert.equal(entry?.reason, "live_children");
+  assert.equal(entry?.children_state, "complete");
+  assert.equal(fs.existsSync(scope.dir), true);
+  process.kill(payloadPid, "SIGKILL");
+  await running;
+  ageTree(scope.dir);
   const archived = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
   assert.equal(archived.reaped.length, 1);
-  assert.equal(fs.existsSync(scope), false);
+  assert.equal(fs.existsSync(scope.dir), false);
 });
 
 test("reap：缺失 child journal 的旧 scope 默认保留现场", async () => {
@@ -3216,4 +3222,286 @@ test("reap：缺失 child journal 的旧 scope 默认保留现场", async () => 
   assert.deepEqual(kept.reaped, []);
   assert.equal(kept.kept.find((entry) => entry.dir === scope)?.reason, "children_unverifiable");
   assert.equal(fs.existsSync(scope), true);
+});
+
+test("reap：真实启动链登记完整且子进程结束后可归档", async (t) => {
+  const base = path.join(scratch, "reap-real-complete");
+  const scope = openTestRunScope({ baseDir: base });
+  t.after(() => {
+    try {
+      scope.close();
+    } catch {
+      // 已归档或不存在的目录无需处理。
+    }
+  });
+  const journalPath = path.join(scope.dir, CHILDREN_JOURNAL_FILE);
+  assert.match(fs.readFileSync(journalPath, "utf8"), /"kind":"ai-novel-test-run-children"/u);
+  await runInScope(scope, process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+  const lines = fs
+    .readFileSync(journalPath, "utf8")
+    .trimEnd()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(lines.filter((entry) => entry.kind === "spawn_intent").length, 1);
+  assert.equal(lines.filter((entry) => entry.kind === "spawn_registered").length, 1);
+  // 模拟宿主失联：marker 指向已退出进程，目录整体过期。
+  const markerPath = path.join(scope.dir, MARKER);
+  const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
+  const dead = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+  const deadPid = dead.pid;
+  await new Promise((resolve) => dead.on("exit", resolve));
+  fs.writeFileSync(markerPath, JSON.stringify({ ...marker, pid: deadPid }));
+  ageTree(scope.dir);
+  const result = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
+  assert.deepEqual(result.reaped.map((entry) => entry.dir), [scope.dir]);
+  assert.equal(fs.existsSync(scope.dir), false);
+});
+
+test("spawnScoped：启动意图写入失败时拒绝启动，不留不可核实子进程", async (t) => {
+  const base = path.join(scratch, "reap-intent-failure");
+  const scope = openTestRunScope({ baseDir: base });
+  t.after(() => {
+    try {
+      scope.close();
+    } catch {
+      // 已回收即无需处理。
+    }
+  });
+  const journalPath = path.join(scope.dir, CHILDREN_JOURNAL_FILE);
+  const startedFlag = path.join(scratch, "reap-intent-failure.started");
+  fs.rmSync(startedFlag, { force: true });
+  const script = path.join(scratch, "reap-intent-failure.mjs");
+  fs.writeFileSync(
+    script,
+    `import fs from "node:fs";\nfs.writeFileSync(${JSON.stringify(startedFlag)}, "started");\n`,
+  );
+  const originalAppend = fs.appendFileSync;
+  fs.appendFileSync = (file, data, options) => {
+    if (String(file) === journalPath) {
+      throw Object.assign(new Error("injected child journal append failure"), { code: "EIO" });
+    }
+    return originalAppend(file, data, options);
+  };
+  let result;
+  try {
+    result = await runInScope(scope, process.execPath, [script], { stdio: "ignore" });
+  } finally {
+    fs.appendFileSync = originalAppend;
+  }
+  assert.equal(result.exitCode, 1);
+  assert.match(result.error, /无法登记子进程启动意图/u);
+  assert.equal(fs.existsSync(startedFlag), false, "意图写入失败不得启动子进程");
+  assert.equal(fs.readFileSync(journalPath, "utf8").includes("spawn_intent"), false);
+});
+
+test("reap：旧登记后追加失败保留 children_incomplete，显式允许才归档", async (t) => {
+  const base = path.join(scratch, "reap-registration-failure");
+  const scope = openTestRunScope({ baseDir: base });
+  t.after(() => {
+    try {
+      scope.close();
+    } catch {
+      // 已归档或不存在的目录无需处理。
+    }
+  });
+  // 先建立一条完整旧登记，再让下一次登记停留在“意图已写、登记失败”。
+  await runInScope(scope, process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+  const journalPath = path.join(scope.dir, CHILDREN_JOURNAL_FILE);
+  const pidFile = path.join(scratch, "reap-registration-failure.pid");
+  fs.rmSync(pidFile, { force: true });
+  const script = path.join(scratch, "reap-registration-failure.mjs");
+  fs.writeFileSync(
+    script,
+    [
+      'import fs from "node:fs";',
+      `fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
+      "setInterval(() => {}, 1000);",
+    ].join("\n"),
+  );
+  const originalAppend = fs.appendFileSync;
+  let journalAppends = 0;
+  fs.appendFileSync = (file, data, options) => {
+    if (String(file) === journalPath) {
+      journalAppends += 1;
+      // 意图放行、登记失败：子进程已启动但身份未落盘。
+      if (journalAppends === 2) {
+        throw Object.assign(new Error("injected child journal append failure"), { code: "EIO" });
+      }
+    }
+    return originalAppend(file, data, options);
+  };
+  let running;
+  try {
+    running = runInScope(scope, process.execPath, [script], { stdio: "ignore" });
+    await waitFor(() => fs.existsSync(pidFile), 5000);
+  } finally {
+    fs.appendFileSync = originalAppend;
+  }
+  const payloadPid = Number(fs.readFileSync(pidFile, "utf8"));
+  trackPid(t, payloadPid);
+  t.after(async () => {
+    try {
+      process.kill(payloadPid, "SIGKILL");
+    } catch {
+      // 已退出即无需处理。
+    }
+    await running;
+  });
+  const records = fs
+    .readFileSync(journalPath, "utf8")
+    .trimEnd()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(records.filter((entry) => entry.kind === "spawn_intent").length, 2);
+  assert.equal(records.filter((entry) => entry.kind === "spawn_registered").length, 1, "第二次登记必须失败");
+  // 模拟宿主失联：marker 指向已退出进程，目录整体过期。
+  const markerPath = path.join(scope.dir, MARKER);
+  const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
+  const dead = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+  const deadPid = dead.pid;
+  await new Promise((resolve) => dead.on("exit", resolve));
+  fs.writeFileSync(markerPath, JSON.stringify({ ...marker, pid: deadPid }));
+  ageTree(scope.dir);
+  const kept = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
+  const entry = kept.kept.find((item) => item.dir === scope.dir);
+  assert.deepEqual(kept.reaped, []);
+  assert.equal(entry?.reason, "children_incomplete");
+  assert.equal(entry?.children_state, "incomplete");
+  assert.equal(entry?.open_intents?.length, 1);
+  // 子进程结束后仍不能自动归档：未登记身份无法证明归属。
+  process.kill(payloadPid, "SIGKILL");
+  await running;
+  ageTree(scope.dir);
+  const again = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
+  assert.deepEqual(again.reaped, []);
+  assert.equal(fs.existsSync(scope.dir), true);
+  // 显式人工允许时才归档现场。
+  const forced = reapOrphanScopes({
+    baseDir: base,
+    olderThanMs: 60_000,
+    allowUnverifiedChildren: true,
+  });
+  assert.deepEqual(forced.reaped.map((item) => item.dir), [scope.dir]);
+});
+
+test("reap：启动失败闭合意图后仍可归档，不把未启动当成未登记", async (t) => {
+  const base = path.join(scratch, "reap-spawn-failure");
+  const scope = openTestRunScope({ baseDir: base });
+  t.after(() => {
+    try {
+      scope.close();
+    } catch {
+      // 已归档或不存在的目录无需处理。
+    }
+  });
+  const journalPath = path.join(scope.dir, CHILDREN_JOURNAL_FILE);
+  const result = await runInScope(
+    scope,
+    path.join(scratch, "definitely-missing-binary"),
+    [],
+    { stdio: "ignore" },
+  );
+  assert.equal(result.exitCode, 1);
+  const records = fs
+    .readFileSync(journalPath, "utf8")
+    .trimEnd()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(records.filter((entry) => entry.kind === "spawn_intent").length, 1);
+  assert.equal(records.filter((entry) => entry.kind === "spawn_failed").length, 1);
+  assert.equal(records.filter((entry) => entry.kind === "spawn_registered").length, 0);
+  // 启动失败没有留下子进程，闭合意图后登记仍完整，可以归档。
+  const markerPath = path.join(scope.dir, MARKER);
+  const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
+  const dead = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+  const deadPid = dead.pid;
+  await new Promise((resolve) => dead.on("exit", resolve));
+  fs.writeFileSync(markerPath, JSON.stringify({ ...marker, pid: deadPid }));
+  ageTree(scope.dir);
+  const resultAfter = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
+  assert.deepEqual(resultAfter.reaped.map((entry) => entry.dir), [scope.dir]);
+});
+
+test("reap：空/损坏/旧格式/未闭合/未配对登记都不自动归档", async () => {
+  const base = path.join(scratch, "reap-unverifiable-states");
+  fs.mkdirSync(base, { recursive: true });
+  const dead = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+  const deadPid = dead.pid;
+  await new Promise((resolve) => dead.on("exit", resolve));
+  const header = `${JSON.stringify({
+    kind: "ai-novel-test-run-children",
+    version: 2,
+    at: new Date().toISOString(),
+  })}\n`;
+  const entries = {
+    "ai-novel-test-run.empty": "",
+    "ai-novel-test-run.corrupt-tail": `${header}{"kind":"spawn_intent","id":"half`,
+    "ai-novel-test-run.identity-missing":
+      `${header}${JSON.stringify({ kind: "spawn_intent", id: "a" })}\n` +
+      `${JSON.stringify({ kind: "spawn_registered", id: "a", started_at: new Date().toISOString() })}\n`,
+    "ai-novel-test-run.unpaired": `${header}${JSON.stringify({
+      kind: "spawn_registered",
+      id: "x",
+      pid: deadPid,
+      pgid: null,
+      started_at: new Date().toISOString(),
+    })}\n`,
+    "ai-novel-test-run.incomplete": `${header}${JSON.stringify({
+      kind: "spawn_intent",
+      id: "open",
+      at: new Date().toISOString(),
+    })}\n`,
+    "ai-novel-test-run.legacy": `${JSON.stringify({
+      pid: deadPid,
+      pgid: null,
+      started_at: new Date().toISOString(),
+    })}\n`,
+  };
+  for (const [name, journal] of Object.entries(entries)) {
+    const dir = path.join(base, name);
+    fs.mkdirSync(path.join(dir, "tmp"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, MARKER),
+      JSON.stringify({
+        kind: "ai-novel-test-run",
+        owner: "test-env",
+        runId: name,
+        pid: deadPid,
+        createdAt: new Date().toISOString(),
+        version: 1,
+      }),
+    );
+    fs.writeFileSync(path.join(dir, CHILDREN_JOURNAL_FILE), journal);
+    ageTree(dir);
+  }
+  const result = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
+  assert.deepEqual(result.reaped, []);
+  const byName = Object.fromEntries(
+    result.kept.map((entry) => [path.basename(entry.dir), entry]),
+  );
+  assert.equal(byName["ai-novel-test-run.empty"]?.reason, "children_unverifiable");
+  assert.equal(byName["ai-novel-test-run.empty"]?.children_state, "empty");
+  assert.equal(byName["ai-novel-test-run.corrupt-tail"]?.reason, "children_corrupt");
+  assert.equal(byName["ai-novel-test-run.corrupt-tail"]?.detail, "unterminated_line");
+  assert.equal(byName["ai-novel-test-run.identity-missing"]?.reason, "children_corrupt");
+  assert.equal(
+    byName["ai-novel-test-run.identity-missing"]?.detail,
+    "registered_identity_missing",
+  );
+  assert.equal(byName["ai-novel-test-run.unpaired"]?.reason, "children_corrupt");
+  assert.equal(byName["ai-novel-test-run.unpaired"]?.detail, "unpaired_registration");
+  assert.equal(byName["ai-novel-test-run.incomplete"]?.reason, "children_incomplete");
+  assert.equal(byName["ai-novel-test-run.incomplete"]?.children_state, "incomplete");
+  assert.equal(byName["ai-novel-test-run.legacy"]?.reason, "children_legacy");
+  assert.equal(byName["ai-novel-test-run.legacy"]?.children_state, "legacy");
+  for (const name of Object.keys(entries)) {
+    assert.equal(fs.existsSync(path.join(base, name)), true);
+  }
+  // 显式人工允许时仍可归档这些现场。
+  const forced = reapOrphanScopes({
+    baseDir: base,
+    olderThanMs: 60_000,
+    allowUnverifiedChildren: true,
+  });
+  assert.equal(forced.reaped.length, Object.keys(entries).length);
 });

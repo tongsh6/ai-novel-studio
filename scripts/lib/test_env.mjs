@@ -232,9 +232,23 @@ function processesReferencingScope(dir) {
 }
 
 const CHILDREN_JOURNAL = ".novel-test-run-children.jsonl";
+const CHILDREN_JOURNAL_KIND = "ai-novel-test-run-children";
+const CHILDREN_JOURNAL_VERSION = 2;
 
 function scopeChildrenJournal(dir) {
   return path.join(dir, CHILDREN_JOURNAL);
+}
+
+function childrenJournalHeader() {
+  return {
+    kind: CHILDREN_JOURNAL_KIND,
+    version: CHILDREN_JOURNAL_VERSION,
+    at: new Date().toISOString(),
+  };
+}
+
+function appendChildrenJournal(scope, entry) {
+  fs.appendFileSync(scopeChildrenJournal(scope.dir), `${JSON.stringify(entry)}\n`);
 }
 
 function processGroupId(pid) {
@@ -247,17 +261,52 @@ function processGroupId(pid) {
   return Number.isInteger(pgid) && pgid > 0 ? pgid : null;
 }
 
-function registerScopeChild(scope, child) {
-  if (scope.borrowed || !child?.pid) return;
-  const entry = {
-    pid: child.pid,
-    pgid: processGroupId(child.pid),
-    started_at: new Date().toISOString(),
-  };
+// 启动意图先于 spawn 落盘：若 owner 在子进程启动后、登记完成前被杀，
+// 恢复阶段会看到未闭合意图，不能把“没有可见活动”当成已证明子进程结束。
+// 意图写入失败时拒绝启动（fail closed），不留下无法核实的身份缺口。
+function registerScopeChildIntent(scope) {
+  if (scope.borrowed) return null;
+  const id = crypto.randomBytes(8).toString("hex");
   try {
-    fs.appendFileSync(scopeChildrenJournal(scope.dir), `${JSON.stringify(entry)}\n`);
+    appendChildrenJournal(scope, { kind: "spawn_intent", id, at: new Date().toISOString() });
+  } catch (error) {
+    throw new TestEnvError(`无法登记子进程启动意图，拒绝启动: ${error.message}`);
+  }
+  return id;
+}
+
+function registerScopeChildFailure(scope, intentId) {
+  if (!intentId) return;
+  try {
+    appendChildrenJournal(scope, {
+      kind: "spawn_failed",
+      id: intentId,
+      at: new Date().toISOString(),
+    });
   } catch {
-    // 登记失败不阻止启动；reap 遇到缺失 journal 会保留现场而不是猜测已结束。
+    // 闭合失败时意图保持未闭合；恢复阶段会保守保留现场。
+  }
+}
+
+function registerScopeChild(scope, child, intentId) {
+  if (!intentId) return;
+  if (!Number.isInteger(child?.pid) || child.pid <= 0) {
+    registerScopeChildFailure(scope, intentId);
+    return;
+  }
+  try {
+    appendChildrenJournal(scope, {
+      kind: "spawn_registered",
+      id: intentId,
+      pid: child.pid,
+      pgid: processGroupId(child.pid),
+      started_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    // 子进程已经启动但身份未登记：保留未闭合意图，让 reap 拒绝自动归档。
+    process.stderr.write(
+      `[test-env] 子进程身份登记失败（宿主失联后该 scope 将保留现场）: ${error.message}\n`,
+    );
   }
 }
 
@@ -287,26 +336,109 @@ function processGroupAlive(pgid) {
   });
 }
 
-// 返回 {verified, live}：verified=false 表示没有持久登记，无法证明子进程已结束。
+function scopeEntryIdentity(entry) {
+  const pid = Number.isInteger(entry?.pid) && entry.pid > 0 ? entry.pid : null;
+  const pgid = Number.isInteger(entry?.pgid) && entry.pgid > 0 ? entry.pgid : null;
+  if (pid === null && pgid === null) return null;
+  return { pid, pgid };
+}
+
+function liveChildren(entries) {
+  return entries.filter((entry) => {
+    const identity = scopeEntryIdentity(entry);
+    if (!identity) return false;
+    return (
+      (identity.pid !== null && pidAlive(identity.pid)) ||
+      (identity.pgid !== null && processGroupAlive(identity.pgid))
+    );
+  });
+}
+
+function childrenStateFailure(state, detail) {
+  return { verified: false, live: [], state, ...(detail ? { detail } : {}) };
+}
+
+// 返回 {verified, live, state, detail, open_intents?}。
+// state: complete | missing | empty | unreadable | corrupt | legacy | incomplete。
+// 只有 complete 表示“登记完整且覆盖全部已启动子进程”；其余状态都不能自动获得
+// 归档资格。legacy 旧格式没有启动意图，无法排除启动/登记窗口，同样保守保留。
 function scopeChildrenState(dir) {
   const file = scopeChildrenJournal(dir);
-  if (!fs.existsSync(file)) return { verified: false, live: [] };
-  const entries = (fs.readFileSync(file, "utf8") || "")
-    .split("\n")
-    .filter(Boolean)
-    .flatMap((line) => {
-      try {
-        return [JSON.parse(line)];
-      } catch {
-        return [];
+  if (!fs.existsSync(file)) return childrenStateFailure("missing");
+  let text;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch (error) {
+    return childrenStateFailure("unreadable", error.message);
+  }
+  if (text === "") return childrenStateFailure("empty");
+  // appendFileSync 每次写整行；没有尾换行说明存在半行写入。
+  if (!text.endsWith("\n")) return childrenStateFailure("corrupt", "unterminated_line");
+  let entries;
+  try {
+    entries = text
+      .slice(0, -1)
+      .split("\n")
+      .map((line) => JSON.parse(line));
+  } catch {
+    return childrenStateFailure("corrupt", "invalid_json");
+  }
+  if (entries.length === 0) return childrenStateFailure("empty");
+  if (entries.some((entry) => !entry || typeof entry !== "object" || Array.isArray(entry))) {
+    return childrenStateFailure("corrupt", "invalid_record");
+  }
+  const header = entries[0];
+  if (header.kind === CHILDREN_JOURNAL_KIND && header.version !== CHILDREN_JOURNAL_VERSION) {
+    return childrenStateFailure("corrupt", "unsupported_version");
+  }
+  const hasHeader = header.kind === CHILDREN_JOURNAL_KIND;
+  if (!hasHeader) {
+    if (entries.some((entry) => entry.kind !== undefined)) {
+      return childrenStateFailure("corrupt", "unknown_header");
+    }
+    const legacyEntries = [];
+    for (const entry of entries) {
+      if (!scopeEntryIdentity(entry)) return childrenStateFailure("legacy", "identity_missing");
+      legacyEntries.push(entry);
+    }
+    return { verified: false, live: liveChildren(legacyEntries), state: "legacy" };
+  }
+  const openIntents = new Set();
+  const registered = [];
+  for (const entry of entries.slice(1)) {
+    if (entry.kind === "spawn_intent") {
+      if (!nonEmptyString(entry.id)) return childrenStateFailure("corrupt", "intent_identity_missing");
+      openIntents.add(entry.id);
+      continue;
+    }
+    if (entry.kind === "spawn_registered") {
+      if (!nonEmptyString(entry.id) || !scopeEntryIdentity(entry)) {
+        return childrenStateFailure("corrupt", "registered_identity_missing");
       }
-    });
-  const live = entries.filter(
-    (entry) =>
-      (Number.isInteger(entry.pid) && pidAlive(entry.pid)) ||
-      (Number.isInteger(entry.pgid) && processGroupAlive(entry.pgid)),
-  );
-  return { verified: true, live };
+      if (!openIntents.delete(entry.id)) {
+        return childrenStateFailure("corrupt", "unpaired_registration");
+      }
+      registered.push(entry);
+      continue;
+    }
+    if (entry.kind === "spawn_failed") {
+      if (!nonEmptyString(entry.id) || !openIntents.delete(entry.id)) {
+        return childrenStateFailure("corrupt", "unpaired_spawn_failure");
+      }
+      continue;
+    }
+    return childrenStateFailure("corrupt", `unknown_record:${String(entry.kind)}`);
+  }
+  const live = liveChildren(registered);
+  if (openIntents.size > 0) {
+    return {
+      verified: false,
+      live,
+      state: "incomplete",
+      open_intents: [...openIntents],
+    };
+  }
+  return { verified: true, live, state: "complete" };
 }
 
 export function reapOrphanScopes({
@@ -342,11 +474,30 @@ export function reapOrphanScopes({
     // 先核对持久登记的真实子进程/进程组归属；无法证明已结束时保留现场。
     const children = scopeChildrenState(dir);
     if (children.live.length) {
-      kept.push({ dir, reason: "live_children", evidence: children.live });
+      kept.push({
+        dir,
+        reason: "live_children",
+        evidence: children.live,
+        children_state: children.state,
+      });
       continue;
     }
     if (!children.verified && !allowUnverifiedChildren) {
-      kept.push({ dir, reason: "children_unverifiable" });
+      const reason =
+        children.state === "incomplete"
+          ? "children_incomplete"
+          : children.state === "legacy"
+            ? "children_legacy"
+            : children.state === "corrupt"
+              ? "children_corrupt"
+              : "children_unverifiable";
+      kept.push({
+        dir,
+        reason,
+        children_state: children.state,
+        ...(children.detail ? { detail: children.detail } : {}),
+        ...(children.open_intents ? { open_intents: children.open_intents } : {}),
+      });
       continue;
     }
     // 归档前必须证明活动资源已结束：打开句柄、近期写入、命令行引用任一存在，
@@ -410,6 +561,13 @@ function createRunScope(baseDir, archiveDir) {
     fs.writeFileSync(path.join(dir, RUN_MARKER), `${JSON.stringify(marker, null, 2)}\n`, {
       flag: "wx",
     });
+    // 头部行声明本 scope 使用带启动意图的登记格式；恢复阶段据此区分完整登记、
+    // 登记未完成和不可验证，而不是把空/损坏文件当成“没有子进程”。
+    fs.writeFileSync(
+      scopeChildrenJournal(dir),
+      `${JSON.stringify(childrenJournalHeader())}\n`,
+      { flag: "wx" },
+    );
   } catch (error) {
     fs.rmSync(dir, { recursive: true, force: true });
     throw error;
@@ -484,17 +642,24 @@ function finalizeProcessTree(pid, { groupCheck }) {
  *   stderr?: string}>}
  */
 function spawnScoped(scope, command, args, options, stdio) {
-  const child = spawn(command, args, {
-    cwd: options.cwd,
-    env: scope.env(options.env),
-    stdio,
-    // 只有 scope owner 建立可收口的独立进程组；嵌套借用入口保持在外层组内，
-    // 由外层 owner 统一收口，避免创建父级无法回收的脱离组。
-    detached: process.platform !== "win32" && !scope.borrowed,
-  });
+  const intentId = registerScopeChildIntent(scope);
+  let child;
+  try {
+    child = spawn(command, args, {
+      cwd: options.cwd,
+      env: scope.env(options.env),
+      stdio,
+      // 只有 scope owner 建立可收口的独立进程组；嵌套借用入口保持在外层组内，
+      // 由外层 owner 统一收口，避免创建父级无法回收的脱离组。
+      detached: process.platform !== "win32" && !scope.borrowed,
+    });
+  } catch (error) {
+    registerScopeChildFailure(scope, intentId);
+    throw error;
+  }
   // 持久登记本次 run 的真实子进程/进程组：宿主被 SIGKILL 后，reap 必须能据此
   // 判断静默存活的 payload，而不是把“没有可见活动迹象”当成已结束。
-  registerScopeChild(scope, child);
+  registerScopeChild(scope, child, intentId);
   return child;
 }
 
