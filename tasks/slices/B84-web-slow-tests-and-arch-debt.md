@@ -668,7 +668,7 @@ Tauri surface：
 | 报告编号 | 级别 | 本任务承接内容 | 执行状态 |
 |---|---|---|---|
 | B84-REV-01 | P1 | 失联 owner 的活子进程先收口，归档后无原路径再生；保留必要证据 | 已修复：归档前检查 open_handles/recent_write/process_reference/unverifiable；受控 SIGKILL 反例 reaped=0、原 scope 保留 |
-| B84-REV-02 | P2 | 恢复判据核对本 run 可见叙事，零叙事不能通过；复核相关流式采样 | 判据已修复：零叙事/隐藏叙事 false、有叙事 true；真实恢复场景两次启动早期 `driveAgentConversationTurn` 超时，**页面复验未闭环** |
+| B84-REV-02 | P2 | 恢复判据核对本 run 可见叙事，零叙事不能通过；复核相关流式采样 | 判据已修复：零叙事/隐藏叙事 false、有叙事 true；真实恢复场景两次启动早期超时，第三次跳过普通对话中间态后失败于 `AgentRun activity API` 无 ProviderRun usage（场景基线），**页面复验未闭环** |
 | B84-REV-03 | P2 | 打通 process_tree 返回契约与 runner cleanup 失败传播，等待有界 | 已修复：信号拒绝/仍存活返回非零、僵尸忽略、SIGKILL 后有界确认；4/4 回归 |
 | B84-REV-04 | P2 | owner 退出前后重核 fixture 最终发布事实，补竞争时序回归 | 已修复：owner 退出后重核 published/failed；现有并发与 scope 全套通过；**未新增精确调度反例** |
 | B84-REV-05 | P2 | Task.Supervisor 枚举纳入同一 deadline，迟到空集合不签成功 | 已修复：查询受 deadline 约束、超期仍 force_kill 已知任务；12/12（含其他 owner shutdown 反例） |
@@ -683,7 +683,7 @@ Tauri surface：
 - **REV-04**：`awaitFixtureOwner` 发现 claim owner 退出时再核对 published/failed 最终事实；现有 fixture 并发/复用测试与 scope 全套通过。未新增精确调度反例，作为已知回归缺口保留。
 - **REV-05**：`owned_tasks_within` 把 Supervisor 查询放进受监控短进程并按剩余 deadline 等待；超期仍给 50ms 拿列表以 force_kill 已知任务；`agent_run_cleanup_test` 12/12（含其他 owner shutdown、迟到集合不签成功）。
 - **REV-06**：`config/test.exs` 退出钩子 ENOENT 幂等，其余删除失败写 stderr，测试成功时 `System.halt(1)`、测试已失败时保留原码。受控三态：正常0/缺失0/拒绝1+诊断+文件保留。
-- **REV-02**：恢复判据改为检查 `[aria-label="本轮创作过程"]` 内可见非空叙事段落；从 driver 原文提取谓词做合成 DOM 验证：零叙事 false、有叙事 true、隐藏叙事 false。真实恢复场景两次均在启动早期 `driveAgentConversationTurn` 3s 等待超时（非恢复判据），**页面复验未闭环**，未用合成验证代签。
+- **REV-02**：恢复判据改为检查 `[aria-label="本轮创作过程"]` 内可见非空叙事段落；从 driver 原文提取谓词做合成 DOM 验证：零叙事 false、有叙事 true、隐藏叙事 false。真实恢复场景两次在启动早期 `driveAgentConversationTurn` 3s 等待超时（普通对话无“创作执行”中间态）；第三次按场景族改用真实帧证明启动后，仍失败于 `AgentRun activity API did not return persisted ProviderRun usage summaries`（普通对话场景基线，非恢复判据）。**页面复验未闭环**，未用合成验证代签。
 - **未修/后续**：`frontend/src-tauri/src/lib.rs` 的 `TempDir::drop` 忽略删除结果（报告静态观察，未计数）；REV-04 精确调度反例；REV-02 真实页面复验；B84 既有债务。B84 仍 `doing`。
 
 本checkpoint只签六项代码修复与局部复验，不签 B84；页面判据修改仍待真实恢复场景通过。本批已本地提交（未推送）。
