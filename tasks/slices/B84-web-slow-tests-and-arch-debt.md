@@ -1,6 +1,6 @@
 # B84：全项目测试环境作用域、fixture 体系与剩余架构/测试债务
 
-- 状态：**doing（A0完成；A1/A2六个局部实施单元前4个已提交、R01快照/capture两族随原R01整体保持WIP；**A3已收口**：Application流程、Channel 16模块、日志源头、Rust单测、裸Mix/config/test、其余runtime测试全部完成并本地提交；web回归196例62.2秒；A1/A2其余Node族、A4/A5与既有债务保留）**
+- 状态：**doing（A0完成；A1基本完成；A2已收口：`native_ui_wait`与request-cost-cli/reference_log两族随R01 WIP、b71-pending保留技术债；A3已收口：Application/Channel/日志/Rust/裸Mix/runtime全部完成，全量3203 tests/0，web 196例62.2秒；A4真实批次闭环：浏览器3场景+Tauri非原生1场景+原生AX真实`iq3_s` 107/107；A5未开始；本地`72f38196`未推送）**
 - 来源：
   - [00f 能力图谱 P2-E](../../docs/design/00f-capability-atlas.md)：`novel_web` 193 tests / 532s 慢测试仍待收敛；`novel_common` 日志 I/O 部分已由 ADR-0034（`novel_telemetry`）闭环，本任务只承接 web 慢测试与剩余债务。
   - B71 审核轮架构 P2-10 记录与 2026-11-08 候选。
