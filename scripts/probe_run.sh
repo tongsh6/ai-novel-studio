@@ -16,6 +16,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
+source "$PROJECT_ROOT/scripts/lib/test_env.sh"
 
 PROBE_SCRIPT="${1:?用法: probe_run.sh <scripts/model_contracts/xxx.exs> [provider] [runs]}"
 PROVIDER="${2:-lmstudio}"
@@ -40,4 +41,5 @@ LOG="$LOG_DIR/$(basename "$PROBE_SCRIPT" .exs)-${PROVIDER}-${STAMP}.log"
 echo "[probe_run] script=$PROBE_SCRIPT provider=$PROVIDER runs=$RUNS"
 echo "[probe_run] 原始日志: $LOG   （观察用 tail -f，别在本管道上加过滤）"
 
-MODEL_CONTRACT_RUNS="$RUNS" MIX_ENV=test mix run "$PROBE_SCRIPT" "$PROVIDER" 2>&1 | tee "$LOG"
+MODEL_CONTRACT_RUNS="$RUNS" MIX_ENV=test \
+  novel_node_test_scope -- mix run "$PROBE_SCRIPT" "$PROVIDER" 2>&1 | tee "$LOG"

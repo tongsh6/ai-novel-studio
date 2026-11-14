@@ -27,7 +27,7 @@ jobs:
       # 外层 run scope 覆盖整次 node --test：同一作用的 TMPDIR/scratch 贯穿
       # 所有测试文件，而不是每个文件或每次重启各自创建 run。
       - name: Quality manifest parser tests
-        run: PATH="$PWD/.quality-venv/bin:$PATH" bash -c 'source scripts/lib/test_env.sh && novel_node_test_scope -- node --test scripts/lib/quality/*.test.mjs'
+        run: PATH="$PWD/.quality-venv/bin:$PATH" bash scripts/node_test.sh scripts/lib/quality/*.test.mjs
 
       # 作用域自身测试必须直接拥有 run scope（它们验证 owned/借用/清理语义），
       # 不能继承外层借用 scope，因此按既有 Node 测试步骤直接运行。
@@ -36,6 +36,28 @@ jobs:
 
       - name: Quality manifest check
         run: PATH="$PWD/.quality-venv/bin:$PATH" bash scripts/quality_manifest_check.sh
+
+  node-tests:
+    name: Node tests (scope)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24"
+
+      # 统一入口建立 owned run scope；裸 node --test 不再是现役入口。
+      - name: Native UI and evidence parser tests
+        run: bash scripts/node_test.sh scripts/lib/native_ui/*.test.mjs
+
+      - name: Model contract parser tests
+        run: bash scripts/node_test.sh scripts/model_contracts/*.test.mjs
+
+      - name: Root scripts tests
+        run: bash scripts/node_test.sh scripts/*_test.mjs
 
   backend:
     name: Elixir (mix test)

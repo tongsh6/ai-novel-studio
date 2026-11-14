@@ -33,7 +33,7 @@
 | `dev.sh` | 本地开发启动入口。 |
 | `dogfood_run.sh` | 狗粮运行入口。 |
 | `dogfood_run_detached.sh` | B37 独立 session 监督入口；默认 dogfood，`--runner native-slice` 监督原生 slice，保留 pid/心跳/退出记录。 |
-| `probe_run.sh` | 模型契约探针统一入口（端口/构建隔离、原始日志 tee、并发预警——历史事故的机械化）。 |
+| `probe_run.sh` | 模型契约探针统一入口（端口/构建隔离、原始日志 tee、并发预警——历史事故的机械化）；B84 起经统一 run scope 运行，作者模型服务仅借用、原始日志保留在 `artifacts/model-contracts/logs/`。 |
 | `e2e_01_full_chain_check.sh` | E2E-01 聚合检查脚本。 |
 | `frontend_audit.sh` | 前端依赖、Tauri 配置和桌面约束审计。 |
 | `grep_turn.sh` | 按 turn 检索日志/证据辅助。 |
@@ -42,6 +42,7 @@
 | `macos_cgevent_local_secret_file_driver.swift` | macOS 本地 secret 文件 UI 驱动辅助。 |
 | `macos_cgevent_plan_matrix_driver.swift` | **B26 计划矩阵原生驱动**：CGEvent/AX 操作真实 Tauri 窗口完成同批计划/独立起草/核对后修订三路径，写 `native-ui-complete.json`；配合 `TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1` 与 `scripts/native_plan_evidence_check.mjs` 使用。 |
 | ~~`b27_case_freeze.exs`~~ | **已退役（2026-11-06 作者裁决）**：B27 CP0 案例冻结器在 R1 后不可运行（`SystemIdentity.inject/1` 已删除、请求形态改为 canonical IR）；历史快照（`quality/acceptance/fixtures/b27-semantic-cases/`）只读保留，不再提供 `--check` 可复跑性；需要规则臂对照时按 R1 形态作为独立任务重建。 |
+| `node_test.sh` | **Node 测试统一入口（B84 A1）**：`bash scripts/node_test.sh <files...>` 为测试族建立 owned run scope（同一次 run 的 TMPDIR/scratch 贯穿所有文件）；`--self` 供作用域自身测试直接自持 scope。CI `node-tests` job 与 quality parser 步骤使用此入口，裸 `node --test` 不再是现役入口。 |
 | `next_task_check.mjs` | 检查 NEXT 三段简表、唯一状态来源、当前/候选可推进、锚点与说明篇幅；候选无数量上限，阻塞/延期另列引用；拒绝借子标题状态及旅程双写。`--open` 只读列出原任务/小节开放项、是否排期及未识别历史状态，不生成第二份台账。 |
 | `next_task_check.test.mjs` | 排期/源状态/链接/体积与差距扫描迁移、快照保护反例；运行 `node --test scripts/next_task_check.test.mjs`，无需前端依赖。 |
 | `gap_ledger.sh` | 从既有差距表生成开放清单及跨次快照，落点见 `reports/gap-ledger/README.md`。 |
@@ -106,8 +107,12 @@
 | `seed_p1_prose_revision_candidate.exs` | P1 prose revision candidate seed。 |
 | `seed_quality_revision_action_run_anchoring.exs` | 质量修订动作回执、同 run 暂停/刷新/继续验收 seed。 |
 | `seed_stage_startup_context.exs` | stage startup context seed。 |
+| `seed_request_cost_work.exs` | B87 R01 完整副本的声明准备：通过现役 WorkService/WorkSessionService 为目标作品改可见名并建立新会话；独立 setup 对账由成本采集入口完成，不裁剪源数据。 |
 | `slice_verify.sh` | legacy/browser slice verify 入口。 |
-| `slice_verify_server.exs` | slice verify server 辅助入口。 |
+| `slice_verify_server.exs` | slice verify server 辅助入口；R01 可在同一进程写白名单 runtime facts（`SLICE_VERIFY_RUNTIME_FACTS_PATH`，不改产品/provider 行为）。 |
+| `request_cost_runtime_facts.exs` | B87 R01 白名单 runtime facts 观察模块：只读 Gateway 现有 `provider_metadata/0` 与 `provider_options/0` 及 Application 配置，输出实际 provider/model、脱敏 endpoint、ContextPressure.window、自动维护/摘要策略、pid/mix env；thinking/effort/max_tokens/timeout 在配置层标记为未观察（`settings_observed=false`），请求层事实由 `llm-calls` 的 `request.body` 单独记录，不冒充 raw HTTP/SSE 或模型内部思考；不读密钥、不 dump 全 env。 |
+| `request_cost_splash_body_check.exs` | R01 无模型请求体核对：现役 Splash adapter 从 Application 配置构造流式 body，经 test-only eventsource 边界输出 model/reasoning_effort/has_thinking。 |
+| `native_request_cost_drive.test.mjs` | R01 外部驱动测试：当前可见输入模式、原始 AX 节点点击、作者归属与完成/等待/能力缺口终态；只用合成或保存的观察，不启动模型或原生窗口。 |
 | `smoke_test.sh` | smoke test 入口。 |
 | `stage.sh` | stage 桌面启动入口。 |
 | `task_done.sh` | 任务完成统一门禁入口。B84：资源初始化前接入同一 run scope；`task_done → ai_static_scan` 嵌套共用父 run，不重复创建/不结束父 scope。 |
@@ -125,8 +130,8 @@
 | `native_business_evidence_check.mjs` | B26 原生业务结果与续行问题验收；按实际用户操作、传输和持久事实核对来源、幂等、采纳边界与缺口收尾。 |
 | `native_plan_evidence_check.mjs` | B26 既有多步计划场景的额外原生矩阵：同响应计划、独立起草与耗尽修订，核对来源、实际调用、编排和待采纳持久结果。 |
 | `native_question_evidence_check.mjs` | B26 原生问题回复：本次启动 nonce、原生截图、源动作日志与持久输入字节对账；不驱动产品、不接受 Chromium 证据。 |
-| `native_ui_wait.mjs` | B37 原生外部驱动的 begin/finish/status/wait 账本，分型预算、10秒心跳、进程/后端异常快速失败；owned 进程观测走 `lib/native_ui/process_observation.mjs`，实际方式与 fallback 原因写入 `wait-stats.json.process_observation`；产品不读取。 |
-| `native_ui_wait.test.mjs` | 原生等待账本超时、重复身份、迟到完成及进程丢失的边界测试。 |
+| `native_ui_wait.mjs` | B37 原生外部驱动的 begin/finish/status/wait 账本，分型预算（Splash 与既有实模同 360 秒 turn）、10秒心跳、进程/后端异常快速失败；`observeNativeLifecycle`（命令消费/进程来源/首次窗口缺席）与 `maybeHeartbeat` 是可测的公开边界，owned 进程观测走 `lib/native_ui/process_observation.mjs`，实际方式与 fallback 原因写入 `wait-stats.json.process_observation`；产品不读取。 |
+| `native_ui_wait.test.mjs` | 原生等待账本超时、重复身份、迟到完成、命令起点消费/wait-events、完成时有活动等待、跨轮询心跳/原生首次无窗口、存活探测不投递信号及进程丢失的边界测试。 |
 | `native_b31_evidence.mjs` | B31 原生五 trial 前提与证据对账；prepare 仅创建隔离作品及 T3–T5 允许的协议 seed，verify 读取真实 UI/WS/持久结果。 |
 | `native_b28_evidence.mjs` | B28 原生前提、只读快照及矩阵对账；支持受限测试库副本scoped复验并逐项注明父批证据；T2按B36目标段与完整采纳结果校验。 |
 | `native_b28_evidence.test.mjs` | B28 全章覆盖、源版本、同章身份、排版保真与越界拒绝的证据检查回归。 |
@@ -144,6 +149,7 @@
 | `native_au11_drive.mjs` / `native_au11_evidence.mjs` | B61 AU11×2 原生验收（AX/CGEvent 真实 Tauri 窗口）：打开工作台→发送质量诊断/缺 WorkState 用户话术→等回复可见→点「为什么」；核验 frame_type/decision_type/reply_record 覆盖/prompt 作品事实/回复字节/provider-free why/无工具无采纳无写入。 |
 | `native_au07_drive.mjs` / `native_au07_evidence.mjs` | B61 AU07×3 原生验收：发送角色阵容请求→等 AgentRun 内部只读 character_roster 步与最终回复→按 step turn_id 回查产品持久 trace（TraceRepository.list_by_turn）+ no-provider ReplayReport 六问；核验 registry snapshot/合同 refs/grant summary/redacted I/O/无生产写入。 |
 | `native_b40_family_drive.mjs` / `native_b40_family_evidence.mjs` | B62 B40 CP3 家族 6 个 tauri 场景原生验收（AX/CGEvent 真实 Tauri 窗口，按 `native-driver-ready.json` 的 `slice_id` 分流）：普通聊天两轮（au01-ordinary-chat / pr-smoke-core-reply）、空消息守卫、frame 校验友好错误、au02 自然探索候选卡、agent-step-regate（AgentRun 多步 12 门 allow + author-safe why）；证据含 AX/截图/app-log/llm-calls/等待账/只读 DB，检查项与 browser canonical 同源。 |
+| `native_request_cost_drive.mjs` / `native_request_cost_batch.sh` / `model_contracts/request_cost_baseline.mjs` | B87 R01 真实起点与同源原生多轮：`rebuild-snapshot` 从冻结 v2 full 生成字节一致的完整副本（不裁剪作品），`restore-snapshot` 到隔离 DB，`preflight` 在 runner 启动前校验 native frozen/快照 hash/目标作品/运行清单（拒绝可能自动恢复的运行/非终态长期任务，不把历史数量写成规则），`prepare` 独立对账 seed 的 title/revision/updated_at + 新 session 并冻结 target 映射，`analyze` 只读历史日志复算。驱动每轮按当前真实 AX 选输入模式（普通 composer+发送优先，否则可见「开始新讨论」点一次再等普通入口），操作始终用同一次 observed.nodes 的完整 node；终局只按本轮 AX 作者归属（含 capability_gap 结构与下一作者边界），失败/超时保留最新原始 AX，turn/pcall/prun 仅事后 join；`verify` 产出 canon 内容权威、内容 UTF-8/稳定 JSON、raw HTTP/SSE not_collected、usage/缓存/TTFT/互斥分类守恒、语义待审表与 measurement/model_behavior 分离。批次入口 `REQUEST_COST_MANIFEST=<frozen> REQUEST_COST_SNAPSHOT=<dir> REQUEST_COST_LENGTH=3|10|20 bash scripts/native_request_cost_batch.sh <tag>`；未冻结 manifest/history 不能启动 native。受控实验 runtime 参数（Splash thinking enabled+effort high、ContextPressure 262144、自动维护 true/keep4、摘要异步）由 `lib/native_ui/request_cost_runtime_recipe.mjs` 单点生成，batch 只消费数据行；`slice_verify_server.exs` 在同一后端进程写白名单 runtime facts，`prepare/verify` 核对失败即明确失败。无模型复核入口：`bash scripts/model_contracts/request_cost_runtime_bootstrap_check.sh`、`bash scripts/model_contracts/request_cost_splash_body_check.sh`。 |
 | `native_b71_drive.mjs` / `native_b71_evidence.mjs` / `native_b71_batch.sh` | B71 原生请求验收：默认驱动全章阅读并核验观察回流；`B71_SLICE=b71-authoring-transcript` 驱动超时后的同 run 续行，核验原生创作/质量、应用结果闭合、阶段工具、严格前缀、durable checkpoint 与作者安全文案；`B71_SLICE=b71-authoring-profiles` 驱动角色设计 durable run，核验前序判断与创作共享 canonical transcript；`B71_SLICE=b71-authoring-planning` 驱动独立计划→重规划→角色与世界设定双候选，核验逐call闭合、durable版本/预算及Why无模型调用。 | `B71_SLICE=b71-authoring-pending` 驱动空作品 Q1B 原稿→对话修订→采纳/放弃→重启恢复→新请求，核验三 run、两稿、Why 0 调用、精确 receipt/canon 与 followup 真实 ACCEPTED/DISCARDED scope。 |
 | `native_b71_live_drive.mjs` / `native_b71_strata_state.mjs` | B71 CP3b 实模（真实 provider=strata、单槽预注册模型；历史 iq3_s，2026-11-07 起按 `B71_STRATA_MODEL` 可指定 q2_0）外部驱动与槽位核验 CLI：`B71_PROVIDER=strata B71_SLICE=b71-first-consumer bash scripts/native_b71_batch.sh <tag>` 使用 live 证据目录 `b71-first-consumer-live-<tag>`；驱动只像作者一样输入自然语言创作请求并等待 WS/DB run 终局（不轮询固定回复文本、不假设工具调用次数），采集 AX/WS/llm-calls/DB/canon（live 表级内容签名）/usage/Why 前后 Provider 计数，开始落 `strata-slot-before.json`、finally 只写一次 `strata-slot.json`（证据不可覆盖）并核验 loaded=null；Why 按钮在长消息流下方不可见时先按完整 AX 树定位并滚动后重试（记录 scroll 证据，区分“不存在”与“存在但不可见”）；`native_b71_strata_state.mjs` 供 batch 前后读取/卸载 /v1/models 与 /api/models。判据见 `lib/native_ui/authoring_live_evidence.mjs`（L1–L12 分层 mechanism/model_behavior/not_signed，模型未触发切片如实登记、不代签 G2–G6/I10）。 |
 | `StreamingSliceVerify`（test-support）+ `native_b71_drive.mjs` streaming preview journey | B71 R2 后续 checkpoint 真实页面流式正文预览：`B71_PROVIDER=streaming_slice_verify B71_SLICE=b71-authoring-transcript bash scripts/native_b71_batch.sh <tag>`；`novel_agent/test/support/provider/streaming_slice_verify.ex` 仅由 `slice_verify_server.exs` 显式注册（不入生产 registry），把确定性写作 fixture 经真实 OpenAI-compatible SSE 发送（`submit_tentative_artifact` arguments 分片 + 逐片延迟），由统一 SSEStream/decoder 产出 author_content_delta；driver 在生成中从真实窗口 AX 采样「正文生成中」与真实正文片段，`native_b71_evidence.mjs` 的 `verifyStreamPreview` 校验预览不泄漏协议字节（submit_tentative_artifact/item_id）、最终 turn_result 完成；输出 `b71-authoring-transcript-tauri-native-<tag>`（02-prose-preview.*、03-final.*、summary.json）。 |

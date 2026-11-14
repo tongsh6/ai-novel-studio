@@ -501,6 +501,19 @@ A3计划行的范围项均有实际证据，**签A3完成、不签B84**：
 
 本批之后A3不再有已知未迁移的后台run消费者；B84仍开放A1/A2其余Node族与A4/A5。
 
+### A1 裸Node测试入口与probe作用域（2026-11-14）
+
+只读事实：40个会创建外部资源的Node测试中仅10个接统一scope；CI只有quality manifest族经`novel_node_test_scope`，`native_ui` 909、`model_contracts` 43、根`scripts/*_test.mjs` 67个测试没有CI入口；`probe_run.sh`未接`test_env.sh`而dogfood等入口已接。
+
+- **Contract/Invariant**：quality-gates §2.5、A1的拥有/借用契约；同一run的TMPDIR/scratch贯穿一个测试族；scope自身测试自持scope；退出码不吞；probe只借用作者模型服务、原始日志必须保留。
+- **Boundary/Consumer**：新增`scripts/node_test.sh`薄入口；CI新增`node-tests` job（Node24）并在quality步骤改用同一入口；`probe_run.sh`经同一scope运行`mix run`。不改产品、测试框架或模型服务。
+- **实体查重**：复用既有`novel_node_test_scope`/`test_env.sh`，不新建调度器、结果台账或fixture DSL；`--self`只是同一入口的显式分支。
+- **Proof**：三组测试**909/43/67全通过**；scope包装`exit 7`原样返回7；`mix run`在scope内退出0；运行后`test-env-scope-*`与`ai-novel-test-run.*`均为0；probe原始日志仍落在`artifacts/model-contracts/logs/`。
+- **Acceptance Driver**：真实`node --test`与`mix run`、受控子进程；产品验收感知no。
+- **Exploration**：不适用。
+
+验收：CI步骤与本地入口同源；真实provider探测本批未运行（服务仅借用，不代签模型行为）；A4原生/浏览器入口与A5 SIGKILL仍开放。本批已本地提交（未推送）。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。
