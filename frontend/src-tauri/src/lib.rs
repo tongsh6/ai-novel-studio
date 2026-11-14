@@ -905,26 +905,47 @@ fn shutdown_sidecar(app: &tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// 测试拥有的系统临时目录：作用域结束（含断言失败/panic 展开）时删除。
+    /// 用 RAII 而非在断言后手动清理，避免失败路径越过清理语句。
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos();
+            let dir =
+                std::env::temp_dir().join(format!("ai-novel-{tag}-{}-{nanos}", std::process::id()));
+            std::fs::create_dir_all(&dir).expect("create temp dir");
+            Self(dir)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn sidecar_install_requires_marker_and_bin() {
-        let dir = std::env::temp_dir().join(format!(
-            "sidecar-install-test-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
+        let guard = TempDir::new("sidecar-install-test");
+        let dir = guard.path();
         std::fs::create_dir_all(dir.join("bin")).expect("mkdir");
-        assert!(!super::sidecar_install_complete(&dir));
+        assert!(!super::sidecar_install_complete(dir));
 
-        std::fs::write(super::sidecar_bin_path(&dir), b"#!/bin/sh\n").expect("write bin");
-        assert!(!super::sidecar_install_complete(&dir));
+        std::fs::write(super::sidecar_bin_path(dir), b"#!/bin/sh\n").expect("write bin");
+        assert!(!super::sidecar_install_complete(dir));
 
         std::fs::write(dir.join(".install-complete"), "test").expect("write marker");
-        assert!(super::sidecar_install_complete(&dir));
-
-        let _ = std::fs::remove_dir_all(&dir);
+        assert!(super::sidecar_install_complete(dir));
     }
 
     #[test]
@@ -974,19 +995,14 @@ mod tests {
         assert!(super::normalize_purpose_models(None).is_empty());
     }
 
-    use super::*;
+    fn temp_secrets_dir(tag: &str) -> TempDir {
+        TempDir::new(&format!("secrets-{tag}"))
+    }
 
-    fn temp_secrets_path(tag: &str) -> PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock after epoch")
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!(
-            "ai-novel-secrets-{tag}-{}-{nanos}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).expect("create temp dir");
-        dir.join(PROVIDER_SECRETS_FILE)
+    fn temp_secrets_path(tag: &str) -> (TempDir, PathBuf) {
+        let guard = temp_secrets_dir(tag);
+        let path = guard.path().join(PROVIDER_SECRETS_FILE);
+        (guard, path)
     }
 
     #[test]
@@ -1011,8 +1027,8 @@ mod tests {
 
     #[test]
     fn pending_message_is_durable_immutable_and_scoped() {
-        let root = temp_secrets_path("message-outbox");
-        let dir = root.join("work-a").join("session-a");
+        let root = temp_secrets_dir("message-outbox");
+        let dir = root.path().join("work-a").join("session-a");
         let message = serde_json::json!({"turn_id":"message-1","work_id":"work-a","session_id":"session-a","text":"  原文\n不改写  "});
         write_submission(&dir, &message).expect("write before send");
         write_submission(&dir, &message).expect("same identity is idempotent");
@@ -1029,6 +1045,7 @@ mod tests {
                 .unwrap();
         assert_eq!(retained["delivery_status"], "rejected");
         assert!(!root
+            .path()
             .join("work-b")
             .join("session-a")
             .join("message-1.json")
@@ -1038,7 +1055,6 @@ mod tests {
         assert!(write_submission(&dir, &changed).is_err());
         assert!(submission_component("../other").is_err());
         assert!(submission_component("a/b").is_err());
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1065,7 +1081,7 @@ mod tests {
 
     #[test]
     fn provider_secrets_round_trip_through_local_file() {
-        let path = temp_secrets_path("round-trip");
+        let (_guard, path) = temp_secrets_path("round-trip");
 
         // 缺文件视为空：判断"是否已配置"绝不读不存在的密钥，也绝不报错。
         let empty = read_provider_secrets_at(&path).expect("missing file reads as empty");
@@ -1081,8 +1097,6 @@ mod tests {
             Some("sk-test")
         );
         assert!(provider_secret_present(&loaded, "deepseek"));
-
-        let _ = std::fs::remove_dir_all(path.parent().expect("temp dir"));
     }
 
     #[test]
@@ -1120,7 +1134,7 @@ mod tests {
 
     #[test]
     fn openai_api_key_and_subscription_secrets_are_isolated_per_auth_method() {
-        let path = temp_secrets_path("openai-auth-methods");
+        let (_guard, path) = temp_secrets_path("openai-auth-methods");
 
         let mut secrets = ProviderSecrets::default();
         secrets.api_keys.insert("openai".into(), "sk-api".into());
@@ -1143,8 +1157,6 @@ mod tests {
         );
         assert!(provider_secret_present(&loaded, "openai"));
         assert!(provider_secret_present(&loaded, "openai_subscription"));
-
-        let _ = std::fs::remove_dir_all(path.parent().expect("temp dir"));
     }
 
     #[cfg(unix)]
@@ -1152,7 +1164,7 @@ mod tests {
     fn secret_file_is_written_with_owner_only_permissions() {
         use std::os::unix::fs::PermissionsExt;
 
-        let path = temp_secrets_path("perms");
+        let (_guard, path) = temp_secrets_path("perms");
         write_provider_secrets_at(&path, &ProviderSecrets::default()).expect("write secrets");
 
         let mode = std::fs::metadata(&path)
@@ -1161,8 +1173,24 @@ mod tests {
             .mode()
             & 0o777;
         assert_eq!(mode, 0o600);
+    }
 
-        let _ = std::fs::remove_dir_all(path.parent().expect("temp dir"));
+    #[test]
+    fn temp_dir_guard_removes_directory_when_test_panics() {
+        let guard = TempDir::new("guard-panic");
+        let path = guard.path().to_path_buf();
+        assert!(path.exists(), "guard must create the directory");
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _guard = guard;
+            panic!("intentional panic to prove guard cleanup");
+        }));
+
+        assert!(result.is_err(), "intentional panic must be caught");
+        assert!(
+            !path.exists(),
+            "guard must remove its directory while unwinding"
+        );
     }
 }
 

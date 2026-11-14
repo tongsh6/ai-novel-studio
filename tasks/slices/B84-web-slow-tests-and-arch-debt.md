@@ -1,6 +1,6 @@
 # B84：全项目测试环境作用域、fixture 体系与剩余架构/测试债务
 
-- 状态：**doing（A0完成；A1/A2已有6个局部实施单元通过各自验收，前4个已提交，R01快照/capture两族随原R01整体保持WIP；A3的Application流程首批已提交；A3的16个Channel测试模块与日志写出源头收口已通过全量回归并本地提交（未推送）；web回归196例耗时由547.9秒降至62.2秒；其余Node族、Rust/前端/原生接入、A4/A5与既有债务保留）**
+- 状态：**doing（A0完成；A1/A2已有6个局部实施单元通过各自验收，前4个已提交，R01快照/capture两族随原R01整体保持WIP；A3的Application流程首批已提交；A3的16个Channel测试模块与日志写出源头收口已通过全量回归并本地提交（未推送）；Rust单测资源释放已通过验收并本地提交（未推送）；web回归196例耗时由547.9秒降至62.2秒；其余Node族、裸Mix/config/test、前端/原生接入、A4/A5与既有债务保留）**
 - 来源：
   - [00f 能力图谱 P2-E](../../docs/design/00f-capability-atlas.md)：`novel_web` 193 tests / 532s 慢测试仍待收敛；`novel_common` 日志 I/O 部分已由 ADR-0034（`novel_telemetry`）闭环，本任务只承接 web 慢测试与剩余债务。
   - B71 审核轮架构 P2-10 记录与 2026-11-08 候选。
@@ -427,6 +427,28 @@ Application首批已提交 `75722dde`。本步复用既有helper继续迁移，�
 - telemetry 用例覆盖返回即可读完整行、禁用不创建目录、路径被普通文件占用只留诊断、producer退出后无独立writer继续重建目录、并发行仍可解析；`MIX_ENV=test mix test apps/novel_telemetry/test/novel_telemetry/log_emit_test.exs` **6/6、0失败**。
 - 契约裁决：`event`/`level`/`timestamp` 为相位保留字段；`outcome` 是业务结果字段，允许调用方显式指定（`plan_draft`/`judgment` 的 `output_validation` 依赖 `rejected`/`retry`），未指定时按phase推导。原注释声称 `outcome` 不可覆盖，与两处真实生产消费者冲突；按真实消费者修正注释与测试期望，不改生产日志字段。日志读取脚本消费 `reason_code`，不读 `outcome`。
 - 全量 `MIX_ENV=test mix check` 退出0；本checkpoint不签B84、A3全部或A4/A5，也不声称仍具备旧异步时序或fsync保证。
+
+### A3 Rust测试资源释放（2026-11-14 设计/开始）
+
+只读事实：`frontend/src-tauri/src/lib.rs` 的 `#[cfg(test)]` 共13个用例，其中5个在系统临时目录创建资源，清理都写在断言之后（`let _ = remove_dir_all` 或 `remove_dir_all(...).unwrap()`）；panic会越过该语句。本机现有5个 `ai-novel-secrets-message-outbox-*` 空目录残留（11/11、11/12及本次基线运行），根因不是panic：`pending_message` 把 `temp_secrets_path` 返回的**文件路径**当作目录根，写入实际落在 `<tmp>/provider_secrets.json/work-a/session-a`，末尾 `remove_dir_all(root)` 只删该文件路径，外层临时目录未被清理，所以正常通过也泄漏。基线 `cargo test --locked` **13/13通过、0.41秒**，CI的platform smoke同命令是真实消费者。quality-gates §2.5.8已明确“完整A3仍包括…direct Mix入口与Rust”。
+
+- **Contract/Invariant**：§2.5.8；用例拥有其临时目录，正常返回与断言失败/panic都必须归还；不引入新crate、Node驱动或测试开关。
+- **Boundary/Consumer**：仅 `frontend/src-tauri/src/lib.rs` 的 `#[cfg(test)]` 模块与现有 `cargo test --locked`；不改产品函数、sidecar行为、Tauri配置或CI命令。
+- **实体查重**：test-only `TempDir` guard（Drop复用既有`remove_dir_all`），替换5处手动清理；不新建Rust测试框架、不引入`tempfile`等新依赖。`temp_secrets_path`改为返回guard与路径，调用者持有guard到作用域结束。
+- **Proof**：正常路径全绿且前后临时前缀无净增；用`catch_unwind`用例证明panic展开时Drop释放目录；既有13个断言不减少；外部运行前后核对真实目录。
+- **Acceptance Driver**：真实`cargo test`与真实文件系统；产品验收感知新增no。
+- **Exploration**：不涉及作品知识或模型请求，不适用。
+
+实施前保存源码备份；worker负责限定Rust改造，leader执行`cargo test`、故障注入与前后目录核对。
+
+#### Rust测试资源释放 checkpoint 验收（2026-11-14）
+
+- test-only `TempDir` guard（Drop复用既有`remove_dir_all`）替换5处手动清理；`pending_message` 改用真目录根，修复“把文件路径当目录根”导致正常通过也泄漏的既有缺陷，未改变任何业务断言。
+- `cargo test --locked` **14/14、0失败、0.40秒**；新增 `temp_dir_guard_removes_directory_when_test_panics` 以 `catch_unwind` 证明panic展开时目录被Drop释放；`cargo fmt --check` 通过。
+- 运行前后临时前缀**无净增**：历史5个 `ai-novel-secrets-message-outbox-*` 基线保持不变，新增0；guard测试自身目录未残留（`before/residue.txt`、`after-residue.txt`）。
+- 历史5个残留未删除（旧运行证据，不顺手清理）；CI platform smoke 的 `cargo test --locked` 是同一消费者，本机未执行跨平台 smoke。
+- `task_done.sh --top 10` 因 `frontend/src-tauri/` 路径被文件级UI判定阻塞（要求 native slice/summary）；本批只改 `#[cfg(test)]`、无产品UI行为变化，未伪造native证据。原始失败保留在 `leader-final/task_done-blocked.log`，替代证据为完整 `ai_static_scan.sh --top 10` 与 `cargo test --locked`。该门禁分类缺口登记到A5（与既有“Git提交入口质量门接线”同族），本单元不改门禁规则。
+- 本checkpoint只签Rust单测资源释放，不签A3全部、B84或A4/A5；源码备份与结果见 `artifacts/b84-test-system/20261114/a3-backend/rust-owner/`。本批已本地提交（未推送）。
 
 ## 变更记录
 
