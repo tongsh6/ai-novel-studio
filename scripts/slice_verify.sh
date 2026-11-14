@@ -14,6 +14,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$PROJECT_ROOT/scripts/lib/process_tree.sh"
 source "$PROJECT_ROOT/scripts/lib/test_env.sh"
+source "$PROJECT_ROOT/scripts/lib/artifact_history.sh"
 SLICE_ID="${1:-}"
 PHOENIX_PORT="${PHOENIX_PORT:-4657}"
 VITE_PORT="${VITE_DEV_PORT:-5768}"
@@ -56,7 +57,8 @@ if [[ ! -f "$SPEC_PATH" ]]; then
 fi
 
 ARTIFACT_DIR="$PROJECT_ROOT/artifacts/slice-verify/$SLICE_ID"
-rm -rf "$ARTIFACT_DIR"
+# B84 A4：固定路径仍供下游读取；覆盖前把上一批证据归档到 .history，不直接删除。
+novel_artifact_archive "$ARTIFACT_DIR" "$PROJECT_ROOT/artifacts/slice-verify" || exit $?
 mkdir -p "$ARTIFACT_DIR"
 
 # 测试库前置统一由 scripts/lib/test_env.sh 承担；本入口固定库目录到本次
@@ -67,12 +69,19 @@ PHX_PID=""
 VITE_PID=""
 
 cleanup() {
+  local original=$?
+  local cleanup_failed=0
   # 整棵进程树回收：pnpm/mix 包装进程之下的 vite node、beam.smp 必须一并终止，
   # 否则包装进程一死，真实实例被 reparent 到 init 后常驻、占用端口。
-  kill_process_tree "$VITE_PID"
+  kill_process_tree "$VITE_PID" || cleanup_failed=1
   wait "$VITE_PID" 2>/dev/null || true
-  kill_process_tree "$PHX_PID"
+  kill_process_tree "$PHX_PID" || cleanup_failed=1
   wait "$PHX_PID" 2>/dev/null || true
+  if (( cleanup_failed != 0 )); then
+    echo "[slice-verify] cleanup failed (original exit=$original)" >&2
+    if (( original == 0 )); then exit 1; fi
+  fi
+  exit "$original"
 }
 trap cleanup EXIT
 

@@ -595,6 +595,16 @@ SUT仅在`dir`缺失时把C3/C4/C7/C9/C10标为unknown（不冒充pass/fail）�
 
 本checkpoint只签入口scope与规模登记，不签A4全部或B84。本批已本地提交（未推送）。
 
+### A4 artifact证据归档与cleanup失败区分（2026-11-14）
+
+- 新增`scripts/lib/artifact_history.sh`：固定路径覆盖前把上一批目录移到同根`.history/`；只接受root内路径、不存在no-op、移动失败非零（调用方不得吞）。
+- `slice_verify.sh`与`tauri_slice_verify.sh`默认路径改用归档；显式`TAURI_NATIVE_ARTIFACT_DIR`仍由调用方管理。固定路径继续供`quality_accept`/summary读取，旧证据不再被`rm -rf`直接删除。
+- 两入口cleanup捕获原始退出码：`kill_process_tree`/`native_app_ownership`/`reset_test_db`/配置清理失败被记录；原运行成功但cleanup失败时返回非零，原有失败码保留（不再`|| true`假成功）。
+- **Proof**：受控实验归档移走目录且marker保留、无目录no-op、越界返回65；两脚本`bash -n`通过；任务门禁通过。
+- **未闭环**：真实Tauri/nightly批次重跑（需窗口）与A4其余项（dogfood/原生批量入口的同类清理）仍开放，不代签。
+
+本checkpoint只签证据归档与两入口cleanup失败语义，不签A4全部或B84。本批已本地提交（未推送）。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。
