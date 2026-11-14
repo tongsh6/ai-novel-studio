@@ -231,7 +231,89 @@ function processesReferencingScope(dir) {
   return { verified: true, refs };
 }
 
-export function reapOrphanScopes({ baseDir, olderThanMs = 60 * 60_000 } = {}) {
+const CHILDREN_JOURNAL = ".novel-test-run-children.jsonl";
+
+function scopeChildrenJournal(dir) {
+  return path.join(dir, CHILDREN_JOURNAL);
+}
+
+function processGroupId(pid) {
+  const result = spawnSync("ps", ["-o", "pgid=", "-p", String(pid)], {
+    encoding: "utf8",
+    timeout: 2_000,
+  });
+  if (result.error || result.status !== 0) return null;
+  const pgid = Number(result.stdout.trim());
+  return Number.isInteger(pgid) && pgid > 0 ? pgid : null;
+}
+
+function registerScopeChild(scope, child) {
+  if (scope.borrowed || !child?.pid) return;
+  const entry = {
+    pid: child.pid,
+    pgid: processGroupId(child.pid),
+    started_at: new Date().toISOString(),
+  };
+  try {
+    fs.appendFileSync(scopeChildrenJournal(scope.dir), `${JSON.stringify(entry)}\n`);
+  } catch {
+    // 登记失败不阻止启动；reap 遇到缺失 journal 会保留现场而不是猜测已结束。
+  }
+}
+
+function pidAlive(pid) {
+  const result = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], {
+    encoding: "utf8",
+    timeout: 2_000,
+  });
+  if (!result.error && result.status === 0) {
+    const stat = (result.stdout || "").trim();
+    return stat !== "" && !stat.startsWith("Z");
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function processGroupAlive(pgid) {
+  const result = spawnSync("ps", ["-axo", "pgid=,stat="], { encoding: "utf8", timeout: 2_000 });
+  if (result.error || result.status !== 0) return true; // 无法确认时按存活处理
+  return result.stdout.split("\n").some((line) => {
+    const [group, stat] = line.trim().split(/\s+/);
+    return Number(group) === pgid && Boolean(stat) && !stat.startsWith("Z");
+  });
+}
+
+// 返回 {verified, live}：verified=false 表示没有持久登记，无法证明子进程已结束。
+function scopeChildrenState(dir) {
+  const file = scopeChildrenJournal(dir);
+  if (!fs.existsSync(file)) return { verified: false, live: [] };
+  const entries = (fs.readFileSync(file, "utf8") || "")
+    .split("\n")
+    .filter(Boolean)
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line)];
+      } catch {
+        return [];
+      }
+    });
+  const live = entries.filter(
+    (entry) =>
+      (Number.isInteger(entry.pid) && pidAlive(entry.pid)) ||
+      (Number.isInteger(entry.pgid) && processGroupAlive(entry.pgid)),
+  );
+  return { verified: true, live };
+}
+
+export function reapOrphanScopes({
+  baseDir,
+  olderThanMs = 60 * 60_000,
+  allowUnverifiedChildren = false,
+} = {}) {
   const base = path.resolve(baseDir || resolveRunBase({}));
   if (!fs.existsSync(base)) return { base, reaped: [], kept: [] };
   const now = Date.now();
@@ -255,6 +337,16 @@ export function reapOrphanScopes({ baseDir, olderThanMs = 60 * 60_000 } = {}) {
     }
     if (ageMs < olderThanMs) {
       kept.push({ dir, reason: "not_expired" });
+      continue;
+    }
+    // 先核对持久登记的真实子进程/进程组归属；无法证明已结束时保留现场。
+    const children = scopeChildrenState(dir);
+    if (children.live.length) {
+      kept.push({ dir, reason: "live_children", evidence: children.live });
+      continue;
+    }
+    if (!children.verified && !allowUnverifiedChildren) {
+      kept.push({ dir, reason: "children_unverifiable" });
       continue;
     }
     // 归档前必须证明活动资源已结束：打开句柄、近期写入、命令行引用任一存在，
@@ -392,7 +484,7 @@ function finalizeProcessTree(pid, { groupCheck }) {
  *   stderr?: string}>}
  */
 function spawnScoped(scope, command, args, options, stdio) {
-  return spawn(command, args, {
+  const child = spawn(command, args, {
     cwd: options.cwd,
     env: scope.env(options.env),
     stdio,
@@ -400,6 +492,10 @@ function spawnScoped(scope, command, args, options, stdio) {
     // 由外层 owner 统一收口，避免创建父级无法回收的脱离组。
     detached: process.platform !== "win32" && !scope.borrowed,
   });
+  // 持久登记本次 run 的真实子进程/进程组：宿主被 SIGKILL 后，reap 必须能据此
+  // 判断静默存活的 payload，而不是把“没有可见活动迹象”当成已结束。
+  registerScopeChild(scope, child);
+  return child;
 }
 
 function unsupportedOwnedTree() {
@@ -1484,6 +1580,10 @@ function parseReapArgs(argv) {
   const options = {};
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
+    if (token === "--allow-unverified-children") {
+      options.allowUnverifiedChildren = true;
+      continue;
+    }
     const value = argv[index + 1];
     if (!nonEmptyString(value)) throw new TestEnvError(`${token} 需要参数`);
     if (token === "--base") options.baseDir = value;

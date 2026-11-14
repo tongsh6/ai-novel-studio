@@ -3010,6 +3010,8 @@ test("reap：只归档 owner 失联且过期的 scope，保留 live 与未过期
         version: 1,
       }),
     );
+    // 登记为空：证明本次 scope 没有遗留子进程；缺失 journal 的旧 scope 会被保留。
+    fs.writeFileSync(path.join(dir, ".novel-test-run-children.jsonl"), "");
   };
   const child = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
   const deadPid = child.pid;
@@ -3061,6 +3063,8 @@ test("reap：活动资源未结束时保留现场，结束后才归档", async (
         version: 1,
       }),
     );
+    // 登记为空：证明本次 scope 没有遗留子进程；缺失 journal 的旧 scope 会被保留。
+    fs.writeFileSync(path.join(dir, ".novel-test-run-children.jsonl"), "");
   };
   const child = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
   const deadPid = child.pid;
@@ -3125,4 +3129,91 @@ test("reap：活动资源未结束时保留现场，结束后才归档", async (
   const archived = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
   assert.equal(archived.reaped.length, 3);
   for (const dir of [recent, opened, referenced]) assert.equal(fs.existsSync(dir), false);
+});
+
+
+test("reap：仅经 env 持有 TMPDIR 的静默 payload 阻止归档，结束后才归档", async () => {
+  const base = path.join(scratch, "reap-silent-payload");
+  fs.mkdirSync(base, { recursive: true });
+  const child = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+  const deadPid = child.pid;
+  await new Promise((resolve) => child.on("exit", resolve));
+  const scope = path.join(base, "ai-novel-test-run.silent");
+  fs.mkdirSync(path.join(scope, "tmp"), { recursive: true });
+  fs.writeFileSync(
+    path.join(scope, MARKER),
+    JSON.stringify({
+      kind: "ai-novel-test-run",
+      owner: "test-env",
+      runId: "silent",
+      pid: deadPid,
+      createdAt: new Date().toISOString(),
+      version: 1,
+    }),
+  );
+  // payload 只通过环境变量持有 TMPDIR，不写文件/不开句柄/命令行不含 scope 路径。
+  const payload = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    detached: true,
+    stdio: "ignore",
+    env: {
+      ...process.env,
+      TMPDIR: path.join(scope, "tmp"),
+      TMP: path.join(scope, "tmp"),
+      TEMP: path.join(scope, "tmp"),
+    },
+  });
+  fs.writeFileSync(
+    path.join(scope, ".novel-test-run-children.jsonl"),
+    `${JSON.stringify({ pid: payload.pid, pgid: payload.pid, started_at: new Date().toISOString() })}\n`,
+  );
+  const old = new Date(Date.now() - 120_000);
+  const ageTree = (dir) => {
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (fs.lstatSync(full).isDirectory()) ageTree(full);
+      fs.utimesSync(full, old, old);
+    }
+    fs.utimesSync(dir, old, old);
+  };
+  ageTree(scope);
+  const kept = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
+  assert.deepEqual(kept.reaped, []);
+  assert.equal(kept.kept.find((entry) => entry.dir === scope)?.reason, "live_children");
+  assert.equal(fs.existsSync(scope), true);
+  payload.kill("SIGKILL");
+  await new Promise((resolve) => payload.on("exit", resolve));
+  ageTree(scope);
+  const archived = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
+  assert.equal(archived.reaped.length, 1);
+  assert.equal(fs.existsSync(scope), false);
+});
+
+test("reap：缺失 child journal 的旧 scope 默认保留现场", async () => {
+  const base = path.join(scratch, "reap-no-journal");
+  fs.mkdirSync(base, { recursive: true });
+  const child = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+  const deadPid = child.pid;
+  await new Promise((resolve) => child.on("exit", resolve));
+  const scope = path.join(base, "ai-novel-test-run.legacy");
+  fs.mkdirSync(path.join(scope, "tmp"), { recursive: true });
+  fs.writeFileSync(
+    path.join(scope, MARKER),
+    JSON.stringify({
+      kind: "ai-novel-test-run",
+      owner: "test-env",
+      runId: "legacy",
+      pid: deadPid,
+      createdAt: new Date().toISOString(),
+      version: 1,
+    }),
+  );
+  const old = new Date(Date.now() - 120_000);
+  for (const name of fs.readdirSync(scope)) {
+    fs.utimesSync(path.join(scope, name), old, old);
+  }
+  fs.utimesSync(scope, old, old);
+  const kept = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
+  assert.deepEqual(kept.reaped, []);
+  assert.equal(kept.kept.find((entry) => entry.dir === scope)?.reason, "children_unverifiable");
+  assert.equal(fs.existsSync(scope), true);
 });
