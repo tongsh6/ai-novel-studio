@@ -21,6 +21,7 @@ import {
   materializeFixture,
   normalizeFixtureSpec,
   openTestRunScope,
+  reapOrphanScopes,
   runInScope,
   withWorkingCopy,
 } from "./test_env.mjs";
@@ -2990,4 +2991,138 @@ test("借用 owner 已失联的 scope：fail-closed，不复用死 owner 的 scr
     if (previous === undefined) delete process.env.NOVEL_TEST_RUN_DIR;
     else process.env.NOVEL_TEST_RUN_DIR = previous;
   }
+});
+
+
+test("reap：只归档 owner 失联且过期的 scope，保留 live 与未过期目录", async () => {
+  const base = path.join(scratch, "reap-base");
+  fs.mkdirSync(base, { recursive: true });
+  const writeMarker = (dir, pid) => {
+    fs.mkdirSync(path.join(dir, "tmp"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, MARKER),
+      JSON.stringify({
+        kind: "ai-novel-test-run",
+        owner: "test-env",
+        runId: path.basename(dir),
+        pid,
+        createdAt: new Date().toISOString(),
+        version: 1,
+      }),
+    );
+  };
+  const child = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+  const deadPid = child.pid;
+  await new Promise((resolve) => child.on("exit", resolve));
+  const dead = path.join(base, "ai-novel-test-run.dead");
+  const liveOld = path.join(base, "ai-novel-test-run.live-old");
+  const liveFresh = path.join(base, "ai-novel-test-run.live-fresh");
+  for (const [dir, pid] of [
+    [dead, deadPid],
+    [liveOld, process.pid],
+    [liveFresh, process.pid],
+  ]) {
+    writeMarker(dir, pid);
+  }
+  const old = new Date(Date.now() - 120_000);
+  const ageTree = (dir) => {
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (fs.lstatSync(full).isDirectory()) ageTree(full);
+      fs.utimesSync(full, old, old);
+    }
+    fs.utimesSync(dir, old, old);
+  };
+  ageTree(dead);
+  const result = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
+  assert.deepEqual(result.reaped.map((entry) => entry.dir), [dead]);
+  assert.equal(fs.existsSync(dead), false);
+  assert.equal(fs.existsSync(liveOld), true, "owner 存活不得归档");
+  assert.equal(fs.existsSync(liveFresh), true, "未过期不得归档");
+  const orphaned = fs.readdirSync(path.join(base, ".orphaned"));
+  assert.equal(orphaned.length, 1);
+  assert.equal(fs.existsSync(path.join(base, ".orphaned", orphaned[0], "tmp")), true);
+});
+
+
+test("reap：活动资源未结束时保留现场，结束后才归档", async () => {
+  const base = path.join(scratch, "reap-active");
+  fs.mkdirSync(base, { recursive: true });
+  const writeMarker = (dir, pid) => {
+    fs.mkdirSync(path.join(dir, "tmp"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, MARKER),
+      JSON.stringify({
+        kind: "ai-novel-test-run",
+        owner: "test-env",
+        runId: path.basename(dir),
+        pid,
+        createdAt: new Date().toISOString(),
+        version: 1,
+      }),
+    );
+  };
+  const child = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+  const deadPid = child.pid;
+  await new Promise((resolve) => child.on("exit", resolve));
+  const old = new Date(Date.now() - 120_000);
+  const ageTree = (dir) => {
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (fs.lstatSync(full).isDirectory()) ageTree(full);
+      fs.utimesSync(full, old, old);
+    }
+    fs.utimesSync(dir, old, old);
+  };
+  const recent = path.join(base, "ai-novel-test-run.recent");
+  const opened = path.join(base, "ai-novel-test-run.opened");
+  const referenced = path.join(base, "ai-novel-test-run.referenced");
+  for (const dir of [recent, opened, referenced]) {
+    writeMarker(dir, deadPid);
+    ageTree(dir);
+  }
+  // 近期写入：payload 仍在本 scope 内产生活动文件。
+  fs.writeFileSync(path.join(recent, "tmp", "fresh.txt"), "fresh\n");
+  // 打开句柄：文件 mtime 保持旧，但仍有进程持有。
+  const heldFile = path.join(opened, "tmp", "held.txt");
+  fs.writeFileSync(heldFile, "held\n");
+  ageTree(opened);
+  const holder = spawn(
+    process.execPath,
+    ["-e", 'require("node:fs").openSync(process.argv[1], "r");setInterval(() => {}, 1000)', heldFile],
+    { stdio: "ignore" },
+  );
+  // 命令行引用：无打开句柄、无近期写入，但进程命令行仍引用本 scope。
+  const refChild = spawn(
+    process.execPath,
+    ["-e", "setInterval(() => {}, 1000)", referenced],
+    { stdio: "ignore" },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  const kept = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
+  assert.deepEqual(kept.reaped, []);
+  const reasons = Object.fromEntries(
+    kept.kept.filter((entry) => [recent, opened, referenced].includes(entry.dir)).map((entry) => [
+      path.basename(entry.dir),
+      entry.reason,
+    ]),
+  );
+  assert.equal(reasons["ai-novel-test-run.recent"], "recent_write");
+  assert.equal(reasons["ai-novel-test-run.opened"], "open_handles");
+  assert.equal(reasons["ai-novel-test-run.referenced"], "process_reference");
+  for (const dir of [recent, opened, referenced]) assert.equal(fs.existsSync(dir), true);
+  // 活动资源结束后，归档才允许发生。
+  holder.kill("SIGKILL");
+  refChild.kill("SIGKILL");
+  await Promise.all([
+    new Promise((resolve) => holder.on("exit", resolve)),
+    new Promise((resolve) => refChild.on("exit", resolve)),
+  ]);
+  fs.rmSync(path.join(recent, "tmp", "fresh.txt"));
+  ageTree(recent);
+  ageTree(opened);
+  ageTree(referenced);
+  const archived = reapOrphanScopes({ baseDir: base, olderThanMs: 60_000 });
+  assert.equal(archived.reaped.length, 3);
+  for (const dir of [recent, opened, referenced]) assert.equal(fs.existsSync(dir), false);
 });

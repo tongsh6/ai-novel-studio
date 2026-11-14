@@ -185,6 +185,111 @@ function borrowRunScope(borrowedDir) {
   return makeScope({ dir, marker, borrowed: true, archiveDir: "" });
 }
 
+/**
+ * 显式归档 owner 已失联的 owned scratch（不自动调用、不删除证据）。
+ *
+ * 只处理 base 下以 RUN_DIR_PREFIX 开头、marker 合法、owner 已不在且目录 mtime
+ * 早于 olderThanMs 的目录；移动到 `<base>/.orphaned/`，保留原内容供人工复核。
+ * live owner、marker 缺失、未过期目录原样保留。返回可审计的 reaped/kept 列表。
+ */
+function latestTreeMtimeMs(dir) {
+  let latest = fs.statSync(dir).mtimeMs;
+  for (const name of fs.readdirSync(dir)) {
+    const full = path.join(dir, name);
+    const stat = fs.lstatSync(full);
+    if (stat.mtimeMs > latest) latest = stat.mtimeMs;
+    if (stat.isDirectory()) {
+      const child = latestTreeMtimeMs(full);
+      if (child > latest) latest = child;
+    }
+  }
+  return latest;
+}
+
+function openHandlesInScope(dir) {
+  const result = spawnSync("lsof", ["+D", dir], { encoding: "utf8", timeout: 5_000 });
+  if (result.error || (result.status !== 0 && result.status !== 1)) {
+    return { verified: false, lines: [] };
+  }
+  const lines = (result.stdout || "").trim().split("\n").filter(Boolean);
+  return { verified: true, lines: lines.slice(0, 3) };
+}
+
+function processesReferencingScope(dir) {
+  const result = spawnSync("ps", ["-axo", "pid=,command="], {
+    encoding: "utf8",
+    timeout: 5_000,
+  });
+  if (result.error || result.status !== 0) return { verified: false, refs: [] };
+  const refs = result.stdout
+    .split("\n")
+    .filter((line) => {
+      const pid = Number(line.trim().split(/\s+/, 1)[0]);
+      return pid > 0 && pid !== process.pid && line.includes(dir);
+    })
+    .slice(0, 3);
+  return { verified: true, refs };
+}
+
+export function reapOrphanScopes({ baseDir, olderThanMs = 60 * 60_000 } = {}) {
+  const base = path.resolve(baseDir || resolveRunBase({}));
+  if (!fs.existsSync(base)) return { base, reaped: [], kept: [] };
+  const now = Date.now();
+  const orphanDir = path.join(base, ".orphaned");
+  const reaped = [];
+  const kept = [];
+  for (const name of fs.readdirSync(base)) {
+    if (!name.startsWith(RUN_DIR_PREFIX)) continue;
+    const dir = path.join(base, name);
+    if (!fs.statSync(dir).isDirectory()) continue;
+    const marker = readRunMarker(dir);
+    const modifiedAt = fs.statSync(dir).mtimeMs;
+    const ageMs = now - modifiedAt;
+    if (!marker) {
+      kept.push({ dir, reason: "marker_missing" });
+      continue;
+    }
+    if (scopeOwnerAlive(marker)) {
+      kept.push({ dir, reason: "owner_alive" });
+      continue;
+    }
+    if (ageMs < olderThanMs) {
+      kept.push({ dir, reason: "not_expired" });
+      continue;
+    }
+    // 归档前必须证明活动资源已结束：打开句柄、近期写入、命令行引用任一存在，
+    // 或无法确认归属时保留现场并报告（不移动有活动进程的目录）。
+    const handles = openHandlesInScope(dir);
+    if (!handles.verified) {
+      kept.push({ dir, reason: "unverifiable" });
+      continue;
+    }
+    if (handles.lines.length) {
+      kept.push({ dir, reason: "open_handles", evidence: handles.lines });
+      continue;
+    }
+    const latestWrite = latestTreeMtimeMs(dir);
+    if (now - latestWrite < olderThanMs) {
+      kept.push({ dir, reason: "recent_write", latest_mtime_ms: latestWrite });
+      continue;
+    }
+    const reference = processesReferencingScope(dir);
+    if (!reference.verified) {
+      kept.push({ dir, reason: "unverifiable" });
+      continue;
+    }
+    if (reference.refs.length) {
+      kept.push({ dir, reason: "process_reference", evidence: reference.refs });
+      continue;
+    }
+    fs.mkdirSync(orphanDir, { recursive: true });
+    const target = path.join(orphanDir, `${name}-${Date.now()}`);
+    fs.renameSync(dir, target);
+    reaped.push({ dir, target, runId: marker.runId, pid: marker.pid, ageMs });
+  }
+  return { base, reaped, kept };
+}
+
 function baseCandidate(options) {
   if (nonEmptyString(options.baseDir)) return options.baseDir;
   return process.env[RUN_BASE_ENV];
@@ -1124,6 +1229,10 @@ function awaitFixtureOwner(request, normalized) {
     // 每轮重读 claim：首次读取可能撞上 owner 刚创建、内容尚未写完的文件。
     const claim = readFixtureRecord(paths.claim, digest);
     if (claim?.pid && claim.pid !== process.pid && !processAlive(claim.pid)) {
+      // owner 可能在“读取发布状态”和“判断存活”之间完成原子 rename 并正常退出；
+      // 再核对一次最终事实，只有确实没有 published/failed 才按基础设施失败。
+      const finalOutcome = ownerOutcome(request, normalized);
+      if (finalOutcome) return finalOutcome;
       throw new TestEnvError(
         `fixture ${normalized.name} 初始化 owner(pid=${claim.pid}) 已退出且未发布完整模板/failed，` +
           "本 run 按基础设施失败处理",
@@ -1296,6 +1405,8 @@ function usage() {
       "  --timeout-ms N   超时后只回收本 run 子进程树，退出码 124",
       "  --archive DIR    将简明运行结果写入该证据目录（借用，不删除）",
       "  --base DIR       新建 owned scratch 的父目录（默认系统临时目录）",
+      "  node scripts/lib/test_env.mjs reap [--base DIR] [--older-than-ms N]",
+      "                    显式归档 owner 已失联且过期的 owned scratch 到 <base>/.orphaned（不删除）",
     ].join("\n"),
   );
 }
@@ -1369,7 +1480,36 @@ function finalizeRun(scope, result) {
   return result;
 }
 
+function parseReapArgs(argv) {
+  const options = {};
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    const value = argv[index + 1];
+    if (!nonEmptyString(value)) throw new TestEnvError(`${token} 需要参数`);
+    if (token === "--base") options.baseDir = value;
+    else if (token === "--older-than-ms") {
+      const ms = Number(value);
+      if (!Number.isFinite(ms) || ms < 0) throw new TestEnvError("--older-than-ms 需要非负数");
+      options.olderThanMs = ms;
+    } else {
+      throw new TestEnvError(`reap 未知参数: ${token}`);
+    }
+    index += 1;
+  }
+  return options;
+}
+
 async function main(argv) {
+  if (argv[0] === "reap") {
+    try {
+      const result = reapOrphanScopes(parseReapArgs(argv.slice(1)));
+      console.log(JSON.stringify(result, null, 2));
+      return 0;
+    } catch (error) {
+      console.error(`[test-env] ${error.message}`);
+      return 64;
+    }
+  }
   const parsed = parseRunArgsOrReport(argv);
   if (!parsed) return 64;
   const scope = openScopeOrReport(parsed.options);
