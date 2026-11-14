@@ -481,19 +481,36 @@ export function parseChapterLabel(value) {
 const AX_STATUS_BADGE = " · 创作";
 
 // 只认真实状态行/状态 value，不在正文里搜「失败/错误」等词。
+const STATUS_EXACT_KINDS = Object.freeze({
+  "失败": "failed",
+  "已停止": "failed",
+  "已取消": "failed",
+  "已完成": "completed",
+  "等待你回复": "waiting",
+  "需要确认": "waiting",
+  "已暂停": "waiting",
+});
+const COMPLETED_PROGRESS_RE = /^已完成\s+.*第\s*\d+\s*\/\s*\d+\s*步/u;
+const RUNNING_STATUS_RE = /^进行中(?:\s|$)/u;
+
+function stripStatusBadge(raw, stripBadge) {
+  if (!stripBadge) return raw;
+  return raw.endsWith(AX_STATUS_BADGE) ? raw.slice(0, -AX_STATUS_BADGE.length) : raw;
+}
+
+function statusTokenKind(tokenValue, stripBadge) {
+  const token = stripStatusBadge(String(tokenValue).trim(), stripBadge);
+  // 历史进度行「已完成 创作执行 第 3/3 步」也是状态行；正文「已完成核对」不算。
+  if (Object.hasOwn(STATUS_EXACT_KINDS, token)) return STATUS_EXACT_KINDS[token];
+  if (COMPLETED_PROGRESS_RE.test(token)) return "completed";
+  if (RUNNING_STATUS_RE.test(token)) return "running";
+  return null;
+}
+
 function statusLineKind(line) {
   const valueMatch = /\(value=([^)\n]*)\)/u.exec(line);
-  const raw = (valueMatch ? valueMatch[1] : line).trim();
-  const token = valueMatch && raw.endsWith(AX_STATUS_BADGE)
-    ? raw.slice(0, -AX_STATUS_BADGE.length)
-    : raw;
-  if (token === "失败" || token === "已停止" || token === "已取消") return "failed";
-  if (token === "已完成") return "completed";
-  // 历史进度行「已完成 创作执行 第 3/3 步」也是状态行；正文「已完成核对」不算。
-  if (/^已完成\s+.*第\s*\d+\s*\/\s*\d+\s*步/u.test(token)) return "completed";
-  if (token === "等待你回复" || token === "需要确认" || token === "已暂停") return "waiting";
-  if (/^进行中(?:\s|$)/u.test(token)) return "running";
-  return null;
+  // 只有真实 AX value 行才允许剥离「 · 创作」徽标；纯文本保持原语义。
+  return valueMatch ? statusTokenKind(valueMatch[1], true) : statusTokenKind(line, false);
 }
 
 // 只按本次作者消息之后的页面文本判断终局：旧回合、标题栏「无任务」和作者原话里的
@@ -519,8 +536,256 @@ export function authorVisibleOutcome(value, { message = "" } = {}) {
   return { kind };
 }
 
-// 阅读页先显示旧投影是真实产品行为：只有标题/正文出现且投影已 fresh 才算读到本次正文。
-// driver 与 verifier 共用这一处判定，不各造文字判据。
+// ── 按 AX 树归属的本轮终态（R01 外部驱动）────────────────────────────────────
+// 页底 flat tail 会把旧任务 dock 的「等待你回复」当成新回合终态。这里只接受
+// 本条作者消息之后、同一消息流容器内的「本轮创作过程」/「创作问题记录」组：
+// 过程组内的精确状态行、问题组内的「等待你的回答」才算本轮证据；页底
+// 「当前创作任务操作」/「回答当前问题」及旧的全局状态组不参与。
+const TURN_PROCESS_GROUP = "本轮创作过程";
+const AUTHOR_QUESTION_GROUP = "创作问题记录";
+const AUTHOR_QUESTION_WAITING = "等待你的回答";
+const AUTHOR_LABEL = "你";
+const CAPABILITY_GAP_PREFIX = "能力缺口：";
+const CAPABILITY_GAP_LABEL = "能力缺口";
+const WHY_BUTTON_LABEL = "为什么";
+const WHY_BUTTON_DESC = "查看这轮回应的依据";
+
+// 真实 AX dump 的节点总有字符串 path；不要为不存在的 null 节点再造第二套读取。
+const axText = (value) => (typeof value === "string" ? value : "");
+const axPath = (node) => node.path;
+const axValue = (node) => axText(node.value);
+const axTitle = (node) => axText(node.title);
+const axPathParts = (node) =>
+  axPath(node)
+    .split("/")
+    .filter((part) => part !== "")
+    .map(Number);
+
+// AX path 是十进制下标序列（真实工作台节点数远小于 1e9）。把每段补零成定宽字符串
+// 再比较，等价于逐段数值比较，且不会把 "10" 排到 "9" 前面。
+const AX_PATH_SEGMENT_WIDTH = 9;
+const axPathKey = (node) =>
+  axPathParts(node)
+    .map((part) => String(part).padStart(AX_PATH_SEGMENT_WIDTH, "0"))
+    .join("/");
+
+function compareAxPath(left, right) {
+  return Buffer.compare(Buffer.from(axPathKey(left)), Buffer.from(axPathKey(right)));
+}
+
+function axParentPath(node) {
+  const parts = axPath(node).split("/");
+  parts.pop();
+  return parts.join("/");
+}
+
+function previousAxSibling(nodes, groupPath) {
+  const parent = axParentPath({ path: groupPath });
+  const candidates = nodes
+    .filter((node) => axParentPath(node) === parent)
+    .filter((node) => compareAxPath(node, { path: groupPath }) < 0)
+    .sort(compareAxPath);
+  return candidates.length > 0 ? candidates.at(-1) : null;
+}
+
+function hasAuthorLabel(nodes, groupPath) {
+  return nodes.some(
+    (node) => axParentPath(node) === groupPath && axValue(node) === AUTHOR_LABEL,
+  );
+}
+
+// 作者消息节点：父消息组的前一个兄弟组带「你」标签。模型正文即使原样引用同一句，
+// 前一个兄弟组是「AI 助手」，不会被当成作者消息；非文本控件也不参与。
+function axAuthorNodes(nodes) {
+  const matches = [];
+  for (const node of nodes) {
+    if (node.role !== "AXStaticText") continue;
+    if (!nonBlank(axValue(node))) continue;
+    const groupPath = axParentPath(node);
+    const previous = previousAxSibling(nodes, groupPath);
+    if (previous === null || !hasAuthorLabel(nodes, axPath(previous))) continue;
+    matches.push(node);
+  }
+  return matches.sort(compareAxPath);
+}
+
+export function axAuthorMessages(nodes, message) {
+  return axAuthorNodes(nodes).filter((node) => axValue(node) === message);
+}
+
+function directTextValues(nodes, groupPath) {
+  return nodes
+    .filter((node) => axParentPath(node) === groupPath && node.role === "AXStaticText")
+    .map((node) => axValue(node).trim())
+    .filter(Boolean);
+}
+
+function processGroupKind(nodes, group) {
+  for (const value of directTextValues(nodes, axPath(group))) {
+    const kind = statusTokenKind(value, true);
+    if (kind) return kind;
+  }
+  return null;
+}
+
+// 现役 capability_gap 结果：真实 AXGroup 的可访问说明 + 直接子文本「能力缺口」，
+// 且同一作者边界内必须有对应回复组和「为什么」入口。正文关键词不参与。
+function withinAuthorBoundary(node, { container, afterPath, beforePath }) {
+  if (axParentPath(node) !== container) return false;
+  if (compareAxPath(node, { path: afterPath }) <= 0) return false;
+  if (beforePath === null) return true;
+  return compareAxPath(node, { path: beforePath }) < 0;
+}
+
+function isCapabilityGapMarker(nodes, node, boundary) {
+  if (node.role !== "AXGroup") return false;
+  if (!withinAuthorBoundary(node, boundary)) return false;
+  if (typeof node.desc !== "string") return false;
+  if (!node.desc.startsWith(CAPABILITY_GAP_PREFIX)) return false;
+  return directTextValues(nodes, axPath(node)).includes(CAPABILITY_GAP_LABEL);
+}
+
+function capabilityGapMarkers(nodes, boundary) {
+  return nodes
+    .filter((node) => isCapabilityGapMarker(nodes, node, boundary))
+    .sort(compareAxPath);
+}
+
+function followingInBoundary(nodes, boundary, marker) {
+  return nodes
+    .filter((node) => withinAuthorBoundary(node, boundary))
+    .filter((node) => compareAxPath(node, marker) > 0)
+    .sort(compareAxPath);
+}
+
+function gapWhyButton(following) {
+  const found = following.find(
+    (node) =>
+      node.role === "AXButton" &&
+      axTitle(node) === WHY_BUTTON_LABEL &&
+      node.desc === WHY_BUTTON_DESC,
+  );
+  return found === undefined ? null : found;
+}
+
+function gapReplyGroup(nodes, following, why) {
+  const found = following.find(
+    (node) =>
+      compareAxPath(node, why) < 0 &&
+      node.role === "AXGroup" &&
+      directTextValues(nodes, axPath(node)).some(
+        (value) => value !== CAPABILITY_GAP_LABEL,
+      ),
+  );
+  return found === undefined ? null : found;
+}
+
+function capabilityGapFacts(nodes, boundary) {
+  const markers = capabilityGapMarkers(nodes, boundary);
+  for (const marker of markers.reverse()) {
+    const following = followingInBoundary(nodes, boundary, marker);
+    const why = gapWhyButton(following);
+    if (why === null) continue;
+    const reply = gapReplyGroup(nodes, following, why);
+    if (reply === null) continue;
+    return {
+      marker_path: axPath(marker),
+      goal: String(marker.desc).slice(CAPABILITY_GAP_PREFIX.length).trim(),
+      reply_path: axPath(reply),
+      why_path: axPath(why),
+    };
+  }
+  return null;
+}
+
+// baselineAuthorCount = 发送前页面里同一原话的作者消息数；只有新增的最后一条才是
+// 本轮消息，重复输入不会回看旧回合终局。
+function authorBoundary(nodes, message, baselineAuthorCount) {
+  const authors = axAuthorMessages(nodes, message);
+  if (authors.length <= baselineAuthorCount) return { authors, author: null };
+  const author = authors.at(-1);
+  const authorGroup = axParentPath(author);
+  const container = axParentPath({ path: authorGroup });
+  const all = axAuthorNodes(nodes);
+  const next = all[all.indexOf(author) + 1];
+  return {
+    authors,
+    author,
+    authorGroup,
+    container,
+    nextAuthor: next === undefined ? null : next,
+  };
+}
+
+function turnGroups(nodes, { authorGroup, container, nextAuthor }) {
+  return nodes
+    .filter((node) => {
+      if (axParentPath(node) !== container) return false;
+      if (compareAxPath(node, { path: authorGroup }) <= 0) return false;
+      if (nextAuthor && compareAxPath(node, nextAuthor) >= 0) return false;
+      const title = axTitle(node);
+      return title === TURN_PROCESS_GROUP || title === AUTHOR_QUESTION_GROUP;
+    })
+    .sort(compareAxPath);
+}
+
+function turnGroupKind(nodes, group) {
+  if (axTitle(group) !== AUTHOR_QUESTION_GROUP) return processGroupKind(nodes, group);
+  return directTextValues(nodes, axPath(group)).includes(AUTHOR_QUESTION_WAITING)
+    ? "waiting"
+    : null;
+}
+
+function outcomeBase(kind, author, authorCount, extra = {}) {
+  return { kind, author_count: authorCount, author_path: axPath(author), ...extra };
+}
+
+function capabilityGapOutcome(author, authorCount, gap, extra = {}) {
+  return outcomeBase("capability_gap", author, authorCount, { ...extra, gap });
+}
+
+export function axTurnOutcome(
+  nodes,
+  { message = "", baselineAuthorCount = 0 } = {},
+) {
+  const list = Array.isArray(nodes) ? nodes : [];
+  const boundary = authorBoundary(list, message, baselineAuthorCount);
+  if (!boundary.author) {
+    return {
+      kind: "unknown",
+      author_count: boundary.authors.length,
+      author_path: null,
+    };
+  }
+  const { author, authorGroup, container, nextAuthor } = boundary;
+  const authorCount = boundary.authors.length;
+  // 下一条作者消息是本轮的硬边界：不能把后一轮的「本轮创作过程」借给上一轮。
+  // 同一轮若出现多个过程组，DOM/路径更晚的是更新状态；取最后一个。
+  const groups = turnGroups(list, { authorGroup, container, nextAuthor });
+  const gap = capabilityGapFacts(list, {
+    container,
+    afterPath: authorGroup,
+    beforePath: nextAuthor === null ? null : axPath(nextAuthor),
+  });
+  if (groups.length === 0) {
+    if (gap) {
+      return capabilityGapOutcome(author, authorCount, gap, { group_title: null });
+    }
+    // 没有真实活动组也没有 gap 结构时不能自行声称 running；缺可见状态就是 unknown。
+    return outcomeBase("unknown", author, authorCount, { group_title: null });
+  }
+  const group = groups.at(-1);
+  const groupFacts = { group_title: axTitle(group), group_path: axPath(group) };
+  const groupKind = turnGroupKind(list, group);
+  if (groupKind) return outcomeBase(groupKind, author, authorCount, groupFacts);
+  if (gap) return capabilityGapOutcome(author, authorCount, gap, groupFacts);
+  return outcomeBase("unknown", author, authorCount, groupFacts);
+}
+
+export function countAxAuthorMessages(nodes, message) {
+  return axAuthorMessages(nodes, message).length;
+}
+
 export const readingPageFailure = (page, target) => {
   if (!nonBlank(page)) return "missing";
   if (LOADING_RE.test(page)) return "loading";

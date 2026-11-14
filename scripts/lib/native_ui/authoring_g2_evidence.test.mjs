@@ -4,6 +4,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AUTHORING_REQUEST_IR } from "./authoring_request_facts.mjs";
 import {
+  axAuthorMessages,
+  axTurnOutcome,
+  countAxAuthorMessages,
   authorVisibleOutcome,
   g2CandidateEvidence,
   g2PageEvidence,
@@ -1170,4 +1173,520 @@ test("G3 阅读内容改变或泄漏内部词时不签", () => {
   assert.equal(leaked.ok, false);
   assert(leaked.failures.includes("author_visible_internal_token_leak"));
   assert(leaked.leak.hits.some((hit) => hit.token === "call_id"));
+});
+
+// AX 树归属判据：只构造与本机真实工作台同结构的最小节点（无小说正文）。
+const axNode = (path, role, title = "", value = "") => ({ path, role, title, value });
+
+function axMessageGroup(path, text) {
+  return [axNode(path, "AXGroup"), axNode(`${path}/0`, "AXStaticText", "", text)];
+}
+
+function axProcessGroup(path, statuses = []) {
+  return [
+    axNode(path, "AXGroup", "本轮创作过程"),
+    ...statuses.map((value, index) => axNode(`${path}/${index}`, "AXStaticText", "", value)),
+  ];
+}
+
+function axQuestionGroup(path, status = "等待你的回答") {
+  return [
+    axNode(path, "AXGroup", "创作问题记录"),
+    axNode(`${path}/0`, "AXGroup"),
+    axNode(`${path}/0/0`, "AXStaticText", "", "问题正文"),
+    axNode(`${path}/1`, "AXStaticText", "", status),
+  ];
+}
+
+function axDock(path, label = "等待你回复 · 创作") {
+  return [
+    axNode(path, "AXGroup", "当前创作任务操作"),
+    axNode(`${path}/0`, "AXGroup"),
+    axNode(`${path}/0/0`, "AXGroup"),
+    axNode(`${path}/0/0/0/0`, "AXStaticText", "", label),
+  ];
+}
+
+const AX_CONTAINER = "0/0/0/0/0";
+
+test("AX 本轮终态：旧页底等待+新 running 不能判 terminal；旧终局不算新结果", () => {
+  const message = "第三条";
+  const nodes = [
+    axNode("0", "AXWindow"),
+    axNode(AX_CONTAINER, "AXGroup"),
+    ...axMessageGroup(`${AX_CONTAINER}/8`, "你"),
+    ...axProcessGroup(`${AX_CONTAINER}/9`, ["已完成"]),
+    ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/11`, message),
+    axNode(`${AX_CONTAINER}/12`, "AXGroup", "本轮创作过程"),
+    axNode(`${AX_CONTAINER}/12/0`, "AXGroup"),
+    axNode(`${AX_CONTAINER}/12/0/0`, "AXStaticText", "", "已核查章节：尚无正文。"),
+    axNode(`${AX_CONTAINER}/13`, "AXGroup", "AXApplicationStatus"),
+    axNode(`${AX_CONTAINER}/13/0`, "AXStaticText", "", "当前任务在等待你的回答。"),
+    axNode(`${AX_CONTAINER}/14`, "AXGroup", "回答当前问题"),
+    axNode(`${AX_CONTAINER}/14/0`, "AXStaticText", "", "需要你决定"),
+    ...axDock(`${AX_CONTAINER}/15`),
+  ];
+  const outcome = axTurnOutcome(nodes, { message });
+  assert.equal(outcome.kind, "unknown", JSON.stringify(outcome));
+  assert.equal(outcome.group_path, `${AX_CONTAINER}/12`);
+});
+
+test("AX 本轮终态：快速 completed、本轮问题记录 waiting、failed 精确状态行", () => {
+  const message = "问题";
+  const base = [
+    axNode("0", "AXWindow"),
+    axNode(AX_CONTAINER, "AXGroup"),
+    ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/11`, message),
+  ];
+  assert.equal(
+    axTurnOutcome([...base, ...axProcessGroup(`${AX_CONTAINER}/12`, ["已完成"])], { message }).kind,
+    "completed",
+  );
+  assert.equal(
+    axTurnOutcome([...base, ...axProcessGroup(`${AX_CONTAINER}/12`, ["失败"])], { message }).kind,
+    "failed",
+  );
+  assert.equal(
+    axTurnOutcome([...base, ...axQuestionGroup(`${AX_CONTAINER}/12`)], { message }).kind,
+    "waiting",
+  );
+  assert.equal(
+    axTurnOutcome([...base, ...axProcessGroup(`${AX_CONTAINER}/12`, ["进行中"])], { message }).kind,
+    "running",
+  );
+});
+
+test("AX 本轮终态：重复作者文本取新增最后一条，模型引用同文本不算作者", () => {
+  const message = "重复原话";
+  const nodes = [
+    axNode("0", "AXWindow"),
+    axNode(AX_CONTAINER, "AXGroup"),
+    ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/11`, message),
+    ...axProcessGroup(`${AX_CONTAINER}/12`, ["已完成"]),
+    ...axMessageGroup(`${AX_CONTAINER}/13`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/14`, message),
+    ...axProcessGroup(`${AX_CONTAINER}/15`, []),
+    // 模型正文恰好原样引用同一句：父组前一个兄弟是「AI 助手」，不是作者消息。
+    axNode(`${AX_CONTAINER}/16`, "AXGroup"),
+    axNode(`${AX_CONTAINER}/16/0`, "AXStaticText", "", "AI 助手"),
+    axNode(`${AX_CONTAINER}/17`, "AXGroup"),
+    axNode(`${AX_CONTAINER}/17/0`, "AXStaticText", "", message),
+  ];
+  assert.equal(axAuthorMessages(nodes, message).length, 2);
+  assert.equal(
+    axTurnOutcome(nodes, { message, baselineAuthorCount: 1 }).kind,
+    "unknown",
+  );
+  assert.equal(axTurnOutcome(nodes, { message, baselineAuthorCount: 2 }).kind, "unknown");
+});
+
+test("AX 本轮终态：旧过程组内正文的状态词不参与，只有精确状态行才生效", () => {
+  const message = "当前有几章内容";
+  const nodes = [
+    axNode("0", "AXWindow"),
+    axNode(AX_CONTAINER, "AXGroup"),
+    ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/11`, message),
+    axNode(`${AX_CONTAINER}/12`, "AXGroup", "本轮创作过程"),
+    axNode(`${AX_CONTAINER}/12/0`, "AXStaticText", "", "上一轮已完成；现在等待你回复"),
+  ];
+  assert.equal(axTurnOutcome(nodes, { message }).kind, "unknown");
+});
+
+test("纯文本「等待你回复 · 创作」不再被当成状态行；AX value 仍可剥徽标", () => {
+  assert.equal(
+    authorVisibleOutcome("作者原话\n等待你回复 · 创作", { message: "作者原话" }).kind,
+    "unknown",
+  );
+  const message = "作者原话";
+  const nodes = [
+    axNode("0", "AXWindow"),
+    axNode(AX_CONTAINER, "AXGroup"),
+    ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/11`, message),
+    ...axProcessGroup(`${AX_CONTAINER}/12`, ["已完成 · 创作"]),
+  ];
+  assert.equal(axTurnOutcome(nodes, { message }).kind, "completed");
+});
+
+test("AX 终态不跨下一条作者消息借用后一轮状态；同轮多组取最新", () => {
+  const first = "第一句";
+  const second = "第二句";
+  const third = "第三句";
+  const nodes = [
+    axNode("0", "AXWindow"),
+    axNode(AX_CONTAINER, "AXGroup"),
+    ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/11`, first),
+    ...axMessageGroup(`${AX_CONTAINER}/12`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/13`, second),
+    ...axProcessGroup(`${AX_CONTAINER}/14`, ["已完成"]),
+    ...axMessageGroup(`${AX_CONTAINER}/15`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/16`, third),
+  ];
+  // 第一句之后没有自己的过程组；不能借用第二句的 14，也不能把后一轮组当本轮组。
+  const firstOutcome = axTurnOutcome(nodes, { message: first });
+  assert.equal(firstOutcome.kind, "unknown");
+  assert.equal(firstOutcome.group_title, null);
+  assert.equal(axTurnOutcome(nodes, { message: second }).kind, "completed");
+  assert.equal(axTurnOutcome(nodes, { message: third }).kind, "unknown");
+
+  const sameTurn = [
+    axNode("0", "AXWindow"),
+    axNode(AX_CONTAINER, "AXGroup"),
+    ...axMessageGroup(`${AX_CONTAINER}/20`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/21`, first),
+    ...axProcessGroup(`${AX_CONTAINER}/22`, ["进行中"]),
+    ...axProcessGroup(`${AX_CONTAINER}/23`, ["已完成"]),
+  ];
+  assert.equal(axTurnOutcome(sameTurn, { message: first }).kind, "completed");
+});
+
+const axDescNode = (path, role, desc, title = "", value = "") => ({
+  path,
+  role,
+  desc,
+  title,
+  value,
+});
+
+function axCapabilityGap(path, goal, reply = "这条目标当前能力做不到。", replyPath = null, whyPath = null) {
+  const parts = path.split("/");
+  const order = Number(parts.pop());
+  const head = parts.join("/");
+  const answerPath = replyPath ?? `${head}/${order + 1}`;
+  const why = whyPath ?? `${head}/${order + 2}`;
+  return [
+    axDescNode(path, "AXGroup", `能力缺口：${goal}`),
+    axNode(`${path}/0`, "AXStaticText", "", "能力缺口"),
+    axNode(answerPath, "AXGroup"),
+    axNode(`${answerPath}/0`, "AXStaticText", "", reply),
+    axDescNode(why, "AXButton", "查看这轮回应的依据", "为什么"),
+  ];
+}
+
+test("现役 capability_gap 结构：真实说明+直接标记+回复+为什么才识别", () => {
+  const second = "卷纲不对";
+  const base = [
+    axNode("0", "AXWindow"),
+    axNode(AX_CONTAINER, "AXGroup"),
+    ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/11`, "第一句"),
+    ...axMessageGroup(`${AX_CONTAINER}/12`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/13`, second),
+  ];
+  const gap = axTurnOutcome([...base, ...axCapabilityGap(`${AX_CONTAINER}/14`, "目标A")], {
+    message: second,
+  });
+  assert.equal(gap.kind, "capability_gap");
+  assert.equal(gap.gap.goal, "目标A");
+  assert.equal(gap.gap.marker_path, `${AX_CONTAINER}/14`);
+
+  // 模型正文引用「能力缺口」但没有结构标记：不能当 gap。
+  const textOnly = [
+    ...base,
+    axNode(`${AX_CONTAINER}/14`, "AXGroup"),
+    axNode(`${AX_CONTAINER}/14/0`, "AXStaticText", "", "能力缺口：这只是正文引用"),
+    ...axMessageGroup(`${AX_CONTAINER}/15`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/16`, "下一句"),
+  ];
+  assert.equal(axTurnOutcome(textOnly, { message: second }).kind, "unknown");
+
+  // 只有标记、缺对应回复/为什么：不能当 gap。
+  const markerOnly = [
+    ...base,
+    axDescNode(`${AX_CONTAINER}/14`, "AXGroup", "能力缺口：目标B"),
+    axNode(`${AX_CONTAINER}/14/0`, "AXStaticText", "", "能力缺口"),
+  ];
+  assert.equal(axTurnOutcome(markerOnly, { message: second }).kind, "unknown");
+});
+
+test("capability_gap 不借旧回合；重复作者只取新增；过程 completed 更具体", () => {
+  const second = "第二句";
+  const nodes = [
+    axNode("0", "AXWindow"),
+    axNode(AX_CONTAINER, "AXGroup"),
+    ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/11`, "第一句"),
+    ...axCapabilityGap(`${AX_CONTAINER}/12`, "旧 gap", undefined, `${AX_CONTAINER}/13`, `${AX_CONTAINER}/14`),
+    ...axMessageGroup(`${AX_CONTAINER}/15`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/16`, second),
+    ...axCapabilityGap(`${AX_CONTAINER}/17`, "新 gap", undefined, `${AX_CONTAINER}/18`, `${AX_CONTAINER}/19`),
+  ];
+  assert.equal(axTurnOutcome(nodes, { message: "第一句" }).kind, "capability_gap");
+  assert.equal(
+    axTurnOutcome(nodes, { message: second, baselineAuthorCount: 0 }).kind,
+    "capability_gap",
+  );
+  assert.equal(
+    axTurnOutcome(nodes, { message: second, baselineAuthorCount: 1 }).kind,
+    "unknown",
+  );
+
+  const withProcess = [
+    ...nodes,
+    ...axProcessGroup(`${AX_CONTAINER}/20`, ["已完成"]),
+  ];
+  assert.equal(axTurnOutcome(withProcess, { message: second }).kind, "completed");
+});
+
+test("状态行边界：作者原话紧贴状态词仍按作者消息后文本判定", () => {
+  assert.equal(authorVisibleOutcome("作者已完成", { message: "作者" }).kind, "completed");
+  assert.equal(authorVisibleOutcome("作者失败", { message: "作者" }).kind, "failed");
+  assert.equal(authorVisibleOutcome("作者等待你回复", { message: "作者" }).kind, "waiting");
+});
+
+test("待确认候选必须同时出现本地修订后缀、标题和动作，缺一不判 pending", () => {
+  const message = "作者原话";
+  const titleOnly = "作者原话\n指定段落修订稿";
+  const titleAndAction = "作者原话\n指定段落修订稿\n保存修订稿";
+  assert.equal(authorVisibleOutcome(titleOnly, { message }).kind, "unknown");
+  assert.equal(authorVisibleOutcome(titleAndAction, { message }).kind, "unknown");
+  const full = "作者原话\n（指定段落修订稿）\n指定段落修订稿\n保存修订稿";
+  assert.equal(authorVisibleOutcome(full, { message }).kind, "pending_candidate");
+});
+
+test("AX 终态只取本消息流容器内、本条作者之后的组；页底旧组不覆盖已完成", () => {
+  const message = "第四条";
+  const nodes = [
+    axNode("0", "AXWindow"),
+    axNode(AX_CONTAINER, "AXGroup"),
+    ...axMessageGroup(`${AX_CONTAINER}/8`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/9`, "旧输入"),
+    ...axProcessGroup(`${AX_CONTAINER}/10`, ["已完成"]),
+    ...axMessageGroup(`${AX_CONTAINER}/11`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/12`, message),
+    ...axProcessGroup(`${AX_CONTAINER}/13`, ["已完成"]),
+    axNode(`${AX_CONTAINER}/14`, "AXGroup", "回答当前问题"),
+    axNode(`${AX_CONTAINER}/14/0`, "AXStaticText", "", "等待你回复"),
+    ...axDock(`${AX_CONTAINER}/15`),
+  ];
+  const done = axTurnOutcome(nodes, { message });
+  assert.equal(done.kind, "completed");
+  assert.equal(done.group_path, `${AX_CONTAINER}/13`);
+
+  // 本轮还没有自己的过程组时，不能把作者之前的旧组当成本轮状态。
+  const beforeOnly = [
+    axNode("0", "AXWindow"),
+    axNode(AX_CONTAINER, "AXGroup"),
+    ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
+    ...axProcessGroup(`${AX_CONTAINER}/11`, ["已完成"]),
+    ...axMessageGroup(`${AX_CONTAINER}/12`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/13`, message),
+    ...axDock(`${AX_CONTAINER}/14`),
+  ];
+  const early = axTurnOutcome(beforeOnly, { message });
+  assert.equal(early.kind, "unknown");
+  assert.equal(early.group_title, null);
+});
+
+test("capability_gap 结构边界：按钮身份/标题/说明、回复组、回复必须先于为什么", () => {
+  const message = "卷纲重做";
+  const second = "第二句";
+  const base = [
+    axNode("0", "AXWindow"),
+    axNode(AX_CONTAINER, "AXGroup"),
+    ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/11`, "第一句"),
+    ...axMessageGroup(`${AX_CONTAINER}/12`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/13`, message),
+  ];
+  const marker = (path, goal) => [
+    axDescNode(path, "AXGroup", `能力缺口：${goal}`),
+    axNode(`${path}/0`, "AXStaticText", "", "能力缺口"),
+  ];
+  const reply = (path, text = "这个目标做不到。") => [
+    axNode(path, "AXGroup"),
+    axNode(`${path}/0`, "AXStaticText", "", text),
+  ];
+  const why = (path, title = "为什么", desc = "查看这轮回应的依据") =>
+    [axDescNode(path, "AXButton", desc, title)];
+
+  assert.equal(
+    axTurnOutcome([
+      ...base,
+      ...marker(`${AX_CONTAINER}/14`, "A"),
+      ...reply(`${AX_CONTAINER}/15`),
+      ...why(`${AX_CONTAINER}/16`),
+    ], { message }).kind,
+    "capability_gap",
+  );
+  // 为什么必须是真实 AXButton：同说明的分组不算入口。
+  assert.equal(
+    axTurnOutcome([
+      ...base,
+      ...marker(`${AX_CONTAINER}/14`, "A"),
+      ...reply(`${AX_CONTAINER}/15`),
+      axDescNode(`${AX_CONTAINER}/16`, "AXGroup", "查看这轮回应的依据", "为什么"),
+    ], { message }).kind,
+    "unknown",
+  );
+  assert.equal(
+    axTurnOutcome([
+      ...base,
+      ...marker(`${AX_CONTAINER}/14`, "A"),
+      ...reply(`${AX_CONTAINER}/15`),
+      ...why(`${AX_CONTAINER}/16`, "为什么？"),
+    ], { message }).kind,
+    "unknown",
+  );
+  assert.equal(
+    axTurnOutcome([
+      ...base,
+      ...marker(`${AX_CONTAINER}/14`, "A"),
+      ...reply(`${AX_CONTAINER}/15`),
+      ...why(`${AX_CONTAINER}/16`, "为什么", "其他说明"),
+    ], { message }).kind,
+    "unknown",
+  );
+  // 没有回复组：不能把为什么之前的普通文本当回复。
+  assert.equal(
+    axTurnOutcome([
+      ...base,
+      ...marker(`${AX_CONTAINER}/14`, "A"),
+      axNode(`${AX_CONTAINER}/15`, "AXStaticText", "", "只是普通文本"),
+      ...why(`${AX_CONTAINER}/16`),
+    ], { message }).kind,
+    "unknown",
+  );
+  // 回复组在为什么之后：顺序不成立。
+  assert.equal(
+    axTurnOutcome([
+      ...base,
+      ...marker(`${AX_CONTAINER}/14`, "A"),
+      ...why(`${AX_CONTAINER}/15`),
+      ...reply(`${AX_CONTAINER}/16`),
+    ], { message }).kind,
+    "unknown",
+  );
+  // 只有直接文本「能力缺口」、没有能力缺口说明：不算。
+  assert.equal(
+    axTurnOutcome([
+      ...base,
+      axNode(`${AX_CONTAINER}/14`, "AXGroup"),
+      axNode(`${AX_CONTAINER}/14/0`, "AXStaticText", "", "能力缺口"),
+      ...reply(`${AX_CONTAINER}/15`),
+      ...why(`${AX_CONTAINER}/16`),
+    ], { message }).kind,
+    "unknown",
+  );
+  // 有说明文字但不是「能力缺口：」前缀：不算。
+  assert.equal(
+    axTurnOutcome([
+      ...base,
+      ...marker(`${AX_CONTAINER}/14`, "A").map((node) =>
+        node.desc === undefined ? node : { ...node, desc: "其他说明" }),
+      ...reply(`${AX_CONTAINER}/15`),
+      ...why(`${AX_CONTAINER}/16`),
+    ], { message }).kind,
+    "unknown",
+  );
+  // 标记组自己的直接文本只有标签；即使混入普通文本，也不能把标记组本身当回复组。
+  assert.equal(
+    axTurnOutcome([
+      ...base,
+      axDescNode(`${AX_CONTAINER}/14`, "AXGroup", "能力缺口：A"),
+      axNode(`${AX_CONTAINER}/14/0`, "AXStaticText", "", "能力缺口"),
+      axNode(`${AX_CONTAINER}/14/1`, "AXStaticText", "", "混在标记里的说明"),
+      ...why(`${AX_CONTAINER}/15`),
+    ], { message }).kind,
+    "unknown",
+  );
+  // 同一轮多个完整度不同的标记：从最新向前找第一个完整结构。
+  const two = [
+    ...base,
+    ...marker(`${AX_CONTAINER}/14`, "较早"),
+    ...reply(`${AX_CONTAINER}/15`),
+    ...why(`${AX_CONTAINER}/16`),
+    ...marker(`${AX_CONTAINER}/17`, "较晚但缺回复"),
+  ];
+  const picked = axTurnOutcome(two, { message });
+  assert.equal(picked.kind, "capability_gap");
+  assert.equal(picked.gap.marker_path, `${AX_CONTAINER}/14`);
+  assert.equal(
+    axTurnOutcome(
+      [...two, ...axMessageGroup(`${AX_CONTAINER}/18`, "你"), ...axMessageGroup(`${AX_CONTAINER}/19`, second)],
+      { message },
+    ).kind,
+    "capability_gap",
+  );
+});
+
+test("capability_gap 不借用其他容器或下一轮作者之后的标记", () => {
+  const message = "第二句";
+  const otherContainer = "0/0/0/0/9";
+  const nodes = [
+    axNode("0", "AXWindow"),
+    axNode(AX_CONTAINER, "AXGroup"),
+    axNode(otherContainer, "AXGroup"),
+    ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/11`, message),
+    // 其他容器里的旧缺口结构：不属于本消息流。
+    axDescNode(`${otherContainer}/2`, "AXGroup", "能力缺口：旧任务"),
+    axNode(`${otherContainer}/2/0`, "AXStaticText", "", "能力缺口"),
+    axNode(`${otherContainer}/3`, "AXGroup"),
+    axNode(`${otherContainer}/3/0`, "AXStaticText", "", "旧回复"),
+    axDescNode(`${otherContainer}/4`, "AXButton", "查看这轮回应的依据", "为什么"),
+  ];
+  assert.equal(axTurnOutcome(nodes, { message }).kind, "unknown");
+
+  const afterNext = [
+    ...nodes,
+    ...axMessageGroup(`${AX_CONTAINER}/12`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/13`, "下一句"),
+    axDescNode(`${AX_CONTAINER}/14`, "AXGroup", "能力缺口：下一轮"),
+    axNode(`${AX_CONTAINER}/14/0`, "AXStaticText", "", "能力缺口"),
+    axNode(`${AX_CONTAINER}/15`, "AXGroup"),
+    axNode(`${AX_CONTAINER}/15/0`, "AXStaticText", "", "下一轮回复"),
+    axDescNode(`${AX_CONTAINER}/16`, "AXButton", "查看这轮回应的依据", "为什么"),
+  ];
+  assert.equal(axTurnOutcome(afterNext, { message }).kind, "unknown");
+});
+
+test("作者消息只认 AXStaticText：按钮/分组值即使相同也不属于作者原话", () => {
+  const message = "开始新讨论";
+  const nodes = [
+    axNode("0", "AXWindow"),
+    axNode(AX_CONTAINER, "AXGroup"),
+    axNode(`${AX_CONTAINER}/10`, "AXGroup"),
+    axNode(`${AX_CONTAINER}/10/0`, "AXStaticText", "", "你"),
+    axNode(`${AX_CONTAINER}/11`, "AXButton", "", message),
+  ];
+  assert.deepEqual(axAuthorMessages(nodes, message), []);
+  assert.equal(countAxAuthorMessages(nodes, message), 0);
+});
+
+test("重复作者游标相等时明确返回无新增作者，不拿旧作者当本轮", () => {
+  const message = "重复原话";
+  const nodes = [
+    axNode("0", "AXWindow"),
+    axNode(AX_CONTAINER, "AXGroup"),
+    ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/11`, message),
+    ...axProcessGroup(`${AX_CONTAINER}/12`, ["已完成"]),
+    ...axMessageGroup(`${AX_CONTAINER}/13`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/14`, message),
+    ...axProcessGroup(`${AX_CONTAINER}/15`, ["已完成"]),
+  ];
+  const outcome = axTurnOutcome(nodes, { message, baselineAuthorCount: 2 });
+  assert.equal(outcome.kind, "unknown");
+  assert.equal(outcome.author_path, null);
+  assert.equal(outcome.author_count, 2);
+});
+
+test("AX 路径按数值段排序：第 10 组晚于第 9 组", () => {
+  const message = "路径排序";
+  const nodes = [
+    axNode("0", "AXWindow"),
+    axNode(AX_CONTAINER, "AXGroup"),
+    ...axMessageGroup(`${AX_CONTAINER}/5`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/6`, message),
+    ...axProcessGroup(`${AX_CONTAINER}/9`, ["已完成"]),
+    ...axProcessGroup(`${AX_CONTAINER}/10`, ["失败"]),
+  ];
+  // 数值序下 10 晚于 9；字符串序会把 "10" 排到 "9" 前面而误取旧状态。
+  assert.equal(axTurnOutcome(nodes, { message }).kind, "failed");
 });
