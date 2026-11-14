@@ -6,15 +6,12 @@
 
 | 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B84 | **全项目测试体系审查与治理**：先核已有入口/fixture，统一环境作用域、初始化、隔离和退出；按原任务分步收敛，不另建测试框架。 | [B84](slices/B84-web-slow-tests-and-arch-debt.md) |
-
-B87 的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimization.md)；批次 A–E 的执行状态与证据只在原计划维护，NEXT 不另建状态节。
+| B87 | **模型交互体系系统性重构**：R01 收口优先（3/10/20 真实基线已采集，测量实现质量门与最终提交未闭合），随后按原依赖推进 R02–R19；生产行为未变，验收按原任务。双向沟通整改见[原优化计划](slices/bidirectional-gaps-optimization.md)，批次 A–E 状态只在原计划维护。 | [B87](slices/B87-model-interaction-request-projection.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B87 | 模型交互重构：承接 B84 测试作用域治理后收口 R01 工程质量，再按原依赖推进 R02–R19；已有真实基线按原任务保留。 | [B87](slices/B87-model-interaction-request-projection.md) |
 | B71-CP4b | 承接 B82 的 G3/G5 补证与 Responses/Anthropic 实模证据（[B82](slices/B82-b71-golden-slice-evidence.md)）；B81 CP5 的 G6 证据已于 2026-11-11 复核（[B81 §12](slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)）；**实模窗口已由 Splash 解除（2026-11-13 全局授权，预注册 `scenario-preregistration-splash-20261113.json` 已冻结）**；B71 的 CP5 最终收口含契约/索引/台账回写。 | [B71](slices/B71-provider-message-fidelity.md) |
 | B85 | 模型上下文窗口用户设置（UI 入口）：作者反馈「窗口不应写死、要开放给用户配置」；初始能力已落（`preferences.json` 的 `context_windows` + Tauri 启动注入 sidecar env，`044092df`），**设置页 UI 未做**（当前应用无系统设置菜单，唯一设置入口是模型供应商弹窗）。 | [B85](slices/B85-model-context-window-settings.md) |
 | B88 | sidecar 端口可配置（产品功能）：默认 4658，支持冲突回退/显式配置；前端 API/WS/CSP 与 OriginPolicy 跟随；受益 B65 release Origin 采集与多实例调试，不是验收钩子。 | [B88](slices/B88-configurable-sidecar-port.md) |
@@ -22,9 +19,11 @@ B87 的双向沟通整改见 [原优化计划](slices/bidirectional-gaps-optimiz
 | B78 | 存量大模块拆分（P1：WorkspaceChat / dialogue_planning_service / agent_run_server / turn_execution_service / adoption_repository）；治理机制与 ratchet 门禁已落地，本任务只做结构化拆分，**B87 R17 后**按「一次一个文件、独立 refactor commit」排期 | [B78](slices/B78-module-size-debt.md) |
 | B79 | 存量书稿导入 + 导入后分析建档；**待作者确认启动**，且 **B87 R02/R05 后**（材料/来源结构化稳定）按 [B79](slices/B79-work-import-and-analysis.md) CP0 契约冻结 → CP1 确定性导入链推进；B80 前置梳理已完成（2026-11-08）。 | [B79](slices/B79-work-import-and-analysis.md) |
 
-依赖排序（2026-11-13 作者先审测试体系）：B84 的环境作用域治理先于 B87 恢复广泛验证。其余层次保持：B81、B71 机制、VS-00L/ADR-0035为基础；B87 R00–R19为产品主线。B42/B64在R05/R06后；B28根因在R06后；Q1C/B48/B27/B57/B38在R07/R08后；B82/B71实模在R04/R17后；I10在R18/R19后。B85/B88/B72/AU08可按原条件并行，B78/B79在B87后；B83凭证阻塞，B50/B68不重开。
+依赖排序（2026-11-14 作者决定 B84 退出队列、B87 提为当前任务；B84 开放项保留在阻塞引用，退出不等于销账）：B87 R00–R19 为当前产品主线，先收口 R01 测量质量门与最终提交，再按原依赖推进。其余层次保持：B81、B71 机制、VS-00L/ADR-0035为基础；B42/B64在R05/R06后；B28根因在R06后；Q1C/B48/B27/B57/B38在R07/R08后；B82/B71实模在R04/R17后；I10在R18/R19后。B85/B88/B72/AU08可按原条件并行，B78/B79在B87后；B83凭证阻塞，B50/B68不重开。
 
 ## 阻塞
+
+- **B84（deferred，2026-11-14 作者决定退出当前任务队列）**：scope 74/74；REV-01 待独立复核，REV-02 未闭环；A2/R01、b71-pending、driver/G2、dogfood、lefthook 等债务保留。恢复：作者重新排期或 B87 对应批次后；退出队列不等于销账。见 [B84](slices/B84-web-slow-tests-and-arch-debt.md)。
 
 - **B83 vendor `stream_options.include_usage` 矩阵（2026-11-13 作者选 A）**：Splash 作为本地 vendor 补测 include_usage；OpenAI/Anthropic 官方凭证仍缺，未测项登记为未验证；矩阵结论不得用于伪造能力声明。见 [B83](slices/B83-vendor-stream-options-matrix.md)。
 - **B72 作者行为语料扩增（2026-11-13 作者选 D）**：放弃离线规则扩增（mutation known-gap 只读保留，不再阻塞），转真实 LLM 语料扩增；Splash 全局授权用于 CP1 ≤60 校准，待冻结预注册后执行；生成≠冻结≠PASS。见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md)。

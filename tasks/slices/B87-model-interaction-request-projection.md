@@ -4,6 +4,8 @@
 
 **状态**：**doing（2026-11-13：R00 事实审计已提交 `465b1a3f`；R01 的3/10/20真实基线采集及逐轮目标审阅已完成，测量实现质量门与最终提交尚未闭合，最新证据见 §11.20；R02–R19 未实施，生产行为未变；远端 CI 基线缺口仍开放）**。
 
+- **排期（2026-11-14）**：作者决定 B84 退出当前任务队列，B87 提为 [NEXT](../NEXT.md) 当前任务；R01 测量实现质量门与最终提交优先收口，随后按原依赖推进 R02–R19。调度变化不改变 R00–R19 的验收范围或证据状态。
+
 - 目标分支：`develop/dialogue-based-novel-workbench`；执行时以最新 HEAD 为准，不使用 2026-11-11 的旧日志推断现状。
 - 关联：[Issue #4](https://github.com/tongsh6/ai-novel-studio/issues/4) / [VS-00M 唯一增量架构契约](../../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md)（Proposed 重审稿）/[VS-00L](../../docs/design/contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md)（Frozen）/[ADR-0035](../../docs/design/adr/ADR-0035-session-scoped-canonical-authoring-context-v3.md)（Accepted）。
 - 本文件是 **唯一执行状态真源**；[批次 README](B87-model-interaction-request-projection/README.md) 定统一执行门禁，各 `Rxx.md` 只给该会话的目标/范围/验收，不登记独立进度。索引/NEXT 只导航。
@@ -636,12 +638,14 @@ leader独立读取原始Phoenix发送帧，并在DB/WAL字节副本中只读对�
 
 2026-11-13 作者随后暂停原推进，并要求先整体审查测试体系。测试入口、fixture和环境作用域的跨项目设计/迁移统一归 [B84](B84-web-slow-tests-and-arch-debt.md)，不能只给R01补清理后恢复原整组变异循环。R01未提交实现及原始基线继续保留；工程质量未签，不能由B84的设计文档代签。当前只完成审查/设计，不恢复模型采集或广泛变异执行。
 
-## 12. 跨任务缺口登记：普通对话 ProviderRun 未持久化（2026-11-14）
+## 12. 跨任务登记更正：REV-02 页面复验归因
 
-> 本节是 B87 总计划内的跨任务缺口登记，不是 R01/R02 的目标变更，也不改变本任务状态。来源为 B84 REV-02 的真实页面复验。
+> 2026-11-14 整改后独立复核更正。本节保留跨任务来由，不改变 R01/R02 或其他 B87 批次目标。B84 的整改状态仍只在 [B84 原任务](B84-web-slow-tests-and-arch-debt.md) 维护。
 
-- **事实**：普通对话 `provider_gateway.complete` 有真实 app-log（`provider=slice_verify`、`purpose=planner`、`outcome=ok`），但场景数据库 `provider_runs` 为 0 行。`ProviderActivityProjector.with_stage_sink/3` 只在 `snapshot.stage_sink` 是函数时订阅执行结果并调用 `ProviderRunLog.record_execution/2`；生产代码中未找到给 snapshot 注入 `stage_sink` 的调用点（只有测试显式传入），普通对话 AgentRun stage 未携带 sink，因此 ProviderRun/Event/Output 不落库，activity API 的 usage 断言必然失败。
-- **设计口径**：UA-01 CP4D/CP5/CP6 明确普通对话进入 `conversation_turn_v1`，ProviderRun/Event/Output 应进入 developer telemetry 并可恢复。因此这是**产品接线缺口**，不是场景过时，也不能靠改场景预期或放宽断言修绿。
-- **B87 当前承接检查**：R01 边界明确“仅 scripts/quality/任务文档，不改 `apps/*/lib`”；R02–R19 没有 ProviderActivityProjector/stage_sink 注入的批次；R19 只做最终真实模型/原生 Tauri A/B 与系统质量门，不主动修接线。**结论：按当前计划 B87 不会处理该缺口**；若要处理，需作者裁决新增批次或并入/前置到某批（改生产代码需单独授权）。
-- **关联**：[B84 任务](B84-web-slow-tests-and-arch-debt.md) REV-02；[审查报告](../../reports/2026-11-14-b84-implementation-review.md)；场景 `quality/acceptance/scenarios/agent-provider-execution-activity-restored.yml`；本地证据 `artifacts/slice-verify/agent-provider-execution-activity-restored-tauri/`（`provider_runs` 0、app-log 2 条 provider_gateway.complete）。
-- **状态**：未分配批次，未修改生产代码。
+- **原判断撤回**：此前将普通对话页面失败确诊为“生产缺少 stage_sink 注入，ProviderRun/Event/Output 从未落库”，并建议新增或前置产品接线批次。该确诊已被独立复核否定；原始判断与当时记录保留在[审查报告 §8](../../reports/2026-11-14-b84-implementation-review.md#8-处理结果2026-11-14整改实施后)。
+- **代码事实**：`AgentRunServer.step_snapshot` 已构造 sink 并传给 executor（`apps/novel_application/lib/novel_application/agent_run_server.ex` 3442–3453、904–908 行）；“生产没有注入调用点”不成立。
+- **运行证据**：历史 backend.log 有 ProviderRun/ProviderOutput 的 QUERY OK 写入，output 带 usage；ui-frames 的 6 条进度事件属于同一 ProviderRun，不能当成 6 次调用。历史失败消息在当前 driver 中对应 `queriedProviderRuns.length >= 3`，此前的 started/final/ref 判据已在同一顺序路径执行；不能解释成 ProviderRun 必然为 0。日志写入、帧、API 判据各自的证明边界见[报告 §9.8](../../reports/2026-11-14-b84-implementation-review.md#98-撤回缺少-stage_sink-导致未持久化的归因)。
+- **空库解释边界**：该场景为非系统原生 Tauri dev 路径，EXIT cleanup 会重建 DB；退出后 0 行不能倒推运行期间未落库。后续复验应在 cleanup 之前保存必要的持久与查询证据，不能用清理后的库确诊产品接线缺失。
+- **下一步判据**：由 B84 REV-02 先对照现行愿景、设计、调用契约与场景目标，核对调用数量、purpose、usage、当前 run 绑定与恢复语义，区分场景漂移、执行覆盖不足和 API 投影遗漏；不直接把 >=3 降成 >=1，也不增加无业务意义调用凑数。
+- **B87 批次后果**：撤回基于旧确诊提出的“新增 sink 接线批次”建议；本轮没有新增、前置或改写 B87 批次，也没有修改生产代码。只有后续证据确认真实产品缺口，才按实际责任层另行归属，不能沿本次错误归因派生实现。
+- **关联与证据**：[B84 任务](B84-web-slow-tests-and-arch-debt.md) REV-02；[报告 §9](../../reports/2026-11-14-b84-implementation-review.md#9-整改后独立复核与交接)；`quality/acceptance/scenarios/agent-provider-execution-activity-restored.yml`；历史 `artifacts/slice-verify/agent-provider-execution-activity-restored-tauri/`。本轮为只读复核与文档更正，未重跑页面。

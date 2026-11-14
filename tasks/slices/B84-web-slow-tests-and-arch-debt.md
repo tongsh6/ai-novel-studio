@@ -1,6 +1,6 @@
 # B84：全项目测试环境作用域、fixture 体系与剩余架构/测试债务
 
-- 状态：**doing（A0完成；A1/A2已有实施，A2随R01 WIP与b71-pending债务保留；A3/A4及A5 macOS已有验收记录；2026-11-14：REV-01 第三轮整改已覆盖 §13.3–13.5（PGID 回退、外部借用 attach/release、onSpawn 早期收尾），scope 74/74，待独立复核；REV-02 仍开放；REV-03/06 源码修复进展保留；REV-05 cleanup 16/16；REV-04 精确回归已入库；B84未签收；Windows/Linux不在本次验收范围）**
+- 状态：**deferred（2026-11-14 作者决定退出当前任务队列，B87 提为当前任务；A0完成；A1/A2已有实施，A2随R01 WIP与b71-pending债务保留；A3/A4及A5 macOS已有验收记录；REV-01 第三轮整改已覆盖 §13.3–13.5，scope 74/74，待独立复核；REV-02 仍开放；REV-03/06 源码修复进展保留；REV-05 cleanup 16/16；REV-04 精确回归已入库；B84未签收；Windows/Linux不在本次验收范围；恢复条件：作者重新排期或 B87 对应批次后由作者决定）**
 - 独立审查报告：[B84 实现审查（2026-11-14）](../../reports/2026-11-14-b84-implementation-review.md)；最新整改见[报告 §15](../../reports/2026-11-14-b84-implementation-review.md#15-rev-01-复核缺口整改结果2026-11-14)，§14（REV-05/04）、§13（REV-01 独立复核）、§12/§11 保留历史；执行状态见下方“独立实现审查与整改承接”。
 - 来源：
   - [00f 能力图谱 P2-E](../../docs/design/00f-capability-atlas.md)：`novel_web` 193 tests / 532s 慢测试仍待收敛；`novel_common` 日志 I/O 部分已由 ADR-0034（`novel_telemetry`）闭环，本任务只承接 web 慢测试与剩余债务。
