@@ -214,7 +214,7 @@ done
 
 # 批次证据索引：setup 与测量分账、失败分母、目录映射（不覆盖任何既有批次）。
 if [[ -d "$DIR" ]]; then
-  node - "$DIR" "$TAG" "$DRIVER_RC" "$RUNNER_RC" "$LOADED_AFTER" "$SETUP_MODE" <<'NODE' || true
+  node - "$DIR" "$TAG" "$DRIVER_RC" "$RUNNER_RC" "$LOADED_AFTER" "$SETUP_MODE" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
 const [dir, tag, driverRc, runnerRc, loadedAfter, setupMode] = process.argv.slice(2);

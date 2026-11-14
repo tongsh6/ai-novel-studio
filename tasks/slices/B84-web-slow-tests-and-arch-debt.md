@@ -605,6 +605,15 @@ SUT仅在`dir`缺失时把C3/C4/C7/C9/C10标为unknown（不冒充pass/fail）�
 
 本checkpoint只签证据归档与两入口cleanup失败语义，不签A4全部或B84。本批已本地提交（未推送）。
 
+### A4 原生批量入口收尾与dogfood固定目录限制（2026-11-14）
+
+- `native_au15_evidence_seeking_batch.sh`的批次证据索引写入不再`|| true`吞错；脚本`set -e`下真实失败会退出，避免“批次PASS但索引缺失”。
+- 其余原生批量入口使用唯一`TAURI_NATIVE_ARTIFACT_TAG`（拒绝覆盖既有批次），cleanup统一由`tauri_slice_verify.sh`承担（已做失败区分）；b71类的unload在收尾后独立核验`loaded=null`，不因`|| true`假成功。
+- `dogfood_run.sh`默认固定`artifacts/novel-output/p1-100k-dogfood`且不删除旧内容，历史与本批日志可能混用；这是既有续跑/下游固定路径语义，未在本批改路径，登记为后续保留策略待确认项。
+- **未闭环**：真实Tauri/nightly批次重跑（需窗口），A4最终验收仍开放。
+
+本checkpoint只签批量收尾吞错与既有目录限制登记，不签A4全部或B84。本批已本地提交（未推送）。
+
 ## 变更记录
 
 - 2026-11-08：立项（承接 00f P2-E 剩余 web 慢测试与债务）。
