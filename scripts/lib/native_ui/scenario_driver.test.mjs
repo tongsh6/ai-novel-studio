@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { OwnershipError } from "./input_target.mjs";
+import { assertRecordFresh } from "./scenario_evidence.mjs";
 import {
   NativeScenarioHarness,
   activationConfirmed,
@@ -63,6 +64,57 @@ test("tryPollAx 以命名观测读取真实控件匹配结果", async (t) => {
 
   assert.deepEqual(found, { nodes, text: "开始新讨论" });
   assert.deepEqual(labels, ["try_poll_ax:return_to_question"]);
+});
+
+test("capture 透传窗口截图选项并保留默认采集契约", (t) => {
+  const { dir, harness } = makeHarness({ dump: () => [] });
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const seen = [];
+  harness.screenshotSafe = (file, options) => {
+    seen.push(options);
+    fs.writeFileSync(file, Buffer.from("89504e470d0a1a0a", "hex"));
+    return { ok: true };
+  };
+  const windowOnly = { allowFullScreenFallback: false };
+
+  harness.capture("ordinary");
+  harness.capture("window-only", windowOnly);
+
+  assert.deepEqual(seen, [{}, windowOnly]);
+  assert.equal(seen[1], windowOnly, "已有 screenshotSafe options 应原样透传");
+  assert.deepEqual(harness.screenshots, ["ordinary.jpg", "window-only.jpg"]);
+  for (const name of ["ordinary", "window-only"]) {
+    assertRecordFresh(dir, name, "1970-01-01T00:00:00.000Z");
+  }
+});
+
+test("必需窗口截图失败由既有 freshness 断言拒绝，后续输入为零", (t) => {
+  let screenshotAttempts = 0;
+  const { dir, harness } = makeHarness({
+    dump: () => [],
+    screenshot: () => {
+      screenshotAttempts += 1;
+      throw new Error("window_capture_denied");
+    },
+  });
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  harness.input = countingInput();
+
+  assert.throws(() => {
+    harness.capture("required", { allowFullScreenFallback: false });
+    assertRecordFresh(dir, "required", "1970-01-01T00:00:00.000Z");
+    harness.ensureInput().key("enter");
+  }, /缺少证据文件: required\.jpg/u);
+
+  assert.equal(screenshotAttempts, 2, "沿用两次窗口读取，不执行整屏回退");
+  assert.deepEqual(harness.input.calls, [], "缺少必需截图后不能继续作者输入");
+  assert.deepEqual(harness.screenshots, []);
+  assert.equal(harness.captures[0].screenshot.ok, false);
+  assert.equal(harness.captures[0].screenshot.reason, "window_capture_denied");
+  assert.equal(harness.log.some((entry) => entry.op === "screenshot_fallback"), false);
+  assert.equal(fs.existsSync(path.join(dir, "required.ax.txt")), true);
+  assert.equal(fs.existsSync(path.join(dir, "required.text.txt")), true);
+  assert.equal(fs.existsSync(path.join(dir, "required.jpg")), false);
 });
 
 function readFailure(dir) {

@@ -130,6 +130,7 @@
 | `native_business_evidence_check.mjs` | B26 原生业务结果与续行问题验收；按实际用户操作、传输和持久事实核对来源、幂等、采纳边界与缺口收尾。 |
 | `native_plan_evidence_check.mjs` | B26 既有多步计划场景的额外原生矩阵：同响应计划、独立起草与耗尽修订，核对来源、实际调用、编排和待采纳持久结果。 |
 | `native_question_evidence_check.mjs` | B26 原生问题回复：本次启动 nonce、原生截图、源动作日志与持久输入字节对账；不驱动产品、不接受 Chromium 证据。 |
+| `native_question_evidence_check.test.mjs` | B26 checker 真实 CLI 子进程与 loopback API 的合成证据回归：截图必需、作者回复来源与字节、同 run 当前目标完成和失败不产出 summary；仅验证核验器，不代表原生验收通过。 |
 | `native_ui_wait.mjs` | B37 原生外部驱动的 begin/finish/status/wait 账本，分型预算（Splash 与既有实模同 360 秒 turn）、10秒心跳、进程/后端异常快速失败；`observeNativeLifecycle`（命令消费/进程来源/首次窗口缺席）与 `maybeHeartbeat` 是可测的公开边界，owned 进程观测走 `lib/native_ui/process_observation.mjs`，实际方式与 fallback 原因写入 `wait-stats.json.process_observation`；产品不读取。 |
 | `native_ui_wait.test.mjs` | 原生等待账本超时、重复身份、迟到完成、命令起点消费/wait-events、完成时有活动等待、跨轮询心跳/原生首次无窗口、存活探测不投递信号及进程丢失的边界测试。 |
 | `native_b31_evidence.mjs` | B31 原生五 trial 前提与证据对账；prepare 仅创建隔离作品及 T3–T5 允许的协议 seed，verify 读取真实 UI/WS/持久结果。 |

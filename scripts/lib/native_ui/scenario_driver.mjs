@@ -362,13 +362,13 @@ export class NativeScenarioHarness {
     }
   }
 
-  capture(name) {
+  capture(name, options = {}) {
     this.checkSupervisor();
     const nodes = this.dumpNodes();
     const text = this.axText(nodes);
     writeAX(nodes, path.join(this.dir, `${name}.ax.txt`), this.APP);
     fs.writeFileSync(path.join(this.dir, `${name}.text.txt`), text);
-    const shot = this.screenshotSafe(path.join(this.dir, `${name}.jpg`));
+    const shot = this.screenshotSafe(path.join(this.dir, `${name}.jpg`), options);
     if (shot.ok) this.screenshots.push(`${name}.jpg`);
     this.captures.push({ name, at: this.nowIso(), nodes: nodes.length, screenshot: shot });
     this.log.push({ op: "capture", name, at: this.nowIso() });

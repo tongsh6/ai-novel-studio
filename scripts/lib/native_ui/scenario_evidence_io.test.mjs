@@ -13,6 +13,7 @@ import {
   assertCommonEvidence,
   assertProviderAndWire,
   assertRecordFresh,
+  assertScreenshots,
   assertWaitLedger,
   checkProductionFingerprint,
   productionFingerprint,
@@ -200,6 +201,55 @@ test("assertProviderAndWire 汇总真实 transport/provider 记录并拒绝错 p
   });
 });
 
+test("assertScreenshots 要求非空数组、正整数数量和互不重复的路径", () => {
+  const template = fixture(commonBatchFixtureSpec);
+  const ready = JSON.parse(fs.readFileSync(template.files.get("native-driver-ready.json"), "utf8"));
+  const check = (screenshots, minimum) =>
+    assertScreenshots(template.dir, screenshots, ready.ready_at, minimum);
+
+  assert.doesNotThrow(() => check(["shot.jpg"]));
+  for (const invalid of [undefined, null, "shot.jpg", {}]) {
+    assert.throws(() => check(invalid), /screenshots 缺失/);
+  }
+  assert.throws(() => check([]), /原生截图不足/);
+  assert.throws(() => check(["shot.jpg"], 2), /原生截图不足/);
+  for (const minimum of [0, -1, 1.5]) {
+    assert.throws(() => check(["shot.jpg"], minimum), /最小数量必须为正整数/);
+  }
+  assert.throws(() => check(["shot.jpg", "shot.jpg"], 2), /原生截图路径重复/);
+  assert.throws(() => check(["shot.jpg", "./shot.jpg"], 2), /原生截图路径重复/);
+  assert.throws(() => check(["../shot.jpg"]), /截图越界/);
+});
+
+test("assertScreenshots 拒绝缺失、早于 ready 和非图片文件", () => {
+  const template = fixture(commonBatchFixtureSpec);
+  const ready = JSON.parse(fs.readFileSync(template.files.get("native-driver-ready.json"), "utf8"));
+  const cases = [
+    [file => fs.rmSync(file), /截图缺失/],
+    [file => {
+      const stale = new Date(Date.parse(ready.ready_at) - 1_000);
+      fs.utimesSync(file, stale, stale);
+    }, /截图早于窗口就绪/],
+    [file => fs.writeFileSync(file, "not an image"), /截图格式非法/],
+  ];
+
+  for (const [invalidate, pattern] of cases) {
+    withWorkingCopy(template, (copy) => {
+      invalidate(path.join(copy.dir, "shot.jpg"));
+      assert.throws(() => assertScreenshots(copy.dir, ["shot.jpg"], ready.ready_at), pattern);
+    });
+  }
+});
+
+test("assertScreenshots 拒绝 symlink 借用批次目录外的新鲜图片", () => {
+  const template = fixture(commonBatchFixtureSpec);
+  const ready = JSON.parse(fs.readFileSync(template.files.get("native-driver-ready.json"), "utf8"));
+  withWorkingCopy(template, (copy) => {
+    fs.symlinkSync(template.files.get("shot.jpg"), path.join(copy.dir, "outside.jpg"));
+    assert.throws(() => assertScreenshots(copy.dir, ["outside.jpg"], ready.ready_at), /截图越界/);
+  });
+});
+
 test("assertCommonEvidence 通过完整批次并在 failure/ui-frames 标记时关闭", () => {
   const template = fixture(commonBatchFixtureSpec);
   const spec = {
@@ -226,6 +276,13 @@ test("assertCommonEvidence 通过完整批次并在 failure/ui-frames 标记时�
   withWorkingCopy(template, (copy) => {
     fs.writeFileSync(path.join(copy.dir, "ui-frames.json"), "{}");
     assert.throws(() => assertCommonEvidence(copy.dir, spec), /不得存在浏览器 ui-frames 证据/);
+  });
+
+  withWorkingCopy(template, (copy) => {
+    const uiFile = path.join(copy.dir, "native-ui-complete.json");
+    const ui = JSON.parse(fs.readFileSync(uiFile, "utf8"));
+    writeJson(uiFile, { ...ui, screenshots: [] });
+    assert.throws(() => assertCommonEvidence(copy.dir, spec), /原生截图不足/);
   });
 });
 

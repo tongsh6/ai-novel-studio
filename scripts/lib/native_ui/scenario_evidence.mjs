@@ -398,6 +398,30 @@ export function assertWaitLedger(
   };
 }
 
+// 通用原生批次与 B26 共用同一截图门；零证据不得空集合通过。
+export function assertScreenshots(dir, screenshots, readyAt, minimum = 1) {
+  assert(Array.isArray(screenshots), "native-ui-complete.screenshots 缺失");
+  assert(Number.isInteger(minimum) && minimum >= 1, "原生截图最小数量必须为正整数");
+  assert(screenshots.length >= minimum, `原生截图不足: ${screenshots.length} < ${minimum}`);
+  const root = fs.realpathSync(dir);
+  const seen = new Set();
+  for (const name of screenshots) {
+    const file = path.resolve(dir, name);
+    assert(file.startsWith(dir + path.sep), `截图越界: ${name}`);
+    assert(fs.existsSync(file), `截图缺失: ${name}`);
+    const real = fs.realpathSync(file);
+    assert(real.startsWith(root + path.sep), `截图越界: ${name}`);
+    assert(!seen.has(real), "原生截图路径重复");
+    seen.add(real);
+    assert(fs.statSync(file).mtimeMs >= Date.parse(readyAt), `截图早于窗口就绪: ${name}`);
+    const magic = fs.readFileSync(file).subarray(0, 8).toString("hex");
+    assert(
+      magic.startsWith("ffd8ff") || magic === "89504e470d0a1a0a",
+      `截图格式非法: ${name}`,
+    );
+  }
+}
+
 export function assertCommonEvidence(
   dir,
   {
@@ -428,22 +452,7 @@ export function assertCommonEvidence(
       "批次存在 failure.json，不得判 PASS",
     );
   }
-  assert(Array.isArray(ui.screenshots), "native-ui-complete.screenshots 缺失");
-  assert(
-    ui.screenshots.length >= minScreenshots,
-    `原生截图不足: ${ui.screenshots.length} < ${minScreenshots}`,
-  );
-  for (const name of ui.screenshots) {
-    const file = path.resolve(dir, name);
-    assert(file.startsWith(dir + path.sep), `截图越界: ${name}`);
-    assert(fs.existsSync(file), `截图缺失: ${name}`);
-    assert(fs.statSync(file).mtimeMs >= Date.parse(ready.ready_at), `截图早于窗口就绪: ${name}`);
-    const magic = fs.readFileSync(file).subarray(0, 8).toString("hex");
-    assert(
-      magic.startsWith("ffd8ff") || magic === "89504e470d0a1a0a",
-      `截图格式非法: ${name}`,
-    );
-  }
+  assertScreenshots(dir, ui.screenshots, ready.ready_at, minScreenshots);
   const ledger = assertWaitLedger(dir, {
     minimum: minimumWaits,
     requiredKinds:
